@@ -22,6 +22,7 @@ env:
 
 jobs:
   open-and-merge:
+    if: github.actor == 'Ray-ymq'
     name: Open PR and enable auto-merge
     runs-on: ubuntu-latest
     timeout-minutes: 10
