@@ -1,0 +1,112 @@
+# Repository settings required:
+# - Settings > Actions > General > Allow GitHub Actions to create and approve pull requests
+# - Settings > General > Pull Requests > Allow auto-merge
+
+name: Auto PR and Merge
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: auto-pr-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_BRANCH: main
+
+jobs:
+  open-and-merge:
+    name: Open PR and enable auto-merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Create or find pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.ref_name }}
+          HEAD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pr_number="$(
+            gh pr list \
+              --repo "$GH_REPO" \
+              --base "$BASE_BRANCH" \
+              --head "$HEAD_BRANCH" \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty'
+          )"
+
+          if [[ -z "$pr_number" ]]; then
+            title="$(
+              gh api "repos/${GH_REPO}/commits/${HEAD_SHA}" \
+                --jq '.commit.message | split("\n")[0]'
+            )"
+            body="$(
+              printf '%s\n\n- Source: `%s`\n- Target: `%s`\n- Commit: `%s`\n- Run: %s/%s/actions/runs/%s\n' \
+                'Automatically created after a branch push. This PR will be squash-merged after all repository requirements pass.' \
+                "$HEAD_BRANCH" \
+                "$BASE_BRANCH" \
+                "$HEAD_SHA" \
+                "$GITHUB_SERVER_URL" \
+                "$GITHUB_REPOSITORY" \
+                "$GITHUB_RUN_ID"
+            )"
+
+            pr_url="$(
+              gh pr create \
+                --repo "$GH_REPO" \
+                --base "$BASE_BRANCH" \
+                --head "$HEAD_BRANCH" \
+                --title "$title" \
+                --body "$body"
+            )"
+            pr_number="$(
+              gh pr view "$pr_url" \
+                --repo "$GH_REPO" \
+                --json number \
+                --jq '.number'
+            )"
+            echo "Created PR #${pr_number}: ${pr_url}"
+          else
+            pr_url="${GITHUB_SERVER_URL}/${GH_REPO}/pull/${pr_number}"
+            echo "Using existing PR #${pr_number}: ${pr_url}"
+          fi
+
+          {
+            echo "number=${pr_number}"
+            echo "url=${pr_url}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Enable squash auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh pr merge "$PR_NUMBER" \
+            --repo "$GH_REPO" \
+            --auto \
+            --squash \
+            --delete-branch \
+            --match-head-commit "$HEAD_SHA"
+
+          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: squash\n- Head commit: `%s`\n' \
+            "$PR_URL" \
+            "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
