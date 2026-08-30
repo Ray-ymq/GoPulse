@@ -23,7 +23,7 @@ env:
 jobs:
   open-and-merge:
     if: github.actor == 'Ray-ymq'
-    name: Open PR and enable auto-merge
+    name: Open PR and merge
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -90,7 +90,7 @@ jobs:
             echo "url=${pr_url}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Enable squash auto-merge
+      - name: Squash merge pull request
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -101,13 +101,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh pr merge "$PR_NUMBER" \
-            --repo "$GH_REPO" \
-            --auto \
-            --squash \
-            --delete-branch \
+          merge_args=(
+            "$PR_NUMBER"
+            --repo "$GH_REPO"
+            --squash
+            --delete-branch
             --match-head-commit "$HEAD_SHA"
+          )
 
-          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: squash\n- Head commit: `%s`\n' \
+          if gh pr merge "${merge_args[@]}"; then
+            merge_mode="immediate"
+          else
+            echo "Immediate merge is blocked by repository requirements; enabling auto-merge."
+            gh pr merge "${merge_args[@]}" --auto
+            merge_mode="auto"
+          fi
+
+          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: squash\n- Mode: %s\n- Head commit: `%s`\n' \
             "$PR_URL" \
+            "$merge_mode" \
             "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -12,3 +12,12 @@
 - Every development branch that is pushed to a remote must use the format `develop/x.x.x`, including branches used for pull requests and testing.
 - The `develop` prefix must always start with a lowercase `d`; uppercase or mixed-case variants are not allowed.
 - Before pushing, verify that the branch name matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$`.
+
+# Development Branch Lifecycle Rule
+
+- Before starting each new independent development task, fetch the latest remote state and create a new branch from `origin/main`.
+- The new branch must follow the `develop/x.x.x` naming rule defined above.
+- If the user has not specified the target version, ask for the version before creating the branch; never invent a version number.
+- Continue using the current branch only for follow-up work that belongs to the same active task or pull request.
+- Do not automatically continue working on a development branch after its work is complete or after a pull request has been opened for it.
+- Rule-only maintenance performed while introducing this lifecycle policy may be committed on the current branch; the policy applies to subsequent independent development tasks.
