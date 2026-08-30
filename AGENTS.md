@@ -21,3 +21,10 @@
 - Continue using the current branch only for follow-up work that belongs to the same active task or pull request.
 - Do not automatically continue working on a development branch after its work is complete or after a pull request has been opened for it.
 - Rule-only maintenance performed while introducing this lifecycle policy may be committed on the current branch; the policy applies to subsequent independent development tasks.
+
+# Implementation Log Rule
+
+- After completing each implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding development record under `dev/logs/Phase-XX/` before reporting the plan complete.
+- Mirror the plan's phase directory and Markdown filename. For example, `dev/imple/Phase-00/Phase-00-01-工程骨架与基础设施.md` must be recorded in `dev/logs/Phase-00/Phase-00-01-工程骨架与基础设施.md`.
+- Each record must describe the work actually completed, files changed, validation commands and results, deviations from the plan, and known limitations or follow-up items.
+- Record only work and checks that were actually performed; never present planned or unverified work as completed.
