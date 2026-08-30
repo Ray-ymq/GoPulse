@@ -36,7 +36,7 @@ gopulse/
 ├── exporters/                # 后续阶段组件占位与职责说明
 ├── deploy/                   # 本地 Docker Compose 配置
 ├── scripts/                  # Windows、Unix 开发及验收脚本
-├── development-phases/       # 阶段设计与实施文档
+├── dev/                      # 阶段设计、实施批次与记录
 ├── docs/                     # 项目架构文档
 ├── .env.example              # 可提交的本地配置模板
 ├── .editorconfig

@@ -13,7 +13,7 @@
 - LogMonitor 被动接收。
 - 日志第一次清洗与标准消息封装。
 - Router 与 Kafka 日志传输。
-- Transformer 日志转换。
+- Marshaller 日志转换。
 - Elasticsearch 日志存储与 Backend 查询。
 
 ## 核心任务
@@ -21,7 +21,7 @@
 - 由 Backend 主动向 LogMonitor 推送日志。
 - 优先使用简单 HTTP 接收方式。
 - 复用 Message Router 与 Kafka 传输统一日志消息。
-- 由 Transformer 转换后写入独立日志索引。
+- 由 Marshaller 转换后写入独立日志索引。
 - 通过 Backend 提供日志查询能力。
 
 ## 前置依赖

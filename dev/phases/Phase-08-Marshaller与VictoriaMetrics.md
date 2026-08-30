@@ -1,4 +1,4 @@
-# Phase 8：Transformer与VictoriaMetrics
+# Phase 8：Marshaller与VictoriaMetrics
 
 > 本文档是阶段开发提纲，具体接口、数据模型、消息格式和部署参数将在本阶段进入详细设计时补充。
 
@@ -11,7 +11,7 @@
 ## 开发范围
 
 - Kafka metrics 消费。
-- Transformer 字段校验与映射。
+- Marshaller 字段校验与映射。
 - 指标格式转换与异常过滤。
 - VictoriaMetrics 指标写入与查询。
 
@@ -30,7 +30,7 @@
 
 ## 阶段产物
 
-- 可运行的 Transformer。
+- 可运行的 Marshaller。
 - VictoriaMetrics 写入链路。
 - 完整 Metrics 可观测闭环。
 
@@ -39,7 +39,7 @@
 - Exporter 指标最终可写入 VictoriaMetrics。
 - 可查询到连接、请求、状态等实际采集指标。
 - 异常数据不会破坏正常消费链路。
-- Monitor 与 Transformer 的两层处理职责保持分离。
+- Monitor 与 Marshaller 的两层处理职责保持分离。
 
 ## 本阶段不做
 

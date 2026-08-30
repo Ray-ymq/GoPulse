@@ -13,7 +13,7 @@
 - EventMonitor 被动接收。
 - 统一事件模型。
 - Router 与 Kafka 事件传输。
-- Transformer 事件转换。
+- Marshaller 事件转换。
 - Elasticsearch 事件存储。
 
 ## 核心任务
@@ -21,13 +21,13 @@
 - 选择插件启停、采集失败等真实事件源。
 - 接收并基础校验事件。
 - 封装统一 events 消息并经 Router 写入 Kafka。
-- 由 Transformer 转换并写入 Elasticsearch。
+- 由 Marshaller 转换并写入 Elasticsearch。
 - 提供事件查询基础能力。
 
 ## 前置依赖
 
 - Phase 9 日志链路完成。
-- Message Router、Kafka、Transformer 与 Elasticsearch 可复用。
+- Message Router、Kafka、Marshaller 与 Elasticsearch 可复用。
 
 ## 阶段产物
 

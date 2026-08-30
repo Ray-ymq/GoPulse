@@ -1,12 +1,12 @@
 # GoPulse 阶段性开发文档
 
-本目录将 [`Plan.md`](../../Plan.md) 中的总体实施计划拆分为 Phase 0～Phase 16 的阶段开发提纲。第一轮文档只固定各阶段的目标、边界、依赖、产物和验收方向；具体接口、数据模型、消息格式、目录细节及部署参数将在后续逐阶段讨论后补充。
+本目录将 [`Plan.md`](Plan.md) 中的总体实施计划拆分为 Phase 0～Phase 16 的阶段开发提纲。第一轮文档只固定各阶段的目标、边界、依赖、产物和验收方向；具体接口、数据模型、消息格式、目录细节及部署参数将在后续逐阶段讨论后补充。
 
 ## 阶段索引
 
 | 阶段 | 文档 | 主要结果 | 里程碑 |
 | --- | --- | --- | --- |
-| Phase 0 | [工程骨架](Phase-00-工程骨架.md) | 建立可长期演进的项目结构、本地开发环境以及前后端最小可运行链路 | Milestone 1：可用业务系统 |
+| Phase 0 | [工程骨架](Phase-00/Phase-00-工程骨架.md) | 建立可长期演进的项目结构、本地开发环境以及前后端最小可运行链路 | Milestone 1：可用业务系统 |
 | Phase 1 | [最小业务闭环](Phase-01-最小业务闭环.md) | 将 GoPulse 建设为具备用户、帖子、评论和点赞能力的最小可用社交平台 | Milestone 1：可用业务系统 |
 | Phase 2 | [业务异步化](Phase-02-业务异步化.md) | 引入 RabbitMQ，将核心同步业务与业务完成后的异步动作分离 | Milestone 1：可用业务系统 |
 | Phase 3 | [Elasticsearch与业务搜索](Phase-03-Elasticsearch与业务搜索.md) | 让 Elasticsearch 首先服务真实业务搜索，提供帖子标题与正文的全文检索能力 | Milestone 1：可用业务系统 |
@@ -14,7 +14,7 @@
 | Phase 5 | [Exporter Plugin原型](Phase-05-Exporter-Plugin原型.md) | 实现首个独立指标采集插件，验证常驻、被动拉取的 Exporter 工作模式 | Milestone 2：指标采集链路 |
 | Phase 6 | [Monitor](Phase-06-Monitor.md) | 实现 Monitor 的 MetricsMonitor 与基础 Plugin Manager，建立指标采集和插件管理能力 | Milestone 2：指标采集链路 |
 | Phase 7 | [Message Router与Kafka](Phase-07-Message-Router与Kafka.md) | 建立统一可观测消息入口，使 MetricsMonitor 通过 Message Router 将消息写入 Kafka | Milestone 2：指标采集链路 |
-| Phase 8 | [Transformer与VictoriaMetrics](Phase-08-Transformer与VictoriaMetrics.md) | 完成从 Exporter 到 VictoriaMetrics 的第一条完整指标采集、传输、转换和存储链路 | Milestone 2：指标采集链路 |
+| Phase 8 | [Marshaller与VictoriaMetrics](Phase-08-Marshaller与VictoriaMetrics.md) | 完成从 Exporter 到 VictoriaMetrics 的第一条完整指标采集、传输、转换和存储链路 | Milestone 2：指标采集链路 |
 | Phase 9 | [LogMonitor与日志链路](Phase-09-LogMonitor与日志链路.md) | 接入业务日志，完成从 Backend 到 Elasticsearch 的日志采集、传输、转换和查询链路 | Milestone 3：完整可观测平台 |
 | Phase 10 | [EventMonitor与事件链路](Phase-10-EventMonitor与事件链路.md) | 补齐 Events 数据类型，记录插件生命周期、采集失败和系统运行中的离散事件 | Milestone 3：完整可观测平台 |
 | Phase 11 | [可观测前端](Phase-11-可观测前端.md) | 将 Metrics、Logs、Events 和 Exporter 管理能力通过统一的 GoPulse 页面提供给用户 | Milestone 3：完整可观测平台 |
@@ -47,7 +47,7 @@
 - Exporter 负责目标组件的定制化指标采集，不保存历史数据，也不主动向 Monitor 推送指标。
 - Monitor 负责采集或接收、基础校验、基础结构化和标准消息封装。
 - Message Router 只负责接收、识别类型、路由和写入 Kafka，不承担清洗、转换、聚合或存储。
-- Transformer 负责第二次处理，将 Kafka 消息校验、清洗并转换为目标存储格式。
+- Marshaller 负责第二次处理，将 Kafka 消息校验、清洗并转换为目标存储格式。
 - Frontend 只负责页面、交互和状态展示；查询、采集控制及插件管理等核心逻辑由 Go Backend 负责。
 
 ## 文档维护约定

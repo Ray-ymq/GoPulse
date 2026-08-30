@@ -2,7 +2,7 @@
 
 > 执行序号：1 / 5
 > 前置批次：无
-> 总方案来源：[Phase-00-总实施方案.md](../../dev-phases/Phase-00/Phase-00-总实施方案.md)
+> 总方案来源：[Phase-00-总实施方案.md](../../phases/Phase-00/Phase-00-总实施方案.md)
 
 ## 1. 批次目标
 
@@ -33,7 +33,7 @@ gopulse/
 ├── exporters/                # 后续阶段组件职责说明
 ├── deploy/                   # 本地 Docker Compose
 ├── scripts/                  # 第 4、5 批实现
-├── dev-log/                  # 阶段方案和实施记录
+├── dev/                      # 阶段方案、实施批次和记录
 ├── docs/                     # 架构文档
 ├── .env.example
 ├── .editorconfig

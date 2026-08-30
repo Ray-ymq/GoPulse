@@ -47,7 +47,7 @@
 
 - 业务功能。
 - Kafka、VictoriaMetrics、Elasticsearch。
-- Monitor、Transformer、Exporter。
+- Monitor、Marshaller、Exporter。
 - Kubernetes 部署。
 
 ## 后续待细化事项

@@ -11,7 +11,7 @@
 ## 开发范围
 
 - Frontend、Backend、Business Worker 容器。
-- Monitor、Message Router、Transformer、Exporter 容器。
+- Monitor、Message Router、Marshaller、Exporter 容器。
 - 官方基础设施镜像。
 - 完整 Docker Compose 开发与验证环境。
 

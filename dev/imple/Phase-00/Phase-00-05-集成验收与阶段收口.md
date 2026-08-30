@@ -2,7 +2,7 @@
 
 > 执行序号：5 / 5
 > 前置批次：Phase 0-01 至 Phase 0-04 已完成并通过验收
-> 总方案来源：[Phase-00-总实施方案.md](../../dev-phases/Phase-00/Phase-00-总实施方案.md)
+> 总方案来源：[Phase-00-总实施方案.md](../../phases/Phase-00/Phase-00-总实施方案.md)
 
 ## 1. 批次目标
 
@@ -109,7 +109,7 @@ scripts/verify.sh
 scripts/verify.ps1
 scripts/verify.sh
 README.md
-dev-log/dev-logs/            # Phase 0 实施记录
+dev/logs/                    # Phase 0 实施记录
 ```
 
 若前四批验收暴露缺陷，可以修改对应文件，但必须记录修复归属并重新执行受影响批次及本批完整验收。

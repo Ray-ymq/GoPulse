@@ -2,7 +2,7 @@
 
 > 执行序号：4 / 5
 > 前置批次：Phase 0-01 至 Phase 0-03 已完成并通过验收
-> 总方案来源：[Phase-00-总实施方案.md](../../dev-phases/Phase-00/Phase-00-总实施方案.md)
+> 总方案来源：[Phase-00-总实施方案.md](../../phases/Phase-00/Phase-00-总实施方案.md)
 
 ## 1. 批次目标
 
