@@ -12,6 +12,9 @@
 
 ## 2. 前置条件
 
+- Phase-00-04 已合并到配置的主远程 `main`，根 `VERSION` 与总方案分配的前一批版本一致。
+- 从配置的主远程最新 `main` 创建总方案为本批分配的开发分支，不在已完成的 Phase-00-04 分支上继续开发。
+- 按平台规则以 Windows 作为主集成验收环境，并对 Bash/Unix 入口执行可记录的必要验证。
 - Phase 0-01 的 Compose 基础设施已经稳定。
 - Phase 0-02 的 Backend 测试和接口联调通过。
 - Phase 0-03 的 Frontend 测试、类型检查和构建通过。
@@ -111,6 +114,7 @@ scripts/verify.sh
 scripts/verify.ps1
 scripts/verify.sh
 README.md
+VERSION
 dev/logs/Phase-00/Phase-00-05-集成验收与阶段收口.md
 ```
 
@@ -132,7 +136,8 @@ dev/logs/Phase-00/Phase-00-05-集成验收与阶段收口.md
 10. 在可用的平台分别验证 PowerShell、Bash；无法实际运行的平台必须至少完成语法检查并记录限制。
 11. 完善 README，并在 `dev/logs/Phase-00/Phase-00-05-集成验收与阶段收口.md` 中记录本批及最终集成验收的实际命令、结果和限制。
 12. 对照总方案逐项核验范围和阶段边界。
-13. 检查 Git 暂存范围，只包含 Phase 0 本次实际完成文件。
+13. 将根 `VERSION` 更新为总方案为本批分配的目标版本。
+14. 检查 Git 暂存范围，只包含 Phase 0 本次实际完成文件。
 
 ## 7. 测试与验收标准
 
@@ -188,6 +193,7 @@ dev/logs/Phase-00/Phase-00-05-集成验收与阶段收口.md
 - Go、Frontend、脚本和端到端验收全部通过，或明确记录无法执行的平台限制。
 - README 与实施记录完整且与实际行为一致。
 - 01～05 每份实施方案都存在路径和文件名对应的实施记录。
+- 根 `VERSION` 已更新为总方案分配的 Phase 0 最终批次版本。
 - Git 提交不包含与 Phase 0 无关的用户改动。
 
 ## 9. 下一批次交接条件
