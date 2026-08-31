@@ -40,6 +40,15 @@
 - Do not automatically continue working on a development branch after its work is complete or after a pull request has been opened for it.
 - Work that remains entirely within the planning-only scope permitted for the `update` branch is exempt from creating a development branch and may be committed directly on `update`; it does not bump the product version.
 
+# Implementation Plan Acceptance Rule
+
+- Every Phase total implementation plan under `dev/imple/Phase-XX/Phase-XX-总实施方案.md` must define the Phase-level acceptance criteria, including the end-to-end capabilities, cross-batch integration results, and milestone conditions required to consider the Phase complete.
+- Every split implementation plan under `dev/imple/Phase-XX/Phase-XX-XX-*.md` must define acceptance criteria for that batch, including concrete validation items or commands where they can be determined, the necessary regression scope, and an explicit completion condition.
+- Acceptance and validation must remain proportional to the plan's implementation scope, risk, and direct impact. By default, validate the current batch, directly affected behavior, and necessary regressions only.
+- Expand validation beyond the defined scope only when there is a specific risk basis, such as changes to shared infrastructure, security boundaries, persistent data, public contracts, or evidence of a regression. Record the reason for the expanded scope.
+- Stop validation when the documented acceptance criteria have passed and no blocking issue remains. Record non-blocking improvements and unrelated findings as follow-up items instead of extending the current task indefinitely.
+- Do not repeat an already successful validation unless relevant code, configuration, dependencies, or the execution environment changed in a way that could affect its result.
+
 # Implementation Log Rule
 
 - After completing each implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding development record under `dev/logs/Phase-XX/` before reporting the plan complete.
