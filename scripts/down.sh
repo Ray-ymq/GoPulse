@@ -74,13 +74,12 @@ validate_record() {
   python3 - "$path" "$expected_cwd" "$expected_marker" "$expected_executable" <<'PY'
 import json
 import os
-import subprocess
 import sys
 path, expected_cwd, expected_marker, expected_executable = sys.argv[1:]
 try:
     record = json.load(open(path, encoding='utf-8'))
     pid = int(record['pid'])
-    start = str(record['startTime'])
+    start_ticks = str(record['startTicks'])
     executable = os.path.realpath(str(record['executablePath']))
     cwd = os.path.realpath(str(record['workingDirectory']))
     marker = str(record['commandLineMarker'])
@@ -94,14 +93,17 @@ if expected_executable and executable != os.path.realpath(expected_executable):
     print('recorded executable does not match the expected application')
     raise SystemExit(1)
 try:
-    actual_start = subprocess.check_output(['ps', '-o', 'lstart=', '-p', str(pid)], text=True).strip()
+    stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
+    command_end = stat.rfind(')')
+    fields = stat[command_end + 2:].split()
+    actual_start_ticks = fields[19]
     actual_executable = os.path.realpath(f'/proc/{pid}/exe')
     command_line = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
 except Exception:
     print('recorded process is not running')
     raise SystemExit(1)
-if actual_start != start:
-    print('process start time does not match')
+if actual_start_ticks != start_ticks:
+    print('process start identity does not match')
     raise SystemExit(1)
 if actual_executable != executable:
     print('process executable does not match')
