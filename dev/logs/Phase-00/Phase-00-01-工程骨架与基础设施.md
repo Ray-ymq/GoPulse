@@ -1,8 +1,8 @@
 # Phase 0-01：工程骨架与基础设施实施记录
 
 - 完成日期：2026-08-31（Asia/Shanghai）
-- 分支：`develop/1.2.0`
-- 基线：`origin/main`（`7c5a9b5`）
+- 分支：`develop/0.1.1`
+- 基线：`origin/main`（初始实施基线 `7c5a9b5`；版本规则同步基线 `521dd26`）
 - 执行范围：Phase-00-01；未进入 Phase-00-02 至 Phase-00-05
 
 ## 1. 实际完成内容
@@ -11,7 +11,7 @@
 2. 确认 `deploy/compose.yaml` 只声明 `mysql`、`redis`、`rabbitmq` 三项基础设施，使用固定官方镜像、环境变量配置、容器级 healthcheck、`unless-stopped` 重启策略和独立具名卷。
 3. 确认四个后续组件目录仅包含职责说明：`monitor/`、`router/`、`marshaller/`、`exporters/`；没有提前实现运行代码。
 4. 保留现有本地 `.env` 的安全宿主机端口：MySQL `13306`、Redis `16379`、RabbitMQ AMQP `5672`、Management `15672`。
-5. 创建本实施记录；未创建或修改 Backend、Frontend、脚本、`VERSION` 或业务代码。
+5. 创建本实施记录，并在同步最新版本规则后创建根目录 `VERSION`，写入本批目标版本 `0.1.1`；未创建或修改 Backend、Frontend、脚本或业务代码。
 
 ## 2. 本批文件
 
@@ -26,8 +26,9 @@
 - `marshaller/README.md`
 - `exporters/README.md`
 - `dev/logs/Phase-00/Phase-00-01-工程骨架与基础设施.md`
+- `VERSION`
 
-以下文件明确排除：用户已有的 `VSRSION`、本地 `.env`、`handleoff.md` 以及根目录 `VERSION`（当前不存在；按 Phase 0 交接约定在 Phase-00-05 收口时统一写入 `1.2.0`）。
+以下文件明确排除：用户已有的 `VSRSION` 和本地 `.env`。`VSRSION` 未修改、未暂存、未提交。
 
 ## 3. 实际验证与结果
 
@@ -105,7 +106,7 @@ Windows 宿主机在测试前确认已有外部监听：`3306` 由 `mysqld` 占�
 
 ## 4. 偏差、限制与后续项
 
-- 本批不创建 `VERSION`；Phase 0 的统一目标版本仍为 `1.2.0`，按交接记录在 Phase-00-05 收口时统一更新。
+- 同步最新 `AGENTS.md` 和 Phase 0 总实施方案后，本批目标版本修正为 `0.1.1`，开发分支由未推送的 `develop/1.2.0` 重命名为 `develop/0.1.1`，并创建根目录 `VERSION` 写入 `0.1.1`。
 - `.env.example` 保留方案要求的标准默认端口；当前本地 `.env` 使用 `13306` 和 `16379` 避免触碰用户已有 MySQL/Redis 服务。
 - 外部 Windows 服务占用 `3306`/`6379` 时，当前 Docker Desktop 没有返回预期的端口冲突错误，而是启动未发布这两个宿主机端口的容器；因此后续若需要强制验证默认端口失败，应继续使用明确的 Docker 端口占用者或在开发脚本中增加宿主机端口预检。本批没有提前创建脚本，符合 Phase-00-01 的边界。
 - 当前运行状态：Windows Docker Desktop 中 GoPulse 的 MySQL、Redis、RabbitMQ 均为 `healthy`；具名卷保留。
