@@ -12,6 +12,8 @@
 
 ## 2. 前置条件
 
+- Phase 1-03 已合并到配置的主远程 `main`，根 `VERSION` 与前一批目标版本一致。
+- 已从该远程最新 `main` 创建总方案为本批分配的开发分支。
 - 认证中间件、当前用户 ID 上下文和用户摘要查询已稳定。
 - 帖子创建、存在性查询、详情读模型和游标分页工具已可用。
 - `comments` 和 `post_likes` 外键、索引与联合主键已在真实 MySQL 上验证。
@@ -86,6 +88,7 @@ backend/internal/like/
 backend/internal/post/
 backend/internal/http/
 backend/cmd/server/
+VERSION
 dev/logs/Phase-01/Phase-01-04-评论与点赞.md
 ```
 
@@ -96,13 +99,13 @@ dev/logs/Phase-01/Phase-01-04-评论与点赞.md
 3. 实现评论内容校验与游标分页。
 4. 实现 Comment Repository 的插入和按帖子键集分页查询，避免作者 N+1。
 5. 实现帖子存在性检查、Comment Service 和 Handler。
-6. 实现 Like Repository 的幂等插入、幂等删除与存在性查查。
+6. 实现 Like Repository 的幂等插入、幂等删除与存在性查询。
 7. 实现 Like Service 和 Handler，将非重复键数据库错误保持为真实失败。
 8. 在受保护 `/api/v1` 路由组注册四个端点。
 9. 使用真实 MySQL 验证评论列表、重复点赞、重复取消和并发重复点赞。
 10. 在每次事实操作后重新查询帖子详情，验证聚合计数与 `liked_by_me`。
 11. 运行 Backend 全部测试、vet 和前置批次回归。
-12. 创建本批实施记录。
+12. 将根 `VERSION` 更新为总方案为本批分配的目标版本，并创建本批实施记录。
 
 ## 7. 测试与验收标准
 
@@ -135,8 +138,7 @@ dev/logs/Phase-01/Phase-01-04-评论与点赞.md
 - 评论和点赞事实完全持久化到 MySQL。
 - 点赞幂等性经过顺序与并发测试。
 - 帖子详情的聚合计数与个性化状态正确。
-- 本批实施记录已创建，仅提交本批文件。
-- 不在本批更新 `VERSION`。
+- 本批实施记录已创建，根 `VERSION` 已更新为总方案分配的本批目标版本，仅提交本批文件。
 
 ## 9. 下一批次交接条件
 
