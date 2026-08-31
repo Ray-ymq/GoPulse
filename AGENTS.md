@@ -28,3 +28,8 @@
 - Mirror the plan's phase directory and Markdown filename. For example, `dev/imple/Phase-00/Phase-00-01-工程骨架与基础设施.md` must be recorded in `dev/logs/Phase-00/Phase-00-01-工程骨架与基础设施.md`.
 - Each record must describe the work actually completed, files changed, validation commands and results, deviations from the plan, and known limitations or follow-up items.
 - Record only work and checks that were actually performed; never present planned or unverified work as completed.
+
+# Platform Usage Rule
+
+- On macOS, use the project workspace primarily for project planning and subsequent architectural adjustments.
+- On Windows, use the project workspace primarily for project development and implementation.
