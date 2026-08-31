@@ -56,7 +56,7 @@ jobs:
             )"
             body="$(
               printf '%s\n\n- Source: `%s`\n- Target: `%s`\n- Commit: `%s`\n- Run: %s/%s/actions/runs/%s\n' \
-                'Automatically created after a branch push. This PR will be squash-merged after all repository requirements pass.' \
+                'Automatically created after a branch push. This PR will be merged according to the repository branch policy after all requirements pass.' \
                 "$HEAD_BRANCH" \
                 "$BASE_BRANCH" \
                 "$HEAD_SHA" \
@@ -90,10 +90,11 @@ jobs:
             echo "url=${pr_url}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Squash merge pull request
+      - name: Merge pull request
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.ref_name }}
           HEAD_SHA: ${{ github.sha }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           PR_URL: ${{ steps.pr.outputs.url }}
@@ -101,13 +102,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          merge_args=(
-            "$PR_NUMBER"
-            --repo "$GH_REPO"
-            --squash
-            --delete-branch
-            --match-head-commit "$HEAD_SHA"
-          )
+          if [[ "$HEAD_BRANCH" == "update" ]]; then
+            merge_strategy="merge"
+            merge_args=(
+              "$PR_NUMBER"
+              --repo "$GH_REPO"
+              --merge
+              --match-head-commit "$HEAD_SHA"
+            )
+          else
+            merge_strategy="squash"
+            merge_args=(
+              "$PR_NUMBER"
+              --repo "$GH_REPO"
+              --squash
+              --delete-branch
+              --match-head-commit "$HEAD_SHA"
+            )
+          fi
 
           if gh pr merge "${merge_args[@]}"; then
             merge_mode="immediate"
@@ -117,7 +129,8 @@ jobs:
             merge_mode="auto"
           fi
 
-          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: squash\n- Mode: %s\n- Head commit: `%s`\n' \
+          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: %s\n- Head commit: `%s`\n' \
             "$PR_URL" \
+            "$merge_strategy" \
             "$merge_mode" \
             "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
