@@ -2,7 +2,7 @@
 
 > 执行序号：2 / 5
 > 前置批次：Phase 0-01 已完成并通过验收
-> 总方案来源：[Phase-00-总实施方案.md](../../phases/Phase-00/Phase-00-总实施方案.md)
+> 总方案来源：[Phase-00-总实施方案.md](Phase-00-总实施方案.md)
 
 ## 1. 批次目标
 
@@ -21,7 +21,7 @@
 
 ### 3.1 Backend 结构
 
-建立独立 Go module 和以下分层：
+建立 module path 为 `github.com/Ray-ymq/GoPulse/backend` 的独立 Go module 和以下分层：
 
 ```text
 backend/
@@ -74,6 +74,7 @@ RABBITMQ_URL
 - `REDIS_DB` 必须为合法整数。
 - `RABBITMQ_URL` 必须能够解析且使用支持的 AMQP scheme。
 - 错误和日志不得包含密码或完整连接串。
+- 只有配置非法、客户端构造失败或 HTTP Server 无法启动才导致进程启动失败；基础设施暂时不可达不应阻止 Backend 启动，而由 `/ready` 报告 503。
 
 ### 3.3 HTTP 契约
 
@@ -92,7 +93,7 @@ RABBITMQ_URL
 #### `GET /ready`
 
 - 并行检查 MySQL、Redis、RabbitMQ。
-- 每个 checker 使用独立短超时。
+- 每个 checker 使用独立的 1 秒超时，整个 `/ready` 请求的服务端检查上限为 1.5 秒。
 - 全部为 `up` 时返回 HTTP 200 和 `status: ready`。
 - 任一异常或超时时返回 HTTP 503 和 `status: not_ready`。
 - 无论几项失败，响应都必须包含三项检查结果。
@@ -118,17 +119,17 @@ RABBITMQ_URL
 
 - MySQL：复用 `database/sql` 连接池，使用带 context 的 ping。
 - Redis：复用 Redis 客户端，执行带 context 的 `PING`。
-- RabbitMQ：每次检查创建短生命周期 AMQP 连接，成功后立即关闭。
+- RabbitMQ：每次检查通过支持 context 或显式网络超时的 dialer 创建短生命周期 AMQP 连接，成功后立即关闭，不允许默认拨号无限挂起。
 - Handler 依赖 checker 接口，不直接依赖具体客户端，单元测试使用 fake checker。
 - 三项检查必须并发，总请求耗时接近最慢单项超时，而不是三个超时之和。
 - checker 每次请求重新检查当前状态，基础设施恢复后无需重启 Backend。
 
 ### 3.5 生命周期
 
-- 初始化过程中任一步失败，应关闭此前已经成功创建的资源。
-- 接收到终止信号后，停止接收新请求并在限定时间内关闭 HTTP Server。
+- 初始化过程中任一非连通性步骤失败，应关闭此前已经成功创建的资源。
+- 接收到终止信号后，停止接收新请求，并使用 5 秒 graceful shutdown 上限关闭 HTTP Server。
 - Server 关闭后再释放 MySQL 与 Redis 客户端。
-- 正常关闭与异常退出使用可区分的退出状态。
+- 正常完成优雅关闭时返回 0；配置、绑定端口、Server 运行或关闭超时等异常返回非 0。
 
 ## 4. 明确不做的内容
 
@@ -151,6 +152,7 @@ backend/cmd/server/
 backend/internal/config/
 backend/internal/http/
 backend/internal/platform/
+dev/logs/Phase-00/Phase-00-02-Backend与就绪检查.md
 ```
 
 测试文件与对应包放置，不依赖真实容器完成 Handler 单元测试。
@@ -166,7 +168,8 @@ backend/internal/platform/
 7. 实现三项 checker 并发调度、独立超时和结果汇总。
 8. 组装程序入口、HTTP Server、信号监听和优雅关闭。
 9. 对日志和错误路径进行敏感信息检查。
-10. 启动第一批基础设施，执行真实连接和故障恢复联调。
+10. 在依赖全部正常、启动时已有依赖不可达、运行期依赖故障与恢复四类状态下执行真实联调。
+11. 在对应的 `dev/logs/Phase-00/Phase-00-02-Backend与就绪检查.md` 中记录实际完成内容、变更文件、验证命令与结果、偏差和已知限制。
 
 ## 7. 测试与验收标准
 
@@ -181,6 +184,7 @@ backend/internal/platform/
 - 多项失败时全部失败项均被标记。
 - 单项超时能够结束请求并标记为 `down`。
 - 三项检查并发执行，不累加各自超时时间。
+- 基础设施不可达不会使 Backend 启动失败，`/health` 仍返回 200，`/ready` 在规定上限内返回 503。
 - 响应不包含底层错误、密码或连接串。
 - 配置默认值、覆盖值、缺失值、非法端口、非法 Redis DB 和非法 RabbitMQ URL。
 
@@ -201,6 +205,7 @@ backend/internal/platform/
 6. 同时停止多项依赖，响应包含所有失败项。
 7. 恢复容器后，`/ready` 无需重启 Backend 即恢复为 200。
 8. 终止 Backend 后端口释放，资源正常关闭。
+9. 在启动 Backend 前先停止任意一项依赖，Backend 仍成功启动，`/health` 为 200，`/ready` 为 503；恢复依赖后自动转为 200。
 
 ## 8. 完成定义
 
@@ -209,6 +214,7 @@ backend/internal/platform/
 - 三项 readiness 检查并发、可超时且可自动恢复。
 - 初始化失败和终止信号均能正确释放资源。
 - Go 测试、vet 和真实基础设施联调通过。
+- 对应实施记录已创建且只记载实际执行的工作和检查。
 - 没有实现 Phase 0 之外的业务能力。
 
 ## 9. 下一批次交接条件
