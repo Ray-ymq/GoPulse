@@ -10,8 +10,9 @@
 # Development Branch Naming Rule
 
 - Every development branch that is pushed to a remote must use the format `develop/x.x.x`, including branches used for pull requests and testing.
+- The exact branch name `update` is the sole exception and may be pushed as the project's planning branch. It may contain only project planning, architecture adjustments, development plans, documentation organization, planning-workspace metadata, and repository-rule maintenance; it must not be used for feature implementation, application testing, or ordinary development pull requests.
 - The `develop` prefix must always start with a lowercase `d`; uppercase or mixed-case variants are not allowed.
-- Before pushing, verify that the branch name matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$`.
+- Before pushing, verify that the branch name either matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$` or is exactly `update`. When pushing `update`, also verify that the commits being pushed remain within the planning-branch scope defined above.
 
 # Development Branch Lifecycle Rule
 
@@ -21,3 +22,15 @@
 - Continue using the current branch only for follow-up work that belongs to the same active task or pull request.
 - Do not automatically continue working on a development branch after its work is complete or after a pull request has been opened for it.
 - Rule-only maintenance performed while introducing this lifecycle policy may be committed on the current branch; the policy applies to subsequent independent development tasks.
+
+# Implementation Log Rule
+
+- After completing each implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding development record under `dev/logs/Phase-XX/` before reporting the plan complete.
+- Mirror the plan's phase directory and Markdown filename. For example, `dev/imple/Phase-00/Phase-00-01-工程骨架与基础设施.md` must be recorded in `dev/logs/Phase-00/Phase-00-01-工程骨架与基础设施.md`.
+- Each record must describe the work actually completed, files changed, validation commands and results, deviations from the plan, and known limitations or follow-up items.
+- Record only work and checks that were actually performed; never present planned or unverified work as completed.
+
+# Platform Usage Rule
+
+- On macOS, use the project workspace primarily for project planning and subsequent architectural adjustments.
+- On Windows, use the project workspace primarily for project development and implementation.
