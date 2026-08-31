@@ -9,28 +9,32 @@
 
 # Automatic Version Management Rule
 
-- Determine the version impact once for each new independent development task or pull request before creating its development branch. All commits in the same task or pull request must share that single target version; never bump the version separately for individual commits.
-- Use Semantic Versioning in `major.minor.patch` format.
-- Determine the version from the actual product and compatibility impact of the complete task, not solely from Conventional Commit types:
-  - Changes limited to documentation, tests, formatting, planning, repository rules, or other work that does not affect product behavior do not bump the product version.
-  - Bug fixes, compatibility improvements, dependency maintenance, and small internal adjustments bump the patch version, for example `0.1.0` to `0.1.1`.
-  - Backward-compatible features and substantial backward-compatible enhancements bump the minor version, for example `0.1.1` to `0.2.0`.
-  - Changes that break APIs, configuration, protocols, data formats, or other compatibility guarantees bump the major version, for example `0.9.0` to `1.0.0`.
-- The root `VERSION` file is the sole source of the current product version when it exists. If it does not exist, determine the current version from valid SemVer Git tags. If neither a `VERSION` file nor a valid SemVer Git tag exists, ask the user for the initial version before creating a development branch; never guess it.
-- Before creating a development branch, determine the target version from the current version and the task's actual impact, then use that target in the `develop/x.x.x` branch name.
-- If the task scope changes during implementation, reassess the version impact from the original current version, keep a single final target version rather than applying incremental bumps, and rename the development branch to the corrected target version before its first push. After the branch has been pushed, do not silently change the target version; coordinate the required branch or pull request adjustment with the user.
-- At task completion, update `VERSION` to the target version and include it in the task's commit. Do not modify `VERSION` for tasks that do not require a product version bump, including documentation, planning, and repository-rule-only work.
+- Use the three-part `major.minor.patch` format, with a project-specific mapping from product maturity, Phase, and execution batch to version numbers.
+- Phase 0 through Phase 3 are pre-1.0 development and use these version lines:
+  - Phase 0 uses `0.1.x`.
+  - Phase 1 uses `0.2.x`.
+  - Phase 2 uses `0.3.x`.
+  - Phase 3 uses `0.4.x`.
+- After Phase 3 is fully completed and its milestone acceptance passes, publish the usable-business-system milestone as `1.0.0`.
+- Phase 4 through Phase 16 use the `1.x.x` series. Their minor version is `Phase - 3`, so Phase 4 uses `1.1.x`, Phase 5 uses `1.2.x`, and Phase 16 uses `1.13.x`.
+- Within each Phase, reserve patch `0` as the Phase baseline. Number executable development batches from patch `1` in their planned execution order. For example, `Phase-00-01` maps to `0.1.1`, `Phase-01-01` maps to `0.2.1`, and `Phase-04-01` maps to `1.1.1`.
+- Every executable development batch must have its own target version and its own `develop/x.x.x` branch. All commits belonging to that batch share the same target version.
+- Do not require an individual implementation-plan file to declare its version or branch. After a Phase's batch count and execution order are known, its `dev/imple/Phase-XX/Phase-XX-总实施方案.md` must contain the authoritative batch-to-version and batch-to-branch allocation for that Phase.
+- If a Phase's batch split or order changes before implementation, update its total implementation plan and recalculate all not-yet-created branches in that Phase. Never silently rename or renumber a branch that has already been pushed; coordinate the adjustment with the user.
+- The root `VERSION` file is the sole source of the current completed product version when it exists. If it does not exist before the first development batch, use `0.1.0` as the Phase 0 baseline and create the file as part of the first development batch.
+- At development-batch completion, update `VERSION` to the batch's target version and include it in that batch's commit. Planning, documentation, tests-only, formatting, and repository-rule work performed on `update` do not change `VERSION`.
 
 # Development Branch Naming Rule
 
 - Every development branch that is pushed to a remote must use the format `develop/x.x.x`, including branches used for pull requests and testing.
 - The exact branch name `update` is the sole exception and may be pushed as the project's planning branch. It may contain only project planning, architecture adjustments, development plans, documentation organization, planning-workspace metadata, and repository-rule maintenance; it must not be used for feature implementation, application testing, or ordinary development pull requests.
+- `update` is a long-lived planning branch. Automated pull requests from `update` to `main` must use a merge commit and must not delete `update`, so later planning work retains ancestry with `main`. Ordinary `develop/x.x.x` branches continue to use squash merge and may be deleted after merging.
 - The `develop` prefix must always start with a lowercase `d`; uppercase or mixed-case variants are not allowed.
 - Before pushing, verify that the branch name either matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$` or is exactly `update`. When pushing `update`, also verify that the commits being pushed remain within the planning-branch scope defined above.
 
 # Development Branch Lifecycle Rule
 
-- Before starting each new independent development task, fetch the latest remote state, determine the target version under the Automatic Version Management Rule, and create a new branch from `origin/main`.
+- Before starting each new independent development task, fetch the latest state from the repository's configured primary remote, determine the target version under the Automatic Version Management Rule, and create a new branch from that remote's `main` branch.
 - The new branch must use the target version and follow the `develop/x.x.x` naming rule defined above.
 - Continue using the current branch only for follow-up work that belongs to the same active task or pull request.
 - Do not automatically continue working on a development branch after its work is complete or after a pull request has been opened for it.
