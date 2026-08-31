@@ -10,7 +10,7 @@
 # Development Branch Naming Rule
 
 - Every development branch that is pushed to a remote must use the format `develop/x.x.x`, including branches used for pull requests and testing.
-- The exact branch name `update` is the sole exception and may be pushed as the project's planning branch. It may contain only project planning, architecture adjustments, development plans, documentation organization, and repository-rule maintenance; it must not be used for feature implementation, application testing, or ordinary development pull requests.
+- The exact branch name `update` is the sole exception and may be pushed as the project's planning branch. It may contain only project planning, architecture adjustments, development plans, documentation organization, planning-workspace metadata, and repository-rule maintenance; it must not be used for feature implementation, application testing, or ordinary development pull requests.
 - The `develop` prefix must always start with a lowercase `d`; uppercase or mixed-case variants are not allowed.
 - Before pushing, verify that the branch name either matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$` or is exactly `update`. When pushing `update`, also verify that the commits being pushed remain within the planning-branch scope defined above.
 
