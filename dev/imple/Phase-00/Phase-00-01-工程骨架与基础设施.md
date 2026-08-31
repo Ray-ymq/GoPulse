@@ -2,7 +2,7 @@
 
 > 执行序号：1 / 5
 > 前置批次：无
-> 总方案来源：[Phase-00-总实施方案.md](../../phases/Phase-00/Phase-00-总实施方案.md)
+> 总方案来源：[Phase-00-总实施方案.md](Phase-00-总实施方案.md)
 
 ## 1. 批次目标
 
@@ -13,7 +13,7 @@
 ## 2. 前置条件
 
 - 在仓库根目录执行本批工作。
-- 本机已安装 Git、Docker 和 Docker Compose v2。
+- 本机已安装 Git、Docker，并支持 Compose v2 引入的 `docker compose` 子命令；后续兼容版本不因主版本号高于 2 而被拒绝。
 - 默认端口 `3306`、`6379`、`5672`、`15672` 未被其他程序占用。
 - 开始前记录仓库状态，不覆盖或提交与本批无关的用户改动。
 
@@ -46,7 +46,7 @@ gopulse/
 ### 3.2 基础配置
 
 - `.editorconfig` 统一基础缩进、换行和文件末尾换行规则。
-- `.gitignore` 至少忽略 `.env`、依赖目录、构建产物、运行时 PID 文件和常见编辑器文件。
+- `.gitignore` 至少忽略 `.env`、依赖目录、构建产物、`.run/` 运行时记录和常见编辑器文件。
 - `.env.example` 提供可提交的本地开发默认值，至少包括：
 
 ```text
@@ -58,15 +58,21 @@ MYSQL_PORT
 MYSQL_DATABASE
 MYSQL_USER
 MYSQL_PASSWORD
+MYSQL_ROOT_PASSWORD
 REDIS_HOST
 REDIS_PORT
 REDIS_PASSWORD
 REDIS_DB
+RABBITMQ_USER
+RABBITMQ_PASSWORD
 RABBITMQ_URL
 ```
 
 - `.env` 由开发者本地使用，不提交到 Git。
 - 本地凭据只能用于开发环境，不声明为生产级配置。
+- `MYSQL_ROOT_PASSWORD` 只用于 MySQL 容器初始化；Backend 使用 `MYSQL_USER` 与 `MYSQL_PASSWORD`。
+- `RABBITMQ_USER`、`RABBITMQ_PASSWORD` 用于容器初始化，必须与 Backend 使用的 `RABBITMQ_URL` 保持一致；凭据写入 URL 时必须执行 URL 编码。
+- `.env.example` 为每个必需变量提供明确的本地默认值；Compose 文件对必需变量使用缺失即失败的参数展开，不在 Compose 中再隐式回退到另一组凭据。
 
 ### 3.3 Docker Compose
 
@@ -94,6 +100,7 @@ Compose 仅承载：
 - Redis 启用持久数据卷；如配置密码，healthcheck 必须使用同一密码。
 - RabbitMQ 使用 management 镜像，同时开放 AMQP 与管理端口，healthcheck 使用 RabbitMQ 自身诊断命令。
 - 普通 `docker compose down` 不删除具名卷；只有显式清理命令才允许附带删除卷参数。
+- 所有手工命令和后续脚本都必须显式指定根目录 `.env`、`deploy/compose.yaml` 和稳定的 Compose project name `gopulse`，不依赖调用者当前目录或 Compose 的隐式项目名推导。
 
 ## 4. 明确不做的内容
 
@@ -117,6 +124,7 @@ monitor/README.md
 router/README.md
 marshaller/README.md
 exporters/README.md
+dev/logs/Phase-00/Phase-00-01-工程骨架与基础设施.md
 ```
 
 若仓库已有同用途文件，应在保留现有有效规则的基础上增量修改，不直接覆盖。
@@ -129,11 +137,11 @@ exporters/README.md
 4. 补充 `.editorconfig` 与 `.gitignore`，尤其忽略 `.env`、`.run/`、`node_modules/` 和构建产物。
 5. 编写 `.env.example`，保证 Compose 与后续应用使用同一套变量名和默认端口。
 6. 编写 `deploy/compose.yaml`，声明三个服务、端口、环境变量、健康检查和具名卷。
-7. 使用 Compose 配置渲染命令检查语法、变量替换和最终端口。
+7. 使用显式 `--project-name`、`--env-file` 和 `-f` 参数的 Compose 配置渲染命令检查语法、变量替换和最终端口。
 8. 启动三项服务并等待全部进入 healthy。
 9. 验证 RabbitMQ 管理台和三项服务端口。
 10. 执行普通停止，确认容器被移除但具名卷保留；重新启动确认数据卷可复用。
-11. 记录本批实际验证结果及任何本地环境限制。
+11. 在对应的 `dev/logs/Phase-00/Phase-00-01-工程骨架与基础设施.md` 中记录本批实际完成内容、变更文件、验证命令与结果、偏差和已知限制。
 
 ## 7. 测试与验收标准
 
@@ -141,6 +149,7 @@ exporters/README.md
 
 - Compose 配置可以成功渲染，不存在未解析变量或重复端口。
 - `.env.example` 包含总方案要求的全部环境变量。
+- MySQL 与 RabbitMQ 的容器初始化凭据和 Backend 连接凭据可以明确对应，不存在两组默认值。
 - `.env`、`.run/` 和本地依赖/构建产物不会被 Git 跟踪。
 - Compose 中不存在 Frontend、Backend 或超出 Phase 0 的基础设施。
 
@@ -171,6 +180,7 @@ exporters/README.md
 - 三项基础设施可以独立启动并全部 healthy。
 - 普通停止不会删除数据卷。
 - 验收命令执行成功，相关结果已记录。
+- 对应实施记录已创建且只记载实际执行的工作和检查。
 - 仅提交本批文件，不包含用户已有改动。
 
 ## 9. 下一批次交接条件
