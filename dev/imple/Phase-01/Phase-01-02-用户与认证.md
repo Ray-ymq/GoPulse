@@ -12,7 +12,8 @@
 
 ## 2. 前置条件
 
-- Phase 1 开发分支、唯一目标版本和工作树状态已确认。
+- Phase 1-01 已合并到配置的主远程 `main`，根 `VERSION` 与前一批目标版本一致。
+- 已从该远程最新 `main` 创建总方案为本批分配的开发分支。
 - `users` 表、迁移命令和统一 HTTP 契约已可用。
 - `AUTH_JWT_SECRET`、`AUTH_JWT_TTL`、`AUTH_COOKIE_NAME` 和 `AUTH_COOKIE_SECURE` 配置已经过校验。
 - Phase 1-01 实施记录已完成。
@@ -99,6 +100,7 @@ backend/internal/http/
 backend/cmd/server/
 backend/go.mod
 backend/go.sum
+VERSION
 dev/logs/Phase-01/Phase-01-02-用户与认证.md
 ```
 
@@ -115,7 +117,8 @@ dev/logs/Phase-01/Phase-01-02-用户与认证.md
 9. 实现认证中间件和类型安全的当前用户 ID 获取边界。
 10. 将端点注册到 `/api/v1`，确保匿名与受保护路由分组正确。
 11. 使用真实 MySQL 验证注册持久化、大小写冲突、登录和 Backend 重启。
-12. 运行 Backend 全部测试与 vet，并创建本批实施记录。
+12. 运行 Backend 全部测试与 vet。
+13. 将根 `VERSION` 更新为总方案为本批分配的目标版本，并创建本批实施记录。
 
 ## 7. 测试与验收标准
 
@@ -152,8 +155,7 @@ dev/logs/Phase-01/Phase-01-02-用户与认证.md
 - 密码和 JWT 处理具有单元测试保护。
 - 认证中间件可向后续业务 Handler 提供可信用户 ID。
 - Backend 重启不丢失用户事实。
-- 本批实施记录已创建，仅提交本批文件。
-- 不在本批更新 `VERSION`。
+- 本批实施记录已创建，根 `VERSION` 已更新为总方案分配的本批目标版本，仅提交本批文件。
 
 ## 9. 下一批次交接条件
 

@@ -12,6 +12,8 @@
 
 ## 2. 前置条件
 
+- Phase 1-04 已合并到配置的主远程 `main`，根 `VERSION` 与前一批目标版本一致。
+- 已从该远程最新 `main` 创建总方案为本批分配的开发分支。
 - 帖子详情公共字段与 `liked_by_me` 已可分离查询。
 - 评论、点赞和取消点赞的 MySQL 事实写入已稳定。
 - Redis 客户端、配置、连接关闭和 readiness checker 已由 Phase 0 提供。
@@ -92,6 +94,7 @@ backend/internal/comment/
 backend/internal/like/
 backend/internal/platform/redis/
 backend/cmd/server/
+VERSION
 dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 ```
 
@@ -108,7 +111,7 @@ dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 9. 使用真实 Redis 验证 TTL、键内容、失效和清空后重建。
 10. 停止 Redis 执行全部 Backend 业务闭环，再恢复 Redis 并验证无需重启 Backend。
 11. 运行 Backend 全部测试、vet 和前置批次回归。
-12. 创建本批实施记录。
+12. 将根 `VERSION` 更新为总方案为本批分配的目标版本，并创建本批实施记录。
 
 ## 7. 测试与验收标准
 
@@ -143,8 +146,7 @@ dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 - 缓存读取、回填、失效和降级经过单元与真实 Redis 测试。
 - Redis 不可用时核心业务仍可用，MySQL 事实不丢失。
 - TTL 内可能短期陈旧的最终一致限制已被明确记录。
-- 本批实施记录已创建，仅提交本批文件。
-- 不在本批更新 `VERSION`。
+- 本批实施记录已创建，根 `VERSION` 已更新为总方案分配的本批目标版本，仅提交本批文件。
 
 ## 9. 下一批次交接条件
 
