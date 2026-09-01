@@ -41,7 +41,12 @@ class BranchGovernanceTests(unittest.TestCase):
         self.assertIn("expected '0.1.6'", errors[0])
 
     def test_accepts_update_planning_scope(self) -> None:
-        files = ["dev/imple/Phase-01/plan.md", ".github/workflows/ci.yml", "AGENTS.md"]
+        files = [
+            "dev/imple/Phase-01/plan.md",
+            ".github/workflows/ci.yml",
+            "scripts/ci/validate_branch.py",
+            "AGENTS.md",
+        ]
         self.assertEqual(validate(self.repo, "update", None, files), [])
 
     def test_rejects_update_application_changes_and_version(self) -> None:
