@@ -16,6 +16,7 @@ import (
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 )
 
@@ -70,6 +71,9 @@ func run() error {
 	users := user.NewMySQLRepository(mysqlClient.DB())
 	authService := auth.NewService(users, passwords, tokens)
 	authHandler := auth.NewHandler(authService, cookies)
+	posts := post.NewMySQLRepository(mysqlClient.DB())
+	postService := post.NewService(posts)
+	postHandler := post.NewHandler(postService)
 
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
@@ -79,6 +83,7 @@ func run() error {
 		},
 		backendhttp.APIRoutes{
 			Auth:           authHandler,
+			Posts:          postHandler,
 			Authentication: middleware.RequireAuthentication(cookies.Name(), tokens),
 		},
 	)
