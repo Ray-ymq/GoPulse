@@ -13,6 +13,7 @@ type fakeRepository struct {
 	create   func(context.Context, uint64, string, string) (Post, error)
 	list     func(context.Context, uint64, ListOptions) ([]Post, error)
 	findByID func(context.Context, uint64, uint64) (Post, error)
+	exists   func(context.Context, uint64) (bool, error)
 }
 
 func (repository *fakeRepository) Create(ctx context.Context, authorID uint64, title, content string) (Post, error) {
@@ -34,6 +35,13 @@ func (repository *fakeRepository) FindByID(ctx context.Context, postID, viewerID
 		return Post{}, errors.New("unexpected FindByID call")
 	}
 	return repository.findByID(ctx, postID, viewerID)
+}
+
+func (repository *fakeRepository) Exists(ctx context.Context, postID uint64) (bool, error) {
+	if repository.exists == nil {
+		return false, errors.New("unexpected Exists call")
+	}
+	return repository.exists(ctx, postID)
 }
 
 func TestServiceCreateUsesAuthenticatedAuthorAndNormalizedInput(t *testing.T) {
@@ -150,5 +158,35 @@ func assertPostApplicationCode(t *testing.T, err error, code apperror.Code) {
 	appError, ok := apperror.As(err)
 	if !ok || appError.Code != code {
 		t.Fatalf("error = %#v, want application code %q", err, code)
+	}
+}
+
+func TestServiceRequireExistsMapsMissingAndRepositoryErrors(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		exists bool
+		err    error
+		code   apperror.Code
+	}{
+		{name: "exists", exists: true},
+		{name: "missing", code: apperror.CodePostNotFound},
+		{name: "database", err: errors.New("sql existence"), code: apperror.CodeInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := NewService(&fakeRepository{exists: func(_ context.Context, postID uint64) (bool, error) {
+				if postID != 31 {
+					t.Fatalf("Exists() postID = %d", postID)
+				}
+				return test.exists, test.err
+			}})
+			err := service.RequireExists(context.Background(), 31)
+			if test.code == "" {
+				if err != nil {
+					t.Fatalf("RequireExists() error = %v", err)
+				}
+				return
+			}
+			assertPostApplicationCode(t, err, test.code)
+		})
 	}
 }
