@@ -79,7 +79,9 @@ jobs:
             echo 'Expected Bash and Go working-tree files to use LF.' >&2
             exit 1
           fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh
+      - name: Run acceptance safety negative tests
+        run: bash scripts/verify-business.sh --self-test
       - name: Validate Compose configuration and loopback publishing
         shell: bash
         run: |

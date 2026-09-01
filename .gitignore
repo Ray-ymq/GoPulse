@@ -36,3 +36,6 @@ Thumbs.db
 # Go workspace files are local unless intentionally introduced later
 go.work
 go.work.sum
+
+frontend/test-results/
+frontend/playwright-report/

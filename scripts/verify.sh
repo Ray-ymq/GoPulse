@@ -168,6 +168,34 @@ PY
   pass '/ready' 'HTTP 200 with all dependency checks up.'
 }
 
+check_protected_api() {
+  local port=$1 body="$TEMP_DIR/protected-api.json" status
+  if ! status=$(http_get "http://localhost:$port/api/v1/posts" "$body"); then
+    fail 'Protected API' 'request failed or exceeded 5 seconds.'
+    return
+  fi
+  if [[ $status != 401 ]]; then
+    fail 'Protected API' "returned HTTP $status, expected unauthenticated HTTP 401."
+    return
+  fi
+  if ! python3 - "$body" <<'PYAPI'
+import json
+import sys
+try:
+    value = json.load(open(sys.argv[1], encoding='utf-8'))
+except Exception:
+    raise SystemExit(1)
+error = value.get('error') if isinstance(value, dict) else None
+valid = isinstance(error, dict) and error.get('code') == 'authentication_required'
+raise SystemExit(0 if valid else 1)
+PYAPI
+  then
+    fail 'Protected API' 'JSON contract mismatch (expected authentication_required).'
+    return
+  fi
+  pass 'Protected API' 'unauthenticated post listing returned the expected HTTP 401 contract.'
+}
+
 check_frontend() {
   local body="$TEMP_DIR/frontend.html" status
   if ! status=$(http_get 'http://localhost:5173/' "$body"); then
@@ -196,6 +224,7 @@ main() {
   check_compose_service rabbitmq
   check_health "$port"
   check_ready "$port"
+  check_protected_api "$port"
   check_frontend
   if ((FAILURES > 0)); then
     printf '[gopulse] Verification failed with %d issue(s). The script did not change the running environment.\n' "$FAILURES" >&2
