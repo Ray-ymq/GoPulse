@@ -224,3 +224,41 @@ func mapLookup(values map[string]string) LookupFunc {
 		return value, ok
 	}
 }
+
+func TestLoadFromMapsSupportedApplicationEnvironments(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{input: "development", want: "development"},
+		{input: "TEST", want: "test"},
+		{input: " production ", want: "production"},
+	} {
+		t.Run(test.input, func(t *testing.T) {
+			env := requiredEnvironment()
+			env["APP_ENV"] = test.input
+			env["AUTH_COOKIE_SECURE"] = "true"
+			cfg, err := LoadFrom(mapLookup(env))
+			if err != nil {
+				t.Fatalf("LoadFrom() error = %v", err)
+			}
+			if cfg.AppEnv != test.want {
+				t.Fatalf("AppEnv = %q, want %q", cfg.AppEnv, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadFromRejectsUnsupportedApplicationEnvironment(t *testing.T) {
+	for _, value := range []string{"local", "staging", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			env := requiredEnvironment()
+			env["APP_ENV"] = value
+			env["AUTH_COOKIE_SECURE"] = "true"
+			_, err := LoadFrom(mapLookup(env))
+			if err == nil || !strings.Contains(err.Error(), "APP_ENV") {
+				t.Fatalf("LoadFrom() error = %v, want APP_ENV error", err)
+			}
+		})
+	}
+}

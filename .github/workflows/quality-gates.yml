@@ -87,3 +87,65 @@ jobs:
           rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
           printf '%s\n' "$rendered"
           [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 4 ]]
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4.0
+        env:
+          MYSQL_DATABASE: gopulse_integration
+          MYSQL_USER: gopulse_integration
+          MYSQL_PASSWORD: integration-mysql
+          MYSQL_ROOT_PASSWORD: integration-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --user=root --password=integration-root --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.2.5-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping | grep -q PONG || redis-cli --no-auth-warning -a integration-redis ping | grep -q PONG"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+    env:
+      INTEGRATION_TESTS: "1"
+      APP_ENV: test
+      HTTP_HOST: 127.0.0.1
+      HTTP_PORT: "18080"
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: gopulse_integration
+      MYSQL_USER: gopulse_integration
+      MYSQL_PASSWORD: integration-mysql
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: integration-redis
+      REDIS_DB: "15"
+      RABBITMQ_URL: amqp://integration:integration@127.0.0.1:5672/
+      AUTH_JWT_SECRET: integration-jwt-secret-at-least-32-bytes-long
+      AUTH_JWT_TTL: 2h
+      AUTH_COOKIE_NAME: gopulse_integration_session
+      AUTH_COOKIE_SECURE: "false"
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Require authentication on isolated Redis
+        run: docker exec "${{ job.services.redis.id }}" redis-cli CONFIG SET requirepass "$REDIS_PASSWORD"
+      - name: Apply upward migrations to isolated database
+        run: go run ./cmd/migrate up
+      - name: Run integration tests against required dependencies
+        run: go test -count=1 -tags=integration ./...

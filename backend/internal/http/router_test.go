@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type fakeChecker struct {
@@ -229,5 +231,93 @@ func assertJSONEqual(t *testing.T, actual, expected string) {
 	expectedJSON, _ := json.Marshal(expectedValue)
 	if string(actualJSON) != string(expectedJSON) {
 		t.Fatalf("JSON = %s, want %s", actualJSON, expectedJSON)
+	}
+}
+
+func TestReadyBoundsRepeatedCheckerExecutionsThatIgnoreContext(t *testing.T) {
+	release := make(chan struct{})
+	blocking := &fakeChecker{check: func(context.Context) error {
+		<-release
+		return nil
+	}}
+	router := newRouter(Dependencies{
+		MySQL:    &fakeChecker{},
+		Redis:    blocking,
+		RabbitMQ: &fakeChecker{},
+	}, 10*time.Millisecond, 30*time.Millisecond)
+
+	for index := 0; index < 20; index++ {
+		response := performRequest(router, "/ready")
+		if response.Code != stdhttp.StatusServiceUnavailable {
+			t.Fatalf("request %d status = %d, want 503", index, response.Code)
+		}
+	}
+	if calls := blocking.calls.Load(); calls != 1 {
+		t.Fatalf("blocked checker calls = %d, want exactly one in-flight execution", calls)
+	}
+
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for {
+		response := performRequest(router, "/ready")
+		if response.Code == stdhttp.StatusOK {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("checker slot did not become available after release")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if calls := blocking.calls.Load(); calls != 2 {
+		t.Fatalf("checker calls after release = %d, want 2", calls)
+	}
+}
+
+func TestReadyRecoversCheckerPanic(t *testing.T) {
+	secret := "mysql://user:panic-secret@localhost/database"
+	panicking := &fakeChecker{check: func(context.Context) error { panic(secret) }}
+	router := newRouter(Dependencies{
+		MySQL:    panicking,
+		Redis:    &fakeChecker{},
+		RabbitMQ: &fakeChecker{},
+	}, 50*time.Millisecond, 100*time.Millisecond)
+
+	for index := 0; index < 2; index++ {
+		response := performRequest(router, "/ready")
+		if response.Code != stdhttp.StatusServiceUnavailable {
+			t.Fatalf("request %d status = %d, want 503", index, response.Code)
+		}
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("panic value leaked in response: %s", response.Body.String())
+		}
+		assertReadyResponse(t, response.Body.String(), "not_ready", "down", "up", "up")
+	}
+	if calls := panicking.calls.Load(); calls != 2 {
+		t.Fatalf("panic checker calls = %d, want 2", calls)
+	}
+}
+
+func TestConfigureGinMode(t *testing.T) {
+	original := gin.Mode()
+	t.Cleanup(func() { gin.SetMode(original) })
+
+	for _, test := range []struct {
+		appEnv string
+		want   string
+	}{
+		{appEnv: "development", want: gin.DebugMode},
+		{appEnv: "test", want: gin.TestMode},
+		{appEnv: "production", want: gin.ReleaseMode},
+	} {
+		if err := ConfigureGinMode(test.appEnv); err != nil {
+			t.Fatalf("ConfigureGinMode(%q) error = %v", test.appEnv, err)
+		}
+		if gin.Mode() != test.want {
+			t.Fatalf("Gin mode = %q, want %q", gin.Mode(), test.want)
+		}
+	}
+
+	if err := ConfigureGinMode("staging"); err == nil {
+		t.Fatal("ConfigureGinMode(staging) error = nil")
 	}
 }

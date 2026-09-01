@@ -73,6 +73,11 @@ func mysqlMigrationDriverConfig(cfg config.MySQLConfig) *mysql.Config {
 	return driverConfig
 }
 
+// DB exposes the shared application connection pool to repositories.
+func (client *MySQL) DB() *sql.DB {
+	return client.database
+}
+
 func (client *MySQL) Check(ctx context.Context) error {
 	return client.database.PingContext(ctx)
 }
