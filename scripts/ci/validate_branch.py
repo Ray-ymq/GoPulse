@@ -23,7 +23,7 @@ UPDATE_ROOT_FILES = {
     "AGENTS.md",
     "README.md",
 }
-UPDATE_PREFIXES = (".github/", "dev/", "docs/")
+UPDATE_PREFIXES = (".github/", "dev/", "docs/", "scripts/ci/")
 
 
 @dataclass(frozen=True)
