@@ -12,7 +12,7 @@ import (
 
 const (
 	defaultAppEnv    = "development"
-	defaultHTTPHost  = "0.0.0.0"
+	defaultHTTPHost  = "127.0.0.1"
 	defaultHTTPPort  = 8080
 	defaultMySQLHost = "127.0.0.1"
 	defaultMySQLPort = 3306

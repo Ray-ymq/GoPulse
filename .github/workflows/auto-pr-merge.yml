@@ -1,6 +1,7 @@
 # Repository settings required:
 # - Settings > Actions > General > Allow GitHub Actions to create and approve pull requests
 # - Settings > General > Pull Requests > Allow auto-merge
+# - Protect main and require the CI / quality-gates checks for defense in depth
 
 name: Auto PR and Merge
 
@@ -21,9 +22,17 @@ env:
   BASE_BRANCH: main
 
 jobs:
+  quality-gates:
+    name: Quality gates before PR
+    uses: ./.github/workflows/quality-gates.yml
+    with:
+      branch: ${{ github.ref_name }}
+      base_ref: origin/main
+
   open-and-merge:
     if: github.actor == 'Ray-ymq'
-    name: Open PR and merge
+    needs: quality-gates
+    name: Open PR and enable auto-merge
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -55,8 +64,8 @@ jobs:
                 --jq '.commit.message | split("\n")[0]'
             )"
             body="$(
-              printf '%s\n\n- Source: `%s`\n- Target: `%s`\n- Commit: `%s`\n- Run: %s/%s/actions/runs/%s\n' \
-                'Automatically created after a branch push. This PR will be merged according to the repository branch policy after all requirements pass.' \
+              printf '%s\n\n- Source: `%s`\n- Target: `%s`\n- Commit: `%s`\n- Quality gates: %s/%s/actions/runs/%s\n' \
+                'Automatically created after the branch passed the repository quality and governance gates. This PR uses auto-merge so protected-branch requirements remain authoritative.' \
                 "$HEAD_BRANCH" \
                 "$BASE_BRANCH" \
                 "$HEAD_SHA" \
@@ -90,7 +99,7 @@ jobs:
             echo "url=${pr_url}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Merge pull request
+      - name: Enable auto-merge
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -121,16 +130,9 @@ jobs:
             )
           fi
 
-          if gh pr merge "${merge_args[@]}"; then
-            merge_mode="immediate"
-          else
-            echo "Immediate merge is blocked by repository requirements; enabling auto-merge."
-            gh pr merge "${merge_args[@]}" --auto
-            merge_mode="auto"
-          fi
+          gh pr merge "${merge_args[@]}" --auto
 
-          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: %s\n- Head commit: `%s`\n' \
+          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: auto after quality gates\n- Head commit: `%s`\n' \
             "$PR_URL" \
             "$merge_strategy" \
-            "$merge_mode" \
             "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -14,8 +14,8 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.AppEnv != "development" {
 		t.Fatalf("AppEnv = %q, want development", cfg.AppEnv)
 	}
-	if cfg.HTTPHost != "0.0.0.0" || cfg.HTTPPort != 8080 {
-		t.Fatalf("HTTP endpoint = %s:%d, want 0.0.0.0:8080", cfg.HTTPHost, cfg.HTTPPort)
+	if cfg.HTTPHost != "127.0.0.1" || cfg.HTTPPort != 8080 {
+		t.Fatalf("HTTP endpoint = %s:%d, want 127.0.0.1:8080", cfg.HTTPHost, cfg.HTTPPort)
 	}
 	if cfg.MySQL.Host != "127.0.0.1" || cfg.MySQL.Port != 3306 {
 		t.Fatalf("MySQL endpoint = %s:%d, want 127.0.0.1:3306", cfg.MySQL.Host, cfg.MySQL.Port)

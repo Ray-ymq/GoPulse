@@ -34,7 +34,7 @@ foreach ($entry in [System.Environment]::GetEnvironmentVariables('Process').GetE
 }
 
 $script:ComposeKeys = @(
-  'MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'MYSQL_PORT',
+  'PUBLISHED_HOST', 'MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'MYSQL_PORT',
   'REDIS_PASSWORD', 'REDIS_PORT', 'RABBITMQ_USER', 'RABBITMQ_PASSWORD',
   'RABBITMQ_PORT', 'RABBITMQ_MANAGEMENT_PORT'
 )
@@ -45,7 +45,7 @@ $script:BackendKeys = @(
 )
 $script:AllConfigKeys = @($script:ComposeKeys + $script:BackendKeys | Sort-Object -Unique)
 $script:Defaults = @{
-  APP_ENV = 'development'; HTTP_HOST = '0.0.0.0'; HTTP_PORT = '8080'
+  APP_ENV = 'development'; PUBLISHED_HOST = '127.0.0.1'; HTTP_HOST = '127.0.0.1'; HTTP_PORT = '8080'
   MYSQL_HOST = '127.0.0.1'; MYSQL_PORT = '3306'
   REDIS_HOST = '127.0.0.1'; REDIS_PORT = '6379'; REDIS_DB = '0'
   RABBITMQ_PORT = '5672'; RABBITMQ_MANAGEMENT_PORT = '15672'
