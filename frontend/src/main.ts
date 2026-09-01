@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
-import { bindUnauthorizedNavigation, useAuth } from './composables/useAuth'
+import { bindUnauthorizedNavigation } from './composables/useAuth'
 import { router } from './router'
 import './styles.css'
 
@@ -11,5 +11,4 @@ bindUnauthorizedNavigation(async () => {
   }
 })
 
-void useAuth().initialize()
 createApp(App).use(router).mount('#app')
