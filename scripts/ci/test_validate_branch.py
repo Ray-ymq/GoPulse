@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from validate_branch import validate
+from validate_branch import changed_files, validate
 
 
 class BranchGovernanceTests(unittest.TestCase):
@@ -40,7 +41,12 @@ class BranchGovernanceTests(unittest.TestCase):
         self.assertIn("expected '0.1.6'", errors[0])
 
     def test_accepts_update_planning_scope(self) -> None:
-        files = ["dev/imple/Phase-01/plan.md", ".github/workflows/ci.yml", "AGENTS.md"]
+        files = [
+            "dev/imple/Phase-01/plan.md",
+            ".github/workflows/ci.yml",
+            "scripts/ci/validate_branch.py",
+            "AGENTS.md",
+        ]
         self.assertEqual(validate(self.repo, "update", None, files), [])
 
     def test_rejects_update_application_changes_and_version(self) -> None:
@@ -58,6 +64,28 @@ class BranchGovernanceTests(unittest.TestCase):
         )
         errors = validate(self.repo, "develop/0.1.6", None, [])
         self.assertIn("found 2", errors[0])
+
+    def test_changed_files_preserves_non_ascii_paths(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.name", "GoPulse CI"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@gopulse.invalid"], cwd=self.repo, check=True)
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "baseline"], cwd=self.repo, check=True)
+        base_ref = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.repo,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+
+        path = self.repo / "dev/imple/Phase-01/阶段实施方案.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# 阶段实施方案\n", encoding="utf-8")
+        subprocess.run(["git", "add", str(path.relative_to(self.repo))], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "add plan"], cwd=self.repo, check=True)
+
+        self.assertEqual(changed_files(self.repo, base_ref), ["dev/imple/Phase-01/阶段实施方案.md"])
 
 
 if __name__ == "__main__":
