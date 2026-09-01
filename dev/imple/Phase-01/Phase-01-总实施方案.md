@@ -21,12 +21,12 @@
 
 ### 2.1 前置条件
 
-- Phase 0 全部六个实施批次已完成并通过验收，根 `VERSION` 为 `0.1.6`。
+- Phase 0 全部六个实施批次已完成并通过验收，Phase-01-01 已合并，根 `VERSION` 为 `0.2.1`。
 - Backend、Frontend、MySQL、Redis 和统一开发脚本已可用。
 - Phase 0 的 `/health` 和 `/ready` 契约保持可用。
-- Phase-00-06 实施记录移交给 Phase-01-01 的 readiness 生命周期、HTTP Server 资源边界和配置一致性整改尚未实现，必须在第一个批次关闭。
+- Phase-01-01 已完成迁移、Schema、HTTP 通用契约、配置扩展和迁移前置启动，但原方案中的 readiness 生命周期/panic 隔离、HTTP Server 完整资源边界、动态 Vite proxy、Gin mode 映射和隔离 integration CI 未关闭；这些事实必须在 Phase-01-01 记录中如实保留，并由 Phase-01-02 在认证实现前完成。
 - 根目录存在有效的 `VERSION` 文件，并以该文件作为当前完成版本的唯一来源。
-- Windows 开发环境可以运行 Go、Node.js、npm 和 Docker Compose。
+- 从 Phase-01-02 起，Windows 宿主机的 WSL2 Linux 环境可以运行 Go、Node.js、npm、Bash 和 Docker Compose，活动仓库位于 WSL Linux 文件系统。
 
 Phase 0 未完成时不得跳过前置验收直接实施 Phase 1，也不得为了实现 Phase 1 而在业务批次中重建 Phase 0 工程骨架。
 
@@ -50,6 +50,7 @@ Phase 1 使用 `0.2.x` 版本线，`0.2.0` 保留为阶段基线，不对应可�
 - 每批完成时将根 `VERSION` 更新为本批目标版本，与实施记录一起提交；不把六批变更累积到阶段末一次升版。
 - 批次完成或已打开 Pull Request 后，不自动在该分支继续下一批；下一批必须使用自己的版本分支。
 - 如批次数量或顺序在实施前调整，先更新本表并重算尚未创建的分支；已推送分支不得静默改名或重新编号。
+- Phase-01-01 已按原双平台策略同步更新 PowerShell 与 Bash 开发入口。自 Phase-01-02 起只维护并验收 Bash 生命周期与验收脚本，现有 PowerShell 脚本冻结在 `0.2.1` 能力基线，原生 Windows 兼容不作为本阶段完成条件。
 
 ## 3. 范围与边界
 
@@ -478,7 +479,7 @@ Service 产生业务语义错误，HTTP 层统一映射状态码和错误响应�
 
 - `go test -count=1 ./...` 运行不依赖外部服务的单元、Handler 和契约测试。
 - `go test -count=1 -tags=integration ./...` 运行迁移及真实 MySQL/Redis Repository 测试；进入 integration 模式后依赖缺失必须失败，不得以 skip 产生假绿。
-- Phase-01-01 更新 GitHub Actions 质量门禁，为 integration job 提供隔离 MySQL/Redis 服务、执行向上迁移并使用经严格校验的专用数据库/Redis DB。
+- Phase-01-02 更新 GitHub Actions 质量门禁，为 integration job 提供隔离 MySQL/Redis 服务、执行向上迁移并使用经严格校验的专用数据库/Redis DB；这是 Phase-01-01 未完成的明确移交项，不能再次延期。
 - 本地和 CI 的 integration 命令、环境变量与退出语义保持一致，实际执行结果记录到对应批次开发记录。
 
 ### 12.3 Frontend 测试
@@ -515,11 +516,12 @@ Phase 1 拆分为六个顺序批次，每个批次单独编写详细实施方案
 
 - 建立迁移命令、四张核心表、索引和约束。
 - 建立业务 API 路由组、统一成功/错误响应和严格 JSON 解析。
-- 关闭 Phase 0 移交的 readiness、HTTP Server 和配置一致性整改。
-- 扩展配置、开发脚本、现有 `.env` 升级说明、集成测试与 CI 隔离边界。
+- 已扩展配置和 PowerShell/Bash 开发脚本，并提供现有 `.env` 的手工升级路径。
+- readiness、HTTP Server、动态 Vite proxy、Gin mode 和 integration CI 未在本批关闭，实际偏差记录于对应实施记录并移交 Phase-01-02。
 
 ### 13.2 [Phase 1-02：用户与认证](Phase-01-02-用户与认证.md)
 
+- 在认证实现前关闭 Phase-01-01 移交的 readiness、HTTP Server、动态 Vite proxy、Gin mode 和 integration CI 缺口。
 - 实现注册、登录、退出和当前用户接口。
 - 实现 bcrypt、JWT、Cookie 和认证中间件。
 - 完成用户与认证单元测试和 Repository 验证。
@@ -547,7 +549,7 @@ Phase 1 拆分为六个顺序批次，每个批次单独编写详细实施方案
 - 实现路由、注册、登录、帖子列表、发布、详情、评论和点赞页面。
 - 保持默认验收脚本只读，新增使用专用验收数据库的完整业务验收入口，完成真实基础设施和 Backend 重启验收。
 - `verify-business` 使用独立 Compose project、端口、数据库、Redis 和进程记录；故障注入只能作用于该脚本创建并验证归属的验收资源，且成功、失败或中断后都完成恢复与清理。
-- 将新增脚本纳入 Linux/Windows 质量门禁和安全负向测试。
+- 只实现 Bash `verify-business.sh`，并将新增 Bash 脚本纳入 Linux 质量门禁和安全负向测试。
 - 更新开发入口文档、本批 `VERSION` 和 Phase 1 实施记录，完成阶段收口。
 
 ## 14. 实施记录
@@ -581,6 +583,7 @@ dev/logs/Phase-01/Phase-01-XX-<名称>.md
 - GitHub Actions 的隔离 MySQL/Redis integration job 通过，且不会因依赖缺失而静默跳过。
 - Frontend 自动化测试、TypeScript 类型检查和生产构建全部通过。
 - 真实 MySQL、Redis、Backend 重启和 Redis 故障/恢复集成验收通过。
+- WSL2/Bash 生命周期与业务验收入口通过；原生 PowerShell 脚本保持 `0.2.1` 冻结状态，不属于本阶段验收范围。
 - 完整业务验收只操作独立且归属已校验的验收资源；并行存在的日常开发栈和用户 `.env` 保持不变。
 - `/health` 和 `/ready` 保持 Phase 0 契约，未引入 Phase 2 或后续阶段能力。
 - 六个批次的实施记录与实际工作一致。
