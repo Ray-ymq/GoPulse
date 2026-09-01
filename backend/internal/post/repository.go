@@ -13,6 +13,7 @@ type Repository interface {
 	Create(context.Context, uint64, string, string) (Post, error)
 	List(context.Context, uint64, ListOptions) ([]Post, error)
 	FindByID(context.Context, uint64, uint64) (Post, error)
+	Exists(context.Context, uint64) (bool, error)
 }
 
 type database interface {
@@ -113,6 +114,17 @@ WHERE p.id = ?`, viewerID, postID)
 		return Post{}, fmt.Errorf("find post: %w", err)
 	}
 	return record, nil
+}
+
+func (repository *MySQLRepository) Exists(ctx context.Context, postID uint64) (bool, error) {
+	var exists bool
+	if err := repository.database.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)`,
+		postID,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check post existence: %w", err)
+	}
+	return exists, nil
 }
 
 type scanFunc func(...any) error
