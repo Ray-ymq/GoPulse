@@ -82,8 +82,12 @@
 ### 3.5 集成验收与文档收口
 
 - 保持 PowerShell 与 Bash 默认 `verify` 为只读运行状态检查，可通过未认证访问受保护 API 应返回 401 验证业务路由和认证中间件可达，但不创建业务记录。
-- 为 PowerShell 与 Bash 提供独立的完整业务验收入口，只针对名称经过严格校验的专用验收数据库和 Redis 命名空间；使用临时唯一用户名，不向开发者日常数据库写入 smoke 数据。
-- 需要停止 Redis、重启 Backend 或操作容器的破坏性故障矩阵不放入默认 `verify`，作为单独阶段验收流程执行并记录。
+- 为 PowerShell 与 Bash 提供独立的完整业务验收入口。`verify-business` 不复用日常 `gopulse` Compose project、`.run` 记录、Backend/Frontend 端口、数据库或 Redis DB，而是创建名称含随机令牌且匹配严格白名单的独立验收资源。
+- 验收令牌使用 12 位小写十六进制；Compose project 必须匹配 `^gopulse-acceptance-[a-f0-9]{12}$`，数据库必须匹配 `^gopulse_acceptance_[a-f0-9]{12}$`。所有端口只绑定回环并与日常开发端口分离，Backend/Frontend 使用临时进程目录和显式环境覆盖，不修改用户 `.env`。
+- Redis 使用验收 Compose project 自有实例和数据卷；脚本只允许清空该实例的验收 Redis DB，禁止对未验证归属的地址执行 `FLUSHDB`，并无条件禁止 `FLUSHALL`。
+- 需要停止 Redis、重启 Backend 或操作容器的破坏性故障矩阵只作用于经过 project label、容器 ID 和端口三重校验的验收资源，不放入默认 `verify`。
+- `verify-business` 在成功、失败和用户中断时都恢复/停止自己启动的进程，并只对已验证的验收 project 执行 `down --volumes`；启动前拒绝默认开发数据库名、默认 Redis 目标、空令牌、非法 project 名和任何非回环发布地址。
+- 通过负向测试验证错误目标会在执行任何删除、清空、停止或重启前失败；在日常开发栈并行运行时执行验收，确认其容器、进程记录、数据卷和 `.env` 前后不变。
 - 完善 README 的当前功能、迁移、配置、页面、开发命令、验收命令和已知限制。
 - 核对六份实施记录都存在且与实际工作相符。
 - 在全部验收通过后，将根 `VERSION` 从前一批版本更新为总方案为本批分配的目标版本。
@@ -114,6 +118,8 @@ scripts/verify.ps1
 scripts/verify.sh
 scripts/verify-business.ps1
 scripts/verify-business.sh
+.github/workflows/quality-gates.yml
+scripts/ci/
 README.md
 VERSION
 dev/logs/Phase-01/Phase-01-06-Frontend业务闭环与阶段收口.md
@@ -133,12 +139,15 @@ dev/logs/Phase-01/Phase-01-06-Frontend业务闭环与阶段收口.md
 8. 实现评论列表/发布和点赞/取消点赞交互。
 9. 处理 Phase 0 连通性 UI，确保 Backend 健康契约与有效测试不丢失。
 10. 使用 mock HTTP 覆盖认证、路由、分页、表单、评论、点赞和错误状态。
-11. 扩展 PowerShell/Bash 默认 `verify` 的只读业务路由检查，并实现使用专用验收数据库的独立 `verify-business`，保持两平台退出码与语义一致。
-12. 运行 Backend 测试/vet、Frontend 测试/类型检查/生产构建和开发脚本回归。
-13. 从空业务库执行完整业务流程、Backend 重启、Redis 清空、故障与恢复验收。
-14. 在浏览器中验证真实页面渲染和交互，不以 HTML 200 替代浏览器验收。
-15. 更新 README，创建 Phase 1-06 实施记录，核对前五份记录。
-16. 将根 `VERSION` 更新为总方案为本批分配的目标版本，检查暂存范围并完成阶段提交。
+11. 扩展 PowerShell/Bash 默认 `verify` 的只读业务路由检查。
+12. 实现使用独立 Compose project、回环端口、数据库、Redis 和临时进程目录的 `verify-business`，保持两平台退出码、故障恢复和清理语义一致。
+13. 为验收目标白名单、归属校验、非回环地址、默认开发资源、清理范围和中断恢复增加自动化负向测试。
+14. 更新 GitHub Actions 质量门禁，将 `verify-business.sh` 纳入 LF/Bash 语法检查，将 `verify-business.ps1` 纳入 PowerShell AST 检查，并运行不需要 Docker 的安全负向测试。
+15. 运行 Backend 单元/integration 测试与 vet、Frontend 测试/类型检查/生产构建和开发脚本回归。
+16. 在日常开发栈并行存在时，从空验收业务库执行完整业务流程、Backend 重启、验收 Redis 清空、故障与恢复验收，比较前后开发栈状态。
+17. 在浏览器中验证真实页面渲染和交互，不以 HTML 200 替代浏览器验收。
+18. 更新 README，创建 Phase 1-06 实施记录，核对前五份记录。
+19. 将根 `VERSION` 更新为总方案为本批分配的目标版本，检查暂存范围并完成阶段提交。
 
 ## 7. 测试与验收标准
 
@@ -169,8 +178,13 @@ dev/logs/Phase-01/Phase-01-06-Frontend业务闭环与阶段收口.md
 
 - `go test ./...` 通过。
 - `go vet ./...` 通过。
+- `go test -count=1 -tags=integration ./...` 在隔离 MySQL/Redis 环境通过，且真实依赖缺失不得静默 skip。
 - Frontend 测试、类型检查和生产构建通过。
 - PowerShell 与 Bash `dev`、`down`、`verify`、`verify-business` 语义一致，默认 `verify` 不改变业务数据，完整业务验收只使用专用验收数据库；已执行的平台和未能执行的限制如实记录。
+- `verify-business` 的 project、容器、数据库、Redis、端口和进程目录均与日常开发栈隔离；成功、失败和中断后无遗留验收进程、容器、网络或数据卷。
+- 默认开发数据库、默认 Redis、非法/空 project 名、非回环发布地址和归属不匹配目标全部在任何破坏性动作前被拒绝。
+- 日常开发栈并行存在时，验收前后容器 ID/状态、`.run` 记录、数据库事实、Redis 数据和具名卷保持不变。
+- GitHub Actions 在 Linux/Windows 分别检查新增 Bash/PowerShell 脚本，并执行跨平台共享的安全目标负向测试。
 - README 中的命令、端口、路由、配置和缓存限制与实现一致。
 - 六份实施记录存在，不将未执行验收写为已通过。
 - `VERSION` 等于总方案为 Phase 1 最终批次分配的目标版本。
@@ -180,6 +194,7 @@ dev/logs/Phase-01/Phase-01-06-Frontend业务闭环与阶段收口.md
 - 用户可在 Frontend 完成注册、登录、发帖、查询、评论、点赞和取消点赞。
 - Backend 重启后核心数据仍存在且来自 MySQL。
 - Redis 清空、宕机和恢复不造成业务事实丢失。
+- 故障注入和清理只作用于脚本本次创建且归属已验证的验收资源，不影响并行运行的日常开发环境。
 - Backend、Frontend、迁移、脚本和真实基础设施验收均已完成并如实记录。
 - `/health` 和 `/ready` 保持 Phase 0 契约。
 - 六份实施记录、README 和 `VERSION` 已收口。

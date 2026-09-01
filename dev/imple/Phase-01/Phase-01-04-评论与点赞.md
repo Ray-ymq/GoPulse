@@ -129,6 +129,7 @@ dev/logs/Phase-01/Phase-01-04-评论与点赞.md
 
 - `go test ./...` 通过。
 - `go vet ./...` 通过。
+- `go test -count=1 -tags=integration ./...` 在隔离 MySQL/Redis 环境通过，且真实依赖缺失不得静默 skip。
 - 使用真实 MySQL 的并发和外键场景验收通过。
 - 停止 Redis 时全部 Backend 业务闭环仍可完成。
 
