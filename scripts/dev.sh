@@ -535,7 +535,7 @@ start_frontend() {
   local -a unset_args=() key
   for key in "${ALL_CONFIG_KEYS[@]}"; do unset_args+=("-u" "$key"); done
   info 'Starting Frontend.'
-  env "${unset_args[@]}" python3 - "$FRONTEND_DIR" "$(command -v node)" "$VITE_CLI" --host localhost --strictPort --config "$VITE_CONFIG" <<'PY' &
+  env "${unset_args[@]}" "HTTP_PORT=${CONFIG[HTTP_PORT]}" python3 - "$FRONTEND_DIR" "$(command -v node)" "$VITE_CLI" --host localhost --strictPort --config "$VITE_CONFIG" <<'PY' &
 import os
 import sys
 cwd, executable, *arguments = sys.argv[1:]
