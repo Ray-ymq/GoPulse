@@ -18,6 +18,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 )
@@ -73,14 +74,19 @@ func run() error {
 	users := user.NewMySQLRepository(mysqlClient.DB())
 	authService := auth.NewService(users, passwords, tokens)
 	authHandler := auth.NewHandler(authService, cookies)
+	postDetailCache := rediscache.NewPostDetailRepository(
+		redisClient,
+		cfg.Redis.PostDetailTTL,
+		cfg.Redis.OperationTimeout,
+	)
 	posts := post.NewMySQLRepository(mysqlClient.DB())
-	postService := post.NewService(posts)
+	postService := post.NewService(posts, postDetailCache)
 	postHandler := post.NewHandler(postService)
 	comments := comment.NewMySQLRepository(mysqlClient.DB())
-	commentService := comment.NewService(comments, postService)
+	commentService := comment.NewService(comments, postService, postDetailCache)
 	commentHandler := comment.NewHandler(commentService)
 	likes := like.NewMySQLRepository(mysqlClient.DB())
-	likeService := like.NewService(likes, postService)
+	likeService := like.NewService(likes, postService, postDetailCache)
 	likeHandler := like.NewHandler(likeService)
 
 	router := backendhttp.NewRouter(

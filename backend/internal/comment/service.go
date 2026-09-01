@@ -3,6 +3,7 @@ package comment
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 )
@@ -11,13 +12,22 @@ type postExistence interface {
 	RequireExists(context.Context, uint64) error
 }
 
+type detailCacheInvalidator interface {
+	Invalidate(context.Context, uint64) error
+}
+
 type Service struct {
 	repository Repository
 	posts      postExistence
+	cache      detailCacheInvalidator
 }
 
-func NewService(repository Repository, posts postExistence) *Service {
-	return &Service{repository: repository, posts: posts}
+func NewService(repository Repository, posts postExistence, caches ...detailCacheInvalidator) *Service {
+	service := &Service{repository: repository, posts: posts}
+	if len(caches) > 0 {
+		service.cache = caches[0]
+	}
+	return service
 }
 
 func (service *Service) Create(ctx context.Context, postID, authorID uint64, input CreateInput) (Comment, error) {
@@ -36,7 +46,17 @@ func (service *Service) Create(ctx context.Context, postID, authorID uint64, inp
 	if err != nil {
 		return Comment{}, apperror.WrapInternal(err)
 	}
+	service.invalidatePostDetail(ctx, postID)
 	return record, nil
+}
+
+func (service *Service) invalidatePostDetail(ctx context.Context, postID uint64) {
+	if service.cache == nil {
+		return
+	}
+	if err := service.cache.Invalidate(ctx, postID); err != nil {
+		log.Printf("post detail cache invalidation failed after comment: post_id=%d", postID)
+	}
 }
 
 func (service *Service) List(ctx context.Context, postID uint64, options ListOptions) (Page, error) {

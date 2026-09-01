@@ -47,6 +47,9 @@ func TestIntegrationCommentAndLikeHTTPBusinessClosure(t *testing.T) {
 	}
 	decodeIntegrationResponse(t, createdPost, &postCreation)
 	postPath := "/api/v1/posts/" + strconv.FormatUint(postCreation.Data.ID, 10)
+	// Populate the zero-count detail cache before interaction writes so the
+	// following assertions require real Redis invalidation and rebuild.
+	assertHTTPPostState(t, router, postPath, firstCookie, 0, 0, false)
 
 	for _, body := range []string{
 		`{"content":"   "}`,
