@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gates:
+    uses: ./.github/workflows/quality-gates.yml
+    with:
+      branch: ${{ github.head_ref }}
+      base_ref: origin/${{ github.base_ref }}
