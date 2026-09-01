@@ -130,9 +130,45 @@ jobs:
             )
           fi
 
-          gh pr merge "${merge_args[@]}" --auto
+          max_attempts=20
+          retry_delay_seconds=20
+          auto_merge_attempts=0
 
-          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: auto after quality gates\n- Head commit: `%s`\n' \
+          for attempt in $(seq 1 "$max_attempts"); do
+            auto_merge_attempts="$attempt"
+
+            set +e
+            output="$(gh pr merge "${merge_args[@]}" --auto 2>&1)"
+            status=$?
+            set -e
+
+            if [[ "$status" -eq 0 ]]; then
+              if [[ -n "$output" ]]; then
+                printf '%s\n' "$output"
+              fi
+              break
+            fi
+
+            if ! grep -Eiq 'unstable status|mergeable state.*unknown|still calculating|checks? (pending|in progress)' <<<"$output"; then
+              printf '%s\n' "$output" >&2
+              exit "$status"
+            fi
+
+            if [[ "$attempt" -eq "$max_attempts" ]]; then
+              printf '%s\n' "$output" >&2
+              exit "$status"
+            fi
+
+            printf 'Auto-merge enable attempt %s/%s failed while GitHub is still stabilizing PR state; retrying in %ss.\n' \
+              "$attempt" \
+              "$max_attempts" \
+              "$retry_delay_seconds"
+            printf '%s\n' "$output"
+            sleep "$retry_delay_seconds"
+          done
+
+          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: auto after quality gates\n- Head commit: `%s`\n- Auto-merge enable attempts: %s\n' \
             "$PR_URL" \
             "$merge_strategy" \
-            "$HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+            "$HEAD_SHA" \
+            "$auto_merge_attempts" >> "$GITHUB_STEP_SUMMARY"
