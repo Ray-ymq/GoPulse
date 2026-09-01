@@ -332,8 +332,20 @@ PY
   LOCK_OWNED=0
 }
 
-process_start_time() {
-  ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//'
+process_start_ticks() {
+  python3 - "$1" <<'PY'
+import sys
+
+pid = int(sys.argv[1])
+stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
+command_end = stat.rfind(')')
+if command_end < 0:
+    raise SystemExit(1)
+fields = stat[command_end + 2:].split()
+if len(fields) <= 19:
+    raise SystemExit(1)
+print(fields[19])
+PY
 }
 
 process_executable() {
@@ -349,13 +361,12 @@ validate_record() {
   python3 - "$path" "$expected_cwd" "$expected_marker" "$expected_executable" <<'PY'
 import json
 import os
-import subprocess
 import sys
 path, expected_cwd, expected_marker, expected_executable = sys.argv[1:]
 try:
     record = json.load(open(path, encoding='utf-8'))
     pid = int(record['pid'])
-    start = str(record['startTime'])
+    start_ticks = str(record['startTicks'])
     executable = os.path.realpath(str(record['executablePath']))
     cwd = os.path.realpath(str(record['workingDirectory']))
     marker = str(record['commandLineMarker'])
@@ -369,14 +380,17 @@ if expected_executable and executable != os.path.realpath(expected_executable):
     print('recorded executable does not match the expected application')
     raise SystemExit(1)
 try:
-    actual_start = subprocess.check_output(['ps', '-o', 'lstart=', '-p', str(pid)], text=True).strip()
+    stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
+    command_end = stat.rfind(')')
+    fields = stat[command_end + 2:].split()
+    actual_start_ticks = fields[19]
     actual_executable = os.path.realpath(f'/proc/{pid}/exe')
     command_line = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
 except Exception:
     print('recorded process is not running')
     raise SystemExit(1)
-if actual_start != start:
-    print('process start time does not match')
+if actual_start_ticks != start_ticks:
+    print('process start identity does not match')
     raise SystemExit(1)
 if actual_executable != executable:
     print('process executable does not match')
@@ -467,7 +481,7 @@ write_process_record() {
   local pid=$1 path=$2 cwd=$3 marker=$4 temporary
   temporary="$path.$RANDOM.tmp"
   local start executable
-  start=$(process_start_time "$pid")
+  start=$(process_start_ticks "$pid")
   executable=$(process_executable "$pid")
   python3 - "$temporary" "$path" "$pid" "$start" "$executable" "$cwd" "$marker" <<'PY'
 import json
@@ -475,7 +489,7 @@ import os
 import sys
 temporary, path, pid, start, executable, cwd, marker = sys.argv[1:]
 with open(temporary, 'w', encoding='utf-8') as handle:
-    json.dump({'pid': int(pid), 'startTime': start, 'executablePath': executable, 'workingDirectory': os.path.realpath(cwd), 'commandLineMarker': marker}, handle, separators=(',', ':'))
+    json.dump({'pid': int(pid), 'startTicks': start, 'executablePath': executable, 'workingDirectory': os.path.realpath(cwd), 'commandLineMarker': marker}, handle, separators=(',', ':'))
     handle.flush()
     os.fsync(handle.fileno())
 os.replace(temporary, path)
@@ -522,7 +536,7 @@ PY
 }
 
 stop_recorded_application() {
-  local name=$1 path=$2 cwd=$3 marker=$4 executable=${5:-} fallback=${6:-} result pid
+  local name=$1 path=$2 cwd=$3 marker=$4 executable=${5:-} fallback=${6:-} result pid stopped=0
   if [[ -f "$path" ]]; then
     if result=$(validate_record "$path" "$cwd" "$marker" "$executable"); then
       pid=$result
@@ -530,13 +544,13 @@ stop_recorded_application() {
       for _ in {1..20}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
       kill -KILL -- "-$pid" 2>/dev/null || true
       info "Stopped $name (PID $pid)."
+      stopped=1
     else
       info "Removed stale $name record without stopping a process ($result)."
     fi
     rm -f -- "$path"
-    return 0
   fi
-  if [[ -n "$fallback" ]] && kill -0 "$fallback" 2>/dev/null; then
+  if ((stopped == 0)) && [[ -n "$fallback" ]] && kill -0 "$fallback" 2>/dev/null; then
     kill -TERM -- "-$fallback" 2>/dev/null || true
     sleep 0.2
     kill -KILL -- "-$fallback" 2>/dev/null || true
