@@ -28,7 +28,7 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-The checked-in values are development-only credentials. Do not reuse them in production or commit a local `.env`. The scripts accept a restricted dotenv format and inject only the configuration required by Compose and the Backend; infrastructure credentials are not injected into the Frontend process.
+The checked-in values are development-only credentials. Do not reuse them in production or commit a local `.env`. By default, `PUBLISHED_HOST` and `HTTP_HOST` bind infrastructure ports and the Backend only to `127.0.0.1`; setting either value to a non-loopback address is an explicit remote-access choice and exposes the corresponding development service to networks allowed by the host firewall. The scripts accept a restricted dotenv format and inject only the configuration required by Compose and the Backend; infrastructure credentials are not injected into the Frontend process.
 
 ## Start the development environment
 
@@ -46,7 +46,7 @@ E:\GoPulse\scripts\dev.ps1
 /path/to/GoPulse/scripts/dev.sh
 ```
 
-A successful start provides:
+A successful default start provides the following loopback-only endpoints:
 
 | Service | Address |
 | --- | --- |
@@ -171,7 +171,12 @@ npm run typecheck
 npm run build
 ```
 
-Script syntax:
+Repository governance and script syntax:
+
+```bash
+python -m unittest discover -s scripts/ci -p 'test_*.py'
+python scripts/ci/validate_branch.py --branch "$(git branch --show-current)"
+```
 
 ```powershell
 $errors = $null
@@ -185,4 +190,4 @@ bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh
 
 ## Phase 1 handoff
 
-Phase 1 should extend the existing Backend module and reuse the established configuration loader, MySQL/Redis clients, Compose project, readiness contract, and local lifecycle commands. It should not recreate the Phase 0 infrastructure entry points.
+Phase 0 is closed at `VERSION=0.1.6`. Phase 1 should start from its authoritative `develop/0.2.1` allocation and extend the existing Backend module and reuse the established configuration loader, MySQL/Redis clients, Compose project, readiness contract, and local lifecycle commands. It should not recreate the Phase 0 infrastructure entry points.
