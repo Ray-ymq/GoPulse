@@ -8,17 +8,29 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
-	defaultAppEnv    = "development"
-	defaultHTTPHost  = "127.0.0.1"
-	defaultHTTPPort  = 8080
-	defaultMySQLHost = "127.0.0.1"
-	defaultMySQLPort = 3306
-	defaultRedisHost = "127.0.0.1"
-	defaultRedisPort = 6379
-	defaultRedisDB   = 0
+	defaultAppEnv                = "development"
+	defaultHTTPHost              = "127.0.0.1"
+	defaultHTTPPort              = 8080
+	defaultMySQLHost             = "127.0.0.1"
+	defaultMySQLPort             = 3306
+	defaultRedisHost             = "127.0.0.1"
+	defaultRedisPort             = 6379
+	defaultRedisDB               = 0
+	defaultAuthJWTTTL            = 2 * time.Hour
+	defaultAuthCookieName        = "gopulse_session"
+	defaultRedisPostDetailTTL    = 5 * time.Minute
+	defaultRedisOperationTimeout = 200 * time.Millisecond
+	minimumJWTSecretBytes        = 32
+	minimumAuthJWTTTL            = 5 * time.Minute
+	maximumAuthJWTTTL            = 24 * time.Hour
+	minimumRedisPostDetailTTL    = time.Second
+	maximumRedisPostDetailTTL    = 24 * time.Hour
+	minimumRedisOperationTimeout = 10 * time.Millisecond
+	maximumRedisOperationTimeout = 5 * time.Second
 )
 
 // LookupFunc makes configuration loading deterministic in tests without
@@ -32,6 +44,7 @@ type Config struct {
 	MySQL       MySQLConfig
 	Redis       RedisConfig
 	RabbitMQURL string
+	Auth        AuthConfig
 }
 
 type MySQLConfig struct {
@@ -43,10 +56,19 @@ type MySQLConfig struct {
 }
 
 type RedisConfig struct {
-	Host     string
-	Port     int
-	Password string
-	DB       int
+	Host             string
+	Port             int
+	Password         string
+	DB               int
+	PostDetailTTL    time.Duration
+	OperationTimeout time.Duration
+}
+
+type AuthConfig struct {
+	JWTSecret    string
+	JWTTTL       time.Duration
+	CookieName   string
+	CookieSecure bool
 }
 
 func Load() (Config, error) {
@@ -57,6 +79,8 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if lookup == nil {
 		return Config{}, errors.New("configuration lookup is required")
 	}
+
+	appEnv := valueOrDefault(lookup, "APP_ENV", defaultAppEnv)
 
 	httpPort, err := integerValue(lookup, "HTTP_PORT", defaultHTTPPort)
 	if err != nil {
@@ -114,8 +138,40 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 
+	authJWTSecret, err := requiredValue(lookup, "AUTH_JWT_SECRET")
+	if err != nil {
+		return Config{}, err
+	}
+	if len([]byte(authJWTSecret)) < minimumJWTSecretBytes {
+		return Config{}, fmt.Errorf("AUTH_JWT_SECRET must be at least %d bytes", minimumJWTSecretBytes)
+	}
+	authJWTTTL, err := durationValue(lookup, "AUTH_JWT_TTL", defaultAuthJWTTTL, minimumAuthJWTTTL, maximumAuthJWTTTL)
+	if err != nil {
+		return Config{}, err
+	}
+	authCookieName := valueOrDefault(lookup, "AUTH_COOKIE_NAME", defaultAuthCookieName)
+	if !isCookieName(authCookieName) {
+		return Config{}, errors.New("AUTH_COOKIE_NAME must be a valid HTTP cookie name")
+	}
+	authCookieSecure, err := booleanValue(lookup, "AUTH_COOKIE_SECURE", false)
+	if err != nil {
+		return Config{}, err
+	}
+	if !isLocalEnvironment(appEnv) && !authCookieSecure {
+		return Config{}, errors.New("AUTH_COOKIE_SECURE must be true outside local development and test environments")
+	}
+
+	postDetailTTL, err := durationValue(lookup, "REDIS_POST_DETAIL_TTL", defaultRedisPostDetailTTL, minimumRedisPostDetailTTL, maximumRedisPostDetailTTL)
+	if err != nil {
+		return Config{}, err
+	}
+	operationTimeout, err := durationValue(lookup, "REDIS_OPERATION_TIMEOUT", defaultRedisOperationTimeout, minimumRedisOperationTimeout, maximumRedisOperationTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		AppEnv:   valueOrDefault(lookup, "APP_ENV", defaultAppEnv),
+		AppEnv:   appEnv,
 		HTTPHost: valueOrDefault(lookup, "HTTP_HOST", defaultHTTPHost),
 		HTTPPort: httpPort,
 		MySQL: MySQLConfig{
@@ -126,12 +182,20 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			Password: mysqlPassword,
 		},
 		Redis: RedisConfig{
-			Host:     valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost),
-			Port:     redisPort,
-			Password: redisPassword,
-			DB:       redisDB,
+			Host:             valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost),
+			Port:             redisPort,
+			Password:         redisPassword,
+			DB:               redisDB,
+			PostDetailTTL:    postDetailTTL,
+			OperationTimeout: operationTimeout,
 		},
 		RabbitMQURL: rabbitMQURL,
+		Auth: AuthConfig{
+			JWTSecret:    authJWTSecret,
+			JWTTTL:       authJWTTTL,
+			CookieName:   authCookieName,
+			CookieSecure: authCookieSecure,
+		},
 	}, nil
 }
 
@@ -167,6 +231,33 @@ func integerValue(lookup LookupFunc, key string, fallback int) (int, error) {
 	return parsed, nil
 }
 
+func booleanValue(lookup LookupFunc, key string, fallback bool) (bool, error) {
+	value, ok := lookup(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean", key)
+	}
+	return parsed, nil
+}
+
+func durationValue(lookup LookupFunc, key string, fallback, minimum, maximum time.Duration) (time.Duration, error) {
+	value, ok := lookup(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid Go duration", key)
+	}
+	if parsed < minimum || parsed > maximum {
+		return 0, fmt.Errorf("%s must be between %s and %s", key, minimum, maximum)
+	}
+	return parsed, nil
+}
+
 func validatePort(key string, port int) error {
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("%s must be between 1 and 65535", key)
@@ -186,4 +277,21 @@ func validateRabbitMQURL(rawURL string) error {
 		return errors.New("RABBITMQ_URL must include a host")
 	}
 	return nil
+}
+
+func isLocalEnvironment(appEnv string) bool {
+	return strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "test") || strings.EqualFold(appEnv, "local")
+}
+
+func isCookieName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		character := name[i]
+		if character < 0x21 || character > 0x7e || strings.ContainsRune("()<>@,;:\\\"/[]?={} \t", rune(character)) {
+			return false
+		}
+	}
+	return true
 }
