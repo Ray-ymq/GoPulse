@@ -143,6 +143,7 @@ dev/logs/Phase-01/Phase-01-03-帖子发布与查询.md
 
 - `go test ./...` 通过。
 - `go vet ./...` 通过。
+- `go test -count=1 -tags=integration ./...` 在隔离 MySQL/Redis 环境通过，且真实依赖缺失不得静默 skip。
 - 用户/认证和 Phase 0 契约回归通过。
 - Redis 不可用不影响本批帖子读写，因为本批尚未引入缓存依赖。
 

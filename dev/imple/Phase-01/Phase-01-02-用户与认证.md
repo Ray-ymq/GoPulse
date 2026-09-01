@@ -43,7 +43,7 @@
 - `sub` 是十进制用户 ID 字符串，并必须能解析为正整数。
 - `iat` 和 `exp` 必须存在，有效期默认 2 小时，验证时使用可测试的时钟依赖。
 - Cookie 设置 `HttpOnly`、`SameSite=Lax`、`Path=/`，`Max-Age` 与 JWT 有效期协调。
-- 非本地开发环境强制 `Secure`，不设置宽泛 `Domain`。
+- `APP_ENV=production` 时强制 `Secure`，`development`/`test` 可为本地 HTTP 显式关闭；不设置宽泛 `Domain`。
 - 退出使用同名、同 Path 的过期 Cookie，无 Cookie 时仍幂等返回 204。
 
 ### 3.4 认证中间件
@@ -129,6 +129,7 @@ dev/logs/Phase-01/Phase-01-02-用户与认证.md
 - bcrypt 哈希不等于明文，正确密码通过，错误密码失败。
 - JWT 正常、过期、篡改、错误算法、缺失声明和非法 `sub` 均被精确处理。
 - Cookie 的 HttpOnly、SameSite、Secure、Path、Max-Age 和清除属性正确。
+- `APP_ENV=production` 且显式关闭 Secure Cookie 时配置拒绝启动，development/test 的本地 HTTP 行为与 Phase-01-01 契约一致。
 - 注册、登录、退出和当前用户的状态码与 JSON 契约正确。
 - 用户不存在和密码错误的对外响应不可区分。
 - 响应、错误和日志不包含明文密码、密码哈希、JWT 或签名密钥。
@@ -146,6 +147,7 @@ dev/logs/Phase-01/Phase-01-02-用户与认证.md
 
 - `go test ./...` 通过。
 - `go vet ./...` 通过。
+- `go test -count=1 -tags=integration ./...` 在 Phase-01-01 建立的隔离 MySQL/Redis 环境通过，且依赖缺失不得静默 skip。
 - Phase 0 `/health` 和 `/ready` 回归通过。
 - 不需要 Redis 即可完成注册、登录和认证。
 
