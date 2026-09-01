@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	stdhttp "net/http"
 	"sync"
 	"time"
@@ -46,26 +47,55 @@ type readinessResponse struct {
 	Checks  readinessChecks `json:"checks"`
 }
 
-type namedChecker struct {
-	name    string
-	checker Checker
-}
-
 type checkerResult struct {
 	name   string
 	status string
 }
 
-func NewRouter(dependencies Dependencies) *gin.Engine {
-	return newRouter(dependencies, defaultCheckerTimeout, defaultRequestTimeout)
+// checkerRunner allows at most one in-flight execution for a dependency. A
+// checker that ignores context can occupy its slot, but repeated readiness
+// requests cannot create an unbounded number of background goroutines.
+type checkerRunner struct {
+	name    string
+	checker Checker
+	slot    chan struct{}
 }
 
-func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Duration) *gin.Engine {
+func newCheckerRunner(name string, checker Checker) *checkerRunner {
+	return &checkerRunner{name: name, checker: checker, slot: make(chan struct{}, 1)}
+}
+
+func ConfigureGinMode(appEnv string) error {
+	var mode string
+	switch appEnv {
+	case "development":
+		mode = gin.DebugMode
+	case "test":
+		mode = gin.TestMode
+	case "production":
+		mode = gin.ReleaseMode
+	default:
+		return errors.New("APP_ENV must be one of development, test, or production")
+	}
+	gin.SetMode(mode)
+	return nil
+}
+
+func NewRouter(dependencies Dependencies, routes ...APIRoutes) *gin.Engine {
+	return newRouter(dependencies, defaultCheckerTimeout, defaultRequestTimeout, routes...)
+}
+
+func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Duration, routes ...APIRoutes) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readinessHandler(dependencies, checkerTimeout, requestTimeout))
-	registerAPIV1Routes(router)
+
+	var apiRoutes APIRoutes
+	if len(routes) > 0 {
+		apiRoutes = routes[0]
+	}
+	registerAPIV1Routes(router, apiRoutes)
 	return router
 }
 
@@ -77,24 +107,24 @@ func healthHandler(c *gin.Context) {
 }
 
 func readinessHandler(dependencies Dependencies, checkerTimeout, requestTimeout time.Duration) gin.HandlerFunc {
-	checkers := []namedChecker{
-		{name: "mysql", checker: dependencies.MySQL},
-		{name: "redis", checker: dependencies.Redis},
-		{name: "rabbitmq", checker: dependencies.RabbitMQ},
+	runners := []*checkerRunner{
+		newCheckerRunner("mysql", dependencies.MySQL),
+		newCheckerRunner("redis", dependencies.Redis),
+		newCheckerRunner("rabbitmq", dependencies.RabbitMQ),
 	}
 
 	return func(c *gin.Context) {
 		requestContext, cancel := context.WithTimeout(c.Request.Context(), requestTimeout)
 		defer cancel()
 
-		results := make(chan checkerResult, len(checkers))
+		results := make(chan checkerResult, len(runners))
 		var workers sync.WaitGroup
-		workers.Add(len(checkers))
-		for _, item := range checkers {
-			go func(item namedChecker) {
+		workers.Add(len(runners))
+		for _, runner := range runners {
+			go func(runner *checkerRunner) {
 				defer workers.Done()
-				results <- runChecker(requestContext, item, checkerTimeout)
-			}(item)
+				results <- runner.run(requestContext, checkerTimeout)
+			}(runner)
 		}
 
 		go func() {
@@ -108,7 +138,7 @@ func readinessHandler(dependencies Dependencies, checkerTimeout, requestTimeout 
 			"rabbitmq": statusDown,
 		}
 
-		remaining := len(checkers)
+		remaining := len(runners)
 	collect:
 		for remaining > 0 {
 			select {
@@ -142,26 +172,44 @@ func readinessHandler(dependencies Dependencies, checkerTimeout, requestTimeout 
 	}
 }
 
-func runChecker(parent context.Context, item namedChecker, timeout time.Duration) checkerResult {
-	result := checkerResult{name: item.name, status: statusDown}
-	if item.checker == nil {
+func (runner *checkerRunner) run(parent context.Context, timeout time.Duration) checkerResult {
+	result := checkerResult{name: runner.name, status: statusDown}
+	if runner.checker == nil {
+		return result
+	}
+
+	select {
+	case runner.slot <- struct{}{}:
+	case <-parent.Done():
+		return result
+	default:
 		return result
 	}
 
 	checkContext, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-
-	finished := make(chan error, 1)
+	finished := make(chan bool, 1)
 	go func() {
-		finished <- item.checker.Check(checkContext)
+		healthy := executeChecker(checkContext, runner.checker)
+		<-runner.slot
+		finished <- healthy
 	}()
 
 	select {
-	case err := <-finished:
-		if err == nil && checkContext.Err() == nil {
+	case healthy := <-finished:
+		if healthy {
 			result.status = statusUp
 		}
 	case <-checkContext.Done():
 	}
 	return result
+}
+
+func executeChecker(ctx context.Context, checker Checker) (healthy bool) {
+	defer func() {
+		if recover() != nil {
+			healthy = false
+		}
+	}()
+	return checker.Check(ctx) == nil && ctx.Err() == nil
 }

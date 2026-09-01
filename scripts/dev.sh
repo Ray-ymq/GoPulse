@@ -38,7 +38,7 @@ BACKEND_KEYS=(
   REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
 )
 ALL_CONFIG_KEYS=(
-  APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
+  PUBLISHED_HOST APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
   MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_URL
   AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
@@ -535,7 +535,7 @@ start_frontend() {
   local -a unset_args=() key
   for key in "${ALL_CONFIG_KEYS[@]}"; do unset_args+=("-u" "$key"); done
   info 'Starting Frontend.'
-  env "${unset_args[@]}" python3 - "$FRONTEND_DIR" "$(command -v node)" "$VITE_CLI" --host localhost --strictPort --config "$VITE_CONFIG" <<'PY' &
+  env "${unset_args[@]}" "HTTP_PORT=${CONFIG[HTTP_PORT]}" python3 - "$FRONTEND_DIR" "$(command -v node)" "$VITE_CLI" --host localhost --strictPort --config "$VITE_CONFIG" <<'PY' &
 import os
 import sys
 cwd, executable, *arguments = sys.argv[1:]

@@ -68,3 +68,33 @@ func TestServeReturnsStartupFailure(t *testing.T) {
 		t.Fatalf("serve() error = %v, want startup failure", err)
 	}
 }
+
+func TestNewHTTPServerAppliesResourceBoundaries(t *testing.T) {
+	handler := stdhttp.NewServeMux()
+	server := newHTTPServer("127.0.0.1:18080", handler)
+
+	if server.Addr != "127.0.0.1:18080" {
+		t.Fatalf("Addr = %q, want 127.0.0.1:18080", server.Addr)
+	}
+	if server.Handler != handler {
+		t.Fatal("Handler was not preserved")
+	}
+	if server.ReadHeaderTimeout != 5*time.Second {
+		t.Fatalf("ReadHeaderTimeout = %s, want 5s", server.ReadHeaderTimeout)
+	}
+	if server.ReadTimeout != 10*time.Second {
+		t.Fatalf("ReadTimeout = %s, want 10s", server.ReadTimeout)
+	}
+	if server.WriteTimeout != 15*time.Second {
+		t.Fatalf("WriteTimeout = %s, want 15s", server.WriteTimeout)
+	}
+	if server.IdleTimeout != 60*time.Second {
+		t.Fatalf("IdleTimeout = %s, want 60s", server.IdleTimeout)
+	}
+	if server.MaxHeaderBytes != 1<<20 {
+		t.Fatalf("MaxHeaderBytes = %d, want %d", server.MaxHeaderBytes, 1<<20)
+	}
+	if shutdownTimeout != 5*time.Second {
+		t.Fatalf("shutdownTimeout = %s, want 5s", shutdownTimeout)
+	}
+}

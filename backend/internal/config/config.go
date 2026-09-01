@@ -80,7 +80,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, errors.New("configuration lookup is required")
 	}
 
-	appEnv := valueOrDefault(lookup, "APP_ENV", defaultAppEnv)
+	appEnv, err := applicationEnvironment(lookup)
+	if err != nil {
+		return Config{}, err
+	}
 
 	httpPort, err := integerValue(lookup, "HTTP_PORT", defaultHTTPPort)
 	if err != nil {
@@ -279,8 +282,18 @@ func validateRabbitMQURL(rawURL string) error {
 	return nil
 }
 
+func applicationEnvironment(lookup LookupFunc) (string, error) {
+	value := strings.ToLower(valueOrDefault(lookup, "APP_ENV", defaultAppEnv))
+	switch value {
+	case "development", "test", "production":
+		return value, nil
+	default:
+		return "", errors.New("APP_ENV must be one of development, test, or production")
+	}
+}
+
 func isLocalEnvironment(appEnv string) bool {
-	return strings.EqualFold(appEnv, "development") || strings.EqualFold(appEnv, "test") || strings.EqualFold(appEnv, "local")
+	return appEnv == "development" || appEnv == "test"
 }
 
 func isCookieName(name string) bool {
