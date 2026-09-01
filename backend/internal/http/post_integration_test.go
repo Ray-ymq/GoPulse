@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
+	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
@@ -35,6 +37,8 @@ func TestIntegrationPostHTTPCreateListAndDetail(t *testing.T) {
 		t.Fatalf("OpenMySQLDatabase() error = %v", err)
 	}
 	defer database.Close()
+	releasePostFactsLock := integrationtest.AcquirePostFactsLock(t, database)
+	defer releasePostFactsLock()
 	router := integrationPostRouter(t, cfg, database)
 
 	registered := performJSONRequest(router, stdhttp.MethodPost, "/api/v1/auth/register", `{"username":"`+username+`","password":"integration-password"}`, nil)
@@ -127,9 +131,13 @@ func integrationPostRouter(t *testing.T, cfg config.Config, database *sql.DB) st
 	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	authService := auth.NewService(user.NewMySQLRepository(database), passwords, tokens)
 	postService := post.NewService(post.NewMySQLRepository(database))
+	commentService := comment.NewService(comment.NewMySQLRepository(database), postService)
+	likeService := like.NewService(like.NewMySQLRepository(database), postService)
 	return NewRouter(Dependencies{}, APIRoutes{
 		Auth:           auth.NewHandler(authService, cookies),
 		Posts:          post.NewHandler(postService),
+		Comments:       comment.NewHandler(commentService),
+		Likes:          like.NewHandler(likeService),
 		Authentication: middleware.RequireAuthentication(cookies.Name(), tokens),
 	})
 }

@@ -71,3 +71,16 @@ func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Po
 	}
 	return record, nil
 }
+
+// RequireExists exposes the shared post-existence boundary used by dependent
+// fact services without loading the complete viewer-specific post read model.
+func (service *Service) RequireExists(ctx context.Context, postID uint64) error {
+	exists, err := service.repository.Exists(ctx, postID)
+	if err != nil {
+		return apperror.WrapInternal(err)
+	}
+	if !exists {
+		return apperror.New(apperror.CodePostNotFound, "post not found")
+	}
+	return nil
+}
