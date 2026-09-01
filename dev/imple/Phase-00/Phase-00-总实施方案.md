@@ -13,15 +13,17 @@
 | Phase-00-03 | `0.1.3` | `develop/0.1.3` | 已完成 |
 | Phase-00-04 | `0.1.4` | `develop/0.1.4` | 已完成 |
 | Phase-00-05 | `0.1.5` | `develop/0.1.5` | 已完成 |
+| Phase-00-06 | `0.1.6` | `develop/0.1.6` | 已完成 |
 
 若实施前调整批次数量或顺序，先更新本表，再创建尚未开始的开发分支；已经推送的分支不得静默改名或重新编号。
 
 ## 当前实施基线
 
-- 根 `VERSION` 当前为 `0.1.5`，Phase-00-01 至 Phase-00-05 已全部合并到主线，对应实施记录均已存在。
+- 根 `VERSION` 当前为 `0.1.6`，Phase-00-01 至 Phase-00-06 均已完成，对应实施记录均已存在。
+- `develop/0.1.6` 被指定为 Phase 0 权威收尾分支，对应 Phase-00-06 已关闭 2026-09-01 Review 的进入 Phase 1 前阻塞项。
 - 已交付 Compose 基础设施、Backend `/health` 与 `/ready`、Frontend 连通性页面、跨平台 `dev`/`down`/`verify` 脚本及其自动化测试与集成验收。
-- Phase 0 已完成阶段级验收和收口，没有剩余实施批次；后续开发从 Phase 1 的 `0.2.x` 版本线继续。
-- 五个批次均按表中顺序从当时配置的主远程最新 `main` 创建独立开发分支，并在前置批次合并后开始下一批。
+- Phase 0 已在 Phase-00-06 完成最终关闭；后续开发从 Phase 1 的 `0.2.x` 版本线继续。
+- Phase-00-01 至 Phase-00-05 按原计划顺序完成；Phase-00-06 由用户明确指定现有 `develop/0.1.6` 为权威收尾分支，并在实施前补入本方案的版本分配。
 - 每批完成时均已将 `VERSION` 更新为本表分配的目标版本，并与对应实施记录一起提交。
 
 ## 1. 实施目标
@@ -85,7 +87,7 @@ gopulse/
 Backend 默认监听：
 
 ```text
-0.0.0.0:8080
+127.0.0.1:8080
 ```
 
 程序入口放在 `backend/cmd/server`。入口负责：
@@ -371,7 +373,7 @@ Unix 启动命令：
 - Redis 在本阶段只验证连接，不设计缓存键或缓存策略。
 - RabbitMQ 在本阶段只验证连接，不声明业务 exchange、queue 或 consumer。
 - 本地开发凭据仅用于开发环境，不提供生产级密钥管理。
-- 不增加 CI、代码生成、数据库迁移框架、完整日志体系或 Kubernetes 配置。
+- Phase-00-06 增加进入 Phase 1 所必需的基础 CI 与仓库治理门禁；仍不增加代码生成、数据库迁移框架、完整日志体系或 Kubernetes 配置。
 - 不提前实现 Phase 1 的 User、Post、Comment、Like 业务。
 - 不提前实现 Phase 2 的 RabbitMQ 异步业务处理。
 - 不提前实现 Phase 12 的 Frontend、Backend 容器化。
@@ -386,5 +388,7 @@ Phase 0 仅在以下条件全部满足时完成：
 - `/health` 和 `/ready` 的正常、单项故障、多项故障与恢复语义通过端到端验收，Frontend 实际渲染状态与 Backend 一致。
 - `Ctrl+C` 只停止本次启动的应用进程，`down` 可幂等停止应用与容器，两者都不默认删除具名卷。
 - Backend 测试与 vet、Frontend 测试/类型检查/生产构建、脚本语法检查和必要的集成回归全部通过。
-- Phase-00-01 至 Phase-00-05 的实施记录与实际工作一致，根 README 可作为新开发者的唯一启动入口。
-- 根 `VERSION` 为 `0.1.5`，未引入 Phase 1 业务 Schema、API 或其他越界能力。
+- Phase-00-01 至 Phase-00-06 的实施记录与实际工作一致，根 README 可作为新开发者的唯一启动入口。
+- Windows checkout 中 Bash 与 Go 文件保持 LF，CI 对 Backend、Frontend、脚本、Compose 和分支治理执行自动门禁。
+- 本地基础设施与 Backend 默认仅绑定回环接口，非回环访问必须显式配置。
+- 根 `VERSION` 为 `0.1.6`，未引入 Phase 1 业务 Schema、API 或其他越界能力。
