@@ -11,12 +11,22 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
+	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 )
 
-const shutdownTimeout = 5 * time.Second
+const (
+	shutdownTimeout   = 5 * time.Second
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 15 * time.Second
+	idleTimeout       = 60 * time.Second
+	maxHeaderBytes    = 1 << 20
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -29,6 +39,9 @@ func run() error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
+	}
+	if err := backendhttp.ConfigureGinMode(cfg.AppEnv); err != nil {
+		return fmt.Errorf("configure Gin mode: %w", err)
 	}
 
 	mysqlClient, err := platform.NewMySQL(cfg.MySQL)
@@ -45,21 +58,48 @@ func run() error {
 		return errors.New("initialize RabbitMQ checker")
 	}
 
-	router := backendhttp.NewRouter(backendhttp.Dependencies{
-		MySQL:    mysqlClient,
-		Redis:    redisClient,
-		RabbitMQ: rabbitMQChecker,
-	})
-	server := &stdhttp.Server{
-		Addr:              cfg.HTTPAddress(),
-		Handler:           router,
-		ReadHeaderTimeout: 5 * time.Second,
+	passwords, err := auth.NewPasswordManager()
+	if err != nil {
+		return errors.New("initialize password manager")
 	}
+	tokens, err := auth.NewTokenManager(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, time.Now)
+	if err != nil {
+		return errors.New("initialize token manager")
+	}
+	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
+	users := user.NewMySQLRepository(mysqlClient.DB())
+	authService := auth.NewService(users, passwords, tokens)
+	authHandler := auth.NewHandler(authService, cookies)
+
+	router := backendhttp.NewRouter(
+		backendhttp.Dependencies{
+			MySQL:    mysqlClient,
+			Redis:    redisClient,
+			RabbitMQ: rabbitMQChecker,
+		},
+		backendhttp.APIRoutes{
+			Auth:           authHandler,
+			Authentication: middleware.RequireAuthentication(cookies.Name(), tokens),
+		},
+	)
+	server := newHTTPServer(cfg.HTTPAddress(), router)
 
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
 	return serve(signalContext, server, server.ListenAndServe)
+}
+
+func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
+	return &stdhttp.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
 }
 
 func serve(ctx context.Context, server *stdhttp.Server, startServer func() error) error {
