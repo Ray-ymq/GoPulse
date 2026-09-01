@@ -11,22 +11,33 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
+const mysqlCollation = "utf8mb4_0900_ai_ci"
+
 type MySQL struct {
 	database *sql.DB
 }
 
 func NewMySQL(cfg config.MySQLConfig) (*MySQL, error) {
-	driverConfig := mysql.NewConfig()
-	driverConfig.User = cfg.User
-	driverConfig.Passwd = cfg.Password
-	driverConfig.Net = "tcp"
-	driverConfig.Addr = net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
-	driverConfig.DBName = cfg.Database
-	driverConfig.ParseTime = true
-	driverConfig.Timeout = time.Second
-	driverConfig.ReadTimeout = time.Second
-	driverConfig.WriteTimeout = time.Second
+	database, err := OpenMySQLDatabase(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &MySQL{database: database}, nil
+}
 
+// OpenMySQLDatabase opens a UTC MySQL connection for ordinary application use.
+func OpenMySQLDatabase(cfg config.MySQLConfig) (*sql.DB, error) {
+	return openMySQLDatabase(mysqlDriverConfig(cfg))
+}
+
+// OpenMySQLMigrationDatabase opens a MySQL connection that allows versioned SQL
+// migration files to contain multiple DDL statements. General application
+// connections keep multi-statements disabled.
+func OpenMySQLMigrationDatabase(cfg config.MySQLConfig) (*sql.DB, error) {
+	return openMySQLDatabase(mysqlMigrationDriverConfig(cfg))
+}
+
+func openMySQLDatabase(driverConfig *mysql.Config) (*sql.DB, error) {
 	connector, err := mysql.NewConnector(driverConfig)
 	if err != nil {
 		return nil, err
@@ -36,7 +47,30 @@ func NewMySQL(cfg config.MySQLConfig) (*MySQL, error) {
 	database.SetConnMaxLifetime(3 * time.Minute)
 	database.SetMaxIdleConns(2)
 	database.SetMaxOpenConns(10)
-	return &MySQL{database: database}, nil
+	return database, nil
+}
+
+func mysqlDriverConfig(cfg config.MySQLConfig) *mysql.Config {
+	driverConfig := mysql.NewConfig()
+	driverConfig.User = cfg.User
+	driverConfig.Passwd = cfg.Password
+	driverConfig.Net = "tcp"
+	driverConfig.Addr = net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	driverConfig.DBName = cfg.Database
+	driverConfig.ParseTime = true
+	driverConfig.Loc = time.UTC
+	driverConfig.Collation = mysqlCollation
+	driverConfig.Timeout = time.Second
+	driverConfig.ReadTimeout = time.Second
+	driverConfig.WriteTimeout = time.Second
+	driverConfig.Params = map[string]string{"time_zone": "'+00:00'"}
+	return driverConfig
+}
+
+func mysqlMigrationDriverConfig(cfg config.MySQLConfig) *mysql.Config {
+	driverConfig := mysqlDriverConfig(cfg)
+	driverConfig.MultiStatements = true
+	return driverConfig
 }
 
 func (client *MySQL) Check(ctx context.Context) error {
