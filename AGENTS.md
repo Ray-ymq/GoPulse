@@ -59,4 +59,9 @@
 # Platform Usage Rule
 
 - On macOS, use the project workspace primarily for project planning and subsequent architectural adjustments.
-- On Windows, use the project workspace primarily for project development and implementation.
+- Phase 0 and Phase-01-01 completed the original native Windows PowerShell and Unix Bash dual-platform baseline through product version `0.2.1`.
+- From Phase-01-02 through Phase 16, use WSL2 on Windows as the primary project development, implementation, application-testing, and integration-acceptance environment.
+- Keep the active repository checkout in the WSL Linux filesystem, such as `/home/<user>/src/GoPulse`, rather than under `/mnt/c`, `/mnt/d`, or another Windows-mounted filesystem. Use one Docker daemon through Docker Desktop WSL integration or one WSL-native Docker Engine; do not run competing daemons for the same workspace.
+- During Phase-01-02 through Phase 16, Bash scripts are the sole maintained local lifecycle and acceptance entry points. Do not require new or updated native PowerShell equivalents, PowerShell/Bash semantic parity, Windows runners, or native Windows acceptance as a Phase or batch completion condition.
+- The existing `scripts/*.ps1` files are frozen at the `0.2.1` capability baseline. Preserve them as historical working artifacts, but do not treat them as supported for later product versions or update them during Phase 1 through Phase 16 unless a critical repository-safety issue requires an explicit exception.
+- Native Windows PowerShell compatibility is an unnumbered post-Phase-16 activity. Define its implementation plan, version, branch, compatibility matrix, and acceptance scope only after Phase 16 is complete; do not silently add that work to an earlier Phase.
