@@ -23,6 +23,8 @@ func TestIntegrationPostRepositoryReadModelStablePaginationAndQueryPlan(t *testi
 		t.Fatalf("OpenMySQLDatabase() error = %v", err)
 	}
 	defer database.Close()
+	releasePostFactsLock := integrationtest.AcquirePostFactsLock(t, database)
+	defer releasePostFactsLock()
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatalf("BeginTx() error = %v", err)

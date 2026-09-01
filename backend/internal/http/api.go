@@ -2,6 +2,8 @@ package http
 
 import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
+	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
+	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/gin-gonic/gin"
 )
@@ -9,6 +11,8 @@ import (
 type APIRoutes struct {
 	Auth           *auth.Handler
 	Posts          *post.Handler
+	Comments       *comment.Handler
+	Likes          *like.Handler
 	Authentication gin.HandlerFunc
 }
 
@@ -33,5 +37,13 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		protected.POST("/posts", routes.Posts.Create)
 		protected.GET("/posts", routes.Posts.List)
 		protected.GET("/posts/:postId", routes.Posts.Detail)
+	}
+	if routes.Comments != nil {
+		protected.POST("/posts/:postId/comments", routes.Comments.Create)
+		protected.GET("/posts/:postId/comments", routes.Comments.List)
+	}
+	if routes.Likes != nil {
+		protected.PUT("/posts/:postId/like", routes.Likes.Like)
+		protected.DELETE("/posts/:postId/like", routes.Likes.Unlike)
 	}
 }
