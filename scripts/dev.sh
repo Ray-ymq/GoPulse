@@ -34,15 +34,19 @@ COMPOSE_KEYS=(
 BACKEND_KEYS=(
   APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
   MYSQL_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB RABBITMQ_URL
+  AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
+  REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
 )
 ALL_CONFIG_KEYS=(
   APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
   MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_URL
+  AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
+  REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
 )
 REQUIRED_KEYS=(
   MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PASSWORD
-  RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_URL
+  RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_URL AUTH_JWT_SECRET
 )
 declare -A CALLER_ENV=()
 declare -A DOTENV=()
@@ -52,6 +56,8 @@ declare -A DEFAULTS=(
   [MYSQL_HOST]=127.0.0.1 [MYSQL_PORT]=3306
   [REDIS_HOST]=127.0.0.1 [REDIS_PORT]=6379 [REDIS_DB]=0
   [RABBITMQ_PORT]=5672 [RABBITMQ_MANAGEMENT_PORT]=15672
+  [AUTH_JWT_TTL]=2h [AUTH_COOKIE_NAME]=gopulse_session [AUTH_COOKIE_SECURE]=false
+  [REDIS_POST_DETAIL_TTL]=5m [REDIS_OPERATION_TIMEOUT]=200ms
 )
 while IFS='=' read -r key value; do
   CALLER_ENV["$key"]=$value
@@ -451,6 +457,15 @@ wait_for_infrastructure() {
   fail "Infrastructure did not become healthy (${failed[*]}). Inspect it with: docker compose --project-name $PROJECT_NAME --env-file '$ENV_FILE' --file '$COMPOSE_FILE' ps"
 }
 
+run_database_migrations() {
+  local -a env_args=() key
+  for key in "${BACKEND_KEYS[@]}"; do
+    [[ -v CONFIG[$key] ]] && env_args+=("$key=${CONFIG[$key]}")
+  done
+  info 'Applying database migrations.'
+  (cd "$BACKEND_DIR" && env "${env_args[@]}" go run ./cmd/migrate up)
+}
+
 ensure_frontend_dependencies() {
   local lock="$FRONTEND_DIR/package-lock.json" modules="$FRONTEND_DIR/node_modules" marker="$FRONTEND_DIR/node_modules/.gopulse-package-lock.sha256" hash platform fingerprint recorded= needs_install=0
   [[ -f "$lock" ]] || { fail 'frontend/package-lock.json is required for reproducible installation.'; return 1; }
@@ -600,6 +615,7 @@ main() {
   info 'Starting Compose infrastructure.'
   compose up -d mysql redis rabbitmq || return 1
   wait_for_infrastructure || return 1
+  run_database_migrations || return 1
   ensure_frontend_dependencies || return 1
   build_backend || return 1
   start_backend || return 1

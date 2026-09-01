@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadFromDefaults(t *testing.T) {
@@ -23,6 +24,12 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Redis.Host != "127.0.0.1" || cfg.Redis.Port != 6379 || cfg.Redis.DB != 0 {
 		t.Fatalf("Redis config = %#v, want default endpoint and DB", cfg.Redis)
 	}
+	if cfg.Auth.JWTTTL != 2*time.Hour || cfg.Auth.CookieName != "gopulse_session" || cfg.Auth.CookieSecure {
+		t.Fatalf("Auth config = %#v, want local defaults", cfg.Auth)
+	}
+	if cfg.Redis.PostDetailTTL != 5*time.Minute || cfg.Redis.OperationTimeout != 200*time.Millisecond {
+		t.Fatalf("Redis durations = %#v, want defaults", cfg.Redis)
+	}
 }
 
 func TestLoadFromOverrides(t *testing.T) {
@@ -35,6 +42,11 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["REDIS_HOST"] = "redis.internal"
 	env["REDIS_PORT"] = "16379"
 	env["REDIS_DB"] = "3"
+	env["AUTH_JWT_TTL"] = "30m"
+	env["AUTH_COOKIE_NAME"] = "custom_session"
+	env["AUTH_COOKIE_SECURE"] = "true"
+	env["REDIS_POST_DETAIL_TTL"] = "10m"
+	env["REDIS_OPERATION_TIMEOUT"] = "350ms"
 
 	cfg, err := LoadFrom(mapLookup(env))
 	if err != nil {
@@ -50,10 +62,16 @@ func TestLoadFromOverrides(t *testing.T) {
 	if cfg.Redis.Host != "redis.internal" || cfg.Redis.Port != 16379 || cfg.Redis.DB != 3 {
 		t.Fatalf("unexpected Redis config: %#v", cfg.Redis)
 	}
+	if cfg.Auth.JWTTTL != 30*time.Minute || cfg.Auth.CookieName != "custom_session" || !cfg.Auth.CookieSecure {
+		t.Fatalf("unexpected auth config: %#v", cfg.Auth)
+	}
+	if cfg.Redis.PostDetailTTL != 10*time.Minute || cfg.Redis.OperationTimeout != 350*time.Millisecond {
+		t.Fatalf("unexpected Redis duration config: %#v", cfg.Redis)
+	}
 }
 
 func TestLoadFromMissingRequiredValue(t *testing.T) {
-	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_URL"} {
+	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_URL", "AUTH_JWT_SECRET"} {
 		t.Run(key, func(t *testing.T) {
 			env := requiredEnvironment()
 			delete(env, key)
@@ -124,13 +142,79 @@ func TestLoadFromRejectsInvalidRabbitMQURLWithoutLeakingIt(t *testing.T) {
 	}
 }
 
+func TestLoadFromRejectsInvalidAuthenticationConfigurationWithoutLeakingSecret(t *testing.T) {
+	secret := "too-short"
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "short secret", key: "AUTH_JWT_SECRET", value: secret},
+		{name: "short ttl", key: "AUTH_JWT_TTL", value: "1m"},
+		{name: "long ttl", key: "AUTH_JWT_TTL", value: "25h"},
+		{name: "invalid cookie name", key: "AUTH_COOKIE_NAME", value: "bad cookie"},
+		{name: "invalid secure flag", key: "AUTH_COOKIE_SECURE", value: "sometimes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			env := requiredEnvironment()
+			env[test.key] = test.value
+			_, err := LoadFrom(mapLookup(env))
+			if err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("LoadFrom() error = %v, want %s error", err, test.key)
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("configuration error leaked JWT secret: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoadFromRequiresSecureCookieOutsideLocalEnvironments(t *testing.T) {
+	env := requiredEnvironment()
+	env["APP_ENV"] = "production"
+	env["AUTH_COOKIE_SECURE"] = "false"
+
+	_, err := LoadFrom(mapLookup(env))
+	if err == nil || !strings.Contains(err.Error(), "AUTH_COOKIE_SECURE") {
+		t.Fatalf("LoadFrom() error = %v, want secure cookie requirement", err)
+	}
+
+	env["AUTH_COOKIE_SECURE"] = "true"
+	if _, err := LoadFrom(mapLookup(env)); err != nil {
+		t.Fatalf("LoadFrom() with secure production cookie error = %v", err)
+	}
+}
+
+func TestLoadFromRejectsInvalidRedisDurations(t *testing.T) {
+	for _, test := range []struct {
+		key   string
+		value string
+	}{
+		{key: "REDIS_POST_DETAIL_TTL", value: "0s"},
+		{key: "REDIS_POST_DETAIL_TTL", value: "25h"},
+		{key: "REDIS_OPERATION_TIMEOUT", value: "5ms"},
+		{key: "REDIS_OPERATION_TIMEOUT", value: "6s"},
+	} {
+		t.Run(test.key+"_"+test.value, func(t *testing.T) {
+			env := requiredEnvironment()
+			env[test.key] = test.value
+			_, err := LoadFrom(mapLookup(env))
+			if err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("LoadFrom() error = %v, want %s error", err, test.key)
+			}
+		})
+	}
+}
+
 func requiredEnvironment() map[string]string {
 	return map[string]string{
-		"MYSQL_DATABASE": "gopulse",
-		"MYSQL_USER":     "gopulse",
-		"MYSQL_PASSWORD": "mysql-secret",
-		"REDIS_PASSWORD": "redis-secret",
-		"RABBITMQ_URL":   "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
+		"MYSQL_DATABASE":  "gopulse",
+		"MYSQL_USER":      "gopulse",
+		"MYSQL_PASSWORD":  "mysql-secret",
+		"REDIS_PASSWORD":  "redis-secret",
+		"RABBITMQ_URL":    "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
+		"AUTH_JWT_SECRET": "local-development-jwt-secret-32-bytes-minimum",
 	}
 }
 
