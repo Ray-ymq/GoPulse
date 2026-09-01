@@ -21,11 +21,12 @@
 
 ### 2.1 前置条件
 
-- Phase 0 全部实施批次已完成并通过验收。
+- Phase 0 全部六个实施批次已完成并通过验收，Phase-01-01 已合并，根 `VERSION` 为 `0.2.1`。
 - Backend、Frontend、MySQL、Redis 和统一开发脚本已可用。
 - Phase 0 的 `/health` 和 `/ready` 契约保持可用。
-- 根目录存在有效的 `VERSION` 文件，或仓库存在可用的 SemVer Git 标签。
-- Windows 开发环境可以运行 Go、Node.js、npm 和 Docker Compose。
+- Phase-01-01 已完成迁移、Schema、HTTP 通用契约、配置扩展和迁移前置启动，但原方案中的 readiness 生命周期/panic 隔离、HTTP Server 完整资源边界、动态 Vite proxy、Gin mode 映射和隔离 integration CI 未关闭；这些事实必须在 Phase-01-01 记录中如实保留，并由 Phase-01-02 在认证实现前完成。
+- 根目录存在有效的 `VERSION` 文件，并以该文件作为当前完成版本的唯一来源。
+- 从 Phase-01-02 起，Windows 宿主机的 WSL2 Linux 环境可以运行 Go、Node.js、npm、Bash 和 Docker Compose，活动仓库位于 WSL Linux 文件系统。
 
 Phase 0 未完成时不得跳过前置验收直接实施 Phase 1，也不得为了实现 Phase 1 而在业务批次中重建 Phase 0 工程骨架。
 
@@ -44,11 +45,12 @@ Phase 1 使用 `0.2.x` 版本线，`0.2.0` 保留为阶段基线，不对应可�
 
 执行规则：
 
-- Phase 0 完成时的 `0.1.5` 是 Phase-01-01 的输入基线；不需要先创建仅包含 `VERSION=0.2.0` 的空批次。
+- Phase 0 完成时的 `0.1.6` 是 Phase-01-01 的输入基线；不需要先创建仅包含 `VERSION=0.2.0` 的空批次。
 - 每个批次是独立开发任务。开始前获取配置的主远程最新状态，在前置批次已合并后从该远程 `main` 创建表中对应分支。
 - 每批完成时将根 `VERSION` 更新为本批目标版本，与实施记录一起提交；不把六批变更累积到阶段末一次升版。
 - 批次完成或已打开 Pull Request 后，不自动在该分支继续下一批；下一批必须使用自己的版本分支。
 - 如批次数量或顺序在实施前调整，先更新本表并重算尚未创建的分支；已推送分支不得静默改名或重新编号。
+- Phase-01-01 已按原双平台策略同步更新 PowerShell 与 Bash 开发入口。自 Phase-01-02 起只维护并验收 Bash 生命周期与验收脚本，现有 PowerShell 脚本冻结在 `0.2.1` 能力基线，原生 Windows 兼容不作为本阶段完成条件。
 
 ## 3. 范围与边界
 
@@ -62,6 +64,7 @@ Phase 1 使用 `0.2.x` 版本线，`0.2.0` 保留为阶段基线，不对应可�
 - Redis 帖子详情公共投影缓存与降级。
 - Vue Router 业务页面、认证状态恢复和最小交互。
 - Backend、Frontend 与真实基础设施的自动化测试和集成验收。
+- 关闭 Phase-00-06 明确移交的 readiness goroutine 生命周期与 panic 隔离、HTTP Server 超时/请求头边界、`HTTP_PORT`/Vite proxy/`APP_ENV` 端到端配置契约。
 
 ### 3.2 本阶段不实现
 
@@ -229,7 +232,7 @@ frontend/src/
 - JWT 至少包含 `sub`、`iat` 和 `exp`，`sub` 为用户 ID。
 - 默认有效期为 2 小时，通过受校验的环境变量配置。
 - JWT 只通过 `HttpOnly` Cookie 传输，不写入 `localStorage` 或 `sessionStorage`。
-- Cookie 使用 `SameSite=Lax`、`Path=/`；非本地开发环境必须启用 `Secure`。
+- Cookie 使用 `SameSite=Lax`、`Path=/`；`APP_ENV=production` 时必须启用 `Secure`。
 - JWT 签名密钥从环境变量读取，不得使用代码内置默认密钥，也不得在日志或错误中输出。
 - 退出登录通过清除 Cookie 完成；Phase 1 不建立 JWT 黑名单或 Redis 会话库。
 
@@ -241,6 +244,13 @@ Phase 1 的认证方案是最小业务基线，不代表完整生产级身份系
 - 退出接口可在 Cookie 已过期时幂等调用。
 - 当前用户、帖子、评论和点赞 API 都需要有效登录身份。
 - 未登录用户访问受保护 API 时统一返回 HTTP 401，不在 Handler 中重复解析 JWT。
+
+### 6.4 运行环境与 Cookie 安全映射
+
+- `APP_ENV` 只接受 `development`、`test` 和 `production`。
+- `development`、`test`、`production` 分别映射到 Gin 的 debug、test、release mode；映射在 Router 创建前完成并具有配置测试。
+- `APP_ENV=production` 时必须启用 Secure Cookie，配置显式关闭时 Backend 拒绝启动；本地 HTTP 开发和隔离测试环境可显式关闭。
+- 启动日志可记录环境名称和 Gin mode，但不得输出 JWT 密钥、密码、Cookie 值或完整连接串。
 
 ## 7. HTTP API 契约
 
@@ -331,7 +341,7 @@ TTL: 5 分钟
 1. 先完成 MySQL 事实写入或删除。
 2. MySQL 成功后尝试删除目标帖子详情缓存。
 3. Redis 删除失败不回滚 MySQL，不将已成功的业务写入改成失败。
-4. 失效失败可能在 TTL 内产生短期陈旧计数，这是 Phase 1 明确接受的最终一致语义。
+4. 失效失败或并发旧读在成功删除后回填，都可能在 TTL 内产生短期陈旧计数，这是 Phase 1 明确接受且必须测试、记录的最终一致语义。
 
 ### 8.3 故障边界
 
@@ -339,6 +349,7 @@ TTL: 5 分钟
 - Redis 读写必须使用独立短超时，不让缓存故障长时间占用业务请求。
 - 缓存中的未知版本、非法 JSON 或字段缺失按缓存未命中处理，不向客户端返回损坏数据。
 - Phase 1 不引入分布式锁、singleflight、空值缓存、延迟双删或复杂缓存预热。
+- Phase 1 接受 TTL 有界的公共投影最终一致性：除失效失败外，并发缓存 miss 也可能在事实写入和删除缓存之后回填旧投影。该窗口必须有确定性测试并在 README/实施记录中说明，不能被描述为只有 Redis 删除失败才会陈旧。
 
 ## 9. Frontend 设计
 
@@ -357,6 +368,7 @@ TTL: 5 分钟
 ### 9.2 请求与状态
 
 - Frontend 使用同源 `/api/v1` 相对路径，Vite 代理到 Backend。
+- Vite 使用与 Backend、开发脚本和验收脚本相同的 `HTTP_PORT` 配置来源；必须覆盖非默认端口的端到端测试，不再硬编码 `8080`。
 - 请求明确包含 Cookie 凭据，统一解析成功响应和错误响应。
 - 收到 HTTP 401 时清除内存中的认证状态并导航到登录页，不尝试在 Frontend 自行解析或续期 JWT。
 - 表单显示必填、长度和格式错误，但 Backend 仍是输入校验的最终边界。
@@ -384,12 +396,31 @@ REDIS_OPERATION_TIMEOUT
 
 配置规则：
 
+- `APP_ENV` 按 6.4 节校验并映射 Gin mode，不再保留只加载但不参与运行时行为的配置。
 - `AUTH_JWT_SECRET` 必填且必须满足明确的最小长度，`.env.example` 只保存标记为本地开发用的非生产示例值。
 - 持续时间使用可解析且有上下限的 Go duration 字符串。
 - Cookie 名称必须是合法的 HTTP Cookie 名称。
 - 生产环境配置不允许关闭 Secure Cookie，本地 HTTP 开发可显式关闭。
 - 配置错误导致 Backend 非零退出，日志不输出密钥、密码或完整连接串。
 - 本地开发脚本继续从根 `.env` 向 Backend 子进程注入配置。
+- Phase 0 已存在的 `.env` 由用户拥有且不得自动覆盖；缺少新增必填项时，开发脚本必须列出缺失键并给出从 `.env.example` 手工升级的明确提示。该升级说明在 Phase-01-01 即写入 README，不延迟到阶段收口。
+- `cmd/migrate` 只加载迁移必需的 MySQL 配置，不因 JWT、Cookie、Redis 或 RabbitMQ 的无关配置缺失而拒绝执行。
+
+### 10.1 HTTP Server 资源边界
+
+普通 JSON API 统一使用可测试的 `http.Server` 构造入口，Phase-01-01 建立以下基线：
+
+- `ReadHeaderTimeout=5s`、`ReadTimeout=10s`、`WriteTimeout=15s`、`IdleTimeout=60s`。
+- `MaxHeaderBytes=1 MiB`，业务 JSON 请求体继续使用独立的 64 KiB 上限。
+- 后续流式接口必须使用单独评估的 Server 或明确例外，不得因此移除普通 API 的全局边界。
+- Server 构造测试必须精确验证上述值，避免只在 `main` 中形成无法回归的硬编码。
+
+### 10.2 Readiness 执行边界
+
+- 保持 Phase 0 `/ready` 的路径、状态码和 JSON 响应契约不变。
+- `Checker.Check` 必须遵守传入 context；readiness 隔离层不得为每次请求创建无法回收的无界嵌套 goroutine。
+- 对忽略 context 的异常 checker 使用有界并发、共享执行或等价机制，使连续超时请求不会造成 goroutine 数量线性增长。
+- checker panic 必须在隔离边界恢复、记录无敏感信息的诊断，并把对应依赖标记为 `down`，不得终止 Backend 进程。
 
 ## 11. 错误处理与一致性
 
@@ -429,6 +460,7 @@ Service 产生业务语义错误，HTTP 层统一映射状态码和错误响应�
 - 评论发布、分页和目标帖子不存在。
 - 点赞和取消点赞的幂等语义。
 - 缓存命中、未命中、回填、无效内容和 Redis 失败降级。
+- 并发缓存 miss 与评论/点赞写入交错时，验证公共投影最多在 TTL 边界内陈旧，且 MySQL 事实、`liked_by_me` 和写入成功语义不受影响。
 - MySQL 成功但缓存失效失败时，业务写入仍返回成功。
 - HTTP 状态码、统一响应、请求体边界和敏感信息不泄漏。
 
@@ -442,6 +474,13 @@ Service 产生业务语义错误，HTTP 层统一映射状态码和错误响应�
 - Backend 重启后可继续读取重启前的用户、帖子、评论和点赞。
 
 真实数据库测试必须使用专用测试库或可确认的隔离数据库，不得清空开发者的日常数据库。
+
+真实基础设施测试与默认单元测试分开执行：
+
+- `go test -count=1 ./...` 运行不依赖外部服务的单元、Handler 和契约测试。
+- `go test -count=1 -tags=integration ./...` 运行迁移及真实 MySQL/Redis Repository 测试；进入 integration 模式后依赖缺失必须失败，不得以 skip 产生假绿。
+- Phase-01-02 更新 GitHub Actions 质量门禁，为 integration job 提供隔离 MySQL/Redis 服务、执行向上迁移并使用经严格校验的专用数据库/Redis DB；这是 Phase-01-01 未完成的明确移交项，不能再次延期。
+- 本地和 CI 的 integration 命令、环境变量与退出语义保持一致，实际执行结果记录到对应批次开发记录。
 
 ### 12.3 Frontend 测试
 
@@ -477,10 +516,12 @@ Phase 1 拆分为六个顺序批次，每个批次单独编写详细实施方案
 
 - 建立迁移命令、四张核心表、索引和约束。
 - 建立业务 API 路由组、统一成功/错误响应和严格 JSON 解析。
-- 扩展配置、开发脚本和测试数据库边界。
+- 已扩展配置和 PowerShell/Bash 开发脚本，并提供现有 `.env` 的手工升级路径。
+- readiness、HTTP Server、动态 Vite proxy、Gin mode 和 integration CI 未在本批关闭，实际偏差记录于对应实施记录并移交 Phase-01-02。
 
 ### 13.2 [Phase 1-02：用户与认证](Phase-01-02-用户与认证.md)
 
+- 在认证实现前关闭 Phase-01-01 移交的 readiness、HTTP Server、动态 Vite proxy、Gin mode 和 integration CI 缺口。
 - 实现注册、登录、退出和当前用户接口。
 - 实现 bcrypt、JWT、Cookie 和认证中间件。
 - 完成用户与认证单元测试和 Repository 验证。
@@ -507,6 +548,8 @@ Phase 1 拆分为六个顺序批次，每个批次单独编写详细实施方案
 
 - 实现路由、注册、登录、帖子列表、发布、详情、评论和点赞页面。
 - 保持默认验收脚本只读，新增使用专用验收数据库的完整业务验收入口，完成真实基础设施和 Backend 重启验收。
+- `verify-business` 使用独立 Compose project、端口、数据库、Redis 和进程记录；故障注入只能作用于该脚本创建并验证归属的验收资源，且成功、失败或中断后都完成恢复与清理。
+- 只实现 Bash `verify-business.sh`，并将新增 Bash 脚本纳入 Linux 质量门禁和安全负向测试。
 - 更新开发入口文档、本批 `VERSION` 和 Phase 1 实施记录，完成阶段收口。
 
 ## 14. 实施记录
@@ -535,9 +578,13 @@ dev/logs/Phase-01/Phase-01-XX-<名称>.md
 - Redis 清空、故障和恢复不会造成业务事实丢失，核心业务可降级到 MySQL。
 - 认证 Cookie 不向 JavaScript 暴露，密码、密钥、连接串和底层错误不出现在 HTTP 响应或日志中。
 - 数据库迁移能从空库建立 Phase 1 Schema，约束、索引和幂等语义经过验证。
+- Phase-00-06 移交的 readiness 生命周期/panic 隔离、HTTP Server 资源边界和配置一致性整改全部关闭并有自动回归测试。
 - Backend 单元测试、Repository 集成测试、`go test ./...`、`go vet ./...` 全部通过。
+- GitHub Actions 的隔离 MySQL/Redis integration job 通过，且不会因依赖缺失而静默跳过。
 - Frontend 自动化测试、TypeScript 类型检查和生产构建全部通过。
 - 真实 MySQL、Redis、Backend 重启和 Redis 故障/恢复集成验收通过。
+- WSL2/Bash 生命周期与业务验收入口通过；原生 PowerShell 脚本保持 `0.2.1` 冻结状态，不属于本阶段验收范围。
+- 完整业务验收只操作独立且归属已校验的验收资源；并行存在的日常开发栈和用户 `.env` 保持不变。
 - `/health` 和 `/ready` 保持 Phase 0 契约，未引入 Phase 2 或后续阶段能力。
 - 六个批次的实施记录与实际工作一致。
 - 六个批次均在各自分支完成版本更新，阶段收口时根 `VERSION` 为 `0.2.6`，且各批提交均不包含无关文件。

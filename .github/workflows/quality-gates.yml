@@ -24,9 +24,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Test governance rules
-        run: python -m unittest discover -s scripts/ci -p 'test_*.py'
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
       - name: Validate branch allocation and scope
-        run: python scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}"
+        run: python3 scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}"
 
   backend:
     name: Backend
@@ -67,16 +67,11 @@ jobs:
       - run: npm run build
 
   scripts-and-compose:
-    name: Scripts and Compose (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    name: Scripts and Compose
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Verify LF checkout and Bash syntax
-        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
@@ -85,23 +80,7 @@ jobs:
             exit 1
           fi
           bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh
-      - name: Verify PowerShell syntax
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $failed = $false
-          foreach ($path in 'scripts/dev.ps1', 'scripts/down.ps1', 'scripts/verify.ps1') {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) > $null
-            if ($errors.Count -gt 0) {
-              $errors | ForEach-Object { Write-Error "${path}: $_" }
-              $failed = $true
-            }
-          }
-          if ($failed) { exit 1 }
       - name: Validate Compose configuration and loopback publishing
-        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
