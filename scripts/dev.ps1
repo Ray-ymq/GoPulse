@@ -41,7 +41,8 @@ $script:ComposeKeys = @(
 $script:BackendKeys = @(
   'APP_ENV', 'HTTP_HOST', 'HTTP_PORT', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_DATABASE',
   'MYSQL_USER', 'MYSQL_PASSWORD', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD',
-  'REDIS_DB', 'RABBITMQ_URL'
+  'REDIS_DB', 'RABBITMQ_URL', 'AUTH_JWT_SECRET', 'AUTH_JWT_TTL', 'AUTH_COOKIE_NAME',
+  'AUTH_COOKIE_SECURE', 'REDIS_POST_DETAIL_TTL', 'REDIS_OPERATION_TIMEOUT'
 )
 $script:AllConfigKeys = @($script:ComposeKeys + $script:BackendKeys | Sort-Object -Unique)
 $script:Defaults = @{
@@ -49,10 +50,13 @@ $script:Defaults = @{
   MYSQL_HOST = '127.0.0.1'; MYSQL_PORT = '3306'
   REDIS_HOST = '127.0.0.1'; REDIS_PORT = '6379'; REDIS_DB = '0'
   RABBITMQ_PORT = '5672'; RABBITMQ_MANAGEMENT_PORT = '15672'
+  AUTH_JWT_TTL = '2h'; AUTH_COOKIE_NAME = 'gopulse_session'; AUTH_COOKIE_SECURE = 'false'
+  REDIS_POST_DETAIL_TTL = '5m'; REDIS_OPERATION_TIMEOUT = '200ms'
 }
 $script:RequiredKeys = @(
   'MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD',
-  'REDIS_PASSWORD', 'RABBITMQ_USER', 'RABBITMQ_PASSWORD', 'RABBITMQ_URL'
+  'REDIS_PASSWORD', 'RABBITMQ_USER', 'RABBITMQ_PASSWORD', 'RABBITMQ_URL',
+  'AUTH_JWT_SECRET'
 )
 
 function Write-Info {
@@ -415,6 +419,22 @@ function Wait-ForInfrastructure {
   Throw-DevError "Infrastructure did not become healthy ($($failed -join ', ')). Inspect it with: $diagnostic"
 }
 
+function Invoke-DatabaseMigrations {
+  param([Parameter(Mandatory)][hashtable]$Configuration)
+  Write-Info 'Applying database migrations.'
+  $backendEnvironment = @{}
+  foreach ($key in $script:BackendKeys) {
+    if ($Configuration.ContainsKey($key)) { $backendEnvironment[$key] = [string]$Configuration[$key] }
+  }
+  Invoke-WithEnvironment -Values $backendEnvironment -Action {
+    Push-Location $script:BackendDirectory
+    try {
+      & $script:GoCommand run ./cmd/migrate up
+      if ($LASTEXITCODE -ne 0) { Throw-DevError "Database migration failed with exit code $LASTEXITCODE." }
+    } finally { Pop-Location }
+  }
+}
+
 function Ensure-FrontendDependencies {
   $packageLock = Join-Path $script:FrontendDirectory 'package-lock.json'
   $nodeModules = Join-Path $script:FrontendDirectory 'node_modules'
@@ -619,6 +639,7 @@ function Invoke-DevelopmentSession {
   Write-Info 'Starting Compose infrastructure.'
   Invoke-ComposeVisible -CommandArguments @('up', '-d', 'mysql', 'redis', 'rabbitmq')
   Wait-ForInfrastructure
+  Invoke-DatabaseMigrations -Configuration $configuration
   Ensure-FrontendDependencies
   Build-Backend
   Start-Applications -Configuration $configuration
