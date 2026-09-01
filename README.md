@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **0.2.6**. Phase 1 is complete: the repository provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache.
+GoPulse is currently at product version **0.2.7**. Phase 1 is complete: the repository provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache.
 
 The repository currently provides:
 
@@ -147,9 +147,10 @@ Development startup never runs `down` and never clears the development database 
 | `/posts` | authenticated | Newest-first post list with cursor-based loading |
 | `/posts/new` | authenticated | Publish a validated title and body |
 | `/posts/:postId` | authenticated | Read detail, paginate comments, comment, like, and unlike |
+| `/auth-recovery` | temporary recovery state | Retry current-user restoration after a network, server, or invalid-response failure |
 | `/dev/status` | unrestricted diagnostic | Inspect `/health` and `/ready` without appearing in business navigation |
 
-The first business navigation waits for `/api/v1/users/me`. Authenticated users are redirected away from anonymous pages, while unauthenticated users are redirected away from protected pages. JWT values are never read, parsed, or stored by the Frontend; all API calls use same-origin paths and Cookie credentials.
+The first business navigation waits for `/api/v1/users/me`. Only a valid `401 authentication_required` response establishes an anonymous state. Network failures, 5xx responses, and invalid responses retain a retryable recovery state and route to `/auth-recovery`, so an existing Cookie session is not presented as a logout. Authenticated users are redirected away from anonymous pages, while unauthenticated users are redirected away from protected pages. JWT values are never read, parsed, or stored by the Frontend; all API calls use same-origin paths and Cookie credentials.
 
 ## Current HTTP contracts
 
@@ -280,6 +281,7 @@ Repository governance, Bash syntax, and Compose configuration:
 
 ```bash
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+python3 scripts/ci/validate_versions.py
 python3 scripts/ci/validate_branch.py --branch "$(git branch --show-current)"
 bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
@@ -294,6 +296,10 @@ go test -count=1 -tags=integration ./...
 
 Do not point that command at a development or production database. Reproduce it only with `INTEGRATION_TESTS=1`, `APP_ENV=test`, the exact whitelisted database/Redis DB values, and disposable MySQL/Redis resources.
 
+## Product version metadata
+
+The root `VERSION` file is the sole completed-product version source. `frontend/package.json` and the root package entries in `frontend/package-lock.json` mirror that value so npm output, build metadata, and dependency reports identify the same product version. `python3 scripts/ci/validate_versions.py` and the governance quality gate reject drift.
+
 ## Phase 1 completion and Phase 2 handoff
 
-Phase 1 is complete at `VERSION=0.2.6`. The usable browser flow and the synchronous Backend facts are established. Phase 2 may add RabbitMQ-backed asynchronous actions only after successful MySQL writes; RabbitMQ must not become the final fact source for comments, likes, or unlikes, and a broker failure must not invalidate an already committed MySQL operation.
+Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout is complete at `VERSION=0.2.7`. The usable browser flow and the synchronous Backend facts are established. Phase 2 may add RabbitMQ-backed asynchronous actions only after successful MySQL writes; RabbitMQ must not become the final fact source for comments, likes, or unlikes, and a broker failure must not invalidate an already committed MySQL operation.

@@ -410,3 +410,19 @@ Phase 1 核心产品实现可以视为可用，Backend、Frontend、MySQL、Redi
 5. **持续接受但监控**：保留 cache-aside TTL 有界陈旧语义，并在后续阶段增加指标；除非产品需求变化，不把复杂强一致缓存治理提前纳入当前整改。
 
 完成第 1 项后，Phase 1 可在仓库治理层面正式关闭；第 2、3、4 项可作为明确登记的后续工作，不需要否定本次已经通过的核心业务验收。
+
+## 10. Phase-01-07 整改执行结果
+
+2026-09-02，用户指定 `develop/0.2.7` 为 Phase 1 Review 整改权威分支。原 Review 的证据、风险分级和“有条件通过”结论保留不变；以下为基于 Phase-01-07 实际整改的增量判定。
+
+| Finding / 跟进项 | 结果 | 关闭证据 |
+| --- | --- | --- |
+| P2-01 | 已关闭 | Phase 1 总实施方案已将 Phase-01-02 至 Phase-01-06 标记为已完成，新增 `Phase-01-07 → 0.2.7 → develop/0.2.7` 权威分配，并补充阶段最终验收、远程 CI 和已接受限制摘要 |
+| P2-02 | 已关闭 | Frontend 仅对合法 `401 authentication_required` 建立匿名状态；网络、5xx 和非法响应进入可重试错误状态，路由导航到 `/auth-recovery` 并保留原目标，恢复后可使用现有 Cookie 返回受保护页面；新增 composable、HTTP、router/component 回归测试 |
+| P3-01 | 已关闭 | 根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json` 同步为 `0.2.7`；新增 `scripts/ci/validate_versions.py`、单元测试和质量门禁，README 明确根 `VERSION` 是唯一产品版本来源 |
+| 远程 CI 证据 | 已补全 | GitHub API 显示 PR #27 的 head commit `2505104503a8045dd97d1a60d413aa848ca71a2c` 上 Branch governance、Backend、Frontend、Scripts and Compose、Integration 和自动 PR/merge 六项 check run 均为 `success`；merge commit `592897b...` 本身未返回 check run，未将其虚构为已验证 |
+| Cache-aside 已接受限制 | 继续接受 | MySQL 仍是唯一事实源，Redis 公共投影的并发旧回填风险继续受 `REDIS_POST_DETAIL_TTL` 约束；本批未引入超出 Review 建议的强一致缓存治理 |
+
+本批的实际变更、完整命令和结果记录于 `dev/logs/Phase-01/Phase-01-07-Review整改与阶段最终收口.md`。
+
+**整改后最终判定：通过。** Phase 1 核心业务在 `0.2.6` 完成，Review 整改在 `VERSION=0.2.7` 完成；仓库治理、认证恢复故障体验和版本元数据条件均已关闭，Phase 1 可作为 Phase 2 的稳定同步事实输入基线。

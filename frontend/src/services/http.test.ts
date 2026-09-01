@@ -56,6 +56,18 @@ describe('HTTP service', () => {
     expect(unauthorized).toHaveBeenCalledOnce()
   })
 
+  it('does not clear authentication for a malformed 401 response', async () => {
+    const unauthorized = vi.fn()
+    setUnauthorizedHandler(unauthorized)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ unexpected: true }, 401)))
+
+    await expect(requestData('/posts')).rejects.toMatchObject<ApiError>({
+      code: 'invalid_response',
+      status: 401,
+    })
+    expect(unauthorized).not.toHaveBeenCalled()
+  })
+
   it('does not expose messages from unknown server error codes', async () => {
     vi.stubGlobal(
       'fetch',
