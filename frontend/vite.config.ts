@@ -48,6 +48,7 @@ export default defineConfig(({ mode }) => {
       globals: true,
       clearMocks: true,
       restoreMocks: true,
+      include: ['src/**/*.test.ts', 'vite.config.test.ts'],
     },
   }
 })
