@@ -743,3 +743,17 @@ button:disabled {
     padding: 28px 22px;
   }
 }
+
+.auth-recovery-card {
+  display: grid;
+  gap: 20px;
+}
+
+.auth-recovery-card > .brand {
+  margin-bottom: 12px;
+}
+
+.auth-recovery-card .notice,
+.auth-recovery-card .muted {
+  margin-bottom: 0;
+}

@@ -25,6 +25,8 @@ jobs:
           fetch-depth: 0
       - name: Test governance rules
         run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+      - name: Validate version metadata
+        run: python3 scripts/ci/validate_versions.py
       - name: Validate branch allocation and scope
         run: python3 scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}"
 
