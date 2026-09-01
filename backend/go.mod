@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.0
+	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/rabbitmq/amqp091-go v1.14.0
 	github.com/redis/go-redis/v9 v9.22.0
 )
