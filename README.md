@@ -1,19 +1,21 @@
 # GoPulse
 
-GoPulse is currently at product version **0.2.2**. Phase 0 is complete, Phase-01-01 established the Phase 1 schema and HTTP contract baseline, and Phase-01-02 adds the user and authentication backend.
+GoPulse is currently at product version **0.2.5**. Phase 0 is complete, and Phase-01-01 through Phase-01-05 provide the Phase 1 schema, authenticated Backend business APIs, and Redis post-detail cache-aside path.
 
 The repository currently provides:
 
 - a Vue 3 connectivity dashboard;
 - a Gin Backend with `/health`, `/ready`, and `/api/v1`;
 - username/password registration, login, logout, and current-user APIs;
+- authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
+- Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation;
 - bcrypt password hashing, short-lived HS256 JWTs, HttpOnly cookies, and reusable authentication middleware;
 - versioned MySQL migrations for users, posts, comments, and post likes;
 - local MySQL, Redis, and RabbitMQ infrastructure;
 - WSL/Bash commands for starting, verifying, and stopping the development environment;
 - isolated MySQL/Redis integration tests in GitHub Actions.
 
-Posts, comments, likes, the Phase 1 business UI, Elasticsearch, Kafka, application containers, and Kubernetes are not implemented yet. The current Frontend remains a connectivity dashboard; registration and login pages are scheduled for Phase-01-06.
+The Phase 1 business UI, Elasticsearch, Kafka, application containers, and Kubernetes are not implemented yet. The current Frontend remains a connectivity dashboard; the complete browser business flow is scheduled for Phase-01-06.
 
 ## Primary development environment
 
@@ -172,6 +174,24 @@ curl --show-error --fail-with-body \
   http://localhost:8080/api/v1/users/me
 ```
 
+### Post, comment, and like API
+
+All routes below require the authentication cookie:
+
+- `POST /api/v1/posts` publishes a normalized title and content and returns HTTP `201`.
+- `GET /api/v1/posts?limit=<n>&cursor=<token>` returns newest-first keyset pagination.
+- `GET /api/v1/posts/:postId` returns the complete detail response, including `comment_count`, `like_count`, and viewer-specific `liked_by_me`.
+- `POST /api/v1/posts/:postId/comments` creates a comment; `GET` on the same collection returns newest-first comment pagination.
+- `PUT /api/v1/posts/:postId/like` and `DELETE /api/v1/posts/:postId/like` are idempotent and return HTTP `204`.
+
+MySQL remains the source of truth. Redis stores only the versioned public post-detail projection under `gopulse:post:detail:v1:{postId}` for `REDIS_POST_DETAIL_TTL`; the value excludes `liked_by_me`, comments, credentials, tokens, and connection data. Every detail request calculates `liked_by_me` separately from MySQL for the authenticated viewer.
+
+A detail cache miss, timeout, connection failure, damaged JSON, unsupported cache version, or failed refill falls back to MySQL. Successful comment, like, and unlike operations attempt cache invalidation only after the MySQL write succeeds. Cache invalidation failures never roll back or change a successful business response.
+
+Cache-aside has an explicitly bounded eventual-consistency window: a failed invalidation or an older concurrent read that refills after a successful invalidation can temporarily expose stale public counts until `REDIS_POST_DETAIL_TTL` expires or the key is cleared. Such cached data never overwrites MySQL facts and never controls viewer-specific `liked_by_me`.
+
+If Redis is unavailable, `/ready` returns HTTP `503` with Redis marked `down`, while the authenticated MySQL business APIs continue operating through cache fallback. After Redis recovers, readiness and cache operations recover without restarting the Backend.
+
 ## Troubleshooting
 
 ### A required port is occupied
@@ -206,7 +226,7 @@ curl --fail --show-error http://localhost:8080/health
 curl --fail --show-error http://localhost:8080/ready
 ```
 
-If `/health` succeeds but `/ready` returns `503`, inspect the dependency reported as `down`.
+If `/health` succeeds but `/ready` returns `503`, inspect the dependency reported as `down`. A Redis-only readiness failure does not make MySQL-backed business APIs unavailable; post detail reads degrade to MySQL until Redis recovers.
 
 ## Focused development checks
 
@@ -248,4 +268,4 @@ Do not point that command at a development or production database. Reproduce it 
 
 ## Phase 1 handoff
 
-Phase-01-02 is complete at `VERSION=0.2.2`. The next allocated batch is Phase-01-03 on `develop/0.2.3`, which will build post publishing and queries on the authenticated user ID supplied by the tested middleware.
+Phase-01-05 is complete at `VERSION=0.2.5`. The next allocated batch is Phase-01-06 on `develop/0.2.6`, which will implement the Frontend business flow and complete Phase 1 integration acceptance using the stable authentication, post, comment, like, cache-degradation, and readiness contracts.
