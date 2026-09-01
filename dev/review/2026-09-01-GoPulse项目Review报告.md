@@ -464,3 +464,18 @@ git rm --cached .DS_Store
 - **自动合并安全性：不通过。** 仓库内没有支撑自动合并的测试和治理门禁。
 - **本地默认网络安全：不通过。** 开发服务默认发布到全部宿主机接口。
 - **Phase 1 开工建议：有条件允许。** 先关闭 P1-01 至 P1-04，或至少为这些问题建立明确、已分配版本的修复批次，再开始 Phase-01-01 业务实现。
+## 9. Phase-00-06 整改执行结果
+
+2026-09-01，用户指定 `develop/0.1.6` 为 Phase 0 权威收尾分支，并在 Phase 0 总实施方案中新增 `Phase-00-06 → 0.1.6 → develop/0.1.6` 的唯一分配。原 Review 的证据与初始“有条件通过”结论保留不变，以下为整改后的增量判定。
+
+| Finding | 结果 | 关闭证据 |
+| --- | --- | --- |
+| P1-01 | 已关闭 | `.gitattributes` 固定 Bash/Go 为 LF；Windows 工作区 `bash -n` 通过，`gofmt -l backend` 无输出 |
+| P1-02 | 已关闭 | 新增可复用质量门禁、PR CI、分支治理脚本与 7 项负向/正向测试；自动 PR 只在门禁成功后创建并启用 auto-merge |
+| P1-03 | 已关闭 | Compose 四个端口与 Backend 默认绑定 `127.0.0.1`；Windows 实际启动和 `docker ps` 已验证 |
+| P1-04 | 已关闭 | Phase 0 总实施方案新增 Phase-00-06 权威分配，根 `VERSION` 更新为 `0.1.6` |
+| P3-01 | 已关闭 | 已从 Git 跟踪中删除根 `.DS_Store`，保留忽略规则 |
+
+P2-01、P2-02、P2-03 仍按原建议进入 Phase-01-01；P2-04 已完成基础双平台语法/质量门禁和治理测试，但细粒度 Pester/Bats、ShellCheck、PSScriptAnalyzer、actionlint 与 govulncheck 继续作为后续工程化项。
+
+**整改后最终判定：通过。** Phase 0 在 `VERSION=0.1.6` 完成最终收口；进入 Phase 1 的仓库内阻塞项已关闭。远程仓库仍应在 `main` 分支保护中将 CI 检查配置为 required checks，作为工作流门禁之外的防御层。

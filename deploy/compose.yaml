@@ -8,7 +8,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
     ports:
-      - "${MYSQL_PORT:?MYSQL_PORT is required}:3306"
+      - "${PUBLISHED_HOST:-127.0.0.1}:${MYSQL_PORT:?MYSQL_PORT is required}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -30,7 +30,7 @@ services:
       - -c
       - exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"
     ports:
-      - "${REDIS_PORT:?REDIS_PORT is required}:6379"
+      - "${PUBLISHED_HOST:-127.0.0.1}:${REDIS_PORT:?REDIS_PORT is required}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -49,8 +49,8 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
     ports:
-      - "${RABBITMQ_PORT:?RABBITMQ_PORT is required}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:?RABBITMQ_MANAGEMENT_PORT is required}:15672"
+      - "${PUBLISHED_HOST:-127.0.0.1}:${RABBITMQ_PORT:?RABBITMQ_PORT is required}:5672"
+      - "${PUBLISHED_HOST:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:?RABBITMQ_MANAGEMENT_PORT is required}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:

@@ -1,0 +1,110 @@
+name: Reusable Quality Gates
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: Branch being validated
+        required: true
+        type: string
+      base_ref:
+        description: Git ref used to validate update branch scope
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  governance:
+    name: Branch governance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Test governance rules
+        run: python -m unittest discover -s scripts/ci -p 'test_*.py'
+      - name: Validate branch allocation and scope
+        run: python scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}"
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --run
+      - run: npm run build
+
+  scripts-and-compose:
+    name: Scripts and Compose (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify LF checkout and Bash syntax
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files --eol -- 'scripts/*.sh' 'backend/**/*.go' | grep -Ev 'w/lf'; then
+            echo 'Expected Bash and Go working-tree files to use LF.' >&2
+            exit 1
+          fi
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh
+      - name: Verify PowerShell syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($path in 'scripts/dev.ps1', 'scripts/down.ps1', 'scripts/verify.ps1') {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) > $null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "${path}: $_" }
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+      - name: Validate Compose configuration and loopback publishing
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
+          printf '%s\n' "$rendered"
+          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 4 ]]
