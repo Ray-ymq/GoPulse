@@ -135,3 +135,53 @@ func assertApplicationCode(t *testing.T, err error, code apperror.Code) {
 		t.Fatalf("error=%#v, want code %q", err, code)
 	}
 }
+
+type fakeDetailCacheInvalidator struct {
+	invalidate func(context.Context, uint64) error
+}
+
+func (cache *fakeDetailCacheInvalidator) Invalidate(ctx context.Context, postID uint64) error {
+	return cache.invalidate(ctx, postID)
+}
+
+func TestServiceCreateInvalidatesPostDetailAfterMySQLSuccess(t *testing.T) {
+	for _, invalidateError := range []error{nil, errors.New("redis unavailable")} {
+		invalidations := 0
+		service := NewService(
+			&fakeRepository{create: func(context.Context, uint64, uint64, string) (Comment, error) {
+				return Comment{ID: 8, PostID: 31}, nil
+			}},
+			&fakePostExistence{require: func(context.Context, uint64) error { return nil }},
+			&fakeDetailCacheInvalidator{invalidate: func(_ context.Context, postID uint64) error {
+				invalidations++
+				if postID != 31 {
+					t.Fatalf("Invalidate() post=%d", postID)
+				}
+				return invalidateError
+			}},
+		)
+		record, err := service.Create(context.Background(), 31, 17, CreateInput{Content: "valid"})
+		if err != nil || record.ID != 8 || invalidations != 1 {
+			t.Fatalf("Create() record=%#v error=%v invalidations=%d", record, err, invalidations)
+		}
+	}
+}
+
+func TestServiceCreateDoesNotInvalidateWhenMySQLWriteFails(t *testing.T) {
+	invalidations := 0
+	service := NewService(
+		&fakeRepository{create: func(context.Context, uint64, uint64, string) (Comment, error) {
+			return Comment{}, errors.New("write failed")
+		}},
+		&fakePostExistence{require: func(context.Context, uint64) error { return nil }},
+		&fakeDetailCacheInvalidator{invalidate: func(context.Context, uint64) error {
+			invalidations++
+			return nil
+		}},
+	)
+	_, err := service.Create(context.Background(), 31, 17, CreateInput{Content: "valid"})
+	assertApplicationCode(t, err, apperror.CodeInternal)
+	if invalidations != 0 {
+		t.Fatalf("invalidations=%d, want 0", invalidations)
+	}
+}

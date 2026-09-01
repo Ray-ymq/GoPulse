@@ -19,6 +19,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 	"github.com/gin-gonic/gin"
@@ -130,9 +131,12 @@ func integrationPostRouter(t *testing.T, cfg config.Config, database *sql.DB) st
 	}
 	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	authService := auth.NewService(user.NewMySQLRepository(database), passwords, tokens)
-	postService := post.NewService(post.NewMySQLRepository(database))
-	commentService := comment.NewService(comment.NewMySQLRepository(database), postService)
-	likeService := like.NewService(like.NewMySQLRepository(database), postService)
+	redisClient := platform.NewRedis(cfg.Redis)
+	t.Cleanup(func() { _ = redisClient.Close() })
+	postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+	postService := post.NewService(post.NewMySQLRepository(database), postDetailCache)
+	commentService := comment.NewService(comment.NewMySQLRepository(database), postService, postDetailCache)
+	likeService := like.NewService(like.NewMySQLRepository(database), postService, postDetailCache)
 	return NewRouter(Dependencies{}, APIRoutes{
 		Auth:           auth.NewHandler(authService, cookies),
 		Posts:          post.NewHandler(postService),
