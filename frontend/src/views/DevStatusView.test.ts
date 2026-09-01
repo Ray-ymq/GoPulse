@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import App from './App.vue'
+import DevStatusView from './DevStatusView.vue'
 
 const healthyResponse = {
   status: 'ready',
@@ -47,7 +47,7 @@ describe('App connectivity dashboard', () => {
       ),
     )
 
-    const wrapper = mount(App)
+    const wrapper = mount(DevStatusView)
     await wrapper.vm.$nextTick()
 
     expect(statusOf(wrapper, 'backend')).toBe('loading')
@@ -73,7 +73,7 @@ describe('App connectivity dashboard', () => {
       ),
     )
 
-    const wrapper = mount(App)
+    const wrapper = mount(DevStatusView)
     await flushPromises()
 
     expect(statusOf(wrapper, 'backend')).toBe('up')
@@ -101,7 +101,7 @@ describe('App connectivity dashboard', () => {
       ),
     )
 
-    const wrapper = mount(App)
+    const wrapper = mount(DevStatusView)
     await flushPromises()
 
     expect(statusOf(wrapper, 'backend')).toBe('up')
@@ -120,7 +120,7 @@ describe('App connectivity dashboard', () => {
       ),
     )
 
-    const wrapper = mount(App)
+    const wrapper = mount(DevStatusView)
     await flushPromises()
 
     expect(statusOf(wrapper, 'backend')).toBe('unreachable')
@@ -147,7 +147,7 @@ describe('App connectivity dashboard', () => {
         ),
       )
 
-      const wrapper = mount(App)
+      const wrapper = mount(DevStatusView)
       await flushPromises()
 
       expect(statusOf(wrapper, 'backend')).toBe('up')
@@ -170,7 +170,7 @@ describe('App connectivity dashboard', () => {
       ),
     )
 
-    const wrapper = mount(App)
+    const wrapper = mount(DevStatusView)
     await flushPromises()
 
     expect(statusOf(wrapper, 'backend')).toBe('invalid')
@@ -216,7 +216,7 @@ describe('App connectivity dashboard', () => {
       }),
     )
 
-    const wrapper = mount(App)
+    const wrapper = mount(DevStatusView)
     await flushPromises()
     expect(statusOf(wrapper, 'redis')).toBe('down')
 
