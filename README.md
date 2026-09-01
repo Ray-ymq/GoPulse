@@ -1,21 +1,21 @@
 # GoPulse
 
-GoPulse is currently at product version **0.2.5**. Phase 0 is complete, and Phase-01-01 through Phase-01-05 provide the Phase 1 schema, authenticated Backend business APIs, and Redis post-detail cache-aside path.
+GoPulse is currently at product version **0.2.6**. Phase 1 is complete: the repository provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache.
 
 The repository currently provides:
 
-- a Vue 3 connectivity dashboard;
-- a Gin Backend with `/health`, `/ready`, and `/api/v1`;
-- username/password registration, login, logout, and current-user APIs;
+- a Vue 3 + Vue Router Frontend for registration, login, logout, post listing/pagination, publishing, detail, comments, likes, and authentication recovery;
+- a diagnostic connectivity page at `/dev/status`, outside the business navigation;
+- a Gin Backend with `/health`, `/ready`, and typed `/api/v1` business contracts;
+- username/password authentication with bcrypt, short-lived HS256 JWTs, HttpOnly cookies, and reusable authentication middleware;
 - authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
-- Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation;
-- bcrypt password hashing, short-lived HS256 JWTs, HttpOnly cookies, and reusable authentication middleware;
+- Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation and MySQL fallback;
 - versioned MySQL migrations for users, posts, comments, and post likes;
 - local MySQL, Redis, and RabbitMQ infrastructure;
-- WSL/Bash commands for starting, verifying, and stopping the development environment;
-- isolated MySQL/Redis integration tests in GitHub Actions.
+- WSL/Bash lifecycle scripts, read-only runtime verification, and a destructive-but-isolated complete business acceptance script;
+- Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
-The Phase 1 business UI, Elasticsearch, Kafka, application containers, and Kubernetes are not implemented yet. The current Frontend remains a connectivity dashboard; the complete browser business flow is scheduled for Phase-01-06.
+Elasticsearch, Kafka, application containers, Kubernetes, profiles, follows, search, notifications, and other later-phase capabilities are not implemented yet.
 
 ## Primary development environment
 
@@ -76,7 +76,7 @@ A failed migration stops Backend and Frontend startup. With the default configur
 
 | Service | Address |
 | --- | --- |
-| Frontend connectivity dashboard | `http://localhost:5173` |
+| Frontend business application | `http://localhost:5173` |
 | Backend | `http://localhost:8080` |
 | Backend liveness | `http://localhost:8080/health` |
 | Backend readiness | `http://localhost:8080/ready` |
@@ -96,7 +96,21 @@ Keep the foreground command running. `Ctrl+C` stops Backend and Frontend while l
 /home/<user>/src/GoPulse/scripts/verify.sh
 ```
 
-`verify.sh` is read-only. It reads the configured `HTTP_PORT`, checks the three Compose services, validates `/health` and `/ready`, and confirms that the Frontend responds over HTTP. A passing verification exits with status `0`; a failure exits nonzero with a focused diagnostic.
+`verify.sh` is read-only. It reads the configured `HTTP_PORT`, checks the three Compose services, validates `/health` and `/ready`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, likes, or cache entries.
+
+For complete destructive integration acceptance, run:
+
+```bash
+/home/<user>/src/GoPulse/scripts/verify-business.sh
+```
+
+`verify-business.sh` creates a random 12-character acceptance token and uses it to derive a strictly whitelisted Compose project and database. It allocates non-default loopback ports, uses a temporary environment and process directory, and never modifies `.env` or `.run`. The script exercises API and real Chromium flows, Backend restart persistence, acceptance-Redis `FLUSHDB`, Redis outage degradation, and recovery without restarting Backend. Before stopping, restarting, clearing, or deleting anything, it validates project labels, container IDs, and published ports. Exit, failure, and signal traps remove only that verified acceptance project and its volumes, then compare the daily development stack snapshot.
+
+The no-Docker negative safety checks can be run independently:
+
+```bash
+scripts/verify-business.sh --self-test
+```
 
 ## Stop the environment
 
@@ -123,6 +137,19 @@ go run ./cmd/migrate down
 ```
 
 Development startup never runs `down` and never clears the development database automatically.
+
+## Frontend routes
+
+| Route | Access | Purpose |
+| --- | --- | --- |
+| `/register` | anonymous | Create an account and establish the login Cookie |
+| `/login` | anonymous | Authenticate with username and password |
+| `/posts` | authenticated | Newest-first post list with cursor-based loading |
+| `/posts/new` | authenticated | Publish a validated title and body |
+| `/posts/:postId` | authenticated | Read detail, paginate comments, comment, like, and unlike |
+| `/dev/status` | unrestricted diagnostic | Inspect `/health` and `/ready` without appearing in business navigation |
+
+The first business navigation waits for `/api/v1/users/me`. Authenticated users are redirected away from anonymous pages, while unauthenticated users are redirected away from protected pages. JWT values are never read, parsed, or stored by the Frontend; all API calls use same-origin paths and Cookie credentials.
 
 ## Current HTTP contracts
 
@@ -246,6 +273,7 @@ cd frontend
 npm test
 npm run typecheck
 npm run build
+npm run test:e2e # requires a running isolated environment and Playwright Chromium
 ```
 
 Repository governance, Bash syntax, and Compose configuration:
@@ -253,7 +281,7 @@ Repository governance, Bash syntax, and Compose configuration:
 ```bash
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_branch.py --branch "$(git branch --show-current)"
-bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh
+bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 ```
 
@@ -266,6 +294,6 @@ go test -count=1 -tags=integration ./...
 
 Do not point that command at a development or production database. Reproduce it only with `INTEGRATION_TESTS=1`, `APP_ENV=test`, the exact whitelisted database/Redis DB values, and disposable MySQL/Redis resources.
 
-## Phase 1 handoff
+## Phase 1 completion and Phase 2 handoff
 
-Phase-01-05 is complete at `VERSION=0.2.5`. The next allocated batch is Phase-01-06 on `develop/0.2.6`, which will implement the Frontend business flow and complete Phase 1 integration acceptance using the stable authentication, post, comment, like, cache-degradation, and readiness contracts.
+Phase 1 is complete at `VERSION=0.2.6`. The usable browser flow and the synchronous Backend facts are established. Phase 2 may add RabbitMQ-backed asynchronous actions only after successful MySQL writes; RabbitMQ must not become the final fact source for comments, likes, or unlikes, and a broker failure must not invalidate an already committed MySQL operation.
