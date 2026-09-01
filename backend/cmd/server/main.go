@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
+	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
+	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
@@ -74,6 +76,12 @@ func run() error {
 	posts := post.NewMySQLRepository(mysqlClient.DB())
 	postService := post.NewService(posts)
 	postHandler := post.NewHandler(postService)
+	comments := comment.NewMySQLRepository(mysqlClient.DB())
+	commentService := comment.NewService(comments, postService)
+	commentHandler := comment.NewHandler(commentService)
+	likes := like.NewMySQLRepository(mysqlClient.DB())
+	likeService := like.NewService(likes, postService)
+	likeHandler := like.NewHandler(likeService)
 
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
@@ -84,6 +92,8 @@ func run() error {
 		backendhttp.APIRoutes{
 			Auth:           authHandler,
 			Posts:          postHandler,
+			Comments:       commentHandler,
+			Likes:          likeHandler,
 			Authentication: middleware.RequireAuthentication(cookies.Name(), tokens),
 		},
 	)
