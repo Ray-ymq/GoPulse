@@ -65,6 +65,7 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 	router.Use(gin.Recovery())
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readinessHandler(dependencies, checkerTimeout, requestTimeout))
+	registerAPIV1Routes(router)
 	return router
 }
 
