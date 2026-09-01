@@ -127,3 +127,67 @@ func assertApplicationCode(t *testing.T, err error, code apperror.Code) {
 		t.Fatalf("error=%#v, want code %q", err, code)
 	}
 }
+
+type fakeDetailCacheInvalidator struct {
+	invalidate func(context.Context, uint64) error
+}
+
+func (cache *fakeDetailCacheInvalidator) Invalidate(ctx context.Context, postID uint64) error {
+	return cache.invalidate(ctx, postID)
+}
+
+func TestServiceLikeInvalidatesAfterCreatedOrIdempotentSuccess(t *testing.T) {
+	for _, createError := range []error{nil, ErrAlreadyExists} {
+		invalidations := 0
+		service := NewService(
+			&fakeRepository{create: func(context.Context, uint64, uint64) error { return createError }},
+			&fakePostExistence{require: func(context.Context, uint64) error { return nil }},
+			&fakeDetailCacheInvalidator{invalidate: func(_ context.Context, postID uint64) error {
+				invalidations++
+				if postID != 31 {
+					t.Fatalf("Invalidate() post=%d", postID)
+				}
+				return errors.New("redis unavailable")
+			}},
+		)
+		if err := service.Like(context.Background(), 31, 17); err != nil || invalidations != 1 {
+			t.Fatalf("Like() error=%v invalidations=%d", err, invalidations)
+		}
+	}
+}
+
+func TestServiceUnlikeInvalidatesAfterIdempotentSuccess(t *testing.T) {
+	invalidations := 0
+	service := NewService(
+		&fakeRepository{delete: func(context.Context, uint64, uint64) error { return nil }},
+		&fakePostExistence{require: func(context.Context, uint64) error { return nil }},
+		&fakeDetailCacheInvalidator{invalidate: func(context.Context, uint64) error {
+			invalidations++
+			return errors.New("redis unavailable")
+		}},
+	)
+	if err := service.Unlike(context.Background(), 31, 17); err != nil || invalidations != 1 {
+		t.Fatalf("Unlike() error=%v invalidations=%d", err, invalidations)
+	}
+}
+
+func TestServiceLikeAndUnlikeDoNotInvalidateFailedMySQLWrites(t *testing.T) {
+	invalidations := 0
+	cache := &fakeDetailCacheInvalidator{invalidate: func(context.Context, uint64) error {
+		invalidations++
+		return nil
+	}}
+	posts := &fakePostExistence{require: func(context.Context, uint64) error { return nil }}
+	likeService := NewService(&fakeRepository{create: func(context.Context, uint64, uint64) error {
+		return errors.New("create failed")
+	}}, posts, cache)
+	assertApplicationCode(t, likeService.Like(context.Background(), 31, 17), apperror.CodeInternal)
+
+	unlikeService := NewService(&fakeRepository{delete: func(context.Context, uint64, uint64) error {
+		return errors.New("delete failed")
+	}}, posts, cache)
+	assertApplicationCode(t, unlikeService.Unlike(context.Background(), 31, 17), apperror.CodeInternal)
+	if invalidations != 0 {
+		t.Fatalf("invalidations=%d, want 0", invalidations)
+	}
+}

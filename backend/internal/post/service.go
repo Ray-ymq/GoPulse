@@ -3,16 +3,24 @@ package post
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 )
 
 type Service struct {
 	repository Repository
+	cache      DetailCache
 }
 
-func NewService(repository Repository) *Service {
-	return &Service{repository: repository}
+// NewService creates the post application service. Passing one cache enables
+// cache-aside only for detail reads; omitting it keeps the MySQL-only behavior.
+func NewService(repository Repository, caches ...DetailCache) *Service {
+	service := &Service{repository: repository}
+	if len(caches) > 0 {
+		service.cache = caches[0]
+	}
+	return service
 }
 
 func (service *Service) Create(ctx context.Context, authorID uint64, input CreateInput) (Post, error) {
@@ -62,14 +70,40 @@ func (service *Service) List(ctx context.Context, viewerID uint64, options ListO
 }
 
 func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Post, error) {
-	record, err := service.repository.FindByID(ctx, postID, viewerID)
-	if errors.Is(err, ErrNotFound) {
-		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+	projection, hit := service.cachedProjection(ctx, postID)
+	if !hit {
+		var err error
+		projection, err = service.repository.FindPublicByID(ctx, postID)
+		if errors.Is(err, ErrNotFound) {
+			return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+		}
+		if err != nil {
+			return Post{}, apperror.WrapInternal(err)
+		}
+		if service.cache != nil {
+			if err := service.cache.Set(ctx, projection); err != nil {
+				log.Printf("post detail cache fill failed: post_id=%d", postID)
+			}
+		}
 	}
+
+	likedByMe, err := service.repository.LikedByViewer(ctx, postID, viewerID)
 	if err != nil {
 		return Post{}, apperror.WrapInternal(err)
 	}
-	return record, nil
+	return projection.post(likedByMe), nil
+}
+
+func (service *Service) cachedProjection(ctx context.Context, postID uint64) (PublicProjection, bool) {
+	if service.cache == nil {
+		return PublicProjection{}, false
+	}
+	projection, hit, err := service.cache.Get(ctx, postID)
+	if err != nil {
+		log.Printf("post detail cache read failed: post_id=%d", postID)
+		return PublicProjection{}, false
+	}
+	return projection, hit
 }
 
 // RequireExists exposes the shared post-existence boundary used by dependent
