@@ -57,6 +57,13 @@ like_count
 6. 回填失败仅记录不含敏感数据的诊断信息，仍返回 MySQL 结果。
 7. 无论公共投影来自 Redis 还是 MySQL，`liked_by_me` 都通过 MySQL 根据当前用户单独查询并装配。
 
+并发读写边界：
+
+- Phase 1 不通过分布式锁或延迟双删消除所有 cache-aside 竞态。
+- 并发缓存 miss 可能先读取旧 MySQL 投影，并在评论/点赞事实提交及缓存删除成功后才回填旧值；该情况与失效失败一样，允许公共计数在一个 TTL 内短期陈旧。
+- 实现必须使用受校验的有限 TTL，且任何陈旧缓存都不得覆盖 MySQL 事实、影响 `liked_by_me` 的逐用户查询或改变写入成功语义。
+- 使用可控 fake/屏障编写确定性测试，复现“旧读 → 事实提交与删除 → 旧回填”的顺序，并验证过期或清除后从 MySQL 收敛。
+
 ### 3.3 失效流程
 
 在以下 MySQL 操作成功之后尝试删除目标帖子详情键：
@@ -70,7 +77,7 @@ like_count
 - Redis 失效在 MySQL 成功之后执行，不参与 MySQL 事务。
 - 失效失败不回滚事实操作，不把成功的评论或点赞响应改为失败。
 - 幂等点赞/取消请求即使未改变 MySQL 行，也可尝试失效，保持实现简单与收敛。
-- 失效失败时允许计数在 TTL 内短期陈旧，该限制必须在实施记录和开发文档中明确。
+- 失效失败或并发旧读回填时允许计数在 TTL 内短期陈旧，该限制必须在实施记录和开发文档中明确。
 
 ### 3.4 可观察故障语义
 
@@ -94,6 +101,7 @@ backend/internal/comment/
 backend/internal/like/
 backend/internal/platform/redis/
 backend/cmd/server/
+README.md
 VERSION
 dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 ```
@@ -108,10 +116,12 @@ dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 6. 将 `liked_by_me` 保持在缓存外，为两个用户读取同一缓存键编写隔离测试。
 7. 在评论和点赞 Service 的 MySQL 成功路径后增加最努力缓存失效。
 8. 为命中、未命中、无效 JSON、旧版本、超时、连接失败、回填失败和失效失败编写测试。
-9. 使用真实 Redis 验证 TTL、键内容、失效和清空后重建。
-10. 停止 Redis 执行全部 Backend 业务闭环，再恢复 Redis 并验证无需重启 Backend。
-11. 运行 Backend 全部测试、vet 和前置批次回归。
-12. 将根 `VERSION` 更新为总方案为本批分配的目标版本，并创建本批实施记录。
+9. 使用可控并发测试复现旧读在成功失效后回填的竞态，验证陈旧窗口受 TTL 限制且最终从 MySQL 收敛。
+10. 使用真实 Redis 验证 TTL、键内容、失效和清空后重建。
+11. 停止 Redis 执行全部 Backend 业务闭环，再恢复 Redis 并验证无需重启 Backend。
+12. 运行 Backend 全部测试、vet、integration 测试和前置批次回归。
+13. 更新 README，明确失效失败与并发旧读回填都可能产生 TTL 有界的最终一致窗口。
+14. 将根 `VERSION` 更新为总方案为本批分配的目标版本，并创建本批实施记录。
 
 ## 7. 测试与验收标准
 
@@ -123,6 +133,7 @@ dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 - 损坏 JSON、版本不匹配或必填字段缺失按未命中处理。
 - MySQL 未找到时返回 404，不建立空值缓存。
 - 不同用户不会通过公共缓存值相互泄漏 `liked_by_me`。
+- 并发旧读可在成功失效后回填旧公共投影，但不会修改 MySQL 事实或用户个性化状态，并在有限 TTL 后收敛。
 
 ### 7.2 真实 Redis 验收
 
@@ -138,6 +149,7 @@ dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 - `go test ./...` 通过。
 - `go vet ./...` 通过。
 - Redis 故障路径在明确超时上限内返回。
+- `go test -count=1 -tags=integration ./...` 在隔离 Redis/MySQL 环境通过，且真实依赖缺失时不得静默 skip。
 - Phase 0 readiness 契约与 Phase 1 MySQL 业务语义均未回归。
 
 ## 8. 完成定义
@@ -145,7 +157,7 @@ dev/logs/Phase-01/Phase-01-05-Redis帖子详情缓存.md
 - 只存在一类明确业务缓存：帖子详情公共投影。
 - 缓存读取、回填、失效和降级经过单元与真实 Redis 测试。
 - Redis 不可用时核心业务仍可用，MySQL 事实不丢失。
-- TTL 内可能短期陈旧的最终一致限制已被明确记录。
+- 失效失败和并发旧读回填都可能造成 TTL 内短期陈旧，最终一致限制已被测试并在 README/实施记录中明确记录。
 - 本批实施记录已创建，根 `VERSION` 已更新为总方案分配的本批目标版本，仅提交本批文件。
 
 ## 9. 下一批次交接条件

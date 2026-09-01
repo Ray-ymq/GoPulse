@@ -4,6 +4,7 @@
 > 目标版本：`0.2.1`
 > 开发分支：`develop/0.2.1`
 > 记录日期：2026-09-01
+> 记录修订：2026-09-01；在不改写既有完成事实的前提下，补记原方案未交付项及后续归属
 
 ## 1. 实际完成内容
 
@@ -71,9 +72,17 @@
 - 未对开发库 `gopulse` 执行 `down` 或清空数据；向下迁移仅在隔离临时库中验证，符合本批“不自动向下迁移或清空开发数据库”的边界。
 - 本机 `.env` 中的宿主 MySQL 端口当前被非项目进程占用，导致宿主侧迁移 smoke 首次连接到非 MySQL 服务并超时；因此实际数据库验收改为在 Compose MySQL 容器内运行临时迁移二进制连接 `127.0.0.1:3306`。
 - 实测发现单个 SQL 迁移文件包含多条 DDL 时，迁移连接必须启用 MySQL multi-statements；已改为仅迁移连接启用，普通应用连接不启用。
+- 原方案要求本批关闭 readiness 无界嵌套 goroutine 与 checker panic 隔离，但本批提交只在现有 Router 中注册 `/api/v1`，未修改 readiness 执行边界或增加对应压力/panic 测试；该项未完成。
+- 原方案要求建立可测试的 HTTP Server 构造函数并补齐 Read、Write、Idle 超时与 `MaxHeaderBytes`，本批未修改 `backend/cmd/server/main.go`；当前实现仍只有 `ReadHeaderTimeout`，该项未完成。
+- 原方案要求让 Vite proxy、Backend、开发/验收脚本共享 `HTTP_PORT`，并完成 `APP_ENV` 到 Gin mode 的映射；本批未修改 `frontend/vite.config.ts`，Vite 仍固定代理到 `8080` 且未包含 `/api/v1`，Backend 也未设置 Gin mode，该项未完成。
+- 原方案要求新增隔离 MySQL/Redis 的 GitHub Actions integration job，本批未修改 `.github/workflows/quality-gates.yml`，也未提交 `integration` build-tag 测试，该项未完成。
+- 原方案要求同步更新 README 的 `.env` 升级、迁移、非默认端口和运行环境说明，本批提交未包含 README；后续在 `update` 规划/文档提交中补齐当前状态与 WSL 使用说明。
+- 本记录的实际验证命令不包含 PowerShell/Bash 语法检查或两平台完整启动闭环，因此只能确认两套 `dev` 脚本已同步修改，不能把未记录的平台运行视为已通过。
 
 ## 5. 已知限制与后续事项
 
 - 本批只建立迁移、Schema 与 HTTP 基础契约，不包含注册、登录、认证中间件、帖子/评论/点赞业务 Handler、Service 或 Repository。
 - Redis 缓存参数只完成配置校验；实际帖子详情缓存读写留给 Phase 1-05。
 - 已存在的本地 `.env` 不会被脚本自动覆盖；若开发者已有旧 `.env`，需要按 `.env.example` 补齐 `AUTH_JWT_SECRET` 等 Phase 1 参数后再运行开发脚本。
+- readiness、HTTP Server、动态 Vite proxy、Gin mode 和隔离 integration CI 遗留项已明确转交 Phase-01-02，并要求在认证实现前关闭，不再继续延期。
+- 原生 PowerShell 开发入口的共同能力冻结在本批完成版本 `0.2.1`；Phase-01-02 至 Phase 16 只维护 WSL2/Bash 入口，最终 Windows PowerShell 兼容在 Phase 16 后集中处理。
