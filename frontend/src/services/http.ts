@@ -66,15 +66,15 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
     throw new ApiError('network_error', '网络连接失败，请稍后重试。', null)
   }
 
-  if (response.status === 401) {
-    await unauthorizedHandler()
-  }
   if (!response.ok) {
     const body = await parseJSON(response)
     if (isRecord(body) && isRecord(body.error)) {
       const code = body.error.code
       const message = body.error.message
       if (typeof code === 'string' && typeof message === 'string') {
+        if (response.status === 401 && code === 'authentication_required') {
+          await unauthorizedHandler()
+        }
         throw new ApiError(
           code,
           knownErrorCodes.has(code) ? message : '操作失败，请稍后重试。',

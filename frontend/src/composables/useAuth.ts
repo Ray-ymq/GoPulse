@@ -3,7 +3,7 @@ import { authApi } from '../services/api'
 import { ApiError, setUnauthorizedHandler } from '../services/http'
 import type { Credentials, PublicUser } from '../types/api'
 
-export type AuthStatus = 'uninitialized' | 'authenticated' | 'anonymous'
+export type AuthStatus = 'uninitialized' | 'authenticated' | 'anonymous' | 'error'
 
 const user = ref<PublicUser | null>(null)
 const status = ref<AuthStatus>('uninitialized')
@@ -14,18 +14,27 @@ function clear(): void {
   status.value = 'anonymous'
 }
 
+function markRecoveryError(): void {
+  user.value = null
+  status.value = 'error'
+}
+
 setUnauthorizedHandler(clear)
 
 async function initialize(): Promise<void> {
-  if (status.value !== 'uninitialized') return
+  if (status.value === 'authenticated' || status.value === 'anonymous') return
   if (initialization) return initialization
   initialization = (async () => {
     try {
       user.value = await authApi.me()
       status.value = 'authenticated'
     } catch (error) {
-      clear()
-      if (!(error instanceof ApiError && error.status === 401)) throw error
+      if (error instanceof ApiError && error.status === 401 && error.code === 'authentication_required') {
+        clear()
+        return
+      }
+      markRecoveryError()
+      throw error
     } finally {
       initialization = null
     }

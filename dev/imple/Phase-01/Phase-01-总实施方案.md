@@ -21,11 +21,12 @@
 
 ### 2.1 前置条件
 
-- Phase 0 全部六个实施批次已完成并通过验收，Phase-01-01 已合并，根 `VERSION` 为 `0.2.1`。
-- Backend、Frontend、MySQL、Redis 和统一开发脚本已可用。
-- Phase 0 的 `/health` 和 `/ready` 契约保持可用。
-- Phase-01-01 已完成迁移、Schema、HTTP 通用契约、配置扩展和迁移前置启动，但原方案中的 readiness 生命周期/panic 隔离、HTTP Server 完整资源边界、动态 Vite proxy、Gin mode 映射和隔离 integration CI 未关闭；这些事实必须在 Phase-01-01 记录中如实保留，并由 Phase-01-02 在认证实现前完成。
-- 根目录存在有效的 `VERSION` 文件，并以该文件作为当前完成版本的唯一来源。
+- Phase 0 全部六个实施批次已完成并通过验收。
+- Phase-01-01 至 Phase-01-06 已完成核心业务交付，根 `VERSION` 曾在核心阶段收口时达到 `0.2.6`。
+- 2026-09-01 Phase 1 实现 Review 以 `592897b1080eb78483a2eeb49141671f16cfc8fe` 为基线给出有条件通过结论；用户指定 `develop/0.2.7` 执行 Review 整改与阶段最终收口。
+- Backend、Frontend、MySQL、Redis 和统一开发脚本已可用，Phase 0 的 `/health` 和 `/ready` 契约保持可用。
+- Phase-01-01 移交的 readiness 生命周期/panic 隔离、HTTP Server 资源边界、动态 Vite proxy、Gin mode 和隔离 integration CI 缺口已由 Phase-01-02 关闭。
+- 根目录存在有效的 `VERSION` 文件，并以该文件作为当前完成产品版本的唯一来源；Frontend npm 根包元数据必须与它保持一致。
 - 从 Phase-01-02 起，Windows 宿主机的 WSL2 Linux 环境可以运行 Go、Node.js、npm、Bash 和 Docker Compose，活动仓库位于 WSL Linux 文件系统。
 
 Phase 0 未完成时不得跳过前置验收直接实施 Phase 1，也不得为了实现 Phase 1 而在业务批次中重建 Phase 0 工程骨架。
@@ -37,17 +38,18 @@ Phase 1 使用 `0.2.x` 版本线，`0.2.0` 保留为阶段基线，不对应可�
 | 执行批次 | 目标版本 | 开发分支 | 当前状态 |
 | --- | --- | --- | --- |
 | Phase-01-01 | `0.2.1` | `develop/0.2.1` | 已完成 |
-| Phase-01-02 | `0.2.2` | `develop/0.2.2` | 待实施 |
-| Phase-01-03 | `0.2.3` | `develop/0.2.3` | 待实施 |
-| Phase-01-04 | `0.2.4` | `develop/0.2.4` | 待实施 |
-| Phase-01-05 | `0.2.5` | `develop/0.2.5` | 待实施 |
-| Phase-01-06 | `0.2.6` | `develop/0.2.6` | 待实施 |
+| Phase-01-02 | `0.2.2` | `develop/0.2.2` | 已完成 |
+| Phase-01-03 | `0.2.3` | `develop/0.2.3` | 已完成 |
+| Phase-01-04 | `0.2.4` | `develop/0.2.4` | 已完成 |
+| Phase-01-05 | `0.2.5` | `develop/0.2.5` | 已完成 |
+| Phase-01-06 | `0.2.6` | `develop/0.2.6` | 已完成 |
+| Phase-01-07 | `0.2.7` | `develop/0.2.7` | 已完成 |
 
 执行规则：
 
 - Phase 0 完成时的 `0.1.6` 是 Phase-01-01 的输入基线；不需要先创建仅包含 `VERSION=0.2.0` 的空批次。
 - 每个批次是独立开发任务。开始前获取配置的主远程最新状态，在前置批次已合并后从该远程 `main` 创建表中对应分支。
-- 每批完成时将根 `VERSION` 更新为本批目标版本，与实施记录一起提交；不把六批变更累积到阶段末一次升版。
+- 每批完成时将根 `VERSION` 更新为本批目标版本，与实施记录一起提交；不把多个批次变更累积到阶段末一次升版。
 - 批次完成或已打开 Pull Request 后，不自动在该分支继续下一批；下一批必须使用自己的版本分支。
 - 如批次数量或顺序在实施前调整，先更新本表并重算尚未创建的分支；已推送分支不得静默改名或重新编号。
 - Phase-01-01 已按原双平台策略同步更新 PowerShell 与 Bash 开发入口。自 Phase-01-02 起只维护并验收 Bash 生命周期与验收脚本，现有 PowerShell 脚本冻结在 `0.2.1` 能力基线，原生 Windows 兼容不作为本阶段完成条件。
@@ -510,7 +512,7 @@ Service 产生业务语义错误，HTTP 层统一映射状态码和错误响应�
 
 ## 13. 实施批次
 
-Phase 1 拆分为六个顺序批次，每个批次单独编写详细实施方案：
+Phase 1 最终包含七个顺序批次；前六批完成核心业务，第七批执行实现 Review 整改与阶段最终收口。每个批次单独编写详细实施方案：
 
 ### 13.1 [Phase 1-01：数据库迁移与 HTTP 基础契约](Phase-01-01-数据库迁移与HTTP基础契约.md)
 
@@ -552,6 +554,13 @@ Phase 1 拆分为六个顺序批次，每个批次单独编写详细实施方案
 - 只实现 Bash `verify-business.sh`，并将新增 Bash 脚本纳入 Linux 质量门禁和安全负向测试。
 - 更新开发入口文档、本批 `VERSION` 和 Phase 1 实施记录，完成阶段收口。
 
+### 13.7 [Phase 1-07：Review 整改与阶段最终收口](Phase-01-07-Review整改与阶段最终收口.md)
+
+- 关闭权威计划状态与实际实现不一致的问题，补充 Phase 级最终验收和远程 CI 证据。
+- 修复 Frontend 首次认证恢复把临时故障固化为匿名状态的问题，提供保留目标路由的重试页面。
+- 将 Frontend npm 根包版本同步到产品版本，并用自动质量门禁防止再次漂移。
+- 保留 Review 已接受的 cache-aside TTL 有界陈旧语义，不引入 Phase 2 能力。
+
 ## 14. 实施记录
 
 每个详细实施方案完成后，必须在对应镜像路径创建或更新实施记录：
@@ -586,8 +595,18 @@ dev/logs/Phase-01/Phase-01-XX-<名称>.md
 - WSL2/Bash 生命周期与业务验收入口通过；原生 PowerShell 脚本保持 `0.2.1` 冻结状态，不属于本阶段验收范围。
 - 完整业务验收只操作独立且归属已校验的验收资源；并行存在的日常开发栈和用户 `.env` 保持不变。
 - `/health` 和 `/ready` 保持 Phase 0 契约，未引入 Phase 2 或后续阶段能力。
-- 六个批次的实施记录与实际工作一致。
-- 六个批次均在各自分支完成版本更新，阶段收口时根 `VERSION` 为 `0.2.6`，且各批提交均不包含无关文件。
+- 七个批次的实施记录与实际工作一致。
+- Phase-01-01 至 Phase-01-06 在各自分支完成核心交付并使根 `VERSION` 达到 `0.2.6`；Phase-01-07 在 `develop/0.2.7` 完成 Review 整改，最终根 `VERSION` 为 `0.2.7`，各批提交均不包含无关文件。
+- Frontend npm 根包元数据与根 `VERSION` 一致，质量门禁自动拒绝版本漂移。
+- 首次认证恢复只有合法 `401 authentication_required` 进入匿名状态；临时依赖故障进入可重试状态，不表现为永久退出。
+
+### 15.1 Phase 1 最终验收摘要
+
+- 核心业务基线：`592897b1080eb78483a2eeb49141671f16cfc8fe`，根版本 `0.2.6`；独立 Review 已验证 Backend、Frontend、真实 MySQL/Redis integration、Bash 安全自测和隔离 Playwright 完整业务验收。
+- 远程质量门禁：GitHub API 可读取 PR #27 的 head commit `2505104503a8045dd97d1a60d413aa848ca71a2c`，其 Branch governance、Backend、Frontend、Scripts and Compose、Integration 以及自动 PR/merge job 共六项 check run 均为 `success`。merge commit `592897b...` 本身未返回 check run，因此不把不存在的 merge-commit checks 写成已验证。
+- Review 整改版本：`0.2.7`。Phase-01-07 关闭计划状态、认证恢复和 npm 元数据问题，并以其实施记录中的实际命令作为增量验收证据。
+- 已接受限制：帖子详情 cache-aside 在并发旧读回填与新写失效交错时，仍可能在 `REDIS_POST_DETAIL_TTL` 内暴露可自愈的旧公共计数；MySQL 保持唯一事实源，该限制继续监控但不在本批升级为强一致缓存治理。
+- 最终判定：Phase 1 完成并通过阶段验收，可作为 Phase 2 同步事实输入基线。
 
 ## 16. Phase 2 交接边界
 
