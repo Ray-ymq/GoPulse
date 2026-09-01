@@ -54,13 +54,14 @@ def load_allocations(repo: Path) -> list[Allocation]:
 
 def changed_files(repo: Path, base_ref: str) -> list[str]:
     result = subprocess.run(
-        ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+        ["git", "-c", "core.quotepath=false", "diff", "--name-only", "-z", f"{base_ref}...HEAD"],
         cwd=repo,
         check=True,
         text=True,
+        encoding="utf-8",
         capture_output=True,
     )
-    return [line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()]
+    return [path.replace("\\", "/") for path in result.stdout.split("\0") if path]
 
 
 def update_path_allowed(path: str) -> bool:
