@@ -32,6 +32,14 @@ Kubernetes 部署
 1. 当前阶段本身能够独立运行和验证。
 2. 当前阶段产物能够直接作为下一阶段的基础，不推倒重来。
 
+## 1.1 执行平台与兼容边界
+
+- Phase 0 与 Phase-01-01 已按原跨平台策略完成，原生 Windows PowerShell 与 Bash 开发入口的共同能力基线截至产品版本 `0.2.1`。
+- 从 Phase-01-02 到 Phase 16，项目在 Windows 宿主机的 WSL2 Linux 环境中实施、测试和验收，活动仓库放在 WSL Linux 文件系统中，日常生命周期与验收入口只维护 Bash 版本。
+- 此期间不新增或同步更新原生 PowerShell 脚本，不把 PowerShell/Bash 语义一致、Windows runner 或原生 Windows 验收作为阶段完成条件。现有 `scripts/*.ps1` 保留为 `0.2.1` 历史能力快照。
+- Phase 16 完成并通过里程碑验收后，再建立不占用 Phase 0–16 编号的 Windows PowerShell 兼容任务，以最终 Bash 行为、配置契约、容器拓扑和验收流程为基线集中实现与回归。
+- 延后原生 Windows 兼容不降低当前阶段的业务、数据、安全、故障恢复、Linux CI、Docker 或 Kubernetes 验收标准。
+
 ---
 
 # 2. 总体技术栈
