@@ -22,11 +22,27 @@ class BranchGovernanceTests(unittest.TestCase):
         )
         (self.repo / "VERSION").write_text("0.1.6\n", encoding="utf-8")
 
+
+    def add_release_allocation(self, version: str = "1.0.0") -> None:
+        plan = self.repo / "dev/imple/Phase-03/Phase-03-总实施方案.md"
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(
+            "| 发布动作 | 目标版本 | 发布分支 | 前置状态 |\n"
+            "| --- | --- | --- | --- |\n"
+            f"| Milestone-01-Release | `{version}` | `develop/{version}` | Phase-03-03 已完成 |\n",
+            encoding="utf-8",
+        )
+
     def tearDown(self) -> None:
         self.temp.cleanup()
 
     def test_accepts_authoritative_development_branch(self) -> None:
         self.assertEqual(validate(self.repo, "develop/0.1.6", None, []), [])
+
+    def test_accepts_authoritative_release_branch(self) -> None:
+        self.add_release_allocation()
+        (self.repo / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+        self.assertEqual(validate(self.repo, "develop/1.0.0", None, []), [])
 
     def test_rejects_illegal_branch_name(self) -> None:
         self.assertTrue(validate(self.repo, "feature/review", None, []))
@@ -62,6 +78,11 @@ class BranchGovernanceTests(unittest.TestCase):
             "| Phase-99-01 | `0.1.6` | `develop/0.1.6` | 未开始 |\n",
             encoding="utf-8",
         )
+        errors = validate(self.repo, "develop/0.1.6", None, [])
+        self.assertIn("found 2", errors[0])
+
+    def test_rejects_release_branch_duplicated_by_phase_allocation(self) -> None:
+        self.add_release_allocation("0.1.6")
         errors = validate(self.repo, "develop/0.1.6", None, [])
         self.assertIn("found 2", errors[0])
 
