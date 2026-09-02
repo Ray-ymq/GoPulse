@@ -54,6 +54,7 @@ export type ApiErrorCode =
   | 'invalid_credentials'
   | 'username_conflict'
   | 'post_not_found'
+  | 'search_unavailable'
   | 'internal_error'
   | 'network_error'
   | 'invalid_response'
