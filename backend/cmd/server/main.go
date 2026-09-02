@@ -80,10 +80,13 @@ func run() error {
 	defer closeResource("RabbitMQ publisher", rabbitMQPublisher.Close)
 
 	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitMQPublisher, outbox.DispatcherOptions{
-		PollInterval:   cfg.Outbox.PollInterval,
-		ClaimBatch:     cfg.Outbox.ClaimBatch,
-		LeaseDuration:  cfg.Outbox.LeaseDuration,
-		PublishTimeout: cfg.Outbox.PublishTimeout,
+		PollInterval:    cfg.Outbox.PollInterval,
+		ClaimBatch:      cfg.Outbox.ClaimBatch,
+		LeaseDuration:   cfg.Outbox.LeaseDuration,
+		PublishTimeout:  cfg.Outbox.PublishTimeout,
+		CleanupInterval: cfg.Outbox.CleanupInterval,
+		Retention:       cfg.Outbox.Retention,
+		CleanupBatch:    cfg.Outbox.CleanupBatch,
 	})
 	if err != nil {
 		return errors.New("initialize outbox dispatcher")

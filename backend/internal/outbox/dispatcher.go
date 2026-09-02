@@ -13,14 +13,23 @@ import (
 )
 
 const (
-	DefaultDispatcherPollInterval = time.Second
-	MinimumDispatcherPollInterval = 10 * time.Millisecond
-	MaximumDispatcherPollInterval = time.Minute
-	DefaultDispatcherClaimBatch   = 10
-	DefaultDispatcherLease        = 30 * time.Second
-	DefaultDispatcherPublish      = 5 * time.Second
-	MinimumDispatcherPublish      = 10 * time.Millisecond
-	MaximumDispatcherPublish      = 30 * time.Second
+	DefaultDispatcherPollInterval    = time.Second
+	MinimumDispatcherPollInterval    = 10 * time.Millisecond
+	MaximumDispatcherPollInterval    = time.Minute
+	DefaultDispatcherClaimBatch      = 10
+	DefaultDispatcherLease           = time.Minute
+	DefaultDispatcherPublish         = 5 * time.Second
+	MinimumDispatcherPublish         = 10 * time.Millisecond
+	MaximumDispatcherPublish         = 30 * time.Second
+	DispatcherLeaseSafetyMargin      = time.Second
+	DefaultDispatcherCleanupInterval = time.Hour
+	MinimumDispatcherCleanupInterval = time.Minute
+	MaximumDispatcherCleanupInterval = 24 * time.Hour
+	DefaultDispatcherRetention       = 7 * 24 * time.Hour
+	MinimumDispatcherRetention       = time.Hour
+	MaximumDispatcherRetention       = 365 * 24 * time.Hour
+	DefaultDispatcherCleanupBatch    = 500
+	dispatcherCleanupBatchDelay      = 100 * time.Millisecond
 )
 
 // Store is the lease-aware persistence boundary used by Dispatcher. Keeping
@@ -30,6 +39,7 @@ type Store interface {
 	Claim(context.Context, string, int, time.Duration) ([]Record, error)
 	MarkPublished(context.Context, uint64, string) error
 	ReleaseFailed(context.Context, uint64, string, FailureCode) error
+	CleanupPublished(context.Context, time.Time, int) (int64, error)
 }
 
 // Publisher publishes one validated business event and returns only bounded
@@ -39,21 +49,29 @@ type Publisher interface {
 }
 
 type DispatcherOptions struct {
-	Owner          string
-	PollInterval   time.Duration
-	ClaimBatch     int
-	LeaseDuration  time.Duration
-	PublishTimeout time.Duration
+	Owner           string
+	PollInterval    time.Duration
+	ClaimBatch      int
+	LeaseDuration   time.Duration
+	PublishTimeout  time.Duration
+	CleanupInterval time.Duration
+	Retention       time.Duration
+	CleanupBatch    int
+	Clock           Clock
 }
 
 type Dispatcher struct {
-	store          Store
-	publisher      Publisher
-	owner          string
-	pollInterval   time.Duration
-	claimBatch     int
-	leaseDuration  time.Duration
-	publishTimeout time.Duration
+	store           Store
+	publisher       Publisher
+	owner           string
+	pollInterval    time.Duration
+	claimBatch      int
+	leaseDuration   time.Duration
+	publishTimeout  time.Duration
+	cleanupInterval time.Duration
+	retention       time.Duration
+	cleanupBatch    int
+	clock           Clock
 }
 
 func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) (*Dispatcher, error) {
@@ -98,28 +116,71 @@ func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) 
 	if publishTimeout < MinimumDispatcherPublish || publishTimeout > MaximumDispatcherPublish {
 		return nil, fmt.Errorf("create outbox dispatcher: publish timeout must be between %s and %s", MinimumDispatcherPublish, MaximumDispatcherPublish)
 	}
-	if publishTimeout >= leaseDuration {
-		return nil, fmt.Errorf("create outbox dispatcher: publish timeout must be shorter than lease duration")
+	requiredLease := time.Duration(claimBatch)*publishTimeout + DispatcherLeaseSafetyMargin
+	if leaseDuration < requiredLease {
+		return nil, fmt.Errorf("create outbox dispatcher: lease duration must cover the full claim batch publish budget plus %s safety margin", DispatcherLeaseSafetyMargin)
+	}
+	cleanupInterval := options.CleanupInterval
+	if cleanupInterval == 0 {
+		cleanupInterval = DefaultDispatcherCleanupInterval
+	}
+	if cleanupInterval < MinimumDispatcherCleanupInterval || cleanupInterval > MaximumDispatcherCleanupInterval {
+		return nil, fmt.Errorf("create outbox dispatcher: cleanup interval must be between %s and %s", MinimumDispatcherCleanupInterval, MaximumDispatcherCleanupInterval)
+	}
+	retention := options.Retention
+	if retention == 0 {
+		retention = DefaultDispatcherRetention
+	}
+	if retention < MinimumDispatcherRetention || retention > MaximumDispatcherRetention {
+		return nil, fmt.Errorf("create outbox dispatcher: retention must be between %s and %s", MinimumDispatcherRetention, MaximumDispatcherRetention)
+	}
+	cleanupBatch := options.CleanupBatch
+	if cleanupBatch == 0 {
+		cleanupBatch = DefaultDispatcherCleanupBatch
+	}
+	if cleanupBatch < 1 || cleanupBatch > maximumCleanupBatch {
+		return nil, fmt.Errorf("create outbox dispatcher: cleanup batch must be between 1 and %d", maximumCleanupBatch)
+	}
+	clock := options.Clock
+	if clock == nil {
+		clock = time.Now
 	}
 	return &Dispatcher{
-		store:          store,
-		publisher:      publisher,
-		owner:          owner,
-		pollInterval:   pollInterval,
-		claimBatch:     claimBatch,
-		leaseDuration:  leaseDuration,
-		publishTimeout: publishTimeout,
+		store:           store,
+		publisher:       publisher,
+		owner:           owner,
+		pollInterval:    pollInterval,
+		claimBatch:      claimBatch,
+		leaseDuration:   leaseDuration,
+		publishTimeout:  publishTimeout,
+		cleanupInterval: cleanupInterval,
+		retention:       retention,
+		cleanupBatch:    cleanupBatch,
+		clock:           clock,
 	}, nil
 }
 
-// Run continuously claims and publishes bounded batches. Claim failures and
-// individual delivery failures are retried on the next poll; a cancellation
-// never claims another row and lets an active lease expire if its outcome is
-// uncertain.
+// Run continuously claims and publishes bounded batches while a separately
+// owned cleanup loop removes expired published rows. Cancellation stops both
+// loops before Run returns.
 func (dispatcher *Dispatcher) Run(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("run outbox dispatcher: context is required")
 	}
+	cleanupContext, cancelCleanup := context.WithCancel(ctx)
+	cleanupDone := make(chan struct{})
+	go func() {
+		dispatcher.runCleanup(cleanupContext)
+		close(cleanupDone)
+	}()
+
+	err := dispatcher.runDelivery(ctx)
+	cancelCleanup()
+	<-cleanupDone
+	return err
+}
+
+func (dispatcher *Dispatcher) runDelivery(ctx context.Context) error {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -135,6 +196,55 @@ func (dispatcher *Dispatcher) Run(ctx context.Context) error {
 			}
 			timer.Reset(dispatcher.pollInterval)
 		}
+	}
+}
+
+func (dispatcher *Dispatcher) runCleanup(ctx context.Context) {
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			if err := dispatcher.CleanupOnce(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("outbox cleanup cycle failed")
+			}
+			timer.Reset(dispatcher.cleanupInterval)
+		}
+	}
+}
+
+// CleanupOnce removes all currently expired published rows in bounded batches.
+// A fixed cutoff keeps each cycle deterministic, and full batches yield before
+// continuing so cleanup cannot monopolize the database.
+func (dispatcher *Dispatcher) CleanupOnce(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("cleanup outbox events: context is required")
+	}
+	cutoff := dispatcher.clock().UTC().Add(-dispatcher.retention)
+	for {
+		deleted, err := dispatcher.store.CleanupPublished(ctx, cutoff, dispatcher.cleanupBatch)
+		if err != nil {
+			return fmt.Errorf("cleanup published outbox events: %w", err)
+		}
+		if deleted < int64(dispatcher.cleanupBatch) {
+			return nil
+		}
+		if err := waitForCleanup(ctx, dispatcherCleanupBatchDelay); err != nil {
+			return err
+		}
+	}
+}
+
+func waitForCleanup(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
