@@ -56,6 +56,9 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("npm run test:e2e -- --grep search-rebuild", source)
         self.assertIn("--search-live", source)
         self.assertIn("npm run test:e2e -- --grep search-live", source)
+        full_flow = source[source.index("  run_api_flow\n", source.index("main()")) :]
+        self.assertLess(full_flow.index("run_search_rebuild_flow"), full_flow.index("run_search_live_flow"))
+        self.assertLess(full_flow.index("run_search_live_flow"), full_flow.index("run_reliability_matrix"))
         self.assertIn("^gopulse-post-search-v1-[a-z0-9-]+$", source)
         self.assertIn('es_request DELETE "/$active_index" 200', source)
         self.assertIn('es_request HEAD "/$unrelated_index" 200', source)
