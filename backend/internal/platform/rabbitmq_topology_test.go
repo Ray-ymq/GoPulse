@@ -64,7 +64,7 @@ func TestDeclareBusinessTopologyIsDurableVersionedAndRepeatable(t *testing.T) {
 			t.Fatalf("DeclareBusinessTopology() error = %v", err)
 		}
 	}
-	if len(channel.exchanges) != 6 || len(channel.queues) != 6 || len(channel.bindings) != 12 {
+	if len(channel.exchanges) != 6 || len(channel.queues) != 6 || len(channel.bindings) != 14 {
 		t.Fatalf("declaration counts exchanges=%d queues=%d bindings=%d", len(channel.exchanges), len(channel.queues), len(channel.bindings))
 	}
 	for _, declaration := range channel.exchanges {
@@ -89,8 +89,9 @@ func TestDeclareBusinessTopologyIsDurableVersionedAndRepeatable(t *testing.T) {
 		{name: BusinessQueue, key: bus.PostLikedRoutingKey, exchange: BusinessExchange},
 		{name: BusinessRetryQueue, key: bus.PostLikedRoutingKey, exchange: BusinessRetryExchange},
 		{name: BusinessDeadQueue, key: bus.PostLikedRoutingKey, exchange: BusinessDeadExchange},
+		{name: BusinessDeadQueue, key: BusinessInvalidRoutingKey, exchange: BusinessDeadExchange},
 	}
-	if !reflect.DeepEqual(channel.bindings[:6], wantBindings) || !reflect.DeepEqual(channel.bindings[6:], wantBindings) {
+	if !reflect.DeepEqual(channel.bindings[:7], wantBindings) || !reflect.DeepEqual(channel.bindings[7:], wantBindings) {
 		t.Fatalf("bindings = %#v", channel.bindings)
 	}
 }
