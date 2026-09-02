@@ -4,6 +4,9 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 ENV_FILE="$REPO_ROOT/.env"
+WORKER_RECORD="$REPO_ROOT/.run/business-worker.json"
+WORKER_BINARY="$REPO_ROOT/.run/bin/gopulse-business-worker"
+BACKEND_DIR="$REPO_ROOT/backend"
 PROJECT_NAME=gopulse
 FAILURES=0
 TEMP_DIR=
@@ -100,6 +103,54 @@ check_compose_service() {
     return
   fi
   pass "Compose/$service" 'container is running and healthy.'
+}
+
+check_worker_process() {
+  local result
+  if [[ ! -f "$WORKER_RECORD" ]]; then
+    fail 'Business Worker' "process record is missing: $WORKER_RECORD"
+    return
+  fi
+  if ! result=$(python3 - "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" <<'PY'
+import json
+import os
+import sys
+path, expected_cwd, expected_executable = sys.argv[1:]
+try:
+    record = json.load(open(path, encoding='utf-8'))
+    pid = int(record['pid'])
+    start_ticks = str(record['startTicks'])
+    executable = os.path.realpath(str(record['executablePath']))
+    cwd = os.path.realpath(str(record['workingDirectory']))
+    marker = str(record['commandLineMarker'])
+except Exception:
+    print('record is malformed')
+    raise SystemExit(1)
+if cwd != os.path.realpath(expected_cwd) or marker != expected_executable:
+    print('record identity does not match this repository')
+    raise SystemExit(1)
+if executable != os.path.realpath(expected_executable):
+    print('recorded executable does not match the expected worker')
+    raise SystemExit(1)
+try:
+    stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
+    fields = stat[stat.rfind(')') + 2:].split()
+    actual_start_ticks = fields[19]
+    actual_executable = os.path.realpath(f'/proc/{pid}/exe')
+    command_line = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
+except Exception:
+    print('recorded process is not running')
+    raise SystemExit(1)
+if actual_start_ticks != start_ticks or actual_executable != executable or marker not in command_line:
+    print('running process identity does not match the record')
+    raise SystemExit(1)
+print(pid)
+PY
+  ); then
+    fail 'Business Worker' "$result"
+    return
+  fi
+  pass 'Business Worker' "PID $result matches its repository-owned process record."
 }
 
 http_get() {
@@ -222,6 +273,7 @@ main() {
   check_compose_service mysql
   check_compose_service redis
   check_compose_service rabbitmq
+  check_worker_process
   check_health "$port"
   check_ready "$port"
   check_protected_api "$port"

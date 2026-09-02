@@ -12,8 +12,10 @@ RUN_DIR="$REPO_ROOT/.run"
 BIN_DIR="$RUN_DIR/bin"
 LOCK_PATH="$RUN_DIR/dev.lock"
 BACKEND_RECORD="$RUN_DIR/backend.json"
+WORKER_RECORD="$RUN_DIR/business-worker.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$BIN_DIR/gopulse-backend"
+WORKER_BINARY="$BIN_DIR/gopulse-business-worker"
 VITE_CLI="$FRONTEND_DIR/node_modules/vite/bin/vite.js"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
 PROJECT_NAME=gopulse
@@ -21,8 +23,10 @@ LOCK_FD=9
 LOCK_OWNED=0
 LOCK_TOKEN=
 BACKEND_PID=
+WORKER_PID=
 FRONTEND_PID=
 BACKEND_STARTED=0
+WORKER_STARTED=0
 FRONTEND_STARTED=0
 EXIT_CODE=0
 
@@ -36,6 +40,12 @@ BACKEND_KEYS=(
   MYSQL_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB RABBITMQ_URL
   AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
   REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
+  OUTBOX_POLL_INTERVAL OUTBOX_CLAIM_BATCH OUTBOX_LEASE_DURATION OUTBOX_PUBLISH_TIMEOUT OUTBOX_RETRY_DELAY
+)
+WORKER_KEYS=(
+  MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD RABBITMQ_URL OUTBOX_RETRY_DELAY
+  BUSINESS_WORKER_PREFETCH BUSINESS_WORKER_MAX_RETRIES BUSINESS_WORKER_PUBLISH_TIMEOUT
+  BUSINESS_WORKER_SHUTDOWN_TIMEOUT BUSINESS_WORKER_RECONNECT_MIN BUSINESS_WORKER_RECONNECT_MAX
 )
 ALL_CONFIG_KEYS=(
   PUBLISHED_HOST APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
@@ -43,6 +53,9 @@ ALL_CONFIG_KEYS=(
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_URL
   AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
   REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
+  OUTBOX_POLL_INTERVAL OUTBOX_CLAIM_BATCH OUTBOX_LEASE_DURATION OUTBOX_PUBLISH_TIMEOUT OUTBOX_RETRY_DELAY
+  BUSINESS_WORKER_PREFETCH BUSINESS_WORKER_MAX_RETRIES BUSINESS_WORKER_PUBLISH_TIMEOUT
+  BUSINESS_WORKER_SHUTDOWN_TIMEOUT BUSINESS_WORKER_RECONNECT_MIN BUSINESS_WORKER_RECONNECT_MAX
 )
 REQUIRED_KEYS=(
   MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PASSWORD
@@ -58,6 +71,11 @@ declare -A DEFAULTS=(
   [RABBITMQ_PORT]=5672 [RABBITMQ_MANAGEMENT_PORT]=15672
   [AUTH_JWT_TTL]=2h [AUTH_COOKIE_NAME]=gopulse_session [AUTH_COOKIE_SECURE]=false
   [REDIS_POST_DETAIL_TTL]=5m [REDIS_OPERATION_TIMEOUT]=200ms
+  [OUTBOX_POLL_INTERVAL]=1s [OUTBOX_CLAIM_BATCH]=10 [OUTBOX_LEASE_DURATION]=30s
+  [OUTBOX_PUBLISH_TIMEOUT]=5s [OUTBOX_RETRY_DELAY]=30s
+  [BUSINESS_WORKER_PREFETCH]=10 [BUSINESS_WORKER_MAX_RETRIES]=3
+  [BUSINESS_WORKER_PUBLISH_TIMEOUT]=5s [BUSINESS_WORKER_SHUTDOWN_TIMEOUT]=10s
+  [BUSINESS_WORKER_RECONNECT_MIN]=500ms [BUSINESS_WORKER_RECONNECT_MAX]=30s
 )
 while IFS='=' read -r key value; do
   CALLER_ENV["$key"]=$value
@@ -487,9 +505,9 @@ ensure_frontend_dependencies() {
   fi
 }
 
-build_backend() {
-  info 'Building the Backend development executable.'
-  (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server)
+build_applications() {
+  info 'Building the Backend and Business Worker development executables.'
+  (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server && go build -o "$WORKER_BINARY" ./cmd/business-worker)
 }
 
 write_process_record() {
@@ -528,6 +546,25 @@ PY
   kill -0 "$BACKEND_PID" 2>/dev/null || { local code=0; wait "$BACKEND_PID" || code=$?; fail "Backend exited during startup with code $code."; return 1; }
   BACKEND_STARTED=1
   write_process_record "$BACKEND_PID" "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY"
+}
+
+start_worker() {
+  local -a env_args=() key
+  for key in "${WORKER_KEYS[@]}"; do env_args+=("$key=${CONFIG[$key]}"); done
+  info 'Starting Business Worker.'
+  env "${env_args[@]}" python3 - "$BACKEND_DIR" "$WORKER_BINARY" <<'PY' &
+import os
+import sys
+cwd, executable = sys.argv[1:]
+os.chdir(cwd)
+os.setsid()
+os.execve(executable, [executable], os.environ)
+PY
+  WORKER_PID=$!
+  sleep 0.6
+  kill -0 "$WORKER_PID" 2>/dev/null || { local code=0; wait "$WORKER_PID" || code=$?; fail "Business Worker exited during startup with code $code."; return 1; }
+  WORKER_STARTED=1
+  write_process_record "$WORKER_PID" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY"
 }
 
 start_frontend() {
@@ -578,6 +615,9 @@ cleanup() {
   if ((FRONTEND_STARTED == 1)); then
     stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)" "$FRONTEND_PID" || true
   fi
+  if ((WORKER_STARTED == 1)); then
+    stop_recorded_application "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY" "$WORKER_PID" || true
+  fi
   if ((BACKEND_STARTED == 1)); then
     stop_recorded_application Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY" "$BACKEND_PID" || true
   fi
@@ -596,6 +636,7 @@ main() {
   require_tools || return 1
   acquire_lock || return 1
   reject_or_remove_record Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY" || return 1
+  reject_or_remove_record "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY" || return 1
   reject_or_remove_record Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node)" || return 1
 
   local source_file
@@ -617,8 +658,9 @@ main() {
   wait_for_infrastructure || return 1
   run_database_migrations || return 1
   ensure_frontend_dependencies || return 1
-  build_backend || return 1
+  build_applications || return 1
   start_backend || return 1
+  start_worker || return 1
   start_frontend || return 1
 
   printf '\nGoPulse development services:\n'
@@ -627,12 +669,17 @@ main() {
   printf '  Health:              http://localhost:%s/health\n' "${CONFIG[HTTP_PORT]}"
   printf '  Readiness:           http://localhost:%s/ready\n' "${CONFIG[HTTP_PORT]}"
   printf '  RabbitMQ management: http://localhost:%s\n\n' "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}"
-  info 'Press Ctrl+C to stop Frontend and Backend. Infrastructure will remain running.'
+  info 'Press Ctrl+C to stop Frontend, Business Worker, and Backend. Infrastructure will remain running.'
 
   while true; do
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
       wait "$BACKEND_PID" || EXIT_CODE=$?
       fail "Backend exited unexpectedly with code $EXIT_CODE."
+      return 1
+    fi
+    if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+      wait "$WORKER_PID" || EXIT_CODE=$?
+      fail "Business Worker exited unexpectedly with code $EXIT_CODE."
       return 1
     fi
     if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
