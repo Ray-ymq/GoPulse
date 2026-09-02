@@ -51,6 +51,7 @@
 ## 3. 变更文件
 
 - `.env.example`
+- `.github/workflows/quality-gates.yml`
 - `README.md`
 - `VERSION`
 - `backend/cmd/business-worker/main.go`
@@ -155,6 +156,7 @@ git diff --cached --check
 2. 原 WIP 的 Notification 并发重复 integration 使用 24 个并发写入。依据执行效率规则和本批“代表性重复、不穷举并发时序”边界，收敛为两个并发重复写入，仍直接证明唯一 source event 幂等边界。
 3. 实施中定向测试发现并修复 attempt 高于配置最大重试次数时的 nil error 解引用风险；只增加该已观察缺陷的代表性回归，没有扩展为 attempt 类型/数值全排列。
 4. 没有运行 Frontend、Playwright、完整 Phase 1 浏览器验收或 Backend 全量测试，因为公共 HTTP/Frontend 契约未改变，实施方案明确限定为 Worker/notification 与 Producer 必要回归。
+5. 首次推送后，远程 Integration 门禁失败；Branch governance、Backend、Frontend、Scripts and Compose 均已通过。检查远程 workflow 配置后确认 integration job 设置了 `RABBITMQ_URL`，但只启动 MySQL 和 Redis service，没有启动 RabbitMQ。已为该 job 增加与本批本地验收一致的 RabbitMQ 3.13 service、隔离凭据、端口和健康检查。
 
 ## 6. 已知限制与后续项
 
