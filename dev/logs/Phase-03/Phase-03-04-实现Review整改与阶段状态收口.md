@@ -57,3 +57,13 @@ scripts/verify-business.sh --self-test
 - PIT `keep_alive` 固定为两分钟，不是无限滚动会话；用户超过该窗口继续分页会得到 `validation_failed` 并从第一页重新搜索。
 - cursor 对客户端保持 opaque，但其中承载的 PIT ID 不是加密数据；Backend 不记录该 ID，也不在错误消息中输出。
 - Phase 3 Review 只有在 `develop/0.4.4` 推送后远程 Branch governance、Backend、Frontend、Scripts and Compose、Integration 和自动 PR/合并均成功时才最终关闭。随后才可从最新 `origin/main` 创建独立 `develop/1.0.0`。
+
+
+## 6. 后续远程状态与 PR 编排修复
+
+- `develop/0.4.4` 已推送；Auto PR and Merge push run `33665066803` 的 Branch governance、Backend、Frontend、Scripts and Compose、Integration 和 Open PR and enable auto-merge 全部成功。
+- 自动创建的 PR #51 已于 2026-09-02 18:10:52 UTC 合入 `main`，合并提交为 `3d07f1b831499f4e5bd449b53e6cc0561dad51c8`。普通 development 分支随后按规则从远程删除。
+- PR 触发的 CI run `33665595978` 在合入后一秒以 failure 结束且没有创建任何 job。结合 PR 已先完成合入并删除 head 分支的时间顺序，该失败属于自动合并早于 pull-request CI 初始化的编排竞态，而不是 Backend、Frontend、治理、Compose 或 Integration job 失败。
+- 后续在长期 `update` 分支修复 `.github/workflows/auto-pr-merge.yml`：创建 PR 后先定位相同 head SHA 的 `ci.yml` / `pull_request` run，并用 `gh run watch --exit-status` 等待成功；只有随后才允许启用 auto-merge。若 PR CI 失败，PR 和 head 分支将保留用于整改，不再先删除分支制造无 job 的失败 run。该仓库规则修复不修改 `VERSION`。
+
+- `update` 首次推送编排修复后，push run `33666308567` 的五类质量门禁全部成功，但 Create or find pull request 步骤因 PR body 的单引号进入 Bash 单引号字面量而报 `unexpected EOF while looking for matching quote`。已移除该不安全标点并新增后续提交重跑；这次失败未创建 PR，也未改变 `main`。
