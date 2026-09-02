@@ -24,6 +24,13 @@ type Executor interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
+// Writer is the minimal transactional boundary required by business fact
+// repositories. Implementations must write the event with the Executor passed
+// by the caller, which is normally the caller's active *sql.Tx.
+type Writer interface {
+	Insert(context.Context, Executor, bus.Envelope) error
+}
+
 type Clock func() time.Time
 type Backoff func(attempt uint32) time.Duration
 
