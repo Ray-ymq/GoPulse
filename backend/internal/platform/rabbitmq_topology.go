@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	BusinessExchange      = "gopulse.business.v1"
-	BusinessQueue         = "gopulse.business-worker.v1"
-	BusinessRetryExchange = "gopulse.business.retry.v1"
-	BusinessRetryQueue    = "gopulse.business-worker.retry.v1"
-	BusinessDeadExchange  = "gopulse.business.dead.v1"
-	BusinessDeadQueue     = "gopulse.business-worker.dead.v1"
+	BusinessExchange          = "gopulse.business.v1"
+	BusinessQueue             = "gopulse.business-worker.v1"
+	BusinessRetryExchange     = "gopulse.business.retry.v1"
+	BusinessRetryQueue        = "gopulse.business-worker.retry.v1"
+	BusinessDeadExchange      = "gopulse.business.dead.v1"
+	BusinessDeadQueue         = "gopulse.business-worker.dead.v1"
+	BusinessInvalidRoutingKey = "invalid.v1"
 
 	minimumBusinessRetryDelay = time.Second
 	maximumBusinessRetryDelay = 24 * time.Hour
@@ -67,6 +68,9 @@ func DeclareBusinessTopology(channel AMQPTopologyDeclarer, retryDelay time.Durat
 		if err := channel.QueueBind(BusinessDeadQueue, routingKey, BusinessDeadExchange, false, nil); err != nil {
 			return fmt.Errorf("bind business topology queue %s: %w", BusinessDeadQueue, err)
 		}
+	}
+	if err := channel.QueueBind(BusinessDeadQueue, BusinessInvalidRoutingKey, BusinessDeadExchange, false, nil); err != nil {
+		return fmt.Errorf("bind business topology queue %s invalid routing key: %w", BusinessDeadQueue, err)
 	}
 	return nil
 }
