@@ -4,6 +4,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
+	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/gin-gonic/gin"
 )
@@ -13,6 +14,7 @@ type APIRoutes struct {
 	Posts          *post.Handler
 	Comments       *comment.Handler
 	Likes          *like.Handler
+	Notifications  *notification.Handler
 	Authentication gin.HandlerFunc
 }
 
@@ -45,5 +47,9 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	if routes.Likes != nil {
 		protected.PUT("/posts/:postId/like", routes.Likes.Like)
 		protected.DELETE("/posts/:postId/like", routes.Likes.Unlike)
+	}
+	if routes.Notifications != nil {
+		protected.GET("/notifications", routes.Notifications.List)
+		protected.PATCH("/notifications/:notificationId/read", routes.Notifications.MarkRead)
 	}
 }

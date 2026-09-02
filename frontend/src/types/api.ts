@@ -57,3 +57,15 @@ export type ApiErrorCode =
   | 'internal_error'
   | 'network_error'
   | 'invalid_response'
+
+export type NotificationType = 'comment.created' | 'post.liked'
+
+export interface Notification {
+  id: number
+  type: NotificationType
+  created_at: string
+  read_at: string | null
+  actor: AuthorSummary
+  post_id: number
+  comment_id: number | null
+}

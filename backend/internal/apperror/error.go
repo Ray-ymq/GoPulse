@@ -11,6 +11,7 @@ const (
 	CodeInvalidCredentials     Code = "invalid_credentials"
 	CodeUsernameConflict       Code = "username_conflict"
 	CodePostNotFound           Code = "post_not_found"
+	CodeNotificationNotFound   Code = "notification_not_found"
 	CodeInternal               Code = "internal_error"
 )
 
