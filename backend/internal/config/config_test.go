@@ -30,6 +30,11 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Redis.PostDetailTTL != 5*time.Minute || cfg.Redis.OperationTimeout != 200*time.Millisecond {
 		t.Fatalf("Redis durations = %#v, want defaults", cfg.Redis)
 	}
+	if cfg.Outbox.PollInterval != time.Second || cfg.Outbox.ClaimBatch != 10 ||
+		cfg.Outbox.LeaseDuration != 30*time.Second || cfg.Outbox.PublishTimeout != 5*time.Second ||
+		cfg.Outbox.RetryDelay != 30*time.Second {
+		t.Fatalf("Outbox config = %#v, want defaults", cfg.Outbox)
+	}
 }
 
 func TestLoadFromOverrides(t *testing.T) {
@@ -47,6 +52,11 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["AUTH_COOKIE_SECURE"] = "true"
 	env["REDIS_POST_DETAIL_TTL"] = "10m"
 	env["REDIS_OPERATION_TIMEOUT"] = "350ms"
+	env["OUTBOX_POLL_INTERVAL"] = "250ms"
+	env["OUTBOX_CLAIM_BATCH"] = "25"
+	env["OUTBOX_LEASE_DURATION"] = "45s"
+	env["OUTBOX_PUBLISH_TIMEOUT"] = "4s"
+	env["OUTBOX_RETRY_DELAY"] = "2m"
 
 	cfg, err := LoadFrom(mapLookup(env))
 	if err != nil {
@@ -67,6 +77,11 @@ func TestLoadFromOverrides(t *testing.T) {
 	}
 	if cfg.Redis.PostDetailTTL != 10*time.Minute || cfg.Redis.OperationTimeout != 350*time.Millisecond {
 		t.Fatalf("unexpected Redis duration config: %#v", cfg.Redis)
+	}
+	if cfg.Outbox.PollInterval != 250*time.Millisecond || cfg.Outbox.ClaimBatch != 25 ||
+		cfg.Outbox.LeaseDuration != 45*time.Second || cfg.Outbox.PublishTimeout != 4*time.Second ||
+		cfg.Outbox.RetryDelay != 2*time.Minute {
+		t.Fatalf("unexpected Outbox config: %#v", cfg.Outbox)
 	}
 }
 
@@ -204,6 +219,45 @@ func TestLoadFromRejectsInvalidRedisDurations(t *testing.T) {
 				t.Fatalf("LoadFrom() error = %v, want %s error", err, test.key)
 			}
 		})
+	}
+}
+
+func TestLoadFromRejectsInvalidOutboxConfiguration(t *testing.T) {
+	tests := []struct {
+		key   string
+		value string
+	}{
+		{key: "OUTBOX_POLL_INTERVAL", value: "1ms"},
+		{key: "OUTBOX_POLL_INTERVAL", value: "61m"},
+		{key: "OUTBOX_CLAIM_BATCH", value: "0"},
+		{key: "OUTBOX_CLAIM_BATCH", value: "101"},
+		{key: "OUTBOX_CLAIM_BATCH", value: "not-an-int"},
+		{key: "OUTBOX_LEASE_DURATION", value: "500ms"},
+		{key: "OUTBOX_LEASE_DURATION", value: "11m"},
+		{key: "OUTBOX_PUBLISH_TIMEOUT", value: "5ms"},
+		{key: "OUTBOX_PUBLISH_TIMEOUT", value: "31s"},
+		{key: "OUTBOX_RETRY_DELAY", value: "500ms"},
+		{key: "OUTBOX_RETRY_DELAY", value: "25h"},
+	}
+	for _, test := range tests {
+		t.Run(test.key+"_"+test.value, func(t *testing.T) {
+			env := requiredEnvironment()
+			env[test.key] = test.value
+			_, err := LoadFrom(mapLookup(env))
+			if err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("LoadFrom() error = %v, want %s error", err, test.key)
+			}
+		})
+	}
+}
+
+func TestLoadFromRejectsOutboxPublishTimeoutThatCanOutliveLease(t *testing.T) {
+	env := requiredEnvironment()
+	env["OUTBOX_LEASE_DURATION"] = "5s"
+	env["OUTBOX_PUBLISH_TIMEOUT"] = "5s"
+	_, err := LoadFrom(mapLookup(env))
+	if err == nil || !strings.Contains(err.Error(), "OUTBOX_PUBLISH_TIMEOUT") {
+		t.Fatalf("LoadFrom() error = %v, want publish/lease relationship error", err)
 	}
 }
 

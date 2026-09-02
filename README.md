@@ -151,7 +151,11 @@ The shared durable direct topology contract is centralized in Backend code:
 | Retry exchange / queue | `gopulse.business.retry.v1` / `gopulse.business-worker.retry.v1` |
 | Dead exchange / queue | `gopulse.business.dead.v1` / `gopulse.business-worker.dead.v1` |
 
-Migration `000002_business_outbox` adds the constrained `business_outbox` table. Its Repository supports insertion through either `*sql.DB` or an active `*sql.Tx`, bounded ID-ordered claims, expiring owner leases, conditional publish/failure transitions, bounded failure categories, retry backoff, expired-lease recovery, and published-only retention cleanup. This version does **not** connect comment or like writes to the Outbox, start a Dispatcher or Worker, publish RabbitMQ messages, create notifications, or expose an Outbox HTTP API.
+Migration `000002_business_outbox` adds the constrained `business_outbox` table. Comment creation and a user's first non-self like now write their business fact and event in the same MySQL transaction; duplicate likes, self actions, and unlike operations do not create notification events. Redis invalidation remains a best-effort operation after commit.
+
+The Backend starts a lifecycle-bound Outbox Dispatcher that claims finite leased batches and lazily connects to RabbitMQ. It publishes persistent mandatory messages, waits for publisher confirms, and marks a row published only after a confirmed routable delivery. Broker outages, nacks, returns, timeouts, and connection loss leave the MySQL fact committed and release or preserve the event for bounded retry. `OUTBOX_POLL_INTERVAL`, `OUTBOX_CLAIM_BATCH`, `OUTBOX_LEASE_DURATION`, `OUTBOX_PUBLISH_TIMEOUT`, and `OUTBOX_RETRY_DELAY` control the delivery loop.
+
+Delivery is intentionally at least once: a crash after RabbitMQ confirms a publish but before MySQL records `published` can deliver the same `event_id` again. This version still does **not** run a Business Worker, create notifications, consume retry/dead queues, or expose a notification HTTP API.
 
 ## Frontend routes
 

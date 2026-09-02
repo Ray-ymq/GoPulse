@@ -17,6 +17,7 @@ import (
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
+	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
@@ -62,6 +63,31 @@ func run() error {
 		return errors.New("initialize RabbitMQ checker")
 	}
 
+	eventOutbox, err := outbox.NewRepository(mysqlClient.DB(), outbox.Options{
+		MaxClaimBatch: cfg.Outbox.ClaimBatch,
+	})
+	if err != nil {
+		return errors.New("initialize business outbox repository")
+	}
+	rabbitMQPublisher, err := platform.NewRabbitMQPublisher(
+		cfg.RabbitMQURL,
+		platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay},
+	)
+	if err != nil {
+		return errors.New("initialize RabbitMQ publisher")
+	}
+	defer closeResource("RabbitMQ publisher", rabbitMQPublisher.Close)
+
+	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitMQPublisher, outbox.DispatcherOptions{
+		PollInterval:   cfg.Outbox.PollInterval,
+		ClaimBatch:     cfg.Outbox.ClaimBatch,
+		LeaseDuration:  cfg.Outbox.LeaseDuration,
+		PublishTimeout: cfg.Outbox.PublishTimeout,
+	})
+	if err != nil {
+		return errors.New("initialize outbox dispatcher")
+	}
+
 	passwords, err := auth.NewPasswordManager()
 	if err != nil {
 		return errors.New("initialize password manager")
@@ -82,10 +108,10 @@ func run() error {
 	posts := post.NewMySQLRepository(mysqlClient.DB())
 	postService := post.NewService(posts, postDetailCache)
 	postHandler := post.NewHandler(postService)
-	comments := comment.NewMySQLRepository(mysqlClient.DB())
+	comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 	commentService := comment.NewService(comments, postService, postDetailCache)
 	commentHandler := comment.NewHandler(commentService)
-	likes := like.NewMySQLRepository(mysqlClient.DB())
+	likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 	likeService := like.NewService(likes, postService, postDetailCache)
 	likeHandler := like.NewHandler(likeService)
 
@@ -108,7 +134,7 @@ func run() error {
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
-	return serve(signalContext, server, server.ListenAndServe)
+	return serveWithDispatcher(signalContext, server, dispatcher)
 }
 
 func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
@@ -121,6 +147,45 @@ func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
 		IdleTimeout:       idleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
 	}
+}
+
+func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher *outbox.Dispatcher) error {
+	if ctx == nil {
+		return errors.New("serve backend: context is required")
+	}
+	if server == nil {
+		return errors.New("serve backend: HTTP server is required")
+	}
+	if dispatcher == nil {
+		return errors.New("serve backend: outbox dispatcher is required")
+	}
+
+	dispatcherContext, cancelDispatcher := context.WithCancel(ctx)
+	dispatcherErrors := make(chan error, 1)
+	go func() {
+		dispatcherErrors <- dispatcher.Run(dispatcherContext)
+	}()
+
+	serverErr := serve(ctx, server, server.ListenAndServe)
+	cancelDispatcher()
+
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancelShutdown()
+	select {
+	case dispatcherErr := <-dispatcherErrors:
+		if dispatcherErr != nil && !errors.Is(dispatcherErr, context.Canceled) {
+			if serverErr != nil {
+				return fmt.Errorf("%v; outbox dispatcher shutdown failed: %w", serverErr, dispatcherErr)
+			}
+			return fmt.Errorf("outbox dispatcher shutdown failed: %w", dispatcherErr)
+		}
+	case <-shutdownContext.Done():
+		if serverErr != nil {
+			return fmt.Errorf("%v; outbox dispatcher shutdown timed out", serverErr)
+		}
+		return errors.New("outbox dispatcher shutdown timed out")
+	}
+	return serverErr
 }
 
 func serve(ctx context.Context, server *stdhttp.Server, startServer func() error) error {
