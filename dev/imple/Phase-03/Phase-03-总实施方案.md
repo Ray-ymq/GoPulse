@@ -275,7 +275,7 @@ Milestone-01-Release（非 Phase 批次）：1.0.0
 | --- | --- | --- | --- |
 | Phase-03-01 | Mapping/Alias/Reindex、真实 MySQL/ES、Search API、搜索组件/E2E | 配置/readiness、帖子 hydration、Frontend 固定门禁、Compose/版本 | 不实现 RabbitMQ 增量；不跑 Phase 2 完整故障矩阵 |
 | Phase-03-02 | 原子 post.created、独立 topology/Indexer、真实暂停/重复/恢复 | Outbox/Worker 改动边界、帖子创建、03-01 搜索读链路、Bash 身份安全 | 不重跑所有通知/认证组合；完整里程碑矩阵留 03-03 |
-| Phase-03-03 | MVP 阶段矩阵一次、最终用户搜索闭环 | Backend/Frontend/脚本门禁、远程 CI、版本/文档 | 不执行独立 Review，不新增功能，不扩展封闭矩阵 |
+| Phase-03-03 | MVP 阶段矩阵一次、最终用户搜索闭环 | Backend/Frontend/脚本门禁、远程 CI、版本/文档 | 不新增功能，不扩展封闭矩阵 |
 | Phase-03-04 | 用户届时指定的 Review 证据 | 只按真实 finding 与实际风险确定 | 当前不预设清单、命令或整改范围，不自动执行 |
 
 ### 12.3 阶段级端到端矩阵
