@@ -31,7 +31,7 @@ func TestHealthReturnsExactContractWithoutCallingCheckers(t *testing.T) {
 	mysql := &fakeChecker{}
 	redis := &fakeChecker{}
 	rabbitMQ := &fakeChecker{}
-	router := NewRouter(Dependencies{MySQL: mysql, Redis: redis, RabbitMQ: rabbitMQ})
+	router := NewRouter(Dependencies{MySQL: mysql, Redis: redis, RabbitMQ: rabbitMQ, Elasticsearch: &fakeChecker{}})
 
 	response := performRequest(router, "/health")
 
@@ -46,9 +46,10 @@ func TestHealthReturnsExactContractWithoutCallingCheckers(t *testing.T) {
 
 func TestReadyReturnsOKWhenAllDependenciesAreUp(t *testing.T) {
 	router := NewRouter(Dependencies{
-		MySQL:    &fakeChecker{},
-		Redis:    &fakeChecker{},
-		RabbitMQ: &fakeChecker{},
+		MySQL:         &fakeChecker{},
+		Redis:         &fakeChecker{},
+		RabbitMQ:      &fakeChecker{},
+		Elasticsearch: &fakeChecker{},
 	})
 
 	response := performRequest(router, "/ready")
@@ -56,14 +57,15 @@ func TestReadyReturnsOKWhenAllDependenciesAreUp(t *testing.T) {
 	if response.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
-	assertReadyResponse(t, response.Body.String(), "ready", "up", "up", "up")
+	assertReadyResponse(t, response.Body.String(), "ready", "up", "up", "up", "up")
 }
 
 func TestReadyMarksSingleFailure(t *testing.T) {
 	router := NewRouter(Dependencies{
-		MySQL:    &fakeChecker{},
-		Redis:    &fakeChecker{check: func(context.Context) error { return errors.New("redis unavailable") }},
-		RabbitMQ: &fakeChecker{},
+		MySQL:         &fakeChecker{},
+		Redis:         &fakeChecker{check: func(context.Context) error { return errors.New("redis unavailable") }},
+		RabbitMQ:      &fakeChecker{},
+		Elasticsearch: &fakeChecker{},
 	})
 
 	response := performRequest(router, "/ready")
@@ -71,14 +73,15 @@ func TestReadyMarksSingleFailure(t *testing.T) {
 	if response.Code != stdhttp.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", response.Code)
 	}
-	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "down", "up")
+	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "down", "up", "up")
 }
 
 func TestReadyMarksMultipleFailures(t *testing.T) {
 	router := NewRouter(Dependencies{
-		MySQL:    &fakeChecker{check: func(context.Context) error { return errors.New("mysql unavailable") }},
-		Redis:    &fakeChecker{},
-		RabbitMQ: &fakeChecker{check: func(context.Context) error { return errors.New("rabbitmq unavailable") }},
+		MySQL:         &fakeChecker{check: func(context.Context) error { return errors.New("mysql unavailable") }},
+		Redis:         &fakeChecker{},
+		RabbitMQ:      &fakeChecker{check: func(context.Context) error { return errors.New("rabbitmq unavailable") }},
+		Elasticsearch: &fakeChecker{},
 	})
 
 	response := performRequest(router, "/ready")
@@ -86,7 +89,7 @@ func TestReadyMarksMultipleFailures(t *testing.T) {
 	if response.Code != stdhttp.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", response.Code)
 	}
-	assertReadyResponse(t, response.Body.String(), "not_ready", "down", "up", "down")
+	assertReadyResponse(t, response.Body.String(), "not_ready", "down", "up", "down", "up")
 }
 
 func TestReadyTimesOutOneDependency(t *testing.T) {
@@ -95,9 +98,10 @@ func TestReadyTimesOutOneDependency(t *testing.T) {
 		return ctx.Err()
 	}}
 	router := newRouter(Dependencies{
-		MySQL:    &fakeChecker{},
-		Redis:    blocking,
-		RabbitMQ: &fakeChecker{},
+		MySQL:         &fakeChecker{},
+		Redis:         blocking,
+		RabbitMQ:      &fakeChecker{},
+		Elasticsearch: &fakeChecker{},
 	}, 30*time.Millisecond, 80*time.Millisecond)
 
 	started := time.Now()
@@ -110,7 +114,7 @@ func TestReadyTimesOutOneDependency(t *testing.T) {
 	if elapsed > 150*time.Millisecond {
 		t.Fatalf("request took %s, want bounded timeout", elapsed)
 	}
-	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "down", "up")
+	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "down", "up", "up")
 }
 
 func TestReadyBoundsCheckerThatIgnoresContext(t *testing.T) {
@@ -121,9 +125,10 @@ func TestReadyBoundsCheckerThatIgnoresContext(t *testing.T) {
 		return nil
 	}}
 	router := newRouter(Dependencies{
-		MySQL:    &fakeChecker{},
-		Redis:    blocking,
-		RabbitMQ: &fakeChecker{},
+		MySQL:         &fakeChecker{},
+		Redis:         blocking,
+		RabbitMQ:      &fakeChecker{},
+		Elasticsearch: &fakeChecker{},
 	}, 30*time.Millisecond, 80*time.Millisecond)
 
 	started := time.Now()
@@ -136,7 +141,7 @@ func TestReadyBoundsCheckerThatIgnoresContext(t *testing.T) {
 	if elapsed > 150*time.Millisecond {
 		t.Fatalf("request took %s, want bounded timeout", elapsed)
 	}
-	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "down", "up")
+	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "down", "up", "up")
 }
 func TestReadyRunsChecksConcurrently(t *testing.T) {
 	delayed := func(context.Context) error {
@@ -144,9 +149,10 @@ func TestReadyRunsChecksConcurrently(t *testing.T) {
 		return nil
 	}
 	router := newRouter(Dependencies{
-		MySQL:    &fakeChecker{check: delayed},
-		Redis:    &fakeChecker{check: delayed},
-		RabbitMQ: &fakeChecker{check: delayed},
+		MySQL:         &fakeChecker{check: delayed},
+		Redis:         &fakeChecker{check: delayed},
+		RabbitMQ:      &fakeChecker{check: delayed},
+		Elasticsearch: &fakeChecker{check: delayed},
 	}, 500*time.Millisecond, time.Second)
 
 	started := time.Now()
@@ -170,6 +176,7 @@ func TestReadyDoesNotExposeCheckerErrorsOrCredentials(t *testing.T) {
 		RabbitMQ: &fakeChecker{check: func(context.Context) error {
 			return errors.New("dial " + connectionURL + ": connection refused")
 		}},
+		Elasticsearch: &fakeChecker{},
 	})
 
 	response := performRequest(router, "/ready")
@@ -183,7 +190,7 @@ func TestReadyDoesNotExposeCheckerErrorsOrCredentials(t *testing.T) {
 			t.Fatalf("response leaked %q: %s", forbidden, body)
 		}
 	}
-	assertReadyResponse(t, body, "not_ready", "up", "up", "down")
+	assertReadyResponse(t, body, "not_ready", "up", "up", "down", "up")
 }
 
 func TestReadyTreatsMissingCheckerAsDown(t *testing.T) {
@@ -194,7 +201,7 @@ func TestReadyTreatsMissingCheckerAsDown(t *testing.T) {
 	if response.Code != stdhttp.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", response.Code)
 	}
-	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "up", "down")
+	assertReadyResponse(t, response.Body.String(), "not_ready", "up", "up", "down", "down")
 }
 
 func performRequest(handler stdhttp.Handler, path string) *httptest.ResponseRecorder {
@@ -204,7 +211,7 @@ func performRequest(handler stdhttp.Handler, path string) *httptest.ResponseReco
 	return response
 }
 
-func assertReadyResponse(t *testing.T, body, status, mysql, redis, rabbitMQ string) {
+func assertReadyResponse(t *testing.T, body, status, mysql, redis, rabbitMQ, elasticsearch string) {
 	t.Helper()
 	assertJSONEqual(t, body, `{
 		"status": "`+status+`",
@@ -212,7 +219,8 @@ func assertReadyResponse(t *testing.T, body, status, mysql, redis, rabbitMQ stri
 		"checks": {
 			"mysql": "`+mysql+`",
 			"redis": "`+redis+`",
-			"rabbitmq": "`+rabbitMQ+`"
+			"rabbitmq": "`+rabbitMQ+`",
+			"elasticsearch": "`+elasticsearch+`"
 		}
 	}`)
 }
@@ -241,9 +249,10 @@ func TestReadyBoundsRepeatedCheckerExecutionsThatIgnoreContext(t *testing.T) {
 		return nil
 	}}
 	router := newRouter(Dependencies{
-		MySQL:    &fakeChecker{},
-		Redis:    blocking,
-		RabbitMQ: &fakeChecker{},
+		MySQL:         &fakeChecker{},
+		Redis:         blocking,
+		RabbitMQ:      &fakeChecker{},
+		Elasticsearch: &fakeChecker{},
 	}, 10*time.Millisecond, 30*time.Millisecond)
 
 	for index := 0; index < 20; index++ {
@@ -277,9 +286,10 @@ func TestReadyRecoversCheckerPanic(t *testing.T) {
 	secret := "mysql://user:panic-secret@localhost/database"
 	panicking := &fakeChecker{check: func(context.Context) error { panic(secret) }}
 	router := newRouter(Dependencies{
-		MySQL:    panicking,
-		Redis:    &fakeChecker{},
-		RabbitMQ: &fakeChecker{},
+		MySQL:         panicking,
+		Redis:         &fakeChecker{},
+		RabbitMQ:      &fakeChecker{},
+		Elasticsearch: &fakeChecker{},
 	}, 50*time.Millisecond, 100*time.Millisecond)
 
 	for index := 0; index < 2; index++ {
@@ -290,7 +300,7 @@ func TestReadyRecoversCheckerPanic(t *testing.T) {
 		if strings.Contains(response.Body.String(), secret) {
 			t.Fatalf("panic value leaked in response: %s", response.Body.String())
 		}
-		assertReadyResponse(t, response.Body.String(), "not_ready", "down", "up", "up")
+		assertReadyResponse(t, response.Body.String(), "not_ready", "down", "up", "up", "up")
 	}
 	if calls := panicking.calls.Load(); calls != 2 {
 		t.Fatalf("panic checker calls = %d, want 2", calls)

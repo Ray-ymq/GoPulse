@@ -5,11 +5,14 @@ package post
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 )
 
@@ -128,6 +131,67 @@ func TestIntegrationPostRepositoryReadModelStablePaginationAndQueryPlan(t *testi
 		}
 	}
 	t.Logf("validated list EXPLAIN indexes: idx_posts_created_at_id, idx_comments_post_id_id, and PRIMARY")
+}
+
+func TestIntegrationPostCreateCommitsOutboxAtomicallyAndRollsBackOnOutboxFailure(t *testing.T) {
+	cfg := integrationtest.Environment(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	if err != nil {
+		t.Fatalf("OpenMySQLDatabase() error = %v", err)
+	}
+	defer database.Close()
+	releasePostFactsLock := integrationtest.AcquirePostFactsLock(t, database)
+	defer releasePostFactsLock()
+
+	suffix := time.Now().UTC().Format("150405000000")
+	result, err := database.ExecContext(ctx, `INSERT INTO users (username, password_hash) VALUES (?, ?)`, "PostAtomic_"+suffix, "$2a$10$integration-placeholder")
+	if err != nil {
+		t.Fatalf("insert atomic test user: %v", err)
+	}
+	authorID := insertedID(t, result)
+	defer func() {
+		_, _ = database.ExecContext(context.Background(), `DELETE FROM business_outbox WHERE event_type = 'post.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.actor_id')) = ?`, authorID)
+		_, _ = database.ExecContext(context.Background(), `DELETE FROM posts WHERE author_id = ?`, authorID)
+		_, _ = database.ExecContext(context.Background(), `DELETE FROM users WHERE id = ?`, authorID)
+	}()
+
+	eventOutbox, err := outbox.NewRepository(database, outbox.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	occurredAt := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	repository := NewMySQLRepository(database, RepositoryOptions{Outbox: eventOutbox, Clock: func() time.Time { return occurredAt }})
+	record, err := repository.Create(ctx, authorID, "atomic success "+suffix, "indexed from MySQL")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	var eventType string
+	var payload []byte
+	if err := database.QueryRowContext(ctx, `SELECT event_type, payload FROM business_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.post_id')) = ?`, record.ID).Scan(&eventType, &payload); err != nil {
+		t.Fatalf("read post.created outbox: %v", err)
+	}
+	envelope, err := bus.Decode(payload)
+	if err != nil || eventType != string(bus.PostCreated) || envelope.PostID != record.ID || envelope.ActorID != authorID || envelope.RecipientID != 0 || envelope.OccurredAt != occurredAt {
+		t.Fatalf("post.created outbox event type=%q envelope=%#v error=%v", eventType, envelope, err)
+	}
+
+	failingTitle := "atomic rollback " + suffix
+	failingRepository := NewMySQLRepository(database, RepositoryOptions{Outbox: failingOutboxWriter{}, Clock: func() time.Time { return occurredAt }})
+	if _, err := failingRepository.Create(ctx, authorID, failingTitle, "must roll back"); err == nil {
+		t.Fatal("Create() with failing outbox error = nil")
+	}
+	var count int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE author_id = ? AND title = ?`, authorID, failingTitle).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rolled-back post count=%d error=%v", count, err)
+	}
+}
+
+type failingOutboxWriter struct{}
+
+func (failingOutboxWriter) Insert(context.Context, outbox.Executor, bus.Envelope) error {
+	return errors.New("forced outbox failure")
 }
 
 type countingDatabase struct {
