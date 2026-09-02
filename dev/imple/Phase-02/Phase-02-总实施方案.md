@@ -58,8 +58,8 @@ Phase 2 使用 `0.3.x` 版本线，`0.3.0` 只作为阶段基线，不创建空�
 
 | 执行批次 | 目标版本 | 开发分支 | 当前状态 |
 | --- | --- | --- | --- |
-| Phase-02-01 | `0.3.1` | `develop/0.3.1` | 未开始 |
-| Phase-02-02 | `0.3.2` | `develop/0.3.2` | 未开始 |
+| Phase-02-01 | `0.3.1` | `develop/0.3.1` | 已完成（PR #31，`6dcb6ab`） |
+| Phase-02-02 | `0.3.2` | `develop/0.3.2` | 已完成（PR #32，`e96414a`；验证范围见实施记录） |
 | Phase-02-03 | `0.3.3` | `develop/0.3.3` | 未开始 |
 | Phase-02-04 | `0.3.4` | `develop/0.3.4` | 未开始 |
 | Phase-02-05 | `0.3.5` | `develop/0.3.5` | 未开始 |
@@ -274,26 +274,28 @@ Phase-02-05 生命周期 + 故障矩阵 + 阶段收口
 
 ## 11. 测试与必要回归范围
 
-### 11.1 每批基础门禁
+### 11.1 Phase-02-03 起的执行预算与停止规则
 
-```bash
-cd backend && go test ./...
-cd backend && go vet ./...
-cd backend && go test -count=1 -race ./...
-cd backend && go test -count=1 -tags=integration ./...
-cd frontend && npm test -- --run
-cd frontend && npm run typecheck
-cd frontend && npm run build
-python3 -m unittest discover -s scripts/ci -p 'test_*.py'
-python3 scripts/ci/validate_versions.py
-git diff --check
-```
+- 每批先从详细方案提取“本批新增行为 → 最低有效测试层 → 固定完成门禁”的最小清单；方案以外的代码审计、依赖审计、覆盖率提升和假设性加固不属于任务。
+- 初始阅读限定为直接受影响的项目代码、已有测试和公开接口，并在 10 分钟内进入实现。没有具体编译、运行或必需测试失败时，不阅读第三方依赖源码。
+- 新增测试必须能映射到本批某条验收标准、已复现缺陷，或本批实际改变的安全/持久化/公共契约风险。禁止为未发生的组合补穷举边界、为覆盖率补测试，或在 unit/integration/E2E 多层重复证明同一事实。
+- 实现中先运行受影响 package 的定向测试；最终 diff 稳定后，每项固定门禁只执行一次。会话上下文压缩不使已通过证据失效，不得因此重新阅读、重新设计测试或重跑成功命令。
+- 可选调查或可选测试连续 15 分钟没有解决必需失败、也没有推进产品实现时立即停止。非 P0/P1 问题写入实施记录的跟进项，不扩大当前批次。
+- 固定门禁通过且无 P0/P1 阻塞后，立即完成版本、实施记录和提交并停止，不再追加重构、清理或新边界测试。
 
-按批次影响执行必要子集；触及共享 MySQL Schema、业务写路径、AMQP 生命周期或 Bash 验收时，必须扩大到对应真实依赖和 Phase 1 核心回归，并在实施记录说明风险依据。未触及 Frontend 的批次不重复执行浏览器验收，除非 Backend 公共契约或共享运行环境发生变化。
+### 11.2 后三批最小验证矩阵
 
-### 11.2 阶段级端到端验收
+| 批次 | 本批直接证据 | 固定必要回归 | 明确留后/不重复 |
+| --- | --- | --- | --- |
+| Phase-02-03 | Worker/notification 定向单元测试；真实 MySQL/RabbitMQ 的正常、重复、代表性 retry/dead 场景 | 评论、点赞与 Outbox Producer 定向回归；受影响 Worker package 的 race/vet；版本一致性 | 不跑 Frontend/Playwright；Broker/进程重启和完整故障矩阵留到 02-05；不穷举 ack/nack/关闭时序 |
+| Phase-02-04 | Notification Repository/API 定向测试；通知页组件测试；一条真实双用户通知浏览器链路 | Frontend test/typecheck/build；认证与通知路由定向回归；版本一致性 | 不重跑 RabbitMQ 故障矩阵；不审计未修改 Backend package；不为 cursor/limit/状态组合建立全排列 |
+| Phase-02-05 | Bash Worker 生命周期安全测试；第 11.3 节封闭故障矩阵一次 | 脚本治理、版本一致性和远程 CI；仅对实际修复的 Backend/Frontend package 补定向回归 | 不重复 02-03/02-04 已通过的单元矩阵；不新增业务边界、依赖源码研究或计划外全量测试 |
 
-在 `scripts/verify-business.sh` 创建且验证归属的独立 Compose project 中，从空数据库执行：
+详细方案中的命令和场景是固定完成清单，不是继续扩展测试的起点。同一最终实现上每项执行一次；某项失败后，只重跑受修复影响的项目及恢复前置，不从头重复整套矩阵。
+
+### 11.3 阶段级端到端验收
+
+在 `scripts/verify-business.sh` 创建且验证归属的独立 Compose project 中，从空数据库固定执行以下十项：
 
 1. 迁移、Backend、Business Worker 和 Frontend 启动成功，`/health`、`/ready` 与 Phase 1 业务闭环通过。
 2. 用户 A 创建帖子；用户 B 评论和首次点赞后，HTTP 操作立即成功且 MySQL 核心事实可查询。
@@ -305,6 +307,8 @@ git diff --check
 8. 重启 Backend 和 Worker 后，pending/leased Outbox、队列消息和通知事实均按契约恢复。
 9. Redis 清空/故障回归仍不影响 MySQL 核心事实；RabbitMQ 不参与帖子和评论查询事实装配。
 10. 成功、失败或中断后只清理本次验收资源，日常开发栈、用户 `.env`、数据库、Redis 和 RabbitMQ volume 不受影响。
+
+这十项构成 Phase 2 的完整且封闭的阶段矩阵；除非某项真实失败暴露新的 P0/P1 风险，不追加等价故障排列、性能测试或新的依赖失效场景。
 
 ## 12. Phase 2 阶段级验收标准
 
@@ -325,7 +329,7 @@ git diff --check
 只有同时满足以下条件，Phase 2 才可标记完成：
 
 1. Phase-02-01 至 Phase-02-05 均从对应权威分支完成、合入主远程 `main`，各批验收和必要回归通过。
-2. 第 11.2 节完整故障矩阵在受支持 WSL2/Bash 环境真实执行并通过，不以 mock 或仅队列存在替代端到端通知结果。
+2. 第 11.3 节完整故障矩阵在受支持 WSL2/Bash 环境真实执行并通过，不以 mock 或仅队列存在替代端到端通知结果。
 3. `main` 根 `VERSION` 为 `0.3.5`，Frontend npm 元数据一致，质量门禁通过。
 4. 文档、消息契约、拓扑、配置、脚本和真实代码一致；未执行的远程或本地检查不得写成通过。
 5. 没有未关闭的 P0/P1 问题；非阻断改进和接受限制已记录为后续项，而不是无限扩大本阶段。

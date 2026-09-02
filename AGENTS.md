@@ -49,6 +49,18 @@
 - Stop validation when the documented acceptance criteria have passed and no blocking issue remains. Record non-blocking improvements and unrelated findings as follow-up items instead of extending the current task indefinitely.
 - Do not repeat an already successful validation unless relevant code, configuration, dependencies, or the execution environment changed in a way that could affect its result.
 
+# Execution Efficiency Rule
+
+- This rule applies to Phase-02-03 and every later implementation task. The implementation plan is an acceptance contract, not an invitation to perform a general code audit, dependency audit, coverage campaign, or speculative hardening pass.
+- Spend no more than 10 minutes on initial discovery before making the first in-scope implementation change. Read the directly affected project code, tests, and public interfaces only. Do not read third-party dependency source by default.
+- Inspect third-party dependency source only when a concrete compiler error, runtime failure, or required failing test cannot be resolved from the local call site, the dependency's public API/documentation, and the reported error. Limit inspection to the smallest relevant symbol and record the reason in the implementation log.
+- Add or change a test only when it directly proves a new or changed acceptance criterion, reproduces an observed defect, or protects a changed security boundary, persistent-data invariant, or public contract. Do not add tests merely to improve coverage, enumerate hypothetical boundary combinations, test unchanged library behavior, or duplicate the same behavior across unit, integration, and end-to-end layers.
+- For one changed state transition, prefer one representative success case and one representative failure case at the lowest effective test layer. Add more cases only when the implementation plan explicitly requires distinct business outcomes or a concrete failure demonstrates the need.
+- Run validation in stages: the smallest affected-package check during implementation, then the batch plan's fixed completion gates once against the final diff. Expand beyond those gates only for a specific observed regression or documented cross-cutting risk. Record that reason before expanding.
+- A successful check remains valid after conversation context compaction. Reconstruct progress from the implementation plan, Git diff, implementation log, and captured command results, then continue from the first unmet required item. Context compaction alone must never trigger source rereading, new tests, or rerunning successful checks.
+- If optional investigation or optional test work consumes 15 consecutive minutes without resolving a required failure or advancing production implementation, stop it immediately. Return to the shortest in-scope implementation path or record the item as a non-blocking follow-up.
+- As soon as the documented acceptance criteria and fixed completion gates pass with no P0/P1 blocker, update the implementation log and version, commit, and stop. Do not spend remaining time on opportunistic refactors, additional edge cases, or unrelated cleanup.
+
 # Implementation Log Rule
 
 - After completing each implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding development record under `dev/logs/Phase-XX/` before reporting the plan complete.
