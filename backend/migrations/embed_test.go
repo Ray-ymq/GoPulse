@@ -132,3 +132,50 @@ func TestEmbeddedBusinessOutboxMigrationContainsOnlyPhaseTwoOutboxSchema(t *test
 		t.Fatalf("outbox down migration = %q", string(down))
 	}
 }
+
+func TestEmbeddedNotificationsMigrationContainsIdempotencyAndRelationships(t *testing.T) {
+	source, err := Source()
+	if err != nil {
+		t.Fatalf("Source() error = %v", err)
+	}
+	defer source.Close()
+	version, err := source.Next(2)
+	if err != nil || version != 3 {
+		t.Fatalf("Next(2) = %d, %v; want 3", version, err)
+	}
+	reader, identifier, err := source.ReadUp(version)
+	if err != nil {
+		t.Fatalf("ReadUp(3) error = %v", err)
+	}
+	up, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil {
+		t.Fatalf("read notifications migration: %v", err)
+	}
+	if identifier != "notifications" {
+		t.Fatalf("identifier = %q", identifier)
+	}
+	upSQL := string(up)
+	for _, required := range []string{
+		"CREATE TABLE notifications", "UNIQUE KEY uq_notifications_source_event_id",
+		"idx_notifications_recipient_created_id", "fk_notifications_recipient",
+		"fk_notifications_actor", "fk_notifications_post", "fk_notifications_comment",
+		"chk_notifications_type", "chk_notifications_comment_shape", "read_at DATETIME(6) NULL",
+	} {
+		if !strings.Contains(upSQL, required) {
+			t.Fatalf("notifications migration missing %q", required)
+		}
+	}
+	downReader, downIdentifier, err := source.ReadDown(version)
+	if err != nil {
+		t.Fatalf("ReadDown(3) error = %v", err)
+	}
+	down, err := io.ReadAll(downReader)
+	_ = downReader.Close()
+	if err != nil {
+		t.Fatalf("read notifications down migration: %v", err)
+	}
+	if downIdentifier != "notifications" || strings.TrimSpace(string(down)) != "DROP TABLE notifications;" {
+		t.Fatalf("notifications down migration = %q (%q)", string(down), downIdentifier)
+	}
+}
