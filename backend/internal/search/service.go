@@ -3,6 +3,7 @@ package search
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
@@ -19,10 +21,14 @@ import (
 )
 
 const (
-	DefaultLimit  = 20
-	MaximumLimit  = 50
-	cursorVersion = 1
+	DefaultLimit              = 20
+	MaximumLimit              = 50
+	cursorVersion             = 2
+	maximumCursorBytes        = 8192
+	pointInTimeKeepAliveValue = "2m"
 )
+
+const pointInTimeKeepAlive = 2 * time.Minute
 
 type Options struct {
 	Query  string
@@ -33,21 +39,29 @@ type Options struct {
 type Cursor struct {
 	QueryDigest string
 	Generation  string
+	PointInTime string
+	ExpiresAt   int64
 	After       Hit
+	signature   []byte
 }
 
 type cursorPayload struct {
 	Version     int     `json:"v"`
 	QueryDigest string  `json:"q"`
 	Generation  string  `json:"generation"`
+	PointInTime string  `json:"pit"`
+	ExpiresAt   int64   `json:"expires_at"`
 	Score       float64 `json:"score"`
 	CreatedAt   string  `json:"created_at"`
 	PostID      uint64  `json:"post_id"`
+	ShardDoc    int64   `json:"shard_doc"`
 }
 
 type Searcher interface {
 	ResolveGeneration(context.Context) (string, error)
-	Search(context.Context, string, string, int, *Hit) (SearchResult, error)
+	OpenPointInTime(context.Context, string) (string, error)
+	Search(context.Context, string, string, string, int, *Hit) (SearchResult, error)
+	ClosePointInTime(context.Context, string) error
 }
 
 type Hydrator interface {
@@ -60,12 +74,19 @@ type Page struct {
 }
 
 type Service struct {
-	searcher Searcher
-	hydrator Hydrator
+	searcher  Searcher
+	hydrator  Hydrator
+	cursorKey []byte
+	now       func() time.Time
 }
 
-func NewService(searcher Searcher, hydrator Hydrator) *Service {
-	return &Service{searcher: searcher, hydrator: hydrator}
+func NewService(searcher Searcher, hydrator Hydrator, cursorSecret string) *Service {
+	return &Service{
+		searcher:  searcher,
+		hydrator:  hydrator,
+		cursorKey: deriveCursorKey(cursorSecret),
+		now:       time.Now,
+	}
 }
 
 func ParseOptions(values url.Values) (Options, error) {
@@ -112,24 +133,51 @@ func ParseOptions(values url.Values) (Options, error) {
 }
 
 func (service *Service) Search(ctx context.Context, viewerID uint64, options Options) (Page, error) {
-	if service == nil || service.searcher == nil || service.hydrator == nil || viewerID == 0 {
+	if service == nil || service.searcher == nil || service.hydrator == nil || viewerID == 0 || len(service.cursorKey) == 0 || service.now == nil {
 		return Page{}, apperror.WrapInternal(errors.New("search service is unavailable"))
 	}
+
+	queryDigest := digestQuery(options.Query)
+	if options.Cursor != nil {
+		if options.Cursor.QueryDigest != queryDigest || !verifyCursor(*options.Cursor, service.cursorKey) || service.now().Unix() >= options.Cursor.ExpiresAt {
+			return Page{}, validationError("cursor is invalid")
+		}
+	}
+
 	generation, err := service.searcher.ResolveGeneration(ctx)
 	if err != nil {
 		return Page{}, unavailableError()
 	}
+
+	pointInTime := ""
 	var after *Hit
 	if options.Cursor != nil {
-		if options.Cursor.Generation != generation || options.Cursor.QueryDigest != digestQuery(options.Query) {
+		if options.Cursor.Generation != generation {
+			_ = service.searcher.ClosePointInTime(ctx, options.Cursor.PointInTime)
 			return Page{}, validationError("cursor is invalid")
 		}
+		pointInTime = options.Cursor.PointInTime
 		after = &options.Cursor.After
+	} else {
+		pointInTime, err = service.searcher.OpenPointInTime(ctx, generation)
+		if err != nil {
+			return Page{}, unavailableError()
+		}
 	}
-	result, err := service.searcher.Search(ctx, generation, options.Query, options.Limit, after)
-	if err != nil || result.Generation != generation {
+
+	result, err := service.searcher.Search(ctx, generation, pointInTime, options.Query, options.Limit, after)
+	if err != nil {
+		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+		if errors.Is(err, ErrPointInTimeExpired) {
+			return Page{}, validationError("cursor is invalid")
+		}
 		return Page{}, unavailableError()
 	}
+	if result.Generation != generation || result.PointInTime == "" {
+		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+		return Page{}, unavailableError()
+	}
+
 	visibleHits := result.Hits
 	hasMore := len(visibleHits) > options.Limit
 	if hasMore {
@@ -143,60 +191,122 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 	if len(identifiers) > 0 {
 		records, err = service.hydrator.FindMany(ctx, viewerID, identifiers)
 		if err != nil || len(records) != len(identifiers) {
+			_ = service.searcher.ClosePointInTime(ctx, result.PointInTime)
 			return Page{}, apperror.WrapInternal(errors.New("hydrate search results"))
 		}
 	}
+
 	page := Page{Posts: records}
 	if hasMore {
 		last := visibleHits[len(visibleHits)-1]
-		token, err := EncodeCursor(Cursor{QueryDigest: digestQuery(options.Query), Generation: generation, After: last})
+		token, err := encodeCursor(Cursor{
+			QueryDigest: queryDigest,
+			Generation:  generation,
+			PointInTime: result.PointInTime,
+			ExpiresAt:   service.now().Add(pointInTimeKeepAlive).Unix(),
+			After:       last,
+		}, service.cursorKey)
 		if err != nil {
+			_ = service.searcher.ClosePointInTime(ctx, result.PointInTime)
 			return Page{}, apperror.WrapInternal(err)
 		}
 		page.NextCursor = &token
+	} else {
+		_ = service.searcher.ClosePointInTime(ctx, result.PointInTime)
 	}
 	return page, nil
 }
 
-func EncodeCursor(cursor Cursor) (string, error) {
-	if cursor.QueryDigest == "" || !validPhysicalIndex(cursor.Generation) || cursor.After.PostID == 0 || cursor.After.CreatedAt == "" || cursor.After.Score < 0 {
+func EncodeCursor(cursor Cursor, secret string) (string, error) {
+	return encodeCursor(cursor, deriveCursorKey(secret))
+}
+
+func encodeCursor(cursor Cursor, key []byte) (string, error) {
+	payload, err := marshalCursor(cursor)
+	if err != nil || len(key) == 0 {
 		return "", errors.New("search cursor fields are invalid")
 	}
-	payload, err := json.Marshal(cursorPayload{
-		Version: cursorVersion, QueryDigest: cursor.QueryDigest, Generation: cursor.Generation,
-		Score: cursor.After.Score, CreatedAt: cursor.After.CreatedAt, PostID: cursor.After.PostID,
-	})
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(payload), nil
+	signature := signCursor(payload, key)
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(signature), nil
 }
 
 func DecodeCursor(token string) (Cursor, error) {
-	if token == "" || len(token) > 2048 {
+	if token == "" || len(token) > maximumCursorBytes {
 		return Cursor{}, errors.New("cursor is invalid")
 	}
-	decoded, err := base64.RawURLEncoding.Strict().DecodeString(token)
-	if err != nil || base64.RawURLEncoding.EncodeToString(decoded) != token {
+	payloadToken, signatureToken, ok := strings.Cut(token, ".")
+	if !ok || strings.Contains(signatureToken, ".") || payloadToken == "" || signatureToken == "" {
 		return Cursor{}, errors.New("cursor is invalid")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(decoded))
+	payload, err := base64.RawURLEncoding.Strict().DecodeString(payloadToken)
+	if err != nil || base64.RawURLEncoding.EncodeToString(payload) != payloadToken {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	signature, err := base64.RawURLEncoding.Strict().DecodeString(signatureToken)
+	if err != nil || len(signature) != sha256.Size || base64.RawURLEncoding.EncodeToString(signature) != signatureToken {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
-	var payload cursorPayload
-	if err := decoder.Decode(&payload); err != nil {
+	var raw cursorPayload
+	if err := decoder.Decode(&raw); err != nil {
 		return Cursor{}, errors.New("cursor is invalid")
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return Cursor{}, errors.New("cursor is invalid")
 	}
-	if payload.Version != cursorVersion || len(payload.QueryDigest) != sha256.Size*2 || !validPhysicalIndex(payload.Generation) || payload.Score < 0 || payload.Score != payload.Score || payload.CreatedAt == "" || payload.PostID == 0 {
+	cursor := Cursor{
+		QueryDigest: raw.QueryDigest,
+		Generation:  raw.Generation,
+		PointInTime: raw.PointInTime,
+		ExpiresAt:   raw.ExpiresAt,
+		After: Hit{
+			Score: raw.Score, CreatedAt: raw.CreatedAt, PostID: raw.PostID, ShardDoc: raw.ShardDoc,
+		},
+		signature: signature,
+	}
+	canonical, err := marshalCursor(cursor)
+	if err != nil || !bytes.Equal(canonical, payload) {
 		return Cursor{}, errors.New("cursor is invalid")
 	}
-	if _, err := hex.DecodeString(payload.QueryDigest); err != nil {
-		return Cursor{}, errors.New("cursor is invalid")
+	return cursor, nil
+}
+
+func marshalCursor(cursor Cursor) ([]byte, error) {
+	if cursor.QueryDigest == "" || !validPhysicalIndex(cursor.Generation) || cursor.PointInTime == "" || len(cursor.PointInTime) > 4096 || cursor.ExpiresAt <= 0 || cursor.After.PostID == 0 || cursor.After.CreatedAt == "" || cursor.After.Score < 0 || cursor.After.Score != cursor.After.Score || cursor.After.ShardDoc < 0 {
+		return nil, errors.New("search cursor fields are invalid")
 	}
-	return Cursor{QueryDigest: payload.QueryDigest, Generation: payload.Generation, After: Hit{Score: payload.Score, CreatedAt: payload.CreatedAt, PostID: payload.PostID}}, nil
+	if len(cursor.QueryDigest) != sha256.Size*2 {
+		return nil, errors.New("search cursor fields are invalid")
+	}
+	if _, err := hex.DecodeString(cursor.QueryDigest); err != nil {
+		return nil, errors.New("search cursor fields are invalid")
+	}
+	return json.Marshal(cursorPayload{
+		Version: cursorVersion, QueryDigest: cursor.QueryDigest, Generation: cursor.Generation,
+		PointInTime: cursor.PointInTime, ExpiresAt: cursor.ExpiresAt,
+		Score: cursor.After.Score, CreatedAt: cursor.After.CreatedAt, PostID: cursor.After.PostID, ShardDoc: cursor.After.ShardDoc,
+	})
+}
+
+func verifyCursor(cursor Cursor, key []byte) bool {
+	payload, err := marshalCursor(cursor)
+	return err == nil && len(cursor.signature) == sha256.Size && hmac.Equal(cursor.signature, signCursor(payload, key))
+}
+
+func signCursor(payload, key []byte) []byte {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(payload)
+	return mac.Sum(nil)
+}
+
+func deriveCursorKey(secret string) []byte {
+	if secret == "" {
+		return nil
+	}
+	digest := sha256.Sum256([]byte("gopulse/search-cursor/v2\x00" + secret))
+	return digest[:]
 }
 
 func digestQuery(query string) string {

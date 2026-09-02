@@ -17,25 +17,27 @@ const loading = ref(false)
 const loaded = ref(false)
 const errorMessage = ref('')
 let requestSequence = 0
+let failedRequest: { reset: boolean; cursor?: string } | null = null
 
 function queryFromRoute(): string {
   return typeof route.query.q === 'string' ? route.query.q.trim() : ''
 }
 
-function messageFor(error: unknown): string {
+function messageFor(error: unknown, paginating: boolean): string {
   if (!(error instanceof ApiError)) return '搜索失败，请稍后重试。'
   if (error.code === 'search_unavailable') return '搜索服务暂时不可用，请稍后重试。'
-  if (error.code === 'validation_failed') return nextCursor.value ? '搜索结果已更新，请重新搜索。' : '搜索词或分页参数无效。'
+  if (error.code === 'validation_failed') return paginating ? '搜索结果已更新，请重试以加载最新结果。' : '搜索词或分页参数无效。'
   return error.message
 }
 
-async function load(reset: boolean): Promise<void> {
+async function load(reset: boolean, requestedCursor?: string): Promise<void> {
   const query = activeQuery.value
   if (!query || loading.value) return
   const sequence = ++requestSequence
-  const cursor = reset ? undefined : nextCursor.value ?? undefined
+  const cursor = reset ? undefined : requestedCursor ?? nextCursor.value ?? undefined
   loading.value = true
   errorMessage.value = ''
+  failedRequest = null
   try {
     const page = await searchApi.posts(query, cursor)
     if (sequence !== requestSequence) return
@@ -44,10 +46,25 @@ async function load(reset: boolean): Promise<void> {
     loaded.value = true
   } catch (error) {
     if (sequence !== requestSequence) return
-    errorMessage.value = messageFor(error)
+    const cursorInvalid = cursor !== undefined && error instanceof ApiError && error.code === 'validation_failed'
+    if (cursorInvalid) {
+      posts.value = []
+      nextCursor.value = null
+      loaded.value = false
+      failedRequest = { reset: true }
+    } else {
+      failedRequest = { reset, cursor }
+    }
+    errorMessage.value = messageFor(error, cursor !== undefined)
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
+}
+
+async function retry(): Promise<void> {
+  if (!failedRequest) return
+  const request = failedRequest
+  await load(request.reset, request.cursor)
 }
 
 async function submit(): Promise<void> {
@@ -71,6 +88,7 @@ watch(
     loaded.value = false
     loading.value = false
     errorMessage.value = ''
+    failedRequest = null
     if (query) void load(true)
   },
   { immediate: true },
@@ -97,7 +115,7 @@ watch(
 
       <p v-if="errorMessage" class="notice notice--error" role="alert">
         {{ errorMessage }}
-        <button v-if="activeQuery" class="inline-action" type="button" @click="load(true)">重试</button>
+        <button v-if="activeQuery" class="inline-action" type="button" @click="retry">重试</button>
       </p>
       <p v-if="!activeQuery" class="state-card">输入关键词开始搜索帖子。</p>
       <p v-else-if="loading && posts.length === 0" class="state-card">正在搜索…</p>

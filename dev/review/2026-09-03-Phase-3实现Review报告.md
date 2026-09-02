@@ -421,3 +421,14 @@ Open PR and enable auto-merge: success
 核心搜索闭环和真实故障矩阵已经通过，没有发现数据丢失、权限越界、索引替代 MySQL 事实源或阶段核心能力不可用的问题。当前最重要的实现风险是 `_score` 分页缺少 PIT，最明确的治理问题是 PR #50 合入后的阶段状态没有收口，以及用户指定的 `develop/0.4.4` 尚未取得总实施方案的权威分配。
 
 关闭 3 项 P2、完成必要门禁并合入后，可将 Phase 3 Review 整改标记完成；随后按既定 release-only 流程发布 `1.0.0`。P3-01 建议同批关闭，但若因明确范围理由延期，应记录为发布后第一项搜索交互修复，而不是继续扩展本次 Review。
+
+## 11. Phase-03-04 整改执行状态
+
+本报告保留 Review 当时的证据、问题描述与“有条件通过”结论，不覆盖历史判断。后续由权威批次 `Phase-03-04 / 0.4.4 / develop/0.4.4` 执行整改：
+
+- **P2-01 已在本地关闭**：Search API 第一页针对当前物理 generation 打开两分钟 Elasticsearch PIT，后续页使用同一快照、最新 PIT ID 与包含 `_shard_doc` 的完整 `search_after` tuple；游标使用服务端密钥派生 HMAC，绑定 query digest、generation、PIT、过期时间和排序边界。PIT 过期、generation 变化或游标篡改返回脱敏 `validation_failed`。
+- **P2-02 已在仓库状态中关闭**：Phase 3 总方案和 README 已记录 PR #50 的合入提交与成功门禁；Phase-03-03 实施记录只追加后续远程状态，不改写执行时历史；`develop/1.0.0` 的前置条件调整为 Phase-03-04 合入并通过远程门禁。
+- **P2-03 已在本地关闭**：Phase 3 总方案新增唯一 `Phase-03-04 / 0.4.4 / develop/0.4.4` 分配，并新增对应拆分方案和实施记录；根与 Frontend 版本同步为 `0.4.4`。
+- **P3-01 已在本地关闭**：Frontend 保存失败请求的 reset/cursor 语义；临时加载更多失败重试原 cursor 并保留累计结果，失效快照游标明确清空旧结果并从第一页受控重启。
+
+最终关闭条件仍以本批次固定门禁、远程 Branch governance/Backend/Frontend/Scripts and Compose/Integration 以及 PR 合入结果为准；未实际取得的远程结果不得由本附录预先写成成功。
