@@ -54,9 +54,11 @@ Phase 3 使用 `0.4.x` 开发版本线，`0.4.0` 只作为阶段基线，不创�
 
 | 执行批次 | 目标版本 | 开发分支 | 当前状态 |
 | --- | --- | --- | --- |
-| Phase-03-01 | `0.4.1` | `develop/0.4.1` | 未开始 |
-| Phase-03-02 | `0.4.2` | `develop/0.4.2` | 未开始 |
-| Phase-03-03 | `0.4.3` | `develop/0.4.3` | 未开始 |
+| Phase-03-01 | `0.4.1` | `develop/0.4.1` | 已合入 `main`（PR #49） |
+| Phase-03-02 | `0.4.2` | `develop/0.4.2` | 已合入 `main`（PR #49） |
+| Phase-03-03 | `0.4.3` | `develop/0.4.3` | 本地完成，待 PR 与远程门禁 |
+
+截至 2026-09-02，PR #49 已把 Phase-03-01 与 Phase-03-02 的最终 head `a2fb578` 合入 `main` 为 `3fa8230`；该 head 的 Branch governance、Backend、Frontend、Scripts and Compose、Integration 与自动合并检查均为成功。Phase-03-03 当前只有本地固定门禁和隔离矩阵证据，尚未 push、创建 Pull Request 或取得远程门禁结果，因此 Phase 3 与 Milestone 1 仍不得标记完成，也未创建 `develop/1.0.0`。
 
 执行规则：
 
