@@ -209,14 +209,15 @@ valid = (
     and checks.get('mysql') == 'up'
     and checks.get('redis') == 'up'
     and checks.get('rabbitmq') == 'up'
+    and checks.get('elasticsearch') == 'up'
 )
 raise SystemExit(0 if valid else 1)
 PY
   then
-    fail '/ready' 'JSON contract mismatch (expected ready backend with mysql, redis, and rabbitmq up).'
+    fail '/ready' 'JSON contract mismatch (expected ready backend with mysql, redis, rabbitmq, and elasticsearch up).'
     return
   fi
-  pass '/ready' 'HTTP 200 with all dependency checks up.'
+  pass '/ready' 'HTTP 200 with all dependency checks up, including Elasticsearch.'
 }
 
 check_protected_api() {
@@ -273,6 +274,7 @@ main() {
   check_compose_service mysql
   check_compose_service redis
   check_compose_service rabbitmq
+  check_compose_service elasticsearch
   check_worker_process
   check_health "$port"
   check_ready "$port"

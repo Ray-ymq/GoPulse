@@ -33,13 +33,14 @@ EXIT_CODE=0
 COMPOSE_KEYS=(
   PUBLISHED_HOST MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PORT
   REDIS_PASSWORD REDIS_PORT RABBITMQ_USER RABBITMQ_PASSWORD
-  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT
+  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT
 )
 BACKEND_KEYS=(
   APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
   MYSQL_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB RABBITMQ_URL
   AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
   REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
+  ELASTICSEARCH_URL ELASTICSEARCH_REQUEST_TIMEOUT SEARCH_REINDEX_BATCH
   OUTBOX_POLL_INTERVAL OUTBOX_CLAIM_BATCH OUTBOX_LEASE_DURATION OUTBOX_PUBLISH_TIMEOUT OUTBOX_RETRY_DELAY
   OUTBOX_CLEANUP_INTERVAL OUTBOX_PUBLISHED_RETENTION OUTBOX_CLEANUP_BATCH
 )
@@ -54,6 +55,7 @@ ALL_CONFIG_KEYS=(
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_URL
   AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
   REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
+  ELASTICSEARCH_URL ELASTICSEARCH_REQUEST_TIMEOUT SEARCH_REINDEX_BATCH
   OUTBOX_POLL_INTERVAL OUTBOX_CLAIM_BATCH OUTBOX_LEASE_DURATION OUTBOX_PUBLISH_TIMEOUT OUTBOX_RETRY_DELAY
   OUTBOX_CLEANUP_INTERVAL OUTBOX_PUBLISHED_RETENTION OUTBOX_CLEANUP_BATCH
   BUSINESS_WORKER_PREFETCH BUSINESS_WORKER_MAX_RETRIES BUSINESS_WORKER_PUBLISH_TIMEOUT
@@ -70,9 +72,10 @@ declare -A DEFAULTS=(
   [APP_ENV]=development [PUBLISHED_HOST]=127.0.0.1 [HTTP_HOST]=127.0.0.1 [HTTP_PORT]=8080
   [MYSQL_HOST]=127.0.0.1 [MYSQL_PORT]=3306
   [REDIS_HOST]=127.0.0.1 [REDIS_PORT]=6379 [REDIS_DB]=0
-  [RABBITMQ_PORT]=5672 [RABBITMQ_MANAGEMENT_PORT]=15672
+  [RABBITMQ_PORT]=5672 [RABBITMQ_MANAGEMENT_PORT]=15672 [ELASTICSEARCH_PORT]=9200
   [AUTH_JWT_TTL]=2h [AUTH_COOKIE_NAME]=gopulse_session [AUTH_COOKIE_SECURE]=false
   [REDIS_POST_DETAIL_TTL]=5m [REDIS_OPERATION_TIMEOUT]=200ms
+  [ELASTICSEARCH_URL]=http://127.0.0.1:9200 [ELASTICSEARCH_REQUEST_TIMEOUT]=3s [SEARCH_REINDEX_BATCH]=500
   [OUTBOX_POLL_INTERVAL]=1s [OUTBOX_CLAIM_BATCH]=10 [OUTBOX_LEASE_DURATION]=1m
   [OUTBOX_PUBLISH_TIMEOUT]=5s [OUTBOX_RETRY_DELAY]=30s
   [OUTBOX_CLEANUP_INTERVAL]=1h [OUTBOX_PUBLISHED_RETENTION]=168h [OUTBOX_CLEANUP_BATCH]=500
@@ -181,7 +184,7 @@ resolve_configuration() {
       return 1
     fi
   done
-  for key in HTTP_PORT MYSQL_PORT REDIS_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT; do
+  for key in HTTP_PORT MYSQL_PORT REDIS_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT; do
     value=${CONFIG[$key]-}
     if [[ ! $value =~ ^[0-9]+$ ]] || ((10#$value < 1 || 10#$value > 65535)); then
       fail "$key must be an integer between 1 and 65535."
@@ -218,6 +221,23 @@ PY
       3) fail 'RABBITMQ_URL credentials must match RABBITMQ_USER and RABBITMQ_PASSWORD.' ;;
       *) fail 'RABBITMQ_URL must be a valid amqp or amqps URL.' ;;
     esac
+    return 1
+  fi
+
+  if ! python3 - "${CONFIG[ELASTICSEARCH_URL]}" <<'PYURL'
+import sys
+from urllib.parse import urlsplit
+try:
+    parsed = urlsplit(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+if parsed.scheme not in {'http', 'https'} or not parsed.hostname:
+    raise SystemExit(1)
+if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+    raise SystemExit(1)
+PYURL
+  then
+    fail 'ELASTICSEARCH_URL must be an HTTP(S) URL with a host and without credentials, query, or fragment.'
     return 1
   fi
 }
@@ -262,10 +282,10 @@ port_owner() {
 }
 
 check_ports() {
-  local -a names=(Backend Frontend MySQL Redis RabbitMQ 'RabbitMQ management')
-  local -a ports=("${CONFIG[HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}")
-  local -a services=('' '' mysql redis rabbitmq rabbitmq)
-  local -a container_ports=('' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp)
+  local -a names=(Backend Frontend MySQL Redis RabbitMQ 'RabbitMQ management' Elasticsearch)
+  local -a ports=("${CONFIG[HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}" "${CONFIG[ELASTICSEARCH_PORT]}")
+  local -a services=('' '' mysql redis rabbitmq rabbitmq elasticsearch)
+  local -a container_ports=('' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp 9200/tcp)
   local i j owner
   for ((i=0; i<${#ports[@]}; i++)); do
     for ((j=i+1; j<${#ports[@]}; j++)); do
@@ -458,8 +478,8 @@ else:
 
 wait_for_infrastructure() {
   local deadline=$((SECONDS + 180)) service status all_healthy
-  local services=(mysql redis rabbitmq)
-  info 'Waiting for MySQL, Redis, and RabbitMQ healthchecks.'
+  local services=(mysql redis rabbitmq elasticsearch)
+  info 'Waiting for MySQL, Redis, RabbitMQ, and Elasticsearch healthchecks.'
   while ((SECONDS < deadline)); do
     all_healthy=1
     for service in "${services[@]}"; do
@@ -485,6 +505,15 @@ run_database_migrations() {
   done
   info 'Applying database migrations.'
   (cd "$BACKEND_DIR" && env "${env_args[@]}" go run ./cmd/migrate up)
+}
+
+run_search_reindex() {
+  local -a env_args=() key
+  for key in MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD ELASTICSEARCH_URL ELASTICSEARCH_REQUEST_TIMEOUT SEARCH_REINDEX_BATCH; do
+    env_args+=("$key=${CONFIG[$key]}")
+  done
+  info 'Initializing the rebuildable post search index when missing.'
+  (cd "$BACKEND_DIR" && env "${env_args[@]}" go run ./cmd/search-reindex --if-missing)
 }
 
 ensure_frontend_dependencies() {
@@ -657,9 +686,10 @@ main() {
   resolve_configuration || return 1
 
   info 'Starting Compose infrastructure.'
-  compose up -d mysql redis rabbitmq || return 1
+  compose up -d mysql redis rabbitmq elasticsearch || return 1
   wait_for_infrastructure || return 1
   run_database_migrations || return 1
+  run_search_reindex || return 1
   ensure_frontend_dependencies || return 1
   build_applications || return 1
   start_backend || return 1
@@ -671,7 +701,8 @@ main() {
   printf '  Backend:             http://localhost:%s\n' "${CONFIG[HTTP_PORT]}"
   printf '  Health:              http://localhost:%s/health\n' "${CONFIG[HTTP_PORT]}"
   printf '  Readiness:           http://localhost:%s/ready\n' "${CONFIG[HTTP_PORT]}"
-  printf '  RabbitMQ management: http://localhost:%s\n\n' "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}"
+  printf '  RabbitMQ management: http://localhost:%s\n' "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}"
+  printf '  Elasticsearch:       http://localhost:%s\n\n' "${CONFIG[ELASTICSEARCH_PORT]}"
   info 'Press Ctrl+C to stop Frontend, Business Worker, and Backend. Infrastructure will remain running.'
 
   while true; do

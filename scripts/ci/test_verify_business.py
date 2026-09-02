@@ -39,6 +39,7 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("^gopulse-acceptance-[a-f0-9]{12}$", source)
         self.assertIn("^gopulse_acceptance_[a-f0-9]{12}$", source)
         self.assertIn("verify_service_ownership redis 6379", source)
+        self.assertIn("verify_service_ownership elasticsearch 9200", source)
         self.assertIn("assert_project_absent", source)
         self.assertLess(source.index("RESOURCES_STARTED=1"), source.index("compose up --detach"))
         self.assertIn("compose down --volumes --remove-orphans", source)
@@ -47,6 +48,19 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertNotIn("docker volume prune", source)
         self.assertNotIn("docker system prune", source)
         self.assertNotIn("redis-cli FLUSHALL", source)
+
+    def test_search_rebuild_acceptance_is_scoped_and_browser_backed(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        compose = (REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+        self.assertIn("--search-rebuild", source)
+        self.assertIn("npm run test:e2e -- --grep search-rebuild", source)
+        self.assertIn("^gopulse-post-search-v1-[a-z0-9-]+$", source)
+        self.assertIn('es_request DELETE "/$active_index" 200', source)
+        self.assertIn('es_request HEAD "/$unrelated_index" 200', source)
+        self.assertIn("docker.elastic.co/elasticsearch/elasticsearch:9.5.2", compose)
+        self.assertIn('"127.0.0.1:${ELASTICSEARCH_PORT:?ELASTICSEARCH_PORT is required}:9200"', compose)
+        self.assertIn("wait_for_status=yellow", compose)
+        self.assertIn("elasticsearch_data:/usr/share/elasticsearch/data", compose)
 
     def test_lifecycle_scripts_are_executable_lf_and_valid_bash(self) -> None:
         for script in LIFECYCLE_SCRIPTS:
@@ -70,7 +84,7 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
 
     def test_fault_injection_validates_owned_targets_first(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
-        for service, container_port in (("mysql", "3306"), ("redis", "6379"), ("rabbitmq", "5672")):
+        for service, container_port in (("mysql", "3306"), ("redis", "6379"), ("rabbitmq", "5672"), ("elasticsearch", "9200")):
             self.assertIn(f"verify_service_ownership {service} {container_port}", source)
         self.assertIn('validate_process_ownership "$WORKER_PID"', source)
         self.assertLess(

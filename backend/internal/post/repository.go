@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var ErrNotFound = errors.New("post not found")
@@ -230,4 +231,49 @@ func FindAuthorIDForUpdate(ctx context.Context, database RowQueryer, postID uint
 		return 0, fmt.Errorf("find post author: %w", err)
 	}
 	return authorID, nil
+}
+
+// FindMany hydrates one bounded ordered set of search hits from MySQL. The SQL
+// query is set based; the requested Elasticsearch order is restored in Go.
+func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64, identifiers []uint64) ([]Post, error) {
+	if viewerID == 0 || len(identifiers) == 0 || len(identifiers) > MaximumLimit {
+		return nil, errors.New("find many posts: invalid arguments")
+	}
+	placeholders := make([]string, len(identifiers))
+	arguments := make([]any, 0, len(identifiers)+1)
+	arguments = append(arguments, viewerID)
+	for index, identifier := range identifiers {
+		if identifier == 0 {
+			return nil, errors.New("find many posts: invalid identifier")
+		}
+		placeholders[index] = "?"
+		arguments = append(arguments, identifier)
+	}
+	query := fmt.Sprintf(postListReadSelect, "") + `
+WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := repository.database.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("find many posts: %w", err)
+	}
+	defer rows.Close()
+	byID := make(map[uint64]Post, len(identifiers))
+	for rows.Next() {
+		record, err := scanPost(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("find many posts: %w", err)
+		}
+		byID[record.ID] = record
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("find many posts: %w", err)
+	}
+	ordered := make([]Post, 0, len(identifiers))
+	for _, identifier := range identifiers {
+		record, ok := byID[identifier]
+		if !ok {
+			return nil, fmt.Errorf("find many posts: post %d is missing", identifier)
+		}
+		ordered = append(ordered, record)
+	}
+	return ordered, nil
 }

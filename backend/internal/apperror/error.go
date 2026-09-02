@@ -12,6 +12,7 @@ const (
 	CodeUsernameConflict       Code = "username_conflict"
 	CodePostNotFound           Code = "post_not_found"
 	CodeNotificationNotFound   Code = "notification_not_found"
+	CodeSearchUnavailable      Code = "search_unavailable"
 	CodeInternal               Code = "internal_error"
 )
 

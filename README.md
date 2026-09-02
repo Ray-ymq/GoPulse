@@ -1,21 +1,21 @@
 # GoPulse
 
-GoPulse is currently at product version **0.3.6**. Phase 1 provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache. Phase 2 delivers comment and first-like events through the transactional Outbox to an independent Business Worker, persists idempotent MySQL notifications, and exposes those recipient-scoped facts through an authenticated API and Frontend notification page. The Phase 2 Review closeout adds bounded published-row retention, full-batch lease budgeting, and cancellation-safe Worker shutdown.
+GoPulse is currently at product version **0.4.1**. Phase 1 provides a browser-operable minimum business system backed by MySQL, and Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker. Phase-03-01 adds a rebuildable historical post-search loop: Elasticsearch supplies matching and ordering, while MySQL remains authoritative for every post returned to the user.
 
 The repository currently provides:
 
-- a Vue 3 + Vue Router Frontend for registration, login, logout, post listing/pagination, publishing, detail, comments, likes, and authentication recovery;
+- a Vue 3 + Vue Router Frontend for registration, login, logout, post listing/pagination, publishing, detail, comments, likes, authenticated search, notifications, and authentication recovery;
 - a diagnostic connectivity page at `/dev/status`, outside the business navigation;
 - a Gin Backend with `/health`, `/ready`, and typed `/api/v1` business contracts;
 - username/password authentication with bcrypt, short-lived HS256 JWTs, HttpOnly cookies, and reusable authentication middleware;
 - authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
 - Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation and MySQL fallback;
 - versioned MySQL migrations for users, posts, comments, and post likes;
-- local MySQL, Redis, and RabbitMQ infrastructure;
+- local MySQL, Redis, RabbitMQ, and fixed-version Elasticsearch infrastructure;
 - WSL/Bash lifecycle scripts, read-only runtime verification, and a destructive-but-isolated complete business acceptance script;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
-Elasticsearch, Kafka, application containers, Kubernetes, profiles, follows, search, real-time notification push, and other later-phase capabilities are not implemented yet.
+Kafka, application containers, Kubernetes, profiles, follows, incremental search indexing, real-time notification push, and other later-phase capabilities are not implemented yet.
 
 ## Primary development environment
 
@@ -49,7 +49,7 @@ The first `dev.sh` run creates `.env` from `.env.example` when `.env` is absent.
 cp .env.example .env
 ```
 
-Workspaces created before Phase-01-01 must manually add the Phase 1 values from `.env.example`, including `AUTH_JWT_SECRET`, `AUTH_JWT_TTL`, `AUTH_COOKIE_NAME`, `AUTH_COOKIE_SECURE`, `REDIS_POST_DETAIL_TTL`, and `REDIS_OPERATION_TIMEOUT`. Existing `.env` files must also include the Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*` values shown in `.env.example`. The development script does not overwrite an existing `.env`.
+Workspaces created before Phase-01-01 must manually add the Phase 1 values from `.env.example`, including `AUTH_JWT_SECRET`, `AUTH_JWT_TTL`, `AUTH_COOKIE_NAME`, `AUTH_COOKIE_SECURE`, `REDIS_POST_DETAIL_TTL`, and `REDIS_OPERATION_TIMEOUT`. Existing `.env` files must also include the Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*` values plus the Phase-03-01 `ELASTICSEARCH_PORT`, `ELASTICSEARCH_URL`, `ELASTICSEARCH_REQUEST_TIMEOUT`, and `SEARCH_REINDEX_BATCH` values shown in `.env.example`. The development script does not overwrite an existing `.env`. Elasticsearch URLs must use HTTP(S), include a host, and must not include credentials, query parameters, or fragments.
 
 The checked-in values are development-only credentials. Do not reuse them in production or commit a local `.env`. `APP_ENV` must be `development`, `test`, or `production`. Production requires `AUTH_COOKIE_SECURE=true`; local development and tests may explicitly use `false` for HTTP.
 
@@ -66,11 +66,11 @@ Run from any directory:
 The script performs the following sequence:
 
 1. validates the required tools and configuration;
-2. starts MySQL, Redis, and RabbitMQ with Docker Compose;
+2. starts MySQL, Redis, RabbitMQ, and Elasticsearch with Docker Compose;
 3. waits for all infrastructure health checks;
 4. runs `go run ./cmd/migrate up` in `backend/`;
-5. builds the Backend and Business Worker binaries;
-6. starts the Backend and independent Business Worker;
+5. runs `go run ./cmd/search-reindex --if-missing` to initialize the search alias without replacing an existing generation;
+6. builds and starts the Backend and independent Business Worker;
 7. installs reproducible Frontend dependencies when required and starts Vite.
 
 A failed migration or application startup stops only the Backend, Business Worker, and Frontend processes started by that invocation. With the default configuration, the environment provides:
@@ -83,6 +83,7 @@ A failed migration or application startup stops only the Backend, Business Worke
 | Backend readiness | `http://localhost:8080/ready` |
 | Authentication API | `http://localhost:8080/api/v1` |
 | RabbitMQ management | `http://localhost:15672` |
+| Elasticsearch (loopback only) | `http://localhost:9200` |
 | MySQL | `localhost:3306` |
 | Redis | `localhost:6379` |
 | RabbitMQ AMQP | `localhost:5672` |
@@ -97,7 +98,7 @@ Keep the foreground command running. `Ctrl+C` stops Frontend, Business Worker, a
 /home/<user>/src/GoPulse/scripts/verify.sh
 ```
 
-`verify.sh` is read-only. It reads the configured `HTTP_PORT`, checks the three Compose services, verifies that the Business Worker PID still matches its repository-owned cwd, executable, start ticks, and command marker, validates `/health` and `/ready`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
+`verify.sh` is read-only. It reads the configured `HTTP_PORT`, checks the four Compose services, verifies that the Business Worker PID still matches its repository-owned cwd, executable, start ticks, and command marker, validates `/health` and `/ready`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
 
 For complete destructive integration acceptance, run:
 
@@ -113,13 +114,19 @@ The no-Docker negative safety checks can be run independently:
 scripts/verify-business.sh --self-test
 ```
 
+The targeted search acceptance creates historical posts in an isolated stack, rebuilds and queries them through the authenticated API and browser, deletes only the active physical search index, rebuilds it again, and verifies an unrelated Elasticsearch index remains intact:
+
+```bash
+scripts/verify-business.sh --search-rebuild
+```
+
 ## Stop the environment
 
 ```bash
 /home/<user>/src/GoPulse/scripts/down.sh
 ```
 
-`down.sh` validates and stops the recorded Frontend, Business Worker, and Backend processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, and RabbitMQ named volumes. It is safe to run repeatedly and refuses to signal a process whose record no longer proves repository ownership.
+`down.sh` validates and stops the recorded Frontend, Business Worker, and Backend processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, RabbitMQ, and Elasticsearch named volumes. It is safe to run repeatedly and refuses to signal a process whose record no longer proves repository ownership.
 
 ## Database migrations
 
@@ -241,6 +248,28 @@ All routes below require the authentication cookie:
 - `POST /api/v1/posts/:postId/comments` creates a comment; `GET` on the same collection returns newest-first comment pagination.
 - `PUT /api/v1/posts/:postId/like` and `DELETE /api/v1/posts/:postId/like` are idempotent and return HTTP `204`.
 
+### Search API and rebuild command
+
+`GET /api/v1/search/posts?q=<keyword>&limit=<n>&cursor=<opaque>` requires authentication. The query is trimmed and limited to 1–200 Unicode code points; `limit` defaults to 20 and is capped at 50. Elasticsearch searches `title^2` and `content`, orders by score and stable post tie-breakers, and returns only post IDs. The Backend then hydrates the existing complete `Post` DTO from MySQL in hit order, including author, current content, comment/like counts, and viewer-specific `liked_by_me`.
+
+The protected `/search` page stores the query in the URL, supports reload/back/forward restoration, pagination, empty/unavailable/cursor-invalid states, retry, and navigation to the existing post detail page. The browser calls only relative Backend `/api/v1` paths and never connects to port 9200.
+
+Run a forced zero-downtime-style rebuild from `backend/` with:
+
+```bash
+go run ./cmd/search-reindex
+```
+
+Use `--if-missing` to initialize only when the alias does not yet exist:
+
+```bash
+go run ./cmd/search-reindex --if-missing
+```
+
+Each forced rebuild creates a new physical `gopulse-post-search-v1-*` index, bulk-copies the bounded MySQL snapshot, verifies counts, atomically moves the `gopulse-post-search-v1` alias, compensates the captured tail, and deletes only validated old indices. Elasticsearch failures produce the safe public `503 search_unavailable` contract; they degrade readiness and search without becoming a dependency of existing MySQL repositories.
+
+**Current limitation:** Phase-03-01 does not implement incremental indexing. Posts created after a completed rebuild are not searchable until the rebuild command runs again. Automatic `post.created` convergence is reserved for Phase-03-02.
+
 ### Notification API
 
 Both routes require the authentication cookie and always scope data to the current recipient:
@@ -262,7 +291,7 @@ If Redis is unavailable, `/ready` returns HTTP `503` with Redis marked `down`, w
 
 ### A required port is occupied
 
-`dev.sh` checks ports `5173`, `HTTP_PORT`, `MYSQL_PORT`, `REDIS_PORT`, `RABBITMQ_PORT`, and `RABBITMQ_MANAGEMENT_PORT` before startup. Inspect a WSL listener with:
+`dev.sh` checks ports `5173`, `HTTP_PORT`, `MYSQL_PORT`, `REDIS_PORT`, `RABBITMQ_PORT`, `RABBITMQ_MANAGEMENT_PORT`, and `ELASTICSEARCH_PORT` before startup. Inspect a WSL listener with:
 
 ```bash
 ss -ltnp 'sport = :8080'
@@ -274,7 +303,7 @@ Close the reported non-GoPulse process or change the applicable port in `.env`. 
 
 ```bash
 docker compose --project-name gopulse --env-file .env --file deploy/compose.yaml ps
-docker compose --project-name gopulse --env-file .env --file deploy/compose.yaml logs mysql redis rabbitmq
+docker compose --project-name gopulse --env-file .env --file deploy/compose.yaml logs mysql redis rabbitmq elasticsearch
 ```
 
 Check Docker daemon availability, port ownership, `.env` values, and the named container health log before retrying.
@@ -292,7 +321,7 @@ curl --fail --show-error http://localhost:8080/health
 curl --fail --show-error http://localhost:8080/ready
 ```
 
-If `/health` succeeds but `/ready` returns `503`, inspect the dependency reported as `down`. A Redis-only readiness failure does not make MySQL-backed business APIs unavailable; post detail reads degrade to MySQL until Redis recovers.
+If `/health` succeeds but `/ready` returns `503`, inspect the dependency reported as `down`. A Redis-only readiness failure does not make MySQL-backed business APIs unavailable; post detail reads degrade to MySQL until Redis recovers. An Elasticsearch-only readiness failure makes search return `503 search_unavailable`, while already-started MySQL-backed APIs retain their existing behavior.
 
 ## Focused development checks
 
@@ -338,6 +367,6 @@ Do not point that command at a development or production database. Reproduce it 
 
 The root `VERSION` file is the sole completed-product version source. `frontend/package.json` and the root package entries in `frontend/package-lock.json` mirror that value so npm output, build metadata, and dependency reports identify the same product version. `python3 scripts/ci/validate_versions.py` and the governance quality gate reject drift.
 
-## Phase 1 and Phase 2 completion
+## Phase completion and current batch
 
-Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 established the message contract and transactional Outbox at `0.3.1`; Phase 2-02 connected comment/first-like transactions to confirmed RabbitMQ delivery at `0.3.2`; Phase 2-03 added the independent, reconnecting Business Worker and idempotent notification persistence at `0.3.3`; Phase 2-04 added the recipient-scoped notification API and protected Frontend notification flow at `0.3.4`; Phase 2-05 integrated the Worker into the Bash lifecycle and passed the isolated reliability matrix at `0.3.5`. PR #39 merged that milestone into `main` on September 2, 2026 as `efff938`, and its required remote quality gates passed. Phase-02-06 performs the implementation Review closeout at `0.3.6`, adding Outbox retention cleanup, full-batch lease budgeting, controlled Worker cancellation, and no-op PR prevention. RabbitMQ remains transport rather than the final fact source, and broker failure does not invalidate an already committed MySQL business operation.
+Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 established the message contract and transactional Outbox at `0.3.1`; Phase 2-02 connected comment/first-like transactions to confirmed RabbitMQ delivery at `0.3.2`; Phase 2-03 added the independent, reconnecting Business Worker and idempotent notification persistence at `0.3.3`; Phase 2-04 added the recipient-scoped notification API and protected Frontend notification flow at `0.3.4`; Phase 2-05 integrated the Worker into the Bash lifecycle and passed the isolated reliability matrix at `0.3.5`. PR #39 merged that milestone into `main` on September 2, 2026 as `efff938`, and its required remote quality gates passed. Phase-02-06 performs the implementation Review closeout at `0.3.6`, adding Outbox retention cleanup, full-batch lease budgeting, controlled Worker cancellation, and no-op PR prevention. RabbitMQ remains transport rather than the final fact source, and broker failure does not invalidate an already committed MySQL business operation. Phase-03-01 delivers the rebuildable historical search loop at `0.4.1`; it intentionally does not claim incremental indexing or completion of Phase 3.
