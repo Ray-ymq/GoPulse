@@ -57,9 +57,9 @@ Phase 3 使用 `0.4.x` 开发版本线，`0.4.0` 只作为阶段基线，不创�
 | Phase-03-01 | `0.4.1` | `develop/0.4.1` | 已合入 `main`（PR #49） |
 | Phase-03-02 | `0.4.2` | `develop/0.4.2` | 已合入 `main`（PR #49） |
 | Phase-03-03 | `0.4.3` | `develop/0.4.3` | 已合入 `main`（PR #50） |
-| Phase-03-04 | `0.4.4` | `develop/0.4.4` | Review 整改权威批次；合入并通过远程门禁后关闭 Phase 3 Review |
+| Phase-03-04 | `0.4.4` | `develop/0.4.4` | 已合入 `main`（PR #51）；push 门禁成功，PR CI 编排竞态由 `update` 规则修复收口 |
 
-截至 Phase-03-04 整改开始时，PR #49 已把 Phase-03-01 与 Phase-03-02 的最终 head `a2fb578` 合入 `main` 为 `3fa8230`。PR #50 又于 2026-09-02 16:59:12 UTC 把 Phase-03-03 head `e59b7d4d65ed431d6b44ecea121be68f5ba14f70` 合入 `main`，合并提交为 `f54f1a2175c1f508c3ecac775077387e5af29682`；Backend、Frontend、Branch governance、Scripts and Compose、Integration 与自动 PR/合并检查均成功。实现 Review 随后识别出 PIT 分页、阶段状态、批次分配和 Frontend 分页重试问题，因此增加 Phase-03-04 作为唯一的 `0.4.4` 整改批次；在该批次合入并取得远程门禁成功前，Phase 3 Review 与 Milestone 1 仍不得标记完成，也不得创建 `develop/1.0.0`。
+截至 Phase-03-04 整改开始时，PR #49 已把 Phase-03-01 与 Phase-03-02 的最终 head `a2fb578` 合入 `main` 为 `3fa8230`。PR #50 又于 2026-09-02 16:59:12 UTC 把 Phase-03-03 head `e59b7d4d65ed431d6b44ecea121be68f5ba14f70` 合入 `main`，合并提交为 `f54f1a2175c1f508c3ecac775077387e5af29682`；Backend、Frontend、Branch governance、Scripts and Compose、Integration 与自动 PR/合并检查均成功。实现 Review 随后识别出 PIT 分页、阶段状态、批次分配和 Frontend 分页重试问题，因此增加 Phase-03-04 作为唯一的 `0.4.4` 整改批次；该批次已由 PR #51 合入，产品与治理 push 门禁成功；PR CI 因自动合并早于工作流初始化而产生无 job failure，需由 `update` 上的自动 PR 编排修复通过自身 pull-request CI 后收口。该修复进入最新 `main` 前不得创建 `develop/1.0.0`。
 
 执行规则：
 
