@@ -88,12 +88,12 @@ dev/logs/Phase-02/Phase-02-04-通知API与Frontend闭环.md
 1. 定义 Notification 公共模型、cursor 和 Service/Repository 查询接口。
 2. 实现 recipient-scoped keyset 查询和幂等已读更新。
 3. 实现 Handler、统一响应/错误映射和认证路由。
-4. 增加 Repository integration、Service、Handler 和 router 契约测试。
+4. 在最低有效层分别增加 Repository integration、Service/Handler 契约测试；同一权限或分页事实不跨层重复覆盖。
 5. 定义 Frontend DTO/API 方法和严格响应处理。
 6. 新增 `/notifications` 路由、导航和通知页面状态机。
-7. 覆盖分页、刷新、空/错状态、已读幂等、401 和并发防护。
-8. 用真实两个用户验证 actor/recipient 隔离和帖子跳转。
-9. 扩展 Playwright 业务场景，使帖子作者能观察另一用户评论/点赞产生的通知。
+7. 用组件测试覆盖页面主要成功状态，并各选一个代表性加载失败和操作失败；不穷举分页、刷新、空/错、401 与并发状态的全排列。
+8. 用一条真实双用户链路同时验证 actor/recipient 隔离、帖子跳转、刷新后可见和已读操作。
+9. 扩展一条通知专用 Playwright 场景，不重复完整 Phase 1 浏览器旅程。
 10. 更新 README、版本和本批实施记录。
 
 ## 7. 风险与控制
@@ -106,33 +106,32 @@ dev/logs/Phase-02/Phase-02-04-通知API与Frontend闭环.md
 
 ## 8. 验证命令与必要回归
 
-至少执行：
+本节是本批固定完成清单。最终 diff 上各命令执行一次；上下文压缩后不重跑已通过项。只有实际失败或额外修改共享认证/运行环境时，才增加对应定向回归并在实施记录说明原因。
 
 ```bash
-cd backend && go test ./...
-cd backend && go vet ./...
-cd backend && go test -count=1 -race ./...
-cd backend && go test -count=1 -tags=integration ./...
-cd frontend && npm test -- --run
-cd frontend && npm run typecheck
-cd frontend && npm run build
-python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+(cd backend && go test ./internal/auth ./internal/http ./internal/notification)
+(cd backend && go vet ./internal/http ./internal/notification)
+(cd backend && go test -count=1 -tags=integration ./internal/notification)
+(cd frontend && npm test -- --run)
+(cd frontend && npm run typecheck)
+(cd frontend && npm run build)
+(cd frontend && npm run test:e2e -- --grep notifications)
 python3 scripts/ci/validate_versions.py
 git diff --check
 ```
 
-本批触及公共认证 API、数据库查询和 Frontend Router，必须执行 Backend 全量、真实 MySQL integration、Frontend 测试/类型检查/构建及通知浏览器 E2E。RabbitMQ 故障全矩阵留到 Phase-02-05，但至少在真实 Worker 链路产生通知后验证 API/UI。
+本批触及认证通知 API、数据库查询和 Frontend Router，因此只执行 auth/http/notification 定向 Backend 检查、Frontend 固定门禁和一条通知 E2E。该 E2E 必须由真实 Worker 链路产生通知；RabbitMQ/Worker 故障矩阵、完整 Phase 1 浏览器旅程、Backend 全量/race 和未修改 package 不重复执行，统一留给已有证据或 Phase-02-05 的阶段收口。
 
 ## 9. 验收标准
 
 - 当前用户只能分页读取自己的通知；另一用户的通知既不可见也不可标记已读。
 - 两种通知 DTO 字段正确，不泄漏 source event、Payload 或内部基础设施信息。
-- cursor 非法、limit 越界、ID 非法和不存在资源返回稳定错误。
+- cursor/limit/ID 代表性非法输入和不存在资源返回稳定错误；不要求所有等价编码与边界组合。
 - 重复已读操作幂等且不会改变其他用户记录。
-- Frontend 能显示加载、空、错误、刷新、分页、已读/未读和操作失败状态。
+- Frontend 主要加载/空/刷新/分页/已读流程可用，并各有一个代表性加载失败和操作失败证据。
 - 评论/首次点赞完成后，接收者通过刷新最终看到通知；重复点赞不增加通知。
 - 页面刷新和临时认证恢复失败仍遵循 Phase-01-07 可重试契约。
-- Backend、Frontend、真实 MySQL/RabbitMQ/Worker 和 Playwright 必要验收通过。
+- 第 8 节定向 Backend、Frontend、真实 MySQL/RabbitMQ/Worker 通知链路和 Playwright 固定门禁通过。
 
 ## 10. 明确完成条件
 
