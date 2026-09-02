@@ -206,3 +206,28 @@ func scanPost(scan scanFunc) (Post, error) {
 	)
 	return record, err
 }
+
+// RowQueryer is the small query boundary required by transactional fact
+// writers. It deliberately accepts both *sql.DB and *sql.Tx without exposing
+// transaction handles to HTTP handlers.
+type RowQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// FindAuthorIDForUpdate reads and locks the post author inside the caller's
+// transaction. The author is the recipient for comment and like events.
+func FindAuthorIDForUpdate(ctx context.Context, database RowQueryer, postID uint64) (uint64, error) {
+	if database == nil || postID == 0 {
+		return 0, errors.New("find post author: invalid argument")
+	}
+	var authorID uint64
+	if err := database.QueryRowContext(ctx,
+		`SELECT author_id FROM posts WHERE id = ? FOR UPDATE`,
+		postID,
+	).Scan(&authorID); errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	} else if err != nil {
+		return 0, fmt.Errorf("find post author: %w", err)
+	}
+	return authorID, nil
+}
