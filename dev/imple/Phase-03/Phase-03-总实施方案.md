@@ -56,28 +56,29 @@ Phase 3 使用 `0.4.x` 开发版本线，`0.4.0` 只作为阶段基线，不创�
 | --- | --- | --- | --- |
 | Phase-03-01 | `0.4.1` | `develop/0.4.1` | 已合入 `main`（PR #49） |
 | Phase-03-02 | `0.4.2` | `develop/0.4.2` | 已合入 `main`（PR #49） |
-| Phase-03-03 | `0.4.3` | `develop/0.4.3` | 本地完成，待 PR 与远程门禁 |
+| Phase-03-03 | `0.4.3` | `develop/0.4.3` | 已合入 `main`（PR #50） |
+| Phase-03-04 | `0.4.4` | `develop/0.4.4` | Review 整改权威批次；合入并通过远程门禁后关闭 Phase 3 Review |
 
-截至 2026-09-02，PR #49 已把 Phase-03-01 与 Phase-03-02 的最终 head `a2fb578` 合入 `main` 为 `3fa8230`；该 head 的 Branch governance、Backend、Frontend、Scripts and Compose、Integration 与自动合并检查均为成功。Phase-03-03 当前只有本地固定门禁和隔离矩阵证据，尚未 push、创建 Pull Request 或取得远程门禁结果，因此 Phase 3 与 Milestone 1 仍不得标记完成，也未创建 `develop/1.0.0`。
+截至 Phase-03-04 整改开始时，PR #49 已把 Phase-03-01 与 Phase-03-02 的最终 head `a2fb578` 合入 `main` 为 `3fa8230`。PR #50 又于 2026-09-02 16:59:12 UTC 把 Phase-03-03 head `e59b7d4d65ed431d6b44ecea121be68f5ba14f70` 合入 `main`，合并提交为 `f54f1a2175c1f508c3ecac775077387e5af29682`；Backend、Frontend、Branch governance、Scripts and Compose、Integration 与自动 PR/合并检查均成功。实现 Review 随后识别出 PIT 分页、阶段状态、批次分配和 Frontend 分页重试问题，因此增加 Phase-03-04 作为唯一的 `0.4.4` 整改批次；在该批次合入并取得远程门禁成功前，Phase 3 Review 与 Milestone 1 仍不得标记完成，也不得创建 `develop/1.0.0`。
 
 执行规则：
 
 - 每批全部提交共享该批目标版本；批次完成时同步根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json`。
 - 每批完成前创建同名 `dev/logs/Phase-03/Phase-03-XX-*.md`，只记录实际工作与实际验证。
 - 完成或已打开 Pull Request 后不在原分支执行下一批；批次变化时先更新本表，已推送分支不得静默改名或重新编号。
-- Phase-03-01 与 Phase-03-02 是两个可独立运行、可独立验证的纵向实现批次；Phase-03-03 固定用于跨批集成验收与阶段收口，不预装新功能。
-- `1.0.0` 是三个 Phase 3 批次完成并通过里程碑验收后的 Milestone 1 发布版本，不替代 `0.4.1`～`0.4.3` 的批次版本。
+- Phase-03-01 与 Phase-03-02 是两个可独立运行、可独立验证的纵向实现批次；Phase-03-03 固定用于跨批集成验收与阶段收口；Phase-03-04 只关闭实现 Review 报告中的 P2-01～P2-03 与 P3-01，不扩展搜索产品范围。
+- `1.0.0` 是 Phase-03-01 至 Phase-03-04 完成并通过里程碑验收后的 Milestone 1 发布版本，不替代 `0.4.1`～`0.4.4` 的批次版本。
 
 ### 3.3 `1.0.0` 里程碑发布动作
 
-Phase-03-03 合入主远程 `main`、远程门禁通过且第 14 节全部满足后，执行一次不计入 Phase 批次数量的 release-only 动作：
+Phase-03-04 合入主远程 `main`、远程门禁通过且第 14 节全部满足后，执行一次不计入 Phase 批次数量的 release-only 动作：
 
 | 发布动作 | 目标版本 | 发布分支 | 前置状态 |
 | --- | --- | --- | --- |
-| Milestone-01-Release | `1.0.0` | `develop/1.0.0` | Phase-03-03 已合入并完成里程碑验收 |
+| Milestone-01-Release | `1.0.0` | `develop/1.0.0` | Phase-03-04 已合入、Review 已关闭并完成里程碑验收 |
 
 - 发布分支从已验证的主远程 `main` 创建，只允许更新根/Frontend 版本元数据、里程碑状态、发布说明和直接需要的分支治理规则，不夹带产品功能或额外整改。
-- Phase-03-03 负责让分支校验器唯一识别该 release-only 分配；不得把发布伪装成新的 Phase 批次，也不得在 `update` 上修改 `VERSION`。
+- Phase-03-04 保持分支校验器对该 release-only 分配的唯一识别；不得把发布伪装成新的 Phase 批次，也不得在 `update` 上修改 `VERSION`。
 - `develop/1.0.0` 合入且远程门禁通过后，主远程 `main` 的根 `VERSION=1.0.0` 才表示业务系统 MVP 正式发布；tag 或 release 只按届时实际流程记录。
 
 ## 4. 阶段范围与非目标
@@ -334,12 +335,14 @@ dev/logs/Phase-03/Phase-03-XX-<名称>.md
 - Frontend 不直连 Elasticsearch；Search API 的认证、query/cursor、readiness、超时、降级和错误脱敏契约稳定。
 - Phase 2 的 Outbox 清理、整批租约预算、Worker 有界退出、通知最终一致与 Redis 降级均无回归。
 - 第 12.3 节固定矩阵和远程门禁通过，没有使阶段验收不成立的失败；非阻断改进项未扩大实现范围。
-- 三份实施记录与实际提交、命令和限制一致；Phase-03-03 合入后根与 Frontend 版本均为 `0.4.3`。
+- 四份实施记录与实际提交、命令和限制一致；Phase-03-04 完成后根与 Frontend 版本均为 `0.4.4`。
+- `_score` 分页使用同一 Elasticsearch PIT 快照；游标签名并绑定 query、generation、PIT、过期时间和完整 sort tuple，过期或篡改游标安全要求重新搜索。
+- Frontend 临时分页失败重试原 cursor 并保留累计结果；快照游标失效时明确清空并受控重启第一页。
 - Phase 0～3 能共同运行；随后 release-only 动作使主远程唯一产品版本成为 `1.0.0`。
 
 ## 15. 完成、停止与 Phase 4 交接
 
-只有 Phase-03-01 至 Phase-03-03 均从权威分支完成并合入主远程、第 12.3 节封闭矩阵在 WSL2/Bash 真实通过、远程门禁成功且实施记录齐全，Phase 3 才可标记完成。随后执行 `1.0.0` release-only 动作并停止功能扩展；未执行的检查、PR、合并、tag 或发布不得写成通过。
+只有 Phase-03-01 至 Phase-03-04 均从权威分支完成并合入主远程、第 12.3 节封闭矩阵与 Phase-03-04 定向整改门禁在 WSL2/Bash 真实通过、远程门禁成功且实施记录齐全，Phase 3 才可标记完成。随后执行 `1.0.0` release-only 动作并停止功能扩展；未执行的检查、PR、合并、tag 或发布不得写成通过。
 
 向 Phase 4 交付：
 

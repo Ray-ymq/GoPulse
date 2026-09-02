@@ -81,3 +81,68 @@ describe('SearchView', () => {
     expect(searchPath).not.toContain('9200')
   })
 })
+
+// Pagination retries must preserve the failed request, while an invalid PIT cursor
+// deliberately restarts from the first page.
+describe('SearchView pagination recovery', () => {
+  it('retries a temporary load-more failure with the same cursor and appends results', async () => {
+    let pageCalls = 0
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = pathOf(input)
+      if (path.endsWith('/users/me')) return Promise.resolve(jsonResponse({ data: user }))
+      pageCalls += 1
+      if (pageCalls === 1) return Promise.resolve(jsonResponse({ data: [post], meta: { next_cursor: 'retry-token' } }))
+      if (pageCalls === 2) return Promise.resolve(jsonResponse({ error: { code: 'search_unavailable', message: 'hidden' } }, 503))
+      return Promise.resolve(jsonResponse({ data: [{ ...post, id: 7, title: 'Recovered result' }], meta: { next_cursor: null } }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/search?q=Elasticsearch')
+    const wrapper = mount(SearchView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    await wrapper.get('.load-more button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('搜索服务暂时不可用')
+    expect(wrapper.text()).toContain('Elasticsearch rebuild')
+
+    await wrapper.get('.inline-action').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Elasticsearch rebuild')
+    expect(wrapper.text()).toContain('Recovered result')
+    const searchPaths = fetchMock.mock.calls
+      .map(([input]) => pathOf(input))
+      .filter((path) => path.startsWith('/api/v1/search/posts?'))
+    expect(searchPaths.slice(-2).every((path) => path.includes('cursor=retry-token'))).toBe(true)
+  })
+
+  it('clears an invalid pagination snapshot and restarts once without the stale cursor', async () => {
+    let pageCalls = 0
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = pathOf(input)
+      if (path.endsWith('/users/me')) return Promise.resolve(jsonResponse({ data: user }))
+      pageCalls += 1
+      if (pageCalls === 1) return Promise.resolve(jsonResponse({ data: [post], meta: { next_cursor: 'expired-pit-token' } }))
+      if (pageCalls === 2) return Promise.resolve(jsonResponse({ error: { code: 'validation_failed', message: 'cursor is invalid' } }, 400))
+      return Promise.resolve(jsonResponse({ data: [{ ...post, id: 9, title: 'Fresh snapshot' }], meta: { next_cursor: null } }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/search?q=Elasticsearch')
+    const wrapper = mount(SearchView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    await wrapper.get('.load-more button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('搜索结果已更新')
+    expect(wrapper.text()).not.toContain('Elasticsearch rebuild')
+
+    await wrapper.get('.inline-action').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Fresh snapshot')
+    const searchPaths = fetchMock.mock.calls
+      .map(([input]) => pathOf(input))
+      .filter((path) => path.startsWith('/api/v1/search/posts?'))
+    expect(searchPaths.at(-1)).not.toContain('cursor=')
+  })
+})
