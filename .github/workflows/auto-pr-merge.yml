@@ -85,7 +85,7 @@ jobs:
             )"
             body="$(
               printf '%s\n\n- Source: `%s`\n- Target: `%s`\n- Commit: `%s`\n- Quality gates: %s/%s/actions/runs/%s\n' \
-                'Automatically created after the branch passed the repository quality and governance gates. Merge is enabled only after this PR's own CI run succeeds, so protected-branch requirements remain authoritative.' \
+                'Automatically created after the branch passed the repository quality and governance gates. Merge is enabled only after the pull-request CI run succeeds, so protected-branch requirements remain authoritative.' \
                 "$HEAD_BRANCH" \
                 "$BASE_BRANCH" \
                 "$HEAD_SHA" \
