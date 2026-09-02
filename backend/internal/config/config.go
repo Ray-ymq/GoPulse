@@ -99,14 +99,15 @@ type RedisConfig struct {
 }
 
 type OutboxConfig struct {
-	PollInterval    time.Duration
-	ClaimBatch      int
-	LeaseDuration   time.Duration
-	PublishTimeout  time.Duration
-	RetryDelay      time.Duration
-	CleanupInterval time.Duration
-	Retention       time.Duration
-	CleanupBatch    int
+	PollInterval     time.Duration
+	ClaimBatch       int
+	LeaseDuration    time.Duration
+	PublishTimeout   time.Duration
+	RetryDelay       time.Duration
+	SearchRetryDelay time.Duration
+	CleanupInterval  time.Duration
+	Retention        time.Duration
+	CleanupBatch     int
 }
 
 type ElasticsearchConfig struct {
@@ -261,6 +262,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	searchRetryDelay, err := durationValue(lookup, "SEARCH_INDEXER_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
+	if err != nil {
+		return Config{}, err
+	}
 	outboxCleanupInterval, err := durationValue(lookup, "OUTBOX_CLEANUP_INTERVAL", defaultOutboxCleanupInterval, minimumOutboxCleanupInterval, maximumOutboxCleanupInterval)
 	if err != nil {
 		return Config{}, err
@@ -298,14 +303,15 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		},
 		RabbitMQURL: rabbitMQURL,
 		Outbox: OutboxConfig{
-			PollInterval:    outboxPollInterval,
-			ClaimBatch:      outboxClaimBatch,
-			LeaseDuration:   outboxLeaseDuration,
-			PublishTimeout:  outboxPublishTimeout,
-			RetryDelay:      outboxRetryDelay,
-			CleanupInterval: outboxCleanupInterval,
-			Retention:       outboxRetention,
-			CleanupBatch:    outboxCleanupBatch,
+			PollInterval:     outboxPollInterval,
+			ClaimBatch:       outboxClaimBatch,
+			LeaseDuration:    outboxLeaseDuration,
+			PublishTimeout:   outboxPublishTimeout,
+			RetryDelay:       outboxRetryDelay,
+			SearchRetryDelay: searchRetryDelay,
+			CleanupInterval:  outboxCleanupInterval,
+			Retention:        outboxRetention,
+			CleanupBatch:     outboxCleanupBatch,
 		},
 		Elasticsearch: elasticsearch,
 		Auth: AuthConfig{

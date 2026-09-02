@@ -78,7 +78,7 @@ func run() error {
 	}
 	rabbitMQPublisher, err := platform.NewRabbitMQPublisher(
 		cfg.RabbitMQURL,
-		platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay},
+		platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay},
 	)
 	if err != nil {
 		return errors.New("initialize RabbitMQ publisher")
@@ -115,7 +115,7 @@ func run() error {
 		cfg.Redis.PostDetailTTL,
 		cfg.Redis.OperationTimeout,
 	)
-	posts := post.NewMySQLRepository(mysqlClient.DB())
+	posts := post.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 	postService := post.NewService(posts, postDetailCache)
 	postHandler := post.NewHandler(postService)
 	comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)

@@ -179,3 +179,40 @@ func TestEmbeddedNotificationsMigrationContainsIdempotencyAndRelationships(t *te
 		t.Fatalf("notifications down migration = %q (%q)", string(down), downIdentifier)
 	}
 }
+
+func TestEmbeddedPostCreatedOutboxMigrationPreservesPostFactsOnDown(t *testing.T) {
+	source, err := Source()
+	if err != nil {
+		t.Fatalf("Source() error = %v", err)
+	}
+	defer source.Close()
+	version, err := source.Next(3)
+	if err != nil || version != 4 {
+		t.Fatalf("Next(3) = %d, %v; want 4", version, err)
+	}
+	upReader, identifier, err := source.ReadUp(version)
+	if err != nil {
+		t.Fatalf("ReadUp(4) error = %v", err)
+	}
+	up, readErr := io.ReadAll(upReader)
+	_ = upReader.Close()
+	if readErr != nil || identifier != "post_created_outbox" {
+		t.Fatalf("post-created up migration = %q, %v", identifier, readErr)
+	}
+	if !strings.Contains(string(up), "'post.created'") || !strings.Contains(string(up), "DROP CHECK chk_business_outbox_event_type") {
+		t.Fatalf("post-created up migration = %q", string(up))
+	}
+	downReader, _, err := source.ReadDown(version)
+	if err != nil {
+		t.Fatalf("ReadDown(4) error = %v", err)
+	}
+	down, readErr := io.ReadAll(downReader)
+	_ = downReader.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	downSQL := string(down)
+	if !strings.Contains(downSQL, "DELETE FROM business_outbox WHERE event_type = 'post.created'") || strings.Contains(downSQL, "DELETE FROM posts") {
+		t.Fatalf("post-created down migration = %q", downSQL)
+	}
+}

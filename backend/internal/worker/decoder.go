@@ -15,7 +15,9 @@ type PermanentError struct {
 
 func (err *PermanentError) Error() string { return err.Reason }
 
-func permanent(reason string) error { return &PermanentError{Reason: reason} }
+func permanent(reason string) error { return NewPermanentError(reason) }
+
+func NewPermanentError(reason string) error { return &PermanentError{Reason: reason} }
 
 func IsPermanent(err error) bool {
 	var target *PermanentError

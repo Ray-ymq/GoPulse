@@ -13,9 +13,11 @@ BIN_DIR="$RUN_DIR/bin"
 LOCK_PATH="$RUN_DIR/dev.lock"
 BACKEND_RECORD="$RUN_DIR/backend.json"
 WORKER_RECORD="$RUN_DIR/business-worker.json"
+SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$BIN_DIR/gopulse-backend"
 WORKER_BINARY="$BIN_DIR/gopulse-business-worker"
+SEARCH_INDEXER_BINARY="$BIN_DIR/gopulse-search-indexer"
 VITE_CLI="$FRONTEND_DIR/node_modules/vite/bin/vite.js"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
 PROJECT_NAME=gopulse
@@ -24,9 +26,11 @@ LOCK_OWNED=0
 LOCK_TOKEN=
 BACKEND_PID=
 WORKER_PID=
+SEARCH_INDEXER_PID=
 FRONTEND_PID=
 BACKEND_STARTED=0
 WORKER_STARTED=0
+SEARCH_INDEXER_STARTED=0
 FRONTEND_STARTED=0
 EXIT_CODE=0
 
@@ -42,12 +46,19 @@ BACKEND_KEYS=(
   REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
   ELASTICSEARCH_URL ELASTICSEARCH_REQUEST_TIMEOUT SEARCH_REINDEX_BATCH
   OUTBOX_POLL_INTERVAL OUTBOX_CLAIM_BATCH OUTBOX_LEASE_DURATION OUTBOX_PUBLISH_TIMEOUT OUTBOX_RETRY_DELAY
+  SEARCH_INDEXER_RETRY_DELAY
   OUTBOX_CLEANUP_INTERVAL OUTBOX_PUBLISHED_RETENTION OUTBOX_CLEANUP_BATCH
 )
 WORKER_KEYS=(
   MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD RABBITMQ_URL OUTBOX_RETRY_DELAY
   BUSINESS_WORKER_PREFETCH BUSINESS_WORKER_MAX_RETRIES BUSINESS_WORKER_PUBLISH_TIMEOUT
   BUSINESS_WORKER_SHUTDOWN_TIMEOUT BUSINESS_WORKER_RECONNECT_MIN BUSINESS_WORKER_RECONNECT_MAX
+)
+SEARCH_INDEXER_KEYS=(
+  MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD RABBITMQ_URL
+  ELASTICSEARCH_URL ELASTICSEARCH_REQUEST_TIMEOUT SEARCH_INDEXER_RETRY_DELAY
+  SEARCH_INDEXER_PREFETCH SEARCH_INDEXER_MAX_RETRIES SEARCH_INDEXER_PUBLISH_TIMEOUT
+  SEARCH_INDEXER_SHUTDOWN_TIMEOUT SEARCH_INDEXER_RECONNECT_MIN SEARCH_INDEXER_RECONNECT_MAX
 )
 ALL_CONFIG_KEYS=(
   PUBLISHED_HOST APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
@@ -60,6 +71,8 @@ ALL_CONFIG_KEYS=(
   OUTBOX_CLEANUP_INTERVAL OUTBOX_PUBLISHED_RETENTION OUTBOX_CLEANUP_BATCH
   BUSINESS_WORKER_PREFETCH BUSINESS_WORKER_MAX_RETRIES BUSINESS_WORKER_PUBLISH_TIMEOUT
   BUSINESS_WORKER_SHUTDOWN_TIMEOUT BUSINESS_WORKER_RECONNECT_MIN BUSINESS_WORKER_RECONNECT_MAX
+  SEARCH_INDEXER_PREFETCH SEARCH_INDEXER_MAX_RETRIES SEARCH_INDEXER_RETRY_DELAY SEARCH_INDEXER_PUBLISH_TIMEOUT
+  SEARCH_INDEXER_SHUTDOWN_TIMEOUT SEARCH_INDEXER_RECONNECT_MIN SEARCH_INDEXER_RECONNECT_MAX
 )
 REQUIRED_KEYS=(
   MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PASSWORD
@@ -82,6 +95,9 @@ declare -A DEFAULTS=(
   [BUSINESS_WORKER_PREFETCH]=10 [BUSINESS_WORKER_MAX_RETRIES]=3
   [BUSINESS_WORKER_PUBLISH_TIMEOUT]=5s [BUSINESS_WORKER_SHUTDOWN_TIMEOUT]=10s
   [BUSINESS_WORKER_RECONNECT_MIN]=500ms [BUSINESS_WORKER_RECONNECT_MAX]=30s
+  [SEARCH_INDEXER_PREFETCH]=10 [SEARCH_INDEXER_MAX_RETRIES]=3 [SEARCH_INDEXER_RETRY_DELAY]=30s
+  [SEARCH_INDEXER_PUBLISH_TIMEOUT]=5s [SEARCH_INDEXER_SHUTDOWN_TIMEOUT]=10s
+  [SEARCH_INDEXER_RECONNECT_MIN]=500ms [SEARCH_INDEXER_RECONNECT_MAX]=30s
 )
 while IFS='=' read -r key value; do
   CALLER_ENV["$key"]=$value
@@ -538,8 +554,8 @@ ensure_frontend_dependencies() {
 }
 
 build_applications() {
-  info 'Building the Backend and Business Worker development executables.'
-  (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server && go build -o "$WORKER_BINARY" ./cmd/business-worker)
+  info 'Building the Backend, Business Worker, and Search Indexer development executables.'
+  (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server && go build -o "$WORKER_BINARY" ./cmd/business-worker && go build -o "$SEARCH_INDEXER_BINARY" ./cmd/search-indexer)
 }
 
 write_process_record() {
@@ -599,6 +615,25 @@ PY
   write_process_record "$WORKER_PID" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY"
 }
 
+start_search_indexer() {
+  local -a env_args=() key
+  for key in "${SEARCH_INDEXER_KEYS[@]}"; do env_args+=("$key=${CONFIG[$key]}"); done
+  info 'Starting Search Indexer.'
+  env "${env_args[@]}" python3 - "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" <<'PY' &
+import os
+import sys
+cwd, executable = sys.argv[1:]
+os.chdir(cwd)
+os.setsid()
+os.execve(executable, [executable], os.environ)
+PY
+  SEARCH_INDEXER_PID=$!
+  sleep 0.6
+  kill -0 "$SEARCH_INDEXER_PID" 2>/dev/null || { local code=0; wait "$SEARCH_INDEXER_PID" || code=$?; fail "Search Indexer exited during startup with code $code."; return 1; }
+  SEARCH_INDEXER_STARTED=1
+  write_process_record "$SEARCH_INDEXER_PID" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY"
+}
+
 start_frontend() {
   [[ -f "$VITE_CLI" ]] || { fail 'The project-local Vite CLI is missing after dependency installation.'; return 1; }
   local -a unset_args=() key
@@ -647,6 +682,9 @@ cleanup() {
   if ((FRONTEND_STARTED == 1)); then
     stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)" "$FRONTEND_PID" || true
   fi
+  if ((SEARCH_INDEXER_STARTED == 1)); then
+    stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_PID" || true
+  fi
   if ((WORKER_STARTED == 1)); then
     stop_recorded_application "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY" "$WORKER_PID" || true
   fi
@@ -668,6 +706,7 @@ main() {
   require_tools || return 1
   acquire_lock || return 1
   reject_or_remove_record Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY" || return 1
+  reject_or_remove_record "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY" || return 1
   reject_or_remove_record "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY" || return 1
   reject_or_remove_record Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node)" || return 1
 
@@ -694,6 +733,7 @@ main() {
   build_applications || return 1
   start_backend || return 1
   start_worker || return 1
+  start_search_indexer || return 1
   start_frontend || return 1
 
   printf '\nGoPulse development services:\n'
@@ -703,7 +743,7 @@ main() {
   printf '  Readiness:           http://localhost:%s/ready\n' "${CONFIG[HTTP_PORT]}"
   printf '  RabbitMQ management: http://localhost:%s\n' "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}"
   printf '  Elasticsearch:       http://localhost:%s\n\n' "${CONFIG[ELASTICSEARCH_PORT]}"
-  info 'Press Ctrl+C to stop Frontend, Business Worker, and Backend. Infrastructure will remain running.'
+  info 'Press Ctrl+C to stop Frontend, Search Indexer, Business Worker, and Backend. Infrastructure will remain running.'
 
   while true; do
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
@@ -714,6 +754,11 @@ main() {
     if ! kill -0 "$WORKER_PID" 2>/dev/null; then
       wait "$WORKER_PID" || EXIT_CODE=$?
       fail "Business Worker exited unexpectedly with code $EXIT_CODE."
+      return 1
+    fi
+    if ! kill -0 "$SEARCH_INDEXER_PID" 2>/dev/null; then
+      wait "$SEARCH_INDEXER_PID" || EXIT_CODE=$?
+      fail "Search Indexer exited unexpectedly with code $EXIT_CODE."
       return 1
     fi
     if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then

@@ -38,3 +38,21 @@ func TestElasticsearchConfigRejectsUserinfoAndBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSearchIndexerUsesOnlyIndexerDependencies(t *testing.T) {
+	values := map[string]string{
+		"MYSQL_DATABASE": "gopulse", "MYSQL_USER": "indexer", "MYSQL_PASSWORD": "mysql-secret",
+		"RABBITMQ_URL":            "amqp://indexer:rabbit-secret@127.0.0.1:5672/",
+		"ELASTICSEARCH_URL":       "http://127.0.0.1:19200",
+		"SEARCH_INDEXER_PREFETCH": "7", "SEARCH_INDEXER_RETRY_DELAY": "4s",
+		// Invalid application-only values must not be read by the indexer.
+		"REDIS_PORT": "not-a-port", "HTTP_PORT": "not-a-port", "AUTH_JWT_SECRET": "short",
+	}
+	cfg, err := LoadSearchIndexerFrom(mapLookup(values))
+	if err != nil {
+		t.Fatalf("LoadSearchIndexerFrom() error = %v", err)
+	}
+	if cfg.Worker.Prefetch != 7 || cfg.Worker.RetryDelay != 4*time.Second || cfg.Elasticsearch.URL != values["ELASTICSEARCH_URL"] {
+		t.Fatalf("search indexer config = %#v", cfg)
+	}
+}

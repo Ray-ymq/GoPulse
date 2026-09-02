@@ -25,14 +25,24 @@ func AcquirePostFactsLock(t *testing.T, database *sql.DB) func() {
 		t.Fatalf("reserve MySQL integration lock connection: %v", err)
 	}
 
-	var acquired sql.NullInt64
-	if err := connection.QueryRowContext(ctx, `SELECT GET_LOCK(?, 30)`, postFactsLockName).Scan(&acquired); err != nil {
-		_ = connection.Close()
-		t.Fatalf("acquire MySQL integration post-facts lock: %v", err)
-	}
-	if !acquired.Valid || acquired.Int64 != 1 {
-		_ = connection.Close()
-		t.Fatalf("acquire MySQL integration post-facts lock returned %#v", acquired)
+	// Poll with a non-blocking GET_LOCK call instead of waiting inside MySQL.
+	// Production connections intentionally use a one-second read timeout, while
+	// separate Go package test binaries can hold this lock for several seconds.
+	for {
+		var acquired sql.NullInt64
+		if err := connection.QueryRowContext(ctx, `SELECT GET_LOCK(?, 0)`, postFactsLockName).Scan(&acquired); err != nil {
+			_ = connection.Close()
+			t.Fatalf("acquire MySQL integration post-facts lock: %v", err)
+		}
+		if acquired.Valid && acquired.Int64 == 1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			_ = connection.Close()
+			t.Fatalf("acquire MySQL integration post-facts lock: %v", ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 
 	var once sync.Once

@@ -5,7 +5,9 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 ENV_FILE="$REPO_ROOT/.env"
 WORKER_RECORD="$REPO_ROOT/.run/business-worker.json"
+SEARCH_INDEXER_RECORD="$REPO_ROOT/.run/search-indexer.json"
 WORKER_BINARY="$REPO_ROOT/.run/bin/gopulse-business-worker"
+SEARCH_INDEXER_BINARY="$REPO_ROOT/.run/bin/gopulse-search-indexer"
 BACKEND_DIR="$REPO_ROOT/backend"
 PROJECT_NAME=gopulse
 FAILURES=0
@@ -105,13 +107,13 @@ check_compose_service() {
   pass "Compose/$service" 'container is running and healthy.'
 }
 
-check_worker_process() {
-  local result
-  if [[ ! -f "$WORKER_RECORD" ]]; then
-    fail 'Business Worker' "process record is missing: $WORKER_RECORD"
+check_recorded_process() {
+  local name=$1 record=$2 binary=$3 result
+  if [[ ! -f "$record" ]]; then
+    fail "$name" "process record is missing: $record"
     return
   fi
-  if ! result=$(python3 - "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" <<'PY'
+  if ! result=$(python3 - "$record" "$BACKEND_DIR" "$binary" <<'PY'
 import json
 import os
 import sys
@@ -130,7 +132,7 @@ if cwd != os.path.realpath(expected_cwd) or marker != expected_executable:
     print('record identity does not match this repository')
     raise SystemExit(1)
 if executable != os.path.realpath(expected_executable):
-    print('recorded executable does not match the expected worker')
+    print('recorded executable does not match the expected application')
     raise SystemExit(1)
 try:
     stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
@@ -147,10 +149,10 @@ if actual_start_ticks != start_ticks or actual_executable != executable or marke
 print(pid)
 PY
   ); then
-    fail 'Business Worker' "$result"
+    fail "$name" "$result"
     return
   fi
-  pass 'Business Worker' "PID $result matches its repository-owned process record."
+  pass "$name" "PID $result matches its repository-owned process record."
 }
 
 http_get() {
@@ -275,7 +277,8 @@ main() {
   check_compose_service redis
   check_compose_service rabbitmq
   check_compose_service elasticsearch
-  check_worker_process
+  check_recorded_process "Business Worker" "$WORKER_RECORD" "$WORKER_BINARY"
+  check_recorded_process "Search Indexer" "$SEARCH_INDEXER_RECORD" "$SEARCH_INDEXER_BINARY"
   check_health "$port"
   check_ready "$port"
   check_protected_api "$port"
