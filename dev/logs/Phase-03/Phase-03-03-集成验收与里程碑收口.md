@@ -103,3 +103,9 @@
 - `1.0.0` 动作只能更新允许的版本/发布文档和必要治理元数据；本记录不宣称已创建 tag、release 或完成 Milestone 1 发布。
 - 产品仍只对 `post.created` 提供增量索引；帖子更新/删除、自动 dead-queue replay、搜索建议/高亮/过滤/聚合等继续留后。
 - PowerShell 保持 `0.2.1` 历史能力基线，未作为本批验收入口。
+
+## 后续远程状态
+
+PR #50 已于 2026-09-02 16:59:12 UTC 将本批次 head `e59b7d4d65ed431d6b44ecea121be68f5ba14f70` 合入 `main`，合并提交为 `f54f1a2175c1f508c3ecac775077387e5af29682`。Backend、Frontend、Branch governance、Scripts and Compose、Integration 以及自动 PR/合并任务均成功。
+
+后续实现 Review 识别出 PIT 分页、阶段文档状态、`develop/0.4.4` 权威分配和 Frontend 分页重试问题；这些事项属于独立 Phase-03-04，不改变本记录在执行当时“尚未 push”的历史事实。
