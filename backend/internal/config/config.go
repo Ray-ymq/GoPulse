@@ -24,6 +24,11 @@ const (
 	defaultAuthCookieName        = "gopulse_session"
 	defaultRedisPostDetailTTL    = 5 * time.Minute
 	defaultRedisOperationTimeout = 200 * time.Millisecond
+	defaultOutboxPollInterval    = time.Second
+	defaultOutboxClaimBatch      = 10
+	defaultOutboxLeaseDuration   = 30 * time.Second
+	defaultOutboxPublishTimeout  = 5 * time.Second
+	defaultOutboxRetryDelay      = 30 * time.Second
 	minimumJWTSecretBytes        = 32
 	minimumAuthJWTTTL            = 5 * time.Minute
 	maximumAuthJWTTTL            = 24 * time.Hour
@@ -31,6 +36,16 @@ const (
 	maximumRedisPostDetailTTL    = 24 * time.Hour
 	minimumRedisOperationTimeout = 10 * time.Millisecond
 	maximumRedisOperationTimeout = 5 * time.Second
+	minimumOutboxPollInterval    = 10 * time.Millisecond
+	maximumOutboxPollInterval    = time.Minute
+	minimumOutboxClaimBatch      = 1
+	maximumOutboxClaimBatch      = 100
+	minimumOutboxLeaseDuration   = time.Second
+	maximumOutboxLeaseDuration   = 10 * time.Minute
+	minimumOutboxPublishTimeout  = 10 * time.Millisecond
+	maximumOutboxPublishTimeout  = 30 * time.Second
+	minimumOutboxRetryDelay      = time.Second
+	maximumOutboxRetryDelay      = 24 * time.Hour
 )
 
 // LookupFunc makes configuration loading deterministic in tests without
@@ -44,6 +59,7 @@ type Config struct {
 	MySQL       MySQLConfig
 	Redis       RedisConfig
 	RabbitMQURL string
+	Outbox      OutboxConfig
 	Auth        AuthConfig
 }
 
@@ -62,6 +78,14 @@ type RedisConfig struct {
 	DB               int
 	PostDetailTTL    time.Duration
 	OperationTimeout time.Duration
+}
+
+type OutboxConfig struct {
+	PollInterval   time.Duration
+	ClaimBatch     int
+	LeaseDuration  time.Duration
+	PublishTimeout time.Duration
+	RetryDelay     time.Duration
 }
 
 type AuthConfig struct {
@@ -173,6 +197,33 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 
+	outboxPollInterval, err := durationValue(lookup, "OUTBOX_POLL_INTERVAL", defaultOutboxPollInterval, minimumOutboxPollInterval, maximumOutboxPollInterval)
+	if err != nil {
+		return Config{}, err
+	}
+	outboxClaimBatch, err := integerValue(lookup, "OUTBOX_CLAIM_BATCH", defaultOutboxClaimBatch)
+	if err != nil {
+		return Config{}, err
+	}
+	if outboxClaimBatch < minimumOutboxClaimBatch || outboxClaimBatch > maximumOutboxClaimBatch {
+		return Config{}, fmt.Errorf("OUTBOX_CLAIM_BATCH must be between %d and %d", minimumOutboxClaimBatch, maximumOutboxClaimBatch)
+	}
+	outboxLeaseDuration, err := durationValue(lookup, "OUTBOX_LEASE_DURATION", defaultOutboxLeaseDuration, minimumOutboxLeaseDuration, maximumOutboxLeaseDuration)
+	if err != nil {
+		return Config{}, err
+	}
+	outboxPublishTimeout, err := durationValue(lookup, "OUTBOX_PUBLISH_TIMEOUT", defaultOutboxPublishTimeout, minimumOutboxPublishTimeout, maximumOutboxPublishTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	if outboxPublishTimeout >= outboxLeaseDuration {
+		return Config{}, errors.New("OUTBOX_PUBLISH_TIMEOUT must be shorter than OUTBOX_LEASE_DURATION")
+	}
+	outboxRetryDelay, err := durationValue(lookup, "OUTBOX_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		AppEnv:   appEnv,
 		HTTPHost: valueOrDefault(lookup, "HTTP_HOST", defaultHTTPHost),
@@ -193,6 +244,13 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			OperationTimeout: operationTimeout,
 		},
 		RabbitMQURL: rabbitMQURL,
+		Outbox: OutboxConfig{
+			PollInterval:   outboxPollInterval,
+			ClaimBatch:     outboxClaimBatch,
+			LeaseDuration:  outboxLeaseDuration,
+			PublishTimeout: outboxPublishTimeout,
+			RetryDelay:     outboxRetryDelay,
+		},
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
