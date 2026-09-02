@@ -1,6 +1,6 @@
 //go:build integration
 
-package outbox
+package outbox_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 )
 
@@ -53,7 +54,7 @@ func TestIntegrationOutboxLeaseStateMachine(t *testing.T) {
 	})
 
 	clock := &fakeClock{now: time.Date(2026, time.September, 2, 3, 0, 0, 0, time.UTC)}
-	repository, err := NewRepository(database, Options{
+	repository, err := outbox.NewRepository(database, outbox.Options{
 		Clock: clock.Now,
 		Backoff: func(attempt uint32) time.Duration {
 			return time.Duration(attempt) * 5 * time.Second
@@ -88,7 +89,7 @@ func TestIntegrationOutboxLeaseStateMachine(t *testing.T) {
 	}
 
 	type claimResult struct {
-		records []Record
+		records []outbox.Record
 		err     error
 	}
 	start := make(chan struct{})
@@ -125,20 +126,20 @@ func TestIntegrationOutboxLeaseStateMachine(t *testing.T) {
 		}
 	}
 
-	allClaimed := append(append([]Record(nil), first.records...), second.records...)
+	allClaimed := append(append([]outbox.Record(nil), first.records...), second.records...)
 	sort.Slice(allClaimed, func(i, j int) bool { return allClaimed[i].ID < allClaimed[j].ID })
 	publishedFirst := allClaimed[0]
 	retryRecord := allClaimed[1]
 	leasedFirst := allClaimed[2]
 	leasedSecond := allClaimed[3]
 
-	if err := repository.MarkPublished(ctx, publishedFirst.ID, "wrong-owner"); !errors.Is(err, ErrLeaseLost) {
+	if err := repository.MarkPublished(ctx, publishedFirst.ID, "wrong-owner"); !errors.Is(err, outbox.ErrLeaseLost) {
 		t.Fatalf("wrong-owner MarkPublished() error = %v", err)
 	}
 	if err := repository.MarkPublished(ctx, publishedFirst.ID, publishedFirst.LeaseOwner); err != nil {
 		t.Fatalf("MarkPublished() error = %v", err)
 	}
-	if err := repository.ReleaseFailed(ctx, retryRecord.ID, retryRecord.LeaseOwner, FailurePublishTimeout); err != nil {
+	if err := repository.ReleaseFailed(ctx, retryRecord.ID, retryRecord.LeaseOwner, outbox.FailurePublishTimeout); err != nil {
 		t.Fatalf("ReleaseFailed() error = %v", err)
 	}
 
@@ -158,7 +159,7 @@ func TestIntegrationOutboxLeaseStateMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Claim(retry) error = %v", err)
 	}
-	if len(retryClaim) != 1 || retryClaim[0].ID != retryRecord.ID || retryClaim[0].AttemptCount != 1 || retryClaim[0].LastError != string(FailurePublishTimeout) {
+	if len(retryClaim) != 1 || retryClaim[0].ID != retryRecord.ID || retryClaim[0].AttemptCount != 1 || retryClaim[0].LastError != string(outbox.FailurePublishTimeout) {
 		t.Fatalf("retry claim = %#v", retryClaim)
 	}
 
@@ -171,18 +172,18 @@ func TestIntegrationOutboxLeaseStateMachine(t *testing.T) {
 		t.Fatalf("recovered claim count = %d, want 3: %#v", len(recovered), recovered)
 	}
 	recoveredByID := recordsByID(recovered)
-	for _, record := range []Record{leasedFirst, leasedSecond, pendingClaim[0]} {
+	for _, record := range []outbox.Record{leasedFirst, leasedSecond, pendingClaim[0]} {
 		if _, ok := recoveredByID[record.ID]; !ok {
 			t.Fatalf("expired lease ID %d was not recovered", record.ID)
 		}
 	}
-	if err := repository.MarkPublished(ctx, leasedFirst.ID, leasedFirst.LeaseOwner); !errors.Is(err, ErrLeaseLost) {
+	if err := repository.MarkPublished(ctx, leasedFirst.ID, leasedFirst.LeaseOwner); !errors.Is(err, outbox.ErrLeaseLost) {
 		t.Fatalf("stale-owner MarkPublished() error = %v", err)
 	}
 	if err := repository.MarkPublished(ctx, leasedFirst.ID, "dispatcher-e"); err != nil {
 		t.Fatalf("recovered MarkPublished() error = %v", err)
 	}
-	if err := repository.ReleaseFailed(ctx, leasedSecond.ID, "dispatcher-e", FailurePublishNack); err != nil {
+	if err := repository.ReleaseFailed(ctx, leasedSecond.ID, "dispatcher-e", outbox.FailurePublishNack); err != nil {
 		t.Fatalf("recovered ReleaseFailed() error = %v", err)
 	}
 	if err := repository.MarkPublished(ctx, retryClaim[0].ID, "dispatcher-d"); err != nil {
@@ -196,9 +197,9 @@ func TestIntegrationOutboxLeaseStateMachine(t *testing.T) {
 	if deleted != 3 {
 		t.Fatalf("CleanupPublished() deleted = %d, want 3", deleted)
 	}
-	assertStatusCount(t, ctx, database, StatusPending, 1)
-	assertStatusCount(t, ctx, database, StatusLeased, 1)
-	assertStatusCount(t, ctx, database, StatusPublished, 0)
+	assertStatusCount(t, ctx, database, outbox.StatusPending, 1)
+	assertStatusCount(t, ctx, database, outbox.StatusLeased, 1)
+	assertStatusCount(t, ctx, database, outbox.StatusPublished, 0)
 
 	clock.Set(time.Date(2026, time.September, 2, 3, 1, 2, 0, time.UTC))
 	finalClaim, err := repository.Claim(ctx, "dispatcher-f", 5, 30*time.Second)
@@ -265,7 +266,7 @@ func newIntegrationEvent(t *testing.T, occurredAt time.Time, seed uint64) bus.En
 	return event
 }
 
-func assertStableIDs(t *testing.T, records []Record) {
+func assertStableIDs(t *testing.T, records []outbox.Record) {
 	t.Helper()
 	for index := 1; index < len(records); index++ {
 		if records[index-1].ID >= records[index].ID {
@@ -274,8 +275,8 @@ func assertStableIDs(t *testing.T, records []Record) {
 	}
 }
 
-func recordsByID(records []Record) map[uint64]Record {
-	indexed := make(map[uint64]Record, len(records))
+func recordsByID(records []outbox.Record) map[uint64]outbox.Record {
+	indexed := make(map[uint64]outbox.Record, len(records))
 	for _, record := range records {
 		indexed[record.ID] = record
 	}
@@ -293,7 +294,7 @@ func assertEventCount(t *testing.T, ctx context.Context, database *sql.DB, event
 	}
 }
 
-func assertStatusCount(t *testing.T, ctx context.Context, database *sql.DB, status Status, want int) {
+func assertStatusCount(t *testing.T, ctx context.Context, database *sql.DB, status outbox.Status, want int) {
 	t.Helper()
 	var count int
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM business_outbox WHERE status = ?`, string(status)).Scan(&count); err != nil {
