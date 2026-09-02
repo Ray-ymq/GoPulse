@@ -16,6 +16,10 @@ ALLOCATION_ROW = re.compile(
     r"^\|\s*(?P<batch>Phase-[0-9]{2}-[0-9]{2})\s*\|\s*`(?P<version>[0-9]+\.[0-9]+\.[0-9]+)`\s*"
     r"\|\s*`(?P<branch>develop/[0-9]+\.[0-9]+\.[0-9]+)`\s*\|"
 )
+RELEASE_ROW = re.compile(
+    r"^\|\s*(?P<batch>Milestone-[0-9]{2}-Release)\s*\|\s*`(?P<version>[0-9]+\.[0-9]+\.[0-9]+)`\s*"
+    r"\|\s*`(?P<branch>develop/[0-9]+\.[0-9]+\.[0-9]+)`\s*\|"
+)
 UPDATE_ROOT_FILES = {
     ".editorconfig",
     ".gitattributes",
@@ -39,7 +43,7 @@ def load_allocations(repo: Path) -> list[Allocation]:
     plans = sorted((repo / "dev" / "imple").glob("Phase-*/Phase-*-总实施方案.md"))
     for plan in plans:
         for line in plan.read_text(encoding="utf-8").splitlines():
-            match = ALLOCATION_ROW.match(line)
+            match = ALLOCATION_ROW.match(line) or RELEASE_ROW.match(line)
             if match:
                 allocations.append(
                     Allocation(
@@ -96,7 +100,7 @@ def validate(repo: Path, branch: str, base_ref: str | None, supplied_changes: It
 
     allocations = [item for item in load_allocations(repo) if item.branch == branch]
     if len(allocations) != 1:
-        errors.append(f"{branch} must map to exactly one authoritative Phase allocation; found {len(allocations)}")
+        errors.append(f"{branch} must map to exactly one authoritative allocation; found {len(allocations)}")
         return errors
 
     allocation = allocations[0]
