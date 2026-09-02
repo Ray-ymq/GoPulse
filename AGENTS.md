@@ -48,6 +48,7 @@
 - Expand validation beyond the defined scope only when there is a specific risk basis, such as changes to shared infrastructure, security boundaries, persistent data, public contracts, or evidence of a regression. Record the reason for the expanded scope.
 - Stop validation when the documented acceptance criteria have passed and no blocking issue remains. Record non-blocking improvements and unrelated findings as follow-up items instead of extending the current task indefinitely.
 - Do not repeat an already successful validation unless relevant code, configuration, dependencies, or the execution environment changed in a way that could affect its result.
+- Do not make a standalone code or architecture review, a severity classification, or a separate review report a default development gate. Perform such work only when the user explicitly requests it.
 
 # Execution Efficiency Rule
 
@@ -59,7 +60,7 @@
 - Run validation in stages: the smallest affected-package check during implementation, then the batch plan's fixed completion gates once against the final diff. Expand beyond those gates only for a specific observed regression or documented cross-cutting risk. Record that reason before expanding.
 - A successful check remains valid after conversation context compaction. Reconstruct progress from the implementation plan, Git diff, implementation log, and captured command results, then continue from the first unmet required item. Context compaction alone must never trigger source rereading, new tests, or rerunning successful checks.
 - If optional investigation or optional test work consumes 15 consecutive minutes without resolving a required failure or advancing production implementation, stop it immediately. Return to the shortest in-scope implementation path or record the item as a non-blocking follow-up.
-- As soon as the documented acceptance criteria and fixed completion gates pass with no P0/P1 blocker, update the implementation log and version, commit, and stop. Do not spend remaining time on opportunistic refactors, additional edge cases, or unrelated cleanup.
+- As soon as the documented acceptance criteria and fixed completion gates pass with no blocking failure, update the implementation log and version, commit, and stop. Do not spend remaining time on opportunistic refactors, additional edge cases, or unrelated cleanup.
 
 # Implementation Log Rule
 
