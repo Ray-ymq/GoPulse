@@ -14,7 +14,10 @@ import (
 
 const maximumResponseBytes = 8 << 20
 
-var ErrUnavailable = errors.New("search unavailable")
+var (
+	ErrUnavailable        = errors.New("search unavailable")
+	ErrPointInTimeExpired = errors.New("search point in time expired")
+)
 
 type Performer interface {
 	Perform(context.Context, *http.Request) (*http.Response, error)
@@ -32,11 +35,13 @@ type Hit struct {
 	PostID    uint64
 	Score     float64
 	CreatedAt string
+	ShardDoc  int64
 }
 
 type SearchResult struct {
-	Generation string
-	Hits       []Hit
+	Generation  string
+	PointInTime string
+	Hits        []Hit
 }
 
 func (repository *ElasticsearchRepository) AliasExists(ctx context.Context) (bool, error) {
@@ -76,13 +81,42 @@ func (repository *ElasticsearchRepository) ResolveGeneration(ctx context.Context
 	return "", ErrUnavailable
 }
 
-func (repository *ElasticsearchRepository) Search(ctx context.Context, generation, query string, limit int, after *Hit) (SearchResult, error) {
-	if !validPhysicalIndex(generation) || limit < 1 || limit > 50 {
+func (repository *ElasticsearchRepository) OpenPointInTime(ctx context.Context, generation string) (string, error) {
+	return repository.openPointInTime(ctx, generation, pointInTimeKeepAliveValue)
+}
+
+func (repository *ElasticsearchRepository) openPointInTime(ctx context.Context, generation, keepAlive string) (string, error) {
+	if !validPhysicalIndex(generation) || keepAlive == "" {
+		return "", ErrUnavailable
+	}
+	path := "/" + generation + "/_pit?keep_alive=" + url.QueryEscape(keepAlive) + "&allow_partial_search_results=false"
+	response, err := repository.do(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", ErrUnavailable
+	}
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err := decodeJSON(response.Body, &payload); err != nil || payload.ID == "" || len(payload.ID) > 4096 {
+		return "", ErrUnavailable
+	}
+	return payload.ID, nil
+}
+
+func (repository *ElasticsearchRepository) Search(ctx context.Context, generation, pointInTime, query string, limit int, after *Hit) (SearchResult, error) {
+	if !validPhysicalIndex(generation) || pointInTime == "" || len(pointInTime) > 4096 || limit < 1 || limit > 50 {
 		return SearchResult{}, ErrUnavailable
 	}
 	body := map[string]any{
 		"size":    limit + 1,
 		"_source": false,
+		"pit": map[string]string{
+			"id": pointInTime, "keep_alive": pointInTimeKeepAliveValue,
+		},
 		"query": map[string]any{"multi_match": map[string]any{
 			"query": query, "type": "best_fields", "fields": []string{"title^2", "content"},
 		}},
@@ -90,25 +124,30 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 			map[string]any{"_score": map[string]string{"order": "desc"}},
 			map[string]any{"created_at": map[string]string{"order": "desc", "format": "strict_date_optional_time_nanos"}},
 			map[string]any{"post_id": map[string]string{"order": "desc"}},
+			map[string]any{"_shard_doc": map[string]string{"order": "desc"}},
 		},
 	}
 	if after != nil {
-		body["search_after"] = []any{after.Score, after.CreatedAt, after.PostID}
+		body["search_after"] = []any{after.Score, after.CreatedAt, after.PostID, after.ShardDoc}
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return SearchResult{}, ErrUnavailable
 	}
-	response, err := repository.do(ctx, http.MethodPost, "/"+generation+"/_search", bytes.NewReader(encoded))
+	response, err := repository.do(ctx, http.MethodPost, "/_search", bytes.NewReader(encoded))
 	if err != nil {
 		return SearchResult{}, err
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return SearchResult{}, ErrPointInTimeExpired
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return SearchResult{}, ErrUnavailable
 	}
 	var payload struct {
-		Hits struct {
+		PointInTime string `json:"pit_id"`
+		Hits        struct {
 			Hits []struct {
 				Index string            `json:"_index"`
 				ID    string            `json:"_id"`
@@ -116,12 +155,12 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 			} `json:"hits"`
 		} `json:"hits"`
 	}
-	if err := decodeJSON(response.Body, &payload); err != nil {
+	if err := decodeJSON(response.Body, &payload); err != nil || payload.PointInTime == "" || len(payload.PointInTime) > 4096 {
 		return SearchResult{}, ErrUnavailable
 	}
-	result := SearchResult{Generation: generation, Hits: make([]Hit, 0, len(payload.Hits.Hits))}
+	result := SearchResult{Generation: generation, PointInTime: payload.PointInTime, Hits: make([]Hit, 0, len(payload.Hits.Hits))}
 	for _, raw := range payload.Hits.Hits {
-		if raw.Index != generation || len(raw.Sort) != 3 {
+		if raw.Index != generation || len(raw.Sort) != 4 {
 			return SearchResult{}, ErrUnavailable
 		}
 		postID, err := strconv.ParseUint(raw.ID, 10, 64)
@@ -139,10 +178,40 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 		if err := json.Unmarshal(raw.Sort[2], &sortID); err != nil || sortID.String() != raw.ID {
 			return SearchResult{}, ErrUnavailable
 		}
+		var shardDoc json.Number
+		if err := json.Unmarshal(raw.Sort[3], &shardDoc); err != nil {
+			return SearchResult{}, ErrUnavailable
+		}
+		hit.ShardDoc, err = strconv.ParseInt(shardDoc.String(), 10, 64)
+		if err != nil || hit.ShardDoc < 0 {
+			return SearchResult{}, ErrUnavailable
+		}
 		hit.PostID = postID
 		result.Hits = append(result.Hits, hit)
 	}
 	return result, nil
+}
+
+func (repository *ElasticsearchRepository) ClosePointInTime(ctx context.Context, pointInTime string) error {
+	if pointInTime == "" || len(pointInTime) > 4096 {
+		return ErrUnavailable
+	}
+	body, err := json.Marshal(map[string]string{"id": pointInTime})
+	if err != nil {
+		return ErrUnavailable
+	}
+	response, err := repository.do(ctx, http.MethodDelete, "/_pit", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return ErrUnavailable
+	}
+	return nil
 }
 
 func (repository *ElasticsearchRepository) CreateIndex(ctx context.Context, index string) error {

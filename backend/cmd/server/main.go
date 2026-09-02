@@ -131,7 +131,7 @@ func run() error {
 	notificationService := notification.NewService(notifications)
 	notificationHandler := notification.NewHandler(notificationService)
 	searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
-	searchService := searchpkg.NewService(searchRepository, posts)
+	searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
 	searchHandler := searchpkg.NewHandler(searchService)
 
 	router := backendhttp.NewRouter(
