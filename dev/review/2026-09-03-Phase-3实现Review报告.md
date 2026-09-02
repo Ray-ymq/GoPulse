@@ -432,3 +432,8 @@ Open PR and enable auto-merge: success
 - **P3-01 已在本地关闭**：Frontend 保存失败请求的 reset/cursor 语义；临时加载更多失败重试原 cursor 并保留累计结果，失效快照游标明确清空旧结果并从第一页受控重启。
 
 最终关闭条件仍以本批次固定门禁、远程 Branch governance/Backend/Frontend/Scripts and Compose/Integration 以及 PR 合入结果为准；未实际取得的远程结果不得由本附录预先写成成功。
+
+
+### 11.1 远程合入与 PR CI 编排后续
+
+`develop/0.4.4` 的 push 质量门禁全部成功，PR #51 已合入 `main` 为 `3d07f1b831499f4e5bd449b53e6cc0561dad51c8`。PR 触发的独立 CI run 随后出现无 job 的 failure；时间顺序表明自动流程在该 CI 初始化前已经合入 PR 并删除 development 分支。该编排问题由 `update` 上的仓库规则修复处理：自动流程必须等待匹配 head SHA 的 pull-request CI 成功，之后才能启用合并；失败时保留 PR 与分支供继续整改。
