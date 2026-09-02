@@ -17,6 +17,8 @@ const (
 	maximumAttemptHeader = 1000
 )
 
+// Processor implementations must stop promptly when the supplied context is
+// canceled so Runtime can reclaim the in-flight handler before shutdown returns.
 type Processor interface {
 	Process(context.Context, bus.Envelope) error
 }
