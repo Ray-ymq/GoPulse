@@ -29,6 +29,7 @@ const knownErrorCodes = new Set([
   'invalid_credentials',
   'username_conflict',
   'post_not_found',
+  'notification_not_found',
   'internal_error',
 ])
 
@@ -108,6 +109,23 @@ export async function requestPage<T>(path: string, init: RequestInit = {}): Prom
   }
   const page = body as unknown as PageEnvelope<T>
   return { data: page.data, nextCursor: page.meta.next_cursor }
+}
+
+export async function requestValidatedPage<T>(
+  path: string,
+  validateItem: (value: unknown) => value is T,
+  init: RequestInit = {},
+): Promise<Page<T>> {
+  const response = await request(path, init)
+  const body = await parseJSON(response)
+  if (!isRecord(body) || !Array.isArray(body.data) || !body.data.every(validateItem) || !isRecord(body.meta)) {
+    throw new ApiError('invalid_response', '服务器返回了无法识别的分页数据。', response.status)
+  }
+  const cursor = body.meta.next_cursor
+  if (cursor !== null && typeof cursor !== 'string') {
+    throw new ApiError('invalid_response', '服务器返回了无效的分页游标。', response.status)
+  }
+  return { data: body.data, nextCursor: cursor }
 }
 
 export async function requestVoid(path: string, init: RequestInit = {}): Promise<void> {

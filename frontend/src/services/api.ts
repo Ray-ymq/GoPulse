@@ -3,13 +3,50 @@ import type {
   CreateCommentInput,
   CreatePostInput,
   Credentials,
+  Notification,
   Page,
   Post,
   PublicUser,
 } from '../types/api'
-import { requestData, requestPage, requestVoid } from './http'
+import { requestData, requestPage, requestValidatedPage, requestVoid } from './http'
 
 const encodeCursor = (cursor: string) => encodeURIComponent(cursor)
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasExactKeys(record: Record<string, unknown>, keys: string[]): boolean {
+  const actual = Object.keys(record).sort()
+  const expected = [...keys].sort()
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index])
+}
+
+function isPositiveID(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === 'number' && value > 0
+}
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
+}
+
+function isNotification(value: unknown): value is Notification {
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'type', 'created_at', 'read_at', 'actor', 'post_id', 'comment_id'])) return false
+  if (!isRecord(value.actor) || !hasExactKeys(value.actor, ['id', 'username'])) return false
+  const validType = value.type === 'comment.created' || value.type === 'post.liked'
+  const validComment = value.type === 'comment.created'
+    ? isPositiveID(value.comment_id)
+    : value.comment_id === null
+  return isPositiveID(value.id)
+    && validType
+    && isTimestamp(value.created_at)
+    && (value.read_at === null || isTimestamp(value.read_at))
+    && isPositiveID(value.actor.id)
+    && typeof value.actor.username === 'string'
+    && value.actor.username.length > 0
+    && isPositiveID(value.post_id)
+    && validComment
+}
 
 export const authApi = {
   register: (credentials: Credentials) =>
@@ -43,4 +80,14 @@ export const postApi = {
     }),
   like: (postId: number) => requestVoid(`/posts/${postId}/like`, { method: 'PUT' }),
   unlike: (postId: number) => requestVoid(`/posts/${postId}/like`, { method: 'DELETE' }),
+}
+
+export const notificationApi = {
+  list: (cursor?: string, limit = 20): Promise<Page<Notification>> =>
+    requestValidatedPage<Notification>(
+      `/notifications?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`,
+      isNotification,
+    ),
+  markRead: (notificationId: number) =>
+    requestVoid(`/notifications/${notificationId}/read`, { method: 'PATCH' }),
 }
