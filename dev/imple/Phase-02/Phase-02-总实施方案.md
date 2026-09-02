@@ -63,7 +63,7 @@ Phase 2 使用 `0.3.x` 版本线，`0.3.0` 只作为阶段基线，不创建空�
 | Phase-02-03 | `0.3.3` | `develop/0.3.3` | 已完成（`e1e7639`；CI 补充 PR #36，`4020d6b`） |
 | Phase-02-04 | `0.3.4` | `develop/0.3.4` | 已完成（PR #37，`f8eed59`） |
 | Phase-02-05 | `0.3.5` | `develop/0.3.5` | 已完成（PR #39，`efff938`；远程门禁通过） |
-| Phase-02-06 | `0.3.6` | `develop/0.3.6` | 本地完成（Review 整改与固定门禁通过，待 PR） |
+| Phase-02-06 | `0.3.6` | `develop/0.3.6` | 已完成（PR #41，`b6bf874`；收口 PR #45，`6c86d64`；远程门禁通过） |
 
 执行规则：
 
@@ -340,7 +340,7 @@ Phase-02-05 生命周期 + 故障矩阵 + 阶段收口
 
 1. Phase-02-01 至 Phase-02-05 均从对应权威分支完成、合入主远程 `main`，各批验收和必要回归通过。
 2. 第 11.3 节完整故障矩阵在受支持 WSL2/Bash 环境真实执行并通过，不以 mock 或仅队列存在替代端到端通知结果。
-3. PR #39 合入后 `main` 根 `VERSION` 为 `0.3.5`，Frontend npm 元数据一致且质量门禁通过；Review 整改批次按 `0.3.6` 独立验收。
+3. PR #39 合入后 `main` 根 `VERSION` 为 `0.3.5`，Frontend npm 元数据一致且质量门禁通过；Review 整改批次按 `0.3.6` 独立验收，并已通过 PR #41 与收口 PR #45 合入。
 4. 文档、消息契约、拓扑、配置、脚本和真实代码一致；未执行的远程或本地检查不得写成通过。
 5. 没有未关闭的 P0/P1 问题；非阻断改进和接受限制已记录为后续项，而不是无限扩大本阶段。
 6. 阶段产物可以直接支撑 Phase 3：后续帖子搜索索引可复用 Outbox/可靠投递思想，但不得未经设计直接复用通知队列或把 RabbitMQ 与 Elasticsearch 事实混为一体。
@@ -348,6 +348,8 @@ Phase-02-05 生命周期 + 故障矩阵 + 阶段收口
 ### 13.1 当前阶段结论（2026-09-02）
 
 Phase-02-05 已在 `develop/0.3.5` 完成固定门禁和 WSL2/Bash 隔离故障矩阵，并通过 PR #39 于 2026-09-02 合入主远程 `main`；合并提交为 `efff938367b92d377293e27c9a052d1a04a4b8b6`，PR head 上的 Integration、Backend、Frontend、Branch governance、Scripts and Compose 及自动合并任务均成功。因此 Phase 2 里程碑已完成，而不是继续停留在“待合入”状态。随后实现 Review 给出有条件通过并记录 4 项 P2、1 项 P3；Phase-02-06 在 `develop/0.3.6` 关闭这些非阻断项，不回写 Phase-02-05 实施记录在执行当时尚未知的事后事实。
+
+Phase-02-06 已通过 PR #41 于 2026-09-02 合入主远程 `main`，整改合并提交为 `b6bf874ae062c9d6a6693b433a62954de11a7ae0`；随后 PR #45 以 `6c86d6418613d48ef50a24c3d04adc63182d6604` 完成 Review 报告冲突收口。关联的 Branch governance、Backend、Frontend、Scripts and Compose、Integration 与自动合并任务均成功，主远程根 `VERSION` 与 Frontend npm 元数据为 `0.3.6`。因此 Phase 2 里程碑及其实现 Review 整改均已完成，后续阶段应以 `6c86d64` 或其后继 `main` 提交为规划基线。
 
 ## 14. 实施记录规则
 
