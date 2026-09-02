@@ -12,7 +12,7 @@
 
 ## 2. 前置条件
 
-- Phase 2 与 Review 整改已合入配置的主远程 `main`，根版本为 `0.3.6`。
+- Phase 2 已合入配置的主远程 `main`，根版本为 `0.3.6`。
 - 已 fetch 主远程并从最新 `main` 创建 `develop/0.4.1`，未沿用规划分支或已完成开发分支。
 - 在 WSL2 Linux filesystem 中实施，使用一个明确的 Docker daemon 和 Bash 入口。
 - 开始前记录 Git 状态、日常 Compose project、volume 和 `.run` 进程状态，不覆盖用户改动。
@@ -170,7 +170,7 @@ git diff --check
 
 ## 10. 明确完成条件
 
-只有 Elasticsearch 基础设施、MySQL 重建、认证 Search API、Frontend 页面和索引删除恢复形成真实端到端闭环，固定门禁通过且无 P0/P1，才可标记本批完成。新帖子自动索引尚未交付，不得据此宣告 Phase 3 完成。
+只有 Elasticsearch 基础设施、MySQL 重建、认证 Search API、Frontend 页面和索引删除恢复形成真实端到端闭环，固定门禁通过且无阻断验收的失败，才可标记本批完成。新帖子自动索引尚未交付，不得据此宣告 Phase 3 完成。
 
 ## 11. 下一批交接
 
