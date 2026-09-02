@@ -33,6 +33,35 @@ var (
 	ErrInvalidArgument = errors.New("outbox argument is invalid")
 )
 
+// PublishError carries a bounded failure category across the publisher and
+// dispatcher boundary. Its Error method intentionally omits the underlying
+// cause so AMQP connection details and credentials cannot reach logs.
+type PublishError struct {
+	Code  FailureCode
+	cause error
+}
+
+func NewPublishError(code FailureCode, cause error) error {
+	if !validFailureCode(code) || code == FailureInternal {
+		code = FailureInternal
+	}
+	return &PublishError{Code: code, cause: cause}
+}
+
+func (err *PublishError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return string(err.Code)
+}
+
+func (err *PublishError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
 type Record struct {
 	ID             uint64
 	EventID        string
