@@ -5,6 +5,7 @@ package notification
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -37,8 +38,9 @@ func TestIntegrationRepositoryCreatesBothNotificationShapesAndAbsorbsConcurrentD
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	commentEvent, _ := bus.NewCommentCreated(time.Now().UTC(), actorID, recipientID, postID, commentID)
-	likeEvent, _ := bus.NewPostLiked(time.Now().UTC(), actorID, recipientID, postID)
+	baseTime := time.Now().UTC().Truncate(time.Microsecond).Add(-time.Minute)
+	commentEvent, _ := bus.NewCommentCreated(baseTime, actorID, recipientID, postID, commentID)
+	likeEvent, _ := bus.NewPostLiked(baseTime.Add(time.Second), actorID, recipientID, postID)
 
 	const duplicates = 2
 	start := make(chan struct{})
@@ -77,6 +79,41 @@ func TestIntegrationRepositoryCreatesBothNotificationShapesAndAbsorbsConcurrentD
 	likeRecord, err := repository.FindBySourceEventID(ctx, likeEvent.EventID)
 	if err != nil || likeRecord.CommentID != nil {
 		t.Fatalf("like notification=%#v error=%v", likeRecord, err)
+	}
+
+	firstPage, err := NewService(repository).List(ctx, recipientID, ListOptions{Limit: 1})
+	if err != nil || len(firstPage.Notifications) != 1 || firstPage.NextCursor == nil || firstPage.Notifications[0].ID != likeRecord.ID {
+		t.Fatalf("first recipient page=%#v error=%v", firstPage, err)
+	}
+	cursor, err := DecodeCursor(*firstPage.NextCursor)
+	if err != nil {
+		t.Fatalf("DecodeCursor() error=%v", err)
+	}
+	secondPage, err := NewService(repository).List(ctx, recipientID, ListOptions{Limit: 1, Cursor: &cursor})
+	if err != nil || len(secondPage.Notifications) != 1 || secondPage.Notifications[0].ID != commentRecord.ID {
+		t.Fatalf("second recipient page=%#v error=%v", secondPage, err)
+	}
+	otherUserRecords, err := repository.ListByRecipient(ctx, actorID, ListOptions{Limit: 20})
+	if err != nil || len(otherUserRecords) != 0 {
+		t.Fatalf("other recipient records=%#v error=%v", otherUserRecords, err)
+	}
+	if err := repository.MarkRead(ctx, actorID, likeRecord.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("MarkRead(other recipient) error=%v", err)
+	}
+	if err := repository.MarkRead(ctx, recipientID, likeRecord.ID); err != nil {
+		t.Fatalf("MarkRead() error=%v", err)
+	}
+	readRecord, err := repository.FindBySourceEventID(ctx, likeEvent.EventID)
+	if err != nil || readRecord.ReadAt == nil {
+		t.Fatalf("read notification=%#v error=%v", readRecord, err)
+	}
+	originalReadAt := *readRecord.ReadAt
+	if err := repository.MarkRead(ctx, recipientID, likeRecord.ID); err != nil {
+		t.Fatalf("repeated MarkRead() error=%v", err)
+	}
+	repeatedRecord, err := repository.FindBySourceEventID(ctx, likeEvent.EventID)
+	if err != nil || repeatedRecord.ReadAt == nil || !repeatedRecord.ReadAt.Equal(originalReadAt) {
+		t.Fatalf("repeated read notification=%#v error=%v", repeatedRecord, err)
 	}
 }
 
