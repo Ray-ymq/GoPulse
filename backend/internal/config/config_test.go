@@ -31,8 +31,9 @@ func TestLoadFromDefaults(t *testing.T) {
 		t.Fatalf("Redis durations = %#v, want defaults", cfg.Redis)
 	}
 	if cfg.Outbox.PollInterval != time.Second || cfg.Outbox.ClaimBatch != 10 ||
-		cfg.Outbox.LeaseDuration != 30*time.Second || cfg.Outbox.PublishTimeout != 5*time.Second ||
-		cfg.Outbox.RetryDelay != 30*time.Second {
+		cfg.Outbox.LeaseDuration != time.Minute || cfg.Outbox.PublishTimeout != 5*time.Second ||
+		cfg.Outbox.RetryDelay != 30*time.Second || cfg.Outbox.CleanupInterval != time.Hour ||
+		cfg.Outbox.Retention != 7*24*time.Hour || cfg.Outbox.CleanupBatch != 500 {
 		t.Fatalf("Outbox config = %#v, want defaults", cfg.Outbox)
 	}
 }
@@ -54,9 +55,12 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["REDIS_OPERATION_TIMEOUT"] = "350ms"
 	env["OUTBOX_POLL_INTERVAL"] = "250ms"
 	env["OUTBOX_CLAIM_BATCH"] = "25"
-	env["OUTBOX_LEASE_DURATION"] = "45s"
+	env["OUTBOX_LEASE_DURATION"] = "2m"
 	env["OUTBOX_PUBLISH_TIMEOUT"] = "4s"
 	env["OUTBOX_RETRY_DELAY"] = "2m"
+	env["OUTBOX_CLEANUP_INTERVAL"] = "30m"
+	env["OUTBOX_PUBLISHED_RETENTION"] = "720h"
+	env["OUTBOX_CLEANUP_BATCH"] = "750"
 
 	cfg, err := LoadFrom(mapLookup(env))
 	if err != nil {
@@ -79,8 +83,9 @@ func TestLoadFromOverrides(t *testing.T) {
 		t.Fatalf("unexpected Redis duration config: %#v", cfg.Redis)
 	}
 	if cfg.Outbox.PollInterval != 250*time.Millisecond || cfg.Outbox.ClaimBatch != 25 ||
-		cfg.Outbox.LeaseDuration != 45*time.Second || cfg.Outbox.PublishTimeout != 4*time.Second ||
-		cfg.Outbox.RetryDelay != 2*time.Minute {
+		cfg.Outbox.LeaseDuration != 2*time.Minute || cfg.Outbox.PublishTimeout != 4*time.Second ||
+		cfg.Outbox.RetryDelay != 2*time.Minute || cfg.Outbox.CleanupInterval != 30*time.Minute ||
+		cfg.Outbox.Retention != 720*time.Hour || cfg.Outbox.CleanupBatch != 750 {
 		t.Fatalf("unexpected Outbox config: %#v", cfg.Outbox)
 	}
 }
@@ -238,6 +243,12 @@ func TestLoadFromRejectsInvalidOutboxConfiguration(t *testing.T) {
 		{key: "OUTBOX_PUBLISH_TIMEOUT", value: "31s"},
 		{key: "OUTBOX_RETRY_DELAY", value: "500ms"},
 		{key: "OUTBOX_RETRY_DELAY", value: "25h"},
+		{key: "OUTBOX_CLEANUP_INTERVAL", value: "30s"},
+		{key: "OUTBOX_CLEANUP_INTERVAL", value: "25h"},
+		{key: "OUTBOX_PUBLISHED_RETENTION", value: "30m"},
+		{key: "OUTBOX_PUBLISHED_RETENTION", value: "8761h"},
+		{key: "OUTBOX_CLEANUP_BATCH", value: "0"},
+		{key: "OUTBOX_CLEANUP_BATCH", value: "1001"},
 	}
 	for _, test := range tests {
 		t.Run(test.key+"_"+test.value, func(t *testing.T) {
@@ -251,13 +262,14 @@ func TestLoadFromRejectsInvalidOutboxConfiguration(t *testing.T) {
 	}
 }
 
-func TestLoadFromRejectsOutboxPublishTimeoutThatCanOutliveLease(t *testing.T) {
+func TestLoadFromRejectsOutboxLeaseThatCannotCoverClaimBatch(t *testing.T) {
 	env := requiredEnvironment()
-	env["OUTBOX_LEASE_DURATION"] = "5s"
+	env["OUTBOX_CLAIM_BATCH"] = "10"
+	env["OUTBOX_LEASE_DURATION"] = "30s"
 	env["OUTBOX_PUBLISH_TIMEOUT"] = "5s"
 	_, err := LoadFrom(mapLookup(env))
-	if err == nil || !strings.Contains(err.Error(), "OUTBOX_PUBLISH_TIMEOUT") {
-		t.Fatalf("LoadFrom() error = %v, want publish/lease relationship error", err)
+	if err == nil || !strings.Contains(err.Error(), "OUTBOX_LEASE_DURATION") || !strings.Contains(err.Error(), "OUTBOX_CLAIM_BATCH") {
+		t.Fatalf("LoadFrom() error = %v, want claim batch lease budget error", err)
 	}
 }
 

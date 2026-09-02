@@ -43,13 +43,20 @@ type blockingProcessor struct {
 	delegate Processor
 	started  chan struct{}
 	release  chan struct{}
+	stopped  chan struct{}
 	once     sync.Once
+	stopOnce sync.Once
 }
 
 func (processor *blockingProcessor) Process(ctx context.Context, envelope bus.Envelope) error {
 	processor.once.Do(func() { close(processor.started) })
-	<-processor.release
-	return processor.delegate.Process(ctx, envelope)
+	defer processor.stopOnce.Do(func() { close(processor.stopped) })
+	select {
+	case <-processor.release:
+		return processor.delegate.Process(ctx, envelope)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func TestIntegrationBusinessWorkerEndToEndRetryDeadAndShutdownRedelivery(t *testing.T) {
@@ -88,7 +95,7 @@ func TestIntegrationBusinessWorkerEndToEndRetryDeadAndShutdownRedelivery(t *test
 	waitRuntime(t, done)
 	recoveryCommentID := workerInsertComment(t, ctx, database, postID, actorID)
 	recoveryEvent, _ := bus.NewCommentCreated(time.Now().UTC().Truncate(time.Second), actorID, recipientID, postID, recoveryCommentID)
-	blocked := &blockingProcessor{delegate: processor, started: make(chan struct{}), release: make(chan struct{})}
+	blocked := &blockingProcessor{delegate: processor, started: make(chan struct{}), release: make(chan struct{}), stopped: make(chan struct{})}
 	runtime = newIntegrationRuntime(t, cfg.RabbitMQURL, blocked, 2)
 	stop, done = startRuntime(runtime)
 	publishEnvelope(t, cfg.RabbitMQURL, recoveryEvent)
@@ -99,10 +106,14 @@ func TestIntegrationBusinessWorkerEndToEndRetryDeadAndShutdownRedelivery(t *test
 	}
 	stop()
 	waitRuntime(t, done)
+	select {
+	case <-blocked.stopped:
+	default:
+		t.Fatal("runtime returned before the canceled processor stopped")
+	}
 	assertEventNotificationCount(t, ctx, database, recoveryEvent.EventID, 0)
 	runtime = newIntegrationRuntime(t, cfg.RabbitMQURL, processor, 2)
 	stop, done = startRuntime(runtime)
-	close(blocked.release)
 	waitEventNotification(t, ctx, database, recoveryEvent.EventID)
 	stop()
 	waitRuntime(t, done)
