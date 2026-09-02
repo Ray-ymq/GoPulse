@@ -30,6 +30,7 @@ const knownErrorCodes = new Set([
   'username_conflict',
   'post_not_found',
   'notification_not_found',
+  'search_unavailable',
   'internal_error',
 ])
 

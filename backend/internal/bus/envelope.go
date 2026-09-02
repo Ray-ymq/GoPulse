@@ -19,6 +19,7 @@ const (
 
 	CommentCreatedRoutingKey = "comment.created.v1"
 	PostLikedRoutingKey      = "post.liked.v1"
+	PostCreatedRoutingKey    = "post.created.v1"
 )
 
 type EventType string
@@ -26,6 +27,7 @@ type EventType string
 const (
 	CommentCreated EventType = "comment.created"
 	PostLiked      EventType = "post.liked"
+	PostCreated    EventType = "post.created"
 )
 
 type Envelope struct {
@@ -34,7 +36,7 @@ type Envelope struct {
 	EventType     EventType `json:"event_type"`
 	OccurredAt    time.Time `json:"occurred_at"`
 	ActorID       uint64    `json:"actor_id"`
-	RecipientID   uint64    `json:"recipient_id"`
+	RecipientID   uint64    `json:"recipient_id,omitempty"`
 	PostID        uint64    `json:"post_id"`
 	CommentID     *uint64   `json:"comment_id,omitempty"`
 }
@@ -52,6 +54,10 @@ func NewCommentCreated(occurredAt time.Time, actorID, recipientID, postID, comme
 
 func NewPostLiked(occurredAt time.Time, actorID, recipientID, postID uint64) (Envelope, error) {
 	return newEnvelope(PostLiked, occurredAt, actorID, recipientID, postID, nil)
+}
+
+func NewPostCreated(occurredAt time.Time, actorID, postID uint64) (Envelope, error) {
+	return newEnvelope(PostCreated, occurredAt, actorID, 0, postID, nil)
 }
 
 func newEnvelope(eventType EventType, occurredAt time.Time, actorID, recipientID, postID uint64, commentID *uint64) (Envelope, error) {
@@ -89,18 +95,28 @@ func (envelope Envelope) Validate() error {
 	if offset != 0 {
 		return errors.New("business event occurrence time must be UTC")
 	}
-	if envelope.ActorID == 0 || envelope.RecipientID == 0 || envelope.PostID == 0 {
-		return errors.New("business event actor, recipient, and post IDs must be positive")
+	if envelope.ActorID == 0 || envelope.PostID == 0 {
+		return errors.New("business event actor and post IDs must be positive")
 	}
 
 	switch envelope.EventType {
 	case CommentCreated:
+		if envelope.RecipientID == 0 {
+			return errors.New("comment.created event requires a positive recipient ID")
+		}
 		if envelope.CommentID == nil || *envelope.CommentID == 0 {
 			return errors.New("comment.created event requires a positive comment ID")
 		}
 	case PostLiked:
+		if envelope.RecipientID == 0 {
+			return errors.New("post.liked event requires a positive recipient ID")
+		}
 		if envelope.CommentID != nil {
 			return errors.New("post.liked event must not include a comment ID")
+		}
+	case PostCreated:
+		if envelope.RecipientID != 0 || envelope.CommentID != nil {
+			return errors.New("post.created event must not include recipient or comment IDs")
 		}
 	default:
 		return errors.New("business event type is unsupported")
@@ -117,6 +133,8 @@ func (envelope Envelope) RoutingKey() (string, error) {
 		return CommentCreatedRoutingKey, nil
 	case PostLiked:
 		return PostLikedRoutingKey, nil
+	case PostCreated:
+		return PostCreatedRoutingKey, nil
 	default:
 		return "", errors.New("business event type is unsupported")
 	}

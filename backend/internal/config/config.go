@@ -20,6 +20,9 @@ const (
 	defaultRedisHost             = "127.0.0.1"
 	defaultRedisPort             = 6379
 	defaultRedisDB               = 0
+	defaultElasticsearchURL      = "http://127.0.0.1:9200"
+	defaultElasticsearchTimeout  = 3 * time.Second
+	defaultSearchReindexBatch    = 500
 	defaultAuthJWTTTL            = 2 * time.Hour
 	defaultAuthCookieName        = "gopulse_session"
 	defaultRedisPostDetailTTL    = 5 * time.Minute
@@ -56,6 +59,10 @@ const (
 	maximumOutboxRetention       = 365 * 24 * time.Hour
 	minimumOutboxCleanupBatch    = 1
 	maximumOutboxCleanupBatch    = 1000
+	minimumElasticsearchTimeout  = 100 * time.Millisecond
+	maximumElasticsearchTimeout  = 30 * time.Second
+	minimumSearchReindexBatch    = 1
+	maximumSearchReindexBatch    = 5000
 )
 
 // LookupFunc makes configuration loading deterministic in tests without
@@ -63,14 +70,15 @@ const (
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
-	AppEnv      string
-	HTTPHost    string
-	HTTPPort    int
-	MySQL       MySQLConfig
-	Redis       RedisConfig
-	RabbitMQURL string
-	Outbox      OutboxConfig
-	Auth        AuthConfig
+	AppEnv        string
+	HTTPHost      string
+	HTTPPort      int
+	MySQL         MySQLConfig
+	Redis         RedisConfig
+	RabbitMQURL   string
+	Outbox        OutboxConfig
+	Auth          AuthConfig
+	Elasticsearch ElasticsearchConfig
 }
 
 type MySQLConfig struct {
@@ -91,14 +99,26 @@ type RedisConfig struct {
 }
 
 type OutboxConfig struct {
-	PollInterval    time.Duration
-	ClaimBatch      int
-	LeaseDuration   time.Duration
-	PublishTimeout  time.Duration
-	RetryDelay      time.Duration
-	CleanupInterval time.Duration
-	Retention       time.Duration
-	CleanupBatch    int
+	PollInterval     time.Duration
+	ClaimBatch       int
+	LeaseDuration    time.Duration
+	PublishTimeout   time.Duration
+	RetryDelay       time.Duration
+	SearchRetryDelay time.Duration
+	CleanupInterval  time.Duration
+	Retention        time.Duration
+	CleanupBatch     int
+}
+
+type ElasticsearchConfig struct {
+	URL            string
+	RequestTimeout time.Duration
+	ReindexBatch   int
+}
+
+type ReindexConfig struct {
+	MySQL         MySQLConfig
+	Elasticsearch ElasticsearchConfig
 }
 
 type AuthConfig struct {
@@ -143,6 +163,11 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 	if err := validatePort("REDIS_PORT", redisPort); err != nil {
+		return Config{}, err
+	}
+
+	elasticsearch, err := loadElasticsearchConfig(lookup)
+	if err != nil {
 		return Config{}, err
 	}
 
@@ -237,6 +262,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	searchRetryDelay, err := durationValue(lookup, "SEARCH_INDEXER_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
+	if err != nil {
+		return Config{}, err
+	}
 	outboxCleanupInterval, err := durationValue(lookup, "OUTBOX_CLEANUP_INTERVAL", defaultOutboxCleanupInterval, minimumOutboxCleanupInterval, maximumOutboxCleanupInterval)
 	if err != nil {
 		return Config{}, err
@@ -274,15 +303,17 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		},
 		RabbitMQURL: rabbitMQURL,
 		Outbox: OutboxConfig{
-			PollInterval:    outboxPollInterval,
-			ClaimBatch:      outboxClaimBatch,
-			LeaseDuration:   outboxLeaseDuration,
-			PublishTimeout:  outboxPublishTimeout,
-			RetryDelay:      outboxRetryDelay,
-			CleanupInterval: outboxCleanupInterval,
-			Retention:       outboxRetention,
-			CleanupBatch:    outboxCleanupBatch,
+			PollInterval:     outboxPollInterval,
+			ClaimBatch:       outboxClaimBatch,
+			LeaseDuration:    outboxLeaseDuration,
+			PublishTimeout:   outboxPublishTimeout,
+			RetryDelay:       outboxRetryDelay,
+			SearchRetryDelay: searchRetryDelay,
+			CleanupInterval:  outboxCleanupInterval,
+			Retention:        outboxRetention,
+			CleanupBatch:     outboxCleanupBatch,
 		},
+		Elasticsearch: elasticsearch,
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
@@ -397,4 +428,69 @@ func isCookieName(name string) bool {
 		}
 	}
 	return true
+}
+
+// LoadReindex loads only the MySQL and Elasticsearch settings required by the
+// role-isolated search rebuild command.
+func LoadReindex() (ReindexConfig, error) {
+	return LoadReindexFrom(os.LookupEnv)
+}
+
+func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
+	if lookup == nil {
+		return ReindexConfig{}, errors.New("configuration lookup is required")
+	}
+	mysqlPort, err := integerValue(lookup, "MYSQL_PORT", defaultMySQLPort)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
+	if err := validatePort("MYSQL_PORT", mysqlPort); err != nil {
+		return ReindexConfig{}, err
+	}
+	database, err := requiredValue(lookup, "MYSQL_DATABASE")
+	if err != nil {
+		return ReindexConfig{}, err
+	}
+	user, err := requiredValue(lookup, "MYSQL_USER")
+	if err != nil {
+		return ReindexConfig{}, err
+	}
+	password, err := requiredValue(lookup, "MYSQL_PASSWORD")
+	if err != nil {
+		return ReindexConfig{}, err
+	}
+	elasticsearch, err := loadElasticsearchConfig(lookup)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
+	return ReindexConfig{
+		MySQL: MySQLConfig{
+			Host: valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost), Port: mysqlPort,
+			Database: database, User: user, Password: password,
+		},
+		Elasticsearch: elasticsearch,
+	}, nil
+}
+
+func loadElasticsearchConfig(lookup LookupFunc) (ElasticsearchConfig, error) {
+	rawURL := valueOrDefault(lookup, "ELASTICSEARCH_URL", defaultElasticsearchURL)
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+		return ElasticsearchConfig{}, errors.New("ELASTICSEARCH_URL must be an HTTP(S) URL without userinfo")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return ElasticsearchConfig{}, errors.New("ELASTICSEARCH_URL must not include a query or fragment")
+	}
+	timeout, err := durationValue(lookup, "ELASTICSEARCH_REQUEST_TIMEOUT", defaultElasticsearchTimeout, minimumElasticsearchTimeout, maximumElasticsearchTimeout)
+	if err != nil {
+		return ElasticsearchConfig{}, err
+	}
+	batch, err := integerValue(lookup, "SEARCH_REINDEX_BATCH", defaultSearchReindexBatch)
+	if err != nil {
+		return ElasticsearchConfig{}, err
+	}
+	if batch < minimumSearchReindexBatch || batch > maximumSearchReindexBatch {
+		return ElasticsearchConfig{}, fmt.Errorf("SEARCH_REINDEX_BATCH must be between %d and %d", minimumSearchReindexBatch, maximumSearchReindexBatch)
+	}
+	return ElasticsearchConfig{URL: strings.TrimRight(rawURL, "/"), RequestTimeout: timeout, ReindexBatch: batch}, nil
 }

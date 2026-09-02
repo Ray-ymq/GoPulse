@@ -13,6 +13,7 @@ TEMP_DIR=
 ACCEPTANCE_ENV=
 BACKEND_PID=
 WORKER_PID=
+SEARCH_INDEXER_PID=
 FRONTEND_PID=
 RESOURCES_STARTED=0
 CLEANUP_DONE=0
@@ -23,6 +24,7 @@ MYSQL_PORT=
 REDIS_PORT=
 RABBITMQ_PORT=
 RABBITMQ_MANAGEMENT_PORT=
+ELASTICSEARCH_PORT=
 HTTP_PORT=
 FRONTEND_PORT=
 MYSQL_USER=
@@ -37,6 +39,7 @@ COOKIE_JAR=
 RESPONSE_FILE=
 HTTP_STATUS=
 MYSQL_CONTAINER_ID=
+ELASTICSEARCH_CONTAINER_ID=
 RABBITMQ_CONTAINER_ID=
 
 info() { printf '[gopulse-acceptance] %s\n' "$*"; }
@@ -48,20 +51,20 @@ valid_database() { [[ $1 =~ ^gopulse_acceptance_[a-f0-9]{12}$ ]]; }
 valid_port() { [[ $1 =~ ^[0-9]+$ ]] && ((10#$1 >= 1024 && 10#$1 <= 65535)); }
 
 validate_target() {
-  local token=$1 project=$2 database=$3 host=$4 mysql_port=$5 redis_port=$6 rabbit_port=$7 rabbit_management_port=$8 http_port=$9 frontend_port=${10}
+  local token=$1 project=$2 database=$3 host=$4 mysql_port=$5 redis_port=$6 rabbit_port=$7 rabbit_management_port=$8 elasticsearch_port=$9 http_port=${10} frontend_port=${11}
   valid_token "$token" || { fail 'acceptance token must contain exactly 12 lowercase hexadecimal characters'; return 1; }
   [[ $project == "gopulse-acceptance-$token" ]] && valid_project "$project" || { fail 'Compose project is outside the acceptance whitelist'; return 1; }
   [[ $database == "gopulse_acceptance_$token" ]] && valid_database "$database" || { fail 'database is outside the acceptance whitelist'; return 1; }
   [[ $host == 127.0.0.1 ]] || { fail 'all published acceptance addresses must be 127.0.0.1'; return 1; }
   local port
-  for port in "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$http_port" "$frontend_port"; do
+  for port in "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$elasticsearch_port" "$http_port" "$frontend_port"; do
     valid_port "$port" || { fail "invalid acceptance port: $port"; return 1; }
   done
-  [[ $mysql_port != 3306 && $redis_port != 6379 && $rabbit_port != 5672 && $rabbit_management_port != 15672 && $http_port != 8080 && $frontend_port != 5173 ]] || {
+  [[ $mysql_port != 3306 && $redis_port != 6379 && $rabbit_port != 5672 && $rabbit_management_port != 15672 && $elasticsearch_port != 9200 && $http_port != 8080 && $frontend_port != 5173 ]] || {
     fail 'acceptance must not use a default development port'
     return 1
   }
-  [[ $(printf '%s\n' "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$http_port" "$frontend_port" | sort -u | wc -l) == 6 ]] || {
+  [[ $(printf '%s\n' "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$elasticsearch_port" "$http_port" "$frontend_port" | sort -u | wc -l) == 7 ]] || {
     fail 'acceptance ports must be unique'
     return 1
   }
@@ -69,15 +72,15 @@ validate_target() {
 
 self_test() {
   local token=012345abcdef project=gopulse-acceptance-012345abcdef database=gopulse_acceptance_012345abcdef
-  validate_target "$token" "$project" "$database" 127.0.0.1 43306 46379 45672 45673 48080 45173 >/dev/null
+  validate_target "$token" "$project" "$database" 127.0.0.1 43306 46379 45672 45673 49200 48080 45173 >/dev/null
   local rejected=0
   for command in \
-    "validate_target '' '$project' '$database' 127.0.0.1 43306 46379 45672 45673 48080 45173" \
-    "validate_target '$token' gopulse '$database' 127.0.0.1 43306 46379 45672 45673 48080 45173" \
-    "validate_target '$token' '$project' gopulse 127.0.0.1 43306 46379 45672 45673 48080 45173" \
-    "validate_target '$token' '$project' '$database' 0.0.0.0 43306 46379 45672 45673 48080 45173" \
-    "validate_target '$token' '$project' '$database' 127.0.0.1 3306 46379 45672 45673 48080 45173" \
-    "validate_target '$token' '$project' '$database' 127.0.0.1 43306 43306 45672 45673 48080 45173"; do
+    "validate_target '' '$project' '$database' 127.0.0.1 43306 46379 45672 45673 49200 48080 45173" \
+    "validate_target '$token' gopulse '$database' 127.0.0.1 43306 46379 45672 45673 49200 48080 45173" \
+    "validate_target '$token' '$project' gopulse 127.0.0.1 43306 46379 45672 45673 49200 48080 45173" \
+    "validate_target '$token' '$project' '$database' 0.0.0.0 43306 46379 45672 45673 49200 48080 45173" \
+    "validate_target '$token' '$project' '$database' 127.0.0.1 3306 46379 45672 45673 49200 48080 45173" \
+    "validate_target '$token' '$project' '$database' 127.0.0.1 43306 43306 45672 45673 49200 48080 45173"; do
     if eval "$command" >/dev/null 2>&1; then
       fail "unsafe target unexpectedly passed: $command"
       return 1
@@ -104,7 +107,7 @@ generate_ports() {
 import socket
 sockets=[]
 ports=[]
-for _ in range(6):
+for _ in range(7):
     sock=socket.socket()
     sock.bind(('127.0.0.1', 0))
     sockets.append(sock)
@@ -114,8 +117,8 @@ for sock in sockets:
     sock.close()
 PY
 )
-    read -r MYSQL_PORT REDIS_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT HTTP_PORT FRONTEND_PORT <<<"$values"
-    if validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$HTTP_PORT" "$FRONTEND_PORT" >/dev/null 2>&1; then
+    read -r MYSQL_PORT REDIS_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT HTTP_PORT FRONTEND_PORT <<<"$values"
+    if validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$ELASTICSEARCH_PORT" "$HTTP_PORT" "$FRONTEND_PORT" >/dev/null 2>&1; then
       return
     fi
   done
@@ -247,6 +250,10 @@ RABBITMQ_USER=$RABBITMQ_USER
 RABBITMQ_PASSWORD=$RABBITMQ_PASSWORD
 RABBITMQ_PORT=$RABBITMQ_PORT
 RABBITMQ_MANAGEMENT_PORT=$RABBITMQ_MANAGEMENT_PORT
+ELASTICSEARCH_PORT=$ELASTICSEARCH_PORT
+ELASTICSEARCH_URL=http://$PUBLISHED_HOST:$ELASTICSEARCH_PORT
+ELASTICSEARCH_REQUEST_TIMEOUT=3s
+SEARCH_REINDEX_BATCH=2
 RABBITMQ_URL=amqp://$RABBITMQ_USER:$RABBITMQ_PASSWORD@$PUBLISHED_HOST:$RABBITMQ_PORT/
 AUTH_JWT_SECRET=$JWT_SECRET
 AUTH_JWT_TTL=2h
@@ -268,6 +275,13 @@ BUSINESS_WORKER_PUBLISH_TIMEOUT=2s
 BUSINESS_WORKER_SHUTDOWN_TIMEOUT=5s
 BUSINESS_WORKER_RECONNECT_MIN=200ms
 BUSINESS_WORKER_RECONNECT_MAX=2s
+SEARCH_INDEXER_PREFETCH=1
+SEARCH_INDEXER_MAX_RETRIES=20
+SEARCH_INDEXER_RETRY_DELAY=2s
+SEARCH_INDEXER_PUBLISH_TIMEOUT=2s
+SEARCH_INDEXER_SHUTDOWN_TIMEOUT=5s
+SEARCH_INDEXER_RECONNECT_MIN=200ms
+SEARCH_INDEXER_RECONNECT_MAX=2s
 ENV
 }
 
@@ -277,13 +291,18 @@ backend_environment() {
     MYSQL_HOST="$PUBLISHED_HOST" MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE="$DATABASE_NAME" MYSQL_USER="$MYSQL_USER" MYSQL_PASSWORD="$MYSQL_PASSWORD" \
     REDIS_HOST="$PUBLISHED_HOST" REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB="$REDIS_DB" \
     RABBITMQ_URL="amqp://$RABBITMQ_USER:$RABBITMQ_PASSWORD@$PUBLISHED_HOST:$RABBITMQ_PORT/" \
+    ELASTICSEARCH_URL="http://$PUBLISHED_HOST:$ELASTICSEARCH_PORT" ELASTICSEARCH_REQUEST_TIMEOUT=3s SEARCH_REINDEX_BATCH=2 \
     AUTH_JWT_SECRET="$JWT_SECRET" AUTH_JWT_TTL=2h AUTH_COOKIE_NAME="$COOKIE_NAME" AUTH_COOKIE_SECURE=false \
     REDIS_POST_DETAIL_TTL=5m REDIS_OPERATION_TIMEOUT=200ms \
-    OUTBOX_POLL_INTERVAL=200ms OUTBOX_CLAIM_BATCH=1 OUTBOX_LEASE_DURATION=3s OUTBOX_PUBLISH_TIMEOUT=2s OUTBOX_RETRY_DELAY=10s \
+    OUTBOX_POLL_INTERVAL=200ms OUTBOX_CLAIM_BATCH=1 OUTBOX_LEASE_DURATION=3s OUTBOX_PUBLISH_TIMEOUT=2s OUTBOX_RETRY_DELAY=10s SEARCH_INDEXER_RETRY_DELAY=2s \
     OUTBOX_CLEANUP_INTERVAL=1h OUTBOX_PUBLISHED_RETENTION=168h OUTBOX_CLEANUP_BATCH=100 \
     BUSINESS_WORKER_PREFETCH=1 BUSINESS_WORKER_MAX_RETRIES=2 BUSINESS_WORKER_PUBLISH_TIMEOUT=2s \
     BUSINESS_WORKER_SHUTDOWN_TIMEOUT=5s BUSINESS_WORKER_RECONNECT_MIN=200ms BUSINESS_WORKER_RECONNECT_MAX=2s \
     "$@"
+}
+
+run_search_reindex() {
+  backend_environment "$TEMP_DIR/gopulse-search-reindex" "$@"
 }
 
 start_backend() {
@@ -293,9 +312,10 @@ start_backend() {
     MYSQL_HOST="$PUBLISHED_HOST" MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE="$DATABASE_NAME" MYSQL_USER="$MYSQL_USER" MYSQL_PASSWORD="$MYSQL_PASSWORD" \
     REDIS_HOST="$PUBLISHED_HOST" REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB="$REDIS_DB" \
     RABBITMQ_URL="amqp://$RABBITMQ_USER:$RABBITMQ_PASSWORD@$PUBLISHED_HOST:$RABBITMQ_PORT/" \
+    ELASTICSEARCH_URL="http://$PUBLISHED_HOST:$ELASTICSEARCH_PORT" ELASTICSEARCH_REQUEST_TIMEOUT=3s SEARCH_REINDEX_BATCH=2 \
     AUTH_JWT_SECRET="$JWT_SECRET" AUTH_JWT_TTL=2h AUTH_COOKIE_NAME="$COOKIE_NAME" AUTH_COOKIE_SECURE=false \
     REDIS_POST_DETAIL_TTL=5m REDIS_OPERATION_TIMEOUT=200ms \
-    OUTBOX_POLL_INTERVAL=200ms OUTBOX_CLAIM_BATCH=1 OUTBOX_LEASE_DURATION=3s OUTBOX_PUBLISH_TIMEOUT=2s OUTBOX_RETRY_DELAY=10s \
+    OUTBOX_POLL_INTERVAL=200ms OUTBOX_CLAIM_BATCH=1 OUTBOX_LEASE_DURATION=3s OUTBOX_PUBLISH_TIMEOUT=2s OUTBOX_RETRY_DELAY=10s SEARCH_INDEXER_RETRY_DELAY=2s \
     OUTBOX_CLEANUP_INTERVAL=1h OUTBOX_PUBLISHED_RETENTION=168h OUTBOX_CLEANUP_BATCH=100 \
     "$TEMP_DIR/gopulse-backend" >>"$TEMP_DIR/backend.log" 2>&1 &
   BACKEND_PID=$!
@@ -318,12 +338,31 @@ start_worker() {
   fi
 }
 
+start_search_indexer() {
+  [[ -z ${SEARCH_INDEXER_PID:-} ]] || fail 'Search Indexer is already recorded as running'
+  setsid bash -c 'cd "$1"; shift; exec env "$@"' _ "$BACKEND_DIR" \
+    MYSQL_HOST="$PUBLISHED_HOST" MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE="$DATABASE_NAME" MYSQL_USER="$MYSQL_USER" MYSQL_PASSWORD="$MYSQL_PASSWORD" \
+    RABBITMQ_URL="amqp://$RABBITMQ_USER:$RABBITMQ_PASSWORD@$PUBLISHED_HOST:$RABBITMQ_PORT/" \
+    ELASTICSEARCH_URL="http://$PUBLISHED_HOST:$ELASTICSEARCH_PORT" ELASTICSEARCH_REQUEST_TIMEOUT=2s \
+    SEARCH_INDEXER_PREFETCH=1 SEARCH_INDEXER_MAX_RETRIES=20 SEARCH_INDEXER_RETRY_DELAY=2s SEARCH_INDEXER_PUBLISH_TIMEOUT=2s \
+    SEARCH_INDEXER_SHUTDOWN_TIMEOUT=5s SEARCH_INDEXER_RECONNECT_MIN=200ms SEARCH_INDEXER_RECONNECT_MAX=2s \
+    "$TEMP_DIR/gopulse-search-indexer" >>"$TEMP_DIR/search-indexer.log" 2>&1 &
+  SEARCH_INDEXER_PID=$!
+  sleep 0.5
+  if ! kill -0 "$SEARCH_INDEXER_PID" 2>/dev/null; then
+    cat "$TEMP_DIR/search-indexer.log" >&2 || true
+    fail 'Search Indexer exited during startup'
+  fi
+}
+
 validate_process_ownership() {
   local pid=$1 cwd executable marker
   if [[ $pid == "${BACKEND_PID:-}" ]]; then
     cwd=$BACKEND_DIR; executable="$TEMP_DIR/gopulse-backend"; marker="$TEMP_DIR/gopulse-backend"
   elif [[ $pid == "${WORKER_PID:-}" ]]; then
     cwd=$BACKEND_DIR; executable="$TEMP_DIR/gopulse-business-worker"; marker="$TEMP_DIR/gopulse-business-worker"
+  elif [[ $pid == "${SEARCH_INDEXER_PID:-}" ]]; then
+    cwd=$BACKEND_DIR; executable="$TEMP_DIR/gopulse-search-indexer"; marker="$TEMP_DIR/gopulse-search-indexer"
   elif [[ $pid == "${FRONTEND_PID:-}" ]]; then
     cwd=$FRONTEND_DIR; executable=$(command -v node); marker='node_modules/vite/bin/vite.js'
   else
@@ -518,7 +557,7 @@ PY
 }
 
 publish_message() {
-  local routing_key=$1 event_type=$2 event_id=$3 payload=$4 attempt=${5:-0}
+  local routing_key=$1 event_type=$2 event_id=$3 payload=$4 attempt=${5:-0} exchange=${6:-gopulse.business.v1}
   local request="$TEMP_DIR/publish.json" response="$TEMP_DIR/publish-response.json" status
   python3 - "$request" "$routing_key" "$event_type" "$event_id" "$payload" "$attempt" <<'PY'
 import datetime, json, sys, time
@@ -541,7 +580,7 @@ PY
   status=$(curl --silent --show-error --max-time 10 --user "$RABBITMQ_USER:$RABBITMQ_PASSWORD" \
     --header 'Content-Type: application/json' --request POST --data-binary "@$request" \
     --output "$response" --write-out '%{http_code}' \
-    "http://$PUBLISHED_HOST:$RABBITMQ_MANAGEMENT_PORT/api/exchanges/%2F/gopulse.business.v1/publish")
+    "http://$PUBLISHED_HOST:$RABBITMQ_MANAGEMENT_PORT/api/exchanges/%2F/$exchange/publish")
   [[ $status == 200 ]] || { cat "$response" >&2 || true; fail "RabbitMQ publish returned HTTP $status"; return 1; }
   python3 - "$response" <<'PY'
 import json, sys
@@ -603,6 +642,7 @@ run_reliability_matrix() {
 
   broker_post=$(create_owner_post "$owner_jar" "Broker outage $TOKEN")
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
+  ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
   docker stop "$RABBITMQ_CONTAINER_ID" >/dev/null
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
   api_for "$actor_jar" POST "/posts/$broker_post/comments" 201 '{"content":"written while broker stopped"}' read
@@ -617,6 +657,7 @@ run_reliability_matrix() {
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/health" 200
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
+  ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
   docker start "$RABBITMQ_CONTAINER_ID" >/dev/null
   wait_service_health rabbitmq
   verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT" >/dev/null
@@ -680,6 +721,7 @@ run_reliability_matrix() {
   docker restart "$rabbit_before" >/dev/null
   wait_service_health rabbitmq
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
+  ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
   [[ $RABBITMQ_CONTAINER_ID == "$rabbit_before" ]] || fail 'RabbitMQ restart changed the owned acceptance container identity'
   wait_queue_at_least gopulse.business-worker.v1 messages_ready 1 'durable queue/message did not survive RabbitMQ restart'
   start_worker
@@ -733,6 +775,199 @@ run_browser_flow() {
   (cd "$FRONTEND_DIR" && GOPULSE_BASE_URL="http://$PUBLISHED_HOST:$FRONTEND_PORT" GOPULSE_ACCEPTANCE_TOKEN="$TOKEN" npm run test:e2e)
 }
 
+es_request() {
+  local method=$1 path=$2 expected=$3 body=${4:-} output="$TEMP_DIR/elasticsearch-response.json" status
+  local -a args=(--silent --show-error --max-time 10 --output "$output" --write-out '%{http_code}')
+  if [[ $method == HEAD ]]; then args+=(--head); else args+=(--request "$method"); fi
+  [[ -z $body ]] || args+=(--header 'Content-Type: application/json' --data "$body")
+  status=$(curl "${args[@]}" "http://$PUBLISHED_HOST:$ELASTICSEARCH_PORT$path")
+  [[ $status == "$expected" ]] || { cat "$output" >&2 || true; fail "$method Elasticsearch $path returned HTTP $status, expected $expected"; }
+}
+
+active_search_index() {
+  es_request GET "/_alias/gopulse-post-search-v1" 200
+  python3 - "$TEMP_DIR/elasticsearch-response.json" <<'PYINDEX'
+import json, re, sys
+value=json.load(open(sys.argv[1], encoding='utf-8'))
+if len(value) != 1:
+    raise SystemExit('search alias must resolve to exactly one index')
+index=next(iter(value))
+if not re.fullmatch(r'gopulse-post-search-v1-[a-z0-9-]+', index):
+    raise SystemExit(f'unsafe physical index name: {index}')
+print(index)
+PYINDEX
+}
+
+run_search_browser_flow() {
+  local username=$1 password=$2 query=$3 title=$4
+  info 'Running the targeted search-rebuild browser acceptance.'
+  (cd "$FRONTEND_DIR" && \
+    GOPULSE_BASE_URL="http://$PUBLISHED_HOST:$FRONTEND_PORT" \
+    GOPULSE_ACCEPTANCE_TOKEN="$TOKEN" \
+    GOPULSE_SEARCH_USERNAME="$username" GOPULSE_SEARCH_PASSWORD="$password" \
+    GOPULSE_SEARCH_QUERY="$query" GOPULSE_SEARCH_TITLE="$title" \
+    npm run test:e2e -- --grep search-rebuild)
+}
+
+run_search_rebuild_flow() {
+  local username="search_$TOKEN" password="search-$TOKEN-password"
+  local title_term="historicaltitle$TOKEN" body_term="historicalbody$TOKEN" page_term="searchbatch$TOKEN"
+  local title="Historical search rebuild $TOKEN" first_post_id cursor encoded first_page_ids second_page_ids
+  local active_index unrelated_index="gopulse-acceptance-$TOKEN-unrelated"
+
+  api_request POST /auth/register 201 "$(printf '{"username":"%s","password":"%s"}' "$username" "$password")" write
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "$title $title_term $page_term" "MySQL hydration $body_term $page_term")" read
+  first_post_id=$(json_get data.id)
+  api_request POST "/posts/$first_post_id/comments" 201 '{"content":"search hydration comment one"}' read
+  api_request POST "/posts/$first_post_id/comments" 201 '{"content":"search hydration comment two"}' read
+  api_request PUT "/posts/$first_post_id/like" 204 '' read
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "Second historical result $page_term" 'secondary searchable body')" read
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "Third historical result $page_term" 'third searchable body')" read
+
+  run_search_reindex
+  api_request GET "/search/posts?q=$(urlencode "$title_term")&limit=20" 200 '' read
+  assert_json "len(value['data']) == 1 and value['data'][0]['id'] == $first_post_id and value['data'][0]['title'].startswith('Historical search rebuild') and value['data'][0]['comment_count'] == 2 and value['data'][0]['like_count'] == 1 and value['data'][0]['liked_by_me'] is True"
+  api_request GET "/search/posts?q=$(urlencode "$body_term")&limit=20" 200 '' read
+  assert_json "len(value['data']) == 1 and value['data'][0]['id'] == $first_post_id"
+  api_request GET "/search/posts?q=$(urlencode "unrelated$TOKEN")&limit=20" 200 '' read
+  assert_json "len(value['data']) == 0 and value['meta']['next_cursor'] is None"
+
+  api_request GET "/search/posts?q=$(urlencode "$page_term")&limit=2" 200 '' read
+  assert_json "len(value['data']) == 2 and value['meta']['next_cursor'] is not None"
+  first_page_ids=$(python3 - "$RESPONSE_FILE" <<'PYIDS'
+import json, sys
+print(','.join(str(item['id']) for item in json.load(open(sys.argv[1], encoding='utf-8'))['data']))
+PYIDS
+)
+  cursor=$(json_get meta.next_cursor)
+  encoded=$(urlencode "$cursor")
+  api_request GET "/search/posts?q=$(urlencode "$page_term")&limit=2&cursor=$encoded" 200 '' read
+  assert_json "len(value['data']) == 1"
+  second_page_ids=$(python3 - "$RESPONSE_FILE" <<'PYIDS'
+import json, sys
+print(','.join(str(item['id']) for item in json.load(open(sys.argv[1], encoding='utf-8'))['data']))
+PYIDS
+)
+  [[ ",$first_page_ids," != *",$second_page_ids,"* ]] || fail 'search pagination returned a duplicate post'
+
+  active_index=$(active_search_index)
+  es_request PUT "/$unrelated_index" 200 '{}'
+  [[ $active_index =~ ^gopulse-post-search-v1-[a-z0-9-]+$ ]] || fail 'refusing to delete an unowned search index'
+  es_request DELETE "/$active_index" 200
+  api_request GET "/search/posts?q=$(urlencode "$title_term")&limit=20" 503 '' read
+  assert_json "value['error']['code'] == 'search_unavailable' and '9200' not in value['error']['message'] and 'gopulse-post-search' not in value['error']['message']"
+
+  run_search_reindex
+  api_request GET "/search/posts?q=$(urlencode "$title_term")&limit=20" 200 '' read
+  assert_json "len(value['data']) == 1 and value['data'][0]['id'] == $first_post_id"
+  es_request HEAD "/$unrelated_index" 200
+  run_search_browser_flow "$username" "$password" "$title_term" "$title $title_term $page_term"
+  info 'Targeted search rebuild acceptance passed: historical posts recovered and the unrelated index remained intact.'
+}
+
+wait_search_post() {
+  local query=$1 post_id=$2 description=$3 deadline=$((SECONDS + ${4:-45})) status
+  while ((SECONDS < deadline)); do
+    status=$(curl --silent --show-error --max-time 5 --cookie "$COOKIE_JAR" --output "$RESPONSE_FILE" --write-out '%{http_code}' \
+      "http://$PUBLISHED_HOST:$HTTP_PORT/api/v1/search/posts?q=$(urlencode "$query")&limit=20" 2>/dev/null || true)
+    if [[ $status == 200 ]] && python3 - "$RESPONSE_FILE" "$post_id" <<'PYSEARCH'
+import json, sys
+try:
+    payload=json.load(open(sys.argv[1], encoding='utf-8'))
+    wanted=int(sys.argv[2])
+    found=sum(1 for item in payload.get('data', []) if item.get('id') == wanted)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if found == 1 else 1)
+PYSEARCH
+    then
+      return 0
+    fi
+    sleep 0.5
+  done
+  fail "$description"
+}
+
+assert_topology_bindings() {
+  local queue=$1 expected=$2 forbidden=$3 response status
+  response="$TEMP_DIR/${queue}.bindings.json"
+  status=$(curl --silent --show-error --max-time 5 --user "$RABBITMQ_USER:$RABBITMQ_PASSWORD" \
+    --output "$response" --write-out '%{http_code}' \
+    "http://$PUBLISHED_HOST:$RABBITMQ_MANAGEMENT_PORT/api/queues/%2F/$queue/bindings")
+  [[ $status == 200 ]] || { fail "could not inspect bindings for $queue"; return 1; }
+  python3 - "$response" "$expected" "$forbidden" <<'PYBIND'
+import json, sys
+bindings=json.load(open(sys.argv[1], encoding='utf-8'))
+keys={item.get('routing_key') for item in bindings if item.get('source')}
+expected=set(filter(None, sys.argv[2].split(',')))
+forbidden=set(filter(None, sys.argv[3].split(',')))
+if not expected.issubset(keys) or keys.intersection(forbidden):
+    raise SystemExit(f'binding mismatch: keys={sorted(keys)} expected={sorted(expected)} forbidden={sorted(forbidden)}')
+PYBIND
+}
+
+run_search_live_flow() {
+  local username="live_$TOKEN" password="live-$TOKEN-password"
+  local first_term="incremental$TOKEN" paused_term="paused$TOKEN" broker_term="broker$TOKEN" elastic_term="elastic$TOKEN" concurrent_term="concurrent$TOKEN"
+  local first_id paused_id broker_id elastic_id concurrent_id event_id payload rabbit_id reindex_pid
+
+  api_request POST /auth/register 201 "$(printf '{"username":"%s","password":"%s"}' "$username" "$password")" write
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "Live $first_term" 'automatic index')" read
+  first_id=$(json_get data.id)
+  wait_sql_equals "SELECT COUNT(*) FROM business_outbox WHERE event_type='post.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.post_id'))='$first_id' AND JSON_EXTRACT(payload, '$.recipient_id') IS NULL AND JSON_EXTRACT(payload, '$.title') IS NULL;" 1 'post.created outbox was not atomically recorded'
+  wait_search_post "$first_term" "$first_id" 'normal incremental post did not become searchable'
+  assert_topology_bindings gopulse.business-worker.v1 'comment.created.v1,post.liked.v1' 'post.created.v1'
+  assert_topology_bindings gopulse.search-indexer.v1 'post.created.v1' 'comment.created.v1,post.liked.v1'
+
+  stop_pid "$SEARCH_INDEXER_PID"
+  SEARCH_INDEXER_PID=
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "Paused $paused_term" 'retained in search queue')" read
+  paused_id=$(json_get data.id)
+  wait_queue_at_least gopulse.search-indexer.v1 messages_ready 1 'stopped Search Indexer did not retain the durable message'
+  start_search_indexer
+  wait_search_post "$paused_term" "$paused_id" 'restarted Search Indexer did not converge the retained post'
+
+  event_id=$(mysql_query "SELECT event_id FROM business_outbox WHERE event_type='post.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.post_id'))='$first_id' ORDER BY id DESC LIMIT 1;")
+  payload=$(mysql_query "SELECT CAST(payload AS CHAR) FROM business_outbox WHERE event_id='$event_id';")
+  publish_message post.created.v1 post.created "$event_id" "$payload" 0 gopulse.search.v1
+  publish_message post.created.v1 post.created "$event_id" "$payload" 0 gopulse.search.v1
+  wait_queue_equals gopulse.search-indexer.v1 messages 0 'duplicate search deliveries did not drain' 30
+  wait_search_post "$first_term" "$first_id" 'duplicate delivery changed the logical search result'
+
+  rabbit_id=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
+  docker stop "$rabbit_id" >/dev/null
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "Broker $broker_term" 'outbox remains pending')" read
+  broker_id=$(json_get data.id)
+  wait_sql_equals "SELECT COUNT(*) FROM business_outbox WHERE event_type='post.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.post_id'))='$broker_id' AND status <> 'published';" 1 'RabbitMQ outage did not retain the post outbox event'
+  docker start "$rabbit_id" >/dev/null
+  wait_service_health rabbitmq
+  RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
+  wait_search_post "$broker_term" "$broker_id" 'RabbitMQ recovery did not publish and index the retained post' 60
+
+  docker stop "$ELASTICSEARCH_CONTAINER_ID" >/dev/null
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "Elastic $elastic_term" 'retry after outage')" read
+  elastic_id=$(json_get data.id)
+  api_request GET "/search/posts?q=$(urlencode "$elastic_term")&limit=20" 503 '' read
+  docker start "$ELASTICSEARCH_CONTAINER_ID" >/dev/null
+  wait_service_health elasticsearch
+  ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
+  wait_search_post "$elastic_term" "$elastic_id" 'Elasticsearch recovery did not converge the retried post' 60
+
+  run_search_reindex &
+  reindex_pid=$!
+  api_request POST /posts 201 "$(printf '{"title":"%s","content":"%s"}' "Concurrent $concurrent_term" 'created during representative rebuild')" read
+  concurrent_id=$(json_get data.id)
+  wait "$reindex_pid"
+  wait_search_post "$concurrent_term" "$concurrent_id" 'concurrent rebuild and incremental indexing omitted the new post' 60
+  (cd "$FRONTEND_DIR" && \
+    GOPULSE_BASE_URL="http://$PUBLISHED_HOST:$FRONTEND_PORT" \
+    GOPULSE_ACCEPTANCE_TOKEN="$TOKEN" \
+    GOPULSE_SEARCH_USERNAME="$username" GOPULSE_SEARCH_PASSWORD="$password" \
+    GOPULSE_SEARCH_QUERY="$first_term" GOPULSE_SEARCH_TITLE="Live $first_term" \
+    npm run test:e2e -- --grep search-live)
+  info 'Incremental search acceptance passed: topology isolation, atomic Outbox, pause/restart, duplicate, broker, Elasticsearch, rebuild cooperation, and browser observation converged.'
+}
+
 verify_restart_and_cache() {
   local post_id redis_id
   post_id=$(cat "$TEMP_DIR/first-post-id")
@@ -782,6 +1017,7 @@ cleanup() {
   CLEANUP_DONE=1
   set +e
   stop_pid "$FRONTEND_PID"
+  stop_pid "$SEARCH_INDEXER_PID"
   stop_pid "$WORKER_PID"
   stop_pid "$BACKEND_PID"
   if ((RESOURCES_STARTED == 1)) && valid_token "$TOKEN" && [[ $PROJECT_NAME == "gopulse-acceptance-$TOKEN" ]] && valid_project "$PROJECT_NAME"; then
@@ -806,17 +1042,24 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
 main() {
+  local mode=full
   if [[ ${1:-} == --self-test ]]; then
     self_test
     return
+  elif [[ ${1:-} == --search-rebuild ]]; then
+    mode=search-rebuild
+    shift
+  elif [[ ${1:-} == --search-live ]]; then
+    mode=search-live
+    shift
   fi
-  [[ $# == 0 ]] || { fail 'usage: verify-business.sh [--self-test]'; return 2; }
+  [[ $# == 0 ]] || { fail 'usage: verify-business.sh [--self-test|--search-rebuild|--search-live]'; return 2; }
   require_tools
   TOKEN=${ACCEPTANCE_TOKEN:-$(python3 -c 'import secrets; print(secrets.token_hex(6))')}
   PROJECT_NAME="gopulse-acceptance-$TOKEN"
   DATABASE_NAME="gopulse_acceptance_$TOKEN"
   generate_ports
-  validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$HTTP_PORT" "$FRONTEND_PORT"
+  validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$ELASTICSEARCH_PORT" "$HTTP_PORT" "$FRONTEND_PORT"
 
   TEMP_DIR=$(mktemp -d -t gopulse-acceptance-XXXXXXXX)
   ACCEPTANCE_ENV="$TEMP_DIR/acceptance.env"
@@ -833,14 +1076,40 @@ main() {
   wait_service_health mysql
   wait_service_health redis
   wait_service_health rabbitmq
+  wait_service_health elasticsearch
   MYSQL_CONTAINER_ID=$(verify_service_ownership mysql 3306 "$MYSQL_PORT")
   verify_service_ownership redis 6379 "$REDIS_PORT" >/dev/null
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
+  ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
 
   backend_environment bash -c 'cd "$1" && go run ./cmd/migrate up' _ "$BACKEND_DIR"
-  (cd "$BACKEND_DIR" && go build -o "$TEMP_DIR/gopulse-backend" ./cmd/server && go build -o "$TEMP_DIR/gopulse-business-worker" ./cmd/business-worker)
+  (cd "$BACKEND_DIR" && go build -o "$TEMP_DIR/gopulse-backend" ./cmd/server && go build -o "$TEMP_DIR/gopulse-business-worker" ./cmd/business-worker && go build -o "$TEMP_DIR/gopulse-search-indexer" ./cmd/search-indexer && go build -o "$TEMP_DIR/gopulse-search-reindex" ./cmd/search-reindex)
+
+  if [[ $mode == search-live ]]; then
+    run_search_reindex --if-missing
+    start_backend
+    start_search_indexer
+    start_frontend
+    wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
+    run_search_live_flow
+    info 'Isolated incremental search acceptance passed; cleanup will now remove only verified acceptance resources.'
+    return
+  fi
+
+  if [[ $mode == search-rebuild ]]; then
+    start_backend
+    start_frontend
+    wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
+    run_search_rebuild_flow
+    wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
+    info 'Isolated search rebuild acceptance passed; cleanup will now remove only verified acceptance resources.'
+    return
+  fi
+
+  run_search_reindex --if-missing
   start_backend
   start_worker
+  start_search_indexer
   start_frontend
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
 

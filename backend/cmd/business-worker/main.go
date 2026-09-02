@@ -45,6 +45,7 @@ func run() error {
 		return errors.New("initialize notification processor")
 	}
 	runtime, err := worker.NewRuntime(cfg.RabbitMQURL, processor, worker.RuntimeOptions{
+		Profile:  worker.BusinessProfile,
 		Prefetch: cfg.Worker.Prefetch, MaxRetries: cfg.Worker.MaxRetries,
 		RetryDelay: cfg.Worker.RetryDelay, PublishTimeout: cfg.Worker.PublishTimeout,
 		ShutdownTimeout:  cfg.Worker.ShutdownTimeout,

@@ -60,6 +60,7 @@ type RabbitMQDialer func(context.Context, string, time.Duration) (RabbitMQConnec
 // do not alter the production topology or delivery properties.
 type RabbitMQPublisherOptions struct {
 	RetryDelay         time.Duration
+	SearchRetryDelay   time.Duration
 	DialTimeout        time.Duration
 	ReturnDrainTimeout time.Duration
 	Dialer             RabbitMQDialer
@@ -69,9 +70,10 @@ type RabbitMQPublisherOptions struct {
 }
 
 type RabbitMQPublisher struct {
-	connectionURL string
-	retryDelay    time.Duration
-	dialTimeout   time.Duration
+	connectionURL    string
+	retryDelay       time.Duration
+	searchRetryDelay time.Duration
+	dialTimeout      time.Duration
 
 	returnDrainTimeout time.Duration
 	dialer             RabbitMQDialer
@@ -130,6 +132,7 @@ func NewRabbitMQPublisher(connectionURL string, options ...RabbitMQPublisherOpti
 	}
 	publisherOptions := RabbitMQPublisherOptions{
 		RetryDelay:         defaultRabbitMQPublisherRetryDelay,
+		SearchRetryDelay:   defaultRabbitMQPublisherRetryDelay,
 		DialTimeout:        defaultRabbitMQDialTimeout,
 		ReturnDrainTimeout: defaultRabbitMQReturnDrainTimeout,
 		Dialer:             defaultRabbitMQDial,
@@ -140,6 +143,9 @@ func NewRabbitMQPublisher(connectionURL string, options ...RabbitMQPublisherOpti
 	if len(options) > 0 {
 		if options[0].RetryDelay != 0 {
 			publisherOptions.RetryDelay = options[0].RetryDelay
+		}
+		if options[0].SearchRetryDelay != 0 {
+			publisherOptions.SearchRetryDelay = options[0].SearchRetryDelay
 		}
 		if options[0].DialTimeout != 0 {
 			publisherOptions.DialTimeout = options[0].DialTimeout
@@ -160,7 +166,7 @@ func NewRabbitMQPublisher(connectionURL string, options ...RabbitMQPublisherOpti
 			publisherOptions.Wait = options[0].Wait
 		}
 	}
-	if publisherOptions.RetryDelay < minimumBusinessRetryDelay || publisherOptions.RetryDelay > maximumBusinessRetryDelay {
+	if publisherOptions.RetryDelay < minimumBusinessRetryDelay || publisherOptions.RetryDelay > maximumBusinessRetryDelay || publisherOptions.SearchRetryDelay < minimumBusinessRetryDelay || publisherOptions.SearchRetryDelay > maximumBusinessRetryDelay {
 		return nil, errors.New("create RabbitMQ publisher: retry delay is outside the supported range")
 	}
 	if publisherOptions.DialTimeout < minimumRabbitMQDialTimeout || publisherOptions.DialTimeout > maximumRabbitMQDialTimeout {
@@ -172,6 +178,7 @@ func NewRabbitMQPublisher(connectionURL string, options ...RabbitMQPublisherOpti
 	return &RabbitMQPublisher{
 		connectionURL:      connectionURL,
 		retryDelay:         publisherOptions.RetryDelay,
+		searchRetryDelay:   publisherOptions.SearchRetryDelay,
 		dialTimeout:        publisherOptions.DialTimeout,
 		returnDrainTimeout: publisherOptions.ReturnDrainTimeout,
 		dialer:             publisherOptions.Dialer,
@@ -190,6 +197,10 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 		return outbox.NewPublishError(outbox.FailureInternal, err)
 	}
 	metadata, err := envelope.Metadata()
+	if err != nil {
+		return outbox.NewPublishError(outbox.FailureInternal, err)
+	}
+	exchange, err := exchangeForEvent(envelope.EventType)
 	if err != nil {
 		return outbox.NewPublishError(outbox.FailureInternal, err)
 	}
@@ -214,12 +225,23 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 		Timestamp:    metadata.Timestamp,
 		Body:         body,
 	}
-	if err := state.channel.PublishWithContext(ctx, BusinessExchange, routingKey, true, false, publishing); err != nil {
+	if err := state.channel.PublishWithContext(ctx, exchange, routingKey, true, false, publishing); err != nil {
 		publisher.resetState(state, true)
 		return classifyRabbitMQPublishError(ctx, err)
 	}
 
 	return publisher.awaitPublishResult(ctx, state, metadata.MessageID)
+}
+
+func exchangeForEvent(eventType bus.EventType) (string, error) {
+	switch eventType {
+	case bus.CommentCreated, bus.PostLiked:
+		return BusinessExchange, nil
+	case bus.PostCreated:
+		return SearchExchange, nil
+	default:
+		return "", errors.New("business event type is unsupported")
+	}
 }
 
 func (publisher *RabbitMQPublisher) awaitPublishResult(ctx context.Context, state *rabbitMQPublisherState, messageID string) error {
@@ -385,6 +407,9 @@ func (publisher *RabbitMQPublisher) buildState(connection RabbitMQConnection) (*
 	state.channelClosed = channel.NotifyClose(make(chan *amqp.Error, 1))
 	state.closed = connection.NotifyClose(make(chan *amqp.Error, 1))
 	if err := DeclareBusinessTopology(channel, publisher.retryDelay); err != nil {
+		return state, err
+	}
+	if err := DeclareSearchTopology(channel, publisher.searchRetryDelay); err != nil {
 		return state, err
 	}
 	return state, nil

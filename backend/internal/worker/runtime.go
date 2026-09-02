@@ -16,6 +16,7 @@ import (
 )
 
 type RuntimeOptions struct {
+	Profile          Profile
 	Prefetch         int
 	MaxRetries       int
 	RetryDelay       time.Duration
@@ -31,6 +32,7 @@ type Runtime struct {
 	processor     Processor
 	options       RuntimeOptions
 	logger        func(string, ...any)
+	profile       Profile
 }
 
 func NewRuntime(connectionURL string, processor Processor, options RuntimeOptions) (*Runtime, error) {
@@ -46,25 +48,27 @@ func NewRuntime(connectionURL string, processor Processor, options RuntimeOption
 	if options.ReconnectMinimum <= 0 || options.ReconnectMaximum < options.ReconnectMinimum {
 		return nil, errors.New("business worker reconnect bounds are invalid")
 	}
+	profile := normalizeProfile(options.Profile)
+	options.Profile = profile
 	logger := options.Logger
 	if logger == nil {
 		logger = log.Printf
 	}
-	return &Runtime{connectionURL: connectionURL, processor: processor, options: options, logger: logger}, nil
+	return &Runtime{connectionURL: connectionURL, processor: processor, options: options, logger: logger, profile: profile}, nil
 }
 
 // Run maintains a single sequential consumer session. Broker/channel closure
 // causes bounded jittered reconnection and topology/consumer recreation.
 func (runtime *Runtime) Run(ctx context.Context) error {
 	if ctx == nil {
-		return errors.New("business worker context is required")
+		return fmt.Errorf("%s context is required", runtime.profile.Name)
 	}
 	attempt := uint32(0)
 	for ctx.Err() == nil {
 		session, err := openSession(ctx, runtime.connectionURL, runtime.options)
 		if err != nil {
 			attempt++
-			runtime.logger("business worker connection unavailable; retrying")
+			runtime.logger("%s connection unavailable; retrying", runtime.profile.Name)
 			if err := waitContext(ctx, runtime.reconnectDelay(attempt)); err != nil {
 				return nil
 			}
@@ -72,7 +76,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 		}
 		attempt = 0
 		handler, err := NewHandler(runtime.processor, session, HandlerOptions{
-			MaxRetries: runtime.options.MaxRetries, PublishTimeout: runtime.options.PublishTimeout, Logger: runtime.logger,
+			MaxRetries: runtime.options.MaxRetries, PublishTimeout: runtime.options.PublishTimeout, Logger: runtime.logger, Profile: runtime.profile,
 		})
 		if err != nil {
 			_ = session.Close()
@@ -85,7 +89,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 		}
 		attempt++
 		if err != nil {
-			runtime.logger("business worker session interrupted; reconnecting")
+			runtime.logger("%s session interrupted; reconnecting", runtime.profile.Name)
 		}
 		if err := waitContext(ctx, runtime.reconnectDelay(attempt)); err != nil {
 			return nil
@@ -181,14 +185,15 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 	if err != nil {
 		return nil, err
 	}
-	session := &amqpSession{connection: connection, consumerTag: fmt.Sprintf("gopulse-business-worker-%d", time.Now().UnixNano())}
+	profile := normalizeProfile(options.Profile)
+	session := &amqpSession{connection: connection, consumerTag: fmt.Sprintf("%s-%d", profile.ConsumerTag, time.Now().UnixNano())}
 	channel, err := connection.Channel()
 	if err != nil {
 		_ = connection.Close()
 		return nil, err
 	}
 	session.channel = channel
-	if err := platform.DeclareBusinessTopology(channel, options.RetryDelay); err != nil {
+	if err := platform.DeclareTopology(channel, profile.Topology, options.RetryDelay); err != nil {
 		_ = session.Close()
 		return nil, err
 	}
@@ -204,7 +209,7 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 	session.returns = channel.NotifyReturn(make(chan amqp.Return, 1))
 	session.channelClosed = channel.NotifyClose(make(chan *amqp.Error, 1))
 	session.connectionClosed = connection.NotifyClose(make(chan *amqp.Error, 1))
-	deliveries, err := channel.Consume(platform.BusinessQueue, session.consumerTag, false, false, false, false, nil)
+	deliveries, err := channel.Consume(profile.Topology.Queue, session.consumerTag, false, false, false, false, nil)
 	if err != nil {
 		_ = session.Close()
 		return nil, err

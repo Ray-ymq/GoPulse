@@ -111,3 +111,44 @@ func TestDeclareBusinessTopologyRejectsInvalidConfigurationAndDeclarationMismatc
 		t.Fatalf("declaration mismatch error = %v", err)
 	}
 }
+
+func TestDeclareSearchTopologyBindsOnlyPostCreated(t *testing.T) {
+	channel := &fakeTopologyChannel{}
+	if err := DeclareSearchTopology(channel, 2*time.Second); err != nil {
+		t.Fatalf("DeclareSearchTopology() error = %v", err)
+	}
+	wantBindings := []queueBinding{
+		{name: SearchQueue, key: bus.PostCreatedRoutingKey, exchange: SearchExchange},
+		{name: SearchRetryQueue, key: bus.PostCreatedRoutingKey, exchange: SearchRetryExchange},
+		{name: SearchDeadQueue, key: bus.PostCreatedRoutingKey, exchange: SearchDeadExchange},
+		{name: SearchDeadQueue, key: SearchInvalidRoutingKey, exchange: SearchDeadExchange},
+	}
+	if !reflect.DeepEqual(channel.bindings, wantBindings) {
+		t.Fatalf("search bindings = %#v", channel.bindings)
+	}
+	for _, binding := range channel.bindings {
+		if binding.key == bus.CommentCreatedRoutingKey || binding.key == bus.PostLikedRoutingKey {
+			t.Fatalf("search topology contains notification binding %#v", binding)
+		}
+	}
+	wantRetryArguments := amqp.Table{"x-message-ttl": int64(2000), "x-dead-letter-exchange": SearchExchange}
+	if !reflect.DeepEqual(channel.queues[1].arguments, wantRetryArguments) {
+		t.Fatalf("search retry arguments = %#v", channel.queues[1].arguments)
+	}
+}
+
+func TestExchangeForEventSeparatesBusinessAndSearch(t *testing.T) {
+	for eventType, want := range map[bus.EventType]string{
+		bus.CommentCreated: BusinessExchange,
+		bus.PostLiked:      BusinessExchange,
+		bus.PostCreated:    SearchExchange,
+	} {
+		got, err := exchangeForEvent(eventType)
+		if err != nil || got != want {
+			t.Fatalf("exchangeForEvent(%q) = %q, %v; want %q", eventType, got, err, want)
+		}
+	}
+	if _, err := exchangeForEvent(bus.EventType("unknown")); err == nil {
+		t.Fatal("exchangeForEvent(unknown) error = nil")
+	}
+}

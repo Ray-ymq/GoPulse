@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
           printf '%s\n' "$rendered"
-          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 4 ]]
+          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 5 ]]
 
   integration:
     name: Integration
@@ -131,6 +131,20 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          xpack.security.http.ssl.enabled: "false"
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd="curl --fail --silent http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=30
     env:
       INTEGRATION_TESTS: "1"
       APP_ENV: test
@@ -146,6 +160,8 @@ jobs:
       REDIS_PASSWORD: integration-redis
       REDIS_DB: "15"
       RABBITMQ_URL: amqp://integration:integration@127.0.0.1:5672/
+      ELASTICSEARCH_URL: http://127.0.0.1:9200
+      ELASTICSEARCH_REQUEST_TIMEOUT: 3s
       AUTH_JWT_SECRET: integration-jwt-secret-at-least-32-bytes-long
       AUTH_JWT_TTL: 2h
       AUTH_COOKIE_NAME: gopulse_integration_session

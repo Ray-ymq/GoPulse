@@ -801,3 +801,10 @@ button:disabled {
     flex-direction: column;
   }
 }
+
+/* Phase 3 post search */
+.search-heading { margin-bottom: 22px; }
+.search-form { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 24px; }
+.search-form .button { min-width: 96px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 560px) { .search-form { grid-template-columns: 1fr; } }
