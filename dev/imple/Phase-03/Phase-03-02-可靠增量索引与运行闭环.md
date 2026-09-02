@@ -69,7 +69,7 @@
 - 不把标题/正文放进 RabbitMQ Payload，不以 dead queue、已发布 Outbox 或 Elasticsearch 文档代替 MySQL 重建。
 - 不实现帖子更新/删除事件、Outbox 通用多租户框架、动态拓扑、队列自动伸缩或 parallel bulk consumer。
 - 不自动重放 dead queue，不提供索引运维 Web/API 后台。
-- 不重写已通过 Review 的 Dispatcher/Worker 状态机；参数化只服务两个固定 profile。
+- 不重写已稳定运行的 Dispatcher/Worker 状态机；参数化只服务两个固定 profile。
 - 不重跑与本批无关的 Phase 2 全排列故障测试，只回归通知代表性成功路径和实际触达的可靠性边界。
 - 不调整 03-01 公共搜索语义，除非真实阻断缺陷需要最小兼容修复。
 - 不修改 PowerShell、Kafka、日志/事件索引或后续 Phase 文件。
@@ -169,7 +169,7 @@ git diff --check
 
 ## 10. 明确完成条件
 
-只有新帖子增量链路、独立搜索拓扑/进程生命周期、代表性故障恢复与重建并发协作通过，且 Phase-03-01 搜索读闭环和 Phase 2 通知可靠性边界无回归，才可标记本批完成。完整 Milestone 1 矩阵与独立 Review 留给 Phase-03-03。
+只有新帖子增量链路、独立搜索拓扑/进程生命周期、代表性故障恢复与重建并发协作通过，且 Phase-03-01 搜索读闭环和 Phase 2 通知可靠性边界无回归，才可标记本批完成。完整 Milestone 1 集成验收矩阵留给 Phase-03-03。
 
 ## 11. 下一批交接
 
