@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **0.2.7**. Phase 1 is complete: the repository provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache.
+GoPulse is currently at product version **0.3.1**. Phase 1 provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache. Phase 2 now has its message-contract and transactional Outbox persistence foundation, but business requests do not publish asynchronous notifications yet.
 
 The repository currently provides:
 
@@ -137,6 +137,21 @@ go run ./cmd/migrate down
 ```
 
 Development startup never runs `down` and never clears the development database automatically.
+
+## Business event and Outbox foundation
+
+The Backend defines a strict, versioned JSON envelope for `comment.created` and `post.liked`. Version 1 messages are limited to 16 KiB, reject unknown fields and multiple JSON values, carry only stable numeric identifiers plus a UTC occurrence time, and use the event UUID as AMQP `message_id`. Routing keys are `comment.created.v1` and `post.liked.v1`; payloads intentionally exclude bodies, usernames, credentials, tokens, Cookies, connection URLs, and underlying errors.
+
+The shared durable direct topology contract is centralized in Backend code:
+
+| Role | Name |
+| --- | --- |
+| Main exchange | `gopulse.business.v1` |
+| Main queue | `gopulse.business-worker.v1` |
+| Retry exchange / queue | `gopulse.business.retry.v1` / `gopulse.business-worker.retry.v1` |
+| Dead exchange / queue | `gopulse.business.dead.v1` / `gopulse.business-worker.dead.v1` |
+
+Migration `000002_business_outbox` adds the constrained `business_outbox` table. Its Repository supports insertion through either `*sql.DB` or an active `*sql.Tx`, bounded ID-ordered claims, expiring owner leases, conditional publish/failure transitions, bounded failure categories, retry backoff, expired-lease recovery, and published-only retention cleanup. This version does **not** connect comment or like writes to the Outbox, start a Dispatcher or Worker, publish RabbitMQ messages, create notifications, or expose an Outbox HTTP API.
 
 ## Frontend routes
 
@@ -300,6 +315,6 @@ Do not point that command at a development or production database. Reproduce it 
 
 The root `VERSION` file is the sole completed-product version source. `frontend/package.json` and the root package entries in `frontend/package-lock.json` mirror that value so npm output, build metadata, and dependency reports identify the same product version. `python3 scripts/ci/validate_versions.py` and the governance quality gate reject drift.
 
-## Phase 1 completion and Phase 2 handoff
+## Phase 1 completion and Phase 2 progress
 
-Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout is complete at `VERSION=0.2.7`. The usable browser flow and the synchronous Backend facts are established. Phase 2 may add RabbitMQ-backed asynchronous actions only after successful MySQL writes; RabbitMQ must not become the final fact source for comments, likes, or unlikes, and a broker failure must not invalidate an already committed MySQL operation.
+Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 completes the business event, RabbitMQ topology, and transactional Outbox persistence contracts at `0.3.1`. The usable browser flow and synchronous Backend facts remain unchanged: comments and likes do not yet create Outbox rows or RabbitMQ messages. Later Phase 2 batches may connect asynchronous actions only through the documented MySQL transaction boundary; RabbitMQ must not become the final fact source, and broker failure must not invalidate an already committed MySQL operation.
