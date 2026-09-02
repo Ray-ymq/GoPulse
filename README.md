@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **0.3.1**. Phase 1 provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache. Phase 2 now has its message-contract and transactional Outbox persistence foundation, but business requests do not publish asynchronous notifications yet.
+GoPulse is currently at product version **0.3.4**. Phase 1 provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache. Phase 2 delivers comment and first-like events through the transactional Outbox to an independent Business Worker, persists idempotent MySQL notifications, and now exposes those recipient-scoped facts through an authenticated API and Frontend notification page.
 
 The repository currently provides:
 
@@ -15,7 +15,7 @@ The repository currently provides:
 - WSL/Bash lifecycle scripts, read-only runtime verification, and a destructive-but-isolated complete business acceptance script;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
-Elasticsearch, Kafka, application containers, Kubernetes, profiles, follows, search, notifications, and other later-phase capabilities are not implemented yet.
+Elasticsearch, Kafka, application containers, Kubernetes, profiles, follows, search, real-time notification push, and other later-phase capabilities are not implemented yet.
 
 ## Primary development environment
 
@@ -155,7 +155,18 @@ Migration `000002_business_outbox` adds the constrained `business_outbox` table.
 
 The Backend starts a lifecycle-bound Outbox Dispatcher that claims finite leased batches and lazily connects to RabbitMQ. It publishes persistent mandatory messages, waits for publisher confirms, and marks a row published only after a confirmed routable delivery. Broker outages, nacks, returns, timeouts, and connection loss leave the MySQL fact committed and release or preserve the event for bounded retry. `OUTBOX_POLL_INTERVAL`, `OUTBOX_CLAIM_BATCH`, `OUTBOX_LEASE_DURATION`, `OUTBOX_PUBLISH_TIMEOUT`, and `OUTBOX_RETRY_DELAY` control the delivery loop.
 
-Delivery is intentionally at least once: a crash after RabbitMQ confirms a publish but before MySQL records `published` can deliver the same `event_id` again. This version still does **not** run a Business Worker, create notifications, consume retry/dead queues, or expose a notification HTTP API.
+Delivery is intentionally at least once: a crash after RabbitMQ confirms a publish but before MySQL records `published` can deliver the same `event_id` again. Migration `000003_notifications` adds the durable notification side-effect table, whose unique `source_event_id` absorbs sequential and concurrent duplicate deliveries.
+
+Run the independent consumer from a second terminal after migrations:
+
+```bash
+cd backend
+go run ./cmd/business-worker
+```
+
+The Worker loads only MySQL, RabbitMQ, and `BUSINESS_WORKER_*` settings; it does not require HTTP, Redis, JWT, or Cookie configuration. It uses manual acknowledgements and bounded prefetch. Valid `comment.created` and `post.liked` events commit a notification before ack, while self events are defensively ignored. Permanent envelope/property errors go directly to the dead queue. Temporary processing failures are republished through the TTL retry queue with a validated `x-gopulse-attempt` header and enter the dead queue after `BUSINESS_WORKER_MAX_RETRIES`. Retry/dead publications are persistent, mandatory, and confirm-gated before the original message is acked; a failed secondary publish requeues the original message.
+
+`OUTBOX_RETRY_DELAY` is the shared retry-queue TTL used by both producer and consumer topology declarations. `BUSINESS_WORKER_PREFETCH`, `BUSINESS_WORKER_MAX_RETRIES`, `BUSINESS_WORKER_PUBLISH_TIMEOUT`, `BUSINESS_WORKER_SHUTDOWN_TIMEOUT`, `BUSINESS_WORKER_RECONNECT_MIN`, and `BUSINESS_WORKER_RECONNECT_MAX` bound consumption, retries, reconnection, and graceful shutdown. Delivery remains at least once, and the database unique key—not process memory or Redis—provides idempotency. The notification HTTP API reads only durable MySQL facts; it does not expose RabbitMQ, Outbox, retry, or dead-queue state. The Frontend refreshes explicitly and does not infer a notification from a successful comment or like request.
 
 ## Frontend routes
 
@@ -164,6 +175,7 @@ Delivery is intentionally at least once: a crash after RabbitMQ confirms a publi
 | `/register` | anonymous | Create an account and establish the login Cookie |
 | `/login` | anonymous | Authenticate with username and password |
 | `/posts` | authenticated | Newest-first post list with cursor-based loading |
+| `/notifications` | authenticated | Recipient-only asynchronous comment/like notifications with refresh, pagination, and idempotent read actions |
 | `/posts/new` | authenticated | Publish a validated title and body |
 | `/posts/:postId` | authenticated | Read detail, paginate comments, comment, like, and unlike |
 | `/auth-recovery` | temporary recovery state | Retry current-user restoration after a network, server, or invalid-response failure |
@@ -230,6 +242,15 @@ All routes below require the authentication cookie:
 - `GET /api/v1/posts/:postId` returns the complete detail response, including `comment_count`, `like_count`, and viewer-specific `liked_by_me`.
 - `POST /api/v1/posts/:postId/comments` creates a comment; `GET` on the same collection returns newest-first comment pagination.
 - `PUT /api/v1/posts/:postId/like` and `DELETE /api/v1/posts/:postId/like` are idempotent and return HTTP `204`.
+
+### Notification API
+
+Both routes require the authentication cookie and always scope data to the current recipient:
+
+- `GET /api/v1/notifications?limit=<n>&cursor=<token>` returns newest-first keyset pagination with notification type, timestamps, public actor summary, post ID, and nullable comment ID. Delivery identifiers, Outbox state, AMQP metadata, and internal processing errors are never returned.
+- `PATCH /api/v1/notifications/:notificationId/read` returns HTTP `204`, preserves the first `read_at`, and is idempotent. Missing notifications and notifications owned by another recipient both return the same safe `404 notification_not_found` response.
+
+The `/notifications` page exposes explicit refresh, load-more, post navigation, and per-item mark-read controls. Notifications may arrive asynchronously; there is no WebSocket, SSE, background polling, unread badge, or locally fabricated notification state.
 
 MySQL remains the source of truth. Redis stores only the versioned public post-detail projection under `gopulse:post:detail:v1:{postId}` for `REDIS_POST_DETAIL_TTL`; the value excludes `liked_by_me`, comments, credentials, tokens, and connection data. Every detail request calculates `liked_by_me` separately from MySQL for the authenticated viewer.
 
@@ -321,4 +342,4 @@ The root `VERSION` file is the sole completed-product version source. `frontend/
 
 ## Phase 1 completion and Phase 2 progress
 
-Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 completes the business event, RabbitMQ topology, and transactional Outbox persistence contracts at `0.3.1`. The usable browser flow and synchronous Backend facts remain unchanged: comments and likes do not yet create Outbox rows or RabbitMQ messages. Later Phase 2 batches may connect asynchronous actions only through the documented MySQL transaction boundary; RabbitMQ must not become the final fact source, and broker failure must not invalidate an already committed MySQL operation.
+Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 established the message contract and transactional Outbox at `0.3.1`; Phase 2-02 connected comment/first-like transactions to confirmed RabbitMQ delivery at `0.3.2`; Phase 2-03 added the independent, reconnecting Business Worker and idempotent notification persistence at `0.3.3`. Phase 2-04 adds the recipient-scoped notification API and protected Frontend notification flow at `0.3.4`. RabbitMQ is transport rather than the final fact source, and broker failure does not invalidate an already committed MySQL business operation.
