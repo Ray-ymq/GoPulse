@@ -60,6 +60,8 @@ func mapError(err error) (int, apperror.Code, string) {
 		return stdhttp.StatusConflict, appError.Code, appError.Message
 	case apperror.CodePostNotFound, apperror.CodeNotificationNotFound:
 		return stdhttp.StatusNotFound, appError.Code, appError.Message
+	case apperror.CodeSearchUnavailable:
+		return stdhttp.StatusServiceUnavailable, appError.Code, appError.Message
 	default:
 		return stdhttp.StatusInternalServerError, apperror.CodeInternal, "an internal error occurred"
 	}
