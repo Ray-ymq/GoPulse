@@ -65,3 +65,5 @@ scripts/verify-business.sh --self-test
 - 自动创建的 PR #51 已于 2026-09-02 18:10:52 UTC 合入 `main`，合并提交为 `3d07f1b831499f4e5bd449b53e6cc0561dad51c8`。普通 development 分支随后按规则从远程删除。
 - PR 触发的 CI run `33665595978` 在合入后一秒以 failure 结束且没有创建任何 job。结合 PR 已先完成合入并删除 head 分支的时间顺序，该失败属于自动合并早于 pull-request CI 初始化的编排竞态，而不是 Backend、Frontend、治理、Compose 或 Integration job 失败。
 - 后续在长期 `update` 分支修复 `.github/workflows/auto-pr-merge.yml`：创建 PR 后先定位相同 head SHA 的 `ci.yml` / `pull_request` run，并用 `gh run watch --exit-status` 等待成功；只有随后才允许启用 auto-merge。若 PR CI 失败，PR 和 head 分支将保留用于整改，不再先删除分支制造无 job 的失败 run。该仓库规则修复不修改 `VERSION`。
+
+- `update` 首次推送编排修复后，push run `33666308567` 的五类质量门禁全部成功，但 Create or find pull request 步骤因 PR body 的单引号进入 Bash 单引号字面量而报 `unexpected EOF while looking for matching quote`。已移除该不安全标点并新增后续提交重跑；这次失败未创建 PR，也未改变 `main`。

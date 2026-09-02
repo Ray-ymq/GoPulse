@@ -437,3 +437,6 @@ Open PR and enable auto-merge: success
 ### 11.1 远程合入与 PR CI 编排后续
 
 `develop/0.4.4` 的 push 质量门禁全部成功，PR #51 已合入 `main` 为 `3d07f1b831499f4e5bd449b53e6cc0561dad51c8`。PR 触发的独立 CI run 随后出现无 job 的 failure；时间顺序表明自动流程在该 CI 初始化前已经合入 PR 并删除 development 分支。该编排问题由 `update` 上的仓库规则修复处理：自动流程必须等待匹配 head SHA 的 pull-request CI 成功，之后才能启用合并；失败时保留 PR 与分支供继续整改。
+
+
+`update` 上第一版工作流修复的质量门禁通过，但 PR 创建脚本因说明文字中的单引号破坏 Bash 引号而失败；后续提交移除该标点并重新触发自动流程。
