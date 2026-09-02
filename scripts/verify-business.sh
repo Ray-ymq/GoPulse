@@ -841,6 +841,8 @@ PYIDS
 )
   cursor=$(json_get meta.next_cursor)
   encoded=$(urlencode "$cursor")
+  api_request GET "/search/posts?q=$(urlencode "other$page_term")&limit=2&cursor=$encoded" 400 '' read
+  assert_json "value['error']['code'] == 'validation_failed'"
   api_request GET "/search/posts?q=$(urlencode "$page_term")&limit=2&cursor=$encoded" 200 '' read
   assert_json "len(value['data']) == 1"
   second_page_ids=$(python3 - "$RESPONSE_FILE" <<'PYIDS'
@@ -849,6 +851,14 @@ print(','.join(str(item['id']) for item in json.load(open(sys.argv[1], encoding=
 PYIDS
 )
   [[ ",$first_page_ids," != *",$second_page_ids,"* ]] || fail 'search pagination returned a duplicate post'
+  api_request GET '/search/posts?q=%20%20&limit=20' 400 '' read
+  assert_json "value['error']['code'] == 'validation_failed'"
+  api_request GET "/search/posts?q=$(urlencode "$page_term")&limit=51" 400 '' read
+  assert_json "value['error']['code'] == 'validation_failed'"
+  api_request GET "/search/posts?q=$(urlencode "$page_term")&cursor=not-a-cursor" 400 '' read
+  assert_json "value['error']['code'] == 'validation_failed'"
+  api_request GET "/search/posts?q=$(urlencode "$page_term")&limit=50" 200 '' read
+  assert_json "len(value['data']) <= 50"
 
   active_index=$(active_search_index)
   es_request PUT "/$unrelated_index" 200 '{}'
@@ -858,6 +868,8 @@ PYIDS
   assert_json "value['error']['code'] == 'search_unavailable' and '9200' not in value['error']['message'] and 'gopulse-post-search' not in value['error']['message']"
 
   run_search_reindex
+  api_request GET "/search/posts?q=$(urlencode "$page_term")&limit=2&cursor=$encoded" 400 '' read
+  assert_json "value['error']['code'] == 'validation_failed'"
   api_request GET "/search/posts?q=$(urlencode "$title_term")&limit=20" 200 '' read
   assert_json "len(value['data']) == 1 and value['data'][0]['id'] == $first_post_id"
   es_request HEAD "/$unrelated_index" 200
@@ -1115,6 +1127,8 @@ main() {
 
   run_api_flow
   run_browser_flow
+  run_search_rebuild_flow
+  run_search_live_flow
   run_reliability_matrix
   verify_restart_and_cache
   verify_redis_failure_and_recovery
