@@ -8,6 +8,7 @@ import NotificationsView from '../views/NotificationsView.vue'
 import PostDetailView from '../views/PostDetailView.vue'
 import PostsView from '../views/PostsView.vue'
 import RegisterView from '../views/RegisterView.vue'
+import SearchView from '../views/SearchView.vue'
 
 export function createAppRouter(history = createWebHistory()): Router {
   const router = createRouter({
@@ -18,6 +19,7 @@ export function createAppRouter(history = createWebHistory()): Router {
       { path: '/login', component: LoginView, meta: { guestOnly: true } },
       { path: '/auth-recovery', component: AuthRecoveryView, meta: { skipAuthRecovery: true } },
       { path: '/posts', component: PostsView, meta: { requiresAuth: true } },
+      { path: '/search', component: SearchView, meta: { requiresAuth: true } },
       { path: '/notifications', component: NotificationsView, meta: { requiresAuth: true } },
       { path: '/posts/new', component: NewPostView, meta: { requiresAuth: true } },
       { path: '/posts/:postId', component: PostDetailView, meta: { requiresAuth: true } },
