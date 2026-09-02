@@ -86,16 +86,17 @@ dev/logs/Phase-02/Phase-02-03-BusinessWorker与幂等通知.md
 
 ## 6. 详细实施步骤
 
-1. 编写 notifications up/down migration、索引与外键测试。
+1. 编写 notifications up/down migration，并用迁移结构测试和一次真实 MySQL integration 证明必要索引、唯一约束与外键。
 2. 实现通知幂等插入和内部查验 Repository。
-3. 抽取 Worker command 专用配置边界，增加默认值/上下限测试。
+3. 抽取 Worker command 专用配置边界，只覆盖默认值和代表性非法值，不枚举等价上下限组合。
 4. 实现严格 delivery decoder 和永久/临时错误分类。
 5. 实现通知 Processor 事务与唯一 source event 幂等处理。
 6. 实现 manual ack、retry/dead publish confirm 和 header 递增。
 7. 实现 topology/channel 恢复、consumer 重建和有界 shutdown。
-8. 用 fake delivery/publisher 覆盖所有 ack/nack/retry/dead 分支和并发关闭。
-9. 用真实 MySQL/RabbitMQ 验证正常、重复、Worker 停止/恢复、Broker 重启和 MySQL 短暂故障。
-10. 更新 README、版本和本批实施记录。
+8. 用 fake delivery/publisher 对成功、永久失败、临时失败和二次 publish 未 confirm 各保留一个代表性状态转换测试；不穷举 ack/nack/连接关闭排列。
+9. 用真实 MySQL/RabbitMQ 验证两类正常消息、相同 event ID 重复、一次 retry 成功和一条永久坏消息进入 dead queue。
+10. 对 Worker 做一次启动、信号关闭和未确认消息可重投 smoke；Broker/进程重启与完整故障恢复留到 Phase-02-05。
+11. 更新 README、版本和本批实施记录。
 
 ## 7. 风险与控制
 
@@ -108,31 +109,29 @@ dev/logs/Phase-02/Phase-02-03-BusinessWorker与幂等通知.md
 
 ## 8. 验证命令与必要回归
 
-至少执行：
+本节是本批固定完成清单，不是继续扩展测试的起点。最终 diff 上各命令执行一次；上下文压缩后沿用已通过结果。只有命令失败或实现实际改变了额外共享边界，才增加有明确原因的定向回归。
 
 ```bash
-cd backend && go test ./...
-cd backend && go vet ./...
-cd backend && go test -count=1 -race ./...
-cd backend && go test -count=1 -tags=integration ./...
-python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+(cd backend && go test ./cmd/business-worker ./internal/bus ./internal/config ./internal/notification ./internal/platform ./internal/worker ./migrations)
+(cd backend && go vet ./cmd/business-worker ./internal/notification ./internal/worker)
+(cd backend && go test -count=1 -race ./internal/notification ./internal/worker)
+(cd backend && go test -count=1 -tags=integration ./internal/notification ./internal/worker)
+(cd backend && go test ./internal/comment ./internal/like ./internal/outbox)
 python3 scripts/ci/validate_versions.py
 git diff --check
 ```
 
-新增独立进程、共享 topology、MySQL Schema 和消息确认语义，必须使用真实 MySQL/RabbitMQ integration。Phase 1 HTTP 写路径需回归以确认 Producer 未被 Worker 改坏；公共 Frontend 契约未变时无需执行完整浏览器验收。
+新增独立进程、MySQL Schema 和消息确认语义，因此保留真实 MySQL/RabbitMQ integration；只对 Worker/notification 运行 race/vet，并用 comment/like/outbox package 回归 Producer。公共 Frontend 契约未变，不运行 Frontend、Playwright 或完整 Phase 1 浏览器验收。RabbitMQ 容器重启、Worker 停止恢复、Backend 重启和 MySQL 故障矩阵统一由 Phase-02-05 执行，本批不得提前重复。
 
 ## 9. 验收标准
 
 - 两类合法消息各生成正确接收者的一条通知；self event 不生成通知。
-- 相同 event ID 顺序或并发重复投递，只存在一条 notification，所有重复最终被安全 ack。
-- Worker 停止时消息保留；恢复后继续处理且不要求重启 Backend。
-- MySQL 临时错误进入有限重试并最终成功；超过上限进入 dead queue。
+- 相同 event ID 重复投递后只存在一条 notification，重复消息被安全 ack；不要求额外穷举并发时序。
+- 代表性临时错误进入 retry 后成功；达到上限的状态转换由定向测试证明会进入 dead queue。
 - 非法/超限/未知事件直接死信，不阻塞后续合法消息。
 - retry/dead publish 未 confirm 时原消息不会被 ack。
-- RabbitMQ 重启、Channel 关闭和 Worker 重启后自动恢复消费。
 - SIGTERM 有界退出，未完成消息可重投，不泄漏凭据或 Payload。
-- 迁移、默认测试、race、vet 和真实 integration 全部通过。
+- 第 8 节固定门禁全部通过；Phase-02-05 所属的重启/故障矩阵尚未执行且不阻塞本批完成。
 
 ## 10. 明确完成条件
 

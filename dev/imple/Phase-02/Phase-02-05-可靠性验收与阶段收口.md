@@ -31,7 +31,7 @@
 
 扩展 `scripts/verify-business.sh`，继续使用随机 token、独立 Compose project、数据库、端口、进程目录和命名卷，并在任何停止/重启/删除前校验资源归属。
 
-故障矩阵至少覆盖：
+故障矩阵固定覆盖以下十项：
 
 1. 正常两用户注册、发帖、评论、首次点赞和通知 UI。
 2. 停止 Worker 后继续产生核心事实；队列保留消息，恢复 Worker 后通知各生成一次。
@@ -43,6 +43,8 @@
 8. 可恢复处理错误进入 delay retry 并最终成功；超过上限或永久坏消息进入 dead queue，后续合法消息继续处理。
 9. RabbitMQ 容器重启后 durable topology、持久消息和命名卷数据符合预期。
 10. Redis 清空/停止/恢复和 Backend 重启的 Phase 1 基线继续通过。
+
+以上十项是本批封闭故障矩阵。除非其中某项真实失败暴露新的 P0/P1 风险，不新增排列组合、重复时序、额外依赖故障或压力场景；同一最终构建上每项只执行一次。
 
 ### 3.3 CI 与文档收口
 
@@ -87,12 +89,12 @@ frontend/package-lock.json
 1. 核对前四批实施记录、未关闭限制和远程质量门禁。
 2. 扩展 `dev.sh` 的 Worker build/start/record/cleanup，保持已有锁与归属安全模型。
 3. 扩展 `down.sh` 和只读 `verify.sh` 的 Worker 管理与诊断。
-4. 为 Worker 生命周期、陈旧/伪造 record、启动失败和中断清理增加无 Docker 负向测试。
+4. 为 Worker 生命周期的正常启停增加正向测试，并从陈旧/伪造 record、启动失败和中断清理中按实际改动选择最低数量的代表性负向测试，不复制 Backend 已有同构边界的全部排列。
 5. 扩展 `verify-business.sh` 的隔离 Worker 进程和应用级通知断言。
 6. 为 RabbitMQ/Worker/MySQL 故障注入增加 project/container/port/PID 多重归属校验。
-7. 顺序执行本方案故障矩阵；每个故障恢复后先确认系统回到可验收状态。
+7. 顺序执行本方案封闭故障矩阵一次；每个故障恢复后先确认系统回到可验收状态。
 8. 扩展 CI integration 和 Bash/Compose 检查，确保不修改 PowerShell 基线。
-9. 运行 Backend、Frontend、治理、脚本和完整浏览器全量回归。
+9. 运行脚本治理和阶段级隔离验收；Backend/Frontend 只对本批实际修复的 package 或场景做定向回归，不重复前两批已通过的全量套件。
 10. 检查验收成功/失败/中断后无进程、容器、网络或 volume 泄漏，日常开发栈前后不变。
 11. 修复范围内阻断问题并只重跑可能受影响的验收，不无限重复已经稳定通过的检查。
 12. 更新 README、本批实施记录、总方案状态和最终版本，完成阶段提交。
@@ -107,16 +109,9 @@ frontend/package-lock.json
 
 ## 8. 验证命令与必要回归
 
-至少执行：
+本节是阶段收口的固定完成清单，不是追加测试的起点。最终 diff 上每项执行一次；某项失败后只重跑受修复影响的命令或矩阵项。上下文压缩不触发从头复验。
 
 ```bash
-cd backend && go test ./...
-cd backend && go vet ./...
-cd backend && go test -count=1 -race ./...
-cd backend && go test -count=1 -tags=integration ./...
-cd frontend && npm test -- --run
-cd frontend && npm run typecheck
-cd frontend && npm run build
 bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh
 scripts/verify-business.sh --self-test
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
@@ -125,7 +120,9 @@ scripts/verify-business.sh
 git diff --check
 ```
 
-完整验收只在 WSL2 Linux filesystem 和可确认的隔离资源上执行。若环境无法满足，不得把阶段标记完成或把未执行命令写成通过。
+`scripts/verify-business.sh` 是一次性阶段级 Backend/Frontend/真实基础设施回归入口，禁止再以“更稳妥”为由叠加独立全量 Backend、race、integration、Frontend 或 Playwright 套件。若本批为阻断缺陷修改应用代码，只补跑对应 package/场景的定向命令并记录风险依据。
+
+完整验收只在 WSL2 Linux filesystem 和可确认的隔离资源上执行。若环境无法满足，不得把阶段标记完成或把未执行命令写成通过，也不得用阅读更多源码或补 mock 边界测试代替缺失的环境证据。
 
 ## 9. 验收标准
 
@@ -134,7 +131,7 @@ git diff --check
 - 正常通知链路、消费者暂停/恢复、Broker 停止/恢复、Backend/Worker 重启、重复投递、有限重试和死信矩阵全部通过。
 - Broker 停止期间评论/首次点赞的 MySQL 事实与 Outbox 提交成功，恢复后通知自动补齐。
 - 队列/进程恢复不会产生重复通知，毒消息不会阻塞合法消息。
-- Phase 1 全部核心业务、Redis 降级、认证恢复和浏览器交互无回归。
+- `scripts/verify-business.sh` 中既定的 Phase 1 核心业务、Redis 降级、认证恢复和浏览器交互无回归；不另跑重复套件。
 - CI 对 MySQL/Redis/RabbitMQ integration 强制执行，Bash 安全测试通过。
 - 验收未改变用户 `.env`、日常数据库/Redis/RabbitMQ 数据或非本次 Compose/进程资源。
 - PowerShell 文件与 `0.2.1` 冻结基线保持不变。
