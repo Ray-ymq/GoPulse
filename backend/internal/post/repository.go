@@ -5,6 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 )
 
 var ErrNotFound = errors.New("post not found")
@@ -23,12 +28,34 @@ type database interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-type MySQLRepository struct {
-	database database
+type transactionStarter interface {
+	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
 
-func NewMySQLRepository(database database) *MySQLRepository {
-	return &MySQLRepository{database: database}
+type RepositoryOptions struct {
+	Outbox outbox.Writer
+	Clock  func() time.Time
+}
+
+type MySQLRepository struct {
+	database database
+	outbox   outbox.Writer
+	clock    func() time.Time
+}
+
+func NewMySQLRepository(database database, options ...RepositoryOptions) *MySQLRepository {
+	repository := &MySQLRepository{database: database, clock: time.Now}
+	if len(options) > 0 {
+		repository.outbox = options[0].Outbox
+		if options[0].Clock != nil {
+			repository.clock = options[0].Clock
+		}
+	}
+	return repository
+}
+
+func NewMySQLRepositoryWithOutbox(database database, eventOutbox outbox.Writer) *MySQLRepository {
+	return NewMySQLRepository(database, RepositoryOptions{Outbox: eventOutbox})
 }
 
 const postPublicReadSelect = `
@@ -65,12 +92,37 @@ FROM posts AS p %s
 INNER JOIN users AS u ON u.id = p.author_id`
 
 func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, title, content string) (Post, error) {
-	result, err := repository.database.ExecContext(ctx,
-		`INSERT INTO posts (author_id, title, content) VALUES (?, ?, ?)`,
-		authorID,
-		title,
-		content,
-	)
+	if repository.outbox == nil {
+		return createPost(ctx, repository.database, authorID, title, content)
+	}
+	starter, ok := repository.database.(transactionStarter)
+	if !ok {
+		return Post{}, errors.New("create post: database does not support transactions")
+	}
+	transaction, err := starter.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return Post{}, errors.New("begin post transaction")
+	}
+	defer transaction.Rollback()
+	record, err := createPost(ctx, transaction, authorID, title, content)
+	if err != nil {
+		return Post{}, err
+	}
+	event, err := bus.NewPostCreated(repository.clock().UTC(), authorID, record.ID)
+	if err != nil {
+		return Post{}, errors.New("create post event")
+	}
+	if err := repository.outbox.Insert(ctx, transaction, event); err != nil {
+		return Post{}, errors.New("create post outbox event")
+	}
+	if err := transaction.Commit(); err != nil {
+		return Post{}, errors.New("commit post transaction")
+	}
+	return record, nil
+}
+
+func createPost(ctx context.Context, database database, authorID uint64, title, content string) (Post, error) {
+	result, err := database.ExecContext(ctx, `INSERT INTO posts (author_id, title, content) VALUES (?, ?, ?)`, authorID, title, content)
 	if err != nil {
 		return Post{}, fmt.Errorf("create post: %w", err)
 	}
@@ -78,7 +130,7 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 	if err != nil || identifier <= 0 {
 		return Post{}, errors.New("create post: invalid inserted identifier")
 	}
-	projection, err := repository.FindPublicByID(ctx, uint64(identifier))
+	projection, err := findPublicByID(ctx, database, uint64(identifier))
 	if err != nil {
 		return Post{}, err
 	}
@@ -123,7 +175,11 @@ LIMIT ?`
 }
 
 func (repository *MySQLRepository) FindPublicByID(ctx context.Context, postID uint64) (PublicProjection, error) {
-	row := repository.database.QueryRowContext(ctx, fmt.Sprintf(postPublicReadSelect, "")+`
+	return findPublicByID(ctx, repository.database, postID)
+}
+
+func findPublicByID(ctx context.Context, database database, postID uint64) (PublicProjection, error) {
+	row := database.QueryRowContext(ctx, fmt.Sprintf(postPublicReadSelect, "")+`
 WHERE p.id = ?`, postID)
 	projection, err := scanPublicProjection(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -230,4 +286,49 @@ func FindAuthorIDForUpdate(ctx context.Context, database RowQueryer, postID uint
 		return 0, fmt.Errorf("find post author: %w", err)
 	}
 	return authorID, nil
+}
+
+// FindMany hydrates one bounded ordered set of search hits from MySQL. The SQL
+// query is set based; the requested Elasticsearch order is restored in Go.
+func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64, identifiers []uint64) ([]Post, error) {
+	if viewerID == 0 || len(identifiers) == 0 || len(identifiers) > MaximumLimit {
+		return nil, errors.New("find many posts: invalid arguments")
+	}
+	placeholders := make([]string, len(identifiers))
+	arguments := make([]any, 0, len(identifiers)+1)
+	arguments = append(arguments, viewerID)
+	for index, identifier := range identifiers {
+		if identifier == 0 {
+			return nil, errors.New("find many posts: invalid identifier")
+		}
+		placeholders[index] = "?"
+		arguments = append(arguments, identifier)
+	}
+	query := fmt.Sprintf(postListReadSelect, "") + `
+WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := repository.database.QueryContext(ctx, query, arguments...)
+	if err != nil {
+		return nil, fmt.Errorf("find many posts: %w", err)
+	}
+	defer rows.Close()
+	byID := make(map[uint64]Post, len(identifiers))
+	for rows.Next() {
+		record, err := scanPost(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("find many posts: %w", err)
+		}
+		byID[record.ID] = record
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("find many posts: %w", err)
+	}
+	ordered := make([]Post, 0, len(identifiers))
+	for _, identifier := range identifiers {
+		record, ok := byID[identifier]
+		if !ok {
+			return nil, fmt.Errorf("find many posts: post %d is missing", identifier)
+		}
+		ordered = append(ordered, record)
+	}
+	return ordered, nil
 }

@@ -24,6 +24,7 @@ async function signOut(): Promise<void> {
     <RouterLink class="brand" to="/posts">GoPulse</RouterLink>
     <nav v-if="auth.status.value === 'authenticated'" class="app-nav" aria-label="主导航">
       <RouterLink to="/posts">帖子</RouterLink>
+      <RouterLink to="/search">搜索</RouterLink>
       <RouterLink to="/notifications">通知</RouterLink>
       <RouterLink class="button button--small" to="/posts/new">发布</RouterLink>
       <span class="nav-user">@{{ auth.user.value?.username }}</span>

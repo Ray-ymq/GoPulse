@@ -30,6 +30,25 @@ function isTimestamp(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
 }
 
+function isPost(value: unknown): value is Post {
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'title', 'content', 'created_at', 'updated_at', 'author', 'comment_count', 'like_count', 'liked_by_me'])) return false
+  if (!isRecord(value.author) || !hasExactKeys(value.author, ['id', 'username'])) return false
+  return isPositiveID(value.id)
+    && typeof value.title === 'string'
+    && typeof value.content === 'string'
+    && isTimestamp(value.created_at)
+    && isTimestamp(value.updated_at)
+    && isPositiveID(value.author.id)
+    && typeof value.author.username === 'string'
+    && Number.isSafeInteger(value.comment_count)
+    && typeof value.comment_count === 'number'
+    && value.comment_count >= 0
+    && Number.isSafeInteger(value.like_count)
+    && typeof value.like_count === 'number'
+    && value.like_count >= 0
+    && typeof value.liked_by_me === 'boolean'
+}
+
 function isNotification(value: unknown): value is Notification {
   if (!isRecord(value) || !hasExactKeys(value, ['id', 'type', 'created_at', 'read_at', 'actor', 'post_id', 'comment_id'])) return false
   if (!isRecord(value.actor) || !hasExactKeys(value.actor, ['id', 'username'])) return false
@@ -90,4 +109,12 @@ export const notificationApi = {
     ),
   markRead: (notificationId: number) =>
     requestVoid(`/notifications/${notificationId}/read`, { method: 'PATCH' }),
+}
+
+export const searchApi = {
+  posts: (query: string, cursor?: string, limit = 20): Promise<Page<Post>> =>
+    requestValidatedPage<Post>(
+      `/search/posts?q=${encodeURIComponent(query)}&limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`,
+      isPost,
+    ),
 }

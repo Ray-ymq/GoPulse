@@ -25,9 +25,10 @@ type Checker interface {
 }
 
 type Dependencies struct {
-	MySQL    Checker
-	Redis    Checker
-	RabbitMQ Checker
+	MySQL         Checker
+	Redis         Checker
+	RabbitMQ      Checker
+	Elasticsearch Checker
 }
 
 type healthResponse struct {
@@ -36,9 +37,10 @@ type healthResponse struct {
 }
 
 type readinessChecks struct {
-	MySQL    string `json:"mysql"`
-	Redis    string `json:"redis"`
-	RabbitMQ string `json:"rabbitmq"`
+	MySQL         string `json:"mysql"`
+	Redis         string `json:"redis"`
+	RabbitMQ      string `json:"rabbitmq"`
+	Elasticsearch string `json:"elasticsearch"`
 }
 
 type readinessResponse struct {
@@ -111,6 +113,7 @@ func readinessHandler(dependencies Dependencies, checkerTimeout, requestTimeout 
 		newCheckerRunner("mysql", dependencies.MySQL),
 		newCheckerRunner("redis", dependencies.Redis),
 		newCheckerRunner("rabbitmq", dependencies.RabbitMQ),
+		newCheckerRunner("elasticsearch", dependencies.Elasticsearch),
 	}
 
 	return func(c *gin.Context) {
@@ -133,9 +136,10 @@ func readinessHandler(dependencies Dependencies, checkerTimeout, requestTimeout 
 		}()
 
 		statuses := map[string]string{
-			"mysql":    statusDown,
-			"redis":    statusDown,
-			"rabbitmq": statusDown,
+			"mysql":         statusDown,
+			"redis":         statusDown,
+			"rabbitmq":      statusDown,
+			"elasticsearch": statusDown,
 		}
 
 		remaining := len(runners)
@@ -155,7 +159,7 @@ func readinessHandler(dependencies Dependencies, checkerTimeout, requestTimeout 
 
 		responseStatus := "ready"
 		httpStatus := stdhttp.StatusOK
-		if statuses["mysql"] != statusUp || statuses["redis"] != statusUp || statuses["rabbitmq"] != statusUp {
+		if statuses["mysql"] != statusUp || statuses["redis"] != statusUp || statuses["rabbitmq"] != statusUp || statuses["elasticsearch"] != statusUp {
 			responseStatus = "not_ready"
 			httpStatus = stdhttp.StatusServiceUnavailable
 		}
@@ -164,9 +168,10 @@ func readinessHandler(dependencies Dependencies, checkerTimeout, requestTimeout 
 			Status:  responseStatus,
 			Service: "backend",
 			Checks: readinessChecks{
-				MySQL:    statuses["mysql"],
-				Redis:    statuses["redis"],
-				RabbitMQ: statuses["rabbitmq"],
+				MySQL:         statuses["mysql"],
+				Redis:         statuses["redis"],
+				RabbitMQ:      statuses["rabbitmq"],
+				Elasticsearch: statuses["elasticsearch"],
 			},
 		})
 	}

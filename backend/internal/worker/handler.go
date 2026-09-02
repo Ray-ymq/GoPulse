@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -28,6 +27,7 @@ type ConfirmingPublisher interface {
 }
 
 type HandlerOptions struct {
+	Profile        Profile
 	MaxRetries     int
 	PublishTimeout time.Duration
 	Logger         func(string, ...any)
@@ -39,6 +39,7 @@ type Handler struct {
 	maxRetries     int
 	publishTimeout time.Duration
 	logger         func(string, ...any)
+	profile        Profile
 }
 
 func NewHandler(processor Processor, publisher ConfirmingPublisher, options HandlerOptions) (*Handler, error) {
@@ -51,13 +52,14 @@ func NewHandler(processor Processor, publisher ConfirmingPublisher, options Hand
 	if options.PublishTimeout <= 0 {
 		return nil, errors.New("worker publish timeout must be positive")
 	}
+	profile := normalizeProfile(options.Profile)
 	logger := options.Logger
 	if logger == nil {
 		logger = log.Printf
 	}
 	return &Handler{
 		processor: processor, publisher: publisher, maxRetries: options.MaxRetries,
-		publishTimeout: options.PublishTimeout, logger: logger,
+		publishTimeout: options.PublishTimeout, logger: logger, profile: profile,
 	}, nil
 }
 
@@ -75,23 +77,32 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	if decodeErr != nil {
 		return handler.deadLetter(ctx, delivery, attempt, decodeErr.Error())
 	}
-	if envelope.ActorID == envelope.RecipientID {
+	if !handler.profile.allows(delivery.RoutingKey) {
+		return handler.deadLetter(ctx, delivery, attempt, "routing_key_not_allowed")
+	}
+	if handler.profile.IgnoreSelfEvents && envelope.ActorID == envelope.RecipientID {
 		if err := delivery.Ack(false); err != nil {
 			return errors.New("ack self event")
 		}
 		return nil
 	}
 
-	if err := handler.processor.Process(ctx, envelope); err == nil {
+	processErr := handler.processor.Process(ctx, envelope)
+	if processErr == nil {
 		if err := delivery.Ack(false); err != nil {
 			return errors.New("ack processed event")
 		}
 		return nil
-	} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	}
+	if errors.Is(processErr, context.Canceled) || errors.Is(processErr, context.DeadlineExceeded) {
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
 			return errors.New("requeue canceled event")
 		}
-		return err
+		return processErr
+	}
+
+	if IsPermanent(processErr) {
+		return handler.deadLetter(ctx, delivery, attempt, processErr.Error())
 	}
 
 	if attempt < handler.maxRetries {
@@ -105,7 +116,7 @@ func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextA
 	message.Headers[AttemptHeader] = int32(nextAttempt)
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
 	defer cancel()
-	if err := handler.publisher.Publish(publishContext, platform.BusinessRetryExchange, safeRoutingKey(delivery.RoutingKey), message); err != nil {
+	if err := handler.publisher.Publish(publishContext, handler.profile.Topology.RetryExchange, handler.safeRoutingKey(delivery.RoutingKey), message); err != nil {
 		handler.log(delivery, nextAttempt, "retry_publish_failed")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
 			return errors.New("requeue after retry publish failure")
@@ -124,7 +135,7 @@ func (handler *Handler) deadLetter(ctx context.Context, delivery amqp.Delivery, 
 	message.Headers[AttemptHeader] = int32(attempt)
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
 	defer cancel()
-	if err := handler.publisher.Publish(publishContext, platform.BusinessDeadExchange, safeRoutingKey(delivery.RoutingKey), message); err != nil {
+	if err := handler.publisher.Publish(publishContext, handler.profile.Topology.DeadExchange, handler.safeRoutingKey(delivery.RoutingKey), message); err != nil {
 		handler.log(delivery, attempt, "dead_publish_failed")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
 			return errors.New("requeue after dead publish failure")
@@ -140,7 +151,7 @@ func (handler *Handler) deadLetter(ctx context.Context, delivery amqp.Delivery, 
 
 func (handler *Handler) log(delivery amqp.Delivery, attempt int, reason string) {
 	eventID, eventType := deliveryIdentity(delivery)
-	handler.logger("business worker event_id=%s event_type=%s attempt=%d reason=%s", eventID, eventType, attempt, reason)
+	handler.logger("%s event_id=%s event_type=%s attempt=%d reason=%s", handler.profile.Name, eventID, eventType, attempt, reason)
 }
 
 func publishingFromDelivery(delivery amqp.Delivery) amqp.Publishing {
@@ -157,15 +168,13 @@ func publishingFromDelivery(delivery amqp.Delivery) amqp.Publishing {
 	}
 }
 
-func safeRoutingKey(routingKey string) string {
-	switch routingKey {
-	case bus.CommentCreatedRoutingKey, bus.PostLikedRoutingKey:
+func (handler *Handler) safeRoutingKey(routingKey string) string {
+	if handler.profile.allows(routingKey) {
 		return routingKey
-	default:
-		return platform.BusinessInvalidRoutingKey
 	}
+	return handler.profile.Topology.InvalidRoutingKey
 }
 
 func (handler *Handler) String() string {
-	return fmt.Sprintf("business worker handler(max_retries=%d)", handler.maxRetries)
+	return fmt.Sprintf("%s handler(max_retries=%d)", handler.profile.Name, handler.maxRetries)
 }
