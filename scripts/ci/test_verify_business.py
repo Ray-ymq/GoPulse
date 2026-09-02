@@ -9,6 +9,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "verify-business.sh"
+LIFECYCLE_SCRIPTS = tuple(REPO / "scripts" / name for name in ("dev.sh", "down.sh", "verify.sh", "verify-business.sh"))
 
 
 class VerifyBusinessSafetyTests(unittest.TestCase):
@@ -47,10 +48,35 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertNotIn("docker system prune", source)
         self.assertNotIn("redis-cli FLUSHALL", source)
 
-    def test_script_has_lf_line_endings_and_valid_bash_syntax(self) -> None:
-        content = SCRIPT.read_bytes()
-        self.assertNotIn(b"\r\n", content)
-        subprocess.run(["bash", "-n", str(SCRIPT)], cwd=REPO, check=True)
+    def test_lifecycle_scripts_are_executable_lf_and_valid_bash(self) -> None:
+        for script in LIFECYCLE_SCRIPTS:
+            with self.subTest(script=script.name):
+                self.assertTrue(script.stat().st_mode & 0o111, f"{script.name} must remain executable")
+                self.assertNotIn(b"\r\n", script.read_bytes())
+                subprocess.run(["bash", "-n", str(script)], cwd=REPO, check=True)
+
+    def test_worker_lifecycle_uses_repository_owned_records(self) -> None:
+        dev = (REPO / "scripts" / "dev.sh").read_text(encoding="utf-8")
+        down = (REPO / "scripts" / "down.sh").read_text(encoding="utf-8")
+        verify = (REPO / "scripts" / "verify.sh").read_text(encoding="utf-8")
+        for source in (dev, down, verify):
+            self.assertIn("business-worker.json", source)
+            self.assertIn("gopulse-business-worker", source)
+        self.assertIn('write_process_record "$WORKER_PID" "$WORKER_RECORD"', dev)
+        self.assertIn('stop_recorded_application "Business Worker" "$WORKER_RECORD"', down)
+        self.assertIn("actual_start_ticks != start_ticks", verify)
+        self.assertIn("actual_executable != executable", verify)
+        self.assertNotIn('rm -f "$WORKER_RECORD"', verify)
+
+    def test_fault_injection_validates_owned_targets_first(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        for service, container_port in (("mysql", "3306"), ("redis", "6379"), ("rabbitmq", "5672")):
+            self.assertIn(f"verify_service_ownership {service} {container_port}", source)
+        self.assertIn('validate_process_ownership "$WORKER_PID"', source)
+        self.assertLess(
+            source.index('validate_process_ownership "$WORKER_PID"'),
+            source.index('kill -STOP -- "-$WORKER_PID"'),
+        )
 
 
 if __name__ == "__main__":
