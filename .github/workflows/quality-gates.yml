@@ -90,7 +90,7 @@ jobs:
           set -euo pipefail
           rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
           printf '%s\n' "$rendered"
-          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 4 ]]
+          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 5 ]]
 
   integration:
     name: Integration
