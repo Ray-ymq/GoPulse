@@ -14,20 +14,30 @@ import (
 type dispatcherStoreFake struct {
 	mu sync.Mutex
 
-	records    []Record
-	claimErr   error
-	markErr    error
-	releaseErr error
+	records       []Record
+	claimErr      error
+	markErr       error
+	releaseErr    error
+	cleanupErr    error
+	cleanupResult int64
+	cleanupCalled chan struct{}
+	cleanupOnce   sync.Once
 
 	claimCalls   int
 	markCalls    []uint64
 	releaseCalls []dispatcherReleaseCall
+	cleanupCalls []dispatcherCleanupCall
 }
 
 type dispatcherReleaseCall struct {
 	id      uint64
 	owner   string
 	failure FailureCode
+}
+
+type dispatcherCleanupCall struct {
+	cutoff time.Time
+	batch  int
 }
 
 func (store *dispatcherStoreFake) Claim(_ context.Context, owner string, _ int, _ time.Duration) ([]Record, error) {
@@ -57,6 +67,16 @@ func (store *dispatcherStoreFake) ReleaseFailed(_ context.Context, id uint64, ow
 	defer store.mu.Unlock()
 	store.releaseCalls = append(store.releaseCalls, dispatcherReleaseCall{id: id, owner: owner, failure: failure})
 	return store.releaseErr
+}
+
+func (store *dispatcherStoreFake) CleanupPublished(_ context.Context, cutoff time.Time, batch int) (int64, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.cleanupCalls = append(store.cleanupCalls, dispatcherCleanupCall{cutoff: cutoff, batch: batch})
+	if store.cleanupCalled != nil {
+		store.cleanupOnce.Do(func() { close(store.cleanupCalled) })
+	}
+	return store.cleanupResult, store.cleanupErr
 }
 
 type dispatcherPublisherFake struct {
@@ -232,6 +252,39 @@ func TestDispatcherCancellationLeavesInFlightLeaseForRecovery(t *testing.T) {
 	}
 }
 
+func TestDispatcherRunSchedulesPublishedCleanup(t *testing.T) {
+	store := &dispatcherStoreFake{cleanupCalled: make(chan struct{})}
+	publisher := &dispatcherPublisherFake{}
+	dispatcher := newDispatcherForTest(t, store, publisher)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- dispatcher.Run(ctx) }()
+
+	select {
+	case <-store.cleanupCalled:
+	case <-time.After(time.Second):
+		t.Fatal("Run() did not schedule published cleanup")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run() did not stop after cleanup cancellation")
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.cleanupCalls) != 1 {
+		t.Fatalf("cleanup calls=%d, want 1", len(store.cleanupCalls))
+	}
+	if store.cleanupCalls[0].batch != DefaultDispatcherCleanupBatch {
+		t.Fatalf("cleanup batch=%d, want %d", store.cleanupCalls[0].batch, DefaultDispatcherCleanupBatch)
+	}
+}
+
 func TestDispatcherRunStopsWithoutClaimingAfterCancellation(t *testing.T) {
 	store := &dispatcherStoreFake{}
 	publisher := &dispatcherPublisherFake{}
@@ -254,28 +307,17 @@ func TestDispatcherRunStopsWithoutClaimingAfterCancellation(t *testing.T) {
 	}
 }
 
-func TestNewDispatcherRejectsPublishTimeoutThatCanOutliveLease(t *testing.T) {
+func TestNewDispatcherRejectsLeaseThatCannotCoverClaimBatch(t *testing.T) {
 	store := &dispatcherStoreFake{}
 	publisher := &dispatcherPublisherFake{}
-	for _, test := range []struct {
-		name           string
-		leaseDuration  time.Duration
-		publishTimeout time.Duration
-	}{
-		{name: "equal", leaseDuration: time.Second, publishTimeout: time.Second},
-		{name: "longer", leaseDuration: time.Second, publishTimeout: 2 * time.Second},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := NewDispatcher(store, publisher, DispatcherOptions{
-				Owner:          "dispatcher-test",
-				PollInterval:   10 * time.Millisecond,
-				ClaimBatch:     1,
-				LeaseDuration:  test.leaseDuration,
-				PublishTimeout: test.publishTimeout,
-			})
-			if err == nil || !strings.Contains(err.Error(), "publish timeout") || !strings.Contains(err.Error(), "lease duration") {
-				t.Fatalf("NewDispatcher() error = %v, want timeout/lease validation", err)
-			}
-		})
+	_, err := NewDispatcher(store, publisher, DispatcherOptions{
+		Owner:          "dispatcher-test",
+		PollInterval:   10 * time.Millisecond,
+		ClaimBatch:     10,
+		LeaseDuration:  30 * time.Second,
+		PublishTimeout: 5 * time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "full claim batch publish budget") {
+		t.Fatalf("NewDispatcher() error = %v, want batch publish budget validation", err)
 	}
 }

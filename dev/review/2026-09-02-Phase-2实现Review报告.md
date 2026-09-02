@@ -407,3 +407,20 @@ Phase 2 核心目标已经实现，端到端业务和可靠性矩阵真实通过
 6. 在推送 `develop/0.3.6` 前解决其权威批次分配；本次 Review 不修改 `VERSION=0.3.5`。
 
 关闭 P2-04 后，仓库可以在治理层正式宣告 Phase 2 完成；关闭 P2-01、P2-02 和 P2-03 后，异步基础才适合在更高流量、多实例和 Phase 3 索引链路中继续复用。
+
+## 11. Review 整改执行结果（2026-09-02）
+
+本报告列出的关闭条件已由 `Phase-02-06` 在权威分支 `develop/0.3.6` 完成本地整改，目标版本为 `0.3.6`。原 Review 基线、风险分级和验证记录保留为当时事实，不回写为整改前已经通过。
+
+| Finding | 整改结果 |
+| --- | --- |
+| P2-01 | Backend Outbox Dispatcher 已接入可取消的 published cleanup 循环，按保留期和有界 batch 删除，仅处理过期 `published` 行；清理失败不阻断投递。 |
+| P2-02 | 配置加载与 Dispatcher 构造均校验 `claim batch × publish timeout + 1s <= lease duration`，默认租约调整为 `1m`。 |
+| P2-03 | Worker shutdown 先给予在途处理 grace period，超时后取消 processing context，并等待 handler goroutine 退出后才返回。 |
+| P2-04 | README 与 Phase 2 总实施方案已记录 PR #39 合入、远程门禁通过和阶段里程碑完成事实；Phase-02-05 实施记录仍保留执行当时的历史状态。 |
+| P3-01 | 自动 PR workflow 在创建 PR 前比较 head 与 `main` 的文件差异；tree 无变化时跳过 PR 创建和自动合并，既有历史提交不重写。 |
+| 分支治理条件 | Phase 2 总实施方案已新增 `Phase-02-06` → `0.3.6` → `develop/0.3.6` 权威分配，分支治理校验通过。 |
+
+本批固定完成门禁已通过：Backend 默认测试、vet、race，Frontend 42 项测试与 production build，18 项治理测试，版本与分支校验，Bash 语法和验收安全自测，以及 Compose 渲染后的 4 个 loopback published port 检查。根据整改方案的风险边界，没有重复执行已在 Phase-02-05 和本报告 Review 中通过的完整 Chromium E2E 与十项故障矩阵。
+
+因此，4 项 P2、1 项 P3 以及 `develop/0.3.6` 的权威分配条件均已在本地关闭，未发现 P0/P1 阻塞。远程 PR、合并与远程门禁结果尚未执行，不在本地关闭结论中预先声明。
