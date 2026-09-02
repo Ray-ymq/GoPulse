@@ -11,6 +11,7 @@ on:
       - main
 
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
@@ -32,7 +33,7 @@ jobs:
   open-and-merge:
     if: github.actor == 'Ray-ymq'
     needs: quality-gates
-    name: Open PR and enable auto-merge
+    name: Open PR, wait for CI, and enable auto-merge
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -84,7 +85,7 @@ jobs:
             )"
             body="$(
               printf '%s\n\n- Source: `%s`\n- Target: `%s`\n- Commit: `%s`\n- Quality gates: %s/%s/actions/runs/%s\n' \
-                'Automatically created after the branch passed the repository quality and governance gates. This PR uses auto-merge so protected-branch requirements remain authoritative.' \
+                'Automatically created after the branch passed the repository quality and governance gates. Merge is enabled only after the pull-request CI run succeeds, so protected-branch requirements remain authoritative.' \
                 "$HEAD_BRANCH" \
                 "$BASE_BRANCH" \
                 "$HEAD_SHA" \
@@ -117,6 +118,48 @@ jobs:
             echo "number=${pr_number}"
             echo "url=${pr_url}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Wait for pull-request CI
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ci_run_id=""
+          ci_run_url=""
+          max_attempts=30
+          retry_delay_seconds=5
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            run_json="$(
+              gh run list \
+                --repo "$GH_REPO" \
+                --workflow ci.yml \
+                --event pull_request \
+                --commit "$HEAD_SHA" \
+                --limit 1 \
+                --json databaseId,url
+            )"
+            ci_run_id="$(jq -r '.[0].databaseId // empty' <<<"$run_json")"
+            ci_run_url="$(jq -r '.[0].url // empty' <<<"$run_json")"
+            if [[ -n "$ci_run_id" ]]; then
+              break
+            fi
+            if [[ "$attempt" -eq "$max_attempts" ]]; then
+              printf 'No pull-request CI run appeared for %s at %s.\n' "$PR_URL" "$HEAD_SHA" >&2
+              exit 1
+            fi
+            printf 'Waiting for pull-request CI run for %s (%s/%s).\n' "$HEAD_SHA" "$attempt" "$max_attempts"
+            sleep "$retry_delay_seconds"
+          done
+
+          printf 'Waiting for pull-request CI run %s: %s\n' "$ci_run_id" "$ci_run_url"
+          gh run watch "$ci_run_id" --repo "$GH_REPO" --interval 10 --exit-status
 
       - name: Enable auto-merge
         if: steps.changes.outputs.has_changes == 'true'
@@ -187,7 +230,7 @@ jobs:
             sleep "$retry_delay_seconds"
           done
 
-          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: auto after quality gates\n- Head commit: `%s`\n- Auto-merge enable attempts: %s\n' \
+          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: auto after push gates and pull-request CI\n- Head commit: `%s`\n- Auto-merge enable attempts: %s\n' \
             "$PR_URL" \
             "$merge_strategy" \
             "$HEAD_SHA" \
