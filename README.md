@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **0.3.4**. Phase 1 provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache. Phase 2 delivers comment and first-like events through the transactional Outbox to an independent Business Worker, persists idempotent MySQL notifications, and now exposes those recipient-scoped facts through an authenticated API and Frontend notification page.
+GoPulse is currently at product version **0.3.6**. Phase 1 provides a browser-operable minimum business system backed by MySQL, with Redis used only as a degradable post-detail cache. Phase 2 delivers comment and first-like events through the transactional Outbox to an independent Business Worker, persists idempotent MySQL notifications, and exposes those recipient-scoped facts through an authenticated API and Frontend notification page. The Phase 2 Review closeout adds bounded published-row retention, full-batch lease budgeting, and cancellation-safe Worker shutdown.
 
 The repository currently provides:
 
@@ -49,7 +49,7 @@ The first `dev.sh` run creates `.env` from `.env.example` when `.env` is absent.
 cp .env.example .env
 ```
 
-Workspaces created before Phase-01-01 must manually add the Phase 1 values from `.env.example`, including `AUTH_JWT_SECRET`, `AUTH_JWT_TTL`, `AUTH_COOKIE_NAME`, `AUTH_COOKIE_SECURE`, `REDIS_POST_DETAIL_TTL`, and `REDIS_OPERATION_TIMEOUT`. The development script does not overwrite an existing `.env`.
+Workspaces created before Phase-01-01 must manually add the Phase 1 values from `.env.example`, including `AUTH_JWT_SECRET`, `AUTH_JWT_TTL`, `AUTH_COOKIE_NAME`, `AUTH_COOKIE_SECURE`, `REDIS_POST_DETAIL_TTL`, and `REDIS_OPERATION_TIMEOUT`. Existing `.env` files must also include the Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*` values shown in `.env.example`. The development script does not overwrite an existing `.env`.
 
 The checked-in values are development-only credentials. Do not reuse them in production or commit a local `.env`. `APP_ENV` must be `development`, `test`, or `production`. Production requires `AUTH_COOKIE_SECURE=true`; local development and tests may explicitly use `false` for HTTP.
 
@@ -69,10 +69,11 @@ The script performs the following sequence:
 2. starts MySQL, Redis, and RabbitMQ with Docker Compose;
 3. waits for all infrastructure health checks;
 4. runs `go run ./cmd/migrate up` in `backend/`;
-5. builds and starts the Backend;
-6. installs reproducible Frontend dependencies when required and starts Vite.
+5. builds the Backend and Business Worker binaries;
+6. starts the Backend and independent Business Worker;
+7. installs reproducible Frontend dependencies when required and starts Vite.
 
-A failed migration stops Backend and Frontend startup. With the default configuration, the environment provides:
+A failed migration or application startup stops only the Backend, Business Worker, and Frontend processes started by that invocation. With the default configuration, the environment provides:
 
 | Service | Address |
 | --- | --- |
@@ -88,7 +89,7 @@ A failed migration stops Backend and Frontend startup. With the default configur
 
 When `HTTP_PORT` changes, the Backend, Vite proxies for `/health`, `/ready`, and `/api/v1`, and `verify.sh` all use the same resolved port. Caller environment overrides handled by `dev.sh` are passed explicitly to Vite.
 
-Keep the foreground command running. `Ctrl+C` stops Backend and Frontend while leaving the Compose infrastructure and named volumes available.
+Keep the foreground command running. `Ctrl+C` stops Frontend, Business Worker, and Backend in that order while leaving the Compose infrastructure and named volumes available. Repository-owned identity records are stored as `.run/frontend.json`, `.run/business-worker.json`, and `.run/backend.json`; each record binds the PID to its cwd, executable, start ticks, and command marker before cleanup is allowed.
 
 ## Verify a running environment
 
@@ -96,7 +97,7 @@ Keep the foreground command running. `Ctrl+C` stops Backend and Frontend while l
 /home/<user>/src/GoPulse/scripts/verify.sh
 ```
 
-`verify.sh` is read-only. It reads the configured `HTTP_PORT`, checks the three Compose services, validates `/health` and `/ready`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, likes, or cache entries.
+`verify.sh` is read-only. It reads the configured `HTTP_PORT`, checks the three Compose services, verifies that the Business Worker PID still matches its repository-owned cwd, executable, start ticks, and command marker, validates `/health` and `/ready`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
 
 For complete destructive integration acceptance, run:
 
@@ -104,7 +105,7 @@ For complete destructive integration acceptance, run:
 /home/<user>/src/GoPulse/scripts/verify-business.sh
 ```
 
-`verify-business.sh` creates a random 12-character acceptance token and uses it to derive a strictly whitelisted Compose project and database. It allocates non-default loopback ports, uses a temporary environment and process directory, and never modifies `.env` or `.run`. The script exercises API and real Chromium flows, Backend restart persistence, acceptance-Redis `FLUSHDB`, Redis outage degradation, and recovery without restarting Backend. Before stopping, restarting, clearing, or deleting anything, it validates project labels, container IDs, and published ports. Exit, failure, and signal traps remove only that verified acceptance project and its volumes, then compare the daily development stack snapshot.
+`verify-business.sh` creates a random 12-character acceptance token and uses it to derive a strictly whitelisted Compose project and database. It allocates non-default loopback ports, uses a temporary environment and process directory, and never modifies `.env` or `.run`. The closed Phase 2 matrix covers real Chromium notification flow, Worker pause/recovery, RabbitMQ outage and recovery, pending Outbox plus Backend restart, unacked Worker restart, duplicate delivery, delayed retry, dead queue continuity, RabbitMQ durable restart, and the Phase 1 Redis/restart baseline. Before stopping, restarting, clearing, or deleting anything, it validates project labels, container IDs, persistent port bindings, and application PID ownership. Exit, failure, and signal traps remove only that verified acceptance project and its volumes, then compare the daily development stack snapshot.
 
 The no-Docker negative safety checks can be run independently:
 
@@ -118,7 +119,7 @@ scripts/verify-business.sh --self-test
 /home/<user>/src/GoPulse/scripts/down.sh
 ```
 
-`down.sh` validates and stops recorded application processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, and RabbitMQ named volumes. It is safe to run repeatedly.
+`down.sh` validates and stops the recorded Frontend, Business Worker, and Backend processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, and RabbitMQ named volumes. It is safe to run repeatedly and refuses to signal a process whose record no longer proves repository ownership.
 
 ## Database migrations
 
@@ -153,20 +154,17 @@ The shared durable direct topology contract is centralized in Backend code:
 
 Migration `000002_business_outbox` adds the constrained `business_outbox` table. Comment creation and a user's first non-self like now write their business fact and event in the same MySQL transaction; duplicate likes, self actions, and unlike operations do not create notification events. Redis invalidation remains a best-effort operation after commit.
 
-The Backend starts a lifecycle-bound Outbox Dispatcher that claims finite leased batches and lazily connects to RabbitMQ. It publishes persistent mandatory messages, waits for publisher confirms, and marks a row published only after a confirmed routable delivery. Broker outages, nacks, returns, timeouts, and connection loss leave the MySQL fact committed and release or preserve the event for bounded retry. `OUTBOX_POLL_INTERVAL`, `OUTBOX_CLAIM_BATCH`, `OUTBOX_LEASE_DURATION`, `OUTBOX_PUBLISH_TIMEOUT`, and `OUTBOX_RETRY_DELAY` control the delivery loop.
+The Backend starts a lifecycle-bound Outbox Dispatcher that claims finite leased batches and lazily connects to RabbitMQ. It publishes persistent mandatory messages, waits for publisher confirms, and marks a row published only after a confirmed routable delivery. Broker outages, nacks, returns, timeouts, and connection loss leave the MySQL fact committed and release or preserve the event for bounded retry. `OUTBOX_LEASE_DURATION` must cover `OUTBOX_CLAIM_BATCH × OUTBOX_PUBLISH_TIMEOUT` plus a one-second state-transition margin; the checked-in default is one minute for a batch of ten and a five-second per-message timeout. `OUTBOX_POLL_INTERVAL` and `OUTBOX_RETRY_DELAY` control polling and retry availability. The same runtime deletes only expired `published` rows in bounded batches: `OUTBOX_CLEANUP_INTERVAL`, `OUTBOX_PUBLISHED_RETENTION`, and `OUTBOX_CLEANUP_BATCH` default to one hour, seven days, and 500 rows. Pending and leased rows are never eligible for retention cleanup.
 
 Delivery is intentionally at least once: a crash after RabbitMQ confirms a publish but before MySQL records `published` can deliver the same `event_id` again. Migration `000003_notifications` adds the durable notification side-effect table, whose unique `source_event_id` absorbs sequential and concurrent duplicate deliveries.
 
-Run the independent consumer from a second terminal after migrations:
-
-```bash
-cd backend
-go run ./cmd/business-worker
-```
+`scripts/dev.sh` starts the independent consumer as part of the normal lifecycle. For focused Worker development after migrations, it may also be run manually from a second terminal with `cd backend && go run ./cmd/business-worker`.
 
 The Worker loads only MySQL, RabbitMQ, and `BUSINESS_WORKER_*` settings; it does not require HTTP, Redis, JWT, or Cookie configuration. It uses manual acknowledgements and bounded prefetch. Valid `comment.created` and `post.liked` events commit a notification before ack, while self events are defensively ignored. Permanent envelope/property errors go directly to the dead queue. Temporary processing failures are republished through the TTL retry queue with a validated `x-gopulse-attempt` header and enter the dead queue after `BUSINESS_WORKER_MAX_RETRIES`. Retry/dead publications are persistent, mandatory, and confirm-gated before the original message is acked; a failed secondary publish requeues the original message.
 
-`OUTBOX_RETRY_DELAY` is the shared retry-queue TTL used by both producer and consumer topology declarations. `BUSINESS_WORKER_PREFETCH`, `BUSINESS_WORKER_MAX_RETRIES`, `BUSINESS_WORKER_PUBLISH_TIMEOUT`, `BUSINESS_WORKER_SHUTDOWN_TIMEOUT`, `BUSINESS_WORKER_RECONNECT_MIN`, and `BUSINESS_WORKER_RECONNECT_MAX` bound consumption, retries, reconnection, and graceful shutdown. Delivery remains at least once, and the database unique key—not process memory or Redis—provides idempotency. The notification HTTP API reads only durable MySQL facts; it does not expose RabbitMQ, Outbox, retry, or dead-queue state. The Frontend refreshes explicitly and does not infer a notification from a successful comment or like request.
+`OUTBOX_RETRY_DELAY` is the shared retry-queue TTL used by both producer and consumer topology declarations. `BUSINESS_WORKER_PREFETCH`, `BUSINESS_WORKER_MAX_RETRIES`, `BUSINESS_WORKER_PUBLISH_TIMEOUT`, `BUSINESS_WORKER_SHUTDOWN_TIMEOUT`, `BUSINESS_WORKER_RECONNECT_MIN`, and `BUSINESS_WORKER_RECONNECT_MAX` bound consumption, retries, reconnection, and graceful shutdown. During shutdown the Worker stops new deliveries, gives the current handler the configured grace period, then cancels its processing context and waits for that handler to exit before closing AMQP and MySQL resources. Delivery remains at least once, and the database unique key—not process memory or Redis—provides idempotency. The notification HTTP API reads only durable MySQL facts; it does not expose RabbitMQ, Outbox, retry, or dead-queue state. The Frontend refreshes explicitly and does not infer a notification from a successful comment or like request.
+
+Reliability boundaries are explicit: RabbitMQ is a single local development node rather than a production HA cluster; retry count and delay are finite; dead-queue inspection and replay remain manual operational work; and there is no exactly-once guarantee. Broker or Worker outages delay notification materialization but do not roll back committed comments or first likes. MySQL remains authoritative for both core facts and completed notifications.
 
 ## Frontend routes
 
@@ -340,6 +338,6 @@ Do not point that command at a development or production database. Reproduce it 
 
 The root `VERSION` file is the sole completed-product version source. `frontend/package.json` and the root package entries in `frontend/package-lock.json` mirror that value so npm output, build metadata, and dependency reports identify the same product version. `python3 scripts/ci/validate_versions.py` and the governance quality gate reject drift.
 
-## Phase 1 completion and Phase 2 progress
+## Phase 1 and Phase 2 completion
 
-Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 established the message contract and transactional Outbox at `0.3.1`; Phase 2-02 connected comment/first-like transactions to confirmed RabbitMQ delivery at `0.3.2`; Phase 2-03 added the independent, reconnecting Business Worker and idempotent notification persistence at `0.3.3`. Phase 2-04 adds the recipient-scoped notification API and protected Frontend notification flow at `0.3.4`. RabbitMQ is transport rather than the final fact source, and broker failure does not invalidate an already committed MySQL business operation.
+Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 established the message contract and transactional Outbox at `0.3.1`; Phase 2-02 connected comment/first-like transactions to confirmed RabbitMQ delivery at `0.3.2`; Phase 2-03 added the independent, reconnecting Business Worker and idempotent notification persistence at `0.3.3`; Phase 2-04 added the recipient-scoped notification API and protected Frontend notification flow at `0.3.4`; Phase 2-05 integrated the Worker into the Bash lifecycle and passed the isolated reliability matrix at `0.3.5`. PR #39 merged that milestone into `main` on September 2, 2026 as `efff938`, and its required remote quality gates passed. Phase-02-06 performs the implementation Review closeout at `0.3.6`, adding Outbox retention cleanup, full-batch lease budgeting, controlled Worker cancellation, and no-op PR prevention. RabbitMQ remains transport rather than the final fact source, and broker failure does not invalidate an already committed MySQL business operation.
