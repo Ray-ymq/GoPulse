@@ -91,3 +91,28 @@ func TestConstructorsRejectInvalidIdentifiers(t *testing.T) {
 		t.Fatal("NewPostLiked() error = nil")
 	}
 }
+
+func TestPostCreatedOmitsNotificationFields(t *testing.T) {
+	occurredAt := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	event, err := NewPostCreated(occurredAt, 11, 22)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := Encode(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte("recipient_id")) || bytes.Contains(body, []byte("comment_id")) || bytes.Contains(body, []byte("title")) || bytes.Contains(body, []byte("content")) {
+		t.Fatalf("post.created payload leaks projection or notification fields: %s", body)
+	}
+	decoded, err := Decode(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.EventType != PostCreated || decoded.ActorID != 11 || decoded.PostID != 22 || decoded.RecipientID != 0 || decoded.CommentID != nil {
+		t.Fatalf("decoded post.created = %#v", decoded)
+	}
+	if key, err := decoded.RoutingKey(); err != nil || key != PostCreatedRoutingKey {
+		t.Fatalf("RoutingKey() = %q, %v", key, err)
+	}
+}

@@ -12,15 +12,17 @@ RUN_DIR="$REPO_ROOT/.run"
 LOCK_PATH="$RUN_DIR/dev.lock"
 BACKEND_RECORD="$RUN_DIR/backend.json"
 WORKER_RECORD="$RUN_DIR/business-worker.json"
+SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$RUN_DIR/bin/gopulse-backend"
 WORKER_BINARY="$RUN_DIR/bin/gopulse-business-worker"
+SEARCH_INDEXER_BINARY="$RUN_DIR/bin/gopulse-search-indexer"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
 PROJECT_NAME=gopulse
 COMPOSE_KEYS=(
   MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PORT
   REDIS_PASSWORD REDIS_PORT RABBITMQ_USER RABBITMQ_PASSWORD
-  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT
+  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT
 )
 declare -A DOTENV=()
 
@@ -185,6 +187,7 @@ main() {
   command -v python3 >/dev/null 2>&1 || { fail 'python3 is required to validate process records.'; return 1; }
   command -v flock >/dev/null 2>&1 || { fail 'flock is required to manage the development run lock.'; return 1; }
   stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)"
+  stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY"
   stop_recorded_application "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY"
   stop_recorded_application Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY"
   clear_lock

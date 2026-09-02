@@ -22,6 +22,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
+	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 )
 
@@ -59,6 +60,11 @@ func run() error {
 	redisClient := platform.NewRedis(cfg.Redis)
 	defer closeResource("Redis", redisClient.Close)
 
+	elasticsearchClient, err := platform.NewElasticsearch(cfg.Elasticsearch)
+	if err != nil {
+		return errors.New("initialize Elasticsearch client")
+	}
+
 	rabbitMQChecker, err := platform.NewRabbitMQ(cfg.RabbitMQURL)
 	if err != nil {
 		return errors.New("initialize RabbitMQ checker")
@@ -72,7 +78,7 @@ func run() error {
 	}
 	rabbitMQPublisher, err := platform.NewRabbitMQPublisher(
 		cfg.RabbitMQURL,
-		platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay},
+		platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay},
 	)
 	if err != nil {
 		return errors.New("initialize RabbitMQ publisher")
@@ -109,7 +115,7 @@ func run() error {
 		cfg.Redis.PostDetailTTL,
 		cfg.Redis.OperationTimeout,
 	)
-	posts := post.NewMySQLRepository(mysqlClient.DB())
+	posts := post.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 	postService := post.NewService(posts, postDetailCache)
 	postHandler := post.NewHandler(postService)
 	comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
@@ -124,12 +130,16 @@ func run() error {
 	}
 	notificationService := notification.NewService(notifications)
 	notificationHandler := notification.NewHandler(notificationService)
+	searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
+	searchService := searchpkg.NewService(searchRepository, posts)
+	searchHandler := searchpkg.NewHandler(searchService)
 
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
-			MySQL:    mysqlClient,
-			Redis:    redisClient,
-			RabbitMQ: rabbitMQChecker,
+			MySQL:         mysqlClient,
+			Redis:         redisClient,
+			RabbitMQ:      rabbitMQChecker,
+			Elasticsearch: elasticsearchClient,
 		},
 		backendhttp.APIRoutes{
 			Auth:           authHandler,
@@ -137,6 +147,7 @@ func run() error {
 			Comments:       commentHandler,
 			Likes:          likeHandler,
 			Notifications:  notificationHandler,
+			Search:         searchHandler,
 			Authentication: middleware.RequireAuthentication(cookies.Name(), tokens),
 		},
 	)

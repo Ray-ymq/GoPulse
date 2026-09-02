@@ -113,3 +113,52 @@ test('notifications close the real two-user comment and like loop', async ({ bro
     await actorContext.close()
   }
 })
+
+test('search-rebuild restores historical posts through the browser', async ({ page }) => {
+  const username = process.env.GOPULSE_SEARCH_USERNAME
+  const password = process.env.GOPULSE_SEARCH_PASSWORD
+  const query = process.env.GOPULSE_SEARCH_QUERY
+  const expectedTitle = process.env.GOPULSE_SEARCH_TITLE
+  test.skip(!username || !password || !query || !expectedTitle, 'search rebuild seed credentials are required')
+
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(username!)
+  await page.getByLabel('密码').fill(password!)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).toHaveURL(/\/posts$/)
+
+  await page.getByRole('link', { name: '搜索', exact: true }).click()
+  await expect(page).toHaveURL(/\/search$/)
+  await page.getByLabel('搜索词').fill(query!)
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page).toHaveURL(/\/search\?q=/)
+  await expect(page.getByRole('link', { name: expectedTitle! })).toBeVisible()
+  await page.getByRole('link', { name: expectedTitle! }).click()
+  await expect(page.getByRole('heading', { name: expectedTitle! })).toBeVisible()
+
+  await page.goto('/search')
+  await page.getByLabel('搜索词').fill(`missing-${Date.now()}`)
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page.getByText('没有找到相关帖子。')).toBeVisible()
+})
+
+test('search-live finds an incrementally indexed post through the browser', async ({ page }) => {
+  const username = process.env.GOPULSE_SEARCH_USERNAME
+  const password = process.env.GOPULSE_SEARCH_PASSWORD
+  const query = process.env.GOPULSE_SEARCH_QUERY
+  const expectedTitle = process.env.GOPULSE_SEARCH_TITLE
+  test.skip(!username || !password || !query || !expectedTitle, 'incremental search seed credentials are required')
+
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(username!)
+  await page.getByLabel('密码').fill(password!)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).toHaveURL(/\/posts$/)
+
+  await page.getByRole('link', { name: '搜索', exact: true }).click()
+  await page.getByLabel('搜索词').fill(query!)
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page.getByRole('link', { name: expectedTitle! })).toBeVisible()
+  await page.getByRole('link', { name: expectedTitle! }).click()
+  await expect(page.getByRole('heading', { name: expectedTitle! })).toBeVisible()
+})

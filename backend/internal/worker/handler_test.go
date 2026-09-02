@@ -226,3 +226,44 @@ func validDelivery(t *testing.T, self bool) (amqp.Delivery, *acknowledgerFake) {
 		Timestamp: metadata.Timestamp, Type: metadata.Type, RoutingKey: bus.CommentCreatedRoutingKey, Body: body,
 	}, acknowledger
 }
+
+func TestSearchProfileRoutesPermanentProcessorFailureDirectlyToSearchDead(t *testing.T) {
+	processor := &processorFake{err: NewPermanentError("post_not_found")}
+	publisher := &publisherFake{}
+	handler, err := NewHandler(processor, publisher, HandlerOptions{
+		Profile: SearchProfile, MaxRetries: 3, PublishTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, acknowledger := validSearchDelivery(t)
+	if err := handler.Handle(context.Background(), delivery); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if processor.calls != 1 || acknowledger.acks != 1 || acknowledger.nacks != 0 || len(publisher.calls) != 1 {
+		t.Fatalf("processor=%d acks=%d nacks=%d publishes=%d", processor.calls, acknowledger.acks, acknowledger.nacks, len(publisher.calls))
+	}
+	call := publisher.calls[0]
+	if call.exchange != platform.SearchDeadExchange || call.routingKey != bus.PostCreatedRoutingKey || call.message.Headers[AttemptHeader] != int32(0) {
+		t.Fatalf("search dead publish = %#v", call)
+	}
+}
+
+func validSearchDelivery(t *testing.T) (amqp.Delivery, *acknowledgerFake) {
+	t.Helper()
+	envelope, err := bus.NewPostCreated(time.Date(2026, time.September, 2, 5, 6, 7, 0, time.UTC), 1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := bus.Encode(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, _ := envelope.Metadata()
+	acknowledger := &acknowledgerFake{}
+	return amqp.Delivery{
+		Acknowledger: acknowledger, DeliveryTag: 1, Headers: amqp.Table{},
+		ContentType: metadata.ContentType, DeliveryMode: amqp.Persistent, MessageId: metadata.MessageID,
+		Timestamp: metadata.Timestamp, Type: metadata.Type, RoutingKey: bus.PostCreatedRoutingKey, Body: body,
+	}, acknowledger
+}
