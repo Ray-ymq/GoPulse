@@ -65,3 +65,70 @@ func TestEmbeddedPhaseOneMigrationContainsRequiredSchema(t *testing.T) {
 		t.Fatal("down migration table order is not post_likes -> comments -> posts -> users")
 	}
 }
+
+func TestEmbeddedBusinessOutboxMigrationContainsOnlyPhaseTwoOutboxSchema(t *testing.T) {
+	source, err := Source()
+	if err != nil {
+		t.Fatalf("Source() error = %v", err)
+	}
+	defer source.Close()
+
+	version, err := source.Next(1)
+	if err != nil {
+		t.Fatalf("Next(1) error = %v", err)
+	}
+	if version != 2 {
+		t.Fatalf("next version = %d, want 2", version)
+	}
+
+	reader, identifier, err := source.ReadUp(version)
+	if err != nil {
+		t.Fatalf("ReadUp(2) error = %v", err)
+	}
+	up, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil {
+		t.Fatalf("read outbox up migration: %v", err)
+	}
+	if identifier != "business_outbox" {
+		t.Fatalf("identifier = %q, want business_outbox", identifier)
+	}
+	upSQL := string(up)
+	for _, required := range []string{
+		"CREATE TABLE business_outbox",
+		"UNIQUE KEY uq_business_outbox_event_id",
+		"idx_business_outbox_pending",
+		"idx_business_outbox_lease_recovery",
+		"idx_business_outbox_published_cleanup",
+		"CONSTRAINT chk_business_outbox_event_type CHECK",
+		"CONSTRAINT chk_business_outbox_schema_version CHECK",
+		"CONSTRAINT chk_business_outbox_state CHECK",
+		"payload JSON NOT NULL",
+		"ENUM('pending', 'leased', 'published')",
+	} {
+		if !strings.Contains(upSQL, required) {
+			t.Fatalf("outbox up migration missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"CREATE TABLE notifications", "ALTER TABLE users", "ALTER TABLE posts", "ALTER TABLE comments", "ALTER TABLE post_likes"} {
+		if strings.Contains(upSQL, forbidden) {
+			t.Fatalf("outbox up migration unexpectedly contains %q", forbidden)
+		}
+	}
+
+	downReader, downIdentifier, err := source.ReadDown(version)
+	if err != nil {
+		t.Fatalf("ReadDown(2) error = %v", err)
+	}
+	down, err := io.ReadAll(downReader)
+	_ = downReader.Close()
+	if err != nil {
+		t.Fatalf("read outbox down migration: %v", err)
+	}
+	if downIdentifier != "business_outbox" {
+		t.Fatalf("down identifier = %q, want business_outbox", downIdentifier)
+	}
+	if strings.TrimSpace(string(down)) != "DROP TABLE business_outbox;" {
+		t.Fatalf("outbox down migration = %q", string(down))
+	}
+}
