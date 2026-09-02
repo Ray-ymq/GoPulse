@@ -757,3 +757,47 @@ button:disabled {
 .auth-recovery-card .muted {
   margin-bottom: 0;
 }
+
+.notification-list {
+  display: grid;
+  gap: 14px;
+}
+
+.notification-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  border: 1px solid #dbe3ed;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.notification-card--unread {
+  border-color: #9db8f7;
+  box-shadow: inset 4px 0 #315fce;
+}
+
+.notification-card__body p {
+  margin: 10px 0 0;
+  color: #344258;
+}
+
+.notification-card__body a {
+  margin-left: 6px;
+  color: #1d4ed8;
+  font-weight: 750;
+}
+
+.notification-status {
+  color: #315fce;
+  font-weight: 750;
+}
+
+@media (max-width: 680px) {
+  .notification-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

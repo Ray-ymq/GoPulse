@@ -17,6 +17,7 @@ import (
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
+	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
@@ -114,6 +115,12 @@ func run() error {
 	likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 	likeService := like.NewService(likes, postService, postDetailCache)
 	likeHandler := like.NewHandler(likeService)
+	notifications, err := notification.NewRepository(mysqlClient.DB())
+	if err != nil {
+		return errors.New("initialize notification repository")
+	}
+	notificationService := notification.NewService(notifications)
+	notificationHandler := notification.NewHandler(notificationService)
 
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
@@ -126,6 +133,7 @@ func run() error {
 			Posts:          postHandler,
 			Comments:       commentHandler,
 			Likes:          likeHandler,
+			Notifications:  notificationHandler,
 			Authentication: middleware.RequireAuthentication(cookies.Name(), tokens),
 		},
 	)
