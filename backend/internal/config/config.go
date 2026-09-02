@@ -26,9 +26,13 @@ const (
 	defaultRedisOperationTimeout = 200 * time.Millisecond
 	defaultOutboxPollInterval    = time.Second
 	defaultOutboxClaimBatch      = 10
-	defaultOutboxLeaseDuration   = 30 * time.Second
+	defaultOutboxLeaseDuration   = time.Minute
 	defaultOutboxPublishTimeout  = 5 * time.Second
 	defaultOutboxRetryDelay      = 30 * time.Second
+	defaultOutboxCleanupInterval = time.Hour
+	defaultOutboxRetention       = 7 * 24 * time.Hour
+	defaultOutboxCleanupBatch    = 500
+	outboxLeaseSafetyMargin      = time.Second
 	minimumJWTSecretBytes        = 32
 	minimumAuthJWTTTL            = 5 * time.Minute
 	maximumAuthJWTTTL            = 24 * time.Hour
@@ -46,6 +50,12 @@ const (
 	maximumOutboxPublishTimeout  = 30 * time.Second
 	minimumOutboxRetryDelay      = time.Second
 	maximumOutboxRetryDelay      = 24 * time.Hour
+	minimumOutboxCleanupInterval = time.Minute
+	maximumOutboxCleanupInterval = 24 * time.Hour
+	minimumOutboxRetention       = time.Hour
+	maximumOutboxRetention       = 365 * 24 * time.Hour
+	minimumOutboxCleanupBatch    = 1
+	maximumOutboxCleanupBatch    = 1000
 )
 
 // LookupFunc makes configuration loading deterministic in tests without
@@ -81,11 +91,14 @@ type RedisConfig struct {
 }
 
 type OutboxConfig struct {
-	PollInterval   time.Duration
-	ClaimBatch     int
-	LeaseDuration  time.Duration
-	PublishTimeout time.Duration
-	RetryDelay     time.Duration
+	PollInterval    time.Duration
+	ClaimBatch      int
+	LeaseDuration   time.Duration
+	PublishTimeout  time.Duration
+	RetryDelay      time.Duration
+	CleanupInterval time.Duration
+	Retention       time.Duration
+	CleanupBatch    int
 }
 
 type AuthConfig struct {
@@ -216,12 +229,28 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if outboxPublishTimeout >= outboxLeaseDuration {
-		return Config{}, errors.New("OUTBOX_PUBLISH_TIMEOUT must be shorter than OUTBOX_LEASE_DURATION")
+	requiredOutboxLease := time.Duration(outboxClaimBatch)*outboxPublishTimeout + outboxLeaseSafetyMargin
+	if outboxLeaseDuration < requiredOutboxLease {
+		return Config{}, fmt.Errorf("OUTBOX_LEASE_DURATION must be at least OUTBOX_CLAIM_BATCH * OUTBOX_PUBLISH_TIMEOUT + %s", outboxLeaseSafetyMargin)
 	}
 	outboxRetryDelay, err := durationValue(lookup, "OUTBOX_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
 	if err != nil {
 		return Config{}, err
+	}
+	outboxCleanupInterval, err := durationValue(lookup, "OUTBOX_CLEANUP_INTERVAL", defaultOutboxCleanupInterval, minimumOutboxCleanupInterval, maximumOutboxCleanupInterval)
+	if err != nil {
+		return Config{}, err
+	}
+	outboxRetention, err := durationValue(lookup, "OUTBOX_PUBLISHED_RETENTION", defaultOutboxRetention, minimumOutboxRetention, maximumOutboxRetention)
+	if err != nil {
+		return Config{}, err
+	}
+	outboxCleanupBatch, err := integerValue(lookup, "OUTBOX_CLEANUP_BATCH", defaultOutboxCleanupBatch)
+	if err != nil {
+		return Config{}, err
+	}
+	if outboxCleanupBatch < minimumOutboxCleanupBatch || outboxCleanupBatch > maximumOutboxCleanupBatch {
+		return Config{}, fmt.Errorf("OUTBOX_CLEANUP_BATCH must be between %d and %d", minimumOutboxCleanupBatch, maximumOutboxCleanupBatch)
 	}
 
 	return Config{
@@ -245,11 +274,14 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		},
 		RabbitMQURL: rabbitMQURL,
 		Outbox: OutboxConfig{
-			PollInterval:   outboxPollInterval,
-			ClaimBatch:     outboxClaimBatch,
-			LeaseDuration:  outboxLeaseDuration,
-			PublishTimeout: outboxPublishTimeout,
-			RetryDelay:     outboxRetryDelay,
+			PollInterval:    outboxPollInterval,
+			ClaimBatch:      outboxClaimBatch,
+			LeaseDuration:   outboxLeaseDuration,
+			PublishTimeout:  outboxPublishTimeout,
+			RetryDelay:      outboxRetryDelay,
+			CleanupInterval: outboxCleanupInterval,
+			Retention:       outboxRetention,
+			CleanupBatch:    outboxCleanupBatch,
 		},
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
