@@ -108,10 +108,12 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 			if !ok {
 				return errors.New("RabbitMQ delivery stream closed")
 			}
+			processingContext, cancelProcessing := context.WithCancel(context.Background())
 			processingDone := make(chan error, 1)
-			go func() { processingDone <- handler.Handle(context.Background(), delivery) }()
+			go func() { processingDone <- handler.Handle(processingContext, delivery) }()
 			select {
 			case err := <-processingDone:
+				cancelProcessing()
 				if err != nil {
 					return err
 				}
@@ -121,15 +123,25 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 				select {
 				case <-processingDone:
 					if !timer.Stop() {
-						<-timer.C
+						select {
+						case <-timer.C:
+						default:
+						}
 					}
+					cancelProcessing()
 					return nil
 				case <-timer.C:
+					cancelProcessing()
+					<-processingDone
 					return nil
 				}
 			case <-session.connectionClosed:
+				cancelProcessing()
+				<-processingDone
 				return errors.New("RabbitMQ connection closed during delivery")
 			case <-session.channelClosed:
+				cancelProcessing()
+				<-processingDone
 				return errors.New("RabbitMQ channel closed during delivery")
 			}
 		}
