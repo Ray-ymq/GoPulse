@@ -92,3 +92,13 @@ Phase-02-03 可基于以下能力继续实现 Business Worker：
 - Backend Dispatcher 已按 persistent、mandatory 和 publisher confirm 规则投递到 durable 主队列。
 - Outbox 的 failure code、退避、租约恢复和至少一次重复边界已接入生产路径。
 - Consumer 必须把 `event_id` 作为幂等键，并负责 retry/dead 与通知持久化闭环。
+
+## 7. 后续修复：Integration 测试包循环依赖
+
+- 日期：2026-09-02
+- 触发原因：`develop/0.3.2` 和后续 `update` 推送的 GitHub Integration 门禁均在编译 `internal/outbox` 时失败，自动 PR 创建步骤因此被跳过。
+- 根因：Phase-02-02 新增的 RabbitMQ Publisher 形成 `platform -> outbox` 生产依赖，而原有 `outbox/integration_test.go` 仍使用包内测试并导入 `platform`，在 integration build tag 下形成 `outbox -> platform -> outbox` 测试编译环。
+- 实际修复：仅把该 integration test 改为外部包 `outbox_test`，并通过 `outbox` 的公开 API 引用 Repository、Record、状态和错误；生产代码、Schema、版本及运行语义均未改变。
+- 本地验证：`git diff --check` 通过，并检查测试文件不再存在未限定的 `outbox` 标识符。当前 macOS 规划环境没有 Go 工具链，未把本地 Go 编译记录为通过。
+- 远程验证：首次修复推送触发的 GitHub Actions 运行 `33596299209` 中，Backend test/vet/race、Frontend、脚本治理和真实 MySQL/Redis Integration 全部通过，自动创建 PR #33 并启用 auto-merge。
+- 版本保持 `0.3.2`，本修复属于 Phase-02-02 的同批次缺陷修复，不占用 Phase-02-03 的 `0.3.3`。
