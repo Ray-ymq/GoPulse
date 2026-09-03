@@ -47,8 +47,8 @@ Phase 5 使用 `1.2.x` 版本线，`1.2.0` 只作为阶段基线，不创建空�
 
 | 执行批次 | 目标版本 | 开发分支 | 当前状态 |
 | --- | --- | --- | --- |
-| Phase-05-01 | `1.2.1` | `develop/1.2.1` | 未开始 |
-| Phase-05-02 | `1.2.2` | `develop/1.2.2` | 未开始 |
+| Phase-05-01 | `1.2.1` | `develop/1.2.1` | 已完成并合入 `main`（PR #58） |
+| Phase-05-02 | `1.2.2` | `develop/1.2.2` | 本地验收完成，待远程门禁与合入 |
 
 执行规则：
 
@@ -296,6 +296,8 @@ dev/logs/Phase-05/Phase-05-02-集成验收与阶段收口.md
 ## 15. 完成、停止与 Phase 6 交接
 
 只有 Phase-05-01 与 Phase-05-02 都从权威分支完成并合入主远程，第 11.3 节封闭矩阵在 WSL2/Bash 真实通过，远程门禁成功且实施记录齐全，Phase 5 才可标记完成。达到条件后立即停止扩展；未执行的检查、PR、合并或远程结果不得写成通过。
+
+截至 2026-09-03，Phase-05-01 已由 PR #58 合入 `main`，其最终 push workflow 的 Branch governance、Backend、Frontend、Redis Exporter、Scripts and Compose、Integration 与自动 PR/合并 job 均成功。Phase-05-02 已在 `develop/1.2.2` 完成本地实现与固定验收；在该分支实际合入且远程门禁成功前，本总方案保持 Phase 5 尚未完成。
 
 向 Phase 6 交付：
 
