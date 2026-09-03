@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 BACKEND_DIR="$REPO_ROOT/backend"
+MONITOR_DIR="$REPO_ROOT/monitor"
 REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
@@ -14,12 +15,14 @@ LOCK_PATH="$RUN_DIR/dev.lock"
 BACKEND_RECORD="$RUN_DIR/backend.json"
 WORKER_RECORD="$RUN_DIR/business-worker.json"
 SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
-REDIS_EXPORTER_RECORD="$RUN_DIR/redis-exporter.json"
+MONITOR_RECORD="$RUN_DIR/monitor.json"
+LEGACY_EXPORTER_RECORD="$RUN_DIR/redis-exporter.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$RUN_DIR/bin/gopulse-backend"
 WORKER_BINARY="$RUN_DIR/bin/gopulse-business-worker"
 SEARCH_INDEXER_BINARY="$RUN_DIR/bin/gopulse-search-indexer"
-REDIS_EXPORTER_BINARY="$RUN_DIR/bin/gopulse-redis-exporter"
+MONITOR_BINARY="$RUN_DIR/bin/gopulse-monitor"
+LEGACY_EXPORTER_BINARY="$RUN_DIR/bin/gopulse-redis-exporter"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
 PROJECT_NAME=gopulse
 COMPOSE_KEYS=(
@@ -199,7 +202,8 @@ main() {
   command -v python3 >/dev/null 2>&1 || { fail 'python3 is required to validate process records.'; return 1; }
   command -v flock >/dev/null 2>&1 || { fail 'flock is required to manage the development run lock.'; return 1; }
   stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)"
-  stop_recorded_application "Redis Exporter" "$REDIS_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$REDIS_EXPORTER_BINARY" "$REDIS_EXPORTER_BINARY"
+  stop_recorded_application Monitor "$MONITOR_RECORD" "$MONITOR_DIR" "$MONITOR_BINARY" "$MONITOR_BINARY"
+  stop_recorded_application "Legacy Redis Exporter" "$LEGACY_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$LEGACY_EXPORTER_BINARY" "$LEGACY_EXPORTER_BINARY"
   stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY"
   stop_recorded_application "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY"
   stop_recorded_application Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY"

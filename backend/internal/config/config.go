@@ -21,6 +21,8 @@ const (
 	defaultRedisPort             = 6379
 	defaultRedisDB               = 0
 	defaultElasticsearchURL      = "http://127.0.0.1:9200"
+	defaultMonitorURL            = "http://127.0.0.1:9090"
+	defaultMonitorTimeout        = 70 * time.Second
 	defaultElasticsearchTimeout  = 3 * time.Second
 	defaultSearchReindexBatch    = 500
 	defaultAuthJWTTTL            = 2 * time.Hour
@@ -79,6 +81,7 @@ type Config struct {
 	Outbox        OutboxConfig
 	Auth          AuthConfig
 	Elasticsearch ElasticsearchConfig
+	Monitor       MonitorConfig
 }
 
 type MySQLConfig struct {
@@ -119,6 +122,12 @@ type ElasticsearchConfig struct {
 type ReindexConfig struct {
 	MySQL         MySQLConfig
 	Elasticsearch ElasticsearchConfig
+}
+
+type MonitorConfig struct {
+	URL            string
+	APIToken       string
+	RequestTimeout time.Duration
 }
 
 type AuthConfig struct {
@@ -200,6 +209,23 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 	if err := validateRabbitMQURL(rabbitMQURL); err != nil {
+		return Config{}, err
+	}
+
+	monitorToken, err := requiredValue(lookup, "MONITOR_API_TOKEN")
+	if err != nil {
+		return Config{}, err
+	}
+	if len(monitorToken) < 32 {
+		return Config{}, errors.New("MONITOR_API_TOKEN must contain at least 32 bytes")
+	}
+	monitorURL := valueOrDefault(lookup, "MONITOR_URL", defaultMonitorURL)
+	parsedMonitorURL, err := url.Parse(monitorURL)
+	if err != nil || (parsedMonitorURL.Scheme != "http" && parsedMonitorURL.Scheme != "https") || parsedMonitorURL.Host == "" || parsedMonitorURL.User != nil {
+		return Config{}, errors.New("MONITOR_URL must be an HTTP URL without user information")
+	}
+	monitorTimeout, err := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, 2*time.Minute)
+	if err != nil {
 		return Config{}, err
 	}
 
@@ -314,6 +340,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			CleanupBatch:     outboxCleanupBatch,
 		},
 		Elasticsearch: elasticsearch,
+		Monitor:       MonitorConfig{URL: monitorURL, APIToken: monitorToken, RequestTimeout: monitorTimeout},
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
