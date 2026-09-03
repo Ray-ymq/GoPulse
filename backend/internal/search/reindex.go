@@ -106,6 +106,11 @@ type ReindexClient interface {
 	DeleteIndex(context.Context, string) error
 }
 
+type ReindexResult struct {
+	Changed       bool
+	DocumentCount uint64
+}
+
 type Reindexer struct {
 	store  *ReindexStore
 	client ReindexClient
@@ -116,32 +121,32 @@ func NewReindexer(store *ReindexStore, client ReindexClient, batch int) *Reindex
 	return &Reindexer{store: store, client: client, batch: batch}
 }
 
-func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) error {
+func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) (ReindexResult, error) {
 	if reindexer == nil || reindexer.store == nil || reindexer.client == nil || reindexer.batch < 1 {
-		return errors.New("search reindexer is invalid")
+		return ReindexResult{}, errors.New("search reindexer is invalid")
 	}
 	lock, err := reindexer.store.Acquire(ctx)
 	if err != nil {
-		return err
+		return ReindexResult{}, err
 	}
 	defer func() { _ = lock.Release(context.Background()) }()
 
 	if ifMissing {
 		exists, err := reindexer.client.AliasExists(ctx)
 		if err != nil {
-			return fmt.Errorf("check search alias: %w", err)
+			return ReindexResult{}, fmt.Errorf("check search alias: %w", err)
 		}
 		if exists {
-			return nil
+			return ReindexResult{Changed: false}, nil
 		}
 	}
 
 	index, err := newPhysicalIndexName()
 	if err != nil {
-		return err
+		return ReindexResult{}, err
 	}
 	if err := reindexer.client.CreateIndex(ctx, index); err != nil {
-		return fmt.Errorf("create search index: %w", err)
+		return ReindexResult{}, fmt.Errorf("create search index: %w", err)
 	}
 	switched := false
 	defer func() {
@@ -152,63 +157,63 @@ func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) error {
 
 	h1, err := reindexer.store.HighWatermark(ctx)
 	if err != nil {
-		return err
+		return ReindexResult{}, err
 	}
 	if err := reindexer.copyRange(ctx, index, 0, h1); err != nil {
-		return err
+		return ReindexResult{}, err
 	}
 	if err := reindexer.client.Refresh(ctx, index); err != nil {
-		return fmt.Errorf("refresh search index before alias switch: %w", err)
+		return ReindexResult{}, fmt.Errorf("refresh search index before alias switch: %w", err)
 	}
 	mysqlCount, err := reindexer.store.CountUpTo(ctx, h1)
 	if err != nil {
-		return err
+		return ReindexResult{}, err
 	}
 	indexCount, err := reindexer.client.Count(ctx, index)
 	if err != nil {
-		return fmt.Errorf("count search index before alias switch: %w", err)
+		return ReindexResult{}, fmt.Errorf("count search index before alias switch: %w", err)
 	}
 	if mysqlCount != indexCount {
-		return fmt.Errorf("search index count mismatch before alias switch: mysql=%d index=%d", mysqlCount, indexCount)
+		return ReindexResult{}, fmt.Errorf("search index count mismatch before alias switch: mysql=%d index=%d", mysqlCount, indexCount)
 	}
 	oldIndices, err := reindexer.client.SwitchAlias(ctx, index)
 	if err != nil {
-		return fmt.Errorf("switch search alias: %w", err)
+		return ReindexResult{}, fmt.Errorf("switch search alias: %w", err)
 	}
 	switched = true
 
 	h2, err := reindexer.store.HighWatermark(ctx)
 	if err != nil {
-		return err
+		return ReindexResult{}, err
 	}
 	if h2 > h1 {
 		if err := reindexer.copyRange(ctx, index, h1, h2); err != nil {
-			return err
+			return ReindexResult{}, err
 		}
 	}
 	if err := reindexer.client.Refresh(ctx, index); err != nil {
-		return fmt.Errorf("refresh search index after tail compensation: %w", err)
+		return ReindexResult{}, fmt.Errorf("refresh search index after tail compensation: %w", err)
 	}
 	mysqlCount, err = reindexer.store.CountUpTo(ctx, h2)
 	if err != nil {
-		return err
+		return ReindexResult{}, err
 	}
 	indexCount, err = reindexer.client.Count(ctx, index)
 	if err != nil {
-		return fmt.Errorf("count search index after tail compensation: %w", err)
+		return ReindexResult{}, fmt.Errorf("count search index after tail compensation: %w", err)
 	}
 	if mysqlCount != indexCount {
-		return fmt.Errorf("search index count mismatch after tail compensation: mysql=%d index=%d", mysqlCount, indexCount)
+		return ReindexResult{}, fmt.Errorf("search index count mismatch after tail compensation: mysql=%d index=%d", mysqlCount, indexCount)
 	}
 	for _, oldIndex := range oldIndices {
 		if oldIndex == index {
 			continue
 		}
 		if err := reindexer.client.DeleteIndex(ctx, oldIndex); err != nil {
-			return fmt.Errorf("delete old search index: %w", err)
+			return ReindexResult{}, fmt.Errorf("delete old search index: %w", err)
 		}
 	}
-	return nil
+	return ReindexResult{Changed: true, DocumentCount: mysqlCount}, nil
 }
 
 func (reindexer *Reindexer) copyRange(ctx context.Context, index string, after, maximum uint64) error {
