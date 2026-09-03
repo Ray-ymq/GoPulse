@@ -49,7 +49,8 @@ require_tools() {
 }
 
 config_port() {
-  local key=$1 fallback=$2 direct=${!key:-}
+  local key=$1 fallback=$2 direct
+  direct=${!key:-}
   if [[ -n $direct ]]; then
     printf '%s\n' "$direct"
     return
@@ -116,7 +117,8 @@ check_compose_service() {
 }
 
 check_recorded_process() {
-  local name=$1 record=$2 binary=$3 cwd=${4:-$BACKEND_DIR} marker=${5:-$binary} result
+  local name=$1 record=$2 binary=$3 cwd=${4:-$BACKEND_DIR} marker result
+  marker=${5:-$binary}
   if [[ ! -f "$record" ]]; then
     fail "$name" "process record is missing: $record"
     return
