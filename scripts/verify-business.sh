@@ -308,7 +308,7 @@ backend_environment() {
 }
 
 run_search_reindex() {
-  backend_environment "$TEMP_DIR/gopulse-search-reindex" "$@"
+  backend_environment "$TEMP_DIR/gopulse-search-reindex" "$@" >>"$TEMP_DIR/search-reindex.log" 2>&1
 }
 
 start_backend() {
@@ -498,6 +498,10 @@ outbox_event_for_like() {
   mysql_query "SELECT event_id FROM business_outbox WHERE event_type='post.liked' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.post_id'))='$1' ORDER BY id DESC LIMIT 1;"
 }
 
+outbox_event_for_post() {
+  mysql_query "SELECT event_id FROM business_outbox WHERE event_type='post.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.post_id'))='$1' ORDER BY id DESC LIMIT 1;"
+}
+
 wait_notification() {
   wait_sql_equals "SELECT COUNT(*) FROM notifications WHERE source_event_id='$1';" "$2" "notification count for source event $1" "${3:-30}"
 }
@@ -537,15 +541,40 @@ wait_queue_equals() {
   fail "$description (expected $field=$expected, found ${actual:-unavailable})"
 }
 
-wait_log_contains() {
-  local path=$1 pattern=$2 description=$3 deadline=$((SECONDS + ${4:-30}))
+wait_log_json() {
+  local path=$1 description=$2 timeout=$3
+  shift 3
+  local deadline=$((SECONDS + timeout))
   while ((SECONDS < deadline)); do
-    grep -Fq -- "$pattern" "$path" 2>/dev/null && return 0
+    if python3 - "$path" "$@" <<'PYLOGMATCH' 2>/dev/null
+import json, sys
+path, *pairs = sys.argv[1:]
+expected = {}
+for pair in pairs:
+    key, raw = pair.split('=', 1)
+    expected[key] = int(raw) if raw.isdigit() else raw
+try:
+    stream = open(path, encoding='utf-8')
+except OSError:
+    raise SystemExit(1)
+with stream:
+    for raw in stream:
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if all(value.get(key) == wanted for key, wanted in expected.items()):
+            raise SystemExit(0)
+raise SystemExit(1)
+PYLOGMATCH
+    then
+      return 0
+    fi
     sleep 0.25
   done
   printf '[gopulse-acceptance] %s tail:\n' "$path" >&2
   tail -n 40 "$path" >&2 2>/dev/null || true
-  fail "$description (missing log marker: $pattern)"
+  fail "$description (missing JSON log fields: $*)"
 }
 
 generate_event() {
@@ -710,7 +739,8 @@ run_reliability_matrix() {
   transient_lock_pid=$!
   sleep 1
   publish_message comment.created.v1 comment.created "$transient_event" "$transient_payload"
-  wait_log_contains "$TEMP_DIR/business-worker.log" "event_id=$transient_event event_type=comment.created attempt=1 reason=retry_scheduled" 'temporary MySQL lock failure did not schedule a confirmed delayed retry' 10
+  wait_log_json "$TEMP_DIR/business-worker.log" 'temporary MySQL lock failure did not schedule a confirmed delayed retry' 10 \
+    service=business-worker module=worker message='event retry scheduled' event_id="$transient_event" event_type=comment.created attempt=1 reason=retry_scheduled
   wait "$transient_lock_pid" 2>/dev/null || true
   wait_notification "$transient_event" 1 30
   dead_before=$(queue_metric gopulse.business-worker.dead.v1 messages 2>/dev/null || echo 0)
@@ -1061,7 +1091,6 @@ validate_logging_live() {
 import datetime, json, re, sys
 log_path, trace_path, expectation_path, sensitive_path = sys.argv[1:]
 records=[]
-legacy=[]
 for number, raw in enumerate(open(log_path, encoding='utf-8'), 1):
     line=raw.rstrip('\n')
     if not line:
@@ -1069,10 +1098,7 @@ for number, raw in enumerate(open(log_path, encoding='utf-8'), 1):
     try:
         value=json.loads(line)
     except json.JSONDecodeError:
-        if re.match(r'^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} (backend listening on|outbox (dispatcher|cleanup) cycle failed|.* resource close failed)', line):
-            legacy.append(line)
-            continue
-        raise SystemExit(f'backend log line {number} is neither Schema v1 JSON nor an allowed Phase-04-02 legacy line: {line!r}')
+        raise SystemExit(f'backend log line {number} is not Schema v1 JSON: {line!r}')
     records.append(value)
 if not records:
     raise SystemExit('backend produced no JSON records')
@@ -1129,8 +1155,106 @@ for raw in open(sensitive_path, encoding='utf-8'):
     secret=raw.strip()
     if secret and secret in contents:
         raise SystemExit(f'sensitive sentinel leaked into backend log: {secret!r}')
-print(f'Validated {len(records)} JSON records, {len(traces)} correlated requests, {len(legacy)} allowed legacy lines.')
+print(f'Validated {len(records)} backend JSON records and {len(traces)} correlated requests.')
 PYLOG
+  validate_phase4_process_logs "$sensitive_file"
+}
+
+validate_phase4_process_logs() {
+  local extra_sensitive=${1:-}
+  python3 - "$TEMP_DIR/backend.log" "$TEMP_DIR/business-worker.log" "$TEMP_DIR/search-indexer.log" "$TEMP_DIR/search-reindex.log" "$ACCEPTANCE_ENV" "$extra_sensitive" <<'PYPHASE4LOG'
+import datetime, json, os, sys
+backend_path, worker_path, indexer_path, reindex_path, env_path, extra_path = sys.argv[1:]
+specs = {
+    backend_path: 'backend',
+    worker_path: 'business-worker',
+    indexer_path: 'search-indexer',
+    reindex_path: 'search-reindex',
+}
+records_by_service = {}
+all_text = []
+for path, service in specs.items():
+    records = []
+    try:
+        stream = open(path, encoding='utf-8')
+    except OSError as exc:
+        raise SystemExit(f'missing {service} log: {exc}')
+    with stream:
+        for number, raw in enumerate(stream, 1):
+            line = raw.rstrip('\n')
+            if not line:
+                continue
+            all_text.append(line)
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                raise SystemExit(f'{service} log line {number} is not JSON: {line!r}')
+            for key in ('log_schema_version','timestamp','level','service','module','message'):
+                if key not in value:
+                    raise SystemExit(f'{service} record missing {key}: {value!r}')
+            if value['log_schema_version'] != 1 or value['service'] != service or value['level'] not in ('info','warn','error'):
+                raise SystemExit(f'{service} record has invalid fixed fields: {value!r}')
+            parsed = datetime.datetime.fromisoformat(value['timestamp'].replace('Z','+00:00'))
+            if parsed.utcoffset() != datetime.timedelta(0):
+                raise SystemExit(f'{service} record timestamp is not UTC: {value!r}')
+            forbidden = {'payload','envelope','headers','body','query','url','dsn','password','token','cookie','authorization','pit_id','index_name'}
+            if forbidden.intersection(value):
+                raise SystemExit(f'{service} record contains forbidden fields: {value!r}')
+            records.append(value)
+    if not records:
+        raise SystemExit(f'{service} produced no JSON records')
+    records_by_service[service] = records
+
+backend = records_by_service['backend']
+worker = records_by_service['business-worker']
+indexer = records_by_service['search-indexer']
+reindex = records_by_service['search-reindex']
+
+def select(records, message):
+    return [value for value in records if value.get('message') == message]
+
+published = select(backend, 'outbox event published')
+worker_events = select(worker, 'event processed') + select(worker, 'event ignored') + select(worker, 'event retry scheduled') + select(worker, 'event dead lettered')
+indexer_events = select(indexer, 'event processed') + select(indexer, 'event retry scheduled') + select(indexer, 'event dead lettered')
+if not published or not worker_events or not indexer_events:
+    raise SystemExit('missing Outbox/Worker/Indexer event lifecycle records')
+if not select(reindex, 'search reindex started') or not (select(reindex, 'search reindex completed') or select(reindex, 'search reindex skipped')):
+    raise SystemExit('missing search-reindex lifecycle records')
+for value in published:
+    if not isinstance(value.get('outbox_id'), int) or not value.get('event_id') or not value.get('event_type') or 'request_id' in value:
+        raise SystemExit(f'invalid Outbox event record: {value!r}')
+for value in worker_events + indexer_events:
+    if not value.get('event_id') or not value.get('event_type') or not isinstance(value.get('attempt'), int) or not value.get('reason') or 'request_id' in value:
+        raise SystemExit(f'invalid worker event record: {value!r}')
+for value in select(indexer, 'event processed'):
+    if not isinstance(value.get('post_id'), int):
+        raise SystemExit(f'search success record is missing post_id: {value!r}')
+published_ids = {value['event_id'] for value in published}
+if not published_ids.intersection(value['event_id'] for value in worker_events):
+    raise SystemExit('Outbox and Business Worker logs have no correlated event ID')
+if not published_ids.intersection(value['event_id'] for value in indexer_events):
+    raise SystemExit('Outbox and Search Indexer logs have no correlated event ID')
+for records in (worker, indexer):
+    for message in ('connection unavailable','session interrupted'):
+        if len(select(records, message)) > 20:
+            raise SystemExit(f'unbounded reconnect logging for {message!r}')
+
+sensitive = []
+for raw in open(env_path, encoding='utf-8'):
+    line = raw.strip()
+    if not line or line.startswith('#') or '=' not in line:
+        continue
+    key, value = line.split('=', 1)
+    if any(marker in key for marker in ('PASSWORD','SECRET','COOKIE_NAME','URL')) and value:
+        sensitive.append(value)
+if extra_path and os.path.exists(extra_path):
+    sensitive.extend(raw.strip() for raw in open(extra_path, encoding='utf-8') if raw.strip())
+contents = '\n'.join(all_text)
+for secret in sensitive:
+    if secret and secret in contents:
+        raise SystemExit(f'sensitive value leaked into application logs: {secret!r}')
+print(f'Validated Phase 4 process logs: backend={len(backend)}, worker={len(worker)}, indexer={len(indexer)}, reindex={len(reindex)}.')
+PYPHASE4LOG
 }
 
 run_logging_live_flow() {
@@ -1143,7 +1267,7 @@ run_logging_live_flow() {
   LOG_SEARCH="logsearch$TOKEN"
   LOG_FORGED_ID="ffffffffffffffffffffffffffffffff"
   local owner_jar="$TEMP_DIR/log-owner.cookies" actor_jar="$TEMP_DIR/log-actor.cookies"
-  local owner_id actor_id post_id comment_id notification_id comment_event
+  local owner_id actor_id post_id comment_id notification_id comment_event post_event self_event self_payload generated
 
   CLIENT_REQUEST_ID=$LOG_FORGED_ID
   api_for "$owner_jar" POST /auth/register 201 "{\"username\":\"$LOG_USERNAME\",\"password\":\"$LOG_PASSWORD\"}" write
@@ -1160,6 +1284,11 @@ run_logging_live_flow() {
   api_for "$owner_jar" POST /posts 201 "{\"title\":\"$LOG_TITLE $LOG_SEARCH\",\"content\":\"$LOG_CONTENT\"}" read
   post_id=$(json_get data.id)
   expect_log 'post created' "$LAST_REQUEST_ID" "user_id=$owner_id" "post_id=$post_id"
+  post_event=$(outbox_event_for_post "$post_id")
+  wait_log_json "$TEMP_DIR/backend.log" 'Backend did not log the published post event' 20 \
+    service=backend module=outbox message='outbox event published' event_id="$post_event" event_type=post.created
+  wait_log_json "$TEMP_DIR/search-indexer.log" 'Search Indexer did not log the processed post event' 45 \
+    service=search-indexer module=search message='event processed' event_id="$post_event" event_type=post.created attempt=0 reason=processed post_id="$post_id"
   api_for "$owner_jar" GET '/posts?limit=20' 200 '' read
   api_for "$owner_jar" GET "/posts/$post_id" 200 '' read
 
@@ -1183,6 +1312,18 @@ run_logging_live_flow() {
 
   comment_event=$(outbox_event_for_comment "$comment_id")
   wait_notification "$comment_event" 1 45
+  wait_log_json "$TEMP_DIR/backend.log" 'Backend did not log the published comment event' 20 \
+    service=backend module=outbox message='outbox event published' event_id="$comment_event" event_type=comment.created
+  wait_log_json "$TEMP_DIR/business-worker.log" 'Business Worker did not log the processed comment event' 20 \
+    service=business-worker module=worker message='event processed' event_id="$comment_event" event_type=comment.created attempt=0 reason=processed
+
+  generated=$(generate_event comment.created "$owner_id" "$owner_id" "$post_id" "$comment_id")
+  self_event=${generated%%$'\t'*}
+  self_payload=${generated#*$'\t'}
+  publish_message comment.created.v1 comment.created "$self_event" "$self_payload"
+  wait_log_json "$TEMP_DIR/business-worker.log" 'Business Worker did not log the ignored self event' 20 \
+    service=business-worker module=worker message='event ignored' event_id="$self_event" event_type=comment.created attempt=0 reason=self_event
+  wait_notification "$self_event" 0 5
   api_for "$owner_jar" GET /notifications 200 '' read
   notification_id=$(json_get data.0.id)
   api_for "$owner_jar" PATCH "/notifications/$notification_id/read" 204 '' read
@@ -1342,6 +1483,7 @@ main() {
   api_request GET /users/me 200 '' read
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/health" 200
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
+  validate_phase4_process_logs
   info 'Complete isolated business acceptance passed; cleanup will now remove only verified acceptance resources.'
 }
 

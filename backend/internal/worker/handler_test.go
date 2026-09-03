@@ -1,14 +1,16 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -69,13 +71,23 @@ func TestHandlerAcknowledgesSuccessfulDuplicateAndSelfEvents(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			processor := &processorFake{err: test.processorE}
 			publisher := &publisherFake{}
-			handler := newTestHandler(t, processor, publisher, nil)
+			var output bytes.Buffer
+			logger := logging.Module(logging.New("business-worker", &output), "worker")
+			handler := newTestHandler(t, processor, publisher, logger)
 			delivery, acknowledger := validDelivery(t, test.self)
 			if err := handler.Handle(context.Background(), delivery); err != nil {
 				t.Fatalf("Handle() error = %v", err)
 			}
 			if acknowledger.acks != 1 || acknowledger.nacks != 0 || processor.calls != test.wantCalls || len(publisher.calls) != 0 {
 				t.Fatalf("acks=%d nacks=%d processor=%d publishes=%d", acknowledger.acks, acknowledger.nacks, processor.calls, len(publisher.calls))
+			}
+			wantMessage, wantReason := "event processed", "processed"
+			if test.self {
+				wantMessage, wantReason = "event ignored", "self_event"
+			}
+			logged := output.String()
+			if !strings.Contains(logged, `"message":"`+wantMessage+`"`) || !strings.Contains(logged, `"reason":"`+wantReason+`"`) || !strings.Contains(logged, `"event_id":"`+delivery.MessageId+`"`) {
+				t.Fatalf("completion log missing structured fields: %q", logged)
 			}
 		})
 	}
@@ -94,10 +106,9 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			processor := &processorFake{err: errors.New("mysql password=secret unavailable")}
 			publisher := &publisherFake{}
-			var logs []string
-			handler := newTestHandler(t, processor, publisher, func(format string, values ...any) {
-				logs = append(logs, fmt.Sprintf(format, values...))
-			})
+			var output bytes.Buffer
+			logger := logging.Module(logging.New("business-worker", &output), "worker")
+			handler := newTestHandler(t, processor, publisher, logger)
 			delivery, acknowledger := validDelivery(t, false)
 			delivery.Headers[AttemptHeader] = test.attempt
 			if err := handler.Handle(context.Background(), delivery); err != nil {
@@ -113,9 +124,16 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 			if call.message.MessageId != delivery.MessageId || call.message.Type != delivery.Type || string(call.message.Body) != string(delivery.Body) {
 				t.Fatal("secondary publish did not preserve message identity")
 			}
-			joined := strings.Join(logs, " ")
-			if strings.Contains(joined, "password") || strings.Contains(joined, "secret") || strings.Contains(joined, string(delivery.Body)) {
-				t.Fatalf("safe log leaked processing detail: %q", joined)
+			logged := output.String()
+			if strings.Contains(logged, "password") || strings.Contains(logged, "secret") || strings.Contains(logged, string(delivery.Body)) {
+				t.Fatalf("safe log leaked processing detail: %q", logged)
+			}
+			wantMessage := "event retry scheduled"
+			if test.name == "exhausted" {
+				wantMessage = "event dead lettered"
+			}
+			if !strings.Contains(logged, `"message":"`+wantMessage+`"`) || !strings.Contains(logged, `"event_id":"`+delivery.MessageId+`"`) {
+				t.Fatalf("structured event log missing fields: %q", logged)
 			}
 		})
 	}
@@ -195,7 +213,7 @@ func TestHandlerRejectsUntrustedAttemptHeader(t *testing.T) {
 	}
 }
 
-func newTestHandler(t *testing.T, processor Processor, publisher ConfirmingPublisher, logger func(string, ...any)) *Handler {
+func newTestHandler(t *testing.T, processor Processor, publisher ConfirmingPublisher, logger *slog.Logger) *Handler {
 	t.Helper()
 	handler, err := NewHandler(processor, publisher, HandlerOptions{MaxRetries: 3, PublishTimeout: time.Second, Logger: logger})
 	if err != nil {

@@ -6,14 +6,23 @@ import (
 
 type Profile struct {
 	Name             string
+	Service          string
+	Module           string
 	ConsumerTag      string
 	Topology         platform.Topology
 	IgnoreSelfEvents bool
+	IncludePostID    bool
 }
 
 var (
-	BusinessProfile = Profile{Name: "business worker", ConsumerTag: "gopulse-business-worker", Topology: platform.BusinessTopology, IgnoreSelfEvents: true}
-	SearchProfile   = Profile{Name: "search indexer", ConsumerTag: "gopulse-search-indexer", Topology: platform.SearchTopology}
+	BusinessProfile = Profile{
+		Name: "business worker", Service: "business-worker", Module: "worker",
+		ConsumerTag: "gopulse-business-worker", Topology: platform.BusinessTopology, IgnoreSelfEvents: true,
+	}
+	SearchProfile = Profile{
+		Name: "search indexer", Service: "search-indexer", Module: "search",
+		ConsumerTag: "gopulse-search-indexer", Topology: platform.SearchTopology, IncludePostID: true,
+	}
 )
 
 func normalizeProfile(profile Profile) Profile {
