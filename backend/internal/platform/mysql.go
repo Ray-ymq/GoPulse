@@ -13,6 +13,10 @@ import (
 
 const mysqlCollation = "utf8mb4_0900_ai_ci"
 
+type discardMySQLLogger struct{}
+
+func (discardMySQLLogger) Print(...any) {}
+
 type MySQL struct {
 	database *sql.DB
 }
@@ -60,6 +64,7 @@ func mysqlDriverConfig(cfg config.MySQLConfig) *mysql.Config {
 	driverConfig.ParseTime = true
 	driverConfig.Loc = time.UTC
 	driverConfig.Collation = mysqlCollation
+	driverConfig.Logger = discardMySQLLogger{}
 	driverConfig.Timeout = time.Second
 	driverConfig.ReadTimeout = time.Second
 	driverConfig.WriteTimeout = time.Second
