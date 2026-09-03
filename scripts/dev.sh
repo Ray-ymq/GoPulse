@@ -6,6 +6,7 @@ REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 BACKEND_DIR="$REPO_ROOT/backend"
 REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
 MONITOR_DIR="$REPO_ROOT/monitor"
+ROUTER_DIR="$REPO_ROOT/router"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
 ENV_FILE="$REPO_ROOT/.env"
@@ -17,12 +18,14 @@ BACKEND_RECORD="$RUN_DIR/backend.json"
 WORKER_RECORD="$RUN_DIR/business-worker.json"
 SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
 MONITOR_RECORD="$RUN_DIR/monitor.json"
+ROUTER_RECORD="$RUN_DIR/router.json"
 LEGACY_EXPORTER_RECORD="$RUN_DIR/redis-exporter.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$BIN_DIR/gopulse-backend"
 WORKER_BINARY="$BIN_DIR/gopulse-business-worker"
 SEARCH_INDEXER_BINARY="$BIN_DIR/gopulse-search-indexer"
 MONITOR_BINARY="$BIN_DIR/gopulse-monitor"
+ROUTER_BINARY="$BIN_DIR/gopulse-router"
 LEGACY_EXPORTER_BINARY="$BIN_DIR/gopulse-redis-exporter"
 MONITOR_PACKAGE="$RUN_DIR/packages/gopulse-redis-exporter-$(tr -d '[:space:]' < "$REPO_ROOT/VERSION").tar.gz"
 VITE_CLI="$FRONTEND_DIR/node_modules/vite/bin/vite.js"
@@ -35,11 +38,13 @@ BACKEND_PID=
 WORKER_PID=
 SEARCH_INDEXER_PID=
 MONITOR_PID=
+ROUTER_PID=
 FRONTEND_PID=
 BACKEND_STARTED=0
 WORKER_STARTED=0
 SEARCH_INDEXER_STARTED=0
 MONITOR_STARTED=0
+ROUTER_STARTED=0
 FRONTEND_STARTED=0
 EXIT_CODE=0
 EXPECTED_PLUGIN_VERSION=
@@ -49,7 +54,7 @@ MONITOR_PLUGIN_ACTION=install
 COMPOSE_KEYS=(
   PUBLISHED_HOST MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PORT
   REDIS_PASSWORD REDIS_PORT RABBITMQ_USER RABBITMQ_PASSWORD
-  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT
+  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT
 )
 BACKEND_KEYS=(
   APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
@@ -74,6 +79,11 @@ MONITOR_KEYS=(
   MONITOR_PUBLISH_TIMEOUT MONITOR_ROUTER_URL MONITOR_ROUTER_TOKEN REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB
   REDIS_EXPORTER_HTTP_HOST REDIS_EXPORTER_HTTP_PORT REDIS_EXPORTER_SCRAPE_TIMEOUT REDIS_EXPORTER_SHUTDOWN_TIMEOUT
 )
+ROUTER_KEYS=(
+  ROUTER_HTTP_HOST ROUTER_HTTP_PORT ROUTER_API_TOKEN ROUTER_REQUEST_TIMEOUT ROUTER_SHUTDOWN_TIMEOUT
+  ROUTER_MAX_MESSAGE_BYTES ROUTER_KAFKA_BROKERS ROUTER_KAFKA_TOPIC ROUTER_KAFKA_PRODUCE_TIMEOUT
+  ROUTER_KAFKA_MAX_BUFFERED_RECORDS ROUTER_KAFKA_MAX_BUFFERED_BYTES
+)
 SEARCH_INDEXER_KEYS=(
   MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD RABBITMQ_URL
   ELASTICSEARCH_URL ELASTICSEARCH_REQUEST_TIMEOUT SEARCH_INDEXER_RETRY_DELAY
@@ -85,7 +95,10 @@ ALL_CONFIG_KEYS=(
   MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB
   REDIS_EXPORTER_HTTP_HOST REDIS_EXPORTER_HTTP_PORT REDIS_EXPORTER_SCRAPE_TIMEOUT REDIS_EXPORTER_SHUTDOWN_TIMEOUT
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_URL
-  ELASTICSEARCH_PORT
+  ELASTICSEARCH_PORT KAFKA_PORT
+  ROUTER_HTTP_HOST ROUTER_HTTP_PORT ROUTER_API_TOKEN ROUTER_REQUEST_TIMEOUT ROUTER_SHUTDOWN_TIMEOUT
+  ROUTER_MAX_MESSAGE_BYTES ROUTER_KAFKA_BROKERS ROUTER_KAFKA_TOPIC ROUTER_KAFKA_PRODUCE_TIMEOUT
+  ROUTER_KAFKA_MAX_BUFFERED_RECORDS ROUTER_KAFKA_MAX_BUFFERED_BYTES
   AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
   MONITOR_URL MONITOR_HTTP_HOST MONITOR_HTTP_PORT MONITOR_API_TOKEN MONITOR_REQUEST_TIMEOUT MONITOR_SHUTDOWN_TIMEOUT
   MONITOR_PLUGIN_STARTUP_TIMEOUT MONITOR_PLUGIN_STOP_TIMEOUT MONITOR_SCRAPE_INTERVAL MONITOR_SCRAPE_TIMEOUT
@@ -101,7 +114,7 @@ ALL_CONFIG_KEYS=(
 )
 REQUIRED_KEYS=(
   MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PASSWORD
-  RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_URL AUTH_JWT_SECRET MONITOR_API_TOKEN
+  RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_URL AUTH_JWT_SECRET MONITOR_API_TOKEN ROUTER_API_TOKEN
 )
 declare -A CALLER_ENV=()
 declare -A DOTENV=()
@@ -112,11 +125,16 @@ declare -A DEFAULTS=(
   [REDIS_HOST]=127.0.0.1 [REDIS_PORT]=6379 [REDIS_DB]=0
   [REDIS_EXPORTER_HTTP_HOST]=127.0.0.1 [REDIS_EXPORTER_HTTP_PORT]=9121
   [REDIS_EXPORTER_SCRAPE_TIMEOUT]=2s [REDIS_EXPORTER_SHUTDOWN_TIMEOUT]=5s
+  [KAFKA_PORT]=9092 [ROUTER_HTTP_HOST]=127.0.0.1 [ROUTER_HTTP_PORT]=9091
+  [ROUTER_API_TOKEN]=local-router-api-token-change-me-32-bytes [ROUTER_REQUEST_TIMEOUT]=5s [ROUTER_SHUTDOWN_TIMEOUT]=10s
+  [ROUTER_MAX_MESSAGE_BYTES]=1048576 [ROUTER_KAFKA_BROKERS]=127.0.0.1:9092 [ROUTER_KAFKA_TOPIC]=gopulse-observability-v1
+  [ROUTER_KAFKA_PRODUCE_TIMEOUT]=3s [ROUTER_KAFKA_MAX_BUFFERED_RECORDS]=256 [ROUTER_KAFKA_MAX_BUFFERED_BYTES]=8388608
   [RABBITMQ_PORT]=5672 [RABBITMQ_MANAGEMENT_PORT]=15672 [ELASTICSEARCH_PORT]=9200
   [AUTH_JWT_TTL]=2h [AUTH_COOKIE_NAME]=gopulse_session [AUTH_COOKIE_SECURE]=false
   [MONITOR_URL]=http://127.0.0.1:9090 [MONITOR_HTTP_HOST]=127.0.0.1 [MONITOR_HTTP_PORT]=9090
   [MONITOR_REQUEST_TIMEOUT]=30s [MONITOR_SHUTDOWN_TIMEOUT]=10s [MONITOR_PLUGIN_STARTUP_TIMEOUT]=10s [MONITOR_PLUGIN_STOP_TIMEOUT]=5s
-  [MONITOR_SCRAPE_INTERVAL]=15s [MONITOR_SCRAPE_TIMEOUT]=3s [MONITOR_PUBLISH_TIMEOUT]=3s [MONITOR_ROUTER_URL]= [MONITOR_ROUTER_TOKEN]=
+  [MONITOR_SCRAPE_INTERVAL]=15s [MONITOR_SCRAPE_TIMEOUT]=3s [MONITOR_PUBLISH_TIMEOUT]=3s
+  [MONITOR_ROUTER_URL]=http://127.0.0.1:9091 [MONITOR_ROUTER_TOKEN]=local-router-api-token-change-me-32-bytes
   [REDIS_POST_DETAIL_TTL]=5m [REDIS_OPERATION_TIMEOUT]=200ms
   [ELASTICSEARCH_URL]=http://127.0.0.1:9200 [ELASTICSEARCH_REQUEST_TIMEOUT]=3s [SEARCH_REINDEX_BATCH]=500
   [OUTBOX_POLL_INTERVAL]=1s [OUTBOX_CLAIM_BATCH]=10 [OUTBOX_LEASE_DURATION]=1m
@@ -230,7 +248,7 @@ resolve_configuration() {
       return 1
     fi
   done
-  for key in HTTP_PORT MONITOR_HTTP_PORT MYSQL_PORT REDIS_PORT REDIS_EXPORTER_HTTP_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT; do
+  for key in HTTP_PORT MONITOR_HTTP_PORT ROUTER_HTTP_PORT MYSQL_PORT REDIS_PORT REDIS_EXPORTER_HTTP_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT; do
     value=${CONFIG[$key]-}
     if [[ ! $value =~ ^[0-9]+$ ]] || ((10#$value < 1 || 10#$value > 65535)); then
       fail "$key must be an integer between 1 and 65535."
@@ -240,6 +258,20 @@ resolve_configuration() {
   done
   if ((${#CONFIG[MONITOR_API_TOKEN]} < 32)); then
     fail 'MONITOR_API_TOKEN must contain at least 32 bytes.'
+    return 1
+  fi
+  if ((${#CONFIG[ROUTER_API_TOKEN]} < 32)) || [[ ${CONFIG[ROUTER_API_TOKEN]} == *$'\r'* || ${CONFIG[ROUTER_API_TOKEN]} == *$'\n'* ]]; then
+    fail 'ROUTER_API_TOKEN must contain at least 32 bytes and no CR/LF.'
+    return 1
+  fi
+  if [[ ${CONFIG[ROUTER_KAFKA_TOPIC]} != gopulse-observability-v1 ]]; then
+    fail 'ROUTER_KAFKA_TOPIC must be gopulse-observability-v1.'
+    return 1
+  fi
+  if [[ -z ${CONFIG[MONITOR_ROUTER_URL]} ]]; then CONFIG[MONITOR_ROUTER_URL]="http://${CONFIG[ROUTER_HTTP_HOST]}:${CONFIG[ROUTER_HTTP_PORT]}"; fi
+  if [[ -z ${CONFIG[MONITOR_ROUTER_TOKEN]} ]]; then CONFIG[MONITOR_ROUTER_TOKEN]=${CONFIG[ROUTER_API_TOKEN]}; fi
+  if [[ ${CONFIG[MONITOR_ROUTER_TOKEN]} != "${CONFIG[ROUTER_API_TOKEN]}" ]]; then
+    fail 'MONITOR_ROUTER_TOKEN must match ROUTER_API_TOKEN.'
     return 1
   fi
   redis_db=${CONFIG[REDIS_DB]-}
@@ -380,10 +412,10 @@ port_owner() {
 }
 
 check_ports() {
-  local -a names=(Backend Monitor 'Redis Exporter' Frontend MySQL Redis RabbitMQ 'RabbitMQ management' Elasticsearch)
-  local -a ports=("${CONFIG[HTTP_PORT]}" "${CONFIG[MONITOR_HTTP_PORT]}" "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}" "${CONFIG[ELASTICSEARCH_PORT]}")
-  local -a services=('' '' '' '' mysql redis rabbitmq rabbitmq elasticsearch)
-  local -a container_ports=('' '' '' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp 9200/tcp)
+  local -a names=(Backend Router Monitor 'Redis Exporter' Frontend MySQL Redis RabbitMQ 'RabbitMQ management' Elasticsearch Kafka)
+  local -a ports=("${CONFIG[HTTP_PORT]}" "${CONFIG[ROUTER_HTTP_PORT]}" "${CONFIG[MONITOR_HTTP_PORT]}" "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}" "${CONFIG[ELASTICSEARCH_PORT]}" "${CONFIG[KAFKA_PORT]}")
+  local -a services=('' '' '' '' '' mysql redis rabbitmq rabbitmq elasticsearch kafka)
+  local -a container_ports=('' '' '' '' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp 9200/tcp 9092/tcp)
   local i j owner
   for ((i=0; i<${#ports[@]}; i++)); do
     for ((j=i+1; j<${#ports[@]}; j++)); do
@@ -580,8 +612,8 @@ else:
 
 wait_for_infrastructure() {
   local deadline=$((SECONDS + 180)) service status all_healthy
-  local services=(mysql redis rabbitmq elasticsearch)
-  info 'Waiting for MySQL, Redis, RabbitMQ, and Elasticsearch healthchecks.'
+  local services=(mysql redis rabbitmq elasticsearch kafka)
+  info 'Waiting for MySQL, Redis, RabbitMQ, Elasticsearch, and Kafka healthchecks.'
   while ((SECONDS < deadline)); do
     all_healthy=1
     for service in "${services[@]}"; do
@@ -640,8 +672,9 @@ ensure_frontend_dependencies() {
 }
 
 build_applications() {
-  info 'Building the Backend, Business Worker, Search Indexer, Monitor, and Redis Exporter package.'
+  info 'Building the Backend, Business Worker, Search Indexer, Router, Monitor, and Redis Exporter package.'
   (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server && go build -o "$WORKER_BINARY" ./cmd/business-worker && go build -o "$SEARCH_INDEXER_BINARY" ./cmd/search-indexer) || return 1
+  (cd "$ROUTER_DIR" && go build -o "$ROUTER_BINARY" ./cmd/router) || return 1
   (cd "$MONITOR_DIR" && go build -o "$MONITOR_BINARY" ./cmd/monitor) || return 1
   "$REPO_ROOT/scripts/package-redis-exporter.sh" --output "$MONITOR_PACKAGE" >/dev/null
 }
@@ -792,6 +825,34 @@ PY
   write_process_record "$SEARCH_INDEXER_PID" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY"
 }
 
+start_router() {
+  local -a env_args=() key
+  for key in "${ROUTER_KEYS[@]}"; do env_args+=("$key=${CONFIG[$key]}"); done
+  info 'Starting Message Router.'
+  env "${env_args[@]}" python3 - "$ROUTER_DIR" "$ROUTER_BINARY" <<'PYROUTER' &
+import os
+import sys
+cwd, executable = sys.argv[1:]
+os.chdir(cwd)
+os.setsid()
+os.execve(executable, [executable], os.environ)
+PYROUTER
+  ROUTER_PID=$!
+  sleep 0.6
+  kill -0 "$ROUTER_PID" 2>/dev/null || { local code=0; wait "$ROUTER_PID" || code=$?; fail "Router exited during startup with code $code."; return 1; }
+  ROUTER_STARTED=1
+  write_process_record "$ROUTER_PID" "$ROUTER_RECORD" "$ROUTER_DIR" "$ROUTER_BINARY"
+  local base="http://${CONFIG[ROUTER_HTTP_HOST]}:${CONFIG[ROUTER_HTTP_PORT]}"
+  for _ in {1..50}; do
+    if curl -fsS --max-time 1 -H "Authorization: Bearer ${CONFIG[ROUTER_API_TOKEN]}" "$base/ready" >/dev/null 2>&1; then
+      info 'Message Router is ready.'
+      return 0
+    fi
+    sleep 0.2
+  done
+  fail 'Message Router did not become ready.'
+}
+
 start_monitor() {
   local -a env_args=() key
   for key in "${MONITOR_KEYS[@]}"; do env_args+=("$key=${CONFIG[$key]}"); done
@@ -883,6 +944,9 @@ cleanup() {
   if ((MONITOR_STARTED == 1)); then
     stop_recorded_application Monitor "$MONITOR_RECORD" "$MONITOR_DIR" "$MONITOR_BINARY" "$MONITOR_BINARY" "$MONITOR_PID" || true
   fi
+  if ((ROUTER_STARTED == 1)); then
+    stop_recorded_application Router "$ROUTER_RECORD" "$ROUTER_DIR" "$ROUTER_BINARY" "$ROUTER_BINARY" "$ROUTER_PID" || true
+  fi
   if ((SEARCH_INDEXER_STARTED == 1)); then
     stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_PID" || true
   fi
@@ -910,6 +974,7 @@ main() {
   reject_or_remove_record "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY" || return 1
   reject_or_remove_record "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY" || return 1
   reject_or_remove_record Monitor "$MONITOR_RECORD" "$MONITOR_DIR" "$MONITOR_BINARY" "$MONITOR_BINARY" || return 1
+  reject_or_remove_record Router "$ROUTER_RECORD" "$ROUTER_DIR" "$ROUTER_BINARY" "$ROUTER_BINARY" || return 1
   reject_or_remove_record "Legacy Redis Exporter" "$LEGACY_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$LEGACY_EXPORTER_BINARY" "$LEGACY_EXPORTER_BINARY" || return 1
   reject_or_remove_record Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node)" || return 1
 
@@ -928,13 +993,15 @@ main() {
   resolve_configuration || return 1
 
   info 'Starting Compose infrastructure.'
-  compose up -d mysql redis rabbitmq elasticsearch || return 1
+  compose up -d mysql redis rabbitmq elasticsearch kafka || return 1
   wait_for_infrastructure || return 1
+  compose up kafka-init || return 1
   run_database_migrations || return 1
   run_search_reindex || return 1
   ensure_frontend_dependencies || return 1
   build_applications || return 1
   prepare_monitor_plugin_state || return 1
+  start_router || return 1
   start_monitor || return 1
   start_backend || return 1
   start_worker || return 1
@@ -946,11 +1013,13 @@ main() {
   printf '  Backend:             http://localhost:%s\n' "${CONFIG[HTTP_PORT]}"
   printf '  Health:              http://localhost:%s/health\n' "${CONFIG[HTTP_PORT]}"
   printf '  Readiness:           http://localhost:%s/ready\n' "${CONFIG[HTTP_PORT]}"
+  printf '  Router:              http://localhost:%s/ready\n' "${CONFIG[ROUTER_HTTP_PORT]}"
   printf '  Monitor:             http://localhost:%s/ready\n' "${CONFIG[MONITOR_HTTP_PORT]}"
   printf '  Redis metrics:       http://localhost:%s/metrics\n' "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}"
   printf '  RabbitMQ management: http://localhost:%s\n' "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}"
-  printf '  Elasticsearch:       http://localhost:%s\n\n' "${CONFIG[ELASTICSEARCH_PORT]}"
-  info 'Press Ctrl+C to stop Frontend, Monitor-managed Redis Exporter, Search Indexer, Business Worker, and Backend. Infrastructure will remain running.'
+  printf '  Elasticsearch:       http://localhost:%s\n' "${CONFIG[ELASTICSEARCH_PORT]}"
+  printf '  Kafka:               127.0.0.1:%s\n\n' "${CONFIG[KAFKA_PORT]}"
+  info 'Press Ctrl+C to stop Frontend, Monitor-managed Redis Exporter, Monitor, Router, Search Indexer, Business Worker, and Backend. Infrastructure will remain running.'
 
   while true; do
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
@@ -966,6 +1035,11 @@ main() {
     if ! kill -0 "$SEARCH_INDEXER_PID" 2>/dev/null; then
       wait "$SEARCH_INDEXER_PID" || EXIT_CODE=$?
       fail "Search Indexer exited unexpectedly with code $EXIT_CODE."
+      return 1
+    fi
+    if ! kill -0 "$ROUTER_PID" 2>/dev/null; then
+      wait "$ROUTER_PID" || EXIT_CODE=$?
+      fail "Router exited unexpectedly with code $EXIT_CODE."
       return 1
     fi
     if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
