@@ -314,7 +314,7 @@ run_search_reindex() {
 start_backend() {
   [[ -z ${BACKEND_PID:-} ]] || fail 'Backend is already recorded as running'
   setsid bash -c 'cd "$1"; shift; exec env "$@"' _ "$BACKEND_DIR" \
-    APP_ENV=test HTTP_HOST="$PUBLISHED_HOST" HTTP_PORT="$HTTP_PORT" \
+    APP_ENV="${BACKEND_APP_ENV:-test}" HTTP_HOST="$PUBLISHED_HOST" HTTP_PORT="$HTTP_PORT" \
     MYSQL_HOST="$PUBLISHED_HOST" MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE="$DATABASE_NAME" MYSQL_USER="$MYSQL_USER" MYSQL_PASSWORD="$MYSQL_PASSWORD" \
     REDIS_HOST="$PUBLISHED_HOST" REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB="$REDIS_DB" \
     RABBITMQ_URL="amqp://$RABBITMQ_USER:$RABBITMQ_PASSWORD@$PUBLISHED_HOST:$RABBITMQ_PORT/" \
@@ -1436,6 +1436,7 @@ main() {
 
   if [[ $mode == logging-live ]]; then
     run_search_reindex --if-missing
+    BACKEND_APP_ENV=development
     start_backend
     start_worker
     start_search_indexer
