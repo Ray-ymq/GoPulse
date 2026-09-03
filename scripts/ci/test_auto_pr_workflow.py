@@ -32,7 +32,7 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertIn("run_product_checks: ${{ github.ref_name != 'update' }}", caller)
         self.assertIn("run_product_checks:", gates)
         self.assertIn("default: true", gates)
-        self.assertEqual(gates.count("if: inputs.run_product_checks"), 5)
+        self.assertEqual(gates.count("if: inputs.run_product_checks"), 6)
 
 
 if __name__ == "__main__":
