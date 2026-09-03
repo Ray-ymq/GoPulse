@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **1.3.2**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance, and Phase 6 now includes persistent administrator identity plus an authenticated Monitor Plugin Manager that safely installs, starts, stops, updates, rolls back, and restores the Redis Exporter. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
+GoPulse is currently at product version **1.3.3**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance, and Phase 6 now includes persistent administrator identity, an authenticated Monitor Plugin Manager, and a MetricsMonitor that immediately and periodically scrapes the managed Redis Exporter into strict Envelope v1 messages for an optional HTTP Publisher. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
 
 The repository currently provides:
 
@@ -121,7 +121,7 @@ The no-Docker negative safety checks can be run independently:
 scripts/verify-business.sh --self-test
 ```
 
-Monitor lifecycle acceptance is also isolated. It builds a deterministic plugin package, starts a random-project Redis, verifies internal Bearer authentication, installs and auto-starts the real Exporter, exercises idempotent stop/start, updates to a higher version, and proves restart recovery:
+Monitor lifecycle and metrics acceptance is also isolated. It builds deterministic plugin packages, starts random-project Redis/MySQL plus a loopback HTTP capture fixture, verifies internal Bearer authentication, proves real Redis value changes in Envelope v1, exercises target-unavailable, malformed-data, Publisher-failure, stop/start/update/rollback, and restart recovery:
 
 ```bash
 scripts/verify-monitor.sh --self-test

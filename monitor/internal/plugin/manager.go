@@ -26,6 +26,7 @@ type Manager struct {
 	states    map[string]Status
 	runtimes  map[string]*runtimeProcess
 	operation chan struct{}
+	observer  MetricsLifecycle
 }
 
 func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
@@ -56,6 +57,60 @@ func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
 }
 func statusFromEntry(e registryEntry, observed ObservedState, last *SafeError) Status {
 	return Status{ID: e.Manifest.ID, Name: e.Manifest.Name, Version: e.CurrentVersion, Kind: e.Manifest.Kind, Source: e.Manifest.Source, DesiredState: e.DesiredState, ObservedState: observed, InstalledAt: e.InstalledAt, UpdatedAt: e.UpdatedAt, LastError: last}
+}
+func preserveMetrics(next, previous Status) Status {
+	next.LastScrapeAt = previous.LastScrapeAt
+	next.LastSuccessAt = previous.LastSuccessAt
+	return next
+}
+func (m *Manager) AttachMetrics(observer MetricsLifecycle) {
+	m.mu.Lock()
+	m.observer = observer
+	entry, installed := m.registry.Plugins[PluginID]
+	state := m.states[PluginID]
+	m.mu.Unlock()
+	if observer != nil && installed && state.ObservedState == ObservedRunning {
+		observer.Enable(entry.Manifest)
+	}
+}
+func (m *Manager) enableMetrics(manifest Manifest) {
+	m.mu.RLock()
+	observer := m.observer
+	m.mu.RUnlock()
+	if observer != nil {
+		observer.Enable(manifest)
+	}
+}
+func (m *Manager) disableMetrics(ctx context.Context) error {
+	m.mu.RLock()
+	observer := m.observer
+	m.mu.RUnlock()
+	if observer == nil {
+		return nil
+	}
+	return observer.Disable(ctx)
+}
+func (m *Manager) RecordMetrics(scrapeAt, successAt *time.Time, code, message string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	status, ok := m.states[PluginID]
+	if !ok {
+		return
+	}
+	if scrapeAt != nil {
+		value := scrapeAt.UTC()
+		status.LastScrapeAt = &value
+	}
+	if successAt != nil {
+		value := successAt.UTC()
+		status.LastSuccessAt = &value
+	}
+	if code == "" {
+		status.LastError = nil
+	} else {
+		status.LastError = &SafeError{Code: code, Message: message, At: m.cfg.Now().UTC()}
+	}
+	m.states[PluginID] = status
 }
 func (m *Manager) begin() error {
 	select {
@@ -154,6 +209,7 @@ func (m *Manager) installNew(ctx context.Context, archivePath string) (Status, e
 	m.runtimes[PluginID] = rp
 	m.mu.Unlock()
 	m.watch(PluginID, rp)
+	m.enableMetrics(manifest)
 	return status, nil
 }
 func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
@@ -166,6 +222,7 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	defer m.end()
 	m.mu.Lock()
 	entry, ok := m.registry.Plugins[id]
+	previous := m.states[id]
 	if !ok {
 		m.mu.Unlock()
 		return Status{}, NewError(CodeNotFound, "plugin was not found")
@@ -177,7 +234,7 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	entry.DesiredState = DesiredRunning
 	entry.UpdatedAt = m.cfg.Now().UTC()
 	m.registry.Plugins[id] = entry
-	m.states[id] = statusFromEntry(entry, ObservedStarting, nil)
+	m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedStarting, nil), previous)
 	reg := m.registry
 	m.mu.Unlock()
 	if err := saveRegistry(m.cfg.Root, reg); err != nil {
@@ -187,18 +244,19 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	if err != nil {
 		failure := &SafeError{Code: "start_failed", Message: "plugin failed to start", At: m.cfg.Now().UTC()}
 		m.mu.Lock()
-		m.states[id] = statusFromEntry(entry, ObservedFailed, failure)
+		m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedFailed, failure), previous)
 		m.mu.Unlock()
 		return Status{}, NewError(CodeFailed, "plugin failed to start")
 	}
 	started := m.cfg.Now().UTC()
-	s := statusFromEntry(entry, ObservedRunning, nil)
+	s := preserveMetrics(statusFromEntry(entry, ObservedRunning, nil), previous)
 	s.StartedAt = &started
 	m.mu.Lock()
 	m.states[id] = s
 	m.runtimes[id] = rp
 	m.mu.Unlock()
 	m.watch(id, rp)
+	m.enableMetrics(entry.Manifest)
 	return s, nil
 }
 func (m *Manager) runtimeOwnedLocked(id string) bool {
@@ -206,7 +264,6 @@ func (m *Manager) runtimeOwnedLocked(id string) bool {
 	return rp != nil && ownsProcess(rp.record)
 }
 func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
-	_ = ctx
 	if id != PluginID {
 		return Status{}, NewError(CodeNotFound, "plugin was not found")
 	}
@@ -214,8 +271,12 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 		return Status{}, err
 	}
 	defer m.end()
+	if err := m.disableMetrics(ctx); err != nil {
+		return Status{}, NewError(CodeFailed, "metrics collection could not be stopped")
+	}
 	m.mu.Lock()
 	entry, ok := m.registry.Plugins[id]
+	previous := m.states[id]
 	if !ok {
 		m.mu.Unlock()
 		return Status{}, NewError(CodeNotFound, "plugin was not found")
@@ -225,7 +286,7 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 	m.registry.Plugins[id] = entry
 	reg := m.registry
 	rp := m.runtimes[id]
-	m.states[id] = statusFromEntry(entry, ObservedStopping, nil)
+	m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedStopping, nil), previous)
 	m.mu.Unlock()
 	if err := saveRegistry(m.cfg.Root, reg); err != nil {
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
@@ -245,7 +306,7 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 		return Status{}, NewError(CodeFailed, "plugin process ownership could not be verified")
 	}
 	removeProcessRecord(m.pluginDir())
-	s := statusFromEntry(entry, ObservedStopped, nil)
+	s := preserveMetrics(statusFromEntry(entry, ObservedStopped, nil), previous)
 	m.mu.Lock()
 	delete(m.runtimes, id)
 	m.states[id] = s
@@ -298,6 +359,9 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	}()
 	wasRunning := old.DesiredState == DesiredRunning
 	if wasRunning {
+		if err = m.disableMetrics(ctx); err != nil {
+			return Status{}, NewError(CodeFailed, "metrics collection could not be stopped")
+		}
 		if _, err = m.stopForUpdate(); err != nil {
 			return Status{}, err
 		}
@@ -311,7 +375,7 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	updated.UpdatedAt = m.cfg.Now().UTC()
 	m.mu.Lock()
 	m.registry.Plugins[id] = updated
-	m.states[id] = statusFromEntry(updated, ObservedUpdating, nil)
+	m.states[id] = preserveMetrics(statusFromEntry(updated, ObservedUpdating, nil), oldState)
 	reg := m.registry
 	m.mu.Unlock()
 	if err = saveRegistry(m.cfg.Root, reg); err != nil {
@@ -320,7 +384,7 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	}
 	if !wasRunning {
 		rollbackRelease = false
-		s := statusFromEntry(updated, ObservedStopped, nil)
+		s := preserveMetrics(statusFromEntry(updated, ObservedStopped, nil), oldState)
 		m.mu.Lock()
 		m.states[id] = s
 		m.mu.Unlock()
@@ -330,13 +394,14 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	if startErr == nil {
 		rollbackRelease = false
 		started := m.cfg.Now().UTC()
-		s := statusFromEntry(updated, ObservedRunning, nil)
+		s := preserveMetrics(statusFromEntry(updated, ObservedRunning, nil), oldState)
 		s.StartedAt = &started
 		m.mu.Lock()
 		m.states[id] = s
 		m.runtimes[id] = rp
 		m.mu.Unlock()
 		m.watch(id, rp)
+		m.enableMetrics(manifest)
 		return s, nil
 	}
 	_ = switchCurrent(m.pluginDir(), old.CurrentVersion)
@@ -348,13 +413,14 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	oldRP, restartErr := startProcess(context.Background(), m.pluginDir(), old.Manifest, m.cfg.ExporterEnv, m.cfg.HealthURL, m.cfg.StartupTimeout)
 	if restartErr == nil {
 		started := m.cfg.Now().UTC()
-		restored := statusFromEntry(old, ObservedRunning, &SafeError{Code: "update_failed", Message: "plugin update failed and was rolled back", At: m.cfg.Now().UTC()})
+		restored := preserveMetrics(statusFromEntry(old, ObservedRunning, &SafeError{Code: "update_failed", Message: "plugin update failed and was rolled back", At: m.cfg.Now().UTC()}), oldState)
 		restored.StartedAt = &started
 		m.mu.Lock()
 		m.states[id] = restored
 		m.runtimes[id] = oldRP
 		m.mu.Unlock()
 		m.watch(id, oldRP)
+		m.enableMetrics(old.Manifest)
 	}
 	return Status{}, NewError(CodeFailed, "plugin update failed and was rolled back")
 }
@@ -427,6 +493,7 @@ func (m *Manager) watch(id string, runtime *runtimeProcess) {
 			return
 		}
 		removeProcessRecord(m.pluginDir())
+		_ = m.disableMetrics(context.Background())
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		if m.runtimes[id] != runtime {
@@ -438,12 +505,14 @@ func (m *Manager) watch(id string, runtime *runtimeProcess) {
 			return
 		}
 		failure := &SafeError{Code: "process_exited", Message: "plugin process exited unexpectedly", At: m.cfg.Now().UTC()}
-		m.states[id] = statusFromEntry(entry, ObservedFailed, failure)
+		m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedFailed, failure), m.states[id])
 	}()
 }
 
 func (m *Manager) Shutdown(ctx context.Context) error {
-	_ = ctx
+	if err := m.disableMetrics(ctx); err != nil {
+		return err
+	}
 	m.mu.RLock()
 	records := []processRecord{}
 	for _, rp := range m.runtimes {
