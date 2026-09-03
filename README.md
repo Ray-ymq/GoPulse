@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **1.2.1**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, and Phase 5-01 adds an independent Redis Exporter with target-failure isolation. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
+GoPulse is currently at product version **1.2.2**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, and Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
 
 The repository currently provides:
 
@@ -52,7 +52,7 @@ The first `dev.sh` run creates `.env` from `.env.example` when `.env` is absent.
 cp .env.example .env
 ```
 
-Workspaces created before Phase-01-01 must manually add the Phase 1 values from `.env.example`, including `AUTH_JWT_SECRET`, `AUTH_JWT_TTL`, `AUTH_COOKIE_NAME`, `AUTH_COOKIE_SECURE`, `REDIS_POST_DETAIL_TTL`, and `REDIS_OPERATION_TIMEOUT`. Existing `.env` files must also include the Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*` values, the Phase-03-01 `ELASTICSEARCH_PORT`, `ELASTICSEARCH_URL`, `ELASTICSEARCH_REQUEST_TIMEOUT`, and `SEARCH_REINDEX_BATCH` values, the Phase-03-02 `SEARCH_INDEXER_*` values, and the Phase-05-01 `REDIS_EXPORTER_*` values shown in `.env.example`. The development script does not overwrite an existing `.env`. Elasticsearch URLs must use HTTP(S), include a host, and must not include credentials, query parameters, or fragments.
+Workspaces created before Phase-01-01 must manually add the required Phase 1 secrets and connection values from `.env.example`, including `AUTH_JWT_SECRET` and the RabbitMQ URL. Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*`, Phase 3 Elasticsearch/Search Indexer, and Phase 5 `REDIS_EXPORTER_*` settings may be copied when they need customization; otherwise the Bash lifecycle resolves their documented local defaults without overwriting an existing `.env`. This includes `ELASTICSEARCH_PORT=9200` for legacy environment files during both startup and shutdown. Elasticsearch URLs must use HTTP(S), include a host, and must not include credentials, query parameters, or fragments.
 
 The checked-in values are development-only credentials. Do not reuse them in production or commit a local `.env`. `APP_ENV` must be `development`, `test`, or `production`. Production requires `AUTH_COOKIE_SECURE=true`; local development and tests may explicitly use `false` for HTTP.
 
@@ -74,9 +74,10 @@ The script performs the following sequence:
 4. runs `go run ./cmd/migrate up` in `backend/`;
 5. runs `go run ./cmd/search-reindex --if-missing` to initialize the search alias without replacing an existing generation;
 6. builds and starts the Backend, independent Business Worker, and independent Search Indexer;
-7. installs reproducible Frontend dependencies when required and starts Vite.
+7. builds and starts the independent Redis Exporter after Redis is healthy;
+8. installs reproducible Frontend dependencies when required and starts Vite.
 
-A failed migration or application startup stops only the Backend, Business Worker, Search Indexer, and Frontend processes started by that invocation. With the default configuration, the environment provides:
+A failed migration or application startup stops only the Backend, Business Worker, Search Indexer, Redis Exporter, and Frontend processes started by that invocation. With the default configuration, the environment provides:
 
 | Service | Address |
 | --- | --- |
