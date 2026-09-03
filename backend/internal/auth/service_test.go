@@ -78,7 +78,7 @@ func TestServiceRegisterNormalizesUsernameBeforeCreatingUser(t *testing.T) {
 		if passwordHash != passwords.hashResult {
 			t.Fatalf("Create() hash = %q, want generated hash", passwordHash)
 		}
-		return user.User{ID: 9, Username: username, PasswordHash: passwordHash, CreatedAt: createdAt}, nil
+		return user.User{ID: 9, Username: username, PasswordHash: passwordHash, Role: user.RoleUser, CreatedAt: createdAt}, nil
 	}}
 	service := NewService(repository, passwords, tokens)
 
@@ -142,7 +142,7 @@ func TestServiceLoginUsesIndistinguishableErrorsForUnknownUserAndWrongPassword(t
 		{
 			name: "wrong password",
 			repository: &fakeUserRepository{findByUsername: func(context.Context, string) (user.User, error) {
-				return user.User{ID: 1, Username: "alice", PasswordHash: "hash"}, nil
+				return user.User{ID: 1, Username: "alice", PasswordHash: "hash", Role: user.RoleUser}, nil
 			}},
 			passwords: &fakePasswordOperations{verifyResult: false},
 		},
@@ -162,7 +162,7 @@ func TestServiceLoginIssuesTokenForValidCredentials(t *testing.T) {
 	passwords := &fakePasswordOperations{verifyResult: true}
 	tokens := &fakeTokenIssuer{token: "signed-token"}
 	service := NewService(&fakeUserRepository{findByUsername: func(_ context.Context, username string) (user.User, error) {
-		return user.User{ID: 15, Username: username, PasswordHash: "hash", CreatedAt: time.Now()}, nil
+		return user.User{ID: 15, Username: username, PasswordHash: "hash", Role: user.RoleAdmin, CreatedAt: time.Now()}, nil
 	}}, passwords, tokens)
 
 	publicUser, token, err := service.Login(context.Background(), Credentials{Username: " Alice ", Password: "password123"})

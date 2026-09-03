@@ -43,7 +43,7 @@ func TestIntegrationRegistrationCaseInsensitiveConflictAndRestartLogin(t *testin
 		_ = database.Close()
 		t.Fatalf("Register() error = %v", err)
 	}
-	if registered.ID == 0 || registered.Username != username || token == "" {
+	if registered.ID == 0 || registered.Username != username || registered.Role != user.RoleUser || token == "" {
 		_ = database.Close()
 		t.Fatalf("Register() result user=%#v tokenEmpty=%v", registered, token == "")
 	}
@@ -75,7 +75,7 @@ func TestIntegrationRegistrationCaseInsensitiveConflictAndRestartLogin(t *testin
 	if err != nil {
 		t.Fatalf("Login() after database pool restart error = %v", err)
 	}
-	if loggedIn.ID != registered.ID || restartedToken == "" {
+	if loggedIn.ID != registered.ID || loggedIn.Role != user.RoleUser || restartedToken == "" {
 		t.Fatalf("Login() after restart user=%#v tokenEmpty=%v", loggedIn, restartedToken == "")
 	}
 
