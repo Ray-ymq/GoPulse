@@ -40,6 +40,15 @@ Kubernetes 部署
 - Phase 16 完成并通过里程碑验收后，再建立不占用 Phase 0–16 编号的 Windows PowerShell 兼容任务，以最终 Bash 行为、配置契约、容器拓扑和验收流程为基线集中实现与回归。
 - 延后原生 Windows 兼容不降低当前阶段的业务、数据、安全、故障恢复、Linux CI、Docker 或 Kubernetes 验收标准。
 
+## 1.2 用户态与访问边界
+
+- GoPulse 只有一套用户、注册、登录和会话系统，但提供两种产品使用态：普通用户使用社交业务域，管理员在保留社交能力的同时使用可观测管理域。
+- `admin` 是 `user` 的权限超集而不是第二套公开身份；作者摘要、帖子、评论、通知、搜索和公开缓存不得暴露管理员角色。
+- Metrics、Logs、Events 查询及 Exporter 管理全部属于管理员能力，必须由 Backend 根据数据库当前角色授权；未登录返回 `401`，普通用户返回 `403 permission_denied`。
+- Frontend 的管理导航和路由守卫只负责体验，不能替代 Backend 授权；普通用户直接构造管理 URL 或 API 请求仍不得获得可观测数据。
+- Monitor、Message Router、Marshaller、Kafka、VictoriaMetrics、Elasticsearch、数据库和 Kubernetes 内部接口不面向浏览器，只接受独立服务身份并保持受控网络边界。
+- 可观测链路故障不得不必要地阻断普通用户社交业务；Phase 6～16 的总实施方案、验收和部署必须持续验证身份隔离、内部服务不暴露和安全错误响应。
+
 ---
 
 # 2. 总体技术栈
@@ -218,6 +227,8 @@ events  → Elasticsearch
 - 展示执行状态
 
 组件管理、插件下发、采集控制、数据查询等逻辑全部由 Go Backend 负责。
+
+可观测页面只向管理员开放。Frontend 可以依据当前用户 role 控制导航与路由，但所有查询和管理操作仍由 Backend 执行最终 admin 授权。
 
 ---
 
@@ -713,6 +724,10 @@ Monitor
 
 此阶段先完成 MetricsMonitor。
 
+Phase 6 同时先建立两种产品使用态的身份与授权基础：普通用户使用社交业务域，管理员通过同一账号和会话获得可观测管理能力。全部插件管理接口由 Backend 根据数据库当前 `admin` 角色授权，普通用户固定返回 `403 permission_denied`。
+
+本阶段按四个可执行批次实施：管理员身份与双用户态授权、插件安装包与生命周期、MetricsMonitor 周期采集与标准消息、集成验收与阶段收口；权威版本与分支以 Phase 6 总实施方案为准。
+
 ---
 
 ## 10.1 MetricsMonitor
@@ -781,13 +796,17 @@ Exporter
 
 ## 验收标准
 
-Backend 可以：
+管理员通过 Backend 可以：
 
 ```text
 查看 Exporter 状态
+安装 Exporter
 启动 Exporter
 停止 Exporter
+更新 Exporter
 ```
+
+普通用户对以上接口均为 `403 permission_denied`，且被拒绝请求不得到达 Monitor；管理员和普通用户的既有社交业务均保持可用。
 
 MetricsMonitor 可以周期采集 Exporter。
 
@@ -1079,7 +1098,7 @@ Event 可以在 Elasticsearch 中查询。
 
 ## 目标
 
-让已经完成的后端数据链路真正成为一个“可观测系统”。
+让已经完成的后端数据链路真正成为管理员可使用的“可观测系统”，同时保持普通用户社交平台独立、可用且不可见管理数据。
 
 前端新增：
 
@@ -1108,6 +1127,8 @@ Frontend
    ↓
 Go Backend
 ```
+
+普通用户与管理员继续共用现有登录和 Cookie；只有管理员可以进入可观测管理路由并调用以下 API，普通用户固定获得 `403 permission_denied`。
 
 Backend 提供：
 
@@ -1687,7 +1708,7 @@ Events
 
 并能够通过前端进行统一查询和管理。
 
-该 MVP 证明 Metrics、Logs、Events 三类数据及插件管理能力已形成面向用户的完整可观测体验。
+该 MVP 证明 Metrics、Logs、Events 三类数据及插件管理能力已形成面向管理员的完整可观测体验，同时普通用户社交域保持隔离和可用。
 
 ---
 
