@@ -1,6 +1,9 @@
+export type UserRole = 'user' | 'admin'
+
 export interface PublicUser {
   id: number
   username: string
+  role: UserRole
   created_at: string
 }
 
@@ -51,6 +54,7 @@ export interface Page<T> {
 export type ApiErrorCode =
   | 'validation_failed'
   | 'authentication_required'
+  | 'permission_denied'
   | 'invalid_credentials'
   | 'username_conflict'
   | 'post_not_found'

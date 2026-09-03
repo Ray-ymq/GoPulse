@@ -5,7 +5,7 @@ import { resetAuthForTests, useAuth } from '../composables/useAuth'
 import AuthRecoveryView from '../views/AuthRecoveryView.vue'
 import { createAppRouter } from './index'
 
-const currentUser = { id: 1, username: 'alice', created_at: '2026-09-01T00:00:00Z' }
+const currentUser = { id: 1, username: 'alice', role: 'user', created_at: '2026-09-01T00:00:00Z' }
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })

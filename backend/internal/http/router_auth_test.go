@@ -44,7 +44,7 @@ func (verifier acceptingVerifier) Verify(string) (uint64, error) {
 func TestAuthenticationRoutesExposeStableContracts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	createdAt := time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
-	publicUser := user.Public{ID: 17, Username: "alice", CreatedAt: createdAt}
+	publicUser := user.Public{ID: 17, Username: "alice", Role: user.RoleUser, CreatedAt: createdAt}
 	secretToken := "header.sensitive-signature.payload"
 	application := &fakeAuthApplication{
 		register: func(_ context.Context, credentials auth.Credentials) (user.Public, string, error) {
@@ -74,7 +74,7 @@ func TestAuthenticationRoutesExposeStableContracts(t *testing.T) {
 	if registerResponse.Code != stdhttp.StatusCreated {
 		t.Fatalf("register status = %d body=%s", registerResponse.Code, registerResponse.Body.String())
 	}
-	assertJSONEqual(t, registerResponse.Body.String(), `{"data":{"id":17,"username":"alice","created_at":"2026-09-01T12:00:00Z"}}`)
+	assertJSONEqual(t, registerResponse.Body.String(), `{"data":{"id":17,"username":"alice","role":"user","created_at":"2026-09-01T12:00:00Z"}}`)
 	assertSessionCookie(t, registerResponse, "session", secretToken, 7200)
 	assertNoSensitiveResponseData(t, registerResponse.Body.String(), "plain-password", secretToken, "$2a$10$password-hash")
 
@@ -89,7 +89,7 @@ func TestAuthenticationRoutesExposeStableContracts(t *testing.T) {
 	if meResponse.Code != stdhttp.StatusOK {
 		t.Fatalf("me status = %d body=%s", meResponse.Code, meResponse.Body.String())
 	}
-	assertJSONEqual(t, meResponse.Body.String(), `{"data":{"id":17,"username":"alice","created_at":"2026-09-01T12:00:00Z"}}`)
+	assertJSONEqual(t, meResponse.Body.String(), `{"data":{"id":17,"username":"alice","role":"user","created_at":"2026-09-01T12:00:00Z"}}`)
 
 	logoutResponse := performJSONRequest(router, stdhttp.MethodPost, "/api/v1/auth/logout", "", nil)
 	if logoutResponse.Code != stdhttp.StatusNoContent || logoutResponse.Body.Len() != 0 {
