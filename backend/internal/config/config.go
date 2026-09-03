@@ -22,7 +22,7 @@ const (
 	defaultRedisDB               = 0
 	defaultElasticsearchURL      = "http://127.0.0.1:9200"
 	defaultMonitorURL            = "http://127.0.0.1:9090"
-	defaultMonitorTimeout        = 70 * time.Second
+	defaultMonitorTimeout        = 30 * time.Second
 	defaultElasticsearchTimeout  = 3 * time.Second
 	defaultSearchReindexBatch    = 500
 	defaultAuthJWTTTL            = 2 * time.Hour
@@ -224,7 +224,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil || (parsedMonitorURL.Scheme != "http" && parsedMonitorURL.Scheme != "https") || parsedMonitorURL.Host == "" || parsedMonitorURL.User != nil {
 		return Config{}, errors.New("MONITOR_URL must be an HTTP URL without user information")
 	}
-	monitorTimeout, err := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, 2*time.Minute)
+	monitorTimeout, err := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, time.Minute)
 	if err != nil {
 		return Config{}, err
 	}

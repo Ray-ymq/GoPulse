@@ -103,7 +103,7 @@ check_compose_service() {
   }
   count=$(sed '/^[[:space:]]*$/d' <<<"$ids" | wc -l | tr -d ' ')
   if [[ $count != 1 ]]; then
-    fail "Compose/$service" "expected exactly one container, found $count. Inspect with: docker compose --project-name gopulse --file '$REPO_ROOT/deploy/compose.yaml' ps"
+    fail "Compose/$service" "expected exactly one container, found $count. Inspect with: docker compose --project-name $PROJECT_NAME --file '$REPO_ROOT/deploy/compose.yaml' ps"
     return
   fi
   state=$(docker inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$ids" 2>/dev/null) || {
@@ -274,6 +274,33 @@ check_frontend() {
   pass 'Frontend' "HTTP $status from http://localhost:5173/."
 }
 
+check_monitor_plugin_version() {
+  local port=$1 token=$2 body="$TEMP_DIR/monitor-plugin.json" status expected
+  expected=$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")
+  if [[ -z $token ]]; then
+    fail 'Monitor plugin version' 'MONITOR_API_TOKEN is missing.'
+    return
+  fi
+  if ! status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:$port/internal/v1/exporter-plugins/redis-exporter"); then
+    fail 'Monitor plugin version' 'status request failed.'
+    return
+  fi
+  if [[ $status != 200 ]] || ! python3 - "$body" "$expected" <<'PYPLUGIN'
+import json
+import sys
+try:
+    status = json.load(open(sys.argv[1], encoding='utf-8'))['data']
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if status.get('version') == sys.argv[2] and status.get('observed_state') == 'running' else 1)
+PYPLUGIN
+  then
+    fail 'Monitor plugin version' "expected running version $expected from the current repository."
+    return
+  fi
+  pass 'Monitor plugin version' "running version $expected matches the current repository."
+}
+
 check_exporter_health() {
   local port=$1 body="$TEMP_DIR/exporter-health.json" status
   if ! status=$(http_get "http://localhost:$port/health" "$body"); then
@@ -325,7 +352,7 @@ PY
 
 main() {
   require_tools || return 1
-  local port monitor_port exporter_port
+  local port monitor_port exporter_port monitor_token
   if ! port=$(http_port); then
     printf '[gopulse] ERROR: Could not read HTTP_PORT from the environment file.\n' >&2
     return 1
@@ -333,6 +360,7 @@ main() {
   validate_port "$port" || { printf "[gopulse] ERROR: HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$port" >&2; return 1; }
   monitor_port=$(monitor_http_port) || { printf '[gopulse] ERROR: Could not read MONITOR_HTTP_PORT.\n' >&2; return 1; }
   validate_port "$monitor_port" || { printf "[gopulse] ERROR: MONITOR_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$monitor_port" >&2; return 1; }
+  monitor_token=$(config_port MONITOR_API_TOKEN '') || { printf '[gopulse] ERROR: Could not read MONITOR_API_TOKEN.\n' >&2; return 1; }
   exporter_port=$(exporter_http_port) || { printf '[gopulse] ERROR: Could not read REDIS_EXPORTER_HTTP_PORT.\n' >&2; return 1; }
   validate_port "$exporter_port" || { printf "[gopulse] ERROR: REDIS_EXPORTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$exporter_port" >&2; return 1; }
   TEMP_DIR=$(mktemp -d)
@@ -345,6 +373,7 @@ main() {
   check_recorded_process "Search Indexer" "$SEARCH_INDEXER_RECORD" "$SEARCH_INDEXER_BINARY"
   check_recorded_process Monitor "$MONITOR_RECORD" "$MONITOR_BINARY" "$MONITOR_DIR" "$MONITOR_BINARY"
   if curl -fsS --max-time 3 "http://127.0.0.1:$monitor_port/health" >/dev/null; then pass 'Monitor /health' 'HTTP 200.'; else fail 'Monitor /health' 'request failed.'; fi
+  check_monitor_plugin_version "$monitor_port" "$monitor_token"
   check_exporter_health "$exporter_port"
   check_exporter_metrics "$exporter_port"
   check_health "$port"
@@ -353,7 +382,7 @@ main() {
   check_frontend
   if ((FAILURES > 0)); then
     printf '[gopulse] Verification failed with %d issue(s). The script did not change the running environment.\n' "$FAILURES" >&2
-    printf '[gopulse] Diagnose Compose with: docker compose --project-name gopulse --file deploy/compose.yaml ps\n' >&2
+    printf '[gopulse] Diagnose Compose with: docker compose --project-name $PROJECT_NAME --file deploy/compose.yaml ps\n' >&2
     return 1
   fi
   info 'Verification passed. The script did not change the running environment.'
