@@ -56,8 +56,9 @@ Phase 4 使用 `1.1.x` 版本线，`1.1.0` 只作为阶段基线，不创建空�
 
 | 执行批次 | 目标版本 | 开发分支 | 当前状态 |
 | --- | --- | --- | --- |
-| Phase-04-01 | `1.1.1` | `develop/1.1.1` | 待实施；以前置发布 `1.0.0` 完成为条件 |
-| Phase-04-02 | `1.1.2` | `develop/1.1.2` | 待实施；以前一批合入主远程为条件 |
+| Phase-04-01 | `1.1.1` | `develop/1.1.1` | 已完成；PR #55 于 2026-09-03 合入 `main`（`fa7cdab`） |
+| Phase-04-02 | `1.1.2` | `develop/1.1.2` | 已完成；PR #56 于 2026-09-03 合入 `main`（`4ce7feb`） |
+| Phase-04-03 | `1.1.3` | `develop/1.1.3` | Review 整改本地完成；待远程门禁与合入 |
 
 执行规则：
 
@@ -65,7 +66,7 @@ Phase 4 使用 `1.1.x` 版本线，`1.1.0` 只作为阶段基线，不创建空�
 - 每批完成前创建同名 `dev/logs/Phase-04/Phase-04-XX-*.md`，只记录实际工作、实际验证、偏差和限制。
 - 完成或已经打开 Pull Request 后不在原分支执行下一批；批次数量或顺序变化时先更新本表，已推送分支不得静默改名或重新编号。
 - Phase-04-01 交付完整 HTTP 请求到日志闭环；Phase-04-02 交付后台进程日志并在相同契约下完成阶段级集成验收。
-- 不增加没有独立能力的 `Phase-04-03` 纯验收批次；只有实施前发现必须隔离的新风险时，才先修改总方案并重新分配尚未创建的版本与分支。
+- Phase-04-03 是实现 Review 发现后的边界整改批次，只关闭 development JSON Lines、已提交响应 panic 语义和权威治理三项 P2，不扩展一般审计或日志平台能力。
 
 ## 4. 阶段范围与非目标
 
@@ -236,12 +237,15 @@ Milestone-01-Release（1.0.0）
 Phase-04-01 HTTP 请求链路与业务日志闭环（1.1.1）
   ↓
 Phase-04-02 后台进程日志与阶段收口（1.1.2）
+  ↓
+Phase-04-03 Review 整改与阶段收口（1.1.3）
 ```
 
 - [Phase-04-01：HTTP 请求链路与业务日志闭环](Phase-04-01-HTTP请求链路与业务日志闭环.md)：交付统一日志基础、服务端 request ID、所有主要 API 的访问/业务/错误日志和真实 HTTP 日志验收。
 - [Phase-04-02：后台进程日志与阶段收口](Phase-04-02-后台进程日志与阶段收口.md)：统一 Outbox、Business Worker、Search Indexer 和 search-reindex，更新 JSON 日志断言并执行阶段级完整矩阵。
+- [Phase-04-03：Review 整改与阶段收口](Phase-04-03-Review整改与阶段收口.md)：关闭默认 development Gin 文本输出、已提交响应后的 panic 混合 payload/错误等级以及 Phase 4 权威状态三项 Review 问题。
 
-两个纵向批次符合阶段提纲的 2～3 批约束：第一批已经形成真实用户请求到可关联日志的最小闭环，第二批扩展为完整运行进程集并完成跨进程验收；没有按日志库、中间件、Handler 和测试层机械拆分。
+三个纵向批次符合阶段提纲的 2～3 批约束：第一批形成真实用户请求到可关联日志的最小闭环，第二批扩展为完整运行进程集并完成跨进程验收，第三批只关闭实现 Review 发现的三项明确缺口；没有按日志库、中间件、Handler 和测试层机械拆分。
 
 ## 11. 测试策略与固定矩阵
 
@@ -259,6 +263,7 @@ Phase-04-02 后台进程日志与阶段收口（1.1.2）
 | --- | --- | --- | --- |
 | Phase-04-01 | JSON Handler、request-id/access/recovery、业务动作、错误码、真实 HTTP 日志与敏感哨兵 | 受影响 HTTP/业务 package、Backend 启停、Bash 日志模式、版本/分支治理 | 不改 Worker/Outbox 消息日志；不跑完整 Phase 3 故障矩阵 |
 | Phase-04-02 | Outbox/Worker/Indexer/reindex JSON 日志、event_id、retry/dead、跨进程解析 | Backend 全量、Worker race/integration、Frontend 固定门禁、完整业务矩阵、远程 CI | 不实现 LogMonitor/Kafka/存储；不追加日志吞吐和全排列故障测试 |
+| Phase-04-03 | development JSON Lines、已提交响应 panic 语义、权威分支/版本收口 | HTTP middleware/router、Backend 全量/race、脚本治理、focused logging | 不重复完整故障矩阵；不引入响应缓冲或公共 API 变化 |
 
 ### 11.3 阶段级端到端验收矩阵
 
@@ -294,22 +299,22 @@ dev/logs/Phase-04/Phase-04-XX-<名称>.md
 
 - 所有范围内应用日志逐行输出统一 JSON，基础字段、类型、时间、等级、服务和模块满足 Schema v1。
 - 全部主要 API 具有服务端 request ID 与完成日志；状态变更接口的业务成功日志可用同一 ID 关联，客户端不能控制该 ID。
-- 正常、客户端错误、服务端错误和 panic 的状态、等级和安全错误码正确；公共 HTTP JSON 契约除响应头外保持兼容。
+- 正常、客户端错误、服务端错误和 panic 的状态、等级和安全错误码正确；响应未提交的 panic 返回统一 500，响应已提交的 panic 不追加混合错误 Envelope，并以 error 完成日志明确实际状态和提交标记。
 - Outbox、Business Worker、Search Indexer 与 search-reindex 使用同一日志契约，并可通过 event ID 关联代表性发布、处理、retry/dead 和恢复过程。
 - 日志不包含第 8 节禁止的用户内容、认证材料、连接凭据、Payload、DSL、PIT、原始 URL 或高基数字段。
 - 日志改造不改变 Outbox 原子性/租约、RabbitMQ confirm/ack、Worker 重连/退出、通知幂等、搜索重建/增量或缓存降级语义。
 - 第 11.3 节固定矩阵与远程 Branch governance、Backend、Frontend、Scripts and Compose、Integration 和自动 PR 编排门禁通过，没有使阶段验收不成立的失败。
-- 两份实施记录与实际提交、命令和限制一致；Phase-04-02 完成后根与 Frontend 版本均为 `1.1.2`。
+- 三份实施记录与实际提交、命令和限制一致；Phase-04-03 完成后根与 Frontend 版本均为 `1.1.3`。
 - 非阻断增强没有扩大当前阶段；动态日志级别、采样、传输、存储和查询均保留给明确的后续 Phase。
 
 ## 14. 完成、停止与后续交接
 
-只有 Phase-04-01 与 Phase-04-02 均从权威分支完成并合入主远程 `main`、WSL2/Bash 固定矩阵真实通过、远程门禁成功且实施记录齐全，Phase 4 才可标记完成。达到条件后停止扩展，不因尚未建设日志平台而延长本阶段。
+Phase-04-01 与 Phase-04-02 已从权威分支完成并合入主远程 `main`。Phase-04-03 的本地整改、固定矩阵和实施记录完成后，仍须由该权威分支通过远程门禁并合入最新 `main`，Phase 4 才可标记最终完成。达到条件后停止扩展，不因尚未建设日志平台而延长本阶段。
 
 向 Phase 5 交付：
 
 - 已验证的 JSON 日志 Schema、service/module/message 约束和 Go `slog` 构造模式，供首个 Exporter 保持一致的自身运行日志；若 Exporter 建立独立 Go module，则复用契约而不是直接越界导入 Backend `internal` package。
-- 仍可产生真实业务、通知和搜索流量的 `1.1.2` 系统，不改变 Phase 5 的指标采集范围。
+- 仍可产生真实业务、通知和搜索流量的 `1.1.3` 系统，不改变 Phase 5 的指标采集范围。
 
 向 Phase 9 预留：
 

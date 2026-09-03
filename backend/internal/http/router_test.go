@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -304,6 +305,29 @@ func TestReadyRecoversCheckerPanic(t *testing.T) {
 	}
 	if calls := panicking.calls.Load(); calls != 2 {
 		t.Fatalf("panic checker calls = %d, want 2", calls)
+	}
+}
+
+func TestDevelopmentRouterSuppressesGinFrameworkOutput(t *testing.T) {
+	originalMode := gin.Mode()
+	originalWriter := gin.DefaultWriter
+	originalErrorWriter := gin.DefaultErrorWriter
+	t.Cleanup(func() {
+		gin.DefaultWriter = originalWriter
+		gin.DefaultErrorWriter = originalErrorWriter
+		gin.SetMode(originalMode)
+	})
+
+	var frameworkOutput bytes.Buffer
+	gin.DefaultWriter = &frameworkOutput
+	gin.DefaultErrorWriter = &frameworkOutput
+	if err := ConfigureGinMode("development"); err != nil {
+		t.Fatalf("ConfigureGinMode(development) error = %v", err)
+	}
+	NewRouter(Dependencies{})
+
+	if frameworkOutput.Len() != 0 {
+		t.Fatalf("Gin framework output = %q", frameworkOutput.String())
 	}
 }
 
