@@ -38,6 +38,12 @@ COOKIE_NAME=
 COOKIE_JAR=
 RESPONSE_FILE=
 HTTP_STATUS=
+RESPONSE_HEADERS_FILE=
+LAST_REQUEST_ID=
+LOGGING_CAPTURE=0
+CLIENT_REQUEST_ID=
+LOG_EXPECTATIONS=
+REQUEST_TRACE=
 MYSQL_CONTAINER_ID=
 ELASTICSEARCH_CONTAINER_ID=
 RABBITMQ_CONTAINER_ID=
@@ -411,16 +417,22 @@ start_frontend() {
 
 api_request() {
   local method=$1 path=$2 expected=$3 body=${4:-} cookie_mode=${5:-read}
-  local -a args=(--silent --show-error --max-time 10 --request "$method" --output "$RESPONSE_FILE" --write-out '%{http_code}')
+  local -a args=(--silent --show-error --max-time 10 --request "$method" --output "$RESPONSE_FILE" --dump-header "$RESPONSE_HEADERS_FILE" --write-out '%{http_code}')
   if [[ $cookie_mode == write ]]; then args+=(--cookie "$COOKIE_JAR" --cookie-jar "$COOKIE_JAR"); else args+=(--cookie "$COOKIE_JAR"); fi
   if [[ -n $body ]]; then args+=(--header 'Content-Type: application/json' --data "$body"); fi
+  [[ -z ${CLIENT_REQUEST_ID:-} ]] || args+=(--header "X-Request-ID: $CLIENT_REQUEST_ID")
   HTTP_STATUS=$(curl "${args[@]}" "http://$PUBLISHED_HOST:$HTTP_PORT/api/v1$path")
+  LAST_REQUEST_ID=$(awk 'BEGIN{IGNORECASE=1} /^X-Request-ID:/ {gsub("\r", "", $2); value=$2} END{print value}' "$RESPONSE_HEADERS_FILE")
   [[ $HTTP_STATUS == "$expected" ]] || {
     printf '[gopulse-acceptance] response body: ' >&2
     cat "$RESPONSE_FILE" >&2 || true
     printf '\n' >&2
     fail "$method $path returned HTTP $HTTP_STATUS, expected $expected"
   }
+  if ((LOGGING_CAPTURE == 1)); then
+    [[ $LAST_REQUEST_ID =~ ^[a-f0-9]{32}$ ]] || { fail "$method $path returned invalid X-Request-ID: ${LAST_REQUEST_ID:-missing}"; return 1; }
+    printf '%s\t%s\t%s\t%s\n' "$method" "$path" "$expected" "$LAST_REQUEST_ID" >>"$REQUEST_TRACE"
+  fi
 }
 
 json_get() {
@@ -1023,6 +1035,182 @@ verify_redis_failure_and_recovery() {
   [[ $(docker exec "$redis_id" redis-cli --no-auth-warning --raw -a "$REDIS_PASSWORD" -n "$REDIS_DB" EXISTS "gopulse:post:detail:v1:$post_id") == 1 ]] || fail 'cache did not recover after Redis restart'
 }
 
+
+expect_log() {
+  local message=$1 request_id=$2
+  shift 2
+  python3 - "$LOG_EXPECTATIONS" "$message" "$request_id" "$@" <<'PYEXPECT'
+import json, sys
+path, message, request_id, *pairs = sys.argv[1:]
+value={'message': message, 'request_id': request_id}
+for pair in pairs:
+    key, raw=pair.split('=', 1)
+    value[key]=int(raw) if raw.isdigit() else raw
+with open(path, 'a', encoding='utf-8') as stream:
+    stream.write(json.dumps(value, separators=(',', ':')) + '\n')
+PYEXPECT
+}
+
+validate_logging_live() {
+  local sensitive_file="$TEMP_DIR/log-sensitive-values.txt"
+  {
+    printf '%s\n' "$LOG_USERNAME" "$LOG_PASSWORD" "$LOG_TITLE" "$LOG_CONTENT" "$LOG_COMMENT" "$LOG_SEARCH" "$LOG_FORGED_ID"
+    awk 'NF >= 7 && ($0 ~ /^#HttpOnly_/ || $0 !~ /^#/) {print $NF}' "$TEMP_DIR"/*.cookies 2>/dev/null || true
+  } >"$sensitive_file"
+  python3 - "$TEMP_DIR/backend.log" "$REQUEST_TRACE" "$LOG_EXPECTATIONS" "$sensitive_file" <<'PYLOG'
+import datetime, json, re, sys
+log_path, trace_path, expectation_path, sensitive_path = sys.argv[1:]
+records=[]
+legacy=[]
+for number, raw in enumerate(open(log_path, encoding='utf-8'), 1):
+    line=raw.rstrip('\n')
+    if not line:
+        continue
+    try:
+        value=json.loads(line)
+    except json.JSONDecodeError:
+        if re.match(r'^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} (backend listening on|outbox (dispatcher|cleanup) cycle failed|.* resource close failed)', line):
+            legacy.append(line)
+            continue
+        raise SystemExit(f'backend log line {number} is neither Schema v1 JSON nor an allowed Phase-04-02 legacy line: {line!r}')
+    records.append(value)
+if not records:
+    raise SystemExit('backend produced no JSON records')
+for value in records:
+    for key in ('log_schema_version','timestamp','level','service','module','message'):
+        if key not in value:
+            raise SystemExit(f'log record missing {key}: {value!r}')
+    if value['log_schema_version'] != 1 or value['service'] != 'backend' or value['level'] not in ('info','warn','error'):
+        raise SystemExit(f'invalid fixed log fields: {value!r}')
+    parsed=datetime.datetime.fromisoformat(value['timestamp'].replace('Z','+00:00'))
+    if parsed.utcoffset() != datetime.timedelta(0):
+        raise SystemExit(f'non-UTC timestamp: {value!r}')
+
+traces=[]
+for line in open(trace_path, encoding='utf-8'):
+    method, path, status, request_id=line.rstrip('\n').split('\t')
+    if not re.fullmatch(r'[a-f0-9]{32}', request_id):
+        raise SystemExit(f'invalid captured request ID: {request_id!r}')
+    traces.append((method,path,int(status),request_id))
+if len({item[3] for item in traces}) != len(traces):
+    raise SystemExit('request IDs were reused')
+completed=[value for value in records if value.get('message') == 'http request completed']
+for method, path, status, request_id in traces:
+    matches=[value for value in completed if value.get('request_id') == request_id]
+    if len(matches) != 1:
+        raise SystemExit(f'{method} {path} has {len(matches)} completion records')
+    value=matches[0]
+    expected_level='error' if status >= 500 else 'warn' if status >= 400 else 'info'
+    if value.get('method') != method or value.get('status') != status or value.get('level') != expected_level:
+        raise SystemExit(f'incorrect completion record for {method} {path}: {value!r}')
+    if not isinstance(value.get('duration_ms'), int) or not isinstance(value.get('response_bytes'), int):
+        raise SystemExit(f'non-integer duration/size: {value!r}')
+    if value.get('route') in (None, '') or '?' in value['route']:
+        raise SystemExit(f'unsafe route field: {value!r}')
+
+for expected in map(json.loads, open(expectation_path, encoding='utf-8')):
+    matches=[]
+    for value in records:
+        if all(value.get(key) == wanted for key, wanted in expected.items()):
+            matches.append(value)
+    if len(matches) != 1:
+        raise SystemExit(f'expected exactly one matching business/cache log, found {len(matches)}: {expected!r}')
+    request_id=expected['request_id']
+    if sum(1 for value in completed if value.get('request_id') == request_id) != 1:
+        raise SystemExit(f'expected log is not correlated to one completion: {expected!r}')
+
+for status, code in ((400,'validation_failed'),(401,'authentication_required'),(404,'post_not_found'),(503,'search_unavailable')):
+    candidates=[value for value in completed if value.get('status') == status and value.get('error_code') == code]
+    if not candidates:
+        raise SystemExit(f'missing safe {status}/{code} completion')
+
+contents=open(log_path, encoding='utf-8').read()
+for raw in open(sensitive_path, encoding='utf-8'):
+    secret=raw.strip()
+    if secret and secret in contents:
+        raise SystemExit(f'sensitive sentinel leaked into backend log: {secret!r}')
+print(f'Validated {len(records)} JSON records, {len(traces)} correlated requests, {len(legacy)} allowed legacy lines.')
+PYLOG
+}
+
+run_logging_live_flow() {
+  LOGGING_CAPTURE=1
+  LOG_USERNAME="loguser_$TOKEN"
+  LOG_PASSWORD="logpass-$TOKEN-sensitive"
+  LOG_TITLE="log-title-$TOKEN-sensitive"
+  LOG_CONTENT="log-content-$TOKEN-sensitive"
+  LOG_COMMENT="log-comment-$TOKEN-sensitive"
+  LOG_SEARCH="logsearch$TOKEN"
+  LOG_FORGED_ID="ffffffffffffffffffffffffffffffff"
+  local owner_jar="$TEMP_DIR/log-owner.cookies" actor_jar="$TEMP_DIR/log-actor.cookies"
+  local owner_id actor_id post_id comment_id notification_id comment_event
+
+  CLIENT_REQUEST_ID=$LOG_FORGED_ID
+  api_for "$owner_jar" POST /auth/register 201 "{\"username\":\"$LOG_USERNAME\",\"password\":\"$LOG_PASSWORD\"}" write
+  CLIENT_REQUEST_ID=
+  [[ $LAST_REQUEST_ID != "$LOG_FORGED_ID" ]] || fail 'Backend reused the client-supplied request ID'
+  owner_id=$(json_get data.id)
+  expect_log 'user registered' "$LAST_REQUEST_ID" "user_id=$owner_id"
+  api_for "$owner_jar" GET /users/me 200 '' read
+  api_for "$owner_jar" POST /auth/logout 204 '' write
+  expect_log 'user logged out' "$LAST_REQUEST_ID"
+  api_for "$owner_jar" GET /posts 401 '' read
+  api_for "$owner_jar" POST /auth/login 200 "{\"username\":\"$LOG_USERNAME\",\"password\":\"$LOG_PASSWORD\"}" write
+  expect_log 'user logged in' "$LAST_REQUEST_ID" "user_id=$owner_id"
+  api_for "$owner_jar" POST /posts 201 "{\"title\":\"$LOG_TITLE $LOG_SEARCH\",\"content\":\"$LOG_CONTENT\"}" read
+  post_id=$(json_get data.id)
+  expect_log 'post created' "$LAST_REQUEST_ID" "user_id=$owner_id" "post_id=$post_id"
+  api_for "$owner_jar" GET '/posts?limit=20' 200 '' read
+  api_for "$owner_jar" GET "/posts/$post_id" 200 '' read
+
+  api_for "$actor_jar" POST /auth/register 201 "{\"username\":\"actor_$TOKEN\",\"password\":\"$LOG_PASSWORD\"}" write
+  actor_id=$(json_get data.id)
+  expect_log 'user registered' "$LAST_REQUEST_ID" "user_id=$actor_id"
+  api_for "$actor_jar" POST "/posts/$post_id/comments" 201 "{\"content\":\"$LOG_COMMENT\"}" read
+  comment_id=$(json_get data.id)
+  expect_log 'comment created' "$LAST_REQUEST_ID" "user_id=$actor_id" "post_id=$post_id" "comment_id=$comment_id"
+  api_for "$actor_jar" GET "/posts/$post_id/comments?limit=20" 200 '' read
+  api_for "$actor_jar" PUT "/posts/$post_id/like" 204 '' read
+  expect_log 'post liked' "$LAST_REQUEST_ID" "user_id=$actor_id" "post_id=$post_id"
+  api_for "$actor_jar" DELETE "/posts/$post_id/like" 204 '' read
+  expect_log 'post unliked' "$LAST_REQUEST_ID" "user_id=$actor_id" "post_id=$post_id"
+
+  local previous_jar=$COOKIE_JAR
+  COOKIE_JAR=$actor_jar
+  wait_search_post "$LOG_SEARCH" "$post_id" 'logging acceptance post was not indexed' 45
+  api_request GET "/search/posts?q=$(urlencode "$LOG_SEARCH")&limit=20" 200 '' read
+  COOKIE_JAR=$previous_jar
+
+  comment_event=$(outbox_event_for_comment "$comment_id")
+  wait_notification "$comment_event" 1 45
+  api_for "$owner_jar" GET /notifications 200 '' read
+  notification_id=$(json_get data.0.id)
+  api_for "$owner_jar" PATCH "/notifications/$notification_id/read" 204 '' read
+  expect_log 'notification marked read' "$LAST_REQUEST_ID" "user_id=$owner_id" "notification_id=$notification_id"
+
+  api_for "$actor_jar" POST /posts 400 '{"title":"","content":"invalid"}' read
+  api_for "$actor_jar" GET /posts/999999999 404 '' read
+
+  local elasticsearch_id redis_id
+  elasticsearch_id=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
+  docker stop "$elasticsearch_id" >/dev/null
+  api_for "$actor_jar" GET "/search/posts?q=$(urlencode "$LOG_SEARCH")&limit=20" 503 '' read
+  docker start "$elasticsearch_id" >/dev/null
+  wait_service_health elasticsearch
+  ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
+
+  redis_id=$(verify_service_ownership redis 6379 "$REDIS_PORT")
+  docker stop "$redis_id" >/dev/null
+  api_for "$actor_jar" GET "/posts/$post_id" 200 '' read
+  expect_log 'post detail cache read failed' "$LAST_REQUEST_ID" "post_id=$post_id" 'reason=cache_unavailable'
+  docker start "$redis_id" >/dev/null
+  wait_service_health redis
+  verify_service_ownership redis 6379 "$REDIS_PORT" >/dev/null
+
+  LOGGING_CAPTURE=0
+  validate_logging_live
+}
+
 cleanup() {
   local status=$?
   ((CLEANUP_DONE == 0)) || return "$status"
@@ -1064,8 +1252,11 @@ main() {
   elif [[ ${1:-} == --search-live ]]; then
     mode=search-live
     shift
+  elif [[ ${1:-} == --logging-live ]]; then
+    mode=logging-live
+    shift
   fi
-  [[ $# == 0 ]] || { fail 'usage: verify-business.sh [--self-test|--search-rebuild|--search-live]'; return 2; }
+  [[ $# == 0 ]] || { fail 'usage: verify-business.sh [--self-test|--search-rebuild|--search-live|--logging-live]'; return 2; }
   require_tools
   TOKEN=${ACCEPTANCE_TOKEN:-$(python3 -c 'import secrets; print(secrets.token_hex(6))')}
   PROJECT_NAME="gopulse-acceptance-$TOKEN"
@@ -1077,6 +1268,11 @@ main() {
   ACCEPTANCE_ENV="$TEMP_DIR/acceptance.env"
   COOKIE_JAR="$TEMP_DIR/cookies.txt"
   RESPONSE_FILE="$TEMP_DIR/response.json"
+  RESPONSE_HEADERS_FILE="$TEMP_DIR/response.headers"
+  LOG_EXPECTATIONS="$TEMP_DIR/log-expectations.jsonl"
+  REQUEST_TRACE="$TEMP_DIR/request-trace.tsv"
+  : >"$LOG_EXPECTATIONS"
+  : >"$REQUEST_TRACE"
   snapshot_development_state "$TEMP_DIR/development-before.txt"
   SNAPSHOT_READY=1
   write_environment
@@ -1096,6 +1292,17 @@ main() {
 
   backend_environment bash -c 'cd "$1" && go run ./cmd/migrate up' _ "$BACKEND_DIR"
   (cd "$BACKEND_DIR" && go build -o "$TEMP_DIR/gopulse-backend" ./cmd/server && go build -o "$TEMP_DIR/gopulse-business-worker" ./cmd/business-worker && go build -o "$TEMP_DIR/gopulse-search-indexer" ./cmd/search-indexer && go build -o "$TEMP_DIR/gopulse-search-reindex" ./cmd/search-reindex)
+
+  if [[ $mode == logging-live ]]; then
+    run_search_reindex --if-missing
+    start_backend
+    start_worker
+    start_search_indexer
+    wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
+    run_logging_live_flow
+    info 'Isolated HTTP and business logging acceptance passed; cleanup will now remove only verified acceptance resources.'
+    return
+  fi
 
   if [[ $mode == search-live ]]; then
     run_search_reindex --if-missing
