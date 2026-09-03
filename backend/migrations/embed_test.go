@@ -216,3 +216,45 @@ func TestEmbeddedPostCreatedOutboxMigrationPreservesPostFactsOnDown(t *testing.T
 		t.Fatalf("post-created down migration = %q", downSQL)
 	}
 }
+
+func TestEmbeddedUserRoleMigrationIsReversibleAndConstrained(t *testing.T) {
+	source, err := Source()
+	if err != nil {
+		t.Fatalf("Source() error = %v", err)
+	}
+	defer source.Close()
+	version, err := source.Next(4)
+	if err != nil || version != 5 {
+		t.Fatalf("Next(4) = %d, %v; want 5", version, err)
+	}
+	reader, identifier, err := source.ReadUp(version)
+	if err != nil {
+		t.Fatalf("ReadUp(5) error = %v", err)
+	}
+	up, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil {
+		t.Fatalf("read user roles up migration: %v", err)
+	}
+	if identifier != "user_roles" {
+		t.Fatalf("identifier = %q, want user_roles", identifier)
+	}
+	upSQL := string(up)
+	for _, required := range []string{"ALTER TABLE users", "ADD COLUMN role", "ENUM('user', 'admin')", "NOT NULL", "DEFAULT 'user'"} {
+		if !strings.Contains(upSQL, required) {
+			t.Fatalf("user roles up migration missing %q", required)
+		}
+	}
+	downReader, downIdentifier, err := source.ReadDown(version)
+	if err != nil {
+		t.Fatalf("ReadDown(5) error = %v", err)
+	}
+	down, err := io.ReadAll(downReader)
+	_ = downReader.Close()
+	if err != nil {
+		t.Fatalf("read user roles down migration: %v", err)
+	}
+	if downIdentifier != "user_roles" || !strings.Contains(string(down), "DROP COLUMN role") {
+		t.Fatalf("user roles down migration identifier=%q sql=%q", downIdentifier, string(down))
+	}
+}

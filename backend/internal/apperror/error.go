@@ -8,6 +8,7 @@ type Code string
 const (
 	CodeValidationFailed       Code = "validation_failed"
 	CodeAuthenticationRequired Code = "authentication_required"
+	CodePermissionDenied       Code = "permission_denied"
 	CodeInvalidCredentials     Code = "invalid_credentials"
 	CodeUsernameConflict       Code = "username_conflict"
 	CodePostNotFound           Code = "post_not_found"

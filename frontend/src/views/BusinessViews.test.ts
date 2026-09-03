@@ -7,7 +7,7 @@ import NewPostView from './NewPostView.vue'
 import PostDetailView from './PostDetailView.vue'
 import PostsView from './PostsView.vue'
 
-const user = { id: 1, username: 'alice', created_at: '2026-09-01T00:00:00Z' }
+const user = { id: 1, username: 'alice', role: 'user', created_at: '2026-09-01T00:00:00Z' }
 const post = {
   id: 9,
   title: 'Phase 1 closed',

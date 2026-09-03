@@ -69,6 +69,8 @@ func mapError(err error) (int, apperror.Code, string) {
 		return stdhttp.StatusBadRequest, appError.Code, appError.Message
 	case apperror.CodeAuthenticationRequired, apperror.CodeInvalidCredentials:
 		return stdhttp.StatusUnauthorized, appError.Code, appError.Message
+	case apperror.CodePermissionDenied:
+		return stdhttp.StatusForbidden, appError.Code, appError.Message
 	case apperror.CodeUsernameConflict:
 		return stdhttp.StatusConflict, appError.Code, appError.Message
 	case apperror.CodePostNotFound, apperror.CodeNotificationNotFound:

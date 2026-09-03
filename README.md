@@ -1,16 +1,16 @@
 # GoPulse
 
-GoPulse is currently at product version **1.2.3**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, and Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
+GoPulse is currently at product version **1.3.1**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance, and Phase 6 begins with persistent administrator identity plus a server-side authorization boundary. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
 
 The repository currently provides:
 
 - a Vue 3 + Vue Router Frontend for registration, login, logout, post listing/pagination, publishing, detail, comments, likes, authenticated search, notifications, and authentication recovery;
 - a diagnostic connectivity page at `/dev/status`, outside the business navigation;
 - a Gin Backend with `/health`, `/ready`, and typed `/api/v1` business contracts;
-- username/password authentication with bcrypt, short-lived HS256 JWTs, HttpOnly cookies, and reusable authentication middleware;
+- username/password authentication with bcrypt, short-lived HS256 JWTs, HttpOnly cookies, reusable authentication middleware, and database-authoritative `user|admin` roles;
 - authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
 - Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation and MySQL fallback;
-- versioned MySQL migrations for users, posts, comments, and post likes;
+- versioned MySQL migrations for users and persistent roles, posts, comments, and post likes;
 - local MySQL, Redis, RabbitMQ, and fixed-version Elasticsearch infrastructure;
 - transactional `post.created` Outbox delivery through an isolated RabbitMQ topology and Search Indexer;
 - single-line Schema v1 JSON lifecycle, HTTP, Outbox, Worker, Indexer, reindex, and Redis Exporter logs with bounded safe fields;
@@ -225,7 +225,7 @@ The HTTP server enforces a 5-second read-header timeout, 10-second read timeout,
 
 ### User and authentication API
 
-All successful JSON responses use the common `data` envelope. Public user data contains only `id`, `username`, and `created_at`; password hashes and JWTs are never returned in JSON.
+All successful JSON responses use the common `data` envelope. Authentication responses and `/users/me` contain only `id`, `username`, `role`, and `created_at`; `role` is always `user` or `admin`. Password hashes and JWTs are never returned in JSON. Public post/comment/notification author summaries remain limited to `id` and `username` and never expose roles.
 
 - `POST /api/v1/auth/register`
   - accepts `{"username":"alice","password":"example-password"}`;
@@ -239,11 +239,34 @@ All successful JSON responses use the common `data` envelope. Public user data c
   - expires the authentication cookie and returns HTTP `204` with no body.
 - `GET /api/v1/users/me`
   - requires a valid authentication cookie;
-  - returns HTTP `200` and the current public user DTO;
+  - returns HTTP `200` and the current user DTO, including the role read from MySQL for this request;
   - missing, expired, malformed, or tampered tokens return `401 authentication_required`;
   - a token whose user no longer exists also clears the cookie and returns `401`.
 
-The cookie uses the configured name with `HttpOnly`, `SameSite=Lax`, `Path=/`, no broad `Domain`, and a lifetime coordinated with `AUTH_JWT_TTL`. Production forces the `Secure` attribute. JWT validation accepts only HS256 and requires positive decimal `sub`, `iat`, and `exp` claims.
+The cookie uses the configured name with `HttpOnly`, `SameSite=Lax`, `Path=/`, no broad `Domain`, and a lifetime coordinated with `AUTH_JWT_TTL`. Production forces the `Secure` attribute. JWT validation accepts only HS256 and requires positive decimal `sub`, `iat`, and `exp` claims. JWTs carry only the stable user ID; they do not carry or authorize from a role claim.
+
+### Administrator identity and authorization
+
+Every registration creates an ordinary `user`. GoPulse does not create a default administrator, promote the first account, accept an administrator role from registration JSON, or provide a browser-based role editor. After applying migrations, a server operator can explicitly promote each intended administrator with the Backend environment configured:
+
+```bash
+cd backend
+go run ./cmd/admin-role promote --username alice
+```
+
+Promotion uses the same username normalization as login, fails for an unknown user, and succeeds idempotently when the user is already an administrator. It does not print credentials, tokens, database connection details, or user records. Phase 6 currently provides promotion only; demotion, disabling, deletion, role listing, and a management UI are not implemented.
+
+The same account and HttpOnly session continue to work after promotion. `/api/v1/users/me` and administrator authorization read the current role from MySQL, so an existing valid Cookie observes the promotion without a second login protocol. Administrator authorization is a Backend boundary; future Frontend navigation checks are only presentation behavior.
+
+| Capability | Anonymous | `user` | `admin` | Internal service identity |
+| --- | --- | --- | --- | --- |
+| Existing public social behavior | Existing contract | Existing contract | Existing contract | Not applicable |
+| Authenticated posts, comments, likes, search, and notifications | `401 authentication_required` | Allowed | Allowed | Not applicable |
+| Metrics, logs, and events queries | `401 authentication_required` | `403 permission_denied` | Allowed | Separate internal contract |
+| Exporter installation, query, and lifecycle management | `401 authentication_required` | `403 permission_denied` | Allowed | Monitor token |
+| Monitor, Router, Marshaller, and storage internal APIs | Denied | Denied | Browsers do not connect directly | Separate service authentication and controlled network |
+
+The reusable Backend administrator middleware performs authentication first and then loads the current database role. A rejected request does not call the protected handler or downstream management/storage capability. The management and observability routes listed above are authorization contracts for later Phase 6 and subsequent phases; this batch does not add those public routes or a management page.
 
 A command-line smoke flow can retain the HttpOnly cookie in a cookie jar:
 
