@@ -227,8 +227,34 @@ resolve_configuration() {
     return 1
   fi
   CONFIG[REDIS_DB]=$((10#$redis_db))
-  if [[ -z ${CONFIG[REDIS_HOST]//[[:space:]]/} || -z ${CONFIG[REDIS_EXPORTER_HTTP_HOST]//[[:space:]]/} ]]; then
-    fail 'REDIS_HOST and REDIS_EXPORTER_HTTP_HOST must be non-empty.'
+  if ! python3 - "${CONFIG[REDIS_HOST]}" "${CONFIG[REDIS_EXPORTER_HTTP_HOST]}" <<'PYHOST'
+import ipaddress
+import re
+import sys
+
+hostname = re.compile(r'^(?=.{1,253}\.?$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*\.?$')
+
+def valid(value):
+    value = value.strip()
+    if not value or any(character in value for character in '\x00\r\n'):
+        return False
+    if '[' in value or ']' in value:
+        if len(value) < 3 or not (value.startswith('[') and value.endswith(']')) or '[' in value[1:-1] or ']' in value[1:-1]:
+            return False
+        try:
+            return isinstance(ipaddress.ip_address(value[1:-1]), ipaddress.IPv6Address)
+        except ValueError:
+            return False
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return hostname.fullmatch(value) is not None
+
+raise SystemExit(0 if all(valid(value) for value in sys.argv[1:]) else 1)
+PYHOST
+  then
+    fail 'REDIS_HOST and REDIS_EXPORTER_HTTP_HOST must be valid IPv4, IPv6, or hostname values.'
     return 1
   fi
   if ! python3 - "${CONFIG[REDIS_EXPORTER_SCRAPE_TIMEOUT]}" "${CONFIG[REDIS_EXPORTER_SHUTDOWN_TIMEOUT]}" <<'PYTIME'
