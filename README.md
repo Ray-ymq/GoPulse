@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **1.3.4**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance, and Phase 6 now closes persistent administrator identity, an authenticated and filesystem-bounded Monitor Plugin Manager, safe lifecycle update rollback, current-source Redis Exporter startup, and a MetricsMonitor that immediately and periodically scrapes the managed exporter into strict Envelope v1 messages for an optional HTTP Publisher. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
+GoPulse is currently at product version **1.4.1**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, and Phase 6 adds the authenticated Monitor Plugin Manager plus MetricsMonitor Envelope v1 publishing. Phase 7-01 now adds the loopback Message Router, an explicitly initialized single-node Kafka transport, the fixed `gopulse-observability-v1` topic, and a bounded verification Consumer, closing the real Redis → Exporter → Monitor → Router → Kafka transport path. MySQL remains authoritative, RabbitMQ remains the business-event transport, and Kafka is limited to observability messages.
 
 The repository currently provides:
 
@@ -11,14 +11,15 @@ The repository currently provides:
 - authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
 - Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation and MySQL fallback;
 - versioned MySQL migrations for users and persistent roles, posts, comments, and post likes;
-- local MySQL, Redis, RabbitMQ, and fixed-version Elasticsearch infrastructure;
+- local MySQL, Redis, RabbitMQ, fixed-version Elasticsearch, and single-node Kafka 4.3.1 infrastructure;
 - transactional `post.created` Outbox delivery through an isolated RabbitMQ topology and Search Indexer;
 - single-line Schema v1 JSON lifecycle, HTTP, Outbox, Worker, Indexer, reindex, and Redis Exporter logs with bounded safe fields;
 - an independent Redis Exporter whose `/health` reports process liveness and whose `/metrics` returns a complete current Prometheus snapshot or isolated `up 0`;
+- a loopback Message Router with strict Envelope v1 boundaries, Bearer service identity, explicit `metrics` routing, acknowledged Kafka production, and original-body byte preservation;
 - WSL/Bash lifecycle scripts, read-only runtime verification, and destructive-but-isolated business/search acceptance scripts;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
-Kafka, application containers, Kubernetes, profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
+Multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, application containers, Kubernetes, profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
 
 ## Primary development environment
 
@@ -52,7 +53,7 @@ The first `dev.sh` run creates `.env` from `.env.example` when `.env` is absent.
 cp .env.example .env
 ```
 
-Workspaces created before Phase-01-01 must manually add the required Phase 1 secrets and connection values from `.env.example`, including `AUTH_JWT_SECRET` and the RabbitMQ URL. Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*`, Phase 3 Elasticsearch/Search Indexer, and Phase 5 `REDIS_EXPORTER_*` settings may be copied when they need customization; otherwise the Bash lifecycle resolves their documented local defaults without overwriting an existing `.env`. This includes `ELASTICSEARCH_PORT=9200` for legacy environment files during both startup and shutdown. Elasticsearch URLs must use HTTP(S), include a host, and must not include credentials, query parameters, or fragments.
+Workspaces created before Phase-01-01 must manually add the required Phase 1 secrets and connection values from `.env.example`, including `AUTH_JWT_SECRET` and the RabbitMQ URL. Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*`, Phase 3 Elasticsearch/Search Indexer, Phase 5 `REDIS_EXPORTER_*`, and Phase 7 `KAFKA_*`/`ROUTER_*` settings may be copied when they need customization; otherwise the Bash lifecycle resolves their documented local defaults without overwriting an existing `.env`. This includes `ELASTICSEARCH_PORT=9200` for legacy environment files during both startup and shutdown. Elasticsearch URLs must use HTTP(S), include a host, and must not include credentials, query parameters, or fragments.
 
 The checked-in values are development-only credentials. Do not reuse them in production or commit a local `.env`. `APP_ENV` must be `development`, `test`, or `production`. Production requires `AUTH_COOKIE_SECURE=true`; local development and tests may explicitly use `false` for HTTP.
 
@@ -74,10 +75,10 @@ The script performs the following sequence:
 4. runs `go run ./cmd/migrate up` in `backend/`;
 5. runs `go run ./cmd/search-reindex --if-missing` to initialize the search alias without replacing an existing generation;
 6. builds and starts the Backend, independent Business Worker, and independent Search Indexer;
-7. builds Monitor and a deterministic Redis Exporter plugin package, starts Monitor, and lets the Plugin Manager restore or install the Exporter after Redis is healthy;
+7. builds and starts Message Router, waits for authenticated Kafka readiness, then starts Monitor and lets the Plugin Manager restore or install the deterministic Redis Exporter package;
 8. installs reproducible Frontend dependencies when required and starts Vite.
 
-A failed migration or application startup stops only the Backend, Business Worker, Search Indexer, Redis Exporter, and Frontend processes started by that invocation. With the default configuration, the environment provides:
+A failed migration or application startup stops only the Backend, Business Worker, Search Indexer, Monitor/Redis Exporter, Router, and Frontend processes started by that invocation. With the default configuration, the environment provides:
 
 | Service | Address |
 | --- | --- |
@@ -85,6 +86,7 @@ A failed migration or application startup stops only the Backend, Business Worke
 | Backend | `http://localhost:8080` |
 | Backend liveness | `http://localhost:8080/health` |
 | Backend readiness | `http://localhost:8080/ready` |
+| Router readiness (Bearer token required) | `http://localhost:9091/ready` |
 | Monitor readiness (Bearer token required) | `http://localhost:9090/ready` |
 | Redis Exporter health | `http://localhost:9121/health` |
 | Redis Prometheus metrics | `http://localhost:9121/metrics` |
@@ -94,10 +96,11 @@ A failed migration or application startup stops only the Backend, Business Worke
 | MySQL | `localhost:3306` |
 | Redis | `localhost:6379` |
 | RabbitMQ AMQP | `localhost:5672` |
+| Kafka external listener (loopback only) | `localhost:9092` |
 
 When `HTTP_PORT` changes, the Backend, Vite proxies for `/health`, `/ready`, and `/api/v1`, and `verify.sh` all use the same resolved port. Caller environment overrides handled by `dev.sh` are passed explicitly to Vite.
 
-Keep the foreground command running. `Ctrl+C` stops Frontend, Monitor and its Redis Exporter, Search Indexer, Business Worker, and Backend in that order while leaving the Compose infrastructure and named volumes available. Repository-owned identity records are stored as `.run/frontend.json`, `.run/monitor.json`, `.run/search-indexer.json`, `.run/business-worker.json`, and `.run/backend.json`; each record binds the PID to its cwd, executable, start ticks, and command marker before cleanup is allowed.
+Keep the foreground command running. `Ctrl+C` stops Frontend, Monitor and its Redis Exporter, Router, Search Indexer, Business Worker, and Backend in that order while leaving the Compose infrastructure and named volumes available. Repository-owned identity records are stored as `.run/frontend.json`, `.run/monitor.json`, `.run/router.json`, `.run/search-indexer.json`, `.run/business-worker.json`, and `.run/backend.json`; each record binds the PID to its cwd, executable, start ticks, and command marker before cleanup is allowed.
 
 ## Verify a running environment
 
@@ -105,7 +108,7 @@ Keep the foreground command running. `Ctrl+C` stops Frontend, Monitor and its Re
 /home/<user>/src/GoPulse/scripts/verify.sh
 ```
 
-`verify.sh` is read-only. It reads the configured Backend and Exporter ports, checks the four Compose services, verifies that the Monitor, Business Worker, and Search Indexer PIDs still match their repository-owned cwd, executable, start ticks, and command markers, validates the Backend `/health` and `/ready` contracts plus Redis Exporter `/health` and successful Prometheus `/metrics`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
+`verify.sh` is read-only. It reads the configured Backend and Exporter ports, checks the five long-running Compose services plus Kafka topic initializer/volume ownership, verifies that the Router, Monitor, Business Worker, and Search Indexer PIDs still match their repository-owned cwd, executable, start ticks, and command markers, validates the Backend and Router health/readiness contracts plus Redis Exporter `/health` and successful Prometheus `/metrics`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
 
 For complete destructive integration acceptance, run:
 
@@ -119,6 +122,13 @@ The no-Docker negative safety checks can be run independently:
 
 ```bash
 scripts/verify-business.sh --self-test
+```
+
+Message Router transport acceptance is isolated and destructive only inside a random owned Compose project. It proves strict authentication and Envelope rejection, original HTTP-body bytes and `message_id` record keys, real Monitor `success` and `target_unavailable` messages, Kafka stop/recovery without restarting Router or Monitor, bounded Consumer evidence, and complete process/container/network/volume cleanup:
+
+```bash
+scripts/verify-router.sh --self-test
+scripts/verify-router.sh
 ```
 
 Monitor lifecycle and metrics acceptance is also isolated. It builds deterministic plugin packages, starts random-project Redis/MySQL plus a loopback HTTP capture fixture, verifies internal Bearer authentication, proves real Redis value changes in Envelope v1, exercises target-unavailable, malformed-data, Publisher-failure, stop/start/update/rollback, and restart recovery:
