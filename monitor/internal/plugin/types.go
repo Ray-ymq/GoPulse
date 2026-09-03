@@ -1,8 +1,16 @@
 package plugin
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 const PluginID = "redis-exporter"
+
+type MetricsLifecycle interface {
+	Enable(Manifest)
+	Disable(context.Context) error
+}
 
 type Manifest struct {
 	SchemaVersion    int    `json:"schema_version"`
