@@ -2,12 +2,14 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	stdhttp "net/http"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/request"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 	"github.com/gin-gonic/gin"
 )
@@ -21,10 +23,15 @@ type Application interface {
 type Handler struct {
 	application Application
 	cookies     *CookieManager
+	logger      *slog.Logger
 }
 
-func NewHandler(application Application, cookies *CookieManager) *Handler {
-	return &Handler{application: application, cookies: cookies}
+func NewHandler(application Application, cookies *CookieManager, loggers ...*slog.Logger) *Handler {
+	logger := logging.Discard("backend")
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+	return &Handler{application: application, cookies: cookies, logger: logging.Module(logger, "auth")}
 }
 
 func (handler *Handler) Register(c *gin.Context) {
@@ -40,6 +47,7 @@ func (handler *Handler) Register(c *gin.Context) {
 		return
 	}
 	handler.cookies.Set(c.Writer, token)
+	logging.Module(logging.FromContext(c.Request.Context(), handler.logger), "auth").Info("user registered", slog.Uint64("user_id", publicUser.ID))
 	response.Data(c, stdhttp.StatusCreated, publicUser)
 }
 
@@ -56,11 +64,13 @@ func (handler *Handler) Login(c *gin.Context) {
 		return
 	}
 	handler.cookies.Set(c.Writer, token)
+	logging.Module(logging.FromContext(c.Request.Context(), handler.logger), "auth").Info("user logged in", slog.Uint64("user_id", publicUser.ID))
 	response.Data(c, stdhttp.StatusOK, publicUser)
 }
 
 func (handler *Handler) Logout(c *gin.Context) {
 	handler.cookies.Clear(c.Writer)
+	logging.Module(logging.FromContext(c.Request.Context(), handler.logger), "auth").Info("user logged out")
 	c.Status(stdhttp.StatusNoContent)
 }
 
