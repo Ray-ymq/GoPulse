@@ -85,6 +85,11 @@ func ConfigureGinMode(appEnv string) error {
 	default:
 		return errors.New("APP_ENV must be one of development, test, or production")
 	}
+
+	// GoPulse owns application log formatting. Suppress Gin's debug and error
+	// writers so development mode cannot mix framework text into JSON stdout.
+	gin.DefaultWriter = io.Discard
+	gin.DefaultErrorWriter = io.Discard
 	gin.SetMode(mode)
 	return nil
 }
