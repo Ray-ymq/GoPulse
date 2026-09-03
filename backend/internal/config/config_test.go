@@ -24,6 +24,9 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Redis.Host != "127.0.0.1" || cfg.Redis.Port != 6379 || cfg.Redis.DB != 0 {
 		t.Fatalf("Redis config = %#v, want default endpoint and DB", cfg.Redis)
 	}
+	if cfg.Monitor.RequestTimeout != 30*time.Second {
+		t.Fatalf("Monitor timeout = %s, want 30s", cfg.Monitor.RequestTimeout)
+	}
 	if cfg.Auth.JWTTTL != 2*time.Hour || cfg.Auth.CookieName != "gopulse_session" || cfg.Auth.CookieSecure {
 		t.Fatalf("Auth config = %#v, want local defaults", cfg.Auth)
 	}
@@ -327,5 +330,21 @@ func TestLoadFromRejectsUnsupportedApplicationEnvironment(t *testing.T) {
 				t.Fatalf("LoadFrom() error = %v, want APP_ENV error", err)
 			}
 		})
+	}
+}
+
+func TestLoadFromEnforcesMonitorRequestTimeoutContract(t *testing.T) {
+	env := requiredEnvironment()
+	for _, value := range []string{"1s", "60s"} {
+		env["MONITOR_REQUEST_TIMEOUT"] = value
+		if _, err := LoadFrom(mapLookup(env)); err != nil {
+			t.Fatalf("valid MONITOR_REQUEST_TIMEOUT %s rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{"999ms", "61s"} {
+		env["MONITOR_REQUEST_TIMEOUT"] = value
+		if _, err := LoadFrom(mapLookup(env)); err == nil {
+			t.Fatalf("invalid MONITOR_REQUEST_TIMEOUT %s accepted", value)
+		}
 	}
 }

@@ -42,6 +42,9 @@ SEARCH_INDEXER_STARTED=0
 MONITOR_STARTED=0
 FRONTEND_STARTED=0
 EXIT_CODE=0
+EXPECTED_PLUGIN_VERSION=
+EXPECTED_PLUGIN_DIGEST=
+MONITOR_PLUGIN_ACTION=install
 
 COMPOSE_KEYS=(
   PUBLISHED_HOST MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PORT
@@ -112,7 +115,7 @@ declare -A DEFAULTS=(
   [RABBITMQ_PORT]=5672 [RABBITMQ_MANAGEMENT_PORT]=15672 [ELASTICSEARCH_PORT]=9200
   [AUTH_JWT_TTL]=2h [AUTH_COOKIE_NAME]=gopulse_session [AUTH_COOKIE_SECURE]=false
   [MONITOR_URL]=http://127.0.0.1:9090 [MONITOR_HTTP_HOST]=127.0.0.1 [MONITOR_HTTP_PORT]=9090
-  [MONITOR_REQUEST_TIMEOUT]=70s [MONITOR_SHUTDOWN_TIMEOUT]=10s [MONITOR_PLUGIN_STARTUP_TIMEOUT]=10s [MONITOR_PLUGIN_STOP_TIMEOUT]=5s
+  [MONITOR_REQUEST_TIMEOUT]=30s [MONITOR_SHUTDOWN_TIMEOUT]=10s [MONITOR_PLUGIN_STARTUP_TIMEOUT]=10s [MONITOR_PLUGIN_STOP_TIMEOUT]=5s
   [MONITOR_SCRAPE_INTERVAL]=15s [MONITOR_SCRAPE_TIMEOUT]=3s [MONITOR_PUBLISH_TIMEOUT]=3s [MONITOR_ROUTER_URL]= [MONITOR_ROUTER_TOKEN]=
   [REDIS_POST_DETAIL_TTL]=5m [REDIS_OPERATION_TIMEOUT]=200ms
   [ELASTICSEARCH_URL]=http://127.0.0.1:9200 [ELASTICSEARCH_REQUEST_TIMEOUT]=3s [SEARCH_REINDEX_BATCH]=500
@@ -643,6 +646,76 @@ build_applications() {
   "$REPO_ROOT/scripts/package-redis-exporter.sh" --output "$MONITOR_PACKAGE" >/dev/null
 }
 
+prepare_monitor_plugin_state() {
+  local result
+  result=$(python3 - "$RUN_DIR/plugins" "$MONITOR_PACKAGE" <<'PYPLUGIN'
+import json
+import os
+import sys
+import tarfile
+plugin_root, package_path = sys.argv[1:]
+with tarfile.open(package_path, 'r:gz') as archive:
+    member = archive.getmember('plugin.json')
+    package_manifest = json.load(archive.extractfile(member))
+expected_version = package_manifest['version']
+expected_digest = package_manifest['entrypoint_sha256']
+action = 'install'
+registry_path = os.path.join(plugin_root, 'registry.json')
+if os.path.exists(registry_path):
+    try:
+        registry = json.load(open(registry_path, encoding='utf-8'))
+        entry = registry['plugins']['redis-exporter']
+        installed_version = entry['current_version']
+        installed_digest = entry['manifest']['entrypoint_sha256']
+        expected_parts = tuple(map(int, expected_version.split('.')))
+        installed_parts = tuple(map(int, installed_version.split('.')))
+        if installed_parts < expected_parts:
+            action = 'update'
+        elif installed_parts == expected_parts and installed_digest == expected_digest:
+            action = 'current'
+        else:
+            action = 'reset'
+    except Exception:
+        action = 'reset'
+print(expected_version, expected_digest, action, sep='|')
+PYPLUGIN
+  ) || return 1
+  IFS='|' read -r EXPECTED_PLUGIN_VERSION EXPECTED_PLUGIN_DIGEST MONITOR_PLUGIN_ACTION <<<"$result"
+  if [[ $MONITOR_PLUGIN_ACTION != reset ]]; then
+    return 0
+  fi
+  python3 - "$RUN_DIR" "$RUN_DIR/plugins" <<'PYRESET'
+import json
+import os
+import sys
+run_dir, plugin_root = map(os.path.abspath, sys.argv[1:])
+if os.path.dirname(plugin_root) != run_dir or os.path.islink(plugin_root):
+    raise SystemExit('refusing to reset an unsafe plugin root')
+record_path = os.path.join(plugin_root, 'redis-exporter', 'runtime', 'process.json')
+try:
+    record = json.load(open(record_path, encoding='utf-8'))
+    pid = int(record['pid'])
+    start_ticks = str(record['start_ticks'])
+    executable = os.path.realpath(str(record['executable_path']))
+    cwd = os.path.realpath(str(record['working_directory']))
+    marker = str(record['command_line_marker'])
+    stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
+    fields = stat[stat.rfind(')') + 2:].split()
+    actual_ticks = fields[19]
+    actual_executable = os.path.realpath(f'/proc/{pid}/exe')
+    actual_cwd = os.path.realpath(f'/proc/{pid}/cwd')
+    command_line = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
+except (FileNotFoundError, KeyError, ValueError, OSError, json.JSONDecodeError):
+    pass
+else:
+    if actual_ticks == start_ticks and actual_executable == executable and actual_cwd == cwd and marker in command_line:
+        raise SystemExit('refusing to reset the plugin root while its owned exporter process is running')
+PYRESET
+  rm -rf -- "$RUN_DIR/plugins"
+  MONITOR_PLUGIN_ACTION=install
+  info 'Reset stale same-version or newer Redis Exporter state before Monitor startup.'
+}
+
 write_process_record() {
   local pid=$1 path=$2 cwd=$3 marker=$4 temporary
   temporary="$path.$RANDOM.tmp"
@@ -737,13 +810,26 @@ PYMON
   kill -0 "$MONITOR_PID" 2>/dev/null || { local code=0; wait "$MONITOR_PID" || code=$?; fail "Monitor exited during startup with code $code."; return 1; }
   MONITOR_STARTED=1
   write_process_record "$MONITOR_PID" "$MONITOR_RECORD" "$MONITOR_DIR" "$MONITOR_BINARY"
-  local base="http://${CONFIG[MONITOR_HTTP_HOST]}:${CONFIG[MONITOR_HTTP_PORT]}" status
+  local base="http://${CONFIG[MONITOR_HTTP_HOST]}:${CONFIG[MONITOR_HTTP_PORT]}" status response="$RUN_DIR/monitor-plugin-response.json"
   for _ in {1..50}; do curl -fsS --max-time 1 -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" "$base/ready" >/dev/null 2>&1 && break; sleep 0.1; done
-  status=$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" "$base/internal/v1/exporter-plugins/redis-exporter") || return 1
+  status=$(curl -sS --max-time 3 -o "$response" -w '%{http_code}' -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" "$base/internal/v1/exporter-plugins/redis-exporter") || return 1
   if [[ $status == 404 ]]; then
-    status=$(curl -sS --max-time 30 -o "$RUN_DIR/monitor-install-response.json" -w '%{http_code}' -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" -F "package=@$MONITOR_PACKAGE" "$base/internal/v1/exporter-plugins/install") || return 1
+    status=$(curl -sS --max-time 30 -o "$response" -w '%{http_code}' -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" -F "package=@$MONITOR_PACKAGE" "$base/internal/v1/exporter-plugins/install") || return 1
     [[ $status == 201 ]] || { fail "Monitor plugin installation returned HTTP $status."; return 1; }
-  elif [[ $status != 200 ]]; then fail "Monitor plugin query returned HTTP $status."; return 1; fi
+  elif [[ $status == 200 && $MONITOR_PLUGIN_ACTION == update ]]; then
+    info "Updating the managed Redis Exporter to repository version $EXPECTED_PLUGIN_VERSION."
+    status=$(curl -sS --max-time 30 -o "$response" -w '%{http_code}' -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" -F "package=@$MONITOR_PACKAGE" "$base/internal/v1/exporter-plugins/redis-exporter/update") || return 1
+    [[ $status == 200 ]] || { fail "Monitor plugin update returned HTTP $status."; return 1; }
+  elif [[ $status != 200 ]]; then
+    fail "Monitor plugin query returned HTTP $status."
+    return 1
+  fi
+  python3 - "$response" "$EXPECTED_PLUGIN_VERSION" <<'PYVERSION' || { fail 'Monitor is not running the Redis Exporter version built from the current repository.'; return 1; }
+import json
+import sys
+value = json.load(open(sys.argv[1], encoding='utf-8'))['data']
+raise SystemExit(0 if value.get('version') == sys.argv[2] and value.get('observed_state') == 'running' else 1)
+PYVERSION
 }
 
 start_frontend() {
@@ -848,6 +934,7 @@ main() {
   run_search_reindex || return 1
   ensure_frontend_dependencies || return 1
   build_applications || return 1
+  prepare_monitor_plugin_state || return 1
   start_monitor || return 1
   start_backend || return 1
   start_worker || return 1

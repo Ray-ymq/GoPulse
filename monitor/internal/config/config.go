@@ -64,7 +64,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		}
 		return d, nil
 	}
-	requestTimeout, err := parseDuration("MONITOR_REQUEST_TIMEOUT", 70*time.Second, time.Second, 2*time.Minute)
+	requestTimeout, err := parseDuration("MONITOR_REQUEST_TIMEOUT", 30*time.Second, time.Second, time.Minute)
 	if err != nil {
 		return Config{}, err
 	}
@@ -72,19 +72,19 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	startupTimeout, err := parseDuration("MONITOR_PLUGIN_STARTUP_TIMEOUT", 10*time.Second, 100*time.Millisecond, time.Minute)
+	startupTimeout, err := parseDuration("MONITOR_PLUGIN_STARTUP_TIMEOUT", 10*time.Second, time.Second, 30*time.Second)
 	if err != nil {
 		return Config{}, err
 	}
-	stopTimeout, err := parseDuration("MONITOR_PLUGIN_STOP_TIMEOUT", 5*time.Second, 100*time.Millisecond, 30*time.Second)
+	stopTimeout, err := parseDuration("MONITOR_PLUGIN_STOP_TIMEOUT", 5*time.Second, time.Second, 30*time.Second)
 	if err != nil {
 		return Config{}, err
 	}
-	scrapeInterval, err := parseDuration("MONITOR_SCRAPE_INTERVAL", 15*time.Second, time.Second, 10*time.Minute)
+	scrapeInterval, err := parseDuration("MONITOR_SCRAPE_INTERVAL", 15*time.Second, time.Second, 5*time.Minute)
 	if err != nil {
 		return Config{}, err
 	}
-	scrapeTimeout, err := parseDuration("MONITOR_SCRAPE_TIMEOUT", 3*time.Second, 100*time.Millisecond, time.Minute)
+	scrapeTimeout, err := parseDuration("MONITOR_SCRAPE_TIMEOUT", 3*time.Second, 100*time.Millisecond, 30*time.Second)
 	if err != nil {
 		return Config{}, err
 	}

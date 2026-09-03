@@ -20,35 +20,40 @@ type ManagerConfig struct {
 	Now            func() time.Time
 }
 type Manager struct {
-	cfg       ManagerConfig
-	mu        sync.RWMutex
-	registry  registryFile
-	states    map[string]Status
-	runtimes  map[string]*runtimeProcess
-	operation chan struct{}
-	observer  MetricsLifecycle
+	cfg             ManagerConfig
+	mu              sync.RWMutex
+	registry        registryFile
+	states          map[string]Status
+	runtimes        map[string]*runtimeProcess
+	operation       chan struct{}
+	observer        MetricsLifecycle
+	rootIdentity    storageIdentity
+	persistRegistry func(registryFile) error
 }
 
 func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
-	if !filepath.IsAbs(cfg.Root) {
-		return nil, errors.New("plugin root must be absolute")
-	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
 	if err := validateHealthPort(cfg.ExporterEnv); err != nil {
 		return nil, err
 	}
-	if err := ensureRoot(cfg.Root); err != nil {
+	root, rootIdentity, err := ensureRoot(cfg.Root)
+	if err != nil {
 		return nil, err
 	}
+	cfg.Root = root
 	reg, err := loadRegistry(cfg.Root)
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{cfg: cfg, registry: reg, states: map[string]Status{}, runtimes: map[string]*runtimeProcess{}, operation: make(chan struct{}, 1)}
+	m := &Manager{cfg: cfg, registry: reg, states: map[string]Status{}, runtimes: map[string]*runtimeProcess{}, operation: make(chan struct{}, 1), rootIdentity: rootIdentity}
+	m.persistRegistry = func(registry registryFile) error { return saveRegistry(m.cfg.Root, registry) }
 	for id, entry := range reg.Plugins {
 		m.states[id] = statusFromEntry(entry, ObservedStopped, nil)
+	}
+	if err = validateStorage(m.cfg.Root, m.rootIdentity); err != nil {
+		return nil, err
 	}
 	if err = m.recover(ctx); err != nil {
 		return nil, err
@@ -90,6 +95,20 @@ func (m *Manager) disableMetrics(ctx context.Context) error {
 	}
 	return observer.Disable(ctx)
 }
+
+func (m *Manager) disableMetricsForOperation() error {
+	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.StopTimeout)
+	defer cancel()
+	return m.disableMetrics(ctx)
+}
+
+func cloneRegistry(source registryFile) registryFile {
+	clone := registryFile{Plugins: make(map[string]registryEntry, len(source.Plugins))}
+	for id, entry := range source.Plugins {
+		clone.Plugins[id] = entry
+	}
+	return clone
+}
 func (m *Manager) RecordMetrics(scrapeAt, successAt *time.Time, code, message string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -112,9 +131,44 @@ func (m *Manager) RecordMetrics(scrapeAt, successAt *time.Time, code, message st
 	}
 	m.states[PluginID] = status
 }
+func (m *Manager) validateStorageBoundary() error {
+	if err := validateStorage(m.cfg.Root, m.rootIdentity); err != nil {
+		return err
+	}
+	entry, installed := m.registry.Plugins[PluginID]
+	if !installed {
+		return nil
+	}
+	version, err := readCurrent(m.pluginDir())
+	if err != nil || version != entry.CurrentVersion {
+		return errors.New("plugin current link does not match the registry")
+	}
+	return nil
+}
+
+func (m *Manager) safeRemove(path string) {
+	if validateStorage(m.cfg.Root, m.rootIdentity) == nil {
+		_ = os.Remove(path)
+	}
+}
+
+func (m *Manager) safeRemoveAll(path string) {
+	if validateStorage(m.cfg.Root, m.rootIdentity) == nil {
+		_ = os.RemoveAll(path)
+	}
+}
+
+func (m *Manager) safeRemoveProcessRecord() {
+	m.safeRemove(processRecordPath(m.pluginDir()))
+}
+
 func (m *Manager) begin() error {
 	select {
 	case m.operation <- struct{}{}:
+		if err := m.validateStorageBoundary(); err != nil {
+			<-m.operation
+			return NewError(CodeFailed, "plugin storage boundary validation failed")
+		}
 		return nil
 	default:
 		return NewError(CodeInProgress, "plugin operation is already in progress")
@@ -162,10 +216,13 @@ func (m *Manager) installNew(ctx context.Context, archivePath string) (Status, e
 	if err != nil {
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
-	defer os.RemoveAll(stage)
+	defer m.safeRemoveAll(stage)
 	manifest, err := extractPackage(archivePath, stage)
 	if err != nil {
 		return Status{}, err
+	}
+	if err = m.validateStorageBoundary(); err != nil {
+		return Status{}, NewError(CodeFailed, "plugin storage boundary validation failed")
 	}
 	pluginDir := m.pluginDir()
 	releaseDir := filepath.Join(pluginDir, "releases", manifest.Version)
@@ -181,17 +238,17 @@ func (m *Manager) installNew(ctx context.Context, archivePath string) (Status, e
 	now := m.cfg.Now().UTC()
 	entry := registryEntry{Manifest: manifest, CurrentVersion: manifest.Version, DesiredState: DesiredRunning, InstalledAt: now, UpdatedAt: now}
 	cleanup := func() {
-		removeProcessRecord(pluginDir)
-		os.Remove(filepath.Join(pluginDir, "current"))
-		os.RemoveAll(releaseDir)
-		_ = os.Remove(filepath.Join(m.cfg.Root, "registry.json"))
+		m.safeRemoveProcessRecord()
+		m.safeRemove(filepath.Join(pluginDir, "current"))
+		m.safeRemoveAll(releaseDir)
+		m.safeRemove(filepath.Join(m.cfg.Root, "registry.json"))
 	}
 	if err = switchCurrent(pluginDir, manifest.Version); err != nil {
 		cleanup()
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
 	reg := registryFile{Plugins: map[string]registryEntry{PluginID: entry}}
-	if err = saveRegistry(m.cfg.Root, reg); err != nil {
+	if err = m.persistRegistry(reg); err != nil {
 		cleanup()
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
@@ -237,7 +294,7 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedStarting, nil), previous)
 	reg := m.registry
 	m.mu.Unlock()
-	if err := saveRegistry(m.cfg.Root, reg); err != nil {
+	if err := m.persistRegistry(reg); err != nil {
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
 	rp, err := startProcess(ctx, m.pluginDir(), entry.Manifest, m.cfg.ExporterEnv, m.cfg.HealthURL, m.cfg.StartupTimeout)
@@ -271,8 +328,11 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 		return Status{}, err
 	}
 	defer m.end()
-	if err := m.disableMetrics(ctx); err != nil {
+	if err := m.disableMetricsForOperation(); err != nil {
 		return Status{}, NewError(CodeFailed, "metrics collection could not be stopped")
+	}
+	if err := m.validateStorageBoundary(); err != nil {
+		return Status{}, NewError(CodeFailed, "plugin storage boundary validation failed")
 	}
 	m.mu.Lock()
 	entry, ok := m.registry.Plugins[id]
@@ -288,7 +348,7 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 	rp := m.runtimes[id]
 	m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedStopping, nil), previous)
 	m.mu.Unlock()
-	if err := saveRegistry(m.cfg.Root, reg); err != nil {
+	if err := m.persistRegistry(reg); err != nil {
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
 	var record processRecord
@@ -305,7 +365,7 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 	} else if record.PID > 0 {
 		return Status{}, NewError(CodeFailed, "plugin process ownership could not be verified")
 	}
-	removeProcessRecord(m.pluginDir())
+	m.safeRemoveProcessRecord()
 	s := preserveMetrics(statusFromEntry(entry, ObservedStopped, nil), previous)
 	m.mu.Lock()
 	delete(m.runtimes, id)
@@ -322,7 +382,8 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	}
 	defer m.end()
 	m.mu.RLock()
-	old, ok := m.registry.Plugins[id]
+	oldRegistry := cloneRegistry(m.registry)
+	old, ok := oldRegistry.Plugins[id]
 	oldState := m.states[id]
 	m.mu.RUnlock()
 	if !ok {
@@ -332,10 +393,13 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	if err != nil {
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
-	defer os.RemoveAll(stage)
+	defer m.safeRemoveAll(stage)
 	manifest, err := extractPackage(archivePath, stage)
 	if err != nil {
 		return Status{}, err
+	}
+	if err = m.validateStorageBoundary(); err != nil {
+		return Status{}, NewError(CodeFailed, "plugin storage boundary validation failed")
 	}
 	if manifest.ID != id {
 		return Status{}, NewError(CodePackageInvalid, "plugin package is invalid")
@@ -354,13 +418,16 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	rollbackRelease := true
 	defer func() {
 		if rollbackRelease {
-			os.RemoveAll(newRelease)
+			m.safeRemoveAll(newRelease)
 		}
 	}()
 	wasRunning := old.DesiredState == DesiredRunning
 	if wasRunning {
-		if err = m.disableMetrics(ctx); err != nil {
+		if err = m.disableMetricsForOperation(); err != nil {
 			return Status{}, NewError(CodeFailed, "metrics collection could not be stopped")
+		}
+		if err = m.validateStorageBoundary(); err != nil {
+			return Status{}, NewError(CodeFailed, "plugin storage boundary validation failed")
 		}
 		if _, err = m.stopForUpdate(); err != nil {
 			return Status{}, err
@@ -378,8 +445,14 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 	m.states[id] = preserveMetrics(statusFromEntry(updated, ObservedUpdating, nil), oldState)
 	reg := m.registry
 	m.mu.Unlock()
-	if err = saveRegistry(m.cfg.Root, reg); err != nil {
-		_ = switchCurrent(m.pluginDir(), old.CurrentVersion)
+	if err = m.persistRegistry(reg); err != nil {
+		storageOK, rollbackOK := m.rollbackUpdate(id, oldRegistry, oldState, wasRunning)
+		if !storageOK {
+			rollbackRelease = false
+		}
+		if !rollbackOK {
+			return Status{}, NewError(CodeFailed, "plugin update failed and rollback could not be completed")
+		}
 		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
 	if !wasRunning {
@@ -404,25 +477,65 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 		m.enableMetrics(manifest)
 		return s, nil
 	}
-	_ = switchCurrent(m.pluginDir(), old.CurrentVersion)
-	m.mu.Lock()
-	m.registry.Plugins[id] = old
-	m.states[id] = oldState
-	m.mu.Unlock()
-	_ = saveRegistry(m.cfg.Root, m.registry)
-	oldRP, restartErr := startProcess(context.Background(), m.pluginDir(), old.Manifest, m.cfg.ExporterEnv, m.cfg.HealthURL, m.cfg.StartupTimeout)
-	if restartErr == nil {
-		started := m.cfg.Now().UTC()
-		restored := preserveMetrics(statusFromEntry(old, ObservedRunning, &SafeError{Code: "update_failed", Message: "plugin update failed and was rolled back", At: m.cfg.Now().UTC()}), oldState)
-		restored.StartedAt = &started
-		m.mu.Lock()
-		m.states[id] = restored
-		m.runtimes[id] = oldRP
-		m.mu.Unlock()
-		m.watch(id, oldRP)
-		m.enableMetrics(old.Manifest)
+	storageOK, rollbackOK := m.rollbackUpdate(id, oldRegistry, oldState, true)
+	if !storageOK {
+		rollbackRelease = false
+	}
+	if !rollbackOK {
+		return Status{}, NewError(CodeFailed, "plugin update failed and rollback could not be completed")
 	}
 	return Status{}, NewError(CodeFailed, "plugin update failed and was rolled back")
+}
+
+func (m *Manager) rollbackUpdate(id string, oldRegistry registryFile, oldState Status, restart bool) (bool, bool) {
+	old := oldRegistry.Plugins[id]
+	if err := validateStorage(m.cfg.Root, m.rootIdentity); err != nil {
+		failure := &SafeError{Code: "rollback_failed", Message: "plugin update rollback requires repair", At: m.cfg.Now().UTC()}
+		m.mu.Lock()
+		m.registry = cloneRegistry(oldRegistry)
+		delete(m.runtimes, id)
+		m.states[id] = preserveMetrics(statusFromEntry(old, ObservedFailed, failure), oldState)
+		m.mu.Unlock()
+		return false, false
+	}
+	switchErr := switchCurrent(m.pluginDir(), old.CurrentVersion)
+	saveErr := m.persistRegistry(oldRegistry)
+	m.mu.Lock()
+	m.registry = cloneRegistry(oldRegistry)
+	delete(m.runtimes, id)
+	m.mu.Unlock()
+	if switchErr != nil || saveErr != nil {
+		failure := &SafeError{Code: "rollback_failed", Message: "plugin update rollback requires repair", At: m.cfg.Now().UTC()}
+		m.mu.Lock()
+		m.states[id] = preserveMetrics(statusFromEntry(old, ObservedFailed, failure), oldState)
+		m.mu.Unlock()
+		return false, false
+	}
+	if !restart {
+		restored := preserveMetrics(statusFromEntry(old, ObservedStopped, &SafeError{Code: "update_failed", Message: "plugin update failed and was rolled back", At: m.cfg.Now().UTC()}), oldState)
+		m.mu.Lock()
+		m.states[id] = restored
+		m.mu.Unlock()
+		return true, true
+	}
+	oldRP, restartErr := startProcess(context.Background(), m.pluginDir(), old.Manifest, m.cfg.ExporterEnv, m.cfg.HealthURL, m.cfg.StartupTimeout)
+	if restartErr != nil {
+		failure := &SafeError{Code: "rollback_failed", Message: "plugin update rollback could not restart the previous version", At: m.cfg.Now().UTC()}
+		m.mu.Lock()
+		m.states[id] = preserveMetrics(statusFromEntry(old, ObservedFailed, failure), oldState)
+		m.mu.Unlock()
+		return true, false
+	}
+	started := m.cfg.Now().UTC()
+	restored := preserveMetrics(statusFromEntry(old, ObservedRunning, &SafeError{Code: "update_failed", Message: "plugin update failed and was rolled back", At: m.cfg.Now().UTC()}), oldState)
+	restored.StartedAt = &started
+	m.mu.Lock()
+	m.states[id] = restored
+	m.runtimes[id] = oldRP
+	m.mu.Unlock()
+	m.watch(id, oldRP)
+	m.enableMetrics(old.Manifest)
+	return true, true
 }
 func (m *Manager) stopForUpdate() (Status, error) {
 	m.mu.RLock()
@@ -444,7 +557,7 @@ func (m *Manager) stopForUpdate() (Status, error) {
 			return Status{}, NewError(CodeFailed, "plugin process could not be stopped")
 		}
 	}
-	removeProcessRecord(m.pluginDir())
+	m.safeRemoveProcessRecord()
 	m.mu.Lock()
 	delete(m.runtimes, PluginID)
 	m.mu.Unlock()
@@ -465,7 +578,7 @@ func (m *Manager) recover(ctx context.Context) error {
 			if ownsProcess(record) {
 				_ = terminateProcess(record, m.cfg.StopTimeout)
 			}
-			removeProcessRecord(m.pluginDir())
+			m.safeRemoveProcessRecord()
 		}
 		if entry.DesiredState == DesiredRunning {
 			rp, e := startProcess(ctx, m.pluginDir(), entry.Manifest, m.cfg.ExporterEnv, m.cfg.HealthURL, m.cfg.StartupTimeout)
@@ -492,7 +605,7 @@ func (m *Manager) watch(id string, runtime *runtimeProcess) {
 		if !ok || runtime.intentional.Load() {
 			return
 		}
-		removeProcessRecord(m.pluginDir())
+		m.safeRemoveProcessRecord()
 		_ = m.disableMetrics(context.Background())
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -528,6 +641,6 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 			}
 		}
 	}
-	removeProcessRecord(m.pluginDir())
+	m.safeRemoveProcessRecord()
 	return first
 }
