@@ -5,7 +5,7 @@ import { resetAuthForTests } from '../composables/useAuth'
 import { createAppRouter } from '../router'
 import SearchView from './SearchView.vue'
 
-const user = { id: 1, username: 'alice', created_at: '2026-09-02T00:00:00Z' }
+const user = { id: 1, username: 'alice', role: 'user', created_at: '2026-09-02T00:00:00Z' }
 const post = {
   id: 8,
   title: 'Elasticsearch rebuild',
