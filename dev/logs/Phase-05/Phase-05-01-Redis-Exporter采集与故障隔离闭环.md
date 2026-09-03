@@ -150,6 +150,14 @@ git diff --check
 - Phase 5 不定义 MetricsMonitor Envelope、Plugin Manager 所有权或持久化；这些属于 Phase 6。Phase 6 改变启动所有者时必须保留本批 executable、环境变量、端点、信号关闭和进程身份契约。
 - Phase-05-02 仍需在同一最终构建上执行阶段级跨组件验收、必要业务回归、远程门禁和阶段收口。
 
-## 7. 完成结论
+## 7. 远程门禁跟进
 
-Phase-05-01 的独立 module、配置边界、严格 INFO snapshot、固定 Prometheus 契约、目标故障隔离、无需重启恢复、结构化脱敏日志、Bash 生命周期、真实隔离验收、独立 CI job、文档和 `1.2.1` 版本元数据均已完成。固定本地门禁没有阻断失败，本批达到提交条件。
+- 首次推送提交 `2612f39` 后，2026-09-03 的 Auto PR run `33718922647` 中 Backend、Frontend、Integration、Scripts and Compose、Branch governance 以及 Redis Exporter 的 formatting/unit/vet/race 均通过；Redis Exporter 的 `Run real Redis acceptance` 在约 1 秒内失败，因此 PR 创建步骤被跳过。
+- 通过 GitHub job metadata 确认失败仅发生在真实 Exporter acceptance；在一个不含 `.run` 的干净 clone 中复现为无输出 exit 1。
+- 根因是 `.run/` 被 Git 忽略且 GitHub runner 的全新 checkout 不创建该目录，`snapshot_daily` 的 `find "$REPO_ROOT/.run"` 在 `set -o pipefail` 下返回失败。本地开发 checkout 已存在 `.run`，因此首次本地验收未暴露该差异。
+- 修复后 `snapshot_daily` 仅在目录存在时读取 `.run/*.json`；self-test 新增“不存在 `.run` 仍可生成日常资源快照”的回归验证。该修复不改变存在 `.run` 时的记录哈希比较和资源所有权边界。
+- 使用 `git archive HEAD` 构造不含 `.run` 的干净 checkout，覆盖修复后的脚本后完整执行 `scripts/verify-exporter.sh`；隔离 project `gopulse-exporter-ddeed62c0fa2` 的实时 INFO、停止、认证、超时、恢复、SIGTERM 和清理矩阵全部通过，资源已清理。
+
+## 8. 完成结论
+
+Phase-05-01 的独立 module、配置边界、严格 INFO snapshot、固定 Prometheus 契约、目标故障隔离、无需重启恢复、结构化脱敏日志、Bash 生命周期、真实隔离验收、独立 CI job、文档和 `1.2.1` 版本元数据均已完成。固定本地门禁没有阻断失败；首次远程 clean-checkout 差异已复现，并已在新的无 `.run` 干净 checkout 中通过完整真实验收，达到修复提交与重新推送条件。

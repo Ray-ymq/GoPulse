@@ -126,10 +126,13 @@ container_owned() {
 compose() { docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" "$@"; }
 
 snapshot_daily() {
+  local run_dir=${1:-"$REPO_ROOT/.run"}
   {
     docker ps -a --filter 'label=com.docker.compose.project=gopulse' --format '{{.ID}}|{{.Names}}|{{.Status}}' 2>/dev/null | sort
     docker volume ls --filter 'label=com.docker.compose.project=gopulse' --format '{{.Name}}' 2>/dev/null | sort
-    find "$REPO_ROOT/.run" -maxdepth 1 -type f -name '*.json' -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum
+    if [[ -d $run_dir ]]; then
+      find "$run_dir" -maxdepth 1 -type f -name '*.json' -print0 | sort -z | xargs -0 -r sha256sum
+    fi
   }
 }
 
@@ -219,6 +222,7 @@ run_self_test() {
   wait "$pid" 2>/dev/null || true
   valid_project 'gopulse-exporter-deadbeefcafe' || { fail 'Valid project token was rejected.'; return 1; }
   if valid_project 'gopulse'; then fail 'Unsafe project name was accepted.'; return 1; fi
+  snapshot_daily "$TEMP_DIR/missing-run-directory" > "$TEMP_DIR/empty-run-snapshot" || { fail 'Daily snapshot rejected a clean checkout without .run.'; return 1; }
   rm -rf -- "$TEMP_DIR"; TEMP_DIR=
   info 'Self-test passed: malformed ownership data is rejected without Docker or unrelated process termination.'
 }
