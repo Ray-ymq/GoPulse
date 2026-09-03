@@ -28,6 +28,7 @@ COMPOSE_KEYS=(
   RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT
 )
 declare -A DOTENV=()
+declare -A DEFAULTS=([ELASTICSEARCH_PORT]=9200)
 
 info() {
   printf '[gopulse] %s\n' "$*"
@@ -184,7 +185,11 @@ compose_down() {
   [[ -f "$env_path" ]] || { fail 'Neither .env nor .env.example is available for Compose interpolation.'; return 1; }
   read_dotenv "$env_path"
   for key in "${COMPOSE_KEYS[@]}"; do
-    if [[ ! -v $key && -v DOTENV[$key] ]]; then export "$key=${DOTENV[$key]}"; fi
+    if [[ ! -v $key && -v DOTENV[$key] ]]; then
+      export "$key=${DOTENV[$key]}"
+    elif [[ ! -v $key && -v DEFAULTS[$key] ]]; then
+      export "$key=${DEFAULTS[$key]}"
+    fi
   done
   docker compose --project-name "$PROJECT_NAME" --env-file "$env_path" --file "$COMPOSE_FILE" down
   info 'Compose infrastructure is stopped; named volumes were preserved.'
