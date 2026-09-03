@@ -91,7 +91,7 @@ func TestLoadFromOverrides(t *testing.T) {
 }
 
 func TestLoadFromMissingRequiredValue(t *testing.T) {
-	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_URL", "AUTH_JWT_SECRET"} {
+	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_URL", "AUTH_JWT_SECRET", "MONITOR_API_TOKEN"} {
 		t.Run(key, func(t *testing.T) {
 			env := requiredEnvironment()
 			delete(env, key)
@@ -275,12 +275,13 @@ func TestLoadFromRejectsOutboxLeaseThatCannotCoverClaimBatch(t *testing.T) {
 
 func requiredEnvironment() map[string]string {
 	return map[string]string{
-		"MYSQL_DATABASE":  "gopulse",
-		"MYSQL_USER":      "gopulse",
-		"MYSQL_PASSWORD":  "mysql-secret",
-		"REDIS_PASSWORD":  "redis-secret",
-		"RABBITMQ_URL":    "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
-		"AUTH_JWT_SECRET": "local-development-jwt-secret-32-bytes-minimum",
+		"MYSQL_DATABASE":    "gopulse",
+		"MYSQL_USER":        "gopulse",
+		"MYSQL_PASSWORD":    "mysql-secret",
+		"REDIS_PASSWORD":    "redis-secret",
+		"RABBITMQ_URL":      "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
+		"AUTH_JWT_SECRET":   "local-development-jwt-secret-32-bytes-minimum",
+		"MONITOR_API_TOKEN": "local-monitor-api-token-at-least-32-bytes",
 	}
 }
 
