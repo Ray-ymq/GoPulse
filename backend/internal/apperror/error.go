@@ -6,15 +6,21 @@ import "errors"
 type Code string
 
 const (
-	CodeValidationFailed       Code = "validation_failed"
-	CodeAuthenticationRequired Code = "authentication_required"
-	CodePermissionDenied       Code = "permission_denied"
-	CodeInvalidCredentials     Code = "invalid_credentials"
-	CodeUsernameConflict       Code = "username_conflict"
-	CodePostNotFound           Code = "post_not_found"
-	CodeNotificationNotFound   Code = "notification_not_found"
-	CodeSearchUnavailable      Code = "search_unavailable"
-	CodeInternal               Code = "internal_error"
+	CodeValidationFailed          Code = "validation_failed"
+	CodeAuthenticationRequired    Code = "authentication_required"
+	CodePermissionDenied          Code = "permission_denied"
+	CodeInvalidCredentials        Code = "invalid_credentials"
+	CodeUsernameConflict          Code = "username_conflict"
+	CodePostNotFound              Code = "post_not_found"
+	CodeNotificationNotFound      Code = "notification_not_found"
+	CodeSearchUnavailable         Code = "search_unavailable"
+	CodePluginPackageInvalid      Code = "plugin_package_invalid"
+	CodePluginNotFound            Code = "plugin_not_found"
+	CodePluginConflict            Code = "plugin_conflict"
+	CodePluginOperationInProgress Code = "plugin_operation_in_progress"
+	CodePluginOperationFailed     Code = "plugin_operation_failed"
+	CodeMonitorUnavailable        Code = "monitor_unavailable"
+	CodeInternal                  Code = "internal_error"
 )
 
 // Error carries a stable code and a message that is safe to expose to clients.

@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **1.3.1**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance, and Phase 6 begins with persistent administrator identity plus a server-side authorization boundary. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
+GoPulse is currently at product version **1.3.2**. Phase 1 provides a browser-operable minimum business system backed by MySQL, Phase 2 adds reliable notification delivery through the transactional Outbox and Business Worker, Phase 3 closes the rebuildable and incrementally convergent post-search milestone, Phase 4 standardizes safe Schema v1 JSON logs, Phase 5 delivers an independent Redis Exporter with target-failure isolation plus full-stack lifecycle and regression acceptance, and Phase 6 now includes persistent administrator identity plus an authenticated Monitor Plugin Manager that safely installs, starts, stops, updates, rolls back, and restores the Redis Exporter. MySQL remains authoritative, while the Search Indexer converges `post.created` events into Elasticsearch and the Redis Exporter exposes current Redis `INFO` values only when scraped.
 
 The repository currently provides:
 
@@ -74,7 +74,7 @@ The script performs the following sequence:
 4. runs `go run ./cmd/migrate up` in `backend/`;
 5. runs `go run ./cmd/search-reindex --if-missing` to initialize the search alias without replacing an existing generation;
 6. builds and starts the Backend, independent Business Worker, and independent Search Indexer;
-7. builds and starts the independent Redis Exporter after Redis is healthy;
+7. builds Monitor and a deterministic Redis Exporter plugin package, starts Monitor, and lets the Plugin Manager restore or install the Exporter after Redis is healthy;
 8. installs reproducible Frontend dependencies when required and starts Vite.
 
 A failed migration or application startup stops only the Backend, Business Worker, Search Indexer, Redis Exporter, and Frontend processes started by that invocation. With the default configuration, the environment provides:
@@ -85,6 +85,7 @@ A failed migration or application startup stops only the Backend, Business Worke
 | Backend | `http://localhost:8080` |
 | Backend liveness | `http://localhost:8080/health` |
 | Backend readiness | `http://localhost:8080/ready` |
+| Monitor readiness (Bearer token required) | `http://localhost:9090/ready` |
 | Redis Exporter health | `http://localhost:9121/health` |
 | Redis Prometheus metrics | `http://localhost:9121/metrics` |
 | Authentication API | `http://localhost:8080/api/v1` |
@@ -96,7 +97,7 @@ A failed migration or application startup stops only the Backend, Business Worke
 
 When `HTTP_PORT` changes, the Backend, Vite proxies for `/health`, `/ready`, and `/api/v1`, and `verify.sh` all use the same resolved port. Caller environment overrides handled by `dev.sh` are passed explicitly to Vite.
 
-Keep the foreground command running. `Ctrl+C` stops Frontend, Redis Exporter, Search Indexer, Business Worker, and Backend in that order while leaving the Compose infrastructure and named volumes available. Repository-owned identity records are stored as `.run/frontend.json`, `.run/redis-exporter.json`, `.run/search-indexer.json`, `.run/business-worker.json`, and `.run/backend.json`; each record binds the PID to its cwd, executable, start ticks, and command marker before cleanup is allowed.
+Keep the foreground command running. `Ctrl+C` stops Frontend, Monitor and its Redis Exporter, Search Indexer, Business Worker, and Backend in that order while leaving the Compose infrastructure and named volumes available. Repository-owned identity records are stored as `.run/frontend.json`, `.run/monitor.json`, `.run/search-indexer.json`, `.run/business-worker.json`, and `.run/backend.json`; each record binds the PID to its cwd, executable, start ticks, and command marker before cleanup is allowed.
 
 ## Verify a running environment
 
@@ -104,7 +105,7 @@ Keep the foreground command running. `Ctrl+C` stops Frontend, Redis Exporter, Se
 /home/<user>/src/GoPulse/scripts/verify.sh
 ```
 
-`verify.sh` is read-only. It reads the configured Backend and Exporter ports, checks the four Compose services, verifies that the Redis Exporter, Business Worker, and Search Indexer PIDs still match their repository-owned cwd, executable, start ticks, and command markers, validates the Backend `/health` and `/ready` contracts plus Redis Exporter `/health` and successful Prometheus `/metrics`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
+`verify.sh` is read-only. It reads the configured Backend and Exporter ports, checks the four Compose services, verifies that the Monitor, Business Worker, and Search Indexer PIDs still match their repository-owned cwd, executable, start ticks, and command markers, validates the Backend `/health` and `/ready` contracts plus Redis Exporter `/health` and successful Prometheus `/metrics`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
 
 For complete destructive integration acceptance, run:
 
@@ -118,6 +119,13 @@ The no-Docker negative safety checks can be run independently:
 
 ```bash
 scripts/verify-business.sh --self-test
+```
+
+Monitor lifecycle acceptance is also isolated. It builds a deterministic plugin package, starts a random-project Redis, verifies internal Bearer authentication, installs and auto-starts the real Exporter, exercises idempotent stop/start, updates to a higher version, and proves restart recovery:
+
+```bash
+scripts/verify-monitor.sh --self-test
+scripts/verify-monitor.sh
 ```
 
 Redis Exporter acceptance is intentionally separate from the full business stack. It starts only an isolated password-protected Redis 7.2.5 and temporary Exporter, then proves current `INFO` values, stopped-target and authentication failure isolation, timeout handling, recovery without restart, SIGTERM shutdown, and ownership-safe cleanup:
@@ -145,7 +153,7 @@ scripts/verify-business.sh --search-live
 /home/<user>/src/GoPulse/scripts/down.sh
 ```
 
-`down.sh` validates and stops the recorded Frontend, Redis Exporter, Search Indexer, Business Worker, and Backend processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, RabbitMQ, and Elasticsearch named volumes. It is safe to run repeatedly and refuses to signal a process whose record no longer proves repository ownership.
+`down.sh` validates and stops the recorded Frontend, Monitor and its Redis Exporter, Search Indexer, Business Worker, and Backend processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, RabbitMQ, and Elasticsearch named volumes. It is safe to run repeatedly and refuses to signal a process whose record no longer proves repository ownership.
 
 ## Database migrations
 
@@ -426,7 +434,7 @@ Repository governance, Bash syntax, and Compose configuration:
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
 python3 scripts/ci/validate_branch.py --branch "$(git branch --show-current)"
-bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh
+bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/package-redis-exporter.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 ```
 
