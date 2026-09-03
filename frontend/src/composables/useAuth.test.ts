@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resetAuthForTests, useAuth } from './useAuth'
 
-const currentUser = { id: 1, username: 'alice', created_at: '2026-09-01T00:00:00Z' }
+const currentUser = { id: 1, username: 'alice', role: 'user', created_at: '2026-09-01T00:00:00Z' }
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -28,6 +28,18 @@ describe('useAuth', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(auth.status.value).toBe('authenticated')
     expect(auth.user.value?.username).toBe('alice')
+  })
+
+  it.each([
+    ['missing role', { id: 1, username: 'alice', created_at: '2026-09-01T00:00:00Z' }],
+    ['unknown role', { ...currentUser, role: 'owner' }],
+  ])('rejects a current-user response with %s', async (_name, responseUser) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: responseUser })))
+    const auth = useAuth()
+
+    await expect(auth.initialize()).rejects.toMatchObject({ code: 'invalid_response' })
+    expect(auth.status.value).toBe('error')
+    expect(auth.user.value).toBeNull()
   })
 
   it('treats an authentication-required response as an anonymous state', async () => {

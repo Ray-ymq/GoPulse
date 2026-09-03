@@ -26,6 +26,7 @@ export class ApiError extends Error {
 const knownErrorCodes = new Set([
   'validation_failed',
   'authentication_required',
+  'permission_denied',
   'invalid_credentials',
   'username_conflict',
   'post_not_found',
@@ -96,6 +97,19 @@ export async function requestData<T>(path: string, init: RequestInit = {}): Prom
     throw new ApiError('invalid_response', '服务器返回了无法识别的数据。', response.status)
   }
   return (body as unknown as DataEnvelope<T>).data
+}
+
+export async function requestValidatedData<T>(
+  path: string,
+  validate: (value: unknown) => value is T,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await request(path, init)
+  const body = await parseJSON(response)
+  if (!isRecord(body) || !('data' in body) || !validate(body.data)) {
+    throw new ApiError('invalid_response', '服务器返回了无法识别的数据。', response.status)
+  }
+  return body.data
 }
 
 export async function requestPage<T>(path: string, init: RequestInit = {}): Promise<Page<T>> {

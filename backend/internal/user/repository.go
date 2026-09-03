@@ -50,29 +50,46 @@ func (repository *MySQLRepository) Create(ctx context.Context, username, passwor
 
 func (repository *MySQLRepository) FindByID(ctx context.Context, identifier uint64) (User, error) {
 	return repository.findOne(ctx,
-		`SELECT id, username, password_hash, created_at FROM users WHERE id = ?`,
+		`SELECT id, username, password_hash, role, created_at FROM users WHERE id = ?`,
 		identifier,
 	)
 }
 
 func (repository *MySQLRepository) FindByUsername(ctx context.Context, normalizedUsername string) (User, error) {
 	return repository.findOne(ctx,
-		`SELECT id, username, password_hash, created_at FROM users WHERE username = ?`,
+		`SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?`,
 		normalizedUsername,
 	)
 }
 
+func (repository *MySQLRepository) PromoteByUsername(ctx context.Context, normalizedUsername string) (User, error) {
+	_, err := repository.database.ExecContext(ctx,
+		`UPDATE users SET role = 'admin' WHERE username = ? AND role = 'user'`,
+		normalizedUsername,
+	)
+	if err != nil {
+		return User{}, fmt.Errorf("promote user role: %w", err)
+	}
+	return repository.FindByUsername(ctx, normalizedUsername)
+}
+
 func (repository *MySQLRepository) findOne(ctx context.Context, query string, argument any) (User, error) {
 	var record User
+	var storedRole string
 	err := repository.database.QueryRowContext(ctx, query, argument).Scan(
 		&record.ID,
 		&record.Username,
 		&record.PasswordHash,
+		&storedRole,
 		&record.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
+	if err != nil {
+		return User{}, fmt.Errorf("find user: %w", err)
+	}
+	record.Role, err = ParseRole(storedRole)
 	if err != nil {
 		return User{}, fmt.Errorf("find user: %w", err)
 	}
