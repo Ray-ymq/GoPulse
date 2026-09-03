@@ -39,6 +39,13 @@
 - MetricsMonitor 可产生统一消息。
 - Kafka 可用。
 
+## 用户态与访问边界
+
+- 本阶段是可观测内部数据通道，不新增普通用户或管理员直接调用的 Router/Kafka 公共接口。
+- Monitor 使用独立服务身份向 Message Router 发布；Router 接收端必须具有服务间鉴权、请求上限和受控监听/网络边界，不能复用用户 Cookie 作为内部服务凭据。
+- 普通用户和管理员浏览器都不得直连 Router 或 Kafka；未来可观测页面只能通过 Backend 的管理员 API 间接访问数据能力。
+- Router 或 Kafka 不可用不得改变普通用户社交 API 的认证与可用性；发布失败只按可观测链路契约处理。
+
 ## 阶段产物
 
 - 可独立运行的 Message Router。
@@ -57,6 +64,8 @@
 - Kafka Consumer 可读取完整 metrics 消息。
 - Message Router 不修改业务字段。
 - Kafka 仅用于 Metrics、Logs、Events 等可观测数据。
+- 未经内部服务鉴权的 Router 请求被拒绝，Router/Kafka 不形成普通用户或浏览器可访问入口。
+- Router/Kafka 故障不破坏既有社交业务闭环或放宽任何用户角色权限。
 
 ## 阶段完成与停止条件
 
@@ -78,6 +87,7 @@
 - 实现批次按 Monitor 到 Kafka Consumer 的传输闭环切分，不按 Router、Kafka、Producer、Consumer 和测试等技术层机械拆分。
 - 测试、文档和实施记录随对应能力完成；如安排收口批次，只执行跨批集成和固定验收，不加入新的功能范围。
 - Router 接口、消息 Envelope、Topic 和运行参数由总实施方案根据实施前的真实代码基线确定，阶段提纲不提前冻结。
+- 总实施方案必须保留本阶段内部服务身份、非浏览器入口和社交业务故障隔离边界。
 
 ## 后续待细化事项
 
