@@ -106,7 +106,6 @@ func (m *Monitor) Enable(manifest plugin.Manifest) {
 func (m *Monitor) Disable(ctx context.Context) error {
 	m.mu.Lock()
 	cancel, done := m.cancel, m.done
-	m.cancel, m.done = nil, nil
 	m.mu.Unlock()
 	if cancel == nil {
 		return nil
@@ -114,6 +113,11 @@ func (m *Monitor) Disable(ctx context.Context) error {
 	cancel()
 	select {
 	case <-done:
+		m.mu.Lock()
+		if m.done == done {
+			m.cancel, m.done = nil, nil
+		}
+		m.mu.Unlock()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
