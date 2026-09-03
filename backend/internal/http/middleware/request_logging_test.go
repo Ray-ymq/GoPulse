@@ -74,6 +74,39 @@ func TestRequestLoggingRecoversPanicBeforeCompletion(t *testing.T) {
 	}
 }
 
+func TestRequestLoggingRecoversPanicAfterResponseCommitWithoutMixedPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var output bytes.Buffer
+	logger := logging.Module(logging.New("backend", &output), "http")
+	router := gin.New()
+	router.Use(RequestID(logger, func() (string, error) { return fixedRequestID, nil }), Access(logger), Recovery(logger))
+	router.GET("/panic-after-write", func(c *gin.Context) {
+		c.String(stdhttp.StatusAccepted, "partial-secret")
+		panic("secret panic value")
+	})
+
+	result := httptest.NewRecorder()
+	router.ServeHTTP(result, httptest.NewRequest(stdhttp.MethodGet, "/panic-after-write", nil))
+
+	if result.Code != stdhttp.StatusAccepted || result.Body.String() != "partial-secret" {
+		t.Fatalf("response = %d %q", result.Code, result.Body.String())
+	}
+	records := decodeRecords(t, output.Bytes())
+	if len(records) != 2 {
+		t.Fatalf("records = %#v, want panic and completion", records)
+	}
+	panicRecord, completion := records[0], records[1]
+	if panicRecord["message"] != "http panic recovered" || panicRecord["level"] != "error" || panicRecord["error_code"] != "internal_error" || panicRecord["response_committed"] != true {
+		t.Fatalf("panic record = %#v", panicRecord)
+	}
+	if completion["message"] != "http request completed" || completion["status"] != float64(stdhttp.StatusAccepted) || completion["level"] != "error" || completion["error_code"] != "internal_error" || completion["panic_recovered"] != true || completion["response_committed"] != true {
+		t.Fatalf("completion record = %#v", completion)
+	}
+	if strings.Contains(result.Body.String(), `"error"`) || strings.Contains(output.String(), "secret panic value") || strings.Contains(output.String(), "goroutine") {
+		t.Fatalf("panic response or log leaked unsafe details: response=%q log=%s", result.Body.String(), output.String())
+	}
+}
+
 func TestRequestIDFailureReturnsSafeErrorWithoutForgedID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var output bytes.Buffer

@@ -15,7 +15,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const requestIDHeader = "X-Request-ID"
+const (
+	requestIDHeader             = "X-Request-ID"
+	panicRecoveredContextKey    = "gopulse.panic_recovered"
+	responseCommittedContextKey = "gopulse.response_committed"
+)
 
 type RequestIDGenerator func() (string, error)
 
@@ -68,12 +72,23 @@ func Access(logger *slog.Logger) gin.HandlerFunc {
 		if userID, ok := CurrentUserID(c); ok {
 			attributes = append(attributes, slog.Uint64("user_id", userID))
 		}
-		if errorCode, ok := response.ErrorCode(c); ok {
+		errorCode, hasErrorCode := response.ErrorCode(c)
+		if hasErrorCode {
 			attributes = append(attributes, slog.String("error_code", string(errorCode)))
+		}
+		panicRecovered := contextBool(c, panicRecoveredContextKey)
+		if panicRecovered {
+			if !hasErrorCode {
+				attributes = append(attributes, slog.String("error_code", string(apperror.CodeInternal)))
+			}
+			attributes = append(attributes,
+				slog.Bool("panic_recovered", true),
+				slog.Bool("response_committed", contextBool(c, responseCommittedContextKey)),
+			)
 		}
 
 		switch {
-		case status >= stdhttp.StatusInternalServerError:
+		case panicRecovered || status >= stdhttp.StatusInternalServerError:
 			requestLogger.Error("http request completed", attributes...)
 		case status >= stdhttp.StatusBadRequest:
 			requestLogger.Warn("http request completed", attributes...)
@@ -87,12 +102,26 @@ func Recovery(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
+				committed := c.Writer.Written()
+				c.Set(panicRecoveredContextKey, true)
+				c.Set(responseCommittedContextKey, committed)
 				requestLogger := logging.FromContext(c.Request.Context(), logger)
-				requestLogger.Error("http panic recovered", slog.String("error_code", string(apperror.CodeInternal)))
-				response.Error(c, errors.New("panic recovered"))
+				requestLogger.Error("http panic recovered",
+					slog.String("error_code", string(apperror.CodeInternal)),
+					slog.Bool("response_committed", committed),
+				)
+				if !committed {
+					response.Error(c, errors.New("panic recovered"))
+				}
 				c.Abort()
 			}
 		}()
 		c.Next()
 	}
+}
+
+func contextBool(c *gin.Context, key string) bool {
+	value, ok := c.Get(key)
+	boolean, valid := value.(bool)
+	return ok && valid && boolean
 }
