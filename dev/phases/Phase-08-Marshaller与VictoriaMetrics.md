@@ -39,6 +39,13 @@
 - 统一 metrics 消息可从 Kafka 消费。
 - VictoriaMetrics 可用。
 
+## 用户态与访问边界
+
+- Kafka Consumer、Marshaller 写入端和 VictoriaMetrics 均属于可观测内部数据面，不向普通用户或浏览器直接暴露。
+- 本阶段的指标查询首先用于完整链路验收；如同时提供 Backend 查询入口，该入口必须继承 Phase 6 的 admin 服务端授权，未登录为 `401`、普通用户为 `403 permission_denied`。
+- 管理员未来通过 Backend 查询指标，不直接获得 Kafka、Marshaller 或 VictoriaMetrics 的地址、凭据和原始管理接口。
+- 指标处理或存储故障不得阻断普通用户社交 API；Backend 业务 readiness 不以 VictoriaMetrics 可用为前提。
+
 ## 阶段产物
 
 - 可运行的 Marshaller。
@@ -57,6 +64,8 @@
 - 可查询到连接、请求、状态等实际采集指标。
 - 异常数据不会破坏正常消费链路。
 - Monitor 与 Marshaller 的两层处理职责保持分离。
+- Kafka、Marshaller 与 VictoriaMetrics 没有浏览器或普通用户可直接访问的入口；如有 Backend 指标查询 API，则普通用户稳定获得 `403`。
+- VictoriaMetrics 不可用时既有社交业务仍可运行，且失败不会导致越权降级或泄漏内部连接信息。
 
 ## 阶段完成与停止条件
 
@@ -77,6 +86,7 @@
 - 实现批次按 Kafka 输入到 VictoriaMetrics 查询的闭环切分，不按 Consumer、转换器、存储客户端和测试等技术层机械拆分。
 - 测试、文档和实施记录随对应能力完成；如安排收口批次，只执行跨批集成和固定验收，不加入新的功能范围。
 - 消费契约、映射规则、写入格式和运行参数由总实施方案根据实施前的真实代码基线确定，阶段提纲不提前冻结。
+- 总实施方案必须明确内部写入/查询身份、Backend 管理员查询边界和可观测存储故障隔离。
 
 ## 后续待细化事项
 

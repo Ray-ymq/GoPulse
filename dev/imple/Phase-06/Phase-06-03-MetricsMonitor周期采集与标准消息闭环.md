@@ -1,23 +1,23 @@
-# Phase 6-02：MetricsMonitor 周期采集与标准消息闭环实施方案
+# Phase 6-03：MetricsMonitor 周期采集与标准消息闭环实施方案
 
-> 执行序号：2 / 3
+> 执行序号：3 / 4
 >
-> 前置批次：Phase-06-01 已完成并通过验收
+> 前置批次：Phase-06-02 已完成并通过验收
 >
 > 总方案来源：[Phase-06-总实施方案.md](Phase-06-总实施方案.md)
 
 ## 1. 批次目标
 
-在 Phase-06-01 已建立管理员到 Redis Exporter 运行状态的完整所有权之上，纵向交付“真实 Redis → Redis Exporter → MetricsMonitor 周期 HTTP Pull → Prometheus 解析与基础校验 → GoPulse metrics Envelope → HTTP 捕获端”闭环。
+在 Phase-06-02 已建立管理员到 Redis Exporter 运行状态的完整所有权之上，纵向交付“真实 Redis → Redis Exporter → MetricsMonitor 周期 HTTP Pull → Prometheus 解析与基础校验 → GoPulse metrics Envelope → HTTP 捕获端”闭环。
 
 本批把已安装 `metrics-exporter` 的运行状态转换为可调度采集目标，固定成功、目标不可用、超时和畸形数据的处理语义，并通过可选 HTTP Publisher 为 Phase 7 交付稳定线上契约。本批不实现 Message Router 或 Kafka，也不把指标转换为 VictoriaMetrics 最终格式。
 
 ## 2. 前置条件
 
-- Phase-06-01 已从 `develop/1.3.1` 完成并合入主远程，根版本为 `1.3.1`，实施记录、本地验收和远程门禁齐全。
+- Phase-06-02 已从 `develop/1.3.2` 完成并合入主远程，根版本为 `1.3.2`，实施记录、本地验收和远程门禁齐全。
 - 管理员可通过 Backend 安装/启停/更新 Redis Exporter，Plugin Manager 是进程与 desired state 的唯一所有者。
-- 真实 Redis Exporter 安装包、Manifest v1、`current` release、运行环境、`/health` 和 `/metrics` 端点已通过 Phase-06-01 验收。
-- 已 fetch 主远程，从包含 Phase-06-01 的最新 `main` 创建 `develop/1.3.2`，没有沿用前一批分支。
+- 真实 Redis Exporter 安装包、Manifest v1、`current` release、运行环境、`/health` 和 `/metrics` 端点已通过 Phase-06-02 验收。
+- 已 fetch 主远程，从包含 Phase-06-02 的最新 `main` 创建 `develop/1.3.3`，没有沿用前一批分支。
 - WSL2 Linux filesystem 可启动隔离 Redis、Backend、Monitor、Exporter 和本地 HTTP 捕获端，并且已保存日常资源快照。
 
 ## 3. 实施范围
@@ -74,7 +74,7 @@
 
 ## 4. 实施边界与非目标
 
-- 不修改 Phase-06-01 已稳定的管理员角色、安装包、原子布局、Registry、进程归属或更新回滚语义，除非本批真实联动失败证明其阻断采集。
+- 不修改 Phase-06-01 已稳定的双用户态授权，以及 Phase-06-02 已稳定的安装包、原子布局、Registry、进程归属或更新回滚语义，除非本批真实联动失败证明其阻断采集。
 - 不增加采集目标 CRUD、多插件并发、服务发现、动态 scrape 参数 API 或运行期热加载。
 - 不计算 rate/ratio、不聚合/降采样、不添加自定义标签、不保存历史或上一次成功 payload。
 - 不实现 Router 进程、Kafka Producer/Consumer/Topic、Marshaller、VictoriaMetrics 或任何指标查询 API。
@@ -106,14 +106,14 @@ README.md
 VERSION
 frontend/package.json
 frontend/package-lock.json
-dev/logs/Phase-06/Phase-06-02-MetricsMonitor周期采集与标准消息闭环.md
+dev/logs/Phase-06/Phase-06-03-MetricsMonitor周期采集与标准消息闭环.md
 ```
 
-预计文件只表示允许边界；如已有 Phase-06-01 模块边界可直接容纳本批功能，不为追求目录形式而人为重构。实际未修改文件不写入实施记录。
+预计文件只表示允许边界；如已有 Phase-06-02 模块边界可直接容纳本批功能，不为追求目录形式而人为重构。实际未修改文件不写入实施记录。
 
 ## 6. 详细实施步骤
 
-1. 核对 Phase-06-01 实施记录、Plugin Manager 状态事实、Redis Exporter Manifest 和 Phase 5 最终 Prometheus family 契约。
+1. 核对 Phase-06-01/02 实施记录、Plugin Manager 状态事实、Redis Exporter Manifest 和 Phase 5 最终 Prometheus family 契约。
 2. 在 Monitor 建立 target 模型、Plugin Manager 状态订阅/查询边界，固定 target ID 和启用/禁用/版本切换顺序。
 3. 实现立即+周期调度、每 target 单在途限制、超时、取消与 Monitor 关闭等待，用 fake clock/client 证明不重叠。
 4. 实现专用 HTTP client、回环目标 URL 派生、跳转/压缩禁止、响应大小上限和可控错误分类。
@@ -124,7 +124,7 @@ dev/logs/Phase-06/Phase-06-02-MetricsMonitor周期采集与标准消息闭环.md
 9. 将采集/发布结果接入插件公共状态，保持 payload 不持久化，并经 Backend 安全代理时间和有限错误。
 10. 扩展 `verify-monitor.sh`，启动独立捕获端，用真实 Redis 变化核对 Exporter、Envelope 和捕获 body，再验证 Redis 故障/恢复、畸形数据与 Publisher 故障。
 11. 更新 Monitor README、根 README、配置示例、CI Monitor job 和 Bash 验证，不在日常栈中伪造 Router。
-12. 将根与 Frontend 版本更新为 `1.3.2`，创建同名实施记录，只写入真实命令、结果、偏差和限制。
+12. 将根与 Frontend 版本更新为 `1.3.3`，创建同名实施记录，只写入真实命令、结果、偏差和限制。
 
 ## 7. 风险与控制
 
@@ -157,13 +157,13 @@ scripts/verify-monitor.sh
 scripts/verify-exporter.sh
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.3.2 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.3.3 --base-ref upstream/main
 git diff --check
 ```
 
 Monitor 单元测试固定代表性成功和失败：一个 `200/up1`、一个严格 `503/up0`、一个畸形/超限拒绝，以及一个无重叠调度场景。标签/数值更多排列只在真实 parser 失败或公共契约风险需要时增加。
 
-`scripts/verify-monitor.sh` 是本批真实 Redis、Exporter、Monitor 和 HTTP 捕获端的主证据；不再新建重复的全栈脚本。若本批未修改共享业务资源或生命周期基础，不在此批重跑完整 `verify-business.sh`；该回归留给 Phase-06-03。
+`scripts/verify-monitor.sh` 是本批真实 Redis、Exporter、Monitor 和 HTTP 捕获端的主证据；不再新建重复的全栈脚本。若本批未修改共享业务资源或生命周期基础，不在此批重跑完整 `verify-business.sh`；该回归留给 Phase-06-04。
 
 ## 9. 验收标准
 
@@ -177,11 +177,11 @@ Monitor 单元测试固定代表性成功和失败：一个 `200/up1`、一个�
 - Router URL 为空时 Monitor 可正常采集；Publisher 不可用时下一周期继续，不产生磁盘队列或无界重试。
 - Backend 状态可读取最近采集/成功时间和安全错误，但不暴露 Envelope 正文、内部 URL/token 或原始错误。
 - Monitor 不导入 Kafka SDK，不包含 Topic、Marshaller、VictoriaMetrics 或历史指标代码。
-- 第 8 节固定验证和远程门禁通过，版本元数据为 `1.3.2`，实施记录真实完整。
+- 第 8 节固定验证和远程门禁通过，版本元数据为 `1.3.3`，实施记录真实完整。
 
 ## 10. 明确完成条件
 
-只有插件状态联动、立即和周期调度、单在途限制、Prometheus 严格解析、成功/目标故障语义、Envelope v1、HTTP Publisher、捕获端和真实 Redis 恢复全部通过，且没有阻断验收的失败，才可标记 Phase-06-02 完成。只有 parser 单元测试、手工构造 JSON 或静态指标文本不足以完成本批。
+只有插件状态联动、立即和周期调度、单在途限制、Prometheus 严格解析、成功/目标故障语义、Envelope v1、HTTP Publisher、捕获端和真实 Redis 恢复全部通过，且没有阻断验收的失败，才可标记 Phase-06-03 完成。只有 parser 单元测试、手工构造 JSON 或静态指标文本不足以完成本批。
 
 ## 11. 下一批交接
 
@@ -189,4 +189,4 @@ Monitor 单元测试固定代表性成功和失败：一个 `200/up1`、一个�
 - Phase 5 固定 Prometheus family 的严格 parser/校验器和稳定结构化 samples。
 - Envelope v1 的固定类型、JSON Schema 行为、成功/目标故障语义与脱敏边界。
 - 可选 HTTP Publisher、`POST /internal/v1/messages`、Bearer token、Idempotency-Key、`202` 契约和验收捕获端。
-- Phase-06-03 只需在同一最终构建上执行管理与采集跨批闭环、Phase 0～5 必要回归、资源安全、远程门禁和 Phase 7 交接，不得扩大功能范围。
+- Phase-06-04 只需在同一最终构建上执行身份、管理与采集跨批闭环、Phase 0～5 必要回归、资源安全、远程门禁和 Phase 7 交接，不得扩大功能范围。

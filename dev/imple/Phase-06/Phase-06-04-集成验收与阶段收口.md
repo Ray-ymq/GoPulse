@@ -1,16 +1,22 @@
-# Phase 6-03：集成验收与阶段收口实施方案
+# Phase 6-04：集成验收与阶段收口实施方案
 
-> 执行序号：3 / 3
+> 执行序号：4 / 4
 >
-> 前置批次：Phase-06-01 与 Phase-06-02 已完成并通过验收
+> 前置批次：Phase-06-01、Phase-06-02 与 Phase-06-03 已完成并通过验收
 >
 > 总方案来源：[Phase-06-总实施方案.md](Phase-06-总实施方案.md)
 
 ## 1. 批次目标
 
-在同一最终构建上完成 Phase 6 的两条最小端到端闭环：
+在同一最终构建上完成 Phase 6 的三条最小端到端闭环：
 
 ```text
+普通用户注册/登录
+  → 当前用户 role=user
+  → 运维 CLI 显式提升
+  → 同一账号和会话 role=admin
+  → Backend 服务端授权
+
 已登录管理员
   → Backend 插件 API
   → Monitor 安全导入/自动启动/停止/更新/回滚
@@ -23,13 +29,13 @@
   → HTTP 捕获端读取完整消息
 ```
 
-本批是固定集成验收和阶段收口批次，不增加新角色、插件格式、管理 API、采集目标、指标或消息字段。只允许对已复现、直接阻断总方案验收的问题实施最小修复；Phase 6 完成版本固定为 `1.3.3`。
+本批是固定集成验收和阶段收口批次，不增加新角色、插件格式、管理 API、采集目标、指标或消息字段。只允许对已复现、直接阻断总方案验收的问题实施最小修复；Phase 6 完成版本固定为 `1.3.4`。
 
 ## 2. 前置条件
 
-- Phase-06-01 和 Phase-06-02 已分别从 `develop/1.3.1` 和 `develop/1.3.2` 完成、合入主远程，根版本为 `1.3.2`。
-- 两批实施记录、本地固定命令、Pull Request 和远程检查结果已如实记录，未遗留阻断本批的已知失败。
-- 已 fetch 主远程，从包含两个前置批次的最新 `main` 创建 `develop/1.3.3`，没有沿用前一批分支。
+- Phase-06-01、Phase-06-02 和 Phase-06-03 已分别从 `develop/1.3.1`、`develop/1.3.2` 和 `develop/1.3.3` 完成、合入主远程，根版本为 `1.3.3`。
+- 三批实施记录、本地固定命令、Pull Request 和远程检查结果已如实记录，未遗留阻断本批的已知失败。
+- 已 fetch 主远程，从包含三个前置批次的最新 `main` 创建 `develop/1.3.4`，没有沿用前一批分支。
 - WSL2 Linux filesystem 具备隔离 MySQL、Redis、RabbitMQ、Elasticsearch、Backend、Worker、Search Indexer、Frontend、Monitor、Exporter 和 HTTP 捕获端所需资源，并使用一个明确 Docker daemon。
 - 开始前保存日常 Compose project、container/network/volume、端口、`.run` 进程、插件根和 Git 快照；所有破坏性验收资源都必须有随机且可验证的归属证据。
 
@@ -74,8 +80,8 @@
 ### 3.5 文档、版本与远程状态收口
 
 - 更新根 README、Monitor README、Exporter README 和必要配置说明，使管理员提升、包形式、安装布局、API、状态、采集语义、Publisher 和限制与真实行为一致。
-- 核对总方案、三份拆分方案、三份实施记录、Git 历史、版本和权威分支分配；不把计划命令写为已通过。
-- 将根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json` 更新为 `1.3.3`。
+- 核对总方案、四份拆分方案、四份实施记录、Git 历史、版本和权威分支分配；不把计划命令写为已通过。
+- 将根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json` 更新为 `1.3.4`。
 - 本地门禁通过只记录本地结果；只有 Pull Request 已合入且远程门禁实际成功后，才把 Phase 6 标记为完成。
 
 ## 4. 实施边界与非目标
@@ -91,7 +97,7 @@
 
 ```text
 dev/imple/Phase-06/Phase-06-总实施方案.md
-dev/logs/Phase-06/Phase-06-03-集成验收与阶段收口.md
+dev/logs/Phase-06/Phase-06-04-集成验收与阶段收口.md
 README.md
 monitor/README.md
 exporters/README.md
@@ -114,7 +120,7 @@ frontend/package-lock.json
 
 ## 6. 详细实施步骤
 
-1. 核对 Phase-06-01/02 实施记录、合入提交、远程门禁、已知限制、当前版本和日常资源快照。
+1. 核对 Phase-06-01/02/03 实施记录、合入提交、远程门禁、已知限制、当前版本和日常资源快照。
 2. 在最终构建上执行 Monitor、Backend、Frontend、Redis Exporter 的格式、unit、vet、race/build 门禁，确认公共 Schema 没有漂移。
 3. 执行 `verify-monitor.sh --self-test`，确认非法 token、路径、archive、PID、project、container、volume 和端口均会被拒绝。
 4. 执行第 3.1 节管理链路，记录普通用户 `403`、管理员安装自启、幂等启停、成功更新、失败回滚、重启恢复和归属证据。
@@ -122,7 +128,7 @@ frontend/package-lock.json
 6. 执行日常 `dev.sh → verify.sh → down.sh`，确认 Monitor/Exporter 所有权、启停顺序、端口和 PID 记录没有残留或双重操作。
 7. 执行 Phase 5 Exporter 和 Phase 0～4 必要业务验收一次，只对已观察失败进行有限诊断和最小修复。
 8. 最终 diff 稳定后执行第 8 节固定完成门禁一次，保存真实输出摘要。
-9. 更新 README、总方案阶段状态、本批实施记录和 `1.3.3` 版本元数据，核对文档与真实行为一致。
+9. 更新 README、总方案阶段状态、本批实施记录和 `1.3.4` 版本元数据，核对文档与真实行为一致。
 10. 提交并创建 Pull Request，查询并记录真实远程检查与合入状态；未合入或失败时保持 Phase 6 未完成。
 11. 合入与远程门禁通过后立即停止 Phase 6 扩展，将 Envelope 和 HTTP Publisher 契约交给 Phase 7。
 
@@ -159,7 +165,7 @@ frontend/package-lock.json
 (cd frontend && npm run build)
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.3.3 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.3.4 --base-ref upstream/main
 bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/package-redis-exporter.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 scripts/verify-monitor.sh --self-test
@@ -188,11 +194,11 @@ git diff --check
 - HTTP 捕获端读取完整 Envelope v1，Bearer token、Idempotency-Key 和 `202` 契约正确；Publisher 失败不导致无界重试或磁盘队列。
 - Monitor 不导入 Kafka SDK，不实现 Router、Marshaller、存储、LogMonitor 或 EventMonitor。
 - 日常与隔离生命周期不双重启动、不误杀、不误删、不遗留进程、端口、container、network、volume、plugin root 或临时文件。
-- Phase 0～5 必要能力无回归，第 8 节固定门禁与远程检查通过，三份实施记录与真实提交一致，根与 Frontend 版本为 `1.3.3`。
+- Phase 0～5 必要能力无回归，第 8 节固定门禁与远程检查通过，四份实施记录与真实提交一致，根与 Frontend 版本为 `1.3.4`。
 
 ## 10. Phase 6 完成与停止条件
 
-只有第 9 节全部满足、Phase-06-03 已合入主远程 `main`、远程门禁成功且三份实施记录真实完整，Phase 6 才完成。任一管理员授权、安装回滚、重启恢复、真实 Redis 数值、故障消息、Publisher 捕获、资源归属、远程检查或实施记录缺失时，不得写成完成。
+只有第 9 节全部满足、Phase-06-04 已合入主远程 `main`、远程门禁成功且四份实施记录真实完整，Phase 6 才完成。任一管理员授权、双用户态隔离、安装回滚、重启恢复、真实 Redis 数值、故障消息、Publisher 捕获、资源归属、远程检查或实施记录缺失时，不得写成完成。
 
 阶段验收通过后立即停止。通用 RBAC、管理前端、远程插件市场、数字签名、多 Exporter/target、持久消息可靠性、指标聚合、容器化和长期运维能力记为后续事项，不继续占用 Phase 6。
 
