@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       run_product_checks:
-        description: Run Backend, Frontend, scripts/Compose, and Integration checks
+        description: Run Backend, Redis Exporter, Frontend, scripts/Compose, and Integration checks
         required: false
         default: true
         type: boolean
@@ -57,6 +57,27 @@ jobs:
       - name: Race test
         run: go test -race -count=1 ./...
 
+  redis-exporter:
+    name: Redis Exporter
+    if: inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: exporters/redis/go.mod
+          cache-dependency-path: exporters/redis/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l exporters/redis)"
+      - name: Test
+        run: cd exporters/redis && go test -count=1 ./...
+      - name: Vet
+        run: cd exporters/redis && go vet ./...
+      - name: Race test
+        run: cd exporters/redis && go test -race -count=1 ./...
+      - name: Run real Redis acceptance
+        run: scripts/verify-exporter.sh
+
   frontend:
     name: Frontend
     if: inputs.run_product_checks
@@ -85,13 +106,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git ls-files --eol -- 'scripts/*.sh' 'backend/**/*.go' | grep -Ev 'w/lf'; then
+          if git ls-files --eol -- 'scripts/*.sh' 'backend/**/*.go' 'exporters/redis/**/*.go' | grep -Ev 'w/lf'; then
             echo 'Expected Bash and Go working-tree files to use LF.' >&2
             exit 1
           fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh
       - name: Run acceptance safety negative tests
-        run: bash scripts/verify-business.sh --self-test
+        run: |
+          bash scripts/verify-business.sh --self-test
+          bash scripts/verify-exporter.sh --self-test
       - name: Validate Compose configuration and loopback publishing
         shell: bash
         run: |
