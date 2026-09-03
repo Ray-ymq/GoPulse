@@ -40,6 +40,13 @@
 - Phase 12 Docker 化完成。
 - Kubernetes 集群与容器镜像可用。
 
+## 用户态与访问边界
+
+- Kubernetes 部署必须延续两种产品使用态，但不为管理员建立直达内部 Service 的旁路；Frontend 和 Backend 仍是唯一用户访问面。
+- Monitor、Router、Marshaller、Kafka、VictoriaMetrics、Elasticsearch 和数据库等使用 ClusterIP、服务身份及必要网络策略通信，不创建面向普通用户或浏览器的 NodePort/LoadBalancer。
+- Backend 继续承担全部 admin 授权；ServiceAccount、Secret 或集群网络可达性不能替代用户角色校验，也不得下发到 Frontend。
+- 可观测工作负载异常、重调度或 Pod 重建不得使社交业务 readiness 被不必要绑定；普通用户业务与管理员管理域分别验证。
+
 ## 阶段产物
 
 - GoPulse Kubernetes 基础资源。
@@ -59,6 +66,8 @@
 - 所有组件通过 Service 名称通信。
 - 工作负载按预期分布到三个 Worker。
 - 必要数据在 Pod 重建后仍可使用。
+- 普通用户经 Frontend/Backend 使用社交域且可观测 API 为 `403`；管理员可经同一身份系统访问管理域，无任何浏览器直连内部 Service。
+- 代表性可观测 Pod 故障与重建期间，社交业务仍可用且没有权限降级或 Secret/内部地址泄漏。
 
 ## 阶段完成与停止条件
 
@@ -80,6 +89,7 @@
 - 实现批次按集群内可运行的系统闭环切分，不按 Deployment、Service、持久化资源、节点或测试等资源类型机械拆分。
 - 测试、文档和实施记录随对应能力完成；如安排收口批次，只执行跨批集成和固定验收，不加入新的功能范围。
 - Kubernetes 资源形态、存储类、调度约束和运行参数由总实施方案根据实施前的真实镜像与集群基线确定，阶段提纲不提前冻结。
+- 总实施方案必须包含用户入口与内部 Service 清单、服务身份/Secret 边界、网络暴露矩阵以及普通用户与管理员的独立验收路径。
 
 ## 后续待细化事项
 

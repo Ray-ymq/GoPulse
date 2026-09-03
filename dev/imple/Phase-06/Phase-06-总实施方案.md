@@ -4,9 +4,13 @@
 
 在 Phase 5 已交付独立 Redis Exporter、固定 `/health`/`/metrics` 契约和可接管进程边界的基础上，交付可独立运行的 Monitor，完成管理员授权、插件安装包导入、Exporter 生命周期管理、MetricsMonitor 周期拉取、基础校验与 GoPulse 标准 metrics 消息封装。
 
-本阶段固定形成两条共同可验证的最小闭环：
+本阶段固定形成三条共同可验证的最小闭环：
 
 ```text
+身份与授权：
+普通用户注册/登录 → 当前用户 role=user → 运维 CLI 显式提升
+                  → 同一账号/会话 role=admin → 服务端 admin 授权
+
 插件管理：
 已登录管理员 → Backend 管理 API → Monitor Plugin Manager
                  → 安全解包与原子安装 → Exporter 进程状态变化
@@ -17,7 +21,7 @@
           → HTTP 捕获端验证完整消息
 ```
 
-阶段完成必须同时证明：普通用户无权访问插件管理，合法安装包可被导入并自动运行，更新失败可回滚，Monitor 重启可恢复期望状态，真实指标可持续转换为标准消息。只交付进程包装、只实现定时器、使用静态 fixture 替代真实链路，或绕过 Backend 直接调用 Monitor，均不构成完成。
+阶段完成必须同时证明：普通用户与管理员继续共用现有身份系统且社交业务无回归，普通用户无权访问可观测管理，合法安装包可被导入并自动运行，更新失败可回滚，Monitor 重启可恢复期望状态，真实指标可持续转换为标准消息。只新增角色字段、只做前端隐藏、只交付进程包装、只实现定时器、使用静态 fixture 替代真实链路，或绕过 Backend 直接调用 Monitor，均不构成完成。
 
 ## 2. 当前真实基线
 
@@ -52,13 +56,15 @@ Phase 6 使用 `1.3.x` 版本线，`1.3.0` 只作为阶段基线，不创建空�
 | Phase-06-01 | `1.3.1` | `develop/1.3.1` | 未开始；以 Phase 5 完成为条件 |
 | Phase-06-02 | `1.3.2` | `develop/1.3.2` | 未开始；以 Phase-06-01 合入为条件 |
 | Phase-06-03 | `1.3.3` | `develop/1.3.3` | 未开始；以 Phase-06-02 合入为条件 |
+| Phase-06-04 | `1.3.4` | `develop/1.3.4` | 未开始；以 Phase-06-03 合入为条件 |
 
 执行规则：
 
 - 同一批次的全部提交共享目标版本；批次完成时同步根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json`。
 - 每批完成前创建同名 `dev/logs/Phase-06/Phase-06-XX-*.md`，只记录真实工作、真实验证、偏差和限制。
-- Phase-06-01 交付管理员到 Exporter 状态变化的纵向闭环；Phase-06-02 交付真实 Redis 到标准 metrics 消息的纵向闭环。
-- Phase-06-03 是固定集成验收和阶段收口批次，不引入新功能，只允许最小修复真实验收暴露的阻断问题。
+- Phase-06-01 独立交付持久化角色、运维提升、当前用户 role 与服务端授权闭环，先稳定横跨后续阶段的安全边界。
+- Phase-06-02 交付管理员到 Exporter 状态变化的纵向闭环；Phase-06-03 交付真实 Redis 到标准 metrics 消息的纵向闭环。
+- Phase-06-04 是固定集成验收和阶段收口批次，不引入新功能，只允许最小修复真实验收暴露的阻断问题。
 - 已推送分支不得静默改名或重新编号；批次数量或顺序变化时，先更新本表，再创建尚未开始的分支。
 
 ## 4. 阶段范围与非目标
@@ -138,6 +144,22 @@ monitor/
 - CLI 只支持授予管理员权限，不创建第二套密码、会话或用户管理系统；多次对不同用户执行即可形成多管理员。
 - 注册、登录和 `/api/v1/users/me` 的当前用户 DTO 增加 `role`；业务作者摘要仍只有 `id` 和 `username`。
 - Phase 6 只更新 Frontend 的当前用户类型、响应校验与回归测试，不新增管理页面；Phase 11 根据该 `role` 控制可观测管理导航和页面。
+
+### 6.3 两种产品使用态与跨阶段授权边界
+
+- GoPulse 只有一套用户身份、注册、登录和会话系统，但具有两种产品使用态：普通用户使用社交业务；管理员在保留社交能力的同时获得可观测查询和管理能力。
+- 管理员是普通用户的权限超集，不是公开作者类型；任何用户都不能从帖子、评论、通知、搜索或公开缓存判断作者是否为管理员。
+- Metrics、Logs、Events 查询以及 Exporter 查询/安装/启停/更新全部属于可观测管理域，必须由 Backend 根据数据库当前 `admin` 角色授权；普通用户固定为 `403 permission_denied`。
+- Frontend 的角色导航与路由守卫只负责用户体验，不能代替 Backend 授权；直接构造 URL 或 API 请求仍必须被服务端拒绝。
+- Monitor、Message Router、Marshaller、Kafka、VictoriaMetrics、Elasticsearch 等内部组件不接受浏览器或普通用户直接访问，只通过独立服务身份和受控网络协作。
+- Phase 7～16 的接口、页面、容器、Kubernetes、Ingress 和最终回归必须继承本节；后续总实施方案不得把“用户”笼统解释为可操作可观测能力的普通用户。
+
+| 能力域 | 未登录 | 普通用户 `user` | 管理员 `admin` | 内部服务身份 |
+| --- | --- | --- | --- | --- |
+| 社交业务 | 按既有公开/登录契约 | 允许 | 允许 | 不适用 |
+| Metrics/Logs/Events 查询 | `401` | `403` | 允许 | 按内部契约 |
+| Exporter 管理 | `401` | `403` | 允许 | Monitor Bearer token |
+| 可观测内部接口与存储 | 拒绝 | 拒绝 | 浏览器不直连 | 独立鉴权与受控网络 |
 
 ## 7. 插件安装包契约
 
@@ -360,20 +382,23 @@ MONITOR_MAX_PACKAGE_BYTES=67108864
 ## 14. 跨批次依赖与摘要
 
 ```text
-Phase-06-01 插件安装包与生命周期管理闭环（1.3.1）
+Phase-06-01 管理员身份与双用户态授权边界（1.3.1）
   ↓
-Phase-06-02 MetricsMonitor 周期采集与标准消息闭环（1.3.2）
+Phase-06-02 插件安装包与生命周期管理闭环（1.3.2）
   ↓
-Phase-06-03 集成验收与阶段收口（1.3.3）
+Phase-06-03 MetricsMonitor 周期采集与标准消息闭环（1.3.3）
+  ↓
+Phase-06-04 集成验收与阶段收口（1.3.4）
   ↓
 Phase 7 Message Router 与 Kafka
 ```
 
-- [Phase-06-01：插件安装包与生命周期管理闭环](Phase-06-01-插件安装包与生命周期管理闭环.md)：交付管理员授权、安全安装包、Monitor Plugin Manager、Backend 代理与真实 Exporter 生命周期。
-- [Phase-06-02：MetricsMonitor 周期采集与标准消息闭环](Phase-06-02-MetricsMonitor周期采集与标准消息闭环.md)：将已管理的 Redis Exporter 转换为可调度 target，交付真实 Prometheus 解析、Envelope v1 和 HTTP Publisher 捕获。
-- [Phase-06-03：集成验收与阶段收口](Phase-06-03-集成验收与阶段收口.md)：不新增功能，在同一最终构建上验证两条闭环、安全回滚、恢复、资源归属和 Phase 7 交接。
+- [Phase-06-01：管理员身份与双用户态授权边界](Phase-06-01-管理员身份与双用户态授权边界.md)：交付持久化角色、运维提升 CLI、当前用户契约、统一 admin 中间件和社交/可观测权限矩阵。
+- [Phase-06-02：插件安装包与生命周期管理闭环](Phase-06-02-插件安装包与生命周期管理闭环.md)：交付安全安装包、Monitor Plugin Manager、Backend 管理代理与真实 Exporter 生命周期。
+- [Phase-06-03：MetricsMonitor 周期采集与标准消息闭环](Phase-06-03-MetricsMonitor周期采集与标准消息闭环.md)：将已管理的 Redis Exporter 转换为可调度 target，交付真实 Prometheus 解析、Envelope v1 和 HTTP Publisher 捕获。
+- [Phase-06-04：集成验收与阶段收口](Phase-06-04-集成验收与阶段收口.md)：不新增功能，在同一最终构建上验证身份、管理和采集闭环、安全回滚、恢复、资源归属和 Phase 7 交接。
 
-两个纵向功能批次加一个集成收口批次符合阶段提纲的 2～3 批约束；没有按 Backend、Monitor、解包、调度、消息模型或测试等技术层机械分割。
+三个纵向功能批次加一个集成收口批次超出阶段提纲默认 2～3 批，是因为持久化角色、会话语义和服务端授权属于独立安全边界，必须先于插件文件/进程管理完成并拥有单独迁移与社交回归证据；其余批次仍按用户可验证的纵向闭环切分，没有按 Backend、Monitor、解包、调度、消息模型或测试等技术层机械分割。
 
 ## 15. 测试策略与固定验收矩阵
 
@@ -388,9 +413,10 @@ Phase 7 Message Router 与 Kafka
 
 | 批次 | 本批直接证据 | 固定必要回归 | 明确留后/不重复 |
 | --- | --- | --- | --- |
-| Phase-06-01 | role 迁移/CLI/403，archive 安全，自动安装启动，幂等启停，更新回滚，重启恢复，Backend 流式代理 | Backend/Frontend 认证契约，迁移，Phase 5 Exporter，脚本进程归属 | 不实现采集调度/Envelope；不建立用户管理界面 |
-| Phase-06-02 | 真实 Redis 数值，非重叠周期，`200/up1`、`503/up0`、恢复，严格解析，Envelope，HTTP 捕获 | Monitor 生命周期、Exporter 契约、Backend 状态代理、脚本/CI | 不实现 Router/Kafka/存储；不添加多 target 排列 |
-| Phase-06-03 | 管理员到插件与 Redis 到 HTTP 捕获端的两条最终闭环，重启，回滚，发布失败，资源清理 | Phase 0～5 必要业务回归，Monitor/Backend/Frontend/Exporter/脚本固定门禁和远程 CI | 不新增功能；不做一般审计、长时压测或全排列故障测试 |
+| Phase-06-01 | role 迁移、提升 CLI、当前用户 role 契约、数据库实时 admin 授权、`401/403/允许` | Backend/Frontend 认证、迁移、作者摘要和必要社交回归 | 不实现插件、Monitor、管理页面或通用 RBAC |
+| Phase-06-02 | archive 安全、管理 API、自动安装启动、幂等启停、更新回滚、重启恢复、Backend 流式代理 | Phase-06-01 授权契约、Phase 5 Exporter、脚本进程归属 | 不实现采集调度/Envelope；不重做身份系统 |
+| Phase-06-03 | 真实 Redis 数值，非重叠周期，`200/up1`、`503/up0`、恢复，严格解析，Envelope，HTTP 捕获 | Monitor 生命周期、Exporter 契约、Backend 状态代理、脚本/CI | 不实现 Router/Kafka/存储；不添加多 target 排列 |
+| Phase-06-04 | 管理员到插件与 Redis 到 HTTP 捕获端的最终闭环，双用户态隔离、重启、回滚、发布失败、资源清理 | Phase 0～5 必要业务回归，Monitor/Backend/Frontend/Exporter/脚本固定门禁和远程 CI | 不新增功能；不做一般审计、长时压测或全排列故障测试 |
 
 ### 15.3 阶段级封闭端到端矩阵
 
@@ -416,7 +442,7 @@ Phase 7 Message Router 与 Kafka
 - Reusable Quality Gates 新增独立 `Monitor` job，以 `monitor/go.mod`/`go.sum` 为 Go 版本和缓存依据，执行 formatting、unit、vet、race 与所需真实 Redis Exporter integration。
 - Backend job 覆盖 role 迁移、授权、管理代理和错误映射；Frontend job 覆盖新当前用户 `role` 类型及已有页面回归。
 - Scripts and Compose job 增加 Monitor/打包 Bash 的 LF、syntax、self-test 与回环端口检查，保留 Phase 5 Exporter 和已有业务门禁。
-- Phase-06-03 最终远程门禁至少包含 Branch governance、Backend、Frontend、Redis Exporter、Monitor、Scripts and Compose、Integration 以及仓库当时实际配置的自动 PR/合并检查。
+- Phase-06-04 最终远程门禁至少包含 Branch governance、Backend、Frontend、Redis Exporter、Monitor、Scripts and Compose、Integration 以及仓库当时实际配置的自动 PR/合并检查。
 - 只能在实施记录中写入实际执行的本地命令、Pull Request、提交和远程结果；计划命令不得预写为已通过。
 
 ## 17. 实施记录规则
@@ -424,14 +450,17 @@ Phase 7 Message Router 与 Kafka
 每批完成后创建同名镜像记录：
 
 ```text
-dev/imple/Phase-06/Phase-06-01-插件安装包与生命周期管理闭环.md
-dev/logs/Phase-06/Phase-06-01-插件安装包与生命周期管理闭环.md
+dev/imple/Phase-06/Phase-06-01-管理员身份与双用户态授权边界.md
+dev/logs/Phase-06/Phase-06-01-管理员身份与双用户态授权边界.md
 
-dev/imple/Phase-06/Phase-06-02-MetricsMonitor周期采集与标准消息闭环.md
-dev/logs/Phase-06/Phase-06-02-MetricsMonitor周期采集与标准消息闭环.md
+dev/imple/Phase-06/Phase-06-02-插件安装包与生命周期管理闭环.md
+dev/logs/Phase-06/Phase-06-02-插件安装包与生命周期管理闭环.md
 
-dev/imple/Phase-06/Phase-06-03-集成验收与阶段收口.md
-dev/logs/Phase-06/Phase-06-03-集成验收与阶段收口.md
+dev/imple/Phase-06/Phase-06-03-MetricsMonitor周期采集与标准消息闭环.md
+dev/logs/Phase-06/Phase-06-03-MetricsMonitor周期采集与标准消息闭环.md
+
+dev/imple/Phase-06/Phase-06-04-集成验收与阶段收口.md
+dev/logs/Phase-06/Phase-06-04-集成验收与阶段收口.md
 ```
 
 记录必须包含实际完成工作、实际变更文件、验证命令与结果、相对方案偏差、已知限制和跟进项。规划阶段不创建空记录，不把未来验证写成已完成。
@@ -447,12 +476,13 @@ Phase 6 完成必须同时满足：
 - 成功和严格 `503/up0` 输出已被转换为 Envelope v1，HTTP 捕获端可读取完整消息，Monitor 不依赖 Kafka SDK，不承担 Router、Marshaller 或存储职责。
 - 日志、API、Registry、Envelope 和实施记录不泄漏凭据、token、绝对路径、用户内容、原始 metrics 或未清洗底层错误。
 - Phase 0～5 必要业务、搜索、异步处理、结构化日志与 Exporter 在 Monitor 接管后无回归，固定矩阵和远程门禁通过。
-- 三份实施记录与实际提交一致，Phase-06-03 合入后根与 Frontend 版本均为 `1.3.3`。
+- 四份实施记录与实际提交一致，Phase-06-04 合入后根与 Frontend 版本均为 `1.3.4`。
 
-只有 Phase-06-01、Phase-06-02 和 Phase-06-03 都从权威分支完成并合入主远程，第 15.3 节封闭矩阵在 WSL2/Bash 真实通过，远程门禁成功且实施记录齐全，才可标记 Phase 6 完成。达到条件后立即停止扩展。
+只有 Phase-06-01、Phase-06-02、Phase-06-03 和 Phase-06-04 都从权威分支完成并合入主远程，第 15.3 节封闭矩阵在 WSL2/Bash 真实通过，远程门禁成功且实施记录齐全，才可标记 Phase 6 完成。达到条件后立即停止扩展。
 
 向 Phase 7 交付：
 
+- 稳定的 `user|admin` 身份、同一会话模型和权限矩阵；后续可观测查询/管理只能通过 Backend admin 授权，内部组件不形成浏览器入口。
 - 可独立运行的 Monitor、稳定的 Plugin Manager 状态和管理员代理 API。
 - 已管理、可恢复、可更新回滚的 Redis Exporter 以及固定 target ID。
 - Envelope v1 的完整 schema、成功/目标故障语义、稳定序列化和真实捕获证据。
