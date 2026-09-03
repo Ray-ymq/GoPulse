@@ -19,6 +19,8 @@ AUTH_EXPORTER_PID=
 TIMEOUT_EXPORTER_PID=
 TIMEOUT_SERVER_PID=
 DAILY_BEFORE=
+COMPOSE_CLEANUP_ARMED=0
+COMPOSE_FILE_SHA256=
 CLEANED=0
 
 info() { printf '[gopulse-exporter] %s\n' "$*"; }
@@ -31,6 +33,30 @@ with socket.socket() as sock:
     sock.bind(('127.0.0.1', 0))
     print(sock.getsockname()[1])
 PY
+}
+
+ports_unique() {
+  python3 - "$@" <<'PY'
+import sys
+ports=sys.argv[1:]
+raise SystemExit(0 if len(ports) == len(set(ports)) else 1)
+PY
+}
+
+allocate_ports() {
+  local -a ports
+  local _
+  for _ in {1..20}; do
+    ports=("$(random_port)" "$(random_port)" "$(random_port)" "$(random_port)")
+    if ports_unique "${ports[@]}"; then
+      REDIS_PORT=${ports[0]}
+      EXPORTER_PORT=${ports[1]}
+      AUTH_EXPORTER_PORT=${ports[2]}
+      TIMEOUT_EXPORTER_PORT=${ports[3]}
+      return 0
+    fi
+  done
+  fail 'Could not allocate four unique random ports.'
 }
 
 valid_project() { [[ $1 =~ ^gopulse-exporter-[a-f0-9]{12}$ ]]; }
@@ -116,14 +142,53 @@ stop_exporter() {
 container_owned() {
   valid_project "$PROJECT_NAME" || return 1
   [[ -n $CONTAINER_ID ]] || return 1
-  local labels binding
+  local labels
   labels=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}' "$CONTAINER_ID" 2>/dev/null) || return 1
-  [[ $labels == "$PROJECT_NAME|redis" ]] || return 1
+  [[ $labels == "$PROJECT_NAME|redis" ]]
+}
+
+container_binding_matches() {
+  local binding
+  container_owned || return 1
   binding=$(docker inspect --format '{{(index (index .NetworkSettings.Ports "6379/tcp") 0).HostIp}}:{{(index (index .NetworkSettings.Ports "6379/tcp") 0).HostPort}}' "$CONTAINER_ID" 2>/dev/null) || return 1
   [[ $binding == "127.0.0.1:$REDIS_PORT" ]]
 }
 
+compose_context_owned() {
+  [[ $COMPOSE_CLEANUP_ARMED == 1 ]] || return 1
+  valid_project "$PROJECT_NAME" || return 1
+  [[ -n $TEMP_DIR && $COMPOSE_FILE == "$TEMP_DIR/compose.yaml" && -f $COMPOSE_FILE && -n $COMPOSE_FILE_SHA256 ]] || return 1
+  [[ $(sha256sum "$COMPOSE_FILE" | awk '{print $1}') == "$COMPOSE_FILE_SHA256" ]]
+}
+
+project_resources_owned() {
+  compose_context_owned || return 1
+  local id label
+  while IFS= read -r id; do
+    [[ -z $id ]] && continue
+    label=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$id" 2>/dev/null) || return 1
+    [[ $label == "$PROJECT_NAME" ]] || return 1
+  done < <(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME")
+  while IFS= read -r id; do
+    [[ -z $id ]] && continue
+    label=$(docker network inspect --format '{{index .Labels "com.docker.compose.project"}}' "$id" 2>/dev/null) || return 1
+    [[ $label == "$PROJECT_NAME" ]] || return 1
+  done < <(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT_NAME")
+  while IFS= read -r id; do
+    [[ -z $id ]] && continue
+    label=$(docker volume inspect --format '{{index .Labels "com.docker.compose.project"}}' "$id" 2>/dev/null) || return 1
+    [[ $label == "$PROJECT_NAME" ]] || return 1
+  done < <(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT_NAME")
+}
+
 compose() { docker compose --project-name "$PROJECT_NAME" --file "$COMPOSE_FILE" "$@"; }
+
+arm_compose_cleanup() {
+  [[ -n $TEMP_DIR && $COMPOSE_FILE == "$TEMP_DIR/compose.yaml" && -f $COMPOSE_FILE ]] || return 1
+  valid_project "$PROJECT_NAME" || return 1
+  COMPOSE_FILE_SHA256=$(sha256sum "$COMPOSE_FILE" | awk '{print $1}')
+  COMPOSE_CLEANUP_ARMED=1
+}
 
 snapshot_daily() {
   local run_dir=${1:-"$REPO_ROOT/.run"}
@@ -136,6 +201,98 @@ snapshot_daily() {
   }
 }
 
+project_resources_absent() {
+  local project=$1
+  ! docker ps -aq --filter "label=com.docker.compose.project=$project" | grep -q . &&
+    ! docker network ls -q --filter "label=com.docker.compose.project=$project" | grep -q . &&
+    ! docker volume ls -q --filter "label=com.docker.compose.project=$project" | grep -q .
+}
+
+write_redis_compose() {
+  cat > "$COMPOSE_FILE" <<YAML
+services:
+  redis:
+    image: redis:7.2.5-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "$PASSWORD"]
+    ports: ["127.0.0.1:$REDIS_PORT:6379"]
+    volumes: ["redis_data:/data"]
+volumes:
+  redis_data:
+YAML
+}
+
+run_failure_injection() {
+  local mode=$1 token=$2 port=$3
+  [[ $mode == stopped-target || $mode == partial-up ]] || { fail 'Unknown cleanup failure injection mode.'; return 1; }
+  [[ $token =~ ^[a-f0-9]{12}$ ]] || { fail 'Unsafe cleanup failure injection token.'; return 1; }
+  TEMP_DIR=$(mktemp -d)
+  TOKEN=$token
+  PROJECT_NAME="gopulse-exporter-$TOKEN"
+  REDIS_PORT=$port
+  PASSWORD="exporter-$TOKEN-secret"
+  COMPOSE_FILE="$TEMP_DIR/compose.yaml"
+  write_redis_compose
+  arm_compose_cleanup || { fail 'Could not arm cleanup failure injection.'; return 1; }
+  snapshot_daily > "$TEMP_DIR/daily-before"; DAILY_BEFORE="$TEMP_DIR/daily-before"
+
+  if [[ $mode == stopped-target ]]; then
+    compose up -d
+    CONTAINER_ID=$(compose ps -q redis)
+    container_owned && container_binding_matches || { fail 'Failure injection Redis ownership validation failed.'; return 1; }
+    compose stop redis >/dev/null
+    fail 'Intentional stopped-target failure injection.'
+    return 1
+  fi
+
+  python3 - "$REDIS_PORT" <<'PY' &
+import socket,sys,time
+sock=socket.socket(); sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); sock.bind(('127.0.0.1',int(sys.argv[1]))); sock.listen()
+while True: time.sleep(1)
+PY
+  TIMEOUT_SERVER_PID=$!
+  sleep 0.1
+  if compose up -d; then
+    fail 'Partial-up failure injection unexpectedly succeeded.'
+    return 1
+  fi
+  fail 'Intentional partial-up failure injection.'
+  return 1
+}
+
+run_cleanup_failure_tests() {
+  local case_dir before after mode token project port
+  case_dir=$(mktemp -d)
+  before="$case_dir/daily-before"
+  after="$case_dir/daily-after"
+  snapshot_daily > "$before"
+  for mode in stopped-target partial-up; do
+    token=$(printf '%s' "$mode-$RANDOM-$$-$(date +%s%N)" | sha256sum | cut -c1-12)
+    project="gopulse-exporter-$token"
+    port=$(random_port)
+    if "$0" --failure-injection "$mode" "$token" "$port" >"$case_dir/$mode.log" 2>&1; then
+      cat "$case_dir/$mode.log" >&2
+      rm -rf -- "$case_dir"
+      fail "$mode cleanup failure injection unexpectedly returned success."
+      return 1
+    fi
+    if ! project_resources_absent "$project"; then
+      cat "$case_dir/$mode.log" >&2
+      rm -rf -- "$case_dir"
+      fail "$mode cleanup failure injection left isolated Docker resources."
+      return 1
+    fi
+  done
+  snapshot_daily > "$after"
+  if ! cmp -s "$before" "$after"; then
+    diff -u "$before" "$after" >&2 || true
+    rm -rf -- "$case_dir"
+    fail 'Daily gopulse resources changed during cleanup failure injections.'
+    return 1
+  fi
+  rm -rf -- "$case_dir"
+  info 'Cleanup failure injections passed: stopped targets and partial Compose creation leave no isolated resources.'
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -143,8 +300,8 @@ cleanup() {
   if [[ -n ${AUTH_EXPORTER_PID:-} ]]; then stop_exporter "$AUTH_EXPORTER_PID" "$TEMP_DIR/auth.json" || status=1; fi
   if [[ -n ${EXPORTER_PID:-} ]]; then stop_exporter "$EXPORTER_PID" "$TEMP_DIR/exporter.json" || status=1; fi
   if [[ -n ${TIMEOUT_SERVER_PID:-} ]]; then kill "$TIMEOUT_SERVER_PID" 2>/dev/null || true; wait "$TIMEOUT_SERVER_PID" 2>/dev/null || true; fi
-  if [[ -n ${CONTAINER_ID:-} ]]; then
-    if container_owned; then compose down --volumes --remove-orphans >/dev/null || status=1
+  if [[ ${COMPOSE_CLEANUP_ARMED:-0} == 1 ]]; then
+    if project_resources_owned; then compose down --volumes --remove-orphans >/dev/null || status=1
     else fail 'Refusing to remove isolation resources because ownership validation failed.' || true; status=1
     fi
   fi
@@ -222,42 +379,75 @@ run_self_test() {
   wait "$pid" 2>/dev/null || true
   valid_project 'gopulse-exporter-deadbeefcafe' || { fail 'Valid project token was rejected.'; return 1; }
   if valid_project 'gopulse'; then fail 'Unsafe project name was accepted.'; return 1; fi
+  ports_unique 10000 10001 10002 10003 || { fail 'Four unique ports were rejected.'; return 1; }
+  if ports_unique 10000 10001 10000 10002; then fail 'REDIS/AUTH port collision was accepted.'; return 1; fi
+  if ports_unique 10000 10001 10002 10001; then fail 'EXPORTER/TIMEOUT port collision was accepted.'; return 1; fi
+  PROJECT_NAME=gopulse-exporter-deadbeefcafe
+  COMPOSE_FILE="$TEMP_DIR/compose.yaml"
+  printf 'services: {}\n' > "$COMPOSE_FILE"
+  arm_compose_cleanup || { fail 'Valid cleanup context was rejected.'; return 1; }
+  compose_context_owned || { fail 'Armed cleanup context was rejected.'; return 1; }
+  printf '# tampered\n' >> "$COMPOSE_FILE"
+  if compose_context_owned; then fail 'Tampered Compose ownership file was accepted.'; return 1; fi
+  printf 'services: {}\n' > "$COMPOSE_FILE"
+  COMPOSE_FILE_SHA256=$(sha256sum "$COMPOSE_FILE" | awk '{print $1}')
+  if (docker() {
+        if [[ $1 == ps ]]; then printf 'foreign-container\n';
+        elif [[ $1 == inspect ]]; then printf 'gopulse-exporter-badbadbadbad\n';
+        fi
+      }; project_resources_owned); then
+    fail 'Resource with an incorrect project label was accepted.'
+    return 1
+  fi
+  PROJECT_NAME=gopulse
+  if compose_context_owned; then fail 'Unsafe cleanup project was accepted.'; return 1; fi
+  COMPOSE_CLEANUP_ARMED=0
+  COMPOSE_FILE_SHA256=
   snapshot_daily "$TEMP_DIR/missing-run-directory" > "$TEMP_DIR/empty-run-snapshot" || { fail 'Daily snapshot rejected a clean checkout without .run.'; return 1; }
   rm -rf -- "$TEMP_DIR"; TEMP_DIR=
-  info 'Self-test passed: malformed ownership data is rejected without Docker or unrelated process termination.'
+  info 'Self-test passed: malformed ownership data and non-adjacent port collisions are rejected without Docker or unrelated process termination.'
 }
 
 main() {
   if [[ ${1:-} == --self-test ]]; then run_self_test; return; fi
+  if [[ ${1:-} == --failure-injection ]]; then
+    [[ $# == 4 ]] || { fail 'Invalid internal failure injection arguments.'; return 1; }
+    run_failure_injection "$2" "$3" "$4"
+    return
+  fi
   [[ $# == 0 ]] || { fail 'Usage: scripts/verify-exporter.sh [--self-test]'; return 1; }
   local tool
   for tool in docker go curl python3 sha256sum; do command -v "$tool" >/dev/null || { fail "Missing required tool: $tool"; return 1; }; done
   docker compose version >/dev/null 2>&1 || { fail 'Docker Compose is unavailable.'; return 1; }
   docker info >/dev/null 2>&1 || { fail 'Docker daemon is unavailable.'; return 1; }
+  run_cleanup_failure_tests
   TEMP_DIR=$(mktemp -d)
   TOKEN=$(printf '%s' "$RANDOM-$$-$(date +%s%N)" | sha256sum | cut -c1-12)
   PROJECT_NAME="gopulse-exporter-$TOKEN"
   valid_project "$PROJECT_NAME" || { fail 'Generated unsafe project name.'; return 1; }
   PASSWORD="exporter-$TOKEN-secret"
-  REDIS_PORT=$(random_port); EXPORTER_PORT=$(random_port); AUTH_EXPORTER_PORT=$(random_port); TIMEOUT_EXPORTER_PORT=$(random_port)
-  [[ $REDIS_PORT != "$EXPORTER_PORT" && $EXPORTER_PORT != "$AUTH_EXPORTER_PORT" && $AUTH_EXPORTER_PORT != "$TIMEOUT_EXPORTER_PORT" ]] || { fail 'Random ports collided; rerun acceptance.'; return 1; }
+  allocate_ports
   COMPOSE_FILE="$TEMP_DIR/compose.yaml"
-  cat > "$COMPOSE_FILE" <<YAML
-services:
-  redis:
-    image: redis:7.2.5-alpine
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "$PASSWORD"]
-    ports: ["127.0.0.1:$REDIS_PORT:6379"]
-    volumes: ["redis_data:/data"]
-volumes:
-  redis_data:
-YAML
+  write_redis_compose
+  arm_compose_cleanup || { fail 'Could not establish isolated Compose cleanup ownership.'; return 1; }
   snapshot_daily > "$TEMP_DIR/daily-before"; DAILY_BEFORE="$TEMP_DIR/daily-before"
   info "Building isolated exporter and starting project $PROJECT_NAME."
   (cd "$EXPORTER_DIR" && go build -o "$TEMP_DIR/gopulse-redis-exporter" ./cmd/redis-exporter)
+  if env REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$PASSWORD" REDIS_DB=5 \
+    REDIS_EXPORTER_HTTP_HOST='[]' REDIS_EXPORTER_HTTP_PORT="$EXPORTER_PORT" \
+    REDIS_EXPORTER_SCRAPE_TIMEOUT=500ms REDIS_EXPORTER_SHUTDOWN_TIMEOUT=3s \
+    "$TEMP_DIR/gopulse-redis-exporter" > "$TEMP_DIR/invalid-host.log" 2>&1; then
+    fail 'Empty IPv6 brackets unexpectedly started the Exporter.'
+    return 1
+  fi
+  grep -q '"reason":"invalid_configuration"' "$TEMP_DIR/invalid-host.log" || { fail 'Invalid host was not classified before listen.'; return 1; }
+  if ss -ltn "sport = :$EXPORTER_PORT" 2>/dev/null | tail -n +2 | grep -q .; then
+    fail 'Invalid host opened a wildcard listener.'
+    return 1
+  fi
   compose up -d
   CONTAINER_ID=$(compose ps -q redis)
-  container_owned || { fail 'Redis isolation container ownership validation failed.'; return 1; }
+  container_owned && container_binding_matches || { fail 'Redis isolation container ownership or binding validation failed.'; return 1; }
   for _ in {1..60}; do docker exec "$CONTAINER_ID" redis-cli --no-auth-warning -a "$PASSWORD" ping 2>/dev/null | grep -q PONG && break; sleep 0.2; done
   docker exec "$CONTAINER_ID" redis-cli --no-auth-warning -a "$PASSWORD" ping 2>/dev/null | grep -q PONG || { fail 'Redis did not become available.'; return 1; }
   start_exporter "$EXPORTER_PORT" "$PASSWORD" "$REDIS_PORT" "$TEMP_DIR/exporter.json" "$TEMP_DIR/exporter.log" EXPORTER_PID
@@ -286,7 +476,7 @@ PY
   info 'Validated live Redis INFO values and all fixed metric families.'
 
   local original_pid=$EXPORTER_PID start_time elapsed
-  container_owned || { fail 'Ownership changed before Redis stop.'; return 1; }
+  container_owned && container_binding_matches || { fail 'Ownership or binding changed before Redis stop.'; return 1; }
   compose stop redis >/dev/null
   start_time=$(date +%s%N); status=$(scrape "$EXPORTER_PORT" "$TEMP_DIR/down-metrics" "$TEMP_DIR/down-headers"); elapsed=$((($(date +%s%N)-start_time)/1000000))
   [[ $status == 503 && $elapsed -lt 2500 ]] || { fail "Stopped Redis scrape status/time was $status/${elapsed}ms."; return 1; }
