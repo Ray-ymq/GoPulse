@@ -11,6 +11,11 @@ on:
         description: Git ref used to validate update branch scope
         required: true
         type: string
+      run_product_checks:
+        description: Run Backend, Frontend, scripts/Compose, and Integration checks
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -32,6 +37,7 @@ jobs:
 
   backend:
     name: Backend
+    if: inputs.run_product_checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,6 +59,7 @@ jobs:
 
   frontend:
     name: Frontend
+    if: inputs.run_product_checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -70,6 +77,7 @@ jobs:
 
   scripts-and-compose:
     name: Scripts and Compose
+    if: inputs.run_product_checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +102,7 @@ jobs:
 
   integration:
     name: Integration
+    if: inputs.run_product_checks
     runs-on: ubuntu-latest
     services:
       mysql:

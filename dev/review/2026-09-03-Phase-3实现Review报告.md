@@ -440,3 +440,5 @@ Open PR and enable auto-merge: success
 
 
 `update` 上第一版工作流修复的质量门禁通过，但 PR 创建脚本因说明文字中的单引号破坏 Bash 引号而失败；后续提交移除该标点并重新触发自动流程。
+
+后续 PR #53 进一步证明，使用工作流默认 `GITHUB_TOKEN` 创建 PR 会使新的 `pull_request` 运行进入 `action_required`，因此“等待第二套 PR CI”不能构成无人值守的闭环。仓库最终使用单一权威 push 门禁：开发分支运行全部产品质检，`update` 只运行治理校验，通过后直接创建或复用 PR 并启用 auto-merge。
