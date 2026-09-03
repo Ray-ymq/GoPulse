@@ -3,9 +3,10 @@ package comment
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 )
 
 type postExistence interface {
@@ -20,12 +21,21 @@ type Service struct {
 	repository Repository
 	posts      postExistence
 	cache      detailCacheInvalidator
+	logger     *slog.Logger
 }
 
 func NewService(repository Repository, posts postExistence, caches ...detailCacheInvalidator) *Service {
-	service := &Service{repository: repository, posts: posts}
+	service := &Service{repository: repository, posts: posts, logger: logging.Module(logging.Discard("backend"), "cache")}
 	if len(caches) > 0 {
 		service.cache = caches[0]
+	}
+	return service
+}
+
+// WithLogger injects the process logger used for non-blocking cache warnings.
+func (service *Service) WithLogger(logger *slog.Logger) *Service {
+	if logger != nil {
+		service.logger = logging.Module(logger, "cache")
 	}
 	return service
 }
@@ -55,7 +65,7 @@ func (service *Service) invalidatePostDetail(ctx context.Context, postID uint64)
 		return
 	}
 	if err := service.cache.Invalidate(ctx, postID); err != nil {
-		log.Printf("post detail cache invalidation failed after comment: post_id=%d", postID)
+		logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache invalidation failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"), slog.String("operation", "comment_created"))
 	}
 }
 

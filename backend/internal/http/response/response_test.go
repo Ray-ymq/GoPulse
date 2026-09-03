@@ -59,6 +59,10 @@ func TestErrorResponseMapping(t *testing.T) {
 			context, _ := gin.CreateTestContext(response)
 			Error(context, test.err)
 			assertBody(t, response, test.status, test.expected)
+			code, ok := ErrorCode(context)
+			if !ok || string(code) == "" {
+				t.Fatalf("ErrorCode() = %q, %v", code, ok)
+			}
 			if test.mustNotSee != "" && contains(response.Body.String(), test.mustNotSee) {
 				t.Fatalf("response leaked sensitive detail %q: %s", test.mustNotSee, response.Body.String())
 			}

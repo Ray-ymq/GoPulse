@@ -18,12 +18,15 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
+	goredis "github.com/redis/go-redis/v9"
+	redislogging "github.com/redis/go-redis/v9/logging"
 )
 
 const (
@@ -43,6 +46,8 @@ func main() {
 }
 
 func run() error {
+	logger := logging.New("backend", os.Stdout)
+	goredis.SetLogger(&redislogging.VoidLogger{})
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
@@ -109,27 +114,27 @@ func run() error {
 	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	users := user.NewMySQLRepository(mysqlClient.DB())
 	authService := auth.NewService(users, passwords, tokens)
-	authHandler := auth.NewHandler(authService, cookies)
+	authHandler := auth.NewHandler(authService, cookies, logger)
 	postDetailCache := rediscache.NewPostDetailRepository(
 		redisClient,
 		cfg.Redis.PostDetailTTL,
 		cfg.Redis.OperationTimeout,
 	)
 	posts := post.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-	postService := post.NewService(posts, postDetailCache)
-	postHandler := post.NewHandler(postService)
+	postService := post.NewService(posts, postDetailCache).WithLogger(logger)
+	postHandler := post.NewHandler(postService, logger)
 	comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-	commentService := comment.NewService(comments, postService, postDetailCache)
-	commentHandler := comment.NewHandler(commentService)
+	commentService := comment.NewService(comments, postService, postDetailCache).WithLogger(logger)
+	commentHandler := comment.NewHandler(commentService, logger)
 	likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-	likeService := like.NewService(likes, postService, postDetailCache)
-	likeHandler := like.NewHandler(likeService)
+	likeService := like.NewService(likes, postService, postDetailCache).WithLogger(logger)
+	likeHandler := like.NewHandler(likeService, logger)
 	notifications, err := notification.NewRepository(mysqlClient.DB())
 	if err != nil {
 		return errors.New("initialize notification repository")
 	}
 	notificationService := notification.NewService(notifications)
-	notificationHandler := notification.NewHandler(notificationService)
+	notificationHandler := notification.NewHandler(notificationService, logger)
 	searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 	searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
 	searchHandler := searchpkg.NewHandler(searchService)
@@ -140,6 +145,7 @@ func run() error {
 			Redis:         redisClient,
 			RabbitMQ:      rabbitMQChecker,
 			Elasticsearch: elasticsearchClient,
+			Logger:        logger,
 		},
 		backendhttp.APIRoutes{
 			Auth:           authHandler,
