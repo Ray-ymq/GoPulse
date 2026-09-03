@@ -67,6 +67,16 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("wait_for_status=yellow", compose)
         self.assertIn("elasticsearch_data:/usr/share/elasticsearch/data", compose)
 
+    def test_logging_live_acceptance_captures_safe_correlated_json(self) -> None:
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("--logging-live", source)
+        self.assertIn("X-Request-ID", source)
+        self.assertIn("http request completed", source)
+        self.assertIn("log_schema_version", source)
+        self.assertIn("sensitive sentinel leaked into backend log", source)
+        self.assertIn("post detail cache read failed", source)
+        self.assertIn("run_logging_live_flow", source)
+
     def test_lifecycle_scripts_are_executable_lf_and_valid_bash(self) -> None:
         for script in LIFECYCLE_SCRIPTS:
             with self.subTest(script=script.name):
