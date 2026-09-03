@@ -9,7 +9,7 @@
 | Phase 0 | `0.1.x` | [工程骨架](Phase-00/Phase-00-工程骨架.md) | 建立可长期演进的项目结构、本地开发环境以及前后端最小可运行链路 | Milestone 1：业务系统 MVP |
 | Phase 1 | `0.2.x` | [最小业务闭环](Phase-01-最小业务闭环.md) | 将 GoPulse 建设为具备用户、帖子、评论和点赞能力的最小可用社交平台 | Milestone 1：业务系统 MVP |
 | Phase 2 | `0.3.x` | [业务异步化](Phase-02-业务异步化.md) | 引入 RabbitMQ，将核心同步业务与业务完成后的异步动作分离 | Milestone 1：业务系统 MVP |
-| Phase 3 | `0.4.x` | [Elasticsearch与业务搜索](Phase-03-Elasticsearch与业务搜索.md) | 让 Elasticsearch 首先服务真实业务搜索，提供帖子标题与正文的全文检索能力 | Milestone 1：业务系统 MVP；完成后发布 `1.0.0` |
+| Phase 3 | `0.4.x` | [Elasticsearch与业务搜索](Phase-03-Elasticsearch与业务搜索.md) | 让 Elasticsearch 首先服务真实业务搜索，提供帖子标题与正文的全文检索能力 | Milestone 1：业务系统 MVP；以 release-only `1.0.0` 收口 |
 | Phase 4 | `1.1.x` | [业务日志基础](Phase-04-业务日志基础.md) | 统一 Backend 业务日志，为后续 LogMonitor 与日志处理链路提供稳定数据源 | Milestone 2：指标采集 MVP |
 | Phase 5 | `1.2.x` | [Exporter Plugin原型](Phase-05-Exporter-Plugin原型.md) | 实现首个独立指标采集插件，验证常驻、被动拉取的 Exporter 工作模式 | Milestone 2：指标采集 MVP |
 | Phase 6 | `1.3.x` | [Monitor](Phase-06-Monitor.md) | 实现 Monitor 的 MetricsMonitor 与基础 Plugin Manager，建立指标采集和插件管理能力 | Milestone 2：指标采集 MVP |
