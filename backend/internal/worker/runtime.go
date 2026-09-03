@@ -5,12 +5,13 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -24,14 +25,14 @@ type RuntimeOptions struct {
 	ShutdownTimeout  time.Duration
 	ReconnectMinimum time.Duration
 	ReconnectMaximum time.Duration
-	Logger           func(string, ...any)
+	Logger           *slog.Logger
 }
 
 type Runtime struct {
 	connectionURL string
 	processor     Processor
 	options       RuntimeOptions
-	logger        func(string, ...any)
+	logger        *slog.Logger
 	profile       Profile
 }
 
@@ -52,8 +53,9 @@ func NewRuntime(connectionURL string, processor Processor, options RuntimeOption
 	options.Profile = profile
 	logger := options.Logger
 	if logger == nil {
-		logger = log.Printf
+		logger = logging.Discard(profile.Service)
 	}
+	logger = logging.Module(logger, profile.Module)
 	return &Runtime{connectionURL: connectionURL, processor: processor, options: options, logger: logger, profile: profile}, nil
 }
 
@@ -64,32 +66,45 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 		return fmt.Errorf("%s context is required", runtime.profile.Name)
 	}
 	attempt := uint32(0)
+	connectionUnavailable := false
 	for ctx.Err() == nil {
 		session, err := openSession(ctx, runtime.connectionURL, runtime.options)
 		if err != nil {
 			attempt++
-			runtime.logger("%s connection unavailable; retrying", runtime.profile.Name)
+			if !connectionUnavailable {
+				runtime.safeLogger().Warn("connection unavailable", slog.String("reason", "connect_failed"))
+				connectionUnavailable = true
+			}
 			if err := waitContext(ctx, runtime.reconnectDelay(attempt)); err != nil {
 				return nil
 			}
 			continue
 		}
+		if connectionUnavailable || attempt > 0 {
+			runtime.safeLogger().Info("connection restored", slog.String("reason", "reconnected"))
+		}
+		connectionUnavailable = false
 		attempt = 0
 		handler, err := NewHandler(runtime.processor, session, HandlerOptions{
-			MaxRetries: runtime.options.MaxRetries, PublishTimeout: runtime.options.PublishTimeout, Logger: runtime.logger, Profile: runtime.profile,
+			MaxRetries: runtime.options.MaxRetries, PublishTimeout: runtime.options.PublishTimeout, Logger: runtime.safeLogger(), Profile: runtime.profile,
 		})
 		if err != nil {
-			_ = session.Close()
+			if closeErr := session.Close(); closeErr != nil {
+				runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
+			}
 			return err
 		}
 		err = runtime.consumeSession(ctx, session, handler)
-		_ = session.Close()
+		if closeErr := session.Close(); closeErr != nil {
+			runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
 		attempt++
 		if err != nil {
-			runtime.logger("%s session interrupted; reconnecting", runtime.profile.Name)
+			runtime.safeLogger().Warn("session interrupted", slog.String("reason", sessionFailureReason(err)))
+			connectionUnavailable = true
 		}
 		if err := waitContext(ctx, runtime.reconnectDelay(attempt)); err != nil {
 			return nil
@@ -102,7 +117,9 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 	for {
 		select {
 		case <-ctx.Done():
-			_ = session.StopDeliveries()
+			if err := session.StopDeliveries(); err != nil {
+				runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
+			}
 			return nil
 		case <-session.connectionClosed:
 			return errors.New("RabbitMQ connection closed")
@@ -122,7 +139,9 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 					return err
 				}
 			case <-ctx.Done():
-				_ = session.StopDeliveries()
+				if err := session.StopDeliveries(); err != nil {
+					runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
+				}
 				timer := time.NewTimer(runtime.options.ShutdownTimeout)
 				select {
 				case <-processingDone:
@@ -135,6 +154,7 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 					cancelProcessing()
 					return nil
 				case <-timer.C:
+					runtime.safeLogger().Warn("shutdown timeout", slog.String("reason", "handler_timeout"))
 					cancelProcessing()
 					<-processingDone
 					return nil
@@ -149,6 +169,30 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 				return errors.New("RabbitMQ channel closed during delivery")
 			}
 		}
+	}
+}
+
+func (runtime *Runtime) safeLogger() *slog.Logger {
+	if runtime.logger != nil {
+		return runtime.logger
+	}
+	profile := normalizeProfile(runtime.profile)
+	return logging.Module(logging.Discard(profile.Service), profile.Module)
+}
+
+func sessionFailureReason(err error) string {
+	if err == nil {
+		return "session_unavailable"
+	}
+	switch err.Error() {
+	case "RabbitMQ connection closed", "RabbitMQ connection closed during delivery":
+		return "connection_closed"
+	case "RabbitMQ channel closed", "RabbitMQ channel closed during delivery":
+		return "channel_closed"
+	case "RabbitMQ delivery stream closed":
+		return "delivery_stream_closed"
+	default:
+		return "handler_failed"
 	}
 }
 
