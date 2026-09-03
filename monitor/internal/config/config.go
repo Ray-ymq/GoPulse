@@ -20,6 +20,11 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	StartupTimeout  time.Duration
 	StopTimeout     time.Duration
+	ScrapeInterval  time.Duration
+	ScrapeTimeout   time.Duration
+	PublishTimeout  time.Duration
+	RouterURL       string
+	RouterToken     string
 	ExporterEnv     map[string]string
 }
 
@@ -75,6 +80,26 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	scrapeInterval, err := parseDuration("MONITOR_SCRAPE_INTERVAL", 15*time.Second, time.Second, 10*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	scrapeTimeout, err := parseDuration("MONITOR_SCRAPE_TIMEOUT", 3*time.Second, 100*time.Millisecond, time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	if scrapeTimeout >= scrapeInterval {
+		return Config{}, errors.New("MONITOR_SCRAPE_TIMEOUT must be less than MONITOR_SCRAPE_INTERVAL")
+	}
+	publishTimeout, err := parseDuration("MONITOR_PUBLISH_TIMEOUT", 3*time.Second, 100*time.Millisecond, 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	routerURL := value("MONITOR_ROUTER_URL", "")
+	routerToken, _ := lookup("MONITOR_ROUTER_TOKEN")
+	if routerURL != "" && (len(routerToken) < 32 || strings.ContainsAny(routerToken, "\r\n")) {
+		return Config{}, errors.New("MONITOR_ROUTER_TOKEN must contain at least 32 bytes when MONITOR_ROUTER_URL is set")
+	}
 	env := map[string]string{}
 	for _, key := range []string{"REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
 		if v, ok := lookup(key); ok {
@@ -92,7 +117,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if env["REDIS_EXPORTER_HTTP_PORT"] == "" {
 		env["REDIS_EXPORTER_HTTP_PORT"] = "9121"
 	}
-	return Config{HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ExporterEnv: env}, nil
+	return Config{HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterToken: routerToken, ExporterEnv: env}, nil
 }
 func (c Config) HTTPAddress() string { return net.JoinHostPort(c.HTTPHost, strconv.Itoa(c.HTTPPort)) }
 func (c Config) ExporterHealthURL() string {
