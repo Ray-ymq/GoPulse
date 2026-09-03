@@ -15,6 +15,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -147,7 +148,7 @@ func newIntegrationRuntime(t *testing.T, url string, processor Processor, maxRet
 	runtime, err := NewRuntime(url, processor, RuntimeOptions{
 		Prefetch: 4, MaxRetries: maxRetries, RetryDelay: time.Second, PublishTimeout: 3 * time.Second,
 		ShutdownTimeout: 3 * time.Second, ReconnectMinimum: 100 * time.Millisecond, ReconnectMaximum: time.Second,
-		Logger: func(string, ...any) {},
+		Logger: logging.Discard("business-worker"),
 	})
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)

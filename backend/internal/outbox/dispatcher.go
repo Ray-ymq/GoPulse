@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 )
 
 const (
@@ -58,6 +59,7 @@ type DispatcherOptions struct {
 	Retention       time.Duration
 	CleanupBatch    int
 	Clock           Clock
+	Logger          *slog.Logger
 }
 
 type Dispatcher struct {
@@ -72,6 +74,7 @@ type Dispatcher struct {
 	retention       time.Duration
 	cleanupBatch    int
 	clock           Clock
+	logger          *slog.Logger
 }
 
 func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) (*Dispatcher, error) {
@@ -145,6 +148,10 @@ func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) 
 	if clock == nil {
 		clock = time.Now
 	}
+	logger := options.Logger
+	if logger == nil {
+		logger = logging.Module(logging.Discard("backend"), "outbox")
+	}
 	return &Dispatcher{
 		store:           store,
 		publisher:       publisher,
@@ -157,6 +164,7 @@ func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) 
 		retention:       retention,
 		cleanupBatch:    cleanupBatch,
 		clock:           clock,
+		logger:          logger,
 	}, nil
 }
 
@@ -191,9 +199,7 @@ func (dispatcher *Dispatcher) runDelivery(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			if err := dispatcher.DispatchOnce(ctx); err != nil && ctx.Err() == nil {
-				log.Printf("outbox dispatcher cycle failed: %s", safeDispatcherError(err))
-			}
+			_ = dispatcher.DispatchOnce(ctx)
 			timer.Reset(dispatcher.pollInterval)
 		}
 	}
@@ -208,7 +214,7 @@ func (dispatcher *Dispatcher) runCleanup(ctx context.Context) {
 			return
 		case <-timer.C:
 			if err := dispatcher.CleanupOnce(ctx); err != nil && ctx.Err() == nil {
-				log.Printf("outbox cleanup cycle failed")
+				dispatcher.logger.Error("outbox cleanup failed", slog.String("reason", "storage_unavailable"))
 			}
 			timer.Reset(dispatcher.cleanupInterval)
 		}
@@ -259,6 +265,7 @@ func (dispatcher *Dispatcher) DispatchOnce(ctx context.Context) error {
 	}
 	records, err := dispatcher.store.Claim(ctx, dispatcher.owner, dispatcher.claimBatch, dispatcher.leaseDuration)
 	if err != nil {
+		dispatcher.logger.Error("outbox claim failed", slog.String("reason", "storage_unavailable"))
 		return fmt.Errorf("claim outbox events: %w", err)
 	}
 
@@ -277,6 +284,12 @@ func (dispatcher *Dispatcher) DispatchOnce(ctx context.Context) error {
 func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record) error {
 	envelope, err := record.Envelope()
 	if err != nil {
+		dispatcher.logger.Error("outbox event invalid",
+			slog.Uint64("outbox_id", record.ID),
+			slog.String("event_id", record.EventID),
+			slog.String("event_type", string(record.EventType)),
+			slog.String("reason", "invalid_envelope"),
+		)
 		releaseErr := dispatcher.releaseFailed(ctx, record, FailureInternal)
 		if releaseErr != nil {
 			return releaseErr
@@ -293,13 +306,29 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 		}
 		// A bounded publish failure is handled as part of the state machine:
 		// release it for a later attempt and keep processing the claimed batch.
-		return dispatcher.releaseFailed(ctx, record, publishFailureCode(publishErr))
+		reason := publishFailureCode(publishErr)
+		if err := dispatcher.releaseFailed(ctx, record, reason); err != nil {
+			return err
+		}
+		dispatcher.logger.Warn("outbox publish failed",
+			slog.Uint64("outbox_id", record.ID),
+			slog.String("event_id", envelope.EventID),
+			slog.String("event_type", string(envelope.EventType)),
+			slog.String("reason", string(reason)),
+		)
+		return nil
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
 	if err := dispatcher.store.MarkPublished(ctx, record.ID, dispatcher.owner); err != nil {
+		dispatcher.logger.Error("outbox mark published failed",
+			slog.Uint64("outbox_id", record.ID),
+			slog.String("event_id", envelope.EventID),
+			slog.String("event_type", string(envelope.EventType)),
+			slog.String("reason", safeDispatcherReason(err)),
+		)
 		if errors.Is(err, ErrLeaseLost) || ctx.Err() != nil {
 			return err
 		}
@@ -311,6 +340,11 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 		}
 		return fmt.Errorf("mark published: %w", err)
 	}
+	dispatcher.logger.Info("outbox event published",
+		slog.Uint64("outbox_id", record.ID),
+		slog.String("event_id", envelope.EventID),
+		slog.String("event_type", string(envelope.EventType)),
+	)
 	return nil
 }
 
@@ -319,6 +353,12 @@ func (dispatcher *Dispatcher) releaseFailed(ctx context.Context, record Record, 
 		return ctx.Err()
 	}
 	if err := dispatcher.store.ReleaseFailed(ctx, record.ID, dispatcher.owner, failure); err != nil {
+		dispatcher.logger.Error("outbox release failed",
+			slog.Uint64("outbox_id", record.ID),
+			slog.String("event_id", record.EventID),
+			slog.String("event_type", string(record.EventType)),
+			slog.String("reason", safeDispatcherReason(err)),
+		)
 		if errors.Is(err, ErrLeaseLost) {
 			return nil
 		}
@@ -342,15 +382,24 @@ func publishFailureCode(err error) FailureCode {
 	}
 }
 
-func safeDispatcherError(err error) string {
+func safeDispatcherReason(err error) string {
 	if err == nil {
-		return "unknown failure"
+		return "internal_failure"
 	}
 	var publishErr *PublishError
-	if errors.As(err, &publishErr) {
-		return publishErr.Error()
+	if errors.As(err, &publishErr) && validFailureCode(publishErr.Code) {
+		return string(publishErr.Code)
 	}
-	return "internal delivery failure"
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return string(FailurePublishTimeout)
+	case errors.Is(err, context.Canceled):
+		return string(FailurePublisherClosed)
+	case errors.Is(err, ErrLeaseLost):
+		return "lease_lost"
+	default:
+		return "internal_failure"
+	}
 }
 
 func defaultDispatcherOwner() string {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	stdhttp "net/http"
 	"os"
 	"os/signal"
@@ -39,14 +39,18 @@ const (
 )
 
 func main() {
-	if err := run(); err != nil {
-		log.Printf("backend stopped with error: %v", err)
+	logger := logging.New("backend", os.Stdout)
+	if err := run(logger); err != nil {
+		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"))
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	logger := logging.New("backend", os.Stdout)
+func run(logger *slog.Logger) error {
+	if logger == nil {
+		logger = logging.Discard("backend")
+	}
+	lifecycleLogger := logging.Module(logger, "lifecycle")
 	goredis.SetLogger(&redislogging.VoidLogger{})
 	cfg, err := config.Load()
 	if err != nil {
@@ -60,10 +64,10 @@ func run() error {
 	if err != nil {
 		return errors.New("initialize MySQL client")
 	}
-	defer closeResource("MySQL", mysqlClient.Close)
+	defer closeResource(lifecycleLogger, "mysql", mysqlClient.Close)
 
 	redisClient := platform.NewRedis(cfg.Redis)
-	defer closeResource("Redis", redisClient.Close)
+	defer closeResource(lifecycleLogger, "redis", redisClient.Close)
 
 	elasticsearchClient, err := platform.NewElasticsearch(cfg.Elasticsearch)
 	if err != nil {
@@ -88,7 +92,7 @@ func run() error {
 	if err != nil {
 		return errors.New("initialize RabbitMQ publisher")
 	}
-	defer closeResource("RabbitMQ publisher", rabbitMQPublisher.Close)
+	defer closeResource(lifecycleLogger, "rabbitmq_publisher", rabbitMQPublisher.Close)
 
 	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitMQPublisher, outbox.DispatcherOptions{
 		PollInterval:    cfg.Outbox.PollInterval,
@@ -98,6 +102,7 @@ func run() error {
 		CleanupInterval: cfg.Outbox.CleanupInterval,
 		Retention:       cfg.Outbox.Retention,
 		CleanupBatch:    cfg.Outbox.CleanupBatch,
+		Logger:          logging.Module(logger, "outbox"),
 	})
 	if err != nil {
 		return errors.New("initialize outbox dispatcher")
@@ -162,7 +167,7 @@ func run() error {
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 
-	return serveWithDispatcher(signalContext, server, dispatcher)
+	return serveWithDispatcher(signalContext, server, dispatcher, lifecycleLogger)
 }
 
 func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
@@ -177,7 +182,7 @@ func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
 	}
 }
 
-func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher *outbox.Dispatcher) error {
+func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher *outbox.Dispatcher, logger *slog.Logger) error {
 	if ctx == nil {
 		return errors.New("serve backend: context is required")
 	}
@@ -194,7 +199,7 @@ func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher
 		dispatcherErrors <- dispatcher.Run(dispatcherContext)
 	}()
 
-	serverErr := serve(ctx, server, server.ListenAndServe)
+	serverErr := serveLogged(ctx, server, server.ListenAndServe, logger)
 	cancelDispatcher()
 
 	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -217,36 +222,49 @@ func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher
 }
 
 func serve(ctx context.Context, server *stdhttp.Server, startServer func() error) error {
+	return serveLogged(ctx, server, startServer, logging.Module(logging.Discard("backend"), "lifecycle"))
+}
+
+func serveLogged(ctx context.Context, server *stdhttp.Server, startServer func() error, logger *slog.Logger) error {
+	if logger == nil {
+		logger = logging.Module(logging.Discard("backend"), "lifecycle")
+	}
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- startServer()
 	}()
 
-	log.Printf("backend listening on %s", server.Addr)
+	logger.Info("backend listening")
 
 	select {
 	case err := <-serverErrors:
 		if err != nil && !errors.Is(err, stdhttp.ErrServerClosed) {
+			logger.Error("backend server failed", slog.String("reason", "listen_failed"))
 			return fmt.Errorf("HTTP server failed: %w", err)
 		}
+		logger.Info("backend stopped", slog.String("reason", "server_closed"))
 		return nil
 	case <-ctx.Done():
+		logger.Info("backend shutdown started")
 		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownContext); err != nil {
+			logger.Error("backend shutdown failed", slog.String("reason", "shutdown_failed"))
 			return fmt.Errorf("HTTP server shutdown failed: %w", err)
 		}
 
 		if err := <-serverErrors; err != nil && !errors.Is(err, stdhttp.ErrServerClosed) {
+			logger.Error("backend shutdown failed", slog.String("reason", "server_failed"))
 			return fmt.Errorf("HTTP server failed during shutdown: %w", err)
 		}
+		logger.Info("backend stopped", slog.String("reason", "shutdown_complete"))
 		return nil
 	}
 }
 
-func closeResource(name string, close func() error) {
+func closeResource(logger *slog.Logger, resource string, close func() error) {
 	if err := close(); err != nil {
-		log.Printf("%s resource close failed", name)
+		logger.Warn("resource close failed", slog.String("resource", resource), slog.String("reason", "close_failed"))
 	}
 }
