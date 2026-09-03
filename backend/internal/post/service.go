@@ -3,22 +3,32 @@ package post
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 )
 
 type Service struct {
 	repository Repository
 	cache      DetailCache
+	logger     *slog.Logger
 }
 
 // NewService creates the post application service. Passing one cache enables
 // cache-aside only for detail reads; omitting it keeps the MySQL-only behavior.
 func NewService(repository Repository, caches ...DetailCache) *Service {
-	service := &Service{repository: repository}
+	service := &Service{repository: repository, logger: logging.Module(logging.Discard("backend"), "cache")}
 	if len(caches) > 0 {
 		service.cache = caches[0]
+	}
+	return service
+}
+
+// WithLogger injects the process logger used for non-blocking cache warnings.
+func (service *Service) WithLogger(logger *slog.Logger) *Service {
+	if logger != nil {
+		service.logger = logging.Module(logger, "cache")
 	}
 	return service
 }
@@ -82,7 +92,7 @@ func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Po
 		}
 		if service.cache != nil {
 			if err := service.cache.Set(ctx, projection); err != nil {
-				log.Printf("post detail cache fill failed: post_id=%d", postID)
+				logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache fill failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
 			}
 		}
 	}
@@ -100,7 +110,7 @@ func (service *Service) cachedProjection(ctx context.Context, postID uint64) (Pu
 	}
 	projection, hit, err := service.cache.Get(ctx, postID)
 	if err != nil {
-		log.Printf("post detail cache read failed: post_id=%d", postID)
+		logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache read failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
 		return PublicProjection{}, false
 	}
 	return projection, hit

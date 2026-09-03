@@ -2,6 +2,7 @@ package comment
 
 import (
 	"context"
+	"log/slog"
 	stdhttp "net/http"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
@@ -9,6 +10,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/params"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/request"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,10 +21,15 @@ type Application interface {
 
 type Handler struct {
 	application Application
+	logger      *slog.Logger
 }
 
-func NewHandler(application Application) *Handler {
-	return &Handler{application: application}
+func NewHandler(application Application, loggers ...*slog.Logger) *Handler {
+	logger := logging.Discard("backend")
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+	return &Handler{application: application, logger: logging.Module(logger, "comment")}
 }
 
 func (handler *Handler) Create(c *gin.Context) {
@@ -46,6 +53,7 @@ func (handler *Handler) Create(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
+	logging.Module(logging.FromContext(c.Request.Context(), handler.logger), "comment").Info("comment created", slog.Uint64("user_id", userID), slog.Uint64("post_id", postID), slog.Uint64("comment_id", record.ID))
 	response.Data(c, stdhttp.StatusCreated, record)
 }
 

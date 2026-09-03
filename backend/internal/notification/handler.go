@@ -2,12 +2,14 @@ package notification
 
 import (
 	"context"
+	"log/slog"
 	stdhttp "net/http"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/params"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,10 +20,15 @@ type Application interface {
 
 type Handler struct {
 	application Application
+	logger      *slog.Logger
 }
 
-func NewHandler(application Application) *Handler {
-	return &Handler{application: application}
+func NewHandler(application Application, loggers ...*slog.Logger) *Handler {
+	logger := logging.Discard("backend")
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+	return &Handler{application: application, logger: logging.Module(logger, "notification")}
 }
 
 func (handler *Handler) List(c *gin.Context) {
@@ -56,6 +63,7 @@ func (handler *Handler) MarkRead(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
+	logging.Module(logging.FromContext(c.Request.Context(), handler.logger), "notification").Info("notification marked read", slog.Uint64("user_id", recipientID), slog.Uint64("notification_id", notificationID))
 	c.Status(stdhttp.StatusNoContent)
 }
 

@@ -3,10 +3,14 @@ package http
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	stdhttp "net/http"
 	"sync"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,10 +29,12 @@ type Checker interface {
 }
 
 type Dependencies struct {
-	MySQL         Checker
-	Redis         Checker
-	RabbitMQ      Checker
-	Elasticsearch Checker
+	MySQL              Checker
+	Redis              Checker
+	RabbitMQ           Checker
+	Elasticsearch      Checker
+	Logger             *slog.Logger
+	RequestIDGenerator middleware.RequestIDGenerator
 }
 
 type healthResponse struct {
@@ -89,7 +95,16 @@ func NewRouter(dependencies Dependencies, routes ...APIRoutes) *gin.Engine {
 
 func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Duration, routes ...APIRoutes) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Recovery())
+	logger := dependencies.Logger
+	if logger == nil {
+		logger = logging.New("backend", io.Discard)
+	}
+	httpLogger := logging.Module(logger, "http")
+	router.Use(
+		middleware.RequestID(httpLogger, dependencies.RequestIDGenerator),
+		middleware.Access(httpLogger),
+		middleware.Recovery(httpLogger),
+	)
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readinessHandler(dependencies, checkerTimeout, requestTimeout))
 

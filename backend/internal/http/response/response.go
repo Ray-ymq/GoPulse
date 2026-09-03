@@ -24,6 +24,8 @@ type errorEnvelope struct {
 	Error errorBody `json:"error"`
 }
 
+const errorCodeContextKey = "gopulse.error_code"
+
 type errorBody struct {
 	Code    apperror.Code `json:"code"`
 	Message string        `json:"message"`
@@ -42,7 +44,18 @@ func Page(c *gin.Context, status int, data any, nextCursor *string) {
 // Error maps application errors to stable HTTP status codes and payloads.
 func Error(c *gin.Context, err error) {
 	status, code, message := mapError(err)
+	c.Set(errorCodeContextKey, code)
 	c.JSON(status, errorEnvelope{Error: errorBody{Code: code, Message: message}})
+}
+
+// ErrorCode returns the final public error code recorded for the response.
+func ErrorCode(c *gin.Context) (apperror.Code, bool) {
+	value, ok := c.Get(errorCodeContextKey)
+	if !ok {
+		return "", false
+	}
+	code, ok := value.(apperror.Code)
+	return code, ok && code != ""
 }
 
 func mapError(err error) (int, apperror.Code, string) {
