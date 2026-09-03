@@ -1,7 +1,9 @@
 package outbox
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 )
 
 type dispatcherStoreFake struct {
@@ -135,6 +138,8 @@ func TestDispatcherPublishesAndMarksOnlyAfterPublishSucceeds(t *testing.T) {
 	store := &dispatcherStoreFake{records: []Record{dispatcherTestRecord(t, 41)}}
 	publisher := &dispatcherPublisherFake{}
 	dispatcher := newDispatcherForTest(t, store, publisher)
+	var output bytes.Buffer
+	dispatcher.logger = logging.Module(logging.New("backend", &output), "outbox")
 
 	if err := dispatcher.DispatchOnce(context.Background()); err != nil {
 		t.Fatalf("DispatchOnce() error = %v", err)
@@ -147,6 +152,13 @@ func TestDispatcherPublishesAndMarksOnlyAfterPublishSucceeds(t *testing.T) {
 	}
 	if len(store.releaseCalls) != 0 {
 		t.Fatalf("release calls=%v, want none", store.releaseCalls)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+		t.Fatalf("decode structured log: %v", err)
+	}
+	if record["message"] != "outbox event published" || record["event_id"] != publisher.published[0].EventID || record["event_type"] != string(publisher.published[0].EventType) || record["outbox_id"] != float64(41) {
+		t.Fatalf("published log = %#v", record)
 	}
 }
 
@@ -177,8 +189,8 @@ func TestDispatcherDoesNotLogOrReturnPublisherDetails(t *testing.T) {
 	if len(store.releaseCalls) != 1 || store.releaseCalls[0].failure != FailurePublishUnavailable {
 		t.Fatalf("release calls=%v, want unavailable failure", store.releaseCalls)
 	}
-	if strings.Contains(safeDispatcherError(publisher.err), "password") {
-		t.Fatal("safeDispatcherError leaked publisher detail")
+	if strings.Contains(safeDispatcherReason(publisher.err), "password") {
+		t.Fatal("safeDispatcherReason leaked publisher detail")
 	}
 }
 
