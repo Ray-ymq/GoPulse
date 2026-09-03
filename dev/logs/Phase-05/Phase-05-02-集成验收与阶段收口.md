@@ -136,13 +136,15 @@ scripts/down.sh
 
 - Exporter 仍只支持一个静态 Redis target，不提供 TLS、HTTP 鉴权、多目标、主动推送、后台采集、缓存或历史数据。
 - Plugin Manager、MetricsMonitor scheduler、GoPulse metrics envelope、Kafka 与 VictoriaMetrics 均未提前实现。
-- Phase-05-02 只有在 `develop/1.2.2` 的远程门禁成功并合入主远程 `main` 后，才能把总方案状态更新为 Phase 5 完成。
+- Phase 5 已完成；后续只按 Phase 6 计划接入 Plugin Manager 与 MetricsMonitor，不在 `1.2.2` 上继续扩展 Exporter 能力。
 
 ## 7. 远程门禁跟进
 
-- 本地提交前未推送 `develop/1.2.2`，因此没有可记录的 Phase-05-02 workflow、PR 或合入结果。
-- 推送后应核对仓库实际配置的 Branch governance、Backend、Frontend、Redis Exporter、Scripts and Compose、Integration 与自动 PR/合并 job；只有全部成功并实际合入后，才完成 Phase 5 状态收口。
+- 本批提交 `0e3ec19` 推送至 `develop/1.2.2` 后触发 Auto PR and Merge workflow `33722403547`。
+- 实际观察到 Quality gates before PR / Branch governance、Backend、Frontend、Redis Exporter、Scripts and Compose、Integration 全部成功；Open PR and enable auto-merge job 也成功。
+- 自动创建的 PR #60 于 2026-09-03 06:20:56 UTC 以 squash 方式合入 `main`，主远程提交为 `b85afa8`；远程开发分支随后按规则删除。
+- 已重新 fetch 并核对 `origin/main` 的 `VERSION=1.2.2`，因此 Phase-05-02 与 Phase 5 的远程收口条件均已满足。
 
 ## 8. 完成结论
 
-Phase-05-02 的同构建 Redis Exporter 矩阵、Phase 0～4 必要业务回归、日常 Bash 生命周期、资源归属与清理、文档、Phase 6 交接和 `1.2.2` 版本元数据均已在本地完成。固定本地门禁全部通过，实际暴露的三个生命周期阻断问题已最小修复并在最终 diff 上重验通过。当前达到提交与推送条件；在远程门禁和合入发生前，Phase 5 仍保持“本地完成、远程待收口”。
+Phase-05-02 的同构建 Redis Exporter 矩阵、Phase 0～4 必要业务回归、日常 Bash 生命周期、资源归属与清理、文档、Phase 6 交接和 `1.2.2` 版本元数据均已完成。固定本地门禁全部通过，实际暴露的三个生命周期阻断问题已最小修复并在最终 diff 上重验通过；远程 workflow `33722403547` 的全部配置门禁成功，PR #60 已合入主远程 `main`。Phase 5 验收与阶段收口完成，按计划停止扩展并进入 Phase 6 交接。
