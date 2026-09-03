@@ -67,3 +67,5 @@ scripts/verify-business.sh --self-test
 - 后续在长期 `update` 分支修复 `.github/workflows/auto-pr-merge.yml`：创建 PR 后先定位相同 head SHA 的 `ci.yml` / `pull_request` run，并用 `gh run watch --exit-status` 等待成功；只有随后才允许启用 auto-merge。若 PR CI 失败，PR 和 head 分支将保留用于整改，不再先删除分支制造无 job 的失败 run。该仓库规则修复不修改 `VERSION`。
 
 - `update` 首次推送编排修复后，push run `33666308567` 的五类质量门禁全部成功，但 Create or find pull request 步骤因 PR body 的单引号进入 Bash 单引号字面量而报 `unexpected EOF while looking for matching quote`。已移除该不安全标点并新增后续提交重跑；这次失败未创建 PR，也未改变 `main`。
+- 后续 PR #53 暴露出等待 PR CI 的前提不成立：push run `33701244262` 的 Branch governance、Backend、Frontend、Scripts and Compose 与 Integration 全部成功，但默认 `GITHUB_TOKEN` 创建 PR 后产生的 pull-request CI run `33701476232` 直接以 `action_required` 结束，没有创建 job。这是 GitHub 对工作流驱动 PR 的人工批准机制，不是产品质检失败。
+- 最终编排改为仅以 push 门禁作为权威结果：`develop/*` 运行全部质量 job，`update` 只运行 Branch governance；门禁通过后创建或复用 PR 并启用自动合并。删除重复 `.github/workflows/ci.yml` 和等待逻辑，不引入 PAT 或 GitHub App 密钥。
