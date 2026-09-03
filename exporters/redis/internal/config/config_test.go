@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -49,5 +50,55 @@ func TestLoadRejectsInvalidFieldsWithoutCredentialLeakage(t *testing.T) {
 				t.Fatalf("credential leaked: %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateHostAcceptsSupportedAddresses(t *testing.T) {
+	cases := map[string]string{
+		"127.0.0.1":     "127.0.0.1",
+		"0.0.0.0":       "0.0.0.0",
+		"redis":         "redis",
+		"redis.local":   "redis.local",
+		"redis.local.":  "redis.local.",
+		"::1":           "::1",
+		"::":            "::",
+		"[::1]":         "::1",
+		"[2001:db8::1]": "2001:db8::1",
+	}
+	for input, expected := range cases {
+		t.Run(input, func(t *testing.T) {
+			actual, err := validateHost("HOST", input)
+			if err != nil || actual != expected {
+				t.Fatalf("validateHost(%q) = %q, %v; expected %q", input, actual, err, expected)
+			}
+		})
+	}
+}
+
+func TestValidateHostRejectsMalformedAddresses(t *testing.T) {
+	for _, input := range []string{"[]", "[", "]", "[[::1]]", "[127.0.0.1]", "bad/host", `bad\\host`, "bad_host", "-redis", "redis-", "redis..local", "host:6379"} {
+		t.Run(input, func(t *testing.T) {
+			if _, err := validateHost("HOST", input); err == nil || Field(err) != "HOST" {
+				t.Fatalf("validateHost(%q) error = %v", input, err)
+			}
+		})
+	}
+}
+
+func TestDefaultHTTPHostCreatesLoopbackListener(t *testing.T) {
+	validEnvironment(t)
+	t.Setenv("REDIS_EXPORTER_HTTP_HOST", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.HTTPHost, "0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	address, ok := listener.Addr().(*net.TCPAddr)
+	if !ok || !address.IP.IsLoopback() || address.IP.IsUnspecified() {
+		t.Fatalf("default listener address = %v; expected loopback only", listener.Addr())
 	}
 }
