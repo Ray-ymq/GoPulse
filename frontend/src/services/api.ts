@@ -8,7 +8,7 @@ import type {
   Post,
   PublicUser,
 } from '../types/api'
-import { requestData, requestPage, requestValidatedPage, requestVoid } from './http'
+import { requestData, requestPage, requestValidatedData, requestValidatedPage, requestVoid } from './http'
 
 const encodeCursor = (cursor: string) => encodeURIComponent(cursor)
 
@@ -28,6 +28,15 @@ function isPositiveID(value: unknown): value is number {
 
 function isTimestamp(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
+}
+
+function isPublicUser(value: unknown): value is PublicUser {
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'username', 'role', 'created_at'])) return false
+  return isPositiveID(value.id)
+    && typeof value.username === 'string'
+    && value.username.length > 0
+    && (value.role === 'user' || value.role === 'admin')
+    && isTimestamp(value.created_at)
 }
 
 function isPost(value: unknown): value is Post {
@@ -69,17 +78,17 @@ function isNotification(value: unknown): value is Notification {
 
 export const authApi = {
   register: (credentials: Credentials) =>
-    requestData<PublicUser>('/auth/register', {
+    requestValidatedData<PublicUser>('/auth/register', isPublicUser, {
       method: 'POST',
       body: JSON.stringify(credentials),
     }),
   login: (credentials: Credentials) =>
-    requestData<PublicUser>('/auth/login', {
+    requestValidatedData<PublicUser>('/auth/login', isPublicUser, {
       method: 'POST',
       body: JSON.stringify(credentials),
     }),
   logout: () => requestVoid('/auth/logout', { method: 'POST' }),
-  me: () => requestData<PublicUser>('/users/me'),
+  me: () => requestValidatedData<PublicUser>('/users/me', isPublicUser),
 }
 
 export const postApi = {
