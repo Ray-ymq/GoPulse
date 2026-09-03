@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -169,5 +170,50 @@ func TestMonitorDoesNotOverlapScrapes(t *testing.T) {
 	}
 	if max.Load() != 1 {
 		t.Fatalf("max concurrent scrapes=%d", max.Load())
+	}
+}
+
+type delayedCancelPublisher struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p delayedCancelPublisher) Publish(ctx context.Context, _ envelope.Envelope) error {
+	close(p.started)
+	<-ctx.Done()
+	<-p.release
+	return ctx.Err()
+}
+
+func TestDisableRetainsGenerationUntilItCanBeJoined(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(successText))
+	}))
+	defer server.Close()
+	parsed, _ := url.Parse(server.URL)
+	_, port, _ := strings.Cut(parsed.Host, ":")
+	publisher := delayedCancelPublisher{started: make(chan struct{}), release: make(chan struct{})}
+	monitor, err := New(Config{Host: "127.0.0.1", Port: port, Interval: time.Second, Timeout: 500 * time.Millisecond, PublishTimeout: time.Second, Publisher: publisher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	monitor.Enable(plugin.Manifest{ID: plugin.PluginID, Version: "1.3.3", MetricsPath: "/metrics"})
+	<-publisher.started
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err = monitor.Disable(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("first Disable() error = %v, want context canceled", err)
+	}
+	joined := make(chan error, 1)
+	go func() { joined <- monitor.Disable(context.Background()) }()
+	select {
+	case err = <-joined:
+		t.Fatalf("second Disable returned before generation ended: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(publisher.release)
+	if err = <-joined; err != nil {
+		t.Fatalf("second Disable() error = %v", err)
 	}
 }
