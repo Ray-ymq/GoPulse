@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 BACKEND_DIR="$REPO_ROOT/backend"
+REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
 ENV_FILE="$REPO_ROOT/.env"
@@ -14,10 +15,12 @@ LOCK_PATH="$RUN_DIR/dev.lock"
 BACKEND_RECORD="$RUN_DIR/backend.json"
 WORKER_RECORD="$RUN_DIR/business-worker.json"
 SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
+REDIS_EXPORTER_RECORD="$RUN_DIR/redis-exporter.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$BIN_DIR/gopulse-backend"
 WORKER_BINARY="$BIN_DIR/gopulse-business-worker"
 SEARCH_INDEXER_BINARY="$BIN_DIR/gopulse-search-indexer"
+REDIS_EXPORTER_BINARY="$BIN_DIR/gopulse-redis-exporter"
 VITE_CLI="$FRONTEND_DIR/node_modules/vite/bin/vite.js"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
 PROJECT_NAME=gopulse
@@ -27,10 +30,12 @@ LOCK_TOKEN=
 BACKEND_PID=
 WORKER_PID=
 SEARCH_INDEXER_PID=
+REDIS_EXPORTER_PID=
 FRONTEND_PID=
 BACKEND_STARTED=0
 WORKER_STARTED=0
 SEARCH_INDEXER_STARTED=0
+REDIS_EXPORTER_STARTED=0
 FRONTEND_STARTED=0
 EXIT_CODE=0
 
@@ -54,6 +59,10 @@ WORKER_KEYS=(
   BUSINESS_WORKER_PREFETCH BUSINESS_WORKER_MAX_RETRIES BUSINESS_WORKER_PUBLISH_TIMEOUT
   BUSINESS_WORKER_SHUTDOWN_TIMEOUT BUSINESS_WORKER_RECONNECT_MIN BUSINESS_WORKER_RECONNECT_MAX
 )
+REDIS_EXPORTER_KEYS=(
+  REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB REDIS_EXPORTER_HTTP_HOST REDIS_EXPORTER_HTTP_PORT
+  REDIS_EXPORTER_SCRAPE_TIMEOUT REDIS_EXPORTER_SHUTDOWN_TIMEOUT
+)
 SEARCH_INDEXER_KEYS=(
   MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD RABBITMQ_URL
   ELASTICSEARCH_URL ELASTICSEARCH_REQUEST_TIMEOUT SEARCH_INDEXER_RETRY_DELAY
@@ -63,6 +72,7 @@ SEARCH_INDEXER_KEYS=(
 ALL_CONFIG_KEYS=(
   PUBLISHED_HOST APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
   MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB
+  REDIS_EXPORTER_HTTP_HOST REDIS_EXPORTER_HTTP_PORT REDIS_EXPORTER_SCRAPE_TIMEOUT REDIS_EXPORTER_SHUTDOWN_TIMEOUT
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_URL
   AUTH_JWT_SECRET AUTH_JWT_TTL AUTH_COOKIE_NAME AUTH_COOKIE_SECURE
   REDIS_POST_DETAIL_TTL REDIS_OPERATION_TIMEOUT
@@ -85,6 +95,8 @@ declare -A DEFAULTS=(
   [APP_ENV]=development [PUBLISHED_HOST]=127.0.0.1 [HTTP_HOST]=127.0.0.1 [HTTP_PORT]=8080
   [MYSQL_HOST]=127.0.0.1 [MYSQL_PORT]=3306
   [REDIS_HOST]=127.0.0.1 [REDIS_PORT]=6379 [REDIS_DB]=0
+  [REDIS_EXPORTER_HTTP_HOST]=127.0.0.1 [REDIS_EXPORTER_HTTP_PORT]=9121
+  [REDIS_EXPORTER_SCRAPE_TIMEOUT]=2s [REDIS_EXPORTER_SHUTDOWN_TIMEOUT]=5s
   [RABBITMQ_PORT]=5672 [RABBITMQ_MANAGEMENT_PORT]=15672 [ELASTICSEARCH_PORT]=9200
   [AUTH_JWT_TTL]=2h [AUTH_COOKIE_NAME]=gopulse_session [AUTH_COOKIE_SECURE]=false
   [REDIS_POST_DETAIL_TTL]=5m [REDIS_OPERATION_TIMEOUT]=200ms
@@ -200,7 +212,7 @@ resolve_configuration() {
       return 1
     fi
   done
-  for key in HTTP_PORT MYSQL_PORT REDIS_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT; do
+  for key in HTTP_PORT MYSQL_PORT REDIS_PORT REDIS_EXPORTER_HTTP_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT; do
     value=${CONFIG[$key]-}
     if [[ ! $value =~ ^[0-9]+$ ]] || ((10#$value < 1 || 10#$value > 65535)); then
       fail "$key must be an integer between 1 and 65535."
@@ -214,6 +226,28 @@ resolve_configuration() {
     return 1
   fi
   CONFIG[REDIS_DB]=$((10#$redis_db))
+  if [[ -z ${CONFIG[REDIS_HOST]//[[:space:]]/} || -z ${CONFIG[REDIS_EXPORTER_HTTP_HOST]//[[:space:]]/} ]]; then
+    fail 'REDIS_HOST and REDIS_EXPORTER_HTTP_HOST must be non-empty.'
+    return 1
+  fi
+  if ! python3 - "${CONFIG[REDIS_EXPORTER_SCRAPE_TIMEOUT]}" "${CONFIG[REDIS_EXPORTER_SHUTDOWN_TIMEOUT]}" <<'PYTIME'
+import re
+import sys
+def seconds(value):
+    match = re.fullmatch(r'(?:([0-9]+(?:\.[0-9]+)?)s|([0-9]+(?:\.[0-9]+)?)ms)', value)
+    if not match:
+        raise ValueError
+    return float(match.group(1)) if match.group(1) else float(match.group(2)) / 1000
+try:
+    scrape, shutdown = map(seconds, sys.argv[1:])
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(0 if 0.1 <= scrape <= 10 and 1 <= shutdown <= 30 else 1)
+PYTIME
+  then
+    fail 'Redis Exporter timeouts must be valid durations (scrape 100ms..10s, shutdown 1s..30s).'
+    return 1
+  fi
 
   local validation_status=0
   python3 - "${CONFIG[RABBITMQ_URL]}" "${CONFIG[RABBITMQ_USER]}" "${CONFIG[RABBITMQ_PASSWORD]}" <<'PY' || validation_status=$?
@@ -298,10 +332,10 @@ port_owner() {
 }
 
 check_ports() {
-  local -a names=(Backend Frontend MySQL Redis RabbitMQ 'RabbitMQ management' Elasticsearch)
-  local -a ports=("${CONFIG[HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}" "${CONFIG[ELASTICSEARCH_PORT]}")
-  local -a services=('' '' mysql redis rabbitmq rabbitmq elasticsearch)
-  local -a container_ports=('' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp 9200/tcp)
+  local -a names=(Backend 'Redis Exporter' Frontend MySQL Redis RabbitMQ 'RabbitMQ management' Elasticsearch)
+  local -a ports=("${CONFIG[HTTP_PORT]}" "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}" "${CONFIG[ELASTICSEARCH_PORT]}")
+  local -a services=('' '' '' mysql redis rabbitmq rabbitmq elasticsearch)
+  local -a container_ports=('' '' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp 9200/tcp)
   local i j owner
   for ((i=0; i<${#ports[@]}; i++)); do
     for ((j=i+1; j<${#ports[@]}; j++)); do
@@ -472,6 +506,10 @@ reject_or_remove_record() {
     fail "$name is already running under this repository. Run scripts/down.sh before starting another dev session."
     return 1
   fi
+  if [[ $result != 'recorded process is not running' ]]; then
+    fail "$name process record cannot be proven stale; refusing to remove it ($result)."
+    return 1
+  fi
   rm -f -- "$path"
   info "Removed stale $name process record ($result)."
 }
@@ -554,8 +592,9 @@ ensure_frontend_dependencies() {
 }
 
 build_applications() {
-  info 'Building the Backend, Business Worker, and Search Indexer development executables.'
-  (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server && go build -o "$WORKER_BINARY" ./cmd/business-worker && go build -o "$SEARCH_INDEXER_BINARY" ./cmd/search-indexer)
+  info 'Building the Backend, Business Worker, Search Indexer, and Redis Exporter development executables.'
+  (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server && go build -o "$WORKER_BINARY" ./cmd/business-worker && go build -o "$SEARCH_INDEXER_BINARY" ./cmd/search-indexer) || return 1
+  (cd "$REDIS_EXPORTER_DIR" && go build -o "$REDIS_EXPORTER_BINARY" ./cmd/redis-exporter)
 }
 
 write_process_record() {
@@ -634,6 +673,25 @@ PY
   write_process_record "$SEARCH_INDEXER_PID" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY"
 }
 
+start_redis_exporter() {
+  local -a env_args=() key
+  for key in "${REDIS_EXPORTER_KEYS[@]}"; do env_args+=("$key=${CONFIG[$key]}"); done
+  info 'Starting Redis Exporter.'
+  env "${env_args[@]}" python3 - "$REDIS_EXPORTER_DIR" "$REDIS_EXPORTER_BINARY" <<'PY' &
+import os
+import sys
+cwd, executable = sys.argv[1:]
+os.chdir(cwd)
+os.setsid()
+os.execve(executable, [executable], os.environ)
+PY
+  REDIS_EXPORTER_PID=$!
+  sleep 0.6
+  kill -0 "$REDIS_EXPORTER_PID" 2>/dev/null || { local code=0; wait "$REDIS_EXPORTER_PID" || code=$?; fail "Redis Exporter exited during startup with code $code."; return 1; }
+  REDIS_EXPORTER_STARTED=1
+  write_process_record "$REDIS_EXPORTER_PID" "$REDIS_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$REDIS_EXPORTER_BINARY"
+}
+
 start_frontend() {
   [[ -f "$VITE_CLI" ]] || { fail 'The project-local Vite CLI is missing after dependency installation.'; return 1; }
   local -a unset_args=() key
@@ -682,6 +740,9 @@ cleanup() {
   if ((FRONTEND_STARTED == 1)); then
     stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)" "$FRONTEND_PID" || true
   fi
+  if ((REDIS_EXPORTER_STARTED == 1)); then
+    stop_recorded_application "Redis Exporter" "$REDIS_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$REDIS_EXPORTER_BINARY" "$REDIS_EXPORTER_BINARY" "$REDIS_EXPORTER_PID" || true
+  fi
   if ((SEARCH_INDEXER_STARTED == 1)); then
     stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_PID" || true
   fi
@@ -708,6 +769,7 @@ main() {
   reject_or_remove_record Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY" || return 1
   reject_or_remove_record "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY" || return 1
   reject_or_remove_record "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY" || return 1
+  reject_or_remove_record "Redis Exporter" "$REDIS_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$REDIS_EXPORTER_BINARY" "$REDIS_EXPORTER_BINARY" || return 1
   reject_or_remove_record Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node)" || return 1
 
   local source_file
@@ -734,6 +796,7 @@ main() {
   start_backend || return 1
   start_worker || return 1
   start_search_indexer || return 1
+  start_redis_exporter || return 1
   start_frontend || return 1
 
   printf '\nGoPulse development services:\n'
@@ -741,9 +804,10 @@ main() {
   printf '  Backend:             http://localhost:%s\n' "${CONFIG[HTTP_PORT]}"
   printf '  Health:              http://localhost:%s/health\n' "${CONFIG[HTTP_PORT]}"
   printf '  Readiness:           http://localhost:%s/ready\n' "${CONFIG[HTTP_PORT]}"
+  printf '  Redis metrics:       http://localhost:%s/metrics\n' "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}"
   printf '  RabbitMQ management: http://localhost:%s\n' "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}"
   printf '  Elasticsearch:       http://localhost:%s\n\n' "${CONFIG[ELASTICSEARCH_PORT]}"
-  info 'Press Ctrl+C to stop Frontend, Search Indexer, Business Worker, and Backend. Infrastructure will remain running.'
+  info 'Press Ctrl+C to stop Frontend, Redis Exporter, Search Indexer, Business Worker, and Backend. Infrastructure will remain running.'
 
   while true; do
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
@@ -759,6 +823,11 @@ main() {
     if ! kill -0 "$SEARCH_INDEXER_PID" 2>/dev/null; then
       wait "$SEARCH_INDEXER_PID" || EXIT_CODE=$?
       fail "Search Indexer exited unexpectedly with code $EXIT_CODE."
+      return 1
+    fi
+    if ! kill -0 "$REDIS_EXPORTER_PID" 2>/dev/null; then
+      wait "$REDIS_EXPORTER_PID" || EXIT_CODE=$?
+      fail "Redis Exporter exited unexpectedly with code $EXIT_CODE."
       return 1
     fi
     if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then

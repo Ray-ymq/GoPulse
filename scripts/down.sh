@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 BACKEND_DIR="$REPO_ROOT/backend"
+REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
 ENV_FILE="$REPO_ROOT/.env"
@@ -13,10 +14,12 @@ LOCK_PATH="$RUN_DIR/dev.lock"
 BACKEND_RECORD="$RUN_DIR/backend.json"
 WORKER_RECORD="$RUN_DIR/business-worker.json"
 SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
+REDIS_EXPORTER_RECORD="$RUN_DIR/redis-exporter.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$RUN_DIR/bin/gopulse-backend"
 WORKER_BINARY="$RUN_DIR/bin/gopulse-business-worker"
 SEARCH_INDEXER_BINARY="$RUN_DIR/bin/gopulse-search-indexer"
+REDIS_EXPORTER_BINARY="$RUN_DIR/bin/gopulse-redis-exporter"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
 PROJECT_NAME=gopulse
 COMPOSE_KEYS=(
@@ -132,6 +135,10 @@ stop_recorded_application() {
     kill -KILL -- "-$pid" 2>/dev/null || true
     info "Stopped $name (PID $pid)."
   else
+    if [[ $result != 'recorded process is not running' ]]; then
+      fail "$name record cannot be proven stale; refusing to signal a process or remove the record ($result)."
+      return 1
+    fi
     info "Removed stale $name record without stopping a process ($result)."
   fi
   rm -f -- "$path"
@@ -187,6 +194,7 @@ main() {
   command -v python3 >/dev/null 2>&1 || { fail 'python3 is required to validate process records.'; return 1; }
   command -v flock >/dev/null 2>&1 || { fail 'flock is required to manage the development run lock.'; return 1; }
   stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)"
+  stop_recorded_application "Redis Exporter" "$REDIS_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$REDIS_EXPORTER_BINARY" "$REDIS_EXPORTER_BINARY"
   stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY"
   stop_recorded_application "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY"
   stop_recorded_application Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY"
