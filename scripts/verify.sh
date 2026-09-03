@@ -4,6 +4,10 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 ENV_FILE="$REPO_ROOT/.env"
+ENV_EXAMPLE_FILE="$REPO_ROOT/.env.example"
+REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
+REDIS_EXPORTER_RECORD="$REPO_ROOT/.run/redis-exporter.json"
+REDIS_EXPORTER_BINARY="$REPO_ROOT/.run/bin/gopulse-redis-exporter"
 WORKER_RECORD="$REPO_ROOT/.run/business-worker.json"
 SEARCH_INDEXER_RECORD="$REPO_ROOT/.run/search-indexer.json"
 WORKER_BINARY="$REPO_ROOT/.run/bin/gopulse-business-worker"
@@ -44,15 +48,18 @@ require_tools() {
   docker info >/dev/null 2>&1 || { printf '[gopulse] ERROR: Docker is installed, but the Docker daemon is unavailable.\n' >&2; return 1; }
 }
 
-http_port() {
-  if [[ -n ${HTTP_PORT:-} ]]; then
-    printf '%s\n' "$HTTP_PORT"
+config_port() {
+  local key=$1 fallback=$2 direct=${!key:-}
+  if [[ -n $direct ]]; then
+    printf '%s\n' "$direct"
     return
   fi
-  python3 - "$ENV_FILE" <<'PY'
+  local path=$ENV_FILE
+  [[ -f $path ]] || path=$ENV_EXAMPLE_FILE
+  python3 - "$path" "$key" "$fallback" <<'PY'
 import re
 import sys
-path = sys.argv[1]
+path, key, fallback = sys.argv[1:]
 value = None
 try:
     lines = open(path, encoding='utf-8').read().splitlines()
@@ -63,23 +70,24 @@ for number, raw in enumerate(lines, 1):
     if not line or line.startswith('#'):
         continue
     if re.match(r'^export(?:\s|$)', line):
-        raise SystemExit(f'Unsupported dotenv syntax at line {number}: export is not allowed.')
-    match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$', line)
+        raise SystemExit(f'Unsupported dotenv syntax at line {number}.')
+    match = re.match(rf'^{re.escape(key)}\s*=(.*)$', line)
     if not match:
-        raise SystemExit(f'Invalid dotenv assignment at line {number}.')
-    if match.group(1) != 'HTTP_PORT':
         continue
-    value = match.group(2).strip()
-    if value[:1] in ("'", '"'):
+    value = match.group(1).strip()
+    if value[:1] in {'"', "'"}:
         if len(value) < 2 or value[-1] != value[0]:
-            raise SystemExit(f'Unterminated quoted dotenv value for HTTP_PORT at line {number}.')
+            raise SystemExit(f'Unterminated quoted value for {key} at line {number}.')
         value = value[1:-1]
     elif "'" in value or '"' in value:
-        raise SystemExit(f'Mismatched quote in dotenv value for HTTP_PORT at line {number}.')
+        raise SystemExit(f'Mismatched quote in dotenv value for {key} at line {number}.')
     break
-print(value or '8080')
+print(value or fallback)
 PY
 }
+
+http_port() { config_port HTTP_PORT 8080; }
+exporter_http_port() { config_port REDIS_EXPORTER_HTTP_PORT 9121; }
 
 validate_port() {
   [[ $1 =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535))
@@ -108,16 +116,16 @@ check_compose_service() {
 }
 
 check_recorded_process() {
-  local name=$1 record=$2 binary=$3 result
+  local name=$1 record=$2 binary=$3 cwd=${4:-$BACKEND_DIR} marker=${5:-$binary} result
   if [[ ! -f "$record" ]]; then
     fail "$name" "process record is missing: $record"
     return
   fi
-  if ! result=$(python3 - "$record" "$BACKEND_DIR" "$binary" <<'PY'
+  if ! result=$(python3 - "$record" "$cwd" "$binary" "$marker" <<'PY'
 import json
 import os
 import sys
-path, expected_cwd, expected_executable = sys.argv[1:]
+path, expected_cwd, expected_executable, expected_marker = sys.argv[1:]
 try:
     record = json.load(open(path, encoding='utf-8'))
     pid = int(record['pid'])
@@ -128,7 +136,7 @@ try:
 except Exception:
     print('record is malformed')
     raise SystemExit(1)
-if cwd != os.path.realpath(expected_cwd) or marker != expected_executable:
+if cwd != os.path.realpath(expected_cwd) or marker != expected_marker:
     print('record identity does not match this repository')
     raise SystemExit(1)
 if executable != os.path.realpath(expected_executable):
@@ -263,14 +271,65 @@ check_frontend() {
   pass 'Frontend' "HTTP $status from http://localhost:5173/."
 }
 
+check_exporter_health() {
+  local port=$1 body="$TEMP_DIR/exporter-health.json" status
+  if ! status=$(http_get "http://localhost:$port/health" "$body"); then
+    fail 'Redis Exporter /health' 'request failed.'
+    return
+  fi
+  if [[ $status != 200 ]] || ! python3 - "$body" <<'PY'
+import json
+import sys
+try:
+    value = json.load(open(sys.argv[1], encoding='utf-8'))
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if value == {'status': 'ok', 'service': 'redis-exporter'} else 1)
+PY
+  then
+    fail 'Redis Exporter /health' "contract mismatch (HTTP $status)."
+    return
+  fi
+  pass 'Redis Exporter /health' 'HTTP 200 with the fixed process-health contract.'
+}
+
+check_exporter_metrics() {
+  local port=$1 body="$TEMP_DIR/exporter-metrics.txt" headers="$TEMP_DIR/exporter-metrics.headers" status
+  if ! status=$(curl --silent --show-error --max-time 5 --dump-header "$headers" --output "$body" --write-out '%{http_code}' "http://localhost:$port/metrics"); then
+    fail 'Redis Exporter /metrics' 'request failed.'
+    return
+  fi
+  if [[ $status != 200 ]]; then
+    fail 'Redis Exporter /metrics' "returned HTTP $status, expected 200."
+    return
+  fi
+  if ! python3 - "$headers" "$body" <<'PY'
+import re
+import sys
+headers = open(sys.argv[1], encoding='iso-8859-1').read().lower()
+body = open(sys.argv[2], encoding='utf-8').read()
+content = re.findall(r'^content-type:\s*([^\r\n]+)', headers, re.M)
+valid_type = bool(content) and content[-1].strip() == 'text/plain; version=0.0.4; charset=utf-8'
+valid_body = re.search(r'^gopulse_redis_up 1(?:\.0)?$', body, re.M) is not None
+raise SystemExit(0 if valid_type and valid_body else 1)
+PY
+  then
+    fail 'Redis Exporter /metrics' 'Content-Type or up=1 contract mismatch.'
+    return
+  fi
+  pass 'Redis Exporter /metrics' 'HTTP 200 with Prometheus text and up=1.'
+}
+
 main() {
   require_tools || return 1
-  local port
+  local port exporter_port
   if ! port=$(http_port); then
     printf '[gopulse] ERROR: Could not read HTTP_PORT from the environment file.\n' >&2
     return 1
   fi
   validate_port "$port" || { printf "[gopulse] ERROR: HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$port" >&2; return 1; }
+  exporter_port=$(exporter_http_port) || { printf '[gopulse] ERROR: Could not read REDIS_EXPORTER_HTTP_PORT.\n' >&2; return 1; }
+  validate_port "$exporter_port" || { printf "[gopulse] ERROR: REDIS_EXPORTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$exporter_port" >&2; return 1; }
   TEMP_DIR=$(mktemp -d)
   info "Verifying the running environment from $REPO_ROOT."
   check_compose_service mysql
@@ -279,6 +338,9 @@ main() {
   check_compose_service elasticsearch
   check_recorded_process "Business Worker" "$WORKER_RECORD" "$WORKER_BINARY"
   check_recorded_process "Search Indexer" "$SEARCH_INDEXER_RECORD" "$SEARCH_INDEXER_BINARY"
+  check_recorded_process "Redis Exporter" "$REDIS_EXPORTER_RECORD" "$REDIS_EXPORTER_BINARY" "$REDIS_EXPORTER_DIR" "$REDIS_EXPORTER_BINARY"
+  check_exporter_health "$exporter_port"
+  check_exporter_metrics "$exporter_port"
   check_health "$port"
   check_ready "$port"
   check_protected_api "$port"
