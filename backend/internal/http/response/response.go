@@ -65,17 +65,19 @@ func mapError(err error) (int, apperror.Code, string) {
 	}
 
 	switch appError.Code {
-	case apperror.CodeValidationFailed:
+	case apperror.CodeValidationFailed, apperror.CodePluginPackageInvalid:
 		return stdhttp.StatusBadRequest, appError.Code, appError.Message
 	case apperror.CodeAuthenticationRequired, apperror.CodeInvalidCredentials:
 		return stdhttp.StatusUnauthorized, appError.Code, appError.Message
 	case apperror.CodePermissionDenied:
 		return stdhttp.StatusForbidden, appError.Code, appError.Message
-	case apperror.CodeUsernameConflict:
+	case apperror.CodeUsernameConflict, apperror.CodePluginConflict, apperror.CodePluginOperationInProgress:
 		return stdhttp.StatusConflict, appError.Code, appError.Message
-	case apperror.CodePostNotFound, apperror.CodeNotificationNotFound:
+	case apperror.CodePostNotFound, apperror.CodeNotificationNotFound, apperror.CodePluginNotFound:
 		return stdhttp.StatusNotFound, appError.Code, appError.Message
-	case apperror.CodeSearchUnavailable:
+	case apperror.CodePluginOperationFailed:
+		return stdhttp.StatusUnprocessableEntity, appError.Code, appError.Message
+	case apperror.CodeSearchUnavailable, apperror.CodeMonitorUnavailable:
 		return stdhttp.StatusServiceUnavailable, appError.Code, appError.Message
 	default:
 		return stdhttp.StatusInternalServerError, apperror.CodeInternal, "an internal error occurred"

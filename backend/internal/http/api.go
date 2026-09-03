@@ -3,6 +3,7 @@ package http
 import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
+	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
@@ -11,13 +12,15 @@ import (
 )
 
 type APIRoutes struct {
-	Auth           *auth.Handler
-	Posts          *post.Handler
-	Comments       *comment.Handler
-	Likes          *like.Handler
-	Notifications  *notification.Handler
-	Search         *search.Handler
-	Authentication gin.HandlerFunc
+	Auth            *auth.Handler
+	Posts           *post.Handler
+	Comments        *comment.Handler
+	Likes           *like.Handler
+	Notifications   *notification.Handler
+	Search          *search.Handler
+	Authentication  gin.HandlerFunc
+	Authorization   gin.HandlerFunc
+	ExporterPlugins *exporterplugin.Handler
 }
 
 func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
@@ -56,5 +59,15 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	if routes.Notifications != nil {
 		protected.GET("/notifications", routes.Notifications.List)
 		protected.PATCH("/notifications/:notificationId/read", routes.Notifications.MarkRead)
+	}
+	if routes.ExporterPlugins != nil && routes.Authorization != nil {
+		plugins := protected.Group("/exporter-plugins")
+		plugins.Use(routes.Authorization)
+		plugins.GET("", routes.ExporterPlugins.List)
+		plugins.GET("/:pluginId", routes.ExporterPlugins.Get)
+		plugins.POST("/install", routes.ExporterPlugins.Install)
+		plugins.POST("/:pluginId/start", routes.ExporterPlugins.Start)
+		plugins.POST("/:pluginId/stop", routes.ExporterPlugins.Stop)
+		plugins.POST("/:pluginId/update", routes.ExporterPlugins.Update)
 	}
 }

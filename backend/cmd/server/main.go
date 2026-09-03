@@ -14,6 +14,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
@@ -143,6 +144,11 @@ func run(logger *slog.Logger) error {
 	searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 	searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
 	searchHandler := searchpkg.NewHandler(searchService)
+	monitorClient, err := exporterplugin.NewClient(cfg.Monitor.URL, cfg.Monitor.APIToken, cfg.Monitor.RequestTimeout)
+	if err != nil {
+		return errors.New("initialize monitor client")
+	}
+	exporterPluginHandler := exporterplugin.NewHandler(monitorClient)
 
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
@@ -153,13 +159,15 @@ func run(logger *slog.Logger) error {
 			Logger:        logger,
 		},
 		backendhttp.APIRoutes{
-			Auth:           authHandler,
-			Posts:          postHandler,
-			Comments:       commentHandler,
-			Likes:          likeHandler,
-			Notifications:  notificationHandler,
-			Search:         searchHandler,
-			Authentication: middleware.RequireAuthentication(cookies.Name(), tokens),
+			Auth:            authHandler,
+			Posts:           postHandler,
+			Comments:        commentHandler,
+			Likes:           likeHandler,
+			Notifications:   notificationHandler,
+			Search:          searchHandler,
+			Authentication:  middleware.RequireAuthentication(cookies.Name(), tokens),
+			Authorization:   middleware.RequireAdmin(users),
+			ExporterPlugins: exporterPluginHandler,
 		},
 	)
 	server := newHTTPServer(cfg.HTTPAddress(), router)
