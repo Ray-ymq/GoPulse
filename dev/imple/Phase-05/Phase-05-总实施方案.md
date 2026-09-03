@@ -49,13 +49,15 @@ Phase 5 使用 `1.2.x` 版本线，`1.2.0` 只作为阶段基线，不创建空�
 | --- | --- | --- | --- |
 | Phase-05-01 | `1.2.1` | `develop/1.2.1` | 已完成并合入 `main`（PR #58） |
 | Phase-05-02 | `1.2.2` | `develop/1.2.2` | 已完成并合入 `main`（PR #60） |
+| Phase-05-03 | `1.2.3` | `develop/1.2.3` | 本地完成，待远程门禁与合入 |
 
 执行规则：
 
-- 两批全部提交分别共享其目标版本；每批完成时同步根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json`。
+- 三批全部提交分别共享其目标版本；每批完成时同步根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json`。
 - 每批完成前创建同名 `dev/logs/Phase-05/Phase-05-XX-*.md`，只记录实际完成工作和实际验证结果。
 - Phase-05-01 是唯一功能实现批次，纵向交付成功采集、故障隔离、运行集成和定向验收。
 - Phase-05-02 是固定的集成验收与阶段收口批次，不引入新 Exporter 功能，只允许最小修复真实验收暴露的阻断问题。
+- Phase-05-03 是 2026-09-03 实现 Review 的唯一整改批次，只关闭 Review 报告中的 host 安全、失败清理、端口唯一性和权威分配问题。
 - 已推送分支不得静默改名或重新编号；批次数量或顺序变化时，先更新本表，再创建尚未开始的分支。
 
 ## 4. 阶段范围与非目标
@@ -217,13 +219,16 @@ Phase-05-01 Redis Exporter 采集与故障隔离闭环（1.2.1）
   ↓
 Phase-05-02 集成验收与阶段收口（1.2.2）
   ↓
+Phase-05-03 实现 Review 整改（1.2.3）
+  ↓
 Phase 6 MetricsMonitor 与 Plugin Manager
 ```
 
 - [Phase-05-01：Redis Exporter 采集与故障隔离闭环](Phase-05-01-Redis-Exporter采集与故障隔离闭环.md)：交付本阶段全部生产能力及定向真实验收，使一个 Redis Exporter 可以独立运行、采集、失败并恢复。
 - [Phase-05-02：集成验收与阶段收口](Phase-05-02-集成验收与阶段收口.md)：不新增功能，在同一最终构建上完成跨组件、资源安全、必要业务回归、文档状态和 Phase 6 交接。
+- [Phase-05-03：实现 Review 整改](Phase-05-03-实现Review整改.md)：关闭 Review 报告中的监听安全、失败清理、端口唯一性与分支治理问题，不扩展 Exporter 产品范围。
 
-一个纵向功能批次加一个固定集成收口批次符合阶段提纲的 2～3 批约束；没有按配置、采集器、HTTP、脚本或测试等技术层机械拆分。
+一个纵向功能批次、一个固定集成收口批次和一个 Review 整改批次仍符合阶段提纲的 2～3 批约束；没有按配置、采集器、HTTP、脚本或测试等技术层机械拆分。
 
 ## 11. 测试策略与固定矩阵
 
@@ -291,13 +296,13 @@ dev/logs/Phase-05/Phase-05-02-集成验收与阶段收口.md
 - `SIGINT`/`SIGTERM`、HTTP 和 Redis 操作均有固定时限，启动/退出错误可诊断且不误伤其他进程。
 - Bash 生命周期、只读验证、隔离验收和 CI Redis Exporter job 可用，PowerShell 保持 `0.2.1` 历史基线。
 - Phase 0～4 的必要能力与 Exporter 可共同运行；固定矩阵和远程门禁通过，没有使阶段验收不成立的失败。
-- 两份实施记录与实际提交一致，Phase-05-02 完成后根与 Frontend 版本均为 `1.2.2`。
+- 三份实施记录与实际提交一致，Phase-05-03 完成后根与 Frontend 版本均为 `1.2.3`。
 
 ## 15. 完成、停止与 Phase 6 交接
 
-只有 Phase-05-01 与 Phase-05-02 都从权威分支完成并合入主远程，第 11.3 节封闭矩阵在 WSL2/Bash 真实通过，远程门禁成功且实施记录齐全，Phase 5 才可标记完成。达到条件后立即停止扩展；未执行的检查、PR、合并或远程结果不得写成通过。
+只有 Phase-05-01、Phase-05-02 与 Review 后新增的 Phase-05-03 都从权威分支完成并合入主远程，相应封闭矩阵在 WSL2/Bash 真实通过，远程门禁成功且实施记录齐全，Phase 5 才可标记为 Review 后最终完成。达到条件后立即停止扩展；未执行的检查、PR、合并或远程结果不得写成通过。
 
-截至 2026-09-03，Phase-05-01 已由 PR #58 合入 `main`；Phase-05-02 已由 PR #60 合入 `main`。Phase-05-02 的 push workflow `33722403547` 中 Branch governance、Backend、Frontend、Redis Exporter、Scripts and Compose、Integration 与自动 PR/合并 job 均成功，主远程提交 `b85afa8` 的根版本为 `1.2.2`。两批实施记录与本阶段封闭矩阵齐全，Phase 5 已完成并停止扩展。
+截至 2026-09-03，Phase-05-01 已由 PR #58 合入 `main`；Phase-05-02 已由 PR #60 合入 `main`，其 push workflow `33722403547` 的配置门禁成功，主远程提交 `b85afa8` 的根版本为 `1.2.2`。随后实现 Review 发现四项需关闭的问题，因此新增 Phase-05-03 / `1.2.3` / `develop/1.2.3` 作为唯一整改批次；该批未合入前，Phase 5 保持 Review 有条件通过状态。
 
 向 Phase 6 交付：
 
