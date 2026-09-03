@@ -84,10 +84,48 @@ func validateHost(name, value string) (string, error) {
 	if strings.ContainsAny(value, "\x00\r\n") {
 		return "", fieldError(name, "invalid")
 	}
-	if strings.Contains(value, ":") && net.ParseIP(strings.Trim(value, "[]")) == nil {
+
+	if strings.ContainsAny(value, "[]") {
+		if len(value) < 3 || value[0] != '[' || value[len(value)-1] != ']' || strings.ContainsAny(value[1:len(value)-1], "[]") {
+			return "", fieldError(name, "invalid")
+		}
+		inner := value[1 : len(value)-1]
+		ip := net.ParseIP(inner)
+		if ip == nil || ip.To4() != nil {
+			return "", fieldError(name, "invalid")
+		}
+		return inner, nil
+	}
+
+	if net.ParseIP(value) != nil {
+		return value, nil
+	}
+	if !validHostname(value) {
 		return "", fieldError(name, "invalid")
 	}
-	return strings.Trim(value, "[]"), nil
+	return value, nil
+}
+
+func validHostname(value string) bool {
+	if len(value) > 253 {
+		return false
+	}
+	value = strings.TrimSuffix(value, ".")
+	if value == "" {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+				(character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func requiredPort(name string) (int, error) { return parsePort(name, os.Getenv(name)) }
