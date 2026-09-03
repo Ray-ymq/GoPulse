@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       run_product_checks:
-        description: Run Backend, Monitor, Redis Exporter, Frontend, scripts/Compose, and Integration checks
+        description: Run Backend, Router, Monitor, Redis Exporter, Frontend, scripts/Compose, and Integration checks
         required: false
         default: true
         type: boolean
@@ -56,6 +56,27 @@ jobs:
         run: go vet ./...
       - name: Race test
         run: go test -race -count=1 ./...
+
+  router:
+    name: Message Router
+    if: inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: router/go.mod
+          cache-dependency-path: router/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l router)"
+      - name: Test
+        run: cd router && go test -count=1 ./...
+      - name: Vet
+        run: cd router && go vet ./...
+      - name: Race test
+        run: cd router && go test -race -count=1 ./...
+      - name: Run transport acceptance
+        run: scripts/verify-router.sh
 
   monitor:
     name: Monitor
@@ -126,23 +147,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git ls-files --eol -- 'scripts/*.sh' 'backend/**/*.go' 'exporters/redis/**/*.go' 'monitor/**/*.go' | grep -Ev 'w/lf'; then
+          if git ls-files --eol -- 'scripts/*.sh' 'backend/**/*.go' 'exporters/redis/**/*.go' 'monitor/**/*.go' 'router/**/*.go' | grep -Ev 'w/lf'; then
             echo 'Expected Bash and Go working-tree files to use LF.' >&2
             exit 1
           fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/package-redis-exporter.sh
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/package-redis-exporter.sh
       - name: Run acceptance safety negative tests
         run: |
           bash scripts/verify-business.sh --self-test
           bash scripts/verify-exporter.sh --self-test
           bash scripts/verify-monitor.sh --self-test
+          bash scripts/verify-router.sh --self-test
       - name: Validate Compose configuration and loopback publishing
         shell: bash
         run: |
           set -euo pipefail
           rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
           printf '%s\n' "$rendered"
-          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 5 ]]
+          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 6 ]]
+          grep -q 'image: apache/kafka:4.3.1' <<<"$rendered"
+          grep -q 'KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"' <<<"$rendered"
+          grep -q 'gopulse-observability-v1' <<<"$rendered"
 
   integration:
     name: Integration
