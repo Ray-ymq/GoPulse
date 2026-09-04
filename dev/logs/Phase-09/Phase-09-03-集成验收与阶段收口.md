@@ -4,7 +4,7 @@
 - 目标版本：`1.6.3`
 - 开发分支：`develop/1.6.3`
 - 基线：`origin/main` / `upstream/main` at `58c0d167168f88e4efaefa2f5be1a49595f7f0c2`，基线版本 `1.6.2`
-- 完成状态：本地固定门禁与真实隔离验收已通过；远程 push、Pull Request、quality gates 与合入状态待观察
+- 完成状态：本地固定门禁与真实隔离验收通过；远程 quality gates 全部成功，Pull Request #85 已于 2026-09-04 squash 合入 `main`
 
 ## 1. 实际完成内容
 
@@ -123,4 +123,8 @@ scripts/verify-business.sh
 
 ## 6. 远程门禁与合入
 
-- 待首次提交、push、Pull Request、远程 quality gates 和主远程合入后补记真实 commit、run、PR、时间与最终 `main` 状态；未观察前不标记 Phase 9 完成。
+- 实现与验收提交：`ad9a1acc5e2f87d890eb0e4ca541e56e0339df8c`（`test: close Phase 9 integration acceptance`），已推送到 `develop/1.6.3`。
+- GitHub Actions `Auto PR and Merge` run `33899802306` 于 2026-09-04 17:17:46 UTC 启动、17:24:01 UTC 完成，结论为 `success`。
+- Branch governance、Backend、Message Router、Monitor、Redis Exporter、Backend log pipeline、Marshaller、Frontend、Scripts and Compose、Integration 十个远程质量门禁全部通过；`Open PR and enable auto-merge` job 同样成功。
+- 自动创建 Pull Request #85，并按开发分支规则使用 squash merge；PR 于 2026-09-04 17:23:56 UTC 合入，`main` 提交为 `cff5098d372198bccd8a78af6a77172e2c4bcfd0`（`test: close Phase 9 integration acceptance (#85)`）。远程 `develop/1.6.3` 已由自动流程删除。
+- 合入后的根 `VERSION`、Frontend `package.json` 与 `package-lock.json` 均为 `1.6.3`。三份 Phase 9 实施记录与真实提交一致，Phase 9 完成；Milestone 3 仍等待 Phase 10 Events 与 Phase 11 统一管理员前端。
