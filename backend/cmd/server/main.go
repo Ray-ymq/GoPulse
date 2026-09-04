@@ -18,8 +18,10 @@ import (
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logship"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
@@ -40,23 +42,50 @@ const (
 )
 
 func main() {
-	logger := logging.New("backend", os.Stdout)
-	if err := run(logger); err != nil {
-		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"))
+	stdoutLogger := logging.New("backend", os.Stdout)
+	cfg, err := config.Load()
+	if err != nil {
+		logging.Module(stdoutLogger, "lifecycle").Error("backend stopped", slog.String("reason", "invalid_configuration"))
 		os.Exit(1)
+	}
+	logger := stdoutLogger
+	var shipper *logship.Shipper
+	if cfg.LogShip.Enabled() {
+		shipper, err = logship.New(logship.Config{
+			Endpoint: cfg.LogShip.Endpoint, Token: cfg.LogShip.Token, RequestTimeout: cfg.LogShip.RequestTimeout,
+			QueueCapacity: cfg.LogShip.QueueCapacity, RetryMin: cfg.LogShip.RetryMin, RetryMax: cfg.LogShip.RetryMax,
+			ShutdownTimeout: cfg.LogShip.ShutdownTimeout,
+		}, logging.Module(stdoutLogger, "logship"))
+		if err != nil {
+			logging.Module(stdoutLogger, "lifecycle").Error("backend stopped", slog.String("reason", "invalid_log_shipper"))
+			os.Exit(1)
+		}
+		logger = logging.NewWithSink("backend", os.Stdout, shipper)
+	}
+	if err = run(cfg, logger); err != nil {
+		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"))
+		if shipper != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), cfg.LogShip.ShutdownTimeout)
+			_ = shipper.Close(ctx)
+			cancel()
+		}
+		os.Exit(1)
+	}
+	if shipper != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.LogShip.ShutdownTimeout)
+		if err := shipper.Close(ctx); err != nil {
+			logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
+		}
+		cancel()
 	}
 }
 
-func run(logger *slog.Logger) error {
+func run(cfg config.Config, logger *slog.Logger) error {
 	if logger == nil {
 		logger = logging.Discard("backend")
 	}
 	lifecycleLogger := logging.Module(logger, "lifecycle")
 	goredis.SetLogger(&redislogging.VoidLogger{})
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("load configuration: %w", err)
-	}
 	if err := backendhttp.ConfigureGinMode(cfg.AppEnv); err != nil {
 		return fmt.Errorf("configure Gin mode: %w", err)
 	}
@@ -144,6 +173,9 @@ func run(logger *slog.Logger) error {
 	searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 	searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
 	searchHandler := searchpkg.NewHandler(searchService)
+	logRepository := logquery.NewElasticsearchRepository(elasticsearchClient)
+	logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
+	logHandler := logquery.NewHandler(logService)
 	monitorClient, err := exporterplugin.NewClient(cfg.Monitor.URL, cfg.Monitor.APIToken, cfg.Monitor.RequestTimeout)
 	if err != nil {
 		return errors.New("initialize monitor client")
@@ -163,6 +195,7 @@ func run(logger *slog.Logger) error {
 			Posts:           postHandler,
 			Comments:        commentHandler,
 			Likes:           likeHandler,
+			Logs:            logHandler,
 			Notifications:   notificationHandler,
 			Search:          searchHandler,
 			Authentication:  middleware.RequireAuthentication(cookies.Name(), tokens),

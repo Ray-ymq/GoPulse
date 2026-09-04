@@ -19,24 +19,26 @@ const (
 )
 
 type Config struct {
-	HTTPHost           string
-	HTTPPort           int
-	APIToken           string
-	KafkaBrokers       []string
-	KafkaTopic         string
-	KafkaGroup         string
-	KafkaCommitTimeout time.Duration
-	VMURL              string
-	VMUsername         string
-	VMPassword         string
-	VMTimeout          time.Duration
-	RetryMin           time.Duration
-	RetryMax           time.Duration
-	ReadinessTimeout   time.Duration
-	ShutdownTimeout    time.Duration
-	FutureSkew         time.Duration
-	MaxRecordBytes     int
-	MaxOutputBytes     int
+	HTTPHost             string
+	HTTPPort             int
+	APIToken             string
+	KafkaBrokers         []string
+	KafkaTopic           string
+	KafkaGroup           string
+	KafkaCommitTimeout   time.Duration
+	VMURL                string
+	VMUsername           string
+	VMPassword           string
+	VMTimeout            time.Duration
+	ElasticsearchURL     string
+	ElasticsearchTimeout time.Duration
+	RetryMin             time.Duration
+	RetryMax             time.Duration
+	ReadinessTimeout     time.Duration
+	ShutdownTimeout      time.Duration
+	FutureSkew           time.Duration
+	MaxRecordBytes       int
+	MaxOutputBytes       int
 }
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
@@ -57,7 +59,8 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		HTTPHost: get("MARSHALLER_HTTP_HOST", "127.0.0.1"), APIToken: token,
 		KafkaTopic: get("MARSHALLER_KAFKA_TOPIC", Topic), KafkaGroup: get("MARSHALLER_KAFKA_GROUP", Group),
 		VMURL: get("MARSHALLER_VM_URL", "http://127.0.0.1:8428"), VMUsername: get("MARSHALLER_VM_USERNAME", "gopulse-marshaller"), VMPassword: password,
-		MaxRecordBytes: MaxRecordBytes, MaxOutputBytes: MaxOutputBytes,
+		ElasticsearchURL: get("MARSHALLER_ELASTICSEARCH_URL", "http://127.0.0.1:9200"),
+		MaxRecordBytes:   MaxRecordBytes, MaxOutputBytes: MaxOutputBytes,
 	}
 	ip := net.ParseIP(cfg.HTTPHost)
 	if ip == nil || !ip.IsLoopback() {
@@ -82,6 +85,15 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err := validateVMURL(cfg.VMURL); err != nil {
 		return Config{}, err
 	}
+	if err := validateOrigin("MARSHALLER_ELASTICSEARCH_URL", cfg.ElasticsearchURL); err != nil {
+		return Config{}, err
+	}
+	if get("MARSHALLER_LOG_TEMPLATE", "gopulse-logs-v1-template") != "gopulse-logs-v1-template" {
+		return Config{}, errors.New("MARSHALLER_LOG_TEMPLATE must be gopulse-logs-v1-template")
+	}
+	if get("MARSHALLER_LOG_INDEX_PREFIX", "gopulse-logs-v1-") != "gopulse-logs-v1-" {
+		return Config{}, errors.New("MARSHALLER_LOG_INDEX_PREFIX must be gopulse-logs-v1-")
+	}
 	if cfg.VMUsername == "" || strings.ContainsAny(cfg.VMUsername, "\r\n:") {
 		return Config{}, errors.New("MARSHALLER_VM_USERNAME is invalid")
 	}
@@ -95,6 +107,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}{
 		{&cfg.KafkaCommitTimeout, "MARSHALLER_KAFKA_COMMIT_TIMEOUT", "3s", 100 * time.Millisecond, 10 * time.Second},
 		{&cfg.VMTimeout, "MARSHALLER_VM_TIMEOUT", "3s", 100 * time.Millisecond, 10 * time.Second},
+		{&cfg.ElasticsearchTimeout, "MARSHALLER_ELASTICSEARCH_TIMEOUT", "3s", 100 * time.Millisecond, 10 * time.Second},
 		{&cfg.RetryMin, "MARSHALLER_RETRY_MIN", "250ms", 10 * time.Millisecond, 10 * time.Second},
 		{&cfg.RetryMax, "MARSHALLER_RETRY_MAX", "5s", 100 * time.Millisecond, time.Minute},
 		{&cfg.ReadinessTimeout, "MARSHALLER_READINESS_TIMEOUT", "2s", 100 * time.Millisecond, 10 * time.Second},
@@ -148,17 +161,21 @@ func parseBrokers(value string) ([]string, error) {
 	return out, nil
 }
 func validateVMURL(raw string) error {
+	return validateOrigin("MARSHALLER_VM_URL", raw)
+}
+
+func validateOrigin(key, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return errors.New("MARSHALLER_VM_URL must be an HTTP origin without credentials, query, or fragment")
+		return fmt.Errorf("%s must be an HTTP origin without credentials, query, or fragment", key)
 	}
 	host := u.Hostname()
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() {
-		return errors.New("MARSHALLER_VM_URL must use a loopback IP address")
+		return fmt.Errorf("%s must use a loopback IP address", key)
 	}
 	if u.Port() == "" || parseInt(u.Port(), 1, 65535) == 0 {
-		return errors.New("MARSHALLER_VM_URL must include a valid port")
+		return fmt.Errorf("%s must include a valid port", key)
 	}
 	return nil
 }
