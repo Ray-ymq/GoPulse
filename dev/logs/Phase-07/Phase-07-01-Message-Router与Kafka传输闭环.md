@@ -7,7 +7,7 @@
 - 开发分支：`develop/1.4.1`
 - 基线：`origin/main` at `b2fe9f005d389ff2855dd8a2af87c7df2058a92c`
 - 执行环境：WSL2 Linux filesystem `/home/ray/GoPulse`，Go `1.26.7`，Docker Engine `29.7.2`，Docker Compose `v5.5.0`
-- 本地状态：实现与固定本地验收已完成；远程 push gates、自动 Pull Request 和合入状态在提交/推送后补充。
+- 完成状态：开发提交经远程固定门禁通过，PR #68 已于 2026-09-03 合入 `main`，合入提交为 `66c02e3762bd2fc95dd51d3460430c8a0f5064cd`。
 
 开始前工作区存在用户未跟踪文件 `使用指南.md`。本批未读取、修改、暂存或提交该文件。
 
@@ -133,4 +133,4 @@
 - 单节点、PLAINTEXT、1 partition / replication factor 1 仅用于本地开发和验收，不代表生产 Kafka 拓扑。
 - 没有 SASL/TLS、多 broker、Schema Registry、多 Topic、持久去重、磁盘 spool、重放、transaction、Marshaller 或 VictoriaMetrics。
 - 相同 `message_id` 可能存在多条 Kafka record；Phase 8 正式 Consumer 必须按交接契约处理潜在重复。
-- 本记录的“本批完成”状态仍受远程 push gates、Pull Request 合入 `main` 和远程版本状态约束。
+- 2026-09-04 Phase 7 Review 发现的严格 schema、Producer 缓冲和验收安全问题不回写为本批当时已完成事实，由 Phase-07-03 / `1.4.3` 整改并记录。
