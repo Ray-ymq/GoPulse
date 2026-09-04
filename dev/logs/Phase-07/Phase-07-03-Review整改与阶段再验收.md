@@ -9,7 +9,7 @@
 - Review 文档提交：`2fb7105`（`docs: add Phase 7 implementation review`）
 - 执行日期：2026-09-04
 - 执行环境：WSL2 Linux filesystem `/home/ray/GoPulse`，Go `1.26.7`，Node.js `24.20.0`，npm `11.19.0`，Docker `29.7.2` / Compose `v5.5.0`
-- 完成状态：本地实现和固定验收完成；远程 push gates、自动 Pull Request 与合入状态待推送后补充。
+- 完成状态：本地实现和固定验收完成；源提交 `31ecc90` 通过 9 项远程 checks，PR #71 已以提交 `60f9aa8` 合入 `main`。
 
 开始和结束时工作区均存在用户未跟踪文件 `使用指南.md`。本批未读取、修改、暂存或提交该文件。
 
@@ -101,4 +101,4 @@
 
 - Kafka 单节点 PLAINTEXT、1 partition / replication factor 1 仍仅用于本地开发与验收。
 - HTTP 调用在确认前取消或超时时仍是“不确定写入”语义；record 可能最终写入，调用方不得把非 `202` 当作确定未写入，Phase 8 Consumer 仍需按 `message_id` 处理潜在重复。
-- 本地整改已完成，但远程 push gates、Pull Request、合入提交和远程版本状态尚未发生；这些事实不能在本记录中提前标记为完成。
+- 本批无未完成的远程收口事项；Kafka 单节点和不确定写入等产品边界按上述后续事项交给 Phase 8。

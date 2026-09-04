@@ -55,27 +55,25 @@
 ### 3.3 映射、异常过滤与继续消费
 
 - 对真实 success/up0 时序核对 metric name、有限 value、Envelope Unix 毫秒、固定 source/target 标签和原 `mode|db` 标签；确认不存在 message ID、plugin version、scrape status、kind、partition/offset 等额外标签。
-- 超限、坏 UTF-8/JSON、重复/未知/缺失字段、尾随 token、非法 schema/type/source/timestamp、null、非法 status/family/kind/label/value、重复 sample 和集合不完整的全集由 Phase-08-01 最终提交上的 Marshaller unit/fake-writer 测试证明；revoke/lost、commit 失败和延迟响应由 Phase-08-02 的确定性状态机测试证明，不在真实 Kafka 端到端层重复枚举。
+- 超限、坏 UTF-8/JSON、重复/未知/缺失字段、尾随 token、非法 schema/type/source/timestamp、null、非法 status/family/kind/label/value、重复 sample 和集合不完整的全集，以及 revoke/lost、commit 失败和延迟响应的确定性状态机测试，均由 Phase-08-01 最终提交证明，不在真实 Kafka 端到端层重复枚举。
 - 在本次 offset 范围内，受控 fixture producer 只注入三个代表：一个结构错误、一个 key/ID 不符和一个 payload/sample 契约错误。每类都必须有“未调用/未新增 VM 时序点”和“对应 offset 已提交/随后真实合法消息已写入”两类证据；只看日志或进程存活不足。
 - 注入异常后再由真实 Redis/Monitor/Router 产生合法消息，证明同一 partition 没有被毒消息永久阻塞。
 - 核对永久异常日志只包含固定 reason code 和有限传输关联信息，不包含 record value、标签全集、VM 响应、凭据或内部 URL。
 
 ### 3.4 重复投递、commit 失败与进程恢复
 
+- Phase-08-02 最终提交已记录且代码、配置、依赖和环境未变化时，本节直接引用其重复、commit 失败和进程恢复证据，不为收口机械重跑。
 - 保存一条合法真实 Envelope 的原始 Kafka key/value 与第一次写入的时序集合；通过独立 fixture producer 原样重放相同 key/value。
 - 证明两次处理生成相同 metric names、labels、values 和 Unix 毫秒 timestamp；在 1ms dedup 设置下，窄时间窗查询每条时序只有一个有效点。
-- 核对并执行 Phase-08-02 已交付的定向状态机测试：通过注入 Committer 确定性模拟 VictoriaMetrics HTTP 接受后 Kafka commit 失败，并通过注入 ownership lease 模拟 revoke/lost 与延迟响应竞态；若代码、依赖和环境未变化可引用仍有效结果，发生相关变化时只重跑受影响测试。测试接口不得暴露为生产 HTTP 或普通运行配置。
-- 真实端到端只执行一个可确定观察的进程恢复场景：停止 VictoriaMetrics、产生合法 record、确认正式 group committed offset 未推进后终止 Marshaller；恢复同一 VM/volume 并重启 Marshaller，确认从 committed offset 重取、最终查询成功并提交。不得依赖 shell 时序猜测“恰好处于 commit 前”。
+- 核对 Phase-08-01 已交付的定向状态机测试：通过注入 Committer 确定性模拟 VictoriaMetrics HTTP 接受后 Kafka commit 失败，并通过注入 ownership lease 模拟 revoke/lost 与延迟响应竞态；若代码、依赖和环境未变化可引用仍有效结果，发生相关变化时只重跑受影响测试。测试接口不得暴露为生产 HTTP 或普通运行配置。
+- 只有相关代码、配置、依赖或环境变化时，才重跑一个可确定观察的进程恢复场景：停止 VictoriaMetrics、产生合法 record、确认正式 group committed offset 未推进后终止 Marshaller；恢复同一 VM/volume 并重启 Marshaller，确认从 committed offset 重取、最终查询成功并提交。不得依赖 shell 时序猜测“恰好处于 commit 前”。
 - 明确区分：相同 record 的确定性重放可稳定查询；不同 message ID 或不同 timestamp 的重复采集仍是不同样本；系统仍是 at-least-once，不写 exactly-once 结论。
 
 ### 3.5 Kafka、VictoriaMetrics 与 Marshaller 故障恢复
 
-- **停止 VictoriaMetrics**：当前合法 record 不提交，Marshaller `/health=200`、`/ready=503`，内存只保留当前 record，重试/日志有界；Backend readiness 与代表性社交 API 继续工作。
-- **恢复同一 VictoriaMetrics project/volume**：常规故障场景不重启 Marshaller，等待 readiness 恢复、原 record 获得 HTTP acceptance、查询可见、offset 提交和后续 record 继续处理；第 3.4 节另以一次明确未提交后的进程重启证明重取。
-- **停止 Kafka**：Marshaller health 保持存活、ready 失败并有界重连；Router/Monitor 按 Phase 7 语义退化，Backend/RabbitMQ 业务能力不受 Kafka依赖。
-- **恢复同一 Kafka、Topic和 group**：不重启 Router、Monitor 或 Marshaller，确认新消息继续写入/消费且 committed offset 连续。
-- **停止/重启 Marshaller**：上游 Monitor/Router/Kafka 继续运行并形成积压；恢复正式 group 后从 committed offset 继续，不按“过去 24 小时”丢弃合法历史消息。
-- **有界关闭**：真实链路在空闲和 VM 退避两种代表性状态发送 SIGTERM；处理、Kafka 不可用、revoke/lost 和提交竞态由最终提交上的确定性状态机测试覆盖。两层共同确认停止新 poll、取消请求/退避、只在 ownership 有效时提交已接受结果并在 shutdown timeout 内退出。
+- Phase-08-02 已通过的 VM 同进程恢复、Kafka 同 Topic/group 恢复、Marshaller 积压/重启和有界关闭证据，在相关代码、配置、依赖和环境未变化时直接引用。
+- 本批只在第 3.6 节业务/访问隔离矩阵中选择一个代表性 Kafka、VM 或 Marshaller 故障窗口，同时证明内部 readiness 退化、业务继续和资源归属；这是新的跨组件证据，不重复所有组件级故障。
+- 若 08-03 的阻断修复改变了 Consumer、Writer、Compose、恢复脚本或相关依赖，只重跑受影响的 Phase-08-02 场景和定向测试。
 
 ### 3.6 内部访问、用户态和业务隔离
 
@@ -153,8 +151,8 @@ frontend/package-lock.json
 3. 执行 `verify-marshaller.sh --self-test`，证明 token、URL、Topic/group、查询白名单、PID、project/container/volume、port 和清理目标负向保护有效。
 4. 执行第 3.2 节真实 success、target unavailable 和恢复闭环，保存有限 message ID、offset、timestamp 窗口、查询及 Redis/Exporter 对应证据。
 5. 执行第 3.3 节映射与永久异常矩阵，证明坏消息不写入、offset 被跳过且后续真实合法消息继续。
-6. 执行第 3.4 节真实重复/明确未提交进程恢复，并运行注入 Committer/ownership lease 的确定性状态机测试，证明确定性重放、查询稳定、无越过提交并保留 at-least-once 描述。
-7. 执行第 3.5 节 Kafka/VM/Marshaller 故障、同进程/同 group 恢复、积压和四种 shutdown 场景。
+6. 核对并引用 Phase-08-01/02 的 commit 确定性、重复与进程恢复证据；只在相关实现或环境变化时重跑受影响场景。
+7. 在第 3.6 节业务/访问隔离矩阵中执行一个代表性可观测故障窗口，并引用未变化的其他 Phase-08-02 故障恢复证据。
 8. 执行第 3.6 节内部访问和社交/RabbitMQ/搜索代表回归，确认可观测故障不形成越权或业务依赖。
 9. 执行隔离日常生命周期与第 3.7 节全部前后资源快照，确认 verify 只读、down 保留日常 volume且隔离清理无残留。
 10. 只对观察到的阻断失败做有限诊断与最小修复；相关代码/配置变化后只重跑受影响项。
@@ -178,7 +176,7 @@ frontend/package-lock.json
 
 ## 8. 固定验证命令与必要回归
 
-最终 diff 上按影响执行；代码、配置、依赖或环境未变化且 Phase-08-01 已记录成功的 package 检查可引用，不因收口机械重复。阶段主矩阵、业务回归与治理门禁必须实际完成：
+最终 diff 上按影响执行；代码、配置、依赖或环境未变化且 Phase-08-01/02 已记录成功的 package 和组件故障检查可引用，不因收口机械重复。阶段主矩阵、业务回归与治理门禁必须实际完成：
 
 ```bash
 (cd marshaller && test -z "$(gofmt -l .)")
@@ -214,7 +212,7 @@ scripts/verify-business.sh
 git diff --check
 ```
 
-`scripts/verify-marshaller.sh` 必须在同一默认执行中覆盖真实 success/up0/recovery、完整指标查询、三类代表性异常继续、真实重复、VM 明确未提交后的进程恢复、Kafka/VM/Marshaller 故障恢复和资源清理。精确 commit/rebalance 竞态由同一最终提交上的注入 Committer/ownership lease 定向测试覆盖；两层证据不得互相替代。`verify-business.sh` 是可观测故障下普通用户/admin、RabbitMQ、搜索和日志必要回归。
+`scripts/verify-marshaller.sh` 仍是 Phase 8 组件级主验收入口，但 08-03 不强制重跑 Phase-08-02 已在未变化最终提交上通过的重复、commit/rebalance、VM 未提交进程恢复和 Kafka/VM/Marshaller 组件故障。本批必须实际执行真实 success/up0/recovery、完整指标查询、三类代表性异常继续，以及一个与 `verify-business.sh` 结合的代表性可观测故障窗口。精确 commit/rebalance 竞态继续由注入 Committer/ownership lease 定向测试证明。
 
 完整验收只在 WSL2 Linux filesystem、真实 Kafka/VictoriaMetrics 和强归属隔离资源执行。环境缺失时不得标记完成，也不得用 mock consumer/writer、静态 Envelope、直接 Kafka produce 或直接 VM import 替代主链路。
 

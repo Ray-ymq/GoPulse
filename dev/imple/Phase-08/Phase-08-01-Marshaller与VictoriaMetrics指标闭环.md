@@ -14,12 +14,12 @@
           → VictoriaMetrics → 受控指标查询
 ```
 
-本批必须是可独立运行和验证的最小纵向能力。不得只建立 Consumer、只转换 fixture、只手工调用 VictoriaMetrics import、只证明容器健康，或把真实上游、手动 offset、永久异常继续和查询推迟给 Phase-08-02。完整 ownership/rebalance fencing、commit 失败重取、Kafka/VM/进程故障恢复和运维加固明确属于 Phase-08-02。
+本批必须是可独立运行、验证和安全合入的最小纵向能力。不得只建立 Consumer、只转换 fixture、只手工调用 VictoriaMetrics import、只证明容器健康，或把真实上游、手动 offset、永久异常继续、generation ownership fencing、安全 commit 和查询推迟给 Phase-08-02。真实 broker rebalance、Kafka/VM/进程故障恢复和运维加固属于 Phase-08-02。
 
 ## 2. 前置条件
 
-- Phase-07-01 和 Phase-07-02 均已合入主远程 `main`，远程固定门禁成功，根与 Frontend 版本为 `1.4.2`。
-- Phase 7 实施记录和真实代码确认 Topic 为 `gopulse-observability-v1`，record key 为 `message_id`，value 为 Router 未改写的原始 Envelope v1 JSON。
+- Phase-07-01、Phase-07-02 和 Phase-07-03 均已合入主远程 `main`；PR #71 的 9 项远程 checks 通过，合入提交为 `60f9aa8`，根与 Frontend 版本为 `1.4.3`。
+- Phase 7 三份实施记录和真实代码确认 Topic 为 `gopulse-observability-v1`，record key 为 `message_id`，value 为 Router 未改写的原始 Envelope v1 JSON。
 - 已确认 Phase 7 Router 的 Kafka 客户端版本、broker 配置、Topic 创建、record 大小、不确定写入和恢复语义；如与 Phase 8 规划输入不一致，先更新总方案和本文。
 - 从最新主远程 `main` 创建 `develop/1.5.1`，不沿用 `update` 或 Phase 7 分支。
 - 实施与真实验收在 WSL2 Linux filesystem 执行，Docker daemon 唯一且资源可确认归属。
@@ -32,7 +32,7 @@
 - 建立独立 Go module `github.com/Ray-ymq/GoPulse/marshaller`，包含 `cmd/marshaller`、配置、Envelope、Consumer、metrics 校验/转换、VictoriaMetrics client 和 HTTP server。
 - Go 版本与实施时仓库基线一致；Kafka 客户端与 Phase 7 Router 使用同一已锁定 franz-go 版本，不建立第二套客户端选型。
 - 使用 Schema v1 单行结构化日志，固定 `service=marshaller`，module 至少为 `lifecycle`、`consumer`、`transform`、`storage` 和 `http`。
-- 实现基本信号处理、停止新 poll、取消在途操作、HTTP shutdown 和 Kafka client 有界关闭；故障退避、rebalance 与 commit 竞态下的完整关闭语义由 Phase-08-02 加固。
+- 实现信号处理、停止新 poll、取消 ownership lease/退避/在途操作、只在 generation 仍有效时提交已接受结果、HTTP shutdown 和 Kafka client 有界关闭。
 - `/health` 只表达进程存活；Bearer 保护的 `/ready` 有界检查 Kafka、Topic 和 VictoriaMetrics。依赖暂不可用时 health 保持成功、ready 返回有限 `503` 状态。
 - 配置非法在监听或连接前安全退出；配置合法但依赖暂不可用时进程保持可恢复。
 
@@ -41,9 +41,10 @@
 - 固定消费 Topic `gopulse-observability-v1`，正式 group `gopulse-marshaller-metrics-v1`，初次无 committed offset 从 earliest 开始。
 - 禁止自动建 Topic和自动提交；首版按 partition 顺序、单 record 在途处理，不增加无界 channel、goroutine fan-out 或本地 spool。
 - record key 必须是 32 位小写十六进制并逐字等于 Envelope `message_id`；record value 再次限制在 1 MiB。
-- 本批验收固定单 Consumer、每 partition 单 record 在途处理。合法 record 只有在封闭校验/转换完成、VictoriaMetrics 返回 `204` 空响应且当前 assignment 仍存在后才提交对应 offset；该响应只代表 HTTP transport acceptance，不宣称逐 sample 持久化确认。
-- 永久无效 record 记录固定 reason code 后提交并继续下一条。VictoriaMetrics 网络、timeout、认证和非成功响应属于暂时失败，不提交当前 record，在当前 assignment 下有界退避重试或在取消时停止。Kafka 读取/提交失败不得伪装为成功。
-- Consumer、Committer、Writer 和 assignment identity 预留可注入接口，但 revoke/lost generation fencing、延迟 `204` 竞态、commit 失败后安全重取与 broker restart 验收属于 Phase-08-02。本批不宣称 exactly-once 或已完成全部 rebalance 安全性。
+- 本批验收固定单 Consumer、每 partition 单 record 在途处理，但每条处理必须绑定当前 assignment generation 的 ownership lease。合法 record 只有在封闭校验/转换完成、VictoriaMetrics 返回 `204` 空响应且 lease 仍有效后才提交对应 offset；该响应只代表 HTTP transport acceptance，不宣称逐 sample 持久化确认。
+- 永久无效 record 也只在 lease 仍有效时记录固定 reason code、提交并继续下一条。VictoriaMetrics 网络、timeout、认证和非成功响应属于暂时失败，不提交当前 record，在当前 lease 下有界退避重试或在取消时停止。Kafka 读取/提交失败不得伪装为成功。
+- `OnPartitionsRevoked`/`OnPartitionsLost` 立即取消旧 lease、写入、退避和提交；旧 generation 即使稍后收到 `204` 也不得提交。HTTP acceptance 后 commit 失败时停止推进该 partition，不提交后续 record。Consumer、Committer、Writer 和 ownership 必须可注入确定性验证这些正确性；真实 broker restart/rebalance 恢复矩阵留给 Phase-08-02。
+- 不得用 `BlockRebalanceOnPoll` 跨越 VictoriaMetrics 写入或无限退避，不得为维持 poll 丢弃已缓冲 record。本批不宣称 exactly-once。
 
 ### 3.3 Envelope v1 与 metrics payload 第二次校验
 
@@ -128,16 +129,16 @@ dev/logs/Phase-08/Phase-08-01-Marshaller与VictoriaMetrics指标闭环.md
 
 ## 6. 详细实施步骤
 
-1. 核对 Phase 7 两份实施记录、合入提交、远程 checks、真实 Kafka/Router 代码和 record 样本；保存 Git 与日常资源快照。
+1. 核对 Phase 7 三份实施记录、PR #71 / `60f9aa8`、远程 checks、真实 Kafka/Router 代码和 record 样本；保存 Git 与日常资源快照。
 2. 创建 Marshaller module 和严格配置加载，优先完成 token、地址、超时、消息/输出上限、brokers、Topic/group 和 URL 的定向测试。
 3. 实现有界严格 Envelope decoder、重复 key 检测、key/ID 一致性和完整 metrics payload validator；以 fake writer 证明永久错误不会调用存储。
 4. 实现稳定 transformer、标签转义、数值/时间戳和正文上限；用 golden 测试证明 map 顺序及同一 record 重放不改变 bytes。
 5. 实现 VictoriaMetrics client、成功状态判定、安全错误和 timeout/redirect/body 边界；以 HTTP fixture 定向验证。
-6. 实现 franz-go 正式 Consumer、手动提交、成功/永久无效/暂时写入失败的基本处理回路、assignment 身份和有界 shutdown；用可注入 Consumer/Committer/Writer 验证写入前不提交、永久错误可越过、暂时写入错误保留 offset，并为 Phase-08-02 的 generation lease 和竞态测试保留 seam。
+6. 实现 franz-go 正式 Consumer、手动提交、generation ownership lease、成功/永久无效/暂时写入失败处理、revoke/lost 取消、commit 失败停止推进和有界 shutdown；用可注入 Consumer/Committer/Writer/ownership 确定性验证写入前不提交、旧 generation 不提交、暂时失败保留 offset 和后续 record 不被越过。
 7. 在 Compose 加入固定 VM 服务、loopback、Basic Auth、dedup、健康检查和 volume；对真实 Kafka+VM 执行定向集成验证。
 8. 实现 Marshaller `/health`、鉴权 `/ready` 和结构化日志，确认 Cookie/JWT 不构成内部身份且日志无 payload/凭据。
 9. 更新 `.env.example`、`dev.sh`、`verify.sh`、`down.sh` 的最小配置、端口、启动/关闭顺序和 PID/container/volume 归属；恢复与异常清理语义在 Phase-08-02 加固。
-10. 建立 `verify-marshaller.sh` 自检和默认模式，完成真实 Redis success、target unavailable/恢复、一个代表性永久坏消息后继续、`vm_rows_invalid_total` 与基本查询矩阵；解析器错误全集保留在 unit/fake-writer 层，重复、commit/rebalance 和 Kafka/VM/进程故障矩阵由 Phase-08-02 执行。
+10. 建立 `verify-marshaller.sh` 自检和默认模式，完成真实 Redis success、target unavailable/恢复、一个代表性永久坏消息后继续、`vm_rows_invalid_total` 与基本查询矩阵；解析器错误全集与精确 ownership/commit 竞态保留在 unit/定向集成层，真实重复、broker rebalance 和 Kafka/VM/进程故障矩阵由 Phase-08-02 执行。
 11. 增加 Marshaller CI 和脚本/Compose 门禁，更新 README；最终 diff 稳定后执行第 8 节固定验证一次。
 12. 更新根与 Frontend 版本为 `1.5.1`，创建本批实施记录，只暂存本批文件，提交并创建 Pull Request。
 13. 查询并记录真实远程 checks 与合入状态；未合入或失败时保持本批未完成。
@@ -147,7 +148,7 @@ dev/logs/Phase-08/Phase-08-01-Marshaller与VictoriaMetrics指标闭环.md
 - **自动提交造成写入前丢消息**：客户端显式禁用自动提交；测试写入阻塞/失败并断言 committed offset 不推进。
 - **毒消息永久卡住分区**：永久错误与临时存储错误由固定分类分离；永久错误不调用 VM、记录一次后提交并继续合法 record。
 - **暂时写入错误被错误跳过**：网络、timeout、认证和任何非成功响应均不进入永久分类；fake writer 证明 offset 不提交。
-- **拆批造成可靠性假象**：本批只宣称单 Consumer 最小闭环和确定性转换；commit 失败、revoke/lost、延迟响应和 broker restart 在总方案中仍是 Phase-08-02 的强制验收。
+- **拆批造成可靠性假象**：本批必须用确定性测试关闭 commit 失败、revoke/lost 和延迟响应的正确性；只将真实 broker restart/rebalance 恢复与运维矩阵留给 Phase-08-02。
 - **204 掩盖逐行解析失败**：运行时只把它视为 transport acceptance；封闭转换器以 unit/golden 保证正文语法，真实验收对比 `vm_rows_invalid_total` 并查询全部预期时序。
 - **高基数标签污染存储**：转换器只允许 source、target_id 与上游 `mode|db`，明确拒绝保留标签冲突，不加入 message/offset/version。
 - **历史积压被年龄规则丢弃**：只拒绝不合法或过度超前 timestamp，不以固定过去窗口永久跳过 Kafka 积压。
@@ -183,16 +184,16 @@ scripts/verify-exporter.sh --self-test
 git diff --check
 ```
 
-Marshaller 单元/定向集成测试固定覆盖：严格 Envelope/key、完整 success/up0 集合、标签转义、时间/数值/排序、输出上限、成功/永久无效/暂时写入失败的基本 offset 决策、HTTP transport acceptance、health/readiness 与正常有界 shutdown。更多排列只在真实失败证明需要时增加。
+Marshaller 单元/定向集成测试固定覆盖：严格 Envelope/key、完整 success/up0 集合、标签转义、时间/数值/排序、输出上限、三类 offset 决策、HTTP acceptance/commit 失败、revoke/lost ownership、延迟响应竞态、退避取消、health/readiness 与有界 shutdown。更多排列只在真实失败证明需要时增加。
 
-`scripts/verify-marshaller.sh` 是本批真实最小纵向链路、一个代表性永久异常后继续和真实查询的主证据。Phase 7/6/5 self-test 只保护已有交接和基本资源安全；commit/ownership 竞态、重复投递、Kafka/VM/进程恢复和完整运维资源归属由 Phase-08-02 执行，完整社交业务回归由 Phase-08-03 执行。
+`scripts/verify-marshaller.sh` 是本批真实最小纵向链路、一个代表性永久异常后继续和真实查询的主证据；commit/ownership 竞态由本批确定性测试证明。Phase 7/6/5 self-test 只保护已有交接和基本资源安全；真实重复投递、broker rebalance、Kafka/VM/进程恢复和完整运维资源归属由 Phase-08-02 执行，完整社交业务回归由 Phase-08-03 执行。
 
 ## 9. 验收标准
 
 - Marshaller 是独立 Go module 和正式 Consumer，可在正常路径健康启动、处理并有界关闭；配置非法时在连接/监听前退出。
 - key/ID、Envelope、payload、状态、family、kind、labels、values 和样本集合均经严格第二次校验；永久异常不调用 VM且不阻断后续合法消息。
 - 合法 record 确定性转换为固定低基数时序、Envelope Unix 毫秒和有限 Prometheus text；同一 record 重放正文逐 byte 相同。
-- 封闭转换完成且 VictoriaMetrics HTTP 接受后才提交合法 record；永久无效 record 不写入并安全继续，暂时写入失败不提交，验收窗口内 `vm_rows_invalid_total` 不增加。
+- 封闭转换完成、VictoriaMetrics HTTP 接受且 generation lease 仍有效后才提交合法 record；永久无效 record 不写入并只在 ownership 有效时安全继续；暂时写入失败、commit 失败或 lost ownership 不提交且不越过后续 record，验收窗口内 `vm_rows_invalid_total` 不增加。
 - 真实 Redis success 和 target unavailable/recovery 均经过完整上游并可查询；至少看到状态、连接、命令请求、CPU、内存和 keyspace。
 - 同一 record 的 transformer 输出逐 byte 相同，文档、代码和日志均未把 at-least-once 描述为 exactly-once；真实重复与去重查询由 Phase-08-02 验收。
 - Kafka、Marshaller 和 VM 只限内部/loopback，Cookie/JWT 无法替代内部身份，日志和响应不泄漏凭据、payload 或内部连接信息。
@@ -201,7 +202,7 @@ Marshaller 单元/定向集成测试固定覆盖：严格 Envelope/key、完整 
 
 ## 10. 明确完成条件
 
-只有正式 Consumer、手动 offset、严格第二次校验、确定性转换、VM 基本写入/查询、真实上游、代表性永久异常后继续、暂时写入失败不提交、内部身份和最小资源安全全部通过，且本批 Pull Request 已合入主远程 `main`、远程门禁成功，才可标记 Phase-08-01 完成。直接 import、静态 JSON、mock Kafka/writer 或只通过 unit test 均不足以完成本批。
+只有正式 Consumer、手动 offset、generation ownership fencing、commit 失败不越过、严格第二次校验、确定性转换、VM 基本写入/查询、真实上游、代表性永久异常后继续、暂时写入失败不提交、内部身份和最小资源安全全部通过，且本批 Pull Request 已合入主远程 `main`、远程门禁成功，才可标记 Phase-08-01 完成。直接 import、静态 JSON、mock Kafka/writer 或只通过 unit test 均不足以完成本批。
 
 ## 11. 下一批交接
 
@@ -210,5 +211,5 @@ Marshaller 单元/定向集成测试固定覆盖：严格 Envelope/key、完整 
 - 独立严格 metrics Envelope v1 decoder/validator，以及确定性 Prometheus text transformer。
 - 单节点 VictoriaMetrics 固定镜像、loopback、内部 Basic、持久 volume、1ms dedup、写入和内部查询契约。
 - 真实 success/up0/recovery、一个代表性坏消息后继续和基本查询的本批证据。
-- 可注入 Consumer/Committer/Writer 和 assignment identity seam，以及尚未宣称完成的 commit/rebalance、Kafka/VM/进程恢复、重复与异常清理边界。
-- Phase-08-02 在该基线上交付可靠消费、故障恢复与运维实现；Phase-08-03 再执行完整业务/访问隔离和 Milestone 2 远程收口。
+- 可注入 Consumer/Committer/Writer/ownership seam，以及已通过确定性测试的 generation lease、revoke/lost、commit 失败和延迟响应语义；尚未宣称完成的是真实 broker rebalance、Kafka/VM/进程恢复、重复和异常清理。
+- Phase-08-02 在该正确性基线上交付真实故障恢复与运维实现；Phase-08-03 再执行完整业务/访问隔离和 Milestone 2 远程收口。
