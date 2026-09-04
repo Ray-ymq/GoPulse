@@ -91,10 +91,11 @@ info 'Starting isolated infrastructure.'
 docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" up -d --wait
 docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --create --if-not-exists --topic gopulse-observability-v1 --partitions 1 --replication-factor 1 >/dev/null
 mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/plugins"
-(cd "$REPO_ROOT/backend"&&go build -o "$TEMP_DIR/bin/backend" ./cmd/server&&go build -o "$TEMP_DIR/bin/migrate" ./cmd/migrate&&go build -o "$TEMP_DIR/bin/admin-role" ./cmd/admin-role)
+(cd "$REPO_ROOT/backend"&&go build -o "$TEMP_DIR/bin/backend" ./cmd/server&&go build -o "$TEMP_DIR/bin/business-worker" ./cmd/business-worker&&go build -o "$TEMP_DIR/bin/search-indexer" ./cmd/search-indexer&&go build -o "$TEMP_DIR/bin/search-reindex" ./cmd/search-reindex&&go build -o "$TEMP_DIR/bin/migrate" ./cmd/migrate&&go build -o "$TEMP_DIR/bin/admin-role" ./cmd/admin-role)
 (cd "$REPO_ROOT/router"&&go build -o "$TEMP_DIR/bin/router" ./cmd/router)
 (cd "$REPO_ROOT/monitor"&&go build -o "$TEMP_DIR/bin/monitor" ./cmd/monitor)
 (cd "$REPO_ROOT/marshaller"&&go build -o "$TEMP_DIR/bin/marshaller" ./cmd/marshaller)
+LOGGING=(LOG_MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN" LOG_SHIP_REQUEST_TIMEOUT=500ms LOG_SHIP_QUEUE_CAPACITY=64 LOG_SHIP_RETRY_MIN=20ms LOG_SHIP_RETRY_MAX=100ms LOG_SHIP_SHUTDOWN_TIMEOUT=2s)
 COMMON=(APP_ENV=test MYSQL_HOST=127.0.0.1 MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE=gopulse_logs MYSQL_USER=gopulse MYSQL_PASSWORD="$MYSQL_PASSWORD" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 RABBITMQ_URL="amqp://gopulse:$MYSQL_PASSWORD@127.0.0.1:$RABBIT_PORT/" ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT" AUTH_JWT_SECRET="$JWT_SECRET" AUTH_COOKIE_NAME=gopulse_logs_session AUTH_COOKIE_SECURE=false MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN")
 env "${COMMON[@]}" "$TEMP_DIR/bin/migrate" up >/dev/null
 start(){ local binary=$1 log=$2;shift 2;(exec env "$@" setsid "$binary") >"$log" 2>&1 & local pid=$!;PIDS+=("$pid:$binary");sleep .3;kill -0 "$pid" 2>/dev/null||{ cat "$log" >&2;fail "$binary failed to start";}; }
@@ -105,9 +106,40 @@ start "$TEMP_DIR/bin/marshaller" "$TEMP_DIR/marshaller.log" MARSHALLER_HTTP_HOST
 wait_url "http://127.0.0.1:$MARSHALLER_PORT/ready" "$MARSHALLER_TOKEN"||{ cat "$TEMP_DIR/marshaller.log";fail 'Marshaller not ready'; }
 start "$TEMP_DIR/bin/monitor" "$TEMP_DIR/monitor.log" MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" MONITOR_ROUTER_URL="http://127.0.0.1:$ROUTER_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0
 wait_url "http://127.0.0.1:$MONITOR_PORT/ready" "$MONITOR_TOKEN"||{ cat "$TEMP_DIR/monitor.log";fail 'Monitor not ready'; }
-start "$TEMP_DIR/bin/backend" "$TEMP_DIR/backend.log" "${COMMON[@]}" HTTP_HOST=127.0.0.1 HTTP_PORT="$BACKEND_PORT" LOG_MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN" LOG_SHIP_RETRY_MIN=20ms LOG_SHIP_RETRY_MAX=100ms
+env "${COMMON[@]}" "${LOGGING[@]}" "$TEMP_DIR/bin/search-reindex" --if-missing >"$TEMP_DIR/search-reindex.log" 2>&1||{ cat "$TEMP_DIR/search-reindex.log" >&2;fail 'search-reindex failed'; }
+start "$TEMP_DIR/bin/backend" "$TEMP_DIR/backend.log" "${COMMON[@]}" "${LOGGING[@]}" HTTP_HOST=127.0.0.1 HTTP_PORT="$BACKEND_PORT"
+start "$TEMP_DIR/bin/business-worker" "$TEMP_DIR/business-worker.log" "${COMMON[@]}" "${LOGGING[@]}" BUSINESS_WORKER_RECONNECT_MIN=100ms BUSINESS_WORKER_RECONNECT_MAX=200ms
+start "$TEMP_DIR/bin/search-indexer" "$TEMP_DIR/search-indexer.log" "${COMMON[@]}" "${LOGGING[@]}" SEARCH_INDEXER_RECONNECT_MIN=100ms SEARCH_INDEXER_RECONNECT_MAX=200ms
 wait_url "http://127.0.0.1:$BACKEND_PORT/health"||{ cat "$TEMP_DIR/backend.log";fail 'Backend not healthy'; }
 
+
+mysql_query(){ docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T mysql mysql --user=gopulse --password="$MYSQL_PASSWORD" --batch --skip-column-names gopulse_logs --execute "$1" 2>/dev/null; }
+json_id(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["data"]["id"])' "$1"; }
+wait_admin_log(){
+  local service=$1 event_id=$2 message=$3 status output
+  output="$TEMP_DIR/query-$service.json"
+  for _ in {1..120};do
+    status=$(curl -sS -b "$ADMIN_COOKIE" -o "$output" -w '%{http_code}' "http://127.0.0.1:$BACKEND_PORT/api/v1/observability/logs?service=$service&event_id=$event_id&limit=100")
+    if [[ $status == 200 ]]&&python3 - "$output" "$service" "$event_id" "$message" <<'PYLOG' 2>/dev/null;then return 0;fi
+import json,sys
+rows=json.load(open(sys.argv[1])).get('data',[])
+assert any(row.get('service')==sys.argv[2] and row.get('event_id')==sys.argv[3] and row.get('message')==sys.argv[4] for row in rows)
+assert all(value is not None for row in rows for value in row.values())
+PYLOG
+    sleep .25
+  done
+  cat "$output" >&2 || true
+  return 1
+}
+wait_document(){
+  local id=$1 expected=${2:-1} count=0
+  for _ in {1..120};do
+    count=$(curl -sS "http://127.0.0.1:$ES_PORT/gopulse-logs-v1-read/_search" -H 'Content-Type: application/json' -d "{\"query\":{\"ids\":{\"values\":[\"$id\"]}}}"|python3 -c 'import json,sys;print(json.load(sys.stdin).get("hits",{}).get("total",{}).get("value",0))' 2>/dev/null||echo 0)
+    [[ $count == "$expected" ]]&&return 0
+    sleep .25
+  done
+  return 1
+}
 ADMIN_HEADERS="$TEMP_DIR/admin.headers"; ADMIN_COOKIE="$TEMP_DIR/admin.cookie"; USER_COOKIE="$TEMP_DIR/user.cookie"
 curl -sS -D "$ADMIN_HEADERS" -c "$ADMIN_COOKIE" -H 'Content-Type: application/json' -d '{"username":"logs_admin","password":"logs-password-123"}' "http://127.0.0.1:$BACKEND_PORT/api/v1/auth/register" >"$TEMP_DIR/admin.json"
 REQUEST_ID=$(awk 'BEGIN{IGNORECASE=1}/^X-Request-ID:/{gsub("\r","");print $2}' "$ADMIN_HEADERS"|tail -1)
@@ -128,6 +160,53 @@ PY
   sleep .25
 done
 ((FOUND==1))||{ cat "$TEMP_DIR/query.json" >&2;fail 'Admin query did not observe the HTTP and business logs.'; }
+
+# Real background sources share event IDs with Backend Outbox records.
+curl -sS -b "$USER_COOKIE" -H 'Content-Type: application/json' -d '{"title":"logs background delivery","content":"bounded background logging"}' "http://127.0.0.1:$BACKEND_PORT/api/v1/posts" >"$TEMP_DIR/post.json"
+POST_ID=$(json_id "$TEMP_DIR/post.json")
+for _ in {1..80};do POST_EVENT=$(mysql_query "SELECT event_id FROM business_outbox WHERE event_type='post.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.post_id'))='$POST_ID' ORDER BY id DESC LIMIT 1;"||true); [[ -n $POST_EVENT ]]&&break;sleep .25;done
+[[ $POST_EVENT =~ ^[0-9a-f-]{36}$ ]]||fail 'Post event ID was not created.'
+wait_admin_log backend "$POST_EVENT" 'outbox event published'||fail 'Backend Outbox post log was not queryable.'
+wait_admin_log search-indexer "$POST_EVENT" 'event processed'||fail 'Search Indexer post log was not queryable.'
+
+ACTOR_COOKIE="$TEMP_DIR/actor.cookie"
+curl -sS -c "$ACTOR_COOKIE" -H 'Content-Type: application/json' -d '{"username":"logs_actor","password":"logs-password-123"}' "http://127.0.0.1:$BACKEND_PORT/api/v1/auth/register" >/dev/null
+curl -sS -b "$ACTOR_COOKIE" -H 'Content-Type: application/json' -d '{"content":"background notification"}' "http://127.0.0.1:$BACKEND_PORT/api/v1/posts/$POST_ID/comments" >"$TEMP_DIR/comment.json"
+COMMENT_ID=$(json_id "$TEMP_DIR/comment.json")
+for _ in {1..80};do COMMENT_EVENT=$(mysql_query "SELECT event_id FROM business_outbox WHERE event_type='comment.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.comment_id'))='$COMMENT_ID' ORDER BY id DESC LIMIT 1;"||true); [[ -n $COMMENT_EVENT ]]&&break;sleep .25;done
+[[ $COMMENT_EVENT =~ ^[0-9a-f-]{36}$ ]]||fail 'Comment event ID was not created.'
+wait_admin_log backend "$COMMENT_EVENT" 'outbox event published'||fail 'Backend Outbox comment log was not queryable.'
+wait_admin_log business-worker "$COMMENT_EVENT" 'event processed'||fail 'Business Worker comment log was not queryable.'
+
+# The one-shot command ships lifecycle output without allowing drain status to change its business result.
+REINDEX_FOUND=0
+for _ in {1..80};do
+  status=$(curl -sS -b "$ADMIN_COOKIE" -o "$TEMP_DIR/reindex-query.json" -w '%{http_code}' "http://127.0.0.1:$BACKEND_PORT/api/v1/observability/logs?service=search-reindex&limit=100")
+  if [[ $status == 200 ]]&&python3 - "$TEMP_DIR/reindex-query.json" <<'PYREINDEX' 2>/dev/null;then REINDEX_FOUND=1;break;fi
+import json,sys
+messages={row.get('message') for row in json.load(open(sys.argv[1])).get('data',[])}
+assert 'search reindex started' in messages and messages.intersection({'search reindex completed','search reindex skipped'})
+PYREINDEX
+  sleep .25
+done
+((REINDEX_FOUND==1))||fail 'search-reindex lifecycle logs were not queryable.'
+
+# A permanently invalid Kafka log is committed and does not block the following valid record.
+BAD_ID=11111111111111111111111111111111; GOOD_ID=22222222222222222222222222222222; TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+BAD_ENVELOPE=$(printf '{"schema_version":1,"message_id":"%s","type":"logs","source":"backend","timestamp":"%s","payload":{"invalid":true}}' "$BAD_ID" "$TS")
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ROUTER_TOKEN" -H 'Content-Type: application/json' -H "Idempotency-Key: $BAD_ID" --data-binary "$BAD_ENVELOPE" "http://127.0.0.1:$ROUTER_PORT/internal/v1/messages") == 202 ]]||fail 'Permanent Kafka fixture was not accepted by Router.'
+GOOD_BODY=$(printf '{"log_schema_version":1,"timestamp":"%s","level":"info","service":"backend","module":"lifecycle","message":"backend listening"}' "$TS")
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $INGEST_TOKEN" -H 'Content-Type: application/json' -H "Idempotency-Key: $GOOD_ID" --data-binary "$GOOD_BODY" "http://127.0.0.1:$MONITOR_PORT/internal/v1/logs") == 202 ]]||fail 'Legal continuation fixture was not accepted.'
+wait_document "$GOOD_ID"||fail 'Permanent invalid Kafka record blocked its legal successor.'
+
+# Elasticsearch outage retains the accepted Kafka record until storage recovers.
+RECOVERY_ID=33333333333333333333333333333333; TS=$(date -u +%Y-%m-%dT%H:%M:%SZ); RECOVERY_BODY=$(printf '{"log_schema_version":1,"timestamp":"%s","level":"info","service":"search-reindex","module":"search","message":"search reindex skipped","result":"unchanged","batch_size":500}' "$TS")
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" stop elasticsearch >/dev/null
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $INGEST_TOKEN" -H 'Content-Type: application/json' -H "Idempotency-Key: $RECOVERY_ID" --data-binary "$RECOVERY_BODY" "http://127.0.0.1:$MONITOR_PORT/internal/v1/logs") == 202 ]]||fail 'Log was not accepted while Elasticsearch was unavailable.'
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" start elasticsearch >/dev/null
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" up -d --wait elasticsearch >/dev/null
+wait_document "$RECOVERY_ID"||fail 'Accepted log did not recover after Elasticsearch restart.'
+
 # Controlled same-ID replay proves Elasticsearch idempotency without expanding the public DTO.
 REPLAY_ID=abcdef0123456789abcdef0123456789; TS=$(date -u +%Y-%m-%dT%H:%M:%SZ); BODY=$(printf '{"log_schema_version":1,"timestamp":"%s","level":"info","service":"backend","module":"lifecycle","message":"backend listening"}' "$TS")
 for _ in 1 2;do [[ $(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $INGEST_TOKEN" -H 'Content-Type: application/json' -H "Idempotency-Key: $REPLAY_ID" --data-binary "$BODY" "http://127.0.0.1:$MONITOR_PORT/internal/v1/logs") == 202 ]]||fail 'Replay fixture was not accepted.';done
