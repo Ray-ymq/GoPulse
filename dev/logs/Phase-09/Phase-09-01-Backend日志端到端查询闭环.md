@@ -4,7 +4,7 @@
 - 目标版本：`1.6.1`
 - 开发分支：`develop/1.6.1`
 - 基线：`upstream/main` at `ef8e4b46eec61d4012dcf7b577294f0d21ce8299`，基线版本 `1.5.4`
-- 本地状态：实现与固定本地门禁通过；推送、Pull Request、远程 checks 和合入状态在提交后执行并在最终交付说明中记录
+- 完成状态：本地固定门禁与远程 quality gates 均通过；Pull Request #81 已于 2026-09-04 squash 合入 `main`
 
 ## 1. 实际完成内容
 
@@ -117,11 +117,18 @@ git diff --check
 - `scripts/verify-marshaller.sh`：通过。既有完整真实 metrics success/up0/recovery、三类永久无效 continuation、双成员 rebalance、Kafka/VM 故障恢复、offset 安全和 captured-real replay 均保持通过；本批新增 Elasticsearch readiness 未破坏原验收。
 - 首次 `scripts/verify-logs.sh` 尝试因新增脚本中的 VictoriaMetrics healthcheck 使用了不兼容的 wget 认证参数而失败；改为固定 Basic Authorization header 后重新执行并通过。该失败属于验收脚本问题，不是产品链路失败。
 
+### 3.5 远程门禁与合入
+
+- 实现提交：`5e124f1fbb43272b48dd1b9d21030e0667e60855`，已推送到 `develop/1.6.1`。
+- GitHub Actions `Auto PR and Merge` run `33887552334` 于 2026-09-04 完成，结论为 `success`；其中完整 product quality gates 通过。
+- 自动创建 Pull Request #81，按开发分支规则使用 squash merge 并删除远程 `develop/1.6.1`。
+- 最新 `upstream/main` 为 `66ccb2ea14995a549a7860e5c39f4df4f8791a8c`（`feat: add end-to-end backend log querying (#81)`），根版本为 `1.6.1`。
+
 ## 4. 与方案的差异
 
 - Monitor 与 Marshaller 分别保有职责独立的 Schema v1 validator 实现，而不是跨 Go module 共享内部包；这是为了保持 module/internal 边界和两次独立清洗语义。
 - Backend 查询范围、alias 和 Marshaller template/index prefix 在代码中保持固定常量；对应环境变量只允许方案冻结值，避免形成任意索引或无界查询配置。
-- 本地实施记录在首个实现提交中生成；Pull Request 编号、远程 checks 和合入结果无法在提交前真实记录，将在推送后的交付状态中说明，若需要落库则通过同批次后续文档提交补充。
+- 本地实施记录在首个实现提交中生成；Pull Request、远程 checks 和合入结果在同日通过 `update` 规划分支的后续文档提交补录。
 
 ## 5. 已知限制与后续项
 
