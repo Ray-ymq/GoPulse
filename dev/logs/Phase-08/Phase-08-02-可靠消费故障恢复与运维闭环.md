@@ -6,7 +6,7 @@
 - 目标版本：`1.5.2`
 - 开发分支：`develop/1.5.2`
 - 基线：`origin/main` / `3ba6203`
-- 状态：本地实现与固定验收已完成；远程 push checks、Pull Request 和合入状态待提交后确认。
+- 状态：已完成。PR #75 的权威 push quality gates 全部通过，并于 2026-09-04 以 squash commit `fa40b85` 合入 `main`；远程 `develop/1.5.2` 已按普通开发分支生命周期删除。
 
 本批在 Phase-08-01 已完成的 generation ownership lease、安全 commit 状态机和真实 Kafka → VictoriaMetrics 指标闭环上，补齐真实 Kafka broker restart/group rejoin、VictoriaMetrics 同进程恢复、明确未提交后的 Marshaller 进程重启重取、确定性重复投递、只读正式 group 检查和强归属清理证据。交付语义继续明确为 at-least-once，Kafka committed offset 是恢复事实，不引入本地成功猜测、spool、跨 record batch 或 exactly-once 声明。
 
@@ -114,4 +114,14 @@ git diff --check
 - 未修改 `scripts/dev.sh`、`scripts/down.sh`、Compose 或 workflow：复核结果表明启动/停止顺序、volume 保留、强归属和 CI 接线已经满足本批合同；实际增量集中在恢复验收和只读 group 检查。
 - 真实 shell 场景证明可观察的 broker stop/start、readiness、offset 和进程重启结果；不声称 shell timing 精确复现延迟 `204` 与 revoke 同时发生的竞态。该竞态继续由注入式 Consumer 单元测试负责。
 - 单节点 VictoriaMetrics `1ms` dedup 仅稳定相同 series/timestamp 的确定性重复，不构成 Kafka/HTTP transaction 或 exactly-once。
-- 本记录创建时远程 push checks、Pull Request 和合入尚未发生，因此本批尚未满足实施方案第 10 节的远程完成条件；提交后必须查询并补充真实远程状态。
+- Phase-08-03 可直接使用 `main@fa40b85` 的恢复矩阵和运维闭环作为最终跨组件、业务隔离与 Milestone 2 收口基线；除真实复现的阻断问题外无需扩展 Phase-08-02 产品能力。
+
+## 8. 远程门禁与合入结果
+
+- 本地提交：`71dd68f feat(marshaller): close reliable recovery operations`。
+- 权威 GitHub Actions push run：`33866537266`，于 2026-09-04 19:15:48（Asia/Shanghai）完成并成功。
+- 成功 jobs：Branch governance、Backend、Frontend、Message Router、Redis Exporter、Integration、Marshaller、Scripts and Compose、Monitor，以及 Open PR and enable auto-merge。
+- 自动创建 PR #75，标题为 `feat(marshaller): close reliable recovery operations`。
+- PR #75 于 2026-09-04 19:14:49（Asia/Shanghai）使用 squash 策略合入 `main`，远程提交为 `fa40b8565d6a69a39ce23d23f52b1d311c4c4f01`。
+- 合入后已执行 `git fetch --prune origin`：`origin/main` 指向 `fa40b85`，远程 `develop/1.5.2` 不再存在，`origin/main:VERSION` 为 `1.5.2`。
+- 至此实施方案第 9 节验收标准和第 10 节远程完成条件全部满足。
