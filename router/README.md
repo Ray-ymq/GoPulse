@@ -53,7 +53,7 @@ The checked-in token in `.env.example` is for local development only.
 
 ## Lifecycle and validation
 
-`scripts/dev.sh` starts healthy Kafka, runs the idempotent topic initializer, builds and starts Router, waits for authenticated readiness, and only then starts Monitor. `scripts/down.sh` stops Monitor and its Exporter before Router and finally stops Compose while preserving daily named volumes. `scripts/verify.sh` performs read-only ownership and readiness checks and never consumes a record.
+`scripts/dev.sh` starts healthy Kafka, runs the idempotent topic initializer, builds and starts Router, waits for authenticated readiness, and only then starts Monitor. `scripts/down.sh` drains Backend and background application sources before stopping Monitor and its Exporter, Marshaller, and Router, then stops Compose while preserving daily named volumes. `scripts/verify.sh` performs read-only ownership and readiness checks and never consumes a record.
 
 Run focused validation with:
 
@@ -69,4 +69,4 @@ The default Router acceptance uses a random isolated Compose project, loopback p
 
 Phase 8 keeps Router as the byte-preserving producer for the unchanged record contract. Marshaller independently validates the original bytes, writes accepted metrics to VictoriaMetrics, and commits through `gopulse-marshaller-metrics-v1`; the Phase 8-03 acceptance captures a real Router-produced record for deterministic replay and confirms Router never parses, cleans, stores, or commits metrics payloads.
 
-Router accepts both `metrics/redis` and `logs/backend` Envelope v1 messages. Both types use the fixed `gopulse-observability-v1` Topic, the message ID remains the Kafka key, and the HTTP request body remains the exact Kafka value bytes.
+Router accepts `metrics/redis` plus the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, and `logs/search-reindex` Envelope v1 combinations. Every accepted type uses the single fixed `gopulse-observability-v1` Topic; the message ID remains the Kafka key and the HTTP request body remains the exact Kafka value bytes. Source, query, header, or payload values can never select a Topic.

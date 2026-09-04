@@ -2,6 +2,7 @@ package envelope
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -60,5 +61,18 @@ func TestValidateAcceptsBackendLogsAndPreservesBytes(t *testing.T) {
 	}
 	if message.Type != "logs" || message.Source != "backend" || string(message.Body) != body {
 		t.Fatalf("message = %+v", message)
+	}
+}
+
+func TestValidateAcceptsEveryLogSource(t *testing.T) {
+	for _, source := range []string{"backend", "business-worker", "search-indexer", "search-reindex"} {
+		body := fmt.Sprintf(`{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"logs","source":%q,"timestamp":"2026-09-04T12:00:00Z","payload":{"service":%q}}`, source, source)
+		message, err := Validate([]byte(body))
+		if err != nil {
+			t.Fatalf("source %q: %v", source, err)
+		}
+		if message.Source != source {
+			t.Fatalf("source = %q, want %q", message.Source, source)
+		}
 	}
 }
