@@ -1,5 +1,7 @@
 # Phase 9：LogMonitor 与日志链路总实施方案
 
+> 当前状态：Phase 9 已于 2026-09-04 完成；Phase-09-03 已通过本地与远程门禁并由 PR #85 合入 `main`。Milestone 3 仍需 Phase 10 与 Phase 11。
+
 ## 1. 实施目标
 
 在 Phase 4 已交付统一 Schema v1 JSON Lines 业务日志、Phase 7 已交付 Message Router 与 Kafka 单 Topic、Phase 8 已交付正式 Marshaller 消费与可靠 offset 语义的基础上，接入 LogMonitor 被动接收路径，形成第一条真实 Logs 端到端链路：
@@ -57,7 +59,7 @@ Phase 9 使用 `1.6.x` 版本线，`1.6.0` 只作为阶段基线，不创建空�
 | --- | --- | --- | --- |
 | Phase-09-01 | `1.6.1` | `develop/1.6.1` | 已完成并通过远程门禁（PR #81） |
 | Phase-09-02 | `1.6.2` | `develop/1.6.2` | 已完成并通过远程门禁（PR #83） |
-| Phase-09-03 | `1.6.3` | `develop/1.6.3` | 本地阶段验收完成，待远程门禁与合入 |
+| Phase-09-03 | `1.6.3` | `develop/1.6.3` | 已完成并通过远程门禁（PR #85） |
 
 执行规则：
 
