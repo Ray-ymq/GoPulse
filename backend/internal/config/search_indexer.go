@@ -13,6 +13,7 @@ type SearchIndexerConfig struct {
 	RabbitMQURL   string
 	Elasticsearch ElasticsearchConfig
 	Worker        BusinessWorkerConfig
+	LogShip       LogShipConfig
 }
 
 func LoadSearchIndexer() (SearchIndexerConfig, error) {
@@ -84,10 +85,15 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return SearchIndexerConfig{}, errors.New("SEARCH_INDEXER_RECONNECT_MAX must be greater than or equal to SEARCH_INDEXER_RECONNECT_MIN")
 	}
+	logShip, err := loadLogShipConfig(lookup)
+	if err != nil {
+		return SearchIndexerConfig{}, err
+	}
 	return SearchIndexerConfig{
 		MySQL:         MySQLConfig{Host: valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost), Port: mysqlPort, Database: database, User: user, Password: password},
 		RabbitMQURL:   rabbitMQURL,
 		Elasticsearch: elasticsearch,
+		LogShip:       logShip,
 		Worker:        BusinessWorkerConfig{Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay, PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout, ReconnectMinimum: reconnectMinimum, ReconnectMaximum: reconnectMaximum},
 	}, nil
 }

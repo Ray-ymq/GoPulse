@@ -173,7 +173,7 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	options.Filters.RequestID = single(values, "request_id")
 	options.Filters.EventID = single(values, "event_id")
 	options.Filters.ErrorCode = single(values, "error_code")
-	if options.Filters.Service != "" && options.Filters.Service != "backend" {
+	if options.Filters.Service != "" && !validLogService(options.Filters.Service) {
 		return Options{}, validation()
 	}
 	if options.Filters.Level != "" && options.Filters.Level != "info" && options.Filters.Level != "warn" && options.Filters.Level != "error" {
@@ -195,6 +195,15 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	}
 	return options, nil
 }
+func validLogService(service string) bool {
+	switch service {
+	case "backend", "business-worker", "search-indexer", "search-reindex":
+		return true
+	default:
+		return false
+	}
+}
+
 func single(values url.Values, key string) string {
 	if list, ok := values[key]; ok {
 		return list[0]
