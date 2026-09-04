@@ -51,3 +51,18 @@ func TestReadinessUnavailableIsFinite(t *testing.T) {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 }
+
+func TestListenerAddressSupportsIPv4AndIPv6Loopback(t *testing.T) {
+	tests := map[string]string{
+		"127.0.0.1": "127.0.0.1:9093",
+		"::1":       "[::1]:9093",
+	}
+	for host, want := range tests {
+		t.Run(host, func(t *testing.T) {
+			s := New(host, 9093, "token", time.Second, checker{}, checker{}, nil)
+			if s.server.Addr != want {
+				t.Fatalf("address=%q, want %q", s.server.Addr, want)
+			}
+		})
+	}
+}

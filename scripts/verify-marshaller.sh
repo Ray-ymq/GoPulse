@@ -24,6 +24,7 @@ VM_BASIC=
 KAFKA_ID=
 ROUTER_PID=
 MARSHALLER_PID=
+GROUP_PEER_PID=
 MONITOR_PID=
 CLEANED=0
 
@@ -144,6 +145,7 @@ cleanup() {
   CLEANED=1
   stop_process "$MONITOR_PID" "$TEMP_DIR/monitor" || true
   stop_process "$MARSHALLER_PID" "$TEMP_DIR/marshaller" || true
+  stop_process "$GROUP_PEER_PID" "$TEMP_DIR/verify-group-member" || true
   stop_process "$ROUTER_PID" "$TEMP_DIR/router" || true
   if [[ -n $PROJECT && -n $TEMP_DIR && -f $TEMP_DIR/compose.yaml ]] && valid_project "$PROJECT"; then
     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -246,11 +248,12 @@ refresh_container_id kafka
 
 docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --create --topic "$TOPIC" --partitions 1 --replication-factor 1 >/dev/null
 (cd "$REPO_ROOT/router" && go build -o "$TEMP_DIR/router" ./cmd/router && go build -o "$TEMP_DIR/verify-consumer" ./cmd/verify-consumer)
-(cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/marshaller" ./cmd/marshaller)
+(cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/marshaller" ./cmd/marshaller && go build -o "$TEMP_DIR/verify-group-member" ./cmd/verify-group-member)
 (cd "$REPO_ROOT/monitor" && go build -o "$TEMP_DIR/monitor" ./cmd/monitor)
 "$REPO_ROOT/scripts/package-redis-exporter.sh" --output "$TEMP_DIR/exporter.tar.gz" >/dev/null
 : >"$TEMP_DIR/router.log"
 : >"$TEMP_DIR/marshaller.log"
+: >"$TEMP_DIR/group-peer.log"
 : >"$TEMP_DIR/monitor.log"
 
 start_router() {
@@ -380,6 +383,31 @@ wait_group_assignment() {
     sleep .25
   done
   return 1
+}
+wait_group_member_client() {
+  local client_id=$1 details
+  for _ in {1..120}; do
+    details=$(docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:19092 --group "$GROUP" --describe --members 2>/dev/null || true)
+    grep -Fq "$client_id" <<<"$details" && return 0
+    sleep .25
+  done
+  return 1
+}
+wait_peer_assignment() {
+  for _ in {1..120}; do
+    grep -Fq "assigned topic=$TOPIC partition=0" "$TEMP_DIR/group-peer.log" && return 0
+    sleep .25
+  done
+  return 1
+}
+start_group_peer() {
+  local client_id="gopulse-marshaller-review-peer-$TOKEN_ID"
+  (cd "$REPO_ROOT/marshaller" && exec setsid "$TEMP_DIR/verify-group-member" \
+    --brokers "127.0.0.1:$KAFKA_PORT" --topic "$TOPIC" --group "$GROUP" --client-id "$client_id") >>"$TEMP_DIR/group-peer.log" 2>&1 &
+  GROUP_PEER_PID=$!
+  sleep .2
+  kill -0 "$GROUP_PEER_PID" 2>/dev/null || { cat "$TEMP_DIR/group-peer.log" >&2; fail 'Second group member exited during startup.'; return 1; }
+  wait_group_member_client "$client_id" || { cat "$TEMP_DIR/group-peer.log" >&2; fail 'Second group member did not join.'; return 1; }
 }
 produce_record() {
   local key=$1 value_file=$2
@@ -523,6 +551,29 @@ info "Captured real upstream record message_id=$REAL_KEY partition=0 offset=${RE
 
 stop_process "$MONITOR_PID" "$TEMP_DIR/monitor"
 MONITOR_PID=
+
+BEFORE=$(committed_offset)
+for _ in {1..120}; do
+  [[ $(end_offset) == "$BEFORE" ]] && break
+  sleep .25
+done
+[[ $(end_offset) == "$BEFORE" ]] || fail 'Offsets were not settled before the two-member rebalance scenario.'
+start_group_peer
+OLD_MARSHALLER_PID=$MARSHALLER_PID
+stop_process "$MARSHALLER_PID" "$TEMP_DIR/marshaller"
+MARSHALLER_PID=
+wait_peer_assignment || { cat "$TEMP_DIR/group-peer.log" >&2; fail 'Second group member did not receive the partition.'; }
+produce_record "$REAL_KEY" "$TEMP_DIR/real.json"
+wait_new_record_after "$BEFORE" || fail 'Kafka did not receive the rebalance recovery record.'
+sleep 1
+[[ $(committed_offset) == "$BEFORE" ]] || fail 'Non-committing peer advanced the formal group offset.'
+start_marshaller
+[[ $MARSHALLER_PID != "$OLD_MARSHALLER_PID" ]] || fail 'Replacement Marshaller did not start for partition handoff.'
+stop_process "$GROUP_PEER_PID" "$TEMP_DIR/verify-group-member"
+GROUP_PEER_PID=
+wait_group_assignment || fail 'Replacement Marshaller did not receive the partition after peer departure.'
+wait_commit_after "$BEFORE" || fail 'Replacement Marshaller did not re-fetch and commit from the last formal group offset.'
+info 'A real second group member received the partition without committing; the replacement Marshaller re-fetched from the last committed offset after handoff.'
 python3 - "$TEMP_DIR/real.json" "$TEMP_DIR" <<'PYBAD'
 import datetime
 import json
@@ -697,4 +748,4 @@ cleanup
 for port in "$KAFKA_PORT" "$REDIS_PORT" "$VM_PORT" "$ROUTER_PORT" "$MARSHALLER_PORT" "$MONITOR_PORT" "$EXPORTER_PORT"; do
   [[ -z $(ss -ltnH "sport = :$port" 2>/dev/null) ]] || fail "port $port remained open."
 done
-info 'Acceptance passed: full real success/up0/recovery matrix, three permanent-invalid continuations, internal access boundaries, broker/group and storage recovery, captured-real deterministic replay, offset safety, invalid-row stability, and owned cleanup were verified.'
+info 'Acceptance passed: full real success/up0/recovery matrix, three permanent-invalid continuations, internal access boundaries, two-member rebalance, broker/group, and storage recovery, captured-real deterministic replay, offset safety, invalid-row stability, and owned cleanup were verified.'

@@ -53,6 +53,7 @@ Phase 8 使用 `1.5.x` 版本线，`1.5.0` 只作为阶段基线，不创建空�
 | Phase-08-01 | `1.5.1` | `develop/1.5.1` | 已完成（PR #73 / `ea3b910`） |
 | Phase-08-02 | `1.5.2` | `develop/1.5.2` | 已完成（PR #75 / `fa40b85`） |
 | Phase-08-03 | `1.5.3` | `develop/1.5.3` | 已完成（PR #77 / `058ff4d`） |
+| Phase-08-04 | `1.5.4` | `develop/1.5.4` | 已完成（本地固定门禁通过，待远程合入） |
 
 执行规则：
 
@@ -61,6 +62,7 @@ Phase 8 使用 `1.5.x` 版本线，`1.5.0` 只作为阶段基线，不创建空�
 - Phase-08-01 交付可查询且可安全合入的最小真实纵向闭环：正式 Consumer、严格第二次校验、确定性指标转换、VictoriaMetrics 基本写入/查询、generation ownership fencing、安全 commit 和最小生命周期；不把真实上游、手动 offset、永久异常继续或消费正确性推迟到后续批次。
 - Phase-08-02 是可独立合入的第二实现批次：在已正确的 ownership/commit 基线上完成真实 rebalance、Kafka/VM/进程恢复、确定性重放和日常运维生命周期，不执行完整社交业务收口。
 - Phase-08-03 只在已合入的最终能力上执行跨组件矩阵、业务/访问隔离、资源安全、文档、版本和 Milestone 2 远程收口；除真实复现的阻断问题外不增加产品能力。
+- Phase-08-04 是 2026-09-04 Phase 8 实现 Review 的整改批次，只关闭 commit-in-flight ownership 分类、IPv6 loopback 地址、分支治理和无效 poll timeout 四项 finding，不扩展 Phase 9+ 产品能力。
 - 已推送分支不得静默改名或重新编号；若批次数量或顺序在实施前变化，先更新本表并重新计算尚未创建的分支。
 
 ## 4. 阶段范围与非目标
@@ -383,6 +385,7 @@ MARSHALLER_MAX_FUTURE_SKEW=5m
 | Phase-08-01 | Marshaller 与 VictoriaMetrics 最小指标闭环 | Phase 7 Topic/record、Envelope v1、真实 Redis metrics | 正式 Consumer、严格转换、VM 基本写入/查询、generation fencing/安全 commit、最小生命周期与 CI |
 | Phase-08-02 | 可靠消费、故障恢复与运维闭环 | 已合入的 `1.5.1` 安全纵向闭环 | 真实 rebalance、Kafka/VM/进程恢复、生命周期与重放证据，`1.5.2` 可靠性基线 |
 | Phase-08-03 | 集成验收与 Milestone 2 收口 | 已合入的 `1.5.2` 最终实现能力 | 完整矩阵、业务/访问/资源隔离证据，`1.5.3` 阶段交接 |
+| Phase-08-04 | Phase 8 Review 整改 | 已合入的 `1.5.3` 与 2026-09-04 Review findings | ownership cancellation 正确分类、IPv4/IPv6 loopback 一致、有效配置合同与 `1.5.4` 治理收口 |
 
 - 08-01 必须自身可运行、可查询且消费正确，不能把真实 Monitor 输入、手动 offset、永久异常继续、generation fencing、安全 commit 或 VictoriaMetrics 查询推迟到后续批次。
 - 08-02 在不改变映射和存储公共契约的前提下实现真实故障恢复和运维增量；其 rebalance、Kafka/VM/进程恢复和资源归属验收必须在本批通过。
@@ -394,6 +397,7 @@ MARSHALLER_MAX_FUTURE_SKEW=5m
 - [Phase-08-01：Marshaller 与 VictoriaMetrics 最小指标闭环](Phase-08-01-Marshaller与VictoriaMetrics指标闭环.md)
 - [Phase-08-02：可靠消费、故障恢复与运维闭环](Phase-08-02-可靠消费故障恢复与运维闭环.md)
 - [Phase-08-03：集成验收与 Milestone 2 收口](Phase-08-03-集成验收与里程碑收口.md)
+- [Phase-08-04：Phase 8 Review 整改](Phase-08-04-Phase-8实现Review整改.md)
 
 ## 15. 测试策略与固定验收矩阵
 
@@ -475,6 +479,7 @@ git diff --check
 dev/logs/Phase-08/Phase-08-01-Marshaller与VictoriaMetrics指标闭环.md
 dev/logs/Phase-08/Phase-08-02-可靠消费故障恢复与运维闭环.md
 dev/logs/Phase-08/Phase-08-03-集成验收与里程碑收口.md
+dev/logs/Phase-08/Phase-08-04-Phase-8实现Review整改.md
 ```
 
 每份记录必须包含：
@@ -516,3 +521,17 @@ dev/logs/Phase-08/Phase-08-03-集成验收与里程碑收口.md
 - VictoriaMetrics writer 与 metrics transformer 独立于未来 Elasticsearch logs writer，存储失败互不混淆。
 - Kafka、Marshaller、VictoriaMetrics 继续仅限内部网络；Phase 9 的日志查询若进入 Backend，必须继承数据库实时 admin `401/403` 边界。
 - 真实 Metrics 全链路与故障恢复证据；Phase 9 添加 logs 时必须证明 metrics consumer/write/query 继续运行且不改写既有时序。
+
+
+## 19. Phase-08-04 Review 整改补充验收
+
+Phase-08-04 以 `dev/review/2026-09-04-Phase-8实现Review报告.md` 的四项 finding 为唯一整改范围。批次完成必须同时满足：
+
+- commit 正在执行时发生 revoke 或 lost，旧 lease 均返回 ownership-lost 语义，不把 Consumer 置为永久 halted；重新 assignment 后能够从正式 group 的最后 committed offset 继续。
+- ownership 仍有效时的独立 commit failure 仍返回 commit-failed，当前 record 不被越过，服务保持 `/health=200`、`/ready=503`，由受控进程重启恢复。
+- `127.0.0.1` 与 `::1` 均使用合法 host/port 地址；HTTP listener 单元测试覆盖两种 loopback，日常 Bash readiness URL 也使用 IPv6 bracket。
+- 删除无效 `MARSHALLER_KAFKA_POLL_TIMEOUT` 配置；配置、`.env.example`、生命周期和 README 不再存在陈旧引用，Kafka poll 仅由运行根 context 取消。
+- `develop/1.5.4` 仅映射到 Phase-08-04，根与 Frontend 版本均为 `1.5.4`，branch/version validator 通过。
+- 固定完成门禁为 Marshaller gofmt/unit/vet/race、脚本语法、`verify-marshaller.sh --self-test`、Compose 渲染、CI unittest、版本/分支校验和完整 `scripts/verify-marshaller.sh`。只在观察到共享生命周期或跨组件回归时扩大验证。
+
+全部固定门禁通过、对应实施记录与真实 diff 一致且无阻断问题时，Phase-08-04 完成；非阻断改进记录为后续项，不延伸本整改批次。

@@ -25,7 +25,6 @@ type Config struct {
 	KafkaBrokers       []string
 	KafkaTopic         string
 	KafkaGroup         string
-	KafkaPollTimeout   time.Duration
 	KafkaCommitTimeout time.Duration
 	VMURL              string
 	VMUsername         string
@@ -94,7 +93,6 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		key, fallback string
 		min, max      time.Duration
 	}{
-		{&cfg.KafkaPollTimeout, "MARSHALLER_KAFKA_POLL_TIMEOUT", "1s", 100 * time.Millisecond, 10 * time.Second},
 		{&cfg.KafkaCommitTimeout, "MARSHALLER_KAFKA_COMMIT_TIMEOUT", "3s", 100 * time.Millisecond, 10 * time.Second},
 		{&cfg.VMTimeout, "MARSHALLER_VM_TIMEOUT", "3s", 100 * time.Millisecond, 10 * time.Second},
 		{&cfg.RetryMin, "MARSHALLER_RETRY_MIN", "250ms", 10 * time.Millisecond, 10 * time.Second},
