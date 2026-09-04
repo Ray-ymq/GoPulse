@@ -25,6 +25,7 @@ REDIS_PORT=
 RABBITMQ_PORT=
 RABBITMQ_MANAGEMENT_PORT=
 ELASTICSEARCH_PORT=
+KAFKA_PORT=
 HTTP_PORT=
 FRONTEND_PORT=
 MYSQL_USER=
@@ -57,20 +58,20 @@ valid_database() { [[ $1 =~ ^gopulse_acceptance_[a-f0-9]{12}$ ]]; }
 valid_port() { [[ $1 =~ ^[0-9]+$ ]] && ((10#$1 >= 1024 && 10#$1 <= 65535)); }
 
 validate_target() {
-  local token=$1 project=$2 database=$3 host=$4 mysql_port=$5 redis_port=$6 rabbit_port=$7 rabbit_management_port=$8 elasticsearch_port=$9 http_port=${10} frontend_port=${11}
+  local token=$1 project=$2 database=$3 host=$4 mysql_port=$5 redis_port=$6 rabbit_port=$7 rabbit_management_port=$8 elasticsearch_port=$9 kafka_port=${10} http_port=${11} frontend_port=${12}
   valid_token "$token" || { fail 'acceptance token must contain exactly 12 lowercase hexadecimal characters'; return 1; }
   [[ $project == "gopulse-acceptance-$token" ]] && valid_project "$project" || { fail 'Compose project is outside the acceptance whitelist'; return 1; }
   [[ $database == "gopulse_acceptance_$token" ]] && valid_database "$database" || { fail 'database is outside the acceptance whitelist'; return 1; }
   [[ $host == 127.0.0.1 ]] || { fail 'all published acceptance addresses must be 127.0.0.1'; return 1; }
   local port
-  for port in "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$elasticsearch_port" "$http_port" "$frontend_port"; do
+  for port in "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$elasticsearch_port" "$kafka_port" "$http_port" "$frontend_port"; do
     valid_port "$port" || { fail "invalid acceptance port: $port"; return 1; }
   done
-  [[ $mysql_port != 3306 && $redis_port != 6379 && $rabbit_port != 5672 && $rabbit_management_port != 15672 && $elasticsearch_port != 9200 && $http_port != 8080 && $frontend_port != 5173 ]] || {
+  [[ $mysql_port != 3306 && $redis_port != 6379 && $rabbit_port != 5672 && $rabbit_management_port != 15672 && $elasticsearch_port != 9200 && $kafka_port != 9092 && $http_port != 8080 && $frontend_port != 5173 ]] || {
     fail 'acceptance must not use a default development port'
     return 1
   }
-  [[ $(printf '%s\n' "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$elasticsearch_port" "$http_port" "$frontend_port" | sort -u | wc -l) == 7 ]] || {
+  [[ $(printf '%s\n' "$mysql_port" "$redis_port" "$rabbit_port" "$rabbit_management_port" "$elasticsearch_port" "$kafka_port" "$http_port" "$frontend_port" | sort -u | wc -l) == 8 ]] || {
     fail 'acceptance ports must be unique'
     return 1
   }
@@ -78,15 +79,15 @@ validate_target() {
 
 self_test() {
   local token=012345abcdef project=gopulse-acceptance-012345abcdef database=gopulse_acceptance_012345abcdef
-  validate_target "$token" "$project" "$database" 127.0.0.1 43306 46379 45672 45673 49200 48080 45173 >/dev/null
+  validate_target "$token" "$project" "$database" 127.0.0.1 43306 46379 45672 45673 49200 49092 48080 45173 >/dev/null
   local rejected=0
   for command in \
-    "validate_target '' '$project' '$database' 127.0.0.1 43306 46379 45672 45673 49200 48080 45173" \
-    "validate_target '$token' gopulse '$database' 127.0.0.1 43306 46379 45672 45673 49200 48080 45173" \
-    "validate_target '$token' '$project' gopulse 127.0.0.1 43306 46379 45672 45673 49200 48080 45173" \
-    "validate_target '$token' '$project' '$database' 0.0.0.0 43306 46379 45672 45673 49200 48080 45173" \
-    "validate_target '$token' '$project' '$database' 127.0.0.1 3306 46379 45672 45673 49200 48080 45173" \
-    "validate_target '$token' '$project' '$database' 127.0.0.1 43306 43306 45672 45673 49200 48080 45173"; do
+    "validate_target '' '$project' '$database' 127.0.0.1 43306 46379 45672 45673 49200 49092 48080 45173" \
+    "validate_target '$token' gopulse '$database' 127.0.0.1 43306 46379 45672 45673 49200 49092 48080 45173" \
+    "validate_target '$token' '$project' gopulse 127.0.0.1 43306 46379 45672 45673 49200 49092 48080 45173" \
+    "validate_target '$token' '$project' '$database' 0.0.0.0 43306 46379 45672 45673 49200 49092 48080 45173" \
+    "validate_target '$token' '$project' '$database' 127.0.0.1 3306 46379 45672 45673 49200 49092 48080 45173" \
+    "validate_target '$token' '$project' '$database' 127.0.0.1 43306 43306 45672 45673 49200 49092 48080 45173"; do
     if eval "$command" >/dev/null 2>&1; then
       fail "unsafe target unexpectedly passed: $command"
       return 1
@@ -113,7 +114,7 @@ generate_ports() {
 import socket
 sockets=[]
 ports=[]
-for _ in range(7):
+for _ in range(8):
     sock=socket.socket()
     sock.bind(('127.0.0.1', 0))
     sockets.append(sock)
@@ -123,8 +124,8 @@ for sock in sockets:
     sock.close()
 PY
 )
-    read -r MYSQL_PORT REDIS_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT HTTP_PORT FRONTEND_PORT <<<"$values"
-    if validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$ELASTICSEARCH_PORT" "$HTTP_PORT" "$FRONTEND_PORT" >/dev/null 2>&1; then
+    read -r MYSQL_PORT REDIS_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT HTTP_PORT FRONTEND_PORT <<<"$values"
+    if validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$ELASTICSEARCH_PORT" "$KAFKA_PORT" "$HTTP_PORT" "$FRONTEND_PORT" >/dev/null 2>&1; then
       return
     fi
   done
@@ -259,6 +260,7 @@ RABBITMQ_PASSWORD=$RABBITMQ_PASSWORD
 RABBITMQ_PORT=$RABBITMQ_PORT
 RABBITMQ_MANAGEMENT_PORT=$RABBITMQ_MANAGEMENT_PORT
 ELASTICSEARCH_PORT=$ELASTICSEARCH_PORT
+KAFKA_PORT=$KAFKA_PORT
 ELASTICSEARCH_URL=http://$PUBLISHED_HOST:$ELASTICSEARCH_PORT
 ELASTICSEARCH_REQUEST_TIMEOUT=3s
 SEARCH_REINDEX_BATCH=2
@@ -1410,7 +1412,7 @@ main() {
   PROJECT_NAME="gopulse-acceptance-$TOKEN"
   DATABASE_NAME="gopulse_acceptance_$TOKEN"
   generate_ports
-  validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$ELASTICSEARCH_PORT" "$HTTP_PORT" "$FRONTEND_PORT"
+  validate_target "$TOKEN" "$PROJECT_NAME" "$DATABASE_NAME" "$PUBLISHED_HOST" "$MYSQL_PORT" "$REDIS_PORT" "$RABBITMQ_PORT" "$RABBITMQ_MANAGEMENT_PORT" "$ELASTICSEARCH_PORT" "$KAFKA_PORT" "$HTTP_PORT" "$FRONTEND_PORT"
 
   TEMP_DIR=$(mktemp -d -t gopulse-acceptance-XXXXXXXX)
   ACCEPTANCE_ENV="$TEMP_DIR/acceptance.env"
@@ -1428,7 +1430,8 @@ main() {
   assert_project_absent
   info "Starting isolated project $PROJECT_NAME with database $DATABASE_NAME."
   RESOURCES_STARTED=1
-  compose up --detach
+  compose up --detach mysql redis rabbitmq elasticsearch
+  [[ -z $(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter 'label=com.docker.compose.service=kafka') ]] || fail 'Kafka must remain stopped during business isolation acceptance'
   wait_service_health mysql
   wait_service_health redis
   wait_service_health rabbitmq
