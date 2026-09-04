@@ -116,6 +116,32 @@ services:
           --describe \
           --topic gopulse-observability-v1
 
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.151.0
+    restart: unless-stopped
+    environment:
+      VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+      VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -httpAuth.username=${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+      - -httpAuth.password=${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+      - -dedup.minScrapeInterval=1ms
+    ports:
+      - "127.0.0.1:${VICTORIAMETRICS_PORT:?VICTORIAMETRICS_PORT is required}:8428"
+    volumes:
+      - victoriametrics_data:/victoria-metrics-data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget --spider --quiet --header "Authorization: Basic $$(printf '%s:%s' "$${VICTORIAMETRICS_USERNAME}" "$${VICTORIAMETRICS_PASSWORD}" | base64)" http://127.0.0.1:8428/health
+      start_period: 10s
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
     restart: unless-stopped
@@ -142,3 +168,4 @@ volumes:
   rabbitmq_data:
   kafka_data:
   elasticsearch_data:
+  victoriametrics_data:
