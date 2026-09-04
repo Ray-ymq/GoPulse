@@ -4,7 +4,7 @@
 - 目标版本：`1.6.2`
 - 开发分支：`develop/1.6.2`
 - 基线：`upstream/main` at `ee6055ba2a99d0e85e38cc61d4b8a55534c04198`，基线版本 `1.6.1`
-- 完成状态：本地实现、固定门禁与隔离真实验收通过；尚未 push、创建 Pull Request、执行远程门禁或合入 `main`
+- 完成状态：本地固定门禁与远程 quality gates 均通过；Pull Request #83 已于 2026-09-04 squash 合入 `main`
 
 ## 1. 实际完成内容
 
@@ -99,7 +99,14 @@ git diff --check
 - `scripts/verify-marshaller.sh`：通过。真实 metrics success/up0/recovery、三类永久异常 continuation、双成员 rebalance、VM 与 Kafka 故障恢复、正式 group offset 安全和 captured-real replay 均保持通过，证明新增 logs source 未破坏 metrics handler。
 - `scripts/verify-business.sh`：通过。Phase 0～3 浏览器、通知、搜索、Outbox、Worker/Indexer、retry/dead、broker/ES/reindex 和 Phase 4 四进程结构化日志矩阵无回归。
 
-### 3.5 实施中发现并关闭的阻断
+### 3.5 远程门禁与合入
+
+- 实现提交：`ae2a49f10e4a5dbb43c219b6e226b5ca7fca9bdd`，已推送到 `develop/1.6.2`。
+- GitHub Actions `Auto PR and Merge` run `33894501712` 于 2026-09-04 完成，结论为 `success`；Branch governance、Backend、Message Router、Monitor、Redis Exporter、Backend log pipeline、Marshaller、Frontend、Scripts and Compose、Integration 以及 Open PR/auto-merge jobs 全部通过。
+- 自动创建 Pull Request #83，按开发分支规则使用 squash merge；PR 于 2026-09-04 16:26:14 UTC 合入，`main` 提交为 `4e04b006177ae572fe89bdea49c877c242229b6b`（`feat: add reliable background log delivery (#83)`）。
+- 合入后的根版本为 `1.6.2`；开发分支的远程生命周期由自动流程处理。
+
+### 3.6 实施中发现并关闭的阻断
 
 - 首次扩展验收把 Worker/Indexer reconnect minimum 设为低于既有配置下限的 `20ms`，命令按合同拒绝启动；fixture 改为合法的 `100ms`。
 - 第二次扩展验收触发 Bash `set -u` 的同一行局部变量展开；拆分局部变量声明与赋值后通过 self-test。
@@ -113,7 +120,6 @@ git diff --check
 - 未修改 CI workflow：既有 Logs pipeline job 已执行 `scripts/verify-logs.sh`，脚本扩展后会自动覆盖本批代表性矩阵；Backend/Monitor/Router/Marshaller 既有 jobs 继续执行各自 unit/vet/race。
 - 未改 Monitor/Marshaller module 边界：两者继续保有职责独立的严格日志 validator，避免跨 Go module 共享 internal 实现。
 - 未新增专用 logs Topic 或 consumer group；按计划保留单 Topic、单 partition、正式 group 的有序 backpressure。
-- 未执行 push、Pull Request、远程 checks 或合入；这些结果不能在本地实施记录中标记完成。
 
 ## 5. 已知限制与后续项
 
@@ -121,4 +127,4 @@ git diff --check
 - 单 Topic/单 partition 意味着 Elasticsearch 暂时故障会延迟后续 metrics 与 logs；Topic 拆分、独立 group、磁盘 spool 和生产 SLA 不在本批范围。
 - 日志索引仍未启用 ILM 或自动删除；容量与保留策略继续作为后续事项。
 - Frontend 日志页面、全文检索、聚合、告警、EventMonitor 和冻结 PowerShell 更新均不在本批范围。
-- 本批只有在 `develop/1.6.2` 推送、Pull Request 远程门禁通过并合入主远程 `main` 后，才能按实施方案第 11 节标记为完整完成。
+- 本批已满足实施方案第 11 节的本地验收、远程门禁与主远程合入条件；Phase-09-03 可基于 `main@4e04b006177ae572fe89bdea49c877c242229b6b` 执行阶段级交叉验收和状态收口。
