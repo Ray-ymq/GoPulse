@@ -7,10 +7,13 @@ ENV_FILE="$REPO_ROOT/.env"
 ENV_EXAMPLE_FILE="$REPO_ROOT/.env.example"
 MONITOR_DIR="$REPO_ROOT/monitor"
 ROUTER_DIR="$REPO_ROOT/router"
+MARSHALLER_DIR="$REPO_ROOT/marshaller"
 MONITOR_RECORD="$REPO_ROOT/.run/monitor.json"
 MONITOR_BINARY="$REPO_ROOT/.run/bin/gopulse-monitor"
 ROUTER_RECORD="$REPO_ROOT/.run/router.json"
 ROUTER_BINARY="$REPO_ROOT/.run/bin/gopulse-router"
+MARSHALLER_RECORD="$REPO_ROOT/.run/marshaller.json"
+MARSHALLER_BINARY="$REPO_ROOT/.run/bin/gopulse-marshaller"
 WORKER_RECORD="$REPO_ROOT/.run/business-worker.json"
 SEARCH_INDEXER_RECORD="$REPO_ROOT/.run/search-indexer.json"
 WORKER_BINARY="$REPO_ROOT/.run/bin/gopulse-business-worker"
@@ -93,6 +96,8 @@ PY
 http_port() { config_port HTTP_PORT 8080; }
 monitor_http_port() { config_port MONITOR_HTTP_PORT 9090; }
 router_http_port() { config_port ROUTER_HTTP_PORT 9091; }
+marshaller_http_port() { config_port MARSHALLER_HTTP_PORT 9093; }
+victoriametrics_port() { config_port VICTORIAMETRICS_PORT 8428; }
 exporter_http_port() { config_port REDIS_EXPORTER_HTTP_PORT 9121; }
 
 validate_port() {
@@ -161,6 +166,34 @@ PYROUTER
   if [[ $status == 200 ]]; then pass 'Router /ready' 'authenticated Kafka readiness succeeded.'; else fail 'Router /ready' "returned HTTP $status."; fi
   status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/ready") || status=000
   if [[ $status == 401 ]]; then pass 'Router authentication' 'unauthenticated readiness was rejected.'; else fail 'Router authentication' "unauthenticated readiness returned HTTP $status."; fi
+}
+
+check_marshaller_http() {
+  local port=$1 token=$2 body="$TEMP_DIR/marshaller-http.json" status
+  status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/health") || status=000
+  if [[ $status == 200 ]] && python3 - "$body" <<'PYMARSHALLER'
+import json,sys
+raise SystemExit(0 if json.load(open(sys.argv[1],encoding='utf-8'))=={'status':'ok','service':'marshaller'} else 1)
+PYMARSHALLER
+  then pass 'Marshaller /health' 'HTTP 200 with the fixed process-health contract.'; else fail 'Marshaller /health' "contract mismatch (HTTP $status)."; fi
+  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:$port/ready") || status=000
+  if [[ $status == 200 ]]; then pass 'Marshaller /ready' 'authenticated Kafka and VictoriaMetrics readiness succeeded.'; else fail 'Marshaller /ready' "returned HTTP $status."; fi
+  status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/ready") || status=000
+  if [[ $status == 401 ]]; then pass 'Marshaller authentication' 'unauthenticated readiness was rejected.'; else fail 'Marshaller authentication' "unauthenticated readiness returned HTTP $status."; fi
+}
+
+check_victoriametrics() {
+  local port=$1 username=$2 password=$3 body="$TEMP_DIR/vm-query.json" status volume details
+  volume="${PROJECT_NAME}_victoriametrics_data"
+  details=$(docker volume inspect --format '{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.volume"}}' "$volume" 2>/dev/null || true)
+  if [[ $details == "$PROJECT_NAME|victoriametrics_data" ]]; then pass 'Compose/victoriametrics_data' 'volume ownership labels match this project.'; else fail 'Compose/victoriametrics_data' 'volume ownership labels do not match this project.'; fi
+  status=$(curl --silent --show-error --max-time 5 --user "$username:$password" --output "$body" --write-out '%{http_code}' --data-urlencode 'query=gopulse_redis_up' "http://127.0.0.1:$port/prometheus/api/v1/query") || status=000
+  if [[ $status == 200 ]] && python3 - "$body" <<'PYVM'
+import json,sys
+value=json.load(open(sys.argv[1],encoding='utf-8'))
+raise SystemExit(0 if value.get('status')=='success' else 1)
+PYVM
+  then pass 'VictoriaMetrics query' 'authenticated fixed metric query succeeded.'; else fail 'VictoriaMetrics query' "returned HTTP $status or an invalid response."; fi
 }
 
 check_recorded_process() {
@@ -398,7 +431,7 @@ PY
 
 main() {
   require_tools || return 1
-  local port monitor_port router_port exporter_port monitor_token router_token
+  local port monitor_port router_port marshaller_port vm_port exporter_port monitor_token router_token marshaller_token vm_username vm_password
   if ! port=$(http_port); then
     printf '[gopulse] ERROR: Could not read HTTP_PORT from the environment file.\n' >&2
     return 1
@@ -411,6 +444,12 @@ main() {
   validate_port "$router_port" || { printf "[gopulse] ERROR: ROUTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$router_port" >&2; return 1; }
   router_token=$(config_port ROUTER_API_TOKEN 'local-router-api-token-change-me-32-bytes') || { printf '[gopulse] ERROR: Could not read ROUTER_API_TOKEN.\n' >&2; return 1; }
   [[ ${#router_token} -ge 32 ]] || { printf '[gopulse] ERROR: ROUTER_API_TOKEN must contain at least 32 bytes.\n' >&2; return 1; }
+  marshaller_port=$(marshaller_http_port) || return 1
+  vm_port=$(victoriametrics_port) || return 1
+  marshaller_token=$(config_port MARSHALLER_API_TOKEN local-marshaller-api-token-change-me-32-bytes) || return 1
+  vm_username=$(config_port VICTORIAMETRICS_USERNAME gopulse-marshaller) || return 1
+  vm_password=$(config_port VICTORIAMETRICS_PASSWORD local-victoriametrics-password) || return 1
+  validate_port "$marshaller_port" && validate_port "$vm_port" || { printf '[gopulse] ERROR: Marshaller or VictoriaMetrics port is invalid.\n' >&2; return 1; }
   exporter_port=$(exporter_http_port) || { printf '[gopulse] ERROR: Could not read REDIS_EXPORTER_HTTP_PORT.\n' >&2; return 1; }
   validate_port "$exporter_port" || { printf "[gopulse] ERROR: REDIS_EXPORTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$exporter_port" >&2; return 1; }
   TEMP_DIR=$(mktemp -d)
@@ -420,12 +459,16 @@ main() {
   check_compose_service rabbitmq
   check_compose_service elasticsearch
   check_compose_service kafka
+  check_compose_service victoriametrics
   check_kafka_resources
   check_recorded_process "Business Worker" "$WORKER_RECORD" "$WORKER_BINARY"
   check_recorded_process "Search Indexer" "$SEARCH_INDEXER_RECORD" "$SEARCH_INDEXER_BINARY"
   check_recorded_process Monitor "$MONITOR_RECORD" "$MONITOR_BINARY" "$MONITOR_DIR" "$MONITOR_BINARY"
   check_recorded_process Router "$ROUTER_RECORD" "$ROUTER_BINARY" "$ROUTER_DIR" "$ROUTER_BINARY"
+  check_recorded_process Marshaller "$MARSHALLER_RECORD" "$MARSHALLER_BINARY" "$MARSHALLER_DIR" "$MARSHALLER_BINARY"
   check_router_http "$router_port" "$router_token"
+  check_marshaller_http "$marshaller_port" "$marshaller_token"
+  check_victoriametrics "$vm_port" "$vm_username" "$vm_password"
   if curl -fsS --max-time 3 "http://127.0.0.1:$monitor_port/health" >/dev/null; then pass 'Monitor /health' 'HTTP 200.'; else fail 'Monitor /health' 'request failed.'; fi
   check_monitor_plugin_version "$monitor_port" "$monitor_token"
   check_exporter_health "$exporter_port"

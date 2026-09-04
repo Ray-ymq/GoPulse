@@ -7,6 +7,7 @@ BACKEND_DIR="$REPO_ROOT/backend"
 REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
 MONITOR_DIR="$REPO_ROOT/monitor"
 ROUTER_DIR="$REPO_ROOT/router"
+MARSHALLER_DIR="$REPO_ROOT/marshaller"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
 ENV_FILE="$REPO_ROOT/.env"
@@ -19,6 +20,7 @@ WORKER_RECORD="$RUN_DIR/business-worker.json"
 SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
 MONITOR_RECORD="$RUN_DIR/monitor.json"
 ROUTER_RECORD="$RUN_DIR/router.json"
+MARSHALLER_RECORD="$RUN_DIR/marshaller.json"
 LEGACY_EXPORTER_RECORD="$RUN_DIR/redis-exporter.json"
 FRONTEND_RECORD="$RUN_DIR/frontend.json"
 BACKEND_BINARY="$BIN_DIR/gopulse-backend"
@@ -26,6 +28,7 @@ WORKER_BINARY="$BIN_DIR/gopulse-business-worker"
 SEARCH_INDEXER_BINARY="$BIN_DIR/gopulse-search-indexer"
 MONITOR_BINARY="$BIN_DIR/gopulse-monitor"
 ROUTER_BINARY="$BIN_DIR/gopulse-router"
+MARSHALLER_BINARY="$BIN_DIR/gopulse-marshaller"
 LEGACY_EXPORTER_BINARY="$BIN_DIR/gopulse-redis-exporter"
 MONITOR_PACKAGE="$RUN_DIR/packages/gopulse-redis-exporter-$(tr -d '[:space:]' < "$REPO_ROOT/VERSION").tar.gz"
 VITE_CLI="$FRONTEND_DIR/node_modules/vite/bin/vite.js"
@@ -39,12 +42,14 @@ WORKER_PID=
 SEARCH_INDEXER_PID=
 MONITOR_PID=
 ROUTER_PID=
+MARSHALLER_PID=
 FRONTEND_PID=
 BACKEND_STARTED=0
 WORKER_STARTED=0
 SEARCH_INDEXER_STARTED=0
 MONITOR_STARTED=0
 ROUTER_STARTED=0
+MARSHALLER_STARTED=0
 FRONTEND_STARTED=0
 EXIT_CODE=0
 EXPECTED_PLUGIN_VERSION=
@@ -54,7 +59,8 @@ MONITOR_PLUGIN_ACTION=install
 COMPOSE_KEYS=(
   PUBLISHED_HOST MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PORT
   REDIS_PASSWORD REDIS_PORT RABBITMQ_USER RABBITMQ_PASSWORD
-  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT
+  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT VICTORIAMETRICS_PORT
+  VICTORIAMETRICS_USERNAME VICTORIAMETRICS_PASSWORD
 )
 BACKEND_KEYS=(
   APP_ENV HTTP_HOST HTTP_PORT MYSQL_HOST MYSQL_PORT MYSQL_DATABASE MYSQL_USER
@@ -79,6 +85,12 @@ MONITOR_KEYS=(
   MONITOR_PUBLISH_TIMEOUT MONITOR_ROUTER_URL MONITOR_ROUTER_TOKEN REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB
   REDIS_EXPORTER_HTTP_HOST REDIS_EXPORTER_HTTP_PORT REDIS_EXPORTER_SCRAPE_TIMEOUT REDIS_EXPORTER_SHUTDOWN_TIMEOUT
 )
+MARSHALLER_KEYS=(
+  MARSHALLER_HTTP_HOST MARSHALLER_HTTP_PORT MARSHALLER_API_TOKEN MARSHALLER_KAFKA_BROKERS
+  MARSHALLER_KAFKA_TOPIC MARSHALLER_KAFKA_GROUP MARSHALLER_KAFKA_POLL_TIMEOUT MARSHALLER_KAFKA_COMMIT_TIMEOUT
+  MARSHALLER_VM_URL MARSHALLER_VM_USERNAME MARSHALLER_VM_PASSWORD MARSHALLER_VM_TIMEOUT
+  MARSHALLER_RETRY_MIN MARSHALLER_RETRY_MAX MARSHALLER_READINESS_TIMEOUT MARSHALLER_SHUTDOWN_TIMEOUT MARSHALLER_FUTURE_SKEW
+)
 ROUTER_KEYS=(
   ROUTER_HTTP_HOST ROUTER_HTTP_PORT ROUTER_API_TOKEN ROUTER_REQUEST_TIMEOUT ROUTER_SHUTDOWN_TIMEOUT
   ROUTER_MAX_MESSAGE_BYTES ROUTER_KAFKA_BROKERS ROUTER_KAFKA_TOPIC ROUTER_KAFKA_PRODUCE_TIMEOUT
@@ -95,7 +107,11 @@ ALL_CONFIG_KEYS=(
   MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_HOST REDIS_PORT REDIS_PASSWORD REDIS_DB
   REDIS_EXPORTER_HTTP_HOST REDIS_EXPORTER_HTTP_PORT REDIS_EXPORTER_SCRAPE_TIMEOUT REDIS_EXPORTER_SHUTDOWN_TIMEOUT
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT RABBITMQ_URL
-  ELASTICSEARCH_PORT KAFKA_PORT
+  ELASTICSEARCH_PORT KAFKA_PORT VICTORIAMETRICS_PORT VICTORIAMETRICS_USERNAME VICTORIAMETRICS_PASSWORD
+  MARSHALLER_HTTP_HOST MARSHALLER_HTTP_PORT MARSHALLER_API_TOKEN MARSHALLER_KAFKA_BROKERS
+  MARSHALLER_KAFKA_TOPIC MARSHALLER_KAFKA_GROUP MARSHALLER_KAFKA_POLL_TIMEOUT MARSHALLER_KAFKA_COMMIT_TIMEOUT
+  MARSHALLER_VM_URL MARSHALLER_VM_USERNAME MARSHALLER_VM_PASSWORD MARSHALLER_VM_TIMEOUT
+  MARSHALLER_RETRY_MIN MARSHALLER_RETRY_MAX MARSHALLER_READINESS_TIMEOUT MARSHALLER_SHUTDOWN_TIMEOUT MARSHALLER_FUTURE_SKEW
   ROUTER_HTTP_HOST ROUTER_HTTP_PORT ROUTER_API_TOKEN ROUTER_REQUEST_TIMEOUT ROUTER_SHUTDOWN_TIMEOUT
   ROUTER_MAX_MESSAGE_BYTES ROUTER_KAFKA_BROKERS ROUTER_KAFKA_TOPIC ROUTER_KAFKA_PRODUCE_TIMEOUT
   ROUTER_KAFKA_MAX_BUFFERED_RECORDS ROUTER_KAFKA_MAX_BUFFERED_BYTES
@@ -115,6 +131,7 @@ ALL_CONFIG_KEYS=(
 REQUIRED_KEYS=(
   MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PASSWORD
   RABBITMQ_USER RABBITMQ_PASSWORD RABBITMQ_URL AUTH_JWT_SECRET MONITOR_API_TOKEN ROUTER_API_TOKEN
+  VICTORIAMETRICS_USERNAME VICTORIAMETRICS_PASSWORD MARSHALLER_API_TOKEN MARSHALLER_VM_USERNAME MARSHALLER_VM_PASSWORD
 )
 declare -A CALLER_ENV=()
 declare -A DOTENV=()
@@ -125,7 +142,13 @@ declare -A DEFAULTS=(
   [REDIS_HOST]=127.0.0.1 [REDIS_PORT]=6379 [REDIS_DB]=0
   [REDIS_EXPORTER_HTTP_HOST]=127.0.0.1 [REDIS_EXPORTER_HTTP_PORT]=9121
   [REDIS_EXPORTER_SCRAPE_TIMEOUT]=2s [REDIS_EXPORTER_SHUTDOWN_TIMEOUT]=5s
-  [KAFKA_PORT]=9092 [ROUTER_HTTP_HOST]=127.0.0.1 [ROUTER_HTTP_PORT]=9091
+  [KAFKA_PORT]=9092 [VICTORIAMETRICS_PORT]=8428 [VICTORIAMETRICS_USERNAME]=gopulse-marshaller [VICTORIAMETRICS_PASSWORD]=local-victoriametrics-password
+  [MARSHALLER_HTTP_HOST]=127.0.0.1 [MARSHALLER_HTTP_PORT]=9093 [MARSHALLER_API_TOKEN]=local-marshaller-api-token-change-me-32-bytes
+  [MARSHALLER_KAFKA_BROKERS]=127.0.0.1:9092 [MARSHALLER_KAFKA_TOPIC]=gopulse-observability-v1 [MARSHALLER_KAFKA_GROUP]=gopulse-marshaller-metrics-v1
+  [MARSHALLER_KAFKA_POLL_TIMEOUT]=1s [MARSHALLER_KAFKA_COMMIT_TIMEOUT]=3s [MARSHALLER_VM_URL]=http://127.0.0.1:8428
+  [MARSHALLER_VM_USERNAME]=gopulse-marshaller [MARSHALLER_VM_PASSWORD]=local-victoriametrics-password [MARSHALLER_VM_TIMEOUT]=3s
+  [MARSHALLER_RETRY_MIN]=250ms [MARSHALLER_RETRY_MAX]=5s [MARSHALLER_READINESS_TIMEOUT]=2s [MARSHALLER_SHUTDOWN_TIMEOUT]=10s [MARSHALLER_FUTURE_SKEW]=5m
+  [ROUTER_HTTP_HOST]=127.0.0.1 [ROUTER_HTTP_PORT]=9091
   [ROUTER_API_TOKEN]=local-router-api-token-change-me-32-bytes [ROUTER_REQUEST_TIMEOUT]=5s [ROUTER_SHUTDOWN_TIMEOUT]=10s
   [ROUTER_MAX_MESSAGE_BYTES]=1048576 [ROUTER_KAFKA_BROKERS]=127.0.0.1:9092 [ROUTER_KAFKA_TOPIC]=gopulse-observability-v1
   [ROUTER_KAFKA_PRODUCE_TIMEOUT]=3s [ROUTER_KAFKA_MAX_BUFFERED_RECORDS]=256 [ROUTER_KAFKA_MAX_BUFFERED_BYTES]=8388608
@@ -248,7 +271,7 @@ resolve_configuration() {
       return 1
     fi
   done
-  for key in HTTP_PORT MONITOR_HTTP_PORT ROUTER_HTTP_PORT MYSQL_PORT REDIS_PORT REDIS_EXPORTER_HTTP_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT; do
+  for key in HTTP_PORT MONITOR_HTTP_PORT ROUTER_HTTP_PORT MARSHALLER_HTTP_PORT MYSQL_PORT REDIS_PORT REDIS_EXPORTER_HTTP_PORT RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT VICTORIAMETRICS_PORT; do
     value=${CONFIG[$key]-}
     if [[ ! $value =~ ^[0-9]+$ ]] || ((10#$value < 1 || 10#$value > 65535)); then
       fail "$key must be an integer between 1 and 65535."
@@ -264,10 +287,13 @@ resolve_configuration() {
     fail 'ROUTER_API_TOKEN must contain at least 32 bytes and no CR/LF.'
     return 1
   fi
-  if [[ ${CONFIG[ROUTER_KAFKA_TOPIC]} != gopulse-observability-v1 ]]; then
-    fail 'ROUTER_KAFKA_TOPIC must be gopulse-observability-v1.'
+  if [[ ${CONFIG[ROUTER_KAFKA_TOPIC]} != gopulse-observability-v1 || ${CONFIG[MARSHALLER_KAFKA_TOPIC]} != gopulse-observability-v1 ]]; then
+    fail 'Router and Marshaller Kafka Topics must be gopulse-observability-v1.'
     return 1
   fi
+  if [[ ${CONFIG[MARSHALLER_KAFKA_GROUP]} != gopulse-marshaller-metrics-v1 ]]; then fail 'MARSHALLER_KAFKA_GROUP is invalid.'; return 1; fi
+  if ((${#CONFIG[MARSHALLER_API_TOKEN]} < 32)); then fail 'MARSHALLER_API_TOKEN must contain at least 32 bytes.'; return 1; fi
+  if [[ ${CONFIG[MARSHALLER_VM_USERNAME]} != "${CONFIG[VICTORIAMETRICS_USERNAME]}" || ${CONFIG[MARSHALLER_VM_PASSWORD]} != "${CONFIG[VICTORIAMETRICS_PASSWORD]}" ]]; then fail 'Marshaller and VictoriaMetrics credentials must match.'; return 1; fi
   if [[ -z ${CONFIG[MONITOR_ROUTER_URL]} ]]; then CONFIG[MONITOR_ROUTER_URL]="http://${CONFIG[ROUTER_HTTP_HOST]}:${CONFIG[ROUTER_HTTP_PORT]}"; fi
   if [[ -z ${CONFIG[MONITOR_ROUTER_TOKEN]} ]]; then CONFIG[MONITOR_ROUTER_TOKEN]=${CONFIG[ROUTER_API_TOKEN]}; fi
   if [[ ${CONFIG[MONITOR_ROUTER_TOKEN]} != "${CONFIG[ROUTER_API_TOKEN]}" ]]; then
@@ -412,10 +438,10 @@ port_owner() {
 }
 
 check_ports() {
-  local -a names=(Backend Router Monitor 'Redis Exporter' Frontend MySQL Redis RabbitMQ 'RabbitMQ management' Elasticsearch Kafka)
-  local -a ports=("${CONFIG[HTTP_PORT]}" "${CONFIG[ROUTER_HTTP_PORT]}" "${CONFIG[MONITOR_HTTP_PORT]}" "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}" "${CONFIG[ELASTICSEARCH_PORT]}" "${CONFIG[KAFKA_PORT]}")
-  local -a services=('' '' '' '' '' mysql redis rabbitmq rabbitmq elasticsearch kafka)
-  local -a container_ports=('' '' '' '' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp 9200/tcp 9092/tcp)
+  local -a names=(Backend Router Marshaller Monitor 'Redis Exporter' Frontend MySQL Redis RabbitMQ 'RabbitMQ management' Elasticsearch Kafka VictoriaMetrics)
+  local -a ports=("${CONFIG[HTTP_PORT]}" "${CONFIG[ROUTER_HTTP_PORT]}" "${CONFIG[MARSHALLER_HTTP_PORT]}" "${CONFIG[MONITOR_HTTP_PORT]}" "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}" 5173 "${CONFIG[MYSQL_PORT]}" "${CONFIG[REDIS_PORT]}" "${CONFIG[RABBITMQ_PORT]}" "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}" "${CONFIG[ELASTICSEARCH_PORT]}" "${CONFIG[KAFKA_PORT]}" "${CONFIG[VICTORIAMETRICS_PORT]}")
+  local -a services=('' '' '' '' '' '' mysql redis rabbitmq rabbitmq elasticsearch kafka victoriametrics)
+  local -a container_ports=('' '' '' '' '' '' 3306/tcp 6379/tcp 5672/tcp 15672/tcp 9200/tcp 9092/tcp 8428/tcp)
   local i j owner
   for ((i=0; i<${#ports[@]}; i++)); do
     for ((j=i+1; j<${#ports[@]}; j++)); do
@@ -612,8 +638,8 @@ else:
 
 wait_for_infrastructure() {
   local deadline=$((SECONDS + 180)) service status all_healthy
-  local services=(mysql redis rabbitmq elasticsearch kafka)
-  info 'Waiting for MySQL, Redis, RabbitMQ, Elasticsearch, and Kafka healthchecks.'
+  local services=(mysql redis rabbitmq elasticsearch kafka victoriametrics)
+  info 'Waiting for MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, and VictoriaMetrics healthchecks.'
   while ((SECONDS < deadline)); do
     all_healthy=1
     for service in "${services[@]}"; do
@@ -672,9 +698,10 @@ ensure_frontend_dependencies() {
 }
 
 build_applications() {
-  info 'Building the Backend, Business Worker, Search Indexer, Router, Monitor, and Redis Exporter package.'
+  info 'Building the Backend, Business Worker, Search Indexer, Router, Marshaller, Monitor, and Redis Exporter package.'
   (cd "$BACKEND_DIR" && go build -o "$BACKEND_BINARY" ./cmd/server && go build -o "$WORKER_BINARY" ./cmd/business-worker && go build -o "$SEARCH_INDEXER_BINARY" ./cmd/search-indexer) || return 1
   (cd "$ROUTER_DIR" && go build -o "$ROUTER_BINARY" ./cmd/router) || return 1
+  (cd "$MARSHALLER_DIR" && go build -o "$MARSHALLER_BINARY" ./cmd/marshaller) || return 1
   (cd "$MONITOR_DIR" && go build -o "$MONITOR_BINARY" ./cmd/monitor) || return 1
   "$REPO_ROOT/scripts/package-redis-exporter.sh" --output "$MONITOR_PACKAGE" >/dev/null
 }
@@ -853,6 +880,31 @@ PYROUTER
   fail 'Message Router did not become ready.'
 }
 
+start_marshaller() {
+  local -a env_args=() key
+  for key in "${MARSHALLER_KEYS[@]}"; do env_args+=("$key=${CONFIG[$key]}"); done
+  info 'Starting Marshaller.'
+  env "${env_args[@]}" python3 - "$MARSHALLER_DIR" "$MARSHALLER_BINARY" <<'PYMARSHALLER' &
+import os
+import sys
+cwd, executable = sys.argv[1:]
+os.chdir(cwd)
+os.setsid()
+os.execve(executable, [executable], os.environ)
+PYMARSHALLER
+  MARSHALLER_PID=$!
+  sleep 0.6
+  kill -0 "$MARSHALLER_PID" 2>/dev/null || { local code=0; wait "$MARSHALLER_PID" || code=$?; fail "Marshaller exited during startup with code $code."; return 1; }
+  MARSHALLER_STARTED=1
+  write_process_record "$MARSHALLER_PID" "$MARSHALLER_RECORD" "$MARSHALLER_DIR" "$MARSHALLER_BINARY"
+  local base="http://${CONFIG[MARSHALLER_HTTP_HOST]}:${CONFIG[MARSHALLER_HTTP_PORT]}"
+  for _ in {1..50}; do
+    if curl -fsS --max-time 1 -H "Authorization: Bearer ${CONFIG[MARSHALLER_API_TOKEN]}" "$base/ready" >/dev/null 2>&1; then info 'Marshaller is ready.'; return 0; fi
+    sleep 0.2
+  done
+  fail 'Marshaller did not become ready.'
+}
+
 start_monitor() {
   local -a env_args=() key
   for key in "${MONITOR_KEYS[@]}"; do env_args+=("$key=${CONFIG[$key]}"); done
@@ -944,6 +996,9 @@ cleanup() {
   if ((MONITOR_STARTED == 1)); then
     stop_recorded_application Monitor "$MONITOR_RECORD" "$MONITOR_DIR" "$MONITOR_BINARY" "$MONITOR_BINARY" "$MONITOR_PID" || true
   fi
+  if ((MARSHALLER_STARTED == 1)); then
+    stop_recorded_application Marshaller "$MARSHALLER_RECORD" "$MARSHALLER_DIR" "$MARSHALLER_BINARY" "$MARSHALLER_BINARY" "$MARSHALLER_PID" || true
+  fi
   if ((ROUTER_STARTED == 1)); then
     stop_recorded_application Router "$ROUTER_RECORD" "$ROUTER_DIR" "$ROUTER_BINARY" "$ROUTER_BINARY" "$ROUTER_PID" || true
   fi
@@ -975,6 +1030,7 @@ main() {
   reject_or_remove_record "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY" || return 1
   reject_or_remove_record Monitor "$MONITOR_RECORD" "$MONITOR_DIR" "$MONITOR_BINARY" "$MONITOR_BINARY" || return 1
   reject_or_remove_record Router "$ROUTER_RECORD" "$ROUTER_DIR" "$ROUTER_BINARY" "$ROUTER_BINARY" || return 1
+  reject_or_remove_record Marshaller "$MARSHALLER_RECORD" "$MARSHALLER_DIR" "$MARSHALLER_BINARY" "$MARSHALLER_BINARY" || return 1
   reject_or_remove_record "Legacy Redis Exporter" "$LEGACY_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$LEGACY_EXPORTER_BINARY" "$LEGACY_EXPORTER_BINARY" || return 1
   reject_or_remove_record Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node)" || return 1
 
@@ -993,7 +1049,7 @@ main() {
   resolve_configuration || return 1
 
   info 'Starting Compose infrastructure.'
-  compose up -d mysql redis rabbitmq elasticsearch kafka || return 1
+  compose up -d mysql redis rabbitmq elasticsearch kafka victoriametrics || return 1
   wait_for_infrastructure || return 1
   compose up kafka-init || return 1
   run_database_migrations || return 1
@@ -1002,6 +1058,7 @@ main() {
   build_applications || return 1
   prepare_monitor_plugin_state || return 1
   start_router || return 1
+  start_marshaller || return 1
   start_monitor || return 1
   start_backend || return 1
   start_worker || return 1
@@ -1014,12 +1071,14 @@ main() {
   printf '  Health:              http://localhost:%s/health\n' "${CONFIG[HTTP_PORT]}"
   printf '  Readiness:           http://localhost:%s/ready\n' "${CONFIG[HTTP_PORT]}"
   printf '  Router:              http://localhost:%s/ready\n' "${CONFIG[ROUTER_HTTP_PORT]}"
+  printf '  Marshaller:          http://localhost:%s/ready\n' "${CONFIG[MARSHALLER_HTTP_PORT]}"
   printf '  Monitor:             http://localhost:%s/ready\n' "${CONFIG[MONITOR_HTTP_PORT]}"
   printf '  Redis metrics:       http://localhost:%s/metrics\n' "${CONFIG[REDIS_EXPORTER_HTTP_PORT]}"
   printf '  RabbitMQ management: http://localhost:%s\n' "${CONFIG[RABBITMQ_MANAGEMENT_PORT]}"
   printf '  Elasticsearch:       http://localhost:%s\n' "${CONFIG[ELASTICSEARCH_PORT]}"
-  printf '  Kafka:               127.0.0.1:%s\n\n' "${CONFIG[KAFKA_PORT]}"
-  info 'Press Ctrl+C to stop Frontend, Monitor-managed Redis Exporter, Monitor, Router, Search Indexer, Business Worker, and Backend. Infrastructure will remain running.'
+  printf '  Kafka:               127.0.0.1:%s\n' "${CONFIG[KAFKA_PORT]}"
+  printf '  VictoriaMetrics:     http://localhost:%s\n\n' "${CONFIG[VICTORIAMETRICS_PORT]}"
+  info 'Press Ctrl+C to stop Frontend, Monitor-managed Redis Exporter, Monitor, Marshaller, Router, Search Indexer, Business Worker, and Backend. Infrastructure will remain running.'
 
   while true; do
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
@@ -1040,6 +1099,11 @@ main() {
     if ! kill -0 "$ROUTER_PID" 2>/dev/null; then
       wait "$ROUTER_PID" || EXIT_CODE=$?
       fail "Router exited unexpectedly with code $EXIT_CODE."
+      return 1
+    fi
+    if ! kill -0 "$MARSHALLER_PID" 2>/dev/null; then
+      wait "$MARSHALLER_PID" || EXIT_CODE=$?
+      fail "Marshaller exited unexpectedly with code $EXIT_CODE."
       return 1
     fi
     if ! kill -0 "$MONITOR_PID" 2>/dev/null; then
