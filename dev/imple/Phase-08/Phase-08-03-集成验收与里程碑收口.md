@@ -1,12 +1,12 @@
-# Phase 8-02：集成验收与 Milestone 2 收口实施方案
+# Phase 8-03：集成验收与 Milestone 2 收口实施方案
 
-> 权威目标版本与开发分支以 `Phase-08-总实施方案.md` 第 3.2 节为准：本批对应 `1.5.2` / `develop/1.5.2`。
+> 权威目标版本与开发分支以 `Phase-08-总实施方案.md` 第 3.2 节为准：本批对应 `1.5.3` / `develop/1.5.3`。
 >
 > 当前状态：未开始。
 
 ## 1. 批次目标
 
-基于已合入主远程 `main` 的 Phase-08-01 最终实现，在干净、强归属的隔离资源和同一最终构建上执行 Phase 8 固定端到端矩阵、必要回归、文档、版本、实施记录和远程状态收口，证明：
+基于已合入主远程 `main` 的 Phase-08-01 指标纵向闭环和 Phase-08-02 可靠消费/运维闭环，在干净、强归属的隔离资源和同一最终构建上执行 Phase 8 固定端到端矩阵、必要回归、文档、版本、实施记录和远程状态收口，证明：
 
 ```text
 真实 Redis → Redis Exporter → MetricsMonitor → Message Router
@@ -25,9 +25,9 @@
 
 ## 2. 前置条件
 
-- Phase-08-01 已合入主远程 `main`；Marshaller、Router、Monitor、脚本/Compose 等远程门禁成功，实施记录与真实提交一致。
-- 主远程根与 Frontend 版本均为 `1.5.1`；Topic、record、Envelope、正式 group、offset、映射、VictoriaMetrics 写入/查询和故障语义与总方案一致。
-- 从最新主远程 `main` 创建 `develop/1.5.2`，不沿用 Phase-08-01、Phase 7 或 `update` 分支。
+- Phase-08-01 和 Phase-08-02 均已合入主远程 `main`；Marshaller、Router、Monitor、脚本/Compose 等远程门禁成功，两份实施记录与真实提交一致。
+- 主远程根与 Frontend 版本均为 `1.5.2`；Topic、record、Envelope、正式 group、offset、ownership、映射、VictoriaMetrics 写入/查询、故障恢复和资源语义与总方案一致。
+- 从最新主远程 `main` 创建 `develop/1.5.3`，不沿用 Phase-08-01、Phase-08-02、Phase 7 或 `update` 分支。
 - WSL2 Linux filesystem、Docker daemon、端口、Compose project、container、network、volume、`.run` 进程、Kafka group 和插件根可建立强归属隔离。
 - 开始前保存 Git 状态与日常资源快照；存在用户资源时使用独立临时仓库/目录、随机 project、端口、group 和 volume，不触碰原资源。
 
@@ -35,7 +35,7 @@
 
 ### 3.1 最终构建与契约核对
 
-- 对照 Phase-08-01 实施记录、合入提交和远程 checks，核对 Marshaller module、Kafka 客户端版本、VictoriaMetrics 镜像/flags、Topic/group、配置、脚本和 CI 真实状态。
+- 对照 Phase-08-01、Phase-08-02 实施记录、合入提交和远程 checks，核对 Marshaller module、Kafka 客户端版本、VictoriaMetrics 镜像/flags、Topic/group、ownership/commit 状态机、配置、脚本和 CI 真实状态。
 - 核对 Phase 7 最终 record value 仍是 Router 未改写原始 bytes，key=`message_id`，合法输入为 metrics/redis Envelope v1。
 - 核对 Marshaller 的严格 validator、确定性 transformer、VictoriaMetrics client 和 Consumer 状态机与总方案一致；不存在自动提交、跨 record 无界队列或持久本地去重。
 - 确认 Monitor 无 Kafka/VM、Router 无 payload 清洗/存储、Marshaller 不采集 Exporter或处理 RabbitMQ，Backend readiness 不依赖 VictoriaMetrics。
@@ -55,7 +55,7 @@
 ### 3.3 映射、异常过滤与继续消费
 
 - 对真实 success/up0 时序核对 metric name、有限 value、Envelope Unix 毫秒、固定 source/target 标签和原 `mode|db` 标签；确认不存在 message ID、plugin version、scrape status、kind、partition/offset 等额外标签。
-- 超限、坏 UTF-8/JSON、重复/未知/缺失字段、尾随 token、非法 schema/type/source/timestamp、null、非法 status/family/kind/label/value、重复 sample 和集合不完整的全集由 Phase-08-01 最终提交上的 Marshaller unit/fake-writer 测试证明，不在真实 Kafka 端到端层重复枚举。
+- 超限、坏 UTF-8/JSON、重复/未知/缺失字段、尾随 token、非法 schema/type/source/timestamp、null、非法 status/family/kind/label/value、重复 sample 和集合不完整的全集由 Phase-08-01 最终提交上的 Marshaller unit/fake-writer 测试证明；revoke/lost、commit 失败和延迟响应由 Phase-08-02 的确定性状态机测试证明，不在真实 Kafka 端到端层重复枚举。
 - 在本次 offset 范围内，受控 fixture producer 只注入三个代表：一个结构错误、一个 key/ID 不符和一个 payload/sample 契约错误。每类都必须有“未调用/未新增 VM 时序点”和“对应 offset 已提交/随后真实合法消息已写入”两类证据；只看日志或进程存活不足。
 - 注入异常后再由真实 Redis/Monitor/Router 产生合法消息，证明同一 partition 没有被毒消息永久阻塞。
 - 核对永久异常日志只包含固定 reason code 和有限传输关联信息，不包含 record value、标签全集、VM 响应、凭据或内部 URL。
@@ -64,7 +64,7 @@
 
 - 保存一条合法真实 Envelope 的原始 Kafka key/value 与第一次写入的时序集合；通过独立 fixture producer 原样重放相同 key/value。
 - 证明两次处理生成相同 metric names、labels、values 和 Unix 毫秒 timestamp；在 1ms dedup 设置下，窄时间窗查询每条时序只有一个有效点。
-- 在最终 Marshaller 构建对应的定向集成测试中，通过注入 Committer 确定性模拟 VictoriaMetrics HTTP 接受后 Kafka commit 失败，并通过注入 ownership lease 模拟 revoke/lost 与延迟响应竞态；证明不推进越过未确认 offset、旧 generation 不提交，安全重取后允许重放。测试接口不得暴露为生产 HTTP 或普通运行配置。
+- 核对并执行 Phase-08-02 已交付的定向状态机测试：通过注入 Committer 确定性模拟 VictoriaMetrics HTTP 接受后 Kafka commit 失败，并通过注入 ownership lease 模拟 revoke/lost 与延迟响应竞态；若代码、依赖和环境未变化可引用仍有效结果，发生相关变化时只重跑受影响测试。测试接口不得暴露为生产 HTTP 或普通运行配置。
 - 真实端到端只执行一个可确定观察的进程恢复场景：停止 VictoriaMetrics、产生合法 record、确认正式 group committed offset 未推进后终止 Marshaller；恢复同一 VM/volume 并重启 Marshaller，确认从 committed offset 重取、最终查询成功并提交。不得依赖 shell 时序猜测“恰好处于 commit 前”。
 - 明确区分：相同 record 的确定性重放可稳定查询；不同 message ID 或不同 timestamp 的重复采集仍是不同样本；系统仍是 at-least-once，不写 exactly-once 结论。
 
@@ -104,8 +104,8 @@
 ### 3.9 文档、版本、里程碑与远程状态收口
 
 - 更新根、Marshaller、Router、Monitor README 和配置说明，使启动顺序、Topic/group、offset、Envelope、映射、VM 写入/查询、at-least-once、内部身份和限制与真实行为一致。
-- 核对总方案、两份拆分方案、两份实施记录、Git 历史、版本和权威分支分配；计划、局部成功或未观察结果不得写成完成。
-- 将根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json` 更新为 `1.5.2`。
+- 核对总方案、三份拆分方案、三份实施记录、Git 历史、版本和权威分支分配；计划、局部成功或未观察结果不得写成完成。
+- 将根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json` 更新为 `1.5.3`。
 - 本地固定门禁通过只记录本地结果；只有 Pull Request 合入主远程且远程门禁实际成功后，才将 Phase 8 与 Milestone 2 标记完成。
 - 记录向 Phase 9 交付的 Marshaller扩展边界、metrics handler/VM writer 独立性和并行保持 metrics 链路的回归要求。
 
@@ -123,7 +123,7 @@
 
 ```text
 dev/imple/Phase-08/Phase-08-总实施方案.md（仅状态/真实偏差同步）
-dev/logs/Phase-08/Phase-08-02-集成验收与里程碑收口.md
+dev/logs/Phase-08/Phase-08-03-集成验收与里程碑收口.md
 README.md
 marshaller/README.md
 router/README.md（仅交接或阻断修复）
@@ -148,7 +148,7 @@ frontend/package-lock.json
 
 ## 6. 详细实施步骤
 
-1. 核对 Phase-08-01 实施记录、合入提交、远程门禁、当前版本、已知限制以及 Phase 7 最终交接；保存 Git 和日常资源快照。
+1. 核对 Phase-08-01、Phase-08-02 实施记录、合入提交、远程门禁、当前版本、已知限制以及 Phase 7 最终交接；保存 Git 和日常资源快照。
 2. 在最终构建上完成 Marshaller 及直接受影响组件的格式、unit、vet、race、配置/脚本静态门禁；可引用仍有效结果时记录提交和环境。
 3. 执行 `verify-marshaller.sh --self-test`，证明 token、URL、Topic/group、查询白名单、PID、project/container/volume、port 和清理目标负向保护有效。
 4. 执行第 3.2 节真实 success、target unavailable 和恢复闭环，保存有限 message ID、offset、timestamp 窗口、查询及 Redis/Exporter 对应证据。
@@ -158,7 +158,7 @@ frontend/package-lock.json
 8. 执行第 3.6 节内部访问和社交/RabbitMQ/搜索代表回归，确认可观测故障不形成越权或业务依赖。
 9. 执行隔离日常生命周期与第 3.7 节全部前后资源快照，确认 verify 只读、down 保留日常 volume且隔离清理无残留。
 10. 只对观察到的阻断失败做有限诊断与最小修复；相关代码/配置变化后只重跑受影响项。
-11. 最终 diff 稳定后完成第 8 节剩余固定门禁，更新 README、总方案状态、本批实施记录和 `1.5.2` 版本元数据。
+11. 最终 diff 稳定后完成第 8 节剩余固定门禁，更新 README、总方案状态、本批实施记录和 `1.5.3` 版本元数据。
 12. 提交并创建 Pull Request，查询并记录真实远程 checks 与合入状态；未合入或失败时保持 Phase 8/Milestone 2 未完成。
 13. 合入且远程门禁通过后立即停止 Phase 8，把稳定 metrics 路径和 Marshaller扩展边界交给 Phase 9。
 
@@ -201,7 +201,7 @@ frontend/package-lock.json
 (cd frontend && npm run build)
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.5.2 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.5.3 --base-ref upstream/main
 bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/package-redis-exporter.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 scripts/verify-marshaller.sh --self-test
@@ -228,12 +228,12 @@ git diff --check
 - Marshaller `/ready` 与 VM 只接受内部身份；用户/admin Cookie 无法直连，Frontend/Backend 不泄漏地址、凭据或管理入口。
 - 可观测链路故障期间，Backend readiness、普通/admin 社交业务、RabbitMQ 通知/索引和现有授权边界无回归。
 - `verify.sh` 保持只读；日常与隔离生命周期顺序正确，不误杀、不误删、不遗留进程、端口、container、network、volume、group fixture、插件根或临时凭据。
-- README、配置、总/拆分方案、两份实施记录、Git 历史和远程状态一致。
-- 第 8 节固定完成门禁与远程 checks 通过，根和 Frontend 版本均为 `1.5.2`。
+- README、配置、总/拆分方案、三份实施记录、Git 历史和远程状态一致。
+- 第 8 节固定完成门禁与远程 checks 通过，根和 Frontend 版本均为 `1.5.3`。
 
 ## 10. 明确完成条件
 
-只有第 9 节全部满足、Phase-08-02 Pull Request 已合入主远程 `main`、远程固定门禁成功且两份 Phase 8 实施记录真实完整，Phase 8 与 Milestone 2 才完成。任一真实上游、完整查询、异常继续、offset、重复重放、存储/Kafka恢复、业务/访问隔离、资源安全或远程证据缺失时，不得标记完成。
+只有第 9 节全部满足、Phase-08-03 Pull Request 已合入主远程 `main`、远程固定门禁成功且三份 Phase 8 实施记录真实完整，Phase 8 与 Milestone 2 才完成。任一真实上游、完整查询、异常继续、offset、重复重放、存储/Kafka恢复、业务/访问隔离、资源安全或远程证据缺失时，不得标记完成。
 
 达到完成条件后立即停止。Backend/Frontend 指标查询产品能力、Dashboard、告警、聚合、长期容量、VM cluster、多租户、读写分权、DLQ/重放、logs/events 均进入后续阶段，不继续占用本批。
 
