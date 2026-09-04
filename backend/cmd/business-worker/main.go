@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,27 +12,43 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/processlog"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
 )
 
 func main() {
-	logger := logging.New("business-worker", os.Stdout)
-	if err := run(logger); err != nil {
-		logging.Module(logger, "lifecycle").Error("business worker stopped", slog.String("reason", "process_failed"))
-		os.Exit(1)
-	}
+	os.Exit(execute(os.Stdout, config.LoadWorker, run))
 }
 
-func run(logger *slog.Logger) error {
+func execute(stdout io.Writer, load func() (config.WorkerConfig, error), operation func(config.WorkerConfig, *slog.Logger) error) int {
+	stdoutLogger := logging.New("business-worker", stdout)
+	cfg, err := load()
+	if err != nil {
+		initializationFailure(logging.Module(stdoutLogger, "lifecycle"), "configuration", "invalid_configuration")
+		return 1
+	}
+	logs, err := processlog.Open("business-worker", stdout, cfg.LogShip)
+	if err != nil {
+		initializationFailure(logging.Module(stdoutLogger, "lifecycle"), "logship", "invalid_configuration")
+		return 1
+	}
+	exitCode := 0
+	if err := operation(cfg, logs.Logger); err != nil {
+		logging.Module(logs.Logger, "lifecycle").Error("business worker stopped", slog.String("reason", "process_failed"))
+		exitCode = 1
+	}
+	if err := logs.Close(); err != nil {
+		logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
+	}
+	return exitCode
+}
+
+func run(cfg config.WorkerConfig, logger *slog.Logger) error {
 	if logger == nil {
 		logger = logging.Discard("business-worker")
 	}
 	lifecycleLogger := logging.Module(logger, "lifecycle")
-	cfg, err := config.LoadWorker()
-	if err != nil {
-		return initializationFailure(lifecycleLogger, "configuration", "invalid_configuration")
-	}
 	mysqlClient, err := platform.NewMySQL(cfg.MySQL)
 	if err != nil {
 		return initializationFailure(lifecycleLogger, "mysql", "connection_failed")

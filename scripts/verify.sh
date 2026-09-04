@@ -98,6 +98,7 @@ monitor_http_port() { config_port MONITOR_HTTP_PORT 9090; }
 router_http_port() { config_port ROUTER_HTTP_PORT 9091; }
 marshaller_http_port() { config_port MARSHALLER_HTTP_PORT 9093; }
 victoriametrics_port() { config_port VICTORIAMETRICS_PORT 8428; }
+elasticsearch_port() { config_port ELASTICSEARCH_PORT 9200; }
 exporter_http_port() { config_port REDIS_EXPORTER_HTTP_PORT 9121; }
 
 validate_port() {
@@ -186,6 +187,20 @@ PYMARSHALLER
   if [[ $status == 200 ]]; then pass 'Marshaller /ready' 'authenticated Kafka and VictoriaMetrics readiness succeeded.'; else fail 'Marshaller /ready' "returned HTTP $status."; fi
   status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/ready") || status=000
   if [[ $status == 401 ]]; then pass 'Marshaller authentication' 'unauthenticated readiness was rejected.'; else fail 'Marshaller authentication' "unauthenticated readiness returned HTTP $status."; fi
+}
+
+check_log_pipeline() {
+  local monitor_port=$1 elasticsearch_port=$2 headers="$TEMP_DIR/log-route.headers" body="$TEMP_DIR/log-storage.json" status
+  status=$(curl --silent --show-error --max-time 3 --dump-header "$headers" --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$monitor_port/internal/v1/logs") || status=000
+  if [[ $status == 405 ]] && grep -Eiq '^Allow:[[:space:]]*POST' "$headers"; then
+    pass 'Monitor log ingest route' 'POST-only endpoint is registered without publishing a test record.'
+  else
+    fail 'Monitor log ingest route' "route contract mismatch (HTTP $status)."
+  fi
+  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_index_template/gopulse-logs-v1-template") || status=000
+  if [[ $status == 200 ]]; then pass 'Elasticsearch log template' 'fixed template is available.'; else fail 'Elasticsearch log template' "returned HTTP $status."; fi
+  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_alias/gopulse-logs-v1-read") || status=000
+  if [[ $status == 200 ]]; then pass 'Elasticsearch log alias' 'fixed read alias is available.'; else fail 'Elasticsearch log alias' "returned HTTP $status."; fi
 }
 
 check_victoriametrics() {
@@ -437,7 +452,7 @@ PY
 
 main() {
   require_tools || return 1
-  local port monitor_port router_port marshaller_port vm_port exporter_port monitor_token router_token marshaller_token vm_username vm_password
+  local port monitor_port router_port marshaller_port vm_port es_port exporter_port monitor_token router_token marshaller_token vm_username vm_password
   if ! port=$(http_port); then
     printf '[gopulse] ERROR: Could not read HTTP_PORT from the environment file.\n' >&2
     return 1
@@ -452,10 +467,11 @@ main() {
   [[ ${#router_token} -ge 32 ]] || { printf '[gopulse] ERROR: ROUTER_API_TOKEN must contain at least 32 bytes.\n' >&2; return 1; }
   marshaller_port=$(marshaller_http_port) || return 1
   vm_port=$(victoriametrics_port) || return 1
+  es_port=$(elasticsearch_port) || return 1
   marshaller_token=$(config_port MARSHALLER_API_TOKEN local-marshaller-api-token-change-me-32-bytes) || return 1
   vm_username=$(config_port VICTORIAMETRICS_USERNAME gopulse-marshaller) || return 1
   vm_password=$(config_port VICTORIAMETRICS_PASSWORD local-victoriametrics-password) || return 1
-  validate_port "$marshaller_port" && validate_port "$vm_port" || { printf '[gopulse] ERROR: Marshaller or VictoriaMetrics port is invalid.\n' >&2; return 1; }
+  validate_port "$marshaller_port" && validate_port "$vm_port" && validate_port "$es_port" || { printf '[gopulse] ERROR: Marshaller or VictoriaMetrics port is invalid.\n' >&2; return 1; }
   exporter_port=$(exporter_http_port) || { printf '[gopulse] ERROR: Could not read REDIS_EXPORTER_HTTP_PORT.\n' >&2; return 1; }
   validate_port "$exporter_port" || { printf "[gopulse] ERROR: REDIS_EXPORTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$exporter_port" >&2; return 1; }
   TEMP_DIR=$(mktemp -d)
@@ -475,6 +491,7 @@ main() {
   check_router_http "$router_port" "$router_token"
   check_marshaller_http "$marshaller_port" "$marshaller_token"
   check_victoriametrics "$vm_port" "$vm_username" "$vm_password"
+  check_log_pipeline "$monitor_port" "$es_port"
   if curl -fsS --max-time 3 "http://127.0.0.1:$monitor_port/health" >/dev/null; then pass 'Monitor /health' 'HTTP 200.'; else fail 'Monitor /health' 'request failed.'; fi
   check_monitor_plugin_version "$monitor_port" "$monitor_token"
   check_exporter_health "$exporter_port"
