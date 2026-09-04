@@ -47,6 +47,7 @@ Phase 7 使用 `1.4.x` 版本线，`1.4.0` 只作为阶段基线，不创建空�
 | --- | --- | --- | --- |
 | Phase-07-01 | `1.4.1` | `develop/1.4.1` | 已合入 `main`（PR #68） |
 | Phase-07-02 | `1.4.2` | `develop/1.4.2` | 已完成并合入 `main`（PR #69） |
+| Phase-07-03 | `1.4.3` | `develop/1.4.3` | 本地整改与固定验收完成，待远程门禁和 PR 合入 |
 
 执行规则：
 
@@ -54,6 +55,7 @@ Phase 7 使用 `1.4.x` 版本线，`1.4.0` 只作为阶段基线，不创建空�
 - 每批完成前创建同名 `dev/logs/Phase-07/Phase-07-XX-*.md`，只记录实际改动、验证、偏差、失败和限制。
 - Phase-07-01 交付从真实 Monitor HTTP 发布到 Kafka Consumer 的完整纵向能力，不按 HTTP、Router、Producer、Kafka、Consumer 或测试机械拆批。
 - Phase-07-02 只执行真实跨组件集成验收、必要回归、文档和阶段状态收口；不得加入新 Topic、新消息类型或新产品能力。
+- Phase-07-03 只关闭 2026-09-04 Phase 7 Review 的 P1/P2：严格 schema token、Producer 有界并发/取消、Router 验收矩阵与资源安全、端口唯一性和治理记录；不得扩展 Phase 8 能力。
 - 已推送分支不得静默改名或重新编号；若批次数量或顺序在实施前变化，先更新本表并重新计算尚未创建的分支。
 
 ## 4. 阶段范围与非目标
@@ -302,6 +304,7 @@ MONITOR_ROUTER_TOKEN=<same-as-ROUTER_API_TOKEN>
 
 - Phase-07-01：Router format/unit/vet/race，Monitor Publisher 回归，Compose 渲染，脚本语法/自检，真实 Kafka record 以及真实 Monitor 纵向闭环。
 - Phase-07-02：最终构建的完整传输矩阵、Kafka 故障恢复、内部访问负向、社交业务代表回归、资源清理、版本/分支治理和远程门禁。若 07-01 通过后相关代码/配置未改变，可引用已记录的 package 结果，不本地重复无影响检查；远程 CI 按仓库规则正常执行。
+- Phase-07-03：Router Envelope/Producer 定向 unit/race、无 Docker Router self-test、单次隔离 Kafka 非写入矩阵、Kafka outage/recovery、直接受影响的 Monitor/Exporter/Backend/Frontend 与治理门禁。只有具体共享基础设施回归才扩大验证。
 
 ### 13.3 阶段级端到端矩阵
 
@@ -379,11 +382,14 @@ dev/logs/Phase-07/Phase-07-02-集成验收与阶段收口.md
 - Router 只在 Kafka 确认后返回 `202`；Kafka 故障、超时和缓冲耗尽有界失败且不泄漏内部信息。
 - Kafka 停止时 Router 进程存活、Monitor 继续采集、普通用户社交闭环和管理员权限边界不变；Kafka 恢复后新消息无需重启即可继续传输。
 - Kafka 只承载可观测消息，RabbitMQ 业务异步职责、Phase 0～6 必要能力、日常生命周期和资源归属无回归。
-- 两批实施记录真实完整，固定本地/远程门禁通过，根与 Frontend 版本均为 `1.4.2`。
+- 三批实施记录真实完整；Phase-07-03 的固定本地/远程门禁通过，根与 Frontend 版本均为 `1.4.3`。
+- `schema_version` 只接受 JSON integer `1`；字符串或小数表示不能进入 Producer/Kafka。
+- Producer 真实使用 franz-go 的 records/bytes 上限并在缓冲耗尽时立即拒绝；请求取消不全局中止其他 record，readiness 不与 publish 共享串行锁，shutdown 保持有界。
+- Router 无 Docker self-test 覆盖 token、PID、project、container、volume、port、Topic 和清理目标；真实拒绝矩阵全部证明 Kafka offset 不增长，五个随机端口两两唯一。
 
 ### 16.2 完成与停止条件
 
-只有第 16.1 节全部满足、Phase-07-02 已合入主远程 `main`、远程门禁成功且两份实施记录与真实提交一致，Phase 7 才完成。任一真实 Monitor 输入、Consumer 完整性、原始字节不变、内部身份、Kafka 故障恢复、社交业务隔离、资源清理或远程状态证据缺失时，不得标记完成。
+只有第 16.1 节全部满足、Phase-07-03 已合入主远程 `main`、远程门禁成功且三份实施记录与真实提交一致，Phase 7 Review 整改才完成。任一真实 Monitor 输入、Consumer 完整性、原始字节不变、内部身份、Kafka 故障恢复、社交业务隔离、资源清理或远程状态证据缺失时，不得标记完成。
 
 阶段验收通过后立即停止。多 Topic、其他消息类型、持久去重、重放、Schema Registry、SASL/TLS、多 broker、Marshaller、存储和长期 Kafka 治理全部作为后续事项，不继续占用 Phase 7。
 
