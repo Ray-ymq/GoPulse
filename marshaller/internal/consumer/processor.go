@@ -117,6 +117,9 @@ func (p *Processor) commit(ctx context.Context, record Record, lease Lease) erro
 	commitCtx, cancel := mergeContext(ctx, lease.Context())
 	defer cancel()
 	if err := p.Committer.Commit(commitCtx, record); err != nil {
+		if !lease.Valid() || lease.Context().Err() != nil {
+			return ErrOwnershipLost
+		}
 		return ErrCommitFailed
 	}
 	if !lease.Valid() {

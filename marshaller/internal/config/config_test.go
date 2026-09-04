@@ -34,3 +34,19 @@ func TestLoadRejectsUnsafeContracts(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAcceptsIPv4AndIPv6LoopbackHTTPHosts(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		t.Run(host, func(t *testing.T) {
+			values := validEnv()
+			values["MARSHALLER_HTTP_HOST"] = host
+			cfg, err := loadMap(values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.HTTPHost != host {
+				t.Fatalf("host=%q, want %q", cfg.HTTPHost, host)
+			}
+		})
+	}
+}
