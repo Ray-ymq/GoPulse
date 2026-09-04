@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,7 +26,7 @@ func New(host string, port int, token string, timeout time.Duration, kafka, stor
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ready", s.ready)
-	s.server = &http.Server{Addr: host + ":" + strconv.Itoa(port), Handler: mux, ReadHeaderTimeout: 2 * time.Second}
+	s.server = &http.Server{Addr: net.JoinHostPort(host, strconv.Itoa(port)), Handler: mux, ReadHeaderTimeout: 2 * time.Second}
 	return s
 }
 func (s *Server) ListenAndServe() error              { return s.server.ListenAndServe() }

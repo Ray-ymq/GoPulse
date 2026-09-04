@@ -11,7 +11,7 @@ Redis -> Redis Exporter -> MetricsMonitor -> Message Router
 
 Marshaller uses franz-go with consumer group `gopulse-marshaller-metrics-v1`, initial offset `earliest`, automatic commits disabled, and Topic auto-creation disabled. Records are handled one at a time per the current single-partition Topic. The Kafka key must be the same 32-character lowercase hexadecimal `message_id` contained in the value.
 
-A valid record is committed only after strict decoding, deterministic transformation, a `204 No Content` response with an empty body from `POST /api/v1/import/prometheus`, and a still-valid partition ownership lease. A permanently invalid record is not sent to storage and is committed only while ownership remains valid so the next record can proceed. Network, timeout, authentication, redirect, non-204, and unexpected-response failures are temporary: the current record remains uncommitted and is retried with bounded cancellable backoff. Commit failure halts partition progress. Revoke or lost-partition callbacks invalidate the old generation before any later acceptance can commit it.
+A valid record is committed only after strict decoding, deterministic transformation, a `204 No Content` response with an empty body from `POST /api/v1/import/prometheus`, and a still-valid partition ownership lease. A permanently invalid record is not sent to storage and is committed only while ownership remains valid so the next record can proceed. Network, timeout, authentication, redirect, non-204, and unexpected-response failures are temporary: the current record remains uncommitted and is retried with bounded cancellable backoff. A commit failure while ownership is still valid halts partition progress, keeps liveness available, makes readiness fail, and requires a controlled process restart so the formal group offset remains the recovery source. Revoke or lost-partition cancellation during an in-flight commit is classified as ownership loss instead of a permanent commit failure; the old generation cannot commit and the consumer continues after replacement assignment.
 
 Kafka and VictoriaMetrics outages do not change the recovery source of truth: the formal consumer group's committed offset remains authoritative. `/health` stays live while a dependency is unavailable, `/ready` fails with a bounded check, and the same process reconnects after a short outage. If Marshaller terminates after an HTTP result is unknown or before a commit, the replacement process re-fetches from the committed offset. Replayed records can therefore be written more than once; no local file or process state is used to infer storage acceptance.
 
@@ -31,7 +31,7 @@ Required secrets are `MARSHALLER_API_TOKEN` (at least 32 bytes) and `MARSHALLER_
 
 | Variable | Default or constraint |
 | --- | --- |
-| `MARSHALLER_HTTP_HOST` | `127.0.0.1`; loopback IP only |
+| `MARSHALLER_HTTP_HOST` | `127.0.0.1`; IPv4 or IPv6 loopback IP only |
 | `MARSHALLER_HTTP_PORT` | `9093` |
 | `MARSHALLER_KAFKA_BROKERS` | `127.0.0.1:9092` |
 | `MARSHALLER_KAFKA_TOPIC` | fixed `gopulse-observability-v1` |
@@ -44,6 +44,8 @@ Required secrets are `MARSHALLER_API_TOKEN` (at least 32 bytes) and `MARSHALLER_
 | `MARSHALLER_READINESS_TIMEOUT` | `2s` |
 | `MARSHALLER_SHUTDOWN_TIMEOUT` | `10s` |
 | `MARSHALLER_FUTURE_SKEW` | `5m` |
+
+Kafka polling is canceled only by the Marshaller run context; there is no separate application poll-timeout setting.
 
 `GET /health` is public and reports process liveness only. `GET /ready` requires `Authorization: Bearer <MARSHALLER_API_TOKEN>` and performs bounded Kafka Topic and authenticated VictoriaMetrics checks. Browser cookies and Backend JWTs are not accepted as service identity. Logs never include message values, storage response bodies, or credentials.
 
