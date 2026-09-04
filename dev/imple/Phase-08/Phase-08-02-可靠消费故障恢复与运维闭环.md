@@ -2,7 +2,7 @@
 
 > 权威目标版本与开发分支以 `Phase-08-总实施方案.md` 第 3.2 节为准：本批对应 `1.5.2` / `develop/1.5.2`。
 >
-> 当前状态：本地实现与固定验收已完成，待远程门禁、Pull Request 与合入确认。
+> 当前状态：已完成。PR #75 的权威 push quality gates 全部通过，并以 squash commit `fa40b85` 合入 `main`。
 
 ## 1. 批次目标
 
