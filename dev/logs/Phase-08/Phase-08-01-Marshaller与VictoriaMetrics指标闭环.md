@@ -6,7 +6,7 @@
 - 目标版本：`1.5.1`
 - 开发分支：`develop/1.5.1`
 - 基线：`origin/main` / `f737ffa`
-- 状态：本地实现与固定验收已完成；远程 Pull Request、远程门禁与合入状态仍待执行/确认，因此不声明 Phase-08-01 已按总方案最终完成。
+- 状态：已完成。PR #73 的 10 项远程 checks 全部通过，并于 2026-09-04 以 squash commit `ea3b910` 合入 `main`；远程 `develop/1.5.1` 已按普通开发分支生命周期删除。
 
 本批建立了真实 Redis → Redis Exporter → MetricsMonitor → Message Router → Kafka → Marshaller → VictoriaMetrics 的最小指标闭环。Marshaller 使用正式 group `gopulse-marshaller-metrics-v1`、earliest 初始位置和手动 offset，独立执行完整 Envelope v1/Redis metrics 二次校验，将合法 record 确定性转换为 Prometheus text，并在 VictoriaMetrics 明确返回空 `204 No Content` 且 partition generation ownership 仍有效后提交。
 
@@ -113,6 +113,7 @@
 - `scripts/verify-monitor.sh --self-test`
 - `scripts/verify-exporter.sh --self-test`
 - `git diff --check`
+- GitHub push workflow run `33860357343` 完成权威质量门禁；自动创建 PR #73，PR 页面记录 10 项 checks 通过，随后 squash merge 为 `ea3b910`。
 
 ## 5. 与计划偏差
 
@@ -125,4 +126,4 @@
 - Topic 当前固定单 partition；真实多 generation broker rebalance 和进程重启恢复尚未执行，留给 Phase-08-02。
 - VictoriaMetrics `204` 仅作为 HTTP transport acceptance；本批通过封闭 transformer、实际查询和 `vm_rows_invalid_total` 补充验证，但不宣称逐 sample 事务确认。
 - Marshaller 暂不提供产品 Metrics Query API、Frontend 页面、Dashboard、告警、任意 MetricsQL 代理或多租户能力。
-- 远程 push gates、Pull Request 和合入状态尚未记录；只有它们成功后才能按实施方案第 10 节将本批标记为最终完成。
+- 本批远程门禁和合入已完成。Phase-08-02 继续承担真实 broker rebalance/restart、Marshaller 进程恢复和完整 VM/Kafka 故障矩阵。
