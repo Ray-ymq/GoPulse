@@ -128,6 +128,7 @@ type ElasticsearchConfig struct {
 type ReindexConfig struct {
 	MySQL         MySQLConfig
 	Elasticsearch ElasticsearchConfig
+	LogShip       LogShipConfig
 }
 
 type MonitorConfig struct {
@@ -525,12 +526,17 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	if err != nil {
 		return ReindexConfig{}, err
 	}
+	logShip, err := loadLogShipConfig(lookup)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
 	return ReindexConfig{
 		MySQL: MySQLConfig{
 			Host: valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost), Port: mysqlPort,
 			Database: database, User: user, Password: password,
 		},
 		Elasticsearch: elasticsearch,
+		LogShip:       logShip,
 	}, nil
 }
 
