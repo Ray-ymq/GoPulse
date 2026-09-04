@@ -1,6 +1,6 @@
 # Marshaller
 
-Marshaller is GoPulse's loopback-only Kafka consumer and metrics transformation service. Phase 8-01 connects the fixed observability Topic to single-node VictoriaMetrics:
+Marshaller is GoPulse's loopback-only Kafka consumer and metrics transformation service. Phase 8-02 operates the fixed observability Topic and single-node VictoriaMetrics as a recoverable at-least-once pipeline:
 
 ```text
 Redis -> Redis Exporter -> MetricsMonitor -> Message Router
@@ -12,6 +12,8 @@ Redis -> Redis Exporter -> MetricsMonitor -> Message Router
 Marshaller uses franz-go with consumer group `gopulse-marshaller-metrics-v1`, initial offset `earliest`, automatic commits disabled, and Topic auto-creation disabled. Records are handled one at a time per the current single-partition Topic. The Kafka key must be the same 32-character lowercase hexadecimal `message_id` contained in the value.
 
 A valid record is committed only after strict decoding, deterministic transformation, a `204 No Content` response with an empty body from `POST /api/v1/import/prometheus`, and a still-valid partition ownership lease. A permanently invalid record is not sent to storage and is committed only while ownership remains valid so the next record can proceed. Network, timeout, authentication, redirect, non-204, and unexpected-response failures are temporary: the current record remains uncommitted and is retried with bounded cancellable backoff. Commit failure halts partition progress. Revoke or lost-partition callbacks invalidate the old generation before any later acceptance can commit it.
+
+Kafka and VictoriaMetrics outages do not change the recovery source of truth: the formal consumer group's committed offset remains authoritative. `/health` stays live while a dependency is unavailable, `/ready` fails with a bounded check, and the same process reconnects after a short outage. If Marshaller terminates after an HTTP result is unknown or before a commit, the replacement process re-fetches from the committed offset. Replayed records can therefore be written more than once; no local file or process state is used to infer storage acceptance.
 
 This is an at-least-once pipeline. Deterministic series labels, millisecond timestamps, and VictoriaMetrics `-dedup.minScrapeInterval=1ms` provide limited idempotence for replayed points; they are not a Kafka/HTTP transaction or an exactly-once guarantee.
 
@@ -60,4 +62,4 @@ scripts/verify-marshaller.sh --self-test
 scripts/verify-marshaller.sh
 ```
 
-The default acceptance uses a random owned Compose project and loopback ports. It proves real Redis success metrics, target-unavailable/recovery, a representative permanent invalid Kafka record followed by continued processing, offset retention during a VictoriaMetrics outage, authenticated instant/range queries, zero observed invalid imported rows, and complete process/container/network/volume cleanup.
+The default acceptance uses a random owned Compose project, temporary credentials, and loopback ports. It proves real Redis success metrics, target-unavailable/recovery, a representative permanent invalid Kafka record followed by continued processing, offset retention during a VictoriaMetrics outage, same-process storage recovery, explicit uncommitted-record recovery after a Marshaller restart, Kafka broker restart and formal-group rejoin, two deliveries of one byte-identical valid Envelope with one stable millisecond query point, unchanged `vm_rows_invalid_total`, authenticated instant/range queries, and complete process/container/network/volume cleanup. The shell scenarios use observable dependency and offset transitions; exact delayed-acceptance and revoke/lost races remain covered by deterministic Consumer tests.
