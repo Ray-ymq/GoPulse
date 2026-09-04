@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -10,28 +11,44 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/processlog"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
 )
 
 func main() {
-	logger := logging.New("search-indexer", os.Stdout)
-	if err := run(logger); err != nil {
-		logging.Module(logger, "lifecycle").Error("search indexer stopped", slog.String("reason", "process_failed"))
-		os.Exit(1)
-	}
+	os.Exit(execute(os.Stdout, config.LoadSearchIndexer, run))
 }
 
-func run(logger *slog.Logger) error {
+func execute(stdout io.Writer, load func() (config.SearchIndexerConfig, error), operation func(config.SearchIndexerConfig, *slog.Logger) error) int {
+	stdoutLogger := logging.New("search-indexer", stdout)
+	cfg, err := load()
+	if err != nil {
+		indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "configuration", "invalid_configuration")
+		return 1
+	}
+	logs, err := processlog.Open("search-indexer", stdout, cfg.LogShip)
+	if err != nil {
+		indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "logship", "invalid_configuration")
+		return 1
+	}
+	exitCode := 0
+	if err := operation(cfg, logs.Logger); err != nil {
+		logging.Module(logs.Logger, "lifecycle").Error("search indexer stopped", slog.String("reason", "process_failed"))
+		exitCode = 1
+	}
+	if err := logs.Close(); err != nil {
+		logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
+	}
+	return exitCode
+}
+
+func run(cfg config.SearchIndexerConfig, logger *slog.Logger) error {
 	if logger == nil {
 		logger = logging.Discard("search-indexer")
 	}
 	lifecycleLogger := logging.Module(logger, "lifecycle")
-	cfg, err := config.LoadSearchIndexer()
-	if err != nil {
-		return indexerInitializationFailure(lifecycleLogger, "configuration", "invalid_configuration")
-	}
 	mysqlClient, err := platform.NewMySQL(cfg.MySQL)
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "mysql", "connection_failed")
