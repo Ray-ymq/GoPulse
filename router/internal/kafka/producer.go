@@ -9,10 +9,18 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
+type client interface {
+	TryProduce(context.Context, *kgo.Record, func(*kgo.Record, error))
+	Ping(context.Context) error
+	Request(context.Context, kmsg.Request) (kmsg.Response, error)
+	Flush(context.Context) error
+	UnsafeAbortBufferedRecords()
+	Close()
+}
+
 type Producer struct {
-	client         *kgo.Client
+	client         client
 	produceTimeout time.Duration
-	slot           chan struct{}
 }
 
 type Config struct {
@@ -35,39 +43,27 @@ func New(cfg Config) (*Producer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Producer{client: client, produceTimeout: cfg.ProduceTimeout, slot: make(chan struct{}, 1)}, nil
+	return &Producer{client: client, produceTimeout: cfg.ProduceTimeout}, nil
 }
 
 func (p *Producer) Produce(ctx context.Context, topic, key string, value []byte) error {
-	produceCtx, cancel := context.WithTimeout(ctx, p.produceTimeout)
-	defer cancel()
-	if err := p.acquire(produceCtx); err != nil {
-		return err
-	}
-	defer p.release()
-
+	// The record has its own bounded delivery context. Request cancellation stops
+	// the caller's wait but does not cancel other records sharing a Kafka batch.
+	produceCtx, cancelProduce := context.WithTimeout(context.Background(), p.produceTimeout)
 	result := make(chan error, 1)
-	p.client.Produce(produceCtx, &kgo.Record{Topic: topic, Key: []byte(key), Value: value}, func(_ *kgo.Record, err error) {
+	p.client.TryProduce(produceCtx, &kgo.Record{Topic: topic, Key: []byte(key), Value: value}, func(_ *kgo.Record, err error) {
+		cancelProduce()
 		result <- err
 	})
 	select {
 	case err := <-result:
 		return err
-	case <-produceCtx.Done():
-		// Bounded cancellation is more important than retaining the producer sequence
-		// window. Kafka may already have accepted the record, so callers must treat
-		// this outcome as uncertain and downstream consumers must tolerate duplicates.
-		p.client.UnsafeAbortBufferedRecords()
-		p.client.PurgeTopicsFromClient(topic)
-		return produceCtx.Err()
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
 func (p *Producer) Ready(ctx context.Context, topic string) error {
-	if err := p.acquire(ctx); err != nil {
-		return err
-	}
-	defer p.release()
 	if err := p.client.Ping(ctx); err != nil {
 		return err
 	}
@@ -94,12 +90,6 @@ func (p *Producer) Ready(ctx context.Context, topic string) error {
 }
 
 func (p *Producer) Close(ctx context.Context) error {
-	if err := p.acquire(ctx); err != nil {
-		p.client.UnsafeAbortBufferedRecords()
-		p.client.Close()
-		return err
-	}
-	defer p.release()
 	err := p.client.Flush(ctx)
 	if err != nil {
 		p.client.UnsafeAbortBufferedRecords()
@@ -107,14 +97,3 @@ func (p *Producer) Close(ctx context.Context) error {
 	p.client.Close()
 	return err
 }
-
-func (p *Producer) acquire(ctx context.Context) error {
-	select {
-	case p.slot <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (p *Producer) release() { <-p.slot }
