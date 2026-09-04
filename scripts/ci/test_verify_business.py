@@ -103,7 +103,7 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("ELASTICSEARCH_PORT", config_keys)
         self.assertIn('stop_recorded_application "Business Worker" "$WORKER_RECORD"', down)
         self.assertIn('stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD"', down)
-        self.assertIn("DEFAULTS=([ELASTICSEARCH_PORT]=9200 [KAFKA_PORT]=9092)", down)
+        self.assertIn("DEFAULTS=([ELASTICSEARCH_PORT]=9200 [KAFKA_PORT]=9092", down)
         self.assertIn('export "$key=${DEFAULTS[$key]}"', down)
         self.assertNotIn("local key=$1 fallback=$2 direct=${!key:-}", verify)
         self.assertIn("direct=${!key:-}", verify)

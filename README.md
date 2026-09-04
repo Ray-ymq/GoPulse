@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **1.4.2**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, and Phase 6 adds the authenticated Monitor Plugin Manager plus MetricsMonitor Envelope v1 publishing. Phase 7 closes and accepts the loopback Message Router, explicitly initialized single-node Kafka transport, fixed `gopulse-observability-v1` topic, and bounded verification Consumer across the real Redis → Exporter → Monitor → Router → Kafka path, including broker failure/recovery and business-isolation checks. MySQL remains authoritative, RabbitMQ remains the business-event transport, and Kafka is limited to observability messages.
+GoPulse is currently at product version **1.5.1**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8-01 adds the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, and authenticated single-node VictoriaMetrics storage/query closure across the real Redis → Exporter → Monitor → Router → Kafka path. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages.
 
 The repository currently provides:
 
@@ -11,11 +11,12 @@ The repository currently provides:
 - authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
 - Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation and MySQL fallback;
 - versioned MySQL migrations for users and persistent roles, posts, comments, and post likes;
-- local MySQL, Redis, RabbitMQ, fixed-version Elasticsearch, and single-node Kafka 4.3.1 infrastructure;
+- local MySQL, Redis, RabbitMQ, fixed-version Elasticsearch, single-node Kafka 4.3.1, and authenticated single-node VictoriaMetrics 1.151.0 infrastructure;
 - transactional `post.created` Outbox delivery through an isolated RabbitMQ topology and Search Indexer;
 - single-line Schema v1 JSON lifecycle, HTTP, Outbox, Worker, Indexer, reindex, and Redis Exporter logs with bounded safe fields;
 - an independent Redis Exporter whose `/health` reports process liveness and whose `/metrics` returns a complete current Prometheus snapshot or isolated `up 0`;
 - a loopback Message Router with strict Envelope v1 boundaries, Bearer service identity, explicit `metrics` routing, acknowledged Kafka production, and original-body byte preservation;
+- a loopback Marshaller with strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, deterministic Prometheus text conversion, and authenticated VictoriaMetrics writes/readiness;
 - WSL/Bash lifecycle scripts, read-only runtime verification, and destructive-but-isolated business/search acceptance scripts;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
@@ -53,7 +54,7 @@ The first `dev.sh` run creates `.env` from `.env.example` when `.env` is absent.
 cp .env.example .env
 ```
 
-Workspaces created before Phase-01-01 must manually add the required Phase 1 secrets and connection values from `.env.example`, including `AUTH_JWT_SECRET` and the RabbitMQ URL. Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*`, Phase 3 Elasticsearch/Search Indexer, Phase 5 `REDIS_EXPORTER_*`, and Phase 7 `KAFKA_*`/`ROUTER_*` settings may be copied when they need customization; otherwise the Bash lifecycle resolves their documented local defaults without overwriting an existing `.env`. This includes `ELASTICSEARCH_PORT=9200` for legacy environment files during both startup and shutdown. Elasticsearch URLs must use HTTP(S), include a host, and must not include credentials, query parameters, or fragments.
+Workspaces created before Phase-01-01 must manually add the required Phase 1 secrets and connection values from `.env.example`, including `AUTH_JWT_SECRET` and the RabbitMQ URL. Phase 2 `OUTBOX_*` and `BUSINESS_WORKER_*`, Phase 3 Elasticsearch/Search Indexer, Phase 5 `REDIS_EXPORTER_*`, Phase 7 `KAFKA_*`/`ROUTER_*`, and Phase 8 `MARSHALLER_*`/`VICTORIAMETRICS_*` settings may be copied when they need customization; otherwise the Bash lifecycle resolves their documented local defaults without overwriting an existing `.env`. This includes `ELASTICSEARCH_PORT=9200` for legacy environment files during both startup and shutdown. Elasticsearch URLs must use HTTP(S), include a host, and must not include credentials, query parameters, or fragments.
 
 The checked-in values are development-only credentials. Do not reuse them in production or commit a local `.env`. `APP_ENV` must be `development`, `test`, or `production`. Production requires `AUTH_COOKIE_SECURE=true`; local development and tests may explicitly use `false` for HTTP.
 
@@ -70,15 +71,15 @@ Run from any directory:
 The script performs the following sequence:
 
 1. validates the required tools and configuration;
-2. starts MySQL, Redis, RabbitMQ, and Elasticsearch with Docker Compose;
+2. starts MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, and VictoriaMetrics with Docker Compose;
 3. waits for all infrastructure health checks;
 4. runs `go run ./cmd/migrate up` in `backend/`;
 5. runs `go run ./cmd/search-reindex --if-missing` to initialize the search alias without replacing an existing generation;
 6. builds and starts the Backend, independent Business Worker, and independent Search Indexer;
-7. builds and starts Message Router, waits for authenticated Kafka readiness, then starts Monitor and lets the Plugin Manager restore or install the deterministic Redis Exporter package;
+7. builds and starts Message Router and Marshaller after Kafka, Topic, and VictoriaMetrics readiness, then starts Monitor and lets the Plugin Manager restore or install the deterministic Redis Exporter package;
 8. installs reproducible Frontend dependencies when required and starts Vite.
 
-A failed migration or application startup stops only the Backend, Business Worker, Search Indexer, Monitor/Redis Exporter, Router, and Frontend processes started by that invocation. With the default configuration, the environment provides:
+A failed migration or application startup stops only the Backend, Business Worker, Search Indexer, Monitor/Redis Exporter, Marshaller, Router, and Frontend processes started by that invocation. With the default configuration, the environment provides:
 
 | Service | Address |
 | --- | --- |
@@ -87,6 +88,7 @@ A failed migration or application startup stops only the Backend, Business Worke
 | Backend liveness | `http://localhost:8080/health` |
 | Backend readiness | `http://localhost:8080/ready` |
 | Router readiness (Bearer token required) | `http://localhost:9091/ready` |
+| Marshaller readiness (Bearer token required) | `http://localhost:9093/ready` |
 | Monitor readiness (Bearer token required) | `http://localhost:9090/ready` |
 | Redis Exporter health | `http://localhost:9121/health` |
 | Redis Prometheus metrics | `http://localhost:9121/metrics` |
@@ -97,10 +99,11 @@ A failed migration or application startup stops only the Backend, Business Worke
 | Redis | `localhost:6379` |
 | RabbitMQ AMQP | `localhost:5672` |
 | Kafka external listener (loopback only) | `localhost:9092` |
+| VictoriaMetrics (Basic Auth, loopback only) | `http://localhost:8428` |
 
 When `HTTP_PORT` changes, the Backend, Vite proxies for `/health`, `/ready`, and `/api/v1`, and `verify.sh` all use the same resolved port. Caller environment overrides handled by `dev.sh` are passed explicitly to Vite.
 
-Keep the foreground command running. `Ctrl+C` stops Frontend, Monitor and its Redis Exporter, Router, Search Indexer, Business Worker, and Backend in that order while leaving the Compose infrastructure and named volumes available. Repository-owned identity records are stored as `.run/frontend.json`, `.run/monitor.json`, `.run/router.json`, `.run/search-indexer.json`, `.run/business-worker.json`, and `.run/backend.json`; each record binds the PID to its cwd, executable, start ticks, and command marker before cleanup is allowed.
+Keep the foreground command running. `Ctrl+C` stops Frontend, Monitor and its Redis Exporter, Marshaller, Router, Search Indexer, Business Worker, and Backend in that order while leaving the Compose infrastructure and named volumes available. Repository-owned identity records are stored as `.run/frontend.json`, `.run/monitor.json`, `.run/marshaller.json`, `.run/router.json`, `.run/search-indexer.json`, `.run/business-worker.json`, and `.run/backend.json`; each record binds the PID to its cwd, executable, start ticks, and command marker before cleanup is allowed.
 
 ## Verify a running environment
 
@@ -108,7 +111,7 @@ Keep the foreground command running. `Ctrl+C` stops Frontend, Monitor and its Re
 /home/<user>/src/GoPulse/scripts/verify.sh
 ```
 
-`verify.sh` is read-only. It reads the configured Backend and Exporter ports, checks the five long-running Compose services plus Kafka topic initializer/volume ownership, verifies that the Router, Monitor, Business Worker, and Search Indexer PIDs still match their repository-owned cwd, executable, start ticks, and command markers, validates the Backend and Router health/readiness contracts plus Redis Exporter `/health` and successful Prometheus `/metrics`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
+`verify.sh` is read-only. It reads the configured Backend and Exporter ports, checks the long-running Compose services plus Kafka/Topic and Kafka/VictoriaMetrics volume ownership, verifies that the Router, Marshaller, Monitor, Business Worker, and Search Indexer PIDs still match their repository-owned cwd, executable, start ticks, and command markers, validates the Backend, Router, and Marshaller health/readiness contracts, performs a fixed authenticated VictoriaMetrics query, and checks Redis Exporter `/health` and successful Prometheus `/metrics`, confirms that an unauthenticated protected API returns `401 authentication_required`, and confirms that the Frontend responds over HTTP. It never creates users, posts, comments, notifications, queue messages, or cache entries.
 
 For complete destructive integration acceptance, run:
 
@@ -129,6 +132,13 @@ Message Router transport acceptance is isolated and destructive only inside a ra
 ```bash
 scripts/verify-router.sh --self-test
 scripts/verify-router.sh
+```
+
+Marshaller metrics acceptance is also isolated. It proves the complete real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics path, strict permanent-record continuation, manual offset retention during a VictoriaMetrics outage, target-unavailable/recovery points, authenticated instant/range queries, and owned cleanup:
+
+```bash
+scripts/verify-marshaller.sh --self-test
+scripts/verify-marshaller.sh
 ```
 
 Monitor lifecycle and metrics acceptance is also isolated. It builds deterministic plugin packages, starts random-project Redis/MySQL plus a loopback HTTP capture fixture, verifies internal Bearer authentication, proves real Redis value changes in Envelope v1, exercises target-unavailable, malformed-data, Publisher-failure, stop/start/update/rollback, and restart recovery:
@@ -163,7 +173,7 @@ scripts/verify-business.sh --search-live
 /home/<user>/src/GoPulse/scripts/down.sh
 ```
 
-`down.sh` validates and stops the recorded Frontend, Monitor and its Redis Exporter, Search Indexer, Business Worker, and Backend processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, RabbitMQ, and Elasticsearch named volumes. It is safe to run repeatedly and refuses to signal a process whose record no longer proves repository ownership.
+`down.sh` validates and stops the recorded Frontend, Monitor and its Redis Exporter, Marshaller, Router, Search Indexer, Business Worker, and Backend processes, removes the `gopulse` Compose containers and network, and preserves the MySQL, Redis, RabbitMQ, Kafka, Elasticsearch, and VictoriaMetrics named volumes. It is safe to run repeatedly and refuses to signal a process whose record no longer proves repository ownership.
 
 ## Database migrations
 
@@ -444,7 +454,7 @@ Repository governance, Bash syntax, and Compose configuration:
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
 python3 scripts/ci/validate_branch.py --branch "$(git branch --show-current)"
-bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/package-redis-exporter.sh
+bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/package-redis-exporter.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 ```
 
@@ -464,3 +474,6 @@ The root `VERSION` file is the sole completed-product version source. `frontend/
 ## Phase completion and current batch
 
 Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 established the message contract and transactional Outbox at `0.3.1`; Phase 2-02 connected comment/first-like transactions to confirmed RabbitMQ delivery at `0.3.2`; Phase 2-03 added the independent, reconnecting Business Worker and idempotent notification persistence at `0.3.3`; Phase 2-04 added the recipient-scoped notification API and protected Frontend notification flow at `0.3.4`; Phase 2-05 integrated the Worker into the Bash lifecycle and passed the isolated reliability matrix at `0.3.5`. PR #39 merged that milestone into `main` on September 2, 2026 as `efff938`, and its required remote quality gates passed. Phase-02-06 performs the implementation Review closeout at `0.3.6`, adding Outbox retention cleanup, full-batch lease budgeting, controlled Worker cancellation, and no-op PR prevention. RabbitMQ remains transport rather than the final fact source, and broker failure does not invalidate an already committed MySQL business operation. Phase-03-01 delivered the rebuildable historical search loop at `0.4.1`, and Phase-03-02 delivered reliable, isolated incremental indexing and lifecycle/fault acceptance at `0.4.2`. Phase-03-03 closed the Phase 0–3 integration matrix and was merged by PR #50 on September 2, 2026 as `f54f1a2`, with all configured remote gates passing. Phase-03-04 is the sole `0.4.4` implementation-Review remediation batch: it adds PIT-stable search pagination, HMAC-protected cursors, correct pagination retry semantics, and authoritative Phase 3 status allocation. PR #51 merged `develop/0.4.4` after all push quality gates passed. Repository automation now treats those push gates as the single authoritative validation: `develop/*` runs the complete product suite, while planning-only `update` runs governance checks without duplicating Backend, Frontend, Compose, or Integration jobs. The separate pull-request CI was removed because PRs created with the workflow `GITHUB_TOKEN` require manual approval before their `pull_request` workflows can start. Milestone 1 is packaged by the release-only `develop/1.0.0` change, which synchronizes the root and Frontend product metadata to `1.0.0` and adds the [1.0.0 release notes](docs/releases/1.0.0.md). Publication is authoritative only after that change passes the remote push gates and is merged into `main`, whose root `VERSION` remains the source of truth. Phase-04-01 advances the product to `1.1.1` with Schema v1 Backend JSON logging, server-generated request IDs, structured access and panic recovery records, correlated business-action logs, safe cache-degradation warnings, and isolated `--logging-live` acceptance. Phase-04-02 closes Phase 4 at `1.1.2` by migrating Backend lifecycle, Outbox, Business Worker, Search Indexer, and search-reindex output to the same schema; event publication, processing, retry/dead, self-ignore, reconnect, and rebuild records use bounded fields and are validated by both focused logging acceptance and the retained Phase 0–3 business matrix. Phase-04-03 completed the implementation-review remediation at `1.1.3`. Phase-05-01 advances the product to `1.2.1` with the independent Redis Exporter, strict Prometheus metric contract, target-failure isolation, Bash lifecycle ownership, isolated real-Redis acceptance, and a dedicated CI job. Phase-05-02 completed the stage-level integration closeout at `1.2.2`; Phase-05-03 closes the implementation Review findings at `1.2.3` by hardening host validation, isolated cleanup, port allocation, and branch governance.
+
+
+Phase-08-01 advances the product to `1.5.1` with the formal `gopulse-marshaller-metrics-v1` consumer, manual offset decisions guarded by partition-generation ownership, strict metrics Envelope v1 revalidation, deterministic Prometheus import text, authenticated VictoriaMetrics 1.151.0 storage/query, and isolated real-upstream acceptance. Real broker rebalance/restart recovery and expanded operational hardening remain Phase-08-02 scope.
