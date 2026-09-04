@@ -79,8 +79,12 @@ func Validate(body []byte) (Message, error) {
 		return Message{}, errors.New("body is missing a required top-level field")
 	}
 
+	schemaToken := bytes.TrimSpace(values["schema_version"])
+	if len(schemaToken) == 0 || (schemaToken[0] != '-' && (schemaToken[0] < '0' || schemaToken[0] > '9')) {
+		return Message{}, errors.New("schema_version must be an integer")
+	}
 	var schema json.Number
-	if err := json.Unmarshal(values["schema_version"], &schema); err != nil {
+	if err := json.Unmarshal(schemaToken, &schema); err != nil {
 		return Message{}, errors.New("schema_version must be an integer")
 	}
 	schemaValue, err := schema.Int64()

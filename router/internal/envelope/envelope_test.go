@@ -19,13 +19,15 @@ func TestValidatePreservesValidBody(t *testing.T) {
 
 func TestValidateRejectsInvalidAndUnsupportedMessages(t *testing.T) {
 	for name, body := range map[string]string{
-		"non object": `[]`,
-		"duplicate":  `{"schema_version":1,"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{}}`,
-		"unknown":    `{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{},"topic":"other"}`,
-		"trailing":   validBody + ` {}`,
-		"message id": `{"schema_version":1,"message_id":"ABC","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{}}`,
-		"timestamp":  `{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56+08:00","payload":{}}`,
-		"payload":    `{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":null}`,
+		"non object":     `[]`,
+		"quoted schema":  `{"schema_version":"1","message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{}}`,
+		"decimal schema": `{"schema_version":1.0,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{}}`,
+		"duplicate":      `{"schema_version":1,"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{}}`,
+		"unknown":        `{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{},"topic":"other"}`,
+		"trailing":       validBody + ` {}`,
+		"message id":     `{"schema_version":1,"message_id":"ABC","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":{}}`,
+		"timestamp":      `{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56+08:00","payload":{}}`,
+		"payload":        `{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"redis","timestamp":"2026-09-03T12:34:56Z","payload":null}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Validate([]byte(body)); err == nil {
