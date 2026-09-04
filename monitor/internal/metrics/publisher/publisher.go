@@ -19,9 +19,15 @@ type Publisher interface {
 	Publish(context.Context, envelope.Envelope) error
 }
 
+type Transport interface {
+	Publisher
+	PublishRaw(context.Context, string, any) error
+}
+
 type Discard struct{}
 
 func (Discard) Publish(context.Context, envelope.Envelope) error { return nil }
+func (Discard) PublishRaw(context.Context, string, any) error    { return nil }
 
 type HTTP struct {
 	endpoint string
@@ -48,6 +54,10 @@ func NewHTTP(baseURL, token string, timeout time.Duration) (*HTTP, error) {
 }
 
 func (p *HTTP) Publish(ctx context.Context, message envelope.Envelope) error {
+	return p.PublishRaw(ctx, message.MessageID, message)
+}
+
+func (p *HTTP) PublishRaw(ctx context.Context, messageID string, message any) error {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return errors.New("message serialization failed")
@@ -58,7 +68,7 @@ func (p *HTTP) Publish(ctx context.Context, message envelope.Envelope) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", message.MessageID)
+	req.Header.Set("Idempotency-Key", messageID)
 	response, err := p.client.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || isTimeout(err) {
