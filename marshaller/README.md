@@ -1,6 +1,6 @@
 # Marshaller
 
-Marshaller is GoPulse's loopback-only Kafka consumer and metrics transformation service. Phase 8-02 operates the fixed observability Topic and single-node VictoriaMetrics as a recoverable at-least-once pipeline:
+Marshaller is GoPulse's loopback-only Kafka consumer and metrics transformation service. Phase 8-03 closes the fixed observability Topic and single-node VictoriaMetrics as a recoverable at-least-once pipeline:
 
 ```text
 Redis -> Redis Exporter -> MetricsMonitor -> Message Router
@@ -62,4 +62,4 @@ scripts/verify-marshaller.sh --self-test
 scripts/verify-marshaller.sh
 ```
 
-The default acceptance uses a random owned Compose project, temporary credentials, and loopback ports. It proves real Redis success metrics, target-unavailable/recovery, a representative permanent invalid Kafka record followed by continued processing, offset retention during a VictoriaMetrics outage, same-process storage recovery, explicit uncommitted-record recovery after a Marshaller restart, Kafka broker restart and formal-group rejoin, two deliveries of one byte-identical valid Envelope with one stable millisecond query point, unchanged `vm_rows_invalid_total`, authenticated instant/range queries, and complete process/container/network/volume cleanup. The shell scenarios use observable dependency and offset transitions; exact delayed-acceptance and revoke/lost races remain covered by deterministic Consumer tests.
+The default acceptance uses a random owned Compose project, temporary credentials, and loopback ports. It seeds real Redis key, TTL, hit, miss, and command activity; verifies all 10 families/11 success samples and their fixed labels against Redis/Exporter evidence; captures a real Kafka record with bounded partition/offset/timestamp metadata; proves three representative structural, key/ID, and payload-contract rejections add no VictoriaMetrics rows before a later real message continues; checks target-unavailable/recovery without restarting Router, Marshaller, or Monitor; rejects browser cookies, Backend-style JWT/query tokens, and wrong internal credentials; retains offsets during VictoriaMetrics failure; proves same-process storage recovery, explicit uncommitted-record recovery after Marshaller restart, Kafka broker restart/formal-group rejoin, and a captured-real replay with one stable millisecond point; and finishes with unchanged `vm_rows_invalid_total` plus complete process/container/network/volume cleanup. The shell scenarios use observable dependency and offset transitions; exact delayed-acceptance and revoke/lost races remain covered by deterministic Consumer tests.

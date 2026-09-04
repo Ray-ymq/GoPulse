@@ -33,7 +33,10 @@ valid_project() { [[ $1 =~ ^gopulse-marshaller-[a-f0-9]{12}$ ]]; }
 valid_topic() { [[ $1 == "$TOPIC" ]]; }
 valid_group() { [[ $1 == "$GROUP" ]]; }
 valid_metric() {
-  [[ $1 == gopulse_redis_up || $1 == gopulse_redis_connected_clients || $1 == gopulse_redis_commands_processed_total || $1 == gopulse_redis_cpu_seconds_total || $1 == gopulse_redis_used_memory_bytes || $1 == gopulse_redis_db_keys || $1 == gopulse_redis_db_expiring_keys ]]
+  case $1 in
+    gopulse_redis_up|gopulse_redis_uptime_seconds|gopulse_redis_connected_clients|gopulse_redis_used_memory_bytes|gopulse_redis_commands_processed_total|gopulse_redis_keyspace_hits_total|gopulse_redis_keyspace_misses_total|gopulse_redis_cpu_seconds_total|gopulse_redis_db_keys|gopulse_redis_db_expiring_keys) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 ports_unique() {
   python3 - "$@" <<'PY'
@@ -242,7 +245,7 @@ wait_health victoriametrics
 refresh_container_id kafka
 
 docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --create --topic "$TOPIC" --partitions 1 --replication-factor 1 >/dev/null
-(cd "$REPO_ROOT/router" && go build -o "$TEMP_DIR/router" ./cmd/router)
+(cd "$REPO_ROOT/router" && go build -o "$TEMP_DIR/router" ./cmd/router && go build -o "$TEMP_DIR/verify-consumer" ./cmd/verify-consumer)
 (cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/marshaller" ./cmd/marshaller)
 (cd "$REPO_ROOT/monitor" && go build -o "$TEMP_DIR/monitor" ./cmd/monitor)
 "$REPO_ROOT/scripts/package-redis-exporter.sh" --output "$TEMP_DIR/exporter.tar.gz" >/dev/null
@@ -274,8 +277,11 @@ start_monitor() {
     REDIS_EXPORTER_HTTP_HOST=127.0.0.1 REDIS_EXPORTER_HTTP_PORT="$EXPORTER_PORT" REDIS_EXPORTER_SCRAPE_TIMEOUT=800ms REDIS_EXPORTER_SHUTDOWN_TIMEOUT=3s
   wait_http "http://127.0.0.1:$MONITOR_PORT/ready" "$MONITOR_TOKEN" || { cat "$TEMP_DIR/monitor.log" >&2; fail 'Monitor not ready.'; }
   local status
-  status=$(curl -sS --max-time 30 -o "$TEMP_DIR/install.json" -w '%{http_code}' -H "Authorization: Bearer $MONITOR_TOKEN" -F "package=@$TEMP_DIR/exporter.tar.gz" "http://127.0.0.1:$MONITOR_PORT/internal/v1/exporter-plugins/install")
-  [[ $status == 201 ]] || { cat "$TEMP_DIR/install.json" >&2; fail "plugin install returned $status"; }
+  if [[ ! -f $TEMP_DIR/plugins/registry.json ]]; then
+    status=$(curl -sS --max-time 30 -o "$TEMP_DIR/install.json" -w '%{http_code}' -H "Authorization: Bearer $MONITOR_TOKEN" -F "package=@$TEMP_DIR/exporter.tar.gz" "http://127.0.0.1:$MONITOR_PORT/internal/v1/exporter-plugins/install")
+    [[ $status == 201 ]] || { cat "$TEMP_DIR/install.json" >&2; fail "plugin install returned $status"; }
+  fi
+  wait_http "http://127.0.0.1:$EXPORTER_PORT/health" || { cat "$TEMP_DIR/monitor.log" >&2; fail 'Redis Exporter not healthy.'; }
 }
 vm_query() {
   local metric=$1 output=$2
@@ -284,6 +290,36 @@ vm_query() {
 }
 vm_invalid_total() {
   curl -fsS --max-time 3 --user "$VM_USER:$VM_PASSWORD" --data-urlencode 'query=sum(vm_rows_invalid_total)' "http://127.0.0.1:$VM_PORT/prometheus/api/v1/query" | python3 -c 'import json,sys; rows=json.load(sys.stdin).get("data",{}).get("result",[]); print(rows[0]["value"][1] if rows else "0")'
+}
+vm_internal_total() {
+  local metric=$1
+  curl -fsS --max-time 3 --user "$VM_USER:$VM_PASSWORD" "http://127.0.0.1:$VM_PORT/metrics" | awk -v metric="$metric" '
+    $1 == metric || index($1, metric "{") == 1 { total += $NF }
+    END { printf "%.0f\n", total + 0 }
+  '
+}
+check_internal_access() {
+  local base="http://127.0.0.1:$MARSHALLER_PORT" vm="http://127.0.0.1:$VM_PORT" status vm_id binding
+  for request in     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong-internal-token' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Cookie: gopulse_session=ordinary-user-fixture' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Cookie: gopulse_session=admin-user-fixture' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer backend-jwt-fixture' '$base/ready?token=$MARSHALLER_TOKEN'"; do
+    status=$(eval "$request")
+    [[ $status == 401 ]] || { fail "Marshaller accepted a non-internal identity (HTTP $status)."; return 1; }
+  done
+  [[ $(http_status "$base/ready" "$MARSHALLER_TOKEN") == 200 ]] || { fail 'Marshaller rejected the correct internal Bearer token.'; return 1; }
+  for path in /metrics /query /offsets /replay /admin; do
+    status=$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' "$base$path")
+    [[ $status == 404 ]] || { fail "Marshaller unexpectedly exposed $path (HTTP $status)."; return 1; }
+  done
+  for request in     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' '$vm/prometheus/api/v1/query?query=1'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' --user 'wrong:wrong' '$vm/prometheus/api/v1/query?query=1'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Cookie: gopulse_session=ordinary-user-fixture' '$vm/prometheus/api/v1/query?query=1'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Cookie: gopulse_session=admin-user-fixture' '$vm/prometheus/api/v1/query?query=1'"; do
+    status=$(eval "$request")
+    [[ $status == 401 ]] || { fail "VictoriaMetrics accepted a non-internal identity (HTTP $status)."; return 1; }
+  done
+  status=$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' --user "$VM_USER:$VM_PASSWORD" "$vm/prometheus/api/v1/query?query=1")
+  [[ $status == 200 ]] || { fail 'VictoriaMetrics rejected the correct internal Basic identity.'; return 1; }
+  vm_id=$(container_ids victoriametrics)
+  binding=$(docker port "$vm_id" 8428/tcp)
+  [[ $binding == "127.0.0.1:$VM_PORT" ]] || { fail "VictoriaMetrics was not loopback-only: $binding"; return 1; }
+  ss -ltnH "sport = :$MARSHALLER_PORT" | awk '$4 ~ /^127\.0\.0\.1:/ {found=1} END {exit !found}' || { fail 'Marshaller was not loopback-only.'; return 1; }
+  info 'Marshaller and VictoriaMetrics rejected browser/user identities and exposed only their internal loopback surfaces.'
 }
 wait_metric_value() {
   local metric=$1 expected=$2 output="$TEMP_DIR/query.json"
@@ -351,29 +387,194 @@ produce_record() {
 }
 
 INVALID_BEFORE=$(vm_invalid_total)
+ACCEPTANCE_START_MS=$(date +%s%3N)
 start_router
 start_marshaller
+check_internal_access
+
+REDIS_ID=$(container_ids redis)
+docker exec "$REDIS_ID" redis-cli --no-auth-warning -a "$REDIS_PASSWORD" SET phase8:plain accepted >/dev/null
+docker exec "$REDIS_ID" redis-cli --no-auth-warning -a "$REDIS_PASSWORD" SET phase8:ttl expires EX 300 >/dev/null
+docker exec "$REDIS_ID" redis-cli --no-auth-warning -a "$REDIS_PASSWORD" GET phase8:plain >/dev/null
+docker exec "$REDIS_ID" redis-cli --no-auth-warning -a "$REDIS_PASSWORD" GET phase8:missing >/dev/null
+docker exec "$REDIS_ID" redis-cli --no-auth-warning -a "$REDIS_PASSWORD" INCR phase8:counter >/dev/null
+
 start_monitor
 wait_group_assignment || fail 'Formal Marshaller group did not receive the fixed partition.'
 
+SUCCESS_METRICS=(
+  gopulse_redis_up gopulse_redis_uptime_seconds gopulse_redis_connected_clients
+  gopulse_redis_used_memory_bytes gopulse_redis_commands_processed_total
+  gopulse_redis_keyspace_hits_total gopulse_redis_keyspace_misses_total
+  gopulse_redis_cpu_seconds_total gopulse_redis_db_keys gopulse_redis_db_expiring_keys
+)
 wait_metric_value gopulse_redis_up 1 || { cat "$TEMP_DIR/marshaller.log" >&2; fail 'missing success up=1'; }
-for metric in gopulse_redis_connected_clients gopulse_redis_commands_processed_total gopulse_redis_cpu_seconds_total gopulse_redis_used_memory_bytes gopulse_redis_db_keys gopulse_redis_db_expiring_keys; do
+for metric in "${SUCCESS_METRICS[@]}"; do
   wait_metric_presence "$metric" || { cat "$TEMP_DIR/marshaller.log" >&2; fail "missing metric $metric"; }
+  vm_query "$metric" "$TEMP_DIR/$metric.json"
 done
-info 'Real Redis success metrics reached VictoriaMetrics.'
+curl -fsS --max-time 3 "http://127.0.0.1:$EXPORTER_PORT/metrics" >"$TEMP_DIR/exporter.metrics"
+docker exec "$REDIS_ID" redis-cli --no-auth-warning -a "$REDIS_PASSWORD" INFO >"$TEMP_DIR/redis.info"
+python3 - "$TEMP_DIR" <<'PYMATRIX'
+import json
+import math
+import pathlib
+import re
+import sys
 
-BASE=$(committed_offset)
-printf 'bad-key:{}\n' | docker exec -i "$KAFKA_ID" /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server 127.0.0.1:19092 --topic "$TOPIC" --property parse.key=true --property key.separator=: >/dev/null
-wait_commit_after "$BASE" || { cat "$TEMP_DIR/marshaller.log" >&2; fail 'permanent invalid record did not commit and continue.'; }
-grep -q 'message_id_mismatch' "$TEMP_DIR/marshaller.log" || fail 'permanent rejection reason was not logged.'
-info 'Representative permanent invalid record was skipped safely.'
+root = pathlib.Path(sys.argv[1])
+metrics = [
+    'gopulse_redis_up', 'gopulse_redis_uptime_seconds', 'gopulse_redis_connected_clients',
+    'gopulse_redis_used_memory_bytes', 'gopulse_redis_commands_processed_total',
+    'gopulse_redis_keyspace_hits_total', 'gopulse_redis_keyspace_misses_total',
+    'gopulse_redis_cpu_seconds_total', 'gopulse_redis_db_keys', 'gopulse_redis_db_expiring_keys',
+]
+expected_labels = {name: [set()] for name in metrics}
+expected_labels['gopulse_redis_cpu_seconds_total'] = [{'mode'}, {'mode'}]
+expected_labels['gopulse_redis_db_keys'] = [{'db'}]
+expected_labels['gopulse_redis_db_expiring_keys'] = [{'db'}]
+vm = {}
+for name in metrics:
+    payload = json.loads((root / f'{name}.json').read_text())
+    rows = payload.get('data', {}).get('result', [])
+    expected_count = 2 if name == 'gopulse_redis_cpu_seconds_total' else 1
+    assert payload.get('status') == 'success' and len(rows) == expected_count, (name, rows)
+    vm[name] = {}
+    for row in rows:
+        labels = dict(row['metric'])
+        assert labels.pop('__name__') == name
+        assert labels.pop('source') == 'redis'
+        assert labels.pop('target_id') == 'redis-exporter-local'
+        assert set(labels) in expected_labels[name], (name, labels)
+        value = float(row['value'][1])
+        assert math.isfinite(value)
+        vm[name][tuple(sorted(labels.items()))] = value
+assert vm['gopulse_redis_up'][()] == 1
+assert set(dict(key)['mode'] for key in vm['gopulse_redis_cpu_seconds_total']) == {'user', 'system'}
+assert set(dict(key)['db'] for key in vm['gopulse_redis_db_keys']) == {'0'}
+assert set(dict(key)['db'] for key in vm['gopulse_redis_db_expiring_keys']) == {'0'}
+assert vm['gopulse_redis_db_keys'][(('db', '0'),)] >= 3
+assert vm['gopulse_redis_db_expiring_keys'][(('db', '0'),)] >= 1
+assert vm['gopulse_redis_keyspace_hits_total'][()] >= 1
+assert vm['gopulse_redis_keyspace_misses_total'][()] >= 1
+
+sample_re = re.compile(r'^(gopulse_redis_[a-z_]+)(?:\{([^}]*)\})? ([^ ]+)$')
+exported = {}
+for line in (root / 'exporter.metrics').read_text().splitlines():
+    match = sample_re.match(line)
+    if not match:
+        continue
+    name, raw_labels, raw_value = match.groups()
+    labels = tuple(sorted(re.findall(r'(\w+)="([^"]*)"', raw_labels or '')))
+    exported[(name, labels)] = float(raw_value)
+assert len([key for key in exported if key[0] in metrics]) == 11
+info = {}
+for line in (root / 'redis.info').read_text().splitlines():
+    if ':' in line and not line.startswith('#'):
+        key, value = line.rstrip('\r').split(':', 1)
+        info[key] = value
+for field in ('uptime_in_seconds', 'connected_clients', 'used_memory', 'total_commands_processed', 'keyspace_hits', 'keyspace_misses', 'used_cpu_user', 'used_cpu_sys', 'db0'):
+    assert field in info, field
+
+def close(name, labels=(), tolerance=0):
+    left = vm[name][labels]
+    right = exported[(name, labels)]
+    assert abs(left - right) <= tolerance, (name, left, right, tolerance)
+close('gopulse_redis_up')
+close('gopulse_redis_uptime_seconds', tolerance=45)
+close('gopulse_redis_connected_clients', tolerance=3)
+close('gopulse_redis_used_memory_bytes', tolerance=5 * 1024 * 1024)
+close('gopulse_redis_commands_processed_total', tolerance=200)
+close('gopulse_redis_keyspace_hits_total', tolerance=20)
+close('gopulse_redis_keyspace_misses_total', tolerance=20)
+close('gopulse_redis_cpu_seconds_total', (('mode', 'user'),), 2)
+close('gopulse_redis_cpu_seconds_total', (('mode', 'system'),), 2)
+close('gopulse_redis_db_keys', (('db', '0'),))
+close('gopulse_redis_db_expiring_keys', (('db', '0'),))
+PYMATRIX
+SUCCESS_END_MS=$(date +%s%3N)
+info "Real Redis success matrix reached VictoriaMetrics with all 10 families/11 samples in window $ACCEPTANCE_START_MS..$SUCCESS_END_MS."
+
+REAL_END=$(end_offset)
+[[ $REAL_END =~ ^[0-9]+$ ]] && ((REAL_END > 0)) || fail 'Real upstream did not create a Kafka record.'
+REAL_OFFSET=$((REAL_END - 1))
+"$TEMP_DIR/verify-consumer" --brokers "127.0.0.1:$KAFKA_PORT" --topic "$TOPIC" --client-id "gopulse-verify-$TOKEN_ID" --partition 0 --start "$REAL_OFFSET" --end "$REAL_END" --timeout 15s >"$TEMP_DIR/real-record" 2>"$TEMP_DIR/real-record.stderr"
+python3 - "$TEMP_DIR/real-record" "$TEMP_DIR/real.key" "$TEMP_DIR/real.json" "$TEMP_DIR/real.meta" <<'PYREAL'
+import base64
+import datetime
+import json
+import pathlib
+import sys
+source, key_path, value_path, meta_path = sys.argv[1:]
+record = json.loads(pathlib.Path(source).read_text())
+key = record['key']
+value = base64.b64decode(record['value_base64']).decode()
+document = json.loads(value)
+assert key == document['message_id'] and len(key) == 32
+stamp = datetime.datetime.fromisoformat(document['timestamp'].replace('Z', '+00:00'))
+pathlib.Path(key_path).write_text(key)
+pathlib.Path(value_path).write_text(value)
+pathlib.Path(meta_path).write_text(f"{key}\n{int(stamp.timestamp() * 1000)}\n{record['offset']}\n")
+PYREAL
+mapfile -t REAL_META <"$TEMP_DIR/real.meta"
+REAL_KEY=${REAL_META[0]}
+REAL_TIMESTAMP_MS=${REAL_META[1]}
+info "Captured real upstream record message_id=$REAL_KEY partition=0 offset=${REAL_META[2]} timestamp_ms=$REAL_TIMESTAMP_MS for deterministic replay."
+
+stop_process "$MONITOR_PID" "$TEMP_DIR/monitor"
+MONITOR_PID=
+python3 - "$TEMP_DIR/real.json" "$TEMP_DIR" <<'PYBAD'
+import datetime
+import json
+import pathlib
+import sys
+source, target = sys.argv[1:]
+root = pathlib.Path(target)
+document = json.loads(pathlib.Path(source).read_text())
+root.joinpath('invalid-structure.json').write_text('{')
+now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=(datetime.datetime.now(datetime.timezone.utc).microsecond // 1000) * 1000)
+mismatch = dict(document)
+mismatch['message_id'] = '22222222222222222222222222222222'
+mismatch['timestamp'] = now.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+root.joinpath('invalid-mismatch.json').write_text(json.dumps(mismatch, separators=(',', ':')))
+payload = json.loads(json.dumps(document))
+payload['message_id'] = '44444444444444444444444444444444'
+payload['timestamp'] = (now + datetime.timedelta(milliseconds=1)).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+payload['payload']['samples'] = payload['payload']['samples'][:-1]
+root.joinpath('invalid-payload.json').write_text(json.dumps(payload, separators=(',', ':')))
+PYBAD
+run_invalid_fixture() {
+  local name=$1 key=$2 value_file=$3 reason=$4 before after rows_before rows_after log_before
+  before=$(committed_offset)
+  rows_before=$(vm_internal_total vm_rows_inserted_total)
+  log_before=$(grep -c "\"reason_code\":\"$reason\"" "$TEMP_DIR/marshaller.log" || true)
+  produce_record "$key" "$value_file"
+  wait_commit_after "$before" || { cat "$TEMP_DIR/marshaller.log" >&2; fail "$name fixture did not commit and continue."; return 1; }
+  sleep .5
+  after=$(committed_offset)
+  rows_after=$(vm_internal_total vm_rows_inserted_total)
+  [[ $rows_after == "$rows_before" ]] || { fail "$name fixture inserted VictoriaMetrics rows ($rows_before -> $rows_after)."; return 1; }
+  (( $(grep -c "\"reason_code\":\"$reason\"" "$TEMP_DIR/marshaller.log" || true) > log_before )) || { fail "$name fixture did not log $reason."; return 1; }
+  info "$name fixture was rejected without storage rows and committed offset $before -> $after."
+}
+run_invalid_fixture structural 11111111111111111111111111111111 "$TEMP_DIR/invalid-structure.json" invalid_json
+run_invalid_fixture key-mismatch 33333333333333333333333333333333 "$TEMP_DIR/invalid-mismatch.json" message_id_mismatch
+run_invalid_fixture payload-contract 44444444444444444444444444444444 "$TEMP_DIR/invalid-payload.json" invalid_sample_set
+
+BEFORE=$(committed_offset)
+start_monitor
+wait_new_record_after "$BEFORE" || fail 'Real upstream did not publish after permanent invalid fixtures.'
+wait_commit_after "$BEFORE" || fail 'A real valid record did not commit after permanent invalid fixtures.'
+wait_metric_value gopulse_redis_up 1 || fail 'A real valid sample did not write after permanent invalid fixtures.'
+info 'Three representative permanent failures were skipped and the same real upstream partition continued.'
 
 compose stop redis >/dev/null
 wait_metric_value gopulse_redis_up 0 || fail 'target_unavailable up=0 did not reach VictoriaMetrics.'
 compose start redis >/dev/null
 wait_health redis
 wait_metric_value gopulse_redis_up 1 || fail 'Redis recovery up=1 did not reach VictoriaMetrics.'
-info 'Target unavailable and recovery metrics were queried.'
+for metric in "${SUCCESS_METRICS[@]}"; do wait_metric_presence "$metric" || fail "recovery missing metric $metric"; done
+info 'Target unavailable and recovery returned the complete metric family without restarting Router, Marshaller, or Monitor.'
 
 RETRIES_BEFORE=$(grep -c 'write_retry' "$TEMP_DIR/marshaller.log" || true)
 SAME_PROCESS_PID=$MARSHALLER_PID
@@ -435,41 +636,11 @@ info 'Kafka broker restart forced a group rejoin while Marshaller stayed live an
 
 stop_process "$MONITOR_PID" "$TEMP_DIR/monitor"
 MONITOR_PID=
-python3 - "$TEMP_DIR/replay.json" "$TEMP_DIR/replay.meta" "$TOKEN_ID" <<'PY'
-import datetime
-import hashlib
-import json
-import sys
-value_path, meta_path, token = sys.argv[1:]
-now = datetime.datetime.now(datetime.timezone.utc)
-now = now.replace(microsecond=(now.microsecond // 1000) * 1000)
-message_id = hashlib.sha256((token + '-deterministic-replay').encode()).hexdigest()[:32]
-samples = [
-    {'name':'gopulse_redis_up','kind':'gauge','labels':{},'value':1},
-    {'name':'gopulse_redis_uptime_seconds','kind':'gauge','labels':{},'value':12},
-    {'name':'gopulse_redis_connected_clients','kind':'gauge','labels':{},'value':2},
-    {'name':'gopulse_redis_used_memory_bytes','kind':'gauge','labels':{},'value':1000},
-    {'name':'gopulse_redis_commands_processed_total','kind':'counter','labels':{},'value':8},
-    {'name':'gopulse_redis_keyspace_hits_total','kind':'counter','labels':{},'value':5},
-    {'name':'gopulse_redis_keyspace_misses_total','kind':'counter','labels':{},'value':1},
-    {'name':'gopulse_redis_cpu_seconds_total','kind':'counter','labels':{'mode':'user'},'value':1.25},
-    {'name':'gopulse_redis_cpu_seconds_total','kind':'counter','labels':{'mode':'system'},'value':0.5},
-    {'name':'gopulse_redis_db_keys','kind':'gauge','labels':{'db':'0'},'value':3},
-    {'name':'gopulse_redis_db_expiring_keys','kind':'gauge','labels':{'db':'0'},'value':1},
-]
-document = {'schema_version':1,'message_id':message_id,'type':'metrics','source':'redis','timestamp':now.isoformat(timespec='milliseconds').replace('+00:00','Z'),'payload':{'plugin_id':'redis-exporter','plugin_version':'1.5.2','target_id':'redis-exporter-local','scrape_status':'success','samples':samples}}
-open(value_path, 'w', encoding='utf-8').write(json.dumps(document, separators=(',', ':')))
-open(meta_path, 'w', encoding='utf-8').write(message_id + '\n' + str(int(now.timestamp() * 1000)) + '\n')
-PY
-mapfile -t REPLAY_META <"$TEMP_DIR/replay.meta"
-REPLAY_KEY=${REPLAY_META[0]}
-REPLAY_TIMESTAMP_MS=${REPLAY_META[1]}
+REPLAY_KEY=$REAL_KEY
+REPLAY_TIMESTAMP_MS=$REAL_TIMESTAMP_MS
 BEFORE=$(committed_offset)
-produce_record "$REPLAY_KEY" "$TEMP_DIR/replay.json"
-wait_commit_after "$BEFORE" || fail 'First deterministic replay fixture was not committed.'
-BEFORE=$(committed_offset)
-produce_record "$REPLAY_KEY" "$TEMP_DIR/replay.json"
-wait_commit_after "$BEFORE" || fail 'Second deterministic replay fixture was not committed.'
+produce_record "$REPLAY_KEY" "$TEMP_DIR/real.json"
+wait_commit_after "$BEFORE" || fail 'The captured real Envelope replay was not committed.'
 python3 - "$REPLAY_TIMESTAMP_MS" >"$TEMP_DIR/replay-window" <<'PY'
 import sys
 value = int(sys.argv[1]) / 1000
@@ -501,7 +672,7 @@ PYREPLAY
   sleep .25
 done
 ((REPLAY_VISIBLE == 1)) || { cat "$TEMP_DIR/replay-query.json" >&2; fail 'Deterministic replay point did not become query-visible.'; }
-info 'The same valid Envelope was committed twice and queried as one stable millisecond point.'
+info "The captured real Envelope message_id=$REPLAY_KEY was replayed and remained one stable millisecond point under 1ms dedup."
 
 NOW=$(date +%s)
 START=$((NOW - 180))
@@ -526,4 +697,4 @@ cleanup
 for port in "$KAFKA_PORT" "$REDIS_PORT" "$VM_PORT" "$ROUTER_PORT" "$MARSHALLER_PORT" "$MONITOR_PORT" "$EXPORTER_PORT"; do
   [[ -z $(ss -ltnH "sport = :$port" 2>/dev/null) ]] || fail "port $port remained open."
 done
-info 'Acceptance passed: broker/group recovery, same-process and restart storage recovery, deterministic replay, offset safety, fixed queries, invalid-row stability, and owned cleanup were verified.'
+info 'Acceptance passed: full real success/up0/recovery matrix, three permanent-invalid continuations, internal access boundaries, broker/group and storage recovery, captured-real deterministic replay, offset safety, invalid-row stability, and owned cleanup were verified.'
