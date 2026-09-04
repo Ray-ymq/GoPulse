@@ -24,7 +24,7 @@ api(){ local method=$1 path=$2; shift 2; curl --silent --show-error --max-time 3
 admin_api(){ local method=$1 path=$2; shift 2; curl --silent --show-error --max-time 30 -X "$method" -b "$TEMP_DIR/admin.cookie" "$@" "http://127.0.0.1:$BACKEND_PORT$path"; }
 wait_ready(){ for _ in {1..100}; do curl -fsS --max-time 1 -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$MONITOR_PORT/ready" >/dev/null 2>&1 && return 0; sleep .1; done; return 1; }
 start_monitor(){
-  env MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$TOKEN" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" MONITOR_PLUGIN_STARTUP_TIMEOUT=10s MONITOR_PLUGIN_STOP_TIMEOUT=4s \
+  env MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$TOKEN" LOG_MONITOR_INGEST_TOKEN="verify-log-ingest-token-at-least-32-bytes" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" MONITOR_PLUGIN_STARTUP_TIMEOUT=10s MONITOR_PLUGIN_STOP_TIMEOUT=4s \
     MONITOR_SCRAPE_INTERVAL=2s MONITOR_SCRAPE_TIMEOUT=1s MONITOR_PUBLISH_TIMEOUT=1s MONITOR_ROUTER_URL="http://127.0.0.1:$CAPTURE_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" \
     REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$PASSWORD" REDIS_DB=0 REDIS_EXPORTER_HTTP_HOST=127.0.0.1 REDIS_EXPORTER_HTTP_PORT="$EXPORTER_PORT" REDIS_EXPORTER_SCRAPE_TIMEOUT=1s REDIS_EXPORTER_SHUTDOWN_TIMEOUT=3s \
     "$TEMP_DIR/monitor" >"$TEMP_DIR/monitor.log" 2>&1 &
@@ -115,7 +115,7 @@ PYMAN
 }
 
 backend_env(){
-  env APP_ENV=test HTTP_HOST=127.0.0.1 HTTP_PORT="$BACKEND_PORT" MYSQL_HOST=127.0.0.1 MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE=gopulse_monitor MYSQL_USER=gopulse MYSQL_PASSWORD="$MYSQL_PASSWORD"     REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$PASSWORD" REDIS_DB=0 RABBITMQ_URL=amqp://guest:guest@127.0.0.1:1/ ELASTICSEARCH_URL=http://127.0.0.1:1     AUTH_JWT_SECRET=verify-monitor-jwt-secret-at-least-32-bytes AUTH_COOKIE_NAME=verify_monitor_session AUTH_COOKIE_SECURE=false MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" MONITOR_API_TOKEN="$TOKEN" "$@"
+  env APP_ENV=test HTTP_HOST=127.0.0.1 HTTP_PORT="$BACKEND_PORT" MYSQL_HOST=127.0.0.1 MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE=gopulse_monitor MYSQL_USER=gopulse MYSQL_PASSWORD="$MYSQL_PASSWORD"     REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$PASSWORD" REDIS_DB=0 RABBITMQ_URL=amqp://guest:guest@127.0.0.1:1/ ELASTICSEARCH_URL=http://127.0.0.1:1     AUTH_JWT_SECRET=verify-monitor-jwt-secret-at-least-32-bytes AUTH_COOKIE_NAME=verify_monitor_session AUTH_COOKIE_SECURE=false MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" MONITOR_API_TOKEN="$TOKEN" LOG_MONITOR_INGEST_TOKEN="verify-log-ingest-token-at-least-32-bytes" "$@"
 }
 start_backend(){
   backend_env "$TEMP_DIR/backend" >"$TEMP_DIR/backend.log" 2>&1 & BACKEND_PID=$!
@@ -139,7 +139,7 @@ PY
 self_test(){
   local d; d=$(mktemp -d); trap 'rm -rf -- "$d"' RETURN
   (cd "$REPO_ROOT/monitor" && go build -o "$d/monitor" ./cmd/monitor)
-  if MONITOR_API_TOKEN=short MONITOR_PLUGIN_ROOT="$d/plugins" REDIS_HOST=127.0.0.1 REDIS_PORT=6379 REDIS_DB=0 "$d/monitor" >/dev/null 2>&1; then fail 'Monitor accepted a short token.'; fi
+  if MONITOR_API_TOKEN=short LOG_MONITOR_INGEST_TOKEN=verify-log-ingest-token-at-least-32-bytes MONITOR_PLUGIN_ROOT="$d/plugins" REDIS_HOST=127.0.0.1 REDIS_PORT=6379 REDIS_DB=0 "$d/monitor" >/dev/null 2>&1; then fail 'Monitor accepted a short token.'; fi
   if "$REPO_ROOT/scripts/package-redis-exporter.sh" --version invalid --output "$d/invalid.tar.gz" >/dev/null 2>&1; then fail 'Packager accepted invalid SemVer.'; fi
   printf '[verify-monitor] Self-test passed.\n'
 }

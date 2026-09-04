@@ -47,12 +47,12 @@ type Payload struct {
 	Samples       []Sample `json:"samples"`
 }
 type rawEnvelope struct {
-	SchemaVersion int      `json:"schema_version"`
-	MessageID     string   `json:"message_id"`
-	Type          string   `json:"type"`
-	Source        string   `json:"source"`
-	Timestamp     string   `json:"timestamp"`
-	Payload       *Payload `json:"payload"`
+	SchemaVersion int             `json:"schema_version"`
+	MessageID     string          `json:"message_id"`
+	Type          string          `json:"type"`
+	Source        string          `json:"source"`
+	Timestamp     string          `json:"timestamp"`
+	Payload       json.RawMessage `json:"payload"`
 }
 type Envelope struct {
 	SchemaVersion int
@@ -61,6 +61,8 @@ type Envelope struct {
 	Source        string
 	Timestamp     time.Time
 	Payload       Payload
+	RawPayload    json.RawMessage
+	TimestampText string
 }
 
 type Decoder struct {
@@ -95,10 +97,11 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 	if !messageIDPattern.Match(key) || raw.MessageID != string(key) {
 		return Envelope{}, reject("message_id_mismatch")
 	}
-	if raw.SchemaVersion != 1 || raw.Type != "metrics" || raw.Source != "redis" {
+	if raw.SchemaVersion != 1 || !supported(raw.Type, raw.Source) {
 		return Envelope{}, reject("unsupported_envelope")
 	}
-	if raw.Payload == nil {
+	payloadBytes := bytes.TrimSpace(raw.Payload)
+	if len(payloadBytes) < 2 || payloadBytes[0] != '{' || payloadBytes[len(payloadBytes)-1] != '}' {
 		return Envelope{}, reject("invalid_payload")
 	}
 	if raw.Timestamp == "" || !strings.HasSuffix(raw.Timestamp, "Z") {
@@ -115,10 +118,23 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 	if timestamp.After(now.Add(d.FutureSkew)) {
 		return Envelope{}, reject("timestamp_too_far_future")
 	}
-	if err := validatePayload(raw.Payload); err != nil {
-		return Envelope{}, err
+	var metricsPayload Payload
+	if raw.Type == "metrics" {
+		payloadDecoder := json.NewDecoder(bytes.NewReader(raw.Payload))
+		payloadDecoder.DisallowUnknownFields()
+		payloadDecoder.UseNumber()
+		if err := payloadDecoder.Decode(&metricsPayload); err != nil || expectEOF(payloadDecoder) != nil {
+			return Envelope{}, reject("invalid_payload")
+		}
+		if err := validatePayload(&metricsPayload); err != nil {
+			return Envelope{}, err
+		}
 	}
-	return Envelope{SchemaVersion: raw.SchemaVersion, MessageID: raw.MessageID, Type: raw.Type, Source: raw.Source, Timestamp: timestamp, Payload: *raw.Payload}, nil
+	return Envelope{SchemaVersion: raw.SchemaVersion, MessageID: raw.MessageID, Type: raw.Type, Source: raw.Source, Timestamp: timestamp, TimestampText: raw.Timestamp, Payload: metricsPayload, RawPayload: append(json.RawMessage(nil), raw.Payload...)}, nil
+}
+
+func supported(messageType, source string) bool {
+	return (messageType == "metrics" && source == "redis") || (messageType == "logs" && source == "backend")
 }
 
 func expectEOF(decoder *json.Decoder) error {
