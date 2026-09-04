@@ -99,6 +99,23 @@ jobs:
       - name: Run isolated metrics acceptance
         run: scripts/verify-marshaller.sh
 
+  logs:
+    name: Backend log pipeline
+    if: inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: |
+            backend/go.sum
+            monitor/go.sum
+            router/go.sum
+            marshaller/go.sum
+      - name: Run isolated end-to-end log acceptance
+        run: scripts/verify-logs.sh
+
   monitor:
     name: Monitor
     if: inputs.run_product_checks
@@ -172,7 +189,7 @@ jobs:
             echo 'Expected Bash and Go working-tree files to use LF.' >&2
             exit 1
           fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/package-redis-exporter.sh
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/package-redis-exporter.sh
       - name: Run acceptance safety negative tests
         run: |
           bash scripts/verify-business.sh --self-test
@@ -180,6 +197,7 @@ jobs:
           bash scripts/verify-monitor.sh --self-test
           bash scripts/verify-router.sh --self-test
           bash scripts/verify-marshaller.sh --self-test
+          bash scripts/verify-logs.sh --self-test
       - name: Validate Compose configuration and loopback publishing
         shell: bash
         run: |
