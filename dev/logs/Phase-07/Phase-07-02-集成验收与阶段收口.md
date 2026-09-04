@@ -116,4 +116,6 @@ Phase-07-01 的 PR #68 已于 2026-09-03 14:54:48 UTC 合入 `main`，merge comm
 - Router 超时仍是“不确定写入”语义，相同 `message_id` 可能重复；Phase 8 Consumer 必须保留 ID 并实现相应幂等/重复处理。
 - 本批开发提交 `608b6b3bb236196dbbeb40dfc1efe3ee06a931fc` 的 Auto PR and Merge workflow run `33845369264` 已成功完成；Backend、Router、Monitor、Redis Exporter、Frontend、Scripts and Compose、Integration、Branch governance 全部远程门禁通过。
 - 自动创建的 PR #69 已于 2026-09-04 06:46:13 UTC squash merge 到 `main`，merge commit 为 `fd7f4bdb239be73d6729e42b600d19f02a15fbe0`；远程根版本为 `1.4.2`。
+- 状态文档提交 `5bd28fcbaff4be80ad2e4c7482cf2f42aea5d9ab` 的首次远程 workflow run `33846134743` 中，只有 Integration 的 `Apply upward migrations to isolated database` 步骤失败；其余七个产品/治理 job 通过，PR/merge job 因依赖失败跳过。该提交只修改 Phase 7 文档，未修改 Backend、迁移 SQL、依赖或原 workflow。
+- 使用全新 `mysql:8.4.0` container、相同数据库/用户/密码和 Backend 环境在本地重新执行 `go run ./cmd/migrate up`，结果为 `database migration up completed`。因此按远程实际阻断做最小 CI 修复：迁移步骤最多重试 5 次、每次间隔 3 秒；确定性错误仍在第五次后失败，不会被标记成功。
 - Phase 7 已按总方案完成并停止；后续只按 Phase 8 计划处理正式 Consumer、Marshaller、VictoriaMetrics 和重复语义。
