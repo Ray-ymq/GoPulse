@@ -23,6 +23,11 @@ const (
 	defaultElasticsearchURL      = "http://127.0.0.1:9200"
 	defaultMonitorURL            = "http://127.0.0.1:9090"
 	defaultMonitorTimeout        = 30 * time.Second
+	defaultLogShipRequestTimeout = 2 * time.Second
+	defaultLogShipQueueCapacity  = 256
+	defaultLogShipRetryMin       = 250 * time.Millisecond
+	defaultLogShipRetryMax       = 5 * time.Second
+	defaultLogShipShutdown       = 5 * time.Second
 	defaultElasticsearchTimeout  = 3 * time.Second
 	defaultSearchReindexBatch    = 500
 	defaultAuthJWTTTL            = 2 * time.Hour
@@ -82,6 +87,7 @@ type Config struct {
 	Auth          AuthConfig
 	Elasticsearch ElasticsearchConfig
 	Monitor       MonitorConfig
+	LogShip       LogShipConfig
 }
 
 type MySQLConfig struct {
@@ -129,6 +135,18 @@ type MonitorConfig struct {
 	APIToken       string
 	RequestTimeout time.Duration
 }
+
+type LogShipConfig struct {
+	Endpoint        string
+	Token           string
+	RequestTimeout  time.Duration
+	QueueCapacity   int
+	RetryMin        time.Duration
+	RetryMax        time.Duration
+	ShutdownTimeout time.Duration
+}
+
+func (c LogShipConfig) Enabled() bool { return c.Endpoint != "" }
 
 type AuthConfig struct {
 	JWTSecret    string
@@ -227,6 +245,22 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	monitorTimeout, err := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, time.Minute)
 	if err != nil {
 		return Config{}, err
+	}
+
+	logShip, err := loadLogShipConfig(lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	if valueOrDefault(lookup, "BACKEND_LOG_READ_ALIAS", "gopulse-logs-v1-read") != "gopulse-logs-v1-read" {
+		return Config{}, errors.New("BACKEND_LOG_READ_ALIAS must be gopulse-logs-v1-read")
+	}
+	defaultRange, err := durationValue(lookup, "BACKEND_LOG_QUERY_DEFAULT_RANGE", 15*time.Minute, time.Minute, 24*time.Hour)
+	if err != nil || defaultRange != 15*time.Minute {
+		return Config{}, errors.New("BACKEND_LOG_QUERY_DEFAULT_RANGE must be 15m")
+	}
+	maxRange, err := durationValue(lookup, "BACKEND_LOG_QUERY_MAX_RANGE", 24*time.Hour, time.Hour, 24*time.Hour)
+	if err != nil || maxRange != 24*time.Hour {
+		return Config{}, errors.New("BACKEND_LOG_QUERY_MAX_RANGE must be 24h")
 	}
 
 	authJWTSecret, err := requiredValue(lookup, "AUTH_JWT_SECRET")
@@ -341,6 +375,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		},
 		Elasticsearch: elasticsearch,
 		Monitor:       MonitorConfig{URL: monitorURL, APIToken: monitorToken, RequestTimeout: monitorTimeout},
+		LogShip:       logShip,
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
@@ -496,6 +531,55 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 			Database: database, User: user, Password: password,
 		},
 		Elasticsearch: elasticsearch,
+	}, nil
+}
+
+func loadLogShipConfig(lookup LookupFunc) (LogShipConfig, error) {
+	rawURL := ""
+	if value, ok := lookup("LOG_MONITOR_URL"); ok {
+		rawURL = strings.TrimSpace(value)
+	}
+	if rawURL == "" {
+		return LogShipConfig{}, nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return LogShipConfig{}, errors.New("LOG_MONITOR_URL must be a loopback HTTP origin")
+	}
+	ip := net.ParseIP(parsed.Hostname())
+	if ip == nil || !ip.IsLoopback() {
+		return LogShipConfig{}, errors.New("LOG_MONITOR_URL must use a loopback IP address")
+	}
+	token, err := requiredValue(lookup, "LOG_MONITOR_INGEST_TOKEN")
+	if err != nil || len([]byte(token)) < 32 || strings.ContainsAny(token, "\r\n") {
+		return LogShipConfig{}, errors.New("LOG_MONITOR_INGEST_TOKEN must contain at least 32 bytes")
+	}
+	timeout, err := durationValue(lookup, "LOG_SHIP_REQUEST_TIMEOUT", defaultLogShipRequestTimeout, 100*time.Millisecond, 30*time.Second)
+	if err != nil {
+		return LogShipConfig{}, err
+	}
+	queue, err := integerValue(lookup, "LOG_SHIP_QUEUE_CAPACITY", defaultLogShipQueueCapacity)
+	if err != nil || queue < 1 || queue > 65536 {
+		return LogShipConfig{}, errors.New("LOG_SHIP_QUEUE_CAPACITY must be between 1 and 65536")
+	}
+	retryMin, err := durationValue(lookup, "LOG_SHIP_RETRY_MIN", defaultLogShipRetryMin, 10*time.Millisecond, 10*time.Second)
+	if err != nil {
+		return LogShipConfig{}, err
+	}
+	retryMax, err := durationValue(lookup, "LOG_SHIP_RETRY_MAX", defaultLogShipRetryMax, 100*time.Millisecond, time.Minute)
+	if err != nil {
+		return LogShipConfig{}, err
+	}
+	if retryMax < retryMin {
+		return LogShipConfig{}, errors.New("LOG_SHIP_RETRY_MAX must be at least LOG_SHIP_RETRY_MIN")
+	}
+	shutdown, err := durationValue(lookup, "LOG_SHIP_SHUTDOWN_TIMEOUT", defaultLogShipShutdown, time.Second, time.Minute)
+	if err != nil {
+		return LogShipConfig{}, err
+	}
+	return LogShipConfig{
+		Endpoint: strings.TrimRight(rawURL, "/") + "/internal/v1/logs", Token: token,
+		RequestTimeout: timeout, QueueCapacity: queue, RetryMin: retryMin, RetryMax: retryMax, ShutdownTimeout: shutdown,
 	}, nil
 }
 

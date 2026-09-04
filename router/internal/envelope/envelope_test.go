@@ -51,3 +51,14 @@ func TestValidateRejectsInvalidUTF8(t *testing.T) {
 		t.Fatal("Validate() accepted invalid UTF-8")
 	}
 }
+
+func TestValidateAcceptsBackendLogsAndPreservesBytes(t *testing.T) {
+	body := `{"schema_version":1,"message_id":"abcdef0123456789abcdef0123456789","type":"logs","source":"backend","timestamp":"2026-09-04T12:00:00Z","payload":{"service":"backend"}}`
+	message, err := Validate([]byte(body))
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if message.Type != "logs" || message.Source != "backend" || string(message.Body) != body {
+		t.Fatalf("message = %+v", message)
+	}
+}

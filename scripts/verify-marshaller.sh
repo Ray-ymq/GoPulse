@@ -14,6 +14,7 @@ TOKEN_ID=
 KAFKA_PORT=
 REDIS_PORT=
 VM_PORT=
+ES_PORT=
 ROUTER_PORT=
 MARSHALLER_PORT=
 MONITOR_PORT=
@@ -43,7 +44,7 @@ ports_unique() {
   python3 - "$@" <<'PY'
 import sys
 ports = sys.argv[1:]
-raise SystemExit(0 if len(ports) == 7 and len(set(ports)) == 7 and all(value.isdigit() and 1024 < int(value) < 65536 for value in ports) else 1)
+raise SystemExit(0 if len(ports) == 8 and len(set(ports)) == 8 and all(value.isdigit() and 1024 < int(value) < 65536 for value in ports) else 1)
 PY
 }
 allocate_ports() {
@@ -52,7 +53,7 @@ allocate_ports() {
 import socket
 sockets = []
 try:
-    for _ in range(7):
+    for _ in range(8):
         sock = socket.socket()
         sock.bind(('127.0.0.1', 0))
         sockets.append(sock)
@@ -62,8 +63,8 @@ finally:
         sock.close()
 PY
   ) || return 1
-  read -r KAFKA_PORT REDIS_PORT VM_PORT ROUTER_PORT MARSHALLER_PORT MONITOR_PORT EXPORTER_PORT <<<"$values"
-  ports_unique "$KAFKA_PORT" "$REDIS_PORT" "$VM_PORT" "$ROUTER_PORT" "$MARSHALLER_PORT" "$MONITOR_PORT" "$EXPORTER_PORT"
+  read -r KAFKA_PORT REDIS_PORT VM_PORT ES_PORT ROUTER_PORT MARSHALLER_PORT MONITOR_PORT EXPORTER_PORT <<<"$values"
+  ports_unique "$KAFKA_PORT" "$REDIS_PORT" "$VM_PORT" "$ES_PORT" "$ROUTER_PORT" "$MARSHALLER_PORT" "$MONITOR_PORT" "$EXPORTER_PORT"
 }
 compose() { docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" "$@"; }
 container_ids() {
@@ -174,8 +175,8 @@ self_test() {
   valid_topic "$TOPIC" && valid_group "$GROUP" && valid_metric gopulse_redis_up || return 1
   if valid_topic other || valid_group other || valid_metric arbitrary_query; then return 1; fi
   ((rejected += 3))
-  ports_unique 11001 11002 11003 11004 11005 11006 11007 || return 1
-  if ports_unique 11001 11002 11003 11004 11001 11006 11007; then return 1; fi
+  ports_unique 11001 11002 11003 11004 11005 11006 11007 11008 || return 1
+  if ports_unique 11001 11002 11003 11004 11001 11006 11007 11008; then return 1; fi
   ((rejected += 1))
   info "Self-test passed without Docker: $rejected unsafe configuration, project, query, and port cases were rejected."
 }
@@ -237,13 +238,20 @@ services:
       interval: 2s
       timeout: 2s
       retries: 60
-volumes: {kafka_data: {}, victoriametrics_data: {}}
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    environment: {discovery.type: single-node, xpack.security.enabled: "false", ES_JAVA_OPTS: "-Xms512m -Xmx512m"}
+    ports: ["127.0.0.1:$ES_PORT:9200"]
+    volumes: ["elasticsearch_data:/usr/share/elasticsearch/data"]
+    healthcheck: {test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=1s' >/dev/null"], interval: 3s, timeout: 3s, retries: 60}
+volumes: {kafka_data: {}, victoriametrics_data: {}, elasticsearch_data: {}}
 YAML
 
 compose up -d
 wait_health redis
 wait_health kafka
 wait_health victoriametrics
+wait_health elasticsearch
 refresh_container_id kafka
 
 docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --create --topic "$TOPIC" --partitions 1 --replication-factor 1 >/dev/null
@@ -267,13 +275,14 @@ start_marshaller() {
     MARSHALLER_HTTP_HOST=127.0.0.1 MARSHALLER_HTTP_PORT="$MARSHALLER_PORT" MARSHALLER_API_TOKEN="$MARSHALLER_TOKEN" \
     MARSHALLER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT" MARSHALLER_KAFKA_TOPIC="$TOPIC" MARSHALLER_KAFKA_GROUP="$GROUP" \
     MARSHALLER_VM_URL="http://127.0.0.1:$VM_PORT" MARSHALLER_VM_USERNAME="$VM_USER" MARSHALLER_VM_PASSWORD="$VM_PASSWORD" \
+    MARSHALLER_ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT" MARSHALLER_ELASTICSEARCH_TIMEOUT=3s \
     MARSHALLER_RETRY_MIN=100ms MARSHALLER_RETRY_MAX=500ms
   wait_http "http://127.0.0.1:$MARSHALLER_PORT/ready" "$MARSHALLER_TOKEN" || { cat "$TEMP_DIR/marshaller.log" >&2; fail 'Marshaller not ready.'; }
 }
 start_monitor() {
   mkdir -p "$TEMP_DIR/plugins"
   start_process MONITOR_PID "$REPO_ROOT/monitor" "$TEMP_DIR/monitor" "$TEMP_DIR/monitor.log" \
-    MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" \
+    MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" LOG_MONITOR_INGEST_TOKEN="verify-log-ingest-token-at-least-32-bytes" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" \
     MONITOR_PLUGIN_STARTUP_TIMEOUT=10s MONITOR_PLUGIN_STOP_TIMEOUT=4s MONITOR_SCRAPE_INTERVAL=1s MONITOR_SCRAPE_TIMEOUT=800ms \
     MONITOR_PUBLISH_TIMEOUT=3s MONITOR_ROUTER_URL="http://127.0.0.1:$ROUTER_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" \
     REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 \
@@ -645,6 +654,7 @@ DURING=$(committed_offset)
 [[ $DURING == "$BEFORE" ]] || fail "offset advanced during VictoriaMetrics outage ($BEFORE -> $DURING)."
 compose start victoriametrics >/dev/null
 wait_health victoriametrics
+wait_health elasticsearch
 wait_http "http://127.0.0.1:$MARSHALLER_PORT/ready" "$MARSHALLER_TOKEN" || fail 'Marshaller readiness did not recover with VictoriaMetrics.'
 wait_commit_after "$BEFORE" || fail 'offset did not advance after VictoriaMetrics recovery.'
 [[ $MARSHALLER_PID == "$SAME_PROCESS_PID" ]] && kill -0 "$MARSHALLER_PID" || fail 'VM recovery replaced the Marshaller process unexpectedly.'
@@ -667,6 +677,7 @@ stop_process "$MARSHALLER_PID" "$TEMP_DIR/marshaller"
 MARSHALLER_PID=
 compose start victoriametrics >/dev/null
 wait_health victoriametrics
+wait_health elasticsearch
 start_marshaller
 [[ $MARSHALLER_PID != "$OLD_MARSHALLER_PID" ]] || fail 'Marshaller restart did not create a new owned process.'
 wait_commit_after "$BEFORE" || fail 'Restarted Marshaller did not re-fetch and commit the uncommitted record.'
