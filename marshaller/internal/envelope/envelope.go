@@ -134,7 +134,16 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && source == "redis") || (messageType == "logs" && source == "backend")
+	return (messageType == "metrics" && source == "redis") || (messageType == "logs" && logSource(source))
+}
+
+func logSource(source string) bool {
+	switch source {
+	case "backend", "business-worker", "search-indexer", "search-reindex":
+		return true
+	default:
+		return false
+	}
 }
 
 func expectEOF(decoder *json.Decoder) error {
