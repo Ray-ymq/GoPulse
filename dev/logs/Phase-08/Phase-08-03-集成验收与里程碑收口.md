@@ -6,7 +6,7 @@
 - 目标版本：`1.5.3`
 - 开发分支：`develop/1.5.3`
 - 基线：`origin/main` / `9809bfd`
-- 当前状态：本地实施、固定门禁和隔离资源清理已完成；Pull Request、远程 checks 与合入状态尚待实际观察，因此本文不把 Phase 8 或 Milestone 2 标记为远程完成。
+- 状态：已完成。PR #77 的 10 项权威 push jobs 全部通过，并于 2026-09-04 20:16:52（Asia/Shanghai）以 squash commit `058ff4d` 合入 `main`；远程 `develop/1.5.3` 已按普通开发分支生命周期删除。
 
 本批在 Phase-08-01/02 已合入实现上完成最终集成矩阵，没有修改 Marshaller、Router、Monitor 或 Redis Exporter 的生产 Go 代码。增量集中在真实验收证据、业务隔离脚本兼容、文档和 `1.5.3` 版本收口。
 
@@ -121,9 +121,14 @@ git diff --check
 - 未新增 Backend Metrics Query API、Frontend 指标页面、Dashboard、告警、聚合、DLQ、offset/replay 管理或 logs/events 能力。
 - 没有重复实现或修改 Phase-08-01/02 的 Consumer、Writer、ownership/commit 状态机；其精确 commit failure、revoke/lost 与延迟 HTTP 竞态继续由已通过的注入式测试证明。
 - 本批完整 shell 矩阵仍在当前单 partition、单节点 Kafka/VictoriaMetrics 开发拓扑上执行；不形成容量、HA、TLS、多租户或 exactly-once 结论。
-- 本地验收成功不等于里程碑远程发布完成。只有本分支 PR 合入 `main` 且权威远程 checks 成功后，才能把 Phase 8/Milestone 2 标记为完成。
+- 本地固定验收、权威远程 push jobs、PR 合入和主远程版本均已实际观察；Phase 8 与 Milestone 2 的完成条件已经满足。
 
 ## 7. 远程门禁与合入状态
 
-- 当前尚未推送本批提交，未创建或观察 Pull Request、GitHub Actions run 与合入提交。
-- 本节将在真实远程结果出现后由规划分支补录；在此之前 Phase 8 与 Milestone 2 保持“本地完成、远程待收口”。
+- 本地提交：`c3f7dbd test: close Phase 8 milestone acceptance`。
+- 权威 GitHub Actions push run：`33871557834`，于 2026-09-04 20:16:58（Asia/Shanghai）完成并成功。
+- 成功 jobs：Branch governance、Backend、Frontend、Message Router、Redis Exporter、Integration、Marshaller、Scripts and Compose、Monitor，以及 Open PR and enable auto-merge。
+- 自动创建 PR #77，标题为 `test: close Phase 8 milestone acceptance`。
+- PR #77 于 2026-09-04 20:16:52（Asia/Shanghai）使用 squash 策略合入 `main`，远程提交为 `058ff4dd2c786db04fc7df82bdf83ac58e4cb590`。
+- 合入后已执行 `git fetch --prune origin`：`origin/main` 指向 `058ff4d`，远程 `develop/1.5.3` 不再存在，`origin/main:VERSION` 为 `1.5.3`。
+- 至此实施方案第 9 节验收标准、第 10 节完成条件和总方案第 18.1～18.2 节全部满足；Phase 8 与 Milestone 2 已完成。
