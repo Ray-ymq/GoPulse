@@ -29,7 +29,7 @@ The only route is:
 metrics -> gopulse-observability-v1
 ```
 
-Clients cannot select a topic through headers, query parameters, or payload fields. The franz-go producer uses `acks=all`, idempotent protocol writes, bounded cancellation, 256-record and 8 MiB default buffers, and a 3-second default production window. Topic auto-creation is disabled by omission in the client and by the Kafka broker configuration. Compose creates the topic explicitly with one partition and replication factor one.
+Clients cannot select a topic through headers, query parameters, or payload fields. The franz-go producer uses `acks=all`, idempotent protocol writes, non-blocking admission against the configured 256-record and 8 MiB default client buffers, and a 3-second default delivery window. A full record/byte buffer is rejected immediately; canceling one HTTP caller does not globally abort other accepted records. Topic auto-creation is disabled by omission in the client and by the Kafka broker configuration. Compose creates the topic explicitly with one partition and replication factor one.
 
 A timed-out in-flight request is uncertain: Kafka may have stored the record even though the Router did not return `202`. The Router has no background retry, disk spool, application-level deduplication, or transaction. Consumers must retain `message_id` and tolerate possible duplicates.
 

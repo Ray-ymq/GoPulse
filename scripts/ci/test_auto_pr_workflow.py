@@ -34,6 +34,16 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertIn("default: true", gates)
         self.assertEqual(gates.count("if: inputs.run_product_checks"), 7)
 
+    def test_integration_migration_retries_transient_mysql_startup(self):
+        gates = Path(".github/workflows/quality-gates.yml").read_text(encoding="utf-8")
+
+        migration = gates[gates.index("- name: Apply upward migrations to isolated database") :]
+        migration = migration[: migration.index("- name: Run integration tests against required dependencies")]
+        self.assertIn("max_attempts=5", migration)
+        self.assertIn("if go run ./cmd/migrate up; then", migration)
+        self.assertIn('if [[ "$attempt" -eq "$max_attempts" ]]', migration)
+        self.assertIn("sleep 3", migration)
+
 
 if __name__ == "__main__":
     unittest.main()

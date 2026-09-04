@@ -257,6 +257,20 @@ jobs:
       - name: Require authentication on isolated Redis
         run: docker exec "${{ job.services.redis.id }}" redis-cli CONFIG SET requirepass "$REDIS_PASSWORD"
       - name: Apply upward migrations to isolated database
-        run: go run ./cmd/migrate up
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=5
+          for attempt in $(seq 1 "$max_attempts"); do
+            if go run ./cmd/migrate up; then
+              exit 0
+            fi
+            if [[ "$attempt" -eq "$max_attempts" ]]; then
+              echo "Database migration failed after $max_attempts attempts." >&2
+              exit 1
+            fi
+            echo "Database migration attempt $attempt/$max_attempts failed while the isolated MySQL service was starting; retrying in 3s." >&2
+            sleep 3
+          done
       - name: Run integration tests against required dependencies
         run: go test -count=1 -tags=integration ./...
