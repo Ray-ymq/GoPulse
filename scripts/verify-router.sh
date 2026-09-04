@@ -6,44 +6,143 @@ TOPIC=gopulse-observability-v1
 ROUTER_TOKEN=verify-router-token-at-least-32-bytes-long
 MONITOR_TOKEN=verify-monitor-token-at-least-32-bytes-long
 TEMP_DIR= PROJECT= KAFKA_PORT= REDIS_PORT= ROUTER_PORT= MONITOR_PORT= EXPORTER_PORT=
-ROUTER_PID= MONITOR_PID= CLEANED=0
+ROUTER_PID= MONITOR_PID= CLEANED=0 COMPOSE_CLEANUP_ARMED=0 COMPOSE_FILE_SHA256=
 
 info(){ printf '[verify-router] %s\n' "$*"; }
 fail(){ printf '[verify-router] ERROR: %s\n' "$*" >&2; return 1; }
-free_port(){ python3 - <<'PY'
-import socket
-s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()
-PY
+valid_project(){ [[ $1 =~ ^gopulse-router-[a-f0-9]{12}$ ]]; }
+valid_topic(){ [[ $1 == gopulse-observability-v1 ]]; }
+ports_unique(){
+  python3 - "$@" <<'PYPORTS'
+import sys
+ports=sys.argv[1:]
+raise SystemExit(0 if len(ports)==5 and len(ports)==len(set(ports)) and all(p.isdigit() and 1024 < int(p) < 65536 for p in ports) else 1)
+PYPORTS
 }
+allocate_ports(){
+  local values
+  values=$(python3 - <<'PYPORTS'
+import socket
+sockets=[]
+try:
+    for _ in range(5):
+        sock=socket.socket()
+        sock.bind(('127.0.0.1',0))
+        sockets.append(sock)
+    print(' '.join(str(sock.getsockname()[1]) for sock in sockets))
+finally:
+    for sock in sockets: sock.close()
+PYPORTS
+) || return 1
+  read -r KAFKA_PORT REDIS_PORT ROUTER_PORT MONITOR_PORT EXPORTER_PORT <<<"$values"
+  ports_unique "$KAFKA_PORT" "$REDIS_PORT" "$ROUTER_PORT" "$MONITOR_PORT" "$EXPORTER_PORT" || fail 'Could not allocate five unique non-default ports.'
+}
+sha256_file(){ sha256sum "$1" | awk '{print $1}'; }
 compose(){ docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" "$@"; }
 container_id(){ docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --filter "label=com.docker.compose.service=$1" --format '{{.ID}}'; }
-
+container_identity_valid(){
+  local expected_service=$1 project_label=$2 service_label=$3 config_label=$4
+  valid_project "$PROJECT" && [[ $project_label == "$PROJECT" && $service_label == "$expected_service" && $(readlink -f "$config_label" 2>/dev/null || true) == "$(readlink -f "$TEMP_DIR/compose.yaml" 2>/dev/null || true)" ]]
+}
+volume_identity_valid(){
+  local name=$1 project_label=$2
+  valid_project "$PROJECT" && [[ $project_label == "$PROJECT" && $name == "$PROJECT"_* ]]
+}
+compose_context_owned(){
+  ((COMPOSE_CLEANUP_ARMED == 1)) && valid_project "$PROJECT" && valid_topic "$TOPIC" &&
+    [[ -f $TEMP_DIR/compose.yaml && $(sha256_file "$TEMP_DIR/compose.yaml") == "$COMPOSE_FILE_SHA256" ]]
+}
+project_resources_owned(){
+  compose_context_owned || return 1
+  local id project_label service_label config_label name volume_project found=0
+  while read -r id; do
+    [[ -n $id ]] || continue
+    found=1
+    read -r project_label service_label config_label < <(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "com.docker.compose.service"}} {{index .Config.Labels "com.docker.compose.project.config_files"}}' "$id") || return 1
+    container_identity_valid "$service_label" "$project_label" "$service_label" "$config_label" || return 1
+    [[ $service_label == kafka || $service_label == redis ]] || return 1
+  done < <(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --format '{{.ID}}')
+  while read -r name; do
+    [[ -n $name ]] || continue
+    found=1
+    volume_project=$(docker volume inspect --format '{{index .Labels "com.docker.compose.project"}}' "$name") || return 1
+    volume_identity_valid "$name" "$volume_project" || return 1
+  done < <(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT")
+  ((found == 1))
+}
+arm_compose_cleanup(){
+  valid_project "$PROJECT" && valid_topic "$TOPIC" && [[ -f $TEMP_DIR/compose.yaml ]] || return 1
+  COMPOSE_FILE_SHA256=$(sha256_file "$TEMP_DIR/compose.yaml")
+  COMPOSE_CLEANUP_ARMED=1
+}
+process_start_ticks(){
+  python3 - "$1" <<'PYPID'
+import sys
+value=open(f'/proc/{sys.argv[1]}/stat',encoding='utf-8').read().strip()
+print(value[value.rfind(')')+2:].split()[19])
+PYPID
+}
+write_process_record(){
+  local pid=$1 record=$2 cwd=$3 executable=$4 marker=$5 start actual
+  start=$(process_start_ticks "$pid") || return 1
+  actual=$(readlink -f "/proc/$pid/exe") || return 1
+  python3 - "$record" "$pid" "$start" "$actual" "$cwd" "$marker" <<'PYPID'
+import json,os,sys
+path,pid,start,executable,cwd,marker=sys.argv[1:]
+json.dump({'pid':int(pid),'startTicks':start,'executablePath':os.path.realpath(executable),'workingDirectory':os.path.realpath(cwd),'commandLineMarker':marker},open(path,'w',encoding='utf-8'),separators=(',',':'))
+PYPID
+}
+validate_process_record(){
+  local record=$1 expected_cwd=$2 expected_executable=$3 expected_marker=$4
+  python3 - "$record" "$expected_cwd" "$expected_executable" "$expected_marker" <<'PYPID'
+import json,os,sys
+path,cwd,executable,marker=sys.argv[1:]
+try:
+    value=json.load(open(path,encoding='utf-8')); pid=int(value['pid'])
+    stat=open(f'/proc/{pid}/stat',encoding='utf-8').read().strip()
+    actual_start=stat[stat.rfind(')')+2:].split()[19]
+    actual_executable=os.path.realpath(f'/proc/{pid}/exe')
+    actual_cwd=os.path.realpath(f'/proc/{pid}/cwd')
+    command=open(f'/proc/{pid}/cmdline','rb').read().replace(b'\0',b' ').decode(errors='replace')
+except Exception: raise SystemExit(1)
+valid=(str(value['startTicks'])==actual_start and os.path.realpath(value['executablePath'])==os.path.realpath(executable)==actual_executable and os.path.realpath(value['workingDirectory'])==os.path.realpath(cwd)==actual_cwd and value['commandLineMarker']==marker and marker in command)
+if not valid: raise SystemExit(1)
+print(pid)
+PYPID
+}
+wait_process_identity(){
+  local pid=$1 executable=$2
+  for _ in {1..50}; do
+    [[ $(readlink -f "/proc/$pid/exe" 2>/dev/null || true) == "$(readlink -f "$executable")" ]] && return 0
+    kill -0 "$pid" 2>/dev/null || return 1
+    sleep .02
+  done
+  return 1
+}
 stop_owned(){
-  local name=$1 pid=$2 executable=$3 actual
+  local name=$1 pid=$2 record=$3 cwd=$4 executable=$5 marker=$6
   [[ -n $pid ]] || return 0
   kill -0 "$pid" 2>/dev/null || return 0
-  actual=$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)
-  if [[ $actual != "$(readlink -f "$executable")" ]]; then
-    fail "refusing to stop $name PID $pid because executable ownership changed"
-    return 1
-  fi
+  validate_process_record "$record" "$cwd" "$executable" "$marker" >/dev/null 2>&1 || { fail "refusing to stop $name PID $pid because process ownership changed"; return 1; }
   kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-  for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || return 0; sleep .1; done
+  for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || { rm -f -- "$record"; return 0; }; sleep .1; done
   kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+  rm -f -- "$record"
 }
-
 cleanup_resources(){
   local status=${1:-0}
   ((CLEANED == 0)) || return "$status"
   CLEANED=1
-  stop_owned Monitor "${MONITOR_PID:-}" "$TEMP_DIR/monitor" || status=1
-  stop_owned Router "${ROUTER_PID:-}" "$TEMP_DIR/router" || status=1
-  if [[ -n ${PROJECT:-} && $PROJECT =~ ^gopulse-router-[a-f0-9]{12}$ && -f ${TEMP_DIR:-}/compose.yaml ]]; then
-    compose down -v --remove-orphans >/dev/null 2>&1 || status=1
+  stop_owned Monitor "${MONITOR_PID:-}" "${TEMP_DIR:-}/monitor.pid.json" "$REPO_ROOT/monitor" "${TEMP_DIR:-}/monitor" "${TEMP_DIR:-}/monitor" || status=1
+  stop_owned Router "${ROUTER_PID:-}" "${TEMP_DIR:-}/router.pid.json" "$REPO_ROOT/router" "${TEMP_DIR:-}/router" "${TEMP_DIR:-}/router" || status=1
+  if ((COMPOSE_CLEANUP_ARMED == 1)); then
+    if project_resources_owned; then compose down -v --remove-orphans >/dev/null 2>&1 || status=1
+    elif docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --format '{{.ID}}' 2>/dev/null | grep -q . || docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null | grep -q .; then
+      fail 'refusing to remove Compose resources because ownership validation failed' || true; status=1
+    fi
   fi
   return "$status"
 }
-
 cleanup(){
   local status=$?
   trap - EXIT INT TERM
@@ -78,12 +177,14 @@ wait_router_ready(){
 }
 
 start_router(){
-  env ROUTER_HTTP_HOST=127.0.0.1 ROUTER_HTTP_PORT="$ROUTER_PORT" ROUTER_API_TOKEN="$ROUTER_TOKEN" \
+  (cd "$REPO_ROOT/router" && exec env ROUTER_HTTP_HOST=127.0.0.1 ROUTER_HTTP_PORT="$ROUTER_PORT" ROUTER_API_TOKEN="$ROUTER_TOKEN" \
     ROUTER_REQUEST_TIMEOUT=5s ROUTER_SHUTDOWN_TIMEOUT=5s ROUTER_MAX_MESSAGE_BYTES=1048576 \
     ROUTER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT" ROUTER_KAFKA_TOPIC="$TOPIC" ROUTER_KAFKA_PRODUCE_TIMEOUT=3s \
     ROUTER_KAFKA_MAX_BUFFERED_RECORDS=256 ROUTER_KAFKA_MAX_BUFFERED_BYTES=8388608 \
-    setsid "$TEMP_DIR/router" >"$TEMP_DIR/router.log" 2>&1 &
+    setsid "$TEMP_DIR/router") >"$TEMP_DIR/router.log" 2>&1 &
   ROUTER_PID=$!
+  wait_process_identity "$ROUTER_PID" "$TEMP_DIR/router" || { fail 'Router process identity did not stabilize.'; return 1; }
+  write_process_record "$ROUTER_PID" "$TEMP_DIR/router.pid.json" "$REPO_ROOT/router" "$TEMP_DIR/router" "$TEMP_DIR/router"
   for _ in {1..50}; do
     kill -0 "$ROUTER_PID" 2>/dev/null || { cat "$TEMP_DIR/router.log" >&2; fail 'Router exited during startup.'; return; }
     curl -fsS --max-time 1 "http://127.0.0.1:$ROUTER_PORT/health" >/dev/null 2>&1 && break
@@ -93,15 +194,17 @@ start_router(){
 }
 
 start_monitor(){
-  env MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" \
+  (cd "$REPO_ROOT/monitor" && exec env MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" \
     MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" MONITOR_PLUGIN_STARTUP_TIMEOUT=10s MONITOR_PLUGIN_STOP_TIMEOUT=4s \
     MONITOR_SCRAPE_INTERVAL=1s MONITOR_SCRAPE_TIMEOUT=800ms MONITOR_PUBLISH_TIMEOUT=4s \
     MONITOR_ROUTER_URL="http://127.0.0.1:$ROUTER_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" \
     REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 \
     REDIS_EXPORTER_HTTP_HOST=127.0.0.1 REDIS_EXPORTER_HTTP_PORT="$EXPORTER_PORT" \
     REDIS_EXPORTER_SCRAPE_TIMEOUT=800ms REDIS_EXPORTER_SHUTDOWN_TIMEOUT=3s \
-    setsid "$TEMP_DIR/monitor" >"$TEMP_DIR/monitor.log" 2>&1 &
+    setsid "$TEMP_DIR/monitor") >"$TEMP_DIR/monitor.log" 2>&1 &
   MONITOR_PID=$!
+  wait_process_identity "$MONITOR_PID" "$TEMP_DIR/monitor" || { fail 'Monitor process identity did not stabilize.'; return 1; }
+  write_process_record "$MONITOR_PID" "$TEMP_DIR/monitor.pid.json" "$REPO_ROOT/monitor" "$TEMP_DIR/monitor" "$TEMP_DIR/monitor"
   for _ in {1..100}; do
     kill -0 "$MONITOR_PID" 2>/dev/null || { cat "$TEMP_DIR/monitor.log" >&2; fail 'Monitor exited during startup.'; return; }
     curl -fsS --max-time 1 -H "Authorization: Bearer $MONITOR_TOKEN" "http://127.0.0.1:$MONITOR_PORT/ready" >/dev/null 2>&1 && return 0
@@ -209,6 +312,21 @@ post_body(){
     --data-binary "@$body_file" "http://127.0.0.1:$ROUTER_PORT/internal/v1/messages"
 }
 
+
+assert_rejected(){
+  local name=$1 expected_status=$2 expected_code=$3 output="$TEMP_DIR/rejected-$1.json" status url="http://127.0.0.1:$ROUTER_PORT/internal/v1/messages"
+  shift 3
+  if [[ ${1:-} == --url ]]; then url=$2; shift 2; fi
+  status=$(curl --silent --show-error --max-time 8 --output "$output" --write-out '%{http_code}' "$@" "$url")
+  [[ $status == "$expected_status" ]] || { fail "$name returned HTTP $status instead of $expected_status"; return 1; }
+  python3 - "$output" "$expected_code" <<'PYERROR'
+import json,sys
+value=json.load(open(sys.argv[1],encoding='utf-8'))
+assert value.get('error',{}).get('code') == sys.argv[2]
+PYERROR
+  info "rejection {\"case\":\"$name\",\"code\":\"$expected_code\",\"status\":$status}"
+}
+
 make_body(){
   python3 - "$1" <<'PY'
 import json,secrets,sys
@@ -219,26 +337,49 @@ PY
 }
 
 self_test(){
-  local d
+  local d pid record rejected=0
   d=$(mktemp -d)
-  trap 'rm -rf -- "$d"' RETURN
   (cd "$REPO_ROOT/router" && go build -o "$d/router" ./cmd/router && go build -o "$d/consumer" ./cmd/verify-consumer)
-  if ROUTER_API_TOKEN=short "$d/router" >/dev/null 2>&1; then fail 'Router accepted a short API token.'; return 1; fi
-  if "$d/consumer" --end 0 >/dev/null 2>&1; then fail 'Consumer accepted an empty offset range.'; return 1; fi
-  docker compose --env-file "$REPO_ROOT/.env.example" --file "$REPO_ROOT/deploy/compose.yaml" config --quiet
-  grep -q 'KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"' "$REPO_ROOT/deploy/compose.yaml" || fail 'Compose does not disable Kafka topic auto-creation.'
-  info 'Self-test passed.'
-}
+  if ROUTER_API_TOKEN=short "$d/router" >/dev/null 2>&1; then fail 'Router accepted a short API token.'; return 1; fi; ((rejected+=1))
+  if "$d/consumer" --end 0 >/dev/null 2>&1; then fail 'Consumer accepted an empty offset range.'; return 1; fi; ((rejected+=1))
+  valid_topic 'gopulse-observability-v1' || { fail 'Valid Topic was rejected.'; return 1; }
+  if valid_topic 'client-topic'; then fail 'Unsafe Topic was accepted.'; return 1; fi; ((rejected+=1))
+  PROJECT=gopulse-router-deadbeefcafe; TEMP_DIR=$d
+  valid_project "$PROJECT" || { fail 'Valid project was rejected.'; return 1; }
+  if valid_project gopulse-router; then fail 'Unsafe project was accepted.'; return 1; fi; ((rejected+=1))
+  ports_unique 11001 11002 11003 11004 11005 || { fail 'Five unique ports were rejected.'; return 1; }
+  if ports_unique 11001 11001 11003 11004 11005; then fail 'Adjacent port collision was accepted.'; return 1; fi; ((rejected+=1))
+  if ports_unique 11001 11002 11003 11001 11005; then fail 'Non-adjacent port collision was accepted.'; return 1; fi; ((rejected+=1))
 
+  (cd "$REPO_ROOT" && exec setsid /bin/sleep 30) & pid=$!
+  sleep .05
+  record=$d/probe.pid.json
+  write_process_record "$pid" "$record" "$REPO_ROOT" /bin/sleep wrong-marker
+  if stop_owned Probe "$pid" "$record" "$REPO_ROOT" /bin/sleep /bin/sleep >/dev/null 2>&1; then fail 'Mismatched PID record was accepted.'; return 1; fi; ((rejected+=1))
+  kill -0 "$pid" 2>/dev/null || { fail 'PID negative check stopped an unrelated process.'; return 1; }
+  kill -TERM -- "-$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+
+  : > "$d/compose.yaml"; arm_compose_cleanup || { fail 'Valid cleanup context was rejected.'; return 1; }
+  compose_context_owned || { fail 'Armed cleanup context was rejected.'; return 1; }
+  printf 'tampered\n' >> "$d/compose.yaml"
+  if compose_context_owned; then fail 'Tampered cleanup target was accepted.'; return 1; fi; ((rejected+=1))
+  : > "$d/compose.yaml"; COMPOSE_FILE_SHA256=$(sha256_file "$d/compose.yaml")
+  container_identity_valid kafka "$PROJECT" kafka "$d/compose.yaml" || { fail 'Valid container identity was rejected.'; return 1; }
+  if container_identity_valid kafka "$PROJECT" redis "$d/compose.yaml"; then fail 'Ambiguous container service was accepted.'; return 1; fi; ((rejected+=1))
+  volume_identity_valid "${PROJECT}_kafka_data" "$PROJECT" || { fail 'Valid volume identity was rejected.'; return 1; }
+  if volume_identity_valid 'gopulse_kafka_data' "$PROJECT"; then fail 'Foreign volume was accepted.'; return 1; fi; ((rejected+=1))
+  COMPOSE_CLEANUP_ARMED=0; CLEANED=1; rm -rf -- "$d"; TEMP_DIR=
+  info "Self-test passed without Docker: $rejected unsafe token, PID, project, container, volume, port, Topic, and cleanup targets were rejected."
+}
 if [[ ${1:-} == --self-test ]]; then self_test; exit 0; elif (($#)); then fail "Unknown argument: $1"; exit 2; fi
-for tool in docker curl python3 go setsid ss; do command -v "$tool" >/dev/null || { fail "$tool is required."; exit 1; }; done
+for tool in docker curl python3 go setsid ss sha256sum awk readlink; do command -v "$tool" >/dev/null || { fail "$tool is required."; exit 1; }; done
 docker compose version >/dev/null 2>&1 || { fail 'Docker Compose is required.'; exit 1; }
 docker info >/dev/null 2>&1 || { fail 'Docker daemon is unavailable.'; exit 1; }
 
 TEMP_DIR=$(mktemp -d)
 TOKEN_ID=$(python3 -c 'import secrets; print(secrets.token_hex(6))')
 PROJECT="gopulse-router-$TOKEN_ID"
-KAFKA_PORT=$(free_port); REDIS_PORT=$(free_port); ROUTER_PORT=$(free_port); MONITOR_PORT=$(free_port); EXPORTER_PORT=$(free_port)
+allocate_ports
 REDIS_PASSWORD="redis-$TOKEN_ID-secret"
 cat > "$TEMP_DIR/compose.yaml" <<YAML
 services:
@@ -278,9 +419,11 @@ services:
 volumes:
   kafka_data:
 YAML
+arm_compose_cleanup || fail 'Could not arm isolated Compose cleanup context.'
 
 info "Starting isolated Kafka and Redis project $PROJECT."
 compose up -d >/dev/null
+project_resources_owned || fail 'Compose resources failed strong ownership validation.'
 wait_kafka
 KAFKA_ID=$(container_id kafka); [[ $(wc -w <<<"$KAFKA_ID") == 1 ]] || fail 'Kafka ownership is ambiguous.'
 docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --create --if-not-exists --topic "$TOPIC" --partitions 1 --replication-factor 1 >/dev/null
@@ -305,17 +448,47 @@ PY
 emit_record_evidence direct "$BASE" "$END" "$TEMP_DIR/direct-records.jsonl" '' "$TEMP_DIR/direct.json"
 
 INVALID_BASE=$(end_offset)
-python3 - "$TEMP_DIR/direct.json" "$TEMP_DIR/invalid.json" <<'PY'
+python3 - "$TEMP_DIR/direct.json" "$TEMP_DIR" <<'PYINVALID'
 import json,sys
-value=json.load(open(sys.argv[1])); value['topic']='client-controlled'; json.dump(value,open(sys.argv[2],'w'),separators=(',',':'))
-PY
-STATUS=$(post_body "$TEMP_DIR/invalid.json" "$TEMP_DIR/invalid-response.json")
-[[ $STATUS == 400 ]] || fail "invalid request returned HTTP $STATUS"
+source,out=sys.argv[1:]
+value=json.load(open(source,encoding='utf-8'))
+def write(name,change):
+    item=dict(value); change(item)
+    with open(f'{out}/{name}.json','w',encoding='utf-8') as handle: json.dump(item,handle,separators=(',',':'))
+write('unknown-field',lambda item:item.update(topic='client-controlled'))
+write('quoted-schema',lambda item:item.update(schema_version='1'))
+write('unsupported-schema',lambda item:item.update(schema_version=2))
+write('unsupported-type',lambda item:item.update(type='logs'))
+write('unsupported-source',lambda item:item.update(source='mysql'))
+with open(f'{out}/duplicate-key.json','w',encoding='utf-8') as handle:
+    handle.write(open(source,encoding='utf-8').read().replace('"schema_version": 1','"schema_version": 1, "schema_version": 1',1))
+with open(f'{out}/trailing.json','w',encoding='utf-8') as handle: handle.write(open(source,encoding='utf-8').read()+' {}')
+with open(f'{out}/oversized.json','w',encoding='utf-8') as handle: handle.write('x'*(1048576+1))
+PYINVALID
+MESSAGE_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["message_id"])' "$TEMP_DIR/direct.json")
+COMMON=(-H "Authorization: Bearer $ROUTER_TOKEN" -H 'Content-Type: application/json' -H "Idempotency-Key: $MESSAGE_ID")
+assert_rejected no_token 401 internal_authentication_required -H 'Content-Type: application/json' -H "Idempotency-Key: $MESSAGE_ID" --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected wrong_token 401 internal_authentication_required -H 'Authorization: Bearer wrong-token' -H 'Content-Type: application/json' -H "Idempotency-Key: $MESSAGE_ID" --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected query_token 401 internal_authentication_required --url "http://127.0.0.1:$ROUTER_PORT/internal/v1/messages?token=ignored" -H 'Content-Type: application/json' -H "Idempotency-Key: $MESSAGE_ID" --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected user_cookie_only 401 internal_authentication_required -H 'Cookie: gopulse_session=user-cookie' -H 'Content-Type: application/json' -H "Idempotency-Key: $MESSAGE_ID" --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected admin_cookie_only 401 internal_authentication_required -H 'Cookie: gopulse_admin_session=admin-cookie' -H 'Content-Type: application/json' -H "Idempotency-Key: $MESSAGE_ID" --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected wrong_content_type 400 message_invalid -H "Authorization: Bearer $ROUTER_TOKEN" -H 'Content-Type: text/plain' -H "Idempotency-Key: $MESSAGE_ID" --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected compressed_body 400 message_invalid "${COMMON[@]}" -H 'Content-Encoding: gzip' --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected oversized_body 413 message_too_large "${COMMON[@]}" --data-binary "@$TEMP_DIR/oversized.json"
+assert_rejected duplicate_key 400 message_invalid "${COMMON[@]}" --data-binary "@$TEMP_DIR/duplicate-key.json"
+assert_rejected trailing_json 400 message_invalid "${COMMON[@]}" --data-binary "@$TEMP_DIR/trailing.json"
+assert_rejected missing_idempotency 400 message_invalid -H "Authorization: Bearer $ROUTER_TOKEN" -H 'Content-Type: application/json' --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected duplicate_idempotency 400 message_invalid "${COMMON[@]}" -H "Idempotency-Key: $MESSAGE_ID" --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected mismatched_idempotency 400 message_invalid -H "Authorization: Bearer $ROUTER_TOKEN" -H 'Content-Type: application/json' -H 'Idempotency-Key: ffffffffffffffffffffffffffffffff' --data-binary "@$TEMP_DIR/direct.json"
+assert_rejected unknown_field 400 message_invalid "${COMMON[@]}" --data-binary "@$TEMP_DIR/unknown-field.json"
+assert_rejected quoted_schema 400 message_invalid "${COMMON[@]}" --data-binary "@$TEMP_DIR/quoted-schema.json"
+assert_rejected unsupported_schema 422 message_type_unsupported "${COMMON[@]}" --data-binary "@$TEMP_DIR/unsupported-schema.json"
+assert_rejected unsupported_type 422 message_type_unsupported "${COMMON[@]}" --data-binary "@$TEMP_DIR/unsupported-type.json"
+assert_rejected unsupported_source 422 message_type_unsupported "${COMMON[@]}" --data-binary "@$TEMP_DIR/unsupported-source.json"
 sleep 1
 INVALID_END=$(end_offset)
-[[ $INVALID_END == "$INVALID_BASE" ]] || fail 'invalid request wrote a Kafka record.'
-INVALID_MESSAGE_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["message_id"])' "$TEMP_DIR/invalid.json")
-info "evidence {\"end_offset\":$INVALID_END,\"kind\":\"rejected_non_write\",\"message_id\":\"$INVALID_MESSAGE_ID\",\"start_offset\":$INVALID_BASE}"
+[[ $INVALID_END == "$INVALID_BASE" ]] || fail 'rejected request matrix wrote one or more Kafka records.'
+info "evidence {\"case_count\":18,\"end_offset\":$INVALID_END,\"kind\":\"rejected_non_write_matrix\",\"start_offset\":$INVALID_BASE}"
 
 start_monitor
 STATUS=$(curl -sS --max-time 30 -o "$TEMP_DIR/install.json" -w '%{http_code}' -H "Authorization: Bearer $MONITOR_TOKEN" -F "package=@$PACKAGE" "http://127.0.0.1:$MONITOR_PORT/internal/v1/exporter-plugins/install")
