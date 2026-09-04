@@ -31,7 +31,7 @@ func run(logger *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	var messagePublisher publisher.Publisher = publisher.Discard{}
+	var messagePublisher publisher.Transport = publisher.Discard{}
 	if cfg.RouterURL != "" {
 		messagePublisher, err = publisher.NewHTTP(cfg.RouterURL, cfg.RouterToken, cfg.PublishTimeout)
 		if err != nil {
@@ -54,7 +54,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	manager.AttachMetrics(metricsMonitor)
-	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger)
+	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})
 	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
 	errs := make(chan error, 1)
 	go func() { errs <- server.ListenAndServe() }()

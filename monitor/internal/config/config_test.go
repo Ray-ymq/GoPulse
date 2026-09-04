@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestLoadFromValidatesSecurityBoundary(t *testing.T) {
-	values := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0"}
+	values := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0"}
 	cfg, err := LoadFrom(func(key string) (string, bool) { v, ok := values[key]; return v, ok })
 	if err != nil {
 		t.Fatalf("LoadFrom() error = %v", err)
@@ -18,7 +18,7 @@ func TestLoadFromValidatesSecurityBoundary(t *testing.T) {
 }
 
 func TestLoadFromRejectsInvalidScrapeAndRouterConfiguration(t *testing.T) {
-	values := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0", "MONITOR_SCRAPE_INTERVAL": "3s", "MONITOR_SCRAPE_TIMEOUT": "3s"}
+	values := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0", "MONITOR_SCRAPE_INTERVAL": "3s", "MONITOR_SCRAPE_TIMEOUT": "3s"}
 	lookup := func(key string) (string, bool) { v, ok := values[key]; return v, ok }
 	if _, err := LoadFrom(lookup); err == nil {
 		t.Fatal("scrape timeout equal to interval was accepted")
@@ -31,7 +31,7 @@ func TestLoadFromRejectsInvalidScrapeAndRouterConfiguration(t *testing.T) {
 }
 
 func TestLoadFromEnforcesPhaseSixTimeoutContract(t *testing.T) {
-	base := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0"}
+	base := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0"}
 	tests := []struct {
 		key, valid, invalid string
 	}{

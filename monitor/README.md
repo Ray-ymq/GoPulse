@@ -23,3 +23,7 @@ Only the `redis-exporter` Manifest v1 contract is accepted. Installation and upd
 Use `scripts/package-redis-exporter.sh` to create a deterministic package and `scripts/verify-monitor.sh` for isolated real-Redis lifecycle, strict metrics, target-failure, recovery, and HTTP Publisher contract acceptance. Use `scripts/verify-router.sh` for the real Redis Exporter → MetricsMonitor → Router → Kafka → bounded Consumer transport loop.
 
 Phase 8 keeps Monitor's publishing contract unchanged and adds the downstream Marshaller/VictoriaMetrics closure. `scripts/verify-marshaller.sh` is the real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics acceptance. Success, target-unavailable, recovery, and the record used for deterministic replay come from the real Monitor path; fixture production is limited to three representative permanent-invalid records used to prove safe continuation without storage writes.
+
+## Backend log ingest
+
+`POST /internal/v1/logs` accepts one Schema v1 Backend log of at most `MONITOR_LOG_MAX_BYTES` (default 65536). It requires the dedicated `LOG_MONITOR_INGEST_TOKEN`, a unique 32-character lowercase hexadecimal `Idempotency-Key`, exact `application/json`, and no content encoding. Valid logs are strictly cleaned and published as `logs/backend` Envelope v1 messages; only Router `202 Accepted` becomes Monitor `202 Accepted`. Invalid entries receive a safe 4xx response and unavailable transport receives `503 transport_unavailable`.

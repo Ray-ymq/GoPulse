@@ -28,6 +28,11 @@ type Transformer interface {
 type Writer interface {
 	Write(context.Context, []byte) error
 }
+
+type Target struct {
+	Transformer Transformer
+	Writer      Writer
+}
 type Committer interface {
 	Commit(context.Context, Record) error
 }
@@ -46,6 +51,7 @@ type Processor struct {
 	Decoder            Decoder
 	Transformer        Transformer
 	Writer             Writer
+	Targets            map[string]Target
 	Committer          Committer
 	RetryMin, RetryMax time.Duration
 	Logger             Logger
@@ -74,9 +80,22 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		p.Logger.Permanent(record, code)
 		return p.commit(ctx, record, lease)
 	}
-	body, err := p.Transformer.Transform(message)
+	target := Target{Transformer: p.Transformer, Writer: p.Writer}
+	if p.Targets != nil {
+		var ok bool
+		target, ok = p.Targets[message.Type+"/"+message.Source]
+		if !ok || target.Transformer == nil || target.Writer == nil {
+			p.Logger.Permanent(record, "unsupported_envelope")
+			return p.commit(ctx, record, lease)
+		}
+	}
+	body, err := target.Transformer.Transform(message)
 	if err != nil {
-		p.Logger.Permanent(record, "transform_failed")
+		code := envelope.Code(err)
+		if code == "" {
+			code = "transform_failed"
+		}
+		p.Logger.Permanent(record, code)
 		return p.commit(ctx, record, lease)
 	}
 	delay := p.RetryMin
@@ -85,7 +104,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 			return ErrOwnershipLost
 		}
 		writeCtx, cancel := mergeContext(ctx, lease.Context())
-		err = p.Writer.Write(writeCtx, body)
+		err = target.Writer.Write(writeCtx, body)
 		cancel()
 		if err == nil {
 			if !lease.Valid() {

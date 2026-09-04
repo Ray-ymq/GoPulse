@@ -7,11 +7,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/Ray-ymq/GoPulse/monitor/internal/logs"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/plugin"
 )
 
@@ -23,12 +26,25 @@ type pluginManager interface {
 	Stop(context.Context, string) (plugin.Status, error)
 	Update(context.Context, string, string) (plugin.Status, error)
 }
+type logPublisher interface {
+	PublishRaw(context.Context, string, any) error
+}
+
+type LogOptions struct {
+	Token      string
+	MaxBytes   int64
+	FutureSkew time.Duration
+	Publisher  logPublisher
+	Now        func() time.Time
+}
+
 type Server struct {
 	token   string
 	root    string
 	manager pluginManager
 	logger  *slog.Logger
 	handler http.Handler
+	logs    LogOptions
 }
 type errorBody struct {
 	Error struct {
@@ -37,14 +53,23 @@ type errorBody struct {
 	} `json:"error"`
 }
 
-func New(token, root string, manager pluginManager, logger *slog.Logger) *Server {
+func New(token, root string, manager pluginManager, logger *slog.Logger, logOptions ...LogOptions) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
 	s := &Server{token: token, root: root, manager: manager, logger: logger}
+	if len(logOptions) > 0 {
+		s.logs = logOptions[0]
+		if s.logs.Now == nil {
+			s.logs.Now = time.Now
+		}
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ready", s.auth(s.ready))
+	if s.logs.Token != "" {
+		mux.HandleFunc("POST /internal/v1/logs", s.ingestLog)
+	}
 	mux.HandleFunc("GET /internal/v1/exporter-plugins", s.auth(s.list))
 	mux.HandleFunc("GET /internal/v1/exporter-plugins/{pluginId}", s.auth(s.get))
 	mux.HandleFunc("POST /internal/v1/exporter-plugins/install", s.auth(s.install))
@@ -188,6 +213,62 @@ func writePluginError(w http.ResponseWriter, err error) {
 	}
 	writeError(w, status, pe.Code, pe.Message)
 }
+func (s *Server) ingestLog(w http.ResponseWriter, r *http.Request) {
+	values := r.Header.Values("Authorization")
+	provided := ""
+	if len(values) == 1 && strings.HasPrefix(values[0], "Bearer ") {
+		provided = strings.TrimPrefix(values[0], "Bearer ")
+	}
+	if len(provided) != len(s.logs.Token) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.logs.Token)) != 1 {
+		writeError(w, http.StatusUnauthorized, "internal_authentication_required", "internal authentication is required")
+		return
+	}
+	contentTypes := r.Header.Values("Content-Type")
+	if len(contentTypes) != 1 || len(r.Header.Values("Content-Encoding")) != 0 {
+		writeError(w, http.StatusBadRequest, "log_invalid", "log entry is invalid")
+		return
+	}
+	mediaType, params, err := mime.ParseMediaType(contentTypes[0])
+	if err != nil || mediaType != "application/json" || len(params) != 0 {
+		writeError(w, http.StatusBadRequest, "log_invalid", "log entry is invalid")
+		return
+	}
+	ids := r.Header.Values("Idempotency-Key")
+	if len(ids) != 1 {
+		writeError(w, http.StatusBadRequest, "log_invalid", "log entry is invalid")
+		return
+	}
+	if r.ContentLength > s.logs.MaxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "log_too_large", "log entry is too large")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, s.logs.MaxBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "log_invalid", "log entry is invalid")
+		return
+	}
+	if int64(len(body)) > s.logs.MaxBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "log_too_large", "log entry is too large")
+		return
+	}
+	validated, err := logs.Validate(body, s.logs.Now(), s.logs.FutureSkew)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "log_invalid", "log entry is invalid")
+		return
+	}
+	envelope, err := logs.NewEnvelope(ids[0], validated)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "log_invalid", "log entry is invalid")
+		return
+	}
+	if s.logs.Publisher == nil || s.logs.Publisher.PublishRaw(r.Context(), envelope.MessageID, envelope) != nil {
+		s.logger.Warn("log transport unavailable", "event", "log_publish_failed")
+		writeError(w, http.StatusServiceUnavailable, "transport_unavailable", "message transport is unavailable")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	var body errorBody
 	body.Error.Code = code

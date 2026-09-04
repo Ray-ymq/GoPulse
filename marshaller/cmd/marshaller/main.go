@@ -11,9 +11,11 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/config"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/consumer"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/elasticsearch"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/httpserver"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/logging"
+	logtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/logs"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/metrics"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/victoriametrics"
 )
@@ -30,6 +32,17 @@ func (l processorLogger) Accepted(r consumer.Record) {
 	l.logger.Info("record accepted and committed", "module", "consumer", "event", "record_committed", "topic", r.Topic, "partition", r.Partition, "offset", r.Offset)
 }
 
+type storageReadiness struct {
+	vm, logs interface{ Ready(context.Context) error }
+}
+
+func (s storageReadiness) Ready(ctx context.Context) error {
+	if s.vm.Ready(ctx) != nil {
+		return errors.New("VictoriaMetrics unavailable")
+	}
+	return s.logs.Ready(ctx)
+}
+
 func main() {
 	logger := logging.New("marshaller", os.Stdout)
 	cfg, err := config.Load()
@@ -44,8 +57,20 @@ func main() {
 		os.Exit(1)
 	}
 	vm := victoriametrics.New(cfg.VMURL, cfg.VMUsername, cfg.VMPassword, cfg.VMTimeout)
-	processor := &consumer.Processor{Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew}, Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm, Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, Logger: processorLogger{logger}}
-	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafka, vm, logger)
+	logStore, err := elasticsearch.New(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	if err != nil {
+		logger.Error("Elasticsearch client initialization failed", "module", "storage", "event", "startup_failed")
+		os.Exit(1)
+	}
+	processor := &consumer.Processor{
+		Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew},
+		Targets: map[string]consumer.Target{
+			"metrics/redis": {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"logs/backend":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+		},
+		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, Logger: processorLogger{logger},
+	}
+	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafka, storageReadiness{vm: vm, logs: logStore}, logger)
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	serveErrors := make(chan error, 1)

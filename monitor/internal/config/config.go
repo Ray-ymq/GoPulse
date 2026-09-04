@@ -25,6 +25,9 @@ type Config struct {
 	PublishTimeout  time.Duration
 	RouterURL       string
 	RouterToken     string
+	LogIngestToken  string
+	LogMaxBytes     int64
+	LogFutureSkew   time.Duration
 	ExporterEnv     map[string]string
 }
 
@@ -100,6 +103,18 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if routerURL != "" && (len(routerToken) < 32 || strings.ContainsAny(routerToken, "\r\n")) {
 		return Config{}, errors.New("MONITOR_ROUTER_TOKEN must contain at least 32 bytes when MONITOR_ROUTER_URL is set")
 	}
+	logToken, ok := lookup("LOG_MONITOR_INGEST_TOKEN")
+	if !ok || len(logToken) < 32 || strings.ContainsAny(logToken, "\r\n") || logToken == token {
+		return Config{}, errors.New("LOG_MONITOR_INGEST_TOKEN must be a distinct token of at least 32 bytes")
+	}
+	logMax, err := strconv.ParseInt(value("MONITOR_LOG_MAX_BYTES", "65536"), 10, 64)
+	if err != nil || logMax < 1024 || logMax > 65536 {
+		return Config{}, errors.New("MONITOR_LOG_MAX_BYTES must be between 1024 and 65536")
+	}
+	logFutureSkew, err := parseDuration("MONITOR_LOG_FUTURE_SKEW", 5*time.Minute, 0, 10*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
 	env := map[string]string{}
 	for _, key := range []string{"REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
 		if v, ok := lookup(key); ok {
@@ -117,7 +132,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if env["REDIS_EXPORTER_HTTP_PORT"] == "" {
 		env["REDIS_EXPORTER_HTTP_PORT"] = "9121"
 	}
-	return Config{HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterToken: routerToken, ExporterEnv: env}, nil
+	return Config{HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterToken: routerToken, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, ExporterEnv: env}, nil
 }
 func (c Config) HTTPAddress() string { return net.JoinHostPort(c.HTTPHost, strconv.Itoa(c.HTTPPort)) }
 func (c Config) ExporterHealthURL() string {
