@@ -52,13 +52,15 @@ Phase 8 使用 `1.5.x` 版本线，`1.5.0` 只作为阶段基线，不创建空�
 | --- | --- | --- | --- |
 | Phase-08-01 | `1.5.1` | `develop/1.5.1` | 未开始 |
 | Phase-08-02 | `1.5.2` | `develop/1.5.2` | 未开始 |
+| Phase-08-03 | `1.5.3` | `develop/1.5.3` | 未开始 |
 
 执行规则：
 
 - 同一批次全部提交共享目标版本；批次完成时同步根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json`。
 - 每批完成前创建同名 `dev/logs/Phase-08/Phase-08-XX-*.md`，只记录实际改动、验证、偏差、失败和限制。
-- Phase-08-01 一次性交付正式 Consumer、第二次校验、确定性指标转换、VictoriaMetrics 写入/查询、日常生命周期和真实纵向验收，不按 Consumer、Transformer、Writer、Compose 或测试机械拆批。
-- Phase-08-02 只在已合入的最终能力上执行跨组件故障/恢复、异常消息、重复投递、业务隔离、资源安全、文档和 Milestone 2 收口；不得增加新产品能力。
+- Phase-08-01 交付可查询的最小真实纵向闭环：正式 Consumer、严格第二次校验、确定性指标转换、VictoriaMetrics 基本写入/查询和最小生命周期；不把真实上游、手动 offset、永久异常继续或查询推迟到后续批次。
+- Phase-08-02 是可独立合入的第二实现批次：完成 ownership fencing、rebalance/commit 失败、Kafka/VM/进程恢复、确定性重放和日常运维生命周期，不执行完整社交业务收口。
+- Phase-08-03 只在已合入的最终能力上执行跨组件矩阵、业务/访问隔离、资源安全、文档、版本和 Milestone 2 远程收口；除真实复现的阻断问题外不增加产品能力。
 - 已推送分支不得静默改名或重新编号；若批次数量或顺序在实施前变化，先更新本表并重新计算尚未创建的分支。
 
 ## 4. 阶段范围与非目标
@@ -378,17 +380,20 @@ MARSHALLER_MAX_FUTURE_SKEW=5m
 
 | 批次 | 纵向交付 | 关键输入 | 关键输出 |
 | --- | --- | --- | --- |
-| Phase-08-01 | Marshaller 与 VictoriaMetrics 指标闭环 | Phase 7 Topic/record、Envelope v1、真实 Redis metrics | 正式 Consumer、严格转换、VM 写入/查询、生命周期、验收与 CI |
-| Phase-08-02 | 集成验收与 Milestone 2 收口 | 已合入的 `1.5.1` 纵向能力 | 异常/重复/故障恢复、业务与资源隔离证据，`1.5.2` 阶段交接 |
+| Phase-08-01 | Marshaller 与 VictoriaMetrics 最小指标闭环 | Phase 7 Topic/record、Envelope v1、真实 Redis metrics | 正式 Consumer、严格转换、VM 基本写入/查询、最小生命周期、验收与 CI |
+| Phase-08-02 | 可靠消费、故障恢复与运维闭环 | 已合入的 `1.5.1` 最小纵向闭环 | ownership/commit 状态机、Kafka/VM/进程恢复、生命周期与重放证据，`1.5.2` 可靠性基线 |
+| Phase-08-03 | 集成验收与 Milestone 2 收口 | 已合入的 `1.5.2` 最终实现能力 | 完整矩阵、业务/访问/资源隔离证据，`1.5.3` 阶段交接 |
 
-- 08-01 必须自身可运行、可查询，不能把真实 Monitor 输入、offset 语义、异常过滤或 VictoriaMetrics 查询推迟到收口批次。
-- 08-02 不重新设计映射或接口，只在最终构建和干净隔离资源上验证跨组件事实；只允许修复已复现的阻断问题。
+- 08-01 必须自身可运行、可查询，不能把真实 Monitor 输入、手动 offset、永久异常继续或 VictoriaMetrics 查询推迟到后续批次。
+- 08-02 在不改变映射和存储公共契约的前提下实现可靠消费增量；其 ownership、commit、恢复和资源归属验收必须在本批通过。
+- 08-03 不重新设计映射或状态机，只在最终构建和干净隔离资源上验证跨组件事实；只允许修复已复现的阻断问题。
 - Phase 9 只能依赖已记录的 Marshaller 生命周期、扩展边界、metrics 消费/写入并存能力和存储故障语义，不能依赖验收 fixture 的临时 group、凭据或查询实现。
 
 详细方案：
 
-- [Phase-08-01：Marshaller 与 VictoriaMetrics 指标闭环](Phase-08-01-Marshaller与VictoriaMetrics指标闭环.md)
-- [Phase-08-02：集成验收与 Milestone 2 收口](Phase-08-02-集成验收与里程碑收口.md)
+- [Phase-08-01：Marshaller 与 VictoriaMetrics 最小指标闭环](Phase-08-01-Marshaller与VictoriaMetrics指标闭环.md)
+- [Phase-08-02：可靠消费、故障恢复与运维闭环](Phase-08-02-可靠消费故障恢复与运维闭环.md)
+- [Phase-08-03：集成验收与 Milestone 2 收口](Phase-08-03-集成验收与里程碑收口.md)
 
 ## 15. 测试策略与固定验收矩阵
 
@@ -401,8 +406,9 @@ MARSHALLER_MAX_FUTURE_SKEW=5m
 
 ### 15.2 批次验证边界
 
-- Phase-08-01：Marshaller format/unit/vet/race，严格 Envelope/transformer，offset 状态机，真实 Kafka+VictoriaMetrics 集成，Compose 渲染，脚本语法/自检，以及真实 Redis 到查询的纵向闭环。
-- Phase-08-02：最终构建的完整指标矩阵、永久坏消息继续、重复/commit 重放、Kafka/VM/Marshaller 故障恢复、内部访问负向、社交业务回归、资源清理、版本/分支治理和远程门禁。
+- Phase-08-01：Marshaller format/unit/vet/race，严格 Envelope/transformer，基本手动 offset，真实 Kafka+VictoriaMetrics 集成，Compose 渲染，脚本语法/自检，以及真实 Redis 到查询的最小纵向闭环。
+- Phase-08-02：ownership/rebalance/commit 确定性状态机，Kafka/VM/Marshaller 故障恢复，重复重放，日常生命周期、资源归属和直接门禁。
+- Phase-08-03：最终构建的完整指标矩阵、代表性永久坏消息、跨组件故障恢复、内部访问负向、社交业务回归、资源清理、版本/分支治理和远程门禁。
 
 ### 15.3 阶段级封闭端到端矩阵
 
@@ -442,7 +448,7 @@ CI 增加独立 `Marshaller` job：Marshaller format/test/vet/race、注入 Comm
 (cd frontend && npm run build)
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.5.2 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.5.3 --base-ref upstream/main
 bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/package-redis-exporter.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 scripts/verify-marshaller.sh --self-test
@@ -465,7 +471,8 @@ git diff --check
 
 ```text
 dev/logs/Phase-08/Phase-08-01-Marshaller与VictoriaMetrics指标闭环.md
-dev/logs/Phase-08/Phase-08-02-集成验收与里程碑收口.md
+dev/logs/Phase-08/Phase-08-02-可靠消费故障恢复与运维闭环.md
+dev/logs/Phase-08/Phase-08-03-集成验收与里程碑收口.md
 ```
 
 每份记录必须包含：
@@ -491,11 +498,11 @@ dev/logs/Phase-08/Phase-08-02-集成验收与里程碑收口.md
 - Kafka、Marshaller、VictoriaMetrics 均不向浏览器/普通用户开放；Phase 8 未新增 Backend 产品查询 API，社交身份和授权无变化。
 - Kafka/Marshaller/VM 故障不会阻断既有社交业务、RabbitMQ 任务或放宽权限；Backend readiness 不依赖 VM。
 - 日常与隔离生命周期不误杀、不误删、不泄密、不遗留资源；职责边界和 Phase 0～7 必要能力无回归。
-- 两批实施记录真实完整，固定本地/远程门禁通过，根与 Frontend 版本均为 `1.5.2`。
+- 三批实施记录真实完整，固定本地/远程门禁通过，根与 Frontend 版本均为 `1.5.3`。
 
 ### 18.2 完成与停止条件
 
-只有第 18.1 节全部满足、Phase-08-02 已合入主远程 `main`、远程门禁成功且两份实施记录与真实提交一致，Phase 8 与 Milestone 2 才完成。任一真实上游输入、offset、永久异常继续、重复重放、VM 查询、故障恢复、业务隔离、内部身份、资源安全或远程状态证据缺失时，不得标记完成。
+只有第 18.1 节全部满足、Phase-08-03 已合入主远程 `main`、远程门禁成功且三份实施记录与真实提交一致，Phase 8 与 Milestone 2 才完成。任一真实上游输入、offset、永久异常继续、重复重放、VM 查询、故障恢复、业务隔离、内部身份、资源安全或远程状态证据缺失时，不得标记完成。
 
 阶段验收通过后立即停止。Backend/Frontend Metrics Query 产品能力、Dashboard、告警、聚合、长期容量、cluster、多租户、读写分权、DLQ/重放、logs/events 均作为后续 Phase，不继续占用 Phase 8。
 
