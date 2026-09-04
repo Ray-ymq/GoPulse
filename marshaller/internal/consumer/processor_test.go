@@ -47,11 +47,18 @@ func (f *fakeWriter) Write(context.Context, []byte) error {
 }
 
 type fakeCommitter struct {
-	calls int
-	err   error
+	calls    int
+	err      error
+	onCommit func(context.Context) error
 }
 
-func (f *fakeCommitter) Commit(context.Context, Record) error { f.calls++; return f.err }
+func (f *fakeCommitter) Commit(ctx context.Context, _ Record) error {
+	f.calls++
+	if f.onCommit != nil {
+		return f.onCommit(ctx)
+	}
+	return f.err
+}
 func leaseFor(t *testing.T) (*Ownership, Lease) {
 	t.Helper()
 	o := NewOwnership()
@@ -131,5 +138,42 @@ func TestProcessorRetryBackoffCancelsOnLostOwnership(t *testing.T) {
 	err := p.Handle(context.Background(), Record{}, lease)
 	if !errors.Is(err, ErrOwnershipLost) || committer.calls != 0 {
 		t.Fatalf("err=%v commits=%d", err, committer.calls)
+	}
+}
+
+func TestProcessorCommitCancellationFromOwnershipChangeCanRecover(t *testing.T) {
+	partition := Partition{Topic: "topic", Partition: 0}
+	tests := map[string]func(*Ownership){
+		"revoke": func(owner *Ownership) { owner.Revoke([]Partition{partition}) },
+		"lost":   func(owner *Ownership) { owner.Lose([]Partition{partition}) },
+	}
+	for name, changeOwnership := range tests {
+		t.Run(name, func(t *testing.T) {
+			owner, lease := leaseFor(t)
+			committer := &fakeCommitter{}
+			committer.onCommit = func(ctx context.Context) error {
+				changeOwnership(owner)
+				<-ctx.Done()
+				return ctx.Err()
+			}
+
+			err := baseProcessor(&fakeWriter{}, committer).Handle(context.Background(), Record{}, lease)
+			if !errors.Is(err, ErrOwnershipLost) || committer.calls != 1 {
+				t.Fatalf("err=%v commits=%d", err, committer.calls)
+			}
+
+			owner.Assign([]Partition{partition})
+			newLease, ok := owner.Lease(partition)
+			if !ok {
+				t.Fatal("missing replacement lease")
+			}
+			committer.onCommit = nil
+			if err := baseProcessor(&fakeWriter{}, committer).Handle(context.Background(), Record{}, newLease); err != nil {
+				t.Fatalf("replacement assignment did not recover: %v", err)
+			}
+			if committer.calls != 2 {
+				t.Fatalf("commits=%d, want canceled old attempt plus replacement commit", committer.calls)
+			}
+		})
 	}
 }
