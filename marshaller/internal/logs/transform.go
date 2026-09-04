@@ -17,7 +17,7 @@ type WriteRequest struct {
 }
 
 func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
-	if message.Type != "logs" || message.Source != "backend" {
+	if message.Type != "logs" {
 		return nil, &envelope.PermanentError{Code: "unsupported_envelope"}
 	}
 	if t.MaxBytes > 0 && len(message.RawPayload) > t.MaxBytes {
@@ -26,6 +26,9 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	validated, err := Validate(message.RawPayload, message.Timestamp, 0)
 	if err != nil {
 		return nil, &envelope.PermanentError{Code: "invalid_log_payload"}
+	}
+	if validated.Source != message.Source {
+		return nil, &envelope.PermanentError{Code: "source_mismatch"}
 	}
 	payloadTime, err := time.Parse(time.RFC3339Nano, validated.Timestamp)
 	if err != nil || !payloadTime.Equal(message.Timestamp) {

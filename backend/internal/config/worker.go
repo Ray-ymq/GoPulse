@@ -28,6 +28,7 @@ type WorkerConfig struct {
 	MySQL       MySQLConfig
 	RabbitMQURL string
 	Worker      BusinessWorkerConfig
+	LogShip     LogShipConfig
 }
 
 type BusinessWorkerConfig struct {
@@ -107,12 +108,17 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return WorkerConfig{}, errors.New("BUSINESS_WORKER_RECONNECT_MAX must be greater than or equal to BUSINESS_WORKER_RECONNECT_MIN")
 	}
+	logShip, err := loadLogShipConfig(lookup)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	return WorkerConfig{
 		MySQL: MySQLConfig{
 			Host: valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost), Port: mysqlPort,
 			Database: mysqlDatabase, User: mysqlUser, Password: mysqlPassword,
 		},
 		RabbitMQURL: rabbitMQURL,
+		LogShip:     logShip,
 		Worker: BusinessWorkerConfig{
 			Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay,
 			PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout,
