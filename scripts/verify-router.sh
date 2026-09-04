@@ -147,6 +147,44 @@ raise SystemExit(f'missing real Monitor envelope with scrape_status={expected}')
 PY
 }
 
+emit_record_evidence(){
+  local label=$1 start=$2 end=$3 path=$4 expected=${5:-} body_path=${6:-} evidence
+  evidence=$(python3 - "$label" "$start" "$end" "$path" "$expected" "$body_path" <<'PY'
+import base64, hashlib, json, sys
+label, start, end, path, expected, body_path = sys.argv[1:]
+rows = [json.loads(line) for line in open(path, encoding='utf-8')]
+selected = None
+for row in rows:
+    raw = base64.b64decode(row['value_base64'])
+    value = json.loads(raw)
+    if not expected or value.get('payload', {}).get('scrape_status') == expected:
+        selected = (row, raw, value)
+        break
+if selected is None:
+    raise SystemExit(f'no evidence record matched {label}')
+row, raw, value = selected
+evidence = {
+    'kind': 'kafka_record',
+    'label': label,
+    'start_offset': int(start),
+    'end_offset': int(end),
+    'record_offset': row['offset'],
+    'message_id': value['message_id'],
+    'key': row['key'],
+    'value_sha256': hashlib.sha256(raw).hexdigest(),
+}
+if expected:
+    evidence['scrape_status'] = expected
+if body_path:
+    body = open(body_path, 'rb').read()
+    evidence['body_sha256'] = hashlib.sha256(body).hexdigest()
+    evidence['byte_equal'] = body == raw
+print(json.dumps(evidence, separators=(',', ':'), sort_keys=True))
+PY
+  )
+  info "evidence $evidence"
+}
+
 wait_status_after(){
   local baseline=$1 expected=$2 output=$3 end
   for _ in {1..120}; do
@@ -264,6 +302,7 @@ body=open(sys.argv[1],'rb').read(); rows=[json.loads(x) for x in open(sys.argv[2
 assert len(rows)==1 and base64.b64decode(rows[0]['value_base64'])==body
 message=json.loads(body); assert rows[0]['key']==message['message_id'] and rows[0]['partition']==0
 PY
+emit_record_evidence direct "$BASE" "$END" "$TEMP_DIR/direct-records.jsonl" '' "$TEMP_DIR/direct.json"
 
 INVALID_BASE=$(end_offset)
 python3 - "$TEMP_DIR/direct.json" "$TEMP_DIR/invalid.json" <<'PY'
@@ -273,20 +312,29 @@ PY
 STATUS=$(post_body "$TEMP_DIR/invalid.json" "$TEMP_DIR/invalid-response.json")
 [[ $STATUS == 400 ]] || fail "invalid request returned HTTP $STATUS"
 sleep 1
-[[ $(end_offset) == "$INVALID_BASE" ]] || fail 'invalid request wrote a Kafka record.'
+INVALID_END=$(end_offset)
+[[ $INVALID_END == "$INVALID_BASE" ]] || fail 'invalid request wrote a Kafka record.'
+INVALID_MESSAGE_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["message_id"])' "$TEMP_DIR/invalid.json")
+info "evidence {\"end_offset\":$INVALID_END,\"kind\":\"rejected_non_write\",\"message_id\":\"$INVALID_MESSAGE_ID\",\"start_offset\":$INVALID_BASE}"
 
 start_monitor
 STATUS=$(curl -sS --max-time 30 -o "$TEMP_DIR/install.json" -w '%{http_code}' -H "Authorization: Bearer $MONITOR_TOKEN" -F "package=@$PACKAGE" "http://127.0.0.1:$MONITOR_PORT/internal/v1/exporter-plugins/install")
 [[ $STATUS == 201 ]] || { cat "$TEMP_DIR/install.json" >&2; fail "plugin install returned HTTP $STATUS"; }
 SUCCESS_BASE=$(end_offset); SUCCESS_END=$(wait_status_after "$SUCCESS_BASE" success "$TEMP_DIR/success.jsonl"); assert_status "$TEMP_DIR/success.jsonl" success
+emit_record_evidence monitor_success "$SUCCESS_BASE" "$SUCCESS_END" "$TEMP_DIR/success.jsonl" success
 
 compose stop redis >/dev/null
 UNAVAILABLE_BASE=$(end_offset); UNAVAILABLE_END=$(wait_status_after "$UNAVAILABLE_BASE" target_unavailable "$TEMP_DIR/unavailable.jsonl"); assert_status "$TEMP_DIR/unavailable.jsonl" target_unavailable
+emit_record_evidence monitor_target_unavailable "$UNAVAILABLE_BASE" "$UNAVAILABLE_END" "$TEMP_DIR/unavailable.jsonl" target_unavailable
 
 BEFORE_FAILURE=$(end_offset)
+ROUTER_PID_BEFORE=$ROUTER_PID
+MONITOR_PID_BEFORE=$MONITOR_PID
 compose stop kafka >/dev/null
-[[ $(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$ROUTER_PORT/health") == 200 ]] || fail 'Router health failed while Kafka was stopped.'
+OUTAGE_HEALTH=$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$ROUTER_PORT/health")
+[[ $OUTAGE_HEALTH == 200 ]] || fail 'Router health failed while Kafka was stopped.'
 wait_router_ready 503
+OUTAGE_READY=$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ROUTER_TOKEN" "http://127.0.0.1:$ROUTER_PORT/ready")
 make_body "$TEMP_DIR/failure.json"
 STATUS=$(post_body "$TEMP_DIR/failure.json" "$TEMP_DIR/failure-response.json")
 [[ $STATUS == 503 ]] || fail "publish during Kafka outage returned HTTP $STATUS"
@@ -295,6 +343,10 @@ wait_kafka
 wait_router_ready 200
 compose start redis >/dev/null
 RECOVERY_END=$(wait_status_after "$BEFORE_FAILURE" success "$TEMP_DIR/recovery.jsonl"); assert_status "$TEMP_DIR/recovery.jsonl" success
+kill -0 "$ROUTER_PID_BEFORE" && kill -0 "$MONITOR_PID_BEFORE" || fail 'Router or Monitor restarted during Kafka recovery.'
+[[ $ROUTER_PID == "$ROUTER_PID_BEFORE" && $MONITOR_PID == "$MONITOR_PID_BEFORE" ]] || fail 'Router or Monitor PID changed during Kafka recovery.'
+emit_record_evidence monitor_recovery "$BEFORE_FAILURE" "$RECOVERY_END" "$TEMP_DIR/recovery.jsonl" success
+info "evidence {\"health_status\":$OUTAGE_HEALTH,\"kind\":\"kafka_outage_recovery\",\"monitor_pid\":$MONITOR_PID,\"publish_status\":$STATUS,\"ready_status\":$OUTAGE_READY,\"router_pid\":$ROUTER_PID}"
 
 info 'Stopping isolated processes and resources to verify cleanup.'
 cleanup_resources 0
