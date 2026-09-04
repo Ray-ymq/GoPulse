@@ -127,7 +127,7 @@ check_compose_service() {
 }
 
 check_kafka_resources() {
-  local ids volume details
+  local ids volume details group_details
   ids=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter 'label=com.docker.compose.service=kafka-init' --format '{{.ID}}')
   if [[ $(sed '/^[[:space:]]*$/d' <<<"$ids" | wc -l | tr -d ' ') != 1 ]] || [[ $(docker inspect --format '{{.State.Status}}|{{.State.ExitCode}}' "$ids" 2>/dev/null) != 'exited|0' ]]; then
     fail 'Compose/kafka-init' 'expected exactly one successfully completed topic initializer.'
@@ -151,6 +151,12 @@ check_kafka_resources() {
     fail 'Kafka topic' 'fixed topic is missing or has unexpected partition/replication settings.'
   else
     pass 'Kafka topic' 'fixed topic exists with one partition and replication factor one.'
+  fi
+  group_details=$(docker exec "$ids" /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:19092 --group gopulse-marshaller-metrics-v1 --describe 2>/dev/null || true)
+  if awk '$2=="gopulse-observability-v1" && $3==0 && $4 ~ /^[0-9]+$/ {found=1} END {exit !found}' <<<"$group_details"; then
+    pass 'Kafka Marshaller group' 'formal group has a numeric committed offset for the fixed partition.'
+  else
+    fail 'Kafka Marshaller group' 'formal group or its committed offset is unavailable.'
   fi
 }
 
@@ -187,7 +193,7 @@ check_victoriametrics() {
   volume="${PROJECT_NAME}_victoriametrics_data"
   details=$(docker volume inspect --format '{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.volume"}}' "$volume" 2>/dev/null || true)
   if [[ $details == "$PROJECT_NAME|victoriametrics_data" ]]; then pass 'Compose/victoriametrics_data' 'volume ownership labels match this project.'; else fail 'Compose/victoriametrics_data' 'volume ownership labels do not match this project.'; fi
-  status=$(curl --silent --show-error --max-time 5 --user "$username:$password" --output "$body" --write-out '%{http_code}' --data-urlencode 'query=gopulse_redis_up' "http://127.0.0.1:$port/prometheus/api/v1/query") || status=000
+  status=$(curl --silent --show-error --max-time 5 --user "$username:$password" --output "$body" --write-out '%{http_code}' --data-urlencode 'query=gopulse_redis_up{source="redis",target_id="redis-exporter-local"}' "http://127.0.0.1:$port/prometheus/api/v1/query") || status=000
   if [[ $status == 200 ]] && python3 - "$body" <<'PYVM'
 import json,sys
 value=json.load(open(sys.argv[1],encoding='utf-8'))
