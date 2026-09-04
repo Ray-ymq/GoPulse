@@ -46,3 +46,19 @@ func TestParseRejectsCursorMixedWithFilters(t *testing.T) {
 		t.Fatal("mixed cursor was accepted")
 	}
 }
+
+func TestParseAcceptsEveryApplicationLogService(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	for _, service := range []string{"backend", "business-worker", "search-indexer", "search-reindex"} {
+		options, err := ParseOptions(url.Values{"service": {service}}, now)
+		if err != nil {
+			t.Fatalf("service %q: %v", service, err)
+		}
+		if options.Filters.Service != service {
+			t.Fatalf("service = %q, want %q", options.Filters.Service, service)
+		}
+	}
+	if _, err := ParseOptions(url.Values{"service": {"unknown"}}, now); err == nil {
+		t.Fatal("unknown service was accepted")
+	}
+}

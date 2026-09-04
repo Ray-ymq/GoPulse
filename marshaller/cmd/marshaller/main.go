@@ -65,8 +65,11 @@ func main() {
 	processor := &consumer.Processor{
 		Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew},
 		Targets: map[string]consumer.Target{
-			"metrics/redis": {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"logs/backend":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"metrics/redis":        {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"logs/backend":         {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"logs/business-worker": {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"logs/search-indexer":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"logs/search-reindex":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
 		},
 		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, Logger: processorLogger{logger},
 	}

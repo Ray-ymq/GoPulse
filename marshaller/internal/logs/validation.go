@@ -28,14 +28,35 @@ var allowedFields = map[string]struct{}{
 	"result": {}, "attempt": {}, "batch_size": {}, "document_count": {}, "panic_recovered": {}, "response_committed": {},
 }
 
-var messageModules = map[string]map[string]struct{}{
-	"http": {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
-	"auth": {"user registered": {}, "user logged in": {}, "user logged out": {}},
-	"post": {"post created": {}}, "comment": {"comment created": {}},
-	"like": {"post liked": {}, "post unliked": {}}, "notification": {"notification marked read": {}},
-	"cache":     {"post detail cache fill failed": {}, "post detail cache read failed": {}, "post detail cache invalidation failed": {}},
-	"outbox":    {"outbox cleanup failed": {}, "outbox claim failed": {}, "outbox event invalid": {}, "outbox publish failed": {}, "outbox mark published failed": {}, "outbox event published": {}, "outbox release failed": {}},
-	"lifecycle": {"backend listening": {}, "backend stopped": {}, "backend server failed": {}, "backend shutdown started": {}, "backend shutdown failed": {}, "resource close failed": {}},
+var workerMessages = map[string]struct{}{
+	"event ignored": {}, "event processed": {}, "message acknowledgement failed": {},
+	"retry publish failed": {}, "message requeue failed": {}, "event retry scheduled": {},
+	"dead letter publish failed": {}, "event dead lettered": {}, "connection unavailable": {},
+	"connection restored": {}, "session close failed": {}, "session interrupted": {},
+	"delivery stop failed": {}, "shutdown timeout": {},
+}
+
+var serviceModules = map[string]map[string]map[string]struct{}{
+	"backend": {
+		"http": {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
+		"auth": {"user registered": {}, "user logged in": {}, "user logged out": {}},
+		"post": {"post created": {}}, "comment": {"comment created": {}},
+		"like": {"post liked": {}, "post unliked": {}}, "notification": {"notification marked read": {}},
+		"cache":     {"post detail cache fill failed": {}, "post detail cache read failed": {}, "post detail cache invalidation failed": {}},
+		"outbox":    {"outbox cleanup failed": {}, "outbox claim failed": {}, "outbox event invalid": {}, "outbox publish failed": {}, "outbox mark published failed": {}, "outbox event published": {}, "outbox release failed": {}},
+		"lifecycle": {"backend listening": {}, "backend stopped": {}, "backend server failed": {}, "backend shutdown started": {}, "backend shutdown failed": {}, "resource close failed": {}},
+	},
+	"business-worker": {
+		"lifecycle": {"business worker started": {}, "business worker stopped": {}, "business worker initialization failed": {}, "resource close failed": {}},
+		"worker":    workerMessages, "notification": workerMessages,
+	},
+	"search-indexer": {
+		"lifecycle": {"search indexer started": {}, "search indexer stopped": {}, "search indexer initialization failed": {}, "resource close failed": {}},
+		"worker":    workerMessages, "search": workerMessages,
+	},
+	"search-reindex": {
+		"search": {"search reindex arguments invalid": {}, "search reindex initialization failed": {}, "search reindex started": {}, "search reindex skipped": {}, "search reindex completed": {}, "search reindex failed": {}, "resource close failed": {}},
+	},
 }
 
 var sensitiveFragments = []string{"password", "authorization", "cookie", "jwt", "bearer ", "post_content", "comment_content", "stack", "http://", "https://", "/home/", "/mnt/"}
@@ -51,6 +72,7 @@ type Envelope struct {
 
 type Validated struct {
 	Timestamp string
+	Source    string
 	Payload   json.RawMessage
 }
 
@@ -58,7 +80,7 @@ func NewEnvelope(messageID string, value Validated) (Envelope, error) {
 	if !messageIDPattern.MatchString(messageID) {
 		return Envelope{}, errors.New("invalid message id")
 	}
-	return Envelope{SchemaVersion: 1, MessageID: messageID, Type: "logs", Source: "backend", Timestamp: value.Timestamp, Payload: value.Payload}, nil
+	return Envelope{SchemaVersion: 1, MessageID: messageID, Type: "logs", Source: value.Source, Timestamp: value.Timestamp, Payload: value.Payload}, nil
 }
 
 func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, error) {
@@ -102,10 +124,14 @@ func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, 
 	service, serviceOK := fields["service"].(string)
 	module, moduleOK := fields["module"].(string)
 	message, messageOK := fields["message"].(string)
-	if !levelOK || (level != "info" && level != "warn" && level != "error") || !serviceOK || service != "backend" || !moduleOK || !messageOK {
+	if !levelOK || (level != "info" && level != "warn" && level != "error") || !serviceOK || !moduleOK || !messageOK {
 		return Validated{}, errors.New("invalid log vocabulary")
 	}
-	messages, ok := messageModules[module]
+	modules, ok := serviceModules[service]
+	if !ok {
+		return Validated{}, errors.New("invalid service")
+	}
+	messages, ok := modules[module]
 	if !ok {
 		return Validated{}, errors.New("invalid module")
 	}
@@ -119,7 +145,7 @@ func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, 
 	if err != nil {
 		return Validated{}, errors.New("log serialization failed")
 	}
-	return Validated{Timestamp: timestamp, Payload: canonical}, nil
+	return Validated{Timestamp: timestamp, Source: service, Payload: canonical}, nil
 }
 
 func validateOptional(fields map[string]any) error {

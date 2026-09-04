@@ -17,6 +17,10 @@ import (
 
 const responseLimit = 4096
 
+type permanentDeliveryError struct{}
+
+func (permanentDeliveryError) Error() string { return "delivery permanently rejected" }
+
 type Config struct {
 	Endpoint        string
 	Token           string
@@ -103,6 +107,7 @@ func (s *Shipper) Close(ctx context.Context) error {
 	case <-ctx.Done():
 		s.cancel()
 		s.client.CloseIdleConnections()
+		<-s.done
 		return errors.New("log shipper shutdown timed out")
 	}
 }
@@ -132,14 +137,26 @@ func (s *Shipper) run() {
 
 func (s *Shipper) deliver(entry item) bool {
 	delay := s.retryMin
+	unavailableReported := false
 	for {
 		ctx, cancel := context.WithTimeout(s.ctx, s.client.Timeout)
 		err := s.send(ctx, entry)
 		cancel()
 		if err == nil {
+			if unavailableReported {
+				s.logger.Info("log remote delivery restored", "reason", "recovered")
+			}
 			return true
 		}
-		s.logger.Warn("log remote delivery will retry", "reason", "transport_unavailable")
+		var permanent permanentDeliveryError
+		if errors.As(err, &permanent) {
+			s.logger.Warn("log remote copy dropped", "reason", "permanent_rejection")
+			return true
+		}
+		if !unavailableReported {
+			s.logger.Warn("log remote delivery will retry", "reason", "transport_unavailable")
+			unavailableReported = true
+		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-timer.C:
@@ -172,10 +189,17 @@ func (s *Shipper) send(ctx context.Context, entry item) error {
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, responseLimit+1))
-	if err != nil || len(body) > responseLimit || resp.StatusCode != http.StatusAccepted {
+	if err != nil || len(body) > responseLimit {
+		return errors.New("delivery response invalid")
+	}
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		return nil
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return permanentDeliveryError{}
+	default:
 		return errors.New("delivery rejected")
 	}
-	return nil
 }
 
 func IsTimeout(err error) bool {
