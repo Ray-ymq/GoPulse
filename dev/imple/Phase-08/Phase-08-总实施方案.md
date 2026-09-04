@@ -18,7 +18,7 @@
 
 ## 2. 当前真实基线与规划输入
 
-本方案在 2026-09-04 重新核对主远程后，当前真实产品基线为 `upstream/main` 提交 `ff2fc20`，根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json` 均为 `1.4.2`。Phase 7 的两个批次已经完成并合入，PR #69 完成阶段收口，后续 PR #70 只修复远程 Integration migration 启动期瞬态失败重试，没有改变 Phase 8 的 Topic、record 或 Envelope 交接契约：
+本方案在 2026-09-04 重新核对主远程后，当前真实产品基线为 `upstream/main` 提交 `60f9aa8`，根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json` 均为 `1.4.3`。Phase 7 的三个批次已经完成并合入：PR #69 完成原阶段收口，PR #70 修复远程 Integration migration 启动期瞬态失败重试，PR #71 关闭 Phase 7 Review 的严格 schema token、Producer 有界并发/取消、验收矩阵和资源安全问题。最新整改没有改变 Phase 8 的 Topic、record key/value 或 Envelope 交接契约：
 
 - `monitor` 已是独立 Go 1.26 module，可从真实 Redis Exporter 周期采集并生成 Envelope v1。
 - 当前 Envelope 固定包含 `schema_version`、`message_id`、`type`、`source`、`timestamp` 和 `payload`；生产消息固定为 `schema_version=1`、`type=metrics`、`source=redis`。
@@ -31,14 +31,14 @@
 - 日常 Bash 生命周期已经把 Kafka、Router、Monitor/Exporter 纳入进程、端口、Compose project、container、network、volume 和插件根强归属边界；Phase 8 必须在此基础上增加 Marshaller/VictoriaMetrics，不能建立弱化的停止或清理路径。
 - Backend 已有数据库实时 `admin` 授权，但本阶段不需要新增产品查询 API；Phase 11 才交付管理员可观测页面，Phase 9/10 会继续扩展 Marshaller 数据类型。
 
-因此，本文关于 Kafka、Router 和 record 的内容以已完成的 Phase 7 真实实现和两份最终实施记录为输入。Phase-08-01 开工时仍必须 fetch 最新主远程，并重新核对 Phase 7 实施记录、真实 Router/验证 Consumer 代码、Kafka 镜像与 Topic 参数；若 `ff2fc20` 之后的主远程改变 Topic、record key/value、Envelope、Kafka 客户端或故障语义，必须先同步更新本总方案和所有尚未开始的拆分方案，不得靠兼容猜测开工。
+因此，本文关于 Kafka、Router 和 record 的内容以已完成的 Phase 7 真实实现和三份最终实施记录为输入。Phase-08-01 开工时仍必须 fetch 最新主远程，并重新核对 Phase 7 实施记录、真实 Router/验证 Consumer 代码、Kafka 镜像与 Topic 参数；若 `60f9aa8` 之后的主远程改变 Topic、record key/value、Envelope、Kafka 客户端或故障语义，必须先同步更新本总方案和所有尚未开始的拆分方案，不得靠兼容猜测开工。
 
 ## 3. 前置条件、版本与分支
 
 ### 3.1 实施前置条件
 
 - Phase 7 两个批次全部合入主远程 `main`，远程固定门禁成功，实施记录与真实提交一致。
-- 根与 Frontend 版本均为 `1.4.2`，真实 Redis → Exporter → MetricsMonitor → Router → Kafka Consumer 链路已经通过。
+- 根与 Frontend 版本均为 `1.4.3`，Phase-07-03 已以 PR #71 合入，真实 Redis → Exporter → MetricsMonitor → Router → Kafka Consumer 链路已经通过。
 - Kafka Topic、record key/value、Envelope v1、潜在重复及 Router/Kafka 恢复语义均有真实验收证据。
 - 实施环境仍固定为 Windows 宿主上的 WSL2 Linux filesystem；Bash 是唯一维护的本地生命周期和验收入口。
 - 每批开始前 fetch 主远程，从包含全部前置批次的最新 `main` 创建本方案分配的独立 `develop/x.x.x` 分支，不沿用 `update`、Phase 7 或已完成分支。
@@ -58,8 +58,8 @@ Phase 8 使用 `1.5.x` 版本线，`1.5.0` 只作为阶段基线，不创建空�
 
 - 同一批次全部提交共享目标版本；批次完成时同步根 `VERSION`、`frontend/package.json` 和 `frontend/package-lock.json`。
 - 每批完成前创建同名 `dev/logs/Phase-08/Phase-08-XX-*.md`，只记录实际改动、验证、偏差、失败和限制。
-- Phase-08-01 交付可查询的最小真实纵向闭环：正式 Consumer、严格第二次校验、确定性指标转换、VictoriaMetrics 基本写入/查询和最小生命周期；不把真实上游、手动 offset、永久异常继续或查询推迟到后续批次。
-- Phase-08-02 是可独立合入的第二实现批次：完成 ownership fencing、rebalance/commit 失败、Kafka/VM/进程恢复、确定性重放和日常运维生命周期，不执行完整社交业务收口。
+- Phase-08-01 交付可查询且可安全合入的最小真实纵向闭环：正式 Consumer、严格第二次校验、确定性指标转换、VictoriaMetrics 基本写入/查询、generation ownership fencing、安全 commit 和最小生命周期；不把真实上游、手动 offset、永久异常继续或消费正确性推迟到后续批次。
+- Phase-08-02 是可独立合入的第二实现批次：在已正确的 ownership/commit 基线上完成真实 rebalance、Kafka/VM/进程恢复、确定性重放和日常运维生命周期，不执行完整社交业务收口。
 - Phase-08-03 只在已合入的最终能力上执行跨组件矩阵、业务/访问隔离、资源安全、文档、版本和 Milestone 2 远程收口；除真实复现的阻断问题外不增加产品能力。
 - 已推送分支不得静默改名或重新编号；若批次数量或顺序在实施前变化，先更新本表并重新计算尚未创建的分支。
 
@@ -380,12 +380,12 @@ MARSHALLER_MAX_FUTURE_SKEW=5m
 
 | 批次 | 纵向交付 | 关键输入 | 关键输出 |
 | --- | --- | --- | --- |
-| Phase-08-01 | Marshaller 与 VictoriaMetrics 最小指标闭环 | Phase 7 Topic/record、Envelope v1、真实 Redis metrics | 正式 Consumer、严格转换、VM 基本写入/查询、最小生命周期、验收与 CI |
-| Phase-08-02 | 可靠消费、故障恢复与运维闭环 | 已合入的 `1.5.1` 最小纵向闭环 | ownership/commit 状态机、Kafka/VM/进程恢复、生命周期与重放证据，`1.5.2` 可靠性基线 |
+| Phase-08-01 | Marshaller 与 VictoriaMetrics 最小指标闭环 | Phase 7 Topic/record、Envelope v1、真实 Redis metrics | 正式 Consumer、严格转换、VM 基本写入/查询、generation fencing/安全 commit、最小生命周期与 CI |
+| Phase-08-02 | 可靠消费、故障恢复与运维闭环 | 已合入的 `1.5.1` 安全纵向闭环 | 真实 rebalance、Kafka/VM/进程恢复、生命周期与重放证据，`1.5.2` 可靠性基线 |
 | Phase-08-03 | 集成验收与 Milestone 2 收口 | 已合入的 `1.5.2` 最终实现能力 | 完整矩阵、业务/访问/资源隔离证据，`1.5.3` 阶段交接 |
 
-- 08-01 必须自身可运行、可查询，不能把真实 Monitor 输入、手动 offset、永久异常继续或 VictoriaMetrics 查询推迟到后续批次。
-- 08-02 在不改变映射和存储公共契约的前提下实现可靠消费增量；其 ownership、commit、恢复和资源归属验收必须在本批通过。
+- 08-01 必须自身可运行、可查询且消费正确，不能把真实 Monitor 输入、手动 offset、永久异常继续、generation fencing、安全 commit 或 VictoriaMetrics 查询推迟到后续批次。
+- 08-02 在不改变映射和存储公共契约的前提下实现真实故障恢复和运维增量；其 rebalance、Kafka/VM/进程恢复和资源归属验收必须在本批通过。
 - 08-03 不重新设计映射或状态机，只在最终构建和干净隔离资源上验证跨组件事实；只允许修复已复现的阻断问题。
 - Phase 9 只能依赖已记录的 Marshaller 生命周期、扩展边界、metrics 消费/写入并存能力和存储故障语义，不能依赖验收 fixture 的临时 group、凭据或查询实现。
 
@@ -406,8 +406,8 @@ MARSHALLER_MAX_FUTURE_SKEW=5m
 
 ### 15.2 批次验证边界
 
-- Phase-08-01：Marshaller format/unit/vet/race，严格 Envelope/transformer，基本手动 offset，真实 Kafka+VictoriaMetrics 集成，Compose 渲染，脚本语法/自检，以及真实 Redis 到查询的最小纵向闭环。
-- Phase-08-02：ownership/rebalance/commit 确定性状态机，Kafka/VM/Marshaller 故障恢复，重复重放，日常生命周期、资源归属和直接门禁。
+- Phase-08-01：Marshaller format/unit/vet/race，严格 Envelope/transformer，手动 offset、generation ownership/commit 确定性状态机，真实 Kafka+VictoriaMetrics 集成，Compose 渲染，脚本语法/自检，以及真实 Redis 到查询的最小纵向闭环。
+- Phase-08-02：真实 rebalance、Kafka/VM/Marshaller 故障恢复，重复重放，日常生命周期、资源归属和直接门禁；未改变的 08-01 确定性结果可直接引用。
 - Phase-08-03：最终构建的完整指标矩阵、代表性永久坏消息、跨组件故障恢复、内部访问负向、社交业务回归、资源清理、版本/分支治理和远程门禁。
 
 ### 15.3 阶段级封闭端到端矩阵
@@ -460,6 +460,8 @@ scripts/verify-business.sh --self-test
 scripts/verify-business.sh
 git diff --check
 ```
+
+未改变的 Phase-08-01/02 package 与组件故障结果可按实施记录引用，不在 Phase-08-03 因收口机械重跑；若 Consumer、Writer、Compose、恢复脚本、相关依赖或执行环境变化，只重跑受影响的检查。Phase-08-03 必须实际完成阶段主矩阵、业务/访问隔离、资源快照和治理门禁。
 
 `verify-marshaller.sh` 是 Phase 8 Kafka 消费、转换、VictoriaMetrics 写入/查询、异常/重复及存储恢复的唯一主验收入口；`verify-router.sh` 保护原始 record 交接，`verify-business.sh` 证明可观测故障没有破坏身份、社交和 RabbitMQ 必要能力。不得用手工 curl 截图、VictoriaMetrics UI、直接 import 或源码阅读替代真实闭环。
 
