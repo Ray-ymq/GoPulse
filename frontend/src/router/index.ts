@@ -41,7 +41,7 @@ export function createAppRouter(history = createWebHistory()): Router {
           { path: 'logs', component: ObservabilityLogsView },
           { path: 'events', component: ObservabilityEventsView },
           { path: 'exporters', component: ObservabilityExportersView },
-          { path: ':pathMatch(.*)*', redirect: '/forbidden' },
+          { path: ':pathMatch(.*)*', redirect: '/admin/observability' },
         ],
       },
       { path: '/dev/status', component: DevStatusView, meta: { skipAuthRecovery: true } },
