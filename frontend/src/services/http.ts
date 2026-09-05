@@ -78,7 +78,7 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
       ...init,
       credentials: 'include',
       headers: {
-        ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(init.body === undefined || (typeof FormData !== 'undefined' && init.body instanceof FormData) ? {} : { 'Content-Type': 'application/json' }),
         ...init.headers,
       },
     })
