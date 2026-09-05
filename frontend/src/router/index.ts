@@ -8,6 +8,8 @@ import LoginView from '../views/LoginView.vue'
 import NewPostView from '../views/NewPostView.vue'
 import NotificationsView from '../views/NotificationsView.vue'
 import ObservabilityEventsView from '../views/ObservabilityEventsView.vue'
+import ObservabilityExportersView from '../views/ObservabilityExportersView.vue'
+import ObservabilityOverviewView from '../views/ObservabilityOverviewView.vue'
 import ObservabilityLogsView from '../views/ObservabilityLogsView.vue'
 import ObservabilityMetricsView from '../views/ObservabilityMetricsView.vue'
 import PostDetailView from '../views/PostDetailView.vue'
@@ -34,10 +36,11 @@ export function createAppRouter(history = createWebHistory()): Router {
         component: AdminLayout,
         meta: { requiresAuth: true, requiresAdmin: true },
         children: [
-          { path: '', redirect: '/admin/observability/metrics' },
+          { path: '', component: ObservabilityOverviewView },
           { path: 'metrics', component: ObservabilityMetricsView },
           { path: 'logs', component: ObservabilityLogsView },
           { path: 'events', component: ObservabilityEventsView },
+          { path: 'exporters', component: ObservabilityExportersView },
           { path: ':pathMatch(.*)*', redirect: '/forbidden' },
         ],
       },

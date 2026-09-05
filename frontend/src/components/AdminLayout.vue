@@ -5,10 +5,11 @@
       <RouterLink class="button button--secondary" to="/posts">返回社交</RouterLink>
     </header>
     <nav class="admin-nav" aria-label="可观测导航">
+      <RouterLink to="/admin/observability" exact-active-class="router-link-active">总览</RouterLink>
       <RouterLink to="/admin/observability/metrics">Metrics</RouterLink>
       <RouterLink to="/admin/observability/logs">Logs</RouterLink>
       <RouterLink to="/admin/observability/events">Events</RouterLink>
-      <span class="admin-nav__disabled" aria-disabled="true">Exporter（下一批）</span>
+      <RouterLink to="/admin/observability/exporters">Exporter</RouterLink>
     </nav>
     <main class="admin-content"><RouterView /></main>
   </div>
