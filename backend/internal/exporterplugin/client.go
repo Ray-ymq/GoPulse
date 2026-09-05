@@ -174,7 +174,7 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 		if decodeErr != nil {
 			return nil, response.StatusCode, monitorUnavailable()
 		}
-		return nil, response.StatusCode, mapMonitorError(code)
+		return nil, response.StatusCode, mapMonitorError(response.StatusCode, code)
 	}
 	if response.StatusCode != expectedStatus {
 		return nil, response.StatusCode, monitorUnavailable()
@@ -440,17 +440,17 @@ func exactKeys[T any](values map[string]T, keys ...string) bool {
 	}
 	return true
 }
-func mapMonitorError(code string) error {
-	switch code {
-	case "plugin_package_invalid":
+func mapMonitorError(status int, code string) error {
+	switch {
+	case status == http.StatusBadRequest && code == "plugin_package_invalid":
 		return apperror.New(apperror.CodePluginPackageInvalid, "plugin package is invalid")
-	case "plugin_not_found":
+	case status == http.StatusNotFound && code == "plugin_not_found":
 		return apperror.New(apperror.CodePluginNotFound, "plugin was not found")
-	case "plugin_conflict":
+	case status == http.StatusConflict && code == "plugin_conflict":
 		return apperror.New(apperror.CodePluginConflict, "plugin conflicts with the installed state")
-	case "plugin_operation_in_progress":
+	case status == http.StatusConflict && code == "plugin_operation_in_progress":
 		return apperror.New(apperror.CodePluginOperationInProgress, "plugin operation is already in progress")
-	case "plugin_operation_failed":
+	case status == http.StatusUnprocessableEntity && code == "plugin_operation_failed":
 		return apperror.New(apperror.CodePluginOperationFailed, "plugin operation failed")
 	default:
 		return monitorUnavailable()

@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
-import { bindUnauthorizedNavigation } from './composables/useAuth'
+import { bindUnauthorizedNavigation, useAuth } from './composables/useAuth'
 import { router } from './router'
 import { setForbiddenHandler } from './services/http'
 import './styles.css'
@@ -13,6 +13,8 @@ bindUnauthorizedNavigation(async () => {
 })
 
 setForbiddenHandler(async () => {
+  const auth = useAuth()
+  auth.removeAdminCapability()
   if (router.currentRoute.value.path.startsWith('/admin/')) await router.replace('/forbidden')
 })
 
