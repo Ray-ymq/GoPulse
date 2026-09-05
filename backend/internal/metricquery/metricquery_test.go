@@ -74,3 +74,18 @@ func TestClientUsesPostBasicAuthAndNoRedirect(t *testing.T) {
 		t.Fatalf("request method=%s user=%s query=%s", method, username, query)
 	}
 }
+
+func TestClientRejectsOversizedResponseHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Oversized", strings.Repeat("x", 128<<10))
+		_, _ = w.Write([]byte(`{"status":"success"}`))
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL, "reader", strings.Repeat("p", 32), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.QueryRange(context.Background(), "fixed", time.Now().Add(-time.Minute), time.Now(), time.Minute); err == nil {
+		t.Fatal("expected oversized response header rejection")
+	}
+}
