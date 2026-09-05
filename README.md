@@ -1,10 +1,10 @@
 # GoPulse
 
-GoPulse is currently at product version **1.7.3**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8 closes Milestone 2 with the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, authenticated single-node VictoriaMetrics storage/query, bounded dependency recovery, permanent-invalid continuation, deterministic replay, internal access isolation, and the full real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics matrix. Phase 9 adds strict application-log transport, Elasticsearch storage, and administrator querying. Phase 10 now includes successful and failed Redis Exporter lifecycle Events, unexpected-exit detection, deduplicated metrics collection and Redis-target failure/recovery episodes, bounded source retries, strict Elasticsearch storage, and administrator-only querying through the shared observability transport. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages.
+GoPulse is currently at product version **1.8.1**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8 closes Milestone 2 with the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, authenticated single-node VictoriaMetrics storage/query, bounded dependency recovery, permanent-invalid continuation, deterministic replay, internal access isolation, and the full real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics matrix. Phase 9 adds strict application-log transport, Elasticsearch storage, and administrator querying. Phase 10 includes successful and failed Redis Exporter lifecycle Events, unexpected-exit detection, deduplicated metrics collection and Redis-target failure/recovery episodes, bounded source retries, strict Elasticsearch storage, and administrator-only querying through the shared observability transport. Phase 11 batch 01 adds a guarded administrator workspace with fixed VictoriaMetrics range queries plus Logs and Events browsing, while ordinary users retain the social-only experience. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages.
 
 The repository currently provides:
 
-- a Vue 3 + Vue Router Frontend for registration, login, logout, post listing/pagination, publishing, detail, comments, likes, authenticated search, notifications, and authentication recovery;
+- a Vue 3 + Vue Router Frontend for registration, login, logout, post listing/pagination, publishing, detail, comments, likes, authenticated search, notifications, authentication recovery, and an administrator-only observability workspace;
 - a diagnostic connectivity page at `/dev/status`, outside the business navigation;
 - a Gin Backend with `/health`, `/ready`, and typed `/api/v1` business contracts;
 - username/password authentication with bcrypt, short-lived HS256 JWTs, HttpOnly cookies, reusable authentication middleware, and database-authoritative `user|admin` roles;
@@ -15,7 +15,7 @@ The repository currently provides:
 - transactional `post.created` Outbox delivery through an isolated RabbitMQ topology and Search Indexer;
 - single-line Schema v1 JSON lifecycle, HTTP, Outbox, Worker, Indexer, reindex, and Redis Exporter logs with bounded safe fields;
 - an independent Redis Exporter whose `/health` reports process liveness and whose `/metrics` returns a complete current Prometheus snapshot or isolated `up 0`;
-- bounded successful plugin lifecycle Events with Router/Kafka transport, idempotent strict Elasticsearch storage, and `GET /api/v1/observability/events` behind real-time administrator authorization;
+- fixed-catalog `GET /api/v1/observability/metrics` range queries backed by VictoriaMetrics, plus strict administrator-only Logs and Events querying;
 - a loopback Message Router with strict Envelope v1 boundaries, Bearer service identity, explicit `metrics` routing, acknowledged Kafka production, and original-body byte preservation;
 - a loopback Marshaller with strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, deterministic Prometheus text conversion, authenticated VictoriaMetrics writes, and isolated strict Logs and Events Elasticsearch targets;
 - WSL/Bash lifecycle scripts, read-only runtime verification, and destructive-but-isolated business/search acceptance scripts;
@@ -94,6 +94,8 @@ A failed migration or application startup stops only the Backend, Business Worke
 | Redis Exporter health | `http://localhost:9121/health` |
 | Redis Prometheus metrics | `http://localhost:9121/metrics` |
 | Authentication API | `http://localhost:8080/api/v1` |
+| Admin Metrics API | `http://localhost:8080/api/v1/observability/metrics?metric=gopulse_redis_up&range=15m` |
+| Admin Logs API | `http://localhost:8080/api/v1/observability/logs` |
 | Admin Events API | `http://localhost:8080/api/v1/observability/events` |
 | RabbitMQ management | `http://localhost:15672` |
 | Elasticsearch (loopback only) | `http://localhost:9200` |
@@ -492,3 +494,17 @@ Phase-08-01 advanced the product to `1.5.1` with the formal `gopulse-marshaller-
 Backend, Business Worker, Search Indexer, and search-reindex Schema v1 logs remain single-line JSON on stdout and, when `LOG_MONITOR_URL` is configured, are also offered to the same bounded non-blocking in-memory shipper. The shipper uses the dedicated `LOG_MONITOR_INGEST_TOKEN`; queue full affects only the remote copy, temporary transport failures retain the ordered queue head and message ID for retry, and permanent `400`/`413`/`422` input rejection drops only that remote copy. None of these outcomes changes API, RabbitMQ acknowledgement, Outbox, indexing, or reindex exit semantics. LogMonitor derives one of the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, or `logs/search-reindex` envelopes from the validated service, Router transports all four through `gopulse-observability-v1`, and Marshaller revalidates the source/payload match before idempotently storing strict documents in `gopulse-logs-v1-YYYY.MM.DD` behind `gopulse-logs-v1-read`. The formal single-partition consumer group remains `gopulse-marshaller-metrics-v1`, so a temporary Elasticsearch failure intentionally backpressures later logs and metrics until the current record succeeds. Phase-09-02 delivered all background log sources at `1.6.2`. Phase-09-03 closes Phase 9 at `1.6.3` with the final real request/event/reindex matrix, exact-filter and PIT pagination checks, credential and sensitive-data isolation, strict index/mapping separation, Elasticsearch outage recovery, Metrics coexistence, business-fault isolation, and owned resource cleanup.
 
 Administrators can query the fixed read alias through `GET /api/v1/observability/logs`. Supported filters are `from`, `to`, `service`, `module`, `level`, `message`, `request_id`, `event_id`, `error_code`, `limit`, and signed `cursor`. The default range is 15 minutes, the maximum range is 24 hours, and page size is limited to 100. Authentication and current MySQL administrator authorization run before Elasticsearch access. Use `scripts/verify-logs.sh --self-test` for safety checks and `scripts/verify-logs.sh` for the isolated real API-to-Elasticsearch acceptance.
+
+
+## Administrator observability workspace
+
+Administrators can open `/admin/observability` from the main navigation and query the fixed Redis metric catalog, application Logs, and Monitor Events. The Backend remains the authorization and query boundary: metric expressions, labels, time steps, Elasticsearch DSL, index names, PIT values, VictoriaMetrics credentials, and raw upstream responses are never accepted from or exposed to the browser. Ordinary users have no navigation entry and direct management URLs resolve to `/forbidden` before any observability API request.
+
+The real-browser entry point is:
+
+```bash
+scripts/verify-observability-ui.sh --self-test
+scripts/verify-observability-ui.sh
+```
+
+The full command creates a random, isolated Compose project with non-default loopback ports and a temporary `/tmp` run directory. It creates fresh administrator and ordinary-user accounts, promotes the administrator through `admin-role`, waits for a current real metric sample, generates a current Backend log, exercises all three real query pages, and removes only its owned processes, containers, networks, volumes, and temporary files.
