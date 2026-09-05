@@ -193,6 +193,34 @@ jobs:
       - run: npm test -- --run
       - run: npm run build
 
+  observability-browser:
+    name: Observability browser acceptance
+    if: inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: |
+            backend/go.sum
+            monitor/go.sum
+            router/go.sum
+            marshaller/go.sum
+            exporters/redis/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Frontend dependencies and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run isolated real-browser observability acceptance
+        run: scripts/verify-observability-ui.sh
+
   scripts-and-compose:
     name: Scripts and Compose
     if: inputs.run_product_checks

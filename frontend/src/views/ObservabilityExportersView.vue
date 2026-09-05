@@ -32,6 +32,7 @@ async function load(): Promise<void> {
   catch (error) { if (!controller.signal.aborted) message.value = errorMessage(error) }
   finally { loading.value = false }
 }
+function clearPackage(): void { packageFile.value = null; if (packageInput.value) packageInput.value.value = '' }
 function selectPackage(event: Event): void { packageFile.value = (event.target as HTMLInputElement).files?.[0] ?? null; message.value = validateExporterPackage(packageFile.value) }
 async function run(kind: 'install'|'update'|'start'|'stop'): Promise<void> {
   if (operation.value) return
@@ -40,13 +41,13 @@ async function run(kind: 'install'|'update'|'start'|'stop'): Promise<void> {
   operation.value = kind; message.value = ''
   try {
     const next = kind === 'install' ? await exporterApi.install(packageFile.value!) : kind === 'update' ? await exporterApi.update(packageFile.value!) : kind === 'start' ? await exporterApi.start() : await exporterApi.stop()
-    status.value = next; updatedAt.value = new Date().toLocaleString(); packageFile.value = null; if (packageInput.value) packageInput.value.value = ''
+    status.value = next; updatedAt.value = new Date().toLocaleString()
     message.value = `${kind === 'install' ? '安装' : kind === 'update' ? '更新' : kind === 'start' ? '启动' : '停止'}请求已完成；当前状态以此处 DTO 为准，Events 记录可能稍后到达。`
   } catch (error) { message.value = errorMessage(error) }
-  finally { operation.value = '' }
+  finally { if (kind === 'install' || kind === 'update') clearPackage(); operation.value = '' }
 }
 onMounted(load)
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => { controller?.abort(); clearPackage() })
 </script>
 <template>
   <section :aria-busy="busy">

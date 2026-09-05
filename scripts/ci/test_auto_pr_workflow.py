@@ -32,7 +32,8 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertIn("run_product_checks: ${{ github.ref_name != 'update' }}", caller)
         self.assertIn("run_product_checks:", gates)
         self.assertIn("default: true", gates)
-        self.assertEqual(gates.count("if: inputs.run_product_checks"), 10)
+        self.assertEqual(gates.count("if: inputs.run_product_checks"), 11)
+        self.assertIn("observability-browser:", gates)
 
     def test_integration_migration_retries_transient_mysql_startup(self):
         gates = Path(".github/workflows/quality-gates.yml").read_text(encoding="utf-8")
