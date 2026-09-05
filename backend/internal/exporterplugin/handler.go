@@ -90,7 +90,7 @@ func (h *Handler) upload(c *gin.Context, path string, successStatus int) {
 		return
 	}
 	defer part.Close()
-	item, status, err := h.client.Upload(c.Request.Context(), path, func(writer *multipart.Writer) error {
+	item, err := h.client.Upload(c.Request.Context(), path, successStatus, func(writer *multipart.Writer) error {
 		target, createErr := writer.CreateFormFile("package", "plugin.tar.gz")
 		if createErr != nil {
 			return createErr
@@ -110,10 +110,6 @@ func (h *Handler) upload(c *gin.Context, path string, successStatus int) {
 	})
 	if err != nil {
 		response.Error(c, err)
-		return
-	}
-	if status != successStatus {
-		response.Error(c, apperror.New(apperror.CodeMonitorUnavailable, "monitor service is unavailable"))
 		return
 	}
 	response.Data(c, successStatus, item)
