@@ -62,3 +62,28 @@ func TestParseAcceptsEveryApplicationLogService(t *testing.T) {
 		t.Fatal("unknown service was accepted")
 	}
 }
+
+func TestParseRestrictsSchemaVocabulary(t *testing.T) {
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	legal := url.Values{
+		"service":    {"backend"},
+		"module":     {"http"},
+		"message":    {"http request completed"},
+		"error_code": {"validation_failed"},
+	}
+	if _, err := ParseOptions(legal, now); err != nil {
+		t.Fatalf("legal vocabulary rejected: %v", err)
+	}
+	for name, values := range map[string]url.Values{
+		"unknown module":  {"module": {"unknown"}},
+		"unknown message": {"message": {"unknown message"}},
+		"unknown code":    {"error_code": {"unknown_error"}},
+		"invalid pairing": {"service": {"backend"}, "module": {"worker"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseOptions(values, now); err == nil {
+				t.Fatal("unknown vocabulary was accepted")
+			}
+		})
+	}
+}

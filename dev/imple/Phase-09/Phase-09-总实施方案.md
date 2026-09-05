@@ -1,6 +1,6 @@
 # Phase 9：LogMonitor 与日志链路总实施方案
 
-> 当前状态：Phase 9 已于 2026-09-04 完成；Phase-09-03 已通过本地与远程门禁并由 PR #85 合入 `main`。Milestone 3 仍需 Phase 10 与 Phase 11。
+> 当前状态：Phase-09-04 已于 2026-09-05 完成本地 Review 整改与固定门禁，目标版本 `1.6.4`；分支交付后仍需远程门禁与合入。Milestone 3 仍需 Phase 10 与 Phase 11。
 
 ## 1. 实施目标
 
@@ -60,6 +60,7 @@ Phase 9 使用 `1.6.x` 版本线，`1.6.0` 只作为阶段基线，不创建空�
 | Phase-09-01 | `1.6.1` | `develop/1.6.1` | 已完成并通过远程门禁（PR #81） |
 | Phase-09-02 | `1.6.2` | `develop/1.6.2` | 已完成并通过远程门禁（PR #83） |
 | Phase-09-03 | `1.6.3` | `develop/1.6.3` | 已完成并通过远程门禁（PR #85） |
+| Phase-09-04 | `1.6.4` | `develop/1.6.4` | 本地整改与固定门禁完成，待远程门禁与合入 |
 
 执行规则：
 
@@ -68,6 +69,7 @@ Phase 9 使用 `1.6.x` 版本线，`1.6.0` 只作为阶段基线，不创建空�
 - Phase-09-01 交付真实 Backend API 日志到管理员查询的可运行最小纵向闭环，不把 LogMonitor、Router logs、Marshaller logs、Elasticsearch 写入或 `401/403` 查询授权中的任一环节推迟给后续批次。
 - Phase-09-02 在已正确的纵向闭环上接入其余 Phase 4 后台进程日志，并完成有界队列、短时故障恢复、重复重放、混合 Metrics/Logs、日常生命周期和资源安全。
 - Phase-09-03 只在已合入的最终实现上执行跨批次阶段矩阵、必要业务回归、文档、版本和远程状态收口；除真实复现的阻断问题外不增加产品功能。
+- Phase-09-04 仅关闭 2026-09-04 Phase 9 实现 Review 的 P1/P2/P3 findings：日志 shipper 关闭线性化、队列满节流与退避 jitter、Elasticsearch template/alias/mapping 运行期重验证，以及管理员查询已知词汇收敛；完成后重新执行日志闭环验收并把版本提升到 `1.6.4`。
 - 已推送分支不得静默改名或重新编号。批次数量或顺序在实施前变化时，先更新本表并重新计算所有尚未创建的分支。
 
 ## 4. 阶段范围与非目标
@@ -357,16 +359,19 @@ BACKEND_LOG_QUERY_MAX_RANGE=24h
 | Phase-09-01 | Backend API 日志端到端查询闭环 | Phase 4 Backend JSON 日志、Phase 7 Router、Phase 8 Marshaller、现有 Elasticsearch/admin | 非阻塞 Push、LogMonitor、logs Envelope、Router/Marshaller logs、独立索引、admin 查询与 `1.6.1` |
 | Phase-09-02 | 后台日志、可靠投递与故障恢复闭环 | 已合入的 `1.6.1` 纵向能力 | Worker/Indexer/reindex 接入、短时恢复、幂等重放、Metrics/Logs 并存、完整运维与 `1.6.2` |
 | Phase-09-03 | 集成验收与阶段收口 | 已合入的 `1.6.2` 最终能力 | 阶段矩阵、权限/业务/资源隔离、文档与 `1.6.3` 交接 |
+| Phase-09-04 | Review 整改与阶段再验收 | 已合入的 `1.6.3` 与 2026-09-04 Review findings | 可靠关闭、退避节流、ES 运行期合同、查询词汇与 `1.6.4` |
 
 - 09-01 必须独立可运行、可写、可查且权限正确，不能只交付中间组件骨架。
 - 09-02 不重新设计公共 API、Envelope、mapping 或查询契约，只扩展剩余日志源并关闭可靠性/运维矩阵。
 - 09-03 不以“收口”为由重跑所有排列或增加全文检索、前端、告警、保留策略等范围；只修固定矩阵暴露的阻断问题。
+- 09-04 只关闭权威 Review findings，并以直接受影响测试、必要 Backend/Marshaller 回归和真实 `verify-logs.sh` 空集群替换场景完成再验收。
 
 详细方案：
 
 - [Phase-09-01：Backend 日志端到端查询闭环](Phase-09-01-Backend日志端到端查询闭环.md)
 - [Phase-09-02：后台日志、可靠投递与故障恢复闭环](Phase-09-02-后台日志可靠投递与故障恢复闭环.md)
 - [Phase-09-03：集成验收与阶段收口](Phase-09-03-集成验收与阶段收口.md)
+- [Phase-09-04：Review 整改与阶段再验收](Phase-09-04-Review整改与阶段再验收.md)
 
 ## 15. 测试策略与固定阶段矩阵
 
@@ -383,6 +388,7 @@ BACKEND_LOG_QUERY_MAX_RANGE=24h
 - Phase-09-01：四个直接模块的 unit/vet/race、日志 sink 有界性、LogMonitor 接收、Router logs 顶层路由、Marshaller handler/offset、Elasticsearch writer/query、`401/403` 前置授权、最小 lifecycle与真实 API纵向闭环。
 - Phase-09-02：后台进程接入、queue full/重试/drain、LogMonitor/Router/Kafka/ES/Marshaller故障、同 ID重放、永久异常后继续、Metrics/Logs 混合、日常生命周期和资源安全。
 - Phase-09-03：最终构建的阶段主矩阵、分页/过滤、索引隔离、敏感信息、业务/权限/内部访问、资源清理、版本/分支和远程状态；未变化的组件正确性结果直接引用。
+- Phase-09-04：只验证 shipper 关闭线性化与 queue-full/jitter、日志查询词汇、Marshaller template/index 合同重验证，以及保持 Marshaller PID 的 Elasticsearch 空集群替换恢复；未变化模块沿用已通过结果。
 
 ### 15.3 阶段级封闭端到端矩阵
 
@@ -429,7 +435,7 @@ CI 保留现有 Backend、Monitor、Router、Marshaller、Exporter、Frontend、
 (cd frontend && npm run build)
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.6.3 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.6.4 --base-ref origin/main
 bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh \
   scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh \
   scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/package-redis-exporter.sh
@@ -455,6 +461,7 @@ git diff --check
 dev/logs/Phase-09/Phase-09-01-Backend日志端到端查询闭环.md
 dev/logs/Phase-09/Phase-09-02-后台日志可靠投递与故障恢复闭环.md
 dev/logs/Phase-09/Phase-09-03-集成验收与阶段收口.md
+dev/logs/Phase-09/Phase-09-04-Review整改与阶段再验收.md
 ```
 
 每份记录必须包含：
@@ -480,11 +487,11 @@ dev/logs/Phase-09/Phase-09-03-集成验收与阶段收口.md
 - Metrics/Logs 同时运行且不互写存储；短时 LogMonitor/Router/Kafka/ES故障可恢复，已接受 Kafka记录不因重启丢失。
 - 内部组件没有浏览器入口，token/Cookie/JWT不能越界复用，ES与 API响应无敏感数据或任意内部字段。
 - 可观测故障不破坏非搜索社交 API、RabbitMQ必要流程或既有授权；日常与隔离生命周期不误杀、不误删、不泄密、不遗留资源。
-- 三批实施记录真实完整，固定本地/远程门禁通过，根与 Frontend 版本均为 `1.6.3`。
+- 四批实施记录真实完整；Phase-09-04 本地固定门禁与后续远程门禁通过，根与 Frontend 版本均为 `1.6.4`。
 
 ### 18.2 完成与停止条件
 
-只有第 18.1 节全部满足、Phase-09-03 Pull Request 已合入主远程 `main`、远程固定门禁成功且三份实施记录与真实提交一致，Phase 9 才完成。任一真实日志源、LogMonitor/Router/Kafka/Marshaller/ES 环节、admin 授权、索引隔离、重复重放、Metrics并存、业务隔离或资源安全证据缺失时，不得标记完成。
+只有第 18.1 节全部满足、Phase-09-04 Pull Request 已合入主远程 `main`、远程固定门禁成功且四份实施记录与真实提交一致，Phase 9 Review 整改后状态才重新完成。任一真实日志源、LogMonitor/Router/Kafka/Marshaller/ES 环节、admin 授权、索引隔离、重复重放、Metrics并存、业务隔离或资源安全证据缺失时，不得标记完成。
 
 达到条件后立即停止。Frontend 日志页、告警、全文分析、聚合、ILM、磁盘 spool、Topic 拆分、容量与生产安全加固记录为后续，不继续占用 Phase 9。
 
