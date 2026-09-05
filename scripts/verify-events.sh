@@ -60,6 +60,8 @@ self_test(){
   grep -q 'gopulse-events-v1-read' "$REPO_ROOT/backend/internal/eventquery/eventquery.go" || fail 'fixed Events read alias is missing.'
   grep -q 'gopulse-events-v1-template' "$REPO_ROOT/marshaller/internal/elasticsearch/events_client.go" || fail 'fixed Events template is missing.'
   grep -q 'MONITOR_EVENT_MAX_BYTES=16384' "$REPO_ROOT/.env.example" || fail 'fixed EventMonitor size is missing.'
+  grep -q 'metrics_collection_failed' "$REPO_ROOT/monitor/internal/events/contract.go" || fail 'collection failure vocabulary is missing.'
+  grep -q 'exporter_plugin_exited' "$REPO_ROOT/marshaller/internal/events/events.go" || fail 'unexpected-exit vocabulary is missing.'
   (cd "$REPO_ROOT/monitor" && go build -o "$directory/monitor" ./cmd/monitor)
   monitor=(env MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT=19090 MONITOR_API_TOKEN=01234567890123456789012345678901 LOG_MONITOR_INGEST_TOKEN=abcdefghijklmnopqrstuvwxyzABCDEF MONITOR_PLUGIN_ROOT="$directory/plugins" REDIS_HOST=127.0.0.1 REDIS_PORT=6379 REDIS_DB=0)
   if "${monitor[@]}" MONITOR_EVENT_MAX_BYTES=1 "$directory/monitor" >/dev/null 2>&1; then fail 'Monitor accepted an unsafe event size.'; fi
@@ -146,7 +148,7 @@ mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/plugins" "$TEMP_DIR/packages"
 (cd "$REPO_ROOT/monitor" && go build -o "$TEMP_DIR/bin/monitor" ./cmd/monitor)
 (cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/bin/marshaller" ./cmd/marshaller)
 "$REPO_ROOT/scripts/package-redis-exporter.sh" --version 1.7.0 --output "$TEMP_DIR/packages/redis-exporter-1.7.0.tar.gz" >/dev/null
-"$REPO_ROOT/scripts/package-redis-exporter.sh" --version 1.7.1 --output "$TEMP_DIR/packages/redis-exporter-1.7.1.tar.gz" >/dev/null
+"$REPO_ROOT/scripts/package-redis-exporter.sh" --version 1.7.2 --output "$TEMP_DIR/packages/redis-exporter-1.7.2.tar.gz" >/dev/null
 
 COMMON=(APP_ENV=test MYSQL_HOST=127.0.0.1 MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE=gopulse_events MYSQL_USER=gopulse MYSQL_PASSWORD="$MYSQL_PASSWORD" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 RABBITMQ_URL="amqp://gopulse:$MYSQL_PASSWORD@127.0.0.1:$RABBIT_PORT/" ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT" AUTH_JWT_SECRET="$JWT_SECRET" AUTH_COOKIE_NAME=gopulse_events_session AUTH_COOKIE_SECURE=false MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN")
 env "${COMMON[@]}" "$TEMP_DIR/bin/migrate" up >/dev/null
@@ -171,12 +173,13 @@ wait_url(){
 }
 
 start "$TEMP_DIR/bin/router" "$TEMP_DIR/router.log" ROUTER_HTTP_HOST=127.0.0.1 ROUTER_HTTP_PORT="$ROUTER_PORT" ROUTER_API_TOKEN="$ROUTER_TOKEN" ROUTER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT"
+ROUTER_PID=$LAST_STARTED_PID
 wait_url "http://127.0.0.1:$ROUTER_PORT/ready" "$ROUTER_TOKEN" || { cat "$TEMP_DIR/router.log"; fail 'Router not ready'; }
 start "$TEMP_DIR/bin/marshaller" "$TEMP_DIR/marshaller.log" MARSHALLER_HTTP_HOST=127.0.0.1 MARSHALLER_HTTP_PORT="$MARSHALLER_PORT" MARSHALLER_API_TOKEN="$MARSHALLER_TOKEN" MARSHALLER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT" MARSHALLER_VM_URL="http://127.0.0.1:$VM_PORT" MARSHALLER_VM_USERNAME=gopulse-marshaller MARSHALLER_VM_PASSWORD="$VM_PASSWORD" MARSHALLER_ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT"
 wait_url "http://127.0.0.1:$MARSHALLER_PORT/ready" "$MARSHALLER_TOKEN" || { cat "$TEMP_DIR/marshaller.log"; fail 'Marshaller not ready'; }
-start "$TEMP_DIR/bin/monitor" "$TEMP_DIR/monitor.log" MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" MONITOR_ROUTER_URL="http://127.0.0.1:$ROUTER_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" MONITOR_EVENT_QUEUE_CAPACITY=16 MONITOR_EVENT_RETRY_MIN=100ms MONITOR_EVENT_RETRY_MAX=100ms REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 REDIS_EXPORTER_HTTP_HOST=127.0.0.1 REDIS_EXPORTER_HTTP_PORT="$EXPORTER_PORT"
+start "$TEMP_DIR/bin/monitor" "$TEMP_DIR/monitor.log" MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" MONITOR_ROUTER_URL="http://127.0.0.1:$ROUTER_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" MONITOR_EVENT_QUEUE_CAPACITY=16 MONITOR_EVENT_RETRY_MIN=100ms MONITOR_EVENT_RETRY_MAX=100ms MONITOR_SCRAPE_INTERVAL=1s MONITOR_SCRAPE_TIMEOUT=750ms MONITOR_PUBLISH_TIMEOUT=250ms REDIS_EXPORTER_SCRAPE_TIMEOUT=100ms REDIS_EXPORTER_SHUTDOWN_TIMEOUT=3s REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 REDIS_EXPORTER_HTTP_HOST=127.0.0.1 REDIS_EXPORTER_HTTP_PORT="$EXPORTER_PORT"
 wait_url "http://127.0.0.1:$MONITOR_PORT/ready" "$MONITOR_TOKEN" || { cat "$TEMP_DIR/monitor.log"; fail 'Monitor not ready'; }
-start "$TEMP_DIR/bin/backend" "$TEMP_DIR/backend.log" "${COMMON[@]}" HTTP_HOST=127.0.0.1 HTTP_PORT="$BACKEND_PORT"
+start "$TEMP_DIR/bin/backend" "$TEMP_DIR/backend.log" "${COMMON[@]}" HTTP_HOST=127.0.0.1 HTTP_PORT="$BACKEND_PORT" LOG_MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN"
 wait_url "http://127.0.0.1:$BACKEND_PORT/health" || { cat "$TEMP_DIR/backend.log"; fail 'Backend not healthy'; }
 
 ADMIN_COOKIE="$TEMP_DIR/admin.cookie"
@@ -191,7 +194,55 @@ api(){ local expected=$1; shift; local code; code=$(curl -sS -b "$ADMIN_COOKIE" 
 api 201 -F "package=@$TEMP_DIR/packages/redis-exporter-1.7.0.tar.gz" "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/install"
 api 200 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/stop"
 api 200 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/start"
-api 200 -F "package=@$TEMP_DIR/packages/redis-exporter-1.7.1.tar.gz" "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/update"
+api 200 -F "package=@$TEMP_DIR/packages/redis-exporter-1.7.2.tar.gz" "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/update"
+
+info 'Injecting a bounded Router outage for collection failure and recovery.'
+sleep 2
+stop_process "$ROUTER_PID" "$TEMP_DIR/bin/router"
+sleep 3
+start "$TEMP_DIR/bin/router" "$TEMP_DIR/router-recovered.log" ROUTER_HTTP_HOST=127.0.0.1 ROUTER_HTTP_PORT="$ROUTER_PORT" ROUTER_API_TOKEN="$ROUTER_TOKEN" ROUTER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT"
+ROUTER_PID=$LAST_STARTED_PID
+wait_url "http://127.0.0.1:$ROUTER_PORT/ready" "$ROUTER_TOKEN" || { cat "$TEMP_DIR/router-recovered.log"; fail 'Router did not recover'; }
+sleep 3
+
+info 'Injecting Redis target unavailable and recovery episodes.'
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" stop redis >/dev/null
+sleep 3
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" up -d --wait redis >/dev/null
+sleep 3
+
+info 'Injecting a terminal start failure and restoring the plugin.'
+api 200 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/stop"
+EXPORTER_BINARY="$TEMP_DIR/plugins/redis-exporter/releases/1.7.2/bin/gopulse-redis-exporter"
+chmod 0644 "$EXPORTER_BINARY"
+api 422 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/start"
+chmod 0755 "$EXPORTER_BINARY"
+api 200 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/start"
+sleep 2
+
+info 'Injecting an unexpected exporter exit after ownership confirmation.'
+EXPORTER_PID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$TEMP_DIR/plugins/redis-exporter/runtime/process.json")
+kill -KILL "$EXPORTER_PID"
+sleep 2
+
+info 'Injecting one permanently invalid Kafka record before a legal recovery event.'
+printf '%s\n' '0123456789abcdef0123456789abcdef:{"schema_version":1}' | docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server 127.0.0.1:19092 --topic gopulse-observability-v1 --property parse.key=true --property key.separator=: >/dev/null
+api 200 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/start"
+sleep 3
+grep -q 'record permanently rejected' "$TEMP_DIR/marshaller.log" || fail 'Marshaller did not record the permanent invalid record.'
+
+info 'Proving Elasticsearch outage holds the formal group offset until recovery.'
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" stop elasticsearch >/dev/null
+api 200 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/stop"
+sleep 2
+OFFSET_DURING_1=$(docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:19092 --group gopulse-marshaller-metrics-v1 --describe 2>/dev/null | awk '$1=="gopulse-marshaller-metrics-v1" && $2=="gopulse-observability-v1" {print $4; exit}')
+sleep 2
+OFFSET_DURING_2=$(docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:19092 --group gopulse-marshaller-metrics-v1 --describe 2>/dev/null | awk '$1=="gopulse-marshaller-metrics-v1" && $2=="gopulse-observability-v1" {print $4; exit}')
+[[ -n $OFFSET_DURING_1 && $OFFSET_DURING_1 == "$OFFSET_DURING_2" ]] || fail 'Marshaller advanced the group offset while Elasticsearch was unavailable.'
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" up -d --wait elasticsearch >/dev/null
+sleep 5
+OFFSET_AFTER=$(docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:19092 --group gopulse-marshaller-metrics-v1 --describe 2>/dev/null | awk '$1=="gopulse-marshaller-metrics-v1" && $2=="gopulse-observability-v1" {print $4; exit}')
+[[ $OFFSET_AFTER =~ ^[0-9]+$ && $OFFSET_DURING_2 =~ ^[0-9]+$ && $OFFSET_AFTER -gt $OFFSET_DURING_2 ]] || fail 'Marshaller did not advance the held offset after Elasticsearch recovery.'
 
 FOUND=0
 for _ in {1..160}; do
@@ -200,11 +251,15 @@ for _ in {1..160}; do
 import json,sys
 rows=json.load(open(sys.argv[1])).get('data',[])
 names=[row.get('event_name') for row in rows]
-required={'exporter_plugin_installed','exporter_plugin_stopped','exporter_plugin_started','exporter_plugin_updated'}
+required={'exporter_plugin_installed','exporter_plugin_stopped','exporter_plugin_started','exporter_plugin_updated','exporter_plugin_failed','exporter_plugin_exited','metrics_collection_failed','metrics_collection_recovered','metrics_target_unavailable','metrics_target_recovered'}
 assert required <= set(names)
 assert all(set(row)=={'timestamp','event_name','source','severity','message','metadata'} for row in rows)
-assert all(row['source']=='monitor' and row['severity']=='info' and row['metadata']['plugin_id']=='redis-exporter' for row in rows)
-assert names.count('exporter_plugin_installed')==1 and names.count('exporter_plugin_stopped')==1 and names.count('exporter_plugin_started')==1 and names.count('exporter_plugin_updated')==1
+assert all(row['source']=='monitor' and row['metadata']['plugin_id']=='redis-exporter' for row in rows)
+assert 1 <= names.count('metrics_collection_failed') <= 2 and names.count('metrics_collection_failed')==names.count('metrics_collection_recovered')
+assert names.count('metrics_target_unavailable')==1 and names.count('metrics_target_recovered')==1
+assert names.count('exporter_plugin_failed')==1 and names.count('exporter_plugin_exited')==1
+assert next(row for row in rows if row['event_name']=='exporter_plugin_failed')['metadata']['error_code']=='start_failed'
+assert next(row for row in rows if row['event_name']=='exporter_plugin_exited')['metadata']['error_code']=='process_exited'
 PY
   sleep .25
 done
@@ -212,7 +267,7 @@ done
 
 curl -fsS "http://127.0.0.1:$ES_PORT/_index_template/gopulse-events-v1-template" >"$TEMP_DIR/template.json"
 curl -fsS "http://127.0.0.1:$ES_PORT/_alias/gopulse-events-v1-read" >"$TEMP_DIR/alias.json"
-curl -fsS "http://127.0.0.1:$ES_PORT/gopulse-events-v1-read/_search?size=100" >"$TEMP_DIR/documents.json"
+curl -fsS "http://127.0.0.1:$ES_PORT/gopulse-events-v1-read/_search?size=100&track_total_hits=true" >"$TEMP_DIR/documents.json"
 PHYSICAL_INDEX=$(python3 - "$TEMP_DIR/template.json" "$TEMP_DIR/alias.json" "$TEMP_DIR/documents.json" <<'PY'
 import json,re,sys
 template,aliases,documents=(json.load(open(path)) for path in sys.argv[1:])
@@ -224,11 +279,22 @@ assert 'gopulse-events-v1-read' in entry['template']['aliases']
 assert aliases and all(re.fullmatch(r'gopulse-events-v1-\d{4}\.\d{2}\.\d{2}',index) for index in aliases)
 allowed={'@timestamp','event_schema_version','event_name','source','severity','message','metadata'}
 hits=documents.get('hits',{}).get('hits',[])
-assert len(hits)==4 and all(set(hit['_source'])==allowed for hit in hits)
+assert len(hits)>=10 and all(set(hit['_source'])==allowed for hit in hits)
 print(next(iter(aliases)))
 PY
 )
+EVENT_COUNT_BEFORE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["hits"]["total"]["value"])' "$TEMP_DIR/documents.json")
+REPLAY=$(timeout 10s docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server 127.0.0.1:19092 --topic gopulse-observability-v1 --from-beginning --property print.key=true --property key.separator=: 2>/dev/null | grep -m1 '"type":"events"' || true)
+[[ $REPLAY =~ ^[0-9a-f]{32}: ]] || fail 'Could not capture a legal Events record for deterministic replay.'
+printf '%s\n' "$REPLAY" | docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server 127.0.0.1:19092 --topic gopulse-observability-v1 --property parse.key=true --property key.separator=: >/dev/null
+sleep 3
+EVENT_COUNT_AFTER=$(curl -fsS "http://127.0.0.1:$ES_PORT/gopulse-events-v1-read/_count" | python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')
+[[ $EVENT_COUNT_AFTER == "$EVENT_COUNT_BEFORE" ]] || fail 'Same-ID Events replay changed the alias document count.'
+LOG_COUNT=$(curl -fsS "http://127.0.0.1:$ES_PORT/gopulse-logs-v1-read/_count" | python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')
+[[ $LOG_COUNT -gt 0 ]] || fail 'Backend request logs were not stored alongside Events traffic.'
+curl -fsS -u "gopulse-marshaller:$VM_PASSWORD" --get --data-urlencode 'query=gopulse_redis_up' "http://127.0.0.1:$VM_PORT/api/v1/query" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("status")=="success" and data.get("data",{}).get("result")' || fail 'Redis metrics were not queryable alongside Logs and Events.'
+
 STRICT_STATUS=$(curl -sS -o "$TEMP_DIR/strict.json" -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data-binary '{"unknown_field":true}' "http://127.0.0.1:$ES_PORT/$PHYSICAL_INDEX/_doc/strict-probe")
 [[ $STRICT_STATUS == 400 ]] || fail 'Strict Events mapping accepted an unknown field.'
 if grep -Fq -- "$SENTINEL" "$TEMP_DIR"/*.log "$TEMP_DIR/events.json" "$TEMP_DIR/documents.json"; then fail 'Sensitive sentinel leaked into Events artifacts.'; fi
-info "Lifecycle Events query closed end to end through index $PHYSICAL_INDEX."
+info "Failure, recovery, replay, offset, and mixed Events query closed end to end through index $PHYSICAL_INDEX."
