@@ -9,6 +9,7 @@ const userUsername = process.env.GOPULSE_OBSERVABILITY_USER_USERNAME
 const password = process.env.GOPULSE_OBSERVABILITY_PASSWORD
 const installPackage = process.env.GOPULSE_OBSERVABILITY_INSTALL_PACKAGE
 const updatePackage = process.env.GOPULSE_OBSERVABILITY_UPDATE_PACKAGE
+const updateVersion = process.env.GOPULSE_OBSERVABILITY_UPDATE_VERSION
 const logRequestID = process.env.GOPULSE_OBSERVABILITY_LOG_REQUEST_ID
 const baseURL = process.env.GOPULSE_BASE_URL
 const backendURL = process.env.GOPULSE_OBSERVABILITY_BACKEND_URL
@@ -137,7 +138,7 @@ test('direct management login returns admin to the target and rejects an ordinar
 
 test('administrator completes the real exporter management loop with install, query, operation, and update', async ({ page }) => {
   test.setTimeout(180_000)
-  test.skip(!adminUsername || !password || !installPackage || !updatePackage, 'observability admin credentials and packages are required')
+  test.skip(!adminUsername || !password || !installPackage || !updatePackage || !updateVersion, 'observability admin credentials, packages, and update version are required')
   const unexpected=trackUnexpectedBrowserOrigins(page)
   await login(page,adminUsername!)
   await createSocialPost(page,'normal')
@@ -168,7 +169,7 @@ test('administrator completes the real exporter management loop with install, qu
   await fileInput.setInputFiles(updatePackage!)
   page.once('dialog',(dialog)=>dialog.accept())
   await page.getByRole('button',{name:'确认更新'}).click()
-  await expect(page.getByText(/v1\.8\.3/)).toBeVisible({timeout:30_000})
+  await expect(page.getByText(`v${updateVersion}`, { exact:false })).toBeVisible({timeout:30_000})
   await expect(page.locator('.state-pill')).toHaveText('running')
   await expect(fileInput).toHaveValue('')
 
@@ -176,7 +177,7 @@ test('administrator completes the real exporter management loop with install, qu
   page.once('dialog',(dialog)=>dialog.accept())
   await page.getByRole('button',{name:'确认更新'}).click()
   await expect(page.getByText('当前状态不允许执行该操作。')).toBeVisible()
-  await expect(page.getByText(/v1\.8\.3/)).toBeVisible()
+  await expect(page.getByText(`v${updateVersion}`, { exact:false })).toBeVisible()
   await expect(fileInput).toHaveValue('')
 
   await page.getByRole('link',{name:'Metrics',exact:true}).click()
@@ -330,6 +331,6 @@ test('database role demotion clears the management view while preserving the soc
   await expect(page).toHaveURL(/\/forbidden$/)
   await expect(page.getByRole('heading',{name:'无权访问管理区域'})).toBeVisible()
   await expect(page.getByText('redis-exporter',{exact:false})).toHaveCount(0)
-  await page.goto('/posts'); await expect(page).toHaveURL(/\/posts$/); await expect(page.getByText(`@${demotionUsername}`)).toBeVisible()
+  await page.goto('/posts'); await expect(page).toHaveURL(/\/posts$/); await expect(page.getByText(`@${demotionUsername}`)).toBeVisible(); await expect(page.getByRole('link',{name:'可观测'})).toHaveCount(0)
   expect(await page.evaluate(()=>({local:Object.keys(localStorage),session:Object.keys(sessionStorage)}))).toEqual({local:[],session:[]})
 })

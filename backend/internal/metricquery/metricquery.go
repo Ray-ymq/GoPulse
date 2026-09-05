@@ -178,7 +178,7 @@ func NewClient(baseURL, username, password string, timeout time.Duration) (*Clie
 	return &Client{
 		endpoint: strings.TrimRight(baseURL, "/") + "/prometheus/api/v1/query_range",
 		username: username, password: password,
-		client: &http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		client: &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
 
