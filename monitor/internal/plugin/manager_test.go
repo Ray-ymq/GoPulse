@@ -459,3 +459,44 @@ func TestStaleWatcherCannotAffectReplacementRuntime(t *testing.T) {
 		t.Fatalf("replacement runtime or state changed: runtime=%p status=%+v", manager.runtimes[PluginID], manager.states[PluginID])
 	}
 }
+
+func TestBootstrapInstallsPreservesDesiredStateUpgradesAndRejectsDowngrade(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","service":"redis-exporter"}`))
+	}))
+	defer health.Close()
+	manager, err := NewManager(context.Background(), managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.ReadFile("/usr/bin/yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionOne := writeExecutablePackage(t, "1.9.1", executable)
+	installed, err := manager.Bootstrap(context.Background(), versionOne)
+	if err != nil || installed.Version != "1.9.1" || installed.DesiredState != DesiredRunning {
+		t.Fatalf("initial bootstrap status=%+v error=%v", installed, err)
+	}
+	stopped, err := manager.Stop(context.Background(), PluginID)
+	if err != nil || stopped.DesiredState != DesiredStopped {
+		t.Fatalf("stop status=%+v error=%v", stopped, err)
+	}
+	same, err := manager.Bootstrap(context.Background(), versionOne)
+	if err != nil || same.DesiredState != DesiredStopped || same.ObservedState != ObservedStopped {
+		t.Fatalf("same-version bootstrap status=%+v error=%v", same, err)
+	}
+	versionTwo := writeExecutablePackage(t, "1.9.2", executable)
+	upgraded, err := manager.Bootstrap(context.Background(), versionTwo)
+	if err != nil || upgraded.Version != "1.9.2" || upgraded.DesiredState != DesiredStopped {
+		t.Fatalf("upgrade bootstrap status=%+v error=%v", upgraded, err)
+	}
+	if _, err = manager.Bootstrap(context.Background(), versionOne); err == nil {
+		t.Fatal("older bootstrap package was accepted")
+	}
+	current, err := manager.Get(PluginID)
+	if err != nil || current.Version != "1.9.2" || current.DesiredState != DesiredStopped {
+		t.Fatalf("downgrade changed persisted state: status=%+v error=%v", current, err)
+	}
+}

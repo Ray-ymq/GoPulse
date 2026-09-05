@@ -77,13 +77,23 @@ type wireSafeError struct {
 }
 
 var safeErrorMessages = map[string]map[string]bool{
-	"start_failed":     {"plugin failed to start": true},
-	"stop_failed":      {"plugin failed to stop": true, "plugin process ownership could not be verified": true},
-	"update_failed":    {"plugin update failed and was rolled back": true},
-	"rollback_failed":  {"plugin update rollback requires repair": true, "plugin update rollback could not restart the previous version": true},
-	"recovery_invalid": {"plugin installation requires repair": true},
-	"recovery_failed":  {"plugin failed to recover": true},
-	"process_exited":   {"plugin process exited unexpectedly": true},
+	"start_failed":       {"plugin failed to start": true},
+	"stop_failed":        {"plugin failed to stop": true, "plugin process ownership could not be verified": true},
+	"update_failed":      {"plugin update failed and was rolled back": true},
+	"rollback_failed":    {"plugin update rollback requires repair": true, "plugin update rollback could not restart the previous version": true},
+	"recovery_invalid":   {"plugin installation requires repair": true},
+	"recovery_failed":    {"plugin failed to recover": true},
+	"process_exited":     {"plugin process exited unexpectedly": true},
+	"scrape_timeout":     {"metrics scrape timed out": true},
+	"network_failed":     {"metrics target is unavailable": true},
+	"response_too_large": {"metrics response exceeded the size limit": true},
+	"parse_failed":       {"metrics response was rejected": true},
+	"contract_invalid":   {"metrics response was rejected": true},
+	"content_invalid":    {"metrics response was rejected": true},
+	"http_invalid":       {"metrics response was rejected": true},
+	"scrape_failed":      {"metrics scrape failed": true},
+	"message_id_failed":  {"metrics message could not be created": true},
+	"publish_failed":     {"metrics message could not be published": true},
 }
 
 func NewClient(baseURL, token string, timeout time.Duration) (*Client, error) {

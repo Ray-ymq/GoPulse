@@ -49,12 +49,27 @@ func TestClientAcceptsStrictStatusAndList(t *testing.T) {
 }
 
 func TestClientAcceptsKnownSafeError(t *testing.T) {
-	body := strings.TrimSuffix(validStatusJSON, "}") + `,"observed_state":"failed","last_error":{"code":"process_exited","message":"plugin process exited unexpectedly","at":"2026-09-05T08:02:00Z"}}`
-	body = strings.Replace(body, `"observed_state":"running",`, "", 1)
-	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintf(w, `{"data":%s}`, body) })
-	item, err := client.Get(context.Background(), "redis-exporter")
-	if err != nil || item.LastError == nil || item.LastError.Code != "process_exited" {
-		t.Fatalf("unexpected safe error: %#v %v", item, err)
+	tests := []struct {
+		name    string
+		code    string
+		message string
+		failed  bool
+	}{
+		{name: "plugin failure", code: "process_exited", message: "plugin process exited unexpectedly", failed: true},
+		{name: "metrics publishing failure", code: "publish_failed", message: "metrics message could not be published"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := strings.TrimSuffix(validStatusJSON, "}") + `,"last_error":{"code":"` + test.code + `","message":"` + test.message + `","at":"2026-09-05T08:02:00Z"}}`
+			if test.failed {
+				body = strings.Replace(body, `"observed_state":"running"`, `"observed_state":"failed"`, 1)
+			}
+			client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintf(w, `{"data":%s}`, body) })
+			item, err := client.Get(context.Background(), "redis-exporter")
+			if err != nil || item.LastError == nil || item.LastError.Code != test.code {
+				t.Fatalf("unexpected safe error: %#v %v", item, err)
+			}
+		})
 	}
 }
 

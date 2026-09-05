@@ -30,3 +30,14 @@ scripts
 使用指南.md
 AGENTS.md
 README.md
+!router/
+!router/**
+!marshaller/
+!marshaller/**
+!monitor/
+!monitor/**
+!exporters/
+!exporters/redis/
+!exporters/redis/**
+!scripts/
+!scripts/package-redis-exporter.sh
