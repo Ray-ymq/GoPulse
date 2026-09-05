@@ -116,6 +116,24 @@ jobs:
       - name: Run isolated end-to-end log acceptance
         run: scripts/verify-logs.sh
 
+  events:
+    name: Plugin lifecycle Events pipeline
+    if: inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: |
+            backend/go.sum
+            monitor/go.sum
+            router/go.sum
+            marshaller/go.sum
+            exporters/redis/go.sum
+      - name: Run isolated end-to-end Events acceptance
+        run: scripts/verify-events.sh
+
   monitor:
     name: Monitor
     if: inputs.run_product_checks
@@ -198,6 +216,7 @@ jobs:
           bash scripts/verify-router.sh --self-test
           bash scripts/verify-marshaller.sh --self-test
           bash scripts/verify-logs.sh --self-test
+          bash scripts/verify-events.sh --self-test
       - name: Validate Compose configuration and loopback publishing
         shell: bash
         run: |
