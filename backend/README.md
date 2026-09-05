@@ -2,6 +2,12 @@
 
 The Backend exposes authenticated social APIs and administrator-only operational APIs under `/api/v1`.
 
+## Exporter management boundary
+
+All `GET`/`POST /exporter-plugins...` routes execute authentication and database-authoritative administrator authorization before contacting Monitor. Successful Monitor bodies are limited to 1 MiB and recursively reject duplicate keys, unknown fields, trailing content, invalid types, non-UTC timestamps, unstable versions, unknown states, unsafe error text, and impossible state/time combinations. The Backend constructs the public `ExporterStatus` and `SafeError` DTOs only after validation; redirect, timeout, network, oversized, malformed, or unexpected-success responses map to `503 monitor_unavailable`. Known Plugin Manager business errors retain their stable public status and code.
+
+Install and update accept exactly one streaming multipart field named `package`, enforce the Backend 64 MiB limit, and forward a newly generated multipart boundary. Browsers never receive the Monitor token, internal URL, process identity, paths, commands, environment, or raw response.
+
 ## Observability queries
 
 All three endpoints execute `RequireAuthentication` followed by the database-authoritative `RequireAdmin` middleware:

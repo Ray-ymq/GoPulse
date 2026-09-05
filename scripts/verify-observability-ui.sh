@@ -6,6 +6,8 @@ self_test(){
   grep -q 'requiresAdmin' "$REPO_ROOT/frontend/src/router/index.ts" || fail 'admin route guard is missing.'
   grep -q 'gopulse_redis_up' "$REPO_ROOT/backend/internal/metricquery/metricquery.go" || fail 'fixed metric catalog is missing.'
   grep -q 'ordinary user is isolated' "$REPO_ROOT/frontend/e2e/observability.spec.ts" || fail 'ordinary-user browser acceptance is missing.'
+  grep -q 'real exporter management loop' "$REPO_ROOT/frontend/e2e/observability.spec.ts" || fail 'real Exporter browser operations are missing.'
+  grep -q 'GOPULSE_OBSERVABILITY_UPDATE_PACKAGE' "$REPO_ROOT/scripts/verify-observability-ui.sh" || fail 'browser update package wiring is missing.'
   bash -n "$REPO_ROOT/scripts/verify-observability-ui.sh"
   printf '[verify-observability-ui] Self-test passed.\n'
 }
@@ -58,7 +60,7 @@ values={
  'LOG_MONITOR_INGEST_TOKEN':'ingest-'+token+'-0123456789abcdef012345','ROUTER_API_TOKEN':'router-'+token+'-0123456789abcdef012345',
  'MONITOR_ROUTER_TOKEN':'router-'+token+'-0123456789abcdef012345','MARSHALLER_API_TOKEN':'marshaller-'+token+'-0123456789abcdef',
  'VICTORIAMETRICS_PASSWORD':'vm-'+token+'-0123456789abcdef','MARSHALLER_VM_PASSWORD':'vm-'+token+'-0123456789abcdef',
- 'BACKEND_VICTORIAMETRICS_PASSWORD':'vm-'+token+'-0123456789abcdef',
+ 'BACKEND_VICTORIAMETRICS_PASSWORD':'vm-'+token+'-0123456789abcdef','MONITOR_REQUEST_TIMEOUT':'3s',
 }
 seen=set(); output=[]
 for raw in open(source,encoding='utf-8'):
@@ -71,6 +73,8 @@ for key,value in values.items():
  if key not in seen: output.append(f'{key}={value}')
 open(target,'w',encoding='utf-8').write('\n'.join(output)+'\n')
 PYENV
+UPDATE_PACKAGE="$TMP/redis-exporter-1.8.3.tar.gz"
+"$REPO_ROOT/scripts/package-redis-exporter.sh" --version 1.8.3 --output "$UPDATE_PACKAGE" >/dev/null
 setsid env GOPULSE_PROJECT_NAME="$PROJECT" GOPULSE_ENV_FILE="$ENV_FILE" GOPULSE_RUN_DIR="$RUN_DIR" "$REPO_ROOT/scripts/dev.sh" >"$TMP/dev.log" 2>&1 & DEV_PID=$!
 for _ in {1..180}; do
   if curl -fsS --max-time 1 "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1 && curl -fsS --max-time 1 "http://127.0.0.1:$FRONTEND_PORT/" >/dev/null 2>&1; then break; fi
@@ -94,5 +98,5 @@ curl -fsS -b "$TMP/admin.cookie" "http://127.0.0.1:$BACKEND_PORT/api/v1/observab
 # Generate a unique current Backend log through the real HTTP/log ship path.
 curl -sS -o /dev/null -H "X-Request-ID: ${TOKEN}${TOKEN}00000000" "http://127.0.0.1:$BACKEND_PORT/api/v1/does-not-exist" || true
 sleep 2
-(cd "$REPO_ROOT/frontend" && GOPULSE_BASE_URL="http://127.0.0.1:$FRONTEND_PORT" GOPULSE_OBSERVABILITY_ADMIN_USERNAME="$ADMIN" GOPULSE_OBSERVABILITY_USER_USERNAME="$USER" GOPULSE_OBSERVABILITY_PASSWORD="$PASSWORD" npm run test:e2e -- observability.spec.ts)
+(cd "$REPO_ROOT/frontend" && GOPULSE_BASE_URL="http://127.0.0.1:$FRONTEND_PORT" GOPULSE_OBSERVABILITY_ADMIN_USERNAME="$ADMIN" GOPULSE_OBSERVABILITY_USER_USERNAME="$USER" GOPULSE_OBSERVABILITY_PASSWORD="$PASSWORD" GOPULSE_OBSERVABILITY_UPDATE_PACKAGE="$UPDATE_PACKAGE" GOPULSE_OBSERVABILITY_PROJECT="$PROJECT" GOPULSE_OBSERVABILITY_ENV_FILE="$ENV_FILE" GOPULSE_OBSERVABILITY_COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml" GOPULSE_OBSERVABILITY_RUN_DIR="$RUN_DIR" npm run test:e2e -- observability.spec.ts)
 printf '[verify-observability-ui] Isolated real-browser observability acceptance passed.\n'
