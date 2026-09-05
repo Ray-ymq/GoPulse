@@ -1,5 +1,7 @@
 # GoPulse Phase 9 实现 Review 报告
 
+> 整改更新（2026-09-05）：Phase-09-04 已在 `develop/1.6.4` 完成全部 P1/P2/P3 findings 的本地整改与固定门禁；原文保留 2026-09-04 Review 当时的 Fail 结论，当前整改证据见第 9 节。
+
 ## 1. Review 信息
 
 | 项目 | 内容 |
@@ -332,3 +334,19 @@ Phase 9 Review 只有在以下条件同时满足后才可改为通过：
 Phase 9 的正常端到端日志能力、管理员查询、安全字段边界和既定故障验收已经具备较完整的实现基础，但可靠关闭仍存在可复现的确认后丢失，运行期 Elasticsearch template 状态也可能与进程缓存脱节并造成不可查询日志被提交。加上故障日志节流、退避 jitter 和 `1.6.4` 分支治理缺口，当前提交不能作为 Phase 9 的最终 Review 通过状态。
 
 **Review 结论：Fail。建议进入 Phase-09-04 / `develop/1.6.4` 整改，不应在 P1/P2 关闭前继续 Phase 10 实现。**
+
+## 9. 2026-09-05 整改结果
+
+Phase-09-04 / `develop/1.6.4` 已关闭本报告全部 findings：
+
+| Finding | 整改结果 |
+| --- | --- |
+| P1-01 | `Enqueue` 与 `Close` 通过同一互斥边界线性化；确定性交错测试证明关闭前返回成功的记录由 drain 接管，关闭后 enqueue 被拒绝。 |
+| P2-01 | Marshaller 不再永久缓存 template ready；每次写入前重新确保固定 template，写入后验证实际索引的 strict mapping 与 read alias，失败时不返回 writer 成功。真实验收在 Marshaller PID 不变时把 Elasticsearch 替换为空集群并成功自动恢复。 |
+| P2-02 | queue-full 状态改为首次/恢复转换日志，持续失败不逐条放大；指数退避加入受配置上下界约束、可注入熵源的 jitter。 |
+| P2-03 | Phase 9 总实施方案增加 Phase-09-04 → `1.6.4` → `develop/1.6.4` 唯一权威分配，最终 branch governance 通过。 |
+| P3-01 | 管理员查询把 service/module/message 限制为 Schema v1 已知组合，并把 `error_code` 限制为稳定 application error code；合法与未知词汇测试通过。 |
+
+最终本地门禁实际通过：直接受影响 unit/race、Backend 与 Marshaller 全量 unit/vet、`verify-logs.sh --self-test`、真实 `verify-logs.sh`、版本校验、`develop/1.6.4` 分支治理和 `git diff --check`。根与 Frontend 版本已更新为 `1.6.4`。详细记录见 `dev/logs/Phase-09/Phase-09-04-Review整改与阶段再验收.md`。
+
+**整改状态：本地通过；待推送后的远程门禁与合入。**
