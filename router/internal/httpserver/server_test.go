@@ -240,3 +240,13 @@ func TestProducerFailureAndHTTPShutdownAreBounded(t *testing.T) {
 		t.Fatal("Serve did not stop")
 	}
 }
+
+func TestPublishRoutesMonitorEventsWithoutChangingBytes(t *testing.T) {
+	body := `{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"events","source":"monitor","timestamp":"2026-09-05T08:00:00Z","payload":{"event_schema_version":1}}`
+	producer := &fakeProducer{}
+	server := testServer(producer, time.Second, 1<<20)
+	response := request(t, server.Handler(), http.MethodPost, "/internal/v1/messages", body, testToken, map[string][]string{"Idempotency-Key": {"0123456789abcdef0123456789abcdef"}})
+	if response.Code != http.StatusAccepted || producer.topic != config.Topic || producer.key != "0123456789abcdef0123456789abcdef" || string(producer.value) != body {
+		t.Fatalf("status=%d topic=%q key=%q value=%q", response.Code, producer.topic, producer.key, producer.value)
+	}
+}
