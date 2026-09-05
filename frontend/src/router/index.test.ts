@@ -22,6 +22,7 @@ describe('business router guards', () => {
     const router = createAppRouter(createMemoryHistory())
     await router.push('/posts')
     expect(router.currentRoute.value.path).toBe('/login')
+    expect(router.currentRoute.value.query.redirect).toBe('/posts')
   })
 
   it('allows a recovered user into protected pages without a login flash', async () => {
