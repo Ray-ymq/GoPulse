@@ -261,7 +261,7 @@ jobs:
           grep -q 'image: gopulse/business-worker:1.9.1' <<<"$rendered"
           grep -q 'image: gopulse/search-indexer:1.9.1' <<<"$rendered"
           grep -q 'condition: service_completed_successfully' <<<"$rendered"
-          [[ $(grep -c 'internal: true' <<<"$rendered") -eq 2 ]]
+          [[ $(grep -c 'internal: true' <<<"$rendered") -eq 1 ]]
 
   compose-business:
     name: Container-only business acceptance

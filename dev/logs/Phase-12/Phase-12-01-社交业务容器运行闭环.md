@@ -92,6 +92,7 @@ git diff --check
 2. 首次容器主验收发现 Playwright 工作目录不可写，同时发现 Compose 的 authoritative `project.working_dir` 是 `deploy/` 且命令替换内拒绝逻辑必须显式 `return`；修正 acceptance image 权限和强归属函数后关闭。
 3. 第二次主验收的 smoke 错把登录页 heading 断言为按钮文案“登录”；改为真实 heading“欢迎回来”后，最终完整矩阵通过。
 4. 最终 Python 门禁首次运行发现新增 CI job 后 job-count 测试仍为旧值；只更新治理测试预期，随后 26 个测试全部通过。Backend 与 Frontend 已成功的门禁未因该纯测试变更重复运行。
+5. 首次远程运行 `33982738914` 的 `Scripts and Compose` job 发现静态断言按两个 internal network 计数，但默认 profile 的 Compose 渲染会省略尚未启用服务引用的 `observability` network；将默认拓扑断言收敛为实际存在的一个 internal `business` network，未改变运行配置。
 
 ## 5. 计划偏差、限制与后续
 
