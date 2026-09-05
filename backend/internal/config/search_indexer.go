@@ -24,6 +24,14 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if lookup == nil {
 		return SearchIndexerConfig{}, errors.New("configuration lookup is required")
 	}
+	runtimeMode, err := loadRuntimeMode(lookup)
+	if err != nil {
+		return SearchIndexerConfig{}, err
+	}
+	mysqlHost := valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost)
+	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", mysqlHost); err != nil {
+		return SearchIndexerConfig{}, err
+	}
 	mysqlPort, err := integerValue(lookup, "MYSQL_PORT", defaultMySQLPort)
 	if err != nil {
 		return SearchIndexerConfig{}, err
@@ -47,10 +55,10 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if err != nil {
 		return SearchIndexerConfig{}, err
 	}
-	if err := validateRabbitMQURL(rabbitMQURL); err != nil {
+	if err := validateRabbitMQURL(rabbitMQURL, runtimeMode); err != nil {
 		return SearchIndexerConfig{}, err
 	}
-	elasticsearch, err := loadSearchIndexerElasticsearch(lookup)
+	elasticsearch, err := loadSearchIndexerElasticsearch(lookup, runtimeMode)
 	if err != nil {
 		return SearchIndexerConfig{}, err
 	}
@@ -85,12 +93,12 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return SearchIndexerConfig{}, errors.New("SEARCH_INDEXER_RECONNECT_MAX must be greater than or equal to SEARCH_INDEXER_RECONNECT_MIN")
 	}
-	logShip, err := loadLogShipConfig(lookup)
+	logShip, err := loadLogShipConfig(lookup, runtimeMode)
 	if err != nil {
 		return SearchIndexerConfig{}, err
 	}
 	return SearchIndexerConfig{
-		MySQL:         MySQLConfig{Host: valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost), Port: mysqlPort, Database: database, User: user, Password: password},
+		MySQL:         MySQLConfig{Host: mysqlHost, Port: mysqlPort, Database: database, User: user, Password: password},
 		RabbitMQURL:   rabbitMQURL,
 		Elasticsearch: elasticsearch,
 		LogShip:       logShip,
@@ -98,11 +106,14 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	}, nil
 }
 
-func loadSearchIndexerElasticsearch(lookup LookupFunc) (ElasticsearchConfig, error) {
+func loadSearchIndexerElasticsearch(lookup LookupFunc, runtimeMode RuntimeMode) (ElasticsearchConfig, error) {
 	rawURL := valueOrDefault(lookup, "ELASTICSEARCH_URL", defaultElasticsearchURL)
 	parsed, err := url.Parse(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return ElasticsearchConfig{}, errors.New("ELASTICSEARCH_URL must be an HTTP(S) URL without userinfo, query, or fragment")
+		return ElasticsearchConfig{}, errors.New("ELASTICSEARCH_URL must be an HTTP(S) origin without userinfo, query, or fragment")
+	}
+	if err := validateOriginHost(runtimeMode, "ELASTICSEARCH_URL", parsed); err != nil {
+		return ElasticsearchConfig{}, err
 	}
 	timeout, err := durationValue(lookup, "ELASTICSEARCH_REQUEST_TIMEOUT", defaultElasticsearchTimeout, minimumElasticsearchTimeout, maximumElasticsearchTimeout)
 	if err != nil {

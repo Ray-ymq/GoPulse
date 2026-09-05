@@ -1,20 +1,86 @@
+x-image-build-args: &image-build-args
+  VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  REVISION: ${GOPULSE_REVISION:?GOPULSE_REVISION is required}
+  GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+
+x-backend-environment: &backend-environment
+  GOPULSE_RUNTIME_MODE: container
+  APP_ENV: ${APP_ENV:-development}
+  HTTP_HOST: 0.0.0.0
+  HTTP_PORT: 8080
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+  MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+  REDIS_DB: ${REDIS_DB:-0}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+  SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
+  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
+  AUTH_JWT_TTL: ${AUTH_JWT_TTL:-2h}
+  AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-gopulse_session}
+  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+  MONITOR_URL: http://monitor:9090
+  MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
+  MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
+  LOG_MONITOR_URL: ""
+  LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+  BACKEND_VICTORIAMETRICS_URL: http://victoriametrics:8428
+  BACKEND_VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+  BACKEND_VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+  BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT: ${BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT:-3s}
+  BACKEND_METRIC_QUERY_DEFAULT_RANGE: ${BACKEND_METRIC_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_METRIC_QUERY_MAX_RANGE: ${BACKEND_METRIC_QUERY_MAX_RANGE:-24h}
+  BACKEND_LOG_READ_ALIAS: ${BACKEND_LOG_READ_ALIAS:-gopulse-logs-v1-read}
+  BACKEND_LOG_QUERY_DEFAULT_RANGE: ${BACKEND_LOG_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_LOG_QUERY_MAX_RANGE: ${BACKEND_LOG_QUERY_MAX_RANGE:-24h}
+  BACKEND_EVENT_READ_ALIAS: ${BACKEND_EVENT_READ_ALIAS:-gopulse-events-v1-read}
+  BACKEND_EVENT_QUERY_DEFAULT_RANGE: ${BACKEND_EVENT_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_EVENT_QUERY_MAX_RANGE: ${BACKEND_EVENT_QUERY_MAX_RANGE:-24h}
+  REDIS_POST_DETAIL_TTL: ${REDIS_POST_DETAIL_TTL:-5m}
+  REDIS_OPERATION_TIMEOUT: ${REDIS_OPERATION_TIMEOUT:-200ms}
+  OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-1s}
+  OUTBOX_CLAIM_BATCH: ${OUTBOX_CLAIM_BATCH:-10}
+  OUTBOX_LEASE_DURATION: ${OUTBOX_LEASE_DURATION:-1m}
+  OUTBOX_PUBLISH_TIMEOUT: ${OUTBOX_PUBLISH_TIMEOUT:-5s}
+  OUTBOX_RETRY_DELAY: ${OUTBOX_RETRY_DELAY:-30s}
+  OUTBOX_CLEANUP_INTERVAL: ${OUTBOX_CLEANUP_INTERVAL:-1h}
+  OUTBOX_PUBLISHED_RETENTION: ${OUTBOX_PUBLISHED_RETENTION:-168h}
+  OUTBOX_CLEANUP_BATCH: ${OUTBOX_CLEANUP_BATCH:-500}
+  BUSINESS_WORKER_PREFETCH: ${BUSINESS_WORKER_PREFETCH:-10}
+  BUSINESS_WORKER_MAX_RETRIES: ${BUSINESS_WORKER_MAX_RETRIES:-3}
+  BUSINESS_WORKER_PUBLISH_TIMEOUT: ${BUSINESS_WORKER_PUBLISH_TIMEOUT:-5s}
+  BUSINESS_WORKER_SHUTDOWN_TIMEOUT: ${BUSINESS_WORKER_SHUTDOWN_TIMEOUT:-10s}
+  BUSINESS_WORKER_RECONNECT_MIN: ${BUSINESS_WORKER_RECONNECT_MIN:-500ms}
+  BUSINESS_WORKER_RECONNECT_MAX: ${BUSINESS_WORKER_RECONNECT_MAX:-30s}
+  SEARCH_INDEXER_PREFETCH: ${SEARCH_INDEXER_PREFETCH:-10}
+  SEARCH_INDEXER_MAX_RETRIES: ${SEARCH_INDEXER_MAX_RETRIES:-3}
+  SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
+  SEARCH_INDEXER_PUBLISH_TIMEOUT: ${SEARCH_INDEXER_PUBLISH_TIMEOUT:-5s}
+  SEARCH_INDEXER_SHUTDOWN_TIMEOUT: ${SEARCH_INDEXER_SHUTDOWN_TIMEOUT:-10s}
+  SEARCH_INDEXER_RECONNECT_MIN: ${SEARCH_INDEXER_RECONNECT_MIN:-500ms}
+  SEARCH_INDEXER_RECONNECT_MAX: ${SEARCH_INDEXER_RECONNECT_MAX:-30s}
+
 services:
   mysql:
     image: mysql:8.4.0
-    restart: unless-stopped
+    restart: on-failure:5
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
       MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
-    ports:
-      - "${PUBLISHED_HOST:-127.0.0.1}:${MYSQL_PORT:?MYSQL_PORT is required}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      - business
     healthcheck:
-      test:
-        - CMD-SHELL
-        - mysqladmin ping --host=127.0.0.1 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
+      test: [CMD-SHELL, 'mysqladmin ping --host=127.0.0.1 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent']
       start_period: 30s
       interval: 5s
       timeout: 5s
@@ -22,21 +88,16 @@ services:
 
   redis:
     image: redis:7.2.5-alpine
-    restart: unless-stopped
+    restart: on-failure:5
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-    command:
-      - sh
-      - -c
-      - exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"
-    ports:
-      - "${PUBLISHED_HOST:-127.0.0.1}:${REDIS_PORT:?REDIS_PORT is required}:6379"
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"']
     volumes:
       - redis_data:/data
+    networks:
+      - business
     healthcheck:
-      test:
-        - CMD-SHELL
-        - redis-cli --no-auth-warning --raw -a "$${REDIS_PASSWORD}" ping | grep -q PONG
+      test: [CMD-SHELL, 'redis-cli --no-auth-warning --raw -a "$${REDIS_PASSWORD}" ping | grep -q PONG']
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -44,36 +105,207 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13.3-management-alpine
-    restart: unless-stopped
+    restart: on-failure:5
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
-    ports:
-      - "${PUBLISHED_HOST:-127.0.0.1}:${RABBITMQ_PORT:?RABBITMQ_PORT is required}:5672"
-      - "${PUBLISHED_HOST:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:?RABBITMQ_MANAGEMENT_PORT is required}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - business
     healthcheck:
-      test:
-        - CMD
-        - rabbitmq-diagnostics
-        - -q
-        - ping
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
       start_period: 20s
       interval: 5s
       timeout: 5s
       retries: 20
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    restart: on-failure:5
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - business
+    healthcheck:
+      test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null']
+      start_period: 30s
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  migrate:
+    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/usr/local/bin/migrate]
+    command: [up]
+    environment: *backend-environment
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - business
+
+  search-init:
+    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/usr/local/bin/search-reindex]
+    command: [--if-missing]
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - business
+
+  backend:
+    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: backend
+      args: *image-build-args
+    restart: on-failure:5
+    stop_grace_period: 15s
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      search-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${HTTP_PORT:?HTTP_PORT is required}:8080
+    networks:
+      - edge
+      - business
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/health >/dev/null']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  business-worker:
+    image: gopulse/business-worker:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: business-worker
+      args: *image-build-args
+    restart: on-failure:5
+    stop_grace_period: 15s
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - business
+
+  search-indexer:
+    image: gopulse/search-indexer:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: search-indexer
+      args: *image-build-args
+    restart: on-failure:5
+    stop_grace_period: 15s
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      search-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - business
+
+  frontend:
+    image: gopulse/frontend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/frontend.Dockerfile
+      args: *image-build-args
+    restart: on-failure:5
+    stop_grace_period: 10s
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${FRONTEND_PORT:?FRONTEND_PORT is required}:8080
+    networks:
+      - edge
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:8080/frontend-health']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-role:
+    profiles: [operations]
+    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/usr/local/bin/admin-role]
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - business
+
+  acceptance:
+    profiles: [acceptance]
+    image: gopulse/acceptance:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/acceptance.Dockerfile
+      args: *image-build-args
+    environment:
+      GOPULSE_BASE_URL: http://frontend:8080
+      GOPULSE_ACCEPTANCE_TOKEN: ${GOPULSE_ACCEPTANCE_TOKEN:-compose}
+      GOPULSE_ACCEPTANCE_SCENARIO: ${GOPULSE_ACCEPTANCE_SCENARIO:-business}
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks:
+      - edge
+
   kafka:
+    profiles: [observability]
     image: apache/kafka:4.3.1
-    restart: unless-stopped
+    restart: on-failure:5
     hostname: kafka
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: CONTROLLER://:9093,INTERNAL://:19092,EXTERNAL://:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://127.0.0.1:${KAFKA_PORT:?KAFKA_PORT is required}
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: CONTROLLER://:9093,INTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
@@ -82,20 +314,19 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-    ports:
-      - "127.0.0.1:${KAFKA_PORT:?KAFKA_PORT is required}:9092"
     volumes:
       - kafka_data:/var/lib/kafka/data
+    networks:
+      - observability
     healthcheck:
-      test:
-        - CMD-SHELL
-        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --list >/dev/null 2>&1
+      test: [CMD-SHELL, '/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --list >/dev/null 2>&1']
       start_period: 20s
       interval: 5s
       timeout: 5s
       retries: 30
 
   kafka-init:
+    profiles: [observability]
     image: apache/kafka:4.3.1
     restart: "no"
     depends_on:
@@ -104,22 +335,18 @@ services:
     command:
       - /bin/bash
       - -ec
-      - |
-        /opt/kafka/bin/kafka-topics.sh \
-          --bootstrap-server kafka:19092 \
-          --create --if-not-exists \
-          --topic gopulse-observability-v1 \
-          --partitions 1 \
-          --replication-factor 1
-        /opt/kafka/bin/kafka-topics.sh \
-          --bootstrap-server kafka:19092 \
-          --describe \
-          --topic gopulse-observability-v1
-
+      - >-
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
+        --topic gopulse-observability-v1 --partitions 1 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe
+        --topic gopulse-observability-v1
+    networks:
+      - observability
 
   victoriametrics:
+    profiles: [observability]
     image: victoriametrics/victoria-metrics:v1.151.0
-    restart: unless-stopped
+    restart: on-failure:5
     environment:
       VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
       VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
@@ -128,44 +355,28 @@ services:
       - -httpAuth.username=${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
       - -httpAuth.password=${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
       - -dedup.minScrapeInterval=1ms
-    ports:
-      - "127.0.0.1:${VICTORIAMETRICS_PORT:?VICTORIAMETRICS_PORT is required}:8428"
     volumes:
       - victoriametrics_data:/victoria-metrics-data
+    networks:
+      - observability
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          wget --spider --quiet --header "Authorization: Basic $$(printf '%s:%s' "$${VICTORIAMETRICS_USERNAME}" "$${VICTORIAMETRICS_PASSWORD}" | base64)" http://127.0.0.1:8428/health
+      test: [CMD-SHELL, 'wget --spider --quiet --header "Authorization: Basic $$(printf "%s:%s" "$${VICTORIAMETRICS_USERNAME}" "$${VICTORIAMETRICS_PASSWORD}" | base64)" http://127.0.0.1:8428/health']
       start_period: 10s
       interval: 5s
       timeout: 3s
       retries: 30
 
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
-    restart: unless-stopped
-    environment:
-      discovery.type: single-node
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms512m -Xmx512m
-    ports:
-      - "127.0.0.1:${ELASTICSEARCH_PORT:?ELASTICSEARCH_PORT is required}:9200"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - curl --fail --silent 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=1s' >/dev/null
-      start_period: 40s
-      interval: 5s
-      timeout: 3s
-      retries: 30
+networks:
+  edge:
+  business:
+    internal: true
+  observability:
+    internal: true
 
 volumes:
   mysql_data:
   redis_data:
   rabbitmq_data:
-  kafka_data:
   elasticsearch_data:
+  kafka_data:
   victoriametrics_data:
