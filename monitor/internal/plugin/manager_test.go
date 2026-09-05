@@ -407,3 +407,55 @@ func TestManagerRecordsUnexpectedExitAfterStateCommit(t *testing.T) {
 	}
 	t.Fatalf("unexpected exit event not recorded: %+v", recorder.snapshot())
 }
+
+type countingMetricsLifecycle struct {
+	disables atomic.Int32
+}
+
+func (*countingMetricsLifecycle) Enable(Manifest) {}
+func (m *countingMetricsLifecycle) Disable(context.Context) error {
+	m.disables.Add(1)
+	return nil
+}
+
+func TestStaleWatcherCannotAffectReplacementRuntime(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "plugins")
+	manager, err := NewManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := Manifest{ID: PluginID, Version: "1.7.4"}
+	entry := registryEntry{Manifest: manifest, CurrentVersion: manifest.Version, DesiredState: DesiredRunning}
+	oldRecord := processRecord{PID: 101, StartTicks: "old", ExecutablePath: "/old", WorkingDirectory: "/old", CommandLineMarker: "old"}
+	replacementRecord := processRecord{PID: 202, StartTicks: "replacement", ExecutablePath: "/replacement", WorkingDirectory: "/replacement", CommandLineMarker: "replacement"}
+	oldRuntime := &runtimeProcess{done: make(chan error, 1), record: oldRecord}
+	replacementRuntime := &runtimeProcess{done: make(chan error, 1), record: replacementRecord}
+	observer := &countingMetricsLifecycle{}
+
+	if err := os.MkdirAll(filepath.Dir(processRecordPath(manager.pluginDir())), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveProcessRecord(manager.pluginDir(), replacementRecord); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	manager.registry.Plugins[PluginID] = entry
+	manager.states[PluginID] = statusFromEntry(entry, ObservedRunning, nil)
+	manager.runtimes[PluginID] = replacementRuntime
+	manager.observer = observer
+	manager.mu.Unlock()
+
+	manager.handleUnexpectedExit(PluginID, oldRuntime)
+	if observer.disables.Load() != 0 {
+		t.Fatal("stale watcher disabled replacement metrics")
+	}
+	current, err := loadProcessRecord(manager.pluginDir())
+	if err != nil || current != replacementRecord {
+		t.Fatalf("replacement process record changed: record=%+v err=%v", current, err)
+	}
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	if manager.runtimes[PluginID] != replacementRuntime || manager.states[PluginID].ObservedState != ObservedRunning {
+		t.Fatalf("replacement runtime or state changed: runtime=%p status=%+v", manager.runtimes[PluginID], manager.states[PluginID])
+	}
+}

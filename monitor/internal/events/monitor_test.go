@@ -160,3 +160,44 @@ func TestFailureAndRecoveryVocabulary(t *testing.T) {
 		t.Fatal("incompatible operation/error_code was accepted")
 	}
 }
+
+func TestMonitorCloseReturnsAtDeadlineAndWorkerFinishesLater(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	monitor, err := NewMonitor(Config{
+		Capacity: 1,
+		Timeout:  time.Second,
+		Now:      func() time.Time { return time.Date(2026, 9, 5, 8, 1, 0, 0, time.UTC) },
+		Sender: senderFunc(func(context.Context, string, any) error {
+			close(entered)
+			<-release
+			return nil
+		}),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !monitor.Record(testEvent("exporter_plugin_started")) {
+		t.Fatal("record rejected")
+	}
+	<-entered
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	if err := monitor.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close error=%v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("Close exceeded caller deadline: %v", elapsed)
+	}
+	close(release)
+	select {
+	case <-monitor.done:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not finish after sender release")
+	}
+	if err := monitor.Close(context.Background()); err != nil {
+		t.Fatalf("repeated Close error=%v", err)
+	}
+}
