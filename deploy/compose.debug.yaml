@@ -1,0 +1,22 @@
+# Explicit loopback-only host tooling override. The container-native daily and
+# acceptance paths never load this file.
+services:
+  mysql:
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${MYSQL_PORT:?MYSQL_PORT is required}:3306
+  redis:
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${REDIS_PORT:?REDIS_PORT is required}:6379
+  rabbitmq:
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${RABBITMQ_PORT:?RABBITMQ_PORT is required}:5672
+      - ${PUBLISHED_HOST:-127.0.0.1}:${RABBITMQ_MANAGEMENT_PORT:?RABBITMQ_MANAGEMENT_PORT is required}:15672
+  elasticsearch:
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${ELASTICSEARCH_PORT:?ELASTICSEARCH_PORT is required}:9200
+  kafka:
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${KAFKA_PORT:?KAFKA_PORT is required}:9092
+  victoriametrics:
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${VICTORIAMETRICS_PORT:?VICTORIAMETRICS_PORT is required}:8428

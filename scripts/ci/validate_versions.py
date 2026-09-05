@@ -20,6 +20,18 @@ def validate(repo: Path) -> list[str]:
     if not SEMVER.fullmatch(version):
         errors.append(f"VERSION must use major.minor.patch; found {version!r}")
 
+    environment_path = repo / ".env.example"
+    if environment_path.exists():
+        environment_version = None
+        for line in environment_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("GOPULSE_VERSION="):
+                environment_version = line.partition("=")[2].strip()
+                break
+        if environment_version != version:
+            errors.append(
+                f".env.example GOPULSE_VERSION is {environment_version!r}; expected root VERSION {version!r}"
+            )
+
     for relative, label in [
         (Path("frontend/package.json"), "frontend package"),
         (Path("frontend/package-lock.json"), "frontend lockfile"),

@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
+COMPOSE_DEBUG_FILE="$REPO_ROOT/deploy/compose.debug.yaml"
 BACKEND_DIR="$REPO_ROOT/backend"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 TOKEN=
@@ -133,7 +134,7 @@ PY
 }
 
 compose() {
-  docker compose --project-name "$PROJECT_NAME" --env-file "$ACCEPTANCE_ENV" --file "$COMPOSE_FILE" "$@"
+  docker compose --project-name "$PROJECT_NAME" --env-file "$ACCEPTANCE_ENV" --file "$COMPOSE_FILE" --file "$COMPOSE_DEBUG_FILE" "$@"
 }
 
 service_id() {

@@ -1,240 +1,86 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
-BACKEND_DIR="$REPO_ROOT/backend"
-MONITOR_DIR="$REPO_ROOT/monitor"
-ROUTER_DIR="$REPO_ROOT/router"
-MARSHALLER_DIR="$REPO_ROOT/marshaller"
-REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
-FRONTEND_DIR="$REPO_ROOT/frontend"
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
-ENV_FILE=${GOPULSE_ENV_FILE:-"$REPO_ROOT/.env"}
-ENV_EXAMPLE_FILE="$REPO_ROOT/.env.example"
-RUN_DIR=${GOPULSE_RUN_DIR:-"$REPO_ROOT/.run"}
-LOCK_PATH="$RUN_DIR/dev.lock"
-BACKEND_RECORD="$RUN_DIR/backend.json"
-WORKER_RECORD="$RUN_DIR/business-worker.json"
-SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
-MONITOR_RECORD="$RUN_DIR/monitor.json"
-ROUTER_RECORD="$RUN_DIR/router.json"
-MARSHALLER_RECORD="$RUN_DIR/marshaller.json"
-LEGACY_EXPORTER_RECORD="$RUN_DIR/redis-exporter.json"
-FRONTEND_RECORD="$RUN_DIR/frontend.json"
-BACKEND_BINARY="$RUN_DIR/bin/gopulse-backend"
-WORKER_BINARY="$RUN_DIR/bin/gopulse-business-worker"
-SEARCH_INDEXER_BINARY="$RUN_DIR/bin/gopulse-search-indexer"
-MONITOR_BINARY="$RUN_DIR/bin/gopulse-monitor"
-ROUTER_BINARY="$RUN_DIR/bin/gopulse-router"
-MARSHALLER_BINARY="$RUN_DIR/bin/gopulse-marshaller"
-LEGACY_EXPORTER_BINARY="$RUN_DIR/bin/gopulse-redis-exporter"
-VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
-PROJECT_NAME=${GOPULSE_PROJECT_NAME:-gopulse}
-COMPOSE_KEYS=(
-  MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PORT
-  REDIS_PASSWORD REDIS_PORT RABBITMQ_USER RABBITMQ_PASSWORD
-  RABBITMQ_PORT RABBITMQ_MANAGEMENT_PORT ELASTICSEARCH_PORT KAFKA_PORT VICTORIAMETRICS_PORT
-  VICTORIAMETRICS_USERNAME VICTORIAMETRICS_PASSWORD
-)
-declare -A DOTENV=()
-declare -A DEFAULTS=([ELASTICSEARCH_PORT]=9200 [KAFKA_PORT]=9092 [VICTORIAMETRICS_PORT]=8428 [VICTORIAMETRICS_USERNAME]=gopulse-marshaller [VICTORIAMETRICS_PASSWORD]=local-victoriametrics-password32)
+COMPOSE_WORKDIR=$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd -P)
+PROJECT_NAME=${COMPOSE_PROJECT_NAME:-gopulse}
+ENV_FILE=${GOPULSE_ENV_FILE:-$REPO_ROOT/.env}
+REMOVE_VOLUMES=0
+CONFIRM_PROJECT=
 
-validate_workspace_scope() {
-  if [[ $PROJECT_NAME != gopulse && ! $PROJECT_NAME =~ ^gopulse-observability-[0-9a-f]{12}$ ]]; then
-    printf '[gopulse] ERROR: GOPULSE_PROJECT_NAME must be gopulse or an owned observability acceptance project.\n' >&2
-    return 1
-  fi
-  if [[ $PROJECT_NAME != gopulse ]]; then
-    local resolved_env resolved_run
-    resolved_env=$(realpath -m -- "$ENV_FILE") || return 1
-    resolved_run=$(realpath -m -- "$RUN_DIR") || return 1
-    if [[ $resolved_env != /tmp/* || $resolved_run != /tmp/* ]]; then
-      printf '[gopulse] ERROR: Acceptance environment and run directories must resolve under /tmp.\n' >&2
-      return 1
-    fi
-  fi
+info() { printf '[gopulse] %s\n' "$*"; }
+fail() { printf '[gopulse] ERROR: %s\n' "$*" >&2; return 1; }
+usage() {
+  cat <<'USAGE'
+Usage: scripts/down.sh [--project-name NAME] [--env-file PATH]
+                       [--volumes --confirm-project NAME]
+
+Stops only the label-verified Compose project. Named volumes are preserved by
+default. Volume deletion requires both explicit flags and an exact project-name
+confirmation.
+USAGE
 }
 
-info() {
-  printf '[gopulse] %s\n' "$*"
+while (($#)); do
+  case $1 in
+    --project-name) PROJECT_NAME=${2:?missing project name}; shift 2 ;;
+    --env-file) ENV_FILE=${2:?missing environment file}; shift 2 ;;
+    --volumes) REMOVE_VOLUMES=1; shift ;;
+    --confirm-project) CONFIRM_PROJECT=${2:?missing confirmation}; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail "unknown argument: $1"; usage >&2; exit 2 ;;
+  esac
+done
+
+[[ $PROJECT_NAME =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || fail "unsafe project name"
+if ((REMOVE_VOLUMES)); then
+  [[ $CONFIRM_PROJECT == "$PROJECT_NAME" ]] || fail "--volumes requires --confirm-project $PROJECT_NAME"
+fi
+[[ -f $ENV_FILE ]] || ENV_FILE="$REPO_ROOT/.env.example"
+[[ -f $REPO_ROOT/VERSION ]] || fail "VERSION is missing"
+export GOPULSE_VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
+export GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf unknown)
+command -v docker >/dev/null 2>&1 || fail "docker is required"
+docker info >/dev/null 2>&1 || fail "Docker Engine is unavailable"
+
+compose() {
+  docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" --file "$COMPOSE_FILE" "$@"
 }
 
-fail() {
-  printf '[gopulse] ERROR: %s\n' "$*" >&2
-  return 1
-}
+found=0
+while IFS= read -r id; do
+  [[ -n $id ]] || continue
+  found=1
+  project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$id")
+  working_dir=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id")
+  config_files=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$id")
+  [[ $project == "$PROJECT_NAME" && $working_dir == "$COMPOSE_WORKDIR" && $config_files == *"$COMPOSE_FILE"* ]] || {
+    fail "container $id failed project ownership validation"
+    exit 1
+  }
+done < <(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME")
 
-read_dotenv() {
-  local path=$1 raw line key value quote line_number=0
-  DOTENV=()
-  [[ -f "$path" ]] || { fail "Environment file not found: $path"; return 1; }
-  while IFS= read -r raw || [[ -n "$raw" ]]; do
-    ((line_number += 1))
-    raw=${raw%$'\r'}
-    line=${raw#"${raw%%[![:space:]]*}"}
-    line=${line%"${line##*[![:space:]]}"}
-    [[ -z "$line" || ${line:0:1} == '#' ]] && continue
-    if [[ $line =~ ^export([[:space:]]|$) ]]; then
-      fail "Unsupported dotenv syntax at line $line_number: export is not allowed."
-      return 1
-    fi
-    if [[ ! $line =~ ^([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
-      fail "Invalid dotenv assignment at line $line_number."
-      return 1
-    fi
-    key=${BASH_REMATCH[1]}
-    value=${BASH_REMATCH[2]}
-    value=${value#"${value%%[![:space:]]*}"}
-    value=${value%"${value##*[![:space:]]}"}
-    if [[ -n "$value" && (${value:0:1} == "'" || ${value:0:1} == '"') ]]; then
-      quote=${value:0:1}
-      if ((${#value} < 2)) || [[ ${value: -1} != "$quote" ]]; then
-        fail "Unterminated quoted dotenv value for $key at line $line_number."
-        return 1
-      fi
-      value=${value:1:${#value}-2}
-      [[ $value != *"$quote"* ]] || { fail "Embedded quote syntax is not supported for $key at line $line_number."; return 1; }
-    elif [[ $value == *"'" || $value == *'"' ]]; then
-      fail "Mismatched quote in dotenv value for $key at line $line_number."
-      return 1
-    fi
-    DOTENV["$key"]=$value
-  done < "$path"
-}
+for kind in network volume; do
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    found=1
+    label=$(docker "$kind" inspect --format '{{index .Labels "com.docker.compose.project"}}' "$id")
+    [[ $label == "$PROJECT_NAME" ]] || { fail "$kind $id failed project ownership validation"; exit 1; }
+  done < <(docker "$kind" ls -q --filter "label=com.docker.compose.project=$PROJECT_NAME")
+done
 
-validate_record() {
-  local path=$1 expected_cwd=$2 expected_marker=$3 expected_executable=${4:-}
-  python3 - "$path" "$expected_cwd" "$expected_marker" "$expected_executable" <<'PY'
-import json
-import os
-import sys
-path, expected_cwd, expected_marker, expected_executable = sys.argv[1:]
-try:
-    record = json.load(open(path, encoding='utf-8'))
-    pid = int(record['pid'])
-    start_ticks = str(record['startTicks'])
-    executable = os.path.realpath(str(record['executablePath']))
-    cwd = os.path.realpath(str(record['workingDirectory']))
-    marker = str(record['commandLineMarker'])
-except Exception:
-    print('record is malformed')
-    raise SystemExit(1)
-if cwd != os.path.realpath(expected_cwd) or marker != expected_marker:
-    print('record identity does not match this repository')
-    raise SystemExit(1)
-if expected_executable and executable != os.path.realpath(expected_executable):
-    print('recorded executable does not match the expected application')
-    raise SystemExit(1)
-try:
-    stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
-    command_end = stat.rfind(')')
-    fields = stat[command_end + 2:].split()
-    actual_start_ticks = fields[19]
-    actual_executable = os.path.realpath(f'/proc/{pid}/exe')
-    command_line = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
-except Exception:
-    print('recorded process is not running')
-    raise SystemExit(1)
-if actual_start_ticks != start_ticks:
-    print('process start identity does not match')
-    raise SystemExit(1)
-if actual_executable != executable:
-    print('process executable does not match')
-    raise SystemExit(1)
-if expected_marker not in command_line:
-    print('process command line does not match the recorded project context')
-    raise SystemExit(1)
-print(pid)
-PY
-}
+if ((found == 0)); then
+  info "Project $PROJECT_NAME has no Compose resources; nothing to stop."
+  exit 0
+fi
 
-stop_recorded_application() {
-  local name=$1 path=$2 cwd=$3 marker=$4 executable=${5:-} result pid
-  if [[ ! -f "$path" ]]; then
-    info "$name is not recorded as running."
-    return 0
-  fi
-  if result=$(validate_record "$path" "$cwd" "$marker" "$executable"); then
-    pid=$result
-    kill -TERM -- "-$pid" 2>/dev/null || true
-    for _ in {1..30}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
-    kill -KILL -- "-$pid" 2>/dev/null || true
-    info "Stopped $name (PID $pid)."
-  else
-    if [[ $result != 'recorded process is not running' ]]; then
-      fail "$name record cannot be proven stale; refusing to signal a process or remove the record ($result)."
-      return 1
-    fi
-    info "Removed stale $name record without stopping a process ($result)."
-  fi
-  rm -f -- "$path"
-}
-
-clear_lock() {
-  [[ -f "$LOCK_PATH" ]] || return 0
-  local attempt platform
-  for attempt in {1..50}; do
-    if exec 9<>"$LOCK_PATH" 2>/dev/null && flock -n 9; then
-      platform=$(python3 - "$LOCK_PATH" <<'PY'
-import json
-import sys
-try:
-    print(json.load(open(sys.argv[1], encoding='utf-8')).get('platform', ''))
-except Exception:
-    print('')
-PY
-)
-      if [[ -n "$platform" && $platform != unix ]]; then
-        flock -u 9 || true
-        exec 9>&-
-        fail 'The development run lock belongs to another platform. Run the matching down script.'
-        return 1
-      fi
-      rm -f -- "$LOCK_PATH"
-      flock -u 9 || true
-      exec 9>&-
-      info 'Removed the development run lock.'
-      return 0
-    fi
-    exec 9>&- 2>/dev/null || true
-    sleep 0.1
-  done
-  fail 'The development run lock is still active. Stop the foreground dev script with Ctrl+C, then retry.'
-}
-
-compose_down() {
-  command -v docker >/dev/null 2>&1 || { fail 'Docker is required to stop Compose infrastructure.'; return 1; }
-  docker compose version >/dev/null 2>&1 || { fail 'Docker Compose is unavailable.'; return 1; }
-  local env_path key
-  if [[ -f "$ENV_FILE" ]]; then env_path=$ENV_FILE; else env_path=$ENV_EXAMPLE_FILE; fi
-  [[ -f "$env_path" ]] || { fail 'Neither .env nor .env.example is available for Compose interpolation.'; return 1; }
-  read_dotenv "$env_path"
-  for key in "${COMPOSE_KEYS[@]}"; do
-    if [[ ! -v $key && -v DOTENV[$key] ]]; then
-      export "$key=${DOTENV[$key]}"
-    elif [[ ! -v $key && -v DEFAULTS[$key] ]]; then
-      export "$key=${DEFAULTS[$key]}"
-    fi
-  done
-  docker compose --project-name "$PROJECT_NAME" --env-file "$env_path" --file "$COMPOSE_FILE" down
-  info 'Compose infrastructure is stopped; named volumes were preserved.'
-}
-
-main() {
-  validate_workspace_scope || return 1
-  command -v python3 >/dev/null 2>&1 || { fail 'python3 is required to validate process records.'; return 1; }
-  command -v flock >/dev/null 2>&1 || { fail 'flock is required to manage the development run lock.'; return 1; }
-  stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)"
-  stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD" "$BACKEND_DIR" "$SEARCH_INDEXER_BINARY" "$SEARCH_INDEXER_BINARY"
-  stop_recorded_application "Business Worker" "$WORKER_RECORD" "$BACKEND_DIR" "$WORKER_BINARY" "$WORKER_BINARY"
-  stop_recorded_application Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY"
-  stop_recorded_application Monitor "$MONITOR_RECORD" "$MONITOR_DIR" "$MONITOR_BINARY" "$MONITOR_BINARY"
-  stop_recorded_application "Legacy Redis Exporter" "$LEGACY_EXPORTER_RECORD" "$REDIS_EXPORTER_DIR" "$LEGACY_EXPORTER_BINARY" "$LEGACY_EXPORTER_BINARY"
-  stop_recorded_application Marshaller "$MARSHALLER_RECORD" "$MARSHALLER_DIR" "$MARSHALLER_BINARY" "$MARSHALLER_BINARY"
-  stop_recorded_application Router "$ROUTER_RECORD" "$ROUTER_DIR" "$ROUTER_BINARY" "$ROUTER_BINARY"
-  clear_lock
-  compose_down
-}
-
-main
+args=(down --remove-orphans)
+((REMOVE_VOLUMES)) && args+=(--volumes)
+compose "${args[@]}"
+if ((REMOVE_VOLUMES)); then
+  info "Stopped $PROJECT_NAME and removed its verified named volumes."
+else
+  info "Stopped $PROJECT_NAME; named volumes were preserved."
+fi
