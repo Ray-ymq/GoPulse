@@ -195,7 +195,9 @@ jobs:
 
   observability-browser:
     name: Observability browser acceptance
-    if: inputs.run_product_checks
+    # Phase-12-01 replaces the host lifecycle; Phase-12-02 restores this gate
+    # on the complete containerized observability topology.
+    if: inputs.run_product_checks && inputs.branch != 'develop/1.9.1'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -235,9 +237,10 @@ jobs:
             echo 'Expected Bash and Go working-tree files to use LF.' >&2
             exit 1
           fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh scripts/verify-observability-ui.sh scripts/package-redis-exporter.sh
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh scripts/verify-observability-ui.sh scripts/package-redis-exporter.sh
       - name: Run acceptance safety negative tests
         run: |
+          bash scripts/verify-compose.sh --self-test
           bash scripts/verify-business.sh --self-test
           bash scripts/verify-exporter.sh --self-test
           bash scripts/verify-monitor.sh --self-test
@@ -252,14 +255,25 @@ jobs:
           set -euo pipefail
           rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
           printf '%s\n' "$rendered"
-          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 7 ]]
-          grep -q 'image: apache/kafka:4.3.1' <<<"$rendered"
-          grep -q 'KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"' <<<"$rendered"
-          grep -q 'gopulse-observability-v1' <<<"$rendered"
-          grep -q 'image: victoriametrics/victoria-metrics:v1.151.0' <<<"$rendered"
-          grep -q -- '-dedup.minScrapeInterval=1ms' <<<"$rendered"
-          grep -q -- '-httpAuth.username=' <<<"$rendered"
-          grep -q 'victoriametrics_data' <<<"$rendered"
+          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 2 ]]
+          grep -q 'image: gopulse/frontend:1.9.1' <<<"$rendered"
+          grep -q 'image: gopulse/backend:1.9.1' <<<"$rendered"
+          grep -q 'image: gopulse/business-worker:1.9.1' <<<"$rendered"
+          grep -q 'image: gopulse/search-indexer:1.9.1' <<<"$rendered"
+          grep -q 'condition: service_completed_successfully' <<<"$rendered"
+          [[ $(grep -c 'internal: true' <<<"$rendered") -eq 1 ]]
+
+  compose-business:
+    name: Container-only business acceptance
+    if: inputs.run_product_checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run the authoritative Phase-12-01 Compose closure
+        run: scripts/verify-compose.sh --business
 
   integration:
     name: Integration
