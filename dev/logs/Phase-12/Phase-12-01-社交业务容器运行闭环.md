@@ -5,9 +5,9 @@
 - 日期：2026-09-05
 - 分支：`develop/1.9.1`
 - 开工基线：最新 `upstream/main` 提交 `eaebfcd`，产品版本 `1.8.4`
-- 目标/本地完成版本：`1.9.1`
+- 目标/完成版本：`1.9.1`
 - 实施方案：`dev/imple/Phase-12/Phase-12-01-社交业务容器运行闭环.md`
-- 当前结论：本地实施、固定源码门禁和容器业务主验收已通过；远程 push checks、Pull Request 与合入尚未执行，因此不标记远程完成。
+- 当前结论：已完成。Pull Request #104 于 2026-09-05 合入主远程 `main`，权威远程运行 `33982936997` 的全部适用固定 jobs 成功，满足实施方案第 10 节完成条件。
 
 ## 2. 实际完成
 
@@ -86,6 +86,12 @@ git diff --check
 
 `verify-compose.sh --business` 的最终成功矩阵实际完成：冷启动、镜像合同、网络/端口、初始化幂等、production SPA/API smoke、浏览器社交/通知/搜索、Redis fallback、Worker 恢复、Indexer 恢复、三应用容器替换、三应用 SIGTERM clean exit，以及保留卷 down/up 后事实恢复。结束后随机 project 的容器、网络和卷均不存在。
 
+### 4.1 远程门禁、Pull Request 与合入
+
+- 修正默认 Compose profile 的 internal network 静态计数后，权威 push 运行 `33982936997` 完成且结论为 success。Branch governance、Backend、Message Router、Marshaller、Backend log pipeline、Plugin lifecycle Events pipeline、Monitor、Redis Exporter、Frontend、Scripts and Compose、Integration、Container-only business acceptance 全部成功。
+- `Observability browser acceptance` 按 Phase-12-01 明确边界在 `develop/1.9.1` 上跳过；Phase-12-02 恢复该门禁的责任保持不变。
+- `Open PR and enable auto-merge` job 成功，自动化创建并 squash merge Pull Request #104；主远程 `main` 落点为 `d9a5602475eb95c5bcbdc7771e32d8e37fa6253a`，远程开发分支已删除。
+
 实施期间出现并关闭的非最终失败：
 
 1. 两次 Backend 镜像构建在 `proxy.golang.org` 下载 module 时 360 秒超时；验证 `goproxy.cn` 可达后改为可覆盖的固定代理并构建成功。
@@ -100,4 +106,4 @@ git diff --check
 - 为让既有 source-level `verify-business.sh` 在默认数据端口移除后仍有明确入口，增加了 loopback-only `deploy/compose.debug.yaml`；它不被 `dev.sh`、`verify.sh` 或容器主验收加载。
 - 未重复运行与本批无直接契约变化的历史全量 observability browser 矩阵；其 CI 暂停原因已显式写入 workflow/README，Phase-12-02 必须恢复。
 - 未执行依赖审计、覆盖率扩张、Kubernetes、生产密钥管理、镜像签名/SBOM、多架构发布或可观测容器化。
-- 本地没有已知阻断项。远程 checks、Pull Request 和合入仍待执行；完成这些条件前，本批状态保持“本地实施完成”，不宣称总方案意义上的已完成。
+- 本地与远程均无已知阻断项。权威远程运行 `33982936997` 成功，自动化创建并 squash merge Pull Request #104，主远程 `main` 落点为 `d9a5602475eb95c5bcbdc7771e32d8e37fa6253a`，远程 `develop/1.9.1` 已删除。
