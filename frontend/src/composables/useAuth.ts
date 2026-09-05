@@ -14,6 +14,10 @@ function clear(): void {
   status.value = 'anonymous'
 }
 
+function removeAdminCapability(): void {
+  if (user.value?.role === 'admin') user.value = { ...user.value, role: 'user' }
+}
+
 function markRecoveryError(): void {
   user.value = null
   status.value = 'error'
@@ -80,6 +84,7 @@ export function useAuth() {
     login,
     logout,
     clear,
+    removeAdminCapability,
   }
 }
 
