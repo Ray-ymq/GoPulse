@@ -7,7 +7,7 @@
 - 开发分支：`develop/1.7.2`。
 - 基线：`origin/main` / `1c8b55b`（包含 Phase-10-01）。
 - 实施环境：WSL2 Linux filesystem `/home/ray/GoPulse-1.7.2`，使用独立 Git worktree，未改动原 `/home/ray/GoPulse` 工作区中的用户未提交文件。
-- 状态：本地实现与固定门禁完成；Pull Request 合入主远程和远程门禁仍需在提交推送后完成，因此尚未宣称满足实施方案第 10 节的远程完成条件。
+- 状态：已完成。实现提交 `8f9623a` 通过 Pull Request #91 于 2026-09-05 合入主远程 `main`；远程 `Auto PR and Merge` run `33954950505` 的固定门禁全部成功，合入提交为 `3c6a194`。
 
 ## 2. 实际完成内容
 
@@ -160,5 +160,13 @@ scripts/verify-business.sh
 ## 6. 已知限制与后续事项
 
 - EventMonitor 仍是有界内存 best-effort source queue；进程崩溃或容量耗尽时，尚未进入 Kafka 的远程 Events 副本可能丢失，这是既定产品边界。
-- 本地实现不能替代实施方案要求的 PR 合入和远程固定门禁。提交推送后需创建 Pull Request，确认远程门禁通过并合入 `main`，再由 planning/status 更新记录正式完成状态。
-- Phase-10-03 应基于最终合入构建执行阶段级交叉验收与状态收口，不在本批继续扩展事件类型。
+- Pull Request #91、远程固定门禁和主远程 `main` 合入均已完成；Phase-10-03 已从合入提交 `3c6a194` 开始阶段级交叉验收。
+- EventMonitor 的有界内存 best-effort 边界保持不变，不在本批扩展事件类型。
+
+
+## 7. 远程收口
+
+- 本地实现提交：`8f9623a feat: close event reliability loop`。
+- Pull Request：#91，于 2026-09-05 08:26:19 UTC 合入。
+- 远程门禁：`Auto PR and Merge` run `33954950505`，Backend、Monitor、Router、Marshaller、Frontend、Integration、Scripts and Compose、Branch governance 与 Events/Logs 相关 jobs 全部成功。
+- 主远程合入提交：`3c6a194b51a1953b3dd8467a365ddc1435743b5e`。
