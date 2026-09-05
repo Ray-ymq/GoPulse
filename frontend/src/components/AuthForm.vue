@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { ApiError } from '../services/http'
 
 const props = defineProps<{ mode: 'login' | 'register' }>()
 const auth = useAuth()
+const route = useRoute()
 const router = useRouter()
 const username = ref('')
 const password = ref('')
 const submitting = ref(false)
 const errorMessage = ref('')
 const title = computed(() => (props.mode === 'login' ? '欢迎回来' : '创建账号'))
+const destination = computed(() => {
+  const redirect = route.query.redirect
+  return props.mode === 'login' && typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/posts'
+})
 
 function validate(): string {
   const normalized = username.value.trim()
@@ -40,7 +45,7 @@ async function submit(): Promise<void> {
     const credentials = { username: username.value.trim(), password: password.value }
     if (props.mode === 'login') await auth.login(credentials)
     else await auth.register(credentials)
-    await router.push('/posts')
+    await router.push(destination.value)
   } catch (error) {
     errorMessage.value = messageFor(error)
   } finally {
