@@ -3,25 +3,42 @@ set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
-ENV_FILE="$REPO_ROOT/.env"
+ENV_FILE=${GOPULSE_ENV_FILE:-"$REPO_ROOT/.env"}
+RUN_DIR=${GOPULSE_RUN_DIR:-"$REPO_ROOT/.run"}
 ENV_EXAMPLE_FILE="$REPO_ROOT/.env.example"
 MONITOR_DIR="$REPO_ROOT/monitor"
 ROUTER_DIR="$REPO_ROOT/router"
 MARSHALLER_DIR="$REPO_ROOT/marshaller"
-MONITOR_RECORD="$REPO_ROOT/.run/monitor.json"
-MONITOR_BINARY="$REPO_ROOT/.run/bin/gopulse-monitor"
-ROUTER_RECORD="$REPO_ROOT/.run/router.json"
-ROUTER_BINARY="$REPO_ROOT/.run/bin/gopulse-router"
-MARSHALLER_RECORD="$REPO_ROOT/.run/marshaller.json"
-MARSHALLER_BINARY="$REPO_ROOT/.run/bin/gopulse-marshaller"
-WORKER_RECORD="$REPO_ROOT/.run/business-worker.json"
-SEARCH_INDEXER_RECORD="$REPO_ROOT/.run/search-indexer.json"
-WORKER_BINARY="$REPO_ROOT/.run/bin/gopulse-business-worker"
-SEARCH_INDEXER_BINARY="$REPO_ROOT/.run/bin/gopulse-search-indexer"
+MONITOR_RECORD="$RUN_DIR/monitor.json"
+MONITOR_BINARY="$RUN_DIR/bin/gopulse-monitor"
+ROUTER_RECORD="$RUN_DIR/router.json"
+ROUTER_BINARY="$RUN_DIR/bin/gopulse-router"
+MARSHALLER_RECORD="$RUN_DIR/marshaller.json"
+MARSHALLER_BINARY="$RUN_DIR/bin/gopulse-marshaller"
+WORKER_RECORD="$RUN_DIR/business-worker.json"
+SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
+WORKER_BINARY="$RUN_DIR/bin/gopulse-business-worker"
+SEARCH_INDEXER_BINARY="$RUN_DIR/bin/gopulse-search-indexer"
 BACKEND_DIR="$REPO_ROOT/backend"
-PROJECT_NAME=gopulse
+PROJECT_NAME=${GOPULSE_PROJECT_NAME:-gopulse}
 FAILURES=0
 TEMP_DIR=
+
+validate_workspace_scope() {
+  if [[ $PROJECT_NAME != gopulse && ! $PROJECT_NAME =~ ^gopulse-observability-[0-9a-f]{12}$ ]]; then
+    printf '[gopulse] ERROR: GOPULSE_PROJECT_NAME must be gopulse or an owned observability acceptance project.\n' >&2
+    return 1
+  fi
+  if [[ $PROJECT_NAME != gopulse ]]; then
+    local resolved_env resolved_run
+    resolved_env=$(realpath -m -- "$ENV_FILE") || return 1
+    resolved_run=$(realpath -m -- "$RUN_DIR") || return 1
+    if [[ $resolved_env != /tmp/* || $resolved_run != /tmp/* ]]; then
+      printf '[gopulse] ERROR: Acceptance environment and run directories must resolve under /tmp.\n' >&2
+      return 1
+    fi
+  fi
+}
 
 info() {
   printf '[gopulse] %s\n' "$*"
@@ -372,8 +389,8 @@ PYAPI
 }
 
 check_frontend() {
-  local body="$TEMP_DIR/frontend.html" status
-  if ! status=$(http_get 'http://localhost:5173/' "$body"); then
+  local port=$1 body="$TEMP_DIR/frontend.html" status
+  if ! status=$(http_get "http://localhost:$port/" "$body"); then
     fail 'Frontend' 'request failed or exceeded 5 seconds.'
     return
   fi
@@ -381,7 +398,7 @@ check_frontend() {
     fail 'Frontend' "returned HTTP $status, expected a 2xx response."
     return
   fi
-  pass 'Frontend' "HTTP $status from http://localhost:5173/."
+  pass 'Frontend' "HTTP $status from http://localhost:$port/."
 }
 
 check_monitor_plugin_version() {
@@ -461,13 +478,16 @@ PY
 }
 
 main() {
+  validate_workspace_scope || return 1
   require_tools || return 1
-  local port monitor_port router_port marshaller_port vm_port es_port exporter_port monitor_token router_token marshaller_token vm_username vm_password
+  local port frontend_port monitor_port router_port marshaller_port vm_port es_port exporter_port monitor_token router_token marshaller_token vm_username vm_password
   if ! port=$(http_port); then
     printf '[gopulse] ERROR: Could not read HTTP_PORT from the environment file.\n' >&2
     return 1
   fi
   validate_port "$port" || { printf "[gopulse] ERROR: HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$port" >&2; return 1; }
+  frontend_port=$(config_port FRONTEND_PORT 5173) || { printf '[gopulse] ERROR: Could not read FRONTEND_PORT.\n' >&2; return 1; }
+  validate_port "$frontend_port" || { printf "[gopulse] ERROR: FRONTEND_PORT must be an integer from 1 to 65535; received '%s'.\n" "$frontend_port" >&2; return 1; }
   monitor_port=$(monitor_http_port) || { printf '[gopulse] ERROR: Could not read MONITOR_HTTP_PORT.\n' >&2; return 1; }
   validate_port "$monitor_port" || { printf "[gopulse] ERROR: MONITOR_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$monitor_port" >&2; return 1; }
   monitor_token=$(config_port MONITOR_API_TOKEN '') || { printf '[gopulse] ERROR: Could not read MONITOR_API_TOKEN.\n' >&2; return 1; }
@@ -510,7 +530,7 @@ main() {
   check_health "$port"
   check_ready "$port"
   check_protected_api "$port"
-  check_frontend
+  check_frontend "$frontend_port"
   if ((FAILURES > 0)); then
     printf '[gopulse] Verification failed with %d issue(s). The script did not change the running environment.\n' "$FAILURES" >&2
     printf '[gopulse] Diagnose Compose with: docker compose --project-name $PROJECT_NAME --file deploy/compose.yaml ps\n' >&2

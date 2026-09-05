@@ -30,3 +30,7 @@ BACKEND_METRIC_QUERY_MAX_RANGE=24h
 ```
 
 The Backend query identity must match the local VictoriaMetrics identity used by Marshaller. Credentials and raw upstream bodies must never be logged or returned by the API.
+
+## Phase 11 final browser and lifecycle acceptance
+
+`scripts/verify-observability-ui.sh` now performs the Milestone 3 integration matrix against an isolated random Compose project and `/tmp` process/plugin root. It starts Monitor without preinstalling a plugin, installs and upgrades the real Redis Exporter through the browser, validates fixed Metrics plus paged Logs/Events, applies owned VictoriaMetrics/Monitor/Elasticsearch fault windows, and confirms current-role authorization after an isolated SQL demotion. `scripts/verify.sh` and `scripts/down.sh` accept the same restricted `GOPULSE_PROJECT_NAME`, `GOPULSE_ENV_FILE`, and `GOPULSE_RUN_DIR` overrides so the final `dev.sh → verify.sh → down.sh` sequence never targets the daily stack.
