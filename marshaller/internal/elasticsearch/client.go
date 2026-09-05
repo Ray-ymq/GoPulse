@@ -27,11 +27,21 @@ const (
 var idPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var datePattern = regexp.MustCompile(`^\d{4}\.\d{2}\.\d{2}$`)
 
+var requiredPropertyTypes = map[string]string{
+	"@timestamp": "date_nanos", "log_schema_version": "integer", "level": "keyword",
+	"service": "keyword", "module": "keyword", "message": "keyword", "request_id": "keyword",
+	"event_id": "keyword", "event_type": "keyword", "user_id": "long", "post_id": "long",
+	"comment_id": "long", "notification_id": "long", "outbox_id": "long", "method": "keyword",
+	"route": "keyword", "status": "long", "duration_ms": "long", "response_bytes": "long",
+	"error_code": "keyword", "reason": "keyword", "operation": "keyword", "resource": "keyword",
+	"stage": "keyword", "result": "keyword", "attempt": "long", "batch_size": "long",
+	"document_count": "long", "panic_recovered": "boolean", "response_committed": "boolean",
+}
+
 type Client struct {
 	baseURL string
 	client  *http.Client
 	mu      sync.Mutex
-	ready   bool
 }
 
 func New(baseURL string, timeout time.Duration) (*Client, error) {
@@ -56,6 +66,9 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	if err := decoder.Decode(&request); err != nil || !idPattern.MatchString(request.MessageID) || !datePattern.MatchString(request.IndexDate) || len(request.Document) == 0 {
 		return errors.New("invalid log write request")
 	}
+	// Elasticsearch templates are external cluster state. Re-ensure the fixed
+	// contract for every write so replacing or resetting a live cluster cannot
+	// leave this process relying on stale in-memory readiness.
 	if err := c.ensureTemplate(ctx); err != nil {
 		return err
 	}
@@ -65,9 +78,9 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
-	payload, err := readLimited(response.Body)
-	if err != nil || (response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated) {
+	payload, readErr := readLimited(response.Body)
+	response.Body.Close()
+	if readErr != nil || (response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated) {
 		return errors.New("Elasticsearch rejected log document")
 	}
 	var result struct {
@@ -78,7 +91,11 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	if json.Unmarshal(payload, &result) != nil || result.Index != index || result.ID != request.MessageID || (result.Result != "created" && result.Result != "updated" && result.Result != "noop") {
 		return errors.New("Elasticsearch returned an invalid write result")
 	}
-	return nil
+	// A successful document response is not sufficient: a cluster replacement
+	// between template ensure and auto-create could still produce an unqueryable
+	// index. Keep the Kafka offset uncommitted until strict mapping and alias are
+	// observed on the actual target index.
+	return c.verifyIndexContract(ctx, index)
 }
 
 func (c *Client) Ready(ctx context.Context) error {
@@ -86,31 +103,96 @@ func (c *Client) Ready(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
 	_, readErr := readLimited(response.Body)
+	response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return errors.New("Elasticsearch unavailable")
 	}
-	return nil
+	return c.ensureTemplate(ctx)
 }
 
 func (c *Client) ensureTemplate(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.ready {
-		return nil
-	}
 	response, err := c.do(ctx, http.MethodPut, "/_index_template/"+TemplateName, strings.NewReader(templateBody))
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
-	_, readErr := readLimited(response.Body)
+	payload, readErr := readLimited(response.Body)
+	response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
 		return errors.New("Elasticsearch log template unavailable")
 	}
-	c.ready = true
+	var result struct {
+		Acknowledged bool `json:"acknowledged"`
+	}
+	if json.Unmarshal(payload, &result) != nil || !result.Acknowledged {
+		return errors.New("Elasticsearch log template acknowledgement invalid")
+	}
 	return nil
+}
+
+func (c *Client) verifyIndexContract(ctx context.Context, index string) error {
+	mappingResponse, err := c.do(ctx, http.MethodGet, "/"+index+"/_mapping", nil)
+	if err != nil {
+		return err
+	}
+	mappingPayload, readErr := readLimited(mappingResponse.Body)
+	mappingResponse.Body.Close()
+	if readErr != nil || mappingResponse.StatusCode < 200 || mappingResponse.StatusCode >= 300 || !validMapping(mappingPayload, index) {
+		return errors.New("Elasticsearch log index mapping incompatible")
+	}
+
+	aliasResponse, err := c.do(ctx, http.MethodGet, "/"+index+"/_alias/"+ReadAlias, nil)
+	if err != nil {
+		return err
+	}
+	aliasPayload, readErr := readLimited(aliasResponse.Body)
+	aliasResponse.Body.Close()
+	if readErr != nil || aliasResponse.StatusCode < 200 || aliasResponse.StatusCode >= 300 || !validAlias(aliasPayload, index) {
+		return errors.New("Elasticsearch log index alias unavailable")
+	}
+	return nil
+}
+
+func validMapping(payload []byte, index string) bool {
+	var response map[string]struct {
+		Mappings struct {
+			Dynamic    string `json:"dynamic"`
+			Properties map[string]struct {
+				Type string `json:"type"`
+			} `json:"properties"`
+		} `json:"mappings"`
+	}
+	if json.Unmarshal(payload, &response) != nil || len(response) != 1 {
+		return false
+	}
+	entry, ok := response[index]
+	if !ok || entry.Mappings.Dynamic != "strict" || len(entry.Mappings.Properties) != len(requiredPropertyTypes) {
+		return false
+	}
+	for field, expected := range requiredPropertyTypes {
+		property, ok := entry.Mappings.Properties[field]
+		if !ok || property.Type != expected {
+			return false
+		}
+	}
+	return true
+}
+
+func validAlias(payload []byte, index string) bool {
+	var response map[string]struct {
+		Aliases map[string]json.RawMessage `json:"aliases"`
+	}
+	if json.Unmarshal(payload, &response) != nil || len(response) != 1 {
+		return false
+	}
+	entry, ok := response[index]
+	if !ok {
+		return false
+	}
+	_, ok = entry.Aliases[ReadAlias]
+	return ok
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {

@@ -3,7 +3,8 @@ package logship
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -11,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -37,19 +37,23 @@ type item struct {
 }
 
 type Shipper struct {
-	endpoint string
-	token    string
-	client   *http.Client
-	queue    chan item
-	retryMin time.Duration
-	retryMax time.Duration
-	logger   *slog.Logger
-	closing  chan struct{}
-	done     chan struct{}
-	ctx      context.Context
-	cancel   context.CancelFunc
-	closed   atomic.Bool
-	close    sync.Once
+	endpoint    string
+	token       string
+	client      *http.Client
+	queue       chan item
+	retryMin    time.Duration
+	retryMax    time.Duration
+	logger      *slog.Logger
+	closing     chan struct{}
+	done        chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
+	stateMu     sync.Mutex
+	closed      bool
+	queueFull   bool
+	random      io.Reader
+	beforeQueue func()
+	close       sync.Once
 }
 
 func New(cfg Config, logger *slog.Logger) (*Shipper, error) {
@@ -68,26 +72,43 @@ func New(cfg Config, logger *slog.Logger) (*Shipper, error) {
 		client: &http.Client{Timeout: cfg.RequestTimeout, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		queue:  make(chan item, cfg.QueueCapacity), retryMin: cfg.RetryMin, retryMax: cfg.RetryMax,
 		logger: logger, closing: make(chan struct{}), done: make(chan struct{}), ctx: workerContext, cancel: workerCancel,
+		random: cryptorand.Reader,
 	}
 	go s.run()
 	return s, nil
 }
 
 func (s *Shipper) Enqueue(body []byte) bool {
-	if s == nil || s.closed.Load() || len(body) == 0 {
+	if s == nil || len(body) == 0 {
 		return false
 	}
 	idBytes := make([]byte, 16)
-	if _, err := rand.Read(idBytes); err != nil {
+	if _, err := io.ReadFull(cryptorand.Reader, idBytes); err != nil {
 		s.logger.Warn("log remote copy dropped", "reason", "message_id_unavailable")
 		return false
 	}
 	entry := item{id: hex.EncodeToString(idBytes), body: append([]byte(nil), body...)}
+
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.closed {
+		return false
+	}
+	if s.beforeQueue != nil {
+		s.beforeQueue()
+	}
 	select {
 	case s.queue <- entry:
+		if s.queueFull {
+			s.queueFull = false
+			s.logger.Info("log remote queue restored", "reason", "queue_available")
+		}
 		return true
 	default:
-		s.logger.Warn("log remote copy dropped", "reason", "queue_full")
+		if !s.queueFull {
+			s.queueFull = true
+			s.logger.Warn("log remote copy dropped", "reason", "queue_full")
+		}
 		return false
 	}
 }
@@ -97,8 +118,10 @@ func (s *Shipper) Close(ctx context.Context) error {
 		return nil
 	}
 	s.close.Do(func() {
-		s.closed.Store(true)
+		s.stateMu.Lock()
+		s.closed = true
 		close(s.closing)
+		s.stateMu.Unlock()
 	})
 	select {
 	case <-s.done:
@@ -157,7 +180,7 @@ func (s *Shipper) deliver(entry item) bool {
 			s.logger.Warn("log remote delivery will retry", "reason", "transport_unavailable")
 			unavailableReported = true
 		}
-		timer := time.NewTimer(delay)
+		timer := time.NewTimer(jitterDelay(delay, s.retryMin, s.retryMax, s.random))
 		select {
 		case <-timer.C:
 		case <-s.ctx.Done():
@@ -173,6 +196,29 @@ func (s *Shipper) deliver(entry item) bool {
 			}
 		}
 	}
+}
+
+func jitterDelay(delay, minimum, maximum time.Duration, random io.Reader) time.Duration {
+	if minimum >= maximum {
+		return minimum
+	}
+	lower := delay - delay/5
+	upper := delay + delay/5
+	if lower < minimum {
+		lower = minimum
+	}
+	if upper > maximum {
+		upper = maximum
+	}
+	if upper <= lower || random == nil {
+		return lower
+	}
+	var value [8]byte
+	if _, err := io.ReadFull(random, value[:]); err != nil {
+		return delay
+	}
+	span := uint64(upper-lower) + 1
+	return lower + time.Duration(binary.LittleEndian.Uint64(value[:])%span)
 }
 
 func (s *Shipper) send(ctx context.Context, entry item) error {
