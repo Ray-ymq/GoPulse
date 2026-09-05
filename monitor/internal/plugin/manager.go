@@ -214,6 +214,13 @@ func (m *Manager) safeRemoveProcessRecord() {
 	m.safeRemove(processRecordPath(m.pluginDir()))
 }
 
+func (m *Manager) safeRemoveProcessRecordIfMatches(expected processRecord) {
+	current, err := loadProcessRecord(m.pluginDir())
+	if err == nil && current == expected {
+		m.safeRemoveProcessRecord()
+	}
+}
+
 func (m *Manager) begin() error {
 	select {
 	case m.operation <- struct{}{}:
@@ -693,24 +700,37 @@ func (m *Manager) watch(id string, runtime *runtimeProcess) {
 		if !ok || runtime.intentional.Load() {
 			return
 		}
-		m.safeRemoveProcessRecord()
-		_ = m.disableMetrics(context.Background())
-		m.mu.Lock()
-		if m.runtimes[id] != runtime {
-			m.mu.Unlock()
-			return
-		}
-		delete(m.runtimes, id)
-		entry, exists := m.registry.Plugins[id]
-		if !exists {
-			m.mu.Unlock()
-			return
-		}
-		failure := &SafeError{Code: "process_exited", Message: "plugin process exited unexpectedly", At: m.cfg.Now().UTC()}
-		m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedFailed, failure), m.states[id])
-		m.mu.Unlock()
-		m.recordEvent(events.NewPluginExited(entry.CurrentVersion, m.cfg.Now()))
+		m.handleUnexpectedExit(id, runtime)
 	}()
+}
+
+func (m *Manager) handleUnexpectedExit(id string, runtime *runtimeProcess) {
+	// Serialize exit handling with lifecycle operations so a stale watcher can
+	// never cross the generation boundary established by a replacement Start.
+	m.operation <- struct{}{}
+	defer m.end()
+	if runtime.intentional.Load() {
+		return
+	}
+
+	m.mu.Lock()
+	if m.runtimes[id] != runtime {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.runtimes, id)
+	entry, exists := m.registry.Plugins[id]
+	if !exists {
+		m.mu.Unlock()
+		return
+	}
+	failure := &SafeError{Code: "process_exited", Message: "plugin process exited unexpectedly", At: m.cfg.Now().UTC()}
+	m.states[id] = preserveMetrics(statusFromEntry(entry, ObservedFailed, failure), m.states[id])
+	m.mu.Unlock()
+
+	m.safeRemoveProcessRecordIfMatches(runtime.record)
+	_ = m.disableMetricsForOperation()
+	m.recordEvent(events.NewPluginExited(entry.CurrentVersion, m.cfg.Now()))
 }
 
 func (m *Manager) Shutdown(ctx context.Context) error {

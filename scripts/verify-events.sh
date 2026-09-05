@@ -233,6 +233,11 @@ grep -q 'record permanently rejected' "$TEMP_DIR/marshaller.log" || fail 'Marsha
 
 info 'Proving Elasticsearch outage holds the formal group offset until recovery.'
 docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" stop elasticsearch >/dev/null
+api 503 "http://127.0.0.1:$BACKEND_PORT/api/v1/observability/events"
+python3 - "$TEMP_DIR/api.json" <<'PY'
+import json,sys
+assert json.load(open(sys.argv[1]))['error']['code']=='events_unavailable'
+PY
 api 200 -X POST "http://127.0.0.1:$BACKEND_PORT/api/v1/exporter-plugins/redis-exporter/stop"
 sleep 2
 OFFSET_DURING_1=$(docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:19092 --group gopulse-marshaller-metrics-v1 --describe 2>/dev/null | awk '$1=="gopulse-marshaller-metrics-v1" && $2=="gopulse-observability-v1" {print $4; exit}')
@@ -264,6 +269,17 @@ PY
   sleep .25
 done
 ((FOUND==1)) || { cat "$TEMP_DIR/events.json" >&2 || true; curl -sS "http://127.0.0.1:$ES_PORT/gopulse-events-v1-read/_search?size=100" >&2 || true; cat "$TEMP_DIR/monitor.log" "$TEMP_DIR/router.log" "$TEMP_DIR/marshaller.log" >&2 || true; fail 'Admin query did not observe all lifecycle events.'; }
+
+curl -fsS -b "$ADMIN_COOKIE" "http://127.0.0.1:$BACKEND_PORT/api/v1/observability/events?source=monitor&plugin_id=redis-exporter&limit=1" >"$TEMP_DIR/events-page-1.json"
+CURSOR=$(python3 -c 'import json,sys; value=json.load(open(sys.argv[1]))["meta"]["next_cursor"]; assert value; print(value)' "$TEMP_DIR/events-page-1.json")
+ENCODED_CURSOR=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$CURSOR")
+curl -fsS -b "$ADMIN_COOKIE" "http://127.0.0.1:$BACKEND_PORT/api/v1/observability/events?cursor=$ENCODED_CURSOR" >"$TEMP_DIR/events-page-2.json"
+python3 - "$TEMP_DIR/events-page-1.json" "$TEMP_DIR/events-page-2.json" <<'PY'
+import json,sys
+first,second=(json.load(open(path)) for path in sys.argv[1:])
+assert len(first['data'])==1 and len(second['data'])==1
+assert first['data'][0] != second['data'][0]
+PY
 
 curl -fsS "http://127.0.0.1:$ES_PORT/_index_template/gopulse-events-v1-template" >"$TEMP_DIR/template.json"
 curl -fsS "http://127.0.0.1:$ES_PORT/_alias/gopulse-events-v1-read" >"$TEMP_DIR/alias.json"
