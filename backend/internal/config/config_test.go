@@ -64,6 +64,10 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["OUTBOX_CLEANUP_INTERVAL"] = "30m"
 	env["OUTBOX_PUBLISHED_RETENTION"] = "720h"
 	env["OUTBOX_CLEANUP_BATCH"] = "750"
+	env["BACKEND_VICTORIAMETRICS_URL"] = "https://vm.internal"
+	env["BACKEND_VICTORIAMETRICS_USERNAME"] = "metrics-reader"
+	env["BACKEND_VICTORIAMETRICS_PASSWORD"] = "metrics-reader-password-at-least-32-bytes"
+	env["BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT"] = "4s"
 
 	cfg, err := LoadFrom(mapLookup(env))
 	if err != nil {
@@ -78,6 +82,9 @@ func TestLoadFromOverrides(t *testing.T) {
 	}
 	if cfg.Redis.Host != "redis.internal" || cfg.Redis.Port != 16379 || cfg.Redis.DB != 3 {
 		t.Fatalf("unexpected Redis config: %#v", cfg.Redis)
+	}
+	if cfg.VictoriaMetrics.URL != "https://vm.internal" || cfg.VictoriaMetrics.Username != "metrics-reader" || cfg.VictoriaMetrics.RequestTimeout != 4*time.Second {
+		t.Fatalf("unexpected VictoriaMetrics config: %#v", cfg.VictoriaMetrics)
 	}
 	if cfg.Auth.JWTTTL != 30*time.Minute || cfg.Auth.CookieName != "custom_session" || !cfg.Auth.CookieSecure {
 		t.Fatalf("unexpected auth config: %#v", cfg.Auth)
@@ -94,7 +101,7 @@ func TestLoadFromOverrides(t *testing.T) {
 }
 
 func TestLoadFromMissingRequiredValue(t *testing.T) {
-	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_URL", "AUTH_JWT_SECRET", "MONITOR_API_TOKEN"} {
+	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_URL", "AUTH_JWT_SECRET", "MONITOR_API_TOKEN", "BACKEND_VICTORIAMETRICS_PASSWORD"} {
 		t.Run(key, func(t *testing.T) {
 			env := requiredEnvironment()
 			delete(env, key)
@@ -276,15 +283,30 @@ func TestLoadFromRejectsOutboxLeaseThatCannotCoverClaimBatch(t *testing.T) {
 	}
 }
 
+func TestLoadFromRejectsUnsafeVictoriaMetricsConfiguration(t *testing.T) {
+	for _, test := range []struct{ key, value string }{
+		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://user:pass@127.0.0.1:8428?query=secret"},
+		{key: "BACKEND_VICTORIAMETRICS_PASSWORD", value: "short"},
+		{key: "BACKEND_METRIC_QUERY_MAX_RANGE", value: "48h"},
+	} {
+		env := requiredEnvironment()
+		env[test.key] = test.value
+		if _, err := LoadFrom(mapLookup(env)); err == nil {
+			t.Fatalf("%s=%q was accepted", test.key, test.value)
+		}
+	}
+}
+
 func requiredEnvironment() map[string]string {
 	return map[string]string{
-		"MYSQL_DATABASE":    "gopulse",
-		"MYSQL_USER":        "gopulse",
-		"MYSQL_PASSWORD":    "mysql-secret",
-		"REDIS_PASSWORD":    "redis-secret",
-		"RABBITMQ_URL":      "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
-		"AUTH_JWT_SECRET":   "local-development-jwt-secret-32-bytes-minimum",
-		"MONITOR_API_TOKEN": "local-monitor-api-token-at-least-32-bytes",
+		"MYSQL_DATABASE":                   "gopulse",
+		"MYSQL_USER":                       "gopulse",
+		"MYSQL_PASSWORD":                   "mysql-secret",
+		"REDIS_PASSWORD":                   "redis-secret",
+		"RABBITMQ_URL":                     "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
+		"AUTH_JWT_SECRET":                  "local-development-jwt-secret-32-bytes-minimum",
+		"MONITOR_API_TOKEN":                "local-monitor-api-token-at-least-32-bytes",
+		"BACKEND_VICTORIAMETRICS_PASSWORD": "local-victoriametrics-password-at-least-32-bytes",
 	}
 }
 

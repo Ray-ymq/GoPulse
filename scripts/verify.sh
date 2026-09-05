@@ -480,7 +480,7 @@ main() {
   es_port=$(elasticsearch_port) || return 1
   marshaller_token=$(config_port MARSHALLER_API_TOKEN local-marshaller-api-token-change-me-32-bytes) || return 1
   vm_username=$(config_port VICTORIAMETRICS_USERNAME gopulse-marshaller) || return 1
-  vm_password=$(config_port VICTORIAMETRICS_PASSWORD local-victoriametrics-password) || return 1
+  vm_password=$(config_port VICTORIAMETRICS_PASSWORD local-victoriametrics-password32) || return 1
   validate_port "$marshaller_port" && validate_port "$vm_port" && validate_port "$es_port" || { printf '[gopulse] ERROR: Marshaller or VictoriaMetrics port is invalid.\n' >&2; return 1; }
   exporter_port=$(exporter_http_port) || { printf '[gopulse] ERROR: Could not read REDIS_EXPORTER_HTTP_PORT.\n' >&2; return 1; }
   validate_port "$exporter_port" || { printf "[gopulse] ERROR: REDIS_EXPORTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$exporter_port" >&2; return 1; }

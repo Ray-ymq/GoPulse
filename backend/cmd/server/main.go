@@ -20,6 +20,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
+	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logship"
@@ -174,6 +175,11 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 	searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
 	searchHandler := searchpkg.NewHandler(searchService)
+	metricClient, err := metricquery.NewClient(cfg.VictoriaMetrics.URL, cfg.VictoriaMetrics.Username, cfg.VictoriaMetrics.Password, cfg.VictoriaMetrics.RequestTimeout)
+	if err != nil {
+		return errors.New("initialize VictoriaMetrics query client")
+	}
+	metricHandler := metricquery.NewHandler(metricquery.NewService(metricClient))
 	logRepository := logquery.NewElasticsearchRepository(elasticsearchClient)
 	logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
 	logHandler := logquery.NewHandler(logService)
@@ -200,6 +206,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Comments:        commentHandler,
 			Likes:           likeHandler,
 			Logs:            logHandler,
+			Metrics:         metricHandler,
 			Events:          eventHandler,
 			Notifications:   notificationHandler,
 			Search:          searchHandler,
