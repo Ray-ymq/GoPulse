@@ -309,6 +309,7 @@ jobs:
       AUTH_COOKIE_NAME: gopulse_integration_session
       AUTH_COOKIE_SECURE: "false"
       MONITOR_API_TOKEN: integration-monitor-token-at-least-32-bytes
+      BACKEND_VICTORIAMETRICS_PASSWORD: integration-victoriametrics-password-32-bytes
     defaults:
       run:
         working-directory: backend

@@ -79,4 +79,5 @@
 - Exporter 管理页面、上传/更新交互和四区域总览仍属于 Phase-11-02，本批未提前实现。
 - 页面不自动轮询，不提供任意 MetricsQL/PromQL/Elasticsearch DSL、全文检索、rate/聚合、告警或复杂图表。
 - Phase 8 单节点 VictoriaMetrics 仍复用 Marshaller Basic Auth 身份，这是总方案记录的本地 MVP 最小权限限制。
+- 首次 push 后远程 Integration job 在 migration 步骤暴露出 CI 环境缺少新增 `BACKEND_VICTORIAMETRICS_PASSWORD`；已在同一批次补齐该安全测试值并触发新的远程门禁。
 - PR、远程 checks 和主分支合入尚待执行；在这些远程条件成功前，Phase-11-01 不标记为最终完成。
