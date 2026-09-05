@@ -6,6 +6,8 @@ TOKEN_ID=
 PROJECT=
 TEMP_DIR=
 PIDS=()
+LAST_STARTED_PID=
+MARSHALLER_PID=
 
 info(){ printf '[verify-logs] %s\n' "$*"; }
 fail(){ printf '[verify-logs] ERROR: %s\n' "$*" >&2; return 1; }
@@ -98,11 +100,12 @@ mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/plugins"
 LOGGING=(LOG_MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN" LOG_SHIP_REQUEST_TIMEOUT=500ms LOG_SHIP_QUEUE_CAPACITY=64 LOG_SHIP_RETRY_MIN=20ms LOG_SHIP_RETRY_MAX=100ms LOG_SHIP_SHUTDOWN_TIMEOUT=2s)
 COMMON=(APP_ENV=test MYSQL_HOST=127.0.0.1 MYSQL_PORT="$MYSQL_PORT" MYSQL_DATABASE=gopulse_logs MYSQL_USER=gopulse MYSQL_PASSWORD="$MYSQL_PASSWORD" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 RABBITMQ_URL="amqp://gopulse:$MYSQL_PASSWORD@127.0.0.1:$RABBIT_PORT/" ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT" AUTH_JWT_SECRET="$JWT_SECRET" AUTH_COOKIE_NAME=gopulse_logs_session AUTH_COOKIE_SECURE=false MONITOR_URL="http://127.0.0.1:$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN")
 env "${COMMON[@]}" "$TEMP_DIR/bin/migrate" up >/dev/null
-start(){ local binary=$1 log=$2;shift 2;(exec env "$@" setsid "$binary") >"$log" 2>&1 & local pid=$!;PIDS+=("$pid:$binary");sleep .3;kill -0 "$pid" 2>/dev/null||{ cat "$log" >&2;fail "$binary failed to start";}; }
+start(){ local binary=$1 log=$2;shift 2;(exec env "$@" setsid "$binary") >"$log" 2>&1 & local pid=$!;LAST_STARTED_PID=$pid;PIDS+=("$pid:$binary");sleep .3;kill -0 "$pid" 2>/dev/null||{ cat "$log" >&2;fail "$binary failed to start";}; }
 wait_url(){ local url=$1 token=${2:-};for _ in {1..120};do if [[ -n $token ]];then curl -fsS --max-time 1 -H "Authorization: Bearer $token" "$url" >/dev/null 2>&1&&return 0;else curl -fsS --max-time 1 "$url" >/dev/null 2>&1&&return 0;fi;sleep .2;done;return 1; }
 start "$TEMP_DIR/bin/router" "$TEMP_DIR/router.log" ROUTER_HTTP_HOST=127.0.0.1 ROUTER_HTTP_PORT="$ROUTER_PORT" ROUTER_API_TOKEN="$ROUTER_TOKEN" ROUTER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT"
 wait_url "http://127.0.0.1:$ROUTER_PORT/ready" "$ROUTER_TOKEN"||{ cat "$TEMP_DIR/router.log";fail 'Router not ready'; }
 start "$TEMP_DIR/bin/marshaller" "$TEMP_DIR/marshaller.log" MARSHALLER_HTTP_HOST=127.0.0.1 MARSHALLER_HTTP_PORT="$MARSHALLER_PORT" MARSHALLER_API_TOKEN="$MARSHALLER_TOKEN" MARSHALLER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT" MARSHALLER_VM_URL="http://127.0.0.1:$VM_PORT" MARSHALLER_VM_USERNAME=gopulse-marshaller MARSHALLER_VM_PASSWORD="$VM_PASSWORD" MARSHALLER_ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT"
+MARSHALLER_PID=$LAST_STARTED_PID
 wait_url "http://127.0.0.1:$MARSHALLER_PORT/ready" "$MARSHALLER_TOKEN"||{ cat "$TEMP_DIR/marshaller.log";fail 'Marshaller not ready'; }
 start "$TEMP_DIR/bin/monitor" "$TEMP_DIR/monitor.log" MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" LOG_MONITOR_INGEST_TOKEN="$INGEST_TOKEN" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" MONITOR_ROUTER_URL="http://127.0.0.1:$ROUTER_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0
 wait_url "http://127.0.0.1:$MONITOR_PORT/ready" "$MONITOR_TOKEN"||{ cat "$TEMP_DIR/monitor.log";fail 'Monitor not ready'; }
@@ -324,7 +327,38 @@ PYINDEX
 STRICT_STATUS=$(curl -sS -o "$TEMP_DIR/strict-mapping.json" -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data-binary '{"unknown_field":true}' "http://127.0.0.1:$ES_PORT/$PHYSICAL_INDEX/_doc/strict-probe")
 [[ $STRICT_STATUS == 400 ]]||fail 'Strict log mapping accepted an unknown field.'
 if grep -Fq -- "$SENTINEL" "$TEMP_DIR/backend.log" "$TEMP_DIR/business-worker.log" "$TEMP_DIR/search-indexer.log" "$TEMP_DIR/search-reindex.log" "$TEMP_DIR/monitor.log" "$TEMP_DIR/router.log" "$TEMP_DIR/marshaller.log" "$TEMP_DIR/query.json" "$TEMP_DIR/validation-query.json" "$TEMP_DIR/reindex-query.json" "$TEMP_DIR/log-documents.json";then fail 'Sensitive sentinel leaked into logs, log-query responses, or Elasticsearch documents.';fi
+
+# Replace Elasticsearch with a genuinely empty cluster while Marshaller keeps the same process.
+# The next accepted record must recreate the template and a strict, aliased index before commit.
+RESET_ID=44444444444444444444444444444444
+RESET_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+RESET_BODY=$(printf '{"log_schema_version":1,"timestamp":"%s","level":"info","service":"backend","module":"lifecycle","message":"backend listening"}' "$RESET_TS")
+docker compose --project-name "$PROJECT" --file "$TEMP_DIR/compose.yaml" up -d --wait --force-recreate --renew-anon-volumes elasticsearch >/dev/null
+[[ $(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$ES_PORT/_index_template/gopulse-logs-v1-template") == 404 ]]||fail 'Replacement Elasticsearch cluster retained the log template.'
+[[ $(curl -sS "http://127.0.0.1:$ES_PORT/_cat/indices/gopulse-logs-v1-*?format=json") == '[]' ]]||fail 'Replacement Elasticsearch cluster retained a log index.'
+kill -0 "$MARSHALLER_PID" 2>/dev/null||fail 'Marshaller exited during Elasticsearch replacement.'
+[[ $(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $INGEST_TOKEN" -H 'Content-Type: application/json' -H "Idempotency-Key: $RESET_ID" --data-binary "$RESET_BODY" "http://127.0.0.1:$MONITOR_PORT/internal/v1/logs") == 202 ]]||fail 'Reset-recovery log was not accepted.'
+wait_document "$RESET_ID"||fail 'Marshaller did not rebuild the log contract after Elasticsearch replacement.'
+kill -0 "$MARSHALLER_PID" 2>/dev/null||fail 'Marshaller restarted during Elasticsearch replacement recovery.'
+curl -fsS "http://127.0.0.1:$ES_PORT/_index_template/gopulse-logs-v1-template" >"$TEMP_DIR/reset-template.json"
+curl -fsS "http://127.0.0.1:$ES_PORT/_alias/gopulse-logs-v1-read" >"$TEMP_DIR/reset-alias.json"
+RESET_INDEX=$(python3 - "$TEMP_DIR/reset-template.json" "$TEMP_DIR/reset-alias.json" <<'PYRESET'
+import json,re,sys
+template,aliases=(json.load(open(path)) for path in sys.argv[1:])
+entry=template['index_templates'][0]['index_template']
+assert entry['index_patterns']==['gopulse-logs-v1-*']
+assert entry['template']['mappings']['dynamic']=='strict'
+assert 'gopulse-logs-v1-read' in entry['template']['aliases']
+assert len(aliases)==1
+index=next(iter(aliases))
+assert re.fullmatch(r'gopulse-logs-v1-\d{4}\.\d{2}\.\d{2}',index)
+assert 'gopulse-logs-v1-read' in aliases[index]['aliases']
+print(index)
+PYRESET
+)
+RESET_STRICT_STATUS=$(curl -sS -o "$TEMP_DIR/reset-strict-mapping.json" -w '%{http_code}' -X PUT -H 'Content-Type: application/json' --data-binary '{"unknown_field":true}' "http://127.0.0.1:$ES_PORT/$RESET_INDEX/_doc/reset-strict-probe")
+[[ $RESET_STRICT_STATUS == 400 ]]||fail 'Replacement-cluster log index did not restore strict mapping.'
 PAGING_SUMMARY=$(python3 -c 'import json,sys;v=json.load(open(sys.argv[1]));print("{} pages/{} rows".format(v["pages"],v["rows"]))' "$TEMP_DIR/pagination-summary.json")
 info "Request logs passed for success=$REQUEST_ID validation=$VALIDATION_REQUEST_ID with $PAGING_SUMMARY."
 info "Background logs passed for post_event=$POST_EVENT comment_event=$COMMENT_EVENT fault_event=$FAULT_EVENT."
-info "Recovery and idempotency passed for recovery_id=$RECOVERY_ID replay_id=$REPLAY_ID index=$PHYSICAL_INDEX."
+info "Recovery and idempotency passed for recovery_id=$RECOVERY_ID replay_id=$REPLAY_ID reset_id=$RESET_ID reset_index=$RESET_INDEX."
