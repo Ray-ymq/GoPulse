@@ -39,14 +39,23 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 	}
-	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout})
+	eventMonitor, err := events.NewMonitor(events.Config{Capacity: cfg.EventQueueCapacity, Timeout: cfg.PublishTimeout, RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: messagePublisher, Logger: logger})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), cfg.EventShutdownTimeout)
+		_ = eventMonitor.Close(closeCtx)
+		cancel()
+	}()
+	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
 	if err != nil {
 		return err
 	}
 	metricsMonitor, err := collector.New(collector.Config{
 		Host: cfg.ExporterEnv["REDIS_EXPORTER_HTTP_HOST"], Port: cfg.ExporterEnv["REDIS_EXPORTER_HTTP_PORT"],
 		Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout,
-		Publisher: messagePublisher,
+		Publisher: messagePublisher, Events: eventMonitor,
 		Update: func(update collector.Update) {
 			manager.RecordMetrics(update.ScrapeAt, update.SuccessAt, update.ErrorCode, update.ErrorMessage)
 		},
@@ -55,16 +64,6 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	manager.AttachMetrics(metricsMonitor)
-	eventMonitor, err := events.NewMonitor(events.Config{Capacity: cfg.EventQueueCapacity, Timeout: cfg.PublishTimeout, RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: messagePublisher, Logger: logger})
-	if err != nil {
-		return err
-	}
-	manager.AttachEvents(eventMonitor)
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), cfg.EventShutdownTimeout)
-		_ = eventMonitor.Close(closeCtx)
-		cancel()
-	}()
 	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})
 	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
 	errs := make(chan error, 1)

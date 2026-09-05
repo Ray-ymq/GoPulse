@@ -20,11 +20,13 @@ const (
 
 type Metadata struct {
 	PluginID              string `json:"plugin_id"`
-	PluginVersion         string `json:"plugin_version"`
+	PluginVersion         string `json:"plugin_version,omitempty"`
 	PreviousPluginVersion string `json:"previous_plugin_version,omitempty"`
-	Operation             string `json:"operation"`
-	FromState             string `json:"from_state"`
-	ToState               string `json:"to_state"`
+	Operation             string `json:"operation,omitempty"`
+	FromState             string `json:"from_state,omitempty"`
+	ToState               string `json:"to_state,omitempty"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	ScrapeStatus          string `json:"scrape_status,omitempty"`
 }
 
 type Event struct {
@@ -47,61 +49,123 @@ type Envelope struct {
 }
 
 type specification struct {
-	message   string
-	operation string
-	from      string
-	to        string
-	update    bool
+	message  string
+	severity string
 }
 
 var specifications = map[string]specification{
-	"exporter_plugin_installed": {message: "exporter plugin installed", operation: "install", from: "not_installed", to: "running"},
-	"exporter_plugin_started":   {message: "exporter plugin started", operation: "start", from: "stopped", to: "running"},
-	"exporter_plugin_stopped":   {message: "exporter plugin stopped", operation: "stop", from: "running", to: "stopped"},
-	"exporter_plugin_updated":   {message: "exporter plugin updated", operation: "update", update: true},
+	"exporter_plugin_installed":    {message: "exporter plugin installed", severity: "info"},
+	"exporter_plugin_started":      {message: "exporter plugin started", severity: "info"},
+	"exporter_plugin_stopped":      {message: "exporter plugin stopped", severity: "info"},
+	"exporter_plugin_updated":      {message: "exporter plugin updated", severity: "info"},
+	"exporter_plugin_failed":       {message: "exporter plugin operation failed", severity: "error"},
+	"exporter_plugin_exited":       {message: "exporter plugin exited unexpectedly", severity: "error"},
+	"metrics_collection_failed":    {message: "metrics collection failed", severity: "warn"},
+	"metrics_collection_recovered": {message: "metrics collection recovered", severity: "info"},
+	"metrics_target_unavailable":   {message: "metrics target unavailable", severity: "warn"},
+	"metrics_target_recovered":     {message: "metrics target recovered", severity: "info"},
+}
+
+func event(name string, metadata Metadata, at time.Time) Event {
+	spec := specifications[name]
+	return Event{EventSchemaVersion: SchemaVersion, EventName: name, Source: Source, Severity: spec.severity, Timestamp: at.UTC().Format(time.RFC3339Nano), Message: spec.message, Metadata: metadata}
 }
 
 func New(name, version, previousVersion, from, to string, at time.Time) Event {
-	spec := specifications[name]
-	return Event{EventSchemaVersion: SchemaVersion, EventName: name, Source: Source, Severity: "info", Timestamp: at.UTC().Format(time.RFC3339Nano), Message: spec.message, Metadata: Metadata{PluginID: "redis-exporter", PluginVersion: version, PreviousPluginVersion: previousVersion, Operation: spec.operation, FromState: from, ToState: to}}
+	operations := map[string]string{"exporter_plugin_installed": "install", "exporter_plugin_started": "start", "exporter_plugin_stopped": "stop", "exporter_plugin_updated": "update"}
+	return event(name, Metadata{PluginID: "redis-exporter", PluginVersion: version, PreviousPluginVersion: previousVersion, Operation: operations[name], FromState: from, ToState: to}, at)
+}
+
+func NewPluginFailure(version, operation, errorCode, to string, at time.Time) Event {
+	return event("exporter_plugin_failed", Metadata{PluginID: "redis-exporter", PluginVersion: version, Operation: operation, ToState: to, ErrorCode: errorCode}, at)
+}
+
+func NewPluginExited(version string, at time.Time) Event {
+	return event("exporter_plugin_exited", Metadata{PluginID: "redis-exporter", PluginVersion: version, Operation: "start", ToState: "failed", ErrorCode: "process_exited"}, at)
+}
+
+func NewMetrics(name, errorCode, scrapeStatus string, at time.Time) Event {
+	operation := "scrape"
+	if errorCode == "publish_failed" {
+		operation = "publish"
+	}
+	return event(name, Metadata{PluginID: "redis-exporter", Operation: operation, ErrorCode: errorCode, ScrapeStatus: scrapeStatus}, at)
 }
 
 func Validate(event Event, now time.Time) error {
 	spec, ok := specifications[event.EventName]
-	if !ok || event.EventSchemaVersion != SchemaVersion || event.Source != Source || event.Severity != "info" || event.Message != spec.message {
+	if !ok || event.EventSchemaVersion != SchemaVersion || event.Source != Source || event.Severity != spec.severity || event.Message != spec.message {
 		return errors.New("event contract is invalid")
 	}
 	at, err := time.Parse(time.RFC3339Nano, event.Timestamp)
 	if err != nil || at.Location() != time.UTC || at.After(now.UTC().Add(5*time.Minute)) {
 		return errors.New("event timestamp is invalid")
 	}
+	if !validMetadata(event.EventName, event.Metadata) {
+		return errors.New("event metadata is invalid")
+	}
 	m := event.Metadata
-	if m.PluginID != "redis-exporter" || !validSemver(m.PluginVersion) || m.Operation != spec.operation {
-		return errors.New("event metadata is invalid")
-	}
-	if spec.update {
-		if !validSemver(m.PreviousPluginVersion) || !validState(m.FromState) || m.FromState != m.ToState {
-			return errors.New("event metadata is invalid")
-		}
-	} else if m.PreviousPluginVersion != "" || m.ToState != spec.to {
-		return errors.New("event metadata is invalid")
-	} else if event.EventName == "exporter_plugin_started" {
-		if m.FromState != "stopped" && m.FromState != "failed" {
-			return errors.New("event metadata is invalid")
-		}
-	} else if event.EventName == "exporter_plugin_stopped" {
-		if m.FromState != "running" && m.FromState != "failed" {
-			return errors.New("event metadata is invalid")
-		}
-	} else if m.FromState != spec.from {
-		return errors.New("event metadata is invalid")
-	}
-	for _, value := range []string{event.EventName, event.Source, event.Severity, event.Message, m.PluginID, m.PluginVersion, m.PreviousPluginVersion, m.Operation, m.FromState, m.ToState} {
+	for _, value := range []string{event.EventName, event.Source, event.Severity, event.Message, m.PluginID, m.PluginVersion, m.PreviousPluginVersion, m.Operation, m.FromState, m.ToState, m.ErrorCode, m.ScrapeStatus} {
 		if !safeString(value) {
 			return errors.New("event contains unsafe text")
 		}
 	}
 	return nil
+}
+
+func validMetadata(name string, m Metadata) bool {
+	if m.PluginID != "redis-exporter" {
+		return false
+	}
+	emptyFailure := m.ErrorCode == "" && m.ScrapeStatus == ""
+	switch name {
+	case "exporter_plugin_installed":
+		return emptyFailure && validSemver(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "install" && m.FromState == "not_installed" && m.ToState == "running"
+	case "exporter_plugin_started":
+		return emptyFailure && validSemver(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "start" && (m.FromState == "stopped" || m.FromState == "failed") && m.ToState == "running"
+	case "exporter_plugin_stopped":
+		return emptyFailure && validSemver(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "stop" && (m.FromState == "running" || m.FromState == "failed") && m.ToState == "stopped"
+	case "exporter_plugin_updated":
+		return emptyFailure && validSemver(m.PluginVersion) && validSemver(m.PreviousPluginVersion) && m.Operation == "update" && (m.FromState == "running" || m.FromState == "stopped") && m.FromState == m.ToState
+	case "exporter_plugin_failed":
+		return validSemver(m.PluginVersion) && m.PreviousPluginVersion == "" && m.FromState == "" && validState(m.ToState) && validPluginFailure(m.Operation, m.ErrorCode) && m.ScrapeStatus == ""
+	case "exporter_plugin_exited":
+		return validSemver(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "start" && m.FromState == "" && m.ToState == "failed" && m.ErrorCode == "process_exited" && m.ScrapeStatus == ""
+	case "metrics_collection_failed":
+		return m.PluginVersion == "" && m.PreviousPluginVersion == "" && m.FromState == "" && m.ToState == "" && validMetricsFailure(m.Operation, m.ErrorCode) && m.ScrapeStatus == ""
+	case "metrics_collection_recovered":
+		return metricsTransition(m, "success")
+	case "metrics_target_unavailable":
+		return metricsTransition(m, "target_unavailable")
+	case "metrics_target_recovered":
+		return metricsTransition(m, "success")
+	default:
+		return false
+	}
+}
+
+func validPluginFailure(operation, code string) bool {
+	allowed := map[string]map[string]bool{
+		"start":   {"start_failed": true},
+		"stop":    {"stop_failed": true},
+		"update":  {"update_failed": true, "rollback_failed": true},
+		"recover": {"recovery_failed": true, "recovery_invalid": true},
+	}
+	return allowed[operation][code]
+}
+
+func validMetricsFailure(operation, code string) bool {
+	if operation == "publish" {
+		return code == "publish_failed"
+	}
+	if operation != "scrape" {
+		return false
+	}
+	return map[string]bool{"scrape_timeout": true, "network_failed": true, "response_too_large": true, "parse_failed": true, "contract_invalid": true, "content_invalid": true, "http_invalid": true, "scrape_failed": true, "message_id_failed": true}[code]
+}
+
+func metricsTransition(m Metadata, status string) bool {
+	return m.PluginVersion == "" && m.PreviousPluginVersion == "" && m.Operation == "scrape" && m.FromState == "" && m.ToState == "" && m.ErrorCode == "" && m.ScrapeStatus == status
 }
 
 func CanonicalEnvelope(event Event, messageID string, now time.Time) ([]byte, error) {
@@ -168,7 +232,7 @@ func validState(value string) bool {
 	return value == "not_installed" || value == "stopped" || value == "running" || value == "failed"
 }
 func safeString(value string) bool {
-	if !utf8.ValidString(value) {
+	if !utf8.ValidString(value) || len(value) > 256 {
 		return false
 	}
 	for _, r := range value {

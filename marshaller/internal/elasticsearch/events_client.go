@@ -43,6 +43,9 @@ func (c *EventsClient) Write(ctx context.Context, body []byte) error {
 		return err
 	}
 	index := EventIndexPrefix + request.IndexDate
+	if err := c.ensureIndexMapping(ctx, index); err != nil {
+		return err
+	}
 	response, err := c.transport.do(ctx, http.MethodPut, "/"+index+"/_doc/"+request.MessageID, bytes.NewReader(request.Document))
 	if err != nil {
 		return err
@@ -93,6 +96,28 @@ func (c *EventsClient) ensureTemplate(ctx context.Context) error {
 	}
 	if json.Unmarshal(payload, &result) != nil || !result.Acknowledged {
 		return errors.New("Elasticsearch event template acknowledgement invalid")
+	}
+	return nil
+}
+
+func (c *EventsClient) ensureIndexMapping(ctx context.Context, index string) error {
+	response, err := c.transport.do(ctx, http.MethodPut, "/"+index+"/_mapping", strings.NewReader(eventMappingExtensionBody))
+	if err != nil {
+		return err
+	}
+	payload, readErr := readLimited(response.Body)
+	response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
+		return errors.New("Elasticsearch event mapping update unavailable")
+	}
+	var result struct {
+		Acknowledged bool `json:"acknowledged"`
+	}
+	if json.Unmarshal(payload, &result) != nil || !result.Acknowledged {
+		return errors.New("Elasticsearch event mapping acknowledgement invalid")
 	}
 	return nil
 }
@@ -152,10 +177,10 @@ func validEventMapping(payload []byte, index string) bool {
 		}
 	}
 	metadata := entry.Mappings.Properties["metadata"]
-	if metadata.Dynamic != "strict" || len(metadata.Properties) != 6 {
+	if metadata.Dynamic != "strict" || len(metadata.Properties) != 8 {
 		return false
 	}
-	for _, field := range []string{"plugin_id", "plugin_version", "previous_plugin_version", "operation", "from_state", "to_state"} {
+	for _, field := range []string{"plugin_id", "plugin_version", "previous_plugin_version", "operation", "from_state", "to_state", "error_code", "scrape_status"} {
 		if metadata.Properties[field].Type != "keyword" {
 			return false
 		}
@@ -178,4 +203,6 @@ func validEventAlias(payload []byte, index string) bool {
 	return ok
 }
 
-const eventTemplateBody = `{"index_patterns":["gopulse-events-v1-*"],"template":{"aliases":{"gopulse-events-v1-read":{}},"mappings":{"dynamic":"strict","properties":{"@timestamp":{"type":"date_nanos"},"event_schema_version":{"type":"integer"},"event_name":{"type":"keyword"},"source":{"type":"keyword"},"severity":{"type":"keyword"},"message":{"type":"keyword"},"metadata":{"type":"object","dynamic":"strict","properties":{"plugin_id":{"type":"keyword"},"plugin_version":{"type":"keyword"},"previous_plugin_version":{"type":"keyword"},"operation":{"type":"keyword"},"from_state":{"type":"keyword"},"to_state":{"type":"keyword"}}}}}}}`
+const eventMappingExtensionBody = `{"properties":{"metadata":{"properties":{"error_code":{"type":"keyword"},"scrape_status":{"type":"keyword"}}}}}`
+
+const eventTemplateBody = `{"index_patterns":["gopulse-events-v1-*"],"template":{"aliases":{"gopulse-events-v1-read":{}},"mappings":{"dynamic":"strict","properties":{"@timestamp":{"type":"date_nanos"},"event_schema_version":{"type":"integer"},"event_name":{"type":"keyword"},"source":{"type":"keyword"},"severity":{"type":"keyword"},"message":{"type":"keyword"},"metadata":{"type":"object","dynamic":"strict","properties":{"plugin_id":{"type":"keyword"},"plugin_version":{"type":"keyword"},"previous_plugin_version":{"type":"keyword"},"operation":{"type":"keyword"},"from_state":{"type":"keyword"},"to_state":{"type":"keyword"},"error_code":{"type":"keyword"},"scrape_status":{"type":"keyword"}}}}}}}`
