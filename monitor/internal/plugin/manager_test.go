@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 )
 
 func managerConfig(root, healthURL string) ManagerConfig {
@@ -249,5 +251,66 @@ func TestUpdateRegistryFailureRestoresMemoryCurrentAndDisk(t *testing.T) {
 	}
 	if err = manager.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type recordingEvents struct {
+	events []events.Event
+	accept bool
+}
+
+func (r *recordingEvents) Record(event events.Event) bool {
+	r.events = append(r.events, event)
+	return r.accept
+}
+
+func TestManagerRecordsOnlySuccessfulLifecycleTransitions(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","service":"redis-exporter"}`))
+	}))
+	defer health.Close()
+	manager, err := NewManager(context.Background(), managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingEvents{accept: false}
+	manager.AttachEvents(recorder)
+	executable, err := os.ReadFile("/usr/bin/yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Install(context.Background(), writeExecutablePackage(t, "1.7.0", executable)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Stop(context.Background(), PluginID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Stop(context.Background(), PluginID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Start(context.Background(), PluginID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Start(context.Background(), PluginID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Update(context.Background(), PluginID, writeExecutablePackage(t, "1.7.1", executable)); err != nil {
+		t.Fatal(err)
+	}
+	if err = manager.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"exporter_plugin_installed", "exporter_plugin_stopped", "exporter_plugin_started", "exporter_plugin_updated"}
+	if len(recorder.events) != len(want) {
+		t.Fatalf("events=%+v", recorder.events)
+	}
+	for i, name := range want {
+		if recorder.events[i].EventName != name {
+			t.Fatalf("event %d=%s want=%s", i, recorder.events[i].EventName, name)
+		}
+	}
+	if recorder.events[3].Metadata.PreviousPluginVersion != "1.7.0" || recorder.events[3].Metadata.PluginVersion != "1.7.1" {
+		t.Fatalf("update metadata=%+v", recorder.events[3].Metadata)
 	}
 }

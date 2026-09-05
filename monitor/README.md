@@ -27,3 +27,9 @@ Phase 8 keeps Monitor's publishing contract unchanged and adds the downstream Ma
 ## Application log ingest
 
 `POST /internal/v1/logs` accepts one Schema v1 log from the fixed `backend`, `business-worker`, `search-indexer`, or `search-reindex` service vocabulary, up to `MONITOR_LOG_MAX_BYTES` (default 65536). It requires the dedicated `LOG_MONITOR_INGEST_TOKEN`, a unique 32-character lowercase hexadecimal `Idempotency-Key`, exact `application/json`, and no content encoding. Valid logs are strictly cleaned and published as the matching `logs/<service>` Envelope v1 source; only Router `202 Accepted` becomes Monitor `202 Accepted`. Invalid entries receive a safe 4xx response and unavailable transport receives `503 transport_unavailable`. Request IDs remain Backend-request scoped, while Worker/Indexer correlation uses the existing event ID.
+
+## Lifecycle Events
+
+Successful Redis Exporter install, start, stop, and update transitions are recorded after the Plugin Manager commits the final runtime and persistent state. The in-process EventMonitor validates the fixed Events v1 vocabulary, creates a stable 32-character lowercase hexadecimal message ID, and places the canonical `events/monitor` Envelope in a bounded queue. `Record` never waits for the Router and an enqueue or transport failure never changes the plugin API result. A single worker retries temporary Router failures with bounded backoff, skips deterministic 4xx rejections, and drains accepted records for at most `MONITOR_EVENT_SHUTDOWN_TIMEOUT` during shutdown. Queue and transport state logs never contain event bodies, URLs, tokens, or underlying errors.
+
+The queue defaults to 256 entries (`MONITOR_EVENT_QUEUE_CAPACITY`), retry bounds default to `250ms` and `5s`, shutdown drain defaults to `5s`, and `MONITOR_EVENT_MAX_BYTES` is fixed at 16384. Monitor shutdown itself does not emit a plugin-stopped event. See `docs/events-v1.md` and `scripts/verify-events.sh`.

@@ -13,6 +13,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/consumer"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/elasticsearch"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	eventtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/events"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/httpserver"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/logging"
 	logtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/logs"
@@ -33,14 +34,17 @@ func (l processorLogger) Accepted(r consumer.Record) {
 }
 
 type storageReadiness struct {
-	vm, logs interface{ Ready(context.Context) error }
+	vm, logs, events interface{ Ready(context.Context) error }
 }
 
 func (s storageReadiness) Ready(ctx context.Context) error {
 	if s.vm.Ready(ctx) != nil {
 		return errors.New("VictoriaMetrics unavailable")
 	}
-	return s.logs.Ready(ctx)
+	if s.logs.Ready(ctx) != nil {
+		return errors.New("Elasticsearch logs unavailable")
+	}
+	return s.events.Ready(ctx)
 }
 
 func main() {
@@ -62,6 +66,11 @@ func main() {
 		logger.Error("Elasticsearch client initialization failed", "module", "storage", "event", "startup_failed")
 		os.Exit(1)
 	}
+	eventStore, err := elasticsearch.NewEvents(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	if err != nil {
+		logger.Error("Elasticsearch events client initialization failed", "module", "storage", "event", "startup_failed")
+		os.Exit(1)
+	}
 	processor := &consumer.Processor{
 		Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew},
 		Targets: map[string]consumer.Target{
@@ -70,10 +79,11 @@ func main() {
 			"logs/business-worker": {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
 			"logs/search-indexer":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
 			"logs/search-reindex":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"events/monitor":       {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024}, Writer: eventStore},
 		},
 		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, Logger: processorLogger{logger},
 	}
-	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafka, storageReadiness{vm: vm, logs: logStore}, logger)
+	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafka, storageReadiness{vm: vm, logs: logStore, events: eventStore}, logger)
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	serveErrors := make(chan error, 1)

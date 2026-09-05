@@ -203,6 +203,16 @@ check_log_pipeline() {
   if [[ $status == 200 ]]; then pass 'Elasticsearch log alias' 'fixed read alias is available.'; else fail 'Elasticsearch log alias' "returned HTTP $status."; fi
 }
 
+check_event_pipeline() {
+  local backend_port=$1 elasticsearch_port=$2 body="$TEMP_DIR/event-storage.json" status
+  status=$(curl --silent --show-error --max-time 3 --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$backend_port/api/v1/observability/events") || status=000
+  if [[ $status == 401 ]]; then pass 'Backend Events API route' 'authenticated admin endpoint is registered without creating an event.'; else fail 'Backend Events API route' "route contract mismatch (HTTP $status)."; fi
+  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_index_template/gopulse-events-v1-template") || status=000
+  if [[ $status == 200 ]]; then pass 'Elasticsearch event template' 'fixed template is available.'; else fail 'Elasticsearch event template' "returned HTTP $status."; fi
+  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_alias/gopulse-events-v1-read") || status=000
+  if [[ $status == 200 || $status == 404 ]]; then pass 'Elasticsearch event alias' 'fixed read alias is available or no event index exists yet.'; else fail 'Elasticsearch event alias' "returned HTTP $status."; fi
+}
+
 check_victoriametrics() {
   local port=$1 username=$2 password=$3 body="$TEMP_DIR/vm-query.json" status volume details
   volume="${PROJECT_NAME}_victoriametrics_data"
@@ -492,6 +502,7 @@ main() {
   check_marshaller_http "$marshaller_port" "$marshaller_token"
   check_victoriametrics "$vm_port" "$vm_username" "$vm_password"
   check_log_pipeline "$monitor_port" "$es_port"
+  check_event_pipeline "$port" "$es_port"
   if curl -fsS --max-time 3 "http://127.0.0.1:$monitor_port/health" >/dev/null; then pass 'Monitor /health' 'HTTP 200.'; else fail 'Monitor /health' 'request failed.'; fi
   check_monitor_plugin_version "$monitor_port" "$monitor_token"
   check_exporter_health "$exporter_port"

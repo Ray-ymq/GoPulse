@@ -3,6 +3,7 @@ package http
 import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
+	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
@@ -18,6 +19,7 @@ type APIRoutes struct {
 	Comments        *comment.Handler
 	Likes           *like.Handler
 	Logs            *logquery.Handler
+	Events          *eventquery.Handler
 	Notifications   *notification.Handler
 	Search          *search.Handler
 	Authentication  gin.HandlerFunc
@@ -62,10 +64,15 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		protected.GET("/notifications", routes.Notifications.List)
 		protected.PATCH("/notifications/:notificationId/read", routes.Notifications.MarkRead)
 	}
-	if routes.Logs != nil && routes.Authorization != nil {
+	if (routes.Logs != nil || routes.Events != nil) && routes.Authorization != nil {
 		observability := protected.Group("/observability")
 		observability.Use(routes.Authorization)
-		observability.GET("/logs", routes.Logs.List)
+		if routes.Logs != nil {
+			observability.GET("/logs", routes.Logs.List)
+		}
+		if routes.Events != nil {
+			observability.GET("/events", routes.Events.List)
+		}
 	}
 	if routes.ExporterPlugins != nil && routes.Authorization != nil {
 		plugins := protected.Group("/exporter-plugins")
