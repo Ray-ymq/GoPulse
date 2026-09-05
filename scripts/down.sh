@@ -10,9 +10,9 @@ MARSHALLER_DIR="$REPO_ROOT/marshaller"
 REDIS_EXPORTER_DIR="$REPO_ROOT/exporters/redis"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
-ENV_FILE="$REPO_ROOT/.env"
+ENV_FILE=${GOPULSE_ENV_FILE:-"$REPO_ROOT/.env"}
 ENV_EXAMPLE_FILE="$REPO_ROOT/.env.example"
-RUN_DIR="$REPO_ROOT/.run"
+RUN_DIR=${GOPULSE_RUN_DIR:-"$REPO_ROOT/.run"}
 LOCK_PATH="$RUN_DIR/dev.lock"
 BACKEND_RECORD="$RUN_DIR/backend.json"
 WORKER_RECORD="$RUN_DIR/business-worker.json"
@@ -30,7 +30,7 @@ ROUTER_BINARY="$RUN_DIR/bin/gopulse-router"
 MARSHALLER_BINARY="$RUN_DIR/bin/gopulse-marshaller"
 LEGACY_EXPORTER_BINARY="$RUN_DIR/bin/gopulse-redis-exporter"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
-PROJECT_NAME=gopulse
+PROJECT_NAME=${GOPULSE_PROJECT_NAME:-gopulse}
 COMPOSE_KEYS=(
   MYSQL_DATABASE MYSQL_USER MYSQL_PASSWORD MYSQL_ROOT_PASSWORD MYSQL_PORT
   REDIS_PASSWORD REDIS_PORT RABBITMQ_USER RABBITMQ_PASSWORD
@@ -39,6 +39,22 @@ COMPOSE_KEYS=(
 )
 declare -A DOTENV=()
 declare -A DEFAULTS=([ELASTICSEARCH_PORT]=9200 [KAFKA_PORT]=9092 [VICTORIAMETRICS_PORT]=8428 [VICTORIAMETRICS_USERNAME]=gopulse-marshaller [VICTORIAMETRICS_PASSWORD]=local-victoriametrics-password32)
+
+validate_workspace_scope() {
+  if [[ $PROJECT_NAME != gopulse && ! $PROJECT_NAME =~ ^gopulse-observability-[0-9a-f]{12}$ ]]; then
+    printf '[gopulse] ERROR: GOPULSE_PROJECT_NAME must be gopulse or an owned observability acceptance project.\n' >&2
+    return 1
+  fi
+  if [[ $PROJECT_NAME != gopulse ]]; then
+    local resolved_env resolved_run
+    resolved_env=$(realpath -m -- "$ENV_FILE") || return 1
+    resolved_run=$(realpath -m -- "$RUN_DIR") || return 1
+    if [[ $resolved_env != /tmp/* || $resolved_run != /tmp/* ]]; then
+      printf '[gopulse] ERROR: Acceptance environment and run directories must resolve under /tmp.\n' >&2
+      return 1
+    fi
+  fi
+}
 
 info() {
   printf '[gopulse] %s\n' "$*"
@@ -206,6 +222,7 @@ compose_down() {
 }
 
 main() {
+  validate_workspace_scope || return 1
   command -v python3 >/dev/null 2>&1 || { fail 'python3 is required to validate process records.'; return 1; }
   command -v flock >/dev/null 2>&1 || { fail 'flock is required to manage the development run lock.'; return 1; }
   stop_recorded_application Frontend "$FRONTEND_RECORD" "$FRONTEND_DIR" "$VITE_CONFIG" "$(command -v node 2>/dev/null || true)"

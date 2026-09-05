@@ -34,6 +34,7 @@ MONITOR_PACKAGE="$RUN_DIR/packages/gopulse-redis-exporter-$(tr -d '[:space:]' < 
 VITE_CLI="$FRONTEND_DIR/node_modules/vite/bin/vite.js"
 VITE_CONFIG="$FRONTEND_DIR/vite.config.ts"
 PROJECT_NAME=${GOPULSE_PROJECT_NAME:-gopulse}
+MONITOR_PLUGIN_BOOTSTRAP=${GOPULSE_MONITOR_PLUGIN_BOOTSTRAP:-ensure}
 LOCK_FD=9
 LOCK_OWNED=0
 LOCK_TOKEN=
@@ -972,6 +973,11 @@ PYMON
   local base="http://${CONFIG[MONITOR_HTTP_HOST]}:${CONFIG[MONITOR_HTTP_PORT]}" status response="$RUN_DIR/monitor-plugin-response.json"
   for _ in {1..50}; do curl -fsS --max-time 1 -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" "$base/ready" >/dev/null 2>&1 && break; sleep 0.1; done
   status=$(curl -sS --max-time 3 -o "$response" -w '%{http_code}' -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" "$base/internal/v1/exporter-plugins/redis-exporter") || return 1
+  if [[ $MONITOR_PLUGIN_BOOTSTRAP == skip ]]; then
+    [[ $status == 404 ]] || { fail "Monitor plugin bootstrap skip requires an empty isolated plugin root (HTTP $status)."; return 1; }
+    info 'Monitor is ready with an empty plugin root for isolated browser installation acceptance.'
+    return 0
+  fi
   if [[ $status == 404 ]]; then
     status=$(curl -sS --max-time 30 -o "$response" -w '%{http_code}' -H "Authorization: Bearer ${CONFIG[MONITOR_API_TOKEN]}" -F "package=@$MONITOR_PACKAGE" "$base/internal/v1/exporter-plugins/install") || return 1
     [[ $status == 201 ]] || { fail "Monitor plugin installation returned HTTP $status."; return 1; }
@@ -996,7 +1002,7 @@ start_frontend() {
   local -a unset_args=() key
   for key in "${ALL_CONFIG_KEYS[@]}"; do unset_args+=("-u" "$key"); done
   info 'Starting Frontend.'
-  env "${unset_args[@]}" "HTTP_PORT=${CONFIG[HTTP_PORT]}" python3 - "$FRONTEND_DIR" "$(command -v node)" "$VITE_CLI" --host localhost --port "${CONFIG[FRONTEND_PORT]}" --strictPort --config "$VITE_CONFIG" <<'PY' &
+  env "${unset_args[@]}" "HTTP_PORT=${CONFIG[HTTP_PORT]}" python3 - "$FRONTEND_DIR" "$(command -v node)" "$VITE_CLI" --host 127.0.0.1 --port "${CONFIG[FRONTEND_PORT]}" --strictPort --config "$VITE_CONFIG" <<'PY' &
 import os
 import sys
 cwd, executable, *arguments = sys.argv[1:]
@@ -1070,6 +1076,10 @@ trap on_signal INT TERM
 
 main() {
   validate_workspace_scope || return 1
+  if [[ $MONITOR_PLUGIN_BOOTSTRAP != ensure && $MONITOR_PLUGIN_BOOTSTRAP != skip ]]; then
+    fail 'GOPULSE_MONITOR_PLUGIN_BOOTSTRAP must be ensure or skip.'
+    return 1
+  fi
   require_tools || return 1
   acquire_lock || return 1
   reject_or_remove_record Backend "$BACKEND_RECORD" "$BACKEND_DIR" "$BACKEND_BINARY" "$BACKEND_BINARY" || return 1

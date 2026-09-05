@@ -58,7 +58,7 @@ export function createAppRouter(history = createWebHistory()): Router {
         return { path: '/auth-recovery', query: { redirect: to.fullPath } }
       }
     }
-    if (to.meta.requiresAuth && auth.status.value !== 'authenticated') return '/login'
+    if (to.meta.requiresAuth && auth.status.value !== 'authenticated') return { path: '/login', query: { redirect: to.fullPath } }
     if (to.meta.requiresAdmin) {
       try { await auth.refresh() } catch {
         if (auth.status.value !== 'authenticated') return '/login'
