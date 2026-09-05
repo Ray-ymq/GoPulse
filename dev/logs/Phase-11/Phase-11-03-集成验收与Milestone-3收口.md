@@ -6,7 +6,7 @@
 - 开发分支：`develop/1.8.3`
 - 开工基线：`upstream/main` / `b6697c6`
 - 目标版本：`1.8.3`
-- 当前结论：本地实现和固定验收已通过；Pull Request、权威远程固定门禁与主远程合入尚未发生，因此本记录暂不宣称 Phase 11 或 Milestone 3 最终完成。
+- 当前结论：已完成。Pull Request #100 于 2026-09-05 合入主远程 `main`，权威远程运行 `33970855739` 第 2 次尝试的全部固定 jobs 成功，主远程落点为 `ae267b6`；Phase 11 与 Milestone 3“完整可观测 MVP”完成。
 
 ## 2. 实际完成工作
 
@@ -84,7 +84,13 @@
 
 Backend 日志保存于 `/tmp/gopulse-phase-11-03-final-backend.log`，Frontend 日志保存于 `/tmp/gopulse-phase-11-03-final-frontend.log`，静态/治理日志保存于 `/tmp/gopulse-phase-11-03-final-static.log`，最终浏览器主闭环日志保存于 `/tmp/gopulse-phase-11-03-observability-ui-ipv4.log`。这些是本机临时证据，不纳入提交。
 
-远程门禁、PR 和 merge 证据仅在真实观察后补写。
+### 4.3 远程门禁、Pull Request 与合入
+
+- 首次 push 运行 `33969569019`：除新增浏览器 job 外的既有固定 jobs 成功；浏览器 job 因冷 runner 在 180 秒内未完成镜像拉取与编译而失败，未创建 PR。
+- 第二次 push 运行 `33970060353`：既有 11 个产品/治理 jobs 成功；浏览器 job暴露 Ubuntu 上 `localhost` 仅绑定 IPv6、IPv4 探针不可达，未创建 PR。
+- 修复 IPv4 loopback 后，运行 `33970855739` 第 1 次尝试中新增 `Observability browser acceptance` 成功，证明远程真实 Chromium 主闭环成立；独立 Integration job 因 MySQL 在首次 migration 中断连接后留下 dirty version 暂时失败，属于已记录的 runner 启动瞬态，并非本批产品 diff 回归。
+- 对同一提交只重跑失败 job。运行 `33970855739` 第 2 次尝试的 Branch governance、Backend、Integration、Message Router、Marshaller、Backend log pipeline、Plugin lifecycle Events pipeline、Monitor、Redis Exporter、Frontend、Scripts and Compose、Observability browser acceptance 全部成功。
+- 自动化创建并 squash merge Pull Request #100；2026-09-05 22:15:55（Asia/Shanghai）合入主远程 `main`，落点 `ae267b6d0b06a1d3379f6eed25d7c20ea0336604`，远程 `develop/1.8.3` 已删除。
 
 ## 5. 计划偏差与处理
 
