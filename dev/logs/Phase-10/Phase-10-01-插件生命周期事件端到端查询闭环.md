@@ -6,7 +6,7 @@
 - 开发分支：`develop/1.7.1`。
 - 开工前执行 `git fetch upstream --prune`，以 `upstream/main` 的 `e6557e6` 为基线；根 `VERSION`、`frontend/package.json` 与 `frontend/package-lock.json` 均为 `1.6.4`。
 - 原工作区 `/home/ray/GoPulse` 在开工前存在用户自有的未提交日志目录移动和 `使用指南.md`，因此使用独立工作树 `/home/ray/GoPulse-phase-10-01` 从 `upstream/main` 创建本批分支，未暂存、修改或清理原工作区改动。
-- 本地实现、固定门禁和真实隔离闭环已通过。按照实施方案的完成条件，Pull Request、远程固定门禁和合入 `main` 尚未发生时，本批不标记为正式完成。
+- 本地实现、固定门禁和真实隔离闭环已通过。实现提交为 `a1ee27e`，Pull Request #89 于 2026-09-05 通过远程 `Auto PR and Merge` 固定门禁（run `33952342892`）并合入主远程 `main`；合入提交为 `50cb497`。本批完成条件已满足。
 
 ## 2. 实际完成工作
 
@@ -126,4 +126,13 @@ git diff --check
 - EventMonitor 源端是内存有界 best-effort queue；Monitor 进程崩溃不会持久化未发送事件，不宣称 exactly-once。Router 接受后的 Kafka/Marshaller/Elasticsearch 路径保持现有至少一次重试与 `_id` 幂等收敛。
 - 未增加 Frontend Events 页面、告警、聚合、全文检索、ILM、独立 Topic/group 或应用容器镜像。
 - 原生 PowerShell 文件未修改，未执行原生 Windows 验收。
-- 正式批次完成仍取决于本提交 push 后的 Pull Request、远程固定门禁成功和合入主远程 `main`；在这些条件满足前，方案状态保持“待远程合入”。
+- Pull Request #89、远程固定门禁和主远程 `main` 合入均已完成；后续工作从 Phase-10-02 的独立 `develop/1.7.2` 分支开始，不继续使用本批分支。
+
+## 7. 远程收口
+
+- 本地实现提交：`a1ee27e feat: add plugin lifecycle event query pipeline`。
+- 推送分支：`develop/1.7.1`；推送前分支治理通过，远程自动合入后分支已删除。
+- Pull Request：#89，标题 `feat: add plugin lifecycle event query pipeline`。
+- 远程门禁：GitHub Actions `Auto PR and Merge` run `33952342892`，结论 `success`。
+- 主远程合入：`upstream/main` / `origin/main` 的 `50cb497 feat: add plugin lifecycle event query pipeline (#89)`。
+- 本状态更新属于 `update` 规划分支范围，不改变产品版本 `1.7.1`。
