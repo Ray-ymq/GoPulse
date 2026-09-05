@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **1.5.3**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8 closes Milestone 2 with the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, authenticated single-node VictoriaMetrics storage/query, bounded dependency recovery, permanent-invalid continuation, deterministic replay, internal access isolation, and the full real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics matrix. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages.
+GoPulse is currently at product version **1.7.1**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8 closes Milestone 2 with the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, authenticated single-node VictoriaMetrics storage/query, bounded dependency recovery, permanent-invalid continuation, deterministic replay, internal access isolation, and the full real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics matrix. Phase 9 adds strict application-log transport, Elasticsearch storage, and administrator querying. Phase 10 now begins with successful Redis Exporter lifecycle Events flowing through the same Router/Kafka transport into an isolated strict Events index and an administrator-only query API. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages.
 
 The repository currently provides:
 
@@ -15,8 +15,9 @@ The repository currently provides:
 - transactional `post.created` Outbox delivery through an isolated RabbitMQ topology and Search Indexer;
 - single-line Schema v1 JSON lifecycle, HTTP, Outbox, Worker, Indexer, reindex, and Redis Exporter logs with bounded safe fields;
 - an independent Redis Exporter whose `/health` reports process liveness and whose `/metrics` returns a complete current Prometheus snapshot or isolated `up 0`;
+- bounded successful plugin lifecycle Events with Router/Kafka transport, idempotent strict Elasticsearch storage, and `GET /api/v1/observability/events` behind real-time administrator authorization;
 - a loopback Message Router with strict Envelope v1 boundaries, Bearer service identity, explicit `metrics` routing, acknowledged Kafka production, and original-body byte preservation;
-- a loopback Marshaller with strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, deterministic Prometheus text conversion, and authenticated VictoriaMetrics writes/readiness;
+- a loopback Marshaller with strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, deterministic Prometheus text conversion, authenticated VictoriaMetrics writes, and isolated strict Logs and Events Elasticsearch targets;
 - WSL/Bash lifecycle scripts, read-only runtime verification, and destructive-but-isolated business/search acceptance scripts;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
@@ -93,6 +94,7 @@ A failed migration or application startup stops only the Backend, Business Worke
 | Redis Exporter health | `http://localhost:9121/health` |
 | Redis Prometheus metrics | `http://localhost:9121/metrics` |
 | Authentication API | `http://localhost:8080/api/v1` |
+| Admin Events API | `http://localhost:8080/api/v1/observability/events` |
 | RabbitMQ management | `http://localhost:15672` |
 | Elasticsearch (loopback only) | `http://localhost:9200` |
 | MySQL | `localhost:3306` |
@@ -125,6 +127,13 @@ The no-Docker negative safety checks can be run independently:
 
 ```bash
 scripts/verify-business.sh --self-test
+```
+
+Lifecycle Events acceptance is likewise isolated and uses real Backend administrator plugin operations rather than direct Elasticsearch fixtures:
+
+```bash
+scripts/verify-events.sh --self-test
+scripts/verify-events.sh
 ```
 
 Message Router transport acceptance is isolated and destructive only inside a random owned Compose project. It proves strict authentication and Envelope rejection, original HTTP-body bytes and `message_id` record keys, real Monitor `success` and `target_unavailable` messages, Kafka stop/recovery without restarting Router or Monitor, bounded Consumer evidence, and complete process/container/network/volume cleanup:

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/monitor/internal/config"
+	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/httpserver"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/collector"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/publisher"
@@ -54,6 +55,16 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	manager.AttachMetrics(metricsMonitor)
+	eventMonitor, err := events.NewMonitor(events.Config{Capacity: cfg.EventQueueCapacity, Timeout: cfg.PublishTimeout, RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: messagePublisher, Logger: logger})
+	if err != nil {
+		return err
+	}
+	manager.AttachEvents(eventMonitor)
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), cfg.EventShutdownTimeout)
+		_ = eventMonitor.Close(closeCtx)
+		cancel()
+	}()
 	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})
 	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
 	errs := make(chan error, 1)
@@ -70,9 +81,15 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		serverErr := server.Shutdown(shutdownCtx)
 		managerErr := manager.Shutdown(shutdownCtx)
+		eventCtx, eventCancel := context.WithTimeout(context.Background(), cfg.EventShutdownTimeout)
+		eventErr := eventMonitor.Close(eventCtx)
+		eventCancel()
 		if serverErr != nil {
 			return serverErr
 		}
-		return managerErr
+		if managerErr != nil {
+			return managerErr
+		}
+		return eventErr
 	}
 }
