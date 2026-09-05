@@ -15,6 +15,7 @@ class VersionMetadataTests(unittest.TestCase):
         frontend = self.repo / "frontend"
         frontend.mkdir()
         (self.repo / "VERSION").write_text("0.2.7\n", encoding="utf-8")
+        (self.repo / ".env.example").write_text("GOPULSE_VERSION=0.2.7\n", encoding="utf-8")
         (frontend / "package.json").write_text(json.dumps({"version": "0.2.7"}), encoding="utf-8")
         (frontend / "package-lock.json").write_text(
             json.dumps({"version": "0.2.7", "packages": {"": {"version": "0.2.7"}}}),
@@ -39,6 +40,10 @@ class VersionMetadataTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn("lockfile root package version", validate(self.repo)[0])
+
+    def test_rejects_compose_environment_version_drift(self) -> None:
+        (self.repo / ".env.example").write_text("GOPULSE_VERSION=0.2.6\n", encoding="utf-8")
+        self.assertIn(".env.example GOPULSE_VERSION", validate(self.repo)[0])
 
     def test_rejects_non_semver_root_version(self) -> None:
         (self.repo / "VERSION").write_text("0.2\n", encoding="utf-8")

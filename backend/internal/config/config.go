@@ -80,6 +80,7 @@ const (
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
+	RuntimeMode     RuntimeMode
 	AppEnv          string
 	HTTPHost        string
 	HTTPPort        int
@@ -176,8 +177,24 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, errors.New("configuration lookup is required")
 	}
 
+	runtimeMode, err := loadRuntimeMode(lookup)
+	if err != nil {
+		return Config{}, err
+	}
 	appEnv, err := applicationEnvironment(lookup)
 	if err != nil {
+		return Config{}, err
+	}
+	httpHost := valueOrDefault(lookup, "HTTP_HOST", defaultHTTPHost)
+	if err := validateListenHost(runtimeMode, "HTTP_HOST", httpHost); err != nil {
+		return Config{}, err
+	}
+	mysqlHost := valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost)
+	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", mysqlHost); err != nil {
+		return Config{}, err
+	}
+	redisHost := valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost)
+	if err := validateDependencyHost(runtimeMode, "REDIS_HOST", redisHost); err != nil {
 		return Config{}, err
 	}
 
@@ -205,11 +222,11 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 
-	elasticsearch, err := loadElasticsearchConfig(lookup)
+	elasticsearch, err := loadElasticsearchConfig(lookup, runtimeMode)
 	if err != nil {
 		return Config{}, err
 	}
-	victoriaMetrics, err := loadVictoriaMetricsConfig(lookup)
+	victoriaMetrics, err := loadVictoriaMetricsConfig(lookup, runtimeMode)
 	if err != nil {
 		return Config{}, err
 	}
@@ -251,7 +268,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if err := validateRabbitMQURL(rabbitMQURL); err != nil {
+	if err := validateRabbitMQURL(rabbitMQURL, runtimeMode); err != nil {
 		return Config{}, err
 	}
 
@@ -264,15 +281,18 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	}
 	monitorURL := valueOrDefault(lookup, "MONITOR_URL", defaultMonitorURL)
 	parsedMonitorURL, err := url.Parse(monitorURL)
-	if err != nil || (parsedMonitorURL.Scheme != "http" && parsedMonitorURL.Scheme != "https") || parsedMonitorURL.Host == "" || parsedMonitorURL.User != nil {
-		return Config{}, errors.New("MONITOR_URL must be an HTTP URL without user information")
+	if err != nil || (parsedMonitorURL.Scheme != "http" && parsedMonitorURL.Scheme != "https") || parsedMonitorURL.Host == "" || parsedMonitorURL.User != nil || parsedMonitorURL.RawQuery != "" || parsedMonitorURL.Fragment != "" {
+		return Config{}, errors.New("MONITOR_URL must be an HTTP origin without user information, query, or fragment")
+	}
+	if err := validateOriginHost(runtimeMode, "MONITOR_URL", parsedMonitorURL); err != nil {
+		return Config{}, err
 	}
 	monitorTimeout, err := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, time.Minute)
 	if err != nil {
 		return Config{}, err
 	}
 
-	logShip, err := loadLogShipConfig(lookup)
+	logShip, err := loadLogShipConfig(lookup, runtimeMode)
 	if err != nil {
 		return Config{}, err
 	}
@@ -368,18 +388,19 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	}
 
 	return Config{
-		AppEnv:   appEnv,
-		HTTPHost: valueOrDefault(lookup, "HTTP_HOST", defaultHTTPHost),
-		HTTPPort: httpPort,
+		RuntimeMode: runtimeMode,
+		AppEnv:      appEnv,
+		HTTPHost:    httpHost,
+		HTTPPort:    httpPort,
 		MySQL: MySQLConfig{
-			Host:     valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost),
+			Host:     mysqlHost,
 			Port:     mysqlPort,
 			Database: mysqlDatabase,
 			User:     mysqlUser,
 			Password: mysqlPassword,
 		},
 		Redis: RedisConfig{
-			Host:             valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost),
+			Host:             redisHost,
 			Port:             redisPort,
 			Password:         redisPassword,
 			DB:               redisDB,
@@ -477,7 +498,7 @@ func validatePort(key string, port int) error {
 	return nil
 }
 
-func validateRabbitMQURL(rawURL string) error {
+func validateRabbitMQURL(rawURL string, runtimeMode RuntimeMode) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return errors.New("RABBITMQ_URL must be a valid AMQP URL")
@@ -488,7 +509,10 @@ func validateRabbitMQURL(rawURL string) error {
 	if parsed.Host == "" {
 		return errors.New("RABBITMQ_URL must include a host")
 	}
-	return nil
+	if parsed.RawQuery != "" || parsed.Fragment != "" || strings.ContainsAny(rawURL, "\r\n") {
+		return errors.New("RABBITMQ_URL must not include a query, fragment, or control characters")
+	}
+	return validateDependencyHost(runtimeMode, "RABBITMQ_URL", parsed.Hostname())
 }
 
 func applicationEnvironment(lookup LookupFunc) (string, error) {
@@ -528,6 +552,14 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	if lookup == nil {
 		return ReindexConfig{}, errors.New("configuration lookup is required")
 	}
+	runtimeMode, err := loadRuntimeMode(lookup)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
+	mysqlHost := valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost)
+	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", mysqlHost); err != nil {
+		return ReindexConfig{}, err
+	}
 	mysqlPort, err := integerValue(lookup, "MYSQL_PORT", defaultMySQLPort)
 	if err != nil {
 		return ReindexConfig{}, err
@@ -547,17 +579,17 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	if err != nil {
 		return ReindexConfig{}, err
 	}
-	elasticsearch, err := loadElasticsearchConfig(lookup)
+	elasticsearch, err := loadElasticsearchConfig(lookup, runtimeMode)
 	if err != nil {
 		return ReindexConfig{}, err
 	}
-	logShip, err := loadLogShipConfig(lookup)
+	logShip, err := loadLogShipConfig(lookup, runtimeMode)
 	if err != nil {
 		return ReindexConfig{}, err
 	}
 	return ReindexConfig{
 		MySQL: MySQLConfig{
-			Host: valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost), Port: mysqlPort,
+			Host: mysqlHost, Port: mysqlPort,
 			Database: database, User: user, Password: password,
 		},
 		Elasticsearch: elasticsearch,
@@ -565,7 +597,7 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	}, nil
 }
 
-func loadLogShipConfig(lookup LookupFunc) (LogShipConfig, error) {
+func loadLogShipConfig(lookup LookupFunc, runtimeMode RuntimeMode) (LogShipConfig, error) {
 	rawURL := ""
 	if value, ok := lookup("LOG_MONITOR_URL"); ok {
 		rawURL = strings.TrimSpace(value)
@@ -574,12 +606,11 @@ func loadLogShipConfig(lookup LookupFunc) (LogShipConfig, error) {
 		return LogShipConfig{}, nil
 	}
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return LogShipConfig{}, errors.New("LOG_MONITOR_URL must be a loopback HTTP origin")
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return LogShipConfig{}, errors.New("LOG_MONITOR_URL must be an HTTP origin without userinfo, query, or fragment")
 	}
-	ip := net.ParseIP(parsed.Hostname())
-	if ip == nil || !ip.IsLoopback() {
-		return LogShipConfig{}, errors.New("LOG_MONITOR_URL must use a loopback IP address")
+	if err := validateOriginHost(runtimeMode, "LOG_MONITOR_URL", parsed); err != nil {
+		return LogShipConfig{}, err
 	}
 	token, err := requiredValue(lookup, "LOG_MONITOR_INGEST_TOKEN")
 	if err != nil || len([]byte(token)) < 32 || strings.ContainsAny(token, "\r\n") {
@@ -614,7 +645,7 @@ func loadLogShipConfig(lookup LookupFunc) (LogShipConfig, error) {
 	}, nil
 }
 
-func loadVictoriaMetricsConfig(lookup LookupFunc) (VictoriaMetricsConfig, error) {
+func loadVictoriaMetricsConfig(lookup LookupFunc, runtimeMode RuntimeMode) (VictoriaMetricsConfig, error) {
 	rawURL := valueOrDefault(lookup, "BACKEND_VICTORIAMETRICS_URL", defaultVictoriaMetricsURL)
 	parsed, err := url.Parse(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
@@ -641,14 +672,17 @@ func loadVictoriaMetricsConfig(lookup LookupFunc) (VictoriaMetricsConfig, error)
 	return VictoriaMetricsConfig{URL: strings.TrimRight(rawURL, "/"), Username: username, Password: password, RequestTimeout: timeout}, nil
 }
 
-func loadElasticsearchConfig(lookup LookupFunc) (ElasticsearchConfig, error) {
+func loadElasticsearchConfig(lookup LookupFunc, runtimeMode RuntimeMode) (ElasticsearchConfig, error) {
 	rawURL := valueOrDefault(lookup, "ELASTICSEARCH_URL", defaultElasticsearchURL)
 	parsed, err := url.Parse(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
-		return ElasticsearchConfig{}, errors.New("ELASTICSEARCH_URL must be an HTTP(S) URL without userinfo")
+		return ElasticsearchConfig{}, errors.New("ELASTICSEARCH_URL must be an HTTP(S) origin without userinfo")
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return ElasticsearchConfig{}, errors.New("ELASTICSEARCH_URL must not include a query or fragment")
+	}
+	if err := validateOriginHost(runtimeMode, "ELASTICSEARCH_URL", parsed); err != nil {
+		return ElasticsearchConfig{}, err
 	}
 	timeout, err := durationValue(lookup, "ELASTICSEARCH_REQUEST_TIMEOUT", defaultElasticsearchTimeout, minimumElasticsearchTimeout, maximumElasticsearchTimeout)
 	if err != nil {

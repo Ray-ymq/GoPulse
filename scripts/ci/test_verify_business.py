@@ -9,7 +9,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "verify-business.sh"
-LIFECYCLE_SCRIPTS = tuple(REPO / "scripts" / name for name in ("dev.sh", "down.sh", "verify.sh", "verify-business.sh"))
+LIFECYCLE_SCRIPTS = tuple(
+    REPO / "scripts" / name
+    for name in ("dev.sh", "down.sh", "verify.sh", "verify-compose.sh", "verify-business.sh")
+)
 
 
 class VerifyBusinessSafetyTests(unittest.TestCase):
@@ -67,7 +70,7 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn('es_request DELETE "/$active_index" 200', source)
         self.assertIn('es_request HEAD "/$unrelated_index" 200', source)
         self.assertIn("docker.elastic.co/elasticsearch/elasticsearch:9.5.2", compose)
-        self.assertIn('"127.0.0.1:${ELASTICSEARCH_PORT:?ELASTICSEARCH_PORT is required}:9200"', compose)
+        self.assertNotIn('127.0.0.1:${ELASTICSEARCH_PORT', compose)
         self.assertIn("wait_for_status=yellow", compose)
         self.assertIn("elasticsearch_data:/usr/share/elasticsearch/data", compose)
 
@@ -88,40 +91,37 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
                 self.assertNotIn(b"\r\n", script.read_bytes())
                 subprocess.run(["bash", "-n", str(script)], cwd=REPO, check=True)
 
-    def test_worker_lifecycle_uses_repository_owned_records(self) -> None:
+    def test_lifecycle_is_container_native_and_label_owned(self) -> None:
         dev = (REPO / "scripts" / "dev.sh").read_text(encoding="utf-8")
         down = (REPO / "scripts" / "down.sh").read_text(encoding="utf-8")
         verify = (REPO / "scripts" / "verify.sh").read_text(encoding="utf-8")
-        for source in (dev, down, verify):
-            self.assertIn("business-worker.json", source)
-            self.assertIn("gopulse-business-worker", source)
-            self.assertIn("search-indexer.json", source)
-            self.assertIn("gopulse-search-indexer", source)
-        self.assertIn('write_process_record "$WORKER_PID" "$WORKER_RECORD"', dev)
-        self.assertIn('write_process_record "$SEARCH_INDEXER_PID" "$SEARCH_INDEXER_RECORD"', dev)
-        config_keys = dev[dev.index("ALL_CONFIG_KEYS=(") : dev.index("REQUIRED_KEYS=(")]
-        self.assertIn("ELASTICSEARCH_PORT", config_keys)
-        self.assertIn('stop_recorded_application "Business Worker" "$WORKER_RECORD"', down)
-        self.assertIn('stop_recorded_application "Search Indexer" "$SEARCH_INDEXER_RECORD"', down)
-        self.assertIn("DEFAULTS=([ELASTICSEARCH_PORT]=9200 [KAFKA_PORT]=9092", down)
-        self.assertIn('export "$key=${DEFAULTS[$key]}"', down)
-        self.assertNotIn("local key=$1 fallback=$2 direct=${!key:-}", verify)
-        self.assertIn("direct=${!key:-}", verify)
-        self.assertNotIn("marker=${5:-$binary} result", verify)
-        self.assertIn("marker=${5:-$binary}", verify)
-        self.assertIn("actual_start_ticks != start_ticks", verify)
-        self.assertIn("actual_executable != executable", verify)
-        self.assertNotIn('rm -f "$WORKER_RECORD"', verify)
+        compose = (REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+        self.assertIn("compose build backend business-worker search-indexer frontend acceptance", dev)
+        self.assertIn("compose up --detach --wait", dev)
+        self.assertNotIn("go run", dev)
+        self.assertNotIn("npm run", dev)
+        self.assertNotIn("business-worker.json", dev)
+        self.assertIn("com.docker.compose.project.working_dir", down)
+        self.assertIn("--confirm-project", down)
+        self.assertIn("down --remove-orphans", down)
+        self.assertIn("acceptance e2e/compose-smoke.spec.ts", verify)
+        self.assertIn("business-worker:", compose)
+        self.assertIn("search-indexer:", compose)
+        self.assertIn("internal: true", compose)
+        self.assertNotIn("container_name:", compose)
 
-    def test_fault_injection_validates_owned_targets_first(self) -> None:
-        source = SCRIPT.read_text(encoding="utf-8")
-        for service, container_port in (("mysql", "3306"), ("redis", "6379"), ("rabbitmq", "5672"), ("elasticsearch", "9200")):
-            self.assertIn(f"verify_service_ownership {service} {container_port}", source)
-        self.assertIn('validate_process_ownership "$WORKER_PID"', source)
-        self.assertLess(
-            source.index('validate_process_ownership "$WORKER_PID"'),
-            source.index('kill -STOP -- "-$WORKER_PID"'),
-        )
+
+    def test_container_fault_injection_validates_owned_targets_first(self) -> None:
+        source = (REPO / "scripts" / "verify-compose.sh").read_text(encoding="utf-8")
+        for service in ("redis", "business-worker", "search-indexer"):
+            self.assertIn(f"owned_service_id {service}", source)
+        self.assertLess(source.index("owned_service_id redis"), source.index("compose stop redis"))
+        self.assertLess(source.index("owned_service_id business-worker"), source.index("compose pause business-worker"))
+        self.assertLess(source.index("owned_service_id search-indexer"), source.index("compose pause search-indexer"))
+        self.assertIn("compose down --volumes --remove-orphans", source)
+        self.assertNotIn("docker volume prune", source)
+        self.assertNotIn("docker system prune", source)
+
 
 
 if __name__ == "__main__":
