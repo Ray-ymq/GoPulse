@@ -47,3 +47,23 @@ func TestHTTPPublisherRequires202(t *testing.T) {
 		t.Fatal("non-202 response was accepted")
 	}
 }
+
+func TestHTTPPublisherClassifiesPermanentAndTemporaryRejections(t *testing.T) {
+	for _, tc := range []struct {
+		status    int
+		permanent bool
+	}{{http.StatusUnprocessableEntity, true}, {http.StatusTooManyRequests, false}, {http.StatusServiceUnavailable, false}} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.status) }))
+		client, err := NewHTTP(server.URL, "01234567890123456789012345678901", time.Second)
+		if err != nil {
+			server.Close()
+			t.Fatal(err)
+		}
+		err = client.Publish(context.Background(), envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"})
+		server.Close()
+		classified, ok := err.(interface{ Permanent() bool })
+		if !ok || classified.Permanent() != tc.permanent {
+			t.Fatalf("status=%d error=%v permanent=%v", tc.status, err, ok && classified.Permanent())
+		}
+	}
+}

@@ -70,3 +70,7 @@ The default Router acceptance uses a random isolated Compose project, loopback p
 Phase 8 keeps Router as the byte-preserving producer for the unchanged record contract. Marshaller independently validates the original bytes, writes accepted metrics to VictoriaMetrics, and commits through `gopulse-marshaller-metrics-v1`; the Phase 8-03 acceptance captures a real Router-produced record for deterministic replay and confirms Router never parses, cleans, stores, or commits metrics payloads.
 
 Router accepts `metrics/redis` plus the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, and `logs/search-reindex` Envelope v1 combinations. Every accepted type uses the single fixed `gopulse-observability-v1` Topic; the message ID remains the Kafka key and the HTTP request body remains the exact Kafka value bytes. Source, query, header, or payload values can never select a Topic.
+
+## Events routing
+
+The routing allowlist includes `events/monitor` in addition to the established Metrics and Logs combinations. Every accepted Events Envelope is produced unchanged to the fixed `gopulse-observability-v1` Topic with its `message_id` as the Kafka key. Unknown Events sources, schema/type/source mismatches, browser credentials, request-selected topics, and payload-selected topics remain unsupported.

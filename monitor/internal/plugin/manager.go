@@ -9,6 +9,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 )
 
 type ManagerConfig struct {
@@ -29,6 +31,7 @@ type Manager struct {
 	observer        MetricsLifecycle
 	rootIdentity    storageIdentity
 	persistRegistry func(registryFile) error
+	eventRecorder   EventRecorder
 }
 
 func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
@@ -47,7 +50,7 @@ func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{cfg: cfg, registry: reg, states: map[string]Status{}, runtimes: map[string]*runtimeProcess{}, operation: make(chan struct{}, 1), rootIdentity: rootIdentity}
+	m := &Manager{cfg: cfg, registry: reg, states: map[string]Status{}, runtimes: map[string]*runtimeProcess{}, operation: make(chan struct{}, 1), rootIdentity: rootIdentity, eventRecorder: discardEventRecorder{}}
 	m.persistRegistry = func(registry registryFile) error { return saveRegistry(m.cfg.Root, registry) }
 	for id, entry := range reg.Plugins {
 		m.states[id] = statusFromEntry(entry, ObservedStopped, nil)
@@ -60,6 +63,32 @@ func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
 	}
 	return m, nil
 }
+
+type EventRecorder interface {
+	Record(events.Event) bool
+}
+
+type discardEventRecorder struct{}
+
+func (discardEventRecorder) Record(events.Event) bool { return true }
+
+func (m *Manager) AttachEvents(recorder EventRecorder) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if recorder == nil {
+		m.eventRecorder = discardEventRecorder{}
+		return
+	}
+	m.eventRecorder = recorder
+}
+
+func (m *Manager) recordEvent(event events.Event) {
+	m.mu.RLock()
+	recorder := m.eventRecorder
+	m.mu.RUnlock()
+	_ = recorder.Record(event)
+}
+
 func statusFromEntry(e registryEntry, observed ObservedState, last *SafeError) Status {
 	return Status{ID: e.Manifest.ID, Name: e.Manifest.Name, Version: e.CurrentVersion, Kind: e.Manifest.Kind, Source: e.Manifest.Source, DesiredState: e.DesiredState, ObservedState: observed, InstalledAt: e.InstalledAt, UpdatedAt: e.UpdatedAt, LastError: last}
 }
@@ -267,6 +296,7 @@ func (m *Manager) installNew(ctx context.Context, archivePath string) (Status, e
 	m.mu.Unlock()
 	m.watch(PluginID, rp)
 	m.enableMetrics(manifest)
+	m.recordEvent(events.New("exporter_plugin_installed", manifest.Version, "", "not_installed", "running", m.cfg.Now()))
 	return status, nil
 }
 func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
@@ -314,8 +344,21 @@ func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
 	m.mu.Unlock()
 	m.watch(id, rp)
 	m.enableMetrics(entry.Manifest)
+	m.recordEvent(events.New("exporter_plugin_started", entry.CurrentVersion, "", eventState(previous.ObservedState), "running", m.cfg.Now()))
 	return s, nil
 }
+
+func eventState(state ObservedState) string {
+	switch state {
+	case ObservedRunning:
+		return "running"
+	case ObservedFailed:
+		return "failed"
+	default:
+		return "stopped"
+	}
+}
+
 func (m *Manager) runtimeOwnedLocked(id string) bool {
 	rp := m.runtimes[id]
 	return rp != nil && ownsProcess(rp.record)
@@ -371,6 +414,9 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 	delete(m.runtimes, id)
 	m.states[id] = s
 	m.mu.Unlock()
+	if previous.ObservedState != ObservedStopped {
+		m.recordEvent(events.New("exporter_plugin_stopped", entry.CurrentVersion, "", eventState(previous.ObservedState), "stopped", m.cfg.Now()))
+	}
 	return s, nil
 }
 func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, error) {
@@ -461,6 +507,7 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 		m.mu.Lock()
 		m.states[id] = s
 		m.mu.Unlock()
+		m.recordEvent(events.New("exporter_plugin_updated", manifest.Version, old.CurrentVersion, "stopped", "stopped", m.cfg.Now()))
 		return s, nil
 	}
 	rp, startErr := startProcess(ctx, m.pluginDir(), manifest, m.cfg.ExporterEnv, m.cfg.HealthURL, m.cfg.StartupTimeout)
@@ -475,6 +522,7 @@ func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, e
 		m.mu.Unlock()
 		m.watch(id, rp)
 		m.enableMetrics(manifest)
+		m.recordEvent(events.New("exporter_plugin_updated", manifest.Version, old.CurrentVersion, "running", "running", m.cfg.Now()))
 		return s, nil
 	}
 	storageOK, rollbackOK := m.rollbackUpdate(id, oldRegistry, oldState, true)

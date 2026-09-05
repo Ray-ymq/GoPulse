@@ -24,6 +24,11 @@ type Transport interface {
 	PublishRaw(context.Context, string, any) error
 }
 
+type RejectionError struct{ permanent bool }
+
+func (e RejectionError) Error() string   { return "publisher rejected message" }
+func (e RejectionError) Permanent() bool { return e.permanent }
+
 type Discard struct{}
 
 func (Discard) Publish(context.Context, envelope.Envelope) error { return nil }
@@ -79,7 +84,7 @@ func (p *HTTP) PublishRaw(ctx context.Context, messageID string, message any) er
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 	if response.StatusCode != http.StatusAccepted {
-		return errors.New("publisher rejected message")
+		return RejectionError{permanent: response.StatusCode >= 400 && response.StatusCode < 500 && response.StatusCode != http.StatusTooManyRequests}
 	}
 	return nil
 }
