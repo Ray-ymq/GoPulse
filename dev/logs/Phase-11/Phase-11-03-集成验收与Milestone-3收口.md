@@ -100,4 +100,4 @@ Backend 日志保存于 `/tmp/gopulse-phase-11-03-final-backend.log`，Frontend 
 - 页面仍不自动轮询，不提供任意 MetricsQL/PromQL/Elasticsearch DSL、全文检索、告警、复杂图表、跨数据关联或多 Exporter。
 - Phase 8 单节点 VictoriaMetrics 继续复用 Marshaller Basic Auth 身份；这是已记录的本地 MVP 最小权限边界。
 - Elasticsearch 仍是帖子 search/readiness 与 Logs/Events 的共享既有依赖；本批证明非搜索社交 API 不新增依赖，但未改变该架构。
-- 浏览器主入口会执行真实 Docker、Go build、npm build 和 Chromium；远程 job 的首次实际耗时与 runner 资源结果需在 push 后据实补写。
+- 浏览器主入口会执行真实 Docker、Go build、npm build 和 Chromium。首次 push 的权威运行 `33969569019` 在冷 runner 拉取约 875 MiB Elasticsearch 镜像并下载/编译 Go 依赖时超过原 180 秒启动等待，`Observability browser acceptance` 因 Backend 尚未 ready 失败；本批将有界等待扩展为 600 秒后重新触发远程门禁，最终结果仍待观察。

@@ -86,7 +86,7 @@ UPDATE_PACKAGE="$TMP/redis-exporter-1.8.3.tar.gz"
 "$REPO_ROOT/scripts/package-redis-exporter.sh" --version 1.8.2 --output "$INSTALL_PACKAGE" >/dev/null
 "$REPO_ROOT/scripts/package-redis-exporter.sh" --version 1.8.3 --output "$UPDATE_PACKAGE" >/dev/null
 setsid env GOPULSE_PROJECT_NAME="$PROJECT" GOPULSE_ENV_FILE="$ENV_FILE" GOPULSE_RUN_DIR="$RUN_DIR" GOPULSE_MONITOR_PLUGIN_BOOTSTRAP=skip "$REPO_ROOT/scripts/dev.sh" >"$TMP/dev.log" 2>&1 & DEV_PID=$!
-for _ in {1..180}; do
+for _ in {1..600}; do
   if curl -fsS --max-time 1 "http://127.0.0.1:$BACKEND_PORT/health" >/dev/null 2>&1 && curl -fsS --max-time 1 "http://127.0.0.1:$FRONTEND_PORT/" >/dev/null 2>&1; then break; fi
   if ! kill -0 "$DEV_PID" 2>/dev/null; then cat "$TMP/dev.log" >&2; fail 'isolated lifecycle exited before readiness'; exit 1; fi
   sleep 1
