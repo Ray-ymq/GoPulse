@@ -60,6 +60,7 @@ Phase 11 使用 \`1.8.x\` 版本线，\`1.8.0\` 只作为阶段基线，不创�
 | Phase-11-01 | `1.8.1` | `develop/1.8.1` | 已完成（PR #96，远程门禁成功） |
 | Phase-11-02 | `1.8.2` | `develop/1.8.2` | 已完成（PR #98，远程门禁成功） |
 | Phase-11-03 | `1.8.3` | `develop/1.8.3` | 已完成（PR #100，远程门禁成功） |
+| Phase-11-04 | `1.8.4` | `develop/1.8.4` | 已完成（本地固定门禁通过，待推送） |
 
 执行规则：
 
@@ -69,6 +70,7 @@ Phase 11 使用 \`1.8.x\` 版本线，\`1.8.0\` 只作为阶段基线，不创�
 - Phase-11-01 交付三类数据查询、独立管理壳层和双使用态访问边界的完整浏览器纵向闭环。
 - Phase-11-02 交付 Exporter 浏览器管理、可观测总览、跨页面状态反馈和代表性降级闭环。
 - Phase-11-03 只在前两批已合入能力上执行跨批集成、Milestone 3 验收、文档和状态收口；除真实复现的阻断问题外不新增功能。
+- Phase-11-04 只整改 2026-09-05 Phase 11 实现 Review 的已确认 findings，收紧 VM/Monitor/Frontend trust boundary、降权呈现、管理子路由和实施记录，不扩展产品范围。
 - 已推送分支不得静默改名或重新编号。实施前批次顺序变化时，先修改本表并重算尚未创建的分支。
 
 ## 4. 阶段范围与非目标
@@ -336,7 +338,12 @@ BACKEND_METRIC_QUERY_MAX_RANGE=24h
 - 除真实阻断问题外不新增产品功能。
 - 详见 [Phase-11-03-集成验收与Milestone-3收口.md](Phase-11-03-集成验收与Milestone-3收口.md)。
 
-三个批次符合阶段提纲的上限：前两个分别形成“管理员查询”和“管理员操作/总览”两个可独立验收的用户闭环，第三个只做跨批集成与里程碑收口；没有按 Frontend、Backend、测试或数据源机械拆分。
+### 12.4 Phase-11-04：实现 Review 整改
+
+- 修复 Review 报告中的 P2-01～P2-05 与 P3-01～P3-02，并以最小定向测试和既定浏览器主验收证明整改。
+- 详见 [Phase-11-04-实现Review整改.md](Phase-11-04-实现Review整改.md)。
+
+前三个交付批次符合阶段提纲的上限：前两个分别形成“管理员查询”和“管理员操作/总览”两个可独立验收的用户闭环，第三个只做跨批集成与里程碑收口；第四个是用户明确要求的 Review 整改批次；没有按 Frontend、Backend、测试或数据源机械拆分。
 
 ## 13. 预计变更边界
 
@@ -389,7 +396,7 @@ VERSION
 (cd frontend && npm run build)
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.8.3 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.8.4 --base-ref origin/main
 bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-business.sh \
   scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh \
   scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh \
@@ -422,12 +429,12 @@ git diff --check
 - 浏览器只调用同源 Backend；构建产物、请求、响应、日志和验收制品不含底层 URL/凭据、原始查询/响应、索引/Topic/PIT 或敏感哨兵。
 - VM、Monitor 或 ES 代表故障有明确局部反馈并可恢复；非搜索社交 API、管理员社交能力和现有身份会话不因 Phase 11 新增依赖而失败。
 - 管理页面具备键盘可操作、明确 label/focus、非仅颜色状态和窄屏可用的最低可访问性；不要求复杂可视化。
-- 日常/隔离生命周期、verify 只读性、成功/失败/中断清理与远程门禁通过；三份实施记录真实完整，根与 Frontend 版本均为 \`1.8.3\`。
+- 日常/隔离生命周期、verify 只读性、成功/失败/中断清理与远程门禁通过；四份实施记录真实完整，根与 Frontend 版本均为 \`1.8.4\`。
 - Milestone 3 的三类数据与插件管理在同一管理员产品体验内共同可用，普通用户社交域保持隔离和可用。
 
 ### 15.2 完成与停止条件
 
-只有第 15.1 节全部满足、Phase-11-01/02/03 Pull Request 均已合入主远程 \`main\`、远程固定门禁成功，且三份 Phase 11 实施记录与真实提交一致，Phase 11 与 Milestone 3 才完成。
+只有第 15.1 节全部满足、Phase-11-01/02/03/04 Pull Request 均已合入主远程 \`main\`、远程固定门禁成功，且四份 Phase 11 实施记录与真实提交一致，Phase 11 与 Milestone 3 才完成。
 
 任一真实浏览器三类查询、插件代表操作、Backend 最终授权、普通用户直接路由无请求、DTO/内部访问隔离、局部故障恢复、社交回归、资源安全或远程证据缺失时，不得标记完成。
 

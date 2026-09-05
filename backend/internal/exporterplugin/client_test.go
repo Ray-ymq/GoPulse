@@ -104,6 +104,15 @@ func TestClientMapsOnlyStrictSafeMonitorErrors(t *testing.T) {
 	}
 }
 
+func TestClientRejectsMonitorStatusCodeMismatch(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"code":"plugin_not_found","message":"internal"}}`))
+	})
+	_, err := client.Get(context.Background(), "redis-exporter")
+	assertCode(t, err, apperror.CodeMonitorUnavailable)
+}
+
 func TestClientDoesNotExposeUnavailableDetails(t *testing.T) {
 	client, err := NewClient("http://127.0.0.1:1", testToken, 100*time.Millisecond)
 	if err != nil {

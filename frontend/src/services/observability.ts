@@ -68,17 +68,21 @@ const logKeys = new Set(['timestamp','level','service','module','message','reque
 const metadataKeys = new Set(['plugin_id','plugin_version','previous_plugin_version','operation','from_state','to_state','error_code','scrape_status'])
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 function keysAllowed(value: Record<string, unknown>, allowed: Set<string>): boolean { return Object.keys(value).every((key) => allowed.has(key)) }
-function timestamp(value: unknown): value is string { return typeof value === 'string' && Number.isFinite(Date.parse(value)) }
+function timestamp(value: unknown): value is string { return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(value) && Number.isFinite(Date.parse(value)) }
 function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) }
 function optionalString(value: unknown): boolean { return value === undefined || typeof value === 'string' }
 function optionalInteger(value: unknown): boolean { return value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) }
 
 export function isMetricResult(value: unknown): value is MetricResult {
   if (!record(value) || Object.keys(value).sort().join() !== ['from','kind','metric','range','series','step_seconds','to','unit'].sort().join()) return false
-  if (typeof value.metric !== 'string' || !metricNames.has(value.metric as MetricName) || (value.kind !== 'gauge' && value.kind !== 'counter') || !['boolean','seconds','count','bytes'].includes(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || (value.step_seconds as number) <= 0 || !Array.isArray(value.series) || value.series.length > 32) return false
+  if (typeof value.metric !== 'string' || !metricNames.has(value.metric as MetricName) || (value.kind !== 'gauge' && value.kind !== 'counter') || !['boolean','seconds','count','bytes'].includes(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series) || value.series.length > 32) return false
   const contract = metricContracts[value.metric as MetricName]
-  if (value.kind !== contract.kind || value.unit !== contract.unit) return false
+  const range = ranges.find((item) => item.value === value.range)
+  const expectedSteps: Record<QueryRange, number> = { '15m':15, '1h':60, '6h':300, '24h':900 }
+  const from = Date.parse(value.from); const to = Date.parse(value.to)
+  if (!range || from >= to || to - from !== range.milliseconds || value.step_seconds !== expectedSteps[value.range as QueryRange] || value.kind !== contract.kind || value.unit !== contract.unit) return false
   let points = 0
+  const seriesKeys = new Set<string>()
   return value.series.every((series) => {
     if (!record(series) || Object.keys(series).sort().join() !== 'labels,points' || !record(series.labels) || !keysAllowed(series.labels, new Set(['mode','db'])) || !Array.isArray(series.points)) return false
     if (series.labels.mode !== undefined && series.labels.mode !== 'user' && series.labels.mode !== 'system') return false
@@ -86,7 +90,18 @@ export function isMetricResult(value: unknown): value is MetricResult {
     if (contract.label === 'mode' && (Object.keys(series.labels).length !== 1 || series.labels.mode === undefined)) return false
     if (contract.label === 'db' && (Object.keys(series.labels).length !== 1 || series.labels.db === undefined)) return false
     if (series.labels.db !== undefined && (typeof series.labels.db !== 'string' || !/^(0|[1-9][0-9]*)$/.test(series.labels.db))) return false
-    return series.points.every((point) => { points++; return points <= 4096 && record(point) && Object.keys(point).sort().join() === 'timestamp,value' && timestamp(point.timestamp) && finite(point.value) })
+    const seriesKey = `${series.labels.mode ?? ''}|${series.labels.db ?? ''}`
+    if (seriesKeys.has(seriesKey)) return false
+    seriesKeys.add(seriesKey)
+    let previous = Number.NEGATIVE_INFINITY
+    return series.points.every((point) => {
+      points++
+      if (points > 4096 || !record(point) || Object.keys(point).sort().join() !== 'timestamp,value' || !timestamp(point.timestamp) || !finite(point.value)) return false
+      const at = Date.parse(point.timestamp)
+      if (at < from || at > to || at <= previous) return false
+      previous = at
+      return true
+    })
   })
 }
 
@@ -98,16 +113,38 @@ export function isLogEntry(value: unknown): value is LogEntry {
   for (const key of ['user_id','post_id','comment_id','notification_id','outbox_id','status','duration_ms','response_bytes','attempt','batch_size','document_count']) if (!optionalInteger(value[key])) return false
   return (value.panic_recovered === undefined || typeof value.panic_recovered === 'boolean') && (value.response_committed === undefined || typeof value.response_committed === 'boolean')
 }
+const eventMessages: Readonly<Record<string, string>> = {
+  exporter_plugin_installed:'exporter plugin installed', exporter_plugin_started:'exporter plugin started', exporter_plugin_stopped:'exporter plugin stopped', exporter_plugin_updated:'exporter plugin updated',
+  exporter_plugin_failed:'exporter plugin operation failed', exporter_plugin_exited:'exporter plugin exited unexpectedly', metrics_collection_failed:'metrics collection failed', metrics_collection_recovered:'metrics collection recovered',
+  metrics_target_unavailable:'metrics target unavailable', metrics_target_recovered:'metrics target recovered',
+}
+const semver = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/
+const operationErrors: Readonly<Record<string, readonly string[]>> = {
+  start:['start_failed','process_exited'], stop:['stop_failed'], update:['update_failed','rollback_failed'], recover:['recovery_failed','recovery_invalid'],
+  scrape:['scrape_timeout','network_failed','response_too_large','parse_failed','contract_invalid','content_invalid','http_invalid','scrape_failed','message_id_failed'], publish:['publish_failed'],
+}
+function absent(metadata: Record<string, unknown>, ...keys: string[]): boolean { return keys.every((key) => metadata[key] === undefined) }
+function operationError(metadata: Record<string, unknown>): boolean { return typeof metadata.operation === 'string' && typeof metadata.error_code === 'string' && operationErrors[metadata.operation]?.includes(metadata.error_code) === true }
 export function isEventEntry(value: unknown): value is EventEntry {
-  if (!record(value) || Object.keys(value).sort().join() !== ['event_name','message','metadata','severity','source','timestamp'].sort().join() || !timestamp(value.timestamp) || typeof value.event_name !== 'string' || !eventNames.includes(value.event_name as typeof eventNames[number]) || typeof value.source !== 'string' || !['info','warn','error'].includes(String(value.severity)) || typeof value.message !== 'string' || !record(value.metadata) || !keysAllowed(value.metadata, metadataKeys) || typeof value.metadata.plugin_id !== 'string') return false
-  if (![...metadataKeys].filter((key) => key !== 'plugin_id').every((key) => optionalString(value.metadata[key])) || value.source !== 'monitor' || value.metadata.plugin_id !== 'redis-exporter' || value.severity !== eventSeverities[value.event_name]) return false
-  const operation = value.metadata.operation
-  if (!operation || !eventOperations[value.event_name]?.includes(operation)) return false
-  if (value.event_name === 'exporter_plugin_failed' || value.event_name === 'exporter_plugin_exited' || value.event_name === 'metrics_collection_failed') return typeof value.metadata.error_code === 'string' && eventErrorCodes.includes(value.metadata.error_code as typeof eventErrorCodes[number])
-  if (value.metadata.error_code !== undefined) return false
-  if (value.event_name === 'metrics_collection_recovered' || value.event_name === 'metrics_target_recovered') return value.metadata.scrape_status === 'success'
-  if (value.event_name === 'metrics_target_unavailable') return value.metadata.scrape_status === 'target_unavailable'
-  return value.metadata.scrape_status === undefined
+  if (!record(value) || Object.keys(value).sort().join() !== ['event_name','message','metadata','severity','source','timestamp'].sort().join() || !timestamp(value.timestamp) || typeof value.event_name !== 'string' || !eventNames.includes(value.event_name as typeof eventNames[number]) || !record(value.metadata) || !keysAllowed(value.metadata, metadataKeys)) return false
+  const name = value.event_name
+  const m = value.metadata
+  if (value.source !== 'monitor' || value.severity !== eventSeverities[name] || value.message !== eventMessages[name] || m.plugin_id !== 'redis-exporter' || ![...metadataKeys].filter((key) => key !== 'plugin_id').every((key) => optionalString(m[key]))) return false
+  const version = typeof m.plugin_version === 'string' && semver.test(m.plugin_version)
+  const previous = typeof m.previous_plugin_version === 'string' && semver.test(m.previous_plugin_version)
+  const noError = absent(m, 'error_code', 'scrape_status')
+  switch (name) {
+    case 'exporter_plugin_installed': return version && noError && absent(m,'previous_plugin_version') && m.operation === 'install' && m.from_state === 'not_installed' && m.to_state === 'running'
+    case 'exporter_plugin_started': return version && noError && absent(m,'previous_plugin_version') && m.operation === 'start' && (m.from_state === 'stopped' || m.from_state === 'failed') && m.to_state === 'running'
+    case 'exporter_plugin_stopped': return version && noError && absent(m,'previous_plugin_version') && m.operation === 'stop' && (m.from_state === 'running' || m.from_state === 'failed') && m.to_state === 'stopped'
+    case 'exporter_plugin_updated': return version && previous && noError && m.operation === 'update' && (m.from_state === 'running' || m.from_state === 'stopped') && m.from_state === m.to_state
+    case 'exporter_plugin_failed': return version && absent(m,'previous_plugin_version','from_state','scrape_status') && ['not_installed','stopped','running','failed'].includes(String(m.to_state)) && operationError(m) && m.error_code !== 'process_exited'
+    case 'exporter_plugin_exited': return version && absent(m,'previous_plugin_version','from_state','scrape_status') && m.operation === 'start' && m.to_state === 'failed' && m.error_code === 'process_exited'
+    case 'metrics_collection_failed': return absent(m,'plugin_version','previous_plugin_version','from_state','to_state','scrape_status') && operationError(m)
+    case 'metrics_collection_recovered': case 'metrics_target_recovered': return absent(m,'plugin_version','previous_plugin_version','from_state','to_state','error_code') && m.operation === 'scrape' && m.scrape_status === 'success'
+    case 'metrics_target_unavailable': return absent(m,'plugin_version','previous_plugin_version','from_state','to_state','error_code') && m.operation === 'scrape' && m.scrape_status === 'target_unavailable'
+    default: return false
+  }
 }
 function pageQuery(filters: Record<string,string>, cursor?: string): string {
   const params = new URLSearchParams()
