@@ -7,7 +7,7 @@
 - 开发分支：`develop/1.7.3`。
 - 基线：`upstream/main` 提交 `3c6a194`，根与 Frontend 版本均为 `1.7.2`；该提交是 Phase-10-02 Pull Request #91 的主远程合入提交。
 - 实施环境：WSL2 Linux filesystem `/home/ray/GoPulse-1.7.3`，使用独立 Git worktree；原 `/home/ray/GoPulse` 工作区中的用户未提交文件未被暂存、修改或清理。
-- 状态：本地阶段矩阵、文档与 `1.7.3` 版本收口完成；提交推送、Pull Request、远程固定门禁和主远程合入仍待完成，因此尚未宣称满足拆分方案第 11 节的远程完成条件。
+- 状态：已完成。实施提交 `23399be` 通过 Pull Request #92 于 2026-09-05 合入主远程 `main`；远程 `Auto PR and Merge` run `33956183213` 成功，合入提交为 `d332630`，Phase 10 完成条件已满足。
 
 ## 2. 前置批次与远程基线核对
 
@@ -162,6 +162,16 @@ scripts/down.sh
 ## 7. 已知限制与后续事项
 
 - EventMonitor 仍是有界内存 best-effort source queue；进程崩溃或容量耗尽时，尚未进入 Kafka 的远程 Events 副本可能丢失，这是既定产品边界。
-- 本地矩阵不能替代 Phase-10-03 Pull Request 的远程固定门禁与主远程合入。推送后需创建 Pull Request，确认远程 checks 全部成功并合入 `main`，再更新 Phase 10 状态为完成。
+- Pull Request #92、远程固定门禁和主远程 `main` 合入均已完成；后续工作应从 Phase 11 的独立开发批次开始，不继续使用 `develop/1.7.3`。
 - 日常生命周期按合同保留 `gopulse_*` named volumes 和可重建 `.run` 工件；它们不属于随机验收资源，不应由验收清理误删。
 - Phase 11 接收 Backend Events API、固定事件词汇、strict Events 索引/alias 与有界 best-effort/at-least-once/幂等语义；本批不实现管理员 Events Frontend。
+
+
+## 8. 远程收口
+
+- 本地实施提交：`23399be6efaa1f5026994aad6368571401bc9dcf`（`chore: close Phase 10 integration acceptance`）。
+- 推送分支：`develop/1.7.3`；推送前版本、分支治理和工作树清洁检查通过。
+- 远程门禁：`Auto PR and Merge` run `33956183213` 于 2026-09-05 完成并成功。
+- Pull Request：#92，于 2026-09-05 08:53:26 UTC 由自动流程 squash merge。
+- 主远程合入提交：`d33263023e085339aa878f751abf2572f0c76121`（`chore: close Phase 10 integration acceptance (#92)`）。
+- `develop/1.7.3` 远程分支已按普通开发分支规则删除；本状态更新位于 `update` 规划分支，不改变产品版本 `1.7.3`。
