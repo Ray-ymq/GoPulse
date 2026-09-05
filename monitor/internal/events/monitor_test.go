@@ -139,3 +139,24 @@ func TestMonitorQueueFullAndCloseAreBounded(t *testing.T) {
 		t.Fatal("closed monitor accepted a record")
 	}
 }
+
+func TestFailureAndRecoveryVocabulary(t *testing.T) {
+	now := time.Date(2026, 9, 5, 8, 1, 0, 0, time.UTC)
+	events := []Event{
+		NewPluginFailure("1.7.2", "start", "start_failed", "failed", now),
+		NewPluginExited("1.7.2", now),
+		NewMetrics("metrics_collection_failed", "publish_failed", "", now),
+		NewMetrics("metrics_collection_recovered", "", "success", now),
+		NewMetrics("metrics_target_unavailable", "", "target_unavailable", now),
+		NewMetrics("metrics_target_recovered", "", "success", now),
+	}
+	for _, event := range events {
+		if err := Validate(event, now); err != nil {
+			t.Fatalf("%s: %v", event.EventName, err)
+		}
+	}
+	invalid := NewPluginFailure("1.7.2", "start", "publish_failed", "failed", now)
+	if Validate(invalid, now) == nil {
+		t.Fatal("incompatible operation/error_code was accepted")
+	}
+}

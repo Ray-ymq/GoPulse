@@ -64,11 +64,13 @@ type cursorPayload struct {
 
 type Metadata struct {
 	PluginID              string `json:"plugin_id"`
-	PluginVersion         string `json:"plugin_version"`
+	PluginVersion         string `json:"plugin_version,omitempty"`
 	PreviousPluginVersion string `json:"previous_plugin_version,omitempty"`
-	Operation             string `json:"operation"`
-	FromState             string `json:"from_state"`
-	ToState               string `json:"to_state"`
+	Operation             string `json:"operation,omitempty"`
+	FromState             string `json:"from_state,omitempty"`
+	ToState               string `json:"to_state,omitempty"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	ScrapeStatus          string `json:"scrape_status,omitempty"`
 }
 type Entry struct {
 	Timestamp string   `json:"timestamp"`
@@ -161,34 +163,70 @@ func validFilters(filters Filters) bool {
 	if filters.Source != "" && filters.Source != "monitor" {
 		return false
 	}
-	if filters.Severity != "" && filters.Severity != "info" {
-		return false
-	}
 	if filters.PluginID != "" && filters.PluginID != "redis-exporter" {
 		return false
 	}
-	if filters.ErrorCode != "" {
+	severities := map[string]string{
+		"exporter_plugin_installed": "info", "exporter_plugin_started": "info", "exporter_plugin_stopped": "info", "exporter_plugin_updated": "info",
+		"exporter_plugin_failed": "error", "exporter_plugin_exited": "error", "metrics_collection_failed": "warn", "metrics_collection_recovered": "info",
+		"metrics_target_unavailable": "warn", "metrics_target_recovered": "info",
+	}
+	if filters.Severity != "" && filters.Severity != "info" && filters.Severity != "warn" && filters.Severity != "error" {
 		return false
 	}
-	operations := map[string]string{"exporter_plugin_installed": "install", "exporter_plugin_started": "start", "exporter_plugin_stopped": "stop", "exporter_plugin_updated": "update"}
 	if filters.EventName != "" {
-		expected, ok := operations[filters.EventName]
-		if !ok || (filters.Operation != "" && filters.Operation != expected) {
+		severity, ok := severities[filters.EventName]
+		if !ok || (filters.Severity != "" && filters.Severity != severity) {
 			return false
 		}
 	}
-	if filters.Operation != "" {
-		valid := false
-		for _, operation := range operations {
-			if filters.Operation == operation {
-				valid = true
-			}
+	operations := map[string]bool{"install": true, "start": true, "stop": true, "update": true, "recover": true, "scrape": true, "publish": true}
+	if filters.Operation != "" && !operations[filters.Operation] {
+		return false
+	}
+	if filters.EventName != "" && filters.Operation != "" && !eventOperation(filters.EventName, filters.Operation) {
+		return false
+	}
+	if filters.ErrorCode != "" {
+		if !knownErrorCode(filters.ErrorCode) || (filters.EventName != "" && filters.EventName != "exporter_plugin_failed" && filters.EventName != "exporter_plugin_exited" && filters.EventName != "metrics_collection_failed") {
+			return false
 		}
-		if !valid {
+		if filters.Operation != "" && !operationError(filters.Operation, filters.ErrorCode) {
+			return false
+		}
+		if filters.EventName == "exporter_plugin_exited" && filters.ErrorCode != "process_exited" {
+			return false
+		}
+		if filters.EventName == "metrics_collection_failed" && filters.ErrorCode == "process_exited" {
 			return false
 		}
 	}
 	return true
+}
+
+func eventOperation(name, operation string) bool {
+	allowed := map[string]map[string]bool{
+		"exporter_plugin_installed": {"install": true}, "exporter_plugin_started": {"start": true}, "exporter_plugin_stopped": {"stop": true}, "exporter_plugin_updated": {"update": true},
+		"exporter_plugin_failed": {"start": true, "stop": true, "update": true, "recover": true}, "exporter_plugin_exited": {"start": true},
+		"metrics_collection_failed": {"scrape": true, "publish": true}, "metrics_collection_recovered": {"scrape": true}, "metrics_target_unavailable": {"scrape": true}, "metrics_target_recovered": {"scrape": true},
+	}
+	return allowed[name][operation]
+}
+
+func knownErrorCode(code string) bool {
+	return map[string]bool{
+		"start_failed": true, "stop_failed": true, "update_failed": true, "rollback_failed": true, "recovery_failed": true, "recovery_invalid": true, "process_exited": true,
+		"scrape_timeout": true, "network_failed": true, "response_too_large": true, "parse_failed": true, "contract_invalid": true, "content_invalid": true, "http_invalid": true, "scrape_failed": true, "message_id_failed": true, "publish_failed": true,
+	}[code]
+}
+
+func operationError(operation, code string) bool {
+	allowed := map[string]map[string]bool{
+		"start": {"start_failed": true, "process_exited": true}, "stop": {"stop_failed": true}, "update": {"update_failed": true, "rollback_failed": true}, "recover": {"recovery_failed": true, "recovery_invalid": true},
+		"scrape":  {"scrape_timeout": true, "network_failed": true, "response_too_large": true, "parse_failed": true, "contract_invalid": true, "content_invalid": true, "http_invalid": true, "scrape_failed": true, "message_id_failed": true},
+		"publish": {"publish_failed": true},
+	}
+	return allowed[operation][code]
 }
 
 func single(values url.Values, key string) string {
@@ -441,26 +479,50 @@ func decodeEntry(source []byte) (Entry, error) {
 	}
 	return Entry{Timestamp: raw.Timestamp, EventName: raw.EventName, Source: raw.Source, Severity: raw.Severity, Message: raw.Message, Metadata: raw.Metadata}, nil
 }
-func validDocument(name, source, severity, message string, metadata Metadata) bool {
-	messages := map[string]string{"exporter_plugin_installed": "exporter plugin installed", "exporter_plugin_started": "exporter plugin started", "exporter_plugin_stopped": "exporter plugin stopped", "exporter_plugin_updated": "exporter plugin updated"}
-	operations := map[string]string{"exporter_plugin_installed": "install", "exporter_plugin_started": "start", "exporter_plugin_stopped": "stop", "exporter_plugin_updated": "update"}
-	if source != "monitor" || severity != "info" || messages[name] != message || metadata.PluginID != "redis-exporter" || metadata.Operation != operations[name] || !semverPattern.MatchString(metadata.PluginVersion) {
+func validDocument(name, source, severity, message string, m Metadata) bool {
+	messages := map[string]string{
+		"exporter_plugin_installed": "exporter plugin installed", "exporter_plugin_started": "exporter plugin started", "exporter_plugin_stopped": "exporter plugin stopped", "exporter_plugin_updated": "exporter plugin updated",
+		"exporter_plugin_failed": "exporter plugin operation failed", "exporter_plugin_exited": "exporter plugin exited unexpectedly", "metrics_collection_failed": "metrics collection failed", "metrics_collection_recovered": "metrics collection recovered",
+		"metrics_target_unavailable": "metrics target unavailable", "metrics_target_recovered": "metrics target recovered",
+	}
+	severities := map[string]string{
+		"exporter_plugin_installed": "info", "exporter_plugin_started": "info", "exporter_plugin_stopped": "info", "exporter_plugin_updated": "info", "exporter_plugin_failed": "error", "exporter_plugin_exited": "error",
+		"metrics_collection_failed": "warn", "metrics_collection_recovered": "info", "metrics_target_unavailable": "warn", "metrics_target_recovered": "info",
+	}
+	if source != "monitor" || messages[name] != message || severities[name] != severity || m.PluginID != "redis-exporter" {
 		return false
 	}
-	if name == "exporter_plugin_updated" {
-		return semverPattern.MatchString(metadata.PreviousPluginVersion) && metadata.FromState == metadata.ToState && (metadata.FromState == "running" || metadata.FromState == "stopped")
+	empty := m.ErrorCode == "" && m.ScrapeStatus == ""
+	switch name {
+	case "exporter_plugin_installed":
+		return empty && semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "install" && m.FromState == "not_installed" && m.ToState == "running"
+	case "exporter_plugin_started":
+		return empty && semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "start" && (m.FromState == "stopped" || m.FromState == "failed") && m.ToState == "running"
+	case "exporter_plugin_stopped":
+		return empty && semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "stop" && (m.FromState == "running" || m.FromState == "failed") && m.ToState == "stopped"
+	case "exporter_plugin_updated":
+		return empty && semverPattern.MatchString(m.PluginVersion) && semverPattern.MatchString(m.PreviousPluginVersion) && m.Operation == "update" && (m.FromState == "running" || m.FromState == "stopped") && m.FromState == m.ToState
+	case "exporter_plugin_failed":
+		return semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.FromState == "" && validEventState(m.ToState) && operationError(m.Operation, m.ErrorCode) && m.ErrorCode != "process_exited" && m.ScrapeStatus == ""
+	case "exporter_plugin_exited":
+		return semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "start" && m.FromState == "" && m.ToState == "failed" && m.ErrorCode == "process_exited" && m.ScrapeStatus == ""
+	case "metrics_collection_failed":
+		return m.PluginVersion == "" && m.PreviousPluginVersion == "" && m.FromState == "" && m.ToState == "" && operationError(m.Operation, m.ErrorCode) && m.ScrapeStatus == ""
+	case "metrics_collection_recovered", "metrics_target_recovered":
+		return metricsDocument(m, "success")
+	case "metrics_target_unavailable":
+		return metricsDocument(m, "target_unavailable")
 	}
-	if metadata.PreviousPluginVersion != "" {
-		return false
-	}
-	if name == "exporter_plugin_started" {
-		return (metadata.FromState == "stopped" || metadata.FromState == "failed") && metadata.ToState == "running"
-	}
-	if name == "exporter_plugin_stopped" {
-		return (metadata.FromState == "running" || metadata.FromState == "failed") && metadata.ToState == "stopped"
-	}
-	return name == "exporter_plugin_installed" && metadata.FromState == "not_installed" && metadata.ToState == "running"
+	return false
 }
+
+func validEventState(value string) bool {
+	return value == "not_installed" || value == "stopped" || value == "running" || value == "failed"
+}
+func metricsDocument(m Metadata, status string) bool {
+	return m.PluginVersion == "" && m.PreviousPluginVersion == "" && m.Operation == "scrape" && m.FromState == "" && m.ToState == "" && m.ErrorCode == "" && m.ScrapeStatus == status
+}
+
 func hasControl(value string) bool {
 	for _, r := range value {
 		if unicode.IsControl(r) {
