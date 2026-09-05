@@ -59,6 +59,13 @@ describe('business router guards', () => {
     expect(router.currentRoute.value.path).toBe('/admin/observability/logs')
   })
 
+  it('redirects an administrator from an unknown management route to the overview', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: { ...currentUser, role: 'admin' } }))))
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/admin/observability/unknown')
+    expect(router.currentRoute.value.path).toBe('/admin/observability')
+  })
+
   it('keeps the diagnostic status page available without authentication recovery', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
