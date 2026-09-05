@@ -51,6 +51,14 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if lookup == nil {
 		return WorkerConfig{}, errors.New("configuration lookup is required")
 	}
+	runtimeMode, err := loadRuntimeMode(lookup)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	mysqlHost := valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost)
+	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", mysqlHost); err != nil {
+		return WorkerConfig{}, err
+	}
 	mysqlPort, err := integerValue(lookup, "MYSQL_PORT", defaultMySQLPort)
 	if err != nil {
 		return WorkerConfig{}, err
@@ -74,7 +82,7 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
-	if err := validateRabbitMQURL(rabbitMQURL); err != nil {
+	if err := validateRabbitMQURL(rabbitMQURL, runtimeMode); err != nil {
 		return WorkerConfig{}, err
 	}
 	prefetch, err := integerValue(lookup, "BUSINESS_WORKER_PREFETCH", defaultWorkerPrefetch)
@@ -108,13 +116,13 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return WorkerConfig{}, errors.New("BUSINESS_WORKER_RECONNECT_MAX must be greater than or equal to BUSINESS_WORKER_RECONNECT_MIN")
 	}
-	logShip, err := loadLogShipConfig(lookup)
+	logShip, err := loadLogShipConfig(lookup, runtimeMode)
 	if err != nil {
 		return WorkerConfig{}, err
 	}
 	return WorkerConfig{
 		MySQL: MySQLConfig{
-			Host: valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost), Port: mysqlPort,
+			Host: mysqlHost, Port: mysqlPort,
 			Database: mysqlDatabase, User: mysqlUser, Password: mysqlPassword,
 		},
 		RabbitMQURL: rabbitMQURL,

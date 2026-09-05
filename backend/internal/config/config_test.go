@@ -43,12 +43,13 @@ func TestLoadFromDefaults(t *testing.T) {
 
 func TestLoadFromOverrides(t *testing.T) {
 	env := requiredEnvironment()
+	env["GOPULSE_RUNTIME_MODE"] = "container"
 	env["APP_ENV"] = "test"
-	env["HTTP_HOST"] = "127.0.0.1"
+	env["HTTP_HOST"] = "0.0.0.0"
 	env["HTTP_PORT"] = "18080"
-	env["MYSQL_HOST"] = "mysql.internal"
+	env["MYSQL_HOST"] = "mysql"
 	env["MYSQL_PORT"] = "13306"
-	env["REDIS_HOST"] = "redis.internal"
+	env["REDIS_HOST"] = "redis"
 	env["REDIS_PORT"] = "16379"
 	env["REDIS_DB"] = "3"
 	env["AUTH_JWT_TTL"] = "30m"
@@ -64,7 +65,10 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["OUTBOX_CLEANUP_INTERVAL"] = "30m"
 	env["OUTBOX_PUBLISHED_RETENTION"] = "720h"
 	env["OUTBOX_CLEANUP_BATCH"] = "750"
-	env["BACKEND_VICTORIAMETRICS_URL"] = "https://vm.internal"
+	env["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
+	env["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
+	env["MONITOR_URL"] = "http://monitor:9090"
+	env["BACKEND_VICTORIAMETRICS_URL"] = "https://victoriametrics:8428"
 	env["BACKEND_VICTORIAMETRICS_USERNAME"] = "metrics-reader"
 	env["BACKEND_VICTORIAMETRICS_PASSWORD"] = "metrics-reader-password-at-least-32-bytes"
 	env["BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT"] = "4s"
@@ -74,16 +78,16 @@ func TestLoadFromOverrides(t *testing.T) {
 		t.Fatalf("LoadFrom() error = %v", err)
 	}
 
-	if cfg.AppEnv != "test" || cfg.HTTPAddress() != "127.0.0.1:18080" {
+	if cfg.RuntimeMode != RuntimeModeContainer || cfg.AppEnv != "test" || cfg.HTTPAddress() != "0.0.0.0:18080" {
 		t.Fatalf("unexpected application config: %#v", cfg)
 	}
-	if cfg.MySQL.Host != "mysql.internal" || cfg.MySQL.Port != 13306 {
+	if cfg.MySQL.Host != "mysql" || cfg.MySQL.Port != 13306 {
 		t.Fatalf("unexpected MySQL config: %#v", cfg.MySQL)
 	}
-	if cfg.Redis.Host != "redis.internal" || cfg.Redis.Port != 16379 || cfg.Redis.DB != 3 {
+	if cfg.Redis.Host != "redis" || cfg.Redis.Port != 16379 || cfg.Redis.DB != 3 {
 		t.Fatalf("unexpected Redis config: %#v", cfg.Redis)
 	}
-	if cfg.VictoriaMetrics.URL != "https://vm.internal" || cfg.VictoriaMetrics.Username != "metrics-reader" || cfg.VictoriaMetrics.RequestTimeout != 4*time.Second {
+	if cfg.VictoriaMetrics.URL != "https://victoriametrics:8428" || cfg.VictoriaMetrics.Username != "metrics-reader" || cfg.VictoriaMetrics.RequestTimeout != 4*time.Second {
 		t.Fatalf("unexpected VictoriaMetrics config: %#v", cfg.VictoriaMetrics)
 	}
 	if cfg.Auth.JWTTTL != 30*time.Minute || cfg.Auth.CookieName != "custom_session" || !cfg.Auth.CookieSecure {

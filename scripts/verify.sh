@@ -1,542 +1,94 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
-ENV_FILE=${GOPULSE_ENV_FILE:-"$REPO_ROOT/.env"}
-RUN_DIR=${GOPULSE_RUN_DIR:-"$REPO_ROOT/.run"}
-ENV_EXAMPLE_FILE="$REPO_ROOT/.env.example"
-MONITOR_DIR="$REPO_ROOT/monitor"
-ROUTER_DIR="$REPO_ROOT/router"
-MARSHALLER_DIR="$REPO_ROOT/marshaller"
-MONITOR_RECORD="$RUN_DIR/monitor.json"
-MONITOR_BINARY="$RUN_DIR/bin/gopulse-monitor"
-ROUTER_RECORD="$RUN_DIR/router.json"
-ROUTER_BINARY="$RUN_DIR/bin/gopulse-router"
-MARSHALLER_RECORD="$RUN_DIR/marshaller.json"
-MARSHALLER_BINARY="$RUN_DIR/bin/gopulse-marshaller"
-WORKER_RECORD="$RUN_DIR/business-worker.json"
-SEARCH_INDEXER_RECORD="$RUN_DIR/search-indexer.json"
-WORKER_BINARY="$RUN_DIR/bin/gopulse-business-worker"
-SEARCH_INDEXER_BINARY="$RUN_DIR/bin/gopulse-search-indexer"
-BACKEND_DIR="$REPO_ROOT/backend"
-PROJECT_NAME=${GOPULSE_PROJECT_NAME:-gopulse}
-FAILURES=0
-TEMP_DIR=
+COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
+COMPOSE_WORKDIR=$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd -P)
+PROJECT_NAME=${COMPOSE_PROJECT_NAME:-gopulse}
+ENV_FILE=${GOPULSE_ENV_FILE:-$REPO_ROOT/.env}
 
-validate_workspace_scope() {
-  if [[ $PROJECT_NAME != gopulse && ! $PROJECT_NAME =~ ^gopulse-observability-[0-9a-f]{12}$ ]]; then
-    printf '[gopulse] ERROR: GOPULSE_PROJECT_NAME must be gopulse or an owned observability acceptance project.\n' >&2
-    return 1
-  fi
-  if [[ $PROJECT_NAME != gopulse ]]; then
-    local resolved_env resolved_run
-    resolved_env=$(realpath -m -- "$ENV_FILE") || return 1
-    resolved_run=$(realpath -m -- "$RUN_DIR") || return 1
-    if [[ $resolved_env != /tmp/* || $resolved_run != /tmp/* ]]; then
-      printf '[gopulse] ERROR: Acceptance environment and run directories must resolve under /tmp.\n' >&2
-      return 1
-    fi
-  fi
+info() { printf '[gopulse] %s\n' "$*"; }
+pass() { printf '[gopulse] PASS: %s\n' "$*"; }
+fail() { printf '[gopulse] ERROR: %s\n' "$*" >&2; return 1; }
+usage() { printf 'Usage: scripts/verify.sh [--project-name NAME] [--env-file PATH]\n'; }
+
+while (($#)); do
+  case $1 in
+    --project-name) PROJECT_NAME=${2:?missing project name}; shift 2 ;;
+    --env-file) ENV_FILE=${2:?missing environment file}; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) fail "unknown argument: $1"; exit 2 ;;
+  esac
+done
+
+[[ $PROJECT_NAME =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || fail "unsafe project name"
+[[ -f $ENV_FILE ]] || ENV_FILE="$REPO_ROOT/.env.example"
+VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
+export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf unknown)
+command -v docker >/dev/null 2>&1 || fail "docker is required"
+docker info >/dev/null 2>&1 || fail "Docker Engine is unavailable"
+
+compose() {
+  docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" --file "$COMPOSE_FILE" "$@"
 }
 
-info() {
-  printf '[gopulse] %s\n' "$*"
+service_id() {
+  local service=$1 ids count
+  ids=$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter "label=com.docker.compose.service=$service")
+  count=$(sed '/^$/d' <<<"$ids" | wc -l | tr -d ' ')
+  [[ $count == 1 ]] || { fail "$service must have exactly one project container; found $count"; return 1; }
+  printf '%s\n' "$ids"
 }
 
-pass() {
-  printf '[gopulse] PASS %s - %s\n' "$1" "$2"
+verify_owned_service() {
+  local service=$1 expected=$2 id project label working_dir state health
+  id=$(service_id "$service")
+  project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$id")
+  label=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$id")
+  working_dir=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id")
+  [[ $project == "$PROJECT_NAME" && $label == "$service" && $working_dir == "$COMPOSE_WORKDIR" ]] || { fail "$service ownership labels mismatch"; return 1; }
+  state=$(docker inspect --format '{{.State.Status}}' "$id")
+  [[ $state == "$expected" ]] || fail "$service state is $state, expected $expected"
+  if [[ $service == frontend || $service == backend || $service == mysql || $service == redis || $service == rabbitmq || $service == elasticsearch ]]; then
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
+    [[ $health == healthy ]] || fail "$service health is $health"
+  fi
+  pass "$service is label-owned and $state"
 }
 
-fail() {
-  printf '[gopulse] FAIL %s - %s\n' "$1" "$2" >&2
-  FAILURES=$((FAILURES + 1))
-}
+for service in mysql redis rabbitmq elasticsearch backend business-worker search-indexer frontend; do
+  verify_owned_service "$service" running
+done
+for service in migrate search-init; do
+  id=$(service_id "$service")
+  verify_owned_service "$service" exited
+  [[ $(docker inspect --format '{{.State.ExitCode}}' "$id") == 0 ]] || fail "$service did not exit successfully"
+  pass "$service completed successfully"
+done
 
-cleanup() {
-  [[ -z ${TEMP_DIR:-} ]] || rm -rf -- "$TEMP_DIR"
-}
-trap cleanup EXIT
+for service in mysql redis rabbitmq elasticsearch business-worker search-indexer; do
+  id=$(service_id "$service")
+  bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")
+  [[ $bindings == null || $bindings == '{}' ]] || fail "$service unexpectedly publishes a host port"
+done
+for service in frontend backend; do
+  id=$(service_id "$service")
+  host_ips=$(docker inspect --format '{{range $p, $bindings := .HostConfig.PortBindings}}{{range $bindings}}{{.HostIp}} {{end}}{{end}}' "$id")
+  [[ $host_ips == '127.0.0.1 ' ]] || fail "$service must publish exactly one loopback port"
+done
+pass 'Only Frontend and Backend publish loopback ports.'
 
-require_tools() {
-  local missing=() tool
-  for tool in docker curl python3; do
-    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
-  done
-  if ((${#missing[@]} > 0)); then
-    printf '[gopulse] ERROR: Missing required tool(s): %s.\n' "${missing[*]}" >&2
-    return 1
-  fi
-  docker compose version >/dev/null 2>&1 || { printf '[gopulse] ERROR: Docker Compose is unavailable.\n' >&2; return 1; }
-  docker info >/dev/null 2>&1 || { printf '[gopulse] ERROR: Docker is installed, but the Docker daemon is unavailable.\n' >&2; return 1; }
-}
+for service in frontend backend business-worker search-indexer; do
+  id=$(service_id "$service")
+  image=$(docker inspect --format '{{.Image}}' "$id")
+  user=$(docker image inspect --format '{{.Config.User}}' "$image")
+  image_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
+  [[ $user =~ ^[0-9]+:[0-9]+$ ]] || fail "$service image user is not a numeric uid:gid"
+  [[ $image_version == "$VERSION" ]] || fail "$service image version $image_version does not match $VERSION"
+done
+pass "Application image users and version labels match $VERSION."
 
-config_port() {
-  local key=$1 fallback=$2 direct
-  direct=${!key:-}
-  if [[ -n $direct ]]; then
-    printf '%s\n' "$direct"
-    return
-  fi
-  local path=$ENV_FILE
-  [[ -f $path ]] || path=$ENV_EXAMPLE_FILE
-  python3 - "$path" "$key" "$fallback" <<'PY'
-import re
-import sys
-path, key, fallback = sys.argv[1:]
-value = None
-try:
-    lines = open(path, encoding='utf-8').read().splitlines()
-except FileNotFoundError:
-    lines = []
-for number, raw in enumerate(lines, 1):
-    line = raw.strip()
-    if not line or line.startswith('#'):
-        continue
-    if re.match(r'^export(?:\s|$)', line):
-        raise SystemExit(f'Unsupported dotenv syntax at line {number}.')
-    match = re.match(rf'^{re.escape(key)}\s*=(.*)$', line)
-    if not match:
-        continue
-    value = match.group(1).strip()
-    if value[:1] in {'"', "'"}:
-        if len(value) < 2 or value[-1] != value[0]:
-            raise SystemExit(f'Unterminated quoted value for {key} at line {number}.')
-        value = value[1:-1]
-    elif "'" in value or '"' in value:
-        raise SystemExit(f'Mismatched quote in dotenv value for {key} at line {number}.')
-    break
-print(value or fallback)
-PY
-}
-
-http_port() { config_port HTTP_PORT 8080; }
-monitor_http_port() { config_port MONITOR_HTTP_PORT 9090; }
-router_http_port() { config_port ROUTER_HTTP_PORT 9091; }
-marshaller_http_port() { config_port MARSHALLER_HTTP_PORT 9093; }
-victoriametrics_port() { config_port VICTORIAMETRICS_PORT 8428; }
-elasticsearch_port() { config_port ELASTICSEARCH_PORT 9200; }
-exporter_http_port() { config_port REDIS_EXPORTER_HTTP_PORT 9121; }
-
-validate_port() {
-  [[ $1 =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535))
-}
-
-check_compose_service() {
-  local service=$1 ids state count
-  ids=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter "label=com.docker.compose.service=$service" --format '{{.ID}}' 2>/dev/null) || {
-    fail "Compose/$service" 'Docker could not list the service container.'
-    return
-  }
-  count=$(sed '/^[[:space:]]*$/d' <<<"$ids" | wc -l | tr -d ' ')
-  if [[ $count != 1 ]]; then
-    fail "Compose/$service" "expected exactly one container, found $count. Inspect with: docker compose --project-name $PROJECT_NAME --file '$REPO_ROOT/deploy/compose.yaml' ps"
-    return
-  fi
-  state=$(docker inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$ids" 2>/dev/null) || {
-    fail "Compose/$service" "could not inspect container $ids."
-    return
-  }
-  if [[ $state != 'running|healthy' ]]; then
-    fail "Compose/$service" "container state is '$state', expected 'running|healthy'."
-    return
-  fi
-  pass "Compose/$service" 'container is running and healthy.'
-}
-
-check_kafka_resources() {
-  local ids volume details group_details
-  ids=$(docker ps -a --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter 'label=com.docker.compose.service=kafka-init' --format '{{.ID}}')
-  if [[ $(sed '/^[[:space:]]*$/d' <<<"$ids" | wc -l | tr -d ' ') != 1 ]] || [[ $(docker inspect --format '{{.State.Status}}|{{.State.ExitCode}}' "$ids" 2>/dev/null) != 'exited|0' ]]; then
-    fail 'Compose/kafka-init' 'expected exactly one successfully completed topic initializer.'
-  else
-    pass 'Compose/kafka-init' 'topic initializer completed successfully.'
-  fi
-  volume="${PROJECT_NAME}_kafka_data"
-  details=$(docker volume inspect --format '{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.volume"}}' "$volume" 2>/dev/null || true)
-  if [[ $details != "$PROJECT_NAME|kafka_data" ]]; then
-    fail 'Compose/kafka_data' 'volume ownership labels do not match this project.'
-  else
-    pass 'Compose/kafka_data' 'volume ownership labels match this project.'
-  fi
-  ids=$(docker ps --filter "label=com.docker.compose.project=$PROJECT_NAME" --filter 'label=com.docker.compose.service=kafka' --format '{{.ID}}')
-  if [[ -z $ids ]]; then
-    fail 'Kafka topic' 'Kafka container is unavailable.'
-    return
-  fi
-  details=$(docker exec "$ids" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --describe --topic gopulse-observability-v1 2>/dev/null || true)
-  if [[ $details != *'PartitionCount: 1'* || $details != *'ReplicationFactor: 1'* ]]; then
-    fail 'Kafka topic' 'fixed topic is missing or has unexpected partition/replication settings.'
-  else
-    pass 'Kafka topic' 'fixed topic exists with one partition and replication factor one.'
-  fi
-  group_details=$(docker exec "$ids" /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:19092 --group gopulse-marshaller-metrics-v1 --describe 2>/dev/null || true)
-  if awk '$2=="gopulse-observability-v1" && $3==0 && $4 ~ /^[0-9]+$/ {found=1} END {exit !found}' <<<"$group_details"; then
-    pass 'Kafka Marshaller group' 'formal group has a numeric committed offset for the fixed partition.'
-  else
-    fail 'Kafka Marshaller group' 'formal group or its committed offset is unavailable.'
-  fi
-}
-
-check_router_http() {
-  local port=$1 token=$2 body="$TEMP_DIR/router.json" status
-  status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/health") || status=000
-  if [[ $status == 200 ]] && python3 - "$body" <<'PYROUTER'
-import json, sys
-raise SystemExit(0 if json.load(open(sys.argv[1], encoding='utf-8')) == {'status':'ok','service':'router'} else 1)
-PYROUTER
-  then pass 'Router /health' 'HTTP 200 with the fixed process-health contract.'; else fail 'Router /health' "contract mismatch (HTTP $status)."; fi
-  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:$port/ready") || status=000
-  if [[ $status == 200 ]]; then pass 'Router /ready' 'authenticated Kafka readiness succeeded.'; else fail 'Router /ready' "returned HTTP $status."; fi
-  status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/ready") || status=000
-  if [[ $status == 401 ]]; then pass 'Router authentication' 'unauthenticated readiness was rejected.'; else fail 'Router authentication' "unauthenticated readiness returned HTTP $status."; fi
-}
-
-check_marshaller_http() {
-  local port=$1 token=$2 body="$TEMP_DIR/marshaller-http.json" status
-  status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/health") || status=000
-  if [[ $status == 200 ]] && python3 - "$body" <<'PYMARSHALLER'
-import json,sys
-raise SystemExit(0 if json.load(open(sys.argv[1],encoding='utf-8'))=={'status':'ok','service':'marshaller'} else 1)
-PYMARSHALLER
-  then pass 'Marshaller /health' 'HTTP 200 with the fixed process-health contract.'; else fail 'Marshaller /health' "contract mismatch (HTTP $status)."; fi
-  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:$port/ready") || status=000
-  if [[ $status == 200 ]]; then pass 'Marshaller /ready' 'authenticated Kafka and VictoriaMetrics readiness succeeded.'; else fail 'Marshaller /ready' "returned HTTP $status."; fi
-  status=$(curl --silent --show-error --max-time 3 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$port/ready") || status=000
-  if [[ $status == 401 ]]; then pass 'Marshaller authentication' 'unauthenticated readiness was rejected.'; else fail 'Marshaller authentication' "unauthenticated readiness returned HTTP $status."; fi
-}
-
-check_log_pipeline() {
-  local monitor_port=$1 elasticsearch_port=$2 headers="$TEMP_DIR/log-route.headers" body="$TEMP_DIR/log-storage.json" status
-  status=$(curl --silent --show-error --max-time 3 --dump-header "$headers" --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$monitor_port/internal/v1/logs") || status=000
-  if [[ $status == 405 ]] && grep -Eiq '^Allow:[[:space:]]*POST' "$headers"; then
-    pass 'Monitor log ingest route' 'POST-only endpoint is registered without publishing a test record.'
-  else
-    fail 'Monitor log ingest route' "route contract mismatch (HTTP $status)."
-  fi
-  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_index_template/gopulse-logs-v1-template") || status=000
-  if [[ $status == 200 ]]; then pass 'Elasticsearch log template' 'fixed template is available.'; else fail 'Elasticsearch log template' "returned HTTP $status."; fi
-  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_alias/gopulse-logs-v1-read") || status=000
-  if [[ $status == 200 ]]; then pass 'Elasticsearch log alias' 'fixed read alias is available.'; else fail 'Elasticsearch log alias' "returned HTTP $status."; fi
-}
-
-check_event_pipeline() {
-  local backend_port=$1 elasticsearch_port=$2 body="$TEMP_DIR/event-storage.json" status
-  status=$(curl --silent --show-error --max-time 3 --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$backend_port/api/v1/observability/events") || status=000
-  if [[ $status == 401 ]]; then pass 'Backend Events API route' 'authenticated admin endpoint is registered without creating an event.'; else fail 'Backend Events API route' "route contract mismatch (HTTP $status)."; fi
-  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_index_template/gopulse-events-v1-template") || status=000
-  if [[ $status == 200 ]]; then pass 'Elasticsearch event template' 'fixed template is available.'; else fail 'Elasticsearch event template' "returned HTTP $status."; fi
-  status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' "http://127.0.0.1:$elasticsearch_port/_alias/gopulse-events-v1-read") || status=000
-  if [[ $status == 200 || $status == 404 ]]; then pass 'Elasticsearch event alias' 'fixed read alias is available or no event index exists yet.'; else fail 'Elasticsearch event alias' "returned HTTP $status."; fi
-}
-
-check_victoriametrics() {
-  local port=$1 username=$2 password=$3 body="$TEMP_DIR/vm-query.json" status volume details
-  volume="${PROJECT_NAME}_victoriametrics_data"
-  details=$(docker volume inspect --format '{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.volume"}}' "$volume" 2>/dev/null || true)
-  if [[ $details == "$PROJECT_NAME|victoriametrics_data" ]]; then pass 'Compose/victoriametrics_data' 'volume ownership labels match this project.'; else fail 'Compose/victoriametrics_data' 'volume ownership labels do not match this project.'; fi
-  status=$(curl --silent --show-error --max-time 5 --user "$username:$password" --output "$body" --write-out '%{http_code}' --data-urlencode 'query=gopulse_redis_up{source="redis",target_id="redis-exporter-local"}' "http://127.0.0.1:$port/prometheus/api/v1/query") || status=000
-  if [[ $status == 200 ]] && python3 - "$body" <<'PYVM'
-import json,sys
-value=json.load(open(sys.argv[1],encoding='utf-8'))
-raise SystemExit(0 if value.get('status')=='success' else 1)
-PYVM
-  then pass 'VictoriaMetrics query' 'authenticated fixed metric query succeeded.'; else fail 'VictoriaMetrics query' "returned HTTP $status or an invalid response."; fi
-}
-
-check_recorded_process() {
-  local name=$1 record=$2 binary=$3 cwd=${4:-$BACKEND_DIR} marker result
-  marker=${5:-$binary}
-  if [[ ! -f "$record" ]]; then
-    fail "$name" "process record is missing: $record"
-    return
-  fi
-  if ! result=$(python3 - "$record" "$cwd" "$binary" "$marker" <<'PY'
-import json
-import os
-import sys
-path, expected_cwd, expected_executable, expected_marker = sys.argv[1:]
-try:
-    record = json.load(open(path, encoding='utf-8'))
-    pid = int(record['pid'])
-    start_ticks = str(record['startTicks'])
-    executable = os.path.realpath(str(record['executablePath']))
-    cwd = os.path.realpath(str(record['workingDirectory']))
-    marker = str(record['commandLineMarker'])
-except Exception:
-    print('record is malformed')
-    raise SystemExit(1)
-if cwd != os.path.realpath(expected_cwd) or marker != expected_marker:
-    print('record identity does not match this repository')
-    raise SystemExit(1)
-if executable != os.path.realpath(expected_executable):
-    print('recorded executable does not match the expected application')
-    raise SystemExit(1)
-try:
-    stat = open(f'/proc/{pid}/stat', encoding='utf-8').read().strip()
-    fields = stat[stat.rfind(')') + 2:].split()
-    actual_start_ticks = fields[19]
-    actual_executable = os.path.realpath(f'/proc/{pid}/exe')
-    command_line = open(f'/proc/{pid}/cmdline', 'rb').read().replace(b'\0', b' ').decode(errors='replace')
-except Exception:
-    print('recorded process is not running')
-    raise SystemExit(1)
-if actual_start_ticks != start_ticks or actual_executable != executable or marker not in command_line:
-    print('running process identity does not match the record')
-    raise SystemExit(1)
-print(pid)
-PY
-  ); then
-    fail "$name" "$result"
-    return
-  fi
-  pass "$name" "PID $result matches its repository-owned process record."
-}
-
-http_get() {
-  local url=$1 body_file=$2
-  curl --silent --show-error --location --max-time 5 --output "$body_file" --write-out '%{http_code}' "$url"
-}
-
-check_health() {
-  local port=$1 body="$TEMP_DIR/health.json" status
-  if ! status=$(http_get "http://localhost:$port/health" "$body"); then
-    fail '/health' 'request failed or exceeded 5 seconds.'
-    return
-  fi
-  if [[ $status != 200 ]]; then
-    fail '/health' "returned HTTP $status, expected 200."
-    return
-  fi
-  if ! python3 - "$body" <<'PY'
-import json
-import sys
-try:
-    value = json.load(open(sys.argv[1], encoding='utf-8'))
-except Exception:
-    raise SystemExit(1)
-raise SystemExit(0 if isinstance(value, dict) and value.get('status') == 'ok' and value.get('service') == 'backend' else 1)
-PY
-  then
-    fail '/health' 'JSON contract mismatch (expected status=ok and service=backend).'
-    return
-  fi
-  pass '/health' 'HTTP 200 with the expected JSON contract.'
-}
-
-check_ready() {
-  local port=$1 body="$TEMP_DIR/ready.json" status
-  if ! status=$(http_get "http://localhost:$port/ready" "$body"); then
-    fail '/ready' 'request failed or exceeded 5 seconds.'
-    return
-  fi
-  if [[ $status != 200 ]]; then
-    fail '/ready' "returned HTTP $status, expected 200."
-    return
-  fi
-  if ! python3 - "$body" <<'PY'
-import json
-import sys
-try:
-    value = json.load(open(sys.argv[1], encoding='utf-8'))
-except Exception:
-    raise SystemExit(1)
-checks = value.get('checks') if isinstance(value, dict) else None
-valid = (
-    value.get('status') == 'ready'
-    and value.get('service') == 'backend'
-    and isinstance(checks, dict)
-    and checks.get('mysql') == 'up'
-    and checks.get('redis') == 'up'
-    and checks.get('rabbitmq') == 'up'
-    and checks.get('elasticsearch') == 'up'
-)
-raise SystemExit(0 if valid else 1)
-PY
-  then
-    fail '/ready' 'JSON contract mismatch (expected ready backend with mysql, redis, rabbitmq, and elasticsearch up).'
-    return
-  fi
-  pass '/ready' 'HTTP 200 with all dependency checks up, including Elasticsearch.'
-}
-
-check_protected_api() {
-  local port=$1 body="$TEMP_DIR/protected-api.json" status
-  if ! status=$(http_get "http://localhost:$port/api/v1/posts" "$body"); then
-    fail 'Protected API' 'request failed or exceeded 5 seconds.'
-    return
-  fi
-  if [[ $status != 401 ]]; then
-    fail 'Protected API' "returned HTTP $status, expected unauthenticated HTTP 401."
-    return
-  fi
-  if ! python3 - "$body" <<'PYAPI'
-import json
-import sys
-try:
-    value = json.load(open(sys.argv[1], encoding='utf-8'))
-except Exception:
-    raise SystemExit(1)
-error = value.get('error') if isinstance(value, dict) else None
-valid = isinstance(error, dict) and error.get('code') == 'authentication_required'
-raise SystemExit(0 if valid else 1)
-PYAPI
-  then
-    fail 'Protected API' 'JSON contract mismatch (expected authentication_required).'
-    return
-  fi
-  pass 'Protected API' 'unauthenticated post listing returned the expected HTTP 401 contract.'
-}
-
-check_frontend() {
-  local port=$1 body="$TEMP_DIR/frontend.html" status
-  if ! status=$(http_get "http://localhost:$port/" "$body"); then
-    fail 'Frontend' 'request failed or exceeded 5 seconds.'
-    return
-  fi
-  if [[ ! $status =~ ^2[0-9][0-9]$ ]]; then
-    fail 'Frontend' "returned HTTP $status, expected a 2xx response."
-    return
-  fi
-  pass 'Frontend' "HTTP $status from http://localhost:$port/."
-}
-
-check_monitor_plugin_version() {
-  local port=$1 token=$2 body="$TEMP_DIR/monitor-plugin.json" status expected
-  expected=$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")
-  if [[ -z $token ]]; then
-    fail 'Monitor plugin version' 'MONITOR_API_TOKEN is missing.'
-    return
-  fi
-  if ! status=$(curl --silent --show-error --max-time 5 --output "$body" --write-out '%{http_code}' -H "Authorization: Bearer $token" "http://127.0.0.1:$port/internal/v1/exporter-plugins/redis-exporter"); then
-    fail 'Monitor plugin version' 'status request failed.'
-    return
-  fi
-  if [[ $status != 200 ]] || ! python3 - "$body" "$expected" <<'PYPLUGIN'
-import json
-import sys
-try:
-    status = json.load(open(sys.argv[1], encoding='utf-8'))['data']
-except Exception:
-    raise SystemExit(1)
-raise SystemExit(0 if status.get('version') == sys.argv[2] and status.get('observed_state') == 'running' else 1)
-PYPLUGIN
-  then
-    fail 'Monitor plugin version' "expected running version $expected from the current repository."
-    return
-  fi
-  pass 'Monitor plugin version' "running version $expected matches the current repository."
-}
-
-check_exporter_health() {
-  local port=$1 body="$TEMP_DIR/exporter-health.json" status
-  if ! status=$(http_get "http://localhost:$port/health" "$body"); then
-    fail 'Redis Exporter /health' 'request failed.'
-    return
-  fi
-  if [[ $status != 200 ]] || ! python3 - "$body" <<'PY'
-import json
-import sys
-try:
-    value = json.load(open(sys.argv[1], encoding='utf-8'))
-except Exception:
-    raise SystemExit(1)
-raise SystemExit(0 if value == {'status': 'ok', 'service': 'redis-exporter'} else 1)
-PY
-  then
-    fail 'Redis Exporter /health' "contract mismatch (HTTP $status)."
-    return
-  fi
-  pass 'Redis Exporter /health' 'HTTP 200 with the fixed process-health contract.'
-}
-
-check_exporter_metrics() {
-  local port=$1 body="$TEMP_DIR/exporter-metrics.txt" headers="$TEMP_DIR/exporter-metrics.headers" status
-  if ! status=$(curl --silent --show-error --max-time 5 --dump-header "$headers" --output "$body" --write-out '%{http_code}' "http://localhost:$port/metrics"); then
-    fail 'Redis Exporter /metrics' 'request failed.'
-    return
-  fi
-  if [[ $status != 200 ]]; then
-    fail 'Redis Exporter /metrics' "returned HTTP $status, expected 200."
-    return
-  fi
-  if ! python3 - "$headers" "$body" <<'PY'
-import re
-import sys
-headers = open(sys.argv[1], encoding='iso-8859-1').read().lower()
-body = open(sys.argv[2], encoding='utf-8').read()
-content = re.findall(r'^content-type:\s*([^\r\n]+)', headers, re.M)
-valid_type = bool(content) and content[-1].strip() == 'text/plain; version=0.0.4; charset=utf-8'
-valid_body = re.search(r'^gopulse_redis_up 1(?:\.0)?$', body, re.M) is not None
-raise SystemExit(0 if valid_type and valid_body else 1)
-PY
-  then
-    fail 'Redis Exporter /metrics' 'Content-Type or up=1 contract mismatch.'
-    return
-  fi
-  pass 'Redis Exporter /metrics' 'HTTP 200 with Prometheus text and up=1.'
-}
-
-main() {
-  validate_workspace_scope || return 1
-  require_tools || return 1
-  local port frontend_port monitor_port router_port marshaller_port vm_port es_port exporter_port monitor_token router_token marshaller_token vm_username vm_password
-  if ! port=$(http_port); then
-    printf '[gopulse] ERROR: Could not read HTTP_PORT from the environment file.\n' >&2
-    return 1
-  fi
-  validate_port "$port" || { printf "[gopulse] ERROR: HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$port" >&2; return 1; }
-  frontend_port=$(config_port FRONTEND_PORT 5173) || { printf '[gopulse] ERROR: Could not read FRONTEND_PORT.\n' >&2; return 1; }
-  validate_port "$frontend_port" || { printf "[gopulse] ERROR: FRONTEND_PORT must be an integer from 1 to 65535; received '%s'.\n" "$frontend_port" >&2; return 1; }
-  monitor_port=$(monitor_http_port) || { printf '[gopulse] ERROR: Could not read MONITOR_HTTP_PORT.\n' >&2; return 1; }
-  validate_port "$monitor_port" || { printf "[gopulse] ERROR: MONITOR_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$monitor_port" >&2; return 1; }
-  monitor_token=$(config_port MONITOR_API_TOKEN '') || { printf '[gopulse] ERROR: Could not read MONITOR_API_TOKEN.\n' >&2; return 1; }
-  router_port=$(router_http_port) || { printf '[gopulse] ERROR: Could not read ROUTER_HTTP_PORT.\n' >&2; return 1; }
-  validate_port "$router_port" || { printf "[gopulse] ERROR: ROUTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$router_port" >&2; return 1; }
-  router_token=$(config_port ROUTER_API_TOKEN 'local-router-api-token-change-me-32-bytes') || { printf '[gopulse] ERROR: Could not read ROUTER_API_TOKEN.\n' >&2; return 1; }
-  [[ ${#router_token} -ge 32 ]] || { printf '[gopulse] ERROR: ROUTER_API_TOKEN must contain at least 32 bytes.\n' >&2; return 1; }
-  marshaller_port=$(marshaller_http_port) || return 1
-  vm_port=$(victoriametrics_port) || return 1
-  es_port=$(elasticsearch_port) || return 1
-  marshaller_token=$(config_port MARSHALLER_API_TOKEN local-marshaller-api-token-change-me-32-bytes) || return 1
-  vm_username=$(config_port VICTORIAMETRICS_USERNAME gopulse-marshaller) || return 1
-  vm_password=$(config_port VICTORIAMETRICS_PASSWORD local-victoriametrics-password32) || return 1
-  validate_port "$marshaller_port" && validate_port "$vm_port" && validate_port "$es_port" || { printf '[gopulse] ERROR: Marshaller or VictoriaMetrics port is invalid.\n' >&2; return 1; }
-  exporter_port=$(exporter_http_port) || { printf '[gopulse] ERROR: Could not read REDIS_EXPORTER_HTTP_PORT.\n' >&2; return 1; }
-  validate_port "$exporter_port" || { printf "[gopulse] ERROR: REDIS_EXPORTER_HTTP_PORT must be an integer from 1 to 65535; received '%s'.\n" "$exporter_port" >&2; return 1; }
-  TEMP_DIR=$(mktemp -d)
-  info "Verifying the running environment from $REPO_ROOT."
-  check_compose_service mysql
-  check_compose_service redis
-  check_compose_service rabbitmq
-  check_compose_service elasticsearch
-  check_compose_service kafka
-  check_compose_service victoriametrics
-  check_kafka_resources
-  check_recorded_process "Business Worker" "$WORKER_RECORD" "$WORKER_BINARY"
-  check_recorded_process "Search Indexer" "$SEARCH_INDEXER_RECORD" "$SEARCH_INDEXER_BINARY"
-  check_recorded_process Monitor "$MONITOR_RECORD" "$MONITOR_BINARY" "$MONITOR_DIR" "$MONITOR_BINARY"
-  check_recorded_process Router "$ROUTER_RECORD" "$ROUTER_BINARY" "$ROUTER_DIR" "$ROUTER_BINARY"
-  check_recorded_process Marshaller "$MARSHALLER_RECORD" "$MARSHALLER_BINARY" "$MARSHALLER_DIR" "$MARSHALLER_BINARY"
-  check_router_http "$router_port" "$router_token"
-  check_marshaller_http "$marshaller_port" "$marshaller_token"
-  check_victoriametrics "$vm_port" "$vm_username" "$vm_password"
-  check_log_pipeline "$monitor_port" "$es_port"
-  check_event_pipeline "$port" "$es_port"
-  if curl -fsS --max-time 3 "http://127.0.0.1:$monitor_port/health" >/dev/null; then pass 'Monitor /health' 'HTTP 200.'; else fail 'Monitor /health' 'request failed.'; fi
-  check_monitor_plugin_version "$monitor_port" "$monitor_token"
-  check_exporter_health "$exporter_port"
-  check_exporter_metrics "$exporter_port"
-  check_health "$port"
-  check_ready "$port"
-  check_protected_api "$port"
-  check_frontend "$frontend_port"
-  if ((FAILURES > 0)); then
-    printf '[gopulse] Verification failed with %d issue(s). The script did not change the running environment.\n' "$FAILURES" >&2
-    printf '[gopulse] Diagnose Compose with: docker compose --project-name $PROJECT_NAME --file deploy/compose.yaml ps\n' >&2
-    return 1
-  fi
-  info 'Verification passed. The script did not change the running environment.'
-}
-
-main "$@"
+compose --profile acceptance run --rm --no-deps acceptance e2e/compose-smoke.spec.ts
+pass 'Containerized production SPA/API smoke passed.'
+info 'Verification passed without changing persistent application state.'
