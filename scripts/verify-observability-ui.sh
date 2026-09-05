@@ -9,13 +9,11 @@ self_test(){
   grep -q 'real exporter management loop' "$REPO_ROOT/frontend/e2e/observability.spec.ts" || fail 'real Exporter browser operations are missing.'
   grep -q 'GOPULSE_OBSERVABILITY_INSTALL_PACKAGE' "$REPO_ROOT/scripts/verify-observability-ui.sh" || fail 'browser install package wiring is missing.'
   grep -q 'GOPULSE_MONITOR_PLUGIN_BOOTSTRAP=skip' "$REPO_ROOT/scripts/verify-observability-ui.sh" || fail 'empty plugin-root acceptance wiring is missing.'
-  grep -q 'GOPULSE_PROJECT_NAME' "$REPO_ROOT/scripts/verify.sh" || fail 'verify.sh isolated project support is missing.'
-  grep -q 'GOPULSE_PROJECT_NAME' "$REPO_ROOT/scripts/down.sh" || fail 'down.sh isolated project support is missing.'
+  grep -q -- '--project-name' "$REPO_ROOT/scripts/verify.sh" || fail 'verify.sh isolated project support is missing.'
+  grep -q -- '--project-name' "$REPO_ROOT/scripts/down.sh" || fail 'down.sh isolated project support is missing.'
   local output
-  output=$(GOPULSE_PROJECT_NAME=unsafe GOPULSE_ENV_FILE=/tmp/unsafe-env GOPULSE_RUN_DIR=/tmp/unsafe-run "$REPO_ROOT/scripts/verify.sh" 2>&1 || true)
-  grep -q 'GOPULSE_PROJECT_NAME must be' <<<"$output" || fail 'verify.sh did not reject an unsafe project.'
-  output=$(GOPULSE_PROJECT_NAME=unsafe GOPULSE_ENV_FILE=/tmp/unsafe-env GOPULSE_RUN_DIR=/tmp/unsafe-run "$REPO_ROOT/scripts/down.sh" 2>&1 || true)
-  grep -q 'GOPULSE_PROJECT_NAME must be' <<<"$output" || fail 'down.sh did not reject an unsafe project.'
+  output=$("$REPO_ROOT/scripts/verify-compose.sh" --self-test 2>&1) || fail 'container acceptance safety self-test failed.'
+  grep -q 'unsafe project names rejected before Docker access' <<<"$output" || fail 'container acceptance ownership self-test is missing.'
   bash -n "$REPO_ROOT/scripts/verify-observability-ui.sh"
   printf '[verify-observability-ui] Self-test passed.\n'
 }
