@@ -198,6 +198,15 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if valueOrDefault(lookup, "BACKEND_EVENT_READ_ALIAS", "gopulse-events-v1-read") != "gopulse-events-v1-read" {
+		return Config{}, errors.New("BACKEND_EVENT_READ_ALIAS must be gopulse-events-v1-read")
+	}
+	if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_DEFAULT_RANGE", "15m") != "15m" {
+		return Config{}, errors.New("BACKEND_EVENT_QUERY_DEFAULT_RANGE must be 15m")
+	}
+	if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_MAX_RANGE", "24h") != "24h" {
+		return Config{}, errors.New("BACKEND_EVENT_QUERY_MAX_RANGE must be 24h")
+	}
 
 	redisDB, err := integerValue(lookup, "REDIS_DB", defaultRedisDB)
 	if err != nil {

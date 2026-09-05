@@ -134,7 +134,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && source == "redis") || (messageType == "logs" && logSource(source))
+	return (messageType == "metrics" && source == "redis") || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {

@@ -94,6 +94,12 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if get("MARSHALLER_LOG_INDEX_PREFIX", "gopulse-logs-v1-") != "gopulse-logs-v1-" {
 		return Config{}, errors.New("MARSHALLER_LOG_INDEX_PREFIX must be gopulse-logs-v1-")
 	}
+	if get("MARSHALLER_EVENT_TEMPLATE", "gopulse-events-v1-template") != "gopulse-events-v1-template" {
+		return Config{}, errors.New("MARSHALLER_EVENT_TEMPLATE must be gopulse-events-v1-template")
+	}
+	if get("MARSHALLER_EVENT_INDEX_PREFIX", "gopulse-events-v1-") != "gopulse-events-v1-" {
+		return Config{}, errors.New("MARSHALLER_EVENT_INDEX_PREFIX must be gopulse-events-v1-")
+	}
 	if cfg.VMUsername == "" || strings.ContainsAny(cfg.VMUsername, "\r\n:") {
 		return Config{}, errors.New("MARSHALLER_VM_USERNAME is invalid")
 	}

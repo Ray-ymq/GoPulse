@@ -3,6 +3,7 @@ package envelope
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +75,20 @@ func TestValidateAcceptsEveryLogSource(t *testing.T) {
 		if message.Source != source {
 			t.Fatalf("source = %q, want %q", message.Source, source)
 		}
+	}
+}
+
+func TestValidateAcceptsMonitorEventsAndPreservesBytes(t *testing.T) {
+	body := []byte(`{"schema_version":1,"message_id":"0123456789abcdef0123456789abcdef","type":"events","source":"monitor","timestamp":"2026-09-05T08:00:00Z","payload":{"event_schema_version":1}}`)
+	message, err := Validate(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Type != "events" || message.Source != "monitor" || string(message.Body) != string(body) {
+		t.Fatalf("unexpected message: %+v", message)
+	}
+	unsupported := []byte(strings.Replace(string(body), `"source":"monitor"`, `"source":"backend"`, 1))
+	if _, err := Validate(unsupported); err == nil {
+		t.Fatal("events/backend was accepted")
 	}
 }

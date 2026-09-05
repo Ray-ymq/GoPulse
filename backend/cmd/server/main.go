@@ -14,6 +14,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
@@ -176,6 +177,9 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	logRepository := logquery.NewElasticsearchRepository(elasticsearchClient)
 	logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
 	logHandler := logquery.NewHandler(logService)
+	eventRepository := eventquery.NewElasticsearchRepository(elasticsearchClient)
+	eventService := eventquery.NewService(eventRepository, cfg.Auth.JWTSecret)
+	eventHandler := eventquery.NewHandler(eventService)
 	monitorClient, err := exporterplugin.NewClient(cfg.Monitor.URL, cfg.Monitor.APIToken, cfg.Monitor.RequestTimeout)
 	if err != nil {
 		return errors.New("initialize monitor client")
@@ -196,6 +200,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Comments:        commentHandler,
 			Likes:           likeHandler,
 			Logs:            logHandler,
+			Events:          eventHandler,
 			Notifications:   notificationHandler,
 			Search:          searchHandler,
 			Authentication:  middleware.RequireAuthentication(cookies.Name(), tokens),
