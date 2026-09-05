@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -255,13 +257,22 @@ func TestUpdateRegistryFailureRestoresMemoryCurrentAndDisk(t *testing.T) {
 }
 
 type recordingEvents struct {
+	mu     sync.Mutex
 	events []events.Event
 	accept bool
 }
 
 func (r *recordingEvents) Record(event events.Event) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.events = append(r.events, event)
 	return r.accept
+}
+
+func (r *recordingEvents) snapshot() []events.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]events.Event(nil), r.events...)
 }
 
 func TestManagerRecordsOnlySuccessfulLifecycleTransitions(t *testing.T) {
@@ -302,15 +313,97 @@ func TestManagerRecordsOnlySuccessfulLifecycleTransitions(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"exporter_plugin_installed", "exporter_plugin_stopped", "exporter_plugin_started", "exporter_plugin_updated"}
-	if len(recorder.events) != len(want) {
-		t.Fatalf("events=%+v", recorder.events)
+	recorded := recorder.snapshot()
+	if len(recorded) != len(want) {
+		t.Fatalf("events=%+v", recorded)
 	}
 	for i, name := range want {
-		if recorder.events[i].EventName != name {
-			t.Fatalf("event %d=%s want=%s", i, recorder.events[i].EventName, name)
+		if recorded[i].EventName != name {
+			t.Fatalf("event %d=%s want=%s", i, recorded[i].EventName, name)
 		}
 	}
-	if recorder.events[3].Metadata.PreviousPluginVersion != "1.7.0" || recorder.events[3].Metadata.PluginVersion != "1.7.1" {
-		t.Fatalf("update metadata=%+v", recorder.events[3].Metadata)
+	if recorded[3].Metadata.PreviousPluginVersion != "1.7.0" || recorded[3].Metadata.PluginVersion != "1.7.1" {
+		t.Fatalf("update metadata=%+v", recorded[3].Metadata)
 	}
+}
+
+func TestManagerRecordsTerminalStartFailure(t *testing.T) {
+	var healthy atomic.Bool
+	healthy.Store(true)
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if !healthy.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","service":"redis-exporter"}`))
+	}))
+	defer health.Close()
+	recorder := &recordingEvents{accept: true}
+	cfg := managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL)
+	cfg.EventRecorder = recorder
+	manager, err := NewManager(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.ReadFile("/usr/bin/yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Install(context.Background(), writeExecutablePackage(t, "1.7.2", executable)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Stop(context.Background(), PluginID); err != nil {
+		t.Fatal(err)
+	}
+	healthy.Store(false)
+	if _, err = manager.Start(context.Background(), PluginID); err == nil {
+		t.Fatal("start unexpectedly succeeded")
+	}
+	recorded := recorder.snapshot()
+	last := recorded[len(recorded)-1]
+	if last.EventName != "exporter_plugin_failed" || last.Metadata.Operation != "start" || last.Metadata.ErrorCode != "start_failed" || last.Metadata.ToState != "failed" {
+		t.Fatalf("unexpected failure event: %+v", last)
+	}
+}
+
+func TestManagerRecordsUnexpectedExitAfterStateCommit(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","service":"redis-exporter"}`))
+	}))
+	defer health.Close()
+	recorder := &recordingEvents{accept: true}
+	cfg := managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL)
+	cfg.EventRecorder = recorder
+	manager, err := NewManager(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.ReadFile("/usr/bin/yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = manager.Install(context.Background(), writeExecutablePackage(t, "1.7.2", executable)); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.RLock()
+	pid := manager.runtimes[PluginID].record.PID
+	manager.mu.RUnlock()
+	if err = syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		recorded := recorder.snapshot()
+		if len(recorded) >= 2 && recorded[len(recorded)-1].EventName == "exporter_plugin_exited" {
+			status, getErr := manager.Get(PluginID)
+			if getErr != nil || status.ObservedState != ObservedFailed || status.LastError == nil || status.LastError.Code != "process_exited" {
+				t.Fatalf("exit event preceded state commit: status=%+v err=%v", status, getErr)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("unexpected exit event not recorded: %+v", recorder.snapshot())
 }

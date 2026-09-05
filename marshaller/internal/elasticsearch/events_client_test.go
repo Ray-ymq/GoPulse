@@ -19,7 +19,9 @@ func TestEventsClientUsesIndependentTemplateIndexAndAlias(t *testing.T) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/_index_template/"):
 			w.Write([]byte(`{"acknowledged":true}`))
-		case strings.HasSuffix(r.URL.Path, "/_mapping"):
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/_mapping"):
+			w.Write([]byte(`{"acknowledged":true}`))
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_mapping"):
 			writeEventMappingResponse(t, w, "gopulse-events-v1-2026.09.05")
 		case strings.Contains(r.URL.Path, "/_alias/"):
 			w.Write([]byte(`{"gopulse-events-v1-2026.09.05":{"aliases":{"gopulse-events-v1-read":{}}}}`))
@@ -38,7 +40,7 @@ func TestEventsClientUsesIndependentTemplateIndexAndAlias(t *testing.T) {
 	if err := client.Write(context.Background(), body); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"PUT /_index_template/" + EventTemplateName, "PUT /gopulse-events-v1-2026.09.05/_doc/abcdef0123456789abcdef0123456789", "GET /gopulse-events-v1-2026.09.05/_mapping", "GET /gopulse-events-v1-2026.09.05/_alias/" + EventReadAlias}
+	want := []string{"PUT /_index_template/" + EventTemplateName, "PUT /gopulse-events-v1-2026.09.05/_mapping", "PUT /gopulse-events-v1-2026.09.05/_doc/abcdef0123456789abcdef0123456789", "GET /gopulse-events-v1-2026.09.05/_mapping", "GET /gopulse-events-v1-2026.09.05/_alias/" + EventReadAlias}
 	if strings.Join(paths, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("paths=%v want=%v", paths, want)
 	}
@@ -50,7 +52,7 @@ func TestEventsClientUsesIndependentTemplateIndexAndAlias(t *testing.T) {
 func writeEventMappingResponse(t *testing.T, w http.ResponseWriter, index string) {
 	t.Helper()
 	metadata := map[string]any{}
-	for _, field := range []string{"plugin_id", "plugin_version", "previous_plugin_version", "operation", "from_state", "to_state"} {
+	for _, field := range []string{"plugin_id", "plugin_version", "previous_plugin_version", "operation", "from_state", "to_state", "error_code", "scrape_status"} {
 		metadata[field] = map[string]string{"type": "keyword"}
 	}
 	properties := map[string]any{

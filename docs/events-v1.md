@@ -1,48 +1,34 @@
-# Events v1 contract
+# Events v1
 
-GoPulse product version 1.7.1 adds an end-to-end administrator query path for successful Redis Exporter lifecycle events. Events are observability records rather than an authoritative business audit log: the Plugin Manager state transition succeeds independently of the best-effort source queue, while accepted Kafka records are retried until Elasticsearch accepts and verifies the target contract.
+GoPulse product version 1.7.2 extends the Events v1 path from successful Redis Exporter lifecycle transitions to operational failure and recovery episodes. Events remain observability records rather than an authoritative business audit log: plugin operations and metrics status updates complete independently of best-effort source recording, while accepted Kafka records are retried until their target store accepts them or a bounded permanent validation result allows the consumer to continue.
 
-## Lifecycle vocabulary
+## Event vocabulary
 
-| Event name | Fixed message | Operation | State transition |
-| --- | --- | --- | --- |
-| `exporter_plugin_installed` | `exporter plugin installed` | `install` | `not_installed → running` |
-| `exporter_plugin_started` | `exporter plugin started` | `start` | `stopped|failed → running` |
-| `exporter_plugin_stopped` | `exporter plugin stopped` | `stop` | `running|failed → stopped` |
-| `exporter_plugin_updated` | `exporter plugin updated` | `update` | `running → running` or `stopped → stopped` |
+All records use `event_schema_version=1`, `source=monitor`, UTC RFC3339Nano timestamps, fixed English messages, and `metadata.plugin_id=redis-exporter`.
 
-All four events use `source=monitor` and `severity=info`. Install does not also emit started; update does not expose its internal stop/start; an idempotent no-op and Monitor shutdown emit nothing.
+| Event name | Severity | Required transition metadata |
+| --- | --- | --- |
+| `exporter_plugin_installed` | `info` | version, `install`, `not_installed -> running` |
+| `exporter_plugin_started` | `info` | version, `start`, `stopped|failed -> running` |
+| `exporter_plugin_stopped` | `info` | version, `stop`, `running|failed -> stopped` |
+| `exporter_plugin_updated` | `info` | current/previous versions, `update`, unchanged running or stopped state |
+| `exporter_plugin_failed` | `error` | version, terminal operation, safe error code, final state |
+| `exporter_plugin_exited` | `error` | version, `start`, `process_exited`, final `failed` state |
+| `metrics_collection_failed` | `warn` | `scrape|publish` and a safe collection error code |
+| `metrics_collection_recovered` | `info` | `scrape_status=success` |
+| `metrics_target_unavailable` | `warn` | published `scrape_status=target_unavailable` |
+| `metrics_target_recovered` | `info` | published `scrape_status=success` |
 
-## Payload and Envelope
+Plugin error codes are limited to `start_failed`, `stop_failed`, `update_failed`, `rollback_failed`, `recovery_failed`, `recovery_invalid`, and `process_exited`. Collection error codes are limited to `scrape_timeout`, `network_failed`, `response_too_large`, `parse_failed`, `contract_invalid`, `content_invalid`, `http_invalid`, `scrape_failed`, `message_id_failed`, and `publish_failed`.
 
-The payload contains exactly `event_schema_version`, `event_name`, `source`, `severity`, `timestamp`, `message`, and `metadata`. Metadata contains the fixed `plugin_id=redis-exporter`, three-part `plugin_version`, `operation`, `from_state`, and `to_state`; update also requires `previous_plugin_version`. Timestamps use UTC RFC3339Nano. Free text, unknown or duplicate fields, nested metadata, control characters, URLs, credentials, paths, process details, and underlying errors are rejected.
+## Episode semantics
 
-The outer Envelope contains `schema_version=1`, a random 32-character lowercase hexadecimal `message_id`, `type=events`, `source=monitor`, the same timestamp, and the payload. Monitor sends it to the existing authenticated Router endpoint. Router preserves the HTTP bytes and produces them to `gopulse-observability-v1` with `message_id` as the Kafka key.
+Collection failure and Redis target availability are independent low-cardinality states. A continuous collection failure emits one failed event and only clears after a complete metrics publish succeeds. A successfully published `target_unavailable` result emits one unavailable event; subsequent unavailable scrapes are suppressed until a published success emits one recovered event. Stopping or disabling the plugin clears episode state without creating synthetic recovery events.
 
-## Storage
+Event recording never blocks plugin or scrape control flow. A full EventMonitor queue may drop the remote observability copy, but it does not roll back the source transition. Temporary Router failures retain the queue head, reuse its message ID, and retry with bounded backoff; deterministic `4xx` rejection drops only that item and permits later items to continue.
 
-Marshaller performs an independent validation pass and writes only:
+## Storage and querying
 
-```text
-@timestamp, event_schema_version, event_name, source, severity, message, metadata
-```
+Marshaller revalidates every Events payload, writes deterministic Elasticsearch document IDs from the message ID, and maintains the strict `gopulse-events-v1-*` mapping and `gopulse-events-v1-read` alias. Existing v1 indexes are extended in place with the reserved keyword fields `metadata.error_code` and `metadata.scrape_status` before new documents are written. Temporary Elasticsearch failures hold the Kafka offset; permanent invalid records do not call the Events store and are safely committed so a following valid record can proceed.
 
-The fixed resources are:
-
-- template: `gopulse-events-v1-template`;
-- daily index: `gopulse-events-v1-YYYY.MM.DD`;
-- read alias: `gopulse-events-v1-read`.
-
-Both the root mapping and metadata object use `dynamic: strict`. The Envelope ID is used as Elasticsearch `_id` for replay idempotency but is not stored in `_source` or returned by Backend.
-
-## Administrator query API
-
-`GET /api/v1/observability/events` runs behind the existing session authentication and database-backed live administrator check. Unauthenticated and ordinary-user requests return `401 authentication_required` and `403 permission_denied` before any Elasticsearch call.
-
-The first page defaults to the latest 15 minutes and accepts a maximum 24-hour range. `limit` defaults to 50 and allows 1 through 100. Exact filters are limited to `source`, `event_name`, `severity`, `plugin_id`, `operation`, and the versioned `error_code` vocabulary (no lifecycle success error code exists in this batch). Pagination uses a signed Events-domain cursor with an Elasticsearch PIT and fixed `@timestamp desc, _shard_doc desc` ordering; a continuation request may contain only `cursor`.
-
-Responses contain only `timestamp`, `event_name`, `source`, `severity`, `message`, and strict metadata. A missing read alias returns an empty page. Unavailable or untrusted storage responses return `503 events_unavailable` without exposing an index, PIT, query, URL, or response body.
-
-## Validation
-
-Use `scripts/verify-events.sh --self-test` for local safety/configuration checks. `scripts/verify-events.sh` creates an isolated random Compose project, triggers real install/stop/start/update operations through the Backend admin API, queries all four events through the Backend Events API, verifies authorization, strict mapping and alias isolation, and removes only resources whose generated ownership identity matches the acceptance run.
+Only authenticated administrators may query `/api/v1/observability/events`. Filters accept the fixed source, event, severity, plugin, operation, and error-code vocabulary and reject impossible event/operation/error combinations. Metrics, Logs, and Events continue to share the formal observability topic and consumer group while retaining independent validators and stores.

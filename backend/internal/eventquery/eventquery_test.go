@@ -22,7 +22,7 @@ func TestParseOptionsUsesBoundedKnownVocabulary(t *testing.T) {
 	}
 	for _, values := range []url.Values{
 		{"event_name": {"exporter_plugin_started"}, "operation": {"stop"}},
-		{"source": {"backend"}}, {"error_code": {"start_failed"}}, {"cursor": {"abc"}, "limit": {"1"}}, {"from": {"2026-09-04T00:00:00Z"}, "to": {"2026-09-05T08:00:00Z"}},
+		{"source": {"backend"}}, {"error_code": {"unknown_failed"}}, {"event_name": {"exporter_plugin_started"}, "error_code": {"start_failed"}}, {"cursor": {"abc"}, "limit": {"1"}}, {"from": {"2026-09-04T00:00:00Z"}, "to": {"2026-09-05T08:00:00Z"}},
 	} {
 		if _, err := ParseOptions(values, now); err == nil {
 			t.Fatalf("invalid values accepted: %v", values)

@@ -19,11 +19,13 @@ var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1
 
 type Metadata struct {
 	PluginID              string `json:"plugin_id"`
-	PluginVersion         string `json:"plugin_version"`
+	PluginVersion         string `json:"plugin_version,omitempty"`
 	PreviousPluginVersion string `json:"previous_plugin_version,omitempty"`
-	Operation             string `json:"operation"`
-	FromState             string `json:"from_state"`
-	ToState               string `json:"to_state"`
+	Operation             string `json:"operation,omitempty"`
+	FromState             string `json:"from_state,omitempty"`
+	ToState               string `json:"to_state,omitempty"`
+	ErrorCode             string `json:"error_code,omitempty"`
+	ScrapeStatus          string `json:"scrape_status,omitempty"`
 }
 
 type Payload struct {
@@ -35,7 +37,6 @@ type Payload struct {
 	Message            string   `json:"message"`
 	Metadata           Metadata `json:"metadata"`
 }
-
 type Document struct {
 	Timestamp          string   `json:"@timestamp"`
 	EventSchemaVersion int      `json:"event_schema_version"`
@@ -45,28 +46,21 @@ type Document struct {
 	Message            string   `json:"message"`
 	Metadata           Metadata `json:"metadata"`
 }
-
 type WriteRequest struct {
 	MessageID string          `json:"message_id"`
 	IndexDate string          `json:"index_date"`
 	Document  json.RawMessage `json:"document"`
 }
-
 type Transformer struct{ MaxBytes int }
-
 type spec struct {
-	message   string
-	operation string
-	from      string
-	to        string
-	update    bool
+	message  string
+	severity string
 }
 
 var specs = map[string]spec{
-	"exporter_plugin_installed": {message: "exporter plugin installed", operation: "install", from: "not_installed", to: "running"},
-	"exporter_plugin_started":   {message: "exporter plugin started", operation: "start", from: "stopped", to: "running"},
-	"exporter_plugin_stopped":   {message: "exporter plugin stopped", operation: "stop", from: "running", to: "stopped"},
-	"exporter_plugin_updated":   {message: "exporter plugin updated", operation: "update", update: true},
+	"exporter_plugin_installed": {"exporter plugin installed", "info"}, "exporter_plugin_started": {"exporter plugin started", "info"}, "exporter_plugin_stopped": {"exporter plugin stopped", "info"}, "exporter_plugin_updated": {"exporter plugin updated", "info"},
+	"exporter_plugin_failed": {"exporter plugin operation failed", "error"}, "exporter_plugin_exited": {"exporter plugin exited unexpectedly", "error"},
+	"metrics_collection_failed": {"metrics collection failed", "warn"}, "metrics_collection_recovered": {"metrics collection recovered", "info"}, "metrics_target_unavailable": {"metrics target unavailable", "warn"}, "metrics_target_recovered": {"metrics target recovered", "info"},
 }
 
 func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
@@ -87,11 +81,11 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	if !payloadTime.Equal(message.Timestamp) {
 		return nil, &envelope.PermanentError{Code: "timestamp_mismatch"}
 	}
-	document, err := json.Marshal(Document{Timestamp: payload.Timestamp, EventSchemaVersion: payload.EventSchemaVersion, EventName: payload.EventName, Source: payload.Source, Severity: payload.Severity, Message: payload.Message, Metadata: payload.Metadata})
+	document, err := json.Marshal(Document{payload.Timestamp, payload.EventSchemaVersion, payload.EventName, payload.Source, payload.Severity, payload.Message, payload.Metadata})
 	if err != nil {
 		return nil, &envelope.PermanentError{Code: "transform_failed"}
 	}
-	request, err := json.Marshal(WriteRequest{MessageID: message.MessageID, IndexDate: message.Timestamp.UTC().Format("2006.01.02"), Document: document})
+	request, err := json.Marshal(WriteRequest{message.MessageID, message.Timestamp.UTC().Format("2006.01.02"), document})
 	if err != nil {
 		return nil, &envelope.PermanentError{Code: "transform_failed"}
 	}
@@ -109,35 +103,18 @@ func Validate(body []byte, envelopeTime time.Time) (Payload, error) {
 		return Payload{}, errors.New("invalid event payload")
 	}
 	s, ok := specs[payload.EventName]
-	if !ok || payload.EventSchemaVersion != 1 || payload.Source != "monitor" || payload.Severity != "info" || payload.Message != s.message {
+	if !ok || payload.EventSchemaVersion != 1 || payload.Source != "monitor" || payload.Severity != s.severity || payload.Message != s.message {
 		return Payload{}, errors.New("invalid event vocabulary")
 	}
 	at, err := time.Parse(time.RFC3339Nano, payload.Timestamp)
 	if err != nil || at.Location() != time.UTC || !at.Equal(envelopeTime) {
 		return Payload{}, errors.New("invalid event timestamp")
 	}
+	if !validMetadata(payload.EventName, payload.Metadata) {
+		return Payload{}, errors.New("invalid event metadata")
+	}
 	m := payload.Metadata
-	if m.PluginID != "redis-exporter" || !semverPattern.MatchString(m.PluginVersion) || m.Operation != s.operation {
-		return Payload{}, errors.New("invalid event metadata")
-	}
-	if s.update {
-		if !semverPattern.MatchString(m.PreviousPluginVersion) || !state(m.FromState) || m.FromState != m.ToState {
-			return Payload{}, errors.New("invalid event metadata")
-		}
-	} else if m.PreviousPluginVersion != "" || m.ToState != s.to {
-		return Payload{}, errors.New("invalid event metadata")
-	} else if payload.EventName == "exporter_plugin_started" {
-		if m.FromState != "stopped" && m.FromState != "failed" {
-			return Payload{}, errors.New("invalid event metadata")
-		}
-	} else if payload.EventName == "exporter_plugin_stopped" {
-		if m.FromState != "running" && m.FromState != "failed" {
-			return Payload{}, errors.New("invalid event metadata")
-		}
-	} else if m.FromState != s.from {
-		return Payload{}, errors.New("invalid event metadata")
-	}
-	for _, value := range []string{payload.EventName, payload.Source, payload.Severity, payload.Message, m.PluginID, m.PluginVersion, m.PreviousPluginVersion, m.Operation, m.FromState, m.ToState} {
+	for _, value := range []string{payload.EventName, payload.Source, payload.Severity, payload.Message, m.PluginID, m.PluginVersion, m.PreviousPluginVersion, m.Operation, m.FromState, m.ToState, m.ErrorCode, m.ScrapeStatus} {
 		if !safe(value) {
 			return Payload{}, errors.New("unsafe event text")
 		}
@@ -145,11 +122,53 @@ func Validate(body []byte, envelopeTime time.Time) (Payload, error) {
 	return payload, nil
 }
 
-func state(value string) bool { return value == "running" || value == "stopped" }
-func safe(value string) bool {
-	if value == "" {
-		return true
+func validMetadata(name string, m Metadata) bool {
+	if m.PluginID != "redis-exporter" {
+		return false
 	}
+	empty := m.ErrorCode == "" && m.ScrapeStatus == ""
+	switch name {
+	case "exporter_plugin_installed":
+		return empty && semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "install" && m.FromState == "not_installed" && m.ToState == "running"
+	case "exporter_plugin_started":
+		return empty && semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "start" && (m.FromState == "stopped" || m.FromState == "failed") && m.ToState == "running"
+	case "exporter_plugin_stopped":
+		return empty && semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "stop" && (m.FromState == "running" || m.FromState == "failed") && m.ToState == "stopped"
+	case "exporter_plugin_updated":
+		return empty && semverPattern.MatchString(m.PluginVersion) && semverPattern.MatchString(m.PreviousPluginVersion) && m.Operation == "update" && (m.FromState == "running" || m.FromState == "stopped") && m.FromState == m.ToState
+	case "exporter_plugin_failed":
+		return semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.FromState == "" && validState(m.ToState) && validPluginFailure(m.Operation, m.ErrorCode) && m.ScrapeStatus == ""
+	case "exporter_plugin_exited":
+		return semverPattern.MatchString(m.PluginVersion) && m.PreviousPluginVersion == "" && m.Operation == "start" && m.FromState == "" && m.ToState == "failed" && m.ErrorCode == "process_exited" && m.ScrapeStatus == ""
+	case "metrics_collection_failed":
+		return m.PluginVersion == "" && m.PreviousPluginVersion == "" && m.FromState == "" && m.ToState == "" && validMetricsFailure(m.Operation, m.ErrorCode) && m.ScrapeStatus == ""
+	case "metrics_collection_recovered", "metrics_target_recovered":
+		return metricsTransition(m, "success")
+	case "metrics_target_unavailable":
+		return metricsTransition(m, "target_unavailable")
+	}
+	return false
+}
+func validPluginFailure(operation, code string) bool {
+	allowed := map[string]map[string]bool{"start": {"start_failed": true}, "stop": {"stop_failed": true}, "update": {"update_failed": true, "rollback_failed": true}, "recover": {"recovery_failed": true, "recovery_invalid": true}}
+	return allowed[operation][code]
+}
+func validMetricsFailure(operation, code string) bool {
+	if operation == "publish" {
+		return code == "publish_failed"
+	}
+	if operation != "scrape" {
+		return false
+	}
+	return map[string]bool{"scrape_timeout": true, "network_failed": true, "response_too_large": true, "parse_failed": true, "contract_invalid": true, "content_invalid": true, "http_invalid": true, "scrape_failed": true, "message_id_failed": true}[code]
+}
+func metricsTransition(m Metadata, status string) bool {
+	return m.PluginVersion == "" && m.PreviousPluginVersion == "" && m.Operation == "scrape" && m.FromState == "" && m.ToState == "" && m.ErrorCode == "" && m.ScrapeStatus == status
+}
+func validState(value string) bool {
+	return value == "not_installed" || value == "stopped" || value == "running" || value == "failed"
+}
+func safe(value string) bool {
 	if len(value) > 256 {
 		return false
 	}

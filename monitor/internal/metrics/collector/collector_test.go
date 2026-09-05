@@ -6,12 +6,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/plugin"
 )
@@ -215,5 +218,66 @@ func TestDisableRetainsGenerationUntilItCanBeJoined(t *testing.T) {
 	close(publisher.release)
 	if err = <-joined; err != nil {
 		t.Fatalf("second Disable() error = %v", err)
+	}
+}
+
+type eventCapture struct {
+	mu     sync.Mutex
+	events []events.Event
+}
+
+func (c *eventCapture) Record(event events.Event) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, event)
+	return false
+}
+
+func (c *eventCapture) names() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	names := make([]string, len(c.events))
+	for i, event := range c.events {
+		names[i] = event.EventName
+	}
+	return names
+}
+
+func TestCollectionAndTargetEpisodesUseFinalPublishedResult(t *testing.T) {
+	var mode atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		switch mode.Load() {
+		case 0:
+			_, _ = w.Write([]byte("not prometheus"))
+		case 1:
+			_, _ = w.Write([]byte(successText))
+		default:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("# TYPE gopulse_redis_up gauge\ngopulse_redis_up 0\n"))
+		}
+	}))
+	defer server.Close()
+	parsed, _ := url.Parse(server.URL)
+	_, port, _ := strings.Cut(parsed.Host, ":")
+	capture := &eventCapture{}
+	publisher := capturePublisher{messages: make(chan envelope.Envelope, 8)}
+	monitor, err := New(Config{Host: "127.0.0.1", Port: port, Interval: time.Second, Timeout: 500 * time.Millisecond, PublishTimeout: 500 * time.Millisecond, Publisher: publisher, Events: capture})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := plugin.Manifest{ID: plugin.PluginID, Version: "1.7.2", MetricsPath: "/metrics"}
+	monitor.scrape(context.Background(), manifest)
+	monitor.scrape(context.Background(), manifest)
+	mode.Store(1)
+	monitor.scrape(context.Background(), manifest)
+	mode.Store(2)
+	monitor.scrape(context.Background(), manifest)
+	monitor.scrape(context.Background(), manifest)
+	mode.Store(1)
+	monitor.scrape(context.Background(), manifest)
+	want := []string{"metrics_collection_failed", "metrics_collection_recovered", "metrics_target_unavailable", "metrics_target_recovered"}
+	if got := capture.names(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("events=%v want=%v", got, want)
 	}
 }

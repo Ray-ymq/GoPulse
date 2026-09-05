@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/publisher"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/plugin"
@@ -42,6 +43,10 @@ type realTicker struct{ *time.Ticker }
 
 func (t realTicker) Chan() <-chan time.Time { return t.C }
 
+type EventRecorder interface {
+	Record(events.Event) bool
+}
+
 type Config struct {
 	Host           string
 	Port           string
@@ -52,14 +57,18 @@ type Config struct {
 	Now            func() time.Time
 	NewTicker      func(time.Duration) Ticker
 	Update         func(Update)
+	Events         EventRecorder
 }
 
 type Monitor struct {
-	cfg    Config
-	client *http.Client
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
+	cfg               Config
+	client            *http.Client
+	mu                sync.Mutex
+	cancel            context.CancelFunc
+	done              chan struct{}
+	episodeMu         sync.Mutex
+	failureActive     bool
+	targetUnavailable bool
 }
 
 func New(cfg Config) (*Monitor, error) {
@@ -95,6 +104,9 @@ func New(cfg Config) (*Monitor, error) {
 
 func (m *Monitor) Enable(manifest plugin.Manifest) {
 	m.Disable(context.Background())
+	m.episodeMu.Lock()
+	m.failureActive, m.targetUnavailable = false, false
+	m.episodeMu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	m.mu.Lock()
@@ -148,7 +160,9 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 		if parent.Err() != nil {
 			return
 		}
-		m.cfg.Update(Update{ErrorCode: classify(err), ErrorMessage: safeMessage(err)})
+		code := classify(err)
+		m.cfg.Update(Update{ErrorCode: code, ErrorMessage: safeMessage(err)})
+		m.recordCollectionFailure(code)
 		return
 	}
 	if parent.Err() != nil {
@@ -157,6 +171,17 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	message, err := envelope.New(manifest.ID, manifest.Version, status, samples, completedAt)
 	if err != nil {
 		m.cfg.Update(Update{ErrorCode: "message_id_failed", ErrorMessage: "metrics message could not be created"})
+		m.recordCollectionFailure("message_id_failed")
+		return
+	}
+	publishCtx, publishCancel := context.WithTimeout(parent, m.cfg.PublishTimeout)
+	err = m.cfg.Publisher.Publish(publishCtx, message)
+	publishCancel()
+	if err != nil {
+		if parent.Err() == nil {
+			m.cfg.Update(Update{ErrorCode: "publish_failed", ErrorMessage: "metrics message could not be published"})
+			m.recordCollectionFailure("publish_failed")
+		}
 		return
 	}
 	update := Update{ScrapeAt: &completedAt}
@@ -164,11 +189,44 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 		update.SuccessAt = &completedAt
 	}
 	m.cfg.Update(update)
-	publishCtx, publishCancel := context.WithTimeout(parent, m.cfg.PublishTimeout)
-	err = m.cfg.Publisher.Publish(publishCtx, message)
-	publishCancel()
-	if err != nil && parent.Err() == nil {
-		m.cfg.Update(Update{ErrorCode: "publish_failed", ErrorMessage: "metrics message could not be published"})
+	m.recordPublished(status)
+}
+
+func (m *Monitor) recordCollectionFailure(code string) {
+	m.episodeMu.Lock()
+	if m.failureActive {
+		m.episodeMu.Unlock()
+		return
+	}
+	m.failureActive = true
+	m.episodeMu.Unlock()
+	if m.cfg.Events != nil {
+		_ = m.cfg.Events.Record(events.NewMetrics("metrics_collection_failed", code, "", m.cfg.Now()))
+	}
+}
+
+func (m *Monitor) recordPublished(status string) {
+	m.episodeMu.Lock()
+	recoveredCollection := m.failureActive
+	m.failureActive = false
+	becameUnavailable := status == "target_unavailable" && !m.targetUnavailable
+	recoveredTarget := status == "success" && m.targetUnavailable
+	if status == "target_unavailable" {
+		m.targetUnavailable = true
+	} else if status == "success" {
+		m.targetUnavailable = false
+	}
+	m.episodeMu.Unlock()
+	if m.cfg.Events == nil {
+		return
+	}
+	if recoveredCollection {
+		_ = m.cfg.Events.Record(events.NewMetrics("metrics_collection_recovered", "", "success", m.cfg.Now()))
+	}
+	if becameUnavailable {
+		_ = m.cfg.Events.Record(events.NewMetrics("metrics_target_unavailable", "", "target_unavailable", m.cfg.Now()))
+	} else if recoveredTarget {
+		_ = m.cfg.Events.Record(events.NewMetrics("metrics_target_recovered", "", "success", m.cfg.Now()))
 	}
 }
 
