@@ -1,10 +1,15 @@
 import { createRouter, createWebHistory, type Router } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
+import AdminLayout from '../components/AdminLayout.vue'
 import AuthRecoveryView from '../views/AuthRecoveryView.vue'
 import DevStatusView from '../views/DevStatusView.vue'
+import ForbiddenView from '../views/ForbiddenView.vue'
 import LoginView from '../views/LoginView.vue'
 import NewPostView from '../views/NewPostView.vue'
 import NotificationsView from '../views/NotificationsView.vue'
+import ObservabilityEventsView from '../views/ObservabilityEventsView.vue'
+import ObservabilityLogsView from '../views/ObservabilityLogsView.vue'
+import ObservabilityMetricsView from '../views/ObservabilityMetricsView.vue'
 import PostDetailView from '../views/PostDetailView.vue'
 import PostsView from '../views/PostsView.vue'
 import RegisterView from '../views/RegisterView.vue'
@@ -23,6 +28,19 @@ export function createAppRouter(history = createWebHistory()): Router {
       { path: '/notifications', component: NotificationsView, meta: { requiresAuth: true } },
       { path: '/posts/new', component: NewPostView, meta: { requiresAuth: true } },
       { path: '/posts/:postId', component: PostDetailView, meta: { requiresAuth: true } },
+      { path: '/forbidden', component: ForbiddenView, meta: { requiresAuth: true } },
+      {
+        path: '/admin/observability',
+        component: AdminLayout,
+        meta: { requiresAuth: true, requiresAdmin: true },
+        children: [
+          { path: '', redirect: '/admin/observability/metrics' },
+          { path: 'metrics', component: ObservabilityMetricsView },
+          { path: 'logs', component: ObservabilityLogsView },
+          { path: 'events', component: ObservabilityEventsView },
+          { path: ':pathMatch(.*)*', redirect: '/forbidden' },
+        ],
+      },
       { path: '/dev/status', component: DevStatusView, meta: { skipAuthRecovery: true } },
       { path: '/:pathMatch(.*)*', redirect: '/posts' },
     ],
@@ -38,6 +56,13 @@ export function createAppRouter(history = createWebHistory()): Router {
       }
     }
     if (to.meta.requiresAuth && auth.status.value !== 'authenticated') return '/login'
+    if (to.meta.requiresAdmin) {
+      try { await auth.refresh() } catch {
+        if (auth.status.value !== 'authenticated') return '/login'
+        return { path: '/auth-recovery', query: { redirect: to.fullPath } }
+      }
+      if (auth.user.value?.role !== 'admin') return '/forbidden'
+    }
     if (to.meta.guestOnly && auth.status.value === 'authenticated') return '/posts'
     return true
   })

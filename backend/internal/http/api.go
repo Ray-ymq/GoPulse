@@ -7,6 +7,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
+	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
@@ -19,6 +20,7 @@ type APIRoutes struct {
 	Comments        *comment.Handler
 	Likes           *like.Handler
 	Logs            *logquery.Handler
+	Metrics         *metricquery.Handler
 	Events          *eventquery.Handler
 	Notifications   *notification.Handler
 	Search          *search.Handler
@@ -64,9 +66,12 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		protected.GET("/notifications", routes.Notifications.List)
 		protected.PATCH("/notifications/:notificationId/read", routes.Notifications.MarkRead)
 	}
-	if (routes.Logs != nil || routes.Events != nil) && routes.Authorization != nil {
+	if (routes.Metrics != nil || routes.Logs != nil || routes.Events != nil) && routes.Authorization != nil {
 		observability := protected.Group("/observability")
 		observability.Use(routes.Authorization)
+		if routes.Metrics != nil {
+			observability.GET("/metrics", routes.Metrics.List)
+		}
 		if routes.Logs != nil {
 			observability.GET("/logs", routes.Logs.List)
 		}

@@ -249,7 +249,7 @@ func validErrorCode(value string) bool {
 	switch apperror.Code(value) {
 	case apperror.CodeValidationFailed, apperror.CodeAuthenticationRequired, apperror.CodePermissionDenied,
 		apperror.CodeInvalidCredentials, apperror.CodeUsernameConflict, apperror.CodePostNotFound,
-		apperror.CodeNotificationNotFound, apperror.CodeSearchUnavailable, apperror.CodeLogsUnavailable,
+		apperror.CodeNotificationNotFound, apperror.CodeSearchUnavailable, apperror.CodeMetricsUnavailable, apperror.CodeLogsUnavailable, apperror.CodeEventsUnavailable,
 		apperror.CodePluginPackageInvalid, apperror.CodePluginNotFound, apperror.CodePluginConflict,
 		apperror.CodePluginOperationInProgress, apperror.CodePluginOperationFailed,
 		apperror.CodeMonitorUnavailable, apperror.CodeInternal:
