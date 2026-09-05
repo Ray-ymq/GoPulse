@@ -26,6 +26,7 @@ async function signOut(): Promise<void> {
       <RouterLink to="/posts">帖子</RouterLink>
       <RouterLink to="/search">搜索</RouterLink>
       <RouterLink to="/notifications">通知</RouterLink>
+      <RouterLink v-if="auth.user.value?.role === 'admin'" to="/admin/observability">可观测</RouterLink>
       <RouterLink class="button button--small" to="/posts/new">发布</RouterLink>
       <span class="nav-user">@{{ auth.user.value?.username }}</span>
       <button class="link-button" type="button" :disabled="signingOut" @click="signOut">
