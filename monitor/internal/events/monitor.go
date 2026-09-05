@@ -135,7 +135,6 @@ func (m *Monitor) Close(ctx context.Context) error {
 	case <-ctx.Done():
 		m.cancel()
 		closeOnce(m.stop)
-		<-m.done
 		m.logger.Warn("event drain timed out", "module", "events", "event", "drain_timeout")
 		return ctx.Err()
 	}

@@ -37,7 +37,7 @@ Failure, recovery, replay, offset, and mixed Events query closed end to end thro
 
 - 经 Backend 管理员插件 API 产生的 install/stop/start/update 生命周期事件；no-op、拒绝操作和 Monitor shutdown 不制造假生命周期事件。
 - 真实终态 start failure、ownership 匹配的 unexpected exit、Router 故障导致的 collection failure/recovery，以及 Redis 停止/恢复导致的 target unavailable/recovered episode。
-- 未登录 `401`、普通用户 `403`、管理员受限查询，以及 filter、范围、PIT/cursor、空结果和 Elasticsearch unavailable 契约。
+- 未登录 `401`、普通用户 `403` 与管理员 `source/plugin_id/limit=100` 受限查询。该批当时没有固定合法 cursor 翻页、API 空结果或 HTTP `503` 证据；这些缺口由 Phase-10-04 补齐。
 - EventMonitor → Router → Kafka → 正式 Marshaller group → Elasticsearch → Backend 查询全链；同 ID 重放不增加文档，永久坏消息跳过后合法消息继续。
 - Elasticsearch 停止期间正式 group offset 不推进，恢复并重新确认 template/mapping/alias 后推进。
 - Metrics、Logs、Events 在同一 Topic/Marshaller 中并存并分别进入 VictoriaMetrics、Logs 索引和 Events 索引；Events、Logs 与帖子索引/alias 保持隔离。
@@ -154,7 +154,7 @@ scripts/down.sh
 
 ## 6. 与计划的偏差
 
-- 本批没有产品功能或验收脚本修改；现有 `verify-events.sh` 已完整覆盖 Phase 10 封闭矩阵，因此未制造无意义编排变更。
+- 本批没有产品功能或验收脚本修改；当时执行了既有 `verify-events.sh`。后续实现 Review 识别出 PIT/cursor、API 空结果和 HTTP `503` 的固定证据缺口，已转由 Phase-10-04 整改。
 - 日常生命周期首次固定端口启动遇到一次无法归属且未复现的 Docker bind 冲突。按计划保存诊断、清理本批部分资源并改用随机 loopback 端口重试；最终日常生命周期和只读验证通过。
 - `verify.sh` 前后 offset 与 Logs 文档数会因系统正常采集和验证请求日志前进，不能以绝对不变作为只读判据；使用 Events 数量、Git/plugin hash、角色、索引合同和 open contexts 不变，并结合新增记录类型确认没有验证脚本写事件或改变业务配置。
 - 未执行一般代码审查、依赖审计、覆盖率扩张、压力测试或 Phase 11 Frontend 工作。

@@ -112,7 +112,11 @@ func NewService(repository Repository, secret string) *Service {
 func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	allowed := map[string]bool{"from": true, "to": true, "source": true, "event_name": true, "severity": true, "plugin_id": true, "operation": true, "error_code": true, "limit": true, "cursor": true}
 	for key, list := range values {
-		if !allowed[key] || len(list) != 1 || list[0] == "" || !utf8.ValidString(list[0]) || len(list[0]) > 256 || hasControl(list[0]) {
+		maximumLength := 256
+		if key == "cursor" {
+			maximumLength = maximumCursorBytes
+		}
+		if !allowed[key] || len(list) != 1 || list[0] == "" || !utf8.ValidString(list[0]) || len(list[0]) > maximumLength || hasControl(list[0]) {
 			return Options{}, validation()
 		}
 	}
@@ -194,10 +198,7 @@ func validFilters(filters Filters) bool {
 		if filters.Operation != "" && !operationError(filters.Operation, filters.ErrorCode) {
 			return false
 		}
-		if filters.EventName == "exporter_plugin_exited" && filters.ErrorCode != "process_exited" {
-			return false
-		}
-		if filters.EventName == "metrics_collection_failed" && filters.ErrorCode == "process_exited" {
+		if filters.EventName != "" && !eventError(filters.EventName, filters.ErrorCode) {
 			return false
 		}
 	}
@@ -218,6 +219,19 @@ func knownErrorCode(code string) bool {
 		"start_failed": true, "stop_failed": true, "update_failed": true, "rollback_failed": true, "recovery_failed": true, "recovery_invalid": true, "process_exited": true,
 		"scrape_timeout": true, "network_failed": true, "response_too_large": true, "parse_failed": true, "contract_invalid": true, "content_invalid": true, "http_invalid": true, "scrape_failed": true, "message_id_failed": true, "publish_failed": true,
 	}[code]
+}
+
+func eventError(name, code string) bool {
+	allowed := map[string]map[string]bool{
+		"exporter_plugin_failed": {
+			"start_failed": true, "stop_failed": true, "update_failed": true, "rollback_failed": true, "recovery_failed": true, "recovery_invalid": true,
+		},
+		"exporter_plugin_exited": {"process_exited": true},
+		"metrics_collection_failed": {
+			"scrape_timeout": true, "network_failed": true, "response_too_large": true, "parse_failed": true, "contract_invalid": true, "content_invalid": true, "http_invalid": true, "scrape_failed": true, "message_id_failed": true, "publish_failed": true,
+		},
+	}
+	return allowed[name][code]
 }
 
 func operationError(operation, code string) bool {

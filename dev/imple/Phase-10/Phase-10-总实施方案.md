@@ -1,6 +1,6 @@
 # Phase 10：EventMonitor 与事件链路总实施方案
 
-> 当前状态：已完成。Phase-10-01、Phase-10-02、Phase-10-03 已分别通过 Pull Request #89、#91、#92 合入主远程并通过远程固定门禁；Phase 10 于 2026-09-05 以产品版本 `1.7.3` 完成阶段验收。本方案于 2026-09-05 以 `upstream/main` 提交 `da6c7d6` 与产品版本 `1.6.4` 为规划基线；Phase 10 使用 `1.7.x` 版本线，共分 3 个执行批次。
+> 当前状态：已完成。Phase-10-01、Phase-10-02、Phase-10-03 已分别通过 Pull Request #89、#91、#92 合入主远程并通过远程固定门禁；实现 Review 发现的问题由 Phase-10-04 整改批次关闭，Phase 10 最终完成版本为 `1.7.4`。本方案于 2026-09-05 以 `upstream/main` 提交 `da6c7d6` 与产品版本 `1.6.4` 为规划基线；Phase 10 使用 `1.7.x` 版本线，共分 4 个执行批次。
 
 ## 1. 实施目标
 
@@ -59,6 +59,7 @@ Phase 10 使用 `1.7.x` 版本线，`1.7.0` 只作为阶段基线，不创建空
 | Phase-10-01 | `1.7.1` | `develop/1.7.1` | 已完成（PR #89，远程门禁通过） |
 | Phase-10-02 | `1.7.2` | `develop/1.7.2` | 已完成（PR #91，远程门禁通过） |
 | Phase-10-03 | `1.7.3` | `develop/1.7.3` | 已完成（PR #92，远程门禁通过） |
+| Phase-10-04 | `1.7.4` | `develop/1.7.4` | 已完成（本地固定门禁与真实再验收通过） |
 
 执行规则：
 
@@ -67,6 +68,7 @@ Phase 10 使用 `1.7.x` 版本线，`1.7.0` 只作为阶段基线，不创建空
 - Phase-10-01 以插件 install/start/stop/update 的真实成功转换交付 Events 端到端最小闭环，不将 EventMonitor、Router/Kafka、Marshaller/Elasticsearch 或 Backend `401/403/admin` 查询中任一环节推迟到后续批次。
 - Phase-10-02 在已正确的纵向闭环上增加插件运行失败/异常退出、Metrics 采集失败/恢复与 target unavailable/recovered 状态转换，并完成事件去抖、源端有界性、故障恢复和 Metrics/Logs/Events 并存。
 - Phase-10-03 只在已合入的最终实现上执行跨批次阶段矩阵、必要业务回归、文档、版本和远程状态收口；除真实复现的阻断问题外不增加产品功能。
+- Phase-10-04 关闭 2026-09-05 实现 Review 的 stale watcher、EventMonitor shutdown、Events 查询固定证据、分支治理和 event/error 过滤问题；不扩展 Phase 11 范围。
 - 已推送分支不得静默改名或重新编号。批次数量或顺序在实施前变化时，先更新本表并重新计算所有尚未创建的分支。
 
 ## 4. 阶段范围与非目标
@@ -381,6 +383,13 @@ timestamp, event_name, source, severity, message, metadata
 
 在前两批已合入的最终构建上执行封闭阶段矩阵，完成权限、脱敏、索引隔离、去抖、重放、故障恢复、三类数据并存、业务隔离、资源安全、固定门禁、实施记录和远程合入状态收口。本批不是第三个功能批。
 
+### 15.4 Phase-10-04：实现 Review 整改与再验收
+
+目标版本/branch：`1.7.4` / `develop/1.7.4`。
+
+关闭 Phase 10 实现 Review 全部 P1/P2/P3 finding：对插件 runtime generation 建立副作用 fencing，使旧 watcher 无法删除或停用 replacement 资源；使 EventMonitor `Close` 在调用方 context 到期时立即返回并允许 worker 后台收口；补齐合法 PIT/cursor 两页、terminal PIT close、空结果、HTTP `503 events_unavailable` 与真实 cursor 翻页证据；按单一事件规范拒绝不可能的 event/error 组合。固定门禁通过后同步根与 Frontend 版本为 `1.7.4` 并形成同名实施记录。
+
+
 ## 16. 预计变更边界
 
 ```text
@@ -484,11 +493,11 @@ git diff --check
 - Metrics、Logs、Events 在同 Topic/正式 group/Marshaller 中交替运行，分别写入 VM、Logs ES 和 Events ES，既有 metrics/logs validator、mapping、alias、查询和恢复语义不回归。
 - 事件链路故障不会为插件管理或社交业务新增 readiness 失败；最小必要业务回归、内部身份隔离、loopback 端口和敏感哨兵扫描通过。
 - `dev.sh → verify.sh → down.sh`、Events 独立验收、失败/中断清理和 verify 只读性通过，不误杀/误删或遗留日常与其他任务资源。
-- 三份实施记录真实完整，固定本地/远程门禁通过，根与 Frontend 版本均为 `1.7.3`。
+- 四份实施记录真实完整，固定本地/远程门禁通过，根与 Frontend 版本均为 `1.7.4`。
 
 ### 18.2 完成与停止条件
 
-只有第 18.1 节全部满足、Phase-10-03 Pull Request 已合入主远程 `main`、远程固定门禁成功，且三份 Phase 10 实施记录与真实提交一致，Phase 10 才完成。任一真实事件源、完整传输、offset/ownership、索引隔离、去抖、重放、admin 授权、三类数据并存、业务/敏感/资源安全证据缺失时，不得标记完成。
+只有第 18.1 节全部满足、Phase-10-04 Review 整改验收通过，且四份 Phase 10 实施记录与真实提交一致，Phase 10 才最终完成。任一真实事件源、完整传输、offset/ownership、索引隔离、去抖、重放、admin 授权、三类数据并存、业务/敏感/资源安全证据缺失时，不得标记完成。
 
 达到条件后立即停止。Frontend Events 页、告警、聚合、复杂关联、Kubernetes 事件、ILM、持久化 spool、Topic 拆分、容量和生产安全加固记录为后续，不继续占用 Phase 10。独立实现 Review 只在用户明确请求时执行，不作为默认阶段门禁。
 
