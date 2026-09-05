@@ -14,6 +14,7 @@ const (
 	CodePostNotFound              Code = "post_not_found"
 	CodeNotificationNotFound      Code = "notification_not_found"
 	CodeSearchUnavailable         Code = "search_unavailable"
+	CodeMetricsUnavailable        Code = "metrics_unavailable"
 	CodeLogsUnavailable           Code = "logs_unavailable"
 	CodeEventsUnavailable         Code = "events_unavailable"
 	CodePluginPackageInvalid      Code = "plugin_package_invalid"

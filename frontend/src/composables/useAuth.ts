@@ -42,6 +42,16 @@ async function initialize(): Promise<void> {
   return initialization
 }
 
+async function refresh(): Promise<void> {
+  try {
+    user.value = await authApi.me()
+    status.value = 'authenticated'
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) clear()
+    throw error
+  }
+}
+
 async function register(credentials: Credentials): Promise<void> {
   user.value = await authApi.register(credentials)
   status.value = 'authenticated'
@@ -65,6 +75,7 @@ export function useAuth() {
     user: readonly(user),
     status: readonly(status),
     initialize,
+    refresh,
     register,
     login,
     logout,
