@@ -243,16 +243,16 @@ git diff --check
 
 完成后立即停止，不追加独立 Review、镜像优化、供应链、Kubernetes、Ingress、高可用、容量或新产品能力。
 
-## 12. Phase 13 交接
+## 12. Phase 13 与 Phase 14 交接
 
 - 从最终提交构建且通过运行验收的 Frontend、Backend、Worker、Indexer、Monitor、Router、Marshaller 与 Exporter 镜像，以及其 version/revision/user/entrypoint/port/arch 契约。
-- migration、Kafka Topic、search initialize、Monitor package bootstrap 的幂等作业/完成条件，可映射为 Kubernetes Job/init 流程。
+- migration、Kafka Topic、search initialize、Monitor package bootstrap 的幂等作业/完成条件，先供 Phase 13 跨平台等价验证，再由 Phase 14 映射为 Kubernetes Job/init 流程。
 - `edge/business/observability` 网络成员、服务 DNS、默认暴露端口、Bearer/Basic 身份、持久卷、health/readiness、restart/shutdown 和故障语义矩阵。
 - Frontend/Backend 用户面、Frontend 只代理 Backend、Backend 最终 admin 授权、内部 service 无浏览器旁路的经验证安全基线。
-- MySQL/Redis/RabbitMQ/Kafka/VM/ES/Monitor plugin 持久化与容器替换证据，供 Phase 13 确定 PVC 和工作负载边界。
-- 完整冷启动、双使用态、三类可观测、Exporter 管理、局部故障、持久恢复与强归属清理矩阵，作为 Kubernetes 迁移行为等价验收的直接基线。
+- MySQL/Redis/RabbitMQ/Kafka/VM/ES/Monitor plugin 持久化与容器替换证据，供 Phase 13 设计升级/备份恢复边界，并供 Phase 14 确定 PVC 和工作负载边界。
+- 完整冷启动、双使用态、三类可观测、Exporter 管理、局部故障、持久恢复与强归属清理矩阵，作为 Phase 13 跨平台产品化和 Phase 14 Kubernetes 迁移行为等价验收的共同基线。
 
-Phase 13 只在上述容器制品和契约上建立 Kubernetes 资源，不通过重新编译、宿主固定地址、NodePort 内部旁路或特权 Docker 控制来弥补本阶段缺口。
+Phase 13 在上述容器制品和契约上完成跨平台、多架构、前端与多类单实例插件扩展；Phase 14 再基于 Phase 13 最终制品建立 Kubernetes 资源。两阶段均不得通过临时编译、宿主固定地址、公开内部服务或特权 Docker 控制弥补本阶段缺口。
 
 ## 13. 本地实施结果与实际偏差
 

@@ -16,7 +16,7 @@
   - Phase 2 uses `0.3.x`.
   - Phase 3 uses `0.4.x`.
 - After Phase 3 is fully completed and its milestone acceptance passes, publish the usable-business-system milestone as `1.0.0`.
-- Phase 4 through Phase 16 use the `1.x.x` series. Their minor version is `Phase - 3`, so Phase 4 uses `1.1.x`, Phase 5 uses `1.2.x`, and Phase 16 uses `1.13.x`.
+- Phase 4 through Phase 17 use the `1.x.x` series. Their minor version is `Phase - 3`, so Phase 4 uses `1.1.x`, Phase 5 uses `1.2.x`, Phase 13 uses `1.10.x`, and Phase 17 uses `1.14.x`.
 - Within each Phase, reserve patch `0` as the Phase baseline. Number executable development batches from patch `1` in their planned execution order. For example, `Phase-00-01` maps to `0.1.1`, `Phase-01-01` maps to `0.2.1`, and `Phase-04-01` maps to `1.1.1`.
 - Every executable development batch must have its own target version and its own `develop/x.x.x` branch. All commits belonging to that batch share the same target version.
 - Do not require an individual implementation-plan file to declare its version or branch. After a Phase's batch count and execution order are known, its `dev/imple/Phase-XX/Phase-XX-总实施方案.md` must contain the authoritative batch-to-version and batch-to-branch allocation for that Phase.
@@ -71,10 +71,11 @@
 
 # Platform Usage Rule
 
-- On macOS, use the project workspace primarily for project planning and subsequent architectural adjustments.
-- Phase 0 and Phase-01-01 completed the original native Windows PowerShell and Unix Bash dual-platform baseline through product version `0.2.1`.
-- From Phase-01-02 through Phase 16, use WSL2 on Windows as the primary project development, implementation, application-testing, and integration-acceptance environment.
-- Keep the active repository checkout in the WSL Linux filesystem, such as `/home/<user>/src/GoPulse`, rather than under `/mnt/c`, `/mnt/d`, or another Windows-mounted filesystem. Use one Docker daemon through Docker Desktop WSL integration or one WSL-native Docker Engine; do not run competing daemons for the same workspace.
-- During Phase-01-02 through Phase 16, Bash scripts are the sole maintained local lifecycle and acceptance entry points. Do not require new or updated native PowerShell equivalents, PowerShell/Bash semantic parity, Windows runners, or native Windows acceptance as a Phase or batch completion condition.
-- The existing `scripts/*.ps1` files are frozen at the `0.2.1` capability baseline. Preserve them as historical working artifacts, but do not treat them as supported for later product versions or update them during Phase 1 through Phase 16 unless a critical repository-safety issue requires an explicit exception.
-- Native Windows PowerShell compatibility is an unnumbered post-Phase-16 activity. Define its implementation plan, version, branch, compatibility matrix, and acceptance scope only after Phase 16 is complete; do not silently add that work to an earlier Phase.
+- Phase 0 and Phase-01-01 completed the original native Windows PowerShell and Unix Bash dual-platform baseline through product version `0.2.1`. Phase-01-02 through Phase 12 were implemented and accepted in WSL2/Linux with Bash as the maintained lifecycle path.
+- Phase 13 is the explicit cross-platform productization stage. Its total implementation plan must define and actually run a support matrix containing at least Linux `amd64`, macOS `arm64`, and Windows `amd64`; cross-compilation or static script inspection alone cannot establish platform support.
+- Phase 13 supports GoPulse on macOS and Windows through Linux containers and a shared product lifecycle implementation. It does not require MySQL, Kafka, Elasticsearch, GoPulse services, or Exporter processes to become native Windows services or macOS daemons.
+- Phase 13 must let users invoke the supported lifecycle from macOS Terminal and Windows PowerShell/Terminal without duplicating the core orchestration logic into separate Bash and PowerShell implementations. Thin platform launchers are allowed when required by the chosen shared entry point.
+- The existing `scripts/*.ps1` files remain frozen at the `0.2.1` capability baseline and are historical artifacts; do not extend them into a second implementation of current Compose behavior. A new thin launcher may use a different explicit path/name when the Phase 13 total plan requires it.
+- For Phase 13 Windows acceptance, use the checkout and Docker Desktop arrangement defined by its support contract and validate Windows path, line-ending, file-sharing, port, signal, cleanup, and browser behavior. Do not claim native Windows support from a WSL-only run.
+- Phase 14 through Phase 17 return to WSL2/Linux as the primary Kubernetes implementation, application-testing, and integration-acceptance environment. Keep the active repository checkout in the WSL Linux filesystem, such as `/home/<user>/src/GoPulse`, rather than under `/mnt/c`, `/mnt/d`, or another Windows-mounted filesystem, and use only one Docker daemon for that workspace.
+- Phase 14 through Phase 17 must preserve the cross-platform product and multi-architecture image contracts delivered by Phase 13 where directly affected, but they do not require a Kubernetes cluster itself to run natively on macOS or Windows.

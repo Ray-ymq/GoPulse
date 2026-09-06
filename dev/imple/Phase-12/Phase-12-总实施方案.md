@@ -95,8 +95,8 @@ Phase 12 使用 `1.9.x` 版本线，`1.9.0` 只作为阶段基线，不创建空
 
 ### 4.2 明确不做
 
-- Kubernetes Deployment/Service/StatefulSet/PV/Secret/Probe、Helm/Kustomize、节点标签和调度约束；它们属于 Phase 13。
-- Ingress、公网域名、外部 TLS、证书签发、统一集群入口或生产跨域策略；它们属于 Phase 14 及以后。
+- Kubernetes Deployment/Service/StatefulSet/PV/Secret/Probe、Helm/Kustomize、节点标签和调度约束；在 2026-09-06 路线图插入跨平台产品化阶段后，它们顺延至 Phase 14。
+- Ingress、公网域名、外部 TLS、证书签发、统一集群入口或生产跨域策略；在同次路线图调整后属于 Phase 15 及以后。
 - 多副本、自动伸缩、生产高可用、备份恢复体系、长时容量/压力测试或跨主机 Compose。
 - 注册表发布、镜像签名、SBOM/来源证明、CVE 政策、自动多架构发布、生产级基础镜像更新机制或供应链平台。
 - Docker Swarm、Docker-in-Docker，不向 Monitor 挂载 Docker socket，不为了启停 Exporter 赋予容器宿主级控制权。
@@ -120,13 +120,13 @@ Phase 12 使用 `1.9.x` 版本线，`1.9.0` 只作为阶段基线，不创建空
 | `gopulse/monitor` | Monitor module + 由同一提交构建的受管 Redis Exporter package | Monitor 与由 Plugin Manager 持有的 Exporter 子进程 | `monitor_plugin_data` 保存 registry/releases/runtime 所需事实 | 内部 `/health`、Bearer `/ready`、log ingest 和 plugin API |
 | `gopulse/redis-exporter` | Redis Exporter module 的 `redis-exporter` | 独立 Exporter | 无持久状态 | 独立镜像验收使用 `/health` 和 `/metrics` |
 
-`migrate`、`search-reindex --if-missing` 和 `admin-role` 不创建与 Backend 源码重复的常驻镜像，由 `gopulse/backend` 以显式 command 作为一次性 Compose 作业运行。Business Worker 和 Search Indexer 必须拥有独立最终镜像/标签，以作为 Phase 13 独立工作负载的直接输入。
+`migrate`、`search-reindex --if-missing` 和 `admin-role` 不创建与 Backend 源码重复的常驻镜像，由 `gopulse/backend` 以显式 command 作为一次性 Compose 作业运行。Business Worker 和 Search Indexer 必须拥有独立最终镜像/标签，先作为 Phase 13 跨平台多架构制品输入，再作为 Phase 14 独立 Kubernetes 工作负载输入。
 
 ### 5.2 Redis Exporter 容器语义
 
 - 默认完整 Compose 不能同时启动一个静态 Exporter service 和 Monitor 受管 Exporter，否则会出现双运行时所有者、端口冲突、指标重复与 admin stop/update 失真。
 - 完整系统中，Monitor 容器保留 Phase 6～11 契约：从镜像内的确定性 package 安装/更新，在同一容器网络命名空间的 loopback 上启停一个 Exporter 子进程，并将插件事实持久化到独立卷。这是不赋予 Docker socket/特权的容器化运行边界。
-- `gopulse/redis-exporter` 独立镜像仍必须构建并在隔离 Compose project/profile 中验证真实 Redis 目标、`up 0`、恢复与信号关闭，作为自研 Exporter 标准镜像和 Phase 13 可选运行单元。
+- `gopulse/redis-exporter` 独立镜像仍必须构建并在隔离 Compose project/profile 中验证真实 Redis 目标、`up 0`、恢复与信号关闭，作为 Phase 13 通用单实例插件扩展的原型输入和 Phase 14 可选运行单元。
 - Monitor 的首次启动 bootstrap 必须是幂等的：无安装时安装镜像内 package，同版本已安装时不重复变更，高版本持久状态不被旧镜像静默降级，失败时保留可恢复的旧事实并使容器明确失败或降级，不伪造 running。
 
 ### 5.3 通用构建契约
@@ -332,7 +332,7 @@ Backend 和 Monitor 是因业务职责需要跨区的明确连接点，不将任
 ### 13.3 Phase-12-03：全栈 Compose 验收与阶段收口
 
 - 从最新合入基线构建全部镜像，在无项目运行时的干净条件完成冷启动、双使用态、三条可观测链路、插件管理、重启持久化、故障隔离和资源清理的唯一权威阶段矩阵。
-- 只修复该固定矩阵真实复现的阻断问题，完成 README、方案状态、实施记录、版本、CI 和 Phase 13 镜像/拓扑交接。
+- 只修复该固定矩阵真实复现的阻断问题，完成 README、方案状态、实施记录、版本、CI 和后续 Phase 13 跨平台产品化/Phase 14 Kubernetes 镜像拓扑交接。
 - 不新增容器功能、不做独立 Review，固定完成门禁通过后立即停止。
 
 详细方案：`dev/imple/Phase-12/Phase-12-03-全栈Compose验收与阶段收口.md`。
@@ -442,13 +442,13 @@ git diff --check
 
 完成后立即停止，不追加 Kubernetes、Ingress、高可用、生产供应链、容量测试或独立 Review。独立实现 Review 只在用户明确请求时另行执行。
 
-### 16.3 Phase 13 交接
+### 16.3 Phase 13 与 Phase 14 交接
 
 - 带明确 version/revision label、非 root 用户、稳定 entrypoint、内部端口和信号语义的 Frontend、Backend、Worker、Indexer、Monitor、Router、Marshaller 与 Exporter 镜像。
-- MySQL migration、Kafka Topic 初始化、search initialize 和 Monitor package bootstrap 的幂等作业契约，可直接转换为 Kubernetes Job/init 流程而不重写业务逻辑。
-- `edge/business/observability` 网络成员、服务 DNS、端口、身份、持久卷、liveness/readiness 和启停顺序矩阵，作为 Phase 13 Service/ConfigMap/Secret/PVC/Probe 设计输入。
+- MySQL migration、Kafka Topic 初始化、search initialize 和 Monitor package bootstrap 的幂等作业契约，先供 Phase 13 验证跨平台行为等价，再由 Phase 14 转换为 Kubernetes Job/init 流程而不重写业务逻辑。
+- `edge/business/observability` 网络成员、服务 DNS、端口、身份、持久卷、liveness/readiness 和启停顺序矩阵，作为 Phase 13 Docker Desktop/多插件扩展边界与 Phase 14 Service/ConfigMap/Secret/PVC/Probe 的共同设计输入。
 - Monitor 容器持有受管 Exporter 子进程且不需要 Docker socket 的已验证运行边界，以及独立 Exporter 镜像的可运行证据。
 - 只发布 Frontend/Backend 用户面、Frontend 只代理 Backend、Backend 最终 admin 授权、内部服务不面向浏览器的安全基线。
-- 完整 Compose 冷启动、持久化、故障隔离和资源清理验收矩阵，供 Phase 13 证明 Kubernetes 迁移后行为等价。
+- 完整 Compose 冷启动、持久化、故障隔离和资源清理验收矩阵，供 Phase 13 证明跨平台产品化后行为等价，并供 Phase 14 证明 Kubernetes 迁移后行为等价。
 
-Phase 13 必须使用这些已验证镜像与运行契约，不在 Kubernetes 中临时编译源码、回退到宿主固定地址，或通过公开内部 Service 解决连通性。
+Phase 13 必须继承这些已验证镜像、Compose 与安全契约，完成多架构、跨平台、前端和多类单实例插件扩展而不削弱 Phase 12 闭环。Phase 14 必须使用 Phase 13 最终镜像与运行契约，不在 Kubernetes 中临时编译源码、回退到宿主固定地址，或通过公开内部 Service 解决连通性。

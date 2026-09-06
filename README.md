@@ -21,11 +21,11 @@ The repository currently provides:
 - Docker/Compose-only daily full-stack lifecycle scripts, read-only container verification, deterministic managed-Exporter bootstrap, and one authoritative random-project real-browser full-stack acceptance matrix;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
-Multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
+Additional component plugins, same-type plugin multi-instance collection, a cross-platform product lifecycle, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
 
 ## Primary development environment
 
-Starting with Phase-01-02, GoPulse uses WSL2 on Windows as its primary implementation and acceptance environment. Use the following baselines:
+Through the completed Phase 12 baseline (`1.9.4`), GoPulse uses WSL2 on Windows as its primary implementation and acceptance environment. Use the following baselines:
 
 - WSL2 with a Linux distribution;
 - Docker Desktop with WSL integration, or one WSL-native Docker Engine with the Docker Compose v2 plugin;
@@ -43,7 +43,7 @@ cd GoPulse
 
 Do not use `/mnt/c/...`, `/mnt/d/...`, or another Windows-mounted checkout as the active WSL workspace. If Docker Desktop is used, enable WSL integration for the selected distribution and do not run a second Docker daemon inside that distribution.
 
-The existing `scripts/*.ps1` files are preserved at the `0.2.1` capability baseline. They are not maintained or accepted for Phase-01-02 through Phase 16. Native Windows PowerShell compatibility will be implemented after Phase 16 against the final Bash behavior.
+The existing `scripts/*.ps1` files are preserved at the `0.2.1` capability baseline and were not maintained for Phase-01-02 through Phase 12. Planned Phase 13 will introduce a shared container-based lifecycle that is invoked from macOS Terminal, Windows PowerShell/Terminal, and Linux rather than reviving these files as a second implementation. Until that real-host matrix is implemented and accepted, WSL2/Linux and the Bash lifecycle remain the supported current baseline.
 
 ## Local configuration
 
@@ -462,7 +462,7 @@ Phase-12-01 advanced the product to `1.9.1`: the social and search runtime build
 
 Phase-12-02 advances the product to `1.9.2`: Router, Marshaller, Monitor, and Redis Exporter now have fixed-base, non-root, version-labeled images; explicit `host|container` validation preserves direct-source loopback safety while allowing controlled Compose service DNS; the Monitor image embeds a deterministic same-binary Redis Exporter package and restores desired state from its dedicated volume; and the default stack closes Redis Metrics plus application Logs and Monitor Events through Router, Kafka, Marshaller, VictoriaMetrics/Elasticsearch, Backend administrator APIs, and the production Frontend. The random-project `--observability` acceptance owns its resources, keeps internal ports unpublished, exercises localized failures and container/volume recovery, and finishes with a browser-driven blank-volume install/start/stop/update flow.
 
-Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument `scripts/verify-compose.sh` is now the sole authoritative container gate: it combines the social/search and administrator-observability paths in one strongly owned project, verifies image and service-identity boundaries, proves representative cache/worker/indexer and observability fault recovery, replaces application and persistent containers, performs retained-volume down/up plus post-restart writes and queries, and checks bounded shutdown and cleanup. CI runs this matrix once rather than repeating the historical component and split Compose acceptances. The verified image, job, service-DNS, network, identity, volume, liveness/readiness, and signal contracts are the Phase 13 Kubernetes migration baseline.
+Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument `scripts/verify-compose.sh` is now the sole authoritative container gate: it combines the social/search and administrator-observability paths in one strongly owned project, verifies image and service-identity boundaries, proves representative cache/worker/indexer and observability fault recovery, replaces application and persistent containers, performs retained-volume down/up plus post-restart writes and queries, and checks bounded shutdown and cleanup. CI runs this matrix once rather than repeating the historical component and split Compose acceptances. The verified image, job, service-DNS, network, identity, volume, liveness/readiness, and signal contracts are the Phase 13 cross-platform productization baseline and the later Phase 14 Kubernetes migration input.
 
 Phase-12-04 advances the product to `1.9.4` and re-closes Phase 12 after the independent implementation Review. The authoritative full-stack runner now builds with a run-unique image tag without changing user-owned version tags, verifies source and image identity before reuse, rejects unsafe published hosts and ports before Docker access, validates the Backend VictoriaMetrics endpoint against the selected runtime mode, narrows each Compose workload to its required environment identity, and removes official-service credentials from process and healthcheck arguments. Remote run `34019085992` passed all 11 checks, including Full-stack Compose acceptance, before PR #109 merged the batch into `main` as `102aa4f`.
 
