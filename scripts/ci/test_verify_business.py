@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -45,6 +46,196 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("6 unsafe targets rejected", result.stdout)
         self.assertFalse(docker_was_called, "safety tests must reject targets before Docker access")
+
+    def test_dev_rejects_unsafe_publication_before_docker_access(self) -> None:
+        dev = REPO / "scripts" / "dev.sh"
+        for key, value in (
+            ("PUBLISHED_HOST", "0.0.0.0"),
+            ("PUBLISHED_HOST", "localhost"),
+            ("PUBLISHED_HOST", "::"),
+            ("HTTP_PORT", "0"),
+            ("FRONTEND_PORT", "8080:8081"),
+        ):
+            with self.subTest(key=key, value=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                marker_file = root / "docker-called"
+                fake_docker = root / "docker"
+                fake_docker.write_text(
+                    f"#!/usr/bin/env bash\ntouch {marker_file!s}\nexit 99\n",
+                    encoding="utf-8",
+                )
+                fake_docker.chmod(0o755)
+                values = {
+                    "PUBLISHED_HOST": "127.0.0.1",
+                    "HTTP_PORT": "8080",
+                    "FRONTEND_PORT": "5173",
+                }
+                values[key] = value
+                env_file = root / "test.env"
+                env_file.write_text(
+                    "".join(f"{name}={item}\n" for name, item in values.items()),
+                    encoding="utf-8",
+                )
+                environment = os.environ.copy()
+                environment["PATH"] = f"{root}:{environment['PATH']}"
+                result = subprocess.run(
+                    ["bash", str(dev), "--env-file", str(env_file)],
+                    cwd=REPO,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(marker_file.exists(), result.stderr)
+
+    def test_dev_no_build_rejects_same_version_stale_revision_before_up(self) -> None:
+        dev = REPO / "scripts" / "dev.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            startup_marker = root / "startup-called"
+            fake_docker = root / "docker"
+            fake_docker.write_text(
+                """#!/usr/bin/env bash
+set -eu
+if [[ ${1:-} == info ]]; then exit 0; fi
+if [[ ${1:-} == compose && ${2:-} == version ]]; then exit 0; fi
+if [[ ${1:-} == image && ${2:-} == inspect ]]; then
+  printf '%s\n' 'sha256:stale|1.9.4|0000000000000000000000000000000000000000|https://github.com/Ray-ymq/GoPulse'
+  exit 0
+fi
+if [[ " $* " == *' up '* ]]; then touch "${STARTUP_MARKER}"; fi
+exit 99
+""",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            env_file = root / "test.env"
+            env_file.write_text(
+                "PUBLISHED_HOST=127.0.0.1\nHTTP_PORT=8080\nFRONTEND_PORT=5173\n",
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["PATH"] = f"{root}:{environment['PATH']}"
+            environment["STARTUP_MARKER"] = str(startup_marker)
+            result = subprocess.run(
+                ["bash", str(dev), "--no-build", "--env-file", str(env_file)],
+                cwd=REPO,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match version", result.stderr)
+        self.assertFalse(startup_marker.exists(), "stale images must be rejected before compose up")
+
+    def test_full_runner_rejects_dirty_product_source_before_docker_access(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            (root / "backend").mkdir()
+            (root / "deploy").mkdir()
+            (root / "deploy" / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+            runner = root / "scripts" / "verify-compose-observability.sh"
+            runner.write_bytes(OBSERVABILITY_SCRIPT.read_bytes())
+            runner.chmod(0o755)
+            (root / "VERSION").write_text("1.9.4\n", encoding="utf-8")
+            (root / ".dockerignore").write_text("dev\n", encoding="utf-8")
+            source = root / "backend" / "source.go"
+            source.write_text("package backend\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.name", "GoPulse Test"], cwd=root, check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "test baseline"], cwd=root, check=True)
+            source.write_text("package backend\n// dirty\n", encoding="utf-8")
+            docker_marker = root / "docker-called"
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                f"#!/usr/bin/env bash\ntouch {docker_marker!s}\nexit 99\n",
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+            result = subprocess.run(
+                ["bash", str(runner)],
+                cwd=root,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("dirty build or runtime source: backend/source.go", result.stderr)
+        self.assertFalse(docker_marker.exists(), "dirty source must fail before Docker access")
+
+    def test_compose_environments_and_probe_argv_are_role_minimal(self) -> None:
+        environment = os.environ.copy()
+        environment.update(
+            GOPULSE_VERSION="1.9.4",
+            GOPULSE_REVISION="test-revision",
+            GOPULSE_IMAGE_TAG="1.9.4-test",
+        )
+        result = subprocess.run(
+            [
+                "docker", "compose", "--profile", "operations",
+                "--env-file", str(REPO / ".env.example"),
+                "--file", str(REPO / "deploy" / "compose.yaml"),
+                "config", "--format", "json",
+            ],
+            cwd=REPO,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        model = json.loads(result.stdout)
+        services = model["services"]
+
+        forbidden = {
+            "migrate": {"AUTH_JWT_SECRET", "MONITOR_API_TOKEN", "BACKEND_VICTORIAMETRICS_PASSWORD", "RABBITMQ_URL", "REDIS_PASSWORD", "LOG_MONITOR_INGEST_TOKEN", "ELASTICSEARCH_URL"},
+            "admin-role": {"AUTH_JWT_SECRET", "MONITOR_API_TOKEN", "BACKEND_VICTORIAMETRICS_PASSWORD", "RABBITMQ_URL", "REDIS_PASSWORD", "LOG_MONITOR_INGEST_TOKEN", "ELASTICSEARCH_URL"},
+            "search-init": {"AUTH_JWT_SECRET", "MONITOR_API_TOKEN", "BACKEND_VICTORIAMETRICS_PASSWORD", "RABBITMQ_URL", "REDIS_PASSWORD", "LOG_MONITOR_INGEST_TOKEN"},
+            "business-worker": {"AUTH_JWT_SECRET", "MONITOR_API_TOKEN", "BACKEND_VICTORIAMETRICS_PASSWORD", "REDIS_PASSWORD"},
+            "search-indexer": {"AUTH_JWT_SECRET", "MONITOR_API_TOKEN", "BACKEND_VICTORIAMETRICS_PASSWORD", "REDIS_PASSWORD"},
+        }
+        for service, keys in forbidden.items():
+            actual = set(services[service].get("environment", {}))
+            self.assertFalse(actual & keys, f"{service} received forbidden environment: {sorted(actual & keys)}")
+        self.assertIn("RABBITMQ_URL", services["business-worker"]["environment"])
+        self.assertIn("ELASTICSEARCH_URL", services["search-indexer"]["environment"])
+        self.assertEqual(
+            set(services["migrate"]["environment"]),
+            {"GOPULSE_RUNTIME_MODE", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD"},
+        )
+
+        sensitive_values = (
+            "gopulse-root",
+            "gopulse-redis",
+            "local-victoriametrics-password32",
+        )
+        for service in ("mysql", "redis", "victoriametrics"):
+            argv = json.dumps(
+                {
+                    "command": services[service].get("command"),
+                    "healthcheck": services[service].get("healthcheck", {}).get("test"),
+                }
+            )
+            for value in sensitive_values:
+                self.assertNotIn(value, argv, f"{service} argv leaked a credential")
+            self.assertNotIn("Authorization: Basic", argv)
+            self.assertNotRegex(argv, r"(?:--password(?:=|\\b)|(?:^|[ \"])\\-a(?:[ \"]|$))")
+        self.assertTrue(
+            any(
+                "file:///run/secrets/victoriametrics_password" in argument
+                for argument in services["victoriametrics"]["command"]
+            )
+        )
 
     def test_cleanup_and_destructive_actions_are_scoped(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
@@ -114,6 +305,9 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("--confirm-project", down)
         self.assertIn("down --remove-orphans", down)
         self.assertIn("acceptance e2e/compose-smoke.spec.ts", verify)
+        self.assertIn('image_revision == "$REVISION"', verify)
+        self.assertIn('running_image == "$tagged_image"', verify)
+        self.assertIn("org.opencontainers.image.source", verify)
         self.assertIn("business-worker:", compose)
         self.assertIn("search-indexer:", compose)
         self.assertIn("internal: true", compose)
@@ -151,6 +345,10 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("PATH=$HOST_BIN", source)
         self.assertIn("host runtime/client unexpectedly available", source)
         self.assertIn("trap early_cleanup EXIT", source)
+        self.assertIn('IMAGE_TAG="${VERSION}-accept-${TOKEN}"', source)
+        self.assertIn("cleanup_acceptance_images", source)
+        self.assertIn("pre-existing image tag mapping changed", source)
+        self.assertNotIn("replaced-images", source)
 
         for service in (
             "elasticsearch",
