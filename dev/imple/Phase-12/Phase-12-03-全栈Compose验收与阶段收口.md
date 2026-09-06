@@ -1,6 +1,6 @@
 # Phase-12-03：全栈 Compose 验收与阶段收口实施方案
 
-> 当前状态：待实施。本文档只定义集成验收与阶段收口批的范围和验收合同；目标版本、开发分支和执行顺序以 `Phase-12-总实施方案.md` 的权威分配表为准。
+> 当前状态：已推送且本地完整矩阵通过；首次远程运行 `34013446831` 除 Full-stack Compose job 外的 9 个 jobs 成功，失败原因为 GitHub runner 的 Docker CLI 不在初版固定 PATH，定向修复已在本地重新通过完整矩阵。当前待远程复验、Pull Request 和主远程合入；因第 11 节要求尚未标记为“已完成”。本文档只定义集成验收与阶段收口批的范围和验收合同；目标版本、开发分支和执行顺序以 `Phase-12-总实施方案.md` 的权威分配表为准。
 
 ## 1. 批次目标
 
@@ -253,3 +253,12 @@ git diff --check
 - 完整冷启动、双使用态、三类可观测、Exporter 管理、局部故障、持久恢复与强归属清理矩阵，作为 Kubernetes 迁移行为等价验收的直接基线。
 
 Phase 13 只在上述容器制品和契约上建立 Kubernetes 资源，不通过重新编译、宿主固定地址、NodePort 内部旁路或特权 Docker 控制来弥补本阶段缺口。
+
+## 13. 本地实施结果与实际偏差
+
+- 2026-09-06 从已包含 Phase-12-01/02 的 `upstream/main` 提交 `1e63bdd` 创建 `develop/1.9.3`；根、Frontend 与 `.env.example` 产品版本已统一到 `1.9.3`。
+- 无新增产品 service、端口、网络、API、页面或持久类型。交付集中于把无参数 `scripts/verify-compose.sh` 收敛为唯一完整门禁、扩展同 project 跨批验收、删除 CI 中重复的历史真实矩阵，并更新文档与实施记录。
+- 为保持已有使用者兼容，历史 helper 文件名 `scripts/verify-compose-observability.sh` 与 `--observability` 参数仍保留；该参数现在只是无参数完整矩阵的别名，不再代表独立阶段门禁。`--business` 保留为聚焦诊断入口。
+- 本地完整矩阵最终在随机 project `gopulse-accept-6d59b046cd8a` 通过。实施期先后修正三处验收脚本自身的假阴性：Docker daemon 的 `x86_64` 与 OCI `amd64` 表示映射、Monitor 唯一命名卷不应被当作宽泛 bind mount、VictoriaMetrics 公共 `/health` 不适合作为 Basic 认证负测（改用受保护查询端点）。未发现需要修改产品实现的阻断缺陷。
+- 日常 `dev.sh → verify.sh → down.sh → dev.sh` 在随机 project `gopulse-lifecycle-790ec47624` 通过；首次 `verify.sh` 前后用户/帖子计数均为 `0/0`，保留卷重启后再次验证成功，最终显式删除该 project 卷。
+- 本地成功与远程状态分开记录。分支已 push；首次远程运行 `34013446831` 的 9 个非全栈 jobs 成功，Full-stack Compose job 在构建前因 GitHub runner Docker CLI 路径差异失败，自动 PR 被跳过。定向修复已本地复验，仍待后续远程 checks、Pull Request 和合入，因此 Phase 12 尚未完成。

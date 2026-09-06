@@ -26,7 +26,7 @@ The `gopulse/monitor:<VERSION>` image runs as numeric user `10005:10001`, uses a
 
 Use `scripts/package-redis-exporter.sh` to create a deterministic package and `scripts/verify-monitor.sh` for isolated real-Redis lifecycle, strict metrics, target-failure, recovery, and HTTP Publisher contract acceptance. Use `scripts/verify-router.sh` for the real Redis Exporter → MetricsMonitor → Router → Kafka → bounded Consumer transport loop.
 
-Use `scripts/verify-compose.sh --observability` for the authoritative Phase-12-02 container proof. It validates first-start bootstrap, same-volume replacement and down/up recovery, Router/Monitor failure isolation, administrator browser management, the blank-volume install/start/stop/update flow, image/package identity, and strongly owned cleanup.
+Use the no-argument `scripts/verify-compose.sh` for the authoritative Phase-12-03 full-stack proof. It validates first-start bootstrap, single managed-Exporter ownership, same-volume replacement and down/up recovery, Router/Monitor failure isolation with social availability, administrator browser management, the blank-volume install/start/stop/update flow, image/package identity, bounded shutdown, and strongly owned cleanup.
 
 Phase 8 keeps Monitor's publishing contract unchanged and adds the downstream Marshaller/VictoriaMetrics closure. `scripts/verify-marshaller.sh` is the real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics acceptance. Success, target-unavailable, recovery, and the record used for deterministic replay come from the real Monitor path; fixture production is limited to three representative permanent-invalid records used to prove safe continuation without storage writes.
 
