@@ -23,9 +23,11 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/verify-compose.sh --self-test
        scripts/verify-compose.sh --business [--keep]
+       scripts/verify-compose.sh --observability [--keep]
 
---business builds and validates a fresh random Compose project using only host
-Docker/Compose orchestration. Browser/API clients run in the acceptance image.
+--business preserves the Phase-12-01 focused business regression.
+--observability validates the complete Phase-12-02 container closure.
+Browser/API clients run in the acceptance image.
 USAGE
 }
 
@@ -55,7 +57,7 @@ run_self_test() {
 
 while (($#)); do
   case $1 in
-    --self-test|--business) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
+    --self-test|--business|--observability) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
     --keep) KEEP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1"; usage >&2; exit 2 ;;
@@ -63,9 +65,14 @@ while (($#)); do
 done
 [[ -n $MODE ]] || { usage >&2; exit 2; }
 if [[ $MODE == --self-test ]]; then
-  ((KEEP == 0)) || fail '--keep is only valid with --business'
+  ((KEEP == 0)) || fail '--keep is only valid with an execution mode'
   run_self_test
   exit 0
+fi
+if [[ $MODE == --observability ]]; then
+  args=()
+  ((KEEP == 0)) || args+=(--keep)
+  exec "$SCRIPT_DIR/verify-compose-observability.sh" "${args[@]}"
 fi
 
 command -v docker >/dev/null 2>&1 || fail 'docker is required'
@@ -103,10 +110,13 @@ AUTH_COOKIE_NAME=gopulse_$TOKEN
 AUTH_COOKIE_SECURE=false
 MONITOR_API_TOKEN=monitor-$TOKEN-0123456789abcdef0123456789
 LOG_MONITOR_INGEST_TOKEN=logs-$TOKEN-0123456789abcdef0123456789ab
+ROUTER_API_TOKEN=router-$TOKEN-0123456789abcdef0123456789
+MARSHALLER_API_TOKEN=marshaller-$TOKEN-0123456789abcdef012345
 VICTORIAMETRICS_USERNAME=vm_$TOKEN
 VICTORIAMETRICS_PASSWORD=vm-$TOKEN-0123456789abcdef0123456789abc
 GOPULSE_VERSION=$VERSION
 GOPULSE_REVISION=$REVISION
+GOPULSE_UPDATE_VERSION=1.9.3
 ENV
 chmod 600 "$ENV_FILE"
 

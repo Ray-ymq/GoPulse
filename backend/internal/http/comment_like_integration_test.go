@@ -24,8 +24,6 @@ func TestIntegrationCommentAndLikeHTTPBusinessClosure(t *testing.T) {
 	suffix := time.Now().UTC().Format("150405000000")
 	firstUsername := "ClosureA_" + suffix
 	secondUsername := "ClosureB_" + suffix
-	cleanupHTTPPostUsers(t, cfg, firstUsername, secondUsername)
-
 	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
 	if err != nil {
 		t.Fatalf("OpenMySQLDatabase() error=%v", err)
@@ -33,6 +31,7 @@ func TestIntegrationCommentAndLikeHTTPBusinessClosure(t *testing.T) {
 	defer database.Close()
 	releasePostFactsLock := integrationtest.AcquirePostFactsLock(t, database)
 	defer releasePostFactsLock()
+	defer cleanupHTTPPostUsers(t, cfg, firstUsername, secondUsername)
 	router := integrationPostRouter(t, cfg, database)
 
 	firstUser, firstCookie := registerHTTPIntegrationUser(t, router, firstUsername)

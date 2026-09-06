@@ -31,8 +31,6 @@ func TestIntegrationPostHTTPCreateListAndDetail(t *testing.T) {
 	suffix := time.Now().UTC().Format("150405000000")
 	username := "PostHTTP_" + suffix
 	otherUsername := "PostLike_" + suffix
-	cleanupHTTPPostUsers(t, cfg, username, otherUsername)
-
 	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
 	if err != nil {
 		t.Fatalf("OpenMySQLDatabase() error = %v", err)
@@ -40,6 +38,7 @@ func TestIntegrationPostHTTPCreateListAndDetail(t *testing.T) {
 	defer database.Close()
 	releasePostFactsLock := integrationtest.AcquirePostFactsLock(t, database)
 	defer releasePostFactsLock()
+	defer cleanupHTTPPostUsers(t, cfg, username, otherUsername)
 	router := integrationPostRouter(t, cfg, database)
 
 	registered := performJSONRequest(router, stdhttp.MethodPost, "/api/v1/auth/register", `{"username":"`+username+`","password":"integration-password"}`, nil)
@@ -175,29 +174,27 @@ func decodeIntegrationResponse(t *testing.T, response *httptest.ResponseRecorder
 
 func cleanupHTTPPostUsers(t *testing.T, cfg config.Config, usernames ...string) {
 	t.Helper()
-	t.Cleanup(func() {
-		database, err := platform.OpenMySQLDatabase(cfg.MySQL)
-		if err != nil {
-			t.Errorf("cleanup OpenMySQLDatabase() error = %v", err)
-			return
+	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	if err != nil {
+		t.Errorf("cleanup OpenMySQLDatabase() error = %v", err)
+		return
+	}
+	defer database.Close()
+	placeholders := "?,?"
+	arguments := []any{usernames[0], usernames[1], usernames[0], usernames[1]}
+	queries := []string{
+		`DELETE likes FROM post_likes AS likes LEFT JOIN posts AS p ON p.id = likes.post_id LEFT JOIN users AS author ON author.id = p.author_id LEFT JOIN users AS liker ON liker.id = likes.user_id WHERE author.username IN (` + placeholders + `) OR liker.username IN (` + placeholders + `)`,
+		`DELETE comments FROM comments LEFT JOIN posts AS p ON p.id = comments.post_id LEFT JOIN users AS post_author ON post_author.id = p.author_id LEFT JOIN users AS comment_author ON comment_author.id = comments.author_id WHERE post_author.username IN (` + placeholders + `) OR comment_author.username IN (` + placeholders + `)`,
+	}
+	for _, query := range queries {
+		if _, err := database.ExecContext(context.Background(), query, arguments...); err != nil {
+			t.Errorf("cleanup related post data: %v", err)
 		}
-		defer database.Close()
-		placeholders := "?,?"
-		arguments := []any{usernames[0], usernames[1], usernames[0], usernames[1]}
-		queries := []string{
-			`DELETE likes FROM post_likes AS likes LEFT JOIN posts AS p ON p.id = likes.post_id LEFT JOIN users AS author ON author.id = p.author_id LEFT JOIN users AS liker ON liker.id = likes.user_id WHERE author.username IN (` + placeholders + `) OR liker.username IN (` + placeholders + `)`,
-			`DELETE comments FROM comments LEFT JOIN posts AS p ON p.id = comments.post_id LEFT JOIN users AS post_author ON post_author.id = p.author_id LEFT JOIN users AS comment_author ON comment_author.id = comments.author_id WHERE post_author.username IN (` + placeholders + `) OR comment_author.username IN (` + placeholders + `)`,
-		}
-		for _, query := range queries {
-			if _, err := database.ExecContext(context.Background(), query, arguments...); err != nil {
-				t.Errorf("cleanup related post data: %v", err)
-			}
-		}
-		if _, err := database.ExecContext(context.Background(), `DELETE posts FROM posts INNER JOIN users ON users.id = posts.author_id WHERE users.username IN (`+placeholders+`)`, usernames[0], usernames[1]); err != nil {
-			t.Errorf("cleanup posts: %v", err)
-		}
-		if _, err := database.ExecContext(context.Background(), `DELETE FROM users WHERE username IN (`+placeholders+`)`, usernames[0], usernames[1]); err != nil {
-			t.Errorf("cleanup users: %v", err)
-		}
-	})
+	}
+	if _, err := database.ExecContext(context.Background(), `DELETE posts FROM posts INNER JOIN users ON users.id = posts.author_id WHERE users.username IN (`+placeholders+`)`, usernames[0], usernames[1]); err != nil {
+		t.Errorf("cleanup posts: %v", err)
+	}
+	if _, err := database.ExecContext(context.Background(), `DELETE FROM users WHERE username IN (`+placeholders+`)`, usernames[0], usernames[1]); err != nil {
+		t.Errorf("cleanup users: %v", err)
+	}
 }
