@@ -1,6 +1,6 @@
 # GoPulse 阶段性开发文档
 
-本目录将 [`Plan.md`](Plan.md) 中的总体实施计划拆分为 Phase 0～Phase 16 的阶段开发提纲。四个里程碑分别交付业务系统、指标采集、完整可观测和云原生自观测四次递进式 MVP；Phase 16 作为最终工程质量门槛，不定义新的 MVP。阶段提纲固定各阶段的 MVP 贡献、边界、依赖、最小闭环、产物和验收方向；具体接口、数据模型、消息格式、目录细节及部署参数由后续总实施方案根据真实代码基线补充。
+本目录将 [`Plan.md`](Plan.md) 中的总体实施计划拆分为 Phase 0～Phase 17 的阶段开发提纲。五个里程碑分别交付业务系统、指标采集、完整可观测、跨平台可交付可观测产品和云原生自观测五次递进式 MVP；Phase 17 作为最终工程质量门槛，不定义新的 MVP。阶段提纲固定各阶段的 MVP 贡献、边界、依赖、最小闭环、产物和验收方向；具体接口、数据模型、消息格式、目录细节及部署参数由后续总实施方案根据真实代码基线补充。
 
 ## 阶段索引
 
@@ -18,15 +18,16 @@
 | Phase 9 | `1.6.x` | [LogMonitor与日志链路](Phase-09-LogMonitor与日志链路.md) | 接入业务日志，完成从 Backend 到 Elasticsearch 的日志采集、传输、转换和查询链路 | Milestone 3：完整可观测 MVP |
 | Phase 10 | `1.7.x` | [EventMonitor与事件链路](Phase-10-EventMonitor与事件链路.md) | 补齐 Events 数据类型，记录插件生命周期、采集失败和系统运行中的离散事件 | Milestone 3：完整可观测 MVP |
 | Phase 11 | `1.8.x` | [可观测前端](Phase-11-可观测前端.md) | 将 Metrics、Logs、Events 和 Exporter 管理能力通过统一的 GoPulse 页面提供给用户 | Milestone 3：完整可观测 MVP |
-| Phase 12 | `1.9.x` | [Docker化](Phase-12-Docker化.md) | 为所有自研组件建立标准容器运行方式，并通过 Docker Compose 启动完整 GoPulse | Milestone 4：云原生自观测 MVP |
-| Phase 13 | `1.10.x` | [Kubernetes基础部署](Phase-13-Kubernetes基础部署.md) | 将完整 Docker Compose 环境迁移到 1 Master、3 Worker 的 Kubernetes 集群 | Milestone 4：云原生自观测 MVP |
-| Phase 14 | `1.11.x` | [Ingress与统一入口](Phase-14-Ingress与统一入口.md) | 为 Kubernetes 中的 GoPulse 提供统一 HTTP 访问入口，并收敛外部暴露面 | Milestone 4：云原生自观测 MVP |
-| Phase 15 | `1.12.x` | [Kubernetes可观测闭环](Phase-15-Kubernetes可观测闭环.md) | 让运行在 Kubernetes 中的 GoPulse 通过自身可观测系统观测业务、基础组件和集群对象 | Milestone 4：云原生自观测 MVP |
-| Phase 16 | `1.13.x` | [稳定性与工程化](Phase-16-稳定性与工程化.md) | 统一强化既有配置、退出、健康检查、错误处理和消息消费可靠性 | 最终工程质量门槛；不新增 MVP |
+| Phase 12 | `1.9.x` | [Docker化](Phase-12-Docker化.md) | 为所有自研组件建立标准容器运行方式，并通过 Docker Compose 启动完整 GoPulse | Milestone 4：跨平台可交付可观测产品 MVP |
+| Phase 13 | `1.10.x` | [跨平台产品化与插件扩展](Phase-13-跨平台产品化与插件扩展.md) | 建立 macOS/Windows/Linux 交付、多架构制品、产品化前端与多类单实例组件采集 | Milestone 4：跨平台可交付可观测产品 MVP |
+| Phase 14 | `1.11.x` | [Kubernetes基础部署](Phase-14-Kubernetes基础部署.md) | 将完整 Docker Compose 环境迁移到 1 Master、3 Worker 的 Kubernetes 集群 | Milestone 5：云原生自观测 MVP |
+| Phase 15 | `1.12.x` | [Ingress与统一入口](Phase-15-Ingress与统一入口.md) | 为 Kubernetes 中的 GoPulse 提供统一 HTTP 访问入口，并收敛外部暴露面 | Milestone 5：云原生自观测 MVP |
+| Phase 16 | `1.13.x` | [Kubernetes可观测闭环](Phase-16-Kubernetes可观测闭环.md) | 让运行在 Kubernetes 中的 GoPulse 通过自身可观测系统观测业务、基础组件和集群对象 | Milestone 5：云原生自观测 MVP |
+| Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | 统一强化既有配置、退出、健康检查、错误处理和消息消费可靠性 | 最终工程质量门槛；不新增 MVP |
 
 ## 推荐阅读顺序
 
-按照 Phase 0 → Phase 16 顺序阅读和实施。每个阶段均以前序阶段的可运行产物为基础，并应在进入下一阶段前完成本阶段验收。
+按照 Phase 0 → Phase 17 顺序阅读和实施。每个阶段均以前序阶段的可运行产物为基础，并应在进入下一阶段前完成本阶段验收。
 
 每个里程碑结束时必须得到一次可独立运行、验证和使用的 MVP；里程碑内部的 Phase 只实现通向该 MVP 的必要增量，不提前扩展后续里程碑能力。
 
@@ -37,7 +38,8 @@
 → 最小业务闭环
 → 业务异步与搜索
 → 指标、日志、事件可观测链路
-→ Docker 与 Kubernetes
+→ Docker 与跨平台产品化
+→ Kubernetes 与统一入口
 → Kubernetes 自观测闭环
 → 稳定性与工程化
 ```
@@ -46,7 +48,7 @@
 
 - MySQL 是核心业务事实来源；Redis 仅承担明确的缓存用途；Elasticsearch 的业务索引用于搜索且应可重建。
 - RabbitMQ 只用于点赞、评论、通知等业务异步任务；Kafka 只用于 Metrics、Logs、Events 等可观测数据传输。
-- Exporter 负责目标组件的定制化指标采集，不保存历史数据，也不主动向 Monitor 推送指标。
+- Exporter 负责目标组件的定制化指标采集，不保存历史数据，也不主动向 Monitor 推送指标；Phase 13 允许多种插件并行，但每种插件只允许一个实例和一个目标，多实例按[独立未来设计](../../docs/Exporter插件多实例采集设计.md)另行实施。
 - Monitor 负责采集或接收、基础校验、基础结构化和标准消息封装。
 - Message Router 只负责接收、识别类型、路由和写入 Kafka，不承担清洗、转换、聚合或存储。
 - Marshaller 负责第二次处理，将 Kafka 消息校验、清洗并转换为目标存储格式。
