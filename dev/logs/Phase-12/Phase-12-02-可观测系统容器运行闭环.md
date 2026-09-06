@@ -2,12 +2,12 @@
 
 ## 1. 批次信息
 
-- 日期：2026-09-05
+- 日期：2026-09-05（主体实施）；2026-09-06（远程门禁修复）
 - 分支：`develop/1.9.2`
 - 开工基线：最新 `upstream/main` 提交 `3add2b8`，产品版本 `1.9.1`
 - 目标/本地完成版本：`1.9.2`
 - 实施方案：`dev/imple/Phase-12/Phase-12-02-可观测系统容器运行闭环.md`
-- 当前结论：本地实施与固定门禁已通过；尚未推送分支，Pull Request、远程门禁和合入均未发生，因此仍未满足实施方案第 10 节的严格完成条件。
+- 当前结论：主体实施已由提交 `37fcb38` 推送；2026-09-06 的自动 PR 工作流 run #125 仅在 Integration job 失败，因此未创建 Pull Request。失败对应的跨 package 集成夹具清理竞态已修复，本地针对性并发回归与完整 Integration 固定门禁均通过；修复提交仍待推送和远程重跑，因此尚未满足实施方案第 10 节的严格完成条件。
 
 ## 2. 实际完成
 
@@ -60,6 +60,7 @@
 - Redis Exporter：`exporters/redis/internal/config/**`。
 - 生命周期与 CI：`scripts/dev.sh`、`scripts/verify.sh`、`scripts/verify-compose.sh`、`scripts/verify-compose-observability.sh`、`scripts/package-redis-exporter.sh`、`scripts/ci/test_verify_business.py`、`scripts/ci/test_auto_pr_workflow.py`、`.github/workflows/quality-gates.yml`。
 - 文档与治理：根及各组件 README、Phase 12 总方案、本批方案、本记录、`VERSION`、Frontend package metadata。
+- 远程门禁跟进：`backend/internal/http/comment_like_integration_test.go`、`backend/internal/http/post_integration_test.go`、`backend/internal/like/integration_test.go`、`backend/internal/integrationtest/mysql_lock.go`。
 
 ## 4. 验证结果
 
@@ -95,6 +96,31 @@ scripts/verify-compose.sh --observability                                       
 git diff --check                                                                # PASS
 ```
 
+### 4.1 自动 PR run #125 的 Integration 修复
+
+2026-09-06，提交 `37fcb38` 触发的 `Auto PR and Merge` run #125 中，Branch governance、Backend、Router、Marshaller、Monitor、Redis Exporter、Frontend、Scripts/Compose 和 container-only observability acceptance 均通过；仅 Integration job `101422896209` 失败，后续 `Open PR and enable auto-merge` 被跳过，因而没有创建 Pull Request。失败输出为：
+
+```text
+--- FAIL: TestIntegrationPostRepositoryReadModelStablePaginationAndQueryPlan
+integration_test.go:63: post[0].ID=5, want 9
+```
+
+原因是会提交全局可见 post 的 HTTP 与 Like 集成测试虽然共享 MySQL named lock，但 `t.Cleanup` 注册的夹具删除晚于 defer 的 named-lock 释放执行。另一 package 的测试二进制可能在锁释放后、旧 post 删除前取得锁并读取该已提交事实，导致 feed 分页断言偶发看到陈旧 post。修复将相关夹具删除改为显式 defer，并保证 defer 的 LIFO 顺序为“删除已提交夹具 → 释放 named lock → 关闭数据库”；named-lock helper 注释同步明确该调用约束。
+
+在随机命名、仅回收自身资源的 MySQL 8.4、Redis 7.2、RabbitMQ 3.13 和 Elasticsearch 9.5.2 容器中使用动态 loopback 宿主端口完成验证：
+
+```text
+(cd backend && go run ./cmd/migrate up)                                         # PASS
+(cd backend && for attempt in 1 2 3; do go test -count=1 -tags=integration ./internal/http ./internal/like ./internal/post; done)  # PASS：3/3
+(cd backend && go test -count=1 -tags=integration ./...)                        # PASS
+(cd backend && test -z "$(gofmt -l .)")                                        # PASS
+(cd backend && go test -count=1 ./...)                                          # PASS
+(cd backend && go vet ./...)                                                     # PASS
+git diff --check                                                                 # PASS
+```
+
+验证容器、网络均由强归属 trap 清理，未执行 prune。由于该跟进只修改集成测试夹具生命周期及说明，且 run #125 的 container-only observability acceptance 已通过，未重复执行完整可观测容器矩阵。
+
 最终 `--observability` 从头构建九个 GoPulse `1.9.2` 镜像，完成完整栈冷启动、管理员/普通用户浏览器矩阵、VM/Monitor/Router 故障隔离、容器替换、保留卷 down/up、独立 Exporter 与空卷 install/stop/start/update，并输出 `Phase-12-02 complete observability container acceptance passed`。随机 project `gopulse-observe-204ea671d796` 的容器、网络、卷和临时目录随后均确认清理。
 
 真实容器主验收的非最终失败与修复：
@@ -114,4 +140,4 @@ git diff --check                                                                
 - 为证明浏览器 install/update，在 acceptance image 内生成当前版本安装包和下一 patch 包；`GOPULSE_UPDATE_VERSION` 只属于验收数据，不改变产品版本。
 - 为关闭真实故障矩阵暴露的 DTO 合同不一致，额外修改 Backend/Frontend 固定 safe-error allowlist；未放宽自由文本、内部路径、原始错误或任意 code。
 - 未修改冻结的 PowerShell 脚本，未增加宿主端口、Docker socket、特权容器、Kubernetes、生产身份系统、SBOM/签名、多架构发布、容量测试或独立 Review。
-- Pull Request、远程固定门禁和主远程合入仍待执行；在这些事实完成前，本批按方案第 10 节不能标记为“已完成”。
+- 首次推送已发生，但自动 PR run #125 因 Integration 夹具清理竞态失败而未创建 Pull Request；修复已通过本地固定 Integration 门禁，仍待推送、远程重跑、Pull Request 与主远程合入。在这些事实完成前，本批按方案第 10 节不能标记为“已完成”。
