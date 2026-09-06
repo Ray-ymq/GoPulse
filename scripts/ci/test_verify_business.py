@@ -119,21 +119,38 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("internal: true", compose)
         self.assertNotIn("container_name:", compose)
 
-    def test_observability_acceptance_is_owned_browser_backed_and_internal(self) -> None:
+    def test_full_stack_acceptance_is_owned_browser_backed_and_internal(self) -> None:
         source = OBSERVABILITY_SCRIPT.read_text(encoding="utf-8")
         compose = (REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8")
         verify_compose = (REPO / "scripts" / "verify-compose.sh").read_text(encoding="utf-8")
 
-        self.assertIn("^gopulse-observe-[a-f0-9]{12}$", source)
+        self.assertIn("^gopulse-accept-[a-f0-9]{12}$", source)
         self.assertIn("com.docker.compose.project.working_dir", source)
         self.assertIn("assert_project_ownership", source)
         self.assertIn("down --volumes --remove-orphans", source)
         self.assertNotIn("docker volume prune", source)
         self.assertNotIn("docker system prune", source)
         self.assertIn("e2e/compose-observability.spec.ts", source)
-        for scenario in ("ordinary", "admin", "vm-down", "monitor-down", "transport-down", "manage"):
+        for scenario in (
+            "business",
+            "redis-fallback",
+            "worker-seed",
+            "indexer-seed",
+            "ordinary",
+            "admin",
+            "vm-down",
+            "monitor-down",
+            "transport-down",
+            "post-restart",
+            "manage",
+        ):
             self.assertIn(scenario, source)
+        self.assertIn('[[ -n $MODE ]] || MODE=--full', verify_compose)
         self.assertIn('exec "$SCRIPT_DIR/verify-compose-observability.sh"', verify_compose)
+        self.assertIn("HOST_UTILITIES=(docker git sha256sum", source)
+        self.assertIn("PATH=$HOST_BIN", source)
+        self.assertIn("host runtime/client unexpectedly available", source)
+        self.assertIn("trap early_cleanup EXIT", source)
 
         for service in (
             "elasticsearch",
