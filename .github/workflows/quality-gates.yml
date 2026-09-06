@@ -75,8 +75,6 @@ jobs:
         run: cd router && go vet ./...
       - name: Race test
         run: cd router && go test -race -count=1 ./...
-      - name: Run transport acceptance
-        run: scripts/verify-router.sh
 
   marshaller:
     name: Marshaller
@@ -96,43 +94,6 @@ jobs:
         run: cd marshaller && go vet ./...
       - name: Race test
         run: cd marshaller && go test -race -count=1 ./...
-      - name: Run isolated metrics acceptance
-        run: scripts/verify-marshaller.sh
-
-  logs:
-    name: Backend log pipeline
-    if: inputs.run_product_checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: |
-            backend/go.sum
-            monitor/go.sum
-            router/go.sum
-            marshaller/go.sum
-      - name: Run isolated end-to-end log acceptance
-        run: scripts/verify-logs.sh
-
-  events:
-    name: Plugin lifecycle Events pipeline
-    if: inputs.run_product_checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: |
-            backend/go.sum
-            monitor/go.sum
-            router/go.sum
-            marshaller/go.sum
-            exporters/redis/go.sum
-      - name: Run isolated end-to-end Events acceptance
-        run: scripts/verify-events.sh
 
   monitor:
     name: Monitor
@@ -151,8 +112,6 @@ jobs:
         run: cd monitor && go vet ./...
       - name: Race test
         run: cd monitor && go test -race -count=1 ./...
-      - name: Run lifecycle acceptance
-        run: scripts/verify-monitor.sh
 
   redis-exporter:
     name: Redis Exporter
@@ -172,8 +131,6 @@ jobs:
         run: cd exporters/redis && go vet ./...
       - name: Race test
         run: cd exporters/redis && go test -race -count=1 ./...
-      - name: Run real Redis acceptance
-        run: scripts/verify-exporter.sh
 
   frontend:
     name: Frontend
@@ -193,17 +150,17 @@ jobs:
       - run: npm test -- --run
       - run: npm run build
 
-  compose-observability:
-    name: Container-only observability acceptance
+  compose-full-stack:
+    name: Full-stack Compose acceptance
     if: inputs.run_product_checks
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Run the authoritative Phase-12-02 Compose closure
-        run: scripts/verify-compose.sh --observability
+      - name: Run the authoritative Phase 12 Compose closure
+        run: scripts/verify-compose.sh
 
   scripts-and-compose:
     name: Scripts and Compose
@@ -246,18 +203,6 @@ jobs:
           grep -q 'image: victoriametrics/victoria-metrics:v1.151.0' <<<"$rendered"
           grep -q 'condition: service_completed_successfully' <<<"$rendered"
           [[ $(grep -c 'internal: true' <<<"$rendered") -eq 2 ]]
-
-  compose-business:
-    name: Container-only business acceptance
-    if: inputs.run_product_checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Run the authoritative Phase-12-01 Compose closure
-        run: scripts/verify-compose.sh --business
 
   integration:
     name: Integration

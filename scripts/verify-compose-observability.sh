@@ -11,10 +11,10 @@ TEMP_DIR=
 ENV_FILE=
 SNAPSHOT_DIR=
 
-info() { printf '[gopulse-observability] %s\n' "$*"; }
-pass() { printf '[gopulse-observability] PASS: %s\n' "$*"; }
-fail() { printf '[gopulse-observability] ERROR: %s\n' "$*" >&2; return 1; }
-usage() { printf 'Usage: scripts/verify-compose-observability.sh [--keep]\n'; }
+info() { printf '[gopulse-compose] %s\n' "$*"; }
+pass() { printf '[gopulse-compose] PASS: %s\n' "$*"; }
+fail() { printf '[gopulse-compose] ERROR: %s\n' "$*" >&2; return 1; }
+usage() { printf 'Internal full-stack runner. Use scripts/verify-compose.sh [--keep].\n'; }
 
 while (($#)); do
   case $1 in
@@ -24,9 +24,12 @@ while (($#)); do
   esac
 done
 
-command -v docker >/dev/null 2>&1 || fail 'docker is required'
-command -v git >/dev/null 2>&1 || fail 'git is required'
-command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required'
+# Resolve the small host utility allow-list before creating a PATH that cannot
+# expose Go, Node.js, npm, database clients, or project language tooling.
+HOST_UTILITIES=(docker git sha256sum tr cut cat chmod sort comm cmp sed wc find sleep grep awk)
+for utility in "${HOST_UTILITIES[@]}"; do
+  command -v "$utility" >/dev/null 2>&1 || fail "$utility is required"
+done
 docker info >/dev/null 2>&1 || fail 'Docker Engine is unavailable'
 docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 is unavailable'
 VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
@@ -35,16 +38,35 @@ IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
 UPDATE_VERSION="$VERSION_MAJOR.$VERSION_MINOR.$((VERSION_PATCH + 1))"
 REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 TOKEN=$(tr -d '-' </proc/sys/kernel/random/uuid | cut -c1-12)
-PROJECT_NAME="gopulse-observe-$TOKEN"
-[[ $PROJECT_NAME =~ ^gopulse-observe-[a-f0-9]{12}$ ]] || fail 'generated project name is invalid'
-TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gopulse-observability-$TOKEN.XXXXXX")
+PROJECT_NAME="gopulse-accept-$TOKEN"
+[[ $PROJECT_NAME =~ ^gopulse-accept-[a-f0-9]{12}$ ]] || fail 'generated project name is invalid'
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gopulse-compose-$TOKEN.XXXXXX")
 ENV_FILE="$TEMP_DIR/acceptance.env"
 SNAPSHOT_DIR="$TEMP_DIR/snapshot"
-mkdir -p "$SNAPSHOT_DIR"
+HOST_BIN="$TEMP_DIR/host-bin"
+early_cleanup() {
+  local status=$?
+  trap - EXIT
+  if [[ -n $TEMP_DIR && $TEMP_DIR == "${TMPDIR:-/tmp}"/gopulse-compose-* ]]; then
+    find "$TEMP_DIR" -depth -delete 2>/dev/null || status=1
+  fi
+  exit "$status"
+}
+trap early_cleanup EXIT
+mkdir -p "$SNAPSHOT_DIR" "$HOST_BIN"
+for utility in "${HOST_UTILITIES[@]}"; do
+  ln -s "$(command -v "$utility")" "$HOST_BIN/$utility"
+done
+PATH=$HOST_BIN
+export PATH
+hash -r
+for runtime in go node npm python python3 mysql redis-cli rabbitmqctl kafka-topics.sh curl; do
+  ! command -v "$runtime" >/dev/null 2>&1 || fail "host runtime/client unexpectedly available in acceptance PATH: $runtime"
+done
 ADMIN_USERNAME="admin_$TOKEN"
 USER_USERNAME="user_$TOKEN"
 PASSWORD="Acceptance-$TOKEN-password"
-export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$REVISION GOPULSE_UPDATE_VERSION=$UPDATE_VERSION
+export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$REVISION GOPULSE_UPDATE_VERSION=$UPDATE_VERSION GOPULSE_ACCEPTANCE_TOKEN=$TOKEN
 
 cat >"$ENV_FILE" <<ENV
 APP_ENV=test
@@ -71,6 +93,7 @@ VICTORIAMETRICS_PASSWORD=vm-$TOKEN-0123456789abcdef0123456789abc
 GOPULSE_VERSION=$VERSION
 GOPULSE_REVISION=$REVISION
 GOPULSE_UPDATE_VERSION=$UPDATE_VERSION
+GOPULSE_ACCEPTANCE_TOKEN=$TOKEN
 GOPULSE_OBSERVABILITY_ADMIN_USERNAME=$ADMIN_USERNAME
 GOPULSE_OBSERVABILITY_USER_USERNAME=$USER_USERNAME
 GOPULSE_OBSERVABILITY_PASSWORD=$PASSWORD
@@ -94,6 +117,7 @@ snapshot_existing_resources() {
     "gopulse/monitor:$VERSION"
     "gopulse/redis-exporter:$VERSION"
   )
+  git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z >"$SNAPSHOT_DIR/git-status"
   docker ps -aq | sort >"$SNAPSHOT_DIR/containers"
   docker network ls -q | sort >"$SNAPSHOT_DIR/networks"
   docker volume ls -q | sort >"$SNAPSHOT_DIR/volumes"
@@ -112,6 +136,7 @@ snapshot_existing_resources() {
 
 assert_snapshot_preserved() {
   local kind id
+  cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || fail 'acceptance changed the Git working tree'
   for kind in containers networks volumes images; do
     while IFS= read -r id; do
       [[ -n $id ]] || continue
@@ -132,13 +157,14 @@ assert_project_absent() {
 }
 
 assert_project_ownership() {
-  local id label working_dir
-  [[ $PROJECT_NAME =~ ^gopulse-observe-[a-f0-9]{12}$ ]] || fail 'unsafe project at cleanup boundary'
+  local id label working_dir config_files
+  [[ $PROJECT_NAME =~ ^gopulse-accept-[a-f0-9]{12}$ ]] || fail 'unsafe project at cleanup boundary'
   while IFS= read -r id; do
     [[ -n $id ]] || continue
     label=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$id")
     working_dir=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id")
-    [[ $label == "$PROJECT_NAME" && $working_dir == "$COMPOSE_WORKDIR" ]] || fail "container ownership mismatch: $id"
+    config_files=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$id")
+    [[ $label == "$PROJECT_NAME" && $working_dir == "$COMPOSE_WORKDIR" && $config_files == *"$COMPOSE_FILE"* ]] || fail "container ownership mismatch: $id"
   done < <(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME")
   for kind in network volume; do
     while IFS= read -r id; do
@@ -164,7 +190,7 @@ cleanup() {
     fi
   fi
   assert_snapshot_preserved || status=1
-  if [[ -n $TEMP_DIR && $TEMP_DIR == "${TMPDIR:-/tmp}"/gopulse-observability-* ]]; then
+  if [[ -n $TEMP_DIR && $TEMP_DIR == "${TMPDIR:-/tmp}"/gopulse-compose-* ]]; then
     find "$TEMP_DIR" -depth -delete 2>/dev/null || status=1
   fi
   exit "$status"
@@ -182,11 +208,21 @@ service_id() {
 }
 
 owned_service_id() {
-  local service=$1 id
+  local service=$1 id config_files image image_version image_revision
   id=$(service_id "$service")
   [[ $(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$id") == "$PROJECT_NAME" ]] || fail "$service project label mismatch"
   [[ $(docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$id") == "$service" ]] || fail "$service label mismatch"
   [[ $(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$id") == "$COMPOSE_WORKDIR" ]] || fail "$service working directory mismatch"
+  config_files=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$id")
+  [[ $config_files == *"$COMPOSE_FILE"* ]] || fail "$service config-file label mismatch"
+  case $service in
+    frontend|backend|business-worker|search-indexer|router|marshaller|monitor|redis-exporter)
+      image=$(docker inspect --format '{{.Image}}' "$id")
+      image_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
+      image_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+      [[ $image_version == "$VERSION" && $image_revision == "$REVISION" ]] || fail "$service image ownership mismatch"
+      ;;
+  esac
   printf '%s\n' "$id"
 }
 
@@ -233,47 +269,86 @@ assert_full_state() {
 }
 
 assert_image_contracts() {
-  local service image user version revision source entrypoint expected_entry readonly privileged caps binds
-  for service in frontend backend business-worker search-indexer router marshaller monitor; do
-    image=$(docker inspect --format '{{.Image}}' "$(owned_service_id "$service")")
-    user=$(docker image inspect --format '{{.Config.User}}' "$image")
-    version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
-    revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
-    source=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")
-    entrypoint=$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")
+  local service ref container_id running_image tagged_image user version revision source entrypoint cmd arch daemon_arch stop_signal layers
+  local readonly privileged caps binds mounts network_mode pid_mode ipc_mode image_env package_digest image_digest expected_entry expected_cmd expected_signal
+  daemon_arch=$(docker info --format '{{.Architecture}}')
+  case $daemon_arch in
+    x86_64) daemon_arch=amd64 ;;
+    aarch64) daemon_arch=arm64 ;;
+  esac
+  for service in frontend backend business-worker search-indexer router marshaller monitor redis-exporter; do
+    ref="gopulse/$service:$VERSION"
+    tagged_image=$(docker image inspect --format '{{.Id}}' "$ref")
+    if [[ $service != redis-exporter ]]; then
+      container_id=$(owned_service_id "$service")
+      running_image=$(docker inspect --format '{{.Image}}' "$container_id")
+      [[ $running_image == "$tagged_image" ]] || fail "$service container does not run the freshly built tag"
+    fi
+    user=$(docker image inspect --format '{{.Config.User}}' "$ref")
+    version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$ref")
+    revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ref")
+    source=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$ref")
+    entrypoint=$(docker image inspect --format '{{json .Config.Entrypoint}}' "$ref")
+    cmd=$(docker image inspect --format '{{json .Config.Cmd}}' "$ref")
+    arch=$(docker image inspect --format '{{.Architecture}}' "$ref")
+    stop_signal=$(docker image inspect --format '{{.Config.StopSignal}}' "$ref")
+    layers=$(docker image inspect --format '{{len .RootFS.Layers}}' "$ref")
+    image_env=$(docker image inspect --format '{{json .Config.Env}}' "$ref")
     case $service in
-      frontend) expected_entry='["nginx"]' ;;
-      backend) expected_entry='["/usr/local/bin/server"]' ;;
-      business-worker) expected_entry='["/usr/local/bin/business-worker"]' ;;
-      search-indexer) expected_entry='["/usr/local/bin/search-indexer"]' ;;
-      router) expected_entry='["/usr/local/bin/router"]' ;;
-      marshaller) expected_entry='["/usr/local/bin/marshaller"]' ;;
-      monitor) expected_entry='["/usr/local/bin/monitor"]' ;;
+      frontend) expected_entry='["nginx"]'; expected_cmd='["-g","daemon off;"]'; expected_signal=SIGQUIT ;;
+      backend) expected_entry='["/usr/local/bin/server"]'; expected_cmd=null; expected_signal=SIGTERM ;;
+      business-worker) expected_entry='["/usr/local/bin/business-worker"]'; expected_cmd=null; expected_signal=SIGTERM ;;
+      search-indexer) expected_entry='["/usr/local/bin/search-indexer"]'; expected_cmd=null; expected_signal=SIGTERM ;;
+      router) expected_entry='["/usr/local/bin/router"]'; expected_cmd=null; expected_signal=SIGTERM ;;
+      marshaller) expected_entry='["/usr/local/bin/marshaller"]'; expected_cmd=null; expected_signal=SIGTERM ;;
+      monitor) expected_entry='["/usr/local/bin/monitor"]'; expected_cmd=null; expected_signal=SIGTERM ;;
+      redis-exporter) expected_entry='["/usr/local/bin/gopulse-redis-exporter"]'; expected_cmd=null; expected_signal=SIGTERM ;;
     esac
-    [[ $user =~ ^[0-9]+:[0-9]+$ && $version == "$VERSION" && $revision == "$REVISION" && $source == https://github.com/Ray-ymq/GoPulse && $entrypoint == "$expected_entry" ]] || fail "$service image contract mismatch"
-  done
-  user=$(docker image inspect --format '{{.Config.User}}' "gopulse/redis-exporter:$VERSION")
-  entrypoint=$(docker image inspect --format '{{json .Config.Entrypoint}}' "gopulse/redis-exporter:$VERSION")
-  version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "gopulse/redis-exporter:$VERSION")
-  [[ $user =~ ^[0-9]+:[0-9]+$ && $entrypoint == '["/usr/local/bin/gopulse-redis-exporter"]' && $version == "$VERSION" ]] || fail 'Redis Exporter image contract mismatch'
-  for service in router marshaller monitor; do
-    id=$(owned_service_id "$service")
-    readonly=$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$id")
-    privileged=$(docker inspect --format '{{.HostConfig.Privileged}}' "$id")
-    caps=$(docker inspect --format '{{json .HostConfig.CapAdd}}' "$id")
-    binds=$(docker inspect --format '{{json .HostConfig.Binds}}' "$id")
-    [[ $readonly == true && $privileged == false && $caps == null && $binds != *docker.sock* ]] || fail "$service container privilege boundary mismatch"
-  done
-  for image in router marshaller monitor redis-exporter; do
-    docker run --rm --entrypoint /bin/sh "gopulse/$image:$VERSION" -ec '! command -v go && test ! -d /src'
-    if docker history --no-trunc "gopulse/$image:$VERSION" | grep -E '(MONITOR_API_TOKEN|ROUTER_API_TOKEN|MARSHALLER_API_TOKEN|LOG_MONITOR_INGEST_TOKEN|AUTH_JWT_SECRET)=' >/dev/null; then
-      fail "$image history contains a runtime credential"
+    [[ $user =~ ^[0-9]+:[0-9]+$ ]] || fail "$service image does not use a numeric uid:gid"
+    [[ $version == "$VERSION" && $revision == "$REVISION" && $source == https://github.com/Ray-ymq/GoPulse ]] || fail "$service OCI labels mismatch"
+    [[ $entrypoint == "$expected_entry" && $cmd == "$expected_cmd" && $stop_signal == "$expected_signal" ]] || fail "$service process contract mismatch"
+    [[ $arch == "$daemon_arch" && $layers -gt 0 ]] || fail "$service architecture/layer contract mismatch"
+    if grep -Eq '(AUTH_JWT_SECRET|MONITOR_API_TOKEN|LOG_MONITOR_INGEST_TOKEN|ROUTER_API_TOKEN|MARSHALLER_API_TOKEN|MYSQL_PASSWORD|RABBITMQ_PASSWORD|VICTORIAMETRICS_PASSWORD)=' <<<"$image_env"; then
+      fail "$service image config contains a runtime credential"
+    fi
+    if docker history --no-trunc "$ref" | grep -E '(AUTH_JWT_SECRET|MONITOR_API_TOKEN|LOG_MONITOR_INGEST_TOKEN|ROUTER_API_TOKEN|MARSHALLER_API_TOKEN|MYSQL_PASSWORD|RABBITMQ_PASSWORD|VICTORIAMETRICS_PASSWORD)=' >/dev/null; then
+      fail "$service image history contains a runtime credential"
     fi
   done
+
+  docker run --rm --entrypoint /bin/sh "gopulse/backend:$VERSION" -ec \
+    'test -x /usr/local/bin/server && test -x /usr/local/bin/migrate && test -x /usr/local/bin/search-reindex && test -x /usr/local/bin/admin-role && ! command -v go && ! command -v node && test ! -d /src'
+  for service in business-worker search-indexer router marshaller monitor redis-exporter; do
+    docker run --rm --entrypoint /bin/sh "gopulse/$service:$VERSION" -ec '! command -v go && ! command -v node && ! command -v npm && test ! -d /src'
+  done
+  docker run --rm --entrypoint /bin/sh "gopulse/frontend:$VERSION" -ec \
+    '! command -v go && ! command -v node && ! command -v npm && test ! -d /src && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q . && ! grep -R -E "(mysql|redis|rabbitmq|elasticsearch|kafka|victoriametrics|monitor|router|marshaller):[0-9]+|AUTH_JWT_SECRET|MONITOR_API_TOKEN|LOG_MONITOR_INGEST_TOKEN|ROUTER_API_TOKEN|MARSHALLER_API_TOKEN" /usr/share/nginx/html'
+
+  for service in frontend backend business-worker search-indexer router marshaller monitor; do
+    container_id=$(owned_service_id "$service")
+    readonly=$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")
+    privileged=$(docker inspect --format '{{.HostConfig.Privileged}}' "$container_id")
+    caps=$(docker inspect --format '{{json .HostConfig.CapAdd}}' "$container_id")
+    binds=$(docker inspect --format '{{json .HostConfig.Binds}}' "$container_id")
+    mounts=$(docker inspect --format '{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Destination}};{{end}}' "$container_id")
+    network_mode=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container_id")
+    pid_mode=$(docker inspect --format '{{.HostConfig.PidMode}}' "$container_id")
+    ipc_mode=$(docker inspect --format '{{.HostConfig.IpcMode}}' "$container_id")
+    [[ $privileged == false && $caps == null && $binds != *docker.sock* && $network_mode != host && $pid_mode != host && $ipc_mode != host ]] || fail "$service container privilege/namespace boundary mismatch"
+    if [[ $service == monitor ]]; then
+      [[ $mounts == "volume|${PROJECT_NAME}_monitor_plugin_data|/var/lib/gopulse-monitor/plugins;" ]] || fail 'Monitor mount contract mismatch'
+    else
+      [[ -z $mounts ]] || fail "$service unexpectedly mounts host or volume content"
+    fi
+    if [[ $service == router || $service == marshaller || $service == monitor ]]; then
+      [[ $readonly == true ]] || fail "$service root filesystem must be read-only"
+    fi
+  done
+
   package_digest=$(docker run --rm --entrypoint /bin/sh "gopulse/monitor:$VERSION" -ec 'tar -xOzf /opt/gopulse/packages/gopulse-redis-exporter.tar.gz bin/gopulse-redis-exporter' | sha256sum | awk '{print $1}')
   image_digest=$(docker run --rm --entrypoint sha256sum "gopulse/redis-exporter:$VERSION" /usr/local/bin/gopulse-redis-exporter | awk '{print $1}')
   [[ $package_digest == "$image_digest" ]] || fail 'Monitor package and Redis Exporter image binary digest differ'
-  pass 'Image metadata, non-root users, entrypoints, package digest, and privilege boundaries passed.'
+  pass 'Image tags, OCI metadata, architecture, non-root runtime contents, signals, and privilege boundaries passed.'
 }
 
 assert_network_and_ports() {
@@ -300,6 +375,43 @@ assert_network_and_ports() {
   pass 'Edge, business, observability networks and loopback-only user ports match the contract.'
 }
 
+assert_internal_security() {
+  if compose exec -T frontend /bin/sh -ec 'wget --quiet --timeout=3 --output-document=/dev/null http://monitor:9090/health'; then
+    fail 'Frontend unexpectedly reached the internal Monitor service'
+  fi
+  compose exec -T \
+    -e "GOPULSE_TEST_ROUTER_TOKEN=router-$TOKEN-0123456789abcdef0123456789" \
+    -e "GOPULSE_TEST_MARSHALLER_TOKEN=marshaller-$TOKEN-0123456789abcdef012345" \
+    backend /bin/sh -ec '
+      http_code() {
+        output=$(wget -S -O /dev/null "$@" 2>&1 || true)
+        printf "%s\n" "$output" | awk "/HTTP\\// { for (i = 1; i <= NF; i++) if (\$i ~ /^HTTP\\//) code=\$(i + 1) } END { print code }"
+      }
+      expect_code() {
+        expected=$1
+        shift
+        actual=$(http_code "$@")
+        test "$actual" = "$expected" || { printf "expected HTTP %s, got %s\n" "$expected" "$actual" >&2; return 1; }
+      }
+      expect_code 401 http://monitor:9090/ready
+      expect_code 401 --header "Authorization: Bearer wrong-monitor-token" http://monitor:9090/ready
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://monitor:9090/ready
+      expect_code 401 http://router:9091/ready
+      expect_code 401 --header "Authorization: Bearer wrong-router-token" http://router:9091/ready
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://router:9091/ready
+      expect_code 401 http://marshaller:9093/ready
+      expect_code 401 --header "Authorization: Bearer wrong-marshaller-token" http://marshaller:9093/ready
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://marshaller:9093/ready
+      expect_code 401 http://victoriametrics:8428/api/v1/query?query=up
+      expect_code 401 --header "Authorization: Basic $(printf wrong:wrong | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
+      expect_code 200 --header "Authorization: Bearer $MONITOR_API_TOKEN" http://monitor:9090/ready
+      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_ROUTER_TOKEN" http://router:9091/ready
+      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_MARSHALLER_TOKEN" http://marshaller:9093/ready
+      expect_code 200 --header "Authorization: Basic $(printf "%s:%s" "$BACKEND_VICTORIAMETRICS_USERNAME" "$BACKEND_VICTORIAMETRICS_PASSWORD" | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
+    '
+  pass 'Frontend isolation plus Bearer, Basic, and cookie trust boundaries passed.'
+}
+
 assert_bootstrap_status() {
   compose exec -T backend /bin/sh -ec '
     status=$(wget --quiet --header "Authorization: Bearer $MONITOR_API_TOKEN" --output-document=- http://monitor:9090/internal/v1/exporter-plugins/redis-exporter)
@@ -307,12 +419,62 @@ assert_bootstrap_status() {
     printf "%s" "$status" | grep -q "\"desired_state\":\"running\""
     printf "%s" "$status" | grep -q "\"observed_state\":\"running\""
   '
+  compose exec -T monitor /bin/sh -ec '
+    count=0
+    for executable in /proc/[0-9]*/exe; do
+      target=$(readlink "$executable" 2>/dev/null || true)
+      case $target in */gopulse-redis-exporter) count=$((count + 1)) ;; esac
+    done
+    test "$count" -eq 1
+  '
 }
 
-run_scenario() {
+run_observability_scenario() {
   local scenario=$1
-  info "Running browser scenario: $scenario"
+  info "Running observability browser scenario: $scenario"
   compose --profile acceptance run --rm --no-deps -e "GOPULSE_ACCEPTANCE_SCENARIO=$scenario" acceptance e2e/compose-observability.spec.ts
+}
+
+run_business_scenario() {
+  local scenario=$1
+  info "Running business browser scenario: $scenario"
+  compose --profile acceptance run --rm --no-deps -e "GOPULSE_ACCEPTANCE_SCENARIO=$scenario" acceptance e2e/compose-business.spec.ts
+}
+
+rerun_initializers() {
+  compose run --rm --no-deps migrate
+  compose run --rm --no-deps search-init
+  compose run --rm --no-deps kafka-init
+  pass 'Migration, search, and Kafka Topic initialization are idempotent.'
+}
+
+exercise_redis_fallback() {
+  owned_service_id redis >/dev/null
+  compose stop redis
+  run_business_scenario redis-fallback
+  compose start redis
+  wait_healthy redis
+  pass 'MySQL-backed social reads and writes survived Redis unavailability.'
+}
+
+exercise_worker_recovery() {
+  owned_service_id business-worker >/dev/null
+  compose pause business-worker
+  run_business_scenario worker-seed
+  compose unpause business-worker
+  wait_running business-worker
+  run_business_scenario worker-verify
+  pass 'Durable notification events converged after Business Worker recovery.'
+}
+
+exercise_indexer_recovery() {
+  owned_service_id search-indexer >/dev/null
+  compose pause search-indexer
+  run_business_scenario indexer-seed
+  compose unpause search-indexer
+  wait_running search-indexer
+  run_business_scenario indexer-verify
+  pass 'Durable search events converged after Search Indexer recovery.'
 }
 
 read_exporter_metrics() {
@@ -323,7 +485,7 @@ read_exporter_metrics() {
 }
 
 register_and_promote() {
-  run_scenario setup
+  run_observability_scenario setup
   compose --profile operations run --rm --no-deps admin-role promote --username "$ADMIN_USERNAME"
 }
 
@@ -331,7 +493,7 @@ exercise_failure() {
   local service=$1 scenario=$2
   owned_service_id "$service" >/dev/null
   compose stop "$service"
-  run_scenario "$scenario"
+  run_observability_scenario "$scenario"
   compose start "$service"
   wait_healthy "$service"
   if [[ $service == monitor ]]; then assert_bootstrap_status; fi
@@ -342,9 +504,13 @@ replace_service() {
   local service=$1 before after
   before=$(owned_service_id "$service")
   compose up --detach --force-recreate --no-deps "$service"
-  wait_healthy "$service"
+  case $service in
+    business-worker|search-indexer) wait_running "$service" ;;
+    *) wait_healthy "$service" ;;
+  esac
   after=$(owned_service_id "$service")
   [[ $before != "$after" ]] || fail "$service container was not replaced"
+  if [[ $service == monitor ]]; then assert_bootstrap_status; fi
 }
 
 exercise_persistence() {
@@ -358,9 +524,30 @@ exercise_persistence() {
   RESOURCES_STARTED=1
   compose up --detach --wait --wait-timeout 420
   assert_full_state
+  rerun_initializers
   assert_bootstrap_status
-  run_scenario persistence
-  pass 'Full project down/up retained business, observability, offset, and plugin desired-state facts.'
+  run_business_scenario persistence
+  run_observability_scenario persistence
+  run_observability_scenario post-restart
+  pass 'Full project down/up retained facts and accepted new social and observability activity.'
+}
+
+exercise_signal_shutdown() {
+  local service id exit_code
+  for service in frontend backend business-worker search-indexer router marshaller monitor; do
+    id=$(owned_service_id "$service")
+    compose stop --timeout 25 "$service"
+    exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")
+    [[ $exit_code == 0 ]] || fail "$service did not stop cleanly after its configured signal (exit $exit_code)"
+    compose start "$service"
+    case $service in
+      business-worker|search-indexer) wait_running "$service" ;;
+      *) wait_healthy "$service" ;;
+    esac
+    if [[ $service == monitor ]]; then assert_bootstrap_status; fi
+  done
+  compose --profile acceptance run --rm --no-deps acceptance e2e/compose-smoke.spec.ts
+  pass 'All long-running self-built services completed bounded signal shutdown and restart.'
 }
 
 exercise_standalone_exporter() {
@@ -419,13 +606,13 @@ reset_for_management() {
   compose up --detach --wait --wait-timeout 420
   assert_full_state
   register_and_promote
-  run_scenario manage
+  run_observability_scenario manage
   pass 'Administrator completed install, stop, start, update, Metrics, and Events through the browser.'
 }
 
 snapshot_existing_resources
 assert_project_absent
-info "Building isolated GoPulse $VERSION images for $PROJECT_NAME."
+info "Building isolated GoPulse $VERSION images for $PROJECT_NAME without host Go/Node runtimes."
 compose build backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter
 RESOURCES_STARTED=1
 if ! compose up --detach --wait --wait-timeout 420; then
@@ -436,24 +623,34 @@ fi
 assert_full_state
 assert_image_contracts
 assert_network_and_ports
+assert_internal_security
 assert_bootstrap_status
+rerun_initializers
 compose --profile acceptance run --rm --no-deps acceptance e2e/compose-smoke.spec.ts
+run_business_scenario business
+exercise_redis_fallback
+exercise_worker_recovery
+exercise_indexer_recovery
 register_and_promote
-run_scenario ordinary
-run_scenario admin
+run_observability_scenario ordinary
+run_observability_scenario admin
 exercise_failure victoriametrics vm-down
 exercise_failure monitor monitor-down
 exercise_failure router transport-down
-replace_service monitor
+for service in backend business-worker search-indexer monitor marshaller; do
+  replace_service "$service"
+done
 assert_bootstrap_status
-replace_service marshaller
+replace_service redis
 replace_service victoriametrics
 replace_service kafka
 compose up --detach kafka-init
 replace_service elasticsearch
-run_scenario persistence
+run_business_scenario persistence
+run_observability_scenario persistence
+exercise_signal_shutdown
 exercise_persistence
 exercise_standalone_exporter
 reset_for_management
 assert_project_ownership
-pass 'Phase-12-02 complete observability container acceptance passed.'
+pass 'Phase 12 authoritative full-stack Compose acceptance passed.'
