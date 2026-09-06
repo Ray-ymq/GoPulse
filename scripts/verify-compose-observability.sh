@@ -10,6 +10,9 @@ RESOURCES_STARTED=0
 TEMP_DIR=
 ENV_FILE=
 SNAPSHOT_DIR=
+SNAPSHOT_READY=0
+IMAGE_TAG=
+PRODUCT_IMAGES=(backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter)
 
 info() { printf '[gopulse-compose] %s\n' "$*"; }
 pass() { printf '[gopulse-compose] PASS: %s\n' "$*"; }
@@ -30,6 +33,31 @@ HOST_UTILITIES=(docker git sha256sum tr cut cat chmod sort comm cmp sed wc find 
 for utility in "${HOST_UTILITIES[@]}"; do
   command -v "$utility" >/dev/null 2>&1 || fail "$utility is required"
 done
+
+is_allowed_non_build_dirty_path() {
+  local path=$1
+  [[ $path == dev/*.md ]] && grep -Eq '^dev/?$' "$REPO_ROOT/.dockerignore"
+}
+
+assert_rebuildable_source() {
+  local path unsafe=0
+  while IFS= read -r -d '' path; do
+    if ! is_allowed_non_build_dirty_path "$path"; then
+      printf '[gopulse-compose] dirty build or runtime source: %s\n' "$path" >&2
+      unsafe=1
+    fi
+  done < <(
+    git -C "$REPO_ROOT" diff --name-only -z HEAD --
+    git -C "$REPO_ROOT" ls-files --others --exclude-standard -z
+  )
+  ((unsafe == 0)) || fail 'authoritative acceptance requires clean build and runtime source before Docker access'
+}
+
+# The image revision must identify every file that can affect the built image or
+# the acceptance behavior. Markdown under dev/ is the sole allowed dirty class
+# and is explicitly excluded by the root .dockerignore.
+assert_rebuildable_source
+
 docker info >/dev/null 2>&1 || fail 'Docker Engine is unavailable'
 docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 is unavailable'
 VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
@@ -39,7 +67,9 @@ UPDATE_VERSION="$VERSION_MAJOR.$VERSION_MINOR.$((VERSION_PATCH + 1))"
 REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 TOKEN=$(tr -d '-' </proc/sys/kernel/random/uuid | cut -c1-12)
 PROJECT_NAME="gopulse-accept-$TOKEN"
+IMAGE_TAG="${VERSION}-accept-${TOKEN}"
 [[ $PROJECT_NAME =~ ^gopulse-accept-[a-f0-9]{12}$ ]] || fail 'generated project name is invalid'
+[[ $IMAGE_TAG =~ ^[0-9]+\.[0-9]+\.[0-9]+-accept-[a-f0-9]{12}$ ]] || fail 'generated image tag is invalid'
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gopulse-compose-$TOKEN.XXXXXX")
 ENV_FILE="$TEMP_DIR/acceptance.env"
 SNAPSHOT_DIR="$TEMP_DIR/snapshot"
@@ -66,7 +96,7 @@ done
 ADMIN_USERNAME="admin_$TOKEN"
 USER_USERNAME="user_$TOKEN"
 PASSWORD="Acceptance-$TOKEN-password"
-export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$REVISION GOPULSE_UPDATE_VERSION=$UPDATE_VERSION GOPULSE_ACCEPTANCE_TOKEN=$TOKEN
+export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$REVISION GOPULSE_IMAGE_TAG=$IMAGE_TAG GOPULSE_UPDATE_VERSION=$UPDATE_VERSION GOPULSE_ACCEPTANCE_TOKEN=$TOKEN
 
 cat >"$ENV_FILE" <<ENV
 APP_ENV=test
@@ -92,6 +122,7 @@ VICTORIAMETRICS_USERNAME=vm_$TOKEN
 VICTORIAMETRICS_PASSWORD=vm-$TOKEN-0123456789abcdef0123456789abc
 GOPULSE_VERSION=$VERSION
 GOPULSE_REVISION=$REVISION
+GOPULSE_IMAGE_TAG=$IMAGE_TAG
 GOPULSE_UPDATE_VERSION=$UPDATE_VERSION
 GOPULSE_ACCEPTANCE_TOKEN=$TOKEN
 GOPULSE_OBSERVABILITY_ADMIN_USERNAME=$ADMIN_USERNAME
@@ -105,37 +136,22 @@ compose() {
 }
 
 snapshot_existing_resources() {
-  local ref id
-  local -a replaced_refs=(
-    "gopulse/backend:$VERSION"
-    "gopulse/business-worker:$VERSION"
-    "gopulse/search-indexer:$VERSION"
-    "gopulse/frontend:$VERSION"
-    "gopulse/acceptance:$VERSION"
-    "gopulse/router:$VERSION"
-    "gopulse/marshaller:$VERSION"
-    "gopulse/monitor:$VERSION"
-    "gopulse/redis-exporter:$VERSION"
-  )
+  local service ref
   git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z >"$SNAPSHOT_DIR/git-status"
   docker ps -aq | sort >"$SNAPSHOT_DIR/containers"
   docker network ls -q | sort >"$SNAPSHOT_DIR/networks"
   docker volume ls -q | sort >"$SNAPSHOT_DIR/volumes"
-  docker image ls -q --no-trunc | sort -u >"$SNAPSHOT_DIR/all-images"
-  : >"$SNAPSHOT_DIR/replaced-images"
-  for ref in "${replaced_refs[@]}"; do
-    id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)
-    if [[ -n $id ]]; then
-      printf '%s\n' "$id"
-    fi
-  done | sort -u >"$SNAPSHOT_DIR/replaced-images"
-  # The exact versioned project tags above are intentionally rebuilt. Preserve
-  # every other pre-existing image while allowing Docker to replace those IDs.
-  comm -23 "$SNAPSHOT_DIR/all-images" "$SNAPSHOT_DIR/replaced-images" >"$SNAPSHOT_DIR/images"
+  docker image ls -q --no-trunc | sort -u >"$SNAPSHOT_DIR/images"
+  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | awk -F '|' '$1 != "<none>:<none>"' | sort >"$SNAPSHOT_DIR/image-tags"
+  for service in "${PRODUCT_IMAGES[@]}"; do
+    ref="gopulse/$service:$IMAGE_TAG"
+    ! docker image inspect "$ref" >/dev/null 2>&1 || fail "refusing to replace pre-existing acceptance image tag: $ref"
+  done
+  SNAPSHOT_READY=1
 }
 
 assert_snapshot_preserved() {
-  local kind id
+  local kind id ref expected_id actual_id
   cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || fail 'acceptance changed the Git working tree'
   for kind in containers networks volumes images; do
     while IFS= read -r id; do
@@ -147,6 +163,21 @@ assert_snapshot_preserved() {
         images) docker image inspect "$id" >/dev/null 2>&1 || fail "pre-existing image disappeared: $id" ;;
       esac
     done <"$SNAPSHOT_DIR/$kind"
+  done
+  while IFS='|' read -r ref expected_id; do
+    [[ -n $ref && -n $expected_id ]] || continue
+    actual_id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)
+    [[ $actual_id == "$expected_id" ]] || fail "pre-existing image tag mapping changed: $ref"
+  done <"$SNAPSHOT_DIR/image-tags"
+}
+
+cleanup_acceptance_images() {
+  local service ref
+  for service in "${PRODUCT_IMAGES[@]}"; do
+    ref="gopulse/$service:$IMAGE_TAG"
+    if docker image inspect "$ref" >/dev/null 2>&1; then
+      docker image rm "$ref" >/dev/null || return 1
+    fi
   done
 }
 
@@ -189,7 +220,10 @@ cleanup() {
       status=1
     fi
   fi
-  assert_snapshot_preserved || status=1
+  if ((SNAPSHOT_READY)); then
+    cleanup_acceptance_images || status=1
+    assert_snapshot_preserved || status=1
+  fi
   if [[ -n $TEMP_DIR && $TEMP_DIR == "${TMPDIR:-/tmp}"/gopulse-compose-* ]]; then
     find "$TEMP_DIR" -depth -delete 2>/dev/null || status=1
   fi
@@ -277,7 +311,7 @@ assert_image_contracts() {
     aarch64) daemon_arch=arm64 ;;
   esac
   for service in frontend backend business-worker search-indexer router marshaller monitor redis-exporter; do
-    ref="gopulse/$service:$VERSION"
+    ref="gopulse/$service:$IMAGE_TAG"
     tagged_image=$(docker image inspect --format '{{.Id}}' "$ref")
     if [[ $service != redis-exporter ]]; then
       container_id=$(owned_service_id "$service")
@@ -316,12 +350,12 @@ assert_image_contracts() {
     fi
   done
 
-  docker run --rm --entrypoint /bin/sh "gopulse/backend:$VERSION" -ec \
+  docker run --rm --entrypoint /bin/sh "gopulse/backend:$IMAGE_TAG" -ec \
     'test -x /usr/local/bin/server && test -x /usr/local/bin/migrate && test -x /usr/local/bin/search-reindex && test -x /usr/local/bin/admin-role && ! command -v go && ! command -v node && test ! -d /src'
   for service in business-worker search-indexer router marshaller monitor redis-exporter; do
-    docker run --rm --entrypoint /bin/sh "gopulse/$service:$VERSION" -ec '! command -v go && ! command -v node && ! command -v npm && test ! -d /src'
+    docker run --rm --entrypoint /bin/sh "gopulse/$service:$IMAGE_TAG" -ec '! command -v go && ! command -v node && ! command -v npm && test ! -d /src'
   done
-  docker run --rm --entrypoint /bin/sh "gopulse/frontend:$VERSION" -ec \
+  docker run --rm --entrypoint /bin/sh "gopulse/frontend:$IMAGE_TAG" -ec \
     '! command -v go && ! command -v node && ! command -v npm && test ! -d /src && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q . && ! grep -R -E "(mysql|redis|rabbitmq|elasticsearch|kafka|victoriametrics|monitor|router|marshaller):[0-9]+|AUTH_JWT_SECRET|MONITOR_API_TOKEN|LOG_MONITOR_INGEST_TOKEN|ROUTER_API_TOKEN|MARSHALLER_API_TOKEN" /usr/share/nginx/html'
 
   for service in frontend backend business-worker search-indexer router marshaller monitor; do
@@ -345,8 +379,8 @@ assert_image_contracts() {
     fi
   done
 
-  package_digest=$(docker run --rm --entrypoint /bin/sh "gopulse/monitor:$VERSION" -ec 'tar -xOzf /opt/gopulse/packages/gopulse-redis-exporter.tar.gz bin/gopulse-redis-exporter' | sha256sum | awk '{print $1}')
-  image_digest=$(docker run --rm --entrypoint sha256sum "gopulse/redis-exporter:$VERSION" /usr/local/bin/gopulse-redis-exporter | awk '{print $1}')
+  package_digest=$(docker run --rm --entrypoint /bin/sh "gopulse/monitor:$IMAGE_TAG" -ec 'tar -xOzf /opt/gopulse/packages/gopulse-redis-exporter.tar.gz bin/gopulse-redis-exporter' | sha256sum | awk '{print $1}')
+  image_digest=$(docker run --rm --entrypoint sha256sum "gopulse/redis-exporter:$IMAGE_TAG" /usr/local/bin/gopulse-redis-exporter | awk '{print $1}')
   [[ $package_digest == "$image_digest" ]] || fail 'Monitor package and Redis Exporter image binary digest differ'
   pass 'Image tags, OCI metadata, architecture, non-root runtime contents, signals, and privilege boundaries passed.'
 }
@@ -612,7 +646,7 @@ reset_for_management() {
 
 snapshot_existing_resources
 assert_project_absent
-info "Building isolated GoPulse $VERSION images for $PROJECT_NAME without host Go/Node runtimes."
+info "Building isolated GoPulse $VERSION images with unique tag $IMAGE_TAG for $PROJECT_NAME without host Go/Node runtimes."
 compose build backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter
 RESOURCES_STARTED=1
 if ! compose up --detach --wait --wait-timeout 420; then
