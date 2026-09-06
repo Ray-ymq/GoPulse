@@ -199,3 +199,9 @@ git diff --check
 - migration、search initialize 和 admin-role one-shot 运行方式，以及 MySQL/Redis/RabbitMQ/ES 命名卷。
 - 容器化 Bash 启动/只读验证/停止骨架、business acceptance 子集、强归属清理与 CI 镜像门禁。
 - 无 Monitor 时的可观测局部不可用是本批预期状态；Phase-12-02 必须在不改变本批业务闭环的前提下加入全部可观测服务。
+
+## 12. Phase-12-03 最终收口核对
+
+- Phase-12-01 的 Dockerfile、业务 Compose 拓扑、Frontend proxy、migration/search 初始化和业务 API 契约在收口批未发生产品变更。
+- Phase-12-03 的唯一完整 `scripts/verify-compose.sh` 在同一随机全栈 project 中重新执行普通用户社交/搜索、Redis 回退、Worker/Indexer 收敛、Backend/Worker/Indexer 替换、信号关闭和保留卷恢复；因此未机械重复 `--business` 的整套历史独立矩阵。
+- `scripts/verify-compose.sh --business` 继续作为聚焦诊断入口保留，但不再是 Phase 12 的阶段完成门禁。
