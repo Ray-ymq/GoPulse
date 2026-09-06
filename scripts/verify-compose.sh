@@ -85,6 +85,8 @@ docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 is unavailable
 VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
 [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'VERSION must use major.minor.patch'
 REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
+UPDATE_VERSION="$VERSION_MAJOR.$VERSION_MINOR.$((VERSION_PATCH + 1))"
 TOKEN=$(tr -d '-' </proc/sys/kernel/random/uuid | cut -c1-12)
 PROJECT_NAME="gopulse-accept-$TOKEN"
 validate_project_name "$PROJECT_NAME" || fail 'generated project name is invalid'
@@ -92,7 +94,7 @@ TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gopulse-compose-$TOKEN.XXXXXX")
 ENV_FILE="$TEMP_DIR/acceptance.env"
 SNAPSHOT_DIR="$TEMP_DIR/snapshot"
 mkdir -p "$SNAPSHOT_DIR"
-export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$REVISION GOPULSE_ACCEPTANCE_TOKEN=$TOKEN
+export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$REVISION GOPULSE_IMAGE_TAG=$VERSION GOPULSE_ACCEPTANCE_TOKEN=$TOKEN
 
 cat >"$ENV_FILE" <<ENV
 APP_ENV=test
@@ -118,7 +120,8 @@ VICTORIAMETRICS_USERNAME=vm_$TOKEN
 VICTORIAMETRICS_PASSWORD=vm-$TOKEN-0123456789abcdef0123456789abc
 GOPULSE_VERSION=$VERSION
 GOPULSE_REVISION=$REVISION
-GOPULSE_UPDATE_VERSION=1.9.3
+GOPULSE_IMAGE_TAG=$VERSION
+GOPULSE_UPDATE_VERSION=$UPDATE_VERSION
 ENV
 chmod 600 "$ENV_FILE"
 
