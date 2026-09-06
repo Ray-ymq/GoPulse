@@ -1,70 +1,64 @@
 # GoPulse 阶段性开发文档
 
-本目录将 [`Plan.md`](Plan.md) 中的总体实施计划拆分为 Phase 0～Phase 17 的阶段开发提纲。五个里程碑分别交付业务系统、指标采集、完整可观测、跨平台可交付可观测产品和云原生自观测五次递进式 MVP；Phase 17 作为最终工程质量门槛，不定义新的 MVP。阶段提纲固定各阶段的 MVP 贡献、边界、依赖、最小闭环、产物和验收方向；具体接口、数据模型、消息格式、目录细节及部署参数由后续总实施方案根据真实代码基线补充。
-
-Phase 12 已在 `1.9.4` 完成。为保留真实历史，其阶段提纲、实施方案和实施记录不按 2026-09-06 之后插入的新 Phase 13 追溯改写；当前及未来阶段编号、里程碑归属和执行顺序以本索引与 [`Plan.md`](Plan.md) 为准。
+本目录将 [`Plan.md`](Plan.md) 拆分为 Phase 0～Phase 20 的阶段提纲。Phase 12 已在 `1.9.4` 完成；已完成阶段的提纲、实施方案和记录保持历史原貌。Phase 13 起先完成业务与可观测产品闭环，Phase 18 起才迁移到 Kubernetes。
 
 ## 阶段索引
 
 | 阶段 | 版本线 | 文档 | 主要结果 | 里程碑 |
 | --- | --- | --- | --- | --- |
-| Phase 0 | `0.1.x` | [工程骨架](Phase-00/Phase-00-工程骨架.md) | 建立可长期演进的项目结构、本地开发环境以及前后端最小可运行链路 | Milestone 1：业务系统 MVP |
-| Phase 1 | `0.2.x` | [最小业务闭环](Phase-01-最小业务闭环.md) | 将 GoPulse 建设为具备用户、帖子、评论和点赞能力的最小可用社交平台 | Milestone 1：业务系统 MVP |
-| Phase 2 | `0.3.x` | [业务异步化](Phase-02-业务异步化.md) | 引入 RabbitMQ，将核心同步业务与业务完成后的异步动作分离 | Milestone 1：业务系统 MVP |
-| Phase 3 | `0.4.x` | [Elasticsearch与业务搜索](Phase-03-Elasticsearch与业务搜索.md) | 让 Elasticsearch 首先服务真实业务搜索，提供帖子标题与正文的全文检索能力 | Milestone 1：业务系统 MVP；以 release-only `1.0.0` 收口 |
-| Phase 4 | `1.1.x` | [业务日志基础](Phase-04-业务日志基础.md) | 统一 Backend 业务日志，为后续 LogMonitor 与日志处理链路提供稳定数据源 | Milestone 2：指标采集 MVP |
-| Phase 5 | `1.2.x` | [Exporter Plugin原型](Phase-05-Exporter-Plugin原型.md) | 实现首个独立指标采集插件，验证常驻、被动拉取的 Exporter 工作模式 | Milestone 2：指标采集 MVP |
-| Phase 6 | `1.3.x` | [Monitor](Phase-06-Monitor.md) | 实现 Monitor 的 MetricsMonitor 与基础 Plugin Manager，建立指标采集和插件管理能力 | Milestone 2：指标采集 MVP |
-| Phase 7 | `1.4.x` | [Message Router与Kafka](Phase-07-Message-Router与Kafka.md) | 建立统一可观测消息入口，使 MetricsMonitor 通过 Message Router 将消息写入 Kafka | Milestone 2：指标采集 MVP |
-| Phase 8 | `1.5.x` | [Marshaller与VictoriaMetrics](Phase-08-Marshaller与VictoriaMetrics.md) | 完成从 Exporter 到 VictoriaMetrics 的第一条完整指标采集、传输、转换和存储链路 | Milestone 2：指标采集 MVP |
-| Phase 9 | `1.6.x` | [LogMonitor与日志链路](Phase-09-LogMonitor与日志链路.md) | 接入业务日志，完成从 Backend 到 Elasticsearch 的日志采集、传输、转换和查询链路 | Milestone 3：完整可观测 MVP |
-| Phase 10 | `1.7.x` | [EventMonitor与事件链路](Phase-10-EventMonitor与事件链路.md) | 补齐 Events 数据类型，记录插件生命周期、采集失败和系统运行中的离散事件 | Milestone 3：完整可观测 MVP |
-| Phase 11 | `1.8.x` | [可观测前端](Phase-11-可观测前端.md) | 将 Metrics、Logs、Events 和 Exporter 管理能力通过统一的 GoPulse 页面提供给用户 | Milestone 3：完整可观测 MVP |
-| Phase 12 | `1.9.x` | [Docker化](Phase-12-Docker化.md) | 为所有自研组件建立标准容器运行方式，并通过 Docker Compose 启动完整 GoPulse | Milestone 4：跨平台可交付可观测产品 MVP |
-| Phase 13 | `1.10.x` | [跨平台产品化与插件扩展](Phase-13-跨平台产品化与插件扩展.md) | 建立 macOS/Windows/Linux 交付、多架构制品、产品化前端与多类单实例组件采集 | Milestone 4：跨平台可交付可观测产品 MVP |
-| Phase 14 | `1.11.x` | [Kubernetes基础部署](Phase-14-Kubernetes基础部署.md) | 将完整 Docker Compose 环境迁移到 1 Master、3 Worker 的 Kubernetes 集群 | Milestone 5：云原生自观测 MVP |
-| Phase 15 | `1.12.x` | [Ingress与统一入口](Phase-15-Ingress与统一入口.md) | 为 Kubernetes 中的 GoPulse 提供统一 HTTP 访问入口，并收敛外部暴露面 | Milestone 5：云原生自观测 MVP |
-| Phase 16 | `1.13.x` | [Kubernetes可观测闭环](Phase-16-Kubernetes可观测闭环.md) | 让运行在 Kubernetes 中的 GoPulse 通过自身可观测系统观测业务、基础组件和集群对象 | Milestone 5：云原生自观测 MVP |
-| Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | 统一强化既有配置、退出、健康检查、错误处理和消息消费可靠性 | 最终工程质量门槛；不新增 MVP |
+| Phase 0 | `0.1.x` | [工程骨架](Phase-00/Phase-00-工程骨架.md) | 项目结构与最小运行链路 | Milestone 1 |
+| Phase 1 | `0.2.x` | [最小业务闭环](Phase-01-最小业务闭环.md) | 用户、帖子、评论与点赞 | Milestone 1 |
+| Phase 2 | `0.3.x` | [业务异步化](Phase-02-业务异步化.md) | RabbitMQ 与可靠异步通知 | Milestone 1 |
+| Phase 3 | `0.4.x` | [Elasticsearch与业务搜索](Phase-03-Elasticsearch与业务搜索.md) | 可重建帖子搜索 | Milestone 1；`1.0.0` 收口 |
+| Phase 4 | `1.1.x` | [业务日志基础](Phase-04-业务日志基础.md) | 结构化业务日志 | Milestone 2 |
+| Phase 5 | `1.2.x` | [Exporter Plugin原型](Phase-05-Exporter-Plugin原型.md) | Redis Exporter 原型 | Milestone 2 |
+| Phase 6 | `1.3.x` | [Monitor](Phase-06-Monitor.md) | MetricsMonitor 与插件管理基础 | Milestone 2 |
+| Phase 7 | `1.4.x` | [Message Router与Kafka](Phase-07-Message-Router与Kafka.md) | 可观测消息入口 | Milestone 2 |
+| Phase 8 | `1.5.x` | [Marshaller与VictoriaMetrics](Phase-08-Marshaller与VictoriaMetrics.md) | 指标存储闭环 | Milestone 2 |
+| Phase 9 | `1.6.x` | [LogMonitor与日志链路](Phase-09-LogMonitor与日志链路.md) | 日志闭环 | Milestone 3 |
+| Phase 10 | `1.7.x` | [EventMonitor与事件链路](Phase-10-EventMonitor与事件链路.md) | 事件闭环 | Milestone 3 |
+| Phase 11 | `1.8.x` | [可观测前端](Phase-11-可观测前端.md) | 第一版可观测查询与管理界面 | Milestone 3 |
+| Phase 12 | `1.9.x` | [Docker化](Phase-12-Docker化.md) | 完整 Compose 运行基线 | Milestone 4 |
+| Phase 13 | `1.10.x` | [业务基础系统与用户端闭环](Phase-13-业务基础系统与用户端闭环.md) | 关注、Following、收藏、帖子编辑/删除与独立用户端 | Milestone 4 |
+| Phase 14 | `1.11.x` | [插件体系与组件可观测闭环](Phase-14-插件体系与组件可观测闭环.md) | 六类官方单实例插件与自研组件指标 | Milestone 4 |
+| Phase 15 | `1.12.x` | [告警与管理端闭环](Phase-15-告警与管理端闭环.md) | 内部告警、双角色与独立管理端大屏 | Milestone 4 |
+| Phase 16 | `1.13.x` | [跨平台产品化与双前端交付](Phase-16-跨平台产品化与双前端交付.md) | 同域双前端与 Linux/macOS/Windows 交付 | Milestone 4 |
+| Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | Kubernetes 前的完整产品质量验收 | Milestone 4 收口 |
+| Phase 18 | `1.15.x` | [Kubernetes基础部署](Phase-18-Kubernetes基础部署.md) | 将已完成产品迁移到 Kubernetes | Milestone 5 |
+| Phase 19 | `1.16.x` | [Ingress与统一入口](Phase-19-Ingress与统一入口.md) | 同域登录、双前端和 API 的统一入口 | Milestone 5 |
+| Phase 20 | `1.17.x` | [Kubernetes可观测集成](Phase-20-Kubernetes可观测集成.md) | 组件与集群对象的自观测和内部告警 | Milestone 5 收口 |
 
-## 推荐阅读顺序
-
-按照 Phase 0 → Phase 17 顺序阅读和实施。每个阶段均以前序阶段的可运行产物为基础，并应在进入下一阶段前完成本阶段验收。
-
-每个里程碑结束时必须得到一次可独立运行、验证和使用的 MVP；里程碑内部的 Phase 只实现通向该 MVP 的必要增量，不提前扩展后续里程碑能力。
-
-总体演进顺序为：
+## 当前执行顺序
 
 ```text
-工程骨架
-→ 最小业务闭环
-→ 业务异步与搜索
-→ 指标、日志、事件可观测链路
-→ Docker 与跨平台产品化
-→ Kubernetes 与统一入口
-→ Kubernetes 自观测闭环
-→ 稳定性与工程化
+Phase 12 已完成的 Compose 基线
+→ Phase 13 业务与用户端
+→ Phase 14 插件与组件指标
+→ Phase 15 告警与管理端
+→ Phase 16 跨平台双前端交付
+→ Phase 17 完整产品工程验收
+→ Phase 18 Kubernetes 部署
+→ Phase 19 Ingress
+→ Phase 20 Kubernetes 可观测集成
 ```
 
-## 关键职责边界
+Phase 17 通过前，GoPulse 必须已经能够脱离 Kubernetes 完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的全部代表性流程。Phase 18～20 只处理部署与集群观测。
 
-- MySQL 是核心业务事实来源；Redis 仅承担明确的缓存用途；Elasticsearch 的业务索引用于搜索且应可重建。
-- RabbitMQ 只用于点赞、评论、通知等业务异步任务；Kafka 只用于 Metrics、Logs、Events 等可观测数据传输。
-- Exporter 负责目标组件的定制化指标采集，不保存历史数据，也不主动向 Monitor 推送指标；Phase 13 允许多种插件并行，但每种插件只允许一个实例和一个目标，多实例按[独立未来设计](../../docs/Exporter插件多实例采集设计.md)另行实施。
-- Monitor 负责采集或接收、基础校验、基础结构化和标准消息封装。
-- Message Router 只负责接收、识别类型、路由和写入 Kafka，不承担清洗、转换、聚合或存储。
-- Marshaller 负责第二次处理，将 Kafka 消息校验、清洗并转换为目标存储格式。
-- Frontend 只负责页面、交互和状态展示；查询、采集控制及插件管理等核心逻辑由 Go Backend 负责。
+## 核心边界
+
+- MySQL 是业务事实源；Redis 是缓存；Elasticsearch 业务索引可由 MySQL 重建。
+- RabbitMQ 只承载业务异步任务；Kafka 只传输 Metrics、Logs 和 Events。
+- 六类官方插件均为一种插件、一个实例、一个目标；多实例保留为独立未来设计。
+- 用户 Frontend 与管理 Frontend 是两个独立应用，但共用 Backend、用户数据库、统一登录和同源会话。
+- 最终角色只有 `user` 与 `super_admin`；引导超级管理员不可删除或降级，其他账号可由超级管理员按用户 ID 调整角色。
+- 告警只在管理后台内部展示，不接入外部通知渠道。
+- Frontend 不直连 Monitor、插件、数据基础设施或 Kubernetes API。
+- Kubernetes 是部署环境，不是完整产品能够运行的前提。
 
 ## 文档维护约定
 
-- `Plan.md` 是总体阶段划分与架构边界的上层依据；阶段文档不得与其核心原则冲突。
-- 每个 Phase 文档声明本阶段版本线；具体执行批次、目标版本和开发分支只在该 Phase 的总实施方案中统一规划，不要求各实施文件重复声明。
-- 每个 Phase 默认规划 1～2 个实现批次；需要跨批验证时可安排 1 个集成验收与阶段收口批次，总批次数尽量控制在 2～3 个；超过 3 个时必须记录具体的风险、依赖或独立交付理由。
-- 实现批次必须按可运行、可验证的端到端能力切分，不按技术层机械拆分；收口批次不得加入新的功能范围。
-- Phase 的执行批次数量或顺序调整时，必须先同步更新总实施方案中的版本与分支分配，再创建尚未开始的开发分支。
-- 阶段提纲不确定公开 API、数据库 Schema、Kafka Topic、RabbitMQ Queue 或 Kubernetes 资源规格；这些内容由对应总实施方案根据实施前的真实代码基线确定。
-- 后续讨论某个 Phase 时，只细化对应文档，并同步检查其与前后阶段的依赖关系。
-- 新增技术细节时应同时更新验收标准和“不做事项”，避免范围无意扩张。
-- 阶段验收通过且没有阻断验收的失败后停止实施，将非阻塞改进和非当前 MVP 必需内容记录为后续事项。
-- 阶段完成后，应在对应文档中记录最终决策或链接到独立详细设计文档。
+- `Plan.md` 是阶段划分、里程碑和架构边界的上层依据。
+- 每个 Phase 的精确批次、目标版本和 `develop/x.x.x` 分支只在总实施方案中分配。
+- 批次按可运行、可验证的端到端能力切分，不按技术层机械拆分。
+- 阶段提纲不提前冻结 API、Schema、消息契约、告警表达式或 Kubernetes 资源规格。
+- 实施完成后必须按仓库规则记录真实改动、命令、结果、偏差和后续事项。
