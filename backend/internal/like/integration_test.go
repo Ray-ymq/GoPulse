@@ -37,9 +37,7 @@ func TestIntegrationLikeIdempotenceConcurrencyAggregatesAndForeignKeys(t *testin
 	firstUserID := insertLikeIntegrationUser(t, ctx, database, firstUsername)
 	secondUserID := insertLikeIntegrationUser(t, ctx, database, secondUsername)
 	postID := insertLikeIntegrationPost(t, ctx, database, firstUserID)
-	t.Cleanup(func() {
-		cleanupLikeIntegrationData(t, cfg, postID, firstUserID, secondUserID)
-	})
+	defer cleanupLikeIntegrationData(t, cfg, postID, firstUserID, secondUserID)
 
 	postService := post.NewService(post.NewMySQLRepository(database))
 	repository := NewMySQLRepository(database)

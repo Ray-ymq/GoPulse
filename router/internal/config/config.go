@@ -13,6 +13,7 @@ import (
 const Topic = "gopulse-observability-v1"
 
 type Config struct {
+	RuntimeMode             RuntimeMode
 	HTTPHost                string
 	HTTPPort                int
 	APIToken                string
@@ -32,6 +33,10 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if lookup == nil {
 		return Config{}, errors.New("configuration lookup is required")
 	}
+	runtimeMode, err := loadRuntimeMode(lookup)
+	if err != nil {
+		return Config{}, err
+	}
 	get := func(key, fallback string) string {
 		if value, ok := lookup(key); ok {
 			return strings.TrimSpace(value)
@@ -41,13 +46,13 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 
 	token, _ := lookup("ROUTER_API_TOKEN")
 	cfg := Config{
-		HTTPHost:   get("ROUTER_HTTP_HOST", "127.0.0.1"),
-		APIToken:   token,
-		KafkaTopic: get("ROUTER_KAFKA_TOPIC", Topic),
+		RuntimeMode: runtimeMode,
+		HTTPHost:    get("ROUTER_HTTP_HOST", "127.0.0.1"),
+		APIToken:    token,
+		KafkaTopic:  get("ROUTER_KAFKA_TOPIC", Topic),
 	}
-	var err error
-	if ip := net.ParseIP(cfg.HTTPHost); ip == nil {
-		return Config{}, errors.New("ROUTER_HTTP_HOST must be an IP address")
+	if err := validateListenHost(runtimeMode, "ROUTER_HTTP_HOST", cfg.HTTPHost); err != nil {
+		return Config{}, err
 	}
 	if len(cfg.APIToken) < 32 || strings.ContainsAny(cfg.APIToken, "\r\n") {
 		return Config{}, errors.New("ROUTER_API_TOKEN must contain at least 32 bytes")
@@ -66,7 +71,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	cfg.MaxMessageBytes = int64(messageBytes)
-	cfg.KafkaBrokers, err = brokers(get("ROUTER_KAFKA_BROKERS", "127.0.0.1:9092"))
+	cfg.KafkaBrokers, err = brokers(get("ROUTER_KAFKA_BROKERS", "127.0.0.1:9092"), runtimeMode)
 	if err != nil {
 		return Config{}, err
 	}
@@ -109,7 +114,7 @@ func duration(value string, min, max time.Duration, name string) (time.Duration,
 	return d, nil
 }
 
-func brokers(value string) ([]string, error) {
+func brokers(value string, runtimeMode RuntimeMode) ([]string, error) {
 	parts := strings.Split(value, ",")
 	if len(parts) == 0 || len(parts) > 16 {
 		return nil, errors.New("ROUTER_KAFKA_BROKERS must contain 1 to 16 brokers")
@@ -127,6 +132,9 @@ func brokers(value string) ([]string, error) {
 		}
 		if strings.ContainsAny(host, "\r\n\t /?#@") {
 			return nil, errors.New("ROUTER_KAFKA_BROKERS must contain valid host:port entries")
+		}
+		if err := validateDependencyHost(runtimeMode, "ROUTER_KAFKA_BROKERS", host); err != nil {
+			return nil, err
 		}
 		canonical := net.JoinHostPort(host, portText)
 		if _, ok := seen[canonical]; ok {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -9,9 +10,17 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "verify-business.sh"
+OBSERVABILITY_SCRIPT = REPO / "scripts" / "verify-compose-observability.sh"
 LIFECYCLE_SCRIPTS = tuple(
     REPO / "scripts" / name
-    for name in ("dev.sh", "down.sh", "verify.sh", "verify-compose.sh", "verify-business.sh")
+    for name in (
+        "dev.sh",
+        "down.sh",
+        "verify.sh",
+        "verify-compose.sh",
+        "verify-compose-observability.sh",
+        "verify-business.sh",
+    )
 )
 
 
@@ -110,6 +119,37 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
         self.assertIn("internal: true", compose)
         self.assertNotIn("container_name:", compose)
 
+    def test_observability_acceptance_is_owned_browser_backed_and_internal(self) -> None:
+        source = OBSERVABILITY_SCRIPT.read_text(encoding="utf-8")
+        compose = (REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+        verify_compose = (REPO / "scripts" / "verify-compose.sh").read_text(encoding="utf-8")
+
+        self.assertIn("^gopulse-observe-[a-f0-9]{12}$", source)
+        self.assertIn("com.docker.compose.project.working_dir", source)
+        self.assertIn("assert_project_ownership", source)
+        self.assertIn("down --volumes --remove-orphans", source)
+        self.assertNotIn("docker volume prune", source)
+        self.assertNotIn("docker system prune", source)
+        self.assertIn("e2e/compose-observability.spec.ts", source)
+        for scenario in ("ordinary", "admin", "vm-down", "monitor-down", "transport-down", "manage"):
+            self.assertIn(scenario, source)
+        self.assertIn('exec "$SCRIPT_DIR/verify-compose-observability.sh"', verify_compose)
+
+        for service in (
+            "elasticsearch",
+            "kafka",
+            "victoriametrics",
+            "router",
+            "marshaller",
+            "monitor",
+            "redis-exporter",
+        ):
+            match = re.search(
+                rf"(?ms)^  {re.escape(service)}:\n.*?(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+                compose,
+            )
+            self.assertIsNotNone(match, f"missing Compose service: {service}")
+            self.assertNotIn("\n    ports:", match.group(0), f"{service} must remain internal-only")
 
     def test_container_fault_injection_validates_owned_targets_first(self) -> None:
         source = (REPO / "scripts" / "verify-compose.sh").read_text(encoding="utf-8")
