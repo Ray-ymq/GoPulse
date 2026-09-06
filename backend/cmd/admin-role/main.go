@@ -66,11 +66,11 @@ func run(args []string, output io.Writer, open openPromoterFunc) error {
 }
 
 func openPromoter() (rolePromoter, func(), error) {
-	cfg, err := config.Load()
+	mysqlConfig, err := config.LoadMySQL()
 	if err != nil {
 		return nil, func() {}, err
 	}
-	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	database, err := platform.OpenMySQLDatabase(mysqlConfig)
 	if err != nil {
 		return nil, func() {}, err
 	}

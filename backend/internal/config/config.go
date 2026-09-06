@@ -542,6 +542,46 @@ func isCookieName(name string) bool {
 	return true
 }
 
+// LoadMySQL loads only the database settings required by role-isolated
+// migration and administrator operations.
+func LoadMySQL() (MySQLConfig, error) {
+	return LoadMySQLFrom(os.LookupEnv)
+}
+
+func LoadMySQLFrom(lookup LookupFunc) (MySQLConfig, error) {
+	if lookup == nil {
+		return MySQLConfig{}, errors.New("configuration lookup is required")
+	}
+	runtimeMode, err := loadRuntimeMode(lookup)
+	if err != nil {
+		return MySQLConfig{}, err
+	}
+	host := valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost)
+	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", host); err != nil {
+		return MySQLConfig{}, err
+	}
+	port, err := integerValue(lookup, "MYSQL_PORT", defaultMySQLPort)
+	if err != nil {
+		return MySQLConfig{}, err
+	}
+	if err := validatePort("MYSQL_PORT", port); err != nil {
+		return MySQLConfig{}, err
+	}
+	database, err := requiredValue(lookup, "MYSQL_DATABASE")
+	if err != nil {
+		return MySQLConfig{}, err
+	}
+	user, err := requiredValue(lookup, "MYSQL_USER")
+	if err != nil {
+		return MySQLConfig{}, err
+	}
+	password, err := requiredValue(lookup, "MYSQL_PASSWORD")
+	if err != nil {
+		return MySQLConfig{}, err
+	}
+	return MySQLConfig{Host: host, Port: port, Database: database, User: user, Password: password}, nil
+}
+
 // LoadReindex loads only the MySQL and Elasticsearch settings required by the
 // role-isolated search rebuild command.
 func LoadReindex() (ReindexConfig, error) {
@@ -650,6 +690,15 @@ func loadVictoriaMetricsConfig(lookup LookupFunc, runtimeMode RuntimeMode) (Vict
 	parsed, err := url.Parse(rawURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
 		return VictoriaMetricsConfig{}, errors.New("BACKEND_VICTORIAMETRICS_URL must be an HTTP(S) base URL without userinfo, query, or fragment")
+	}
+	if err := validateOriginHost(runtimeMode, "BACKEND_VICTORIAMETRICS_URL", parsed); err != nil {
+		return VictoriaMetricsConfig{}, err
+	}
+	if rawPort := parsed.Port(); rawPort != "" {
+		port, err := strconv.Atoi(rawPort)
+		if err != nil || validatePort("BACKEND_VICTORIAMETRICS_URL port", port) != nil {
+			return VictoriaMetricsConfig{}, errors.New("BACKEND_VICTORIAMETRICS_URL port must be between 1 and 65535")
+		}
 	}
 	username := valueOrDefault(lookup, "BACKEND_VICTORIAMETRICS_USERNAME", defaultVictoriaMetricsUser)
 	if username == "" || strings.ContainsAny(username, "\r\n") {

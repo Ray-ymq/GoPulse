@@ -56,6 +56,10 @@ func TestRuntimeModeRejectsUnknownAndUnsafeContainerHosts(t *testing.T) {
 		{key: "RABBITMQ_URL", value: "amqp://user:credential@127.0.0.1:5672/"},
 		{key: "ELASTICSEARCH_URL", value: "http://elasticsearch:9200/private"},
 		{key: "MONITOR_URL", value: "http://monitor:9090/?token=credential"},
+		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://127.0.0.1:8428"},
+		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://host.docker.internal:8428"},
+		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://10.0.0.8:8428"},
+		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://victoriametrics:99999"},
 	} {
 		t.Run(test.key, func(t *testing.T) {
 			env := containerEnvironment()

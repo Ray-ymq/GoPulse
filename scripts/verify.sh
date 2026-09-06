@@ -25,7 +25,12 @@ done
 [[ $PROJECT_NAME =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || fail "unsafe project name"
 [[ -f $ENV_FILE ]] || ENV_FILE="$REPO_ROOT/.env.example"
 VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
-export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf unknown)
+[[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "VERSION must use major.minor.patch"
+command -v git >/dev/null 2>&1 || fail "git is required"
+REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+IMAGE_TAG=$VERSION
+IMAGE_SOURCE=https://github.com/Ray-ymq/GoPulse
+export GOPULSE_VERSION=$VERSION GOPULSE_REVISION=$REVISION GOPULSE_IMAGE_TAG=$IMAGE_TAG
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 docker info >/dev/null 2>&1 || fail "Docker Engine is unavailable"
 
@@ -81,18 +86,36 @@ for service in frontend backend; do
 done
 pass 'Only Frontend and Backend publish loopback ports.'
 
+verify_image_metadata() {
+  local image_name=$1 ref metadata image_id user image_version image_revision image_source
+  ref="gopulse/$image_name:$IMAGE_TAG"
+  if ! metadata=$(docker image inspect --format '{{.Id}}|{{.Config.User}}|{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.source"}}' "$ref" 2>/dev/null); then
+    fail "$ref is missing"
+  fi
+  IFS='|' read -r image_id user image_version image_revision image_source <<<"$metadata"
+  [[ -n $image_id ]] || fail "$ref image ID is missing"
+  [[ $user =~ ^[0-9]+:[0-9]+$ ]] || fail "$ref user is not a numeric uid:gid"
+  [[ $image_version == "$VERSION" ]] || fail "$ref version $image_version does not match $VERSION"
+  [[ $image_revision == "$REVISION" ]] || fail "$ref revision $image_revision does not match $REVISION"
+  [[ $image_source == "$IMAGE_SOURCE" ]] || fail "$ref source label mismatch"
+  printf '%s\n' "$image_id"
+}
+
 for service in frontend backend business-worker search-indexer router marshaller monitor; do
   id=$(service_id "$service")
-  image=$(docker inspect --format '{{.Image}}' "$id")
-  user=$(docker image inspect --format '{{.Config.User}}' "$image")
-  image_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
-  [[ $user =~ ^[0-9]+:[0-9]+$ ]] || fail "$service image user is not a numeric uid:gid"
-  [[ $image_version == "$VERSION" ]] || fail "$service image version $image_version does not match $VERSION"
+  running_image=$(docker inspect --format '{{.Image}}' "$id")
+  tagged_image=$(verify_image_metadata "$service")
+  [[ $running_image == "$tagged_image" ]] || fail "$service container image does not match gopulse/$service:$IMAGE_TAG"
 done
-exporter_user=$(docker image inspect --format '{{.Config.User}}' "gopulse/redis-exporter:$VERSION")
-exporter_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "gopulse/redis-exporter:$VERSION")
-[[ $exporter_user =~ ^[0-9]+:[0-9]+$ && $exporter_version == "$VERSION" ]] || fail 'Redis Exporter image metadata mismatch'
-pass "Application image users and version labels match $VERSION."
+for service in migrate search-init; do
+  id=$(service_id "$service")
+  running_image=$(docker inspect --format '{{.Image}}' "$id")
+  tagged_image=$(verify_image_metadata backend)
+  [[ $running_image == "$tagged_image" ]] || fail "$service container image does not match gopulse/backend:$IMAGE_TAG"
+done
+verify_image_metadata acceptance >/dev/null
+verify_image_metadata redis-exporter >/dev/null
+pass "Application image IDs and OCI version/revision/source labels match $VERSION at ${REVISION:0:12}."
 
 compose exec -T backend /bin/sh -ec '
   status=$(wget --quiet --header "Authorization: Bearer $MONITOR_API_TOKEN" --output-document=- http://monitor:9090/internal/v1/exporter-plugins/redis-exporter)

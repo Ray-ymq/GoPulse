@@ -3,16 +3,19 @@ x-image-build-args: &image-build-args
   REVISION: ${GOPULSE_REVISION:?GOPULSE_REVISION is required}
   GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
 
-x-backend-environment: &backend-environment
+x-mysql-environment: &mysql-environment
   GOPULSE_RUNTIME_MODE: container
-  APP_ENV: ${APP_ENV:-development}
-  HTTP_HOST: 0.0.0.0
-  HTTP_PORT: 8080
   MYSQL_HOST: mysql
   MYSQL_PORT: 3306
   MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
   MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
   MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+
+x-backend-environment: &backend-environment
+  <<: *mysql-environment
+  APP_ENV: ${APP_ENV:-development}
+  HTTP_HOST: 0.0.0.0
+  HTTP_PORT: 8080
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -52,12 +55,38 @@ x-backend-environment: &backend-environment
   OUTBOX_CLEANUP_INTERVAL: ${OUTBOX_CLEANUP_INTERVAL:-1h}
   OUTBOX_PUBLISHED_RETENTION: ${OUTBOX_PUBLISHED_RETENTION:-168h}
   OUTBOX_CLEANUP_BATCH: ${OUTBOX_CLEANUP_BATCH:-500}
+  SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
+
+x-worker-environment: &worker-environment
+  <<: *mysql-environment
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
+  LOG_MONITOR_URL: http://monitor:9090
+  LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+  LOG_SHIP_REQUEST_TIMEOUT: ${LOG_SHIP_REQUEST_TIMEOUT:-2s}
+  LOG_SHIP_QUEUE_CAPACITY: ${LOG_SHIP_QUEUE_CAPACITY:-256}
+  LOG_SHIP_RETRY_MIN: ${LOG_SHIP_RETRY_MIN:-250ms}
+  LOG_SHIP_RETRY_MAX: ${LOG_SHIP_RETRY_MAX:-5s}
+  LOG_SHIP_SHUTDOWN_TIMEOUT: ${LOG_SHIP_SHUTDOWN_TIMEOUT:-5s}
+  OUTBOX_RETRY_DELAY: ${OUTBOX_RETRY_DELAY:-30s}
   BUSINESS_WORKER_PREFETCH: ${BUSINESS_WORKER_PREFETCH:-10}
   BUSINESS_WORKER_MAX_RETRIES: ${BUSINESS_WORKER_MAX_RETRIES:-3}
   BUSINESS_WORKER_PUBLISH_TIMEOUT: ${BUSINESS_WORKER_PUBLISH_TIMEOUT:-5s}
   BUSINESS_WORKER_SHUTDOWN_TIMEOUT: ${BUSINESS_WORKER_SHUTDOWN_TIMEOUT:-10s}
   BUSINESS_WORKER_RECONNECT_MIN: ${BUSINESS_WORKER_RECONNECT_MIN:-500ms}
   BUSINESS_WORKER_RECONNECT_MAX: ${BUSINESS_WORKER_RECONNECT_MAX:-30s}
+
+x-indexer-environment: &indexer-environment
+  <<: *mysql-environment
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+  LOG_MONITOR_URL: http://monitor:9090
+  LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+  LOG_SHIP_REQUEST_TIMEOUT: ${LOG_SHIP_REQUEST_TIMEOUT:-2s}
+  LOG_SHIP_QUEUE_CAPACITY: ${LOG_SHIP_QUEUE_CAPACITY:-256}
+  LOG_SHIP_RETRY_MIN: ${LOG_SHIP_RETRY_MIN:-250ms}
+  LOG_SHIP_RETRY_MAX: ${LOG_SHIP_RETRY_MAX:-5s}
+  LOG_SHIP_SHUTDOWN_TIMEOUT: ${LOG_SHIP_SHUTDOWN_TIMEOUT:-5s}
   SEARCH_INDEXER_PREFETCH: ${SEARCH_INDEXER_PREFETCH:-10}
   SEARCH_INDEXER_MAX_RETRIES: ${SEARCH_INDEXER_MAX_RETRIES:-3}
   SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
@@ -65,6 +94,12 @@ x-backend-environment: &backend-environment
   SEARCH_INDEXER_SHUTDOWN_TIMEOUT: ${SEARCH_INDEXER_SHUTDOWN_TIMEOUT:-10s}
   SEARCH_INDEXER_RECONNECT_MIN: ${SEARCH_INDEXER_RECONNECT_MIN:-500ms}
   SEARCH_INDEXER_RECONNECT_MAX: ${SEARCH_INDEXER_RECONNECT_MAX:-30s}
+
+x-search-init-environment: &search-init-environment
+  <<: *mysql-environment
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+  SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
 
 
 x-router-environment: &router-environment
@@ -153,7 +188,7 @@ services:
     networks:
       - business
     healthcheck:
-      test: [CMD-SHELL, 'mysqladmin ping --host=127.0.0.1 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent']
+      test: [CMD, mysqladmin, ping, --host=127.0.0.1, --silent]
       start_period: 30s
       interval: 5s
       timeout: 5s
@@ -164,13 +199,14 @@ services:
     restart: on-failure:5
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"']
     volumes:
       - redis_data:/data
     networks:
       - business
     healthcheck:
-      test: [CMD-SHELL, 'redis-cli --no-auth-warning --raw -a "$${REDIS_PASSWORD}" ping | grep -q PONG']
+      test: [CMD, redis-cli, --no-auth-warning, --raw, ping]
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -214,12 +250,12 @@ services:
       retries: 30
 
   migrate:
-    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/migrate]
     command: [up]
-    environment: *backend-environment
+    environment: *mysql-environment
     depends_on:
       mysql:
         condition: service_healthy
@@ -227,12 +263,12 @@ services:
       - business
 
   search-init:
-    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/search-reindex]
     command: [--if-missing]
-    environment: *backend-environment
+    environment: *search-init-environment
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -242,7 +278,7 @@ services:
       - business
 
   backend:
-    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -275,7 +311,7 @@ services:
       retries: 20
 
   business-worker:
-    image: gopulse/business-worker:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -284,7 +320,7 @@ services:
       args: *image-build-args
     restart: on-failure:5
     stop_grace_period: 15s
-    environment: *backend-environment
+    environment: *worker-environment
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -295,7 +331,7 @@ services:
       - observability
 
   search-indexer:
-    image: gopulse/search-indexer:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -304,7 +340,7 @@ services:
       args: *image-build-args
     restart: on-failure:5
     stop_grace_period: 15s
-    environment: *backend-environment
+    environment: *indexer-environment
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -319,7 +355,7 @@ services:
       - observability
 
   frontend:
-    image: gopulse/frontend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -343,11 +379,11 @@ services:
 
   admin-role:
     profiles: [operations]
-    image: gopulse/backend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/admin-role]
-    environment: *backend-environment
+    environment: *mysql-environment
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -356,7 +392,7 @@ services:
 
   acceptance:
     profiles: [acceptance]
-    image: gopulse/acceptance:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/acceptance:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -431,11 +467,12 @@ services:
     restart: on-failure:5
     environment:
       VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
-      VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+    secrets:
+      - victoriametrics_password
     command:
       - -storageDataPath=/victoria-metrics-data
       - -httpAuth.username=${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
-      - -httpAuth.password=${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+      - -httpAuth.password=file:///run/secrets/victoriametrics_password
       - -dedup.minScrapeInterval=1ms
     volumes:
       - victoriametrics_data:/victoria-metrics-data
@@ -444,7 +481,7 @@ services:
     networks:
       - observability
     healthcheck:
-      test: [CMD-SHELL, 'wget --spider --quiet --header "Authorization: Basic $$(printf "%s:%s" "$${VICTORIAMETRICS_USERNAME}" "$${VICTORIAMETRICS_PASSWORD}" | base64 | tr -d "\n")" http://127.0.0.1:8428/health']
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8428/health]
       start_period: 10s
       interval: 5s
       timeout: 3s
@@ -452,7 +489,7 @@ services:
 
 
   router:
-    image: gopulse/router:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -478,7 +515,7 @@ services:
       retries: 20
 
   marshaller:
-    image: gopulse/marshaller:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -508,7 +545,7 @@ services:
       retries: 20
 
   monitor:
-    image: gopulse/monitor:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -540,7 +577,7 @@ services:
 
   redis-exporter:
     profiles: [exporter]
-    image: gopulse/redis-exporter:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    image: gopulse/redis-exporter:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
     build:
       context: ..
@@ -589,3 +626,7 @@ volumes:
   kafka_data:
   victoriametrics_data:
   monitor_plugin_data:
+
+secrets:
+  victoriametrics_password:
+    environment: VICTORIAMETRICS_PASSWORD

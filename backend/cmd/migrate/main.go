@@ -26,12 +26,12 @@ func run(args []string, output io.Writer) error {
 		return errors.New("usage: migrate <up|down>")
 	}
 
-	cfg, err := config.Load()
+	mysqlConfig, err := config.LoadMySQL()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
-	database, err := platform.OpenMySQLMigrationDatabase(cfg.MySQL)
+	database, err := platform.OpenMySQLMigrationDatabase(mysqlConfig)
 	if err != nil {
 		return errors.New("initialize MySQL migration connection")
 	}

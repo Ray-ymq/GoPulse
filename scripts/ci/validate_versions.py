@@ -22,14 +22,20 @@ def validate(repo: Path) -> list[str]:
 
     environment_path = repo / ".env.example"
     if environment_path.exists():
-        environment_version = None
+        environment_values: dict[str, string] = {}
         for line in environment_path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("GOPULSE_VERSION="):
-                environment_version = line.partition("=")[2].strip()
-                break
+            key, separator, value = line.partition("=")
+            if separator and key in {"GOPULSE_VERSION", "GOPULSE_IMAGE_TAG"}:
+                environment_values[key] = value.strip()
+        environment_version = environment_values.get("GOPULSE_VERSION")
         if environment_version != version:
             errors.append(
                 f".env.example GOPULSE_VERSION is {environment_version!r}; expected root VERSION {version!r}"
+            )
+        image_tag = environment_values.get("GOPULSE_IMAGE_TAG")
+        if image_tag != version:
+            errors.append(
+                f".env.example GOPULSE_IMAGE_TAG is {image_tag!r}; expected root VERSION {version!r}"
             )
 
     for relative, label in [
