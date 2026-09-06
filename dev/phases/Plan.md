@@ -38,7 +38,6 @@ Kubernetes 部署
 - 从 Phase-01-02 到 Phase 16，项目在 Windows 宿主机的 WSL2 Linux 环境中实施、测试和验收，活动仓库放在 WSL Linux 文件系统中，日常生命周期与验收入口只维护 Bash 版本。
 - 此期间不新增或同步更新原生 PowerShell 脚本，不把 PowerShell/Bash 语义一致、Windows runner 或原生 Windows 验收作为阶段完成条件。现有 `scripts/*.ps1` 保留为 `0.2.1` 历史能力快照。
 - Phase 16 完成并通过里程碑验收后，再建立不占用 Phase 0–16 编号的 Windows PowerShell 兼容任务，以最终 Bash 行为、配置契约、容器拓扑和验收流程为基线集中实现与回归。
-- Phase 12 完成后、Phase 13 开始前插入一个不占用 Phase 0–16 编号的 macOS 兼容阶段：以 `1.9.4` 容器基线为输入，在 Apple Silicon macOS 与 Docker Desktop 上适配 Bash 生命周期和权威 Compose 验收，目标版本 `1.9.5`，专用分支 `develop/macos`。该阶段不新增业务功能，也不改变 Phase 13 的 `1.10.x` 分配。
 - 延后原生 Windows 兼容不降低当前阶段的业务、数据、安全、故障恢复、Linux CI、Docker 或 Kubernetes 验收标准。
 
 ## 1.2 用户态与访问边界

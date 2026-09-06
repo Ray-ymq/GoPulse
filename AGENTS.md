@@ -17,9 +17,8 @@
   - Phase 3 uses `0.4.x`.
 - After Phase 3 is fully completed and its milestone acceptance passes, publish the usable-business-system milestone as `1.0.0`.
 - Phase 4 through Phase 16 use the `1.x.x` series. Their minor version is `Phase - 3`, so Phase 4 uses `1.1.x`, Phase 5 uses `1.2.x`, and Phase 16 uses `1.13.x`.
-- The unnumbered macOS compatibility Phase is inserted after Phase 12 and before Phase 13. It has one executable batch, targets `1.9.5`, and uses the dedicated `develop/macos` branch so it does not consume or renumber the `1.10.x` Phase 13 line.
 - Within each Phase, reserve patch `0` as the Phase baseline. Number executable development batches from patch `1` in their planned execution order. For example, `Phase-00-01` maps to `0.1.1`, `Phase-01-01` maps to `0.2.1`, and `Phase-04-01` maps to `1.1.1`.
-- Every executable development batch must have its own target version and its own `develop/x.x.x` branch, except for the single macOS compatibility batch explicitly allocated to `develop/macos`. All commits belonging to a batch share the same target version.
+- Every executable development batch must have its own target version and its own `develop/x.x.x` branch. All commits belonging to that batch share the same target version.
 - Do not require an individual implementation-plan file to declare its version or branch. After a Phase's batch count and execution order are known, its `dev/imple/Phase-XX/Phase-XX-总实施方案.md` must contain the authoritative batch-to-version and batch-to-branch allocation for that Phase.
 - If a Phase's batch split or order changes before implementation, update its total implementation plan and recalculate all not-yet-created branches in that Phase. Never silently rename or renumber a branch that has already been pushed; coordinate the adjustment with the user.
 - The root `VERSION` file is the sole source of the current completed product version when it exists. If it does not exist before the first development batch, use `0.1.0` as the Phase 0 baseline and create the file as part of the first development batch.
@@ -27,17 +26,16 @@
 
 # Development Branch Naming Rule
 
-- Every development branch that is pushed to a remote must use the format `develop/x.x.x`, including branches used for pull requests and testing, except for the exact macOS compatibility branch `develop/macos`.
-- The exact branch name `update` is the planning-branch exception and may be pushed as the project's planning branch. It may contain only project planning, architecture adjustments, development plans, documentation organization, planning-workspace metadata, and repository-rule maintenance; it must not be used for feature implementation, application testing, or ordinary development pull requests.
-- `develop/macos` is a one-batch implementation exception for the unnumbered macOS compatibility Phase at target version `1.9.5`. It must branch from the latest `upstream/main`, may contain only that Phase's implementation, tests, documentation, record, and version synchronization, and follows the ordinary development pull-request lifecycle.
+- Every development branch that is pushed to a remote must use the format `develop/x.x.x`, including branches used for pull requests and testing.
+- The exact branch name `update` is the sole exception and may be pushed as the project's planning branch. It may contain only project planning, architecture adjustments, development plans, documentation organization, planning-workspace metadata, and repository-rule maintenance; it must not be used for feature implementation, application testing, or ordinary development pull requests.
 - `update` is a long-lived planning branch. Automated pull requests from `update` to `main` must use a merge commit and must not delete `update`, so later planning work retains ancestry with `main`. Ordinary `develop/x.x.x` branches continue to use squash merge and may be deleted after merging.
 - The `develop` prefix must always start with a lowercase `d`; uppercase or mixed-case variants are not allowed.
-- Before pushing, verify that the branch name either matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$`, is exactly `develop/macos`, or is exactly `update`. When pushing `update`, also verify that the commits being pushed remain within the planning-branch scope defined above; when pushing `develop/macos`, verify target version `1.9.5` and the dedicated Phase allocation.
+- Before pushing, verify that the branch name either matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$` or is exactly `update`. When pushing `update`, also verify that the commits being pushed remain within the planning-branch scope defined above.
 
 # Development Branch Lifecycle Rule
 
 - Before starting each new independent development task, fetch the latest state from the repository's configured primary remote, determine the target version under the Automatic Version Management Rule, and create a new branch from that remote's `main` branch.
-- The new branch must use the target version and follow the `develop/x.x.x` naming rule defined above, except when executing the explicitly allocated `develop/macos` compatibility batch.
+- The new branch must use the target version and follow the `develop/x.x.x` naming rule defined above.
 - Continue using the current branch only for follow-up work that belongs to the same active task or pull request.
 - Do not automatically continue working on a development branch after its work is complete or after a pull request has been opened for it.
 - Work that remains entirely within the planning-only scope permitted for the `update` branch is exempt from creating a development branch and may be committed directly on `update`; it does not bump the product version.
@@ -74,7 +72,6 @@
 # Platform Usage Rule
 
 - On macOS, use the project workspace primarily for project planning and subsequent architectural adjustments.
-- The unnumbered macOS compatibility Phase at `1.9.5` is the sole implementation and application-testing exception to the preceding rule. Run it on a native Apple Silicon macOS host with Docker Desktop, retain Bash as the lifecycle interface, and prove that the Phase 12 container-native development and authoritative Compose paths work without GNU host utilities or `/proc`.
 - Phase 0 and Phase-01-01 completed the original native Windows PowerShell and Unix Bash dual-platform baseline through product version `0.2.1`.
 - From Phase-01-02 through Phase 16, use WSL2 on Windows as the primary project development, implementation, application-testing, and integration-acceptance environment.
 - Keep the active repository checkout in the WSL Linux filesystem, such as `/home/<user>/src/GoPulse`, rather than under `/mnt/c`, `/mnt/d`, or another Windows-mounted filesystem. Use one Docker daemon through Docker Desktop WSL integration or one WSL-native Docker Engine; do not run competing daemons for the same workspace.
