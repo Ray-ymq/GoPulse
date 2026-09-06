@@ -1,6 +1,6 @@
 # Phase 12：Docker 化总实施方案
 
-> 当前状态：Phase 12 三个批次均已完成。Phase-12-01 已通过 Pull Request #104 合入；Phase-12-02 已通过 Pull Request #106 合入，权威远程运行 `34010783067` 成功；Phase-12-03 已通过 Pull Request #107 于 2026-09-06 合入主远程 `main`，权威远程运行 `34014586632` 成功，合入提交为 `6c3b7b5`。根与 Frontend 完成版本均为 `1.9.3`，Phase 12 已满足第 16.2 节完成条件。本方案于 2026-09-06 以 `upstream/main` 提交 `26d4355` 与产品版本 `1.8.4` 为原规划基线。Phase 12 使用 `1.9.x` 版本线，共拆分为 3 个执行批次。
+> 当前状态：Phase-12-01 至 Phase-12-03 已合入主远程；2026-09-06 独立实现 Review 发现 6 个 P2 与 1 个 P3，Phase 12 重新打开并新增 Phase-12-04 整改批次。Phase-12-04 使用 `develop/1.9.4`，目标版本 `1.9.4`；整改与固定门禁完成前不得再次标记 Phase 12 完成。本方案最初以 `upstream/main` 提交 `26d4355` 与产品版本 `1.8.4` 为规划基线，Review 整改以 `origin/main` 提交 `dc211ce` 为代码基线。Phase 12 使用 `1.9.x` 版本线，共拆分为 4 个执行批次。
 
 ## 1. 实施目标
 
@@ -67,6 +67,7 @@ Phase 12 使用 `1.9.x` 版本线，`1.9.0` 只作为阶段基线，不创建空
 | Phase-12-01 | `1.9.1` | `develop/1.9.1` | 已完成（PR #104，远程门禁成功） |
 | Phase-12-02 | `1.9.2` | `develop/1.9.2` | 已完成；PR #106 与远程运行 `34010783067` 成功 |
 | Phase-12-03 | `1.9.3` | `develop/1.9.3` | 已完成；PR #107 与远程运行 `34014586632` 成功 |
+| Phase-12-04 | `1.9.4` | `develop/1.9.4` | 实施中；关闭 2026-09-06 Phase 12 实现 Review findings |
 
 执行规则：
 
@@ -336,6 +337,15 @@ Backend 和 Monitor 是因业务职责需要跨区的明确连接点，不将任
 
 详细方案：`dev/imple/Phase-12/Phase-12-03-全栈Compose验收与阶段收口.md`。
 
+### 13.4 Phase-12-04：实现 Review 整改与制品归属闭环
+
+- 权威 Compose 验收只接受可重建源码，并使用运行级唯一 image tag，保证正常、失败和 signal 路径不覆盖用户已有版本 tag。
+- 日常 `--no-build` 与只读验证同时约束 image version/revision/source、运行容器 image ID 与当前 tag；启动前拒绝非 `127.0.0.1` 发布和非法端口。
+- 补齐 Backend VictoriaMetrics runtime-mode origin/port 校验，按 workload 最小化 Compose 环境身份，并把官方服务探针和 VictoriaMetrics 密码移出运行 argv。
+- 在最终整改树上执行直接受影响测试、静态 Compose 合同、分支/版本治理和唯一 tag 全栈验收，记录真实结果后停止。
+
+详细方案：`dev/imple/Phase-12/Phase-12-04-实现Review整改与制品归属闭环.md`。
+
 ## 14. 预计变更边界
 
 ```text
@@ -379,7 +389,7 @@ frontend/package-lock.json
 
 ## 15. 固定完成门禁
 
-各批根据直接受影响范围执行其拆分方案中的固定命令。Phase-12-03 的最终 diff 至少执行：
+各批根据直接受影响范围执行其拆分方案中的固定命令。Phase-12-03 的历史最终 diff 至少执行以下门禁；Phase-12-04 使用其拆分方案中针对 Review findings 收敛后的固定门禁：
 
 ```bash
 (cd backend && test -z "$(gofmt -l .)")
@@ -418,13 +428,13 @@ git diff --check
 - 默认只发布 Frontend/Backend 的 loopback 用户端口，内部数据、Monitor、Router、Marshaller、Kafka、VM、ES 无宿主发布；网络成员和服务身份符合第 6～7 节。
 - 三条可观测链路都来自真实容器运行与真实操作；VM、Kafka/Router/Marshaller、Monitor 代表故障仅产生准确局部降级，社交事实与代表性非搜索闭环继续成立。
 - MySQL/RabbitMQ/Kafka/VM/ES/Monitor plugin 等必要事实经服务重启和 project 保留卷再启动后可恢复；Redis 缓存丢失也不改变 MySQL 权威业务事实。
-- 冷启动、只读 verify、完整验收、正常 down、失败/signal 清理、版本/分支治理与远程门禁通过，三份实施记录真实完整，根与 Frontend 版本均为 `1.9.3`。
+- 冷启动、只读 verify、完整验收、正常 down、失败/signal 清理、版本/分支治理与远程门禁通过，四份实施记录真实完整，根与 Frontend 版本均为 `1.9.4`。
 
 ### 16.2 完成与停止条件
 
-只有第 16.1 节全部满足、Phase-12-03 Pull Request 已合入主远程 `main`、远程固定门禁成功，且三份 Phase 12 实施记录与真实提交一致，Phase 12 才完成。
+只有第 16.1 节全部满足、Phase-12-04 整改完成、固定本地门禁成功，且四份 Phase 12 实施记录与真实提交一致，Phase 12 才可重新完成；远程合入证据由后续 Pull Request 补充。
 
-实际完成证据：2026-09-06，Phase-12-03 的远程运行 `34014586632` 在提交 `13740c1` 上成功，Pull Request #107 随后合入 `main` 为提交 `6c3b7b5`；`main` 的产品版本为 `1.9.3`，三份实施记录均已存在并与各批真实结果一致。因此 Phase 12 已完成。
+历史证据：2026-09-06，Phase-12-03 的远程运行 `34014586632` 在提交 `13740c1` 上成功，Pull Request #107 随后合入 `main` 为提交 `6c3b7b5`。同日独立实现 Review 报告 `dev/review/2026-09-06-Phase-12实现Review报告.md` 将该完成状态重新打开；Phase-12-04 未通过前，历史 `1.9.3` 证据不得替代整改验收。
 
 任一自研镜像缺失、仍需宿主运行时启动业务、初始化非幂等、内部端口默认暴露、服务 DNS/身份边界缺失、普通用户隔离失效、完整可观测链路不真实、持久事实丢失、纯可观测故障阻断社交闭环或强归属清理证据缺失时，不得标记完成。
 
