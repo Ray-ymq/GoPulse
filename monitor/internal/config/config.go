@@ -12,10 +12,12 @@ import (
 )
 
 type Config struct {
+	RuntimeMode          RuntimeMode
 	HTTPHost             string
 	HTTPPort             int
 	APIToken             string
 	PluginRoot           string
+	BootstrapPackage     string
 	RequestTimeout       time.Duration
 	ShutdownTimeout      time.Duration
 	StartupTimeout       time.Duration
@@ -40,6 +42,10 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if lookup == nil {
 		return Config{}, errors.New("configuration lookup is required")
 	}
+	runtimeMode, err := loadRuntimeMode(lookup)
+	if err != nil {
+		return Config{}, err
+	}
 	value := func(k, fallback string) string {
 		if v, ok := lookup(k); ok && strings.TrimSpace(v) != "" {
 			return strings.TrimSpace(v)
@@ -51,9 +57,11 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, errors.New("MONITOR_HTTP_PORT must be between 1 and 65535")
 	}
 	host := value("MONITOR_HTTP_HOST", "127.0.0.1")
-	hostIP := net.ParseIP(host)
-	if strings.ContainsAny(host, "\x00\r\n") || hostIP == nil || !hostIP.IsLoopback() {
-		return Config{}, errors.New("MONITOR_HTTP_HOST must be a loopback IP address")
+	if strings.ContainsAny(host, "\x00\r\n") {
+		return Config{}, errors.New("MONITOR_HTTP_HOST must not contain control characters")
+	}
+	if err := validateListenHost(runtimeMode, "MONITOR_HTTP_HOST", host); err != nil {
+		return Config{}, err
 	}
 	token, ok := lookup("MONITOR_API_TOKEN")
 	if !ok || len(token) < 32 || strings.ContainsAny(token, "\r\n") {
@@ -64,6 +72,13 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, errors.New("MONITOR_PLUGIN_ROOT must be an absolute path")
 	}
 	root = filepath.Clean(root)
+	bootstrapPackage := value("MONITOR_BOOTSTRAP_PACKAGE", "")
+	if bootstrapPackage != "" {
+		if strings.ContainsAny(bootstrapPackage, "\x00\r\n") || !filepath.IsAbs(bootstrapPackage) {
+			return Config{}, errors.New("MONITOR_BOOTSTRAP_PACKAGE must be an absolute path")
+		}
+		bootstrapPackage = filepath.Clean(bootstrapPackage)
+	}
 	parseDuration := func(key string, fallback, min, max time.Duration) (time.Duration, error) {
 		raw := value(key, fallback.String())
 		d, e := time.ParseDuration(raw)
@@ -105,6 +120,11 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	routerURL := value("MONITOR_ROUTER_URL", "")
 	routerToken, _ := lookup("MONITOR_ROUTER_TOKEN")
+	if routerURL != "" {
+		if err := validateHTTPOrigin(runtimeMode, "MONITOR_ROUTER_URL", routerURL); err != nil {
+			return Config{}, err
+		}
+	}
 	if routerURL != "" && (len(routerToken) < 32 || strings.ContainsAny(routerToken, "\r\n")) {
 		return Config{}, errors.New("MONITOR_ROUTER_TOKEN must contain at least 32 bytes when MONITOR_ROUTER_URL is set")
 	}
@@ -140,7 +160,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, errors.New("MONITOR_EVENT_MAX_BYTES must be 16384")
 	}
 	env := map[string]string{}
-	for _, key := range []string{"REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
+	for _, key := range []string{"GOPULSE_RUNTIME_MODE", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
 		if v, ok := lookup(key); ok {
 			env[key] = v
 		}
@@ -150,13 +170,24 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, fmt.Errorf("%s is required", key)
 		}
 	}
+	if err := validateDependencyHost(runtimeMode, "REDIS_HOST", env["REDIS_HOST"]); err != nil {
+		return Config{}, err
+	}
 	if env["REDIS_EXPORTER_HTTP_HOST"] == "" {
 		env["REDIS_EXPORTER_HTTP_HOST"] = "127.0.0.1"
 	}
 	if env["REDIS_EXPORTER_HTTP_PORT"] == "" {
 		env["REDIS_EXPORTER_HTTP_PORT"] = "9121"
 	}
-	return Config{HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterToken: routerToken, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, ExporterEnv: env}, nil
+	exporterIP := net.ParseIP(strings.TrimSpace(env["REDIS_EXPORTER_HTTP_HOST"]))
+	if exporterIP == nil || !exporterIP.IsLoopback() {
+		return Config{}, errors.New("REDIS_EXPORTER_HTTP_HOST must use a loopback IP address")
+	}
+	exporterPort, err := strconv.Atoi(strings.TrimSpace(env["REDIS_EXPORTER_HTTP_PORT"]))
+	if err != nil || exporterPort < 1 || exporterPort > 65535 {
+		return Config{}, errors.New("REDIS_EXPORTER_HTTP_PORT must be between 1 and 65535")
+	}
+	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterToken: routerToken, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, ExporterEnv: env}, nil
 }
 func (c Config) HTTPAddress() string { return net.JoinHostPort(c.HTTPHost, strconv.Itoa(c.HTTPPort)) }
 func (c Config) ExporterHealthURL() string {

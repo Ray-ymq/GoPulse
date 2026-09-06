@@ -755,3 +755,41 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.safeRemoveProcessRecord()
 	return first
 }
+
+// Bootstrap installs the image-bundled package on first start, keeps the
+// persisted desired state for the same version, and upgrades only when the
+// bundled package is newer. An older image is rejected instead of silently
+// downgrading a plugin volume created by a newer release.
+func (m *Manager) Bootstrap(ctx context.Context, archivePath string) (Status, error) {
+	if err := m.validateStorageBoundary(); err != nil {
+		return Status{}, NewError(CodeFailed, "plugin storage boundary validation failed")
+	}
+	stage, err := os.MkdirTemp(filepath.Join(m.cfg.Root, ".staging"), "bootstrap-inspect-")
+	if err != nil {
+		return Status{}, wrap(CodeFailed, "plugin operation failed", err)
+	}
+	defer m.safeRemoveAll(stage)
+	manifest, err := extractPackage(archivePath, stage)
+	if err != nil {
+		return Status{}, err
+	}
+	status, err := m.Get(PluginID)
+	if err != nil {
+		if pluginErr, ok := AsError(err); ok && pluginErr.Code == CodeNotFound {
+			return m.Install(ctx, archivePath)
+		}
+		return Status{}, err
+	}
+	comparison, err := CompareSemver(manifest.Version, status.Version)
+	if err != nil {
+		return Status{}, NewError(CodePackageInvalid, "plugin package is invalid")
+	}
+	switch {
+	case comparison < 0:
+		return Status{}, NewError(CodeConflict, "bootstrap package version is older than the installed plugin")
+	case comparison == 0:
+		return status, nil
+	default:
+		return m.Update(ctx, PluginID, archivePath)
+	}
+}

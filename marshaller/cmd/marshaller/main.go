@@ -61,12 +61,22 @@ func main() {
 		os.Exit(1)
 	}
 	vm := victoriametrics.New(cfg.VMURL, cfg.VMUsername, cfg.VMPassword, cfg.VMTimeout)
-	logStore, err := elasticsearch.New(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	var logStore *elasticsearch.Client
+	if cfg.RuntimeMode == config.RuntimeModeContainer {
+		logStore, err = elasticsearch.NewContainer(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	} else {
+		logStore, err = elasticsearch.New(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	}
 	if err != nil {
 		logger.Error("Elasticsearch client initialization failed", "module", "storage", "event", "startup_failed")
 		os.Exit(1)
 	}
-	eventStore, err := elasticsearch.NewEvents(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	var eventStore *elasticsearch.EventsClient
+	if cfg.RuntimeMode == config.RuntimeModeContainer {
+		eventStore, err = elasticsearch.NewEventsContainer(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	} else {
+		eventStore, err = elasticsearch.NewEvents(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout)
+	}
 	if err != nil {
 		logger.Error("Elasticsearch events client initialization failed", "module", "storage", "event", "startup_failed")
 		os.Exit(1)

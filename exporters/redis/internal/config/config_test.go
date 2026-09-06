@@ -102,3 +102,43 @@ func TestDefaultHTTPHostCreatesLoopbackListener(t *testing.T) {
 		t.Fatalf("default listener address = %v; expected loopback only", listener.Addr())
 	}
 }
+
+func TestRuntimeModeKeepsExporterHostSafeAndAcceptsManagedContainerMode(t *testing.T) {
+	validEnvironment(t)
+	t.Setenv("REDIS_HOST", "redis")
+	if _, err := Load(); err == nil || Field(err) != "REDIS_HOST" {
+		t.Fatalf("host mode accepted service DNS: %v", err)
+	}
+
+	t.Setenv("GOPULSE_RUNTIME_MODE", "container")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("managed container config error=%v", err)
+	}
+	if cfg.RuntimeMode != RuntimeModeContainer || cfg.RedisHost != "redis" || cfg.HTTPHost != "127.0.0.1" {
+		t.Fatalf("managed container config=%+v", cfg)
+	}
+	t.Setenv("REDIS_EXPORTER_HTTP_HOST", "0.0.0.0")
+	if _, err = Load(); err != nil {
+		t.Fatalf("standalone container listener rejected: %v", err)
+	}
+}
+
+func TestRuntimeModeRejectsUnsafeExporterContainerValues(t *testing.T) {
+	for field, value := range map[string]string{
+		"GOPULSE_RUNTIME_MODE":     "cluster",
+		"REDIS_HOST":               "127.0.0.1",
+		"REDIS_EXPORTER_HTTP_HOST": "192.0.2.1",
+	} {
+		t.Run(field, func(t *testing.T) {
+			validEnvironment(t)
+			t.Setenv("GOPULSE_RUNTIME_MODE", "container")
+			t.Setenv("REDIS_HOST", "redis")
+			t.Setenv(field, value)
+			_, err := Load()
+			if err == nil || Field(err) != field {
+				t.Fatalf("error=%v, want %s rejection", err, field)
+			}
+		})
+	}
+}

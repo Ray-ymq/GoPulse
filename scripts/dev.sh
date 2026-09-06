@@ -15,7 +15,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/dev.sh [--project-name NAME] [--env-file PATH] [--no-build]
 
-Build and start the container-native GoPulse business stack. The host needs only
+Build and start the complete container-native GoPulse stack. The host needs only
 Git, Docker Engine, Docker Compose, Bash, and ordinary POSIX utilities; Go,
 Node.js, npm, curl, and Python are not used by the lifecycle.
 USAGE
@@ -72,11 +72,11 @@ fi
 
 if ((BUILD)); then
   info "Building GoPulse $VERSION images at revision ${REVISION:0:12}."
-  compose build backend business-worker search-indexer frontend acceptance
+  compose build backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter
 fi
 
 info "Starting project $PROJECT_NAME with persistent project-scoped volumes."
-if ! compose up --detach --wait --wait-timeout 300 frontend backend business-worker search-indexer; then
+if ! compose up --detach --wait --wait-timeout 420; then
   compose ps >&2 || true
   compose logs --tail 120 >&2 || true
   fail "Compose startup failed; containers and volumes were retained for diagnosis"
