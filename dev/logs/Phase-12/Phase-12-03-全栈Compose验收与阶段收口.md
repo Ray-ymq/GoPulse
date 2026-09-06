@@ -6,9 +6,9 @@
 - 分支：`develop/1.9.3`
 - 开工基线：最新 `upstream/main` 提交 `1e63bdd`，产品版本 `1.9.2`
 - 前批远程状态：Phase-12-01 已完成；Phase-12-02 由 Pull Request #106 于 2026-09-06 合入，权威远程运行 `34010783067` 成功
-- 目标/本地完成版本：`1.9.3`
+- 目标/完成版本：`1.9.3`
 - 实施方案：`dev/imple/Phase-12/Phase-12-03-全栈Compose验收与阶段收口.md`
-- 当前结论：分支已推送；本地实施、固定门禁与定向修复后的完整 Compose 矩阵通过。首次远程运行 `34013446831` 的 9 个非全栈 jobs 成功，Full-stack Compose job 失败且自动 PR 跳过；修复待远程复验，因此未标记 Phase 12 完成
+- 当前结论：已完成。本地实施、固定门禁与定向修复后的完整 Compose 矩阵通过；提交 `13740c1` 的远程运行 `34014586632` 成功，Pull Request #107 已于 2026-09-06 合入主远程 `main` 为提交 `6c3b7b5`，Phase-12-03 与 Phase 12 完成
 
 ## 2. 实际完成
 
@@ -86,7 +86,7 @@ git diff --check                                                                
 scripts/verify-compose.sh
 ```
 
-最终结果：PASS。随机 project `gopulse-accept-6d59b046cd8a` 完成镜像重建、冷启动、三作业幂等、双使用态业务、管理员三链路/Exporter、内部身份、三类局部故障、应用/持久服务替换、七个应用信号关闭、保留卷 down/up、重启后新数据、独立 Exporter 与空卷管理流，并由 trap 清理全部强归属资源。
+功能收敛后的首个完整结果：PASS。随机 project `gopulse-accept-6d59b046cd8a` 完成镜像重建、冷启动、三作业幂等、双使用态业务、管理员三链路/Exporter、内部身份、三类局部故障、应用/持久服务替换、七个应用信号关闭、保留卷 down/up、重启后新数据、独立 Exporter 与空卷管理流，并由 trap 清理全部强归属资源。远程 PATH 定向修复后，随机 project `gopulse-accept-64d812c5570b` 再次完整通过，作为最终本地矩阵证据。
 
 实施期三次前置运行暴露并修复的均为验收脚本假阴性，而非产品缺陷：
 
@@ -123,7 +123,13 @@ scripts/down.sh --project-name gopulse-lifecycle-790ec47624 --env-file <temporar
 - Frontend Vitest：`11` files / `58` tests PASS；typecheck 与 production build PASS；
 - scripts CI unittest：`27` tests PASS；版本、分支、Bash syntax、Compose render、self-test 与 `git diff --check` PASS。
 
-完整真实矩阵的成功结果沿用第 4.2 节，因为其后仅更新 README、方案状态和本实施记录，未改变脚本、Compose、镜像输入、应用实现或执行环境；按执行效率规则不重复已成功门禁。自动提交完成后按最终 Git HEAD 重新构建八个产品镜像并核对 OCI revision label，不把 dirty-tree revision 当作最终制品证据。
+完整真实矩阵的成功结果沿用第 4.2 节，因为其后仅更新 README、方案状态和本实施记录，未改变脚本、Compose、镜像输入、应用实现或执行环境；按执行效率规则不重复已成功门禁。提交 `13740c1` 后已按最终 Git HEAD 重新构建八个产品镜像并核对 OCI version `1.9.3`、revision `13740c1448e0905250fec1baf5aec8eb5b53fa25` 与数字 UID:GID，结果 PASS，未把 dirty-tree revision 当作最终制品证据。
+
+### 4.5 远程完成与主线合入
+
+- 第二次推送的提交为 `13740c1448e0905250fec1baf5aec8eb5b53fa25`。GitHub Actions 运行 `34014586632` 于 2026-09-06 05:53:22Z 完成并成功；Branch governance、Backend、Router、Marshaller、Monitor、Redis Exporter、Frontend、Scripts and Compose、Integration、Full-stack Compose acceptance 以及自动 Pull Request job 均成功。
+- 自动创建的 Pull Request #107 于 2026-09-06 05:53:16Z 合入主远程 `main`，合入提交为 `6c3b7b5a8778367430b04d24d56e2fb0b56fa706`。fetch 后 `upstream/main` 与 `origin/main` 均指向该提交，产品 `VERSION` 为 `1.9.3`，其项目树与开发分支最终树无差异。
+- 首轮远程失败、定向修复、最终本地复验、第二轮远程成功及主线合入证据均已如实记录；Phase-12-03 与 Phase 12 完成。
 
 ## 5. 与方案的偏差
 
@@ -134,7 +140,6 @@ scripts/down.sh --project-name gopulse-lifecycle-790ec47624 --env-file <temporar
 
 ## 6. 已知限制与后续事项
 
-- 分支已推送，且首次远程运行已有部分事实证据；但 Full-stack Compose job 未通过、自动 PR 未创建，后续远程复验、Pull Request、合入和最终 Phase 12 完成状态仍必须在真实发生后单独更新，不能由本记录预判。
 - 本地运行架构为 `amd64`；脚本接受 daemon `x86_64→amd64` 与 `aarch64→arm64` 的等价映射，但未把完整多架构发布作为门禁。
 - Compose 仍是单节点开发/验收拓扑，不提供 TLS、SASL、高可用、容量或生产供应链保证。
 - `--business` 与历史 component scripts 仅保留定向诊断价值；后续不应重新把它们并列为阶段完成门禁。
