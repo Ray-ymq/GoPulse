@@ -99,7 +99,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	cmd := exec.Command(executable)
 	cmd.Dir = release
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	for _, key := range []string{"REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
+	for _, key := range []string{"GOPULSE_RUNTIME_MODE", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
 		if value, ok := env[key]; ok {
 			cmd.Env = append(cmd.Env, key+"="+value)
 		}

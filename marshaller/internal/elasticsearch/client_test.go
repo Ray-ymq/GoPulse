@@ -140,3 +140,16 @@ func writeMappingResponse(t *testing.T, w http.ResponseWriter, index string) {
 		t.Fatal(err)
 	}
 }
+
+func TestContainerClientAcceptsServiceDNSAndRejectsLoopback(t *testing.T) {
+	client, err := NewContainer("http://elasticsearch:9200", time.Second)
+	if err != nil || client.baseURL != "http://elasticsearch:9200" {
+		t.Fatalf("container client=%+v error=%v", client, err)
+	}
+	if _, err = NewContainer("http://127.0.0.1:9200", time.Second); err == nil {
+		t.Fatal("container client accepted loopback")
+	}
+	if _, err = New("http://elasticsearch:9200", time.Second); err == nil {
+		t.Fatal("host client accepted service DNS")
+	}
+}

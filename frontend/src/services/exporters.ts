@@ -11,6 +11,16 @@ const safeMessages: Record<ExporterErrorCode, readonly string[]> = {
   recovery_invalid: ['plugin installation requires repair'],
   recovery_failed: ['plugin failed to recover'],
   process_exited: ['plugin process exited unexpectedly'],
+  scrape_timeout: ['metrics scrape timed out'],
+  network_failed: ['metrics target is unavailable'],
+  response_too_large: ['metrics response exceeded the size limit'],
+  parse_failed: ['metrics response was rejected'],
+  contract_invalid: ['metrics response was rejected'],
+  content_invalid: ['metrics response was rejected'],
+  http_invalid: ['metrics response was rejected'],
+  scrape_failed: ['metrics scrape failed'],
+  message_id_failed: ['metrics message could not be created'],
+  publish_failed: ['metrics message could not be published'],
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 function exactKeys(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {

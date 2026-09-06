@@ -1,6 +1,6 @@
 # GoPulse Redis Exporter
 
-The Redis Exporter is an independent Go module and long-running process. It connects to one configured Redis target and performs exactly one `INFO server clients memory stats cpu keyspace` command for every accepted `GET /metrics` request. Startup and `/health` never probe Redis.
+The Redis Exporter is an independent Go module and long-running process. It connects to one configured Redis target and performs exactly one `INFO server clients memory stats cpu keyspace` command for every accepted `GET /metrics` request. Startup and `/health` never probe Redis. Direct source execution defaults to loopback-only host mode; explicit container mode permits a wildcard listener and validated Redis service DNS.
 
 ## Run
 
@@ -17,7 +17,9 @@ REDIS_EXPORTER_SHUTDOWN_TIMEOUT=5s \
 go run ./cmd/redis-exporter
 ```
 
-The normal repository lifecycle builds `.run/bin/gopulse-redis-exporter`, starts it after Redis becomes healthy, and records `.run/redis-exporter.json`. `scripts/verify.sh` checks the process identity and both endpoints; `scripts/down.sh` validates the record before sending a signal. Existing `.env` files may omit the `REDIS_EXPORTER_*` keys when the documented defaults are acceptable; `dev.sh` resolves those defaults without rewriting the local file.
+`GOPULSE_RUNTIME_MODE` defaults to `host`. Host mode requires `REDIS_EXPORTER_HTTP_HOST` and `REDIS_HOST` to remain loopback; container mode accepts `0.0.0.0` plus validated service DNS such as `redis`, while rejecting fixed IPs, `host.docker.internal`, control characters, and unknown modes. The Exporter managed by Monitor intentionally still uses `127.0.0.1:9121` inside the Monitor container, so only its parent can scrape it. The standalone `exporter` Compose profile uses the same binary in `gopulse/redis-exporter:<VERSION>` and exposes port 9121 only to the internal `business` network.
+
+The final image runs `/usr/local/bin/gopulse-redis-exporter` as numeric user `10004:10001`, uses a read-only root filesystem, and publishes no host port. `scripts/package-redis-exporter.sh --binary ... --arch ...` can package an already-built executable deterministically. The Monitor image uses that path during its build, and acceptance verifies that the package entrypoint digest equals the standalone image binary digest.
 
 ## Endpoints
 
@@ -51,6 +53,6 @@ scripts/verify-exporter.sh --self-test
 scripts/verify-exporter.sh
 ```
 
-The real acceptance uses a random, ownership-validated Compose project and Redis 7.2.5 volume. It proves live values, stopped-target isolation, authentication failure, timeout, recovery without exporter restart, bounded SIGTERM shutdown, and cleanup without changing the daily stack. Run `scripts/verify-business.sh` separately for the cross-component Phase 0–4 regression, and use the normal `dev.sh → verify.sh → down.sh` lifecycle to validate shared process ownership.
+The focused real acceptance uses a random, ownership-validated Compose project and Redis 7.2.5 volume. It proves live values, stopped-target isolation, authentication failure, timeout, recovery without exporter restart, bounded SIGTERM shutdown, and cleanup without changing the daily stack.
 
-Phase 6 can launch the same executable with these environment variables, use `/health` for process liveness, and scrape `/metrics` periodically. It must avoid starting a second copy while `dev.sh` owns the process and must preserve the HTTP status, Prometheus 0.0.4, PID identity, and signal-shutdown boundaries described here.
+For Phase-12-02, `scripts/verify-compose.sh --observability` additionally verifies the standalone image against real Redis success, `up 0`, authentication failure, same-process recovery, and SIGTERM. The default complete stack does not start that profile as a duplicate runtime: Monitor bootstraps and owns the embedded package, restores desired state from `monitor_plugin_data`, and preserves the HTTP status, Prometheus 0.0.4, process ownership, and signal-shutdown boundaries described here.

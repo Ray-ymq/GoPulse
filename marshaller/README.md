@@ -1,6 +1,6 @@
 # Marshaller
 
-Marshaller is GoPulse's loopback-only Kafka consumer and metrics transformation service. Phase 8-03 closes the fixed observability Topic and single-node VictoriaMetrics as a recoverable at-least-once pipeline:
+Marshaller is GoPulse's Kafka consumer and observability transformation service. Direct source execution is loopback-only by default; explicit container mode permits its internal listener plus validated Kafka, VictoriaMetrics, and Elasticsearch service DNS. Phase 8-03 closes the fixed observability Topic and single-node VictoriaMetrics as a recoverable at-least-once pipeline:
 
 ```text
 Redis -> Redis Exporter -> MetricsMonitor -> Message Router
@@ -31,13 +31,14 @@ Required secrets are `MARSHALLER_API_TOKEN` (at least 32 bytes) and `MARSHALLER_
 
 | Variable | Default or constraint |
 | --- | --- |
-| `MARSHALLER_HTTP_HOST` | `127.0.0.1`; IPv4 or IPv6 loopback IP only |
+| `GOPULSE_RUNTIME_MODE` | `host`; only `host|container` are accepted |
+| `MARSHALLER_HTTP_HOST` | `127.0.0.1`; host mode requires loopback, container mode permits wildcard binding |
 | `MARSHALLER_HTTP_PORT` | `9093` |
-| `MARSHALLER_KAFKA_BROKERS` | `127.0.0.1:9092` |
+| `MARSHALLER_KAFKA_BROKERS` | `127.0.0.1:9092`; container mode accepts validated service DNS such as `kafka:19092` |
 | `MARSHALLER_KAFKA_TOPIC` | fixed `gopulse-observability-v1` |
 | `MARSHALLER_KAFKA_GROUP` | fixed `gopulse-marshaller-metrics-v1` |
 | `MARSHALLER_KAFKA_COMMIT_TIMEOUT` | `3s` |
-| `MARSHALLER_VM_URL` | `http://127.0.0.1:8428`; loopback origin, no credentials/query/fragment |
+| `MARSHALLER_VM_URL` | `http://127.0.0.1:8428`; host mode requires loopback, container mode accepts a validated origin such as `http://victoriametrics:8428` |
 | `MARSHALLER_VM_USERNAME` | `gopulse-marshaller` |
 | `MARSHALLER_VM_TIMEOUT` | `3s` |
 | `MARSHALLER_RETRY_MIN` / `MARSHALLER_RETRY_MAX` | `250ms` / `5s` |
@@ -51,7 +52,7 @@ Kafka polling is canceled only by the Marshaller run context; there is no separa
 
 ## Lifecycle and validation
 
-`scripts/dev.sh` starts Kafka, the explicit Topic initializer, and VictoriaMetrics before Router and Marshaller; Monitor and its managed Exporter start only after those dependencies are ready. `scripts/down.sh` drains Backend, Business Worker, and Search Indexer before stopping Monitor/Exporter, Marshaller, and Router, while preserving daily named volumes. `scripts/verify.sh` performs read-only process, dependency, readiness, volume, and fixed-query checks.
+`scripts/dev.sh` builds `gopulse/marshaller:<VERSION>` and starts it after Kafka Topic initialization, VictoriaMetrics, and Elasticsearch are available. The image runs as numeric user `10003:10001`, uses `/usr/local/bin/marshaller` as PID 1, has a read-only root filesystem, joins only the internal `observability` network, and publishes no host port. `scripts/down.sh` stops the complete Compose project while preserving daily named volumes, and `scripts/verify.sh` performs read-only ownership, image, dependency, readiness, volume, and fixed-query checks.
 
 Focused validation:
 
@@ -66,9 +67,11 @@ scripts/verify-marshaller.sh
 
 The default acceptance uses a random owned Compose project, temporary credentials, and loopback ports. It seeds real Redis key, TTL, hit, miss, and command activity; verifies all 10 families/11 success samples and their fixed labels against Redis/Exporter evidence; captures a real Kafka record with bounded partition/offset/timestamp metadata; proves three representative structural, key/ID, and payload-contract rejections add no VictoriaMetrics rows before a later real message continues; checks target-unavailable/recovery without restarting Router, Marshaller, or Monitor; rejects browser cookies, Backend-style JWT/query tokens, and wrong internal credentials; retains offsets during VictoriaMetrics failure; proves same-process storage recovery, explicit uncommitted-record recovery after Marshaller restart, Kafka broker restart/formal-group rejoin, and a captured-real replay with one stable millisecond point; and finishes with unchanged `vm_rows_invalid_total` plus complete process/container/network/volume cleanup. The shell scenarios use observable dependency and offset transitions; exact delayed-acceptance and revoke/lost races remain covered by deterministic Consumer tests.
 
+The authoritative Phase-12-02 container gate is `scripts/verify-compose.sh --observability`. It validates the Marshaller image and internal network, service-DNS dependencies, real administrator Metrics/Logs/Events queries, VM and transport failure isolation, Marshaller/Kafka/VM/Elasticsearch replacement, committed-offset and storage-volume recovery, and strongly owned cleanup. The focused `verify-marshaller.sh` remains useful for low-level delivery/replay regressions but is not the complete container-runtime proof.
+
 ## Application log storage
 
-Marshaller dispatches the shared Envelope v1 stream through explicit `metrics/redis`, `logs/backend`, `logs/business-worker`, `logs/search-indexer`, and `logs/search-reindex` targets. Every log payload is independently revalidated, must match its Envelope source, and is written idempotently with the Envelope message ID as `_id` to `gopulse-logs-v1-YYYY.MM.DD`. Permanently invalid records are committed without a storage call so the following record can continue; Elasticsearch transport or result uncertainty keeps the current offset uncommitted and preserves single-partition ordering. The fixed `gopulse-logs-v1-template` installs a strict mapping and the `gopulse-logs-v1-read` alias. `MARSHALLER_ELASTICSEARCH_URL` must be a loopback HTTP origin and should match the Backend `ELASTICSEARCH_URL`; the default request timeout is 3 seconds.
+Marshaller dispatches the shared Envelope v1 stream through explicit `metrics/redis`, `logs/backend`, `logs/business-worker`, `logs/search-indexer`, and `logs/search-reindex` targets. Every log payload is independently revalidated, must match its Envelope source, and is written idempotently with the Envelope message ID as `_id` to `gopulse-logs-v1-YYYY.MM.DD`. Permanently invalid records are committed without a storage call so the following record can continue; Elasticsearch transport or result uncertainty keeps the current offset uncommitted and preserves single-partition ordering. The fixed `gopulse-logs-v1-template` installs a strict mapping and the `gopulse-logs-v1-read` alias. `MARSHALLER_ELASTICSEARCH_URL` must be a loopback HTTP origin in host mode; container mode accepts the validated `http://elasticsearch:9200` origin used by Backend. The default request timeout is 3 seconds, and credentials, extra paths, query strings, fragments, fixed IPs, and control characters remain rejected.
 
 ## Lifecycle event storage
 

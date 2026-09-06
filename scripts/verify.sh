@@ -50,24 +50,26 @@ verify_owned_service() {
   [[ $project == "$PROJECT_NAME" && $label == "$service" && $working_dir == "$COMPOSE_WORKDIR" ]] || { fail "$service ownership labels mismatch"; return 1; }
   state=$(docker inspect --format '{{.State.Status}}' "$id")
   [[ $state == "$expected" ]] || fail "$service state is $state, expected $expected"
-  if [[ $service == frontend || $service == backend || $service == mysql || $service == redis || $service == rabbitmq || $service == elasticsearch ]]; then
-    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
-    [[ $health == healthy ]] || fail "$service health is $health"
-  fi
+  case $service in
+    mysql|redis|rabbitmq|elasticsearch|kafka|victoriametrics|router|marshaller|monitor|backend|frontend)
+      health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
+      [[ $health == healthy ]] || fail "$service health is $health"
+      ;;
+  esac
   pass "$service is label-owned and $state"
 }
 
-for service in mysql redis rabbitmq elasticsearch backend business-worker search-indexer frontend; do
+for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor backend business-worker search-indexer frontend; do
   verify_owned_service "$service" running
 done
-for service in migrate search-init; do
+for service in migrate search-init kafka-init; do
   id=$(service_id "$service")
   verify_owned_service "$service" exited
   [[ $(docker inspect --format '{{.State.ExitCode}}' "$id") == 0 ]] || fail "$service did not exit successfully"
   pass "$service completed successfully"
 done
 
-for service in mysql redis rabbitmq elasticsearch business-worker search-indexer; do
+for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor business-worker search-indexer; do
   id=$(service_id "$service")
   bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")
   [[ $bindings == null || $bindings == '{}' ]] || fail "$service unexpectedly publishes a host port"
@@ -79,7 +81,7 @@ for service in frontend backend; do
 done
 pass 'Only Frontend and Backend publish loopback ports.'
 
-for service in frontend backend business-worker search-indexer; do
+for service in frontend backend business-worker search-indexer router marshaller monitor; do
   id=$(service_id "$service")
   image=$(docker inspect --format '{{.Image}}' "$id")
   user=$(docker image inspect --format '{{.Config.User}}' "$image")
@@ -87,8 +89,18 @@ for service in frontend backend business-worker search-indexer; do
   [[ $user =~ ^[0-9]+:[0-9]+$ ]] || fail "$service image user is not a numeric uid:gid"
   [[ $image_version == "$VERSION" ]] || fail "$service image version $image_version does not match $VERSION"
 done
+exporter_user=$(docker image inspect --format '{{.Config.User}}' "gopulse/redis-exporter:$VERSION")
+exporter_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "gopulse/redis-exporter:$VERSION")
+[[ $exporter_user =~ ^[0-9]+:[0-9]+$ && $exporter_version == "$VERSION" ]] || fail 'Redis Exporter image metadata mismatch'
 pass "Application image users and version labels match $VERSION."
 
+compose exec -T backend /bin/sh -ec '
+  status=$(wget --quiet --header "Authorization: Bearer $MONITOR_API_TOKEN" --output-document=- http://monitor:9090/internal/v1/exporter-plugins/redis-exporter)
+  printf "%s" "$status" | grep -q "\"version\":\"'"$VERSION"'\""
+  printf "%s" "$status" | grep -q "\"desired_state\":\"running\""
+  printf "%s" "$status" | grep -q "\"observed_state\":\"running\""
+'
+pass 'Monitor restored the image-bundled Redis Exporter desired state.'
 compose --profile acceptance run --rm --no-deps acceptance e2e/compose-smoke.spec.ts
 pass 'Containerized production SPA/API smoke passed.'
 info 'Verification passed without changing persistent application state.'

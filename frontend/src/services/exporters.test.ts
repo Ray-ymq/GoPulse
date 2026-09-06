@@ -6,6 +6,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('exporter runtime boundary', () => {
   it('accepts the fixed public status and rejects unsafe data', () => {
     expect(isExporterStatus(status)).toBe(true)
+    expect(isExporterStatus({ ...status, last_error:{code:'publish_failed',message:'metrics message could not be published',at:'2026-09-05T08:02:00Z'} })).toBe(true)
     expect(isExporterStatus({ ...status, pid: 123 })).toBe(false)
     expect(isExporterStatus({ ...status, started_at: null })).toBe(false)
     expect(isExporterStatus({ ...status, last_error:{code:'private',message:'/tmp/secret',at:'2026-09-05T08:02:00Z'} })).toBe(false)
