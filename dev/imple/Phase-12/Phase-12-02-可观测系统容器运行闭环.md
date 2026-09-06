@@ -1,6 +1,6 @@
 # Phase-12-02：可观测系统容器运行闭环实施方案
 
-> 当前状态：本地实施与固定门禁已通过，待推送、Pull Request、远程门禁和主远程合入；因第 10 节要求尚未标记为“已完成”。本文档只定义第二个执行批次的范围与验收合同；目标版本、开发分支和执行顺序以 `Phase-12-总实施方案.md` 的权威分配表为准。
+> 当前状态：已完成。Pull Request #106 已于 2026-09-06 合入主远程 `main`，权威远程运行 `34010783067` 成功。本文档只定义第二个执行批次的范围与验收合同；目标版本、开发分支和执行顺序以 `Phase-12-总实施方案.md` 的权威分配表为准。
 
 ## 1. 批次目标
 
@@ -243,3 +243,9 @@ git diff --check
 - MySQL/Redis/RabbitMQ/Kafka/VM/ES/Monitor plugin 卷及直接容器替换、保留卷 down/up 证据。
 - 管理员 Metrics/Logs/Events/Exporter 真实浏览器闭环、普通用户隔离、Frontend network/bundle 安全和纯可观测故障局部降级证据。
 - 容器主验收入口、self-test、强归属清理和已通过的直接测试，收口批只补跨批证据和真实阻断修复。
+
+## 12. Phase-12-03 最终收口核对
+
+- Phase-12-03 从包含本批全部能力的 `upstream/main` 提交 `1e63bdd` 创建 `develop/1.9.3`，未沿用已删除的 `develop/1.9.2`。
+- Router、Marshaller、Monitor、Redis Exporter、完整可观测拓扑、受管插件卷和浏览器 DTO 在收口批未发生产品契约变更；本批成功证据由唯一完整 `scripts/verify-compose.sh` 在同一随机 project 中与社交闭环、故障隔离、容器替换和保留卷恢复共同复核。
+- `scripts/verify-compose.sh --observability` 仅作为兼容别名保留，不再作为独立或重复的阶段门禁。

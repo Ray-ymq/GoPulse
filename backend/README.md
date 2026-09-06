@@ -33,7 +33,7 @@ The Backend query identity must match the local VictoriaMetrics identity used by
 
 ## Browser and lifecycle acceptance
 
-Phase 11 established the administrator browser and trust-boundary contract with `scripts/verify-observability-ui.sh`. Phase-12-02 carries that contract into the complete container topology through `scripts/verify-compose.sh --observability`: Chromium reaches only Frontend/Backend, ordinary users remain denied before internal calls, administrators query real Metrics/Logs/Events and manage the Monitor-owned Exporter, and representative observability failures remain localized.
+Phase 11 established the administrator browser and trust-boundary contract with `scripts/verify-observability-ui.sh`. Phase-12-03 carries that contract into the authoritative full-stack topology through the no-argument `scripts/verify-compose.sh`: Chromium reaches only Frontend/Backend, ordinary users remain denied before internal calls, administrators query real Metrics/Logs/Events and manage the Monitor-owned Exporter, and representative business and observability failures recover inside one strongly owned project.
 
 ## Phase 12 container runtime contract
 
@@ -41,4 +41,4 @@ Direct source commands default to `GOPULSE_RUNTIME_MODE=host`, which retains loo
 
 `gopulse/backend:<VERSION>` runs `/usr/local/bin/server` by default and also contains `/usr/local/bin/migrate`, `/usr/local/bin/search-reindex`, and `/usr/local/bin/admin-role` for explicit one-shot Compose commands. `gopulse/business-worker:<VERSION>` and `gopulse/search-indexer:<VERSION>` are independent final images. All three runtime images use numeric UID/GID `10001:10001`, run the application as PID 1, and write version/revision/source OCI labels.
 
-The default Compose topology exposes no MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Monitor, Router, Marshaller, or Exporter host port. Use `scripts/dev.sh`, `scripts/verify.sh`, and `scripts/down.sh` for the daily complete container lifecycle, `scripts/verify-compose.sh --business` for the focused social/search regression, and `scripts/verify-compose.sh --observability` for the authoritative Phase-12-02 browser-backed closure. `deploy/compose.debug.yaml` exists only for historical source-level regression scripts.
+The default Compose topology exposes no MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Monitor, Router, Marshaller, or Exporter host port. Use `scripts/dev.sh`, `scripts/verify.sh`, and `scripts/down.sh` for the daily complete container lifecycle and the no-argument `scripts/verify-compose.sh` for the authoritative Phase 12 browser-backed closure. `--business` remains a focused social/search diagnostic, while `deploy/compose.debug.yaml` exists only for historical source-level regression scripts.

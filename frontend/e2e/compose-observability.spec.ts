@@ -145,6 +145,17 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
     return
   }
 
+  if (scenario === 'post-restart') {
+    await createSocialPost(page, 'post-restart')
+    await page.goto('/admin/observability/exporters')
+    await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 30_000 })
+    await waitForMetric(page)
+    await waitForLogs(page)
+    await waitForEvents(page)
+    expect(unexpected).toEqual([])
+    return
+  }
+
   if (scenario === 'vm-down') {
     await createSocialPost(page, 'vm-down')
     await page.goto('/admin/observability/metrics')
