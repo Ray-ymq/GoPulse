@@ -2,31 +2,25 @@
 
 ## 1. 项目目标
 
-GoPulse 是一个基于 Go 与 Kubernetes 构建的云原生社交内容平台。
+GoPulse 是一个以 Go 为核心、可独立运行并可部署到 Kubernetes 的社交内容与可观测平台。Kubernetes 是最终部署环境，不是业务系统或可观测系统成立的前提。
 
 项目最终由两部分组成：
 
-- **基础业务系统**：提供用户、帖子、评论、点赞等社交业务能力。
-- **可观测系统**：负责指标、日志、事件的采集、传输、清洗、存储与查询。
+- **基础业务系统**：提供用户资料、关注、Following 信息流、帖子、评论、点赞、收藏、通知与搜索。
+- **可观测系统**：负责指标、日志、事件的采集、传输、清洗、存储、查询与内部告警。
 
 项目不从一开始追求完整微服务化、复杂高可用或大规模生产能力，而是采用阶段式实现：
 
 ```text
 基础业务可运行
     ↓
-业务异步能力
+Metrics / Logs / Events 可观测链路
     ↓
-搜索与日志能力
+业务系统、插件、告警与双前端产品闭环
     ↓
-可观测采集链路
+跨平台交付与工程质量验收
     ↓
-统一数据处理链路
-    ↓
-跨平台产品化与多组件采集
-    ↓
-Kubernetes 部署
-    ↓
-完整 GoPulse
+Kubernetes 部署、统一入口与集群观测
 ```
 
 每个阶段必须满足两个条件：
@@ -37,20 +31,23 @@ Kubernetes 部署
 ## 1.1 执行平台与兼容边界
 
 - Phase 0 与 Phase-01-01 已按原跨平台策略完成，原生 Windows PowerShell 与 Bash 开发入口的共同能力基线截至产品版本 `0.2.1`；Phase-01-02 至 Phase 12 已在 WSL2/Linux 与 Bash 主路径完成。
-- Phase 13 是明确的跨平台产品化阶段。它必须以真实环境验证至少 Linux `amd64`、macOS `arm64` 与 Windows `amd64`，不能只靠交叉编译、Compose 静态解析或 WSL 内运行宣称 macOS/Windows 支持。
+- Phase 13～Phase 15 先在既有 Compose 基线上补齐业务、插件、告警和双前端产品能力；这些能力不得依赖 Kubernetes 才能运行或验收。
+- Phase 16 是明确的跨平台产品化阶段。它必须以真实环境验证至少 Linux `amd64`、macOS `arm64` 与 Windows `amd64`，不能只靠交叉编译、Compose 静态解析或 WSL 内运行宣称 macOS/Windows 支持。
 - macOS 与 Windows 的产品运行方式以 Linux 容器和共享生命周期实现为基础；不要求 MySQL、Kafka、Elasticsearch 或 GoPulse 自研组件成为原生 Windows Service 或 macOS LaunchDaemon。
-- 用户应能从 macOS Terminal 与 Windows PowerShell/Terminal 调用受支持入口。现有 `scripts/*.ps1` 继续作为 `0.2.1` 历史快照，不扩展为与 Bash 重复的第二套编排实现；如有必要，可由 Phase 13 新增名称明确的薄启动器。
-- Phase 14 至 Phase 17 回到 WSL2/Linux 作为 Kubernetes 实施、应用测试与集成验收主环境，并在直接影响镜像或用户入口时回归 Phase 13 已交付的多架构与跨平台契约；不要求 Kubernetes 集群本身原生运行在 macOS 或 Windows。
+- 用户应能从 macOS Terminal 与 Windows PowerShell/Terminal 调用受支持入口。现有 `scripts/*.ps1` 继续作为 `0.2.1` 历史快照，不扩展为与 Bash 重复的第二套编排实现；如有必要，可由 Phase 16 新增名称明确的薄启动器。
+- Phase 17 在完整 Compose 产品上完成 Kubernetes 前的工程质量验收。
+- Phase 18 至 Phase 20 才进入 Kubernetes 实施，使用 WSL2/Linux 作为主环境，并在直接影响镜像或用户入口时回归 Phase 16 已交付的多架构与跨平台契约；不要求 Kubernetes 集群本身原生运行在 macOS 或 Windows。
 - 平台适配不降低业务、数据、安全、故障恢复、Linux CI、Docker 或 Kubernetes 验收标准。
 
 ## 1.2 用户态与访问边界
 
-- GoPulse 只有一套用户、注册、登录和会话系统，但提供两种产品使用态：普通用户使用社交业务域，管理员在保留社交能力的同时使用可观测管理域。
-- `admin` 是 `user` 的权限超集而不是第二套公开身份；作者摘要、帖子、评论、通知、搜索和公开缓存不得暴露管理员角色。
-- Metrics、Logs、Events 查询及 Exporter 管理全部属于管理员能力，必须由 Backend 根据数据库当前角色授权；未登录返回 `401`，普通用户返回 `403 permission_denied`。
-- Frontend 的管理导航和路由守卫只负责体验，不能替代 Backend 授权；普通用户直接构造管理 URL 或 API 请求仍不得获得可观测数据。
+- GoPulse 只有一套用户、注册、登录和会话系统，但从 Phase 15 起提供两个独立 Frontend 应用：普通用户端与超级管理员端。
+- 最终角色只有 `user` 与 `super_admin`。系统保留一个不可删除、不可降级的引导超级管理员，并允许多个超级管理员；任一超级管理员可按用户 ID 调整非引导账号角色。
+- 同一域名提供统一登录入口，Backend 根据数据库当前角色决定进入哪个 Frontend；作者摘要、帖子、评论、通知、搜索和公开缓存不得暴露角色。
+- Metrics、Logs、Events、Alerts 查询及 Exporter 管理全部属于超级管理员能力，必须由 Backend 授权；未登录返回 `401`，普通用户返回 `403 permission_denied`。
+- 两个 Frontend 的分流、导航和路由守卫只负责体验，不能替代 Backend 授权。
 - Monitor、Message Router、Marshaller、Kafka、VictoriaMetrics、Elasticsearch、数据库和 Kubernetes 内部接口不面向浏览器，只接受独立服务身份并保持受控网络边界。
-- 可观测链路故障不得不必要地阻断普通用户社交业务；Phase 6～17 的总实施方案、验收和部署必须持续验证身份隔离、内部服务不暴露和安全错误响应。
+- 可观测链路故障不得不必要地阻断普通用户社交业务；Phase 6～Phase 20 的总实施方案、验收和部署必须持续验证身份隔离、内部服务不暴露和安全错误响应。
 
 ---
 
@@ -60,6 +57,8 @@ Kubernetes 部署
 
 - TypeScript
 - Vue 3
+- 独立用户 Frontend
+- 独立管理 Frontend
 
 ## 后端
 
@@ -90,7 +89,7 @@ Kubernetes 部署
 - Marshaller
 - Exporter Plugins
 
-## 部署环境
+## 运行与部署环境
 
 - Docker
 - Kubernetes
@@ -103,7 +102,8 @@ Master
 └── Kubernetes Control Plane
 
 Worker-1
-├── Frontend
+├── 用户 Frontend
+├── 管理 Frontend
 └── Go Backend
 
 Worker-2
@@ -127,21 +127,24 @@ Worker-3
 
 # 3. 实施原则
 
-## 3.1 先完成业务，再建设可观测系统
+## 3.1 先完成产品闭环，再迁移部署环境
 
 GoPulse 首先必须是一个能够使用的社交平台。
 
 如果没有真实业务流量、业务日志和基础组件，可观测系统本身没有实际观测对象。
 
-因此实现顺序固定为：
+既有可观测链路建立后，必须继续补齐业务、插件、告警和用户界面，先证明整个产品在 Compose 中能够独立运转。Kubernetes 只负责把同一产品迁移到新的部署环境，不允许承接尚未完成的产品功能。
+
+因此后续顺序固定为：
 
 ```text
-业务系统
-→ 基础组件
-→ 业务数据
-→ 可观测数据
-→ 跨平台可交付产品
-→ Kubernetes
+既有业务与可观测链路
+→ 业务基础系统闭环
+→ 插件与组件可观测闭环
+→ 内部告警与独立管理端
+→ 跨平台双前端产品
+→ 工程质量验收
+→ Kubernetes 部署与集群观测
 ```
 
 ---
@@ -232,7 +235,7 @@ events  → Elasticsearch
 
 组件管理、插件下发、采集控制、数据查询等逻辑全部由 Go Backend 负责。
 
-可观测页面只向管理员开放。Frontend 可以依据当前用户 role 控制导航与路由，但所有查询和管理操作仍由 Backend 执行最终 admin 授权。
+用户 Frontend 与管理 Frontend 是两个独立应用，但共用 Backend、身份数据和同源会话。可观测页面只向超级管理员开放；登录分流、导航和路由守卫不能替代 Backend 授权。
 
 ---
 
@@ -243,9 +246,8 @@ GoPulse 的五个里程碑分别交付一次可独立运行、验证和使用的
 - Milestone 1 交付业务系统 MVP，对应 Phase 0～Phase 3。
 - Milestone 2 交付指标采集 MVP，对应 Phase 4～Phase 8。
 - Milestone 3 交付完整可观测 MVP，对应 Phase 9～Phase 11。
-- Milestone 4 交付跨平台可交付可观测产品 MVP，对应 Phase 12～Phase 13。
-- Milestone 5 交付云原生自观测 MVP，对应 Phase 14～Phase 16。
-- Phase 17 不定义新的 MVP，只作为五个 MVP 既有能力的最终工程质量门槛。
+- Milestone 4 交付完整可交付产品 MVP，对应 Phase 12～Phase 17：业务、可观测、插件、告警、双前端、跨平台和工程质量全部在 Kubernetes 之前闭环。
+- Milestone 5 交付 Kubernetes 部署与自观测 MVP，对应 Phase 18～Phase 20，只迁移和观察已经完成的产品。
 
 每个 Phase 的总实施方案必须优先形成当前阶段对所属里程碑的最小端到端贡献，并遵循以下切分规则：
 
@@ -1242,29 +1244,45 @@ Docker Compose
 
 ---
 
-# 17. Phase 13：跨平台产品化与插件扩展
+# 17. Phase 13：业务基础系统与用户端闭环
 
 ## 目标
 
-在 Phase 12 完整 Compose 基线上，将 GoPulse 提升为可在 Linux、macOS 与 Windows 宿主上交付、操作、诊断、升级和恢复的产品，并补齐普通用户、管理员和多组件指标采集体验。
+在既有用户、帖子、评论、点赞、通知和搜索基础上，补齐一个参考 X 但主动删减后的社交业务闭环。
 
-跨平台支持采用：
+本阶段只实现：
 
-```text
-macOS Terminal / Windows PowerShell 或 Terminal / Linux Shell
-   ↓
-共享产品生命周期入口
-   ↓
-Docker Desktop / Docker Engine
-   ↓
-GoPulse Linux 容器
-```
+- 显示名称与个人介绍。
+- 用户资料页展示基本资料和该用户发布的帖子，但不公开其关注与粉丝列表。
+- 按登录用户名或显示名称搜索用户。
+- 从作者、搜索结果或资料页关注/取消关注。
+- 仅包含已关注用户帖子的 Following 信息流。
+- 新增关注进入既有通知中心，取消关注不产生通知。
+- 仅本人可见的关注、粉丝和收藏关系。
+- 帖子收藏/取消收藏。
+- 帖子编辑：只保存最新内容并记录最后编辑时间。
+- 帖子永久删除：二次确认后清理评论、点赞、收藏、缓存和搜索投影，历史通知保留为“原内容已删除”。
+- 独立用户 Frontend 的首页、Following、搜索、收藏、资料和帖子管理主路径。
 
-不将 MySQL、Kafka、Elasticsearch 或 GoPulse 自研组件改造为原生 Windows Service 或 macOS LaunchDaemon。最小真实支持矩阵包含 Linux `amd64`、macOS `arm64` 和 Windows `amd64`；全部自研镜像与受管插件形成 `linux/amd64`、`linux/arm64` 制品。
+## 验收标准
 
-## 插件扩展
+- 上述业务可在现有 Compose 系统独立运行，不依赖 Kubernetes。
+- 作者权限、关系隐私、关系幂等、缓存/搜索一致性和永久删除边界均可验证。
+- 既有注册、登录、评论、点赞、通知、搜索和管理员可观测能力不回归。
 
-在保持 Exporter 常驻、被动拉取、不保存历史数据的前提下，将 Redis 专用 Plugin Manager 扩展为可管理多种官方插件：
+## 不做
+
+图片、视频、私信、转发、引用、话题、趋势、推荐算法、广告、付费、私密账号、关注审批、拉黑、举报治理及公开关注/粉丝列表均不进入本阶段。
+
+---
+
+# 18. Phase 14：插件体系与组件可观测闭环
+
+## 目标
+
+把 Redis Exporter 原型扩展为六类官方单实例插件，并补齐 GoPulse 自研组件指标。
+
+官方插件固定为：
 
 ```text
 Redis
@@ -1275,7 +1293,7 @@ Elasticsearch
 VictoriaMetrics
 ```
 
-本阶段固定使用：
+固定实例模型：
 
 ```text
 一种插件
@@ -1283,217 +1301,107 @@ VictoriaMetrics
 → 一个采集目标
 ```
 
-可同时运行多种插件，但不允许同一插件创建第二实例或采集第二个同类目标。多实例能力只保留独立未来设计，不进入 Phase 13 实现和验收。
+本阶段建立受限 Manifest、兼容与完整性校验、配置 Schema、Secret 隔离、安装/启停/更新/回滚和重启恢复，并让六类真实指标继续经过 Monitor、Router、Kafka、Marshaller、VictoriaMetrics 和 Backend。
 
-## 前端产品化
+Backend、Business Worker、Search Indexer、Monitor、Router 与 Marshaller 同时提供有限、稳定、低基数的运行指标。
 
-普通用户域统一注册、登录、帖子、评论、点赞、搜索与通知的视觉层级、响应式布局和完整状态反馈。
+## 验收标准
 
-管理员域提供：
+- 六类官方插件各自对一个真实目标产生可查询指标。
+- 同类第二实例和第二目标在服务端被拒绝。
+- 一种插件失败不影响其他插件、历史数据或社交业务。
+- Secret、完整连接串和内部进程信息不进入公共 API、日志或事件。
+- 自研组件指标可被统一查询，且不使用业务 ID 级高基数标签。
 
-- 多组件指标总览与基础趋势图。
-- Logs、Events 与组件状态导航。
-- 安全自动刷新、暂停和过期数据标识。
-- 按组件类型管理单实例 Exporter 的配置、连接测试、安装、启停和更新结果。
-- 桌面、窄屏、键盘焦点、长文本、时区与局部故障体验。
+## 不做
 
-Frontend 仍不承担授权、插件执行、查询构造或 Secret 管理；所有管理操作由 Backend 最终授权并代理到 Monitor。
+同类多实例、单实例多目标、目标自动发现、第三方插件、插件市场、告警和 Kubernetes 不进入本阶段。
+
+---
+
+# 19. Phase 15：告警与管理端闭环
+
+## 目标
+
+建立独立管理 Frontend、内部告警闭环和最终双角色模型。
+
+角色固定为：
+
+```text
+user
+super_admin
+```
+
+系统保留一个不可删除、不可降级的引导超级管理员。可存在多个超级管理员；任一超级管理员可以按用户 ID 提升或降级非引导账号。
+
+用户端与管理端共用 Backend、用户数据库、统一登录和同源会话，但使用两个独立 Frontend 应用。超级管理员进入管理端后默认看到可观测大屏。
+
+## 管理端范围
+
+- 业务与组件运行状态。
+- Metrics、Logs、Events 查询。
+- 六类插件状态与生命周期操作。
+- 当前告警、近期告警记录和规则管理。
+- 按用户 ID 调整角色。
+- 权限与管理操作审计事件。
+
+告警形成：
+
+```text
+Metrics / Logs / Events
+→ 规则评估
+→ 触发 / 持续 / 恢复
+→ 管理大屏与历史记录
+```
+
+告警只在管理后台内部呈现，不发送邮件、短信、Webhook 或其他外部通知。
+
+## 验收标准
+
+- 普通用户只能进入用户端，管理页面和 API 由 Backend 拒绝。
+- 超级管理员登录后默认进入管理大屏。
+- 引导超级管理员受到保护，其他账号角色调整及时生效且可审计。
+- 三类数据均能触发和恢复代表性告警，重复评估不会产生无界重复记录。
+- 告警或可观测依赖故障不阻断社交业务。
+
+---
+
+# 20. Phase 16：跨平台产品化与双前端交付
+
+## 目标
+
+把完整业务与可观测能力提升为可在 Linux、macOS 与 Windows 宿主上安装、运行、升级、诊断和恢复的双前端 Compose 产品。
+
+支持方式：
+
+```text
+统一域名与登录入口
+        ↓
+Backend 读取数据库当前角色
+   ├── user        → 独立用户 Frontend
+   └── super_admin → 独立管理 Frontend
+```
+
+最小真实矩阵固定包含 Linux `amd64`、macOS `arm64` 与 Windows `amd64`；自研容器、两个 Frontend 和六类插件形成 `linux/amd64`、`linux/arm64` 制品。
 
 ## 产品交付能力
 
-提供统一的初始化、启动、停止、状态、日志、验证和环境诊断入口，并建立：
-
-- 从完成版本 `1.9.4` 到 Phase 13 版本的可重复升级路径。
-- 受管数据与配置的最小一致备份和恢复能力。
-- 脱敏诊断摘要。
-- 多架构镜像和插件制品的版本、来源与完整性核对。
-- 正常、失败和中断路径的强归属资源清理。
-
-## 验收标准
-
-- 三类最小真实宿主/架构均能从干净资源启动完整 GoPulse，不依赖宿主 Go、Node.js 或基础设施安装。
-- 六种组件各由一个单实例插件产生真实指标，其中一种失败不影响其他插件和社交业务。
-- GoPulse 自研组件具有有限、稳定的基础运行指标，不使用业务 ID 级高基数标签。
-- 普通用户与管理员可在桌面和窄屏完成各自代表性流程，权限边界保持 `401/403/admin success`。
-- 从 `1.9.4` 升级以及隔离备份恢复后，业务、搜索、可观测历史和 Redis 插件期望状态保持可用。
-- 浏览器、API、日志、Events、诊断和制品元数据不泄漏凭据、完整连接串、宿主路径或内部进程事实。
-
-达到上述条件后完成 Milestone 4“跨平台可交付可观测产品 MVP”。多实例、告警、公开插件市场、Kubernetes 自动发现和生产级高可用不在本阶段实施。
-
----
-
-# 18. Phase 14：Kubernetes 基础部署
-
-## 目标
-
-把 Docker 环境迁移到 Kubernetes。
-
-初期不追求复杂高可用。
-
-集群：
-
-```text
-1 Master
-3 Worker
-```
-
-## 第一阶段部署对象
-
-无状态组件使用：
-
-```text
-Deployment
-Service
-```
-
-例如：
-
-```text
-Frontend
-Backend
-Monitor
-Router
-Marshaller
-Exporter Plugins
-```
-
-有状态基础设施根据项目学习目标逐步使用：
-
-```text
-StatefulSet
-PVC
-Service
-```
-
-不要求一次性全部改成复杂 StatefulSet。
-
-## 节点规划
-
-### Worker-1
-
-```text
-Frontend
-Backend
-Business Worker
-```
-
-### Worker-2
-
-```text
-MySQL
-Redis
-RabbitMQ
-```
-
-### Worker-3
-
-```text
-Kafka
-VictoriaMetrics
-Elasticsearch
-Monitor
-Message Router
-Marshaller
-Exporter
-```
-
-通过：
-
-```text
-nodeSelector
-```
-
-或节点标签控制调度。
+- 共享的初始化、启动、停止、状态、日志、验证和脱敏诊断入口。
+- 同一域名、同源会话和两个独立 Frontend 的安全分流。
+- 两端统一视觉基础、桌面/窄屏、加载/空/错误/过期状态、键盘焦点和时区表现。
+- 从 `1.9.4` 到本阶段的可重复升级路径。
+- 业务、可观测、插件、角色、告警和配置的最小一致备份/恢复。
+- 正常、失败与中断路径的强归属资源清理。
 
 ## 验收标准
 
-完整 GoPulse 可以脱离 Docker Compose，在 Kubernetes 中运行。
+- 三类真实宿主均可启动完整系统，不要求宿主安装 Go、Node.js 或基础设施。
+- 同一域名与统一登录可按角色进入正确的独立 Frontend，越权由 Backend 拒绝。
+- 用户端和管理端各自完成代表性闭环。
+- 升级与隔离恢复后，业务事实和管理状态保持一致或可重建。
+- 诊断、日志、API、Frontend bundle 和制品元数据不泄漏敏感信息。
 
-所有组件通过 Service 名称通信，不使用固定 Pod IP。
-
----
-
-# 19. Phase 15：Ingress 与统一入口
-
-## 目标
-
-提供统一 HTTP 入口。
-
-访问结构：
-
-```text
-Browser
-   ↓
-Ingress Controller
-   ↓
-Ingress
-   ↓
-Frontend / Backend Service
-```
-
-例如：
-
-```text
-gopulse.local/
-gopulse.local/api/
-```
-
-原则：
-
-- 外部只暴露必要入口。
-- MySQL、Redis、Kafka、ES、VM 等基础组件不得直接暴露公网。
-- 内部组件通过 ClusterIP Service 通信。
-
-## 验收标准
-
-用户只需要一个访问地址即可使用 GoPulse。
-
-无需直接访问 NodePort。
-
----
-
-# 20. Phase 16：Kubernetes 可观测闭环
-
-## 目标
-
-让 GoPulse 的可观测系统开始观测运行 GoPulse 自身的 Kubernetes 环境。
-
-此时真正形成：
-
-```text
-GoPulse
-   ↓
-运行在 Kubernetes
-   ↓
-GoPulse Monitor
-   ↓
-观测 GoPulse 自己
-```
-
-Phase 13 已交付的单实例组件插件迁移到 Kubernetes Service 目标，并新增代表性集群采集对象：
-
-```text
-Kubernetes Node
-Kubernetes Pod
-Kubernetes Workload 状态与事件
-```
-
-插件仍集中部署在 Worker-3。
-
-插件通过 Kubernetes Service 或目标地址连接其他节点上的组件。
-
-## 验收标准
-
-GoPulse 页面可以同时看到：
-
-```text
-业务运行状态
-组件指标
-业务日志
-系统事件
-```
-
-完整形成项目闭环。
+本阶段仍不创建 Kubernetes 资源。
 
 ---
 
@@ -1501,360 +1409,238 @@ GoPulse 页面可以同时看到：
 
 ## 目标
 
-在五个里程碑 MVP 的主要架构闭环完成之后，统一强化既有组件的工程质量。
+在完整 Compose 产品上统一配置、退出、健康检查、错误处理、Migration、消息消费与告警评估可靠性，形成 Kubernetes 前的最终产品验收。
 
-本阶段是最终质量门槛，不定义新的 MVP，也不把各阶段正常运行所必需的基础正确性延后到这里。前序阶段已经实现的配置、退出、健康检查、Migration 和消息可靠性能力在此统一契约、补齐差异并完成跨组件验证。
+重点包括：
 
-优先处理：
-
-### 配置管理
-
-统一环境变量和配置结构。
-
-### Graceful Shutdown
-
-所有 Go 服务支持：
-
-```text
-SIGTERM
-SIGINT
-```
-
-优雅退出。
-
-### Health Check
-
-统一：
-
-```text
-/health
-/ready
-```
-
-### Kubernetes Probe
-
-配置：
-
-```text
-startupProbe
-readinessProbe
-livenessProbe
-```
-
-### 日志规范
-
-统一结构化日志。
-
-### Request ID
-
-实现请求链路标识。
-
-### 错误码
-
-Backend API 建立统一错误响应。
-
-### 数据库 Migration
-
-建立明确 Schema Migration。
-
-### Kafka Consumer
-
-处理：
-
-```text
-offset
-retry
-异常消息
-```
-
-### RabbitMQ Consumer
-
-处理：
-
-```text
-ack
-retry
-幂等
-```
+- 统一环境变量与配置结构。
+- 所有 Go 服务的 SIGTERM/SIGINT 优雅退出。
+- 可直接供后续 Probe 使用的启动、存活和就绪契约。
+- 结构化日志、Request ID 和统一 API 错误。
+- Schema Migration。
+- Kafka offset、重试和异常消息处理。
+- RabbitMQ ack、重试和幂等。
+- 告警评估的恢复、重复抑制和故障隔离。
+- 两个 Frontend 与 `user`/`super_admin` 权限矩阵的最终回归。
 
 ## 验收标准
 
-组件发生正常重启时不会造成明显的数据混乱。
-
-错误能够通过日志和状态接口定位。
+- 完整业务系统、可观测系统、插件、告警和两个 Frontend 在 Compose 中共同运行。
+- 服务重启、依赖短暂故障和数据迁移不会造成明显数据混乱或权限降级。
+- 引导超级管理员保护与角色调整在重启后保持正确。
+- 错误可通过安全日志和状态接口定位。
+- 达到验收标准后完成 Milestone 4；Kubernetes 不参与本里程碑成立条件。
 
 ---
 
-# 22. 最终完整架构
+# 22. Phase 18：Kubernetes 基础部署
+
+## 目标
+
+把 Phase 17 已完成的产品迁移到 `1 Master + 3 Worker` Kubernetes 集群。Kubernetes 只改变部署位置与编排方式，不增加或补做产品功能。
+
+部署对象包含：
+
+- 用户 Frontend 与管理 Frontend。
+- Backend、Business Worker、Search Indexer。
+- Monitor、Router、Marshaller 和六类单实例插件。
+- MySQL、Redis、RabbitMQ、Kafka、VictoriaMetrics、Elasticsearch。
+
+无状态组件使用 Deployment/Service；有状态组件使用与本阶段风险相称的持久化资源。所有组件通过 Service DNS 通信，不使用固定 Pod IP。
+
+## 验收标准
+
+- 完整 GoPulse 脱离 Compose 在目标集群共同运行，集群内不编译源码。
+- 普通用户和超级管理员的代表性流程与 Phase 17 一致。
+- 代表性 Pod 重建后，持久状态满足保留或可重建契约。
+- 浏览器不能直达内部组件，Secret 不进入 Frontend、日志或公共 API。
+- Kubernetes 资源中不存在补偿产品缺口的临时旁路。
+
+---
+
+# 23. Phase 19：Ingress 与统一入口
+
+## 目标
+
+为 Kubernetes 中的 GoPulse 提供单一 HTTP 入口，保持 Phase 16 已形成的同域登录和双前端产品模型。
+
+访问结构：
+
+```text
+Browser
+   ↓
+Ingress
+   ├── 统一登录
+   ├── 用户 Frontend
+   ├── 管理 Frontend
+   └── Backend API
+```
+
+内部基础设施、自研服务和插件继续只通过集群内部 Service 通信。
+
+## 验收标准
+
+- 用户只需要一个域名，不直接访问 NodePort。
+- 登录、会话恢复、退出和角色变化后的重新分流正确。
+- 两个独立 Frontend 的资源和路由互不混淆。
+- 普通用户不能加载管理数据；超级管理员可完成大屏、插件、告警和权限管理。
+- 内部组件不对外暴露，可观测故障不阻断代表性社交路径。
+
+---
+
+# 24. Phase 20：Kubernetes 可观测集成
+
+## 目标
+
+让已经完整运行的 GoPulse 观测其 Kubernetes 部署环境，而不是依赖 Kubernetes 才形成业务或可观测产品闭环。
+
+本阶段：
+
+- 六类官方单实例插件连接集群内组件 Service。
+- 自研组件既有指标在 Kubernetes 形态下继续采集。
+- 增加代表性 Node、Pod、Workload 状态与事件，使用最小只读 RBAC。
+- 将集群指标、日志、事件和告警接入既有 Backend 与独立管理 Frontend。
+- 管理大屏区分业务、组件、采集链路和 Kubernetes 状态。
+
+## 验收标准
+
+- 六类组件、自研服务和代表性 Kubernetes 对象均产生真实可查询数据。
+- 代表性集群异常可触发并恢复内部告警。
+- Kubernetes API 权限仅覆盖已验收只读对象，不读取或返回 Secret。
+- 普通用户不能访问集群数据；超级管理员经统一入口查看大屏和告警。
+- 自观测退化不阻断社交业务，也不改变 Phase 17 已验收的产品语义。
+
+达到条件后完成 Milestone 5。全面集群监控、自动修复、跨集群采集、生产级 HA 和完整 SRE 进入独立后续规划。
+
+---
+
+# 25. 最终完整架构
+
+身份与用户入口：
+
+```text
+统一登录
+   ↓
+Go Backend
+   ├── user        → 用户 Frontend
+   └── super_admin → 管理 Frontend
+```
 
 业务链路：
 
 ```text
-Frontend
+用户 Frontend
    ↓
 Go Backend
-   ├────────────→ Redis
-   ├────────────→ MySQL
-   ├────────────→ Elasticsearch Search
-   │
-   └→ RabbitMQ
-        ↓
-   Business Worker
-        ↓
-      MySQL
+   ├── MySQL：用户、关注、收藏、帖子、评论、点赞、通知
+   ├── Redis：缓存
+   ├── Elasticsearch：可重建搜索投影
+   └── RabbitMQ → Business Worker
 ```
 
-Metrics 链路：
+可观测链路：
 
 ```text
-Component
-   ↓
-Exporter
-   ↑ Pull
-MetricsMonitor
-   ↓
-Message Router
-   ↓
-Kafka
-   ↓
-Marshaller
-   ↓
-VictoriaMetrics
-```
-
-Logs 链路：
-
-```text
-Go Backend / Components
-   ↓ Push
-LogMonitor
-   ↓
-Message Router
-   ↓
-Kafka
-   ↓
-Marshaller
-   ↓
-Elasticsearch
-```
-
-Events 链路：
-
-```text
-Components / GoPulse
-   ↓ Push
-EventMonitor
-   ↓
-Message Router
-   ↓
-Kafka
-   ↓
-Marshaller
-   ↓
-Elasticsearch
-```
-
-查询链路：
-
-```text
-Frontend
-   ↓
-Go Backend
-   ├── VictoriaMetrics
-   └── Elasticsearch
-```
-
-管理链路：
-
-```text
-Frontend
-   ↓
-Go Backend
+六类 Exporter / GoPulse 组件 / Kubernetes 对象
    ↓
 Monitor
    ↓
-Exporter Plugins
+Message Router
+   ↓
+Kafka
+   ↓
+Marshaller
+   ├── metrics → VictoriaMetrics
+   └── logs / events → Elasticsearch
 ```
 
----
-
-# 23. 阶段依赖关系
+查询与告警：
 
 ```text
-Phase 0  工程骨架
+VictoriaMetrics / Elasticsearch
    ↓
-Phase 1  最小业务闭环
+Go Backend
+   ├── 告警规则评估与内部记录
+   └── 管理 Frontend 大屏
+```
+
+Frontend 不直连 Monitor、插件、Kafka、VictoriaMetrics、Elasticsearch、数据库或 Kubernetes API。
+
+---
+
+# 26. 阶段依赖关系
+
+```text
+Phase 0～12  已完成的业务、可观测与 Compose 基线
    ↓
-Phase 2  RabbitMQ 业务异步
+Phase 13 业务基础系统与用户端闭环
    ↓
-Phase 3  Elasticsearch 搜索
+Phase 14 插件体系与组件可观测闭环
    ↓
-Phase 4  结构化业务日志
+Phase 15 告警与管理端闭环
    ↓
-Phase 5  Exporter
+Phase 16 跨平台产品化与双前端交付
    ↓
-Phase 6  Monitor
+Phase 17 稳定性与工程化（完整产品验收）
    ↓
-Phase 7  Message Router + Kafka
+Phase 18 Kubernetes 基础部署
    ↓
-Phase 8  Marshaller + VictoriaMetrics
+Phase 19 Ingress 与统一入口
    ↓
-Phase 9  LogMonitor
-   ↓
-Phase 10 EventMonitor
-   ↓
-Phase 11 可观测前端
-   ↓
-Phase 12 Docker
-   ↓
-Phase 13 跨平台产品化与插件扩展
-   ↓
-Phase 14 Kubernetes
-   ↓
-Phase 15 Ingress
-   ↓
-Phase 16 Kubernetes 可观测闭环
-   ↓
-Phase 17 工程化与稳定性
+Phase 20 Kubernetes 可观测集成
 ```
 
 ---
 
-# 24. 关键里程碑
+# 27. 关键里程碑
 
 ## Milestone 1：业务系统 MVP
 
-完成：
-
-```text
-Phase 0 ~ Phase 3
-```
-
-此时项目具备：
-
-- 用户
-- 帖子
-- 评论
-- 点赞
-- RabbitMQ 异步任务
-- Elasticsearch 全文搜索
-
-该 MVP 证明 GoPulse 已是一个能够独立使用的社交业务系统。Phase 3 完成本里程碑验收后发布 `1.0.0`。
-
----
+Phase 0～Phase 3 完成用户、帖子、评论、点赞、通知和搜索的第一版可用业务系统，并以 `1.0.0` 收口。
 
 ## Milestone 2：指标采集 MVP
 
-完成：
-
-```text
-Phase 4 ~ Phase 8
-```
-
-此时：
-
-```text
-Component
-→ Exporter
-→ Monitor
-→ Router
-→ Kafka
-→ Marshaller
-→ VictoriaMetrics
-```
-
-完整运行。
-
-该 MVP 证明 GoPulse 能够采集真实组件指标，并通过自研传输与处理链路完成存储和查询。这是整个项目最重要的技术里程碑。
-
----
+Phase 4～Phase 8 完成 Exporter、Monitor、Router、Kafka、Marshaller 与 VictoriaMetrics 指标链路。
 
 ## Milestone 3：完整可观测 MVP
 
-完成：
+Phase 9～Phase 11 完成 Metrics、Logs、Events 查询和第一版管理体验。
 
-```text
-Phase 9 ~ Phase 11
-```
+## Milestone 4：完整可交付产品 MVP
 
-此时具有：
+Phase 12～Phase 17 完成：
 
-```text
-Metrics
-Logs
-Events
-```
+- 可运行的 Compose 基线。
+- 关注、Following、收藏、帖子编辑/删除和独立用户端。
+- 六类官方单实例插件与自研组件指标。
+- 内部告警、双角色和独立管理端大屏。
+- 同域登录、双前端跨平台交付、升级、备份和恢复。
+- Kubernetes 前的统一工程质量验收。
 
-三条链路。
+该里程碑证明 GoPulse 自身已经完整运转。Kubernetes 不是其完成条件。
 
-并能够通过前端进行统一查询和管理。
+## Milestone 5：Kubernetes 部署与自观测 MVP
 
-该 MVP 证明 Metrics、Logs、Events 三类数据及插件管理能力已形成面向管理员的完整可观测体验，同时普通用户社交域保持隔离和可用。
+Phase 18～Phase 20 将 Milestone 4 的同一产品迁移到 Kubernetes，提供统一 Ingress，并接入代表性集群对象的可观测数据和内部告警。
 
----
-
-## Milestone 4：跨平台可交付可观测产品 MVP
-
-完成：
-
-```text
-Phase 12 ~ Phase 13
-```
-
-完整业务与可观测系统以容器方式运行，并可在支持的 Linux、macOS 与 Windows 宿主上通过统一入口交付。
-
-管理员可以通过产品化界面管理 Redis、MySQL、RabbitMQ、Kafka、Elasticsearch 与 VictoriaMetrics 等单实例插件，并查看多组件 Metrics、Logs 与 Events；普通用户继续使用完整社交域。
-
-该 MVP 证明 GoPulse 已从工程环境中的 Compose 系统演进为可安装、诊断、升级和恢复的跨平台可观测产品。每种插件仍严格限制为一个实例和一个目标，多实例不属于本里程碑。
+该里程碑只证明部署与集群观测能力，不重新定义业务、插件、告警或前端产品范围。
 
 ---
 
-## Milestone 5：云原生自观测 MVP
+# 28. 当前执行起点
 
-完成：
-
-```text
-Phase 14 ~ Phase 16
-```
-
-整个项目运行在 Kubernetes，并由自己的 Monitor、Exporter、Kafka、Marshaller、VM 与 ES 观察业务、组件和代表性集群对象。
-
-最终形成：
-
-```text
-业务系统
-   ↓
-运行
-   ↓
-产生指标 / 日志 / 事件
-   ↓
-GoPulse 可观测系统
-   ↓
-采集与分析
-   ↓
-GoPulse 前端
-```
-
-这才是 GoPulse 的最终闭环。
-
-该 MVP 证明完整系统可在 Kubernetes 中运行，并能通过 GoPulse 自身的可观测链路观察业务、组件和集群对象。Phase 17 在此基础上执行最终工程质量收口，不扩展新的 MVP 范围。
-
----
-
-# 25. 当前执行起点
-
-Phase 12 及其实现 Review 整改已经完成，当前完成产品版本为：
+Phase 12 及其 Review 整改已经完成，当前完成产品版本为：
 
 ```text
 1.9.4
 ```
 
-Phase 12 的实施范围、验收结论、实施方案和实施记录均保持完成时状态。新增 Phase 13 只调整其后的执行路线，不重新打开 Phase 12，也不要求重跑或改写 Phase 12 验收。
+Phase 12 的实施范围、验收结论、实施方案和实施记录保持完成时状态，不追溯改写。
 
 下一阶段是：
 
 ```text
-Phase 13 跨平台产品化与插件扩展
+Phase 13 业务基础系统与用户端闭环
 ```
 
-Phase 13 实施前必须基于最新主远程和 `1.9.4` 真实代码生成总实施方案，先确定可用的 macOS/Windows/Linux 验收环境、批次顺序、目标版本和 `develop/x.x.x` 分支。规划文档完成本身不代表 Phase 13 产品能力已经开始或完成。
+Phase 13 实施前必须基于最新主远程和 `1.9.4` 真实代码生成总实施方案，确定批次顺序、目标版本和 `develop/x.x.x` 分支。规划文档完成不代表 Phase 13 实现已经开始或完成。
