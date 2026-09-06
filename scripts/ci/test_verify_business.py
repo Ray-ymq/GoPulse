@@ -147,7 +147,10 @@ class VerifyBusinessSafetyTests(unittest.TestCase):
             self.assertIn(scenario, source)
         self.assertIn('[[ -n $MODE ]] || MODE=--full', verify_compose)
         self.assertIn('exec "$SCRIPT_DIR/verify-compose-observability.sh"', verify_compose)
-        self.assertIn("PATH=/usr/bin:/bin", source)
+        self.assertIn("HOST_UTILITIES=(docker git sha256sum", source)
+        self.assertIn("PATH=$HOST_BIN", source)
+        self.assertIn("host runtime/client unexpectedly available", source)
+        self.assertIn("trap early_cleanup EXIT", source)
 
         for service in (
             "elasticsearch",

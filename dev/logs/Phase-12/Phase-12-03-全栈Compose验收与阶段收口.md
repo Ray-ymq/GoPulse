@@ -8,7 +8,7 @@
 - 前批远程状态：Phase-12-01 已完成；Phase-12-02 由 Pull Request #106 于 2026-09-06 合入，权威远程运行 `34010783067` 成功
 - 目标/本地完成版本：`1.9.3`
 - 实施方案：`dev/imple/Phase-12/Phase-12-03-全栈Compose验收与阶段收口.md`
-- 当前结论：本地实施、完整 Compose 矩阵和固定门禁通过；尚未 push、创建 Pull Request、观察本批远程 checks 或合入，因此未标记 Phase 12 完成
+- 当前结论：分支已推送；本地实施、固定门禁与定向修复后的完整 Compose 矩阵通过。首次远程运行 `34013446831` 的 9 个非全栈 jobs 成功，Full-stack Compose job 失败且自动 PR 跳过；修复待远程复验，因此未标记 Phase 12 完成
 
 ## 2. 实际完成
 
@@ -16,7 +16,7 @@
 
 - 无参数 `scripts/verify-compose.sh` 现在默认执行 Phase 12 唯一权威全栈矩阵；显式 `--full` 等价。
 - `--business` 保留为 Phase-12-01 聚焦业务诊断；`--observability` 为兼容别名并转入同一完整矩阵，不再形成第二套阶段门禁。
-- 完整 runner 将 `PATH` 收敛到 `/usr/bin:/bin`，显式确认宿主 `go`、`node`、`npm` 不可见；浏览器/API 客户端继续来自 one-shot acceptance image。
+- 完整 runner 先解析当前环境中的 Docker、Git 与基础文本工具，再为每次验收创建只含这些精确工具软链接的临时 allow-list PATH，并确认宿主 Go/Node/npm/Python 与数据客户端均不可见；浏览器/API 客户端继续来自 one-shot acceptance image。初始化阶段另设 early cleanup trap，受限 PATH 建立失败也不会遗留临时目录。
 - 随机 `gopulse-accept-<token>` project 使用临时 `0600` env、随机 Frontend/Backend loopback 端口和新命名卷，不读写日常 `.env`、`.run`、project 或卷。
 - 开工快照扩展到 Git working tree、container、network、volume 与非本批精确版本镜像；正常、失败和 signal trap 均以 project/working-directory/config-file label 做强归属清理并复核快照。
 
@@ -96,6 +96,8 @@ scripts/verify-compose.sh
 
 每次失败均由 trap 删除对应随机 project；最终成功后未因会话或文档更新重复执行未受影响的完整真实矩阵。
 
+首次推送触发远程运行 `34013446831`：Branch governance、Backend、Router、Marshaller、Monitor、Redis Exporter、Frontend、Scripts and Compose、Integration 共 9 个 jobs 成功；Full-stack Compose job 在 2026-09-06 05:13:38Z 于镜像构建前失败，自动 PR step 被跳过。根因为初版直接固定 `PATH=/usr/bin:/bin`，而 GitHub runner 的 Docker CLI 不保证位于该目录。修复改为在收敛 PATH 前解析当前环境中的 allow-list 工具绝对路径，并在临时目录创建软链接；仍显式拒绝 Go/Node/npm/Python/MySQL/Redis/RabbitMQ/Kafka/curl 客户端。修复后随机 project `gopulse-accept-64d812c5570b` 重新通过完整矩阵并清理全部资源。
+
 ### 4.3 日常生命周期
 
 ```bash
@@ -132,7 +134,7 @@ scripts/down.sh --project-name gopulse-lifecycle-790ec47624 --env-file <temporar
 
 ## 6. 已知限制与后续事项
 
-- 当前只完成本地实施与固定门禁；push、Pull Request、远程 checks、合入和最终 Phase 12 完成状态尚无事实证据，必须在真实发生后单独更新，不能由本记录预判。
+- 分支已推送，且首次远程运行已有部分事实证据；但 Full-stack Compose job 未通过、自动 PR 未创建，后续远程复验、Pull Request、合入和最终 Phase 12 完成状态仍必须在真实发生后单独更新，不能由本记录预判。
 - 本地运行架构为 `amd64`；脚本接受 daemon `x86_64→amd64` 与 `aarch64→arm64` 的等价映射，但未把完整多架构发布作为门禁。
 - Compose 仍是单节点开发/验收拓扑，不提供 TLS、SASL、高可用、容量或生产供应链保证。
 - `--business` 与历史 component scripts 仅保留定向诊断价值；后续不应重新把它们并列为阶段完成门禁。

@@ -24,19 +24,14 @@ while (($#)); do
   esac
 done
 
-# Remove host Go/Node toolchains from the authoritative acceptance path. All
-# project runtimes and browser/API clients must come from versioned images.
-PATH=/usr/bin:/bin
-export PATH
-
-command -v docker >/dev/null 2>&1 || fail 'docker is required'
-command -v git >/dev/null 2>&1 || fail 'git is required'
-command -v sha256sum >/dev/null 2>&1 || fail 'sha256sum is required'
+# Resolve the small host utility allow-list before creating a PATH that cannot
+# expose Go, Node.js, npm, database clients, or project language tooling.
+HOST_UTILITIES=(docker git sha256sum tr cut cat chmod sort comm cmp sed wc find sleep grep awk)
+for utility in "${HOST_UTILITIES[@]}"; do
+  command -v "$utility" >/dev/null 2>&1 || fail "$utility is required"
+done
 docker info >/dev/null 2>&1 || fail 'Docker Engine is unavailable'
 docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 is unavailable'
-for runtime in go node npm; do
-  ! command -v "$runtime" >/dev/null 2>&1 || fail "host runtime unexpectedly available in acceptance PATH: $runtime"
-done
 VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
 [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'VERSION must use major.minor.patch'
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
@@ -48,7 +43,26 @@ PROJECT_NAME="gopulse-accept-$TOKEN"
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gopulse-compose-$TOKEN.XXXXXX")
 ENV_FILE="$TEMP_DIR/acceptance.env"
 SNAPSHOT_DIR="$TEMP_DIR/snapshot"
-mkdir -p "$SNAPSHOT_DIR"
+HOST_BIN="$TEMP_DIR/host-bin"
+early_cleanup() {
+  local status=$?
+  trap - EXIT
+  if [[ -n $TEMP_DIR && $TEMP_DIR == "${TMPDIR:-/tmp}"/gopulse-compose-* ]]; then
+    find "$TEMP_DIR" -depth -delete 2>/dev/null || status=1
+  fi
+  exit "$status"
+}
+trap early_cleanup EXIT
+mkdir -p "$SNAPSHOT_DIR" "$HOST_BIN"
+for utility in "${HOST_UTILITIES[@]}"; do
+  ln -s "$(command -v "$utility")" "$HOST_BIN/$utility"
+done
+PATH=$HOST_BIN
+export PATH
+hash -r
+for runtime in go node npm python python3 mysql redis-cli rabbitmqctl kafka-topics.sh curl; do
+  ! command -v "$runtime" >/dev/null 2>&1 || fail "host runtime/client unexpectedly available in acceptance PATH: $runtime"
+done
 ADMIN_USERNAME="admin_$TOKEN"
 USER_USERNAME="user_$TOKEN"
 PASSWORD="Acceptance-$TOKEN-password"
