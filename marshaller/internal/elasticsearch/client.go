@@ -45,18 +45,50 @@ type Client struct {
 }
 
 func New(baseURL string, timeout time.Duration) (*Client, error) {
+	return newClient(baseURL, timeout, false)
+}
+
+func NewContainer(baseURL string, timeout time.Duration) (*Client, error) {
+	return newClient(baseURL, timeout, true)
+}
+
+func newClient(baseURL string, timeout time.Duration, container bool) (*Client, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return nil, errors.New("invalid Elasticsearch URL")
 	}
-	ip := net.ParseIP(u.Hostname())
-	if ip == nil || !ip.IsLoopback() || timeout <= 0 {
+	host := strings.ToLower(u.Hostname())
+	ip := net.ParseIP(host)
+	if timeout <= 0 {
+		return nil, errors.New("Elasticsearch timeout must be positive")
+	}
+	if !container && (ip == nil || !ip.IsLoopback()) {
 		return nil, errors.New("Elasticsearch must use a loopback HTTP origin")
+	}
+	if container && (ip != nil || host == "localhost" || host == "host.docker.internal" || !validServiceDNSName(host)) {
+		return nil, errors.New("Elasticsearch must use a service DNS HTTP origin")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableCompression = true
 	transport.ResponseHeaderTimeout = timeout
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), client: &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+}
+
+func validServiceDNSName(host string) bool {
+	if len(host) == 0 || len(host) > 253 || strings.HasPrefix(host, ".") || strings.HasSuffix(host, ".") {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' && character != '_' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (c *Client) Write(ctx context.Context, body []byte) error {

@@ -1,6 +1,6 @@
 # Phase-12-02：可观测系统容器运行闭环实施方案
 
-> 当前状态：待实施。本文档只定义第二个执行批次的范围与验收合同；目标版本、开发分支和执行顺序以 `Phase-12-总实施方案.md` 的权威分配表为准。
+> 当前状态：本地实施与固定门禁已通过，待推送、Pull Request、远程门禁和主远程合入；因第 10 节要求尚未标记为“已完成”。本文档只定义第二个执行批次的范围与验收合同；目标版本、开发分支和执行顺序以 `Phase-12-总实施方案.md` 的权威分配表为准。
 
 ## 1. 批次目标
 
@@ -205,7 +205,7 @@ frontend/package-lock.json
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
 python3 scripts/ci/validate_branch.py --branch "$(git branch --show-current)" --base-ref upstream/main
-bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/package-redis-exporter.sh
+bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/verify-compose-observability.sh scripts/package-redis-exporter.sh
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 scripts/verify-compose.sh --self-test
 scripts/verify-compose.sh --observability

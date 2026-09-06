@@ -15,7 +15,8 @@ const postFactsLockName = "gopulse_integration_post_facts"
 // AcquirePostFactsLock serializes integration tests that create globally
 // visible posts across independently executing Go package test binaries.
 // MySQL named locks are connection-scoped, so the reserved connection remains
-// open until the returned release function completes.
+// open until the returned release function completes. Callers must finish any
+// committed post fixture cleanup before releasing the lock.
 func AcquirePostFactsLock(t *testing.T, database *sql.DB) func() {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)

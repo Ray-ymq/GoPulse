@@ -16,7 +16,15 @@ const (
 	defaultShutdownTimeout = 5 * time.Second
 )
 
+type RuntimeMode string
+
+const (
+	RuntimeModeHost      RuntimeMode = "host"
+	RuntimeModeContainer RuntimeMode = "container"
+)
+
 type Config struct {
+	RuntimeMode     RuntimeMode
 	RedisHost       string
 	RedisPort       int
 	RedisPassword   string
@@ -31,8 +39,15 @@ func Load() (Config, error) {
 	var cfg Config
 	var err error
 
+	cfg.RuntimeMode, err = runtimeMode()
+	if err != nil {
+		return Config{}, err
+	}
 	cfg.RedisHost, err = requiredHost("REDIS_HOST")
 	if err != nil {
+		return Config{}, err
+	}
+	if err = validateDependencyHost(cfg.RuntimeMode, "REDIS_HOST", cfg.RedisHost); err != nil {
 		return Config{}, err
 	}
 	cfg.RedisPort, err = requiredPort("REDIS_PORT")
@@ -48,6 +63,9 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if err = validateListenHost(cfg.RuntimeMode, "REDIS_EXPORTER_HTTP_HOST", cfg.HTTPHost); err != nil {
+		return Config{}, err
+	}
 	cfg.HTTPPort, err = optionalPort("REDIS_EXPORTER_HTTP_PORT", defaultHTTPPort)
 	if err != nil {
 		return Config{}, err
@@ -61,6 +79,45 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func runtimeMode() (RuntimeMode, error) {
+	mode := RuntimeMode(strings.ToLower(strings.TrimSpace(os.Getenv("GOPULSE_RUNTIME_MODE"))))
+	if mode == "" {
+		mode = RuntimeModeHost
+	}
+	if mode != RuntimeModeHost && mode != RuntimeModeContainer {
+		return "", fieldError("GOPULSE_RUNTIME_MODE", "must be host or container")
+	}
+	return mode, nil
+}
+
+func validateDependencyHost(mode RuntimeMode, name, host string) error {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if mode == RuntimeModeHost {
+		if host == "localhost" || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()) {
+			return nil
+		}
+		return fieldError(name, "must use a loopback host in host mode")
+	}
+	if host == "localhost" || host == "host.docker.internal" || net.ParseIP(host) != nil || !validHostname(host) {
+		return fieldError(name, "must use a service DNS name in container mode")
+	}
+	return nil
+}
+
+func validateListenHost(mode RuntimeMode, name, host string) error {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fieldError(name, "must be an IP address")
+	}
+	if mode == RuntimeModeHost && !ip.IsLoopback() {
+		return fieldError(name, "must use a loopback IP address in host mode")
+	}
+	if mode == RuntimeModeContainer && !ip.IsLoopback() && !ip.IsUnspecified() {
+		return fieldError(name, "must use a loopback or unspecified IP address in container mode")
+	}
+	return nil
 }
 
 func (c Config) RedisAddress() string {

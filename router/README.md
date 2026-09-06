@@ -1,6 +1,6 @@
 # Message Router
 
-The Router is GoPulse's loopback-only internal transport boundary for observability messages. It accepts MetricsMonitor Envelope v1 JSON over HTTP, validates only the routing envelope, selects the fixed Kafka topic, and waits for Kafka acknowledgement before returning `202 Accepted`.
+The Router is GoPulse's internal transport boundary for observability messages. Direct source execution is loopback-only by default; explicit container mode permits its internal Compose listener and Kafka service DNS. It accepts MetricsMonitor Envelope v1 JSON over HTTP, validates only the routing envelope, selects the fixed Kafka topic, and waits for Kafka acknowledgement before returning `202 Accepted`.
 
 ## Runtime contract
 
@@ -37,13 +37,14 @@ A timed-out in-flight request is uncertain: Kafka may have stored the record eve
 
 | Variable | Default or constraint |
 | --- | --- |
-| `ROUTER_HTTP_HOST` | `127.0.0.1`; must be an IP address |
+| `GOPULSE_RUNTIME_MODE` | `host`; only `host|container` are accepted |
+| `ROUTER_HTTP_HOST` | `127.0.0.1`; host mode requires loopback, container mode permits wildcard binding |
 | `ROUTER_HTTP_PORT` | `9091`; `1..65535` |
 | `ROUTER_API_TOKEN` | required, at least 32 bytes, no CR/LF |
 | `ROUTER_REQUEST_TIMEOUT` | `5s`; `1s..30s` |
 | `ROUTER_SHUTDOWN_TIMEOUT` | `10s`; `1s..60s` |
 | `ROUTER_MAX_MESSAGE_BYTES` | `1048576`; `1 KiB..1 MiB` |
-| `ROUTER_KAFKA_BROKERS` | `127.0.0.1:9092`; unique bounded `host:port` list |
+| `ROUTER_KAFKA_BROKERS` | `127.0.0.1:9092`; host mode requires loopback, container mode accepts validated service DNS such as `kafka:19092` |
 | `ROUTER_KAFKA_TOPIC` | fixed `gopulse-observability-v1` |
 | `ROUTER_KAFKA_PRODUCE_TIMEOUT` | `3s`; `100ms..10s` and less than request timeout |
 | `ROUTER_KAFKA_MAX_BUFFERED_RECORDS` | `256`; `1..1024` |
@@ -53,7 +54,7 @@ The checked-in token in `.env.example` is for local development only.
 
 ## Lifecycle and validation
 
-`scripts/dev.sh` starts healthy Kafka, runs the idempotent topic initializer, builds and starts Router, waits for authenticated readiness, and only then starts Monitor. `scripts/down.sh` drains Backend and background application sources before stopping Monitor and its Exporter, Marshaller, and Router, then stops Compose while preserving daily named volumes. `scripts/verify.sh` performs read-only ownership and readiness checks and never consumes a record.
+`scripts/dev.sh` builds `gopulse/router:<VERSION>` and starts it after healthy Kafka and the idempotent Topic initializer. The image runs as numeric user `10002:10001`, uses `/usr/local/bin/router` as PID 1, has a read-only root filesystem, and publishes no host port. Router joins only the internal `observability` network. `scripts/down.sh` stops the complete Compose project while preserving daily named volumes, and `scripts/verify.sh` performs read-only ownership, image, port, and readiness checks without consuming a record.
 
 Run focused validation with:
 
@@ -66,6 +67,8 @@ scripts/verify-router.sh
 ```
 
 The default Router acceptance uses a random isolated Compose project, loopback ports, Kafka volume, Redis target, plugin root, process set, and bounded Consumer identity. It proves direct byte integrity, invalid-request non-production, real Monitor `success` and `target_unavailable` Envelopes, Kafka outage/recovery without Router or Monitor restart, and ownership-safe cleanup. Its bounded JSON evidence lines retain the tested offset ranges, message IDs, record keys, value/body SHA-256 digests, scrape states, HTTP outage statuses, and stable Router/Monitor PIDs without printing tokens or raw message bodies.
+
+The authoritative Phase-12-02 container gate is `scripts/verify-compose.sh --observability`. It validates Router's image and internal-only network contract, service-DNS Kafka connection, Browser → Backend isolation, Router failure as a localized observability degradation, same-volume Kafka/Router recovery, and strongly owned Compose cleanup. The focused `verify-router.sh` remains useful for byte-level source contract regressions but is not the complete container-runtime proof.
 
 Phase 8 keeps Router as the byte-preserving producer for the unchanged record contract. Marshaller independently validates the original bytes, writes accepted metrics to VictoriaMetrics, and commits through `gopulse-marshaller-metrics-v1`; the Phase 8-03 acceptance captures a real Router-produced record for deterministic replay and confirms Router never parses, cleans, stores, or commits metrics payloads.
 

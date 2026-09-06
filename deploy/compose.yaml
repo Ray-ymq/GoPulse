@@ -28,7 +28,7 @@ x-backend-environment: &backend-environment
   MONITOR_URL: http://monitor:9090
   MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
   MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
-  LOG_MONITOR_URL: ""
+  LOG_MONITOR_URL: http://monitor:9090
   LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
   BACKEND_VICTORIAMETRICS_URL: http://victoriametrics:8428
   BACKEND_VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
@@ -65,6 +65,79 @@ x-backend-environment: &backend-environment
   SEARCH_INDEXER_SHUTDOWN_TIMEOUT: ${SEARCH_INDEXER_SHUTDOWN_TIMEOUT:-10s}
   SEARCH_INDEXER_RECONNECT_MIN: ${SEARCH_INDEXER_RECONNECT_MIN:-500ms}
   SEARCH_INDEXER_RECONNECT_MAX: ${SEARCH_INDEXER_RECONNECT_MAX:-30s}
+
+
+x-router-environment: &router-environment
+  GOPULSE_RUNTIME_MODE: container
+  ROUTER_HTTP_HOST: 0.0.0.0
+  ROUTER_HTTP_PORT: 9091
+  ROUTER_API_TOKEN: ${ROUTER_API_TOKEN:?ROUTER_API_TOKEN is required}
+  ROUTER_REQUEST_TIMEOUT: ${ROUTER_REQUEST_TIMEOUT:-5s}
+  ROUTER_SHUTDOWN_TIMEOUT: ${ROUTER_SHUTDOWN_TIMEOUT:-10s}
+  ROUTER_MAX_MESSAGE_BYTES: ${ROUTER_MAX_MESSAGE_BYTES:-1048576}
+  ROUTER_KAFKA_BROKERS: kafka:19092
+  ROUTER_KAFKA_TOPIC: ${ROUTER_KAFKA_TOPIC:-gopulse-observability-v1}
+  ROUTER_KAFKA_PRODUCE_TIMEOUT: ${ROUTER_KAFKA_PRODUCE_TIMEOUT:-3s}
+  ROUTER_KAFKA_MAX_BUFFERED_RECORDS: ${ROUTER_KAFKA_MAX_BUFFERED_RECORDS:-256}
+  ROUTER_KAFKA_MAX_BUFFERED_BYTES: ${ROUTER_KAFKA_MAX_BUFFERED_BYTES:-8388608}
+
+x-marshaller-environment: &marshaller-environment
+  GOPULSE_RUNTIME_MODE: container
+  MARSHALLER_HTTP_HOST: 0.0.0.0
+  MARSHALLER_HTTP_PORT: 9093
+  MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
+  MARSHALLER_KAFKA_BROKERS: kafka:19092
+  MARSHALLER_KAFKA_TOPIC: ${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-v1}
+  MARSHALLER_KAFKA_GROUP: ${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}
+  MARSHALLER_KAFKA_COMMIT_TIMEOUT: ${MARSHALLER_KAFKA_COMMIT_TIMEOUT:-3s}
+  MARSHALLER_VM_URL: http://victoriametrics:8428
+  MARSHALLER_VM_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+  MARSHALLER_VM_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+  MARSHALLER_VM_TIMEOUT: ${MARSHALLER_VM_TIMEOUT:-3s}
+  MARSHALLER_ELASTICSEARCH_URL: http://elasticsearch:9200
+  MARSHALLER_ELASTICSEARCH_TIMEOUT: ${MARSHALLER_ELASTICSEARCH_TIMEOUT:-3s}
+  MARSHALLER_LOG_TEMPLATE: ${MARSHALLER_LOG_TEMPLATE:-gopulse-logs-v1-template}
+  MARSHALLER_LOG_INDEX_PREFIX: ${MARSHALLER_LOG_INDEX_PREFIX:-gopulse-logs-v1-}
+  MARSHALLER_EVENT_TEMPLATE: ${MARSHALLER_EVENT_TEMPLATE:-gopulse-events-v1-template}
+  MARSHALLER_EVENT_INDEX_PREFIX: ${MARSHALLER_EVENT_INDEX_PREFIX:-gopulse-events-v1-}
+  MARSHALLER_RETRY_MIN: ${MARSHALLER_RETRY_MIN:-250ms}
+  MARSHALLER_RETRY_MAX: ${MARSHALLER_RETRY_MAX:-5s}
+  MARSHALLER_READINESS_TIMEOUT: ${MARSHALLER_READINESS_TIMEOUT:-2s}
+  MARSHALLER_SHUTDOWN_TIMEOUT: ${MARSHALLER_SHUTDOWN_TIMEOUT:-10s}
+  MARSHALLER_FUTURE_SKEW: ${MARSHALLER_FUTURE_SKEW:-5m}
+
+x-monitor-environment: &monitor-environment
+  GOPULSE_RUNTIME_MODE: container
+  MONITOR_HTTP_HOST: 0.0.0.0
+  MONITOR_HTTP_PORT: 9090
+  MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
+  LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+  MONITOR_PLUGIN_ROOT: /var/lib/gopulse-monitor/plugins
+  MONITOR_BOOTSTRAP_PACKAGE: ${MONITOR_BOOTSTRAP_PACKAGE-/opt/gopulse/packages/gopulse-redis-exporter.tar.gz}
+  MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
+  MONITOR_SHUTDOWN_TIMEOUT: ${MONITOR_SHUTDOWN_TIMEOUT:-10s}
+  MONITOR_PLUGIN_STARTUP_TIMEOUT: ${MONITOR_PLUGIN_STARTUP_TIMEOUT:-10s}
+  MONITOR_PLUGIN_STOP_TIMEOUT: ${MONITOR_PLUGIN_STOP_TIMEOUT:-5s}
+  MONITOR_SCRAPE_INTERVAL: ${MONITOR_SCRAPE_INTERVAL:-15s}
+  MONITOR_SCRAPE_TIMEOUT: ${MONITOR_SCRAPE_TIMEOUT:-3s}
+  MONITOR_PUBLISH_TIMEOUT: ${MONITOR_PUBLISH_TIMEOUT:-3s}
+  MONITOR_ROUTER_URL: http://router:9091
+  MONITOR_ROUTER_TOKEN: ${ROUTER_API_TOKEN:?ROUTER_API_TOKEN is required}
+  MONITOR_LOG_MAX_BYTES: ${MONITOR_LOG_MAX_BYTES:-65536}
+  MONITOR_LOG_FUTURE_SKEW: ${MONITOR_LOG_FUTURE_SKEW:-5m}
+  MONITOR_EVENT_QUEUE_CAPACITY: ${MONITOR_EVENT_QUEUE_CAPACITY:-256}
+  MONITOR_EVENT_RETRY_MIN: ${MONITOR_EVENT_RETRY_MIN:-250ms}
+  MONITOR_EVENT_RETRY_MAX: ${MONITOR_EVENT_RETRY_MAX:-5s}
+  MONITOR_EVENT_SHUTDOWN_TIMEOUT: ${MONITOR_EVENT_SHUTDOWN_TIMEOUT:-5s}
+  MONITOR_EVENT_MAX_BYTES: ${MONITOR_EVENT_MAX_BYTES:-16384}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+  REDIS_DB: ${REDIS_DB:-0}
+  REDIS_EXPORTER_HTTP_HOST: 127.0.0.1
+  REDIS_EXPORTER_HTTP_PORT: 9121
+  REDIS_EXPORTER_SCRAPE_TIMEOUT: ${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}
+  REDIS_EXPORTER_SHUTDOWN_TIMEOUT: ${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}
 
 services:
   mysql:
@@ -132,6 +205,7 @@ services:
       - elasticsearch_data:/usr/share/elasticsearch/data
     networks:
       - business
+      - observability
     healthcheck:
       test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null']
       start_period: 30s
@@ -192,6 +266,7 @@ services:
     networks:
       - edge
       - business
+      - observability
     healthcheck:
       test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/health >/dev/null']
       start_period: 5s
@@ -217,6 +292,7 @@ services:
         condition: service_healthy
     networks:
       - business
+      - observability
 
   search-indexer:
     image: gopulse/search-indexer:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
@@ -240,6 +316,7 @@ services:
         condition: service_healthy
     networks:
       - business
+      - observability
 
   frontend:
     image: gopulse/frontend:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
@@ -284,11 +361,17 @@ services:
     build:
       context: ..
       dockerfile: deploy/docker/acceptance.Dockerfile
-      args: *image-build-args
+      args:
+        <<: *image-build-args
+        UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
     environment:
       GOPULSE_BASE_URL: http://frontend:8080
       GOPULSE_ACCEPTANCE_TOKEN: ${GOPULSE_ACCEPTANCE_TOKEN:-compose}
       GOPULSE_ACCEPTANCE_SCENARIO: ${GOPULSE_ACCEPTANCE_SCENARIO:-business}
+      GOPULSE_OBSERVABILITY_ADMIN_USERNAME: ${GOPULSE_OBSERVABILITY_ADMIN_USERNAME:-}
+      GOPULSE_OBSERVABILITY_USER_USERNAME: ${GOPULSE_OBSERVABILITY_USER_USERNAME:-}
+      GOPULSE_OBSERVABILITY_PASSWORD: ${GOPULSE_OBSERVABILITY_PASSWORD:-}
+      GOPULSE_UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
     depends_on:
       frontend:
         condition: service_healthy
@@ -296,7 +379,6 @@ services:
       - edge
 
   kafka:
-    profiles: [observability]
     image: apache/kafka:4.3.1
     restart: on-failure:5
     hostname: kafka
@@ -316,6 +398,8 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     volumes:
       - kafka_data:/var/lib/kafka/data
+    expose:
+      - "19092"
     networks:
       - observability
     healthcheck:
@@ -326,7 +410,6 @@ services:
       retries: 30
 
   kafka-init:
-    profiles: [observability]
     image: apache/kafka:4.3.1
     restart: "no"
     depends_on:
@@ -344,7 +427,6 @@ services:
       - observability
 
   victoriametrics:
-    profiles: [observability]
     image: victoriametrics/victoria-metrics:v1.151.0
     restart: on-failure:5
     environment:
@@ -357,14 +439,140 @@ services:
       - -dedup.minScrapeInterval=1ms
     volumes:
       - victoriametrics_data:/victoria-metrics-data
+    expose:
+      - "8428"
     networks:
       - observability
     healthcheck:
-      test: [CMD-SHELL, 'wget --spider --quiet --header "Authorization: Basic $$(printf "%s:%s" "$${VICTORIAMETRICS_USERNAME}" "$${VICTORIAMETRICS_PASSWORD}" | base64)" http://127.0.0.1:8428/health']
+      test: [CMD-SHELL, 'wget --spider --quiet --header "Authorization: Basic $$(printf "%s:%s" "$${VICTORIAMETRICS_USERNAME}" "$${VICTORIAMETRICS_PASSWORD}" | base64 | tr -d "\n")" http://127.0.0.1:8428/health']
       start_period: 10s
       interval: 5s
       timeout: 3s
       retries: 30
+
+
+  router:
+    image: gopulse/router:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: router
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment: *router-environment
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    expose:
+      - "9091"
+    networks:
+      - observability
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9091/health']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  marshaller:
+    image: gopulse/marshaller:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: marshaller
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment: *marshaller-environment
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      victoriametrics:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    expose:
+      - "9093"
+    networks:
+      - observability
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9093/health']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  monitor:
+    image: gopulse/monitor:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: monitor
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 20s
+    environment: *monitor-environment
+    depends_on:
+      redis:
+        condition: service_healthy
+      router:
+        condition: service_healthy
+    volumes:
+      - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
+    expose:
+      - "9090"
+    networks:
+      - business
+      - observability
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9090/health']
+      start_period: 10s
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis-exporter:
+    profiles: [exporter]
+    image: gopulse/redis-exporter:${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: redis-exporter
+      args: *image-build-args
+    restart: "no"
+    read_only: true
+    stop_grace_period: 10s
+    environment:
+      GOPULSE_RUNTIME_MODE: container
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_EXPORTER_HTTP_HOST: 0.0.0.0
+      REDIS_EXPORTER_HTTP_PORT: 9121
+      REDIS_EXPORTER_SCRAPE_TIMEOUT: ${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}
+      REDIS_EXPORTER_SHUTDOWN_TIMEOUT: ${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - "9121"
+    networks:
+      - business
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9121/health']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
 networks:
   edge:
@@ -380,3 +588,4 @@ volumes:
   elasticsearch_data:
   kafka_data:
   victoriametrics_data:
+  monitor_plugin_data:

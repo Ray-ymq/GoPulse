@@ -33,7 +33,7 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertIn("run_product_checks:", gates)
         self.assertIn("default: true", gates)
         self.assertEqual(gates.count("if: inputs.run_product_checks"), 12)
-        self.assertIn("observability-browser:", gates)
+        self.assertIn("compose-observability:", gates)
         self.assertIn("compose-business:", gates)
 
     def test_integration_migration_retries_transient_mysql_startup(self):

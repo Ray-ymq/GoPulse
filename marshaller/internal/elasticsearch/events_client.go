@@ -25,7 +25,21 @@ type EventsClient struct {
 }
 
 func NewEvents(baseURL string, timeout time.Duration) (*EventsClient, error) {
-	transport, err := New(baseURL, timeout)
+	return newEvents(baseURL, timeout, false)
+}
+
+func NewEventsContainer(baseURL string, timeout time.Duration) (*EventsClient, error) {
+	return newEvents(baseURL, timeout, true)
+}
+
+func newEvents(baseURL string, timeout time.Duration, container bool) (*EventsClient, error) {
+	var transport *Client
+	var err error
+	if container {
+		transport, err = NewContainer(baseURL, timeout)
+	} else {
+		transport, err = New(baseURL, timeout)
+	}
 	if err != nil {
 		return nil, err
 	}

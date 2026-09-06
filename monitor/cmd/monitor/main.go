@@ -21,7 +21,7 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "monitor")
 	if err := run(logger); err != nil {
-		logger.Error("monitor stopped", "error_code", "monitor_runtime_failed")
+		logger.Error("monitor stopped", "error_code", "monitor_runtime_failed", "error", err.Error())
 		os.Exit(1)
 	}
 }
@@ -64,6 +64,11 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	manager.AttachMetrics(metricsMonitor)
+	if cfg.BootstrapPackage != "" {
+		if _, err = manager.Bootstrap(ctx, cfg.BootstrapPackage); err != nil {
+			return err
+		}
+	}
 	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})
 	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
 	errs := make(chan error, 1)
