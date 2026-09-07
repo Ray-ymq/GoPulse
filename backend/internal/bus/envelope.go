@@ -18,6 +18,7 @@ const (
 	JSONContentType = "application/json"
 
 	CommentCreatedRoutingKey = "comment.created.v1"
+	UserFollowedRoutingKey   = "user.followed.v1"
 	PostLikedRoutingKey      = "post.liked.v1"
 	PostCreatedRoutingKey    = "post.created.v1"
 )
@@ -26,6 +27,7 @@ type EventType string
 
 const (
 	CommentCreated EventType = "comment.created"
+	UserFollowed   EventType = "user.followed"
 	PostLiked      EventType = "post.liked"
 	PostCreated    EventType = "post.created"
 )
@@ -37,7 +39,7 @@ type Envelope struct {
 	OccurredAt    time.Time `json:"occurred_at"`
 	ActorID       uint64    `json:"actor_id"`
 	RecipientID   uint64    `json:"recipient_id,omitempty"`
-	PostID        uint64    `json:"post_id"`
+	PostID        uint64    `json:"post_id,omitempty"`
 	CommentID     *uint64   `json:"comment_id,omitempty"`
 }
 
@@ -95,11 +97,15 @@ func (envelope Envelope) Validate() error {
 	if offset != 0 {
 		return errors.New("business event occurrence time must be UTC")
 	}
-	if envelope.ActorID == 0 || envelope.PostID == 0 {
+	if envelope.ActorID == 0 || (envelope.EventType != UserFollowed && envelope.PostID == 0) {
 		return errors.New("business event actor and post IDs must be positive")
 	}
 
 	switch envelope.EventType {
+	case UserFollowed:
+		if envelope.RecipientID == 0 || envelope.ActorID == envelope.RecipientID || envelope.PostID != 0 || envelope.CommentID != nil {
+			return errors.New("invalid user.followed shape")
+		}
 	case CommentCreated:
 		if envelope.RecipientID == 0 {
 			return errors.New("comment.created event requires a positive recipient ID")
@@ -129,6 +135,8 @@ func (envelope Envelope) RoutingKey() (string, error) {
 		return "", err
 	}
 	switch envelope.EventType {
+	case UserFollowed:
+		return UserFollowedRoutingKey, nil
 	case CommentCreated:
 		return CommentCreatedRoutingKey, nil
 	case PostLiked:
@@ -232,4 +240,8 @@ func validUUID(value string) bool {
 		}
 	}
 	return true
+}
+
+func NewUserFollowed(at time.Time, follower, followed uint64) (Envelope, error) {
+	return newEnvelope(UserFollowed, at, follower, followed, 0, nil)
 }

@@ -235,7 +235,7 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 
 func exchangeForEvent(eventType bus.EventType) (string, error) {
 	switch eventType {
-	case bus.CommentCreated, bus.PostLiked:
+	case bus.CommentCreated, bus.PostLiked, bus.UserFollowed:
 		return BusinessExchange, nil
 	case bus.PostCreated:
 		return SearchExchange, nil

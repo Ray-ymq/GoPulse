@@ -61,3 +61,14 @@
 .user-navigation button { display:flex; align-items:center; gap:18px; min-height:52px; padding:8px 12px; border:0; border-radius:28px; background:transparent; font-size:20px; color:var(--user-muted); }
 .user-navigation button>span:first-child { font-size:28px; width:30px; text-align:center; }
 @media(max-width:599px) { .user-navigation button { min-width:56px; justify-content:center; } }
+
+/* Follow controls and long author names must fit the mobile timeline. */
+.user-shell .post-card__meta a { max-width:100%; min-width:0; flex-wrap:wrap; overflow-wrap:anywhere; }
+.user-shell .post-card__meta a strong { min-width:0; max-width:100%; }
+.user-shell .user-result { flex-wrap:wrap; align-items:center; }
+.user-shell .user-result>a { display:flex; align-items:center; gap:12px; flex:1; min-width:180px; overflow-wrap:anywhere; }
+.user-shell .user-result>a>div { min-width:0; }
+.user-shell .follow-control { display:inline-flex; flex-direction:column; align-items:start; max-width:100%; overflow-wrap:anywhere; }
+.user-shell .follow-control [role=alert] { color:var(--user-danger); }
+.user-shell .user-tabs>a { flex:1; padding:12px; text-align:center; }
+.user-shell .user-tabs>a.router-link-exact-active { border-bottom:3px solid var(--user-accent); font-weight:650; }
