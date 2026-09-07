@@ -73,7 +73,7 @@ func mapError(err error) (int, apperror.Code, string) {
 		return stdhttp.StatusForbidden, appError.Code, appError.Message
 	case apperror.CodeUsernameConflict, apperror.CodePluginConflict, apperror.CodePluginOperationInProgress:
 		return stdhttp.StatusConflict, appError.Code, appError.Message
-	case apperror.CodePostNotFound, apperror.CodeNotificationNotFound, apperror.CodePluginNotFound:
+	case apperror.CodeUserNotFound, apperror.CodePostNotFound, apperror.CodeNotificationNotFound, apperror.CodePluginNotFound:
 		return stdhttp.StatusNotFound, appError.Code, appError.Message
 	case apperror.CodePluginOperationFailed:
 		return stdhttp.StatusUnprocessableEntity, appError.Code, appError.Message

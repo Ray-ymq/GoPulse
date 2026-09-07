@@ -12,7 +12,7 @@ const post = {
   content: 'MySQL hydration remains authoritative',
   created_at: '2026-09-02T00:00:00Z',
   updated_at: '2026-09-02T00:00:00Z',
-  author: { id: 1, username: 'alice' },
+  author: { id: 1, username: 'alice', display_name: 'Alice' },
   comment_count: 2,
   like_count: 3,
   liked_by_me: true,

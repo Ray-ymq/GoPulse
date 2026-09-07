@@ -26,6 +26,8 @@ func ParseRole(value string) (Role, error) {
 type User struct {
 	ID           uint64    `json:"-"`
 	Username     string    `json:"-"`
+	DisplayName  string    `json:"-"`
+	Bio          string    `json:"-"`
 	PasswordHash string    `json:"-"`
 	Role         Role      `json:"-"`
 	CreatedAt    time.Time `json:"-"`

@@ -10,6 +10,7 @@ export interface PublicUser {
 export interface AuthorSummary {
   id: number
   username: string
+  display_name: string
 }
 
 export interface Post {
@@ -29,7 +30,7 @@ export interface Comment {
   post_id: number
   content: string
   created_at: string
-  author: AuthorSummary
+  author: Omit<AuthorSummary, 'display_name'>
 }
 
 export interface Credentials {
@@ -82,4 +83,13 @@ export interface Notification {
   actor: AuthorSummary
   post_id: number
   comment_id: number | null
+}
+
+export interface UserProfile {
+  id: number
+  username: string
+  display_name: string
+  bio: string
+  created_at: string
+  is_self: boolean
 }

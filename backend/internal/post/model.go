@@ -10,8 +10,9 @@ type CreateInput struct {
 
 // Author is the public author summary embedded in post responses.
 type Author struct {
-	ID       uint64 `json:"id"`
-	Username string `json:"username"`
+	ID          uint64 `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
 }
 
 // Post is the complete post read model returned by create, list, and detail APIs.
@@ -35,8 +36,9 @@ type Cursor struct {
 
 // ListOptions controls one keyset-paginated list query.
 type ListOptions struct {
-	Limit  int
-	Cursor *Cursor
+	AuthorID uint64
+	Limit    int
+	Cursor   *Cursor
 }
 
 // Page contains one response page and its optional continuation token.

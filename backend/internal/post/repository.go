@@ -67,6 +67,7 @@ SELECT
     p.updated_at,
     u.id,
     u.username,
+    u.display_name,
     (SELECT COUNT(*) FROM comments AS c WHERE c.post_id = p.id) AS comment_count,
     (SELECT COUNT(*) FROM post_likes AS likes WHERE likes.post_id = p.id) AS like_count
 FROM posts AS p %s
@@ -81,6 +82,7 @@ SELECT
     p.updated_at,
     u.id,
     u.username,
+    u.display_name,
     (SELECT COUNT(*) FROM comments AS c WHERE c.post_id = p.id) AS comment_count,
     (SELECT COUNT(*) FROM post_likes AS likes WHERE likes.post_id = p.id) AS like_count,
     EXISTS(
@@ -162,9 +164,12 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 func listStatement(viewerID uint64, options ListOptions) (string, []any) {
 	query := fmt.Sprintf(postListReadSelect, "FORCE INDEX (idx_posts_created_at_id)")
 	arguments := []any{viewerID}
+	query += `
+WHERE (? = 0 OR p.author_id = ?)`
+	arguments = append(arguments, options.AuthorID, options.AuthorID)
 	if options.Cursor != nil {
 		query += `
-WHERE p.created_at < ? OR (p.created_at = ? AND p.id < ?)`
+AND ( p.created_at < ? OR (p.created_at = ? AND p.id < ?))`
 		arguments = append(arguments, options.Cursor.CreatedAt, options.Cursor.CreatedAt, options.Cursor.ID)
 	}
 	query += `
@@ -240,6 +245,7 @@ func scanPublicProjection(scan scanFunc) (PublicProjection, error) {
 		&projection.UpdatedAt,
 		&projection.Author.ID,
 		&projection.Author.Username,
+		&projection.Author.DisplayName,
 		&projection.CommentCount,
 		&projection.LikeCount,
 	)
@@ -256,6 +262,7 @@ func scanPost(scan scanFunc) (Post, error) {
 		&record.UpdatedAt,
 		&record.Author.ID,
 		&record.Author.Username,
+		&record.Author.DisplayName,
 		&record.CommentCount,
 		&record.LikeCount,
 		&record.LikedByMe,
@@ -331,4 +338,41 @@ WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 		ordered = append(ordered, record)
 	}
 	return ordered, nil
+}
+
+// HydrateAuthors refreshes mutable summaries after cache reads, in one query.
+func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records []Post) error {
+	if len(records) == 0 {
+		return nil
+	}
+	ids := make([]any, 0, len(records))
+	slots := make([]string, 0, len(records))
+	for _, p := range records {
+		ids = append(ids, p.Author.ID)
+		slots = append(slots, "?")
+	}
+	rows, err := repository.database.QueryContext(ctx, "SELECT id, username, display_name FROM users WHERE id IN ("+strings.Join(slots, ",")+")", ids...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	authors := map[uint64]Author{}
+	for rows.Next() {
+		var a Author
+		if err = rows.Scan(&a.ID, &a.Username, &a.DisplayName); err != nil {
+			return err
+		}
+		authors[a.ID] = a
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	for i := range records {
+		a, ok := authors[records[i].Author.ID]
+		if !ok {
+			return ErrNotFound
+		}
+		records[i].Author = a
+	}
+	return nil
 }

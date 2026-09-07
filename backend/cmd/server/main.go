@@ -201,6 +201,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Logger:        logger,
 		},
 		backendhttp.APIRoutes{
+			Users:           backendhttp.NewUserHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService),
 			Auth:            authHandler,
 			Posts:           postHandler,
 			Comments:        commentHandler,

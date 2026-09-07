@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import AppNav from '../components/AppNav.vue'
 import PostCard from '../components/PostCard.vue'
-import { searchApi } from '../services/api'
+import { searchApi, userApi } from '../services/api'
 import { ApiError } from '../services/http'
-import type { Post } from '../types/api'
+import type { Post, UserProfile } from '../types/api'
 
 const route = useRoute()
 const router = useRouter()
 const input = ref('')
 const activeQuery = ref('')
 const posts = ref<Post[]>([])
+const users = ref<UserProfile[]>([])
+const userTab = computed(() => route.query.tab === 'users')
+const resultCount = computed(() => userTab.value ? users.value.length : posts.value.length)
+async function selectTab(tab: string) { await router.push({ path: '/search', query: { q: input.value.trim() || undefined, tab } }) }
 const nextCursor = ref<string | null>(null)
 const loading = ref(false)
 const loaded = ref(false)
@@ -39,9 +42,10 @@ async function load(reset: boolean, requestedCursor?: string): Promise<void> {
   errorMessage.value = ''
   failedRequest = null
   try {
-    const page = await searchApi.posts(query, cursor)
+    const page = userTab.value ? await userApi.search(query, cursor) : await searchApi.posts(query, cursor)
     if (sequence !== requestSequence) return
-    posts.value = reset ? page.data : [...posts.value, ...page.data]
+    if (userTab.value) users.value = reset ? page.data as UserProfile[] : [...users.value, ...page.data as UserProfile[]]
+    else posts.value = reset ? page.data as Post[] : [...posts.value, ...page.data as Post[]]
     nextCursor.value = page.nextCursor
     loaded.value = true
   } catch (error) {
@@ -49,6 +53,7 @@ async function load(reset: boolean, requestedCursor?: string): Promise<void> {
     const cursorInvalid = cursor !== undefined && error instanceof ApiError && error.code === 'validation_failed'
     if (cursorInvalid) {
       posts.value = []
+      users.value = []
       nextCursor.value = null
       loaded.value = false
       failedRequest = { reset: true }
@@ -73,17 +78,18 @@ async function submit(): Promise<void> {
     errorMessage.value = '请输入 1–200 个字符的搜索词。'
     return
   }
-  await router.push({ path: '/search', query: { q: query } })
+  await router.push({ path: '/search', query: { q: query, tab: userTab.value ? 'users' : 'posts' } })
 }
 
 watch(
-  () => route.query.q,
+  () => [route.query.q, route.query.tab],
   () => {
     requestSequence += 1
     const query = queryFromRoute()
     input.value = query
     activeQuery.value = query
     posts.value = []
+    users.value = []
     nextCursor.value = null
     loaded.value = false
     loading.value = false
@@ -97,19 +103,22 @@ watch(
 
 <template>
   <div>
-    <AppNav />
     <main class="content-shell content-shell--narrow">
       <section class="page-heading search-heading">
         <div>
           <p class="eyebrow">POST SEARCH</p>
-          <h1>搜索帖子</h1>
+          <h1>搜索帖子和用户</h1>
           <p class="muted">搜索标题和正文，结果内容始终从最新的帖子数据装配。</p>
         </div>
       </section>
 
+      <div class="user-tabs" role="tablist" aria-label="搜索类型">
+        <button role="tab" :aria-selected="!userTab" @click="selectTab('posts')">帖子</button>
+        <button role="tab" :aria-selected="userTab" @click="selectTab('users')">用户</button>
+      </div>
       <form class="search-form" role="search" @submit.prevent="submit">
         <label class="sr-only" for="post-search">搜索词</label>
-        <input id="post-search" v-model="input" name="q" maxlength="200" placeholder="输入标题或正文关键词" />
+        <input id="post-search" v-model="input" name="q" maxlength="200" :placeholder="userTab ? '输入用户名或显示名称' : '输入标题或正文关键词'" />
         <button class="button button--primary" type="submit" :disabled="loading">搜索</button>
       </form>
 
@@ -117,14 +126,18 @@ watch(
         {{ errorMessage }}
         <button v-if="activeQuery" class="inline-action" type="button" @click="retry">重试</button>
       </p>
-      <p v-if="!activeQuery" class="state-card">输入关键词开始搜索帖子。</p>
-      <p v-else-if="loading && posts.length === 0" class="state-card">正在搜索…</p>
-      <p v-else-if="loaded && posts.length === 0" class="state-card">没有找到相关帖子。</p>
+      <p v-if="!activeQuery" class="state-card">输入关键词开始搜索。</p>
+      <p v-else-if="loading && resultCount === 0" class="state-card">正在搜索…</p>
+      <p v-else-if="loaded && resultCount === 0" class="state-card">没有找到相关{{ userTab ? '用户' : '帖子' }}。</p>
       <section v-else class="post-list" aria-live="polite">
-        <PostCard v-for="post in posts" :key="post.id" :post="post" />
+        <template v-if="userTab"><RouterLink v-for="user in users" :key="user.id" class="user-result" :to="`/users/${user.username}`">
+          <span class="user-avatar" aria-hidden="true">{{ Array.from(user.display_name)[0]?.toUpperCase() }}</span>
+          <div><strong>{{ user.display_name }}</strong><p class="muted">@{{ user.username }}</p><p>{{ user.bio }}</p></div>
+        </RouterLink></template>
+        <template v-else><PostCard v-for="post in posts" :key="post.id" :post="post" /></template>
       </section>
 
-      <div v-if="posts.length > 0" class="load-more">
+      <div v-if="resultCount > 0" class="load-more">
         <button v-if="nextCursor" class="button" type="button" :disabled="loading" @click="load(false)">
           {{ loading ? '加载中…' : '加载更多' }}
         </button>

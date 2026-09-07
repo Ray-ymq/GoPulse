@@ -85,7 +85,7 @@ test(`runs Compose business scenario: ${scenario}`, async ({ browser, page }) =>
     await expect(page.getByText(`@${actorUsername}`)).toHaveCount(2)
     await expectSearch(page, primaryTitle)
 
-    await page.getByRole('link', { name: '帖子', exact: true }).click()
+    await page.getByRole('navigation', { name: '用户主导航' }).getByRole('link', { name: '首页', exact: true }).click()
     await page.getByRole('button', { name: '退出' }).click()
     await expect(page).toHaveURL(/\/login$/)
     await login(page, ownerUsername)

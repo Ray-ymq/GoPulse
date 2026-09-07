@@ -30,9 +30,10 @@ func NewMySQLRepository(database *sql.DB) *MySQLRepository {
 
 func (repository *MySQLRepository) Create(ctx context.Context, username, passwordHash string) (User, error) {
 	result, err := repository.database.ExecContext(ctx,
-		`INSERT INTO users (username, password_hash) VALUES (?, ?)`,
+		`INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?)`,
 		username,
 		passwordHash,
+		username,
 	)
 	if err != nil {
 		if isDuplicateEntry(err) {
@@ -50,14 +51,14 @@ func (repository *MySQLRepository) Create(ctx context.Context, username, passwor
 
 func (repository *MySQLRepository) FindByID(ctx context.Context, identifier uint64) (User, error) {
 	return repository.findOne(ctx,
-		`SELECT id, username, password_hash, role, created_at FROM users WHERE id = ?`,
+		`SELECT id, username, password_hash, role, created_at, display_name, bio FROM users WHERE id = ?`,
 		identifier,
 	)
 }
 
 func (repository *MySQLRepository) FindByUsername(ctx context.Context, normalizedUsername string) (User, error) {
 	return repository.findOne(ctx,
-		`SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?`,
+		`SELECT id, username, password_hash, role, created_at, display_name, bio FROM users WHERE username = ?`,
 		normalizedUsername,
 	)
 }
@@ -82,6 +83,8 @@ func (repository *MySQLRepository) findOne(ctx context.Context, query string, ar
 		&record.PasswordHash,
 		&storedRole,
 		&record.CreatedAt,
+		&record.DisplayName,
+		&record.Bio,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound

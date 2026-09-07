@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import AppNav from '../components/AppNav.vue'
 import PostCard from '../components/PostCard.vue'
 import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
@@ -38,16 +37,12 @@ onMounted(() => void load(true))
 
 <template>
   <div>
-    <AppNav />
     <main class="content-shell">
-      <section class="page-heading">
-        <div>
-          <p class="eyebrow">COMMUNITY FEED</p>
-          <h1>最新帖子</h1>
-          <p class="muted">发现正在发生的讨论，或发布你的第一条动态。</p>
-        </div>
-        <RouterLink class="button button--primary" to="/posts/new">发布帖子</RouterLink>
-      </section>
+      <header class="page-heading"><h1>首页</h1></header>
+      <div class="user-tabs" role="tablist" aria-label="时间线">
+        <button role="tab" aria-selected="true">全部</button>
+        <button role="tab" aria-selected="false" disabled title="Phase-13-02 开放">Following</button>
+      </div>
 
       <p v-if="errorMessage" class="notice notice--error" role="alert">
         {{ errorMessage }} <button class="inline-action" type="button" @click="load(!loaded)">重试</button>

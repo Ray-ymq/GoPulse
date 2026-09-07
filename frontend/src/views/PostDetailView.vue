@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import AppNav from '../components/AppNav.vue'
 import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Comment, Post } from '../types/api'
@@ -100,14 +99,13 @@ onMounted(() => void loadAll())
 
 <template>
   <div>
-    <AppNav />
     <main class="content-shell content-shell--narrow">
       <RouterLink class="back-link" to="/posts">← 返回帖子</RouterLink>
       <p v-if="loadingPost && !post" class="state-card">正在加载帖子…</p>
       <p v-else-if="errorMessage && !post" class="notice notice--error" role="alert">{{ errorMessage }}</p>
       <article v-else-if="post" class="detail-card">
         <div class="post-card__meta">
-          <span>@{{ post.author.username }}</span>
+          <RouterLink :to="`/users/${post.author.username}`"><strong>{{ post.author.display_name || post.author.username }}</strong> @{{ post.author.username }}</RouterLink>
           <time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time>
         </div>
         <h1>{{ post.title }}</h1>
