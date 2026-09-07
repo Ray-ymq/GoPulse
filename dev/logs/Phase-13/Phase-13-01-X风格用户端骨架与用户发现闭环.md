@@ -72,3 +72,13 @@ GOPULSE_BASE_URL=http://127.0.0.1:45174 GOPULSE_PROFILE_ADMIN_USER=p13_baseline 
 - `git diff --check`：PASS；提交后同样检查 `origin/main...HEAD`。
 - 专用 Compose 项目执行 `down --volumes --remove-orphans` 成功；按项目 label 查询确认 containers、networks、volumes 均无残留。截图与命令输出保留在 `/tmp/gopulse-p13-evidence/`，不提交运行期数据或测试凭据。
 - 本批要求的完成门禁通过；上文已验证为基线既存的显式类型诊断保留为非阻断限制。无关注/收藏等后续批次事实混入本提交。
+
+## PR 前置 CI 修复（2026-09-07）
+
+- 远程运行 `34091533624` 中 Backend、Frontend、Integration 等检查成功，唯一阻断为 `Quality gates before PR / Full-stack Compose acceptance`；自动创建 PR 步骤因此 skipped，不能描述为已经打开的 PR 合并失败。
+- 失败日志明确定位 `frontend/e2e/compose-business.spec.ts:88`：在新版 UserAppShell 中等待旧的“帖子”导航链接，90 秒超时。此前注册、发布、评论、点赞、通知、帖子搜索均已执行通过。
+- 修改 Compose business 及旧 `business.spec.ts` 的导航定位：使用 `用户主导航` 下的“首页”；发布入口不再依赖已移除的 `.app-header`。同一路径实际运行另发现旧登录断言不接受现有 `?redirect=/posts`，同步修正该断言，保留登录重定向验证。
+- 使用当前运行的本批 Compose Backend/Frontend，在独立修复 worktree 执行：
+  - `GOPULSE_BASE_URL=http://127.0.0.1:45174 frontend/node_modules/.bin/playwright test --config frontend/playwright.config.ts frontend/e2e/compose-business.spec.ts frontend/e2e/business.spec.ts --grep 'runs Compose business scenario: business|completes the browser registration'`：Compose business PASS；旧 business 在上述 redirect 断言失败。
+  - 修正断言后仅重跑失败用例：`GOPULSE_BASE_URL=http://127.0.0.1:45174 frontend/node_modules/.bin/playwright test --config frontend/playwright.config.ts frontend/e2e/business.spec.ts --grep 'completes the browser registration'`：PASS。已成功的 Compose business 未重复运行。
+- 仅更新直接受影响的两个浏览器测试及本记录，不修改产品源码、依赖、生命周期脚本或版本；仍属于 `develop/1.10.1` 同一批次。版本/分支治理与 diff 检查通过后提交推送，由远程重新执行完整固定门禁；本地不宣称整个远程 Compose 矩阵已通过。
