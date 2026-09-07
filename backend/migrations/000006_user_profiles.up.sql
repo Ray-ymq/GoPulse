@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN display_name VARCHAR(64) NOT NULL DEFAULT '', ADD COLUMN bio VARCHAR(160) NOT NULL DEFAULT '';
+UPDATE users SET display_name = username;

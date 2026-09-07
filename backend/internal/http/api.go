@@ -15,6 +15,7 @@ import (
 )
 
 type APIRoutes struct {
+	Users           *UserHandler
 	Auth            *auth.Handler
 	Posts           *post.Handler
 	Comments        *comment.Handler
@@ -45,6 +46,12 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	protected.Use(routes.Authentication)
 	if routes.Auth != nil {
 		protected.GET("/users/me", routes.Auth.CurrentUser)
+	}
+	if routes.Users != nil {
+		protected.PATCH("/users/me/profile", routes.Users.Update)
+		protected.GET("/users/:username", routes.Users.Get)
+		protected.GET("/users/:username/posts", routes.Users.Posts)
+		protected.GET("/search/users", routes.Users.Search)
 	}
 	if routes.Posts != nil {
 		protected.POST("/posts", routes.Posts.Create)

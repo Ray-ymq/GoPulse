@@ -101,7 +101,15 @@ func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Po
 	if err != nil {
 		return Post{}, apperror.WrapInternal(err)
 	}
-	return projection.post(likedByMe), nil
+	records := []Post{projection.post(likedByMe)}
+	if hydrator, ok := service.repository.(interface {
+		HydrateAuthors(context.Context, []Post) error
+	}); ok {
+		if err := hydrator.HydrateAuthors(ctx, records); err != nil {
+			return Post{}, apperror.WrapInternal(err)
+		}
+	}
+	return records[0], nil
 }
 
 func (service *Service) cachedProjection(ctx context.Context, postID uint64) (PublicProjection, bool) {
