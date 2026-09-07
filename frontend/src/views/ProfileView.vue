@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FollowButton from '../components/FollowButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import PostCard from '../components/PostCard.vue'
@@ -73,6 +74,8 @@ watch(() => route.params.username, () => {
       <span class="user-avatar user-avatar--large" aria-hidden="true">{{ Array.from(profile.display_name)[0]?.toUpperCase() }}</span>
       <h1>{{ profile.display_name }}</h1><p class="muted">@{{ profile.username }}</p>
       <p class="bio">{{ profile.bio }}</p><p class="muted">加入于 {{ formatDate(profile.created_at) }}</p>
+      <FollowButton :target="profile" />
+      <nav v-if="profile.is_self" aria-label="我的关系"><RouterLink to="/me/following">我的关注</RouterLink> · <RouterLink to="/me/followers">我的粉丝</RouterLink></nav>
       <button v-if="profile.is_self && !editing" class="button" @click="edit">编辑资料</button>
     </section>
     <p v-if="success" class="notice" role="status">{{ success }}</p>

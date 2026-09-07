@@ -1,4 +1,5 @@
 import { readonly, ref } from 'vue'
+import { clearFollowing } from './useFollowing'
 import { authApi } from '../services/api'
 import { ApiError, setUnauthorizedHandler } from '../services/http'
 import type { Credentials, PublicUser } from '../types/api'
@@ -10,6 +11,7 @@ const status = ref<AuthStatus>('uninitialized')
 let initialization: Promise<void> | null = null
 
 function clear(): void {
+  clearFollowing()
   user.value = null
   status.value = 'anonymous'
 }
