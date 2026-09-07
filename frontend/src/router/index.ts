@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory, type Router } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
+import UserAppShell from '../components/UserAppShell.vue'
+import ProfileView from '../views/ProfileView.vue'
 import AdminLayout from '../components/AdminLayout.vue'
 import AuthRecoveryView from '../views/AuthRecoveryView.vue'
 import DevStatusView from '../views/DevStatusView.vue'
@@ -25,11 +27,17 @@ export function createAppRouter(history = createWebHistory()): Router {
       { path: '/register', component: RegisterView, meta: { guestOnly: true } },
       { path: '/login', component: LoginView, meta: { guestOnly: true } },
       { path: '/auth-recovery', component: AuthRecoveryView, meta: { skipAuthRecovery: true } },
-      { path: '/posts', component: PostsView, meta: { requiresAuth: true } },
-      { path: '/search', component: SearchView, meta: { requiresAuth: true } },
-      { path: '/notifications', component: NotificationsView, meta: { requiresAuth: true } },
-      { path: '/posts/new', component: NewPostView, meta: { requiresAuth: true } },
-      { path: '/posts/:postId', component: PostDetailView, meta: { requiresAuth: true } },
+      {
+        path: '', component: UserAppShell, meta: { requiresAuth: true },
+        children: [
+          { path: '/posts', component: PostsView },
+          { path: '/search', component: SearchView },
+          { path: '/notifications', component: NotificationsView },
+          { path: '/posts/new', component: NewPostView },
+          { path: '/posts/:postId', component: PostDetailView },
+          { path: '/users/:username', component: ProfileView },
+        ],
+      },
       { path: '/forbidden', component: ForbiddenView, meta: { requiresAuth: true } },
       {
         path: '/admin/observability',
