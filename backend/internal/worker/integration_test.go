@@ -339,3 +339,57 @@ func workerCleanup(t *testing.T, db *sql.DB, post, actor, recipient uint64) {
 		}
 	})
 }
+
+func TestIntegrationFollowNotificationRetryAndReplay(t *testing.T) {
+	cfg := integrationtest.Environment(t)
+	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	release := integrationtest.AcquirePostFactsLock(t, database)
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	actor := workerInsertUser(t, ctx, database, "follow_worker_actor")
+	recipient := workerInsertUser(t, ctx, database, "follow_worker_recipient")
+	defer func() {
+		database.Exec("DELETE FROM notifications WHERE actor_id = ?", actor)
+		database.Exec("DELETE FROM users WHERE id IN (?, ?)", actor, recipient)
+	}()
+	repository, _ := notification.NewRepository(database)
+	processor, _ := notification.NewProcessor(repository)
+	flaky := &flakyProcessor{delegate: processor}
+	flaky.failures.Store(1)
+	purgeBusinessQueues(t, cfg.RabbitMQURL)
+	stop, done := startRuntime(newIntegrationRuntime(t, cfg.RabbitMQURL, flaky, 2))
+	defer func() { stop(); waitRuntime(t, done) }()
+	event, err := bus.NewUserFollowed(time.Now().UTC().Truncate(time.Second), actor, recipient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishEnvelope(t, cfg.RabbitMQURL, event)
+	publishEnvelope(t, cfg.RabbitMQURL, event)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var count int
+		if err = database.QueryRowContext(ctx, "SELECT COUNT(*) FROM notifications WHERE source_event_id = ?", event.EventID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count == 1 && flaky.calls.Load() >= 3 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("follow retry did not converge")
+		case <-ticker.C:
+		}
+	}
+	// Wait for retry delivery to finish, then verify the unique side effect.
+	waitQueueMessages(t, ctx, cfg.RabbitMQURL, platform.BusinessRetryQueue, 0)
+	records, err := repository.ListByRecipient(ctx, recipient, notification.ListOptions{Limit: 20})
+	if err != nil || len(records) != 1 || records[0].Type != bus.UserFollowed || records[0].PostID != nil {
+		t.Fatalf("follow notification %#v %v", records, err)
+	}
+}

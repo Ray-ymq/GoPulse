@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type Router } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import UserAppShell from '../components/UserAppShell.vue'
+import RelationsView from '../views/RelationsView.vue'
 import ProfileView from '../views/ProfileView.vue'
 import AdminLayout from '../components/AdminLayout.vue'
 import AuthRecoveryView from '../views/AuthRecoveryView.vue'
@@ -33,6 +34,8 @@ export function createAppRouter(history = createWebHistory()): Router {
           { path: '/posts', component: PostsView },
           { path: '/search', component: SearchView },
           { path: '/notifications', component: NotificationsView },
+          { path: '/me/following', component: RelationsView },
+          { path: '/me/followers', component: RelationsView },
           { path: '/posts/new', component: NewPostView },
           { path: '/posts/:postId', component: PostDetailView },
           { path: '/users/:username', component: ProfileView },

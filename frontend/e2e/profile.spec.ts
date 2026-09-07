@@ -50,7 +50,7 @@ test('profile and user search close the real two-user discovery loop in the user
       await expect(viewer.locator('.user-result').filter({ hasText: username })).toBeVisible()
     }
     await viewer.reload()
-    await viewer.locator('.user-result').filter({ hasText: username }).click()
+    await viewer.locator('.user-result').filter({ hasText: username }).getByRole('link').click()
     await expect(viewer.getByRole('heading', { name: displayName, exact: true })).toBeVisible()
     await expect(viewer.getByText('这是我的简介', { exact: true })).toBeVisible()
     await expect(viewer.getByRole('button', { name: '编辑资料' })).toHaveCount(0)
@@ -74,13 +74,13 @@ test('profile and user search close the real two-user discovery loop in the user
     expect((await api.patch(`${base}/api/v1/users/me/profile`, { data: { display_name: '' } })).status()).toBe(400)
     expect((await api.patch(`${base}/api/v1/users/me/profile`, { data: { display_name: 'Name', bio: '', username } })).status()).toBe(400)
     const publicData = (await (await api.get(`${base}/api/v1/users/${username}`)).json()).data
-    expect(Object.keys(publicData).sort()).toEqual(['bio', 'created_at', 'display_name', 'id', 'is_self', 'username'])
+    expect(Object.keys(publicData).sort()).toEqual(['bio', 'created_at', 'display_name', 'following', 'id', 'is_self', 'username'])
 
     for (const [name, width, height] of [['desktop', 1440, 1000], ['tablet', 820, 1000], ['mobile', 390, 844]] as const) {
       await viewer.setViewportSize({ width, height })
       await viewer.goto('/posts')
       await expect(viewer.getByRole('tab', { name: '全部', exact: true })).toBeVisible()
-      await expect(viewer.getByRole('tab', { name: 'Following', exact: true })).toBeDisabled()
+      await expect(viewer.getByRole('tab', { name: 'Following', exact: true })).toBeEnabled()
       await expect(viewer.getByRole('link', { name: '我的资料' })).toBeVisible()
       await expect(viewer.locator('.user-context')).toBeVisible({ visible: name === 'desktop' })
       expect(await viewer.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
