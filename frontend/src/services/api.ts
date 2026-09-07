@@ -41,7 +41,7 @@ function isPublicUser(value: unknown): value is PublicUser {
 
 function isPost(value: unknown): value is Post {
   if (!isRecord(value) || !hasExactKeys(value, ['id', 'title', 'content', 'created_at', 'updated_at', 'author', 'comment_count', 'like_count', 'liked_by_me'])) return false
-  if (!isRecord(value.author) || !hasExactKeys(value.author, ['id', 'username', 'display_name'])) return false
+  if (!isRecord(value.author) || !hasExactKeys(value.author, ['id', 'username', 'display_name', ...(value.author.following === undefined ? [] : ['following'])])) return false
   return isPositiveID(value.id)
     && typeof value.title === 'string'
     && typeof value.content === 'string'
@@ -61,8 +61,8 @@ function isPost(value: unknown): value is Post {
 
 function isNotification(value: unknown): value is Notification {
   if (!isRecord(value) || !hasExactKeys(value, ['id', 'type', 'created_at', 'read_at', 'actor', 'post_id', 'comment_id'])) return false
-  if (!isRecord(value.actor) || !hasExactKeys(value.actor, ['id', 'username'])) return false
-  const validType = value.type === 'comment.created' || value.type === 'post.liked'
+  if (!isRecord(value.actor) || !hasExactKeys(value.actor, ['id', 'username', ...(value.actor.display_name === undefined ? [] : ['display_name'])])) return false
+  const validType = value.type === 'comment.created' || value.type === 'post.liked' || value.type === 'user.followed'
   const validComment = value.type === 'comment.created'
     ? isPositiveID(value.comment_id)
     : value.comment_id === null
@@ -73,7 +73,7 @@ function isNotification(value: unknown): value is Notification {
     && isPositiveID(value.actor.id)
     && typeof value.actor.username === 'string'
     && value.actor.username.length > 0
-    && isPositiveID(value.post_id)
+    && (value.type === 'user.followed' ? value.post_id === null : isPositiveID(value.post_id))
     && validComment
 }
 
@@ -93,6 +93,7 @@ export const authApi = {
 }
 
 export const postApi = {
+  following: (cursor?: string, limit = 20): Promise<Page<Post>> => requestPage<Post>(`/posts/following?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
   list: (cursor?: string, limit = 20): Promise<Page<Post>> =>
     requestPage<Post>(`/posts?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
   detail: (postId: number) => requestData<Post>(`/posts/${postId}`),
@@ -130,6 +131,8 @@ export const searchApi = {
 }
 
 export const userApi = {
+  follow: (id: number, following: boolean) => requestData<{ following: boolean }>(`/users/${id}/follow`, { method: following ? 'PUT' : 'DELETE' }),
+  relations: (kind: 'following' | 'followers', cursor?: string) => requestPage<import('../types/api').UserProfile>(`/users/me/${kind}?limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
   profile: (username: string) => requestData<import('../types/api').UserProfile>(`/users/${encodeURIComponent(username)}`),
   update: (display_name: string, bio: string) => requestData<import('../types/api').UserProfile>('/users/me/profile', { method: 'PATCH', body: JSON.stringify({ display_name, bio }) }),
   posts: (username: string, cursor?: string) => requestPage<Post>(`/users/${encodeURIComponent(username)}/posts?limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),

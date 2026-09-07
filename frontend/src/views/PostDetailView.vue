@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FollowButton from '../components/FollowButton.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { postApi } from '../services/api'
@@ -106,7 +107,7 @@ onMounted(() => void loadAll())
       <article v-else-if="post" class="detail-card">
         <div class="post-card__meta">
           <RouterLink :to="`/users/${post.author.username}`"><strong>{{ post.author.display_name || post.author.username }}</strong> @{{ post.author.username }}</RouterLink>
-          <time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time>
+          <FollowButton :target="post.author" /><time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time>
         </div>
         <h1>{{ post.title }}</h1>
         <p class="post-content">{{ post.content }}</p>

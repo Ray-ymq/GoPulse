@@ -109,6 +109,9 @@ func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Po
 			return Post{}, apperror.WrapInternal(err)
 		}
 	}
+	if err := service.hydrateFollowing(ctx, records, viewerID); err != nil {
+		return Post{}, apperror.WrapInternal(err)
+	}
 	return records[0], nil
 }
 
@@ -133,6 +136,15 @@ func (service *Service) RequireExists(ctx context.Context, postID uint64) error 
 	}
 	if !exists {
 		return apperror.New(apperror.CodePostNotFound, "post not found")
+	}
+	return nil
+}
+
+func (s *Service) hydrateFollowing(ctx context.Context, records []Post, viewer uint64) error {
+	if r, ok := s.repository.(interface {
+		HydrateFollowing(context.Context, []Post, uint64) error
+	}); ok {
+		return r.HydrateFollowing(ctx, records, viewer)
 	}
 	return nil
 }

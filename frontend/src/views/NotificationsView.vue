@@ -68,7 +68,7 @@ onMounted(() => void load(true))
         <div>
           <p class="eyebrow">异步动态</p>
           <h1>通知</h1>
-          <p class="muted">评论和点赞通知由后台异步处理，可能稍后到达；请刷新查看最新结果。</p>
+          <p class="muted">关注、评论和点赞通知由后台异步处理，可能稍后到达；请刷新查看最新结果。</p>
         </div>
         <button class="button" type="button" :disabled="loading || refreshing" @click="load(true)">
           {{ refreshing ? '刷新中…' : '刷新' }}
@@ -93,13 +93,13 @@ onMounted(() => void load(true))
         >
           <div class="notification-card__body">
             <div class="post-card__meta">
-              <strong>@{{ item.actor.username }}</strong>
+              <RouterLink :to="`/users/${item.actor.username}`"><strong>{{ item.actor.display_name || item.actor.username }} @{{ item.actor.username }}</strong></RouterLink>
               <time :datetime="item.created_at">{{ formatDate(item.created_at) }}</time>
               <span class="notification-status">{{ item.read_at === null ? '未读' : '已读' }}</span>
             </div>
             <p>
-              {{ item.type === 'comment.created' ? '评论了你的帖子' : '赞了你的帖子' }}
-              <RouterLink :to="`/posts/${item.post_id}`">查看帖子</RouterLink>
+              {{ item.type === 'user.followed' ? '关注了你' : item.type === 'comment.created' ? '评论了你的帖子' : '赞了你的帖子' }}
+              <RouterLink v-if="item.post_id !== null" :to="`/posts/${item.post_id}`">查看帖子</RouterLink>
             </p>
           </div>
           <button

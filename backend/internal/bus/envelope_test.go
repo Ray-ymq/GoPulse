@@ -116,3 +116,25 @@ func TestPostCreatedOmitsNotificationFields(t *testing.T) {
 		t.Fatalf("RoutingKey() = %q, %v", key, err)
 	}
 }
+
+func TestUserFollowedHasNoResourceAndRejectsSelf(t *testing.T) {
+	event, err := NewUserFollowed(time.Now().UTC(), 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := Encode(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(body)
+	if err != nil || decoded.PostID != 0 || decoded.CommentID != nil {
+		t.Fatalf("follow round trip %#v %v", decoded, err)
+	}
+	key, err := decoded.RoutingKey()
+	if err != nil || key != UserFollowedRoutingKey {
+		t.Fatal(key, err)
+	}
+	if _, err = NewUserFollowed(time.Now().UTC(), 1, 1); err == nil {
+		t.Fatal("self follow event accepted")
+	}
+}

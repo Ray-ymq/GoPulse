@@ -23,6 +23,7 @@ type Profile struct {
 	DisplayName string    `json:"display_name"`
 	Bio         string    `json:"bio"`
 	CreatedAt   time.Time `json:"created_at"`
+	Following   bool      `json:"following"`
 	IsSelf      bool      `json:"is_self"`
 }
 type ProfileInput struct {
@@ -45,7 +46,7 @@ func NormalizeProfile(input ProfileInput) (string, string, error) {
 }
 func invalid(message string) error { return apperror.New(apperror.CodeValidationFailed, message) }
 func profile(record User, viewer uint64) Profile {
-	return Profile{record.ID, record.Username, record.DisplayName, record.Bio, record.CreatedAt, record.ID == viewer}
+	return Profile{record.ID, record.Username, record.DisplayName, record.Bio, record.CreatedAt, false, record.ID == viewer}
 }
 func profileError(err error) error {
 	if errors.Is(err, ErrNotFound) {
@@ -74,7 +75,16 @@ func (s *ProfileService) Get(ctx context.Context, username string, viewer uint64
 	if err != nil {
 		return Profile{}, profileError(err)
 	}
-	return profile(record, viewer), nil
+	p := profile(record, viewer)
+	if r, ok := s.repository.(interface {
+		Following(context.Context, uint64, uint64) (bool, error)
+	}); ok {
+		p.Following, err = r.Following(ctx, viewer, record.ID)
+		if err != nil {
+			return Profile{}, profileError(err)
+		}
+	}
+	return p, nil
 }
 func (s *ProfileService) Update(ctx context.Context, viewer uint64, input ProfileInput) (Profile, error) {
 	name, bio, err := NormalizeProfile(input)
@@ -85,7 +95,16 @@ func (s *ProfileService) Update(ctx context.Context, viewer uint64, input Profil
 	if err != nil {
 		return Profile{}, profileError(err)
 	}
-	return profile(record, viewer), nil
+	p := profile(record, viewer)
+	if r, ok := s.repository.(interface {
+		Following(context.Context, uint64, uint64) (bool, error)
+	}); ok {
+		p.Following, err = r.Following(ctx, viewer, record.ID)
+		if err != nil {
+			return Profile{}, profileError(err)
+		}
+	}
+	return p, nil
 }
 
 type userSearchCursor struct {
@@ -167,12 +186,12 @@ func (r *MySQLRepository) UpdateProfile(ctx context.Context, id uint64, name, bi
 func (r *MySQLRepository) SearchProfiles(ctx context.Context, viewer uint64, options UserSearchOptions) ([]Profile, []int, error) {
 	// Explicit escape character makes %, _ and ! literal independently of SQL mode.
 	escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(options.Query)
-	query := `SELECT id, username, display_name, bio, created_at, match_rank FROM (
+	query := `SELECT id, username, display_name, bio, created_at, match_rank, EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = matches.id) FROM (
  SELECT id, username, display_name, bio, created_at,
  CASE WHEN username = ? THEN 0 WHEN username LIKE ? ESCAPE '!' OR display_name LIKE ? ESCAPE '!' THEN 1 ELSE 2 END AS match_rank
  FROM users WHERE username LIKE ? ESCAPE '!' OR display_name LIKE ? ESCAPE '!'
  ) AS matches`
-	args := []any{options.Query, escaped + "%", escaped + "%", "%" + escaped + "%", "%" + escaped + "%"}
+	args := []any{viewer, options.Query, escaped + "%", escaped + "%", "%" + escaped + "%", "%" + escaped + "%"}
 	if options.after != nil {
 		query += " WHERE match_rank > ? OR (match_rank = ? AND id > ?)"
 		args = append(args, options.after.Rank, options.after.Rank, options.after.ID)
@@ -189,7 +208,7 @@ func (r *MySQLRepository) SearchProfiles(ctx context.Context, viewer uint64, opt
 	for rows.Next() {
 		var p Profile
 		var rank int
-		if err = rows.Scan(&p.ID, &p.Username, &p.DisplayName, &p.Bio, &p.CreatedAt, &rank); err != nil {
+		if err = rows.Scan(&p.ID, &p.Username, &p.DisplayName, &p.Bio, &p.CreatedAt, &rank, &p.Following); err != nil {
 			return nil, nil, err
 		}
 		p.IsSelf = p.ID == viewer

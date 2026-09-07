@@ -10,6 +10,7 @@ type CreateInput struct {
 
 // Author is the public author summary embedded in post responses.
 type Author struct {
+	Following   bool   `json:"following"`
 	ID          uint64 `json:"id"`
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
@@ -36,9 +37,10 @@ type Cursor struct {
 
 // ListOptions controls one keyset-paginated list query.
 type ListOptions struct {
-	AuthorID uint64
-	Limit    int
-	Cursor   *Cursor
+	Following bool
+	AuthorID  uint64
+	Limit     int
+	Cursor    *Cursor
 }
 
 // Page contains one response page and its optional continuation token.

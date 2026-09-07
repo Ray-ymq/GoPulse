@@ -89,7 +89,8 @@ SELECT
         SELECT 1
         FROM post_likes AS my_like
         WHERE my_like.post_id = p.id AND my_like.user_id = ?
-    ) AS liked_by_me
+    ) AS liked_by_me,
+    EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id) AS following
 FROM posts AS p %s
 INNER JOIN users AS u ON u.id = p.author_id`
 
@@ -163,10 +164,14 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 
 func listStatement(viewerID uint64, options ListOptions) (string, []any) {
 	query := fmt.Sprintf(postListReadSelect, "FORCE INDEX (idx_posts_created_at_id)")
-	arguments := []any{viewerID}
+	arguments := []any{viewerID, viewerID}
 	query += `
 WHERE (? = 0 OR p.author_id = ?)`
 	arguments = append(arguments, options.AuthorID, options.AuthorID)
+	if options.Following {
+		query += " AND EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = p.author_id)"
+		arguments = append(arguments, viewerID)
+	}
 	if options.Cursor != nil {
 		query += `
 AND ( p.created_at < ? OR (p.created_at = ? AND p.id < ?))`
@@ -266,6 +271,7 @@ func scanPost(scan scanFunc) (Post, error) {
 		&record.CommentCount,
 		&record.LikeCount,
 		&record.LikedByMe,
+		&record.Author.Following,
 	)
 	return record, err
 }
@@ -302,8 +308,8 @@ func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64
 		return nil, errors.New("find many posts: invalid arguments")
 	}
 	placeholders := make([]string, len(identifiers))
-	arguments := make([]any, 0, len(identifiers)+1)
-	arguments = append(arguments, viewerID)
+	arguments := make([]any, 0, len(identifiers)+2)
+	arguments = append(arguments, viewerID, viewerID)
 	for index, identifier := range identifiers {
 		if identifier == 0 {
 			return nil, errors.New("find many posts: invalid identifier")
@@ -373,6 +379,38 @@ func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records [
 			return ErrNotFound
 		}
 		records[i].Author = a
+	}
+	return nil
+}
+
+func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, viewer uint64) error {
+	if len(records) == 0 {
+		return nil
+	}
+	args := []any{viewer}
+	slots := []string{}
+	for _, p := range records {
+		args = append(args, p.Author.ID)
+		slots = append(slots, "?")
+	}
+	rows, err := r.database.QueryContext(ctx, "SELECT followed_id FROM user_follows WHERE follower_id = ? AND followed_id IN ("+strings.Join(slots, ",")+")", args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	followed := map[uint64]bool{}
+	for rows.Next() {
+		var id uint64
+		if err = rows.Scan(&id); err != nil {
+			return err
+		}
+		followed[id] = true
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	for i := range records {
+		records[i].Author.Following = followed[records[i].Author.ID]
 	}
 	return nil
 }

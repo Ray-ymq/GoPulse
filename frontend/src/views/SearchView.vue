@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FollowButton from '../components/FollowButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PostCard from '../components/PostCard.vue'
@@ -130,10 +131,10 @@ watch(
       <p v-else-if="loading && resultCount === 0" class="state-card">正在搜索…</p>
       <p v-else-if="loaded && resultCount === 0" class="state-card">没有找到相关{{ userTab ? '用户' : '帖子' }}。</p>
       <section v-else class="post-list" aria-live="polite">
-        <template v-if="userTab"><RouterLink v-for="user in users" :key="user.id" class="user-result" :to="`/users/${user.username}`">
+        <template v-if="userTab"><article v-for="user in users" :key="user.id" class="user-result"><RouterLink :to="`/users/${user.username}`">
           <span class="user-avatar" aria-hidden="true">{{ Array.from(user.display_name)[0]?.toUpperCase() }}</span>
           <div><strong>{{ user.display_name }}</strong><p class="muted">@{{ user.username }}</p><p>{{ user.bio }}</p></div>
-        </RouterLink></template>
+        </RouterLink><FollowButton :target="user" /></article></template>
         <template v-else><PostCard v-for="post in posts" :key="post.id" :post="post" /></template>
       </section>
 
