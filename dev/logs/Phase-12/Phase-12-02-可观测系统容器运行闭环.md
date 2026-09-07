@@ -7,7 +7,7 @@
 - 开工基线：最新 `upstream/main` 提交 `3add2b8`，产品版本 `1.9.1`
 - 目标/本地完成版本：`1.9.2`
 - 实施方案：`dev/imple/Phase-12/Phase-12-02-可观测系统容器运行闭环.md`
-- 当前结论：主体实施已由提交 `37fcb38` 推送；2026-09-06 的自动 PR 工作流 run #125 仅在 Integration job 失败，因此未创建 Pull Request。失败对应的跨 package 集成夹具清理竞态已修复，本地针对性并发回归与完整 Integration 固定门禁均通过；修复提交仍待推送和远程重跑，因此尚未满足实施方案第 10 节的严格完成条件。
+- 当前结论：已完成。主体提交 `37fcb38` 的首次自动 PR 工作流 run #125 因跨 package 集成夹具清理竞态在 Integration job 失败；修复后最终分支提交 `e289053` 的远程运行 `34010783067` 全部 14 项检查成功，Pull Request #106 于 2026-09-06 合入主远程 `main` 为提交 `1e63bdd`，满足实施方案第 10 节完成条件。
 
 ## 2. 实际完成
 
@@ -140,4 +140,4 @@ git diff --check                                                                
 - 为证明浏览器 install/update，在 acceptance image 内生成当前版本安装包和下一 patch 包；`GOPULSE_UPDATE_VERSION` 只属于验收数据，不改变产品版本。
 - 为关闭真实故障矩阵暴露的 DTO 合同不一致，额外修改 Backend/Frontend 固定 safe-error allowlist；未放宽自由文本、内部路径、原始错误或任意 code。
 - 未修改冻结的 PowerShell 脚本，未增加宿主端口、Docker socket、特权容器、Kubernetes、生产身份系统、SBOM/签名、多架构发布、容量测试或独立 Review。
-- 首次推送已发生，但自动 PR run #125 因 Integration 夹具清理竞态失败而未创建 Pull Request；修复已通过本地固定 Integration 门禁，仍待推送、远程重跑、Pull Request 与主远程合入。在这些事实完成前，本批按方案第 10 节不能标记为“已完成”。
+- 首次推送的自动 PR run #125 因 Integration 夹具清理竞态失败而未创建 Pull Request；该缺陷修复后，远程运行 `34010783067` 的 Branch governance、各组件、双容器验收、Scripts and Compose、Integration 与自动合入共 14 项检查全部成功。Pull Request #106 已合入主远程 `main`，本批无已知阻断项并标记为已完成。
