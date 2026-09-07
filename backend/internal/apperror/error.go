@@ -6,6 +6,7 @@ import "errors"
 type Code string
 
 const (
+	CodeUserNotFound              Code = "user_not_found"
 	CodeValidationFailed          Code = "validation_failed"
 	CodeAuthenticationRequired    Code = "authentication_required"
 	CodePermissionDenied          Code = "permission_denied"

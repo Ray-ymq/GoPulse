@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import AppNav from '../components/AppNav.vue'
 import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
 
@@ -38,7 +37,6 @@ async function submit(): Promise<void> {
 
 <template>
   <div>
-    <AppNav />
     <main class="content-shell content-shell--narrow">
       <RouterLink class="back-link" to="/posts">← 返回帖子</RouterLink>
       <section class="form-card">
