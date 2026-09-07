@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import AppNav from '../components/AppNav.vue'
 import { notificationApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Notification } from '../types/api'
@@ -64,7 +63,6 @@ onMounted(() => void load(true))
 
 <template>
   <div>
-    <AppNav />
     <main class="content-shell content-shell--narrow">
       <div class="page-heading">
         <div>
