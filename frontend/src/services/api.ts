@@ -1,3 +1,4 @@
+import { bookmarkReadBarrier } from '../composables/useBookmarks'
 import type {
   Comment,
   CreateCommentInput,
@@ -40,7 +41,7 @@ function isPublicUser(value: unknown): value is PublicUser {
 }
 
 function isPost(value: unknown): value is Post {
-  if (!isRecord(value) || !hasExactKeys(value, ['id', 'title', 'content', 'created_at', 'updated_at', 'author', 'comment_count', 'like_count', 'liked_by_me'])) return false
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'title', 'content', 'created_at', 'updated_at', 'author', 'comment_count', 'like_count', 'liked_by_me', 'bookmarked_by_me'])) return false
   if (!isRecord(value.author) || !hasExactKeys(value.author, ['id', 'username', 'display_name', ...(value.author.following === undefined ? [] : ['following'])])) return false
   return isPositiveID(value.id)
     && typeof value.title === 'string'
@@ -57,6 +58,7 @@ function isPost(value: unknown): value is Post {
     && typeof value.like_count === 'number'
     && value.like_count >= 0
     && typeof value.liked_by_me === 'boolean'
+    && typeof value.bookmarked_by_me === 'boolean'
 }
 
 function isNotification(value: unknown): value is Notification {
@@ -92,11 +94,18 @@ export const authApi = {
   me: () => requestValidatedData<PublicUser>('/users/me', isPublicUser),
 }
 
+function readPosts<T extends Post | Page<Post>>(read: () => Promise<T>): Promise<T> {
+  const reconcile = bookmarkReadBarrier()
+  return read().then(result => { reconcile('data' in result ? result.data : [result]); return result })
+}
+
 export const postApi = {
-  following: (cursor?: string, limit = 20): Promise<Page<Post>> => requestPage<Post>(`/posts/following?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
+  bookmark: (postId: number, value: boolean) => requestVoid(`/posts/${postId}/bookmark`, { method: value ? 'PUT' : 'DELETE' }),
+  bookmarks: (cursor?: string, limit = 20): Promise<Page<Post>> => readPosts(() => requestPage<Post>(`/bookmarks?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`)),
+  following: (cursor?: string, limit = 20): Promise<Page<Post>> => readPosts(() => requestPage<Post>(`/posts/following?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`)),
   list: (cursor?: string, limit = 20): Promise<Page<Post>> =>
-    requestPage<Post>(`/posts?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
-  detail: (postId: number) => requestData<Post>(`/posts/${postId}`),
+    readPosts(() => requestPage<Post>(`/posts?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`)),
+  detail: (postId: number) => readPosts(() => requestData<Post>(`/posts/${postId}`)),
   create: (input: CreatePostInput) =>
     requestData<Post>('/posts', { method: 'POST', body: JSON.stringify(input) }),
   comments: (postId: number, cursor?: string, limit = 20): Promise<Page<Comment>> =>
@@ -124,10 +133,10 @@ export const notificationApi = {
 
 export const searchApi = {
   posts: (query: string, cursor?: string, limit = 20): Promise<Page<Post>> =>
-    requestValidatedPage<Post>(
+    readPosts(() => requestValidatedPage<Post>(
       `/search/posts?q=${encodeURIComponent(query)}&limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`,
       isPost,
-    ),
+    )),
 }
 
 export const userApi = {
@@ -135,6 +144,6 @@ export const userApi = {
   relations: (kind: 'following' | 'followers', cursor?: string) => requestPage<import('../types/api').UserProfile>(`/users/me/${kind}?limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
   profile: (username: string) => requestData<import('../types/api').UserProfile>(`/users/${encodeURIComponent(username)}`),
   update: (display_name: string, bio: string) => requestData<import('../types/api').UserProfile>('/users/me/profile', { method: 'PATCH', body: JSON.stringify({ display_name, bio }) }),
-  posts: (username: string, cursor?: string) => requestPage<Post>(`/users/${encodeURIComponent(username)}/posts?limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
+  posts: (username: string, cursor?: string) => readPosts(() => requestPage<Post>(`/users/${encodeURIComponent(username)}/posts?limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`)),
   search: (query: string, cursor?: string) => requestPage<import('../types/api').UserProfile>(`/search/users?q=${encodeURIComponent(query)}&limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
 }

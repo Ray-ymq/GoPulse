@@ -38,7 +38,7 @@ func cachedProjection() post.PublicProjection {
 		Content:      "content",
 		CreatedAt:    createdAt,
 		UpdatedAt:    createdAt,
-		Author:       post.Author{ID: 7, Username: "author"},
+		Author:       post.PublicAuthor{ID: 7, Username: "author"},
 		CommentCount: 2,
 		LikeCount:    3,
 	}
@@ -122,7 +122,7 @@ func TestPostDetailRepositorySetUsesVersionedPublicJSONAndTTL(t *testing.T) {
 	if err := repository.Set(context.Background(), projection); err != nil {
 		t.Fatalf("Set() error=%v", err)
 	}
-	if strings.Contains(value, "liked_by_me") || strings.Contains(value, "password") || strings.Contains(value, "jwt") {
+	if strings.Contains(value, "bookmarked_by_me") || strings.Contains(value, "following") || strings.Contains(value, "liked_by_me") || strings.Contains(value, "password") || strings.Contains(value, "jwt") {
 		t.Fatalf("cached value contains forbidden field: %s", value)
 	}
 	var envelope postDetailEnvelope

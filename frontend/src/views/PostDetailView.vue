@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BookmarkButton from '../components/BookmarkButton.vue'
 import FollowButton from '../components/FollowButton.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -117,6 +118,7 @@ onMounted(() => void loadAll())
           <button class="button" type="button" :disabled="updatingLike" @click="toggleLike">
             {{ updatingLike ? '处理中…' : post.liked_by_me ? '取消点赞' : '点赞' }}
           </button>
+          <BookmarkButton :post="post" />
         </div>
         <p v-if="errorMessage" class="notice notice--error" role="alert">{{ errorMessage }}</p>
       </article>
