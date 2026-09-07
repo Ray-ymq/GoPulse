@@ -47,7 +47,7 @@ func (repository *Repository) Insert(ctx context.Context, envelope bus.Envelope)
 			(source_event_id, type, recipient_id, actor_id, post_id, comment_id, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		envelope.EventID, string(envelope.EventType), envelope.RecipientID,
-		envelope.ActorID, envelope.PostID, envelope.CommentID, envelope.OccurredAt.UTC(),
+		envelope.ActorID, nullablePostID(envelope.PostID), envelope.CommentID, envelope.OccurredAt.UTC(),
 	)
 	if isDuplicateEntry(err) {
 		return false, nil
@@ -67,7 +67,7 @@ func (repository *Repository) FindBySourceEventID(ctx context.Context, eventID s
 	var commentID sql.NullInt64
 	var readAt sql.NullTime
 	err := repository.database.QueryRowContext(ctx, `
-		SELECT id, source_event_id, type, recipient_id, actor_id, post_id, comment_id, created_at, read_at
+		SELECT id, source_event_id, type, recipient_id, actor_id, COALESCE(post_id, 0), comment_id, created_at, read_at
 		FROM notifications WHERE source_event_id = ?`, eventID).Scan(
 		&record.ID, &record.SourceEventID, &eventType, &record.RecipientID, &record.ActorID,
 		&record.PostID, &commentID, &record.CreatedAt, &readAt,
@@ -104,7 +104,7 @@ func (repository *Repository) ListByRecipient(ctx context.Context, recipientID u
 	arguments = append(arguments, options.Limit+1)
 	rows, err := repository.database.QueryContext(ctx, `
 		SELECT n.id, n.type, n.created_at, n.read_at,
-		       u.id, u.username, n.post_id, n.comment_id
+		       u.id, u.username, n.post_id, n.comment_id, u.display_name
 		FROM notifications n
 		JOIN users u ON u.id = n.actor_id
 		WHERE n.recipient_id = ?`+cursorClause+`
@@ -123,7 +123,7 @@ func (repository *Repository) ListByRecipient(ctx context.Context, recipientID u
 		var readAt sql.NullTime
 		if err := rows.Scan(
 			&record.ID, &eventType, &record.CreatedAt, &readAt,
-			&record.Actor.ID, &record.Actor.Username, &record.PostID, &commentID,
+			&record.Actor.ID, &record.Actor.Username, &record.PostID, &commentID, &record.Actor.DisplayName,
 		); err != nil {
 			return nil, fmt.Errorf("scan recipient notification: %w", err)
 		}
@@ -172,4 +172,11 @@ func (repository *Repository) MarkRead(ctx context.Context, recipientID, notific
 		return ErrNotFound
 	}
 	return nil
+}
+
+func nullablePostID(id uint64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
 }

@@ -27,8 +27,9 @@ type Notification struct {
 
 // Actor is the public user summary embedded in notification responses.
 type Actor struct {
-	ID       uint64 `json:"id"`
-	Username string `json:"username"`
+	ID          uint64 `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
 }
 
 // Public is the notification representation exposed to its recipient. Internal
@@ -39,7 +40,7 @@ type Public struct {
 	CreatedAt time.Time     `json:"created_at"`
 	ReadAt    *time.Time    `json:"read_at"`
 	Actor     Actor         `json:"actor"`
-	PostID    uint64        `json:"post_id"`
+	PostID    *uint64       `json:"post_id"`
 	CommentID *uint64       `json:"comment_id"`
 }
 
