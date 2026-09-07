@@ -41,7 +41,7 @@ function isPublicUser(value: unknown): value is PublicUser {
 
 function isPost(value: unknown): value is Post {
   if (!isRecord(value) || !hasExactKeys(value, ['id', 'title', 'content', 'created_at', 'updated_at', 'author', 'comment_count', 'like_count', 'liked_by_me'])) return false
-  if (!isRecord(value.author) || !hasExactKeys(value.author, ['id', 'username'])) return false
+  if (!isRecord(value.author) || !hasExactKeys(value.author, ['id', 'username', 'display_name'])) return false
   return isPositiveID(value.id)
     && typeof value.title === 'string'
     && typeof value.content === 'string'
@@ -49,6 +49,7 @@ function isPost(value: unknown): value is Post {
     && isTimestamp(value.updated_at)
     && isPositiveID(value.author.id)
     && typeof value.author.username === 'string'
+    && typeof value.author.display_name === 'string'
     && Number.isSafeInteger(value.comment_count)
     && typeof value.comment_count === 'number'
     && value.comment_count >= 0
@@ -126,4 +127,11 @@ export const searchApi = {
       `/search/posts?q=${encodeURIComponent(query)}&limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`,
       isPost,
     ),
+}
+
+export const userApi = {
+  profile: (username: string) => requestData<import('../types/api').UserProfile>(`/users/${encodeURIComponent(username)}`),
+  update: (display_name: string, bio: string) => requestData<import('../types/api').UserProfile>('/users/me/profile', { method: 'PATCH', body: JSON.stringify({ display_name, bio }) }),
+  posts: (username: string, cursor?: string) => requestPage<Post>(`/users/${encodeURIComponent(username)}/posts?limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
+  search: (query: string, cursor?: string) => requestPage<import('../types/api').UserProfile>(`/search/users?q=${encodeURIComponent(query)}&limit=20${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`),
 }
