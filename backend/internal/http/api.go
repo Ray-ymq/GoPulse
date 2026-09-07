@@ -49,6 +49,13 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	}
 	if routes.Users != nil {
 		protected.PATCH("/users/me/profile", routes.Users.Update)
+		if routes.Users.follows != nil {
+			protected.PUT("/users/:username/follow", routes.Users.Follow)
+			protected.DELETE("/users/:username/follow", routes.Users.Follow)
+			protected.GET("/users/me/following", routes.Users.Relations)
+			protected.GET("/users/me/followers", routes.Users.Relations)
+			protected.GET("/posts/following", routes.Users.Following)
+		}
 		protected.GET("/users/:username", routes.Users.Get)
 		protected.GET("/users/:username/posts", routes.Users.Posts)
 		protected.GET("/search/users", routes.Users.Search)

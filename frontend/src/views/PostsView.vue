@@ -5,6 +5,7 @@ import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Post } from '../types/api'
 
+const following = ref(false)
 const posts = ref<Post[]>([])
 const nextCursor = ref<string | null>(null)
 const loading = ref(false)
@@ -20,7 +21,7 @@ async function load(reset = false): Promise<void> {
   requestedCursor = cursor
   errorMessage.value = ''
   try {
-    const page = await postApi.list(cursor)
+    const page = await (following.value ? postApi.following(cursor) : postApi.list(cursor))
     posts.value = reset ? page.data : [...posts.value, ...page.data]
     nextCursor.value = page.nextCursor
     loaded.value = true
@@ -32,6 +33,11 @@ async function load(reset = false): Promise<void> {
   }
 }
 
+function selectTab(value: boolean) {
+ if (loading.value || following.value === value) return
+ following.value = value; posts.value = []; loaded.value = false; nextCursor.value = null; requestedCursor = undefined
+ void load(true)
+}
 onMounted(() => void load(true))
 </script>
 
@@ -40,15 +46,15 @@ onMounted(() => void load(true))
     <main class="content-shell">
       <header class="page-heading"><h1>首页</h1></header>
       <div class="user-tabs" role="tablist" aria-label="时间线">
-        <button role="tab" aria-selected="true">全部</button>
-        <button role="tab" aria-selected="false" disabled title="Phase-13-02 开放">Following</button>
+        <button role="tab" :aria-selected="!following" :disabled="loading" @click="selectTab(false)">全部</button>
+        <button role="tab" :aria-selected="following" :disabled="loading" @click="selectTab(true)">Following</button>
       </div>
 
       <p v-if="errorMessage" class="notice notice--error" role="alert">
         {{ errorMessage }} <button class="inline-action" type="button" @click="load(!loaded)">重试</button>
       </p>
       <p v-if="loading && posts.length === 0" class="state-card">正在加载帖子…</p>
-      <p v-else-if="loaded && posts.length === 0" class="state-card">还没有帖子，成为第一个发布者吧。</p>
+      <p v-else-if="loaded && posts.length === 0" class="state-card">{{ following ? '关注的人还没有帖子，去搜索用户并关注吧。' : '还没有帖子，成为第一个发布者吧。' }}</p>
       <section v-else class="post-list" aria-live="polite">
         <PostCard v-for="post in posts" :key="post.id" :post="post" />
       </section>

@@ -8,6 +8,7 @@ export interface PublicUser {
 }
 
 export interface AuthorSummary {
+  following?: boolean
   id: number
   username: string
   display_name: string
@@ -73,7 +74,7 @@ export type ApiErrorCode =
   | 'network_error'
   | 'invalid_response'
 
-export type NotificationType = 'comment.created' | 'post.liked'
+export type NotificationType = 'comment.created' | 'post.liked' | 'user.followed'
 
 export interface Notification {
   id: number
@@ -81,11 +82,12 @@ export interface Notification {
   created_at: string
   read_at: string | null
   actor: AuthorSummary
-  post_id: number
+  post_id: number | null
   comment_id: number | null
 }
 
 export interface UserProfile {
+  following?: boolean
   id: number
   username: string
   display_name: string

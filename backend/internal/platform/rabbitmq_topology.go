@@ -47,7 +47,7 @@ var (
 		RetryExchange: BusinessRetryExchange, RetryQueue: BusinessRetryQueue,
 		DeadExchange: BusinessDeadExchange, DeadQueue: BusinessDeadQueue,
 		InvalidRoutingKey: BusinessInvalidRoutingKey,
-		RoutingKeys:       []string{bus.CommentCreatedRoutingKey, bus.PostLikedRoutingKey},
+		RoutingKeys:       []string{bus.CommentCreatedRoutingKey, bus.PostLikedRoutingKey, bus.UserFollowedRoutingKey},
 	}
 	SearchTopology = Topology{
 		Exchange: SearchExchange, Queue: SearchQueue,
