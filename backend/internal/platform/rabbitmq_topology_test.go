@@ -115,7 +115,7 @@ func TestDeclareBusinessTopologyRejectsInvalidConfigurationAndDeclarationMismatc
 	}
 }
 
-func TestDeclareSearchTopologyBindsOnlyPostCreated(t *testing.T) {
+func TestDeclareSearchTopologyBindsPostContentEvents(t *testing.T) {
 	channel := &fakeTopologyChannel{}
 	if err := DeclareSearchTopology(channel, 2*time.Second); err != nil {
 		t.Fatalf("DeclareSearchTopology() error = %v", err)
@@ -124,6 +124,9 @@ func TestDeclareSearchTopologyBindsOnlyPostCreated(t *testing.T) {
 		{name: SearchQueue, key: bus.PostCreatedRoutingKey, exchange: SearchExchange},
 		{name: SearchRetryQueue, key: bus.PostCreatedRoutingKey, exchange: SearchRetryExchange},
 		{name: SearchDeadQueue, key: bus.PostCreatedRoutingKey, exchange: SearchDeadExchange},
+		{name: SearchQueue, key: bus.PostUpdatedRoutingKey, exchange: SearchExchange},
+		{name: SearchRetryQueue, key: bus.PostUpdatedRoutingKey, exchange: SearchRetryExchange},
+		{name: SearchDeadQueue, key: bus.PostUpdatedRoutingKey, exchange: SearchDeadExchange},
 		{name: SearchDeadQueue, key: SearchInvalidRoutingKey, exchange: SearchDeadExchange},
 	}
 	if !reflect.DeepEqual(channel.bindings, wantBindings) {

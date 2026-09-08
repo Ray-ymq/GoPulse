@@ -41,13 +41,15 @@ function isPublicUser(value: unknown): value is PublicUser {
 }
 
 function isPost(value: unknown): value is Post {
-  if (!isRecord(value) || !hasExactKeys(value, ['id', 'title', 'content', 'created_at', 'updated_at', 'author', 'comment_count', 'like_count', 'liked_by_me', 'bookmarked_by_me'])) return false
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'title', 'content', 'created_at', 'updated_at', 'edited_at', 'content_revision', 'author', 'comment_count', 'like_count', 'liked_by_me', 'bookmarked_by_me'])) return false
   if (!isRecord(value.author) || !hasExactKeys(value.author, ['id', 'username', 'display_name', ...(value.author.following === undefined ? [] : ['following'])])) return false
   return isPositiveID(value.id)
     && typeof value.title === 'string'
     && typeof value.content === 'string'
     && isTimestamp(value.created_at)
     && isTimestamp(value.updated_at)
+    && (value.edited_at === null || isTimestamp(value.edited_at))
+    && isPositiveID(value.content_revision)
     && isPositiveID(value.author.id)
     && typeof value.author.username === 'string'
     && typeof value.author.display_name === 'string'
@@ -106,6 +108,8 @@ export const postApi = {
   list: (cursor?: string, limit = 20): Promise<Page<Post>> =>
     readPosts(() => requestPage<Post>(`/posts?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`)),
   detail: (postId: number) => readPosts(() => requestData<Post>(`/posts/${postId}`)),
+  update: (id: number, input: CreatePostInput) =>
+    requestValidatedData<Post>(`/posts/${id}`, isPost, { method: 'PATCH', body: JSON.stringify(input) }),
   create: (input: CreatePostInput) =>
     requestData<Post>('/posts', { method: 'POST', body: JSON.stringify(input) }),
   comments: (postId: number, cursor?: string, limit = 20): Promise<Page<Comment>> =>

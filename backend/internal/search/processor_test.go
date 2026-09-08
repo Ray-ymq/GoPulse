@@ -67,7 +67,6 @@ func TestProcessorClassifiesPermanentFailures(t *testing.T) {
 		store   processorStore
 		indexer *processorIndexer
 	}{
-		"missing fact":      {store: processorStore{err: sql.ErrNoRows}, indexer: &processorIndexer{}},
 		"mapping rejection": {store: processorStore{document: Document{PostID: 7, Title: "x", Content: "y", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}}, indexer: &processorIndexer{err: &PermanentIndexError{Reason: "index_mapping_rejected"}}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -125,4 +124,46 @@ func TestElasticsearchRepositoryIndexAliasRequiresAliasAndClassifiesStatuses(t *
 			}
 		})
 	}
+}
+
+func TestProcessorReplaysUpdateAndCreateFromCurrentFact(t *testing.T) {
+	current := Document{PostID: 7, ContentRevision: 3, Title: "latest", Content: "current", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	indexer := &processorIndexer{}
+	processor, _ := NewProcessor(processorStore{document: current}, indexer)
+	old, _ := bus.NewPostUpdated(time.Now().UTC(), 3, 7, 2)
+	created, _ := bus.NewPostCreated(time.Now().UTC(), 3, 7)
+	for _, event := range []bus.Envelope{old, created, old} {
+		if err := processor.Process(context.Background(), event); err != nil {
+			t.Fatal(err)
+		}
+		if indexer.document.ContentRevision != 3 || indexer.document.Title != "latest" {
+			t.Fatal(indexer.document)
+		}
+	}
+}
+func TestIndexRevisionConflictIsSuccessfulStaleReplay(t *testing.T) {
+	repo := NewElasticsearchRepository(performerFunc(func(_ context.Context, req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("version") != "2" || req.URL.Query().Get("version_type") != "external_gte" {
+			t.Fatal(req.URL)
+		}
+		return &http.Response{StatusCode: 409, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	}))
+	if err := repo.IndexAlias(context.Background(), Document{PostID: 7, ContentRevision: 2, Title: "old", Content: "old", CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestProcessorDeletesMissingFact(t *testing.T) {
+	indexer := &processorIndexer{}
+	processor, _ := NewProcessor(processorStore{err: sql.ErrNoRows}, indexer)
+	event, _ := bus.NewPostCreated(time.Now().UTC(), 3, 7)
+	if err := processor.Process(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if indexer.document.PostID != 7 {
+		t.Fatal("missing delete")
+	}
+}
+func (i *processorIndexer) DeleteAlias(_ context.Context, id uint64) error {
+	i.document = Document{PostID: id}
+	return i.err
 }

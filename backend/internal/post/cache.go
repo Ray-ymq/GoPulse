@@ -16,14 +16,16 @@ type PublicAuthor struct {
 // PublicProjection is the non-personalized post detail payload eligible for
 // caching. Viewer-specific state such as LikedByMe must never be stored here.
 type PublicProjection struct {
-	ID           uint64       `json:"id"`
-	Title        string       `json:"title"`
-	Content      string       `json:"content"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
-	Author       PublicAuthor `json:"author"`
-	CommentCount uint64       `json:"comment_count"`
-	LikeCount    uint64       `json:"like_count"`
+	EditedAt        *time.Time   `json:"edited_at"`
+	ContentRevision uint64       `json:"content_revision"`
+	ID              uint64       `json:"id"`
+	Title           string       `json:"title"`
+	Content         string       `json:"content"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
+	Author          PublicAuthor `json:"author"`
+	CommentCount    uint64       `json:"comment_count"`
+	LikeCount       uint64       `json:"like_count"`
 }
 
 // DetailCache is the minimal cache-aside boundary used by post reads and
@@ -36,15 +38,17 @@ type DetailCache interface {
 
 func (projection PublicProjection) post(likedByMe bool) Post {
 	return Post{
-		ID:           projection.ID,
-		Title:        projection.Title,
-		Content:      projection.Content,
-		CreatedAt:    projection.CreatedAt,
-		UpdatedAt:    projection.UpdatedAt,
-		Author:       Author{ID: projection.Author.ID, Username: projection.Author.Username, DisplayName: projection.Author.DisplayName},
-		CommentCount: projection.CommentCount,
-		LikeCount:    projection.LikeCount,
-		LikedByMe:    likedByMe,
+		EditedAt:        projection.EditedAt,
+		ContentRevision: projection.ContentRevision,
+		ID:              projection.ID,
+		Title:           projection.Title,
+		Content:         projection.Content,
+		CreatedAt:       projection.CreatedAt,
+		UpdatedAt:       projection.UpdatedAt,
+		Author:          Author{ID: projection.Author.ID, Username: projection.Author.Username, DisplayName: projection.Author.DisplayName},
+		CommentCount:    projection.CommentCount,
+		LikeCount:       projection.LikeCount,
+		LikedByMe:       likedByMe,
 	}
 }
 

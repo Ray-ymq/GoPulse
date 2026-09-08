@@ -31,9 +31,9 @@ func (store *MySQLDocumentStore) FindDocument(ctx context.Context, postID uint64
 	}
 	var document Document
 	err := store.database.QueryRowContext(ctx, `
-		SELECT id, title, content, created_at, updated_at
+		SELECT id, title, content, created_at, updated_at, edited_at, content_revision
 		FROM posts
-		WHERE id = ?`, postID).Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt)
+		WHERE id = ?`, postID).Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, sql.ErrNoRows
 	}
@@ -63,12 +63,17 @@ func NewProcessor(store DocumentStore, indexer DocumentIndexer) (*Processor, err
 }
 
 func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) error {
-	if envelope.EventType != bus.PostCreated {
+	if envelope.EventType != bus.PostCreated && envelope.EventType != bus.PostUpdated {
 		return worker.NewPermanentError("unsupported_event_type")
 	}
 	document, err := processor.store.FindDocument(ctx, envelope.PostID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return worker.NewPermanentError("post_not_found")
+		if deleter, ok := processor.indexer.(interface {
+			DeleteAlias(context.Context, uint64) error
+		}); ok {
+			return deleter.DeleteAlias(ctx, envelope.PostID)
+		}
+		return errors.New("search indexer cannot delete missing fact")
 	}
 	if err != nil {
 		return err
@@ -96,12 +101,15 @@ func (repository *ElasticsearchRepository) IndexAlias(ctx context.Context, docum
 		return &PermanentIndexError{Reason: "invalid_document"}
 	}
 	path := "/" + url.PathEscape(AliasName) + "/_doc/" + strconv.FormatUint(document.PostID, 10) + "?require_alias=true"
+	if document.ContentRevision > 0 {
+		path += "&version_type=external_gte&version=" + strconv.FormatUint(document.ContentRevision, 10)
+	}
 	response, err := repository.do(ctx, http.MethodPut, path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
+	if response.StatusCode == http.StatusConflict || (response.StatusCode >= 200 && response.StatusCode < 300) {
 		return nil
 	}
 	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusNotFound || response.StatusCode >= 500 {
@@ -109,6 +117,20 @@ func (repository *ElasticsearchRepository) IndexAlias(ctx context.Context, docum
 	}
 	if response.StatusCode >= 400 && response.StatusCode < 500 {
 		return &PermanentIndexError{Reason: "index_mapping_rejected"}
+	}
+	return ErrUnavailable
+}
+
+// Missing authoritative facts remove the projection; durable deletion fencing is
+// added with post tombstones in Phase-13-05.
+func (repository *ElasticsearchRepository) DeleteAlias(ctx context.Context, id uint64) error {
+	response, err := repository.do(ctx, http.MethodDelete, "/"+url.PathEscape(AliasName)+"/_doc/"+strconv.FormatUint(id, 10), nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound || response.StatusCode >= 200 && response.StatusCode < 300 {
+		return nil
 	}
 	return ErrUnavailable
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PostEditMenu from './PostEditMenu.vue'
 import BookmarkButton from './BookmarkButton.vue'
 import FollowButton from './FollowButton.vue'
 import type { Post } from '../types/api'
@@ -11,7 +12,7 @@ defineProps<{ post: Post }>()
   <article class="post-card">
     <div class="post-card__meta">
       <RouterLink :to="`/users/${post.author.username}`"><span class="user-avatar" aria-hidden="true">{{ Array.from(post.author.display_name || post.author.username)[0]?.toUpperCase() }}</span><strong>{{ post.author.display_name || post.author.username }}</strong> @{{ post.author.username }}</RouterLink>
-      <FollowButton :target="post.author" /><time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time>
+      <FollowButton :target="post.author" /><time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time><PostEditMenu :post="post" />
     </div>
     <RouterLink class="post-card__title" :to="`/posts/${post.id}`">{{ post.title }}</RouterLink>
     <p class="post-card__excerpt">{{ post.content }}</p>
