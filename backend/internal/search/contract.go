@@ -20,16 +20,20 @@ var Mapping = json.RawMessage(`{
     "title":{"type":"text"},
     "content":{"type":"text"},
     "created_at":{"type":"date"},
-    "updated_at":{"type":"date"}
+    "updated_at":{"type":"date"},
+    "edited_at":{"type":"date"},
+    "content_revision":{"type":"long"}
   }}
 }`)
 
 type Document struct {
-	PostID    uint64    `json:"post_id"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	EditedAt        *time.Time `json:"edited_at"`
+	ContentRevision uint64     `json:"content_revision"`
+	PostID          uint64     `json:"post_id"`
+	Title           string     `json:"title"`
+	Content         string     `json:"content"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 func (document Document) Validate() error {
