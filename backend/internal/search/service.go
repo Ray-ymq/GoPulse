@@ -165,54 +165,79 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 		}
 	}
 
-	result, err := service.searcher.Search(ctx, generation, pointInTime, options.Query, options.Limit, after)
-	if err != nil {
-		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
-		if errors.Is(err, ErrPointInTimeExpired) {
-			return Page{}, validationError("cursor is invalid")
+	// Bound stale projection work per request; continuation consumes only scanned hits.
+	const maximumScanRounds = 5
+	page := Page{Posts: make([]post.Post, 0, options.Limit)}
+	hasMore := false
+	var last Hit
+	for round := 0; round < maximumScanRounds; round++ {
+		result, searchErr := service.searcher.Search(ctx, generation, pointInTime, options.Query, options.Limit, after)
+		if searchErr != nil {
+			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+			if errors.Is(searchErr, ErrPointInTimeExpired) {
+				return Page{}, validationError("cursor is invalid")
+			}
+			return Page{}, unavailableError()
 		}
-		return Page{}, unavailableError()
-	}
-	if result.Generation != generation || result.PointInTime == "" {
-		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
-		return Page{}, unavailableError()
-	}
-
-	visibleHits := result.Hits
-	hasMore := len(visibleHits) > options.Limit
-	if hasMore {
-		visibleHits = visibleHits[:options.Limit]
-	}
-	identifiers := make([]uint64, len(visibleHits))
-	for index, hit := range visibleHits {
-		identifiers[index] = hit.PostID
-	}
-	records := make([]post.Post, 0)
-	if len(identifiers) > 0 {
-		records, err = service.hydrator.FindMany(ctx, viewerID, identifiers)
-		if err != nil {
-			_ = service.searcher.ClosePointInTime(ctx, result.PointInTime)
-			return Page{}, apperror.WrapInternal(errors.New("hydrate search results"))
+		if result.Generation != generation || result.PointInTime == "" {
+			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+			return Page{}, unavailableError()
 		}
+		pointInTime = result.PointInTime
+		identifiers := make([]uint64, len(result.Hits))
+		for i, hit := range result.Hits {
+			identifiers[i] = hit.PostID
+		}
+		records := make([]post.Post, 0, len(identifiers))
+		// FindMany accepts 1..post.MaximumLimit IDs; ES includes a lookahead hit.
+		for start := 0; start < len(identifiers); start += post.MaximumLimit {
+			end := min(start+post.MaximumLimit, len(identifiers))
+			batch, hydrateErr := service.hydrator.FindMany(ctx, viewerID, identifiers[start:end])
+			if hydrateErr != nil {
+				_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+				return Page{}, apperror.WrapInternal(errors.New("hydrate search results"))
+			}
+			records = append(records, batch...)
+		}
+		byID := make(map[uint64]post.Post, len(records))
+		for _, record := range records {
+			byID[record.ID] = record
+		}
+		hasMore = false
+		for _, hit := range result.Hits {
+			if record, exists := byID[hit.PostID]; exists {
+				if len(page.Posts) == options.Limit {
+					hasMore = true
+					break
+				}
+				page.Posts = append(page.Posts, record)
+			}
+			last = hit
+		}
+		if hasMore {
+			break
+		}
+		if len(result.Hits) <= options.Limit {
+			break
+		}
+		hasMore = true
+		after = &last
 	}
-
-	page := Page{Posts: records}
 	if hasMore {
-		last := visibleHits[len(visibleHits)-1]
 		token, err := encodeCursor(Cursor{
 			QueryDigest: queryDigest,
 			Generation:  generation,
-			PointInTime: result.PointInTime,
+			PointInTime: pointInTime,
 			ExpiresAt:   service.now().Add(pointInTimeKeepAlive).Unix(),
 			After:       last,
 		}, service.cursorKey)
 		if err != nil {
-			_ = service.searcher.ClosePointInTime(ctx, result.PointInTime)
+			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
 			return Page{}, apperror.WrapInternal(err)
 		}
 		page.NextCursor = &token
 	} else {
-		_ = service.searcher.ClosePointInTime(ctx, result.PointInTime)
+		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
 	}
 	return page, nil
 }
