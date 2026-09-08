@@ -29,6 +29,7 @@ const knownErrorCodes = new Set([
   'permission_denied',
   'invalid_credentials',
   'username_conflict',
+  'user_not_found',
   'post_not_found',
   'notification_not_found',
   'search_unavailable',

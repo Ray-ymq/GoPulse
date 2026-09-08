@@ -129,7 +129,7 @@ watch(
       </p>
       <p v-if="!activeQuery" class="state-card">输入关键词开始搜索。</p>
       <p v-else-if="loading && resultCount === 0" class="state-card">正在搜索…</p>
-      <p v-else-if="loaded && resultCount === 0" class="state-card">没有找到相关{{ userTab ? '用户' : '帖子' }}。</p>
+      <p v-else-if="loaded && resultCount === 0 && !nextCursor" class="state-card">没有找到相关{{ userTab ? '用户' : '帖子' }}。</p>
       <section v-else class="post-list" aria-live="polite">
         <template v-if="userTab"><article v-for="user in users" :key="user.id" class="user-result"><RouterLink :to="`/users/${user.username}`">
           <span class="user-avatar" aria-hidden="true">{{ Array.from(user.display_name)[0]?.toUpperCase() }}</span>
@@ -138,7 +138,7 @@ watch(
         <template v-else><PostCard v-for="post in posts" :key="post.id" :post="post" /></template>
       </section>
 
-      <div v-if="resultCount > 0" class="load-more">
+      <div v-if="resultCount > 0 || nextCursor" class="load-more">
         <button v-if="nextCursor" class="button" type="button" :disabled="loading" @click="load(false)">
           {{ loading ? '加载中…' : '加载更多' }}
         </button>

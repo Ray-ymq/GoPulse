@@ -31,3 +31,15 @@ it('profile editing validates fields and recovers from a server failure', async 
   await wrapper.get('form').trigger('submit'); await flushPromises()
   expect(wrapper.text()).toContain('资料已更新'); expect(wrapper.find('form').exists()).toBe(false)
 })
+
+it('explains a missing user without rendering profile actions', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => new Response(JSON.stringify(input.endsWith('/users/me')
+    ? { data: { ...profile, role: 'user' } }
+    : { error: { code: 'user_not_found', message: 'user not found' } }), {
+    status: input.endsWith('/users/me') ? 200 : 404, headers: { 'Content-Type': 'application/json' },
+  })))
+  const router = createAppRouter(createMemoryHistory()); await router.push('/users/missing')
+  const wrapper = mount(ProfileView, { global: { plugins: [router] } }); await flushPromises()
+  expect(wrapper.get('[role="alert"]').text()).toContain('用户不存在')
+  expect(wrapper.find('.user-profile').exists()).toBe(false)
+})

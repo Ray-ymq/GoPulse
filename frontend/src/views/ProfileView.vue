@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ApiError } from '../services/http'
 import FollowButton from '../components/FollowButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -38,7 +39,7 @@ async function load(reset = false) {
     if (current !== generation) return
     posts.value = reset ? result.data : [...posts.value, ...result.data]
     cursor.value = result.nextCursor
-  } catch (e) { if (current === generation) error.value = e instanceof Error ? e.message : '资料加载失败。' }
+  } catch (e) { if (current === generation) error.value = e instanceof ApiError && e.code === 'user_not_found' ? '用户不存在。' : e instanceof Error ? e.message : '资料加载失败。' }
   finally { if (current === generation) loading.value = false }
 }
 function edit() {
