@@ -21,6 +21,7 @@ type Application interface {
 }
 
 type Handler struct {
+	bookmarkKey [32]byte
 	application Application
 	logger      *slog.Logger
 }
@@ -30,7 +31,7 @@ func NewHandler(application Application, loggers ...*slog.Logger) *Handler {
 	if len(loggers) > 0 && loggers[0] != nil {
 		logger = loggers[0]
 	}
-	return &Handler{application: application, logger: logging.Module(logger, "post")}
+	return &Handler{bookmarkKey: newBookmarkKey(), application: application, logger: logging.Module(logger, "post")}
 }
 
 func (handler *Handler) Create(c *gin.Context) {
@@ -53,21 +54,50 @@ func (handler *Handler) Create(c *gin.Context) {
 	response.Data(c, stdhttp.StatusCreated, record)
 }
 
-func (handler *Handler) List(c *gin.Context) {
+func (handler *Handler) Bookmarks(c *gin.Context) { handler.list(c, true) }
+func (handler *Handler) List(c *gin.Context)      { handler.list(c, false) }
+func (handler *Handler) list(c *gin.Context, bookmarks bool) {
 	userID, ok := currentUserID(c)
 	if !ok {
 		return
 	}
-	options, err := ParseListOptions(c.Request.URL.Query())
+	values := c.Request.URL.Query()
+	if bookmarks {
+		for key := range values {
+			if key != "limit" && key != "cursor" {
+				response.Error(c, validationError("unknown bookmark query parameter"))
+				return
+			}
+		}
+	}
+	if bookmarks && values.Has("cursor") {
+		tokens := values["cursor"]
+		if len(tokens) != 1 {
+			response.Error(c, validationError("cursor is invalid"))
+			return
+		}
+		token, err := handler.verifyBookmarkCursor(userID, tokens[0])
+		if err != nil {
+			response.Error(c, err)
+			return
+		}
+		values.Set("cursor", token)
+	}
+	options, err := ParseListOptions(values)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
 
+	options.Bookmarks = bookmarks
 	page, err := handler.application.List(c.Request.Context(), userID, options)
 	if err != nil {
 		response.Error(c, err)
 		return
+	}
+	if bookmarks && page.NextCursor != nil {
+		token := handler.signBookmarkCursor(userID, *page.NextCursor)
+		page.NextCursor = &token
 	}
 	response.Page(c, stdhttp.StatusOK, page.Posts, page.NextCursor)
 }
