@@ -15,11 +15,21 @@ test('Phase 13 profile follow Following bookmark edit delete notification closur
     const made = await owner.request.post('/api/v1/posts', { data: { title: `delete${token}`, content: `delete${token}` } })
     expect(made.status()).toBe(201)
     const post = (await made.json()).data; const api = `/api/v1/posts/${post.id}`
+    for (const query of [`da_${token}`, `Delete ${token}`]) {
+      const found = await viewer.request.get(`/api/v1/search/users?q=${encodeURIComponent(query)}`)
+      expect(found.status()).toBe(200)
+      expect((await found.json()).data.some((u: { id: number }) => u.id === post.author.id)).toBe(true)
+    }
     expect((await viewer.request.put(`/api/v1/users/${post.author.id}/follow`)).status()).toBe(200)
     expect((await viewer.request.put(`${api}/bookmark`)).status()).toBe(204)
     expect((await viewer.request.post(`${api}/comments`, { data: { content: 'deletion comment' } })).status()).toBe(201)
     expect((await viewer.request.put(`${api}/like`)).ok()).toBe(true)
     expect((await viewer.request.delete(api)).status()).toBe(403)
+    expect((await viewer.request.patch(api, { data: { title: 'forbidden', content: 'forbidden' } })).status()).toBe(403)
+    for (const path of ['/api/v1/posts/following', '/api/v1/bookmarks']) {
+      expect((await (await viewer.request.get(path)).json()).data.some((p: { id: number }) => p.id === post.id)).toBe(true)
+    }
+    expect((await (await owner.request.get('/api/v1/bookmarks')).json()).data).toEqual([])
     await expect.poll(async () => (await (await owner.request.get('/api/v1/notifications')).json()).data.filter((n: { post_id: number }) => n.post_id === post.id).length).toBe(2)
     expect((await owner.request.patch(api, { data: { title: `edited${token}`, content: `edited${token}` } })).status()).toBe(200)
     await expect.poll(async () => (await (await owner.request.get(`/api/v1/search/posts?q=edited${token}`)).json()).data?.length, { timeout: 30_000 }).toBe(1)
