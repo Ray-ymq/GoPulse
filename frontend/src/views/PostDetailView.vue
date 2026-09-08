@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PostEditMenu from '../components/PostEditMenu.vue'
 import BookmarkButton from '../components/BookmarkButton.vue'
 import FollowButton from '../components/FollowButton.vue'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -108,7 +109,7 @@ onMounted(() => void loadAll())
       <article v-else-if="post" class="detail-card">
         <div class="post-card__meta">
           <RouterLink :to="`/users/${post.author.username}`"><strong>{{ post.author.display_name || post.author.username }}</strong> @{{ post.author.username }}</RouterLink>
-          <FollowButton :target="post.author" /><time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time>
+          <FollowButton :target="post.author" /><time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time><PostEditMenu :post="post" />
         </div>
         <h1>{{ post.title }}</h1>
         <p class="post-content">{{ post.content }}</p>

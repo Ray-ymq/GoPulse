@@ -18,17 +18,19 @@ type Author struct {
 
 // Post is the complete post read model returned by create, list, and detail APIs.
 type Post struct {
-	BookmarkedByMe    bool      `json:"bookmarked_by_me"`
-	BookmarkCreatedAt time.Time `json:"-"`
-	ID                uint64    `json:"id"`
-	Title             string    `json:"title"`
-	Content           string    `json:"content"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-	Author            Author    `json:"author"`
-	CommentCount      uint64    `json:"comment_count"`
-	LikeCount         uint64    `json:"like_count"`
-	LikedByMe         bool      `json:"liked_by_me"`
+	EditedAt          *time.Time `json:"edited_at"`
+	ContentRevision   uint64     `json:"content_revision"`
+	BookmarkedByMe    bool       `json:"bookmarked_by_me"`
+	BookmarkCreatedAt time.Time  `json:"-"`
+	ID                uint64     `json:"id"`
+	Title             string     `json:"title"`
+	Content           string     `json:"content"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	Author            Author     `json:"author"`
+	CommentCount      uint64     `json:"comment_count"`
+	LikeCount         uint64     `json:"like_count"`
+	LikedByMe         bool       `json:"liked_by_me"`
 }
 
 // Cursor is the stable keyset boundary decoded from an opaque client token.

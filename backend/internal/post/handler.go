@@ -129,3 +129,33 @@ func currentUserID(c *gin.Context) (uint64, bool) {
 	}
 	return userID, true
 }
+
+func (handler *Handler) Update(c *gin.Context) {
+	actor, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	id, err := params.PositiveID(c, "postId")
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	var input CreateInput
+	if err := request.DecodeJSON(c, &input); err != nil {
+		response.Error(c, err)
+		return
+	}
+	app, ok := handler.application.(interface {
+		Update(context.Context, uint64, uint64, CreateInput) (Post, error)
+	})
+	if !ok {
+		response.Error(c, apperror.New(apperror.CodePermissionDenied, "editing unavailable"))
+		return
+	}
+	record, err := app.Update(c.Request.Context(), id, actor, input)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Data(c, stdhttp.StatusOK, record)
+}
