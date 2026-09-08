@@ -5,7 +5,7 @@ import type { Post } from '../types/api'
 vi.mock('../services/api', () => ({ postApi: { bookmarks: vi.fn() } }))
 afterEach(() => vi.resetAllMocks())
 it('bookmark list recovers, loads the next cursor and explains empty/deleted content', async () => {
-  const record: Post = { id: 1, title: 'saved', content: '', created_at: '', updated_at: '', author: { id: 2, username: 'bob', display_name: 'Bob' }, comment_count: 0, like_count: 0, liked_by_me: false, bookmarked_by_me: true }
+  const record: Post = { id: 1, title: 'saved', content: '', created_at: '', updated_at: '', author: { id: 2, username: 'bob', display_name: 'Bob' }, comment_count: 0, like_count: 0, liked_by_me: false, edited_at: null, content_revision: 1, bookmarked_by_me: true }
   vi.mocked(postApi.bookmarks).mockRejectedValueOnce(new Error('offline'))
     .mockResolvedValueOnce({ data: [record], nextCursor: 'next' })
     .mockResolvedValueOnce({ data: [{ ...record, id: 2 }], nextCursor: null })

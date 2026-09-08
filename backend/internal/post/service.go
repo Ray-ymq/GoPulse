@@ -135,6 +135,18 @@ func (service *Service) cachedProjection(ctx context.Context, postID uint64) (Pu
 		logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache read failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
 		return PublicProjection{}, false
 	}
+	if hit {
+		r, ok := service.repository.(interface {
+			ContentRevision(context.Context, uint64) (uint64, error)
+		})
+		if !ok {
+			return PublicProjection{}, false
+		}
+		revision, err := r.ContentRevision(ctx, postID)
+		if err != nil || revision != projection.ContentRevision {
+			return PublicProjection{}, false
+		}
+	}
 	return projection, hit
 }
 
