@@ -446,3 +446,14 @@ npx vitest run src/services/review_phase13_temp.test.ts
 - 本次没有宣称 `develop/1.10.6` 是远端既存或已获权威分配的分支；它只是为满足 Review 工作建立的本地分支。
 - 未执行远端 push、PR 创建、merge 或分支删除。
 - 现有运行中的 `gopulse-p13-local` 资源未被手工修改；`verify-business.sh` 使用随机强归属 acceptance project，并在结束时完成自身资源清理和开发状态不变检查。
+
+
+## 9. 后续整改执行结果
+
+本节为用户要求执行报告后的增补，不改写以上独立 Review 的历史结论与当时验证结果。
+
+- P2-01–04、P3-01–02 均已整改；版本 `1.10.6`、权威分支 `develop/1.10.6` 已在 Phase 13 总实施方案正式分配。
+- 搜索有界补页、预算 cursor 与空页 UI 续页已验证；user_not_found 语义和 Follow 参数已同步。
+- 通知使用新增 000011 migration。实际 MySQL 不允许 CHECK 与 SET NULL 外键动作共用相关列，因此使用 RESTRICT 外键、活动/完整墓碑 CHECK 和删除事务显式原子墓碑化；未直接照搬不兼容的建议 SQL。
+- 受影响 Go tests、真实 MySQL/Elasticsearch 集成、Frontend 68 tests/typecheck/build、业务脚本安全自测、完整业务验收以及版本/分支治理均通过。首轮业务验收发现的空搜索回归已经修复并复验通过。
+- 详细文件、命令、失败及复验、环境清理、回滚合同与限制见 `dev/logs/Phase-13/Phase-13-06-Review整改.md`。本节记录实现整改验收，不声称另行开展了新一轮独立 Review，也不声称已经合入 main。
