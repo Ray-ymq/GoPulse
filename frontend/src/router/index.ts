@@ -16,6 +16,7 @@ import ObservabilityOverviewView from '../views/ObservabilityOverviewView.vue'
 import ObservabilityLogsView from '../views/ObservabilityLogsView.vue'
 import ObservabilityMetricsView from '../views/ObservabilityMetricsView.vue'
 import PostDetailView from '../views/PostDetailView.vue'
+import BookmarksView from '../views/BookmarksView.vue'
 import PostsView from '../views/PostsView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import SearchView from '../views/SearchView.vue'
@@ -32,6 +33,7 @@ export function createAppRouter(history = createWebHistory()): Router {
         path: '', component: UserAppShell, meta: { requiresAuth: true },
         children: [
           { path: '/posts', component: PostsView },
+          { path: '/bookmarks', component: BookmarksView },
           { path: '/search', component: SearchView },
           { path: '/notifications', component: NotificationsView },
           { path: '/me/following', component: RelationsView },

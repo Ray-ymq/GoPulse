@@ -90,7 +90,9 @@ SELECT
         FROM post_likes AS my_like
         WHERE my_like.post_id = p.id AND my_like.user_id = ?
     ) AS liked_by_me,
-    EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id) AS following
+    EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id) AS following,
+    EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.user_id = ? AND b.post_id = p.id) AS bookmarked_by_me,
+    %s AS bookmark_created_at
 FROM posts AS p %s
 INNER JOIN users AS u ON u.id = p.author_id`
 
@@ -163,23 +165,25 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 }
 
 func listStatement(viewerID uint64, options ListOptions) (string, []any) {
-	query := fmt.Sprintf(postListReadSelect, "FORCE INDEX (idx_posts_created_at_id)")
-	arguments := []any{viewerID, viewerID}
-	query += `
-WHERE (? = 0 OR p.author_id = ?)`
+	timestamp := "p.created_at"
+	join := "FORCE INDEX (idx_posts_created_at_id)"
+	arguments := []any{viewerID, viewerID, viewerID}
+	if options.Bookmarks {
+		timestamp = "b.created_at"
+		join = "INNER JOIN post_bookmarks b ON b.post_id = p.id AND b.user_id = ?"
+		arguments = append(arguments, viewerID)
+	}
+	query := fmt.Sprintf(postListReadSelect, timestamp, join) + " WHERE (? = 0 OR p.author_id = ?)"
 	arguments = append(arguments, options.AuthorID, options.AuthorID)
 	if options.Following {
 		query += " AND EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = p.author_id)"
 		arguments = append(arguments, viewerID)
 	}
 	if options.Cursor != nil {
-		query += `
-AND ( p.created_at < ? OR (p.created_at = ? AND p.id < ?))`
+		query += fmt.Sprintf(" AND (%s < ? OR (%s = ? AND p.id < ?))", timestamp, timestamp)
 		arguments = append(arguments, options.Cursor.CreatedAt, options.Cursor.CreatedAt, options.Cursor.ID)
 	}
-	query += `
-ORDER BY p.created_at DESC, p.id DESC
-LIMIT ?`
+	query += " ORDER BY " + timestamp + " DESC, p.id DESC LIMIT ?"
 	arguments = append(arguments, options.Limit+1)
 	return query, arguments
 }
@@ -202,6 +206,9 @@ WHERE p.id = ?`, postID)
 }
 
 func (repository *MySQLRepository) LikedByViewer(ctx context.Context, postID, viewerID uint64) (bool, error) {
+	if viewerID == 0 {
+		return false, nil
+	}
 	var liked bool
 	if err := repository.database.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?)`,
@@ -224,7 +231,11 @@ func (repository *MySQLRepository) FindByID(ctx context.Context, postID, viewerI
 	if err != nil {
 		return Post{}, err
 	}
-	return projection.post(liked), nil
+	records := []Post{projection.post(liked)}
+	if err := repository.HydrateBookmarks(ctx, records, viewerID); err != nil {
+		return Post{}, err
+	}
+	return records[0], nil
 }
 
 func (repository *MySQLRepository) Exists(ctx context.Context, postID uint64) (bool, error) {
@@ -272,6 +283,8 @@ func scanPost(scan scanFunc) (Post, error) {
 		&record.LikeCount,
 		&record.LikedByMe,
 		&record.Author.Following,
+		&record.BookmarkedByMe,
+		&record.BookmarkCreatedAt,
 	)
 	return record, err
 }
@@ -309,7 +322,7 @@ func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64
 	}
 	placeholders := make([]string, len(identifiers))
 	arguments := make([]any, 0, len(identifiers)+2)
-	arguments = append(arguments, viewerID, viewerID)
+	arguments = append(arguments, viewerID, viewerID, viewerID)
 	for index, identifier := range identifiers {
 		if identifier == 0 {
 			return nil, errors.New("find many posts: invalid identifier")
@@ -317,7 +330,7 @@ func (repository *MySQLRepository) FindMany(ctx context.Context, viewerID uint64
 		placeholders[index] = "?"
 		arguments = append(arguments, identifier)
 	}
-	query := fmt.Sprintf(postListReadSelect, "") + `
+	query := fmt.Sprintf(postListReadSelect, "p.created_at", "") + `
 WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 	rows, err := repository.database.QueryContext(ctx, query, arguments...)
 	if err != nil {
@@ -384,7 +397,7 @@ func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records [
 }
 
 func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, viewer uint64) error {
-	if len(records) == 0 {
+	if len(records) == 0 || viewer == 0 {
 		return nil
 	}
 	args := []any{viewer}
@@ -411,6 +424,42 @@ func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, 
 	}
 	for i := range records {
 		records[i].Author.Following = followed[records[i].Author.ID]
+	}
+	return nil
+}
+
+// HydrateBookmarks never writes personalized facts into a shared projection.
+func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, viewer uint64) error {
+	for i := range records {
+		records[i].BookmarkedByMe = false
+	}
+	if viewer == 0 || len(records) == 0 {
+		return nil
+	}
+	args := []any{viewer}
+	slots := []string{}
+	for _, p := range records {
+		args = append(args, p.ID)
+		slots = append(slots, "?")
+	}
+	rows, err := r.database.QueryContext(ctx, "SELECT post_id FROM post_bookmarks WHERE user_id = ? AND post_id IN ("+strings.Join(slots, ",")+")", args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	found := map[uint64]bool{}
+	for rows.Next() {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		found[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range records {
+		records[i].BookmarkedByMe = found[records[i].ID]
 	}
 	return nil
 }
