@@ -99,7 +99,8 @@ onMounted(() => void load(true))
             </div>
             <p>
               {{ item.type === 'user.followed' ? '关注了你' : item.type === 'comment.created' ? '评论了你的帖子' : '赞了你的帖子' }}
-              <RouterLink v-if="item.post_id !== null" :to="`/posts/${item.post_id}`">查看帖子</RouterLink>
+              <span v-if="item.resource_deleted">原内容已删除</span>
+              <RouterLink v-else-if="item.post_id !== null" :to="`/posts/${item.post_id}`">查看帖子</RouterLink>
             </p>
           </div>
           <button

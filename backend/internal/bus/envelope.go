@@ -20,6 +20,7 @@ const (
 	CommentCreatedRoutingKey = "comment.created.v1"
 	UserFollowedRoutingKey   = "user.followed.v1"
 	PostLikedRoutingKey      = "post.liked.v1"
+	PostDeletedRoutingKey    = "post.deleted.v1"
 	PostUpdatedRoutingKey    = "post.updated.v1"
 	PostCreatedRoutingKey    = "post.created.v1"
 )
@@ -30,6 +31,7 @@ const (
 	CommentCreated EventType = "comment.created"
 	UserFollowed   EventType = "user.followed"
 	PostLiked      EventType = "post.liked"
+	PostDeleted    EventType = "post.deleted"
 	PostUpdated    EventType = "post.updated"
 	PostCreated    EventType = "post.created"
 )
@@ -123,7 +125,7 @@ func (envelope Envelope) Validate() error {
 		if envelope.CommentID != nil {
 			return errors.New("post.liked event must not include a comment ID")
 		}
-	case PostCreated, PostUpdated:
+	case PostCreated, PostUpdated, PostDeleted:
 		if envelope.EventType == PostUpdated && envelope.ContentRevision < 2 {
 			return errors.New("post.updated requires revision")
 		}
@@ -147,6 +149,8 @@ func (envelope Envelope) RoutingKey() (string, error) {
 		return CommentCreatedRoutingKey, nil
 	case PostLiked:
 		return PostLikedRoutingKey, nil
+	case PostDeleted:
+		return PostDeletedRoutingKey, nil
 	case PostUpdated:
 		return PostUpdatedRoutingKey, nil
 	case PostCreated:
@@ -262,4 +266,8 @@ func NewPostUpdated(at time.Time, actor, postID, revision uint64) (Envelope, err
 	e.EventType = PostUpdated
 	e.ContentRevision = revision
 	return e, e.Validate()
+}
+
+func NewPostDeleted(at time.Time, actor, postID uint64) (Envelope, error) {
+	return newEnvelope(PostDeleted, at, actor, 0, postID, nil)
 }

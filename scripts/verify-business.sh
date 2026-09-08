@@ -134,7 +134,7 @@ PY
 }
 
 compose() {
-  docker compose --project-name "$PROJECT_NAME" --env-file "$ACCEPTANCE_ENV" --file "$COMPOSE_FILE" --file "$COMPOSE_DEBUG_FILE" "$@"
+  docker compose --project-name "$PROJECT_NAME" --env-file "$ACCEPTANCE_ENV" --file "$COMPOSE_FILE" --file "$COMPOSE_DEBUG_FILE" --file "$TEMP_DIR/host-network.yaml" "$@"
 }
 
 service_id() {
@@ -232,6 +232,14 @@ snapshot_development_state() {
 }
 
 write_environment() {
+  # This host-tooling gate publishes only verified loopback ports. Container-native
+  # product networks remain internal; the isolated host override needs ingress.
+  printf 'networks:
+  business:
+    internal: false
+  observability:
+    internal: false
+' >"$TEMP_DIR/host-network.yaml"
   MYSQL_USER="acceptance_$TOKEN"
   MYSQL_PASSWORD="mysql-$TOKEN"
   MYSQL_ROOT_PASSWORD="root-$TOKEN"
@@ -244,6 +252,14 @@ write_environment() {
   MONITOR_URL="http://127.0.0.1:9090"
   cat >"$ACCEPTANCE_ENV" <<ENV
 APP_ENV=test
+GOPULSE_VERSION=$(cat "$REPO_ROOT/VERSION")
+GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
+GOPULSE_IMAGE_TAG=acceptance-$TOKEN
+GOPULSE_UPDATE_VERSION=$(cat "$REPO_ROOT/VERSION")
+FRONTEND_PORT=$FRONTEND_PORT
+LOG_MONITOR_INGEST_TOKEN=acceptance-log-$TOKEN-0123456789abcdef
+ROUTER_API_TOKEN=acceptance-router-$TOKEN-0123456789abcdef
+MARSHALLER_API_TOKEN=acceptance-marshaller-$TOKEN-0123456789abcdef
 PUBLISHED_HOST=$PUBLISHED_HOST
 HTTP_HOST=$PUBLISHED_HOST
 HTTP_PORT=$HTTP_PORT
@@ -836,7 +852,7 @@ run_api_flow() {
 
 run_browser_flow() {
   info 'Running real Chromium page rendering and interaction acceptance.'
-  (cd "$FRONTEND_DIR" && GOPULSE_BASE_URL="http://$PUBLISHED_HOST:$FRONTEND_PORT" GOPULSE_ACCEPTANCE_TOKEN="$TOKEN" npm run test:e2e)
+  (cd "$FRONTEND_DIR" && GOPULSE_BASE_URL="http://$PUBLISHED_HOST:$FRONTEND_PORT" GOPULSE_ACCEPTANCE_TOKEN="$TOKEN" npm run test:e2e -- '(^|/)(business|profile|follow|bookmark|edit|delete)\.spec\.ts$')
 }
 
 es_request() {

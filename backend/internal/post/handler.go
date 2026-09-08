@@ -159,3 +159,27 @@ func (handler *Handler) Update(c *gin.Context) {
 	}
 	response.Data(c, stdhttp.StatusOK, record)
 }
+
+func (handler *Handler) Delete(c *gin.Context) {
+	actor, ok := currentUserID(c)
+	if !ok {
+		return
+	}
+	id, err := params.PositiveID(c, "postId")
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	app, ok := handler.application.(interface {
+		Delete(context.Context, uint64, uint64) error
+	})
+	if !ok {
+		response.Error(c, apperror.New(apperror.CodePermissionDenied, "deletion unavailable"))
+		return
+	}
+	if err := app.Delete(c.Request.Context(), id, actor); err != nil {
+		response.Error(c, err)
+		return
+	}
+	c.Status(stdhttp.StatusNoContent)
+}

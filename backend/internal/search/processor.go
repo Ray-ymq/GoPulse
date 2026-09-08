@@ -63,9 +63,31 @@ func NewProcessor(store DocumentStore, indexer DocumentIndexer) (*Processor, err
 }
 
 func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) error {
-	if envelope.EventType != bus.PostCreated && envelope.EventType != bus.PostUpdated {
+	if envelope.EventType != bus.PostCreated && envelope.EventType != bus.PostUpdated && envelope.EventType != bus.PostDeleted {
 		return worker.NewPermanentError("unsupported_event_type")
 	}
+	if store, ok := processor.store.(*MySQLDocumentStore); ok {
+		// Hold the authoritative row lock through the external write. Deletion cannot
+		// commit before an in-flight old snapshot has finished indexing.
+		tx, err := store.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		var id uint64
+		err = tx.QueryRowContext(ctx, "SELECT id FROM posts WHERE id=? FOR UPDATE", envelope.PostID).Scan(&id)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err = processor.project(ctx, envelope); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	return processor.project(ctx, envelope)
+}
+
+func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) error {
 	document, err := processor.store.FindDocument(ctx, envelope.PostID)
 	if errors.Is(err, sql.ErrNoRows) {
 		if deleter, ok := processor.indexer.(interface {
@@ -121,8 +143,7 @@ func (repository *ElasticsearchRepository) IndexAlias(ctx context.Context, docum
 	return ErrUnavailable
 }
 
-// Missing authoritative facts remove the projection; durable deletion fencing is
-// added with post tombstones in Phase-13-05.
+// Missing authoritative facts remove the projection idempotently.
 func (repository *ElasticsearchRepository) DeleteAlias(ctx context.Context, id uint64) error {
 	response, err := repository.do(ctx, http.MethodDelete, "/"+url.PathEscape(AliasName)+"/_doc/"+strconv.FormatUint(id, 10), nil)
 	if err != nil {
