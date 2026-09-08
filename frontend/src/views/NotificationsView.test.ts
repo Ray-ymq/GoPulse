@@ -117,4 +117,19 @@ describe('NotificationsView', () => {
     expect(button.attributes('disabled')).toBeUndefined()
     expect(wrapper.text()).toContain('未读')
   })
+  it('renders a deleted resource tombstone without a post link and still marks it read', async () => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const path = pathOf(input)
+      if (path.endsWith('/users/me')) return Promise.resolve(jsonResponse({ data: user }))
+      if (path.endsWith('/read')) return Promise.resolve(jsonResponse(null, 204))
+      return Promise.resolve(jsonResponse({ data: [{ ...first, post_id: null, comment_id: null, resource_deleted: true }], meta: { next_cursor: null } }))
+    }))
+    const wrapper = await mountView()
+    expect(wrapper.text()).toContain('原内容已删除')
+    expect(wrapper.find('a[href^="/posts/"]').exists()).toBe(false)
+    await wrapper.get('.notification-card button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('已读')
+  })
+
 })

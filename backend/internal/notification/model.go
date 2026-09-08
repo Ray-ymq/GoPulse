@@ -35,13 +35,14 @@ type Actor struct {
 // Public is the notification representation exposed to its recipient. Internal
 // delivery identifiers and broker state are deliberately absent.
 type Public struct {
-	ID        uint64        `json:"id"`
-	Type      bus.EventType `json:"type"`
-	CreatedAt time.Time     `json:"created_at"`
-	ReadAt    *time.Time    `json:"read_at"`
-	Actor     Actor         `json:"actor"`
-	PostID    *uint64       `json:"post_id"`
-	CommentID *uint64       `json:"comment_id"`
+	ResourceDeleted bool          `json:"resource_deleted"`
+	ID              uint64        `json:"id"`
+	Type            bus.EventType `json:"type"`
+	CreatedAt       time.Time     `json:"created_at"`
+	ReadAt          *time.Time    `json:"read_at"`
+	Actor           Actor         `json:"actor"`
+	PostID          *uint64       `json:"post_id"`
+	CommentID       *uint64       `json:"comment_id"`
 }
 
 // Cursor is the stable keyset boundary decoded from an opaque client token.

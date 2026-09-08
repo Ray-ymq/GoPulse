@@ -184,3 +184,45 @@ func cleanupNotificationFixture(t *testing.T, database *sql.DB, postID, actorID,
 		}
 	}
 }
+
+func TestIntegrationLateNotificationBecomesUniqueReadableTombstone(t *testing.T) {
+	cfg := integrationtest.Environment(t)
+	db, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	release := integrationtest.AcquirePostFactsLock(t, db)
+	defer release()
+	ctx := context.Background()
+	actor := insertUser(t, ctx, db, "late_actor")
+	recipient := insertUser(t, ctx, db, "late_recipient")
+	postID := insertPost(t, ctx, db, recipient)
+	commentID := insertComment(t, ctx, db, postID, actor)
+	defer cleanupNotificationFixture(t, db, postID, actor, recipient)
+	defer db.Exec("DELETE FROM notifications WHERE recipient_id=?", recipient)
+	event, _ := bus.NewCommentCreated(time.Now().UTC(), actor, recipient, postID, commentID)
+	if _, err := db.Exec("DELETE FROM comments WHERE id=?", commentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DELETE FROM posts WHERE id=?", postID); err != nil {
+		t.Fatal(err)
+	}
+	repository, _ := NewRepository(db)
+	if created, err := repository.Insert(ctx, event); err != nil || !created {
+		t.Fatalf("late insert=%v %v", created, err)
+	}
+	if created, err := repository.Insert(ctx, event); err != nil || created {
+		t.Fatalf("duplicate=%v %v", created, err)
+	}
+	records, err := repository.ListByRecipient(ctx, recipient, ListOptions{Limit: 20})
+	if err != nil || len(records) != 1 {
+		t.Fatalf("list=%+v %v", records, err)
+	}
+	if !records[0].ResourceDeleted || records[0].PostID != nil || records[0].CommentID != nil {
+		t.Fatalf("tombstone=%+v", records[0])
+	}
+	if err := repository.MarkRead(ctx, recipient, records[0].ID); err != nil {
+		t.Fatal(err)
+	}
+}

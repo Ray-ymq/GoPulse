@@ -144,6 +144,7 @@ func (service *Service) cachedProjection(ctx context.Context, postID uint64) (Pu
 		}
 		revision, err := r.ContentRevision(ctx, postID)
 		if err != nil || revision != projection.ContentRevision {
+			_ = service.cache.Invalidate(ctx, postID)
 			return PublicProjection{}, false
 		}
 	}
