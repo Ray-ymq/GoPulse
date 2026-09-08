@@ -1,4 +1,5 @@
 import { readonly, ref } from 'vue'
+import { clearBookmarks } from './useBookmarks'
 import { clearFollowing } from './useFollowing'
 import { authApi } from '../services/api'
 import { ApiError, setUnauthorizedHandler } from '../services/http'
@@ -12,6 +13,7 @@ let initialization: Promise<void> | null = null
 
 function clear(): void {
   clearFollowing()
+  clearBookmarks()
   user.value = null
   status.value = 'anonymous'
 }

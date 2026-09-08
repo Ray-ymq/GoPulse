@@ -24,6 +24,7 @@ export interface Post {
   comment_count: number
   like_count: number
   liked_by_me: boolean
+  bookmarked_by_me: boolean
 }
 
 export interface Comment {

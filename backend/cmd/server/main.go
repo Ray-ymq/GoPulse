@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
+	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
@@ -159,7 +160,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	)
 	posts := post.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 	postService := post.NewService(posts, postDetailCache).WithLogger(logger)
-	postHandler := post.NewHandler(postService, logger)
+	postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 	comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 	commentService := comment.NewService(comments, postService, postDetailCache).WithLogger(logger)
 	commentHandler := comment.NewHandler(commentService, logger)
@@ -206,6 +207,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Posts:           postHandler,
 			Comments:        commentHandler,
 			Likes:           likeHandler,
+			Bookmarks:       bookmark.NewHandler(bookmark.NewService(bookmark.NewMySQLRepository(mysqlClient.DB()), postService), logger),
 			Logs:            logHandler,
 			Metrics:         metricHandler,
 			Events:          eventHandler,

@@ -30,7 +30,7 @@ func TestIntegrationPostDetailRedisTTLContentInvalidationAndRebuild(t *testing.T
 		Content:      "integration content",
 		CreatedAt:    time.Now().UTC().Truncate(time.Microsecond),
 		UpdatedAt:    time.Now().UTC().Truncate(time.Microsecond),
-		Author:       post.Author{ID: 7, Username: "integration-author"},
+		Author:       post.PublicAuthor{ID: 7, Username: "integration-author"},
 		CommentCount: 2,
 		LikeCount:    3,
 	}
