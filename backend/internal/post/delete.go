@@ -49,7 +49,7 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	if owner != actor {
 		return ErrPermissionDenied
 	}
-	for _, query := range []string{"DELETE FROM post_bookmarks WHERE post_id=?", "DELETE FROM post_likes WHERE post_id=?", "DELETE FROM comments WHERE post_id=?", "DELETE FROM posts WHERE id=?"} {
+	for _, query := range []string{"UPDATE notifications SET post_id=NULL, comment_id=NULL WHERE post_id=?", "DELETE FROM post_bookmarks WHERE post_id=?", "DELETE FROM post_likes WHERE post_id=?", "DELETE FROM comments WHERE post_id=?", "DELETE FROM posts WHERE id=?"} {
 		if _, err = tx.ExecContext(ctx, query, id); err != nil {
 			return err
 		}

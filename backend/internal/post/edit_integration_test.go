@@ -143,6 +143,9 @@ func TestIntegrationPermanentDeleteAtomicityAndStaleCache(t *testing.T) {
 	if _, err := db.Exec("INSERT INTO notifications(source_event_id,type,recipient_id,actor_id,post_id,created_at) VALUES (UUID(),'post.liked',?,?,?,NOW(6))", actor.ID, actor.ID, record.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("INSERT INTO notifications(source_event_id,type,recipient_id,actor_id,post_id,comment_id,created_at) SELECT UUID(),'comment.created',?,?,post_id,id,NOW(6) FROM comments WHERE post_id=?", actor.ID, actor.ID, record.ID); err != nil {
+		t.Fatal(err)
+	}
 	defer db.Exec("DELETE FROM notifications WHERE recipient_id=?", actor.ID)
 	if err := repo.Delete(ctx, record.ID, actor.ID+1); !errors.Is(err, post.ErrPermissionDenied) {
 		t.Fatalf("authorization=%v", err)
@@ -150,6 +153,10 @@ func TestIntegrationPermanentDeleteAtomicityAndStaleCache(t *testing.T) {
 	failing := post.NewMySQLRepositoryWithOutbox(db, failedEditOutbox{})
 	if err := failing.Delete(ctx, record.ID, actor.ID); err == nil {
 		t.Fatal("expected outbox rollback")
+	}
+	var activeNotifications int
+	if err := db.QueryRow("SELECT COUNT(*) FROM notifications WHERE post_id=?", record.ID).Scan(&activeNotifications); err != nil || activeNotifications != 2 {
+		t.Fatalf("rollback notifications=%d %v", activeNotifications, err)
 	}
 	for _, table := range []string{"posts", "comments", "post_likes", "post_bookmarks"} {
 		key := "post_id"
@@ -182,7 +189,7 @@ func TestIntegrationPermanentDeleteAtomicityAndStaleCache(t *testing.T) {
 		}
 	}
 	var n int
-	if err := db.QueryRow("SELECT COUNT(*) FROM notifications WHERE recipient_id=? AND post_id IS NULL", actor.ID).Scan(&n); err != nil || n != 1 {
+	if err := db.QueryRow("SELECT COUNT(*) FROM notifications WHERE recipient_id=? AND post_id IS NULL", actor.ID).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("tombstone=%d %v", n, err)
 	}
 	if err := db.QueryRow("SELECT COUNT(*) FROM business_outbox WHERE event_type='post.deleted' AND JSON_EXTRACT(payload,'$.post_id')=?", record.ID).Scan(&n); err != nil || n != 1 {
