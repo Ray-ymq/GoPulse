@@ -54,7 +54,7 @@ var (
 		RetryExchange: SearchRetryExchange, RetryQueue: SearchRetryQueue,
 		DeadExchange: SearchDeadExchange, DeadQueue: SearchDeadQueue,
 		InvalidRoutingKey: SearchInvalidRoutingKey,
-		RoutingKeys:       []string{bus.PostCreatedRoutingKey},
+		RoutingKeys:       []string{bus.PostCreatedRoutingKey, bus.PostUpdatedRoutingKey},
 	}
 )
 

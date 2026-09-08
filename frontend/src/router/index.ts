@@ -39,6 +39,7 @@ export function createAppRouter(history = createWebHistory()): Router {
           { path: '/me/following', component: RelationsView },
           { path: '/me/followers', component: RelationsView },
           { path: '/posts/new', component: NewPostView },
+          { path: '/posts/:postId/edit', component: NewPostView },
           { path: '/posts/:postId', component: PostDetailView },
           { path: '/users/:username', component: ProfileView },
         ],

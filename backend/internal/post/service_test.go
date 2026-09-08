@@ -11,6 +11,7 @@ import (
 )
 
 type fakeRepository struct {
+	revision      func(context.Context, uint64) (uint64, error)
 	create        func(context.Context, uint64, string, string) (Post, error)
 	list          func(context.Context, uint64, ListOptions) ([]Post, error)
 	findPublic    func(context.Context, uint64) (PublicProjection, error)
@@ -450,4 +451,11 @@ func TestServiceRequireExistsMapsMissingAndRepositoryErrors(t *testing.T) {
 			assertPostApplicationCode(t, err, test.code)
 		})
 	}
+}
+
+func (r *fakeRepository) ContentRevision(ctx context.Context, id uint64) (uint64, error) {
+	if r.revision != nil {
+		return r.revision(ctx, id)
+	}
+	return 0, nil
 }
