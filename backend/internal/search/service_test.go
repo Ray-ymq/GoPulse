@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -39,11 +40,23 @@ func (fake *fakeSearcher) OpenPointInTime(context.Context, string) (string, erro
 	return fake.pointInTime, nil
 }
 
-func (fake *fakeSearcher) Search(_ context.Context, generation, pointInTime, _ string, _ int, _ *Hit) (SearchResult, error) {
+func (fake *fakeSearcher) Search(_ context.Context, generation, pointInTime, _ string, limit int, after *Hit) (SearchResult, error) {
 	if fake.searchErr != nil {
 		return SearchResult{}, fake.searchErr
 	}
-	return SearchResult{Generation: generation, PointInTime: pointInTime + "-next", Hits: fake.hits}, nil
+	hits := fake.hits
+	if after != nil {
+		for i, hit := range hits {
+			if hit.PostID == after.PostID {
+				hits = hits[i+1:]
+				break
+			}
+		}
+	}
+	if len(hits) > limit+1 {
+		hits = hits[:limit+1]
+	}
+	return SearchResult{Generation: generation, PointInTime: pointInTime + "-next", Hits: hits}, nil
 }
 
 func (fake *fakeSearcher) ClosePointInTime(_ context.Context, pointInTime string) error {
@@ -54,6 +67,9 @@ func (fake *fakeSearcher) ClosePointInTime(_ context.Context, pointInTime string
 type fakeHydrator struct{ records []post.Post }
 
 func (fake *fakeHydrator) FindMany(_ context.Context, _ uint64, identifiers []uint64) ([]post.Post, error) {
+	if len(identifiers) == 0 || len(identifiers) > post.MaximumLimit {
+		return nil, errors.New("invalid hydration batch")
+	}
 	byID := make(map[uint64]post.Post, len(fake.records))
 	for _, record := range fake.records {
 		byID[record.ID] = record
@@ -238,5 +254,65 @@ func TestServiceFiltersDeletedSearchHits(t *testing.T) {
 	page, err := service.Search(context.Background(), 3, Options{Query: "old", Limit: 20})
 	if err != nil || len(page.Posts) != 0 {
 		t.Fatalf("stale search=%+v %v", page, err)
+	}
+}
+
+func TestServiceRefillsDeletedHitsAndContinuesAfterScanBudget(t *testing.T) {
+	for _, stale := range []int{20, 110} {
+		t.Run(strconv.Itoa(stale), func(t *testing.T) {
+			hits := make([]Hit, stale+1)
+			for i := range hits {
+				hits[i] = Hit{PostID: uint64(i + 1), Score: 1, CreatedAt: "2026-09-08T00:00:00Z", ShardDoc: int64(i)}
+			}
+			searcher := &fakeSearcher{generation: PhysicalIndexPrefix + "20260908t120000z-current", pointInTime: "pit-current", hits: hits}
+			service := NewService(searcher, &fakeHydrator{records: []post.Post{{ID: uint64(stale + 1)}}}, testCursorSecret)
+			options := Options{Query: "deleted", Limit: 20}
+			page, err := service.Search(context.Background(), 7, options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stale == 110 {
+				if len(page.Posts) != 0 || page.NextCursor == nil {
+					t.Fatalf("budget page=%#v", page)
+				}
+				cursor, err := DecodeCursor(*page.NextCursor)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if cursor.After.PostID != 105 {
+					t.Fatalf("consumed hit=%d", cursor.After.PostID)
+				}
+				options.Cursor = &cursor
+				page, err = service.Search(context.Background(), 7, options)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(page.Posts) != 1 || page.Posts[0].ID != uint64(stale+1) || page.NextCursor != nil {
+				t.Fatalf("page=%#v", page)
+			}
+		})
+	}
+}
+
+func TestServiceRespectsHydrationBoundsForEmptyAndMaximumPages(t *testing.T) {
+	for _, count := range []int{0, MaximumLimit + 1} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			hits := make([]Hit, count)
+			records := make([]post.Post, count)
+			for i := range hits {
+				hits[i] = Hit{PostID: uint64(i + 1), Score: 1, CreatedAt: "2026-09-08T00:00:00Z", ShardDoc: int64(i)}
+				records[i] = post.Post{ID: uint64(i + 1)}
+			}
+			searcher := &fakeSearcher{generation: PhysicalIndexPrefix + "20260908t120000z-current", pointInTime: "pit-current", hits: hits}
+			service := NewService(searcher, &fakeHydrator{records: records}, testCursorSecret)
+			page, err := service.Search(context.Background(), 7, Options{Query: "bounds", Limit: MaximumLimit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Posts) != min(count, MaximumLimit) || (page.NextCursor != nil) != (count > MaximumLimit) {
+				t.Fatalf("page=%#v", page)
+			}
+		})
 	}
 }
