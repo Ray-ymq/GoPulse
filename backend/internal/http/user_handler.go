@@ -106,7 +106,7 @@ func (h *UserHandler) Follow(c *gin.Context) {
 	if !ok {
 		return
 	}
-	target, err := params.PositiveID(c, "username")
+	target, err := params.PositiveID(c, "userId")
 	if err != nil {
 		response.Error(c, err)
 		return

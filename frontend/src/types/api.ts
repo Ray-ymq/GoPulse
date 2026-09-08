@@ -62,6 +62,7 @@ export type ApiErrorCode =
   | 'permission_denied'
   | 'invalid_credentials'
   | 'username_conflict'
+  | 'user_not_found'
   | 'post_not_found'
   | 'search_unavailable'
   | 'metrics_unavailable'
