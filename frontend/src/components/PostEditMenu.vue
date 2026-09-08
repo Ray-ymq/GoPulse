@@ -15,7 +15,7 @@ async function remove() {
  try {
   await postApi.delete(props.post.id)
   // Reload also drops all local timeline/bookmark/detail snapshots.
-  window.location.assign('/?deleted=1')
+  window.location.assign('/posts?deleted=1')
  } catch {
   error.value = '删除失败，内容未移除。请重试；若已删除，刷新页面确认。'
   pending.value = false
