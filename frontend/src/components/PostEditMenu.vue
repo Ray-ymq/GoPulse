@@ -29,8 +29,8 @@ const { user } = useAuth()
     <summary aria-label="帖子操作">更多</summary>
     <RouterLink :to="`/posts/${post.id}/edit`">编辑</RouterLink>
     <button type="button" @click="dialog?.showModal()">删除</button>
-    <dialog ref="dialog" aria-labelledby="delete-title" @cancel="pending && $event.preventDefault()">
-      <h2 id="delete-title">永久删除帖子</h2>
+    <dialog ref="dialog" :aria-labelledby="`delete-title-${post.id}`" @cancel="pending && $event.preventDefault()">
+      <h2 :id="`delete-title-${post.id}`">永久删除帖子</h2>
       <p>{{ post.title }}</p>
       <p>此操作永久且不可恢复，将清理评论、点赞和收藏。</p>
       <p v-if="error" role="alert">{{ error }}</p>

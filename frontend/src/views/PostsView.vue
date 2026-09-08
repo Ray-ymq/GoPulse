@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import PostCard from '../components/PostCard.vue'
 import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Post } from '../types/api'
 
+const route = useRoute()
 const following = ref(false)
 const posts = ref<Post[]>([])
 const nextCursor = ref<string | null>(null)
@@ -45,6 +47,7 @@ onMounted(() => void load(true))
   <div>
     <main class="content-shell">
       <header class="page-heading"><h1>首页</h1></header>
+      <p v-if="route.query.deleted === '1'" role="status" class="notice">帖子已永久删除，无法恢复。</p>
       <div class="user-tabs" role="tablist" aria-label="时间线">
         <button role="tab" :aria-selected="!following" :disabled="loading" @click="selectTab(false)">全部</button>
         <button role="tab" :aria-selected="following" :disabled="loading" @click="selectTab(true)">Following</button>

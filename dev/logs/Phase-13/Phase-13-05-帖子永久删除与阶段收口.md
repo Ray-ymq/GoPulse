@@ -38,3 +38,10 @@
 - 完整 Compose 产品上的 Phase 13 链与管理员代表性回归。
 - 修正后的完整 `verify-business.sh`、最终版本/分支治理检查。
 - 门禁全部通过后更新版本与计划状态；Phase 13 总里程碑还须 05 合入 main，不提前宣称 5 批均已合入。
+
+## 完整产品验收进展
+
+- 首次 `bash scripts/verify-compose.sh --phase13` 已完成真实容器冷启动、7 条阶段业务/管理员壳层 Playwright 及管理员 Metrics/Logs/Events/Exporter 场景，业务断言全部通过。
+- 该次命令最终仍为失败：验收运行期间本任务停止了先前的独立 integration 容器，且继续修改工作树，触发严格“前置资源/源码不变”收尾检查。不是产品功能失败，也没有改动用户原有容器；不能把该命令算成功。后续等待其它门禁清理结束、提交源码后串行执行，期间不再改工作树或资源。
+- 补齐删除成功后的首页明确状态提示、多个卡片 dialog 的唯一可访问标签，以及 Desktop/Mobile 焦点验证。对应 Frontend 测试、typecheck/build 通过（`frontend-banner2.log`）。原 Following 单元 fixture 未提供路由，按页面新增路由依赖接入内存 router 后通过。
+- `python3 -m unittest scripts.ci.test_verify_business` 当前 11 项通过、1 项因目标分支 `1.10.5` 与尚未提升的已完成 VERSION `1.10.4` 不一致提前失败；完成版本更新后重新运行此受版本输入影响的检查，不修改测试来绕过治理。
