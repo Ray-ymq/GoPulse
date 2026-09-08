@@ -71,7 +71,11 @@ func (service *Service) List(ctx context.Context, viewerID uint64, options ListO
 
 	page.Posts = records[:options.Limit]
 	last := page.Posts[len(page.Posts)-1]
-	nextCursor, err := EncodeCursor(Cursor{CreatedAt: last.CreatedAt, ID: last.ID})
+	createdAt := last.CreatedAt
+	if options.Bookmarks {
+		createdAt = last.BookmarkCreatedAt
+	}
+	nextCursor, err := EncodeCursor(Cursor{CreatedAt: createdAt, ID: last.ID})
 	if err != nil {
 		return Page{}, apperror.WrapInternal(err)
 	}
@@ -111,6 +115,13 @@ func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Po
 	}
 	if err := service.hydrateFollowing(ctx, records, viewerID); err != nil {
 		return Post{}, apperror.WrapInternal(err)
+	}
+	if r, ok := service.repository.(interface {
+		HydrateBookmarks(context.Context, []Post, uint64) error
+	}); ok {
+		if err := r.HydrateBookmarks(ctx, records, viewerID); err != nil {
+			return Post{}, apperror.WrapInternal(err)
+		}
 	}
 	return records[0], nil
 }

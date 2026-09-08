@@ -6,7 +6,7 @@ import type { Post } from '../types/api'
 vi.mock('../services/api', () => ({ postApi: { list: vi.fn(), following: vi.fn() } }))
 afterEach(() => vi.resetAllMocks())
 it('Following recovers from a failed load, paginates and shows the empty state', async () => {
-  const record = { id: 1, title: 'followed', content: '', created_at: '2026-09-07T00:00:00Z', updated_at: '2026-09-07T00:00:00Z', author: { id: 2, username: 'bob', display_name: 'Bob', following: true }, comment_count: 0, like_count: 0, liked_by_me: false } satisfies Post
+  const record = { id: 1, title: 'followed', content: '', created_at: '2026-09-07T00:00:00Z', updated_at: '2026-09-07T00:00:00Z', author: { id: 2, username: 'bob', display_name: 'Bob', following: true }, comment_count: 0, like_count: 0, liked_by_me: false, bookmarked_by_me: false } satisfies Post
   vi.mocked(postApi.list).mockResolvedValue({ data: [], nextCursor: null })
   vi.mocked(postApi.following).mockRejectedValueOnce(new Error('offline'))
     .mockResolvedValueOnce({ data: [record], nextCursor: 'next' })

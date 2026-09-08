@@ -15,7 +15,7 @@ const post = {
   author: { id: 1, username: 'alice', display_name: 'Alice' },
   comment_count: 2,
   like_count: 3,
-  liked_by_me: true,
+  liked_by_me: true, bookmarked_by_me: false,
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

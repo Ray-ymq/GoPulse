@@ -88,7 +88,7 @@ func testProjection(commentCount, likeCount uint64) PublicProjection {
 		Content:      "cached content",
 		CreatedAt:    createdAt,
 		UpdatedAt:    createdAt,
-		Author:       Author{ID: 7, Username: "author"},
+		Author:       PublicAuthor{ID: 7, Username: "author"},
 		CommentCount: commentCount,
 		LikeCount:    likeCount,
 	}

@@ -73,19 +73,19 @@ func TestPostRoutesExposeCreateListAndDetailContracts(t *testing.T) {
 	if created.Code != stdhttp.StatusCreated {
 		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
 	}
-	assertJSONEqual(t, created.Body.String(), `{"data":{"id":31,"title":"First post","content":"Hello GoPulse","created_at":"2026-09-01T12:00:00.123456Z","updated_at":"2026-09-01T12:00:00.123456Z","author":{"id":17,"username":"alice","display_name":"","following":false},"comment_count":2,"like_count":3,"liked_by_me":true}}`)
+	assertJSONEqual(t, created.Body.String(), `{"data":{"id":31,"title":"First post","content":"Hello GoPulse","created_at":"2026-09-01T12:00:00.123456Z","updated_at":"2026-09-01T12:00:00.123456Z","author":{"id":17,"username":"alice","display_name":"","following":false},"comment_count":2,"like_count":3,"liked_by_me":true,"bookmarked_by_me":false}}`)
 
 	listed := performJSONRequest(router, stdhttp.MethodGet, "/api/v1/posts", "", cookie)
 	if listed.Code != stdhttp.StatusOK {
 		t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
 	}
-	assertJSONEqual(t, listed.Body.String(), `{"data":[{"id":31,"title":"First post","content":"Hello GoPulse","created_at":"2026-09-01T12:00:00.123456Z","updated_at":"2026-09-01T12:00:00.123456Z","author":{"id":17,"username":"alice","display_name":"","following":false},"comment_count":2,"like_count":3,"liked_by_me":true}],"meta":{"next_cursor":"opaque-next-cursor"}}`)
+	assertJSONEqual(t, listed.Body.String(), `{"data":[{"id":31,"title":"First post","content":"Hello GoPulse","created_at":"2026-09-01T12:00:00.123456Z","updated_at":"2026-09-01T12:00:00.123456Z","author":{"id":17,"username":"alice","display_name":"","following":false},"comment_count":2,"like_count":3,"liked_by_me":true,"bookmarked_by_me":false}],"meta":{"next_cursor":"opaque-next-cursor"}}`)
 
 	detail := performJSONRequest(router, stdhttp.MethodGet, "/api/v1/posts/31", "", cookie)
 	if detail.Code != stdhttp.StatusOK {
 		t.Fatalf("detail status=%d body=%s", detail.Code, detail.Body.String())
 	}
-	assertJSONEqual(t, detail.Body.String(), `{"data":{"id":31,"title":"First post","content":"Hello GoPulse","created_at":"2026-09-01T12:00:00.123456Z","updated_at":"2026-09-01T12:00:00.123456Z","author":{"id":17,"username":"alice","display_name":"","following":false},"comment_count":2,"like_count":3,"liked_by_me":true}}`)
+	assertJSONEqual(t, detail.Body.String(), `{"data":{"id":31,"title":"First post","content":"Hello GoPulse","created_at":"2026-09-01T12:00:00.123456Z","updated_at":"2026-09-01T12:00:00.123456Z","author":{"id":17,"username":"alice","display_name":"","following":false},"comment_count":2,"like_count":3,"liked_by_me":true,"bookmarked_by_me":false}}`)
 }
 
 func TestPostRoutesRequireAuthentication(t *testing.T) {

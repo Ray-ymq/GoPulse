@@ -23,7 +23,7 @@ async function logout() {
         <RouterLink to="/posts" aria-label="首页"><span aria-hidden="true">⌂</span><span class="nav-label">首页</span></RouterLink>
         <RouterLink to="/search" aria-label="搜索"><span aria-hidden="true">⌕</span><span class="nav-label">搜索</span></RouterLink>
         <RouterLink to="/notifications" aria-label="通知"><span aria-hidden="true">♧</span><span class="nav-label">通知</span></RouterLink>
-        <button disabled aria-label="收藏（暂未开放）" title="Phase-13-03 开放"><span aria-hidden="true">♧</span><span class="nav-label">收藏</span></button>
+        <RouterLink to="/bookmarks"><span aria-hidden="true">♧</span><span class="nav-label">收藏</span></RouterLink>
         <RouterLink :to="`/users/${auth.user.value?.username}`" aria-label="我的资料"><span aria-hidden="true">◎</span><span class="nav-label">我的资料</span></RouterLink>
       </nav>
       <RouterLink class="user-publish" to="/posts/new" aria-label="发布"><span aria-hidden="true">＋</span><span class="nav-label">发布</span></RouterLink>

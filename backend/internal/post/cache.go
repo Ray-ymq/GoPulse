@@ -6,17 +6,24 @@ import (
 	"time"
 )
 
+// PublicAuthor excludes relationship and permission fields from shared storage.
+type PublicAuthor struct {
+	ID          uint64 `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+}
+
 // PublicProjection is the non-personalized post detail payload eligible for
 // caching. Viewer-specific state such as LikedByMe must never be stored here.
 type PublicProjection struct {
-	ID           uint64    `json:"id"`
-	Title        string    `json:"title"`
-	Content      string    `json:"content"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Author       Author    `json:"author"`
-	CommentCount uint64    `json:"comment_count"`
-	LikeCount    uint64    `json:"like_count"`
+	ID           uint64       `json:"id"`
+	Title        string       `json:"title"`
+	Content      string       `json:"content"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
+	Author       PublicAuthor `json:"author"`
+	CommentCount uint64       `json:"comment_count"`
+	LikeCount    uint64       `json:"like_count"`
 }
 
 // DetailCache is the minimal cache-aside boundary used by post reads and
@@ -34,7 +41,7 @@ func (projection PublicProjection) post(likedByMe bool) Post {
 		Content:      projection.Content,
 		CreatedAt:    projection.CreatedAt,
 		UpdatedAt:    projection.UpdatedAt,
-		Author:       projection.Author,
+		Author:       Author{ID: projection.Author.ID, Username: projection.Author.Username, DisplayName: projection.Author.DisplayName},
 		CommentCount: projection.CommentCount,
 		LikeCount:    projection.LikeCount,
 		LikedByMe:    likedByMe,
