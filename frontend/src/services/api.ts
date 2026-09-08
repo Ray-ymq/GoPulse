@@ -64,10 +64,11 @@ function isPost(value: unknown): value is Post {
 }
 
 function isNotification(value: unknown): value is Notification {
-  if (!isRecord(value) || !hasExactKeys(value, ['id', 'type', 'created_at', 'read_at', 'actor', 'post_id', 'comment_id'])) return false
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'type', 'created_at', 'read_at', 'actor', 'post_id', 'comment_id', ...(value.resource_deleted === undefined ? [] : ['resource_deleted'])])) return false
   if (!isRecord(value.actor) || !hasExactKeys(value.actor, ['id', 'username', ...(value.actor.display_name === undefined ? [] : ['display_name'])])) return false
   const validType = value.type === 'comment.created' || value.type === 'post.liked' || value.type === 'user.followed'
-  const validComment = value.type === 'comment.created'
+  const deleted = value.resource_deleted === true && value.type !== 'user.followed' && value.post_id === null && value.comment_id === null
+  const validComment = value.type === 'comment.created' && !deleted
     ? isPositiveID(value.comment_id)
     : value.comment_id === null
   return isPositiveID(value.id)
@@ -77,7 +78,7 @@ function isNotification(value: unknown): value is Notification {
     && isPositiveID(value.actor.id)
     && typeof value.actor.username === 'string'
     && value.actor.username.length > 0
-    && (value.type === 'user.followed' ? value.post_id === null : isPositiveID(value.post_id))
+    && (value.type === 'user.followed' || deleted ? value.post_id === null : isPositiveID(value.post_id))
     && validComment
 }
 
@@ -102,6 +103,7 @@ function readPosts<T extends Post | Page<Post>>(read: () => Promise<T>): Promise
 }
 
 export const postApi = {
+  delete: (id: number) => requestVoid(`/posts/${id}`, { method: 'DELETE' }),
   bookmark: (postId: number, value: boolean) => requestVoid(`/posts/${postId}/bookmark`, { method: value ? 'PUT' : 'DELETE' }),
   bookmarks: (cursor?: string, limit = 20): Promise<Page<Post>> => readPosts(() => requestPage<Post>(`/bookmarks?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`)),
   following: (cursor?: string, limit = 20): Promise<Page<Post>> => readPosts(() => requestPage<Post>(`/posts/following?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`)),

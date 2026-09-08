@@ -53,7 +53,7 @@ func TestNotificationRoutesExposePublicShapeAndIdempotentRead(t *testing.T) {
 	if listed.Code != stdhttp.StatusOK {
 		t.Fatalf("list status=%d body=%s", listed.Code, listed.Body.String())
 	}
-	assertJSONEqual(t, listed.Body.String(), `{"data":[{"id":9,"type":"comment.created","created_at":"2026-09-02T08:00:00Z","read_at":null,"actor":{"id":22,"username":"bob","display_name":""},"post_id":31,"comment_id":41}],"meta":{"next_cursor":null}}`)
+	assertJSONEqual(t, listed.Body.String(), `{"data":[{"id":9,"type":"comment.created","created_at":"2026-09-02T08:00:00Z","read_at":null,"actor":{"id":22,"username":"bob","display_name":""},"post_id":31,"comment_id":41,"resource_deleted":false}],"meta":{"next_cursor":null}}`)
 	if strings.Contains(listed.Body.String(), "source_event") || strings.Contains(listed.Body.String(), "recipient_id") {
 		t.Fatalf("response leaked internal fields: %s", listed.Body.String())
 	}

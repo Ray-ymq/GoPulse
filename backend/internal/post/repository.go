@@ -360,7 +360,7 @@ WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 	for _, identifier := range identifiers {
 		record, ok := byID[identifier]
 		if !ok {
-			return nil, fmt.Errorf("find many posts: post %d is missing", identifier)
+			continue
 		}
 		ordered = append(ordered, record)
 	}

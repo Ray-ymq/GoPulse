@@ -167,3 +167,19 @@ func (i *processorIndexer) DeleteAlias(_ context.Context, id uint64) error {
 	i.document = Document{PostID: id}
 	return i.err
 }
+
+func TestDeletedThenOldCreateUpdateNeverRebuildsPayload(t *testing.T) {
+	indexer := &processorIndexer{}
+	processor, _ := NewProcessor(processorStore{err: sql.ErrNoRows}, indexer)
+	deleted, _ := bus.NewPostDeleted(time.Now().UTC(), 3, 7)
+	created, _ := bus.NewPostCreated(time.Now().UTC(), 3, 7)
+	updated, _ := bus.NewPostUpdated(time.Now().UTC(), 3, 7, 2)
+	for _, event := range []bus.Envelope{deleted, created, updated, deleted} {
+		if err := processor.Process(context.Background(), event); err != nil {
+			t.Fatal(err)
+		}
+		if indexer.document.Title != "" || indexer.document.Content != "" {
+			t.Fatal("deleted content resurrected")
+		}
+	}
+}

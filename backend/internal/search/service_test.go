@@ -60,7 +60,9 @@ func (fake *fakeHydrator) FindMany(_ context.Context, _ uint64, identifiers []ui
 	}
 	result := make([]post.Post, 0, len(identifiers))
 	for _, identifier := range identifiers {
-		result = append(result, byID[identifier])
+		if record, ok := byID[identifier]; ok {
+			result = append(result, record)
+		}
 	}
 	return result, nil
 }
@@ -228,4 +230,13 @@ func contains(value, substring string) bool {
 		}
 	}
 	return false
+}
+
+func TestServiceFiltersDeletedSearchHits(t *testing.T) {
+	searcher := &fakeSearcher{generation: PhysicalIndexPrefix + "deleted", pointInTime: "pit", hits: []Hit{{PostID: 7}}}
+	service := NewService(searcher, &fakeHydrator{}, testCursorSecret)
+	page, err := service.Search(context.Background(), 3, Options{Query: "old", Limit: 20})
+	if err != nil || len(page.Posts) != 0 {
+		t.Fatalf("stale search=%+v %v", page, err)
+	}
 }

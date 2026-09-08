@@ -80,6 +80,7 @@ export type ApiErrorCode =
 export type NotificationType = 'comment.created' | 'post.liked' | 'user.followed'
 
 export interface Notification {
+  resource_deleted?: boolean
   id: number
   type: NotificationType
   created_at: string

@@ -190,7 +190,7 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 	records := make([]post.Post, 0)
 	if len(identifiers) > 0 {
 		records, err = service.hydrator.FindMany(ctx, viewerID, identifiers)
-		if err != nil || len(records) != len(identifiers) {
+		if err != nil {
 			_ = service.searcher.ClosePointInTime(ctx, result.PointInTime)
 			return Page{}, apperror.WrapInternal(errors.New("hydrate search results"))
 		}
