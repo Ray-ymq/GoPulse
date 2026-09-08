@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import PostsView from './PostsView.vue'
 import { postApi } from '../services/api'
 import type { Post } from '../types/api'
@@ -12,7 +13,9 @@ it('Following recovers from a failed load, paginates and shows the empty state',
     .mockResolvedValueOnce({ data: [record], nextCursor: 'next' })
     .mockResolvedValueOnce({ data: [{ ...record, id: 2 }], nextCursor: null })
     .mockResolvedValueOnce({ data: [], nextCursor: null })
-  const wrapper = mount(PostsView, { global: { stubs: { PostCard: { props: ['post'], template: '<article>{{ post.title }}</article>' } } } })
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/posts', component: PostsView }] })
+  await router.push('/posts')
+  const wrapper = mount(PostsView, { global: { plugins: [router], stubs: { PostCard: { props: ['post'], template: '<article>{{ post.title }}</article>' } } } })
   await flushPromises()
   await wrapper.findAll('[role="tab"]')[1]!.trigger('click'); await flushPromises()
   expect(wrapper.get('[role="alert"]').text()).toContain('加载失败')

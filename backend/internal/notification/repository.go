@@ -42,12 +42,25 @@ func (repository *Repository) Insert(ctx context.Context, envelope bus.Envelope)
 	}
 	defer transaction.Rollback()
 
+	// Serialize late delivery with deletion; missing resources become tombstones.
+	postID := nullablePostID(envelope.PostID)
+	commentID := envelope.CommentID
+	if envelope.PostID != 0 {
+		var id uint64
+		err = transaction.QueryRowContext(ctx, "SELECT id FROM posts WHERE id=? FOR SHARE", envelope.PostID).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			postID = nil
+			commentID = nil
+		} else if err != nil {
+			return false, err
+		}
+	}
 	_, err = transaction.ExecContext(ctx, `
 		INSERT INTO notifications
 			(source_event_id, type, recipient_id, actor_id, post_id, comment_id, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		envelope.EventID, string(envelope.EventType), envelope.RecipientID,
-		envelope.ActorID, nullablePostID(envelope.PostID), envelope.CommentID, envelope.OccurredAt.UTC(),
+		envelope.ActorID, postID, commentID, envelope.OccurredAt.UTC(),
 	)
 	if isDuplicateEntry(err) {
 		return false, nil
@@ -128,6 +141,7 @@ func (repository *Repository) ListByRecipient(ctx context.Context, recipientID u
 			return nil, fmt.Errorf("scan recipient notification: %w", err)
 		}
 		record.Type = bus.EventType(eventType)
+		record.ResourceDeleted = record.Type != bus.UserFollowed && record.PostID == nil
 		if readAt.Valid {
 			value := readAt.Time
 			record.ReadAt = &value

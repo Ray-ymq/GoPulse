@@ -23,10 +23,12 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/verify-compose.sh [--full] [--keep]
        scripts/verify-compose.sh --self-test
+       scripts/verify-compose.sh --phase13 [--keep]
        scripts/verify-compose.sh --business [--keep]
        scripts/verify-compose.sh --observability [--keep]
 
 --full (the default) runs the authoritative Phase 12 full-stack closure.
+--phase13 runs the Phase 13 business closure and representative administrator paths on the complete product.
 --business preserves the focused Phase-12-01 business regression.
 --observability is a compatibility alias for the full-stack closure.
 Browser/API clients run in the acceptance image.
@@ -59,7 +61,7 @@ run_self_test() {
 
 while (($#)); do
   case $1 in
-    --self-test|--full|--business|--observability) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
+    --self-test|--full|--business|--observability|--phase13) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
     --keep) KEEP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1"; usage >&2; exit 2 ;;
@@ -71,8 +73,9 @@ if [[ $MODE == --self-test ]]; then
   run_self_test
   exit 0
 fi
-if [[ $MODE == --full || $MODE == --observability ]]; then
+if [[ $MODE == --full || $MODE == --observability || $MODE == --phase13 ]]; then
   args=()
+  [[ $MODE != --phase13 ]] || args+=(--phase13)
   ((KEEP == 0)) || args+=(--keep)
   exec "$SCRIPT_DIR/verify-compose-observability.sh" "${args[@]}"
 fi

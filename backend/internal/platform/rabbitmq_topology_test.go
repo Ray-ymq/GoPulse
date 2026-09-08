@@ -127,6 +127,9 @@ func TestDeclareSearchTopologyBindsPostContentEvents(t *testing.T) {
 		{name: SearchQueue, key: bus.PostUpdatedRoutingKey, exchange: SearchExchange},
 		{name: SearchRetryQueue, key: bus.PostUpdatedRoutingKey, exchange: SearchRetryExchange},
 		{name: SearchDeadQueue, key: bus.PostUpdatedRoutingKey, exchange: SearchDeadExchange},
+		{name: SearchQueue, key: bus.PostDeletedRoutingKey, exchange: SearchExchange},
+		{name: SearchRetryQueue, key: bus.PostDeletedRoutingKey, exchange: SearchRetryExchange},
+		{name: SearchDeadQueue, key: bus.PostDeletedRoutingKey, exchange: SearchDeadExchange},
 		{name: SearchDeadQueue, key: SearchInvalidRoutingKey, exchange: SearchDeadExchange},
 	}
 	if !reflect.DeepEqual(channel.bindings, wantBindings) {
