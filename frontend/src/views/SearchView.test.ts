@@ -146,3 +146,16 @@ describe('SearchView pagination recovery', () => {
     expect(searchPaths.at(-1)).not.toContain('cursor=')
   })
 })
+
+it('keeps continuation accessible after an empty stale-hit page', async () => {
+  let calls = 0
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    if (pathOf(input).endsWith('/users/me')) return jsonResponse({ data: user })
+    return jsonResponse(++calls === 1 ? { data: [], meta: { next_cursor: 'resume' } } : { data: [post], meta: { next_cursor: null } })
+  }))
+  const router = createAppRouter(createMemoryHistory()); await router.push('/search?q=stale')
+  const wrapper = mount(SearchView, { global: { plugins: [router] } }); await flushPromises()
+  expect(wrapper.text()).not.toContain('没有找到')
+  await wrapper.get('.load-more button').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain(post.title)
+})

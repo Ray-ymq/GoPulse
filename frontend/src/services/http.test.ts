@@ -84,3 +84,8 @@ describe('HTTP service', () => {
     await expect(requestData('/posts')).rejects.toMatchObject<ApiError>({ code: 'network_error', status: null })
   })
 })
+
+it('preserves the stable user_not_found error', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: { code: 'user_not_found', message: 'user not found' } }, 404)))
+  await expect(requestData('/users/missing')).rejects.toMatchObject({ code: 'user_not_found', status: 404, message: 'user not found' })
+})
