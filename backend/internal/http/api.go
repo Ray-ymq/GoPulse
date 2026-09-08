@@ -2,6 +2,7 @@ package http
 
 import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
+	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
@@ -15,6 +16,7 @@ import (
 )
 
 type APIRoutes struct {
+	Bookmarks       *bookmark.Handler
 	Users           *UserHandler
 	Auth            *auth.Handler
 	Posts           *post.Handler
@@ -63,11 +65,16 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	if routes.Posts != nil {
 		protected.POST("/posts", routes.Posts.Create)
 		protected.GET("/posts", routes.Posts.List)
+		protected.GET("/bookmarks", routes.Posts.Bookmarks)
 		protected.GET("/posts/:postId", routes.Posts.Detail)
 	}
 	if routes.Comments != nil {
 		protected.POST("/posts/:postId/comments", routes.Comments.Create)
 		protected.GET("/posts/:postId/comments", routes.Comments.List)
+	}
+	if routes.Bookmarks != nil {
+		protected.PUT("/posts/:postId/bookmark", routes.Bookmarks.Bookmark)
+		protected.DELETE("/posts/:postId/bookmark", routes.Bookmarks.Unbookmark)
 	}
 	if routes.Likes != nil {
 		protected.PUT("/posts/:postId/like", routes.Likes.Like)

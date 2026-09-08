@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BookmarkButton from './BookmarkButton.vue'
 import FollowButton from './FollowButton.vue'
 import type { Post } from '../types/api'
 import { formatDate } from '../utils/format'
@@ -18,7 +19,7 @@ defineProps<{ post: Post }>()
       <RouterLink :to="`/posts/${post.id}`">评论 {{ post.comment_count }}</RouterLink>
       <span>点赞 {{ post.like_count }}</span>
       <span v-if="post.liked_by_me" class="liked-label">已点赞</span>
-      <button class="bookmark-placeholder" disabled title="Phase-13-03 开放" aria-label="收藏（暂未开放）">收藏</button>
+      <BookmarkButton :post="post" />
     </div>
   </article>
 </template>
