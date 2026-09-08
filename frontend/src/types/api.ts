@@ -15,6 +15,8 @@ export interface AuthorSummary {
 }
 
 export interface Post {
+  edited_at: string | null
+  content_revision: number
   id: number
   title: string
   content: string

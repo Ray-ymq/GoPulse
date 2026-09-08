@@ -67,6 +67,7 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		protected.GET("/posts", routes.Posts.List)
 		protected.GET("/bookmarks", routes.Posts.Bookmarks)
 		protected.GET("/posts/:postId", routes.Posts.Detail)
+		protected.PATCH("/posts/:postId", routes.Posts.Update)
 	}
 	if routes.Comments != nil {
 		protected.POST("/posts/:postId/comments", routes.Comments.Create)

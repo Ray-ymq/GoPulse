@@ -73,7 +73,7 @@ func (store *ReindexStore) CountUpTo(ctx context.Context, maximum uint64) (uint6
 
 func (store *ReindexStore) Scan(ctx context.Context, after, maximum uint64, limit int) ([]Document, error) {
 	rows, err := store.database.QueryContext(ctx, `
-SELECT id, title, content, created_at, updated_at
+SELECT id, title, content, created_at, updated_at, edited_at, content_revision
 FROM posts
 WHERE id > ? AND id <= ?
 ORDER BY id ASC
@@ -85,7 +85,7 @@ LIMIT ?`, after, maximum, limit)
 	documents := make([]Document, 0, limit)
 	for rows.Next() {
 		var document Document
-		if err := rows.Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt); err != nil {
+		if err := rows.Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision); err != nil {
 			return nil, fmt.Errorf("scan posts for reindex: %w", err)
 		}
 		documents = append(documents, document)
@@ -137,7 +137,22 @@ func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) (ReindexRes
 			return ReindexResult{}, fmt.Errorf("check search alias: %w", err)
 		}
 		if exists {
-			return ReindexResult{Changed: false}, nil
+			// Legacy indices used internal ES versions, which can exceed a
+			// post's first content revision. Rebuild once rather than rejecting
+			// valid edits as stale forever after an in-place mapping update.
+			if checker, ok := reindexer.client.(interface {
+				RevisionMappingReady(context.Context) (bool, error)
+			}); ok {
+				ready, err := checker.RevisionMappingReady(ctx)
+				if err != nil {
+					return ReindexResult{}, err
+				}
+				if ready {
+					return ReindexResult{Changed: false}, nil
+				}
+			} else {
+				return ReindexResult{Changed: false}, nil
+			}
 		}
 	}
 
@@ -186,8 +201,8 @@ func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) (ReindexRes
 	if err != nil {
 		return ReindexResult{}, err
 	}
-	if h2 > h1 {
-		if err := reindexer.copyRange(ctx, index, h1, h2); err != nil {
+	if h2 > 0 {
+		if err := reindexer.copyRange(ctx, index, 0, h2); err != nil {
 			return ReindexResult{}, err
 		}
 	}

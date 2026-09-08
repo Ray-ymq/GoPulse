@@ -237,7 +237,7 @@ func exchangeForEvent(eventType bus.EventType) (string, error) {
 	switch eventType {
 	case bus.CommentCreated, bus.PostLiked, bus.UserFollowed:
 		return BusinessExchange, nil
-	case bus.PostCreated:
+	case bus.PostCreated, bus.PostUpdated:
 		return SearchExchange, nil
 	default:
 		return "", errors.New("business event type is unsupported")

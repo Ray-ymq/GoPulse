@@ -20,6 +20,7 @@ const (
 	CommentCreatedRoutingKey = "comment.created.v1"
 	UserFollowedRoutingKey   = "user.followed.v1"
 	PostLikedRoutingKey      = "post.liked.v1"
+	PostUpdatedRoutingKey    = "post.updated.v1"
 	PostCreatedRoutingKey    = "post.created.v1"
 )
 
@@ -29,18 +30,20 @@ const (
 	CommentCreated EventType = "comment.created"
 	UserFollowed   EventType = "user.followed"
 	PostLiked      EventType = "post.liked"
+	PostUpdated    EventType = "post.updated"
 	PostCreated    EventType = "post.created"
 )
 
 type Envelope struct {
-	SchemaVersion int       `json:"schema_version"`
-	EventID       string    `json:"event_id"`
-	EventType     EventType `json:"event_type"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	ActorID       uint64    `json:"actor_id"`
-	RecipientID   uint64    `json:"recipient_id,omitempty"`
-	PostID        uint64    `json:"post_id,omitempty"`
-	CommentID     *uint64   `json:"comment_id,omitempty"`
+	ContentRevision uint64    `json:"content_revision,omitempty"`
+	SchemaVersion   int       `json:"schema_version"`
+	EventID         string    `json:"event_id"`
+	EventType       EventType `json:"event_type"`
+	OccurredAt      time.Time `json:"occurred_at"`
+	ActorID         uint64    `json:"actor_id"`
+	RecipientID     uint64    `json:"recipient_id,omitempty"`
+	PostID          uint64    `json:"post_id,omitempty"`
+	CommentID       *uint64   `json:"comment_id,omitempty"`
 }
 
 type Metadata struct {
@@ -120,7 +123,10 @@ func (envelope Envelope) Validate() error {
 		if envelope.CommentID != nil {
 			return errors.New("post.liked event must not include a comment ID")
 		}
-	case PostCreated:
+	case PostCreated, PostUpdated:
+		if envelope.EventType == PostUpdated && envelope.ContentRevision < 2 {
+			return errors.New("post.updated requires revision")
+		}
 		if envelope.RecipientID != 0 || envelope.CommentID != nil {
 			return errors.New("post.created event must not include recipient or comment IDs")
 		}
@@ -141,6 +147,8 @@ func (envelope Envelope) RoutingKey() (string, error) {
 		return CommentCreatedRoutingKey, nil
 	case PostLiked:
 		return PostLikedRoutingKey, nil
+	case PostUpdated:
+		return PostUpdatedRoutingKey, nil
 	case PostCreated:
 		return PostCreatedRoutingKey, nil
 	default:
@@ -244,4 +252,14 @@ func validUUID(value string) bool {
 
 func NewUserFollowed(at time.Time, follower, followed uint64) (Envelope, error) {
 	return newEnvelope(UserFollowed, at, follower, followed, 0, nil)
+}
+
+func NewPostUpdated(at time.Time, actor, postID, revision uint64) (Envelope, error) {
+	e, err := NewPostCreated(at, actor, postID)
+	if err != nil {
+		return Envelope{}, err
+	}
+	e.EventType = PostUpdated
+	e.ContentRevision = revision
+	return e, e.Validate()
 }

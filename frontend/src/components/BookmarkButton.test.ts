@@ -10,7 +10,7 @@ it('bookmark controls share state, roll back failures and clear private state on
     ? new Response(JSON.stringify({ data: { id: 1, username: 'alice', role: 'user', created_at: '2026-09-07T00:00:00Z' } }), { headers: { 'Content-Type': 'application/json' } })
     : fail ? new Response(JSON.stringify({ error: { code: 'internal_error', message: 'failed' } }), { status: 500, headers: { 'Content-Type': 'application/json' } }) : new Response(null, { status: 204 })))
   await useAuth().initialize()
-  const post: Post = { id: 2, title: 'post', content: '', created_at: '', updated_at: '', author: { id: 3, username: 'bob', display_name: 'Bob' }, like_count: 0, comment_count: 0, liked_by_me: false, bookmarked_by_me: false }
+  const post: Post = { id: 2, title: 'post', content: '', created_at: '', updated_at: '', author: { id: 3, username: 'bob', display_name: 'Bob' }, like_count: 0, comment_count: 0, liked_by_me: false, edited_at: null, content_revision: 1, bookmarked_by_me: false }
   const first = mount(BookmarkButton, { props: { post } }); const second = mount(BookmarkButton, { props: { post } })
   const staleRead = bookmarkReadBarrier()
   await first.get('button').trigger('click'); await flushPromises()

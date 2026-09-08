@@ -232,7 +232,12 @@ func (repository *ElasticsearchRepository) BulkIndex(ctx context.Context, index 
 		if err := document.Validate(); err != nil {
 			return err
 		}
-		action := map[string]any{"index": map[string]string{"_index": index, "_id": strconv.FormatUint(document.PostID, 10)}}
+		metadata := map[string]any{"_index": index, "_id": strconv.FormatUint(document.PostID, 10)}
+		if document.ContentRevision > 0 {
+			metadata["version"] = document.ContentRevision
+			metadata["version_type"] = "external_gte"
+		}
+		action := map[string]any{"index": metadata}
 		if err := encoder.Encode(action); err != nil {
 			return err
 		}
@@ -255,12 +260,12 @@ func (repository *ElasticsearchRepository) BulkIndex(ctx context.Context, index 
 			Error  json.RawMessage `json:"error"`
 		} `json:"items"`
 	}
-	if err := decodeJSON(response.Body, &payload); err != nil || payload.Errors || len(payload.Items) != len(documents) {
+	if err := decodeJSON(response.Body, &payload); err != nil || len(payload.Items) != len(documents) {
 		return ErrUnavailable
 	}
 	for _, item := range payload.Items {
 		operation, ok := item["index"]
-		if !ok || operation.Status < 200 || operation.Status >= 300 || len(operation.Error) > 0 {
+		if !ok || (operation.Status != http.StatusConflict && (operation.Status < 200 || operation.Status >= 300 || len(operation.Error) > 0)) {
 			return ErrUnavailable
 		}
 	}
@@ -412,4 +417,31 @@ func validPhysicalIndex(index string) bool {
 		}
 	}
 	return !strings.ContainsAny(index, "*?,/#\\")
+}
+
+func (repository *ElasticsearchRepository) RevisionMappingReady(ctx context.Context) (bool, error) {
+	response, err := repository.do(ctx, http.MethodGet, "/"+url.PathEscape(AliasName)+"/_mapping", nil)
+	if err != nil {
+		return false, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return false, ErrUnavailable
+	}
+	var mappings map[string]struct {
+		Mappings struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		} `json:"mappings"`
+	}
+	if err := decodeJSON(response.Body, &mappings); err != nil {
+		return false, err
+	}
+	if len(mappings) != 1 {
+		return false, ErrUnavailable
+	}
+	for _, index := range mappings {
+		_, ready := index.Mappings.Properties["content_revision"]
+		return ready, nil
+	}
+	return false, nil
 }
