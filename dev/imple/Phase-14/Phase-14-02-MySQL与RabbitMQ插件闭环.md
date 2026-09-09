@@ -21,21 +21,27 @@ RabbitMQ 受限 monitoring 账号 → rabbitmq-exporter ─┘
 - 核对 Compose 锁定的 MySQL 8.4.0、RabbitMQ 3.13.3 management 真实接口和可建立的最小读权限账号，不以第三方 Exporter 源码审计作为前置。
 - 复用 Phase-14-01 的 catalog、包、进程、collector、Backend DTO 和 Frontend 扩展点，不为两个新类型复制 Plugin Manager。
 
+### 2.1 映射与账号前置确认
+
+- 按总方案 §10.1/§16.1 逐 family 固定锁定 API、上游字段、单位、聚合与缺失语义；RabbitMQ 不能混用整个集群的消息计数与单 vhost 的队列数。
+- 按总方案 §13.1 记录 MySQL 精确 grants、RabbitMQ tags/permissions 和创建/校验入口。未验证权限不得以 root/管理员账号代替采集账号通过验收。
+- 新卷初始化和旧卷补建必须调用同一个幂等部署步骤；管理员凭据只给该步骤，Monitor/Exporter 只获专用采集凭据。同名非归属账号安全冲突，不自动接管。
+
 ## 3. 实施范围
 
 ### 3.1 MySQL 官方插件
 
 - 新增独立 `mysql-exporter` 源码/模块、固定 `/health`/`/metrics`、结构化安全日志、有界超时和 SIGTERM 退出。
 - 使用结构化 host/port/database/username/password/timeout 配置，禁止原始 DSN 和任意 SQL；container mode 只允许固定 `mysql` 目标。
-- 使用专用最小读权限账号读取锁定 MySQL 版本的 server/global status 与必需聚合字段；不运行业务表查询，不采集 SQL/schema/table/user/host label。
-- 固定至少 up、uptime、current/max connections、running threads、queries、slow queries、transaction/rollback 与 buffer-pool 摘要。精确 family/kind/count 同步写入 Exporter、Monitor、Marshaller、Backend 目录和 README。
+- 使用经总方案 §13.1/§16.1 验证的专用最小读权限账号读取锁定 MySQL 版本的 server/global status 与必需聚合字段；不运行业务表查询，不采集 SQL/schema/table/user/host label。
+- 固定总方案 §10 全部 families；transaction/rollback 仅表示显式 COMMIT/ROLLBACK 命令累计数，不表示包括 autocommit 的全部事务。精确 family/kind/count 同步写入 Exporter、Monitor、Marshaller、Backend 目录和 README。
 - 任一连接/认证/超时/解析失败固定 `503` 加唯一 `gopulse_mysql_up 0`，不返回部分/旧值或原始 server error。
 
 ### 3.2 RabbitMQ 官方插件
 
 - 新增独立 `rabbitmq-exporter` 源码/模块和与 MySQL 同等的运行边界。
-- 配置只接受结构化 host/management port/username/password/vhost-or-fixed-scope/timeout，不接受完整 URL、userinfo 或自定义 API path；container mode 只访问固定 `rabbitmq` service。
-- 使用专用 monitoring 账号从锁定 Management API 取得总体快照，固定 up、connections、channels、queues、consumers、ready/unacked、published/delivered/acked 聚合信号。
+- 配置字段严格使用总方案 Schema 中的 `host`、`management_port`、`username`、`password`、`vhost`、`connect_timeout`、`scrape_timeout`，不接受完整 URL、userinfo 或自定义 API path；container mode 只访问固定 `rabbitmq` service。
+- 使用专用 monitoring 账号从锁定 Management API 取得总方案 §10.1 规定的唯一 `/` vhost 聚合快照，固定 up、connections、channels、queues、consumers、ready/unacked、published/delivered/acked 聚合信号。
 - 不输出 queue/vhost/consumer/channel/user 名为 label，不将 Management API 原始 JSON 、URL 或认证错误写入日志/事件。
 - 失败固定 `503` 加唯一 `gopulse_rabbitmq_up 0`；目标恢复时同进程恢复完整快照。
 
@@ -84,6 +90,8 @@ RabbitMQ 受限 monitoring 账号 → rabbitmq-exporter ─┘
 
 ## 7. 批次验收标准
 
+共享基础设施实际停机按总方案 §12 验证真实依赖降级；单插件故障才要求其他 ID 不受影响，不为本批扩展原业务容错。
+
 ### 7.1 MySQL
 
 - 最小读权限账号可完成 connection-test 和真实采集，无业务表写权限；错密码、目标停止和超时只返 `up=0` 安全快照。
@@ -102,6 +110,14 @@ RabbitMQ 受限 monitoring 账号 → rabbitmq-exporter ─┘
 - Monitor 替换/重启恢复三种 desired state，指定 stopped 类型不静默启动；一个损坏记录不阻塞其他类型。
 - 管理员在 Frontend 完成两类代表性操作，普通用户被 Backend 拒绝；Secret 在 DOM/API/log/event/registry 中不可见。
 - Redis 新/历史指标、Logs/Events、Phase 13 代表性业务与搜索不回归。
+
+### 7.3.1 账号升级与映射断言
+
+- 空卷与含 Phase 13 业务数据的旧卷均可创建专用账号；旧卷重复执行不换密码、不增权、不改业务账号/数据。
+- 证明授权状态查询成功及代表性业务写入/对象修改被拒绝；只在强归属测试资源内验证拒绝，不对日常数据库试写。
+- 账号调和中断后用同一候选 Secret 重试可完成，Secret 验证前不激活到 Monitor；失败只影响对应插件。
+- 每个对外 family 的实际含义、缺失值行为与精确 sample 数和总方案一致，API/上游不支持时按 §16.1 先修订合同。
+- 以上纳入既有 `--sources mysql,rabbitmq` 固定门禁，不增加账号组合全排列。
 
 ### 7.4 完成条件
 
