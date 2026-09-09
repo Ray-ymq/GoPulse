@@ -23,13 +23,19 @@ Redis + MySQL + RabbitMQ + Kafka + Elasticsearch + VictoriaMetrics
 - 核对 Compose 锁定 VictoriaMetrics 版本、自身 metrics 家族、Basic Auth、import/query 路径和宕机时 Backend/Marshaller 当前失败语义。
 - 实施记录中必须写明最终选择的上游 families 及锁定版本依据，不直接透传 VictoriaMetrics 原始 `/metrics`。
 
+### 2.1 不允许猜测的映射前置项
+
+- 为总方案九个 VictoriaMetrics families 逐项记录锁定上游名称、筛选 labels、聚合、单位、active 时间窗、冷启动缺失语义与证据；query requests 不能任意汇总全部 HTTP 请求。
+- 这是尚待确认的真实接口，不是本文档已完成的实验。任一 family 无稳定同义字段时，在接入代码前按总方案 §16.1 修订总/分方案，不静默删 family、填零或换近似量。
+- 制品失败注入复用 Phase-14-01 的 acceptance 镜像信任机制，不放宽正式 catalog 或临时执行上传包。
+
 ## 3. 实施范围
 
 ### 3.1 VictoriaMetrics 官方插件
 
 - 新增独立 `victoriametrics-exporter` 源码/模块，从受保护的锁定上游端点读取快照，只映射服务端白名单 family 和固定 label value。
 - Schema 只接受受控 host/port/username/password/timeout，container mode 仅允许 `victoriametrics`；不允许完整 URL、自定义 path/query 或任意 label matcher。
-- 固定 up、ingest/query 结果摘要、active series/rows 或锁定版本可稳定取得的存储量、merge/retention 和磁盘可用摘要；对上游 family 改名/缺失采取整体严格失败。
+- 固定总方案 §10 全部 families；active 时间窗、query path allowlist 与 rows/bytes 范围按 §10.1/§16.1 实证锁定，不用“近似存储量”替代；对上游 family 改名/缺失采取整体严格失败。
 - 连接/认证/超时/契约失败固定 `503` 与唯一 `gopulse_victoriametrics_up 0`，不返回原始上游样本、账号或 URL。
 
 ### 3.2 制品、全链路与查询
@@ -42,8 +48,8 @@ Redis + MySQL + RabbitMQ + Kafka + Elasticsearch + VictoriaMetrics
 ### 3.3 六插件并行与隔离
 
 - 在一个 Monitor 中同时运行六个子进程和 collector，验证 ID、回环端口、process record、status 和 events 没有交叉覆盖。
-- 一类 install/update/configure/start/stop 操作只占用自身锁；对另一类的读状态和采集不阻塞。同 ID 并发变更仍固定拒绝或串行。
-- 注入代表性 target unavailable、unexpected process exit、invalid update/rollback 和 Router publish failure，验证错误仅落在相关 ID，其他五类产生新指标。
+- 一类 install/update/configure/start/stop 操作只占用自身锁；对另一类的读状态和采集不阻塞。同 ID 并发变更按总方案 §7.5 固定串行。
+- 分别验证单 ID target unavailable、unexpected process exit、invalid update/rollback 时其他五类产生新指标。Router publish failure 必须分为单 collector 定向失败与共享 Router 故障：前者只影响选定 ID；后者可使所有目标发布失败，但不得停止任何 Exporter/collector，恢复后新指标可查。
 - Monitor 重启按稳定 ID 顺序调和六类 desired state，一类损坏不阻塞其他；所有 running 类型均恢复唯一进程。
 
 ### 3.4 VictoriaMetrics 故障的可解释验收
@@ -92,9 +98,16 @@ Redis + MySQL + RabbitMQ + Kafka + Elasticsearch + VictoriaMetrics
 ### 7.2 六插件隔离
 
 - 六种 ID 同时各有唯一 running 进程/目标/采集状态，每种 `up=1` 和一个运行值均由 Backend 查询。
-- 代表性 target failure、process exit、update rollback 和 publish failure 仅更改选定 ID；其他五类仍产生新指标，社交业务可用。
+- 单 ID target failure、process exit、update rollback 和定向 publish failure 仅影响选定 ID；共享 Router 故障允许全局发布降级，不要求停机期新指标可查，恢复后收敛，社交业务保持既有依赖容错边界。
 - 并发操作不被一把全局锁串行，同 ID 并发仍受控；Monitor 重启按六个 desired state 恢复且无多进程。
 - 六类状态/events/metrics 的 plugin/source/target 不串号，Secret/主机/路径/PID 不出现在公共产物。
+
+### 7.2.1 映射与信任证据
+
+- 每个 family 的锁定映射均可由脱敏快照解释；冷启动缺失与不兼容缺字段按不同已证实语义处理，不推测上游零值。
+- 对受信更高版本失败包验证回滚，对自洽未登记包验证执行前拒绝，生产制品不包含验收失败包。
+- 共享 Router/VM 停机期间不要求其他五插件的新点可由 Backend 查询；改以进程/collector 状态证明存活，并在恢复后查询新点。
+- 这些断言合入既有 source/isolation 验收，不再增加独立完整 Compose 门禁。
 
 ### 7.3 完成条件
 

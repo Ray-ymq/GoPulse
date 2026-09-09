@@ -21,20 +21,26 @@ Elasticsearch cluster health/stats                    → elasticsearch-exporter
 - 核对 Compose 锁定 Kafka 镜像/单 broker/topic/group 与 Elasticsearch 9.5.2 health/stats 响应，仅阅读实现必需的公开协议/API。
 - 保留现有 Router producer、Marshaller consumer group、Search Indexer、search alias 与 Logs/Events index 为不可被插件采集修改的基线。
 
+### 2.1 正常、初始与部分异常合同
+
+- 严格执行总方案 §10.1：Kafka group/topic 不存在或任一 partition 无有效 committed offset 是安全采集失败，不填零、不创建 topic、不提交 offset。必须通过真实可观测消息与正式 Marshaller 消费建立正常基线。
+- 前置确认中记录如何在强归属、锁定单 broker 拓扑产生并恢复至少一种可读取完整快照的部分异常；不得直接改生产 broker 或扩展为多 broker 产品能力。真实注入无法成立时按总方案 §16.1 先调整验收合同，不能用 fixture 替代后标通过。
+- Elasticsearch 固定 primary docs/store 范围；对 health=yellow/red 且完整字段可得输出 up=1，不能把健康枚举等同连接成功与否。
+
 ## 3. 实施范围
 
 ### 3.1 Kafka 官方插件
 
 - 新增独立 `kafka-exporter` 源码/模块，使用当前项目已选协议库的公开 API 或等价最小客户端获取 broker/controller/partition 与消费位点摘要；不开启 topic 自动创建，不生产/消费业务记录。
 - Schema 只接受受控 broker service/port、超时和代码固定的 `gopulse-observability-v1` topic / `gopulse-marshaller-metrics-v1` group 选择；不接受任意 broker 数组、topic/group/client ID。
-- 固定至少 up、broker count、controller availability、partition count、under-replicated/offline partitions 与固定 group lag 聚合；不使用 broker ID、partition ID、client ID 作标签。
+- 固定总方案全部 Kafka families；partition 及 lag 仅该固定 topic，lag 缺 committed offset 的语义严格按总方案 §10.1；不使用 broker ID、partition ID、client ID 作标签。
 - 部分状态（如 under-replicated/offline 非零）在可成功取得一致快照时仍是 HTTP 200 完整指标；连接/认证/超时/协议失败才固定 `503` 与唯一 `gopulse_kafka_up 0`。
 
 ### 3.2 Elasticsearch 官方插件
 
 - 新增独立 `elasticsearch-exporter` 源码/模块，从锁定 REST health/stats 端点取得集群聚合；禁止自定义 path/query、搜索 body 或索引修改。
 - Schema 只接受受控 host/port/可选认证/timeout，container mode 仅允许 `elasticsearch`；不接受完整 URL、index 名或 TLS 文件路径。
-- 固定 up、health 枚举、node/data-node count、active primary/total shards、relocating/initializing/unassigned shards、pending tasks、docs/store 聚合；不输出 node/index/shard 名。
+- 固定 up、health 枚举、node/data-node count、active primary/total shards、relocating/initializing/unassigned shards、pending tasks、primary docs/store 聚合，不重复计入 replica；不输出 node/index/shard 名。
 - yellow/red 在 API 可正常返回时以完整 HTTP 200 指标表达；网络/认证/超时/解析失败固定 `503` 与唯一 `gopulse_elasticsearch_up 0`。
 
 ### 3.3 通用接入与全链路
@@ -95,9 +101,18 @@ Elasticsearch cluster health/stats                    → elasticsearch-exporter
 
 ### 7.3 隔离与回归
 
+共享基础设施实际停机按总方案 §12 验证其真实依赖降级；以下“其他插件与业务不受影响”限定单 ID 的连接/进程/配置故障，不要求 Kafka 停机期间指标仍可写入或 Elasticsearch 停机期间搜索仍成功。
+
 - 五种插件可同时 running，一种 target/process/config/update 失败不中断其他四种、历史 metrics 和社交业务。
 - 空卷调和、同卷 Monitor 替换与各 desired state 恢复正确；不出现同 ID 第二进程/目标。
 - 管理员 Frontend 闭环和普通用户拒绝正确，Secret/连接串/broker/node/index 明细不进入公共产物。
+
+### 7.3.1 初始值与聚合断言
+
+- 覆盖一次 Kafka 缺 committed offset 的真实初始失败，经正常消费形成 offset 后恢复；Exporter 未修改正式消费进度。
+- 对照同一可解释采样窗口的真实 metadata/offset/primary stats，核对聚合公式和单位，不对动态计数要求两次读取完全相同。
+- 一次真实 Kafka 部分异常与一次 Elasticsearch yellow/red 可读快照按前置记录恢复；复用该证据，不另做所有状态组合。
+- Redis 查询仍遵循总方案 §9.3 的旧 label 例外，不能为统一新 source 而修改历史查询。
 
 ### 7.4 完成条件
 

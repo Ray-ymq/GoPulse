@@ -21,34 +21,40 @@
 - 只核对六个组件的实际请求、消费、队列、依赖交互与退出点，不做一般代码审计或全仓覆盖率扫描。
 - 以总方案第 11 节为目录边界；实施时在生产代码、Monitor 与 Marshaller 双层白名单、Backend catalog 和文档中同步固定精确 family、kind、unit、label 与 count。
 
+### 2.1 指标目录冻结与初始值
+
+- 按总方案 §11.3 固定零/未知/尚无成功语义；label tuple 惰性产生，count/duration 成对，无 label、dependency、last-success family 始终存在。严格解析不得把合法“尚无 tuple”视为缺 family。
+- 对每个组件在同名 log 固定实际 allowlist、计数点、精确 family 数、最大 sample/body 数。它们由当前路由/消息合同推导，不预留任意新 label；依 §16.1 确认后才接入 Monitor/Marshaller。
+- Monitor 自身作为 producer 的来源身份与被采集对象是两个维度，所有层保持新 scraped 标签命名；Redis 的旧存储标签例外继续有效。
+
 ## 3. 实施范围
 
 ### 3.1 共同 endpoint 与安全契约
 
-- Backend、Monitor、Router 和 Marshaller 在既有 HTTP 生命周期中增加固定 internal metrics route；Business Worker 与 Search Indexer 增加最小内部 HTTP 服务，与既有 consumer/log shipper 共用 root context 和有界退出顺序。
-- 全部端点要求独立且至少 32 bytes 的内部 Bearer token；无认证、多 Authorization header、query/body、非 GET 和未知 path 均按固定契约拒绝。
-- host mode 仅绑定和访问回环；container mode 只使用固定 service DNS 与 internal network。Compose 不发布 Worker、Indexer、Monitor、Router 或 Marshaller metrics 宿主端口。
+- 六组件按总方案 §11.3 增加独立 internal listener 和固定 `GET /internal/v1/metrics`；端口依次为 Backend 19101、Business Worker 19102、Search Indexer 19103、Monitor 19104、Router 19105、Marshaller 19106。所有 listener 与既有主职责共用 root context 和 shutdown deadline，不复用 Backend 公共端口。
+- 全部端点要求独立且至少 32 bytes 的内部 Bearer token；无认证、多 Authorization header、query/body、非 GET 和未知 path 均按总方案 §11.3 的状态码和优先级拒绝。
+- host mode 仅绑定和访问回环；container mode 只使用固定 service DNS 与 internal network。Compose 不发布包括 Backend 在内的六个 metrics 宿主端口；公共 Backend listener 不注册/转发此路由。
 - 成功响应使用有界 Prometheus text exposition；禁止配置 dump、环境变量、goroutine 栈、文件路径、凭据和原始错误。
 - metrics endpoint 失败不进入业务 readiness；记录指标不得在请求或消费热路径上产生网络 I/O、阻塞或无界分配。
 
 ### 3.2 Backend 指标
 
-- 请求总数按受控 method、route template 和 status class 或 result 计数，不使用原始 URL、query、user ID 或 request ID。
-- 请求处理时间使用有界 duration total 加 count 或 last-duration gauge，不默认引入大量 histogram bucket。
-- 暴露 outbox pending/oldest age 或等价有界进度、最近成功以及 MySQL、Redis、RabbitMQ、Elasticsearch 固定 dependency 降级；只暴露聚合数，不读取事件 payload。
+- 请求总数按受控 method、route template 和 status class 计数，不使用原始 URL、query、user ID 或 request ID。
+- 请求处理时间固定使用总方案 duration counter total 加对应 count，同 tuple 同完成时刻记录，不改成 last-duration gauge，不默认引入大量 histogram bucket。
+- 按总方案 §11.3 后台采样暴露固定 outbox pending/oldest age、最近成功以及 MySQL、Redis、RabbitMQ、Elasticsearch 固定 dependency 降级；只暴露聚合数，不读取事件 payload。
 
 ### 3.3 Business Worker 与 Search Indexer 指标
 
 - Business Worker 暴露固定 event type 的消费 success/retry/failure/ack 计数、处理时间、in-flight/prefetch 摘要、最近成功以及 RabbitMQ/MySQL 降级。
 - Search Indexer 暴露 create/update/delete 的 success/retry/failure 计数、处理时间、in-flight/retry 摘要、最近成功以及 RabbitMQ/MySQL/Elasticsearch 降级。
 - event type、operation、result 和 dependency 必须是代码固定枚举，禁止 event/message/post/user ID、重试错误原文、index 名和 payload 内容。
-- 最近成功时间使用 Unix seconds gauge 或等价数值；无成功事实使用明确的零或缺省合同，不生成随时间变化的 label。
+- 最近成功时间固定 Unix seconds gauge；无成功事实输出 0，不省略、不伪造当前时间。dependency_up 初始 -1，实际交互失败 0、成功 1，不生成随时间变化的 label。
 
 ### 3.4 Monitor、Router 与 Marshaller 指标
 
-- Monitor 按 6 plugin 加 6 component 固定 target ID 暴露 scrape/publish result、count、duration、last success，事件队列长度与丢弃、running plugin count 和 Router 降级。
-- Router 暴露固定 envelope type/source 的 accepted/rejected/produced result、produce duration、buffer records/bytes、last Kafka ack 与 Kafka 降级；不使用 message/request ID 或任意 source label。
-- Marshaller 暴露固定 type/source/stage/result 的 consumed/validated/stored/committed/retried 计数、处理时间、当前 in-flight/retry、last storage success/commit 和 Kafka/VM/Elasticsearch 降级。
+- Monitor 按 6 plugin 加 6 component 固定 target ID 暴露 scrape/publish result、count、duration、last success，观测对象标签固定为 `scraped_producer_kind`、`scraped_target_id`，不得使用来源保留键；另暴露事件队列长度与丢弃、running plugin count 和 Router 降级。
+- Router 暴露固定 envelope `type/message_source` 的 accepted/rejected/produced result、produce duration、buffer records/bytes、last Kafka ack 与 Kafka 降级；不使用 message/request ID 或任意 source label。
+- Marshaller 暴露固定 `type/message_source/stage/result` 的 consumed/validated/stored/committed/retried 计数、处理时间、当前 in-flight/retry、last storage success/commit 和 Kafka/VM/Elasticsearch 降级。
 - 自采集 Monitor 端点不得产生递归 family/label 增长；metrics route 自身若被统计，只能落入固定 route template。
 
 ### 3.5 Monitor 固定 component targets 与完整链路
@@ -109,6 +115,14 @@
 - 用至少两个用户、多个帖子、请求和事件运行代表性闭环后，series 只按固定 route template、event type、operation、stage、result、dependency 集合增长，不出现业务 ID、内容、原始 path/query/error。
 - Monitor 与 Marshaller 分别拒绝额外 family、label key/value、重复 series、超限 sample 和非有限值；非法记录不写存储且不阻塞后续。
 - 全部 endpoint 未认证访问被拒绝，宿主或浏览器不直达非公开组件；内部 token 不进入日志、API、metrics 或 Frontend。
+
+### 7.2.1 listener 与初始状态断言
+
+- Backend 公共端口不能访问内部 metrics 路由；六个内部端口均无宿主发布，受控内部客户端凭各自 token 访问成功，错 token/重复 Authorization 被拒绝。
+- 初始时间戳 0、dependency_up=-1 合法，真实交互驱动 0/1；count/duration tuple 成对，outbox 未知时不伪造空队列。
+- Monitor scrape 指标通过自己的完整链路时 scraped 标签保留，producer 来源仍为 Monitor；Router/Marshaller 的消息来源使用 message_source，伪造来源保留标签继续被拒绝。
+- 任一 component endpoint 失败不合成业务零值、不修改 Registry，不将 metrics 作为业务 readiness 条件。
+- 将上述断言纳入既有直接 package 与 component-focused 命令，不重复做全目标故障排列。
 
 ### 7.3 运行隔离和回归
 
