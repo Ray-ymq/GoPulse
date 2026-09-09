@@ -92,3 +92,14 @@ func TestValidateAcceptsMonitorEventsAndPreservesBytes(t *testing.T) {
 		t.Fatal("events/backend was accepted")
 	}
 }
+
+func TestMetricsV2TransportPreservesBody(t *testing.T) {
+	body := strings.Replace(validBody, `"schema_version":1`, `"schema_version":2`, 1)
+	message, err := Validate([]byte(body))
+	if err != nil || string(message.Body) != body {
+		t.Fatal("v2 transport altered body", err)
+	}
+	if _, err = Validate([]byte(strings.Replace(body, `"type":"metrics"`, `"type":"events"`, 1))); err == nil {
+		t.Fatal("v2 accepted for non-metrics")
+	}
+}

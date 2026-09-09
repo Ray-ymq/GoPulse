@@ -145,3 +145,30 @@ func validReleaseManifest(m Manifest) bool {
 	_, err = parseManifest(data, m.SchemaVersion)
 	return err == nil
 }
+
+// InspectBuildRelease is used only by the build tool to validate image inputs.
+// It is not a runtime registration API.
+func InspectBuildRelease(path, purpose string) (Release, error) {
+	digest, err := archiveDigest(path)
+	if err != nil {
+		return Release{}, err
+	}
+	stage, err := os.MkdirTemp("", "gopulse-release-build-")
+	if err != nil {
+		return Release{}, err
+	}
+	defer os.RemoveAll(stage)
+	schema := 2
+	if purpose == "legacy-v1" {
+		schema = 1
+	}
+	manifest, err := extractPackageContract(path, stage, schema)
+	if err != nil {
+		return Release{}, err
+	}
+	r := Release{Manifest: manifest, ArchiveSHA256: digest, Purpose: purpose, PackageFile: filepath.Base(path)}
+	if _, err = newReleaseCatalog(filepath.Dir(path), []Release{r}); err != nil {
+		return Release{}, err
+	}
+	return r, nil
+}

@@ -554,6 +554,8 @@ services:
       args: *image-build-args
     restart: on-failure:5
     read_only: true
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
     stop_grace_period: 20s
     environment: *monitor-environment
     depends_on:

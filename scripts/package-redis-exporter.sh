@@ -5,7 +5,7 @@ VERSION=$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")
 OUTPUT=
 BINARY=
 ARCH=
-CONTRACT_VERSION=1
+CONTRACT_VERSION=2
 while (($#)); do
   case $1 in
     --version) [[ $# -ge 2 ]] || { echo 'Missing --version value.' >&2; exit 2; }; VERSION=$2; shift 2 ;;

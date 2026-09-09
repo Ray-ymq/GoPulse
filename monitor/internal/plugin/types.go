@@ -78,6 +78,8 @@ type registryEntry struct {
 	UpdatedAt      time.Time    `json:"updated_at"`
 }
 type processRecord struct {
+	PluginID          string `json:"plugin_id,omitempty"`
+	Revision          string `json:"revision,omitempty"`
 	PID               int    `json:"pid"`
 	StartTicks        string `json:"start_ticks"`
 	ExecutablePath    string `json:"executable_path"`

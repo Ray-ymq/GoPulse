@@ -168,7 +168,11 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	if parent.Err() != nil {
 		return
 	}
-	message, err := envelope.New(manifest.ID, manifest.Version, status, samples, completedAt)
+	newEnvelope := envelope.New
+	if manifest.MetricsContractVersion == 2 {
+		newEnvelope = envelope.NewV2
+	}
+	message, err := newEnvelope(manifest.ID, manifest.Version, status, samples, completedAt)
 	if err != nil {
 		m.cfg.Update(Update{ErrorCode: "message_id_failed", ErrorMessage: "metrics message could not be created"})
 		m.recordCollectionFailure("message_id_failed")
@@ -448,4 +452,16 @@ func safeMessage(err error) string {
 	default:
 		return "metrics scrape failed"
 	}
+}
+
+// ValidateSuccessfulSnapshot is also the manager's pre-commit acceptance gate.
+func ValidateSuccessfulSnapshot(status int, body []byte) error {
+	result, _, err := parse(status, body)
+	if err != nil {
+		return err
+	}
+	if result != "success" {
+		return errors.New("target unavailable")
+	}
+	return nil
 }

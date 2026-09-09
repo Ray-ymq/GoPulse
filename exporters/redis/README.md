@@ -70,8 +70,8 @@ errors and credentials are never printed by this path.
 `REDIS_EXPORTER_CONNECT_TIMEOUT` optionally sets a separate dial budget, from
 100ms up to `REDIS_EXPORTER_SCRAPE_TIMEOUT`. If omitted, the historical scrape
 budget remains the dial default. The check also applies an overall scrape context
-deadline. Monitor must independently bound and reap the candidate process when
-integrating this command; the check alone does not implement a management API.
+deadline. Monitor independently bounds and reaps this command in its authenticated
+connection-test API; the command itself never manages persistent plugin state.
 
 An explicit v2 package can be prepared with:
 
@@ -82,8 +82,8 @@ bash scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.1 \
 
 This uses the Monitor module's canonical schema generator and requires Go even
 with `--binary`. The archive contains only the manifest, schema and executable;
-it contains no configuration instance or credentials. The default remains v1
-while the active manager/image migration is incomplete. Package metadata and
+it contains no configuration instance or credentials. The default is now v2. Use `--contract-version 1` only when reproducing an
+explicitly supported historical package from its original source and toolchain. Package metadata and
 checksums do **not** establish release trust: the v2 artifact must still be pinned
-in an image-built release catalog before a manager can execute it. These
-preparation capabilities do not establish Phase-14-01 migration acceptance.
+in an image-built release catalog before a manager can execute it. The batch development record contains the separate runtime and migration
+acceptance evidence.
