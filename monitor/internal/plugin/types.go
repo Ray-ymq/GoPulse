@@ -13,18 +13,22 @@ type MetricsLifecycle interface {
 }
 
 type Manifest struct {
-	SchemaVersion    int    `json:"schema_version"`
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Version          string `json:"version"`
-	Kind             string `json:"kind"`
-	Source           string `json:"source"`
-	OS               string `json:"os"`
-	Arch             string `json:"arch"`
-	Entrypoint       string `json:"entrypoint"`
-	EntrypointSHA256 string `json:"entrypoint_sha256"`
-	HealthPath       string `json:"health_path"`
-	MetricsPath      string `json:"metrics_path"`
+	SchemaVersion          int    `json:"schema_version"`
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	Version                string `json:"version"`
+	Kind                   string `json:"kind"`
+	Source                 string `json:"source"`
+	OS                     string `json:"os"`
+	Arch                   string `json:"arch"`
+	Entrypoint             string `json:"entrypoint"`
+	EntrypointSHA256       string `json:"entrypoint_sha256"`
+	HealthPath             string `json:"health_path"`
+	MetricsPath            string `json:"metrics_path"`
+	RuntimeContractVersion int    `json:"runtime_contract_version,omitempty"`
+	MetricsContractVersion int    `json:"metrics_contract_version,omitempty"`
+	ConfigSchemaPath       string `json:"config_schema_path,omitempty"`
+	ConfigSchemaSHA256     string `json:"config_schema_sha256,omitempty"`
 }
 
 type DesiredState string
