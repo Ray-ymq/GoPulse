@@ -89,3 +89,93 @@ Schema 验证执行文件 SHA-256、完整 JSON/UTF-8、任意层级重复键检
 - 下一实现项是官方 release catalog/可复现 v2 制品与持久化事务设计和接入，随后运行状态迁移；不要直接把 `ParseManifest` 切换为 v2 造成旧卷无法恢复。
 - Schema/catalog 的扩展点已提供，但 config adapter 目前只有 Redis 解析，metric family registration 和聚焦验收扩展点尚未交付；不能据此宣布 Phase-14-02 前置条件已满足。
 - 继续工作时沿用已记录的成功验证；只在相关代码、配置或环境发生影响结果的变化后重跑。
+
+## 2026-09-10 续接：请求边界、制品核对与单次连接检查
+
+### 状态与分支
+
+仍为**部分实施，未完成批次验收**。本节是对前次记录的增量，不撤销未受影响的成功证据。
+
+- fetch 了 `origin` 和 `upstream`；两者 main 均为 `5562fd7`。
+- 发现已有同批未完成分支，继续 `develop/1.11.1`，以 merge `72fbd93` 合入最新 main 的计划修订，没有覆盖既有实现或重新编号。
+- 当前 root/Frontend 版本仍为完成版本 `1.10.6`。没有将候选制品版本冒充完成产品版本；没有推送、创建 PR 或操作日常运行卷。
+
+### 实际实现与文件
+
+- `monitor/internal/plugin/config_request.go`、`config_request_test.go`：新增公共请求形状解析边界，接受完整 `config` 和独立 `secrets`；拒绝在 config 放 password、在 secrets 放非 Secret 字段、重复/未知字段、null、数组和超过 16 KiB 的请求。只有传入旧 Secret 的 configuration replacement 才能省略 Secret；install/connection-test 调用必须传 nil。返回独立内部配置和 Secret，不持久化。**尚未接入 HTTP 路由**，不能据此宣称 API 已交付。
+- `monitor/internal/plugin/release.go`、`release_test.go`：增加 image-root + 受信条目集合的验证基础，条目固定完整 Manifest、archive SHA-256、用途和单文件名；区分 current/retained/legacy-v1、拒绝重复 key/同 ID 多 current、未知版本、篡改和 symlink。上传只作同 digest 选择，实际提取的是 image-root 下包；提取后再次比对完整 Manifest（含入口/Schema digest）。**尚无编译期 catalog 生成/镜像注入或 Manager 调用**；测试传入的合成条目不能成为生产信任根。
+- `exporters/redis/cmd/redis-exporter/main.go`、`check.go`、`check_test.go`：实际 CLI 增加 `--check`，不启动 HTTP，不写状态，使用 INFO collector 验证真实快照；仅返回固定 reachable/code JSON。候选上下文有 scrape timeout，支持 SIGTERM/SIGINT，禁用客户端原始协议日志。没有 Monitor connection-test 的候选进程管理实现。
+- `exporters/redis/internal/config/config.go`、`config_test.go`：增加 `REDIS_EXPORTER_CONNECT_TIMEOUT`，100ms 到 scrape timeout，未提供时保留 v1 的同 scrape budget 默认；主 Exporter 与 check 均使用该 dial budget。
+- `monitor/cmd/plugin-package-metadata/main.go`、`main_test.go`：从实际入口字节和内建 Redis Schema 生成 v2 Manifest/Schema，避免另抄一份 Python Schema。
+- `scripts/package-redis-exporter.sh`：显式 `--contract-version 2` 生成 v2 三文件包；保留默认 v1，避免现有 Compose/Manager 被未迁移入口破坏；本机构建显式 `GOOS=linux`。归档没有配置实例或 Secret。
+- `exporters/redis/README.md`：说明实际 CLI、timeout、v2 制包入口及尚未接入的边界。
+- 本同名开发记录。
+
+### 真实旧包来源证据
+
+只创建了一个不启动、不挂载现有卷的临时容器，从本地 `gopulse/monitor:1.10.6` 镜像复制原始包后 `docker rm -v` 删除该临时容器。
+
+| 项目 | 实测值 |
+| --- | --- |
+| 镜像 ID | `sha256:37530f786708d31eda7d6e3eacfdc83a2218cbe8a85398290406f65ba1c0b546` |
+| 镜像 revision label | `f1276484944eb933d2ebb40dc7c960a6a414b5b7` |
+| 原包版本/平台 | Manifest v1，`1.10.6`，`linux/amd64` |
+| `go version -m` 工具链 | `go1.26.0` |
+| 原始 archive SHA-256 | `b992b0dfa80a0983b9af63e4c2a4770216bfd7fcb718af2cd451281cf3306727` |
+| 原始入口 SHA-256 | `20978fc780e7531d6c130caf542d7e8ba6fe0e6842ba0610825d5e716941f2fa` |
+| Schema digest | 不适用（v1），未以空 Schema 伪造 v2 |
+
+实际执行 `git archive f1276484944eb933d2ebb40dc7c960a6a414b5b7 exporters/redis` 保存独立源副本；在已有 `golang:1.26.0-alpine3.23` 中以 `--network none`、只读源/模块缓存、`CGO_ENABLED=0` 和 `go build -trimpath -buildvcs=false -ldflags='-s -w -buildid='` 重建，入口 `cmp` 与原包一致。再用默认 v1 制包脚本重新归档，完整 archive `cmp` 一致。
+
+这些证据确定了一个可复现 legacy 候选，**不是已登记支持的旧卷清单**。尚未交付真实 running/stopped 卷 fixture、legacy adapter 或 image catalog；不宣称其他 v1 版本/架构可迁移。实际 legacy 配置只有原 Redis host/port/password/db/scrape timeout，不能把新增独立 connect timeout 当成旧包已有能力。
+
+### v2 可复现产物
+
+本机 `go1.26.7 linux/amd64` 连续执行两次：
+
+```bash
+bash scripts/package-redis-exporter.sh --version 1.11.1 --contract-version 2 --output .run/phase14-artifacts/v2-a.tar.gz
+bash scripts/package-redis-exporter.sh --version 1.11.1 --contract-version 2 --output .run/phase14-artifacts/v2-b.tar.gz
+cmp .run/phase14-artifacts/v2-a.tar.gz .run/phase14-artifacts/v2-b.tar.gz
+```
+
+`cmp` 通过。候选制品版本 `1.11.1`，契约 `2/1/2`：
+
+- archive：`c04ae8fad8571335984d0ee76c4529509ce26bb1396774528add36512640e53d`。
+- entrypoint：`108d1ee61b98f8a0c8e40f9bdd7bb9fd6cd173f2313f9ffa667d1e9ed531126e`。
+- Schema：`31f00ae09c7aa46b6a221e2ea310aa077cdda13482a2f3688ae067923e599c81`。
+
+此处只证明同一源和工具链的包可复现；没有声称不同 Go 工具链产物相同。产物均在被忽略的 `.run/phase14-artifacts/`，没有提交二进制、临时配置或运行 Secret。
+
+### 实际验证与结果
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `(cd monitor && go test ./internal/plugin)` | 通过；请求边界实现后的最小检查 |
+| `(cd monitor && go test ./internal/plugin ./cmd/plugin-package-metadata)` | 通过；制品验证实现后的检查 |
+| `(cd exporters/redis && go test ./...)` | 通过；最终 config test 补充默认 dial budget 断言后再次执行 |
+| `(cd monitor && go test ./...)` | 通过；最终 Monitor diff（含 metadata 生成测试） |
+| `bash -n scripts/package-redis-exporter.sh` | 通过 |
+| 原始 v1 入口重建及整包 `cmp` | 均通过，见上节 |
+| v2 两次独立制包 `cmp` | 通过 |
+| 真实 Redis 一次性 check 探测 | 成功、错误密码失败、正确密码再次成功；无 Secret 特征串输出 |
+| `python3 scripts/ci/validate_versions.py` | 通过，完成版本仍一致为 `1.10.6` |
+| `python3 scripts/ci/validate_branch.py --branch develop/1.11.1 --base-ref upstream/main` | **未通过**：完成版本 `1.10.6` 不等于目标 `1.11.1`；不通过提前 bump 绕过未完成批次 |
+| `git diff --check` | 通过 |
+
+真实探测采用随机 `p1401-check-<uuid>` Docker network/Redis 容器、固定 ownership label；使用本地 `redis:7.2.5-alpine`，不发布宿主端口，不复用现有 volume。check 容器只读挂载本轮 v2 入口，`--read-only --cap-drop ALL --security-opt no-new-privileges`，`connect_timeout=500ms`、`scrape_timeout=1s`，只在一次性环境传测试 Secret。分别捕获 success/failure/recovery JSON，并扫描候选 Secret 和错误密码特征串；没有泄漏。退出清理后按本轮 label 查询 container/network 均为空。
+
+**这个探测不是 `--sources redis --migration` 验收**：没有证明同 Exporter 常驻进程恢复、旧卷迁移、Router/Kafka/Marshaller/VM/Backend 链路或 Frontend DOM。未新增独立全量门禁，也未查看第三方依赖源码。
+
+### 下一未满足项与停止状态
+
+本轮推进了确定的请求契约、候选执行能力、归档验证基础和真实 legacy 制品来源，但并未完成本批必需路径。仍须完成：
+
+1. 基于已核对制品的编译期 catalog 生成/镜像装配，生产 current/retained 与 acceptance 成功/失败包隔离；将验证接入 install/bootstrap/update/legacy 恢复，不能把当前测试构造器当成生产 catalog。
+2. 单 active 提交点的不可变修订和独立 `0600` Secret、每 ID 操作锁与 process record 修订归属；尚未写入生命周期事务。实现时按总方案 §7.5，不再另造 Registry 提交事实。
+3. 真实旧卷 fixture、迁移及两个固定中断点、running 回滚和 stopped 更新；保留旧状态，不清卷。
+4. Monitor 候选进程的独立 timeout/reap、连接测试 HTTP、配置 API、Backend 授权/DTO 和 Frontend 六卡片闭环。
+5. metrics v2 producer 契约与 v1 同 series 查询兼容、完整聚焦 Compose 脚本和其余固定门禁。
+6. 全批通过后才更新 root/Frontend 到 `1.11.1` 并重跑版本/分支门禁。
+
+Router、Marshaller、Backend、Frontend 及 `verify-plugin-metrics.sh` 固定门禁本轮未执行；上述模块没有本轮改动。上述未完成项都是**本批必需工作**，不是转移到 Phase-14-02 的非阻断优化。下一次继续同一分支，沿用本节未受影响的成功检查，从第一个未满足项继续。

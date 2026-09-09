@@ -56,3 +56,34 @@ scripts/verify-exporter.sh
 The focused real acceptance uses a random, ownership-validated Compose project and Redis 7.2.5 volume. It proves live values, stopped-target isolation, authentication failure, timeout, recovery without exporter restart, bounded SIGTERM shutdown, and cleanup without changing the daily stack.
 
 The no-argument Phase-12-03 `scripts/verify-compose.sh` verifies the standalone image against real Redis success, `up 0`, authentication failure, same-process recovery, and SIGTERM. The default complete stack does not start that profile as a duplicate runtime: Monitor bootstraps and remains the single owner of the embedded package, restores desired state from `monitor_plugin_data`, and preserves the HTTP status, Prometheus 0.0.4, process ownership, and signal-shutdown boundaries described here.
+
+## Phase 14 one-shot check and package preparation
+
+`gopulse-redis-exporter --check` uses the same Redis environment as the HTTP
+exporter, collects and validates one real INFO snapshot, then exits without an
+HTTP listener or persistent files. Success prints `{"reachable":true}` and exits
+0. A target/authentication/INFO failure prints
+`{"reachable":false,"code":"target_unavailable"}` and exits 1; configuration and
+argument failures use `invalid_configuration` and `invalid_arguments`. Raw Redis
+errors and credentials are never printed by this path.
+
+`REDIS_EXPORTER_CONNECT_TIMEOUT` optionally sets a separate dial budget, from
+100ms up to `REDIS_EXPORTER_SCRAPE_TIMEOUT`. If omitted, the historical scrape
+budget remains the dial default. The check also applies an overall scrape context
+deadline. Monitor must independently bound and reap the candidate process when
+integrating this command; the check alone does not implement a management API.
+
+An explicit v2 package can be prepared with:
+
+```bash
+bash scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.1 \
+  --output .run/packages/redis-v2.tar.gz
+```
+
+This uses the Monitor module's canonical schema generator and requires Go even
+with `--binary`. The archive contains only the manifest, schema and executable;
+it contains no configuration instance or credentials. The default remains v1
+while the active manager/image migration is incomplete. Package metadata and
+checksums do **not** establish release trust: the v2 artifact must still be pinned
+in an image-built release catalog before a manager can execute it. These
+preparation capabilities do not establish Phase-14-01 migration acceptance.
