@@ -23,6 +23,12 @@
 - 保存现有 Docker containers、networks、volumes、日常 Compose project、端口与 Git 状态快照，不停止、删除或复用非归属资源。
 - 准备可重现的 Phase 13 Redis v1 plugin volume 升级 fixture 与空 volume 路径，均使用隔离测试凭据。
 
+### 2.1 最终验收输入，不重新设计
+
+- 使用总方案 §7.1.1/§7.5 已确定的 current/retained/legacy 与 acceptance 制品；记录实际 digest、支持旧版、迁移提交点，缺失项先补对应批次证据，禁止现场信任任意旧包。
+- Redis 历史查询严格使用 §9.3；组件 labels/初始值/listener 按 §11.3；账号新/旧卷调和按 §13.1。不得在阶段收口另选兼容标签或把 Backend metrics 挂回公共 listener。
+- §16.1 的前置确认项必须已由对应批次关闭，文档中“待确认”不能被本批标为已验证。
+
 ## 3. 实施范围
 
 ### 3.1 固定 Phase 14 Compose 入口
@@ -33,10 +39,16 @@
 
 ### 3.2 升级、冷启动与恢复
 
-- 从 Phase 13 真实 Redis Manifest v1、Registry、running 与 stopped 状态升级，验证 v2 迁移、原 desired state、原版本/时间与历史 Redis series；重试无重复记录。
+- 从 Phase 13 真实 Redis Manifest v1、Registry、running 与 stopped 状态升级，验证通用状态迁移及 legacy-v1 adapter、原 desired state、原版本/时间与历史 Redis series；再显式升级受信 v2 包验证新配置能力；重试无重复记录。
 - 从空 monitor_plugin_data 冷启动，验证六个嵌入包的 Manifest、entrypoint、schema digest、独立安装调和与唯一进程所有权。
 - 空卷管理场景跳过自动 bootstrap，由管理员在浏览器对至少一种代表性插件完成 Schema 配置、connection-test、install/start/stop/update 和指标查询；其他五种通过同契约 API 与运行时验证。
 - 替换 Monitor 容器并复用同 volume，验证六个 desired state、config revision、Secret 与 release 恢复；stopped 类型不启动，不产生第二进程。
+
+### 3.2.1 升级输入的补充断言
+
+- 旧卷包含既有业务数据与原采集状态，账号调和重复执行幂等，不改业务凭据/权限；Kafka 初始 offset 经真实正式消费建立，而非 Exporter 写入。
+- 显式区分状态迁移保留旧包版本与 v2 update 提升插件版本，不要求同一个动作既保留版本又替换包内容。
+- 停止状态迁移不启动；停止状态 configuration/update 可临时试启动但最终无进程。prepare/active 中断点的底层证据输入未变则引用 Phase-14-01，不在本批重复全排列。
 
 ### 3.3 六插件与六组件查询
 
@@ -45,14 +57,20 @@
 - 管理员从 Frontend 使用六插件列表、详情和 Metrics、Logs、Events；普通用户访问页面或 API 被 Backend 权威拒绝。
 - 扫描公共 DTO、Frontend DOM、结构化日志、Events、metrics labels、Registry/config 摘要与验收输出，确认没有 Secret、完整连接串、内部路径、PID、业务 ID 或内容。
 
+### 3.3.1 来源和端点补充断言
+
+- Redis 跨迁移查询仍为旧 label 集的同一 series，其他 source 的 producer 标签严格；Monitor 自采集的 scraped 对象标签不覆盖来源标签。
+- 六个独立内部 metrics listener（包括 Backend）不发布宿主端口；公共 Backend listener 不提供该路由。受控客户端在内部网络验证认证成功/拒绝。
+- 动态指标按映射表、同次或有界采样窗口验证，未知/缺失按已冻结合同表达，不以手工写 VM 或补零制造完整 12 targets 证据。
+
 ### 3.4 代表性故障矩阵
 
 只选足以证明不同边界的代表性故障，不对 12 个 target 做全排列：
 
 1. 停止一个非存储目标，证明选定插件 up=0 和安全状态，其他五插件与业务继续；恢复不重启 Exporter。
 2. 使一个 Exporter 子进程意外退出，证明进程归属、安全 event/status 和其他五进程不变；再通过受控 start 或 recovery 恢复。
-3. 上传通过 archive 校验但试启动失败的更新，证明指定 ID 回滚旧制品、配置与 desired state。
-4. 停止 Router 或 Kafka 的一个代表性传输边界，证明无无界本地指标队列、社交业务不受影响；恢复后新快照可查。
+3. 通过总方案 §7.1.1 的隔离 acceptance 镜像上传已登记的更高版本失败包，证明通过 trust/archive 校验后在 trial 失败并回滚；不得靠关闭 digest/catalog 验证到达失败点。
+4. 停止 Router 这一代表性共享传输边界，证明无无界本地指标队列、Exporters/collectors 保持运行、社交业务维持既有容错；停机期不要求新指标可查询，恢复后新快照可查。Kafka offset 合同沿用前三批证据，不再重复故障排列。
 5. 停止 VictoriaMetrics，证明 Backend metrics 局部 unavailable、安全实时状态、历史 volume 保留与恢复后新值；不伪造停机期 up=0 存储点。
 6. 停止或破坏一个 component metrics endpoint，证明该组件主职责与其他 11 个 targets 继续。
 
