@@ -1,6 +1,6 @@
 # Phase-14-01：通用插件契约与 Redis 迁移闭环实施方案
 
-> 当前状态：待实施。本文档定义 Phase 14 第一个执行批次的范围与验收合同；目标版本 `1.11.1`、开发分支 `develop/1.11.1` 和执行顺序以 `Phase-14-总实施方案.md` 的权威分配表为准。
+> 当前状态：部分实施、未验收。`develop/1.11.1` 的契约基础提交不等于完成本批；本次修订只更新计划。本文档定义 Phase 14 第一个执行批次的范围与验收合同；目标版本 `1.11.1`、开发分支 `develop/1.11.1` 和执行顺序以 `Phase-14-总实施方案.md` 的权威分配表为准。
 
 ## 1. 批次目标
 
@@ -25,6 +25,12 @@ Phase 13 Redis Manifest v1 / Registry / desired state
 - 保存一份真实 Phase 13 running/stopped Redis 卷升级 fixture，但 fixture 不得包含真实凭据或提交运行时 Secret。
 - 保存 Phase 13 Redis metrics 查询、Metrics/Events 和管理页代表性成功证据，用于确认兼容而不重新审计无关业务代码。
 
+### 2.1 开工/续接的确定合同
+
+- 先读取已有同名 log 和 diff，沿用未受影响的成功证据；不得将已存在的独立 v2 parser 直接替换旧入口，或把当前 config helper 的单对象输入视为公共 API。
+- 总方案 §7.1.1、§7.4～7.5 是制品版本、legacy adapter 与事务权威；§8.2 固定 config/secrets DTO；§9.3 固定历史查询；§16.1 列出必须实证的旧包来源，不在实现时临时接受任意 digest。
+- 第一次写入生命周期实现前确定真实受支持旧版包清单、active 提交点和 process record 归属字段。制品证据缺失只阻断依赖路径，不启动全仓审计，也不宣称任意 Phase 13 自制包都能无损升级。
+
 ## 3. 实施范围
 
 ### 3.1 官方 catalog 与 Manifest v2
@@ -39,7 +45,7 @@ Phase 13 Redis Manifest v1 / Registry / desired state
 - 将单常量 ID 改为以官方 plugin ID 为 key 的 Registry/state/runtime map，各 ID 有独立操作串行化、目录、current、release、process record 和 collector lifecycle。
 - 只为一个 ID 保存一个当前版本、desired state 和配置修订；不增加 instance/target 列表。同 ID 重复 install 冲突，未知 ID 拒绝。
 - 实现非敏感配置与 Secret 的分离、原子持久化；文件权限、父目录/symlink 验证和失败回滚继承现有 storage boundary。
-- Redis Schema 只允许受控 host/port/db/timeout/username-or-password 字段，拒绝原始 URL/DSN、未知字段、数组和非安全 container origin。
+- Redis Schema 精确字段为 `host`、`port`、`database`、`connect_timeout`、`scrape_timeout`、`password`；按总方案 §8.2 分为 `config` 与 `secrets` 对象，不增加 username 或 db/timeout 别名，拒绝原始 URL/DSN、未知字段、数组和非安全 container origin。
 - Secret 仅在请求和 Monitor 受信运行边界内使用，不返回原值；公共 DTO 只返回是否已配置、修订号和固定摘要。
 
 ### 3.3 连接测试与生命周期
@@ -53,15 +59,15 @@ Phase 13 Redis Manifest v1 / Registry / desired state
 
 - 对 Phase 13 真实 registry/layout 建立显式、可重入的 v1→通用状态迁移，验证 current/release/digest/process ownership 后才写新状态。
 - 从受信 Redis 运行配置中导入唯一 config/Secret，保留 installed/updated time、desired state 和可安全继承的 scrape time。
-- running 迁移在新 v2 进程健康且真实采集成功后提交；stopped 迁移不启动进程。中断后重试不重复 release/registry 或丢失状态。
+- 状态迁移不升级二进制：running 使用总方案 §7.1.1 登记的原 v1 包与兼容 adapter，健康且真实采集成功后提交；stopped 不启动进程。v2 能力通过后续显式 update 获得，不以原版本号重打 v2 包。中断后重试不重复 release/registry 或丢失状态。
 - 损坏边界只将 Redis 标记为可解释的 repair-required/安全失败，不删 volume，不随意停止无法确认归属的 PID。
 
 ### 3.5 metrics 新契约与端到端兼容
 
 - 定义 metrics 新 schema/payload，显式区分 `exporter_plugin` 与后续 `component`，包含固定 producer/source/target/scrape status/samples；Redis 继续使用 `source=redis,target_id=redis-exporter-local`。
 - Router 同时允许历史 Redis metrics v1 与新 metrics 版本，继续原样写入唯一 Kafka Topic。Logs/Events 契约不改。
-- Marshaller 对两版 Redis 执行严格验证并输出相同 Redis provenance series，新契约中的保留标签由 Marshaller 注入，不信任 sample 自带值。
-- Backend metric catalog 改为显式带 source/target/producer 契约，保留 Redis 10 families 的原查询和公共 DTO；新 catalog 只读 API 只返回安全展示信息。
+- Marshaller 对两版 Redis 执行严格验证，按总方案 §9.3 输出完全相同的旧 Redis label 形状，不新增 producer 存储标签；其他来源使用新 provenance。任何 sample 自带保留标签均拒绝。
+- Backend metric catalog 改为显式带 source/target/producer 契约，Redis producer 从固定目录推导，保持旧查询及严格响应 labels；保留 10 families 和公共 DTO；新 catalog 只读 API 只返回安全展示信息。
 - 建立强归属的聚焦验收入口（计划名 `scripts/verify-plugin-metrics.sh`，如实施采用等价名称必须记录），可按 source 验证真实目标到 Backend 查询，并提供不触及 Docker 的安全自测。
 
 ### 3.6 Backend 与 Frontend
@@ -135,6 +141,14 @@ Phase 13 Redis Manifest v1 / Registry / desired state
 - 真实 Redis 的 `up=1` 和至少一个实际 INFO 数值经完整链路后由 Backend 查询；只有旧关键词的历史 series 仍可按原契约读取。
 - 普通用户所有管理/metric catalog/query 被拒绝；管理员在 Frontend 完成 Redis 代表性闭环，其他五卡片不显示伪造 running 状态。
 - Phase 13 代表性登录/帖子/搜索路径、Logs/Events 和 AdminLayout 不回归。
+
+### 7.3.1 前置修订对应的固定断言
+
+- 真实旧卷迁移保留原 v1 版本/时间/desired state；未登记旧包安全失败；显式受信 v2 update 后才允许 v2 configuration。
+- running 更新失败恢复旧修订，stopped 更新成功最终无进程；prepare 后与 active 替换后两个中断点按总方案 §7.5 恢复，无第二提交依据。
+- acceptance 镜像使用已登记成功/失败包，未登记包在启动前拒绝；生产 catalog 不含失败包，无测试绕过开关。
+- 用迁移前 v1 和迁移后 v2 的真实点查询同一时间范围，保持原 Redis labels/DTO；错误 producer 的 v2 输入及返回中额外 producer labels 被拒绝。
+- 这些断言纳入既有 plugin tests 和 `--sources redis --migration`，不再添加独立全量门禁。
 
 ### 7.4 完成条件
 
