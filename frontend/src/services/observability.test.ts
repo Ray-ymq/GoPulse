@@ -30,7 +30,7 @@ it('validates the server metric catalog before opening a metric query', async ()
   const { isMetricCatalog, metricCatalog } = await import('./observability')
   const catalog = metricCatalog.map(item => {
     const source = item.value.split('_')[1]
-    const unit = item.value.endsWith('_up') ? 'boolean' : item.value.includes('_seconds') ? 'seconds' : item.value.endsWith('_bytes') ? 'bytes' : 'count'
+    const unit = (item.value.endsWith('_up') || item.value.endsWith('_controller_available') || item.value.endsWith('_cluster_health_status')) ? 'boolean' : item.value.includes('_seconds') ? 'seconds' : item.value.endsWith('_bytes') ? 'bytes' : 'count'
     return {metric:item.value,kind:item.value.endsWith('_total') ? 'counter' : 'gauge',unit,source,target_id:`${source}-exporter-local`,producer_kind:'exporter_plugin',producer_id:`${source}-exporter`}
   })
   expect(isMetricCatalog(catalog)).toBe(true)
