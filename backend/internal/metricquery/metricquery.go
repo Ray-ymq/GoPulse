@@ -55,6 +55,25 @@ var Catalog = func() []Definition {
 		items[i].ProducerKind = "exporter_plugin"
 		items[i].ProducerID = "redis-exporter"
 	}
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_up", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_uptime_seconds", Kind: "gauge", Unit: "seconds", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_connections", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_max_connections", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_threads_running", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_queries_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_slow_queries_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_transactions_total", Kind: "counter", Unit: "count", label: "result"})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_buffer_pool_data_bytes", Kind: "gauge", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_buffer_pool_dirty_bytes", Kind: "gauge", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_up", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_connections", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_channels", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_queues", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_consumers", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_messages", Kind: "gauge", Unit: "count", label: "state"})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_published_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_delivered_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_acked_total", Kind: "counter", Unit: "count", label: ""})
 	return items
 }()
 
@@ -85,8 +104,10 @@ type Options struct {
 }
 
 type Labels struct {
-	Mode string `json:"mode,omitempty"`
-	DB   string `json:"db,omitempty"`
+	Result string `json:"result,omitempty"`
+	State  string `json:"state,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+	DB     string `json:"db,omitempty"`
 }
 
 type Point struct {
@@ -142,7 +163,14 @@ func ParseOptions(values url.Values) (Options, error) {
 }
 
 func QueryExpression(metric string) string {
-	return metric + `{source="redis",target_id="redis-exporter-local"}`
+	d, ok := definitions[metric]
+	if !ok {
+		return ""
+	}
+	if d.Source == "redis" {
+		return metric + `{source="redis",target_id="redis-exporter-local"}`
+	}
+	return fmt.Sprintf(`%s{source="%s",target_id="%s",producer_kind="exporter_plugin",producer_id="%s"}`, metric, d.Source, d.TargetID, d.ProducerID)
 }
 
 type Upstream interface {
@@ -309,15 +337,35 @@ func decodeResponse(body []byte, definition Definition) ([]Series, error) {
 }
 
 func validateLabels(metric map[string]string, definition Definition) (Labels, string, error) {
-	if metric["__name__"] != definition.Metric || metric["source"] != "redis" || metric["target_id"] != "redis-exporter-local" {
+	if metric["__name__"] != definition.Metric || metric["source"] != definition.Source || metric["target_id"] != definition.TargetID {
 		return Labels{}, "", errors.New("invalid metric provenance")
 	}
-	if len(metric) != 3 && !(definition.label != "" && len(metric) == 4) {
+	count := 3
+	if definition.Source != "redis" {
+		count = 5
+		if metric["producer_kind"] != "exporter_plugin" || metric["producer_id"] != definition.ProducerID {
+			return Labels{}, "", errors.New("invalid metric provenance")
+		}
+	}
+	if definition.label != "" {
+		count++
+	}
+	if len(metric) != count {
 		return Labels{}, "", errors.New("unknown metric label")
 	}
 	labels := Labels{}
 	switch definition.label {
 	case "":
+	case "result":
+		if metric["result"] != "commit" && metric["result"] != "rollback" {
+			return Labels{}, "", errors.New("invalid result label")
+		}
+		labels.Result = metric["result"]
+	case "state":
+		if metric["state"] != "ready" && metric["state"] != "unacked" {
+			return Labels{}, "", errors.New("invalid state label")
+		}
+		labels.State = metric["state"]
 	case "mode":
 		if metric["mode"] != "user" && metric["mode"] != "system" {
 			return Labels{}, "", errors.New("invalid mode label")
@@ -336,7 +384,9 @@ func validateLabels(metric map[string]string, definition Definition) (Labels, st
 	return labels, labelKey(labels), nil
 }
 
-func labelKey(labels Labels) string { return labels.Mode + "\x00" + labels.DB }
+func labelKey(labels Labels) string {
+	return labels.Mode + "\x00" + labels.DB + "\x00" + labels.Result + "\x00" + labels.State
+}
 
 func decodeTimestamp(raw json.RawMessage) (time.Time, error) {
 	var seconds float64

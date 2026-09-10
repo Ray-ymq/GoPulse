@@ -480,3 +480,11 @@ Administrators can open `/admin/observability` from the main navigation. The ove
 The Phase 11 final acceptance evidence starts with an empty isolated plugin root, completes install and upgrade through Chromium, verifies generated request-ID filters and multi-page Logs/Events, exercises VictoriaMetrics/Monitor/Elasticsearch fault windows, confirms social writes during observability degradation, checks narrow-screen and keyboard-visible controls, demotes an active administrator through isolated test SQL, scans the production bundle for internal identities, and finishes with the former host lifecycle plus owned-resource cleanup.
 
 Phase-12-03 makes the no-argument `scripts/verify-compose.sh` the authoritative browser-backed full-stack gate. It retains the Phase 11 authorization and trust-boundary checks while combining ordinary-user social/search behavior, administrator observability, real non-root images, internal service DNS, managed-plugin volume recovery, localized fault windows, retained-volume restart, and strongly owned cleanup in one project. `scripts/verify-observability-ui.sh` remains a focused historical source-level diagnostic rather than the container-runtime completion proof.
+
+### MySQL 与 RabbitMQ 官方插件
+
+Phase-14-02 通过同一插件生命周期管理 Redis、MySQL 与 RabbitMQ 的独立单实例。
+MySQL 从最小权限账号读取全局状态；RabbitMQ 从 monitoring 账号聚合固定 `/` vhost。
+管理员可在 Exporter 页面配置、测试连接、安装、启停、替换配置并跳转查询对应指标。
+账号新卷/旧卷调和、Secret 文件约束和执行入口见 `deploy/plugins/README.md`；
+完整指标映射见 `exporters/mysql/README.md` 与 `exporters/rabbitmq/README.md`。

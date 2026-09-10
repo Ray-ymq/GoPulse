@@ -3,6 +3,7 @@ package exporterplugin
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
 	"github.com/gin-gonic/gin"
@@ -86,22 +87,33 @@ func (h *Handler) Configuration(c *gin.Context) {
 	}
 	// Both boundaries enforce the same config DTO. Backend permits either known
 	// runtime origin; Monitor enforces its actual deployment mode and saved Secret.
-	var previous *RedisSecret
-	if action == "configuration" {
-		previous = &RedisSecret{Password: "preserve-placeholder"}
-	}
-	_, _, err = ParseRedisConfigurationRequest(body, "container", previous)
-	if err != nil {
-		_, _, err = ParseRedisConfigurationRequest(body, "host", previous)
+	if id == "redis-exporter" {
+		var previous *RedisSecret
+		if action == "configuration" {
+			previous = &RedisSecret{Password: "preserve-placeholder"}
+		}
+		_, _, err = ParseRedisConfigurationRequest(body, "container", previous)
+		if err != nil {
+			_, _, err = ParseRedisConfigurationRequest(body, "host", previous)
+		}
+	} else if id == "mysql-exporter" || id == "rabbitmq-exporter" {
+		var previous json.RawMessage
+		if action == "configuration" {
+			previous = json.RawMessage(`{"password":"preserve-placeholder"}`)
+		}
+		_, _, err = (clusterAdapter{id: id}).Parse(body, "container", previous)
+		if err != nil {
+			_, _, err = (clusterAdapter{id: id}).Parse(body, "host", previous)
+		}
+	} else {
+		response.Error(c, apperror.New(apperror.CodePluginNotFound, "plugin was not found"))
+		return
 	}
 	if err != nil {
 		response.Error(c, invalidConfig())
 		return
 	}
-	if id != "redis-exporter" {
-		response.Error(c, apperror.New(apperror.CodePluginNotFound, "plugin was not found"))
-		return
-	}
+
 	path := "/internal/v1/exporter-plugins/" + id + "/" + action
 	if action == "connection-test" {
 		raw, _, err := h.client.request(c.Request.Context(), http.MethodPost, path, bytes.NewReader(body), "application/json", http.StatusOK)
