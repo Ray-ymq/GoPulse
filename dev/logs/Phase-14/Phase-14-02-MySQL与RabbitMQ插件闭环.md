@@ -229,3 +229,8 @@ buffer_pool_bytes_* 为字节而非 pages，Com_* 为语句命令计数。与已
   输出位于 `.run/verify-pr-management.log`，临时驱动与运行资料不提交。
 - 版本/分支校验通过；完整门禁要求源码对应干净 Git revision，因此先提交通过针对性验证的修复，
   再执行完整门禁，结果追加记录后才推送。
+- `bash scripts/verify-compose.sh` 已实际执行但退出码 1，未进入产品验收：BuildKit 获取
+  `docker/dockerfile:1.7` 元数据时，镜像代理连接 `127.0.0.1:7890` 被拒绝
+  （`proxyconnect tcp ... connect: connection refused`）。日志 `.run/verify-pr-full-compose.log`。
+  这是本机 Docker 拉取环境阻断，不声明完整门禁通过；没有修改全局 daemon/代理配置或绕过镜像来源合同。
+  推送后由 GitHub CI 重新执行原始完整门禁，针对性浏览器验证的成功结果仍有效。
