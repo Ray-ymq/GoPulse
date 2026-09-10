@@ -407,6 +407,7 @@ services:
       GOPULSE_OBSERVABILITY_ADMIN_USERNAME: ${GOPULSE_OBSERVABILITY_ADMIN_USERNAME:-}
       GOPULSE_OBSERVABILITY_USER_USERNAME: ${GOPULSE_OBSERVABILITY_USER_USERNAME:-}
       GOPULSE_OBSERVABILITY_PASSWORD: ${GOPULSE_OBSERVABILITY_PASSWORD:-}
+      GOPULSE_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       GOPULSE_UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
     depends_on:
       frontend:
@@ -554,6 +555,8 @@ services:
       args: *image-build-args
     restart: on-failure:5
     read_only: true
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
     stop_grace_period: 20s
     environment: *monitor-environment
     depends_on:

@@ -49,7 +49,7 @@ describe('HTTP service', () => {
       ),
     )
 
-    await expect(requestData('/posts')).rejects.toMatchObject<ApiError>({
+    await expect(requestData('/posts')).rejects.toMatchObject({
       code: 'authentication_required',
       status: 401,
     })
@@ -61,7 +61,7 @@ describe('HTTP service', () => {
     setUnauthorizedHandler(unauthorized)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ unexpected: true }, 401)))
 
-    await expect(requestData('/posts')).rejects.toMatchObject<ApiError>({
+    await expect(requestData('/posts')).rejects.toMatchObject({
       code: 'invalid_response',
       status: 401,
     })
@@ -73,7 +73,7 @@ describe('HTTP service', () => {
       'fetch',
       vi.fn().mockResolvedValue(response({ error: { code: 'unexpected_backend_error', message: 'SQL detail' } }, 500)),
     )
-    await expect(requestData('/posts')).rejects.toMatchObject<ApiError>({
+    await expect(requestData('/posts')).rejects.toMatchObject({
       code: 'unexpected_backend_error',
       message: '操作失败，请稍后重试。',
     })
@@ -81,7 +81,7 @@ describe('HTTP service', () => {
 
   it('maps fetch failures to a safe network error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('connection refused')))
-    await expect(requestData('/posts')).rejects.toMatchObject<ApiError>({ code: 'network_error', status: null })
+    await expect(requestData('/posts')).rejects.toMatchObject({ code: 'network_error', status: null })
   })
 })
 

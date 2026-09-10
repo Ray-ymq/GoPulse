@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -195,8 +196,18 @@ func loadRegistry(root string) (registryFile, error) {
 		return registryFile{}, err
 	}
 	var reg registryFile
-	if err = json.Unmarshal(data, &reg); err != nil || reg.Plugins == nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if !uniqueJSON(data) {
 		return registryFile{}, errors.New("registry is invalid")
+	}
+	if err = decoder.Decode(&reg); err != nil || reg.Plugins == nil {
+		return registryFile{}, errors.New("registry is invalid")
+	}
+	for id, entry := range reg.Plugins {
+		if _, known := LookupOfficial(id); !known || entry.Manifest.ID != id {
+			return registryFile{}, errors.New("registry is invalid")
+		}
 	}
 	return reg, nil
 }

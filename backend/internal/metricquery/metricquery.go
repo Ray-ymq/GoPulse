@@ -26,24 +26,37 @@ const (
 )
 
 type Definition struct {
-	Metric string `json:"metric"`
-	Kind   string `json:"kind"`
-	Unit   string `json:"unit"`
-	label  string
+	Source       string `json:"source"`
+	TargetID     string `json:"target_id"`
+	ProducerKind string `json:"producer_kind"`
+	ProducerID   string `json:"producer_id"`
+	Metric       string `json:"metric"`
+	Kind         string `json:"kind"`
+	Unit         string `json:"unit"`
+	label        string
 }
 
-var Catalog = []Definition{
-	{Metric: "gopulse_redis_up", Kind: "gauge", Unit: "boolean"},
-	{Metric: "gopulse_redis_uptime_seconds", Kind: "gauge", Unit: "seconds"},
-	{Metric: "gopulse_redis_connected_clients", Kind: "gauge", Unit: "count"},
-	{Metric: "gopulse_redis_used_memory_bytes", Kind: "gauge", Unit: "bytes"},
-	{Metric: "gopulse_redis_commands_processed_total", Kind: "counter", Unit: "count"},
-	{Metric: "gopulse_redis_keyspace_hits_total", Kind: "counter", Unit: "count"},
-	{Metric: "gopulse_redis_keyspace_misses_total", Kind: "counter", Unit: "count"},
-	{Metric: "gopulse_redis_cpu_seconds_total", Kind: "counter", Unit: "seconds", label: "mode"},
-	{Metric: "gopulse_redis_db_keys", Kind: "gauge", Unit: "count", label: "db"},
-	{Metric: "gopulse_redis_db_expiring_keys", Kind: "gauge", Unit: "count", label: "db"},
-}
+var Catalog = func() []Definition {
+	items := []Definition{
+		{Metric: "gopulse_redis_up", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_uptime_seconds", Kind: "gauge", Unit: "seconds"},
+		{Metric: "gopulse_redis_connected_clients", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_redis_used_memory_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_redis_commands_processed_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_redis_keyspace_hits_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_redis_keyspace_misses_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_redis_cpu_seconds_total", Kind: "counter", Unit: "seconds", label: "mode"},
+		{Metric: "gopulse_redis_db_keys", Kind: "gauge", Unit: "count", label: "db"},
+		{Metric: "gopulse_redis_db_expiring_keys", Kind: "gauge", Unit: "count", label: "db"},
+	}
+	for i := range items {
+		items[i].Source = "redis"
+		items[i].TargetID = "redis-exporter-local"
+		items[i].ProducerKind = "exporter_plugin"
+		items[i].ProducerID = "redis-exporter"
+	}
+	return items
+}()
 
 var definitions = func() map[string]Definition {
 	result := make(map[string]Definition, len(Catalog))
