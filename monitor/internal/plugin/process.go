@@ -99,7 +99,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	cmd := exec.Command(executable)
 	cmd.Dir = release
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	for _, key := range []string{"GOPULSE_RUNTIME_MODE", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
+	for _, key := range []string{"GOPULSE_RUNTIME_MODE", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_CONNECT_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
 		if value, ok := env[key]; ok {
 			cmd.Env = append(cmd.Env, key+"="+value)
 		}
@@ -115,7 +115,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 		_, _ = cmd.Process.Wait()
 		return nil, err
 	}
-	record := processRecord{PID: cmd.Process.Pid, StartTicks: ticks, ExecutablePath: executable, WorkingDirectory: release, CommandLineMarker: executable}
+	record := processRecord{PluginID: manifest.ID, Revision: env["_GOPULSE_REVISION"], PID: cmd.Process.Pid, StartTicks: ticks, ExecutablePath: executable, WorkingDirectory: release, CommandLineMarker: executable}
 	if err = saveProcessRecord(pluginDir, record); err != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_, _ = cmd.Process.Wait()
@@ -136,7 +136,17 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 			body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
 			response.Body.Close()
 			if response.StatusCode == http.StatusOK && string(body) == `{"status":"ok","service":"redis-exporter"}` {
-				return runtime, nil
+				// A response on the fixed port must not hide an immediately
+				// exiting candidate (for example a retained failure fixture).
+				select {
+				case <-runtime.done:
+					removeProcessRecord(pluginDir)
+					return nil, errors.New("plugin process exited during startup")
+				case <-time.After(20 * time.Millisecond):
+					if ownsProcess(runtime.record) {
+						return runtime, nil
+					}
+				}
 			}
 		}
 		select {

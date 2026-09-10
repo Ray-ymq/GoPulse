@@ -16,11 +16,14 @@ type Sample struct {
 }
 
 type Payload struct {
-	PluginID      string   `json:"plugin_id"`
-	PluginVersion string   `json:"plugin_version"`
-	TargetID      string   `json:"target_id"`
-	ScrapeStatus  string   `json:"scrape_status"`
-	Samples       []Sample `json:"samples"`
+	ProducerKind    string   `json:"producer_kind,omitempty"`
+	ProducerID      string   `json:"producer_id,omitempty"`
+	ProducerVersion string   `json:"producer_version,omitempty"`
+	PluginID        string   `json:"plugin_id,omitempty"`
+	PluginVersion   string   `json:"plugin_version,omitempty"`
+	TargetID        string   `json:"target_id"`
+	ScrapeStatus    string   `json:"scrape_status"`
+	Samples         []Sample `json:"samples"`
 }
 
 type Envelope struct {
@@ -48,4 +51,17 @@ func New(pluginID, pluginVersion, status string, samples []Sample, timestamp tim
 			ScrapeStatus: status, Samples: samples,
 		},
 	}, nil
+}
+
+// NewV2 retains the historical Redis sample/series identity while identifying
+// the producer in transport metadata, never as extra Redis storage labels.
+func NewV2(pluginID, version, status string, samples []Sample, timestamp time.Time) (Envelope, error) {
+	e, err := New(pluginID, version, status, samples, timestamp)
+	if err != nil {
+		return e, err
+	}
+	e.SchemaVersion = 2
+	e.Payload.PluginID, e.Payload.PluginVersion = "", ""
+	e.Payload.ProducerKind, e.Payload.ProducerID, e.Payload.ProducerVersion = "exporter_plugin", pluginID, version
+	return e, nil
 }
