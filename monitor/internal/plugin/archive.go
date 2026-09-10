@@ -123,7 +123,7 @@ func extractPackageContract(archivePath, staging string, schemaVersion int) (Man
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 		}
 	}
-	if !seen["plugin.json"] || !seen["bin/gopulse-redis-exporter"] {
+	if !seen["plugin.json"] || (schemaVersion == 1 && !seen["bin/gopulse-redis-exporter"]) {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 	}
 	data, err := os.ReadFile(filepath.Join(staging, "plugin.json"))
@@ -143,6 +143,11 @@ func extractPackageContract(archivePath, staging string, schemaVersion int) (Man
 		official, known := LookupOfficial(manifest.ID)
 		if !known || !official.Available || !seen[manifest.Entrypoint] || !seen["config.schema.json"] {
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+		}
+		for name := range seen {
+			if name != "bin" && name != "plugin.json" && name != "config.schema.json" && name != manifest.Entrypoint {
+				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+			}
 		}
 		schema, readErr := os.ReadFile(filepath.Join(staging, "config.schema.json"))
 		if readErr != nil || ValidateConfigSchema(schema, manifest) != nil {

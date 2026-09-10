@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError } from '../services/http'
 import { metricCatalog, loadMetricCatalog, observabilityApi, ranges } from '../services/observability'
 import type { MetricName, MetricResult, QueryRange } from '../types/observability'
 
+const route = useRoute()
 const options = ref<typeof metricCatalog>([])
 const metric = ref<MetricName>('gopulse_redis_up')
 const range = ref<QueryRange>('15m')
@@ -33,6 +35,9 @@ onMounted(async () => {
   try {
     const entries = await loadMetricCatalog()
     options.value = entries.map(entry => ({ value: entry.metric, label: metricCatalog.find(item => item.value === entry.metric)?.label ?? entry.metric }))
+    const source = String(route.query.source ?? 'redis')
+    const initial = entries.find(entry => entry.source === source)
+    if (initial) metric.value = initial.metric
     await load()
   } catch (error) { message.value = errorMessage(error) }
 })
@@ -40,7 +45,7 @@ onBeforeUnmount(() => { sequence++; controller?.abort() })
 </script>
 <template>
   <section>
-    <div class="admin-title"><div><p class="admin-eyebrow">FIXED RANGE QUERY</p><h2>Redis Metrics</h2><p>仅查询固定指标目录与服务器生成的时间窗。</p></div><button class="button" :disabled="loading" @click="load">{{ loading ? '查询中…' : '刷新' }}</button></div>
+    <div class="admin-title"><div><p class="admin-eyebrow">FIXED RANGE QUERY</p><h2>Plugin Metrics</h2><p>仅查询固定指标目录与服务器生成的时间窗。</p></div><button class="button" :disabled="loading" @click="load">{{ loading ? '查询中…' : '刷新' }}</button></div>
     <form class="filter-bar" @submit.prevent="load">
       <label>指标<select v-model="metric"><option v-for="item in options" :key="item.value" :value="item.value">{{ item.label }} · {{ item.value }}</option></select></label>
       <label>范围<select v-model="range"><option v-for="item in ranges" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
