@@ -48,6 +48,7 @@ type EventRecorder interface {
 }
 
 type Config struct {
+	Source         string
 	Host           string
 	Port           string
 	Interval       time.Duration
@@ -72,6 +73,12 @@ type Monitor struct {
 }
 
 func New(cfg Config) (*Monitor, error) {
+	if cfg.Source == "" {
+		cfg.Source = "redis"
+	}
+	if cfg.Source != "redis" && cfg.Source != "mysql" && cfg.Source != "rabbitmq" {
+		return nil, errors.New("invalid source")
+	}
 	if cfg.Interval <= 0 || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
 		return nil, errors.New("scrape timeout must be positive and less than interval")
 	}
@@ -205,7 +212,7 @@ func (m *Monitor) recordCollectionFailure(code string) {
 	m.failureActive = true
 	m.episodeMu.Unlock()
 	if m.cfg.Events != nil {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_collection_failed", code, "", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_collection_failed", code, "", m.cfg.Now()))
 	}
 }
 
@@ -225,12 +232,12 @@ func (m *Monitor) recordPublished(status string) {
 		return
 	}
 	if recoveredCollection {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_collection_recovered", "", "success", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_collection_recovered", "", "success", m.cfg.Now()))
 	}
 	if becameUnavailable {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_target_unavailable", "", "target_unavailable", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_target_unavailable", "", "target_unavailable", m.cfg.Now()))
 	} else if recoveredTarget {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_target_recovered", "", "success", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_target_recovered", "", "success", m.cfg.Now()))
 	}
 }
 
@@ -266,7 +273,7 @@ func (m *Monitor) fetch(ctx context.Context, path string) (string, []envelope.Sa
 	if int64(len(body)) > MaxResponseBytes {
 		return "", nil, time.Time{}, errors.New("response_too_large")
 	}
-	status, samples, err := parse(response.StatusCode, body)
+	status, samples, err := parseSource(m.cfg.Source, response.StatusCode, body)
 	if err != nil {
 		return "", nil, time.Time{}, err
 	}
@@ -277,11 +284,13 @@ func validPath(path string) bool {
 	return strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !strings.ContainsAny(path, "?#\r\n\x00")
 }
 
-var contracts = map[string]struct {
+type familyContract struct {
 	kind   dto.MetricType
 	labels map[string]bool
 	count  int
-}{
+}
+
+var contracts = map[string]familyContract{
 	"gopulse_redis_up":                       {dto.MetricType_GAUGE, nil, 1},
 	"gopulse_redis_uptime_seconds":           {dto.MetricType_GAUGE, nil, 1},
 	"gopulse_redis_connected_clients":        {dto.MetricType_GAUGE, nil, 1},
@@ -294,7 +303,47 @@ var contracts = map[string]struct {
 	"gopulse_redis_db_expiring_keys":         {dto.MetricType_GAUGE, map[string]bool{"db": true}, 1},
 }
 
+func contractsFor(source string) map[string]familyContract {
+	switch source {
+	case "redis":
+		return contracts
+	case "mysql":
+		return map[string]familyContract{
+			"gopulse_mysql_up":                      {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_uptime_seconds":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_connections":             {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_max_connections":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_threads_running":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_queries_total":           {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_mysql_slow_queries_total":      {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_mysql_transactions_total":      {dto.MetricType_COUNTER, map[string]bool{"result": true}, 2},
+			"gopulse_mysql_buffer_pool_data_bytes":  {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_buffer_pool_dirty_bytes": {dto.MetricType_GAUGE, nil, 1},
+		}
+	case "rabbitmq":
+		return map[string]familyContract{
+			"gopulse_rabbitmq_up":              {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_connections":     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_channels":        {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_queues":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_consumers":       {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_messages":        {dto.MetricType_GAUGE, map[string]bool{"state": true}, 2},
+			"gopulse_rabbitmq_published_total": {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_rabbitmq_delivered_total": {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_rabbitmq_acked_total":     {dto.MetricType_COUNTER, nil, 1},
+		}
+	}
+	return nil
+}
 func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
+	return parseSource("redis", httpStatus, body)
+}
+func parseSource(source string, httpStatus int, body []byte) (string, []envelope.Sample, error) {
+	contracts := contractsFor(source)
+	if contracts == nil {
+		return "", nil, errors.New("contract_invalid")
+	}
+	upName := "gopulse_" + source + "_up"
 	if bytes.Contains(body, []byte("\x00")) {
 		return "", nil, errors.New("parse_failed")
 	}
@@ -310,8 +359,8 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 		if len(families) != 1 {
 			return "", nil, errors.New("contract_invalid")
 		}
-		family := families["gopulse_redis_up"]
-		samples, err := validateFamily("gopulse_redis_up", family)
+		family := families[upName]
+		samples, err := validateFamilySource(source, upName, family)
 		if err != nil || len(samples) != 1 || samples[0].Value != 0 {
 			return "", nil, errors.New("contract_invalid")
 		}
@@ -327,7 +376,7 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 	seen := map[string]bool{}
 	for name, contract := range contracts {
 		family := families[name]
-		samples, err := validateFamily(name, family)
+		samples, err := validateFamilySource(source, name, family)
 		if err != nil || len(samples) != contract.count {
 			return "", nil, errors.New("contract_invalid")
 		}
@@ -352,7 +401,7 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 	modes := map[string]bool{}
 	dbValues := map[string]bool{}
 	for _, s := range all {
-		if s.Name == "gopulse_redis_up" {
+		if s.Name == upName {
 			up = s.Value == 1
 		}
 		if s.Name == "gopulse_redis_cpu_seconds_total" {
@@ -362,7 +411,7 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 			dbValues[s.Labels["db"]] = true
 		}
 	}
-	if !up || !modes["user"] || !modes["system"] || len(modes) != 2 || len(dbValues) != 1 {
+	if !up || (source == "redis" && (!modes["user"] || !modes["system"] || len(modes) != 2 || len(dbValues) != 1)) {
 		return "", nil, errors.New("contract_invalid")
 	}
 	sort.Slice(all, func(i, j int) bool { return sampleKey(all[i]) < sampleKey(all[j]) })
@@ -370,7 +419,10 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 }
 
 func validateFamily(name string, family *dto.MetricFamily) ([]envelope.Sample, error) {
-	contract, ok := contracts[name]
+	return validateFamilySource("redis", name, family)
+}
+func validateFamilySource(source, name string, family *dto.MetricFamily) ([]envelope.Sample, error) {
+	contract, ok := contractsFor(source)[name]
 	if !ok || family == nil || family.GetName() != name || family.Type == nil || family.GetType() != contract.kind {
 		return nil, errors.New("contract_invalid")
 	}
@@ -389,6 +441,9 @@ func validateFamily(name string, family *dto.MetricFamily) ([]envelope.Sample, e
 				return nil, errors.New("contract_invalid")
 			}
 			if key == "mode" && value != "user" && value != "system" {
+				return nil, errors.New("contract_invalid")
+			}
+			if (key == "result" && value != "commit" && value != "rollback") || (key == "state" && value != "ready" && value != "unacked") {
 				return nil, errors.New("contract_invalid")
 			}
 			if key == "db" {
@@ -464,4 +519,20 @@ func ValidateSuccessfulSnapshot(status int, body []byte) error {
 		return errors.New("target unavailable")
 	}
 	return nil
+}
+
+func ValidateSuccessfulSourceSnapshot(source string, status int, body []byte) error {
+	result, _, err := parseSource(source, status, body)
+	if err != nil {
+		return err
+	}
+	if result != "success" {
+		return errors.New("target unavailable")
+	}
+	return nil
+}
+
+func (m *Monitor) recordMetricsEvent(event events.Event) bool {
+	event.Metadata.PluginID = m.cfg.Source + "-exporter"
+	return m.cfg.Events.Record(event)
 }

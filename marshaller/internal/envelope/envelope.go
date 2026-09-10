@@ -131,7 +131,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 		}
 		if raw.SchemaVersion == 2 {
 			var fields map[string]json.RawMessage
-			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 6 || fields["producer_kind"] == nil || fields["producer_id"] == nil || fields["producer_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil || metricsPayload.ProducerKind != "exporter_plugin" || metricsPayload.ProducerID != "redis-exporter" || !semverPattern.MatchString(metricsPayload.ProducerVersion) {
+			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 6 || fields["producer_kind"] == nil || fields["producer_id"] == nil || fields["producer_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil || metricsPayload.ProducerKind != "exporter_plugin" || metricsPayload.ProducerID != raw.Source+"-exporter" || !semverPattern.MatchString(metricsPayload.ProducerVersion) {
 				return Envelope{}, reject("invalid_producer")
 			}
 			metricsPayload.PluginID, metricsPayload.PluginVersion = metricsPayload.ProducerID, metricsPayload.ProducerVersion
@@ -141,6 +141,9 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 				return Envelope{}, reject("invalid_producer")
 			}
 		}
+		if raw.SchemaVersion == 1 && raw.Source != "redis" {
+			return Envelope{}, reject("unsupported_envelope")
+		}
 		if err := validatePayload(&metricsPayload); err != nil {
 			return Envelope{}, err
 		}
@@ -149,7 +152,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && source == "redis") || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {
@@ -257,7 +260,9 @@ var successRules = map[string]familyRule{
 }
 
 func validatePayload(p *Payload) error {
-	if p.PluginID != "redis-exporter" || !semverPattern.MatchString(p.PluginVersion) || p.TargetID != "redis-exporter-local" {
+	source := strings.TrimSuffix(p.PluginID, "-exporter")
+	rules := rulesFor(source)
+	if rules == nil || !semverPattern.MatchString(p.PluginVersion) || p.TargetID != p.PluginID+"-local" {
 		return reject("invalid_payload_identity")
 	}
 	if p.Samples == nil || len(p.Samples) == 0 || len(p.Samples) > 1024 {
@@ -271,12 +276,12 @@ func validatePayload(p *Payload) error {
 		if err := validateSample(s, familyRule{kind: "gauge", count: 1}); err != nil {
 			return err
 		}
-		if s.Name != "gopulse_redis_up" || len(s.Labels) != 0 || s.FloatValue != 0 {
+		if s.Name != "gopulse_"+source+"_up" || len(s.Labels) != 0 || s.FloatValue != 0 {
 			return reject("invalid_sample_set")
 		}
 		return nil
 	}
-	if p.ScrapeStatus != "success" || len(p.Samples) != 11 {
+	if p.ScrapeStatus != "success" || len(p.Samples) != sampleCount(rules) {
 		return reject("invalid_sample_set")
 	}
 	counts := map[string]int{}
@@ -285,7 +290,7 @@ func validatePayload(p *Payload) error {
 	dbValues := map[string]bool{}
 	for i := range p.Samples {
 		s := &p.Samples[i]
-		rule, ok := successRules[s.Name]
+		rule, ok := rules[s.Name]
 		if !ok {
 			return reject("unknown_metric_family")
 		}
@@ -298,7 +303,7 @@ func validatePayload(p *Payload) error {
 		}
 		seen[key] = struct{}{}
 		counts[s.Name]++
-		if s.Name == "gopulse_redis_up" && s.FloatValue != 1 {
+		if s.Name == "gopulse_"+source+"_up" && s.FloatValue != 1 {
 			return reject("invalid_sample_set")
 		}
 		if mode, ok := s.Labels["mode"]; ok {
@@ -314,12 +319,12 @@ func validatePayload(p *Payload) error {
 			dbValues[db] = true
 		}
 	}
-	for name, rule := range successRules {
+	for name, rule := range rules {
 		if counts[name] != rule.count {
 			return reject("invalid_sample_set")
 		}
 	}
-	if len(modes) != 2 || !modes["user"] || !modes["system"] || len(dbValues) != 1 {
+	if source == "redis" && (len(modes) != 2 || !modes["user"] || !modes["system"] || len(dbValues) != 1) {
 		return reject("invalid_sample_set")
 	}
 	return nil
@@ -336,6 +341,9 @@ func validateSample(s *Sample, rule familyRule) error {
 		allowed[name] = true
 	}
 	for key, value := range s.Labels {
+		if (key == "result" && value != "commit" && value != "rollback") || (key == "state" && value != "ready" && value != "unacked") {
+			return reject("invalid_label")
+		}
 		if !allowed[key] || key == "source" || key == "target_id" || len(value) > 256 {
 			return reject("invalid_label")
 		}
@@ -367,3 +375,43 @@ func canonicalKey(s Sample) string {
 	return b.String()
 }
 func CanonicalKey(s Sample) string { return canonicalKey(s) }
+
+func sampleCount(rules map[string]familyRule) int {
+	n := 0
+	for _, rule := range rules {
+		n += rule.count
+	}
+	return n
+}
+func rulesFor(source string) map[string]familyRule {
+	switch source {
+	case "redis":
+		return successRules
+	case "mysql":
+		return map[string]familyRule{
+			"gopulse_mysql_up":                      {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_mysql_uptime_seconds":          {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_mysql_connections":             {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_mysql_max_connections":         {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_mysql_threads_running":         {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_mysql_queries_total":           {kind: "counter", counter: true, count: 1, labels: nil},
+			"gopulse_mysql_slow_queries_total":      {kind: "counter", counter: true, count: 1, labels: nil},
+			"gopulse_mysql_transactions_total":      {kind: "counter", counter: true, count: 2, labels: []string{"result"}},
+			"gopulse_mysql_buffer_pool_data_bytes":  {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_mysql_buffer_pool_dirty_bytes": {kind: "gauge", counter: false, count: 1, labels: nil},
+		}
+	case "rabbitmq":
+		return map[string]familyRule{
+			"gopulse_rabbitmq_up":              {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_rabbitmq_connections":     {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_rabbitmq_channels":        {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_rabbitmq_queues":          {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_rabbitmq_consumers":       {kind: "gauge", counter: false, count: 1, labels: nil},
+			"gopulse_rabbitmq_messages":        {kind: "gauge", counter: false, count: 2, labels: []string{"state"}},
+			"gopulse_rabbitmq_published_total": {kind: "counter", counter: true, count: 1, labels: nil},
+			"gopulse_rabbitmq_delivered_total": {kind: "counter", counter: true, count: 1, labels: nil},
+			"gopulse_rabbitmq_acked_total":     {kind: "counter", counter: true, count: 1, labels: nil},
+		}
+	}
+	return nil
+}
