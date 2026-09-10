@@ -1,6 +1,6 @@
 # Phase 14：插件体系与组件可观测闭环总实施方案
 
-> 当前状态：Phase 14 整体未完成；Phase-14-01 已在 `develop/1.11.1` 完成实现与固定验收，完成版本为 `1.11.1`，结果见同名开发记录，其余五批待实施。本文档于 2026-09-09 基于主远程 `upstream/main` 提交 `8caf8d4`、Phase 13 已完成产品版本 `1.10.6` 与 Compose 产品基线编写。Phase 14 使用 `1.11.x` 版本线，拆分为 6 个执行批次。本文档是 Phase 14 批次顺序、目标版本和开发分支的唯一权威来源；每批开工时仍须 fetch 主远程，从包含全部前置批次的最新 `upstream/main` 创建对应 `develop/x.x.x` 分支。
+> 当前状态：Phase 14 整体未完成。2026-09-10 已核对远端 `main` 的 `e2385f1`，已完成产品版本为 `1.11.2`；Phase-14-03 在 `develop/1.11.3` 仅有基础实现，尚未完成验收。本次在 `update` 经用户批准修订其隔离 Kafka 部分异常验收拓扑，不合入开发代码、不提升版本。本文档于 2026-09-09 基于主远程 `upstream/main` 提交 `8caf8d4`、Phase 13 已完成产品版本 `1.10.6` 与 Compose 产品基线编写。Phase 14 使用 `1.11.x` 版本线，拆分为 6 个执行批次。本文档是 Phase 14 批次顺序、目标版本和开发分支的唯一权威来源；每批开工时仍须 fetch 主远程，从包含全部前置批次的最新 `upstream/main` 创建对应 `develop/x.x.x` 分支。
 
 ## 1. 阶段目标
 
@@ -358,6 +358,29 @@ Phase-14-01 用迁移前写入的真实 v1 点和迁移后真实 v2 点查询跨
 - 采集到的 counter 重置原样表达，不本地累计掩盖重启；gauge 不用历史成功值填补。动态上游值的验收比较同一次/有界时间窗的快照和单调关系，不要求两次采样瞬时绝对相等。
 - Kafka 冷启动依赖真实 Marshaller 消费产生正式 committed offset；缺失时只让 Kafka 插件等待/安全失败，不把它加入 Router/Marshaller 业务启动依赖。验收先产生一条真实可观测消息并确认正式消费，再检查 Kafka 插件自动恢复或重试安装。
 
+### 10.2 Kafka 部分异常验收拓扑例外（2026-09-10 授权）
+
+产品仍只支持单 broker、唯一 `kafka:19092` 目标及固定 topic/group。Phase-14-03 的真实探测
+已否定“向未注册 broker 分配副本”的注入路径；用户批准仅在强归属、可清理的隔离验收环境
+临时增加一个同版本 broker-only follower。该例外不改变 §7.2 配置/拨号 allowlist、生产
+Compose 默认拓扑、发布制品或产品支持声明；不允许在生产集群扩容或添加多 broker 配置。
+
+权威可执行合同见 `Phase-14-03-Kafka与Elasticsearch插件闭环.md` §2.2：先用真实业务链路
+建立有效正式 committed offset，再由验收管理员将固定 topic 临时扩为两副本；保持 leader、
+正式 group coordinator 及必需 offsets 分区 leader 在原 broker，仅停 follower，取得
+under-replicated>0、up=1、HTTP 200 的完整 7 families / 7 samples 与 Backend 对照证据。
+随后恢复 follower、验证同一 Exporter 进程的新快照，恢复原单副本并清理临时资源，最后在
+原产品单 broker 基线上完成其余门禁。采集器仍不得写 topic/config/offset 或连接新 origin。
+
+第二 broker 必须使用锁定 `apache/kafka:4.3.1`、临时 override、该次随机 project 专属资源，
+不加入 controller quorum、不发布宿主端口、不接触既有业务资源。将验收管理员的副本调整
+与采集器只读行为分别记录；成功、失败、中断均需强归属清理证据。正式 offset 只能来自
+正常 Marshaller 消费；不以手工 offset、fixture 或历史指标替代真实状态。
+
+该流程纳入既有 source-focused 固定验收入口；Phase-14-06 仅按既有证据复用规则引用实际
+成功记录，不因这一例外另做拓扑矩阵。批准计划不等于流程已实证；步骤或客户端安全边界
+不能满足时仍按 §16.1 处理，不静默放宽门禁。
+
 ## 11. 自研组件指标目录与基数预算
 
 ### 11.1 权威 family 与标签契约
@@ -443,7 +466,7 @@ Phase-14-02 必须交付一个有界、幂等的账号调和步骤，同时服�
 ### Phase-14-03：Kafka 与 Elasticsearch 插件闭环
 
 - 交付两个官方 Exporter、集群协议/REST 配置与聚合指标目录。
-- 以真实 Kafka/Elasticsearch 验证部分状态、完全不可达、恢复和 Backend 查询，不绑定动态 broker/node 标签。
+- 以真实 Kafka/Elasticsearch 验证部分状态、完全不可达、恢复和 Backend 查询，不绑定动态 broker/node 标签；Kafka 部分异常仅按 §10.2 使用临时 follower，随后恢复产品单 broker 基线。
 - 不修改 Kafka Topic 分工、Elasticsearch 业务/日志/事件 index 归属或搜索重建契约。
 
 ### Phase-14-04：VictoriaMetrics 与六插件隔离闭环
@@ -521,7 +544,7 @@ Phase 14 只在以上验收全部通过、6 份 split plan 均有同名真实实
 | --- | --- | --- |
 | Phase-14-01 | 受支持 Phase 13 旧包版本/工具链/digest、v1 兼容 adapter 字段能力、current/retained/acceptance 包清单 | 可复现构建与真实 v1 卷确认；无可信旧包证据不得宣称支持该来源，不导入现场任意 digest |
 | Phase-14-02 | MySQL/RabbitMQ 每 family 上游字段、vhost scope、精确最小权限和账号调和入口 | 按 §10.1/§13.1 的表、一个真实快照和权限允许/拒绝证据；scope 或权限不成立先修订计划 |
-| Phase-14-03 | Kafka offset 缺失及单 broker 部分异常的可控注入、Elasticsearch primary 聚合字段 | 锁定 API 与不写业务对象的隔离故障步骤；不能用 fixture 冒充真实部分异常，也不扩建生产集群来凑验收 |
+| Phase-14-03 | Kafka offset 缺失、§10.2 临时 follower 部分异常注入与原单 broker 恢复、Elasticsearch primary 聚合字段 | 锁定 API；强归属验收管理员副本调整与采集器只读行为分离，记录真实快照/Backend/清理证据；不能用 fixture 冒充真实异常，不扩建生产集群或放宽客户端拨号边界 |
 | Phase-14-04 | VictoriaMetrics 每个 family 的实际字段、query allowlist、active 时间窗和冷启动省略行为 | 完整映射与脱敏真实值；缺 family 先修订权威目录，不填零或近似替代 |
 | Phase-14-05 | 各组件 label value 枚举、计数/耗时对应点、最大 family/sample/body 预算 | 同名记录写出数值与 allowlist，Monitor/Marshaller/Backend 同步注册；不允许使用“有界”“等价”代替实际预算 |
 | Phase-14-06 | 前五批证据有效性、验收镜像/可信成功和失败包、旧卷与账号 fixture | 缺失即回到对应未满足项，不重新选择契约，不把最后一批变成另一次设计阶段 |
