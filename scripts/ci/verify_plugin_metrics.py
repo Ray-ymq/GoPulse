@@ -305,7 +305,7 @@ class Acceptance:
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--self-test',action='store_true')
-    parser.add_argument('--sources',choices=['redis'])
+    parser.add_argument('--sources',choices=['redis','mysql,rabbitmq'])
     parser.add_argument('--migration',action='store_true')
     args=parser.parse_args()
     if args.self_test:
@@ -314,8 +314,12 @@ def main():
             assert not PATTERN.fullmatch(invalid)
         print('PASS: bounded source selection and strong project ownership validation (no Docker access)')
         return
-    if args.sources!='redis' or not args.migration:parser.error('use --sources redis --migration')
-    run=Acceptance()
+    if args.sources=='mysql,rabbitmq':
+        from verify_plugin_clusters import ClusterAcceptance
+        run=ClusterAcceptance()
+    else:
+        if args.sources!='redis' or not args.migration:parser.error('use --sources redis --migration or --sources mysql,rabbitmq')
+        run=Acceptance()
     def interrupted(signum,frame):raise RuntimeError('acceptance interrupted')
     signal.signal(signal.SIGINT,interrupted);signal.signal(signal.SIGTERM,interrupted)
     try:run.run()

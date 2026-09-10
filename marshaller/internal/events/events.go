@@ -123,7 +123,7 @@ func Validate(body []byte, envelopeTime time.Time) (Payload, error) {
 }
 
 func validMetadata(name string, m Metadata) bool {
-	if m.PluginID != "redis-exporter" {
+	if m.PluginID != "redis-exporter" && m.PluginID != "mysql-exporter" && m.PluginID != "rabbitmq-exporter" {
 		return false
 	}
 	empty := m.ErrorCode == "" && m.ScrapeStatus == ""

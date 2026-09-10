@@ -14,15 +14,16 @@ import (
 )
 
 type ManagerConfig struct {
-	PackagesRoot     string
-	ValidateSnapshot func(int, []byte) error
-	Root             string
-	ExporterEnv      map[string]string
-	HealthURL        string
-	StartupTimeout   time.Duration
-	StopTimeout      time.Duration
-	Now              func() time.Time
-	EventRecorder    EventRecorder
+	PackagesRoot           string
+	ValidateSnapshot       func(int, []byte) error
+	ValidateSourceSnapshot func(string, int, []byte) error
+	Root                   string
+	ExporterEnv            map[string]string
+	HealthURL              string
+	StartupTimeout         time.Duration
+	StopTimeout            time.Duration
+	Now                    func() time.Time
+	EventRecorder          EventRecorder
 }
 type Manager struct {
 	core            *runtimeCore
@@ -829,5 +830,16 @@ func (m *Manager) Bootstrap(ctx context.Context, archivePath string) (Status, er
 		return status, nil
 	default:
 		return m.Update(ctx, PluginID, archivePath)
+	}
+}
+
+func (m *Manager) AttachSourceMetrics(id string, observer MetricsLifecycle) {
+	if m.core != nil {
+		m.core.attach(id, observer)
+	}
+}
+func (m *Manager) RecordSourceMetrics(id string, scrapeAt, successAt *time.Time, code, message string) {
+	if m.core != nil {
+		m.core.recordMetrics(id, scrapeAt, successAt, code, message)
 	}
 }

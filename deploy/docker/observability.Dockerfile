@@ -38,6 +38,24 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-redis-exporter ./cmd/redis-exporter
 
+FROM ${GO_IMAGE} AS mysql-exporter-build
+WORKDIR /src/mysql
+ARG GOPROXY=https://goproxy.cn,direct
+COPY exporters/mysql/ ./
+ARG TARGETARCH
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-mysql-exporter ./cmd/mysql-exporter
+
+FROM ${GO_IMAGE} AS rabbitmq-exporter-build
+WORKDIR /src/rabbitmq
+ARG GOPROXY=https://goproxy.cn,direct
+COPY exporters/rabbitmq/ ./
+ARG TARGETARCH
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-rabbitmq-exporter ./cmd/rabbitmq-exporter
+
 FROM ${GO_IMAGE} AS exporter-package
 RUN apk add --no-cache bash python3 tar gzip
 WORKDIR /src
@@ -49,6 +67,11 @@ ARG VERSION
 ARG TARGETARCH
 RUN ./scripts/package-redis-exporter.sh --contract-version 2 --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
     --binary /out/gopulse-redis-exporter --output /out/gopulse-redis-exporter.tar.gz
+
+COPY --from=mysql-exporter-build /out/gopulse-mysql-exporter /out/gopulse-mysql-exporter
+RUN ./scripts/package-redis-exporter.sh --source mysql --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-mysql-exporter --output /out/gopulse-mysql-exporter.tar.gz
+COPY --from=rabbitmq-exporter-build /out/gopulse-rabbitmq-exporter /out/gopulse-rabbitmq-exporter
+RUN ./scripts/package-redis-exporter.sh --source rabbitmq --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-rabbitmq-exporter --output /out/gopulse-rabbitmq-exporter.tar.gz
 
 FROM ${GO_IMAGE} AS legacy-exporter-build
 WORKDIR /legacy
@@ -72,7 +95,8 @@ RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY monitor/ ./
 COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /packages/gopulse-redis-exporter.tar.gz
 COPY --from=official-packages /out/redis-1.10.6.tar.gz /packages/redis-1.10.6.tar.gz
-RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz
+COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /packages/
+RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz
 ARG TARGETOS=linux
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
@@ -123,6 +147,7 @@ LABEL org.opencontainers.image.title="GoPulse Monitor"
 COPY --from=monitor-build --chown=10005:10001 /out/monitor /usr/local/bin/monitor
 COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /opt/gopulse/packages/gopulse-redis-exporter.tar.gz
 COPY --from=official-packages /out/redis-1.10.6.tar.gz /opt/gopulse/packages/redis-1.10.6.tar.gz
+COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /opt/gopulse/packages/
 USER 10005:10001
 EXPOSE 9090
 VOLUME ["/var/lib/gopulse-monitor/plugins"]
@@ -132,13 +157,13 @@ ENTRYPOINT ["/usr/local/bin/monitor"]
 # production image; the production monitor target above never copies them.
 FROM official-packages AS acceptance-packages
 RUN cd /src/monitor && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' -o /out/failing-exporter ./internal/plugin/testdata/failing-exporter.go
-RUN ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.2 --arch amd64 --binary /out/failing-exporter --output /out/redis-failure.tar.gz && \
+RUN ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/redis-failure.tar.gz && \
     ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.3 --arch amd64 --binary /out/gopulse-redis-exporter --output /out/redis-update.tar.gz
 
 FROM monitor-build AS monitor-acceptance-build
 COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /packages/
 RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go \
-      current=/packages/gopulse-redis-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz \
+      current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz \
       retained=/packages/redis-failure.tar.gz retained=/packages/redis-update.tar.gz && \
     CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/monitor ./cmd/monitor
 

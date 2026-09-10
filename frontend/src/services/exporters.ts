@@ -66,10 +66,10 @@ export function validateExporterPackage(file: File | null): string {
 export const exporterApi = {
   list: (signal?: AbortSignal) => requestValidatedData<ExporterStatus[]>('/exporter-plugins', isExporterList, { signal }),
   get: (signal?: AbortSignal) => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter', isExporterStatus, { signal }),
-  start: () => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter/start', isExporterStatus, { method: 'POST' }),
-  stop: () => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter/stop', isExporterStatus, { method: 'POST' }),
+  start: (id = 'redis-exporter') => requestValidatedData<ExporterStatus>(`/exporter-plugins/${id}/start`, isExporterStatus, { method: 'POST' }),
+  stop: (id = 'redis-exporter') => requestValidatedData<ExporterStatus>(`/exporter-plugins/${id}/stop`, isExporterStatus, { method: 'POST' }),
   install: (file: File) => requestValidatedData<ExporterStatus>('/exporter-plugins/install', isExporterStatus, { method: 'POST', body: packageBody(file) }),
-  update: (file: File) => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter/update', isExporterStatus, { method: 'POST', body: packageBody(file) }),
+  update: (file: File, id = 'redis-exporter') => requestValidatedData<ExporterStatus>(`/exporter-plugins/${id}/update`, isExporterStatus, { method: 'POST', body: packageBody(file) }),
 }
 
 export interface PluginField { name: string; type: string; required: boolean; secret: boolean; minimum?: number; maximum?: number; enum?: string[] }
@@ -79,7 +79,7 @@ export function isPluginCatalog(value: unknown): value is PluginCatalogItem[] {
   return Array.isArray(value) && value.length === 6 && value.every((item: unknown, index) => {
     if (!isRecord(item) || !exactKeys(item, ['id','name','source','available','schema','configured','secret_configured','revision','summary'])) return false
     const source = sources[index]
-    if (item.id !== `${source}-exporter` || item.source !== source || item.name !== `GoPulse ${source} Exporter` || typeof item.available !== 'boolean' || (index > 0 && item.available) || typeof item.configured !== 'boolean' || item.secret_configured !== item.configured) return false
+    if (item.id !== `${source}-exporter` || item.source !== source || item.name !== `GoPulse ${source} Exporter` || typeof item.available !== 'boolean' || (index > 2 && item.available) || typeof item.configured !== 'boolean' || item.secret_configured !== item.configured) return false
     if (item.configured ? typeof item.revision !== 'string' || !/^[a-f0-9]{32}$/.test(item.revision) || !['configured','upgrade_required'].includes(String(item.summary)) : item.revision !== '' || item.summary !== 'not_configured') return false
     if (!isRecord(item.schema) || !exactKeys(item.schema, ['schema_version','plugin_id','fields']) || item.schema.schema_version !== 1 || item.schema.plugin_id !== item.id || !Array.isArray(item.schema.fields)) return false
     const names = new Set<string>()
@@ -93,6 +93,6 @@ export function isPluginCatalog(value: unknown): value is PluginCatalogItem[] {
 const configBody = (config: Record<string, string | number>, secrets: Record<string, string>) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config, secrets }) })
 export const pluginConfigApi = {
   catalog: (signal?: AbortSignal) => requestValidatedData('/exporter-plugins/catalog', isPluginCatalog, { signal }),
-  check: (config: Record<string,string|number>, secrets: Record<string,string>) => requestValidatedData('/exporter-plugins/redis-exporter/connection-test', (v: unknown): v is { reachable: true } => isRecord(v) && exactKeys(v, ['reachable']) && v.reachable === true, { method: 'POST', ...configBody(config, secrets) }),
-  save: (config: Record<string,string|number>, secrets: Record<string,string>, install: boolean) => requestValidatedData(`/exporter-plugins/redis-exporter/${install ? 'install' : 'configuration'}`, isExporterStatus, { method: install ? 'POST' : 'PUT', ...configBody(config, secrets) }),
+  check: (config: Record<string,string|number>, secrets: Record<string,string>, id = 'redis-exporter') => requestValidatedData(`/exporter-plugins/${id}/connection-test`, (v: unknown): v is { reachable: true } => isRecord(v) && exactKeys(v, ['reachable']) && v.reachable === true, { method: 'POST', ...configBody(config, secrets) }),
+  save: (config: Record<string,string|number>, secrets: Record<string,string>, install: boolean, id = 'redis-exporter') => requestValidatedData(`/exporter-plugins/${id}/${install ? 'install' : 'configuration'}`, isExporterStatus, { method: install ? 'POST' : 'PUT', ...configBody(config, secrets) }),
 }
