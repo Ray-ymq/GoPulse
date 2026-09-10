@@ -114,7 +114,7 @@ func Validate(event Event, now time.Time) error {
 }
 
 func validMetadata(name string, m Metadata) bool {
-	if m.PluginID != "redis-exporter" {
+	if m.PluginID != "redis-exporter" && m.PluginID != "mysql-exporter" && m.PluginID != "rabbitmq-exporter" {
 		return false
 	}
 	emptyFailure := m.ErrorCode == "" && m.ScrapeStatus == ""

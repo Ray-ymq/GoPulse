@@ -84,6 +84,8 @@ func main() {
 	processor := &consumer.Processor{
 		Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew},
 		Targets: map[string]consumer.Target{
+			"metrics/mysql":        {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"metrics/rabbitmq":     {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
 			"metrics/redis":        {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
 			"logs/backend":         {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
 			"logs/business-worker": {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},

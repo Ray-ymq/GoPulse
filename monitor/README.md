@@ -39,3 +39,10 @@ Phase 8 keeps Monitor's publishing contract unchanged and adds the downstream Ma
 Successful Redis Exporter install, start, stop, and update transitions are recorded after the Plugin Manager commits the final runtime and persistent state. The in-process EventMonitor validates the fixed Events v1 vocabulary, creates a stable 32-character lowercase hexadecimal message ID, and places the canonical `events/monitor` Envelope in a bounded queue. `Record` never waits for the Router and an enqueue or transport failure never changes the plugin API result. A single worker retries temporary Router failures with bounded backoff, skips deterministic 4xx rejections, and drains accepted records for at most `MONITOR_EVENT_SHUTDOWN_TIMEOUT` during shutdown. Queue and transport state logs never contain event bodies, URLs, tokens, or underlying errors.
 
 The queue defaults to 256 entries (`MONITOR_EVENT_QUEUE_CAPACITY`), retry bounds default to `250ms` and `5s`, shutdown drain defaults to `5s`, and `MONITOR_EVENT_MAX_BYTES` is fixed at 16384. Monitor shutdown itself does not emit a plugin-stopped event. See `docs/events-v1.md` and `scripts/verify-events.sh`.
+
+## Phase-14-02 多 source
+
+官方包目录现交付 Redis、MySQL、RabbitMQ。回环端口依次为 9121/9122/9123，配置、进程、
+collector、desired state、事件和恢复按 plugin ID 隔离。新 MySQL/RabbitMQ 配置不会继承 Redis
+凭据；每个子进程只注入本 source 的固定字段。每种成功快照必须通过其专属完整契约，
+不允许用另一 source 的快照通过启动试验。账号部署见 `deploy/plugins/README.md`。
