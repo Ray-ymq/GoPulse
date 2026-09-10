@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +24,11 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	var b strings.Builder
 	for _, sample := range samples {
 		b.WriteString(sample.Name)
-		b.WriteString(`{source="redis",target_id="redis-exporter-local"`)
+		if message.Source == "mysql" || message.Source == "rabbitmq" {
+			fmt.Fprintf(&b, `{source="%s",target_id="%s",producer_kind="exporter_plugin",producer_id="%s"`, message.Source, message.Payload.TargetID, message.Payload.ProducerID)
+		} else {
+			b.WriteString(`{source="redis",target_id="redis-exporter-local"`)
+		}
 		keys := make([]string, 0, len(sample.Labels))
 		for key := range sample.Labels {
 			keys = append(keys, key)

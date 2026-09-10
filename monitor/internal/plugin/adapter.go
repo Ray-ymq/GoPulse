@@ -18,6 +18,9 @@ func adapterFor(id string) (configurationAdapter, bool) {
 	if id == PluginID {
 		return redisAdapter{}, true
 	}
+	if id == "mysql-exporter" || id == "rabbitmq-exporter" {
+		return clusterAdapter{id: id}, true
+	}
 	return nil, false
 }
 func (redisAdapter) Parse(data []byte, mode string, previous json.RawMessage) (json.RawMessage, json.RawMessage, error) {

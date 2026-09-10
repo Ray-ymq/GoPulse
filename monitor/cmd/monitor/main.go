@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -48,22 +49,23 @@ func run(logger *slog.Logger) error {
 		_ = eventMonitor.Close(closeCtx)
 		cancel()
 	}()
-	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
+	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ValidateSourceSnapshot: collector.ValidateSuccessfulSourceSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
 	if err != nil {
 		return err
 	}
-	metricsMonitor, err := collector.New(collector.Config{
-		Host: cfg.ExporterEnv["REDIS_EXPORTER_HTTP_HOST"], Port: cfg.ExporterEnv["REDIS_EXPORTER_HTTP_PORT"],
-		Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout,
-		Publisher: messagePublisher, Events: eventMonitor,
-		Update: func(update collector.Update) {
-			manager.RecordMetrics(update.ScrapeAt, update.SuccessAt, update.ErrorCode, update.ErrorMessage)
-		},
-	})
-	if err != nil {
-		return err
+	for _, entry := range plugin.OfficialCatalog() {
+		if !entry.Available {
+			continue
+		}
+		metricsMonitor, err := collector.New(collector.Config{Source: entry.Source, Host: "127.0.0.1", Port: strconv.Itoa(entry.Port), Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout, Publisher: messagePublisher, Events: eventMonitor, Update: func(update collector.Update) {
+			manager.RecordSourceMetrics(entry.ID, update.ScrapeAt, update.SuccessAt, update.ErrorCode, update.ErrorMessage)
+		}})
+		if err != nil {
+			return err
+		}
+		manager.AttachSourceMetrics(entry.ID, metricsMonitor)
 	}
-	manager.AttachMetrics(metricsMonitor)
+
 	if cfg.BootstrapPackage != "" {
 		if _, err = manager.Bootstrap(ctx, cfg.BootstrapPackage); err != nil {
 			logger.Warn("plugin bootstrap unavailable", "reason", "plugin_operation_failed")

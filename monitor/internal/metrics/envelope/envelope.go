@@ -3,6 +3,7 @@ package envelope
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"strings"
 	"time"
 )
 
@@ -61,6 +62,8 @@ func NewV2(pluginID, version, status string, samples []Sample, timestamp time.Ti
 		return e, err
 	}
 	e.SchemaVersion = 2
+	e.Source = strings.TrimSuffix(pluginID, "-exporter")
+	e.Payload.TargetID = pluginID + "-local"
 	e.Payload.PluginID, e.Payload.PluginVersion = "", ""
 	e.Payload.ProducerKind, e.Payload.ProducerID, e.Payload.ProducerVersion = "exporter_plugin", pluginID, version
 	return e, nil
