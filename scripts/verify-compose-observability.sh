@@ -643,7 +643,7 @@ reset_for_management() {
   assert_full_state
   register_and_promote
   run_observability_scenario manage
-  pass 'Administrator completed install, stop, start, update, Metrics, and Events through the browser.'
+  pass 'Administrator completed official install, stop, start, Metrics, and Events through the browser.'
 }
 
 snapshot_existing_resources

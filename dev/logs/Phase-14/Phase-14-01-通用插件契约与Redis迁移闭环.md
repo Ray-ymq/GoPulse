@@ -275,6 +275,7 @@ Router、Marshaller、Backend、Frontend 及 `verify-plugin-metrics.sh` 固定�
 - 根 Registry/current 是兼容投影；已有 v1 只读 Registry 备份保留，未把删卷作为升级步骤。测试与验收未操作任何日常 Redis/plugin 卷。
 - 两个既有 Frontend 测试文件的机械类型兼容修正仅用于恢复真实 typecheck 门禁，不含通知或 HTTP 业务功能变更。
 - 上游首次自动 PR 运行（`34378209399`，提交 `b04765c`）在批次尚未完成时由 governance 单元测试失败而停止；最终完成提交 `89d141b` 再次触发后，governance 已通过，但 Monitor 的格式门禁发现 acceptance-only `failing-exporter.go` 未经 `gofmt`。已格式化该固定故障注入程序，并在后续提交重新运行 Monitor 完整门禁与上游自动 PR。
+- 修正格式后，上游运行 `34465457738` 的全部包级门禁均通过；Full-stack Compose 首次因 MySQL 初始化窗口中的一次 `driver: bad connection` 停止，失败任务重跑后完整基础设施与故障恢复矩阵通过，但旧 Phase 12 浏览器管理场景仍寻找已被 v2 契约替代的“安装 Redis Exporter”上传表单。该回归场景已改为通过 Schema 表单和官方 release catalog 安装当前 Redis v2，并继续验证 stop/start、Metrics 与 Events；上传更新的 prepare/commit/rollback 由本批专用 `verify-plugin-metrics.sh --migration` 闭环负责，避免旧场景上传未登记包。
 - Phase-14-02 继续扩展 `configurationAdapter`、官方 Schema/目录、构建时 release catalog、各来源 metrics family/producer 注册、collector 实例及聚焦脚本 source 分支；不得把另外五张卡片当成已交付 Exporter。自研组件指标与其他插件均留在各自计划批次。
 
 ### 本次续接实际文件清单
