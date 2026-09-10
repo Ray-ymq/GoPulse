@@ -9,9 +9,28 @@ export type MetricName =
   | 'gopulse_redis_cpu_seconds_total'
   | 'gopulse_redis_db_keys'
   | 'gopulse_redis_db_expiring_keys'
+  | 'gopulse_mysql_up'
+  | 'gopulse_mysql_uptime_seconds'
+  | 'gopulse_mysql_connections'
+  | 'gopulse_mysql_max_connections'
+  | 'gopulse_mysql_threads_running'
+  | 'gopulse_mysql_queries_total'
+  | 'gopulse_mysql_slow_queries_total'
+  | 'gopulse_mysql_transactions_total'
+  | 'gopulse_mysql_buffer_pool_data_bytes'
+  | 'gopulse_mysql_buffer_pool_dirty_bytes'
+  | 'gopulse_rabbitmq_up'
+  | 'gopulse_rabbitmq_connections'
+  | 'gopulse_rabbitmq_channels'
+  | 'gopulse_rabbitmq_queues'
+  | 'gopulse_rabbitmq_consumers'
+  | 'gopulse_rabbitmq_messages'
+  | 'gopulse_rabbitmq_published_total'
+  | 'gopulse_rabbitmq_delivered_total'
+  | 'gopulse_rabbitmq_acked_total'
 export type QueryRange = '15m' | '1h' | '6h' | '24h'
 export interface MetricPoint { timestamp: string; value: number }
-export interface MetricSeries { labels: { mode?: 'user' | 'system'; db?: string }; points: MetricPoint[] }
+export interface MetricSeries { labels: { mode?: 'user' | 'system'; db?: string; result?: 'commit' | 'rollback'; state?: 'ready' | 'unacked' }; points: MetricPoint[] }
 export interface MetricResult {
   metric: MetricName
   kind: 'gauge' | 'counter'
