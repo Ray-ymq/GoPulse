@@ -11,15 +11,22 @@ const selected = ref('redis-exporter')
 const selectedItem = computed(() => catalog.value.find(item => item.id === selected.value))
 const configuration = reactive<Record<string, string | number>>({ host: 'redis', port: 6379, database: 0, connect_timeout: '1s', scrape_timeout: '2s' })
 const password = ref('')
-function selectPlugin(id: string): void { selected.value = id; password.value = ''; message.value = '' }
+const statuses = ref<ExporterStatus[]>([])
+function selectPlugin(id: string): void {
+ selected.value = id; password.value = ''; message.value = ''; clearPackage()
+ status.value = statuses.value.find(item => item.id === id) ?? null
+ for (const key of Object.keys(configuration)) delete configuration[key]
+ const source = id.replace('-exporter', '')
+ Object.assign(configuration, { host: source, connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: 'gopulse', username: 'gopulse_metrics' } : { management_port: 15672, vhost: '/', username: 'gopulse_metrics' })
+}
 async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {
   if (busy.value) return
-  if (kind === 'save' && !window.confirm('替换配置将试启动并验证 Redis，失败时恢复原配置。是否继续？')) return
+  if (kind === 'save' && !window.confirm('替换配置将试启动并验证所选插件，失败时恢复原配置。是否继续？')) return
   operation.value = kind; message.value = ''
   const secrets: Record<string, string> = password.value ? { password: password.value } : {}
   try {
-    if (kind === 'check') { await pluginConfigApi.check(configuration, secrets); message.value = '连接测试成功；尚未保存候选配置。' }
-    else { status.value = await pluginConfigApi.save(configuration, secrets, kind === 'install'); catalog.value = await pluginConfigApi.catalog(); message.value = '配置已验证并保存。' }
+    if (kind === 'check') { await pluginConfigApi.check(configuration, secrets, selected.value); message.value = '连接测试成功；尚未保存候选配置。' }
+    else { status.value = await pluginConfigApi.save(configuration, secrets, kind === 'install', selected.value); catalog.value = await pluginConfigApi.catalog(); statuses.value = await exporterApi.list(); message.value = '配置已验证并保存。' }
   } catch (error) { message.value = errorMessage(error) }
   finally { password.value = ''; operation.value = '' }
 }
@@ -47,7 +54,7 @@ function errorMessage(error: unknown): string {
 }
 async function load(): Promise<void> {
   controller?.abort(); controller = new AbortController(); loading.value = true; message.value = ''
-  try { const [items, descriptors] = await Promise.all([exporterApi.list(controller.signal), pluginConfigApi.catalog(controller.signal)]); catalog.value = descriptors; status.value = items.find(item => item.id === 'redis-exporter') ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString(); if (!items.length) message.value = '尚未安装 Redis Exporter，请配置目标并安装官方包。' }
+  try { const [items, descriptors] = await Promise.all([exporterApi.list(controller.signal), pluginConfigApi.catalog(controller.signal)]); catalog.value = descriptors; statuses.value = items; status.value = items.find(item => item.id === selected.value) ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString(); if (!items.length) message.value = '尚未安装 Redis Exporter，请配置目标并安装官方包。' }
   catch (error) { if (!controller.signal.aborted) message.value = errorMessage(error) }
   finally { loading.value = false }
 }
@@ -56,11 +63,11 @@ function selectPackage(event: Event): void { packageFile.value = (event.target a
 async function run(kind: 'install'|'update'|'start'|'stop'): Promise<void> {
   if (operation.value) return
   if ((kind === 'install' || kind === 'update')) { const issue = validateExporterPackage(packageFile.value); if (issue) { message.value = issue; return } }
-  if ((kind === 'stop' && !window.confirm('停止 Exporter 将暂停新的 Redis 指标采集，是否继续？')) || (kind === 'update' && !window.confirm('更新会替换当前 Exporter 包并可能短暂中断采集，是否继续？'))) return
+  if ((kind === 'stop' && !window.confirm('停止 Exporter 将暂停所选插件的新指标采集，是否继续？')) || (kind === 'update' && !window.confirm('更新会替换当前 Exporter 包并可能短暂中断采集，是否继续？'))) return
   operation.value = kind; message.value = ''
   try {
-    const next = kind === 'install' ? await exporterApi.install(packageFile.value!) : kind === 'update' ? await exporterApi.update(packageFile.value!) : kind === 'start' ? await exporterApi.start() : await exporterApi.stop()
-    status.value = next; updatedAt.value = new Date().toLocaleString()
+    const next = kind === 'install' ? await exporterApi.install(packageFile.value!) : kind === 'update' ? await exporterApi.update(packageFile.value!, selected.value) : kind === 'start' ? await exporterApi.start(selected.value) : await exporterApi.stop(selected.value)
+    status.value = next; statuses.value = [...statuses.value.filter(item => item.id !== next.id), next]; updatedAt.value = new Date().toLocaleString()
     message.value = `${kind === 'install' ? '安装' : kind === 'update' ? '更新' : kind === 'start' ? '启动' : '停止'}请求已完成；当前状态以此处 DTO 为准，Events 记录可能稍后到达。`
   } catch (error) { message.value = errorMessage(error) }
   finally { if (kind === 'install' || kind === 'update') clearPackage(); operation.value = '' }
@@ -79,7 +86,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
     </div>
     <p v-if="selectedItem && !selectedItem.available" class="notice">此类型尚未交付，没有已安装或运行中的实例。</p>
     <div v-if="selectedItem?.available" class="panel exporter-configuration">
-      <h3>Redis 目标配置</h3><p>连接测试不会保存候选配置；密码不会回填，提交后清空。配置替换留空密码表示保留。</p>
+      <h3>{{ selectedItem.name }} 目标配置</h3><p>连接测试不会保存候选配置；密码不会回填，提交后清空。配置替换留空密码表示保留。</p>
       <p v-if="selectedItem.summary === 'upgrade_required'">旧版包保持原状态，请先显式更新到 v2，再修改配置。</p>
       <label v-for="field in selectedItem.schema.fields" :key="field.name" class="field">
         {{ field.name }}
@@ -91,10 +98,10 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
         <button class="button" :disabled="busy || !password" @click="configure('check')">{{ operation === 'check' ? '测试中…' : '连接测试' }}</button>
         <button v-if="!status" class="button" :disabled="busy || !password" @click="configure('install')">安装并启动</button>
         <button v-else class="button" :disabled="busy || selectedItem.summary === 'upgrade_required'" @click="configure('save')">替换配置</button>
-        <RouterLink to="/admin/observability/metrics?source=redis">查询 Redis 指标</RouterLink>
+        <RouterLink :to="`/admin/observability/metrics?source=${selectedItem.source}`">查询插件指标</RouterLink>
       </div>
     </div>
-    <template v-if="status && selected === 'redis-exporter'">
+    <template v-if="status && status.id === selected">
       <div class="panel exporter-status">
         <div class="exporter-status__heading"><div><span class="state-pill" :class="`state-pill--${status.observed_state}`">{{ status.observed_state }}</span><h3>{{ status.name }}</h3><code>{{ status.id }} · v{{ status.version }}</code></div><div><span>期望状态</span><strong>{{ status.desired_state }}</strong></div></div>
         <div class="summary-grid exporter-details">

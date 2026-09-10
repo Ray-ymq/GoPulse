@@ -28,7 +28,11 @@ describe('observability runtime boundary', () => {
 
 it('validates the server metric catalog before opening a metric query', async () => {
   const { isMetricCatalog, metricCatalog } = await import('./observability')
-  const catalog = metricCatalog.map(item => ({metric:item.value,kind:'gauge',unit:'count',source:'redis',target_id:'redis-exporter-local',producer_kind:'exporter_plugin',producer_id:'redis-exporter'}))
+  const catalog = metricCatalog.map(item => {
+    const source = item.value.split('_')[1]
+    const unit = item.value.endsWith('_up') ? 'boolean' : item.value.includes('_seconds') ? 'seconds' : item.value.endsWith('_bytes') ? 'bytes' : 'count'
+    return {metric:item.value,kind:item.value.endsWith('_total') ? 'counter' : 'gauge',unit,source,target_id:`${source}-exporter-local`,producer_kind:'exporter_plugin',producer_id:`${source}-exporter`}
+  })
   expect(isMetricCatalog(catalog)).toBe(true)
   expect(isMetricCatalog(catalog.map(item => ({...item,producer_id:'mysql-exporter'})))).toBe(false)
 })

@@ -402,7 +402,15 @@ func (c *runtimeCore) ensureRelease(r *revision) error {
 func (c *runtimeCore) env(r *revision) map[string]string {
 	env := map[string]string{}
 	for k, v := range c.cfg.ExporterEnv {
-		env[k] = v
+		if k == "GOPULSE_RUNTIME_MODE" || (r.Entry.Manifest.Source == "redis" && strings.HasPrefix(k, "REDIS_")) {
+			env[k] = v
+		}
+	}
+	entry, _ := LookupOfficial(r.Entry.Manifest.ID)
+	if entry.Source != "redis" {
+		prefix := strings.ToUpper(entry.Source)
+		env[prefix+"_EXPORTER_HTTP_HOST"] = "127.0.0.1"
+		env[prefix+"_EXPORTER_HTTP_PORT"] = strconv.Itoa(entry.Port)
 	}
 	if adapter, ok := adapterFor(r.Entry.Manifest.ID); ok {
 		for key, value := range adapter.Environment(r.Config, r.Secret) {
@@ -441,10 +449,14 @@ func (c *runtimeCore) launch(ctx context.Context, id string, r *revision, trial 
 			body, e = io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
 			response.Body.Close()
 			if e == nil {
-				if len(body) > 1<<20 || c.cfg.ValidateSnapshot == nil {
+				if len(body) > 1<<20 || (c.cfg.ValidateSnapshot == nil && c.cfg.ValidateSourceSnapshot == nil) {
 					e = operationFailed()
 				} else {
-					e = c.cfg.ValidateSnapshot(response.StatusCode, body)
+					if c.cfg.ValidateSourceSnapshot != nil {
+						e = c.cfg.ValidateSourceSnapshot(r.Entry.Manifest.Source, response.StatusCode, body)
+					} else {
+						e = c.cfg.ValidateSnapshot(response.StatusCode, body)
+					}
 				}
 			}
 		}
@@ -616,7 +628,9 @@ func (c *runtimeCore) transact(ctx context.Context, id string, next *revision) (
 			kind, previous, before = "exporter_plugin_updated", old.Entry.CurrentVersion, string(old.Entry.DesiredState)
 		}
 		if old == nil || old.Entry.CurrentVersion != next.Entry.CurrentVersion {
-			c.cfg.EventRecorder.Record(events.New(kind, next.Entry.CurrentVersion, previous, before, string(next.Entry.DesiredState), c.cfg.Now()))
+			event := events.New(kind, next.Entry.CurrentVersion, previous, before, string(next.Entry.DesiredState), c.cfg.Now())
+			event.Metadata.PluginID = id
+			c.cfg.EventRecorder.Record(event)
 		}
 	}
 	return c.get(id)
@@ -779,7 +793,9 @@ func (c *runtimeCore) setDesired(ctx context.Context, id string, desired Desired
 		if desired == DesiredRunning {
 			kind = "exporter_plugin_started"
 		}
-		c.cfg.EventRecorder.Record(events.New(kind, next.Entry.CurrentVersion, "", string(old.Entry.DesiredState), string(desired), c.cfg.Now()))
+		event := events.New(kind, next.Entry.CurrentVersion, "", string(old.Entry.DesiredState), string(desired), c.cfg.Now())
+		event.Metadata.PluginID = id
+		c.cfg.EventRecorder.Record(event)
 	}
 	return c.get(id)
 }
@@ -921,7 +937,7 @@ func (m *Manager) Configure(ctx context.Context, id string, data []byte, install
 	return m.core.configure(ctx, id, data, install)
 }
 func (m *Manager) ConnectionTest(ctx context.Context, id string, data []byte) error {
-	if m.core == nil || id != PluginID {
+	if m.core == nil || (id != PluginID && id != "mysql-exporter" && id != "rabbitmq-exporter") {
 		return unavailable()
 	}
 	c := m.core

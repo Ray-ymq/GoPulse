@@ -1,0 +1,36 @@
+import { expect, test } from '@playwright/test'
+
+test('MySQL and RabbitMQ independent administration', async ({ page }) => {
+  test.skip(!process.env.GOPULSE_P1402_MYSQL_SECRET, 'run through source-focused acceptance')
+  test.setTimeout(120_000)
+  await page.goto('/login')
+  await page.getByLabel('用户名').fill(process.env.GOPULSE_P14_ADMIN!)
+  await page.getByLabel('密码').fill(process.env.GOPULSE_P14_PASSWORD!)
+  await page.getByRole('button',{name:'登录',exact:true}).click()
+  await expect(page).toHaveURL(/\/posts$/)
+  for (const source of ['mysql','rabbitmq']) {
+    await page.goto('/admin/observability/exporters')
+    await expect(page.getByRole('button').filter({hasText:'未交付'})).toHaveCount(3)
+    await page.getByRole('button').filter({hasText:`GoPulse ${source} Exporter`}).click()
+    await expect(page.locator('.state-pill')).toHaveText('running')
+    if (source === 'mysql') await page.getByLabel('database',{exact:true}).fill(process.env.GOPULSE_P1402_DATABASE!)
+    const secret = process.env[`GOPULSE_P1402_${source.toUpperCase()}_SECRET`]!
+    await page.getByLabel('password',{exact:true}).fill(secret)
+    await page.getByRole('button',{name:'连接测试',exact:true}).click()
+    await expect(page.getByRole('status')).toContainText('连接测试成功')
+    await expect(page.getByLabel('password',{exact:true})).toHaveValue('')
+    expect(await page.content()).not.toContain(secret)
+    page.once('dialog',dialog=>dialog.accept())
+    await page.getByRole('button',{name:'替换配置',exact:true}).click()
+    await expect(page.getByRole('status')).toContainText('配置已验证并保存')
+    await expect(page.getByLabel('password',{exact:true})).toHaveValue('')
+    page.once('dialog',dialog=>dialog.accept())
+    await page.getByRole('button',{name:'停止',exact:true}).click()
+    await expect(page.locator('.state-pill')).toHaveText('stopped')
+    await page.getByRole('button',{name:'启动',exact:true}).click()
+    await expect(page.locator('.state-pill')).toHaveText('running')
+    await page.getByRole('link',{name:'查询插件指标'}).click()
+    await expect(page.getByRole('heading',{name:'Plugin Metrics'})).toBeVisible()
+    await expect(page.locator('.metric-value').first()).toBeVisible()
+  }
+})
