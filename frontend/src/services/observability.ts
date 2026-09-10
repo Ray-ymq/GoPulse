@@ -160,3 +160,10 @@ export const observabilityApi = {
   logs: (filters: LogFilters, cursor?: string, signal?: AbortSignal): Promise<Page<LogEntry>> => requestValidatedPage(`/observability/logs?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isLogEntry, { signal }),
   events: (filters: EventFilters, cursor?: string, signal?: AbortSignal): Promise<Page<EventEntry>> => requestValidatedPage(`/observability/events?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isEventEntry, { signal }),
 }
+
+export interface MetricDescriptor { metric: MetricName; kind: string; unit: string; source: 'redis'; target_id: 'redis-exporter-local'; producer_kind: 'exporter_plugin'; producer_id: 'redis-exporter' }
+export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
+  return Array.isArray(value) && value.length === metricCatalog.length && new Set(value.map(item => record(item) ? item.metric : '')).size === value.length && value.every(item =>
+    record(item) && Object.keys(item).length === 7 && metricNames.has(item.metric as MetricName) && (item.kind === 'gauge' || item.kind === 'counter') && typeof item.unit === 'string' && ['boolean','seconds','count','bytes'].includes(item.unit) && item.source === 'redis' && item.target_id === 'redis-exporter-local' && item.producer_kind === 'exporter_plugin' && item.producer_id === 'redis-exporter')
+}
+export const loadMetricCatalog = (signal?: AbortSignal) => requestValidatedData('/observability/metrics/catalog', isMetricCatalog, { signal })

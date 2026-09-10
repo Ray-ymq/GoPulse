@@ -4,9 +4,7 @@ const scenario = process.env.GOPULSE_ACCEPTANCE_SCENARIO ?? 'admin'
 const adminUsername = process.env.GOPULSE_OBSERVABILITY_ADMIN_USERNAME ?? ''
 const userUsername = process.env.GOPULSE_OBSERVABILITY_USER_USERNAME ?? ''
 const password = process.env.GOPULSE_OBSERVABILITY_PASSWORD ?? ''
-const updateVersion = process.env.GOPULSE_UPDATE_VERSION ?? ''
-const installPackage = '/work/packages/redis-exporter-install.tar.gz'
-const updatePackage = '/work/packages/redis-exporter-update.tar.gz'
+const redisPassword = process.env.GOPULSE_REDIS_PASSWORD ?? ''
 
 async function register(page: Page, username: string): Promise<void> {
   await page.goto('/register')
@@ -185,10 +183,10 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
   }
 
   if (scenario === 'manage') {
+    expect(redisPassword).not.toBe('')
     await page.goto('/admin/observability/exporters')
-    await expect(page.getByRole('heading', { name: '安装 Redis Exporter' })).toBeVisible()
-    const input = page.locator('input[type=file]')
-    await input.setInputFiles(installPackage)
+    await expect(page.getByRole('heading', { name: 'Redis 目标配置' })).toBeVisible()
+    await page.getByLabel('password').fill(redisPassword)
     await page.getByRole('button', { name: '安装并启动' }).click()
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 30_000 })
     page.once('dialog', dialog => dialog.accept())
@@ -196,10 +194,6 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
     await expect(page.locator('.state-pill')).toHaveText('stopped', { timeout: 20_000 })
     await page.getByRole('button', { name: '启动', exact: true }).click()
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 20_000 })
-    await input.setInputFiles(updatePackage)
-    page.once('dialog', dialog => dialog.accept())
-    await page.getByRole('button', { name: '确认更新' }).click()
-    await expect(page.getByText(`v${updateVersion}`, { exact: false })).toBeVisible({ timeout: 30_000 })
     await waitForMetric(page)
     await waitForEvents(page)
     expect(unexpected).toEqual([])

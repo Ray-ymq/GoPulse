@@ -2,6 +2,8 @@ package metricquery
 
 import (
 	"context"
+	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"io"
 	"net/http"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
@@ -26,4 +28,15 @@ func (h *Handler) List(c *gin.Context) {
 		return
 	}
 	response.Data(c, http.StatusOK, result)
+}
+
+// Catalog is separate from the historical query DTO and exposes no host,
+// credential, process, arbitrary query expression or producer version label.
+func (h *Handler) Catalog(c *gin.Context) {
+	extra, err := io.ReadAll(io.LimitReader(c.Request.Body, 1))
+	if c.Request.URL.RawQuery != "" || err != nil || len(extra) != 0 {
+		response.Error(c, apperror.New(apperror.CodeValidationFailed, "query parameters are invalid"))
+		return
+	}
+	response.Data(c, http.StatusOK, Catalog)
 }
