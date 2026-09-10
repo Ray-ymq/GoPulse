@@ -212,3 +212,20 @@ buffer_pool_bytes_* 为字节而非 pages，Com_* 为语句命令计数。与已
   `git diff --check` 均通过。仍使用本批分支和版本 `1.11.2`。
 - 本次本地仅复跑直接受影响浏览器场景，未声称完整 Compose 故障/重启矩阵已重新通过；
   推送修复后由原自动工作流重新执行完整质量门禁并决定是否创建 PR。
+
+## 自动 PR 第二次回归修复：空环境管理流程
+
+- Run `34481568194` / job `102885376001` 已通过管理员指标、依赖故障恢复、
+  服务替换、信号退出、持久化及独立 Redis Exporter 矩阵，但最后的 `manage` 场景失败。
+  该场景仍等待硬编码的 `Redis 目标配置`；当前标题由官方目录 DTO 的 `Name` 生成，
+  实际为 `GoPulse redis Exporter 目标配置`（`monitor/internal/plugin/public_catalog.go`）。
+- 修改 `frontend/e2e/compose-observability.spec.ts` 对应精确标题断言；不修改生产代码或 CI 门禁。
+  第一次本地尝试使用不完整名称 `Redis Exporter`，真实浏览器复跑失败；核对目录 DTO 后纠正。
+- 上次跟进只复跑管理员指标/布局，遗漏无 bootstrap 的全新插件安装路径。
+  本次明确关闭 `MONITOR_BOOTSTRAP_PACKAGE` 验证 `manage`，并因连续两个当前全栈入口断言回归，
+  将验证扩展到 CI 原始 `scripts/verify-compose.sh` 完整门禁，避免再用局部成功代替闭环结果。
+- `python3 .run/verify-pr-management.py` 最终退出码 0：setup、无预装插件的 manage、
+  admin、profile 管理员隔离场景各 1 passed；隔离资源清理完成且原有资源保留。
+  输出位于 `.run/verify-pr-management.log`，临时驱动与运行资料不提交。
+- 版本/分支校验通过；完整门禁要求源码对应干净 Git revision，因此先提交通过针对性验证的修复，
+  再执行完整门禁，结果追加记录后才推送。

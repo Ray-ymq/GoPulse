@@ -185,7 +185,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
   if (scenario === 'manage') {
     expect(redisPassword).not.toBe('')
     await page.goto('/admin/observability/exporters')
-    await expect(page.getByRole('heading', { name: 'Redis 目标配置' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'GoPulse redis Exporter 目标配置', exact: true })).toBeVisible()
     await page.getByLabel('password').fill(redisPassword)
     await page.getByRole('button', { name: '安装并启动' }).click()
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 30_000 })
