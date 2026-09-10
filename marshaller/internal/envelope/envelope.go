@@ -40,11 +40,14 @@ type Sample struct {
 	FloatValue float64           `json:"-"`
 }
 type Payload struct {
-	PluginID      string   `json:"plugin_id"`
-	PluginVersion string   `json:"plugin_version"`
-	TargetID      string   `json:"target_id"`
-	ScrapeStatus  string   `json:"scrape_status"`
-	Samples       []Sample `json:"samples"`
+	ProducerKind    string   `json:"producer_kind,omitempty"`
+	ProducerID      string   `json:"producer_id,omitempty"`
+	ProducerVersion string   `json:"producer_version,omitempty"`
+	PluginID        string   `json:"plugin_id"`
+	PluginVersion   string   `json:"plugin_version"`
+	TargetID        string   `json:"target_id"`
+	ScrapeStatus    string   `json:"scrape_status"`
+	Samples         []Sample `json:"samples"`
 }
 type rawEnvelope struct {
 	SchemaVersion int             `json:"schema_version"`
@@ -97,7 +100,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 	if !messageIDPattern.Match(key) || raw.MessageID != string(key) {
 		return Envelope{}, reject("message_id_mismatch")
 	}
-	if raw.SchemaVersion != 1 || !supported(raw.Type, raw.Source) {
+	if (raw.SchemaVersion != 1 && !(raw.SchemaVersion == 2 && raw.Type == "metrics")) || !supported(raw.Type, raw.Source) {
 		return Envelope{}, reject("unsupported_envelope")
 	}
 	payloadBytes := bytes.TrimSpace(raw.Payload)
@@ -125,6 +128,18 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 		payloadDecoder.UseNumber()
 		if err := payloadDecoder.Decode(&metricsPayload); err != nil || expectEOF(payloadDecoder) != nil {
 			return Envelope{}, reject("invalid_payload")
+		}
+		if raw.SchemaVersion == 2 {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 6 || fields["producer_kind"] == nil || fields["producer_id"] == nil || fields["producer_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil || metricsPayload.ProducerKind != "exporter_plugin" || metricsPayload.ProducerID != "redis-exporter" || !semverPattern.MatchString(metricsPayload.ProducerVersion) {
+				return Envelope{}, reject("invalid_producer")
+			}
+			metricsPayload.PluginID, metricsPayload.PluginVersion = metricsPayload.ProducerID, metricsPayload.ProducerVersion
+		} else {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 5 || fields["plugin_id"] == nil || fields["plugin_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil {
+				return Envelope{}, reject("invalid_producer")
+			}
 		}
 		if err := validatePayload(&metricsPayload); err != nil {
 			return Envelope{}, err

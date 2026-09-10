@@ -28,6 +28,16 @@ const (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		if len(os.Args) != 2 || os.Args[1] != "--check" {
+			fmt.Fprintln(os.Stdout, `{"reachable":false,"code":"invalid_arguments"}`)
+			os.Exit(1)
+		}
+		if check(os.Stdout) != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	logger := logging.New("redis-exporter", os.Stdout)
 	if err := run(logger); err != nil {
 		logging.Module(logger, "runtime").Error("redis exporter stopped", slog.String("reason", "process_failed"))
@@ -47,7 +57,7 @@ func run(logger *slog.Logger) error {
 	}
 	client := goredis.NewClient(&goredis.Options{
 		Addr: cfg.RedisAddress(), Password: cfg.RedisPassword, DB: cfg.RedisDB,
-		DialTimeout: cfg.ScrapeTimeout, ReadTimeout: cfg.ScrapeTimeout, WriteTimeout: cfg.ScrapeTimeout,
+		DialTimeout: cfg.ConnectTimeout, ReadTimeout: cfg.ScrapeTimeout, WriteTimeout: cfg.ScrapeTimeout,
 		MaxRetries: -1,
 	})
 	collectorSource := collector.New(client, cfg.RedisDB)

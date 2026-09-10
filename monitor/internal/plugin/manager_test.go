@@ -85,7 +85,7 @@ func TestNewManagerRejectsDangerousAndSymlinkPluginRoots(t *testing.T) {
 			if root == "" {
 				t.Skip("root is unavailable")
 			}
-			if _, err := NewManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health")); err == nil {
+			if _, err := newLegacyManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health")); err == nil {
 				t.Fatalf("dangerous plugin root %q was accepted", root)
 			}
 		})
@@ -100,7 +100,7 @@ func TestNewManagerRejectsDangerousAndSymlinkPluginRoots(t *testing.T) {
 		if err := os.Symlink(target, link); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := NewManager(context.Background(), managerConfig(link, "http://127.0.0.1:1/health")); err == nil {
+		if _, err := newLegacyManager(context.Background(), managerConfig(link, "http://127.0.0.1:1/health")); err == nil {
 			t.Fatal("symlink plugin root was accepted")
 		}
 	})
@@ -113,7 +113,7 @@ func TestNewManagerRejectsDangerousAndSymlinkPluginRoots(t *testing.T) {
 		if err := os.Symlink(outside, filepath.Join(root, ".staging")); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := NewManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health")); err == nil {
+		if _, err := newLegacyManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health")); err == nil {
 			t.Fatal("internal symlink was accepted")
 		}
 		if _, err := os.Stat(outside); !os.IsNotExist(err) {
@@ -125,7 +125,7 @@ func TestNewManagerRejectsDangerousAndSymlinkPluginRoots(t *testing.T) {
 func TestManagerRejectsPluginRootReplacementBeforeMutation(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "plugins")
-	manager, err := NewManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health"))
+	manager, err := newLegacyManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestUpdateDoubleStartFailureReportsFailedAndRestoresPersistentVersion(t *te
 	}))
 	defer health.Close()
 	root := filepath.Join(t.TempDir(), "plugins")
-	manager, err := NewManager(context.Background(), managerConfig(root, health.URL))
+	manager, err := newLegacyManager(context.Background(), managerConfig(root, health.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestUpdateRegistryFailureRestoresMemoryCurrentAndDisk(t *testing.T) {
 	}))
 	defer health.Close()
 	root := filepath.Join(t.TempDir(), "plugins")
-	manager, err := NewManager(context.Background(), managerConfig(root, health.URL))
+	manager, err := newLegacyManager(context.Background(), managerConfig(root, health.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestManagerRecordsOnlySuccessfulLifecycleTransitions(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok","service":"redis-exporter"}`))
 	}))
 	defer health.Close()
-	manager, err := NewManager(context.Background(), managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL))
+	manager, err := newLegacyManager(context.Background(), managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +342,7 @@ func TestManagerRecordsTerminalStartFailure(t *testing.T) {
 	recorder := &recordingEvents{accept: true}
 	cfg := managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL)
 	cfg.EventRecorder = recorder
-	manager, err := NewManager(context.Background(), cfg)
+	manager, err := newLegacyManager(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestManagerRecordsUnexpectedExitAfterStateCommit(t *testing.T) {
 	recorder := &recordingEvents{accept: true}
 	cfg := managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL)
 	cfg.EventRecorder = recorder
-	manager, err := NewManager(context.Background(), cfg)
+	manager, err := newLegacyManager(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func (m *countingMetricsLifecycle) Disable(context.Context) error {
 
 func TestStaleWatcherCannotAffectReplacementRuntime(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "plugins")
-	manager, err := NewManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health"))
+	manager, err := newLegacyManager(context.Background(), managerConfig(root, "http://127.0.0.1:1/health"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,7 @@ func TestBootstrapInstallsPreservesDesiredStateUpgradesAndRejectsDowngrade(t *te
 		_, _ = w.Write([]byte(`{"status":"ok","service":"redis-exporter"}`))
 	}))
 	defer health.Close()
-	manager, err := NewManager(context.Background(), managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL))
+	manager, err := newLegacyManager(context.Background(), managerConfig(filepath.Join(t.TempDir(), "plugins"), health.URL))
 	if err != nil {
 		t.Fatal(err)
 	}

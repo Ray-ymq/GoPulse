@@ -36,3 +36,19 @@ func TestTransformEscapesAndBoundsOutput(t *testing.T) {
 		t.Fatalf("expected bound error, got %v", err)
 	}
 }
+
+func TestRedisV2PreservesHistoricalStorageLabels(t *testing.T) {
+	m := envelope.Envelope{SchemaVersion: 1, Source: "redis", Timestamp: time.Now().UTC(), Payload: envelope.Payload{TargetID: "redis-exporter-local", Samples: []envelope.Sample{{Name: "gopulse_redis_up", FloatValue: 1, Labels: map[string]string{}}}}}
+	old, err := (Transformer{}).Transform(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SchemaVersion = 2
+	m.Payload.ProducerKind = "exporter_plugin"
+	m.Payload.ProducerID = "redis-exporter"
+	m.Payload.ProducerVersion = "1.11.1"
+	next, err := (Transformer{}).Transform(m)
+	if err != nil || string(next) != string(old) || strings.Contains(string(next), "producer_") {
+		t.Fatal("Redis series forked", err)
+	}
+}

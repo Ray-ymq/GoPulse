@@ -48,7 +48,7 @@ func run(logger *slog.Logger) error {
 		_ = eventMonitor.Close(closeCtx)
 		cancel()
 	}()
-	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
+	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func run(logger *slog.Logger) error {
 	manager.AttachMetrics(metricsMonitor)
 	if cfg.BootstrapPackage != "" {
 		if _, err = manager.Bootstrap(ctx, cfg.BootstrapPackage); err != nil {
-			return err
+			logger.Warn("plugin bootstrap unavailable", "reason", "plugin_operation_failed")
 		}
 	}
 	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})

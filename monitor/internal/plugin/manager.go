@@ -14,15 +14,18 @@ import (
 )
 
 type ManagerConfig struct {
-	Root           string
-	ExporterEnv    map[string]string
-	HealthURL      string
-	StartupTimeout time.Duration
-	StopTimeout    time.Duration
-	Now            func() time.Time
-	EventRecorder  EventRecorder
+	PackagesRoot     string
+	ValidateSnapshot func(int, []byte) error
+	Root             string
+	ExporterEnv      map[string]string
+	HealthURL        string
+	StartupTimeout   time.Duration
+	StopTimeout      time.Duration
+	Now              func() time.Time
+	EventRecorder    EventRecorder
 }
 type Manager struct {
+	core            *runtimeCore
 	cfg             ManagerConfig
 	mu              sync.RWMutex
 	registry        registryFile
@@ -35,7 +38,7 @@ type Manager struct {
 	eventRecorder   EventRecorder
 }
 
-func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
+func newLegacyManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -78,6 +81,9 @@ type discardEventRecorder struct{}
 func (discardEventRecorder) Record(events.Event) bool { return true }
 
 func (m *Manager) AttachEvents(recorder EventRecorder) {
+	if m.core != nil {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if recorder == nil {
@@ -121,6 +127,10 @@ func preserveMetrics(next, previous Status) Status {
 	return next
 }
 func (m *Manager) AttachMetrics(observer MetricsLifecycle) {
+	if m.core != nil {
+		m.core.attach(PluginID, observer)
+		return
+	}
 	m.mu.Lock()
 	m.observer = observer
 	entry, installed := m.registry.Plugins[PluginID]
@@ -162,6 +172,10 @@ func cloneRegistry(source registryFile) registryFile {
 	return clone
 }
 func (m *Manager) RecordMetrics(scrapeAt, successAt *time.Time, code, message string) {
+	if m.core != nil {
+		m.core.recordMetrics(PluginID, scrapeAt, successAt, code, message)
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	status, ok := m.states[PluginID]
@@ -235,6 +249,9 @@ func (m *Manager) begin() error {
 }
 func (m *Manager) end() { <-m.operation }
 func (m *Manager) List() []Status {
+	if m.core != nil {
+		return m.core.list()
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]Status, 0, len(m.states))
@@ -245,6 +262,9 @@ func (m *Manager) List() []Status {
 	return out
 }
 func (m *Manager) Get(id string) (Status, error) {
+	if m.core != nil {
+		return m.core.get(id)
+	}
 	if id != PluginID {
 		return Status{}, NewError(CodeNotFound, "plugin was not found")
 	}
@@ -258,6 +278,9 @@ func (m *Manager) Get(id string) (Status, error) {
 }
 func (m *Manager) pluginDir() string { return filepath.Join(m.cfg.Root, PluginID) }
 func (m *Manager) Install(ctx context.Context, archivePath string) (Status, error) {
+	if m.core != nil {
+		return m.core.installAlias(ctx, archivePath)
+	}
 	if err := m.begin(); err != nil {
 		return Status{}, err
 	}
@@ -330,6 +353,9 @@ func (m *Manager) installNew(ctx context.Context, archivePath string) (Status, e
 	return status, nil
 }
 func (m *Manager) Start(ctx context.Context, id string) (Status, error) {
+	if m.core != nil {
+		return m.core.setDesired(ctx, id, DesiredRunning)
+	}
 	if id != PluginID {
 		return Status{}, NewError(CodeNotFound, "plugin was not found")
 	}
@@ -395,6 +421,9 @@ func (m *Manager) runtimeOwnedLocked(id string) bool {
 	return rp != nil && ownsProcess(rp.record)
 }
 func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
+	if m.core != nil {
+		return m.core.setDesired(ctx, id, DesiredStopped)
+	}
 	if id != PluginID {
 		return Status{}, NewError(CodeNotFound, "plugin was not found")
 	}
@@ -461,6 +490,9 @@ func (m *Manager) Stop(ctx context.Context, id string) (Status, error) {
 	return s, nil
 }
 func (m *Manager) Update(ctx context.Context, id, archivePath string) (Status, error) {
+	if m.core != nil {
+		return m.core.update(ctx, id, archivePath)
+	}
 	if id != PluginID {
 		return Status{}, NewError(CodeNotFound, "plugin was not found")
 	}
@@ -734,6 +766,9 @@ func (m *Manager) handleUnexpectedExit(id string, runtime *runtimeProcess) {
 }
 
 func (m *Manager) Shutdown(ctx context.Context) error {
+	if m.core != nil {
+		return m.core.shutdown(ctx)
+	}
 	if err := m.disableMetrics(ctx); err != nil {
 		return err
 	}
@@ -761,6 +796,9 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 // bundled package is newer. An older image is rejected instead of silently
 // downgrading a plugin volume created by a newer release.
 func (m *Manager) Bootstrap(ctx context.Context, archivePath string) (Status, error) {
+	if m.core != nil {
+		return m.core.bootstrap(ctx)
+	}
 	if err := m.validateStorageBoundary(); err != nil {
 		return Status{}, NewError(CodeFailed, "plugin storage boundary validation failed")
 	}

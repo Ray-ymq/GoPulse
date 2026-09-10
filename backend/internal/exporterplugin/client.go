@@ -198,15 +198,20 @@ func decodeStatusList(payload []byte) ([]Status, error) {
 		return nil, errors.New("invalid list envelope")
 	}
 	var rawItems []json.RawMessage
-	if err := decodeStrict(data, &rawItems); err != nil || rawItems == nil || len(rawItems) > 1 {
+	if err := decodeStrict(data, &rawItems); err != nil || rawItems == nil || len(rawItems) > 6 {
 		return nil, errors.New("invalid status list")
 	}
 	items := make([]Status, 0, len(rawItems))
+	seen := map[string]bool{}
 	for _, raw := range rawItems {
 		item, err := decodeStatusObject(raw)
 		if err != nil {
 			return nil, err
 		}
+		if seen[item.ID] {
+			return nil, errors.New("duplicate plugin")
+		}
+		seen[item.ID] = true
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -287,7 +292,8 @@ func decodeStatusObject(payload []byte) (Status, error) {
 	return item, nil
 }
 func validateStatus(item Status) error {
-	if item.ID != "redis-exporter" || item.Kind != "metrics-exporter" || item.Source != "redis" || !stableSemVer.MatchString(item.Version) || !safeText(item.Name, 1, 80) {
+	official, known := LookupOfficial(item.ID)
+	if !known || item.Kind != "metrics-exporter" || item.Source != official.Source || !stableSemVer.MatchString(item.Version) || !safeText(item.Name, 1, 80) {
 		return errors.New("invalid plugin identity")
 	}
 	if item.DesiredState != "running" && item.DesiredState != "stopped" {
@@ -452,6 +458,8 @@ func exactKeys[T any](values map[string]T, keys ...string) bool {
 }
 func mapMonitorError(status int, code string) error {
 	switch {
+	case status == http.StatusConflict && code == "upgrade_required":
+		return apperror.New(apperror.CodePluginUpgradeRequired, "plugin upgrade is required")
 	case status == http.StatusBadRequest && code == "plugin_package_invalid":
 		return apperror.New(apperror.CodePluginPackageInvalid, "plugin package is invalid")
 	case status == http.StatusNotFound && code == "plugin_not_found":
