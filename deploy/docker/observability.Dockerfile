@@ -26,18 +26,6 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -trimpath -ldflags='-s -w' -o /out/marshaller ./cmd/marshaller
 
-FROM ${GO_IMAGE} AS monitor-build
-WORKDIR /src/monitor
-ARG GOPROXY=https://goproxy.cn,direct
-COPY monitor/go.mod monitor/go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
-COPY monitor/ ./
-ARG TARGETOS=linux
-ARG TARGETARCH
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
-    go build -trimpath -ldflags='-s -w' -o /out/monitor ./cmd/monitor
-
 FROM ${GO_IMAGE} AS exporter-build
 WORKDIR /src/exporter
 ARG GOPROXY=https://goproxy.cn,direct
@@ -55,11 +43,41 @@ RUN apk add --no-cache bash python3 tar gzip
 WORKDIR /src
 COPY VERSION ./VERSION
 COPY scripts/package-redis-exporter.sh ./scripts/package-redis-exporter.sh
+COPY monitor/ ./monitor/
 COPY --from=exporter-build /out/gopulse-redis-exporter /out/gopulse-redis-exporter
 ARG VERSION
 ARG TARGETARCH
-RUN ./scripts/package-redis-exporter.sh --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
+RUN ./scripts/package-redis-exporter.sh --contract-version 2 --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
     --binary /out/gopulse-redis-exporter --output /out/gopulse-redis-exporter.tar.gz
+
+FROM ${GO_IMAGE} AS legacy-exporter-build
+WORKDIR /legacy
+COPY deploy/plugins/redis-1.10.6-source.tar.gz /tmp/source.tar.gz
+RUN tar -xzf /tmp/source.tar.gz -C /legacy
+WORKDIR /legacy/exporters/redis
+ARG GOPROXY=https://goproxy.cn,direct
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/legacy-exporter ./cmd/redis-exporter
+
+FROM exporter-package AS official-packages
+COPY --from=legacy-exporter-build /out/legacy-exporter /out/legacy-exporter
+RUN ./scripts/package-redis-exporter.sh --contract-version 1 --version 1.10.6 --arch amd64 --binary /out/legacy-exporter --output /out/redis-1.10.6.tar.gz && \
+    echo 'b992b0dfa80a0983b9af63e4c2a4770216bfd7fcb718af2cd451281cf3306727  /out/redis-1.10.6.tar.gz' | sha256sum -c -
+
+FROM ${GO_IMAGE} AS monitor-build
+WORKDIR /src/monitor
+ARG GOPROXY=https://goproxy.cn,direct
+COPY monitor/go.mod monitor/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
+COPY monitor/ ./
+COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /packages/gopulse-redis-exporter.tar.gz
+COPY --from=official-packages /out/redis-1.10.6.tar.gz /packages/redis-1.10.6.tar.gz
+RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz
+ARG TARGETOS=linux
+ARG TARGETARCH
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -trimpath -ldflags='-s -w' -o /out/monitor ./cmd/monitor
 
 FROM ${RUNTIME_IMAGE} AS runtime
 ARG VERSION
@@ -103,8 +121,27 @@ ENTRYPOINT ["/usr/local/bin/gopulse-redis-exporter"]
 FROM runtime AS monitor
 LABEL org.opencontainers.image.title="GoPulse Monitor"
 COPY --from=monitor-build --chown=10005:10001 /out/monitor /usr/local/bin/monitor
-COPY --from=exporter-package --chown=10005:10001 /out/gopulse-redis-exporter.tar.gz /opt/gopulse/packages/gopulse-redis-exporter.tar.gz
+COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /opt/gopulse/packages/gopulse-redis-exporter.tar.gz
+COPY --from=official-packages /out/redis-1.10.6.tar.gz /opt/gopulse/packages/redis-1.10.6.tar.gz
 USER 10005:10001
 EXPOSE 9090
 VOLUME ["/var/lib/gopulse-monitor/plugins"]
 ENTRYPOINT ["/usr/local/bin/monitor"]
+
+# Acceptance-only registered releases. No runtime flag can add these to a
+# production image; the production monitor target above never copies them.
+FROM official-packages AS acceptance-packages
+RUN cd /src/monitor && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' -o /out/failing-exporter ./internal/plugin/testdata/failing-exporter.go
+RUN ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.2 --arch amd64 --binary /out/failing-exporter --output /out/redis-failure.tar.gz && \
+    ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.3 --arch amd64 --binary /out/gopulse-redis-exporter --output /out/redis-update.tar.gz
+
+FROM monitor-build AS monitor-acceptance-build
+COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /packages/
+RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go \
+      current=/packages/gopulse-redis-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz \
+      retained=/packages/redis-failure.tar.gz retained=/packages/redis-update.tar.gz && \
+    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/monitor ./cmd/monitor
+
+FROM monitor AS monitor-acceptance
+COPY --from=monitor-acceptance-build /out/monitor /usr/local/bin/monitor
+COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /opt/gopulse/packages/

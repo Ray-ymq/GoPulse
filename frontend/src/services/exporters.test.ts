@@ -26,3 +26,14 @@ describe('exporter runtime boundary', () => {
     expect(validateExporterPackage(new File(['x'], 'plugin.tar.gz'))).toBe('')
   })
 })
+
+it('keeps configuration and candidate secrets in separate request objects', async () => {
+  const { pluginConfigApi } = await import('./exporters')
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({data:{reachable:true}}), {status:200,headers:{'Content-Type':'application/json'}}))
+  vi.stubGlobal('fetch', fetchMock)
+  const config = {host:'redis',port:6379,database:0,connect_timeout:'1s',scrape_timeout:'2s'}
+  await pluginConfigApi.check(config, {password:'secret-canary'})
+  const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+  expect(url).not.toContain('secret-canary')
+  expect(JSON.parse(init.body as string)).toEqual({config,secrets:{password:'secret-canary'}})
+})
