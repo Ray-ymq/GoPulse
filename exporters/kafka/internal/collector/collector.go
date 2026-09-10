@@ -29,12 +29,40 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 	req := kmsg.NewPtrMetadataRequest()
 	req.AllowAutoTopicCreation = false
 	topic := Topic
-	req.Topics = []kmsg.MetadataRequestTopic{{Topic: &topic}}
+	offsetsTopic := "__consumer_offsets"
+	req.Topics = []kmsg.MetadataRequestTopic{{Topic: &topic}, {Topic: &offsetsTopic}}
 	meta, err := req.RequestWith(ctx, c.Kafka)
-	if err != nil || len(meta.Brokers) == 0 || len(meta.Topics) != 1 {
+	if err != nil || len(meta.Brokers) == 0 || len(meta.Topics) != 2 {
 		return "", ErrUnavailable
 	}
-	t := meta.Topics[0]
+	// FindCoordinator can make the broker create __consumer_offsets on a
+	// pristine cluster. Read metadata with auto-creation disabled first; only
+	// formal consumption, never an Exporter check, may initialize that topic.
+	var t kmsg.MetadataResponseTopic
+	fixed, offsetsPresent := false, false
+	for _, item := range meta.Topics {
+		if item.Topic == nil || item.ErrorCode != 0 {
+			return "", ErrUnavailable
+		}
+		switch *item.Topic {
+		case Topic:
+			if fixed {
+				return "", ErrUnavailable
+			}
+			t = item
+			fixed = true
+		case offsetsTopic:
+			if offsetsPresent {
+				return "", ErrUnavailable
+			}
+			offsetsPresent = len(item.Partitions) > 0
+		default:
+			return "", ErrUnavailable
+		}
+	}
+	if !fixed || !offsetsPresent {
+		return "", ErrUnavailable
+	}
 	if t.ErrorCode != 0 || t.Topic == nil || *t.Topic != Topic || len(t.Partitions) == 0 || len(t.Partitions) > 1024 {
 		return "", ErrUnavailable
 	}

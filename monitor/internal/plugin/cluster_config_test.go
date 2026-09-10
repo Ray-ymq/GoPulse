@@ -45,3 +45,33 @@ func TestClusterConfigurationBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestTopologyConfigurationSecrets(t *testing.T) {
+	kafka := []byte(`{"config":{"host":"kafka","port":19092,"topic":"gopulse-observability-v1","consumer_group":"gopulse-marshaller-metrics-v1","connect_timeout":"1s","scrape_timeout":"3s"},"secrets":{}}`)
+	a, _ := adapterFor("kafka-exporter")
+	public, secret, err := a.Parse(kafka, "container", nil)
+	if err != nil || string(secret) != "{}" {
+		t.Fatalf("no-secret Kafka: %s %v", secret, err)
+	}
+	bad := []byte(`{"config":` + string(public) + `,"secrets":{"password":"not-supported"}}`)
+	if _, _, err := a.Parse(bad, "container", nil); err == nil {
+		t.Fatal("Kafka Secret accepted")
+	}
+	a, _ = adapterFor("elasticsearch-exporter")
+	config := `{"host":"elasticsearch","port":9200,"connect_timeout":"1s","scrape_timeout":"3s"}`
+	if _, secret, err = a.Parse([]byte(`{"config":`+config+`,"secrets":{}}`), "container", nil); err != nil || string(secret) != "{}" {
+		t.Fatal("optional authentication rejected", err)
+	}
+	authenticated := strings.Replace(config, `"port":9200`, `"port":9200,"username":"metrics"`, 1)
+	public, secret, err = a.Parse([]byte(`{"config":`+authenticated+`,"secrets":{"password":"candidate"}}`), "container", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, next, err := a.Parse([]byte(`{"config":`+string(public)+`}`), "container", secret)
+	if err != nil || string(next) != string(secret) {
+		t.Fatal("authentication not retained", err)
+	}
+	if _, _, err = a.Parse([]byte(`{"config":`+config+`}`), "container", secret); err == nil {
+		t.Fatal("username removed with preserved password")
+	}
+}

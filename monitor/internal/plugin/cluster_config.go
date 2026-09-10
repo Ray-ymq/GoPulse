@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 )
 
-// clusterAdapter enforces the closed SQL/Management API configuration contract.
+// clusterAdapter enforces the closed official plugin configuration contract.
 // It shares the existing revision/Secret transaction store, not a new manager.
 type clusterAdapter struct{ id string }
 
@@ -53,19 +53,30 @@ func (a clusterAdapter) Parse(data []byte, mode string, previous json.RawMessage
 	} else if previous == nil {
 		return fail()
 	}
-	if len(private) != 1 {
+	if len(private) > 1 || (a.id == "kafka-exporter" && len(private) != 0) {
 		return fail()
 	}
-	password := private["password"]
-	if len(password) < 1 || len(password) > 256 || !utf8.ValidString(password) || strings.ContainsRune(password, 0) {
+	if password, ok := private["password"]; ok {
+		if len(password) < 1 || len(password) > 256 || !utf8.ValidString(password) || strings.ContainsRune(password, 0) {
+			return fail()
+		}
+	} else if a.id != "kafka-exporter" && a.id != "elasticsearch-exporter" {
 		return fail()
 	}
 	schema, err := OfficialSchema(a.id)
 	if err != nil {
 		return fail()
 	}
-	if len(config) != len(schema.Fields)-1 {
-		return fail()
+	allowed := map[string]bool{}
+	for _, field := range schema.Fields {
+		if !field.Secret {
+			allowed[field.Name] = true
+		}
+	}
+	for key := range config {
+		if !allowed[key] {
+			return fail()
+		}
 	}
 	values := map[string]string{}
 	for _, field := range schema.Fields {
@@ -73,6 +84,9 @@ func (a clusterAdapter) Parse(data []byte, mode string, previous json.RawMessage
 			continue
 		}
 		raw, ok := config[field.Name]
+		if !ok && !field.Required {
+			continue
+		}
 		if !ok || string(raw) == "null" {
 			return fail()
 		}
@@ -105,6 +119,9 @@ func (a clusterAdapter) Parse(data []byte, mode string, previous json.RawMessage
 				}
 			}
 		}
+	}
+	if a.id == "elasticsearch-exporter" && (values["username"] == "") != (private["password"] == "") {
+		return fail()
 	}
 	entry, ok := LookupOfficial(a.id)
 	if !ok {

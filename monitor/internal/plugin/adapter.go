@@ -18,7 +18,7 @@ func adapterFor(id string) (configurationAdapter, bool) {
 	if id == PluginID {
 		return redisAdapter{}, true
 	}
-	if id == "mysql-exporter" || id == "rabbitmq-exporter" {
+	if id == "mysql-exporter" || id == "rabbitmq-exporter" || id == "kafka-exporter" || id == "elasticsearch-exporter" {
 		return clusterAdapter{id: id}, true
 	}
 	return nil, false
