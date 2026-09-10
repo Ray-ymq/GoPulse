@@ -71,11 +71,11 @@ func (h *Handler) Update(c *gin.Context) {
 	h.upload(c, "/internal/v1/exporter-plugins/"+id+"/update", http.StatusOK)
 }
 func pluginIdentifier(c *gin.Context) (string, bool) {
-	if c.Param("pluginId") != pluginID {
+	if _, known := LookupOfficial(c.Param("pluginId")); !known {
 		response.Error(c, apperror.New(apperror.CodePluginNotFound, "plugin was not found"))
 		return "", false
 	}
-	return pluginID, true
+	return c.Param("pluginId"), true
 }
 func (h *Handler) upload(c *gin.Context, path string, successStatus int) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxPackageBytes+1<<20)
