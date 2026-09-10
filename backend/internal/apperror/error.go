@@ -20,6 +20,7 @@ const (
 	CodeEventsUnavailable         Code = "events_unavailable"
 	CodePluginPackageInvalid      Code = "plugin_package_invalid"
 	CodePluginNotFound            Code = "plugin_not_found"
+	CodePluginUpgradeRequired     Code = "upgrade_required"
 	CodePluginConflict            Code = "plugin_conflict"
 	CodePluginOperationInProgress Code = "plugin_operation_in_progress"
 	CodePluginOperationFailed     Code = "plugin_operation_failed"

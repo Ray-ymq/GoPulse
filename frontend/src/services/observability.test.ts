@@ -25,3 +25,10 @@ describe('observability runtime boundary', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/observability/logs?cursor=opaque%2B%2F%3D')
   })
 })
+
+it('validates the server metric catalog before opening a metric query', async () => {
+  const { isMetricCatalog, metricCatalog } = await import('./observability')
+  const catalog = metricCatalog.map(item => ({metric:item.value,kind:'gauge',unit:'count',source:'redis',target_id:'redis-exporter-local',producer_kind:'exporter_plugin',producer_id:'redis-exporter'}))
+  expect(isMetricCatalog(catalog)).toBe(true)
+  expect(isMetricCatalog(catalog.map(item => ({...item,producer_id:'mysql-exporter'})))).toBe(false)
+})
