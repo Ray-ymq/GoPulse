@@ -79,7 +79,7 @@ export function isPluginCatalog(value: unknown): value is PluginCatalogItem[] {
   return Array.isArray(value) && value.length === 6 && value.every((item: unknown, index) => {
     if (!isRecord(item) || !exactKeys(item, ['id','name','source','available','schema','configured','secret_configured','revision','summary'])) return false
     const source = sources[index]
-    if (item.id !== `${source}-exporter` || item.source !== source || item.name !== `GoPulse ${source} Exporter` || typeof item.available !== 'boolean' || (index > 2 && item.available) || typeof item.configured !== 'boolean' || item.secret_configured !== item.configured) return false
+    if (item.id !== `${source}-exporter` || item.source !== source || item.name !== `GoPulse ${source} Exporter` || typeof item.available !== 'boolean' || (index > 4 && item.available) || typeof item.configured !== 'boolean' || typeof item.secret_configured !== 'boolean' || (item.secret_configured && !item.configured) || (source === 'kafka' && item.secret_configured) || (!['kafka','elasticsearch'].includes(String(source)) && item.secret_configured !== item.configured)) return false
     if (item.configured ? typeof item.revision !== 'string' || !/^[a-f0-9]{32}$/.test(item.revision) || !['configured','upgrade_required'].includes(String(item.summary)) : item.revision !== '' || item.summary !== 'not_configured') return false
     if (!isRecord(item.schema) || !exactKeys(item.schema, ['schema_version','plugin_id','fields']) || item.schema.schema_version !== 1 || item.schema.plugin_id !== item.id || !Array.isArray(item.schema.fields)) return false
     const names = new Set<string>()
