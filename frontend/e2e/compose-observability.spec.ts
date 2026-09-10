@@ -37,7 +37,7 @@ async function createSocialPost(page: Page, marker: string): Promise<void> {
 
 async function waitForMetric(page: Page): Promise<void> {
   await page.goto('/admin/observability/metrics')
-  await expect(page.getByRole('heading', { name: 'Redis Metrics' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Plugin Metrics' })).toBeVisible()
   await expect.poll(async () => {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.waitForTimeout(500)

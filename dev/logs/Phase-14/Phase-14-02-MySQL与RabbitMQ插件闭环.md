@@ -190,3 +190,25 @@ buffer_pool_bytes_* 为字节而非 pages，Com_* 为语句命令计数。与已
   provenance 和 Backend/Frontend 目录；不可只放行 envelope 后漏掉实际存储分发。
 - 真实验收入口仍只允许 `--sources redis --migration` 或 `--sources mysql,rabbitmq`；
   下一批明确加入自己的有界 source 参数，不提前放开全部未交付插件。
+
+## 自动 PR 质量门禁回归修复
+
+- GitHub Actions `Auto PR and Merge` run `34479901595` 的
+  `Quality gates before PR / Full-stack Compose acceptance`（job `102879798166`）
+  在 `Run the authoritative Phase 12 Compose closure` 失败；创建 PR 步骤因此跳过，非 PR 权限故障。
+- 失败原因为 `compose-observability.spec.ts` 的管理员场景仍断言旧标题 `Redis Metrics`，
+  而本批页面已升级为 `Plugin Metrics`。本批原验收没有覆盖该现行全栈浏览器入口，遗漏了断言同步。
+- 同步修改 `frontend/e2e/compose-observability.spec.ts` 与
+  `frontend/e2e/profile.spec.ts` 的标题断言。后者存在相同旧断言，属于直接受影响回归范围；
+  锁定历史镜像的 `phase14-plugin.spec.ts` 保持不变。不修改生产行为、不跳过或削弱质量门禁。
+- 使用临时驱动 `python3 .run/verify-pr-metrics.py` 复用 `ClusterAcceptance` 的强归属 Compose harness，
+  运行本批 `1.11.2` 产品镜像与 `1.10.6` Playwright 验收镜像，挂载修改后的真实 spec：
+  - `e2e/compose-observability.spec.ts` setup：1 passed（1.3s）。
+  - 同一 spec admin：1 passed（17.9s），覆盖原失败点、Redis 启停、指标/日志/事件与业务写入。
+  - `e2e/profile.spec.ts --grep 'representative administrator'`：1 passed（1.2s）。
+  - 驱动退出码 0，隔离资源已清理；本地输出 `.run/verify-pr-metrics.log`，不提交临时驱动或运行资料。
+- `python3 scripts/ci/validate_versions.py`、
+  `python3 scripts/ci/validate_branch.py --branch develop/1.11.2 --base-ref origin/main`、
+  `git diff --check` 均通过。仍使用本批分支和版本 `1.11.2`。
+- 本次本地仅复跑直接受影响浏览器场景，未声称完整 Compose 故障/重启矩阵已重新通过；
+  推送修复后由原自动工作流重新执行完整质量门禁并决定是否创建 PR。
