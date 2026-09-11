@@ -3,6 +3,9 @@ package componentmetrics
 // BackendRoutes freezes the complete production router, including health/readiness.
 func BackendRoutes() []Route {
 	return []Route{
+		{Method: "GET", Template: "/api/v1/admin/users/:userId"},
+		{Method: "PUT", Template: "/api/v1/admin/users/:userId/role"},
+		{Method: "GET", Template: "/api/v1/admin/audit-events"},
 		{Method: "GET", Template: "/health"},
 		{Method: "GET", Template: "/ready"},
 		{Method: "POST", Template: "/api/v1/auth/register"},

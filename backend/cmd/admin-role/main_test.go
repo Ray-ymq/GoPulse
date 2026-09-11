@@ -22,8 +22,8 @@ func (promoter *fakeRolePromoter) PromoteByUsername(_ context.Context, username 
 }
 
 func TestRunPromotesNormalizedUsernameAndIsIdempotent(t *testing.T) {
-	for _, initialRole := range []user.Role{user.RoleUser, user.RoleAdmin} {
-		promoter := &fakeRolePromoter{record: user.User{ID: 17, Role: user.RoleAdmin}}
+	for _, initialRole := range []user.Role{user.RoleUser, user.RoleSuperAdmin} {
+		promoter := &fakeRolePromoter{record: user.User{ID: 17, Role: user.RoleSuperAdmin}}
 		var output bytes.Buffer
 		err := run([]string{"promote", "--username", " Alice "}, &output, func() (rolePromoter, func(), error) {
 			return promoter, func() {}, nil
@@ -34,7 +34,7 @@ func TestRunPromotesNormalizedUsernameAndIsIdempotent(t *testing.T) {
 		if promoter.username != "Alice" {
 			t.Fatalf("promoted username = %q, want Alice", promoter.username)
 		}
-		if output.String() != "administrator role ensured\n" {
+		if output.String() != "super administrator role ensured\n" {
 			t.Fatalf("output = %q", output.String())
 		}
 	}
@@ -63,12 +63,12 @@ func TestRunMapsNotFoundAndStorageFailuresToSafeErrors(t *testing.T) {
 		promoteErr error
 		want       string
 	}{
-		{name: "open", openError: errors.New("secret dsn"), want: "initialize administrator role storage"},
+		{name: "open", openError: errors.New("secret dsn"), want: "initialize super administrator role storage"},
 		{name: "not found", promoteErr: user.ErrNotFound, want: "registered user was not found"},
-		{name: "database", promoteErr: errors.New("sql with password"), want: "promote administrator role"},
+		{name: "database", promoteErr: errors.New("sql with password"), want: "promote super administrator role"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			promoter := &fakeRolePromoter{record: user.User{Role: user.RoleAdmin}, err: test.promoteErr}
+			promoter := &fakeRolePromoter{record: user.User{Role: user.RoleSuperAdmin}, err: test.promoteErr}
 			err := run([]string{"promote", "--username", "alice"}, &bytes.Buffer{}, func() (rolePromoter, func(), error) {
 				if test.openError != nil {
 					return nil, func() {}, test.openError
@@ -84,5 +84,14 @@ func TestRunMapsNotFoundAndStorageFailuresToSafeErrors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBootstrapRejectsNonCanonicalIDBeforeStorage(t *testing.T) {
+	for _, id := range []string{"0", "01", "-1", "+1", "18446744073709551616"} {
+		err := run([]string{"bootstrap", "--user-id", id}, &bytes.Buffer{}, func() (rolePromoter, func(), error) { t.Fatal("invalid ID opened storage"); return nil, nil, nil })
+		if err == nil {
+			t.Fatalf("accepted ID %q", id)
+		}
 	}
 }

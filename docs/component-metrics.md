@@ -51,12 +51,12 @@ are -1 (unobserved), 0 (last actual interaction failed) and 1 (succeeded); idle
 processes retain the last observation. No business IDs, content, raw routes,
 query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 
-### backend: 6 families, 547 maximum samples
+### backend: 6 families, 577 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
-| `gopulse_backend_http_requests_total` | counter | count | `method`, `route`, `status_class` | 270 |
-| `gopulse_backend_http_request_duration_seconds_total` | counter | seconds | `method`, `route`, `status_class` | 270 |
+| `gopulse_backend_http_requests_total` | counter | count | `method`, `route`, `status_class` | 285 |
+| `gopulse_backend_http_request_duration_seconds_total` | counter | seconds | `method`, `route`, `status_class` | 285 |
 | `gopulse_backend_outbox_pending` | gauge | count | none | 1 |
 | `gopulse_backend_outbox_oldest_age_seconds` | gauge | seconds | none | 1 |
 | `gopulse_backend_outbox_last_publish_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
@@ -116,12 +116,13 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 
 ### Label value sets and update points
 
-- Backend: 44 registered method/template pairs are frozen in
-  `componentmetrics.BackendRoutes()`. There are ten fixed `_unmatched` method
+- Backend: 47 registered method/template pairs are frozen in
+  `componentmetrics.BackendRoutes()`, including Phase-15-01 user lookup, role update,
+  and audit query templates. There are ten fixed `_unmatched` method
   buckets (`GET POST PUT PATCH DELETE HEAD OPTIONS CONNECT TRACE unknown`),
   and five status classes (`1xx` through `5xx`). The HTTP middleware records
   after Gin completion/recovery, using `FullPath()`, never the request URL.
-  Its maximum is `2 × (44 + 10) × 5 + 7 = 547` samples. Dependencies are exactly
+  Its maximum is `2 × (47 + 10) × 5 + 7 = 577` samples. Dependencies are exactly
   `mysql redis rabbitmq elasticsearch`.
 - Backend outbox: one aggregate SQL query every 5 seconds, with a 1-second
   timeout, reads only count and oldest creation time for pending/leased rows.
