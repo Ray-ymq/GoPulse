@@ -3,6 +3,7 @@ package envelope
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"strings"
 	"time"
 )
@@ -66,5 +67,21 @@ func NewV2(pluginID, version, status string, samples []Sample, timestamp time.Ti
 	e.Payload.TargetID = pluginID + "-local"
 	e.Payload.PluginID, e.Payload.PluginVersion = "", ""
 	e.Payload.ProducerKind, e.Payload.ProducerID, e.Payload.ProducerVersion = "exporter_plugin", pluginID, version
+	return e, nil
+}
+
+func NewComponent(id, version string, samples []Sample, at time.Time) (Envelope, error) {
+	e, err := New(id, version, "success", samples, at)
+	if err != nil {
+		return Envelope{}, err
+	}
+	e.SchemaVersion = 2
+	e.Source = id
+	e.Payload.PluginID = ""
+	e.Payload.PluginVersion = ""
+	e.Payload.ProducerKind = "component"
+	e.Payload.ProducerID = id
+	e.Payload.ProducerVersion = version
+	e.Payload.TargetID = componentmetrics.Target(id)
 	return e, nil
 }

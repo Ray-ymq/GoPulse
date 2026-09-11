@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"math"
 	"mime"
@@ -162,7 +163,16 @@ func (m *Monitor) run(ctx context.Context, done chan struct{}, manifest plugin.M
 func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	ctx, cancel := context.WithTimeout(parent, m.cfg.Timeout)
 	defer cancel()
+	started := time.Now()
 	status, samples, completedAt, err := m.fetch(ctx, manifest.MetricsPath)
+	result := "scrape_success"
+	if err != nil || status != "success" {
+		result = "scrape_failure"
+	}
+	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", manifest.ID+"-local", result)
+	if result == "scrape_success" {
+		componentmetrics.Active().Set("last_scrape_success_timestamp_seconds", float64(completedAt.Unix()), "exporter_plugin", manifest.ID+"-local")
+	}
 	if err != nil {
 		if parent.Err() != nil {
 			return
@@ -186,7 +196,13 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 		return
 	}
 	publishCtx, publishCancel := context.WithTimeout(parent, m.cfg.PublishTimeout)
+	started = time.Now()
 	err = m.cfg.Publisher.Publish(publishCtx, message)
+	result = "publish_success"
+	if err != nil {
+		result = "publish_failure"
+	}
+	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", manifest.ID+"-local", result)
 	publishCancel()
 	if err != nil {
 		if parent.Err() == nil {
