@@ -162,7 +162,7 @@ func TestServiceLoginIssuesTokenForValidCredentials(t *testing.T) {
 	passwords := &fakePasswordOperations{verifyResult: true}
 	tokens := &fakeTokenIssuer{token: "signed-token"}
 	service := NewService(&fakeUserRepository{findByUsername: func(_ context.Context, username string) (user.User, error) {
-		return user.User{ID: 15, Username: username, PasswordHash: "hash", Role: user.RoleAdmin, CreatedAt: time.Now()}, nil
+		return user.User{ID: 15, Username: username, PasswordHash: "hash", Role: user.RoleSuperAdmin, CreatedAt: time.Now()}, nil
 	}}, passwords, tokens)
 
 	publicUser, token, err := service.Login(context.Background(), Credentials{Username: " Alice ", Password: "password123"})
