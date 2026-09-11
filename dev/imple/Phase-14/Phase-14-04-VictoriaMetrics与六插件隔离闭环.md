@@ -29,6 +29,22 @@ Redis + MySQL + RabbitMQ + Kafka + Elasticsearch + VictoriaMetrics
 - 这是尚待确认的真实接口，不是本文档已完成的实验。任一 family 无稳定同义字段时，在接入代码前按总方案 §16.1 修订总/分方案，不静默删 family、填零或换近似量。
 - 制品失败注入复用 Phase-14-01 的 acceptance 镜像信任机制，不放宽正式 catalog 或临时执行上传包。
 
+### 2.2 删除行计数合同修订（2026-09-11，用户已确认）
+
+总方案 §10 的第九项改为 `gopulse_victoriametrics_storage_rows_deleted_total`，废止尚未交付的 `gopulse_victoriametrics_retention_deletions_total`。两者不等价，接入时不得保留旧名 alias 或双写。
+
+| 项目 | 固定合同 |
+| --- | --- |
+| 上游版本 | Compose 锁定 `victoriametrics/victoria-metrics:v1.151.0` |
+| 上游字段与聚合 | 将 `vm_rows_deleted_total` 的 `type="storage/inmemory"`、`type="storage/small"`、`type="storage/big"` 三个固定样本求和；不汇总 indexdb 或未来新增 type |
+| 产品 kind / 单位 / labels | counter / rows / 无 label；不透传上游 type 或其他 labels |
+| 含义 | 选定 storage 合并过程报告的已删除行数；可能包含显式删除后的清理，不是 retention 专属删除量，也不保证覆盖所有过期数据清理路径 |
+| 缺失和重置 | 三项必须存在且有效；缺失、重复或不兼容字段整体失败。只接受上游显式零，不补零、不保留旧值；重启重置原样表达，不做本地累计 |
+
+修订依据：本批独立临时实例采用默认 `1M` retention，写入当前时间样本后显式删除，再写入另一 series 并 flush/merge，三个 storage 删除计数由全零变为 `0 / 1 / 0`，证明候选上游不是 retention 专属计数。该证据已记录在开发分支的同名开发记录；探测没有操作产品卷或既有历史数据。它不证明其他八项映射已经完成，也不将本批标记为完成。
+
+删除与强制合并只允许作为强归属临时实例的验收操作，不属于 Exporter 采集路径或新增权限。实现时各层固定 family 目录必须同步使用新名，包括 Monitor、Marshaller、Backend、Frontend 展示和既有 source/isolation 验收。
+
 ## 3. 实施范围
 
 ### 3.1 VictoriaMetrics 官方插件
@@ -107,6 +123,8 @@ Redis + MySQL + RabbitMQ + Kafka + Elasticsearch + VictoriaMetrics
 - 每个 family 的锁定映射均可由脱敏快照解释；冷启动缺失与不兼容缺字段按不同已证实语义处理，不推测上游零值。
 - 对受信更高版本失败包验证回滚，对自洽未登记包验证执行前拒绝，生产制品不包含验收失败包。
 - 共享 Router/VM 停机期间不要求其他五插件的新点可由 Backend 查询；改以进程/collector 状态证明存活，并在恢复后查询新点。
+- 删除行计数严格按 §2.2 输出：代表性成功快照证明三项求和且不带 label；代表性选定字段缺失快照证明整体安全失败，不能产生部分成功或零填充。Backend 查询使用新名，旧名不进入目录；测试只覆盖改变的合同，不扩展为上游删除机制审计。
+- 复用已完成且输入未变的临时实例显式删除反例，不等待一个真实 retention 周期，不以该反例声称已验证所有过期清理路径；本批最终真实 source 验收仍须证明新 family 经正式链路持久化后可由 Backend 查询。
 - 这些断言合入既有 source/isolation 验收，不再增加独立完整 Compose 门禁。
 
 ### 7.3 完成条件
