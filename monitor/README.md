@@ -39,3 +39,45 @@ Phase 8 keeps Monitor's publishing contract unchanged and adds the downstream Ma
 Successful Redis Exporter install, start, stop, and update transitions are recorded after the Plugin Manager commits the final runtime and persistent state. The in-process EventMonitor validates the fixed Events v1 vocabulary, creates a stable 32-character lowercase hexadecimal message ID, and places the canonical `events/monitor` Envelope in a bounded queue. `Record` never waits for the Router and an enqueue or transport failure never changes the plugin API result. A single worker retries temporary Router failures with bounded backoff, skips deterministic 4xx rejections, and drains accepted records for at most `MONITOR_EVENT_SHUTDOWN_TIMEOUT` during shutdown. Queue and transport state logs never contain event bodies, URLs, tokens, or underlying errors.
 
 The queue defaults to 256 entries (`MONITOR_EVENT_QUEUE_CAPACITY`), retry bounds default to `250ms` and `5s`, shutdown drain defaults to `5s`, and `MONITOR_EVENT_MAX_BYTES` is fixed at 16384. Monitor shutdown itself does not emit a plugin-stopped event. See `docs/events-v1.md` and `scripts/verify-events.sh`.
+
+## Phase-14-02 多 source
+
+官方包目录现交付 Redis、MySQL、RabbitMQ。回环端口依次为 9121/9122/9123，配置、进程、
+collector、desired state、事件和恢复按 plugin ID 隔离。新 MySQL/RabbitMQ 配置不会继承 Redis
+凭据；每个子进程只注入本 source 的固定字段。每种成功快照必须通过其专属完整契约，
+不允许用另一 source 的快照通过启动试验。账号部署见 `deploy/plugins/README.md`。
+
+## Phase-14-03 Kafka / Elasticsearch
+
+官方目录扩展至五种插件；Kafka/Elasticsearch 分别使用回环端口 9124/9125，复用现有
+per-ID lifecycle、revision/Secret 事务、恢复和 collector。Kafka 请求必须带空 `secrets: {}`；
+Elasticsearch 允许不认证，但启用时 username/password 必须配对，配置更新省略 password
+仅表示保留，不能通过删除 username 隐式清除已有认证。公共 `secret_configured` 与
+`configured` 因无 Secret/可选认证不再强制相等；仍不公开连接明细。
+
+两类成功快照分别严格为 7/12 families、7/14 samples；Elasticsearch health 必须是
+`status=green|yellow|red` 的三个 one-hot gauge。每层拒绝额外 labels 或跨 source 样本。
+`deploy/docker/observability.Dockerfile` 构建并编译期登记官方包；更高版本的成功/失败
+验收包仅登记在 `monitor-acceptance` 镜像，不提供运行时绕过信任校验的开关。
+
+### Phase-14-04：VictoriaMetrics 与六插件
+
+第六类 `victoriametrics-exporter` 使用独立回环端口 9126、进程记录、collector 与 per-ID
+操作锁。生产镜像内嵌并信任六类 Manifest v2 包；失败更新制品仅出现在 acceptance
+镜像，不能通过运行时开关加入生产信任目录。九项无标签的固定映射见
+`exporters/victoriametrics/README.md`，删除行 counter 不是 retention 专属计数。
+目标安全 `up=0` 即使发布成功，也保留 `network_failed` 安全状态；共享 Router 故障用
+`publish_failed` 区分。VM 作为存储宕机时，不能承诺任何 source 的新点可查，也不
+伪造未写入的 up=0 历史；恢复后验证新完整快照并保留原历史数据。
+
+
+## Phase 14 component runtime metrics
+
+Protected component metrics use separate internal listeners, not the public/API
+listener. Configure the distinct `*_METRICS_TOKEN` values in `.env.example`;
+Monitor holds the six read-only tokens. Compose publishes no metrics ports.
+The exact family/label/initial-value contracts, shutdown behavior, source/target
+identities and focused acceptance command are in `docs/component-metrics.md`
+(relative to the repository root). The shared standard-library-only
+`componentmetrics` module is required alongside this module for source builds;
+Docker builds copy it explicitly.

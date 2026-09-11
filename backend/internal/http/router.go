@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
 	stdhttp "net/http"
@@ -106,6 +107,11 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 	}
 	httpLogger := logging.Module(logger, "http")
 	router.Use(
+		func(c *gin.Context) {
+			started := time.Now()
+			c.Next()
+			componentmetrics.BackendActive().ObserveRequest(c.Request.Method, c.FullPath(), c.Writer.Status(), time.Since(started))
+		},
 		middleware.RequestID(httpLogger, dependencies.RequestIDGenerator),
 		middleware.Access(httpLogger),
 		middleware.Recovery(httpLogger),

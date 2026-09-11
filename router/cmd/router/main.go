@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,12 +22,27 @@ func main() {
 		logger.Error("configuration invalid", "event", "startup_failed")
 		os.Exit(1)
 	}
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	releaseBudget := componentmetrics.BindShutdown(rootCtx, cfg.ShutdownTimeout)
+	defer releaseBudget()
+	metrics, err := componentmetrics.New("router")
+	if err != nil {
+		logger.Error("metrics initialization failed")
+		return
+	}
+	componentmetrics.Install(metrics)
 	producer, err := kafkaclient.New(kafkaclient.Config{
 		Brokers: cfg.KafkaBrokers, ProduceTimeout: cfg.KafkaProduceTimeout,
 		MaxBufferedRecords: cfg.KafkaMaxBufferedRecords, MaxBufferedBytes: cfg.KafkaMaxBufferedBytes,
 	})
 	if err != nil {
 		logger.Error("Kafka client initialization failed", "event", "startup_failed")
+		os.Exit(1)
+	}
+	internalMetrics, err := componentmetrics.StartConfigured(rootCtx, "router", func() ([]byte, bool) { return producer.Snapshot(metrics) })
+	if err != nil {
+		logger.Error("metrics listener initialization failed", "event", "startup_failed")
 		os.Exit(1)
 	}
 	server := httpserver.New(cfg, producer, logger)
@@ -36,12 +52,10 @@ func main() {
 		serveErrors <- server.ListenAndServe()
 	}()
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	var exitCode int
 	select {
-	case sig := <-signals:
-		logger.Info("shutdown requested", "event", "stopping", "signal", sig.String())
+	case <-rootCtx.Done():
+		logger.Info("shutdown requested", "event", "stopping")
 	case err := <-serveErrors:
 		if !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("HTTP server failed", "event", "server_failed")
@@ -49,10 +63,13 @@ func main() {
 		}
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown failed", "event", "shutdown_failed")
+		exitCode = 1
+	}
+	if err := internalMetrics.Shutdown(shutdownCtx); err != nil {
 		exitCode = 1
 	}
 	if err := producer.Close(shutdownCtx); err != nil {

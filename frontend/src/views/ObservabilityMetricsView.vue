@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError } from '../services/http'
-import { metricCatalog, observabilityApi, ranges } from '../services/observability'
+import { metricCatalog, loadMetricCatalog, observabilityApi, ranges } from '../services/observability'
 import type { MetricName, MetricResult, QueryRange } from '../types/observability'
 
+const route = useRoute()
+const options = ref<typeof metricCatalog>([])
 const metric = ref<MetricName>('gopulse_redis_up')
 const range = ref<QueryRange>('15m')
 const result = ref<MetricResult | null>(null)
@@ -14,7 +17,7 @@ let sequence = 0
 let controller: AbortController | null = null
 const latest = computed(() => result.value?.series.map((series) => ({ series, labels: series.labels, point: series.points.at(-1) })).filter((item) => item.point) ?? [])
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'metrics_unavailable') return 'Metrics 服务暂时不可用，已保留上次成功结果。'
+  if (error instanceof ApiError && error.code === 'metrics_unavailable') return '指标存储或查询服务暂时不可用（VictoriaMetrics），已保留上次成功结果；这不代表所有 Exporter 目标均不可达。'
   if (error instanceof ApiError && error.code === 'permission_denied') return '当前账号已无管理员权限。'
   return '指标查询失败，请稍后重试。'
 }
@@ -28,14 +31,23 @@ async function load(): Promise<void> {
   } catch (error) { if (current === sequence && !controller.signal.aborted) message.value = errorMessage(error) }
   finally { if (current === sequence) loading.value = false }
 }
-onMounted(load)
+onMounted(async () => {
+  try {
+    const entries = await loadMetricCatalog()
+    options.value = entries.map(entry => ({ value: entry.metric, label: metricCatalog.find(item => item.value === entry.metric)?.label ?? entry.metric }))
+    const source = String(route.query.source ?? 'redis')
+    const initial = entries.find(entry => entry.source === source)
+    if (initial) metric.value = initial.metric
+    await load()
+  } catch (error) { message.value = errorMessage(error) }
+})
 onBeforeUnmount(() => { sequence++; controller?.abort() })
 </script>
 <template>
   <section>
-    <div class="admin-title"><div><p class="admin-eyebrow">FIXED RANGE QUERY</p><h2>Redis Metrics</h2><p>仅查询固定指标目录与服务器生成的时间窗。</p></div><button class="button" :disabled="loading" @click="load">{{ loading ? '查询中…' : '刷新' }}</button></div>
+    <div class="admin-title"><div><p class="admin-eyebrow">FIXED RANGE QUERY</p><h2>Plugin & Component Metrics</h2><p>仅查询固定指标目录与服务器生成的时间窗。</p></div><button class="button" :disabled="loading" @click="load">{{ loading ? '查询中…' : '刷新' }}</button></div>
     <form class="filter-bar" @submit.prevent="load">
-      <label>指标<select v-model="metric"><option v-for="item in metricCatalog" :key="item.value" :value="item.value">{{ item.label }} · {{ item.value }}</option></select></label>
+      <label>指标<select v-model="metric"><option v-for="item in options" :key="item.value" :value="item.value">{{ item.label }} · {{ item.value }}</option></select></label>
       <label>范围<select v-model="range"><option v-for="item in ranges" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
       <button class="button" type="submit" :disabled="loading">应用</button>
     </form>

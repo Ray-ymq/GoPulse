@@ -12,6 +12,7 @@ x-mysql-environment: &mysql-environment
   MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
 
 x-backend-environment: &backend-environment
+  BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
   <<: *mysql-environment
   APP_ENV: ${APP_ENV:-development}
   HTTP_HOST: 0.0.0.0
@@ -58,6 +59,7 @@ x-backend-environment: &backend-environment
   SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
 
 x-worker-environment: &worker-environment
+  BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
   <<: *mysql-environment
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   LOG_MONITOR_URL: http://monitor:9090
@@ -76,6 +78,7 @@ x-worker-environment: &worker-environment
   BUSINESS_WORKER_RECONNECT_MAX: ${BUSINESS_WORKER_RECONNECT_MAX:-30s}
 
 x-indexer-environment: &indexer-environment
+  SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
   <<: *mysql-environment
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   ELASTICSEARCH_URL: http://elasticsearch:9200
@@ -103,6 +106,7 @@ x-search-init-environment: &search-init-environment
 
 
 x-router-environment: &router-environment
+  ROUTER_METRICS_TOKEN: ${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   ROUTER_HTTP_HOST: 0.0.0.0
   ROUTER_HTTP_PORT: 9091
@@ -117,6 +121,7 @@ x-router-environment: &router-environment
   ROUTER_KAFKA_MAX_BUFFERED_BYTES: ${ROUTER_KAFKA_MAX_BUFFERED_BYTES:-8388608}
 
 x-marshaller-environment: &marshaller-environment
+  MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MARSHALLER_HTTP_HOST: 0.0.0.0
   MARSHALLER_HTTP_PORT: 9093
@@ -142,6 +147,13 @@ x-marshaller-environment: &marshaller-environment
   MARSHALLER_FUTURE_SKEW: ${MARSHALLER_FUTURE_SKEW:-5m}
 
 x-monitor-environment: &monitor-environment
+  MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
+  BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
+  SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
+  ROUTER_METRICS_TOKEN: ${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}
+  MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MONITOR_HTTP_HOST: 0.0.0.0
   MONITOR_HTTP_PORT: 9090
@@ -407,6 +419,7 @@ services:
       GOPULSE_OBSERVABILITY_ADMIN_USERNAME: ${GOPULSE_OBSERVABILITY_ADMIN_USERNAME:-}
       GOPULSE_OBSERVABILITY_USER_USERNAME: ${GOPULSE_OBSERVABILITY_USER_USERNAME:-}
       GOPULSE_OBSERVABILITY_PASSWORD: ${GOPULSE_OBSERVABILITY_PASSWORD:-}
+      GOPULSE_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       GOPULSE_UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
     depends_on:
       frontend:
@@ -544,6 +557,8 @@ services:
       timeout: 3s
       retries: 20
 
+  # MySQL/RabbitMQ collector Secrets are reconciled after startup through
+  # scripts/reconcile-plugin-accounts.sh; no admin credentials enter Monitor.
   monitor:
     image: gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
     pull_policy: never
@@ -554,6 +569,8 @@ services:
       args: *image-build-args
     restart: on-failure:5
     read_only: true
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
     stop_grace_period: 20s
     environment: *monitor-environment
     depends_on:

@@ -42,3 +42,15 @@ Direct source commands default to `GOPULSE_RUNTIME_MODE=host`, which retains loo
 `gopulse/backend:<VERSION>` runs `/usr/local/bin/server` by default and also contains `/usr/local/bin/migrate`, `/usr/local/bin/search-reindex`, and `/usr/local/bin/admin-role` for explicit one-shot Compose commands. `gopulse/business-worker:<VERSION>` and `gopulse/search-indexer:<VERSION>` are independent final images. All three runtime images use numeric UID/GID `10001:10001`, run the application as PID 1, and write version/revision/source OCI labels.
 
 The default Compose topology exposes no MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Monitor, Router, Marshaller, or Exporter host port. Use `scripts/dev.sh`, `scripts/verify.sh`, and `scripts/down.sh` for the daily complete container lifecycle and the no-argument `scripts/verify-compose.sh` for the authoritative Phase 12 browser-backed closure. `--business` remains a focused social/search diagnostic, while `deploy/compose.debug.yaml` exists only for historical source-level regression scripts.
+
+
+## Phase 14 component runtime metrics
+
+Protected component metrics use separate internal listeners, not the public/API
+listener. Configure the distinct `*_METRICS_TOKEN` values in `.env.example`;
+Monitor holds the six read-only tokens. Compose publishes no metrics ports.
+The exact family/label/initial-value contracts, shutdown behavior, source/target
+identities and focused acceptance command are in `docs/component-metrics.md`
+(relative to the repository root). The shared standard-library-only
+`componentmetrics` module is required alongside this module for source builds;
+Docker builds copy it explicitly.

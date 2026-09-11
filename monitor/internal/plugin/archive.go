@@ -19,6 +19,16 @@ const maxTotalBytes int64 = 128 << 20
 const maxFileBytes int64 = 96 << 20
 
 func extractPackage(archivePath, staging string) (Manifest, error) {
+	return extractPackageContract(archivePath, staging, 1)
+}
+
+// extractPackageV2 verifies internal integrity only. It deliberately does not
+// authorize execution: callers must also verify the image-owned release catalog.
+func extractPackageV2(archivePath, staging string) (Manifest, error) {
+	return extractPackageContract(archivePath, staging, 2)
+}
+
+func extractPackageContract(archivePath, staging string, schemaVersion int) (Manifest, error) {
 	info, err := os.Stat(archivePath)
 	if err != nil || info.Size() > MaxPackageBytes {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
@@ -54,6 +64,26 @@ func extractPackage(archivePath, staging string) (Manifest, error) {
 		if name == "" || len(name) > 240 || clean != name || clean == "." || strings.HasPrefix(clean, "../") || path.IsAbs(clean) || seen[clean] {
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 		}
+		if schemaVersion == 2 {
+			if h.Mode & ^int64(0777) != 0 {
+				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+			}
+			if h.Typeflag == tar.TypeDir {
+				if clean != "bin" {
+					return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+				}
+			} else {
+				allowed := clean == "plugin.json" || clean == "config.schema.json"
+				for _, item := range OfficialCatalog() {
+					if item.Available && clean == item.Entrypoint {
+						allowed = true
+					}
+				}
+				if !allowed {
+					return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+				}
+			}
+		}
 		seen[clean] = true
 		target := filepath.Join(staging, filepath.FromSlash(clean))
 		rel, e := filepath.Rel(staging, target)
@@ -73,7 +103,7 @@ func extractPackage(archivePath, staging string) (Manifest, error) {
 			if total > maxTotalBytes {
 				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 			}
-			if clean == "plugin.json" && h.Size > 64<<10 {
+			if (clean == "plugin.json" || (schemaVersion == 2 && clean == "config.schema.json")) && h.Size > 64<<10 {
 				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 			}
 			if e = os.MkdirAll(filepath.Dir(target), 0750); e != nil {
@@ -93,16 +123,36 @@ func extractPackage(archivePath, staging string) (Manifest, error) {
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 		}
 	}
-	if !seen["plugin.json"] || !seen["bin/gopulse-redis-exporter"] {
+	if !seen["plugin.json"] || (schemaVersion == 1 && !seen["bin/gopulse-redis-exporter"]) {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 	}
 	data, err := os.ReadFile(filepath.Join(staging, "plugin.json"))
 	if err != nil {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 	}
-	manifest, err := ParseManifest(data)
+	var manifest Manifest
+	if schemaVersion == 2 {
+		manifest, err = ParseManifestV2(data)
+	} else {
+		manifest, err = ParseManifest(data)
+	}
 	if err != nil {
 		return Manifest{}, err
+	}
+	if schemaVersion == 2 {
+		official, known := LookupOfficial(manifest.ID)
+		if !known || !official.Available || !seen[manifest.Entrypoint] || !seen["config.schema.json"] {
+			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+		}
+		for name := range seen {
+			if name != "bin" && name != "plugin.json" && name != "config.schema.json" && name != manifest.Entrypoint {
+				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+			}
+		}
+		schema, readErr := os.ReadFile(filepath.Join(staging, "config.schema.json"))
+		if readErr != nil || ValidateConfigSchema(schema, manifest) != nil {
+			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+		}
 	}
 	entry := filepath.Join(staging, filepath.FromSlash(manifest.Entrypoint))
 	entryInfo, err := os.Lstat(entry)

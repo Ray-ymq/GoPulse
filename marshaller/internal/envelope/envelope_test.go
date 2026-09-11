@@ -65,3 +65,30 @@ func TestDecodeRejectsOversizeAndInvalidUTF8(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestV2ProducerAndHistoricalRedisIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 4, 1, 2, 3, 0, time.UTC)
+	decoder := Decoder{Now: func() time.Time { return now }}
+	v1 := successJSON(now.Format(time.RFC3339Nano))
+	v2 := strings.Replace(v1, `"schema_version":1`, `"schema_version":2`, 1)
+	v2 = strings.Replace(v2, `"plugin_id":"redis-exporter","plugin_version":"1.5.1"`, `"producer_kind":"exporter_plugin","producer_id":"redis-exporter","producer_version":"1.11.1"`, 1)
+	old, err := decoder.Decode([]byte(testID), []byte(v1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := decoder.Decode([]byte(testID), []byte(v2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Payload.TargetID != next.Payload.TargetID || len(old.Payload.Samples) != len(next.Payload.Samples) {
+		t.Fatal("historical identity changed")
+	}
+	for _, bad := range []string{strings.Replace(v2, `"producer_kind":"exporter_plugin"`, `"producer_kind":"component"`, 1), strings.Replace(v2, `"labels":{}`, `"labels":{"producer_id":"redis-exporter"}`, 1), strings.Replace(v2, `"producer_id":"redis-exporter"`, `"producer_id":"mysql-exporter"`, 1)} {
+		if _, err = decoder.Decode([]byte(testID), []byte(bad)); err == nil {
+			t.Fatal("invalid producer/label accepted")
+		}
+	}
+	if _, err = decoder.Decode([]byte(testID), []byte(v2)); err != nil {
+		t.Fatal("invalid record blocked following valid record", err)
+	}
+}

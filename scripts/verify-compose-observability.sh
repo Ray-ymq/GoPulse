@@ -7,6 +7,7 @@ COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
 COMPOSE_WORKDIR=$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd -P)
 KEEP=0
 PHASE13=0
+PHASE14=0
 RESOURCES_STARTED=0
 TEMP_DIR=
 ENV_FILE=
@@ -23,6 +24,7 @@ usage() { printf 'Internal full-stack runner. Use scripts/verify-compose.sh [--k
 while (($#)); do
   case $1 in
     --keep) KEEP=1; shift ;;
+    --phase14) PHASE14=1; shift ;;
     --phase13) PHASE13=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1"; exit 2 ;;
@@ -117,6 +119,12 @@ AUTH_JWT_SECRET=jwt-$TOKEN-0123456789abcdef0123456789abcdef
 AUTH_COOKIE_NAME=gopulse_$TOKEN
 AUTH_COOKIE_SECURE=false
 MONITOR_API_TOKEN=monitor-$TOKEN-0123456789abcdef0123456789
+BACKEND_METRICS_TOKEN=metrics-backend-$TOKEN-0123456789abcdef0123456789
+BUSINESS_WORKER_METRICS_TOKEN=metrics-business-worker-$TOKEN-0123456789abcdef0123456789
+SEARCH_INDEXER_METRICS_TOKEN=metrics-search-indexer-$TOKEN-0123456789abcdef0123456789
+MONITOR_METRICS_TOKEN=metrics-monitor-$TOKEN-0123456789abcdef0123456789
+ROUTER_METRICS_TOKEN=metrics-router-$TOKEN-0123456789abcdef0123456789
+MARSHALLER_METRICS_TOKEN=metrics-marshaller-$TOKEN-0123456789abcdef0123456789
 LOG_MONITOR_INGEST_TOKEN=logs-$TOKEN-0123456789abcdef0123456789ab
 ROUTER_API_TOKEN=router-$TOKEN-0123456789abcdef0123456789
 MARSHALLER_API_TOKEN=marshaller-$TOKEN-0123456789abcdef012345
@@ -643,7 +651,7 @@ reset_for_management() {
   assert_full_state
   register_and_promote
   run_observability_scenario manage
-  pass 'Administrator completed install, stop, start, update, Metrics, and Events through the browser.'
+  pass 'Administrator completed official install, stop, start, Metrics, and Events through the browser.'
 }
 
 snapshot_existing_resources
@@ -657,16 +665,18 @@ if ! compose up --detach --wait --wait-timeout 420; then
   fail 'cold complete Compose startup failed'
 fi
 assert_full_state
-if ((PHASE13 == 1)); then
+if ((PHASE13 == 1 || PHASE14 == 1)); then
   register_and_promote
+  phase13_specs=(e2e/delete.spec.ts e2e/profile.spec.ts e2e/follow.spec.ts e2e/bookmark.spec.ts e2e/edit.spec.ts)
+  if ((PHASE14 == 0)); then phase13_specs+=(e2e/compose-business.spec.ts); fi
   compose --profile acceptance run --rm --no-deps \
     -e "GOPULSE_PROFILE_ADMIN_USER=$ADMIN_USERNAME" \
     -e "GOPULSE_PROFILE_ADMIN_PASSWORD=$PASSWORD" \
-    acceptance e2e/delete.spec.ts e2e/profile.spec.ts e2e/follow.spec.ts e2e/bookmark.spec.ts e2e/edit.spec.ts e2e/compose-business.spec.ts
-  run_observability_scenario admin
+    acceptance "${phase13_specs[@]}"
+  if ((PHASE14 == 0)); then run_observability_scenario admin; fi
   assert_project_ownership
   pass 'Phase 13 Compose social closure and representative administrator regression passed.'
-  exit 0
+  if ((PHASE14 == 0)); then exit 0; fi
 fi
 assert_image_contracts
 assert_network_and_ports
@@ -678,7 +688,7 @@ run_business_scenario business
 exercise_redis_fallback
 exercise_worker_recovery
 exercise_indexer_recovery
-register_and_promote
+if ((PHASE14 == 0)); then register_and_promote; fi
 run_observability_scenario ordinary
 run_observability_scenario admin
 exercise_failure victoriametrics vm-down

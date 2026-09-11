@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	mathrand "math/rand"
 	"sync"
@@ -111,6 +112,7 @@ func (m *Monitor) Record(event Event) bool {
 		return false
 	}
 	if len(m.queue) >= m.capacity {
+		componentmetrics.Active().Add("event_queue_dropped_total", 1)
 		if !m.full {
 			m.full = true
 			m.logger.Warn("event queue unavailable", "module", "events", "event", "queue_full")
@@ -118,6 +120,7 @@ func (m *Monitor) Record(event Event) bool {
 		return false
 	}
 	m.queue = append(m.queue, queued{id: id, body: json.RawMessage(body)})
+	componentmetrics.Active().Set("event_queue_length", float64(len(m.queue)))
 	m.signal()
 	return true
 }
@@ -172,6 +175,7 @@ func (m *Monitor) run() {
 			m.mu.Lock()
 			if len(m.queue) > 0 && m.queue[0].id == item.id {
 				m.queue = m.queue[1:]
+				componentmetrics.Active().Set("event_queue_length", float64(len(m.queue)))
 			}
 			if m.full && len(m.queue) < m.capacity {
 				m.full = false

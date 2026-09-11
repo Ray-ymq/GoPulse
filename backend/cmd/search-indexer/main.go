@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
 	"os"
@@ -22,6 +23,7 @@ func main() {
 }
 
 func execute(stdout io.Writer, load func() (config.SearchIndexerConfig, error), operation func(config.SearchIndexerConfig, *slog.Logger) error) int {
+	defer componentmetrics.ReleaseShutdown()
 	stdoutLogger := logging.New("search-indexer", stdout)
 	cfg, err := load()
 	if err != nil {
@@ -49,6 +51,13 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) error {
 		logger = logging.Discard("search-indexer")
 	}
 	lifecycleLogger := logging.Module(logger, "lifecycle")
+	metrics, err := componentmetrics.New("search-indexer")
+	if err != nil {
+		return err
+	}
+	componentmetrics.Install(metrics)
+	defer componentmetrics.Install(nil)
+	metrics.Set("prefetch_limit", float64(cfg.Worker.Prefetch))
 	mysqlClient, err := platform.NewMySQL(cfg.MySQL)
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "mysql", "connection_failed")
@@ -79,6 +88,16 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	componentmetrics.BindShutdown(ctx, cfg.Worker.ShutdownTimeout)
+	internalMetrics, err := componentmetrics.StartConfigured(ctx, "search-indexer", metrics.Snapshot)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.Worker.ShutdownTimeout)
+		defer cancel()
+		_ = internalMetrics.Shutdown(shutdownCtx)
+	}()
 	lifecycleLogger.Info("search indexer started")
 	if err := runtime.Run(ctx); err != nil {
 		return errors.New("search indexer runtime failed")

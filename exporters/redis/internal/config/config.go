@@ -31,6 +31,7 @@ type Config struct {
 	RedisDB         int
 	HTTPHost        string
 	HTTPPort        int
+	ConnectTimeout  time.Duration
 	ScrapeTimeout   time.Duration
 	ShutdownTimeout time.Duration
 }
@@ -71,6 +72,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.ScrapeTimeout, err = boundedDuration("REDIS_EXPORTER_SCRAPE_TIMEOUT", defaultScrapeTimeout, 100*time.Millisecond, 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	// Preserve the v1 default when the independent v2 dial budget is omitted.
+	cfg.ConnectTimeout, err = boundedDuration("REDIS_EXPORTER_CONNECT_TIMEOUT", cfg.ScrapeTimeout, 100*time.Millisecond, cfg.ScrapeTimeout)
 	if err != nil {
 		return Config{}, err
 	}

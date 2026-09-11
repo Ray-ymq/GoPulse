@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net"
 	"net/http"
@@ -49,6 +50,11 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 	}
 	operationContext, cancel := context.WithTimeout(ctx, client.timeout)
 	response, err := client.client.Perform(request.WithContext(operationContext))
+	observedErr := err
+	if response != nil && response.StatusCode >= 500 {
+		observedErr = errors.New("elasticsearch unavailable")
+	}
+	componentmetrics.Dependency("elasticsearch", observedErr)
 	if err != nil {
 		cancel()
 		return nil, err

@@ -1,9 +1,36 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { exporterApi, validateExporterPackage } from '../services/exporters'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { exporterApi, pluginConfigApi, validateExporterPackage } from '../services/exporters'
 import { ApiError } from '../services/http'
+import type { PluginCatalogItem } from '../services/exporters'
+import { RouterLink } from 'vue-router'
 import type { ExporterStatus } from '../types/exporter'
 
+const catalog = ref<PluginCatalogItem[]>([])
+const selected = ref('redis-exporter')
+const selectedItem = computed(() => catalog.value.find(item => item.id === selected.value))
+const configuration = reactive<Record<string, string | number>>({ host: 'redis', port: 6379, database: 0, connect_timeout: '1s', scrape_timeout: '2s' })
+const password = ref('')
+const statuses = ref<ExporterStatus[]>([])
+function selectPlugin(id: string): void {
+ selected.value = id; password.value = ''; message.value = ''; clearPackage()
+ status.value = statuses.value.find(item => item.id === id) ?? null
+ for (const key of Object.keys(configuration)) delete configuration[key]
+ const source = id.replace('-exporter', '')
+ Object.assign(configuration, { host: source, connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: 'gopulse', username: 'gopulse_metrics' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: 'gopulse_metrics' } : source === 'kafka' ? { port: 19092, topic: 'gopulse-observability-v1', consumer_group: 'gopulse-marshaller-metrics-v1' } : source === 'victoriametrics' ? { port: 8428, username: '' } : { port: 9200 })
+}
+async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {
+  if (busy.value) return
+  if (kind === 'save' && !window.confirm('替换配置将试启动并验证所选插件，失败时恢复原配置。是否继续？')) return
+  operation.value = kind; message.value = ''
+  const candidate = Object.fromEntries(Object.entries(configuration).filter(([key, value]) => key !== 'username' || value !== ''))
+  const secrets: Record<string, string> = password.value ? { password: password.value } : {}
+  try {
+    if (kind === 'check') { await pluginConfigApi.check(candidate, secrets, selected.value); message.value = '连接测试成功；尚未保存候选配置。' }
+    else { status.value = await pluginConfigApi.save(candidate, secrets, kind === 'install', selected.value); catalog.value = await pluginConfigApi.catalog(); statuses.value = await exporterApi.list(); message.value = '配置已验证并保存。' }
+  } catch (error) { message.value = errorMessage(error) }
+  finally { password.value = ''; operation.value = '' }
+}
 const status = ref<ExporterStatus | null>(null)
 const loading = ref(false)
 const loaded = ref(false)
@@ -28,7 +55,7 @@ function errorMessage(error: unknown): string {
 }
 async function load(): Promise<void> {
   controller?.abort(); controller = new AbortController(); loading.value = true; message.value = ''
-  try { const items = await exporterApi.list(controller.signal); status.value = items[0] ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString(); if (!items.length) message.value = '尚未安装 Redis Exporter，请上传受信任的 .tar.gz 安装包。' }
+  try { const [items, descriptors] = await Promise.all([exporterApi.list(controller.signal), pluginConfigApi.catalog(controller.signal)]); catalog.value = descriptors; statuses.value = items; status.value = items.find(item => item.id === selected.value) ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString(); if (!items.length) message.value = '尚未安装 Redis Exporter，请配置目标并安装官方包。' }
   catch (error) { if (!controller.signal.aborted) message.value = errorMessage(error) }
   finally { loading.value = false }
 }
@@ -37,29 +64,51 @@ function selectPackage(event: Event): void { packageFile.value = (event.target a
 async function run(kind: 'install'|'update'|'start'|'stop'): Promise<void> {
   if (operation.value) return
   if ((kind === 'install' || kind === 'update')) { const issue = validateExporterPackage(packageFile.value); if (issue) { message.value = issue; return } }
-  if ((kind === 'stop' && !window.confirm('停止 Exporter 将暂停新的 Redis 指标采集，是否继续？')) || (kind === 'update' && !window.confirm('更新会替换当前 Exporter 包并可能短暂中断采集，是否继续？'))) return
+  if ((kind === 'stop' && !window.confirm('停止 Exporter 将暂停所选插件的新指标采集，是否继续？')) || (kind === 'update' && !window.confirm('更新会替换当前 Exporter 包并可能短暂中断采集，是否继续？'))) return
   operation.value = kind; message.value = ''
   try {
-    const next = kind === 'install' ? await exporterApi.install(packageFile.value!) : kind === 'update' ? await exporterApi.update(packageFile.value!) : kind === 'start' ? await exporterApi.start() : await exporterApi.stop()
-    status.value = next; updatedAt.value = new Date().toLocaleString()
+    const next = kind === 'install' ? await exporterApi.install(packageFile.value!) : kind === 'update' ? await exporterApi.update(packageFile.value!, selected.value) : kind === 'start' ? await exporterApi.start(selected.value) : await exporterApi.stop(selected.value)
+    status.value = next; statuses.value = [...statuses.value.filter(item => item.id !== next.id), next]; updatedAt.value = new Date().toLocaleString()
     message.value = `${kind === 'install' ? '安装' : kind === 'update' ? '更新' : kind === 'start' ? '启动' : '停止'}请求已完成；当前状态以此处 DTO 为准，Events 记录可能稍后到达。`
+    if (kind === 'update') {
+      try { catalog.value = await pluginConfigApi.catalog() }
+      catch { message.value = '更新已成功，但插件目录刷新失败；请点击“刷新状态”同步配置门禁，不要重复上传安装包。' }
+    }
   } catch (error) { message.value = errorMessage(error) }
   finally { if (kind === 'install' || kind === 'update') clearPackage(); operation.value = '' }
 }
 onMounted(load)
-onBeforeUnmount(() => { controller?.abort(); clearPackage() })
+onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = '' })
 </script>
 <template>
   <section :aria-busy="busy">
-    <div class="admin-title"><div><p class="admin-eyebrow">MONITOR PLUGIN MANAGER</p><h2>Redis Exporter</h2><p>当前状态来自 Monitor 的严格公共 DTO；Events 与历史 Metrics 仅用于后续核对。</p></div><button class="button" :disabled="busy" @click="load">{{ loading ? '刷新中…' : '刷新状态' }}</button></div>
+    <div class="admin-title"><div><p class="admin-eyebrow">MONITOR PLUGIN MANAGER</p><h2>官方 Exporter 插件</h2><p>当前状态来自 Monitor 的严格公共 DTO；Events 与历史 Metrics 仅用于后续核对。</p></div><button class="button" :disabled="busy" @click="load">{{ loading ? '刷新中…' : '刷新状态' }}</button></div>
     <p v-if="message" class="notice" role="status">{{ message }}</p>
-    <div v-if="loaded && !status" class="panel exporter-install">
-      <h3>安装 Redis Exporter</h3><p>仅支持单个、非空且不超过 64 MiB 的 <code>.tar.gz</code> 文件。</p>
-      <label class="file-field">Exporter 安装包<input ref="packageInput" type="file" accept=".tar.gz,application/gzip" @change="selectPackage"></label>
-      <button class="button" :disabled="busy" @click="run('install')">{{ operation === 'install' ? '安装中…' : '安装并启动' }}</button>
+    <div class="summary-grid" aria-label="官方插件目录">
+      <button v-for="item in catalog" :key="item.id" class="panel" :disabled="busy" :aria-pressed="selected === item.id" @click="selectPlugin(item.id)">
+        <strong>{{ item.name }}</strong><span>{{ item.available ? (item.configured ? '已配置' : '未安装') : '未交付' }}</span>
+      </button>
     </div>
-    <template v-else-if="status">
+    <p v-if="selectedItem && !selectedItem.available" class="notice">此类型尚未交付，没有已安装或运行中的实例。</p>
+    <div v-if="selectedItem?.available" class="panel exporter-configuration">
+      <h3>{{ selectedItem.name }} 目标配置</h3><p>连接测试不会保存候选配置；密码不会回填，提交后清空。配置替换留空密码表示保留。</p>
+      <p v-if="selectedItem.summary === 'upgrade_required'">旧版包保持原状态，请先显式更新到 v2，再修改配置。</p>
+      <label v-for="field in selectedItem.schema.fields" :key="field.name" class="field">
+        {{ field.name }}
+        <input v-if="field.secret" v-model="password" type="password" autocomplete="new-password" :aria-label="field.name" :disabled="busy">
+        <input v-else-if="field.type === 'port' || field.type === 'integer'" v-model.number="configuration[field.name]" type="number" :min="field.minimum" :max="field.maximum" :aria-label="field.name" :disabled="busy">
+        <input v-else v-model="configuration[field.name]" :aria-label="field.name" :disabled="busy">
+      </label>
+      <div class="exporter-actions">
+        <button class="button" :disabled="busy || (selectedItem?.schema.fields.some(field => field.secret && field.required) && !password)" @click="configure('check')">{{ operation === 'check' ? '测试中…' : '连接测试' }}</button>
+        <button v-if="!status" class="button" :disabled="busy || (selectedItem?.schema.fields.some(field => field.secret && field.required) && !password)" @click="configure('install')">安装并启动</button>
+        <button v-else class="button" :disabled="busy || selectedItem.summary === 'upgrade_required'" @click="configure('save')">替换配置</button>
+        <RouterLink :to="`/admin/observability/metrics?source=${selectedItem.source}`">查询插件指标</RouterLink>
+      </div>
+    </div>
+    <template v-if="status && status.id === selected">
       <div class="panel exporter-status">
+        <p v-if="status.source === 'victoriametrics'">目标故障与指标存储/查询不可用是不同状态。VictoriaMetrics 宕机期间以此处安全状态为准，不保证能查询到停机期间的新指标；恢复后查询新 up=1。</p>
         <div class="exporter-status__heading"><div><span class="state-pill" :class="`state-pill--${status.observed_state}`">{{ status.observed_state }}</span><h3>{{ status.name }}</h3><code>{{ status.id }} · v{{ status.version }}</code></div><div><span>期望状态</span><strong>{{ status.desired_state }}</strong></div></div>
         <div class="summary-grid exporter-details">
           <div><span>安装时间</span><strong>{{ formatTime(status.installed_at) }}</strong></div><div><span>更新时间</span><strong>{{ formatTime(status.updated_at) }}</strong></div>
@@ -67,7 +116,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage() })
           <div><span>最近采集</span><strong>{{ formatTime(status.last_scrape_at) }}</strong></div><div><span>最近成功</span><strong>{{ formatTime(status.last_success_at) }}</strong></div>
           <div><span>类型</span><strong>{{ status.kind }}</strong></div><div><span>来源</span><strong>{{ status.source }}</strong></div>
         </div>
-        <div v-if="status.last_error" class="safe-error" role="alert"><strong>{{ status.last_error.code }}</strong><span>{{ status.last_error.message }}</span><time>{{ formatTime(status.last_error.at) }}</time></div>
+        <div v-if="status.last_error" class="safe-error" role="alert"><strong>{{ status.last_error.code }}</strong><span>{{ status.last_error.code === 'network_failed' ? '插件目标不可达或拒绝采集；进程运行不代表目标健康。' : status.last_error.message }}</span><time>{{ formatTime(status.last_error.at) }}</time></div>
         <div class="exporter-actions"><button class="button" :disabled="!canStart" @click="run('start')">{{ operation === 'start' ? '启动中…' : '启动' }}</button><button class="button button--secondary" :disabled="!canStop" @click="run('stop')">{{ operation === 'stop' ? '停止中…' : '停止' }}</button></div>
       </div>
       <div class="panel exporter-update"><div><h3>更新安装包</h3><p>更新会保留服务端安全校验与回滚语义。</p></div><label class="file-field">新的 .tar.gz 包<input ref="packageInput" type="file" accept=".tar.gz,application/gzip" @change="selectPackage"></label><button class="button" :disabled="busy" @click="run('update')">{{ operation === 'update' ? '更新中…' : '确认更新' }}</button></div>

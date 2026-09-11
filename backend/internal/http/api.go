@@ -94,6 +94,7 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		observability.Use(routes.Authorization)
 		if routes.Metrics != nil {
 			observability.GET("/metrics", routes.Metrics.List)
+			observability.GET("/metrics/catalog", routes.Metrics.Catalog)
 		}
 		if routes.Logs != nil {
 			observability.GET("/logs", routes.Logs.List)
@@ -104,8 +105,12 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	}
 	if routes.ExporterPlugins != nil && routes.Authorization != nil {
 		plugins := protected.Group("/exporter-plugins")
-		plugins.Use(routes.Authorization)
+		plugins.Use(routes.Authorization, routes.ExporterPlugins.RequestShape)
 		plugins.GET("", routes.ExporterPlugins.List)
+		plugins.GET("/catalog", routes.ExporterPlugins.Catalog)
+		plugins.POST("/:pluginId/connection-test", routes.ExporterPlugins.Configuration)
+		plugins.POST("/:pluginId/install", routes.ExporterPlugins.Configuration)
+		plugins.PUT("/:pluginId/configuration", routes.ExporterPlugins.Configuration)
 		plugins.GET("/:pluginId", routes.ExporterPlugins.Get)
 		plugins.POST("/install", routes.ExporterPlugins.Install)
 		plugins.POST("/:pluginId/start", routes.ExporterPlugins.Start)

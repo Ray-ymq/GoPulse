@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { componentContract } from './componentMetrics'
 import { isEventEntry, isMetricResult, observabilityApi } from './observability'
 
 function response(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }) }
@@ -24,4 +25,30 @@ describe('observability runtime boundary', () => {
     await observabilityApi.logs({range:'15m',service:'backend',module:'http',level:'',message:'',request_id:'',event_id:'',error_code:''},'opaque+/=')
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/observability/logs?cursor=opaque%2B%2F%3D')
   })
+})
+
+it('validates the server metric catalog before opening a metric query', async () => {
+  const { isMetricCatalog, metricCatalog } = await import('./observability')
+  const catalog = metricCatalog.map(item => {
+    const component = componentContract(item.value)
+    if (component) return {metric:item.value,kind:component.kind,unit:component.unit,source:component.source,target_id:`${component.source}-local`,producer_kind:'component',producer_id:component.source}
+    const source = item.value.split('_')[1]
+    const unit = (item.value.endsWith('_up') || item.value.endsWith('_controller_available') || item.value.endsWith('_cluster_health_status')) ? 'boolean' : item.value.includes('_seconds') ? 'seconds' : item.value.endsWith('_bytes') ? 'bytes' : 'count'
+    return {metric:item.value,kind:item.value.endsWith('_total') ? 'counter' : 'gauge',unit,source,target_id:`${source}-exporter-local`,producer_kind:'exporter_plugin',producer_id:`${source}-exporter`}
+  })
+  expect(isMetricCatalog(catalog)).toBe(true)
+  expect(isMetricCatalog(catalog.map(item => ({...item,producer_id:'mysql-exporter'})))).toBe(false)
+})
+
+it('accepts the sixth plugin lifecycle identity without exposing runtime metadata', () => {
+  const event = { timestamp:'2026-09-11T08:00:00Z',event_name:'exporter_plugin_started',source:'monitor',severity:'info',message:'exporter plugin started',metadata:{plugin_id:'victoriametrics-exporter',plugin_version:'1.11.4',operation:'start',from_state:'stopped',to_state:'running'} }
+  expect(isEventEntry(event)).toBe(true)
+  expect(isEventEntry({...event,metadata:{...event.metadata,pid:'123'}})).toBe(false)
+})
+
+it('accepts component scraped labels and unknown dependency without accepting business identifiers', () => {
+ const value = {metric:'gopulse_monitor_last_scrape_success_timestamp_seconds',kind:'gauge',unit:'unix_seconds',range:'15m',from:'2026-09-11T08:00:00Z',to:'2026-09-11T08:15:00Z',step_seconds:15,series:[{labels:{scraped_producer_kind:'component',scraped_target_id:'monitor-local'},points:[{timestamp:'2026-09-11T08:15:00Z',value:0}]}]}
+ expect(isMetricResult(value)).toBe(true)
+ expect(isMetricResult({...value,series:[{...value.series[0],labels:{...value.series[0]!.labels,user_id:'42'}}]})).toBe(false)
+ expect(isMetricResult({...value,metric:'gopulse_monitor_dependency_up',unit:'state',series:[{labels:{dependency:'router'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(true)
 })

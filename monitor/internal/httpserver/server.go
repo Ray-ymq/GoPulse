@@ -70,6 +70,10 @@ func New(token, root string, manager pluginManager, logger *slog.Logger, logOpti
 	if s.logs.Token != "" {
 		mux.HandleFunc("POST /internal/v1/logs", s.ingestLog)
 	}
+	mux.HandleFunc("GET /internal/v1/exporter-plugins/catalog", s.auth(s.catalog))
+	mux.HandleFunc("POST /internal/v1/exporter-plugins/{pluginId}/connection-test", s.auth(s.configuration))
+	mux.HandleFunc("POST /internal/v1/exporter-plugins/{pluginId}/install", s.auth(s.configuration))
+	mux.HandleFunc("PUT /internal/v1/exporter-plugins/{pluginId}/configuration", s.auth(s.configuration))
 	mux.HandleFunc("GET /internal/v1/exporter-plugins", s.auth(s.list))
 	mux.HandleFunc("GET /internal/v1/exporter-plugins/{pluginId}", s.auth(s.get))
 	mux.HandleFunc("POST /internal/v1/exporter-plugins/install", s.auth(s.install))
@@ -88,9 +92,20 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		if strings.HasPrefix(header, prefix) {
 			provided = strings.TrimPrefix(header, prefix)
 		}
-		if len(provided) != len(s.token) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) != 1 {
+		if len(r.Header.Values("Authorization")) != 1 || len(provided) != len(s.token) || subtle.ConstantTimeCompare([]byte(provided), []byte(s.token)) != 1 {
 			writeError(w, http.StatusUnauthorized, "internal_authentication_required", "internal authentication is required")
 			return
+		}
+		if r.URL.RawQuery != "" {
+			writeError(w, http.StatusBadRequest, "plugin_package_invalid", "plugin request is invalid")
+			return
+		}
+		if r.Method == http.MethodGet || strings.HasSuffix(r.URL.Path, "/start") || strings.HasSuffix(r.URL.Path, "/stop") {
+			extra, err := io.ReadAll(io.LimitReader(r.Body, 1))
+			if err != nil || len(extra) != 0 {
+				writeError(w, http.StatusBadRequest, "plugin_package_invalid", "plugin request is invalid")
+				return
+			}
 		}
 		next(w, r)
 	}
@@ -208,7 +223,7 @@ func writePluginError(w http.ResponseWriter, err error) {
 		status = http.StatusBadRequest
 	case plugin.CodeNotFound:
 		status = http.StatusNotFound
-	case plugin.CodeConflict, plugin.CodeInProgress:
+	case "upgrade_required", plugin.CodeConflict, plugin.CodeInProgress:
 		status = http.StatusConflict
 	}
 	writeError(w, status, pe.Code, pe.Message)
