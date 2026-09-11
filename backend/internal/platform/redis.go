@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"strconv"
 	"time"
@@ -29,11 +30,18 @@ func NewRedis(cfg config.RedisConfig) *Redis {
 }
 
 func (client *Redis) Check(ctx context.Context) error {
-	return client.client.Ping(ctx).Err()
+	err := client.client.Ping(ctx).Err()
+	componentmetrics.Dependency("redis", err)
+	return err
 }
 
 func (client *Redis) Get(ctx context.Context, key string) (string, error) {
 	value, err := client.client.Get(ctx, key).Result()
+	observedErr := err
+	if errors.Is(err, goredis.Nil) {
+		observedErr = nil
+	}
+	componentmetrics.Dependency("redis", observedErr)
 	if errors.Is(err, goredis.Nil) {
 		return "", ErrRedisKeyNotFound
 	}
@@ -41,15 +49,21 @@ func (client *Redis) Get(ctx context.Context, key string) (string, error) {
 }
 
 func (client *Redis) Set(ctx context.Context, key, value string, expiration time.Duration) error {
-	return client.client.Set(ctx, key, value, expiration).Err()
+	err := client.client.Set(ctx, key, value, expiration).Err()
+	componentmetrics.Dependency("redis", err)
+	return err
 }
 
 func (client *Redis) Delete(ctx context.Context, key string) error {
-	return client.client.Del(ctx, key).Err()
+	err := client.client.Del(ctx, key).Err()
+	componentmetrics.Dependency("redis", err)
+	return err
 }
 
 func (client *Redis) TTL(ctx context.Context, key string) (time.Duration, error) {
-	return client.client.TTL(ctx, key).Result()
+	value, err := client.client.TTL(ctx, key).Result()
+	componentmetrics.Dependency("redis", err)
+	return value, err
 }
 
 func (client *Redis) Close() error {

@@ -108,7 +108,7 @@ test('user shell leaves the representative administrator layout isolated', async
   await expect(page).toHaveURL(/\/posts$/)
   await page.getByRole('link', { name: '管理中心' }).click()
   await page.getByRole('link', { name: 'Metrics', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Plugin Metrics' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Plugin & Component Metrics' })).toBeVisible()
   await expect(page.locator('.user-shell')).toHaveCount(0)
   await expect(page.locator('.admin-shell')).toBeVisible()
   for (const [name, width, height] of [['desktop', 1440, 1000], ['mobile', 390, 844]] as const) {
