@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net"
 	"net/http"
@@ -62,7 +63,7 @@ func (p *HTTP) Publish(ctx context.Context, message envelope.Envelope) error {
 	return p.PublishRaw(ctx, message.MessageID, message)
 }
 
-func (p *HTTP) PublishRaw(ctx context.Context, messageID string, message any) error {
+func (p *HTTP) PublishRaw(ctx context.Context, messageID string, message any) (result error) {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return errors.New("message serialization failed")
@@ -74,6 +75,7 @@ func (p *HTTP) PublishRaw(ctx context.Context, messageID string, message any) er
 	req.Header.Set("Authorization", "Bearer "+p.token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", messageID)
+	defer func() { componentmetrics.Dependency("router", result) }()
 	response, err := p.client.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || isTimeout(err) {

@@ -30,7 +30,7 @@ test('MySQL and RabbitMQ independent administration', async ({ page }) => {
     await page.getByRole('button',{name:'启动',exact:true}).click()
     await expect(page.locator('.state-pill')).toHaveText('running')
     await page.getByRole('link',{name:'查询插件指标'}).click()
-    await expect(page.getByRole('heading',{name:'Plugin Metrics'})).toBeVisible()
+    await expect(page.getByRole('heading',{name:'Plugin & Component Metrics'})).toBeVisible()
     await expect(page.locator('.metric-value').first()).toBeVisible()
   }
 })

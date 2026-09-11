@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"math"
 	"regexp"
@@ -131,7 +132,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 		}
 		if raw.SchemaVersion == 2 {
 			var fields map[string]json.RawMessage
-			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 6 || fields["producer_kind"] == nil || fields["producer_id"] == nil || fields["producer_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil || metricsPayload.ProducerKind != "exporter_plugin" || metricsPayload.ProducerID != raw.Source+"-exporter" || !semverPattern.MatchString(metricsPayload.ProducerVersion) {
+			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 6 || fields["producer_kind"] == nil || fields["producer_id"] == nil || fields["producer_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil || !validProducer(raw.Source, metricsPayload) || !semverPattern.MatchString(metricsPayload.ProducerVersion) {
 				return Envelope{}, reject("invalid_producer")
 			}
 			metricsPayload.PluginID, metricsPayload.PluginVersion = metricsPayload.ProducerID, metricsPayload.ProducerVersion
@@ -144,7 +145,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 		if raw.SchemaVersion == 1 && raw.Source != "redis" {
 			return Envelope{}, reject("unsupported_envelope")
 		}
-		if err := validatePayload(&metricsPayload); err != nil {
+		if err := validateMetricsPayload(raw.Source, &metricsPayload); err != nil {
 			return Envelope{}, err
 		}
 	}
@@ -152,7 +153,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics" || componentmetrics.IsComponent(source))) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {
@@ -464,6 +465,35 @@ func rulesFor(source string) map[string]familyRule {
 			"gopulse_elasticsearch_store_size_bytes":      {kind: "gauge", count: 1, labels: nil},
 		}
 
+	}
+	return nil
+}
+
+func validProducer(source string, p Payload) bool {
+	if componentmetrics.IsComponent(source) {
+		return p.ProducerKind == "component" && p.ProducerID == source && p.TargetID == componentmetrics.Target(source)
+	}
+	return p.ProducerKind == "exporter_plugin" && p.ProducerID == source+"-exporter"
+}
+func validateMetricsPayload(source string, p *Payload) error {
+	if !componentmetrics.IsComponent(source) {
+		return validatePayload(p)
+	}
+	if p.ScrapeStatus != "success" {
+		return reject("invalid_component_status")
+	}
+	samples := make([]componentmetrics.Sample, len(p.Samples))
+	for i := range p.Samples {
+		s := &p.Samples[i]
+		v, err := s.Value.Float64()
+		if err != nil {
+			return reject("invalid_component_value")
+		}
+		s.FloatValue = v
+		samples[i] = componentmetrics.Sample{Name: s.Name, Kind: s.Kind, Labels: s.Labels, Value: v}
+	}
+	if err := componentmetrics.Validate(source, samples); err != nil {
+		return reject("invalid_component_samples")
 	}
 	return nil
 }
