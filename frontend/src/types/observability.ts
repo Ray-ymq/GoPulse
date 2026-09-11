@@ -1,4 +1,5 @@
-export type MetricName =
+import type { ComponentMetricName } from '../services/componentMetrics'
+export type MetricName = ComponentMetricName
   | 'gopulse_redis_up'
   | 'gopulse_redis_uptime_seconds'
   | 'gopulse_redis_connected_clients'
@@ -58,11 +59,11 @@ export type MetricName =
   | 'gopulse_victoriametrics_storage_rows_deleted_total'
 export type QueryRange = '15m' | '1h' | '6h' | '24h'
 export interface MetricPoint { timestamp: string; value: number }
-export interface MetricSeries { labels: { mode?: 'user' | 'system'; db?: string; result?: 'commit' | 'rollback'; state?: 'ready' | 'unacked'; status?: 'green' | 'yellow' | 'red' }; points: MetricPoint[] }
+export interface MetricSeries { labels: Partial<Record<'mode' | 'db' | 'result' | 'state' | 'status' | 'method' | 'route' | 'status_class' | 'event_type' | 'operation' | 'dependency' | 'scraped_producer_kind' | 'scraped_target_id' | 'type' | 'message_source' | 'stage' | 'storage', string>>; points: MetricPoint[] }
 export interface MetricResult {
   metric: MetricName
   kind: 'gauge' | 'counter'
-  unit: 'boolean' | 'seconds' | 'count' | 'bytes'
+  unit: 'boolean' | 'seconds' | 'count' | 'bytes' | 'state' | 'unix_seconds'
   range: QueryRange
   from: string
   to: string

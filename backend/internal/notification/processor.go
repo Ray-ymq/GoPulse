@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 )
@@ -20,5 +21,6 @@ func NewProcessor(repository *Repository) (*Processor, error) {
 
 func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) error {
 	_, err := processor.repository.Insert(ctx, envelope)
+	componentmetrics.Dependency("mysql", err)
 	return err
 }

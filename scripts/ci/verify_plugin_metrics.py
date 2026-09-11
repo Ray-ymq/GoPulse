@@ -98,6 +98,7 @@ class Acceptance:
             VICTORIAMETRICS_USERNAME='vm_'+self.token, VICTORIAMETRICS_PASSWORD='vm-'+self.token+'-012345678901234567890123456789',
             GOPULSE_VERSION=VERSION, GOPULSE_REVISION=command(['git','-C',str(ROOT),'rev-parse','HEAD']).stdout.decode().strip(),
             GOPULSE_IMAGE_TAG='1.10.6', GOPULSE_UPDATE_VERSION='1.11.3', MONITOR_SCRAPE_INTERVAL='2s', MONITOR_SCRAPE_TIMEOUT='1s')
+        values.update({name.upper().replace('-', '_')+'_METRICS_TOKEN': 'metrics-'+name+'-'+uuid.uuid4().hex for name in ('backend','business-worker','search-indexer','monitor','router','marshaller')})
         self.env_file.write_text(''.join(f'{k}={v}\n' for k,v in values.items()))
         self.env_file.chmod(0o600)
         self.override = {'services': {service: {'image': f'gopulse/{service}:{VERSION}'} for service in ['backend','frontend','router','marshaller']},

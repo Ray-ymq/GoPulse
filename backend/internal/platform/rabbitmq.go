@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"net/url"
 	"time"
@@ -22,7 +23,8 @@ func NewRabbitMQ(connectionURL string) (*RabbitMQ, error) {
 	return &RabbitMQ{connectionURL: connectionURL}, nil
 }
 
-func (checker *RabbitMQ) Check(ctx context.Context) error {
+func (checker *RabbitMQ) Check(ctx context.Context) (result error) {
+	defer func() { componentmetrics.Dependency("rabbitmq", result) }()
 	dialer := &net.Dialer{Timeout: time.Second}
 	amqpConfig := amqp.Config{
 		Dial: func(network, address string) (net.Conn, error) {

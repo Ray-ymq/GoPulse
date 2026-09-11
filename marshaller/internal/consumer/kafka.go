@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"sync/atomic"
 	"time"
 
@@ -60,7 +61,8 @@ func (k *Kafka) Commit(ctx context.Context, record Record) error {
 	defer cancel()
 	return k.Client.CommitRecords(commitCtx, &kgo.Record{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset})
 }
-func (k *Kafka) Ready(ctx context.Context) error {
+func (k *Kafka) Ready(ctx context.Context) (result error) {
+	defer func() { componentmetrics.Dependency("kafka", result) }()
 	if k.halted.Load() {
 		return errors.New("Kafka partition processing halted")
 	}
@@ -83,6 +85,7 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 	for ctx.Err() == nil {
 		fetches := k.Client.PollRecords(ctx, 1)
 		if errs := fetches.Errors(); len(errs) > 0 {
+			componentmetrics.Dependency("kafka", errs[0].Err)
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -92,6 +95,9 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 			continue
 		}
 		var record *kgo.Record
+		if fetches.NumRecords() > 0 {
+			componentmetrics.Dependency("kafka", nil)
+		}
 		fetches.EachRecord(func(r *kgo.Record) { record = r })
 		if record == nil {
 			continue

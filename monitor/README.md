@@ -69,3 +69,15 @@ Elasticsearch 允许不认证，但启用时 username/password 必须配对，�
 目标安全 `up=0` 即使发布成功，也保留 `network_failed` 安全状态；共享 Router 故障用
 `publish_failed` 区分。VM 作为存储宕机时，不能承诺任何 source 的新点可查，也不
 伪造未写入的 up=0 历史；恢复后验证新完整快照并保留原历史数据。
+
+
+## Phase 14 component runtime metrics
+
+Protected component metrics use separate internal listeners, not the public/API
+listener. Configure the distinct `*_METRICS_TOKEN` values in `.env.example`;
+Monitor holds the six read-only tokens. Compose publishes no metrics ports.
+The exact family/label/initial-value contracts, shutdown behavior, source/target
+identities and focused acceptance command are in `docs/component-metrics.md`
+(relative to the repository root). The shared standard-library-only
+`componentmetrics` module is required alongside this module for source builds;
+Docker builds copy it explicitly.
