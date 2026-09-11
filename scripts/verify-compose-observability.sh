@@ -7,6 +7,7 @@ COMPOSE_FILE="$REPO_ROOT/deploy/compose.yaml"
 COMPOSE_WORKDIR=$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd -P)
 KEEP=0
 PHASE13=0
+PHASE14=0
 RESOURCES_STARTED=0
 TEMP_DIR=
 ENV_FILE=
@@ -23,6 +24,7 @@ usage() { printf 'Internal full-stack runner. Use scripts/verify-compose.sh [--k
 while (($#)); do
   case $1 in
     --keep) KEEP=1; shift ;;
+    --phase14) PHASE14=1; shift ;;
     --phase13) PHASE13=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1"; exit 2 ;;
@@ -663,7 +665,7 @@ if ! compose up --detach --wait --wait-timeout 420; then
   fail 'cold complete Compose startup failed'
 fi
 assert_full_state
-if ((PHASE13 == 1)); then
+if ((PHASE13 == 1 || PHASE14 == 1)); then
   register_and_promote
   compose --profile acceptance run --rm --no-deps \
     -e "GOPULSE_PROFILE_ADMIN_USER=$ADMIN_USERNAME" \
@@ -672,7 +674,7 @@ if ((PHASE13 == 1)); then
   run_observability_scenario admin
   assert_project_ownership
   pass 'Phase 13 Compose social closure and representative administrator regression passed.'
-  exit 0
+  if ((PHASE14 == 0)); then exit 0; fi
 fi
 assert_image_contracts
 assert_network_and_ports
