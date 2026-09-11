@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
@@ -88,6 +89,12 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		logger = logging.Discard("backend")
 	}
 	lifecycleLogger := logging.Module(logger, "lifecycle")
+	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	if err != nil {
+		return err
+	}
+	componentmetrics.InstallBackend(metrics)
+	defer componentmetrics.InstallBackend(nil)
 	goredis.SetLogger(&redislogging.VoidLogger{})
 	if err := backendhttp.ConfigureGinMode(cfg.AppEnv); err != nil {
 		return fmt.Errorf("configure Gin mode: %w", err)
@@ -222,6 +229,25 @@ func run(cfg config.Config, logger *slog.Logger) error {
 
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+	releaseBudget := componentmetrics.BindShutdown(signalContext, shutdownTimeout)
+	defer releaseBudget()
+	internalMetrics, err := componentmetrics.StartConfigured(signalContext, "backend", metrics.Snapshot)
+	if err != nil {
+		return err
+	}
+	sampleCtx, cancelSample := context.WithCancel(signalContext)
+	sampleDone := make(chan struct{})
+	go func() { defer close(sampleDone); eventOutbox.SampleMetrics(sampleCtx, metrics) }()
+	defer func() {
+		cancelSample()
+		shutdownCtx, cancel := componentmetrics.ShutdownContext(shutdownTimeout)
+		defer cancel()
+		_ = internalMetrics.Shutdown(shutdownCtx)
+		select {
+		case <-sampleDone:
+		case <-shutdownCtx.Done():
+		}
+	}()
 
 	return serveWithDispatcher(signalContext, server, dispatcher, lifecycleLogger)
 }
@@ -258,7 +284,7 @@ func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher
 	serverErr := serveLogged(ctx, server, server.ListenAndServe, logger)
 	cancelDispatcher()
 
-	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
+	shutdownContext, cancelShutdown := componentmetrics.ShutdownContext(shutdownTimeout)
 	defer cancelShutdown()
 	select {
 	case dispatcherErr := <-dispatcherErrors:
@@ -302,7 +328,7 @@ func serveLogged(ctx context.Context, server *stdhttp.Server, startServer func()
 		return nil
 	case <-ctx.Done():
 		logger.Info("backend shutdown started")
-		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutdownContext, cancel := componentmetrics.ShutdownContext(shutdownTimeout)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownContext); err != nil {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -34,6 +35,11 @@ func (store *MySQLDocumentStore) FindDocument(ctx context.Context, postID uint64
 		SELECT id, title, content, created_at, updated_at, edited_at, content_revision
 		FROM posts
 		WHERE id = ?`, postID).Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision)
+	observedErr := err
+	if errors.Is(err, sql.ErrNoRows) {
+		observedErr = nil
+	}
+	componentmetrics.Dependency("mysql", observedErr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, sql.ErrNoRows
 	}
@@ -70,19 +76,27 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 		// Hold the authoritative row lock through the external write. Deletion cannot
 		// commit before an in-flight old snapshot has finished indexing.
 		tx, err := store.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		componentmetrics.Dependency("mysql", err)
 		if err != nil {
 			return err
 		}
 		defer tx.Rollback()
 		var id uint64
 		err = tx.QueryRowContext(ctx, "SELECT id FROM posts WHERE id=? FOR UPDATE", envelope.PostID).Scan(&id)
+		observedErr := err
+		if errors.Is(err, sql.ErrNoRows) {
+			observedErr = nil
+		}
+		componentmetrics.Dependency("mysql", observedErr)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if err = processor.project(ctx, envelope); err != nil {
 			return err
 		}
-		return tx.Commit()
+		err = tx.Commit()
+		componentmetrics.Dependency("mysql", err)
+		return err
 	}
 	return processor.project(ctx, envelope)
 }

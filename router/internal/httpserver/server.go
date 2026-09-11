@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
 	"mime"
@@ -82,6 +83,13 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	accepted := false
+	defer func() {
+		if !accepted {
+			componentmetrics.Active().Observe("messages_total", time.Since(started), "unknown", "unknown", "rejected")
+		}
+	}()
 	if !s.authorized(r) {
 		writeError(w, http.StatusUnauthorized, "internal_authentication_required")
 		return
@@ -129,6 +137,8 @@ func (s *Server) publish(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "message_type_unsupported")
 		return
 	}
+	accepted = true
+	componentmetrics.Active().Observe("messages_total", time.Since(started), message.Type, message.Source, "accepted")
 	ctx, cancel := context.WithTimeout(r.Context(), s.requestTimeout)
 	defer cancel()
 	if err := s.producer.Produce(ctx, topic, message.MessageID, message.Body); err != nil {

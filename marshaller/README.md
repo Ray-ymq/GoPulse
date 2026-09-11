@@ -76,3 +76,15 @@ Marshaller dispatches the shared Envelope v1 stream through explicit `metrics/re
 ## Lifecycle event storage
 
 Marshaller dispatches `events/monitor` to an independent Events transformer and Elasticsearch writer. The transformer revalidates the fixed Events v1 payload, requires Envelope/payload source and timestamp equality, renames `timestamp` to `@timestamp`, and retains only the documented fields. The writer uses `message_id` as `_id`, the fixed `gopulse-events-v1-template`, daily `gopulse-events-v1-YYYY.MM.DD` indices, and the `gopulse-events-v1-read` alias. Root and metadata mappings are strict. Template, mapping, and alias checks complete before the Kafka offset is committed; a temporary Events Store failure therefore preserves ordering and retries the same record. Marshaller readiness covers VictoriaMetrics, Logs storage, and Events storage while `/health` remains liveness-only.
+
+
+## Phase 14 component runtime metrics
+
+Protected component metrics use separate internal listeners, not the public/API
+listener. Configure the distinct `*_METRICS_TOKEN` values in `.env.example`;
+Monitor holds the six read-only tokens. Compose publishes no metrics ports.
+The exact family/label/initial-value contracts, shutdown behavior, source/target
+identities and focused acceptance command are in `docs/component-metrics.md`
+(relative to the repository root). The shared standard-library-only
+`componentmetrics` module is required alongside this module for source builds;
+Docker builds copy it explicitly.

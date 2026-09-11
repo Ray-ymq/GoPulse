@@ -27,7 +27,7 @@ test('Kafka and Elasticsearch administrator lifecycle with optional secrets', as
     await page.getByRole('button', { name: '启动', exact: true }).click()
     await expect(page.locator('.state-pill')).toHaveText('running')
     await page.getByRole('link', { name: '查询插件指标' }).click()
-    await expect(page.getByRole('heading', { name: 'Plugin Metrics' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Plugin & Component Metrics' })).toBeVisible()
     await expect(page.locator('.metric-value').first()).toBeVisible()
     if (source === 'elasticsearch') {
       await page.locator('form.filter-bar select').first().selectOption('gopulse_elasticsearch_cluster_health_status')
