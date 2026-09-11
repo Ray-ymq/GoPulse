@@ -37,7 +37,7 @@ class ClosureAcceptance(ComponentAcceptance):
             'image': 'gopulse/monitor-acceptance:'+self.tag,
             'profiles': ['acceptance'],
             'build': {'context': str(ROOT), 'dockerfile': 'deploy/docker/observability.Dockerfile',
-                      'target': 'monitor-acceptance', 'args': {'VERSION': VERSION, 'REVISION': values['GOPULSE_REVISION']}}}
+                      'target': 'monitor-acceptance', 'args': {'ACCEPTANCE_UPDATE_VERSION': '1.11.7', 'VERSION': VERSION, 'REVISION': values['GOPULSE_REVISION']}}}
         self.save_override()
         self.evidence_file = self.work/'closure-evidence.json'
         (self.work/'snapshot.json').write_text(json.dumps({k: sorted(v) for k, v in self.snapshot.items()}, indent=2))
@@ -75,6 +75,9 @@ class ClosureAcceptance(ComponentAcceptance):
                             (filename or 'gopulse-'+source+'-exporter.tar.gz')).stdout
 
     def migration(self):
+        legacy_digest = hashlib.sha256(self.package('redis')).hexdigest()
+        assert legacy_digest == 'b992b0dfa80a0983b9af63e4c2a4770216bfd7fcb718af2cd451281cf3306727'
+        self.record('registered Phase 13 fixture digest verified', {'archive_sha256': legacy_digest})
         before = wait_until(lambda: self.status() if self.status().get('last_success_at') else None, 'legacy Redis scrape')
         history = wait_until(self.metric, 'legacy Redis history')[-1]['timestamp']
         post = self.user.request('posts', 'POST', {'title': 'migration-'+self.token, 'content': 'preserved business data'}, 201)['data']
@@ -103,7 +106,7 @@ class ClosureAcceptance(ComponentAcceptance):
             '/var/lib/gopulse-monitor/plugins/redis-exporter/runtime/process.json', check=False).returncode == 0
         self.record('real Phase 13 running/stopped volumes migrate; v2 explicit update; history and business preserved',
                     {'legacy_version': before['version'], 'current_version': VERSION, 'retry_records': 1})
-        self.monitor_volume('p14_empty')
+        self.monitor_volume('p14_empty', acceptance=True)
         assert self.internal()['data'] == []
 
     def browser_spec(self, spec, extra=()):
@@ -121,7 +124,7 @@ class ClosureAcceptance(ComponentAcceptance):
 
     def cold_start(self):
         archive = self.work/'closure-redis.tar.gz'
-        archive.write_bytes(self.package('redis')); archive.chmod(0o644)
+        archive.write_bytes(self.package('redis', 'redis-update.tar.gz')); archive.chmod(0o644)
         self.browser_spec('phase14-closure.spec.ts', ['-v', str(archive)+':/work/packages/closure-redis.tar.gz:ro'])
         wait_until(self.offsets, 'formal consumer offsets before Kafka collector')
         for source in ('mysql', 'rabbitmq'):
@@ -132,10 +135,12 @@ class ClosureAcceptance(ComponentAcceptance):
         for source in ('kafka', 'elasticsearch', 'victoriametrics'):
             self.admin.request('exporter-plugins/'+source+'-exporter/install', 'POST', self.config(source), 201)
         self.processes()
+        assert self.status_for('redis')['version'] == '1.11.7'
         values = {}
         for source in SOURCES:
             wait_until(lambda s=source: self.metric_for(s) and self.metric_for(s)[-1]['value'] == 1, source+' up=1')
             values[source] = wait_until(lambda s=source: self.metric_for(s, REPRESENTATIVE[s]), source+' real value')[-1]['value']
+        self.record('official package digests', {s: hashlib.sha256(self.package(s)).hexdigest() for s in SOURCES})
         self.record('empty volume six independent official plugins; real queries; idempotent dedicated accounts', values)
 
     def volume_recovery(self):
@@ -212,6 +217,8 @@ class ClosureAcceptance(ComponentAcceptance):
                   json.dumps(events).encode(), self.compose('logs', '--no-color', *COMPONENTS).stdout]
         for s in SOURCES:
             public.append(self.file(s+'-exporter/active.json'))
+            revision = json.loads(self.file(s+'-exporter/active.json'))['revision']
+            public.append(self.file(s+'-exporter/revisions/'+revision+'/revision.json'))
         for secret in (self.secret, self.auth_password, *self.tokens.values(),
                        self.account('mysql')['password'], self.account('rabbitmq')['password'],
                        self.config('victoriametrics')['secrets']['password']):

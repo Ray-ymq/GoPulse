@@ -686,7 +686,7 @@ run_business_scenario business
 exercise_redis_fallback
 exercise_worker_recovery
 exercise_indexer_recovery
-register_and_promote
+if ((PHASE14 == 0)); then register_and_promote; fi
 run_observability_scenario ordinary
 run_observability_scenario admin
 exercise_failure victoriametrics vm-down
