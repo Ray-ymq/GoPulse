@@ -337,3 +337,33 @@ func TestSixPluginOperationIsolation(t *testing.T) {
 	}
 	_ = core.list() // reads do not acquire an operation token
 }
+
+func TestShutdownContinuesPastBlockedPlugin(t *testing.T) {
+	cfg, catalog, _ := runtimeFixture(t)
+	dir := filepath.Join(cfg.Root, PluginID)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "active.json"), []byte(`{"revision":"broken"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	core, err := newRuntimeCore(context.Background(), cfg, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !core.slots[PluginID].blocked {
+		t.Fatal("damaged Redis revision must remain blocked")
+	}
+	observer := &countingMetricsLifecycle{}
+	core.slots["mysql-exporter"].observer = observer
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err = core.shutdown(ctx)
+	var failure *Error
+	if !errors.As(err, &failure) || failure.Code != CodeFailed {
+		t.Fatalf("shutdown must preserve the blocked slot failure: %v", err)
+	}
+	if observer.disables.Load() != 1 {
+		t.Fatal("healthy MySQL collector must be disabled despite blocked Redis")
+	}
+}
