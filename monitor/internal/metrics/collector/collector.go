@@ -76,7 +76,7 @@ func New(cfg Config) (*Monitor, error) {
 	if cfg.Source == "" {
 		cfg.Source = "redis"
 	}
-	if cfg.Source != "redis" && cfg.Source != "mysql" && cfg.Source != "rabbitmq" {
+	if cfg.Source != "redis" && cfg.Source != "mysql" && cfg.Source != "rabbitmq" && cfg.Source != "kafka" && cfg.Source != "elasticsearch" {
 		return nil, errors.New("invalid source")
 	}
 	if cfg.Interval <= 0 || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
@@ -332,6 +332,33 @@ func contractsFor(source string) map[string]familyContract {
 			"gopulse_rabbitmq_delivered_total": {dto.MetricType_COUNTER, nil, 1},
 			"gopulse_rabbitmq_acked_total":     {dto.MetricType_COUNTER, nil, 1},
 		}
+	case "kafka":
+		return map[string]familyContract{
+			"gopulse_kafka_up":                          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_brokers":                     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_controller_available":        {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_partitions":                  {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_under_replicated_partitions": {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_offline_partitions":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_consumer_group_lag":          {dto.MetricType_GAUGE, nil, 1},
+		}
+
+	case "elasticsearch":
+		return map[string]familyContract{
+			"gopulse_elasticsearch_up":                    {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_cluster_health_status": {dto.MetricType_GAUGE, map[string]bool{"status": true}, 3},
+			"gopulse_elasticsearch_nodes":                 {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_data_nodes":            {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_active_primary_shards": {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_active_shards":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_relocating_shards":     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_initializing_shards":   {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_unassigned_shards":     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_pending_tasks":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_documents":             {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_store_size_bytes":      {dto.MetricType_GAUGE, nil, 1},
+		}
+
 	}
 	return nil
 }
@@ -398,9 +425,16 @@ func parseSource(source string, httpStatus int, body []byte) (string, []envelope
 		}
 	}
 	var up bool
+	healthSum := 0.0
 	modes := map[string]bool{}
 	dbValues := map[string]bool{}
 	for _, s := range all {
+		if s.Name == "gopulse_elasticsearch_cluster_health_status" {
+			if s.Value != 0 && s.Value != 1 {
+				return "", nil, errors.New("contract_invalid")
+			}
+			healthSum += s.Value
+		}
 		if s.Name == upName {
 			up = s.Value == 1
 		}
@@ -411,7 +445,7 @@ func parseSource(source string, httpStatus int, body []byte) (string, []envelope
 			dbValues[s.Labels["db"]] = true
 		}
 	}
-	if !up || (source == "redis" && (!modes["user"] || !modes["system"] || len(modes) != 2 || len(dbValues) != 1)) {
+	if (source == "elasticsearch" && healthSum != 1) || !up || (source == "redis" && (!modes["user"] || !modes["system"] || len(modes) != 2 || len(dbValues) != 1)) {
 		return "", nil, errors.New("contract_invalid")
 	}
 	sort.Slice(all, func(i, j int) bool { return sampleKey(all[i]) < sampleKey(all[j]) })
@@ -441,6 +475,9 @@ func validateFamilySource(source, name string, family *dto.MetricFamily) ([]enve
 				return nil, errors.New("contract_invalid")
 			}
 			if key == "mode" && value != "user" && value != "system" {
+				return nil, errors.New("contract_invalid")
+			}
+			if key == "status" && value != "green" && value != "yellow" && value != "red" {
 				return nil, errors.New("contract_invalid")
 			}
 			if (key == "result" && value != "commit" && value != "rollback") || (key == "state" && value != "ready" && value != "unacked") {

@@ -28,9 +28,28 @@ export type MetricName =
   | 'gopulse_rabbitmq_published_total'
   | 'gopulse_rabbitmq_delivered_total'
   | 'gopulse_rabbitmq_acked_total'
+  | 'gopulse_kafka_up'
+  | 'gopulse_kafka_brokers'
+  | 'gopulse_kafka_controller_available'
+  | 'gopulse_kafka_partitions'
+  | 'gopulse_kafka_under_replicated_partitions'
+  | 'gopulse_kafka_offline_partitions'
+  | 'gopulse_kafka_consumer_group_lag'
+  | 'gopulse_elasticsearch_up'
+  | 'gopulse_elasticsearch_cluster_health_status'
+  | 'gopulse_elasticsearch_nodes'
+  | 'gopulse_elasticsearch_data_nodes'
+  | 'gopulse_elasticsearch_active_primary_shards'
+  | 'gopulse_elasticsearch_active_shards'
+  | 'gopulse_elasticsearch_relocating_shards'
+  | 'gopulse_elasticsearch_initializing_shards'
+  | 'gopulse_elasticsearch_unassigned_shards'
+  | 'gopulse_elasticsearch_pending_tasks'
+  | 'gopulse_elasticsearch_documents'
+  | 'gopulse_elasticsearch_store_size_bytes'
 export type QueryRange = '15m' | '1h' | '6h' | '24h'
 export interface MetricPoint { timestamp: string; value: number }
-export interface MetricSeries { labels: { mode?: 'user' | 'system'; db?: string; result?: 'commit' | 'rollback'; state?: 'ready' | 'unacked' }; points: MetricPoint[] }
+export interface MetricSeries { labels: { mode?: 'user' | 'system'; db?: string; result?: 'commit' | 'rollback'; state?: 'ready' | 'unacked'; status?: 'green' | 'yellow' | 'red' }; points: MetricPoint[] }
 export interface MetricResult {
   metric: MetricName
   kind: 'gauge' | 'counter'

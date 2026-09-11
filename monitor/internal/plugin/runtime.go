@@ -937,7 +937,7 @@ func (m *Manager) Configure(ctx context.Context, id string, data []byte, install
 	return m.core.configure(ctx, id, data, install)
 }
 func (m *Manager) ConnectionTest(ctx context.Context, id string, data []byte) error {
-	if m.core == nil || (id != PluginID && id != "mysql-exporter" && id != "rabbitmq-exporter") {
+	if m.core == nil || (id != PluginID && id != "mysql-exporter" && id != "rabbitmq-exporter" && id != "kafka-exporter" && id != "elasticsearch-exporter") {
 		return unavailable()
 	}
 	c := m.core
