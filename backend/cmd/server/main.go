@@ -158,6 +158,9 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	}
 	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	users := user.NewMySQLRepository(mysqlClient.DB())
+	if err := users.ValidateBootstrap(context.Background()); err != nil {
+		return fmt.Errorf("validate management bootstrap: %w", err)
+	}
 	authService := auth.NewService(users, passwords, tokens)
 	authHandler := auth.NewHandler(authService, cookies, logger)
 	postDetailCache := rediscache.NewPostDetailRepository(
@@ -221,7 +224,8 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Notifications:   notificationHandler,
 			Search:          searchHandler,
 			Authentication:  middleware.RequireAuthentication(cookies.Name(), tokens),
-			Authorization:   middleware.RequireAdmin(users),
+			Authorization:   middleware.RequireSuperAdmin(users),
+			Management:      backendhttp.NewManagementHandler(users, cfg.Auth.JWTSecret),
 			ExporterPlugins: exporterPluginHandler,
 		},
 	)
