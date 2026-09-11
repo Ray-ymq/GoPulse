@@ -77,3 +77,15 @@ Router accepts `metrics/redis` plus the fixed `logs/backend`, `logs/business-wor
 ## Events routing
 
 The routing allowlist includes `events/monitor` in addition to the established Metrics and Logs combinations. Every accepted Events Envelope is produced unchanged to the fixed `gopulse-observability-v1` Topic with its `message_id` as the Kafka key. Unknown Events sources, schema/type/source mismatches, browser credentials, request-selected topics, and payload-selected topics remain unsupported.
+
+
+## Phase 14 component runtime metrics
+
+Protected component metrics use separate internal listeners, not the public/API
+listener. Configure the distinct `*_METRICS_TOKEN` values in `.env.example`;
+Monitor holds the six read-only tokens. Compose publishes no metrics ports.
+The exact family/label/initial-value contracts, shutdown behavior, source/target
+identities and focused acceptance command are in `docs/component-metrics.md`
+(relative to the repository root). The shared standard-library-only
+`componentmetrics` module is required alongside this module for source builds;
+Docker builds copy it explicitly.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"time"
 
@@ -67,6 +68,18 @@ func NewHandler(processor Processor, publisher ConfirmingPublisher, options Hand
 // Handle processes exactly one delivery. Secondary retry/dead publications
 // must be confirmed before the original delivery is acknowledged.
 func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) error {
+	started := time.Now()
+	metrics := componentmetrics.Active()
+	metrics.Add("messages_in_flight", 1)
+	outcome := "failure"
+	identity := handler.metricIdentity(delivery)
+	defer func() {
+		metrics.Add("messages_in_flight", -1)
+		metrics.Observe("messages_total", time.Since(started), identity, outcome)
+		if outcome == "success" {
+			metrics.Set("last_success_timestamp_seconds", float64(time.Now().Unix()))
+		}
+	}()
 	attempt, attemptErr := deliveryAttempt(delivery.Headers)
 	envelope, decodeErr := DecodeDelivery(delivery)
 	if attemptErr != nil {
@@ -82,20 +95,22 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		return handler.deadLetter(ctx, delivery, attempt, "routing_key_not_allowed")
 	}
 	if handler.profile.IgnoreSelfEvents && envelope.ActorID == envelope.RecipientID {
-		if err := delivery.Ack(false); err != nil {
+		if err := handler.ack(delivery); err != nil {
 			handler.logFailure("message acknowledgement failed", delivery, attempt, "ack_failed")
 			return errors.New("ack self event")
 		}
+		outcome = "success"
 		handler.logEvent("event ignored", delivery, envelope, attempt, "self_event")
 		return nil
 	}
 
 	processErr := handler.processor.Process(ctx, envelope)
 	if processErr == nil {
-		if err := delivery.Ack(false); err != nil {
+		if err := handler.ack(delivery); err != nil {
 			handler.logFailure("message acknowledgement failed", delivery, attempt, "ack_failed")
 			return errors.New("ack processed event")
 		}
+		outcome = "success"
 		handler.logEvent("event processed", delivery, envelope, attempt, "processed")
 		return nil
 	}
@@ -112,12 +127,18 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	}
 
 	if attempt < handler.maxRetries {
-		return handler.retry(ctx, delivery, attempt+1)
+		err := handler.retry(ctx, delivery, attempt+1)
+		if err == nil {
+			outcome = "retry"
+		}
+		return err
 	}
 	return handler.deadLetter(ctx, delivery, attempt, "retries_exhausted")
 }
 
 func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextAttempt int) error {
+	componentmetrics.Active().Add("retrying", 1)
+	defer componentmetrics.Active().Add("retrying", -1)
 	message := publishingFromDelivery(delivery)
 	message.Headers[AttemptHeader] = int32(nextAttempt)
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
@@ -130,7 +151,7 @@ func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextA
 		}
 		return errors.New("publish retry message")
 	}
-	if err := delivery.Ack(false); err != nil {
+	if err := handler.ack(delivery); err != nil {
 		handler.logFailure("message acknowledgement failed", delivery, nextAttempt, "ack_failed")
 		return errors.New("ack retried event")
 	}
@@ -151,7 +172,7 @@ func (handler *Handler) deadLetter(ctx context.Context, delivery amqp.Delivery, 
 		}
 		return errors.New("publish dead message")
 	}
-	if err := delivery.Ack(false); err != nil {
+	if err := handler.ack(delivery); err != nil {
 		handler.logFailure("message acknowledgement failed", delivery, attempt, "ack_failed")
 		return errors.New("ack dead-lettered event")
 	}
@@ -228,4 +249,37 @@ func (handler *Handler) safeRoutingKey(routingKey string) string {
 
 func (handler *Handler) String() string {
 	return fmt.Sprintf("%s handler(max_retries=%d)", handler.profile.Name, handler.maxRetries)
+}
+
+// metricIdentity never promotes message metadata into a label.
+func (handler *Handler) metricIdentity(delivery amqp.Delivery) string {
+	if handler.profile.Service == "search-indexer" {
+		switch delivery.RoutingKey {
+		case bus.PostCreatedRoutingKey:
+			return "create"
+		case bus.PostUpdatedRoutingKey:
+			return "update"
+		case bus.PostDeletedRoutingKey:
+			return "delete"
+		}
+		return ""
+	}
+	switch delivery.RoutingKey {
+	case bus.CommentCreatedRoutingKey:
+		return "comment.created"
+	case bus.PostLikedRoutingKey:
+		return "post.liked"
+	case bus.UserFollowedRoutingKey:
+		return "user.followed"
+	}
+	return "unknown"
+}
+func (handler *Handler) ack(delivery amqp.Delivery) error {
+	started := time.Now()
+	err := delivery.Ack(false)
+	componentmetrics.Dependency("rabbitmq", err)
+	if err == nil && handler.profile.Service != "search-indexer" {
+		componentmetrics.Active().Observe("messages_total", time.Since(started), handler.metricIdentity(delivery), "ack")
+	}
+	return err
 }

@@ -89,3 +89,15 @@ func TestClientRejectsOversizedResponseHeader(t *testing.T) {
 		t.Fatal("expected oversized response header rejection")
 	}
 }
+
+func TestRedisRejectsAdditionalProducerLabels(t *testing.T) {
+	definition := Catalog[0]
+	labels := map[string]string{"__name__": definition.Metric, "source": "redis", "target_id": "redis-exporter-local"}
+	if _, _, err := validateLabels(labels, definition); err != nil {
+		t.Fatal("historical provenance rejected", err)
+	}
+	labels["producer_id"] = "redis-exporter"
+	if _, _, err := validateLabels(labels, definition); err == nil {
+		t.Fatal("forked producer labels accepted")
+	}
+}
