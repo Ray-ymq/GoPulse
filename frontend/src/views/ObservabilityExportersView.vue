@@ -70,6 +70,10 @@ async function run(kind: 'install'|'update'|'start'|'stop'): Promise<void> {
     const next = kind === 'install' ? await exporterApi.install(packageFile.value!) : kind === 'update' ? await exporterApi.update(packageFile.value!, selected.value) : kind === 'start' ? await exporterApi.start(selected.value) : await exporterApi.stop(selected.value)
     status.value = next; statuses.value = [...statuses.value.filter(item => item.id !== next.id), next]; updatedAt.value = new Date().toLocaleString()
     message.value = `${kind === 'install' ? '安装' : kind === 'update' ? '更新' : kind === 'start' ? '启动' : '停止'}请求已完成；当前状态以此处 DTO 为准，Events 记录可能稍后到达。`
+    if (kind === 'update') {
+      try { catalog.value = await pluginConfigApi.catalog() }
+      catch { message.value = '更新已成功，但插件目录刷新失败；请点击“刷新状态”同步配置门禁，不要重复上传安装包。' }
+    }
   } catch (error) { message.value = errorMessage(error) }
   finally { if (kind === 'install' || kind === 'update') clearPackage(); operation.value = '' }
 }

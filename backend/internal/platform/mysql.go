@@ -76,6 +76,9 @@ func mysqlDriverConfig(cfg config.MySQLConfig) *mysql.Config {
 func mysqlMigrationDriverConfig(cfg config.MySQLConfig) *mysql.Config {
 	driverConfig := mysqlDriverConfig(cfg)
 	driverConfig.MultiStatements = true
+	// DDL can exceed the application query budget during cold startup. Keep
+	// migration reads bounded without changing ordinary connection timeouts.
+	driverConfig.ReadTimeout = 2 * time.Minute
 	return driverConfig
 }
 
