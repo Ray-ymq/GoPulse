@@ -305,3 +305,35 @@ func TestUnknownRegistryIdentityIsRejectedWithoutRewriting(t *testing.T) {
 		t.Fatal("invalid legacy state was rewritten")
 	}
 }
+
+// The sixth ID must share neither its operation token nor its read lock with
+// other IDs. One held operation serializes same-ID mutation only.
+func TestSixPluginOperationIsolation(t *testing.T) {
+	cfg, catalog, _ := runtimeFixture(t)
+	core, err := newRuntimeCore(context.Background(), cfg, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := core.lock(context.Background(), "victoriametrics-exporter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock(held)
+	for _, entry := range OfficialCatalog() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		slot, err := core.lock(ctx, entry.ID)
+		cancel()
+		if entry.ID == "victoriametrics-exporter" {
+			if err == nil {
+				unlock(slot)
+				t.Fatal("same ID was not serialized")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal("foreign ID blocked", entry.ID)
+		}
+		unlock(slot)
+	}
+	_ = core.list() // reads do not acquire an operation token
+}

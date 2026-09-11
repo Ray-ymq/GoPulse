@@ -76,7 +76,7 @@ func New(cfg Config) (*Monitor, error) {
 	if cfg.Source == "" {
 		cfg.Source = "redis"
 	}
-	if cfg.Source != "redis" && cfg.Source != "mysql" && cfg.Source != "rabbitmq" && cfg.Source != "kafka" && cfg.Source != "elasticsearch" {
+	if cfg.Source != "redis" && cfg.Source != "mysql" && cfg.Source != "rabbitmq" && cfg.Source != "kafka" && cfg.Source != "elasticsearch" && cfg.Source != "victoriametrics" {
 		return nil, errors.New("invalid source")
 	}
 	if cfg.Interval <= 0 || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
@@ -198,6 +198,9 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	update := Update{ScrapeAt: &completedAt}
 	if status == "success" {
 		update.SuccessAt = &completedAt
+	} else {
+		update.ErrorCode = "network_failed"
+		update.ErrorMessage = "metrics target is unavailable"
 	}
 	m.cfg.Update(update)
 	m.recordPublished(status)
@@ -343,6 +346,18 @@ func contractsFor(source string) map[string]familyContract {
 			"gopulse_kafka_consumer_group_lag":          {dto.MetricType_GAUGE, nil, 1},
 		}
 
+	case "victoriametrics":
+		return map[string]familyContract{
+			"gopulse_victoriametrics_up":                         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_rows_inserted_total":        {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_victoriametrics_query_requests_total":       {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_victoriametrics_active_timeseries":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_storage_rows":               {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_storage_size_bytes":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_free_disk_space_bytes":      {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_active_merges":              {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_storage_rows_deleted_total": {dto.MetricType_COUNTER, nil, 1},
+		}
 	case "elasticsearch":
 		return map[string]familyContract{
 			"gopulse_elasticsearch_up":                    {dto.MetricType_GAUGE, nil, 1},
