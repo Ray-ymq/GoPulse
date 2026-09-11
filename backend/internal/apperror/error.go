@@ -6,6 +6,8 @@ import "errors"
 type Code string
 
 const (
+	CodeBootstrapProtected        Code = "bootstrap_super_admin_protected"
+	CodeSetupUnavailable          Code = "management_setup_unavailable"
 	CodeUserNotFound              Code = "user_not_found"
 	CodeValidationFailed          Code = "validation_failed"
 	CodeAuthenticationRequired    Code = "authentication_required"

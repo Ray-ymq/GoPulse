@@ -395,6 +395,7 @@ services:
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/admin-role]
+    command: [bootstrap, --user-id, "${GOPULSE_BOOTSTRAP_USER_ID:-0}"]
     environment: *mysql-environment
     depends_on:
       migrate:

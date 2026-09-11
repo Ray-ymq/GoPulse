@@ -98,8 +98,11 @@ register "$ADMIN" "$TMP/admin.cookie"; register "$DEMOTION_ADMIN" "$TMP/demotion
 set -a
 source "$ENV_FILE"
 set +a
-(cd "$REPO_ROOT/backend" && go run ./cmd/admin-role promote --username "$ADMIN") >/dev/null
-(cd "$REPO_ROOT/backend" && go run ./cmd/admin-role promote --username "$DEMOTION_ADMIN") >/dev/null
+current_id(){ curl -fsS -b "$1" "http://127.0.0.1:$BACKEND_PORT/api/v1/users/me" | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["id"])'; }
+ADMIN_ID=$(current_id "$TMP/admin.cookie")
+DEMOTION_ID=$(current_id "$TMP/demotion.cookie")
+(cd "$REPO_ROOT/backend" && go run ./cmd/admin-role bootstrap --user-id "$ADMIN_ID") >/dev/null
+curl -fsS -b "$TMP/admin.cookie" -H 'Content-Type: application/json' -X PUT --data '{"role":"super_admin"}' "http://127.0.0.1:$BACKEND_PORT/api/v1/admin/users/$DEMOTION_ID/role" >/dev/null
 curl -sS -D "$TMP/unique-log.headers" -o /dev/null "http://127.0.0.1:$BACKEND_PORT/api/v1/does-not-exist" || true
 LOG_REQUEST_ID=$(awk 'BEGIN{IGNORECASE=1} /^X-Request-ID:/{gsub("\r", "", $2); print $2; exit}' "$TMP/unique-log.headers")
 [[ $LOG_REQUEST_ID =~ ^[0-9a-f]{32}$ ]] || { fail 'Backend did not return a valid generated request ID for log filtering.'; exit 1; }

@@ -52,7 +52,7 @@ describe('business router guards', () => {
   })
 
   it('allows an administrator into the guarded management layout', async () => {
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: { ...currentUser, role: 'admin' } })))
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: { ...currentUser, role: 'super_admin' } })))
     vi.stubGlobal('fetch', fetchMock)
     const router = createAppRouter(createMemoryHistory())
     await router.push('/admin/observability/logs')
@@ -60,7 +60,7 @@ describe('business router guards', () => {
   })
 
   it('redirects an administrator from an unknown management route to the overview', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: { ...currentUser, role: 'admin' } }))))
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: { ...currentUser, role: 'super_admin' } }))))
     const router = createAppRouter(createMemoryHistory())
     await router.push('/admin/observability/unknown')
     expect(router.currentRoute.value.path).toBe('/admin/observability')

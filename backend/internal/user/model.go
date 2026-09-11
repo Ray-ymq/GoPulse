@@ -9,13 +9,13 @@ import (
 type Role string
 
 const (
-	RoleUser  Role = "user"
-	RoleAdmin Role = "admin"
+	RoleUser       Role = "user"
+	RoleSuperAdmin Role = "super_admin"
 )
 
 func ParseRole(value string) (Role, error) {
 	role := Role(value)
-	if role != RoleUser && role != RoleAdmin {
+	if role != RoleUser && role != RoleSuperAdmin {
 		return "", fmt.Errorf("invalid user role")
 	}
 	return role, nil
