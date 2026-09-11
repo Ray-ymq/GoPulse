@@ -11,6 +11,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-redis-exporter ./cmd/redis-exporter
 RUN apk add --no-cache bash python3 tar gzip
+COPY componentmetrics/ /src/componentmetrics/
+COPY monitor/ /src/monitor/
 COPY VERSION /src/VERSION
 COPY scripts/package-redis-exporter.sh /src/scripts/package-redis-exporter.sh
 ARG VERSION

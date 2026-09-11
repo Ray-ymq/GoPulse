@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
@@ -71,14 +72,25 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 	if p.RetryMax < p.RetryMin {
 		p.RetryMax = p.RetryMin
 	}
+	metrics := componentmetrics.Active()
+	metrics.Add("records_in_flight", 1)
+	defer metrics.Add("records_in_flight", -1)
+	started := time.Now()
 	message, err := p.Decoder.Decode(record.Key, record.Value)
+	kind, source := componentmetrics.MessageIdentity(message.Type, message.Source)
+	metrics.Observe("records_total", time.Since(started), kind, source, "consume", "consumed")
+	validationResult := "validated"
+	if err != nil {
+		validationResult = "rejected"
+	}
+	metrics.Observe("records_total", time.Since(started), kind, source, "validate", validationResult)
 	if err != nil {
 		code := envelope.Code(err)
 		if code == "" {
 			return err
 		}
 		p.Logger.Permanent(record, code)
-		return p.commit(ctx, record, lease)
+		return p.commit(ctx, record, lease, kind, source)
 	}
 	target := Target{Transformer: p.Transformer, Writer: p.Writer}
 	if p.Targets != nil {
@@ -86,7 +98,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		target, ok = p.Targets[message.Type+"/"+message.Source]
 		if !ok || target.Transformer == nil || target.Writer == nil {
 			p.Logger.Permanent(record, "unsupported_envelope")
-			return p.commit(ctx, record, lease)
+			return p.commit(ctx, record, lease, kind, source)
 		}
 	}
 	body, err := target.Transformer.Transform(message)
@@ -96,7 +108,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 			code = "transform_failed"
 		}
 		p.Logger.Permanent(record, code)
-		return p.commit(ctx, record, lease)
+		return p.commit(ctx, record, lease, kind, source)
 	}
 	delay := p.RetryMin
 	for {
@@ -104,13 +116,26 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 			return ErrOwnershipLost
 		}
 		writeCtx, cancel := mergeContext(ctx, lease.Context())
+		started = time.Now()
 		err = target.Writer.Write(writeCtx, body)
+		storage := "elasticsearch"
+		if message.Type == "metrics" {
+			storage = "victoriametrics"
+		}
+		componentmetrics.Dependency(storage, err)
+		result := "stored"
+		if err != nil {
+			result = "retried"
+		} else {
+			metrics.Set("last_storage_success_timestamp_seconds", float64(time.Now().Unix()), storage)
+		}
+		metrics.Observe("records_total", time.Since(started), kind, source, "store", result)
 		cancel()
 		if err == nil {
 			if !lease.Valid() {
 				return ErrOwnershipLost
 			}
-			if err = p.commit(ctx, record, lease); err != nil {
+			if err = p.commit(ctx, record, lease, kind, source); err != nil {
 				return err
 			}
 			p.Logger.Accepted(record)
@@ -120,7 +145,10 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 			return ErrOwnershipLost
 		}
 		p.Logger.Transient(record)
-		if err = p.Sleep(lease.Context(), delay); err != nil {
+		metrics.Add("retrying", 1)
+		err = p.Sleep(lease.Context(), delay)
+		metrics.Add("retrying", -1)
+		if err != nil {
 			return ErrOwnershipLost
 		}
 		delay *= 2
@@ -129,13 +157,29 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		}
 	}
 }
-func (p *Processor) commit(ctx context.Context, record Record, lease Lease) error {
+func (p *Processor) commit(ctx context.Context, record Record, lease Lease, identity ...string) (result error) {
+	started := time.Now()
+	kind, source := "unknown", "unknown"
+	if len(identity) == 2 {
+		kind, source = identity[0], identity[1]
+	}
+	defer func() {
+		outcome := "committed"
+		if result != nil {
+			outcome = "failure"
+		} else {
+			componentmetrics.Active().Set("last_commit_success_timestamp_seconds", float64(time.Now().Unix()))
+		}
+		componentmetrics.Active().Observe("records_total", time.Since(started), kind, source, "commit", outcome)
+	}()
 	if !lease.Valid() {
 		return ErrOwnershipLost
 	}
 	commitCtx, cancel := mergeContext(ctx, lease.Context())
 	defer cancel()
-	if err := p.Committer.Commit(commitCtx, record); err != nil {
+	err := p.Committer.Commit(commitCtx, record)
+	componentmetrics.Dependency("kafka", err)
+	if err != nil {
 		if !lease.Valid() || lease.Context().Err() != nil {
 			return ErrOwnershipLost
 		}

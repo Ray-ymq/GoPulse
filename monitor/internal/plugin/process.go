@@ -99,11 +99,22 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	cmd := exec.Command(executable)
 	cmd.Dir = release
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	for _, key := range []string{"GOPULSE_RUNTIME_MODE", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
-		if value, ok := env[key]; ok {
+	entry, _ := LookupOfficial(manifest.ID)
+	allowed := map[string]bool{"GOPULSE_RUNTIME_MODE": true}
+	prefix := strings.ToUpper(entry.Source)
+	for _, suffix := range []string{"HOST", "PORT", "MANAGEMENT_PORT", "PASSWORD", "USERNAME", "DB", "DATABASE", "VHOST", "EXPORTER_HTTP_HOST", "EXPORTER_HTTP_PORT", "EXPORTER_SCRAPE_TIMEOUT", "EXPORTER_CONNECT_TIMEOUT", "EXPORTER_SHUTDOWN_TIMEOUT"} {
+		allowed[prefix+"_"+suffix] = true
+	}
+	if entry.Source == "kafka" {
+		allowed["KAFKA_TOPIC"] = true
+		allowed["KAFKA_CONSUMER_GROUP"] = true
+	}
+	for key, value := range env {
+		if allowed[key] {
 			cmd.Env = append(cmd.Env, key+"="+value)
 		}
 	}
+
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
 	if err = cmd.Start(); err != nil {
@@ -115,7 +126,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 		_, _ = cmd.Process.Wait()
 		return nil, err
 	}
-	record := processRecord{PID: cmd.Process.Pid, StartTicks: ticks, ExecutablePath: executable, WorkingDirectory: release, CommandLineMarker: executable}
+	record := processRecord{PluginID: manifest.ID, Revision: env["_GOPULSE_REVISION"], PID: cmd.Process.Pid, StartTicks: ticks, ExecutablePath: executable, WorkingDirectory: release, CommandLineMarker: executable}
 	if err = saveProcessRecord(pluginDir, record); err != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_, _ = cmd.Process.Wait()
@@ -135,8 +146,18 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 		if requestErr == nil {
 			body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
 			response.Body.Close()
-			if response.StatusCode == http.StatusOK && string(body) == `{"status":"ok","service":"redis-exporter"}` {
-				return runtime, nil
+			if response.StatusCode == http.StatusOK && string(body) == `{"status":"ok","service":"`+manifest.ID+`"}` {
+				// A response on the fixed port must not hide an immediately
+				// exiting candidate (for example a retained failure fixture).
+				select {
+				case <-runtime.done:
+					removeProcessRecord(pluginDir)
+					return nil, errors.New("plugin process exited during startup")
+				case <-time.After(20 * time.Millisecond):
+					if ownsProcess(runtime.record) {
+						return runtime, nil
+					}
+				}
 			}
 		}
 		select {

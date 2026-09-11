@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"net/http"
 	"os"
@@ -84,18 +85,39 @@ func main() {
 	processor := &consumer.Processor{
 		Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew},
 		Targets: map[string]consumer.Target{
-			"metrics/redis":        {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"logs/backend":         {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"logs/business-worker": {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"logs/search-indexer":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"logs/search-reindex":  {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"events/monitor":       {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024}, Writer: eventStore},
+			"metrics/mysql":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"metrics/rabbitmq":        {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"metrics/kafka":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"metrics/elasticsearch":   {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"metrics/victoriametrics": {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"metrics/redis":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+			"logs/backend":            {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"logs/business-worker":    {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"logs/search-indexer":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"logs/search-reindex":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
+			"events/monitor":          {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024}, Writer: eventStore},
 		},
 		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, Logger: processorLogger{logger},
 	}
+	for _, id := range componentmetrics.Components {
+		processor.Targets["metrics/"+id] = consumer.Target{Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm}
+	}
+	state, err := componentmetrics.New("marshaller")
+	if err != nil {
+		logger.Error("metrics initialization failed")
+		os.Exit(1)
+	}
+	componentmetrics.Install(state)
 	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafka, storageReadiness{vm: vm, logs: logStore, events: eventStore}, logger)
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	releaseBudget := componentmetrics.BindShutdown(rootCtx, cfg.ShutdownTimeout)
+	defer releaseBudget()
+	internalMetrics, err := componentmetrics.StartConfigured(rootCtx, "marshaller", state.Snapshot)
+	if err != nil {
+		logger.Error("metrics listener initialization failed", "event", "startup_failed")
+		os.Exit(1)
+	}
 	serveErrors := make(chan error, 1)
 	consumerDone := make(chan error, 1)
 	go func() {
@@ -130,10 +152,13 @@ func main() {
 	}
 	cancel()
 	ownership.CancelAll()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	shutdownCtx, shutdownCancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown failed", "module", "http", "event", "shutdown_failed")
+		exitCode = 1
+	}
+	if err := internalMetrics.Shutdown(shutdownCtx); err != nil {
 		exitCode = 1
 	}
 	if err := kafka.Close(shutdownCtx); err != nil {

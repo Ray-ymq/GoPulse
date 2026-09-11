@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -32,6 +34,23 @@ func run(logger *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	releaseBudget := componentmetrics.BindShutdown(ctx, cfg.ShutdownTimeout)
+	defer releaseBudget()
+	state, err := componentmetrics.New("monitor")
+	if err != nil {
+		return err
+	}
+	componentmetrics.Install(state)
+	defer componentmetrics.Install(nil)
+	internalMetrics, err := componentmetrics.StartConfigured(ctx, "monitor", state.Snapshot)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdown, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		defer cancel()
+		_ = internalMetrics.Shutdown(shutdown)
+	}()
 	var messagePublisher publisher.Transport = publisher.Discard{}
 	if cfg.RouterURL != "" {
 		messagePublisher, err = publisher.NewHTTP(cfg.RouterURL, cfg.RouterToken, cfg.PublishTimeout)
@@ -44,31 +63,59 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), cfg.EventShutdownTimeout)
+		closeCtx, cancel := componentmetrics.ShutdownContext(cfg.EventShutdownTimeout)
 		_ = eventMonitor.Close(closeCtx)
 		cancel()
 	}()
-	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
+	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ValidateSourceSnapshot: collector.ValidateSuccessfulSourceSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
 	if err != nil {
 		return err
 	}
-	metricsMonitor, err := collector.New(collector.Config{
-		Host: cfg.ExporterEnv["REDIS_EXPORTER_HTTP_HOST"], Port: cfg.ExporterEnv["REDIS_EXPORTER_HTTP_PORT"],
-		Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout,
-		Publisher: messagePublisher, Events: eventMonitor,
-		Update: func(update collector.Update) {
-			manager.RecordMetrics(update.ScrapeAt, update.SuccessAt, update.ErrorCode, update.ErrorMessage)
-		},
-	})
-	if err != nil {
-		return err
-	}
-	manager.AttachMetrics(metricsMonitor)
-	if cfg.BootstrapPackage != "" {
-		if _, err = manager.Bootstrap(ctx, cfg.BootstrapPackage); err != nil {
+	for _, entry := range plugin.OfficialCatalog() {
+		if !entry.Available {
+			continue
+		}
+		metricsMonitor, err := collector.New(collector.Config{Source: entry.Source, Host: "127.0.0.1", Port: strconv.Itoa(entry.Port), Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout, Publisher: messagePublisher, Events: eventMonitor, Update: func(update collector.Update) {
+			manager.RecordSourceMetrics(entry.ID, update.ScrapeAt, update.SuccessAt, update.ErrorCode, update.ErrorMessage)
+		}})
+		if err != nil {
 			return err
 		}
+		manager.AttachSourceMetrics(entry.ID, metricsMonitor)
 	}
+
+	componentCollectors, err := collector.StartComponents(ctx, componentmetrics.Mode(), os.Getenv("GOPULSE_VERSION"), cfg.ScrapeInterval, cfg.ScrapeTimeout, cfg.PublishTimeout, messagePublisher, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdown, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		defer cancel()
+		_ = componentCollectors.Shutdown(shutdown)
+	}()
+	if cfg.BootstrapPackage != "" {
+		if _, err = manager.Bootstrap(ctx, cfg.BootstrapPackage); err != nil {
+			logger.Warn("plugin bootstrap unavailable", "reason", "plugin_operation_failed")
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				count := 0
+				for _, status := range manager.List() {
+					if status.ObservedState == "running" {
+						count++
+					}
+				}
+				state.Set("plugins_running", float64(count))
+			}
+		}
+	}()
 	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})
 	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
 	errs := make(chan error, 1)
@@ -81,11 +128,11 @@ func run(logger *slog.Logger) error {
 		}
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
 		defer cancel()
 		serverErr := server.Shutdown(shutdownCtx)
 		managerErr := manager.Shutdown(shutdownCtx)
-		eventCtx, eventCancel := context.WithTimeout(context.Background(), cfg.EventShutdownTimeout)
+		eventCtx, eventCancel := componentmetrics.ShutdownContext(cfg.EventShutdownTimeout)
 		eventErr := eventMonitor.Close(eventCtx)
 		eventCancel()
 		if serverErr != nil {

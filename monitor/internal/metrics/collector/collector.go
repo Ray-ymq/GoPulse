@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"math"
 	"mime"
@@ -48,6 +49,7 @@ type EventRecorder interface {
 }
 
 type Config struct {
+	Source         string
 	Host           string
 	Port           string
 	Interval       time.Duration
@@ -72,6 +74,12 @@ type Monitor struct {
 }
 
 func New(cfg Config) (*Monitor, error) {
+	if cfg.Source == "" {
+		cfg.Source = "redis"
+	}
+	if cfg.Source != "redis" && cfg.Source != "mysql" && cfg.Source != "rabbitmq" && cfg.Source != "kafka" && cfg.Source != "elasticsearch" && cfg.Source != "victoriametrics" {
+		return nil, errors.New("invalid source")
+	}
 	if cfg.Interval <= 0 || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
 		return nil, errors.New("scrape timeout must be positive and less than interval")
 	}
@@ -155,7 +163,16 @@ func (m *Monitor) run(ctx context.Context, done chan struct{}, manifest plugin.M
 func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	ctx, cancel := context.WithTimeout(parent, m.cfg.Timeout)
 	defer cancel()
+	started := time.Now()
 	status, samples, completedAt, err := m.fetch(ctx, manifest.MetricsPath)
+	result := "scrape_success"
+	if err != nil || status != "success" {
+		result = "scrape_failure"
+	}
+	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", manifest.ID+"-local", result)
+	if result == "scrape_success" {
+		componentmetrics.Active().Set("last_scrape_success_timestamp_seconds", float64(completedAt.Unix()), "exporter_plugin", manifest.ID+"-local")
+	}
 	if err != nil {
 		if parent.Err() != nil {
 			return
@@ -168,14 +185,24 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	if parent.Err() != nil {
 		return
 	}
-	message, err := envelope.New(manifest.ID, manifest.Version, status, samples, completedAt)
+	newEnvelope := envelope.New
+	if manifest.MetricsContractVersion == 2 {
+		newEnvelope = envelope.NewV2
+	}
+	message, err := newEnvelope(manifest.ID, manifest.Version, status, samples, completedAt)
 	if err != nil {
 		m.cfg.Update(Update{ErrorCode: "message_id_failed", ErrorMessage: "metrics message could not be created"})
 		m.recordCollectionFailure("message_id_failed")
 		return
 	}
 	publishCtx, publishCancel := context.WithTimeout(parent, m.cfg.PublishTimeout)
+	started = time.Now()
 	err = m.cfg.Publisher.Publish(publishCtx, message)
+	result = "publish_success"
+	if err != nil {
+		result = "publish_failure"
+	}
+	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", manifest.ID+"-local", result)
 	publishCancel()
 	if err != nil {
 		if parent.Err() == nil {
@@ -187,6 +214,9 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	update := Update{ScrapeAt: &completedAt}
 	if status == "success" {
 		update.SuccessAt = &completedAt
+	} else {
+		update.ErrorCode = "network_failed"
+		update.ErrorMessage = "metrics target is unavailable"
 	}
 	m.cfg.Update(update)
 	m.recordPublished(status)
@@ -201,7 +231,7 @@ func (m *Monitor) recordCollectionFailure(code string) {
 	m.failureActive = true
 	m.episodeMu.Unlock()
 	if m.cfg.Events != nil {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_collection_failed", code, "", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_collection_failed", code, "", m.cfg.Now()))
 	}
 }
 
@@ -221,12 +251,12 @@ func (m *Monitor) recordPublished(status string) {
 		return
 	}
 	if recoveredCollection {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_collection_recovered", "", "success", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_collection_recovered", "", "success", m.cfg.Now()))
 	}
 	if becameUnavailable {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_target_unavailable", "", "target_unavailable", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_target_unavailable", "", "target_unavailable", m.cfg.Now()))
 	} else if recoveredTarget {
-		_ = m.cfg.Events.Record(events.NewMetrics("metrics_target_recovered", "", "success", m.cfg.Now()))
+		_ = m.recordMetricsEvent(events.NewMetrics("metrics_target_recovered", "", "success", m.cfg.Now()))
 	}
 }
 
@@ -262,7 +292,7 @@ func (m *Monitor) fetch(ctx context.Context, path string) (string, []envelope.Sa
 	if int64(len(body)) > MaxResponseBytes {
 		return "", nil, time.Time{}, errors.New("response_too_large")
 	}
-	status, samples, err := parse(response.StatusCode, body)
+	status, samples, err := parseSource(m.cfg.Source, response.StatusCode, body)
 	if err != nil {
 		return "", nil, time.Time{}, err
 	}
@@ -273,11 +303,13 @@ func validPath(path string) bool {
 	return strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !strings.ContainsAny(path, "?#\r\n\x00")
 }
 
-var contracts = map[string]struct {
+type familyContract struct {
 	kind   dto.MetricType
 	labels map[string]bool
 	count  int
-}{
+}
+
+var contracts = map[string]familyContract{
 	"gopulse_redis_up":                       {dto.MetricType_GAUGE, nil, 1},
 	"gopulse_redis_uptime_seconds":           {dto.MetricType_GAUGE, nil, 1},
 	"gopulse_redis_connected_clients":        {dto.MetricType_GAUGE, nil, 1},
@@ -290,7 +322,86 @@ var contracts = map[string]struct {
 	"gopulse_redis_db_expiring_keys":         {dto.MetricType_GAUGE, map[string]bool{"db": true}, 1},
 }
 
+func contractsFor(source string) map[string]familyContract {
+	switch source {
+	case "redis":
+		return contracts
+	case "mysql":
+		return map[string]familyContract{
+			"gopulse_mysql_up":                      {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_uptime_seconds":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_connections":             {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_max_connections":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_threads_running":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_queries_total":           {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_mysql_slow_queries_total":      {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_mysql_transactions_total":      {dto.MetricType_COUNTER, map[string]bool{"result": true}, 2},
+			"gopulse_mysql_buffer_pool_data_bytes":  {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_mysql_buffer_pool_dirty_bytes": {dto.MetricType_GAUGE, nil, 1},
+		}
+	case "rabbitmq":
+		return map[string]familyContract{
+			"gopulse_rabbitmq_up":              {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_connections":     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_channels":        {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_queues":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_consumers":       {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_rabbitmq_messages":        {dto.MetricType_GAUGE, map[string]bool{"state": true}, 2},
+			"gopulse_rabbitmq_published_total": {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_rabbitmq_delivered_total": {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_rabbitmq_acked_total":     {dto.MetricType_COUNTER, nil, 1},
+		}
+	case "kafka":
+		return map[string]familyContract{
+			"gopulse_kafka_up":                          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_brokers":                     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_controller_available":        {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_partitions":                  {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_under_replicated_partitions": {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_offline_partitions":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_kafka_consumer_group_lag":          {dto.MetricType_GAUGE, nil, 1},
+		}
+
+	case "victoriametrics":
+		return map[string]familyContract{
+			"gopulse_victoriametrics_up":                         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_rows_inserted_total":        {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_victoriametrics_query_requests_total":       {dto.MetricType_COUNTER, nil, 1},
+			"gopulse_victoriametrics_active_timeseries":          {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_storage_rows":               {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_storage_size_bytes":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_free_disk_space_bytes":      {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_active_merges":              {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_victoriametrics_storage_rows_deleted_total": {dto.MetricType_COUNTER, nil, 1},
+		}
+	case "elasticsearch":
+		return map[string]familyContract{
+			"gopulse_elasticsearch_up":                    {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_cluster_health_status": {dto.MetricType_GAUGE, map[string]bool{"status": true}, 3},
+			"gopulse_elasticsearch_nodes":                 {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_data_nodes":            {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_active_primary_shards": {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_active_shards":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_relocating_shards":     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_initializing_shards":   {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_unassigned_shards":     {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_pending_tasks":         {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_documents":             {dto.MetricType_GAUGE, nil, 1},
+			"gopulse_elasticsearch_store_size_bytes":      {dto.MetricType_GAUGE, nil, 1},
+		}
+
+	}
+	return nil
+}
 func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
+	return parseSource("redis", httpStatus, body)
+}
+func parseSource(source string, httpStatus int, body []byte) (string, []envelope.Sample, error) {
+	contracts := contractsFor(source)
+	if contracts == nil {
+		return "", nil, errors.New("contract_invalid")
+	}
+	upName := "gopulse_" + source + "_up"
 	if bytes.Contains(body, []byte("\x00")) {
 		return "", nil, errors.New("parse_failed")
 	}
@@ -306,8 +417,8 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 		if len(families) != 1 {
 			return "", nil, errors.New("contract_invalid")
 		}
-		family := families["gopulse_redis_up"]
-		samples, err := validateFamily("gopulse_redis_up", family)
+		family := families[upName]
+		samples, err := validateFamilySource(source, upName, family)
 		if err != nil || len(samples) != 1 || samples[0].Value != 0 {
 			return "", nil, errors.New("contract_invalid")
 		}
@@ -323,7 +434,7 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 	seen := map[string]bool{}
 	for name, contract := range contracts {
 		family := families[name]
-		samples, err := validateFamily(name, family)
+		samples, err := validateFamilySource(source, name, family)
 		if err != nil || len(samples) != contract.count {
 			return "", nil, errors.New("contract_invalid")
 		}
@@ -345,10 +456,17 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 		}
 	}
 	var up bool
+	healthSum := 0.0
 	modes := map[string]bool{}
 	dbValues := map[string]bool{}
 	for _, s := range all {
-		if s.Name == "gopulse_redis_up" {
+		if s.Name == "gopulse_elasticsearch_cluster_health_status" {
+			if s.Value != 0 && s.Value != 1 {
+				return "", nil, errors.New("contract_invalid")
+			}
+			healthSum += s.Value
+		}
+		if s.Name == upName {
 			up = s.Value == 1
 		}
 		if s.Name == "gopulse_redis_cpu_seconds_total" {
@@ -358,7 +476,7 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 			dbValues[s.Labels["db"]] = true
 		}
 	}
-	if !up || !modes["user"] || !modes["system"] || len(modes) != 2 || len(dbValues) != 1 {
+	if (source == "elasticsearch" && healthSum != 1) || !up || (source == "redis" && (!modes["user"] || !modes["system"] || len(modes) != 2 || len(dbValues) != 1)) {
 		return "", nil, errors.New("contract_invalid")
 	}
 	sort.Slice(all, func(i, j int) bool { return sampleKey(all[i]) < sampleKey(all[j]) })
@@ -366,7 +484,10 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 }
 
 func validateFamily(name string, family *dto.MetricFamily) ([]envelope.Sample, error) {
-	contract, ok := contracts[name]
+	return validateFamilySource("redis", name, family)
+}
+func validateFamilySource(source, name string, family *dto.MetricFamily) ([]envelope.Sample, error) {
+	contract, ok := contractsFor(source)[name]
 	if !ok || family == nil || family.GetName() != name || family.Type == nil || family.GetType() != contract.kind {
 		return nil, errors.New("contract_invalid")
 	}
@@ -385,6 +506,12 @@ func validateFamily(name string, family *dto.MetricFamily) ([]envelope.Sample, e
 				return nil, errors.New("contract_invalid")
 			}
 			if key == "mode" && value != "user" && value != "system" {
+				return nil, errors.New("contract_invalid")
+			}
+			if key == "status" && value != "green" && value != "yellow" && value != "red" {
+				return nil, errors.New("contract_invalid")
+			}
+			if (key == "result" && value != "commit" && value != "rollback") || (key == "state" && value != "ready" && value != "unacked") {
 				return nil, errors.New("contract_invalid")
 			}
 			if key == "db" {
@@ -448,4 +575,32 @@ func safeMessage(err error) string {
 	default:
 		return "metrics scrape failed"
 	}
+}
+
+// ValidateSuccessfulSnapshot is also the manager's pre-commit acceptance gate.
+func ValidateSuccessfulSnapshot(status int, body []byte) error {
+	result, _, err := parse(status, body)
+	if err != nil {
+		return err
+	}
+	if result != "success" {
+		return errors.New("target unavailable")
+	}
+	return nil
+}
+
+func ValidateSuccessfulSourceSnapshot(source string, status int, body []byte) error {
+	result, _, err := parseSource(source, status, body)
+	if err != nil {
+		return err
+	}
+	if result != "success" {
+		return errors.New("target unavailable")
+	}
+	return nil
+}
+
+func (m *Monitor) recordMetricsEvent(event events.Event) bool {
+	event.Metadata.PluginID = m.cfg.Source + "-exporter"
+	return m.cfg.Events.Record(event)
 }

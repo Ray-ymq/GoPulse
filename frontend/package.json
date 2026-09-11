@@ -1,13 +1,13 @@
 {
   "name": "gopulse-frontend",
   "private": true,
-  "version": "1.10.6",
+  "version": "1.11.7",
   "type": "module",
   "scripts": {
     "dev": "vite --host localhost",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "build": "npm run typecheck && vite build",
     "test:e2e": "playwright test"
   },

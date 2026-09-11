@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"regexp"
 	"time"
@@ -112,14 +113,17 @@ func Validate(body []byte) (Message, error) {
 	if bytes.Equal(payload, []byte("null")) || len(payload) < 2 || payload[0] != '{' || payload[len(payload)-1] != '}' {
 		return Message{}, errors.New("payload must be a non-null JSON object")
 	}
-	if schemaValue != 1 || !supported(messageType, source) {
+	if schemaValue == 1 && messageType == "metrics" && source != "redis" {
+		return Message{}, errors.New("unsupported envelope")
+	}
+	if (schemaValue != 1 && !(schemaValue == 2 && messageType == "metrics")) || !supported(messageType, source) {
 		return Message{}, UnsupportedError{}
 	}
 	return Message{MessageID: messageID, Type: messageType, Source: source, Body: body}, nil
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && source == "redis") || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics" || componentmetrics.IsComponent(source))) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {

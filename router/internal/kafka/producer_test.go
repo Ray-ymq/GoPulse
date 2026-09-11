@@ -3,6 +3,8 @@ package kafka
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -191,5 +193,18 @@ func waitForBufferedRecords(t *testing.T, client *kgo.Client, expected int64) {
 			t.Fatalf("BufferedProduceRecords()=%d, want %d", client.BufferedProduceRecords(), expected)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+type metricsBufferClient struct{ client }
+
+func (metricsBufferClient) BufferedProduceRecords() int64 { return 2 }
+func (metricsBufferClient) BufferedProduceBytes() int64   { return 127 }
+func TestSnapshotUsesActualBufferedRecordsAndBytes(t *testing.T) {
+	state, _ := componentmetrics.New("router")
+	p := &Producer{client: metricsBufferClient{}}
+	body, ok := p.Snapshot(state)
+	if !ok || !strings.Contains(string(body), "gopulse_router_buffered_records 2\n") || !strings.Contains(string(body), "gopulse_router_buffered_bytes 127\n") {
+		t.Fatal("buffer statistics not exported")
 	}
 }

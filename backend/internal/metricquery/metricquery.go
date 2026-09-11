@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"math"
 	"net/http"
@@ -26,24 +27,90 @@ const (
 )
 
 type Definition struct {
-	Metric string `json:"metric"`
-	Kind   string `json:"kind"`
-	Unit   string `json:"unit"`
-	label  string
+	Source       string `json:"source"`
+	TargetID     string `json:"target_id"`
+	ProducerKind string `json:"producer_kind"`
+	ProducerID   string `json:"producer_id"`
+	Metric       string `json:"metric"`
+	Kind         string `json:"kind"`
+	Unit         string `json:"unit"`
+	label        string
 }
 
-var Catalog = []Definition{
-	{Metric: "gopulse_redis_up", Kind: "gauge", Unit: "boolean"},
-	{Metric: "gopulse_redis_uptime_seconds", Kind: "gauge", Unit: "seconds"},
-	{Metric: "gopulse_redis_connected_clients", Kind: "gauge", Unit: "count"},
-	{Metric: "gopulse_redis_used_memory_bytes", Kind: "gauge", Unit: "bytes"},
-	{Metric: "gopulse_redis_commands_processed_total", Kind: "counter", Unit: "count"},
-	{Metric: "gopulse_redis_keyspace_hits_total", Kind: "counter", Unit: "count"},
-	{Metric: "gopulse_redis_keyspace_misses_total", Kind: "counter", Unit: "count"},
-	{Metric: "gopulse_redis_cpu_seconds_total", Kind: "counter", Unit: "seconds", label: "mode"},
-	{Metric: "gopulse_redis_db_keys", Kind: "gauge", Unit: "count", label: "db"},
-	{Metric: "gopulse_redis_db_expiring_keys", Kind: "gauge", Unit: "count", label: "db"},
-}
+var Catalog = func() []Definition {
+	items := []Definition{
+		{Metric: "gopulse_redis_up", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_uptime_seconds", Kind: "gauge", Unit: "seconds"},
+		{Metric: "gopulse_redis_connected_clients", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_redis_used_memory_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_redis_commands_processed_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_redis_keyspace_hits_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_redis_keyspace_misses_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_redis_cpu_seconds_total", Kind: "counter", Unit: "seconds", label: "mode"},
+		{Metric: "gopulse_redis_db_keys", Kind: "gauge", Unit: "count", label: "db"},
+		{Metric: "gopulse_redis_db_expiring_keys", Kind: "gauge", Unit: "count", label: "db"},
+	}
+	for i := range items {
+		items[i].Source = "redis"
+		items[i].TargetID = "redis-exporter-local"
+		items[i].ProducerKind = "exporter_plugin"
+		items[i].ProducerID = "redis-exporter"
+	}
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_up", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_uptime_seconds", Kind: "gauge", Unit: "seconds", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_connections", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_max_connections", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_threads_running", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_queries_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_slow_queries_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_transactions_total", Kind: "counter", Unit: "count", label: "result"})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_buffer_pool_data_bytes", Kind: "gauge", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_buffer_pool_dirty_bytes", Kind: "gauge", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_up", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_connections", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_channels", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_queues", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_consumers", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_messages", Kind: "gauge", Unit: "count", label: "state"})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_published_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_delivered_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_acked_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_up", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_brokers", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_controller_available", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_partitions", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_under_replicated_partitions", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_offline_partitions", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_consumer_group_lag", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_up", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_cluster_health_status", Kind: "gauge", Unit: "boolean", label: "status"})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_nodes", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_data_nodes", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_active_primary_shards", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_active_shards", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_relocating_shards", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_initializing_shards", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_unassigned_shards", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_pending_tasks", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_documents", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_store_size_bytes", Kind: "gauge", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_up", Kind: "gauge", Unit: "boolean", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_rows_inserted_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_query_requests_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_active_timeseries", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_storage_rows", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_storage_size_bytes", Kind: "gauge", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_free_disk_space_bytes", Kind: "gauge", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_active_merges", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_storage_rows_deleted_total", Kind: "counter", Unit: "count", label: ""})
+	for _, id := range componentmetrics.Components {
+		spec, _ := componentmetrics.Catalog(id)
+		for _, f := range spec.Families {
+			items = append(items, Definition{Source: id, TargetID: componentmetrics.Target(id), ProducerKind: "component", ProducerID: id, Metric: f.Name, Kind: f.Kind, Unit: f.Unit})
+		}
+	}
+	return items
+}()
 
 var definitions = func() map[string]Definition {
 	result := make(map[string]Definition, len(Catalog))
@@ -72,8 +139,24 @@ type Options struct {
 }
 
 type Labels struct {
-	Mode string `json:"mode,omitempty"`
-	DB   string `json:"db,omitempty"`
+	Method              string `json:"method,omitempty"`
+	Route               string `json:"route,omitempty"`
+	StatusClass         string `json:"status_class,omitempty"`
+	EventType           string `json:"event_type,omitempty"`
+	Operation           string `json:"operation,omitempty"`
+	Dependency          string `json:"dependency,omitempty"`
+	ScrapedProducerKind string `json:"scraped_producer_kind,omitempty"`
+	ScrapedTargetID     string `json:"scraped_target_id,omitempty"`
+	Type                string `json:"type,omitempty"`
+	MessageSource       string `json:"message_source,omitempty"`
+	Stage               string `json:"stage,omitempty"`
+	Storage             string `json:"storage,omitempty"`
+
+	Status string `json:"status,omitempty"`
+	Result string `json:"result,omitempty"`
+	State  string `json:"state,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+	DB     string `json:"db,omitempty"`
 }
 
 type Point struct {
@@ -129,7 +212,14 @@ func ParseOptions(values url.Values) (Options, error) {
 }
 
 func QueryExpression(metric string) string {
-	return metric + `{source="redis",target_id="redis-exporter-local"}`
+	d, ok := definitions[metric]
+	if !ok {
+		return ""
+	}
+	if d.Source == "redis" {
+		return metric + `{source="redis",target_id="redis-exporter-local"}`
+	}
+	return fmt.Sprintf(`%s{source="%s",target_id="%s",producer_kind="%s",producer_id="%s"}`, metric, d.Source, d.TargetID, d.ProducerKind, d.ProducerID)
 }
 
 type Upstream interface {
@@ -253,7 +343,17 @@ func decodeResponse(body []byte, definition Definition) ([]Series, error) {
 	if err := decoder.Decode(&envelope); err != nil || envelope.Status != "success" || envelope.Data.ResultType != "matrix" || !envelope.Data.resultSeen {
 		return nil, errors.New("invalid VictoriaMetrics response")
 	}
-	if err := ensureEOF(decoder); err != nil || len(envelope.Data.Result) > maximumSeries {
+	seriesLimit, pointsLimit := maximumSeries, maximumPoints
+	if componentmetrics.IsComponent(definition.Source) {
+		spec, _ := componentmetrics.Catalog(definition.Source)
+		for _, f := range spec.Families {
+			if f.Name == definition.Metric {
+				seriesLimit = len(f.Tuples)
+				pointsLimit = seriesLimit * 97
+			}
+		}
+	}
+	if err := ensureEOF(decoder); err != nil || len(envelope.Data.Result) > seriesLimit {
 		return nil, errors.New("invalid VictoriaMetrics response")
 	}
 	result := make([]Series, 0, len(envelope.Data.Result))
@@ -283,9 +383,14 @@ func decodeResponse(body []byte, definition Definition) ([]Series, error) {
 			if err != nil {
 				return nil, err
 			}
+			if componentmetrics.IsComponent(definition.Source) {
+				if err := componentmetrics.ValidateSample(definition.Source, componentmetrics.Sample{Name: definition.Metric, Kind: definition.Kind, Labels: componentLabelMap(raw.Metric), Value: value}); err != nil {
+					return nil, err
+				}
+			}
 			points = append(points, Point{Timestamp: formatTime(timestamp), Value: value})
 			totalPoints++
-			if totalPoints > maximumPoints {
+			if totalPoints > pointsLimit {
 				return nil, errors.New("too many points")
 			}
 		}
@@ -296,15 +401,55 @@ func decodeResponse(body []byte, definition Definition) ([]Series, error) {
 }
 
 func validateLabels(metric map[string]string, definition Definition) (Labels, string, error) {
-	if metric["__name__"] != definition.Metric || metric["source"] != "redis" || metric["target_id"] != "redis-exporter-local" {
+	if metric["__name__"] != definition.Metric || metric["source"] != definition.Source || metric["target_id"] != definition.TargetID {
 		return Labels{}, "", errors.New("invalid metric provenance")
 	}
-	if len(metric) != 3 && !(definition.label != "" && len(metric) == 4) {
+	if componentmetrics.IsComponent(definition.Source) {
+		if metric["producer_kind"] != "component" || metric["producer_id"] != definition.Source {
+			return Labels{}, "", errors.New("invalid component provenance")
+		}
+		raw := componentLabelMap(metric)
+		if err := componentmetrics.ValidateSample(definition.Source, componentmetrics.Sample{Name: definition.Metric, Kind: definition.Kind, Labels: raw, Value: 0}); err != nil {
+			return Labels{}, "", err
+		}
+		body, _ := json.Marshal(raw)
+		var labels Labels
+		if err := json.Unmarshal(body, &labels); err != nil {
+			return Labels{}, "", err
+		}
+		return labels, labelKey(labels), nil
+	}
+	count := 3
+	if definition.Source != "redis" {
+		count = 5
+		if metric["producer_kind"] != "exporter_plugin" || metric["producer_id"] != definition.ProducerID {
+			return Labels{}, "", errors.New("invalid metric provenance")
+		}
+	}
+	if definition.label != "" {
+		count++
+	}
+	if len(metric) != count {
 		return Labels{}, "", errors.New("unknown metric label")
 	}
 	labels := Labels{}
 	switch definition.label {
+	case "status":
+		if metric["status"] != "green" && metric["status"] != "yellow" && metric["status"] != "red" {
+			return Labels{}, "", errors.New("invalid status label")
+		}
+		labels.Status = metric["status"]
 	case "":
+	case "result":
+		if metric["result"] != "commit" && metric["result"] != "rollback" {
+			return Labels{}, "", errors.New("invalid result label")
+		}
+		labels.Result = metric["result"]
+	case "state":
+		if metric["state"] != "ready" && metric["state"] != "unacked" {
+			return Labels{}, "", errors.New("invalid state label")
+		}
+		labels.State = metric["state"]
 	case "mode":
 		if metric["mode"] != "user" && metric["mode"] != "system" {
 			return Labels{}, "", errors.New("invalid mode label")
@@ -323,7 +468,10 @@ func validateLabels(metric map[string]string, definition Definition) (Labels, st
 	return labels, labelKey(labels), nil
 }
 
-func labelKey(labels Labels) string { return labels.Mode + "\x00" + labels.DB }
+func labelKey(labels Labels) string {
+	body, _ := json.Marshal(labels)
+	return string(body)
+}
 
 func decodeTimestamp(raw json.RawMessage) (time.Time, error) {
 	var seconds float64
@@ -367,4 +515,16 @@ func validation() error {
 }
 func unavailable() error {
 	return apperror.New(apperror.CodeMetricsUnavailable, "metrics are temporarily unavailable")
+}
+
+func componentLabelMap(metric map[string]string) map[string]string {
+	labels := make(map[string]string)
+	for k, v := range metric {
+		switch k {
+		case "__name__", "source", "target_id", "producer_kind", "producer_id":
+		default:
+			labels[k] = v
+		}
+	}
+	return labels
 }

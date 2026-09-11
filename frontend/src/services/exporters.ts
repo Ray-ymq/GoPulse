@@ -41,7 +41,7 @@ function isSafeError(value: unknown): value is ExporterSafeError {
 export function isExporterStatus(value: unknown): value is ExporterStatus {
   const required = ['id','name','version','kind','source','desired_state','observed_state','installed_at','updated_at','started_at','last_scrape_at','last_success_at']
   if (!isRecord(value) || !exactKeys(value, required, ['last_error'])) return false
-  if (value.id !== 'redis-exporter' || !isSafeText(value.name, 80) || typeof value.version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value.version) || value.kind !== 'metrics-exporter' || value.source !== 'redis') return false
+  if (typeof value.source !== 'string' || !sources.includes(value.source) || value.id !== `${value.source}-exporter` || !isSafeText(value.name, 80) || typeof value.version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value.version) || value.kind !== 'metrics-exporter') return false
   if ((value.desired_state !== 'running' && value.desired_state !== 'stopped') || typeof value.observed_state !== 'string' || !observedStates.has(value.observed_state)) return false
   if (!isUTC(value.installed_at) || !isUTC(value.updated_at) || !isOptionalUTC(value.started_at) || !isOptionalUTC(value.last_scrape_at) || !isOptionalUTC(value.last_success_at)) return false
   if ('last_error' in value && !isSafeError(value.last_error)) return false
@@ -52,9 +52,9 @@ export function isExporterStatus(value: unknown): value is ExporterStatus {
   if ((value.observed_state === 'running' || value.observed_state === 'starting') && value.desired_state !== 'running') return false
   if (value.observed_state === 'stopping' && value.desired_state !== 'stopped') return false
   if (value.observed_state === 'running' && value.started_at === null) return false
-  return !('last_error' in value) || Date.parse(value.last_error!.at) >= installed
+  return !('last_error' in value) || isSafeError(value.last_error) && Date.parse(value.last_error.at) >= installed
 }
-function isExporterList(value: unknown): value is ExporterStatus[] { return Array.isArray(value) && value.length <= 1 && value.every(isExporterStatus) }
+function isExporterList(value: unknown): value is ExporterStatus[] { return Array.isArray(value) && value.length <= 6 && value.every(isExporterStatus) && new Set(value.map(item => item.id)).size === value.length }
 function packageBody(file: File): FormData { const form = new FormData(); form.append('package', file); return form }
 export function validateExporterPackage(file: File | null): string {
   if (!file) return '请选择一个 Exporter 安装包。'
@@ -66,8 +66,33 @@ export function validateExporterPackage(file: File | null): string {
 export const exporterApi = {
   list: (signal?: AbortSignal) => requestValidatedData<ExporterStatus[]>('/exporter-plugins', isExporterList, { signal }),
   get: (signal?: AbortSignal) => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter', isExporterStatus, { signal }),
-  start: () => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter/start', isExporterStatus, { method: 'POST' }),
-  stop: () => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter/stop', isExporterStatus, { method: 'POST' }),
+  start: (id = 'redis-exporter') => requestValidatedData<ExporterStatus>(`/exporter-plugins/${id}/start`, isExporterStatus, { method: 'POST' }),
+  stop: (id = 'redis-exporter') => requestValidatedData<ExporterStatus>(`/exporter-plugins/${id}/stop`, isExporterStatus, { method: 'POST' }),
   install: (file: File) => requestValidatedData<ExporterStatus>('/exporter-plugins/install', isExporterStatus, { method: 'POST', body: packageBody(file) }),
-  update: (file: File) => requestValidatedData<ExporterStatus>('/exporter-plugins/redis-exporter/update', isExporterStatus, { method: 'POST', body: packageBody(file) }),
+  update: (file: File, id = 'redis-exporter') => requestValidatedData<ExporterStatus>(`/exporter-plugins/${id}/update`, isExporterStatus, { method: 'POST', body: packageBody(file) }),
+}
+
+export interface PluginField { name: string; type: string; required: boolean; secret: boolean; minimum?: number; maximum?: number; enum?: string[] }
+export interface PluginCatalogItem { id: string; name: string; source: string; available: boolean; schema: { schema_version: number; plugin_id: string; fields: PluginField[] }; configured: boolean; secret_configured: boolean; revision: string; summary: string }
+const sources = ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics']
+export function isPluginCatalog(value: unknown): value is PluginCatalogItem[] {
+  return Array.isArray(value) && value.length === 6 && value.every((item: unknown, index) => {
+    if (!isRecord(item) || !exactKeys(item, ['id','name','source','available','schema','configured','secret_configured','revision','summary'])) return false
+    const source = sources[index]
+    if (item.id !== `${source}-exporter` || item.source !== source || item.name !== `GoPulse ${source} Exporter` || typeof item.available !== 'boolean' || typeof item.configured !== 'boolean' || typeof item.secret_configured !== 'boolean' || (item.secret_configured && !item.configured) || (source === 'kafka' && item.secret_configured) || (!['kafka','elasticsearch'].includes(String(source)) && item.secret_configured !== item.configured)) return false
+    if (item.configured ? typeof item.revision !== 'string' || !/^[a-f0-9]{32}$/.test(item.revision) || !['configured','upgrade_required'].includes(String(item.summary)) : item.revision !== '' || item.summary !== 'not_configured') return false
+    if (!isRecord(item.schema) || !exactKeys(item.schema, ['schema_version','plugin_id','fields']) || item.schema.schema_version !== 1 || item.schema.plugin_id !== item.id || !Array.isArray(item.schema.fields)) return false
+    const names = new Set<string>()
+    return item.schema.fields.length >= 5 && item.schema.fields.length <= 8 && item.schema.fields.every((field: unknown) => {
+      if (!isRecord(field) || !exactKeys(field, ['name','type','required','secret'], ['minimum','maximum','enum']) || typeof field.name !== 'string' || !['host','port','management_port','database','username','password','vhost','topic','consumer_group','connect_timeout','scrape_timeout'].includes(field.name) || names.has(field.name)) return false
+      names.add(field.name)
+      return ['hostname','port','integer','string','secret','duration'].includes(String(field.type)) && typeof field.required === 'boolean' && field.secret === (field.name === 'password') && (field.minimum === undefined || Number.isInteger(field.minimum)) && (field.maximum === undefined || Number.isInteger(field.maximum)) && (field.enum === undefined || Array.isArray(field.enum) && field.enum.every((v: unknown) => typeof v === 'string'))
+    })
+  })
+}
+const configBody = (config: Record<string, string | number>, secrets: Record<string, string>) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config, secrets }) })
+export const pluginConfigApi = {
+  catalog: (signal?: AbortSignal) => requestValidatedData('/exporter-plugins/catalog', isPluginCatalog, { signal }),
+  check: (config: Record<string,string|number>, secrets: Record<string,string>, id = 'redis-exporter') => requestValidatedData(`/exporter-plugins/${id}/connection-test`, (v: unknown): v is { reachable: true } => isRecord(v) && exactKeys(v, ['reachable']) && v.reachable === true, { method: 'POST', ...configBody(config, secrets) }),
+  save: (config: Record<string,string|number>, secrets: Record<string,string>, install: boolean, id = 'redis-exporter') => requestValidatedData(`/exporter-plugins/${id}/${install ? 'install' : 'configuration'}`, isExporterStatus, { method: install ? 'POST' : 'PUT', ...configBody(config, secrets) }),
 }
