@@ -37,3 +37,35 @@
 - 没有重跑完整 Compose、Browser E2E、真实迁移、镜像构建、race、全仓库或跨平台支持矩阵；无依据扩大范围。
 - 未检查第三方依赖源码。既有第六批完整运行时证据保留为历史，不冒充本批检查。
 - P2-01、P3-01、P3-02 在本分支整改完成，无本批阻断项；合入 main 仍由后续合并流程完成。
+
+## PR 门禁跟进：冷启动迁移连接超时（2026-09-12）
+
+### 实际失败与定位
+
+推送 `198710c` 后，Actions run `34632817517` 的 `Full-stack Compose acceptance`（job `103373519432`）失败，自动创建 PR 的 job 被跳过；其余九个质量门禁 job 成功。不是已创建 PR 的合并冲突。
+
+远程日志显示空 Compose 的 migrate 服务在 `000009_post_edits` 的多语句 DDL 返回 `invalid connection`，随后 `SELECT RELEASE_LOCK(?)` 返回 `driver: bad connection`，最终 `cold complete Compose startup failed`。原 MySQL migration 连接继承业务连接的 1 秒 ReadTimeout。CI 日志没有底层网络错误细节，不能单靠该错误排除所有外因；定向实验证明这一过短预算可稳定产生相同错误。
+
+### 修复与范围
+
+- `backend/internal/platform/mysql.go`：只将 migration 专用 ReadTimeout 设为有界的 2 分钟；应用读超时仍为 1 秒，dial/write 超时不变，multi-statements 仍只用于迁移。
+- `backend/internal/platform/platform_test.go`：验证业务与迁移读预算隔离、迁移预算有限及其余超时不变。
+- `backend/internal/platform/integration_test.go`：真实 MySQL 下执行 `SELECT SLEEP(1.2)`，直接证明迁移连接能等待超过业务预算的服务器响应。
+- 没有重试失败 DDL、force dirty version、跳过迁移或放宽 CI；不改迁移 SQL、生产数据及无关容器。
+- 属于同一 `develop/1.11.7` 的 PR 跟进，产品版本仍为 `1.11.7`。扩展验证的具体依据是 CI 观测到的真实持久化迁移失败，而非额外审计。
+
+### 实际检查
+
+| 检查 | 结果 |
+| --- | --- |
+| `cd backend && go test ./internal/platform ./cmd/migrate ./migrations` | 通过；migrations 使用缓存 |
+| 原 HEAD 的 mysql.go + `go test -tags=integration ./internal/platform -run '^TestIntegrationMigrationAllowsSlowStatement$' -count=1 -v` | 如预期失败，约 1.01 秒返回 `invalid connection`；随即恢复修复代码 |
+| 修复后同一定向 integration 命令 | 通过，约 1.20 秒 |
+| 隔离 MySQL 8.4.0 空库：`go run ./cmd/migrate up` | 全套真实迁移通过 |
+| 同库第二次 `go run ./cmd/migrate up` | 返回 `database migrations already up to date` |
+| `SELECT version, dirty FROM schema_migrations` | `11 / 0` |
+| `cd backend && go vet ./internal/platform ./cmd/migrate ./migrations` | 通过 |
+
+测试使用本任务新建、带任务 label 的 `gopulse-prfix-8f5d84967611` 容器，随机 loopback 端口 `56940`；核对 label 后已删除容器与匿名卷，未接触已有环境。临时日志和执行脚本位于 `/tmp/gopulse-pr-fix/`。未读取第三方依赖实现。
+
+本地只复现失败原因并验证迁移范围，不声称完整 Compose 已重新通过；推送后由既有权威 CI 再执行完整门禁。提交前检查 diff 和暂存区，本任务仅提交上述三个 Go 文件、本记录及同名方案的 PR 跟进验收补充。

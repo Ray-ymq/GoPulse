@@ -85,3 +85,15 @@ func TestMySQLMigrationDriverConfigEnablesMultiStatementsOnlyForMigrations(t *te
 		t.Fatal("migration MySQL config does not enable multi-statements")
 	}
 }
+
+func TestMySQLMigrationReadTimeoutIsSeparateAndBounded(t *testing.T) {
+	cfg := config.MySQLConfig{Host: "mysql.internal", Port: 3306, Database: "gopulse", User: "gopulse"}
+	application := mysqlDriverConfig(cfg)
+	migration := mysqlMigrationDriverConfig(cfg)
+	if application.ReadTimeout != time.Second || migration.ReadTimeout != 2*time.Minute {
+		t.Fatalf("read timeouts: application=%s migration=%s", application.ReadTimeout, migration.ReadTimeout)
+	}
+	if migration.Timeout != application.Timeout || migration.WriteTimeout != application.WriteTimeout {
+		t.Fatal("migration override must not change dial or write timeouts")
+	}
+}
