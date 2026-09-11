@@ -36,3 +36,9 @@ it('validates the server metric catalog before opening a metric query', async ()
   expect(isMetricCatalog(catalog)).toBe(true)
   expect(isMetricCatalog(catalog.map(item => ({...item,producer_id:'mysql-exporter'})))).toBe(false)
 })
+
+it('accepts the sixth plugin lifecycle identity without exposing runtime metadata', () => {
+  const event = { timestamp:'2026-09-11T08:00:00Z',event_name:'exporter_plugin_started',source:'monitor',severity:'info',message:'exporter plugin started',metadata:{plugin_id:'victoriametrics-exporter',plugin_version:'1.11.4',operation:'start',from_state:'stopped',to_state:'running'} }
+  expect(isEventEntry(event)).toBe(true)
+  expect(isEventEntry({...event,metadata:{...event.metadata,pid:'123'}})).toBe(false)
+})

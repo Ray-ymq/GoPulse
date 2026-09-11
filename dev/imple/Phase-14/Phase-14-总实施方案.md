@@ -1,6 +1,6 @@
 # Phase 14：插件体系与组件可观测闭环总实施方案
 
-> 当前状态：Phase 14 整体未完成；Phase-14-01 至 Phase-14-03 已完成，当前完成产品版本为 `1.11.3`，Phase-14-04 至 Phase-14-06 尚未完成。第三批已按 §10.2 的隔离临时 follower 合同通过真实验收并恢复单 broker 基线，结果与环境偏差见其同名开发记录。本文档于 2026-09-09 基于主远程 `upstream/main` 提交 `8caf8d4`、Phase 13 已完成产品版本 `1.10.6` 与 Compose 产品基线编写。Phase 14 使用 `1.11.x` 版本线，拆分为 6 个执行批次。本文档是 Phase 14 批次顺序、目标版本和开发分支的唯一权威来源；每批开工时仍须 fetch 主远程，从包含全部前置批次的最新 `upstream/main` 创建对应 `develop/x.x.x` 分支。
+> 当前状态：Phase 14 整体未完成；Phase-14-01 至 Phase-14-04 已完成，当前完成产品版本为 `1.11.4`，Phase-14-05 至 Phase-14-06 尚未完成。第四批已按修订后的删除行计数合同通过六插件并行、故障隔离、自观测恢复和浏览器验收，证据见同名开发记录。第三批已按 §10.2 的隔离临时 follower 合同通过真实验收并恢复单 broker 基线，结果与环境偏差见其同名开发记录。本文档于 2026-09-09 基于主远程 `upstream/main` 提交 `8caf8d4`、Phase 13 已完成产品版本 `1.10.6` 与 Compose 产品基线编写。Phase 14 使用 `1.11.x` 版本线，拆分为 6 个执行批次。本文档是 Phase 14 批次顺序、目标版本和开发分支的唯一权威来源；每批开工时仍须 fetch 主远程，从包含全部前置批次的最新 `upstream/main` 创建对应 `develop/x.x.x` 分支。
 
 ## 1. 阶段目标
 
@@ -337,7 +337,7 @@ Phase-14-01 用迁移前写入的真实 v1 点和迁移后真实 v2 点查询跨
 | RabbitMQ | `gopulse_rabbitmq_up`、`connections`、`channels`、`queues`、`consumers`、`messages`、`published_total`、`delivered_total`、`acked_total` | up/connections/channels/queues/consumers/messages 为 gauge，其他为 counter；messages 固定 `state=ready|unacked` |
 | Kafka | `gopulse_kafka_up`、`brokers`、`controller_available`、`partitions`、`under_replicated_partitions`、`offline_partitions`、`consumer_group_lag` | 全部 gauge 且无 label；topic/group 是配置中的服务端固定值，不再写入 label |
 | Elasticsearch | `gopulse_elasticsearch_up`、`cluster_health_status`、`nodes`、`data_nodes`、`active_primary_shards`、`active_shards`、`relocating_shards`、`initializing_shards`、`unassigned_shards`、`pending_tasks`、`documents`、`store_size_bytes` | 全部 gauge；health 固定三个 one-hot sample `status=green|yellow|red`，不带 node/index/shard 名 |
-| VictoriaMetrics | `gopulse_victoriametrics_up`、`rows_inserted_total`、`query_requests_total`、`active_timeseries`、`storage_rows`、`storage_size_bytes`、`free_disk_space_bytes`、`active_merges`、`retention_deletions_total` | up/active/storage/disk/merge 为 gauge，rows/query/retention 为 counter；无 label，只映射锁定上游 families |
+| VictoriaMetrics | `gopulse_victoriametrics_up`、`rows_inserted_total`、`query_requests_total`、`active_timeseries`、`storage_rows`、`storage_size_bytes`、`free_disk_space_bytes`、`active_merges`、`storage_rows_deleted_total` | up/active/storage/disk/merge 为 gauge，rows/query/storage_rows_deleted 为 counter；无 label，只映射锁定上游 families |
 
 表中省略前缀的 family 均继承本行 source 的 `gopulse_<source>_` 前缀。Phase 14 只使用 counter/gauge，不增加 histogram。若锁定上游无法稳定提供某项，必须在对应批次开工前先修订总方案与未开工 split plan，不得在代码中静默缺省或替名。
 
@@ -357,6 +357,16 @@ Phase-14-01 用迁移前写入的真实 v1 点和迁移后真实 v2 点查询跨
 - success 必须满足完整目录；缺失字段不因“看起来是冷启动”而默认零。只有锁定接口有明确零省略语义且已写入映射表时才允许补零，认证/权限错误绝不能按零处理。
 - 采集到的 counter 重置原样表达，不本地累计掩盖重启；gauge 不用历史成功值填补。动态上游值的验收比较同一次/有界时间窗的快照和单调关系，不要求两次采样瞬时绝对相等。
 - Kafka 冷启动依赖真实 Marshaller 消费产生正式 committed offset；缺失时只让 Kafka 插件等待/安全失败，不把它加入 Router/Marshaller 业务启动依赖。验收先产生一条真实可观测消息并确认正式消费，再检查 Kafka 插件自动恢复或重试安装。
+
+#### VictoriaMetrics 删除行计数合同修订（2026-09-11）
+
+经用户确认，第九项正式改为 `gopulse_victoriametrics_storage_rows_deleted_total`（counter，单位 rows，无 label），取代未交付的 `gopulse_victoriametrics_retention_deletions_total`。这是一项产品语义调整，不是旧名称的等价重命名；不保留旧名 alias、不双写，也不把旧名放入 Backend/Frontend 指标目录。
+
+- 锁定上游为 Compose 的 `victoriametrics/victoria-metrics:v1.151.0`，映射公式为 `vm_rows_deleted_total{type="storage/inmemory"}`、`{type="storage/small"}`、`{type="storage/big"}` 三个样本之和。仅接受这三个固定 type，不汇总 indexdb 或未来新增 type，不透传上游 labels。
+- 含义仅为上述 storage 合并过程报告的已删除行数；显式删除后的合并也可能增加计数。它不是 retention 专属删除量，不保证覆盖所有过期数据清理路径，也不代表当前已删除 series 数、当前存储行数或释放的 bytes。
+- 三个选定样本均必须存在且有效；冷启动真实零可以输出零，缺失、重复或不兼容字段必须整体安全失败，不补零、不沿用历史值。上游重启重置原样表达，不由 Exporter 本地累计。
+- 修订依据为本批在独立临时实例的真实探测：默认 `1M` retention 下写入当前时间样本，执行显式 `delete_series`，再写入另一 series 并 flush/merge 后，三个 storage 分量由全零变为 `0 / 1 / 0`。因此原候选不能证明 retention 专属语义。探测仅操作临时数据，不是 Exporter 所需能力，不得为采集增加删除或强制合并权限。
+- 该探测只解决删除计数的语义选择，不代表完整九项映射、Exporter、制品、六插件闭环或本批验收已经完成。其余映射继续按本节及 §16.1 实证锁定；Phase-14-04 的既有固定门禁不新增独立完整 Compose 运行。
 
 ### 10.2 Kafka 部分异常验收拓扑例外（2026-09-10 授权）
 

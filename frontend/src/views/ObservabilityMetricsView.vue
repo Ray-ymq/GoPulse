@@ -17,7 +17,7 @@ let sequence = 0
 let controller: AbortController | null = null
 const latest = computed(() => result.value?.series.map((series) => ({ series, labels: series.labels, point: series.points.at(-1) })).filter((item) => item.point) ?? [])
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'metrics_unavailable') return 'Metrics 服务暂时不可用，已保留上次成功结果。'
+  if (error instanceof ApiError && error.code === 'metrics_unavailable') return '指标存储或查询服务暂时不可用（VictoriaMetrics），已保留上次成功结果；这不代表所有 Exporter 目标均不可达。'
   if (error instanceof ApiError && error.code === 'permission_denied') return '当前账号已无管理员权限。'
   return '指标查询失败，请稍后重试。'
 }
