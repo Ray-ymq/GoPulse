@@ -916,18 +916,20 @@ func (c *runtimeCore) recordMetrics(id string, scrape, success *time.Time, code,
 	}
 }
 func (c *runtimeCore) shutdown(ctx context.Context) error {
+	var failures []error
 	for _, item := range OfficialCatalog() {
 		s, err := c.lock(ctx, item.ID)
 		if err != nil {
-			return err
+			failures = append(failures, err)
+			continue
 		}
 		err = c.stopProcess(ctx, item.ID)
 		unlock(s)
 		if err != nil {
-			return err
+			failures = append(failures, err)
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 func (m *Manager) Configure(ctx context.Context, id string, data []byte, install bool) (Status, error) {
