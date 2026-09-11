@@ -1,7 +1,7 @@
 package logship
 
 import (
-	"context"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
 	"sync"
@@ -55,7 +55,7 @@ func (r *Runtime) Close() error {
 	if r == nil || r.shipper == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), r.shutdownTimeout)
+	ctx, cancel := componentmetrics.ShutdownContext(r.shutdownTimeout)
 	defer cancel()
 	return r.shipper.Close(ctx)
 }

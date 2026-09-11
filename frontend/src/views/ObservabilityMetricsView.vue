@@ -45,7 +45,7 @@ onBeforeUnmount(() => { sequence++; controller?.abort() })
 </script>
 <template>
   <section>
-    <div class="admin-title"><div><p class="admin-eyebrow">FIXED RANGE QUERY</p><h2>Plugin Metrics</h2><p>仅查询固定指标目录与服务器生成的时间窗。</p></div><button class="button" :disabled="loading" @click="load">{{ loading ? '查询中…' : '刷新' }}</button></div>
+    <div class="admin-title"><div><p class="admin-eyebrow">FIXED RANGE QUERY</p><h2>Plugin & Component Metrics</h2><p>仅查询固定指标目录与服务器生成的时间窗。</p></div><button class="button" :disabled="loading" @click="load">{{ loading ? '查询中…' : '刷新' }}</button></div>
     <form class="filter-bar" @submit.prevent="load">
       <label>指标<select v-model="metric"><option v-for="item in options" :key="item.value" :value="item.value">{{ item.label }} · {{ item.value }}</option></select></label>
       <label>范围<select v-model="range"><option v-for="item in ranges" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>

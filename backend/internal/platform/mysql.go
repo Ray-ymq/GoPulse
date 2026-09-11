@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"database/sql"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"strconv"
 	"time"
@@ -84,7 +85,9 @@ func (client *MySQL) DB() *sql.DB {
 }
 
 func (client *MySQL) Check(ctx context.Context) error {
-	return client.database.PingContext(ctx)
+	err := client.database.PingContext(ctx)
+	componentmetrics.Dependency("mysql", err)
+	return err
 }
 
 func (client *MySQL) Close() error {
