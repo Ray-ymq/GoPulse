@@ -30,3 +30,23 @@ func TestIntegrationDependenciesAreAvailable(t *testing.T) {
 		t.Fatalf("Redis dependency is unavailable: %v", err)
 	}
 }
+
+// A slow server response reproduces the cold-start migration connection failure
+// without relying on host load to make a particular ALTER TABLE take >1s.
+func TestIntegrationMigrationAllowsSlowStatement(t *testing.T) {
+	cfg := integrationtest.Environment(t)
+	database, err := OpenMySQLMigrationDatabase(cfg.MySQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var result int
+	if err := database.QueryRowContext(ctx, "SELECT SLEEP(1.2)").Scan(&result); err != nil {
+		t.Fatalf("migration connection must survive a response beyond the application 1s budget: %v", err)
+	}
+	if result != 0 {
+		t.Fatalf("slow statement interrupted: %d", result)
+	}
+}
