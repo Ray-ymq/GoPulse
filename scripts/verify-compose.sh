@@ -24,10 +24,12 @@ usage() {
 Usage: scripts/verify-compose.sh [--full] [--keep]
        scripts/verify-compose.sh --self-test
        scripts/verify-compose.sh --phase13 [--keep]
+       scripts/verify-compose.sh --phase14
        scripts/verify-compose.sh --business [--keep]
        scripts/verify-compose.sh --observability [--keep]
 
 --full (the default) runs the authoritative Phase 12 full-stack closure.
+--phase14 runs the complete Phase 14 closure (mandatory cleanup; no --keep).
 --phase13 runs the Phase 13 business closure and representative administrator paths on the complete product.
 --business preserves the focused Phase-12-01 business regression.
 --observability is a compatibility alias for the full-stack closure.
@@ -61,7 +63,7 @@ run_self_test() {
 
 while (($#)); do
   case $1 in
-    --self-test|--full|--business|--observability|--phase13) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
+    --self-test|--full|--business|--observability|--phase13|--phase14) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
     --keep) KEEP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1"; usage >&2; exit 2 ;;
@@ -72,6 +74,11 @@ if [[ $MODE == --self-test ]]; then
   ((KEEP == 0)) || fail '--keep is only valid with an execution mode'
   run_self_test
   exit 0
+fi
+if [[ $MODE == --phase14 ]]; then
+  ((KEEP == 0)) || { fail '--phase14 requires cleanup and does not accept --keep'; exit 2; }
+  "$SCRIPT_DIR/verify-compose-observability.sh" --phase14
+  exec python3 "$SCRIPT_DIR/ci/verify_phase14_closure.py"
 fi
 if [[ $MODE == --full || $MODE == --observability || $MODE == --phase13 ]]; then
   args=()
