@@ -17,16 +17,17 @@ function selectPlugin(id: string): void {
  status.value = statuses.value.find(item => item.id === id) ?? null
  for (const key of Object.keys(configuration)) delete configuration[key]
  const source = id.replace('-exporter', '')
- Object.assign(configuration, { host: source, connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: 'gopulse', username: 'gopulse_metrics' } : { management_port: 15672, vhost: '/', username: 'gopulse_metrics' })
+ Object.assign(configuration, { host: source, connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: 'gopulse', username: 'gopulse_metrics' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: 'gopulse_metrics' } : source === 'kafka' ? { port: 19092, topic: 'gopulse-observability-v1', consumer_group: 'gopulse-marshaller-metrics-v1' } : { port: 9200 })
 }
 async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {
   if (busy.value) return
   if (kind === 'save' && !window.confirm('替换配置将试启动并验证所选插件，失败时恢复原配置。是否继续？')) return
   operation.value = kind; message.value = ''
+  const candidate = Object.fromEntries(Object.entries(configuration).filter(([key, value]) => key !== 'username' || value !== ''))
   const secrets: Record<string, string> = password.value ? { password: password.value } : {}
   try {
-    if (kind === 'check') { await pluginConfigApi.check(configuration, secrets, selected.value); message.value = '连接测试成功；尚未保存候选配置。' }
-    else { status.value = await pluginConfigApi.save(configuration, secrets, kind === 'install', selected.value); catalog.value = await pluginConfigApi.catalog(); statuses.value = await exporterApi.list(); message.value = '配置已验证并保存。' }
+    if (kind === 'check') { await pluginConfigApi.check(candidate, secrets, selected.value); message.value = '连接测试成功；尚未保存候选配置。' }
+    else { status.value = await pluginConfigApi.save(candidate, secrets, kind === 'install', selected.value); catalog.value = await pluginConfigApi.catalog(); statuses.value = await exporterApi.list(); message.value = '配置已验证并保存。' }
   } catch (error) { message.value = errorMessage(error) }
   finally { password.value = ''; operation.value = '' }
 }
@@ -95,8 +96,8 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
         <input v-else v-model="configuration[field.name]" :aria-label="field.name" :disabled="busy">
       </label>
       <div class="exporter-actions">
-        <button class="button" :disabled="busy || !password" @click="configure('check')">{{ operation === 'check' ? '测试中…' : '连接测试' }}</button>
-        <button v-if="!status" class="button" :disabled="busy || !password" @click="configure('install')">安装并启动</button>
+        <button class="button" :disabled="busy || (selectedItem?.schema.fields.some(field => field.secret && field.required) && !password)" @click="configure('check')">{{ operation === 'check' ? '测试中…' : '连接测试' }}</button>
+        <button v-if="!status" class="button" :disabled="busy || (selectedItem?.schema.fields.some(field => field.secret && field.required) && !password)" @click="configure('install')">安装并启动</button>
         <button v-else class="button" :disabled="busy || selectedItem.summary === 'upgrade_required'" @click="configure('save')">替换配置</button>
         <RouterLink :to="`/admin/observability/metrics?source=${selectedItem.source}`">查询插件指标</RouterLink>
       </div>

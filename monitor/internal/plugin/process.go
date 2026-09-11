@@ -105,6 +105,10 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	for _, suffix := range []string{"HOST", "PORT", "MANAGEMENT_PORT", "PASSWORD", "USERNAME", "DB", "DATABASE", "VHOST", "EXPORTER_HTTP_HOST", "EXPORTER_HTTP_PORT", "EXPORTER_SCRAPE_TIMEOUT", "EXPORTER_CONNECT_TIMEOUT", "EXPORTER_SHUTDOWN_TIMEOUT"} {
 		allowed[prefix+"_"+suffix] = true
 	}
+	if entry.Source == "kafka" {
+		allowed["KAFKA_TOPIC"] = true
+		allowed["KAFKA_CONSUMER_GROUP"] = true
+	}
 	for key, value := range env {
 		if allowed[key] {
 			cmd.Env = append(cmd.Env, key+"="+value)

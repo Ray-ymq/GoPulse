@@ -152,7 +152,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {
@@ -285,6 +285,7 @@ func validatePayload(p *Payload) error {
 		return reject("invalid_sample_set")
 	}
 	counts := map[string]int{}
+	healthSum := 0.0
 	seen := map[string]struct{}{}
 	modes := map[string]bool{}
 	dbValues := map[string]bool{}
@@ -296,6 +297,12 @@ func validatePayload(p *Payload) error {
 		}
 		if err := validateSample(s, rule); err != nil {
 			return err
+		}
+		if s.Name == "gopulse_elasticsearch_cluster_health_status" {
+			if s.FloatValue != 0 && s.FloatValue != 1 {
+				return reject("invalid_sample_set")
+			}
+			healthSum += s.FloatValue
 		}
 		key := canonicalKey(*s)
 		if _, ok := seen[key]; ok {
@@ -324,6 +331,9 @@ func validatePayload(p *Payload) error {
 			return reject("invalid_sample_set")
 		}
 	}
+	if source == "elasticsearch" && healthSum != 1 {
+		return reject("invalid_sample_set")
+	}
 	if source == "redis" && (len(modes) != 2 || !modes["user"] || !modes["system"] || len(dbValues) != 1) {
 		return reject("invalid_sample_set")
 	}
@@ -341,6 +351,9 @@ func validateSample(s *Sample, rule familyRule) error {
 		allowed[name] = true
 	}
 	for key, value := range s.Labels {
+		if key == "status" && value != "green" && value != "yellow" && value != "red" {
+			return reject("invalid_label")
+		}
 		if (key == "result" && value != "commit" && value != "rollback") || (key == "state" && value != "ready" && value != "unacked") {
 			return reject("invalid_label")
 		}
@@ -412,6 +425,33 @@ func rulesFor(source string) map[string]familyRule {
 			"gopulse_rabbitmq_delivered_total": {kind: "counter", counter: true, count: 1, labels: nil},
 			"gopulse_rabbitmq_acked_total":     {kind: "counter", counter: true, count: 1, labels: nil},
 		}
+	case "kafka":
+		return map[string]familyRule{
+			"gopulse_kafka_up":                          {kind: "gauge", count: 1, labels: nil},
+			"gopulse_kafka_brokers":                     {kind: "gauge", count: 1, labels: nil},
+			"gopulse_kafka_controller_available":        {kind: "gauge", count: 1, labels: nil},
+			"gopulse_kafka_partitions":                  {kind: "gauge", count: 1, labels: nil},
+			"gopulse_kafka_under_replicated_partitions": {kind: "gauge", count: 1, labels: nil},
+			"gopulse_kafka_offline_partitions":          {kind: "gauge", count: 1, labels: nil},
+			"gopulse_kafka_consumer_group_lag":          {kind: "gauge", count: 1, labels: nil},
+		}
+
+	case "elasticsearch":
+		return map[string]familyRule{
+			"gopulse_elasticsearch_up":                    {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_cluster_health_status": {kind: "gauge", count: 3, labels: []string{"status"}},
+			"gopulse_elasticsearch_nodes":                 {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_data_nodes":            {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_active_primary_shards": {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_active_shards":         {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_relocating_shards":     {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_initializing_shards":   {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_unassigned_shards":     {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_pending_tasks":         {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_documents":             {kind: "gauge", count: 1, labels: nil},
+			"gopulse_elasticsearch_store_size_bytes":      {kind: "gauge", count: 1, labels: nil},
+		}
+
 	}
 	return nil
 }
