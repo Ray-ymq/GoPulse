@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -73,5 +74,25 @@ func TestTopologyConfigurationSecrets(t *testing.T) {
 	}
 	if _, _, err = a.Parse([]byte(`{"config":`+config+`}`), "container", secret); err == nil {
 		t.Fatal("username removed with preserved password")
+	}
+}
+
+func TestVictoriaMetricsControlledConfiguration(t *testing.T) {
+	a, ok := adapterFor("victoriametrics-exporter")
+	if !ok {
+		t.Fatal("missing adapter")
+	}
+	request := []byte(`{"config":{"host":"victoriametrics","port":8428,"username":"metrics","connect_timeout":"1s","scrape_timeout":"2s"},"secrets":{"password":"private-canary"}}`)
+	public, private, err := a.Parse(request, "container", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := a.Environment(public, private)
+	if env["VICTORIAMETRICS_HOST"] != "victoriametrics" || env["VICTORIAMETRICS_PASSWORD"] != "private-canary" {
+		t.Fatal("wrong scoped environment")
+	}
+	bad := bytes.Replace(request, []byte(`"victoriametrics"`), []byte(`"http://victoriametrics/metrics"`), 1)
+	if _, _, err = a.Parse(bad, "container", nil); err == nil {
+		t.Fatal("arbitrary URL accepted")
 	}
 }

@@ -89,3 +89,13 @@ the standard Compose target does not require account reconciliation. The
 security-enabled acceptance fixture uses only monitor privileges, never a
 business/admin credential in the Exporter. Per-source details are in each
 Exporter README and the Phase-14-03 record.
+
+### VictoriaMetrics / six-source artifacts
+
+`--source victoriametrics` builds the sixth reproducible Manifest v2 package.
+The production Monitor embeds current six-source packages and no failure fixtures.
+The acceptance target alone trusts VictoriaMetrics `1.11.90` (failure) and
+`1.11.5` (successful upgrade) packages; an unregistered self-consistent archive is
+still rejected before execution. Packaging does not grant arbitrary source,
+origin, metrics-family or credential permissions. The exact nine-family mapping
+is in `exporters/victoriametrics/README.md`.
