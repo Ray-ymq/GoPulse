@@ -1,6 +1,6 @@
 # Phase-14-03：Kafka 与 Elasticsearch 插件闭环实施方案
 
-> 当前状态：待实施。本文档定义 Phase 14 第三个执行批次的范围与验收合同；目标版本 `1.11.3`、开发分支 `develop/1.11.3` 和执行顺序以 `Phase-14-总实施方案.md` 为准。
+> 当前状态：已完成。目标版本 `1.11.3`、开发分支 `develop/1.11.3` 和执行顺序以 `Phase-14-总实施方案.md` 为准。已按批准的临时 follower 合同通过真实部分异常/恢复、Backend 查询、五插件隔离与浏览器闭环；详细结果、构建环境偏差和故障修复见同名开发记录。
 
 ## 1. 批次目标
 
@@ -24,8 +24,59 @@ Elasticsearch cluster health/stats                    → elasticsearch-exporter
 ### 2.1 正常、初始与部分异常合同
 
 - 严格执行总方案 §10.1：Kafka group/topic 不存在或任一 partition 无有效 committed offset 是安全采集失败，不填零、不创建 topic、不提交 offset。必须通过真实可观测消息与正式 Marshaller 消费建立正常基线。
-- 前置确认中记录如何在强归属、锁定单 broker 拓扑产生并恢复至少一种可读取完整快照的部分异常；不得直接改生产 broker 或扩展为多 broker 产品能力。真实注入无法成立时按总方案 §16.1 先调整验收合同，不能用 fixture 替代后标通过。
+- 产品保持锁定单 broker 拓扑；仅部分异常真实验收允许按 §2.2 在强归属隔离环境临时增加一个同版本 follower broker。必须取得并恢复至少一种完整快照可读的部分异常，不直接改生产 broker，不扩展多 broker 产品能力；步骤未实证前不得标通过，不能用 fixture 替代。
 - Elasticsearch 固定 primary docs/store 范围；对 health=yellow/red 且完整字段可得输出 up=1，不能把健康枚举等同连接成功与否。
+
+### 2.2 Kafka 部分异常：仅限验收的临时第二 broker
+
+#### 授权与不变边界
+
+2026-09-10 的真实前置探测已确认：锁定 Kafka 4.3.1 的官方工具拒绝未注册 broker，
+直接 AlterPartitionAssignments 请求也返回 partition ErrorCode=39；该路径不能产生
+所需的可读 under-replicated 快照。用户已批准仅在强归属测试环境临时增加第二 broker。
+这不是生产扩容、产品多 broker 支持或验收通过声明；探测事实见本批同名开发记录。
+
+- 产品 `deploy/compose.yaml` 默认拓扑、Schema、一个 plugin ID/target/进程、唯一目标
+  `kafka:19092`、固定 topic/group、生产客户端拨号 allowlist 和发布制品保持不变。
+- 第二 broker 仅由验收 harness 的临时 Compose override 启动，使用与主 broker 相同的
+  锁定镜像 `apache/kafka:4.3.1`，作为 broker-only follower，不加入 controller quorum。
+  使用该次随机 project、专属 network/volume、唯一 node ID，不发布宿主端口，不共享生产数据。
+  不提供用户配置入口、额外目标发现、生产环境开关或测试专用 Exporter 二进制。
+- Exporter 始终只允许连接原目标；Metadata 中可见第二 broker 不代表允许拨号到它。
+  固定 topic 所有 partition 的 leader、正式 group coordinator，以及该 group 必需的
+  offsets 分区 leader 必须保持在原 broker。若协议库尝试其他 origin，保持拒绝；
+  不得为通过验收扩大生产 allowlist 或跳过完整快照检查。
+- 验收管理员可在本次隔离 topic 上调整 replica assignment；这是故障准备/恢复行为，
+  与 Exporter 只读权限和代码严格分离。不得重置/伪造/手工提交正式 Marshaller offset，
+  不新增业务 topic，不改变业务数据或持久 broker 配置。账号授权与所执行写命令需记录。
+
+#### 必须实际执行的步骤与证据
+
+1. 先按原单 broker 拓扑运行真实 Router → Kafka → 正式 Marshaller 消费，确认固定 topic
+   每分区有效 committed offset；保留缺 offset 初始失败与正常恢复的原验收。
+   记录 topic 列表、replica assignment、关键配置、leader/coordinator 和采集器进程身份。
+2. 在同一强归属环境加入临时 follower；仅将固定 topic 的副本扩为两份，等待同步与
+   reassignment 完成。验证 leader/coordinator 仍在原目标；若未满足则恢复并报告失败，
+   不让采集器连接新 origin。保存正常 metadata/offset 与 7 families / 7 samples 快照。
+3. 仅停止临时 follower，保持原 broker/controller、正式消费链路和 Exporter 运行；
+   有界等待 metadata 的 under-replicated partition 数大于零。此时必须得到 HTTP 200、
+   `gopulse_kafka_up=1` 和完整 7 families；对照真实 metadata/offset 验证 partition 数及
+   `sum(max(log_end_offset - committed_offset, 0))`，并通过 Backend 查询 up 与该异常拓扑值。
+   不用停止原 broker 或唯一 leader 的不可达结果冒充该项；不额外要求全部 offline 异常组合。
+4. 重启同一 follower，等待 ISR 恢复、under-replicated=0；验证 Exporter 同一进程恢复
+   正常快照，Backend 出现恢复后的新采样。记录采样时间，避免把历史值当作故障/恢复证据。
+5. 将固定 topic 恢复为原 broker 单副本，等待 reassignment 完成，再移除临时 follower
+   及其资源；核对回到产品单 broker 基线。分别在正常/故障/恢复稳定阶段对照采集前后
+   topic/config/assignment 与正式 offset，区分验收管理员写操作、正常业务消费和采集器行为。
+6. 在恢复后的单 broker 产品拓扑继续执行原定完全不可达/恢复、无副作用和业务回归。
+   失败或中断也必须由强归属 cleanup 回收本次创建的全部资源，并证明原有资源未被修改。
+
+固定入口仍为 `bash scripts/verify-plugin-metrics.sh --sources kafka,elasticsearch`；
+临时第二 broker 的创建、采样断言、恢复与清理须由该入口管理，不作为手工跳过的额外门禁。
+`--self-test` 应覆盖临时资源的归属/清理约束，但不能代替上述真实运行。
+记录须包含实际镜像、harness 命令、受控写操作、时间窗口、脱敏数值、进程身份与清理结果。
+此例外只解决真实部分异常的注入条件，不削减其余验收标准；实际步骤仍失败时按总方案 §16.1
+报告具体原因，不能据本计划文字宣称可行或通过。
 
 ## 3. 实施范围
 
@@ -59,7 +110,7 @@ Elasticsearch cluster health/stats                    → elasticsearch-exporter
 ## 4. 不在本批范围
 
 - VictoriaMetrics Exporter、自研组件 metrics、Kafka/Elasticsearch 配置管理。
-- 多 broker target、任意 topic/group/index/node/shard 展示、采集目标发现或通用 cluster explorer。
+- 多 broker 产品拓扑/target、任意 topic/group/index/node/shard 展示、采集目标发现或通用 cluster explorer；§2.2 的隔离临时 follower 仅是验收设施例外。
 - 告警、独立管理前端、新数据库、Kubernetes 或业务搜索改造。
 
 ## 5. 建议实施顺序
@@ -111,7 +162,7 @@ Elasticsearch cluster health/stats                    → elasticsearch-exporter
 
 - 覆盖一次 Kafka 缺 committed offset 的真实初始失败，经正常消费形成 offset 后恢复；Exporter 未修改正式消费进度。
 - 对照同一可解释采样窗口的真实 metadata/offset/primary stats，核对聚合公式和单位，不对动态计数要求两次读取完全相同。
-- 一次真实 Kafka 部分异常与一次 Elasticsearch yellow/red 可读快照按前置记录恢复；复用该证据，不另做所有状态组合。
+- 一次真实 Kafka 部分异常须按 §2.2 完成临时 follower 停机、完整快照、Backend 查询、同进程恢复和回归单 broker；一次 Elasticsearch yellow/red 可读快照按前置记录恢复。复用该证据，不另做所有状态组合。
 - Redis 查询仍遵循总方案 §9.3 的旧 label 例外，不能为统一新 source 而修改历史查询。
 
 ### 7.4 完成条件

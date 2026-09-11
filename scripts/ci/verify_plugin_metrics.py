@@ -305,20 +305,25 @@ class Acceptance:
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--self-test',action='store_true')
-    parser.add_argument('--sources',choices=['redis','mysql,rabbitmq'])
+    parser.add_argument('--sources',choices=['redis','mysql,rabbitmq','kafka,elasticsearch'])
     parser.add_argument('--migration',action='store_true')
     args=parser.parse_args()
     if args.self_test:
+        from verify_plugin_topology import self_test
+        self_test()
         assert PATTERN.fullmatch('gopulse-p1401-012345abcdef')
         for invalid in ['', 'gopulse', 'gopulse-p1401-../', 'gopulse-p1401-012345abcdeg']:
             assert not PATTERN.fullmatch(invalid)
         print('PASS: bounded source selection and strong project ownership validation (no Docker access)')
         return
-    if args.sources=='mysql,rabbitmq':
+    if args.sources=='kafka,elasticsearch':
+        from verify_plugin_topology import TopologyAcceptance
+        run=TopologyAcceptance()
+    elif args.sources=='mysql,rabbitmq':
         from verify_plugin_clusters import ClusterAcceptance
         run=ClusterAcceptance()
     else:
-        if args.sources!='redis' or not args.migration:parser.error('use --sources redis --migration or --sources mysql,rabbitmq')
+        if args.sources!='redis' or not args.migration:parser.error('use --sources redis --migration or --sources mysql,rabbitmq or --sources kafka,elasticsearch')
         run=Acceptance()
     def interrupted(signum,frame):raise RuntimeError('acceptance interrupted')
     signal.signal(signal.SIGINT,interrupted);signal.signal(signal.SIGTERM,interrupted)

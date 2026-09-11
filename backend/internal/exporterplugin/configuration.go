@@ -40,7 +40,7 @@ func (c *Client) Catalog(ctx context.Context) ([]CatalogItem, error) {
 	for i, item := range result.Data {
 		entry := OfficialCatalog()[i]
 		schema, _ := OfficialSchema(entry.ID)
-		if item.ID != entry.ID || item.Source != entry.Source || item.Name != "GoPulse "+entry.Source+" Exporter" || !reflect.DeepEqual(item.Schema, schema) || (!entry.Available && item.Available) || (!item.Available && item.Configured) || item.SecretConfigured != item.Configured {
+		if item.ID != entry.ID || item.Source != entry.Source || item.Name != "GoPulse "+entry.Source+" Exporter" || !reflect.DeepEqual(item.Schema, schema) || (!entry.Available && item.Available) || (!item.Available && item.Configured) || (item.SecretConfigured && !item.Configured) || (item.Configured && entry.Source != "kafka" && entry.Source != "elasticsearch" && !item.SecretConfigured) || (entry.Source == "kafka" && item.SecretConfigured) {
 			return nil, monitorUnavailable()
 		}
 		if !item.Configured {
@@ -96,14 +96,33 @@ func (h *Handler) Configuration(c *gin.Context) {
 		if err != nil {
 			_, _, err = ParseRedisConfigurationRequest(body, "host", previous)
 		}
-	} else if id == "mysql-exporter" || id == "rabbitmq-exporter" {
+	} else if id == "mysql-exporter" || id == "rabbitmq-exporter" || id == "kafka-exporter" || id == "elasticsearch-exporter" {
 		var previous json.RawMessage
 		if action == "configuration" {
 			previous = json.RawMessage(`{"password":"preserve-placeholder"}`)
+			if id == "kafka-exporter" {
+				previous = json.RawMessage(`{}`)
+			}
 		}
-		_, _, err = (clusterAdapter{id: id}).Parse(body, "container", previous)
-		if err != nil {
-			_, _, err = (clusterAdapter{id: id}).Parse(body, "host", previous)
+		// The Backend has no saved Secret. For optional authentication validate
+		// both possible preservation states; Monitor validates the actual one.
+		if action == "configuration" && id == "elasticsearch-exporter" {
+			for _, candidate := range []json.RawMessage{json.RawMessage(`{}`), previous} {
+				for _, mode := range []string{"container", "host"} {
+					_, _, err = (clusterAdapter{id: id}).Parse(body, mode, candidate)
+					if err == nil {
+						break
+					}
+				}
+				if err == nil {
+					break
+				}
+			}
+		} else {
+			_, _, err = (clusterAdapter{id: id}).Parse(body, "container", previous)
+			if err != nil {
+				_, _, err = (clusterAdapter{id: id}).Parse(body, "host", previous)
+			}
 		}
 	} else {
 		response.Error(c, apperror.New(apperror.CodePluginNotFound, "plugin was not found"))

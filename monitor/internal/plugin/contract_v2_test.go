@@ -35,7 +35,7 @@ func TestOfficialCatalogIdentityAndAvailability(t *testing.T) {
 		t.Fatal("catalog size")
 	}
 	for i, entry := range catalog {
-		if entry.ID != sources[i]+"-exporter" || entry.Source != sources[i] || entry.TargetID != entry.ID+"-local" || entry.Entrypoint != "bin/gopulse-"+entry.ID || entry.Port != 9121+i || entry.Available != (i < 3) {
+		if entry.ID != sources[i]+"-exporter" || entry.Source != sources[i] || entry.TargetID != entry.ID+"-local" || entry.Entrypoint != "bin/gopulse-"+entry.ID || entry.Port != 9121+i || entry.Available != (i < 5) {
 			t.Fatalf("incorrect identity: %+v", entry)
 		}
 		schema, err := OfficialSchema(entry.ID)
