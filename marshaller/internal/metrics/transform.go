@@ -24,7 +24,7 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	var b strings.Builder
 	for _, sample := range samples {
 		b.WriteString(sample.Name)
-		if message.Source == "mysql" || message.Source == "rabbitmq" {
+		if message.Source == "mysql" || message.Source == "rabbitmq" || message.Source == "kafka" || message.Source == "elasticsearch" {
 			fmt.Fprintf(&b, `{source="%s",target_id="%s",producer_kind="exporter_plugin",producer_id="%s"`, message.Source, message.Payload.TargetID, message.Payload.ProducerID)
 		} else {
 			b.WriteString(`{source="redis",target_id="redis-exporter-local"`)

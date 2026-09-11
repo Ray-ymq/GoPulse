@@ -56,6 +56,24 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-rabbitmq-exporter ./cmd/rabbitmq-exporter
 
+FROM ${GO_IMAGE} AS kafka-exporter-build
+WORKDIR /src/kafka
+ARG GOPROXY=https://goproxy.cn,direct
+COPY exporters/kafka/ ./
+ARG TARGETARCH
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-kafka-exporter ./cmd/kafka-exporter
+
+FROM ${GO_IMAGE} AS elasticsearch-exporter-build
+WORKDIR /src/elasticsearch
+ARG GOPROXY=https://goproxy.cn,direct
+COPY exporters/elasticsearch/ ./
+ARG TARGETARCH
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-$(go env GOARCH)} \
+    go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-elasticsearch-exporter ./cmd/elasticsearch-exporter
+
 FROM ${GO_IMAGE} AS exporter-package
 RUN apk add --no-cache bash python3 tar gzip
 WORKDIR /src
@@ -72,6 +90,11 @@ COPY --from=mysql-exporter-build /out/gopulse-mysql-exporter /out/gopulse-mysql-
 RUN ./scripts/package-redis-exporter.sh --source mysql --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-mysql-exporter --output /out/gopulse-mysql-exporter.tar.gz
 COPY --from=rabbitmq-exporter-build /out/gopulse-rabbitmq-exporter /out/gopulse-rabbitmq-exporter
 RUN ./scripts/package-redis-exporter.sh --source rabbitmq --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-rabbitmq-exporter --output /out/gopulse-rabbitmq-exporter.tar.gz
+
+COPY --from=kafka-exporter-build /out/gopulse-kafka-exporter /out/gopulse-kafka-exporter
+RUN ./scripts/package-redis-exporter.sh --source kafka --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-kafka-exporter --output /out/gopulse-kafka-exporter.tar.gz
+COPY --from=elasticsearch-exporter-build /out/gopulse-elasticsearch-exporter /out/gopulse-elasticsearch-exporter
+RUN ./scripts/package-redis-exporter.sh --source elasticsearch --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-elasticsearch-exporter --output /out/gopulse-elasticsearch-exporter.tar.gz
 
 FROM ${GO_IMAGE} AS legacy-exporter-build
 WORKDIR /legacy
@@ -95,8 +118,8 @@ RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY monitor/ ./
 COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /packages/gopulse-redis-exporter.tar.gz
 COPY --from=official-packages /out/redis-1.10.6.tar.gz /packages/redis-1.10.6.tar.gz
-COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /packages/
-RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz
+COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /out/gopulse-kafka-exporter.tar.gz /out/gopulse-elasticsearch-exporter.tar.gz /packages/
+RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz
 ARG TARGETOS=linux
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
@@ -147,7 +170,7 @@ LABEL org.opencontainers.image.title="GoPulse Monitor"
 COPY --from=monitor-build --chown=10005:10001 /out/monitor /usr/local/bin/monitor
 COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /opt/gopulse/packages/gopulse-redis-exporter.tar.gz
 COPY --from=official-packages /out/redis-1.10.6.tar.gz /opt/gopulse/packages/redis-1.10.6.tar.gz
-COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /opt/gopulse/packages/
+COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /out/gopulse-kafka-exporter.tar.gz /out/gopulse-elasticsearch-exporter.tar.gz /opt/gopulse/packages/
 USER 10005:10001
 EXPOSE 9090
 VOLUME ["/var/lib/gopulse-monitor/plugins"]
@@ -158,15 +181,21 @@ ENTRYPOINT ["/usr/local/bin/monitor"]
 FROM official-packages AS acceptance-packages
 RUN cd /src/monitor && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' -o /out/failing-exporter ./internal/plugin/testdata/failing-exporter.go
 RUN ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/redis-failure.tar.gz && \
-    ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.3 --arch amd64 --binary /out/gopulse-redis-exporter --output /out/redis-update.tar.gz
+    ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.4 --arch amd64 --binary /out/gopulse-redis-exporter --output /out/redis-update.tar.gz
+
+RUN ./scripts/package-redis-exporter.sh --source kafka --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/kafka-failure.tar.gz && \
+    ./scripts/package-redis-exporter.sh --source kafka --version 1.11.4 --arch amd64 --binary /out/gopulse-kafka-exporter --output /out/kafka-update.tar.gz
+RUN ./scripts/package-redis-exporter.sh --source elasticsearch --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/elasticsearch-failure.tar.gz && \
+    ./scripts/package-redis-exporter.sh --source elasticsearch --version 1.11.4 --arch amd64 --binary /out/gopulse-elasticsearch-exporter --output /out/elasticsearch-update.tar.gz
 
 FROM monitor-build AS monitor-acceptance-build
-COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /packages/
+COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /out/kafka-failure.tar.gz /out/kafka-update.tar.gz /out/elasticsearch-failure.tar.gz /out/elasticsearch-update.tar.gz /packages/
 RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go \
-      current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz \
-      retained=/packages/redis-failure.tar.gz retained=/packages/redis-update.tar.gz && \
+      current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz \
+      retained=/packages/redis-failure.tar.gz retained=/packages/redis-update.tar.gz \
+      retained=/packages/kafka-failure.tar.gz retained=/packages/kafka-update.tar.gz retained=/packages/elasticsearch-failure.tar.gz retained=/packages/elasticsearch-update.tar.gz && \
     CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/monitor ./cmd/monitor
 
 FROM monitor AS monitor-acceptance
 COPY --from=monitor-acceptance-build /out/monitor /usr/local/bin/monitor
-COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /opt/gopulse/packages/
+COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /out/kafka-failure.tar.gz /out/kafka-update.tar.gz /out/elasticsearch-failure.tar.gz /out/elasticsearch-update.tar.gz /opt/gopulse/packages/
