@@ -336,3 +336,12 @@ scripts/verify-component-metrics.sh
 - 已在该提交后执行固定 `git diff --check upstream/main...HEAD`，通过；所有第 8 节固定门禁均有实际成功结果，没有剩余阻断项。
 - 本次仅追加实际提交后检查记录，不再修改生产代码、配置、依赖或验收环境，也不重复已通过的业务/模块测试。
 - 工作区只保留开工前即存在的未跟踪 `~`；没有推送。后续任务应按新批次生命周期从远程 main 起新版本分支，不自动复用已完成批次。
+
+## 11. 推送后 CI 配置回归修复
+
+- 远程运行 `34614679871` 的 Full-stack Compose acceptance 失败：Compose 插值时报 `SEARCH_INDEXER_METRICS_TOKEN is required`；自动创建 PR 步骤被跳过，其余八个门禁通过。之前的组件专项验收成功不能替代旧全栈入口的兼容性验证。
+- 根因：本批将六个组件指标 token 纳入 Compose 必填合同，但遗漏更新两个 Bash 验收入口自行生成的临时环境文件。
+- 修改 `scripts/verify-compose-observability.sh` 和 `scripts/verify-compose.sh`：为六个组件分别生成与本次验收 TOKEN 关联、彼此独立且不复用 API 凭据的指标 token；不放宽生产必填配置，不跳过远程全栈门禁。
+- 新增 `scripts/ci/test_compose_acceptance_env.py`：从两个真实 heredoc 生成不继承开发者凭据的环境，验证 Compose 所要求的六个指标凭据均存在、长度足够且互不复用。由现有 CI unittest discovery 自动执行。
+- 实际本地验证通过：`python3 -m unittest discover -s scripts/ci -p test_compose_acceptance_env.py`；`bash -n scripts/verify-compose.sh scripts/verify-compose-observability.sh`；`bash scripts/verify-compose.sh --self-test`；分别用两个真实 heredoc 在隔离环境下执行 `docker compose --env-file <临时环境文件> -f deploy/compose.yaml config --quiet`；`git diff --check`。
+- 本次为同一批次 CI 回归修复，沿用 `develop/1.11.5` 和 `VERSION=1.11.5`。完整远程全栈门禁仍需修复推送后的实际运行结果确认，本段不将本地配置通过表述为远程全栈通过。
