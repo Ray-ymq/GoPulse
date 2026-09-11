@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"math"
 	"net/http"
@@ -102,6 +103,12 @@ var Catalog = func() []Definition {
 	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_free_disk_space_bytes", Kind: "gauge", Unit: "bytes", label: ""})
 	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_active_merges", Kind: "gauge", Unit: "count", label: ""})
 	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_storage_rows_deleted_total", Kind: "counter", Unit: "count", label: ""})
+	for _, id := range componentmetrics.Components {
+		spec, _ := componentmetrics.Catalog(id)
+		for _, f := range spec.Families {
+			items = append(items, Definition{Source: id, TargetID: componentmetrics.Target(id), ProducerKind: "component", ProducerID: id, Metric: f.Name, Kind: f.Kind, Unit: f.Unit})
+		}
+	}
 	return items
 }()
 
@@ -132,6 +139,19 @@ type Options struct {
 }
 
 type Labels struct {
+	Method              string `json:"method,omitempty"`
+	Route               string `json:"route,omitempty"`
+	StatusClass         string `json:"status_class,omitempty"`
+	EventType           string `json:"event_type,omitempty"`
+	Operation           string `json:"operation,omitempty"`
+	Dependency          string `json:"dependency,omitempty"`
+	ScrapedProducerKind string `json:"scraped_producer_kind,omitempty"`
+	ScrapedTargetID     string `json:"scraped_target_id,omitempty"`
+	Type                string `json:"type,omitempty"`
+	MessageSource       string `json:"message_source,omitempty"`
+	Stage               string `json:"stage,omitempty"`
+	Storage             string `json:"storage,omitempty"`
+
 	Status string `json:"status,omitempty"`
 	Result string `json:"result,omitempty"`
 	State  string `json:"state,omitempty"`
@@ -199,7 +219,7 @@ func QueryExpression(metric string) string {
 	if d.Source == "redis" {
 		return metric + `{source="redis",target_id="redis-exporter-local"}`
 	}
-	return fmt.Sprintf(`%s{source="%s",target_id="%s",producer_kind="exporter_plugin",producer_id="%s"}`, metric, d.Source, d.TargetID, d.ProducerID)
+	return fmt.Sprintf(`%s{source="%s",target_id="%s",producer_kind="%s",producer_id="%s"}`, metric, d.Source, d.TargetID, d.ProducerKind, d.ProducerID)
 }
 
 type Upstream interface {
@@ -323,7 +343,17 @@ func decodeResponse(body []byte, definition Definition) ([]Series, error) {
 	if err := decoder.Decode(&envelope); err != nil || envelope.Status != "success" || envelope.Data.ResultType != "matrix" || !envelope.Data.resultSeen {
 		return nil, errors.New("invalid VictoriaMetrics response")
 	}
-	if err := ensureEOF(decoder); err != nil || len(envelope.Data.Result) > maximumSeries {
+	seriesLimit, pointsLimit := maximumSeries, maximumPoints
+	if componentmetrics.IsComponent(definition.Source) {
+		spec, _ := componentmetrics.Catalog(definition.Source)
+		for _, f := range spec.Families {
+			if f.Name == definition.Metric {
+				seriesLimit = len(f.Tuples)
+				pointsLimit = seriesLimit * 97
+			}
+		}
+	}
+	if err := ensureEOF(decoder); err != nil || len(envelope.Data.Result) > seriesLimit {
 		return nil, errors.New("invalid VictoriaMetrics response")
 	}
 	result := make([]Series, 0, len(envelope.Data.Result))
@@ -353,9 +383,14 @@ func decodeResponse(body []byte, definition Definition) ([]Series, error) {
 			if err != nil {
 				return nil, err
 			}
+			if componentmetrics.IsComponent(definition.Source) {
+				if err := componentmetrics.ValidateSample(definition.Source, componentmetrics.Sample{Name: definition.Metric, Kind: definition.Kind, Labels: componentLabelMap(raw.Metric), Value: value}); err != nil {
+					return nil, err
+				}
+			}
 			points = append(points, Point{Timestamp: formatTime(timestamp), Value: value})
 			totalPoints++
-			if totalPoints > maximumPoints {
+			if totalPoints > pointsLimit {
 				return nil, errors.New("too many points")
 			}
 		}
@@ -368,6 +403,21 @@ func decodeResponse(body []byte, definition Definition) ([]Series, error) {
 func validateLabels(metric map[string]string, definition Definition) (Labels, string, error) {
 	if metric["__name__"] != definition.Metric || metric["source"] != definition.Source || metric["target_id"] != definition.TargetID {
 		return Labels{}, "", errors.New("invalid metric provenance")
+	}
+	if componentmetrics.IsComponent(definition.Source) {
+		if metric["producer_kind"] != "component" || metric["producer_id"] != definition.Source {
+			return Labels{}, "", errors.New("invalid component provenance")
+		}
+		raw := componentLabelMap(metric)
+		if err := componentmetrics.ValidateSample(definition.Source, componentmetrics.Sample{Name: definition.Metric, Kind: definition.Kind, Labels: raw, Value: 0}); err != nil {
+			return Labels{}, "", err
+		}
+		body, _ := json.Marshal(raw)
+		var labels Labels
+		if err := json.Unmarshal(body, &labels); err != nil {
+			return Labels{}, "", err
+		}
+		return labels, labelKey(labels), nil
 	}
 	count := 3
 	if definition.Source != "redis" {
@@ -419,7 +469,8 @@ func validateLabels(metric map[string]string, definition Definition) (Labels, st
 }
 
 func labelKey(labels Labels) string {
-	return labels.Mode + "\x00" + labels.DB + "\x00" + labels.Result + "\x00" + labels.State + "\x00" + labels.Status
+	body, _ := json.Marshal(labels)
+	return string(body)
 }
 
 func decodeTimestamp(raw json.RawMessage) (time.Time, error) {
@@ -464,4 +515,16 @@ func validation() error {
 }
 func unavailable() error {
 	return apperror.New(apperror.CodeMetricsUnavailable, "metrics are temporarily unavailable")
+}
+
+func componentLabelMap(metric map[string]string) map[string]string {
+	labels := make(map[string]string)
+	for k, v := range metric {
+		switch k {
+		case "__name__", "source", "target_id", "producer_kind", "producer_id":
+		default:
+			labels[k] = v
+		}
+	}
+	return labels
 }

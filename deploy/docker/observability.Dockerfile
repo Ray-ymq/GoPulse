@@ -5,6 +5,7 @@ ARG RUNTIME_IMAGE=alpine:3.23.3
 FROM ${GO_IMAGE} AS router-build
 WORKDIR /src/router
 ARG GOPROXY=https://goproxy.cn,direct
+COPY componentmetrics/ /src/componentmetrics/
 COPY router/go.mod router/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY router/ ./
@@ -17,6 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 FROM ${GO_IMAGE} AS marshaller-build
 WORKDIR /src/marshaller
 ARG GOPROXY=https://goproxy.cn,direct
+COPY componentmetrics/ /src/componentmetrics/
 COPY marshaller/go.mod marshaller/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY marshaller/ ./
@@ -88,6 +90,7 @@ RUN apk add --no-cache bash python3 tar gzip
 WORKDIR /src
 COPY VERSION ./VERSION
 COPY scripts/package-redis-exporter.sh ./scripts/package-redis-exporter.sh
+COPY componentmetrics/ ./componentmetrics/
 COPY monitor/ ./monitor/
 COPY --from=exporter-build /out/gopulse-redis-exporter /out/gopulse-redis-exporter
 ARG VERSION
@@ -124,6 +127,7 @@ RUN ./scripts/package-redis-exporter.sh --contract-version 1 --version 1.10.6 --
 FROM ${GO_IMAGE} AS monitor-build
 WORKDIR /src/monitor
 ARG GOPROXY=https://goproxy.cn,direct
+COPY componentmetrics/ /src/componentmetrics/
 COPY monitor/go.mod monitor/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY monitor/ ./
