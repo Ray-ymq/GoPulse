@@ -215,7 +215,8 @@ Backend endpoint 与查询 series 的少量差异来自不同采集时刻及惰�
 | `bash scripts/verify-component-metrics.sh` | 最终运行通过，退出 0，完整场景与清理结果如上 |
 | `python3 scripts/ci/validate_versions.py` | 通过，根/Frontend/示例环境版本一致 |
 | `python3 scripts/ci/validate_branch.py --branch develop/1.11.5 --base-ref upstream/main` | 通过 |
-| `git diff --check` | 通过；最终暂存区与提交后检查见收口记录 |
+| `git diff --cached --check` | 通过，覆盖实现与收口记录的暂存改动 |
+| `git diff --check upstream/main...HEAD` | 通过，已在实现提交后执行 |
 
 实际镜像构建使用 `deploy/docker/backend.Dockerfile` 的 backend/business-worker/search-indexer targets、`deploy/docker/observability.Dockerfile` 的 router/marshaller/monitor targets 和 Frontend Dockerfile，标签为 `1.11.5`。共同 module/Docker stage 修正、Router getter修正后的受影响镜像均已重新构建，最终真实门禁使用修正后的镜像。版本升级后的前端 release build 单独核验，不将版本文本变化当作重跑业务场景的理由。
 
@@ -226,7 +227,7 @@ Backend endpoint 与查询 series 的少量差异来自不同采集时刻及惰�
 - Monitor plugin 状态的实际公共字段是 `ObservedState`，不是 `State`；初次编译错误已改正，相应 command/package 检查通过。
 - Docker 的 exporter-package stage 也会编译 Monitor 的 package metadata CLI；初次 Monitor 镜像构建缺少本地 `componentmetrics` replace 目录，已在该 stage 和 acceptance package stage 显式 COPY 共用 module 后重新构建成功。
 - 首次真实门禁完成六插件查询后，删除搜索断言超时。实际 Indexer 已处理删除；测试搜索词共享批次后缀，仍匹配其他帖子。只修正验收断言为目标 post ID 消失，并对创建/更新也核对目标 ID/标题；未改搜索业务语义。首次项目已强归属清理，原有资源保留。
-- Router buffer 指标必须表示客户端实际缓存，bytes 包含 key/header 而不只是 envelope body。依据锁定 franz-go v1.21.0 的本地公开 `go doc`，改用 `BufferedProduceRecords() int64`/`BufferedProduceBytes() int64`，未读取第三方依赖实现源码；新增 adapter 直接断言并重跑 Router 受影响门禁。最终镜像/真实门禁需包含此修正。
+- Router buffer 指标必须表示客户端实际缓存，bytes 包含 key/header 而不只是 envelope body。依据锁定 franz-go v1.21.0 的本地公开 `go doc`，改用 `BufferedProduceRecords() int64`/`BufferedProduceBytes() int64`，未读取第三方依赖实现源码；新增 adapter 直接断言并重跑 Router 受影响门禁。最终镜像和第三次完整真实门禁已包含此修正。
 - 第二次真实门禁已通过六组件链路、浏览器、端点认证/基数、Redis 0→1、单端点故障和两个消费者替换；最后 Logs 回归误用了仅 Metrics API 接受的 `range` 参数。按现有 Logs/Events `from/to` 合同改为默认 15m 查询，未改业务 API；该次 owned 项目也已完整清理。
 - 为满足 §7.3 的“metrics 存储故障不影响业务就绪/消费事实”，在同一聚焦脚本内增加一次 owned VictoriaMetrics 停止/恢复，仅检查 Backend ready、一个新帖的 Indexer 投影和 Worker 通知以及恢复后的进度写回；不扩展全依赖故障排列。
 
@@ -327,3 +328,11 @@ scripts/verify-component-metrics.sh
 - WSL2/Linux + Bash + Compose 是本次实际平台。没有宣称 Windows/macOS 原生支持，也没有将 Kubernetes 作为条件。跨平台产品化、Phase 总验收仍由后续批次承担。
 - 当前 scope 的必需能力没有已知阻断项。更多 runtime 指标、histogram、SLO、大屏、第三方插件、多实例或全故障矩阵不在本批范围，不顺手追加。
 - 新 Go module 位于仓库内，源码开发需保留 sibling 目录布局；固定安全/目录自测及构建说明见 `docs/component-metrics.md`。
+
+
+## 10. 提交收口
+
+- 实现与版本提交：`9e8630f`，`feat(metrics): complete protected component metrics loop for 1.11.5`。
+- 已在该提交后执行固定 `git diff --check upstream/main...HEAD`，通过；所有第 8 节固定门禁均有实际成功结果，没有剩余阻断项。
+- 本次仅追加实际提交后检查记录，不再修改生产代码、配置、依赖或验收环境，也不重复已通过的业务/模块测试。
+- 工作区只保留开工前即存在的未跟踪 `~`；没有推送。后续任务应按新批次生命周期从远程 main 起新版本分支，不自动复用已完成批次。
