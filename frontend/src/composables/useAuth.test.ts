@@ -32,6 +32,7 @@ describe('useAuth', () => {
 
   it.each([
     ['missing role', { id: 1, username: 'alice', created_at: '2026-09-01T00:00:00Z' }],
+    ['legacy role', { ...currentUser, role: 'admin' }],
     ['unknown role', { ...currentUser, role: 'owner' }],
   ])('rejects a current-user response with %s', async (_name, responseUser) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: responseUser })))

@@ -36,7 +36,7 @@ function isPublicUser(value: unknown): value is PublicUser {
   return isPositiveID(value.id)
     && typeof value.username === 'string'
     && value.username.length > 0
-    && (value.role === 'user' || value.role === 'admin')
+    && (value.role === 'user' || value.role === 'super_admin')
     && isTimestamp(value.created_at)
 }
 

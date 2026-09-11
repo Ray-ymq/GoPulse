@@ -530,7 +530,10 @@ read_exporter_metrics() {
 
 register_and_promote() {
   run_observability_scenario setup
-  compose --profile operations run --rm --no-deps admin-role promote --username "$ADMIN_USERNAME"
+  local bootstrap_id
+  bootstrap_id=$(compose exec -T mysql sh -ec 'MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" --batch --skip-column-names "$MYSQL_DATABASE" --execute "$1"' probe "SELECT id FROM users WHERE username='$ADMIN_USERNAME'")
+  [[ $bootstrap_id =~ ^[1-9][0-9]*$ ]] || fail 'Bootstrap user ID is invalid.'
+  compose --profile operations run --rm --no-deps admin-role bootstrap --user-id "$bootstrap_id"
 }
 
 exercise_failure() {
