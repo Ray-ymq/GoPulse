@@ -152,7 +152,7 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {
@@ -436,6 +436,18 @@ func rulesFor(source string) map[string]familyRule {
 			"gopulse_kafka_consumer_group_lag":          {kind: "gauge", count: 1, labels: nil},
 		}
 
+	case "victoriametrics":
+		return map[string]familyRule{
+			"gopulse_victoriametrics_up":                         {kind: "gauge", count: 1, labels: nil},
+			"gopulse_victoriametrics_rows_inserted_total":        {kind: "counter", count: 1, labels: nil},
+			"gopulse_victoriametrics_query_requests_total":       {kind: "counter", count: 1, labels: nil},
+			"gopulse_victoriametrics_active_timeseries":          {kind: "gauge", count: 1, labels: nil},
+			"gopulse_victoriametrics_storage_rows":               {kind: "gauge", count: 1, labels: nil},
+			"gopulse_victoriametrics_storage_size_bytes":         {kind: "gauge", count: 1, labels: nil},
+			"gopulse_victoriametrics_free_disk_space_bytes":      {kind: "gauge", count: 1, labels: nil},
+			"gopulse_victoriametrics_active_merges":              {kind: "gauge", count: 1, labels: nil},
+			"gopulse_victoriametrics_storage_rows_deleted_total": {kind: "counter", count: 1, labels: nil},
+		}
 	case "elasticsearch":
 		return map[string]familyRule{
 			"gopulse_elasticsearch_up":                    {kind: "gauge", count: 1, labels: nil},

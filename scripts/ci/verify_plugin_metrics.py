@@ -305,18 +305,26 @@ class Acceptance:
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--self-test',action='store_true')
-    parser.add_argument('--sources',choices=['redis','mysql,rabbitmq','kafka,elasticsearch'])
+    parser.add_argument('--sources',choices=['redis','mysql,rabbitmq','kafka,elasticsearch','redis,mysql,rabbitmq,kafka,elasticsearch,victoriametrics'])
+    parser.add_argument('--fault-isolation',action='store_true')
     parser.add_argument('--migration',action='store_true')
     args=parser.parse_args()
     if args.self_test:
         from verify_plugin_topology import self_test
         self_test()
+        from verify_plugin_isolation import self_test as isolation_self_test
+        isolation_self_test()
         assert PATTERN.fullmatch('gopulse-p1401-012345abcdef')
         for invalid in ['', 'gopulse', 'gopulse-p1401-../', 'gopulse-p1401-012345abcdeg']:
             assert not PATTERN.fullmatch(invalid)
         print('PASS: bounded source selection and strong project ownership validation (no Docker access)')
         return
-    if args.sources=='kafka,elasticsearch':
+    if args.fault_isolation != (args.sources=='redis,mysql,rabbitmq,kafka,elasticsearch,victoriametrics'):
+        parser.error('--fault-isolation requires exactly the six official sources')
+    if args.fault_isolation:
+        from verify_plugin_isolation import IsolationAcceptance
+        run=IsolationAcceptance()
+    elif args.sources=='kafka,elasticsearch':
         from verify_plugin_topology import TopologyAcceptance
         run=TopologyAcceptance()
     elif args.sources=='mysql,rabbitmq':

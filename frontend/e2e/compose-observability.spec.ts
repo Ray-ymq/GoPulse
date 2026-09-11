@@ -157,7 +157,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
   if (scenario === 'vm-down') {
     await createSocialPost(page, 'vm-down')
     await page.goto('/admin/observability/metrics')
-    await expect(page.getByText(/Metrics 服务暂时不可用/)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText(/指标存储或查询服务暂时不可用（VictoriaMetrics）/)).toBeVisible({ timeout: 20_000 })
     expect((await page.request.get('/ready')).status()).toBe(200)
     expect(unexpected).toEqual([])
     return

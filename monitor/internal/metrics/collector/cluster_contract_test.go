@@ -8,7 +8,7 @@ import (
 )
 
 func TestClusterContracts(t *testing.T) {
-	for _, source := range []string{"mysql", "rabbitmq", "kafka", "elasticsearch"} {
+	for _, source := range []string{"mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"} {
 		t.Run(source, func(t *testing.T) {
 			if _, err := New(Config{Source: source, Host: "127.0.0.1", Port: "9124", Interval: 2 * time.Second, Timeout: time.Second, PublishTimeout: time.Second}); err != nil {
 				t.Fatal(err)
