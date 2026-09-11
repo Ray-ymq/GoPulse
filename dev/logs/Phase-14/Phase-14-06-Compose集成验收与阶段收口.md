@@ -28,3 +28,5 @@
 - 现有 plugin update 明确要求更高版本，因此空卷浏览器不能上传同版本 current 包。为 acceptance-only Docker stage 增加 `ACCEPTANCE_UPDATE_VERSION` 构建参数，默认保留原 `1.11.5`，本批显式构建受信 `1.11.7` 成功包；失败包仍为受信 `1.11.90`。不改变生产 current/legacy 信任或运行时授权。
 - 补充真实 legacy archive 固定 SHA-256 校验和当前包 digest 记录；`1.10.6/linux/amd64` 为唯一已证实的旧包来源。
 - 延用前五批未变化证据：Phase-14-01 的 prepare/active 中断及 archive/Registry 拒绝、Phase-14-02 的精确账号权限、Phase-14-03 的真实 Kafka 临时 follower 拓扑与 offset 及 ES primary 聚合、Phase-14-04 的九项 VM 映射、Phase-14-05 的组件目录/预算及持久化边界 package 测试。最终只重新验证跨批 Compose 和接线变化。
+
+- 首轮完整命令最终退出 1，未进入新的跨批 Python runner：Phase 13 套件中的 `compose-business.spec.ts` 已注册业务账号，随后原平台段重复运行同一注册场景失败。此为新组合入口的 fixture 重复，不是产品业务失败。改为组合模式只在原平台段运行该场景，独立 `--phase13` 行为保留；管理员场景同样仅执行一次。已通过部分不冒称完整成功。失败项目已清理。
