@@ -11,7 +11,9 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	migrationfiles "github.com/Ray-ymq/GoPulse/backend/migrations"
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database"
 	migratemysql "github.com/golang-migrate/migrate/v4/database/mysql"
+	"github.com/golang-migrate/migrate/v4/source"
 )
 
 func main() {
@@ -59,6 +61,13 @@ func run(args []string, output io.Writer) error {
 		_, _ = migration.Close()
 	}()
 
+	// Only migration 12 is explicitly resumable. Never force or clear an
+	// unrelated dirty migration; replay its SQL under the driver's migration lock.
+	if args[0] == "up" {
+		if err := resumeSuperAdminMigration(databaseDriver, sourceDriver); err != nil {
+			return err
+		}
+	}
 	switch args[0] {
 	case "up":
 		err = migration.Up()
@@ -82,4 +91,31 @@ func directionWord(direction string) string {
 		return "rolled back"
 	}
 	return "up"
+}
+
+func resumeSuperAdminMigration(driver database.Driver, source source.Driver) (err error) {
+	if err = driver.Lock(); err != nil {
+		return err
+	}
+	defer func() {
+		if unlockErr := driver.Unlock(); err == nil {
+			err = unlockErr
+		}
+	}()
+	version, dirty, err := driver.Version()
+	if err != nil {
+		return err
+	}
+	if version != 12 || !dirty {
+		return nil
+	}
+	reader, _, err := source.ReadUp(12)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	if err = driver.Run(reader); err != nil {
+		return fmt.Errorf("resume role migration: %w", err)
+	}
+	return driver.SetVersion(12, false)
 }

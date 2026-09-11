@@ -23,7 +23,7 @@ func (finder *fakeCurrentUserFinder) FindByID(context.Context, uint64) (user.Use
 	return finder.record, finder.err
 }
 
-func TestRequireAdminEnforcesAuthenticationAndCurrentDatabaseRole(t *testing.T) {
+func TestRequireSuperAdminEnforcesAuthenticationAndCurrentDatabaseRole(t *testing.T) {
 	tests := []struct {
 		name           string
 		userID         uint64
@@ -34,7 +34,7 @@ func TestRequireAdminEnforcesAuthenticationAndCurrentDatabaseRole(t *testing.T) 
 	}{
 		{name: "unauthenticated", finder: &fakeCurrentUserFinder{}, wantStatus: stdhttp.StatusUnauthorized, wantCode: "authentication_required"},
 		{name: "ordinary user", userID: 17, finder: &fakeCurrentUserFinder{record: user.User{ID: 17, Role: user.RoleUser}}, wantStatus: stdhttp.StatusForbidden, wantCode: "permission_denied"},
-		{name: "administrator", userID: 17, finder: &fakeCurrentUserFinder{record: user.User{ID: 17, Role: user.RoleAdmin}}, wantStatus: stdhttp.StatusNoContent, wantDownstream: 1},
+		{name: "administrator", userID: 17, finder: &fakeCurrentUserFinder{record: user.User{ID: 17, Role: user.RoleSuperAdmin}}, wantStatus: stdhttp.StatusNoContent, wantDownstream: 1},
 	}
 
 	for _, test := range tests {
@@ -49,7 +49,7 @@ func TestRequireAdminEnforcesAuthenticationAndCurrentDatabaseRole(t *testing.T) 
 					c.Next()
 				})
 			}
-			router.Use(RequireAdmin(test.finder))
+			router.Use(RequireSuperAdmin(test.finder))
 			router.GET("/admin", func(c *gin.Context) {
 				downstreamCalls++
 				c.Status(stdhttp.StatusNoContent)
@@ -78,7 +78,7 @@ func TestRequireAdminEnforcesAuthenticationAndCurrentDatabaseRole(t *testing.T) 
 	}
 }
 
-func TestRequireAdminRejectsLookupFailures(t *testing.T) {
+func TestRequireSuperAdminRejectsLookupFailures(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		err        error
@@ -95,7 +95,7 @@ func TestRequireAdminRejectsLookupFailures(t *testing.T) {
 			router.Use(func(c *gin.Context) {
 				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), currentUserIDKey{}, uint64(17)))
 				c.Next()
-			}, RequireAdmin(finder))
+			}, RequireSuperAdmin(finder))
 			router.GET("/admin", func(c *gin.Context) { t.Fatal("downstream handler must not run") })
 
 			response := httptest.NewRecorder()

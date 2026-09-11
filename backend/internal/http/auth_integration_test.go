@@ -64,12 +64,12 @@ func TestIntegrationAuthenticationHTTPFlowAndApplicationRestart(t *testing.T) {
 		_ = database.Close()
 		t.Fatalf("current user status=%d body=%s", current.Code, current.Body.String())
 	}
-	if _, err := user.NewMySQLRepository(database).PromoteByUsername(context.Background(), username); err != nil {
+	if _, err := database.ExecContext(context.Background(), `UPDATE users SET role='super_admin' WHERE username=?`, username); err != nil {
 		_ = database.Close()
 		t.Fatalf("promote current user: %v", err)
 	}
 	promotedCurrent := performJSONRequest(router, stdhttp.MethodGet, "/api/v1/users/me", "", cookies[0])
-	if promotedCurrent.Code != stdhttp.StatusOK || !strings.Contains(promotedCurrent.Body.String(), `"role":"admin"`) {
+	if promotedCurrent.Code != stdhttp.StatusOK || !strings.Contains(promotedCurrent.Body.String(), `"role":"super_admin"`) {
 		_ = database.Close()
 		t.Fatalf("current user after promotion status=%d body=%s", promotedCurrent.Code, promotedCurrent.Body.String())
 	}
@@ -101,7 +101,7 @@ func TestIntegrationAuthenticationHTTPFlowAndApplicationRestart(t *testing.T) {
 	defer restartedDatabase.Close()
 	restartedRouter := integrationAuthRouter(t, cfg, restartedDatabase)
 	login := performJSONRequest(restartedRouter, stdhttp.MethodPost, "/api/v1/auth/login", `{"username":"`+strings.ToLower(username)+`","password":"`+password+`"}`, nil)
-	if login.Code != stdhttp.StatusOK || len(login.Result().Cookies()) != 1 || login.Result().Cookies()[0].Value == "" || !strings.Contains(login.Body.String(), `"role":"admin"`) {
+	if login.Code != stdhttp.StatusOK || len(login.Result().Cookies()) != 1 || login.Result().Cookies()[0].Value == "" || !strings.Contains(login.Body.String(), `"role":"super_admin"`) {
 		t.Fatalf("login after application restart status=%d body=%s cookies=%#v", login.Code, login.Body.String(), login.Result().Cookies())
 	}
 }
