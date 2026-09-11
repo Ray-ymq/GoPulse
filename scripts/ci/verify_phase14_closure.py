@@ -10,11 +10,27 @@ import re
 import signal
 import time
 
-from verify_plugin_metrics import ROOT, Client, command, wait_until
+from verify_plugin_metrics import ROOT, PATTERN, Client, command, wait_until
 from verify_component_metrics import ComponentAcceptance, COMPONENTS
 from verify_plugin_isolation import IsolationAcceptance, SOURCES, REPRESENTATIVE
 
 VERSION = '1.11.6'
+
+
+def cleanup_orphan_volumes(project, preexisting):
+    """Compose drops formerly mounted volumes from its active removal graph."""
+    assert PATTERN.fullmatch(project), 'invalid closure project'
+    names = command(['docker', 'volume', 'ls', '-q', '--filter',
+                     'label=com.docker.compose.project='+project]).stdout.decode().split()
+    # Validate the complete removal set before deleting anything.
+    for name in names:
+        assert name not in preexisting and name.startswith(project+'_'), 'refuse pre-existing or unowned volume'
+        info = json.loads(command(['docker', 'volume', 'inspect', name]).stdout)[0]
+        assert info.get('Labels', {}).get('com.docker.compose.project') == project, 'volume ownership mismatch'
+    for name in names:
+        command(['docker', 'volume', 'rm', name])
+    assert not command(['docker', 'volume', 'ls', '-q', '--filter',
+                        'label=com.docker.compose.project='+project]).stdout.strip(), 'owned volume remains'
 
 
 class ClosureAcceptance(ComponentAcceptance):
@@ -251,8 +267,10 @@ class ClosureAcceptance(ComponentAcceptance):
 
     def cleanup(self):
         super().cleanup()
+        cleanup_orphan_volumes(self.project, set(self.snapshot['volume']))
         for image in self.images:
-            command(['docker', 'image', 'rm', image], check=False)
+            if command(['docker', 'image', 'inspect', image], check=False).returncode == 0:
+                command(['docker', 'image', 'rm', image])
         self.record('owned Compose resources cleaned; pre-existing resources preserved', {'project': self.project})
 
 
