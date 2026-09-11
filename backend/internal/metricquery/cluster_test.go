@@ -6,7 +6,7 @@ import (
 )
 
 func TestClusterProvenanceAndEnumLabels(t *testing.T) {
-	for _, name := range []string{"gopulse_mysql_transactions_total", "gopulse_rabbitmq_messages", "gopulse_kafka_up", "gopulse_elasticsearch_cluster_health_status"} {
+	for _, name := range []string{"gopulse_mysql_transactions_total", "gopulse_rabbitmq_messages", "gopulse_kafka_up", "gopulse_elasticsearch_cluster_health_status", "gopulse_victoriametrics_storage_rows_deleted_total"} {
 		definition := definitions[name]
 		labels := map[string]string{"__name__": name, "source": definition.Source, "target_id": definition.TargetID, "producer_kind": "exporter_plugin", "producer_id": definition.ProducerID}
 		if definition.Source == "mysql" {

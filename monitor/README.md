@@ -59,3 +59,13 @@ Elasticsearch 允许不认证，但启用时 username/password 必须配对，�
 `status=green|yellow|red` 的三个 one-hot gauge。每层拒绝额外 labels 或跨 source 样本。
 `deploy/docker/observability.Dockerfile` 构建并编译期登记官方包；更高版本的成功/失败
 验收包仅登记在 `monitor-acceptance` 镜像，不提供运行时绕过信任校验的开关。
+
+### Phase-14-04：VictoriaMetrics 与六插件
+
+第六类 `victoriametrics-exporter` 使用独立回环端口 9126、进程记录、collector 与 per-ID
+操作锁。生产镜像内嵌并信任六类 Manifest v2 包；失败更新制品仅出现在 acceptance
+镜像，不能通过运行时开关加入生产信任目录。九项无标签的固定映射见
+`exporters/victoriametrics/README.md`，删除行 counter 不是 retention 专属计数。
+目标安全 `up=0` 即使发布成功，也保留 `network_failed` 安全状态；共享 Router 故障用
+`publish_failed` 区分。VM 作为存储宕机时，不能承诺任何 source 的新点可查，也不
+伪造未写入的 up=0 历史；恢复后验证新完整快照并保留原历史数据。

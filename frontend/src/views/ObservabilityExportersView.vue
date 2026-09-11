@@ -17,7 +17,7 @@ function selectPlugin(id: string): void {
  status.value = statuses.value.find(item => item.id === id) ?? null
  for (const key of Object.keys(configuration)) delete configuration[key]
  const source = id.replace('-exporter', '')
- Object.assign(configuration, { host: source, connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: 'gopulse', username: 'gopulse_metrics' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: 'gopulse_metrics' } : source === 'kafka' ? { port: 19092, topic: 'gopulse-observability-v1', consumer_group: 'gopulse-marshaller-metrics-v1' } : { port: 9200 })
+ Object.assign(configuration, { host: source, connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: 'gopulse', username: 'gopulse_metrics' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: 'gopulse_metrics' } : source === 'kafka' ? { port: 19092, topic: 'gopulse-observability-v1', consumer_group: 'gopulse-marshaller-metrics-v1' } : source === 'victoriametrics' ? { port: 8428, username: '' } : { port: 9200 })
 }
 async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {
   if (busy.value) return
@@ -104,6 +104,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
     </div>
     <template v-if="status && status.id === selected">
       <div class="panel exporter-status">
+        <p v-if="status.source === 'victoriametrics'">目标故障与指标存储/查询不可用是不同状态。VictoriaMetrics 宕机期间以此处安全状态为准，不保证能查询到停机期间的新指标；恢复后查询新 up=1。</p>
         <div class="exporter-status__heading"><div><span class="state-pill" :class="`state-pill--${status.observed_state}`">{{ status.observed_state }}</span><h3>{{ status.name }}</h3><code>{{ status.id }} · v{{ status.version }}</code></div><div><span>期望状态</span><strong>{{ status.desired_state }}</strong></div></div>
         <div class="summary-grid exporter-details">
           <div><span>安装时间</span><strong>{{ formatTime(status.installed_at) }}</strong></div><div><span>更新时间</span><strong>{{ formatTime(status.updated_at) }}</strong></div>
@@ -111,7 +112,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
           <div><span>最近采集</span><strong>{{ formatTime(status.last_scrape_at) }}</strong></div><div><span>最近成功</span><strong>{{ formatTime(status.last_success_at) }}</strong></div>
           <div><span>类型</span><strong>{{ status.kind }}</strong></div><div><span>来源</span><strong>{{ status.source }}</strong></div>
         </div>
-        <div v-if="status.last_error" class="safe-error" role="alert"><strong>{{ status.last_error.code }}</strong><span>{{ status.last_error.message }}</span><time>{{ formatTime(status.last_error.at) }}</time></div>
+        <div v-if="status.last_error" class="safe-error" role="alert"><strong>{{ status.last_error.code }}</strong><span>{{ status.last_error.code === 'network_failed' ? '插件目标不可达或拒绝采集；进程运行不代表目标健康。' : status.last_error.message }}</span><time>{{ formatTime(status.last_error.at) }}</time></div>
         <div class="exporter-actions"><button class="button" :disabled="!canStart" @click="run('start')">{{ operation === 'start' ? '启动中…' : '启动' }}</button><button class="button button--secondary" :disabled="!canStop" @click="run('stop')">{{ operation === 'stop' ? '停止中…' : '停止' }}</button></div>
       </div>
       <div class="panel exporter-update"><div><h3>更新安装包</h3><p>更新会保留服务端安全校验与回滚语义。</p></div><label class="file-field">新的 .tar.gz 包<input ref="packageInput" type="file" accept=".tar.gz,application/gzip" @change="selectPackage"></label><button class="button" :disabled="busy" @click="run('update')">{{ operation === 'update' ? '更新中…' : '确认更新' }}</button></div>

@@ -91,7 +91,7 @@ func TestMonitorPublishesSuccessAndUnavailable(t *testing.T) {
 			}
 			select {
 			case u := <-updates:
-				if u.ScrapeAt == nil || (tc.want == "success") != (u.SuccessAt != nil) {
+				if u.ScrapeAt == nil || (tc.want == "success") != (u.SuccessAt != nil) || (tc.want == "target_unavailable" && u.ErrorCode != "network_failed") {
 					t.Fatalf("unexpected update: %#v", u)
 				}
 			case <-time.After(time.Second):

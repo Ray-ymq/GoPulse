@@ -28,3 +28,11 @@ from an unreachable target. Exact source/target/producer labels are registered
 at each metrics boundary; Redis's historical storage labels remain unchanged.
 Use `scripts/verify-plugin-metrics.sh --sources kafka,elasticsearch` for the
 owned real-target gate; see the batch development record for validation results.
+
+### VictoriaMetrics
+
+`victoriametrics/` adds the sixth independent official module. It authenticates
+only to the locked target's `/metrics`, selects runtime counters/gauges rather
+than stored `gopulse_*` series, and emits exactly nine label-free samples. See its
+README for exact ingestion/query allowlists, last-hour active-series semantics,
+row/byte scopes and the non-retention-specific storage deletion counter.
