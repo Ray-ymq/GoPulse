@@ -290,3 +290,25 @@ Kubernetes 支持。环境仍使用前批的 builtin Dockerfile frontend/宿主 
 不声称上游 syntax frontend 拉取问题已修复或完整 CI 已执行。没有新增 retention
 专属监控、历史指标本地队列、第二存储、同类多实例或第三方插件。达到固定门禁后停止，
 未附加独立审计/代码评审报告，也未扩展为业务全量回归或覆盖率活动。
+
+## 9. 自动 PR 前置 CI 修复（2026-09-11）
+
+推送 `47f2f97` 触发的 `Auto PR and Merge` run `34593074380` 未创建 PR：九个其他
+quality jobs 成功，`Full-stack Compose acceptance`（job `103242562028`）失败，因此
+`Open PR and enable auto-merge` 被依赖规则跳过，不是 PR 写权限或自动合并配置失败。
+
+下载真实 job 日志后定位：`compose-observability.spec.ts:160` 的 `vm-down` 场景仍查找
+旧文案 `Metrics 服务暂时不可用`，而本批页面按计划改为区分存储/查询故障与目标不可达的
+新文案。仅同步这一条浏览器断言为 `指标存储或查询服务暂时不可用（VictoriaMetrics）`；
+不回退产品语义、不删除 VM 故障场景，不放宽 `/ready=200`、社交发帖/评论/点赞及
+同源请求断言，也不跳过任何工作流门禁。版本仍为 `1.11.4`，沿用同批开发分支。
+
+本地只重现直接失败场景：复用现有隔离 Compose harness 和 `1.11.4` 产品镜像，建立
+临时管理员，实际停止 VM，执行修改后的原始 `compose-observability.spec.ts`，指定
+`GOPULSE_ACCEPTANCE_SCENARIO=vm-down`。浏览器 **1 passed**，包含页面降级提示、
+社交操作、readiness 和同源验证；harness 清理成功并保留全部原有资源。实际驱动及输出：
+`.run/p1404/auto-pr/verify-vm-down.py`、`focused.log`、`vm-down-browser.log`。
+
+原始远程失败日志保留于 `.run/p1404/auto-pr/full-stack.log`。本修复不改应用代码和
+依赖，不重复无关模块测试；推送后由原工作流重新运行完整前置 quality gates，新的
+远程最终结果不能用本地单场景成功代替。
