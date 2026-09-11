@@ -13,8 +13,6 @@ const updateVersion = process.env.GOPULSE_OBSERVABILITY_UPDATE_VERSION
 const logRequestID = process.env.GOPULSE_OBSERVABILITY_LOG_REQUEST_ID
 const baseURL = process.env.GOPULSE_BASE_URL
 const backendURL = process.env.GOPULSE_OBSERVABILITY_BACKEND_URL
-const mysqlDatabase = process.env.GOPULSE_OBSERVABILITY_MYSQL_DATABASE
-const mysqlRootPassword = process.env.GOPULSE_OBSERVABILITY_MYSQL_ROOT_PASSWORD
 
 type Infrastructure = { project:string; envFile:string; composeFile:string; runDir:string }
 
@@ -319,14 +317,15 @@ test('management pages remain keyboard-readable, narrow-screen usable, and rejec
 })
 
 test('database role demotion clears the management view while preserving the social session', async ({ page }) => {
-  const state=infrastructure()
-  test.skip(!demotionUsername || !password || !state || !mysqlDatabase || !mysqlRootPassword || !installPackage, 'demotion controls are required')
+  test.skip(!demotionUsername || !password || !installPackage, 'demotion controls are required')
   if (!/^[A-Za-z0-9_]{3,32}$/.test(demotionUsername!)) throw new Error('unsafe demotion username')
   await login(page,demotionUsername!)
   await page.goto('/admin/observability/exporters')
   await expect(page.locator('.state-pill')).toHaveText('running',{timeout:20_000})
   await page.locator('input[type=file]').setInputFiles(installPackage!)
-  compose(state!,'exec','-T','mysql','mysql','--user=root',`--password=${mysqlRootPassword}`,mysqlDatabase!,'--execute',`UPDATE users SET role='user' WHERE username='${demotionUsername}' AND role='admin'`)
+  const current = await (await page.request.get('/api/v1/users/me')).json()
+  const demotion = await page.request.put(`/api/v1/admin/users/${current.data.id}/role`, { data: { role: 'user' } })
+  expect(demotion.status()).toBe(200)
   await page.getByRole('button',{name:'刷新状态'}).click()
   await expect(page).toHaveURL(/\/forbidden$/)
   await expect(page.getByRole('heading',{name:'无权访问管理区域'})).toBeVisible()
