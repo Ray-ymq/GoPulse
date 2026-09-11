@@ -64,14 +64,11 @@ func (repository *MySQLRepository) FindByUsername(ctx context.Context, normalize
 }
 
 func (repository *MySQLRepository) PromoteByUsername(ctx context.Context, normalizedUsername string) (User, error) {
-	_, err := repository.database.ExecContext(ctx,
-		`UPDATE users SET role = 'admin' WHERE username = ? AND role = 'user'`,
-		normalizedUsername,
-	)
+	record, err := repository.FindByUsername(ctx, normalizedUsername)
 	if err != nil {
-		return User{}, fmt.Errorf("promote user role: %w", err)
+		return User{}, err
 	}
-	return repository.FindByUsername(ctx, normalizedUsername)
+	return repository.DeclareBootstrap(ctx, record.ID)
 }
 
 func (repository *MySQLRepository) findOne(ctx context.Context, query string, argument any) (User, error) {
