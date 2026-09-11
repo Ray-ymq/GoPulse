@@ -19,7 +19,7 @@ function clear(): void {
 }
 
 function removeAdminCapability(): void {
-  if (user.value?.role === 'admin') user.value = { ...user.value, role: 'user' }
+  if (user.value?.role === 'super_admin') user.value = { ...user.value, role: 'user' }
 }
 
 function markRecoveryError(): void {

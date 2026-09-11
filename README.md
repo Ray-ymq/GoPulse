@@ -244,7 +244,7 @@ The HTTP server enforces a 5-second read-header timeout, 10-second read timeout,
 
 ### User and authentication API
 
-All successful JSON responses use the common `data` envelope. Authentication responses and `/users/me` contain only `id`, `username`, `role`, and `created_at`; `role` is always `user` or `admin`. Password hashes and JWTs are never returned in JSON. Public post/comment/notification author summaries remain limited to `id` and `username` and never expose roles.
+All successful JSON responses use the common `data` envelope. Authentication responses and `/users/me` contain only `id`, `username`, `role`, and `created_at`; `role` is always `user` or `super_admin`. Password hashes and JWTs are never returned in JSON. Public post/comment/notification author summaries remain limited to `id` and `username` and never expose roles.
 
 - `POST /api/v1/auth/register`
   - accepts `{"username":"alice","password":"example-password"}`;
@@ -264,42 +264,26 @@ All successful JSON responses use the common `data` envelope. Authentication res
 
 The cookie uses the configured name with `HttpOnly`, `SameSite=Lax`, `Path=/`, no broad `Domain`, and a lifetime coordinated with `AUTH_JWT_TTL`. Production forces the `Secure` attribute. JWT validation accepts only HS256 and requires positive decimal `sub`, `iat`, and `exp` claims. JWTs carry only the stable user ID; they do not carry or authorize from a role claim.
 
-### Administrator identity and authorization
+### Super administrator identity and authorization
 
-Every registration creates an ordinary `user`. GoPulse does not create a default administrator, promote the first account, accept an administrator role from registration JSON, or provide a browser-based role editor. After applying migrations, a server operator can explicitly promote each intended administrator with the Backend environment configured:
-
-```bash
-cd backend
-go run ./cmd/admin-role promote --username alice
-```
-
-Promotion uses the same username normalization as login, fails for an unknown user, and succeeds idempotently when the user is already an administrator. It does not print credentials, tokens, database connection details, or user records. Phase 6 currently provides promotion only; demotion, disabling, deletion, role listing, and a management UI are not implemented.
-
-The same account and HttpOnly session continue to work after promotion. `/api/v1/users/me` and administrator authorization read the current role from MySQL, so an existing valid Cookie observes the promotion without a second login protocol. Administrator authorization is a Backend boundary; future Frontend navigation checks are only presentation behavior.
-
-| Capability | Anonymous | `user` | `admin` | Internal service identity |
-| --- | --- | --- | --- | --- |
-| Existing public social behavior | Existing contract | Existing contract | Existing contract | Not applicable |
-| Authenticated posts, comments, likes, search, and notifications | `401 authentication_required` | Allowed | Allowed | Not applicable |
-| Metrics, logs, and events queries | `401 authentication_required` | `403 permission_denied` | Allowed | Separate internal contract |
-| Exporter installation, query, and lifecycle management | `401 authentication_required` | `403 permission_denied` | Allowed | Monitor token |
-| Monitor, Router, Marshaller, and storage internal APIs | Denied | Denied | Browsers do not connect directly | Separate service authentication and controlled network |
-
-The reusable Backend administrator middleware performs authentication first and then loads the current database role. A rejected request does not call the protected handler or downstream management/storage capability. The management and observability routes listed above are authorization contracts for later Phase 6 and subsequent phases; this batch does not add those public routes or a management page.
-
-A command-line smoke flow can retain the HttpOnly cookie in a cookie jar:
+Registration always creates a `user`. Migration 000012 converts **every** legacy `admin` to `super_admin` and protects the lowest legacy administrator ID as the unique bootstrap account. For a fresh installation, register first, read the exact ID from `/api/v1/users/me`, then declare the recovery root using the MySQL-only operations image:
 
 ```bash
-curl --show-error --fail-with-body \
-  -c /tmp/gopulse-cookie.txt \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"example-password"}' \
-  http://localhost:8080/api/v1/auth/register
-
-curl --show-error --fail-with-body \
-  -b /tmp/gopulse-cookie.txt \
-  http://localhost:8080/api/v1/users/me
+# Replace 123 with the registered user's exact ID.
+docker compose --env-file .env -f deploy/compose.yaml --profile operations run --rm admin-role bootstrap --user-id 123
+# Equivalent host development command (Backend MySQL environment required):
+(cd backend && go run ./cmd/admin-role bootstrap --user-id 123)
 ```
+
+`GOPULSE_BOOTSTRAP_USER_ID` supplies the default ID for `docker compose run admin-role`; it never auto-promotes the first registration. Repeating the same declaration is idempotent. A different account is rejected, and a foreign key prevents deleting the bootstrap account. For one release only, `admin-role promote --username alice` has the **same one-time bootstrap semantics**, not general promotion semantics.
+
+`GET /api/v1/admin/users/:userId` exposes only `id,username,role,created_at,is_bootstrap_super_admin`. A super administrator can use `PUT /api/v1/admin/users/:userId/role` with exactly `{"role":"user"}` or `{"role":"super_admin"}`. The response is `{ "data": { "user": <managed user>, "changed": true|false } }`. The bootstrap account cannot be demoted (`409 bootstrap_super_admin_protected`). Non-bootstrap super administrators may demote themselves. Roles and successful audit events commit together; an idempotent request adds no audit event.
+
+All management paths read the current role from MySQL on every request. JWTs locate users and contain no role authority. Existing Cookies immediately observe migration, promotion and demotion; demotion returns 403 on the next management request without disabling social APIs. Anonymous requests return 401, ordinary users 403, malformed management IDs/bodies 400 and missing users 404. An authenticated super administrator without a valid bootstrap receives `503 management_setup_unavailable`. Backend startup rejects an inconsistent bootstrap but permits a fresh installation to register its first user; management setup is not a social readiness dependency.
+
+`GET /api/v1/admin/audit-events` is super-admin-only. Optional filters are `action`, `resource_type`, `outcome`, RFC3339 `start/end` (at most 90 days), and `limit=1..100` (default 50). Follow `meta.next_cursor` using **only** `cursor`; it signs the query and actor and cannot be mixed with changed filters. Records contain bounded server-built details, never passwords, Cookies, connection configuration or raw errors. The current Frontend retains its management pages using `super_admin`; the separate admin application belongs to Phase-15-04.
+
+Migration 000012 supports retry after MySQL implicit DDL commits. `migrate up` automatically replays **only** dirty migration 12 under the migration lock and marks it clean only after success; unrelated dirty migrations remain blocked. Keep a database backup before production migration or rollback. `migrate down` maps all super administrators back to legacy administrators before dropping the bootstrap/audit tables; it preserves users but discards this batch's audit table, so export audit history before a controlled rollback.
 
 ### Post, comment, and like API
 

@@ -16,6 +16,7 @@ import (
 )
 
 type APIRoutes struct {
+	Management      *ManagementHandler
 	Bookmarks       *bookmark.Handler
 	Users           *UserHandler
 	Auth            *auth.Handler
@@ -102,6 +103,13 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		if routes.Events != nil {
 			observability.GET("/events", routes.Events.List)
 		}
+	}
+	if routes.Management != nil && routes.Authorization != nil {
+		management := protected.Group("/admin")
+		management.Use(routes.Authorization)
+		management.GET("/users/:userId", routes.Management.User)
+		management.PUT("/users/:userId/role", routes.Management.User)
+		management.GET("/audit-events", routes.Management.Audit)
 	}
 	if routes.ExporterPlugins != nil && routes.Authorization != nil {
 		plugins := protected.Group("/exporter-plugins")

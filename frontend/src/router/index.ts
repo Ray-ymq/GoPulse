@@ -78,7 +78,7 @@ export function createAppRouter(history = createWebHistory()): Router {
         if (auth.status.value !== 'authenticated') return '/login'
         return { path: '/auth-recovery', query: { redirect: to.fullPath } }
       }
-      if (auth.user.value?.role !== 'admin') return '/forbidden'
+      if (auth.user.value?.role !== 'super_admin') return '/forbidden'
     }
     if (to.meta.guestOnly && auth.status.value === 'authenticated') return '/posts'
     return true
