@@ -32,6 +32,25 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_rabbitmq_published_total', label: 'rabbitmq published_total' },
   { value: 'gopulse_rabbitmq_delivered_total', label: 'rabbitmq delivered_total' },
   { value: 'gopulse_rabbitmq_acked_total', label: 'rabbitmq acked_total' },
+  { value: 'gopulse_kafka_up', label: 'kafka up' },
+  { value: 'gopulse_kafka_brokers', label: 'kafka brokers' },
+  { value: 'gopulse_kafka_controller_available', label: 'kafka controller_available' },
+  { value: 'gopulse_kafka_partitions', label: 'kafka partitions' },
+  { value: 'gopulse_kafka_under_replicated_partitions', label: 'kafka under_replicated_partitions' },
+  { value: 'gopulse_kafka_offline_partitions', label: 'kafka offline_partitions' },
+  { value: 'gopulse_kafka_consumer_group_lag', label: 'kafka consumer_group_lag' },
+  { value: 'gopulse_elasticsearch_up', label: 'elasticsearch up' },
+  { value: 'gopulse_elasticsearch_cluster_health_status', label: 'elasticsearch cluster_health_status' },
+  { value: 'gopulse_elasticsearch_nodes', label: 'elasticsearch nodes' },
+  { value: 'gopulse_elasticsearch_data_nodes', label: 'elasticsearch data_nodes' },
+  { value: 'gopulse_elasticsearch_active_primary_shards', label: 'elasticsearch active_primary_shards' },
+  { value: 'gopulse_elasticsearch_active_shards', label: 'elasticsearch active_shards' },
+  { value: 'gopulse_elasticsearch_relocating_shards', label: 'elasticsearch relocating_shards' },
+  { value: 'gopulse_elasticsearch_initializing_shards', label: 'elasticsearch initializing_shards' },
+  { value: 'gopulse_elasticsearch_unassigned_shards', label: 'elasticsearch unassigned_shards' },
+  { value: 'gopulse_elasticsearch_pending_tasks', label: 'elasticsearch pending_tasks' },
+  { value: 'gopulse_elasticsearch_documents', label: 'elasticsearch documents' },
+  { value: 'gopulse_elasticsearch_store_size_bytes', label: 'elasticsearch store_size_bytes' },
 ]
 export const ranges: ReadonlyArray<{ value: QueryRange; label: string; milliseconds: number }> = [
   { value: '15m', label: '最近 15 分钟', milliseconds: 15 * 60_000 },
@@ -77,7 +96,7 @@ export const eventNames = [
 ] as const
 
 const metricNames = new Set(metricCatalog.map((item) => item.value))
-const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolean'|'seconds'|'count'|'bytes'; label?:'mode'|'db'|'result'|'state' }> = {
+const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolean'|'seconds'|'count'|'bytes'; label?:'mode'|'db'|'result'|'state'|'status' }> = {
   gopulse_redis_up:{kind:'gauge',unit:'boolean'},gopulse_redis_uptime_seconds:{kind:'gauge',unit:'seconds'},gopulse_redis_connected_clients:{kind:'gauge',unit:'count'},gopulse_redis_used_memory_bytes:{kind:'gauge',unit:'bytes'},
   gopulse_redis_commands_processed_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_hits_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_misses_total:{kind:'counter',unit:'count'},gopulse_redis_cpu_seconds_total:{kind:'counter',unit:'seconds',label:'mode'},
   gopulse_redis_db_keys:{kind:'gauge',unit:'count',label:'db'},gopulse_redis_db_expiring_keys:{kind:'gauge',unit:'count',label:'db'},
@@ -100,6 +119,25 @@ const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolea
   gopulse_rabbitmq_published_total:{kind:'counter',unit:'count'},
   gopulse_rabbitmq_delivered_total:{kind:'counter',unit:'count'},
   gopulse_rabbitmq_acked_total:{kind:'counter',unit:'count'},
+ gopulse_kafka_up:{kind:'gauge',unit:'boolean'},
+ gopulse_kafka_brokers:{kind:'gauge',unit:'count'},
+ gopulse_kafka_controller_available:{kind:'gauge',unit:'boolean'},
+ gopulse_kafka_partitions:{kind:'gauge',unit:'count'},
+ gopulse_kafka_under_replicated_partitions:{kind:'gauge',unit:'count'},
+ gopulse_kafka_offline_partitions:{kind:'gauge',unit:'count'},
+ gopulse_kafka_consumer_group_lag:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_up:{kind:'gauge',unit:'boolean'},
+ gopulse_elasticsearch_cluster_health_status:{kind:'gauge',unit:'boolean',label:'status'},
+ gopulse_elasticsearch_nodes:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_data_nodes:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_active_primary_shards:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_active_shards:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_relocating_shards:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_initializing_shards:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_unassigned_shards:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_pending_tasks:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_documents:{kind:'gauge',unit:'count'},
+ gopulse_elasticsearch_store_size_bytes:{kind:'gauge',unit:'bytes'},
 }
 const rangeNames = new Set(ranges.map((item) => item.value))
 const logKeys = new Set(['timestamp','level','service','module','message','request_id','event_id','event_type','user_id','post_id','comment_id','notification_id','outbox_id','method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size','document_count','panic_recovered','response_committed'])
@@ -122,7 +160,7 @@ export function isMetricResult(value: unknown): value is MetricResult {
   let points = 0
   const seriesKeys = new Set<string>()
   return value.series.every((series) => {
-    if (!record(series) || Object.keys(series).sort().join() !== 'labels,points' || !record(series.labels) || !keysAllowed(series.labels, new Set(['mode','db','result','state'])) || !Array.isArray(series.points)) return false
+    if (!record(series) || Object.keys(series).sort().join() !== 'labels,points' || !record(series.labels) || !keysAllowed(series.labels, new Set(['mode','db','result','state','status'])) || !Array.isArray(series.points)) return false
     if (series.labels.mode !== undefined && series.labels.mode !== 'user' && series.labels.mode !== 'system') return false
     if (contract.label === undefined && Object.keys(series.labels).length !== 0) return false
     if (contract.label === 'mode' && (Object.keys(series.labels).length !== 1 || series.labels.mode === undefined)) return false
@@ -130,7 +168,8 @@ export function isMetricResult(value: unknown): value is MetricResult {
     if (series.labels.db !== undefined && (typeof series.labels.db !== 'string' || !/^(0|[1-9][0-9]*)$/.test(series.labels.db))) return false
     if (contract.label === 'result' && (Object.keys(series.labels).length !== 1 || !['commit','rollback'].includes(String(series.labels.result)))) return false
     if (contract.label === 'state' && (Object.keys(series.labels).length !== 1 || !['ready','unacked'].includes(String(series.labels.state)))) return false
-    const seriesKey = `${series.labels.mode ?? ''}|${series.labels.db ?? ''}|${series.labels.result ?? ''}|${series.labels.state ?? ''}`
+    if (contract.label === 'status' && (Object.keys(series.labels).length !== 1 || !['green','yellow','red'].includes(String(series.labels.status)))) return false
+    const seriesKey = `${series.labels.mode ?? ''}|${series.labels.db ?? ''}|${series.labels.result ?? ''}|${series.labels.state ?? ''}|${series.labels.status ?? ''}`
     if (seriesKeys.has(seriesKey)) return false
     seriesKeys.add(seriesKey)
     let previous = Number.NEGATIVE_INFINITY
@@ -169,7 +208,7 @@ export function isEventEntry(value: unknown): value is EventEntry {
   if (!record(value) || Object.keys(value).sort().join() !== ['event_name','message','metadata','severity','source','timestamp'].sort().join() || !timestamp(value.timestamp) || typeof value.event_name !== 'string' || !eventNames.includes(value.event_name as typeof eventNames[number]) || !record(value.metadata) || !keysAllowed(value.metadata, metadataKeys)) return false
   const name = value.event_name
   const m = value.metadata
-  if (value.source !== 'monitor' || value.severity !== eventSeverities[name] || value.message !== eventMessages[name] || !['redis-exporter','mysql-exporter','rabbitmq-exporter'].includes(String(m.plugin_id)) || ![...metadataKeys].filter((key) => key !== 'plugin_id').every((key) => optionalString(m[key]))) return false
+  if (value.source !== 'monitor' || value.severity !== eventSeverities[name] || value.message !== eventMessages[name] || !['redis-exporter','mysql-exporter','rabbitmq-exporter','kafka-exporter','elasticsearch-exporter'].includes(String(m.plugin_id)) || ![...metadataKeys].filter((key) => key !== 'plugin_id').every((key) => optionalString(m[key]))) return false
   const version = typeof m.plugin_version === 'string' && semver.test(m.plugin_version)
   const previous = typeof m.previous_plugin_version === 'string' && semver.test(m.previous_plugin_version)
   const noError = absent(m, 'error_code', 'scrape_status')
@@ -201,9 +240,9 @@ export const observabilityApi = {
   events: (filters: EventFilters, cursor?: string, signal?: AbortSignal): Promise<Page<EventEntry>> => requestValidatedPage(`/observability/events?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isEventEntry, { signal }),
 }
 
-export interface MetricDescriptor { metric: MetricName; kind: string; unit: string; source: 'redis' | 'mysql' | 'rabbitmq'; target_id: string; producer_kind: 'exporter_plugin'; producer_id: string }
+export interface MetricDescriptor { metric: MetricName; kind: string; unit: string; source: 'redis' | 'mysql' | 'rabbitmq' | 'kafka' | 'elasticsearch'; target_id: string; producer_kind: 'exporter_plugin'; producer_id: string }
 export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
   return Array.isArray(value) && value.length === metricCatalog.length && new Set(value.map(item => record(item) ? item.metric : '')).size === value.length && value.every(item =>
-    record(item) && Object.keys(item).length === 7 && metricNames.has(item.metric as MetricName) && String(item.metric).startsWith(`gopulse_${item.source}_`) && item.kind === metricContracts[item.metric as MetricName].kind && item.unit === metricContracts[item.metric as MetricName].unit && (item.kind === 'gauge' || item.kind === 'counter') && typeof item.unit === 'string' && ['boolean','seconds','count','bytes'].includes(item.unit) && ['redis','mysql','rabbitmq'].includes(String(item.source)) && item.target_id === `${item.source}-exporter-local` && item.producer_kind === 'exporter_plugin' && item.producer_id === `${item.source}-exporter`)
+    record(item) && Object.keys(item).length === 7 && metricNames.has(item.metric as MetricName) && String(item.metric).startsWith(`gopulse_${item.source}_`) && item.kind === metricContracts[item.metric as MetricName].kind && item.unit === metricContracts[item.metric as MetricName].unit && (item.kind === 'gauge' || item.kind === 'counter') && typeof item.unit === 'string' && ['boolean','seconds','count','bytes'].includes(item.unit) && ['redis','mysql','rabbitmq','kafka','elasticsearch'].includes(String(item.source)) && item.target_id === `${item.source}-exporter-local` && item.producer_kind === 'exporter_plugin' && item.producer_id === `${item.source}-exporter`)
 }
 export const loadMetricCatalog = (signal?: AbortSignal) => requestValidatedData('/observability/metrics/catalog', isMetricCatalog, { signal })

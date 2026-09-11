@@ -20,7 +20,7 @@ while (($#)); do
 done
 [[ $VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo 'Plugin version must be a three-part SemVer.' >&2; exit 2; }
 [[ $CONTRACT_VERSION == 1 || $CONTRACT_VERSION == 2 ]] || { echo 'Contract version must be 1 or 2.' >&2; exit 2; }
-[[ $SOURCE == redis || $SOURCE == mysql || $SOURCE == rabbitmq ]] || { echo "Unsupported source." >&2; exit 2; }
+[[ $SOURCE == redis || $SOURCE == mysql || $SOURCE == rabbitmq || $SOURCE == kafka || $SOURCE == elasticsearch ]] || { echo "Unsupported source." >&2; exit 2; }
 [[ $SOURCE == redis || $CONTRACT_VERSION == 2 ]] || { echo "Only Redis has a legacy contract." >&2; exit 2; }
 command -v python3 >/dev/null && command -v tar >/dev/null && command -v gzip >/dev/null && command -v sha256sum >/dev/null || { echo 'python3, tar, gzip, and sha256sum are required.' >&2; exit 1; }
 if [[ -z $ARCH ]]; then
