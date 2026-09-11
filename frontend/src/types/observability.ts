@@ -47,6 +47,15 @@ export type MetricName =
   | 'gopulse_elasticsearch_pending_tasks'
   | 'gopulse_elasticsearch_documents'
   | 'gopulse_elasticsearch_store_size_bytes'
+  | 'gopulse_victoriametrics_up'
+  | 'gopulse_victoriametrics_rows_inserted_total'
+  | 'gopulse_victoriametrics_query_requests_total'
+  | 'gopulse_victoriametrics_active_timeseries'
+  | 'gopulse_victoriametrics_storage_rows'
+  | 'gopulse_victoriametrics_storage_size_bytes'
+  | 'gopulse_victoriametrics_free_disk_space_bytes'
+  | 'gopulse_victoriametrics_active_merges'
+  | 'gopulse_victoriametrics_storage_rows_deleted_total'
 export type QueryRange = '15m' | '1h' | '6h' | '24h'
 export interface MetricPoint { timestamp: string; value: number }
 export interface MetricSeries { labels: { mode?: 'user' | 'system'; db?: string; result?: 'commit' | 'rollback'; state?: 'ready' | 'unacked'; status?: 'green' | 'yellow' | 'red' }; points: MetricPoint[] }

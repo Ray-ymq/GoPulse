@@ -20,7 +20,7 @@ func OfficialCatalog() []CatalogEntry {
 	ports := [...]int{6379, 3306, 15672, 9092, 9200, 8428}
 	entries := make([]CatalogEntry, len(sources))
 	for i, source := range sources {
-		entries[i] = CatalogEntry{ID: source + "-exporter", Source: source, TargetID: source + "-exporter-local", Entrypoint: "bin/gopulse-" + source + "-exporter", Port: 9121 + i, HostPort: ports[i], ContainerPort: ports[i], Available: i < 5}
+		entries[i] = CatalogEntry{ID: source + "-exporter", Source: source, TargetID: source + "-exporter-local", Entrypoint: "bin/gopulse-" + source + "-exporter", Port: 9121 + i, HostPort: ports[i], ContainerPort: ports[i], Available: true}
 		if source == "kafka" {
 			entries[i].ContainerPort = 19092
 		}

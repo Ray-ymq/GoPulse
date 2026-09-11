@@ -499,3 +499,17 @@ Kafka 聚合固定观测 Topic 与正式 Marshaller group 的拓扑和 lag，缺
 配置、逐字段指标及验证入口见 `exporters/kafka/README.md`、`exporters/elasticsearch/README.md`。
 Kafka 部分异常验收只在强归属测试环境临时加入 follower，并恢复原单 broker 拓扑；
 不增加生产多 broker/多目标配置。运行 `bash scripts/verify-plugin-metrics.sh --sources kafka,elasticsearch`。
+
+### Phase-14-04：VictoriaMetrics 与六插件隔离
+
+VictoriaMetrics 官方插件补齐六类单实例目录，回环端口 9126，复用 per-ID 事务、Secret、
+进程与采集器。九项固定运行指标通过 Monitor → Router → Kafka → Marshaller →
+VictoriaMetrics → Backend；不把存储的 `gopulse_*` 再次全量采集。
+`gopulse_victoriametrics_storage_rows_deleted_total` 仅表示选定 storage 合并过程报告的
+删除行，不是 retention 专属计数。精确映射见 `exporters/victoriametrics/README.md`。
+管理端提供配置/连接测试/启停/更新及固定指标查询入口；VM 宕机期间以 Monitor 安全状态
+为实时证据，不能声称停机时已向 VM 写入新的 up=0 点。六类同栈隔离验收入口：
+
+```bash
+bash scripts/verify-plugin-metrics.sh --sources redis,mysql,rabbitmq,kafka,elasticsearch,victoriametrics --fault-isolation
+```

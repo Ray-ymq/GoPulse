@@ -96,7 +96,7 @@ func (h *Handler) Configuration(c *gin.Context) {
 		if err != nil {
 			_, _, err = ParseRedisConfigurationRequest(body, "host", previous)
 		}
-	} else if id == "mysql-exporter" || id == "rabbitmq-exporter" || id == "kafka-exporter" || id == "elasticsearch-exporter" {
+	} else if id == "mysql-exporter" || id == "rabbitmq-exporter" || id == "kafka-exporter" || id == "elasticsearch-exporter" || id == "victoriametrics-exporter" {
 		var previous json.RawMessage
 		if action == "configuration" {
 			previous = json.RawMessage(`{"password":"preserve-placeholder"}`)
