@@ -74,3 +74,18 @@ bash scripts/verify-plugin-metrics.sh --sources mysql,rabbitmq
 ```
 
 完整逐字段目录见 `exporters/mysql/README.md`、`exporters/rabbitmq/README.md`。
+
+## Kafka / Elasticsearch packages
+
+The same packager accepts `--source kafka` and `--source elasticsearch`; both use
+Manifest v2 only and the shared compile-time release catalog. The production
+Monitor embeds both current packages. `monitor-acceptance` alone embeds trusted
+`1.11.4` success and `1.11.90` failure packages for their transactional update gate.
+No acceptance package is a new completed product version.
+
+Kafka uses the fixed PLAINTEXT `kafka:19092` origin without Secret fields.
+Elasticsearch uses `elasticsearch:9200` with optional paired username/password;
+the standard Compose target does not require account reconciliation. The
+security-enabled acceptance fixture uses only monitor privileges, never a
+business/admin credential in the Exporter. Per-source details are in each
+Exporter README and the Phase-14-03 record.

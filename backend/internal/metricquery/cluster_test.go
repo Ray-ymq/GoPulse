@@ -6,12 +6,14 @@ import (
 )
 
 func TestClusterProvenanceAndEnumLabels(t *testing.T) {
-	for _, name := range []string{"gopulse_mysql_transactions_total", "gopulse_rabbitmq_messages"} {
+	for _, name := range []string{"gopulse_mysql_transactions_total", "gopulse_rabbitmq_messages", "gopulse_kafka_up", "gopulse_elasticsearch_cluster_health_status"} {
 		definition := definitions[name]
 		labels := map[string]string{"__name__": name, "source": definition.Source, "target_id": definition.TargetID, "producer_kind": "exporter_plugin", "producer_id": definition.ProducerID}
 		if definition.Source == "mysql" {
 			labels["result"] = "commit"
-		} else {
+		} else if definition.Source == "elasticsearch" {
+			labels["status"] = "yellow"
+		} else if definition.Source == "rabbitmq" {
 			labels["state"] = "ready"
 		}
 		if _, _, err := validateLabels(labels, definition); err != nil {

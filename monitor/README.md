@@ -46,3 +46,16 @@ The queue defaults to 256 entries (`MONITOR_EVENT_QUEUE_CAPACITY`), retry bounds
 collector、desired state、事件和恢复按 plugin ID 隔离。新 MySQL/RabbitMQ 配置不会继承 Redis
 凭据；每个子进程只注入本 source 的固定字段。每种成功快照必须通过其专属完整契约，
 不允许用另一 source 的快照通过启动试验。账号部署见 `deploy/plugins/README.md`。
+
+## Phase-14-03 Kafka / Elasticsearch
+
+官方目录扩展至五种插件；Kafka/Elasticsearch 分别使用回环端口 9124/9125，复用现有
+per-ID lifecycle、revision/Secret 事务、恢复和 collector。Kafka 请求必须带空 `secrets: {}`；
+Elasticsearch 允许不认证，但启用时 username/password 必须配对，配置更新省略 password
+仅表示保留，不能通过删除 username 隐式清除已有认证。公共 `secret_configured` 与
+`configured` 因无 Secret/可选认证不再强制相等；仍不公开连接明细。
+
+两类成功快照分别严格为 7/12 families、7/14 samples；Elasticsearch health 必须是
+`status=green|yellow|red` 的三个 one-hot gauge。每层拒绝额外 labels 或跨 source 样本。
+`deploy/docker/observability.Dockerfile` 构建并编译期登记官方包；更高版本的成功/失败
+验收包仅登记在 `monitor-acceptance` 镜像，不提供运行时绕过信任校验的开关。
