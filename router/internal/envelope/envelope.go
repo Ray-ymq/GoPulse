@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"regexp"
 	"time"
@@ -122,7 +123,7 @@ func Validate(body []byte) (Message, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics" || componentmetrics.IsComponent(source))) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {

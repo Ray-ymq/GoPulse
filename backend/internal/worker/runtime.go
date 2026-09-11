@@ -5,6 +5,7 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"math/big"
 	"net"
@@ -69,6 +70,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 	connectionUnavailable := false
 	for ctx.Err() == nil {
 		session, err := openSession(ctx, runtime.connectionURL, runtime.options)
+		componentmetrics.Dependency("rabbitmq", err)
 		if err != nil {
 			attempt++
 			if !connectionUnavailable {
@@ -95,6 +97,9 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 			return err
 		}
 		err = runtime.consumeSession(ctx, session, handler)
+		if ctx.Err() == nil {
+			componentmetrics.Dependency("rabbitmq", err)
+		}
 		if closeErr := session.Close(); closeErr != nil {
 			runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
 		}
@@ -142,7 +147,10 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 				if err := session.StopDeliveries(); err != nil {
 					runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
 				}
-				timer := time.NewTimer(runtime.options.ShutdownTimeout)
+				shutdownCtx, cancelShutdown := componentmetrics.ShutdownContext(runtime.options.ShutdownTimeout)
+				defer cancelShutdown()
+				deadline, _ := shutdownCtx.Deadline()
+				timer := time.NewTimer(time.Until(deadline))
 				select {
 				case <-processingDone:
 					if !timer.Stop() {
@@ -262,7 +270,8 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 	return session, nil
 }
 
-func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey string, publishing amqp.Publishing) error {
+func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey string, publishing amqp.Publishing) (result error) {
+	defer func() { componentmetrics.Dependency("rabbitmq", result) }()
 	session.publishMu.Lock()
 	defer session.publishMu.Unlock()
 	if err := session.channel.PublishWithContext(ctx, exchange, routingKey, true, false, publishing); err != nil {

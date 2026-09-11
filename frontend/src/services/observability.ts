@@ -1,8 +1,10 @@
+import { componentContracts, componentContract, validComponentLabels, validComponentValue } from './componentMetrics'
 import type { Page } from '../types/api'
 import type { EventEntry, EventFilters, LogEntry, LogFilters, MetricName, MetricResult, QueryRange } from '../types/observability'
 import { requestValidatedData, requestValidatedPage } from './http'
 
 export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> = [
+ ...Object.keys(componentContracts).map(name => ({ value: name as MetricName, label: name.replace(/^gopulse_/, '') })),
   { value: 'gopulse_redis_up', label: 'Redis 可用状态' },
   { value: 'gopulse_redis_uptime_seconds', label: '运行时长' },
   { value: 'gopulse_redis_connected_clients', label: '连接客户端' },
@@ -105,7 +107,8 @@ export const eventNames = [
 ] as const
 
 const metricNames = new Set(metricCatalog.map((item) => item.value))
-const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolean'|'seconds'|'count'|'bytes'; label?:'mode'|'db'|'result'|'state'|'status' }> = {
+const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolean'|'seconds'|'count'|'bytes'|'state'|'unix_seconds'; label?:'mode'|'db'|'result'|'state'|'status' }> = {
+ ...componentContracts,
   gopulse_redis_up:{kind:'gauge',unit:'boolean'},gopulse_redis_uptime_seconds:{kind:'gauge',unit:'seconds'},gopulse_redis_connected_clients:{kind:'gauge',unit:'count'},gopulse_redis_used_memory_bytes:{kind:'gauge',unit:'bytes'},
   gopulse_redis_commands_processed_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_hits_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_misses_total:{kind:'counter',unit:'count'},gopulse_redis_cpu_seconds_total:{kind:'counter',unit:'seconds',label:'mode'},
   gopulse_redis_db_keys:{kind:'gauge',unit:'count',label:'db'},gopulse_redis_db_expiring_keys:{kind:'gauge',unit:'count',label:'db'},
@@ -169,8 +172,10 @@ function optionalInteger(value: unknown): boolean { return value === undefined |
 
 export function isMetricResult(value: unknown): value is MetricResult {
   if (!record(value) || Object.keys(value).sort().join() !== ['from','kind','metric','range','series','step_seconds','to','unit'].sort().join()) return false
-  if (typeof value.metric !== 'string' || !metricNames.has(value.metric as MetricName) || (value.kind !== 'gauge' && value.kind !== 'counter') || !['boolean','seconds','count','bytes'].includes(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series) || value.series.length > 32) return false
+  if (typeof value.metric !== 'string' || !metricNames.has(value.metric as MetricName) || (value.kind !== 'gauge' && value.kind !== 'counter') || !['boolean','seconds','count','bytes','state','unix_seconds'].includes(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series)) return false
   const contract = metricContracts[value.metric as MetricName]
+  const component = componentContract(value.metric)
+  if (value.series.length > (component?.tuples.length ?? 32)) return false
   const range = ranges.find((item) => item.value === value.range)
   const expectedSteps: Record<QueryRange, number> = { '15m':15, '1h':60, '6h':300, '24h':900 }
   const from = Date.parse(value.from); const to = Date.parse(value.to)
@@ -178,7 +183,9 @@ export function isMetricResult(value: unknown): value is MetricResult {
   let points = 0
   const seriesKeys = new Set<string>()
   return value.series.every((series) => {
-    if (!record(series) || Object.keys(series).sort().join() !== 'labels,points' || !record(series.labels) || !keysAllowed(series.labels, new Set(['mode','db','result','state','status'])) || !Array.isArray(series.points)) return false
+    if (!record(series) || Object.keys(series).sort().join() !== 'labels,points' || !record(series.labels) || !Array.isArray(series.points)) return false
+    if (component) { if (!validComponentLabels(component, series.labels)) return false } else {
+    if (!keysAllowed(series.labels, new Set(['mode','db','result','state','status']))) return false
     if (series.labels.mode !== undefined && series.labels.mode !== 'user' && series.labels.mode !== 'system') return false
     if (contract.label === undefined && Object.keys(series.labels).length !== 0) return false
     if (contract.label === 'mode' && (Object.keys(series.labels).length !== 1 || series.labels.mode === undefined)) return false
@@ -187,13 +194,15 @@ export function isMetricResult(value: unknown): value is MetricResult {
     if (contract.label === 'result' && (Object.keys(series.labels).length !== 1 || !['commit','rollback'].includes(String(series.labels.result)))) return false
     if (contract.label === 'state' && (Object.keys(series.labels).length !== 1 || !['ready','unacked'].includes(String(series.labels.state)))) return false
     if (contract.label === 'status' && (Object.keys(series.labels).length !== 1 || !['green','yellow','red'].includes(String(series.labels.status)))) return false
-    const seriesKey = `${series.labels.mode ?? ''}|${series.labels.db ?? ''}|${series.labels.result ?? ''}|${series.labels.state ?? ''}|${series.labels.status ?? ''}`
+    }
+    const seriesKey = JSON.stringify(Object.entries(series.labels).sort(([a], [b]) => a.localeCompare(b)))
     if (seriesKeys.has(seriesKey)) return false
     seriesKeys.add(seriesKey)
     let previous = Number.NEGATIVE_INFINITY
     return series.points.every((point) => {
       points++
-      if (points > 4096 || !record(point) || Object.keys(point).sort().join() !== 'timestamp,value' || !timestamp(point.timestamp) || !finite(point.value)) return false
+      if (points > (component ? component.tuples.length * 97 : 4096) || !record(point) || Object.keys(point).sort().join() !== 'timestamp,value' || !timestamp(point.timestamp) || !finite(point.value)) return false
+      if (component && !validComponentValue(value.metric as string, component, point.value)) return false
       const at = Date.parse(point.timestamp)
       if (at < from || at > to || at <= previous) return false
       previous = at
@@ -258,9 +267,15 @@ export const observabilityApi = {
   events: (filters: EventFilters, cursor?: string, signal?: AbortSignal): Promise<Page<EventEntry>> => requestValidatedPage(`/observability/events?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isEventEntry, { signal }),
 }
 
-export interface MetricDescriptor { metric: MetricName; kind: string; unit: string; source: 'redis' | 'mysql' | 'rabbitmq' | 'kafka' | 'elasticsearch' | 'victoriametrics'; target_id: string; producer_kind: 'exporter_plugin'; producer_id: string }
+export interface MetricDescriptor { metric: MetricName; kind: string; unit: string; source: string; target_id: string; producer_kind: 'exporter_plugin'|'component'; producer_id: string }
 export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
-  return Array.isArray(value) && value.length === metricCatalog.length && new Set(value.map(item => record(item) ? item.metric : '')).size === value.length && value.every(item =>
-    record(item) && Object.keys(item).length === 7 && metricNames.has(item.metric as MetricName) && String(item.metric).startsWith(`gopulse_${item.source}_`) && item.kind === metricContracts[item.metric as MetricName].kind && item.unit === metricContracts[item.metric as MetricName].unit && (item.kind === 'gauge' || item.kind === 'counter') && typeof item.unit === 'string' && ['boolean','seconds','count','bytes'].includes(item.unit) && ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics'].includes(String(item.source)) && item.target_id === `${item.source}-exporter-local` && item.producer_kind === 'exporter_plugin' && item.producer_id === `${item.source}-exporter`)
+ if (!Array.isArray(value) || value.length !== metricCatalog.length || new Set(value.map(item => record(item) ? item.metric : undefined)).size !== value.length) return false
+ return value.every(item => {
+  if (!record(item) || Object.keys(item).length !== 7 || !metricNames.has(item.metric as MetricName)) return false
+  const name = item.metric as MetricName; const contract = metricContracts[name]; const component = componentContract(name)
+  if (item.kind !== contract.kind || item.unit !== contract.unit) return false
+  if (component) return item.source === component.source && item.producer_kind === 'component' && item.producer_id === component.source && item.target_id === `${component.source}-local`
+  return ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics'].includes(String(item.source)) && name.startsWith(`gopulse_${item.source}_`) && item.target_id === `${item.source}-exporter-local` && item.producer_kind === 'exporter_plugin' && item.producer_id === `${item.source}-exporter`
+ })
 }
 export const loadMetricCatalog = (signal?: AbortSignal) => requestValidatedData('/observability/metrics/catalog', isMetricCatalog, { signal })
