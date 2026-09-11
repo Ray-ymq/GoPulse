@@ -12,7 +12,7 @@ func validEnvironment(t *testing.T) {
 	for key, value := range map[string]string{
 		"REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_PASSWORD": "do-not-log-this",
 		"REDIS_DB": "2", "REDIS_EXPORTER_HTTP_HOST": "127.0.0.1", "REDIS_EXPORTER_HTTP_PORT": "9121",
-		"REDIS_EXPORTER_SCRAPE_TIMEOUT": "2s", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT": "5s",
+		"REDIS_EXPORTER_CONNECT_TIMEOUT": "", "REDIS_EXPORTER_SCRAPE_TIMEOUT": "2s", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT": "5s",
 	} {
 		t.Setenv(key, value)
 	}
@@ -27,7 +27,7 @@ func TestLoadValidConfiguration(t *testing.T) {
 	if cfg.RedisAddress() != "127.0.0.1:6379" || cfg.HTTPAddress() != "127.0.0.1:9121" || cfg.RedisDB != 2 {
 		t.Fatalf("unexpected configuration: %#v", cfg)
 	}
-	if cfg.ScrapeTimeout != 2*time.Second || cfg.ShutdownTimeout != 5*time.Second {
+	if cfg.ConnectTimeout != cfg.ScrapeTimeout || cfg.ScrapeTimeout != 2*time.Second || cfg.ShutdownTimeout != 5*time.Second {
 		t.Fatalf("unexpected timeouts: %#v", cfg)
 	}
 }
@@ -140,5 +140,18 @@ func TestRuntimeModeRejectsUnsafeExporterContainerValues(t *testing.T) {
 				t.Fatalf("error=%v, want %s rejection", err, field)
 			}
 		})
+	}
+}
+
+func TestIndependentConnectBudget(t *testing.T) {
+	validEnvironment(t)
+	t.Setenv("REDIS_EXPORTER_CONNECT_TIMEOUT", "500ms")
+	cfg, err := Load()
+	if err != nil || cfg.ConnectTimeout != 500*time.Millisecond {
+		t.Fatal("connect budget rejected", err)
+	}
+	t.Setenv("REDIS_EXPORTER_CONNECT_TIMEOUT", "3s")
+	if _, err := Load(); err == nil || Field(err) != "REDIS_EXPORTER_CONNECT_TIMEOUT" {
+		t.Fatal("connect budget exceeded scrape deadline")
 	}
 }

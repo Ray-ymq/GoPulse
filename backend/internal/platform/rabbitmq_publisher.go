@@ -5,6 +5,7 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"math/big"
 	"net"
 	"net/url"
@@ -188,7 +189,8 @@ func NewRabbitMQPublisher(connectionURL string, options ...RabbitMQPublisherOpti
 	}, nil
 }
 
-func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.Envelope) error {
+func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.Envelope) (result error) {
+
 	if ctx == nil {
 		return outbox.NewPublishError(outbox.FailureInternal, errors.New("publish context is required"))
 	}
@@ -212,6 +214,12 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 	publisher.publishMu.Lock()
 	defer publisher.publishMu.Unlock()
 
+	defer func() {
+		componentmetrics.Dependency("rabbitmq", result)
+		if b := componentmetrics.BackendActive(); b != nil {
+			b.ObservePublish(time.Now(), result)
+		}
+	}()
 	state, err := publisher.ensureState(ctx)
 	if err != nil {
 		return err

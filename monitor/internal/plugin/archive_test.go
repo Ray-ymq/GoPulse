@@ -48,3 +48,28 @@ func TestExtractPackageAcceptsValidAndRejectsTraversal(t *testing.T) {
 		t.Fatal("archive wrote outside staging")
 	}
 }
+
+func TestClusterArchiveEntrypointIsolation(t *testing.T) {
+	for _, source := range []string{"mysql", "rabbitmq"} {
+		t.Run(source, func(t *testing.T) {
+			manifest, _ := v2Manifest(t)
+			entry, _ := LookupOfficial(source + "-exporter")
+			manifest.ID, manifest.Source, manifest.Entrypoint = entry.ID, source, entry.Entrypoint
+			binary := []byte("cluster binary")
+			digest := sha256.Sum256(binary)
+			manifest.EntrypointSHA256 = hex.EncodeToString(digest[:])
+			schema, _ := OfficialSchemaJSON(entry.ID)
+			digest = sha256.Sum256(schema)
+			manifest.ConfigSchemaSHA256 = hex.EncodeToString(digest[:])
+			raw, _ := json.Marshal(manifest)
+			files := map[string][]byte{"plugin.json": raw, "config.schema.json": schema, entry.Entrypoint: binary}
+			if _, err := extractPackageContract(writeArchive(t, files), t.TempDir(), 2); err != nil {
+				t.Fatal(err)
+			}
+			files["bin/gopulse-redis-exporter"] = binary
+			if _, err := extractPackageContract(writeArchive(t, files), t.TempDir(), 2); err == nil {
+				t.Fatal("foreign source executable accepted")
+			}
+		})
+	}
+}

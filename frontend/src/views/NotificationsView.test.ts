@@ -68,7 +68,7 @@ describe('NotificationsView', () => {
 
     expect(wrapper.text()).toContain('@bob')
     expect(wrapper.text()).toContain('评论了你的帖子')
-    expect(wrapper.get('a[href="/posts/31"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/posts/31"]').exists()).toBe(true)
 
     const markButton = wrapper.get('.notification-card button')
     await Promise.all([markButton.trigger('click'), markButton.trigger('click')])

@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +25,13 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	var b strings.Builder
 	for _, sample := range samples {
 		b.WriteString(sample.Name)
-		b.WriteString(`{source="redis",target_id="redis-exporter-local"`)
+		if componentmetrics.IsComponent(message.Source) {
+			fmt.Fprintf(&b, `{source="%s",target_id="%s",producer_kind="component",producer_id="%s"`, message.Source, message.Payload.TargetID, message.Payload.ProducerID)
+		} else if message.Source == "mysql" || message.Source == "rabbitmq" || message.Source == "kafka" || message.Source == "elasticsearch" || message.Source == "victoriametrics" {
+			fmt.Fprintf(&b, `{source="%s",target_id="%s",producer_kind="exporter_plugin",producer_id="%s"`, message.Source, message.Payload.TargetID, message.Payload.ProducerID)
+		} else {
+			b.WriteString(`{source="redis",target_id="redis-exporter-local"`)
+		}
 		keys := make([]string, 0, len(sample.Labels))
 		for key := range sample.Labels {
 			keys = append(keys, key)

@@ -2,6 +2,7 @@
 FROM golang:1.26.0-alpine3.23 AS build
 WORKDIR /src/backend
 ARG GOPROXY=https://goproxy.cn,direct
+COPY componentmetrics/ /src/componentmetrics/
 COPY backend/go.mod backend/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY backend/ ./

@@ -1,3 +1,4 @@
+export type ExporterSource = 'redis' | 'mysql' | 'rabbitmq' | 'kafka' | 'elasticsearch' | 'victoriametrics'
 export type ExporterDesiredState = 'running' | 'stopped'
 export type ExporterObservedState = 'installing' | 'starting' | 'running' | 'stopping' | 'stopped' | 'updating' | 'failed'
 export type ExporterErrorCode =
@@ -20,11 +21,11 @@ export type ExporterErrorCode =
   | 'publish_failed'
 export interface ExporterSafeError { code: ExporterErrorCode; message: string; at: string }
 export interface ExporterStatus {
-  id: 'redis-exporter'
+  id: `${ExporterSource}-exporter`
   name: string
   version: string
   kind: 'metrics-exporter'
-  source: 'redis'
+  source: ExporterSource
   desired_state: ExporterDesiredState
   observed_state: ExporterObservedState
   installed_at: string
