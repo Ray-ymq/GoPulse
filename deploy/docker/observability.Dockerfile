@@ -194,17 +194,18 @@ ENTRYPOINT ["/usr/local/bin/monitor"]
 # Acceptance-only registered releases. No runtime flag can add these to a
 # production image; the production monitor target above never copies them.
 FROM official-packages AS acceptance-packages
+ARG ACCEPTANCE_UPDATE_VERSION=1.11.5
 RUN cd /src/monitor && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' -o /out/failing-exporter ./internal/plugin/testdata/failing-exporter.go
 RUN ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/redis-failure.tar.gz && \
-    ./scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.5 --arch amd64 --binary /out/gopulse-redis-exporter --output /out/redis-update.tar.gz
+    ./scripts/package-redis-exporter.sh --contract-version 2 --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-redis-exporter --output /out/redis-update.tar.gz
 
 RUN ./scripts/package-redis-exporter.sh --source kafka --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/kafka-failure.tar.gz && \
-    ./scripts/package-redis-exporter.sh --source kafka --version 1.11.5 --arch amd64 --binary /out/gopulse-kafka-exporter --output /out/kafka-update.tar.gz
+    ./scripts/package-redis-exporter.sh --source kafka --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-kafka-exporter --output /out/kafka-update.tar.gz
 RUN ./scripts/package-redis-exporter.sh --source elasticsearch --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/elasticsearch-failure.tar.gz && \
-    ./scripts/package-redis-exporter.sh --source elasticsearch --version 1.11.5 --arch amd64 --binary /out/gopulse-elasticsearch-exporter --output /out/elasticsearch-update.tar.gz
+    ./scripts/package-redis-exporter.sh --source elasticsearch --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-elasticsearch-exporter --output /out/elasticsearch-update.tar.gz
 
 RUN ./scripts/package-redis-exporter.sh --source victoriametrics --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/victoriametrics-failure.tar.gz && \
-    ./scripts/package-redis-exporter.sh --source victoriametrics --version 1.11.5 --arch amd64 --binary /out/gopulse-victoriametrics-exporter --output /out/victoriametrics-update.tar.gz
+    ./scripts/package-redis-exporter.sh --source victoriametrics --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-victoriametrics-exporter --output /out/victoriametrics-update.tar.gz
 
 FROM monitor-build AS monitor-acceptance-build
 COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /out/kafka-failure.tar.gz /out/kafka-update.tar.gz /out/elasticsearch-failure.tar.gz /out/elasticsearch-update.tar.gz /out/victoriametrics-failure.tar.gz /out/victoriametrics-update.tar.gz /packages/
