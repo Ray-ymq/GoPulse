@@ -167,7 +167,7 @@ func validFilters(filters Filters) bool {
 	if filters.Source != "" && filters.Source != "monitor" {
 		return false
 	}
-	if filters.PluginID != "" && (filters.PluginID != "redis-exporter" && filters.PluginID != "mysql-exporter" && filters.PluginID != "rabbitmq-exporter" && filters.PluginID != "kafka-exporter" && filters.PluginID != "elasticsearch-exporter") {
+	if filters.PluginID != "" && (filters.PluginID != "redis-exporter" && filters.PluginID != "mysql-exporter" && filters.PluginID != "rabbitmq-exporter" && filters.PluginID != "kafka-exporter" && filters.PluginID != "elasticsearch-exporter" && filters.PluginID != "victoriametrics-exporter") {
 		return false
 	}
 	severities := map[string]string{
@@ -503,7 +503,7 @@ func validDocument(name, source, severity, message string, m Metadata) bool {
 		"exporter_plugin_installed": "info", "exporter_plugin_started": "info", "exporter_plugin_stopped": "info", "exporter_plugin_updated": "info", "exporter_plugin_failed": "error", "exporter_plugin_exited": "error",
 		"metrics_collection_failed": "warn", "metrics_collection_recovered": "info", "metrics_target_unavailable": "warn", "metrics_target_recovered": "info",
 	}
-	if source != "monitor" || messages[name] != message || severities[name] != severity || (m.PluginID != "redis-exporter" && m.PluginID != "mysql-exporter" && m.PluginID != "rabbitmq-exporter" && m.PluginID != "kafka-exporter" && m.PluginID != "elasticsearch-exporter") {
+	if source != "monitor" || messages[name] != message || severities[name] != severity || (m.PluginID != "redis-exporter" && m.PluginID != "mysql-exporter" && m.PluginID != "rabbitmq-exporter" && m.PluginID != "kafka-exporter" && m.PluginID != "elasticsearch-exporter" && m.PluginID != "victoriametrics-exporter") {
 		return false
 	}
 	empty := m.ErrorCode == "" && m.ScrapeStatus == ""
