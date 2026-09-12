@@ -56,7 +56,7 @@ verify_owned_service() {
   state=$(docker inspect --format '{{.State.Status}}' "$id")
   [[ $state == "$expected" ]] || fail "$service state is $state, expected $expected"
   case $service in
-    mysql|redis|rabbitmq|elasticsearch|kafka|victoriametrics|router|marshaller|monitor|backend|frontend)
+    mysql|redis|rabbitmq|elasticsearch|kafka|victoriametrics|router|marshaller|monitor|backend|admin-frontend|frontend)
       health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
       [[ $health == healthy ]] || fail "$service health is $health"
       ;;
@@ -64,7 +64,7 @@ verify_owned_service() {
   pass "$service is label-owned and $state"
 }
 
-for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor backend business-worker search-indexer frontend; do
+for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor backend business-worker search-indexer admin-frontend frontend; do
   verify_owned_service "$service" running
 done
 for service in migrate search-init kafka-init; do
@@ -74,7 +74,7 @@ for service in migrate search-init kafka-init; do
   pass "$service completed successfully"
 done
 
-for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor business-worker search-indexer; do
+for service in admin-frontend mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor business-worker search-indexer; do
   id=$(service_id "$service")
   bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")
   [[ $bindings == null || $bindings == '{}' ]] || fail "$service unexpectedly publishes a host port"
@@ -101,7 +101,7 @@ verify_image_metadata() {
   printf '%s\n' "$image_id"
 }
 
-for service in frontend backend business-worker search-indexer router marshaller monitor; do
+for service in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
   id=$(service_id "$service")
   running_image=$(docker inspect --format '{{.Image}}' "$id")
   tagged_image=$(verify_image_metadata "$service")
