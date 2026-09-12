@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/Ray-ymq/GoPulse/backend/internal/alert/count"
+	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"github.com/gin-gonic/gin"
 	"io"
@@ -134,13 +137,15 @@ func (h *Handler) catalog(c *gin.Context) {
 		return
 	}
 	response.Data(c, 200, struct {
+		Logs       count.Catalog                 `json:"logs"`
+		Events     count.Catalog                 `json:"events"`
 		Sources    []string                      `json:"creatable_sources"`
 		Metrics    []metricquery.AlertDefinition `json:"metrics"`
 		Operators  []string                      `json:"operators"`
 		Windows    []string                      `json:"windows"`
 		For        []string                      `json:"for"`
 		Severities []string                      `json:"severities"`
-	}{[]string{"metrics"}, metricquery.AlertCatalog(), []string{"gt", "gte", "lt", "lte", "eq", "neq"}, []string{"1m", "5m", "15m"}, []string{"0s", "1m", "5m"}, []string{"warning", "critical"}})
+	}{logquery.AlertCatalog(), eventquery.AlertCatalog(), []string{"metrics", "logs", "events"}, metricquery.AlertCatalog(), []string{"gt", "gte", "lt", "lte", "eq", "neq"}, []string{"1m", "5m", "15m"}, []string{"0s", "1m", "5m"}, []string{"warning", "critical"}})
 }
 func (h *Handler) get(c *gin.Context) {
 	n, e := id(c.Param("ruleId"))
