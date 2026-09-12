@@ -228,6 +228,12 @@ def promote(path):
     for image in [*m['images'].values(),m['lifecycle']]:
         ref=image['ref'];repo=ref.split('@')[0].rsplit(':',1)[0]
         target=repo+':'+m['version']
+        existing=subprocess.run(['docker','buildx','imagetools','inspect','--raw',target],text=True,capture_output=True)
+        if existing.returncode==0:
+            if sha(existing.stdout.encode())!=ref.split('@')[1]:
+                raise ValueError('refusing to replace an existing version with different content')
+        elif 'not found' not in existing.stderr.lower():
+            raise ValueError('cannot establish whether promotion target exists')
         # Copy the exact index, not a rebuilt or reserialized single-arch image.
         run('docker','buildx','imagetools','create','--prefer-index=true','-t',target,ref,capture=False)
         if sha(raw(target))!=ref.split('@')[1]:raise ValueError('promotion changed index digest')

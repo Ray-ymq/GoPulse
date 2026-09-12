@@ -47,3 +47,11 @@
 ### 六插件固定验收补充
 
 为本批“六类 current 插件各真实采集目标”条件，在既有完整 Compose gate 的强归属新 project 上新增 candidate-only 用例：使用独立最小权限 MySQL/RabbitMQ collector account，六类插件经 Backend 查询 up 指标，并验证单 collector 停止不影响兄弟采集及业务。没有扩展成 Phase 14 全面回归。新增 TypeScript 静态检查通过；实际运行尚待最终 candidate。
+
+### 验收失败轮次 2（最终状态不采用本轮 receipt）
+
+`ad562e0` 候选的九镜像、生命周期、六第三方、六插件采集、完整业务/可观测/持久恢复均通过，但 cleanup 把 `repository:<none>`（digest-only image 显示值）当作真实 tag，输出五条 snapshot 错误；该既有函数在 cleanup 条件调用中又被 Bash errexit 语义掩盖，返回 0，外层一度生成成功 receipt 并完成本地探测晋升。发现日志错误后，明确废弃该轮的最终完成资格，不将其写作批次通过。
+
+直接修复：snapshot tag 表仅记录真实 tag（image ID 保留检查不变）；snapshot 任一失败显式 return 1；release gate 同时拒绝非零退出或明确的 `[gopulse-compose] ERROR:`。新增回归重现“先失败、后成功被掩盖”和 digest-only 情形。晋升另外拒绝覆盖不同内容的同版本目标。旧探测 namespace `127.0.0.1:15001/gopulse` 保留作无效轮次证据；最终候选使用新的 `gopulse-verified` namespace，不覆盖旧引用。
+
+由于修改影响本批资源保留门禁，最终候选需从修复后的同一 revision 重建并重新执行完整 fixed runtime gate；这是具体已观察验收缺陷的必要重验，不是扩大业务回归范围。

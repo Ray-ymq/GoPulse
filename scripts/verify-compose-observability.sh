@@ -166,7 +166,7 @@ snapshot_existing_resources() {
   docker network ls -q | sort >"$SNAPSHOT_DIR/networks"
   docker volume ls -q | sort >"$SNAPSHOT_DIR/volumes"
   docker image ls -q --no-trunc | sort -u >"$SNAPSHOT_DIR/images"
-  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | awk -F '|' '$1 != "<none>:<none>"' | sort >"$SNAPSHOT_DIR/image-tags"
+  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | awk -F '|' '$1 !~ /:<none>$/' | sort >"$SNAPSHOT_DIR/image-tags"
   for service in "${PRODUCT_IMAGES[@]}"; do
     ref="gopulse/$service:$IMAGE_TAG"
     ! docker image inspect "$ref" >/dev/null 2>&1 || fail "refusing to replace pre-existing acceptance image tag: $ref"
@@ -176,22 +176,22 @@ snapshot_existing_resources() {
 
 assert_snapshot_preserved() {
   local kind id ref expected_id actual_id
-  cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || fail 'acceptance changed the Git working tree'
+  cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || { fail 'acceptance changed the Git working tree'; return 1; }
   for kind in containers networks volumes images; do
     while IFS= read -r id; do
       [[ -n $id ]] || continue
       case $kind in
-        containers) docker inspect "$id" >/dev/null 2>&1 || fail "pre-existing container disappeared: $id" ;;
-        networks) docker network inspect "$id" >/dev/null 2>&1 || fail "pre-existing network disappeared: $id" ;;
-        volumes) docker volume inspect "$id" >/dev/null 2>&1 || fail "pre-existing volume disappeared: $id" ;;
-        images) docker image inspect "$id" >/dev/null 2>&1 || fail "pre-existing image disappeared: $id" ;;
+        containers) docker inspect "$id" >/dev/null 2>&1 || { fail "pre-existing container disappeared: $id"; return 1; } ;;
+        networks) docker network inspect "$id" >/dev/null 2>&1 || { fail "pre-existing network disappeared: $id"; return 1; } ;;
+        volumes) docker volume inspect "$id" >/dev/null 2>&1 || { fail "pre-existing volume disappeared: $id"; return 1; } ;;
+        images) docker image inspect "$id" >/dev/null 2>&1 || { fail "pre-existing image disappeared: $id"; return 1; } ;;
       esac
     done <"$SNAPSHOT_DIR/$kind"
   done
   while IFS='|' read -r ref expected_id; do
     [[ -n $ref && -n $expected_id ]] || continue
     actual_id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)
-    [[ $actual_id == "$expected_id" ]] || fail "pre-existing image tag mapping changed: $ref"
+    [[ $actual_id == "$expected_id" ]] || { fail "pre-existing image tag mapping changed: $ref"; return 1; }
   done <"$SNAPSHOT_DIR/image-tags"
 }
 

@@ -9,6 +9,19 @@ from release_artifacts import inspect_image, platform_ref, plugin_records, run, 
 from release_manifest import ROOT, PLATFORMS, sha
 
 
+def run_compose_gate(command, env):
+    # Bash functions invoked from cleanup conditionals cannot rely on errexit.
+    # A reported acceptance error is blocking even if an old runner returns 0.
+    failed = False
+    with subprocess.Popen(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as process:
+        for line in process.stdout:
+            print(line, end='', flush=True)
+            failed = failed or '[gopulse-compose] ERROR:' in line
+        code = process.wait()
+    if code or failed:
+        raise RuntimeError('Compose acceptance reported a failure; no success receipt emitted')
+
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--manifest',required=True,type=Path)
     p.add_argument('--platform',required=True,choices=PLATFORMS)
@@ -30,7 +43,7 @@ def main():
         result=json.loads(run('docker','run','--rm','--read-only','--network','none','--cap-drop','ALL',ref,'version','--json'))
         if result['version']!=m['version'] or result['revision']!=m['revision'] or result['platform']!=a.platform:raise ValueError('lifecycle runtime mismatch')
         # Full Compose gate runs ONCE, consuming the candidate platform digests.
-        subprocess.run([str(ROOT/'scripts/verify-compose.sh')],env={**os.environ,'GOPULSE_RELEASE_MANIFEST':str(a.manifest)},check=True)
+        run_compose_gate([str(ROOT/'scripts/verify-compose.sh')], {**os.environ,'GOPULSE_RELEASE_MANIFEST':str(a.manifest)})
         status='amd64-runtime-and-compose-passed'
     else:
         status='metadata-only; real arm64 runtime DEFERRED to Phase-16-06'
