@@ -189,7 +189,7 @@ def build(args):
         tag=f'{args.registry}/{name}:{version}-candidate-{revision[:12]}'
         cmd=['docker','buildx','build','--platform',','.join(PLATFORMS),'--provenance=false',
              '--build-arg','VERSION='+version,'--build-arg','REVISION='+revision,
-             '--metadata-file',str(out/(name+'-build.json')),'-f',str(ROOT/f'deploy/docker/{dockerfile}.Dockerfile'),'-t',tag,'--push']
+             '--metadata-file',str(out/(name+'-build.json')),'-f',f'deploy/docker/{dockerfile}.Dockerfile','-t',tag,'--push']
         if target:cmd+=['--target',target]
         # A git archive is the build context: untracked local state cannot leak.
         context=subprocess.Popen(['git','-C',str(ROOT),'archive','--format=tar',revision],stdout=subprocess.PIPE)

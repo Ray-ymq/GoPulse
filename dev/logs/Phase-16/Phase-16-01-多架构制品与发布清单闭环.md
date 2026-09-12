@@ -39,3 +39,7 @@
 - 嵌入 manifest 的 bundle_sha256 为排序 payload 条目摘要；最终 tar.gz SHA256 保存在 detached checksum，避免 archive 包含自身摘要的循环依赖。完整 manifest 与 assets 另由包内 checksums 覆盖。
 - supported_upgrade_sources 当前为空；Redis 1.9.4 只登记升级输入，不提前声称 Phase-16-05 的 upgrade 能力。
 - 九产品及 lifecycle 的双架构构建、真实 amd64 runtime/full Compose、arm64 metadata-only、全固定门禁、同 digest 晋升尚待运行。
+
+### 构建失败轮次 1
+
+首次 Git archive stdin 构建失败：`-f` 使用宿主绝对路径，BuildKit 在归档上下文中找不到 Dockerfile；未生成完整 manifest。修复为归档内相对路径。
