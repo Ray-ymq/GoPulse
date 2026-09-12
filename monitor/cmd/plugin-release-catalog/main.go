@@ -7,12 +7,14 @@ import (
 	"github.com/Ray-ymq/GoPulse/monitor/internal/plugin"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
 func main() {
 	output := flag.String("output", "", "generated Go file")
+	arch := flag.String("arch", runtime.GOARCH, "target Linux architecture")
 	flag.Parse()
 	releases := []plugin.Release{}
 	seen := map[string]bool{}
@@ -22,7 +24,7 @@ func main() {
 			panic("invalid release input")
 		}
 		path, _ = filepath.Abs(path)
-		r, err := plugin.InspectBuildRelease(path, purpose)
+		r, err := plugin.InspectBuildReleaseForArch(path, purpose, *arch)
 		if err != nil {
 			panic("invalid release input")
 		}

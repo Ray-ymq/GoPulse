@@ -75,3 +75,28 @@ func TestReleaseCatalogAuthenticatesImagePackage(t *testing.T) {
 		t.Fatal("image package symlink accepted")
 	}
 }
+
+// Cross-build inspection may select another target, but runtime trust never may.
+func TestCrossBuildCatalogKeepsRuntimeArchitectureBoundary(t *testing.T) {
+	m, schema := v2Manifest(t)
+	if m.Arch == "amd64" {
+		m.Arch = "arm64"
+	} else {
+		m.Arch = "amd64"
+	}
+	binary := []byte("cross-build-fixture-not-executed")
+	sum := sha256.Sum256(binary)
+	m.EntrypointSHA256 = hex.EncodeToString(sum[:])
+	data, _ := json.Marshal(m)
+	archive := writeArchive(t, map[string][]byte{"plugin.json": data, "config.schema.json": schema, m.Entrypoint: binary})
+	r, err := InspectBuildReleaseForArch(archive, "current", m.Arch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newReleaseCatalog(filepath.Dir(archive), []Release{r}); err == nil {
+		t.Fatal("runtime trusted another architecture")
+	}
+	if _, err := InspectBuildRelease(archive, "current"); err == nil {
+		t.Fatal("runtime inspection accepted wrong architecture")
+	}
+}
