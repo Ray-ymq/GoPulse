@@ -43,3 +43,7 @@
 ### 构建失败轮次 1
 
 首次 Git archive stdin 构建失败：`-f` 使用宿主绝对路径，BuildKit 在归档上下文中找不到 Dockerfile；未生成完整 manifest。修复为归档内相对路径。
+
+### 六插件固定验收补充
+
+为本批“六类 current 插件各真实采集目标”条件，在既有完整 Compose gate 的强归属新 project 上新增 candidate-only 用例：使用独立最小权限 MySQL/RabbitMQ collector account，六类插件经 Backend 查询 up 指标，并验证单 collector 停止不影响兄弟采集及业务。没有扩展成 Phase 14 全面回归。新增 TypeScript 静态检查通过；实际运行尚待最终 candidate。

@@ -127,7 +127,8 @@ def product_compose(m):
         service['pull_policy'] = 'always'
     doc['services']['lifecycle'] = {'image':m['lifecycle']['ref'], 'profiles':['tools'], 'read_only':True,
                                    'network_mode':'none', 'user':'10001:10001', 'cap_drop':['ALL'],
-                                   'security_opt':['no-new-privileges:true'], 'command':['version','--json']}
+                                   'security_opt':['no-new-privileges:true'], 'volumes':['../../:/bundle:ro'],
+                                   'command':['version','--json','--manifest','/bundle/release-manifest.json']}
     return (json.dumps(doc, indent=2)+'\n').encode()
 
 
@@ -205,12 +206,25 @@ def build(args):
     for platform in PLATFORMS:
         m['plugins']+=plugin_records(images['monitor'],platform,out/'plugins'/platform.split('/')[1])
         for image in images.values():inspect_image(image,platform,version,revision)
-    write_bundle(m,out)
+    # Publish the manifest last: a failed bundle assembly is never a complete release.
+    with tempfile.TemporaryDirectory(prefix='.bundle-', dir=out) as stage:
+        staging=Path(stage)
+        write_bundle(m,staging)
+        for path in sorted(staging.rglob('*')):
+            if path.is_file() and path.name!='release-manifest.json':
+                dest=out/path.relative_to(staging);dest.parent.mkdir(parents=True,exist_ok=True)
+                os.replace(path,dest)
+        os.replace(staging/'release-manifest.json',out/'release-manifest.json')
     print('Candidate complete; not externally published:',out/'release-manifest.json')
 
 
 def promote(path):
     m=verify_bundle(path)
+    for arch in ('amd64','arm64'):
+        receipt=load(path.parent/('verification-'+arch+'.json'))
+        expected='amd64-runtime-and-compose-passed' if arch=='amd64' else 'metadata-only; real arm64 runtime DEFERRED to Phase-16-06'
+        if receipt != {'manifest_sha256':sha(path.read_bytes()),'revision':m['revision'],'platform':'linux/'+arch,'status':expected}:
+            raise ValueError('candidate lacks matching successful verification receipts')
     for image in [*m['images'].values(),m['lifecycle']]:
         ref=image['ref'];repo=ref.split('@')[0].rsplit(':',1)[0]
         target=repo+':'+m['version']

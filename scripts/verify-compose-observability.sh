@@ -740,5 +740,17 @@ exercise_signal_shutdown
 exercise_persistence
 exercise_standalone_exporter
 reset_for_management
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  owned_service_id mysql >/dev/null
+  owned_service_id rabbitmq >/dev/null
+  # Dedicated minimum-privilege users, confined to the fresh acceptance project.
+  printf "CREATE USER 'gopulse_metrics'@'%%' IDENTIFIED BY 'metrics-%s';\n" "$TOKEN" | \
+    compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot'
+  compose exec -T rabbitmq rabbitmqctl add_user gopulse_metrics "metrics-$TOKEN" >/dev/null
+  compose exec -T rabbitmq rabbitmqctl set_user_tags gopulse_metrics monitoring >/dev/null
+  compose exec -T rabbitmq rabbitmqctl set_permissions -p / gopulse_metrics '^$' '^$' '^$' >/dev/null
+  compose --profile acceptance run --rm --no-deps acceptance e2e/compose-release-plugins.spec.ts
+  pass 'All six candidate plugins collected real targets through Backend; scoped collector stop preserved siblings and business.'
+fi
 assert_project_ownership
 pass 'Phase 12 authoritative full-stack Compose acceptance passed.'
