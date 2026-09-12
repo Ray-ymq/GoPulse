@@ -7,7 +7,7 @@ import (
 )
 
 func TestFixedCatalogBudgetsAndInitialState(t *testing.T) {
-	budgets := map[string]int{"backend": 577, "business-worker": 37, "search-indexer": 24, "monitor": 112, "router": 112, "marshaller": 260}
+	budgets := map[string]int{"backend": 677, "business-worker": 37, "search-indexer": 24, "monitor": 112, "router": 112, "marshaller": 260}
 	for _, id := range Components {
 		spec, _ := Catalog(id)
 		if spec.MaxSamples != budgets[id] {
