@@ -56,6 +56,27 @@ describe('SearchView', () => {
     expect(fetchMock.mock.calls.some(([input]) => pathOf(input).includes('cursor=next-token'))).toBe(true)
   })
 
+  it('requests fresh results when the same search is submitted after an empty result', async () => {
+    let searchCalls = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (pathOf(input).endsWith('/users/me')) return Promise.resolve(jsonResponse({ data: user }))
+      searchCalls += 1
+      return Promise.resolve(jsonResponse({ data: searchCalls === 1 ? [] : [post], meta: { next_cursor: null } }))
+    }))
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/search?q=Elasticsearch&tab=posts')
+    const wrapper = mount(SearchView, { global: { plugins: [router] } })
+    try {
+      await flushPromises()
+      expect(wrapper.text()).toContain('没有找到相关帖子')
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(searchCalls).toBe(2)
+      expect(wrapper.text()).toContain(post.title)
+      expect(router.currentRoute.value.fullPath).toBe('/search?q=Elasticsearch&tab=posts')
+    } finally { wrapper.unmount() }
+  })
+
   it('shows empty and unavailable states and keeps searches on Backend relative paths', async () => {
     let unavailable = false
     const fetchMock = vi.fn((input: RequestInfo | URL) => {

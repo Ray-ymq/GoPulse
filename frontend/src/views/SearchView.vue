@@ -79,6 +79,12 @@ async function submit(): Promise<void> {
     errorMessage.value = '请输入 1–200 个字符的搜索词。'
     return
   }
+  // An unchanged URL does not trigger the route watcher. Resubmitting must
+  // query again so asynchronously indexed content can become visible.
+  if (query === activeQuery.value) {
+    await load(true)
+    return
+  }
   await router.push({ path: '/search', query: { q: query, tab: userTab.value ? 'users' : 'posts' } })
 }
 

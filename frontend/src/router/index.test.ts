@@ -41,31 +41,6 @@ describe('business router guards', () => {
   })
 
 
-  it('denies an ordinary user before any observability request', async () => {
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: currentUser })))
-    vi.stubGlobal('fetch', fetchMock)
-    const router = createAppRouter(createMemoryHistory())
-    await router.push('/admin/observability/metrics')
-    expect(router.currentRoute.value.path).toBe('/forbidden')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock.mock.calls.every((call) => call[0] === '/api/v1/users/me')).toBe(true)
-  })
-
-  it('allows an administrator into the guarded management layout', async () => {
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: { ...currentUser, role: 'super_admin' } })))
-    vi.stubGlobal('fetch', fetchMock)
-    const router = createAppRouter(createMemoryHistory())
-    await router.push('/admin/observability/logs')
-    expect(router.currentRoute.value.path).toBe('/admin/observability/logs')
-  })
-
-  it('redirects an administrator from an unknown management route to the overview', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ data: { ...currentUser, role: 'super_admin' } }))))
-    const router = createAppRouter(createMemoryHistory())
-    await router.push('/admin/observability/unknown')
-    expect(router.currentRoute.value.path).toBe('/admin/observability')
-  })
-
   it('keeps the diagnostic status page available without authentication recovery', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

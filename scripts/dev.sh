@@ -9,7 +9,7 @@ PROJECT_NAME=${COMPOSE_PROJECT_NAME:-gopulse}
 ENV_FILE=${GOPULSE_ENV_FILE:-$REPO_ROOT/.env}
 BUILD=1
 IMAGE_SOURCE=https://github.com/Ray-ymq/GoPulse
-PRODUCT_IMAGES=(backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter)
+PRODUCT_IMAGES=(backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter)
 
 info() { printf '[gopulse] %s\n' "$*"; }
 fail() { printf '[gopulse] ERROR: %s\n' "$*" >&2; return 1; }
@@ -153,7 +153,7 @@ fi
 
 if ((BUILD)); then
   info "Building GoPulse $VERSION images at revision ${REVISION:0:12}."
-  compose build backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter
+  compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
 fi
 
 info "Starting project $PROJECT_NAME with persistent project-scoped volumes."
