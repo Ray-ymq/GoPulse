@@ -29,7 +29,7 @@ async function logout() {
       <RouterLink class="user-publish" to="/posts/new" aria-label="发布"><span aria-hidden="true">＋</span><span class="nav-label">发布</span></RouterLink>
       <div class="user-account">
         <p>@{{ auth.user.value?.username }}</p>
-        <RouterLink v-if="auth.user.value?.role === 'super_admin'" to="/admin/observability">管理中心</RouterLink>
+        <a v-if="auth.user.value?.role === 'super_admin'" href="/admin/">管理中心</a>
         <button :disabled="leaving" @click="logout">{{ leaving ? '退出中…' : '退出' }}</button>
         <p v-if="error" role="alert">{{ error }}</p>
       </div>

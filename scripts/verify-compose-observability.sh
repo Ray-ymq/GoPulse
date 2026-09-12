@@ -14,7 +14,7 @@ ENV_FILE=
 SNAPSHOT_DIR=
 SNAPSHOT_READY=0
 IMAGE_TAG=
-PRODUCT_IMAGES=(backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter)
+PRODUCT_IMAGES=(backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter)
 
 info() { printf '[gopulse-compose] %s\n' "$*"; }
 pass() { printf '[gopulse-compose] PASS: %s\n' "$*"; }
@@ -260,7 +260,7 @@ owned_service_id() {
   config_files=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$id")
   [[ $config_files == *"$COMPOSE_FILE"* ]] || fail "$service config-file label mismatch"
   case $service in
-    frontend|backend|business-worker|search-indexer|router|marshaller|monitor|redis-exporter)
+    admin-frontend|frontend|backend|business-worker|search-indexer|router|marshaller|monitor|redis-exporter)
       image=$(docker inspect --format '{{.Image}}' "$id")
       image_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
       image_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
@@ -296,7 +296,7 @@ wait_running() {
 
 assert_full_state() {
   local service id state health
-  for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor backend frontend; do
+  for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor backend admin-frontend frontend; do
     id=$(owned_service_id "$service")
     state=$(docker inspect --format '{{.State.Status}}' "$id")
     health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
@@ -320,7 +320,7 @@ assert_image_contracts() {
     x86_64) daemon_arch=amd64 ;;
     aarch64) daemon_arch=arm64 ;;
   esac
-  for service in frontend backend business-worker search-indexer router marshaller monitor redis-exporter; do
+  for service in admin-frontend frontend backend business-worker search-indexer router marshaller monitor redis-exporter; do
     ref="gopulse/$service:$IMAGE_TAG"
     tagged_image=$(docker image inspect --format '{{.Id}}' "$ref")
     if [[ $service != redis-exporter ]]; then
@@ -339,7 +339,7 @@ assert_image_contracts() {
     layers=$(docker image inspect --format '{{len .RootFS.Layers}}' "$ref")
     image_env=$(docker image inspect --format '{{json .Config.Env}}' "$ref")
     case $service in
-      frontend) expected_entry='["nginx"]'; expected_cmd='["-g","daemon off;"]'; expected_signal=SIGQUIT ;;
+      frontend|admin-frontend) expected_entry='["nginx"]'; expected_cmd='["-g","daemon off;"]'; expected_signal=SIGQUIT ;;
       backend) expected_entry='["/usr/local/bin/server"]'; expected_cmd=null; expected_signal=SIGTERM ;;
       business-worker) expected_entry='["/usr/local/bin/business-worker"]'; expected_cmd=null; expected_signal=SIGTERM ;;
       search-indexer) expected_entry='["/usr/local/bin/search-indexer"]'; expected_cmd=null; expected_signal=SIGTERM ;;
@@ -368,7 +368,7 @@ assert_image_contracts() {
   docker run --rm --entrypoint /bin/sh "gopulse/frontend:$IMAGE_TAG" -ec \
     '! command -v go && ! command -v node && ! command -v npm && test ! -d /src && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q . && ! grep -R -E "(mysql|redis|rabbitmq|elasticsearch|kafka|victoriametrics|monitor|router|marshaller):[0-9]+|AUTH_JWT_SECRET|MONITOR_API_TOKEN|LOG_MONITOR_INGEST_TOKEN|ROUTER_API_TOKEN|MARSHALLER_API_TOKEN" /usr/share/nginx/html'
 
-  for service in frontend backend business-worker search-indexer router marshaller monitor; do
+  for service in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
     container_id=$(owned_service_id "$service")
     readonly=$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")
     privileged=$(docker inspect --format '{{.HostConfig.Privileged}}' "$container_id")
@@ -397,11 +397,11 @@ assert_image_contracts() {
 
 assert_network_and_ports() {
   local service id networks bindings host_ips
-  for service in frontend backend business-worker search-indexer mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor; do
+  for service in admin-frontend frontend backend business-worker search-indexer mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor; do
     id=$(owned_service_id "$service")
     networks=$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$id")
     case $service in
-      frontend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks != *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_observability "* ]] || fail 'Frontend network boundary mismatch' ;;
+      frontend|admin-frontend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks != *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_observability "* ]] || fail 'Frontend network boundary mismatch' ;;
       backend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* ]] || fail 'Backend network boundary mismatch' ;;
       business-worker|search-indexer|elasticsearch) [[ $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
       monitor) [[ $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail 'Monitor network boundary mismatch' ;;
@@ -581,7 +581,7 @@ exercise_persistence() {
 
 exercise_signal_shutdown() {
   local service id exit_code
-  for service in frontend backend business-worker search-indexer router marshaller monitor; do
+  for service in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
     id=$(owned_service_id "$service")
     compose stop --timeout 25 "$service"
     exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")
@@ -660,7 +660,7 @@ reset_for_management() {
 snapshot_existing_resources
 assert_project_absent
 info "Building isolated GoPulse $VERSION images with unique tag $IMAGE_TAG for $PROJECT_NAME without host Go/Node runtimes."
-compose build backend business-worker search-indexer frontend acceptance router marshaller monitor redis-exporter
+compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
 RESOURCES_STARTED=1
 if ! compose up --detach --wait --wait-timeout 420; then
   compose ps --all >&2 || true

@@ -40,7 +40,7 @@ def self_test():
     specs = json.loads(command(['go', 'run', './cmd/catalog'], timeout=60,
                                cwd=ROOT/'componentmetrics').stdout)
     assert {s['ID']: s['MaxSamples'] for s in specs} == BUDGETS
-    generated = (ROOT/'frontend/src/services/componentMetrics.ts').read_text()
+    generated = (ROOT/'admin-frontend/src/services/componentMetrics.ts').read_text()
     line = next(line for line in generated.splitlines() if line.startswith('export const componentContracts:'))
     actual = json.loads(line.split(' = ', 1)[1])
     expected = {f['Name']: dict(source=s['ID'], kind=f['Kind'], unit=f['Unit'], keys=f['Keys'] or [], tuples=f['Tuples'])
