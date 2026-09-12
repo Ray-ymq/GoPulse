@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
       host: 'localhost',
       port: 5173,
       strictPort: true,
-      proxy: backendProxyConfig(environment),
+      proxy: { ...backendProxyConfig(environment), '/admin': { target: 'http://localhost:5174' } },
     },
     test: {
       environment: 'jsdom',

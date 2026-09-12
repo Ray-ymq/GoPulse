@@ -7,11 +7,16 @@ test('Kafka and Elasticsearch administrator lifecycle with optional secrets', as
   await page.getByLabel('用户名').fill(process.env.GOPULSE_P14_ADMIN!)
   await page.getByLabel('密码').fill(process.env.GOPULSE_P14_PASSWORD!)
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page).toHaveURL(/\/posts$/)
+  await expect(page).toHaveURL(/\/admin\/metrics$/)
   for (const source of ['kafka', 'elasticsearch']) {
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.getByRole('button').filter({ hasText: '未交付' })).toHaveCount(1)
     await page.getByRole('button').filter({ hasText: `GoPulse ${source} Exporter` }).click()
+    await page.getByLabel('host', { exact: true }).fill(source)
+    if (source === 'kafka') {
+      await page.getByLabel('topic', { exact: true }).fill('gopulse-observability-v1')
+      await page.getByLabel('consumer_group', { exact: true }).fill('gopulse-marshaller-metrics-v1')
+    }
     await page.getByRole('button', { name: '连接测试', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('连接测试成功')
     await page.getByRole('button', { name: '安装并启动', exact: true }).click()
