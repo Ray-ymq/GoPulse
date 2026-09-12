@@ -39,3 +39,9 @@ go.work.sum
 
 frontend/test-results/
 frontend/playwright-report/
+
+admin-frontend/node_modules/
+admin-frontend/dist/
+admin-frontend/coverage/
+admin-frontend/test-results/
+admin-frontend/playwright-report/

@@ -286,7 +286,7 @@ assert_initial_state() {
 
 assert_image_contracts() {
   local service image expected_entry user version revision source entrypoint
-  for service in frontend backend business-worker search-indexer; do
+  for service in admin-frontend frontend backend business-worker search-indexer; do
     image=$(docker inspect --format '{{.Image}}' "$(owned_service_id "$service")")
     user=$(docker image inspect --format '{{.Config.User}}' "$image")
     version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
@@ -294,7 +294,7 @@ assert_image_contracts() {
     source=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")
     entrypoint=$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")
     case $service in
-      frontend) expected_entry='["nginx"]' ;;
+      frontend|admin-frontend) expected_entry='["nginx"]' ;;
       backend) expected_entry='["/usr/local/bin/server"]' ;;
       business-worker) expected_entry='["/usr/local/bin/business-worker"]' ;;
       search-indexer) expected_entry='["/usr/local/bin/search-indexer"]' ;;
@@ -313,11 +313,11 @@ assert_image_contracts() {
 
 assert_network_and_ports() {
   local service id networks bindings host_ips
-  for service in frontend backend business-worker search-indexer mysql redis rabbitmq elasticsearch; do
+  for service in admin-frontend frontend backend business-worker search-indexer mysql redis rabbitmq elasticsearch; do
     id=$(owned_service_id "$service")
     networks=$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$id")
     case $service in
-      frontend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks != *"${PROJECT_NAME}_business "* ]] || fail 'Frontend network boundary mismatch' ;;
+      frontend|admin-frontend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks != *"${PROJECT_NAME}_business "* ]] || fail 'Frontend network boundary mismatch' ;;
       backend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks == *"${PROJECT_NAME}_business "* ]] || fail 'Backend network boundary mismatch' ;;
       *) [[ $networks == *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
     esac
@@ -418,7 +418,7 @@ exercise_persistent_down_up() {
 snapshot_existing_resources
 assert_project_absent
 info "Building isolated GoPulse $VERSION images for $PROJECT_NAME."
-compose build backend business-worker search-indexer frontend acceptance
+compose build backend business-worker search-indexer frontend admin-frontend acceptance
 RESOURCES_STARTED=1
 if ! compose up --detach --wait --wait-timeout 300 frontend backend business-worker search-indexer; then
   compose ps >&2 || true

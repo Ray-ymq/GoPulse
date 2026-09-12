@@ -296,7 +296,7 @@ exit 99
         down = (REPO / "scripts" / "down.sh").read_text(encoding="utf-8")
         verify = (REPO / "scripts" / "verify.sh").read_text(encoding="utf-8")
         compose = (REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8")
-        self.assertIn("compose build backend business-worker search-indexer frontend acceptance", dev)
+        self.assertIn("compose build backend business-worker search-indexer admin-frontend frontend acceptance", dev)
         self.assertIn("compose up --detach --wait", dev)
         self.assertNotIn("go run", dev)
         self.assertNotIn("npm run", dev)

@@ -19,7 +19,7 @@ async function login(page: Page, username: string): Promise<void> {
   await page.getByLabel('用户名').fill(username)
   await page.getByLabel('密码').fill(password)
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page).toHaveURL(/\/posts$/)
+  await expect(page).toHaveURL(username === adminUsername ? /\/admin\/metrics$/ : /\/posts$/)
 }
 
 async function createSocialPost(page: Page, marker: string): Promise<void> {
@@ -36,7 +36,7 @@ async function createSocialPost(page: Page, marker: string): Promise<void> {
 }
 
 async function waitForMetric(page: Page): Promise<void> {
-  await page.goto('/admin/observability/metrics')
+  await page.goto('/admin/metrics')
   await expect(page.getByRole('heading', { name: 'Plugin & Component Metrics' })).toBeVisible()
   await expect.poll(async () => {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
@@ -46,7 +46,7 @@ async function waitForMetric(page: Page): Promise<void> {
 }
 
 async function waitForLogs(page: Page): Promise<void> {
-  await page.goto('/admin/observability/logs')
+  await page.goto('/admin/logs')
   await expect(page.getByRole('heading', { name: '应用日志' })).toBeVisible()
   await expect.poll(async () => {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
@@ -56,7 +56,7 @@ async function waitForLogs(page: Page): Promise<void> {
 }
 
 async function waitForEvents(page: Page): Promise<void> {
-  await page.goto('/admin/observability/events')
+  await page.goto('/admin/events')
   await expect(page.getByRole('heading', { name: '运行事件' })).toBeVisible()
   await expect.poll(async () => {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
@@ -98,8 +98,8 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
     })
     await login(page, userUsername)
     await expect(page.getByRole('link', { name: '可观测' })).toHaveCount(0)
-    await page.goto('/admin/observability/metrics')
-    await expect(page).toHaveURL(/\/forbidden$/)
+    await page.goto('/admin/metrics')
+    await expect(page).toHaveURL(/\/posts$/)
     expect(observed).toEqual([])
     for (const endpoint of ['observability/metrics?metric=gopulse_redis_up&range=15m', 'observability/logs', 'observability/events', 'exporter-plugins']) {
       const response = await page.request.get(`/api/v1/${endpoint}`)
@@ -114,7 +114,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
 
   if (scenario === 'admin') {
     await createSocialPost(page, 'normal')
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 30_000 })
     await expect.poll(async () => {
       await page.getByRole('button', { name: '刷新状态' }).click()
@@ -134,7 +134,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
   }
 
   if (scenario === 'persistence') {
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 30_000 })
     await waitForMetric(page)
     await waitForLogs(page)
@@ -145,7 +145,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
 
   if (scenario === 'post-restart') {
     await createSocialPost(page, 'post-restart')
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 30_000 })
     await waitForMetric(page)
     await waitForLogs(page)
@@ -156,7 +156,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
 
   if (scenario === 'vm-down') {
     await createSocialPost(page, 'vm-down')
-    await page.goto('/admin/observability/metrics')
+    await page.goto('/admin/metrics')
     await expect(page.getByText(/指标存储或查询服务暂时不可用（VictoriaMetrics）/)).toBeVisible({ timeout: 20_000 })
     expect((await page.request.get('/ready')).status()).toBe(200)
     expect(unexpected).toEqual([])
@@ -165,7 +165,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
 
   if (scenario === 'monitor-down') {
     await createSocialPost(page, 'monitor-down')
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.getByText(/Monitor 暂时不可用/)).toBeVisible({ timeout: 20_000 })
     expect((await page.request.get('/ready')).status()).toBe(200)
     await waitForMetric(page)
@@ -176,7 +176,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
   if (scenario === 'transport-down') {
     await createSocialPost(page, 'transport-down')
     expect((await page.request.get('/ready')).status()).toBe(200)
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 20_000 })
     expect(unexpected).toEqual([])
     return
@@ -184,7 +184,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
 
   if (scenario === 'manage') {
     expect(redisPassword).not.toBe('')
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.getByRole('heading', { name: 'GoPulse redis Exporter 目标配置', exact: true })).toBeVisible()
     await page.getByLabel('password').fill(redisPassword)
     await page.getByRole('button', { name: '安装并启动' }).click()
