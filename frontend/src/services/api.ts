@@ -32,8 +32,9 @@ function isTimestamp(value: unknown): value is string {
 }
 
 function isPublicUser(value: unknown): value is PublicUser {
-  if (!isRecord(value) || !hasExactKeys(value, ['id', 'username', 'role', 'created_at'])) return false
-  return isPositiveID(value.id)
+  if (!isRecord(value) || !hasExactKeys(value, ['id', 'username', 'role', 'created_at', ...('management_setup_available' in value ? ['management_setup_available'] : [])])) return false
+  return (value.management_setup_available === undefined || typeof value.management_setup_available === 'boolean')
+    && isPositiveID(value.id)
     && typeof value.username === 'string'
     && value.username.length > 0
     && (value.role === 'user' || value.role === 'super_admin')

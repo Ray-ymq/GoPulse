@@ -34,7 +34,7 @@ async function logout() {
         <p v-if="error" role="alert">{{ error }}</p>
       </div>
     </aside>
-    <div id="user-content" class="user-timeline" tabindex="-1"><RouterView /></div>
+    <div id="user-content" class="user-timeline" tabindex="-1"><p v-if="auth.user.value?.management_setup_available === false" role="status">管理尚未初始化，请由运维声明引导管理员；社交功能仍可使用。</p><RouterView /></div>
     <aside class="user-context" aria-label="社区信息">
       <h2>发现正在发生的讨论</h2><p>通过帖子与人建立连接。</p>
       <RouterLink to="/search">搜索帖子和用户 →</RouterLink>
