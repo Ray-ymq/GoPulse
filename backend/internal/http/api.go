@@ -1,6 +1,7 @@
 package http
 
 import (
+	"github.com/Ray-ymq/GoPulse/backend/internal/adminoverview"
 	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
@@ -17,6 +18,7 @@ import (
 )
 
 type APIRoutes struct {
+	Overview        *adminoverview.Service
 	Alerts          *alert.Handler
 	Management      *ManagementHandler
 	Bookmarks       *bookmark.Handler
@@ -111,6 +113,9 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		g.Use(routes.Authorization)
 		routes.Alerts.Register(g)
 	}
+	if routes.Overview != nil && routes.Authorization != nil {
+		protected.GET("/admin/overview", routes.Authorization, routes.Overview.Handle)
+	}
 	if routes.Management != nil && routes.Authorization != nil {
 		management := protected.Group("/admin")
 		management.Use(routes.Authorization)
@@ -120,7 +125,7 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	}
 	if routes.ExporterPlugins != nil && routes.Authorization != nil {
 		plugins := protected.Group("/exporter-plugins")
-		plugins.Use(routes.Authorization, routes.ExporterPlugins.RequestShape)
+		plugins.Use(routes.Authorization, routes.ExporterPlugins.Audit, routes.ExporterPlugins.RequestShape)
 		plugins.GET("", routes.ExporterPlugins.List)
 		plugins.GET("/catalog", routes.ExporterPlugins.Catalog)
 		plugins.POST("/:pluginId/connection-test", routes.ExporterPlugins.Configuration)
