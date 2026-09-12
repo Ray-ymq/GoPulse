@@ -29,7 +29,8 @@ same release manifest / OS-neutral bundle / source revision
 
 - Phase-16-01至Phase-16-05已按顺序合入最新`upstream/main`，各自实施记录和固定门禁通过，根完成版本为`1.13.5`。
 - fetch后从最新主线创建本批分支；除最终version/release/evidence harness/文档外，不预期新增产品能力。
-- 三host owner、运行窗口、Docker server/Compose共同支持版本、磁盘/内存和网络拉取条件已经重新确认；macOS Docker daemon必须实际可用，Windows必须为Linux container mode。
+- 三host owner、运行窗口、可执行访问方式、Docker server/Compose共同支持版本、磁盘/内存和网络拉取条件已经重新确认；macOS Docker daemon必须实际可用，Windows必须为Linux container mode。这是本批开工门禁，不是Phase-16-01至Phase-16-05的前置。
+- 正式OCI registry命名空间、授权CI/release identity和不重建晋升方式已确认；认证只由安全secret store注入，不写入仓库、聊天、日志或命令行。
 - 生成一个来自最终本批source revision的candidate release manifest与单一OS中立Bundle，全部image/platform digest固定；开始任一host长矩阵后不得对同一candidate静默重建。
 - 每个host使用独立空交付目录、随机project/token/edge port和与日常资源隔离的backup/evidence目录；开始前保存Docker、端口和文件快照。
 - 浏览器测试数据、Secret、passphrase和host path只保存在调用方私有临时目录，不提交仓库；evidence只包含总方案允许的脱敏字段。

@@ -20,7 +20,7 @@
 
 ## 2. 前置条件
 
-- Phase-16-02已合入最新`upstream/main`，产品bundle可在Linux amd64与macOS arm64通过唯一edge启动，Backend不再从产品profile发布宿主端口。
+- Phase-16-02已合入最新`upstream/main`，产品bundle已在Linux amd64通过唯一edge启动，Backend不再从产品profile发布宿主端口；macOS/Windows入口不是本批开工前置。
 - fetch后从最新主线创建本批分支；根和两个Frontend当前版本为`1.13.2`。
 - 有界列出两个应用现有route、layout、全局CSS、重复基础控件、loading/empty/error/expired状态、时间格式、危险操作和候选Secret清理点。
 - 按总方案§17确认浏览器固定viewport、系统timezone切换/注入方法、session过期触发、键盘Tab顺序和edge deep-link行为。
@@ -125,7 +125,7 @@
 ### 7.4 运行与完成条件
 
 - 唯一edge的用户/管理deep link、asset cache、旧route redirect、API proxy和security header通过；Browser network不访问内部origin。
-- Linux amd64运行完整角色/业务/管理浏览器矩阵，macOS arm64运行两个viewport与timezone代表场景；无需重复本批不影响的backup/upgrade。
+- Linux amd64运行完整角色/业务/管理浏览器矩阵，并通过浏览器viewport与timezone配置覆盖两个viewport和非UTC代表场景；macOS/Windows真实宿主浏览器证据留给Phase-16-06，无需重复本批不影响的backup/upgrade。
 - 根与受管metadata为`1.13.3`，分支为`develop/1.13.3`，同名实施记录完整；全部固定门禁通过后提交并停止。
 
 ## 8. 固定验证命令与回归范围
@@ -148,7 +148,7 @@ git diff --cached --check
 ```
 
 - Browser入口必须使用产品唯一edge和真实Backend数据，至少覆盖user/super_admin、401/403、角色降级、一个用户写操作、一个插件/告警操作和管理分区失败。
-- 一个完整viewport/角色矩阵在Linux运行；macOS只补arm64 runtime、窄屏/桌面和非UTC差异，不在本批等待Windows全量矩阵。
+- 完整viewport/角色/timezone矩阵在Linux运行；macOS/Windows的真实浏览器与Docker Desktop组合留给Phase-16-06，不在本批等待平台排期。
 - 如果共享包改变Docker build context或Nginx asset路径，补跑两个image digest/runtime检查；不重跑无影响的六插件故障全矩阵。
 - 提交后补充`git diff --check upstream/main...HEAD`。
 
