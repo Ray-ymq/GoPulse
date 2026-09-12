@@ -25,7 +25,7 @@ class AlertsAcceptance(Acceptance):
         values = dict(line.split('=', 1) for line in self.env_file.read_text().splitlines() if '=' in line)
         # Existing unchanged Phase 14 runtime chain; Backend/migrations/operations
         # are built from the current checkout and bind-mounted, never an old binary.
-        values.update(GOPULSE_IMAGE_TAG='1.11.5', GOPULSE_VERSION='1.12.2',
+        values.update(GOPULSE_IMAGE_TAG='1.11.5', GOPULSE_VERSION='1.12.3',
                       ALERT_EVALUATION_ENABLED='true', MONITOR_SCRAPE_INTERVAL='15s')
         self.env_file.write_text(''.join(f'{k}={v}\n' for k, v in values.items()))
         self.values = values
@@ -78,7 +78,7 @@ class AlertsAcceptance(Acceptance):
     def api(self, path, method='GET', body=None, expected=200, client=None):
         value = (client or self.admin).request('alerts/'+path, method, body, expected)
         text = json.dumps(value)
-        for secret in [self.secret, self.values['VICTORIAMETRICS_PASSWORD'], 'http://victoriametrics', 'PromQL', 'SELECT ', 'source="redis"']:
+        for secret in [self.secret, self.values['VICTORIAMETRICS_PASSWORD'], 'http://victoriametrics', 'PromQL', 'SELECT ', 'source="redis"', 'http://elasticsearch', 'gopulse-logs-v1', 'gopulse-events-v1', '/_count', 'query DSL']:
             assert secret not in text, 'unsafe public alert response'
         return value
 
@@ -177,7 +177,7 @@ class AlertsAcceptance(Acceptance):
         self.admin.request('exporter-plugins/redis-exporter/start','POST',None,200)
         wait_until(self.metric, 'real Phase 14 Redis samples', 180)
         catalog=self.api('catalog')['data']
-        assert catalog['creatable_sources'] == ['metrics']
+        assert catalog['creatable_sources'] == ['metrics', 'logs', 'events']
         assert next(m for m in catalog['metrics'] if m['metric']=='gopulse_redis_connected_clients')['allowed_tuples']==[[]]
         self.record('Monitor exporter -> Router -> Kafka -> Marshaller -> VictoriaMetrics -> Backend catalog', catalog_count=len(catalog['metrics']), metric='gopulse_redis_connected_clients', reducer='last')
         self.probe()
@@ -299,17 +299,25 @@ class AlertsAcceptance(Acceptance):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--self-test',action='store_true')
-    parser.add_argument('--sources',choices=['metrics'])
+    parser.add_argument('--sources',choices=['metrics','metrics,logs,events'])
+    parser.add_argument('--fault-isolation',action='store_true')
     args=parser.parse_args()
     if args.self_test:
         assert PATTERN.fullmatch('gopulse-p1401-012345abcdef')
         assert not PATTERN.fullmatch('gopulse')
         assert rule('x')['selector']=={'metric':'gopulse_redis_connected_clients','labels':{}}
         assert rule('x','1m')['for']=='1m'
-        print('PASS alerts verifier self-test: bounded Metrics source, exact owned chain and real-client fault (no Docker)')
+        from verify_alert_sources import count_rule
+        assert count_rule('logs')['selector']['labels']['message']=='user registered'
+        assert count_rule('events')['selector']['labels']['event_name']=='exporter_plugin_installed'
+        print('PASS alerts verifier self-test: three bounded sources, owned chain and serial isolation (no Docker)')
         return
-    if args.sources!='metrics':parser.error('--sources metrics is required')
-    acceptance=AlertsAcceptance()
+    if args.fault_isolation != (args.sources=='metrics,logs,events'):parser.error('three sources require --fault-isolation')
+    if not args.sources:parser.error('--sources is required')
+    if args.fault_isolation:
+        from verify_alert_sources import SourcesAcceptance
+        acceptance=SourcesAcceptance()
+    else:acceptance=AlertsAcceptance()
     print('Evidence directory: '+str(acceptance.work),flush=True)
     failed=False
     try:acceptance.run()

@@ -34,40 +34,6 @@ var ErrUnavailable = errors.New("logs unavailable")
 var ErrAliasMissing = errors.New("log alias missing")
 var ErrPITExpired = errors.New("log PIT expired")
 
-// logVocabulary mirrors the Schema v1 source/module/message contract enforced
-// by LogMonitor and Marshaller. Query filters may only select combinations that
-// a valid application log can contain.
-var workerMessages = map[string]struct{}{
-	"event ignored": {}, "event processed": {}, "message acknowledgement failed": {},
-	"retry publish failed": {}, "message requeue failed": {}, "event retry scheduled": {},
-	"dead letter publish failed": {}, "event dead lettered": {}, "connection unavailable": {},
-	"connection restored": {}, "session close failed": {}, "session interrupted": {},
-	"delivery stop failed": {}, "shutdown timeout": {},
-}
-
-var logVocabulary = map[string]map[string]map[string]struct{}{
-	"backend": {
-		"http": {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
-		"auth": {"user registered": {}, "user logged in": {}, "user logged out": {}},
-		"post": {"post created": {}}, "comment": {"comment created": {}},
-		"like": {"post liked": {}, "post unliked": {}}, "notification": {"notification marked read": {}},
-		"cache":     {"post detail cache fill failed": {}, "post detail cache read failed": {}, "post detail cache invalidation failed": {}},
-		"outbox":    {"outbox cleanup failed": {}, "outbox claim failed": {}, "outbox event invalid": {}, "outbox publish failed": {}, "outbox mark published failed": {}, "outbox event published": {}, "outbox release failed": {}},
-		"lifecycle": {"backend listening": {}, "backend stopped": {}, "backend server failed": {}, "backend shutdown started": {}, "backend shutdown failed": {}, "resource close failed": {}},
-	},
-	"business-worker": {
-		"lifecycle": {"business worker started": {}, "business worker stopped": {}, "business worker initialization failed": {}, "resource close failed": {}},
-		"worker":    workerMessages, "notification": workerMessages,
-	},
-	"search-indexer": {
-		"lifecycle": {"search indexer started": {}, "search indexer stopped": {}, "search indexer initialization failed": {}, "resource close failed": {}},
-		"worker":    workerMessages, "search": workerMessages,
-	},
-	"search-reindex": {
-		"search": {"search reindex arguments invalid": {}, "search reindex initialization failed": {}, "search reindex started": {}, "search reindex skipped": {}, "search reindex completed": {}, "search reindex failed": {}, "resource close failed": {}},
-	},
-}
-
 type Filters struct {
 	From      string `json:"from"`
 	To        string `json:"to"`
@@ -208,7 +174,7 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	if !validLogVocabulary(options.Filters.Service, options.Filters.Module, options.Filters.Message) {
 		return Options{}, validation()
 	}
-	if options.Filters.Level != "" && options.Filters.Level != "info" && options.Filters.Level != "warn" && options.Filters.Level != "error" {
+	if !validLevel(options.Filters.Level) {
 		return Options{}, validation()
 	}
 	if options.Filters.ErrorCode != "" && !validErrorCode(options.Filters.ErrorCode) {
@@ -222,43 +188,6 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	}
 	return options, nil
 }
-func validLogVocabulary(service, module, message string) bool {
-	if service == "" && module == "" && message == "" {
-		return true
-	}
-	for candidateService, modules := range logVocabulary {
-		if service != "" && service != candidateService {
-			continue
-		}
-		for candidateModule, messages := range modules {
-			if module != "" && module != candidateModule {
-				continue
-			}
-			if message == "" {
-				return true
-			}
-			if _, ok := messages[message]; ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func validErrorCode(value string) bool {
-	switch apperror.Code(value) {
-	case apperror.CodeValidationFailed, apperror.CodeAuthenticationRequired, apperror.CodePermissionDenied,
-		apperror.CodeInvalidCredentials, apperror.CodeUsernameConflict, apperror.CodePostNotFound,
-		apperror.CodeNotificationNotFound, apperror.CodeSearchUnavailable, apperror.CodeMetricsUnavailable, apperror.CodeLogsUnavailable, apperror.CodeEventsUnavailable,
-		apperror.CodePluginPackageInvalid, apperror.CodePluginNotFound, apperror.CodePluginConflict,
-		apperror.CodePluginOperationInProgress, apperror.CodePluginOperationFailed,
-		apperror.CodeMonitorUnavailable, apperror.CodeInternal:
-		return true
-	default:
-		return false
-	}
-}
-
 func single(values url.Values, key string) string {
 	if list, ok := values[key]; ok {
 		return list[0]
