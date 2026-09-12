@@ -32,7 +32,7 @@ encrypted backup
 - 有界确认锁定MySQL/Elasticsearch/VictoriaMetrics版本提供的逻辑dump/snapshot/restore公开API、原子完成标识和失败清理语义；只检查直接调用点和官方文档。
 - 确认Backend Outbox、RabbitMQ queue、Kafka group lag及Monitor/Router/Marshaller生产/消费的可读排空判据，避免只等待固定sleep。
 - 列出Monitor持久volume中权威逻辑状态与可重建runtime投影，设计不含binary/PID/symlink的export/import合同。
-- 确认Linux/macOS/Windows私有temp、终端无回显输入、文件替换和中断清理共同实现；不自行设计未经审查的加密算法。
+- 确认生命周期Linux工具容器内的私有temp、终端无回显输入、挂载目录文件替换和中断清理在三宿主具有同一语义；不新增macOS/Windows原生实现，也不自行设计未经审查的加密算法。
 
 ## 3. 实施范围
 
@@ -100,7 +100,7 @@ encrypted backup
 ## 5. 建议实施顺序
 
 1. 真实探测三个数据服务官方snapshot/dump、队列排空和Monitor state，冻结backup format v1/schema/limits。
-2. 先实现纯文件format、authenticated encryption、path/size/digest安全解析和跨平台temp tests，不访问Docker。
+2. 先实现纯文件format、authenticated encryption、path/size/digest安全解析和Linux工具容器内temp tests，不访问Docker。宿主挂载差异只由后续真实平台门禁验证。
 3. 实现operation lock下的edge关闭、producer停止、三队列排空、writer停止与原状态恢复。
 4. 接入MySQL/ES/VM导出和Monitor逻辑export，生成加密backup并验证中断/失败不发布partial。
 5. 实现空project restore顺序、search/cache/message重建、plugin arch映射和完成标记。
@@ -152,7 +152,7 @@ encrypted backup
 (cd monitor && test -z "$(gofmt -l .)" && go test -count=1 ./internal/plugin/... && go vet ./internal/plugin/...)
 scripts/verify-backup-restore.sh --self-test
 scripts/verify-backup-restore.sh --same-arch
-scripts/verify-backup-restore.sh --source linux/amd64 --target darwin/arm64
+scripts/verify-backup-restore.sh --source linux/amd64 --target linux/arm64 --target-host macos
 scripts/verify-lifecycle.sh --existing-product
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
