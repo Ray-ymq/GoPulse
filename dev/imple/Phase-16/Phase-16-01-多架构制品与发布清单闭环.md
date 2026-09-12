@@ -12,8 +12,8 @@
        ├─ linux/amd64 platform digest
        └─ linux/arm64 platform digest
   → 6类current插件包 × 2架构
-  → 3个host CLI候选二进制
-  → release manifest + Compose资产 + checksums
+  → 双架构Linux生命周期工具镜像
+  → 单一OS中立Bundle + release manifest + checksums
   → candidate按digest验证，正式版本不重建晋升
 ```
 
@@ -54,15 +54,15 @@
 
 ### 3.4 Release manifest与交付包骨架
 
-- 新增严格`release-manifest.json` schema，固定product version、source revision、Compose asset digest、CLI平台/checksum、逻辑镜像index/platform digest、第三方digest、插件catalog和supported-upgrade-source字段。
+- 新增严格`release-manifest.json` schema，固定product version、source revision、Compose asset digest、生命周期工具镜像index/platform digest、Bundle checksum、逻辑镜像index/platform digest、第三方digest、插件catalog和supported-upgrade-source字段。
 - manifest拒绝未知必需字段、重复identity、可变`latest`、无digest image、平台集合不完整、版本/revision不一致和同ID/version/arch多内容。
-- 从同一`lifecycle/`Go module构建Linux amd64、Darwin arm64、Windows amd64候选CLI；本批只要求`version`/manifest读取和错误平台早期拒绝，完整命令由下一批实现。
-- 生成三个版本化bundle，除可执行文件名/platform metadata外共享相同Compose、manifest和文档；归档路径、行尾与权限在Linux/macOS/Windows可安全解压。
+- 从同一`lifecycle/`Go module构建`linux/amd64`、`linux/arm64`生命周期工具镜像；本批只要求`version`/manifest读取和错误server架构早期拒绝，完整命令由下一批实现。
+- 生成一个版本化、OS中立Bundle，包含相同Compose、manifest和文档；归档路径、行尾与权限在Linux/macOS/Windows可安全解压。不新增Darwin/Windows二进制、原生启动器或平台专用源码。
 - bundle不包含源码、`.git`、Node modules、构建cache、开发固定Secret、registry credential、source map、私有绝对路径或测试业务数据。
 
 ### 3.5 候选发布与不重建晋升
 
-- 受信主线/开发分支构建candidate image index和host bundle，记录完整digest/checksum；普通未受信pull request不获得package写权限。
+- 受信主线/开发分支构建candidate image index和单一OS中立Bundle，记录完整digest/checksum；普通未受信pull request不获得package写权限。
 - runtime smoke和后续批次只消费candidate digest，不以本地同名tag通过。
 - 正式version/tag引用经验证的同一index/platform digest和bundle checksum，不重新运行产生不同内容的build。
 - 发布失败或部分platform失败不生成完整manifest、不覆盖上一个版本、不把单arch tag标记为本批完成。
@@ -72,7 +72,7 @@
 - `init/up/down/status/logs/verify/doctor`完整生命周期和资源ownership实现。
 - 唯一edge端口收敛、双Frontend样式/状态/路由体验修改。
 - backup format、恢复、`1.9.4`数据migration或升级事务。
-- 原生Windows/macOS服务、Kubernetes、镜像签名/SBOM体系、CVE审计或所有第三方镜像版本更新。
+- 原生Windows/macOS服务、宿主CLI/平台adapter、Kubernetes、镜像签名/SBOM体系、CVE审计或所有第三方镜像版本更新。
 - 仅为提高缓存命中率、镜像体积或构建速度进行无验收依据的Dockerfile重构。
 
 ## 5. 建议实施顺序
@@ -81,7 +81,7 @@
 2. 建立release manifest schema及验证器，使缺平台、可变引用、metadata不一致先失败。
 3. 按Backend、Frontend、observability三组修正Docker构建并产生双架构candidate index。
 4. 构建六插件双架构包和`1.9.4/linux/amd64`Redis legacy包，核对catalog/digest/错架构拒绝。
-5. 建立同源码CLI候选和三个bundle，扫描内容、路径、line ending、checksum和错误平台行为。
+5. 建立同源码双架构生命周期工具镜像和单一Bundle，扫描内容、路径、line ending、checksum和错误server架构行为。
 6. 在Linux amd64与macOS arm64 engine分别拉取digest运行最小runtime smoke；运行Linux当前完整Compose必要回归。
 7. 更新版本、manifest、本批实施记录与支持矩阵初始文档，在最终diff运行固定门禁并提交。
 
@@ -90,7 +90,7 @@
 - `deploy/docker/*.Dockerfile`及直接构建helper
 - `deploy/compose.yaml`与新增`deploy/product/`Compose/release资产
 - `monitor/internal/plugin/**`、六Exporter package脚本/Manifest/catalog直接文件
-- 新`lifecycle/`Go module中的version/manifest最小骨架
+- 新`lifecycle/`Go module中的version/manifest最小骨架及工具镜像构建
 - 新`release/`manifest schema、bundle清单和构建配置
 - `.github/workflows/`中的受信candidate/release构建工作流
 - 新`scripts/verify-release-artifacts.sh`及`scripts/ci/`manifest/artifact验证器与直接测试
@@ -116,8 +116,8 @@
 
 ### 7.3 Bundle与发布
 
-- 三个CLI候选来自同一module/revision，`version --json`与manifest/checksum一致，错误平台在Docker access前失败。
-- 三个bundle拥有相同Compose/manifest digest且内容allowlist通过；Windows归档解压后Compose保持可读，shell-sensitive文件保持LF。
+- 生命周期工具镜像的amd64/arm64变体来自同一module/revision，`version --json`与manifest/digest一致，错误server架构在创建产品资源前失败。
+- 单一Bundle的Compose/manifest/checksum和内容allowlist通过；在Windows解压后Compose保持可读，shell-sensitive文件保持LF，且包内无Darwin/Windows宿主二进制。
 - manifest验证器拒绝缺platform、重复identity、mutable ref、错version/revision/checksum和未知required section。
 - candidate push/pull、按digest拉取和同digest晋升有真实记录；未成功的platform不会生成完整发布。
 
@@ -152,8 +152,8 @@ git diff --cached --check
 完成前创建`dev/logs/Phase-16/Phase-16-01-多架构制品与发布清单闭环.md`，至少记录：
 
 - 三环境inventory、registry probe、BuildKit/runner、第三方image platform结果。
-- 9个image index/platform digest、6插件archive/entrypoint/Schema digest、CLI/bundle checksum。
+- 9个image index/platform digest、6插件archive/entrypoint/Schema digest、生命周期工具镜像digest与Bundle checksum。
 - 真实amd64/arm64 runtime smoke与Linux Compose结果、所有失败轮次和最小修复。
 - bundle内容扫描、候选到正式同digest证据、偏差、限制和未完成项。
 
-交给Phase-16-02的固定输入是可按digest消费的manifest/Compose、三个CLI候选骨架、双架构产品/插件制品及已确认的Docker/Compose共同能力；本批不宣称完整产品生命周期或三宿主支持已完成。
+交给Phase-16-02的固定输入是可按digest消费的manifest/Compose、双架构生命周期工具镜像骨架、单一OS中立Bundle、双架构产品/插件制品及已确认的Docker/Compose共同能力；本批不宣称完整产品生命周期或三宿主支持已完成。
