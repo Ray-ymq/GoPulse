@@ -69,6 +69,20 @@ VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
 UPDATE_VERSION="$VERSION_MAJOR.$VERSION_MINOR.$((VERSION_PATCH + 1))"
 REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+# Candidate mode resolves every product/third-party reference before the restricted
+# acceptance PATH. References are data, never shell-evaluated commands.
+declare -A CANDIDATE_IMAGES=()
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  candidate_refs=$(python3 "$SCRIPT_DIR/ci/release_candidate_env.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --version "$VERSION" --revision "$REVISION")
+  while IFS='=' read -r key value; do
+    [[ -n $key && -n $value ]] || fail 'invalid candidate reference'
+    export "$key=$value"
+  done <<<"$candidate_refs"
+  for service in backend business-worker search-indexer admin-frontend frontend router marshaller monitor redis-exporter; do
+    key="GOPULSE_${service^^}_IMAGE"; key=${key//-/_}
+    CANDIDATE_IMAGES[$service]=${!key}
+  done
+fi
 TOKEN=$(tr -d '-' </proc/sys/kernel/random/uuid | cut -c1-12)
 PROJECT_NAME="gopulse-accept-$TOKEN"
 IMAGE_TAG="${VERSION}-accept-${TOKEN}"
@@ -152,7 +166,7 @@ snapshot_existing_resources() {
   docker network ls -q | sort >"$SNAPSHOT_DIR/networks"
   docker volume ls -q | sort >"$SNAPSHOT_DIR/volumes"
   docker image ls -q --no-trunc | sort -u >"$SNAPSHOT_DIR/images"
-  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | awk -F '|' '$1 != "<none>:<none>"' | sort >"$SNAPSHOT_DIR/image-tags"
+  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | awk -F '|' '$1 !~ /:<none>$/' | sort >"$SNAPSHOT_DIR/image-tags"
   for service in "${PRODUCT_IMAGES[@]}"; do
     ref="gopulse/$service:$IMAGE_TAG"
     ! docker image inspect "$ref" >/dev/null 2>&1 || fail "refusing to replace pre-existing acceptance image tag: $ref"
@@ -162,22 +176,22 @@ snapshot_existing_resources() {
 
 assert_snapshot_preserved() {
   local kind id ref expected_id actual_id
-  cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || fail 'acceptance changed the Git working tree'
+  cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || { fail 'acceptance changed the Git working tree'; return 1; }
   for kind in containers networks volumes images; do
     while IFS= read -r id; do
       [[ -n $id ]] || continue
       case $kind in
-        containers) docker inspect "$id" >/dev/null 2>&1 || fail "pre-existing container disappeared: $id" ;;
-        networks) docker network inspect "$id" >/dev/null 2>&1 || fail "pre-existing network disappeared: $id" ;;
-        volumes) docker volume inspect "$id" >/dev/null 2>&1 || fail "pre-existing volume disappeared: $id" ;;
-        images) docker image inspect "$id" >/dev/null 2>&1 || fail "pre-existing image disappeared: $id" ;;
+        containers) docker inspect "$id" >/dev/null 2>&1 || { fail "pre-existing container disappeared: $id"; return 1; } ;;
+        networks) docker network inspect "$id" >/dev/null 2>&1 || { fail "pre-existing network disappeared: $id"; return 1; } ;;
+        volumes) docker volume inspect "$id" >/dev/null 2>&1 || { fail "pre-existing volume disappeared: $id"; return 1; } ;;
+        images) docker image inspect "$id" >/dev/null 2>&1 || { fail "pre-existing image disappeared: $id"; return 1; } ;;
       esac
     done <"$SNAPSHOT_DIR/$kind"
   done
   while IFS='|' read -r ref expected_id; do
     [[ -n $ref && -n $expected_id ]] || continue
     actual_id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)
-    [[ $actual_id == "$expected_id" ]] || fail "pre-existing image tag mapping changed: $ref"
+    [[ $actual_id == "$expected_id" ]] || { fail "pre-existing image tag mapping changed: $ref"; return 1; }
   done <"$SNAPSHOT_DIR/image-tags"
 }
 
@@ -327,6 +341,9 @@ assert_image_contracts() {
       container_id=$(owned_service_id "$service")
       running_image=$(docker inspect --format '{{.Image}}' "$container_id")
       [[ $running_image == "$tagged_image" ]] || fail "$service container does not run the freshly built tag"
+      if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+        [[ $(docker inspect --format '{{.Config.Image}}' "$container_id") == "${CANDIDATE_IMAGES[$service]}" ]] || fail 'runtime did not consume candidate digest'
+      fi
     fi
     user=$(docker image inspect --format '{{.Config.User}}' "$ref")
     version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$ref")
@@ -660,7 +677,18 @@ reset_for_management() {
 snapshot_existing_resources
 assert_project_absent
 info "Building isolated GoPulse $VERSION images with unique tag $IMAGE_TAG for $PROJECT_NAME without host Go/Node runtimes."
-compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  compose build acceptance
+  for service in "${!CANDIDATE_IMAGES[@]}"; do
+    ref=${CANDIDATE_IMAGES[$service]}
+    docker pull --platform linux/amd64 "$ref"
+    # Unique disposable aliases retain the existing image contract checks; the
+    # actual service references remain immutable digests, never these aliases.
+    docker tag "$ref" "gopulse/$service:$IMAGE_TAG"
+  done
+else
+  compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
+fi
 RESOURCES_STARTED=1
 if ! compose up --detach --wait --wait-timeout 420; then
   compose ps --all >&2 || true
@@ -712,5 +740,17 @@ exercise_signal_shutdown
 exercise_persistence
 exercise_standalone_exporter
 reset_for_management
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  owned_service_id mysql >/dev/null
+  owned_service_id rabbitmq >/dev/null
+  # Dedicated minimum-privilege users, confined to the fresh acceptance project.
+  printf "CREATE USER 'gopulse_metrics'@'%%' IDENTIFIED BY 'metrics-%s';\n" "$TOKEN" | \
+    compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot'
+  compose exec -T rabbitmq rabbitmqctl add_user gopulse_metrics "metrics-$TOKEN" >/dev/null
+  compose exec -T rabbitmq rabbitmqctl set_user_tags gopulse_metrics monitoring >/dev/null
+  compose exec -T rabbitmq rabbitmqctl set_permissions -p / gopulse_metrics '^$' '^$' '^$' >/dev/null
+  compose --profile acceptance run --rm --no-deps acceptance e2e/compose-release-plugins.spec.ts
+  pass 'All six candidate plugins collected real targets through Backend; scoped collector stop preserved siblings and business.'
+fi
 assert_project_ownership
 pass 'Phase 12 authoritative full-stack Compose acceptance passed.'
