@@ -119,10 +119,31 @@ ARG GOPROXY=https://goproxy.cn,direct
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/legacy-exporter ./cmd/redis-exporter
 
+# Exact Phase 14 binaries, not rebuilt from potentially changed current sources.
+# Retained releases preserve existing plugin volumes without weakening trust.
+FROM ${GO_IMAGE} AS phase14-exporters-build
+WORKDIR /legacy
+COPY deploy/plugins/phase14-1.11.5-source.tar.gz /tmp/source.tar.gz
+RUN tar -xzf /tmp/source.tar.gz -C /legacy
+ARG GOPROXY=https://goproxy.cn,direct
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    for source in redis mysql rabbitmq kafka elasticsearch victoriametrics; do \
+      (cd /legacy/exporters/$source && GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+       go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/phase14-$source ./cmd/$source-exporter) || exit 1; \
+    done
+
 FROM exporter-package AS official-packages
 COPY --from=legacy-exporter-build /out/legacy-exporter /out/legacy-exporter
 RUN ./scripts/package-redis-exporter.sh --contract-version 1 --version 1.10.6 --arch amd64 --binary /out/legacy-exporter --output /out/redis-1.10.6.tar.gz && \
     echo 'b992b0dfa80a0983b9af63e4c2a4770216bfd7fcb718af2cd451281cf3306727  /out/redis-1.10.6.tar.gz' | sha256sum -c -
+
+COPY --from=phase14-exporters-build /out/ /phase14-binaries/
+COPY deploy/plugins/phase14-1.11.5.sha256 /tmp/phase14.sha256
+RUN mkdir /out/retained && \
+    for source in redis mysql rabbitmq kafka elasticsearch victoriametrics; do \
+      ./scripts/package-redis-exporter.sh --source "$source" --contract-version 2 --version 1.11.5 --arch amd64 \
+        --binary /phase14-binaries/phase14-$source --output /out/retained/$source-1.11.5.tar.gz || exit 1; \
+    done && cd /out/retained && sha256sum -c /tmp/phase14.sha256
 
 FROM ${GO_IMAGE} AS monitor-build
 WORKDIR /src/monitor
@@ -134,7 +155,8 @@ COPY monitor/ ./
 COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /packages/gopulse-redis-exporter.tar.gz
 COPY --from=official-packages /out/redis-1.10.6.tar.gz /packages/redis-1.10.6.tar.gz
 COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /out/gopulse-kafka-exporter.tar.gz /out/gopulse-elasticsearch-exporter.tar.gz /out/gopulse-victoriametrics-exporter.tar.gz /packages/
-RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz current=/packages/gopulse-victoriametrics-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz
+COPY --from=official-packages /out/retained/ /packages/
+RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz current=/packages/gopulse-victoriametrics-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz retained=/packages/redis-1.11.5.tar.gz retained=/packages/mysql-1.11.5.tar.gz retained=/packages/rabbitmq-1.11.5.tar.gz retained=/packages/kafka-1.11.5.tar.gz retained=/packages/elasticsearch-1.11.5.tar.gz retained=/packages/victoriametrics-1.11.5.tar.gz
 ARG TARGETOS=linux
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
@@ -181,6 +203,7 @@ EXPOSE 9121
 ENTRYPOINT ["/usr/local/bin/gopulse-redis-exporter"]
 
 FROM runtime AS monitor
+COPY --from=official-packages /out/retained/ /opt/gopulse/packages/
 LABEL org.opencontainers.image.title="GoPulse Monitor"
 COPY --from=monitor-build --chown=10005:10001 /out/monitor /usr/local/bin/monitor
 COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /opt/gopulse/packages/gopulse-redis-exporter.tar.gz
@@ -210,7 +233,7 @@ RUN ./scripts/package-redis-exporter.sh --source victoriametrics --version 1.11.
 FROM monitor-build AS monitor-acceptance-build
 COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /out/kafka-failure.tar.gz /out/kafka-update.tar.gz /out/elasticsearch-failure.tar.gz /out/elasticsearch-update.tar.gz /out/victoriametrics-failure.tar.gz /out/victoriametrics-update.tar.gz /packages/
 RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go \
-      current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz current=/packages/gopulse-victoriametrics-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz \
+      current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz current=/packages/gopulse-victoriametrics-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz retained=/packages/redis-1.11.5.tar.gz retained=/packages/mysql-1.11.5.tar.gz retained=/packages/rabbitmq-1.11.5.tar.gz retained=/packages/kafka-1.11.5.tar.gz retained=/packages/elasticsearch-1.11.5.tar.gz retained=/packages/victoriametrics-1.11.5.tar.gz \
       retained=/packages/redis-failure.tar.gz retained=/packages/redis-update.tar.gz \
       retained=/packages/kafka-failure.tar.gz retained=/packages/kafka-update.tar.gz retained=/packages/elasticsearch-failure.tar.gz retained=/packages/elasticsearch-update.tar.gz retained=/packages/victoriametrics-failure.tar.gz retained=/packages/victoriametrics-update.tar.gz && \
     CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/monitor ./cmd/monitor

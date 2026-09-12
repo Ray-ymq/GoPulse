@@ -1,6 +1,7 @@
 export type UserRole = 'user' | 'super_admin'
 
 export interface PublicUser {
+  management_setup_available?: boolean
   id: number
   username: string
   role: UserRole
