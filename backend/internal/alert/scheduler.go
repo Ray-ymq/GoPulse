@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
+	"math"
 	"sync"
 	"time"
 )
@@ -13,12 +14,25 @@ import (
 type Samples interface {
 	AlertPoints(context.Context, string, map[string]string, time.Time, time.Time) ([]metricquery.Point, error)
 }
+type Counts interface {
+	AlertCount(context.Context, map[string]string, time.Time, time.Time) (int64, error)
+}
 type Scheduler struct {
+	logs    Counts
+	events  Counts
 	repo    *Repository
 	samples Samples
 }
 
-func NewScheduler(repo *Repository, samples Samples) *Scheduler { return &Scheduler{repo, samples} }
+func NewScheduler(repo *Repository, samples Samples) *Scheduler {
+	return &Scheduler{repo: repo, samples: samples}
+}
+
+func (s *Scheduler) WithCounts(logs, events Counts) *Scheduler {
+	s.logs = logs
+	s.events = events
+	return s
+}
 
 // A bounded round completes before the next tick; failures are deliberately local.
 func (s *Scheduler) Run(ctx context.Context) {
@@ -101,14 +115,7 @@ func (s *Scheduler) evaluate(ctx context.Context, id uint64) {
 		return
 	}
 	cutoff := time.Now().UTC().Add(-15 * time.Second)
-	w, _ := time.ParseDuration(r.Window)
-	queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	points, e := s.samples.AlertPoints(queryCtx, r.Selector.Metric, r.Selector.Labels, cutoff.Add(-w), cutoff)
-	cancel()
-	v, known := Reduce(points, r.Reducer, cutoff)
-	if e != nil {
-		known = false
-	}
+	v, known := s.value(ctx, r, cutoff)
 	if ctx.Err() != nil {
 		return
 	}
@@ -139,7 +146,7 @@ func (p *Repository) apply(ctx context.Context, claimed Rule, owner string, cuto
 	st.ErrorCode = ""
 	st.DataStatus = "ok"
 	if !known {
-		st.ErrorCode = "metrics_unknown"
+		st.ErrorCode = r.Source + "_unknown"
 		st.DataStatus = "unknown"
 		if st.State == "firing" {
 			st.DataStatus = "stale"
@@ -193,4 +200,43 @@ func (p *Repository) apply(ctx context.Context, claimed Rule, owner string, cuto
 		return e
 	}
 	return tx.Commit()
+}
+
+// Recover at the adapter boundary so a panic still persists a source-local unknown
+// and releases the lease through the ordinary state/audit transaction.
+func (s *Scheduler) value(ctx context.Context, r Rule, cutoff time.Time) (v float64, known bool) {
+	defer func() {
+		if recover() != nil {
+			v = 0
+			known = false
+		}
+	}()
+	in := r.Input
+	in.Enabled = nil
+	if Validate(in, false) != nil {
+		return 0, false
+	}
+	w, e := time.ParseDuration(r.Window)
+	if e != nil {
+		return 0, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if r.Source == "metrics" {
+		points, e := s.samples.AlertPoints(ctx, r.Selector.Metric, r.Selector.Labels, cutoff.Add(-w), cutoff)
+		if e != nil {
+			return 0, false
+		}
+		return Reduce(points, r.Reducer, cutoff)
+	}
+	adapter := s.logs
+	if r.Source == "events" {
+		adapter = s.events
+	}
+	if adapter == nil {
+		return 0, false
+	}
+	n, e := adapter.AlertCount(ctx, r.Selector.Labels, cutoff.Add(-w), cutoff)
+	v = float64(n)
+	return v, e == nil && n >= 0 && n <= 9007199254740991 && !math.IsNaN(v)
 }
