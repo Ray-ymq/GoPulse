@@ -1,0 +1,47 @@
+name: Immutable release candidate
+
+# No PR trigger and no package-write permission. External registry identity and
+# final release are deliberately deferred to Phase-16-06.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/develop/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate trusted source branch
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          [[ "$BRANCH" == main || "$BRANCH" =~ ^develop/[0-9]+\.[0-9]+\.[0-9]+$ ]]
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Start isolated loopback registry
+        run: docker run -d --name candidate-registry -p 127.0.0.1:15001:5000 registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+      - name: Build and verify candidate
+        run: |
+          python3 scripts/ci/release_artifacts.py build --registry 127.0.0.1:15001/gopulse
+          scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/amd64 --runtime
+          scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/arm64 --metadata-only
+          python3 scripts/ci/release_artifacts.py promote --manifest dist/release-manifest.json
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: local-candidate-evidence
+          path: |
+            dist/release-manifest.json
+            dist/gopulse-*-bundle.tar.gz*
+            dist/verification-*.json
+          retention-days: 14
+      - name: Remove owned registry
+        if: always()
+        run: docker rm -f -v candidate-registry || true

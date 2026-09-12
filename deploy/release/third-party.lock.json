@@ -1,0 +1,44 @@
+{
+  "mysql": {
+    "ref": "mysql:8.4.0@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0",
+    "platforms": {
+      "linux/amd64": "sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b",
+      "linux/arm64": "sha256:81e9d95d528511718b81cb9c548e1b922976bf359ed1083782bdbbbccf9ad85d"
+    }
+  },
+  "redis": {
+    "ref": "redis:7.2.5-alpine@sha256:6aaf3f5e6bc8a592fbfe2cccf19eb36d27c39d12dab4f4b01556b7449e7b1f44",
+    "platforms": {
+      "linux/amd64": "sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f",
+      "linux/arm64": "sha256:b3b357d72cdf57aa588e746900cf88059ecb96fda06fee3909fa33ce5eb6ab3c"
+    }
+  },
+  "rabbitmq": {
+    "ref": "rabbitmq:3.13.3-management-alpine@sha256:45b2e137b64baeff1f7f4230588be8f1a08b16939a4b64f5da57c59e5dcd3282",
+    "platforms": {
+      "linux/amd64": "sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245",
+      "linux/arm64": "sha256:3369545c94f746d5b4f397b2ea7cd3ba0b236c4bd345e812b5d6f8d21a997423"
+    }
+  },
+  "elasticsearch": {
+    "ref": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2@sha256:9c1e1afc2bda921b35025e21c72ec6e392266995aa35ad6a47887363592718be",
+    "platforms": {
+      "linux/amd64": "sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7",
+      "linux/arm64": "sha256:3cd6866185716285ba60fafe2c2fca101bf849bf31ff31b0e8302b3c3310119d"
+    }
+  },
+  "kafka": {
+    "ref": "apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837",
+    "platforms": {
+      "linux/amd64": "sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26",
+      "linux/arm64": "sha256:c2b5172ab20d66381ec1729796a410fd611135821994526d4d42d2f256054af3"
+    }
+  },
+  "victoria-metrics": {
+    "ref": "victoriametrics/victoria-metrics:v1.151.0@sha256:6d164540a04f49ba4e696cbdb70f9fee78be1e94b8f2a1292743a0b1ab8275bd",
+    "platforms": {
+      "linux/amd64": "sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19",
+      "linux/arm64": "sha256:61a4c2c3a0dc70ee0928ab4b702e5b9671dd5aec1c948e5f91536cdcbc9ab18b"
+    }
+  }
+}

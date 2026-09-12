@@ -1,0 +1,672 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "version",
+    "revision",
+    "compose",
+    "bundle_sha256",
+    "images",
+    "third_party",
+    "lifecycle",
+    "plugins",
+    "supported_upgrade_sources"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "compose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "const": "deploy/product/compose.yaml"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "bundle_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "business-worker",
+        "search-indexer",
+        "frontend",
+        "admin-frontend",
+        "router",
+        "marshaller",
+        "monitor",
+        "redis-exporter"
+      ],
+      "properties": {
+        "backend": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "business-worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "search-indexer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "frontend": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "admin-frontend": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "router": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "marshaller": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "monitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "redis-exporter": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "third_party": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "redis",
+        "mysql",
+        "rabbitmq",
+        "kafka",
+        "elasticsearch",
+        "victoriametrics"
+      ],
+      "properties": {
+        "redis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "mysql": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "rabbitmq": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "kafka": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "elasticsearch": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "victoriametrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "platforms"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+            },
+            "platforms": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "linux/amd64",
+                "linux/arm64"
+              ],
+              "properties": {
+                "linux/amd64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "linux/arm64": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "platforms"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
+        },
+        "platforms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "properties": {
+            "linux/amd64": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "linux/arm64": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "os",
+          "arch",
+          "purpose",
+          "archive_sha256",
+          "entrypoint_sha256",
+          "schema_sha256"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "redis-exporter",
+              "mysql-exporter",
+              "rabbitmq-exporter",
+              "kafka-exporter",
+              "elasticsearch-exporter",
+              "victoriametrics-exporter"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+          },
+          "os": {
+            "const": "linux"
+          },
+          "arch": {
+            "enum": [
+              "amd64",
+              "arm64"
+            ]
+          },
+          "purpose": {
+            "enum": [
+              "current",
+              "upgrade-only"
+            ]
+          },
+          "archive_sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "entrypoint_sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "schema_sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              {
+                "const": ""
+              }
+            ]
+          }
+        }
+      }
+    },
+    "supported_upgrade_sources": {
+      "type": "array",
+      "maxItems": 0,
+      "items": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GoPulse immutable release manifest v1"
+}

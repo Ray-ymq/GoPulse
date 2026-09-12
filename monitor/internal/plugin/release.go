@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Release pins content supplied by the image build, never by an API request or
@@ -26,6 +27,10 @@ type releaseCatalog struct {
 // newReleaseCatalog is the runtime boundary for a compile-time generated list.
 // In particular, it is not a loader for a writable on-volume catalog.
 func newReleaseCatalog(root string, releases []Release) (*releaseCatalog, error) {
+	return newReleaseCatalogForArch(root, releases, runtime.GOARCH)
+}
+
+func newReleaseCatalogForArch(root string, releases []Release, arch string) (*releaseCatalog, error) {
 	fail := func() (*releaseCatalog, error) {
 		return nil, NewError(CodePackageInvalid, "official plugin release is invalid")
 	}
@@ -63,7 +68,7 @@ func newReleaseCatalog(root string, releases []Release) (*releaseCatalog, error)
 			return fail()
 		}
 		// Reuse the closed manifest shape and identity checks for catalog metadata.
-		if !validReleaseManifest(m) {
+		if !validReleaseManifestForArch(m, arch) {
 			return fail()
 		}
 	}
@@ -138,17 +143,29 @@ func (c *releaseCatalog) extractVerified(id, version, upload, staging string) (M
 }
 
 func validReleaseManifest(m Manifest) bool {
+	return validReleaseManifestForArch(m, runtime.GOARCH)
+}
+
+func validReleaseManifestForArch(m Manifest, arch string) bool {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return false
 	}
-	_, err = parseManifest(data, m.SchemaVersion)
+	_, err = parseManifestForArch(data, m.SchemaVersion, arch)
 	return err == nil
 }
 
 // InspectBuildRelease is used only by the build tool to validate image inputs.
 // It is not a runtime registration API.
 func InspectBuildRelease(path, purpose string) (Release, error) {
+	return InspectBuildReleaseForArch(path, purpose, runtime.GOARCH)
+}
+
+// InspectBuildReleaseForArch validates cross-built inputs; runtime never uses this API.
+func InspectBuildReleaseForArch(path, purpose, arch string) (Release, error) {
+	if arch != "amd64" && arch != "arm64" {
+		return Release{}, NewError(CodePackageInvalid, "unsupported build architecture")
+	}
 	digest, err := archiveDigest(path)
 	if err != nil {
 		return Release{}, err
@@ -162,12 +179,12 @@ func InspectBuildRelease(path, purpose string) (Release, error) {
 	if purpose == "legacy-v1" {
 		schema = 1
 	}
-	manifest, err := extractPackageContract(path, stage, schema)
+	manifest, err := extractPackageContractForArch(path, stage, schema, arch)
 	if err != nil {
 		return Release{}, err
 	}
 	r := Release{Manifest: manifest, ArchiveSHA256: digest, Purpose: purpose, PackageFile: filepath.Base(path)}
-	if _, err = newReleaseCatalog(filepath.Dir(path), []Release{r}); err != nil {
+	if _, err = newReleaseCatalogForArch(filepath.Dir(path), []Release{r}, arch); err != nil {
 		return Release{}, err
 	}
 	return r, nil
