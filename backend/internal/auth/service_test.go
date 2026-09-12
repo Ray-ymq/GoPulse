@@ -194,3 +194,38 @@ func assertApplicationCode(t *testing.T, err error, code apperror.Code) *apperro
 	}
 	return appError
 }
+
+type setupUserRepository struct {
+	fakeUserRepository
+	setupErr error
+}
+
+func (r *setupUserRepository) BootstrapID(context.Context) (uint64, error) {
+	return 1, r.setupErr
+}
+
+func TestCurrentUserSetupHintNeverChangesRoleOrBlocksSocialAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		err              error
+		known, available bool
+	}{
+		{"initialized", nil, true, true},
+		{"unset", user.ErrSetupUnavailable, true, false},
+		{"unavailable", errors.New("setup lookup unavailable"), false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &setupUserRepository{setupErr: tc.err}
+			repo.findByID = func(context.Context, uint64) (user.User, error) {
+				return user.User{ID: 7, Username: "ordinary", Role: user.RoleUser}, nil
+			}
+			result, err := NewService(repo, nil, nil).CurrentUser(context.Background(), 7)
+			if err != nil || result.Role != user.RoleUser || result.ID != 7 {
+				t.Fatalf("setup changed social access: %+v %v", result, err)
+			}
+			if (result.ManagementSetupAvailable != nil) != tc.known || (tc.known && *result.ManagementSetupAvailable != tc.available) {
+				t.Fatalf("incorrect setup hint: %+v", result)
+			}
+		})
+	}
+}
