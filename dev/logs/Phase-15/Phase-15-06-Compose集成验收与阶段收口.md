@@ -128,3 +128,7 @@ clean-install browser 现在确实核对“管理尚未初始化”提示，非�
 - `python3 scripts/ci/validate_branch.py --branch develop/1.12.6 --base-ref upstream/main`：通过。
 - `git diff --check`：通过。
 - `git diff --cached --check`：通过；仅暂存本批 28 个文件，未跟踪 `~` 保持原状。
+
+## 2026-09-13 后续主线状态
+
+第六批已通过提交 `5cf850b1aa82e2dc4a298c60e5614db53cdc9f49` 合入 `origin/main`，对应版本 `1.12.6`。以上“待合入”等文字保留为当时历史记录。后续 Review 的四项整改在 Phase-15-07 完成，详见 `Phase-15-07-Review整改.md`；其定向回归不是重跑本批完整 Compose 验收。

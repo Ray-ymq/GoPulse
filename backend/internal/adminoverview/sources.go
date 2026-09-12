@@ -181,6 +181,11 @@ func Plugins(client *exporterplugin.Client, samples alert.Samples) Loader {
 							p.Status = "unknown"
 							p.ReasonCode = "stale"
 						}
+						// Confirmed process failure outranks even fresh successful samples.
+						if r.ObservedState == "failed" {
+							p.Status = "degraded"
+							p.ReasonCode = "process_failed"
+						}
 					}
 				}
 				if !installed {
