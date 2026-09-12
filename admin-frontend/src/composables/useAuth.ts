@@ -18,3 +18,5 @@ export function bindAuthNavigation(navigate: (path: string) => void = path => wi
     navigate('/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search))
   })
 }
+
+export async function leaveManagement() { user.value = null; await nextTick(); window.location.replace("/posts") }

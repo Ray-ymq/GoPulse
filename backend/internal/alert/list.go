@@ -53,7 +53,7 @@ func (p *Repository) ListRules(ctx context.Context, q Query) ([]Rule, error) {
 	return out, dbError(rows.Err())
 }
 func (p *Repository) ListIncidents(ctx context.Context, q Query) ([]Incident, error) {
-	query := `SELECT id,rule_id,revision,name,severity,source,object,status,first_triggered_at,last_triggered_at,last_evaluated_at,recovered_at,closed_at,resolution_reason,observed_value,evaluation_count FROM alert_incidents WHERE 1=1`
+	query := `SELECT id,rule_id,revision,name,severity,source,object,status,first_triggered_at,last_triggered_at,last_evaluated_at,recovered_at,closed_at,resolution_reason,observed_value,evaluation_count,COALESCE((SELECT data_status FROM alert_rule_states WHERE active_incident_id=alert_incidents.id),'historical') FROM alert_incidents WHERE 1=1`
 	args := []any{}
 	if q.Kind == "current" {
 		query += " AND status='firing'"
@@ -96,7 +96,7 @@ func (p *Repository) ListIncidents(ctx context.Context, q Query) ([]Incident, er
 	for rows.Next() {
 		var r Incident
 		var object []byte
-		e = rows.Scan(&r.ID, &r.RuleID, &r.Revision, &r.Name, &r.Severity, &r.Source, &object, &r.Status, &r.FirstTriggeredAt, &r.LastTriggeredAt, &r.LastEvaluatedAt, &r.RecoveredAt, &r.ClosedAt, &r.ResolutionReason, &r.LastValue, &r.EvaluationCount)
+		e = rows.Scan(&r.ID, &r.RuleID, &r.Revision, &r.Name, &r.Severity, &r.Source, &object, &r.Status, &r.FirstTriggeredAt, &r.LastTriggeredAt, &r.LastEvaluatedAt, &r.RecoveredAt, &r.ClosedAt, &r.ResolutionReason, &r.LastValue, &r.EvaluationCount, &r.DataStatus)
 		if e != nil {
 			return nil, unavailable()
 		}

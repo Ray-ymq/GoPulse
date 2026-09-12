@@ -13,7 +13,10 @@ import (
 
 const pluginID = "redis-exporter"
 
-type Handler struct{ client *Client }
+type Handler struct {
+	client *Client
+	audit  Auditor
+}
 
 func NewHandler(client *Client) *Handler { return &Handler{client: client} }
 func (h *Handler) List(c *gin.Context) {
