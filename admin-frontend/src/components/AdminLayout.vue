@@ -5,9 +5,11 @@
       <a class="button button--secondary" href="/posts">返回社交</a>
     </header>
     <nav class="admin-nav" aria-label="可观测导航">
+      <RouterLink to="/">大屏</RouterLink>
       <RouterLink to="/metrics">Metrics</RouterLink>
       <RouterLink to="/logs">Logs</RouterLink>
       <RouterLink to="/events">Events</RouterLink>
+      <RouterLink to="/alerts">告警</RouterLink><RouterLink to="/users">用户角色</RouterLink><RouterLink to="/audit">审计</RouterLink>
       <RouterLink to="/plugins">Exporter</RouterLink>
     </nav>
     <main class="admin-content"><RouterView /></main>
