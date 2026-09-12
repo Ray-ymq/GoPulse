@@ -7,7 +7,7 @@ test('MySQL and RabbitMQ independent administration', async ({ page }) => {
   await page.getByLabel('用户名').fill(process.env.GOPULSE_P14_ADMIN!)
   await page.getByLabel('密码').fill(process.env.GOPULSE_P14_PASSWORD!)
   await page.getByRole('button',{name:'登录',exact:true}).click()
-  await expect(page).toHaveURL(/\/admin\/metrics$/)
+  await expect(page).toHaveURL(/\/admin\/$/)
   for (const source of ['mysql','rabbitmq']) {
     await page.goto('/admin/plugins')
     await expect(page.getByRole('button').filter({hasText:'未交付'})).toHaveCount(3)
