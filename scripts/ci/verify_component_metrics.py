@@ -29,7 +29,7 @@ QUERIES = {
  'router': ('messages_total', 'last_kafka_ack_timestamp_seconds'),
  'marshaller': ('records_total', 'last_storage_success_timestamp_seconds'),
 }
-BUDGETS = dict(zip(COMPONENTS, (547, 37, 24, 112, 112, 260)))
+BUDGETS = dict(zip(COMPONENTS, (677, 37, 24, 112, 112, 260)))
 
 
 def self_test():

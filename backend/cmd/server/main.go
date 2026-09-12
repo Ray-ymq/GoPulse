@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	stdhttp "net/http"
@@ -190,6 +191,8 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("initialize VictoriaMetrics query client")
 	}
+	alertRepo := alert.NewRepository(mysqlClient.DB())
+	alertHandler := alert.NewHandler(alertRepo, cfg.Auth.JWTSecret)
 	metricHandler := metricquery.NewHandler(metricquery.NewService(metricClient))
 	logRepository := logquery.NewElasticsearchRepository(elasticsearchClient)
 	logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
@@ -220,6 +223,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Bookmarks:       bookmark.NewHandler(bookmark.NewService(bookmark.NewMySQLRepository(mysqlClient.DB()), postService), logger),
 			Logs:            logHandler,
 			Metrics:         metricHandler,
+			Alerts:          alertHandler,
 			Events:          eventHandler,
 			Notifications:   notificationHandler,
 			Search:          searchHandler,
@@ -233,6 +237,21 @@ func run(cfg config.Config, logger *slog.Logger) error {
 
 	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+	alertCtx, cancelAlerts := context.WithCancel(signalContext)
+	alertDone := make(chan struct{})
+	go func() {
+		defer close(alertDone)
+		if cfg.AlertEvaluationEnabled {
+			alert.NewScheduler(alertRepo, metricClient).Run(alertCtx)
+		}
+	}()
+	defer func() {
+		cancelAlerts()
+		select {
+		case <-alertDone:
+		case <-time.After(3 * time.Second):
+		}
+	}()
 	releaseBudget := componentmetrics.BindShutdown(signalContext, shutdownTimeout)
 	defer releaseBudget()
 	internalMetrics, err := componentmetrics.StartConfigured(signalContext, "backend", metrics.Snapshot)
