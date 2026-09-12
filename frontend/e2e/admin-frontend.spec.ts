@@ -19,7 +19,7 @@ test('same-origin paths, role defaults, safe restoration, cookie and 401', async
   await expect(page).toHaveURL(/\/login\?redirect=/)
   expect(new URL(page.url()).searchParams.get('redirect')).toBe('/admin/logs')
   await signIn(page, admin, /\/admin\/logs$/)
-  for (const [old, target] of [['/admin', '/admin/metrics'], ['/admin/', '/admin/metrics'],
+  for (const [old, target] of [['/admin', '/admin/'], ['/admin/', '/admin/'],
     ['/admin/observability', '/admin/metrics'], ['/admin/observability/metrics', '/admin/metrics'],
     ['/admin/observability/logs', '/admin/logs'], ['/admin/observability/events', '/admin/events'], ['/admin/observability/exporters', '/admin/plugins']]) {
     await page.goto(old!)
@@ -61,7 +61,7 @@ test('ordinary user never mounts management or sends its API requests', async ({
 test('existing real metrics logs events and six plugin lifecycle', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/login')
-  await signIn(page, admin, /\/admin\/metrics$/)
+  await signIn(page, admin, /\/admin\/$/)
   await page.goto('/admin/plugins')
   await expect(page.locator('[aria-label="官方插件目录"]')).toBeVisible()
   await expect(page.locator('[aria-label="官方插件目录"] > button')).toHaveCount(6)
@@ -88,7 +88,7 @@ test('existing real metrics logs events and six plugin lifecycle', async ({ page
 })
 test('database demotion erases candidate secrets and DOM but retains social session', async ({ page }) => {
   await page.goto('/login')
-  await signIn(page, demoted, /\/admin\/metrics$/)
+  await signIn(page, demoted, /\/admin\/$/)
   await page.goto('/admin/plugins')
   await expect(page.locator('.state-pill')).toBeVisible()
   await page.getByLabel('password', { exact: true }).fill('candidate-secret-must-disappear')
