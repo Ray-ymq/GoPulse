@@ -1,20 +1,15 @@
+import { loginDestination } from '../utils/redirect'
 import { createRouter, createWebHistory, type Router } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import UserAppShell from '../components/UserAppShell.vue'
 import RelationsView from '../views/RelationsView.vue'
 import ProfileView from '../views/ProfileView.vue'
-import AdminLayout from '../components/AdminLayout.vue'
 import AuthRecoveryView from '../views/AuthRecoveryView.vue'
 import DevStatusView from '../views/DevStatusView.vue'
 import ForbiddenView from '../views/ForbiddenView.vue'
 import LoginView from '../views/LoginView.vue'
 import NewPostView from '../views/NewPostView.vue'
 import NotificationsView from '../views/NotificationsView.vue'
-import ObservabilityEventsView from '../views/ObservabilityEventsView.vue'
-import ObservabilityExportersView from '../views/ObservabilityExportersView.vue'
-import ObservabilityOverviewView from '../views/ObservabilityOverviewView.vue'
-import ObservabilityLogsView from '../views/ObservabilityLogsView.vue'
-import ObservabilityMetricsView from '../views/ObservabilityMetricsView.vue'
 import PostDetailView from '../views/PostDetailView.vue'
 import BookmarksView from '../views/BookmarksView.vue'
 import PostsView from '../views/PostsView.vue'
@@ -25,7 +20,7 @@ export function createAppRouter(history = createWebHistory()): Router {
   const router = createRouter({
     history,
     routes: [
-      { path: '/', redirect: '/posts' },
+      { path: '/', redirect: '/login' },
       { path: '/register', component: RegisterView, meta: { guestOnly: true } },
       { path: '/login', component: LoginView, meta: { guestOnly: true } },
       { path: '/auth-recovery', component: AuthRecoveryView, meta: { skipAuthRecovery: true } },
@@ -45,19 +40,6 @@ export function createAppRouter(history = createWebHistory()): Router {
         ],
       },
       { path: '/forbidden', component: ForbiddenView, meta: { requiresAuth: true } },
-      {
-        path: '/admin/observability',
-        component: AdminLayout,
-        meta: { requiresAuth: true, requiresAdmin: true },
-        children: [
-          { path: '', component: ObservabilityOverviewView },
-          { path: 'metrics', component: ObservabilityMetricsView },
-          { path: 'logs', component: ObservabilityLogsView },
-          { path: 'events', component: ObservabilityEventsView },
-          { path: 'exporters', component: ObservabilityExportersView },
-          { path: ':pathMatch(.*)*', redirect: '/admin/observability' },
-        ],
-      },
       { path: '/dev/status', component: DevStatusView, meta: { skipAuthRecovery: true } },
       { path: '/:pathMatch(.*)*', redirect: '/posts' },
     ],
@@ -73,14 +55,11 @@ export function createAppRouter(history = createWebHistory()): Router {
       }
     }
     if (to.meta.requiresAuth && auth.status.value !== 'authenticated') return { path: '/login', query: { redirect: to.fullPath } }
-    if (to.meta.requiresAdmin) {
-      try { await auth.refresh() } catch {
-        if (auth.status.value !== 'authenticated') return '/login'
-        return { path: '/auth-recovery', query: { redirect: to.fullPath } }
-      }
-      if (auth.user.value?.role !== 'super_admin') return '/forbidden'
+    if (to.meta.guestOnly && auth.status.value === 'authenticated') {
+      const target = loginDestination(to.query.redirect, auth.user.value?.role)
+      if (target.startsWith('/admin/')) { window.location.assign(target); return false }
+      return target
     }
-    if (to.meta.guestOnly && auth.status.value === 'authenticated') return '/posts'
     return true
   })
   return router

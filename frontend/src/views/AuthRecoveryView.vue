@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
+import { loginDestination } from '../utils/redirect'
 import { ApiError } from '../services/http'
 
 const auth = useAuth()
@@ -10,20 +11,15 @@ const router = useRouter()
 const retrying = ref(false)
 const errorMessage = ref('')
 
-function targetPath(): string {
-  const redirect = route.query.redirect
-  return typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//')
-    ? redirect
-    : '/posts'
-}
-
 async function retry(): Promise<void> {
   if (retrying.value) return
   retrying.value = true
   errorMessage.value = ''
   try {
     await auth.initialize()
-    await router.replace(auth.status.value === 'authenticated' ? targetPath() : '/login')
+    const target = auth.status.value === 'authenticated' ? loginDestination(route.query.redirect, auth.user.value?.role) : '/login'
+    if (target.startsWith('/admin/')) window.location.replace(target)
+    else await router.replace(target)
   } catch (error) {
     errorMessage.value = error instanceof ApiError
       ? error.message

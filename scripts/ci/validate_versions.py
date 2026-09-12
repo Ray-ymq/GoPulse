@@ -41,6 +41,8 @@ def validate(repo: Path) -> list[str]:
     for relative, label in [
         (Path("frontend/package.json"), "frontend package"),
         (Path("frontend/package-lock.json"), "frontend lockfile"),
+        (Path("admin-frontend/package.json"), "admin frontend package"),
+        (Path("admin-frontend/package-lock.json"), "admin frontend lockfile"),
     ]:
         path = repo / relative
         try:

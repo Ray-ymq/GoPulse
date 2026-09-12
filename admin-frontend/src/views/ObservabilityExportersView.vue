@@ -9,7 +9,7 @@ import type { ExporterStatus } from '../types/exporter'
 const catalog = ref<PluginCatalogItem[]>([])
 const selected = ref('redis-exporter')
 const selectedItem = computed(() => catalog.value.find(item => item.id === selected.value))
-const configuration = reactive<Record<string, string | number>>({ host: 'redis', port: 6379, database: 0, connect_timeout: '1s', scrape_timeout: '2s' })
+const configuration = reactive<Record<string, string | number>>({ host: '', port: 6379, database: 0, connect_timeout: '1s', scrape_timeout: '2s' })
 const password = ref('')
 const statuses = ref<ExporterStatus[]>([])
 function selectPlugin(id: string): void {
@@ -17,7 +17,7 @@ function selectPlugin(id: string): void {
  status.value = statuses.value.find(item => item.id === id) ?? null
  for (const key of Object.keys(configuration)) delete configuration[key]
  const source = id.replace('-exporter', '')
- Object.assign(configuration, { host: source, connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: 'gopulse', username: 'gopulse_metrics' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: 'gopulse_metrics' } : source === 'kafka' ? { port: 19092, topic: 'gopulse-observability-v1', consumer_group: 'gopulse-marshaller-metrics-v1' } : source === 'victoriametrics' ? { port: 8428, username: '' } : { port: 9200 })
+ Object.assign(configuration, { host: '', connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: '', username: '' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: '' } : source === 'kafka' ? { port: 19092, topic: '', consumer_group: '' } : source === 'victoriametrics' ? { port: 8428, username: '' } : { port: 9200 })
 }
 async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {
   if (busy.value) return
@@ -91,7 +91,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
     </div>
     <p v-if="selectedItem && !selectedItem.available" class="notice">此类型尚未交付，没有已安装或运行中的实例。</p>
     <div v-if="selectedItem?.available" class="panel exporter-configuration">
-      <h3>{{ selectedItem.name }} 目标配置</h3><p>连接测试不会保存候选配置；密码不会回填，提交后清空。配置替换留空密码表示保留。</p>
+      <h3>{{ selectedItem.name }} 目标配置</h3><p>请填写实际目标地址，不预填部署内部地址。连接测试不会保存候选配置；密码不会回填，提交后清空。配置替换留空密码表示保留。</p>
       <p v-if="selectedItem.summary === 'upgrade_required'">旧版包保持原状态，请先显式更新到 v2，再修改配置。</p>
       <label v-for="field in selectedItem.schema.fields" :key="field.name" class="field">
         {{ field.name }}
@@ -103,7 +103,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
         <button class="button" :disabled="busy || (selectedItem?.schema.fields.some(field => field.secret && field.required) && !password)" @click="configure('check')">{{ operation === 'check' ? '测试中…' : '连接测试' }}</button>
         <button v-if="!status" class="button" :disabled="busy || (selectedItem?.schema.fields.some(field => field.secret && field.required) && !password)" @click="configure('install')">安装并启动</button>
         <button v-else class="button" :disabled="busy || selectedItem.summary === 'upgrade_required'" @click="configure('save')">替换配置</button>
-        <RouterLink :to="`/admin/observability/metrics?source=${selectedItem.source}`">查询插件指标</RouterLink>
+        <RouterLink :to="`/metrics?source=${selectedItem.source}`">查询插件指标</RouterLink>
       </div>
     </div>
     <template v-if="status && status.id === selected">
