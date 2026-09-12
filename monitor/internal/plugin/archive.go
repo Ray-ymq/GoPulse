@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -29,6 +30,10 @@ func extractPackageV2(archivePath, staging string) (Manifest, error) {
 }
 
 func extractPackageContract(archivePath, staging string, schemaVersion int) (Manifest, error) {
+	return extractPackageContractForArch(archivePath, staging, schemaVersion, runtime.GOARCH)
+}
+
+func extractPackageContractForArch(archivePath, staging string, schemaVersion int, arch string) (Manifest, error) {
 	info, err := os.Stat(archivePath)
 	if err != nil || info.Size() > MaxPackageBytes {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
@@ -130,12 +135,7 @@ func extractPackageContract(archivePath, staging string, schemaVersion int) (Man
 	if err != nil {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 	}
-	var manifest Manifest
-	if schemaVersion == 2 {
-		manifest, err = ParseManifestV2(data)
-	} else {
-		manifest, err = ParseManifest(data)
-	}
+	manifest, err := parseManifestForArch(data, schemaVersion, arch)
 	if err != nil {
 		return Manifest{}, err
 	}
