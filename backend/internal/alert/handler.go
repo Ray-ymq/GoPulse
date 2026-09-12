@@ -267,7 +267,7 @@ func (h *Handler) list(c *gin.Context) {
 				return
 			}
 		}
-		if q.Limit < 1 || q.Limit > 100 || q.Source != "" && q.Source != "metrics" || !member(q.Severity, "", "warning", "critical") || q.Start.After(q.End) || q.End.Sub(q.Start) > 90*24*time.Hour {
+		if q.Limit < 1 || q.Limit > 100 || !member(q.Source, "", "metrics", "logs", "events") || !member(q.Severity, "", "warning", "critical") || q.Start.After(q.End) || q.End.Sub(q.Start) > 90*24*time.Hour {
 			response.Error(c, validation())
 			return
 		}
