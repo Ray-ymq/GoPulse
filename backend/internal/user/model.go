@@ -35,10 +35,11 @@ type User struct {
 
 // Public is the current-user representation exposed by authentication APIs.
 type Public struct {
-	ID        uint64    `json:"id"`
-	Username  string    `json:"username"`
-	Role      Role      `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	ManagementSetupAvailable *bool     `json:"management_setup_available,omitempty"`
+	ID                       uint64    `json:"id"`
+	Username                 string    `json:"username"`
+	Role                     Role      `json:"role"`
+	CreatedAt                time.Time `json:"created_at"`
 }
 
 func (record User) Public() Public {
