@@ -242,7 +242,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	go func() {
 		defer close(alertDone)
 		if cfg.AlertEvaluationEnabled {
-			alert.NewScheduler(alertRepo, metricClient).WithCounts(logRepository,eventRepository).Run(alertCtx)
+			alert.NewScheduler(alertRepo, metricClient).WithCounts(logRepository, eventRepository).Run(alertCtx)
 		}
 	}()
 	defer func() {

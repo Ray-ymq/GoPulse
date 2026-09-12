@@ -94,3 +94,10 @@ Elasticsearch 使用 Compose 锁定 `9.5.2`。两个来源都通过真实文档�
 根 VERSION、`.env.example` 产品版本/镜像 tag、Frontend package/lock 根版本同步 `1.12.3`。管理 Frontend 尚未创建，属于 Phase-15-04，不虚构其构建或版本。
 
 Phase-15-04 可直接消费封闭三源 catalog、rules/current/history DTO；权限、计数、局部 unknown、去重和持久恢复由 Backend 负责，不在 Frontend 重做上游查询或状态机。新装缺失 alias 保守 unknown 是已明确的运行限制；无新增外部通知、审计递归、自定义 Elasticsearch DSL 或全产品镜像发布。
+
+## 2026-09-12 推送后 CI 格式修复
+
+- GitHub Actions run `34686300278` 的 Backend `Verify formatting` 失败，后续 Backend Test/Vet/Race 被跳过，自动创建 PR 步骤也被跳过；其他质量检查（包括 Integration 和 Full-stack Compose acceptance）通过。
+- 本地 `gofmt -l backend` 精确复现：只有 `backend/cmd/server/main.go` 不符合格式。原因是三源 scheduler 接线调用的参数逗号后缺少空格，上次格式检查没有覆盖该文件。
+- 对该文件执行 `gofmt -w backend/cmd/server/main.go`，仅补充空格，无业务逻辑变化；运行 CI 同一命令 `(cd backend && test -z "$(gofmt -l .)")` 通过。
+- 该修复是 Phase-15-03 的同批次跟进，继续使用 `develop/1.12.3`，VERSION 保持 `1.12.3`。不重复已通过且不受纯格式变化影响的三源 Compose 验收；推送后由 CI 执行原有 Backend 后续门禁，远程结果以实际检查状态为准。
