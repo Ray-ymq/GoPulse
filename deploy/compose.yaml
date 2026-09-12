@@ -299,6 +299,9 @@ services:
       target: backend
       args: *image-build-args
     restart: on-failure:5
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=80m,mode=1777
     stop_grace_period: 15s
     environment: *backend-environment
     depends_on:
@@ -332,6 +335,7 @@ services:
       target: business-worker
       args: *image-build-args
     restart: on-failure:5
+    read_only: true
     stop_grace_period: 15s
     environment: *worker-environment
     depends_on:
@@ -352,6 +356,7 @@ services:
       target: search-indexer
       args: *image-build-args
     restart: on-failure:5
+    read_only: true
     stop_grace_period: 15s
     environment: *indexer-environment
     depends_on:
