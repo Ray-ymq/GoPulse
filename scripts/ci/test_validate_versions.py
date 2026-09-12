@@ -23,6 +23,10 @@ class VersionMetadataTests(unittest.TestCase):
             json.dumps({"version": "0.2.7", "packages": {"": {"version": "0.2.7"}}}),
             encoding="utf-8",
         )
+        admin = self.repo / "admin-frontend"
+        admin.mkdir()
+        for name in ("package.json", "package-lock.json"):
+            (admin / name).write_text((frontend / name).read_text(), encoding="utf-8")
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -42,6 +46,11 @@ class VersionMetadataTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn("lockfile root package version", validate(self.repo)[0])
+
+    def test_rejects_admin_package_drift(self) -> None:
+        package = self.repo / "admin-frontend/package.json"
+        package.write_text(json.dumps({"version": "0.2.6"}), encoding="utf-8")
+        self.assertIn("admin frontend package version", validate(self.repo)[0])
 
     def test_rejects_compose_environment_version_drift(self) -> None:
         (self.repo / ".env.example").write_text(
