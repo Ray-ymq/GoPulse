@@ -6,6 +6,10 @@ import "errors"
 type Code string
 
 const (
+	CodeAlertsUnavailable         Code = "alerts_unavailable"
+	CodeAlertNotFound             Code = "alert_not_found"
+	CodeAlertConflict             Code = "alert_revision_conflict"
+	CodeAlertRuleLimit            Code = "alert_rule_limit"
 	CodeBootstrapProtected        Code = "bootstrap_super_admin_protected"
 	CodeSetupUnavailable          Code = "management_setup_unavailable"
 	CodeUserNotFound              Code = "user_not_found"
