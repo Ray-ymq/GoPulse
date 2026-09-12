@@ -25,10 +25,12 @@ Usage: scripts/verify-compose.sh [--full] [--keep]
        scripts/verify-compose.sh --self-test
        scripts/verify-compose.sh --phase13 [--keep]
        scripts/verify-compose.sh --phase14
+       scripts/verify-compose.sh --phase15
        scripts/verify-compose.sh --business [--keep]
        scripts/verify-compose.sh --observability [--keep]
 
 --full (the default) runs the authoritative Phase 12 full-stack closure.
+--phase15 runs the Phase 15 integrated closure (mandatory cleanup; no --keep).
 --phase14 runs the complete Phase 14 closure (mandatory cleanup; no --keep).
 --phase13 runs the Phase 13 business closure and representative administrator paths on the complete product.
 --business preserves the focused Phase-12-01 business regression.
@@ -63,7 +65,7 @@ run_self_test() {
 
 while (($#)); do
   case $1 in
-    --self-test|--full|--business|--observability|--phase13|--phase14) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
+    --self-test|--full|--business|--observability|--phase13|--phase14|--phase15) [[ -z $MODE ]] || { fail 'choose exactly one mode'; exit 2; }; MODE=$1; shift ;;
     --keep) KEEP=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1"; usage >&2; exit 2 ;;
@@ -74,6 +76,10 @@ if [[ $MODE == --self-test ]]; then
   ((KEEP == 0)) || fail '--keep is only valid with an execution mode'
   run_self_test
   exit 0
+fi
+if [[ $MODE == --phase15 ]]; then
+  ((KEEP == 0)) || { fail '--phase15 requires cleanup and does not accept --keep'; exit 2; }
+  exec python3 "$SCRIPT_DIR/ci/verify_phase15_closure.py"
 fi
 if [[ $MODE == --phase14 ]]; then
   ((KEEP == 0)) || { fail '--phase14 requires cleanup and does not accept --keep'; exit 2; }
