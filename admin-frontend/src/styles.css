@@ -150,3 +150,5 @@ table { width:100%; border-collapse:collapse; } th,td { padding:10px; border-bot
 .exporter-actions { display:flex; gap:10px; }
 .exporter-update { grid-template-columns:1fr minmax(260px,1fr) auto; align-items:end; margin-top:18px; }
 @media (max-width:760px) { .overview-grid { grid-template-columns:1fr; } .exporter-update { grid-template-columns:1fr; } .exporter-status__heading { flex-direction:column; } .exporter-status__heading>div:last-child { justify-items:start; } }
+
+.dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem}.dashboard-section{border:1px solid #bbb;padding:1rem;overflow-wrap:anywhere}.dashboard-section dl{border-top:1px solid #ddd;padding-top:.5rem}.dashboard-section dt{font-weight:600}.dashboard-section dd{margin:0 0 .4rem}

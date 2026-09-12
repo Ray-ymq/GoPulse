@@ -47,6 +47,7 @@ func BackendRoutes() []Route {
 		{Method: "GET", Template: "/api/v1/search/posts"},
 		{Method: "GET", Template: "/api/v1/notifications"},
 		{Method: "PATCH", Template: "/api/v1/notifications/:notificationId/read"},
+		{Method: "GET", Template: "/api/v1/admin/overview"},
 		{Method: "GET", Template: "/api/v1/observability/metrics"},
 		{Method: "GET", Template: "/api/v1/observability/metrics/catalog"},
 		{Method: "GET", Template: "/api/v1/observability/logs"},

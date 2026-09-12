@@ -48,6 +48,7 @@ type Rule struct {
 	State     State     `json:"evaluation"`
 }
 type Incident struct {
+	DataStatus       string     `json:"data_status"`
 	ID               uint64     `json:"id"`
 	RuleID           uint64     `json:"rule_id"`
 	Revision         uint64     `json:"revision"`

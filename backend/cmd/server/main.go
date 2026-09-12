@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/backend/internal/adminoverview"
 	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
+	"github.com/Ray-ymq/GoPulse/backend/internal/alert/count"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	stdhttp "net/http"
@@ -204,7 +206,23 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("initialize monitor client")
 	}
-	exporterPluginHandler := exporterplugin.NewHandler(monitorClient)
+	exporterPluginHandler := exporterplugin.NewHandler(monitorClient).WithAudit(users)
+	overview := &adminoverview.Service{
+		Components: adminoverview.Components(metricClient), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
+		Logs: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
+			return count.Query(ctx, elasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
+		}),
+		Events: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
+			return count.Query(ctx, elasticsearchClient, eventquery.ReadAlias, map[string]string{"severity": severity}, from, to)
+		}),
+		Alerts: func(ctx context.Context, now time.Time) adminoverview.Section {
+			summary, err := alertRepo.Overview(ctx, now, cfg.AlertEvaluationEnabled)
+			if err != nil {
+				return adminoverview.Section{Status: "unavailable", ReasonCode: "upstream_unavailable", Items: []any{}}
+			}
+			return adminoverview.Section{Status: "healthy", ReasonCode: "ok", ObservedAt: &now, Items: summary}
+		},
+	}
 
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
@@ -215,6 +233,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			Logger:        logger,
 		},
 		backendhttp.APIRoutes{
+			Overview:        overview,
 			Users:           backendhttp.NewUserHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users),
 			Auth:            authHandler,
 			Posts:           postHandler,
