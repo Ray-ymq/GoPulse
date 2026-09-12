@@ -7,12 +7,14 @@ test('MySQL and RabbitMQ independent administration', async ({ page }) => {
   await page.getByLabel('用户名').fill(process.env.GOPULSE_P14_ADMIN!)
   await page.getByLabel('密码').fill(process.env.GOPULSE_P14_PASSWORD!)
   await page.getByRole('button',{name:'登录',exact:true}).click()
-  await expect(page).toHaveURL(/\/posts$/)
+  await expect(page).toHaveURL(/\/admin\/metrics$/)
   for (const source of ['mysql','rabbitmq']) {
-    await page.goto('/admin/observability/exporters')
+    await page.goto('/admin/plugins')
     await expect(page.getByRole('button').filter({hasText:'未交付'})).toHaveCount(3)
     await page.getByRole('button').filter({hasText:`GoPulse ${source} Exporter`}).click()
     await expect(page.locator('.state-pill')).toHaveText('running')
+    await page.getByLabel('host', { exact: true }).fill(source)
+    await page.getByLabel('username', { exact: true }).fill('gopulse_metrics')
     if (source === 'mysql') await page.getByLabel('database',{exact:true}).fill(process.env.GOPULSE_P1402_DATABASE!)
     const secret = process.env[`GOPULSE_P1402_${source.toUpperCase()}_SECRET`]!
     await page.getByLabel('password',{exact:true}).fill(secret)

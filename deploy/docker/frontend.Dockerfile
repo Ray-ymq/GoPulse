@@ -16,7 +16,7 @@ LABEL org.opencontainers.image.title="GoPulse Frontend" \
       org.opencontainers.image.revision="${REVISION}"
 COPY deploy/docker/frontend/nginx.conf /etc/nginx/nginx.conf
 COPY --from=build --chown=101:101 /src/frontend/dist/ /usr/share/nginx/html/
-RUN rm -rf /usr/share/nginx/html/*.map && \
+RUN find /usr/share/nginx/html -name '*.map' -delete && \
     chown -R 101:101 /usr/share/nginx/html
 WORKDIR /usr/share/nginx/html
 USER 101:101

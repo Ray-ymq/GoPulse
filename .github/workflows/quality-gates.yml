@@ -133,19 +133,22 @@ jobs:
         run: cd exporters/redis && go test -race -count=1 ./...
 
   frontend:
-    name: Frontend
+    name: Frontend (${{ matrix.app }})
+    strategy:
+      matrix:
+        app: [frontend, admin-frontend]
     if: inputs.run_product_checks
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: ${{ matrix.app }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
       - run: npm ci
       - run: npm test -- --run
       - run: npm run build
@@ -176,7 +179,7 @@ jobs:
             echo 'Expected Bash and Go working-tree files to use LF.' >&2
             exit 1
           fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/verify-compose-observability.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh scripts/verify-observability-ui.sh scripts/package-redis-exporter.sh
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/verify-compose-observability.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh scripts/verify-observability-ui.sh scripts/verify-admin-frontend.sh scripts/package-redis-exporter.sh
       - name: Run acceptance safety negative tests
         run: |
           bash scripts/verify-compose.sh --self-test
@@ -196,7 +199,7 @@ jobs:
           version="$(tr -d '[:space:]' < VERSION)"
           printf '%s\n' "$rendered"
           [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 2 ]]
-          for image in frontend backend business-worker search-indexer router marshaller monitor; do
+          for image in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
             grep -q "image: gopulse/$image:$version" <<<"$rendered"
           done
           grep -q 'image: apache/kafka:4.3.1' <<<"$rendered"

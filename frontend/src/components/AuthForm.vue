@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
+import { loginDestination } from '../utils/redirect'
 import { ApiError } from '../services/http'
 
 const props = defineProps<{ mode: 'login' | 'register' }>()
@@ -13,10 +14,6 @@ const password = ref('')
 const submitting = ref(false)
 const errorMessage = ref('')
 const title = computed(() => (props.mode === 'login' ? '欢迎回来' : '创建账号'))
-const destination = computed(() => {
-  const redirect = route.query.redirect
-  return props.mode === 'login' && typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/posts'
-})
 
 function validate(): string {
   const normalized = username.value.trim()
@@ -45,7 +42,9 @@ async function submit(): Promise<void> {
     const credentials = { username: username.value.trim(), password: password.value }
     if (props.mode === 'login') await auth.login(credentials)
     else await auth.register(credentials)
-    await router.push(destination.value)
+    const target = loginDestination(props.mode === 'login' ? route.query.redirect : undefined, auth.user.value?.role)
+    if (target.startsWith('/admin/')) window.location.assign(target)
+    else await router.push(target)
   } catch (error) {
     errorMessage.value = messageFor(error)
   } finally {
