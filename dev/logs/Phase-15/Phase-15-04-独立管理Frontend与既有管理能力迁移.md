@@ -97,3 +97,13 @@
 - Phase-15-05 的大屏、alerts/users/audit UI 尚未开发；本批管理首页只是授权后进入 Metrics，不表示大屏完成。
 - 保留本次本地和容器证据即可，不因上下文恢复重跑成功门禁。本次未运行历史 Phase 14 全量迁移/故障矩阵，不宣称它们重新通过。
 - 本批真实验收为当前 Linux/Bash 环境；不代表 macOS/Windows、多架构、TLS 或 Kubernetes 已获得支持。
+
+## 8. PR 前置 CI 修复（2026-09-12）
+
+- 原提交 `8748095` 的 Actions run `34689718066` 中，`Quality gates before PR / Full-stack Compose acceptance`（job `103542727153`）失败；其余质量检查通过，自动创建 PR 步骤因此跳过。
+- 下载并核对真实 job 日志：失败点是 `frontend/e2e/compose-observability.spec.ts` 的 `manage` 场景，安装后等待 `.state-pill` 为 `running` 超时。该 fixture 遗漏了本批已取消预填的 `host`，只输入 Redis password 就点击安装。这是测试迁移遗漏，不是通过增加超时能修复的问题。
+- 修复仅在该场景安装前显式输入 `host=redis`；不恢复产品内部地址默认值、不修改应用逻辑、不降低安装成功断言，也不提升同批版本 `1.12.4`。
+- 有界重跑实际失败场景：`python3 /tmp/gopulse-pr-management.py`，复用现有强归属 helper 创建项目 `gopulse-p1401-437458565fc9`，构建当前产品及 acceptance 镜像，关闭插件 bootstrap，确认已安装列表为空后，执行与 CI 相同的 `compose --profile acceptance run --rm --no-deps -e GOPULSE_ACCEPTANCE_SCENARIO=manage acceptance e2e/compose-observability.spec.ts`。
+- 结果：真实浏览器 **1/1 passed（45.0 秒）**，完整经过安装、停止、启动、Metrics 数值和 Events 记录；浏览器仍仅访问 `http://frontend:8080`。唯一项目及镜像已清理，原有资源保留。
+- 复现脚本、构建/启动/浏览器日志和结果保存在 `.run/gopulse-p1401-437458565fc9/`（`reproduce-manage.py`、`build.log`、`startup.log`、`manage-browser.log`、`results.json`）。没有重跑此前成功的应用单测或 CI 全量故障矩阵；远程完整工作流结果须以本修复推送后 Actions 的实际状态为准。
+- `python3 scripts/ci/validate_versions.py`、`python3 scripts/ci/validate_branch.py --branch develop/1.12.4 --base-ref upstream/main`、`git diff --check` 均通过；原有未跟踪文件 `~` 未动。
