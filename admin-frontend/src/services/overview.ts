@@ -8,7 +8,7 @@ const fields: Record<string,string[]> = {
  alerts:['recoveries','warning_firing','critical_firing','pending','unknown','recently_recovered','evaluator_enabled','last_success_at'],
 }
 const statuses = ['healthy','degraded','unavailable','unknown']
-const reasons = ['ok','partial_data','upstream_unavailable','missing','stale','dependency_down','monitor_unavailable','not_installed']
+const reasons = ['ok','partial_data','upstream_unavailable','missing','stale','dependency_down','monitor_unavailable','not_installed','process_failed']
 function record(v: unknown): v is Record<string,unknown> { return !!v && typeof v === 'object' && !Array.isArray(v) }
 function exact(v: Record<string,unknown>, keys: string[]) { return Object.keys(v).length === keys.length && keys.every(k => k in v) }
 function item(v: unknown, name: string): v is Record<string,unknown> {
