@@ -185,3 +185,7 @@ it('rejects an illegal legacy role and extra response fields before displaying r
  wrapper.unmount()
 })
 ```
+
+## 整改执行回执（2026-09-13）
+
+原审查结论与临时复现保留为历史证据。P2-01、P2-02、P2-03、P3-01 已由 Phase-15-07 落实，版本 `1.12.7`，权威分支 `develop/1.12.7`。实施范围、实际验证结果、首次失败及修正、未执行边界详见 `dev/logs/Phase-15/Phase-15-07-Review整改.md`。本回执不把本次定向回归扩称为新的完整 Compose 或跨平台验收。
