@@ -80,19 +80,20 @@ const (
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
-	RuntimeMode     RuntimeMode
-	AppEnv          string
-	HTTPHost        string
-	HTTPPort        int
-	MySQL           MySQLConfig
-	Redis           RedisConfig
-	RabbitMQURL     string
-	Outbox          OutboxConfig
-	Auth            AuthConfig
-	Elasticsearch   ElasticsearchConfig
-	Monitor         MonitorConfig
-	VictoriaMetrics VictoriaMetricsConfig
-	LogShip         LogShipConfig
+	AlertEvaluationEnabled bool
+	RuntimeMode            RuntimeMode
+	AppEnv                 string
+	HTTPHost               string
+	HTTPPort               int
+	MySQL                  MySQLConfig
+	Redis                  RedisConfig
+	RabbitMQURL            string
+	Outbox                 OutboxConfig
+	Auth                   AuthConfig
+	Elasticsearch          ElasticsearchConfig
+	Monitor                MonitorConfig
+	VictoriaMetrics        VictoriaMetricsConfig
+	LogShip                LogShipConfig
 }
 
 type MySQLConfig struct {
@@ -177,6 +178,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, errors.New("configuration lookup is required")
 	}
 
+	alertEnabled, err := booleanValue(lookup, "ALERT_EVALUATION_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
 	runtimeMode, err := loadRuntimeMode(lookup)
 	if err != nil {
 		return Config{}, err
@@ -388,10 +393,11 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	}
 
 	return Config{
-		RuntimeMode: runtimeMode,
-		AppEnv:      appEnv,
-		HTTPHost:    httpHost,
-		HTTPPort:    httpPort,
+		AlertEvaluationEnabled: alertEnabled,
+		RuntimeMode:            runtimeMode,
+		AppEnv:                 appEnv,
+		HTTPHost:               httpHost,
+		HTTPPort:               httpPort,
 		MySQL: MySQLConfig{
 			Host:     mysqlHost,
 			Port:     mysqlPort,

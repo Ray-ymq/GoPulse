@@ -1,6 +1,7 @@
 package http
 
 import (
+	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
@@ -16,6 +17,7 @@ import (
 )
 
 type APIRoutes struct {
+	Alerts          *alert.Handler
 	Management      *ManagementHandler
 	Bookmarks       *bookmark.Handler
 	Users           *UserHandler
@@ -103,6 +105,11 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		if routes.Events != nil {
 			observability.GET("/events", routes.Events.List)
 		}
+	}
+	if routes.Alerts != nil && routes.Authorization != nil {
+		g := protected.Group("/alerts")
+		g.Use(routes.Authorization)
+		routes.Alerts.Register(g)
 	}
 	if routes.Management != nil && routes.Authorization != nil {
 		management := protected.Group("/admin")

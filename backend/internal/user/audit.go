@@ -113,3 +113,25 @@ func PluginAuditDetails(action, plugin, version, reason string) (AuditDetails, e
 }
 
 var auditVersion = regexp.MustCompile(`^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$`)
+
+// AlertAuditDetails admits only incident transition metadata, never expressions.
+func AlertAuditDetails(action string, id, revision uint64, severity, source, reason string) (AuditDetails, error) {
+	if action != "alert.trigger" && action != "alert.recover" && action != "alert.close" {
+		return AuditDetails{}, errors.New("invalid alert action")
+	}
+	if reason != "" && reason != "rule_updated" && reason != "rule_disabled" && reason != "rule_deleted" {
+		return AuditDetails{}, errors.New("invalid alert reason")
+	}
+	d, err := RuleAuditDetails("rule.update", id, revision, severity, source)
+	if err != nil {
+		return AuditDetails{}, err
+	}
+	var v struct {
+		Rule   json.RawMessage `json:"rule"`
+		Reason string          `json:"reason_code,omitempty"`
+	}
+	v.Rule = d.encoded
+	v.Reason = reason
+	b, err := json.Marshal(v)
+	return AuditDetails{b}, err
+}
