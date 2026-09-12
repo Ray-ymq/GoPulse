@@ -30,6 +30,10 @@ func ParseManifestV2(data []byte) (Manifest, error) {
 }
 
 func parseManifest(data []byte, schemaVersion int) (Manifest, error) {
+	return parseManifestForArch(data, schemaVersion, runtime.GOARCH)
+}
+
+func parseManifestForArch(data []byte, schemaVersion int, arch string) (Manifest, error) {
 	if len(data) == 0 || len(data) > 64<<10 {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
 	}
@@ -80,7 +84,7 @@ func parseManifest(data []byte, schemaVersion int) (Manifest, error) {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
 	}
 	entry, known := LookupOfficial(manifest.ID)
-	if manifest.SchemaVersion != schemaVersion || !known || (schemaVersion == 1 && manifest.ID != PluginID) || strings.TrimSpace(manifest.Name) == "" || len(manifest.Name) > 80 || !semverPattern.MatchString(manifest.Version) || manifest.Kind != "metrics-exporter" || manifest.Source != entry.Source || manifest.OS != "linux" || manifest.Arch != runtime.GOARCH || manifest.Entrypoint != entry.Entrypoint || !digestPattern.MatchString(manifest.EntrypointSHA256) || manifest.HealthPath != "/health" || manifest.MetricsPath != "/metrics" {
+	if manifest.SchemaVersion != schemaVersion || !known || (schemaVersion == 1 && manifest.ID != PluginID) || strings.TrimSpace(manifest.Name) == "" || len(manifest.Name) > 80 || !semverPattern.MatchString(manifest.Version) || manifest.Kind != "metrics-exporter" || manifest.Source != entry.Source || manifest.OS != "linux" || manifest.Arch != arch || manifest.Entrypoint != entry.Entrypoint || !digestPattern.MatchString(manifest.EntrypointSHA256) || manifest.HealthPath != "/health" || manifest.MetricsPath != "/metrics" {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
 	}
 	if schemaVersion == 2 && (manifest.RuntimeContractVersion != 1 || manifest.MetricsContractVersion != 2 || manifest.ConfigSchemaPath != "config.schema.json" || !digestPattern.MatchString(manifest.ConfigSchemaSHA256)) {
