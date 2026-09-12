@@ -7,7 +7,7 @@
 本批不首次设计制品、生命周期、Frontend、backup或upgrade，而是让同一最终candidate在三类真实宿主上完成固定产品矩阵并收口Phase 16：
 
 ```text
-same release manifest / bundle family / source revision
+same release manifest / OS-neutral bundle / source revision
   ├─ Linux amd64 + linux/amd64 containers
   ├─ macOS arm64 + linux/arm64 containers
   └─ Windows amd64 + linux/amd64 containers
@@ -30,7 +30,7 @@ same release manifest / bundle family / source revision
 - Phase-16-01至Phase-16-05已按顺序合入最新`upstream/main`，各自实施记录和固定门禁通过，根完成版本为`1.13.5`。
 - fetch后从最新主线创建本批分支；除最终version/release/evidence harness/文档外，不预期新增产品能力。
 - 三host owner、运行窗口、Docker server/Compose共同支持版本、磁盘/内存和网络拉取条件已经重新确认；macOS Docker daemon必须实际可用，Windows必须为Linux container mode。
-- 生成一个来自最终本批source revision的candidate release manifest与三host bundle，全部image/platform digest固定；开始任一host长矩阵后不得对同一candidate静默重建。
+- 生成一个来自最终本批source revision的candidate release manifest与单一OS中立Bundle，全部image/platform digest固定；开始任一host长矩阵后不得对同一candidate静默重建。
 - 每个host使用独立空交付目录、随机project/token/edge port和与日常资源隔离的backup/evidence目录；开始前保存Docker、端口和文件快照。
 - 浏览器测试数据、Secret、passphrase和host path只保存在调用方私有临时目录，不提交仓库；evidence只包含总方案允许的脱敏字段。
 
@@ -38,8 +38,8 @@ same release manifest / bundle family / source revision
 
 ### 3.1 统一acceptance runner与证据
 
-- 提供跨平台test-only acceptance runner，从同一源码构建三个host版本并只调用正式product CLI/API；不把另一套生命周期嵌入runner。
-- 固定命令语义为`gopulse-acceptance phase16 --bundle <path> --evidence <new-file>`或总方案先行修订后的等价入口；Windows使用`.exe`，参数/场景保持一致。
+- 提供test-only双架构Linux acceptance runner镜像，在三宿主都由同一Compose profile调用正式product命令/API；不把另一套生命周期嵌入runner，不生成macOS/Windows原生runner。
+- 固定命令语义为`docker compose --profile acceptance run --rm acceptance phase16 --evidence /evidence/new.json`或总方案先行修订后的等价入口；Linux/macOS Terminal与Windows PowerShell/Terminal使用同一Compose服务和参数/场景。
 - runner创建和操作唯一随机owned project，支持按host profile分配场景；正常/失败/signal均执行强归属finally并保存before/after摘要。
 - evidence schema固定匿名run ID、host OS/arch、Docker server OS/arch、Compose version、source revision、bundle/manifest/platform digest、project token hash、开始/结束时间、gate ID/result和资源摘要。
 - evidence不含hostname、username、绝对path、IP、Cookie、credential、passphrase、业务正文、完整container/volume ID或原始log；三个文件通过Secret/path哨兵扫描。
@@ -48,13 +48,13 @@ same release manifest / bundle family / source revision
 
 每个平台都必须执行：
 
-- 从本机原生bundle运行`version`、`doctor`和错误架构/daemon不可达/unsafe path或port的代表性早期失败；记录Docker server而非只有client。
+- 从同一OS中立Bundle通过本机Docker Compose运行`version`、`doctor`和错误server架构/daemon不可达/unsafe path或port的代表性早期失败；记录Docker server而非只有client。
 - 在无Git/Go/Node/Python/数据库客户端依赖的产品PATH中执行`init → up → verify → status → logs`，镜像只按candidate digest pull，不build源码。
 - 确认全部预期service/job、container platform digest、numeric user、read-only root、network、volume和只有一个`127.0.0.1`edge端口。
 - Browser从唯一origin完成普通用户注册/登录、帖子、评论或点赞、关注/Following、收藏、搜索、通知、编辑/删除代表流程。
 - 建立bootstrap super_admin并完成统一登录、默认管理大屏、六插件状态/一个代表生命周期操作、Metrics/Logs/Events、三源告警及角色/审计代表流程；普通用户管理API固定403。
 - 执行保留卷`down/up`、一个stateless container替换、edge端口重新发现和一个可观测局部故障；事实恢复且社交主路不被可观测故障阻断。
-- 对前台命令发送平台原生interrupt，核对bounded终态；最终普通`down`保留volume，验收清理显式删除且只影响当前project。
+- 在宿主终端对前台Docker Compose命令发送interrupt，核对其转发后的bounded终态；最终普通`down`保留volume，验收清理显式删除且只影响当前project。
 
 ### 3.3 Linux amd64分配场景
 
@@ -65,17 +65,17 @@ same release manifest / bundle family / source revision
 
 ### 3.4 macOS arm64分配场景
 
-- 从APFS含空格的本地目录运行`darwin/arm64`CLI，Docker server必须是`linux/arm64`；不得设置`platform=linux/amd64`或依赖Rosetta/QEMU完成产品运行。
+- 从APFS含空格的本地目录通过Docker Compose运行同一Bundle，Docker server必须是`linux/arm64`；不得设置`platform=linux/amd64`或依赖Rosetta/QEMU完成产品运行。
 - 验证Docker Desktop文件共享、case-insensitive路径冲突拒绝、Terminal interrupt、文件权限/私有temp和edge端口占用恢复。
 - 运行用户/管理两个应用的`390x844`与`1440x900`代表viewport、非UTC timezone、deep link/refresh/session expired和键盘路径。
 - 将Linux amd64生成的encrypted backup恢复到全新arm64 project，核对业务/角色/告警/审计/历史，并证明六插件使用arm64 catalog重新物化且不执行amd64 binary。
 
 ### 3.5 Windows amd64分配场景
 
-- 从NTFS用户目录且路径包含空格的解压bundle，在Windows PowerShell/Terminal直接运行`gopulse.exe`与`gopulse-acceptance.exe`；不得从WSL shell或`/mnt/*`调用。
+- 从NTFS用户目录且路径包含空格的解压Bundle，在Windows PowerShell/Terminal直接运行Docker Compose生命周期与acceptance profile；不得从WSL shell或`/mnt/*`调用，也不产生`gopulse.exe`或专用PowerShell编排。
 - 记录Windows build、process architecture、Docker Desktop/Compose和server`linux/amd64`；确认Linux containers mode、drive/file sharing和可用资源。
-- 验证ZIP/tar解压、CRLF/`.gitattributes`、Compose/YAML/env读取、反斜线/空格/Unicode路径、PowerShell参数引用和当前用户ACL；不要求Bash。
-- 验证edge/backend端口占用的Docker前失败、动态port重新发现、Windows console interrupt、Docker Desktop停止/恢复后的doctor/status和cleanup。
+- 验证ZIP/tar解压、CRLF/`.gitattributes`、Compose/YAML/env读取、反斜线/空格/Unicode路径、PowerShell中Docker Compose参数引用和当前用户目录访问边界；不要求Bash或新增Windows ACL修改实现。
+- 验证edge/backend端口占用的Docker前失败、动态port重新发现、PowerShell中Docker CLI向工具容器的中断转发、Docker Desktop停止/恢复后的doctor/status和cleanup。
 - 执行双Frontend代表浏览器流程，包含普通用户管理API403、super_admin管理操作、session过期和两个SPA deep link刷新。
 - 按Phase-16-05已分配合同完成第二amd64host的最小`1.9.4`升级重复证据，至少覆盖source识别、migration、角色/bootstrap、Redis v1插件和核心历史；若已在该最终candidate的Phase-16-05记录真实运行且输入未变，可引用，但最终version/digest变化时必须重跑受影响步骤。
 
@@ -104,7 +104,7 @@ same release manifest / bundle family / source revision
 
 ## 5. 建议实施顺序
 
-1. fetch/branch后冻结最终candidate revision、manifest、三个bundle和image platform digest，运行artifact/self-test并保存各host before snapshot。
+1. fetch/branch后冻结最终candidate revision、manifest、单一OS中立Bundle和image platform digest，运行artifact/self-test并保存各host before snapshot。
 2. 先运行Linux amd64完整矩阵、`1.9.4`升级和最终encrypted backup；真实阻断只在最小直接范围修复后重建新candidate。
 3. 在macOS arm64运行clean install/UI/platform项和Linux backup跨架构restore。
 4. 在Windows amd64从NTFS/PowerShell运行clean install、path/CRLF/file sharing/console/UI及最小旧版本升级。
@@ -114,13 +114,13 @@ same release manifest / bundle family / source revision
 
 ## 6. 预计直接影响文件
 
-- 跨平台`gopulse-acceptance`runner、evidence schema/redaction和聚合器
+- 双架构Linux acceptance runner镜像、Compose acceptance profile、evidence schema/redaction和聚合器
 - `scripts/verify-platform-matrix.*`或等价调度/CI artifact配置
 - 仅在真实阻断时修改`lifecycle/**`、`deploy/product/**`、Frontend/Backend/Monitor直接代码
 - `.github/workflows/`中的候选artifact和三host/self-hosted调度、上传/聚合配置
 - `README.md`、`使用手册.md`、`docs/platform-support.md`、`docs/upgrade.md`、`docs/backup-restore.md`和release notes
 - 总方案、六份split plan状态及本批同名实施记录
-- `VERSION`、两个Frontend package/lockfile、CLI/release manifest/image/plugin metadata
+- `VERSION`、两个Frontend package/lockfile、生命周期工具镜像/release manifest/image/plugin metadata
 
 预计产品代码不应大范围变化。任一超出acceptance runner、文档和版本的修改必须在实施记录关联到具体阻断gate和重验范围。
 
@@ -130,13 +130,13 @@ same release manifest / bundle family / source revision
 
 - Linux amd64、macOS arm64、Windows amd64分别由真实host OS和Docker server组合生成evidence；mac运行linux/arm64，两个amd64host运行linux/amd64。
 - 三份evidence绑定同一source revision和release manifest，逻辑image index相同、各host platform digest正确；无buildx/QEMU/WSL替代。
-- 每个平台从对应bundle、PowerShell/Terminal或native shell运行，不要求产品用户安装Go/Node/Python/Bash/数据库客户端。
+- 每个平台从同一OS中立Bundle、PowerShell/Terminal运行Docker Compose，不要求产品用户安装Go/Node/Python/Bash/数据库客户端，也不新增macOS/Windows宿主可执行文件。
 
 ### 7.2 产品共同闭环
 
 - 每个平台clean install、唯一edge、双Frontend统一登录、user/social、super_admin/dashboard/plugin/observability/alert和普通用户403通过。
 - `down/up`、container替换、平台interrupt、可观测局部故障和edge端口恢复后，持久事实与应用可继续；其他Docker资源不变。
-- CLI/output/log/API/bundle/DOM/evidence/diagnostic无Secret、Cookie、连接串、hostname/username或host绝对path。
+- 生命周期命令output/log/API/bundle/DOM/evidence/diagnostic无Secret、Cookie、连接串、hostname/username或host绝对path。
 
 ### 7.3 跨批数据闭环
 
@@ -147,13 +147,13 @@ same release manifest / bundle family / source revision
 ### 7.4 平台特有项
 
 - Linux filesystem/permission/LF/signal/one-daemon通过。
-- macOS APFS空格路径、file sharing、case-fold、native arm64、Terminal interrupt、viewport/timezone通过。
-- Windows NTFS空格/Unicode路径、CRLF、PowerShell quoting、ACL、Docker Desktop Linux mode、file sharing、port、console interrupt、cleanup和两个Frontend通过。
+- macOS APFS空格路径、file sharing、case-fold、Docker server native arm64、Terminal中Compose interrupt、viewport/timezone通过。
+- Windows NTFS空格/Unicode路径、CRLF、PowerShell中Compose quoting、用户目录访问边界、Docker Desktop Linux mode、file sharing、port、Docker CLI interrupt转发、cleanup和两个Frontend通过。
 
 ### 7.5 Phase完成条件
 
 - 三份evidence聚合退出0，前五批全部实施记录仍与最终candidate兼容，无blocking gate。
-- 根、两个Frontend、CLI、manifest、9镜像和六插件current metadata统一为`1.13.6`；分支为`develop/1.13.6`。
+- 根、两个Frontend、生命周期工具镜像、manifest、9镜像和六插件current metadata统一为`1.13.6`；分支为`develop/1.13.6`。
 - 六份Phase 16 split plan均有同名真实实施记录；总方案/README/使用手册只描述真实通过范围。
 - 本批提交、远程checks和PR合入主线后才能把Phase 16标记完成；Milestone 4仍待Phase 17收口。
 
@@ -161,18 +161,10 @@ same release manifest / bundle family / source revision
 
 ## 8. 固定验证命令与回归范围
 
-最终candidate在各host运行等价命令：
+最终candidate在Linux/macOS Terminal与Windows PowerShell/Terminal均从同一Bundle运行等价Docker Compose命令：
 
-Linux/macOS：
-
-```bash
-./gopulse-acceptance phase16 --bundle <platform-bundle> --evidence <new-evidence.json>
-```
-
-Windows PowerShell：
-
-```powershell
-.\gopulse-acceptance.exe phase16 --bundle <platform-bundle> --evidence <new-evidence.json>
+```text
+docker compose --profile acceptance run --rm acceptance phase16 --evidence /evidence/new.json
 ```
 
 聚合与仓库门禁：
@@ -195,7 +187,7 @@ git diff --check
 git diff --cached --check
 ```
 
-- Linux profile承担最终完整Compose、完整旧版本升级和backup；macOS profile承担arm64、跨架构restore、viewport/timezone；Windows profile承担native path/CRLF/PowerShell/file sharing/console和第二amd64关键升级。
+- Linux profile承担最终完整Compose、完整旧版本升级和backup；macOS profile承担arm64、跨架构restore、viewport/timezone；Windows profile承担NTFS path/CRLF/PowerShell Compose/file sharing/interrupt和第二amd64关键升级。
 - 一个host失败只在candidate未变化且合同独立时重跑该host；任何产品/Compose/image/bundle内容变化产生新digest后，重跑所有受影响host，不因已耗时而沿用旧digest证据。
 - 已成功且输入未变的前五批unit/package结果直接引用；本批不重跑每个历史Phase专项脚本。
 - 提交后补充`git diff --check upstream/main...HEAD`；remote checks和merge真实状态写入实施记录后才收口。
@@ -204,9 +196,9 @@ git diff --cached --check
 
 完成前创建`dev/logs/Phase-16/Phase-16-06-三宿主矩阵与阶段收口.md`，至少记录：
 
-- candidate source/manifest/bundle/image/plugin digest与三host实际OS/server/Compose摘要。
+- candidate source/manifest/OS中立Bundle/image/plugin digest与三host实际OS/server/Compose摘要。
 - 三hostgate结果、platform特有项、浏览器用例、upgrade/backup/restore跨host分工。
 - 每次失败、根因、最小修复、candidate是否变化、实际重验范围和最终资源快照。
 - evidence checksum/redaction结果、文档/version/remote checks/PR/merge真实状态和未阻断follow-up。
 
-交给Phase 17的固定输入是`1.13.6`完整Compose产品、三个受支持host bundle、双架构制品、共享生命周期、统一双Frontend、backup format v1和`1.9.4`升级合同。Phase 17只做Kubernetes前工程质量收口；不得把Kubernetes作为验收条件，也不得在无直接影响时重新执行完整三宿主矩阵。
+交给Phase 17的固定输入是`1.13.6`完整Compose产品、单一OS中立Bundle、双架构制品、共享容器化生命周期、统一双Frontend、backup format v1和`1.9.4`升级合同。Phase 17只做Kubernetes前工程质量收口；不得把Kubernetes作为验收条件，也不得在无直接影响时重新执行完整三宿主矩阵。
