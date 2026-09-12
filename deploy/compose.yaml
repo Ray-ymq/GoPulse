@@ -12,6 +12,7 @@ x-mysql-environment: &mysql-environment
   MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
 
 x-backend-environment: &backend-environment
+  ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
   <<: *mysql-environment
   APP_ENV: ${APP_ENV:-development}
