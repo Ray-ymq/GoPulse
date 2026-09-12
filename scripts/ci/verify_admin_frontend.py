@@ -25,7 +25,7 @@ def self_test():
 class AdminAcceptance(Acceptance):
     def __init__(self):
         super().__init__()
-        self.version = '1.12.4'
+        self.version = (ROOT/'VERSION').read_text().strip()
         self.tag = 'admin-acceptance-'+self.token
         self.images = []
         values = dict(line.split('=', 1) for line in self.env_file.read_text().splitlines())

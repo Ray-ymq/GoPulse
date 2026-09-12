@@ -9,7 +9,7 @@ test('component catalog and scraped identity render through Backend only', async
   await page.getByLabel('用户名').fill(process.env.GOPULSE_P14_ADMIN!)
   await page.getByLabel('密码').fill(process.env.GOPULSE_P14_PASSWORD!)
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page).toHaveURL(/\/admin\/metrics$/)
+  await expect(page).toHaveURL(/\/admin\/$/)
   await page.goto('/admin/metrics?source=backend')
   await expect(page.locator('.metric-value').first()).toBeVisible()
   await page.locator('form.filter-bar select').first().selectOption('gopulse_monitor_last_scrape_success_timestamp_seconds')
