@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.26.0-alpine3.23 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine3.23@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS build
 WORKDIR /src/backend
 ARG GOPROXY=https://goproxy.cn,direct
 COPY componentmetrics/ /src/componentmetrics/
@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -trimpath -ldflags='-s -w' -o /out/search-indexer ./cmd/search-indexer
 
-FROM alpine:3.23.3 AS runtime
+FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS runtime
 ARG VERSION
 ARG REVISION
 LABEL org.opencontainers.image.title="GoPulse Backend" \

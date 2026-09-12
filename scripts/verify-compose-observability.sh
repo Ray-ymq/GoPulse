@@ -69,6 +69,20 @@ VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
 UPDATE_VERSION="$VERSION_MAJOR.$VERSION_MINOR.$((VERSION_PATCH + 1))"
 REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+# Candidate mode resolves every product/third-party reference before the restricted
+# acceptance PATH. References are data, never shell-evaluated commands.
+declare -A CANDIDATE_IMAGES=()
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  candidate_refs=$(python3 "$SCRIPT_DIR/ci/release_candidate_env.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --version "$VERSION" --revision "$REVISION")
+  while IFS='=' read -r key value; do
+    [[ -n $key && -n $value ]] || fail 'invalid candidate reference'
+    export "$key=$value"
+  done <<<"$candidate_refs"
+  for service in backend business-worker search-indexer admin-frontend frontend router marshaller monitor redis-exporter; do
+    key="GOPULSE_${service^^}_IMAGE"; key=${key//-/_}
+    CANDIDATE_IMAGES[$service]=${!key}
+  done
+fi
 TOKEN=$(tr -d '-' </proc/sys/kernel/random/uuid | cut -c1-12)
 PROJECT_NAME="gopulse-accept-$TOKEN"
 IMAGE_TAG="${VERSION}-accept-${TOKEN}"
@@ -327,6 +341,9 @@ assert_image_contracts() {
       container_id=$(owned_service_id "$service")
       running_image=$(docker inspect --format '{{.Image}}' "$container_id")
       [[ $running_image == "$tagged_image" ]] || fail "$service container does not run the freshly built tag"
+      if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+        [[ $(docker inspect --format '{{.Config.Image}}' "$container_id") == "${CANDIDATE_IMAGES[$service]}" ]] || fail 'runtime did not consume candidate digest'
+      fi
     fi
     user=$(docker image inspect --format '{{.Config.User}}' "$ref")
     version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$ref")
@@ -660,7 +677,18 @@ reset_for_management() {
 snapshot_existing_resources
 assert_project_absent
 info "Building isolated GoPulse $VERSION images with unique tag $IMAGE_TAG for $PROJECT_NAME without host Go/Node runtimes."
-compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  compose build acceptance
+  for service in "${!CANDIDATE_IMAGES[@]}"; do
+    ref=${CANDIDATE_IMAGES[$service]}
+    docker pull --platform linux/amd64 "$ref"
+    # Unique disposable aliases retain the existing image contract checks; the
+    # actual service references remain immutable digests, never these aliases.
+    docker tag "$ref" "gopulse/$service:$IMAGE_TAG"
+  done
+else
+  compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
+fi
 RESOURCES_STARTED=1
 if ! compose up --detach --wait --wait-timeout 420; then
   compose ps --all >&2 || true

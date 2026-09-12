@@ -189,7 +189,7 @@ x-monitor-environment: &monitor-environment
 
 services:
   mysql:
-    image: mysql:8.4.0
+    image: ${GOPULSE_MYSQL_IMAGE:-mysql:8.4.0}
     restart: on-failure:5
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
@@ -208,7 +208,7 @@ services:
       retries: 20
 
   redis:
-    image: redis:7.2.5-alpine
+    image: ${GOPULSE_REDIS_IMAGE:-redis:7.2.5-alpine}
     restart: on-failure:5
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -226,7 +226,7 @@ services:
       retries: 20
 
   rabbitmq:
-    image: rabbitmq:3.13.3-management-alpine
+    image: ${GOPULSE_RABBITMQ_IMAGE:-rabbitmq:3.13.3-management-alpine}
     restart: on-failure:5
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
@@ -243,7 +243,7 @@ services:
       retries: 20
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    image: ${GOPULSE_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:9.5.2}
     restart: on-failure:5
     environment:
       discovery.type: single-node
@@ -263,7 +263,7 @@ services:
       retries: 30
 
   migrate:
-    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/migrate]
@@ -276,7 +276,7 @@ services:
       - business
 
   search-init:
-    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/search-reindex]
@@ -291,7 +291,7 @@ services:
       - business
 
   backend:
-    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -327,7 +327,7 @@ services:
       retries: 20
 
   business-worker:
-    image: gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -348,7 +348,7 @@ services:
       - observability
 
   search-indexer:
-    image: gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -373,7 +373,7 @@ services:
       - observability
 
   admin-frontend:
-    image: gopulse/admin-frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -394,7 +394,7 @@ services:
       retries: 20
 
   frontend:
-    image: gopulse/frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -423,7 +423,7 @@ services:
 
   admin-role:
     profiles: [operations]
-    image: gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/admin-role]
@@ -461,7 +461,7 @@ services:
       - edge
 
   kafka:
-    image: apache/kafka:4.3.1
+    image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
     restart: on-failure:5
     hostname: kafka
     environment:
@@ -492,7 +492,7 @@ services:
       retries: 30
 
   kafka-init:
-    image: apache/kafka:4.3.1
+    image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
     restart: "no"
     depends_on:
       kafka:
@@ -509,7 +509,7 @@ services:
       - observability
 
   victoriametrics:
-    image: victoriametrics/victoria-metrics:v1.151.0
+    image: ${GOPULSE_VICTORIAMETRICS_IMAGE:-victoriametrics/victoria-metrics:v1.151.0}
     restart: on-failure:5
     environment:
       VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
@@ -535,7 +535,7 @@ services:
 
 
   router:
-    image: gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -561,7 +561,7 @@ services:
       retries: 20
 
   marshaller:
-    image: gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -593,7 +593,7 @@ services:
   # MySQL/RabbitMQ collector Secrets are reconciled after startup through
   # scripts/reconcile-plugin-accounts.sh; no admin credentials enter Monitor.
   monitor:
-    image: gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
@@ -627,7 +627,7 @@ services:
 
   redis-exporter:
     profiles: [exporter]
-    image: gopulse/redis-exporter:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
+    image: ${GOPULSE_REDIS_EXPORTER_IMAGE:-gopulse/redis-exporter:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     build:
       context: ..
