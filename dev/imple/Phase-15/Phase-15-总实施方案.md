@@ -1,6 +1,6 @@
 # Phase 15：告警与管理端闭环总实施方案
 
-> 当前状态：实施中；Phase-15-01 至 Phase-15-05 已完成并通过固定批次验收（当前 `1.12.5`），Phase-15-06 待实施。本文档于 2026-09-12 基于主远程 `upstream/main` 提交 `53615805aaa73190121be35e2e7b54b4af4d3b3a`、Phase 14 已完成产品版本 `1.11.7` 与完整 Compose 产品基线编写。Phase 15 使用 `1.12.x` 版本线，拆分为 6 个执行批次。本文档是 Phase 15 批次顺序、目标版本和开发分支的唯一权威来源；每批开工时仍须 fetch 主远程，从包含全部前置批次的最新 `upstream/main` 创建对应 `develop/x.x.x` 分支。
+> 当前状态：Phase-15-01 至 Phase-15-05 已合入主线；Phase-15-06 于 2026-09-12 完成本地实施与固定 Compose 验收，分支完成版本 `1.12.6`，待合入 `upstream/main`。Phase 15 正式完成仍须第六批合入且主线版本达到 `1.12.6`，不提前宣称阶段或 Milestone 4 完成。本文档于 2026-09-12 基于主远程 `upstream/main` 提交 `53615805aaa73190121be35e2e7b54b4af4d3b3a`、Phase 14 已完成产品版本 `1.11.7` 与完整 Compose 产品基线编写。Phase 15 使用 `1.12.x` 版本线，拆分为 6 个执行批次。本文档是 Phase 15 批次顺序、目标版本和开发分支的唯一权威来源；每批开工时仍须 fetch 主远程，从包含全部前置批次的最新 `upstream/main` 创建对应 `develop/x.x.x` 分支。
 
 ## 1. 阶段目标
 
@@ -493,3 +493,15 @@ Phase 16 从合入后的 `1.12.6` 完成基线开始。交接时必须保留：
 - 两个独立 Frontend 工程与镜像、同源 `/admin/` 运行路径、默认角色分流、真实大屏和既有管理能力。
 - 六插件、六组件、Metrics/Logs/Events 与 Phase 13 业务的 Compose 契约和局部故障边界。
 - 跨平台支持矩阵、多架构制品、统一产品生命周期、从 `1.9.4` 升级与备份/恢复仍属于 Phase 16，不得从 Phase 15 验收结果推导为已完成。
+
+## 18. Phase-15-06 本地收口证据与合入状态
+
+2026-09-12，`develop/1.12.6` 从已包含前五批的 `upstream/main`（`fd9d2b7`）执行本批。固定入口 `bash scripts/verify-compose.sh --phase15` 最终第八轮退出 0，证据目录 `.run/gopulse-p1401-935759064e7d/`，详细命令、失败修复与 Phase 16 交接见 `dev/logs/Phase-15/Phase-15-06-Compose集成验收与阶段收口.md`。
+
+- 真实 Phase 14 `1.11.5` 数据/两旧 admin/会话/六插件升级、migration 重跑、历史可观测数据保留，以及空库显式唯一 bootstrap 通过。
+- 三账号/双 Frontend、Phase 13 社交与 Phase 14 六插件/六组件回归、大屏、权限、审计与脱敏通过。
+- 三源真实触发、持续三轮、Backend 重启、原 incident 恢复及每源一条 trigger/一条 recover 通过；规则更新/禁用/删除的 closed 原因独立验证。
+- VM、ES、evaluator、Exporter 异常退出的串行故障隔离与恢复、九个产品镜像运行合同和 SIGTERM 通过。
+- 归属资源全部清理；既存 35 个容器、10 个网络、220 个卷与宿主端口前后相同。版本与记录同步至 `1.12.6`，批次分配不变。
+
+当前为**本地验收完成、待合入**，不代表 `upstream/main` 已完成第六批。Phase 16 仍独立负责真实跨平台矩阵、多架构、共享生命周期、指定升级及备份恢复；Milestone 4 留待 Phase 17。

@@ -99,3 +99,18 @@ The acceptance target alone trusts VictoriaMetrics `1.11.90` (failure) and
 still rejected before execution. Packaging does not grant arbitrary source,
 origin, metrics-family or credential permissions. The exact nine-family mapping
 is in `exporters/victoriametrics/README.md`.
+
+## Phase-15-06: retained Phase 14 six-plugin releases
+
+`phase14-1.11.5-source.tar.gz` is a source-only `git archive` of `exporters`
+at `2dfc8e516fba80c6a38f53979b5b175dc97431f0`, the revision recorded by the
+accepted `gopulse/monitor:1.11.5` fixture. It contains no deployment credentials
+or plugin volume data. The Dockerfile reproduces the six Linux amd64 binaries
+with the same Go/toolchain/trimpath/build flags as the original image, packages
+Manifest v2 version `1.11.5`, and checks every archive against
+`phase14-1.11.5.sha256` (captured from the original image's official packages).
+These releases are compiled as `retained`, never selected as `current` for a
+new install. Existing desired state, version and credentials stay on their
+original revisions. Unknown releases still fail closed. This is the explicit
+Phase 15 upgrade fixture contract, not a claim of arbitrary historical-version,
+cross-architecture or Phase 16 upgrade/backup support.

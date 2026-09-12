@@ -20,7 +20,7 @@ test('same-origin paths, role defaults, safe restoration, cookie and 401', async
   expect(new URL(page.url()).searchParams.get('redirect')).toBe('/admin/logs')
   await signIn(page, admin, /\/admin\/logs$/)
   for (const [old, target] of [['/admin', '/admin/'], ['/admin/', '/admin/'],
-    ['/admin/observability', '/admin/metrics'], ['/admin/observability/metrics', '/admin/metrics'],
+    ['/admin/observability', '/admin/'], ['/admin/observability/metrics', '/admin/metrics'],
     ['/admin/observability/logs', '/admin/logs'], ['/admin/observability/events', '/admin/events'], ['/admin/observability/exporters', '/admin/plugins']]) {
     await page.goto(old!)
     await expect(page).toHaveURL(new RegExp(target!+'$'))

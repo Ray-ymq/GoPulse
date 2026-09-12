@@ -96,7 +96,19 @@ func (service *Service) CurrentUser(ctx context.Context, userID uint64) (user.Pu
 	if err != nil {
 		return user.Public{}, apperror.WrapInternal(err)
 	}
-	return record.Public(), nil
+	public := record.Public()
+	// This read-only hint never authorizes management or gates social access.
+	// Unknown setup (including a failed lookup) is omitted, not reported as unset.
+	if setup, ok := service.users.(interface {
+		BootstrapID(context.Context) (uint64, error)
+	}); ok {
+		_, setupErr := setup.BootstrapID(ctx)
+		if setupErr == nil || errors.Is(setupErr, user.ErrSetupUnavailable) {
+			available := setupErr == nil
+			public.ManagementSetupAvailable = &available
+		}
+	}
+	return public, nil
 }
 
 func invalidCredentialsError() error {
