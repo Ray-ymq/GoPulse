@@ -2,6 +2,8 @@ package alert
 
 import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"math"
 	"time"
@@ -77,7 +79,7 @@ func member(v string, choices ...string) bool {
 	return false
 }
 func Validate(in Input, create bool) error {
-	if len(in.Name) < 1 || len(in.Name) > 80 || !utf8.ValidString(in.Name) || !member(in.Severity, "warning", "critical") || in.Source != "metrics" || in.Threshold == nil || math.IsNaN(*in.Threshold) || math.IsInf(*in.Threshold, 0) || math.Abs(*in.Threshold) > 1e15 || !member(in.Operator, "gt", "gte", "lt", "lte", "eq", "neq") || !member(in.Window, "1m", "5m", "15m") || !member(in.For, "0s", "1m", "5m") {
+	if len(in.Name) < 1 || len(in.Name) > 80 || !utf8.ValidString(in.Name) || !member(in.Severity, "warning", "critical") || !member(in.Source, "metrics", "logs", "events") || in.Threshold == nil || math.IsNaN(*in.Threshold) || math.IsInf(*in.Threshold, 0) || math.Abs(*in.Threshold) > 1e15 || !member(in.Operator, "gt", "gte", "lt", "lte", "eq", "neq") || !member(in.Window, "1m", "5m", "15m") || !member(in.For, "0s", "1m", "5m") {
 		return validation()
 	}
 	visible := false
@@ -96,6 +98,22 @@ func Validate(in Input, create bool) error {
 	f, _ := time.ParseDuration(in.For)
 	if f > w || create && (in.Enabled == nil || in.Revision != 0) || !create && (in.Enabled != nil || in.Revision == 0) {
 		return validation()
+	}
+
+	if in.Source != "metrics" {
+		if in.Selector.Metric != "" || in.Reducer != "count" {
+			return validation()
+		}
+		valid := false
+		if in.Source == "logs" {
+			valid = logquery.ValidateAlertSelector(in.Selector.Labels)
+		} else {
+			valid = eventquery.ValidateAlertSelector(in.Selector.Labels)
+		}
+		if !valid {
+			return validation()
+		}
+		return nil
 	}
 	for _, d := range metricquery.AlertCatalog() {
 		if d.Metric != in.Selector.Metric {
