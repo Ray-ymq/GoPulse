@@ -107,3 +107,14 @@
 - 结果：真实浏览器 **1/1 passed（45.0 秒）**，完整经过安装、停止、启动、Metrics 数值和 Events 记录；浏览器仍仅访问 `http://frontend:8080`。唯一项目及镜像已清理，原有资源保留。
 - 复现脚本、构建/启动/浏览器日志和结果保存在 `.run/gopulse-p1401-437458565fc9/`（`reproduce-manage.py`、`build.log`、`startup.log`、`manage-browser.log`、`results.json`）。没有重跑此前成功的应用单测或 CI 全量故障矩阵；远程完整工作流结果须以本修复推送后 Actions 的实际状态为准。
 - `python3 scripts/ci/validate_versions.py`、`python3 scripts/ci/validate_branch.py --branch develop/1.12.4 --base-ref upstream/main`、`git diff --check` 均通过；原有未跟踪文件 `~` 未动。
+
+## 9. 第二轮 PR 前置 CI 修复（2026-09-12）
+
+- Actions run `34690828493`（提交 `0461e4c`）的 Full-stack Compose job `103545628517` 失败在更早的 `compose-business.spec.ts` / `business` 搜索步骤：30 秒内结果链接数量始终为 0。该轮尚未运行到上次修复的 `manage` 场景；其余质量检查通过，创建 PR 仍被跳过。
+- 直接检查搜索页发现：提交搜索只执行 `router.push`，实际查询依赖 route watcher；相同 URL 的重复提交不会发新请求。因此如果首次查询早于异步索引可见，测试中的反复搜索一直读取旧的空结果。这解释了已有轮次可通过、该轮却超时的条件性失败；没有通过放宽 CI 时间或伪造数据处理。
+- 新增一个最小回归用例，首个响应为空、下一次响应有结果，重复提交相同关键词并断言请求次数和显示结果。修复前实际失败（请求次数期望 2、实际 1），证明问题不仅是测试等待时间。
+- `SearchView.vue` 对与当前有效 query 相同的提交直接调用 `load(true)` 重新查询第一页；新关键词仍走既有 URL/watch 流程，沿用原有加载防重入、错误和分页逻辑。该代码为 CI 揭示的用户搜索回归所必需，不扩展为用户端审计。
+- `(cd frontend && npm test -- src/views/SearchView.test.ts)`：修复后 6/6 通过；`npm run typecheck`、`npm run build` 通过。
+- `python3 /tmp/gopulse-pr-search.py`：使用唯一项目 `gopulse-p1401-2fe79eb5a6a9` 构建当前镜像，在 acceptance 容器内运行与 CI 相同的 `GOPULSE_ACCEPTANCE_SCENARIO=business` / `e2e/compose-business.spec.ts`，**1/1 passed（3.7 秒）**，经过注册、发帖、评论、点赞、通知、搜索和再次登录；项目/验收镜像清理、原有资源保留。
+- 证据目录 `.run/gopulse-p1401-2fe79eb5a6a9/` 保存 `reproduce-business.py`、`search-before.log`、`search-after.log`、`build.log`、`startup.log`、`business-browser.log`、`results.json`。没有重跑无关三源故障测试；完整远程 CI 将由修复推送触发并跟踪实际结果。
+- 版本和分支校验及工作区 diff 检查通过。此为同一开发批次的 PR 跟进，继续使用 `develop/1.12.4` / `1.12.4`，未修改原有未跟踪文件 `~`。
