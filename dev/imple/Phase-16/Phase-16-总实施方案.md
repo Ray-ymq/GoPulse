@@ -1,6 +1,6 @@
 # Phase 16：跨平台产品化与双前端交付总实施方案
 
-> 规划基线（2026-09-13）：主远程 `upstream/main` 提交 `0e62b3d87b3a509b3494397ed5041300094350a3`，根完成版本为 `1.12.7`，Phase 15 的双角色、双 Frontend、六插件、三源告警和 Compose 收口能力已合入主线。本文档只规划 Phase 16，不修改 `VERSION`，也不把任何尚未运行的跨平台检查写成已完成。
+> 规划修订基线（2026-09-13）：主远程 `upstream/main` 提交 `78765d30ff2dfc90bdf3ea9bb4d0725ab63cbb3d`，根完成版本为 `1.12.7`，Phase 15 的双角色、双 Frontend、六插件、三源告警和 Compose 收口能力已合入主线。本文档只规划 Phase 16，不修改 `VERSION`，也不把任何尚未运行的跨平台检查写成已完成。
 
 Phase 16 使用 `1.13.x` 版本线，拆分为 6 个执行批次。本文档是 Phase 16 批次顺序、目标版本和开发分支的唯一权威来源。
 
@@ -76,7 +76,7 @@ Phase 16 使用 `1.13.x` 版本线，拆分为 6 个执行批次。本文档是 
 
 ### 3.2 可安排的真实宿主矩阵
 
-以下环境来源已定位，足以确定批次顺序；表中信息只是开工和调度输入，不是 Phase 16 通过证据：
+以下环境是 Phase 16 最终支持矩阵；表中已知信息是渐进调度输入，不是 Phase 16 通过证据，也不要求在 Phase-16-01 开工前一次性准备全部宿主：
 
 | 宿主 | 规划时可用来源 | Phase 16 固定运行方式 | 开工/验收前必须重新确认 |
 | --- | --- | --- | --- |
@@ -86,18 +86,21 @@ Phase 16 使用 `1.13.x` 版本线，拆分为 6 个执行批次。本文档是 
 
 约束如下：
 
-- Phase-16-01 开工前为三个环境分别记录可执行的 host owner、运行窗口和最低资源探测；任一目标环境无法安排时，先在 `update` 修订总/分方案，不创建一个无法完成的后续批次分支。
-- 每个实际批次只在其直接需要的平台运行最小检查；最终 Phase-16-06 必须在三类真实宿主上运行同一候选交付包合同。
+- Phase-16-01 开工只要求记录当前可访问 Linux amd64 的资源和 Docker server 事实，并在证据清单中把 macOS arm64、Windows amd64 标为“待排期”。未取得未来宿主的 owner/运行窗口不阻止本批分支创建、实现、本地提交、源码分支 push 或 PR。
+- Phase-16-06 开工前必须为三个环境确认 host owner、运行窗口、访问方式和最低资源；缺任一真实宿主时只阻断 Phase-16-06 与阶段完成，不倒推否定前五批已通过的平台中立实现门禁。
+- Phase-16-01 至 Phase-16-05 在当前可访问 Linux amd64 上运行各批固定功能门禁，可用 buildx/OCI metadata/单元测试提前暴露 arm64 制品问题，但不得将这些写成 macOS/Windows 支持证据。最终 Phase-16-06 必须在三类真实宿主上运行同一候选交付包合同。
 - Windows 验收必须从 PowerShell/Terminal 和 NTFS 路径执行，不能在 WSL shell、`/mnt/c` checkout 或 Linux 路径中冒充 Windows。
 - Linux 验收的活动 checkout/交付目录必须位于 Linux 文件系统；如与 Windows 共用 Docker Desktop，两个矩阵串行运行并使用不同 project/token，避免交叉归属。
 - macOS 必须运行 `linux/arm64` runtime image；Rosetta/QEMU 可用于有限构建探测，但不得成为最终产品运行证据。
-- 支持的 Docker Engine/Desktop/Compose 版本范围由 Phase-16-01 对三台真实环境的共同可用能力确定并写入 `docs/platform-support.md`；本计划不根据单台客户端版本猜测最低版本。
+- Phase-16-01 只根据公开兼容合同和当前 Linux 实测写入“候选支持范围”；Phase-16-06 再以三台真实环境的共同可用能力确定 `docs/platform-support.md` 最终 Docker Engine/Desktop/Compose 范围，不根据单台客户端版本猜测其他平台。
 
 ### 3.3 分支与实施开工
 
 - 每批开始前 fetch 主远程，从当时最新 `upstream/main` 创建总方案分配的独立 `develop/x.x.x` 分支；只有同一批或同一 PR 的跟进工作才继续原分支。
+- 若本地已有同名目标分支，先核对其 upstream、merge-base 和独有提交：远程不存在且本地无独有提交时，记录旧指针后可将它安全快进/重建于最新 `upstream/main`，这不是开工阻断；存在独有提交或已推送时不得静默覆盖。
 - 前一批必须已合入主线且实施记录、版本和固定门禁一致，下一批才开工；不得在一个长期分支中完成全部 Phase 16。
-- 开工发现锁定第三方镜像无目标架构、Windows 文件共享不可用、交付 registry 无法提供 immutable digest，或 `1.9.4` fixture 不可重建时，先记录最小证据并修订计划，不静默降低平台或数据合同。
+- 外部 OCI registry 命名空间或本地认证未配置时，Phase-16-01 使用当前 Docker engine 上的临时 loopback OCI registry 验证 candidate push/pull-by-digest 与不重建晋升；正式 registry 由授权 CI/release identity 执行，不要求开发者在聊天、日志或命令行提供 token。正式 registry 与同 digest 候选拉取在 Phase-16-06 前必须完成。
+- 锁定第三方镜像无目标架构只阻断 Phase-16-01 制品门禁；`1.9.4` fixture 不可重建只阻断 Phase-16-05；Windows 文件共享不可用或三宿主无法排期只阻断 Phase-16-06。各批先记录最小证据，不静默降低其直接验收合同。
 - 计划、文档、治理工作可留在 `update`；产品代码、运行验收和版本更新只能在分配的 `develop/1.13.x` 分支完成。
 
 ## 4. 权威批次、版本与分支分配
@@ -365,13 +368,13 @@ Redis只保存可重建缓存；RabbitMQ/Kafka在成功排空后重建为空。�
 ### Phase-16-01：多架构制品与发布清单闭环
 
 - 建立双架构产品/生命周期工具镜像、六插件 catalog、单一 OS 中立 Bundle 和 immutable release manifest。
-- 确认第三方镜像双架构与 registry/digest晋升能力，运行各架构最小容器 smoke。
+- 确认第三方镜像双架构 metadata，在 Linux amd64 运行最小容器 smoke，并用临时 loopback OCI registry 验证 digest 流程；真实 arm64 运行与正式 registry 候选拉取由 Phase-16-06 收口。
 - 不实现完整生命周期、UI重构、backup或upgrade。
 
 ### Phase-16-02：共享产品生命周期与安全初始化闭环
 
 - 实现共享生命周期工具的 version/doctor/init/up/down/status/logs/verify，由三宿主的 Docker Compose 以相同语义调用，并完成唯一 edge 与强归属。
-- 在 Linux amd64与当前可用 macOS arm64执行 clean install最小运行，尽早关闭路径/架构问题。
+- 在 Linux amd64 执行 clean install 和必要回归；若 macOS arm64 已可用可提前执行非阻断 smoke，否则留给 Phase-16-06 真实宿主门禁。
 - 不实现 backup/restore/upgrade，也不把历史 PowerShell脚本升级为产品入口。
 
 ### Phase-16-03：统一登录与双 Frontend 产品体验闭环
@@ -439,6 +442,7 @@ Phase 16 只在以上标准全部通过、6份split plan均有同名真实实施
 - 实施中先运行直接受影响module/package和无Docker self-test；每个split plan的固定门禁只对该批最终diff运行一次。
 - Phase-16-01建立release artifact验证入口，Phase-16-02建立lifecycle self-test/owned runtime入口，Phase-16-03建立双Frontend产品UI入口，Phase-16-04建立backup/restore入口，Phase-16-05建立upgrade入口。
 - Phase-16-06使用同一候选bundle在三host执行固定acceptance并聚合evidence；不重新跑前五批所有unit组合，除非相关输入变化或真实平台失败指出直接回归。
+- 宿主 owner/运行窗口、本地 registry credential 或后续平台访问的缺失，不得用来阻止前五批的分支创建、实现、本地提交、源码 push 或 PR。它们只在对应真实平台/发布门禁到达时阻断支持声明和 Phase 16 完成。
 - 每个状态迁移优先一条代表成功与一条代表失败；路径/平台差异只补充会改变产品结果的案例，不枚举所有盘符、locale、shell或文件名组合。
 - 真实平台结果必须记录Docker server而非只记录client；container arch、运行digest、bundle digest和resource snapshot进入evidence。
 - 新增检查只证明本批验收、观测缺陷或改变的安全/持久/公共合同；达到固定门禁后停止，不延伸为通用供应链、性能或覆盖率项目。
@@ -470,12 +474,12 @@ git diff --cached --check
 
 | 责任批次 | 必须确认的有限输入 | 完成证据与未满足处理 |
 | --- | --- | --- |
-| Phase-16-01 | registry不可变 digest/晋升能力、六个第三方镜像双架构支持、buildx platform metadata、生命周期工具镜像与 OS 中立 Bundle 构建 | 各逻辑镜像 index/platform digest与最小真实 run；缺架构则选择最小兼容锁定版本并记录直接回归 |
-| Phase-16-02 | 三 host Docker/Compose 共同子集、工具容器的中断转发、macOS/Windows 文件共享、Compose pull-by-digest 行为 | fake engine self-test + Linux/macOS 最小真实 clean install；共同子集不足则先修订容器入口/支持版本，不写平台二进制或分支脚本绕过 |
+| Phase-16-01 | 六个第三方镜像双架构metadata、buildx platform metadata、生命周期工具镜像与OS中立Bundle构建、临时loopback OCI registry | 各逻辑镜像index/platform digest、Linux amd64最小真实run与本地push/pull-by-digest/同digest晋升；缺目标架构时选择最小兼容锁定版本，不伪称已完成真实arm64宿主验收 |
+| Phase-16-02 | Linux Docker/Compose入口、工具容器的中断转发、Compose pull-by-digest行为；三host共同子集作为候选合同 | fake engine self-test + Linux amd64真实clean install；macOS/Windows差异输入留待Phase-16-06真实验收，不写平台二进制或分支脚本绕过 |
 | Phase-16-03 | 当前两端路由/DTO/状态清单、browser timezone与三个viewport、edge只发布一个端口后的API行为 | 两bundle build与唯一origin browser证据；不为统一视觉修改业务API |
-| Phase-16-04 | 锁定MySQL/ES/VM的逻辑dump/snapshot与restore API、队列/offset排空判据、Monitor逻辑export边界、Linux工具容器加密临时文件与三宿主挂载行为 | 小数据真实backup/restore和故障注入；任一权威历史无法恢复则阻断，不降级为卷tar或“可重建”假设 |
+| Phase-16-04 | 锁定MySQL/ES/VM的逻辑dump/snapshot与restore API、队列/offset排空判据、Monitor逻辑export边界、Linux工具容器加密临时文件 | Linux amd64小数据真实backup/restore和故障注入；生成可供Phase-16-06在macOS arm64回放的固定backup fixture，任一权威历史无法恢复则阻断 |
 | Phase-16-05 | `102aa4f...` compose/volume/schema/Redis v1 archive、旧Cookie合同、全部migration重跑行为 | 真实旧版本fixture前后快照；无法识别来源或恢复则停止，不手工改库补齐 |
-| Phase-16-06 | 三host可用窗口、同一candidate bundle、前五批证据有效性和平台特有故障手段 | 三份schema有效evidence；缺一平台即Phase 16未完成，不用buildx/QEMU/WSL替代 |
+| Phase-16-06 | 三host owner/可用窗口/访问方式、授权正式OCI registry、同一candidate bundle、前五批证据有效性和平台特有故障手段 | 正式registry按digest拉取与三份schema有效evidence；缺一平台或正式发布事实即Phase 16未完成，不用buildx/QEMU/WSL替代 |
 
 只查看直接调用点、锁定版本公开文档和最小受控探测。只有具体编译/运行/验收失败无法从调用点与公开API解决时才检查第三方源码，并将理由和最小symbol记录到同名实施记录。
 

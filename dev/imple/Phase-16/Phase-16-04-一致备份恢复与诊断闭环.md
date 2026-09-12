@@ -32,7 +32,7 @@ encrypted backup
 - 有界确认锁定MySQL/Elasticsearch/VictoriaMetrics版本提供的逻辑dump/snapshot/restore公开API、原子完成标识和失败清理语义；只检查直接调用点和官方文档。
 - 确认Backend Outbox、RabbitMQ queue、Kafka group lag及Monitor/Router/Marshaller生产/消费的可读排空判据，避免只等待固定sleep。
 - 列出Monitor持久volume中权威逻辑状态与可重建runtime投影，设计不含binary/PID/symlink的export/import合同。
-- 确认生命周期Linux工具容器内的私有temp、终端无回显输入、挂载目录文件替换和中断清理在三宿主具有同一语义；不新增macOS/Windows原生实现，也不自行设计未经审查的加密算法。
+- 确认生命周期Linux工具容器内的私有temp、终端无回显输入、挂载目录文件替换和中断清理合同；本批在Linux amd64执行真实验收，三宿主挂载差异留给Phase-16-06，不新增macOS/Windows原生实现，也不自行设计未经审查的加密算法。
 
 ## 3. 实施范围
 
@@ -84,7 +84,7 @@ encrypted backup
 
 ### 3.7 跨架构恢复与诊断
 
-- 固定完成一次Linux amd64创建backup、macOS arm64恢复到`linux/arm64`产品栈；用户/管理事实和遥测历史保持，插件使用arm64受信package。
+- 在Linux amd64创建一份可重放的固定backup fixture，验证payload不含平台binary，并用arm64 catalog选择/错架构拒绝测试证明恢复逻辑不绑定amd64。该fixture在macOS arm64的真实`linux/arm64`产品栈恢复是Phase-16-06固定门禁；若环境提前可用可早跑，但不阻止本批完成。
 - backup中不得包含可执行文件。安全测试即使注入ELF/PE/Mach-O或`arch=amd64`entrypoint section也应被format allowlist拒绝，不能在restore运行。
 - `gopulse doctor --bundle <path>`生成脱敏诊断包，只包含allowlist版本、manifest/digest、service安全状态、health reason、队列摘要、固定数量日志尾部和operation报告。
 - 诊断包明确排除`.env`、backup payload、Cookie、业务正文、Secret、完整连接串、registry credential、hostname/username和宿主绝对path，并通过哨兵扫描。
@@ -104,7 +104,7 @@ encrypted backup
 3. 实现operation lock下的edge关闭、producer停止、三队列排空、writer停止与原状态恢复。
 4. 接入MySQL/ES/VM导出和Monitor逻辑export，生成加密backup并验证中断/失败不发布partial。
 5. 实现空project restore顺序、search/cache/message重建、plugin arch映射和完成标记。
-6. 运行同架构恢复、真实amd64到arm64恢复、tamper/wrong-passphrase/导入失败与强归属清理。
+6. 运行Linux amd64同架构恢复、arm64 catalog选择/错架构拒绝、tamper/wrong-passphrase/导入失败与强归属清理，生成Phase-16-06可重放的跨架构fixture。
 7. 实现脱敏diagnostic bundle，更新backup/restore runbook、版本和实施记录，运行固定门禁后提交。
 
 ## 6. 预计直接影响文件
@@ -136,7 +136,7 @@ encrypted backup
 
 ### 7.3 跨架构和诊断
 
-- Linux amd64 backup在macOS arm64恢复；每个running插件使用`linux/arm64`受信entrypoint且真实采集，stopped插件不启动。
+- Linux amd64 backup fixture通过format portability、无binary、arm64 catalog选择和错架构拒绝门禁；macOS arm64真实恢复、受信entrypoint与采集结果由Phase-16-06验收。
 - 注入binary/错误arch/unknown plugin logical state的backup被严格拒绝或按明确规则失败，不执行输入文件。
 - diagnostic bundle allowlist、size和日志tail有界，Secret/业务正文/hostname/username/绝对path哨兵扫描通过。
 
@@ -152,7 +152,7 @@ encrypted backup
 (cd monitor && test -z "$(gofmt -l .)" && go test -count=1 ./internal/plugin/... && go vet ./internal/plugin/...)
 scripts/verify-backup-restore.sh --self-test
 scripts/verify-backup-restore.sh --same-arch
-scripts/verify-backup-restore.sh --source linux/amd64 --target linux/arm64 --target-host macos
+scripts/verify-backup-restore.sh --portable-fixture linux/amd64 --target-catalog linux/arm64
 scripts/verify-lifecycle.sh --existing-product
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
@@ -161,13 +161,13 @@ git diff --check
 git diff --cached --check
 ```
 
-- `--same-arch`覆盖完整数据、failure injection和新写入；`amd64→arm64`只补跨架构plugin/runtime及关键事实/历史，不重复所有tamper组合。
+- `--same-arch`覆盖完整数据、failure injection和新写入；`--portable-fixture`固定跨架构输入、无binary和目标catalog选择，真实`amd64→arm64`恢复及关键事实/历史在Phase-16-06执行。
 - backup改变全体writer的有序停止，最终运行一次代表用户/管理/告警回归；不重跑无变化的全部Frontend viewport矩阵。
 - 如锁定第三方snapshot API迫使Compose配置变化，扩大到对应数据服务replace/restart检查并先在实施记录写明风险。
 - 提交后补充`git diff --check upstream/main...HEAD`。
 
 ## 9. 实施记录与下一批交接
 
-完成前创建`dev/logs/Phase-16/Phase-16-04-一致备份恢复与诊断闭环.md`，至少记录真实drain值/边界、数据服务API和版本、format/KDF/加密library、payload清单/digest、同/跨架构restore、插件version映射、失败清理、diagnostic扫描和未覆盖限制。
+完成前创建`dev/logs/Phase-16/Phase-16-04-一致备份恢复与诊断闭环.md`，至少记录真实drain值/边界、数据服务API和版本、format/KDF/加密library、payload清单/digest、Linux同架构restore、跨架构portable fixture、插件version映射、Phase-16-06 deferred项、失败清理、diagnostic扫描和未覆盖限制。
 
 交给Phase-16-05的固定输入是已验证的backup format v1与空project restore。升级批必须调用正式`gopulse backup`，不得另写一套临时卷复制或在migration后尝试未知兼容的旧镜像降级。

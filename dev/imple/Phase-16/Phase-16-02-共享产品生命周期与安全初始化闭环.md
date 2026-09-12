@@ -23,7 +23,7 @@ Linux、macOS、Windows都必须通过本机Docker Compose调用同一个双架�
 - Phase-16-01已合入最新`upstream/main`，目标版本`1.13.1`的9个双架构产品镜像、双架构生命周期工具镜像、六插件包、release manifest与单一OS中立Bundle均有真实digest/checksum记录。
 - fetch后从最新主线创建本批分支，不继续使用制品批分支。
 - 按总方案§17有界确认三host Docker CLI/Compose共同命令、exit code、project label、pull-by-digest、path sharing与对工具容器的中断转发行为。
-- Linux amd64与macOS arm64 Docker daemon可实际运行；Windows最终真实完整运行留给Phase-16-06，本批不为其新增native CLI/path/signal实现，也不以静态Compose检查宣称Windows已支持。
+- Linux amd64 Docker daemon可实际运行；macOS arm64和Windows amd64最终真实完整运行留给Phase-16-06，本批不为它们新增native CLI/path/signal实现，也不以静态Compose检查宣称已支持。
 - 现有`scripts/dev.sh`、`verify.sh`、`down.sh`只作为已实现语义和回归输入；产品工具容器不得直接exec这些脚本。
 
 ## 3. 实施范围
@@ -89,7 +89,7 @@ Linux、macOS、Windows都必须通过本机Docker Compose调用同一个双架�
 3. 实现`init`随机Secret、挂载目录内原子写入、Linux权限/宿主可读性验证和已有状态拒绝。
 4. 改造product Compose digest注入和唯一edge，完成`up`与one-shot initialization。
 5. 实现只读`verify/status/logs`，再实现`down`保留卷/显式删卷和中断状态机。
-6. 在Linux amd64执行完整clean install/down/up，在macOS arm64通过同一Docker Compose入口执行最小完整栈；Windows实际入口与路径差异留给Phase-16-06真实宿主验收，本批不新增原生代码。
+6. 在Linux amd64执行完整clean install/down/up；macOS/Windows实际入口、路径、文件共享和中断差异留给Phase-16-06真实宿主验收，本批不新增原生代码。
 7. 更新产品/开发文档、版本、release manifest和同名实施记录，运行固定门禁后提交。
 
 ## 6. 预计直接影响文件
@@ -113,7 +113,7 @@ Linux、macOS、Windows都必须通过本机Docker Compose调用同一个双架�
 
 ### 7.2 运行与唯一edge
 
-- Linux amd64和macOS arm64均从bundle、digest与空project完成`init/up/verify`，不使用Git/Go/Node/Python/curl或源码build。
+- Linux amd64从bundle、digest与空project完成`init/up/verify`，不使用Git/Go/Node/Python/curl或源码build。macOS/Windows上的同一入口是Phase-16-06验收项，不是本批完成前置。
 - 仅edge发布一个IPv4 loopback端口；Browser/host不能直达Backend、admin-frontend或任何内部service，edge`/health`、`/ready`、用户/管理SPA和API正常。
 - 全部container使用目标platform digest、预期network/volume、numeric user/read-only root；initialization job失败时不伪装启动成功。
 - 保留卷`down/up`后用户、插件desired state和可观测历史保持或按现有合同恢复。
@@ -138,7 +138,6 @@ Linux、macOS、Windows都必须通过本机Docker Compose调用同一个双架�
 (cd lifecycle && go test -race -count=1 ./internal/config/... ./internal/lock/... ./internal/ownership/... ./internal/runner/...)
 scripts/verify-lifecycle.sh --self-test
 scripts/verify-lifecycle.sh --platform linux/amd64 --clean-install
-scripts/verify-lifecycle.sh --platform linux/arm64 --host macos --clean-install
 scripts/verify-compose.sh --self-test
 python3 -m unittest discover -s scripts/ci -p 'test_*.py'
 python3 scripts/ci/validate_versions.py
@@ -147,14 +146,13 @@ git diff --check
 git diff --cached --check
 ```
 
-- 两个`--clean-install`必须在对应真实host/Docker server运行；macOS结果不能由Linux cross-build代替。
-- Linux入口包含现有完整Compose代表业务/管理回归；macOS本批只需完整stack、双SPA/API smoke、digest/port/volume/signal，不重复所有Phase15故障场景。
-- Windows本批不新增Go平台adapter或原生CLI测试；完整Windows Docker Desktop/Compose入口、路径和中断验收留给Phase-16-06，不写已支持。
+- `--clean-install`在真实Linux amd64 host/Docker server运行，并包含现有完整Compose代表业务/管理回归。
+- macOS/Windows本批不新增Go平台adapter或原生CLI测试；完整Docker Desktop/Compose入口、路径和中断验收留给Phase-16-06，不写已支持。
 - 若产品/开发Compose共享改动影响现有runner，补跑`scripts/verify-compose.sh`一次并记录风险；未影响的Frontend unit不重复。
 - 提交后补充`git diff --check upstream/main...HEAD`。
 
 ## 9. 实施记录与下一批交接
 
-完成前创建`dev/logs/Phase-16/Phase-16-02-共享产品生命周期与安全初始化闭环.md`，记录容器化生命周期命令/exit code、config/state schema、Secret生成与权限、Compose差异、两个真实host/server、唯一edge、operation lock、signal/cleanup、只读verify和全部失败轮次。
+完成前创建`dev/logs/Phase-16/Phase-16-02-共享产品生命周期与安全初始化闭环.md`，记录容器化生命周期命令/exit code、config/state schema、Secret生成与权限、Compose差异、Linux真实host/server、macOS/Windows deferred项、唯一edge、operation lock、signal/cleanup、只读verify和全部失败轮次。
 
 交给Phase-16-03的固定输入是稳定的唯一origin、同一容器化生命周期clean install、两个独立SPA和不变的Backend授权；backup/restore/upgrade仍未实现，不能由占位命令或手工卷操作冒充。
