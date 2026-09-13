@@ -248,8 +248,21 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 
 首轮真实候选/源产品演练：构建 `d10f9a3` 的 Linux amd64 全产品候选，真实用户、业务搜索、六插件采集、告警历史和审计种子成功；backup 在 `search-export` 拒绝实际按日期命名的 ES 索引（名称含 `.`）。已修正为独立的受限 ES 名称合同并加入该已观察缺陷的直接测试。该轮不计验收通过；源 project 已经通过其原 bundle 的 ownership 检查执行 `down --purge`，没有修改无关资源。
 
-构建过程中发现单平台 buildx 产生单 manifest 而非 index，已让 builder 用实际内容构建单平台 OCI index，而不是填入不存在的另一架构。还将两个 runtime Dockerfile 的版本 label ARG 移到包安装层之后：实际多次构建中无关 revision 使相同 APK 安装反复耗时约 100 秒，此调整只避免该缓存失效，不改变依赖或运行内容，最终候选继续核对真实 OCI 标签。
+构建过程中发现单平台 buildx 产生单 manifest 而非 index，已让 builder 用实际内容构建单平台 OCI index，而不是填入不存在的另一架构。还将 observability runtime Dockerfile 的版本 label ARG 移到包安装层之后：实际多次构建中无关 revision 使相同 APK 安装反复耗时约 100 秒。backend 的尝试没有改变其 LABEL 前置缓存行为，不计为已完成的缓存优化。未改变依赖或运行内容，最终候选继续核对真实 OCI 标签。
 
 第二轮真实候选 `bb815b1`：源产品种子、六插件真实采集、维护停写、六域加密 backup、独立 inspect 及公开 payload Secret 扫描均成功。首次 inspect 调用误带生命周期通用参数，修正 harness 后从已有真实 backup 继续，没有重跑已经成功的源备份。空目标恢复已经执行 MySQL、ES、VM、RabbitMQ/Kafka 导入，但在 Monitor 停止态容器创建阶段失败；本机 `docker compose create --help` 确认不支持 `--no-deps`，现改用受支持的 `up --no-start --no-deps`。该轮未判定恢复完成，失败目标由原操作清理，随后用原 bundle 清理源 project。
 
 继续补齐计划必需合同：共享严格 JSON 解析、带 operation 身份的中断 ciphertext 清理、精确 failed_stage 和显式私有 doctor diagnostics、ES 规范化/时间范围、RabbitMQ 原生队列排空及拓扑摘要、Kafka 动态 topic 配置和新 topic 零点 rebase 验证。源 offset 作为 cutover 证据保存，不用伪消息填充新 topic 来冒充原 offset。
+
+第三轮真实候选 `95bbedd0b5286298654e90f08335db25d0a9c2cd`（`dist/phase16-04-recovery-v3`）：
+`same-arch` 全部通过，包括源种子、实际维护停写、认证加密六域备份、空项目恢复、六插件、
+告警/审计/业务事实、双前端真实浏览器矩阵和恢复后新写入。证据为
+`.run/phase16-04-recovery/same-arch-v3.log` 与私有 product acceptance receipt；不发布其中凭据。
+失败矩阵已通过拒绝覆盖源、私有 doctor、错误口令/tamper、真实低空间和原生 SQL 导入失败清理。
+低空间脚本初次失败原因是 root 加 cap-drop ALL 无权读取宿主用户 0700 目录，修正为原用户及同 uid/gid 的 1 MiB tmpfs；不是伪造 statfs。
+中断及重试仍在运行，未提前计通过。
+
+本轮补全运行文档、空且已 purge 的 stopped 目标重试、doctor 版本/有界健康摘要。
+实际通过 `(cd lifecycle && go test ./... && go vet ./...)`、`scripts/test-backup-format.sh`、
+Python harness 编译及 `git diff --check`。由于 bundle README 是受摘要绑定的 payload，最终候选
+必须重新构建；新 lifecycle failure 路径和新的候选身份是后续最终矩阵执行理由，而不是因上下文切换重复验收。

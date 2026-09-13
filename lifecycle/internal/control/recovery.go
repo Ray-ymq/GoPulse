@@ -357,7 +357,7 @@ func (r *restoredBackup) clear() {
 	}
 }
 func (c *Controller) emptyRestoreTarget() error {
-	if c.state.Phase != "initialized" && c.state.Phase != "restore-failed" && c.state.Phase != "interrupted" {
+	if c.state.Phase != "initialized" && c.state.Phase != "restore-failed" && c.state.Phase != "interrupted" && c.state.Phase != "stopped" {
 		return fail(Ownership, "restore-target", "restore requires a newly initialized empty installation")
 	}
 	cs, e := c.owned()
@@ -587,7 +587,23 @@ func (c *Controller) recoveryDiagnostic(err error, explicitDir string, command s
 		operation = random()
 	}
 	path := filepath.Join(dir, operation+".json")
-	safe := map[string]any{"schema": 1, "command_scope": command, "operation_id": operation, "version": c.state.Version, "manifest_digest": c.manifestHash, "phase": c.state.Phase, "failure_stage": f.Stage, "exit_code": f.Code, "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore"}
+	version := c.state.Version
+	if version == "" && c.manifest != nil {
+		version = c.manifest.Version
+	}
+	var health any = "not sampled before initialization"
+	if len(c.state.Token) == 64 && c.manifest != nil {
+		probe := *c
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		probe.ctx = ctx
+		if status, e := probe.status(false); e == nil {
+			health = status
+		} else {
+			health = "unavailable"
+		}
+		cancel()
+	}
+	safe := map[string]any{"schema": 1, "command_scope": command, "operation_id": operation, "version": version, "health_summary": health, "manifest_digest": c.manifestHash, "phase": c.state.Phase, "failure_stage": f.Stage, "exit_code": f.Code, "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore"}
 	if atomicFile(path, marshal(safe)) == nil {
 		f.Diagnostic = path
 	}

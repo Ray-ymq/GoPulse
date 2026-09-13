@@ -198,17 +198,23 @@ class Recovery:
         source_state=(self.work/'source'/'state.json').read_bytes()
         before=self.sql('source','SELECT COUNT(*) FROM users; SELECT COUNT(*) FROM posts; SELECT COUNT(*) FROM bootstrap_super_admin;')
         self.init('negative')
+        self.restore('source',expected=17)
+        self.mark('nonempty-source-project-cannot-be-overwritten')
+        doctor_dir=self.work/'doctor-diagnostics';doctor_dir.mkdir(mode=0o700,exist_ok=True)
+        diagnosis=self.call('negative','doctor','--endpoint','unix:///missing-gopulse-daemon','--diagnostics-dir',str(doctor_dir),expected=11)
+        if not Path(diagnosis.get('diagnostic','')).is_file():raise RuntimeError('doctor diagnostic was not written')
+        self.mark('doctor-private-diagnostics')
         wrong=self.work/'wrong-passphrase';wrong.write_bytes(os.urandom(32));wrong.chmod(0o600)
         self.call('negative','restore','--archive',str(self.backup),'--passphrase-file',str(wrong),expected=21);self.empty('negative')
         tamper=self.work/'tampered.gpb';raw=bytearray(self.backup.read_bytes());raw[-1]^=1;tamper.write_bytes(raw);tamper.chmod(0o600)
         self.restore('negative',tamper,21);self.empty('negative');self.mark('wrong-passphrase-and-tamper-rejected-before-resources')
         # Real 1 MiB tmpfs: copy only the empty target identity, then run the
         # ordinary restore command. It must fail statfs before Docker mutation.
-        base=self.base();base[base.index('--user')+1]='0:0';base[-1:-1]=['--mount','type=tmpfs,destination=/tiny,tmpfs-size=1048576,tmpfs-mode=0700','--entrypoint','sh']
+        base=self.base();base[-1:-1]=['--tmpfs',f'/tiny:rw,size=1048576,mode=0700,uid={os.getuid()},gid={os.getgid()}','--entrypoint','sh']
         seed=str(self.work/'negative')
         result=subprocess.run([*base,'-c','cp "$1/state.json" "$1/secrets.json" /tiny/; exec gopulse restore --install /tiny --bundle /bundle --endpoint unix:///var/run/docker.sock --archive "$2" --passphrase-file "$3"','capacity',seed,str(self.backup),str(self.key)],capture_output=True,text=True,timeout=120)
         self.output.append(result.stdout+result.stderr)
-        if result.returncode!=13:raise RuntimeError('real low-space preflight did not reject')
+        if result.returncode!=13:raise RuntimeError('real low-space preflight did not reject: exit '+str(result.returncode))
         self.empty('negative');self.mark('real-low-space-preflight')
         invalid=self.work/'invalid-sql.gpb'
         if not invalid.exists():self.fixture_check(invalid_sql_output=invalid)
@@ -235,6 +241,7 @@ class Recovery:
         if (self.work/'source'/'state.json').read_bytes()!=source_state or self.sql('source','SELECT COUNT(*) FROM users; SELECT COUNT(*) FROM posts; SELECT COUNT(*) FROM bootstrap_super_admin;')!=before:raise RuntimeError('failure scenarios changed source facts')
         self.mark('source-unaffected-by-failure-matrix')
         for text in self.output:
+            if self.state('source')['installation_token'] in text:raise RuntimeError('installation credential leaked')
             for value in self.secrets('source').values():
                 if len(value)>20 and value in text:raise RuntimeError('credential in lifecycle diagnostic')
         for path in (self.work/'negative'/'diagnostics').glob('*.json'):
