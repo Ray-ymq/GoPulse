@@ -1,158 +1,126 @@
 # Phase-16-02：共享产品生命周期与安全初始化闭环实施方案
 
-> 执行序号：2 / 6。目标版本`1.13.2`、开发分支`develop/1.13.2`及批次依赖以[Phase-16-总实施方案.md](Phase-16-总实施方案.md)为准。
+> 目标版本：`1.13.2`  
+> 开发分支：`develop/1.13.2`  
+> 运行与验收平台：真实 Linux `amd64`
 
 ## 1. 批次目标
 
-在Phase-16-01不可变制品上实现一个真正跨平台的产品控制面，让用户只依赖Docker/Compose和同一OS中立Bundle完成安全初始化、启动、停止、状态、日志、只读验证与诊断：
+在 Phase-16-01 的不可变 Linux 制品之上实现产品生命周期控制面，让用户只依赖 Docker Engine、Docker Compose v2 和版本化 Bundle 完成：
 
 ```text
-docker compose ... run --rm lifecycle doctor
-  → lifecycle init
-  → lifecycle up
-  → lifecycle verify / status / logs
-  → Docker CLI转发Ctrl+C / SIGTERM
-  → lifecycle down
-  → lifecycle up（保留状态恢复）
+doctor → init → up → verify → status/logs → down → up
 ```
 
-Linux、macOS、Windows都必须通过本机Docker Compose调用同一个双架构Linux生命周期工具镜像。本批不新增Darwin/Windows宿主二进制、平台adapter或专用启动脚本，也不得把生命周期复制到Bash/PowerShell。
+生命周期必须由同一个 Linux `amd64` 工具镜像实现；现有 Bash 入口只保留开发用途，冻结的 PowerShell 历史文件不修改。
 
 ## 2. 前置条件
 
-- Phase-16-01已合入最新`upstream/main`，目标版本`1.13.1`的9个双架构产品镜像、双架构生命周期工具镜像、六插件包、release manifest与单一OS中立Bundle均有真实digest/checksum记录。
-- fetch后从最新主线创建本批分支，不继续使用制品批分支。
-- 按总方案§17有界确认三host Docker CLI/Compose共同命令、exit code、project label、pull-by-digest、path sharing与对工具容器的中断转发行为。
-- Linux amd64 Docker daemon可实际运行；macOS arm64和Windows amd64最终真实完整运行留给Phase-16-06，本批不为它们新增native CLI/path/signal实现，也不以静态Compose检查宣称已支持。
-- 现有`scripts/dev.sh`、`verify.sh`、`down.sh`只作为已实现语义和回归输入；产品工具容器不得直接exec这些脚本。
+- 从最新 `upstream/main` 创建 `develop/1.13.2`。
+- Phase-16-01 release manifest、Bundle、image digest 和 plugin catalog 可读取。
+- 真实 Linux `amd64` Docker server 可运行，并记录 CPU、内存、磁盘、Docker server 和 Compose 版本。
+- 临时或正式 registry 能按 digest 拉取 Phase-16-01 候选制品。
+- 当前产品 Compose 的服务、profile、volume、network、healthcheck 和初始化依赖已从公开配置核对。
 
 ## 3. 实施范围
 
-### 3.1 共享生命周期命令与内部边界
+### 3.1 生命周期命令与内部边界
 
-- 在`lifecycle/`完成`version`、`doctor`、`init`、`up`、`down`、`status`、`logs`、`verify`命令树，构建为双架构Linux工具镜像；所有命令使用稳定exit code、结构化内部错误和不含Secret的用户消息。
-- Docker Engine/Compose调用集中在一个runner接口，生产实现使用参数数组而非shell字符串；测试实现记录调用并注入stdout/stderr/exit/signal，不发生真实Docker访问。
-- 三宿主差异由Docker Desktop/Engine、Compose路径解析和挂载合同承担；生命周期工具内部只处理Linux容器路径、权限、signal和原子文件语义，不新增macOS/Windows平台adapter。
-- `version`和纯参数校验不访问Docker；`doctor`只读；变更命令统一经过operation lock、identity加载和资源ownership检查。
+- 在 `lifecycle/` 的单一 Go module 中实现 `version/doctor/init/up/down/status/logs/verify`。
+- 所有命令提供稳定参数、结构化输出、退出码和可操作错误，不解析人类文本判断 Docker 状态。
+- 工具容器通过显式 Docker endpoint 执行 project-scoped 编排；常驻产品容器不挂载 Docker socket。
+- server OS/arch 不为 `linux/amd64` 时，在创建产品资源前拒绝执行。
 
 ### 3.2 安全初始化与安装状态
 
-- `init`只接受空安装状态，在私有父目录生成product config、Secret文件、project identity和初始state；已有任何受管文件默认拒绝，不提供静默overwrite。
-- 使用系统加密随机源为数据库、JWT、RabbitMQ、VictoriaMetrics及每个内部API/metrics身份生成独立Secret；不复制`.env.example`开发凭据，不输出到console或argv。
-- 固定project name语法、随机identity token、edge loopback port和release manifest digest；用户可选择合法未占用端口，但不能选择wildcard、远程host、内部service地址或空project。
-- 文件先在挂载安装目录内的同目录私有temp写入、flush/sync并原子替换；失败删除本次temp，不留下半配置。Linux/POSIX mode可直接检查；Docker Desktop宿主以文件共享合同、当前用户可读性与Secret不输出为验收边界，不新增Windows ACL修改实现。
-- 非敏感state只记录schema、project、version、revision、manifest digest、Compose asset digest和已认领resource摘要，不内联Secret、Cookie、用户名、宿主绝对path或registry凭据。
+- `doctor` 检查 Docker server、Compose 版本、磁盘/内存、安装目录、端口、manifest、checksum 和 digest。
+- `init` 只在空安装目录创建随机 installation token、应用 Secret、配置和 state。
+- 文件在同一私有目录写入临时文件、flush/sync 后原子替换；失败清除本次临时文件。
+- 不在参数、环境转储、stdout、stderr、Compose 默认值或日志中输出 Secret。
+- 已初始化目录的重复 `init` 必须幂等或明确拒绝，不能覆盖现有 Secret。
 
-### 3.3 启动、初始化job与唯一edge
+### 3.3 启动与唯一 edge
 
-- `up`校验生命周期工具/manifest/config/state版本、host/server arch、image platform digest、磁盘/内存、端口和project归属后，按digest pull并以`--no-build`启动产品Compose。
-- migration、Kafka topic、Elasticsearch template/alias/search init和Monitor bootstrap继续使用幂等one-shot/服务内逻辑；任一必要job失败阻断完成，不返回伪healthy。
-- 产品Compose只发布`127.0.0.1:<edge-port>`；Backend宿主端口移出product profile。开发脚本需要Backend端口时使用明确developer override，不能改变产品manifest。
-- 启动成功后自动执行同一`verify`实现，并打印唯一用户入口。失败保留当前强归属资源供`status/logs/doctor`检查，不自动删卷或改写完成version。
-- `up`不要求Git/repository/source tree，也不从当前工作目录推导revision；全部制品身份来自bundle manifest。
+- `up` 先拉取并校验 manifest 指定 digest，再运行基础设施和必要初始化 job，最后启动常驻服务。
+- 只有 edge 对宿主发布端口；Backend、Frontend 和基础设施只通过 project network 通信。
+- 初始化 job 可重复执行且不制造重复用户、角色、索引、队列或告警状态。
+- 任一依赖失败时返回稳定阶段和诊断，不把半启动写成 ready。
 
-### 3.4 Verify、status、logs与doctor
+### 3.4 Verify、status、logs 与 doctor
 
-- `verify`只读核对预期service数量/状态/health、one-shot exit、运行image platform digest、numeric UID、read-only root、network/port、edge`/health`/`/ready`、两个SPA和API smoke。
-- `verify`不创建用户、帖子、告警或插件变更，不写MySQL/RabbitMQ/Kafka/ES/VM，不打开无法关闭的cursor/PIT。
-- `status`显示产品版本、service安全状态、唯一edge URL、volume是否存在和最近operation结果；不显示container ID全值、PID、内部URL、Secret或宿主path。
-- `logs`只对当前owned project调用Compose logs，支持固定service allowlist、`--tail`与`--since`上限；不接受任意Compose参数或shell片段，不读取`.env`打印。
-- `doctor`检查工具镜像/manifest匹配、Docker server OS/arch、Compose能力、文件共享、端口、可用资源、路径长度/case/line ending和existing project冲突；输出固定reason code和脱敏修复建议。
-- `doctor --json`/`verify --json`供Phase-16-06 evidence消费，schema不包含hostname、username、绝对path、IP、credential或业务正文。
+- `verify` 默认严格只读，不隐式 pull、build、recreate、restart、repair 或写业务数据。
+- `status` 返回安装版本、manifest digest、服务健康、唯一 edge 地址和失败阶段。
+- `logs` 支持服务 allowlist、时间范围和 tail；拒绝任意容器名，并执行 Secret 脱敏。
+- `doctor` 对端口占用、daemon 不可用、digest 缺失、磁盘不足和权限失败给出稳定退出码。
 
-### 3.5 Stop、锁与资源强归属
+### 3.5 Stop、锁与强归属
 
-- 每个安装目录一次只允许一个变更命令；operation lock包含随机ID、命令、开始时间和process identity摘要，不含Secret。陈旧lock只能在证明原process不存在且state一致后受控恢复。
-- `down`在每个stop/remove前联合验证project name/token、Compose project/service/working-dir label、resource ID、manifest digest与允许集合；unknown/multiple/mismatch安全拒绝。
-- 默认`down`只停止container/network并保留named volume；删卷必须同时给出`--volumes --confirm-project <exact>`，且逐volume重新验证归属。
-- 重复`down`在无owned resource时幂等成功；不得按name/glob清理其他project、镜像或用户文件。
-- Docker CLI/Compose将宿主Ctrl+C或终止转发为工具容器内的同一bounded cancellation；命令必须报告稳定终态，未提交temp清理，已运行stack按命令合同保留或停止，不留下第二个owner。
+- 每个变更操作获取安装级互斥锁并生成 operation id。
+- stop/down、失败清理和中断处理必须校验 project、installation token、service/resource label 与 digest。
+- 正常 down、重复 down、startup failure、SIGINT 和 SIGTERM 都得到稳定终态。
+- 默认 down 保留数据；破坏性清理需要显式 flag 与确认，并且不能影响无关 Docker 资源或用户文件。
 
 ### 3.6 开发路径兼容
 
-- 现有Bash开发入口继续可用且不被产品文档推荐为安装方式；冻结PowerShell历史文件不修改。
-- 必要Compose公共定义可抽取复用，但产品默认pull-by-digest/无Backend端口，开发默认local build/tag/可选Backend端口必须显式区分。
-- `README`、使用手册和platform support文档分别说明产品入口与源码开发入口，避免用户混用同一project或volume。
+- 现有 Bash 开发入口继续通过直接受影响的 self-test/smoke，但产品文档不再把源码脚本作为安装方式。
+- `scripts/*.ps1` 内容和 hash 保持不变。
+- 生命周期逻辑不得复制进新的宿主脚本。
 
 ## 4. 不在本批范围
 
-- `backup`、`restore`、`upgrade`实现；命令树可保留明确“未在本版本启用”占位，但不能返回伪成功。
-- 双Frontend完整设计令牌、viewport、键盘和时区产品化；只保证现有页面通过唯一edge可用。
-- Windows完整Compose/浏览器矩阵、`1.9.4`升级、跨架构恢复或阶段收口。
-- 远程host/TLS、daemon安装、Docker Desktop自动启动、宿主service注册、GUI安装器或自动更新器。
-- 修改Phase15业务、角色、插件、告警、审计和数据查询合同。
+- Frontend 视觉和交互改造、backup/restore、`1.9.4` upgrade。
+- macOS、Windows、`linux/arm64` 支持与验收。
+- 远程 Docker host、daemon 安装、宿主 service 注册、GUI 安装器和 Kubernetes。
 
 ## 5. 建议实施顺序
 
-1. 从现有脚本提取行为清单和ownership失败条件，先建立容器内共享runner、operation lock、挂载路径合同和fake-engine tests。
-2. 实现manifest/config/state严格解析及`version/doctor`，证明全部早期错误在Docker资源创建前失败。
-3. 实现`init`随机Secret、挂载目录内原子写入、Linux权限/宿主可读性验证和已有状态拒绝。
-4. 改造product Compose digest注入和唯一edge，完成`up`与one-shot initialization。
-5. 实现只读`verify/status/logs`，再实现`down`保留卷/显式删卷和中断状态机。
-6. 在Linux amd64执行完整clean install/down/up；macOS/Windows实际入口、路径、文件共享和中断差异留给Phase-16-06真实宿主验收，本批不新增原生代码。
-7. 更新产品/开发文档、版本、release manifest和同名实施记录，运行固定门禁后提交。
+1. 锁定命令、配置、state、exit code、operation 和 ownership schema。
+2. 实现 `version/doctor` 及 manifest/digest/server preflight。
+3. 实现安全 `init` 和原子 state。
+4. 实现 `up/down`、初始化 job、唯一 edge、锁和中断。
+5. 实现只读 `verify/status/logs` 与脱敏诊断。
+6. 在空 Linux 交付目录完成 clean-install 和失败注入。
+7. 运行固定门禁，更新实施记录和 `VERSION`，提交后停止。
 
 ## 6. 预计直接影响文件
 
-- `lifecycle/**`共享容器命令、Docker runner、config/state、Linux挂载/中断实现和tests
-- `deploy/compose.yaml`、新增/调整`deploy/product/**`与developer override
-- release manifest/schema、bundle构建与version metadata
-- 新`scripts/verify-lifecycle.sh`及`scripts/ci/`直接验证代码
-- `scripts/dev.sh`、`verify.sh`、`down.sh`仅在Compose复用导致必要回归时修改；`scripts/*.ps1`不得修改
-- `README.md`、`使用手册.md`、`docs/platform-support.md`和容器化命令help文档
-- `.gitattributes`/`.gitignore`仅在交付行尾、可执行位或本地state忽略直接需要时修改
-- 本批同名实施记录、`VERSION`、两个Frontend package/lockfile及受管release metadata
+- `lifecycle/**`
+- `compose*.yml` 或产品 Bundle 中的 Compose 模板
+- `config/**`、`scripts/release/**`、`scripts/verify-*.sh`
+- 产品安装与运维文档
+- `dev/logs/Phase-16/Phase-16-02-共享产品生命周期与安全初始化闭环.md`
+- `VERSION`
+
+实际文件以实现为准；不得为匹配清单创建无用文件。
 
 ## 7. 批次验收标准
 
-### 7.1 生命周期命令与初始化
-
-- 一个共享命令实现生成amd64/arm64 Linux工具镜像；三宿主的命令/flag/exit code一致，无Darwin/Windows宿主二进制、platform adapter或重复生命周期流程。
-- `init`生成各自随机且满足长度的Secret，文件安全、原子完成；已有配置、危险目录、unsafe port、坏manifest、错误arch各有代表性Docker前拒绝。
-- config/state严格解析且不含Secret；`version/doctor --json`通过schema与脱敏扫描。
-
-### 7.2 运行与唯一edge
-
-- Linux amd64从bundle、digest与空project完成`init/up/verify`，不使用Git/Go/Node/Python/curl或源码build。macOS/Windows上的同一入口是Phase-16-06验收项，不是本批完成前置。
-- 仅edge发布一个IPv4 loopback端口；Browser/host不能直达Backend、admin-frontend或任何内部service，edge`/health`、`/ready`、用户/管理SPA和API正常。
-- 全部container使用目标platform digest、预期network/volume、numeric user/read-only root；initialization job失败时不伪装启动成功。
-- 保留卷`down/up`后用户、插件desired state和可观测历史保持或按现有合同恢复。
-
-### 7.3 状态、日志、停止与中断
-
-- `verify`只读前后数据摘要相同；`status/logs/doctor`只访问当前project且无Secret/私有path。
-- concurrent mutation被operation lock拒绝；stale lock只在可证明条件下恢复。
-- 正常down、重复down、startup failure与工具容器SIGINT/SIGTERM均得到稳定终态；Windows终端转发行为在Phase-16-06真实宿主验收，无关Docker资源与用户文件快照不变。
-- `--volumes`缺少精确confirm时在删除前失败，正确确认也只删除当前逐项验证volume。
-
-### 7.4 既有回归与完成条件
-
-- Linux完整Compose中普通用户代表社交、super_admin管理大屏/插件/三类查询/告警和普通用户403仍通过；产品化没有弱化数据库授权或局部故障隔离。
-- 开发Bash入口继续通过现有self-test/必要smoke，冻结PowerShell文件hash不变。
-- 根与全部受管metadata为`1.13.2`，分支为`develop/1.13.2`，同名实施记录完整；全部固定门禁通过后提交并停止。
+1. Linux `amd64` 生命周期镜像来自一个 module/revision，命令参数、JSON 字段和退出码稳定。
+2. `doctor` 在资源创建前拒绝错误 server arch、无效 manifest/digest、端口冲突、磁盘不足和不可写目录。
+3. 从空 Bundle 目录无需源码工具即可完成 `init/up/verify/status/logs/down/up`。
+4. 初始化 Secret 随机、私有、原子写入且不泄露；重复 init 不覆盖。
+5. 只有 edge 发布宿主端口，所有初始化 job 幂等，完整 Compose 达到健康状态。
+6. `verify` 前后 Docker 和业务快照一致；`logs` 只能访问 allowlist 服务并脱敏。
+7. 并发操作、中断、失败启动和重复 down 只影响当前强归属 project。
+8. 现有 Bash 开发路径的直接回归通过，冻结 PowerShell 文件 hash 不变。
+9. 根与受管版本更新为 `1.13.2`，同名实施记录完整且无阻断问题。
 
 ## 8. 固定验证命令与回归范围
 
 ```bash
-(cd lifecycle && test -z "$(gofmt -l .)" && go test -count=1 ./... && go vet ./...)
-(cd lifecycle && go test -race -count=1 ./internal/config/... ./internal/lock/... ./internal/ownership/... ./internal/runner/...)
-scripts/verify-lifecycle.sh --self-test
-scripts/verify-lifecycle.sh --platform linux/amd64 --clean-install
-scripts/verify-compose.sh --self-test
-python3 -m unittest discover -s scripts/ci -p 'test_*.py'
-python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.13.2 --base-ref upstream/main
-git diff --check
-git diff --cached --check
+go test ./lifecycle/...
+scripts/test-lifecycle.sh
+scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/amd64 --runtime
+scripts/verify-product-lifecycle.sh --platform linux/amd64 --clean-install
+scripts/verify-product-lifecycle.sh --platform linux/amd64 --failure-matrix
+scripts/verify-compose.sh
 ```
 
-- `--clean-install`在真实Linux amd64 host/Docker server运行，并包含现有完整Compose代表业务/管理回归。
-- macOS/Windows本批不新增Go平台adapter或原生CLI测试；完整Docker Desktop/Compose入口、路径和中断验收留给Phase-16-06，不写已支持。
-- 若产品/开发Compose共享改动影响现有runner，补跑`scripts/verify-compose.sh`一次并记录风险；未影响的Frontend unit不重复。
-- 提交后补充`git diff --check upstream/main...HEAD`。
+脚本名称可在实现时按仓库结构等价调整，并在实施记录中写明。最终门禁只运行一次；只有相关代码、配置、依赖或环境变化时才重跑成功项。
 
 ## 9. 实施记录与下一批交接
 
-完成前创建`dev/logs/Phase-16/Phase-16-02-共享产品生命周期与安全初始化闭环.md`，记录容器化生命周期命令/exit code、config/state schema、Secret生成与权限、Compose差异、Linux真实host/server、macOS/Windows deferred项、唯一edge、operation lock、signal/cleanup、只读verify和全部失败轮次。
+完成前创建 `dev/logs/Phase-16/Phase-16-02-共享产品生命周期与安全初始化闭环.md`，记录实际命令、配置/state schema、Secret 权限、Linux host/server、唯一 edge、锁、signal、清理、验证结果、失败轮次和偏差。
 
-交给Phase-16-03的固定输入是稳定的唯一origin、同一容器化生命周期clean install、两个独立SPA和不变的Backend授权；backup/restore/upgrade仍未实现，不能由占位命令或手工卷操作冒充。
+交给 Phase-16-03 的固定输入是可从 Bundle 调用的稳定生命周期、唯一 edge、安装 state、API origin 和只读验证合同。
+
