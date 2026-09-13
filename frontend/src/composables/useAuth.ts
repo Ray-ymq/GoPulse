@@ -74,11 +74,8 @@ async function login(credentials: Credentials): Promise<void> {
 }
 
 async function logout(): Promise<void> {
-  try {
-    await authApi.logout()
-  } finally {
-    clear()
-  }
+  await authApi.logout()
+  clear()
 }
 
 export function useAuth() {

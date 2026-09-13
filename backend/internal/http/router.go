@@ -115,6 +115,7 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 		middleware.RequestID(httpLogger, dependencies.RequestIDGenerator),
 		middleware.Access(httpLogger),
 		middleware.Recovery(httpLogger),
+		middleware.SameOrigin(),
 	)
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readinessHandler(dependencies, checkerTimeout, requestTimeout))

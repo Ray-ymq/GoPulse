@@ -21,7 +21,7 @@ export function backendTarget(environment: Record<string, string | undefined>): 
 
 export function backendProxyConfig(environment: Record<string, string | undefined>) {
   const target = backendTarget(environment)
-  const proxy = () => ({ target, changeOrigin: true })
+  const proxy = () => ({ target, changeOrigin: false })
   return {
     '/health': proxy(),
     '/ready': proxy(),

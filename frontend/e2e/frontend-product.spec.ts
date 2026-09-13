@@ -20,6 +20,8 @@ test('product edge, keyboard login, roles, logout, recovery and local audit time
   expect(response.headers()['cache-control']).toContain('no-store')
   for (const cookie of await context.cookies()) { expect(cookie.httpOnly).toBe(true); expect(cookie.path).toBe('/'); expect(cookie.sameSite).toBe('Lax'); expect(cookie.secure).toBe(false) }
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([])
+  expect((await page.request.post('/api/v1/auth/logout', { headers: { Origin: 'https://evil.invalid' } })).status()).toBe(403)
+  expect((await page.request.get('/api/v1/users/me')).status()).toBe(200)
   await page.keyboard.press('Tab')
   await page.locator('.gp-skip').focus()
   await page.keyboard.press('Enter')
