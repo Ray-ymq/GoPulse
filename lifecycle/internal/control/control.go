@@ -310,10 +310,9 @@ func (c *Controller) distribution(ref string, platform bool) error {
 			found = true
 		}
 	}
-	if !found {
+	if !platform && !found {
 		return errors.New("registry platform mismatch")
 	}
-	_ = platform
 	return nil
 }
 func (c *Controller) doctor(port int) error {
