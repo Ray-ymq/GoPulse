@@ -2,7 +2,7 @@
 
 ## 状态
 
-**2026-09-13：实施中，仅完成格式层与离线检查，整批未完成、未验收。**
+**2026-09-13：实施中，已完成格式层/离线检查及 Monitor 离线插件状态传输子项；整批仍未完成、未验收。**
 
 - 对应计划：`dev/imple/Phase-16/Phase-16-04-一致备份恢复与诊断闭环.md`。
 - 批次目标版本/分支：`1.13.4` / `develop/1.13.4`。
@@ -171,3 +171,68 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 验证：44 个治理单元测试、孤立临时 Git/裸远端的真实批次引导演练、版本/分支校验、
 备份格式测试、Bash 语法和 `git diff --check` 均通过。当前 `develop/1.13.4` 已存在，
 因此未用该脚本重建或覆盖本分支。
+
+## 2026-09-13：撤回模拟升级尝试，补齐 Monitor 离线传输子项
+
+### 开工与范围
+
+用户同意先补齐本批前置能力，再继续 Phase-16-05，并要求推送。
+执行 `git fetch upstream`，基线为 `98799c2`。旧本地 `develop/1.13.4` 因主线 squash 历史无法 fast-forward；
+先保留为本地 `archive/phase16-04-before-recovery`，再从 `upstream/main` 重建同名开发分支。
+没有重命名已推送分支，也未强制推送。用户原有 `~` 未读取、修改或 stage。
+
+前次 Phase-16-05 工作区的模拟升级、手写逻辑 fixture、虚构目标 manifest、伪备份恢复脚本和完成声明已撤回。
+未跟踪的本次尝试文件移到仓库外 `/tmp/gopulse-rejected-phase16-05/`；这些不作为产品输入或验收证据。
+根与受管版本恢复为主线 `1.13.4`，不把未完成批次升级为 `1.13.5`。
+
+### 实际变更
+
+- `monitor/internal/plugin/portable.go`：读取现有 active revision 的公开状态/Secret 双区传输，复用各插件配置适配器与 image-owned catalog；相同 catalog 的空目标恢复重新物化可信包，不执行备份携带的二进制。
+- `monitor/internal/plugin/runtime.go`：runtime 与离线传输共享存储 lease；未完成导入 marker 阻止正常启动。
+- `monitor/internal/plugin/portable_command.go`、`monitor/cmd/monitor/main.go`：同一个 Monitor 可执行文件中的 pipe-only `plugin-state export/import`，没有新 HTTP 凭据导出端点；非 pipe 和错误输入给出固定脱敏失败。
+- `monitor/internal/plugin/portable_test.go`：从真实 runtime revision 进行 round trip；验证正常 runtime 可重新启动恢复的插件，以及运行中导出、非空目标、未知字段、公开配置混入 Secret、包篡改、未完成 marker 的拒绝。
+- `scripts/verify-plugin-state.sh`、`scripts/ci/verify_plugin_state.py`：独立的真实 Redis/Monitor 容器子项检查，明确标注不等价于产品备份验收。
+- `.github/workflows/quality-gates.yml`：将新 Bash 入口加入语法检查；没有新增声称备份恢复通过的 CI job。
+- `docs/releases/backup-plugin-state.md`：内部传输、Secret 边界、互斥、同 catalog 恢复和未交付范围。
+
+### 实际验证与修正
+
+- `(cd monitor && go test ./... && go vet ./...)`：最终生产代码通过。
+- `(cd monitor && go test -race ./internal/plugin)`：通过。扩展理由：本次修改了 runtime 与离线命令共享的持久状态并发边界。
+- 按 `deploy/docker/observability.Dockerfile` 的生产 `monitor` target 在真实 Linux amd64 Docker 上构建，使用文件锁定的 Go/Alpine 构建环境；不是修改旧镜像中的二进制冒充候选。
+- 构建命令：
+  `docker build --platform linux/amd64 --target monitor -f deploy/docker/observability.Dockerfile --build-arg TARGETARCH=amd64 --build-arg VERSION=1.13.4 --build-arg REVISION=working-tree-portable -t gopulse/monitor:phase16-04-portable .`
+- 首轮脚本失败：使用了 `Path.open` 不支持的 `opener` 参数，改为内置 `open`；后续发现缺少独立 metrics tokens/产品版本，补齐与现有 Monitor 相符的启动配置。
+- 实现过程中发现离线适配器默认 host 模式会拒绝 Compose 服务名，修正为 container 模式并同步直接测试；也补齐了测试的真实 bootstrap 配置。
+- 因这些相关生产/脚本修改，重建镜像并重跑尚未通过的容器子项；不把失败运行当作验收成功。
+- 最终命令：
+  `scripts/verify-plugin-state.sh --monitor-image sha256:fb4de90141e8173e47cf771cf898acc22a665bbe16979d63a50a6981287da2c5 --evidence .run/phase16-04-portable/evidence.json`
+  **通过**。
+- 镜像对应工作树候选，label 明确为 `working-tree-portable`，不是正式 release manifest 或整套产品发布。
+- Redis 使用锁定平台 digest `sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f`。
+- 实际导出的 catalog digest：`sha256:a0ab8dd7657ff3bf36252a6dca422f87b2165b83bb49cde6b3e2b54a45c13d1c`。
+- 真实验证结果：1 个 Redis 插件的 ID、版本、desired state、安装/更新时间保持；恢复后产生新的成功采集时间；拒绝 live export 和 nonempty import；本次带随机 label 的容器、volume、network 全部清理。
+- 容器子项使用内置 discard publisher；没有验证下游历史入库，不以此宣称六插件或跨数据域恢复成功。
+
+### 剩余必需工作（不是非阻断优化）
+
+1. Lifecycle maintenance/write quiesce、异步排空及一致 cutover。
+2. MySQL、Elasticsearch、VictoriaMetrics 权威导出/导入，以及 RabbitMQ/Kafka 拓扑和 offset 合同。
+3. 将此内部插件 transport 接入 format v1：Secret 独立加密、配置可移植转换、各域实际 counts/time ranges；当前 transport 本身不是加密备份。
+4. Lifecycle 空 project 恢复、operation ownership 清理、ready 发布与失败/中断诊断。
+5. 最后采集时间/历史摘要的持久化迁移与各业务域事实核对。
+6. 同架构产品恢复、六插件和双 Frontend、新写入、tamper/口令/空间/导入失败/中断的固定产品门禁。
+
+本次只完成上述 Monitor 子项，**Phase-16-04 整批仍未完成，不得进入 Phase-16-05 验收**。
+未新增虚假的 `verify-backup-restore.sh` 通过入口；本次未执行尚未实现的完整备份恢复固定门禁。
+
+提交前检查（本次实际执行）：
+
+- `bash -n scripts/verify-plugin-state.sh`：通过。
+- `python3 -m py_compile scripts/ci/verify_plugin_state.py`：通过。
+- `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：44 tests，通过。
+- `python3 scripts/ci/validate_versions.py`：通过，保持 `1.13.4`。
+- `python3 scripts/ci/validate_branch.py --branch develop/1.13.4 --base-ref upstream/main`：通过。
+- `git diff --check`：通过。
+
+以上均为部分实施的检查记录，不替代计划第 8 节尚未通过的固定产品门禁。
