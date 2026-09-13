@@ -266,3 +266,8 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 实际通过 `(cd lifecycle && go test ./... && go vet ./...)`、`scripts/test-backup-format.sh`、
 Python harness 编译及 `git diff --check`。由于 bundle README 是受摘要绑定的 payload，最终候选
 必须重新构建；新 lifecycle failure 路径和新的候选身份是后续最终矩阵执行理由，而不是因上下文切换重复验收。
+
+第三轮候选剩余失败矩阵和 reuse-install 已全部通过：真实 SIGTERM 清理、同归档重试、源状态和业务计数不变、诊断 Secret 扫描；reuse-install 保持安装身份、只读 verify/status 和双前端路由。所有第三轮测试 project 已经由原 bundle 强归属 purge；私有证据保留在 `.run/phase16-04-recovery/accepted-v3`。
+
+最终候选 `4bc686205755fe37cfd97f8b0fdecaccf3a6da7a` 构建完成，路径 `dist/phase16-04-recovery-v4`。
+初次构建 APK 网络停滞超过 15 分钟后主动取消；仅传宿主代理在 bridge 内连接被拒。使用 `/tmp` 临时 Docker wrapper 给 buildx 传标准代理 build args 和 `--network host` 后真实完整构建成功（未修改源码/依赖、未把代理写入 Dockerfile）。构建日志为 `build-final-host.log`；最终新候选恢复矩阵已启动，尚不计完成。
