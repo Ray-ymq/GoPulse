@@ -38,11 +38,12 @@ type runtimeSlot struct {
 	status    Status
 }
 type runtimeCore struct {
-	cfg      ManagerConfig
-	catalog  *releaseCatalog
-	identity storageIdentity
-	mu       sync.RWMutex
-	slots    map[string]*runtimeSlot
+	cfg          ManagerConfig
+	catalog      *releaseCatalog
+	identity     storageIdentity
+	releaseLease func()
+	mu           sync.RWMutex
+	slots        map[string]*runtimeSlot
 	// Private test seam represents a process interruption, not a production flag.
 	interrupt func(string) error
 }
@@ -85,7 +86,15 @@ func newRuntimeCore(ctx context.Context, cfg ManagerConfig, catalog *releaseCata
 	if err = os.Chmod(root, 0700); err != nil {
 		return nil, err
 	}
-	c := &runtimeCore{cfg: cfg, catalog: catalog, identity: identity, slots: map[string]*runtimeSlot{}}
+	releaseLease, err := storageLease(root)
+	if err != nil {
+		return nil, err
+	}
+	if err = rejectPendingImport(root); err != nil {
+		releaseLease()
+		return nil, err
+	}
+	c := &runtimeCore{cfg: cfg, catalog: catalog, identity: identity, slots: map[string]*runtimeSlot{}, releaseLease: releaseLease}
 	for _, item := range OfficialCatalog() {
 		c.slots[item.ID] = &runtimeSlot{operation: make(chan struct{}, 1)}
 	}
@@ -928,6 +937,9 @@ func (c *runtimeCore) shutdown(ctx context.Context) error {
 		if err != nil {
 			failures = append(failures, err)
 		}
+	}
+	if len(failures) == 0 && c.releaseLease != nil {
+		c.releaseLease()
 	}
 	return errors.Join(failures...)
 }
