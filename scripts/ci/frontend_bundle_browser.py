@@ -3,6 +3,7 @@ import json
 import datetime
 import urllib.parse
 import os
+import re
 import subprocess
 from pathlib import Path
 from verify_plugin_metrics import Client, wait_until
@@ -19,8 +20,9 @@ def run_browser(install, state, status, secrets, image, docker):
     assert len(backend) == 1
     labels = json.loads(docker('inspect', backend[0]))[0]['Config']['Labels']
     runner_labels = info['Config'].get('Labels', {})
-    for key in ['org.opencontainers.image.version', 'org.opencontainers.image.revision']:
-        assert runner_labels.get(key) == labels[key], 'browser/Backend candidate identity mismatch'
+    assert runner_labels.get('org.opencontainers.image.version') == labels['org.opencontainers.image.version'], 'browser/Backend version mismatch'
+    runner_revision = runner_labels.get('org.opencontainers.image.revision', '')
+    assert re.fullmatch(r'[0-9a-f]{40}', runner_revision), 'browser source revision required'
     origin = status['edge']
     admin, user = Client(origin), Client(origin)
     token = os.urandom(6).hex()
@@ -68,4 +70,4 @@ def run_browser(install, state, status, secrets, image, docker):
                            capture_output=True, text=True, timeout=60, check=True)
         finally:
             file.unlink(missing_ok=True)
-    return {'runner_image':image, 'timezone':'Asia/Shanghai', 'checks':checks}
+    return {'runner_image':image, 'runner_revision':runner_revision, 'product_revision':labels['org.opencontainers.image.revision'], 'timezone':'Asia/Shanghai', 'checks':checks}

@@ -34,4 +34,4 @@ scripts/verify-product-lifecycle.sh \
   --acceptance-image sha256:<本机浏览器镜像ID>
 ```
 
-浏览器镜像必须是 Linux amd64，且 OCI version/revision 与被测 Backend 候选一致；不接受可变 tag 作为该参数。实际候选目录和镜像 ID 以本批实施记录为准。此工具入口不要求宿主 Node.js，也不改变产品 Bundle 的启动合同。
+浏览器镜像必须是 Linux amd64，且 OCI version 与被测 Backend 候选一致；receipt 分别记录测试源码 revision 与产品 revision，允许不改变产品制品的验收脚本修正；不接受可变 tag 作为该参数。实际候选目录和镜像 ID 以本批实施记录为准。此工具入口不要求宿主 Node.js，也不改变产品 Bundle 的启动合同。

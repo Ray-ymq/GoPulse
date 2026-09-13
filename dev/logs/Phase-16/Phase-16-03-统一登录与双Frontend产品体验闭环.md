@@ -82,3 +82,5 @@ Bundle runner 初次调试在候选身份校验处失败（`KeyError: version`�
 canonical UTC 修正后，Bundle 已进入真实 browser。desktop 的事件 loading/stale/unavailable/empty/恢复通过；登录/角色/跨源拒绝/登出/本地审计以及服务恢复均到达预期，最后组合步骤“恢复后立即清 Cookie 并 reload”落到了 auth-recovery 而非 login，导致该轮失败（`/tmp/gopulse-p1603-bundle-final-v2.log`）。不把本轮或最后断言记为通过，也不据此臆断 Backend 故障。
 
 将两个独立 fixture 隔离：完成恢复后先结束原文档（about:blank），再清 Cookie 并重新访问受保护 `/posts`。这避免把前一恢复文档尚在进行的请求/导航与下一次失效注入交叠；仍严格要求真正无 Cookie 的页面跳到统一 login，未接受 auth-recovery 作为通过。生产代码不变。该改动仅改变 browser 测试输入的时序，已有产品 candidate 与完整 Compose/六插件结果继续有效；最终 Bundle 使用更新后的测试 runner，再执行尚未通过的两视口矩阵。
+
+测试 runner 的 provenance 与产品分开记录：版本仍必须相同，新增 `runner_revision` / `product_revision` receipt 字段。测试脚本修正不应伪装成旧源码 revision，也不应迫使未修改的已通过产品重建。刚才一次未运行的临时 runner 构建曾沿用产品 REVISION 参数，现明确废弃；最终重建使用测试源码真实 Git archive commit `557fe1a` 的完整 hash 作为 OCI revision，实际运行使用其 immutable image ID。产品仍绑定 v2 manifest。文档同步解释这一测试工具与产品来源的区别。
