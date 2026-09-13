@@ -56,3 +56,23 @@ Bundle runner 初次调试在候选身份校验处失败（`KeyError: version`�
 第二轮 Bundle 调试安装、唯一 edge、角色 bootstrap、Redis 插件 running 均已实际达到，但等待启动时的 best-effort Event 超时（120 秒），尚未进入 browser。修正 fixture 为完整 Bundle ready 后执行一次真实 Redis 插件 stop/start，再等待可观测事件；不伪造记录，不延长等待上限。该改动仅修复 browser fixture 的时序，未改生产采集链。第二轮由 lifecycle purge 完成清理；输出 `/tmp/gopulse-p1603-bundle-browser-v2.log`。
 
 对 Event 等待失败进一步核对直接公开调用点，发现 fixture 的实际错误是使用了 Metrics 的 `range=15m` 参数：Events API 要求 `from` / `to` / `limit`，与 Frontend 的 `pageQuery` 一致。前述 bootstrap best-effort 时序只是初始假设，不能当作确认的根因。现已改为 UTC from/to/limit，并在轮询前先执行一次请求，使 HTTP 合同错误立即失败，不再被通用 wait_until 吞掉到超时。ready 后真实 stop/start 保留为明确的事件 fixture。
+
+## 最终候选及已通过 release 门禁
+
+最终产品候选：`dist/phase16-03-v2/`；产品与最终 browser 镜像均由已提交的 `03cd7b05d9c01f5067241668453aa367d111dfb6` Git archive 构建，版本 `1.13.3`。此前 v1 是调试候选，不与最终证据混用。最终 builder 结束后已再次撤销临时 qemu-aarch64 注册，实际验收均在原 Linux amd64 Docker daemon。
+
+- Manifest SHA256：`50c39e1008d5f33bc8575409cd1473c1f77401b9480c2a3847851402af8ac9d7`。
+- `scripts/verify-release-artifacts.sh --manifest /home/ray/GoPulse/dist/phase16-03-v2/release-manifest.json --platform linux/amd64 --runtime` **通过**，在干净 worktree `/tmp/gopulse-p1603-verify` 运行，输出 `/tmp/gopulse-p1603-release-runtime-final.log`。
+- Release receipt：`dist/phase16-03-v2/verification-amd64.json`，状态 `amd64-runtime-and-compose-passed`，绑定上述 manifest/revision。
+- 此命令内嵌的 `scripts/verify-compose.sh` 已通过完整业务、权限、依赖故障恢复、服务替换、signal、保留卷、管理安装/启停以及六插件真实采集/局部故障隔离回归；不另外重复该固定门禁。
+- 容器内 `frontend-product.spec.ts` 的 desktop/narrow 两组各 2 项通过，时区固定 Asia/Shanghai；覆盖同源登录回跳、普通用户管理 API 403、401/登出/恢复、跨源登出 403 且原会话保留、cookie/CSP/cache、键盘焦点、审计 UTC 筛选和本地显示，以及真实事件的 loading/stale/unavailable/empty/恢复。
+- `phase15-closure.spec.ts --grep 'create exact three-source'` 的三源规则创建直接回归通过。没有将其称为重新验收整个三源告警引擎历史矩阵；本批直接改变的是来源安全边界和 Frontend。
+- 前两组 browser 使用容器内 origin；最后的 Bundle browser 使用真实安装发布的 loopback edge 含动态端口 origin。二者路由/端口及 Compose 布局不同，后者是验证 `$http_host` 来源保护与唯一产品 edge 的必要环境检查，不是对相同环境重复追求覆盖率。
+
+第三轮 v1 调试仍由已加载旧 fixture 的进程执行旧 range 参数，并以同一 Event 等待超时结束；输出 `/tmp/gopulse-p1603-bundle-browser-v3.log`，该轮不记通过。所有已失败调试安装和第一轮 Compose 项目均已按自身归属清理，保留原有 Docker 项目。
+
+## 最终 Bundle fixture 的 UTC 修正
+
+同一 v2 候选第一次 Bundle 门禁在 fixture 的首次 Events 请求明确返回 400，已不再吞错等待。原因是 Python `isoformat()` 生成 `+00:00`，而现有 Events 参数合同检查 `time.UTC`，浏览器统一发送 `Z`。按 Backend `ParseOptions` 与 Frontend `toISOString()` 的直接合同，将 fixture 的两个时间都改为 canonical `Z`；不改 API、不放宽生产校验。该轮输出 `/tmp/gopulse-p1603-bundle-final.log`，安装已 purge。
+
+这次仅修改宿主验收 fixture 的序列化，不修改任何产品/browser 镜像输入、配置、依赖或运行平台。最终十个产品镜像及 browser 镜像继续使用已通过 release gate 的 v2 manifest/revision；不因验收脚本修正或补写日志重建候选、重跑已通过的完整 Compose 门禁。后续只重跑尚未通过的 Bundle 生命周期/browser 项。

@@ -40,7 +40,7 @@ def run_browser(install, state, status, secrets, image, docker):
     admin.request('exporter-plugins/redis-exporter/start', 'POST')
     def events():
         now = datetime.datetime.now(datetime.timezone.utc)
-        query = urllib.parse.urlencode({'from':(now-datetime.timedelta(minutes=15)).isoformat(), 'to':now.isoformat(), 'limit':'50'})
+        query = urllib.parse.urlencode({'from':(now-datetime.timedelta(minutes=15)).isoformat().replace('+00:00', 'Z'), 'to':now.isoformat().replace('+00:00', 'Z'), 'limit':'50'})
         return admin.request('observability/events?'+query)['data']
     if not events():
         wait_until(events, 'real transported event', 120)
