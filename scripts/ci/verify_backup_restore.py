@@ -70,6 +70,7 @@ class Recovery:
                 '--user',str(os.getuid())+':'+str(os.getgid()),'--group-add',str(os.stat(endpoint).st_gid),'--tmpfs','/tmp',
                 '-v',endpoint+':'+endpoint,'-v',str(self.bundle)+':/bundle:ro','-v',str(self.work)+':'+str(self.work),self.image]
     def argv(self,name,command,*args):
+        if command == 'backup-inspect':return [*self.base(),command,*args]
         return [*self.base(),command,'--install',str(self.work/name),'--endpoint','unix:///var/run/docker.sock',*args]
     def call(self,name,command,*args,expected=0):
         result=subprocess.run(self.argv(name,command,*args),capture_output=True,text=True,timeout=1200)

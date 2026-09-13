@@ -249,3 +249,7 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 首轮真实候选/源产品演练：构建 `d10f9a3` 的 Linux amd64 全产品候选，真实用户、业务搜索、六插件采集、告警历史和审计种子成功；backup 在 `search-export` 拒绝实际按日期命名的 ES 索引（名称含 `.`）。已修正为独立的受限 ES 名称合同并加入该已观察缺陷的直接测试。该轮不计验收通过；源 project 已经通过其原 bundle 的 ownership 检查执行 `down --purge`，没有修改无关资源。
 
 构建过程中发现单平台 buildx 产生单 manifest 而非 index，已让 builder 用实际内容构建单平台 OCI index，而不是填入不存在的另一架构。还将两个 runtime Dockerfile 的版本 label ARG 移到包安装层之后：实际多次构建中无关 revision 使相同 APK 安装反复耗时约 100 秒，此调整只避免该缓存失效，不改变依赖或运行内容，最终候选继续核对真实 OCI 标签。
+
+第二轮真实候选 `bb815b1`：源产品种子、六插件真实采集、维护停写、六域加密 backup、独立 inspect 及公开 payload Secret 扫描均成功。首次 inspect 调用误带生命周期通用参数，修正 harness 后从已有真实 backup 继续，没有重跑已经成功的源备份。空目标恢复已经执行 MySQL、ES、VM、RabbitMQ/Kafka 导入，但在 Monitor 停止态容器创建阶段失败；本机 `docker compose create --help` 确认不支持 `--no-deps`，现改用受支持的 `up --no-start --no-deps`。该轮未判定恢复完成，失败目标由原操作清理，随后用原 bundle 清理源 project。
+
+继续补齐计划必需合同：共享严格 JSON 解析、带 operation 身份的中断 ciphertext 清理、精确 failed_stage 和显式私有 doctor diagnostics、ES 规范化/时间范围、RabbitMQ 原生队列排空及拓扑摘要、Kafka 动态 topic 配置和新 topic 零点 rebase 验证。源 offset 作为 cutover 证据保存，不用伪消息填充新 topic 来冒充原 offset。

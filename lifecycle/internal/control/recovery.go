@@ -20,6 +20,7 @@ var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 func strictData(b []byte, v any) error { return backup.DecodeJSON(b, v) }
 
 type snapshotConfig struct {
+	RabbitSHA   string            `json:"rabbitmq_sha256"`
 	Schema      int               `json:"schema"`
 	Values      map[string]string `json:"values"`
 	MySQLCounts map[string]int64  `json:"mysql_counts"`
@@ -182,7 +183,8 @@ func (c *Controller) snapshot(pass []byte) (backup.Manifest, map[string][]byte, 
 	}
 	cfg.SearchSHA = release.Sum(files["elasticsearch.json"])
 	counts["indices"] = int64(len(counts))
-	m.Domains["elasticsearch"] = backup.Domain{Cutover: cutover, Start: cutover, End: cutover, Counts: counts}
+	searchStart, searchEnd := searchTimeRange(files["elasticsearch.json"], cutover)
+	m.Domains["elasticsearch"] = backup.Domain{Cutover: cutover, Start: searchStart, End: searchEnd, Counts: counts}
 	if e = c.phase("export-metrics"); e != nil {
 		return m, nil, e
 	}
@@ -203,6 +205,7 @@ func (c *Controller) snapshot(pass []byte) (backup.Manifest, map[string][]byte, 
 	if e != nil {
 		return m, nil, e
 	}
+	cfg.RabbitSHA = release.Sum(files["rabbitmq.json"])
 	var topology map[string][]json.RawMessage
 	_ = json.Unmarshal(files["rabbitmq.json"], &topology)
 	m.Domains["rabbitmq"] = backup.Domain{Cutover: cutover, Start: cutover, End: cutover, Counts: map[string]int64{"queues": int64(len(topology["queues"])), "exchanges": int64(len(topology["exchanges"])), "bindings": int64(len(topology["bindings"]))}, Drained: true}
@@ -285,7 +288,7 @@ func (c *Controller) createBackup(path string, pass []byte) error {
 			clear(v)
 		}
 	}
-	if e = backup.Publish(c.ctx, c.dir, filepath.Base(path), blob); e != nil {
+	if e = backup.PublishOperation(c.ctx, c.dir, filepath.Base(path), blob, c.state.Operation); e != nil {
 		return fail(Failed, "backup-publish", "encrypted backup was not published; inspect destination capacity")
 	}
 	if e = c.phase("backup-published"); e != nil {
@@ -335,7 +338,7 @@ func (c *Controller) openRestore(path string, pass []byte) (*restoredBackup, err
 			return nil, fail(BackupInvalid, "restore-secrets", "unsupported credential")
 		}
 	}
-	if r.Config.MySQLSHA != release.Sum(files["mysql.sql"]) || r.Config.SearchSHA != release.Sum(files["elasticsearch.json"]) || r.Config.PluginsSHA != release.Sum(files["plugins.json"]) {
+	if r.Config.RabbitSHA != release.Sum(files["rabbitmq.json"]) || r.Config.MySQLSHA != release.Sum(files["mysql.sql"]) || r.Config.SearchSHA != release.Sum(files["elasticsearch.json"]) || r.Config.PluginsSHA != release.Sum(files["plugins.json"]) {
 		return nil, fail(BackupInvalid, "restore-facts", "logical export digest mismatch")
 	}
 	if e = c.disk(uint64(len(blob))*3 + (5 << 30)); e != nil {
@@ -392,6 +395,7 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 		}
 	}
 	c.state.Operation = random()
+	c.state.FailedStage = ""
 	if err = c.save(); err != nil {
 		return err
 	}
@@ -410,6 +414,12 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 		defer func() { c.ctx = old }()
 		if _, e := c.owned(); e == nil {
 			_ = c.compose("down", "--volumes", "--timeout", "20")
+		}
+		var failure *Failure
+		if errors.As(err, &failure) {
+			c.state.FailedStage = failure.Stage
+		} else {
+			c.state.FailedStage = c.state.Phase
 		}
 		_ = c.phase("restore-failed")
 	}()
@@ -463,11 +473,29 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 	if err = c.kafkaImport(r.Files["kafka.json"]); err != nil {
 		return err
 	}
+	restoredRabbit, e := c.rabbitExport()
+	if e != nil {
+		return e
+	}
+	if release.Sum(restoredRabbit) != r.Config.RabbitSHA {
+		return fail(Failed, "restore-verify-rabbitmq", "restored topology differs from cutover")
+	}
+	var sourceKafka kafkaState
+	if strictData(r.Files["kafka.json"], &sourceKafka) != nil {
+		return fail(BackupInvalid, "restore-kafka", "invalid topology")
+	}
+	restoredKafka, e := c.kafkaState()
+	if e != nil {
+		return e
+	}
+	if restoredKafka.Offsets[0].Committed != 0 || restoredKafka.Offsets[0].End != 0 || string(marshal(sourceKafka.Configs)) != string(marshal(restoredKafka.Configs)) {
+		return fail(Failed, "restore-verify-kafka", "new-topic offset/configuration verification failed")
+	}
 	if err = c.phase("restore-plugins"); err != nil {
 		return err
 	}
 	// Compose creates only this owned volume; it does not launch Monitor yet.
-	if err = c.compose("create", "--no-build", "--pull", "never", "--no-deps", "monitor"); err != nil {
+	if err = c.compose("up", "--no-build", "--pull", "never", "--no-deps", "--no-start", "monitor"); err != nil {
 		return err
 	}
 	input := marshal(pluginTransport{r.Files["plugins.json"], r.Secrets.Plugins})
@@ -529,25 +557,62 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 	return c.phase("ready")
 }
 
-func (c *Controller) recoveryDiagnostic(err error) error {
+func (c *Controller) recoveryDiagnostic(err error, explicitDir string, command string) error {
 	var f *Failure
 	if !errors.As(err, &f) {
 		f = &Failure{Code: Failed, Stage: c.state.Phase, Message: "recovery operation failed; raw diagnostics suppressed"}
 	}
 	if c.ctx.Err() != nil {
-		f = &Failure{Code: Interrupted, Stage: c.state.Phase, Message: "operation interrupted; inspect diagnostic; resume source with up or retry restore from the verified archive"}
+		stage := c.state.FailedStage
+		if stage == "" {
+			stage = c.state.Phase
+		}
+		f = &Failure{Code: Interrupted, Stage: stage, Message: "operation interrupted; inspect diagnostic; resume source with up or retry restore from the verified archive"}
 	}
-	if len(c.state.Token) != 64 || privateDir(c.dir) != nil {
+	dir := explicitDir
+	if dir == "" {
+		if len(c.state.Token) != 64 || privateDir(c.dir) != nil {
+			return f
+		}
+		dir = filepath.Join(c.dir, "diagnostics")
+		if os.MkdirAll(dir, 0700) != nil {
+			return f
+		}
+	}
+	if privateDir(dir) != nil {
 		return f
 	}
-	dir := filepath.Join(c.dir, "diagnostics")
-	if os.MkdirAll(dir, 0700) != nil || privateDir(dir) != nil {
-		return f
+	operation := c.state.Operation
+	if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(operation) {
+		operation = random()
 	}
-	path := filepath.Join(dir, c.state.Operation+".json")
-	safe := map[string]any{"schema": 1, "command_scope": "backup-restore", "operation_id": c.state.Operation, "version": c.state.Version, "manifest_digest": c.manifestHash, "phase": c.state.Phase, "failure_stage": f.Stage, "exit_code": f.Code, "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore"}
+	path := filepath.Join(dir, operation+".json")
+	safe := map[string]any{"schema": 1, "command_scope": command, "operation_id": operation, "version": c.state.Version, "manifest_digest": c.manifestHash, "phase": c.state.Phase, "failure_stage": f.Stage, "exit_code": f.Code, "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore"}
 	if atomicFile(path, marshal(safe)) == nil {
 		f.Diagnostic = path
 	}
 	return f
+}
+
+func (c *Controller) cleanupPendingCiphertext() error {
+	if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(c.state.Operation) {
+		return fail(Ownership, "backup-journal", "invalid prior operation identity")
+	}
+	root, e := os.OpenRoot(c.dir)
+	if e != nil {
+		return fail(Permission, "backup-journal", "cannot inspect prior operation")
+	}
+	defer root.Close()
+	name := ".backup-pending-" + c.state.Operation
+	info, e := root.Lstat(name)
+	if errors.Is(e, os.ErrNotExist) {
+		return nil
+	}
+	if e != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return fail(Permission, "backup-journal", "unsafe pending ciphertext; manual scoped inspection required")
+	}
+	if e = root.Remove(name); e != nil {
+		return fail(Permission, "backup-journal", "cannot remove prior operation ciphertext")
+	}
+	return nil
 }

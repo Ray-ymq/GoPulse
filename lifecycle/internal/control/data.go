@@ -224,7 +224,7 @@ func (c *Controller) searchExport() ([]byte, map[string]int64, error) {
 		counts[name] = int64(len(index.Documents))
 		result.Indices = append(result.Indices, index)
 	}
-	return marshal(result), counts, nil
+	return canonicalJSON(marshal(result)), counts, nil
 }
 func (c *Controller) searchImport(raw []byte) error {
 	var data searchExport
@@ -274,7 +274,7 @@ type metricSummary struct {
 }
 
 func (c *Controller) metricFacts(end time.Time) (metricSummary, error) {
-	values := url.Values{"match[]": {`{__name__!=""}`}, "start": {"0"}, "end": {strconv.FormatInt(end.UnixMilli(), 10)}}
+	values := url.Values{"match[]": {`{__name__!=""}`}, "start": {"0"}, "end": {end.UTC().Format(time.RFC3339Nano)}}
 	raw, e := c.request("victoriametrics", "POST", "/api/v1/export", "application/x-www-form-urlencoded", []byte(values.Encode()))
 	if e != nil {
 		return metricSummary{}, e
@@ -323,7 +323,7 @@ func (c *Controller) metricExport(end time.Time) ([]byte, metricSummary, error) 
 	if e != nil {
 		return nil, facts, e
 	}
-	values := url.Values{"match[]": {`{__name__!=""}`}, "start": {"0"}, "end": {strconv.FormatInt(end.UnixMilli(), 10)}}
+	values := url.Values{"match[]": {`{__name__!=""}`}, "start": {"0"}, "end": {end.UTC().Format(time.RFC3339Nano)}}
 	raw, e := c.request("victoriametrics", "POST", "/api/v1/export/native", "application/x-www-form-urlencoded", []byte(values.Encode()))
 	return raw, facts, e
 }
@@ -388,9 +388,17 @@ func (c *Controller) rabbitExport() ([]byte, error) {
 		if !ok {
 			return nil, fail(Failed, "rabbit-export", "incomplete topology")
 		}
-		out[key] = v
+		var entries []json.RawMessage
+		if json.Unmarshal(v, &entries) != nil {
+			return nil, fail(Failed, "rabbit-export", "invalid topology entries")
+		}
+		for i := range entries {
+			entries[i] = canonicalJSON(entries[i])
+		}
+		sort.Slice(entries, func(i, j int) bool { return string(entries[i]) < string(entries[j]) })
+		out[key] = marshal(entries)
 	}
-	return marshal(out), nil
+	return canonicalJSON(marshal(out)), nil
 }
 
 type kafkaOffset struct {
@@ -400,15 +408,16 @@ type kafkaOffset struct {
 	End       int64  `json:"end"`
 }
 type kafkaState struct {
-	Schema        int           `json:"schema"`
-	Topic         string        `json:"topic"`
-	Group         string        `json:"group"`
-	Offsets       []kafkaOffset `json:"offsets"`
-	RestorePolicy string        `json:"restore_policy"`
+	Configs       map[string]string `json:"configs"`
+	Schema        int               `json:"schema"`
+	Topic         string            `json:"topic"`
+	Group         string            `json:"group"`
+	Offsets       []kafkaOffset     `json:"offsets"`
+	RestorePolicy string            `json:"restore_policy"`
 }
 
 func (c *Controller) kafkaState() (kafkaState, error) {
-	state := kafkaState{1, "gopulse-observability-v1", "gopulse-marshaller-metrics-v1", []kafkaOffset{}, "drained-new-topic-rebase-zero"}
+	state := kafkaState{Schema: 1, Topic: "gopulse-observability-v1", Group: "gopulse-marshaller-metrics-v1", Offsets: []kafkaOffset{}, RestorePolicy: "drained-new-topic-rebase-zero", Configs: map[string]string{}}
 	b, e := c.native("kafka", nil, "/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "127.0.0.1:19092", "--describe", "--group", state.Group)
 	if e != nil {
 		return state, e
@@ -429,6 +438,24 @@ func (c *Controller) kafkaState() (kafkaState, error) {
 	if len(state.Offsets) != 1 || state.Offsets[0].Partition != 0 {
 		return state, fail(NotReady, "kafka-drain", "expected the supported single-partition consumer topology")
 	}
+	config, e := c.native("kafka", nil, "/opt/kafka/bin/kafka-configs.sh", "--bootstrap-server", "127.0.0.1:19092", "--describe", "--entity-type", "topics", "--entity-name", state.Topic)
+	if e != nil {
+		return state, e
+	}
+	for _, line := range strings.Split(string(config), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		parts := strings.SplitN(fields[0], "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if !regexp.MustCompile(`^[a-z][a-z0-9_.-]*$`).MatchString(parts[0]) || len(parts[1]) > 4096 {
+			return state, fail(Failed, "kafka-config", "unsupported topic configuration")
+		}
+		state.Configs[parts[0]] = parts[1]
+	}
 	return state, nil
 }
 func (c *Controller) kafkaEmpty() (bool, error) {
@@ -448,9 +475,67 @@ func (c *Controller) kafkaImport(data []byte) error {
 	if strictData(data, &state) != nil || state.Schema != 1 || state.Topic != "gopulse-observability-v1" || state.Group != "gopulse-marshaller-metrics-v1" || state.RestorePolicy != "drained-new-topic-rebase-zero" || len(state.Offsets) != 1 || state.Offsets[0].Committed != state.Offsets[0].End || state.Offsets[0].Partition != 0 {
 		return fail(BackupInvalid, "kafka-import", "unsupported offset topology")
 	}
-	if _, e := c.native("kafka", nil, "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "127.0.0.1:19092", "--create", "--topic", state.Topic, "--partitions", "1", "--replication-factor", "1"); e != nil {
+	args := []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "127.0.0.1:19092", "--create", "--topic", state.Topic, "--partitions", "1", "--replication-factor", "1"}
+	keys := make([]string, 0, len(state.Configs))
+	for k := range state.Configs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := state.Configs[key]
+		if !regexp.MustCompile(`^[a-z][a-z0-9_.-]*$`).MatchString(key) || len(value) > 4096 || strings.ContainsAny(value, "\r\n\x00") {
+			return fail(BackupInvalid, "kafka-config", "invalid portable topic setting")
+		}
+		args = append(args, "--config", key+"="+value)
+	}
+	if _, e := c.native("kafka", nil, args...); e != nil {
 		return e
 	}
 	_, e := c.native("kafka", nil, "/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "127.0.0.1:19092", "--group", state.Group, "--topic", state.Topic, "--reset-offsets", "--to-offset", "0", "--execute")
 	return e
+}
+
+func canonicalJSON(raw []byte) []byte {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if decoder.Decode(&value) != nil {
+		return nil
+	}
+	return marshal(value)
+}
+func searchTimeRange(raw []byte, cutover time.Time) (time.Time, time.Time) {
+	start, end := cutover, time.Time{}
+	var data searchExport
+	if json.Unmarshal(raw, &data) != nil {
+		return cutover, cutover
+	}
+	for _, index := range data.Indices {
+		for _, hit := range index.Documents {
+			var document map[string]json.RawMessage
+			if json.Unmarshal(hit.Source, &document) != nil {
+				continue
+			}
+			for _, name := range []string{"@timestamp", "timestamp", "created_at", "updated_at", "occurred_at"} {
+				var value string
+				if json.Unmarshal(document[name], &value) != nil {
+					continue
+				}
+				at, e := time.Parse(time.RFC3339Nano, value)
+				if e != nil || at.After(cutover) {
+					continue
+				}
+				if at.Before(start) {
+					start = at
+				}
+				if at.After(end) {
+					end = at
+				}
+			}
+		}
+	}
+	if end.IsZero() {
+		end = cutover
+	}
+	return start, end
 }

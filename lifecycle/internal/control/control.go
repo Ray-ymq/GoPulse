@@ -111,6 +111,7 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	until := fs.String("until", "", "RFC3339 end time")
 	purge := fs.Bool("purge", false, "delete owned volumes with --confirm PROJECT")
 	confirm := fs.String("confirm", "", "project confirmation")
+	diagnosticDir := fs.String("diagnostics-dir", "", "explicit existing private diagnostic directory (doctor)")
 	archive := fs.String("archive", "", "private encrypted backup path")
 	passFile := fs.String("passphrase-file", "", "explicit private passphrase file; never a command argument")
 	fs.Bool("json", true, "structured output (always enabled)")
@@ -129,10 +130,13 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	}
 	c := &Controller{ctx: ctx, dir: filepath.Clean(*dir), bundle: filepath.Clean(*bundle), endpoint: *endpoint}
 	defer func() {
-		if resultErr != nil && (command == "backup" || command == "restore") {
-			resultErr = c.recoveryDiagnostic(resultErr)
+		if resultErr != nil && (command == "backup" || command == "restore" || (command == "doctor" && *diagnosticDir != "")) {
+			resultErr = c.recoveryDiagnostic(resultErr, *diagnosticDir, command)
 		}
 	}()
+	if *diagnosticDir != "" && (!filepath.IsAbs(*diagnosticDir) || privateDir(*diagnosticDir) != nil) {
+		return fail(Permission, "diagnostics-directory", "diagnostics require an existing absolute private directory")
+	}
 	var pass []byte
 	if command == "backup" || command == "restore" {
 		if !filepath.IsAbs(*archive) || *passFile == "" {
@@ -206,7 +210,11 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 		}
 	}
 	if mutate && command != "init" && command != "restore" {
+		if e := c.cleanupPendingCiphertext(); e != nil {
+			return e
+		}
 		c.state.Operation = random()
+		c.state.FailedStage = ""
 		if e := c.save(); e != nil {
 			return fail(Permission, "state", "cannot persist operation")
 		}
@@ -239,6 +247,9 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	}
 	if err != nil {
 		if ctx.Err() != nil && mutate {
+			if c.state.FailedStage == "" {
+				c.state.FailedStage = c.state.Phase
+			}
 			c.state.Phase = "interrupted"
 			_ = c.save()
 			return fail(Interrupted, "interrupted", "operation interrupted; rerun status then up/down; data retained")
@@ -441,7 +452,7 @@ func (c *Controller) initialize(port int) error {
 			return fail(Permission, "init", "init requires empty directory; existing secrets are never overwritten")
 		}
 	}
-	c.state = State{1, c.manifest.Version, c.manifestHash, "", "", port, "initialized", random()}
+	c.state = State{Schema: 1, Version: c.manifest.Version, Manifest: c.manifestHash, Port: port, Phase: "initialized", Operation: random()}
 	c.state.Token = random()
 	c.state.Project = "gopulse-" + c.state.Token[:12]
 	c.env = map[string]string{"MYSQL_DATABASE": "gopulse", "MYSQL_USER": "gopulse", "RABBITMQ_USER": "gopulse", "VICTORIAMETRICS_USERNAME": "gopulse", "GOPULSE_VERSION": c.manifest.Version, "GOPULSE_REVISION": c.manifest.Revision, "AUTH_COOKIE_SECURE": "false", "PUBLISHED_HOST": "127.0.0.1", "FRONTEND_PORT": strconv.Itoa(port), "HTTP_PORT": strconv.Itoa(port)}
