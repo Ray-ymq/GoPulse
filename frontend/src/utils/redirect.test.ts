@@ -9,7 +9,7 @@ describe('cross-application login destination', () => {
     expect(loginDestination('/admin/logs', 'user')).toBe('/posts')
   })
   it('rejects external, encoded, control-character and normalization bypasses', () => {
-    for (const path of ['https://evil.test', '//evil.test', '/\\evil.test', '/%2f%2fevil.test', '/posts/../admin/logs', '/\n/admin', '/login']) {
+    for (const path of ['https://evil.test', '//evil.test', '/\\evil.test', '/%2f%2fevil.test', '/posts/../admin/logs', '/\n/admin', '/login', '/api/v1/auth/logout', '/unknown', '/admin/unknown']) {
       expect(loginDestination(path, 'user')).toBe('/posts')
     }
   })
