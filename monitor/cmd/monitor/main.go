@@ -21,6 +21,25 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "plugin-state" {
+		// Offline transfer must never accidentally print credentials to a terminal
+		// or a regular file. The lifecycle consumes a pipe and seals private state.
+		stream := os.Stdout
+		if len(os.Args) > 2 && os.Args[2] == "import" {
+			stream = os.Stdin
+		}
+		info, err := stream.Stat()
+		if err != nil || info.Mode()&os.ModeNamedPipe == 0 {
+			_, _ = os.Stderr.WriteString("plugin-state requires a private lifecycle pipe\n")
+			os.Exit(2)
+		}
+		if err = plugin.RunPortableTransfer(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			_, _ = os.Stderr.WriteString("plugin-state transfer failed; stop Monitor and verify the empty target and trusted catalog\n")
+			os.Exit(1)
+		}
+		return
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "monitor")
 	if err := run(logger); err != nil {
 		logger.Error("monitor stopped", "error_code", "monitor_runtime_failed", "error", err.Error())
