@@ -1,3 +1,4 @@
+import { formatDate } from '../utils/format'
 import { onBeforeUnmount, ref, type Ref } from 'vue'
 import type { Page } from '../types/api'
 import { ApiError } from '../services/http'
@@ -8,6 +9,7 @@ export function usePagedObservability<T, F extends object>(filters: Ref<F>, requ
   const loading = ref(false)
   const loadingMore = ref(false)
   const message = ref('')
+  const state = ref<'loading' | 'empty' | 'partial' | 'stale' | 'denied' | 'unavailable'>('loading')
   const updatedAt = ref('')
   let sequence = 0
   let controller: AbortController | null = null
@@ -21,20 +23,22 @@ export function usePagedObservability<T, F extends object>(filters: Ref<F>, requ
     if (loading.value || loadingMore.value) return
     controller?.abort(); controller = new AbortController(); const current = ++sequence
     if (reset) loading.value = true; else loadingMore.value = true
-    message.value = ''
+    message.value = ''; state.value = 'loading'
     try {
       const page = await request(filters.value, reset ? undefined : cursor.value ?? undefined, controller.signal)
       if (current !== sequence) return
       items.value = reset ? page.data : [...items.value, ...page.data]
-      cursor.value = page.nextCursor; updatedAt.value = new Date().toLocaleString()
+      cursor.value = page.nextCursor; updatedAt.value = formatDate(new Date().toISOString())
+      state.value = 'empty'
       if (reset && page.data.length === 0) message.value = '所选条件下暂无数据。'
     } catch (error) {
       if (current !== sequence || controller.signal.aborted) return
+      state.value = error instanceof ApiError && error.code === 'permission_denied' ? 'denied' : items.value.length ? 'stale' : 'unavailable'
       if (!reset && error instanceof ApiError && error.code === 'validation_failed') {
         cursor.value = null; message.value = '分页游标已失效，请刷新首页结果。'
       } else message.value = safeMessage(error)
     } finally { if (current === sequence) { loading.value = false; loadingMore.value = false } }
   }
   onBeforeUnmount(() => { sequence++; controller?.abort(); items.value=[]; cursor.value=null })
-  return { items, cursor, loading, loadingMore, message, updatedAt, load }
+  return { state, items, cursor, loading, loadingMore, message, updatedAt, load }
 }

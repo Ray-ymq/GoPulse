@@ -4,6 +4,7 @@ WORKDIR /src/admin-frontend
 ENV CI=true
 COPY admin-frontend/package.json admin-frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
+COPY frontend-shared/ /src/frontend-shared/
 COPY admin-frontend/ ./
 RUN npm test -- --run && npm run build
 
