@@ -223,6 +223,8 @@ def build(args):
         try:subprocess.run(cmd+['-'],stdin=context.stdout,check=True)
         finally:context.stdout.close()
         if context.wait()!=0:raise ValueError('git archive failed')
+        if 'manifests' not in json.loads(raw(tag)):
+            run('docker','buildx','imagetools','create','--prefer-index=true','-t',tag,tag,capture=False)
         images[name]=image_record(tag)
     third=load(ROOT/'deploy/release/third-party.lock.json')
     # Normalized logical name differs from the VictoriaMetrics repository name.
