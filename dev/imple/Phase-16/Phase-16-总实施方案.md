@@ -84,9 +84,9 @@ real Linux amd64 product acceptance
 ### 3.3 分支与实施开工
 
 - Phase-16-01 已完成并使用 `develop/1.13.1`；不得重建、重命名或重新编号该已推送分支。
-- Phase-16-02 至 Phase-16-06 开工前 fetch 主远程，并从当时最新 `upstream/main` 创建表 4 中的目标分支。
+- Phase-16-02 至 Phase-16-06 开工前统一运行 `scripts/start-development-batch.sh Phase-XX-YY --remote <primary>`；脚本 fetch 主远程、从当时最新 `main` 创建表 4 中的目标分支，并同步根 `VERSION`、`.env.example` 和两个 Frontend 的 npm 元数据。不得手工只创建分支而遗漏版本同步。
 - 若本地已有同名分支，先核对与远程和目标基线的关系；不得静默 reset、覆盖或重命名已推送分支。
-- 每批只完成其计划范围，固定门禁通过后更新同名实施记录和 `VERSION`，提交并停止。
+- 每批只完成其计划范围；版本同步提交属于分支开工引导，固定门禁通过后才可更新同名实施记录、确认批次完成并停止。只有合入 `main` 后，该版本才成为已发布的完成产品版本。
 
 ## 4. 权威批次、版本与分支分配
 
