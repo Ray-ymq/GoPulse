@@ -442,6 +442,28 @@ go test -count=1 -tags=integration ./...
 
 Do not point that command at a development or production database. Reproduce it only with `INTEGRATION_TESTS=1`, `APP_ENV=test`, the exact whitelisted database/Redis DB values, and disposable MySQL/Redis resources.
 
+## Starting a development batch
+
+Do not create a `develop/x.x.x` branch manually from `origin/main`. The branch target
+and the product metadata must be synchronized before the first push; otherwise the
+branch-governance gate will reject the push and the automatic PR will not be created.
+Use the authoritative allocation in the Phase total implementation plan:
+
+```bash
+scripts/start-development-batch.sh Phase-16-05 --remote origin --push
+```
+
+The helper fetches the selected remote `main`, resolves the batch's version/branch
+allocation, creates the branch from that exact remote ref, synchronizes `VERSION`,
+`.env.example`, both Frontend package manifests and lockfiles, runs the governance
+validators, and creates the metadata bootstrap commit. It refuses tracked local changes,
+existing local/remote branches, unsafe branch names, duplicate plan allocations, and
+unknown batches. Untracked user files are preserved and never staged. Omit `--push` to
+review the bootstrap commit before publishing.
+
+If a batch branch already exists, do not run the helper again; continue that branch and
+use the validation commands below.
+
 ## Product version metadata
 
 The root `VERSION` file is the sole completed-product version source. `frontend/package.json`, the root package entries in `frontend/package-lock.json`, and `.env.example` `GOPULSE_VERSION` mirror that value so npm output, Compose tags, OCI labels, and dependency reports identify the same product version. `python3 scripts/ci/validate_versions.py` and the governance quality gate reject drift.
