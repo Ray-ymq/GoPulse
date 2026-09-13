@@ -6,13 +6,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/lifecycle/internal/control"
 	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 )
 
@@ -87,6 +90,17 @@ func run(args []string) error {
 	return nil
 }
 func main() {
+	if len(os.Args) > 1 && os.Args[1] != "version" && os.Args[1] != "manifest" {
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+		if err := control.Run(ctx, os.Args[1:], version, revision, os.Stdout); err != nil {
+			failure := &control.Failure{Code: 18, Stage: "internal", Message: "operation failed"}
+			errors.As(err, &failure)
+			json.NewEncoder(os.Stderr).Encode(failure)
+			os.Exit(failure.Code)
+		}
+		return
+	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
