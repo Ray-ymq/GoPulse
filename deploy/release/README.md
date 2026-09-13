@@ -30,8 +30,9 @@ version upgrade was required for Phase-16-01.
 The manifest schema is closed. Python validation also checks cross-field identity,
 platform sets and catalog uniqueness. The Linux-only lifecycle module reads the
 same contract, rejects duplicate JSON keys and checks tool/server architecture
-without mutating the Docker server. It intentionally does not implement lifecycle
-operations from later batches.
+without mutating the Docker server. Phase-16-02 adds the shared Linux amd64 product lifecycle via the Bundle
+root `compose.yaml`; see `BUNDLE-README.md` for the Docker-only installation
+contract. Backup/restore and upgrade remain assigned to later batches.
 
 For bundle checksum semantics and current limitations, see `BUNDLE-README.md`.
 The detached archive checksum is the final transport checksum; the embedded
