@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -83,6 +84,25 @@ def main():
                     fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)
                     call('up', expected=16)
                 call('doctor', '--endpoint', 'unix:///missing-daemon', expected=11)
+                # Fault fixtures are kept outside the immutable candidate.
+                invalid = Path(tmp)/'invalid bundle'
+                for name in ['README.md','release-manifest.json','checksums','deploy/product/compose.yaml']:
+                    target = invalid/name; target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(a.manifest.parent/name, target)
+                (invalid/'README.md').write_text('tampered')
+                mount = next(i for i,v in enumerate(base) if v.endswith(':/bundle:ro'))
+                original_mount = base[mount]; base[mount] = str(invalid)+':/bundle:ro'
+                try: call('doctor', expected=10)
+                finally: base[mount] = original_mount
+                # A private 1 MiB tmpfs proves the real statfs low-disk exit.
+                original_base = base[:]
+                position = base.index(str(install)+':'+str(install))
+                del base[position-1:position+1]
+                position = base.index('--user')+1; base[position] = '0:0'
+                base[-1:-1] = ['--mount', 'type=tmpfs,destination='+str(install)+',tmpfs-size=1048576,tmpfs-mode=0700']
+                try: call('doctor', '--port', str(port), expected=13)
+                finally: base[:] = original_base
+
                 sock = socket.socket(); sock.bind(('127.0.0.1', port)); sock.listen()
                 try: call('doctor', '--port', str(port), expected=15)
                 finally: sock.close()
