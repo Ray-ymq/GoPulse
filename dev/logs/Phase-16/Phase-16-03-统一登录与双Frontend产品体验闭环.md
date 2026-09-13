@@ -76,3 +76,9 @@ Bundle runner 初次调试在候选身份校验处失败（`KeyError: version`�
 同一 v2 候选第一次 Bundle 门禁在 fixture 的首次 Events 请求明确返回 400，已不再吞错等待。原因是 Python `isoformat()` 生成 `+00:00`，而现有 Events 参数合同检查 `time.UTC`，浏览器统一发送 `Z`。按 Backend `ParseOptions` 与 Frontend `toISOString()` 的直接合同，将 fixture 的两个时间都改为 canonical `Z`；不改 API、不放宽生产校验。该轮输出 `/tmp/gopulse-p1603-bundle-final.log`，安装已 purge。
 
 这次仅修改宿主验收 fixture 的序列化，不修改任何产品/browser 镜像输入、配置、依赖或运行平台。最终十个产品镜像及 browser 镜像继续使用已通过 release gate 的 v2 manifest/revision；不因验收脚本修正或补写日志重建候选、重跑已通过的完整 Compose 门禁。后续只重跑尚未通过的 Bundle 生命周期/browser 项。
+
+## Bundle 浏览器组合 fixture 的隔离
+
+canonical UTC 修正后，Bundle 已进入真实 browser。desktop 的事件 loading/stale/unavailable/empty/恢复通过；登录/角色/跨源拒绝/登出/本地审计以及服务恢复均到达预期，最后组合步骤“恢复后立即清 Cookie 并 reload”落到了 auth-recovery 而非 login，导致该轮失败（`/tmp/gopulse-p1603-bundle-final-v2.log`）。不把本轮或最后断言记为通过，也不据此臆断 Backend 故障。
+
+将两个独立 fixture 隔离：完成恢复后先结束原文档（about:blank），再清 Cookie 并重新访问受保护 `/posts`。这避免把前一恢复文档尚在进行的请求/导航与下一次失效注入交叠；仍严格要求真正无 Cookie 的页面跳到统一 login，未接受 auth-recovery 作为通过。生产代码不变。该改动仅改变 browser 测试输入的时序，已有产品 candidate 与完整 Compose/六插件结果继续有效；最终 Bundle 使用更新后的测试 runner，再执行尚未通过的两视口矩阵。

@@ -59,8 +59,11 @@ test('product edge, keyboard login, roles, logout, recovery and local audit time
   await page.unroute('**/api/v1/users/me')
   await page.getByRole('button', {name:'重试认证恢复'}).click()
   await expect(page).toHaveURL(/\/posts$/)
+  // End the recovery document before injecting expiry: pending recovery reads
+  // must not race a second, independent authentication failure fixture.
+  await page.goto('about:blank')
   await context.clearCookies()
-  await page.reload()
+  await page.goto('/posts')
   await expect(page).toHaveURL(/\/login/)
 })
 test('shared event states expose loading, stale failure, empty and retry', async ({ page }) => {
