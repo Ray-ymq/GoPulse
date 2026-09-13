@@ -109,3 +109,59 @@ func TestRejectUnsafeCompose(t *testing.T) {
 		t.Fatal("wrote secrets before validation")
 	}
 }
+
+// The Docker CLI is the public process boundary. These tests inject responses at
+// that boundary, never read dependency internals or require a foreign server.
+func fakeDocker(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	if e := os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\n"+body), 0700); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+}
+func TestServerRejectsWrongArchitectureBeforeMutation(t *testing.T) {
+	c := fixture(t)
+	fakeDocker(t, `case "$3" in
+ version) printf '%s' '{"Os":"linux","Arch":"arm64","Version":"29.0.0"}';;
+ *) exit 99;;
+ esac`)
+	e := c.server()
+	failure, ok := e.(*Failure)
+	if !ok || failure.Code != Platform {
+		t.Fatalf("expected wrong-platform exit, got %v", e)
+	}
+	fakeDocker(t, `case "$3" in
+ version) printf '%s' '{"Os":"linux","Arch":"amd64","Version":"29.0.0"}';;
+ compose) printf '%s' '{"version":"v2.24.0"}';;
+ *) exit 99;;
+ esac`)
+	if e := c.server(); e != nil {
+		t.Fatal(e)
+	}
+}
+func TestStartupFailureRetainsNonReadyPhase(t *testing.T) {
+	c := fixture(t)
+	if e := c.initialize(18080); e != nil {
+		t.Fatal(e)
+	}
+	fakeDocker(t, `case "$3" in
+ ps|network|volume) exit 0;;
+ pull) exit 1;;
+ *) exit 99;;
+ esac`)
+	e := c.up()
+	failure, ok := e.(*Failure)
+	if !ok || failure.Code != ManifestError || failure.Stage != "pull" {
+		t.Fatalf("unexpected startup failure: %v", e)
+	}
+	b, _ := os.ReadFile(filepath.Join(c.dir, "state.json"))
+	var state State
+	json.Unmarshal(b, &state)
+	if state.Phase != "pull" {
+		t.Fatal("failed startup marked ready")
+	}
+	if _, e := readPrivate(filepath.Join(c.dir, "secrets.json")); e != nil {
+		t.Fatal("failure deleted installation secrets")
+	}
+}
