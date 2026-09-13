@@ -197,7 +197,10 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 		}
 		defer restoreInput.clear()
 	}
-	if command == "up" {
+	if command == "verify" && c.state.Phase != "ready" {
+		return fail(NotReady, "verify", "installation has not committed ready state")
+	}
+	if command == "up" || command == "verify" {
 		if _, e := os.Lstat(filepath.Join(c.dir, "restore-pending.json")); !errors.Is(e, os.ErrNotExist) {
 			return fail(NotReady, "restore-pending", "unfinished restore cannot be started; rerun restore with the verified backup or down --purge")
 		}

@@ -1,11 +1,9 @@
 package control
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,17 +17,7 @@ import (
 
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-func strictData(b []byte, v any) error {
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.DisallowUnknownFields()
-	if e := d.Decode(v); e != nil {
-		return e
-	}
-	if d.Decode(new(any)) != io.EOF {
-		return backup.ErrInvalid
-	}
-	return nil
-}
+func strictData(b []byte, v any) error { return backup.DecodeJSON(b, v) }
 
 type snapshotConfig struct {
 	Schema      int               `json:"schema"`

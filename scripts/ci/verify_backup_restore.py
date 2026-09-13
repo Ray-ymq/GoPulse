@@ -116,12 +116,17 @@ class Recovery:
     def seed(self):
         if 'source-seeded' in self.data['completed']:return
         self.init('source');self.call('source','up')
-        token=os.urandom(6).hex();self.data.update(password='Recovery-'+token+'-password',admin='admin_'+token,user='user_'+token)
+        new_accounts='admin' not in self.data
+        if new_accounts:
+            token=os.urandom(6).hex();self.data.update(password='Recovery-'+token+'-password',admin='admin_'+token,user='user_'+token);self.record()
+        token=self.data['admin'].split('_',1)[1]
         admin,user=self.client('source'),self.client('source')
-        for c,name in [(admin,self.data['admin']),(user,self.data['user'])]:c.request('auth/register','POST',{'username':name,'password':self.data['password']},201)
+        for c,name in [(admin,self.data['admin']),(user,self.data['user'])]:
+            c.request('auth/register' if new_accounts else 'auth/login','POST',{'username':name,'password':self.data['password']},201 if new_accounts else 200)
         uid=admin.request('users/me')['data']['id'];docker('exec',self.cid('source','backend'),'/usr/local/bin/admin-role','bootstrap','--user-id',str(uid))
-        post=user.request('posts','POST',{'title':'Recovery source '+token,'content':'Authoritative live product record '+token},201)['data']
-        self.data['post_id']=post['id'];self.data['post_title']=post['title']
+        if 'post_id' not in self.data:
+            post=user.request('posts','POST',{'title':'Recovery source '+token,'content':'Authoritative live product record '+token},201)['data']
+            self.data['post_id']=post['id'];self.data['post_title']=post['title'];self.record()
         wait_until(lambda:admin.request('search/posts?q='+token)['data'],'source search indexing')
         secrets=self.secrets('source')
         configs={
@@ -131,9 +136,12 @@ class Recovery:
             'elasticsearch':{'config':{'host':'elasticsearch','port':9200,'connect_timeout':'1s','scrape_timeout':'3s'},'secrets':{}},
             'victoriametrics':{'config':{'host':'victoriametrics','port':8428,'username':secrets['VICTORIAMETRICS_USERNAME'],'connect_timeout':'1s','scrape_timeout':'3s'},'secrets':{'password':secrets['VICTORIAMETRICS_PASSWORD']}},
         }
-        for source,config in configs.items():admin.request('exporter-plugins/'+source+'-exporter/install','POST',config,201)
+        installed={p['id'] for p in admin.request('exporter-plugins')['data']}
+        for source,config in configs.items():
+            if source+'-exporter' not in installed:admin.request('exporter-plugins/'+source+'-exporter/install','POST',config,201)
         self.check_plugins(admin)
-        created=admin.request('alerts/rules','POST',rule('recovery-'+token,threshold=0),201)['data'];self.data['rule_id']=created['id']
+        if 'rule_id' not in self.data:
+            created=admin.request('alerts/rules','POST',rule('recovery-'+token,threshold=0),201)['data'];self.data['rule_id']=created['id'];self.record()
         wait_until(lambda:admin.request('alerts/history')['data'],'actual alert history',180)
         wait_until(lambda:admin.request('admin/audit-events')['data'],'actual administrative audit')
         self.mark('source-seeded')
@@ -146,7 +154,25 @@ class Recovery:
 
     def same_arch(self):
         self.seed()
-        if not self.backup.exists():self.call('source','backup','--archive',str(self.backup),'--passphrase-file',str(self.key))
+        if not self.backup.exists():
+            writer=self.client('source',self.data['user'])
+            proc=subprocess.Popen(self.argv('source','backup','--archive',str(self.backup),'--passphrase-file',str(self.key)),stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            rejected=False
+            deadline=time.monotonic()+300
+            try:
+                while time.monotonic()<deadline:
+                    phase=self.state('source')['phase']
+                    if phase.startswith('export-') or phase in ('maintenance-business-drain','maintenance-observability-drain','maintenance-quiesced'):
+                        try:writer.request('posts','POST',{'title':'must not be accepted during maintenance','content':'blocked write'},201)
+                        except Exception:rejected=True
+                        break
+                    if proc.poll() is not None:break
+                    time.sleep(.05)
+            finally:
+                stdout,stderr=proc.communicate(timeout=1200);self.output.append(stdout+stderr)
+            if proc.returncode:raise RuntimeError('backup failed: '+stdout+stderr)
+            if not rejected:raise RuntimeError('maintenance write rejection was not established')
+            self.mark('maintenance-rejects-new-business-writes')
         self.call('source','backup-inspect','--archive',str(self.backup),'--passphrase-file',str(self.key))
         facts=self.fixture_check();self.data['cutover_facts']=facts;self.record();self.mark('authenticated-encrypted-six-domain-backup')
         self.restore('target')
@@ -162,7 +188,7 @@ class Recovery:
         if not self.args.acceptance_image:raise RuntimeError('--acceptance-image required for dual Frontend acceptance')
         # Reuse the existing focused real browser matrix, not screenshot mocks.
         from frontend_bundle_browser import run_browser
-        browser=run_browser(self.work/'target',self.state('target'),self.call('target','status'),self.secrets('target'),self.args.acceptance_image,lambda *a:docker(*a))
+        browser=run_browser(self.work/'target',self.state('target'),self.call('target','status'),self.secrets('target'),self.args.acceptance_image,lambda *a:docker(*a),credentials=self.data)
         self.data['browser']=browser;self.record();self.mark('restored-facts-six-plugins-frontends-and-new-write')
         self.call('target','down') # preserve restored data; release RAM for failure matrix
 

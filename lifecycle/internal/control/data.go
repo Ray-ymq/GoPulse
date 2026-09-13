@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -135,6 +136,8 @@ func (c *Controller) mysqlExport() ([]byte, map[string]int64, error) {
 	return dump, counts, e
 }
 
+var searchIdentity = regexp.MustCompile(`^gopulse-[a-z0-9_.-]+$`)
+
 type searchHit struct {
 	ID      string          `json:"_id"`
 	Source  json.RawMessage `json:"_source"`
@@ -175,7 +178,7 @@ func (c *Controller) searchExport() ([]byte, map[string]int64, error) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if !strings.HasPrefix(name, "gopulse-") || !identifier.MatchString(name) {
+		if !searchIdentity.MatchString(name) {
 			return nil, nil, fail(Failed, "search-export", "unsupported search index")
 		}
 		meta := indices[name]
@@ -229,7 +232,7 @@ func (c *Controller) searchImport(raw []byte) error {
 		return fail(BackupInvalid, "search-import", "invalid search export")
 	}
 	for _, index := range data.Indices {
-		if !identifier.MatchString(index.Name) || !strings.HasPrefix(index.Name, "gopulse-") {
+		if !searchIdentity.MatchString(index.Name) {
 			return fail(BackupInvalid, "search-import", "invalid index identity")
 		}
 		if _, e := c.request("elasticsearch", "PUT", "/"+index.Name, "application/json", marshal(map[string]any{"settings": index.Settings, "mappings": index.Mappings, "aliases": index.Aliases})); e != nil {
@@ -345,20 +348,24 @@ func (c *Controller) waitDrain(check func() (bool, error)) error {
 	}
 }
 func (c *Controller) rabbitEmpty() (bool, error) {
-	raw, e := c.request("rabbitmq", "GET", "/api/queues/%2F", "", nil)
+	v, e := c.container("rabbitmq")
+	if e != nil {
+		return false, e
+	}
+	raw, e := c.pipe(nil, "exec", "--user", "rabbitmq", "-i", v.ID, "rabbitmqctl", "-q", "list_queues", "-p", "/", "name", "messages_ready", "messages_unacknowledged", "--formatter", "json")
 	if e != nil {
 		return false, e
 	}
 	var queues []struct {
-		Messages int64 `json:"messages"`
-		Ready    int64 `json:"messages_ready"`
-		Unacked  int64 `json:"messages_unacknowledged"`
+		Name    string `json:"name"`
+		Ready   int64  `json:"messages_ready"`
+		Unacked int64  `json:"messages_unacknowledged"`
 	}
 	if json.Unmarshal(raw, &queues) != nil {
-		return false, fail(Failed, "rabbit-drain", "invalid queue status")
+		return false, fail(Failed, "rabbit-drain", "invalid authoritative broker queue status")
 	}
 	for _, q := range queues {
-		if q.Messages+q.Ready+q.Unacked != 0 {
+		if q.Ready+q.Unacked != 0 {
 			return false, nil
 		}
 	}
