@@ -35,14 +35,16 @@ async function createSocialPost(page: Page, marker: string): Promise<void> {
   await expect(page.getByRole('button', { name: '取消点赞' })).toBeVisible()
 }
 
-async function waitForMetric(page: Page): Promise<void> {
+async function waitForMetric(page: Page, timeout = 45_000): Promise<void> {
+  const started = Date.now()
   await page.goto('/admin/metrics')
   await expect(page.getByRole('heading', { name: 'Plugin & Component Metrics' })).toBeVisible()
   await expect.poll(async () => {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.waitForTimeout(500)
     return page.locator('.metric-value').count()
-  }, { timeout: 45_000 }).toBeGreaterThan(0)
+  }, { timeout }).toBeGreaterThan(0)
+  if (timeout > 45_000) console.info(`Cold-install metric visibility: ${Date.now() - started}ms`)
 }
 
 async function waitForLogs(page: Page): Promise<void> {
@@ -52,7 +54,8 @@ async function waitForLogs(page: Page): Promise<void> {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.waitForTimeout(500)
     return page.locator('.record-card').count()
-  }, { timeout: 45_000 }).toBeGreaterThan(0)
+  }, { timeout }).toBeGreaterThan(0)
+  if (timeout > 45_000) console.info(`Cold-install metric visibility: ${Date.now() - started}ms`)
 }
 
 async function waitForEvents(page: Page): Promise<void> {
@@ -195,7 +198,10 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
     await expect(page.locator('.state-pill')).toHaveText('stopped', { timeout: 20_000 })
     await page.getByRole('button', { name: '启动', exact: true }).click()
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 20_000 })
-    await waitForMetric(page)
+    // This fresh pipeline has no historical samples: allow the 15s scrape,
+    // VictoriaMetrics' 30s latency offset and the 15s query grid to elapse.
+    // Keep warm/recovery assertions at 45s and require real points here too.
+    await waitForMetric(page, 90_000)
     await waitForEvents(page)
     expect(unexpected).toEqual([])
     return
