@@ -149,3 +149,25 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 - `git diff --check`：通过。
 
 远端此前已通过的非治理 job 未因该门禁修正而重新本地伪造；推送新提交后等待 GitHub 对新 SHA 重新执行完整 workflow。
+
+## 重复 PR 版本门禁的流程修正（2026-09-13）
+
+本批暴露了一个可重复的开工流程缺陷：手工从 `origin/main` 创建 `develop/1.13.4` 后，
+分支名已经进入目标版本，但 `VERSION`、`.env.example` 和两个 Frontend npm 元数据仍是
+主线旧版本，导致 `scripts/dev.sh` 的早期分支检查和 `validate_branch.py` 阻断 PR。
+这不是备份实现本身的失败。
+
+为避免后续 Phase-16-05/06 及其他批次再次手工遗漏，新增：
+
+- `scripts/ci/sync_version_metadata.py`：预检查所有文件结构后一次性同步版本元数据；
+  发现缺失字段或非法版本时不写入任何文件。
+- `scripts/start-development-batch.sh`：按总实施方案批次解析唯一版本/分支分配，
+  fetch 选定远端 `main`，从精确远端基线创建分支，运行版本/分支门禁，创建英文引导提交，
+  可选 `--push` 发布。它拒绝 tracked 工作区改动、重复本地/远端分支、重复规划分配和不安全名称；
+  未跟踪用户文件不会被 stage。
+- `scripts/ci/test_sync_version_metadata.py`：覆盖全量同步、幂等、非法版本和预检查失败不部分写入。
+- quality-gates 的 Bash syntax 门禁现在包含该引导脚本；README 和 Phase-16 总方案已要求使用该入口。
+
+验证：44 个治理单元测试、孤立临时 Git/裸远端的真实批次引导演练、版本/分支校验、
+备份格式测试、Bash 语法和 `git diff --check` 均通过。当前 `develop/1.13.4` 已存在，
+因此未用该脚本重建或覆盖本分支。
