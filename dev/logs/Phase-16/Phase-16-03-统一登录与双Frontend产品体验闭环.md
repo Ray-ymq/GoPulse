@@ -168,3 +168,18 @@ scripts/verify-product-lifecycle.sh \
 7. Phase-16-04 的输入为 v2 不可变 Bundle、唯一 edge、同源写请求/角色/session 合同、共享 Frontend 基础与 schema 1 安装 state。分支未推送、未创建 PR、未合并 main。
 
 达到本批停止条件后，仅补齐此记录和自动提交，不重跑已通过且相关输入未变化的检查，不追加重构或独立审计。
+
+## 推送后 CI 修正（2026-09-13）
+
+GitHub Actions `34749584905` 的自动 PR 前置门禁失败：Branch governance 的 Validate version metadata、Scripts and Compose 的 Validate Compose configuration and loopback publishing 两步失败，创建 PR job 被跳过。
+
+实际根因是本批升级时遗漏 `.env.example` 的 `GOPULSE_IMAGE_TAG`：仍为 `1.13.2`，与 VERSION / GOPULSE_VERSION 的 `1.13.3` 不符。本地运行 `python3 scripts/ci/validate_versions.py` 明确复现该错误。此前“受管版本逐项核对均一致”的记录没有覆盖 image tag，属于本次检查遗漏；在此纠正，不归因于 GitHub 权限或平台问题。
+
+本次仅将 `GOPULSE_IMAGE_TAG` 同步为 `1.13.3`，保持同一任务、分支和目标版本。实际验证通过：
+
+- `python3 scripts/ci/validate_versions.py`
+- `python3 scripts/ci/validate_branch.py --branch develop/1.13.3 --base-ref origin/main`
+- 原样执行 quality-gates.yml 的 Compose 配置检查：两个 loopback 发布、所有受管镜像 tag、Kafka/VM 引用、初始化完成依赖和两个 internal network 均通过。
+- `git diff --check`
+
+此修正只改变默认开发 Compose 的镜像 tag 元数据，不改变已按 digest 运行并验收的产品 Bundle 或应用源码，不重复完整产品运行门禁。提交并推送后等待 GitHub 新一轮 CI；不把本地检查通过宣称为远端 CI 已通过。
