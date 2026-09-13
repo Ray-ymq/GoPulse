@@ -8,6 +8,7 @@ ARG VERSION
 ARG REVISION
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=$VERSION -X main.revision=$REVISION" -o /out/gopulse ./cmd/gopulse
 FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
+RUN apk add --no-cache docker-cli docker-cli-compose
 ARG VERSION
 ARG REVISION
 LABEL org.opencontainers.image.title="GoPulse Lifecycle" \

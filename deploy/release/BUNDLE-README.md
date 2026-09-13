@@ -1,27 +1,67 @@
-# GoPulse candidate bundle
+# GoPulse Linux amd64 product bundle
 
-This single LF-only bundle is independent of host operating system. Images run
-on Linux containers, not as native macOS or Windows services. Product images,
-third-party services and the lifecycle tool are selected by immutable OCI digest.
+The supported product environment is a **local Linux amd64 Docker server**
+(Engine >=24, Compose >=2.24). Docker requires at least 2 CPUs, 6 GiB RAM;
+the installation filesystem requires at least 5 GiB available. Only the edge
+publishes a loopback HTTP port. Remote endpoints, native services, Kubernetes,
+macOS, Windows and arm64 product operation are not supported by this lifecycle.
 
-Phase 16-01 provides only `version` and manifest inspection. This is NOT yet a
-complete install/up/down/backup/upgrade product. macOS arm64 and Windows amd64
-support, an authorized external registry and full lifecycle operations remain
-unaccepted until their designated Phase 16 batches.
+Extract the versioned archive into a read-only bundle directory. Verify its
+external `.sha256` before extraction and `checksums` afterward. The manifest
+binds all images by index/platform digest and the embedded Compose checksum.
+A loopback candidate registry is not an external/public release.
 
-The Compose file intentionally has no build context or acceptance-only service.
-It preserves existing configuration requirements; it ships no credentials.
-Do not start the application without separately supplied private configuration.
+Create a separate empty **0700** installation directory; never use a directory
+containing user files. Mount it at exactly the same absolute path inside the
+tool container (Docker resolves file secrets on the host). Select the lifecycle
+image's `linux/amd64` digest from `release-manifest.json`, not a mutable tag.
+The following is an invocation example, not a second lifecycle implementation:
 
-`checksums` covers the embedded manifest and assets. The detached
-`gopulse-VERSION-bundle.tar.gz.sha256` covers the final archive. The manifest's
-`bundle_sha256` is the SHA256 of sorted payload lines (`hex-sha256  POSIX-path` plus
-LF), excluding `release-manifest.json` and `checksums`, to avoid circular hashing.
-The payload consists of this README and `deploy/product/compose.yaml`.
+```bash
+# Set BUNDLE, INSTALL and TOOL to absolute paths / the immutable lifecycle ref.
+mkdir -m 700 "$INSTALL"
+docker run --rm --network host --read-only --cap-drop ALL \
+  --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
+  --group-add "$(stat -c %g /var/run/docker.sock)" --tmpfs /tmp \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$BUNDLE:/bundle:ro" -v "$INSTALL:$INSTALL" "$TOOL" \
+  doctor --endpoint unix:///var/run/docker.sock --install "$INSTALL" --port 18080
+```
 
-The current release registers a historical Redis 1.9.4 amd64 archive only as an
-upgrade input. `supported_upgrade_sources` remains empty until upgrade acceptance;
-its presence does not mean an upgrade has already been implemented or accepted.
+Use the same invocation with `init`, `up`, `verify`, `status`,
+`logs --service backend --tail 100`, `down`, then `up`. `--port` is set during
+`init` (default 18080). Subsequent operations use the persisted port.
+Only the short-lived tool has access to the Docker endpoint; endpoint access
+is equivalent to Docker administration. Do not expose the socket to products.
 
-A local loopback-registry candidate is not an external release. Promotion must
-preserve exact index/platform digests and the archive checksum without rebuilding.
+All lifecycle output is JSON, schema 1. `state.json` and `secrets.json` are private
+0600 files inside the 0700 installation directory. Do not print, archive without
+encryption, commit, or publish these files. Repeated `init` explicitly refuses
+the initialized directory and never rotates secrets. `up` pulls selected digests,
+starts infrastructure, runs idempotent migration/Kafka/search jobs, then starts
+services. Application registration remains the existing business flow; this
+batch does not create a default administrator or ship a default password.
+
+`verify` is read-only: no pulls, repairs, restarts, config writes or business
+mutations. It checks ownership, service/job state and the unique edge binding.
+`logs` accepts only bundle service names, optional RFC3339 `--since`/`--until`,
+and `--tail 1..1000`; known installation credentials are redacted. Docker raw
+errors and environment/config dumps are deliberately suppressed.
+
+`down` retains data. `down --purge --confirm PROJECT` explicitly removes only
+owned volumes; installation configuration is retained. Repeating `down` is safe.
+Every mutating command uses a nonblocking installation lock and operation id.
+Failure or SIGINT/SIGTERM records a non-ready phase and retains owned resources
+for diagnosis/retry, never silently deletes data. Run `status` then retry `up`
+or `down`. A foreign label/digest/name collision blocks cleanup rather than
+adopting or deleting the foreign resource.
+
+Exit codes: 0 success; 2 arguments/confirmation; 10 manifest/checksum/digest;
+11 Docker/Compose unavailable or too old; 12 wrong server OS/arch; 13 disk/memory;
+14 installation permissions/state; 15 occupied port; 16 installation lock;
+17 ownership; 18 execution failure; 19 not ready; 20 interrupted operation.
+
+Backup/restore and legacy 1.9.4 upgrade are not implemented in this batch.
+The registered legacy plugin remains upgrade input only. Existing Bash scripts
+are development/acceptance tools, not the product installation path; historical
+PowerShell files remain frozen at 0.2.1.
