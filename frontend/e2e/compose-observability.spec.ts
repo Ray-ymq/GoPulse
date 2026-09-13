@@ -54,8 +54,7 @@ async function waitForLogs(page: Page): Promise<void> {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.waitForTimeout(500)
     return page.locator('.record-card').count()
-  }, { timeout }).toBeGreaterThan(0)
-  if (timeout > 45_000) console.info(`Cold-install metric visibility: ${Date.now() - started}ms`)
+  }, { timeout: 45_000 }).toBeGreaterThan(0)
 }
 
 async function waitForEvents(page: Page): Promise<void> {
