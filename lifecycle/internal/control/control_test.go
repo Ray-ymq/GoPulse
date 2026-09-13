@@ -3,6 +3,8 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,5 +165,27 @@ func TestStartupFailureRetainsNonReadyPhase(t *testing.T) {
 	}
 	if _, e := readPrivate(filepath.Join(c.dir, "secrets.json")); e != nil {
 		t.Fatal("failure deleted installation secrets")
+	}
+}
+
+func TestDistributionDescriptorWithoutOptionalPlatforms(t *testing.T) {
+	c := fixture(t)
+	socket := filepath.Join(t.TempDir(), "docker.sock")
+	listener, e := net.Listen("unix", socket)
+	if e != nil {
+		t.Fatal(e)
+	}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"Descriptor": map[string]string{"digest": digest}, "Platforms": nil})
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	c.endpoint = "unix://" + socket
+	if e := c.distribution("registry.example/image@"+digest, true); e != nil {
+		t.Fatal("valid child digest rejected", e)
+	}
+	if e := c.distribution("registry.example/image@sha256:"+strings.Repeat("b", 64), true); e == nil {
+		t.Fatal("wrong descriptor accepted")
 	}
 }

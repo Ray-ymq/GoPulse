@@ -37,3 +37,7 @@
 - 首轮候选 `c3b7f706fce1` 构建成功，输出 `dist/phase16-02/`；首次 clean-install 在 doctor 的 VictoriaMetrics digest 检查失败，尚未创建产品资源。
 - 原因：`docker manifest inspect` 在工具客户端直接访问 Docker Hub，没有复用 daemon 的 registry mirror，实际返回 registry EOF。使用同一 endpoint 的 Engine distribution API 验证成功，因此改为 daemon-side 结构化 descriptor/platform 查询；不退回 tag、不跳过 digest、不传播 raw registry 诊断。
 - 新增直接对应验收的错误 server arch、失败 pull 非 ready 状态测试；failure matrix 增加 Bundle 篡改和真实低容量 tmpfs。
+
+- Engine distribution API 的实际单平台响应 `Platforms=null`，仅 index 提供平台列表；据此保留 index 平台校验并按 descriptor digest 验证 child，增加真实 Unix HTTP 边界回归。
+- `ceff812` 候选已真实完成 init/up，全部常驻容器健康；验证 runner 的业务快照错误引用不存在的 `user_roles` 表，改为实际 `bootstrap_super_admin`。该轮未被记为 clean-install 通过；finally 的强归属清理完成。
+- Bundle 新增根 `compose.yaml` 作为正式工具入口，纳入 payload / archive checksums；clean-install 改为直接通过交付 Bundle 的 Compose 调用，failure matrix 保留同镜像 Docker run 用于隔离故障注入。旧 Phase-16-01 Bundle 校验保留兼容。
