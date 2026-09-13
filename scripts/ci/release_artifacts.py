@@ -125,15 +125,39 @@ def product_compose(m):
             raise ValueError('unmapped product service: '+name)
         service['image'] = image['ref']
         service['pull_policy'] = 'always'
-    doc['services']['lifecycle'] = {'image':m['lifecycle']['ref'], 'profiles':['tools'], 'read_only':True,
-                                   'network_mode':'none', 'user':'10001:10001', 'cap_drop':['ALL'],
-                                   'security_opt':['no-new-privileges:true'], 'volumes':['../../:/bundle:ro'],
-                                   'command':['version','--json','--manifest','/bundle/release-manifest.json']}
+    # Reuse the existing frontend reverse proxy as the sole product edge.
+    # Keep the frontend itself internal; development Compose remains unchanged.
+    import copy
+    doc['services']['edge'] = copy.deepcopy(doc['services']['frontend'])
+    for name, service in doc['services'].items():
+        if name != 'edge':
+            service.pop('ports', None)
+    for kind in ('volumes', 'networks', 'secrets'):
+        for resource in doc.get(kind, {}).values():
+            resource.pop('name', None)
     return (json.dumps(doc, indent=2)+'\n').encode()
+
+
+def tool_compose(m):
+    tool = {
+        'image': platform_ref(m['lifecycle'], 'linux/amd64'),
+        'platform': 'linux/amd64', 'read_only': True, 'network_mode': 'host',
+        'user': '${GOPULSE_TOOL_UID:?set host uid}:${GOPULSE_TOOL_GID:?set host gid}',
+        'group_add': ['${GOPULSE_SOCKET_GID:?set Docker socket gid}'],
+        'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true'], 'tmpfs': ['/tmp'],
+        'volumes': [
+            {'type':'bind','source':'${GOPULSE_BUNDLE_DIR:?set absolute bundle directory}', 'target':'/bundle','read_only':True},
+            {'type':'bind','source':'${GOPULSE_INSTALL_DIR:?set absolute private installation directory}', 'target':'${GOPULSE_INSTALL_DIR:?set absolute private installation directory}'},
+            {'type':'bind','source':'${GOPULSE_DOCKER_SOCKET:-/var/run/docker.sock}', 'target':'/var/run/docker.sock'},
+        ],
+        'command': ['version','--json'],
+    }
+    return (json.dumps({'services':{'lifecycle':tool}}, indent=2)+'\n').encode()
 
 
 def write_bundle(m, out):
     files = {'deploy/product/compose.yaml': product_compose(m),
+             'compose.yaml': tool_compose(m),
              'README.md': (ROOT/'deploy/release/BUNDLE-README.md').read_bytes()}
     m['compose'] = {'path':'deploy/product/compose.yaml', 'sha256':sha(files['deploy/product/compose.yaml'])}
     m['bundle_sha256'] = payload_digest(files)
@@ -155,7 +179,9 @@ def write_bundle(m, out):
 
 def verify_bundle(path):
     m=validate(load(path));root=path.parent
-    files={name:(root/name).read_bytes() for name in ('deploy/product/compose.yaml','README.md')}
+    names=['deploy/product/compose.yaml','README.md']
+    if (root/'compose.yaml').is_file(): names.append('compose.yaml')
+    files={name:(root/name).read_bytes() for name in names}
     if sha(files[m['compose']['path']])!=m['compose']['sha256'] or payload_digest(files)!=m['bundle_sha256']:
         raise ValueError('bundle asset checksum mismatch')
     allowed=set(files)|{'release-manifest.json','checksums'}
