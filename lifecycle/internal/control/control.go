@@ -89,6 +89,9 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 		return fail(Usage, "arguments", "command required")
 	}
 	command := args[0]
+	if command == "backup-inspect" {
+		return inspectBackup(args[1:], out)
+	}
 	switch command {
 	case "doctor", "init", "up", "down", "status", "logs", "verify":
 	default:
