@@ -236,3 +236,12 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 - `git diff --check`：通过。
 
 以上均为部分实施的检查记录，不替代计划第 8 节尚未通过的固定产品门禁。
+
+## 完整闭环继续实施（2026-09-13，验收待记录）
+
+用户再次明确要求完成全部计划后才推送。本次继续同一批活动任务；fetch 后主线为 `a0a049e`，与当前树无内容差异。
+
+直接影响的发布基础设施调整理由：原 release builder/Go/Python/schema 强制每个产品候选包含 ARM 镜像和 12 个双平台 current 插件，违反 Phase 16 Linux amd64 独立构建验收、不依赖早期 ARM 产物的规则。
+因此允许完整的 amd64-only 产品集合，同时继续读取历史双平台 manifest；仍拒绝缺少 amd64 或产品间平台集合不一致。针对这个公共合同扩展 Go/Python 的直接验证，不扩大为通用依赖审计。
+
+正在实施真实 lifecycle backup/restore 和各域 adapter；本节不表示完成或验收通过。最终命令和结果将在真实执行后补充。
