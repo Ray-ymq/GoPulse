@@ -1,43 +1,5 @@
 @import "../../frontend-shared/tokens.css";
 
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0 17px;
-  border: 1px solid #cbd5e1;
-  border-radius: 12px;
-  color: #27364a;
-  background: #fff;
-  font-weight: 800;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.button:hover:not(:disabled) {
-  border-color: #94a3b8;
-  background: #f8fafc;
-}
-
-.button--primary {
-  border-color: #1d4ed8;
-  color: #fff;
-  background: #1d4ed8;
-  box-shadow: 0 10px 22px rgba(29, 78, 216, 0.16);
-}
-
-.button--primary:hover:not(:disabled) {
-  border-color: #1e40af;
-  background: #1e40af;
-}
-
-.button--small {
-  min-height: 36px;
-  padding: 0 13px;
-  font-size: 0.84rem;
-}
-
 
 .muted { color:#62728a; }
 .notice--error { color:#991b1b; }

@@ -36,3 +36,9 @@
 因为此次修改的是共享请求安全边界，最终 Compose 门禁必须使用新 Backend/edge 重跑，而不能用正在进行的第一轮旧快照验收替代。这是重跑的具体风险依据，不是扩大通用审计范围。三源告警直接回归复用现有 `phase15-closure.spec.ts --grep 'create exact three-source'`，只验证受影响的浏览器创建和管理链，不重跑未修改的整个历史阶段。
 
 安全修正后的 `scripts/test-frontends.sh` 全部通过（18 文件/65 用户侧测试、8 文件/35 管理侧测试，以及两端 typecheck/build），输出 `/tmp/gopulse-p1603-frontends-security.log`。新增 browser spec 再次通过单文件 TypeScript 检查；Bash 语法与 `git diff --check` 通过。
+
+## 共享基础与最终候选准备
+
+继续将两端完全相同的 `.button` 实现移入共享 CSS，避免按钮样式复制漂移。新增事件代表性 browser 状态检查覆盖 loading、旧结果保留、不可用、empty 和恢复。共享样式修改后的 `scripts/test-frontends.sh` 再次通过（65 + 35 测试及双生产构建），单文件 Playwright 类型检查通过，输出 `/tmp/gopulse-p1603-frontends-shared.log`。
+
+为现有 release builder 的 Git archive + 版本标签输入准备 `1.13.3` 候选；候选提交中的版本号不是验收通过声明，本记录在所有门禁成功前保持“实施中”。第一轮早期快照尚在完整 Compose 回归，其结果不代替新 CSRF/edge 候选。
