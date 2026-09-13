@@ -8,7 +8,7 @@
 - 批次目标版本/分支：`1.13.4` / `develop/1.13.4`。
 - 已执行 `git fetch origin`，从更新后的 `origin/main`（`896c9ba`）创建本分支。
   `origin` 与 `upstream` 均指向 `Ray-ymq/GoPulse` 同一仓库。
-- 当前完成产品版本仍为 `1.13.3`。根 VERSION 和其他受管版本**未改动**。
+- 为修复分支治理门禁，根 `VERSION`、`.env.example` 和两个 Frontend 的受管版本元数据已对齐为 `1.13.4`；这只是目标版本元数据修正，不代表本批验收完成。
 - 此次提交是本批的部分实施提交，不是完成提交；不得据此进入 Phase-16-05 验收。
 - 已有用户未跟踪文件 `~` 保留，不读取内容、不修改、不纳入提交。
 
@@ -133,3 +133,19 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 
 这些剩余工作不是非阻断优化，不能移交下一批后宣称本批完成。当前记录不把它们
 伪装为环境故障，也不认定计划不可执行；它们是尚未完成的实现与验收工作。
+
+## PR 门禁修正（2026-09-13）
+
+远端运行 `34752318947` 的失败 job 为 `Branch governance`，唯一失败步骤是 `Test governance rules`。本地复现的失败为：`test_dev_no_build_rejects_same_version_stale_revision_before_up` 预期验证陈旧镜像 revision，但 `scripts/dev.sh` 先因当前分支 `develop/1.13.4` 与根 `VERSION=1.13.3` 不一致退出。`validate_branch.py` 同样拒绝该版本组合。
+
+本次仅把以下受管元数据从 `1.13.3` 对齐到本批目标 `1.13.4`：`VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json`。未修改备份实现、未把本批未完成的恢复能力宣称为已验收。
+
+修正后的检查：
+
+- `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：通过，41 tests。
+- `python3 scripts/ci/validate_versions.py`：通过。
+- `python3 scripts/ci/validate_branch.py --branch develop/1.13.4 --base-ref origin/main`：通过。
+- `scripts/test-backup-format.sh`：通过。
+- `git diff --check`：通过。
+
+远端此前已通过的非治理 job 未因该门禁修正而重新本地伪造；推送新提交后等待 GitHub 对新 SHA 重新执行完整 workflow。
