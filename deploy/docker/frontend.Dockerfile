@@ -4,6 +4,7 @@ WORKDIR /src/frontend
 ENV CI=true
 COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
+COPY frontend-shared/ /src/frontend-shared/
 COPY frontend/ ./
 RUN npm test -- --run && npm run build
 

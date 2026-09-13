@@ -7,7 +7,7 @@ import './styles.css'
 bindUnauthorizedNavigation(async () => {
   const current = router.currentRoute.value
   if (current.matched.length > 0 && current.path !== '/login') {
-    await router.push('/login')
+    await router.push({ path: '/login', query: { redirect: current.fullPath } })
   }
 })
 
