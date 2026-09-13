@@ -32,11 +32,11 @@ Kubernetes 部署、统一入口与集群观测
 
 - Phase 0 与 Phase-01-01 已按原跨平台策略完成，原生 Windows PowerShell 与 Bash 开发入口的共同能力基线截至产品版本 `0.2.1`；Phase-01-02 至 Phase 12 已在 WSL2/Linux 与 Bash 主路径完成。
 - Phase 13～Phase 15 先在既有 Compose 基线上补齐业务、插件、告警和双前端产品能力；这些能力不得依赖 Kubernetes 才能运行或验收。
-- Phase 16 是明确的跨平台产品化阶段。它必须以真实环境验证至少 Linux `amd64`、macOS `arm64` 与 Windows `amd64`，不能只靠交叉编译、Compose 静态解析或 WSL 内运行宣称 macOS/Windows 支持。
-- macOS 与 Windows 的产品运行方式以 Linux 容器和共享生命周期实现为基础；不要求 MySQL、Kafka、Elasticsearch 或 GoPulse 自研组件成为原生 Windows Service 或 macOS LaunchDaemon。
-- 用户应能从 macOS Terminal 与 Windows PowerShell/Terminal 调用受支持入口。现有 `scripts/*.ps1` 继续作为 `0.2.1` 历史快照，不扩展为与 Bash 重复的第二套编排实现；如有必要，可由 Phase 16 新增名称明确的薄启动器。
+- Phase 16 是明确的 Linux Compose 产品化阶段。支持与验收环境固定为真实 Linux `amd64` Docker server，不以交叉编译、静态检查或模拟运行替代产品验收。
+- Phase 16 提供一个共享容器化生命周期实现；现有 `scripts/*.ps1` 继续作为 `0.2.1` 历史快照，不扩展为当前 Compose 行为的第二套实现。
+- Phase 16 不增加或声明 macOS、Windows、`linux/arm64` 产品支持；早期批次已经生成的额外架构制品不构成后续门禁。
 - Phase 17 在完整 Compose 产品上完成 Kubernetes 前的工程质量验收。
-- Phase 18 至 Phase 20 才进入 Kubernetes 实施，使用 WSL2/Linux 作为主环境，并在直接影响镜像或用户入口时回归 Phase 16 已交付的多架构与跨平台契约；不要求 Kubernetes 集群本身原生运行在 macOS 或 Windows。
+- Phase 18 至 Phase 20 才进入 Kubernetes 实施，使用 WSL2/Linux 作为主环境，并在直接影响镜像、生命周期或用户入口时回归 Phase 16 已交付的 Linux `amd64` 产品契约。
 - 平台适配不降低业务、数据、安全、故障恢复、Linux CI、Docker 或 Kubernetes 验收标准。
 
 ## 1.2 用户态与访问边界
@@ -1366,11 +1366,11 @@ Metrics / Logs / Events
 
 ---
 
-# 20. Phase 16：跨平台产品化与双前端交付
+# 20. Phase 16：Linux 产品化与双前端交付
 
 ## 目标
 
-把完整业务与可观测能力提升为可在 Linux、macOS 与 Windows 宿主上安装、运行、升级、诊断和恢复的双前端 Compose 产品。
+把完整业务与可观测能力提升为可在真实 Linux `amd64` 环境安装、运行、升级、诊断和恢复的双前端 Compose 产品。
 
 支持方式：
 
@@ -1382,7 +1382,7 @@ Backend 读取数据库当前角色
    └── super_admin → 独立管理 Frontend
 ```
 
-最小真实矩阵固定包含 Linux `amd64`、macOS `arm64` 与 Windows `amd64`；自研容器、两个 Frontend 和六类插件形成 `linux/amd64`、`linux/arm64` 制品。
+最终真实矩阵固定使用 Linux `amd64` host/server；自研容器、两个 Frontend 和六类插件以 Linux `amd64` 制品作为支持与验收合同。
 
 ## 产品交付能力
 
@@ -1395,7 +1395,7 @@ Backend 读取数据库当前角色
 
 ## 验收标准
 
-- 三类真实宿主均可启动完整系统，不要求宿主安装 Go、Node.js 或基础设施。
+- 真实 Linux `amd64` 环境可从独立 Bundle 启动完整系统，不要求宿主安装 Go、Node.js 或基础设施客户端。
 - 同一域名与统一登录可按角色进入正确的独立 Frontend，越权由 Backend 拒绝。
 - 用户端和管理端各自完成代表性闭环。
 - 升级与隔离恢复后，业务事实和管理状态保持一致或可重建。
@@ -1579,7 +1579,7 @@ Phase 14 插件体系与组件可观测闭环
    ↓
 Phase 15 告警与管理端闭环
    ↓
-Phase 16 跨平台产品化与双前端交付
+Phase 16 Linux 产品化与双前端交付
    ↓
 Phase 17 稳定性与工程化（完整产品验收）
    ↓

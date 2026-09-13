@@ -22,7 +22,7 @@
 | Phase 13 | `1.10.x` | [业务基础系统与用户端闭环](Phase-13-业务基础系统与用户端闭环.md) | 关注、Following、收藏、帖子编辑/删除与独立用户端 | Milestone 4 |
 | Phase 14 | `1.11.x` | [插件体系与组件可观测闭环](Phase-14-插件体系与组件可观测闭环.md) | 六类官方单实例插件与自研组件指标 | Milestone 4 |
 | Phase 15 | `1.12.x` | [告警与管理端闭环](Phase-15-告警与管理端闭环.md) | 内部告警、双角色与独立管理端大屏 | Milestone 4 |
-| Phase 16 | `1.13.x` | [跨平台产品化与双前端交付](Phase-16-跨平台产品化与双前端交付.md) | 同域双前端与 Linux/macOS/Windows 交付 | Milestone 4 |
+| Phase 16 | `1.13.x` | [Linux 产品化与双前端交付](Phase-16-Linux产品化与双前端交付.md) | 同域双前端与 Linux `amd64` 产品交付 | Milestone 4 |
 | Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | Kubernetes 前的完整产品质量验收 | Milestone 4 收口 |
 | Phase 18 | `1.15.x` | [Kubernetes基础部署](Phase-18-Kubernetes基础部署.md) | 将已完成产品迁移到 Kubernetes | Milestone 5 |
 | Phase 19 | `1.16.x` | [Ingress与统一入口](Phase-19-Ingress与统一入口.md) | 同域登录、双前端和 API 的统一入口 | Milestone 5 |
@@ -35,7 +35,7 @@ Phase 12 已完成的 Compose 基线
 → Phase 13 业务与用户端
 → Phase 14 插件与组件指标
 → Phase 15 告警与管理端
-→ Phase 16 跨平台双前端交付
+→ Phase 16 Linux 产品化与双前端交付
 → Phase 17 完整产品工程验收
 → Phase 18 Kubernetes 部署
 → Phase 19 Ingress
