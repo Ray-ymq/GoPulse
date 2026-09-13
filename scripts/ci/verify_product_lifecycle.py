@@ -43,12 +43,19 @@ def main():
                 '-v', endpoint+':'+endpoint, '-v', str(a.manifest.parent.resolve())+':/bundle:ro',
                 '-v', str(install)+':'+str(install), image]
         common = ['--install', str(install), '--endpoint', 'unix://'+endpoint]
+        tool_env = {**os.environ, 'GOPULSE_BUNDLE_DIR':str(a.manifest.parent.resolve()),
+                    'GOPULSE_INSTALL_DIR':str(install), 'GOPULSE_TOOL_UID':str(os.getuid()),
+                    'GOPULSE_TOOL_GID':str(os.getgid()), 'GOPULSE_SOCKET_GID':str(os.stat(endpoint).st_gid)}
+        tool_base = ['docker','compose','-p','gopulse-lifecycle-test-'+os.urandom(4).hex(),
+                     '-f',str((a.manifest.parent/'compose.yaml').resolve()),'run','--rm','-T','--no-deps','lifecycle']
+
         outputs = []
         def call(command, *args, expected=0):
-            result = subprocess.run([*base, command, *common, *args], capture_output=True, text=True, timeout=900)
+            result = subprocess.run([*(tool_base if a.clean_install else base), command, *common, *args], env=tool_env, capture_output=True, text=True, timeout=900)
             outputs.append(result.stdout+result.stderr)
             assert result.returncode == expected, f'{command}: exit {result.returncode}, expected {expected}; '+result.stdout+result.stderr
-            value = json.loads(result.stdout if result.returncode == 0 else result.stderr)
+            stream = result.stdout if result.returncode == 0 else result.stderr
+            value = json.loads(next(line for line in reversed(stream.splitlines()) if line.startswith('{')))
             return value
         def snapshot():
             ids = docker('ps', '-aq', '--filter', 'label=com.docker.compose.project='+state['project']).split()
@@ -56,7 +63,7 @@ def main():
             # Ignore independent healthcheck timestamps; compare lifecycle state.
             runtime = [(c['Id'], c['Image'], c['State']['Status'], c['State']['StartedAt'], c['RestartCount']) for c in objects]
             mysql = next(c['Id'] for c in objects if c['Config']['Labels']['com.docker.compose.service']=='mysql')
-            business = docker('exec', mysql, 'sh', '-c', 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_DATABASE" -N -e "SELECT COUNT(*) FROM users; SELECT COUNT(*) FROM posts; SELECT COUNT(*) FROM user_roles;"')
+            business = docker('exec', mysql, 'sh', '-c', 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_DATABASE" -N -e "SELECT COUNT(*) FROM users; SELECT COUNT(*) FROM posts; SELECT COUNT(*) FROM bootstrap_super_admin;"')
             return sorted(runtime), business, (install/'state.json').read_bytes(), (install/'secrets.json').read_bytes()
         state = None
         try:
@@ -86,7 +93,7 @@ def main():
                 call('doctor', '--endpoint', 'unix:///missing-daemon', expected=11)
                 # Fault fixtures are kept outside the immutable candidate.
                 invalid = Path(tmp)/'invalid bundle'
-                for name in ['README.md','release-manifest.json','checksums','deploy/product/compose.yaml']:
+                for name in ['README.md','compose.yaml','release-manifest.json','checksums','deploy/product/compose.yaml']:
                     target = invalid/name; target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(a.manifest.parent/name, target)
                 (invalid/'README.md').write_text('tampered')

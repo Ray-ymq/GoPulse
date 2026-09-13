@@ -13,18 +13,17 @@ A loopback candidate registry is not an external/public release.
 
 Create a separate empty **0700** installation directory; never use a directory
 containing user files. Mount it at exactly the same absolute path inside the
-tool container (Docker resolves file secrets on the host). Select the lifecycle
-image's `linux/amd64` digest from `release-manifest.json`, not a mutable tag.
+tool container (Docker resolves file secrets on the host). The bundled tool Compose entry selects the lifecycle image by its immutable
+`linux/amd64` digest, never a mutable tag.
 The following is an invocation example, not a second lifecycle implementation:
 
 ```bash
-# Set BUNDLE, INSTALL and TOOL to absolute paths / the immutable lifecycle ref.
+# Set absolute BUNDLE and INSTALL paths. No repository checkout is needed.
 mkdir -m 700 "$INSTALL"
-docker run --rm --network host --read-only --cap-drop ALL \
-  --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
-  --group-add "$(stat -c %g /var/run/docker.sock)" --tmpfs /tmp \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$BUNDLE:/bundle:ro" -v "$INSTALL:$INSTALL" "$TOOL" \
+export GOPULSE_BUNDLE_DIR="$BUNDLE" GOPULSE_INSTALL_DIR="$INSTALL"
+export GOPULSE_TOOL_UID="$(id -u)" GOPULSE_TOOL_GID="$(id -g)"
+export GOPULSE_SOCKET_GID="$(stat -c %g /var/run/docker.sock)"
+docker compose -p gopulse-tool -f "$BUNDLE/compose.yaml" run --rm -T lifecycle \
   doctor --endpoint unix:///var/run/docker.sock --install "$INSTALL" --port 18080
 ```
 

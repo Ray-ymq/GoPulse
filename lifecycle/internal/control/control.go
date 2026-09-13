@@ -227,7 +227,11 @@ func (c *Controller) loadManifest(version, rev string) error {
 	if e != nil {
 		return fail(ManifestError, "checksum", "missing compose")
 	}
-	payload := strings.TrimPrefix(release.Sum(readme), "sha256:") + "  README.md\n" + strings.TrimPrefix(release.Sum(compose), "sha256:") + "  deploy/product/compose.yaml\n"
+	tool, e := os.ReadFile(filepath.Join(c.bundle, "compose.yaml"))
+	if e != nil {
+		return fail(ManifestError, "checksum", "missing tool Compose entry")
+	}
+	payload := strings.TrimPrefix(release.Sum(readme), "sha256:") + "  README.md\n" + strings.TrimPrefix(release.Sum(tool), "sha256:") + "  compose.yaml\n" + strings.TrimPrefix(release.Sum(compose), "sha256:") + "  deploy/product/compose.yaml\n"
 	if release.Sum([]byte(payload)) != c.manifest.BundleSHA256 {
 		return fail(ManifestError, "checksum", "bundle payload mismatch")
 	}
