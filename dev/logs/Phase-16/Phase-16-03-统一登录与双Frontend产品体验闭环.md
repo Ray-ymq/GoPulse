@@ -2,14 +2,14 @@
 
 ## 状态
 
-目标 `1.13.3`，分支 `develop/1.13.3`，从更新后的 `origin/main` (`5499a4f`) 创建；origin 与计划中的 upstream 指向同一仓库。**实施中，未完成验收，不宣称本批完成。** 根 VERSION 暂保留完成基线 `1.13.2`。预先提交实现快照仅用于现有 Compose 门禁的 committed-source 输入要求。
+目标 `1.13.3`，分支 `develop/1.13.3`，从更新后的 `origin/main` (`5499a4f`) 创建；origin 与计划中的 upstream 指向同一仓库。**本批已完成验收，完成版本为 `1.13.3`。** 以下保留实施过程与失败轮次；初期曾保留 `1.13.2` 完成基线，预先提交实现快照用于现有 Compose/release 门禁的 committed-source 输入要求。最终结果与证据见末节。
 
 ## 实际变更
 
 - `frontend-shared/`：共享全局样式、focus/窄屏基础、时间格式函数、带原始 RFC3339 提示的时间组件和六类状态组件；两个 Frontend 的 Docker 构建均显式复制共享输入。
 - 两个 Frontend 的样式、Vite/TypeScript 模块解析和日期工具引用共享基础；Events/Logs 使用共同 loading/empty/stale/unavailable 状态，审计和记录时间统一按浏览器时区展示。
 - 用户登录回跳使用已实现页面 allowlist；认证刷新失败清理陈旧身份及关联缓存；401 回登录保留目标。管理会话刷新失败清理身份，管理壳新增登出和键盘跳至内容。
-- 唯一 edge 增加 CSP、frame、content-type、Referrer-Policy 和 no-store；没有更改 Backend 的 cookie/session/CSRF 合同。
+- 唯一 edge 增加 CSP、frame、content-type、Referrer-Policy 和 no-store；初轮未更改 Backend 身份合同，随后补齐显式同源 CSRF 保护（见下文）。
 - `frontend-product.spec.ts` 增加同源真实角色、桌面/窄屏、键盘、审计时区筛选、登出、失效及恢复矩阵；复用现有 Compose acceptance profile，在完整回归管理 fixture 建立后运行。
 
 ## 已执行检查
@@ -59,7 +59,7 @@ Bundle runner 初次调试在候选身份校验处失败（`KeyError: version`�
 
 ## 最终候选及已通过 release 门禁
 
-最终产品候选：`dist/phase16-03-v2/`；产品与最终 browser 镜像均由已提交的 `03cd7b05d9c01f5067241668453aa367d111dfb6` Git archive 构建，版本 `1.13.3`。此前 v1 是调试候选，不与最终证据混用。最终 builder 结束后已再次撤销临时 qemu-aarch64 注册，实际验收均在原 Linux amd64 Docker daemon。
+最终产品候选：`dist/phase16-03-v2/`；产品与完整 release 门禁的 browser 镜像均由已提交的 `03cd7b05d9c01f5067241668453aa367d111dfb6` Git archive 构建，版本 `1.13.3`。此前 v1 是调试候选，不与最终证据混用。最终 builder 结束后已再次撤销临时 qemu-aarch64 注册，实际验收均在原 Linux amd64 Docker daemon。
 
 - Manifest SHA256：`50c39e1008d5f33bc8575409cd1473c1f77401b9480c2a3847851402af8ac9d7`。
 - `scripts/verify-release-artifacts.sh --manifest /home/ray/GoPulse/dist/phase16-03-v2/release-manifest.json --platform linux/amd64 --runtime` **通过**，在干净 worktree `/tmp/gopulse-p1603-verify` 运行，输出 `/tmp/gopulse-p1603-release-runtime-final.log`。
@@ -84,3 +84,87 @@ canonical UTC 修正后，Bundle 已进入真实 browser。desktop 的事件 loa
 将两个独立 fixture 隔离：完成恢复后先结束原文档（about:blank），再清 Cookie 并重新访问受保护 `/posts`。这避免把前一恢复文档尚在进行的请求/导航与下一次失效注入交叠；仍严格要求真正无 Cookie 的页面跳到统一 login，未接受 auth-recovery 作为通过。生产代码不变。该改动仅改变 browser 测试输入的时序，已有产品 candidate 与完整 Compose/六插件结果继续有效；最终 Bundle 使用更新后的测试 runner，再执行尚未通过的两视口矩阵。
 
 测试 runner 的 provenance 与产品分开记录：版本仍必须相同，新增 `runner_revision` / `product_revision` receipt 字段。测试脚本修正不应伪装成旧源码 revision，也不应迫使未修改的已通过产品重建。刚才一次未运行的临时 runner 构建曾沿用产品 REVISION 参数，现明确废弃；最终重建使用测试源码真实 Git archive commit `557fe1a` 的完整 hash 作为 OCI revision，实际运行使用其 immutable image ID。产品仍绑定 v2 manifest。文档同步解释这一测试工具与产品来源的区别。
+
+## 本批实际变更文件
+
+- `.env.example`
+- `VERSION`
+- `admin-frontend/package-lock.json`
+- `admin-frontend/package.json`
+- `admin-frontend/src/components/AdminLayout.vue`
+- `admin-frontend/src/composables/useAuth.ts`
+- `admin-frontend/src/composables/usePagedObservability.ts`
+- `admin-frontend/src/styles.css`
+- `admin-frontend/src/utils/format.ts`
+- `admin-frontend/src/views/AuditView.vue`
+- `admin-frontend/src/views/ObservabilityEventsView.vue`
+- `admin-frontend/src/views/ObservabilityLogsView.vue`
+- `admin-frontend/tsconfig.app.json`
+- `admin-frontend/vite.config.ts`
+- `backend/internal/http/middleware/same_origin.go`
+- `backend/internal/http/middleware/same_origin_test.go`
+- `backend/internal/http/router.go`
+- `deploy/docker/admin-frontend.Dockerfile`
+- `deploy/docker/frontend.Dockerfile`
+- `deploy/docker/frontend/nginx.conf`
+- `dev/logs/Phase-16/Phase-16-03-统一登录与双Frontend产品体验闭环.md`
+- `docs/frontend-product-experience.md`
+- `frontend-shared/ProductState.vue`
+- `frontend-shared/ProductTime.vue`
+- `frontend-shared/format.ts`
+- `frontend-shared/tokens.css`
+- `frontend/e2e/frontend-product.spec.ts`
+- `frontend/package-lock.json`
+- `frontend/package.json`
+- `frontend/src/components/PostCard.vue`
+- `frontend/src/composables/useAuth.test.ts`
+- `frontend/src/composables/useAuth.ts`
+- `frontend/src/main.ts`
+- `frontend/src/styles.css`
+- `frontend/src/utils/format.ts`
+- `frontend/src/utils/product-time.test.ts`
+- `frontend/src/utils/redirect.test.ts`
+- `frontend/src/utils/redirect.ts`
+- `frontend/src/views/AuthRecoveryView.vue`
+- `frontend/src/views/PostDetailView.vue`
+- `frontend/tsconfig.app.json`
+- `frontend/vite.config.test.ts`
+- `frontend/vite.config.ts`
+- `scripts/ci/frontend_bundle_browser.py`
+- `scripts/ci/verify_product_lifecycle.py`
+- `scripts/test-frontends.sh`
+- `scripts/verify-compose-observability.sh`
+
+## 最终 Bundle 门禁、完成与交接
+
+**2026-09-13：全部本批固定门禁及等价入口通过，无剩余阻断项，达到停止条件。**
+
+最终执行：
+
+```bash
+scripts/verify-product-lifecycle.sh \
+  --manifest dist/phase16-03-v2/release-manifest.json \
+  --platform linux/amd64 --clean-install \
+  --acceptance-image sha256:d4019df77c7972a52e0d0a1107019c87018bde2877c767509cc12091766dbf4f
+```
+
+- 结果 `passed`，输出 `/tmp/gopulse-p1603-bundle-final-v3.log`，已归档到 `dist/phase16-03-v2/evidence/lifecycle-browser.json`。
+- 真实 Linux amd64 Bundle 空目录安装、private state/Secret、重复 init 拒绝、只读 verify、唯一 edge、allowlist logs、重复 down、up 后继续 verify 与最后归属 purge 通过。
+- 真实 Bundle browser 的 `desktop`（1440×900）、`narrow`（390×844）、`three-source-create` 全部通过，时区 `Asia/Shanghai`；角色 fixture 仅属于本次隔离产品。
+- 产品 revision：`03cd7b05d9c01f5067241668453aa367d111dfb6`；更新后测试 runner revision：`557fe1ad61f3355e0d3ebcc8e9be291905dee74c`。receipt 分别记录两者与不可变 runner image ID，不把验收工具修正伪装成产品镜像源码变更。
+- Bundle payload：`sha256:deba22c976f72687e18e2cf5f9d7c085e4adcf9ee09a1df8c041580668343a21`。
+- Bundle archive SHA256：`7d308e785b6ac9630cc2d32a86ce6e7f19a0ac038bc6bbb56a743f9571ae4aa2`。
+- 两个最终 runtime receipt 绑定相同 manifest `50c39e1008d5f33bc8575409cd1473c1f77401b9480c2a3847851402af8ac9d7`。`evidence/` 同时保存 release runtime、双 Frontend 测试构建、Backend HTTP/CSRF 和 auth/cookie 的实际输出。
+- 根 VERSION、`.env.example`、两个 package.json/package-lock.json 完成版本逐项核对均为 `1.13.3`；最后记录改动通过 `git diff --check`。
+
+### 偏差、限制与下一批输入
+
+1. 原计划抽象 frontend-contract/frontend-browser 和 reuse-install 不存在，采用上述真实 Playwright profile 与 clean-install 等价入口；没有绕开 Bundle 运行。
+2. 用户 Frontend 维持社交产品职责，可观测/目标/插件/告警/审计在管理 Frontend；没有新增普通用户管理能力或扩大 API 页面范围。
+3. HTTP loopback 产品的 Secure=false 与 cookie/CSRF/CSP 已验证；不是公网 TLS、macOS、Windows、arm64 或 Kubernetes 支持声明。
+4. 错误状态使用明确的浏览器 API 拦截 fixture；真实 Backend、角色、审计、业务、六插件和产品生命周期另有真实链路证据。人工 Cookie 失效与服务恢复采用独立文档 fixture，不将两次不同故障的重叠注入当作固定场景。
+5. backup/restore、历史升级、完整三源引擎历史矩阵及 Phase 16 最终阶段收口不在本批，不提前宣称完成。
+6. 所有本批调试/最终产品容器、network、volume 及 browser profile 已清理；无关六个既有容器与用户未跟踪文件 `~` 未动。错误来源标签的未运行调试镜像和旧 debug runner 已删除。最终本地候选、真实 runner 镜像和 evidence 保留便于复核；不是外部 registry 发布。
+7. Phase-16-04 的输入为 v2 不可变 Bundle、唯一 edge、同源写请求/角色/session 合同、共享 Frontend 基础与 schema 1 安装 state。分支未推送、未创建 PR、未合并 main。
+
+达到本批停止条件后，仅补齐此记录和自动提交，不重跑已通过且相关输入未变化的检查，不追加重构或独立审计。
