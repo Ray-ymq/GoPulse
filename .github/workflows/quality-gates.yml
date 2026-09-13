@@ -179,7 +179,7 @@ jobs:
             echo 'Expected Bash and Go working-tree files to use LF.' >&2
             exit 1
           fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/verify-compose-observability.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh scripts/verify-observability-ui.sh scripts/verify-admin-frontend.sh scripts/package-redis-exporter.sh scripts/start-development-batch.sh
+          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/verify-compose-observability.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh scripts/verify-observability-ui.sh scripts/verify-admin-frontend.sh scripts/package-redis-exporter.sh scripts/start-development-batch.sh scripts/verify-plugin-state.sh
       - name: Run acceptance safety negative tests
         run: |
           bash scripts/verify-compose.sh --self-test
