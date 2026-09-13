@@ -4,7 +4,7 @@ import { setForbiddenHandler, setUnauthorizedHandler } from '../services/http'
 import type { PublicUser } from '../types/api'
 const user = ref<PublicUser | null>(null)
 export function useAuth() {
-  return { user: readonly(user), async refresh() { user.value = await authApi.me() } }
+  return { user: readonly(user), async refresh() { try { user.value = await authApi.me() } catch (error) { user.value = null; throw error } } }
 }
 export function bindAuthNavigation(navigate: (path: string) => void = path => window.location.replace(path)) {
   setForbiddenHandler(async () => {

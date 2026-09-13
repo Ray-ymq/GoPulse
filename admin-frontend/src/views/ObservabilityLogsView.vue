@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ProductTime from "../../../frontend-shared/ProductTime.vue"
+import ProductState from "../../../frontend-shared/ProductState.vue"
 import { computed, onMounted, ref, watch } from 'vue'
 import { usePagedObservability } from '../composables/usePagedObservability'
 import { logCatalog, observabilityApi, ranges } from '../services/observability'
@@ -32,11 +34,12 @@ onMounted(apply)
       <label>错误码<input v-model.trim="filters.error_code" maxlength="64"></label>
       <button class="button" type="submit" :disabled="query.loading.value">应用筛选</button>
     </form>
-    <p v-if="query.message.value" class="notice" role="status">{{ query.message.value }}</p>
+    <ProductState v-if="query.loading.value" state="loading" />
+    <ProductState v-else-if="query.message.value" :state="query.state.value" :message="query.message.value" />
     <p v-if="query.updatedAt.value" class="last-updated">最近成功更新：{{ query.updatedAt.value }}</p>
     <div class="record-list" :aria-busy="query.loading.value">
       <article v-for="(entry,index) in query.items.value" :key="`${entry.timestamp}-${index}`" class="record-card">
-        <div class="record-card__header"><time>{{ entry.timestamp }}</time><span :class="`level level--${entry.level}`">{{ entry.level }}</span></div>
+        <div class="record-card__header"><ProductTime :value="entry.timestamp" /><span :class="`level level--${entry.level}`">{{ entry.level }}</span></div>
         <h3>{{ entry.message }}</h3><p>{{ entry.service }} / {{ entry.module }}</p>
         <dl class="metadata-list"><template v-for="(value,key) in entry" :key="key"><div v-if="!['timestamp','level','service','module','message'].includes(String(key))"><dt>{{ key }}</dt><dd>{{ value }}</dd></div></template></dl>
       </article>

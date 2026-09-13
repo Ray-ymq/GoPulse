@@ -23,10 +23,13 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--platform', choices=['linux/amd64'], required=True)
     p.add_argument('--manifest', type=Path, default=ROOT/'dist/release-manifest.json')
+    p.add_argument('--acceptance-image', help='immutable local Linux amd64 browser image ID; clean install only')
     modes = p.add_mutually_exclusive_group(required=True)
     modes.add_argument('--clean-install', action='store_true')
     modes.add_argument('--failure-matrix', action='store_true')
     a = p.parse_args()
+    if a.acceptance_image and not a.clean_install: p.error('--acceptance-image requires --clean-install')
+    browser = None
     m = json.loads(a.manifest.read_text())
     image = m['lifecycle']['ref'].split('@')[0]+'@'+m['lifecycle']['platforms'][a.platform]
     server = json.loads(docker('version', '--format', '{{json .Server}}'))
@@ -83,6 +86,9 @@ def main():
                 status = call('status'); assert status['phase'] == 'ready'
                 for path in ['/', '/admin/', '/health']:
                     with urllib.request.urlopen(status['edge']+path, timeout=10) as response: assert response.status == 200
+                if a.acceptance_image:
+                    from frontend_bundle_browser import run_browser
+                    browser = run_browser(install, state, status, secrets, a.acceptance_image, docker)
                 call('logs', '--service', 'backend', '--tail', '10')
                 call('logs', '--service', 'arbitrary-container', expected=2)
                 call('down'); call('down'); call('up'); call('verify')
@@ -145,7 +151,7 @@ def main():
                 for key, secret in secrets.items():
                     if any(word in key for word in ('PASSWORD','TOKEN','SECRET')): assert secret not in text, 'secret leaked'
             print(json.dumps({'schema':1, 'platform':a.platform, 'manifest_sha256':hashlib.sha256(a.manifest.read_bytes()).hexdigest(),
-                              'mode':'clean-install' if a.clean_install else 'failure-matrix', 'status':'passed'}))
+                              'mode':'clean-install' if a.clean_install else 'failure-matrix', 'status':'passed', 'browser':browser}))
         finally:
             if state is not None:
                 call('down', '--purge', '--confirm', state['project'])
