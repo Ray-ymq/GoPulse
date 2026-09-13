@@ -125,6 +125,16 @@ def product_compose(m):
             raise ValueError('unmapped product service: '+name)
         service['image'] = image['ref']
         service['pull_policy'] = 'always'
+    # Reuse the existing frontend reverse proxy as the sole product edge.
+    # Keep the frontend itself internal; development Compose remains unchanged.
+    import copy
+    doc['services']['edge'] = copy.deepcopy(doc['services']['frontend'])
+    for name, service in doc['services'].items():
+        if name != 'edge':
+            service.pop('ports', None)
+    for kind in ('volumes', 'networks', 'secrets'):
+        for resource in doc.get(kind, {}).values():
+            resource.pop('name', None)
     doc['services']['lifecycle'] = {'image':m['lifecycle']['ref'], 'profiles':['tools'], 'read_only':True,
                                    'network_mode':'none', 'user':'10001:10001', 'cap_drop':['ALL'],
                                    'security_opt':['no-new-privileges:true'], 'volumes':['../../:/bundle:ro'],
