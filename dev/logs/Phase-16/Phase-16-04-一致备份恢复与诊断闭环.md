@@ -2,7 +2,7 @@
 
 ## 状态
 
-**2026-09-13：实施中，已完成格式层/离线检查及 Monitor 离线插件状态传输子项；整批仍未完成、未验收。**
+**2026-09-14（本地时间）：整批实现和固定门禁全部通过，版本 `1.13.4`。以下早期部分实施记录按时间保留；最终完成结论以文末为准。**
 
 - 对应计划：`dev/imple/Phase-16/Phase-16-04-一致备份恢复与诊断闭环.md`。
 - 批次目标版本/分支：`1.13.4` / `develop/1.13.4`。
@@ -271,3 +271,41 @@ Python harness 编译及 `git diff --check`。由于 bundle README 是受摘要�
 
 最终候选 `4bc686205755fe37cfd97f8b0fdecaccf3a6da7a` 构建完成，路径 `dist/phase16-04-recovery-v4`。
 初次构建 APK 网络停滞超过 15 分钟后主动取消；仅传宿主代理在 bridge 内连接被拒。使用 `/tmp` 临时 Docker wrapper 给 buildx 传标准代理 build args 和 `--network host` 后真实完整构建成功（未修改源码/依赖、未把代理写入 Dockerfile）。构建日志为 `build-final-host.log`；最终新候选恢复矩阵已启动，尚不计完成。
+
+
+## 最终完成验收（2026-09-14，本地 Linux amd64）
+
+最终产品源码 revision：`4bc686205755fe37cfd97f8b0fdecaccf3a6da7a`。
+Manifest：`sha256:f6e8ff1ad05d8b0f784c21e37ec19d7bec0c208b3af4db58115ad31729c3e20f`。
+候选：`dist/phase16-04-recovery-v4/release-manifest.json`，真实 registry `127.0.0.1:15001/gopulse`，非公网发布。
+后续提交仅追加开发记录，不改变该候选的源码/运行内容。
+
+固定门禁实际结果：
+
+| 命令 | 结果 / 证据 |
+| --- | --- |
+| `(cd lifecycle && go test ./... && go vet ./...)` | 通过；root 无 go workspace，因此用模块目录执行计划等价命令 |
+| `scripts/test-backup-format.sh` | 通过 |
+| `scripts/verify-backup-restore.sh --platform linux/amd64 --same-arch --manifest dist/phase16-04-recovery-v4/release-manifest.json --acceptance-image <真实不可变ID>` | 通过，`same-arch-v4.log` |
+| 同脚本 `--failure-matrix`、同 manifest | 通过，`failure-matrix-v4.log` |
+| `scripts/verify-product-lifecycle.sh --platform linux/amd64 --reuse-install --install <私有target绝对路径> --manifest <v4绝对路径>` | 通过，`reuse-v4.log` |
+| `GOPULSE_RELEASE_MANIFEST=<v4绝对路径> scripts/verify-compose.sh` | 通过，`compose-final.log`；在干净 detached worktree `/tmp/gopulse-phase16-04-final` 执行，避免触碰用户未跟踪文件 |
+
+上述日志位于 `.run/phase16-04-recovery/`，真实 fixture receipt 为私有 `product/acceptance.json`。
+最终 cutover 为 `2026-09-13T15:51:38.252301740Z`（本地 23:51:38）；MySQL 有 2 用户、1 业务文章、
+1 告警事件、13 管理审计；ES 有 3 索引（6 events、77 logs、1 post）；VM 有 372 series/1218 samples；
+RabbitMQ 为 6 queues/6 exchanges/20 bindings，Kafka 单 topic/partition 的已排空源 offset 为 131；
+6 插件及受信 catalog 摘要均独立核对。恢复后 SQL/搜索/指标/拓扑/插件事实一致，实际新文章被搜索命中；
+双前端桌面/窄屏浏览器和三来源规则入口通过。JWT 轮换使旧会话失效，保留真实用户凭据与角色。
+
+错误口令、tamper、真实 1 MiB 空间不足、原生 SQL 导入失败、真实 SIGTERM 中断、重试、拒绝源覆盖、
+源状态和计数不变、私有 doctor 诊断与 Secret 扫描全部通过。v4 源/目标/negative 项目均已通过原
+bundle 执行强归属清理；Compose 脚本也完成自身清理，无关资源及用户文件保留。
+
+实际文件范围：lifecycle backup/control/release 模块和 acceptance fixture 命令；Monitor 插件传输与采集历史；
+release amd64 合同的 Go/Python/schema/builder；backup/reuse/browser 验收脚本；根 README、bundle README
+和 `docs/releases/backup-{restore,plugin-state}.md`。早期提交已将所有受管版本对齐 `1.13.4`，本批不再重复 bump。
+
+边界：256 MiB 有界逻辑备份、完整停写维护窗口、相同 manifest 的空项目同架构恢复、单 broker/topic 支持；
+Kafka 已确认历史在 ES/VM，空目标 offset 重置而不伪造消息；不宣称在线备份、ARM、Windows、macOS 或
+1.9.4 升级。本批无阻断项；Phase-16-05 必须在本批合入 main 后另建分支独立实施和验收。
