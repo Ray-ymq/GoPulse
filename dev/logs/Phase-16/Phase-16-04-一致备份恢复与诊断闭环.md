@@ -245,3 +245,7 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 因此允许完整的 amd64-only 产品集合，同时继续读取历史双平台 manifest；仍拒绝缺少 amd64 或产品间平台集合不一致。针对这个公共合同扩展 Go/Python 的直接验证，不扩大为通用依赖审计。
 
 正在实施真实 lifecycle backup/restore 和各域 adapter；本节不表示完成或验收通过。最终命令和结果将在真实执行后补充。
+
+首轮真实候选/源产品演练：构建 `d10f9a3` 的 Linux amd64 全产品候选，真实用户、业务搜索、六插件采集、告警历史和审计种子成功；backup 在 `search-export` 拒绝实际按日期命名的 ES 索引（名称含 `.`）。已修正为独立的受限 ES 名称合同并加入该已观察缺陷的直接测试。该轮不计验收通过；源 project 已经通过其原 bundle 的 ownership 检查执行 `down --purge`，没有修改无关资源。
+
+构建过程中发现单平台 buildx 产生单 manifest 而非 index，已让 builder 用实际内容构建单平台 OCI index，而不是填入不存在的另一架构。还将两个 runtime Dockerfile 的版本 label ARG 移到包安装层之后：实际多次构建中无关 revision 使相同 APK 安装反复耗时约 100 秒，此调整只避免该缓存失效，不改变依赖或运行内容，最终候选继续核对真实 OCI 标签。
