@@ -671,6 +671,12 @@ reset_for_management() {
   assert_full_state
   register_and_promote
   run_observability_scenario manage
+  for viewport in desktop narrow; do
+    compose --profile acceptance run --rm --no-deps -e GOPULSE_VIEWPORT="$viewport" acceptance e2e/frontend-product.spec.ts
+  done
+  compose --profile acceptance run --rm --no-deps \
+    -e GOPULSE_ADMIN_USERNAME="$ADMIN_USERNAME" -e GOPULSE_ACCEPTANCE_PASSWORD="$PASSWORD" \
+    acceptance e2e/phase15-closure.spec.ts --grep 'create exact three-source'
   pass 'Administrator completed official install, stop, start, Metrics, and Events through the browser.'
 }
 

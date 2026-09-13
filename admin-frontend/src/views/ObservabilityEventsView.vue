@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ProductTime from "../../../frontend-shared/ProductTime.vue"
+import ProductState from "../../../frontend-shared/ProductState.vue"
 import { computed, onMounted, ref, watch } from 'vue'
 import { usePagedObservability } from '../composables/usePagedObservability'
 import { eventErrorCodes, eventNames, eventOperations, eventSeverities, observabilityApi, ranges } from '../services/observability'
@@ -28,11 +30,12 @@ onMounted(apply)
       <label>错误码<select v-model="filters.error_code"><option value="">全部</option><option v-for="item in eventErrorCodes" :key="item">{{ item }}</option></select></label>
       <button class="button" type="submit" :disabled="query.loading.value">应用筛选</button>
     </form>
-    <p v-if="query.message.value" class="notice" role="status">{{ query.message.value }}</p>
+    <ProductState v-if="query.loading.value" state="loading" />
+    <ProductState v-else-if="query.message.value" :state="query.state.value" :message="query.message.value" />
     <p v-if="query.updatedAt.value" class="last-updated">最近成功更新：{{ query.updatedAt.value }}</p>
     <div class="record-list" :aria-busy="query.loading.value">
       <article v-for="(entry,index) in query.items.value" :key="`${entry.timestamp}-${index}`" class="record-card">
-        <div class="record-card__header"><time>{{ entry.timestamp }}</time><span :class="`level level--${entry.severity}`">{{ entry.severity }}</span></div>
+        <div class="record-card__header"><ProductTime :value="entry.timestamp" /><span :class="`level level--${entry.severity}`">{{ entry.severity }}</span></div>
         <h3>{{ labels[entry.event_name] }} <code>{{ entry.event_name }}</code></h3><p>{{ entry.message }}</p>
         <dl class="metadata-list"><div><dt>source</dt><dd>{{ entry.source }}</dd></div><template v-for="(value,key) in entry.metadata" :key="key"><div><dt>{{ key }}</dt><dd>{{ value }}</dd></div></template></dl>
       </article>

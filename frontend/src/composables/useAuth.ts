@@ -23,6 +23,8 @@ function removeAdminCapability(): void {
 }
 
 function markRecoveryError(): void {
+  clearFollowing()
+  clearBookmarks()
   user.value = null
   status.value = 'error'
 }
@@ -56,6 +58,7 @@ async function refresh(): Promise<void> {
     status.value = 'authenticated'
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) clear()
+    else markRecoveryError()
     throw error
   }
 }
@@ -71,11 +74,8 @@ async function login(credentials: Credentials): Promise<void> {
 }
 
 async function logout(): Promise<void> {
-  try {
-    await authApi.logout()
-  } finally {
-    clear()
-  }
+  await authApi.logout()
+  clear()
 }
 
 export function useAuth() {
