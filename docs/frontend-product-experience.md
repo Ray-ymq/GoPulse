@@ -24,3 +24,14 @@ docker compose --profile acceptance run --rm --no-deps -e GOPULSE_VIEWPORT=narro
 ```
 
 `scripts/verify-compose.sh` 自动在隔离管理 fixture 上调用两组矩阵。浏览器时区固定 Asia/Shanghai。API 故障拦截仅用于重试状态的确定性检查，不代替真实 Backend/数据库与插件回归。
+
+产品 Bundle 的直接验收使用现有 lifecycle 验证入口；它自动安装本批隔离产品、创建角色 fixture，再经唯一 edge 调用临时 acceptance profile，并在结束时按归属清理：
+
+```bash
+scripts/verify-product-lifecycle.sh \
+  --manifest dist/phase16-03-v2/release-manifest.json \
+  --platform linux/amd64 --clean-install \
+  --acceptance-image sha256:<本机浏览器镜像ID>
+```
+
+浏览器镜像必须是 Linux amd64，且 OCI version/revision 与被测 Backend 候选一致；不接受可变 tag 作为该参数。实际候选目录和镜像 ID 以本批实施记录为准。此工具入口不要求宿主 Node.js，也不改变产品 Bundle 的启动合同。

@@ -50,7 +50,7 @@ test('product edge, keyboard login, roles, logout, recovery and local audit time
   await page.goto('/login?redirect=/api/v1/users/me')
   await login(page, user)
   await expect(page).toHaveURL(/\/posts$/)
-  expect((await page.request.get('/api/v1/admin/users')).status()).toBe(403)
+  expect((await page.request.get('/api/v1/admin/users/1')).status()).toBe(403)
   await page.goto('/admin/users')
   await expect(page).toHaveURL(/\/posts$/)
   await page.route('**/api/v1/users/me', route => route.fulfill({status:503, contentType:'application/json',body:'{"error":{"code":"internal_error","message":"unavailable"}}'}))

@@ -42,3 +42,17 @@
 继续将两端完全相同的 `.button` 实现移入共享 CSS，避免按钮样式复制漂移。新增事件代表性 browser 状态检查覆盖 loading、旧结果保留、不可用、empty 和恢复。共享样式修改后的 `scripts/test-frontends.sh` 再次通过（65 + 35 测试及双生产构建），单文件 Playwright 类型检查通过，输出 `/tmp/gopulse-p1603-frontends-shared.log`。
 
 为现有 release builder 的 Git archive + 版本标签输入准备 `1.13.3` 候选；候选提交中的版本号不是验收通过声明，本记录在所有门禁成功前保持“实施中”。第一轮早期快照尚在完整 Compose 回归，其结果不代替新 CSRF/edge 候选。
+
+## 首轮真实运行结果与 Bundle runner
+
+- 早期 `162a64b` 快照的完整 Compose 业务、依赖故障/恢复、替换、signal、保留卷以及管理安装/启停和真实 Metrics/Events 均通过；新增桌面 browser 在越权断言失败：测试误用不存在的 `/api/v1/admin/users`（404），实际公开合同是 `/api/v1/admin/users/:userId`。修正为具体用户路径，未放松 403 断言。首轮未完成，不记为通过；输出 `/tmp/gopulse-p1603-compose.log`。
+- `bd40c37` 候选已构建至 `dist/phase16-03-v1/`，版本 1.13.3，未外部发布。第一次 builder 因历史双架构 schema 的 arm64 runtime 执行失败（exit 255），随后复用本机已有 binfmt 镜像临时注册 arm64，完成候选后立即撤销。此兼容步骤只服务已有构建格式，不是本批运行验收或 arm64 支持声明；全部实际产品和浏览器运行仍为真实 Linux amd64。输出 `/tmp/gopulse-p1603-candidate.log`、`/tmp/gopulse-p1603-candidate-retry.log`、`/tmp/gopulse-p1603-build-compat-cleanup.log`。
+- 为避免用开发 Compose 冒充产品 Bundle，给现有 lifecycle 验证脚本增加可选 `--acceptance-image`，严格接收本机 Linux amd64 不可变 image ID。使用临时私有 Compose acceptance profile，在同一真实 Bundle edge 上运行两种 viewport 和三源规则创建，建立本次专属角色 fixture；不改产品安装 state，不使用宿主 Node。
+- 新 runner 使用 Bundle 已有 bootstrap Redis 插件产生的真实事件，不再人为重复安装已有插件。临时 browser Compose 文件为 0600，包含的测试密码不写入成功 receipt；完成后删除，整个产品仍由 lifecycle 归属清理。
+- `py_compile` 与修正 spec 的 TypeScript 检查通过。该 runner 尚待真实执行完成。
+
+Bundle runner 初次调试在候选身份校验处失败（`KeyError: version`）：调试过程中传参从 secrets 改为 manifest 后与已运行 verifier 的旧调用不一致。未进入浏览器，产品由 finally purge 清理；没有将该轮记为成功。已统一为从实际 Backend 容器 OCI version/revision 对照 runner 标签，保持调用参数一致，再执行同一候选。输出 `/tmp/gopulse-p1603-bundle-browser.log`。补充 `go test ./internal/auth` 通过，覆盖直接关联的 cookie/auth 合同（已有有效 Go cache，未强制重跑）。
+
+第二轮 Bundle 调试安装、唯一 edge、角色 bootstrap、Redis 插件 running 均已实际达到，但等待启动时的 best-effort Event 超时（120 秒），尚未进入 browser。修正 fixture 为完整 Bundle ready 后执行一次真实 Redis 插件 stop/start，再等待可观测事件；不伪造记录，不延长等待上限。该改动仅修复 browser fixture 的时序，未改生产采集链。第二轮由 lifecycle purge 完成清理；输出 `/tmp/gopulse-p1603-bundle-browser-v2.log`。
+
+对 Event 等待失败进一步核对直接公开调用点，发现 fixture 的实际错误是使用了 Metrics 的 `range=15m` 参数：Events API 要求 `from` / `to` / `limit`，与 Frontend 的 `pageQuery` 一致。前述 bootstrap best-effort 时序只是初始假设，不能当作确认的根因。现已改为 UTC from/to/limit，并在轮询前先执行一次请求，使 HTTP 合同错误立即失败，不再被通用 wait_until 吞掉到超时。ready 后真实 stop/start 保留为明确的事件 fixture。
