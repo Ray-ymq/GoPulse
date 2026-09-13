@@ -31,3 +31,9 @@
 ## 待完成
 
 同 revision 候选构建、真实 clean-install / failure matrix、release runtime / 直接 Compose 回归、PowerShell hash 对比和最终结果记录。
+
+## 实施中的失败与调整
+
+- 首轮候选 `c3b7f706fce1` 构建成功，输出 `dist/phase16-02/`；首次 clean-install 在 doctor 的 VictoriaMetrics digest 检查失败，尚未创建产品资源。
+- 原因：`docker manifest inspect` 在工具客户端直接访问 Docker Hub，没有复用 daemon 的 registry mirror，实际返回 registry EOF。使用同一 endpoint 的 Engine distribution API 验证成功，因此改为 daemon-side 结构化 descriptor/platform 查询；不退回 tag、不跳过 digest、不传播 raw registry 诊断。
+- 新增直接对应验收的错误 server arch、失败 pull 非 ready 状态测试；failure matrix 增加 Bundle 篡改和真实低容量 tmpfs。

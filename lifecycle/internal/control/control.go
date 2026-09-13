@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -243,6 +246,9 @@ func (c *Controller) loadManifest(version, rev string) error {
 	return nil
 }
 func (c *Controller) server() error {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		return fail(Platform, "platform", "lifecycle tool must run on Linux amd64")
+	}
 	b, e := c.docker("version", "--format", "{{json .Server}}")
 	if e != nil {
 		return fail(Daemon, "daemon", "Docker unavailable at explicit endpoint")
@@ -274,6 +280,42 @@ func (c *Controller) server() error {
 	}
 	return nil
 }
+
+// Use the Engine distribution API, not client-side registry lookup: the
+// daemon owns registry mirrors/TLS configuration and is the actual pull actor.
+func (c *Controller) distribution(ref string, platform bool) error {
+	client := http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", strings.TrimPrefix(c.endpoint, "unix://"))
+	}}}
+	defer client.CloseIdleConnections()
+	req, e := http.NewRequestWithContext(c.ctx, http.MethodGet, "http://docker/v1.43/distribution/"+url.PathEscape(ref)+"/json", nil)
+	if e != nil {
+		return e
+	}
+	response, e := client.Do(req)
+	if e != nil {
+		return e
+	}
+	defer response.Body.Close()
+	var result struct {
+		Descriptor struct{ Digest string }
+		Platforms  []struct{ OS, Architecture string }
+	}
+	if response.StatusCode != 200 || json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result) != nil || result.Descriptor.Digest != strings.Split(ref, "@")[1] {
+		return errors.New("registry descriptor mismatch")
+	}
+	found := false
+	for _, p := range result.Platforms {
+		if p.OS == "linux" && p.Architecture == "amd64" {
+			found = true
+		}
+	}
+	if !found {
+		return errors.New("registry platform mismatch")
+	}
+	_ = platform
+	return nil
+}
 func (c *Controller) doctor(port int) error {
 	images := map[string]release.Image{"lifecycle": c.manifest.Lifecycle}
 	for n, i := range c.manifest.Images {
@@ -283,29 +325,12 @@ func (c *Controller) doctor(port int) error {
 		images[n] = i
 	}
 	for name, image := range images {
-		args := []string{"manifest", "inspect"}
-		if strings.HasPrefix(image.Ref, "127.0.0.1:") {
-			args = append(args, "--insecure")
+		if err := c.distribution(image.Ref, false); err != nil {
+			return fail(ManifestError, "digest", "registry index unavailable for "+name)
 		}
-		args = append(args, image.Ref)
-		data, err := c.docker(args...)
-		var index struct {
-			Manifests []struct {
-				Digest   string
-				Platform struct{ OS, Architecture string }
-			}
-		}
-		if err != nil || json.Unmarshal(data, &index) != nil {
-			return fail(ManifestError, "digest", "registry digest unavailable for "+name)
-		}
-		found := false
-		for _, item := range index.Manifests {
-			if item.Platform.OS == "linux" && item.Platform.Architecture == "amd64" && item.Digest == image.Platforms["linux/amd64"] {
-				found = true
-			}
-		}
-		if !found {
-			return fail(ManifestError, "digest", "platform digest mismatch for "+name)
+		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms["linux/amd64"]
+		if err := c.distribution(ref, true); err != nil {
+			return fail(ManifestError, "digest", "registry platform digest unavailable for "+name)
 		}
 	}
 
