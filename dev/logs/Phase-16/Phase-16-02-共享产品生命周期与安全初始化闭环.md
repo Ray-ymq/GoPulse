@@ -113,3 +113,5 @@
 第二次完整门禁再次仅在 reset 后的 manage 首条 Metrics 样本 45 秒超时，说明不能把这两次完整场景失败简单当成已消失的偶发问题。已直接读取官方 Query latency 文档核对默认 30 秒 latency offset，并结合本仓库 15 秒 scrape interval、15 秒查询网格确认旧冷启动等待预算不足以覆盖这些阶段。因此仅把 `manage`（禁用 bootstrap、无历史样本）的首条真实指标等待改为有界 90 秒，保留普通/恢复场景的 45 秒、`metric-value > 0`、Events、角色、origin 和所有其他断言，输出实际首条可见耗时；不修改任何应用行为或产品默认配置。这是为本次实测失败所作的最小回归修正，不是泛化扩大超时或绕过检查。
 
 该测试修正需要新的同 revision 候选，最终候选目录将改为 `dist/phase16-02-v5/`。先前生命周期生产行为验证仍有效，但 manifest/image identity 发生变化，故重新执行两个绑定 manifest 的 product-lifecycle 门禁；未受影响的 Go / Bash self-test 和 PowerShell hash 检查不重复。
+
+等待预算的首次文本替换意外匹配到 Logs helper；在审视本次测试 diff 时发现其未定义变量，立即恢复 Logs 原始 45 秒逻辑，并对受影响的单个 Playwright 文件执行 TypeScript no-emit 类型检查通过。第 5 轮候选不作为最终交付；最终候选改为 `dist/phase16-02-v6/`，未改生命周期/应用生产代码。本次不再使用仅 `--list` 作为该测试文件的完整静态检查。
