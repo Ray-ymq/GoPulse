@@ -37,6 +37,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [vue()],
+    resolve: { dedupe: ['vue'], alias: { vue: resolve(configDirectory, 'node_modules/vue') } },
     server: {
       host: 'localhost',
       port: 5173,
