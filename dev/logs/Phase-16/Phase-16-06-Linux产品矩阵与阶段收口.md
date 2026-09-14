@@ -2,7 +2,7 @@
 
 ## 状态
 
-实施中，尚未完成最终验收。根与受管版本预先同步到候选构建版本 `1.13.6`，不作为验收完成声明。
+**未完成，最终验收被宿主时钟反复回拨阻断，尚未推送。** 已产出 `1.13.6` 冻结候选；根与受管版本在本次暂停时恢复为最后已完成的 `1.13.5`，不把候选构建当作完成版本。完整失败诊断及继续条件见末尾。
 
 ## 执行基础与边界
 
@@ -51,3 +51,61 @@
 - 最后 `secret-isolation` 拒绝无关 Docker 资源的配置摘要。直接连续调用同一快照函数五次得不同 hash；比较两份实际 Docker inspect 仅报告 `Mounts` 数组顺序不同、成员相同，未输出配置值/凭据。原实现保存摘要而未保存原始私有对象，不能据此把最终门禁记为通过。
 - 最小修复：按完整 Mount JSON 对容器挂载集合规范化排序；仍比较 ID、Image、Config、挂载内容、StartedAt、RestartCount 与网络/卷合同。新增一个直接保护“换序相同、内容改变拒绝”的测试。保留前后原始快照到 0600 私有文件用于后续实际诊断，不提交含用户配置的快照。
 - 修复验收工具需要新的同 revision 候选 v3，因此重新执行候选级固定门禁；v2 通过结果只作追溯，最终 evidence 不引用其通过结果。
+
+## v3 固定 Compose 浏览器失败诊断
+
+- v3 同源候选 `a76089fc5097ebf4d218644e66da034472c1ebba`，验收镜像 `sha256:f8b533bba7981145300cf536918e6fc6cc75e44ca2fdba909aee0caee417d503`；修复后在宿主及实际验收镜像分别连续五次快照稳定。
+- v3 artifact metadata 与 lifecycle runtime 已通过并进入完整 Compose。第一轮在管理浏览器创建 `closure-metrics` 后 5 秒内未出现列表行而失败；第二轮在 `transport-down` 场景创建社交帖子后，“取消点赞”按钮 5 秒内未出现而失败。两轮均未生成通过回执，日志 `artifact-runtime-v3.log`、`artifact-runtime-v3-retry.log`。不据此断言产品、时钟或网络根因。
+- 因第二次出现不同 UI 断言失败，停止盲目无诊断重试；改用原 `verify-compose.sh --keep` 保留同候选受管项目，私有 Docker wrapper 只为 acceptance 容器挂载 Playwright test-results 输出目录。未改测试、断言、超时、产品镜像或候选源码，不输出私有 trace 中凭据。日志 `compose-v3-diagnostic.log`。通过后须复用原归属清理/快照断言，再与已通过的同候选 metadata/runtime 合并记录固定门禁。
+
+## 真实宿主时钟阻断（2026-09-14，未完成）
+
+### 实际定位
+
+- `--keep` 诊断轮在 `redis-fallback` 登录后访问新建帖子页面时失败；private trace 被实际保存在 `.run/phase16-06/browser-diagnostics/`，未发布其中登录密码、Cookie 或完整请求。
+- 只提取请求时间/状态及 JWT 时间声明：登录 `13:57:44.742Z` 返回 200、`iat=1789394264`（13:57:44 UTC），之后先出现成功请求，后续 `/api/v1/users/me` 的时间变为 `13:57:43.836Z` 并返回 401，浏览器回到登录页。该次失败不是元素定位器变更或缺少产品功能。
+- 执行 120 秒、50ms 间隔的 `time.time() - time.monotonic()` 观测，实际多次发生约 0.9–2 秒负跳变；公开脱敏诊断见同目录 `Phase-16-06-clock-observation.json`。这只是失败原因证据，不是最终产品通过证据。
+- `timedatectl status/timesync-status` 显示 NTP active、synchronized=yes，但当时 jitter 751.967ms；`current_clocksource` 为 `tsc`。尝试读取 timesyncd journal 时当前用户缺少完整系统日志权限，未据空日志推断时钟正常。
+- 没有修改宿主 clocksource/NTP、Windows/WSL 配置，没有放宽 JWT 鉴权、测试超时、断言或产品安全合同。修正共享验收宿主时钟需先取得用户确认，不能以临时回拨或 mock 时间制造通过。
+
+### 已清理与保留
+
+- 从原 runner 复用 `assert_project_ownership`、同项目 `compose --profile exporter down --volumes --remove-orphans`、`cleanup_acceptance_images`、`assert_snapshot_preserved`，实际退出 0；日志 `compose-diagnostic-cleanup.log`。清理只针对诊断项目 `gopulse-accept-130e6d83ef4c`，未清理其他项目或全局 prune。
+- v1/v2/v3 候选及本任务 loopback registry、私有加密恢复备份、私有日志/trace 保留供复核。v2 的恢复和清理通过不能替代最终 v3 验收。
+- 不发布 `linux-amd64.json` 的最终完成标志，不声称 Phase 16 或 Milestone 4 完成。按“完成后推送”的请求，本批尚不推送未验收分支。
+- 根与受管版本恢复到最后完成版本 `1.13.5`；已冻结 v3 的源工作树/镜像仍为 `1.13.6` / `a76089fc5097ebf4d218644e66da034472c1ebba`。后续可直接消费既有候选，无需因为文档/诊断记录提交而重建。
+
+### 继续执行入口
+
+1. 用户确认并稳定真实 WSL2/Linux Docker 宿主时间；不得放宽产品鉴权。
+2. 复用 v3 已通过且输入未变的制品 metadata/lifecycle runtime 检查，完成 v3 完整 Compose 及原归属清理固定门禁；现有环境改变若影响某检查，记录原因后只重跑相关范围。
+3. 运行 `.run/phase16-06/run-matrix-v3.sh` 对同候选执行独立 Bundle lifecycle/Linux failure/A-B-C/current-product/failure/cleanup/Secret 聚合。不得复制 v2 的通过进度。
+4. 聚合验收通过后将根与受管版本同步为 `1.13.6`，更新本记录、提交并推送 `develop/1.13.6`；总阶段主线合入条件另行如实报告。
+
+### 本次暂停前检查
+
+受影响证据合同 2 测试、恢复内容/正向 Docker 过滤器 2 测试及两侧实际五次快照稳定检查已通过。未重复未受后续修改影响的通过检查。暂停前执行版本一致性检查、JSON 解析/显式 Secret 扫描和 `git diff --check`；最终产品/阶段验收仍失败，不把开发检查替代产品门禁。
+
+### 本任务相对主线的实现/文档文件清单
+
+- `.dockerignore`
+- `deploy/docker/acceptance.Dockerfile`
+- `deploy/phase16-acceptance.yaml`
+- `dev/imple/Phase-16/Phase-16-06-Linux产品矩阵与阶段收口.md`
+- `dev/imple/Phase-16/Phase-16-总实施方案.md`
+- `dev/logs/Phase-16/Phase-16-06-Linux产品矩阵与阶段收口.md`
+- `dev/logs/Phase-16/Phase-16-06-clock-observation.json`
+- `dev/phase16-linux-matrix.md`
+- `scripts/ci/acceptance-entrypoint.sh`
+- `scripts/ci/frontend_bundle_browser.py`
+- `scripts/ci/phase16_acceptance.py`
+- `scripts/ci/phase16_evidence.py`
+- `scripts/ci/test_phase16_evidence.py`
+- `scripts/ci/test_verify_current_recovery.py`
+- `scripts/ci/verify_backup_restore.py`
+- `scripts/ci/verify_current_recovery.py`
+- `scripts/ci/verify_product_lifecycle.py`
+- `scripts/verify-compose-observability.sh`
+- `scripts/verify-phase16-evidence.py`
+
+版本元数据曾用于候选构建，当前已恢复为主线完成版本，不在最终相对主线变更清单中。

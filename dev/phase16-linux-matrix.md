@@ -51,3 +51,5 @@ Runner 串行运行正式生命周期 clean install 与 Linux 故障、A → bac
 私有 `matrix-progress.json` 和 `recovery/acceptance.json` 支持续跑同候选未完成步骤；后者含登录凭据，禁止提交。失败时保留受管安装以便诊断，不进行全局 prune。先查脱敏日志与正式 `status`/diagnostics，不手工制造 ready。续跑必须保持原候选、环境和外部资源稳定，只有已通过且输入未改变的检查可复用。
 
 备份格式和持续恢复合同见 `dev/phase16-current-recovery.md`。私有加密备份与口令分开保管，不随公开 evidence 发布。可拉取的 loopback registry 仅代表本机候选发布，不等于公网发布。Phase 16 的主线合并条件与 Phase 17 交接状态必须分别报告，不提前声明 Milestone 4。
+
+诊断续跑说明：若同候选完整 Compose 门禁失败，可使用现有 `scripts/verify-compose.sh --keep` 保留本次受管项目和原始快照，额外挂载私有 Playwright 输出目录只用于保留失败 trace。通过后必须执行原 runner 的 `assert_project_ownership`、同 project 的 Compose down/volumes、`cleanup_acceptance_images`、`assert_snapshot_preserved`；不省略清理条件。可复用该候选此前已成功且输入未变的 artifact metadata/lifecycle runtime 检查，与实际通过的完整 Compose/cleanup 合并生成同结构 receipt；须在实施记录列出原始命令、日志、输入 digest 和合并依据，不能以其他候选结果或部分 Compose 用例代替。
