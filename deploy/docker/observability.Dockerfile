@@ -178,8 +178,6 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -ldflags='-s -w' -o /out/monitor ./cmd/monitor
 
 FROM ${RUNTIME_IMAGE} AS runtime
-ARG VERSION
-ARG REVISION
 RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -g 10001 -S gopulse && \
     adduser -u 10002 -S -D -H -G gopulse router && \
@@ -191,6 +189,8 @@ RUN apk add --no-cache ca-certificates tzdata && \
 ENV TZ=UTC
 WORKDIR /app
 STOPSIGNAL SIGTERM
+ARG VERSION
+ARG REVISION
 LABEL org.opencontainers.image.source="https://github.com/Ray-ymq/GoPulse" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"

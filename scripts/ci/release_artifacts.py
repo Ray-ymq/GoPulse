@@ -34,7 +34,7 @@ def image_record(ref):
             if platform in platforms:
                 raise ValueError('duplicate image platform')
             platforms[platform] = item['digest']
-    if set(platforms) != set(PLATFORMS):
+    if 'linux/amd64' not in platforms or not set(platforms).issubset(PLATFORMS):
         raise ValueError('missing image platform')
     return {'ref': ref.split('@')[0]+'@'+sha(data), 'platforms': platforms}
 
@@ -214,7 +214,7 @@ def build(args):
         elif name in ('router','marshaller','monitor','redis-exporter'):dockerfile='observability';target=name
         else:dockerfile=name;target=None
         tag=f'{args.registry}/{name}:{version}-candidate-{revision[:12]}'
-        cmd=['docker','buildx','build','--platform',','.join(PLATFORMS),'--provenance=false',
+        cmd=['docker','buildx','build','--platform',args.platform,'--provenance=false',
              '--build-arg','VERSION='+version,'--build-arg','REVISION='+revision,
              '--metadata-file',str(out/(name+'-build.json')),'-f',f'deploy/docker/{dockerfile}.Dockerfile','-t',tag,'--push']
         if target:cmd+=['--target',target]
@@ -223,13 +223,15 @@ def build(args):
         try:subprocess.run(cmd+['-'],stdin=context.stdout,check=True)
         finally:context.stdout.close()
         if context.wait()!=0:raise ValueError('git archive failed')
+        if 'manifests' not in json.loads(raw(tag)):
+            run('docker','buildx','imagetools','create','--prefer-index=true','-t',tag,tag,capture=False)
         images[name]=image_record(tag)
     third=load(ROOT/'deploy/release/third-party.lock.json')
     # Normalized logical name differs from the VictoriaMetrics repository name.
     third['victoriametrics']=third.pop('victoria-metrics',third.get('victoriametrics'))
     m=dict(schema_version=1,version=version,revision=revision,images={n:images[n] for n in PRODUCTS},
            lifecycle=images['lifecycle'],third_party=third,plugins=[],supported_upgrade_sources=[])
-    for platform in PLATFORMS:
+    for platform in args.platform.split(','):
         m['plugins']+=plugin_records(images['monitor'],platform,out/'plugins'/platform.split('/')[1])
         for image in images.values():inspect_image(image,platform,version,revision)
     # Publish the manifest last: a failed bundle assembly is never a complete release.
@@ -246,7 +248,7 @@ def build(args):
 
 def promote(path):
     m=verify_bundle(path)
-    for arch in ('amd64','arm64'):
+    for arch in (p.split('/')[1] for p in m['lifecycle']['platforms']):
         receipt=load(path.parent/('verification-'+arch+'.json'))
         expected='amd64-runtime-and-compose-passed' if arch=='amd64' else 'metadata-only; real arm64 runtime DEFERRED to Phase-16-06'
         if receipt != {'manifest_sha256':sha(path.read_bytes()),'revision':m['revision'],'platform':'linux/'+arch,'status':expected}:
@@ -268,7 +270,7 @@ def promote(path):
 
 def main():
     parser=argparse.ArgumentParser();sub=parser.add_subparsers(dest='cmd',required=True)
-    b=sub.add_parser('build');b.add_argument('--registry',required=True);b.add_argument('--output',default='dist')
+    b=sub.add_parser('build');b.add_argument('--registry',required=True);b.add_argument('--output',default='dist');b.add_argument('--platform',choices=['linux/amd64','linux/amd64,linux/arm64'],default='linux/amd64')
     p=sub.add_parser('promote');p.add_argument('--manifest',type=Path,required=True)
     args=parser.parse_args()
     if args.cmd=='build':build(args)
