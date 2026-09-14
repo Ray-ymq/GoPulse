@@ -1,0 +1,67 @@
+{
+  "schema": "gopulse.phase16.clock-diagnostic.v1",
+  "acceptance_status": "blocked",
+  "complete": false,
+  "candidate_revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+  "source": "actual 120-second time.time minus time.monotonic sampling; 50ms interval",
+  "window": {
+    "started_at": "2026-09-14T14:00:56.913181+00:00",
+    "finished_at": "2026-09-14T14:02:49.949579+00:00"
+  },
+  "events": [
+    {
+      "observed_at": "2026-09-14T14:00:59.623215+00:00",
+      "wall_vs_monotonic_step_seconds": -0.90787
+    },
+    {
+      "observed_at": "2026-09-14T14:01:29.863694+00:00",
+      "wall_vs_monotonic_step_seconds": -2.001173
+    },
+    {
+      "observed_at": "2026-09-14T14:01:44.212186+00:00",
+      "wall_vs_monotonic_step_seconds": -0.92815
+    },
+    {
+      "observed_at": "2026-09-14T14:02:14.781707+00:00",
+      "wall_vs_monotonic_step_seconds": -1.935344
+    },
+    {
+      "observed_at": "2026-09-14T14:02:33.824734+00:00",
+      "wall_vs_monotonic_step_seconds": -1.196228
+    }
+  ],
+  "browser_failure": {
+    "login_started_at": "2026-09-14T13:57:44.742Z",
+    "login_status": 200,
+    "jwt_iat": 1789394264,
+    "later_request_started_at": "2026-09-14T13:57:43.836Z",
+    "later_request_status": 401
+  },
+  "host_clocksource": "tsc",
+  "ntp_active": true,
+  "note": "Diagnostic only, not passing candidate evidence. No credentials or raw trace included.",
+  "resolution": {
+    "user_authorized": true,
+    "stable_window": [
+      "start 2026-09-14T15:04:43.004031+00:00",
+      "end 2026-09-14T15:41:27.653442+00:00 steps 0"
+    ],
+    "preflight_window": [
+      "start 2026-09-14T15:01:03.839200+00:00",
+      "end 2026-09-14T15:04:03.872275+00:00 steps 0"
+    ],
+    "temporary_settings": {
+      "clocksource": "hyperv_clocksource_tsc_page",
+      "GoPulse_systemd_timesyncd": "stopped",
+      "Ray_Work_systemd_timesyncd": "stopped",
+      "WSL_system_PHС_chrony": "unchanged; sole active synchronization source"
+    },
+    "restored_after_acceptance": [
+      "2026-09-14T23:42:08+08:00",
+      "tsc",
+      "active"
+    ],
+    "final_evidence": "Phase-16-06-evidence/linux-amd64.json",
+    "note": "Original blocked observation retained as history. Final candidate passed during monitored stable window. Original temporary host settings restored after acceptance; no persistent host changes."
+  }
+}

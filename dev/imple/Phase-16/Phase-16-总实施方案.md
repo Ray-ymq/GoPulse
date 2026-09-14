@@ -183,7 +183,7 @@ single edge origin
 
 - `lifecycle/` 使用一个 Go module 和一个 `cmd/gopulse` 命令树，构建为 Linux `amd64` 工具镜像。
 - Bundle 以 checksum 和 allowlist 限定内容，不包含源码构建工具、明文 Secret 或未登记可执行文件。
-- Compose 只按 release manifest 中的 digest 消费候选制品；晋升不得重建镜像或插件包。
+- Phase-16-06 继承已合入主线的 `1.13.5`，允许在冻结前构建并发布本批 `1.13.6` 候选。Compose 验收只按 release manifest 中的 digest 消费冻结制品；验收与晋升期间不得重建镜像或插件包。
 - 正式 registry 不可用不阻断源码实现，但最终发布状态必须区分“本地验证”“候选可拉取”和“外部已发布”。
 
 ## 8. 共享产品生命周期合同
@@ -335,7 +335,7 @@ Phase 16 只在以上标准全部通过、6 份拆分方案均有同名真实实
 
 ```bash
 scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/amd64 --runtime
-docker compose --profile acceptance run --rm acceptance phase16 --evidence /evidence/linux-amd64.json
+docker compose -f deploy/phase16-acceptance.yaml --profile acceptance run --rm --no-deps acceptance phase16 --manifest "$GOPULSE_PHASE16_BUNDLE/release-manifest.json" --work "$GOPULSE_PHASE16_WORK" --artifact-receipt "$GOPULSE_PHASE16_WORK/verification-amd64.json" --evidence "$GOPULSE_PHASE16_WORK/evidence/linux-amd64.json"
 python3 scripts/verify-phase16-evidence.py --linux dist/evidence/linux-amd64.json
 ```
 
@@ -392,3 +392,9 @@ Phase 16 完成后交给 Phase 17 的固定输入是：
 
 Phase 17 不得把 Kubernetes 作为验证 Compose 产品的前置条件；Phase 18 以后在直接受影响处复用上述 Linux 产品合同迁移到 Kubernetes。
 
+
+### Phase-16-06 实际入口对齐
+
+最终 runner 使用独立验收 Compose 文件 `deploy/phase16-acceptance.yaml` 的 `acceptance` profile；仍只调用 Bundle 正式生命周期、API 和浏览器。环境变量、独立解压与同候选 artifact receipt 合同见 `dev/phase16-linux-matrix.md`。`verify-release-artifacts --runtime` 已包含固定完整 Compose 门禁，不重复运行 `verify-compose.sh`；聚合 runner 包含 clean-install、Linux failure-matrix 和当前数据恢复/失败/清理三个子模式，不重复运行等价子命令。
+
+诊断续跑说明：若同候选完整 Compose 门禁失败，可使用现有 `scripts/verify-compose.sh --keep` 保留本次受管项目和原始快照，额外挂载私有 Playwright 输出目录只用于保留失败 trace。通过后必须执行原 runner 的 `assert_project_ownership`、同 project 的 Compose down/volumes、`cleanup_acceptance_images`、`assert_snapshot_preserved`；不省略清理条件。可复用该候选此前已成功且输入未变的 artifact metadata/lifecycle runtime 检查，与实际通过的完整 Compose/cleanup 合并生成同结构 receipt；须在实施记录列出原始命令、日志、输入 digest 和合并依据，不能以其他候选结果或部分 Compose 用例代替。

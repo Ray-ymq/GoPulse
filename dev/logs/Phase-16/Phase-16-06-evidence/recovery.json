@@ -1,0 +1,1024 @@
+{
+  "schema": 1,
+  "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+  "candidate": {
+    "version": "1.13.6",
+    "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+    "images": {
+      "backend": {
+        "ref": "127.0.0.1:15003/gopulse/backend:1.13.6-candidate-a76089fc5097@sha256:c5a87ce033e60f9324716e1400a0755dd81684b73b39b078b8f64a747e39ac57",
+        "platforms": {
+          "linux/amd64": "sha256:c3a865cb8e71bd9da2bffe9d4a2b97bd19570b53c7c7e583544b56ada550ab59"
+        }
+      },
+      "business-worker": {
+        "ref": "127.0.0.1:15003/gopulse/business-worker:1.13.6-candidate-a76089fc5097@sha256:301daa3a6487e3eb5e26cefcd926e5f5cacc1a9fd00d744c3d95470e893729c4",
+        "platforms": {
+          "linux/amd64": "sha256:3e99e800816020acaf68f8f4fc50c062a55e02956ee53ff39e6fd6835bea2445"
+        }
+      },
+      "search-indexer": {
+        "ref": "127.0.0.1:15003/gopulse/search-indexer:1.13.6-candidate-a76089fc5097@sha256:d5a61da262e09e7294a4cd6ddcb9e58428aad3b9def7cb33c5b6bcd3d0e95189",
+        "platforms": {
+          "linux/amd64": "sha256:a68a473b22b1d2270bd7e74160cdd0bd280e14f50a89d132dd776fc24192d0a6"
+        }
+      },
+      "frontend": {
+        "ref": "127.0.0.1:15003/gopulse/frontend:1.13.6-candidate-a76089fc5097@sha256:0189a17e8c6532d4cfc52b5bfffbc986035a782cff9dbb3cbebb2d1a78c4e379",
+        "platforms": {
+          "linux/amd64": "sha256:275c8d74883c64bc22df6909b735a9e60bfdb3d9c257b55d35bb1d0a4065fec7"
+        }
+      },
+      "admin-frontend": {
+        "ref": "127.0.0.1:15003/gopulse/admin-frontend:1.13.6-candidate-a76089fc5097@sha256:997978b74a6a2ab20f8099b3153af3735bf1f205dd46e63f17e176125dd01122",
+        "platforms": {
+          "linux/amd64": "sha256:e931bb23cd82edb5148460984388649a862f82dbde6e35abc2b16b676198958f"
+        }
+      },
+      "router": {
+        "ref": "127.0.0.1:15003/gopulse/router:1.13.6-candidate-a76089fc5097@sha256:bd3b89b181547dc4fd302516d9b14797b4c3f57a3d11afd9e65fbd43b1092899",
+        "platforms": {
+          "linux/amd64": "sha256:668603ca7dc844013a59008d8d6f3545be55c4b0837807f537296707683baddd"
+        }
+      },
+      "marshaller": {
+        "ref": "127.0.0.1:15003/gopulse/marshaller:1.13.6-candidate-a76089fc5097@sha256:f77d8a831f09d1bbe1862f4d1c134cf33bfc91c42c74171240660697b5e07946",
+        "platforms": {
+          "linux/amd64": "sha256:1b251a32b2a8c3589d0d068d4021c8678e7f6b3a6dc71c21f416f2aa5d4af2e8"
+        }
+      },
+      "monitor": {
+        "ref": "127.0.0.1:15003/gopulse/monitor:1.13.6-candidate-a76089fc5097@sha256:2803c1cb39b758445d07a532c197222fee3c7cdd528da70b2b60fec0fdaea173",
+        "platforms": {
+          "linux/amd64": "sha256:a83974d56c98b2140c5cb36be4b691f5c248f751bed0adddcdee81ae15f3c175"
+        }
+      },
+      "redis-exporter": {
+        "ref": "127.0.0.1:15003/gopulse/redis-exporter:1.13.6-candidate-a76089fc5097@sha256:b473206a8da6a2cbb8af710072a1174043d29300a9fa84afcb0f1e8d13de8903",
+        "platforms": {
+          "linux/amd64": "sha256:d5b2f1d60f64d9c2e45070fe649003ddf02739a5ecea5c864dfc70a71905a00f"
+        }
+      }
+    },
+    "plugins": [
+      {
+        "id": "redis-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:ed928c7e1c3499dc17a99aefedb5871124c9da9ae83aa690a77be03a840fdd41",
+        "entrypoint_sha256": "sha256:ce4c4c965df569b292e7ac9d4c2ca4b6aa161755e0169aaf5fc5e6978a4cccf2",
+        "schema_sha256": "sha256:31f00ae09c7aa46b6a221e2ea310aa077cdda13482a2f3688ae067923e599c81"
+      },
+      {
+        "id": "mysql-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:d5bbfb4820712b376bb6d01ff792c9b2f8b5f7eb21c92e0bbcf5696efa341135",
+        "entrypoint_sha256": "sha256:2d3cb0b9bcd664898a727e0bb5dab02713c29137ae1f900967b7a9c303db2bba",
+        "schema_sha256": "sha256:9999fc8409f324043bdbe77387c62866f281a18617457c1e245120f0cc7e215c"
+      },
+      {
+        "id": "rabbitmq-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:5fbd0790d06204623e72e0c79ed9902348e1c8fe65528c452f3e43fb68384fb6",
+        "entrypoint_sha256": "sha256:371970ec255493c03c1f73004d9e4ce17ba7333d4c8fd016709a57b9714bedce",
+        "schema_sha256": "sha256:a2a8bfb775a66ae6342e42676cc7a0fa3a0e88c93b7f94281b5744ee48e5062d"
+      },
+      {
+        "id": "kafka-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:55a412df25e9dfe9c7e33ef8645ddca448f1d13b4dedda1b32426d60cd7f8b5e",
+        "entrypoint_sha256": "sha256:c76dc4c37ff3929d40366a8c2de5838fbd0e184e042812ebd6f39597ad4b8227",
+        "schema_sha256": "sha256:b1ab7867198f3b111fcd48df80136eab11a9c81e13a91a302027fd30a7e040bb"
+      },
+      {
+        "id": "elasticsearch-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:31c5e74a89b1ea92f3fb0548c68c60eddbc9cc53b966c067b5851cf3ca2ebd9d",
+        "entrypoint_sha256": "sha256:dcc1a7b23a306cd9b644cb10efd73c034bfcc6c27f5edb8d3398e2a8af42a831",
+        "schema_sha256": "sha256:2c710358ff0e1294a8fa63328cdb7e3c5f7facbd3081d2e963e00fedaf498a54"
+      },
+      {
+        "id": "victoriametrics-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:d46d6970e4a6cf889475d1751d391efa4af7a0f97ac0544ccedaaa21485b9174",
+        "entrypoint_sha256": "sha256:91648f7f22e4d315fc05165726a1c9d8f778f428a1a393030f6e357f4bd92c4a",
+        "schema_sha256": "sha256:203f94d02f78076222b0a3ae21b7a7e8a3f890e202b34dfd583b97d0bfeed305"
+      },
+      {
+        "id": "redis-exporter",
+        "version": "1.9.4",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "upgrade-only",
+        "archive_sha256": "sha256:d0cbd15b13cb7375ffb900992a0579ef204c5051b8dc465b2463b779f8d44a89",
+        "entrypoint_sha256": "sha256:20978fc780e7531d6c130caf542d7e8ba6fe0e6842ba0610825d5e716941f2fa",
+        "schema_sha256": ""
+      }
+    ]
+  },
+  "completed": [
+    "source-seeded",
+    "source-api-continuity",
+    "source-three-source-facts",
+    "current-source-ready",
+    "source-backup-inspected",
+    "target-api-continuity",
+    "target-nonempty-restore-rejected",
+    "target-continuity-passed",
+    "target-backup-inspected",
+    "second-api-continuity",
+    "second-nonempty-restore-rejected",
+    "second-continuity-passed",
+    "current-product-two-restores-passed",
+    "wrong-passphrase-and-tamper-rejected-before-resources",
+    "current-import-failure-retry",
+    "current-interrupt-retry",
+    "current-product-failure-matrix-passed",
+    "owned-cleanup-and-isolation-passed"
+  ],
+  "backups": {
+    "source": {
+      "sha256": "361038452c8243ce0703ea800dd7ad938ba5ba12294c4fcc98d1c9f4934b1742",
+      "inspection": {
+        "cipher": "AES-256-GCM",
+        "command": "backup-inspect",
+        "domains": 6,
+        "files": 8,
+        "finished": "2026-09-14T15:29:57.446672476Z",
+        "format": 1,
+        "iterations": 600000,
+        "kdf": "PBKDF2-HMAC-SHA256",
+        "operation_id": "4a447fe8fea66f31bbc8b4ebf87344bbb98139af2fd368a270a5bb867a89e27b",
+        "platform": "linux/amd64",
+        "release_manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "schema": 1,
+        "scope": "authenticated format only; does not establish data consistency or restore readiness",
+        "source_product_version": "1.13.6",
+        "started": "2026-09-14T15:29:33.007101196Z",
+        "status": "passed"
+      },
+      "audit": {
+        "domains": {
+          "elasticsearch": {
+            "cutover": "2026-09-14T15:29:42.623127617Z",
+            "counts": {
+              "gopulse-events-v1-2026.09.14": 10,
+              "gopulse-logs-v1-2026.09.14": 302,
+              "gopulse-post-search-v1-20260914t152654000000000z-14c6e286": 2,
+              "indices": 3
+            },
+            "start": "2026-09-14T15:26:57.570786734Z",
+            "end": "2026-09-14T15:29:35.341938491Z",
+            "offsets": null,
+            "drained": false
+          },
+          "kafka": {
+            "cutover": "2026-09-14T15:29:42.623127617Z",
+            "counts": {
+              "partitions": 1,
+              "topics": 1
+            },
+            "start": "2026-09-14T15:29:42.623127617Z",
+            "end": "2026-09-14T15:29:42.623127617Z",
+            "offsets": {
+              "gopulse-observability-v1/0": 436
+            },
+            "drained": true
+          },
+          "mysql": {
+            "cutover": "2026-09-14T15:29:42.623127617Z",
+            "counts": {
+              "alert_incidents": 4,
+              "alert_rule_states": 5,
+              "alert_rules": 5,
+              "bootstrap_super_admin": 1,
+              "business_outbox": 3,
+              "comments": 1,
+              "management_audit_events": 28,
+              "notifications": 0,
+              "post_bookmarks": 0,
+              "post_likes": 0,
+              "posts": 2,
+              "schema_migrations": 1,
+              "user_follows": 0,
+              "users": 3
+            },
+            "start": "2026-09-14T15:29:42.623127617Z",
+            "end": "2026-09-14T15:29:42.623127617Z",
+            "offsets": null,
+            "drained": false
+          },
+          "plugins": {
+            "cutover": "2026-09-14T15:29:42.623127617Z",
+            "counts": {
+              "plugins": 6
+            },
+            "start": "2026-09-14T15:29:42.623127617Z",
+            "end": "2026-09-14T15:29:42.623127617Z",
+            "offsets": null,
+            "drained": false,
+            "catalog_digest": "sha256:9386783d060b26b26b86167378b3df501b70862ae9352638622565f02900a4d3"
+          },
+          "rabbitmq": {
+            "cutover": "2026-09-14T15:29:42.623127617Z",
+            "counts": {
+              "bindings": 20,
+              "exchanges": 6,
+              "queues": 6
+            },
+            "start": "2026-09-14T15:29:42.623127617Z",
+            "end": "2026-09-14T15:29:42.623127617Z",
+            "offsets": null,
+            "drained": true
+          },
+          "victoriametrics": {
+            "cutover": "2026-09-14T15:29:42.623127617Z",
+            "counts": {
+              "samples": 3791,
+              "series": 410
+            },
+            "start": "2026-09-14T15:27:05.956Z",
+            "end": "2026-09-14T15:29:36.313Z",
+            "offsets": null,
+            "drained": false
+          }
+        },
+        "manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "payload_sha256": {
+          "config.json": "sha256:1b15d54a4209cbc6768dbaacfd368846e8e80e1ffbfd608ef5b55f76455109bc",
+          "elasticsearch.json": "sha256:83ff21ab8301d34f74b62fdfddd562f6f36e7ec9d37a5a605256ec77743c7965",
+          "kafka.json": "sha256:a210c6d0ec989c9f2972204cfc8e0d079af2f7ab967978a1fe09c93527a3ac58",
+          "mysql.sql": "sha256:05c9cc8b847e2ddb6f08f63af5eb27b7b37ab5b3b73ab8f69c6bd0350d6eef48",
+          "plugins.json": "sha256:7cddfd1e48ea0f0edc38abf860c6e26863d287010c5f27f027693c1ca59623b5",
+          "rabbitmq.json": "sha256:03bbaedce0149c68df5bc9fc854cea26b7ebb0ae77380addd0107c04d11a9f3b",
+          "victoriametrics.native": "sha256:ef5896e65742270694146edb8f95ceeb21e567acfc0953a706718368b08e6a1d"
+        },
+        "public_payload_secret_scan": "passed",
+        "schema": 1,
+        "source_version": "1.13.6",
+        "status": "passed"
+      }
+    },
+    "target": {
+      "sha256": "06d97b59e91fb41439d2438ccb7d2f070a8ccf85f8f6042587bf75ebc39339b2",
+      "inspection": {
+        "cipher": "AES-256-GCM",
+        "command": "backup-inspect",
+        "domains": 6,
+        "files": 8,
+        "finished": "2026-09-14T15:33:33.117718681Z",
+        "format": 1,
+        "iterations": 600000,
+        "kdf": "PBKDF2-HMAC-SHA256",
+        "operation_id": "eda74beebe219afd55024b397194d3dff37b6c02f8872ca179256c4bee2eceba",
+        "platform": "linux/amd64",
+        "release_manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "schema": 1,
+        "scope": "authenticated format only; does not establish data consistency or restore readiness",
+        "source_product_version": "1.13.6",
+        "started": "2026-09-14T15:33:08.65314855Z",
+        "status": "passed"
+      },
+      "audit": {
+        "domains": {
+          "elasticsearch": {
+            "cutover": "2026-09-14T15:33:18.426848495Z",
+            "counts": {
+              "gopulse-events-v1-2026.09.14": 12,
+              "gopulse-logs-v1-2026.09.14": 487,
+              "gopulse-post-search-v1-20260914t152654000000000z-14c6e286": 3,
+              "indices": 3
+            },
+            "start": "2026-09-14T15:26:57.570786734Z",
+            "end": "2026-09-14T15:33:11.140207601Z",
+            "offsets": null,
+            "drained": false
+          },
+          "kafka": {
+            "cutover": "2026-09-14T15:33:18.426848495Z",
+            "counts": {
+              "partitions": 1,
+              "topics": 1
+            },
+            "start": "2026-09-14T15:33:18.426848495Z",
+            "end": "2026-09-14T15:33:18.426848495Z",
+            "offsets": {
+              "gopulse-observability-v1/0": 235
+            },
+            "drained": true
+          },
+          "mysql": {
+            "cutover": "2026-09-14T15:33:18.426848495Z",
+            "counts": {
+              "alert_incidents": 5,
+              "alert_rule_states": 6,
+              "alert_rules": 6,
+              "bootstrap_super_admin": 1,
+              "business_outbox": 4,
+              "comments": 1,
+              "management_audit_events": 34,
+              "notifications": 0,
+              "post_bookmarks": 0,
+              "post_likes": 0,
+              "posts": 3,
+              "schema_migrations": 1,
+              "user_follows": 0,
+              "users": 3
+            },
+            "start": "2026-09-14T15:33:18.426848495Z",
+            "end": "2026-09-14T15:33:18.426848495Z",
+            "offsets": null,
+            "drained": false
+          },
+          "plugins": {
+            "cutover": "2026-09-14T15:33:18.426848495Z",
+            "counts": {
+              "plugins": 6
+            },
+            "start": "2026-09-14T15:33:18.426848495Z",
+            "end": "2026-09-14T15:33:18.426848495Z",
+            "offsets": null,
+            "drained": false,
+            "catalog_digest": "sha256:9386783d060b26b26b86167378b3df501b70862ae9352638622565f02900a4d3"
+          },
+          "rabbitmq": {
+            "cutover": "2026-09-14T15:33:18.426848495Z",
+            "counts": {
+              "bindings": 20,
+              "exchanges": 6,
+              "queues": 6
+            },
+            "start": "2026-09-14T15:33:18.426848495Z",
+            "end": "2026-09-14T15:33:18.426848495Z",
+            "offsets": null,
+            "drained": true
+          },
+          "victoriametrics": {
+            "cutover": "2026-09-14T15:33:18.426848495Z",
+            "counts": {
+              "samples": 5045,
+              "series": 412
+            },
+            "start": "2026-09-14T15:27:05.956Z",
+            "end": "2026-09-14T15:33:08.309Z",
+            "offsets": null,
+            "drained": false
+          }
+        },
+        "manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "payload_sha256": {
+          "config.json": "sha256:876211eb168dc9e977e7fd74152860a85251ef549ae78deba23a16d5290dcbfc",
+          "elasticsearch.json": "sha256:bcba1bcc928fdcf827098ca72f3de8a31080d1ab5c3d3550eb2aed548399361b",
+          "kafka.json": "sha256:89c6331ceb95503e0bc7dce3f80b355126c117cc41b926c4db54e89cd01f7eb0",
+          "mysql.sql": "sha256:9a7bb4c1fac0dc37881f1df6771e3ab3d3adaa94e4864a27a78660667f67fb90",
+          "plugins.json": "sha256:5d320beb734305dfc9c532bf2674499cd024adb163944de06bb8b5d6fe16e0dc",
+          "rabbitmq.json": "sha256:03bbaedce0149c68df5bc9fc854cea26b7ebb0ae77380addd0107c04d11a9f3b",
+          "victoriametrics.native": "sha256:0cba9293fa28b9e5c6c6f91f43cb5050a5048a6b90bf95a71a515172e3024ded"
+        },
+        "public_payload_secret_scan": "passed",
+        "schema": 1,
+        "source_version": "1.13.6",
+        "status": "passed"
+      }
+    }
+  },
+  "restores": {
+    "target": {
+      "cutover": "2026-09-14T15:29:42.623127617Z",
+      "facts_verified": true,
+      "kafka_policy": "drained-new-topic-rebase-zero",
+      "operation_id": "8fc81ec406fe6fae5776f0751d9ca9bcce06c59dab8bf6801da7af95a2f29126",
+      "schema": 1,
+      "session_policy": "invalidate-on-restore",
+      "source_manifest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687"
+    },
+    "second": {
+      "cutover": "2026-09-14T15:33:18.426848495Z",
+      "facts_verified": true,
+      "kafka_policy": "drained-new-topic-rebase-zero",
+      "operation_id": "59c82676cd96a17c44081c212d9838873030eb92e492a41c16f2ba3947936cc4",
+      "schema": 1,
+      "session_policy": "invalidate-on-restore",
+      "source_manifest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687"
+    }
+  },
+  "comparisons": {
+    "source": {
+      "identity": {
+        "rows": 3,
+        "sha256": "dd3242324b8ca6c420afba665652e5e0fd1868e3ca7fca914702e6f8d7003ce2"
+      },
+      "posts": {
+        "rows": 2,
+        "sha256": "41a03a48838dcd5ce809b358d3b2b0663528514e4b756d4a190bf9fa73ea6238"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "2e5217fd38a3d35dec0944637a505fee9fcc40ab8ca231aa32182921ab512d23"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 28,
+        "sha256": "b85a93d5f1decf1e12a5b42c8c191bdd9cea768abd57bccfe8c61331e0aa0172"
+      },
+      "incidents": {
+        "rows": 4,
+        "sha256": "0ac9c89d2eb52731bce7ca99160bae3e67af02918c8e5c70139189586d021200"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 5,
+        "sha256": "b95f032504835b2be6625c9257dbd3f5b409ec9147ede4f623e541a3b5a81baa"
+      }
+    },
+    "target": {
+      "identity": {
+        "rows": 3,
+        "sha256": "dd3242324b8ca6c420afba665652e5e0fd1868e3ca7fca914702e6f8d7003ce2"
+      },
+      "posts": {
+        "rows": 3,
+        "sha256": "dcb89899c00ac2bc0fcb6da4804651a641f24af3cfcd8912e1566fed0e051983"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "2e5217fd38a3d35dec0944637a505fee9fcc40ab8ca231aa32182921ab512d23"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 34,
+        "sha256": "25862e10abfc42e9a48eb2d88f0b568c3b46ff187639087ac862ffd461b1c0d1"
+      },
+      "incidents": {
+        "rows": 5,
+        "sha256": "7705a70a9471e5211c8106ba969cff26f9d9d4576697f5b58a1b63ade4cb6582"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 6,
+        "sha256": "13e4962856147031fae43b8fad9bd8864ad91c47189d6608b8ce09979eae20a5"
+      }
+    },
+    "second": {
+      "identity": {
+        "rows": 3,
+        "sha256": "dd3242324b8ca6c420afba665652e5e0fd1868e3ca7fca914702e6f8d7003ce2"
+      },
+      "posts": {
+        "rows": 4,
+        "sha256": "fd3d84219e2d24b06f51ee9cb0ff7b606271e40ec2c02b8b1a66ccc935b63e6e"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "2e5217fd38a3d35dec0944637a505fee9fcc40ab8ca231aa32182921ab512d23"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 41,
+        "sha256": "6ff8d5ba825136c07967c9b4a189c025801ae38ffd6b8c7756e92f473593d51a"
+      },
+      "incidents": {
+        "rows": 6,
+        "sha256": "6d57e028731a1abb153e7bbcf55b7ed6e5be2e1856a93329f7230a5e64b3f199"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 7,
+        "sha256": "e38457a5c46e1a61493fc95bcecf312b5d2313ba0da890a81924164ffd0b8c44"
+      }
+    },
+    "negative": {
+      "identity": {
+        "rows": 3,
+        "sha256": "dd3242324b8ca6c420afba665652e5e0fd1868e3ca7fca914702e6f8d7003ce2"
+      },
+      "posts": {
+        "rows": 2,
+        "sha256": "41a03a48838dcd5ce809b358d3b2b0663528514e4b756d4a190bf9fa73ea6238"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "2e5217fd38a3d35dec0944637a505fee9fcc40ab8ca231aa32182921ab512d23"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 28,
+        "sha256": "b85a93d5f1decf1e12a5b42c8c191bdd9cea768abd57bccfe8c61331e0aa0172"
+      },
+      "incidents": {
+        "rows": 4,
+        "sha256": "0ac9c89d2eb52731bce7ca99160bae3e67af02918c8e5c70139189586d021200"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 5,
+        "sha256": "b95f032504835b2be6625c9257dbd3f5b409ec9147ede4f623e541a3b5a81baa"
+      }
+    }
+  },
+  "browsers": {
+    "source": {
+      "runner_image": "sha256:f8b533bba7981145300cf536918e6fc6cc75e44ca2fdba909aee0caee417d503",
+      "runner_revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "product_revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "timezone": "Asia/Shanghai",
+      "accounts": "restored",
+      "checks": [
+        "desktop",
+        "narrow",
+        "three-source-create"
+      ]
+    },
+    "target": {
+      "runner_image": "sha256:f8b533bba7981145300cf536918e6fc6cc75e44ca2fdba909aee0caee417d503",
+      "runner_revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "product_revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "timezone": "Asia/Shanghai",
+      "accounts": "restored",
+      "checks": [
+        "desktop",
+        "narrow",
+        "three-source-create"
+      ]
+    },
+    "second": {
+      "runner_image": "sha256:f8b533bba7981145300cf536918e6fc6cc75e44ca2fdba909aee0caee417d503",
+      "runner_revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "product_revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "timezone": "Asia/Shanghai",
+      "accounts": "restored",
+      "checks": [
+        "desktop",
+        "narrow",
+        "three-source-create"
+      ]
+    }
+  },
+  "failures": {
+    "import": {
+      "command_scope": "restore",
+      "exit_code": 18,
+      "failure_stage": "restore-mysql",
+      "health_summary": {
+        "admin-frontend": "missing",
+        "backend": "missing",
+        "business-worker": "missing",
+        "edge": "missing",
+        "elasticsearch": "missing",
+        "frontend": "missing",
+        "kafka": "missing",
+        "kafka-init": "missing",
+        "marshaller": "missing",
+        "migrate": "missing",
+        "monitor": "missing",
+        "mysql": "missing",
+        "rabbitmq": "missing",
+        "redis": "missing",
+        "router": "missing",
+        "search-indexer": "missing",
+        "search-init": "missing",
+        "victoriametrics": "missing"
+      },
+      "manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "operation_id": "554d0e7783209643d0ea8a88aa7a094a1fa42f524abe00a5f6e39e3c18651169",
+      "phase": "restore-failed",
+      "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore",
+      "schema": 1,
+      "version": "1.13.6"
+    },
+    "interrupt": {
+      "command_scope": "restore",
+      "exit_code": 20,
+      "failure_stage": "pull",
+      "health_summary": {
+        "admin-frontend": "missing",
+        "backend": "missing",
+        "business-worker": "missing",
+        "edge": "missing",
+        "elasticsearch": "missing",
+        "frontend": "missing",
+        "kafka": "missing",
+        "kafka-init": "missing",
+        "marshaller": "missing",
+        "migrate": "missing",
+        "monitor": "missing",
+        "mysql": "missing",
+        "rabbitmq": "missing",
+        "redis": "missing",
+        "router": "missing",
+        "search-indexer": "missing",
+        "search-init": "missing",
+        "victoriametrics": "missing"
+      },
+      "manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "operation_id": "13d9d59cae6acfd2138516315775d2333f6a44de3f59e372ed55cdb26a68d69d",
+      "phase": "interrupted",
+      "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore",
+      "schema": 1,
+      "version": "1.13.6"
+    }
+  },
+  "commands": [
+    {
+      "project_alias": "source",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "46683"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "up",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "status",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "backup",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "backup-inspect",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "down",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "44969"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "status",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 17,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "backup",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/target/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "backup-inspect",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/target/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "down",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "48139"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/target/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "status",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/target/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 17,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "down",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "47645"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/wrong-passphrase"
+      ],
+      "expected_exit": 21,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/tampered.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 21,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/invalid-sql.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 18,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-bcdbc250f2e2"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase16-06/matrix-v3/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-bcdbc250f2e2"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-bcdbc250f2e2"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-7480aeb3f643"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-b2744d302bd1"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-f7615f6dc7c5"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    }
+  ],
+  "three_sources": {
+    "source": {
+      "logs": {
+        "rule_id": 4,
+        "incident_id": 4,
+        "source": "logs"
+      },
+      "events": {
+        "rule_id": 5,
+        "incident_id": 3,
+        "source": "events"
+      },
+      "metrics": {
+        "rule_id": 2,
+        "incident_id": 2,
+        "source": "metrics"
+      },
+      "audit_rows": 28
+    }
+  },
+  "status": "passed"
+}
