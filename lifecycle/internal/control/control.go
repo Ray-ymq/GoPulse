@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/lifecycle/internal/backup"
 	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
 )
 
@@ -40,13 +41,14 @@ const (
 )
 
 type Failure struct {
-	Code    int    `json:"code"`
-	Stage   string `json:"stage"`
-	Message string `json:"message"`
+	Code       int    `json:"code"`
+	Stage      string `json:"stage"`
+	Message    string `json:"message"`
+	Diagnostic string `json:"diagnostic,omitempty"`
 }
 
 func (e *Failure) Error() string             { return e.Message }
-func fail(code int, stage, msg string) error { return &Failure{code, stage, msg} }
+func fail(code int, stage, msg string) error { return &Failure{Code: code, Stage: stage, Message: msg} }
 
 type Controller struct {
 	ctx                   context.Context
@@ -84,7 +86,7 @@ func isolate(cmd *exec.Cmd) {
 	}
 	cmd.WaitDelay = 2 * time.Second
 }
-func Run(ctx context.Context, args []string, version, revision string, out io.Writer) error {
+func Run(ctx context.Context, args []string, version, revision string, out io.Writer) (resultErr error) {
 	if len(args) == 0 {
 		return fail(Usage, "arguments", "command required")
 	}
@@ -93,7 +95,7 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 		return inspectBackup(args[1:], out)
 	}
 	switch command {
-	case "doctor", "init", "up", "down", "status", "logs", "verify":
+	case "doctor", "init", "up", "down", "status", "logs", "verify", "backup", "restore":
 	default:
 		return fail(Usage, "arguments", "unknown command")
 	}
@@ -109,6 +111,9 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	until := fs.String("until", "", "RFC3339 end time")
 	purge := fs.Bool("purge", false, "delete owned volumes with --confirm PROJECT")
 	confirm := fs.String("confirm", "", "project confirmation")
+	diagnosticDir := fs.String("diagnostics-dir", "", "explicit existing private diagnostic directory (doctor)")
+	archive := fs.String("archive", "", "private encrypted backup path")
+	passFile := fs.String("passphrase-file", "", "explicit private passphrase file; never a command argument")
 	fs.Bool("json", true, "structured output (always enabled)")
 	if fs.Parse(args[1:]) != nil || fs.NArg() != 0 || !filepath.IsAbs(*dir) || !filepath.IsAbs(*bundle) || !strings.HasPrefix(*endpoint, "unix:///") || *port < 1024 || *port > 65535 {
 		return fail(Usage, "arguments", "require absolute --install/--bundle, explicit local --endpoint unix:///path and port 1024..65535")
@@ -124,6 +129,26 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 		}
 	}
 	c := &Controller{ctx: ctx, dir: filepath.Clean(*dir), bundle: filepath.Clean(*bundle), endpoint: *endpoint}
+	defer func() {
+		if resultErr != nil && (command == "backup" || command == "restore" || (command == "doctor" && *diagnosticDir != "")) {
+			resultErr = c.recoveryDiagnostic(resultErr, *diagnosticDir, command)
+		}
+	}()
+	if *diagnosticDir != "" && (!filepath.IsAbs(*diagnosticDir) || privateDir(*diagnosticDir) != nil) {
+		return fail(Permission, "diagnostics-directory", "diagnostics require an existing absolute private directory")
+	}
+	var pass []byte
+	if command == "backup" || command == "restore" {
+		if !filepath.IsAbs(*archive) || *passFile == "" {
+			return fail(Usage, "backup-arguments", "require absolute --archive and explicit --passphrase-file")
+		}
+		var e error
+		pass, e = backup.ReadPassphrase(*passFile)
+		if e != nil {
+			return fail(Permission, "backup-secret-source", "private passphrase source must contain 16..4096 exact bytes")
+		}
+		defer clear(pass)
+	}
 	if e := privateDir(c.dir); e != nil {
 		return fail(Permission, "directory", "create a private installation directory with mode 0700")
 	}
@@ -133,7 +158,7 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	if e := c.server(); e != nil {
 		return e
 	}
-	mutate := command == "init" || command == "up" || command == "down"
+	mutate := command == "init" || command == "up" || command == "down" || command == "backup" || command == "restore"
 	if mutate {
 		unlock, e := lock(c.dir)
 		if e != nil {
@@ -167,8 +192,29 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 			return e
 		}
 	}
-	if mutate && command != "init" {
+	var restoreInput *restoredBackup
+	if command == "restore" {
+		var e error
+		restoreInput, e = c.openRestore(*archive, pass)
+		if e != nil {
+			return e
+		}
+		defer restoreInput.clear()
+	}
+	if command == "verify" && c.state.Phase != "ready" {
+		return fail(NotReady, "verify", "installation has not committed ready state")
+	}
+	if command == "up" || command == "verify" {
+		if _, e := os.Lstat(filepath.Join(c.dir, "restore-pending.json")); !errors.Is(e, os.ErrNotExist) {
+			return fail(NotReady, "restore-pending", "unfinished restore cannot be started; rerun restore with the verified backup or down --purge")
+		}
+	}
+	if mutate && command != "init" && command != "restore" {
+		if e := c.cleanupPendingCiphertext(); e != nil {
+			return e
+		}
 		c.state.Operation = random()
+		c.state.FailedStage = ""
 		if e := c.save(); e != nil {
 			return fail(Permission, "state", "cannot persist operation")
 		}
@@ -177,6 +223,12 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	var err error
 	switch command {
 	case "init":
+		result = c.public(nil)
+	case "backup":
+		err = c.createBackup(*archive, pass)
+		result = c.public(nil)
+	case "restore":
+		err = c.restore(restoreInput)
 		result = c.public(nil)
 	case "up":
 		err = c.up()
@@ -195,6 +247,9 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	}
 	if err != nil {
 		if ctx.Err() != nil && mutate {
+			if c.state.FailedStage == "" {
+				c.state.FailedStage = c.state.Phase
+			}
 			c.state.Phase = "interrupted"
 			_ = c.save()
 			return fail(Interrupted, "interrupted", "operation interrupted; rerun status then up/down; data retained")
@@ -397,7 +452,7 @@ func (c *Controller) initialize(port int) error {
 			return fail(Permission, "init", "init requires empty directory; existing secrets are never overwritten")
 		}
 	}
-	c.state = State{1, c.manifest.Version, c.manifestHash, "", "", port, "initialized", random()}
+	c.state = State{Schema: 1, Version: c.manifest.Version, Manifest: c.manifestHash, Port: port, Phase: "initialized", Operation: random()}
 	c.state.Token = random()
 	c.state.Project = "gopulse-" + c.state.Token[:12]
 	c.env = map[string]string{"MYSQL_DATABASE": "gopulse", "MYSQL_USER": "gopulse", "RABBITMQ_USER": "gopulse", "VICTORIAMETRICS_USERNAME": "gopulse", "GOPULSE_VERSION": c.manifest.Version, "GOPULSE_REVISION": c.manifest.Revision, "AUTH_COOKIE_SECURE": "false", "PUBLISHED_HOST": "127.0.0.1", "FRONTEND_PORT": strconv.Itoa(port), "HTTP_PORT": strconv.Itoa(port)}

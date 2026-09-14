@@ -368,3 +368,7 @@ func strictJSON(raw []byte, value any) error {
 	d.DisallowUnknownFields()
 	return d.Decode(value)
 }
+
+// DecodeJSON applies the same closed, duplicate-key and depth boundary to
+// portable domain/configuration objects before a restore creates resources.
+func DecodeJSON(raw []byte, value any) error { return strictJSON(raw, value) }

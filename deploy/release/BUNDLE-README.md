@@ -58,9 +58,43 @@ adopting or deleting the foreign resource.
 Exit codes: 0 success; 2 arguments/confirmation; 10 manifest/checksum/digest;
 11 Docker/Compose unavailable or too old; 12 wrong server OS/arch; 13 disk/memory;
 14 installation permissions/state; 15 occupied port; 16 installation lock;
-17 ownership; 18 execution failure; 19 not ready; 20 interrupted operation.
+17 ownership; 18 execution failure; 19 not ready; 20 interrupted operation;
+21 invalid backup authentication/format.
 
-Backup/restore and legacy 1.9.4 upgrade are not implemented in this batch.
+## Consistent backup and empty-project restore
+
+Use the same lifecycle invocation with:
+
+```text
+backup --install ABS_INSTALL --archive ABS_INSTALL/product.gpb --passphrase-file ABS_INSTALL/passphrase
+backup-inspect --archive ABS_INSTALL/product.gpb --passphrase-file ABS_INSTALL/passphrase
+restore --install ABS_INSTALL --archive ABS_INSTALL/product.gpb --passphrase-file ABS_INSTALL/passphrase
+```
+
+Keep the passphrase in a private 0600 regular file (16..4096 exact bytes), never
+in command arguments or environment values. The archive is authenticated and
+encrypted, bounded to 256 MiB. Keep an independent secure copy of the passphrase.
+Backup takes a full maintenance window: edge writes are blocked, asynchronous
+work drains, then SQL, search, metrics, messaging topology and plugin state are
+exported at one cutover. Source service is resumed afterward.
+
+Restore requires the **exact source bundle manifest**, Linux amd64 and a newly
+initialized empty target. Run `init` with a new private installation directory
+and unused port; copy the encrypted archive and private passphrase there before
+`restore`. The tool mounts only the selected installation, not another source
+installation. Never restore over an existing deployment. Users and roles persist;
+JWT sessions are invalidated, Redis caches rebuild. Acknowledged Kafka history
+is in ES/VM; the empty target topic rebases offsets to zero, retaining true source
+offsets as backup evidence, rather than manufacturing broker messages.
+
+A failed restore does not publish ready. Only new strongly owned target resources
+are cleaned; retain the archive and retry `restore` after fixing the reported
+cause. A pending restore cannot be bypassed with ordinary `up` or `verify`.
+`doctor --diagnostics-dir ABS_PRIVATE_DIRECTORY` writes bounded metadata-only
+JSON diagnostics in an existing private directory. Do not publish installation
+state or secrets with a support report.
+
+Legacy 1.9.4 upgrade is not implemented in this batch.
 The registered legacy plugin remains upgrade input only. Existing Bash scripts
 are development/acceptance tools, not the product installation path; historical
 PowerShell files remain frozen at 0.2.1.

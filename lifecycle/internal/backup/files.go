@@ -69,6 +69,18 @@ func Read(path string) ([]byte, error) {
 // directory. The caller must hold the lifecycle operation lock. A killed process
 // may leave a private .backup-pending-* ciphertext, never a completion filename.
 func Publish(ctx context.Context, dir, name string, blob []byte) error {
+	return publish(ctx, dir, name, blob, ".backup-pending-"+rand.Text())
+}
+
+// PublishOperation gives lifecycle recovery an exact temporary ciphertext name
+// to clean after SIGKILL, without deleting another operation's pending file.
+func PublishOperation(ctx context.Context, dir, name string, blob []byte, operation string) error {
+	if !operationRE.MatchString(operation) {
+		return ErrDestination
+	}
+	return publish(ctx, dir, name, blob, ".backup-pending-"+operation)
+}
+func publish(ctx context.Context, dir, name string, blob []byte, pending string) error {
 	if name == "." || name == ".." || filepath.Base(name) != name || name == "" || len(blob) < headerSize+28 || len(blob) > MaxPayload+headerSize+28 || string(blob[:8]) != magic {
 		return ErrDestination
 	}
@@ -108,7 +120,6 @@ func Publish(ctx context.Context, dir, name string, blob []byte) error {
 	}
 	// Randomness comes from the standard library; O_EXCL prevents accidental
 	// adoption even in the vanishingly unlikely event of a name collision.
-	pending := ".backup-pending-" + rand.Text()
 	f, err := root.OpenFile(pending, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return ErrDestination

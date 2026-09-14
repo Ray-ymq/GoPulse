@@ -13,14 +13,15 @@ import (
 )
 
 type State struct {
-	Schema    int    `json:"schema"`
-	Version   string `json:"version"`
-	Manifest  string `json:"manifest_digest"`
-	Project   string `json:"project"`
-	Token     string `json:"installation_token"`
-	Port      int    `json:"edge_port"`
-	Phase     string `json:"phase"`
-	Operation string `json:"operation_id"`
+	Schema      int    `json:"schema"`
+	Version     string `json:"version"`
+	Manifest    string `json:"manifest_digest"`
+	Project     string `json:"project"`
+	Token       string `json:"installation_token"`
+	Port        int    `json:"edge_port"`
+	Phase       string `json:"phase"`
+	Operation   string `json:"operation_id"`
+	FailedStage string `json:"failed_stage,omitempty"`
 }
 
 func random() string {

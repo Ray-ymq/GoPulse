@@ -27,6 +27,8 @@ def main():
     modes = p.add_mutually_exclusive_group(required=True)
     modes.add_argument('--clean-install', action='store_true')
     modes.add_argument('--failure-matrix', action='store_true')
+    modes.add_argument('--reuse-install', action='store_true')
+    p.add_argument('--install', type=Path, default=ROOT/'.run/phase16-04-recovery/product/target')
     a = p.parse_args()
     if a.acceptance_image and not a.clean_install: p.error('--acceptance-image requires --clean-install')
     browser = None
@@ -35,6 +37,10 @@ def main():
     server = json.loads(docker('version', '--format', '{{json .Server}}'))
     assert server['Os']+'/'+server['Arch'] == a.platform
     docker('pull', image)
+    if a.reuse_install:
+        from verify_reused_install import verify_reused
+        verify_reused(a.install.resolve(), a.manifest.resolve(), image)
+        return
     endpoint = '/var/run/docker.sock'
     with tempfile.TemporaryDirectory(prefix='gopulse lifecycle ') as tmp:
         install = Path(tmp)/'installation with spaces'
