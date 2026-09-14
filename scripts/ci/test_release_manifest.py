@@ -38,3 +38,10 @@ class ManifestTest(unittest.TestCase):
         with self.assertRaises(ValueError):validate(fixture(), '1.13.2')
         with self.assertRaises(ValueError):validate(fixture(), revision='b'*40)
         with self.assertRaises(ValueError):json.loads('{"a":1,"a":2}', object_pairs_hook=unique)
+
+    def test_amd64_only_candidate(self):
+        m=fixture()
+        for image in [*m['images'].values(), m['lifecycle']]:
+            del image['platforms']['linux/arm64']
+        m['plugins']=[p for p in m['plugins'] if p['arch']=='amd64']
+        validate(m)
