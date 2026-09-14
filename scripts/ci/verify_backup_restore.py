@@ -257,9 +257,22 @@ def main():
     p.add_argument('--manifest',type=Path,default=ROOT/'dist/phase16-04-recovery-v1/release-manifest.json')
     p.add_argument('--work',type=Path,default=ROOT/'.run/phase16-04-recovery/product')
     p.add_argument('--acceptance-image')
-    modes=p.add_mutually_exclusive_group(required=True)
+    p.add_argument('--current-product', action='store_true')
+    modes=p.add_mutually_exclusive_group()
     modes.add_argument('--same-arch',action='store_true');modes.add_argument('--failure-matrix',action='store_true');modes.add_argument('--cleanup',action='store_true')
-    a=p.parse_args();r=Recovery(a)
+    a=p.parse_args()
+    if not any([a.current_product,a.same_arch,a.failure_matrix,a.cleanup]):p.error('an acceptance mode is required')
+    if a.current_product and a.same_arch:p.error('--current-product cannot be combined with --same-arch')
+    if a.current_product:
+        if a.work == ROOT/'.run/phase16-04-recovery/product':a.work=ROOT/'.run/phase16-05-recovery/product'
+        from verify_current_recovery import CurrentRecovery
+        r=CurrentRecovery(a)
+        if a.cleanup:
+            for name in ['negative','second','target','source']:r.purge(name)
+        elif a.failure_matrix:r.current_failures()
+        else:r.current_product()
+        return
+    r=Recovery(a)
     if a.same_arch:r.same_arch()
     elif a.failure_matrix:r.failure_matrix()
     else:
