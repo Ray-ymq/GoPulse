@@ -80,7 +80,13 @@ func run() error {
 		}
 	}
 	if *output == "" {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": 1, "status": "passed", "public_payload_secret_scan": "passed", "domains": m.Domains, "source_version": m.ProductVersion, "manifest_digest": m.ReleaseDigest})
+		digests := map[string]string{}
+		for name, data := range files {
+			if name != backup.SecretEntry {
+				digests[name] = release.Sum(data)
+			}
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": 1, "status": "passed", "public_payload_secret_scan": "passed", "domains": m.Domains, "payload_sha256": digests, "source_version": m.ProductVersion, "manifest_digest": m.ReleaseDigest})
 	}
 	var cfg map[string]any
 	if json.Unmarshal(files["config.json"], &cfg) != nil {
