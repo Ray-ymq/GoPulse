@@ -41,3 +41,6 @@ README.md
 !exporters/redis/**
 !scripts/
 !scripts/package-redis-exporter.sh
+
+!scripts/ci/
+!scripts/ci/**

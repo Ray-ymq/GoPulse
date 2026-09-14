@@ -51,7 +51,7 @@ class Recovery:
         if not self.key.exists():self.key.write_bytes(os.urandom(32));self.key.chmod(0o600)
         self.backup = self.work/'source'/'product.gpb'
         self.output=[]
-        self.fixture = self.work/'backup-fixture'
+        self.fixture = Path(os.environ.get('GOPULSE_BACKUP_FIXTURE', str(self.work/'backup-fixture')))
         if not self.fixture.exists():
             subprocess.run(['go','build','-o',str(self.fixture),'./cmd/backup-fixture'],cwd=ROOT/'lifecycle',check=True)
         server=json.loads(docker('version','--format','{{json .Server}}'))
