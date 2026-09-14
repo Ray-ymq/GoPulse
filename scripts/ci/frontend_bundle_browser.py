@@ -9,7 +9,7 @@ from pathlib import Path
 from verify_plugin_metrics import Client, wait_until
 
 
-def run_browser(install, state, status, secrets, image, docker, credentials=None):
+def run_browser(install, state, status, secrets, image, docker, credentials=None, progress=None, checkpoint=None):
     # Resolve a local immutable image ID, never execute an arbitrary mutable tag.
     info = json.loads(docker('image', 'inspect', image))[0]
     assert image == info['Id'], 'acceptance image must be an immutable local image ID'
@@ -59,15 +59,20 @@ def run_browser(install, state, status, secrets, image, docker, credentials=None
         'pull_policy':'never', 'network_mode':'host', 'environment':env}}}))
     file.chmod(0o600)
     base = ['docker','compose','-p',project+'-browser','-f',str(file),'--profile','acceptance','run','--rm','--no-deps']
-    checks = []
+    checks = list(progress or [])
+    def passed(check):
+        if check not in checks:checks.append(check)
+        if checkpoint:checkpoint(checks)
     try:
         for viewport in ['desktop','narrow']:
+            if viewport in checks:continue
             result = subprocess.run([*base,'-e','GOPULSE_VIEWPORT='+viewport,'acceptance','e2e/frontend-product.spec.ts'], capture_output=True, text=True, timeout=300)
             assert result.returncode == 0, 'Bundle '+viewport+' browser failed: '+(result.stdout+result.stderr).replace(password,'[REDACTED]')
-            checks.append(viewport)
-        result = subprocess.run([*base,'acceptance','e2e/phase15-closure.spec.ts','--grep','create exact three-source'], capture_output=True, text=True, timeout=180)
-        assert result.returncode == 0, 'three-source browser failed: '+(result.stdout+result.stderr).replace(password,'[REDACTED]')
-        checks.append('three-source-create')
+            passed(viewport)
+        if 'three-source-create' not in checks:
+            result = subprocess.run([*base,'acceptance','e2e/phase15-closure.spec.ts','--grep','create exact three-source'], capture_output=True, text=True, timeout=180)
+            assert result.returncode == 0, 'three-source browser failed: '+(result.stdout+result.stderr).replace(password,'[REDACTED]')
+            passed('three-source-create')
     finally:
         try:
             subprocess.run(['docker','compose','-p',project+'-browser','-f',str(file),
