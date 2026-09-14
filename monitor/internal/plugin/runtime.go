@@ -42,6 +42,8 @@ type runtimeCore struct {
 	catalog      *releaseCatalog
 	identity     storageIdentity
 	releaseLease func()
+	shutdownMu   sync.Mutex
+	closed       bool
 	mu           sync.RWMutex
 	slots        map[string]*runtimeSlot
 	// Private test seam represents a process interruption, not a production flag.
@@ -121,7 +123,18 @@ func newRuntimeCore(ctx context.Context, cfg ManagerConfig, catalog *releaseCata
 			active, err = c.migrate(ctx, item.ID, entry)
 		} else if err == nil {
 			slot.active = active
-			err = c.restore(ctx, item.ID, active)
+			var history CollectionHistory
+			err = strictFile(filepath.Join(c.dir(item.ID), "collection-history.json"), &history)
+			if errors.Is(err, os.ErrNotExist) {
+				err = nil
+			}
+			if err == nil && !validHistory(history) {
+				err = operationFailed()
+			}
+			if err == nil {
+				slot.status.LastScrapeAt, slot.status.LastSuccessAt = history.LastScrapeAt, history.LastSuccessAt
+				err = c.restore(ctx, item.ID, active)
+			}
 		}
 		if err != nil {
 			slot.blocked = true
@@ -925,6 +938,11 @@ func (c *runtimeCore) recordMetrics(id string, scrape, success *time.Time, code,
 	}
 }
 func (c *runtimeCore) shutdown(ctx context.Context) error {
+	c.shutdownMu.Lock()
+	defer c.shutdownMu.Unlock()
+	if c.closed {
+		return nil
+	}
 	var failures []error
 	for _, item := range OfficialCatalog() {
 		s, err := c.lock(ctx, item.ID)
@@ -933,10 +951,20 @@ func (c *runtimeCore) shutdown(ctx context.Context) error {
 			continue
 		}
 		err = c.stopProcess(ctx, item.ID)
+		if err == nil && s.active != nil {
+			c.mu.RLock()
+			history := CollectionHistory{s.status.LastScrapeAt, s.status.LastSuccessAt}
+			c.mu.RUnlock()
+			raw, _ := json.Marshal(history)
+			err = atomicWrite(filepath.Join(c.dir(item.ID), "collection-history.json"), raw, 0600)
+		}
 		unlock(s)
 		if err != nil {
 			failures = append(failures, err)
 		}
+	}
+	if len(failures) == 0 {
+		c.closed = true
 	}
 	if len(failures) == 0 && c.releaseLease != nil {
 		c.releaseLease()

@@ -120,15 +120,18 @@ func Parse(data []byte) (*Manifest, error) {
 	return &m, nil
 }
 func checkImage(i Image) error {
-	if !immutable.MatchString(i.Ref) || strings.Contains(strings.Split(i.Ref, "@")[0], ":latest") || len(i.Platforms) != 2 {
-		return errors.New("image must have immutable index and exactly two platforms")
+	if !immutable.MatchString(i.Ref) || strings.Contains(strings.Split(i.Ref, "@")[0], ":latest") || (len(i.Platforms) < 1 || len(i.Platforms) > 2) {
+		return errors.New("image must have immutable index and the supported Linux platform set")
 	}
-	for _, p := range platforms {
-		if !digest.MatchString(i.Platforms[p]) {
+	for p, d := range i.Platforms {
+		if (p != "linux/amd64" && p != "linux/arm64") || !digest.MatchString(d) {
 			return errors.New("missing platform digest")
 		}
 	}
-	if i.Platforms[platforms[0]] == i.Platforms[platforms[1]] {
+	if !digest.MatchString(i.Platforms["linux/amd64"]) {
+		return errors.New("Linux amd64 platform required")
+	}
+	if len(i.Platforms) == 2 && i.Platforms[platforms[0]] == i.Platforms[platforms[1]] {
 		return errors.New("platform digests must differ")
 	}
 	return nil
@@ -141,6 +144,9 @@ func (m *Manifest) Validate() error {
 		return errors.New("incomplete image set")
 	}
 	for _, name := range products {
+		if len(m.Images[name].Platforms) != len(m.Lifecycle.Platforms) {
+			return errors.New("product platform sets differ")
+		}
 		if err := checkImage(m.Images[name]); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -177,11 +183,12 @@ func (m *Manifest) Validate() error {
 			return errors.New("unknown plugin purpose")
 		}
 	}
-	if len(m.Plugins) != 13 || len(current) != 12 || !legacy {
+	if len(m.Plugins) != 6*len(m.Lifecycle.Platforms)+1 || len(current) != 6*len(m.Lifecycle.Platforms) || !legacy {
 		return errors.New("incomplete plugin catalog")
 	}
 	for _, s := range sources {
-		for _, a := range []string{"amd64", "arm64"} {
+		for platform := range m.Lifecycle.Platforms {
+			a := strings.TrimPrefix(platform, "linux/")
 			if !current[s+"-exporter/"+a] {
 				return errors.New("missing plugin platform")
 			}
