@@ -1,8 +1,9 @@
 # Phase-16-06：Linux 产品矩阵与阶段收口实施方案
 
-> 目标版本：`1.13.6`  
-> 开发分支：`develop/1.13.6`  
+> 目标版本：`1.13.6`
+> 开发分支：`develop/1.13.6`
 > 运行与验收平台：真实 Linux `amd64`
+> 范围修订（2026-09-14）：消费 Phase-16-05 当前版本数据与恢复合同，取消历史升级矩阵；不把同版本恢复记为跨版本升级。
 
 ## 1. 批次目标
 
@@ -18,7 +19,7 @@ real Linux amd64 host/server
                   ├─ edge, login and two frontends
                   ├─ six plugins and three alert sources
                   ├─ backup and same-arch restore
-                  ├─ 1.9.4 upgrade and recovery
+                  ├─ current data and repeat recovery
                   └─ Linux failure/isolation scenarios
                   │
                   ▼
@@ -31,10 +32,10 @@ Phase 16 acceptance and Phase 17 handoff
 ## 2. 前置条件
 
 - 从 Phase-16-05 合入后的最新 `upstream/main` 创建 `develop/1.13.6`。
-- Phase-16-01 至 Phase-16-05 的实施记录、版本、manifest、Bundle、fixture 和固定门禁均已完成。
+- Phase-16-01 至 Phase-16-05 的实施记录、版本、manifest、Bundle、当前数据配方和固定门禁均已完成。
 - 真实 Linux `amd64` host/server 的访问方式、owner、运行窗口、CPU、内存、磁盘、Compose 和 registry 拉取条件已确认。
 - 候选 image/plugin/Bundle 均绑定同一 Git revision 和 release manifest digest。
-- 独立交付目录、独立 clean-install project、restore project 和 upgrade project 已分配随机名称与 installation token。
+- 独立交付目录、独立 clean-install project、restore project B 和二次 restore project C 已分配随机名称与 installation token。
 - Acceptance runner 只调用正式生命周期、API 和浏览器入口，不内置第二套产品逻辑。
 
 未满足 host/server、候选一致性或独立目录条件时，只阻断本批最终收口，不回滚前五批已经通过的固定门禁。
@@ -82,13 +83,14 @@ Phase 16 acceptance and Phase 17 handoff
 - 指标、事件、日志三源告警各产生至少一个代表事实，覆盖规则、通知状态和操作审计。
 - 采集/告警停止与恢复不破坏历史，重启后继续采集。
 
-### 3.6 Backup、restore 与 upgrade 矩阵
+### 3.6 当前数据、backup 与恢复后再备份矩阵
 
-- 在 current clean-install project 创建 format v1 加密 backup，独立 inspect/checksum 通过。
-- 将该 backup 恢复到全新 Linux `amd64` project，核对身份、业务、搜索、指标、告警、审计和插件事实，并验证继续写入。
-- 从权威 `1.9.4/linux/amd64` fixture 完成到 `1.13.6` 的完整升级。
-- 验证强制升级前 backup、迁移 journal、Redis v1 到 current v2、原子 state 切换、幂等重跑和升级后新 backup。
-- 选择一个代表迁移失败和一个 restore 中断场景，证明可诊断、可继续或恢复且不留下伪 ready 状态。
+- 在 `1.13.6` clean-install project A 按 Phase-16-05 的数据配方通过正式入口生成当前数据，记录候选 digest 与事实摘要；六插件、业务和告警矩阵的数据可复用，不重复生成等价场景。
+- A 创建 format v1 加密备份 A 并独立 inspect/checksum；使用同一 `1.13.6` manifest 在空 project B 恢复，核对身份、业务、搜索、指标、告警、审计和插件事实，验证双 Frontend 可使用。
+- B 继续写入、采集和产生告警/审计，再创建备份 B；独立 inspect 后恢复到同 manifest 的空 project C，验证原有与新增事实及 C 继续写入。
+- 对已成功恢复的非空目标重复恢复，必须安全拒绝且不修改数据；不将拒绝或重启称为升级幂等。
+- 选择一个代表数据导入失败和一个 restore 中断，验证可诊断、按正式合同重试或清理后恢复且不留下伪 ready。复用 Phase-16-05 runner，不复制故障/恢复实现。
+- 不使用 `1.9.4` fixture、Redis v1 迁移或跨版本 state 切换。不得恢复 Phase-16-05 的 `1.13.5` 备份来冒充本候选同 manifest 恢复；历史证据仅用于追溯，不混入最终候选通过证据。
 
 ### 3.7 Linux 故障、隔离与清理
 
@@ -102,13 +104,14 @@ Phase 16 acceptance and Phase 17 handoff
 
 - 聚合器验证 schema、必填场景、host/server arch、候选 digest、Bundle checksum、project 隔离、结果和脱敏标记。
 - 聚合器拒绝缺失场景、失败/中断 evidence、不同候选 digest、非真实 Linux `amd64` runtime 或 Secret 命中。
-- 更新产品安装、生命周期、备份恢复、升级、支持范围和故障处理文档。
+- 更新产品安装、生命周期、备份恢复、当前数据生成、支持范围和故障处理文档。
 - 生成 Phase-16-06 同名实施记录，明确外部发布状态和任何非阻断限制。
 
 ## 4. 不在本批范围
 
 - macOS、Windows、`linux/arm64` 产品运行或支持验证。
-- 新产品功能、视觉重设计、backup format 变更、额外历史版本升级。
+- 新产品功能、视觉重设计、backup format 变更、所有历史或跨版本升级、旧版 fixture 与 Redis v1 迁移。
+- 删除已有历史插件包或兼容实现；不因本次范围收敛改变既有历史记录。
 - Kubernetes、生产高可用、性能容量认证、镜像签名/SBOM/CVE 平台。
 - 因最终矩阵之外的发现开展一般性审计、重构或覆盖率活动。
 
@@ -118,7 +121,7 @@ Phase 16 acceptance and Phase 17 handoff
 2. 在独立目录运行 candidate preflight 与 artifact runtime。
 3. 运行 clean-install/lifecycle 和产品/Frontend 矩阵。
 4. 运行六插件、业务和三源告警矩阵。
-5. 运行 current backup/restore 和 `1.9.4` 完整升级。
+5. 复用同候选当前数据，运行 A → backup A → B → 新数据/backup B → C 的恢复闭环及代表故障。
 6. 运行固定故障、隔离和清理场景。
 7. 聚合 evidence，运行 Secret 扫描与阶段门禁。
 8. 更新文档、实施记录和 `VERSION`，提交后停止。
@@ -128,7 +131,7 @@ Phase 16 acceptance and Phase 17 handoff
 - Acceptance runner、evidence schema 和聚合器
 - 候选 manifest、Bundle metadata 与发布验证脚本
 - 只为最终矩阵暴露的直接阻断所需产品文件
-- Linux 安装、生命周期、备份恢复、升级和故障处理文档
+- Linux 安装、生命周期、备份恢复、支持边界和故障处理文档
 - `dev/logs/Phase-16/Phase-16-06-Linux产品矩阵与阶段收口.md`
 - `VERSION`
 
@@ -154,17 +157,17 @@ Phase 16 acceptance and Phase 17 handoff
 ### 7.3 数据闭环
 
 1. Current backup 可在全新 Linux `amd64` project 恢复，事实一致并能继续写入。
-2. `1.9.4 → 1.13.6` 完整升级、幂等重跑和升级后 backup 通过。
-3. 迁移失败、restore 中断、错误口令和 tamper 不产生半完成 ready 状态。
+2. 恢复项目产生的新业务、采集与告警/审计事实经再次 backup/restore 保持，并能继续使用；非空目标重复恢复安全拒绝且不改数据。
+3. 数据导入失败、restore 中断、错误口令和 tamper 不产生半完成 ready 状态。
 4. 无关 Docker 资源、其他 project 和用户文件保持不变。
 
 ### 7.4 Phase 完成条件
 
 - Phase-16-01 至 Phase-16-06 的同名实施记录齐全且只记录真实结果。
-- 本总方案第 15 节全部阶段级验收通过，无阻断问题。
+- `Phase-16-总实施方案.md` 第 15 节全部阶段级验收通过，无阻断问题。
 - 根与受管版本为 `1.13.6`，全部批次按顺序合入主线。
 - 支持文档明确 Phase 16 的产品范围为 Linux `amd64`。
-- 交接给 Phase 17 的候选、Bundle、evidence、backup 和 upgrade fixture 可复核。
+- 交接给 Phase 17 的候选、Bundle、evidence、当前数据配方和同候选 backup 可复核；不宣称已支持历史/跨版本升级。
 
 满足后 Phase 16 完成，但不提前宣称 Milestone 4 完成。
 
@@ -175,10 +178,12 @@ scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --plat
 docker compose --profile acceptance run --rm acceptance phase16 --evidence /evidence/linux-amd64.json
 python3 scripts/verify-phase16-evidence.py --linux dist/evidence/linux-amd64.json
 scripts/verify-product-lifecycle.sh --platform linux/amd64 --clean-install
-scripts/verify-backup-restore.sh --platform linux/amd64 --same-arch
-scripts/verify-upgrade.sh --from 1.9.4 --to 1.13.6 --platform linux/amd64
+scripts/verify-backup-restore.sh --manifest dist/release-manifest.json --platform linux/amd64 --current-product
+scripts/verify-backup-restore.sh --manifest dist/release-manifest.json --platform linux/amd64 --current-product --failure-matrix
 scripts/verify-compose.sh
 ```
+
+`--current-product` 与这里的 `--failure-matrix` 由 Phase-16-05 实现/对齐，语义见该批方案；这里不是对现有脚本参数已可用的声明。聚合 runner 与单项命令若覆盖同一候选同一场景，应复用通过 evidence，不执行两遍；候选级 evidence 不得引用不同版本的通过结果。
 
 实现入口可按仓库实际名称等价调整，但必须保持以上场景和证据语义。前五批已经成功且未受最终修复影响的门禁不得无依据重跑；最终矩阵只重跑候选级集成所必需的固定门禁。
 
@@ -188,8 +193,8 @@ scripts/verify-compose.sh
 
 - Linux host/server inventory、候选 manifest、Bundle 和全部 digest；
 - 各场景实际命令、结果、evidence 路径、失败轮次与最小修复；
-- clean install、双 Frontend、六插件、告警、backup/restore、upgrade、隔离和清理事实；
+- clean install、双 Frontend、六插件、告警、backup/restore、恢复后再备份恢复、隔离和清理事实；
 - Secret 扫描、发布边界、偏差、已知限制和非阻断后续事项。
 
-交给 Phase 17 的固定输入是 `1.13.6` Linux `amd64` 完整 Compose 产品、版本化 Bundle、不可变制品、共享生命周期、统一双 Frontend、backup format v1、`1.9.4` 升级合同和最终 evidence。Phase 17 只做 Kubernetes 前工程质量收口，不把 Kubernetes 作为验证 Compose 产品的条件。
+交给 Phase 17 的固定输入是 `1.13.6` Linux `amd64` 完整 Compose 产品、版本化 Bundle、不可变制品、共享生命周期、统一双 Frontend、backup format v1、当前数据配方、同 manifest 恢复与持续使用合同和最终 evidence。Phase 17 只做 Kubernetes 前工程质量收口，不把 Kubernetes 作为验证 Compose 产品的条件。
 
