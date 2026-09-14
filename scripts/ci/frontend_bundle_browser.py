@@ -22,7 +22,7 @@ def run_browser(install, state, status, secrets, image, docker, credentials=None
     runner_labels = info['Config'].get('Labels', {})
     assert runner_labels.get('org.opencontainers.image.version') == labels['org.opencontainers.image.version'], 'browser/Backend version mismatch'
     runner_revision = runner_labels.get('org.opencontainers.image.revision', '')
-    assert re.fullmatch(r'[0-9a-f]{40}', runner_revision), 'browser source revision required'
+    assert runner_revision == labels['org.opencontainers.image.revision'], 'browser/product revision mismatch'
     origin = status['edge']
     admin, user = Client(origin), Client(origin)
     if credentials:

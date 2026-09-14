@@ -1,0 +1,667 @@
+{
+  "schema": "gopulse.phase16.v1",
+  "complete": true,
+  "status": "passed",
+  "redacted": true,
+  "candidate": {
+    "schema_version": 1,
+    "version": "1.13.6",
+    "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+    "images": {
+      "backend": {
+        "ref": "127.0.0.1:15003/gopulse/backend:1.13.6-candidate-a76089fc5097@sha256:c5a87ce033e60f9324716e1400a0755dd81684b73b39b078b8f64a747e39ac57",
+        "platforms": {
+          "linux/amd64": "sha256:c3a865cb8e71bd9da2bffe9d4a2b97bd19570b53c7c7e583544b56ada550ab59"
+        }
+      },
+      "business-worker": {
+        "ref": "127.0.0.1:15003/gopulse/business-worker:1.13.6-candidate-a76089fc5097@sha256:301daa3a6487e3eb5e26cefcd926e5f5cacc1a9fd00d744c3d95470e893729c4",
+        "platforms": {
+          "linux/amd64": "sha256:3e99e800816020acaf68f8f4fc50c062a55e02956ee53ff39e6fd6835bea2445"
+        }
+      },
+      "search-indexer": {
+        "ref": "127.0.0.1:15003/gopulse/search-indexer:1.13.6-candidate-a76089fc5097@sha256:d5a61da262e09e7294a4cd6ddcb9e58428aad3b9def7cb33c5b6bcd3d0e95189",
+        "platforms": {
+          "linux/amd64": "sha256:a68a473b22b1d2270bd7e74160cdd0bd280e14f50a89d132dd776fc24192d0a6"
+        }
+      },
+      "frontend": {
+        "ref": "127.0.0.1:15003/gopulse/frontend:1.13.6-candidate-a76089fc5097@sha256:0189a17e8c6532d4cfc52b5bfffbc986035a782cff9dbb3cbebb2d1a78c4e379",
+        "platforms": {
+          "linux/amd64": "sha256:275c8d74883c64bc22df6909b735a9e60bfdb3d9c257b55d35bb1d0a4065fec7"
+        }
+      },
+      "admin-frontend": {
+        "ref": "127.0.0.1:15003/gopulse/admin-frontend:1.13.6-candidate-a76089fc5097@sha256:997978b74a6a2ab20f8099b3153af3735bf1f205dd46e63f17e176125dd01122",
+        "platforms": {
+          "linux/amd64": "sha256:e931bb23cd82edb5148460984388649a862f82dbde6e35abc2b16b676198958f"
+        }
+      },
+      "router": {
+        "ref": "127.0.0.1:15003/gopulse/router:1.13.6-candidate-a76089fc5097@sha256:bd3b89b181547dc4fd302516d9b14797b4c3f57a3d11afd9e65fbd43b1092899",
+        "platforms": {
+          "linux/amd64": "sha256:668603ca7dc844013a59008d8d6f3545be55c4b0837807f537296707683baddd"
+        }
+      },
+      "marshaller": {
+        "ref": "127.0.0.1:15003/gopulse/marshaller:1.13.6-candidate-a76089fc5097@sha256:f77d8a831f09d1bbe1862f4d1c134cf33bfc91c42c74171240660697b5e07946",
+        "platforms": {
+          "linux/amd64": "sha256:1b251a32b2a8c3589d0d068d4021c8678e7f6b3a6dc71c21f416f2aa5d4af2e8"
+        }
+      },
+      "monitor": {
+        "ref": "127.0.0.1:15003/gopulse/monitor:1.13.6-candidate-a76089fc5097@sha256:2803c1cb39b758445d07a532c197222fee3c7cdd528da70b2b60fec0fdaea173",
+        "platforms": {
+          "linux/amd64": "sha256:a83974d56c98b2140c5cb36be4b691f5c248f751bed0adddcdee81ae15f3c175"
+        }
+      },
+      "redis-exporter": {
+        "ref": "127.0.0.1:15003/gopulse/redis-exporter:1.13.6-candidate-a76089fc5097@sha256:b473206a8da6a2cbb8af710072a1174043d29300a9fa84afcb0f1e8d13de8903",
+        "platforms": {
+          "linux/amd64": "sha256:d5b2f1d60f64d9c2e45070fe649003ddf02739a5ecea5c864dfc70a71905a00f"
+        }
+      }
+    },
+    "lifecycle": {
+      "ref": "127.0.0.1:15003/gopulse/lifecycle:1.13.6-candidate-a76089fc5097@sha256:b09d404b958ec8d69863d2b6cc1331335785534f0646237291a9b27e4f294a8d",
+      "platforms": {
+        "linux/amd64": "sha256:3add6c236703b95c6dcfb59920fc18046ea49055d80a0fe839c37e7703344ac3"
+      }
+    },
+    "third_party": {
+      "mysql": {
+        "ref": "mysql:8.4.0@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0",
+        "platforms": {
+          "linux/amd64": "sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b",
+          "linux/arm64": "sha256:81e9d95d528511718b81cb9c548e1b922976bf359ed1083782bdbbbccf9ad85d"
+        }
+      },
+      "redis": {
+        "ref": "redis:7.2.5-alpine@sha256:6aaf3f5e6bc8a592fbfe2cccf19eb36d27c39d12dab4f4b01556b7449e7b1f44",
+        "platforms": {
+          "linux/amd64": "sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f",
+          "linux/arm64": "sha256:b3b357d72cdf57aa588e746900cf88059ecb96fda06fee3909fa33ce5eb6ab3c"
+        }
+      },
+      "rabbitmq": {
+        "ref": "rabbitmq:3.13.3-management-alpine@sha256:45b2e137b64baeff1f7f4230588be8f1a08b16939a4b64f5da57c59e5dcd3282",
+        "platforms": {
+          "linux/amd64": "sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245",
+          "linux/arm64": "sha256:3369545c94f746d5b4f397b2ea7cd3ba0b236c4bd345e812b5d6f8d21a997423"
+        }
+      },
+      "elasticsearch": {
+        "ref": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2@sha256:9c1e1afc2bda921b35025e21c72ec6e392266995aa35ad6a47887363592718be",
+        "platforms": {
+          "linux/amd64": "sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7",
+          "linux/arm64": "sha256:3cd6866185716285ba60fafe2c2fca101bf849bf31ff31b0e8302b3c3310119d"
+        }
+      },
+      "kafka": {
+        "ref": "apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837",
+        "platforms": {
+          "linux/amd64": "sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26",
+          "linux/arm64": "sha256:c2b5172ab20d66381ec1729796a410fd611135821994526d4d42d2f256054af3"
+        }
+      },
+      "victoriametrics": {
+        "ref": "victoriametrics/victoria-metrics:v1.151.0@sha256:6d164540a04f49ba4e696cbdb70f9fee78be1e94b8f2a1292743a0b1ab8275bd",
+        "platforms": {
+          "linux/amd64": "sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19",
+          "linux/arm64": "sha256:61a4c2c3a0dc70ee0928ab4b702e5b9671dd5aec1c948e5f91536cdcbc9ab18b"
+        }
+      }
+    },
+    "plugins": [
+      {
+        "id": "redis-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:ed928c7e1c3499dc17a99aefedb5871124c9da9ae83aa690a77be03a840fdd41",
+        "entrypoint_sha256": "sha256:ce4c4c965df569b292e7ac9d4c2ca4b6aa161755e0169aaf5fc5e6978a4cccf2",
+        "schema_sha256": "sha256:31f00ae09c7aa46b6a221e2ea310aa077cdda13482a2f3688ae067923e599c81"
+      },
+      {
+        "id": "mysql-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:d5bbfb4820712b376bb6d01ff792c9b2f8b5f7eb21c92e0bbcf5696efa341135",
+        "entrypoint_sha256": "sha256:2d3cb0b9bcd664898a727e0bb5dab02713c29137ae1f900967b7a9c303db2bba",
+        "schema_sha256": "sha256:9999fc8409f324043bdbe77387c62866f281a18617457c1e245120f0cc7e215c"
+      },
+      {
+        "id": "rabbitmq-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:5fbd0790d06204623e72e0c79ed9902348e1c8fe65528c452f3e43fb68384fb6",
+        "entrypoint_sha256": "sha256:371970ec255493c03c1f73004d9e4ce17ba7333d4c8fd016709a57b9714bedce",
+        "schema_sha256": "sha256:a2a8bfb775a66ae6342e42676cc7a0fa3a0e88c93b7f94281b5744ee48e5062d"
+      },
+      {
+        "id": "kafka-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:55a412df25e9dfe9c7e33ef8645ddca448f1d13b4dedda1b32426d60cd7f8b5e",
+        "entrypoint_sha256": "sha256:c76dc4c37ff3929d40366a8c2de5838fbd0e184e042812ebd6f39597ad4b8227",
+        "schema_sha256": "sha256:b1ab7867198f3b111fcd48df80136eab11a9c81e13a91a302027fd30a7e040bb"
+      },
+      {
+        "id": "elasticsearch-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:31c5e74a89b1ea92f3fb0548c68c60eddbc9cc53b966c067b5851cf3ca2ebd9d",
+        "entrypoint_sha256": "sha256:dcc1a7b23a306cd9b644cb10efd73c034bfcc6c27f5edb8d3398e2a8af42a831",
+        "schema_sha256": "sha256:2c710358ff0e1294a8fa63328cdb7e3c5f7facbd3081d2e963e00fedaf498a54"
+      },
+      {
+        "id": "victoriametrics-exporter",
+        "version": "1.13.6",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:d46d6970e4a6cf889475d1751d391efa4af7a0f97ac0544ccedaaa21485b9174",
+        "entrypoint_sha256": "sha256:91648f7f22e4d315fc05165726a1c9d8f778f428a1a393030f6e357f4bd92c4a",
+        "schema_sha256": "sha256:203f94d02f78076222b0a3ae21b7a7e8a3f890e202b34dfd583b97d0bfeed305"
+      },
+      {
+        "id": "redis-exporter",
+        "version": "1.9.4",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "upgrade-only",
+        "archive_sha256": "sha256:d0cbd15b13cb7375ffb900992a0579ef204c5051b8dc465b2463b779f8d44a89",
+        "entrypoint_sha256": "sha256:20978fc780e7531d6c130caf542d7e8ba6fe0e6842ba0610825d5e716941f2fa",
+        "schema_sha256": ""
+      }
+    ],
+    "supported_upgrade_sources": [],
+    "compose": {
+      "path": "deploy/product/compose.yaml",
+      "sha256": "sha256:757d3efc91253cd4c49bcba14c71a1851fcd024aceffbcf0676ab15510b103f6"
+    },
+    "bundle_sha256": "sha256:eef9ae3c305cd7051c5adabbec2cceb2e0b1899e16529e298b2726aeea7b782c"
+  },
+  "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+  "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+  "runner": {
+    "image": "sha256:f8b533bba7981145300cf536918e6fc6cc75e44ca2fdba909aee0caee417d503",
+    "ref": "127.0.0.1:15003/gopulse/acceptance@sha256:f8b533bba7981145300cf536918e6fc6cc75e44ca2fdba909aee0caee417d503",
+    "revision": "a76089fc5097ebf4d218644e66da034472c1ebba"
+  },
+  "projects": {
+    "source": {
+      "project_sha256": "e66ddd64d298bab1a62ae3acc10a81fa6fa59cac5a25002ff455927aef5531b6",
+      "token_sha256": "93e59e922f63809e1240eb502ef99e5e10198d6e06adfec5a2d09ad671cc1ea6"
+    },
+    "target": {
+      "project_sha256": "485aadc6459345879a52dbdc7707f01180b4e143afbc69943f249527a4fd2140",
+      "token_sha256": "1c6de953c15771929518c913af2baa521e62988167b4f1a73d439ac8ebda2194"
+    },
+    "second": {
+      "project_sha256": "480b9b5a34cc288e51154a05e8511ac6fa28200ccc66e837aaaa701d0a37792b",
+      "token_sha256": "993e2fcfe5f20387fa68f4e793ffd2228d8e64d1a684696ad411e2fe3f7753b9"
+    },
+    "negative": {
+      "project_sha256": "7f688dbbeec18c2166168b7fc46e829cb2228b2539ce0174316f5b8f8a8383ac",
+      "token_sha256": "1f5eb28fd10a7852a874e7405027bdbf2686a4de8d0c63547a14dc084ef96b8e"
+    }
+  },
+  "scenarios": {
+    "artifact-runtime-compose": {
+      "status": "passed",
+      "started_at": "2026-09-14T15:19:27.904475+00:00",
+      "finished_at": "2026-09-14T15:19:27.905225+00:00",
+      "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+      "facts": {
+        "manifest_sha256": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+        "platform": "linux/amd64",
+        "status": "amd64-runtime-and-compose-passed"
+      },
+      "files": [
+        {
+          "path": "artifact-runtime.json",
+          "sha256": "6e534ea675176de26c3fbebc032821aea4eb436e88d43bc9861221648b59f5c7"
+        },
+        {
+          "path": "release-manifest.json",
+          "sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687"
+        }
+      ]
+    },
+    "clean-install-lifecycle": {
+      "status": "passed",
+      "started_at": "2026-09-14T15:19:27.906807+00:00",
+      "finished_at": "2026-09-14T15:22:40.128987+00:00",
+      "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+      "facts": {
+        "schema": 1,
+        "platform": "linux/amd64",
+        "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "mode": "clean-install",
+        "status": "passed",
+        "browser": null,
+        "project_sha256": "99e3d29610b3813f672341a7c4ec091e2f7e45db2ba1bd532ec4e2d7f85b32ee",
+        "token_sha256": "bd809b674bbeb2747928c6f2a284456601b82ee3a444f4f2b602e1978ec4240f",
+        "started_at": "2026-09-14T15:19:27.964123+00:00",
+        "cleanup_passed": true,
+        "isolation_preserved": true,
+        "commands": [
+          {
+            "command": "doctor",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "init",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "init",
+            "expected_exit": 14,
+            "actual_exit": 14
+          },
+          {
+            "command": "verify",
+            "expected_exit": 19,
+            "actual_exit": 19
+          },
+          {
+            "command": "up",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "verify",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "status",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "logs",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "logs",
+            "expected_exit": 2,
+            "actual_exit": 2
+          },
+          {
+            "command": "down",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "down",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "up",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "verify",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "down",
+            "expected_exit": 0,
+            "actual_exit": 0
+          }
+        ],
+        "finished_at": "2026-09-14T15:22:40.113475+00:00"
+      },
+      "files": [
+        {
+          "path": "clean-install.json",
+          "sha256": "c48f5e725b9c32648328ae9446c946f7b02bfcd57532a804334fefca64915eab"
+        },
+        {
+          "path": "clean-install.log",
+          "sha256": "45370e9087a2e7c6da1c501739f73653a6ff555655dcfc491b709f0b52c06926"
+        }
+      ]
+    },
+    "linux-failure-matrix": {
+      "status": "passed",
+      "started_at": "2026-09-14T15:22:40.131766+00:00",
+      "finished_at": "2026-09-14T15:25:53.555491+00:00",
+      "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+      "facts": {
+        "schema": 1,
+        "platform": "linux/amd64",
+        "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "mode": "failure-matrix",
+        "status": "passed",
+        "browser": null,
+        "project_sha256": "ca765a0c9d5dd9bd2f1596ab18bd5ae72e0b24a6196f4817c3237a5d2150f110",
+        "token_sha256": "1076271de62f09cf9eeb2820986b5a7c113a41c05ce398558502ba691d5bb0e3",
+        "started_at": "2026-09-14T15:22:40.194993+00:00",
+        "cleanup_passed": true,
+        "isolation_preserved": true,
+        "commands": [
+          {
+            "command": "doctor",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "init",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "init",
+            "expected_exit": 14,
+            "actual_exit": 14
+          },
+          {
+            "command": "verify",
+            "expected_exit": 19,
+            "actual_exit": 19
+          },
+          {
+            "command": "up",
+            "expected_exit": 16,
+            "actual_exit": 16
+          },
+          {
+            "command": "doctor",
+            "expected_exit": 11,
+            "actual_exit": 11
+          },
+          {
+            "command": "doctor",
+            "expected_exit": 10,
+            "actual_exit": 10
+          },
+          {
+            "command": "doctor",
+            "expected_exit": 13,
+            "actual_exit": 13
+          },
+          {
+            "command": "doctor",
+            "expected_exit": 15,
+            "actual_exit": 15
+          },
+          {
+            "command": "status",
+            "expected_exit": 14,
+            "actual_exit": 14
+          },
+          {
+            "command": "down",
+            "expected_exit": 2,
+            "actual_exit": 2
+          },
+          {
+            "command": "up",
+            "expected_exit": 17,
+            "actual_exit": 17
+          },
+          {
+            "command": "down",
+            "expected_exit": 17,
+            "actual_exit": 17
+          },
+          {
+            "command": "down",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "down",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "up-paused-mysql",
+            "expected_exit": 18,
+            "actual_exit": 18
+          },
+          {
+            "command": "verify",
+            "expected_exit": 19,
+            "actual_exit": 19
+          },
+          {
+            "command": "down",
+            "expected_exit": 0,
+            "actual_exit": 0
+          },
+          {
+            "command": "down",
+            "expected_exit": 0,
+            "actual_exit": 0
+          }
+        ],
+        "finished_at": "2026-09-14T15:25:53.543944+00:00"
+      },
+      "files": [
+        {
+          "path": "failure-matrix.json",
+          "sha256": "03e724bbc4a9f26c0bf25b976c114517102404db795cc40076e485ef103aaddb"
+        },
+        {
+          "path": "failure-matrix.log",
+          "sha256": "c1f17e5ebef1d25c2545ceed9f9d37a309251fd807510d60d21bb0a8e4247f32"
+        }
+      ]
+    },
+    "current-product": {
+      "status": "passed",
+      "started_at": "2026-09-14T15:25:53.558559+00:00",
+      "finished_at": "2026-09-14T15:36:58.518703+00:00",
+      "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+      "facts": {
+        "completed": [
+          "source-seeded",
+          "source-api-continuity",
+          "source-three-source-facts",
+          "current-source-ready",
+          "source-backup-inspected",
+          "target-api-continuity",
+          "target-nonempty-restore-rejected",
+          "target-continuity-passed",
+          "target-backup-inspected",
+          "second-api-continuity",
+          "second-nonempty-restore-rejected",
+          "second-continuity-passed",
+          "current-product-two-restores-passed"
+        ]
+      },
+      "files": []
+    },
+    "recovery-failures": {
+      "status": "passed",
+      "started_at": "2026-09-14T15:36:58.521193+00:00",
+      "finished_at": "2026-09-14T15:41:09.707480+00:00",
+      "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+      "facts": {
+        "completed": [
+          "source-seeded",
+          "source-api-continuity",
+          "source-three-source-facts",
+          "current-source-ready",
+          "source-backup-inspected",
+          "target-api-continuity",
+          "target-nonempty-restore-rejected",
+          "target-continuity-passed",
+          "target-backup-inspected",
+          "second-api-continuity",
+          "second-nonempty-restore-rejected",
+          "second-continuity-passed",
+          "current-product-two-restores-passed",
+          "wrong-passphrase-and-tamper-rejected-before-resources",
+          "current-import-failure-retry",
+          "current-interrupt-retry",
+          "current-product-failure-matrix-passed"
+        ],
+        "failures": {
+          "import": {
+            "command_scope": "restore",
+            "exit_code": 18,
+            "failure_stage": "restore-mysql",
+            "health_summary": {
+              "admin-frontend": "missing",
+              "backend": "missing",
+              "business-worker": "missing",
+              "edge": "missing",
+              "elasticsearch": "missing",
+              "frontend": "missing",
+              "kafka": "missing",
+              "kafka-init": "missing",
+              "marshaller": "missing",
+              "migrate": "missing",
+              "monitor": "missing",
+              "mysql": "missing",
+              "rabbitmq": "missing",
+              "redis": "missing",
+              "router": "missing",
+              "search-indexer": "missing",
+              "search-init": "missing",
+              "victoriametrics": "missing"
+            },
+            "manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+            "operation_id": "554d0e7783209643d0ea8a88aa7a094a1fa42f524abe00a5f6e39e3c18651169",
+            "phase": "restore-failed",
+            "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore",
+            "schema": 1,
+            "version": "1.13.6"
+          },
+          "interrupt": {
+            "command_scope": "restore",
+            "exit_code": 20,
+            "failure_stage": "pull",
+            "health_summary": {
+              "admin-frontend": "missing",
+              "backend": "missing",
+              "business-worker": "missing",
+              "edge": "missing",
+              "elasticsearch": "missing",
+              "frontend": "missing",
+              "kafka": "missing",
+              "kafka-init": "missing",
+              "marshaller": "missing",
+              "migrate": "missing",
+              "monitor": "missing",
+              "mysql": "missing",
+              "rabbitmq": "missing",
+              "redis": "missing",
+              "router": "missing",
+              "search-indexer": "missing",
+              "search-init": "missing",
+              "victoriametrics": "missing"
+            },
+            "manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+            "operation_id": "13d9d59cae6acfd2138516315775d2333f6a44de3f59e372ed55cdb26a68d69d",
+            "phase": "interrupted",
+            "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore",
+            "schema": 1,
+            "version": "1.13.6"
+          }
+        }
+      },
+      "files": []
+    },
+    "owned-cleanup": {
+      "status": "passed",
+      "started_at": "2026-09-14T15:41:09.709713+00:00",
+      "finished_at": "2026-09-14T15:41:12.241298+00:00",
+      "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+      "facts": {
+        "completed": [
+          "source-seeded",
+          "source-api-continuity",
+          "source-three-source-facts",
+          "current-source-ready",
+          "source-backup-inspected",
+          "target-api-continuity",
+          "target-nonempty-restore-rejected",
+          "target-continuity-passed",
+          "target-backup-inspected",
+          "second-api-continuity",
+          "second-nonempty-restore-rejected",
+          "second-continuity-passed",
+          "current-product-two-restores-passed",
+          "wrong-passphrase-and-tamper-rejected-before-resources",
+          "current-import-failure-retry",
+          "current-interrupt-retry",
+          "current-product-failure-matrix-passed",
+          "owned-cleanup-and-isolation-passed"
+        ]
+      },
+      "files": [
+        {
+          "path": "recovery.json",
+          "sha256": "4103de48c3bde172498a51032c9f987baf5b5a448025e679454e1f816b9a5d94"
+        }
+      ]
+    },
+    "secret-isolation": {
+      "status": "passed",
+      "started_at": "2026-09-14T15:41:12.244891+00:00",
+      "finished_at": "2026-09-14T15:41:12.518060+00:00",
+      "manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+      "revision": "a76089fc5097ebf4d218644e66da034472c1ebba",
+      "bundle_archive_sha256": "2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128",
+      "facts": {
+        "unrelated_resources_unchanged": true,
+        "user_file_unchanged": true,
+        "candidate_unchanged": true,
+        "secret_scan_passed": true
+      },
+      "files": []
+    }
+  },
+  "started_at": "2026-09-14T15:19:27.570368+00:00",
+  "inventory": {
+    "host_os": "Linux",
+    "host_arch": "x86_64",
+    "host_release": "PRETTY_NAME=\"Ubuntu 24.04.4 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.4 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+    "kernel": "6.6.87.2-microsoft-standard-WSL2",
+    "server_os": "linux",
+    "server_arch": "amd64",
+    "server_version": "29.7.2",
+    "compose": "Docker Compose version v2.40.3",
+    "cpu_count": 4,
+    "memory_bytes": 12544360448,
+    "disk_free_bytes": 74805854208
+  },
+  "isolation_before": "b4d27dd26b0bdbab95668634cd4d0d212d0df0145a2143bfecb0c711c9ab0c6d",
+  "sentinel_sha256": "e782501c24c9c0724cc1f41ed293356f8dc6c1985d385d13d517c83fb34553d0",
+  "finished_at": "2026-09-14T15:41:12.520106+00:00"
+}

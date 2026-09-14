@@ -45,7 +45,7 @@ Phase 16 acceptance and Phase 17 handoff
 ### 3.1 候选冻结与预检
 
 - 冻结 `1.13.6` release manifest、Bundle checksum、9 个产品镜像、生命周期镜像、6 个 third-party image 和 6 个 current plugin digest。
-- 从 registry 按 digest 拉取，不允许本批本地源码构建或不重建晋升后的 digest 漂移。
+- 继承已合入主线的 `1.13.5` 源码与合同，完成本批必要改动后构建并发布 `1.13.6` 候选；候选冻结后，从 registry 按 digest 拉取验收，不允许验收路径依赖本地源码构建或晋升后的 digest 漂移。
 - 运行 `doctor` 验证 host/server 为 Linux `amd64`、Compose 版本、资源、端口、路径和候选完整性。
 - 记录 host OS/kernel/CPU、Docker server OS/arch、Compose、资源和时间窗口；不记录凭据。
 
@@ -175,7 +175,7 @@ Phase 16 acceptance and Phase 17 handoff
 
 ```bash
 scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/amd64 --runtime
-docker compose --profile acceptance run --rm acceptance phase16 --evidence /evidence/linux-amd64.json
+docker compose -f deploy/phase16-acceptance.yaml --profile acceptance run --rm --no-deps acceptance phase16 --manifest "$GOPULSE_PHASE16_BUNDLE/release-manifest.json" --work "$GOPULSE_PHASE16_WORK" --artifact-receipt "$GOPULSE_PHASE16_WORK/verification-amd64.json" --evidence "$GOPULSE_PHASE16_WORK/evidence/linux-amd64.json"
 python3 scripts/verify-phase16-evidence.py --linux dist/evidence/linux-amd64.json
 scripts/verify-product-lifecycle.sh --platform linux/amd64 --clean-install
 scripts/verify-backup-restore.sh --manifest dist/release-manifest.json --platform linux/amd64 --current-product
@@ -198,3 +198,9 @@ scripts/verify-compose.sh
 
 交给 Phase 17 的固定输入是 `1.13.6` Linux `amd64` 完整 Compose 产品、版本化 Bundle、不可变制品、共享生命周期、统一双 Frontend、backup format v1、当前数据配方、同 manifest 恢复与持续使用合同和最终 evidence。Phase 17 只做 Kubernetes 前工程质量收口，不把 Kubernetes 作为验证 Compose 产品的条件。
 
+
+### Phase-16-06 实际入口对齐
+
+最终 runner 使用独立验收 Compose 文件 `deploy/phase16-acceptance.yaml` 的 `acceptance` profile；仍只调用 Bundle 正式生命周期、API 和浏览器。环境变量、独立解压与同候选 artifact receipt 合同见 `dev/phase16-linux-matrix.md`。`verify-release-artifacts --runtime` 已包含固定完整 Compose 门禁，不重复运行 `verify-compose.sh`；聚合 runner 包含 clean-install、Linux failure-matrix 和当前数据恢复/失败/清理三个子模式，不重复运行等价子命令。
+
+诊断续跑说明：若同候选完整 Compose 门禁失败，可使用现有 `scripts/verify-compose.sh --keep` 保留本次受管项目和原始快照，额外挂载私有 Playwright 输出目录只用于保留失败 trace。通过后必须执行原 runner 的 `assert_project_ownership`、同 project 的 Compose down/volumes、`cleanup_acceptance_images`、`assert_snapshot_preserved`；不省略清理条件。可复用该候选此前已成功且输入未变的 artifact metadata/lifecycle runtime 检查，与实际通过的完整 Compose/cleanup 合并生成同结构 receipt；须在实施记录列出原始命令、日志、输入 digest 和合并依据，不能以其他候选结果或部分 Compose 用例代替。
