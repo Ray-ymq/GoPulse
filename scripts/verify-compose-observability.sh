@@ -684,7 +684,15 @@ snapshot_existing_resources
 assert_project_absent
 info "Building isolated GoPulse $VERSION images with unique tag $IMAGE_TAG for $PROJECT_NAME without host Go/Node runtimes."
 if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
-  compose build acceptance
+  if [[ -n ${GOPULSE_ACCEPTANCE_IMAGE:-} ]]; then
+    # Frozen final matrix: reuse the exact candidate runner, never rebuild it.
+    [[ $GOPULSE_ACCEPTANCE_IMAGE =~ ^sha256:[0-9a-f]{64}$ ]] || fail 'immutable acceptance image ID required'
+    [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$GOPULSE_ACCEPTANCE_IMAGE") == "$VERSION" ]] || fail 'acceptance version mismatch'
+    [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$GOPULSE_ACCEPTANCE_IMAGE") == "$REVISION" ]] || fail 'acceptance revision mismatch'
+    docker tag "$GOPULSE_ACCEPTANCE_IMAGE" "gopulse/acceptance:$IMAGE_TAG"
+  else
+    compose build acceptance
+  fi
   for service in "${!CANDIDATE_IMAGES[@]}"; do
     ref=${CANDIDATE_IMAGES[$service]}
     docker pull --platform linux/amd64 "$ref"

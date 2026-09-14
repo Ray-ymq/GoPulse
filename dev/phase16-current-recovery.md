@@ -40,3 +40,7 @@ Kafka broker 的数据仍持久化在原命名卷 `kafka_data`。镜像声明的
 验收需稳定的宿主时钟。本批实测 NTP/WSL 时钟倒退可使新 JWT 暂时无效或插件 started-at 早于 installed-at；保留真实失败记录，通过正式重试或插件 stop/start 恢复，不修改数据库时间、不放宽认证/DTO 合同。已成功的 browser viewport 自动保存进度，续跑只执行未完成项。
 
 full Compose 的 clean-source 门禁不会忽略任意用户文件。主工作区存在用户未跟踪文件时，在同一候选提交的干净 detached worktree 执行，不移动用户文件。Phase-16-06 必须用自己的 `1.13.6` 候选和新私有目录重新生成数据与备份，不复用本批备份冒充同 manifest 验收。
+
+## Phase-16-06 最终交接
+
+`1.13.6` 最终矩阵复用本配方，并在同候选新增三源实际 incident、错误口令/tamper、生命周期故障和全局隔离聚合。独立入口/已验证候选见 `dev/phase16-linux-matrix.md`，证据见 `dev/logs/Phase-16/Phase-16-06-evidence/`。验收工具内预编译 backup-fixture，产品运行不依赖宿主 Go/Python；A/B/C 备份始终同 manifest，不称为跨版本升级。

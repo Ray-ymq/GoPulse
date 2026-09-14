@@ -1,0 +1,27 @@
+# Acceptance tooling only. Product services still come exclusively from Bundle.
+services:
+  acceptance:
+    profiles: [acceptance]
+    image: ${GOPULSE_ACCEPTANCE_REF:?set frozen registry digest}
+    pull_policy: never
+    platform: linux/amd64
+    network_mode: host
+    user: ${GOPULSE_TOOL_UID:?set host uid}:${GOPULSE_TOOL_GID:?set host gid}
+    group_add: ["${GOPULSE_SOCKET_GID:?set socket gid}"]
+    labels:
+      io.gopulse.phase16.runner: "true"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    environment:
+      GOPULSE_PHASE16_MATRIX: "1"
+      GOPULSE_ACCEPTANCE_IMAGE: ${GOPULSE_ACCEPTANCE_IMAGE:?set immutable image ID}
+      GOPULSE_ACCEPTANCE_REF: ${GOPULSE_ACCEPTANCE_REF:?set frozen registry digest}
+      TMPDIR: ${GOPULSE_PHASE16_WORK:?set private host work path}/tmp
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/os-release:/host/os-release:ro
+      - ${GOPULSE_PHASE16_BUNDLE:?set independent Bundle path}:${GOPULSE_PHASE16_BUNDLE:?set independent Bundle path}:ro
+      - ${GOPULSE_PHASE16_WORK:?set private host work path}:${GOPULSE_PHASE16_WORK:?set private host work path}
