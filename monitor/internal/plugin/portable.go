@@ -29,14 +29,24 @@ func rejectPendingImport(root string) error {
 	return nil
 }
 
+type CollectionHistory struct {
+	LastScrapeAt  *time.Time `json:"last_scrape_at"`
+	LastSuccessAt *time.Time `json:"last_success_at"`
+}
+
+func validHistory(h CollectionHistory) bool {
+	return h.LastSuccessAt == nil || (h.LastScrapeAt != nil && !h.LastSuccessAt.After(*h.LastScrapeAt))
+}
+
 type PortablePlugin struct {
-	ID          string          `json:"id"`
-	Version     string          `json:"version"`
-	Desired     DesiredState    `json:"desired_state"`
-	InstalledAt time.Time       `json:"installed_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	Config      json.RawMessage `json:"config"`
-	SecretRef   string          `json:"secret_ref"`
+	History     CollectionHistory `json:"collection_history"`
+	ID          string            `json:"id"`
+	Version     string            `json:"version"`
+	Desired     DesiredState      `json:"desired_state"`
+	InstalledAt time.Time         `json:"installed_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	Config      json.RawMessage   `json:"config"`
+	SecretRef   string            `json:"secret_ref"`
 }
 type PortableState struct {
 	Schema        int              `json:"schema"`
@@ -136,7 +146,14 @@ func exportPortable(root string, catalog *releaseCatalog) (PortableState, Portab
 		if err != nil {
 			return fail()
 		}
-		public.Plugins = append(public.Plugins, PortablePlugin{item.ID, r.Entry.CurrentVersion, r.Entry.DesiredState, r.Entry.InstalledAt, r.Entry.UpdatedAt, cfg, item.ID})
+		var history CollectionHistory
+		if err := strictFile(filepath.Join(c.dir(item.ID), "collection-history.json"), &history); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fail()
+		}
+		if !validHistory(history) {
+			return fail()
+		}
+		public.Plugins = append(public.Plugins, PortablePlugin{History: history, ID: item.ID, Version: r.Entry.CurrentVersion, Desired: r.Entry.DesiredState, InstalledAt: r.Entry.InstalledAt, UpdatedAt: r.Entry.UpdatedAt, Config: cfg, SecretRef: item.ID})
 		private.Plugins[item.ID] = secret
 	}
 	// Legacy-only registry entries must not disappear silently.
@@ -176,7 +193,7 @@ func importPortable(root string, catalog *releaseCatalog, publicJSON, privateJSO
 	revisions := make([]*revision, 0, len(public.Plugins))
 	seen := map[string]bool{}
 	for _, p := range public.Plugins {
-		if seen[p.ID] || c.slots[p.ID] == nil || p.SecretRef != p.ID || p.InstalledAt.IsZero() || p.UpdatedAt.Before(p.InstalledAt) || (p.Desired != DesiredRunning && p.Desired != DesiredStopped) {
+		if !validHistory(p.History) || seen[p.ID] || c.slots[p.ID] == nil || p.SecretRef != p.ID || p.InstalledAt.IsZero() || p.UpdatedAt.Before(p.InstalledAt) || (p.Desired != DesiredRunning && p.Desired != DesiredStopped) {
 			return operationFailed()
 		}
 		seen[p.ID] = true
@@ -247,7 +264,11 @@ func importPortable(root string, catalog *releaseCatalog, publicJSON, privateJSO
 			return operationFailed()
 		}
 	}
-	for _, r := range revisions {
+	for index, r := range revisions {
+		history, _ := json.Marshal(public.Plugins[index].History)
+		if err = atomicWrite(filepath.Join(c.dir(r.Entry.Manifest.ID), "collection-history.json"), history, 0600); err != nil {
+			return operationFailed()
+		}
 		if err = c.commit(r.Entry.Manifest.ID, r); err != nil {
 			return operationFailed()
 		}
