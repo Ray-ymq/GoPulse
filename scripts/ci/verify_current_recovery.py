@@ -25,7 +25,7 @@ class CurrentRecovery(Recovery):
     @staticmethod
     def resources():
         return {kind: sorted(docker(*args).split()) for kind, args in {
-            'containers': ('ps', '-aq', '--no-trunc'),
+            'containers': ('ps', '-aq', '--no-trunc', '--filter', 'label!=io.gopulse.phase16.runner'),
             'networks': ('network', 'ls', '-q', '--no-trunc'),
             'volumes': ('volume', 'ls', '-q')}.items()}
 
@@ -34,7 +34,7 @@ class CurrentRecovery(Recovery):
         # The resumable private journal contains login credentials; publish a
         # separate, explicitly allowlisted evidence document without them.
         public = {key: self.data[key] for key in ('schema', 'manifest_sha256', 'candidate',
-            'completed', 'backups', 'restores', 'comparisons', 'browsers', 'failures', 'commands') if key in self.data}
+            'completed', 'backups', 'restores', 'comparisons', 'browsers', 'failures', 'commands', 'three_sources') if key in self.data}
         public['status'] = 'passed' if all(step in self.data['completed'] for step in (
             'current-product-two-restores-passed', 'current-product-failure-matrix-passed',
             'owned-cleanup-and-isolation-passed')) else 'incomplete'
@@ -142,6 +142,25 @@ class CurrentRecovery(Recovery):
         self.mark(name+'-api-continuity')
         self.browser(name)
 
+    def three_sources(self, name):
+        if name+'-three-source-facts' in self.data['completed']: return
+        from verify_plugin_metrics import Client
+        admin = self.client(name, self.data['admin'])
+        rules = admin.request('alerts/rules')['data']
+        selected = {source: next(r for r in rules if r['name'] == 'closure-'+source) for source in ('logs','events')}
+        selected['metrics'] = next(r for r in rules if r['id'] == self.data[name+'-rule'])
+        Client(admin.base).request('auth/register', 'POST', {'username':'logs_'+os.urandom(6).hex(), 'password':self.data['password']}, 201)
+        admin.request('exporter-plugins/redis-exporter/stop', 'POST')
+        admin.request('exporter-plugins/redis-exporter/start', 'POST')
+        results = {}
+        for source, rule_item in selected.items():
+            incident = wait_until(lambda r=rule_item: next((i for i in admin.request('alerts/history')['data'] if i['rule_id'] == r['id']), None), name+' real '+source+' alert', 180)
+            results[source] = {'rule_id':rule_item['id'], 'incident_id':incident['id'], 'source':source}
+        audit = wait_until(lambda: admin.request('admin/audit-events')['data'], 'alert operation audit')
+        results['audit_rows'] = len(audit)
+        self.data.setdefault('three_sources', {})[name] = results
+        self.mark(name+'-three-source-facts')
+
     def backup_project(self, name):
         path = self.work/name/'product.gpb'
         checkpoint = name+'-backup-inspected'
@@ -172,6 +191,7 @@ class CurrentRecovery(Recovery):
         self.seed()
         if 'current-source-ready' not in self.data['completed']:
             self.continuing('source')
+            if os.environ.get('GOPULSE_PHASE16_MATRIX') == '1': self.three_sources('source')
             user = self.client('source', self.data['user'])
             post_id = str(self.data['post_id'])
             user.request('posts/'+post_id, 'PATCH', {'title': self.data['post_title'], 'content': 'Current candidate edited business history'})
@@ -221,6 +241,16 @@ class CurrentRecovery(Recovery):
         original = hashlib.sha256(self.backup.read_bytes()).hexdigest()
         source_state = (self.work/'source'/'state.json').read_bytes()
         self.init('negative')
+        if 'wrong-passphrase-and-tamper-rejected-before-resources' not in self.data['completed']:
+            wrong = self.work/'wrong-passphrase'
+            wrong.write_bytes(os.urandom(32)); wrong.chmod(0o600)
+            self.call('negative', 'restore', '--archive', str(self.backup), '--passphrase-file', str(wrong), expected=21)
+            self.empty('negative')
+            tamper = self.work/'tampered.gpb'
+            raw = bytearray(self.backup.read_bytes()); raw[-1] ^= 1
+            tamper.write_bytes(raw); tamper.chmod(0o600)
+            self.restore('negative', tamper, 21); self.empty('negative')
+            self.mark('wrong-passphrase-and-tamper-rejected-before-resources')
         if 'current-import-failure-retry' not in self.data['completed']:
             invalid = self.work/'invalid-sql.gpb'
             if not invalid.exists():
