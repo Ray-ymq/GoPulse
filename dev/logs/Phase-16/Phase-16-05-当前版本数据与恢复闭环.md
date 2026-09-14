@@ -118,3 +118,9 @@ B/C 重复恢复至非空项目均返回预期拒绝码 17；原始内容仍在�
 6. 交给 Phase-16-06 的是当前数据配方、可续跑 runner 与脱敏 evidence 合同；必须在 `1.13.6` 候选重新生成自己的同 manifest 数据和备份。
 
 完成记录提交前检查：`git diff --check`、结构化 evidence 的 JSON 解析及显式凭据扫描通过。此前已通过的版本一致性、分支治理及受影响编译/单测输入未变，未重复运行。
+
+## 推送环境处理
+
+首次 HTTPS 推送被既有 Windows Git Credential Manager 的 Linux `Exec format error` 阻断；未配置 Linux gh/token/default SSH identity，非交互 SSH 因未知 host key 被安全拒绝，没有新增信任或改动用户 SSH 配置。
+
+现有 `WSL_INTEROP` 仍可用。仅为解决这一实际执行错误核对 Microsoft WSL 的 `src/linux/init/binfmt.cpp::BinfmtMain` 参数合同（解释器、可执行文件路径、原 argv[0]、参数），通过 `/init <原 GCM.exe> <原 GCM.exe> --version` 成功调用已有 GCM，输出版本 `2.6.1`。随后使用命令级 `credential.helper` 覆盖调用同一既有 helper，不修改全局 Git/WSL 配置、不另存或输出凭据；Git push 的最终实际结果以任务回复与远端提交为准。此处理不改变产品源码或已通过验证。
