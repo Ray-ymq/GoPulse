@@ -4,11 +4,22 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from phase16_acceptance import unrelated_snapshot
 from phase16_evidence import atomic, now, SCENARIOS, sha, verify
 from test_release_manifest import fixture
 
 
 class EvidenceTest(unittest.TestCase):
+    def test_isolation_ignores_mount_order_but_rejects_changed_mounts(self):
+        container = dict(Id='foreign',Image='digest',Config={},Mounts=[{'Source':'a','Destination':'/a'},{'Source':'b','Destination':'/b'}],State={'StartedAt':'start'},RestartCount=0)
+        with patch('phase16_acceptance.CurrentRecovery.resources',return_value={'containers':['foreign'],'networks':[],'volumes':[]}), patch('phase16_acceptance.docker',side_effect=lambda *args:json.dumps([container])):
+            before = unrelated_snapshot()
+            container['Mounts'].reverse()
+            self.assertEqual(before, unrelated_snapshot())
+            container['Mounts'][0]['Source'] = 'changed'
+            self.assertNotEqual(before, unrelated_snapshot())
+
     def test_complete_candidate_and_reject_incomplete_mixed_or_secret_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

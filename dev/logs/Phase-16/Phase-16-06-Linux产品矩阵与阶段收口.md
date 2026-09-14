@@ -42,3 +42,12 @@
 - 随后聚合 runner 在首个资源快照处失败，尚未执行安装/恢复：Docker server 对 `docker ps --filter label!=…` 返回 `invalid filter 'label!'`。在宿主及验收镜像分别复现同一命令错误，未改产品源码或第三方依赖。
 - 最小修复为受支持的正向 `label=io.gopulse.phase16.runner=true` 查询，并要求恰好一个本批 runner 后做本地集合差；无过滤器/daemon 兼容性猜测。新增一个直接复现/保护该错误的测试。
 - 因 acceptance 源码与候选 revision 必须一致，提交修复后生成 v2 候选并重新执行候选级固定门禁。v1 的通过只保留追溯，不混入 v2 完成 evidence。这是重跑原因，不是无依据重复历史检查。
+
+## v2 运行结果与最终隔离摘要修复
+
+- v2 product/runner revision `5b54a5f8294b`，候选 `dist/phase16-06-v2/`，独立 `delivery v2/`；Manifest SHA-256 `fda72782129825c86ca1538d6487f0e87e3380f36772df80d1ee96b28e38d6f9`。Acceptance registry digest `sha256:279497a6ae44030b5d751eafb12774b3efa51f9de51683419d4de5cbc35173a1`。
+- 已真实通过 v2 artifact runtime/full Compose（六插件尾部 51.2 秒）、clean install/lifecycle、Linux failure matrix（含受管 MySQL pause 启动失败返回 18、不发布 ready）、当前 A/B/C 两次恢复/内容比较/继续采集写入/两套前端 desktop+narrow/非 UTC 浏览器、三源真实 incident、错误口令/tamper、导入失败/restore 中断及重试、受管资源集合清理。
+- 初次源 init 的 Elasticsearch index 查询和稍后 restore 的 Elasticsearch digest pull 各发生一次临时 registry 失败（退出 10）。保持候选不变，实际按同 digest 再次 pull 成功后仅续跑未通过步骤，未重跑已成功场景。日志 `matrix-v2.log`、`matrix-v2-resume1.log`、`matrix-v2-resume2.log`、`elasticsearch-pull-retry.log` 保留各轮结果。
+- 最后 `secret-isolation` 拒绝无关 Docker 资源的配置摘要。直接连续调用同一快照函数五次得不同 hash；比较两份实际 Docker inspect 仅报告 `Mounts` 数组顺序不同、成员相同，未输出配置值/凭据。原实现保存摘要而未保存原始私有对象，不能据此把最终门禁记为通过。
+- 最小修复：按完整 Mount JSON 对容器挂载集合规范化排序；仍比较 ID、Image、Config、挂载内容、StartedAt、RestartCount 与网络/卷合同。新增一个直接保护“换序相同、内容改变拒绝”的测试。保留前后原始快照到 0600 私有文件用于后续实际诊断，不提交含用户配置的快照。
+- 修复验收工具需要新的同 revision 候选 v3，因此重新执行候选级固定门禁；v2 通过结果只作追溯，最终 evidence 不引用其通过结果。

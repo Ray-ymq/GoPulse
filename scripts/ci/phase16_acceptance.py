@@ -16,7 +16,7 @@ from verify_current_recovery import CurrentRecovery
 from verify_backup_restore import docker
 
 
-def unrelated_snapshot():
+def unrelated_snapshot(destination=None):
     resources = CurrentRecovery.resources()
     objects = {}
     for kind, ids in resources.items():
@@ -25,11 +25,12 @@ def unrelated_snapshot():
         values = json.loads(docker(*cmd, *ids))
         # Healthcheck clocks and logs change independently; identity/config must not.
         if kind == 'containers':
-            values = [{'Id':v['Id'],'Image':v['Image'],'Config':v['Config'], 'Mounts':v['Mounts'],
+            values = [{'Id':v['Id'],'Image':v['Image'],'Config':v['Config'], 'Mounts':sorted(v['Mounts'], key=lambda m:json.dumps(m,sort_keys=True)),
                        'StartedAt':v['State']['StartedAt'], 'RestartCount':v['RestartCount']} for v in values]
         if kind == 'networks':
             values = [{k:v.get(k) for k in ('Id','Name','Driver','IPAM','Labels','Options','Scope','Internal','Attachable','EnableIPv6')} for v in values]
         objects[kind] = values
+    if destination: atomic(destination, objects) # private, contains foreign Config secrets
     return hashlib.sha256(json.dumps(objects, sort_keys=True).encode()).hexdigest()
 
 
@@ -72,7 +73,7 @@ def main():
                  'host_release':Path('/host/os-release').read_text(), 'kernel':platform.release(),
                  'server_os':server['Os'],'server_arch':server['Arch'], 'server_version':server['Version'],
                  'compose':docker('compose','version'), 'cpu_count':engine['NCPU'], 'memory_bytes':engine['MemTotal'],
-                 'disk_free_bytes':disk.f_bavail*disk.f_frsize}, isolation_before=unrelated_snapshot())
+                 'disk_free_bytes':disk.f_bavail*disk.f_frsize}, isolation_before=unrelated_snapshot(work/'isolation-before.json'))
         sentinel = work/'user-owned-sentinel'
         sentinel.write_bytes(os.urandom(64)); sentinel.chmod(0o600)
         d['sentinel_sha256'] = sha(sentinel)
@@ -137,7 +138,7 @@ def main():
             d['projects'][name] = {key+'_sha256':hashlib.sha256(state[field].encode()).hexdigest() for key,field in [('project','project'),('token','installation_token')]}
         return {'completed':list(r.data['completed'])}, [attach(r.work/'evidence.json','recovery.json')]
     def final_scan():
-        require(unrelated_snapshot() == d['isolation_before'], 'unrelated Docker resource changed')
+        require(unrelated_snapshot(work/'isolation-after.json') == d['isolation_before'], 'unrelated Docker resource changed')
         require(sha(work/'user-owned-sentinel') == d['sentinel_sha256'], 'user sentinel changed')
         require(sha(a.manifest) == identity and sha(archive) == d['bundle_archive_sha256'], 'candidate drifted')
         for path in evidence.parent.iterdir():
