@@ -1,0 +1,1076 @@
+{
+  "schema": 1,
+  "manifest_sha256": "a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5",
+  "candidate": {
+    "version": "1.13.5",
+    "revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+    "images": {
+      "backend": {
+        "ref": "127.0.0.1:15002/gopulse/backend:1.13.5-candidate-b624ea303d64@sha256:bc190e58dfa62ab966df13dfa32c85da0d8e6fd75662502316a74178724ee6de",
+        "platforms": {
+          "linux/amd64": "sha256:b9e44dc841cd68b5105bc3a48f13c9c0c8b7c38bd460138d450b96b959a1b0a3"
+        }
+      },
+      "business-worker": {
+        "ref": "127.0.0.1:15002/gopulse/business-worker:1.13.5-candidate-b624ea303d64@sha256:9cd1797070a04c3045e06a060d4c9647aca135f9b9f54078b646cb85d6c934d9",
+        "platforms": {
+          "linux/amd64": "sha256:a773bf8dea2d43c4aa1bb7f58cb280f60897639edf9cc8134a69923b3d8aae0a"
+        }
+      },
+      "search-indexer": {
+        "ref": "127.0.0.1:15002/gopulse/search-indexer:1.13.5-candidate-b624ea303d64@sha256:5b84a58d61d7d57d3d1ab440c141c2f2c40607f0816c9525ec70ee4febf23806",
+        "platforms": {
+          "linux/amd64": "sha256:906351db725920179b8f3807dfb26d33353674f6e1afd93192255e781fba0b73"
+        }
+      },
+      "frontend": {
+        "ref": "127.0.0.1:15002/gopulse/frontend:1.13.5-candidate-b624ea303d64@sha256:55c9d9a3f90c66995059d13c214b9519420b3c3a9c8a6729831ef4d98f77326c",
+        "platforms": {
+          "linux/amd64": "sha256:c5cefca586034ed4570417e538cf31c56ef7fa5223eb815181f07903815c39e4"
+        }
+      },
+      "admin-frontend": {
+        "ref": "127.0.0.1:15002/gopulse/admin-frontend:1.13.5-candidate-b624ea303d64@sha256:90270b9f3372c3d75a89ab25375fa1b7c4c9e4df76e0b4e1f9ae746848052b1a",
+        "platforms": {
+          "linux/amd64": "sha256:b81c4ca31fdc155a96891b05356becde9fae3a22a85ed6d8299e4c5ec64b79cc"
+        }
+      },
+      "router": {
+        "ref": "127.0.0.1:15002/gopulse/router:1.13.5-candidate-b624ea303d64@sha256:3e4374032ce9c38613b68e7694c2de6ef6474fb0294e17e18bcb527840b75c84",
+        "platforms": {
+          "linux/amd64": "sha256:8ab94be65ef10b4afc2ebf515ce6ac500f18ef86802f65e53e6aa90f8a2307a4"
+        }
+      },
+      "marshaller": {
+        "ref": "127.0.0.1:15002/gopulse/marshaller:1.13.5-candidate-b624ea303d64@sha256:1caf4da1c8aecd91d533021349b88866c1aec98b48122bb8b84a833ed65a3c6a",
+        "platforms": {
+          "linux/amd64": "sha256:8fa66e46fbae7187cb723226aea8ad92d96d37e27528bb14cb0443889401fb7c"
+        }
+      },
+      "monitor": {
+        "ref": "127.0.0.1:15002/gopulse/monitor:1.13.5-candidate-b624ea303d64@sha256:33b0bea3bd268a27ba999e11e036c6b2fd6c6c31b35de74ebe6a29948dc6181a",
+        "platforms": {
+          "linux/amd64": "sha256:fe7829cac4951b109f5d7b06f045f4fcc227c3bec56832fc94924558af0b8c7a"
+        }
+      },
+      "redis-exporter": {
+        "ref": "127.0.0.1:15002/gopulse/redis-exporter:1.13.5-candidate-b624ea303d64@sha256:3038feed18192144719ed51b5f0e98b87cb3e6bae7fdfe3185d59f5c951fd7b9",
+        "platforms": {
+          "linux/amd64": "sha256:6da3ef3aef4559786e08778b7673bfba6fdaad8cd3f1aaaac892a6a08f2eee5d"
+        }
+      }
+    },
+    "plugins": [
+      {
+        "id": "redis-exporter",
+        "version": "1.13.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:f9def538df6facf6efb5ceda8444379dc28606f834861de69811834f062e631b",
+        "entrypoint_sha256": "sha256:ce4c4c965df569b292e7ac9d4c2ca4b6aa161755e0169aaf5fc5e6978a4cccf2",
+        "schema_sha256": "sha256:31f00ae09c7aa46b6a221e2ea310aa077cdda13482a2f3688ae067923e599c81"
+      },
+      {
+        "id": "mysql-exporter",
+        "version": "1.13.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:965813cbbde70d1bf2d1392ce5832f6e8c75d2c191a3346b548543dd1c14caf9",
+        "entrypoint_sha256": "sha256:2d3cb0b9bcd664898a727e0bb5dab02713c29137ae1f900967b7a9c303db2bba",
+        "schema_sha256": "sha256:9999fc8409f324043bdbe77387c62866f281a18617457c1e245120f0cc7e215c"
+      },
+      {
+        "id": "rabbitmq-exporter",
+        "version": "1.13.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:44a86278185065e9722207688e15aa3f6dec02df97ba5abf2771fe254645bc54",
+        "entrypoint_sha256": "sha256:371970ec255493c03c1f73004d9e4ce17ba7333d4c8fd016709a57b9714bedce",
+        "schema_sha256": "sha256:a2a8bfb775a66ae6342e42676cc7a0fa3a0e88c93b7f94281b5744ee48e5062d"
+      },
+      {
+        "id": "kafka-exporter",
+        "version": "1.13.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:43f0a25b0e0e82fb0818a7956d1202a286e01b2715d42ad764accacf29098c88",
+        "entrypoint_sha256": "sha256:c76dc4c37ff3929d40366a8c2de5838fbd0e184e042812ebd6f39597ad4b8227",
+        "schema_sha256": "sha256:b1ab7867198f3b111fcd48df80136eab11a9c81e13a91a302027fd30a7e040bb"
+      },
+      {
+        "id": "elasticsearch-exporter",
+        "version": "1.13.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:e98c1a65040b11450785bb55802f8da0340cdd7f8e1c2e25c11b3c84b1eb3991",
+        "entrypoint_sha256": "sha256:dcc1a7b23a306cd9b644cb10efd73c034bfcc6c27f5edb8d3398e2a8af42a831",
+        "schema_sha256": "sha256:2c710358ff0e1294a8fa63328cdb7e3c5f7facbd3081d2e963e00fedaf498a54"
+      },
+      {
+        "id": "victoriametrics-exporter",
+        "version": "1.13.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:d8af0ee1ff70093d2d36bc005b3fe8a121002999d474938c27fb863e45250c08",
+        "entrypoint_sha256": "sha256:91648f7f22e4d315fc05165726a1c9d8f778f428a1a393030f6e357f4bd92c4a",
+        "schema_sha256": "sha256:203f94d02f78076222b0a3ae21b7a7e8a3f890e202b34dfd583b97d0bfeed305"
+      },
+      {
+        "id": "redis-exporter",
+        "version": "1.9.4",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "upgrade-only",
+        "archive_sha256": "sha256:d0cbd15b13cb7375ffb900992a0579ef204c5051b8dc465b2463b779f8d44a89",
+        "entrypoint_sha256": "sha256:20978fc780e7531d6c130caf542d7e8ba6fe0e6842ba0610825d5e716941f2fa",
+        "schema_sha256": ""
+      }
+    ],
+    "lifecycle": {
+      "ref": "127.0.0.1:15002/gopulse/lifecycle:1.13.5-candidate-b624ea303d64@sha256:6a087849be8cb8400d806ede1dad716edb3ab1ddb0a287588b27fe0d7660163b",
+      "platforms": {
+        "linux/amd64": "sha256:deabd83fd3686ef932b9849e4cbb28dfbd584d0ef0adb223d25149bf94970f0e"
+      }
+    },
+    "third_party": {
+      "mysql": {
+        "ref": "mysql:8.4.0@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0",
+        "platforms": {
+          "linux/amd64": "sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b",
+          "linux/arm64": "sha256:81e9d95d528511718b81cb9c548e1b922976bf359ed1083782bdbbbccf9ad85d"
+        }
+      },
+      "redis": {
+        "ref": "redis:7.2.5-alpine@sha256:6aaf3f5e6bc8a592fbfe2cccf19eb36d27c39d12dab4f4b01556b7449e7b1f44",
+        "platforms": {
+          "linux/amd64": "sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f",
+          "linux/arm64": "sha256:b3b357d72cdf57aa588e746900cf88059ecb96fda06fee3909fa33ce5eb6ab3c"
+        }
+      },
+      "rabbitmq": {
+        "ref": "rabbitmq:3.13.3-management-alpine@sha256:45b2e137b64baeff1f7f4230588be8f1a08b16939a4b64f5da57c59e5dcd3282",
+        "platforms": {
+          "linux/amd64": "sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245",
+          "linux/arm64": "sha256:3369545c94f746d5b4f397b2ea7cd3ba0b236c4bd345e812b5d6f8d21a997423"
+        }
+      },
+      "elasticsearch": {
+        "ref": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2@sha256:9c1e1afc2bda921b35025e21c72ec6e392266995aa35ad6a47887363592718be",
+        "platforms": {
+          "linux/amd64": "sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7",
+          "linux/arm64": "sha256:3cd6866185716285ba60fafe2c2fca101bf849bf31ff31b0e8302b3c3310119d"
+        }
+      },
+      "kafka": {
+        "ref": "apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837",
+        "platforms": {
+          "linux/amd64": "sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26",
+          "linux/arm64": "sha256:c2b5172ab20d66381ec1729796a410fd611135821994526d4d42d2f256054af3"
+        }
+      },
+      "victoriametrics": {
+        "ref": "victoriametrics/victoria-metrics:v1.151.0@sha256:6d164540a04f49ba4e696cbdb70f9fee78be1e94b8f2a1292743a0b1ab8275bd",
+        "platforms": {
+          "linux/amd64": "sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19",
+          "linux/arm64": "sha256:61a4c2c3a0dc70ee0928ab4b702e5b9671dd5aec1c948e5f91536cdcbc9ab18b"
+        }
+      }
+    }
+  },
+  "completed": [
+    "source-seeded",
+    "source-api-continuity",
+    "current-source-ready",
+    "source-backup-inspected",
+    "target-api-continuity",
+    "target-nonempty-restore-rejected",
+    "target-continuity-passed",
+    "target-backup-inspected",
+    "second-api-continuity",
+    "second-nonempty-restore-rejected",
+    "second-continuity-passed",
+    "current-product-two-restores-passed",
+    "current-import-failure-retry",
+    "current-interrupt-retry",
+    "current-product-failure-matrix-passed",
+    "owned-cleanup-and-isolation-passed"
+  ],
+  "backups": {
+    "source": {
+      "sha256": "2981188d24e0b68eb2964fc33ec255321b14aa95c5dd60489ab6e5ba1d0e6147",
+      "inspection": {
+        "cipher": "AES-256-GCM",
+        "command": "backup-inspect",
+        "domains": 6,
+        "files": 8,
+        "finished": "2026-09-14T06:34:07.040271075Z",
+        "format": 1,
+        "iterations": 600000,
+        "kdf": "PBKDF2-HMAC-SHA256",
+        "operation_id": "5703fb9f16c61f761fce5d3164abbea19b422d9382ac8a94064a556d1906f127",
+        "platform": "linux/amd64",
+        "release_manifest_digest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5",
+        "schema": 1,
+        "scope": "authenticated format only; does not establish data consistency or restore readiness",
+        "source_product_version": "1.13.5",
+        "started": "2026-09-14T06:33:42.66940314Z",
+        "status": "passed"
+      },
+      "audit": {
+        "domains": {
+          "elasticsearch": {
+            "cutover": "2026-09-14T06:33:50.917567632Z",
+            "counts": {
+              "gopulse-events-v1-2026.09.14": 10,
+              "gopulse-logs-v1-2026.09.14": 324,
+              "gopulse-post-search-v1-20260914t062856000000000z-0442c24b": 2,
+              "indices": 3
+            },
+            "start": "2026-09-14T06:29:00.552206413Z",
+            "end": "2026-09-14T06:33:45.363293066Z",
+            "offsets": null,
+            "drained": false
+          },
+          "kafka": {
+            "cutover": "2026-09-14T06:33:50.917567632Z",
+            "counts": {
+              "partitions": 1,
+              "topics": 1
+            },
+            "start": "2026-09-14T06:33:50.917567632Z",
+            "end": "2026-09-14T06:33:50.917567632Z",
+            "offsets": {
+              "gopulse-observability-v1/0": 563
+            },
+            "drained": true
+          },
+          "mysql": {
+            "cutover": "2026-09-14T06:33:50.917567632Z",
+            "counts": {
+              "alert_incidents": 2,
+              "alert_rule_states": 5,
+              "alert_rules": 5,
+              "bootstrap_super_admin": 1,
+              "business_outbox": 3,
+              "comments": 1,
+              "management_audit_events": 26,
+              "notifications": 0,
+              "post_bookmarks": 0,
+              "post_likes": 0,
+              "posts": 2,
+              "schema_migrations": 1,
+              "user_follows": 0,
+              "users": 2
+            },
+            "start": "2026-09-14T06:33:50.917567632Z",
+            "end": "2026-09-14T06:33:50.917567632Z",
+            "offsets": null,
+            "drained": false
+          },
+          "plugins": {
+            "cutover": "2026-09-14T06:33:50.917567632Z",
+            "counts": {
+              "plugins": 6
+            },
+            "start": "2026-09-14T06:33:50.917567632Z",
+            "end": "2026-09-14T06:33:50.917567632Z",
+            "offsets": null,
+            "drained": false,
+            "catalog_digest": "sha256:13668a6b3dbafd682b85279ef1afd5c51540e433971c59ab49176df89f8d7c6a"
+          },
+          "rabbitmq": {
+            "cutover": "2026-09-14T06:33:50.917567632Z",
+            "counts": {
+              "bindings": 20,
+              "exchanges": 6,
+              "queues": 6
+            },
+            "start": "2026-09-14T06:33:50.917567632Z",
+            "end": "2026-09-14T06:33:50.917567632Z",
+            "offsets": null,
+            "drained": true
+          },
+          "victoriametrics": {
+            "cutover": "2026-09-14T06:33:50.917567632Z",
+            "counts": {
+              "samples": 6975,
+              "series": 412
+            },
+            "start": "2026-09-14T06:29:08.87Z",
+            "end": "2026-09-14T06:33:46.158Z",
+            "offsets": null,
+            "drained": false
+          }
+        },
+        "manifest_digest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5",
+        "payload_sha256": {
+          "config.json": "sha256:7047cfc357b356c9dd049aa5d4d6c887b7e9f00d447a5de0038f42e8a110086a",
+          "elasticsearch.json": "sha256:4e15fb7ee8c96a9665fb71d66f224419a343435950659f36cd59cbffd266aea0",
+          "kafka.json": "sha256:8429c45abe5ef9f2d59524273c45aa355bcb8e9d0f10b19302d8c89dcbb29ae3",
+          "mysql.sql": "sha256:31e186a3d9a1cf926ce989ee5e94980c4ce4e28039ff0c6c7a043f4941aa6841",
+          "plugins.json": "sha256:56b0da6653dc9ae9bc2a41e04d654cac881d88c1e8a5694bb760a6d6ff34bede",
+          "rabbitmq.json": "sha256:03bbaedce0149c68df5bc9fc854cea26b7ebb0ae77380addd0107c04d11a9f3b",
+          "victoriametrics.native": "sha256:03d4111145709aa28e98825b0199b977f8f9b8f266c921a7855e2579a919428b"
+        },
+        "public_payload_secret_scan": "passed",
+        "schema": 1,
+        "source_version": "1.13.5",
+        "status": "passed"
+      }
+    },
+    "target": {
+      "sha256": "d0a2cb52f0bb20d5f56d6c5b592d9e0c377e25f89957d752e2a3e554aa94b821",
+      "inspection": {
+        "cipher": "AES-256-GCM",
+        "command": "backup-inspect",
+        "domains": 6,
+        "files": 8,
+        "finished": "2026-09-14T06:37:51.034872964Z",
+        "format": 1,
+        "iterations": 600000,
+        "kdf": "PBKDF2-HMAC-SHA256",
+        "operation_id": "6cd7b4a8e99b9110e20e363b543d7578a9754ccaeeb9e8872a90793b040bc663",
+        "platform": "linux/amd64",
+        "release_manifest_digest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5",
+        "schema": 1,
+        "scope": "authenticated format only; does not establish data consistency or restore readiness",
+        "source_product_version": "1.13.5",
+        "started": "2026-09-14T06:37:24.8361878Z",
+        "status": "passed"
+      },
+      "audit": {
+        "domains": {
+          "elasticsearch": {
+            "cutover": "2026-09-14T06:37:35.087886478Z",
+            "counts": {
+              "gopulse-events-v1-2026.09.14": 12,
+              "gopulse-logs-v1-2026.09.14": 510,
+              "gopulse-post-search-v1-20260914t062856000000000z-0442c24b": 3,
+              "indices": 3
+            },
+            "start": "2026-09-14T06:29:00.552206413Z",
+            "end": "2026-09-14T06:37:27.499959901Z",
+            "offsets": null,
+            "drained": false
+          },
+          "kafka": {
+            "cutover": "2026-09-14T06:37:35.087886478Z",
+            "counts": {
+              "partitions": 1,
+              "topics": 1
+            },
+            "start": "2026-09-14T06:37:35.087886478Z",
+            "end": "2026-09-14T06:37:35.087886478Z",
+            "offsets": {
+              "gopulse-observability-v1/0": 236
+            },
+            "drained": true
+          },
+          "mysql": {
+            "cutover": "2026-09-14T06:37:35.087886478Z",
+            "counts": {
+              "alert_incidents": 4,
+              "alert_rule_states": 6,
+              "alert_rules": 6,
+              "bootstrap_super_admin": 1,
+              "business_outbox": 4,
+              "comments": 1,
+              "management_audit_events": 33,
+              "notifications": 0,
+              "post_bookmarks": 0,
+              "post_likes": 0,
+              "posts": 3,
+              "schema_migrations": 1,
+              "user_follows": 0,
+              "users": 2
+            },
+            "start": "2026-09-14T06:37:35.087886478Z",
+            "end": "2026-09-14T06:37:35.087886478Z",
+            "offsets": null,
+            "drained": false
+          },
+          "plugins": {
+            "cutover": "2026-09-14T06:37:35.087886478Z",
+            "counts": {
+              "plugins": 6
+            },
+            "start": "2026-09-14T06:37:35.087886478Z",
+            "end": "2026-09-14T06:37:35.087886478Z",
+            "offsets": null,
+            "drained": false,
+            "catalog_digest": "sha256:13668a6b3dbafd682b85279ef1afd5c51540e433971c59ab49176df89f8d7c6a"
+          },
+          "rabbitmq": {
+            "cutover": "2026-09-14T06:37:35.087886478Z",
+            "counts": {
+              "bindings": 20,
+              "exchanges": 6,
+              "queues": 6
+            },
+            "start": "2026-09-14T06:37:35.087886478Z",
+            "end": "2026-09-14T06:37:35.087886478Z",
+            "offsets": null,
+            "drained": true
+          },
+          "victoriametrics": {
+            "cutover": "2026-09-14T06:37:35.087886478Z",
+            "counts": {
+              "samples": 8231,
+              "series": 414
+            },
+            "start": "2026-09-14T06:29:08.87Z",
+            "end": "2026-09-14T06:37:23.607Z",
+            "offsets": null,
+            "drained": false
+          }
+        },
+        "manifest_digest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5",
+        "payload_sha256": {
+          "config.json": "sha256:67f75391a8c2f7864c3e46867f49b7187bbf1458a56e2eebce59337a4e29b978",
+          "elasticsearch.json": "sha256:18bcf4936211f18977fddeeec0383acc18407821a2efa16c815751c4cc4d27c0",
+          "kafka.json": "sha256:774df18194fef2459fb8e5a5cb4efea4900e0b70fe99be3b9cea5f38ea91388b",
+          "mysql.sql": "sha256:e1114a1734f009d57de3c90575ec0ee8ab1856deef8ed4333d80c2f80fe87b0e",
+          "plugins.json": "sha256:013279eb2f6801527b1aece6d7b2840ef21dca4f9d540aaa38effad861b0c946",
+          "rabbitmq.json": "sha256:03bbaedce0149c68df5bc9fc854cea26b7ebb0ae77380addd0107c04d11a9f3b",
+          "victoriametrics.native": "sha256:aeb1caecc355b1b4cfe7c79d26a06e5e074b4aa4694b83ae88427a1156126086"
+        },
+        "public_payload_secret_scan": "passed",
+        "schema": 1,
+        "source_version": "1.13.5",
+        "status": "passed"
+      }
+    }
+  },
+  "restores": {
+    "target": {
+      "cutover": "2026-09-14T06:33:50.917567632Z",
+      "facts_verified": true,
+      "kafka_policy": "drained-new-topic-rebase-zero",
+      "operation_id": "e50e2c2497d699af6ef94aa87ec3c54761300e3d3dc7d024d78cdedbc7b69c77",
+      "schema": 1,
+      "session_policy": "invalidate-on-restore",
+      "source_manifest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5"
+    },
+    "second": {
+      "cutover": "2026-09-14T06:37:35.087886478Z",
+      "facts_verified": true,
+      "kafka_policy": "drained-new-topic-rebase-zero",
+      "operation_id": "32b49d119d5d88c98bb5285abc910e93eeb40a27923c115390f15bd996f739e5",
+      "schema": 1,
+      "session_policy": "invalidate-on-restore",
+      "source_manifest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5"
+    }
+  },
+  "comparisons": {
+    "source": {
+      "identity": {
+        "rows": 2,
+        "sha256": "f192dec2429239c89921817dee57a426e2425e08b34afbd4c9b932728ffb97ff"
+      },
+      "posts": {
+        "rows": 2,
+        "sha256": "dff9aec94a1ce314699a5c1bec553a4d4e9fcf4ffc527e24a0e91ba8a4398834"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "348bd31922cde8211391dc1f538d791165f316d29f0f0c924269db0260b7a047"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 26,
+        "sha256": "a1223b49ccacffdbc438662bfd2c8950986aece4558b5d6162c26e497e4f6172"
+      },
+      "incidents": {
+        "rows": 2,
+        "sha256": "3e0acb049fb365170e607a5e0ae781c8614ae43ead68bf9f69d5d080741a5b8f"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 5,
+        "sha256": "82898a91a7b33608503e65a557f84125d5dc54a51e698be77df9c480b5ff200f"
+      }
+    },
+    "target": {
+      "identity": {
+        "rows": 2,
+        "sha256": "f192dec2429239c89921817dee57a426e2425e08b34afbd4c9b932728ffb97ff"
+      },
+      "posts": {
+        "rows": 3,
+        "sha256": "a09fd13c0e392bbf2878dbdddba79c7d964daaa1b97d2223d6b2cc7663b5beaa"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "348bd31922cde8211391dc1f538d791165f316d29f0f0c924269db0260b7a047"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 33,
+        "sha256": "5e811086e162e72cce39abf80af5f4b3323584a645d85aebb905bb40d08aedb5"
+      },
+      "incidents": {
+        "rows": 4,
+        "sha256": "409664e73a369ae950a472686af523985fc75dc99ada3ed5d5781727ef076211"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 6,
+        "sha256": "4c5e7d56f294c83e7b295a64f90d2d1446a856f36c7fc55c10ec57ab13f7e6ef"
+      }
+    },
+    "second": {
+      "identity": {
+        "rows": 2,
+        "sha256": "f192dec2429239c89921817dee57a426e2425e08b34afbd4c9b932728ffb97ff"
+      },
+      "posts": {
+        "rows": 4,
+        "sha256": "6135c5fb99e62c9307675ebeabc68e6cd025f44815b434e549936d3ffa0d57fe"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "348bd31922cde8211391dc1f538d791165f316d29f0f0c924269db0260b7a047"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 39,
+        "sha256": "777858efacaf938a1e7c6e85f20e189b1ff862f3e77abc0471454c113d2c43fd"
+      },
+      "incidents": {
+        "rows": 5,
+        "sha256": "29e46cb3b6baac87cb1315cd3491f1b9edc2eb76952e20402cdb93f3bc994f0a"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 7,
+        "sha256": "9e761dd6abc85b12c8fc7f1e004a0c5e77f8355c873b272cd31aa6374125252a"
+      }
+    },
+    "negative": {
+      "identity": {
+        "rows": 2,
+        "sha256": "f192dec2429239c89921817dee57a426e2425e08b34afbd4c9b932728ffb97ff"
+      },
+      "posts": {
+        "rows": 2,
+        "sha256": "dff9aec94a1ce314699a5c1bec553a4d4e9fcf4ffc527e24a0e91ba8a4398834"
+      },
+      "comments": {
+        "rows": 1,
+        "sha256": "348bd31922cde8211391dc1f538d791165f316d29f0f0c924269db0260b7a047"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 26,
+        "sha256": "a1223b49ccacffdbc438662bfd2c8950986aece4558b5d6162c26e497e4f6172"
+      },
+      "incidents": {
+        "rows": 2,
+        "sha256": "3e0acb049fb365170e607a5e0ae781c8614ae43ead68bf9f69d5d080741a5b8f"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 5,
+        "sha256": "82898a91a7b33608503e65a557f84125d5dc54a51e698be77df9c480b5ff200f"
+      }
+    }
+  },
+  "browsers": {
+    "source": {
+      "runner_image": "sha256:059f21ee509fb9e8fcdab0de65036e65caa1dd8d61b5555a3ef3764e7aa03505",
+      "runner_revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+      "product_revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+      "timezone": "Asia/Shanghai",
+      "accounts": "restored",
+      "checks": [
+        "desktop",
+        "narrow",
+        "three-source-create"
+      ]
+    },
+    "target": {
+      "runner_image": "sha256:059f21ee509fb9e8fcdab0de65036e65caa1dd8d61b5555a3ef3764e7aa03505",
+      "runner_revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+      "product_revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+      "timezone": "Asia/Shanghai",
+      "accounts": "restored",
+      "checks": [
+        "desktop",
+        "narrow",
+        "three-source-create"
+      ]
+    },
+    "second": {
+      "runner_image": "sha256:059f21ee509fb9e8fcdab0de65036e65caa1dd8d61b5555a3ef3764e7aa03505",
+      "runner_revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+      "product_revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+      "timezone": "Asia/Shanghai",
+      "accounts": "restored",
+      "checks": [
+        "desktop",
+        "narrow",
+        "three-source-create"
+      ]
+    }
+  },
+  "failures": {
+    "import": {
+      "command_scope": "restore",
+      "exit_code": 18,
+      "failure_stage": "restore-mysql",
+      "health_summary": {
+        "admin-frontend": "missing",
+        "backend": "missing",
+        "business-worker": "missing",
+        "edge": "missing",
+        "elasticsearch": "missing",
+        "frontend": "missing",
+        "kafka": "missing",
+        "kafka-init": "missing",
+        "marshaller": "missing",
+        "migrate": "missing",
+        "monitor": "missing",
+        "mysql": "missing",
+        "rabbitmq": "missing",
+        "redis": "missing",
+        "router": "missing",
+        "search-indexer": "missing",
+        "search-init": "missing",
+        "victoriametrics": "missing"
+      },
+      "manifest_digest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5",
+      "operation_id": "0362f8fe271ac014e18a1395464a9fe8d3e69d0afea013411f1b782c19a78c58",
+      "phase": "restore-failed",
+      "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore",
+      "schema": 1,
+      "version": "1.13.5"
+    },
+    "interrupt": {
+      "command_scope": "restore",
+      "exit_code": 20,
+      "failure_stage": "pull",
+      "health_summary": {
+        "admin-frontend": "missing",
+        "backend": "missing",
+        "business-worker": "missing",
+        "edge": "missing",
+        "elasticsearch": "missing",
+        "frontend": "missing",
+        "kafka": "missing",
+        "kafka-init": "missing",
+        "marshaller": "missing",
+        "migrate": "missing",
+        "monitor": "missing",
+        "mysql": "missing",
+        "rabbitmq": "missing",
+        "redis": "missing",
+        "router": "missing",
+        "search-indexer": "missing",
+        "search-init": "missing",
+        "victoriametrics": "missing"
+      },
+      "manifest_digest": "sha256:a8988797ad7dfd40c2422392c4cef8cbca8167b359693f99376b9edd27a040c5",
+      "operation_id": "8694c80433dc63ee4956390a6126f4d0ebe864e4b29a5bb3cdd76912d03dbbd3",
+      "phase": "interrupted",
+      "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore",
+      "schema": 1,
+      "version": "1.13.5"
+    }
+  },
+  "commands": [
+    {
+      "project_alias": "source",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "45905"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "up",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "up",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "status",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "backup",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/source/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "backup-inspect",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/source/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "down",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "47625"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/source/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "status",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/source/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 17,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "backup",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/target/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "backup-inspect",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/target/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "down",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "45441"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/target/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "status",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/target/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 17,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "down",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "46247"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/invalid-sql.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 18,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/source/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-544b0abd015d"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/source/product.gpb",
+        "--passphrase-file",
+        "<workspace>/.run/phase16-05-recovery/accepted-v2/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-544b0abd015d"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "negative",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-544b0abd015d"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "second",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-2ee1929884f9"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-78d61edb4ad7"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-5296835da1c0"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "platform": "linux/amd64",
+  "bundle_sha256": {
+    "gopulse-1.13.5-bundle.tar.gz": "3f976607b1752dab705677974d5be43cb6036af122e845c43c039c3e58b47ecd"
+  },
+  "fixed_gates": [
+    {
+      "command": "scripts/verify-backup-restore.sh --manifest dist/phase16-05-current-v2/release-manifest.json --work .run/phase16-05-recovery/accepted-v2 --platform linux/amd64 --current-product",
+      "result": "passed; resumed incomplete source generation after recorded clock-step failure"
+    },
+    {
+      "command": "scripts/verify-backup-restore.sh --manifest dist/phase16-05-current-v2/release-manifest.json --work .run/phase16-05-recovery/accepted-v2 --platform linux/amd64 --current-product --failure-matrix",
+      "result": "passed"
+    },
+    {
+      "command": "scripts/verify-backup-restore.sh --manifest dist/phase16-05-current-v2/release-manifest.json --work .run/phase16-05-recovery/accepted-v2 --platform linux/amd64 --current-product --cleanup",
+      "result": "passed; exact container/network/volume snapshot equality"
+    },
+    {
+      "command": "GOPULSE_RELEASE_MANIFEST=<absolute candidate manifest> scripts/verify-compose.sh --keep",
+      "cwd_revision": "b624ea303d64790a497b7a322e3fd9df57882764",
+      "result": "passed; followed by original ownership cleanup, image and Git/resource snapshot checks"
+    }
+  ],
+  "validation_logs": {
+    "build-v2.log": "dde44b52fb16eab5e1836632a5c0c4a7486e4250896f734981214f59507c6f5a",
+    "build-acceptance-v2.log": "a474751dd4be70a1cf7f35f81b492f19e9b36b83672a568ea9f7a2ee3ab252fb",
+    "current-product-v2.log": "b2675f769b1d474a3fcff1d3815b53252232882c0c04251c725eaeaa4cfe7dd6",
+    "current-product-v2-resume.log": "9a7e6d68835e9f6e22c0d91d8bf76399926669d39f6be1d063655264e87bd54a",
+    "failures-v2.log": "96df75424f41775f213902415d2ec7452880fb1cb4e9dcda5377c01e96dd746b",
+    "cleanup-v2.log": "88623d3428ed794b55688c531e1e04af0261901e441c06bdbfec956d7be25124",
+    "compose-v2-clean-resume.log": "e87b303243e190e7926780aade204d6188cc808386c2a6d870c76cda20a7ed48",
+    "diagnose-plugins.log": "07bacaf5be14175456c7e4cace04d0e059c08fec1d94df3f818041d748541905",
+    "compose-v2-retry.log": "77d326be439883442e3aea7ab0f3af1670dc8de3ecba95461e03b54162c0ac08",
+    "compose-cleanup.log": "1efaed0ad0a9d2cdf2f9a641b935c4d71f4e3c99b229a333a0ad41b189725db6"
+  },
+  "limitations": [
+    "Same-version, same-manifest restore only; no cross-version upgrade acceptance.",
+    "Local loopback registry; no public image publication claimed.",
+    "15 anonymous volumes from the failed first candidate retained because strong ownership was lost; final candidate produces no new leftover resources.",
+    "Clock-step and cold-metric-visibility failures are retained in the development log; no authentication or metric assertions were relaxed."
+  ]
+}
