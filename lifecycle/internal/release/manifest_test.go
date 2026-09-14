@@ -47,3 +47,23 @@ func TestManifestAndServerBoundary(t *testing.T) {
 		t.Fatal("duplicate plugin accepted")
 	}
 }
+
+func TestAMD64ProductDoesNotRequireARMArtifacts(t *testing.T) {
+	m := fixture(t)
+	delete(m.Lifecycle.Platforms, "linux/arm64") // fixture shares this map across images
+	plugins := m.Plugins[:0]
+	for _, p := range m.Plugins {
+		if p.Arch == "amd64" {
+			plugins = append(plugins, p)
+		}
+	}
+	m.Plugins = plugins
+	raw, _ := json.Marshal(m)
+	if _, err := Parse(raw); err != nil {
+		t.Fatal(err)
+	}
+	m.Images["monitor"] = Image{Ref: m.Lifecycle.Ref, Platforms: map[string]string{"linux/arm64": m.Lifecycle.Platforms["linux/amd64"]}}
+	if m.Validate() == nil {
+		t.Fatal("missing supported amd64 image accepted")
+	}
+}

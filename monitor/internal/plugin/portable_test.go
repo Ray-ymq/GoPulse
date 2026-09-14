@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestPortableOfflineRoundTrip(t *testing.T) {
@@ -29,6 +30,8 @@ func TestPortableOfflineRoundTrip(t *testing.T) {
 	if _, err = core.setDesired(ctx, PluginID, DesiredStopped); err != nil {
 		t.Fatal(err)
 	}
+	at := time.Now().UTC()
+	core.recordMetrics(PluginID, &at, &at, "", "")
 	original, err := core.loadActive(PluginID)
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +64,9 @@ func TestPortableOfflineRoundTrip(t *testing.T) {
 	active, err := restored.loadActive(PluginID)
 	if err != nil || active.ID == original.ID || active.Entry != original.Entry || !bytes.Equal(active.Config, original.Config) || !bytes.Equal(active.Secret, original.Secret) {
 		t.Fatal("logical state changed or runtime identity reused", err)
+	}
+	if h := restored.slots[PluginID].status; h.LastSuccessAt == nil || !h.LastSuccessAt.Equal(at) {
+		t.Fatal("collection history was not restored")
 	}
 	if restored.slots[PluginID].process != nil {
 		t.Fatal("stopped plugin was started")

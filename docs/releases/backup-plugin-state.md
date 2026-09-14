@@ -1,7 +1,7 @@
 # Monitor 离线插件状态传输（Phase-16-04 子项）
 
 > 这是产品备份恢复的内部组件，**不是可独立使用的 backup/restore 命令**。
-> Phase-16-04 的跨数据域维护窗口、加密归档集成、生命周期恢复和产品验收仍未完成。
+> 该接口已接入 lifecycle 维护窗口、加密归档和空项目恢复；完整产品验收结果以同名实施记录为准。
 > 本接口不声明 `1.9.4` 升级支持。
 
 ## 容器内接口
@@ -15,7 +15,7 @@ monitor plugin-state import --root /var/lib/gopulse-monitor/plugins
 
 - 仅用于受维护的 Linux amd64 Compose 产品。导出前必须停止 Monitor；恢复进入新的空插件 volume。
 - 导出的 stdout / 导入的 stdin 必须是 pipe，不能是终端或普通文件。不得使用 TTY、后台容器日志、`tee`、shell tracing 或打印 transport。
-- stdout 是含 Secret 的**内部传输通道**，不是诊断输出。调用方必须捕获它，在内存中拆分 public/private，将 private 用格式层的独立 Secret 加密条目封装，之后才能发布备份。当前生命周期尚未接入此步骤，不可直接保存这个 transport 当作备份。
+- stdout 是含 Secret 的**内部传输通道**，不是诊断输出。调用方必须捕获它，在内存中拆分 public/private，将 private 用格式层的独立 Secret 加密条目封装，之后才能发布备份。生命周期已接入此步骤；不可直接保存这个 transport 当作备份。
 - JSON transport 仅包含 `public` 和 `private`，总量限制为 1 MiB。失败 stderr 为固定脱敏信息；失败退出码为 1，非 pipe 使用为 2。
 - 不新增 HTTP 管理端点，避免把批量凭据导出暴露给现有管理 API。
 
@@ -30,7 +30,7 @@ monitor plugin-state import --root /var/lib/gopulse-monitor/plugins
 
 `private` 的 schema 为 1，仅包含适配器验证的插件 Secret；它必须独立加密。
 不导出 PID、进程身份、可执行路径、revision 路径、archive 或 entrypoint。
-本接口不保存 VM/ES 采集历史，也未实现最后采集时间的持久化迁移；这些不是本子项测试的成功声明。
+本接口保存最后采集/成功时间；VM/ES 历史由 lifecycle 各自的逻辑导出接口保存，不混入插件 transport。
 
 ## 并发、信任和失败边界
 

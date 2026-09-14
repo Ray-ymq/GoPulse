@@ -2,7 +2,7 @@
 
 ## 状态
 
-**2026-09-13：实施中，已完成格式层/离线检查及 Monitor 离线插件状态传输子项；整批仍未完成、未验收。**
+**2026-09-14（本地时间）：整批实现和固定门禁全部通过，版本 `1.13.4`。以下早期部分实施记录按时间保留；最终完成结论以文末为准。**
 
 - 对应计划：`dev/imple/Phase-16/Phase-16-04-一致备份恢复与诊断闭环.md`。
 - 批次目标版本/分支：`1.13.4` / `develop/1.13.4`。
@@ -236,3 +236,88 @@ gopulse backup-inspect --archive PATH --passphrase-file PATH
 - `git diff --check`：通过。
 
 以上均为部分实施的检查记录，不替代计划第 8 节尚未通过的固定产品门禁。
+
+## 完整闭环继续实施（2026-09-13，验收待记录）
+
+用户再次明确要求完成全部计划后才推送。本次继续同一批活动任务；fetch 后主线为 `a0a049e`，与当前树无内容差异。
+
+直接影响的发布基础设施调整理由：原 release builder/Go/Python/schema 强制每个产品候选包含 ARM 镜像和 12 个双平台 current 插件，违反 Phase 16 Linux amd64 独立构建验收、不依赖早期 ARM 产物的规则。
+因此允许完整的 amd64-only 产品集合，同时继续读取历史双平台 manifest；仍拒绝缺少 amd64 或产品间平台集合不一致。针对这个公共合同扩展 Go/Python 的直接验证，不扩大为通用依赖审计。
+
+正在实施真实 lifecycle backup/restore 和各域 adapter；本节不表示完成或验收通过。最终命令和结果将在真实执行后补充。
+
+首轮真实候选/源产品演练：构建 `d10f9a3` 的 Linux amd64 全产品候选，真实用户、业务搜索、六插件采集、告警历史和审计种子成功；backup 在 `search-export` 拒绝实际按日期命名的 ES 索引（名称含 `.`）。已修正为独立的受限 ES 名称合同并加入该已观察缺陷的直接测试。该轮不计验收通过；源 project 已经通过其原 bundle 的 ownership 检查执行 `down --purge`，没有修改无关资源。
+
+构建过程中发现单平台 buildx 产生单 manifest 而非 index，已让 builder 用实际内容构建单平台 OCI index，而不是填入不存在的另一架构。还将 observability runtime Dockerfile 的版本 label ARG 移到包安装层之后：实际多次构建中无关 revision 使相同 APK 安装反复耗时约 100 秒。backend 的尝试没有改变其 LABEL 前置缓存行为，不计为已完成的缓存优化。未改变依赖或运行内容，最终候选继续核对真实 OCI 标签。
+
+第二轮真实候选 `bb815b1`：源产品种子、六插件真实采集、维护停写、六域加密 backup、独立 inspect 及公开 payload Secret 扫描均成功。首次 inspect 调用误带生命周期通用参数，修正 harness 后从已有真实 backup 继续，没有重跑已经成功的源备份。空目标恢复已经执行 MySQL、ES、VM、RabbitMQ/Kafka 导入，但在 Monitor 停止态容器创建阶段失败；本机 `docker compose create --help` 确认不支持 `--no-deps`，现改用受支持的 `up --no-start --no-deps`。该轮未判定恢复完成，失败目标由原操作清理，随后用原 bundle 清理源 project。
+
+继续补齐计划必需合同：共享严格 JSON 解析、带 operation 身份的中断 ciphertext 清理、精确 failed_stage 和显式私有 doctor diagnostics、ES 规范化/时间范围、RabbitMQ 原生队列排空及拓扑摘要、Kafka 动态 topic 配置和新 topic 零点 rebase 验证。源 offset 作为 cutover 证据保存，不用伪消息填充新 topic 来冒充原 offset。
+
+第三轮真实候选 `95bbedd0b5286298654e90f08335db25d0a9c2cd`（`dist/phase16-04-recovery-v3`）：
+`same-arch` 全部通过，包括源种子、实际维护停写、认证加密六域备份、空项目恢复、六插件、
+告警/审计/业务事实、双前端真实浏览器矩阵和恢复后新写入。证据为
+`.run/phase16-04-recovery/same-arch-v3.log` 与私有 product acceptance receipt；不发布其中凭据。
+失败矩阵已通过拒绝覆盖源、私有 doctor、错误口令/tamper、真实低空间和原生 SQL 导入失败清理。
+低空间脚本初次失败原因是 root 加 cap-drop ALL 无权读取宿主用户 0700 目录，修正为原用户及同 uid/gid 的 1 MiB tmpfs；不是伪造 statfs。
+中断及重试仍在运行，未提前计通过。
+
+本轮补全运行文档、空且已 purge 的 stopped 目标重试、doctor 版本/有界健康摘要。
+实际通过 `(cd lifecycle && go test ./... && go vet ./...)`、`scripts/test-backup-format.sh`、
+Python harness 编译及 `git diff --check`。由于 bundle README 是受摘要绑定的 payload，最终候选
+必须重新构建；新 lifecycle failure 路径和新的候选身份是后续最终矩阵执行理由，而不是因上下文切换重复验收。
+
+第三轮候选剩余失败矩阵和 reuse-install 已全部通过：真实 SIGTERM 清理、同归档重试、源状态和业务计数不变、诊断 Secret 扫描；reuse-install 保持安装身份、只读 verify/status 和双前端路由。所有第三轮测试 project 已经由原 bundle 强归属 purge；私有证据保留在 `.run/phase16-04-recovery/accepted-v3`。
+
+最终候选 `4bc686205755fe37cfd97f8b0fdecaccf3a6da7a` 构建完成，路径 `dist/phase16-04-recovery-v4`。
+初次构建 APK 网络停滞超过 15 分钟后主动取消；仅传宿主代理在 bridge 内连接被拒。使用 `/tmp` 临时 Docker wrapper 给 buildx 传标准代理 build args 和 `--network host` 后真实完整构建成功（未修改源码/依赖、未把代理写入 Dockerfile）。构建日志为 `build-final-host.log`；最终新候选恢复矩阵已启动，尚不计完成。
+
+
+## 最终完成验收（2026-09-14，本地 Linux amd64）
+
+最终产品源码 revision：`4bc686205755fe37cfd97f8b0fdecaccf3a6da7a`。
+Manifest：`sha256:f6e8ff1ad05d8b0f784c21e37ec19d7bec0c208b3af4db58115ad31729c3e20f`。
+候选：`dist/phase16-04-recovery-v4/release-manifest.json`，真实 registry `127.0.0.1:15001/gopulse`，非公网发布。
+后续提交仅追加开发记录，不改变该候选的源码/运行内容。
+
+固定门禁实际结果：
+
+| 命令 | 结果 / 证据 |
+| --- | --- |
+| `(cd lifecycle && go test ./... && go vet ./...)` | 通过；root 无 go workspace，因此用模块目录执行计划等价命令 |
+| `scripts/test-backup-format.sh` | 通过 |
+| `scripts/verify-backup-restore.sh --platform linux/amd64 --same-arch --manifest dist/phase16-04-recovery-v4/release-manifest.json --acceptance-image <真实不可变ID>` | 通过，`same-arch-v4.log` |
+| 同脚本 `--failure-matrix`、同 manifest | 通过，`failure-matrix-v4.log` |
+| `scripts/verify-product-lifecycle.sh --platform linux/amd64 --reuse-install --install <私有target绝对路径> --manifest <v4绝对路径>` | 通过，`reuse-v4.log` |
+| `GOPULSE_RELEASE_MANIFEST=<v4绝对路径> scripts/verify-compose.sh` | 通过，`compose-final.log`；在干净 detached worktree `/tmp/gopulse-phase16-04-final` 执行，避免触碰用户未跟踪文件 |
+
+上述日志位于 `.run/phase16-04-recovery/`，真实 fixture receipt 为私有 `product/acceptance.json`。
+最终 cutover 为 `2026-09-13T15:51:38.252301740Z`（本地 23:51:38）；MySQL 有 2 用户、1 业务文章、
+1 告警事件、13 管理审计；ES 有 3 索引（6 events、77 logs、1 post）；VM 有 372 series/1218 samples；
+RabbitMQ 为 6 queues/6 exchanges/20 bindings，Kafka 单 topic/partition 的已排空源 offset 为 131；
+6 插件及受信 catalog 摘要均独立核对。恢复后 SQL/搜索/指标/拓扑/插件事实一致，实际新文章被搜索命中；
+双前端桌面/窄屏浏览器和三来源规则入口通过。JWT 轮换使旧会话失效，保留真实用户凭据与角色。
+
+错误口令、tamper、真实 1 MiB 空间不足、原生 SQL 导入失败、真实 SIGTERM 中断、重试、拒绝源覆盖、
+源状态和计数不变、私有 doctor 诊断与 Secret 扫描全部通过。v4 源/目标/negative 项目均已通过原
+bundle 执行强归属清理；Compose 脚本也完成自身清理，无关资源及用户文件保留。
+
+实际文件范围：lifecycle backup/control/release 模块和 acceptance fixture 命令；Monitor 插件传输与采集历史；
+release amd64 合同的 Go/Python/schema/builder；backup/reuse/browser 验收脚本；根 README、bundle README
+和 `docs/releases/backup-{restore,plugin-state}.md`。早期提交已将所有受管版本对齐 `1.13.4`，本批不再重复 bump。
+
+边界：256 MiB 有界逻辑备份、完整停写维护窗口、相同 manifest 的空项目同架构恢复、单 broker/topic 支持；
+Kafka 已确认历史在 ES/VM，空目标 offset 重置而不伪造消息；不宣称在线备份、ARM、Windows、macOS 或
+1.9.4 升级。本批无阻断项；Phase-16-05 必须在本批合入 main 后另建分支独立实施和验收。
+
+## PR #148 合并冲突修复（2026-09-14）
+
+- 本次为已完成 Phase-16-04 的 PR 后续修复，继续使用 `develop/1.13.4`，版本保持 `1.13.4`。
+- 已执行 `git fetch origin`；待合入主线为 `a0a049e`，修复前分支为 `bb8514a`。
+- 原因：子项提交 `db50cd9` 经 PR #147 squash 为 `a0a049e` 后，原开发分支继续实现完整恢复合同但未同步主线；共同祖先仍为 `98799c2`。
+- 实际执行 `git diff --quiet db50cd9 origin/main` 通过，确认主线完整文件树等于该早期子项提交，不存在需额外移植的主线内容。
+- 使用 `git merge --no-commit --no-ff origin/main` 建立正常合并关系；逐项保留开发分支的完整版本，解决本记录、`docs/releases/backup-plugin-state.md`、`monitor/internal/plugin/portable.go`、`portable_test.go`、`runtime.go` 的五处文件冲突。不重写远端历史、不强制推送。
+- 追加本节前 `git diff --cached --exit-code HEAD` 通过，且 `git diff --name-only --diff-filter=U` 无输出：冲突解决没有改变任何产品代码、测试、配置或既有验收记录。最终内容变更仅本节记录，合并提交另记录主线父提交。
+- 实际检查：`python3 scripts/ci/validate_versions.py`、`python3 scripts/ci/validate_branch.py --branch develop/1.13.4 --base-ref origin/main`、`git diff --check`、`git diff --cached --check` 均通过。
+- 未重复执行已通过的产品验收或新增测试：产品内容与已验收分支逐字一致，没有影响原验证结果的代码、依赖或配置变化。本次不把此前 CI 结果当作新合并提交的 CI 结果；推送后的远端检查及合并状态需另行确认。
+- 用户原有未跟踪文件 `~` 未读取、未修改、未暂存。

@@ -107,6 +107,9 @@ func (c *Controller) compose(args ...string) error {
 }
 
 type Container struct {
+	NetworkSettings struct {
+		Networks map[string]struct{ IPAddress string }
+	}
 	ID     string `json:"Id"`
 	Config struct {
 		Image  string
@@ -217,26 +220,16 @@ func (c *Controller) phase(name string) error {
 	}
 	return nil
 }
-func (c *Controller) up() error {
+func (c *Controller) up() error { return c.startProduct(true) }
+func (c *Controller) startProduct(publish bool) error {
 	if _, e := c.owned(); e != nil {
 		return e
 	}
 	if e := c.phase("pull"); e != nil {
 		return e
 	}
-	// Docker verifies content-addressed pulls. Every service uses the selected
-	// platform digest, never tags or mutable defaults.
-	seen := map[string]bool{}
-	for _, name := range sortedKeys(c.services) {
-		s := c.services[name].(map[string]any)
-		ref := s["image"].(string)
-		if seen[ref] {
-			continue
-		}
-		seen[ref] = true
-		if _, e := c.docker("pull", "--platform", "linux/amd64", ref); e != nil {
-			return fail(ManifestError, "pull", "cannot pull manifest digest for "+name)
-		}
+	if e := c.pull(); e != nil {
+		return e
 	}
 	if e := atomicFile(filepath.Join(c.dir, "victoriametrics_password"), []byte(c.env["VICTORIAMETRICS_PASSWORD"])); e != nil {
 		return fail(Permission, "secrets", "cannot materialize private file secret")
@@ -264,7 +257,10 @@ func (c *Controller) up() error {
 	if _, e := c.status(true); e != nil {
 		return e
 	}
-	return c.phase("ready")
+	if publish {
+		return c.phase("ready")
+	}
+	return c.phase("restore-verified")
 }
 func (c *Controller) down(purge bool, confirm string) error {
 	if purge && confirm != c.state.Project {
@@ -376,4 +372,22 @@ func (c *Controller) logs(service string, tail int, since, until string) (string
 		fmt.Fprint(&lines, c.redact(string(b)))
 	}
 	return lines.String(), nil
+}
+
+func (c *Controller) pull() error {
+	// Docker verifies content-addressed pulls. Every service uses the selected
+	// platform digest, never tags or mutable defaults.
+	seen := map[string]bool{}
+	for _, name := range sortedKeys(c.services) {
+		s := c.services[name].(map[string]any)
+		ref := s["image"].(string)
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		if _, e := c.docker("pull", "--platform", "linux/amd64", ref); e != nil {
+			return fail(ManifestError, "pull", "cannot pull manifest digest for "+name)
+		}
+	}
+	return nil
 }

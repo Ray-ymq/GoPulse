@@ -32,7 +32,7 @@ platform sets and catalog uniqueness. The Linux-only lifecycle module reads the
 same contract, rejects duplicate JSON keys and checks tool/server architecture
 without mutating the Docker server. Phase-16-02 adds the shared Linux amd64 product lifecycle via the Bundle
 root `compose.yaml`; see `BUNDLE-README.md` for the Docker-only installation
-contract. Backup/restore and upgrade remain assigned to later batches.
+contract. Linux amd64 backup and same-bundle empty-project restore use the shared lifecycle; see `docs/releases/backup-restore.md`. Legacy upgrade remains a separate batch.
 
 For bundle checksum semantics and current limitations, see `BUNDLE-README.md`.
 The detached archive checksum is the final transport checksum; the embedded
