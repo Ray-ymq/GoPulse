@@ -21,6 +21,7 @@ def docker(*args):
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument('--evidence', type=Path)
     p.add_argument('--platform', choices=['linux/amd64'], required=True)
     p.add_argument('--manifest', type=Path, default=ROOT/'dist/release-manifest.json')
     p.add_argument('--acceptance-image', help='immutable local Linux amd64 browser image ID; clean install only')
@@ -31,6 +32,11 @@ def main():
     p.add_argument('--install', type=Path, default=ROOT/'.run/phase16-04-recovery/product/target')
     a = p.parse_args()
     if a.acceptance_image and not a.clean_install: p.error('--acceptance-image requires --clean-install')
+    from phase16_evidence import atomic, now
+    from verify_current_recovery import CurrentRecovery
+    started = now()
+    isolation = CurrentRecovery.resources()
+    commands = []
     browser = None
     m = json.loads(a.manifest.read_text())
     image = m['lifecycle']['ref'].split('@')[0]+'@'+m['lifecycle']['platforms'][a.platform]
@@ -62,6 +68,7 @@ def main():
         def call(command, *args, expected=0):
             result = subprocess.run([*(tool_base if a.clean_install else base), command, *common, *args], env=tool_env, capture_output=True, text=True, timeout=900)
             outputs.append(result.stdout+result.stderr)
+            commands.append({'command':command, 'expected_exit':expected, 'actual_exit':result.returncode})
             assert result.returncode == expected, f'{command}: exit {result.returncode}, expected {expected}; '+result.stdout+result.stderr
             stream = result.stdout if result.returncode == 0 else result.stderr
             value = json.loads(next(line for line in reversed(stream.splitlines()) if line.startswith('{')))
@@ -152,15 +159,52 @@ def main():
                     assert proc.returncode == 20, 'signal did not produce stable interrupted exit'
                     state = json.loads((install/'state.json').read_text()); assert state['phase']=='interrupted'
                     call('down')
+                if os.environ.get('GOPULSE_PHASE16_MATRIX') == '1':
+                    # Pause only our labelled MySQL during actual cold startup.
+                    # This exercises a real readiness failure without mutating
+                    # the immutable Bundle or writing fabricated database rows.
+                    proc = subprocess.Popen([*base, 'up', *common], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    paused = None
+                    try:
+                        deadline = time.monotonic()+120
+                        while time.monotonic() < deadline:
+                            ids = docker('ps','-q','--filter','label=com.docker.compose.project='+state['project'],
+                                         '--filter','label=com.docker.compose.service=mysql').split()
+                            if ids:
+                                obj = json.loads(docker('inspect',ids[0]))[0]
+                                labels = obj['Config']['Labels']
+                                assert labels['io.gopulse.lifecycle.installation'] == state['installation_token']
+                                assert labels['io.gopulse.lifecycle.manifest'] == state['manifest_digest']
+                                assert obj['Image'] == json.loads(docker('image','inspect',obj['Config']['Image']))[0]['Id']
+                                paused = ids[0]; docker('pause',paused); break
+                            if proc.poll() is not None: raise AssertionError('startup exited before owned failure injection')
+                            time.sleep(.2)
+                        assert paused, 'MySQL startup was not reached'
+                        stdout, stderr = proc.communicate(timeout=360); outputs.append(stdout+stderr)
+                        assert proc.returncode == 18, 'service startup failure must return 18'
+                        assert json.loads((install/'state.json').read_text())['phase'] != 'ready'
+                        commands.append({'command':'up-paused-mysql', 'expected_exit':18,'actual_exit':proc.returncode})
+                    finally:
+                        if paused: docker('unpause',paused)
+                        if proc.poll() is None:
+                            proc.terminate(); proc.communicate(timeout=30)
+                    call('verify', expected=19)
+                    call('down')
             for text in outputs:
                 assert state['installation_token'] not in text
                 for key, secret in secrets.items():
                     if any(word in key for word in ('PASSWORD','TOKEN','SECRET')): assert secret not in text, 'secret leaked'
-            print(json.dumps({'schema':1, 'platform':a.platform, 'manifest_sha256':hashlib.sha256(a.manifest.read_bytes()).hexdigest(),
-                              'mode':'clean-install' if a.clean_install else 'failure-matrix', 'status':'passed', 'browser':browser}))
+            receipt = {'schema':1, 'platform':a.platform, 'manifest_sha256':hashlib.sha256(a.manifest.read_bytes()).hexdigest(),
+                       'mode':'clean-install' if a.clean_install else 'failure-matrix', 'status':'passed', 'browser':browser,
+                       'project_sha256':hashlib.sha256(state['project'].encode()).hexdigest(),
+                       'token_sha256':hashlib.sha256(state['installation_token'].encode()).hexdigest(), 'started_at':started}
         finally:
             if state is not None:
                 call('down', '--purge', '--confirm', state['project'])
+        assert CurrentRecovery.resources() == isolation, 'lifecycle changed unrelated resource set'
+        receipt.update(cleanup_passed=True, isolation_preserved=True, commands=commands, finished_at=now())
+        if a.evidence: atomic(a.evidence, receipt)
+        print(json.dumps(receipt))
 
 if __name__ == '__main__':
     main()

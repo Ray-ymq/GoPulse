@@ -22,6 +22,14 @@ RUN /src/scripts/package-redis-exporter.sh --version "$VERSION" --arch "${TARGET
     /src/scripts/package-redis-exporter.sh --version "$UPDATE_VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
       --binary /out/gopulse-redis-exporter --output /out/redis-exporter-update.tar.gz
 
+FROM golang:1.26.0-alpine3.23 AS recovery-audit
+WORKDIR /src/lifecycle
+COPY lifecycle/ ./
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/backup-fixture ./cmd/backup-fixture
+
+FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS acceptance-docker
+RUN apk add --no-cache docker-cli docker-cli-compose
+
 FROM mcr.microsoft.com/playwright:v1.62.1-noble
 ARG VERSION
 ARG REVISION
@@ -38,5 +46,14 @@ COPY --chown=1000:1000 frontend/e2e/ ./e2e/
 COPY --from=exporter-package --chown=1000:1000 /out/redis-exporter-install.tar.gz /work/packages/redis-exporter-install.tar.gz
 COPY --from=exporter-package --chown=1000:1000 /out/redis-exporter-update.tar.gz /work/packages/redis-exporter-update.tar.gz
 RUN mkdir -p /work/frontend/test-results && chown -R 1000:1000 /work/frontend /work/packages
+COPY --from=acceptance-docker /usr/bin/docker /usr/local/bin/docker
+COPY --from=acceptance-docker /usr/libexec/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+COPY --from=acceptance-docker /lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1
+COPY --from=acceptance-docker /lib/libc.musl-x86_64.so.1 /lib/libc.musl-x86_64.so.1
+COPY --from=recovery-audit /out/backup-fixture /usr/local/bin/backup-fixture
+COPY scripts/ci/ /work/scripts/ci/
+COPY deploy/release/ /work/deploy/release/
+COPY VERSION /work/VERSION
+ENV GOPULSE_BACKUP_FIXTURE=/usr/local/bin/backup-fixture
 USER 1000:1000
-ENTRYPOINT ["npx", "playwright", "test"]
+ENTRYPOINT ["/bin/sh", "/work/scripts/ci/acceptance-entrypoint.sh"]
