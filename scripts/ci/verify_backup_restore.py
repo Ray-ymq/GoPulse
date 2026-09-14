@@ -256,7 +256,7 @@ def main():
     p.add_argument('--platform',choices=['linux/amd64'],required=True)
     p.add_argument('--manifest',type=Path,default=ROOT/'dist/phase16-04-recovery-v1/release-manifest.json')
     p.add_argument('--work',type=Path,default=ROOT/'.run/phase16-04-recovery/product')
-    p.add_argument('--acceptance-image')
+    p.add_argument('--acceptance-image', default=os.environ.get('GOPULSE_ACCEPTANCE_IMAGE'))
     p.add_argument('--current-product', action='store_true')
     modes=p.add_mutually_exclusive_group()
     modes.add_argument('--same-arch',action='store_true');modes.add_argument('--failure-matrix',action='store_true');modes.add_argument('--cleanup',action='store_true')
@@ -268,7 +268,7 @@ def main():
         from verify_current_recovery import CurrentRecovery
         r=CurrentRecovery(a)
         if a.cleanup:
-            for name in ['negative','second','target','source']:r.purge(name)
+            r.cleanup()
         elif a.failure_matrix:r.current_failures()
         else:r.current_product()
         return

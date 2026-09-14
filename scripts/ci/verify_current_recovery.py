@@ -3,7 +3,6 @@ import hashlib
 import json
 import os
 import subprocess
-import time
 from urllib.parse import quote
 
 from verify_backup_restore import ROOT, Recovery, docker, save
@@ -19,7 +18,49 @@ class CurrentRecovery(Recovery):
         self.data.setdefault('candidate', {'version': self.manifest['version'],
             'revision': self.manifest['revision'], 'images': self.manifest['images'],
             'plugins': self.manifest['plugins']})
+        if 'isolation' not in self.data:
+            self.data['isolation'] = self.resources()
         self.record()
+
+    @staticmethod
+    def resources():
+        return {kind: sorted(docker(*args).split()) for kind, args in {
+            'containers': ('ps', '-aq', '--no-trunc'),
+            'networks': ('network', 'ls', '-q', '--no-trunc'),
+            'volumes': ('volume', 'ls', '-q')}.items()}
+
+    def record(self):
+        super().record()
+        # The resumable private journal contains login credentials; publish a
+        # separate, explicitly allowlisted evidence document without them.
+        public = {key: self.data[key] for key in ('schema', 'manifest_sha256', 'candidate',
+            'completed', 'backups', 'restores', 'comparisons', 'browsers', 'failures', 'commands') if key in self.data}
+        public['status'] = 'passed' if all(step in self.data['completed'] for step in (
+            'current-product-two-restores-passed', 'current-product-failure-matrix-passed',
+            'owned-cleanup-and-isolation-passed')) else 'incomplete'
+        save(self.work/'evidence.json', public)
+
+    def call(self, name, command, *args, expected=0):
+        entry = {'project_alias': name, 'command': command, 'arguments': list(args),
+                 'expected_exit': expected, 'status': 'started'}
+        self.data.setdefault('commands', []).append(entry)
+        self.record()
+        try:
+            result = super().call(name, command, *args, expected=expected)
+        except Exception:
+            entry['status'] = 'failed'
+            self.record()
+            raise
+        entry['status'] = 'passed'
+        self.record()
+        return result
+
+    def cleanup(self):
+        for name in ['negative', 'second', 'target', 'source']:
+            self.purge(name)
+        if self.resources() != self.data['isolation']:
+            raise RuntimeError('resource set differs from pre-install snapshot')
+        self.mark('owned-cleanup-and-isolation-passed')
 
     def facts(self, name):
         # Read-only canonical rows: identity, business content/history and audit.
@@ -50,9 +91,14 @@ class CurrentRecovery(Recovery):
         if not self.args.acceptance_image:
             raise RuntimeError('--acceptance-image required for dual Frontend acceptance')
         from frontend_bundle_browser import run_browser
+        if name in self.data.get('browsers', {}):return
+        def checkpoint(checks):
+            self.data.setdefault('browser_progress', {})[name] = checks
+            self.record()
         self.data.setdefault('browsers', {})[name] = run_browser(
             self.work/name, self.state(name), self.call(name, 'status'), self.secrets(name),
-            self.args.acceptance_image, lambda *a: docker(*a), credentials=self.data)
+            self.args.acceptance_image, lambda *a: docker(*a), credentials=self.data,
+            progress=self.data.get('browser_progress', {}).get(name), checkpoint=checkpoint)
         self.record()
 
     def write(self, name):
@@ -69,6 +115,9 @@ class CurrentRecovery(Recovery):
         return post
 
     def continuing(self, name):
+        if name+'-api-continuity' in self.data['completed']:
+            self.browser(name)
+            return
         admin = self.client(name, self.data['admin'])
         user = self.client(name, self.data['user'])
         user.request('admin/audit-events', expected=403)
@@ -84,6 +133,13 @@ class CurrentRecovery(Recovery):
         wait_until(lambda: any(item['rule_id'] == self.data[key] for item in
             admin.request('alerts/history')['data']), name+' new real alert', 180)
         self.write(name)
+        for key in ['post_id', 'source-new-post', 'target-new-post']:
+            if key in self.data:
+                post_id = self.data[key] if key == 'post_id' else self.data[key]['id']
+                post = admin.request('posts/'+str(post_id))['data']
+                wait_until(lambda p=post: any(row['id'] == p['id'] for row in admin.request(
+                    'search/posts?q='+quote(p['title']))['data']), name+' preserved search object')
+        self.mark(name+'-api-continuity')
         self.browser(name)
 
     def backup_project(self, name):
@@ -138,6 +194,9 @@ class CurrentRecovery(Recovery):
                 before = self.facts(name)
                 self.restore(name, archive, 17)
                 self.compare(name, before)
+                after = self.facts(name)
+                if any(after[k] != before[k] for k in before if k not in ('audit', 'incidents')):
+                    raise RuntimeError('rejected restore changed stable facts')
                 self.mark(name+'-nonempty-restore-rejected')
                 self.mark(name+'-continuity-passed')
             if name == 'target':
@@ -160,6 +219,7 @@ class CurrentRecovery(Recovery):
         if 'current-product-two-restores-passed' not in self.data['completed']:
             raise RuntimeError('current-product success required first')
         original = hashlib.sha256(self.backup.read_bytes()).hexdigest()
+        source_state = (self.work/'source'/'state.json').read_bytes()
         self.init('negative')
         if 'current-import-failure-retry' not in self.data['completed']:
             invalid = self.work/'invalid-sql.gpb'
@@ -198,4 +258,16 @@ class CurrentRecovery(Recovery):
             self.mark('current-interrupt-retry')
         if hashlib.sha256(self.backup.read_bytes()).hexdigest() != original:
             raise RuntimeError('authoritative archive changed')
+        if (self.work/'source'/'state.json').read_bytes() != source_state:
+            raise RuntimeError('failure matrix changed source installation state')
+        for path in self.work.rglob('*'):
+            if path.is_file() and (path.suffix in ('.json', '.gpb') or path == self.key) and path.stat().st_mode & 0o077:
+                raise RuntimeError('private recovery artifact has public permissions')
+        for text in [*self.output, (self.work/'evidence.json').read_text()]:
+            for name in ['source', 'target', 'second', 'negative']:
+                for key, value in self.secrets(name).items():
+                    if any(part in key for part in ('PASSWORD', 'TOKEN', 'SECRET')) and len(value) > 8 and value in text:
+                        raise RuntimeError('credential leaked in recovery evidence')
+            if self.data['password'] in text:
+                raise RuntimeError('login password leaked in recovery evidence')
         self.mark('current-product-failure-matrix-passed')

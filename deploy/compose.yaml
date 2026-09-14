@@ -480,6 +480,11 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     volumes:
       - kafka_data:/var/lib/kafka/data
+    # Image-declared scratch volumes must not become orphan anonymous volumes
+    # when lifecycle down preserves the named product data volumes.
+    tmpfs:
+      - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
+      - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777
     expose:
       - "19092"
     networks:
@@ -492,6 +497,11 @@ services:
       retries: 30
 
   kafka-init:
+    # The topic initializer stores no product data locally.
+    tmpfs:
+      - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
+      - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777
+      - /var/lib/kafka/data:rw,nosuid,nodev,size=16m,mode=1777
     image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
     restart: "no"
     depends_on:
