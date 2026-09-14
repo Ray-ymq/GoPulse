@@ -2,9 +2,12 @@
 
 > 规划修订基线（2026-09-13）：主远程 `upstream/main` 提交 `6f33dc0f98d3ef7903ddfd46905c0aed32bb2775`，根完成版本为 `1.13.1`，Phase-16-01 已完成并合入主线。本文档只规划 Phase 16 的 Linux `amd64` 产品化工作，不修改 `VERSION`，也不把已有额外架构制品当作本阶段支持或验收要求。
 
+
+> 2026-09-14 范围修订：按用户要求，Phase-16-05/06 不再考虑旧版；以各批当前候选生成真实数据，验收同 manifest 备份恢复和持续使用，取消历史/跨版本升级及 Redis v1 迁移门禁。保留既有兼容代码、历史制品和实施记录。六批编号与分支不变，不因规划调整修改 `VERSION`。下述状态表沿用原规划基线；本次不重写前批执行结果，实际完成状态以主线同名实施记录为准。
+
 ## 1. 阶段目标
 
-Phase 16 将 Phase 15 的完整 Compose 系统整理为可在真实 Linux `amd64` 环境安装、运行、维护和升级的产品交付物：
+Phase 16 将 Phase 15 的完整 Compose 系统整理为可在真实 Linux `amd64` 环境安装、运行、维护和恢复的产品交付物：
 
 ```text
 immutable linux/amd64 artifacts
@@ -18,7 +21,7 @@ containerized lifecycle control
             ├─ secure init / up / down
             ├─ status / logs / verify / doctor
             ├─ backup / restore
-            └─ upgrade from 1.9.4
+            └─ current data / recovery continuity
             │
             ▼
 single edge origin
@@ -34,9 +37,9 @@ real Linux amd64 product acceptance
 
 - 用户只需受支持版本的 Docker Engine、Docker Compose v2 与版本化交付包，不依赖宿主 Git、Go、Node.js、npm、Python、curl 或基础设施客户端。
 - Backend、Business Worker、Search Indexer、两个 Frontend、Router、Marshaller、Monitor、Redis Exporter 和六类受管插件均以可追溯的 Linux `amd64` 制品交付。
-- 初始化、启动、停止、状态、日志、只读验证、诊断、备份、恢复和升级由一个容器化生命周期实现提供，不复制为多套宿主脚本。
+- 初始化、启动、停止、状态、日志、只读验证、诊断、备份和恢复由一个容器化生命周期实现提供，不复制为多套宿主脚本。
 - 用户 Frontend、管理 Frontend 和 Backend API 通过唯一 edge origin 对外暴露，统一登录、角色隔离、错误状态和响应式体验形成产品闭环。
-- 从 `1.9.4` 到当前版本的升级、失败恢复和升级后备份在真实 Linux `amd64` 环境可重复验证。
+- 当前候选生成真实数据，备份恢复、失败恢复、恢复后继续写入与再次备份恢复在真实 Linux `amd64` 环境可重复验证；不据此声明跨版本升级通过。
 - 六个实施批次、跨批集成结果和最终阶段门禁均有与计划同名的真实实施记录。
 
 仅生成镜像、仅做静态 Compose 检查、仅验证页面可打开，或只保存数据卷归档，均不构成 Phase 16 完成。
@@ -47,8 +50,8 @@ real Linux amd64 product acceptance
 
 - 一份版本化 Linux 产品 Bundle，包含 Compose、release manifest、checksum、配置模板、运维说明和生命周期入口。
 - 一个 Linux `amd64` 生命周期工具镜像，以及 9 个 Linux `amd64` 产品镜像的不可变 digest 清单。
-- 六类 current v2 插件的 Linux `amd64` 受信 catalog，以及仅供升级使用的 `1.9.4/linux/amd64` Redis v1 legacy 包。
-- 安全初始化、唯一 edge、统一登录、双 Frontend、诊断、加密备份/恢复、升级和失败回退能力。
+- 六类 current v2 插件的 Linux `amd64` 受信 catalog；已有 legacy 包作为历史制品保留，不作为 Phase-16-05/06 的运行或验收前置。
+- 安全初始化、唯一 edge、统一登录、双 Frontend、诊断、加密备份/恢复、恢复后持续使用和失败恢复能力。
 - 一个真实 Linux `amd64` 最终候选矩阵和可机器校验的脱敏证据集合。
 
 ### 2.2 明确不做
@@ -56,7 +59,7 @@ real Linux amd64 product acceptance
 - macOS、Windows 或 `linux/arm64` 的产品支持、宿主适配、运行验收和支持声明。
 - 原生宿主服务、GUI 安装器、自动更新器或 Kubernetes 资源。
 - 将冻结的 `scripts/*.ps1` 扩展为当前产品生命周期实现。
-- 在线热备、跨大版本任意升级、生产高可用、镜像签名/SBOM/CVE 平台或通用灾备系统。
+- 在线热备、历史/跨版本升级、旧版 fixture 与历史插件迁移、生产高可用、镜像签名/SBOM/CVE 平台或通用灾备系统。
 - 删除 Phase-16-01 已经生成的额外架构制品；这些制品保留为历史构建结果，但不进入后续验收和支持合同。
 
 ## 3. 真实基线、验收环境与开工约束
@@ -98,8 +101,10 @@ Phase 16 对应 `1.13.x`。patch `0` 为阶段基线，六个批次保持既定�
 | Phase-16-02 | `1.13.2` | `develop/1.13.2` | 共享产品生命周期与安全初始化闭环 | 待实施 |
 | Phase-16-03 | `1.13.3` | `develop/1.13.3` | 统一登录与双 Frontend 产品体验闭环 | 待实施 |
 | Phase-16-04 | `1.13.4` | `develop/1.13.4` | 一致备份恢复与诊断闭环 | 待实施 |
-| Phase-16-05 | `1.13.5` | `develop/1.13.5` | `1.9.4` 升级与恢复闭环 | 待实施 |
+| Phase-16-05 | `1.13.5` | `develop/1.13.5` | 当前版本数据与恢复闭环 | 待实施 |
 | Phase-16-06 | `1.13.6` | `develop/1.13.6` | Linux 产品矩阵与阶段收口 | 待实施 |
+
+本次范围变化不改变批次拆分或执行顺序，已推送的 `develop/1.13.5` 不重编号或改名。
 
 本表是 Phase 16 唯一权威的批次到版本、分支映射。规划文档提交在 `update` 上，不修改根 `VERSION`。
 
@@ -118,7 +123,7 @@ Phase 16 对应 `1.13.x`。patch `0` 为阶段基线，六个批次保持既定�
 16-04 backup/restore
         │
         ▼
-16-05 1.9.4 upgrade
+16-05 current data + recovery continuity
         │
         ▼
 16-06 Linux product acceptance
@@ -127,7 +132,7 @@ Phase 16 对应 `1.13.x`。patch `0` 为阶段基线，六个批次保持既定�
 1. 生命周期必须先锁定 manifest、digest、Bundle 和资源归属，后续批次不得绕过它直接编排产品。
 2. 统一登录和双 Frontend 必须建立在唯一 edge 与稳定生命周期之上。
 3. 备份恢复必须覆盖已经稳定的配置、身份、业务、搜索、可观测和插件逻辑状态。
-4. `1.9.4` 升级必须复用正式备份恢复能力，不能维护另一套回退路径。
+4. 当前产品数据恢复必须复用 Phase-16-04 正式备份恢复能力；Phase-16-05 增量是当前真实数据配方、跨域事实对照和恢复后再备份恢复的产品级验收，不重写引擎或维护另一套回退路径。
 5. 最终批次只消费前五批合同并运行候选矩阵，不首次实现产品功能。
 
 ## 6. 交付架构与信任边界
@@ -152,7 +157,7 @@ single edge origin
 
 - release manifest、镜像 digest、插件 catalog 和 backup manifest 都是受信输入；校验失败必须在创建或修改产品资源前终止。
 - Docker endpoint 只暴露给短命生命周期容器；常驻产品容器不得取得 Docker socket。
-- 所有创建、停止、删除、恢复和升级操作必须同时校验 project、installation token、service/resource label 与 digest。
+- 所有创建、停止、删除和恢复操作必须同时校验 project、installation token、service/resource label 与 digest。
 - 不使用全局 prune、宽泛名称匹配、未解析变量或宿主根目录递归操作。
 - 日志、证据和诊断包必须脱敏，不输出口令、token、cookie、私钥或完整连接串。
 
@@ -172,7 +177,7 @@ single edge origin
 - Redis、MySQL、RabbitMQ、Kafka、Elasticsearch、VictoriaMetrics 的 current v2 包固定为 Linux `amd64`。
 - archive、entrypoint、Schema、包 digest、目标版本和 catalog 签发关系可独立校验。
 - Monitor 只从只读、镜像内受信 catalog 选择与 server 架构匹配的包，不从可写 volume 建立信任。
-- `1.9.4/linux/amd64` Redis v1 包只用于 Phase-16-05 的升级来源。
+- 已有 Redis v1 legacy 包与兼容实现保留，但不要求本阶段后续批次执行历史迁移；v1/v2 指插件 Manifest 格式，不是 Redis 数据库版本。
 
 ### 7.3 生命周期镜像与 Bundle
 
@@ -196,7 +201,6 @@ logs
 verify
 backup
 restore
-upgrade
 ```
 
 - `doctor` 在创建资源前检查 Docker server、架构、Compose 版本、磁盘/内存、端口、manifest、digest 和安装目录。
@@ -227,15 +231,15 @@ upgrade
 - 失败恢复不得发布半恢复状态；清理仅限当前 operation 创建且具备完整归属的资源。
 - 恢复后核对数据库、搜索、监控、角色、会话失效策略、审计和关键业务事实，并验证能够继续新写入。
 
-## 11. 从 1.9.4 升级合同
+## 11. 当前版本数据与持续恢复合同
 
-- 唯一来源是提交 `102aa4f...` 对应的 `1.9.4/linux/amd64` fixture、受管版本元数据和已锁定 Redis v1 legacy 包。
-- 升级 preflight 校验来源版本、架构、manifest、fixture digest、目标 digest、容量、健康和不支持拓扑。
-- 升级前必须创建并验证 format v1 加密备份；未完成备份不得迁移。
-- 迁移按持久层、身份、业务、搜索/异步/可观测、插件、双 Frontend 和 state 切换顺序执行。
-- Redis v1 到 current v2 的变化通过正式插件迁移接口完成，不在 Monitor 中硬编码一次性旁路。
-- state 只在所有验证通过后原子切换为目标版本；失败时保留源事实、备份、阶段、恢复命令和脱敏诊断。
-- 同一已升级 installation 重跑返回稳定“无需升级”；失败重试从明确阶段继续或先恢复，不能重复破坏性步骤。
+- Phase-16-05 使用 `1.13.5`，Phase-16-06 使用 `1.13.6`；各批独立冻结候选，同批的 A/B/C 使用相同 manifest 和 Linux `amd64`，不测试跨版本或跨 manifest 恢复。
+- 可先完善当前产品/验收入口，再在独立新安装项目通过正式 API、浏览器及 current v2 插件真实运行生成数据；不要求历史源码、旧数据或 legacy 插件。
+- 复用 Phase-16-04 format v1、停写/排空、独立 inspect、空目标恢复和强归属合同；不另建备份格式，不覆盖用户现有环境。
+- 按一致切点固定身份、业务、搜索、指标、告警、审计与插件事实；A 备份恢复到 B，B 继续写入/采集/告警后再次备份恢复到 C，比较原有与新增事实并验证继续使用。
+- 对成功恢复的非空目标重复恢复应安全拒绝且不改数据；代表导入失败/中断应可按正式合同重试或清理后恢复，不出现伪 ready。
+- evidence 绑定候选、数据配方、备份 checksum、事实摘要和实际命令；最终矩阵复用 runner 与配方，而非直接使用 `1.13.5` 备份或结果冒充 `1.13.6` 验收。
+- 不把同版本恢复、重启、测试数据生成或版本号更新记为跨版本升级；支持文档不得新增未经验证的历史升级支持声明，也不删除已有兼容能力。
 
 ## 12. Linux 产品支持合同
 
@@ -245,7 +249,7 @@ upgrade
 2. 唯一 edge、双 Frontend、统一登录、用户/管理员角色与越权拒绝。
 3. 六插件真实采集、三源告警、详情/指标/事件/日志/操作历史。
 4. 加密 backup、同架构空 project restore、恢复后继续写入。
-5. `1.9.4 → current` 完整升级、幂等重跑、失败注入与恢复。
+5. 当前真实数据经恢复继续写入、采集与告警，再备份恢复后新旧事实保持；重复非空目标恢复安全拒绝及代表导入失败/中断可恢复。
 6. Linux 文件权限、signal、中断、端口占用、磁盘不足、daemon 不可用与 project 隔离。
 7. 正常清理和失败清理均不影响无关 Docker 资源或用户文件。
 
@@ -281,9 +285,10 @@ upgrade
 - 实现 format v1 加密备份、同架构空 project 恢复、失败清理、恢复后写入和脱敏诊断。
 - 不实现 `1.9.4` 升级。
 
-### Phase-16-05：1.9.4 升级与恢复闭环
+### Phase-16-05：当前版本数据与恢复闭环
 
-- 从唯一 Linux `amd64` fixture 完成强制备份、迁移、验证、幂等与失败恢复。
+- 以 `1.13.5` 当前候选通过正式入口生成真实数据，完成 A/B/C 同 manifest 两次恢复、继续使用和代表故障验收；不涉及旧版数据。
+- 权威拆分计划为 `Phase-16-05-当前版本数据与恢复闭环.md`，原历史升级方案由其替代；已有历史尝试记录保留，新实施记录与新方案同名。
 - 不改变 Phase-16-04 的通用 backup format。
 
 ### Phase-16-06：Linux 产品矩阵与阶段收口
@@ -305,11 +310,11 @@ upgrade
 2. 只有 edge 暴露宿主端口；统一登录、角色隔离、CSRF/session 和登出正确。
 3. 两个 Frontend 的核心状态、桌面/窄屏、键盘和非 UTC 时间展示通过。
 
-### 15.3 备份、恢复与升级
+### 15.3 当前数据、备份与持续恢复
 
 1. Backup format v1 一致、加密、可独立检查且不泄露 Secret。
 2. Linux `amd64` backup 可恢复到同架构空 project，关键事实一致并能继续写入。
-3. `1.9.4 → current` 完整升级、幂等重跑、失败恢复和升级后新 backup 通过。
+3. 恢复项目继续产生业务、采集、告警与审计事实，再次备份恢复后原有与新增事实一致且可继续使用；非空目标重复拒绝、代表导入失败/中断及恢复通过。
 
 ### 15.4 Linux 产品回归
 
@@ -334,13 +339,22 @@ docker compose --profile acceptance run --rm acceptance phase16 --evidence /evid
 python3 scripts/verify-phase16-evidence.py --linux dist/evidence/linux-amd64.json
 ```
 
+Phase-16-05/06 的当前数据恢复子门禁统一为以下拟扩展入口（参数由 Phase-16-05 实现/对齐，不声称当前已支持）：
+
+```bash
+scripts/verify-backup-restore.sh --manifest dist/release-manifest.json --platform linux/amd64 --current-product
+scripts/verify-backup-restore.sh --manifest dist/release-manifest.json --platform linux/amd64 --current-product --failure-matrix
+```
+
+第一项覆盖当前数据生成、A/B/C 两次恢复、继续使用和非空目标重复拒绝；第二项覆盖代表导入失败与中断。聚合 runner 与子命令共享同候选 evidence，不重复执行已通过且输入/环境未变的场景。不要求历史 fixture 构建或 `verify-upgrade` 门禁。
+
 命令名可在对应实现批次中按仓库事实做等价调整，但必须先更新拆分计划和总方案；不得以临时命令绕过证据结构或候选 digest 绑定。
 
 固定阶段回归只覆盖：
 
 - release manifest、Bundle 和 Linux `amd64` runtime；
 - lifecycle clean install、唯一 edge、双 Frontend、六插件、三源告警；
-- backup/restore 和 `1.9.4` upgrade；
+- 当前真实数据、同 manifest backup/restore、恢复后写入与再次恢复；
 - 直接受影响的 Phase 15 Compose 回归；
 - 归属、Secret、失败注入、清理和 evidence 聚合。
 
@@ -352,7 +366,7 @@ python3 scripts/verify-phase16-evidence.py --linux dist/evidence/linux-amd64.jso
 | Phase-16-02 | Linux Docker/Compose 入口、工具容器 endpoint、版本下限 | 记录实际能力；不新增第二套生命周期 |
 | Phase-16-03 | edge 路由、API 合同、浏览器 runner | 只修直接阻断，不扩大页面或 API 范围 |
 | Phase-16-04 | MySQL/ES/VM 导出恢复 API、队列排空、加密临时文件 | 任一权威数据域不可一致恢复则阻断 |
-| Phase-16-05 | `102aa4f...` fixture、legacy 包、迁移映射 | 来源不可验证则阻断，不制造替代历史 |
+| Phase-16-05 | 当前 backup/restore 公共接口、数据域对照、隔离项目与 Linux 环境 | 可先实现入口再生成当前数据；真实运行前冻结可拉取候选，不要求旧版 fixture |
 | Phase-16-06 | Linux `amd64` host/server、候选 digest、独立交付目录 | 环境或候选不一致则阻断最终阶段收口 |
 
 不得猜测 registry 已发布、历史数据已迁移、Secret 已脱敏、恢复可继续写入或候选已在真实容器运行；所有这些结论必须来自实际命令与实施记录。
@@ -373,7 +387,7 @@ Phase 16 完成后交给 Phase 17 的固定输入是：
 
 - `1.13.6` Linux `amd64` 完整 Compose 产品和不可变 release manifest；
 - 版本化 Bundle、共享容器化生命周期、唯一 edge 与双 Frontend；
-- 六插件、三源告警、backup format v1 和 `1.9.4` 升级合同；
+- 六插件、三源告警、backup format v1、当前数据配方与同 manifest 持续恢复合同；
 - 一组来自真实 Linux `amd64` 候选运行的可复核脱敏证据。
 
 Phase 17 不得把 Kubernetes 作为验证 Compose 产品的前置条件；Phase 18 以后在直接受影响处复用上述 Linux 产品合同迁移到 Kubernetes。
