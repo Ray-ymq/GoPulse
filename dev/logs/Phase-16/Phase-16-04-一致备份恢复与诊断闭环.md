@@ -309,3 +309,15 @@ release amd64 合同的 Go/Python/schema/builder；backup/reuse/browser 验收�
 边界：256 MiB 有界逻辑备份、完整停写维护窗口、相同 manifest 的空项目同架构恢复、单 broker/topic 支持；
 Kafka 已确认历史在 ES/VM，空目标 offset 重置而不伪造消息；不宣称在线备份、ARM、Windows、macOS 或
 1.9.4 升级。本批无阻断项；Phase-16-05 必须在本批合入 main 后另建分支独立实施和验收。
+
+## PR #148 合并冲突修复（2026-09-14）
+
+- 本次为已完成 Phase-16-04 的 PR 后续修复，继续使用 `develop/1.13.4`，版本保持 `1.13.4`。
+- 已执行 `git fetch origin`；待合入主线为 `a0a049e`，修复前分支为 `bb8514a`。
+- 原因：子项提交 `db50cd9` 经 PR #147 squash 为 `a0a049e` 后，原开发分支继续实现完整恢复合同但未同步主线；共同祖先仍为 `98799c2`。
+- 实际执行 `git diff --quiet db50cd9 origin/main` 通过，确认主线完整文件树等于该早期子项提交，不存在需额外移植的主线内容。
+- 使用 `git merge --no-commit --no-ff origin/main` 建立正常合并关系；逐项保留开发分支的完整版本，解决本记录、`docs/releases/backup-plugin-state.md`、`monitor/internal/plugin/portable.go`、`portable_test.go`、`runtime.go` 的五处文件冲突。不重写远端历史、不强制推送。
+- 追加本节前 `git diff --cached --exit-code HEAD` 通过，且 `git diff --name-only --diff-filter=U` 无输出：冲突解决没有改变任何产品代码、测试、配置或既有验收记录。最终内容变更仅本节记录，合并提交另记录主线父提交。
+- 实际检查：`python3 scripts/ci/validate_versions.py`、`python3 scripts/ci/validate_branch.py --branch develop/1.13.4 --base-ref origin/main`、`git diff --check`、`git diff --cached --check` 均通过。
+- 未重复执行已通过的产品验收或新增测试：产品内容与已验收分支逐字一致，没有影响原验证结果的代码、依赖或配置变化。本次不把此前 CI 结果当作新合并提交的 CI 结果；推送后的远端检查及合并状态需另行确认。
+- 用户原有未跟踪文件 `~` 未读取、未修改、未暂存。
