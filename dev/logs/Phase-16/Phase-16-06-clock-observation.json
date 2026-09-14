@@ -39,5 +39,29 @@
   },
   "host_clocksource": "tsc",
   "ntp_active": true,
-  "note": "Diagnostic only, not passing candidate evidence. No credentials or raw trace included."
+  "note": "Diagnostic only, not passing candidate evidence. No credentials or raw trace included.",
+  "resolution": {
+    "user_authorized": true,
+    "stable_window": [
+      "start 2026-09-14T15:04:43.004031+00:00",
+      "end 2026-09-14T15:41:27.653442+00:00 steps 0"
+    ],
+    "preflight_window": [
+      "start 2026-09-14T15:01:03.839200+00:00",
+      "end 2026-09-14T15:04:03.872275+00:00 steps 0"
+    ],
+    "temporary_settings": {
+      "clocksource": "hyperv_clocksource_tsc_page",
+      "GoPulse_systemd_timesyncd": "stopped",
+      "Ray_Work_systemd_timesyncd": "stopped",
+      "WSL_system_PHС_chrony": "unchanged; sole active synchronization source"
+    },
+    "restored_after_acceptance": [
+      "2026-09-14T23:42:08+08:00",
+      "tsc",
+      "active"
+    ],
+    "final_evidence": "Phase-16-06-evidence/linux-amd64.json",
+    "note": "Original blocked observation retained as history. Final candidate passed during monitored stable window. Original temporary host settings restored after acceptance; no persistent host changes."
+  }
 }

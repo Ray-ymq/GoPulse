@@ -2,7 +2,7 @@
 
 ## 状态
 
-**未完成，最终验收被宿主时钟反复回拨阻断，尚未推送。** 已产出 `1.13.6` 冻结候选；根与受管版本在本次暂停时恢复为最后已完成的 `1.13.5`，不把候选构建当作完成版本。完整失败诊断及继续条件见末尾。
+**本批已完成真实验收，产品完成版本 `1.13.6`。** 最终同候选证据见 `Phase-16-06-evidence/` 与末尾“最终完成验收”。前文保留实际失败/暂停历史，不替代最终结果。分支提交/推送不等于 Phase 16 全部批次已合入主线。
 
 ## 执行基础与边界
 
@@ -109,3 +109,63 @@
 - `scripts/verify-phase16-evidence.py`
 
 版本元数据曾用于候选构建，当前已恢复为主线完成版本，不在最终相对主线变更清单中。
+
+## 用户授权后恢复执行：时钟同步冲突排除（2026-09-14）
+
+- 用户明确同意临时调整 WSL2 宿主时钟同步/clocksource 后继续最终验收与推送。继续同一任务分支，不创建新分支、不重建冻结 v3。
+- 初始记录在 `.run/phase16-06/clock/before.txt`；原 clocksource `tsc`，GoPulse 发行版 `systemd-timesyncd` active。先临时切换为已存在的 `hyperv_clocksource_tsc_page`，180 秒观测仍有回拨；再暂停本发行版 timesyncd，仍出现回拨。这两步没有被记作成功修复。
+- 在独立 tracefs instance `gopulse-clock` 中只启用四个时钟调整 syscall 事件，观测 45 秒，实际发现 `chronyd` 和另一个 `systemd-timesyncd` 正在调用 `clock_adjtime`；两者不在当前发行版 PID 列表中。采样后已禁用事件并移除该 instance，未改全局 tracer。
+- 只读检查正在运行的 `Ray-Work` 与 WSL 系统环境，发现 Ray-Work 的 timesyncd active，WSL 系统 chrony 使用 PHC0 且曾报告约 64052 ppm 的异常频率修正。临时停止 Ray-Work 的 timesyncd 后保留 WSL 系统 PHC chrony 单一来源。未停止其他发行版、Docker、业务容器或 chrony；试图向只读检查中已消失的 timesyncd PID 175 发送 STOP 返回 `No such process`，没有实际暂停该进程。
+- 随后 `2026-09-14T15:01:03.839200Z` 至 `15:04:03.872275Z` 连续 180 秒/50ms 采样，超过 100ms 的墙钟相对单调钟跳变为 **0**；chrony 报告偏差收敛。该结果支持继续验收，不将 clocksource 切换单独宣称为根因修复。
+- 稳定窗口启动同 v3 `verify-release-artifacts --runtime` 及矩阵串联。虽然候选未变，时钟执行环境发生相关改变，重新运行受影响的最终固定门禁有明确依据。继续保留私有浏览器 trace；不改 JWT、UI 断言、超时或候选 digest。
+- 临时配置均未持久化。原始状态和结束时恢复结果另行记录；共享 WSL 时钟不可同时由多个发行版抢占调整的现象需作为宿主维护事项告知用户。
+
+## 最终完成验收：1.13.6 / v3（2026-09-14）
+
+### 冻结候选与交付输入
+
+- 唯一最终 revision：`a76089fc5097ebf4d218644e66da034472c1ebba`，未在最终验收期间重建或替换任何产品/plugin/runner。后续提交只记录文档、完成版本和 evidence；候选源码 worktree 仍可复核。
+- Manifest SHA-256：`09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687`。
+- Bundle archive SHA-256：`2016df48b4097509da3dc9fa9386a68811370bfdee0207f396fd70fa46c2c128`。
+- 镜像/plugin 全部 index、Linux amd64 platform、archive、entrypoint/schema digest 随 `Phase-16-06-evidence/release-manifest.json` 提交；包含 9 产品镜像、lifecycle、6 third-party、6 current 插件（历史插件条目仅保留，不参与跨版本验收）。
+- 验收镜像：`127.0.0.1:15003/gopulse/acceptance@sha256:f8b533bba7981145300cf536918e6fc6cc75e44ca2fdba909aee0caee417d503`，image ID/revision 由 runner 与产品运行 label 实际比对。
+- Bundle 保留于 `dist/phase16-06-v3/gopulse-1.13.6-bundle.tar.gz`；独立交付目录 `.run/phase16-06/delivery v3/`，包含空格路径，清洁源码 worktree `.run/phase16-06/source-v3/`。
+- 运行前分配随机 project 与 token，四个恢复 project 的身份 hash 随最终 JSON 交付；明文 state/secrets、备份口令、业务行对照和原始 Docker 配置只留在 0700 私有运行目录，不提交。
+
+### 实际最终命令与结果
+
+| 命令/固定范围 | 实际结果 |
+| --- | --- |
+| `GOPULSE_ACCEPTANCE_IMAGE=<v3 image ID> .run/phase16-06/source-v3/scripts/verify-release-artifacts.sh --manifest '<delivery v3>/release-manifest.json' --platform linux/amd64 --runtime` | 退出 0；`artifact-runtime-v3-clock-stable.log`，完整 metadata、plugin catalog、lifecycle runtime 和默认完整 Compose/清理均通过；六插件尾部真实用例 42.4 秒 |
+| `.run/phase16-06/run-matrix-v3.sh`（实际为计划对齐的 acceptance profile/container `phase16` 命令） | 退出 0；`matrix-v3-clock-stable.log`；所有七场景通过，最终 JSON 原子完成 |
+| 上述 runner 内 `verify_product_lifecycle.py --platform linux/amd64 --manifest … --clean-install --evidence …` | 通过；真实 doctor/init/up/verify/status/logs/down/up、只读快照、空格路径、私有权限、清理 |
+| 上述 runner 内 `verify_product_lifecycle.py … --failure-matrix` | 通过；并发锁、daemon、manifest tamper、1MiB tmpfs 磁盘不足、端口、权限、外来卷、SIGINT/SIGTERM、真实 MySQL pause 启动失败/非 ready 与清理 |
+| 上述 runner 复用 `CurrentRecovery.current_product/current_failures/cleanup`（等价三个 `--current-product` 子命令） | 通过；A/B/C、继续写入/六插件、双前端、三源 incident、非空目标拒绝、错误口令/tamper、导入失败/中断重试、归属清理 |
+| `python3 scripts/verify-phase16-evidence.py --linux .run/phase16-06/matrix-v3/evidence/linux-amd64.json` | 退出 0；同 manifest/revision/Bundle、host/server、场景/附件 hash、project 隔离、Secret 标记均通过 |
+| `python3 scripts/ci/release_artifacts.py promote --manifest '<delivery v3>/release-manifest.json'` | 退出 0；10 个产品/lifecycle 镜像在隔离本机 registry 晋升为 `1.13.6`，未重建，index digest 和 Bundle checksum 不变；`promote-v3.log` |
+
+聚合 runner 实际窗口 `2026-09-14T15:19:27.570368Z` 至 `15:41:12.520106Z`（Asia/Shanghai 23:19:27–23:41:12）。完整门禁及矩阵期间的持续时钟观测窗口 `15:04:43.004031Z` 至 `15:41:27.653442Z`，超过 100ms 的 wall-minus-monotonic 跳变 **0**。
+
+### 已证明的事实与证据位置
+
+- 所有七个场景均为最终 v3 同 manifest 通过；`linux-amd64.json` 引用的 JSON/日志附件整组提交，副本与原始公开证据逐字节一致。v1/v2 仅保留失败/历史，不被最终聚合器消费。
+- 桌面 1440×900、窄屏 390×844、键盘/焦点、语义入口、错误/恢复状态、登录/session/角色/登出、安全响应头与 Asia/Shanghai 非 UTC 场景来自实际 browser。A/B/C 三个项目各自通过 desktop/narrow/three-source-create；不是浏览器 mock 替代产品闭环。错误状态用浏览器请求故障注入验证 UI。
+- 六插件的真实成功时间/transported metrics/继续采集、业务搜索继续写入由 CurrentRecovery 正式 API 断言；源三类告警各有真实 rule/incident，操作审计实际存在。完整 Compose 另覆盖业务通知/Worker 恢复，不声明新增外部告警通知渠道。
+- 两份 format v1 加密备份分别来自 A 和恢复后继续写入的 B，独立 backup-inspect/fixture 审计均通过；B/C 都验证原有及新增内容，不只是行数一致。非空目标拒绝不改稳定事实；导入失败与 SIGTERM 中断均正式重试成功、无半完成 ready。
+- 实际全局资源集合以及无关容器 Image/Config/Mounts/StartedAt/RestartCount、网络/卷合同前后相同；用户 sentinel 未变；私有快照仅本地保存。Secret 扫描通过，未操作用户文件 `~`，未执行全局 prune。
+
+### Phase 17 交接与边界
+
+- 交接为 Linux amd64 完整 Compose 产品 `1.13.6`、冻结 Bundle/manifest、共享生命周期、唯一 edge/双前端、六插件/三源告警、backup format v1、当前数据配方与同 manifest 的两次恢复证据。公开入口文档为 `dev/phase16-linux-matrix.md`，恢复配方为 `dev/phase16-current-recovery.md`。
+- 备份保留在 `.run/phase16-06/matrix-v3/recovery/source/product.gpb` 和 `target/product.gpb`，口令独立私有保存；SHA-256 见公开 recovery JSON。不提交备份/口令/原始 trace。
+- 实际发布仅为 `127.0.0.1:15003` 隔离 registry 的同 digest 晋升；不宣称公网发布、跨主机可直接拉取、macOS/Windows/arm64、Kubernetes、历史或跨版本升级。
+- Phase-16-01 至 06 同名记录均存在。总方案 §15.1–15.4 技术验收已由本候选固定矩阵证明；§15.5 的“所有批次合入主线”仍须本开发分支实际合并后才能成立，本次提交/推送不提前宣称该行政条件或 Milestone 4 完成。
+- 按授权“临时调整”范围，验收结束后已将 clocksource 恢复为 `tsc`，GoPulse 与 Ray-Work 的 timesyncd 均恢复 active；没有持久化主机配置、停止 Docker 或修改业务服务。原始多源同步冲突可能再次导致宿主回拨，长期治理应统一 WSL 共享时钟的同步来源，不能通过放宽产品 JWT 解决。该宿主维护项不伪装成产品修复。
+- 完成版本及两套 Frontend 元数据最终同步为 `1.13.6`；后续文档/证据提交不更换已验证的候选 revision。
+
+### 最终 diff 检查与提交
+
+- `python3 scripts/ci/validate_versions.py`、`python3 scripts/ci/validate_branch.py --branch develop/1.13.6 --base-ref origin/main`、`git diff --check` 均通过。
+- 已验证公开证据的提交副本与原 evidence 逐字节相同；JSON 解析及使用本候选四个安装的真实 Secret/token/登录口令进行扫描均通过。不重新运行已成功且输入未变的产品门禁。
+- 根与受管版本更新为 `1.13.6`，新增整组 `Phase-16-06-evidence/` 及更新宿主诊断、Linux 产品矩阵、当前数据恢复文档。本次未修改冻结候选实现或受管 Bundle 内容。
+- 提交并推送当前批次 `develop/1.13.6`；最终远端提交 hash 以实际 push/ls-remote 结果为准。不包含用户未跟踪文件 `~`。
