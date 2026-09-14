@@ -24,10 +24,16 @@ class CurrentRecovery(Recovery):
 
     @staticmethod
     def resources():
-        return {kind: sorted(docker(*args).split()) for kind, args in {
-            'containers': ('ps', '-aq', '--no-trunc', '--filter', 'label!=io.gopulse.phase16.runner'),
+        resources = {kind: sorted(docker(*args).split()) for kind, args in {
+            'containers': ('ps', '-aq', '--no-trunc'),
             'networks': ('network', 'ls', '-q', '--no-trunc'),
             'volumes': ('volume', 'ls', '-q')}.items()}
+        if os.environ.get('GOPULSE_PHASE16_MATRIX') == '1':
+            own = docker('ps', '-aq', '--no-trunc', '--filter', 'label=io.gopulse.phase16.runner=true').split()
+            if len(own) != 1:
+                raise RuntimeError('exactly one Phase16 runner required for isolation snapshot')
+            resources['containers'] = sorted(set(resources['containers']) - set(own))
+        return resources
 
     def record(self):
         super().record()
