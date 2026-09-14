@@ -29,7 +29,7 @@ Use the versioned Linux amd64 Bundle and its immutable lifecycle tool, following
 [`deploy/release/BUNDLE-README.md`](deploy/release/BUNDLE-README.md). The Bundle's
 own Compose entry runs `doctor → init → up → verify → status/logs → down → up`
 without a source checkout or host Go/Node toolchain. Only its edge publishes a
-host port. Backup/restore and upgrade remain assigned to later Phase 16 batches.
+host port. Linux amd64 maintenance-window backup and same-bundle empty-project restore are implemented; see `docs/releases/backup-restore.md`. Legacy upgrade remains a separate batch.
 
 The source-based Bash commands below are **development and acceptance paths**,
 not the product installer. Historical PowerShell scripts remain frozen at 0.2.1.

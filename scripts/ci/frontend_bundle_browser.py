@@ -9,7 +9,7 @@ from pathlib import Path
 from verify_plugin_metrics import Client, wait_until
 
 
-def run_browser(install, state, status, secrets, image, docker):
+def run_browser(install, state, status, secrets, image, docker, credentials=None):
     # Resolve a local immutable image ID, never execute an arbitrary mutable tag.
     info = json.loads(docker('image', 'inspect', image))[0]
     assert image == info['Id'], 'acceptance image must be an immutable local image ID'
@@ -25,13 +25,18 @@ def run_browser(install, state, status, secrets, image, docker):
     assert re.fullmatch(r'[0-9a-f]{40}', runner_revision), 'browser source revision required'
     origin = status['edge']
     admin, user = Client(origin), Client(origin)
-    token = os.urandom(6).hex()
-    password = 'Acceptance-'+token+'-password'
-    names = ['admin_'+token, 'user_'+token]
-    for client, name in zip([admin, user], names):
-        client.request('auth/register', 'POST', {'username': name, 'password': password}, 201)
-    uid = admin.request('users/me')['data']['id']
-    docker('exec', backend[0], '/usr/local/bin/admin-role', 'bootstrap', '--user-id', str(uid))
+    if credentials:
+        password=credentials['password'];names=[credentials['admin'],credentials['user']]
+        for client,name in zip([admin,user],names):
+            client.request('auth/login','POST',{'username':name,'password':password})
+    else:
+        token = os.urandom(6).hex()
+        password = 'Acceptance-'+token+'-password'
+        names = ['admin_'+token, 'user_'+token]
+        for client, name in zip([admin, user], names):
+            client.request('auth/register', 'POST', {'username': name, 'password': password}, 201)
+        uid = admin.request('users/me')['data']['id']
+        docker('exec', backend[0], '/usr/local/bin/admin-role', 'bootstrap', '--user-id', str(uid))
     wait_until(lambda: len(admin.request('exporter-plugins/catalog')['data']) == 6, 'six plugin catalog')
     # The maintained Bundle bootstraps its real Redis plugin. Require that
     # source rather than replacing installation state with synthetic records.
@@ -70,4 +75,4 @@ def run_browser(install, state, status, secrets, image, docker):
                            capture_output=True, text=True, timeout=60, check=True)
         finally:
             file.unlink(missing_ok=True)
-    return {'runner_image':image, 'runner_revision':runner_revision, 'product_revision':labels['org.opencontainers.image.revision'], 'timezone':'Asia/Shanghai', 'checks':checks}
+    return {'runner_image':image, 'runner_revision':runner_revision, 'product_revision':labels['org.opencontainers.image.revision'], 'timezone':'Asia/Shanghai', 'accounts':'restored' if credentials else 'fresh', 'checks':checks}
