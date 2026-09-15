@@ -11,12 +11,15 @@ test('management center real DTO layouts, navigation and responsive controls', a
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page).toHaveURL(/\/admin\/$/)
   const changedPages = process.env.GOPULSE_PRESENTATION_ROUTES?.split(',')
-  for (const width of [1440, 768, 390]) {
+  for (const width of process.env.GOPULSE_SKIP_LAYOUTS ? [] : [1440, 768, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : width === 768 ? 1024 : 1000 })
     for (const route of changedPages ?? ['', 'metrics', 'logs', 'plugins', 'events', 'alerts', 'users', 'audit']) {
       await page.goto('/admin/' + route)
       await expect(page.locator('.admin-content')).toBeVisible()
-      if (route === '') await expect(page.locator('[data-section]')).toHaveCount(6)
+      if (route === '') {
+        await expect(page.locator('[data-section]')).toHaveCount(6)
+        await expect(page.locator('.overview-trends .metric-chart')).toHaveCount(2)
+      }
       if (route === 'metrics') await expect(page.locator('.metric-value').first()).toBeVisible()
       if (route === 'logs') {
         await expect(page.locator('.record-card').first()).toBeVisible()
@@ -40,6 +43,7 @@ test('management center real DTO layouts, navigation and responsive controls', a
         await expect(page.locator('.exporter-configuration')).toBeVisible()
       }
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      if (width !== 390) await expect(page.getByRole('button', { name: '管理导航' })).toBeHidden()
       if (width === 390) {
         await page.getByRole('button', { name: '管理导航' }).click()
         await expect(page.getByRole('navigation', { name: '可观测导航' })).toBeVisible()
@@ -47,7 +51,10 @@ test('management center real DTO layouts, navigation and responsive controls', a
       await expect(page.locator('.admin-nav [aria-current="page"]')).toHaveCount(1)
       if (width === 390) await page.getByRole('button', { name: '管理导航' }).click()
       const screenshot = path.join(path.resolve('..', process.env.GOPULSE_SCREENSHOT_DIR!), `${route || 'dashboard'}-${width}.png`)
-      if (['', 'metrics', 'logs', 'alerts', 'plugins'].includes(route) && !existsSync(screenshot)) await page.screenshot({ path: screenshot, fullPage: true })
+      if (['', 'metrics', 'logs', 'alerts', 'plugins'].includes(route) && !existsSync(screenshot)) {
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await page.screenshot({ path: screenshot, fullPage: true })
+      }
       if (route === 'logs' || route === 'alerts') {
         await page.getByRole('button', { name: '关闭详情', exact: true }).click()
         await expect(page.locator('.row-select').first()).toBeFocused()
@@ -64,6 +71,17 @@ test('management center real DTO layouts, navigation and responsive controls', a
     await expect(page.locator('.panel h3').first()).toHaveText('gopulse_redis_connected_clients')
     return
   }
+  // Existing catalog filters are local; verify a match, empty result and restoration.
+  await page.goto('/admin/plugins')
+  await page.getByLabel('搜索 Exporter', { exact: true }).fill('redis')
+  await expect(page.locator('[aria-label="官方插件目录"]>button')).toHaveCount(1)
+  await page.getByLabel('搜索 Exporter', { exact: true }).fill('no-such-exporter')
+  await expect(page.locator('[aria-label="官方插件目录"]>button')).toHaveCount(0)
+  await page.getByLabel('搜索 Exporter', { exact: true }).fill('')
+  await expect(page.locator('[aria-label="官方插件目录"]>button')).toHaveCount(6)
+  await page.getByRole('combobox', { name: '插件状态', exact: true }).selectOption('running')
+  await expect(page.locator('[aria-label="官方插件目录"]>button')).toHaveCount(1)
+  await page.getByRole('combobox', { name: '插件状态', exact: true }).selectOption('')
   // Actual filters, exact identifiers and empty state without intercepted APIs.
   await page.goto('/admin/logs')
   await page.getByLabel('Request ID', { exact: true }).fill('f'.repeat(32))

@@ -17,7 +17,7 @@ class VisualAcceptance(AdminAcceptance):
         (self.work/name).write_bytes(result.stdout.replace(self.auth_password.encode(), b'[REDACTED]'))
         assert result.returncode == 0, f'browser failed: {self.work/name}'
 
-    def run(self, previous=None, changed_pages=False):
+    def run(self, previous=None, changed_pages=False, completed_dashboard=None):
         server = json.loads(command(['docker', 'info', '--format', '{{json .}}']).stdout)
         assert server['OSType'] == 'linux' and server['Architecture'] == 'x86_64'
         services = ['backend', 'business-worker', 'search-indexer', 'frontend', 'admin-frontend', 'monitor', 'router', 'marshaller']
@@ -49,7 +49,7 @@ class VisualAcceptance(AdminAcceptance):
             data = self.admin.request('admin/overview?range=15m')['data']
             return data if all(row['value'] is not None for row in data['key_metrics']['items']) and data['logs']['status'] == 'healthy' and data['events']['status'] == 'healthy' else None
         overview = wait_until(ready, 'real overview data', 180)
-        for metric in ['gopulse_redis_up', 'gopulse_redis_connected_clients']:
+        for metric in ['gopulse_redis_up', 'gopulse_redis_connected_clients', 'gopulse_backend_outbox_pending', 'gopulse_monitor_event_queue_length']:
             wait_until(lambda: any(series['points'] for series in self.admin.request('observability/metrics?metric='+metric+'&range=15m')['data']['series']), 'real '+metric+' samples', 180)
         (self.work/'overview.json').write_text(json.dumps(overview, indent=2))
         env = dict(os.environ, GOPULSE_BASE_URL=base, GOPULSE_ADMIN_USERNAME=self.admin_name,
@@ -69,7 +69,16 @@ class VisualAcceptance(AdminAcceptance):
         elif previous:
             assert '4 passed' in (previous/'admin-browser.log').read_text()
             receipt = (previous/'dashboard-visual-browser.log').read_text()
-            if '2 passed' not in receipt:
+            if completed_dashboard:
+                assert '1 passed' in (completed_dashboard/'dashboard-browser.log').read_text()
+                # All 24 route/viewport checks and 15 captures completed before
+                # the subsequent catalog-filter locator failed. Resume controls only.
+                assert "getByLabel('插件状态'" in (completed_dashboard/'visual-browser.log').read_text()
+                for page in ['dashboard', 'metrics', 'logs', 'alerts', 'plugins']:
+                    for width in [1440, 768, 390]:
+                        assert (previous/'screenshots'/f'{page}-{width}.png').is_file()
+                env['GOPULSE_SKIP_LAYOUTS'] = '1'
+            elif '2 passed' not in receipt:
                 # The first batch-02 run passed self-demotion, but its old article
                 # locator failed after incidents became table rows. Run that gate only.
                 assert '1 passed' in receipt and 'real overview, catalog rule lifecycle' in receipt
@@ -98,6 +107,7 @@ class VisualAcceptance(AdminAcceptance):
             'project': self.project, 'screenshots': env['GOPULSE_SCREENSHOT_DIR'],
             'reused_receipts': str(previous) if previous else None,
             'changed_pages_only': ['metrics', 'plugins'] if changed_pages else None,
+            'reused_dashboard_and_layout_steps': str(completed_dashboard) if completed_dashboard else None,
         }, indent=2))
         self.mark('real admin, ordinary user, demotion, overview/partial, five visual pages, responsive navigation and bundle scan')
 
@@ -107,12 +117,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--resume-presentation', type=Path, help='Prior evidence for the same unchanged frontend; rerun only the corrected visual spec and pending partial gate')
     parser.add_argument('--changed-pages', action='store_true', help='Verify only final Metrics heading and Exporter summary changes; requires prior passed presentation receipts')
+    parser.add_argument('--completed-dashboard', type=Path, help='Same-candidate passed dashboard and completed layout steps; resume failed post-layout controls and pending partial only')
     args = parser.parse_args()
+    if args.completed_dashboard and (not args.resume_presentation or args.changed_pages):
+        parser.error('--completed-dashboard requires --resume-presentation and cannot combine with --changed-pages')
     if args.changed_pages and not args.resume_presentation:
         parser.error('--changed-pages requires --resume-presentation')
     acceptance = VisualAcceptance()
     print('Evidence: '+str(acceptance.work), flush=True)
     try:
-        acceptance.run(args.resume_presentation.resolve() if args.resume_presentation else None, args.changed_pages)
+        acceptance.run(args.resume_presentation.resolve() if args.resume_presentation else None, args.changed_pages, args.completed_dashboard.resolve() if args.completed_dashboard else None)
     finally:
         acceptance.cleanup()

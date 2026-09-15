@@ -1,5 +1,7 @@
 # Phase-17-02：管理中心前端二次展示更新实施记录
 
+> **2026-09-15 视觉验收更正**：第 1–6 节是提交 `a242855` 的首轮记录，其“视觉验收完成”结论被用户复核否定，不再作为视觉完成依据。功能测试通过不等于参考图还原通过。本轮在同一 `develop/1.14.2` 分支补正；最新实际结果见第 7 节。版本仍为 `1.14.2`。
+
 ## 1. 完成范围与基线
 
 - 日期：2026-09-15，WSL/Linux 工作区 `/home/ray/GoPulse`。
@@ -92,3 +94,85 @@
 本批固定门禁及直接验收通过，无未解决阻断失败；受管元数据统一 `1.14.2`。实现提交在 `develop/1.14.2` 创建并按用户要求推送，不代替合并 main，也不宣称 Phase 17 整体 Milestone 4 完成。
 
 已知非阻断边界：保留现有规则默认入口；概览不是历史趋势接口；Logs/Alerts 统计为已加载范围；示例验收环境仅 Redis 插件实际安装；真实数据的长文本与行数改变页面高度；参考图中不受 API 支持的功能不呈现为可用按钮。截图、Compose 回执保留在本地 `.run/`，不作为生产资源提交。未开展 Migration、运行时收口、跨架构、Kubernetes 或全面韧性验收。
+
+## 7. 用户复核后的同分支视觉补正（2026-09-15）
+
+### 7.1 纠正标准与实际实现
+
+用户指出首轮平台与参考图并不相同，经重新查看实际截图确认问题成立。首轮没有充分还原图标、统计卡、表格密度、操作位置和详情结构；不能把这些视觉欠缺归因于 API。继续当前分支，未新建批次、未升级 VERSION、未修改用户原图。
+
+本轮直接修改：
+
+- 新增 `components/AdminIcon.vue`：统一描边 SVG 图标及插件类型图形，不再用字符代替导航图标。所有 SVG 是代码原生资产，不使用参考图截图作运行时 UI。
+- 新增 `components/AdminStat.vue`：彩色圆角图标块、标签、主数值和统计口径的四卡结构，五页复用。
+- 新增 `components/AdminTrend.vue`：带纵轴数值、横轴时间、网格、图例和多序列色彩的真实 SVG 曲线；空采样明确不可用。不会插值制造业务数据；短时间窗显示秒级坐标。
+- `components/AdminLayout.vue`、`styles.css`：重做 224px 深蓝侧栏、58px 白色顶栏、品牌、导航分组/选中态、字号/间距、卡片和局部滚动表格。移除前两版冲突的 admin 展示覆盖层；保留普通管理页所需基础样式。菜单图标为装饰，不伪造搜索和通知功能；手机使用真实导航按钮。
+- `DashboardView.vue`：主视区变为四卡 → 横跨的组件表 → 双趋势图 → 告警/事件双栏；额外三分区放入可展开的“更多运行快照”，仍保留原六分区数据与错误边界。通过现有 Metrics API 查询 `gopulse_backend_outbox_pending`、`gopulse_monitor_event_queue_length`，提供实际存在的双趋势，不把“overview 无曲线”当作无法形成双图布局的理由。两个请求独立处理成功/失败，离开页面取消请求；不增加后端接口。
+- `ObservabilityMetricsView.vue`：统计四卡、主多序列图、最近采样/Series 双栏和查询信息；不再为每个序列堆叠大图和样本表。保留固定指标、时间窗、刷新、响应绑定标题和真实单位。
+- `ObservabilityLogsView.vue`：横向主筛选条，高级精确字段折叠；列表增加 Request ID 列和紧凑时间，桌面默认显示首条详情、手机由用户选择。所有长文保留详情及 title；宽表局部滚动、列表高度受控。四卡是真实已加载数量、error/warn 和服务数量。刷新失败清除详情并保留旧列表的测试保持通过。
+- `AlertsView.vue`：默认进入 current，规则仍通过 rules 页签直接可达；统计卡、列表内筛选、选中态、详情头部状态、基本信息与标签芯片按参考层级调整。严重程度仍独立于生命周期，未新增 Warning 状态；筛选改变清除选中详情。
+- `ObservabilityExportersView.vue`：左侧紧凑插件图标/名称/状态/版本列表、真实本地名称/状态筛选；右侧同一面板内顶部生命周期操作、锚点导航、基本信息网格、中文配置标签与底部连接测试/配置按钮；包更新通过明确更新按钮展开，旧版升级仍自动显示。没有回显 Secret，也没有添加明文显隐。配置字段、确认、文件校验及回滚合同保持原有实现。
+- 时间展示调整为中文 24 小时制，避免 AM/PM 把日志行挤成双行。
+
+### 7.2 直接测试调整与验证边界
+
+- `views/DashboardView.test.ts`：新增一例真实趋势返回与另一趋势失败的独立展示；原摘要与六分区测试保留。仅新增这一项测试，无覆盖率扩张。
+- `services/management.test.ts`：告警默认页改 current 后，原规则 DTO 测试显式切换 rules，再验证非法变更响应被拒绝。
+- `frontend/e2e/dashboard.spec.ts`：组件卡定位改为表格；规则操作显式切换 rules；停止规则后的历史详情按真实被停止的规则名称选择，不能假定它始终排第一。
+- `frontend/e2e/dashboard-partial.spec.ts`：展开更多运行快照后检查折叠分区的独立失败，保持原 partial 检查。
+- `frontend/e2e/admin-visual.spec.ts`：要求概览两条实际曲线、桌面移动菜单隐藏、五页三尺寸、截图前回到顶部；增加新插件筛选的匹配/空结果/恢复与状态筛选检查。
+- `scripts/ci/verify_admin_visual.py`：增加两条概览趋势的真实采样前置条件。沿用真实 Compose 和原门禁，不使用 API mock。
+
+共享壳层、默认告警路由和概览请求/图表都已变化，因此本轮原浏览器回执不能代替这些受影响行为的验证。本轮固定门禁针对新工作树重新执行。没有扩展 Backend 测试、依赖源码排查、Migration 或全产品韧性门禁。
+
+### 7.3 实際执行与失败修正
+
+1. 最小检查 `(cd admin-frontend && npx vitest run src/views/DashboardView.test.ts src/views/ObservabilityExportersView.test.ts src/views/ObservabilityLogsView.test.ts)`：3 文件、6 tests passed。
+2. 首次固定管理端测试和 Compose 镜像构建同时发现：旧规则测试默认请求 rules，页面已默认 current，导致 DTO 校验不匹配。修正该测试显式进入 rules，不修改安全校验。失败构建证据 `.run/gopulse-p1401-57a9d9668bee/build.log`，未启动产品。
+3. `python3 scripts/ci/verify_admin_visual.py`，证据 `.run/gopulse-p1401-380dc08920e6/`：管理员 4 passed、dashboard 2 passed、visual 1 passed、partial 1 passed，双 bundle 扫描通过。随后实际逐张查看五页截图，发现桌面菜单误显、统计图标颜色被旧样式覆盖、时间换行和小图坐标字号过小；**这一轮功能通过仍不视为视觉完成**，修正明确问题后进入最终候选。
+4. 最终候选本地固定命令：
+   - `(cd admin-frontend && npm test && npm run build)`：11 文件、41 tests passed；vue-tsc、tsc、Vite 构建通过。回执 `/tmp/p1702-fidelity-final-admin.log`。
+   - `./scripts/test-frontends.sh`：普通前端 18 文件/65 tests、管理前端 11 文件/41 tests 通过，双类型检查和构建通过。回执 `/tmp/p1702-fidelity-final-frontends.log`。
+   - `python3 scripts/ci/validate_versions.py`：通过，仍为 1.14.2。
+   - `python3 scripts/ci/validate_branch.py --branch develop/1.14.2 --base-ref origin/main`：通过。
+   - `git diff --check`：通过。
+5. 最终候选浏览器 `python3 scripts/ci/verify_admin_visual.py`，证据 `.run/gopulse-p1401-c155a6dd67d5/`：管理员 **4 passed**、dashboard 本人降权用例通过，但业务用例误选了历史列表第一行（恰好为另一个仍在 firing 的规则），导致关闭原因断言失败。将定位修正为实际停止的规则名称；没有修改生产代码，也没有更改排序/告警数据来迎合测试。
+6. 同候选补跑：`python3 scripts/ci/verify_admin_visual.py --resume-presentation .run/gopulse-p1401-c155a6dd67d5`，证据 `.run/gopulse-p1401-e39aeef4d783/`。
+   - `dashboard-browser.log`：失败的业务用例 **1 passed（23.4s）**，按真实目标规则验证关闭原因；不重复成功的管理员和本人降权用例。
+   - 视觉用例实际完成全部 24 个路由/尺寸组合、15 张截图、详情/关闭/焦点、插件名称筛选的匹配/空结果/恢复，随后在 `getByLabel('插件状态', {exact:true})` 超时。失败快照明确存在名为“插件状态”的 combobox；修正为 `getByRole('combobox', {name:'插件状态', exact:true})`。不是产品控件缺失，不改生产代码或标签来迎合选择器。
+7. 仅补剩余控制与 partial：
+   ```bash
+   python3 scripts/ci/verify_admin_visual.py \
+     --resume-presentation .run/gopulse-p1401-c155a6dd67d5 \
+     --completed-dashboard .run/gopulse-p1401-e39aeef4d783
+   ```
+   - 最终证据 `.run/gopulse-p1401-b8624b469e06/`。
+   - `visual-browser.log`：**1 passed**。跳过已完成的布局/截图循环，继续验证插件筛选、日志精确过滤/空结果/分页、Metrics 范围查询、skip link/主区焦点、返回社交和退出。
+   - `partial-browser.log`：**1 passed**。停止本轮自有 VictoriaMetrics 后，受影响分区 unavailable/degraded、告警分区 healthy 且计数仍可读；这是原计划固定 partial，不是新增韧性矩阵。
+   - 最终双生产 bundle 内部地址/token 标识/示例地址及测试 Secret 扫描通过。
+   - `result.json` 记录版本 **1.14.2**、候选基线 `a242855` 加工作树、Linux `x86_64`、三个视口，以及明确的 `reused_receipts`、`reused_dashboard_and_layout_steps`；不声称最后一轮重跑了所有项目。
+   - `runner.log` 包含实际 PASS 和归属清理结果。所有轮次均只清理自有资源，保留预存容器/网络/卷。
+
+最终本地回执已复制到 `.run/gopulse-p1401-b8624b469e06/{admin-unit-build.log,frontends.log}`，不只依赖 `/tmp`。本轮固定门禁完成，无尚未解决的必需测试失败；已通过且未受后续代码变化影响的项目没有再次运行。
+
+### 7.4 最终视觉对照（与功能门禁分开）
+
+最终实际截图：`.run/gopulse-p1401-c155a6dd67d5/screenshots/{dashboard,metrics,logs,alerts,plugins}-{1440,768,390}.png`，共 15 张。由 `e39aeef4d783` 运行的相同最终产品候选采集到既定续跑目录；`b8624b469e06/result.json` 指向此目录。不是首轮 `a242855` 的旧图，也没有用修图替换产品画面。
+
+- 桌面逐张实际查看五张 PNG，并与第二组五张基准对照。桌面移动菜单误显、图标颜色覆盖、时间折行等首轮问题已消除；截图采集前滚回顶部，旧版 sticky 导航偏移问题不再混淆对照。
+- 768×1024、390×844 的五页顶部和底部以已有 PNG 制作联系图人工查看（`/tmp/p1702-fidelity-{768,390}-contact.png`），不重新采集应用或改变原图。确认手机导航、统计卡、查询、详情和配置表单未挤出页面，宽表局部滚动；浏览器已逐页断言 document 宽度无溢出，详情关闭能返回原行焦点。
+- 图片为 full-page，不将文件高度当作 viewport 高度。真实数据和必要安全说明影响页面长度，不宣称逐像素相同。
+
+| 页面 | 最终还原的视觉结构 | 保留并明确说明的差异 |
+| --- | --- | --- |
+| 系统概览 | 四张带图标摘要、横跨组件状态表、两张有坐标的真实趋势、告警/事件双栏 | 现有组件是 GoPulse 六组件，不冒充图中的基础设施列表；曲线为现有 Backend 待发送消息与 Monitor 事件队列，不伪造 CPU/内存或 HTTP 趋势；事件仍为窗口计数并提供详情入口。 |
+| Metrics | 横向查询、彩色四卡、统一主图与图例、双栏辅助区域 | 当前 API 按单个固定指标查询，未增加任意实例/PromQL；辅助区域用真实最近采样代替缺失的 CPU 使用率；实际一个序列就绘制一个序列，不填充示例三条。 |
+| Logs | 横向精确检索/筛选、四卡、紧凑表和右侧详情 | 搜索是 Request ID 精确匹配而非全文/Trace；使用真实安全字段、游标加载更多而非虚假的总页数；详情不回显原始文档。 |
+| Alerts | 当前告警入口、四卡、列表内筛选、详情标题/状态/标签层级 | 保留 rules/current/history 的实际语义；Warning 是严重程度，Closed 替代未提供的静默统计；没有不存在的确认/静默/关联趋势按钮。真实仅三条记录时列表不补示例行。 |
+| Exporter | 类型 SVG 图标、紧凑左列表、顶部真实启停/更新操作、右侧基本信息与紧凑配置 | 仅 Redis 实际安装，其余未安装，不伪造版本/时间/状态；锚点为实际信息/配置/指标，未添加历史版本或日志空页签；Secret 不回填、不提供明文显隐。 |
+
+视觉改动已落实到上述可见结构，而不是用“API 差异”解释原有图标、留白或卡片结构欠缺。剩余可见差异与真实 DTO、可用操作、安全/响应式约束有关；统一描边图标是本地实现，不宣称与参考图中的第三方品牌美术逐像素一致。
+
+### 7.5 本轮交付
+
+最终代码、固定门禁和视觉证据均已完成；继续同一 `develop/1.14.2` 分支提交本次补正，产品版本仍为 **1.14.2**。不修改 Backend/API/Schema/Compose/release 合同，不扩展 Phase-17-03 工作，不创建 PR 或自动合并 main。用户原始 `Management_Center/` 保持未跟踪且不纳入提交。
