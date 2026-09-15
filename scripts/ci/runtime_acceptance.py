@@ -149,9 +149,9 @@ class Acceptance:
         finally:command(['docker','unpause',monitor])
         self.mark('monitor is soft for social API')
     def negative_config(self):
-        for service,key,value in [('backend','AUTH_JWT_SECRET','short-canary'),('backend','MYSQL_HOST','127.0.0.1'),('router','GOPULSE_RUNTIME_MODE','bad-mode-canary'),('router','ROUTER_HTTP_PORT','70000'),('router','ROUTER_METRICS_TOKEN',self.values['ROUTER_API_TOKEN'])]:
+        for service,key,value in [('backend','AUTH_JWT_SECRET',''),('backend','AUTH_JWT_SECRET','short-canary'),('backend','MYSQL_HOST','127.0.0.1'),('router','GOPULSE_RUNTIME_MODE','bad-mode-canary'),('router','ROUTER_HTTP_PORT','70000'),('router','ROUTER_METRICS_TOKEN',self.values['ROUTER_API_TOKEN'])]:
             p=self.compose('run','--rm','--no-deps','-e',key+'='+value,service,timeout=30,check=False)
-            assert p.returncode!=0 and value.encode() not in p.stdout+p.stderr,'configuration accepted or leaked'
+            assert p.returncode!=0 and (not value or value.encode() not in p.stdout+p.stderr),'configuration accepted or leaked'
         self.mark('missing/short secret, loopback, mode, range and credential reuse fail before listening')
     def correlation(self):
         request=urllib.request.Request(self.origin+'/api/v1/runtime-missing',headers={'X-Request-ID':'external-canary'})

@@ -100,3 +100,5 @@
 继续执行时发现并修复：edge 负向断言误包含既有 `/health` 与 `/ready`（保持原有入口，仅禁止新增入口）；开发状态页适配 runtime v1 且不臆造依赖状态；Kafka 请求重试超时；Worker 预算耗尽前取消并等待 requeue 收尾。第二次 signal 用真实子进程验证，HTTP 在途正常/超时和 consumer 在途 requeue 用最低有效测试层验证。
 
 当前已通过：共享 runtime package/race、Backend 固定包、Worker/Indexer race、Router/Marshaller/Monitor module、Monitor plugin race、六 Exporter package/race、双前端 test/build、lifecycle release/control、合同自测试/静态检查、版本/分支检查。继续中的真实 runtime 故障注入、最终 Compose 和实际 Bundle 结果将在最终记录替换本历史进度说明。
+
+真实插件启动场景发现 Monitor 仍按历史字面量比较 `/health` 响应，导致新的 runtime v1 Exporter 启动后被误判失败并停止。已改为按已校验的 package version 选择健康响应合同：历史包保留原 exact service JSON，1.14.3 起接受 v1 Probe，固定端口与进程 ownership 检查保持不变。直接兼容/不兼容测试、Monitor 全模块与 plugin race 通过。初版实际 Bundle 已构建并通过 checksum 校验；因本产品修复需另建最终候选，不复用旧 Monitor 镜像作最终验收。

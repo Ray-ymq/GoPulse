@@ -117,9 +117,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	}
 
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-	var major, minor, patch int
-	_, _ = fmt.Sscanf(manifest.Version, "%d.%d.%d", &major, &minor, &patch)
-	if major > 1 || major == 1 && (minor > 14 || minor == 14 && patch >= 3) {
+	if runtimeContractManifest(manifest) {
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stdout
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
@@ -152,7 +150,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 		if requestErr == nil {
 			body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
 			response.Body.Close()
-			if response.StatusCode == http.StatusOK && string(body) == `{"status":"ok","service":"`+manifest.ID+`"}` {
+			if response.StatusCode == http.StatusOK && validProcessHealth(manifest, body) {
 				// A response on the fixed port must not hide an immediately
 				// exiting candidate (for example a retained failure fixture).
 				select {
@@ -255,4 +253,22 @@ func validateHealthPort(env map[string]string) error {
 		return errors.New("invalid exporter port")
 	}
 	return nil
+}
+
+// Historical packages retain their original exact health response. Current
+// official packages use the shared runtime wire contract on the same port.
+func runtimeContractManifest(manifest Manifest) bool {
+	var major, minor, patch int
+	_, _ = fmt.Sscanf(manifest.Version, "%d.%d.%d", &major, &minor, &patch)
+	return major > 1 || major == 1 && (minor > 14 || minor == 14 && patch >= 3)
+}
+func validProcessHealth(manifest Manifest, body []byte) bool {
+	if !runtimeContractManifest(manifest) {
+		return string(body) == `{"status":"ok","service":"`+manifest.ID+`"}`
+	}
+	var response struct {
+		Status          string `json:"status"`
+		ContractVersion string `json:"contract_version"`
+	}
+	return json.Unmarshal(body, &response) == nil && response.Status == "ok" && response.ContractVersion == componentmetrics.RuntimeContractVersion
 }
