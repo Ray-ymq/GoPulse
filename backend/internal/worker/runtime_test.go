@@ -62,3 +62,33 @@ func TestConsumeSessionCancelsAndJoinsInFlightHandlerAfterShutdownGrace(t *testi
 		t.Fatalf("acks=%d nacks=%d requeue=%t, want one requeue", acknowledger.acks, acknowledger.nacks, acknowledger.requeue)
 	}
 }
+
+func TestReadinessFollowsConsumerSession(t *testing.T) {
+	runtime := &Runtime{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if runtime.Ready(ctx) == nil {
+		t.Fatal("consumer ready before session")
+	}
+	session := &amqpSession{deliveries: make(chan amqp.Delivery), connectionClosed: make(chan *amqp.Error), channelClosed: make(chan *amqp.Error)}
+	done := make(chan error, 1)
+	go func() { done <- runtime.consumeSession(ctx, session, nil) }()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for runtime.Ready(ctx) != nil {
+		select {
+		case <-deadline.C:
+			t.Fatal("session did not become ready")
+		case <-ticker.C:
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if runtime.Ready(context.Background()) == nil {
+		t.Fatal("closed consumer session ready")
+	}
+}

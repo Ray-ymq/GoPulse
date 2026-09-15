@@ -67,6 +67,7 @@ func NewHandler(token string, maxBytes int, snapshot Snapshot) (http.Handler, er
 // Listener owns only the private HTTP server. The caller owns the root context
 // and supplies its shared shutdown deadline; no second signal handler is added.
 type Listener struct {
+	probes *Probes
 	server *http.Server
 	done   chan struct{}
 }
@@ -121,6 +122,9 @@ func start(ctx context.Context, address string, handler http.Handler) (*Listener
 }
 
 func (l *Listener) Shutdown(ctx context.Context) error {
+	if l.probes != nil {
+		l.probes.Stop()
+	}
 	err := l.server.Shutdown(ctx)
 	if err != nil {
 		_ = l.server.Close()

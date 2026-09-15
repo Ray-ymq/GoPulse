@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
@@ -89,7 +90,22 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	componentmetrics.BindShutdown(ctx, cfg.Worker.ShutdownTimeout)
-	internalMetrics, err := componentmetrics.StartConfigured(ctx, "search-indexer", metrics.Snapshot)
+	probes, err := componentmetrics.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
+		if err := runtime.Ready(checkCtx); err != nil {
+			return err
+		}
+		if err := mysqlClient.Check(checkCtx); err != nil {
+			return err
+		}
+		if err := elasticsearchClient.Check(checkCtx); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(ctx, "search-indexer", metrics.Snapshot, probes)
 	if err != nil {
 		return err
 	}
@@ -98,6 +114,7 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) error {
 		defer cancel()
 		_ = internalMetrics.Shutdown(shutdownCtx)
 	}()
+	probes.Started()
 	lifecycleLogger.Info("search indexer started")
 	if err := runtime.Run(ctx); err != nil {
 		return errors.New("search indexer runtime failed")

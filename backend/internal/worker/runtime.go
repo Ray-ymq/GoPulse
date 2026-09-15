@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
@@ -30,6 +31,7 @@ type RuntimeOptions struct {
 }
 
 type Runtime struct {
+	connected     atomic.Bool
 	connectionURL string
 	processor     Processor
 	options       RuntimeOptions
@@ -118,7 +120,20 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 	return nil
 }
 
+// Ready reports the consumer session, without opening a second broker connection.
+func (runtime *Runtime) Ready(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if !runtime.connected.Load() {
+		return errors.New("consumer_not_ready")
+	}
+	return nil
+}
+
 func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession, handler *Handler) error {
+	runtime.connected.Store(true)
+	defer runtime.connected.Store(false)
 	for {
 		select {
 		case <-ctx.Done():
