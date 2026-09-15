@@ -1,16 +1,16 @@
 # Phase 17：稳定性与工程化总实施方案
 
-> 规划基线（2026-09-15）：主远程 `upstream/main` 提交 `bde822f5ce5fa2aacc2b4f97cdb09f0959ec38be`，根完成版本为 `1.13.6`，Phase 16 六个批次及 Linux `amd64` 产品矩阵已经完成。本文档规划临时插入的管理中心前端展示更新及 Kubernetes 前的 Compose 产品工程质量收口；规划提交位于 `update`，不修改 `VERSION`。
+> 规划更新（2026-09-15）：已获取主远程 `origin/main`，基线提交 `3e13a2b`，根完成版本为 `1.14.1`，第一轮管理中心展示更新已合入。按用户要求再次临时插入前端批次，分配 `develop/1.14.2`；本次只调整计划并创建分支，不修改已完成产品版本。
 
 ## 1. 阶段目标
 
-Phase 17 先以临时插入批次完成管理中心前端展示更新，再在 Phase 16 已交付的完整 Linux `amd64` Compose 产品上统一运行时和有状态处理契约，并以同一个最终候选完成 Milestone 4 验收：
+Phase 17 先以两个临时插入批次完成管理中心前端展示更新，再在 Phase 16 已交付的完整 Linux `amd64` Compose 产品上统一运行时和有状态处理契约，并以同一个最终候选完成 Milestone 4 验收：
 
 ```text
 Phase 16 immutable bundle + current data/recovery contract
                            │
                            ▼
-       admin frontend presentation update
+       admin frontend presentation update (17-01 then 17-02)
                            │
                            ▼
         runtime contract and diagnosability closure
@@ -27,7 +27,7 @@ Phase 16 immutable bundle + current data/recovery contract
 
 阶段完成时必须达到：
 
-- 独立 Admin Frontend 的共享壳层、管理大屏、Metrics、Logs 和 Exporter 页面按 `dev/imple/Phase-17/assets/Management_Center/` 四张视觉基准完成真实数据驱动的展示更新，并保持响应式、可访问性和权限边界。
+- 独立 Admin Frontend 的共享壳层、管理大屏、Metrics、Logs 和 Exporter 页面按 `dev/imple/Phase-17/assets/Management_Center/` 第一组四张视觉基准完成首轮更新，再按 `dev/imple/Phase-17/assets/Management_Center/2/` 五张视觉基准完成含 Alerts 的二次真实数据驱动展示更新，并保持响应式、可访问性和权限边界。
 - Backend、Business Worker、Search Indexer、Router、Marshaller、Monitor 和六类 Exporter 使用一致、可机器校验的配置、启动、存活、就绪、关停和安全诊断语义。
 - 对外及内部 HTTP 请求具有稳定 Request ID、结构化日志和统一错误包络；错误、日志、状态与证据不泄漏凭据、内部地址、服务器路径或原始异常。
 - MySQL Schema 由单一 Migration 流程管理，空库和直接前序 `1.13.6` 当前数据均能安全推进，dirty、未来版本和并发迁移安全失败。
@@ -41,7 +41,7 @@ Phase 16 immutable bundle + current data/recovery contract
 
 ### 2.1 本阶段交付
 
-- 一套对齐 `dev/imple/Phase-17/assets/Management_Center/` 视觉基准的 Admin Frontend 管理壳层，以及管理大屏、Metrics、Logs、Exporter 四页的真实数据展示更新。
+- 一套对齐 `dev/imple/Phase-17/assets/Management_Center/2/` 视觉基准的 Admin Frontend 管理壳层，以及管理大屏、Metrics、Logs、Alerts、Exporter 五页的真实数据展示更新。
 - 一份版本化运行时合同及其校验器，覆盖长运行 Go 组件的配置项归属、敏感性、Probe 路径、硬/软依赖、退出预算和兼容别名。
 - `startup`、`live`、`ready` 三类 Probe，以及 Phase 16 `/health` 兼容入口；Worker/Indexer 使用既有私有组件端口，不新增宿主暴露。
 - 一套共享关停顺序：先撤销就绪，再停止接收新工作，排空在途请求/消息，限时刷新日志与事件，最后关闭连接和监听器。
@@ -90,16 +90,19 @@ Phase 16 immutable bundle + current data/recovery contract
 - 每批只实现其拆分方案；固定门禁通过后更新同名实施记录和 `VERSION`，提交并停止。
 - 规划工作留在 `update`，不提前创建开发分支、不修改产品版本。
 
+第二轮追加输入为 `dev/imple/Phase-17/assets/Management_Center/2/` 五张 PNG，原始来源为用户工作区 `Management_Center/2/`，对应关系见 Phase-17-02。
+
 ## 4. 权威批次、版本与分支分配
 
-Phase 17 对应 `1.14.x`，patch `0` 为阶段基线。因用户在任何 Phase 17 开发分支创建前临时插入管理中心前端展示更新，本阶段调整为三个实现批次和一个集成收口批次；原三个未创建批次依次后移并重新分配版本/分支：
+Phase 17 对应 `1.14.x`，patch `0` 为阶段基线。第一轮展示更新已完成，用户再次要求插入管理中心前端更新。本阶段调整为四个实现批次和一个集成收口批次；原运行时、持久状态、最终验收三个批次的开发分支均未创建，依次后移。已推送的 `develop/1.14.1` 不改名、不重编号：
 
 | 批次 | 目标版本 | 分支 | 交付主题 | 状态 |
 | --- | --- | --- | --- | --- |
-| Phase-17-01 | `1.14.1` | `develop/1.14.1` | 管理中心前端展示更新 | 待实施（临时插入） |
-| Phase-17-02 | `1.14.2` | `develop/1.14.2` | 统一运行时契约与服务可诊断闭环 | 待实施 |
-| Phase-17-03 | `1.14.3` | `develop/1.14.3` | Migration 与消息处理可靠性闭环 | 待实施 |
-| Phase-17-04 | `1.14.4` | `develop/1.14.4` | 完整 Compose 韧性验收与 Milestone 4 收口 | 待实施 |
+| Phase-17-01 | `1.14.1` | `develop/1.14.1` | 管理中心前端展示更新 | 已完成并合入 main |
+| Phase-17-02 | `1.14.2` | `develop/1.14.2` | 管理中心前端二次展示更新 | 已完成实现及批次验收，待合入 main |
+| Phase-17-03 | `1.14.3` | `develop/1.14.3` | 统一运行时契约与服务可诊断闭环 | 待实施 |
+| Phase-17-04 | `1.14.4` | `develop/1.14.4` | Migration 与消息处理可靠性闭环 | 待实施 |
+| Phase-17-05 | `1.14.5` | `develop/1.14.5` | 完整 Compose 韧性验收与 Milestone 4 收口 | 待实施 |
 
 本表是 Phase 17 唯一权威的批次到版本、分支映射。批次顺序或数量在任何分支创建前变化时，必须先更新本表并重算未创建分支；已推送分支不得静默改名或重编号。
 
@@ -109,26 +112,29 @@ Phase 17 对应 `1.14.x`，patch `0` 为阶段基线。因用户在任何 Phase 
 17-01 admin frontend layout/dashboard/metrics/logs/exporter
                     │
                     ▼
-17-02 runtime/config/probe/log/error contract
+17-02 admin frontend second update (five references, including alerts)
                     │
                     ▼
-17-03 migration + Rabbit/Kafka/alert state safety
+17-03 runtime/config/probe/log/error contract
                     │
                     ▼
-17-04 one-candidate Compose resilience acceptance
+17-04 migration + Rabbit/Kafka/alert state safety
+                    │
+                    ▼
+17-05 one-candidate Compose resilience acceptance
 ```
 
 1. 管理中心展示先独立收口，使后续运行时错误映射、状态展示和最终候选验收基于稳定的 Admin Frontend 壳层，不在工程化批次中混入大范围视觉改造。
 2. Probe、日志和关停必须先形成稳定公共合同，有状态处理批次才能用统一状态与日志证明故障和恢复结果。
 3. Migration、RabbitMQ、Kafka 和告警均涉及“何时提交状态、失败后是否重放、重复执行是否安全”，放在一个批次形成数据正确性闭环，而不按中间件机械拆分。
-4. 最终批次只消费前三批合同并运行跨批矩阵，避免在收口时首次设计接口或加入功能。
-5. 四批包含一次经用户确认的临时前端插入，不再额外安排默认 Review、覆盖率或技术清单式批次。
+4. 最终批次只消费前四批合同并运行跨批矩阵，避免在收口时首次设计接口或加入功能。
+5. 五批包含两次经用户确认的临时前端插入，不再额外安排默认 Review、覆盖率或技术清单式批次。
 
 ## 6. 权威运行时合同
 
 ### 6.1 合同载体
 
-Phase-17-02 应增加机器可读的运行时合同（建议路径 `deploy/runtime-contracts.json`）和对应 schema/校验器，至少记录：
+Phase-17-03 应增加机器可读的运行时合同（建议路径 `deploy/runtime-contracts.json`）和对应 schema/校验器，至少记录：
 
 - contract version、组件 ID、镜像逻辑名和运行模式；
 - 每个组件拥有的环境变量、类型、必填/默认、是否敏感、兼容别名及废弃期限；
@@ -225,7 +231,7 @@ Backend 公开 API 以及 Monitor/Router/Marshaller 的 JSON API 使用统一失
 - `status` 报告 binary target、database version 和 `clean/behind/current/dirty/ahead`，不输出 DSN；Backend readiness 只在 `current` 时成功。
 - `up` 使用数据库锁、按序提交并可安全重复执行；并发 runner 只有一个写者，其他实例限时等待或安全失败。
 - 已知历史 migration 12 的专用恢复逻辑可保留，但不得扩展为任意 dirty 自动 force。未知 dirty、缺号、checksum/embedded set 不一致或数据库版本高于 binary 必须停止且保持原状态。
-- 固定验证覆盖空库到当前版本、`1.13.6` 当前数据到 `1.14.3/1.14.4`、重复 up、并发 up、dirty/future 拒绝，以及迁移后角色、业务、搜索、告警、审计和新写入。回退依赖 Phase 16 backup/restore，不以 down migration 宣称生产回滚。
+- 固定验证覆盖空库到当前版本、`1.13.6` 当前数据到 `1.14.4/1.14.5`、重复 up、并发 up、dirty/future 拒绝，以及迁移后角色、业务、搜索、告警、审计和新写入。回退依赖 Phase 16 backup/restore，不以 down migration 宣称生产回滚。
 
 ## 10. 消息与告警可靠性合同
 
@@ -270,23 +276,29 @@ Backend 公开 API 以及 Monitor/Router/Marshaller 的 JSON API 使用统一失
 - 保持 Events、告警、用户角色、审计在新壳层可用，并完成管理员/普通用户、同源、响应式和可访问性回归。
 - 不修改 Backend/API/Schema/消息合同，不提前实现运行时、Migration 或最终韧性验收。
 
-### Phase-17-02：统一运行时契约与服务可诊断闭环
+### Phase-17-02：管理中心前端二次展示更新
 
-- 基于已合入的 `1.14.1` 管理中心展示建立机器可读运行时合同与校验器。
+- 使用第二组五张视觉基准更新系统概览、Metrics、Logs、Alerts、Exporter 和共享壳层。
+- 延续现有真实 DTO、权限与同源边界；不把参考图中无 API 支撑的操作或数据伪装成已实现。
+- 执行五页桌面/窄屏对照及直接功能回归，不修改后端或 Compose 合同。
+
+### Phase-17-03：统一运行时契约与服务可诊断闭环
+
+- 基于已合入的 `1.14.2` 管理中心展示建立机器可读运行时合同与校验器。
 - 对齐配置、三类 Probe、`/health` 兼容、共享退出预算、Request ID、结构化日志和 API 错误。
 - 在 Compose 中验证配置失败、软/硬依赖、Probe 状态变化和 SIGTERM/SIGINT 排空。
-- 不修改 Schema，不重新设计 Rabbit/Kafka/告警状态机，不运行 Milestone 4 最终候选矩阵，也不回退 Phase-17-01 管理体验。
+- 不修改 Schema，不重新设计 Rabbit/Kafka/告警状态机，不运行 Milestone 4 最终候选矩阵，也不回退 Phase-17-02 管理体验。
 
-### Phase-17-03：Migration 与消息处理可靠性闭环
+### Phase-17-04：Migration 与消息处理可靠性闭环
 
 - 完成 Migration status/validate/up、直接前序数据推进和安全拒绝路径。
 - 完成 RabbitMQ、Kafka 与告警在重试、重连、重平衡、重复投递、poison、关停和恢复下的固定合同。
-- 复用 Phase-17-02 的 Probe/日志/错误输出结果，不另建诊断协议。
+- 复用 Phase-17-03 的 Probe/日志/错误输出结果，不另建诊断协议。
 - 不新增业务能力、备份格式或 Kubernetes 资源，不提前宣称 Milestone 4 完成。
 
-### Phase-17-04：完整 Compose 韧性验收与 Milestone 4 收口
+### Phase-17-05：完整 Compose 韧性验收与 Milestone 4 收口
 
-- 冻结同一个 `1.14.4` Linux `amd64` manifest/Bundle/digest 候选。
+- 冻结同一个 `1.14.5` Linux `amd64` manifest/Bundle/digest 候选。
 - 从独立 Bundle 运行运行时、Migration、消息、告警、角色、双 Frontend、六插件、业务故障隔离和资源清理矩阵。
 - 聚合 Phase 17 专属脱敏 evidence，更新支持/运维/Phase 18 交接文档及同名实施记录。
 - 只修复最终矩阵暴露的直接阻断，不首次加入功能或安排一般性 Review。
@@ -295,7 +307,7 @@ Backend 公开 API 以及 Monitor/Router/Marshaller 的 JSON API 使用统一失
 
 ### 13.1 管理中心前端展示
 
-1. `1440 × 1000` 下的管理壳层、管理大屏、Metrics、Logs 和 Exporter 页面与四张视觉基准保持一致的信息层级与视觉语言，且只展示真实 API 事实。
+1. `1440 × 1000` 下的管理壳层、管理大屏、Metrics、Logs、Alerts 和 Exporter 页面与第二组五张视觉基准保持一致的信息层级与视觉语言，且只展示真实 API 事实。
 2. loading/empty/partial/error、长字段、插件生命周期和 unknown 语义正确；参考图示例数据、地址和账号未硬编码进产品。
 3. 代表性窄屏无不可控溢出，键盘/focus/heading/label/status 可用；普通用户不能挂载管理页面或发送管理 API 请求。
 4. Events、告警、用户角色和审计在新壳层中无功能回退，统一登录、返回社交、退出、角色撤销和同源边界保持成立。
@@ -316,10 +328,10 @@ Backend 公开 API 以及 Monitor/Router/Marshaller 的 JSON API 使用统一失
 
 ### 13.4 完整产品与 Milestone 4
 
-1. 同一 `1.14.4` 候选从独立 Bundle 在真实 Linux `amd64` server 上完成 lifecycle、唯一 edge、两个 Frontend、六插件、三源告警和代表性业务闭环。
+1. 同一 `1.14.5` 候选从独立 Bundle 在真实 Linux `amd64` server 上完成 lifecycle、唯一 edge、两个 Frontend、六插件、三源告警和代表性业务闭环。
 2. 身份/权限矩阵、内部服务负向探测、可观测故障隔离、当前 backup/restore 回归、资源归属与清理全部通过。
 3. evidence 绑定同一 release manifest、runtime contract digest、Git revision、Bundle checksum 和场景输入；聚合器拒绝缺项、失败、不同候选或非 Linux `amd64` runtime。
-4. 四份拆分方案均有同名真实实施记录，根完成版本为 `1.14.4`，四个批次按顺序合入主线，无阻断问题。
+4. 五份拆分方案均有同名真实实施记录，根完成版本为 `1.14.5`，五个批次按顺序合入主线，无阻断问题。
 
 只有以上全部满足才完成 Milestone 4。Kubernetes 不是任何一项成立条件。
 
@@ -348,7 +360,7 @@ Phase 16 runtime gate 已包含的完整 Compose 场景应由最终聚合 runner
 
 ## 15. Evidence 合同
 
-Phase-17-04 的最终 JSON 至少记录：
+Phase-17-05 的最终 JSON 至少记录：
 
 - schema version、Git revision、product version、release manifest/Bundle/runtime contract digest；
 - host OS/kernel/CPU、Docker server OS/arch、Compose version 和运行时间窗口；
@@ -364,9 +376,10 @@ Phase-17-04 的最终 JSON 至少记录：
 | 批次 | 开工前确认 | 未满足时 |
 | --- | --- | --- |
 | 17-01 | 四张视觉基准、现有 Admin Frontend DTO/路由/权限与真实 Compose 管理入口 | 只实现现有数据可表达的展示；不硬编码示例值或猜测新 API |
-| 17-02 | 组件/端口/配置真实清单、现有 Probe 和退出预算、Phase 16 Bundle 合同 | 先补机器清单；不凭文档猜测实现已一致 |
-| 17-03 | Migration 当前版本、`1.13.6` 当前数据输入、Rabbit topology、Kafka topic/group、告警 lease | 阻断对应真实状态门禁；不以 mock 冒充 |
-| 17-04 | 可拉取的同一 `1.14.4` 候选、真实 Linux `amd64` server、独立目录/project/数据与执行窗口 | 阻断 Milestone 4 收口，不回滚前批已通过结果 |
+| 17-02 | 第二组五张视觉基准、`1.14.1` 前端、现有 DTO/告警操作与真实 Compose 管理入口 | 无数据区域明确标注；不扩展后端合同 |
+| 17-03 | 组件/端口/配置真实清单、现有 Probe 和退出预算、Phase 16 Bundle 合同 | 先补机器清单；不凭文档猜测实现已一致 |
+| 17-04 | Migration 当前版本、`1.13.6` 当前数据输入、Rabbit topology、Kafka topic/group、告警 lease | 阻断对应真实状态门禁；不以 mock 冒充 |
+| 17-05 | 可拉取的同一 `1.14.5` 候选、真实 Linux `amd64` server、独立目录/project/数据与执行窗口 | 阻断 Milestone 4 收口，不回滚前批已通过结果 |
 
 不得猜测依赖已恢复、消息已提交、Schema 已 clean、角色未降级、日志已脱敏、候选来自同一 manifest 或 Kubernetes 将自动修复问题；结论必须来自实际状态、业务事实和 evidence。
 
@@ -374,7 +387,7 @@ Phase-17-04 的最终 JSON 至少记录：
 
 - 每批完成前创建 `dev/logs/Phase-17/` 下与拆分方案同名的 Markdown 记录。
 - 记录实际改动文件、命令与结果、首次失败及最小修复、候选/evidence、偏差、已知限制和非阻断后续项；未运行的检查不得写为通过。
-- 四批完成时分别把 `VERSION` 及受管版本元数据更新为 `1.14.1`、`1.14.2`、`1.14.3`、`1.14.4` 并纳入本批提交。
+- 五批完成时分别把 `VERSION` 及受管版本元数据更新为 `1.14.1`、`1.14.2`、`1.14.3`、`1.14.4`、`1.14.5` 并纳入本批提交。
 - 每批只提交本任务文件，不包含用户或其他任务的工作区改动；规划提交不修改 `VERSION`。
 
 ## 18. 停止条件与 Phase 18 交接
@@ -383,8 +396,8 @@ Phase-17-04 的最终 JSON 至少记录：
 
 Phase 17 只在第 13 节全部通过时完成并收口 Milestone 4。交给 Phase 18 的固定输入是：
 
-- `1.14.4` Linux `amd64` 完整产品、不可变 release manifest、Bundle 和制品 digest；
-- 已通过四张视觉基准、响应式、可访问性、统一登录和权限回归的独立 Admin Frontend 管理体验；
+- `1.14.5` Linux `amd64` 完整产品、不可变 release manifest、Bundle 和制品 digest；
+- 已通过第二组五张视觉基准、响应式、可访问性、统一登录和权限回归的独立 Admin Frontend 管理体验；
 - 机器可读运行时合同、配置目录、三类 Probe、`/health` 兼容期、统一退出预算与稳定错误/日志语义；
 - 当前 Schema target、`1.13.6 → 1.14.x` 单跳 Migration 证据，以及 Rabbit/Kafka/告警可靠性合同；
 - 完整 Compose 产品、角色矩阵、故障隔离、backup/restore 和资源清理的 Phase 17 evidence。

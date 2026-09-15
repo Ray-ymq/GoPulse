@@ -38,18 +38,19 @@ async function createSocialPost(page: Page, marker: string): Promise<void> {
 async function waitForMetric(page: Page, timeout = 45_000): Promise<void> {
   const started = Date.now()
   await page.goto('/admin/metrics')
-  await expect(page.getByRole('heading', { name: 'Plugin & Component Metrics' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Metrics', exact: true })).toBeVisible()
   await expect.poll(async () => {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.waitForTimeout(500)
-    return page.locator('.metric-value').count()
+    // A summary card also exists for empty results; require actual plotted samples.
+    return page.locator('.metric-chart[role="img"]').count()
   }, { timeout }).toBeGreaterThan(0)
   if (timeout > 45_000) console.info(`Cold-install metric visibility: ${Date.now() - started}ms`)
 }
 
 async function waitForLogs(page: Page): Promise<void> {
   await page.goto('/admin/logs')
-  await expect(page.getByRole('heading', { name: '应用日志' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Logs', exact: true })).toBeVisible()
   await expect.poll(async () => {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.waitForTimeout(500)
@@ -121,8 +122,8 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
     await expect.poll(async () => {
       await page.getByRole('button', { name: '刷新状态' }).click()
       await page.waitForTimeout(500)
-      return page.locator('.exporter-details > div').filter({ hasText: '最近成功' }).locator('strong').textContent()
-    }, { timeout: 30_000 }).not.toBe('—')
+      return page.locator('.exporter-info-grid > div').filter({ has: page.locator('dt', { hasText: /^最近成功$/ }) }).locator('dd').textContent()
+    }, { timeout: 30_000 }).toMatch(/^\d{4}\/\d{1,2}\/\d{1,2} /)
     page.once('dialog', dialog => dialog.accept())
     await page.getByRole('button', { name: '停止', exact: true }).click()
     await expect(page.locator('.state-pill')).toHaveText('stopped', { timeout: 20_000 })
@@ -187,7 +188,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
   if (scenario === 'manage') {
     expect(redisPassword).not.toBe('')
     await page.goto('/admin/plugins')
-    await expect(page.getByRole('heading', { name: 'GoPulse redis Exporter 目标配置', exact: true })).toBeVisible()
+    await expect(page.locator('#exporter-config').getByRole('heading', { name: '配置参数', exact: true })).toBeVisible()
     await page.getByLabel('host', { exact: true }).fill('redis')
     await page.getByLabel('password').fill(redisPassword)
     await page.getByRole('button', { name: '安装并启动' }).click()
