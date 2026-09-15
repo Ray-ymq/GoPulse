@@ -4,7 +4,7 @@ import { getOverview, type Overview } from '../services/overview'
 const data = ref<Overview | null>(null), busy = ref(false), error = ref(false)
 const links: Record<string, string> = { components:'/metrics', key_metrics:'/metrics', logs:'/logs', events:'/events', plugins:'/plugins', alerts:'/alerts' }
 const titles: Record<string, string> = { components:'关键组件健康度', key_metrics:'关键指标快照', logs:'日志 · 15 分钟', events:'最近事件 · 15 分钟', plugins:'六插件', alerts:'告警概览' }
-const order = ['components', 'alerts', 'key_metrics', 'events', 'logs', 'plugins'] as const
+const order = ['components', 'key_metrics', 'plugins', 'alerts', 'events', 'logs'] as const
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 const summaries = computed(() => ['components', 'plugins', 'logs', 'alerts'].map(name => {
   const section = data.value?.sections[name]
@@ -31,7 +31,7 @@ onMounted(load)
 </script>
 <template>
   <section :aria-busy="busy">
-    <div class="admin-title"><div><p class="admin-eyebrow">SYSTEM OVERVIEW</p><h2>管理大屏</h2><p>快速确认业务基础组件、采集链路与告警状态。</p></div><button class="button" :disabled="busy" @click="load">刷新大屏</button></div>
+    <div class="admin-title"><div><p class="admin-eyebrow">SYSTEM OVERVIEW</p><h2>系统概览</h2><p>快速确认业务基础组件、采集链路与告警状态。</p></div><button class="button" :disabled="busy" @click="load">刷新大屏</button></div>
     <p v-if="busy" role="status">正在加载大屏…</p><p v-if="error" class="notice notice--error" role="alert">大屏加载失败，请重试。</p>
     <template v-if="data">
       <div class="summary-grid"><div v-for="summary in summaries" :key="summary.name"><span>{{ summary.title }}</span><strong>{{ summary.value }}</strong><span>{{ summary.status }}</span></div></div>

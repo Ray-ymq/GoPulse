@@ -9,9 +9,9 @@ const open = ref(false)
 const logoutError = ref(false)
 const loggingOut = ref(false)
 const groups = [
-  { title: 'OVERVIEW', links: [{ to: '/', label: '管理大屏', icon: 'D' }] },
-  { title: 'OBSERVABILITY', links: [{ to: '/metrics', label: 'Metrics', icon: 'M' }, { to: '/logs', label: 'Logs', icon: 'L' }, { to: '/events', label: 'Events', icon: 'E' }, { to: '/alerts', label: '告警', icon: 'A' }] },
-  { title: 'MANAGEMENT', links: [{ to: '/plugins', label: 'Exporter', icon: 'X' }, { to: '/users', label: '用户角色', icon: 'U' }, { to: '/audit', label: '审计', icon: 'R' }] },
+  { title: '概览', links: [{ to: '/', label: '系统概览', icon: '⌂' }] },
+  { title: '可观测', links: [{ to: '/metrics', label: 'Metrics', icon: '▥' }, { to: '/logs', label: 'Logs', icon: '▤' }, { to: '/events', label: 'Events', icon: '▧' }, { to: '/alerts', label: 'Alerts', icon: '♧' }] },
+  { title: '系统管理', links: [{ to: '/plugins', label: 'Exporter', icon: '◇' }, { to: '/users', label: '用户角色', icon: '♙' }, { to: '/audit', label: '审计', icon: '▣' }] },
 ]
 const title = computed(() => groups.flatMap(group => group.links).find(link => link.to === route.path)?.label ?? '管理中心')
 async function logout() {
@@ -27,7 +27,7 @@ async function logout() {
   <div class="admin-shell">
     <a class="gp-skip" href="#admin-main">跳至主要内容</a>
     <aside class="admin-sidebar">
-      <div class="admin-brand"><span class="brand-mark" aria-hidden="true">GP</span><div><strong>GoPulse</strong><small>OBSERVABILITY</small></div></div>
+      <div class="admin-brand"><span class="brand-mark" aria-hidden="true">ϟ</span><div><strong>GoPulse</strong><small>管理中心</small></div></div>
       <button class="nav-toggle button button--secondary" :aria-expanded="open" aria-controls="admin-navigation" @click="open = !open">管理导航</button>
       <nav id="admin-navigation" class="admin-nav" :class="{ 'is-open': open }" aria-label="可观测导航">
         <div v-for="group in groups" :key="group.title" class="nav-group">

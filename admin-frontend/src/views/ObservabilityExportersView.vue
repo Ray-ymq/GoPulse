@@ -82,9 +82,10 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
 </script>
 <template>
   <section :aria-busy="busy">
-    <div class="admin-title"><div><p class="admin-eyebrow">MONITOR PLUGIN MANAGER</p><h2>官方 Exporter 插件</h2><p>当前状态来自 Monitor 的严格公共 DTO；Events 与历史 Metrics 仅用于后续核对。</p></div><button class="button" :disabled="busy" @click="load">{{ loading ? '刷新中…' : '刷新状态' }}</button></div>
+    <div class="admin-title"><div><p class="admin-eyebrow">MONITOR PLUGIN MANAGER</p><h2>Exporter</h2><p>当前状态来自 Monitor 的严格公共 DTO；Events 与历史 Metrics 仅用于后续核对。</p></div><button class="button" :disabled="busy" @click="load">{{ loading ? '刷新中…' : '刷新状态' }}</button></div>
     <p v-if="message" class="notice" role="status">{{ message }}</p>
-    <div class="summary-grid exporter-catalog" aria-label="官方插件目录">
+    <div class="summary-grid" aria-label="已安装插件状态摘要"><div><span>全部 · 已安装 Exporter</span><strong>{{loaded?statuses.length:'未知'}}</strong></div><div v-for="state in ['running','stopped','failed']" :key="state"><span>{{state}} · 已安装 Exporter</span><strong>{{loaded?statuses.filter(item=>item.observed_state===state).length:'未知'}}</strong></div></div>
+    <div class="exporter-master-detail"><div class="summary-grid exporter-catalog" aria-label="官方插件目录">
       <button v-for="item in catalog" :key="item.id" class="panel" :disabled="busy" :aria-pressed="selected === item.id" @click="selectPlugin(item.id)">
         <span class="plugin-icon" aria-hidden="true">{{ item.name.charAt(0) }}</span><strong>{{ item.name }}</strong><span>{{ item.available ? (item.configured ? '已配置' : '未安装') : '未交付' }}</span>
       </button>
@@ -122,6 +123,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
       </div>
       <div class="panel exporter-update"><div><h3>更新安装包</h3><p>更新会保留服务端安全校验与回滚语义。</p></div><label class="file-field">新的 .tar.gz 包<input ref="packageInput" type="file" accept=".tar.gz,application/gzip" @change="selectPackage"></label><button class="button" :disabled="busy" @click="run('update')">{{ operation === 'update' ? '更新中…' : '确认更新' }}</button></div>
     </template>
+    </div>
     </div>
   </section>
 </template>
