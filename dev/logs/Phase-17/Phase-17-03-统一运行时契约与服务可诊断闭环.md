@@ -102,3 +102,9 @@
 当前已通过：共享 runtime package/race、Backend 固定包、Worker/Indexer race、Router/Marshaller/Monitor module、Monitor plugin race、六 Exporter package/race、双前端 test/build、lifecycle release/control、合同自测试/静态检查、版本/分支检查。继续中的真实 runtime 故障注入、最终 Compose 和实际 Bundle 结果将在最终记录替换本历史进度说明。
 
 真实插件启动场景发现 Monitor 仍按历史字面量比较 `/health` 响应，导致新的 runtime v1 Exporter 启动后被误判失败并停止。已改为按已校验的 package version 选择健康响应合同：历史包保留原 exact service JSON，1.14.3 起接受 v1 Probe，固定端口与进程 ownership 检查保持不变。直接兼容/不兼容测试、Monitor 全模块与 plugin race 通过。初版实际 Bundle 已构建并通过 checksum 校验；因本产品修复需另建最终候选，不复用旧 Monitor 镜像作最终验收。
+
+## 必需门禁触发的范围扩展：Kafka 数据目录对齐
+
+在最终 Compose 的强制容器替换后，新请求日志 90s 内始终不可见；Topic initializer 输出重新创建同名 Topic。针对该实测故障，只读取当前锁定 Kafka 镜像的实际配置，确认 `log.dirs=/tmp/kraft-combined-logs`，而 Compose 声明的持久卷挂载点为 `/var/lib/kafka/data`。这是现有声明持久化契约未落实，不能靠降低 Worker 退出码、只查旧日志、重启消费者或跳过固定门禁掩盖。
+
+因此扩大本批的直接配置修复范围：显式指定 Kafka 使用已声明的数据卷目录；在既有 Kafka 替换场景增加前后 Topic ID 不变检查，并继续用新 Request ID 证明日志链路恢复。不会修改 Rabbit/Kafka commit、rebalance、业务 Schema、已有用户容器或数据，也不开展历史升级矩阵。对旧安装：旧 Kafka 的容器可写层可能持有尚未迁入命名卷的数据，不能直接重建容器；需先制定离线保全/迁移方案。本批候选不声明历史版本自动升级兼容。

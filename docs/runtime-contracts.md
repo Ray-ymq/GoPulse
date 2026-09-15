@@ -80,3 +80,19 @@ checksums; older releases retain their original compatibility rules. Runtime
 acceptance writes owned-project evidence with contract digest, probe/fault/
 signal results and log digests under `.run/gopulse-runtime-*/`. Local private
 environment files are never committed or included in release archives.
+
+## Existing-installation caveat
+
+Kafka explicitly uses `/var/lib/kafka/data`, its declared Compose named-volume
+mount. The fixed full-product gate verifies that replacement preserves the
+Topic ID and that a new correlated log becomes queryable before idle signal
+checks. The previous image default wrote under `/tmp/kraft-combined-logs`; an
+older live installation may therefore hold Kafka data in its container writable
+layer. Do not recreate such a container assuming the named volume contains all
+data. Preserve that data and establish an offline migration procedure first.
+This batch does not claim historical automatic-upgrade compatibility or change
+Kafka commit/rebalance semantics. The candidate is not externally promoted.
+
+Backend recognizes persisted runtime metadata when decoding logs but retains
+the existing public log-page projection, keeping both frontend validators and
+management behavior compatible.

@@ -755,9 +755,18 @@ done
 assert_bootstrap_status
 replace_service redis
 replace_service victoriametrics
+kafka_topic_id() {
+  owned_service_id kafka >/dev/null
+  compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic gopulse-observability-v1 |
+    awk '/TopicId:/ { for (i=1; i<=NF; i++) if ($i == "TopicId:") print $(i+1) }'
+}
+KAFKA_TOPIC_BEFORE=$(kafka_topic_id)
+[[ -n $KAFKA_TOPIC_BEFORE ]] || fail 'Kafka topic identity is absent before replacement'
 replace_service kafka
 # Complete the existing initializer before asserting transport recovery or idle drains.
 compose run --rm --no-deps kafka-init
+[[ $(kafka_topic_id) == "$KAFKA_TOPIC_BEFORE" ]] || fail 'Kafka replacement lost the persisted topic identity'
+pass 'Kafka replacement preserved the topic ID in its declared named data volume.'
 replace_service elasticsearch
 run_business_scenario persistence
 run_observability_scenario persistence

@@ -485,6 +485,7 @@ services:
     hostname: kafka
     environment:
       KAFKA_NODE_ID: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_LISTENERS: CONTROLLER://:9093,INTERNAL://:19092
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092
