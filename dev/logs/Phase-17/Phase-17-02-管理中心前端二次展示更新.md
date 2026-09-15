@@ -191,3 +191,16 @@
 
 - `npx playwright test e2e/compose-observability.spec.ts --list`：通过，用例可解析加载；这只是运行前检查，不记为浏览器通过。
 - 首次 `scripts/verify-compose.sh` 在 Docker 访问前按既有规则拒绝脏构建源（未提交 spec 和用户未跟踪 `Management_Center/`）。不关闭安全检查、不移动用户文件：先提交本次 spec 修复，再从此提交创建独立干净 detached worktree 执行同一 CI 命令。完整结果尚待执行，不提前记为通过。
+
+### 完整 closure 的实际结果与后续定位
+
+- 从提交 `fc56fc7` 的独立干净 worktree 执行 `scripts/verify-compose.sh`：原失败的 admin 场景通过（最近采集、插件启停、真实 Metrics/Logs/Events）。业务读写、Redis fallback、Worker/Indexer 恢复、VM/Monitor/Router 故障隔离与恢复、服务替换、信号关停、down/up 持久化、独立 Redis Exporter、manage 冷安装及双尺寸 frontend-product 场景均通过；manage 冷安装真实指标可见耗时约 44.5s，场景 1 passed（47.1s）。
+- 该命令最终仍以 1 退出：最后调用的 `phase15-closure.spec.ts` 三源规则创建在点击“创建规则”前超时。原因是同一个本批展示变化：Alerts 默认 current，而旧测试未切换 rules。实际日志 `.run/pr-1.14.2-ci-fix/closure-first.log`，保留失败结论，不冒称本地完整命令通过。
+- 最小修复 `frontend/e2e/phase15-closure.spec.ts`：进入 Alerts 后显式点击 rules，其余三源目录、选择器、创建及返回记录断言保持不变。因为只是末尾测试导航修正，后续本地仅补实际失败的三源规则场景，不重复已通过的产品故障/持久化场景；推送后由远程完整 CI 再确认整条门禁。
+
+### 末尾规则场景补验与交付
+
+- 在隔离真实 Compose 上以相同管理员 bootstrap/真实目录运行 `npx playwright test e2e/phase15-closure.spec.ts --grep 'create exact three-source'`：**1 passed**。完整创建 Metrics、Logs、Events 三条规则并验证真实返回列表，没有 mock API。
+- 证据 `.run/gopulse-p1401-3b52307308a9/{build.log,startup.log,rules-browser.log,result.json}`，临时复现驱动保留于 `.run/pr-1.14.2-ci-fix/verify-rules.py`。驱动结束完成归属清理，保留原有资源；独立干净 worktree 已移除。
+- `npx playwright test e2e/compose-observability.spec.ts e2e/phase15-closure.spec.ts --list` 与 `git diff --check` 通过。未重复无关单元/视觉测试，未修改应用或受管版本；仍为 `1.14.2`。
+- 本地记录的结论是“原 full closure 的已成功场景 + 最后失败场景修正后独立通过”，不是声称同一完整命令已全部通过。提交推送两处验收适配后，以新远程 workflow 的结果判定自动 PR 是否恢复。
