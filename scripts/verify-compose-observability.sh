@@ -606,7 +606,10 @@ exercise_signal_shutdown() {
     id=$(owned_service_id "$service")
     compose stop --timeout 25 "$service"
     exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")
-    [[ $exit_code == 0 ]] || fail "$service did not stop cleanly after its configured signal (exit $exit_code)"
+    if [[ $exit_code != 0 ]]; then
+      compose logs --no-color --tail 40 "$service" >&2 || true
+      fail "$service did not stop cleanly after its configured signal (exit $exit_code)"
+    fi
     compose start "$service"
     case $service in
       business-worker|search-indexer) wait_running "$service" ;;
@@ -754,6 +757,7 @@ compose up --detach kafka-init
 replace_service elasticsearch
 run_business_scenario persistence
 run_observability_scenario persistence
+run_observability_scenario post-restart
 exercise_signal_shutdown
 exercise_persistence
 exercise_standalone_exporter

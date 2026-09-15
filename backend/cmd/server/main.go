@@ -47,6 +47,7 @@ const (
 )
 
 func main() {
+	defer componentmetrics.ReleaseShutdown()
 	stdoutLogger := logging.New("backend", os.Stdout)
 	cfg, err := config.Load()
 	if err != nil {
@@ -70,16 +71,18 @@ func main() {
 	if err = run(cfg, logger); err != nil {
 		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"))
 		if shipper != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.LogShip.ShutdownTimeout)
+			ctx, cancel := componentmetrics.ShutdownContext(cfg.LogShip.ShutdownTimeout)
 			_ = shipper.Close(ctx)
 			cancel()
 		}
 		os.Exit(1)
 	}
 	if shipper != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.LogShip.ShutdownTimeout)
+		ctx, cancel := componentmetrics.ShutdownContext(cfg.LogShip.ShutdownTimeout)
 		if err := shipper.Close(ctx); err != nil {
 			logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
+			cancel()
+			os.Exit(1)
 		}
 		cancel()
 	}
@@ -279,8 +282,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		case <-time.After(3 * time.Second):
 		}
 	}()
-	releaseBudget := componentmetrics.BindShutdown(signalContext, shutdownTimeout)
-	defer releaseBudget()
+	componentmetrics.BindShutdown(signalContext, shutdownTimeout)
 	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, probes)
 	if err != nil {
 		return err

@@ -223,6 +223,21 @@ class Acceptance:
         finally:
             command(['docker','unpause',source]);command(['docker','start',cid])
         wait(lambda:self.status('redis-exporter',200),'exporter restart after disconnected shutdown')
+    def interrupted_log_drain(self):
+        monitor=self.ids['monitor'];self.owned(monitor)
+        backend=self.ids['backend'];self.owned(backend)
+        command(['docker','pause',monitor])
+        try:
+            self.client.request('posts')
+            time.sleep(.3)
+            started=time.monotonic();command(['docker','kill','--signal','TERM',backend])
+            code=command(['docker','wait',backend],timeout=8).stdout.decode().strip()
+            elapsed=time.monotonic()-started
+            assert code=='1' and elapsed<7,'Backend log drain must fail within the original process budget'
+            self.mark('Backend disconnected log drain deadline',exit_code=1,elapsed_seconds=round(elapsed,3))
+        finally:
+            command(['docker','unpause',monitor]);command(['docker','start',backend])
+        wait(lambda:self.status('backend',200),'Backend restart after failed drain')
     def signals(self):
         for signal_name in ('TERM','INT'):
             for component,cid in self.ids.items():
@@ -242,7 +257,7 @@ class Acceptance:
     def run(self):
         passed=False
         try:
-            self.build();self.exporters();self.probes();self.negative_config();self.correlation();self.faults();self.managed_plugins();self.disconnected_shutdown();self.signals();self.logs();passed=True
+            self.build();self.exporters();self.probes();self.negative_config();self.correlation();self.faults();self.managed_plugins();self.disconnected_shutdown();self.interrupted_log_drain();self.signals();self.logs();passed=True
         finally:
             if not passed:
                 for component,cid in self.ids.items():
