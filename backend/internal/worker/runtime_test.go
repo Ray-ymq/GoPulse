@@ -47,15 +47,15 @@ func TestConsumeSessionCancelsAndJoinsInFlightHandlerAfterShutdownGrace(t *testi
 
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("consumeSession() error = %v", err)
+		if err == nil {
+			t.Fatal("shutdown deadline must return a failure")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("consumeSession() did not return after canceling the processor")
 	}
 	select {
 	case <-processor.stopped:
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("consumeSession() returned with the processor goroutine still running")
 	}
 	if acknowledger.acks != 0 || acknowledger.nacks != 1 || !acknowledger.requeue {

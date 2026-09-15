@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/config"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/consumer"
@@ -113,11 +114,14 @@ func main() {
 	defer cancel()
 	releaseBudget := componentmetrics.BindShutdown(rootCtx, cfg.ShutdownTimeout)
 	defer releaseBudget()
-	internalMetrics, err := componentmetrics.StartConfigured(rootCtx, "marshaller", state.Snapshot)
+	probes, _ := componentmetrics.NewProbes(rootCtx, cfg.ReadinessTimeout, 250*time.Millisecond, server.Check)
+	server.SetProbes(probes)
+	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(rootCtx, "marshaller", state.Snapshot, probes)
 	if err != nil {
 		logger.Error("metrics listener initialization failed", "event", "startup_failed")
 		os.Exit(1)
 	}
+	probes.Started()
 	serveErrors := make(chan error, 1)
 	consumerDone := make(chan error, 1)
 	go func() {
@@ -129,6 +133,7 @@ func main() {
 	}()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
 	exitCode := 0
 	running := true
 	for running {
@@ -147,9 +152,12 @@ func main() {
 				logger.Error("consumer partition halted", "module", "consumer", "event", "consumer_halted")
 				exitCode = 1
 			}
+			running = false
 			consumerDone = nil
 		}
 	}
+	signal.Stop(signals)
+	probes.Stop()
 	cancel()
 	ownership.CancelAll()
 	shutdownCtx, shutdownCancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)

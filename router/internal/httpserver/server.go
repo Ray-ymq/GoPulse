@@ -26,6 +26,7 @@ type Producer interface {
 }
 
 type Server struct {
+	probes         *componentmetrics.Probes
 	httpServer     *http.Server
 	producer       Producer
 	token          string
@@ -48,20 +49,34 @@ func New(cfg config.Config, producer Producer, logger *slog.Logger) *Server {
 	mux.HandleFunc("POST /internal/v1/messages", s.publish)
 	s.httpServer = &http.Server{
 		Addr:              cfg.Address(),
-		Handler:           mux,
+		Handler:           componentmetrics.HTTP(mux, logger),
 		ReadHeaderTimeout: cfg.RequestTimeout,
 		ReadTimeout:       cfg.RequestTimeout,
 		WriteTimeout:      cfg.RequestTimeout + time.Second,
 		IdleTimeout:       30 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
+	p, _ := componentmetrics.NewProbes(context.Background(), cfg.RequestTimeout, 250*time.Millisecond, func(ctx context.Context) error { return producer.Ready(ctx, config.Topic) })
+	p.Started()
+	s.SetProbes(p)
 	return s
 }
 
-func (s *Server) Handler() http.Handler              { return s.httpServer.Handler }
-func (s *Server) ListenAndServe() error              { return s.httpServer.ListenAndServe() }
-func (s *Server) Serve(listener net.Listener) error  { return s.httpServer.Serve(listener) }
-func (s *Server) Shutdown(ctx context.Context) error { return s.httpServer.Shutdown(ctx) }
+func (s *Server) Handler() http.Handler             { return s.httpServer.Handler }
+func (s *Server) ListenAndServe() error             { return s.httpServer.ListenAndServe() }
+func (s *Server) Serve(listener net.Listener) error { return s.httpServer.Serve(listener) }
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.probes.Stop()
+	err := s.httpServer.Shutdown(ctx)
+	if err != nil {
+		_ = s.httpServer.Close()
+	}
+	return err
+}
+func (s *Server) SetProbes(p *componentmetrics.Probes) {
+	s.probes = p
+	s.httpServer.Handler = p.Wrap(s.httpServer.Handler)
+}
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "router"})
@@ -172,19 +187,7 @@ func readBody(body io.Reader, limit int64) ([]byte, bool, error) {
 }
 
 func writeError(w http.ResponseWriter, status int, code string) {
-	messages := map[string]string{
-		"internal_authentication_required": "internal authentication is required",
-		"message_invalid":                  "message is invalid",
-		"message_too_large":                "message is too large",
-		"message_type_unsupported":         "message type is unsupported",
-		"kafka_unavailable":                "message transport is unavailable",
-		"internal_error":                   "internal error",
-	}
-	message, ok := messages[code]
-	if !ok {
-		code, message, status = "internal_error", messages["internal_error"], http.StatusInternalServerError
-	}
-	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+	componentmetrics.WriteError(w, status, code, strings.ReplaceAll(code, "_", " "))
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

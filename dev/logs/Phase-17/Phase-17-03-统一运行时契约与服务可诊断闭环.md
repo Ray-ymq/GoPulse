@@ -88,3 +88,15 @@
 9. 全部门禁通过后才能更新 `VERSION`／前端元数据为 `1.14.3`，提交完成状态并推送。
 
 无需因上下文切换重跑上述已成功且相关实现未变化的检查。本记录不声明 Phase-17-03 完成，也不声称任何尚未执行的测试已通过。
+
+## 继续实施进度（尚待最终验收）
+
+已继续扩展十二进程 Probe、Request ID、日志公共原语、typed loader 公共边界以及合同／Bundle／lifecycle 消费。由于这次直接修改了 Backend 共享 logger 与多处内部 HTTP client，最小回归扩展为 Backend 全 module 测试；不是常规代码审计或覆盖率扩张。首轮全 module 测试通过；随后对 worker 超时退出码的语义修改另行验证。Redis 原有 Field(err) 断言与公共配置错误格式的适配、readiness 250ms 缓存引起的既有立即恢复断言、HTTP 错误增加 Request ID 引起的旧断言，均按新契约做直接修正。
+
+## 当前候选实现（最终容器门禁进行中）
+
+十二组件合同、Probe、配置、日志、Request ID、共享退出预算、六 Exporter、Monitor 子进程、Bundle/lifecycle 和双前端适配已落地，当前候选元数据为 1.14.3。此前“未完成项”是基础提交时的历史状态，不代表当前实现缺失。此提交为生成不可变候选 Bundle 所需的干净源码提交，**不声明最终验收完成**。
+
+继续执行时发现并修复：edge 负向断言误包含既有 `/health` 与 `/ready`（保持原有入口，仅禁止新增入口）；开发状态页适配 runtime v1 且不臆造依赖状态；Kafka 请求重试超时；Worker 预算耗尽前取消并等待 requeue 收尾。第二次 signal 用真实子进程验证，HTTP 在途正常/超时和 consumer 在途 requeue 用最低有效测试层验证。
+
+当前已通过：共享 runtime package/race、Backend 固定包、Worker/Indexer race、Router/Marshaller/Monitor module、Monitor plugin race、六 Exporter package/race、双前端 test/build、lifecycle release/control、合同自测试/静态检查、版本/分支检查。继续中的真实 runtime 故障注入、最终 Compose 和实际 Bundle 结果将在最终记录替换本历史进度说明。

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net/http"
 	"net/url"
@@ -362,7 +363,7 @@ func (repository *ElasticsearchRepository) do(ctx context.Context, method, path 
 	if repository == nil || repository.performer == nil {
 		return nil, ErrUnavailable
 	}
-	request, err := http.NewRequestWithContext(ctx, method, path, body)
+	request, err := componentmetrics.NewRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, ErrUnavailable
 	}

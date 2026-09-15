@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 
 	"errors"
 	"net"
@@ -24,6 +25,10 @@ type Config struct {
 var ErrConfig = errors.New("invalid_configuration")
 
 func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("victoriametrics-exporter"); err != nil {
+		return Config{}, err
+	}
+
 	c := Config{Host: os.Getenv("VICTORIAMETRICS_HOST"), Username: os.Getenv("VICTORIAMETRICS_USERNAME"), Password: os.Getenv("VICTORIAMETRICS_PASSWORD")}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
 	if (mode == "container" && c.Host != "victoriametrics") || ((mode == "host" || mode == "") && c.Host != "127.0.0.1" && c.Host != "::1") || (mode != "" && mode != "host" && mode != "container") || os.Getenv("VICTORIAMETRICS_PORT") != "8428" {

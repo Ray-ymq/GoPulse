@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM golang:1.26.0-alpine3.23 AS exporter-package
-WORKDIR /src/exporter
+WORKDIR /src/exporters/redis
+COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/redis/go.mod exporters/redis/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 
 	"errors"
 	"net"
@@ -23,6 +24,10 @@ type Config struct {
 var ErrConfig = errors.New("invalid_configuration")
 
 func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("kafka-exporter"); err != nil {
+		return Config{}, err
+	}
+
 	c := Config{Host: os.Getenv("KAFKA_HOST"), Port: os.Getenv("KAFKA_PORT")}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
 	if mode == "container" {
@@ -65,7 +70,7 @@ func Open(c Config) (*collector.Client, error) {
 	// Pin the public request shape, notably OffsetFetch v7 (Kafka 2.8).
 	// The supported single broker must never redirect the client to an arbitrary origin.
 	address := net.JoinHostPort(c.Host, c.Port)
-	client, err := kgo.NewClient(kgo.SeedBrokers(address), kgo.ClientID("gopulse-kafka-exporter"), kgo.MaxVersions(kversion.V2_8_0()), kgo.BrokerMaxReadBytes(1<<20), kgo.FetchMaxBytes(512<<10), kgo.Dialer(func(ctx context.Context, network, addr string) (net.Conn, error) {
+	client, err := kgo.NewClient(kgo.SeedBrokers(address), kgo.RequestTimeoutOverhead(c.ScrapeTimeout), kgo.RetryTimeout(c.ScrapeTimeout), kgo.ClientID("gopulse-kafka-exporter"), kgo.MaxVersions(kversion.V2_8_0()), kgo.BrokerMaxReadBytes(1<<20), kgo.FetchMaxBytes(512<<10), kgo.Dialer(func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if addr != address {
 			return nil, collector.ErrUnavailable
 		}

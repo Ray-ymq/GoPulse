@@ -114,7 +114,7 @@ func start(ctx context.Context, address string, handler http.Handler) (*Listener
 	server := &http.Server{
 		BaseContext: func(net.Listener) context.Context { return ctx },
 		Handler:     handler, ReadHeaderTimeout: time.Second, ReadTimeout: 2 * time.Second,
-		WriteTimeout: 2 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 4096,
+		WriteTimeout: 10 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 4096,
 	}
 	l := &Listener{server: server, done: make(chan struct{})}
 	go func() { defer close(l.done); _ = server.Serve(listener) }()

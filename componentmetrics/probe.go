@@ -57,7 +57,7 @@ func (p *Probes) readiness(ctx context.Context) bool {
 			defer cancel()
 			var err error
 			if p.check != nil {
-				err = p.check(checkCtx)
+				err = runProbeCheck(checkCtx, p.check)
 			}
 			p.mu.Lock()
 			p.ready = err == nil && checkCtx.Err() == nil
@@ -131,4 +131,13 @@ func (p *Probes) Wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		}
 	})
+}
+
+func runProbeCheck(ctx context.Context, check func(context.Context) error) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("dependency_unavailable")
+		}
+	}()
+	return check(ctx)
 }

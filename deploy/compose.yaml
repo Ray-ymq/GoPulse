@@ -4,6 +4,8 @@ x-image-build-args: &image-build-args
   GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
 
 x-mysql-environment: &mysql-environment
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   GOPULSE_RUNTIME_MODE: container
   MYSQL_HOST: mysql
   MYSQL_PORT: 3306
@@ -107,6 +109,8 @@ x-search-init-environment: &search-init-environment
 
 
 x-router-environment: &router-environment
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   ROUTER_METRICS_TOKEN: ${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   ROUTER_HTTP_HOST: 0.0.0.0
@@ -122,6 +126,8 @@ x-router-environment: &router-environment
   ROUTER_KAFKA_MAX_BUFFERED_BYTES: ${ROUTER_KAFKA_MAX_BUFFERED_BYTES:-8388608}
 
 x-marshaller-environment: &marshaller-environment
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MARSHALLER_HTTP_HOST: 0.0.0.0
@@ -148,6 +154,7 @@ x-marshaller-environment: &marshaller-environment
   MARSHALLER_FUTURE_SKEW: ${MARSHALLER_FUTURE_SKEW:-5m}
 
 x-monitor-environment: &monitor-environment
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
   MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
@@ -320,7 +327,7 @@ services:
       - business
       - observability
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/health >/dev/null']
+      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -346,6 +353,12 @@ services:
     networks:
       - business
       - observability
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19102/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   search-indexer:
     image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
@@ -371,6 +384,12 @@ services:
     networks:
       - business
       - observability
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19103/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   admin-frontend:
     image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
@@ -564,7 +583,7 @@ services:
     networks:
       - observability
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9091/health']
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9091/ready']
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -594,7 +613,7 @@ services:
     networks:
       - observability
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9093/health']
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9093/ready']
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -629,7 +648,7 @@ services:
       - business
       - observability
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9090/health']
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9090/ready']
       start_period: 10s
       interval: 5s
       timeout: 3s
@@ -665,7 +684,7 @@ services:
     networks:
       - business
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9121/health']
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9121/ready']
       start_period: 5s
       interval: 5s
       timeout: 3s

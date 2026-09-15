@@ -106,7 +106,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 			runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
 		}
 		if ctx.Err() != nil {
-			return nil
+			return err
 		}
 		attempt++
 		if err != nil {
@@ -165,7 +165,10 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 				shutdownCtx, cancelShutdown := componentmetrics.ShutdownContext(runtime.options.ShutdownTimeout)
 				defer cancelShutdown()
 				deadline, _ := shutdownCtx.Deadline()
-				timer := time.NewTimer(time.Until(deadline))
+				// Reserve a small part of this same deadline for cancellation and requeue.
+				remaining := time.Until(deadline)
+				reserve := min(100*time.Millisecond, remaining/2)
+				timer := time.NewTimer(max(0, remaining-reserve))
 				select {
 				case <-processingDone:
 					if !timer.Stop() {
@@ -179,8 +182,11 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 				case <-timer.C:
 					runtime.safeLogger().Warn("shutdown timeout", slog.String("reason", "handler_timeout"))
 					cancelProcessing()
-					<-processingDone
-					return nil
+					select {
+					case <-processingDone:
+					case <-shutdownCtx.Done():
+					}
+					return errors.New("shutdown_timeout")
 				}
 			case <-session.connectionClosed:
 				cancelProcessing()
