@@ -23,7 +23,7 @@ existing administrator APIs + role boundary
  accessible responsive management center
 ```
 
-本批是前端展示批次，不新增管理能力、不伪造展示数据，也不提前实现 Phase-17-02 的运行时合同或 Phase-17-03 的持久状态可靠性工作。
+本批是前端展示批次，不新增管理能力、不伪造展示数据，也不提前实现 Phase-17-03 的运行时合同或 Phase-17-04 的持久状态可靠性工作。
 
 ## 2. 前置条件与视觉输入
 

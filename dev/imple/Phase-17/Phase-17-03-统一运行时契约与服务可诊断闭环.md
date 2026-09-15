@@ -1,7 +1,7 @@
-# Phase-17-02：统一运行时契约与服务可诊断闭环实施方案
+# Phase-17-03：统一运行时契约与服务可诊断闭环实施方案
 
-> 目标版本：`1.14.2`
-> 开发分支：`develop/1.14.2`
+> 目标版本：`1.14.3`
+> 开发分支：`develop/1.14.3`
 > 运行与验收平台：开发期最小包检查可在当前环境运行；Compose/信号/候选门禁使用真实 Linux `amd64`
 
 ## 1. 批次目标
@@ -23,12 +23,12 @@ machine-readable runtime contract
 diagnosable Compose service lifecycle
 ```
 
-本批只完成“进程如何安全启动、对外表态、处理 HTTP、诊断和退出”。Phase-17-01 已交付的管理中心壳层与四页展示作为稳定前端输入；Schema 演进、Rabbit/Kafka 状态提交和告警可靠性留给 Phase-17-03。
+本批只完成“进程如何安全启动、对外表态、处理 HTTP、诊断和退出”。Phase-17-02 已交付的管理中心壳层与五页展示作为稳定前端输入；Schema 演进、Rabbit/Kafka 状态提交和告警可靠性留给 Phase-17-04。
 
 ## 2. 前置条件
 
-- Phase-17-01 已合入主线，根完成版本为 `1.14.1`，管理中心共享壳层、四页真实数据展示和直接浏览器证据可用。
-- 从该最新 `upstream/main` 创建 `develop/1.14.2`，不得从 `update` 或旧开发分支起步。
+- Phase-17-02 已合入主线，根完成版本为 `1.14.2`，管理中心共享壳层、五页真实数据展示和直接浏览器证据可用。
+- 从该最新 `upstream/main` 创建 `develop/1.14.3`，不得从 `update` 或旧开发分支起步。
 - Phase 16 的 release manifest、Bundle、共享 lifecycle、唯一 edge、双 Frontend 和 Linux `amd64` evidence 可读取。
 - 开工时枚举真实长运行组件：Backend、Business Worker、Search Indexer、Router、Marshaller、Monitor、Redis/MySQL/RabbitMQ/Kafka/Elasticsearch/VictoriaMetrics Exporter。
 - 核对当前 `.env.example`、Compose anchors/environment、各 config loader、HTTP/private listener、Docker healthcheck、plugin manifest 和 `stop_grace_period`；记录差异后直接进入实现，不开展一般性代码审计。
@@ -122,7 +122,7 @@ diagnosable Compose service lifecycle
 - `deploy/compose.yaml`、Frontend/Admin Frontend edge/error 处理及直接测试
 - `scripts/ci/verify_runtime_contracts.py`、Phase 17 runtime acceptance 入口和自测试
 - 运行时、配置、Probe、错误和诊断文档
-- `dev/logs/Phase-17/Phase-17-02-统一运行时契约与服务可诊断闭环.md`
+- `dev/logs/Phase-17/Phase-17-03-统一运行时契约与服务可诊断闭环.md`
 - `VERSION`、`.env.example` 和双 Frontend 版本元数据
 
 实际文件可按现有目录等价调整，但不得为统一而复制第二套 listener、logger 或生命周期实现。
@@ -149,7 +149,7 @@ diagnosable Compose service lifecycle
 3. 全部 Go 组件的启动、请求、依赖变化和关停日志通过 schema；Secret、内部 userinfo、绝对路径和 payload 扫描无命中。
 4. 新 Probe 未增加宿主或浏览器可达入口，`user/super_admin` 授权与唯一 edge 不变。
 
-完成条件：以上全部通过、无阻断问题、同名实施记录如实完成、版本元数据为 `1.14.2`，本批提交已创建。
+完成条件：以上全部通过、无阻断问题、同名实施记录如实完成、版本元数据为 `1.14.3`，本批提交已创建。
 
 ## 8. 固定验证命令与回归范围
 
@@ -162,22 +162,22 @@ python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contrac
 (cd router && go test -count=1 ./...)
 (cd marshaller && go test -count=1 ./...)
 (cd monitor && go test -count=1 ./...)
-scripts/verify-runtime-contracts.sh --candidate 1.14.2
+scripts/verify-runtime-contracts.sh --candidate 1.14.3
 (cd frontend && npm test -- --run && npm run build)
 (cd admin-frontend && npm test -- --run && npm run build)
 scripts/verify-compose.sh
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.14.2 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.14.3 --base-ref upstream/main
 git diff --check
 ```
 
 `verify-runtime-contracts.sh` 必须包含六 Exporter 的直接 Go package 测试和真实容器 Probe/配置/信号场景；若直接修改某个 Exporter，额外在其 module 运行 `go test -race -count=1 ./...`。`scripts/verify-compose.sh` 只在最终 diff 上运行一次，因为共享 runtime、edge、Compose 和全部长运行组件均被直接影响。
 
-不运行 Phase 16 backup/recovery、历史升级、Kubernetes、跨架构或性能矩阵。本批通过后，Phase-17-03 若未修改这些 runtime 文件，可复用该成功结果而不重跑。
+不运行 Phase 16 backup/recovery、历史升级、Kubernetes、跨架构或性能矩阵。本批通过后，Phase-17-04 若未修改这些 runtime 文件，可复用该成功结果而不重跑。
 
 ## 9. 实施记录与交接
 
-完成前创建 `dev/logs/Phase-17/Phase-17-02-统一运行时契约与服务可诊断闭环.md`，至少记录：
+完成前创建 `dev/logs/Phase-17/Phase-17-03-统一运行时契约与服务可诊断闭环.md`，至少记录：
 
 - 真实组件/配置/端口/硬软依赖/预算清单及与开工基线的差异；
 - 实际修改文件、合同/schema 版本和 Bundle digest；
@@ -185,4 +185,4 @@ git diff --check
 - Probe 转换、signal 耗时、错误/Request ID、日志 schema 与 Secret scan 证据；
 - 偏差、兼容别名、已知限制和非阻断后续项。
 
-交给 Phase-17-03 的固定输入是保持 `1.14.1` 管理体验且已合入主线的 `1.14.2` 运行时合同、三类 Probe、统一关停、Request ID/错误/日志语义和直接通过证据。达到完成条件后停止，不提前修改 Migration 或消息状态机。
+交给 Phase-17-04 的固定输入是保持 `1.14.2` 管理体验且已合入主线的 `1.14.3` 运行时合同、三类 Probe、统一关停、Request ID/错误/日志语义和直接通过证据。达到完成条件后停止，不提前修改 Migration 或消息状态机。
