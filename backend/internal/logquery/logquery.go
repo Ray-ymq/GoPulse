@@ -412,6 +412,14 @@ func decodeEntry(source []byte) (Entry, error) {
 	var raw struct {
 		Timestamp        string `json:"@timestamp"`
 		LogSchemaVersion int    `json:"log_schema_version"`
+		// Runtime metadata remains in the persisted document and private logs;
+		// decode it explicitly while preserving the existing public page shape.
+		Version                string `json:"version"`
+		Revision               string `json:"revision"`
+		Event                  string `json:"event"`
+		RuntimeContractVersion string `json:"runtime_contract_version"`
+		RuntimeMode            string `json:"runtime_mode"`
+		Listen                 string `json:"listen"`
 		Entry
 	}
 	decoder := json.NewDecoder(bytes.NewReader(source))
