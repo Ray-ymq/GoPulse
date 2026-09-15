@@ -1,12 +1,12 @@
-# Phase-17-02：Migration 与消息处理可靠性闭环实施方案
+# Phase-17-03：Migration 与消息处理可靠性闭环实施方案
 
-> 目标版本：`1.14.2`
-> 开发分支：`develop/1.14.2`
+> 目标版本：`1.14.3`
+> 开发分支：`develop/1.14.3`
 > 运行与验收平台：真实 MySQL/RabbitMQ/Kafka/Elasticsearch/VictoriaMetrics；候选级门禁使用 Linux `amd64` Docker server
 
 ## 1. 批次目标
 
-本批在 `1.14.1` 统一运行时合同上完成持久状态推进与异步处理的可靠性闭环：数据库只有一个可诊断、可拒绝危险状态的 Migration 入口；RabbitMQ、Kafka 和三源告警在成功、暂态失败、永久异常、重复执行、重连/重平衡和关停中保持明确提交语义。
+本批在 `1.14.2` 统一运行时合同上完成持久状态推进与异步处理的可靠性闭环：数据库只有一个可诊断、可拒绝危险状态的 Migration 入口；RabbitMQ、Kafka 和三源告警在成功、暂态失败、永久异常、重复执行、重连/重平衡和关停中保持明确提交语义。
 
 ```text
 current schema/data + incoming work
@@ -27,8 +27,8 @@ current schema/data + incoming work
 
 ## 2. 前置条件
 
-- Phase-17-01 已合入主线，`deploy/runtime-contracts.json`（或等价权威文件）、三类 Probe、关停预算、安全日志和错误原因码可用。
-- 从最新 `upstream/main` 运行 `scripts/start-development-batch.sh Phase-17-02 --remote upstream` 创建 `develop/1.14.2`。
+- Phase-17-02 已合入主线，`deploy/runtime-contracts.json`（或等价权威文件）、三类 Probe、关停预算、安全日志和错误原因码可用。
+- 从最新 `upstream/main` 运行 `scripts/start-development-batch.sh Phase-17-03 --remote upstream` 创建 `develop/1.14.3`。
 - Phase 16 的 `1.13.6` release manifest、Linux `amd64` 制品、当前数据配方、backup format v1 与可复核 evidence 可用；迁移输入必须绑定该版本，不能用手工拼接 SQL 冒充前序数据。
 - 核对当前 MySQL schema version/dirty 处理、Rabbit business/search topology、Kafka topic/group/ownership、Marshaller target store 和 alert lease/state transaction 的真实实现。
 - 准备相互隔离的 MySQL、RabbitMQ、Kafka、Elasticsearch、VictoriaMetrics 和 Compose project；故障注入不得作用于用户或其他项目资源。
@@ -53,7 +53,7 @@ current schema/data + incoming work
 固定覆盖两条正向路径：
 
 1. 空 MySQL → `validate/status/up` → 当前 target → 重复 `up` 无变化 → 完整产品可启动和写入。
-2. 使用 Phase 16 正式入口在 `1.13.6` 候选生成当前业务、角色、插件、告警和审计数据，创建/inspect backup，在隔离 project 恢复 → 使用 `1.14.2` migration job 向前推进 → 事实对照与新增写入成功。
+2. 使用 Phase 16 正式入口在 `1.13.6` 候选生成当前业务、角色、插件、告警和审计数据，创建/inspect backup，在隔离 project 恢复 → 使用 `1.14.3` migration job 向前推进 → 事实对照与新增写入成功。
 
 固定拒绝：
 
@@ -95,7 +95,7 @@ current schema/data + incoming work
 
 ### 3.6 统一状态、指标与日志
 
-- 复用 Phase-17-01 的 Probe/日志合同，补充但不另建 Migration、Rabbit、Kafka、alert 的有限状态与指标。
+- 复用 Phase-17-02 的 Probe/日志合同，补充但不另建 Migration、Rabbit、Kafka、alert 的有限状态与指标。
 - 至少可观测当前 Schema 状态、consumer session/ownership、in-flight、retrying、last commit/ack/success、permanent reject、alert last success/source error；标签只能使用有限枚举，不能包含 user/message/rule ID。
 - 错误日志包含 service/module/event/safe reason、event/topic/partition/offset 等非敏感定位字段；不包含 payload、SQL、DSN、headers 或连接串。
 - 状态恢复必须清除 degraded reason 并记录一次 recovery transition，避免 stale 状态永久残留。
@@ -134,7 +134,7 @@ current schema/data + incoming work
 - `deploy/compose.yaml` 的 migration job、restart/health 直接配置
 - `scripts/verify-phase17-state.sh`（或等价）及自测试/evidence schema
 - Migration、消息处理、故障恢复和运维文档
-- `dev/logs/Phase-17/Phase-17-02-Migration与消息处理可靠性闭环.md`
+- `dev/logs/Phase-17/Phase-17-03-Migration与消息处理可靠性闭环.md`
 - `VERSION`、`.env.example` 和双 Frontend 版本元数据
 
 若实现不需要新 Schema，不创建占位 migration；实施记录必须明确 target 未变化及验证过的原因。
@@ -144,7 +144,7 @@ current schema/data + incoming work
 ### 7.1 Migration
 
 1. `validate/status/up` 输出、退出码和安全日志稳定；空库到 current、重复 up 和 Backend Schema readiness 通过。
-2. 正式 `1.13.6` 当前数据推进后，角色、业务、搜索、插件、告警和审计事实一致，且 `1.14.2` 可继续写入。
+2. 正式 `1.13.6` 当前数据推进后，角色、业务、搜索、插件、告警和审计事实一致，且 `1.14.3` 可继续写入。
 3. 并发 runner 只有一个写者；dirty/future/损坏输入不改数据、不启动长运行服务、不泄漏 DSN。
 4. 失败后可通过正式 backup/restore 回到原状态；不使用 down/force 冒充产品回退。
 
@@ -161,7 +161,7 @@ current schema/data + incoming work
 2. 单一来源、Rabbit、Kafka 或观测存储故障不阻断代表性社交闭环，也不放宽 `user/super_admin` 权限。
 3. 状态/指标标签有界，恢复清除 degraded；故障注入/cleanup 不影响其他 project 或用户文件。
 
-完成条件：以上全部通过、同名实施记录如实完成、无阻断问题、版本元数据为 `1.14.2`，本批提交已创建。
+完成条件：以上全部通过、同名实施记录如实完成、无阻断问题、版本元数据为 `1.14.3`，本批提交已创建。
 
 ## 8. 固定验证命令与回归范围
 
@@ -178,17 +178,17 @@ scripts/verify-business.sh
 scripts/verify-marshaller.sh
 scripts/verify-alerts.sh
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/1.14.2 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/1.14.3 --base-ref upstream/main
 git diff --check
 ```
 
 `verify-phase17-state.sh` 固定覆盖直接前序 Migration、Rabbit/Kafka 故障/恢复、alert restart/dedup、社交隔离、Secret scan、资源归属和结构化 receipt。它应复用已有 `verify-business`、`verify-marshaller`、`verify-alerts` 的真实能力；同一候选同一场景通过后不由子命令重复执行，实施记录列明 receipt 复用关系。
 
-只有在本批修改 Phase-17-01 的共享 runtime/Compose/Frontend 文件时，才追加对应直接测试或 `scripts/verify-compose.sh`，并在实施记录写明共享基础设施风险；否则不重跑 Phase-17-01 完整门禁。Kubernetes、跨架构、性能和一般依赖审计不在本批门禁。
+只有在本批修改 Phase-17-02 的共享 runtime/Compose/Frontend 文件时，才追加对应直接测试或 `scripts/verify-compose.sh`，并在实施记录写明共享基础设施风险；否则不重跑 Phase-17-02 完整门禁。Kubernetes、跨架构、性能和一般依赖审计不在本批门禁。
 
-## 9. 实施记录与 Phase-17-03 交接
+## 9. 实施记录与 Phase-17-04 交接
 
-完成前创建 `dev/logs/Phase-17/Phase-17-02-Migration与消息处理可靠性闭环.md`，至少记录：
+完成前创建 `dev/logs/Phase-17/Phase-17-03-Migration与消息处理可靠性闭环.md`，至少记录：
 
 - Schema binary/database from/to、migration 文件集合、直接前序数据来源和事实对照；
 - Rabbit queue/retry/dead/ack 与 Kafka topic/group/partition/offset/ownership 的实际结果；
@@ -196,4 +196,4 @@ git diff --check
 - 每条命令、候选/receipt、失败轮次、最小修复、Secret/ownership/cleanup 结果；
 - 是否新增 Schema、与计划偏差、已知限制和非阻断后续项。
 
-交给 Phase-17-03 的固定输入是已合入主线的 `1.14.2` Migration、Rabbit/Kafka/告警可靠性合同及真实状态 evidence。达到条件后停止；完整产品矩阵和 Milestone 4 声明只能由 Phase-17-03 完成。
+交给 Phase-17-04 的固定输入是已合入主线的 `1.14.3` Migration、Rabbit/Kafka/告警可靠性合同及真实状态 evidence。达到条件后停止；完整产品矩阵和 Milestone 4 声明只能由 Phase-17-04 完成。
