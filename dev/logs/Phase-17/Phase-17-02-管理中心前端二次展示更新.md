@@ -176,3 +176,18 @@
 ### 7.5 本轮交付
 
 最终代码、固定门禁和视觉证据均已完成；继续同一 `develop/1.14.2` 分支提交本次补正，产品版本仍为 **1.14.2**。不修改 Backend/API/Schema/Compose/release 合同，不扩展 Phase-17-03 工作，不创建 PR 或自动合并 main。用户原始 `Management_Center/` 保持未跟踪且不纳入提交。
+
+
+## 8. PR 前置 CI 定位修复（2026-09-15）
+
+### 原因与本次验证范围
+
+- 用户反馈 PR 失败。GitHub API 确认当前分支尚未创建 PR：提交 `7f484de` 的工作流 `34977025296` 中 `Quality gates before PR / Full-stack Compose acceptance`（job `104407236598`）失败，自动开 PR 阶段因此跳过；不是推送或合并冲突。
+- 下载并查看实际 job 日志（本地 `/tmp/gopulse-pr-failure/full-stack.log`），失败位于 `compose-observability.spec.ts:125`：仍用 `.exporter-details > div … strong` 读取最近成功，而当前展示已改为 `.exporter-info-grid > div … dd`。同一直接受影响 spec 还保留旧 Metrics、Logs 和配置区标题。其他 CI 项的弃用提示不是此失败原因。
+- 本次仅修复 `frontend/e2e/compose-observability.spec.ts` 的当前 UI 定位；时间值要求实际日期，不仅是“不是破折号”；Metrics 要求存在真实采样图，而非空数据时也存在的摘要数值节点。不修改产品代码，不跳过、删减或降低 CI 门禁。
+- **扩大验证的具体依据**：远程已观察到固定批次门禁以外的真实 Compose closure 回归，且本 spec 的辅助函数被 admin/persistence/post-restart/manage 多个 closure 场景复用。因此本次运行 CI 相同的 `scripts/verify-compose.sh`，覆盖该失败门禁；不额外扩展到 Kubernetes、跨架构或其他未失败工作流。结果见后续记录。
+
+### 开始验证
+
+- `npx playwright test e2e/compose-observability.spec.ts --list`：通过，用例可解析加载；这只是运行前检查，不记为浏览器通过。
+- 首次 `scripts/verify-compose.sh` 在 Docker 访问前按既有规则拒绝脏构建源（未提交 spec 和用户未跟踪 `Management_Center/`）。不关闭安全检查、不移动用户文件：先提交本次 spec 修复，再从此提交创建独立干净 detached worktree 执行同一 CI 命令。完整结果尚待执行，不提前记为通过。
