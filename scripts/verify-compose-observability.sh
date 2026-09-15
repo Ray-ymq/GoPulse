@@ -442,7 +442,7 @@ assert_internal_security() {
   fi
   compose exec -T \
     -e "GOPULSE_TEST_ROUTER_TOKEN=router-$TOKEN-0123456789abcdef0123456789" \
-    -e "GOPULSE_TEST_MARSHALLER_TOKEN=marshaller-$TOKEN-0123456789abcdef012345" \
+    -e "GOPULSE_TEST_MARSHALLER_TOKEN=metrics-marshaller-$TOKEN-0123456789abcdef0123456789" \
     backend /bin/sh -ec '
       http_code() {
         output=$(wget -S -O /dev/null "$@" 2>&1 || true)
@@ -454,21 +454,25 @@ assert_internal_security() {
         actual=$(http_code "$@")
         test "$actual" = "$expected" || { printf "expected HTTP %s, got %s\n" "$expected" "$actual" >&2; return 1; }
       }
-      expect_code 401 http://monitor:9090/ready
-      expect_code 401 --header "Authorization: Bearer wrong-monitor-token" http://monitor:9090/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://monitor:9090/ready
-      expect_code 401 http://router:9091/ready
-      expect_code 401 --header "Authorization: Bearer wrong-router-token" http://router:9091/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://router:9091/ready
-      expect_code 401 http://marshaller:9093/ready
-      expect_code 401 --header "Authorization: Bearer wrong-marshaller-token" http://marshaller:9093/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://marshaller:9093/ready
+      expect_code 401 http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --header "Authorization: Bearer wrong-monitor-token" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 --header "Authorization: Bearer wrong-router-token" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 http://marshaller:19106/internal/v1/metrics
+      expect_code 401 --header "Authorization: Bearer wrong-marshaller-token" http://marshaller:19106/internal/v1/metrics
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://marshaller:19106/internal/v1/metrics
       expect_code 401 http://victoriametrics:8428/api/v1/query?query=up
       expect_code 401 --header "Authorization: Basic $(printf wrong:wrong | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
-      expect_code 200 --header "Authorization: Bearer $MONITOR_API_TOKEN" http://monitor:9090/ready
-      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_ROUTER_TOKEN" http://router:9091/ready
-      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_MARSHALLER_TOKEN" http://marshaller:9093/ready
+      expect_code 200 --header "Authorization: Bearer $MONITOR_API_TOKEN" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 400 --header "Authorization: Bearer $GOPULSE_TEST_ROUTER_TOKEN" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_MARSHALLER_TOKEN" http://marshaller:19106/internal/v1/metrics
       expect_code 200 --header "Authorization: Basic $(printf "%s:%s" "$BACKEND_VICTORIAMETRICS_USERNAME" "$BACKEND_VICTORIAMETRICS_PASSWORD" | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
+      # Runtime probes are private operational state, not authenticated business APIs.
+      expect_code 200 http://monitor:9090/ready
+      expect_code 200 http://router:9091/ready
+      expect_code 200 http://marshaller:9093/ready
     '
   pass 'Frontend isolation plus Bearer, Basic, and cookie trust boundaries passed.'
 }
