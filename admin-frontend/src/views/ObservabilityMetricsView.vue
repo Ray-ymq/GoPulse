@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import MetricTrend from '../components/MetricTrend.vue'
 import { useRoute } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ApiError } from '../services/http'
@@ -51,14 +52,16 @@ onBeforeUnmount(() => { sequence++; controller?.abort() })
       <label>范围<select v-model="range"><option v-for="item in ranges" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
       <button class="button" type="submit" :disabled="loading">应用</button>
     </form>
+    <p v-if="loading" role="status">正在查询指标…</p>
     <p v-if="message" class="notice" role="status">{{ message }}</p>
     <div v-if="result" class="panel">
       <div class="summary-grid"><div><span>类型</span><strong>{{ result.kind }}</strong></div><div><span>单位</span><strong>{{ result.unit }}</strong></div><div><span>步长</span><strong>{{ result.step_seconds }}s</strong></div><div><span>更新时间</span><strong>{{ updatedAt }}</strong></div></div>
       <p class="time-window">{{ result.from }} — {{ result.to }}</p>
       <div v-for="(item,index) in latest" :key="index" class="series-card">
         <div><strong>{{ Object.entries(item.labels).map(([k,v]) => `${k}=${v}`).join(', ') || '默认时序' }}</strong><span class="metric-value">{{ item.point?.value }}</span></div>
-        <div class="sparkline" aria-hidden="true"><i v-for="(point,p) in item.series.points.slice(-40)" :key="p" :style="{height: `${Math.max(4, Math.min(42, 4 + Math.abs(point.value) % 38))}px`}" /></div>
-        <table><thead><tr><th>最近时间</th><th>最新值</th></tr></thead><tbody><tr><td>{{ item.point?.timestamp }}</td><td>{{ item.point?.value }}</td></tr></tbody></table>
+        <MetricTrend :points="item.series.points" :unit="result.unit" />
+        <h3>最近采样点</h3>
+        <table><thead><tr><th>采样时间</th><th>值（{{ result.unit }}）</th></tr></thead><tbody><tr v-for="(point, pointIndex) in item.series.points.slice(-5).reverse()" :key="pointIndex"><td>{{ point.timestamp }}</td><td>{{ point.value }}</td></tr></tbody></table>
       </div>
     </div>
   </section>
