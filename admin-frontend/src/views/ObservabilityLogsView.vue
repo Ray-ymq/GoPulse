@@ -37,6 +37,11 @@ onMounted(apply)
     <ProductState v-if="query.loading.value" state="loading" />
     <ProductState v-else-if="query.message.value" :state="query.state.value" :message="query.message.value" />
     <p v-if="query.updatedAt.value" class="last-updated">最近成功更新：{{ query.updatedAt.value }}</p>
+    <div v-if="query.updatedAt.value" class="summary-grid" aria-label="已加载日志摘要">
+      <div><span>已加载日志（非窗口总量）</span><strong>{{ query.items.value.length }}</strong></div>
+      <div v-for="level in ['info', 'warn', 'error']" :key="level"><span>{{ level }}</span><strong>{{ query.items.value.filter(entry => entry.level === level).length }}</strong></div>
+    </div>
+    <div class="panel logs-stream"><h3>日志流</h3>
     <div class="record-list" :aria-busy="query.loading.value">
       <article v-for="(entry,index) in query.items.value" :key="`${entry.timestamp}-${index}`" class="record-card">
         <div class="record-card__header"><ProductTime :value="entry.timestamp" /><span :class="`level level--${entry.level}`">{{ entry.level }}</span></div>
@@ -45,5 +50,6 @@ onMounted(apply)
       </article>
     </div>
     <button v-if="query.cursor.value" class="button button--secondary load-more" :disabled="query.loadingMore.value" @click="query.load(false)">{{ query.loadingMore.value ? '加载中…' : '加载更多' }}</button>
+    </div>
   </section>
 </template>

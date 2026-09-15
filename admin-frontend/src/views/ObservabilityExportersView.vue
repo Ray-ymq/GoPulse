@@ -84,12 +84,13 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
   <section :aria-busy="busy">
     <div class="admin-title"><div><p class="admin-eyebrow">MONITOR PLUGIN MANAGER</p><h2>官方 Exporter 插件</h2><p>当前状态来自 Monitor 的严格公共 DTO；Events 与历史 Metrics 仅用于后续核对。</p></div><button class="button" :disabled="busy" @click="load">{{ loading ? '刷新中…' : '刷新状态' }}</button></div>
     <p v-if="message" class="notice" role="status">{{ message }}</p>
-    <div class="summary-grid" aria-label="官方插件目录">
+    <div class="summary-grid exporter-catalog" aria-label="官方插件目录">
       <button v-for="item in catalog" :key="item.id" class="panel" :disabled="busy" :aria-pressed="selected === item.id" @click="selectPlugin(item.id)">
-        <strong>{{ item.name }}</strong><span>{{ item.available ? (item.configured ? '已配置' : '未安装') : '未交付' }}</span>
+        <span class="plugin-icon" aria-hidden="true">{{ item.name.charAt(0) }}</span><strong>{{ item.name }}</strong><span>{{ item.available ? (item.configured ? '已配置' : '未安装') : '未交付' }}</span>
       </button>
     </div>
     <p v-if="selectedItem && !selectedItem.available" class="notice">此类型尚未交付，没有已安装或运行中的实例。</p>
+    <div class="exporter-workspace">
     <div v-if="selectedItem?.available" class="panel exporter-configuration">
       <h3>{{ selectedItem.name }} 目标配置</h3><p>请填写实际目标地址，不预填部署内部地址。连接测试不会保存候选配置；密码不会回填，提交后清空。配置替换留空密码表示保留。</p>
       <p v-if="selectedItem.summary === 'upgrade_required'">旧版包保持原状态，请先显式更新到 v2，再修改配置。</p>
@@ -121,5 +122,6 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
       </div>
       <div class="panel exporter-update"><div><h3>更新安装包</h3><p>更新会保留服务端安全校验与回滚语义。</p></div><label class="file-field">新的 .tar.gz 包<input ref="packageInput" type="file" accept=".tar.gz,application/gzip" @change="selectPackage"></label><button class="button" :disabled="busy" @click="run('update')">{{ operation === 'update' ? '更新中…' : '确认更新' }}</button></div>
     </template>
+    </div>
   </section>
 </template>
