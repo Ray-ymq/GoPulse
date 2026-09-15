@@ -239,6 +239,9 @@ cleanup() {
   fi
   if ((RESOURCES_STARTED)); then
     if assert_project_ownership; then
+      if ((status != 0)); then
+        compose logs --no-color --tail 30 backend business-worker search-indexer router marshaller monitor >&2 || true
+      fi
       compose --profile exporter down --volumes --remove-orphans >/dev/null 2>&1 || status=1
     else
       status=1
@@ -753,7 +756,8 @@ assert_bootstrap_status
 replace_service redis
 replace_service victoriametrics
 replace_service kafka
-compose up --detach kafka-init
+# Complete the existing initializer before asserting transport recovery or idle drains.
+compose run --rm --no-deps kafka-init
 replace_service elasticsearch
 run_business_scenario persistence
 run_observability_scenario persistence
