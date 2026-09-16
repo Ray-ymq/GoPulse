@@ -18,7 +18,7 @@
     "router_affected_packages": "passed",
     "business_live": "passed",
     "alerts_three_sources_live": "passed",
-    "compose_full": "failed during image build: asynchronous LogsView test; bounded wait fixed pending rerun",
+    "compose_full": "passed: clean source 0947613, full Compose including three-source rule creation and cleanup",
     "source_backup_inspect": "passed: authenticated format only",
     "source_restore_upgrade": "not_run",
     "unified_candidate_runner": "not_implemented",
@@ -29,11 +29,13 @@
   "current_completed_version": "1.14.3",
   "branch": "develop/1.14.4",
   "branch_completion_gate": "pending: VERSION intentionally remains the last completed version",
-  "cleanup": "task-owned runtime/registry containers removed; original registry volume preserved; candidate registry archive retained",
+  "cleanup": "resume Marshaller and Compose owned resources removed; original three running containers unchanged",
   "resume": {
     "source_revision": "bc8463f22fa2434211d53dfc2585a67d8a0ca3d3",
     "marshaller_log_sha256": "8f8ceea4417568bf33f16cb00afcd445d0e64e5702c44d97d47b1e2dae99c41f",
     "marshaller_scope": "source verifier, not immutable candidate receipt",
-    "current_completed_version": "1.14.3"
+    "current_completed_version": "1.14.3",
+    "compose_source_revision": "0947613",
+    "compose_log_sha256": "624a777accfb60dd04c8e432b67090208c8e182cb5240be12bbd425e0cba87fc"
   }
 }

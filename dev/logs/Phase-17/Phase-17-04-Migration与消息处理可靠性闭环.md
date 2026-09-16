@@ -194,3 +194,11 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 管理 DTO 最小修复验证：`(cd admin-frontend && npm test -- src/services/management.test.ts && npm run typecheck)` exit 0（12 tests）。日志 `/tmp/gopulse-phase17-04-management-resume.log`。
 - `1a691a4` 后 Compose 重跑在镜像构建阶段 exit 1：`ObservabilityLogsView.test.ts` 的刷新失败后清空详情断言在并行构建时未等到异步刷新完成（其他 42 tests 通过）。同一失败测试独立执行通过；改为有界等待真实第二次 API 调用、失败提示及详情清空，而不是假定一次 flushPromises 已完成所有 DOM 更新，保留原有数据保留/敏感诊断隐藏断言。修改后最小测试通过；没有改动日志页面生产逻辑。
 - 对应日志 `/tmp/gopulse-phase17-04-compose-catalog-final.log`、`/tmp/gopulse-phase17-04-logs-view.log`、`/tmp/gopulse-phase17-04-logs-view-final.log`。此构建失败不计作完整门禁通过。
+
+### 本轮最终源码门禁结果
+
+- `scripts/verify-compose.sh` 在干净源码 `0947613` 上最终 **exit 0**；日志 `/tmp/gopulse-phase17-04-compose-completion.log`。vm-down、三源告警目录创建、社交/观测故障隔离、持久性、恢复、有界关停、官方插件生命周期、双端浏览器及清理均通过。执行期间未改项目文件。
+- `scripts/verify-marshaller.sh` **exit 0**，完整 offset/存储/重启/重平衡/重放与清理已通过；此前失败不被覆盖为成功。
+- 最终运行容器仅保留开始前的 `gopulse-p13-local-monitor-1`、`gopulse-p13-local-kafka-1`、`gopulse-p13-local-elasticsearch-1`。未操作原 registry、未推送或开 PR。
+- 源码修复提交：`bc8463f`、`1a691a4`、`0947613`。旧 candidate 仍指向 `f674e1e`，**不包含这次修复**；源码门禁不等于同一不可变候选的正式升级 receipt。
+- 仍未完成：正式 `1.13.6` 数据生成/backup/restore→当前候选单跳迁移及失败恢复事实对照；统一 candidate runner 与结构化 receipt；最终候选版本/分支完成门禁。VERSION 继续保持 1.14.3，不声明批次完成。
