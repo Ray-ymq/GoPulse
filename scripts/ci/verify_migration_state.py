@@ -88,20 +88,20 @@ def main():
                 assert sql('SHOW TABLES;') == baseline
                 assert sql('SELECT version FROM schema_migrations;') == str(version)
                 receipt['checks'].append(state+'_rejected_unchanged')
-            # Existing v13 tables deliberately conflict with replay, proving an
-            # actual apply failure preserves dirty instead of generic force.
-            sql('UPDATE schema_migrations SET version=12, dirty=0;')
-            assert run('up', 8)['reason'] == 'apply_failure'
-            assert run('status', 4)['state'] == 'dirty'
-            assert sql('SHOW TABLES;') == baseline
-            assert run('up', 4)['reason'] == 'dirty'
-            receipt['checks'].append('apply_failure_keeps_dirty')
-            # Reset only the test-injected marker in this disposable database.
             sql(f'UPDATE schema_migrations SET version={target}, dirty=0;')
-            # Local-only reverse setup removes v13 objects so the real v12
-            # resumable SQL can be replayed. This is not product recovery.
+            # Local-only reverse setup; never a product recovery mechanism.
             run('down')
             assert run('status')['state'] == 'behind'
+            before_failed_apply = sql('SHOW TABLES;')
+            # A real DDL permission error leaves the newly written dirty marker.
+            sql("REVOKE CREATE ON gopulse.* FROM 'gopulse'@'%';")
+            assert run('up', 8)['reason'] == 'apply_failure'
+            assert run('status', 4)['state'] == 'dirty'
+            assert sql('SHOW TABLES;') == before_failed_apply
+            assert run('up', 4)['reason'] == 'dirty'
+            receipt['checks'].append('apply_failure_keeps_dirty')
+            sql("GRANT CREATE ON gopulse.* TO 'gopulse'@'%';")
+            # Inject only the explicitly supported resume state for this test.
             sql('UPDATE schema_migrations SET version=12, dirty=1;')
             assert run('status', 4)['state'] == 'dirty'
             assert run('up')['state'] == 'current'

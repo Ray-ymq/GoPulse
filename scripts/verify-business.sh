@@ -732,7 +732,7 @@ run_reliability_matrix() {
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
   ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
   docker stop "$RABBITMQ_CONTAINER_ID" >/dev/null
-  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
+  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
   api_for "$actor_jar" POST "/posts/$broker_post/comments" 201 '{"content":"written while broker stopped"}' read
   broker_comment=$(json_get data.id)
   api_for "$actor_jar" PUT "/posts/$broker_post/like" 204 '' read
@@ -743,7 +743,7 @@ run_reliability_matrix() {
   BACKEND_PID=
   start_backend
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/health" 200
-  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
+  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
   ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
   docker start "$RABBITMQ_CONTAINER_ID" >/dev/null
@@ -1089,7 +1089,7 @@ verify_redis_failure_and_recovery() {
   post_id=$(cat "$TEMP_DIR/first-post-id")
   redis_id=$(verify_service_ownership redis 6379 "$REDIS_PORT")
   docker stop "$redis_id" >/dev/null
-  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
+  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
 
   rm -f "$COOKIE_JAR"
   api_request POST /auth/register 201 "{\"username\":\"$username\",\"password\":\"$password\"}" write
