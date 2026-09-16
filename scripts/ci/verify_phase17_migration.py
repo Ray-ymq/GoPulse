@@ -118,7 +118,7 @@ class MigrationAcceptance(Recovery):
             value = json.loads(raw)
         except ValueError:
             raise RuntimeError('candidate migration output is not safe JSON') from None
-        if not set(value).issubset({'binary_target','database_version','state','changed','reason'}):
+        if not set(value).issubset({'binary_target','database_version','state','changed','reason','exit_code'}):
             raise RuntimeError('unexpected migration output fields')
         self.owned_candidate(cid)
         docker('rm',cid)
