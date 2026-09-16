@@ -7,8 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
@@ -41,12 +40,13 @@ func execute(stdout io.Writer, load func() (config.SearchIndexerConfig, error), 
 		exitCode = 1
 	}
 	if err := logs.Close(); err != nil {
+		exitCode = 1
 		logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
 	}
 	return exitCode
 }
 
-func run(cfg config.SearchIndexerConfig, logger *slog.Logger) error {
+func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 	if logger == nil {
 		logger = logging.Discard("search-indexer")
 	}
@@ -86,18 +86,36 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) error {
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "runtime", "invalid_configuration")
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := componentmetrics.SignalContext()
 	defer stop()
 	componentmetrics.BindShutdown(ctx, cfg.Worker.ShutdownTimeout)
-	internalMetrics, err := componentmetrics.StartConfigured(ctx, "search-indexer", metrics.Snapshot)
+	probes, err := componentmetrics.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
+		if err := runtime.Ready(checkCtx); err != nil {
+			return err
+		}
+		if err := mysqlClient.Check(checkCtx); err != nil {
+			return err
+		}
+		if err := elasticsearchClient.Check(checkCtx); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(ctx, "search-indexer", metrics.Snapshot, probes)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.Worker.ShutdownTimeout)
 		defer cancel()
-		_ = internalMetrics.Shutdown(shutdownCtx)
+		if err := internalMetrics.Shutdown(shutdownCtx); err != nil {
+			runErr = errors.New("shutdown_timeout")
+		}
 	}()
+	probes.Started()
 	lifecycleLogger.Info("search indexer started")
 	if err := runtime.Run(ctx); err != nil {
 		return errors.New("search indexer runtime failed")

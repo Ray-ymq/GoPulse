@@ -50,6 +50,8 @@ type Manifest struct {
 	Version                 string           `json:"version"`
 	Revision                string           `json:"revision"`
 	Compose                 Asset            `json:"compose"`
+	RuntimeContract         *Asset           `json:"runtime_contract,omitempty"`
+	RuntimeContractSchema   *Asset           `json:"runtime_contract_schema,omitempty"`
 	BundleSHA256            string           `json:"bundle_sha256"`
 	Images                  map[string]Image `json:"images"`
 	ThirdParty              map[string]Image `json:"third_party"`
@@ -140,6 +142,17 @@ func (m *Manifest) Validate() error {
 	if m.SchemaVersion != 1 || !semver.MatchString(m.Version) || !revision.MatchString(m.Revision) || !digest.MatchString(m.BundleSHA256) || m.Compose.Path != "deploy/product/compose.yaml" || !digest.MatchString(m.Compose.SHA256) {
 		return errors.New("invalid release identity or asset")
 	}
+	var major, minor, patch int
+	_, _ = fmt.Sscanf(m.Version, "%d.%d.%d", &major, &minor, &patch)
+	required := major > 1 || major == 1 && (minor > 14 || minor == 14 && patch >= 3)
+	if required && (m.RuntimeContract == nil || m.RuntimeContractSchema == nil) {
+		return errors.New("runtime contract missing")
+	}
+	for path, asset := range map[string]*Asset{"deploy/runtime-contracts.json": m.RuntimeContract, "deploy/runtime-contracts.schema.json": m.RuntimeContractSchema} {
+		if asset != nil && (asset.Path != path || !digest.MatchString(asset.SHA256)) {
+			return errors.New("invalid runtime contract asset")
+		}
+	}
 	if len(m.Images) != 9 || len(m.ThirdParty) != 6 {
 		return errors.New("incomplete image set")
 	}
@@ -202,6 +215,36 @@ func (m *Manifest) Validate() error {
 }
 func Sum(data []byte) string { h := sha256.Sum256(data); return "sha256:" + hex.EncodeToString(h[:]) }
 func (m *Manifest) CheckAssets(root string) error {
+	for _, asset := range []*Asset{m.RuntimeContract, m.RuntimeContractSchema} {
+		if asset == nil {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(asset.Path)))
+		if err != nil || Sum(data) != asset.SHA256 {
+			return errors.New("runtime contract checksum mismatch")
+		}
+	}
+	if m.RuntimeContract != nil {
+		data, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(m.RuntimeContract.Path)))
+		var contract struct {
+			ContractVersion string `json:"contract_version"`
+			ProductVersion  string `json:"product_version"`
+			Components      []struct {
+				ID string `json:"id"`
+			} `json:"components"`
+		}
+		if json.Unmarshal(data, &contract) != nil || contract.ContractVersion != "1" || contract.ProductVersion != m.Version || len(contract.Components) != 12 {
+			return errors.New("runtime contract identity mismatch")
+		}
+		seen := map[string]bool{}
+		for _, c := range contract.Components {
+			if seen[c.ID] || c.ID == "" {
+				return errors.New("runtime component duplicate")
+			}
+			seen[c.ID] = true
+		}
+	}
+
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(m.Compose.Path)))
 	if err != nil {
 		return err

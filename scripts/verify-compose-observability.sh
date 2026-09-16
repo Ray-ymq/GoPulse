@@ -239,6 +239,9 @@ cleanup() {
   fi
   if ((RESOURCES_STARTED)); then
     if assert_project_ownership; then
+      if ((status != 0)); then
+        compose logs --no-color --tail 30 backend business-worker search-indexer router marshaller monitor >&2 || true
+      fi
       compose --profile exporter down --volumes --remove-orphans >/dev/null 2>&1 || status=1
     else
       status=1
@@ -442,7 +445,7 @@ assert_internal_security() {
   fi
   compose exec -T \
     -e "GOPULSE_TEST_ROUTER_TOKEN=router-$TOKEN-0123456789abcdef0123456789" \
-    -e "GOPULSE_TEST_MARSHALLER_TOKEN=marshaller-$TOKEN-0123456789abcdef012345" \
+    -e "GOPULSE_TEST_MARSHALLER_TOKEN=metrics-marshaller-$TOKEN-0123456789abcdef0123456789" \
     backend /bin/sh -ec '
       http_code() {
         output=$(wget -S -O /dev/null "$@" 2>&1 || true)
@@ -454,21 +457,25 @@ assert_internal_security() {
         actual=$(http_code "$@")
         test "$actual" = "$expected" || { printf "expected HTTP %s, got %s\n" "$expected" "$actual" >&2; return 1; }
       }
-      expect_code 401 http://monitor:9090/ready
-      expect_code 401 --header "Authorization: Bearer wrong-monitor-token" http://monitor:9090/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://monitor:9090/ready
-      expect_code 401 http://router:9091/ready
-      expect_code 401 --header "Authorization: Bearer wrong-router-token" http://router:9091/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://router:9091/ready
-      expect_code 401 http://marshaller:9093/ready
-      expect_code 401 --header "Authorization: Bearer wrong-marshaller-token" http://marshaller:9093/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://marshaller:9093/ready
+      expect_code 401 http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --header "Authorization: Bearer wrong-monitor-token" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 --header "Authorization: Bearer wrong-router-token" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 http://marshaller:19106/internal/v1/metrics
+      expect_code 401 --header "Authorization: Bearer wrong-marshaller-token" http://marshaller:19106/internal/v1/metrics
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://marshaller:19106/internal/v1/metrics
       expect_code 401 http://victoriametrics:8428/api/v1/query?query=up
       expect_code 401 --header "Authorization: Basic $(printf wrong:wrong | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
-      expect_code 200 --header "Authorization: Bearer $MONITOR_API_TOKEN" http://monitor:9090/ready
-      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_ROUTER_TOKEN" http://router:9091/ready
-      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_MARSHALLER_TOKEN" http://marshaller:9093/ready
+      expect_code 200 --header "Authorization: Bearer $MONITOR_API_TOKEN" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 400 --header "Authorization: Bearer $GOPULSE_TEST_ROUTER_TOKEN" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_MARSHALLER_TOKEN" http://marshaller:19106/internal/v1/metrics
       expect_code 200 --header "Authorization: Basic $(printf "%s:%s" "$BACKEND_VICTORIAMETRICS_USERNAME" "$BACKEND_VICTORIAMETRICS_PASSWORD" | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
+      # Runtime probes are private operational state, not authenticated business APIs.
+      expect_code 200 http://monitor:9090/ready
+      expect_code 200 http://router:9091/ready
+      expect_code 200 http://marshaller:9093/ready
     '
   pass 'Frontend isolation plus Bearer, Basic, and cookie trust boundaries passed.'
 }
@@ -602,7 +609,10 @@ exercise_signal_shutdown() {
     id=$(owned_service_id "$service")
     compose stop --timeout 25 "$service"
     exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")
-    [[ $exit_code == 0 ]] || fail "$service did not stop cleanly after its configured signal (exit $exit_code)"
+    if [[ $exit_code != 0 ]]; then
+      compose logs --no-color --tail 40 "$service" >&2 || true
+      fail "$service did not stop cleanly after its configured signal (exit $exit_code)"
+    fi
     compose start "$service"
     case $service in
       business-worker|search-indexer) wait_running "$service" ;;
@@ -745,11 +755,22 @@ done
 assert_bootstrap_status
 replace_service redis
 replace_service victoriametrics
+kafka_topic_id() {
+  owned_service_id kafka >/dev/null
+  compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic gopulse-observability-v1 |
+    awk '/TopicId:/ { for (i=1; i<=NF; i++) if ($i == "TopicId:") print $(i+1) }'
+}
+KAFKA_TOPIC_BEFORE=$(kafka_topic_id)
+[[ -n $KAFKA_TOPIC_BEFORE ]] || fail 'Kafka topic identity is absent before replacement'
 replace_service kafka
-compose up --detach kafka-init
+# Complete the existing initializer before asserting transport recovery or idle drains.
+compose run --rm --no-deps kafka-init
+[[ $(kafka_topic_id) == "$KAFKA_TOPIC_BEFORE" ]] || fail 'Kafka replacement lost the persisted topic identity'
+pass 'Kafka replacement preserved the topic ID in its declared named data volume.'
 replace_service elasticsearch
 run_business_scenario persistence
 run_observability_scenario persistence
+run_observability_scenario post-restart
 exercise_signal_shutdown
 exercise_persistence
 exercise_standalone_exporter

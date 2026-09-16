@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net/http"
 	"os"
@@ -100,7 +101,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	cmd.Dir = release
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
 	entry, _ := LookupOfficial(manifest.ID)
-	allowed := map[string]bool{"GOPULSE_RUNTIME_MODE": true}
+	allowed := map[string]bool{"GOPULSE_RUNTIME_MODE": true, "GOPULSE_VERSION": true, "GOPULSE_REVISION": true}
 	prefix := strings.ToUpper(entry.Source)
 	for _, suffix := range []string{"HOST", "PORT", "MANAGEMENT_PORT", "PASSWORD", "USERNAME", "DB", "DATABASE", "VHOST", "EXPORTER_HTTP_HOST", "EXPORTER_HTTP_PORT", "EXPORTER_SCRAPE_TIMEOUT", "EXPORTER_CONNECT_TIMEOUT", "EXPORTER_SHUTDOWN_TIMEOUT"} {
 		allowed[prefix+"_"+suffix] = true
@@ -116,6 +117,9 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	}
 
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	if runtimeContractManifest(manifest) {
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stdout
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
 	if err = cmd.Start(); err != nil {
 		return nil, err
@@ -141,12 +145,12 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		request, _ := http.NewRequestWithContext(deadlineContext, http.MethodGet, healthURL, nil)
+		request, _ := componentmetrics.NewRequest(deadlineContext, http.MethodGet, healthURL, nil)
 		response, requestErr := client.Do(request)
 		if requestErr == nil {
 			body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
 			response.Body.Close()
-			if response.StatusCode == http.StatusOK && string(body) == `{"status":"ok","service":"`+manifest.ID+`"}` {
+			if response.StatusCode == http.StatusOK && validProcessHealth(manifest, body) {
 				// A response on the fixed port must not hide an immediately
 				// exiting candidate (for example a retained failure fixture).
 				select {
@@ -204,10 +208,67 @@ func terminateProcess(record processRecord, timeout time.Duration) error {
 	}
 	return errors.New("plugin process did not stop")
 }
+
+// terminateProcessBounded never extends the process-wide deadline. A forced
+// kill is a shutdown failure even when it successfully reaps the child.
+func terminateProcessBounded(ctx context.Context, record processRecord, timeout time.Duration) error {
+	if !ownsProcess(record) {
+		return errors.New("plugin process ownership mismatch")
+	}
+	if err := syscall.Kill(-record.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for ownsProcess(record) {
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+			_ = syscall.Kill(-record.PID, syscall.SIGKILL)
+			return errors.New("plugin_shutdown_timeout")
+		case <-timer.C:
+			_ = syscall.Kill(-record.PID, syscall.SIGKILL)
+			reap := time.NewTimer(time.Second)
+			defer reap.Stop()
+			for ownsProcess(record) {
+				select {
+				case <-tick.C:
+				case <-ctx.Done():
+					return errors.New("plugin_shutdown_timeout")
+				case <-reap.C:
+					return errors.New("plugin_shutdown_timeout")
+				}
+			}
+			return errors.New("plugin_shutdown_timeout")
+		}
+	}
+	return nil
+}
+
 func validateHealthPort(env map[string]string) error {
 	port, err := strconv.Atoi(env["REDIS_EXPORTER_HTTP_PORT"])
 	if err != nil || port < 1 || port > 65535 {
 		return errors.New("invalid exporter port")
 	}
 	return nil
+}
+
+// Historical packages retain their original exact health response. Current
+// official packages use the shared runtime wire contract on the same port.
+func runtimeContractManifest(manifest Manifest) bool {
+	var major, minor, patch int
+	_, _ = fmt.Sscanf(manifest.Version, "%d.%d.%d", &major, &minor, &patch)
+	return major > 1 || major == 1 && (minor > 14 || minor == 14 && patch >= 3)
+}
+func validProcessHealth(manifest Manifest, body []byte) bool {
+	if !runtimeContractManifest(manifest) {
+		return string(body) == `{"status":"ok","service":"`+manifest.ID+`"}`
+	}
+	var response struct {
+		Status          string `json:"status"`
+		ContractVersion string `json:"contract_version"`
+	}
+	return json.Unmarshal(body, &response) == nil && response.Status == "ok" && response.ContractVersion == componentmetrics.RuntimeContractVersion
 }

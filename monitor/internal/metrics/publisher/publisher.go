@@ -68,7 +68,7 @@ func (p *HTTP) PublishRaw(ctx context.Context, messageID string, message any) (r
 	if err != nil {
 		return errors.New("message serialization failed")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
+	req, err := componentmetrics.NewRequest(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return errors.New("publisher request failed")
 	}

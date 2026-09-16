@@ -159,6 +159,10 @@ def write_bundle(m, out):
     files = {'deploy/product/compose.yaml': product_compose(m),
              'compose.yaml': tool_compose(m),
              'README.md': (ROOT/'deploy/release/BUNDLE-README.md').read_bytes()}
+    if tuple(map(int, m['version'].split('.'))) >= (1, 14, 3):
+        for key, name in [('runtime_contract','deploy/runtime-contracts.json'), ('runtime_contract_schema','deploy/runtime-contracts.schema.json')]:
+            files[name] = (ROOT/name).read_bytes()
+            m[key] = {'path':name, 'sha256':sha(files[name])}
     m['compose'] = {'path':'deploy/product/compose.yaml', 'sha256':sha(files['deploy/product/compose.yaml'])}
     m['bundle_sha256'] = payload_digest(files)
     validate(m)
@@ -181,6 +185,11 @@ def verify_bundle(path):
     m=validate(load(path));root=path.parent
     names=['deploy/product/compose.yaml','README.md']
     if (root/'compose.yaml').is_file(): names.append('compose.yaml')
+    for key in ('runtime_contract','runtime_contract_schema'):
+        if key in m:
+            names.append(m[key]['path'])
+            if sha((root/m[key]['path']).read_bytes()) != m[key]['sha256']:
+                raise ValueError('runtime contract checksum mismatch')
     files={name:(root/name).read_bytes() for name in names}
     if sha(files[m['compose']['path']])!=m['compose']['sha256'] or payload_digest(files)!=m['bundle_sha256']:
         raise ValueError('bundle asset checksum mismatch')

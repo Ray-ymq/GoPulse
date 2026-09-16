@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/exporters/redis/internal/collector"
@@ -73,7 +72,7 @@ func run(logger *slog.Logger) error {
 		logging.Module(logger, "http").Error("redis exporter listen failed", slog.String("reason", "listen_failed"))
 		return errors.New("listen failed")
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := componentmetrics.SignalContext()
 	defer cancel()
 	runErr := serve(ctx, server, listener, cfg.ShutdownTimeout, logging.Module(logger, "runtime"))
 	if err := client.Close(); err != nil {
@@ -86,30 +85,5 @@ func run(logger *slog.Logger) error {
 }
 
 func serve(ctx context.Context, server *http.Server, listener net.Listener, shutdownTimeout time.Duration, logger *slog.Logger) error {
-	serverErrors := make(chan error, 1)
-	go func() { serverErrors <- server.Serve(listener) }()
-	logger.Info("redis exporter listening")
-	select {
-	case err := <-serverErrors:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("redis exporter server failed", slog.String("reason", "server_failed"))
-			return fmt.Errorf("HTTP server failed: %w", err)
-		}
-		logger.Info("redis exporter stopped", slog.String("reason", "server_closed"))
-		return nil
-	case <-ctx.Done():
-		logger.Info("redis exporter shutdown started")
-		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := server.Shutdown(shutdownContext); err != nil {
-			logger.Error("redis exporter shutdown failed", slog.String("reason", "shutdown_failed"))
-			return errors.New("shutdown failed")
-		}
-		if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("redis exporter shutdown failed", slog.String("reason", "server_failed"))
-			return errors.New("server failed during shutdown")
-		}
-		logger.Info("redis exporter stopped", slog.String("reason", "shutdown_complete"))
-		return nil
-	}
+	return componentmetrics.ServeRuntime(ctx, server, listener, shutdownTimeout, logger)
 }
