@@ -253,3 +253,21 @@
 - `scripts/verify-runtime-contracts.sh`
 
 </details>
+
+## PR 门禁失败修复（2026-09-16）
+
+首次 push 的 Actions run `35006301154` 有三个失败 job，自动建 PR 因前置门禁失败而跳过，并非已创建 PR 的合并冲突：
+
+- Branch governance：`test_verify_business.py` 的 migrate 最小环境精确集合未包含本批新增的非敏感 `GOPULSE_VERSION`、`GOPULSE_REVISION`。仅补齐这两个允许字段，保留敏感配置禁止断言。
+- Integration：Worker 阻塞处理器耗尽 drain 预算后按本批契约返回 `shutdown_timeout`，旧集成测试仍要求 nil。更新该失败路径预期，继续验证处理器已退出、通知未落库以及新 Worker 重投后通知正常落库；正常退出路径仍要求 nil。
+- Full-stack Compose：构建 frontend 时 `SearchView` 测试在并行 Go 镜像构建负载下触发默认 5 秒超时（同次独立 Frontend job 全通过）。Dockerfile 将 Vitest worker 限制为 1、单测预算设为 15 秒；不跳过测试或削弱业务断言。
+
+本地验证实际完成：
+
+- `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：51 tests 通过（修改前已复现治理失败）。
+- `python3 scripts/ci/validate_versions.py`、`python3 scripts/ci/validate_branch.py --branch develop/1.14.3 --base-ref origin/main`：通过。
+- `cd frontend && npm test -- --run --maxWorkers=1 --testTimeout=15000`：18 files / 67 tests 通过。
+- 独立创建带唯一名称与归属标签、仅 loopback 动态端口发布的 MySQL/RabbitMQ；执行 `go run ./cmd/migrate up` 与 `go test -count=1 -tags=integration ./internal/worker`：通过（7.492s）；随后删除本次容器及匿名卷，未使用既有用户环境。
+- `gofmt`、`git diff --check`：通过。
+
+版本保持 `1.14.3`，同分支 follow-up。远端完整门禁将在本次 push 后重新执行；本段不将尚未运行的远端检查记为通过。本地诊断与验证输出保存在 `.run/phase17-03/pr-fix/`（不提交原始 CI 日志）。
