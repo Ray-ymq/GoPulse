@@ -188,3 +188,7 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 实际运行日志：`/tmp/gopulse-phase17-04-marshaller-resume.log`、`/tmp/gopulse-phase17-04-admin-resume-final.log`、`/tmp/gopulse-phase17-04-catalog-backend.log`。最终门禁结果见后续补充；本批仍未完成，VERSION 保持 1.14.3。
 - Marshaller 完整真实门禁本轮 **exit 0**：VM outage 不推进 offset、同 PID 恢复、未提交记录进程重启恢复、Kafka broker/group 恢复、真实记录重放去重及 owned cleanup 全部通过。该轮已运行进程只涉及 Marshaller/Router/Monitor，无 Backend alert gauges；不将它冒充更新后不可变候选的统一 receipt。
 - Compose 首次续跑 **exit 1**，在 Docker 访问前由 clean-source gate 拒绝本轮未提交源码；没有绕过门禁。先提交这次最小修复，再按同批次继续正式 Compose 验证。
+- 提交 `bc8463f` 后的完整 Compose 轮次已通过 vm-down、monitor-down、transport-down、业务/观测持久性、post-restart 与有界关停，证明原 VM 页面阻断已消除；但后续 `phase15-closure.spec.ts` 的“创建规则”按钮持续 disabled，整轮 exit 1。直接定位到管理 DTO 另一份有限标签目录未接受新增 `alert_source`，导致 alerts catalog 被拒绝。仅补充该已定义标签，并添加 catalog/selector 接受与未知标签拒绝的代表回归，不放宽创建规则断言。
+- 本轮另有工作区快照失败：执行期间我修改了文档与 checkpoint，结束时触发 Git tree 不变检查。该轮不能记为完整通过；后续正式重跑前提交所有变更，运行期间不再编辑项目文件。
+- 更新 `docs/migration-state.md` 说明 alert_source 与 provenance source 的区别；checkpoint 保留 `complete=false`，不得把源码门禁当成旧不可变候选的验收结果。
+- 管理 DTO 最小修复验证：`(cd admin-frontend && npm test -- src/services/management.test.ts && npm run typecheck)` exit 0（12 tests）。日志 `/tmp/gopulse-phase17-04-management-resume.log`。

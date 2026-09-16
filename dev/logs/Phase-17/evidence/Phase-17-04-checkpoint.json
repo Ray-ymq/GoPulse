@@ -8,7 +8,7 @@
     "revision": "f674e1e410a2d5f9f9ef2f4f16f58ae201d7c26c",
     "manifest_sha256": "699aecd1c10f27e1cd8f588b1900366fe2c8d648451efcce32fa0eadaf48ff87",
     "build": "passed",
-    "product_acceptance": "incomplete"
+    "product_acceptance": "incomplete; superseded source contracts require candidate rebuild"
   },
   "checks": {
     "migration_real_mysql": "passed",
@@ -18,15 +18,22 @@
     "router_affected_packages": "passed",
     "business_live": "passed",
     "alerts_three_sources_live": "passed",
-    "compose_full": "failed: vm-down frontend expectation",
+    "compose_full": "failed: VM outage fixed; subsequent alert catalog label rejected, fixed pending rerun; working tree changed during run",
     "source_backup_inspect": "passed: authenticated format only",
     "source_restore_upgrade": "not_run",
     "unified_candidate_runner": "not_implemented",
-    "marshaller_live": "failed: retry log assertion during VictoriaMetrics outage"
+    "marshaller_live": "passed: full real gate including storage recovery, process restart, broker/group, replay and owned cleanup",
+    "component_catalog_contract": "passed: synchronized browser catalog and alert_source reserved-label fix"
   },
   "whole_batch_passed": false,
   "current_completed_version": "1.14.3",
   "branch": "develop/1.14.4",
   "branch_completion_gate": "pending: VERSION intentionally remains the last completed version",
-  "cleanup": "task-owned runtime/registry containers removed; original registry volume preserved; candidate registry archive retained"
+  "cleanup": "task-owned runtime/registry containers removed; original registry volume preserved; candidate registry archive retained",
+  "resume": {
+    "source_revision": "bc8463f22fa2434211d53dfc2585a67d8a0ca3d3",
+    "marshaller_log_sha256": "8f8ceea4417568bf33f16cb00afcd445d0e64e5702c44d97d47b1e2dae99c41f",
+    "marshaller_scope": "source verifier, not immutable candidate receipt",
+    "current_completed_version": "1.14.3"
+  }
 }

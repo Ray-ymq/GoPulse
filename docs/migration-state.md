@@ -49,4 +49,6 @@ Alert evaluation retains transactional lease/revision checks and persisted
 unknown/stale behavior. Round-level panic returns to scheduling rather than
 silently terminating the scheduler; evaluation failures use fixed reason codes.
 Source evaluation-known and last-success metrics have only the three bounded
-source labels `metrics`, `logs`, `events` and do not change social readiness.
+`alert_source` label values `metrics`, `logs`, `events` and do not change social
+readiness. The reserved provenance label remains `source=backend`; alert sources
+must not overwrite it. The admin frontend catalog mirrors these two gauges.
