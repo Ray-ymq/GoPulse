@@ -129,3 +129,50 @@
 - `scripts/ci/verify_migration_state.py`
 - `scripts/verify-business.sh`
 - `scripts/verify-marshaller.sh`
+
+## 收尾门禁检查点
+
+- 最终隔离 MySQL receipt 增加 `apply_failure_keeps_dirty`：测试库本地移除 13 后临时撤销验收账户 CREATE 权限，真实 up 失败得到 code 8、保持 dirty=13，再次 up 拒绝 code 4；表集合不被失败应用修改。恢复权限仅用于本次 disposable fixture 的专用 12 resume 验证，不构成产品 force/回退流程。
+- 三源 alerts 串行重跑通过：三源正常/失败/恢复、Backend replacement 去重、停用 evaluator 持久事实不变、窗口自然过期后的同一 incident 恢复、trigger/recover 各一次、安全日志/审计、owned cleanup 和既有资源保留。摘要：`evidence/Phase-17-04-alerts.json`；私有原始记录：`.run/gopulse-p1401-caaa8968fdf7/alert-evidence.json`。
+- 正式不可变 `1.13.6` lifecycle image 执行历史正式 archive 的 `backup-inspect` 通过。结果明确限定 authenticated format，不证明数据一致性或 restore readiness；`evidence/Phase-17-04-source-backup-inspect.json` 保留这一限制。
+- `scripts/verify-compose.sh` 实际执行失败（exit 1），不是仅 self-test：生产镜像构建、冷启动、migration job、Compose smoke/business 及前序观测场景已进行；`e2e/compose-observability.spec.ts:176` 的 `vm-down` 场景未找到预期 VictoriaMetrics 故障提示。记录为未解决阻断，未降低该断言或宣称完整 Compose 通过。日志：`/tmp/gopulse-phase17-04-compose.log`。
+- business 完整门禁发现旧 Rabbit/Redis outage 断言仍要求 Backend `/ready=503`，与已经交付的 social readiness 隔离合同及本计划冲突。只改为要求 200，保留真实社交写入、队列/Outbox/最终通知收敛断言。原失败轮次不能计为通过。
+- Marshaller 捕获真实 record 时首次字段误写 `payload.status`，实际为 `payload.scrape_status`；已修正，并保留原始失败记录，不把它记为通过。
+- 候选 registry 数据已从独立容器内部打包保存到 `dist/phase17-04-candidate/registry-data.tar`（私有权限 0600），用于后续恢复相同候选 registry；没有改写 manifest/digest。
+
+## 本次执行最终状态：未完成
+
+### 固定门禁结果
+
+| 门禁 | 实际结果 |
+| --- | --- |
+| Backend 固定包测试及 worker/alert race | 通过 |
+| Marshaller consumer 普通/race 测试 | 通过 |
+| Router kafka/httpserver 测试 | 通过 |
+| 隔离 MySQL 状态、并发、锁、拒绝、真实 apply failure、专用 resume | 通过 |
+| `scripts/verify-business.sh` | 最终 exit 0；完整社交/搜索/通知/故障矩阵、日志校验与 cleanup 通过 |
+| `scripts/verify-alerts.sh` | 最终 exit 0；三源故障恢复、重复抑制、停用/重启和 cleanup 通过 |
+| `scripts/verify-marshaller.sh` | 最终 exit 1；VM outage 的 retry 日志断言未通过 |
+| `scripts/verify-compose.sh` | exit 1；`vm-down` 浏览器错误提示断言未通过 |
+| `verify-phase17-state.sh` / 前序正式 restore→当前候选 | 统一入口尚未实现，正式升级路径未运行 |
+| `validate_versions.py` | 最终通过，元数据一致为当前已完成版本 `1.14.3` |
+| `validate_branch.py --branch develop/1.14.4 --base-ref upstream/main` | 最终 exit 1：未完成批次的 target 为 1.14.4，VERSION 保留 1.14.3，不满足完成门禁 |
+| `git diff --check` | 通过 |
+
+business 最终日志 `/tmp/gopulse-phase17-04-business-completion.log`；其中旧日志文案曾写 readiness degraded，但执行的实际断言已经是 social readiness=200，后续只修正文案，没有因文案变化重复成功的产品门禁。
+
+Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshaller-frozen.log`：真实 Redis 10 families/11 samples、第二 group member 接管、不提交 peer、replacement consumer 从已提交位置重取、三种永久异常提交跳过、真实有效记录继续、Redis unavailable→recovery 已通过；进入 VictoriaMetrics 停机后，脚本未观察到它匹配的 `write_retry` 字样而失败。当前源码将 `write_retry` 放在 event 属性中，而共享 logger 会重新派生 event；这个日志观察合同仍需修复和验证。不能据此称存储失败/恢复及后续 broker/SIGTERM 全部通过。
+
+此前一次运行在 Bash 正在读取自身脚本时被本次编辑打断，出现 EOF 语法错误；静态 `bash -n` 通过后，用不再编辑的冻结脚本完整重跑，以上结果来自冻结轮次，未把被打断的一轮计为通过。
+
+对本次新增容器 cleanup helper 增加了 foreign-label 负例：即使调用方使用 `|| true`，ownership mismatch 也必须显式 return，不能继续 stop/rm。`python3 -m unittest discover -s scripts/ci -p 'test_marshaller_cleanup.py'` 通过；该修复只改变拒绝 foreign resource 的路径。
+
+### 版本与资源
+
+- 根据“VERSION 是当前已完成产品版本；批次完成时才推进”规则，将 bootstrap 提前设置的六处版本元数据恢复为 `1.14.3`，目标分支仍是 `develop/1.14.4`。不能用版本号提前推进掩盖未完成验收。
+- 临时只读 source registry 创建后实际 exit 2，未成为可用的源制品入口；正式 backup-inspect 使用的是本地已有 immutable lifecycle image，而非声称源 registry 可用。
+- 本次两只 registry 容器已经验证 owner label 后删除，原 `gopulse-p1606-registry-data` 卷仍存在，原 registry 容器未启动或修改。
+- 所有本次运行栈均已结束并清理；保留当前候选 Bundle、私有 registry-data archive、私有失败日志与上述 allowlisted evidence，供后续同批次继续。
+- 没有推送 Git 分支、创建 PR 或发布/promote 候选。
+
+**仍须完成正式前序升级/恢复事实对照、统一候选级 runner/receipt、Marshaller 完整门禁与 Compose 失败修复，之后才能恢复目标版本 1.14.4 并宣布本批完成。** 当前记录及 checkpoint 的 `complete=false` 是续做依据，不能交付为已验收的 Phase-17-05 输入。

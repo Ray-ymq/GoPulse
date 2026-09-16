@@ -1,0 +1,32 @@
+{
+  "schema": "gopulse.phase17-state-checkpoint.v1",
+  "complete": false,
+  "scope": "checkpoint only; full Phase-17-04 acceptance is pending",
+  "target_version": "1.14.4",
+  "binary_schema_target": 13,
+  "candidate": {
+    "revision": "f674e1e410a2d5f9f9ef2f4f16f58ae201d7c26c",
+    "manifest_sha256": "699aecd1c10f27e1cd8f588b1900366fe2c8d648451efcce32fa0eadaf48ff87",
+    "build": "passed",
+    "product_acceptance": "incomplete"
+  },
+  "checks": {
+    "migration_real_mysql": "passed",
+    "backend_affected_packages": "passed",
+    "backend_worker_alert_race": "passed",
+    "marshaller_consumer_unit_and_race": "passed",
+    "router_affected_packages": "passed",
+    "business_live": "passed",
+    "alerts_three_sources_live": "passed",
+    "compose_full": "failed: vm-down frontend expectation",
+    "source_backup_inspect": "passed: authenticated format only",
+    "source_restore_upgrade": "not_run",
+    "unified_candidate_runner": "not_implemented",
+    "marshaller_live": "failed: retry log assertion during VictoriaMetrics outage"
+  },
+  "whole_batch_passed": false,
+  "current_completed_version": "1.14.3",
+  "branch": "develop/1.14.4",
+  "branch_completion_gate": "pending: VERSION intentionally remains the last completed version",
+  "cleanup": "task-owned runtime/registry containers removed; original registry volume preserved; candidate registry archive retained"
+}

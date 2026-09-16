@@ -6,6 +6,7 @@
     "lock_timeout",
     "dirty_rejected_unchanged",
     "ahead_rejected_unchanged",
+    "apply_failure_keeps_dirty",
     "explicit_v12_resume_then_v13"
   ],
   "binary_target": 13,
