@@ -3,7 +3,7 @@
 - 执行日期：2026-09-16（Asia/Shanghai）。
 - 目标版本 / 分支：`1.14.4` / `develop/1.14.4`。
 - 基线：fetch 后的 `upstream/main`，产品版本 `1.14.3`。
-- **状态：实施中，未达到本批完成条件；不是 Phase-17-05 的已验收输入。**
+- **状态：本地实施与候选验收完成，版本 1.14.4；尚未推送或合入 main，Phase-17-05 的主线前置条件仍需合并后满足。最终结论见文末，之前的未完成状态均为历史执行记录。**
 - 使用计划指定的 `scripts/start-development-batch.sh Phase-17-04 --remote upstream` 创建分支；该脚本已自动创建 bootstrap 元数据提交 `5a46e79`。
 
 ## 实际生产实现
@@ -65,11 +65,11 @@
 
 ## 仍须完成的批次合同
 
-- [ ] 正式 `1.13.6` 当前数据配方 → backup/inspect → 隔离 restore → `1.14.4` 候选迁移与角色/业务/插件/告警/审计事实对照、新写入。
-- [ ] 失败项目不 ready，且通过正式 restore 回到验收前快照。
-- [ ] `scripts/verify-phase17-state.sh --from-manifest ... --manifest ... --work ...` 候选级统一入口、结构化 receipt、secret/resource/cleanup 闭环。
-- [ ] 同一不可变候选的 Rabbit/Kafka/alert 故障组合、社交隔离及完整必要终态证据。
-- [ ] 固定 business / marshaller / alerts 和完整 Compose 门禁全部通过，并完成 receipt 复用关系。
+- [x] 正式 `1.13.6` 当前数据配方 → backup/inspect → 隔离 restore → `1.14.4` 候选迁移与角色/业务/插件/告警/审计事实对照、新写入。
+- [x] 失败项目不 ready，且通过正式 restore 回到验收前快照。
+- [x] `scripts/verify-phase17-state.sh --from-manifest ... --manifest ... --work ...` 候选级统一入口、结构化 receipt、secret/resource/cleanup 闭环。
+- [x] 同一不可变候选的 Rabbit/Kafka/alert 故障组合、社交隔离及完整必要终态证据。
+- [x] 固定 business / marshaller / alerts 和完整 Compose 门禁全部通过，并完成 receipt 复用关系。
 
 已找到 `dist/phase16-06-v3/release-manifest.json`（1.13.6）、前序正式备份及本地 lifecycle/backend digest 制品；原 registry 容器处于停止状态。未启动或修改原 registry 容器。后续创建本次唯一归属 registry，将原数据卷只读挂载以读取源制品；没有把存在的历史 evidence 当成本次升级通过证据。
 
@@ -140,7 +140,7 @@
 - Marshaller 捕获真实 record 时首次字段误写 `payload.status`，实际为 `payload.scrape_status`；已修正，并保留原始失败记录，不把它记为通过。
 - 候选 registry 数据已从独立容器内部打包保存到 `dist/phase17-04-candidate/registry-data.tar`（私有权限 0600），用于后续恢复相同候选 registry；没有改写 manifest/digest。
 
-## 本次执行最终状态：未完成
+## 前次执行最终状态（历史检查点）：未完成
 
 ### 固定门禁结果
 
@@ -217,3 +217,48 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 完整入口继续运行已实际通过 candidate Backend ready、普通用户管理 API 拒绝与新增可搜索写入；随后非 12 dirty 负例正确返回 exit 4，但 verifier 的 JSON 字段白名单遗漏 CLI 已有的 `exit_code`，因此拒绝了正确的安全输出。补齐该唯一字段；不改变 Migration 退出码或 dirty 拒绝语义。
 - 正式 Migration 数据路径最终通过，包括 candidate ready、普通用户管理拒绝、新增可搜索写入、dirty exit 4 且事实未改、dirty 项目 ready=503、正式 source restore 恢复原事实及 owned cleanup/Secret scan。私有结构化结果 `.run/phase17-04-resume/state/migration-receipt.json` 已保存并绑定两份 manifest 与 migration verifier 哈希；后续复用该结果。
 - 同候选 business 实际业务矩阵通过，但 cleanup 的全仓 ignored-file 快照检测到统一 runner 正在向 `.run/.../business.log` 写日志，最终 exit 1；不是业务故障，也不能计完整门禁通过。编排改为 `/tmp` 私有匿名临时文件收集输出，子进程完成自身 cleanup/snapshot 后才写工作区日志。未放宽 business 的资源/文件隔离断言。
+
+## 最终验收结论：本地批次完成，1.14.4
+
+### 不可变候选及事实
+
+- 最终候选：`dist/phase17-04-resume-candidate/release-manifest.json`，revision `6baff41076b463731784a8411b1c43f4e710a59a`，manifest SHA-256 `2e9f735a1578f4522e39cfb45aeb8e3cb7c8d95d9bd6c4e350edd2cf29ff8be8`。
+- 来源：正式 `1.13.6` manifest SHA-256 `09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687`。实际 source lifecycle 生成业务/身份/插件/告警/审计数据，正式 backup/inspect/restore；不是手工 SQL 拼装的历史数据。
+- schema from/to 均为 **13**，内嵌库存仍为 `000001`–`000013`；`validate/status/up` 和重复 up 均正确。当前产品不新增实体，因此没有占位 DDL。非 12 dirty 负例保持事实未改、exit 4 且 Backend `/ready=503`；删除失败的自有隔离安装后，正式 restore 再次恢复验收前事实，未使用 down/force 修复数据。
+- restored 数据路径明确为 candidate Migration/Backend 对 source lifecycle 所有的恢复依赖验证；候选 Backend 的普通用户管理拒绝、新增可搜索写入通过。完整 candidate 消息/告警/双端 Compose 在同一 manifest 上另行验证。此范围不声明任意历史版本、生产在线升级或新的生命周期 upgrade 命令。
+- 已核对候选源码与当前 backend/frontend/admin-frontend/componentmetrics/router/marshaller/monitor/exporters/deploy/lifecycle 的差异，仅为完成前暂留的六处版本元数据；收尾同步后产品代码与候选一致。候选构建后新增的是验收编排/提取/测试与记录，不以未构建的生产变更替换已验收二进制。
+
+### 固定门禁与复用关系
+
+| 门禁 | 最终实际结果 |
+| --- | --- |
+| Backend migrate/migrations/worker/notification/search/alert 及 worker/alert race | 前次已通过；生产逻辑未再修改，沿用已记录结果 |
+| Marshaller consumer 普通/race、Router kafka/httpserver | 前次已通过；本次只有 candidate verifier 接入，未重复 |
+| componentmetrics、Backend alert/metricquery、管理前端直接测试/typecheck | 前次修复后已通过；候选构建亦通过前端镜像固定测试 |
+| 真实 MySQL concurrent/lock/dirty/ahead/apply/resume | 前次已通过；本次新增正式来源路径另有实际 receipt |
+| 正式 1.13.6 → 1.14.4 数据路径、失败后 restore、Secret/ownership/cleanup | 通过，`migration-receipt.json` |
+| `GOPULSE_RELEASE_MANIFEST=... scripts/verify-business.sh` | 同候选完整门禁 exit 0，`business-receipt.json` |
+| `GOPULSE_RELEASE_MANIFEST=... scripts/verify-marshaller.sh` | 同候选完整门禁 exit 0，`marshaller-receipt.json` |
+| `GOPULSE_RELEASE_MANIFEST=... scripts/verify-alerts.sh` | 同候选三源/故障隔离门禁 exit 0，`alerts-receipt.json` |
+| candidate source checkout 中的 `scripts/verify-compose.sh` | 同候选最终 exit 0，`compose-receipt.json` |
+| `scripts/verify-phase17-state.sh --from-manifest dist/phase16-06-v3/release-manifest.json --manifest dist/phase17-04-resume-candidate/release-manifest.json --work .run/phase17-04-resume/state` | **exit 0，complete=true** |
+| 新 runner self-tests、Python 编译检查、Bash 语法检查 | 通过；仅覆盖新 binding/extraction 边界与可执行性 |
+
+- 统一 runner 在后续 Compose 恢复执行时按同一 manifest 对、verifier 哈希、保留日志校验值复用 migration/business/marshaller/alerts，未重新运行这些成功门禁。顶层固定三个 verifier 命令由 runner 实际调用，不能再额外重复计数或执行。
+- 所有 candidate 门禁在真实 Linux amd64 Docker server 上串行执行；每个门禁完成后 Docker container/network/volume inventory 与门禁前一致。
+- 公开汇总：`dev/logs/Phase-17/evidence/Phase-17-04-state.json`。私有 per-gate receipt/log/backup/journal 留在 `.run/phase17-04-resume/state`，不提交凭据或原始备份。最终编排输出 `/tmp/gopulse-phase17-04-state-compose-final.log`。
+
+### 如实保留的失败轮次与限制
+
+- candidate Compose 首轮验收镜像的 APK 安装较慢，构建成功后浏览器容器因临时 checkout 的 umask 私有权限无法读取入口脚本而失败。仅规范 detached checkout 的 Git tracked source mode，不改产品制品或私有凭据权限。
+- 后续一轮已通过 VM/Monitor/Router 故障、持久性、重连、信号关停、Exporter、官方安装等场景，但 `frontend-product.spec.ts` 在清空 datetime-local 输入时超时。未发现生产缺陷证据，未削弱断言或修改产品；保留失败日志 `/tmp/gopulse-phase17-04-compose-datetime-failure.log`，同一候选完整失败门禁重跑最终通过。此前失败不改写为通过。
+- 本次所有原始 source/candidate registry 操作均针对独立归属副本。完成后已校验 owner label，删除本次两只 registry 容器及其新卷；原 `gopulse-p1606-registry-data` 与停止的原 registry 保持原状。新候选 registry 内容保存为 `dist/phase17-04-resume-candidate/registry-data.tar`（0600），便于必要时恢复同一候选入口。
+- 历史失败记录与旧 candidate `f674e1e` 保留作追溯，不是最终验收输入。未执行 Kubernetes、跨架构、性能测试或独立架构审查。
+- **本地批次完成不等于已合入 main。** 没有推送、PR 或 promote；Phase-17-05 要求的主线输入仍需用户后续合并。不得据此宣布 Phase-17 总里程碑完成。
+
+### 完成元数据检查
+
+- `python3 scripts/ci/validate_versions.py`：通过，六处版本元数据均为 1.14.4。
+- `python3 scripts/ci/validate_branch.py --branch develop/1.14.4 --base-ref upstream/main`：通过。
+- `git diff --check`：通过。
+- 清理后实际运行容器与开始前一致，仅保留用户原有 Monitor/Kafka/Elasticsearch 三只容器。本次候选及正式备份为私有可复核制品，未自动发布。

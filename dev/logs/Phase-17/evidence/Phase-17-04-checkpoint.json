@@ -1,14 +1,14 @@
 {
   "schema": "gopulse.phase17-state-checkpoint.v1",
-  "complete": false,
-  "scope": "checkpoint only; full Phase-17-04 acceptance is pending",
+  "complete": true,
+  "scope": "completed batch; authoritative candidate results in Phase-17-04-state.json",
   "target_version": "1.14.4",
   "binary_schema_target": 13,
   "candidate": {
-    "revision": "f674e1e410a2d5f9f9ef2f4f16f58ae201d7c26c",
-    "manifest_sha256": "699aecd1c10f27e1cd8f588b1900366fe2c8d648451efcce32fa0eadaf48ff87",
+    "revision": "6baff41076b463731784a8411b1c43f4e710a59a",
+    "manifest_sha256": "2e9f735a1578f4522e39cfb45aeb8e3cb7c8d95d9bd6c4e350edd2cf29ff8be8",
     "build": "passed",
-    "product_acceptance": "incomplete; superseded source contracts require candidate rebuild"
+    "product_acceptance": "passed"
   },
   "checks": {
     "migration_real_mysql": "passed",
@@ -18,24 +18,31 @@
     "router_affected_packages": "passed",
     "business_live": "passed",
     "alerts_three_sources_live": "passed",
-    "compose_full": "passed: clean source 0947613, full Compose including three-source rule creation and cleanup",
+    "compose_full": "passed: source regression and final immutable candidate Compose gate",
     "source_backup_inspect": "passed: authenticated format only",
-    "source_restore_upgrade": "not_run",
-    "unified_candidate_runner": "not_implemented",
+    "source_restore_upgrade": "passed: formal 1.13.6 backup/restore, candidate schema/Backend/write, dirty refusal and formal recovery",
+    "unified_candidate_runner": "passed: immutable candidate migration/business/marshaller/alerts/compose receipts",
     "marshaller_live": "passed: full real gate including storage recovery, process restart, broker/group, replay and owned cleanup",
-    "component_catalog_contract": "passed: synchronized browser catalog and alert_source reserved-label fix"
+    "component_catalog_contract": "passed: synchronized browser catalog and alert_source reserved-label fix",
+    "version_metadata": "passed: all six version files are 1.14.4"
   },
-  "whole_batch_passed": false,
-  "current_completed_version": "1.14.3",
+  "whole_batch_passed": true,
+  "current_completed_version": "1.14.4",
   "branch": "develop/1.14.4",
-  "branch_completion_gate": "pending: VERSION intentionally remains the last completed version",
-  "cleanup": "resume Marshaller and Compose owned resources removed; original three running containers unchanged",
+  "branch_completion_gate": "passed: validate_branch.py --branch develop/1.14.4 --base-ref upstream/main",
+  "cleanup": "all resume runtime stacks and owned registries/volumes removed; original resources preserved; private candidate registry archive retained",
   "resume": {
     "source_revision": "bc8463f22fa2434211d53dfc2585a67d8a0ca3d3",
     "marshaller_log_sha256": "8f8ceea4417568bf33f16cb00afcd445d0e64e5702c44d97d47b1e2dae99c41f",
     "marshaller_scope": "source verifier, not immutable candidate receipt",
-    "current_completed_version": "1.14.3",
     "compose_source_revision": "0947613",
-    "compose_log_sha256": "624a777accfb60dd04c8e432b67090208c8e182cb5240be12bbd425e0cba87fc"
+    "compose_log_sha256": "624a777accfb60dd04c8e432b67090208c8e182cb5240be12bbd425e0cba87fc",
+    "previous_completed_version": "1.14.3"
+  },
+  "previous_candidate": {
+    "revision": "f674e1e410a2d5f9f9ef2f4f16f58ae201d7c26c",
+    "manifest_sha256": "699aecd1c10f27e1cd8f588b1900366fe2c8d648451efcce32fa0eadaf48ff87",
+    "build": "passed",
+    "product_acceptance": "incomplete; superseded source contracts require candidate rebuild"
   }
 }
