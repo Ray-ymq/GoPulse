@@ -20,7 +20,7 @@
 
 ### Rabbit / Kafka / alert
 
-- Rabbit secondary publish 在发送前和 confirm 后检查 context；取消不能授权原 delivery ack，走原有 nack/requeue。增加 retry/dead 两条实际变更路径的取消测试。
+- Rabbit secondary publish 在发送前和 confirm 后检查 context；取消不能授权原 delivery ack，走原有 nack/requeue。使用 channel publish sequence 匹配 confirm，避免上一条超时发布的迟到确认误 ack 下一条消息。增加 retry/dead 取消以及迟到 confirm 后新消息 ack/nack 的直接测试。
 - Kafka commit 最多三次、指数有界等待，不在 commit 重试间重复目标写入；每次检查 context/lease，耗尽返回原有终止错误，复用已经存在的进程非零退出路径。
 - Kafka storage retry 等待同时响应主进程取消和 lease 取消。
 - Alert round panic 不再通过顶层 recover 静默终止整个 scheduler；round/evaluation/database/apply 失败使用固定安全 reason。复用已有事务 lease/revision 和连续性规则。
@@ -71,10 +71,61 @@
 - [ ] 同一不可变候选的 Rabbit/Kafka/alert 故障组合、社交隔离及完整必要终态证据。
 - [ ] 固定 business / marshaller / alerts 和完整 Compose 门禁全部通过，并完成 receipt 复用关系。
 
-已找到 `dist/phase16-06-v3/release-manifest.json`（1.13.6）、前序正式备份及本地 lifecycle/backend digest 制品；原 registry 容器处于停止状态。本次未启动或修改它们，也未把存在的历史 evidence 当成本次升级通过证据。
+已找到 `dist/phase16-06-v3/release-manifest.json`（1.13.6）、前序正式备份及本地 lifecycle/backend digest 制品；原 registry 容器处于停止状态。未启动或修改原 registry 容器。后续创建本次唯一归属 registry，将原数据卷只读挂载以读取源制品；没有把存在的历史 evidence 当成本次升级通过证据。
 
 ## 验证范围与偏差
 
 未执行 Kubernetes、跨架构、性能、通用依赖审计或独立代码审查。新增测试只对应本次 Migration、提交/取消、scheduler panic 合同。共享 Compose/指标/日志改动的直接回归原因如上。
 
 本记录如实记录已完成子项，**未将实施计划勾选为完成，也未发布 1.14.4 里程碑**。最终固定门禁结果、提交和剩余限制将在本次执行结束前补充。
+
+
+## 候选构建与当前检查点
+
+- 生产实现提交：`f674e1e`（`feat: strengthen migration and message state reliability`）。该提交明确包含未完成记录，不是验收完成声明。
+- 基于该已提交源码执行 `python3 scripts/ci/release_artifacts.py build --registry 127.0.0.1:15004/gopulse --output dist/phase17-04-candidate` 成功，得到 Linux amd64 `1.14.4` 不可变候选 Bundle。没有 promote 或外部发布。
+- 新建 registry project `gopulse-state-06c3c53d82ba`：源 registry 只读挂载历史 registry volume，候选 registry 使用独立存储；原 registry 容器保持停止。
+- 候选 manifest：`dist/phase17-04-candidate/release-manifest.json`。构建日志：`/tmp/gopulse-phase17-04-candidate.log`。
+- Marshaller 验收脚本捕获的真实 Kafka 记录必须按 `metrics/redis + success` 筛选，不能再假定分区最后一条一定属于 Redis（当前 Monitor 同时发布组件指标）。
+- Redis plugin 目标失败响应预算需小于 Monitor scrape timeout，验收配置采用 connect=100ms / scrape=500ms / Monitor=800ms；不修改产品上限或绕过验证。
+
+### 本批变更文件
+
+- `.env.example`
+- `VERSION`
+- `admin-frontend/package-lock.json`
+- `admin-frontend/package.json`
+- `backend/cmd/migrate/main.go`
+- `backend/cmd/migrate/main_test.go`
+- `backend/cmd/server/main.go`
+- `backend/internal/alert/count_sources_test.go`
+- `backend/internal/alert/scheduler.go`
+- `backend/internal/logquery/vocabulary.go`
+- `backend/internal/platform/runtime_schema.go`
+- `backend/internal/worker/handler.go`
+- `backend/internal/worker/handler_test.go`
+- `backend/internal/worker/runtime.go`
+- `backend/internal/worker/runtime_test.go`
+- `backend/migrations/validate.go`
+- `backend/migrations/validate_test.go`
+- `componentmetrics/catalog.go`
+- `componentmetrics/registry_test.go`
+- `deploy/compose.yaml`
+- `dev/logs/Phase-17/Phase-17-04-Migration与消息处理可靠性闭环.md`
+- `dev/logs/Phase-17/evidence/Phase-17-04-migration.json`
+- `docs/migration-state.md`
+- `frontend/e2e/bookmark.spec.ts`
+- `frontend/e2e/delete.spec.ts`
+- `frontend/e2e/profile.spec.ts`
+- `frontend/package-lock.json`
+- `frontend/package.json`
+- `marshaller/internal/consumer/processor.go`
+- `marshaller/internal/consumer/processor_test.go`
+- `marshaller/internal/logs/validation.go`
+- `monitor/internal/logs/logs.go`
+- `scripts/ci/testdata/migration-lock.go`
+- `scripts/ci/verify_alert_sources.py`
+- `scripts/ci/verify_alerts.py`
+- `scripts/ci/verify_migration_state.py`
+- `scripts/verify-business.sh`
+- `scripts/verify-marshaller.sh`

@@ -610,7 +610,7 @@ info "Real Redis success matrix reached VictoriaMetrics with all 10 families/11 
 
 REAL_END=$(end_offset)
 [[ $REAL_END =~ ^[0-9]+$ ]] && ((REAL_END > 0)) || fail 'Real upstream did not create a Kafka record.'
-REAL_OFFSET=$((REAL_END - 1))
+REAL_OFFSET=$((REAL_END > 200 ? REAL_END - 200 : 0))
 "$TEMP_DIR/verify-consumer" --brokers "127.0.0.1:$KAFKA_PORT" --topic "$TOPIC" --client-id "gopulse-verify-$TOKEN_ID" --partition 0 --start "$REAL_OFFSET" --end "$REAL_END" --timeout 15s >"$TEMP_DIR/real-record" 2>"$TEMP_DIR/real-record.stderr"
 python3 - "$TEMP_DIR/real-record" "$TEMP_DIR/real.key" "$TEMP_DIR/real.json" "$TEMP_DIR/real.meta" <<'PYREAL'
 import base64
@@ -619,7 +619,11 @@ import json
 import pathlib
 import sys
 source, key_path, value_path, meta_path = sys.argv[1:]
-record = json.loads(pathlib.Path(source).read_text())
+records = [json.loads(line) for line in pathlib.Path(source).read_text().splitlines()]
+record = next(record for record in reversed(records)
+              if (lambda value: value.get('type') == 'metrics' and value.get('source') == 'redis'
+                  and value.get('payload', {}).get('status') == 'success')(
+                      json.loads(base64.b64decode(record['value_base64']))))
 key = record['key']
 value = base64.b64decode(record['value_base64']).decode()
 document = json.loads(value)
