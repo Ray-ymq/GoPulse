@@ -752,7 +752,7 @@ run_reliability_matrix() {
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
   wait_notification "$broker_comment_event" 1 45
   wait_notification "$broker_like_event" 1 45
-  info 'Matrix 3-5/10 passed: broker outage preserved facts/Outbox, readiness degraded, and Backend restart plus broker recovery auto-completed delivery.'
+  info 'Matrix 3-5/10 passed: broker outage preserved facts/Outbox and social readiness, and Backend restart plus broker recovery auto-completed delivery.'
 
   unacked_post=$second_post
   unacked_comment=$second_comment

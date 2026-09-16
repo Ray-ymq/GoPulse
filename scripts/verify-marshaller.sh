@@ -276,7 +276,7 @@ docker volume create --label "com.docker.compose.project=$PROJECT" "$MONITOR_VOL
 
 stop_router() {
   [[ -n $ROUTER_CONTAINER ]] || return 0
-  [[ $(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$ROUTER_CONTAINER") == "$PROJECT" ]] || fail 'Router ownership mismatch.'
+  [[ $(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$ROUTER_CONTAINER") == "$PROJECT" ]] || { fail 'Router ownership mismatch.'; return 1; }
   docker stop --time 10 "$ROUTER_CONTAINER" >/dev/null
   docker logs "$ROUTER_CONTAINER" >>"$TEMP_DIR/router.log" 2>&1
   docker rm -v "$ROUTER_CONTAINER" >/dev/null
@@ -309,7 +309,7 @@ start_marshaller() {
 }
 stop_monitor() {
   [[ -n $MONITOR_CONTAINER ]] || return 0
-  [[ $(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$MONITOR_CONTAINER") == "$PROJECT" ]] || fail 'Monitor ownership mismatch.'
+  [[ $(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$MONITOR_CONTAINER") == "$PROJECT" ]] || { fail 'Monitor ownership mismatch.'; return 1; }
   docker stop --time 15 "$MONITOR_CONTAINER" >/dev/null
   docker logs "$MONITOR_CONTAINER" >>"$TEMP_DIR/monitor.log" 2>&1
   docker rm -v "$MONITOR_CONTAINER" >/dev/null
