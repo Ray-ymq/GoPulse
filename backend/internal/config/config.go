@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"net/url"
 	"os"
@@ -170,6 +171,10 @@ type AuthConfig struct {
 }
 
 func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("backend"); err != nil {
+		return Config{}, err
+	}
+
 	return LoadFrom(os.LookupEnv)
 }
 

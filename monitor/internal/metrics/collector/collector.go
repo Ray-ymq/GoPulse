@@ -265,7 +265,7 @@ func (m *Monitor) fetch(ctx context.Context, path string) (string, []envelope.Sa
 		return "", nil, time.Time{}, errors.New("contract_invalid")
 	}
 	target := (&url.URL{Scheme: "http", Host: net.JoinHostPort(m.cfg.Host, m.cfg.Port), Path: path}).String()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	req, err := componentmetrics.NewRequest(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return "", nil, time.Time{}, errors.New("request_failed")
 	}

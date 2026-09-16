@@ -18,6 +18,8 @@ func BackendRoutes() []Route {
 		{Method: "PUT", Template: "/api/v1/admin/users/:userId/role"},
 		{Method: "GET", Template: "/api/v1/admin/audit-events"},
 		{Method: "GET", Template: "/health"},
+		{Method: "GET", Template: "/startup"},
+		{Method: "GET", Template: "/live"},
 		{Method: "GET", Template: "/ready"},
 		{Method: "POST", Template: "/api/v1/auth/register"},
 		{Method: "POST", Template: "/api/v1/auth/login"},

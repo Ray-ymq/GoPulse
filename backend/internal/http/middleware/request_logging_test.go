@@ -28,7 +28,7 @@ func TestRequestLoggingUsesServerIDAndSafeCompletionMetadata(t *testing.T) {
 	})
 
 	request := httptest.NewRequest(stdhttp.MethodGet, "/items/secret-path?token=secret-query", nil)
-	request.Header.Set(requestIDHeader, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	request.Header.Set(requestIDHeader, "external-invalid-id")
 	request.AddCookie(&stdhttp.Cookie{Name: "session", Value: "secret-cookie"})
 	result := httptest.NewRecorder()
 	router.ServeHTTP(result, request)
@@ -44,7 +44,7 @@ func TestRequestLoggingUsesServerIDAndSafeCompletionMetadata(t *testing.T) {
 	if record["message"] != "http request completed" || record["request_id"] != fixedRequestID || record["route"] != "/items/:itemId" || record["method"] != "GET" || record["status"] != float64(400) || record["level"] != "warn" || record["user_id"] != float64(42) || record["error_code"] != "validation_failed" {
 		t.Fatalf("completion record = %#v", record)
 	}
-	for _, forbidden := range []string{"secret-path", "secret-query", "secret-cookie", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} {
+	for _, forbidden := range []string{"secret-path", "secret-query", "secret-cookie", "external-invalid-id"} {
 		if strings.Contains(output.String(), forbidden) {
 			t.Fatalf("log leaked %q: %s", forbidden, output.String())
 		}
@@ -62,7 +62,7 @@ func TestRequestLoggingRecoversPanicBeforeCompletion(t *testing.T) {
 	result := httptest.NewRecorder()
 	router.ServeHTTP(result, httptest.NewRequest(stdhttp.MethodGet, "/panic", nil))
 
-	if result.Code != stdhttp.StatusInternalServerError || result.Body.String() != `{"error":{"code":"internal_error","message":"an internal error occurred"}}` {
+	if result.Code != stdhttp.StatusInternalServerError || result.Body.String() != `{"error":{"code":"internal_error","message":"an internal error occurred","request_id":"`+fixedRequestID+`"}}` {
 		t.Fatalf("response = %d %s", result.Code, result.Body.String())
 	}
 	records := decodeRecords(t, output.Bytes())
@@ -116,7 +116,7 @@ func TestRequestIDFailureReturnsSafeErrorWithoutForgedID(t *testing.T) {
 	router.GET("/", func(c *gin.Context) { c.Status(stdhttp.StatusNoContent) })
 
 	request := httptest.NewRequest(stdhttp.MethodGet, "/", nil)
-	request.Header.Set(requestIDHeader, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	request.Header.Set(requestIDHeader, "invalid-external-id")
 	result := httptest.NewRecorder()
 	router.ServeHTTP(result, request)
 

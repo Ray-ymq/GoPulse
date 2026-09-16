@@ -211,7 +211,7 @@ exit 99
         self.assertIn("ELASTICSEARCH_URL", services["search-indexer"]["environment"])
         self.assertEqual(
             set(services["migrate"]["environment"]),
-            {"GOPULSE_RUNTIME_MODE", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD"},
+            {"GOPULSE_RUNTIME_MODE", "GOPULSE_VERSION", "GOPULSE_REVISION", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD"},
         )
 
         sensitive_values = (

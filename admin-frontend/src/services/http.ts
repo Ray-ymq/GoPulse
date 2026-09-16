@@ -9,7 +9,7 @@ interface PageEnvelope<T> extends DataEnvelope<T[]> {
 }
 
 interface ErrorEnvelope {
-  error: { code: string; message: string }
+  error: { code: string; message: string; request_id?: string }
 }
 
 export class ApiError extends Error {
@@ -17,6 +17,7 @@ export class ApiError extends Error {
     public readonly code: string,
     message: string,
     public readonly status: number | null,
+    public readonly requestId: string | null = null,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -99,6 +100,7 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
           code,
           knownErrorCodes.has(code) ? message : '操作失败，请稍后重试。',
           response.status,
+          typeof body.error.request_id === 'string' && /^[0-9a-f]{32}$/.test(body.error.request_id) ? body.error.request_id : null,
         )
       }
     }
