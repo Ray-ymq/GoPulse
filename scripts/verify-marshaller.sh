@@ -622,7 +622,7 @@ source, key_path, value_path, meta_path = sys.argv[1:]
 records = [json.loads(line) for line in pathlib.Path(source).read_text().splitlines()]
 record = next(record for record in reversed(records)
               if (lambda value: value.get('type') == 'metrics' and value.get('source') == 'redis'
-                  and value.get('payload', {}).get('status') == 'success')(
+                  and value.get('payload', {}).get('scrape_status') == 'success')(
                       json.loads(base64.b64decode(record['value_base64']))))
 key = record['key']
 value = base64.b64decode(record['value_base64']).decode()
