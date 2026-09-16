@@ -192,3 +192,5 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 本轮另有工作区快照失败：执行期间我修改了文档与 checkpoint，结束时触发 Git tree 不变检查。该轮不能记为完整通过；后续正式重跑前提交所有变更，运行期间不再编辑项目文件。
 - 更新 `docs/migration-state.md` 说明 alert_source 与 provenance source 的区别；checkpoint 保留 `complete=false`，不得把源码门禁当成旧不可变候选的验收结果。
 - 管理 DTO 最小修复验证：`(cd admin-frontend && npm test -- src/services/management.test.ts && npm run typecheck)` exit 0（12 tests）。日志 `/tmp/gopulse-phase17-04-management-resume.log`。
+- `1a691a4` 后 Compose 重跑在镜像构建阶段 exit 1：`ObservabilityLogsView.test.ts` 的刷新失败后清空详情断言在并行构建时未等到异步刷新完成（其他 42 tests 通过）。同一失败测试独立执行通过；改为有界等待真实第二次 API 调用、失败提示及详情清空，而不是假定一次 flushPromises 已完成所有 DOM 更新，保留原有数据保留/敏感诊断隐藏断言。修改后最小测试通过；没有改动日志页面生产逻辑。
+- 对应日志 `/tmp/gopulse-phase17-04-compose-catalog-final.log`、`/tmp/gopulse-phase17-04-logs-view.log`、`/tmp/gopulse-phase17-04-logs-view-final.log`。此构建失败不计作完整门禁通过。

@@ -18,7 +18,7 @@
     "router_affected_packages": "passed",
     "business_live": "passed",
     "alerts_three_sources_live": "passed",
-    "compose_full": "failed: VM outage fixed; subsequent alert catalog label rejected, fixed pending rerun; working tree changed during run",
+    "compose_full": "failed during image build: asynchronous LogsView test; bounded wait fixed pending rerun",
     "source_backup_inspect": "passed: authenticated format only",
     "source_restore_upgrade": "not_run",
     "unified_candidate_runner": "not_implemented",
