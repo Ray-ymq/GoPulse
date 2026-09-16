@@ -23,10 +23,13 @@ REDIS_PASSWORD=
 VM_PASSWORD=
 VM_BASIC=
 KAFKA_ID=
-ROUTER_PID=
+ROUTER_CONTAINER=
 MARSHALLER_PID=
 GROUP_PEER_PID=
-MONITOR_PID=
+MONITOR_CONTAINER=
+MONITOR_VOLUME=
+MONITOR_INSTALLED=0
+MONITOR_IMAGE=
 CLEANED=0
 
 info() { printf '[verify-marshaller] %s\n' "$*"; }
@@ -144,10 +147,13 @@ cleanup() {
   local code=$?
   ((CLEANED == 0)) || return "$code"
   CLEANED=1
-  stop_process "$MONITOR_PID" "$TEMP_DIR/monitor" || true
+  stop_monitor || true
+  if [[ -n $MONITOR_VOLUME ]]; then
+    [[ $(docker volume inspect -f '{{index .Labels "com.docker.compose.project"}}' "$MONITOR_VOLUME") == "$PROJECT" ]] && docker volume rm "$MONITOR_VOLUME" >/dev/null
+  fi
   stop_process "$MARSHALLER_PID" "$TEMP_DIR/marshaller" || true
   stop_process "$GROUP_PEER_PID" "$TEMP_DIR/verify-group-member" || true
-  stop_process "$ROUTER_PID" "$TEMP_DIR/router" || true
+  stop_router || true
   if [[ -n $PROJECT && -n $TEMP_DIR && -f $TEMP_DIR/compose.yaml ]] && valid_project "$PROJECT"; then
     compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   fi
@@ -257,43 +263,109 @@ refresh_container_id kafka
 docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --create --topic "$TOPIC" --partitions 1 --replication-factor 1 >/dev/null
 (cd "$REPO_ROOT/router" && go build -o "$TEMP_DIR/router" ./cmd/router && go build -o "$TEMP_DIR/verify-consumer" ./cmd/verify-consumer)
 (cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/marshaller" ./cmd/marshaller && go build -o "$TEMP_DIR/verify-group-member" ./cmd/verify-group-member)
-(cd "$REPO_ROOT/monitor" && go build -o "$TEMP_DIR/monitor" ./cmd/monitor)
-"$REPO_ROOT/scripts/package-redis-exporter.sh" --output "$TEMP_DIR/exporter.tar.gz" >/dev/null
+MONITOR_IMAGE="gopulse/monitor:$(cat "$REPO_ROOT/VERSION")-marshaller-$TOKEN_ID"
+docker build -f "$REPO_ROOT/deploy/docker/observability.Dockerfile" --target monitor   --build-arg VERSION="$(cat "$REPO_ROOT/VERSION")" --build-arg REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"   -t "$MONITOR_IMAGE" "$REPO_ROOT" >"$TEMP_DIR/monitor-build.log" 2>&1
+ROUTER_IMAGE="gopulse/router:$(cat "$REPO_ROOT/VERSION")-marshaller-$TOKEN_ID"
+docker build -f "$REPO_ROOT/deploy/docker/observability.Dockerfile" --target router   --build-arg VERSION="$(cat "$REPO_ROOT/VERSION")" --build-arg REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"   -t "$ROUTER_IMAGE" "$REPO_ROOT" >"$TEMP_DIR/router-build.log" 2>&1
+MONITOR_VOLUME="${PROJECT}_monitor_plugins"
+docker volume create --label "com.docker.compose.project=$PROJECT" "$MONITOR_VOLUME" >/dev/null
 : >"$TEMP_DIR/router.log"
 : >"$TEMP_DIR/marshaller.log"
 : >"$TEMP_DIR/group-peer.log"
 : >"$TEMP_DIR/monitor.log"
 
+stop_router() {
+  [[ -n $ROUTER_CONTAINER ]] || return 0
+  [[ $(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$ROUTER_CONTAINER") == "$PROJECT" ]] || fail 'Router ownership mismatch.'
+  docker stop --time 10 "$ROUTER_CONTAINER" >/dev/null
+  docker logs "$ROUTER_CONTAINER" >>"$TEMP_DIR/router.log" 2>&1
+  docker rm -v "$ROUTER_CONTAINER" >/dev/null
+  ROUTER_CONTAINER=
+}
 start_router() {
-  start_process ROUTER_PID "$REPO_ROOT/router" "$TEMP_DIR/router" "$TEMP_DIR/router.log" \
-    ROUTER_HTTP_HOST=127.0.0.1 ROUTER_HTTP_PORT="$ROUTER_PORT" ROUTER_API_TOKEN="$ROUTER_TOKEN" \
-    ROUTER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT" ROUTER_KAFKA_TOPIC="$TOPIC"
-  wait_http "http://127.0.0.1:$ROUTER_PORT/ready" "$ROUTER_TOKEN" || { cat "$TEMP_DIR/router.log" >&2; fail 'Router not ready.'; }
+  cat >"$TEMP_DIR/router.env" <<ENV
+GOPULSE_RUNTIME_MODE=container
+GOPULSE_VERSION=$(cat "$REPO_ROOT/VERSION")
+GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+ROUTER_METRICS_TOKEN=metrics-router-$TOKEN_ID-0123456789abcdef
+ROUTER_HTTP_HOST=0.0.0.0
+ROUTER_HTTP_PORT=9091
+ROUTER_API_TOKEN=$ROUTER_TOKEN
+ROUTER_KAFKA_BROKERS=kafka:19092
+ROUTER_KAFKA_TOPIC=$TOPIC
+ENV
+  chmod 600 "$TEMP_DIR/router.env"
+  ROUTER_CONTAINER=$(docker run -d --network "${PROJECT}_default" --network-alias router --read-only --cap-drop ALL --security-opt no-new-privileges     --label "com.docker.compose.project=$PROJECT" --env-file "$TEMP_DIR/router.env"     -p "127.0.0.1:$ROUTER_PORT:9091" "$ROUTER_IMAGE")
+  wait_http "http://127.0.0.1:$ROUTER_PORT/ready" "$ROUTER_TOKEN" || fail 'Router not ready.'
 }
 start_marshaller() {
   start_process MARSHALLER_PID "$REPO_ROOT/marshaller" "$TEMP_DIR/marshaller" "$TEMP_DIR/marshaller.log" \
-    MARSHALLER_HTTP_HOST=127.0.0.1 MARSHALLER_HTTP_PORT="$MARSHALLER_PORT" MARSHALLER_API_TOKEN="$MARSHALLER_TOKEN" \
+    MARSHALLER_METRICS_TOKEN="metrics-marshaller-$TOKEN_ID-0123456789abcdef" MARSHALLER_HTTP_HOST=127.0.0.1 MARSHALLER_HTTP_PORT="$MARSHALLER_PORT" MARSHALLER_API_TOKEN="$MARSHALLER_TOKEN" \
     MARSHALLER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT" MARSHALLER_KAFKA_TOPIC="$TOPIC" MARSHALLER_KAFKA_GROUP="$GROUP" \
     MARSHALLER_VM_URL="http://127.0.0.1:$VM_PORT" MARSHALLER_VM_USERNAME="$VM_USER" MARSHALLER_VM_PASSWORD="$VM_PASSWORD" \
     MARSHALLER_ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT" MARSHALLER_ELASTICSEARCH_TIMEOUT=3s \
     MARSHALLER_RETRY_MIN=100ms MARSHALLER_RETRY_MAX=500ms
   wait_http "http://127.0.0.1:$MARSHALLER_PORT/ready" "$MARSHALLER_TOKEN" || { cat "$TEMP_DIR/marshaller.log" >&2; fail 'Marshaller not ready.'; }
 }
+stop_monitor() {
+  [[ -n $MONITOR_CONTAINER ]] || return 0
+  [[ $(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$MONITOR_CONTAINER") == "$PROJECT" ]] || fail 'Monitor ownership mismatch.'
+  docker stop --time 15 "$MONITOR_CONTAINER" >/dev/null
+  docker logs "$MONITOR_CONTAINER" >>"$TEMP_DIR/monitor.log" 2>&1
+  docker rm -v "$MONITOR_CONTAINER" >/dev/null
+  MONITOR_CONTAINER=
+}
 start_monitor() {
-  mkdir -p "$TEMP_DIR/plugins"
-  start_process MONITOR_PID "$REPO_ROOT/monitor" "$TEMP_DIR/monitor" "$TEMP_DIR/monitor.log" \
-    MONITOR_HTTP_HOST=127.0.0.1 MONITOR_HTTP_PORT="$MONITOR_PORT" MONITOR_API_TOKEN="$MONITOR_TOKEN" LOG_MONITOR_INGEST_TOKEN="verify-log-ingest-token-at-least-32-bytes" MONITOR_PLUGIN_ROOT="$TEMP_DIR/plugins" \
-    MONITOR_PLUGIN_STARTUP_TIMEOUT=10s MONITOR_PLUGIN_STOP_TIMEOUT=4s MONITOR_SCRAPE_INTERVAL=1s MONITOR_SCRAPE_TIMEOUT=800ms \
-    MONITOR_PUBLISH_TIMEOUT=3s MONITOR_ROUTER_URL="http://127.0.0.1:$ROUTER_PORT" MONITOR_ROUTER_TOKEN="$ROUTER_TOKEN" \
-    REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" REDIS_PASSWORD="$REDIS_PASSWORD" REDIS_DB=0 \
-    REDIS_EXPORTER_HTTP_HOST=127.0.0.1 REDIS_EXPORTER_HTTP_PORT="$EXPORTER_PORT" REDIS_EXPORTER_SCRAPE_TIMEOUT=800ms REDIS_EXPORTER_SHUTDOWN_TIMEOUT=3s
-  wait_http "http://127.0.0.1:$MONITOR_PORT/ready" "$MONITOR_TOKEN" || { cat "$TEMP_DIR/monitor.log" >&2; fail 'Monitor not ready.'; }
+  # Current Monitor requires the immutable image-owned package catalog. Do not
+  # fall back to a pre-Phase14 upload API or alter host /opt/gopulse.
+  cat >"$TEMP_DIR/monitor.env" <<ENV
+GOPULSE_RUNTIME_MODE=container
+GOPULSE_VERSION=$(cat "$REPO_ROOT/VERSION")
+GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+BACKEND_METRICS_TOKEN=metrics-backend-$TOKEN_ID-0123456789abcdef
+BUSINESS_WORKER_METRICS_TOKEN=metrics-worker-$TOKEN_ID-0123456789abcdef
+SEARCH_INDEXER_METRICS_TOKEN=metrics-indexer-$TOKEN_ID-0123456789abcdef
+ROUTER_METRICS_TOKEN=metrics-router-$TOKEN_ID-0123456789abcdef
+MARSHALLER_METRICS_TOKEN=metrics-marshaller-$TOKEN_ID-0123456789abcdef
+MONITOR_METRICS_TOKEN=metrics-monitor-$TOKEN_ID-0123456789abcdef
+MONITOR_HTTP_HOST=0.0.0.0
+MONITOR_HTTP_PORT=9090
+MONITOR_API_TOKEN=$MONITOR_TOKEN
+LOG_MONITOR_INGEST_TOKEN=verify-log-ingest-token-at-least-32-bytes
+MONITOR_PLUGIN_ROOT=/var/lib/gopulse-monitor/plugins
+MONITOR_BOOTSTRAP_PACKAGE=
+MONITOR_PLUGIN_STARTUP_TIMEOUT=10s
+MONITOR_PLUGIN_STOP_TIMEOUT=4s
+MONITOR_SCRAPE_INTERVAL=1s
+MONITOR_SCRAPE_TIMEOUT=800ms
+MONITOR_PUBLISH_TIMEOUT=3s
+MONITOR_ROUTER_URL=http://router:9091
+MONITOR_ROUTER_TOKEN=$ROUTER_TOKEN
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=$REDIS_PASSWORD
+REDIS_DB=0
+ENV
+  chmod 600 "$TEMP_DIR/monitor.env"
+  MONITOR_CONTAINER=$(docker run -d --network "${PROJECT}_default" --network-alias monitor -p "127.0.0.1:$MONITOR_PORT:9090" --read-only --cap-drop ALL --security-opt no-new-privileges     --label "com.docker.compose.project=$PROJECT" --env-file "$TEMP_DIR/monitor.env"     --mount "type=volume,src=$MONITOR_VOLUME,dst=/var/lib/gopulse-monitor/plugins" "$MONITOR_IMAGE")
+  wait_http "http://127.0.0.1:$MONITOR_PORT/ready" "$MONITOR_TOKEN" || fail 'Monitor not ready.'
   local status
-  if [[ ! -f $TEMP_DIR/plugins/registry.json ]]; then
-    status=$(curl -sS --max-time 30 -o "$TEMP_DIR/install.json" -w '%{http_code}' -H "Authorization: Bearer $MONITOR_TOKEN" -F "package=@$TEMP_DIR/exporter.tar.gz" "http://127.0.0.1:$MONITOR_PORT/internal/v1/exporter-plugins/install")
-    [[ $status == 201 ]] || { cat "$TEMP_DIR/install.json" >&2; fail "plugin install returned $status"; }
+  if ((MONITOR_INSTALLED == 0)); then
+    REDIS_PASSWORD="$REDIS_PASSWORD" python3 - >"$TEMP_DIR/install-request.json" <<'PYJSON'
+import json,os
+print(json.dumps({'config':{'host':'redis','port':6379,'database':0,'connect_timeout':'100ms','scrape_timeout':'500ms'},'secrets':{'password':os.environ['REDIS_PASSWORD']}}))
+PYJSON
+    status=$(curl -sS --max-time 30 -o "$TEMP_DIR/install.json" -w '%{http_code}' -H "Authorization: Bearer $MONITOR_TOKEN"       -H 'Content-Type: application/json' --data-binary "@$TEMP_DIR/install-request.json"       "http://127.0.0.1:$MONITOR_PORT/internal/v1/exporter-plugins/redis-exporter/install")
+    [[ $status == 201 ]] || fail "plugin install returned $status"
+    status=$(curl -sS --max-time 30 -o "$TEMP_DIR/start.json" -w '%{http_code}' -H "Authorization: Bearer $MONITOR_TOKEN"       -X POST "http://127.0.0.1:$MONITOR_PORT/internal/v1/exporter-plugins/redis-exporter/start")
+    [[ $status == 200 ]] || fail "plugin start returned $status"
+    MONITOR_INSTALLED=1
   fi
-  wait_http "http://127.0.0.1:$EXPORTER_PORT/health" || { cat "$TEMP_DIR/monitor.log" >&2; fail 'Redis Exporter not healthy.'; }
+  for _ in {1..60}; do
+    if docker exec "$MONITOR_CONTAINER" wget -q -O - http://127.0.0.1:9121/health >/dev/null; then return 0; fi
+    sleep .5
+  done
+  fail 'Redis Exporter not healthy.'
 }
 vm_query() {
   local metric=$1 output=$2
@@ -314,7 +386,11 @@ check_internal_access() {
   local base="http://127.0.0.1:$MARSHALLER_PORT" vm="http://127.0.0.1:$VM_PORT" status vm_id binding
   for request in     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer wrong-internal-token' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Cookie: gopulse_session=ordinary-user-fixture' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Cookie: gopulse_session=admin-user-fixture' '$base/ready'"     "curl -sS --max-time 3 -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer backend-jwt-fixture' '$base/ready?token=$MARSHALLER_TOKEN'"; do
     status=$(eval "$request")
-    [[ $status == 401 ]] || { fail "Marshaller accepted a non-internal identity (HTTP $status)."; return 1; }
+    if [[ $request == *'?token='* ]]; then
+      [[ $status == 400 ]] || { fail "Marshaller accepted probe query parameters (HTTP $status)."; return 1; }
+    else
+      [[ $status == 200 ]] || { fail "Marshaller readiness probe is unavailable (HTTP $status)."; return 1; }
+    fi
   done
   [[ $(http_status "$base/ready" "$MARSHALLER_TOKEN") == 200 ]] || { fail 'Marshaller rejected the correct internal Bearer token.'; return 1; }
   for path in /metrics /query /offsets /replay /admin; do
@@ -331,7 +407,7 @@ check_internal_access() {
   binding=$(docker port "$vm_id" 8428/tcp)
   [[ $binding == "127.0.0.1:$VM_PORT" ]] || { fail "VictoriaMetrics was not loopback-only: $binding"; return 1; }
   ss -ltnH "sport = :$MARSHALLER_PORT" | awk '$4 ~ /^127\.0\.0\.1:/ {found=1} END {exit !found}' || { fail 'Marshaller was not loopback-only.'; return 1; }
-  info 'Marshaller and VictoriaMetrics rejected browser/user identities and exposed only their internal loopback surfaces.'
+  info 'Marshaller exposes public loopback probes; VictoriaMetrics rejects browser/user identities.'
 }
 wait_metric_value() {
   local metric=$1 expected=$2 output="$TEMP_DIR/query.json"
@@ -450,7 +526,7 @@ for metric in "${SUCCESS_METRICS[@]}"; do
   wait_metric_presence "$metric" || { cat "$TEMP_DIR/marshaller.log" >&2; fail "missing metric $metric"; }
   vm_query "$metric" "$TEMP_DIR/$metric.json"
 done
-curl -fsS --max-time 3 "http://127.0.0.1:$EXPORTER_PORT/metrics" >"$TEMP_DIR/exporter.metrics"
+docker exec "$MONITOR_CONTAINER" wget -q -O - http://127.0.0.1:9121/metrics >"$TEMP_DIR/exporter.metrics"
 docker exec "$REDIS_ID" redis-cli --no-auth-warning -a "$REDIS_PASSWORD" INFO >"$TEMP_DIR/redis.info"
 python3 - "$TEMP_DIR" <<'PYMATRIX'
 import json
@@ -558,8 +634,7 @@ REAL_KEY=${REAL_META[0]}
 REAL_TIMESTAMP_MS=${REAL_META[1]}
 info "Captured real upstream record message_id=$REAL_KEY partition=0 offset=${REAL_META[2]} timestamp_ms=$REAL_TIMESTAMP_MS for deterministic replay."
 
-stop_process "$MONITOR_PID" "$TEMP_DIR/monitor"
-MONITOR_PID=
+stop_monitor
 
 BEFORE=$(committed_offset)
 for _ in {1..120}; do
@@ -696,8 +771,7 @@ wait_group_assignment || fail 'Formal consumer group did not rejoin after broker
 [[ $MARSHALLER_PID == "$BROKER_PROCESS_PID" ]] && kill -0 "$MARSHALLER_PID" || fail 'Broker recovery replaced the Marshaller process unexpectedly.'
 info 'Kafka broker restart forced a group rejoin while Marshaller stayed live and recovered readiness.'
 
-stop_process "$MONITOR_PID" "$TEMP_DIR/monitor"
-MONITOR_PID=
+stop_monitor
 REPLAY_KEY=$REAL_KEY
 REPLAY_TIMESTAMP_MS=$REAL_TIMESTAMP_MS
 BEFORE=$(committed_offset)
@@ -750,7 +824,7 @@ import sys
 before, after = map(float, sys.argv[1:])
 assert after == before, (before, after)
 PY
-kill -0 "$ROUTER_PID" && kill -0 "$MARSHALLER_PID" || fail 'An isolated process exited unexpectedly.'
+[[ $(docker inspect -f '{{.State.Running}}' "$ROUTER_CONTAINER") == true ]] && kill -0 "$MARSHALLER_PID" || fail 'An isolated process exited unexpectedly.'
 
 cleanup
 [[ -z $(docker ps -a --filter "label=com.docker.compose.project=$PROJECT" --format '{{.ID}}') ]] || fail 'isolated containers remained.'

@@ -1,0 +1,13 @@
+{
+  "schema": "gopulse.migration-state.v1",
+  "complete": true,
+  "checks": [
+    "empty_concurrent_current_repeat",
+    "lock_timeout",
+    "dirty_rejected_unchanged",
+    "ahead_rejected_unchanged",
+    "explicit_v12_resume_then_v13"
+  ],
+  "binary_target": 13,
+  "cleanup": "owned_container_and_anonymous_volumes_removed"
+}

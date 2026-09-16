@@ -23,13 +23,15 @@ class AlertsAcceptance(Acceptance):
     def __init__(self):
         super().__init__()
         values = dict(line.split('=', 1) for line in self.env_file.read_text().splitlines() if '=' in line)
-        # Existing unchanged Phase 14 runtime chain; Backend/migrations/operations
-        # are built from the current checkout and bind-mounted, never an old binary.
-        values.update(GOPULSE_IMAGE_TAG='1.11.5', GOPULSE_VERSION='1.12.3',
+        # Never combine the current schema/server with historical message binaries.
+        version = (ROOT/'VERSION').read_text().strip()
+        tag = version+'-alerts-'+self.token
+        values.update(GOPULSE_IMAGE_TAG=tag, GOPULSE_VERSION=version,
+                      GOPULSE_UPDATE_VERSION=version,
                       ALERT_EVALUATION_ENABLED='true', MONITOR_SCRAPE_INTERVAL='15s')
         self.env_file.write_text(''.join(f'{k}={v}\n' for k, v in values.items()))
         self.values = values
-        self.override = {'services': {s: {'image': 'gopulse/'+s+':1.11.5'} for s in
+        self.override = {'services': {s: {'image': 'gopulse/'+s+':'+tag} for s in
             ['backend', 'frontend', 'monitor', 'router', 'marshaller']}}
         self.override['services']['monitor']['environment'] = {'MONITOR_BOOTSTRAP_PACKAGE': ''}
         self.evidence = []
@@ -67,13 +69,15 @@ class AlertsAcceptance(Acceptance):
     def build(self):
         bins = self.work/'bin'
         bins.mkdir()
-        for name, package in [('server', 'server'), ('migrate', 'migrate'), ('admin-role', 'admin-role')]:
-            command(['env', 'CGO_ENABLED=0', 'go', '-C', str(ROOT/'backend'), 'build', '-o', str(bins/name), './cmd/'+package])
         command(['env', 'CGO_ENABLED=0', 'go', '-C', str(ROOT/'backend'), 'test', '-c', '-o', str(bins/'alert-test'), './internal/alert'])
-        mounts = [str(bins/name)+':/usr/local/bin/'+name+':ro' for name in ['server','migrate','admin-role','alert-test']]
-        self.override['services']['backend']['volumes'] = mounts
-        self.override['services']['migrate'] = {'volumes': mounts}
+        self.override['services']['backend']['volumes'] = [str(bins/'alert-test')+':/usr/local/bin/alert-test:ro']
         self.save()
+        result = self.compose('build', 'backend', 'business-worker', 'search-indexer',
+                              'monitor', 'router', 'marshaller', check=False, timeout=2400)
+        # Build output contains no runtime configuration; keep it private.
+        (self.work/'build.log').write_bytes(result.stdout+result.stderr)
+        if result.returncode:
+            raise RuntimeError('current alert candidate build failed')
 
     def api(self, path, method='GET', body=None, expected=200, client=None):
         value = (client or self.admin).request('alerts/'+path, method, body, expected)
@@ -312,8 +316,10 @@ def main():
         assert count_rule('events')['selector']['labels']['event_name']=='exporter_plugin_installed'
         print('PASS alerts verifier self-test: three bounded sources, owned chain and serial isolation (no Docker)')
         return
+    if not args.sources:
+        args.sources='metrics,logs,events'
+        args.fault_isolation=True
     if args.fault_isolation != (args.sources=='metrics,logs,events'):parser.error('three sources require --fault-isolation')
-    if not args.sources:parser.error('--sources is required')
     if args.fault_isolation:
         from verify_alert_sources import SourcesAcceptance
         acceptance=SourcesAcceptance()
@@ -323,7 +329,8 @@ def main():
     try:acceptance.run()
     except Exception as error:
         failed=True
-        print("FAIL: alerts acceptance ("+type(error).__name__+"); inspect owned evidence directory",flush=True)
+        reason = str(error) if isinstance(error,RuntimeError) and str(error).startswith('timed out:') else type(error).__name__
+        print("FAIL: alerts acceptance ("+reason+"); inspect owned evidence directory",flush=True)
     finally:acceptance.cleanup()
     if failed:raise SystemExit(1)
 

@@ -143,7 +143,7 @@ func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextA
 	message.Headers[AttemptHeader] = int32(nextAttempt)
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
 	defer cancel()
-	if err := handler.publisher.Publish(publishContext, handler.profile.Topology.RetryExchange, handler.safeRoutingKey(delivery.RoutingKey), message); err != nil {
+	if err := handler.publish(publishContext, handler.profile.Topology.RetryExchange, delivery, message); err != nil {
 		handler.logFailure("retry publish failed", delivery, nextAttempt, "publish_unavailable")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
 			handler.logFailure("message requeue failed", delivery, nextAttempt, "nack_failed")
@@ -164,7 +164,7 @@ func (handler *Handler) deadLetter(ctx context.Context, delivery amqp.Delivery, 
 	message.Headers[AttemptHeader] = int32(attempt)
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
 	defer cancel()
-	if err := handler.publisher.Publish(publishContext, handler.profile.Topology.DeadExchange, handler.safeRoutingKey(delivery.RoutingKey), message); err != nil {
+	if err := handler.publish(publishContext, handler.profile.Topology.DeadExchange, delivery, message); err != nil {
 		handler.logFailure("dead letter publish failed", delivery, attempt, "publish_unavailable")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
 			handler.logFailure("message requeue failed", delivery, attempt, "nack_failed")
@@ -282,4 +282,15 @@ func (handler *Handler) ack(delivery amqp.Delivery) error {
 		componentmetrics.Active().Observe("messages_total", time.Since(started), handler.metricIdentity(delivery), "ack")
 	}
 	return err
+}
+
+// A canceled secondary publication must never authorize ack of the original.
+func (handler *Handler) publish(ctx context.Context, exchange string, delivery amqp.Delivery, message amqp.Publishing) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := handler.publisher.Publish(ctx, exchange, handler.safeRoutingKey(delivery.RoutingKey), message); err != nil {
+		return err
+	}
+	return ctx.Err()
 }
