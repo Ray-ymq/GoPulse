@@ -6,6 +6,7 @@ import concurrent.futures
 import datetime
 import json
 import os
+from pathlib import Path
 import time
 import urllib.request
 from verify_plugin_metrics import Acceptance, Client, ROOT, command, wait_until, PATTERN
@@ -33,6 +34,17 @@ class AlertsAcceptance(Acceptance):
         self.values = values
         self.override = {'services': {s: {'image': 'gopulse/'+s+':'+tag} for s in
             ['backend', 'frontend', 'monitor', 'router', 'marshaller']}}
+        self.candidate = None
+        if os.environ.get('GOPULSE_RELEASE_MANIFEST'):
+            from release_artifacts import verify_bundle, platform_ref
+            self.candidate = verify_bundle(Path(os.environ['GOPULSE_RELEASE_MANIFEST']))
+            values.update(GOPULSE_VERSION=self.candidate['version'], GOPULSE_UPDATE_VERSION=self.candidate['version'],
+                          GOPULSE_REVISION=self.candidate['revision'])
+            for name, image in self.candidate['images'].items():
+                values['GOPULSE_'+name.upper().replace('-','_')+'_IMAGE'] = platform_ref(image,'linux/amd64')
+            self.env_file.write_text(''.join(f'{k}={v}\n' for k,v in values.items()))
+            self.override['services'] = {s:{'image':platform_ref(self.candidate['images'][s],'linux/amd64')}
+                for s in ['backend','frontend','monitor','router','marshaller','business-worker','search-indexer']}
         self.override['services']['monitor']['environment'] = {'MONITOR_BOOTSTRAP_PACKAGE': ''}
         self.evidence = []
         self.connections = False
@@ -72,6 +84,9 @@ class AlertsAcceptance(Acceptance):
         command(['env', 'CGO_ENABLED=0', 'go', '-C', str(ROOT/'backend'), 'test', '-c', '-o', str(bins/'alert-test'), './internal/alert'])
         self.override['services']['backend']['volumes'] = [str(bins/'alert-test')+':/usr/local/bin/alert-test:ro']
         self.save()
+        if self.candidate:
+            self.compose('pull', 'backend', 'business-worker', 'search-indexer', 'monitor', 'router', 'marshaller', timeout=1200)
+            return
         result = self.compose('build', 'backend', 'business-worker', 'search-indexer',
                               'monitor', 'router', 'marshaller', check=False, timeout=2400)
         # Build output contains no runtime configuration; keep it private.

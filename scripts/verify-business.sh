@@ -1480,8 +1480,22 @@ main() {
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
   ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
 
+  if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+    python3 "$REPO_ROOT/scripts/ci/candidate_runtime.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --output "$TEMP_DIR" --binary backend --binary business-worker --binary search-indexer >"$TEMP_DIR/candidate.json"
+    mv "$TEMP_DIR/server" "$TEMP_DIR/gopulse-backend"
+    mv "$TEMP_DIR/business-worker" "$TEMP_DIR/gopulse-business-worker"
+    mv "$TEMP_DIR/search-indexer" "$TEMP_DIR/gopulse-search-indexer"
+    mv "$TEMP_DIR/search-reindex" "$TEMP_DIR/gopulse-search-reindex"
+    export GOPULSE_VERSION GOPULSE_REVISION
+    GOPULSE_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$TEMP_DIR/candidate.json")
+    GOPULSE_REVISION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$TEMP_DIR/candidate.json")
+    backend_environment "$TEMP_DIR/migrate" validate
+    backend_environment "$TEMP_DIR/migrate" status
+    backend_environment "$TEMP_DIR/migrate" up
+  else
   backend_environment bash -c 'cd "$1" && go run ./cmd/migrate up' _ "$BACKEND_DIR"
   (cd "$BACKEND_DIR" && go build -o "$TEMP_DIR/gopulse-backend" ./cmd/server && go build -o "$TEMP_DIR/gopulse-business-worker" ./cmd/business-worker && go build -o "$TEMP_DIR/gopulse-search-indexer" ./cmd/search-indexer && go build -o "$TEMP_DIR/gopulse-search-reindex" ./cmd/search-reindex)
+  fi
 
   if [[ $mode == logging-live ]]; then
     run_search_reindex --if-missing

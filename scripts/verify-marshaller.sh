@@ -261,12 +261,24 @@ wait_health elasticsearch
 refresh_container_id kafka
 
 docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --create --topic "$TOPIC" --partitions 1 --replication-factor 1 >/dev/null
+(cd "$REPO_ROOT/router" && go build -o "$TEMP_DIR/verify-consumer" ./cmd/verify-consumer)
+(cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/verify-group-member" ./cmd/verify-group-member)
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  python3 "$REPO_ROOT/scripts/ci/candidate_runtime.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --output "$TEMP_DIR" --binary marshaller >"$TEMP_DIR/candidate.json"
+  MONITOR_IMAGE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monitor"])' "$TEMP_DIR/candidate.json")
+  ROUTER_IMAGE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["router"])' "$TEMP_DIR/candidate.json")
+  CANDIDATE_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$TEMP_DIR/candidate.json")
+  CANDIDATE_REVISION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$TEMP_DIR/candidate.json")
+  docker pull "$MONITOR_IMAGE" >/dev/null
+  docker pull "$ROUTER_IMAGE" >/dev/null
+else
 (cd "$REPO_ROOT/router" && go build -o "$TEMP_DIR/router" ./cmd/router && go build -o "$TEMP_DIR/verify-consumer" ./cmd/verify-consumer)
 (cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/marshaller" ./cmd/marshaller && go build -o "$TEMP_DIR/verify-group-member" ./cmd/verify-group-member)
 MONITOR_IMAGE="gopulse/monitor:$(cat "$REPO_ROOT/VERSION")-marshaller-$TOKEN_ID"
 docker build -f "$REPO_ROOT/deploy/docker/observability.Dockerfile" --target monitor   --build-arg VERSION="$(cat "$REPO_ROOT/VERSION")" --build-arg REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"   -t "$MONITOR_IMAGE" "$REPO_ROOT" >"$TEMP_DIR/monitor-build.log" 2>&1
 ROUTER_IMAGE="gopulse/router:$(cat "$REPO_ROOT/VERSION")-marshaller-$TOKEN_ID"
 docker build -f "$REPO_ROOT/deploy/docker/observability.Dockerfile" --target router   --build-arg VERSION="$(cat "$REPO_ROOT/VERSION")" --build-arg REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"   -t "$ROUTER_IMAGE" "$REPO_ROOT" >"$TEMP_DIR/router-build.log" 2>&1
+fi
 MONITOR_VOLUME="${PROJECT}_monitor_plugins"
 docker volume create --label "com.docker.compose.project=$PROJECT" "$MONITOR_VOLUME" >/dev/null
 : >"$TEMP_DIR/router.log"
@@ -285,8 +297,8 @@ stop_router() {
 start_router() {
   cat >"$TEMP_DIR/router.env" <<ENV
 GOPULSE_RUNTIME_MODE=container
-GOPULSE_VERSION=$(cat "$REPO_ROOT/VERSION")
-GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+GOPULSE_VERSION=${CANDIDATE_VERSION:-$(cat "$REPO_ROOT/VERSION")}
+GOPULSE_REVISION=${CANDIDATE_REVISION:-$(git -C "$REPO_ROOT" rev-parse HEAD)}
 ROUTER_METRICS_TOKEN=metrics-router-$TOKEN_ID-0123456789abcdef
 ROUTER_HTTP_HOST=0.0.0.0
 ROUTER_HTTP_PORT=9091
@@ -300,7 +312,7 @@ ENV
 }
 start_marshaller() {
   start_process MARSHALLER_PID "$REPO_ROOT/marshaller" "$TEMP_DIR/marshaller" "$TEMP_DIR/marshaller.log" \
-    MARSHALLER_METRICS_TOKEN="metrics-marshaller-$TOKEN_ID-0123456789abcdef" MARSHALLER_HTTP_HOST=127.0.0.1 MARSHALLER_HTTP_PORT="$MARSHALLER_PORT" MARSHALLER_API_TOKEN="$MARSHALLER_TOKEN" \
+    GOPULSE_VERSION="${CANDIDATE_VERSION:-$(cat "$REPO_ROOT/VERSION")}" GOPULSE_REVISION="${CANDIDATE_REVISION:-$(git -C "$REPO_ROOT" rev-parse HEAD)}" MARSHALLER_METRICS_TOKEN="metrics-marshaller-$TOKEN_ID-0123456789abcdef" MARSHALLER_HTTP_HOST=127.0.0.1 MARSHALLER_HTTP_PORT="$MARSHALLER_PORT" MARSHALLER_API_TOKEN="$MARSHALLER_TOKEN" \
     MARSHALLER_KAFKA_BROKERS="127.0.0.1:$KAFKA_PORT" MARSHALLER_KAFKA_TOPIC="$TOPIC" MARSHALLER_KAFKA_GROUP="$GROUP" \
     MARSHALLER_VM_URL="http://127.0.0.1:$VM_PORT" MARSHALLER_VM_USERNAME="$VM_USER" MARSHALLER_VM_PASSWORD="$VM_PASSWORD" \
     MARSHALLER_ELASTICSEARCH_URL="http://127.0.0.1:$ES_PORT" MARSHALLER_ELASTICSEARCH_TIMEOUT=3s \
@@ -320,8 +332,8 @@ start_monitor() {
   # fall back to a pre-Phase14 upload API or alter host /opt/gopulse.
   cat >"$TEMP_DIR/monitor.env" <<ENV
 GOPULSE_RUNTIME_MODE=container
-GOPULSE_VERSION=$(cat "$REPO_ROOT/VERSION")
-GOPULSE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+GOPULSE_VERSION=${CANDIDATE_VERSION:-$(cat "$REPO_ROOT/VERSION")}
+GOPULSE_REVISION=${CANDIDATE_REVISION:-$(git -C "$REPO_ROOT" rev-parse HEAD)}
 BACKEND_METRICS_TOKEN=metrics-backend-$TOKEN_ID-0123456789abcdef
 BUSINESS_WORKER_METRICS_TOKEN=metrics-worker-$TOKEN_ID-0123456789abcdef
 SEARCH_INDEXER_METRICS_TOKEN=metrics-indexer-$TOKEN_ID-0123456789abcdef

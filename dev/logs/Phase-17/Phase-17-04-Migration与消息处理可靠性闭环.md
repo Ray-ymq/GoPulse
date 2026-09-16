@@ -202,3 +202,14 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 最终运行容器仅保留开始前的 `gopulse-p13-local-monitor-1`、`gopulse-p13-local-kafka-1`、`gopulse-p13-local-elasticsearch-1`。未操作原 registry、未推送或开 PR。
 - 源码修复提交：`bc8463f`、`1a691a4`、`0947613`。旧 candidate 仍指向 `f674e1e`，**不包含这次修复**；源码门禁不等于同一不可变候选的正式升级 receipt。
 - 仍未完成：正式 `1.13.6` 数据生成/backup/restore→当前候选单跳迁移及失败恢复事实对照；统一 candidate runner 与结构化 receipt；最终候选版本/分支完成门禁。VERSION 继续保持 1.14.3，不声明批次完成。
+
+## 2026-09-16 候选级正式数据路径续做
+
+- 从已通过源码 `dfc7492` 建立私有 detached worktree，仅在那里暂存 1.14.4 六处版本元数据，形成候选源码 `6baff41076b463731784a8411b1c43f4e710a59a`；主工作区 VERSION 仍为已完成的 1.14.3。未推送临时提交。
+- 将原 `gopulse-p1606-registry-data` 只读复制到本批新归属卷，在原 manifest 地址 127.0.0.1:15003 启动独立 source registry；原 registry 容器及数据卷未修改。另在 15005 创建本批 candidate registry。
+- `release_artifacts.py build` 实际成功，生成 `dist/phase17-04-resume-candidate/release-manifest.json`，manifest SHA-256 为 `2e9f735a1578f4522e39cfb45aeb8e3cb7c8d95d9bd6c4e350edd2cf29ff8be8`。日志 `/tmp/gopulse-phase17-04-resume-build.log`。
+- 新增统一入口 `scripts/verify-phase17-state.sh`、manifest/receipt 编排、正式前序 Migration 数据路径及候选二进制提取 helper。为 existing business/Marshaller/alerts verifier 接入 digest-pinned candidate 模式；未用重新编译的生产程序冒充候选制品。
+- 正式 1.13.6 lifecycle 已生成角色、业务、评论/点赞、六插件、真实告警与审计数据，成功 backup/inspect、隔离 restore、事实对照及候选 current/repeat Migration。当前 schema from/to 均为 13，无新增占位 migration。
+- 首轮候选 Backend probe 发生 TypeError；补充私有容器日志后第二轮定位为仅连接 business/observability 内部网络，缺失正式 Backend 同时使用的 edge 网络，因而未形成 host probe port。仅修正验收容器网络，保留归属验证与 loopback-only 发布。两个失败轮次都由正式 lifecycle 清理，没有产生完整成功 receipt。
+- 修复后从已有正式备份重新恢复独立 target（运行环境已重建），执行剩余 candidate readiness/new-write/dirty rejection/formal restore 验收；不重新生成已验证 source 业务配方。日志 `/tmp/gopulse-phase17-04-state-edge.log`，结果待补充。
+- 已实际通过：Python 编译检查、Bash 语法检查及 `python3 -m unittest discover -s scripts/ci -p test_phase17_state.py`（manifest 换绑/公开目录拒绝、foreign extraction 容器不清理）。不将这些静态检查等同于真实候选门禁。

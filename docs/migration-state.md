@@ -52,3 +52,32 @@ Source evaluation-known and last-success metrics have only the three bounded
 `alert_source` label values `metrics`, `logs`, `events` and do not change social
 readiness. The reserved provenance label remains `source=backend`; alert sources
 must not overwrite it. The admin frontend catalog mirrors these two gauges.
+
+## Immutable candidate state acceptance
+
+Run `scripts/verify-phase17-state.sh --from-manifest <1.13.6 bundle manifest>
+--manifest <1.14.4 bundle manifest> --work <private directory>` on Linux amd64.
+The source registry and candidate registry must be reachable. The runner validates
+both complete bundles, binds its private journal to their SHA-256 identities, and
+requires a clean checkout of the candidate revision (discovered from Git worktrees
+or supplied with `--candidate-source`) for the existing Compose gate.
+
+The data path uses the **source** release lifecycle to generate real data, back up,
+inspect and restore it. Candidate `validate/status/up` then run against the restored
+MySQL, followed by candidate Backend readiness, ordinary-user role denial and a new
+searchable write. A dirty-version rejection is not repaired: a fresh formal source
+restore must recover the pre-acceptance facts. This is a direct schema/data
+compatibility test, not a new lifecycle upgrade command or an in-place deployment
+upgrade guarantee. Existing dependencies in the restored installation remain owned
+by the source lifecycle; full candidate integration is tested separately.
+
+Business, Marshaller and alert verifiers accept `GOPULSE_RELEASE_MANIFEST` to use
+manifest-pinned binaries/images rather than rebuilding production applications.
+Test probes may still be compiled from the checkout. The unified runner executes
+these and the candidate Compose gate serially, compares Docker resource inventories,
+and writes private per-gate receipts. Successful gates are reused only for the same
+manifest pair and verifier implementation with the retained log checksum intact.
+`--migration-only` performs the scoped data path and deliberately leaves the overall
+receipt incomplete. A failed gate never creates whole-batch success. Logs and
+credentials stay in the private work directories; publish only the allowlisted
+receipt, not journals, environment files or backup contents.
