@@ -213,3 +213,4 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 首轮候选 Backend probe 发生 TypeError；补充私有容器日志后第二轮定位为仅连接 business/observability 内部网络，缺失正式 Backend 同时使用的 edge 网络，因而未形成 host probe port。仅修正验收容器网络，保留归属验证与 loopback-only 发布。两个失败轮次都由正式 lifecycle 清理，没有产生完整成功 receipt。
 - 修复后从已有正式备份重新恢复独立 target（运行环境已重建），执行剩余 candidate readiness/new-write/dirty rejection/formal restore 验收；不重新生成已验证 source 业务配方。日志 `/tmp/gopulse-phase17-04-state-edge.log`，结果待补充。
 - 已实际通过：Python 编译检查、Bash 语法检查及 `python3 -m unittest discover -s scripts/ci -p test_phase17_state.py`（manifest 换绑/公开目录拒绝、foreign extraction 容器不清理）。不将这些静态检查等同于真实候选门禁。
+- edge 网络修复后，probe 端口已生成，但第一次 TCP 请求在服务绑定完成前 reset。公共 wait_until 不捕获该 OSError 子类，导致过早清理。仅将 HTTP probe 的连接级 OSError 视为本轮未 ready，继续既有有界等待，不放宽 200/503 的最终要求。前述失败没有候选应用逻辑错误证据，也没有记作通过。

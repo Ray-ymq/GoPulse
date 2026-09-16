@@ -142,6 +142,9 @@ class MigrationAcceptance(Recovery):
                     return response.status
             except urllib.error.HTTPError as error:
                 return error.code
+            except OSError:
+                # A published port can reset until the server has bound it.
+                return 0
         if ready:
             wait_until(lambda: status()==200, 'candidate schema readiness', 90)
         else:
