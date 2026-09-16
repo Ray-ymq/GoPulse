@@ -715,11 +715,11 @@ wait_metric_value gopulse_redis_up 1 || fail 'Redis recovery up=1 did not reach 
 for metric in "${SUCCESS_METRICS[@]}"; do wait_metric_presence "$metric" || fail "recovery missing metric $metric"; done
 info 'Target unavailable and recovery returned the complete metric family without restarting Router, Marshaller, or Monitor.'
 
-RETRIES_BEFORE=$(grep -c 'write_retry' "$TEMP_DIR/marshaller.log" || true)
+RETRIES_BEFORE=$(grep -c '"message":"storage write will retry"' "$TEMP_DIR/marshaller.log" || true)
 SAME_PROCESS_PID=$MARSHALLER_PID
 compose stop victoriametrics >/dev/null
 for _ in {1..80}; do
-  RETRIES_NOW=$(grep -c 'write_retry' "$TEMP_DIR/marshaller.log" || true)
+  RETRIES_NOW=$(grep -c '"message":"storage write will retry"' "$TEMP_DIR/marshaller.log" || true)
   ((RETRIES_NOW > RETRIES_BEFORE)) && break
   sleep .25
 done
@@ -739,10 +739,10 @@ wait_commit_after "$BEFORE" || fail 'offset did not advance after VictoriaMetric
 [[ $MARSHALLER_PID == "$SAME_PROCESS_PID" ]] && kill -0 "$MARSHALLER_PID" || fail 'VM recovery replaced the Marshaller process unexpectedly.'
 info 'Temporary storage failure retained the offset and recovered in the same Marshaller process.'
 
-RETRIES_BEFORE=$(grep -c 'write_retry' "$TEMP_DIR/marshaller.log" || true)
+RETRIES_BEFORE=$(grep -c '"message":"storage write will retry"' "$TEMP_DIR/marshaller.log" || true)
 compose stop victoriametrics >/dev/null
 for _ in {1..80}; do
-  RETRIES_NOW=$(grep -c 'write_retry' "$TEMP_DIR/marshaller.log" || true)
+  RETRIES_NOW=$(grep -c '"message":"storage write will retry"' "$TEMP_DIR/marshaller.log" || true)
   ((RETRIES_NOW > RETRIES_BEFORE)) && break
   sleep .25
 done

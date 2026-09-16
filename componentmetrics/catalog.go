@@ -106,8 +106,8 @@ func Catalog(id string) (Spec, bool) {
 			routes = append(routes, []string{method, "_unmatched"})
 		}
 		pair("http_requests_total", "http_request_duration_seconds_total", []string{"method", "route", "status_class"}, expand(routes, "1xx", "2xx", "3xx", "4xx", "5xx"))
-		gauge("alert_evaluation_known", "state", []string{"source"}, singles("metrics", "logs", "events"))
-		gauge("alert_last_success_timestamp_seconds", "unix_seconds", []string{"source"}, singles("metrics", "logs", "events"))
+		gauge("alert_evaluation_known", "state", []string{"alert_source"}, singles("metrics", "logs", "events"))
+		gauge("alert_last_success_timestamp_seconds", "unix_seconds", []string{"alert_source"}, singles("metrics", "logs", "events"))
 		gauge("outbox_pending", "count", nil, nil)
 		gauge("outbox_oldest_age_seconds", "seconds", nil, nil)
 		gauge("outbox_last_publish_success_timestamp_seconds", "unix_seconds", nil, nil)

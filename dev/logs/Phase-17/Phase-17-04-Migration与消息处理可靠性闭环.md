@@ -176,3 +176,15 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 没有推送 Git 分支、创建 PR 或发布/promote 候选。
 
 **仍须完成正式前序升级/恢复事实对照、统一候选级 runner/receipt、Marshaller 完整门禁与 Compose 失败修复，之后才能恢复目标版本 1.14.4 并宣布本批完成。** 当前记录及 checkpoint 的 `complete=false` 是续做依据，不能交付为已验收的 Phase-17-05 输入。
+
+## 2026-09-16 同批续做：日志观察与指标目录阻断修复
+
+- 在干净的 `develop/1.14.4` 上继续未完成批次，未创建新批次、未重跑此前已通过的 Migration/business/alerts 门禁。
+- `scripts/verify-marshaller.sh` 改为匹配实际 JSON 的固定安全 message `storage write will retry`，不再依赖会被共享 logger 派生覆盖的旧 event。未修改 consumer、offset 或 readiness 断言。
+- 发现管理前端的生成目录缺少本批 Backend 两个 alert gauges，严格目录校验会在发出 VM 查询前拒绝 API 响应；从当前 `componentmetrics/cmd/catalog` 同步生成 `admin-frontend/src/services/componentMetrics.ts`。
+- 目录 self-test 首次失败揭示两个 alert gauges 使用了 provenance 保留标签 `source`。改为有限三值的 `alert_source`，保留 provenance `source=backend`；未放宽任何标签校验。同步 self-test Backend 预算到 713。
+- 扩展直接验证的具体风险：本次改动涉及共享组件指标公开合同及管理前端目录，需要 componentmetrics、Backend alert/metricquery、管理前端 DTO/typecheck 和完整 Compose 回归。旧候选未包含这次合同修复，不能将旧候选升级为完整通过证据。
+- 已通过：`bash -n scripts/verify-marshaller.sh`；`python3 scripts/ci/verify_component_metrics.py --self-test`（修复保留标签后）；`(cd componentmetrics && go test ./...)`；`(cd backend && go test -count=1 ./internal/alert/... ./internal/metricquery/...)`；管理前端 observability 7 tests 与 `npm run typecheck`。
+- 实际运行日志：`/tmp/gopulse-phase17-04-marshaller-resume.log`、`/tmp/gopulse-phase17-04-admin-resume-final.log`、`/tmp/gopulse-phase17-04-catalog-backend.log`。最终门禁结果见后续补充；本批仍未完成，VERSION 保持 1.14.3。
+- Marshaller 完整真实门禁本轮 **exit 0**：VM outage 不推进 offset、同 PID 恢复、未提交记录进程重启恢复、Kafka broker/group 恢复、真实记录重放去重及 owned cleanup 全部通过。该轮已运行进程只涉及 Marshaller/Router/Monitor，无 Backend alert gauges；不将它冒充更新后不可变候选的统一 receipt。
+- Compose 首次续跑 **exit 1**，在 Docker 访问前由 clean-source gate 拒绝本轮未提交源码；没有绕过门禁。先提交这次最小修复，再按同批次继续正式 Compose 验证。
