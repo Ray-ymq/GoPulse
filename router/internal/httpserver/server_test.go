@@ -139,6 +139,7 @@ func TestHealthAndReadyAreSeparated(t *testing.T) {
 		t.Fatalf("ready status = %d", response.Code)
 	}
 	producer.readyErr = nil
+	time.Sleep(260 * time.Millisecond)
 	if response := request(t, server.Handler(), http.MethodGet, "/ready", "", testToken, nil); response.Code != http.StatusOK {
 		t.Fatalf("recovered ready status = %d", response.Code)
 	}

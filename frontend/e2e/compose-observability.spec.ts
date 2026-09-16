@@ -148,6 +148,19 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
 
   if (scenario === 'post-restart') {
     await createSocialPost(page, 'post-restart')
+    // Historical records do not prove recovery after Kafka/ES replacement.
+    // Require a newly correlated request to traverse the complete log pipeline
+    // before testing an idle, successful signal drain.
+    const freshRequest = await page.request.get('/api/v1/posts')
+    expect(freshRequest.status()).toBe(200)
+    const requestId = freshRequest.headers()['x-request-id']
+    expect(requestId).toMatch(/^[0-9a-f]{32}$/)
+    await expect.poll(async () => {
+      const response = await page.request.get(`/api/v1/observability/logs?request_id=${requestId}`)
+      if (response.status() !== 200) return 0
+      const result = await response.json()
+      return result.data.length
+    }, { timeout: 90_000 }).toBeGreaterThan(0)
     await page.goto('/admin/plugins')
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 30_000 })
     await waitForMetric(page)

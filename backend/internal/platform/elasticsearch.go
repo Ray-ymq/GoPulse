@@ -64,7 +64,7 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 }
 
 func (client *Elasticsearch) Check(ctx context.Context) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
+	request, err := componentmetrics.NewRequest(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
 	if err != nil {
 		return err
 	}

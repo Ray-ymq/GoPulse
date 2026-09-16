@@ -44,3 +44,5 @@ README.md
 
 !scripts/ci/
 !scripts/ci/**
+# User-owned reference workspace is not a product build input.
+/Management_Center

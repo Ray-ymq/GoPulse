@@ -34,7 +34,7 @@ func TestLoadValidConfiguration(t *testing.T) {
 
 func TestLoadRejectsInvalidFieldsWithoutCredentialLeakage(t *testing.T) {
 	cases := map[string]string{
-		"REDIS_HOST": "", "REDIS_PORT": "0", "REDIS_DB": "-1",
+		"REDIS_HOST": "", "REDIS_PORT": "0", "REDIS_PASSWORD": "", "REDIS_DB": "-1",
 		"REDIS_EXPORTER_HTTP_HOST": " ", "REDIS_EXPORTER_HTTP_PORT": "65536",
 		"REDIS_EXPORTER_SCRAPE_TIMEOUT": "99ms", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT": "31s",
 	}

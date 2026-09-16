@@ -7,9 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/monitor/internal/config"
@@ -40,9 +38,10 @@ func main() {
 		return
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "monitor")
+	logger := componentmetrics.NewLogger("monitor", os.Stdout)
+	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
-		logger.Error("monitor stopped", "error_code", "monitor_runtime_failed", "error", err.Error())
+		logger.Error("monitor stopped", "error_code", "monitor_runtime_failed")
 		os.Exit(1)
 	}
 }
@@ -51,7 +50,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := componentmetrics.SignalContext()
 	defer stop()
 	releaseBudget := componentmetrics.BindShutdown(ctx, cfg.ShutdownTimeout)
 	defer releaseBudget()
@@ -61,7 +60,14 @@ func run(logger *slog.Logger) error {
 	}
 	componentmetrics.Install(state)
 	defer componentmetrics.Install(nil)
-	internalMetrics, err := componentmetrics.StartConfigured(ctx, "monitor", state.Snapshot)
+	var manager *plugin.Manager
+	probes, _ := componentmetrics.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
+		if manager == nil {
+			return errors.New("local_state_unavailable")
+		}
+		return manager.RuntimeReady(checkCtx)
+	})
+	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(ctx, "monitor", state.Snapshot, probes)
 	if err != nil {
 		return err
 	}
@@ -86,7 +92,7 @@ func run(logger *slog.Logger) error {
 		_ = eventMonitor.Close(closeCtx)
 		cancel()
 	}()
-	manager, err := plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ValidateSourceSnapshot: collector.ValidateSuccessfulSourceSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
+	manager, err = plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ValidateSourceSnapshot: collector.ValidateSuccessfulSourceSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
 	if err != nil {
 		return err
 	}
@@ -136,10 +142,11 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})
-	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
+	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: probes.Wrap(handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
+	probes.Started()
 	errs := make(chan error, 1)
 	go func() { errs <- server.ListenAndServe() }()
-	logger.Info("monitor listening")
+	logger.Info("monitor listening", "listen", cfg.HTTPAddress())
 	select {
 	case err = <-errs:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -147,9 +154,13 @@ func run(logger *slog.Logger) error {
 		}
 		return err
 	case <-ctx.Done():
+		probes.Stop()
 		shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
 		defer cancel()
 		serverErr := server.Shutdown(shutdownCtx)
+		if serverErr != nil {
+			_ = server.Close()
+		}
 		managerErr := manager.Shutdown(shutdownCtx)
 		eventCtx, eventCancel := componentmetrics.ShutdownContext(cfg.EventShutdownTimeout)
 		eventErr := eventMonitor.Close(eventCtx)

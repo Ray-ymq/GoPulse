@@ -11,7 +11,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 )
 
-func TestExecuteShipsIndexerLogsAndRemoteFailureDoesNotFailOperation(t *testing.T) {
+func TestExecuteReportsLogDrainTimeoutAfterSuccessfulOperation(t *testing.T) {
 	started := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		select {
@@ -32,8 +32,8 @@ func TestExecuteShipsIndexerLogsAndRemoteFailureDoesNotFailOperation(t *testing.
 		logger.Info("event processed", "event_id", "123e4567-e89b-12d3-a456-426614174000", "event_type", "post.created", "post_id", 7, "attempt", 0, "reason", "processed")
 		return nil
 	})
-	if code != 0 {
-		t.Fatalf("execute() = %d, want 0", code)
+	if code != 1 {
+		t.Fatalf("execute() = %d, want 1", code)
 	}
 	select {
 	case <-started:

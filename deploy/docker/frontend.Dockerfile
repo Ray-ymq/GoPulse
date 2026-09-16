@@ -6,7 +6,8 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend-shared/ /src/frontend-shared/
 COPY frontend/ ./
-RUN npm test -- --run && npm run build
+# Keep jsdom workers bounded while Compose builds Go services concurrently.
+RUN npm test -- --run --maxWorkers=1 --testTimeout=15000 && npm run build
 
 FROM nginx:1.29.4-alpine3.23-slim@sha256:441b69e13e79b436f9b617910633b6b6adce314c3788c3238dcd8e03b4cb512e AS runtime
 ARG VERSION

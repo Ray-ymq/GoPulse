@@ -21,6 +21,7 @@ var (
 )
 
 var allowedFields = map[string]struct{}{
+	"version": {}, "revision": {}, "event": {}, "runtime_contract_version": {}, "runtime_mode": {}, "listen": {},
 	"log_schema_version": {}, "timestamp": {}, "level": {}, "service": {}, "module": {}, "message": {},
 	"request_id": {}, "event_id": {}, "event_type": {}, "user_id": {}, "post_id": {}, "comment_id": {},
 	"notification_id": {}, "outbox_id": {}, "method": {}, "route": {}, "status": {}, "duration_ms": {},
@@ -174,7 +175,7 @@ func validateOptional(fields map[string]any) error {
 				if typed != "unmatched" && (!strings.HasPrefix(typed, "/") || strings.ContainsAny(typed, "?#") || strings.Contains(typed, "//")) {
 					return errors.New("invalid route")
 				}
-			case "event_type", "error_code", "reason", "operation", "resource", "stage", "result":
+			case "version", "revision", "event", "event_type", "error_code", "reason", "operation", "resource", "stage", "result":
 				if !tokenPattern.MatchString(typed) {
 					return errors.New("invalid token")
 				}

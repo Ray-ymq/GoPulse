@@ -1,10 +1,8 @@
 package middleware
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"io"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	stdhttp "net/http"
 	"time"
@@ -23,20 +21,18 @@ const (
 
 type RequestIDGenerator func() (string, error)
 
-func RandomRequestID() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := io.ReadFull(rand.Reader, bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
-}
+func RandomRequestID() (string, error) { return componentmetrics.NewRequestID() }
 
 func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc {
 	if generate == nil {
 		generate = RandomRequestID
 	}
 	return func(c *gin.Context) {
-		requestID, err := generate()
+		requestID := c.Request.Header.Get(requestIDHeader)
+		var err error
+		if len(c.Request.Header.Values(requestIDHeader)) != 1 || !componentmetrics.ValidRequestID(requestID) {
+			requestID, err = generate()
+		}
 		if err != nil || requestID == "" {
 			logger.Error("request id generation failed", slog.String("error_code", string(apperror.CodeInternal)))
 			response.Error(c, apperror.New(apperror.CodeInternal, "an internal error occurred"))
@@ -45,7 +41,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 		}
 
 		requestLogger := logger.With(slog.String("request_id", requestID))
-		c.Request = c.Request.WithContext(logging.WithContext(c.Request.Context(), requestLogger))
+		c.Request = c.Request.WithContext(logging.WithContext(componentmetrics.WithRequestID(c.Request.Context(), requestID), requestLogger))
 		c.Header(requestIDHeader, requestID)
 		c.Next()
 	}
@@ -53,6 +49,11 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 
 func Access(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		switch c.Request.URL.Path {
+		case "/startup", "/live", "/ready", "/health":
+			c.Next()
+			return
+		}
 		started := time.Now()
 		c.Next()
 
