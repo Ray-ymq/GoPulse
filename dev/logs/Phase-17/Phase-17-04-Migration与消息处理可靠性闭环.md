@@ -215,3 +215,5 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 已实际通过：Python 编译检查、Bash 语法检查及 `python3 -m unittest discover -s scripts/ci -p test_phase17_state.py`（manifest 换绑/公开目录拒绝、foreign extraction 容器不清理）。不将这些静态检查等同于真实候选门禁。
 - edge 网络修复后，probe 端口已生成，但第一次 TCP 请求在服务绑定完成前 reset。公共 wait_until 不捕获该 OSError 子类，导致过早清理。仅将 HTTP probe 的连接级 OSError 视为本轮未 ready，继续既有有界等待，不放宽 200/503 的最终要求。前述失败没有候选应用逻辑错误证据，也没有记作通过。
 - 完整入口继续运行已实际通过 candidate Backend ready、普通用户管理 API 拒绝与新增可搜索写入；随后非 12 dirty 负例正确返回 exit 4，但 verifier 的 JSON 字段白名单遗漏 CLI 已有的 `exit_code`，因此拒绝了正确的安全输出。补齐该唯一字段；不改变 Migration 退出码或 dirty 拒绝语义。
+- 正式 Migration 数据路径最终通过，包括 candidate ready、普通用户管理拒绝、新增可搜索写入、dirty exit 4 且事实未改、dirty 项目 ready=503、正式 source restore 恢复原事实及 owned cleanup/Secret scan。私有结构化结果 `.run/phase17-04-resume/state/migration-receipt.json` 已保存并绑定两份 manifest 与 migration verifier 哈希；后续复用该结果。
+- 同候选 business 实际业务矩阵通过，但 cleanup 的全仓 ignored-file 快照检测到统一 runner 正在向 `.run/.../business.log` 写日志，最终 exit 1；不是业务故障，也不能计完整门禁通过。编排改为 `/tmp` 私有匿名临时文件收集输出，子进程完成自身 cleanup/snapshot 后才写工作区日志。未放宽 business 的资源/文件隔离断言。

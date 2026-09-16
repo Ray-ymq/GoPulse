@@ -55,6 +55,7 @@ def source_checkout(target, explicit=None):
 
 def command_gate(name, command, work, binding, files, env, cwd):
     import subprocess
+    import tempfile
     from verify_backup_restore import save
     from verify_current_recovery import CurrentRecovery
     signature=hashlib.sha256(b''.join(str(p).encode()+p.read_bytes() for p in files)).hexdigest()
@@ -69,9 +70,14 @@ def command_gate(name, command, work, binding, files, env, cwd):
             return old
     baseline=CurrentRecovery.resources()
     log=work/(name+'.log')
-    with log.open('w') as stream:
-        os.chmod(log,0o600)
+    # The business verifier snapshots even ignored files below the checkout.
+    # Spool outside it until the child has completed its cleanup/snapshot check.
+    with tempfile.TemporaryFile(mode='w+b', dir='/tmp') as stream:
         result=subprocess.run(command,env=env,cwd=cwd,stdout=stream,stderr=subprocess.STDOUT)
+        stream.seek(0)
+        with log.open('wb') as destination:
+            os.chmod(log,0o600)
+            destination.write(stream.read())
     preserved=CurrentRecovery.resources()==baseline
     masked='[gopulse-compose] ERROR:' in log.read_text(errors='replace')
     receipt={'binding':stamp,'status':'passed' if result.returncode==0 and preserved and not masked else 'failed',
