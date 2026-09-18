@@ -19,6 +19,26 @@ REVISION = re.compile(r'^[0-9a-f]{40}$')
 SENSITIVE = re.compile(r'(?i)(password|secret|token|cookie|authorization|mysql://|amqp://)["\s:=]+[^\s,}\]]{8,}')
 
 
+def secret_scan_text(raw):
+    """Return JSON scalar text while excluding required-env templates."""
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    values = []
+    def collect(value, key=''):
+        if isinstance(value, dict):
+            for child_key, child in value.items():
+                collect(child, str(child_key))
+        elif isinstance(value, list):
+            for child in value:
+                collect(child, key)
+        elif isinstance(value, str) and not ('${' in value and '}' in value):
+            values.append(key+': '+value)
+    collect(document)
+    return '\n'.join(values)
+
+
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -63,7 +83,9 @@ def verify(document, root):
             if not path.is_relative_to(root) or not path.is_file() or sha(path) != ref['sha256']:
                 raise ValueError('unsafe or changed attachment')
             raw = path.read_text(errors='replace')
-            if SENSITIVE.search(raw): raise ValueError('sensitive value in attachment')
+            # Runtime contracts intentionally contain required-env templates
+            # such as ${AUTH_JWT_SECRET:?...}; variable names are not values.
+            if SENSITIVE.search(secret_scan_text(raw)): raise ValueError('sensitive value in attachment')
             attachments[ref['path']] = json.loads(raw) if path.suffix == '.json' else raw
     if attachments.get('attachments/release-manifest.json', {}).get('revision') != candidate['revision']:
         raise ValueError('manifest attachment mismatch')

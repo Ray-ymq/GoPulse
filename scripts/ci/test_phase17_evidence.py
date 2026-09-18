@@ -21,9 +21,17 @@ class Phase17EvidenceTest(unittest.TestCase):
                  'scenarios':{name:dict(scene) for name in REQUIRED},'project_hashes':['d'*64],
                  'secret_scan':'passed','cleanup':'passed'}
             verify(doc,root)
+            manifest.write_text('{"revision":"'+'a'*40+'","compose_value":"${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}"}\n')
+            ref['sha256']=sha(manifest)
+            doc['candidate']['manifest_sha256']='sha256:'+sha(manifest)
+            for value in doc['scenarios'].values(): value['manifest_sha256']=sha(manifest)
+            verify(doc,root)
             bad=json.loads(json.dumps(doc));bad['scenarios'].pop(next(iter(REQUIRED)))
             with self.assertRaises(ValueError):verify(bad,root)
             manifest.write_text('{"password":"visible-secret-value"}\n')
-            with self.assertRaises(ValueError):verify(doc,root)
+            ref['sha256']=sha(manifest)
+            doc['candidate']['manifest_sha256']='sha256:'+sha(manifest)
+            for value in doc['scenarios'].values(): value['manifest_sha256']=sha(manifest)
+            with self.assertRaisesRegex(ValueError, 'sensitive value'):verify(doc,root)
 
 if __name__=='__main__':unittest.main()
