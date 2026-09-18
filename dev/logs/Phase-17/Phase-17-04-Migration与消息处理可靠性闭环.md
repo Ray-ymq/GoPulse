@@ -262,3 +262,9 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - `python3 scripts/ci/validate_branch.py --branch develop/1.14.4 --base-ref upstream/main`：通过。
 - `git diff --check`：通过。
 - 清理后实际运行容器与开始前一致，仅保留用户原有 Monitor/Kafka/Elasticsearch 三只容器。本次候选及正式备份为私有可复核制品，未自动发布。
+
+## 2026-09-18 PR 集成门禁修复
+
+- GitHub Actions 运行 `35117437336` 的唯一失败 job 是 `Integration`；其余质量门禁均通过。失败原因是 `backend/migrations` 的 integration tests 使用 `internal/platform`，而 `internal/platform/runtime_schema.go` 反向导入 `backend/migrations`，在 `go test -tags=integration ./...` 下形成 import cycle。
+- 将 migrations integration tests 改为使用同包的 integration-only MySQL helper，复用受限 loopback/database 配置但不依赖 `internal/platform`；保留 UTC、超时及 multi-statement 连接合同。覆盖 `notification_shape`、`user_profiles`、`user_roles` 三个测试文件。
+- 验证：`cd backend && go test -run '^$' -tags=integration ./...` 通过；`cd backend && go test ./migrations ./internal/platform` 通过；`git diff --check` 通过。未把缺少 CI 真实依赖服务的本地环境误报为完整集成运行通过。

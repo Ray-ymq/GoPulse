@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +13,9 @@ import (
 
 func TestIntegrationProfileMigrationRoundTrip(t *testing.T) {
 	cfg := integrationtest.Environment(t)
-	db, err := platform.OpenMySQLDatabase(cfg.MySQL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := openIntegrationMySQL(t, cfg.MySQL)
 	defer db.Close()
+	var err error
 	ctx := context.Background()
 	table := fmt.Sprintf("users_profile_migration_%d", time.Now().UnixNano())
 	if _, err = db.ExecContext(ctx, "CREATE TABLE "+table+" (id BIGINT PRIMARY KEY, username VARCHAR(32) NOT NULL)"); err != nil {
