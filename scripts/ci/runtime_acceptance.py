@@ -15,6 +15,7 @@ import urllib.request
 import urllib.error
 import uuid
 from verify_runtime_contracts import ROOT, load
+from release_artifacts import platform_ref, verify_bundle
 from verify_plugin_metrics import Client
 
 SOURCES=('redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics')
@@ -37,8 +38,10 @@ def wait(fn, description, timeout=150):
     raise RuntimeError('runtime timeout: '+description)
 
 class Acceptance:
-    def __init__(self,version):
-        self.version=version;self.token=uuid.uuid4().hex[:12];self.project='gopulse-runtime-'+self.token
+    def __init__(self,version,manifest=None):
+        self.version=version;self.manifest_path=manifest.resolve() if manifest else None;self.candidate=verify_bundle(self.manifest_path) if self.manifest_path else None
+        if self.candidate and (self.candidate['version'] != version):raise ValueError('candidate version mismatch')
+        self.token=uuid.uuid4().hex[:12];self.project='gopulse-runtime-'+self.token
         assert re.fullmatch(r'gopulse-runtime-[0-9a-f]{12}',self.project)
         self.work=ROOT/'.run'/self.project;self.work.mkdir(mode=0o700)
         self.probe=self.work/'runtime-http'
@@ -47,17 +50,20 @@ class Acceptance:
         self.contract=load(ROOT/'deploy/runtime-contracts.json')
         self.values={k:v for k,v in (line.split('=',1) for line in (ROOT/'.env.example').read_text().splitlines() if '=' in line and not line.startswith('#'))}
         self.values.update(APP_ENV='test',GOPULSE_VERSION=version,GOPULSE_IMAGE_TAG=version+'-runtime-'+self.token,
-            GOPULSE_REVISION=command(['git','rev-parse','HEAD']).stdout.decode().strip(),HTTP_PORT='0',FRONTEND_PORT='0',
+            GOPULSE_REVISION=self.candidate['revision'] if self.candidate else command(['git','rev-parse','HEAD']).stdout.decode().strip(),HTTP_PORT='0',FRONTEND_PORT='0',
             MYSQL_DATABASE='runtime_'+self.token,MYSQL_USER='user_'+self.token,RABBITMQ_USER='rabbit_'+self.token,
             VICTORIAMETRICS_USERNAME='vm_'+self.token,GOPULSE_UPDATE_VERSION=version,
             MONITOR_BOOTSTRAP_PACKAGE='',AUTH_COOKIE_SECURE='false')
         for key in self.values:
             if any(s in key for s in ('PASSWORD','TOKEN','SECRET')):self.values[key]='runtime-canary-'+key.lower()+'-'+self.token+'-0123456789abcdef'
         self.values['BACKEND_VICTORIAMETRICS_PASSWORD']=self.values['VICTORIAMETRICS_PASSWORD']
+        if self.candidate:
+            for name,image in {**self.candidate['images'],**self.candidate['third_party']}.items():
+                self.values['GOPULSE_'+name.upper().replace('-','_')+'_IMAGE']=platform_ref(image,'linux/amd64')
         self.env=self.work/'runtime.env';self.env.write_text(''.join(k+'='+v+'\n' for k,v in self.values.items()));self.env.chmod(0o600)
         self.override=self.work/'private.yaml';self.override.write_text('services:\n  backend:\n    ports: !reset []\n')
         self.base=['docker','compose','-p',self.project,'--env-file',str(self.env),'-f',str(ROOT/'deploy/compose.yaml'),'-f',str(self.override)]
-        self.image='gopulse/monitor:'+self.values['GOPULSE_IMAGE_TAG']
+        self.image=platform_ref(self.candidate['images']['monitor'],'linux/amd64') if self.candidate else 'gopulse/monitor:'+self.values['GOPULSE_IMAGE_TAG']
     def compose(self,*args,**kwargs):return command(self.base+list(args),**kwargs)
     def owned(self,cid):
         info=json.loads(command(['docker','inspect',cid]).stdout)[0]
@@ -79,9 +85,10 @@ class Acceptance:
     def build(self):
         info=json.loads(command(['docker','info','--format','{{json .}}']).stdout)
         assert info['OSType']=='linux' and info['Architecture'] in ('x86_64','amd64')
-        p=self.compose('build',*SERVICES,'frontend','admin-frontend',timeout=2400,check=False)
-        (self.work/'build.log').write_bytes(p.stdout+p.stderr)
-        if p.returncode:raise RuntimeError('runtime product image build failed; see owned build.log')
+        action='pull' if self.candidate else 'build'
+        p=self.compose(action,*SERVICES,'frontend','admin-frontend',timeout=2400,check=False)
+        (self.work/(action+'.log')).write_bytes(p.stdout+p.stderr)
+        if p.returncode:raise RuntimeError('runtime product image '+action+' failed; see owned log')
         self.started=True;self.compose('up','-d',timeout=600)
         for service in SERVICES:
             self.ids[service]=self.compose('ps','-q',service).stdout.decode().strip();self.owned(self.ids[service])
@@ -266,10 +273,13 @@ class Acceptance:
                         if any(word in key for word in ('PASSWORD','TOKEN','SECRET')) and value:raw=raw.replace(value.encode(),b'[redacted]')
                     (self.work/(component+'-failure.log')).write_bytes(raw)
             self.cleanup()
-            (self.work/'evidence.json').write_text(json.dumps(dict(passed=passed,version=self.version,revision=self.values['GOPULSE_REVISION'],contract_sha256=hashlib.sha256((ROOT/'deploy/runtime-contracts.json').read_bytes()).hexdigest(),scenarios=self.results,logs=self.log_results),indent=2)+'\n')
+            (self.work/'evidence.json').write_text(json.dumps(dict(passed=passed,version=self.version,revision=self.values['GOPULSE_REVISION'],manifest_sha256=hashlib.sha256(self.manifest_path.read_bytes()).hexdigest() if self.manifest_path else None,contract_sha256=hashlib.sha256((ROOT/'deploy/runtime-contracts.json').read_bytes()).hexdigest(),scenarios=self.results,logs=self.log_results),indent=2)+'\n')
             print('Runtime evidence: '+str(self.work/'evidence.json'),flush=True)
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--candidate',required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--candidate',required=True);parser.add_argument('--manifest',type=Path);parser.add_argument('--evidence',type=Path);args=parser.parse_args()
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',args.candidate):raise SystemExit('invalid candidate')
-    Acceptance(args.candidate).run()
+    acceptance=Acceptance(args.candidate,args.manifest);acceptance.run()
+    if args.evidence:
+        args.evidence.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+        shutil.copyfile(acceptance.work/'evidence.json',args.evidence);args.evidence.chmod(0o600)
