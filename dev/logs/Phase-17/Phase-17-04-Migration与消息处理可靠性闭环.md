@@ -274,3 +274,9 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - 远端 Actions run `35349815999`（提交 `74f023c`）于 2026-09-18 失败，唯一失败门禁为 `Full-stack Compose acceptance` 的 `Run the authoritative Phase 12 Compose closure`；Backend、Integration、Frontend、Marshaller、Monitor、Router、Redis Exporter 及其他质量门禁均通过。未能通过未认证 GitHub API 下载该 job 的详细日志（HTTP 403），因此不将失败原因臆测为生产代码缺陷。
 - 未修改仓库内容前，在同一 `develop/1.14.4` 工作树执行 `scripts/verify-compose.sh`，完整 Compose 入口最终退出 0。实际通过了拓扑、镜像与网络边界、迁移/search/Kafka 幂等、业务 Redis/Worker/Search Indexer 故障恢复、观测 VictoriaMetrics/Monitor/Router 故障恢复、持久化重启、前端与管理员浏览器场景、Redis Exporter 矩阵及 Phase 12 authoritative closure。
 - 本次本地完整复核未改变产品实现或版本号；该远端失败目前按一次未能从公开日志定位、且本地未复现的 Compose 门禁失败记录。后续由重新推送触发的质量门禁给出新的远端证据；若再次失败，必须先取得具体失败步骤/日志后再作针对性修改。
+
+## 2026-09-18 远端 Compose 门禁失败修复
+
+- 通过 GitHub Actions API 获取 run `35351940977` 的 job 日志，确认唯一失败为 `Full-stack Compose acceptance` 在构建 `admin-frontend` 时运行 `ObservabilityExportersView.test.ts`；`refresh failure: false` 用例因默认 Vitest 5 秒超时失败，实际执行约 5.4 秒，非业务断言失败。
+- 将该包含多次异步挂载、文件变更和目录刷新操作的代表性测试显式设置为 15 秒超时，避免全栈 Compose 并行构建资源竞争造成误报；未改变产品运行时代码或版本号。
+- 验证：`cd admin-frontend && npm test -- --run src/views/ObservabilityExportersView.test.ts` 通过；`cd admin-frontend && npm test -- --run && npm run build` 通过（11 个测试文件、43 个测试）；`git diff --check` 通过。
