@@ -268,3 +268,9 @@ Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshal
 - GitHub Actions 运行 `35117437336` 的唯一失败 job 是 `Integration`；其余质量门禁均通过。失败原因是 `backend/migrations` 的 integration tests 使用 `internal/platform`，而 `internal/platform/runtime_schema.go` 反向导入 `backend/migrations`，在 `go test -tags=integration ./...` 下形成 import cycle。
 - 将 migrations integration tests 改为使用同包的 integration-only MySQL helper，复用受限 loopback/database 配置但不依赖 `internal/platform`；保留 UTC、超时及 multi-statement 连接合同。覆盖 `notification_shape`、`user_profiles`、`user_roles` 三个测试文件。
 - 验证：`cd backend && go test -run '^$' -tags=integration ./...` 通过；`cd backend && go test ./migrations ./internal/platform` 通过；`git diff --check` 通过。未把缺少 CI 真实依赖服务的本地环境误报为完整集成运行通过。
+
+## 2026-09-18 PR 失败复核
+
+- 远端 Actions run `35349815999`（提交 `74f023c`）于 2026-09-18 失败，唯一失败门禁为 `Full-stack Compose acceptance` 的 `Run the authoritative Phase 12 Compose closure`；Backend、Integration、Frontend、Marshaller、Monitor、Router、Redis Exporter 及其他质量门禁均通过。未能通过未认证 GitHub API 下载该 job 的详细日志（HTTP 403），因此不将失败原因臆测为生产代码缺陷。
+- 未修改仓库内容前，在同一 `develop/1.14.4` 工作树执行 `scripts/verify-compose.sh`，完整 Compose 入口最终退出 0。实际通过了拓扑、镜像与网络边界、迁移/search/Kafka 幂等、业务 Redis/Worker/Search Indexer 故障恢复、观测 VictoriaMetrics/Monitor/Router 故障恢复、持久化重启、前端与管理员浏览器场景、Redis Exporter 矩阵及 Phase 12 authoritative closure。
+- 本次本地完整复核未改变产品实现或版本号；该远端失败目前按一次未能从公开日志定位、且本地未复现的 Compose 门禁失败记录。后续由重新推送触发的质量门禁给出新的远端证据；若再次失败，必须先取得具体失败步骤/日志后再作针对性修改。
