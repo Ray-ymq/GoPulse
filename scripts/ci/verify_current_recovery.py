@@ -250,7 +250,6 @@ class CurrentRecovery(Recovery):
             return
         self.seed()
         self.continuing('source', browser=False)
-        self.three_sources('source')
         archive, facts = self.backup_project('source')
         if self.state('source')['phase'] != 'stopped':self.call('source', 'down')
         if not (self.work/'target'/'state.json').exists() or self.state('target')['phase'] != 'ready':
