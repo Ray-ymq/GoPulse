@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 )
 
 func TestIntegrationUserRoleMigrationUpDownAndDefaults(t *testing.T) {
 	cfg := integrationtest.Environment(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	database := openIntegrationMySQL(t, cfg.MySQL)
+	var err error
 	if err != nil {
 		t.Fatalf("OpenMySQLDatabase() error = %v", err)
 	}

@@ -295,9 +295,17 @@ func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey st
 	defer func() { componentmetrics.Dependency("rabbitmq", result) }()
 	session.publishMu.Lock()
 	defer session.publishMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	expected := session.channel.GetNextPublishSeqNo()
 	if err := session.channel.PublishWithContext(ctx, exchange, routingKey, true, false, publishing); err != nil {
 		return err
 	}
+	return session.awaitConfirmation(ctx, expected, publishing.MessageId)
+}
+
+func (session *amqpSession) awaitConfirmation(ctx context.Context, expected uint64, messageID string) error {
 	returned := false
 	for {
 		select {
@@ -305,11 +313,16 @@ func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey st
 			if !ok {
 				return errors.New("RabbitMQ return stream closed")
 			}
-			if message.MessageId == "" || message.MessageId == publishing.MessageId {
+			if message.MessageId == "" || message.MessageId == messageID {
 				returned = true
 			}
 		case confirmation, ok := <-session.confirmations:
-			if !ok || !confirmation.Ack || returned {
+			// A timed-out publication can confirm after the next call starts.
+			// Never acknowledge the new original using the previous sequence.
+			if ok && confirmation.DeliveryTag < expected {
+				continue
+			}
+			if !ok || confirmation.DeliveryTag != expected || !confirmation.Ack || returned {
 				return errors.New("RabbitMQ secondary publish not confirmed")
 			}
 			// Mandatory returns precede confirms. A short defensive drain covers
@@ -318,12 +331,12 @@ func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey st
 			select {
 			case message := <-session.returns:
 				timer.Stop()
-				if message.MessageId == "" || message.MessageId == publishing.MessageId {
+				if message.MessageId == "" || message.MessageId == messageID {
 					return errors.New("RabbitMQ secondary publish was unroutable")
 				}
 			case <-timer.C:
 			}
-			return nil
+			return ctx.Err()
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-session.connectionClosed:

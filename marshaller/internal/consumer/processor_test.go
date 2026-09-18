@@ -177,3 +177,44 @@ func TestProcessorCommitCancellationFromOwnershipChangeCanRecover(t *testing.T) 
 		})
 	}
 }
+
+func TestCommitRetriesWithoutRewriting(t *testing.T) {
+	_, lease := leaseFor(t)
+	writer := &fakeWriter{}
+	committer := &fakeCommitter{}
+	committer.onCommit = func(context.Context) error {
+		if committer.calls == 1 {
+			return errors.New("temporary")
+		}
+		return nil
+	}
+	if err := baseProcessor(writer, committer).Handle(context.Background(), Record{}, lease); err != nil {
+		t.Fatal(err)
+	}
+	if writer.calls != 1 || committer.calls != 2 {
+		t.Fatalf("writes=%d commits=%d", writer.calls, committer.calls)
+	}
+}
+func TestCommitRetryExhaustionIsBounded(t *testing.T) {
+	_, lease := leaseFor(t)
+	committer := &fakeCommitter{err: errors.New("temporary")}
+	err := baseProcessor(&fakeWriter{}, committer).Handle(context.Background(), Record{}, lease)
+	if !errors.Is(err, ErrCommitFailed) || committer.calls != 3 {
+		t.Fatalf("err=%v commits=%d", err, committer.calls)
+	}
+}
+func TestShutdownCancelsStorageBackoff(t *testing.T) {
+	_, lease := leaseFor(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	writer := &fakeWriter{errors: []error{errors.New("temporary")}}
+	committer := &fakeCommitter{}
+	p := baseProcessor(writer, committer)
+	p.Sleep = func(ctx context.Context, _ time.Duration) error { cancel(); <-ctx.Done(); return ctx.Err() }
+	if err := p.Handle(ctx, Record{}, lease); !errors.Is(err, ErrOwnershipLost) {
+		t.Fatal(err)
+	}
+	if committer.calls != 0 {
+		t.Fatal("shutdown committed failed write")
+	}
+}
