@@ -62,6 +62,19 @@
 - If optional investigation or optional test work consumes 15 consecutive minutes without resolving a required failure or advancing production implementation, stop it immediately. Return to the shortest in-scope implementation path or record the item as a non-blocking follow-up.
 - As soon as the documented acceptance criteria and fixed completion gates pass with no blocking failure, update the implementation log and version, commit, and stop. Do not spend remaining time on opportunistic refactors, additional edge cases, or unrelated cleanup.
 
+# Acceptance Rehearsal and Immutable Candidate Rule
+
+- Before starting an expensive end-to-end acceptance matrix, run a deterministic preflight against the exact candidate manifest, Bundle, runtime contract, release receipt, and evidence verifier.
+- The preflight must validate manifest/Bundle/runtime-contract/revision binding, evidence attachment paths and hashes, schema and redaction rules, runtime-contract environment templates, and Docker resource-isolation snapshots on the actual acceptance host.
+- Treat acceptance scripts, evidence aggregators, secret scanners, receipt copiers, and cleanup logic as testable infrastructure. Add focused unit or fixture coverage for known failure modes before launching the long-running product matrix.
+- Do not start a full acceptance matrix when a deterministic preflight can detect a runner, evidence, manifest, or environment-contract error.
+- Once a candidate is frozen, any change to application code, acceptance code, evidence verification, release metadata, or runtime-contract handling invalidates all candidate receipts and requires a new candidate revision.
+- Do not repair a failed candidate in place by replacing tags, editing receipts, or reusing evidence from another revision.
+- Separate product failures from acceptance-infrastructure failures. Record the failure category and fix the smallest directly affected layer before rerunning the matrix.
+- Reuse a successful gate only when the candidate manifest, relevant code, configuration, dependencies, and execution environment are unchanged. Otherwise, rerun the affected gate and document the reason.
+- Resource-isolation checks must distinguish owned resources, foreign resources, stopped resources, and disposable anonymous test volumes; never use broad cleanup or global prune to make an isolation check pass.
+- After the final matrix passes, run the evidence verifier against the exact sanitized evidence copied for publication before creating the implementation log and final commit.
+
 # Implementation Log Rule
 
 - After completing each implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding development record under `dev/logs/Phase-XX/` before reporting the plan complete.
