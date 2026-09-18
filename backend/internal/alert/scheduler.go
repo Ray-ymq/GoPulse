@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"log/slog"
 	"math"
 	"sync"
 	"time"
@@ -18,6 +21,7 @@ type Counts interface {
 	AlertCount(context.Context, map[string]string, time.Time, time.Time) (int64, error)
 }
 type Scheduler struct {
+	logger  *slog.Logger
 	logs    Counts
 	events  Counts
 	repo    *Repository
@@ -25,7 +29,7 @@ type Scheduler struct {
 }
 
 func NewScheduler(repo *Repository, samples Samples) *Scheduler {
-	return &Scheduler{repo: repo, samples: samples}
+	return &Scheduler{repo: repo, samples: samples, logger: logging.Module(logging.Discard("backend"), "alert")}
 }
 
 func (s *Scheduler) WithCounts(logs, events Counts) *Scheduler {
@@ -34,9 +38,15 @@ func (s *Scheduler) WithCounts(logs, events Counts) *Scheduler {
 	return s
 }
 
+func (s *Scheduler) WithLogger(logger *slog.Logger) *Scheduler {
+	if logger != nil {
+		s.logger = logging.Module(logger, "alert")
+	}
+	return s
+}
+
 // A bounded round completes before the next tick; failures are deliberately local.
 func (s *Scheduler) Run(ctx context.Context) {
-	defer func() { _ = recover() }()
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	for {
@@ -52,10 +62,16 @@ func (s *Scheduler) Run(ctx context.Context) {
 	}
 }
 func (s *Scheduler) round(ctx context.Context) {
+	defer func() {
+		if recover() != nil {
+			s.failure("round_panic")
+		}
+	}()
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
 	rows, e := s.repo.db.QueryContext(ctx, `SELECT r.id FROM alert_rules r JOIN alert_rule_states s ON s.rule_id=r.id WHERE r.enabled=1 AND r.deleted_at IS NULL AND s.next_evaluation_at<=UTC_TIMESTAMP(6) AND (s.lease_until IS NULL OR s.lease_until<=UTC_TIMESTAMP(6)) ORDER BY r.id LIMIT 32`)
 	if e != nil {
+		s.failure("database_unavailable")
 		return
 	}
 	ids := []uint64{}
@@ -67,7 +83,12 @@ func (s *Scheduler) round(ctx context.Context) {
 		}
 		ids = append(ids, id)
 	}
+	rowErr := rows.Err()
 	rows.Close()
+	if rowErr != nil {
+		s.failure("database_unavailable")
+		return
+	}
 	jobs := make(chan uint64)
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
@@ -75,7 +96,14 @@ func (s *Scheduler) round(ctx context.Context) {
 		go func() {
 			defer wg.Done()
 			for id := range jobs {
-				func() { defer func() { _ = recover() }(); s.evaluate(ctx, id) }()
+				func() {
+					defer func() {
+						if recover() != nil {
+							s.failure("evaluation_panic")
+						}
+					}()
+					s.evaluate(ctx, id)
+				}()
 			}
 		}()
 	}
@@ -119,7 +147,9 @@ func (s *Scheduler) evaluate(ctx context.Context, id uint64) {
 	if ctx.Err() != nil {
 		return
 	}
-	_ = s.repo.apply(ctx, r, owner, cutoff, v, known)
+	if err := s.repo.apply(ctx, r, owner, cutoff, v, known); err != nil {
+		s.failure("apply_failed")
+	}
 }
 func (p *Repository) apply(ctx context.Context, claimed Rule, owner string, cutoff time.Time, value float64, known bool) error {
 	tx, e := p.db.BeginTx(ctx, nil)
@@ -206,6 +236,18 @@ func (p *Repository) apply(ctx context.Context, claimed Rule, owner string, cuto
 // and releases the lease through the ordinary state/audit transaction.
 func (s *Scheduler) value(ctx context.Context, r Rule, cutoff time.Time) (v float64, known bool) {
 	defer func() {
+		// Source comes from the validated fixed rule catalog; never label rule IDs.
+		switch r.Source {
+		case "metrics", "logs", "events":
+			available := 0.0
+			if known {
+				available = 1
+				componentmetrics.Active().Set("alert_last_success_timestamp_seconds", float64(time.Now().Unix()), r.Source)
+			}
+			componentmetrics.Active().Set("alert_evaluation_known", available, r.Source)
+		}
+	}()
+	defer func() {
 		if recover() != nil {
 			v = 0
 			known = false
@@ -239,4 +281,9 @@ func (s *Scheduler) value(ctx context.Context, r Rule, cutoff time.Time) (v floa
 	n, e := adapter.AlertCount(ctx, r.Selector.Labels, cutoff.Add(-w), cutoff)
 	v = float64(n)
 	return v, e == nil && n >= 0 && n <= 9007199254740991 && !math.IsNaN(v)
+}
+
+// Never include database errors, rule IDs or adapter payloads in scheduler logs.
+func (s *Scheduler) failure(reason string) {
+	s.logger.Error("alert evaluation failed", "event", "evaluation_failed", "reason", reason)
 }

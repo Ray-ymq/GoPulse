@@ -273,8 +273,10 @@ services:
     image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     restart: "no"
-    entrypoint: [/usr/local/bin/migrate]
-    command: [up]
+    entrypoint: [/bin/sh, -c]
+    # status rejects dirty; only up may resume the explicitly supported v12.
+    command:
+      - '/usr/local/bin/migrate validate && { /usr/local/bin/migrate status; code=$$?; [ "$$code" -eq 0 ] || [ "$$code" -eq 4 ]; } && exec /usr/local/bin/migrate up'
     environment: *mysql-environment
     depends_on:
       mysql:

@@ -58,3 +58,12 @@ it('rejects malformed audit details without displaying them',async()=>{
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({data:[{...audit,details_json:{secret:'must-not-render'}}],meta:{next_cursor:null}}))))
  const w=mount(AuditView);await flushPromises();expect(w.text()).toContain('审计查询失败');expect(w.text()).not.toContain('must-not-render');w.unmount()
 })
+
+it('accepts alert-source metric selectors without permitting unknown labels',()=>{
+ const metric={metric:'gopulse_backend_alert_evaluation_known',kind:'gauge',unit:'state',label_keys:['alert_source'],allowed_tuples:[['metrics'],['logs'],['events']],reducers:['last']}
+ expect(isCatalog({...catalog,metrics:[metric]})).toBe(true)
+ const selector={metric:metric.metric,labels:{alert_source:'metrics'}}
+ expect(isRule({...rule,selector})).toBe(true)
+ expect(isCatalog({...catalog,metrics:[{...metric,label_keys:['secret']}]})).toBe(false)
+ expect(isRule({...rule,selector:{...selector,labels:{secret:'hidden'}}})).toBe(false)
+})

@@ -39,9 +39,10 @@ var workerMessages = map[string]struct{}{
 
 var serviceModules = map[string]map[string]map[string]struct{}{
 	"backend": {
-		"http": {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
-		"auth": {"user registered": {}, "user logged in": {}, "user logged out": {}},
-		"post": {"post created": {}}, "comment": {"comment created": {}},
+		"alert": {"alert evaluation failed": {}},
+		"http":  {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
+		"auth":  {"user registered": {}, "user logged in": {}, "user logged out": {}},
+		"post":  {"post created": {}}, "comment": {"comment created": {}},
 		"like": {"post liked": {}, "post unliked": {}}, "notification": {"notification marked read": {}},
 		"cache":     {"post detail cache fill failed": {}, "post detail cache read failed": {}, "post detail cache invalidation failed": {}},
 		"outbox":    {"outbox cleanup failed": {}, "outbox claim failed": {}, "outbox event invalid": {}, "outbox publish failed": {}, "outbox mark published failed": {}, "outbox event published": {}, "outbox release failed": {}},

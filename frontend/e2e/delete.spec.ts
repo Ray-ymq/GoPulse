@@ -45,7 +45,7 @@ test('Phase 13 profile follow Following bookmark edit delete notification closur
     await owner.getByRole('button', { name: '永久删除', exact: true }).click(); await expect(owner.getByRole('alert')).toBeVisible()
     await owner.unroute(`**${api}`); await owner.getByRole('button', { name: '永久删除', exact: true }).click()
     await expect(owner).not.toHaveURL(new RegExp(`/posts/${post.id}$`))
-    await expect(owner.getByRole('status')).toContainText('帖子已永久删除')
+    await expect(owner.getByRole('status').filter({ hasText: '帖子已永久删除' })).toBeVisible()
     expect((await owner.request.get(api)).status()).toBe(404); expect((await owner.request.delete(api)).status()).toBe(404)
     for (const url of ['/api/v1/posts', '/api/v1/posts/following', '/api/v1/bookmarks', `/api/v1/search/posts?q=edited${token}`]) {
       const response = await viewer.request.get(url); expect(response.ok()).toBe(true)
