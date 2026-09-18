@@ -9,15 +9,11 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 )
 
 func TestIntegrationNotificationShapeMigrationRoundTrip(t *testing.T) {
 	cfg := integrationtest.Environment(t)
-	db, err := platform.OpenMySQLDatabase(cfg.MySQL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := openIntegrationMySQL(t, cfg.MySQL)
 	defer db.Close()
 	name := fmt.Sprintf("nshape_%d", time.Now().UnixNano())
 	posts, comments := name+"_posts", name+"_comments"

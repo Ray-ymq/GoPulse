@@ -92,3 +92,18 @@ func TestReadinessFollowsConsumerSession(t *testing.T) {
 		t.Fatal("closed consumer session ready")
 	}
 }
+
+func TestSecondaryPublishDoesNotAcceptPreviousConfirmation(t *testing.T) {
+	for _, ack := range []bool{true, false} {
+		confirmations := make(chan amqp.Confirmation, 2)
+		confirmations <- amqp.Confirmation{DeliveryTag: 1, Ack: true}
+		confirmations <- amqp.Confirmation{DeliveryTag: 2, Ack: ack}
+		session := &amqpSession{confirmations: confirmations, returns: make(chan amqp.Return)}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		err := session.awaitConfirmation(ctx, 2, "stable-event")
+		cancel()
+		if (err == nil) != ack {
+			t.Fatalf("ack=%v err=%v", ack, err)
+		}
+	}
+}
