@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (1.14.3)
+# GoPulse runtime contract v1 (1.14.5)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -7,7 +7,7 @@ is not a second runtime configuration service. Validate changes with:
 
 ```bash
 python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example
-scripts/verify-runtime-contracts.sh --candidate 1.14.3
+scripts/verify-runtime-contracts.sh --candidate 1.14.5
 ```
 
 ## Configuration and readiness
