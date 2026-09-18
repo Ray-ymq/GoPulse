@@ -28,6 +28,13 @@ class CurrentRecovery(Recovery):
             'containers': ('ps', '-aq', '--no-trunc'),
             'networks': ('network', 'ls', '-q', '--no-trunc'),
             'volumes': ('volume', 'ls', '-q')}.items()}
+        # Anonymous volumes are disposable Compose test scaffolding.  They may
+        # outlive a failed acceptance runner even after its containers are
+        # removed, so they must not make the unrelated-resource snapshot fail.
+        # Named volumes, containers, and networks remain part of the isolation
+        # contract and are compared exactly.
+        anonymous = docker('volume', 'ls', '-q', '--filter', 'label=com.docker.volume.anonymous').split()
+        resources['volumes'] = sorted(set(resources['volumes']) - set(anonymous))
         if os.environ.get('GOPULSE_PHASE16_MATRIX') == '1':
             own = docker('ps', '-aq', '--no-trunc', '--filter', 'label=io.gopulse.phase16.runner=true').split()
             if len(own) != 1:
