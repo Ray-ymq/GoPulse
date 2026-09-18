@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import shutil
 import tarfile
 import time
 import urllib.request
