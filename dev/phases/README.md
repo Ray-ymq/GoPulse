@@ -1,6 +1,6 @@
 # GoPulse 阶段性开发文档
 
-本目录将 [`Plan.md`](Plan.md) 拆分为 Phase 0～Phase 20 的阶段提纲。Phase 12 已在 `1.9.4` 完成；已完成阶段的提纲、实施方案和记录保持历史原貌。Phase 13 起先完成业务与可观测产品闭环，Phase 18 起才迁移到 Kubernetes。
+本目录将 [`Plan.md`](Plan.md) 拆分为 Phase 0～Phase 17 的阶段提纲。Phase 17 已在 `1.14.5` 完成并收口 Milestone 4；已完成阶段的提纲、实施方案和记录保持历史原貌。下一实施阶段尚未分配。
 
 ## 阶段索引
 
@@ -23,12 +23,9 @@
 | Phase 14 | `1.11.x` | [插件体系与组件可观测闭环](Phase-14-插件体系与组件可观测闭环.md) | 六类官方单实例插件与自研组件指标 | Milestone 4 |
 | Phase 15 | `1.12.x` | [告警与管理端闭环](Phase-15-告警与管理端闭环.md) | 内部告警、双角色与独立管理端大屏 | Milestone 4 |
 | Phase 16 | `1.13.x` | [Linux 产品化与双前端交付](Phase-16-Linux产品化与双前端交付.md) | 同域双前端与 Linux `amd64` 产品交付 | Milestone 4 |
-| Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | Kubernetes 前的完整产品质量验收 | Milestone 4 收口 |
-| Phase 18 | `1.15.x` | [Kubernetes基础部署](Phase-18-Kubernetes基础部署.md) | 将已完成产品迁移到 Kubernetes | Milestone 5 |
-| Phase 19 | `1.16.x` | [Ingress与统一入口](Phase-19-Ingress与统一入口.md) | 同域登录、双前端和 API 的统一入口 | Milestone 5 |
-| Phase 20 | `1.17.x` | [Kubernetes可观测集成](Phase-20-Kubernetes可观测集成.md) | 组件与集群对象的自观测和内部告警 | Milestone 5 收口 |
+| Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | 完整产品质量验收 | Milestone 4 收口 |
 
-## 当前执行顺序
+## 已完成执行顺序
 
 ```text
 Phase 12 已完成的 Compose 基线
@@ -37,12 +34,11 @@ Phase 12 已完成的 Compose 基线
 → Phase 15 告警与管理端
 → Phase 16 Linux 产品化与双前端交付
 → Phase 17 完整产品工程验收
-→ Phase 18 Kubernetes 部署
-→ Phase 19 Ingress
-→ Phase 20 Kubernetes 可观测集成
 ```
 
-Phase 17 通过前，GoPulse 必须已经能够脱离 Kubernetes 完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的全部代表性流程。Phase 18～20 只处理部署与集群观测。
+Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。下一实施阶段应在完成当前架构梳理和差距分析后另行分配。
+
+Kubernetes 基础部署、统一入口和集群观测已移至 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)，仅作为未排期设计，不属于当前 Phase、版本或里程碑。
 
 ## 核心边界
 
@@ -52,13 +48,13 @@ Phase 17 通过前，GoPulse 必须已经能够脱离 Kubernetes 完成业务、
 - 用户 Frontend 与管理 Frontend 是两个独立应用，但共用 Backend、用户数据库、统一登录和同源会话。
 - 最终角色只有 `user` 与 `super_admin`；引导超级管理员不可删除或降级，其他账号可由超级管理员按用户 ID 调整角色。
 - 告警只在管理后台内部展示，不接入外部通知渠道。
-- Frontend 不直连 Monitor、插件、数据基础设施或 Kubernetes API。
-- Kubernetes 是部署环境，不是完整产品能够运行的前提。
+- Frontend 不直连 Monitor、插件或数据基础设施。
+- 当前受支持的产品环境是 Linux `amd64` Docker Compose；其他部署环境需要独立立项和验收。
 
 ## 文档维护约定
 
 - `Plan.md` 是阶段划分、里程碑和架构边界的上层依据。
 - 每个 Phase 的精确批次、目标版本和 `develop/x.x.x` 分支只在总实施方案中分配。
 - 批次按可运行、可验证的端到端能力切分，不按技术层机械拆分。
-- 阶段提纲不提前冻结 API、Schema、消息契约、告警表达式或 Kubernetes 资源规格。
+- 阶段提纲不提前冻结 API、Schema、消息契约、告警表达式或未来部署资源规格。
 - 实施完成后必须按仓库规则记录真实改动、命令、结果、偏差和后续事项。
