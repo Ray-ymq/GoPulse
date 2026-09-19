@@ -78,15 +78,6 @@
 - Run proportionate checks before committing. If a required check cannot run or fails, report that clearly.
 - Do not create an empty commit.
 
-# Active Platform Rule
-
-- The maintained product and acceptance environment is Linux `amd64` with Bash.
-- Kubernetes is a deployment environment, not a prerequisite for proving that the Compose product works.
-- Phase 18 through Phase 20 use WSL2/Linux as the primary Kubernetes implementation and integration environment.
-- Keep the active Phase 18–20 checkout in the WSL Linux filesystem and use one Docker daemon for that workspace.
-- Preserve the Linux `amd64` Compose lifecycle, release, backup, restore, and upgrade contracts wherever later work directly affects them.
-- Existing `scripts/*.ps1` files are frozen at the `0.2.1` capability baseline and must not be extended with current Compose or Kubernetes behavior.
-
 # Authority and Conflict Rule
 
 - This file defines repository-wide execution constraints.
