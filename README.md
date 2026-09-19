@@ -1,6 +1,6 @@
 # GoPulse
 
-GoPulse is currently at product version **1.11.3**. Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8 closes Milestone 2 with the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, authenticated single-node VictoriaMetrics storage/query, bounded dependency recovery, permanent-invalid continuation, deterministic replay, internal access isolation, and the full real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics matrix. Phase 9 adds strict application-log transport, Elasticsearch storage, and administrator querying. Phase 10 includes successful and failed Redis Exporter lifecycle Events, unexpected-exit detection, deduplicated metrics collection and Redis-target failure/recovery episodes, bounded source retries, strict Elasticsearch storage, and administrator-only querying through the shared observability transport. Phase 11 closes Milestone 3 with a guarded administrator workspace, four-region overview, fixed VictoriaMetrics range queries, paged Logs and Events browsing, browser-operated Redis Exporter install/start/stop/update, runtime role-revocation handling, and dependency-isolated recovery, while ordinary users retain the social-only experience. Phase-12-01 packages the Frontend, Backend, Business Worker, Search Indexer, migrations, search initialization, and administrator CLI into non-root OCI images and closes the Docker/Compose-only social-business runtime. Phase-12-02 adds non-root Router, Marshaller, Monitor, and Redis Exporter images, image-bundled managed-plugin bootstrap, internal Kafka/VictoriaMetrics topology, and the complete administrator browser observability closure. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages. Phase-12-03 establishes the authoritative full-stack Compose matrix covering clean startup, cross-batch business and observability behavior, internal identity and port boundaries, localized faults, service replacement, retained-volume recovery, bounded shutdown, and strongly owned cleanup. Phase-12-04 closes the independent implementation Review findings with isolated acceptance image tags, strict image/source validation, least-privilege workload environments, runtime-mode safety, and credential-safe health checks.
+The current completed product version is recorded in [`VERSION`](VERSION). Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8 closes Milestone 2 with the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, authenticated single-node VictoriaMetrics storage/query, bounded dependency recovery, permanent-invalid continuation, deterministic replay, internal access isolation, and the full real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics matrix. Phase 9 adds strict application-log transport, Elasticsearch storage, and administrator querying. Phase 10 includes successful and failed Redis Exporter lifecycle Events, unexpected-exit detection, deduplicated metrics collection and Redis-target failure/recovery episodes, bounded source retries, strict Elasticsearch storage, and administrator-only querying through the shared observability transport. Phase 11 closes Milestone 3 with a guarded administrator workspace, four-region overview, fixed VictoriaMetrics range queries, paged Logs and Events browsing, browser-operated Redis Exporter install/start/stop/update, runtime role-revocation handling, and dependency-isolated recovery, while ordinary users retain the social-only experience. Phase-12-01 packages the Frontend, Backend, Business Worker, Search Indexer, migrations, search initialization, and administrator CLI into non-root OCI images and closes the Docker/Compose-only social-business runtime. Phase-12-02 adds non-root Router, Marshaller, Monitor, and Redis Exporter images, image-bundled managed-plugin bootstrap, internal Kafka/VictoriaMetrics topology, and the complete administrator browser observability closure. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages. Phase-12-03 establishes the authoritative full-stack Compose matrix covering clean startup, cross-batch business and observability behavior, internal identity and port boundaries, localized faults, service replacement, retained-volume recovery, bounded shutdown, and strongly owned cleanup. Phase-12-04 closes the independent implementation Review findings with isolated acceptance image tags, strict image/source validation, least-privilege workload environments, runtime-mode safety, and credential-safe health checks.
 
 The repository currently provides:
 
@@ -21,7 +21,18 @@ The repository currently provides:
 - Docker/Compose-only daily full-stack lifecycle scripts, read-only container verification, deterministic managed-Exporter bootstrap, and one authoritative random-project real-browser full-stack acceptance matrix;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
-Additional component plugins, same-type plugin multi-instance collection, a cross-platform product lifecycle, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
+Additional component plugins, same-type plugin multi-instance collection, a containerized Linux product lifecycle, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
+
+## Linux product installation
+
+Use the versioned Linux amd64 Bundle and its immutable lifecycle tool, following
+[`deploy/release/BUNDLE-README.md`](deploy/release/BUNDLE-README.md). The Bundle's
+own Compose entry runs `doctor → init → up → verify → status/logs → down → up`
+without a source checkout or host Go/Node toolchain. Only its edge publishes a
+host port. Linux amd64 maintenance-window backup and same-bundle empty-project restore are implemented; see `docs/releases/backup-restore.md`. Legacy upgrade remains a separate batch.
+
+The source-based Bash commands below are **development and acceptance paths**,
+not the product installer. Historical PowerShell scripts remain frozen at 0.2.1.
 
 ## Primary development environment
 
@@ -43,7 +54,7 @@ cd GoPulse
 
 Do not use `/mnt/c/...`, `/mnt/d/...`, or another Windows-mounted checkout as the active WSL workspace. If Docker Desktop is used, enable WSL integration for the selected distribution and do not run a second Docker daemon inside that distribution.
 
-The existing `scripts/*.ps1` files are preserved at the `0.2.1` capability baseline and were not maintained for Phase-01-02 through Phase 12. Planned Phase 16 will introduce a shared container-based lifecycle that is invoked from macOS Terminal, Windows PowerShell/Terminal, and Linux rather than reviving these files as a second implementation. Until that real-host matrix is implemented and accepted, WSL2/Linux and the Bash lifecycle remain the supported current baseline.
+The existing `scripts/*.ps1` files are preserved at the `0.2.1` capability baseline and were not maintained for Phase-01-02 through Phase 12. Phase 16 introduces one shared container-based lifecycle for the maintained Linux `amd64` environment rather than reviving these files as a second implementation. Until that lifecycle is implemented and accepted, WSL2/Linux and the Bash lifecycle remain the supported current baseline.
 
 ## Local configuration
 
@@ -431,6 +442,28 @@ go test -count=1 -tags=integration ./...
 
 Do not point that command at a development or production database. Reproduce it only with `INTEGRATION_TESTS=1`, `APP_ENV=test`, the exact whitelisted database/Redis DB values, and disposable MySQL/Redis resources.
 
+## Starting a development batch
+
+Do not create a `develop/x.x.x` branch manually from `origin/main`. The branch target
+and the product metadata must be synchronized before the first push; otherwise the
+branch-governance gate will reject the push and the automatic PR will not be created.
+Use the authoritative allocation in the Phase total implementation plan:
+
+```bash
+scripts/start-development-batch.sh Phase-16-05 --remote origin --push
+```
+
+The helper fetches the selected remote `main`, resolves the batch's version/branch
+allocation, creates the branch from that exact remote ref, synchronizes `VERSION`,
+`.env.example`, both Frontend package manifests and lockfiles, runs the governance
+validators, and creates the metadata bootstrap commit. It refuses tracked local changes,
+existing local/remote branches, unsafe branch names, duplicate plan allocations, and
+unknown batches. Untracked user files are preserved and never staged. Omit `--push` to
+review the bootstrap commit before publishing.
+
+If a batch branch already exists, do not run the helper again; continue that branch and
+use the validation commands below.
+
 ## Product version metadata
 
 The root `VERSION` file is the sole completed-product version source. `frontend/package.json`, the root package entries in `frontend/package-lock.json`, and `.env.example` `GOPULSE_VERSION` mirror that value so npm output, Compose tags, OCI labels, and dependency reports identify the same product version. `python3 scripts/ci/validate_versions.py` and the governance quality gate reject drift.
@@ -446,7 +479,7 @@ Phase-12-01 advanced the product to `1.9.1`: the social and search runtime build
 
 Phase-12-02 advances the product to `1.9.2`: Router, Marshaller, Monitor, and Redis Exporter now have fixed-base, non-root, version-labeled images; explicit `host|container` validation preserves direct-source loopback safety while allowing controlled Compose service DNS; the Monitor image embeds a deterministic same-binary Redis Exporter package and restores desired state from its dedicated volume; and the default stack closes Redis Metrics plus application Logs and Monitor Events through Router, Kafka, Marshaller, VictoriaMetrics/Elasticsearch, Backend administrator APIs, and the production Frontend. The random-project `--observability` acceptance owns its resources, keeps internal ports unpublished, exercises localized failures and container/volume recovery, and finishes with a browser-driven blank-volume install/start/stop/update flow.
 
-Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument `scripts/verify-compose.sh` is now the sole authoritative container gate: it combines the social/search and administrator-observability paths in one strongly owned project, verifies image and service-identity boundaries, proves representative cache/worker/indexer and observability fault recovery, replaces application and persistent containers, performs retained-volume down/up plus post-restart writes and queries, and checks bounded shutdown and cleanup. CI runs this matrix once rather than repeating the historical component and split Compose acceptances. The verified image, job, service-DNS, network, identity, volume, liveness/readiness, and signal contracts are the Phase 13 product-closure baseline, the Phase 16 cross-platform input, and the later Phase 18 Kubernetes migration input.
+Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument `scripts/verify-compose.sh` is now the sole authoritative container gate: it combines the social/search and administrator-observability paths in one strongly owned project, verifies image and service-identity boundaries, proves representative cache/worker/indexer and observability fault recovery, replaces application and persistent containers, performs retained-volume down/up plus post-restart writes and queries, and checks bounded shutdown and cleanup. CI runs this matrix once rather than repeating the historical component and split Compose acceptances. The verified image, job, service-DNS, network, identity, volume, liveness/readiness, and signal contracts are the Phase 13 product-closure baseline, the Phase 16 Linux productization input, and the later Phase 18 Kubernetes migration input.
 
 Phase-12-04 advances the product to `1.9.4` and re-closes Phase 12 after the independent implementation Review. The authoritative full-stack runner now builds with a run-unique image tag without changing user-owned version tags, verifies source and image identity before reuse, rejects unsafe published hosts and ports before Docker access, validates the Backend VictoriaMetrics endpoint against the selected runtime mode, narrows each Compose workload to its required environment identity, and removes official-service credentials from process and healthcheck arguments. Remote run `34019085992` passed all 11 checks, including Full-stack Compose acceptance, before PR #109 merged the batch into `main` as `102aa4f`.
 

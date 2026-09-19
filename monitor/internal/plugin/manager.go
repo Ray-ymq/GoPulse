@@ -843,3 +843,27 @@ func (m *Manager) RecordSourceMetrics(id string, scrapeAt, successAt *time.Time,
 		m.core.recordMetrics(id, scrapeAt, successAt, code, message)
 	}
 }
+
+// RuntimeReady checks only the initialized local ownership/catalog boundary.
+// Router availability is recoverable through the bounded publisher/queues.
+func (m *Manager) RuntimeReady(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if m.core != nil {
+		if m.core.catalog == nil || len(m.core.slots) != len(OfficialCatalog()) {
+			return operationFailed()
+		}
+		actual, err := pathIdentity(m.core.cfg.Root)
+		if err != nil || actual != m.core.identity {
+			return operationFailed()
+		}
+		for _, entry := range OfficialCatalog() {
+			if rejectSymlinkComponents(m.core.dir(entry.ID)) != nil {
+				return operationFailed()
+			}
+		}
+		return nil
+	}
+	return m.validateStorageBoundary()
+}

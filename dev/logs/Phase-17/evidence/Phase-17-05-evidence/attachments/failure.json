@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "platform": "linux/amd64",
+  "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+  "mode": "failure-matrix",
+  "status": "passed",
+  "browser": null,
+  "project_sha256": "49bcd21a6bc12503681c22b2fd6b9db016b8b44b99fe004a3ec4acc546385cd4",
+  "token_sha256": "ea846520c16cc05ebc11751d3b3b1cc89679eb0c74a117927a6d1beceec08df6",
+  "started_at": "2026-09-18T18:35:20.154774+00:00",
+  "cleanup_passed": true,
+  "isolation_preserved": true,
+  "commands": [
+    {
+      "command": "doctor",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "init",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "init",
+      "expected_exit": 14,
+      "actual_exit": 14
+    },
+    {
+      "command": "verify",
+      "expected_exit": 19,
+      "actual_exit": 19
+    },
+    {
+      "command": "up",
+      "expected_exit": 16,
+      "actual_exit": 16
+    },
+    {
+      "command": "doctor",
+      "expected_exit": 11,
+      "actual_exit": 11
+    },
+    {
+      "command": "doctor",
+      "expected_exit": 10,
+      "actual_exit": 10
+    },
+    {
+      "command": "doctor",
+      "expected_exit": 13,
+      "actual_exit": 13
+    },
+    {
+      "command": "doctor",
+      "expected_exit": 15,
+      "actual_exit": 15
+    },
+    {
+      "command": "status",
+      "expected_exit": 14,
+      "actual_exit": 14
+    },
+    {
+      "command": "down",
+      "expected_exit": 2,
+      "actual_exit": 2
+    },
+    {
+      "command": "up",
+      "expected_exit": 17,
+      "actual_exit": 17
+    },
+    {
+      "command": "down",
+      "expected_exit": 17,
+      "actual_exit": 17
+    },
+    {
+      "command": "down",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "down",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "down",
+      "expected_exit": 0,
+      "actual_exit": 0
+    }
+  ],
+  "finished_at": "2026-09-18T18:37:27.494464+00:00"
+}

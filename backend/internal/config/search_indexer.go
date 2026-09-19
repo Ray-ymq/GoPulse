@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net/url"
 	"os"
 	"strings"
@@ -17,6 +18,10 @@ type SearchIndexerConfig struct {
 }
 
 func LoadSearchIndexer() (SearchIndexerConfig, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("search-indexer"); err != nil {
+		return SearchIndexerConfig{}, err
+	}
+
 	return LoadSearchIndexerFrom(os.LookupEnv)
 }
 

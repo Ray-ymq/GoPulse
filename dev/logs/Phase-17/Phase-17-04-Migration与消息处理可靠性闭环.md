@@ -1,0 +1,282 @@
+# Phase-17-04：Migration 与消息处理可靠性闭环开发记录
+
+- 执行日期：2026-09-16（Asia/Shanghai）。
+- 目标版本 / 分支：`1.14.4` / `develop/1.14.4`。
+- 基线：fetch 后的 `upstream/main`，产品版本 `1.14.3`。
+- **状态：本地实施与候选验收完成，版本 1.14.4；尚未推送或合入 main，Phase-17-05 的主线前置条件仍需合并后满足。最终结论见文末，之前的未完成状态均为历史执行记录。**
+- 使用计划指定的 `scripts/start-development-batch.sh Phase-17-04 --remote upstream` 创建分支；该脚本已自动创建 bootstrap 元数据提交 `5a46e79`。
+
+## 实际生产实现
+
+### Migration
+
+- 新增内嵌 inventory 校验：连续编号、唯一方向、同名 up/down 配对、非空 SQL；当前 inventory 为 `000001` 至 `000013`。
+- `validate` 不连接数据库；`status` 输出 JSON binary/database version 和 clean/behind/current/dirty/ahead；`up` 在同一个 MySQL migration lock 内检查版本、写 dirty、执行每条 up、成功后清 dirty。
+- 安全退出码区分参数/配置 2、连接 3、dirty 4、ahead 5、锁超时 6、apply 8、source 9。底层 SQL、DSN、错误参数不进入 CLI 输出。
+- 保留 version 12 专用 resume，其他 dirty 一律拒绝；`down` 帮助明确仅供本地开发。
+- Compose job 执行 validate/status/up；status dirty 允许进入 up 进一步判断，但除专用 12 外仍被拒绝。长运行服务保持依赖 one-shot 成功。
+- Backend readiness 从相同内嵌 inventory 派生 target，不再另写常量 13。
+- **没有新增 Schema**：本次生产修改不增加持久化实体；binary target 仍为 13。
+
+### Rabbit / Kafka / alert
+
+- Rabbit secondary publish 在发送前和 confirm 后检查 context；取消不能授权原 delivery ack，走原有 nack/requeue。使用 channel publish sequence 匹配 confirm，避免上一条超时发布的迟到确认误 ack 下一条消息。增加 retry/dead 取消以及迟到 confirm 后新消息 ack/nack 的直接测试。
+- Kafka commit 最多三次、指数有界等待，不在 commit 重试间重复目标写入；每次检查 context/lease，耗尽返回原有终止错误，复用已经存在的进程非零退出路径。
+- Kafka storage retry 等待同时响应主进程取消和 lease 取消。
+- Alert round panic 不再通过顶层 recover 静默终止整个 scheduler；round/evaluation/database/apply 失败使用固定安全 reason。复用已有事务 lease/revision 和连续性规则。
+- 增加仅三种 source label 的 alert evaluation-known / last-success gauges；Backend 指标预算从 707 调整为 713，补齐日志传输/查询的 alert vocabulary。
+
+## 真实验证及已观察失败
+
+### 已通过的直接门禁
+
+- Backend：`go test -count=1 ./cmd/migrate ./migrations ./internal/worker/... ./internal/notification ./internal/search ./internal/alert/...` 通过。
+- Backend：`go test -race -count=1 ./internal/worker/... ./internal/alert/...` 通过。
+- Marshaller：consumer 普通测试和 race 测试通过。
+- Router：`go test -count=1 ./internal/kafka/... ./internal/httpserver/...` 通过。
+- 直接共享边界：Backend platform / cmd/server / logquery、componentmetrics、Monitor logs、Marshaller logs 的相应测试通过。
+- `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：51 tests 通过。扩展原因：修改了产品 Compose migration 入口、现有验收脚本及共享指标/日志合同，需要检查直接受影响的 Compose/环境断言。
+- `scripts/verify-compose.sh --self-test`、alerts verifier self-test、修改后的 Shell/Python 语法检查通过；**self-test 不等于完整 Compose 产品验收**。
+- 版本/分支治理检查在 bootstrap 目标元数据为 1.14.4 时通过；最终状态见本记录末尾。
+
+### 隔离 MySQL 实测
+
+`python3 scripts/ci/verify_migration_state.py` 使用唯一命名/归属标签的 MySQL 8.4 容器，仅发布动态 loopback 端口，凭据来自私有 env 文件，结束后校验归属并删除本次容器和匿名卷。
+
+实际通过：
+
+1. 空库 status=clean；两个 runner 并发 up，只有一个返回 changed=true；最终 current=13，重复 up 无变化。
+2. 同一个公开 MySQL driver 的锁被占用时，第二个 runner 以 code 6 安全失败。
+3. dirty=11 / ahead=14 拒绝，表集合和注入的 version marker 不变；输出不含随机 credential canary。
+4. 在本地测试库单独 down 13 构造 version 12 后，专用 dirty-12 resume 再推进 13 通过。此步骤只测专用 resume，**不是产品恢复或前序升级证明**。
+
+证据：`dev/logs/Phase-17/evidence/Phase-17-04-migration.json`。
+
+锁超时首轮实测发现 WithInstance 的 metadata 初始化已取锁，原错误被归为 connection_failure=3。为定位这个**必需失败测试**，仅查阅已锁定 golang-migrate MySQL driver 的 `WithInstance`/`WithConnection`、`ensureVersionTable`、`Lock` 三个相关路径，确认 10 秒 GET_LOCK 返回 `database.ErrLocked`；将初始化阶段也接入锁原因映射后复测通过。未开展依赖审计。
+
+### 验收工具兼容修复与失败轮次
+
+- business 首轮在 Compose 插值阶段失败：缺少 Phase-17-03 的六个 metrics token；已补齐。首次将日志写入 `.run` 导致 verifier 自己的全目录快照变化，后续改为 `/tmp` 保存运行日志。
+- business 第二轮进入真实 API/浏览器验证：4 passed、3 failed、3 skipped。已观察问题为 bookmark 退出后未等待导航、delete/profile 使用泛化 status locator 与新增管理状态提示冲突；仅修复这三处 E2E 同步/定位，未更改 Frontend 生产行为。
+- Marshaller 旧 verifier 依次暴露缺少 metrics token、旧 readiness 鉴权断言、原生 Monitor 缺少镜像内强制插件目录，以及旧上传 API/动态 host 插件地址与当前配置合同冲突。修复方向是使用当前源码构建的 Router/Monitor 容器和私有 env/归属卷，保持目标存储、Kafka offset、重平衡和重启原断言，不改产品配置以绕开限制。
+- alerts 旧 verifier 使用不存在的 1.11.5 镜像；改为从当前源码构建本轮唯一 tag 的服务，不再混用历史消息二进制。
+- alerts 首轮新镜像已通过三源目录/权限、真实 count、三轮 firing+Backend replacement 去重、VM/ES 分别停机的 source-local stale 和社交可用检查，但未完成后续恢复门禁。真实有限 count 窗口可在慢恢复期间自然过期，不能强制恢复后依旧 firing；断言调整为清除 degraded，保留 incident/audit 恰好一次的最终要求。
+- 初次并行运行资源 verifier 时，一个 verifier 的 baseline 包含另一个随后被清理的本次临时资源，触发 cleanup 检查失败。后续资源门禁改为串行；没有故障注入或删除用户项目。不得把这次 cleanup 记为通过。
+
+## 仍须完成的批次合同
+
+- [x] 正式 `1.13.6` 当前数据配方 → backup/inspect → 隔离 restore → `1.14.4` 候选迁移与角色/业务/插件/告警/审计事实对照、新写入。
+- [x] 失败项目不 ready，且通过正式 restore 回到验收前快照。
+- [x] `scripts/verify-phase17-state.sh --from-manifest ... --manifest ... --work ...` 候选级统一入口、结构化 receipt、secret/resource/cleanup 闭环。
+- [x] 同一不可变候选的 Rabbit/Kafka/alert 故障组合、社交隔离及完整必要终态证据。
+- [x] 固定 business / marshaller / alerts 和完整 Compose 门禁全部通过，并完成 receipt 复用关系。
+
+已找到 `dist/phase16-06-v3/release-manifest.json`（1.13.6）、前序正式备份及本地 lifecycle/backend digest 制品；原 registry 容器处于停止状态。未启动或修改原 registry 容器。后续创建本次唯一归属 registry，将原数据卷只读挂载以读取源制品；没有把存在的历史 evidence 当成本次升级通过证据。
+
+## 验证范围与偏差
+
+未执行 Kubernetes、跨架构、性能、通用依赖审计或独立代码审查。新增测试只对应本次 Migration、提交/取消、scheduler panic 合同。共享 Compose/指标/日志改动的直接回归原因如上。
+
+本记录如实记录已完成子项，**未将实施计划勾选为完成，也未发布 1.14.4 里程碑**。最终固定门禁结果、提交和剩余限制将在本次执行结束前补充。
+
+
+## 候选构建与当前检查点
+
+- 生产实现提交：`f674e1e`（`feat: strengthen migration and message state reliability`）。该提交明确包含未完成记录，不是验收完成声明。
+- 基于该已提交源码执行 `python3 scripts/ci/release_artifacts.py build --registry 127.0.0.1:15004/gopulse --output dist/phase17-04-candidate` 成功，得到 Linux amd64 `1.14.4` 不可变候选 Bundle。没有 promote 或外部发布。
+- 新建 registry project `gopulse-state-06c3c53d82ba`：源 registry 只读挂载历史 registry volume，候选 registry 使用独立存储；原 registry 容器保持停止。
+- 候选 manifest：`dist/phase17-04-candidate/release-manifest.json`。构建日志：`/tmp/gopulse-phase17-04-candidate.log`。
+- Marshaller 验收脚本捕获的真实 Kafka 记录必须按 `metrics/redis + success` 筛选，不能再假定分区最后一条一定属于 Redis（当前 Monitor 同时发布组件指标）。
+- Redis plugin 目标失败响应预算需小于 Monitor scrape timeout，验收配置采用 connect=100ms / scrape=500ms / Monitor=800ms；不修改产品上限或绕过验证。
+
+### 本批变更文件
+
+- `.env.example`
+- `VERSION`
+- `admin-frontend/package-lock.json`
+- `admin-frontend/package.json`
+- `backend/cmd/migrate/main.go`
+- `backend/cmd/migrate/main_test.go`
+- `backend/cmd/server/main.go`
+- `backend/internal/alert/count_sources_test.go`
+- `backend/internal/alert/scheduler.go`
+- `backend/internal/logquery/vocabulary.go`
+- `backend/internal/platform/runtime_schema.go`
+- `backend/internal/worker/handler.go`
+- `backend/internal/worker/handler_test.go`
+- `backend/internal/worker/runtime.go`
+- `backend/internal/worker/runtime_test.go`
+- `backend/migrations/validate.go`
+- `backend/migrations/validate_test.go`
+- `componentmetrics/catalog.go`
+- `componentmetrics/registry_test.go`
+- `deploy/compose.yaml`
+- `dev/logs/Phase-17/Phase-17-04-Migration与消息处理可靠性闭环.md`
+- `dev/logs/Phase-17/evidence/Phase-17-04-migration.json`
+- `docs/migration-state.md`
+- `frontend/e2e/bookmark.spec.ts`
+- `frontend/e2e/delete.spec.ts`
+- `frontend/e2e/profile.spec.ts`
+- `frontend/package-lock.json`
+- `frontend/package.json`
+- `marshaller/internal/consumer/processor.go`
+- `marshaller/internal/consumer/processor_test.go`
+- `marshaller/internal/logs/validation.go`
+- `monitor/internal/logs/logs.go`
+- `scripts/ci/testdata/migration-lock.go`
+- `scripts/ci/verify_alert_sources.py`
+- `scripts/ci/verify_alerts.py`
+- `scripts/ci/verify_migration_state.py`
+- `scripts/verify-business.sh`
+- `scripts/verify-marshaller.sh`
+
+## 收尾门禁检查点
+
+- 最终隔离 MySQL receipt 增加 `apply_failure_keeps_dirty`：测试库本地移除 13 后临时撤销验收账户 CREATE 权限，真实 up 失败得到 code 8、保持 dirty=13，再次 up 拒绝 code 4；表集合不被失败应用修改。恢复权限仅用于本次 disposable fixture 的专用 12 resume 验证，不构成产品 force/回退流程。
+- 三源 alerts 串行重跑通过：三源正常/失败/恢复、Backend replacement 去重、停用 evaluator 持久事实不变、窗口自然过期后的同一 incident 恢复、trigger/recover 各一次、安全日志/审计、owned cleanup 和既有资源保留。摘要：`evidence/Phase-17-04-alerts.json`；私有原始记录：`.run/gopulse-p1401-caaa8968fdf7/alert-evidence.json`。
+- 正式不可变 `1.13.6` lifecycle image 执行历史正式 archive 的 `backup-inspect` 通过。结果明确限定 authenticated format，不证明数据一致性或 restore readiness；`evidence/Phase-17-04-source-backup-inspect.json` 保留这一限制。
+- `scripts/verify-compose.sh` 实际执行失败（exit 1），不是仅 self-test：生产镜像构建、冷启动、migration job、Compose smoke/business 及前序观测场景已进行；`e2e/compose-observability.spec.ts:176` 的 `vm-down` 场景未找到预期 VictoriaMetrics 故障提示。记录为未解决阻断，未降低该断言或宣称完整 Compose 通过。日志：`/tmp/gopulse-phase17-04-compose.log`。
+- business 完整门禁发现旧 Rabbit/Redis outage 断言仍要求 Backend `/ready=503`，与已经交付的 social readiness 隔离合同及本计划冲突。只改为要求 200，保留真实社交写入、队列/Outbox/最终通知收敛断言。原失败轮次不能计为通过。
+- Marshaller 捕获真实 record 时首次字段误写 `payload.status`，实际为 `payload.scrape_status`；已修正，并保留原始失败记录，不把它记为通过。
+- 候选 registry 数据已从独立容器内部打包保存到 `dist/phase17-04-candidate/registry-data.tar`（私有权限 0600），用于后续恢复相同候选 registry；没有改写 manifest/digest。
+
+## 前次执行最终状态（历史检查点）：未完成
+
+### 固定门禁结果
+
+| 门禁 | 实际结果 |
+| --- | --- |
+| Backend 固定包测试及 worker/alert race | 通过 |
+| Marshaller consumer 普通/race 测试 | 通过 |
+| Router kafka/httpserver 测试 | 通过 |
+| 隔离 MySQL 状态、并发、锁、拒绝、真实 apply failure、专用 resume | 通过 |
+| `scripts/verify-business.sh` | 最终 exit 0；完整社交/搜索/通知/故障矩阵、日志校验与 cleanup 通过 |
+| `scripts/verify-alerts.sh` | 最终 exit 0；三源故障恢复、重复抑制、停用/重启和 cleanup 通过 |
+| `scripts/verify-marshaller.sh` | 最终 exit 1；VM outage 的 retry 日志断言未通过 |
+| `scripts/verify-compose.sh` | exit 1；`vm-down` 浏览器错误提示断言未通过 |
+| `verify-phase17-state.sh` / 前序正式 restore→当前候选 | 统一入口尚未实现，正式升级路径未运行 |
+| `validate_versions.py` | 最终通过，元数据一致为当前已完成版本 `1.14.3` |
+| `validate_branch.py --branch develop/1.14.4 --base-ref upstream/main` | 最终 exit 1：未完成批次的 target 为 1.14.4，VERSION 保留 1.14.3，不满足完成门禁 |
+| `git diff --check` | 通过 |
+
+business 最终日志 `/tmp/gopulse-phase17-04-business-completion.log`；其中旧日志文案曾写 readiness degraded，但执行的实际断言已经是 social readiness=200，后续只修正文案，没有因文案变化重复成功的产品门禁。
+
+Marshaller 最后一次冻结脚本重跑日志 `/tmp/gopulse-phase17-04-marshaller-frozen.log`：真实 Redis 10 families/11 samples、第二 group member 接管、不提交 peer、replacement consumer 从已提交位置重取、三种永久异常提交跳过、真实有效记录继续、Redis unavailable→recovery 已通过；进入 VictoriaMetrics 停机后，脚本未观察到它匹配的 `write_retry` 字样而失败。当前源码将 `write_retry` 放在 event 属性中，而共享 logger 会重新派生 event；这个日志观察合同仍需修复和验证。不能据此称存储失败/恢复及后续 broker/SIGTERM 全部通过。
+
+此前一次运行在 Bash 正在读取自身脚本时被本次编辑打断，出现 EOF 语法错误；静态 `bash -n` 通过后，用不再编辑的冻结脚本完整重跑，以上结果来自冻结轮次，未把被打断的一轮计为通过。
+
+对本次新增容器 cleanup helper 增加了 foreign-label 负例：即使调用方使用 `|| true`，ownership mismatch 也必须显式 return，不能继续 stop/rm。`python3 -m unittest discover -s scripts/ci -p 'test_marshaller_cleanup.py'` 通过；该修复只改变拒绝 foreign resource 的路径。
+
+### 版本与资源
+
+- 根据“VERSION 是当前已完成产品版本；批次完成时才推进”规则，将 bootstrap 提前设置的六处版本元数据恢复为 `1.14.3`，目标分支仍是 `develop/1.14.4`。不能用版本号提前推进掩盖未完成验收。
+- 临时只读 source registry 创建后实际 exit 2，未成为可用的源制品入口；正式 backup-inspect 使用的是本地已有 immutable lifecycle image，而非声称源 registry 可用。
+- 本次两只 registry 容器已经验证 owner label 后删除，原 `gopulse-p1606-registry-data` 卷仍存在，原 registry 容器未启动或修改。
+- 所有本次运行栈均已结束并清理；保留当前候选 Bundle、私有 registry-data archive、私有失败日志与上述 allowlisted evidence，供后续同批次继续。
+- 没有推送 Git 分支、创建 PR 或发布/promote 候选。
+
+**仍须完成正式前序升级/恢复事实对照、统一候选级 runner/receipt、Marshaller 完整门禁与 Compose 失败修复，之后才能恢复目标版本 1.14.4 并宣布本批完成。** 当前记录及 checkpoint 的 `complete=false` 是续做依据，不能交付为已验收的 Phase-17-05 输入。
+
+## 2026-09-16 同批续做：日志观察与指标目录阻断修复
+
+- 在干净的 `develop/1.14.4` 上继续未完成批次，未创建新批次、未重跑此前已通过的 Migration/business/alerts 门禁。
+- `scripts/verify-marshaller.sh` 改为匹配实际 JSON 的固定安全 message `storage write will retry`，不再依赖会被共享 logger 派生覆盖的旧 event。未修改 consumer、offset 或 readiness 断言。
+- 发现管理前端的生成目录缺少本批 Backend 两个 alert gauges，严格目录校验会在发出 VM 查询前拒绝 API 响应；从当前 `componentmetrics/cmd/catalog` 同步生成 `admin-frontend/src/services/componentMetrics.ts`。
+- 目录 self-test 首次失败揭示两个 alert gauges 使用了 provenance 保留标签 `source`。改为有限三值的 `alert_source`，保留 provenance `source=backend`；未放宽任何标签校验。同步 self-test Backend 预算到 713。
+- 扩展直接验证的具体风险：本次改动涉及共享组件指标公开合同及管理前端目录，需要 componentmetrics、Backend alert/metricquery、管理前端 DTO/typecheck 和完整 Compose 回归。旧候选未包含这次合同修复，不能将旧候选升级为完整通过证据。
+- 已通过：`bash -n scripts/verify-marshaller.sh`；`python3 scripts/ci/verify_component_metrics.py --self-test`（修复保留标签后）；`(cd componentmetrics && go test ./...)`；`(cd backend && go test -count=1 ./internal/alert/... ./internal/metricquery/...)`；管理前端 observability 7 tests 与 `npm run typecheck`。
+- 实际运行日志：`/tmp/gopulse-phase17-04-marshaller-resume.log`、`/tmp/gopulse-phase17-04-admin-resume-final.log`、`/tmp/gopulse-phase17-04-catalog-backend.log`。最终门禁结果见后续补充；本批仍未完成，VERSION 保持 1.14.3。
+- Marshaller 完整真实门禁本轮 **exit 0**：VM outage 不推进 offset、同 PID 恢复、未提交记录进程重启恢复、Kafka broker/group 恢复、真实记录重放去重及 owned cleanup 全部通过。该轮已运行进程只涉及 Marshaller/Router/Monitor，无 Backend alert gauges；不将它冒充更新后不可变候选的统一 receipt。
+- Compose 首次续跑 **exit 1**，在 Docker 访问前由 clean-source gate 拒绝本轮未提交源码；没有绕过门禁。先提交这次最小修复，再按同批次继续正式 Compose 验证。
+- 提交 `bc8463f` 后的完整 Compose 轮次已通过 vm-down、monitor-down、transport-down、业务/观测持久性、post-restart 与有界关停，证明原 VM 页面阻断已消除；但后续 `phase15-closure.spec.ts` 的“创建规则”按钮持续 disabled，整轮 exit 1。直接定位到管理 DTO 另一份有限标签目录未接受新增 `alert_source`，导致 alerts catalog 被拒绝。仅补充该已定义标签，并添加 catalog/selector 接受与未知标签拒绝的代表回归，不放宽创建规则断言。
+- 本轮另有工作区快照失败：执行期间我修改了文档与 checkpoint，结束时触发 Git tree 不变检查。该轮不能记为完整通过；后续正式重跑前提交所有变更，运行期间不再编辑项目文件。
+- 更新 `docs/migration-state.md` 说明 alert_source 与 provenance source 的区别；checkpoint 保留 `complete=false`，不得把源码门禁当成旧不可变候选的验收结果。
+- 管理 DTO 最小修复验证：`(cd admin-frontend && npm test -- src/services/management.test.ts && npm run typecheck)` exit 0（12 tests）。日志 `/tmp/gopulse-phase17-04-management-resume.log`。
+- `1a691a4` 后 Compose 重跑在镜像构建阶段 exit 1：`ObservabilityLogsView.test.ts` 的刷新失败后清空详情断言在并行构建时未等到异步刷新完成（其他 42 tests 通过）。同一失败测试独立执行通过；改为有界等待真实第二次 API 调用、失败提示及详情清空，而不是假定一次 flushPromises 已完成所有 DOM 更新，保留原有数据保留/敏感诊断隐藏断言。修改后最小测试通过；没有改动日志页面生产逻辑。
+- 对应日志 `/tmp/gopulse-phase17-04-compose-catalog-final.log`、`/tmp/gopulse-phase17-04-logs-view.log`、`/tmp/gopulse-phase17-04-logs-view-final.log`。此构建失败不计作完整门禁通过。
+
+### 本轮最终源码门禁结果
+
+- `scripts/verify-compose.sh` 在干净源码 `0947613` 上最终 **exit 0**；日志 `/tmp/gopulse-phase17-04-compose-completion.log`。vm-down、三源告警目录创建、社交/观测故障隔离、持久性、恢复、有界关停、官方插件生命周期、双端浏览器及清理均通过。执行期间未改项目文件。
+- `scripts/verify-marshaller.sh` **exit 0**，完整 offset/存储/重启/重平衡/重放与清理已通过；此前失败不被覆盖为成功。
+- 最终运行容器仅保留开始前的 `gopulse-p13-local-monitor-1`、`gopulse-p13-local-kafka-1`、`gopulse-p13-local-elasticsearch-1`。未操作原 registry、未推送或开 PR。
+- 源码修复提交：`bc8463f`、`1a691a4`、`0947613`。旧 candidate 仍指向 `f674e1e`，**不包含这次修复**；源码门禁不等于同一不可变候选的正式升级 receipt。
+- 仍未完成：正式 `1.13.6` 数据生成/backup/restore→当前候选单跳迁移及失败恢复事实对照；统一 candidate runner 与结构化 receipt；最终候选版本/分支完成门禁。VERSION 继续保持 1.14.3，不声明批次完成。
+
+## 2026-09-16 候选级正式数据路径续做
+
+- 从已通过源码 `dfc7492` 建立私有 detached worktree，仅在那里暂存 1.14.4 六处版本元数据，形成候选源码 `6baff41076b463731784a8411b1c43f4e710a59a`；主工作区 VERSION 仍为已完成的 1.14.3。未推送临时提交。
+- 将原 `gopulse-p1606-registry-data` 只读复制到本批新归属卷，在原 manifest 地址 127.0.0.1:15003 启动独立 source registry；原 registry 容器及数据卷未修改。另在 15005 创建本批 candidate registry。
+- `release_artifacts.py build` 实际成功，生成 `dist/phase17-04-resume-candidate/release-manifest.json`，manifest SHA-256 为 `2e9f735a1578f4522e39cfb45aeb8e3cb7c8d95d9bd6c4e350edd2cf29ff8be8`。日志 `/tmp/gopulse-phase17-04-resume-build.log`。
+- 新增统一入口 `scripts/verify-phase17-state.sh`、manifest/receipt 编排、正式前序 Migration 数据路径及候选二进制提取 helper。为 existing business/Marshaller/alerts verifier 接入 digest-pinned candidate 模式；未用重新编译的生产程序冒充候选制品。
+- 正式 1.13.6 lifecycle 已生成角色、业务、评论/点赞、六插件、真实告警与审计数据，成功 backup/inspect、隔离 restore、事实对照及候选 current/repeat Migration。当前 schema from/to 均为 13，无新增占位 migration。
+- 首轮候选 Backend probe 发生 TypeError；补充私有容器日志后第二轮定位为仅连接 business/observability 内部网络，缺失正式 Backend 同时使用的 edge 网络，因而未形成 host probe port。仅修正验收容器网络，保留归属验证与 loopback-only 发布。两个失败轮次都由正式 lifecycle 清理，没有产生完整成功 receipt。
+- 修复后从已有正式备份重新恢复独立 target（运行环境已重建），执行剩余 candidate readiness/new-write/dirty rejection/formal restore 验收；不重新生成已验证 source 业务配方。日志 `/tmp/gopulse-phase17-04-state-edge.log`，结果待补充。
+- 已实际通过：Python 编译检查、Bash 语法检查及 `python3 -m unittest discover -s scripts/ci -p test_phase17_state.py`（manifest 换绑/公开目录拒绝、foreign extraction 容器不清理）。不将这些静态检查等同于真实候选门禁。
+- edge 网络修复后，probe 端口已生成，但第一次 TCP 请求在服务绑定完成前 reset。公共 wait_until 不捕获该 OSError 子类，导致过早清理。仅将 HTTP probe 的连接级 OSError 视为本轮未 ready，继续既有有界等待，不放宽 200/503 的最终要求。前述失败没有候选应用逻辑错误证据，也没有记作通过。
+- 完整入口继续运行已实际通过 candidate Backend ready、普通用户管理 API 拒绝与新增可搜索写入；随后非 12 dirty 负例正确返回 exit 4，但 verifier 的 JSON 字段白名单遗漏 CLI 已有的 `exit_code`，因此拒绝了正确的安全输出。补齐该唯一字段；不改变 Migration 退出码或 dirty 拒绝语义。
+- 正式 Migration 数据路径最终通过，包括 candidate ready、普通用户管理拒绝、新增可搜索写入、dirty exit 4 且事实未改、dirty 项目 ready=503、正式 source restore 恢复原事实及 owned cleanup/Secret scan。私有结构化结果 `.run/phase17-04-resume/state/migration-receipt.json` 已保存并绑定两份 manifest 与 migration verifier 哈希；后续复用该结果。
+- 同候选 business 实际业务矩阵通过，但 cleanup 的全仓 ignored-file 快照检测到统一 runner 正在向 `.run/.../business.log` 写日志，最终 exit 1；不是业务故障，也不能计完整门禁通过。编排改为 `/tmp` 私有匿名临时文件收集输出，子进程完成自身 cleanup/snapshot 后才写工作区日志。未放宽 business 的资源/文件隔离断言。
+
+## 最终验收结论：本地批次完成，1.14.4
+
+### 不可变候选及事实
+
+- 最终候选：`dist/phase17-04-resume-candidate/release-manifest.json`，revision `6baff41076b463731784a8411b1c43f4e710a59a`，manifest SHA-256 `2e9f735a1578f4522e39cfb45aeb8e3cb7c8d95d9bd6c4e350edd2cf29ff8be8`。
+- 来源：正式 `1.13.6` manifest SHA-256 `09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687`。实际 source lifecycle 生成业务/身份/插件/告警/审计数据，正式 backup/inspect/restore；不是手工 SQL 拼装的历史数据。
+- schema from/to 均为 **13**，内嵌库存仍为 `000001`–`000013`；`validate/status/up` 和重复 up 均正确。当前产品不新增实体，因此没有占位 DDL。非 12 dirty 负例保持事实未改、exit 4 且 Backend `/ready=503`；删除失败的自有隔离安装后，正式 restore 再次恢复验收前事实，未使用 down/force 修复数据。
+- restored 数据路径明确为 candidate Migration/Backend 对 source lifecycle 所有的恢复依赖验证；候选 Backend 的普通用户管理拒绝、新增可搜索写入通过。完整 candidate 消息/告警/双端 Compose 在同一 manifest 上另行验证。此范围不声明任意历史版本、生产在线升级或新的生命周期 upgrade 命令。
+- 已核对候选源码与当前 backend/frontend/admin-frontend/componentmetrics/router/marshaller/monitor/exporters/deploy/lifecycle 的差异，仅为完成前暂留的六处版本元数据；收尾同步后产品代码与候选一致。候选构建后新增的是验收编排/提取/测试与记录，不以未构建的生产变更替换已验收二进制。
+
+### 固定门禁与复用关系
+
+| 门禁 | 最终实际结果 |
+| --- | --- |
+| Backend migrate/migrations/worker/notification/search/alert 及 worker/alert race | 前次已通过；生产逻辑未再修改，沿用已记录结果 |
+| Marshaller consumer 普通/race、Router kafka/httpserver | 前次已通过；本次只有 candidate verifier 接入，未重复 |
+| componentmetrics、Backend alert/metricquery、管理前端直接测试/typecheck | 前次修复后已通过；候选构建亦通过前端镜像固定测试 |
+| 真实 MySQL concurrent/lock/dirty/ahead/apply/resume | 前次已通过；本次新增正式来源路径另有实际 receipt |
+| 正式 1.13.6 → 1.14.4 数据路径、失败后 restore、Secret/ownership/cleanup | 通过，`migration-receipt.json` |
+| `GOPULSE_RELEASE_MANIFEST=... scripts/verify-business.sh` | 同候选完整门禁 exit 0，`business-receipt.json` |
+| `GOPULSE_RELEASE_MANIFEST=... scripts/verify-marshaller.sh` | 同候选完整门禁 exit 0，`marshaller-receipt.json` |
+| `GOPULSE_RELEASE_MANIFEST=... scripts/verify-alerts.sh` | 同候选三源/故障隔离门禁 exit 0，`alerts-receipt.json` |
+| candidate source checkout 中的 `scripts/verify-compose.sh` | 同候选最终 exit 0，`compose-receipt.json` |
+| `scripts/verify-phase17-state.sh --from-manifest dist/phase16-06-v3/release-manifest.json --manifest dist/phase17-04-resume-candidate/release-manifest.json --work .run/phase17-04-resume/state` | **exit 0，complete=true** |
+| 新 runner self-tests、Python 编译检查、Bash 语法检查 | 通过；仅覆盖新 binding/extraction 边界与可执行性 |
+
+- 统一 runner 在后续 Compose 恢复执行时按同一 manifest 对、verifier 哈希、保留日志校验值复用 migration/business/marshaller/alerts，未重新运行这些成功门禁。顶层固定三个 verifier 命令由 runner 实际调用，不能再额外重复计数或执行。
+- 所有 candidate 门禁在真实 Linux amd64 Docker server 上串行执行；每个门禁完成后 Docker container/network/volume inventory 与门禁前一致。
+- 公开汇总：`dev/logs/Phase-17/evidence/Phase-17-04-state.json`。私有 per-gate receipt/log/backup/journal 留在 `.run/phase17-04-resume/state`，不提交凭据或原始备份。最终编排输出 `/tmp/gopulse-phase17-04-state-compose-final.log`。
+
+### 如实保留的失败轮次与限制
+
+- candidate Compose 首轮验收镜像的 APK 安装较慢，构建成功后浏览器容器因临时 checkout 的 umask 私有权限无法读取入口脚本而失败。仅规范 detached checkout 的 Git tracked source mode，不改产品制品或私有凭据权限。
+- 后续一轮已通过 VM/Monitor/Router 故障、持久性、重连、信号关停、Exporter、官方安装等场景，但 `frontend-product.spec.ts` 在清空 datetime-local 输入时超时。未发现生产缺陷证据，未削弱断言或修改产品；保留失败日志 `/tmp/gopulse-phase17-04-compose-datetime-failure.log`，同一候选完整失败门禁重跑最终通过。此前失败不改写为通过。
+- 本次所有原始 source/candidate registry 操作均针对独立归属副本。完成后已校验 owner label，删除本次两只 registry 容器及其新卷；原 `gopulse-p1606-registry-data` 与停止的原 registry 保持原状。新候选 registry 内容保存为 `dist/phase17-04-resume-candidate/registry-data.tar`（0600），便于必要时恢复同一候选入口。
+- 历史失败记录与旧 candidate `f674e1e` 保留作追溯，不是最终验收输入。未执行 Kubernetes、跨架构、性能测试或独立架构审查。
+- **本地批次完成不等于已合入 main。** 没有推送、PR 或 promote；Phase-17-05 要求的主线输入仍需用户后续合并。不得据此宣布 Phase-17 总里程碑完成。
+
+### 完成元数据检查
+
+- `python3 scripts/ci/validate_versions.py`：通过，六处版本元数据均为 1.14.4。
+- `python3 scripts/ci/validate_branch.py --branch develop/1.14.4 --base-ref upstream/main`：通过。
+- `git diff --check`：通过。
+- 清理后实际运行容器与开始前一致，仅保留用户原有 Monitor/Kafka/Elasticsearch 三只容器。本次候选及正式备份为私有可复核制品，未自动发布。
+
+## 2026-09-18 PR 集成门禁修复
+
+- GitHub Actions 运行 `35117437336` 的唯一失败 job 是 `Integration`；其余质量门禁均通过。失败原因是 `backend/migrations` 的 integration tests 使用 `internal/platform`，而 `internal/platform/runtime_schema.go` 反向导入 `backend/migrations`，在 `go test -tags=integration ./...` 下形成 import cycle。
+- 将 migrations integration tests 改为使用同包的 integration-only MySQL helper，复用受限 loopback/database 配置但不依赖 `internal/platform`；保留 UTC、超时及 multi-statement 连接合同。覆盖 `notification_shape`、`user_profiles`、`user_roles` 三个测试文件。
+- 验证：`cd backend && go test -run '^$' -tags=integration ./...` 通过；`cd backend && go test ./migrations ./internal/platform` 通过；`git diff --check` 通过。未把缺少 CI 真实依赖服务的本地环境误报为完整集成运行通过。
+
+## 2026-09-18 PR 失败复核
+
+- 远端 Actions run `35349815999`（提交 `74f023c`）于 2026-09-18 失败，唯一失败门禁为 `Full-stack Compose acceptance` 的 `Run the authoritative Phase 12 Compose closure`；Backend、Integration、Frontend、Marshaller、Monitor、Router、Redis Exporter 及其他质量门禁均通过。未能通过未认证 GitHub API 下载该 job 的详细日志（HTTP 403），因此不将失败原因臆测为生产代码缺陷。
+- 未修改仓库内容前，在同一 `develop/1.14.4` 工作树执行 `scripts/verify-compose.sh`，完整 Compose 入口最终退出 0。实际通过了拓扑、镜像与网络边界、迁移/search/Kafka 幂等、业务 Redis/Worker/Search Indexer 故障恢复、观测 VictoriaMetrics/Monitor/Router 故障恢复、持久化重启、前端与管理员浏览器场景、Redis Exporter 矩阵及 Phase 12 authoritative closure。
+- 本次本地完整复核未改变产品实现或版本号；该远端失败目前按一次未能从公开日志定位、且本地未复现的 Compose 门禁失败记录。后续由重新推送触发的质量门禁给出新的远端证据；若再次失败，必须先取得具体失败步骤/日志后再作针对性修改。
+
+## 2026-09-18 远端 Compose 门禁失败修复
+
+- 通过 GitHub Actions API 获取 run `35351940977` 的 job 日志，确认唯一失败为 `Full-stack Compose acceptance` 在构建 `admin-frontend` 时运行 `ObservabilityExportersView.test.ts`；`refresh failure: false` 用例因默认 Vitest 5 秒超时失败，实际执行约 5.4 秒，非业务断言失败。
+- 将该包含多次异步挂载、文件变更和目录刷新操作的代表性测试显式设置为 15 秒超时，避免全栈 Compose 并行构建资源竞争造成误报；未改变产品运行时代码或版本号。
+- 验证：`cd admin-frontend && npm test -- --run src/views/ObservabilityExportersView.test.ts` 通过；`cd admin-frontend && npm test -- --run && npm run build` 通过（11 个测试文件、43 个测试）；`git diff --check` 通过。

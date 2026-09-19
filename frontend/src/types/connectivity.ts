@@ -10,7 +10,8 @@ export type DependencyStatus = 'up' | 'down'
 
 export interface HealthResponse {
   status: 'ok'
-  service: 'backend'
+  service?: 'backend'
+  contract_version?: '1'
 }
 
 export interface ReadinessChecks {
@@ -20,9 +21,10 @@ export interface ReadinessChecks {
 }
 
 export interface ReadinessResponse {
-  status: 'ready' | 'not_ready'
-  service: 'backend'
-  checks: ReadinessChecks
+  status: 'ok' | 'ready' | 'not_ready'
+  service?: 'backend'
+  contract_version?: '1'
+  checks?: ReadinessChecks
 }
 
 export type ApiResult<T> =

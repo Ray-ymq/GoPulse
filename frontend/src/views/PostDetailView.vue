@@ -109,7 +109,7 @@ onMounted(() => void loadAll())
       <article v-else-if="post" class="detail-card">
         <div class="post-card__meta">
           <RouterLink :to="`/users/${post.author.username}`"><strong>{{ post.author.display_name || post.author.username }}</strong> @{{ post.author.username }}</RouterLink>
-          <FollowButton :target="post.author" /><time :datetime="post.created_at">{{ formatDate(post.created_at) }}</time><PostEditMenu :post="post" />
+          <FollowButton :target="post.author" /><time :datetime="post.created_at" :title="post.created_at">{{ formatDate(post.created_at) }}</time><PostEditMenu :post="post" />
         </div>
         <h1>{{ post.title }}</h1>
         <p class="post-content">{{ post.content }}</p>
@@ -139,7 +139,7 @@ onMounted(() => void loadAll())
           <article v-for="comment in comments" :key="comment.id" class="comment-card">
             <div class="post-card__meta">
               <strong>@{{ comment.author.username }}</strong>
-              <time :datetime="comment.created_at">{{ formatDate(comment.created_at) }}</time>
+              <time :datetime="comment.created_at" :title="comment.created_at">{{ formatDate(comment.created_at) }}</time>
             </div>
             <p>{{ comment.content }}</p>
           </article>

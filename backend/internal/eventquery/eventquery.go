@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net/http"
 	"net/url"
@@ -368,7 +369,7 @@ func (r *ElasticsearchRepository) ClosePointInTime(ctx context.Context, pit stri
 	return nil
 }
 func (r *ElasticsearchRepository) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	request, err := http.NewRequestWithContext(ctx, method, path, body)
+	request, err := componentmetrics.NewRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, err
 	}

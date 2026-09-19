@@ -12,7 +12,7 @@ import (
 type checker struct{ err error }
 
 func (c checker) Ready(context.Context) error { return c.err }
-func TestHealthAndProtectedReadiness(t *testing.T) {
+func TestHealthAndPrivateReadiness(t *testing.T) {
 	token := "marshaller-token-at-least-32-bytes-long"
 	s := New("127.0.0.1", 9093, token, time.Second, checker{}, checker{}, nil)
 	health := httptest.NewRecorder()
@@ -22,7 +22,7 @@ func TestHealthAndProtectedReadiness(t *testing.T) {
 	}
 	unauthorized := httptest.NewRecorder()
 	s.server.Handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/ready", nil))
-	if unauthorized.Code != http.StatusUnauthorized {
+	if unauthorized.Code != http.StatusOK {
 		t.Fatal(unauthorized.Code)
 	}
 	readyReq := httptest.NewRequest(http.MethodGet, "/ready", nil)
@@ -36,7 +36,7 @@ func TestHealthAndProtectedReadiness(t *testing.T) {
 	cookieReq.AddCookie(&http.Cookie{Name: "gopulse_session", Value: token})
 	cookie := httptest.NewRecorder()
 	s.server.Handler.ServeHTTP(cookie, cookieReq)
-	if cookie.Code != http.StatusUnauthorized {
+	if cookie.Code != http.StatusOK {
 		t.Fatal("cookie unexpectedly authorized")
 	}
 }
@@ -47,7 +47,7 @@ func TestReadinessUnavailableIsFinite(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
 	s.server.Handler.ServeHTTP(response, req)
-	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"status\":\"unavailable\"}\n" {
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"status\":\"not_ready\",\"contract_version\":\"1\"}\n" {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 }

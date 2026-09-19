@@ -1,0 +1,18 @@
+{
+  "cipher": "AES-256-GCM",
+  "command": "backup-inspect",
+  "domains": 6,
+  "files": 8,
+  "finished": "2026-09-14T15:29:57.446672476Z",
+  "format": 1,
+  "iterations": 600000,
+  "kdf": "PBKDF2-HMAC-SHA256",
+  "operation_id": "4a447fe8fea66f31bbc8b4ebf87344bbb98139af2fd368a270a5bb867a89e27b",
+  "platform": "linux/amd64",
+  "release_manifest_digest": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+  "schema": 1,
+  "scope": "authenticated format only; does not establish data consistency or restore readiness",
+  "source_product_version": "1.13.6",
+  "started": "2026-09-14T15:29:33.007101196Z",
+  "status": "passed"
+}

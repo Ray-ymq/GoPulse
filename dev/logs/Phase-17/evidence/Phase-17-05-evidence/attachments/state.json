@@ -1,0 +1,192 @@
+{
+  "schema": "gopulse.phase17-state.v1",
+  "from_manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+  "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+  "from_version": "1.13.6",
+  "target_version": "1.14.5",
+  "candidate_revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+  "complete": true,
+  "checks": {
+    "migration": {
+      "binding": {
+        "from_manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+        "implementation_sha256": "da8f2f7d819aba1d3c48fb790caeefec08574db3621057df982f28e180ca4e4a"
+      },
+      "status": "passed",
+      "results": [
+        {
+          "step": "formal_source_backup_inspected",
+          "source_version": "1.13.6",
+          "backup_sha256": "80f9d83d2d8f82510f9a05191330a827ef9f0a95c597df3e5332f0bc4c84d25a",
+          "domains": {
+            "identity": 2,
+            "posts": 1,
+            "comments": 1,
+            "likes": 1,
+            "audit": 13,
+            "incidents": 1,
+            "bootstrap": 1,
+            "rules": 1
+          }
+        },
+        {
+          "step": "formal_source_restore_facts",
+          "comparisons": {
+            "identity": {
+              "rows": 2,
+              "sha256": "59697b6be9c2ae234a018d7617dd3e0f95b3de96d2a6b8d6f6e9742d3ac84711"
+            },
+            "posts": {
+              "rows": 1,
+              "sha256": "c33a394ace2215c281895c7ebc05f80bd362edad59d346b70e19a38c7d70c13a"
+            },
+            "comments": {
+              "rows": 1,
+              "sha256": "ce763ff0acacc9277084230d906ae6d040167c6baf84e883e9d6e0eec4ac8a2b"
+            },
+            "likes": {
+              "rows": 1,
+              "sha256": "3f717754f942daa81bce668dbc2654bf346759f66075f191daba19caf59c3519"
+            },
+            "audit": {
+              "rows": 13,
+              "sha256": "d1aacc1cb9c63c80f8e7364a775e8767d0cc7334299c8a817a434456fc8eed7b"
+            },
+            "incidents": {
+              "rows": 1,
+              "sha256": "610a27814346b2123bd847666e562253b1efe9908bbfa0489b88383bfe86a872"
+            },
+            "bootstrap": {
+              "rows": 1,
+              "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+            },
+            "rules": {
+              "rows": 1,
+              "sha256": "177a0a5dd8d81f86a8340a03614e829c1abb9f7b84fe21fa253e7a2dcbd355da"
+            }
+          }
+        },
+        {
+          "step": "candidate_migration_current_repeat",
+          "before": "13\t0",
+          "validate": {
+            "binary_target": 13,
+            "state": "valid"
+          },
+          "status": {
+            "binary_target": 13,
+            "database_version": 13,
+            "state": "current"
+          },
+          "up": {
+            "binary_target": 13,
+            "changed": false,
+            "database_version": 13,
+            "state": "current"
+          },
+          "repeated": {
+            "binary_target": 13,
+            "changed": false,
+            "database_version": 13,
+            "state": "current"
+          }
+        },
+        {
+          "step": "candidate_ready_role_and_new_write",
+          "post_id": 2
+        },
+        {
+          "step": "dirty_rejected_without_fact_changes",
+          "result": {
+            "exit_code": 4,
+            "reason": "dirty"
+          },
+          "ready_status": 503
+        },
+        {
+          "step": "formal_restore_after_failure",
+          "comparisons": {
+            "identity": {
+              "rows": 2,
+              "sha256": "59697b6be9c2ae234a018d7617dd3e0f95b3de96d2a6b8d6f6e9742d3ac84711"
+            },
+            "posts": {
+              "rows": 1,
+              "sha256": "c33a394ace2215c281895c7ebc05f80bd362edad59d346b70e19a38c7d70c13a"
+            },
+            "comments": {
+              "rows": 1,
+              "sha256": "ce763ff0acacc9277084230d906ae6d040167c6baf84e883e9d6e0eec4ac8a2b"
+            },
+            "likes": {
+              "rows": 1,
+              "sha256": "3f717754f942daa81bce668dbc2654bf346759f66075f191daba19caf59c3519"
+            },
+            "audit": {
+              "rows": 13,
+              "sha256": "d1aacc1cb9c63c80f8e7364a775e8767d0cc7334299c8a817a434456fc8eed7b"
+            },
+            "incidents": {
+              "rows": 1,
+              "sha256": "610a27814346b2123bd847666e562253b1efe9908bbfa0489b88383bfe86a872"
+            },
+            "bootstrap": {
+              "rows": 1,
+              "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+            },
+            "rules": {
+              "rows": 1,
+              "sha256": "177a0a5dd8d81f86a8340a03614e829c1abb9f7b84fe21fa253e7a2dcbd355da"
+            }
+          }
+        }
+      ],
+      "resource_inventory_preserved": true,
+      "secret_scan": "passed"
+    },
+    "business": {
+      "binding": {
+        "from_manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+        "implementation_sha256": "0127fb0132147804a82dad4e6f293a69e55a9cf680542ae801ecbd8ae0296ed5"
+      },
+      "status": "passed",
+      "exit_code": 0,
+      "resource_inventory_preserved": true,
+      "log_sha256": "ac7c68046cc2403e15781b2a52e88fa082a8cb6cf5554e0d8295f6802188eac7"
+    },
+    "marshaller": {
+      "binding": {
+        "from_manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+        "implementation_sha256": "755b334dd74c68c3f99da5e5fb64aca4534e8409109a91674d0e1c5c35fb6ae6"
+      },
+      "status": "passed",
+      "exit_code": 0,
+      "resource_inventory_preserved": true,
+      "log_sha256": "0ed0b2b8f6811152867dc55b64aa0ddc35e69b57986e1e0fbd709cff6878ec14"
+    },
+    "alerts": {
+      "binding": {
+        "from_manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+        "implementation_sha256": "ea083a183c2bd64aa0344677e98ed3530c2d468696ab2f6d3f982ca00461443b"
+      },
+      "status": "passed",
+      "exit_code": 0,
+      "resource_inventory_preserved": true,
+      "log_sha256": "3b22b15c74a783212d0f7a6d1242a3e5fda77ad31dc385efb95871093288e26e"
+    },
+    "compose": {
+      "binding": {
+        "from_manifest_sha256": "09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+        "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84"
+      },
+      "status": "passed",
+      "reused": true,
+      "receipt_sha256": "ebddf01f00446a9ed935ba57364b28ffc4b758e15ac34471697d33e6a58af212",
+      "reason": "same candidate full Compose already passed release runtime gate"
+    }
+  }
+}

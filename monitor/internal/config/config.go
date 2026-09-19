@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"os"
 	"path/filepath"
@@ -37,7 +38,12 @@ type Config struct {
 	ExporterEnv          map[string]string
 }
 
-func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
+func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("monitor"); err != nil {
+		return Config{}, err
+	}
+	return LoadFrom(os.LookupEnv)
+}
 func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if lookup == nil {
 		return Config{}, errors.New("configuration lookup is required")

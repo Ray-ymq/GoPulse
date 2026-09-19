@@ -15,7 +15,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isHealthResponse(value: unknown): value is HealthResponse {
-  return isRecord(value) && value.status === 'ok' && value.service === 'backend'
+  return isRecord(value) && value.status === 'ok' && (value.service === 'backend' || value.contract_version === '1')
 }
 
 function isDependencyStatus(value: unknown): value is ReadinessChecks[keyof ReadinessChecks] {
@@ -23,6 +23,10 @@ function isDependencyStatus(value: unknown): value is ReadinessChecks[keyof Read
 }
 
 function isReadinessResponse(value: unknown, statusCode: number): value is ReadinessResponse {
+  if (isRecord(value) && value.contract_version === '1') {
+    return (statusCode === 200 && value.status === 'ok') ||
+      (statusCode === 503 && value.status === 'not_ready')
+  }
   if (!isRecord(value) || !isRecord(value.checks)) {
     return false
   }

@@ -1,0 +1,301 @@
+{
+  "schema": "gopulse.phase17.v1",
+  "status": "passed",
+  "complete": true,
+  "started_at": "2026-09-18T18:28:44.989157+00:00",
+  "finished_at": "2026-09-18T19:05:16.168841+00:00",
+  "candidate": {
+    "version": "1.14.5",
+    "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+    "manifest_sha256": "sha256:ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+    "bundle_sha256": "sha256:e76134207ef150f9c7f231ab119c87ecb89fe4479909808531ab77b52a445acc",
+    "runtime_contract_sha256": "sha256:19f31816ec250e7cb2913dcb98e8ecc2e431c432cb984e234764e9d0acf64880",
+    "image_digests": {
+      "backend": "sha256:167f75a11be88ca1aeb943e7bc633f1a76fc2e87e52e27be1555c583442928ef",
+      "business-worker": "sha256:cf8398fe1a203549ccea75ad6103f4f96da4fdc27849bc85eaaf687b3e21c6da",
+      "search-indexer": "sha256:9a76c448b50aa9135bf5760cefb4e483847d08a2733c6b8a8a1b40860228a053",
+      "frontend": "sha256:69ff9d565db2a15851e084bb8c91762c4677e33ecf9f117be7992f12c74fa566",
+      "admin-frontend": "sha256:e7a852ee8b0dd6f29a83cea650bf3e1423656189c6a859ea6b4d64fb5246456e",
+      "router": "sha256:96ae76fff1f913f6cb4fea2895a75b3fcf28a42ffaa5f32b7dd249e73ac3ad67",
+      "marshaller": "sha256:2afb27c3a9bc2c72f41525b982e527cfcfebfb923efcc6234428e32351fd9dce",
+      "monitor": "sha256:86a9f274a8b2a4b84a6597111c26760e4a642fd43b0bb7ae5007cf143e08d817",
+      "redis-exporter": "sha256:897281c34dc2ccbd0525bb1e94c7c0ed1f2d75dd1c4c28c71625d019474919c4"
+    },
+    "plugin_digests": [
+      "sha256:bb5bf154ebc10baff89b4986848ef817874f5d8872bd598f1f5531b10cee52ea",
+      "sha256:7236843259591afc3f5712d9bf2796258699027fd5174b374332a048338c1888",
+      "sha256:a740574b2eed12b5459c0446581ce22f5db31131edfefcb651cdff3e452586db",
+      "sha256:4025c72f8fbdc07f2a3909731fb6df677f22558ad847c25edee4f4b74071991c",
+      "sha256:a09e3630cdea098e35fdcbce5f1399525917e1dfa055dbb94f1a66798cff5b51",
+      "sha256:dbd8403c57b30d4f0a25b55a464d4a244bbabcbffc0f46fb70748c1511704583"
+    ]
+  },
+  "source_manifest_sha256": "sha256:09b59b4e818dc8116428563bc099d98e4a0cdb7fa1502d2405a4699d60735687",
+  "inventory": {
+    "host_os": "Linux",
+    "host_arch": "x86_64",
+    "kernel": "6.6.87.2-microsoft-standard-WSL2",
+    "server_platform": "linux/amd64",
+    "server_version": "29.7.2",
+    "compose": "Docker Compose version v5.5.0"
+  },
+  "project_hashes": [
+    "ad528002869ab077b353ddcce015b7e9cb7bd7c4dfad2933f909122a673b5f8f",
+    "49bcd21a6bc12503681c22b2fd6b9db016b8b44b99fe004a3ec4acc546385cd4",
+    "8daaf2d310c955382afca4c14f45995960efc9f3967ec5d73fdb86399e604e33",
+    "0885fe5a7cc3938bf3638593ec715890258b7a5c1d9acd3e0d6a902c1146f82a"
+  ],
+  "scenarios": {
+    "release-runtime-compose": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:28:44.989157+00:00",
+      "finished_at": "2026-09-18T18:28:44.989327+00:00",
+      "facts": {
+        "receipt_reused": true,
+        "platform": "linux/amd64"
+      },
+      "attachments": [
+        {
+          "path": "attachments/artifact-runtime.json",
+          "sha256": "ebddf01f00446a9ed935ba57364b28ffc4b758e15ac34471697d33e6a58af212",
+          "redacted": true
+        },
+        {
+          "path": "attachments/release-manifest.json",
+          "sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+          "redacted": true
+        }
+      ]
+    },
+    "runtime-contract-probes-signals": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:28:44.989327+00:00",
+      "finished_at": "2026-09-18T18:32:04.997470+00:00",
+      "facts": {
+        "scenario_count": 41,
+        "component_logs": 12
+      },
+      "attachments": [
+        {
+          "path": "attachments/runtime.json",
+          "sha256": "0123b8a28c399250acc25d67c71fdc254586865954884d20779638a57b596e3b",
+          "redacted": true
+        },
+        {
+          "path": "attachments/runtime-contract.json",
+          "sha256": "19f31816ec250e7cb2913dcb98e8ecc2e431c432cb984e234764e9d0acf64880",
+          "redacted": true
+        }
+      ]
+    },
+    "lifecycle-clean-install": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:32:04.997597+00:00",
+      "finished_at": "2026-09-18T18:35:20.111112+00:00",
+      "facts": {
+        "commands": 14,
+        "cleanup": true
+      },
+      "attachments": [
+        {
+          "path": "attachments/clean.json",
+          "sha256": "94df447c8d8b007c001c1efd259e1d20c9a748b18c08bb8bf89b78c15081309a",
+          "redacted": true
+        }
+      ]
+    },
+    "lifecycle-failure-cleanup": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:35:20.111204+00:00",
+      "finished_at": "2026-09-18T18:37:27.550324+00:00",
+      "facts": {
+        "commands": 16,
+        "cleanup": true
+      },
+      "attachments": [
+        {
+          "path": "attachments/failure.json",
+          "sha256": "5dacb34e2479ec696e2e75907417ea00325df67e660879da12af54ce84825099",
+          "redacted": true
+        }
+      ]
+    },
+    "migration-direct-predecessor": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:37:27.550528+00:00",
+      "finished_at": "2026-09-18T18:59:01.032428+00:00",
+      "facts": {
+        "steps": 6,
+        "from": "1.13.6",
+        "to": "1.14.5"
+      },
+      "attachments": [
+        {
+          "path": "attachments/state.json",
+          "sha256": "8d5c30c1b6465d826b90b9124c93187349db136a5b7072231888c1ac5e5e628f",
+          "redacted": true
+        }
+      ]
+    },
+    "rabbit-reliability": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:37:27.550528+00:00",
+      "finished_at": "2026-09-18T18:59:01.032428+00:00",
+      "facts": {
+        "candidate_gate": "passed",
+        "resource_inventory_preserved": true
+      },
+      "attachments": [
+        {
+          "path": "attachments/state.json",
+          "sha256": "8d5c30c1b6465d826b90b9124c93187349db136a5b7072231888c1ac5e5e628f",
+          "redacted": true
+        }
+      ]
+    },
+    "kafka-reliability": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:37:27.550528+00:00",
+      "finished_at": "2026-09-18T18:59:01.032428+00:00",
+      "facts": {
+        "candidate_gate": "passed",
+        "resource_inventory_preserved": true
+      },
+      "attachments": [
+        {
+          "path": "attachments/state.json",
+          "sha256": "8d5c30c1b6465d826b90b9124c93187349db136a5b7072231888c1ac5e5e628f",
+          "redacted": true
+        }
+      ]
+    },
+    "alert-reliability": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:37:27.550528+00:00",
+      "finished_at": "2026-09-18T18:59:01.032428+00:00",
+      "facts": {
+        "candidate_gate": "passed",
+        "resource_inventory_preserved": true
+      },
+      "attachments": [
+        {
+          "path": "attachments/state.json",
+          "sha256": "8d5c30c1b6465d826b90b9124c93187349db136a5b7072231888c1ac5e5e628f",
+          "redacted": true
+        }
+      ]
+    },
+    "complete-product-permissions": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:37:27.550528+00:00",
+      "finished_at": "2026-09-18T18:59:01.032428+00:00",
+      "facts": {
+        "full_compose_reused": true,
+        "same_candidate": true
+      },
+      "attachments": [
+        {
+          "path": "attachments/state.json",
+          "sha256": "8d5c30c1b6465d826b90b9124c93187349db136a5b7072231888c1ac5e5e628f",
+          "redacted": true
+        },
+        {
+          "path": "attachments/artifact-runtime.json",
+          "sha256": "ebddf01f00446a9ed935ba57364b28ffc4b758e15ac34471697d33e6a58af212",
+          "redacted": true
+        }
+      ]
+    },
+    "backup-restore-current": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:59:01.033127+00:00",
+      "finished_at": "2026-09-18T19:05:00.761222+00:00",
+      "facts": {
+        "completed": [
+          "source-seeded",
+          "source-api-continuity",
+          "source-backup-inspected",
+          "target-api-continuity",
+          "phase17-current-backup-restore-passed",
+          "owned-cleanup-and-isolation-passed"
+        ],
+        "restores": [
+          "target"
+        ]
+      },
+      "attachments": [
+        {
+          "path": "attachments/recovery.json",
+          "sha256": "8905bd40068369ca3ace1b241830d5356bfdd246001857a3ea16f1ed8a04a961",
+          "redacted": true
+        }
+      ]
+    },
+    "secret-ownership-cleanup": {
+      "status": "passed",
+      "reason_code": "accepted",
+      "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+      "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+      "started_at": "2026-09-18T18:28:44.989157+00:00",
+      "finished_at": "2026-09-18T19:05:16.166492+00:00",
+      "facts": {
+        "unrelated_resources_unchanged": true,
+        "owned_cleanup": true
+      },
+      "attachments": [
+        {
+          "path": "attachments/clean.json",
+          "sha256": "94df447c8d8b007c001c1efd259e1d20c9a748b18c08bb8bf89b78c15081309a",
+          "redacted": true
+        },
+        {
+          "path": "attachments/failure.json",
+          "sha256": "5dacb34e2479ec696e2e75907417ea00325df67e660879da12af54ce84825099",
+          "redacted": true
+        },
+        {
+          "path": "attachments/state.json",
+          "sha256": "8d5c30c1b6465d826b90b9124c93187349db136a5b7072231888c1ac5e5e628f",
+          "redacted": true
+        },
+        {
+          "path": "attachments/recovery.json",
+          "sha256": "8905bd40068369ca3ace1b241830d5356bfdd246001857a3ea16f1ed8a04a961",
+          "redacted": true
+        }
+      ]
+    }
+  },
+  "secret_scan": "passed",
+  "cleanup": "passed"
+}

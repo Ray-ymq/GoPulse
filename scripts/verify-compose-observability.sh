@@ -69,6 +69,20 @@ VERSION=$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
 UPDATE_VERSION="$VERSION_MAJOR.$VERSION_MINOR.$((VERSION_PATCH + 1))"
 REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
+# Candidate mode resolves every product/third-party reference before the restricted
+# acceptance PATH. References are data, never shell-evaluated commands.
+declare -A CANDIDATE_IMAGES=()
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  candidate_refs=$(python3 "$SCRIPT_DIR/ci/release_candidate_env.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --version "$VERSION" --revision "$REVISION")
+  while IFS='=' read -r key value; do
+    [[ -n $key && -n $value ]] || fail 'invalid candidate reference'
+    export "$key=$value"
+  done <<<"$candidate_refs"
+  for service in backend business-worker search-indexer admin-frontend frontend router marshaller monitor redis-exporter; do
+    key="GOPULSE_${service^^}_IMAGE"; key=${key//-/_}
+    CANDIDATE_IMAGES[$service]=${!key}
+  done
+fi
 TOKEN=$(tr -d '-' </proc/sys/kernel/random/uuid | cut -c1-12)
 PROJECT_NAME="gopulse-accept-$TOKEN"
 IMAGE_TAG="${VERSION}-accept-${TOKEN}"
@@ -152,7 +166,7 @@ snapshot_existing_resources() {
   docker network ls -q | sort >"$SNAPSHOT_DIR/networks"
   docker volume ls -q | sort >"$SNAPSHOT_DIR/volumes"
   docker image ls -q --no-trunc | sort -u >"$SNAPSHOT_DIR/images"
-  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | awk -F '|' '$1 != "<none>:<none>"' | sort >"$SNAPSHOT_DIR/image-tags"
+  docker image ls --no-trunc --format '{{.Repository}}:{{.Tag}}|{{.ID}}' | awk -F '|' '$1 !~ /:<none>$/' | sort >"$SNAPSHOT_DIR/image-tags"
   for service in "${PRODUCT_IMAGES[@]}"; do
     ref="gopulse/$service:$IMAGE_TAG"
     ! docker image inspect "$ref" >/dev/null 2>&1 || fail "refusing to replace pre-existing acceptance image tag: $ref"
@@ -162,22 +176,22 @@ snapshot_existing_resources() {
 
 assert_snapshot_preserved() {
   local kind id ref expected_id actual_id
-  cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || fail 'acceptance changed the Git working tree'
+  cmp -s "$SNAPSHOT_DIR/git-status" <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -z) || { fail 'acceptance changed the Git working tree'; return 1; }
   for kind in containers networks volumes images; do
     while IFS= read -r id; do
       [[ -n $id ]] || continue
       case $kind in
-        containers) docker inspect "$id" >/dev/null 2>&1 || fail "pre-existing container disappeared: $id" ;;
-        networks) docker network inspect "$id" >/dev/null 2>&1 || fail "pre-existing network disappeared: $id" ;;
-        volumes) docker volume inspect "$id" >/dev/null 2>&1 || fail "pre-existing volume disappeared: $id" ;;
-        images) docker image inspect "$id" >/dev/null 2>&1 || fail "pre-existing image disappeared: $id" ;;
+        containers) docker inspect "$id" >/dev/null 2>&1 || { fail "pre-existing container disappeared: $id"; return 1; } ;;
+        networks) docker network inspect "$id" >/dev/null 2>&1 || { fail "pre-existing network disappeared: $id"; return 1; } ;;
+        volumes) docker volume inspect "$id" >/dev/null 2>&1 || { fail "pre-existing volume disappeared: $id"; return 1; } ;;
+        images) docker image inspect "$id" >/dev/null 2>&1 || { fail "pre-existing image disappeared: $id"; return 1; } ;;
       esac
     done <"$SNAPSHOT_DIR/$kind"
   done
   while IFS='|' read -r ref expected_id; do
     [[ -n $ref && -n $expected_id ]] || continue
     actual_id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null || true)
-    [[ $actual_id == "$expected_id" ]] || fail "pre-existing image tag mapping changed: $ref"
+    [[ $actual_id == "$expected_id" ]] || { fail "pre-existing image tag mapping changed: $ref"; return 1; }
   done <"$SNAPSHOT_DIR/image-tags"
 }
 
@@ -225,6 +239,9 @@ cleanup() {
   fi
   if ((RESOURCES_STARTED)); then
     if assert_project_ownership; then
+      if ((status != 0)); then
+        compose logs --no-color --tail 30 backend business-worker search-indexer router marshaller monitor >&2 || true
+      fi
       compose --profile exporter down --volumes --remove-orphans >/dev/null 2>&1 || status=1
     else
       status=1
@@ -327,6 +344,9 @@ assert_image_contracts() {
       container_id=$(owned_service_id "$service")
       running_image=$(docker inspect --format '{{.Image}}' "$container_id")
       [[ $running_image == "$tagged_image" ]] || fail "$service container does not run the freshly built tag"
+      if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+        [[ $(docker inspect --format '{{.Config.Image}}' "$container_id") == "${CANDIDATE_IMAGES[$service]}" ]] || fail 'runtime did not consume candidate digest'
+      fi
     fi
     user=$(docker image inspect --format '{{.Config.User}}' "$ref")
     version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$ref")
@@ -425,7 +445,7 @@ assert_internal_security() {
   fi
   compose exec -T \
     -e "GOPULSE_TEST_ROUTER_TOKEN=router-$TOKEN-0123456789abcdef0123456789" \
-    -e "GOPULSE_TEST_MARSHALLER_TOKEN=marshaller-$TOKEN-0123456789abcdef012345" \
+    -e "GOPULSE_TEST_MARSHALLER_TOKEN=metrics-marshaller-$TOKEN-0123456789abcdef0123456789" \
     backend /bin/sh -ec '
       http_code() {
         output=$(wget -S -O /dev/null "$@" 2>&1 || true)
@@ -437,21 +457,25 @@ assert_internal_security() {
         actual=$(http_code "$@")
         test "$actual" = "$expected" || { printf "expected HTTP %s, got %s\n" "$expected" "$actual" >&2; return 1; }
       }
-      expect_code 401 http://monitor:9090/ready
-      expect_code 401 --header "Authorization: Bearer wrong-monitor-token" http://monitor:9090/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://monitor:9090/ready
-      expect_code 401 http://router:9091/ready
-      expect_code 401 --header "Authorization: Bearer wrong-router-token" http://router:9091/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://router:9091/ready
-      expect_code 401 http://marshaller:9093/ready
-      expect_code 401 --header "Authorization: Bearer wrong-marshaller-token" http://marshaller:9093/ready
-      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://marshaller:9093/ready
+      expect_code 401 http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --header "Authorization: Bearer wrong-monitor-token" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 401 --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 --header "Authorization: Bearer wrong-router-token" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 401 http://marshaller:19106/internal/v1/metrics
+      expect_code 401 --header "Authorization: Bearer wrong-marshaller-token" http://marshaller:19106/internal/v1/metrics
+      expect_code 401 --header "Cookie: gopulse_admin_session=not-an-internal-identity" http://marshaller:19106/internal/v1/metrics
       expect_code 401 http://victoriametrics:8428/api/v1/query?query=up
       expect_code 401 --header "Authorization: Basic $(printf wrong:wrong | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
-      expect_code 200 --header "Authorization: Bearer $MONITOR_API_TOKEN" http://monitor:9090/ready
-      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_ROUTER_TOKEN" http://router:9091/ready
-      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_MARSHALLER_TOKEN" http://marshaller:9093/ready
+      expect_code 200 --header "Authorization: Bearer $MONITOR_API_TOKEN" http://monitor:9090/internal/v1/exporter-plugins
+      expect_code 400 --header "Authorization: Bearer $GOPULSE_TEST_ROUTER_TOKEN" --post-data "" http://router:9091/internal/v1/messages
+      expect_code 200 --header "Authorization: Bearer $GOPULSE_TEST_MARSHALLER_TOKEN" http://marshaller:19106/internal/v1/metrics
       expect_code 200 --header "Authorization: Basic $(printf "%s:%s" "$BACKEND_VICTORIAMETRICS_USERNAME" "$BACKEND_VICTORIAMETRICS_PASSWORD" | base64 | tr -d "\n")" http://victoriametrics:8428/api/v1/query?query=up
+      # Runtime probes are private operational state, not authenticated business APIs.
+      expect_code 200 http://monitor:9090/ready
+      expect_code 200 http://router:9091/ready
+      expect_code 200 http://marshaller:9093/ready
     '
   pass 'Frontend isolation plus Bearer, Basic, and cookie trust boundaries passed.'
 }
@@ -585,7 +609,10 @@ exercise_signal_shutdown() {
     id=$(owned_service_id "$service")
     compose stop --timeout 25 "$service"
     exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")
-    [[ $exit_code == 0 ]] || fail "$service did not stop cleanly after its configured signal (exit $exit_code)"
+    if [[ $exit_code != 0 ]]; then
+      compose logs --no-color --tail 40 "$service" >&2 || true
+      fail "$service did not stop cleanly after its configured signal (exit $exit_code)"
+    fi
     compose start "$service"
     case $service in
       business-worker|search-indexer) wait_running "$service" ;;
@@ -654,13 +681,38 @@ reset_for_management() {
   assert_full_state
   register_and_promote
   run_observability_scenario manage
+  for viewport in desktop narrow; do
+    compose --profile acceptance run --rm --no-deps -e GOPULSE_VIEWPORT="$viewport" acceptance e2e/frontend-product.spec.ts
+  done
+  compose --profile acceptance run --rm --no-deps \
+    -e GOPULSE_ADMIN_USERNAME="$ADMIN_USERNAME" -e GOPULSE_ACCEPTANCE_PASSWORD="$PASSWORD" \
+    acceptance e2e/phase15-closure.spec.ts --grep 'create exact three-source'
   pass 'Administrator completed official install, stop, start, Metrics, and Events through the browser.'
 }
 
 snapshot_existing_resources
 assert_project_absent
 info "Building isolated GoPulse $VERSION images with unique tag $IMAGE_TAG for $PROJECT_NAME without host Go/Node runtimes."
-compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  if [[ -n ${GOPULSE_ACCEPTANCE_IMAGE:-} ]]; then
+    # Frozen final matrix: reuse the exact candidate runner, never rebuild it.
+    [[ $GOPULSE_ACCEPTANCE_IMAGE =~ ^sha256:[0-9a-f]{64}$ ]] || fail 'immutable acceptance image ID required'
+    [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$GOPULSE_ACCEPTANCE_IMAGE") == "$VERSION" ]] || fail 'acceptance version mismatch'
+    [[ $(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$GOPULSE_ACCEPTANCE_IMAGE") == "$REVISION" ]] || fail 'acceptance revision mismatch'
+    docker tag "$GOPULSE_ACCEPTANCE_IMAGE" "gopulse/acceptance:$IMAGE_TAG"
+  else
+    compose build acceptance
+  fi
+  for service in "${!CANDIDATE_IMAGES[@]}"; do
+    ref=${CANDIDATE_IMAGES[$service]}
+    docker pull --platform linux/amd64 "$ref"
+    # Unique disposable aliases retain the existing image contract checks; the
+    # actual service references remain immutable digests, never these aliases.
+    docker tag "$ref" "gopulse/$service:$IMAGE_TAG"
+  done
+else
+  compose build backend business-worker search-indexer admin-frontend frontend acceptance router marshaller monitor redis-exporter
+fi
 RESOURCES_STARTED=1
 if ! compose up --detach --wait --wait-timeout 420; then
   compose ps --all >&2 || true
@@ -703,14 +755,37 @@ done
 assert_bootstrap_status
 replace_service redis
 replace_service victoriametrics
+kafka_topic_id() {
+  owned_service_id kafka >/dev/null
+  compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic gopulse-observability-v1 |
+    awk '/TopicId:/ { for (i=1; i<=NF; i++) if ($i == "TopicId:") print $(i+1) }'
+}
+KAFKA_TOPIC_BEFORE=$(kafka_topic_id)
+[[ -n $KAFKA_TOPIC_BEFORE ]] || fail 'Kafka topic identity is absent before replacement'
 replace_service kafka
-compose up --detach kafka-init
+# Complete the existing initializer before asserting transport recovery or idle drains.
+compose run --rm --no-deps kafka-init
+[[ $(kafka_topic_id) == "$KAFKA_TOPIC_BEFORE" ]] || fail 'Kafka replacement lost the persisted topic identity'
+pass 'Kafka replacement preserved the topic ID in its declared named data volume.'
 replace_service elasticsearch
 run_business_scenario persistence
 run_observability_scenario persistence
+run_observability_scenario post-restart
 exercise_signal_shutdown
 exercise_persistence
 exercise_standalone_exporter
 reset_for_management
+if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+  owned_service_id mysql >/dev/null
+  owned_service_id rabbitmq >/dev/null
+  # Dedicated minimum-privilege users, confined to the fresh acceptance project.
+  printf "CREATE USER 'gopulse_metrics'@'%%' IDENTIFIED BY 'metrics-%s';\n" "$TOKEN" | \
+    compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot'
+  compose exec -T rabbitmq rabbitmqctl add_user gopulse_metrics "metrics-$TOKEN" >/dev/null
+  compose exec -T rabbitmq rabbitmqctl set_user_tags gopulse_metrics monitoring >/dev/null
+  compose exec -T rabbitmq rabbitmqctl set_permissions -p / gopulse_metrics '^$' '^$' '^$' >/dev/null
+  compose --profile acceptance run --rm --no-deps acceptance e2e/compose-release-plugins.spec.ts
+  pass 'All six candidate plugins collected real targets through Backend; scoped collector stop preserved siblings and business.'
+fi
 assert_project_ownership
 pass 'Phase 12 authoritative full-stack Compose acceptance passed.'

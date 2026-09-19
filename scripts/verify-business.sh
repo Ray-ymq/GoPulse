@@ -240,6 +240,9 @@ write_environment() {
   observability:
     internal: false
 ' >"$TEMP_DIR/host-network.yaml"
+  export BACKEND_METRICS_TOKEN="metrics-backend-$TOKEN-0123456789abcdef"
+  export BUSINESS_WORKER_METRICS_TOKEN="metrics-worker-$TOKEN-0123456789abcdef"
+  export SEARCH_INDEXER_METRICS_TOKEN="metrics-indexer-$TOKEN-0123456789abcdef"
   MYSQL_USER="acceptance_$TOKEN"
   MYSQL_PASSWORD="mysql-$TOKEN"
   MYSQL_ROOT_PASSWORD="root-$TOKEN"
@@ -260,6 +263,12 @@ FRONTEND_PORT=$FRONTEND_PORT
 LOG_MONITOR_INGEST_TOKEN=acceptance-log-$TOKEN-0123456789abcdef
 ROUTER_API_TOKEN=acceptance-router-$TOKEN-0123456789abcdef
 MARSHALLER_API_TOKEN=acceptance-marshaller-$TOKEN-0123456789abcdef
+BACKEND_METRICS_TOKEN=metrics-backend-$TOKEN-0123456789abcdef
+BUSINESS_WORKER_METRICS_TOKEN=metrics-worker-$TOKEN-0123456789abcdef
+SEARCH_INDEXER_METRICS_TOKEN=metrics-indexer-$TOKEN-0123456789abcdef
+MONITOR_METRICS_TOKEN=metrics-monitor-$TOKEN-0123456789abcdef
+ROUTER_METRICS_TOKEN=metrics-router-$TOKEN-0123456789abcdef
+MARSHALLER_METRICS_TOKEN=metrics-marshaller-$TOKEN-0123456789abcdef
 PUBLISHED_HOST=$PUBLISHED_HOST
 HTTP_HOST=$PUBLISHED_HOST
 HTTP_PORT=$HTTP_PORT
@@ -723,7 +732,7 @@ run_reliability_matrix() {
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
   ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
   docker stop "$RABBITMQ_CONTAINER_ID" >/dev/null
-  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
+  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
   api_for "$actor_jar" POST "/posts/$broker_post/comments" 201 '{"content":"written while broker stopped"}' read
   broker_comment=$(json_get data.id)
   api_for "$actor_jar" PUT "/posts/$broker_post/like" 204 '' read
@@ -734,7 +743,7 @@ run_reliability_matrix() {
   BACKEND_PID=
   start_backend
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/health" 200
-  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
+  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
   ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
   docker start "$RABBITMQ_CONTAINER_ID" >/dev/null
@@ -743,7 +752,7 @@ run_reliability_matrix() {
   wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
   wait_notification "$broker_comment_event" 1 45
   wait_notification "$broker_like_event" 1 45
-  info 'Matrix 3-5/10 passed: broker outage preserved facts/Outbox, readiness degraded, and Backend restart plus broker recovery auto-completed delivery.'
+  info 'Matrix 3-5/10 passed: broker outage preserved facts/Outbox and social readiness, and Backend restart plus broker recovery auto-completed delivery.'
 
   unacked_post=$second_post
   unacked_comment=$second_comment
@@ -1080,7 +1089,7 @@ verify_redis_failure_and_recovery() {
   post_id=$(cat "$TEMP_DIR/first-post-id")
   redis_id=$(verify_service_ownership redis 6379 "$REDIS_PORT")
   docker stop "$redis_id" >/dev/null
-  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 503
+  wait_http_status "http://$PUBLISHED_HOST:$HTTP_PORT/ready" 200
 
   rm -f "$COOKIE_JAR"
   api_request POST /auth/register 201 "{\"username\":\"$username\",\"password\":\"$password\"}" write
@@ -1471,8 +1480,22 @@ main() {
   RABBITMQ_CONTAINER_ID=$(verify_service_ownership rabbitmq 5672 "$RABBITMQ_PORT")
   ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
 
+  if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
+    python3 "$REPO_ROOT/scripts/ci/candidate_runtime.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --output "$TEMP_DIR" --binary backend --binary business-worker --binary search-indexer >"$TEMP_DIR/candidate.json"
+    mv "$TEMP_DIR/server" "$TEMP_DIR/gopulse-backend"
+    mv "$TEMP_DIR/business-worker" "$TEMP_DIR/gopulse-business-worker"
+    mv "$TEMP_DIR/search-indexer" "$TEMP_DIR/gopulse-search-indexer"
+    mv "$TEMP_DIR/search-reindex" "$TEMP_DIR/gopulse-search-reindex"
+    export GOPULSE_VERSION GOPULSE_REVISION
+    GOPULSE_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$TEMP_DIR/candidate.json")
+    GOPULSE_REVISION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$TEMP_DIR/candidate.json")
+    backend_environment "$TEMP_DIR/migrate" validate
+    backend_environment "$TEMP_DIR/migrate" status
+    backend_environment "$TEMP_DIR/migrate" up
+  else
   backend_environment bash -c 'cd "$1" && go run ./cmd/migrate up' _ "$BACKEND_DIR"
   (cd "$BACKEND_DIR" && go build -o "$TEMP_DIR/gopulse-backend" ./cmd/server && go build -o "$TEMP_DIR/gopulse-business-worker" ./cmd/business-worker && go build -o "$TEMP_DIR/gopulse-search-indexer" ./cmd/search-indexer && go build -o "$TEMP_DIR/gopulse-search-reindex" ./cmd/search-reindex)
+  fi
 
   if [[ $mode == logging-live ]]; then
     run_search_reindex --if-missing

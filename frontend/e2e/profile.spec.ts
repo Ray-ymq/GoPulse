@@ -36,7 +36,7 @@ test('profile and user search close the real two-user discovery loop in the user
     await owner.getByLabel('显示名称', { exact: true }).fill(` ${displayName} `)
     await owner.getByLabel('个人介绍', { exact: true }).fill('  这是我的简介  ')
     await owner.getByRole('button', { name: '保存资料' }).click()
-    await expect(owner.getByRole('status')).toContainText('资料已更新')
+    await expect(owner.getByRole('status').filter({ hasText: '资料已更新' })).toBeVisible()
     await owner.reload()
     await expect(owner.getByRole('heading', { name: displayName, exact: true })).toBeVisible()
 

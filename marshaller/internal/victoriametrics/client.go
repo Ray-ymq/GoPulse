@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net"
 	"net/http"
@@ -26,7 +27,7 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	return c.do(ctx, http.MethodPost, "/api/v1/import/prometheus", body, "text/plain; version=0.0.4; charset=utf-8", http.StatusNoContent)
 }
 func (c *Client) Ready(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
+	req, err := componentmetrics.NewRequest(ctx, http.MethodGet, c.baseURL+"/health", nil)
 	if err != nil {
 		return errors.New("VictoriaMetrics health request creation failed")
 	}
@@ -43,7 +44,7 @@ func (c *Client) Ready(ctx context.Context) error {
 	return nil
 }
 func (c *Client) do(ctx context.Context, method, path string, body []byte, contentType string, expected int) error {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
+	req, err := componentmetrics.NewRequest(ctx, method, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return errors.New("VictoriaMetrics request creation failed")
 	}

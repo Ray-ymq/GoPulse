@@ -1,0 +1,235 @@
+{
+  "passed": true,
+  "version": "1.14.5",
+  "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+  "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+  "contract_sha256": "19f31816ec250e7cb2913dcb98e8ecc2e431c432cb984e234764e9d0acf64880",
+  "scenarios": [
+    {
+      "name": "Linux amd64 owned Compose product booted",
+      "project": "gopulse-runtime-48c53b303e83"
+    },
+    {
+      "name": "six checksum-verified official exporter processes started without host ports"
+    },
+    {
+      "name": "twelve processes: four paths, GET-only, query/body rejection, JSON, cache and health alias"
+    },
+    {
+      "name": "missing/short secret, loopback, mode, range and credential reuse fail before listening"
+    },
+    {
+      "name": "edge replaces IDs; Backend/internal errors and logs correlate; internal probes blocked"
+    },
+    {
+      "name": "mysql hard/soft dependency matrix"
+    },
+    {
+      "name": "rabbitmq hard/soft dependency matrix"
+    },
+    {
+      "name": "kafka hard/soft dependency matrix"
+    },
+    {
+      "name": "elasticsearch hard/soft dependency matrix"
+    },
+    {
+      "name": "victoriametrics hard/soft dependency matrix"
+    },
+    {
+      "name": "redis hard/soft dependency matrix"
+    },
+    {
+      "name": "monitor is soft for social API"
+    },
+    {
+      "name": "six official plugins installed and started under Monitor supervision"
+    },
+    {
+      "name": "exporter drains with source disconnected",
+      "exit_code": 0,
+      "elapsed_seconds": 0.245
+    },
+    {
+      "name": "Backend disconnected log drain deadline",
+      "exit_code": 1,
+      "elapsed_seconds": 5.405
+    },
+    {
+      "name": "backend SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.455
+    },
+    {
+      "name": "business-worker SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.263
+    },
+    {
+      "name": "search-indexer SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.259
+    },
+    {
+      "name": "router SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.156
+    },
+    {
+      "name": "marshaller SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.143
+    },
+    {
+      "name": "monitor SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.245
+    },
+    {
+      "name": "redis-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.23
+    },
+    {
+      "name": "mysql-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.236
+    },
+    {
+      "name": "rabbitmq-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.214
+    },
+    {
+      "name": "kafka-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.213
+    },
+    {
+      "name": "elasticsearch-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.29
+    },
+    {
+      "name": "victoriametrics-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.26
+    },
+    {
+      "name": "backend SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.372
+    },
+    {
+      "name": "business-worker SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.263
+    },
+    {
+      "name": "search-indexer SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.223
+    },
+    {
+      "name": "router SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.153
+    },
+    {
+      "name": "marshaller SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.135
+    },
+    {
+      "name": "monitor SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.334
+    },
+    {
+      "name": "redis-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.222
+    },
+    {
+      "name": "mysql-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.25
+    },
+    {
+      "name": "rabbitmq-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.221
+    },
+    {
+      "name": "kafka-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.234
+    },
+    {
+      "name": "elasticsearch-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.235
+    },
+    {
+      "name": "victoriametrics-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.24
+    },
+    {
+      "name": "all processes restart after both signals; no detached plugin container/process remains"
+    },
+    {
+      "name": "twelve component log schemas and secret/userinfo/path scans"
+    }
+  ],
+  "logs": {
+    "backend": {
+      "records": 43,
+      "sha256": "180a6a4fa2e7701ee4e95edaa424f27a24b873b2ffcb7e7bd95da0e7bb3fa036"
+    },
+    "business-worker": {
+      "records": 9,
+      "sha256": "e1d483383095b18c33b1f6d52f01fbda57d027cc82649b7ecd8036e86ec2d1b2"
+    },
+    "search-indexer": {
+      "records": 9,
+      "sha256": "cbbd19d094e5f62ca945af66dbe3fd1af80a81e5acb9a32ee5a5fe937e07b1a1"
+    },
+    "router": {
+      "records": 150,
+      "sha256": "298ed3e8203d2f289183fe013af6efd6addd4db21f8f42890fc5e780c6f60410"
+    },
+    "marshaller": {
+      "records": 268,
+      "sha256": "5d4dd71e9c2a88c92ed7a54fd7a51fd0daf36fc8a4f2a2f539ba55c8231857b1"
+    },
+    "monitor": {
+      "records": 137,
+      "sha256": "831f70592a54a13067ccfc91f69e7611fcdc77d56a0ec40b6caf73256a99a55a"
+    },
+    "redis-exporter": {
+      "records": 11,
+      "sha256": "117184fbce987c322e2a54785398973c3d9d2a6b59ab9437afc5f1e903d23829"
+    },
+    "mysql-exporter": {
+      "records": 7,
+      "sha256": "e7324e11c0fd286ad74f6050651f058f51fc54141aa815178bfd253d88b5cab2"
+    },
+    "rabbitmq-exporter": {
+      "records": 7,
+      "sha256": "8b3fc8cdd9f3c99b7be316bd12471629ef73f553332e30b2d4300b53660299d4"
+    },
+    "kafka-exporter": {
+      "records": 7,
+      "sha256": "f9d31950bd67ae2b2431182eb752b3832cae09fe591dcf7f5d631d561fd8b664"
+    },
+    "elasticsearch-exporter": {
+      "records": 7,
+      "sha256": "d18922c052702703c581eb35e186d83665e60d7d32f64d3ec819b840c70f75c1"
+    },
+    "victoriametrics-exporter": {
+      "records": 7,
+      "sha256": "c8d5d84e8d0cdb175593411079c8ed525d6ddb8038fb1bf81389a4fa94092122"
+    }
+  }
+}

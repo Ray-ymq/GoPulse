@@ -1,0 +1,6 @@
+{
+  "manifest_sha256": "sha256:ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+  "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+  "platform": "linux/amd64",
+  "status": "amd64-runtime-and-compose-passed"
+}

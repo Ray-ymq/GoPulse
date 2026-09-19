@@ -1,0 +1,22 @@
+{
+  "schema": "gopulse.phase17-alert-checkpoint.v1",
+  "candidate_version": "1.14.4",
+  "scope": "three-source focused acceptance; not whole Phase-17-04",
+  "status": "passed",
+  "cleanup": "owned resources removed; pre-existing resources preserved",
+  "checks": [
+    "shared three-source catalog",
+    "three-source role denial and selector negative contracts",
+    "logs locked Elasticsearch count: inclusive UTC nanosecond boundary and real empty window",
+    "events locked Elasticsearch count: inclusive UTC nanosecond boundary and real empty window",
+    "missing index is distinguishable from successful empty count; conservatively unknown",
+    "real three-source firing, three true rounds and Backend replacement preserve one incident/trigger",
+    "victoriametrics stopped: only its source adapters stale; MySQL management/social reads remain available",
+    "elasticsearch stopped: only its source adapters stale; MySQL management/social reads remain available",
+    "disabled evaluator: state/incident/audit frozen, Backend ready and social/management APIs available",
+    "real metric normalization and document window expiry recover original incidents after evaluator resumes",
+    "alert audit and Backend logs contain no upstream secrets, addresses, aliases or count queries",
+    "completed Phase-15-03 three-source fixed runtime acceptance"
+  ],
+  "receipt_sha256": "aa6885725d1fab9922097284530330e72edbfa60ffe49f359bbe688fcb1a3957"
+}

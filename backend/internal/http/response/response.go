@@ -27,8 +27,9 @@ type errorEnvelope struct {
 const errorCodeContextKey = "gopulse.error_code"
 
 type errorBody struct {
-	Code    apperror.Code `json:"code"`
-	Message string        `json:"message"`
+	Code      apperror.Code `json:"code"`
+	Message   string        `json:"message"`
+	RequestID string        `json:"request_id,omitempty"`
 }
 
 // Data writes the common successful response envelope.
@@ -45,7 +46,7 @@ func Page(c *gin.Context, status int, data any, nextCursor *string) {
 func Error(c *gin.Context, err error) {
 	status, code, message := mapError(err)
 	c.Set(errorCodeContextKey, code)
-	c.JSON(status, errorEnvelope{Error: errorBody{Code: code, Message: message}})
+	c.JSON(status, errorEnvelope{Error: errorBody{Code: code, Message: message, RequestID: c.Writer.Header().Get("X-Request-ID")}})
 }
 
 // ErrorCode returns the final public error code recorded for the response.

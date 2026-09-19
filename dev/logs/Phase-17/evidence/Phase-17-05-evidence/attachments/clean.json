@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "platform": "linux/amd64",
+  "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+  "mode": "clean-install",
+  "status": "passed",
+  "browser": null,
+  "project_sha256": "ad528002869ab077b353ddcce015b7e9cb7bd7c4dfad2933f909122a673b5f8f",
+  "token_sha256": "38f4bf70a7a8bf4d38d644fa5008959bb3a9d5f51c3ee8fc7f33a00d0a43062d",
+  "started_at": "2026-09-18T18:32:05.043671+00:00",
+  "cleanup_passed": true,
+  "isolation_preserved": true,
+  "commands": [
+    {
+      "command": "doctor",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "init",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "init",
+      "expected_exit": 14,
+      "actual_exit": 14
+    },
+    {
+      "command": "verify",
+      "expected_exit": 19,
+      "actual_exit": 19
+    },
+    {
+      "command": "up",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "verify",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "status",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "logs",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "logs",
+      "expected_exit": 2,
+      "actual_exit": 2
+    },
+    {
+      "command": "down",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "down",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "up",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "verify",
+      "expected_exit": 0,
+      "actual_exit": 0
+    },
+    {
+      "command": "down",
+      "expected_exit": 0,
+      "actual_exit": 0
+    }
+  ],
+  "finished_at": "2026-09-18T18:35:20.092246+00:00"
+}
