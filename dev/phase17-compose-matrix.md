@@ -1,4 +1,4 @@
-# Phase 17 Compose acceptance and Phase 18 handoff
+# Phase 17 Compose acceptance and future deployment handoff
 
 Phase 17 closes the pre-Kubernetes engineering acceptance of the complete GoPulse
 Compose product. The accepted product boundary is the immutable `1.14.5`
@@ -44,9 +44,9 @@ The final same-candidate matrix passed these scenarios:
 The authoritative final receipt reports all eleven Phase 17 scenarios as passed,
 with candidate binding, redaction, cleanup and resource-isolation checks passed.
 
-## Operations and Phase 18 handoff
+## Operations and future deployment handoff
 
-Phase 18 may consume the following unchanged contracts:
+Future deployment work may consume the following unchanged contracts:
 
 - the Linux `amd64` Compose product and immutable release identity;
 - `/startup`, `/live`, `/ready` and `/health` semantics;

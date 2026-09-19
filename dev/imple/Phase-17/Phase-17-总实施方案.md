@@ -22,7 +22,7 @@ Phase 16 immutable bundle + current data/recovery contract
       one Linux amd64 Compose resilience acceptance set
                            │
                            ▼
-             Milestone 4 + Phase 18 handoff
+             Milestone 4 + future deployment handoff
 ```
 
 阶段完成时必须达到：
@@ -48,11 +48,11 @@ Phase 16 immutable bundle + current data/recovery contract
 - 统一 HTTP Request ID、错误包络、结构化日志字段、安全原因码和前端错误映射。
 - 明确的 Migration `status/validate/up` 工作流，以及空库、直接前序版本、dirty、future 和并发执行门禁。
 - RabbitMQ、Kafka 与三源告警的代表性可靠性场景和指标/状态证据。
-- 一个真实 Linux `amd64` 最终候选、脱敏 evidence 集合、Milestone 4 验收记录和 Phase 18 交接说明。
+- 一个真实 Linux `amd64` 最终候选、脱敏 evidence 集合、Milestone 4 验收记录和未来部署复用说明。
 
 ### 2.2 明确不做
 
-- Kubernetes 资源、Helm、Ingress、Service DNS、PVC、Probe YAML 或集群对象采集；这些从 Phase 18 开始。
+- Kubernetes 资源、Helm、Ingress、Service DNS、PVC、Probe YAML 或集群对象采集；这些仅保留为未排期的未来设计。
 - macOS、Windows、`linux/arm64` 产品支持或运行矩阵；Phase 16 的 Linux `amd64` 支持边界保持不变。
 - 新业务、新插件、新告警来源、新管理页面或角色模型扩展；视觉更新只覆盖既有 Admin Frontend 壳层和页面，不扩展为普通用户 Frontend 重设计。
 - 生产级高可用、容量认证、压测指标承诺、完整 SRE、跨地域容灾或零停机 Schema 迁移框架。
@@ -148,7 +148,7 @@ Phase-17-03 应增加机器可读的运行时合同（建议路径 `deploy/runti
 ### 6.2 配置语义
 
 - 继续使用环境变量作为 Bundle/Compose 的配置输入，不新增另一套配置文件覆盖层。
-- 已存在且无冲突的变量保持名称和语义；确需统一命名时只保留一个 canonical key，兼容别名最多保留到 Phase 18，canonical 与 alias 同时出现且值不同必须启动失败。
+- 已存在且无冲突的变量保持名称和语义；确需统一命名时只保留一个 canonical key，兼容别名只允许在本阶段明确记录的期限内保留，canonical 与 alias 同时出现且值不同必须启动失败。
 - 每个进程只解析自己拥有的键，使用强类型、范围、URL/host、runtime mode 和交叉字段校验；无效配置必须在接收请求/消息前失败。
 - Secret 只能通过 Phase 16 的私有配置/secret 路径进入。错误、日志、Probe、`status`、诊断和 evidence 只能输出键名或安全原因码，不输出值、DSN、userinfo、token hash 或可反推材料。
 - 有效配置摘要只记录合同版本、非敏感枚举/范围、Secret 是否已提供和来源类别，不记录 Secret 内容。
@@ -180,7 +180,7 @@ Phase-17-03 应增加机器可读的运行时合同（建议路径 `deploy/runti
 | Monitor | 插件状态目录/catalog 可用、Router 发布路径可恢复 | 单个或多个 Exporter/source 故障只标记对应来源 degraded |
 | 六类 Exporter | 配置、监听器和 collector 主循环已初始化 | 被采集源不可用时仍 ready 并暴露 `up=0`/安全状态，避免将来源故障误判为 Exporter 崩溃 |
 
-具体依赖检查必须限时、限并发并避免每次 Probe 产生无界 goroutine。Compose 用 `/ready` 表达可接收工作，用 `/live`/进程退出表达需要重启；Phase 18 可直接映射三类 Probe，而不修改产品语义。
+具体依赖检查必须限时、限并发并避免每次 Probe 产生无界 goroutine。Compose 用 `/ready` 表达可接收工作，用 `/live`/进程退出表达需要重启；未来编排系统可直接映射三类 Probe，而不修改产品语义。
 
 ### 7.3 优雅退出
 
@@ -300,7 +300,7 @@ Backend 公开 API 以及 Monitor/Router/Marshaller 的 JSON API 使用统一失
 
 - 冻结同一个 `1.14.5` Linux `amd64` manifest/Bundle/digest 候选。
 - 从独立 Bundle 运行运行时、Migration、消息、告警、角色、双 Frontend、六插件、业务故障隔离和资源清理矩阵。
-- 聚合 Phase 17 专属脱敏 evidence，更新支持/运维/Phase 18 交接文档及同名实施记录。
+- 聚合 Phase 17 专属脱敏 evidence，更新支持、运维、未来部署复用文档及同名实施记录。
 - 只修复最终矩阵暴露的直接阻断，不首次加入功能或安排一般性 Review。
 
 ## 13. 阶段级验收标准
@@ -390,11 +390,11 @@ Phase-17-05 的最终 JSON 至少记录：
 - 五批完成时分别把 `VERSION` 及受管版本元数据更新为 `1.14.1`、`1.14.2`、`1.14.3`、`1.14.4`、`1.14.5` 并纳入本批提交。
 - 每批只提交本任务文件，不包含用户或其他任务的工作区改动；规划提交不修改 `VERSION`。
 
-## 18. 停止条件与 Phase 18 交接
+## 18. 停止条件与未来部署复用
 
 每批在其固定验收通过、无阻断问题、实施记录和版本提交后立即停止，不追加重构、更多边界用例或独立 Review。
 
-Phase 17 只在第 13 节全部通过时完成并收口 Milestone 4。交给 Phase 18 的固定输入是：
+Phase 17 只在第 13 节全部通过时完成并收口 Milestone 4。可供未来部署适配复用的固定输入是：
 
 - `1.14.5` Linux `amd64` 完整产品、不可变 release manifest、Bundle 和制品 digest；
 - 已通过第二组五张视觉基准、响应式、可访问性、统一登录和权限回归的独立 Admin Frontend 管理体验；
@@ -402,4 +402,4 @@ Phase 17 只在第 13 节全部通过时完成并收口 Milestone 4。交给 Pha
 - 当前 Schema target、`1.13.6 → 1.14.x` 单跳 Migration 证据，以及 Rabbit/Kafka/告警可靠性合同；
 - 完整 Compose 产品、角色矩阵、故障隔离、backup/restore 和资源清理的 Phase 17 evidence。
 
-Phase 18 只能把同一产品迁移到 Kubernetes 并接入这些既有 Probe/退出/配置合同，不得以 sidecar、init 脚本、Ingress 或临时旁路补做 Phase 17 产品缺口。
+未来部署适配只能迁移同一产品并接入这些既有 Probe、退出和配置合同，不得以 sidecar、init 脚本、Ingress 或临时旁路补做 Phase 17 产品缺口。

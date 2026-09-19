@@ -157,11 +157,11 @@ bootstrap 和 rules 与源事实一致，并成功执行恢复后的新写入；
   不进入 git；tracked evidence 仅包含 allowlisted JSON、checksum 和脱敏标记。
 - 最终 evidence secret scan 通过；没有对公网、外部 registry 或生产环境发布。
 
-## 7. 范围限制与 Phase 18 交接
+## 7. 范围限制与未来部署复用
 
 本批支持边界为真实 Linux `amd64` Docker server 上的完整 Compose 产品。结果不
 宣称支持 macOS、Windows、`linux/arm64`、Kubernetes、生产 HA、容量性能、镜像
-签名/SBOM/CVE 平台或公网 registry。Phase 18 可以复用：
+签名/SBOM/CVE 平台或公网 registry。未来部署适配可以复用：
 
 - 四类 runtime Probe 语义和 readiness withdrawal；
 - 共享 shutdown budget、SIGTERM/SIGINT 和 consumer/producer drain 合同；
@@ -169,7 +169,7 @@ bootstrap 和 rules 与源事实一致，并成功执行恢复后的新写入；
 - RabbitMQ/Kafka/alert ownership、retry、dedup 和恢复合同；
 - dual frontend auth/role boundary、六插件监督和最终 evidence binding。
 
-Phase 18 只改变部署位置和编排方式，不应改变上述应用合同或把 Kubernetes 作为
+未来部署适配只改变部署位置和编排方式，不应改变上述应用合同或把其他平台作为
 Phase 17 Compose 成立条件的补证。
 
 ## 8. 完成条件对照
@@ -181,7 +181,7 @@ Phase 17 Compose 成立条件的补证。
 - [x] 双 frontend、roles、internal denial、六插件和完整 business/observability Compose 已通过。
 - [x] current backup/restore、Secret、ownership、cleanup 和 unrelated resource isolation 已通过。
 - [x] 脱敏 evidence 已生成、归档并由 verifier 复核。
-- [x] Phase 18 handoff、支持范围和已知限制已记录。
+- [x] 未来部署复用输入、支持范围和已知限制已记录。
 - [x] VERSION 保持 `1.14.5`；本批没有引入额外版本号。
 
 ## 9. Tracked evidence
