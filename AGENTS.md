@@ -1,95 +1,114 @@
 # Automatic Commit Rule
 
-- After every task that adds, deletes, or modifies project files, automatically create a Git commit before reporting completion.
-- Stage and commit only the files changed for the current task. Never include unrelated, pre-existing, or user-owned changes.
-- Write every commit message in English and make it clearly describe the completed change.
-- Use the Conventional Commits format when practical, for example: `docs: add automatic commit instructions`.
-- Run appropriate checks before committing. If checks cannot be run or fail, state that clearly in the final response.
+- After every task that adds, deletes, or modifies project files, create a Git commit before reporting completion.
+- Stage and commit only files changed for the current task. Never include unrelated, pre-existing, or user-owned changes.
+- Write commit messages in English and use Conventional Commits when practical.
+- Run appropriate checks before committing. If checks cannot be run or fail, report that clearly.
 - Do not create an empty commit when no project files were changed.
 
-# Automatic Version Management Rule
+# Version and Branch Lifecycle Rule
 
-- Use the three-part `major.minor.patch` format, with a project-specific mapping from product maturity, Phase, and execution batch to version numbers.
-- Phase 0 through Phase 3 are pre-1.0 development and use these version lines:
-  - Phase 0 uses `0.1.x`.
-  - Phase 1 uses `0.2.x`.
-  - Phase 2 uses `0.3.x`.
-  - Phase 3 uses `0.4.x`.
-- After Phase 3 is fully completed and its milestone acceptance passes, publish the usable-business-system milestone as `1.0.0`.
-- Phase 4 through Phase 20 use the `1.x.x` series. Their minor version is `Phase - 3`, so Phase 4 uses `1.1.x`, Phase 5 uses `1.2.x`, Phase 13 uses `1.10.x`, Phase 17 uses `1.14.x`, and Phase 20 uses `1.17.x`.
-- Within each Phase, reserve patch `0` as the Phase baseline. Number executable development batches from patch `1` in their planned execution order. For example, `Phase-00-01` maps to `0.1.1`, `Phase-01-01` maps to `0.2.1`, and `Phase-04-01` maps to `1.1.1`.
-- Every executable development batch must have its own target version and its own `develop/x.x.x` branch. All commits belonging to that batch share the same target version.
-- Do not require an individual implementation-plan file to declare its version or branch. After a Phase's batch count and execution order are known, its `dev/imple/Phase-XX/Phase-XX-总实施方案.md` must contain the authoritative batch-to-version and batch-to-branch allocation for that Phase.
-- If a Phase's batch split or order changes before implementation, update its total implementation plan and recalculate all not-yet-created branches in that Phase. Never silently rename or renumber a branch that has already been pushed; coordinate the adjustment with the user.
-- The root `VERSION` file is the sole source of the current completed product version when it exists. If it does not exist before the first development batch, use `0.1.0` as the Phase 0 baseline and create the file as part of the first development batch.
-- At development-batch completion, update `VERSION` to the batch's target version and include it in that batch's commit. Planning, documentation, tests-only, formatting, and repository-rule work performed on `update` do not change `VERSION`.
+- Use the three-part `major.minor.patch` version format.
+- Phase 0 through Phase 3 use the following pre-1.0 version lines:
+  - Phase 0: `0.1.x`
+  - Phase 1: `0.2.x`
+  - Phase 2: `0.3.x`
+  - Phase 3: `0.4.x`
+- After Phase 3 passes milestone acceptance, publish `1.0.0`.
+- Phase 4 through Phase 20 use `1.x.x`, where the minor version is `Phase - 3`.
+- Reserve patch `0` as the Phase baseline. Number executable development batches from patch `1` in execution order.
+- Each executable development batch must have one target version and one branch named `develop/x.x.x`. All commits in that batch share the target version.
+- The Phase total implementation plan at `dev/imple/Phase-XX/Phase-XX-总实施方案.md` is the authoritative source for batch order, target versions, and branch allocation.
+- If an unstarted batch split or order changes, update the total implementation plan and recalculate affected branches. Never silently rename or renumber a branch that has already been pushed.
+- Before starting an independent development task:
+  1. Fetch the configured primary remote.
+  2. Determine the target version.
+  3. Create `develop/x.x.x` from the remote `main` branch.
+- Continue using an existing development branch only for follow-up work belonging to the same task or pull request.
+- Do not automatically continue using a development branch after its task is complete or its pull request has been opened.
+- Before pushing, verify that the branch is either `develop/x.x.x` or exactly `update`.
+- The `update` branch is a long-lived planning branch. It may contain only planning, architecture adjustments, implementation plans, documentation organization, planning metadata, and repository-rule maintenance.
+- Do not use `update` for feature implementation, application testing, or ordinary development pull requests.
+- Pull requests from `update` to `main` use merge commits and must not delete `update`. Ordinary `develop/x.x.x` pull requests may use squash merge and delete their branches.
+- The root `VERSION` file is the sole source of the current completed product version. If it does not exist before the first batch, create it with the Phase 0 baseline `0.1.0`.
+- At development-batch completion, update `VERSION` to the batch target version and include it in the batch commit.
+- Planning, documentation, tests-only, formatting, and repository-rule work performed on `update` do not change `VERSION`.
 
-# Development Branch Naming Rule
+# Implementation and Validation Rule
 
-- Every development branch that is pushed to a remote must use the format `develop/x.x.x`, including branches used for pull requests and testing.
-- The exact branch name `update` is the sole exception and may be pushed as the project's planning branch. It may contain only project planning, architecture adjustments, development plans, documentation organization, planning-workspace metadata, and repository-rule maintenance; it must not be used for feature implementation, application testing, or ordinary development pull requests.
-- `update` is a long-lived planning branch. Automated pull requests from `update` to `main` must use a merge commit and must not delete `update`, so later planning work retains ancestry with `main`. Ordinary `develop/x.x.x` branches continue to use squash merge and may be deleted after merging.
-- The `develop` prefix must always start with a lowercase `d`; uppercase or mixed-case variants are not allowed.
-- Before pushing, verify that the branch name either matches `^develop/[0-9]+\.[0-9]+\.[0-9]+$` or is exactly `update`. When pushing `update`, also verify that the commits being pushed remain within the planning-branch scope defined above.
+- Every Phase total implementation plan must define:
+  - Phase-level acceptance criteria.
+  - Required end-to-end capabilities.
+  - Cross-batch integration results.
+  - Milestone completion conditions.
+- Every split implementation plan must define:
+  - Batch acceptance criteria.
+  - Concrete validation items or commands where known.
+  - Required regression scope.
+  - An explicit completion condition.
+- Treat the implementation plan as an acceptance contract, not as permission for a general code audit, dependency audit, coverage campaign, or speculative hardening pass.
+- For Phase-02-03 and later implementation tasks, spend no more than 10 minutes on initial discovery before making the first in-scope implementation change.
+- During initial discovery, inspect only directly affected project code, tests, and public interfaces.
+- Inspect third-party source only when a concrete compiler error, runtime failure, or required failing test cannot be resolved from the local call site, public API, documentation, and reported error. Limit inspection to the smallest relevant symbol and record the reason.
+- Add or change tests only when they:
+  - Prove a new or changed acceptance criterion.
+  - Reproduce an observed defect.
+  - Protect a changed security boundary, persistent-data invariant, or public contract.
+- Do not add tests solely to increase coverage, enumerate hypothetical combinations, verify unchanged library behavior, or duplicate one behavior across multiple test layers.
+- For one changed state transition, prefer one representative success case and one representative failure case at the lowest effective test layer. Add cases only for distinct required business outcomes or an observed failure.
+- Run validation in stages:
+  1. Run the smallest affected-package check during implementation.
+  2. Run the implementation plan's fixed completion gates once against the final candidate.
+- Expand validation only for a recorded concrete risk, such as:
+  - Shared infrastructure changes.
+  - Security-boundary changes.
+  - Persistent-data changes.
+  - Public-contract changes.
+  - Evidence of a regression.
+- Do not repeat a successful check unless relevant code, configuration, dependencies, candidate metadata, or the execution environment changed.
+- Conversation context compaction does not invalidate successful checks. Reconstruct progress from the plan, Git diff, implementation log, and captured command results.
+- If optional investigation or optional test work consumes 15 consecutive minutes without resolving a required failure or advancing production implementation, stop it and return to the shortest in-scope path. Record optional improvements as follow-up items.
+- Do not make standalone code reviews, architecture reviews, severity classifications, or separate review reports default development gates. Perform them only when explicitly requested.
+- Stop when the documented acceptance criteria and fixed completion gates pass with no blocking issue. Do not continue with opportunistic refactors, extra edge cases, or unrelated cleanup.
 
-# Development Branch Lifecycle Rule
-
-- Before starting each new independent development task, fetch the latest state from the repository's configured primary remote, determine the target version under the Automatic Version Management Rule, and create a new branch from that remote's `main` branch.
-- The new branch must use the target version and follow the `develop/x.x.x` naming rule defined above.
-- Continue using the current branch only for follow-up work that belongs to the same active task or pull request.
-- Do not automatically continue working on a development branch after its work is complete or after a pull request has been opened for it.
-- Work that remains entirely within the planning-only scope permitted for the `update` branch is exempt from creating a development branch and may be committed directly on `update`; it does not bump the product version.
-
-# Implementation Plan Acceptance Rule
-
-- Every Phase total implementation plan under `dev/imple/Phase-XX/Phase-XX-总实施方案.md` must define the Phase-level acceptance criteria, including the end-to-end capabilities, cross-batch integration results, and milestone conditions required to consider the Phase complete.
-- Every split implementation plan under `dev/imple/Phase-XX/Phase-XX-XX-*.md` must define acceptance criteria for that batch, including concrete validation items or commands where they can be determined, the necessary regression scope, and an explicit completion condition.
-- Acceptance and validation must remain proportional to the plan's implementation scope, risk, and direct impact. By default, validate the current batch, directly affected behavior, and necessary regressions only.
-- Expand validation beyond the defined scope only when there is a specific risk basis, such as changes to shared infrastructure, security boundaries, persistent data, public contracts, or evidence of a regression. Record the reason for the expanded scope.
-- Stop validation when the documented acceptance criteria have passed and no blocking issue remains. Record non-blocking improvements and unrelated findings as follow-up items instead of extending the current task indefinitely.
-- Do not repeat an already successful validation unless relevant code, configuration, dependencies, or the execution environment changed in a way that could affect its result.
-- Do not make a standalone code or architecture review, a severity classification, or a separate review report a default development gate. Perform such work only when the user explicitly requests it.
-
-# Execution Efficiency Rule
-
-- This rule applies to Phase-02-03 and every later implementation task. The implementation plan is an acceptance contract, not an invitation to perform a general code audit, dependency audit, coverage campaign, or speculative hardening pass.
-- Spend no more than 10 minutes on initial discovery before making the first in-scope implementation change. Read the directly affected project code, tests, and public interfaces only. Do not read third-party dependency source by default.
-- Inspect third-party dependency source only when a concrete compiler error, runtime failure, or required failing test cannot be resolved from the local call site, the dependency's public API/documentation, and the reported error. Limit inspection to the smallest relevant symbol and record the reason in the implementation log.
-- Add or change a test only when it directly proves a new or changed acceptance criterion, reproduces an observed defect, or protects a changed security boundary, persistent-data invariant, or public contract. Do not add tests merely to improve coverage, enumerate hypothetical boundary combinations, test unchanged library behavior, or duplicate the same behavior across unit, integration, and end-to-end layers.
-- For one changed state transition, prefer one representative success case and one representative failure case at the lowest effective test layer. Add more cases only when the implementation plan explicitly requires distinct business outcomes or a concrete failure demonstrates the need.
-- Run validation in stages: the smallest affected-package check during implementation, then the batch plan's fixed completion gates once against the final diff. Expand beyond those gates only for a specific observed regression or documented cross-cutting risk. Record that reason before expanding.
-- A successful check remains valid after conversation context compaction. Reconstruct progress from the implementation plan, Git diff, implementation log, and captured command results, then continue from the first unmet required item. Context compaction alone must never trigger source rereading, new tests, or rerunning successful checks.
-- If optional investigation or optional test work consumes 15 consecutive minutes without resolving a required failure or advancing production implementation, stop it immediately. Return to the shortest in-scope implementation path or record the item as a non-blocking follow-up.
-- As soon as the documented acceptance criteria and fixed completion gates pass with no blocking failure, update the implementation log and version, commit, and stop. Do not spend remaining time on opportunistic refactors, additional edge cases, or unrelated cleanup.
-
-# Acceptance Rehearsal and Immutable Candidate Rule
+# Acceptance Candidate Rule
 
 - Before starting an expensive end-to-end acceptance matrix, run a deterministic preflight against the exact candidate manifest, Bundle, runtime contract, release receipt, and evidence verifier.
-- The preflight must validate manifest/Bundle/runtime-contract/revision binding, evidence attachment paths and hashes, schema and redaction rules, runtime-contract environment templates, and Docker resource-isolation snapshots on the actual acceptance host.
-- Treat acceptance scripts, evidence aggregators, secret scanners, receipt copiers, and cleanup logic as testable infrastructure. Add focused unit or fixture coverage for known failure modes before launching the long-running product matrix.
-- Do not start a full acceptance matrix when a deterministic preflight can detect a runner, evidence, manifest, or environment-contract error.
-- Once a candidate is frozen, any change to application code, acceptance code, evidence verification, release metadata, or runtime-contract handling invalidates all candidate receipts and requires a new candidate revision.
-- Do not repair a failed candidate in place by replacing tags, editing receipts, or reusing evidence from another revision.
-- Separate product failures from acceptance-infrastructure failures. Record the failure category and fix the smallest directly affected layer before rerunning the matrix.
-- Reuse a successful gate only when the candidate manifest, relevant code, configuration, dependencies, and execution environment are unchanged. Otherwise, rerun the affected gate and document the reason.
-- Resource-isolation checks must distinguish owned resources, foreign resources, stopped resources, and disposable anonymous test volumes; never use broad cleanup or global prune to make an isolation check pass.
-- After the final matrix passes, run the evidence verifier against the exact sanitized evidence copied for publication before creating the implementation log and final commit.
+- The preflight must validate:
+  - Manifest, Bundle, runtime-contract, revision, and receipt binding.
+  - Evidence attachment paths and hashes.
+  - Schema and redaction rules.
+  - Runtime-contract environment templates.
+  - Docker resource-isolation snapshots on the actual acceptance host.
+- Treat acceptance runners, evidence aggregators, secret scanners, receipt copiers, and cleanup logic as testable infrastructure.
+- Add focused unit or fixture coverage for known acceptance-infrastructure failure modes before launching the product matrix.
+- Do not start the full matrix when deterministic preflight can detect the failure.
+- Once a candidate is frozen, changes to application code, acceptance code, evidence verification, release metadata, or runtime-contract handling invalidate its receipts and require a new candidate revision.
+- Do not repair a failed candidate by replacing tags, editing receipts, or reusing evidence from another revision.
+- Separate product failures from acceptance-infrastructure failures. Record the category and fix the smallest directly affected layer before rerunning the affected gate.
+- Resource-isolation checks must distinguish owned resources, foreign resources, stopped resources, and disposable anonymous test volumes.
+- Never use broad cleanup or global prune to make an isolation check pass.
+- After the final matrix passes, run the evidence verifier against the exact sanitized evidence selected for publication.
 
 # Implementation Log Rule
 
-- After completing each implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding development record under `dev/logs/Phase-XX/` before reporting the plan complete.
-- Mirror the plan's phase directory and Markdown filename. For example, `dev/imple/Phase-00/Phase-00-01-工程骨架与基础设施.md` must be recorded in `dev/logs/Phase-00/Phase-00-01-工程骨架与基础设施.md`.
-- Each record must describe the work actually completed, files changed, validation commands and results, deviations from the plan, and known limitations or follow-up items.
-- Record only work and checks that were actually performed; never present planned or unverified work as completed.
+- After completing an implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding record under `dev/logs/Phase-XX/`.
+- Mirror the plan's Phase directory and Markdown filename.
+- Each record must contain:
+  - Work actually completed.
+  - Files actually changed.
+  - Validation commands actually executed and their results.
+  - Deviations from the plan.
+  - Known limitations and follow-up items.
+- Never record planned or unverified work as completed.
+- Complete the implementation log before updating the final version and creating the completion commit.
 
-# Platform Usage Rule
+# Active Platform Rule
 
-- Phase 0 and Phase-01-01 completed the original native Windows PowerShell and Unix Bash dual-platform baseline through product version `0.2.1`. Phase-01-02 through Phase 12 were implemented and accepted in WSL2/Linux with Bash as the maintained lifecycle path.
-- Phase 13 through Phase 15 complete business, plugin, alerting, and dual-frontend product capabilities in the maintained WSL2/Linux and Bash environment. Kubernetes is not a prerequisite for implementing or accepting these capabilities.
-- Phase 16 is the explicit Linux Compose productization stage. Its supported implementation and acceptance environment is Linux `amd64`; the total implementation plan must define and actually run the required product matrix on a real Linux `amd64` Docker server.
-- Phase 16 does not add or claim macOS, Windows, or `linux/arm64` product support. Cross-compilation, OCI metadata inspection, emulation, or artifacts produced by an earlier batch are not acceptance requirements for this stage and must not block its completion.
-- Phase 16 must provide one shared containerized product lifecycle implementation for the maintained Linux environment. It does not require MySQL, Kafka, Elasticsearch, GoPulse services, Exporter processes, or either Frontend application to become native host services.
-- The existing `scripts/*.ps1` files remain frozen at the `0.2.1` capability baseline and are historical artifacts; do not extend them into an implementation of current Compose behavior.
-- Phase 17 performs pre-Kubernetes engineering acceptance on the complete Compose product. It must not make Kubernetes a condition for proving that GoPulse's business and observability systems work.
-- Phase 18 through Phase 20 use WSL2/Linux as the primary Kubernetes implementation, application-testing, and integration-acceptance environment. Keep the active repository checkout in the WSL Linux filesystem, such as `/home/<user>/src/GoPulse`, rather than under `/mnt/c`, `/mnt/d`, or another Windows-mounted filesystem, and use only one Docker daemon for that workspace.
-- Phase 18 through Phase 20 must preserve the Linux `amd64` Compose product, lifecycle, release, backup, and upgrade contracts delivered by Phase 16 where directly affected.
+- The maintained product implementation and acceptance environment is Linux `amd64` with Bash.
+- Kubernetes is a deployment environment, not a prerequisite for proving that GoPulse's business and observability systems work.
+- Phase 18 through Phase 20 use WSL2/Linux as the primary Kubernetes implementation, application-testing, and integration-acceptance environment.
+- Keep the active Phase 18–20 checkout in the WSL Linux filesystem, such as `/home/<user>/src/GoPulse`, rather than under `/mnt/c`, `/mnt/d`, or another Windows-mounted filesystem.
+- Use only one Docker daemon for the active workspace.
+- Preserve the Linux `amd64` Compose product, lifecycle, release, backup, and upgrade contracts delivered by Phase 16 wherever later work directly affects them.
+- Existing `scripts/*.ps1` files are frozen at the `0.2.1` capability baseline and are historical artifacts. Do not extend them with current Compose or Kubernetes behavior.
