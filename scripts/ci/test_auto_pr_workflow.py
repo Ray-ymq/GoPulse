@@ -18,12 +18,27 @@ class AutoPRWorkflowTest(unittest.TestCase):
         workflow = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")
 
         create_position = workflow.index("- name: Create or find pull request")
-        merge_position = workflow.index("- name: Enable auto-merge")
+        merge_position = workflow.index("- name: Merge pull request")
         self.assertLess(create_position, merge_position)
         self.assertNotIn("Wait for pull-request CI", workflow)
         self.assertNotIn("gh run watch", workflow)
+        self.assertNotIn("gh pr create", workflow)
+        self.assertNotIn("gh pr merge", workflow)
+        self.assertIn('"repos/${GH_REPO}/pulls"', workflow)
+        self.assertIn('"repos/${GH_REPO}/pulls/${PR_NUMBER}/merge"', workflow)
         self.assertNotIn("actions: read", workflow)
         self.assertFalse(Path(".github/workflows/ci.yml").exists())
+
+    def test_merge_uses_expected_user_token_and_creation_uses_job_token(self):
+        workflow = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            workflow.count("GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}"),
+            2,
+        )
+        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 1)
+        self.assertIn("login=\"$(gh api user --jq '.login')\"", workflow)
+        self.assertIn("if [[ \"$login\" != 'Ray-ymq' ]]", workflow)
 
     def test_update_push_runs_governance_only(self):
         caller = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")

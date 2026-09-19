@@ -1,8 +1,8 @@
-# Repository settings required:
-# - Settings > Actions > General > Allow GitHub Actions to create and approve pull requests
-# - Settings > General > Pull Requests > Allow auto-merge
-# - The push quality gates are authoritative because PRs created with GITHUB_TOKEN
-#   produce approval-required pull_request workflow runs.
+# Repository secret required:
+# - RAY_GITHUB_TOKEN must contain a fine-grained token owned by
+#   Ray-ymq with Contents and Pull requests read/write access to this repository.
+# - The push quality gates are authoritative; PR mutations fail closed unless the
+#   configured token authenticates as Ray-ymq.
 
 name: Auto PR and Merge
 
@@ -34,7 +34,7 @@ jobs:
   open-and-merge:
     if: github.actor == 'Ray-ymq'
     needs: quality-gates
-    name: Open PR and enable auto-merge
+    name: Open PR and merge
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -42,6 +42,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Verify pull request identity
+        env:
+          GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo 'RAY_GITHUB_TOKEN is not configured.' >&2
+            exit 1
+          fi
+
+          login="$(gh api user --jq '.login')"
+          if [[ "$login" != 'Ray-ymq' ]]; then
+            printf 'RAY_GITHUB_TOKEN must authenticate as Ray-ymq; got %s.\n' "$login" >&2
+            exit 1
+          fi
 
       - name: Detect branch file changes
         id: changes
@@ -63,6 +81,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          HEAD_OWNER: ${{ github.repository_owner }}
           HEAD_BRANCH: ${{ github.ref_name }}
           HEAD_SHA: ${{ github.sha }}
         shell: bash
@@ -70,12 +89,12 @@ jobs:
           set -euo pipefail
 
           pr_number="$(
-            gh pr list \
-              --repo "$GH_REPO" \
-              --base "$BASE_BRANCH" \
-              --head "$HEAD_BRANCH" \
-              --state open \
-              --json number \
+            gh api \
+              --method GET \
+              "repos/${GH_REPO}/pulls" \
+              -f state=open \
+              -f base="$BASE_BRANCH" \
+              -f head="${HEAD_OWNER}:${HEAD_BRANCH}" \
               --jq '.[0].number // empty'
           )"
 
@@ -95,20 +114,17 @@ jobs:
                 "$GITHUB_RUN_ID"
             )"
 
-            pr_url="$(
-              gh pr create \
-                --repo "$GH_REPO" \
-                --base "$BASE_BRANCH" \
-                --head "$HEAD_BRANCH" \
-                --title "$title" \
-                --body "$body"
-            )"
             pr_number="$(
-              gh pr view "$pr_url" \
-                --repo "$GH_REPO" \
-                --json number \
+              gh api \
+                --method POST \
+                "repos/${GH_REPO}/pulls" \
+                -f base="$BASE_BRANCH" \
+                -f head="${HEAD_OWNER}:${HEAD_BRANCH}" \
+                -f title="$title" \
+                -f body="$body" \
                 --jq '.number'
             )"
+            pr_url="${GITHUB_SERVER_URL}/${GH_REPO}/pull/${pr_number}"
             echo "Created PR #${pr_number}: ${pr_url}"
           else
             pr_url="${GITHUB_SERVER_URL}/${GH_REPO}/pull/${pr_number}"
@@ -120,10 +136,10 @@ jobs:
             echo "url=${pr_url}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Enable auto-merge
+      - name: Merge pull request
         if: steps.changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           HEAD_BRANCH: ${{ github.ref_name }}
           HEAD_SHA: ${{ github.sha }}
@@ -135,43 +151,41 @@ jobs:
 
           if [[ "$HEAD_BRANCH" == "update" ]]; then
             merge_strategy="merge"
-            merge_args=(
-              "$PR_NUMBER"
-              --repo "$GH_REPO"
-              --merge
-              --match-head-commit "$HEAD_SHA"
-            )
           else
             merge_strategy="squash"
-            merge_args=(
-              "$PR_NUMBER"
-              --repo "$GH_REPO"
-              --squash
-              --delete-branch
-              --match-head-commit "$HEAD_SHA"
-            )
           fi
 
           max_attempts=20
           retry_delay_seconds=20
-          auto_merge_attempts=0
+          merge_attempts=0
 
           for attempt in $(seq 1 "$max_attempts"); do
-            auto_merge_attempts="$attempt"
+            merge_attempts="$attempt"
 
             set +e
-            output="$(gh pr merge "${merge_args[@]}" --auto 2>&1)"
+            output="$(
+              gh api \
+                --method PUT \
+                "repos/${GH_REPO}/pulls/${PR_NUMBER}/merge" \
+                -f merge_method="$merge_strategy" \
+                -f sha="$HEAD_SHA" \
+                2>&1
+            )"
             status=$?
             set -e
 
-            if [[ "$status" -eq 0 ]]; then
+            if [[ "$status" -eq 0 ]] && jq -e '.merged == true' >/dev/null <<<"$output"; then
               if [[ -n "$output" ]]; then
                 printf '%s\n' "$output"
               fi
               break
             fi
 
-            if ! grep -Eiq 'unstable status|mergeable state.*unknown|still calculating|checks? (pending|in progress)' <<<"$output"; then
+            if [[ "$status" -eq 0 ]]; then
+              status=1
+            fi
+
+            if ! grep -Eiq 'not mergeable|mergeable state.*unknown|still calculating|base branch was modified|checks? (pending|in progress)' <<<"$output"; then
               printf '%s\n' "$output" >&2
               exit "$status"
             fi
@@ -181,7 +195,7 @@ jobs:
               exit "$status"
             fi
 
-            printf 'Auto-merge enable attempt %s/%s failed while GitHub is still stabilizing PR state; retrying in %ss.\n' \
+            printf 'Merge attempt %s/%s failed while GitHub is still stabilizing PR state; retrying in %ss.\n' \
               "$attempt" \
               "$max_attempts" \
               "$retry_delay_seconds"
@@ -189,8 +203,12 @@ jobs:
             sleep "$retry_delay_seconds"
           done
 
-          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: auto after authoritative push gates\n- Head commit: `%s`\n- Auto-merge enable attempts: %s\n' \
+          if [[ "$HEAD_BRANCH" != "update" ]]; then
+            gh api --method DELETE "repos/${GH_REPO}/git/refs/heads/${HEAD_BRANCH}"
+          fi
+
+          printf '### Auto PR and Merge\n\n- PR: %s\n- Strategy: %s\n- Mode: REST merge after authoritative push gates\n- Head commit: `%s`\n- Merge attempts: %s\n' \
             "$PR_URL" \
             "$merge_strategy" \
             "$HEAD_SHA" \
-            "$auto_merge_attempts" >> "$GITHUB_STEP_SUMMARY"
+            "$merge_attempts" >> "$GITHUB_STEP_SUMMARY"
