@@ -146,7 +146,9 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		}
 		p.Logger.Transient(record)
 		metrics.Add("retrying", 1)
-		err = p.Sleep(lease.Context(), delay)
+		retryCtx, retryCancel := mergeContext(ctx, lease.Context())
+		err = p.Sleep(retryCtx, delay)
+		retryCancel()
 		metrics.Add("retrying", -1)
 		if err != nil {
 			return ErrOwnershipLost
@@ -172,23 +174,40 @@ func (p *Processor) commit(ctx context.Context, record Record, lease Lease, iden
 		}
 		componentmetrics.Active().Observe("records_total", time.Since(started), kind, source, "commit", outcome)
 	}()
-	if !lease.Valid() {
-		return ErrOwnershipLost
-	}
-	commitCtx, cancel := mergeContext(ctx, lease.Context())
-	defer cancel()
-	err := p.Committer.Commit(commitCtx, record)
-	componentmetrics.Dependency("kafka", err)
-	if err != nil {
-		if !lease.Valid() || lease.Context().Err() != nil {
+	// Never advance to another record until this offset is acknowledged. Retry
+	// only while this exact lease is valid; exhaustion terminates the process.
+	delay := p.RetryMin
+	for attempt := 0; attempt < 3; attempt++ {
+		if ctx.Err() != nil || !lease.Valid() {
 			return ErrOwnershipLost
 		}
-		return ErrCommitFailed
+		commitCtx, cancel := mergeContext(ctx, lease.Context())
+		err := p.Committer.Commit(commitCtx, record)
+		cancel()
+		componentmetrics.Dependency("kafka", err)
+		if ctx.Err() != nil || !lease.Valid() {
+			return ErrOwnershipLost
+		}
+		if err == nil {
+			return nil
+		}
+		if attempt == 2 {
+			return ErrCommitFailed
+		}
+		retryCtx, retryCancel := mergeContext(ctx, lease.Context())
+		componentmetrics.Active().Add("retrying", 1)
+		err = p.Sleep(retryCtx, delay)
+		componentmetrics.Active().Add("retrying", -1)
+		retryCancel()
+		if err != nil {
+			return ErrOwnershipLost
+		}
+		delay *= 2
+		if delay > p.RetryMax {
+			delay = p.RetryMax
+		}
 	}
-	if !lease.Valid() {
-		return ErrOwnershipLost
-	}
-	return nil
+	return ErrCommitFailed
 }
 func sleep(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)

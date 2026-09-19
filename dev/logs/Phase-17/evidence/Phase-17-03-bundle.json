@@ -1,0 +1,15 @@
+{
+  "version": "1.14.3",
+  "revision": "307258baadd60c1f49b470aa976d4be85d947b6d",
+  "bundle_sha256": "sha256:756c957c1b76c180e56d73bcd106cefb0adda755ded6bcb0ea1b575423a7ad2e",
+  "runtime_contract": {
+    "path": "deploy/runtime-contracts.json",
+    "sha256": "sha256:0be585517349b44eed47d6a826ecb727e87371014d697c94664bb8fc581264a7"
+  },
+  "runtime_contract_schema": {
+    "path": "deploy/runtime-contracts.schema.json",
+    "sha256": "sha256:de0d89b1d2a9e872b6a1ad54f5fe606cb65d0f10fd01b940e94a3936f2070f45"
+  },
+  "manifest_sha256": "sha256:b9a3d6b54bff0c3ce45f02d884e5d93fa82e3fd94be6a4d219ad9f1ae9a1df7e",
+  "archive_sha256": "sha256:4975c6e0ced975b453719d79e01e33de1c9adfdf0825512371bc2f72aafe0db6"
+}

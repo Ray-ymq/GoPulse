@@ -106,7 +106,16 @@ func TestIntegrationBusinessWorkerEndToEndRetryDeadAndShutdownRedelivery(t *test
 		t.Fatal("worker did not start the shutdown-redelivery event")
 	}
 	stop()
-	waitRuntime(t, done)
+	// A handler that cannot finish within the drain budget must report a timeout,
+	// while still canceling processing and leaving the delivery available to retry.
+	select {
+	case err := <-done:
+		if err == nil || err.Error() != "shutdown_timeout" {
+			t.Fatalf("Runtime.Run() error = %v, want shutdown_timeout", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runtime did not stop within the shutdown budget")
+	}
 	select {
 	case <-blocked.stopped:
 	default:

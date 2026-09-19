@@ -1,0 +1,234 @@
+{
+  "passed": true,
+  "version": "1.14.3",
+  "revision": "d26e2eba64c5052827211b85b94d43ec6f476aab",
+  "contract_sha256": "0be585517349b44eed47d6a826ecb727e87371014d697c94664bb8fc581264a7",
+  "scenarios": [
+    {
+      "name": "Linux amd64 owned Compose product booted",
+      "project": "gopulse-runtime-96b15249cc0c"
+    },
+    {
+      "name": "six checksum-verified official exporter processes started without host ports"
+    },
+    {
+      "name": "twelve processes: four paths, GET-only, query/body rejection, JSON, cache and health alias"
+    },
+    {
+      "name": "missing/short secret, loopback, mode, range and credential reuse fail before listening"
+    },
+    {
+      "name": "edge replaces IDs; Backend/internal errors and logs correlate; internal probes blocked"
+    },
+    {
+      "name": "mysql hard/soft dependency matrix"
+    },
+    {
+      "name": "rabbitmq hard/soft dependency matrix"
+    },
+    {
+      "name": "kafka hard/soft dependency matrix"
+    },
+    {
+      "name": "elasticsearch hard/soft dependency matrix"
+    },
+    {
+      "name": "victoriametrics hard/soft dependency matrix"
+    },
+    {
+      "name": "redis hard/soft dependency matrix"
+    },
+    {
+      "name": "monitor is soft for social API"
+    },
+    {
+      "name": "six official plugins installed and started under Monitor supervision"
+    },
+    {
+      "name": "exporter drains with source disconnected",
+      "exit_code": 0,
+      "elapsed_seconds": 0.262
+    },
+    {
+      "name": "Backend disconnected log drain deadline",
+      "exit_code": 1,
+      "elapsed_seconds": 5.413
+    },
+    {
+      "name": "backend SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.421
+    },
+    {
+      "name": "business-worker SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.234
+    },
+    {
+      "name": "search-indexer SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.259
+    },
+    {
+      "name": "router SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.131
+    },
+    {
+      "name": "marshaller SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.139
+    },
+    {
+      "name": "monitor SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.266
+    },
+    {
+      "name": "redis-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.255
+    },
+    {
+      "name": "mysql-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.236
+    },
+    {
+      "name": "rabbitmq-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.226
+    },
+    {
+      "name": "kafka-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.232
+    },
+    {
+      "name": "elasticsearch-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.219
+    },
+    {
+      "name": "victoriametrics-exporter SIGTERM",
+      "exit_code": 0,
+      "elapsed_seconds": 0.288
+    },
+    {
+      "name": "backend SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.43
+    },
+    {
+      "name": "business-worker SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.243
+    },
+    {
+      "name": "search-indexer SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.239
+    },
+    {
+      "name": "router SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.119
+    },
+    {
+      "name": "marshaller SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.143
+    },
+    {
+      "name": "monitor SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.271
+    },
+    {
+      "name": "redis-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.255
+    },
+    {
+      "name": "mysql-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.239
+    },
+    {
+      "name": "rabbitmq-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.214
+    },
+    {
+      "name": "kafka-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.216
+    },
+    {
+      "name": "elasticsearch-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.22
+    },
+    {
+      "name": "victoriametrics-exporter SIGINT",
+      "exit_code": 0,
+      "elapsed_seconds": 0.224
+    },
+    {
+      "name": "all processes restart after both signals; no detached plugin container/process remains"
+    },
+    {
+      "name": "twelve component log schemas and secret/userinfo/path scans"
+    }
+  ],
+  "logs": {
+    "backend": {
+      "records": 41,
+      "sha256": "79c09d64c5066baa60d0f3dacafc0a52559b6e4cfbbf3cdfdaded8659a4cb8e5"
+    },
+    "business-worker": {
+      "records": 9,
+      "sha256": "a86b253534c451d9aefb3f7819d70508d7da2decd9e4a6c96948e346fca3bd00"
+    },
+    "search-indexer": {
+      "records": 7,
+      "sha256": "9fa2b12b8fb3174117a407cad781612723bc9cc6b50bc2a9fb245938855eca7f"
+    },
+    "router": {
+      "records": 157,
+      "sha256": "496ed7325dc465f07612bf5b22b0e3acff3be2d0e0bae39a0214e3817c748bdf"
+    },
+    "marshaller": {
+      "records": 154,
+      "sha256": "a958160e61ffbbf1db1c6155150097d1494286218efa737686e0f209b4e31abb"
+    },
+    "monitor": {
+      "records": 131,
+      "sha256": "b2199165d00512949d29c38135a16f0de653e7bef2a93905f46362f1045619d7"
+    },
+    "redis-exporter": {
+      "records": 11,
+      "sha256": "8976eaa3209515c11458e0db89e2cf6c99be88c6fa20d459b96f2ee1f7e1fc6c"
+    },
+    "mysql-exporter": {
+      "records": 7,
+      "sha256": "4460c92b546bee1393a7e46dcda01431095bb929f66fffd9879e811af7f47610"
+    },
+    "rabbitmq-exporter": {
+      "records": 7,
+      "sha256": "7ce76e36c8d051aa8ce5ea2718e62dd8d97f82bc81757f8a1adade0a8cb0a31b"
+    },
+    "kafka-exporter": {
+      "records": 7,
+      "sha256": "a3ae4135a24a2c02eae12e4ad99c09d70bebf6eb4996eab2240e730c40b13310"
+    },
+    "elasticsearch-exporter": {
+      "records": 7,
+      "sha256": "87f227b82a38f4f24f3dfcd2b2306a8847fb6f8e7b868f3f8f8d635a0aaf717e"
+    },
+    "victoriametrics-exporter": {
+      "records": 7,
+      "sha256": "87829c862d379b59ddf4de2958c5f4919f268c08da4c4644180869c87a8b067f"
+    }
+  }
+}

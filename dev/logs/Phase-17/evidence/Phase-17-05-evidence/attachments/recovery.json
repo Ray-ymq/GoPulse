@@ -1,0 +1,451 @@
+{
+  "schema": 1,
+  "manifest_sha256": "ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+  "candidate": {
+    "version": "1.14.5",
+    "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+    "images": {
+      "backend": {
+        "ref": "127.0.0.1:15006/backend:1.14.5-candidate-7e87bca62b1f@sha256:52901333e1a518bcb860c52f8a1df149a6b7a8027954aa2b8d9ef83645952063",
+        "platforms": {
+          "linux/amd64": "sha256:167f75a11be88ca1aeb943e7bc633f1a76fc2e87e52e27be1555c583442928ef"
+        }
+      },
+      "business-worker": {
+        "ref": "127.0.0.1:15006/business-worker:1.14.5-candidate-7e87bca62b1f@sha256:d27e10c3440aa06813293384e187ed8ef8c3b6de6d83a5fdf9273449a15d16e9",
+        "platforms": {
+          "linux/amd64": "sha256:cf8398fe1a203549ccea75ad6103f4f96da4fdc27849bc85eaaf687b3e21c6da"
+        }
+      },
+      "search-indexer": {
+        "ref": "127.0.0.1:15006/search-indexer:1.14.5-candidate-7e87bca62b1f@sha256:ad6e4ba03f84316a383a8a49e8c6408f39cd25db6c1491c346db13af95aae2be",
+        "platforms": {
+          "linux/amd64": "sha256:9a76c448b50aa9135bf5760cefb4e483847d08a2733c6b8a8a1b40860228a053"
+        }
+      },
+      "frontend": {
+        "ref": "127.0.0.1:15006/frontend:1.14.5-candidate-7e87bca62b1f@sha256:a84ccd67330fcd78a22c2bcb169da698146d2664706936247b2bac415c6f26ea",
+        "platforms": {
+          "linux/amd64": "sha256:69ff9d565db2a15851e084bb8c91762c4677e33ecf9f117be7992f12c74fa566"
+        }
+      },
+      "admin-frontend": {
+        "ref": "127.0.0.1:15006/admin-frontend:1.14.5-candidate-7e87bca62b1f@sha256:2caa0defdfa8d1e0d9aa2cf23747e3ddb45614b5fa19096ad4179495db813b94",
+        "platforms": {
+          "linux/amd64": "sha256:e7a852ee8b0dd6f29a83cea650bf3e1423656189c6a859ea6b4d64fb5246456e"
+        }
+      },
+      "router": {
+        "ref": "127.0.0.1:15006/router:1.14.5-candidate-7e87bca62b1f@sha256:30125c1ecc5f0e5256719987c27de25f8a6640f22129c386fbb91040b2d4e090",
+        "platforms": {
+          "linux/amd64": "sha256:96ae76fff1f913f6cb4fea2895a75b3fcf28a42ffaa5f32b7dd249e73ac3ad67"
+        }
+      },
+      "marshaller": {
+        "ref": "127.0.0.1:15006/marshaller:1.14.5-candidate-7e87bca62b1f@sha256:7a434f73c0a11352a4182148135cc831c7cd7cca3f15efd95a8ea22bc7d35931",
+        "platforms": {
+          "linux/amd64": "sha256:2afb27c3a9bc2c72f41525b982e527cfcfebfb923efcc6234428e32351fd9dce"
+        }
+      },
+      "monitor": {
+        "ref": "127.0.0.1:15006/monitor:1.14.5-candidate-7e87bca62b1f@sha256:c821b24681088d16d7b0fcdd631560c7bcd7e88705480660647e8c97ca5fd05a",
+        "platforms": {
+          "linux/amd64": "sha256:86a9f274a8b2a4b84a6597111c26760e4a642fd43b0bb7ae5007cf143e08d817"
+        }
+      },
+      "redis-exporter": {
+        "ref": "127.0.0.1:15006/redis-exporter:1.14.5-candidate-7e87bca62b1f@sha256:50ea1fea54d48059b9d66009b79d2c564e83ed44da0c075ffae1101b316a5bf7",
+        "platforms": {
+          "linux/amd64": "sha256:897281c34dc2ccbd0525bb1e94c7c0ed1f2d75dd1c4c28c71625d019474919c4"
+        }
+      }
+    },
+    "plugins": [
+      {
+        "id": "redis-exporter",
+        "version": "1.14.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:bb5bf154ebc10baff89b4986848ef817874f5d8872bd598f1f5531b10cee52ea",
+        "entrypoint_sha256": "sha256:8e5caffeeccca5c60281553ce343b8f4cd0c01277f570e1c9d4858833d705091",
+        "schema_sha256": "sha256:31f00ae09c7aa46b6a221e2ea310aa077cdda13482a2f3688ae067923e599c81"
+      },
+      {
+        "id": "mysql-exporter",
+        "version": "1.14.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:7236843259591afc3f5712d9bf2796258699027fd5174b374332a048338c1888",
+        "entrypoint_sha256": "sha256:2c6066cc69c0befae183e8bfb9ed1e510eb78dd9fb1c8a9c769855e5221e4b33",
+        "schema_sha256": "sha256:9999fc8409f324043bdbe77387c62866f281a18617457c1e245120f0cc7e215c"
+      },
+      {
+        "id": "rabbitmq-exporter",
+        "version": "1.14.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:a740574b2eed12b5459c0446581ce22f5db31131edfefcb651cdff3e452586db",
+        "entrypoint_sha256": "sha256:177518f218cd20898b9d7ce1d72304f06bbe22ed231a6b25f05d1cdbd87b1588",
+        "schema_sha256": "sha256:a2a8bfb775a66ae6342e42676cc7a0fa3a0e88c93b7f94281b5744ee48e5062d"
+      },
+      {
+        "id": "kafka-exporter",
+        "version": "1.14.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:4025c72f8fbdc07f2a3909731fb6df677f22558ad847c25edee4f4b74071991c",
+        "entrypoint_sha256": "sha256:f3a896dae3ce1522858ef98433d9395ec6af4a27ed651b239fffd00bcc8e8061",
+        "schema_sha256": "sha256:b1ab7867198f3b111fcd48df80136eab11a9c81e13a91a302027fd30a7e040bb"
+      },
+      {
+        "id": "elasticsearch-exporter",
+        "version": "1.14.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:a09e3630cdea098e35fdcbce5f1399525917e1dfa055dbb94f1a66798cff5b51",
+        "entrypoint_sha256": "sha256:43ba9a137ae3c850acdd402490e3fed1aa6d6523e147a0536d9310bceb00e07e",
+        "schema_sha256": "sha256:2c710358ff0e1294a8fa63328cdb7e3c5f7facbd3081d2e963e00fedaf498a54"
+      },
+      {
+        "id": "victoriametrics-exporter",
+        "version": "1.14.5",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "current",
+        "archive_sha256": "sha256:dbd8403c57b30d4f0a25b55a464d4a244bbabcbffc0f46fb70748c1511704583",
+        "entrypoint_sha256": "sha256:8024a5fcd0e91f3431c74ae54d25b84267738fc61e7bf9eee488e7db8f5f8096",
+        "schema_sha256": "sha256:203f94d02f78076222b0a3ae21b7a7e8a3f890e202b34dfd583b97d0bfeed305"
+      },
+      {
+        "id": "redis-exporter",
+        "version": "1.9.4",
+        "os": "linux",
+        "arch": "amd64",
+        "purpose": "upgrade-only",
+        "archive_sha256": "sha256:d0cbd15b13cb7375ffb900992a0579ef204c5051b8dc465b2463b779f8d44a89",
+        "entrypoint_sha256": "sha256:20978fc780e7531d6c130caf542d7e8ba6fe0e6842ba0610825d5e716941f2fa",
+        "schema_sha256": ""
+      }
+    ]
+  },
+  "completed": [
+    "source-seeded",
+    "source-api-continuity",
+    "source-backup-inspected",
+    "target-api-continuity",
+    "phase17-current-backup-restore-passed",
+    "owned-cleanup-and-isolation-passed"
+  ],
+  "backups": {
+    "source": {
+      "sha256": "1c4b850725d005384984239bccb25d7122a9115992da93147f0e69b6ef178aa9",
+      "inspection": {
+        "cipher": "AES-256-GCM",
+        "command": "backup-inspect",
+        "domains": 6,
+        "files": 8,
+        "finished": "2026-09-18T19:02:07.30211241Z",
+        "format": 1,
+        "iterations": 600000,
+        "kdf": "PBKDF2-HMAC-SHA256",
+        "operation_id": "e42ba1b4cda294d2d62b929225d44c6d5b83cd8a4c8fdfa584a41474a045fa4e",
+        "platform": "linux/amd64",
+        "release_manifest_digest": "sha256:ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+        "schema": 1,
+        "scope": "authenticated format only; does not establish data consistency or restore readiness",
+        "source_product_version": "1.14.5",
+        "started": "2026-09-18T19:01:43.790762216Z",
+        "status": "passed"
+      },
+      "audit": {
+        "domains": {
+          "elasticsearch": {
+            "cutover": "2026-09-18T19:01:52.509760577Z",
+            "counts": {
+              "gopulse-events-v1-2026.09.18": 6,
+              "gopulse-logs-v1-2026.09.18": 115,
+              "gopulse-post-search-v1-20260918t190002000000000z-5b88b41b": 2,
+              "indices": 3
+            },
+            "start": "2026-09-18T19:00:06.446116179Z",
+            "end": "2026-09-18T19:01:46.050531674Z",
+            "offsets": null,
+            "drained": false
+          },
+          "kafka": {
+            "cutover": "2026-09-18T19:01:52.509760577Z",
+            "counts": {
+              "partitions": 1,
+              "topics": 1
+            },
+            "start": "2026-09-18T19:01:52.509760577Z",
+            "end": "2026-09-18T19:01:52.509760577Z",
+            "offsets": {
+              "gopulse-observability-v1/0": 193
+            },
+            "drained": true
+          },
+          "mysql": {
+            "cutover": "2026-09-18T19:01:52.509760577Z",
+            "counts": {
+              "alert_incidents": 2,
+              "alert_rule_states": 2,
+              "alert_rules": 2,
+              "bootstrap_super_admin": 1,
+              "business_outbox": 2,
+              "comments": 0,
+              "management_audit_events": 15,
+              "notifications": 0,
+              "post_bookmarks": 0,
+              "post_likes": 0,
+              "posts": 2,
+              "schema_migrations": 1,
+              "user_follows": 0,
+              "users": 2
+            },
+            "start": "2026-09-18T19:01:52.509760577Z",
+            "end": "2026-09-18T19:01:52.509760577Z",
+            "offsets": null,
+            "drained": false
+          },
+          "plugins": {
+            "cutover": "2026-09-18T19:01:52.509760577Z",
+            "counts": {
+              "plugins": 6
+            },
+            "start": "2026-09-18T19:01:52.509760577Z",
+            "end": "2026-09-18T19:01:52.509760577Z",
+            "offsets": null,
+            "drained": false,
+            "catalog_digest": "sha256:84916783bb3dd3959a050ac1d7e8512ab9578341dc82ad7828f45a9875ba351f"
+          },
+          "rabbitmq": {
+            "cutover": "2026-09-18T19:01:52.509760577Z",
+            "counts": {
+              "bindings": 20,
+              "exchanges": 6,
+              "queues": 6
+            },
+            "start": "2026-09-18T19:01:52.509760577Z",
+            "end": "2026-09-18T19:01:52.509760577Z",
+            "offsets": null,
+            "drained": true
+          },
+          "victoriametrics": {
+            "cutover": "2026-09-18T19:01:52.509760577Z",
+            "counts": {
+              "samples": 2024,
+              "series": 329
+            },
+            "start": "2026-09-18T19:00:14.826Z",
+            "end": "2026-09-18T19:01:45.161Z",
+            "offsets": null,
+            "drained": false
+          }
+        },
+        "manifest_digest": "sha256:ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84",
+        "payload_sha256": {
+          "config.json": "sha256:53572fed4d3ab2c56559e87ca0e6dbf88c0913793f590963377e478547d803f2",
+          "elasticsearch.json": "sha256:f7f96a71540275b33e0bd23c65ead6dee65f109d4dfb0dc17470f1e0b5d7ad75",
+          "kafka.json": "sha256:1d8a8b81bb714abbe4b5609d62ab63677ca3ee87fd78efe066da52589130de08",
+          "mysql.sql": "sha256:724835dfa2870d40831ed9c8a4dddc42852678880cac8c274198fc82f3405890",
+          "plugins.json": "sha256:2dc9865ed89b4fc9c8260466f2919498949ba3ba7dc409ed6e9928182715bdef",
+          "rabbitmq.json": "sha256:03bbaedce0149c68df5bc9fc854cea26b7ebb0ae77380addd0107c04d11a9f3b",
+          "victoriametrics.native": "sha256:010845e7abbda00666a9cd7305ab35c96e26e0170b9aa6bebf2b0a4ef77259c6"
+        },
+        "public_payload_secret_scan": "passed",
+        "schema": 1,
+        "source_version": "1.14.5",
+        "status": "passed"
+      }
+    }
+  },
+  "restores": {
+    "target": {
+      "cutover": "2026-09-18T19:01:52.509760577Z",
+      "facts_verified": true,
+      "kafka_policy": "drained-new-topic-rebase-zero",
+      "operation_id": "6a48c5bec4d9536e73735404849ee70ac0e2e0e24e377d636df620e9e81bdce6",
+      "schema": 1,
+      "session_policy": "invalidate-on-restore",
+      "source_manifest": "sha256:ad377875d2855635a47c8664d48d906653a264ab1dff11ab0cf4ca260af11c84"
+    }
+  },
+  "comparisons": {
+    "source": {
+      "identity": {
+        "rows": 2,
+        "sha256": "288c0c31ee32e6c0c84f4531e5717c014d620e6cc40fc0c35d34cff9a16d6aa5"
+      },
+      "posts": {
+        "rows": 2,
+        "sha256": "354ce1fa2b91856b971ab868a75897740c044cf8bf3cba64c13ef0a275ec0c46"
+      },
+      "comments": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 15,
+        "sha256": "a6e488c6f6b19bde9fd8beba09fdfb9d7b59a34bc99ce96ead36bd3c95b6bf20"
+      },
+      "incidents": {
+        "rows": 2,
+        "sha256": "d5b356895f9cc8bc1e88017ee93ea4664774d3cf5d650d1b8b4986637d178f06"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 2,
+        "sha256": "f585524f7a94e39d7d9059cdd05b71895df70c6fdaa20b6e267338c1de953220"
+      }
+    },
+    "target": {
+      "identity": {
+        "rows": 2,
+        "sha256": "288c0c31ee32e6c0c84f4531e5717c014d620e6cc40fc0c35d34cff9a16d6aa5"
+      },
+      "posts": {
+        "rows": 2,
+        "sha256": "354ce1fa2b91856b971ab868a75897740c044cf8bf3cba64c13ef0a275ec0c46"
+      },
+      "comments": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "likes": {
+        "rows": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "audit": {
+        "rows": 15,
+        "sha256": "a6e488c6f6b19bde9fd8beba09fdfb9d7b59a34bc99ce96ead36bd3c95b6bf20"
+      },
+      "incidents": {
+        "rows": 2,
+        "sha256": "d5b356895f9cc8bc1e88017ee93ea4664774d3cf5d650d1b8b4986637d178f06"
+      },
+      "bootstrap": {
+        "rows": 1,
+        "sha256": "280c4d14426f9c42056a892954012bc64a6e76b980d19766df686647865448ad"
+      },
+      "rules": {
+        "rows": 2,
+        "sha256": "f585524f7a94e39d7d9059cdd05b71895df70c6fdaa20b6e267338c1de953220"
+      }
+    }
+  },
+  "commands": [
+    {
+      "project_alias": "source",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "46827"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "up",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "backup",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase17-05-final-v5/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase17-05-final-v5/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "backup-inspect",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase17-05-final-v5/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase17-05-final-v5/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "down",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "init",
+      "arguments": [
+        "--port",
+        "45977"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "restore",
+      "arguments": [
+        "--archive",
+        "/home/ray/GoPulse/.run/phase17-05-final-v5/recovery/source/product.gpb",
+        "--passphrase-file",
+        "/home/ray/GoPulse/.run/phase17-05-final-v5/recovery/passphrase"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "verify",
+      "arguments": [],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "target",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-cc488c91ae4f"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    },
+    {
+      "project_alias": "source",
+      "command": "down",
+      "arguments": [
+        "--purge",
+        "--confirm",
+        "gopulse-f80285a64fec"
+      ],
+      "expected_exit": 0,
+      "status": "passed"
+    }
+  ],
+  "status": "passed"
+}

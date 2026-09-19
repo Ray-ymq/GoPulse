@@ -1,0 +1,33 @@
+{
+  "passed": true,
+  "command": "GOPULSE_RELEASE_MANIFEST=.run/phase17-03/release-persistent/release-manifest.json scripts/verify-compose.sh",
+  "exit_code": 0,
+  "platform": "linux/amd64",
+  "revision": "307258baadd60c1f49b470aa976d4be85d947b6d",
+  "project": "gopulse-accept-adfbef8a67bd",
+  "log_sha256": "fb77d412047b434ab7cb79bca6f55e2cb46cc66858feb5cd942bf6b7bf85c634",
+  "checks": [
+    "Complete business and observability topology reached the expected state.",
+    "Image tags, OCI metadata, architecture, non-root runtime contents, signals, and privilege boundaries passed.",
+    "Edge, business, observability networks and loopback-only user ports match the contract.",
+    "Frontend isolation plus Bearer, Basic, and cookie trust boundaries passed.",
+    "Migration, search, and Kafka Topic initialization are idempotent.",
+    "MySQL-backed social reads and writes survived Redis unavailability.",
+    "Durable notification events converged after Business Worker recovery.",
+    "Durable search events converged after Search Indexer recovery.",
+    "victoriametrics failure remained localized and recovered.",
+    "monitor failure remained localized and recovered.",
+    "router failure remained localized and recovered.",
+    "Kafka replacement preserved the topic ID in its declared named data volume.",
+    "All long-running self-built services completed bounded signal shutdown and restart.",
+    "Complete business and observability topology reached the expected state.",
+    "Migration, search, and Kafka Topic initialization are idempotent.",
+    "Full project down/up retained facts and accepted new social and observability activity.",
+    "Standalone Redis Exporter real target, failure, recovery, authentication, and SIGTERM matrix passed.",
+    "Complete business and observability topology reached the expected state.",
+    "Administrator completed official install, stop, start, Metrics, and Events through the browser.",
+    "All six candidate plugins collected real targets through Backend; scoped collector stop preserved siblings and business.",
+    "Phase 12 authoritative full-stack Compose acceptance passed."
+  ],
+  "cleanup": "owned project removed and pre-existing resource/Git snapshots preserved; owned candidate registry subsequently removed"
+}

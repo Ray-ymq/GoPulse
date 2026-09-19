@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "version": "1.14.5",
+  "revision": "7e87bca62b1f94904db3c3ec6ed26d01308e7d8c",
+  "images": {
+    "backend": {
+      "ref": "127.0.0.1:15006/backend:1.14.5-candidate-7e87bca62b1f@sha256:52901333e1a518bcb860c52f8a1df149a6b7a8027954aa2b8d9ef83645952063",
+      "platforms": {
+        "linux/amd64": "sha256:167f75a11be88ca1aeb943e7bc633f1a76fc2e87e52e27be1555c583442928ef"
+      }
+    },
+    "business-worker": {
+      "ref": "127.0.0.1:15006/business-worker:1.14.5-candidate-7e87bca62b1f@sha256:d27e10c3440aa06813293384e187ed8ef8c3b6de6d83a5fdf9273449a15d16e9",
+      "platforms": {
+        "linux/amd64": "sha256:cf8398fe1a203549ccea75ad6103f4f96da4fdc27849bc85eaaf687b3e21c6da"
+      }
+    },
+    "search-indexer": {
+      "ref": "127.0.0.1:15006/search-indexer:1.14.5-candidate-7e87bca62b1f@sha256:ad6e4ba03f84316a383a8a49e8c6408f39cd25db6c1491c346db13af95aae2be",
+      "platforms": {
+        "linux/amd64": "sha256:9a76c448b50aa9135bf5760cefb4e483847d08a2733c6b8a8a1b40860228a053"
+      }
+    },
+    "frontend": {
+      "ref": "127.0.0.1:15006/frontend:1.14.5-candidate-7e87bca62b1f@sha256:a84ccd67330fcd78a22c2bcb169da698146d2664706936247b2bac415c6f26ea",
+      "platforms": {
+        "linux/amd64": "sha256:69ff9d565db2a15851e084bb8c91762c4677e33ecf9f117be7992f12c74fa566"
+      }
+    },
+    "admin-frontend": {
+      "ref": "127.0.0.1:15006/admin-frontend:1.14.5-candidate-7e87bca62b1f@sha256:2caa0defdfa8d1e0d9aa2cf23747e3ddb45614b5fa19096ad4179495db813b94",
+      "platforms": {
+        "linux/amd64": "sha256:e7a852ee8b0dd6f29a83cea650bf3e1423656189c6a859ea6b4d64fb5246456e"
+      }
+    },
+    "router": {
+      "ref": "127.0.0.1:15006/router:1.14.5-candidate-7e87bca62b1f@sha256:30125c1ecc5f0e5256719987c27de25f8a6640f22129c386fbb91040b2d4e090",
+      "platforms": {
+        "linux/amd64": "sha256:96ae76fff1f913f6cb4fea2895a75b3fcf28a42ffaa5f32b7dd249e73ac3ad67"
+      }
+    },
+    "marshaller": {
+      "ref": "127.0.0.1:15006/marshaller:1.14.5-candidate-7e87bca62b1f@sha256:7a434f73c0a11352a4182148135cc831c7cd7cca3f15efd95a8ea22bc7d35931",
+      "platforms": {
+        "linux/amd64": "sha256:2afb27c3a9bc2c72f41525b982e527cfcfebfb923efcc6234428e32351fd9dce"
+      }
+    },
+    "monitor": {
+      "ref": "127.0.0.1:15006/monitor:1.14.5-candidate-7e87bca62b1f@sha256:c821b24681088d16d7b0fcdd631560c7bcd7e88705480660647e8c97ca5fd05a",
+      "platforms": {
+        "linux/amd64": "sha256:86a9f274a8b2a4b84a6597111c26760e4a642fd43b0bb7ae5007cf143e08d817"
+      }
+    },
+    "redis-exporter": {
+      "ref": "127.0.0.1:15006/redis-exporter:1.14.5-candidate-7e87bca62b1f@sha256:50ea1fea54d48059b9d66009b79d2c564e83ed44da0c075ffae1101b316a5bf7",
+      "platforms": {
+        "linux/amd64": "sha256:897281c34dc2ccbd0525bb1e94c7c0ed1f2d75dd1c4c28c71625d019474919c4"
+      }
+    }
+  },
+  "lifecycle": {
+    "ref": "127.0.0.1:15006/lifecycle:1.14.5-candidate-7e87bca62b1f@sha256:6dfa52e08e52ec692ac5671237489f040bf4d6fab330323a5c1128598c1b2a54",
+    "platforms": {
+      "linux/amd64": "sha256:056d1e2995c439a4da0c0d2d43a7e5572faac129c0bfd5a3dde7959c8c705391"
+    }
+  },
+  "third_party": {
+    "mysql": {
+      "ref": "mysql:8.4.0@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0",
+      "platforms": {
+        "linux/amd64": "sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b",
+        "linux/arm64": "sha256:81e9d95d528511718b81cb9c548e1b922976bf359ed1083782bdbbbccf9ad85d"
+      }
+    },
+    "redis": {
+      "ref": "redis:7.2.5-alpine@sha256:6aaf3f5e6bc8a592fbfe2cccf19eb36d27c39d12dab4f4b01556b7449e7b1f44",
+      "platforms": {
+        "linux/amd64": "sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f",
+        "linux/arm64": "sha256:b3b357d72cdf57aa588e746900cf88059ecb96fda06fee3909fa33ce5eb6ab3c"
+      }
+    },
+    "rabbitmq": {
+      "ref": "rabbitmq:3.13.3-management-alpine@sha256:45b2e137b64baeff1f7f4230588be8f1a08b16939a4b64f5da57c59e5dcd3282",
+      "platforms": {
+        "linux/amd64": "sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245",
+        "linux/arm64": "sha256:3369545c94f746d5b4f397b2ea7cd3ba0b236c4bd345e812b5d6f8d21a997423"
+      }
+    },
+    "elasticsearch": {
+      "ref": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2@sha256:9c1e1afc2bda921b35025e21c72ec6e392266995aa35ad6a47887363592718be",
+      "platforms": {
+        "linux/amd64": "sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7",
+        "linux/arm64": "sha256:3cd6866185716285ba60fafe2c2fca101bf849bf31ff31b0e8302b3c3310119d"
+      }
+    },
+    "kafka": {
+      "ref": "apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837",
+      "platforms": {
+        "linux/amd64": "sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26",
+        "linux/arm64": "sha256:c2b5172ab20d66381ec1729796a410fd611135821994526d4d42d2f256054af3"
+      }
+    },
+    "victoriametrics": {
+      "ref": "victoriametrics/victoria-metrics:v1.151.0@sha256:6d164540a04f49ba4e696cbdb70f9fee78be1e94b8f2a1292743a0b1ab8275bd",
+      "platforms": {
+        "linux/amd64": "sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19",
+        "linux/arm64": "sha256:61a4c2c3a0dc70ee0928ab4b702e5b9671dd5aec1c948e5f91536cdcbc9ab18b"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "id": "redis-exporter",
+      "version": "1.14.5",
+      "os": "linux",
+      "arch": "amd64",
+      "purpose": "current",
+      "archive_sha256": "sha256:bb5bf154ebc10baff89b4986848ef817874f5d8872bd598f1f5531b10cee52ea",
+      "entrypoint_sha256": "sha256:8e5caffeeccca5c60281553ce343b8f4cd0c01277f570e1c9d4858833d705091",
+      "schema_sha256": "sha256:31f00ae09c7aa46b6a221e2ea310aa077cdda13482a2f3688ae067923e599c81"
+    },
+    {
+      "id": "mysql-exporter",
+      "version": "1.14.5",
+      "os": "linux",
+      "arch": "amd64",
+      "purpose": "current",
+      "archive_sha256": "sha256:7236843259591afc3f5712d9bf2796258699027fd5174b374332a048338c1888",
+      "entrypoint_sha256": "sha256:2c6066cc69c0befae183e8bfb9ed1e510eb78dd9fb1c8a9c769855e5221e4b33",
+      "schema_sha256": "sha256:9999fc8409f324043bdbe77387c62866f281a18617457c1e245120f0cc7e215c"
+    },
+    {
+      "id": "rabbitmq-exporter",
+      "version": "1.14.5",
+      "os": "linux",
+      "arch": "amd64",
+      "purpose": "current",
+      "archive_sha256": "sha256:a740574b2eed12b5459c0446581ce22f5db31131edfefcb651cdff3e452586db",
+      "entrypoint_sha256": "sha256:177518f218cd20898b9d7ce1d72304f06bbe22ed231a6b25f05d1cdbd87b1588",
+      "schema_sha256": "sha256:a2a8bfb775a66ae6342e42676cc7a0fa3a0e88c93b7f94281b5744ee48e5062d"
+    },
+    {
+      "id": "kafka-exporter",
+      "version": "1.14.5",
+      "os": "linux",
+      "arch": "amd64",
+      "purpose": "current",
+      "archive_sha256": "sha256:4025c72f8fbdc07f2a3909731fb6df677f22558ad847c25edee4f4b74071991c",
+      "entrypoint_sha256": "sha256:f3a896dae3ce1522858ef98433d9395ec6af4a27ed651b239fffd00bcc8e8061",
+      "schema_sha256": "sha256:b1ab7867198f3b111fcd48df80136eab11a9c81e13a91a302027fd30a7e040bb"
+    },
+    {
+      "id": "elasticsearch-exporter",
+      "version": "1.14.5",
+      "os": "linux",
+      "arch": "amd64",
+      "purpose": "current",
+      "archive_sha256": "sha256:a09e3630cdea098e35fdcbce5f1399525917e1dfa055dbb94f1a66798cff5b51",
+      "entrypoint_sha256": "sha256:43ba9a137ae3c850acdd402490e3fed1aa6d6523e147a0536d9310bceb00e07e",
+      "schema_sha256": "sha256:2c710358ff0e1294a8fa63328cdb7e3c5f7facbd3081d2e963e00fedaf498a54"
+    },
+    {
+      "id": "victoriametrics-exporter",
+      "version": "1.14.5",
+      "os": "linux",
+      "arch": "amd64",
+      "purpose": "current",
+      "archive_sha256": "sha256:dbd8403c57b30d4f0a25b55a464d4a244bbabcbffc0f46fb70748c1511704583",
+      "entrypoint_sha256": "sha256:8024a5fcd0e91f3431c74ae54d25b84267738fc61e7bf9eee488e7db8f5f8096",
+      "schema_sha256": "sha256:203f94d02f78076222b0a3ae21b7a7e8a3f890e202b34dfd583b97d0bfeed305"
+    },
+    {
+      "id": "redis-exporter",
+      "version": "1.9.4",
+      "os": "linux",
+      "arch": "amd64",
+      "purpose": "upgrade-only",
+      "archive_sha256": "sha256:d0cbd15b13cb7375ffb900992a0579ef204c5051b8dc465b2463b779f8d44a89",
+      "entrypoint_sha256": "sha256:20978fc780e7531d6c130caf542d7e8ba6fe0e6842ba0610825d5e716941f2fa",
+      "schema_sha256": ""
+    }
+  ],
+  "supported_upgrade_sources": [],
+  "runtime_contract": {
+    "path": "deploy/runtime-contracts.json",
+    "sha256": "sha256:19f31816ec250e7cb2913dcb98e8ecc2e431c432cb984e234764e9d0acf64880"
+  },
+  "runtime_contract_schema": {
+    "path": "deploy/runtime-contracts.schema.json",
+    "sha256": "sha256:de0d89b1d2a9e872b6a1ad54f5fe606cb65d0f10fd01b940e94a3936f2070f45"
+  },
+  "compose": {
+    "path": "deploy/product/compose.yaml",
+    "sha256": "sha256:5153484753c4f931970abad0d1db411911c5ed908cbb826c0130d36d821d9f10"
+  },
+  "bundle_sha256": "sha256:e76134207ef150f9c7f231ab119c87ecb89fe4479909808531ab77b52a445acc"
+}

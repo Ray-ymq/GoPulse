@@ -33,9 +33,9 @@ function setDependencyStatuses(status: ServiceStatus): void {
 
 function applyReadiness(result: ApiResult<ReadinessResponse>): void {
   if (result.type === 'success') {
-    statuses.mysql = result.data.checks.mysql
-    statuses.redis = result.data.checks.redis
-    statuses.rabbitmq = result.data.checks.rabbitmq
+    statuses.mysql = result.data.checks?.mysql ?? 'unknown'
+    statuses.redis = result.data.checks?.redis ?? 'unknown'
+    statuses.rabbitmq = result.data.checks?.rabbitmq ?? 'unknown'
     return
   }
 

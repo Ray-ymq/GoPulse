@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -162,7 +163,7 @@ func (c *Client) statusRequest(ctx context.Context, method, path string, body io
 	return item, nil
 }
 func (c *Client) request(ctx context.Context, method, path string, body io.Reader, contentType string, expectedStatus int) ([]byte, int, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	req, err := componentmetrics.NewRequest(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, 0, monitorUnavailable()
 	}

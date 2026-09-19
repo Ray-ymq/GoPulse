@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net"
 	"net/http"
@@ -28,6 +29,7 @@ var idPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var datePattern = regexp.MustCompile(`^\d{4}\.\d{2}\.\d{2}$`)
 
 var requiredPropertyTypes = map[string]string{
+	"version": "keyword", "revision": "keyword", "event": "keyword", "runtime_contract_version": "keyword", "runtime_mode": "keyword", "listen": "keyword",
 	"@timestamp": "date_nanos", "log_schema_version": "integer", "level": "keyword",
 	"service": "keyword", "module": "keyword", "message": "keyword", "request_id": "keyword",
 	"event_id": "keyword", "event_type": "keyword", "user_id": "long", "post_id": "long",
@@ -112,6 +114,29 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	}
 	payload, readErr := readLimited(response.Body)
 	response.Body.Close()
+	// A pre-1.14.3 daily index can still have the old strict mapping. Add only
+	// the runtime keyword fields to that fixed product index, then retry the
+	// same deterministic document ID once. Never discard a new-schema log.
+	if readErr == nil && response.StatusCode == http.StatusBadRequest {
+		mapping, err := c.do(ctx, http.MethodPut, "/"+index+"/_mapping", strings.NewReader(`{"properties":{"runtime_contract_version":{"type":"keyword"},"runtime_mode":{"type":"keyword"},"listen":{"type":"keyword"},"version":{"type":"keyword"},"revision":{"type":"keyword"},"event":{"type":"keyword"}}}`))
+		if err != nil {
+			return errors.New("runtime log mapping unavailable")
+		}
+		data, e := readLimited(mapping.Body)
+		mapping.Body.Close()
+		var ack struct {
+			Acknowledged bool `json:"acknowledged"`
+		}
+		if e != nil || mapping.StatusCode != http.StatusOK || json.Unmarshal(data, &ack) != nil || !ack.Acknowledged {
+			return errors.New("runtime log mapping rejected")
+		}
+		response, err = c.do(ctx, http.MethodPut, path, bytes.NewReader(request.Document))
+		if err != nil {
+			return err
+		}
+		payload, readErr = readLimited(response.Body)
+		response.Body.Close()
+	}
 	if readErr != nil || (response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated) {
 		return errors.New("Elasticsearch rejected log document")
 	}
@@ -228,7 +253,7 @@ func validAlias(payload []byte, index string) bool {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	req, err := componentmetrics.NewRequest(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, errors.New("Elasticsearch request creation failed")
 	}
@@ -249,4 +274,4 @@ func readLimited(body io.Reader) ([]byte, error) {
 	return value, nil
 }
 
-const templateBody = `{"index_patterns":["gopulse-logs-v1-*"],"template":{"aliases":{"gopulse-logs-v1-read":{}},"mappings":{"dynamic":"strict","properties":{"@timestamp":{"type":"date_nanos"},"log_schema_version":{"type":"integer"},"level":{"type":"keyword"},"service":{"type":"keyword"},"module":{"type":"keyword"},"message":{"type":"keyword"},"request_id":{"type":"keyword"},"event_id":{"type":"keyword"},"event_type":{"type":"keyword"},"user_id":{"type":"long"},"post_id":{"type":"long"},"comment_id":{"type":"long"},"notification_id":{"type":"long"},"outbox_id":{"type":"long"},"method":{"type":"keyword"},"route":{"type":"keyword"},"status":{"type":"long"},"duration_ms":{"type":"long"},"response_bytes":{"type":"long"},"error_code":{"type":"keyword"},"reason":{"type":"keyword"},"operation":{"type":"keyword"},"resource":{"type":"keyword"},"stage":{"type":"keyword"},"result":{"type":"keyword"},"attempt":{"type":"long"},"batch_size":{"type":"long"},"document_count":{"type":"long"},"panic_recovered":{"type":"boolean"},"response_committed":{"type":"boolean"}}}}}`
+const templateBody = `{"index_patterns":["gopulse-logs-v1-*"],"template":{"aliases":{"gopulse-logs-v1-read":{}},"mappings":{"dynamic":"strict","properties":{"runtime_contract_version":{"type":"keyword"},"runtime_mode":{"type":"keyword"},"listen":{"type":"keyword"},"version":{"type":"keyword"},"revision":{"type":"keyword"},"event":{"type":"keyword"},"@timestamp":{"type":"date_nanos"},"log_schema_version":{"type":"integer"},"level":{"type":"keyword"},"service":{"type":"keyword"},"module":{"type":"keyword"},"message":{"type":"keyword"},"request_id":{"type":"keyword"},"event_id":{"type":"keyword"},"event_type":{"type":"keyword"},"user_id":{"type":"long"},"post_id":{"type":"long"},"comment_id":{"type":"long"},"notification_id":{"type":"long"},"outbox_id":{"type":"long"},"method":{"type":"keyword"},"route":{"type":"keyword"},"status":{"type":"long"},"duration_ms":{"type":"long"},"response_bytes":{"type":"long"},"error_code":{"type":"keyword"},"reason":{"type":"keyword"},"operation":{"type":"keyword"},"resource":{"type":"keyword"},"stage":{"type":"keyword"},"result":{"type":"keyword"},"attempt":{"type":"long"},"batch_size":{"type":"long"},"document_count":{"type":"long"},"panic_recovered":{"type":"boolean"},"response_committed":{"type":"boolean"}}}}}`

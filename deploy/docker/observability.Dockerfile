@@ -29,7 +29,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -ldflags='-s -w' -o /out/marshaller ./cmd/marshaller
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS exporter-build
-WORKDIR /src/exporter
+WORKDIR /src/exporters/redis
+COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/redis/go.mod exporters/redis/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
@@ -41,7 +42,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-redis-exporter ./cmd/redis-exporter
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS mysql-exporter-build
-WORKDIR /src/mysql
+WORKDIR /src/exporters/mysql
+COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/mysql/ ./
 ARG TARGETARCH
@@ -50,7 +52,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-mysql-exporter ./cmd/mysql-exporter
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS rabbitmq-exporter-build
-WORKDIR /src/rabbitmq
+WORKDIR /src/exporters/rabbitmq
+COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/rabbitmq/ ./
 ARG TARGETARCH
@@ -59,7 +62,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-rabbitmq-exporter ./cmd/rabbitmq-exporter
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS kafka-exporter-build
-WORKDIR /src/kafka
+WORKDIR /src/exporters/kafka
+COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/kafka/ ./
 ARG TARGETARCH
@@ -68,7 +72,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-kafka-exporter ./cmd/kafka-exporter
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS elasticsearch-exporter-build
-WORKDIR /src/elasticsearch
+WORKDIR /src/exporters/elasticsearch
+COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/elasticsearch/ ./
 ARG TARGETARCH
@@ -77,7 +82,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-elasticsearch-exporter ./cmd/elasticsearch-exporter
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS victoriametrics-exporter-build
-WORKDIR /src/victoriametrics
+WORKDIR /src/exporters/victoriametrics
+COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/victoriametrics/ ./
 ARG TARGETARCH

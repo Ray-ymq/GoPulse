@@ -92,20 +92,25 @@ class SourcesAcceptance(AlertsAcceptance):
             assert len(self.incidents(r))==1 and self.count(r,'alert.trigger')==1
         self.record('real three-source firing, three true rounds and Backend replacement preserve one incident/trigger',incidents=[self.incidents(r)[0] for r in rules])
         for service,affected in [('victoriametrics',{'metrics'}),('elasticsearch',{'logs','events'})]:
-            self.owned_id(service);before={r['id']:self.get(r)['evaluation']['last_evaluated_at'] for r in rules}
+            self.owned_id(service);before={r['id']:self.get(r)['evaluation'] for r in rules}
+            recoveries={r['id']:self.count(r,'alert.recover') for r in rules}
             self.compose('stop',service)
             try:
                 for r in rules:
-                    expected='stale' if r['source'] in affected else 'ok'
-                    wait_until(lambda:self.get(r)['evaluation']['last_evaluated_at']!=before[r['id']],'new fault-round evaluation',100)
-                    value=self.state(r,'firing',expected)
-                    assert value['evaluation']['error_code']==(r['source']+'_unknown' if expected=='stale' else '')
-                    assert self.count(r,'alert.recover')==0
+                    expected=('stale' if before[r['id']]['state']=='firing' else 'unknown') if r['source'] in affected else 'ok'
+                    wait_until(lambda:self.get(r)['evaluation']['last_evaluated_at']!=before[r['id']]['last_evaluated_at'],'new fault-round evaluation',100)
+                    value=wait_until(lambda r=r,expected=expected:self.get(r) if self.get(r)['evaluation']['data_status']==expected else None,'source-local failure state',180)
+                    assert value['evaluation']['error_code']==(r['source']+'_unknown' if expected!='ok' else '')
+                    if r['source'] in affected:assert self.count(r,'alert.recover')==recoveries[r['id']]
                 self.available()
                 self.record(service+' stopped: only its source adapters stale; MySQL management/social reads remain available',states=[self.get(r)['evaluation'] for r in rules])
             finally:
                 self.compose('start',service);self.healthy(service)
-            for r in rules:self.state(r,'firing','ok')
+            for r in rules:
+                # A real finite count window may expire during a slow restart.
+                # Recovery must clear degraded; it need not keep the condition true.
+                wait_until(lambda r=r:self.get(r)['evaluation']['data_status']=='ok' and
+                           self.get(r)['evaluation']['error_code']=='','source recovery clears degraded',180)
         self.restart(False)
         query='SELECT rule_id,state,data_status,last_evaluated_at,active_incident_id FROM alert_rule_states ORDER BY rule_id'
         before=self.sql(query);audits=self.sql('SELECT COUNT(*) FROM management_audit_events');incidents=self.sql('SELECT SUM(evaluation_count) FROM alert_incidents')

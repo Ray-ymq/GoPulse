@@ -59,6 +59,8 @@ def check_schema(value, schema):
 
 def validate(m, version=None, revision=None):
     check_schema(m, load(ROOT / 'deploy/release/release-manifest.schema.json'))
+    if tuple(map(int, m['version'].split('.'))) >= (1, 14, 3) and not {'runtime_contract', 'runtime_contract_schema'} <= m.keys():
+        raise ValueError('runtime contract assets missing')
     if version is not None and m['version'] != version:
         raise ValueError('version mismatch')
     if revision is not None and m['revision'] != revision:

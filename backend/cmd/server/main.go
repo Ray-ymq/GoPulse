@@ -11,8 +11,6 @@ import (
 	"log/slog"
 	stdhttp "net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
@@ -49,6 +47,7 @@ const (
 )
 
 func main() {
+	defer componentmetrics.ReleaseShutdown()
 	stdoutLogger := logging.New("backend", os.Stdout)
 	cfg, err := config.Load()
 	if err != nil {
@@ -72,16 +71,18 @@ func main() {
 	if err = run(cfg, logger); err != nil {
 		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"))
 		if shipper != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.LogShip.ShutdownTimeout)
+			ctx, cancel := componentmetrics.ShutdownContext(cfg.LogShip.ShutdownTimeout)
 			_ = shipper.Close(ctx)
 			cancel()
 		}
 		os.Exit(1)
 	}
 	if shipper != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), cfg.LogShip.ShutdownTimeout)
+		ctx, cancel := componentmetrics.ShutdownContext(cfg.LogShip.ShutdownTimeout)
 		if err := shipper.Close(ctx); err != nil {
 			logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
+			cancel()
+			os.Exit(1)
 		}
 		cancel()
 	}
@@ -224,8 +225,20 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		},
 	}
 
+	signalContext, stopSignals := componentmetrics.SignalContext()
+	defer stopSignals()
+	probes, _ := componentmetrics.NewProbes(signalContext, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
+		if err := mysqlClient.Check(ctx); err != nil {
+			return err
+		}
+		if err := platform.CheckRuntimeSchema(ctx, mysqlClient.DB()); err != nil {
+			return err
+		}
+		return users.ValidateBootstrap(ctx)
+	})
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
+			Probes:        probes,
 			MySQL:         mysqlClient,
 			Redis:         redisClient,
 			RabbitMQ:      rabbitMQChecker,
@@ -254,14 +267,12 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	)
 	server := newHTTPServer(cfg.HTTPAddress(), router)
 
-	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
 	alertCtx, cancelAlerts := context.WithCancel(signalContext)
 	alertDone := make(chan struct{})
 	go func() {
 		defer close(alertDone)
 		if cfg.AlertEvaluationEnabled {
-			alert.NewScheduler(alertRepo, metricClient).WithCounts(logRepository, eventRepository).Run(alertCtx)
+			alert.NewScheduler(alertRepo, metricClient).WithCounts(logRepository, eventRepository).WithLogger(logger).Run(alertCtx)
 		}
 	}()
 	defer func() {
@@ -271,9 +282,8 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		case <-time.After(3 * time.Second):
 		}
 	}()
-	releaseBudget := componentmetrics.BindShutdown(signalContext, shutdownTimeout)
-	defer releaseBudget()
-	internalMetrics, err := componentmetrics.StartConfigured(signalContext, "backend", metrics.Snapshot)
+	componentmetrics.BindShutdown(signalContext, shutdownTimeout)
+	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, probes)
 	if err != nil {
 		return err
 	}
@@ -291,6 +301,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		}
 	}()
 
+	probes.Started()
 	return serveWithDispatcher(signalContext, server, dispatcher, lifecycleLogger)
 }
 
@@ -358,7 +369,7 @@ func serveLogged(ctx context.Context, server *stdhttp.Server, startServer func()
 		serverErrors <- startServer()
 	}()
 
-	logger.Info("backend listening")
+	logger.Info("backend listening", "listen", server.Addr)
 
 	select {
 	case err := <-serverErrors:
@@ -374,6 +385,7 @@ func serveLogged(ctx context.Context, server *stdhttp.Server, startServer func()
 		defer cancel()
 
 		if err := server.Shutdown(shutdownContext); err != nil {
+			_ = server.Close()
 			logger.Error("backend shutdown failed", slog.String("reason", "shutdown_failed"))
 			return fmt.Errorf("HTTP server shutdown failed: %w", err)
 		}

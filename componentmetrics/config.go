@@ -35,6 +35,12 @@ func Mode() string {
 	return mode
 }
 func StartConfigured(ctx context.Context, id string, snapshot Snapshot) (*Listener, error) {
+	return StartConfiguredWithProbes(ctx, id, snapshot, nil)
+}
+
+// StartConfiguredWithProbes serves process probes on the existing private
+// listener. Metrics keep their independent authentication boundary.
+func StartConfiguredWithProbes(ctx context.Context, id string, snapshot Snapshot, probes *Probes) (*Listener, error) {
 	token, err := Token(id)
 	if err != nil {
 		return nil, err
@@ -47,5 +53,12 @@ func StartConfigured(ctx context.Context, id string, snapshot Snapshot) (*Listen
 	if err != nil {
 		return nil, err
 	}
-	return Start(ctx, Mode(), id, h)
+	if probes != nil {
+		h = probes.Wrap(h)
+	}
+	listener, err := Start(ctx, Mode(), id, h)
+	if err == nil {
+		listener.probes = probes
+	}
+	return listener, err
 }
