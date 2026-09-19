@@ -25,6 +25,17 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertNotIn("actions: read", workflow)
         self.assertFalse(Path(".github/workflows/ci.yml").exists())
 
+    def test_pr_mutations_use_the_expected_user_token(self):
+        workflow = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")
+
+        self.assertEqual(
+            workflow.count("GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}"),
+            3,
+        )
+        self.assertNotIn("GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn("login=\"$(gh api user --jq '.login')\"", workflow)
+        self.assertIn("if [[ \"$login\" != 'Ray-ymq' ]]", workflow)
+
     def test_update_push_runs_governance_only(self):
         caller = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")
         gates = Path(".github/workflows/quality-gates.yml").read_text(encoding="utf-8")

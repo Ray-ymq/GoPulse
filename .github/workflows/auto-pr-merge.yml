@@ -1,8 +1,10 @@
 # Repository settings required:
 # - Settings > Actions > General > Allow GitHub Actions to create and approve pull requests
 # - Settings > General > Pull Requests > Allow auto-merge
-# - The push quality gates are authoritative because PRs created with GITHUB_TOKEN
-#   produce approval-required pull_request workflow runs.
+# - Repository secret RAY_GITHUB_TOKEN must contain a fine-grained token owned by
+#   Ray-ymq with Contents and Pull requests read/write access to this repository.
+# - The push quality gates are authoritative; PR mutations fail closed unless the
+#   configured token authenticates as Ray-ymq.
 
 name: Auto PR and Merge
 
@@ -43,6 +45,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify pull request identity
+        env:
+          GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo 'RAY_GITHUB_TOKEN is not configured.' >&2
+            exit 1
+          fi
+
+          login="$(gh api user --jq '.login')"
+          if [[ "$login" != 'Ray-ymq' ]]; then
+            printf 'RAY_GITHUB_TOKEN must authenticate as Ray-ymq; got %s.\n' "$login" >&2
+            exit 1
+          fi
+
       - name: Detect branch file changes
         id: changes
         shell: bash
@@ -61,7 +81,7 @@ jobs:
         if: steps.changes.outputs.has_changes == 'true'
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           HEAD_BRANCH: ${{ github.ref_name }}
           HEAD_SHA: ${{ github.sha }}
@@ -123,7 +143,7 @@ jobs:
       - name: Enable auto-merge
         if: steps.changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           HEAD_BRANCH: ${{ github.ref_name }}
           HEAD_SHA: ${{ github.sha }}
