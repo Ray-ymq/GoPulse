@@ -41,7 +41,7 @@ diagnosable Compose service lifecycle
 - 新增版本化合同（建议 `deploy/runtime-contracts.json`）及 JSON schema，逐组件记录环境变量归属、类型、敏感性、默认/必填、兼容别名、监听器、Probe、硬/软依赖、检查超时、退出预算和版本字段。
 - 新增校验器，将合同与 `.env.example`、`deploy/compose.yaml`、Docker healthcheck、plugin manifest 和已登记组件目录对照。
 - 校验器拒绝：组件遗漏、重复 ID/端口、未登记的 Compose-owned key、Secret 被标为非敏感、Probe 路径冲突、`stop_grace_period` 小于退出预算、兼容别名无期限或实现/合同版本不一致。
-- release manifest/Bundle 收录合同和 checksum，使 Phase 17 evidence 与 Phase 18 直接消费同一份合同。
+- release manifest/Bundle 收录合同和 checksum，使 Phase 17 evidence 与未来部署适配能够消费同一份合同。
 
 合同用于校验实现，不在运行时引入第二套动态配置中心，也不允许 acceptance runner 重写产品配置语义。
 
