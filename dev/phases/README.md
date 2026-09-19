@@ -1,6 +1,6 @@
 # GoPulse 阶段性开发文档
 
-本目录将 [`Plan.md`](Plan.md) 拆分为 Phase 0～Phase 17 的阶段提纲。Phase 17 已在 `1.14.5` 完成并收口 Milestone 4；已完成阶段的提纲、实施方案和记录保持历史原貌。下一实施阶段尚未分配。
+本目录将 [`Plan.md`](Plan.md) 拆分为各阶段提纲。Phase 17 已在 `1.14.5` 完成并收口 Milestone 4；已完成阶段的提纲、实施方案和记录保持历史原貌。Phase 18 已建立阶段提纲，具体版本与执行批次尚待总实施方案分配。
 
 ## 阶段索引
 
@@ -24,6 +24,7 @@
 | Phase 15 | `1.12.x` | [告警与管理端闭环](Phase-15-告警与管理端闭环.md) | 内部告警、双角色与独立管理端大屏 | Milestone 4 |
 | Phase 16 | `1.13.x` | [Linux 产品化与双前端交付](Phase-16-Linux产品化与双前端交付.md) | 同域双前端与 Linux `amd64` 产品交付 | Milestone 4 |
 | Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | 完整产品质量验收 | Milestone 4 收口 |
+| Phase 18 | `2.x.x` 方向 | [高并发与可观测架构收敛](Phase-18-高并发与可观测架构收敛.md) | 容量基线、多副本、背压与故障隔离 | Milestone 5 |
 
 ## 已完成执行顺序
 
@@ -36,7 +37,7 @@ Phase 12 已完成的 Compose 基线
 → Phase 17 完整产品工程验收
 ```
 
-Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。下一实施阶段应在完成当前架构梳理和差距分析后另行分配。
+Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。Phase 18 将优先证明容量、多副本、背压和故障隔离，不以部署平台变更替代产品自身验证。
 
 Kubernetes 基础部署、统一入口和集群观测已移至 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)，仅作为未排期设计，不属于当前 Phase、版本或里程碑。
 
