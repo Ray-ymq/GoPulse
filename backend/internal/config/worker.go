@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"os"
 	"time"
 )
@@ -42,6 +43,10 @@ type BusinessWorkerConfig struct {
 }
 
 func LoadWorker() (WorkerConfig, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("business-worker"); err != nil {
+		return WorkerConfig{}, err
+	}
+
 	return LoadWorkerFrom(os.LookupEnv)
 }
 

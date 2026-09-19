@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net/http"
 	"net/url"
@@ -92,7 +93,7 @@ func request(ctx context.Context, client Performer, path string, body []byte, ou
 	if body != nil {
 		method = http.MethodPost
 	}
-	req, e := http.NewRequestWithContext(ctx, method, path, bytes.NewReader(body))
+	req, e := componentmetrics.NewRequest(ctx, method, path, bytes.NewReader(body))
 	if e != nil {
 		return ErrUnknown
 	}

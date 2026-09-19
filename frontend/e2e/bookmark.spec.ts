@@ -68,7 +68,7 @@ test('bookmark 收藏 stays private across feed, Following, search, profile, det
     await viewer.reload(); await expect(viewer.getByText('还没有收藏的帖子。')).toBeVisible()
     expect((await (await viewer.request.get(`/api/v1/posts/${id}`)).json()).data.bookmarked_by_me).toBe(false)
     await owner.reload(); await expect(owner.getByRole('button', { name: '收藏帖子', exact: true })).toHaveAttribute('aria-pressed', 'false')
-    await viewer.getByRole('button', { name: '退出' }).click(); await viewer.goto('/bookmarks'); await expect(viewer).toHaveURL(/\/login\?redirect=/)
+    await viewer.getByRole('button', { name: '退出' }).click(); await expect(viewer).toHaveURL(/\/login$/); await viewer.goto('/bookmarks'); await expect(viewer).toHaveURL(/\/login\?redirect=/)
     expect((await viewer.request.get('/api/v1/bookmarks')).status()).toBe(401)
   } finally { await ownerContext.close(); await viewerContext.close() }
 })

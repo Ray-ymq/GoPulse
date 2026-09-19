@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"net/url"
 	"os"
@@ -42,7 +43,12 @@ type Config struct {
 	MaxOutputBytes       int
 }
 
-func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
+func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("marshaller"); err != nil {
+		return Config{}, err
+	}
+	return LoadFrom(os.LookupEnv)
+}
 
 func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if lookup == nil {

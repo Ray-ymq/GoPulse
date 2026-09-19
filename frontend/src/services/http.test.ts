@@ -89,3 +89,12 @@ it('preserves the stable user_not_found error', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: { code: 'user_not_found', message: 'user not found' } }, 404)))
   await expect(requestData('/users/missing')).rejects.toMatchObject({ code: 'user_not_found', status: 404, message: 'user not found' })
 })
+
+
+describe('runtime error correlation', () => {
+  it('retains only a valid request ID and hides unknown server errors', async () => {
+    const id = 'a'.repeat(32)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: { code: 'future_failure', message: 'private-canary', request_id: id } }, 503)))
+    await expect(requestData('/posts')).rejects.toMatchObject({ requestId: id, message: '操作失败，请稍后重试。', status: 503 })
+  })
+})

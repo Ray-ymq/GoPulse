@@ -65,7 +65,7 @@ func StartComponents(root context.Context, mode, version string, interval, timeo
 			scrape := func() {
 				started := time.Now()
 				spec, _ := componentmetrics.Catalog(t.id)
-				request, err := http.NewRequestWithContext(ctx, http.MethodGet, t.origin, nil)
+				request, err := componentmetrics.NewRequest(ctx, http.MethodGet, t.origin, nil)
 				if err != nil {
 					return
 				}

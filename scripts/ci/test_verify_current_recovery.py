@@ -11,8 +11,10 @@ class FactsTest(unittest.TestCase):
     def test_container_snapshot_uses_supported_positive_label_filter(self):
         def command(*args):
             if '--filter' in args:
-                self.assertEqual(args[-1], 'label=io.gopulse.phase16.runner=true')
-                return 'runner'
+                self.assertIn(args[-1], {
+                    'label=io.gopulse.phase16.runner=true',
+                    'label=com.docker.volume.anonymous'})
+                return 'runner' if args[0] == 'ps' else ''
             return 'runner\nforeign' if args[0] == 'ps' else 'owned-before'
         with patch.dict('os.environ', {'GOPULSE_PHASE16_MATRIX':'1'}), patch('verify_current_recovery.docker', side_effect=command):
             self.assertEqual(CurrentRecovery.resources()['containers'], ['foreign'])

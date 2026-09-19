@@ -48,12 +48,16 @@ type publishCall struct {
 }
 
 type publisherFake struct {
-	calls []publishCall
-	err   error
+	onPublish func()
+	calls     []publishCall
+	err       error
 }
 
 func (fake *publisherFake) Publish(_ context.Context, exchange, routingKey string, message amqp.Publishing) error {
 	fake.calls = append(fake.calls, publishCall{exchange: exchange, routingKey: routingKey, message: message})
+	if fake.onPublish != nil {
+		fake.onPublish()
+	}
 	return fake.err
 }
 
@@ -284,4 +288,21 @@ func validSearchDelivery(t *testing.T) (amqp.Delivery, *acknowledgerFake) {
 		ContentType: metadata.ContentType, DeliveryMode: amqp.Persistent, MessageId: metadata.MessageID,
 		Timestamp: metadata.Timestamp, Type: metadata.Type, RoutingKey: bus.PostCreatedRoutingKey, Body: body,
 	}, acknowledger
+}
+
+func TestCanceledSecondaryConfirmRequeuesOriginal(t *testing.T) {
+	for _, permanent := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		publisher := &publisherFake{onPublish: cancel}
+		handler := newTestHandler(t, &processorFake{err: errors.New("temporary")}, publisher, nil)
+		delivery, ack := validDelivery(t, false)
+		if permanent {
+			delivery.Body = []byte("invalid")
+		}
+		err := handler.Handle(ctx, delivery)
+		cancel()
+		if err == nil || ack.acks != 0 || ack.nacks != 1 || !ack.requeue {
+			t.Fatalf("err=%v ack=%+v", err, ack)
+		}
+	}
 }

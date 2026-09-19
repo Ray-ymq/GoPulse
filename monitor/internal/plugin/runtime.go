@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 	"io"
 	"net/http"
@@ -422,7 +423,7 @@ func (c *runtimeCore) ensureRelease(r *revision) error {
 	return nil
 }
 func (c *runtimeCore) env(r *revision) map[string]string {
-	env := map[string]string{}
+	env := map[string]string{"GOPULSE_VERSION": r.Entry.Manifest.Version, "GOPULSE_REVISION": os.Getenv("GOPULSE_REVISION")}
 	for k, v := range c.cfg.ExporterEnv {
 		if k == "GOPULSE_RUNTIME_MODE" || (r.Entry.Manifest.Source == "redis" && strings.HasPrefix(k, "REDIS_")) {
 			env[k] = v
@@ -463,7 +464,7 @@ func (c *runtimeCore) launch(ctx context.Context, id string, r *revision, trial 
 	if trial {
 		timeout, cancel := context.WithTimeout(ctx, c.cfg.StartupTimeout)
 		defer cancel()
-		request, _ := http.NewRequestWithContext(timeout, http.MethodGet, strings.TrimSuffix(c.health(id), "/health")+"/metrics", nil)
+		request, _ := componentmetrics.NewRequest(timeout, http.MethodGet, strings.TrimSuffix(c.health(id), "/health")+"/metrics", nil)
 		client := &http.Client{Timeout: c.cfg.StartupTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		response, e := client.Do(request)
 		if e == nil {
@@ -503,7 +504,7 @@ func (c *runtimeCore) stopProcess(ctx context.Context, id string) error {
 		p := s.process
 		p.intentional.Store(true)
 		if ownsProcess(p.record) {
-			if err := terminateProcess(p.record, c.cfg.StopTimeout); err != nil {
+			if err := terminateProcessBounded(ctx, p.record, c.cfg.StopTimeout); err != nil {
 				return err
 			}
 		}
@@ -943,23 +944,29 @@ func (c *runtimeCore) shutdown(ctx context.Context) error {
 	if c.closed {
 		return nil
 	}
-	var failures []error
+	results := make(chan error, len(OfficialCatalog()))
 	for _, item := range OfficialCatalog() {
-		s, err := c.lock(ctx, item.ID)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		err = c.stopProcess(ctx, item.ID)
-		if err == nil && s.active != nil {
-			c.mu.RLock()
-			history := CollectionHistory{s.status.LastScrapeAt, s.status.LastSuccessAt}
-			c.mu.RUnlock()
-			raw, _ := json.Marshal(history)
-			err = atomicWrite(filepath.Join(c.dir(item.ID), "collection-history.json"), raw, 0600)
-		}
-		unlock(s)
-		if err != nil {
+		go func(id string) {
+			s, err := c.lock(ctx, id)
+			if err != nil {
+				results <- err
+				return
+			}
+			defer unlock(s)
+			err = c.stopProcess(ctx, id)
+			if err == nil && s.active != nil {
+				c.mu.RLock()
+				history := CollectionHistory{s.status.LastScrapeAt, s.status.LastSuccessAt}
+				c.mu.RUnlock()
+				raw, _ := json.Marshal(history)
+				err = atomicWrite(filepath.Join(c.dir(id), "collection-history.json"), raw, 0600)
+			}
+			results <- err
+		}(item.ID)
+	}
+	var failures []error
+	for range OfficialCatalog() {
+		if err := <-results; err != nil {
 			failures = append(failures, err)
 		}
 	}
