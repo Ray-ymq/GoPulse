@@ -390,7 +390,7 @@ Phase 16 完成后交给 Phase 17 的固定输入是：
 - 六插件、三源告警、backup format v1、当前数据配方与同 manifest 持续恢复合同；
 - 一组来自真实 Linux `amd64` 候选运行的可复核脱敏证据。
 
-Phase 17 不得把 Kubernetes 作为验证 Compose 产品的前置条件；Phase 18 以后在直接受影响处复用上述 Linux 产品合同迁移到 Kubernetes。
+Phase 17 不得把其他部署环境作为验证 Compose 产品的前置条件；未来平台适配应在直接受影响处复用上述 Linux 产品合同。
 
 
 ### Phase-16-06 实际入口对齐
