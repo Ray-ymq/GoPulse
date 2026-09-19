@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Direct 1.13.6 -> 1.14.4 state acceptance; never treats source checks as candidate receipts."""
+"""Direct 1.13.6 -> Phase 17 candidate state acceptance with immutable receipts."""
 import argparse
 import hashlib
 import json
@@ -17,8 +17,8 @@ def identity(path):
 def inputs(args):
     source = verify_bundle(args.from_manifest.resolve())
     target = verify_bundle(args.manifest.resolve())
-    if source['version'] != '1.13.6' or target['version'] != '1.14.4':
-        raise ValueError('state acceptance requires the direct 1.13.6 to 1.14.4 path')
+    if source['version'] != '1.13.6' or target['version'] not in ('1.14.4','1.14.5'):
+        raise ValueError('state acceptance requires the direct 1.13.6 to supported Phase 17 path')
     work = args.work.resolve()
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
     if work.stat().st_mode & 0o077:
@@ -97,6 +97,7 @@ def main():
     parser.add_argument('--work', type=Path, required=True)
     parser.add_argument('--candidate-source', type=Path)
     parser.add_argument('--migration-only', action='store_true',help='run the scoped data path; does not emit whole-batch success')
+    parser.add_argument('--compose-receipt', type=Path, help='reuse same-candidate release runtime receipt instead of repeating full Compose')
     args = parser.parse_args()
     source, target, work, binding = inputs(args)
     lock=(work/'.lock').open('a')
@@ -106,7 +107,7 @@ def main():
     from verify_phase17_migration import MigrationAcceptance
     from verify_backup_restore import save
     root=Path(__file__).resolve().parents[2]
-    source_root=None if args.migration_only else source_checkout(target,args.candidate_source)
+    source_root=None if args.migration_only or args.compose_receipt else source_checkout(target,args.candidate_source)
     baseline = CurrentRecovery.resources()
     receipt = {'schema': 'gopulse.phase17-state.v1', **binding,
                'from_version': source['version'], 'target_version': target['version'],
@@ -139,10 +140,21 @@ def main():
         shared=[root/'scripts/ci/candidate_runtime.py',root/'scripts/ci/release_artifacts.py']
         gates=[('business',[str(root/'scripts/verify-business.sh')],[root/'scripts/verify-business.sh'],root),
                ('marshaller',[str(root/'scripts/verify-marshaller.sh')],[root/'scripts/verify-marshaller.sh'],root),
-               ('alerts',[str(root/'scripts/verify-alerts.sh')],[root/'scripts/ci/verify_alerts.py',root/'scripts/ci/verify_alert_sources.py',root/'scripts/ci/verify_plugin_metrics.py'],root),
-               ('compose',[str(source_root/'scripts/verify-compose.sh')],[source_root/'scripts/verify-compose.sh',source_root/'scripts/verify-compose-observability.sh'],source_root)]
+               ('alerts',[str(root/'scripts/verify-alerts.sh')],[root/'scripts/ci/verify_alerts.py',root/'scripts/ci/verify_alert_sources.py',root/'scripts/ci/verify_plugin_metrics.py'],root)]
         for name,command,files,cwd in gates:
             receipt['checks'][name]=command_gate(name,command,work,binding,files+shared,env,cwd)
+            save(work/'receipt.json',receipt)
+        if args.compose_receipt:
+            artifact=json.loads(args.compose_receipt.read_text())
+            expected=hashlib.sha256(args.manifest.read_bytes()).hexdigest()
+            if artifact != {'manifest_sha256':'sha256:'+expected,'revision':target['revision'],'platform':'linux/amd64','status':'amd64-runtime-and-compose-passed'}:
+                raise ValueError('release runtime receipt does not bind the same candidate')
+            receipt['checks']['compose']={'binding':binding,'status':'passed','reused':True,
+                'receipt_sha256':identity(args.compose_receipt),'reason':'same candidate full Compose already passed release runtime gate'}
+            save(work/'receipt.json',receipt)
+        else:
+            receipt['checks']['compose']=command_gate('compose',[str(source_root/'scripts/verify-compose.sh')],work,binding,
+                [source_root/'scripts/verify-compose.sh',source_root/'scripts/verify-compose-observability.sh']+shared,env,source_root)
             save(work/'receipt.json',receipt)
         if CurrentRecovery.resources()!=baseline:raise RuntimeError('state acceptance changed resource inventory')
         receipt['complete']=True
