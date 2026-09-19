@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 
 	"errors"
 	"net"
@@ -24,6 +25,10 @@ type Config struct {
 var ErrConfig = errors.New("invalid_configuration")
 
 func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("rabbitmq-exporter"); err != nil {
+		return Config{}, err
+	}
+
 	c := Config{Host: os.Getenv("RABBITMQ_HOST"), Username: os.Getenv("RABBITMQ_USERNAME"), Password: os.Getenv("RABBITMQ_PASSWORD"), Vhost: os.Getenv("RABBITMQ_VHOST")}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
 	if (mode == "container" && c.Host != "rabbitmq") || ((mode == "host" || mode == "") && c.Host != "127.0.0.1" && c.Host != "::1") || (mode != "" && mode != "host" && mode != "container") || os.Getenv("RABBITMQ_MANAGEMENT_PORT") != "15672" {

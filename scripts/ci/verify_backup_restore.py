@@ -258,18 +258,20 @@ def main():
     p.add_argument('--work',type=Path,default=ROOT/'.run/phase16-04-recovery/product')
     p.add_argument('--acceptance-image', default=os.environ.get('GOPULSE_ACCEPTANCE_IMAGE'))
     p.add_argument('--current-product', action='store_true')
+    p.add_argument('--current-regression', action='store_true')
     modes=p.add_mutually_exclusive_group()
     modes.add_argument('--same-arch',action='store_true');modes.add_argument('--failure-matrix',action='store_true');modes.add_argument('--cleanup',action='store_true')
     a=p.parse_args()
-    if not any([a.current_product,a.same_arch,a.failure_matrix,a.cleanup]):p.error('an acceptance mode is required')
-    if a.current_product and a.same_arch:p.error('--current-product cannot be combined with --same-arch')
-    if a.current_product:
+    if not any([a.current_product,a.current_regression,a.same_arch,a.failure_matrix,a.cleanup]):p.error('an acceptance mode is required')
+    if (a.current_product or a.current_regression) and a.same_arch:p.error('current candidate modes cannot be combined with --same-arch')
+    if a.current_product or a.current_regression:
         if a.work == ROOT/'.run/phase16-04-recovery/product':a.work=ROOT/'.run/phase16-05-recovery/product'
         from verify_current_recovery import CurrentRecovery
         r=CurrentRecovery(a)
         if a.cleanup:
             r.cleanup()
         elif a.failure_matrix:r.current_failures()
+        elif a.current_regression:r.current_regression()
         else:r.current_product()
         return
     r=Recovery(a)

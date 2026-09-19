@@ -21,6 +21,7 @@ var (
 )
 
 var allowedFields = map[string]struct{}{
+	"version": {}, "revision": {}, "event": {}, "runtime_contract_version": {}, "runtime_mode": {}, "listen": {},
 	"log_schema_version": {}, "timestamp": {}, "level": {}, "service": {}, "module": {}, "message": {},
 	"request_id": {}, "event_id": {}, "event_type": {}, "user_id": {}, "post_id": {}, "comment_id": {},
 	"notification_id": {}, "outbox_id": {}, "method": {}, "route": {}, "status": {}, "duration_ms": {},
@@ -38,9 +39,10 @@ var workerMessages = map[string]struct{}{
 
 var serviceModules = map[string]map[string]map[string]struct{}{
 	"backend": {
-		"http": {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
-		"auth": {"user registered": {}, "user logged in": {}, "user logged out": {}},
-		"post": {"post created": {}}, "comment": {"comment created": {}},
+		"alert": {"alert evaluation failed": {}},
+		"http":  {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
+		"auth":  {"user registered": {}, "user logged in": {}, "user logged out": {}},
+		"post":  {"post created": {}}, "comment": {"comment created": {}},
 		"like": {"post liked": {}, "post unliked": {}}, "notification": {"notification marked read": {}},
 		"cache":     {"post detail cache fill failed": {}, "post detail cache read failed": {}, "post detail cache invalidation failed": {}},
 		"outbox":    {"outbox cleanup failed": {}, "outbox claim failed": {}, "outbox event invalid": {}, "outbox publish failed": {}, "outbox mark published failed": {}, "outbox event published": {}, "outbox release failed": {}},
@@ -174,7 +176,7 @@ func validateOptional(fields map[string]any) error {
 				if typed != "unmatched" && (!strings.HasPrefix(typed, "/") || strings.ContainsAny(typed, "?#") || strings.Contains(typed, "//")) {
 					return errors.New("invalid route")
 				}
-			case "event_type", "error_code", "reason", "operation", "resource", "stage", "result":
+			case "event", "version", "revision", "event_type", "error_code", "reason", "operation", "resource", "stage", "result":
 				if !tokenPattern.MatchString(typed) {
 					return errors.New("invalid token")
 				}

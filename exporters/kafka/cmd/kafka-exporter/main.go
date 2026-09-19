@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"net"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/exporters/kafka/internal/collector"
@@ -16,7 +15,11 @@ import (
 
 func main() {
 	if run() != nil {
-		fmt.Fprintln(os.Stdout, `{"reachable":false,"code":"target_unavailable"}`)
+		if len(os.Args) > 1 {
+			fmt.Fprintln(os.Stdout, `{"reachable":false,"code":"target_unavailable"}`)
+		} else {
+			componentmetrics.NewLogger("kafka-exporter", os.Stdout).Error("exporter stopped", "reason", "invalid_configuration_or_runtime")
+		}
 		os.Exit(1)
 	}
 }
@@ -42,19 +45,14 @@ func run() error {
 		fmt.Fprintln(os.Stdout, `{"reachable":true,"code":"ok"}`)
 		return nil
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := componentmetrics.SignalContext()
 	defer stop()
 	server := &http.Server{Addr: cfg.Listen, Handler: runtime.Handler(db, cfg.ScrapeTimeout), ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: cfg.ScrapeTimeout + time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
-	done := make(chan error, 1)
-	go func() { done <- server.ListenAndServe() }()
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	logger.Info("exporter started", "service", "kafka-exporter")
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return runtime.ErrConfig
 	}
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return server.Shutdown(shutdown)
+	defer listener.Close()
+	logger := componentmetrics.NewLogger("kafka-exporter", os.Stdout)
+	return componentmetrics.ServeRuntime(ctx, server, listener, 5*time.Second, logger)
 }

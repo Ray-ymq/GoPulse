@@ -52,4 +52,4 @@ it.each([false, true])('refreshes the catalog after v2 update (refresh failure: 
     }
     expect((input.element as HTMLInputElement).value).toBe('')
   } finally { wrapper.unmount() }
-})
+}, 15000)

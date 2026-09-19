@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
 	"net"
@@ -222,7 +223,7 @@ func jitterDelay(delay, minimum, maximum time.Duration, random io.Reader) time.D
 }
 
 func (s *Shipper) send(ctx context.Context, entry item) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.endpoint, bytes.NewReader(entry.body))
+	req, err := componentmetrics.NewRequest(ctx, http.MethodPost, s.endpoint, bytes.NewReader(entry.body))
 	if err != nil {
 		return err
 	}

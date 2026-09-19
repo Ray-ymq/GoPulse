@@ -290,6 +290,11 @@ func (c *Controller) loadManifest(version, rev string) error {
 		return fail(ManifestError, "checksum", "missing tool Compose entry")
 	}
 	payload := strings.TrimPrefix(release.Sum(readme), "sha256:") + "  README.md\n" + strings.TrimPrefix(release.Sum(tool), "sha256:") + "  compose.yaml\n" + strings.TrimPrefix(release.Sum(compose), "sha256:") + "  deploy/product/compose.yaml\n"
+	for _, asset := range []*release.Asset{c.manifest.RuntimeContract, c.manifest.RuntimeContractSchema} {
+		if asset != nil {
+			payload += strings.TrimPrefix(asset.SHA256, "sha256:") + "  " + asset.Path + "\n"
+		}
+	}
 	if release.Sum([]byte(payload)) != c.manifest.BundleSHA256 {
 		return fail(ManifestError, "checksum", "bundle payload mismatch")
 	}

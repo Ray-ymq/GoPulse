@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"net/http"
 	"os"
@@ -25,6 +26,10 @@ type Config struct {
 var ErrConfig = errors.New("invalid_configuration")
 
 func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("mysql-exporter"); err != nil {
+		return Config{}, err
+	}
+
 	c := Config{Host: os.Getenv("MYSQL_HOST"), Username: os.Getenv("MYSQL_USERNAME"), Password: os.Getenv("MYSQL_PASSWORD"), Database: os.Getenv("MYSQL_DATABASE")}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
 	if (mode == "container" && c.Host != "mysql") || ((mode == "host" || mode == "") && c.Host != "127.0.0.1" && c.Host != "::1") || (mode != "" && mode != "host" && mode != "container") || os.Getenv("MYSQL_PORT") != "3306" {

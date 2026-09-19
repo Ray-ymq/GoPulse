@@ -30,6 +30,7 @@ test('bootstrap login enters the independent management frontend', async ({ page
 test('create exact three-source rules from the management catalog', async ({ page }) => {
   await login(page)
   await page.goto('/admin/alerts')
+  await page.getByRole('button', { name: 'rules', exact: true }).click()
   for (const source of ['metrics', 'logs', 'events']) {
     await page.getByRole('button', { name: '创建规则' }).click()
     await page.getByLabel('名称', { exact: true }).fill('closure-' + source)

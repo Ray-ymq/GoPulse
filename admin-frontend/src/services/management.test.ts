@@ -45,9 +45,9 @@ it('accepts lookup and role-change results but never applies malformed mutation 
  await w.get('article button').trigger('click');await flushPromises();expect(w.text()).not.toContain('unsafe');expect(w.text()).toContain('角色变更失败');w.unmount()
 })
 it('validates alert catalog, list and mutation responses through the actual page',async()=>{
- const fetch=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({data:catalog}))).mockResolvedValueOnce(new Response(JSON.stringify({data:[rule],meta:{next_cursor:null}})))
+ const fetch=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({data:catalog}))).mockResolvedValueOnce(new Response(JSON.stringify({data:[],meta:{next_cursor:null}}))).mockResolvedValueOnce(new Response(JSON.stringify({data:[rule],meta:{next_cursor:null}})))
  vi.stubGlobal('fetch',fetch)
- const w=mount(AlertsView);await flushPromises();expect(w.text()).toContain('review-rule')
+ const w=mount(AlertsView);await flushPromises();await w.findAll('button').find(b=>b.text()==='rules')!.trigger('click');await flushPromises();expect(w.text()).toContain('review-rule')
  // An enable/disable mutation must not report success for an invalid rule DTO.
  vi.spyOn(window,'confirm').mockReturnValue(true)
  fetch.mockResolvedValueOnce(new Response(JSON.stringify({data:{...rule,source:'invalid'}})))
@@ -57,4 +57,13 @@ it('validates alert catalog, list and mutation responses through the actual page
 it('rejects malformed audit details without displaying them',async()=>{
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({data:[{...audit,details_json:{secret:'must-not-render'}}],meta:{next_cursor:null}}))))
  const w=mount(AuditView);await flushPromises();expect(w.text()).toContain('审计查询失败');expect(w.text()).not.toContain('must-not-render');w.unmount()
+})
+
+it('accepts alert-source metric selectors without permitting unknown labels',()=>{
+ const metric={metric:'gopulse_backend_alert_evaluation_known',kind:'gauge',unit:'state',label_keys:['alert_source'],allowed_tuples:[['metrics'],['logs'],['events']],reducers:['last']}
+ expect(isCatalog({...catalog,metrics:[metric]})).toBe(true)
+ const selector={metric:metric.metric,labels:{alert_source:'metrics'}}
+ expect(isRule({...rule,selector})).toBe(true)
+ expect(isCatalog({...catalog,metrics:[{...metric,label_keys:['secret']}]})).toBe(false)
+ expect(isRule({...rule,selector:{...selector,labels:{secret:'hidden'}}})).toBe(false)
 })

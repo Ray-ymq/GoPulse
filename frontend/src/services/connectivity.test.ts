@@ -14,6 +14,12 @@ afterEach(() => {
 })
 
 describe('connectivity service', () => {
+  it('accepts runtime contract probes without inventing dependency status', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse({ status: 'ok', contract_version: '1' }))))
+    await expect(fetchHealth()).resolves.toMatchObject({ type: 'success' })
+    await expect(fetchReadiness()).resolves.toEqual({ type: 'success', data: { status: 'ok', contract_version: '1' } })
+  })
+
   it('aborts a request after the three second client timeout', async () => {
     vi.useFakeTimers()
     vi.stubGlobal(

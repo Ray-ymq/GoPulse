@@ -28,6 +28,13 @@ class CurrentRecovery(Recovery):
             'containers': ('ps', '-aq', '--no-trunc'),
             'networks': ('network', 'ls', '-q', '--no-trunc'),
             'volumes': ('volume', 'ls', '-q')}.items()}
+        # Anonymous volumes are disposable Compose test scaffolding.  They may
+        # outlive a failed acceptance runner even after its containers are
+        # removed, so they must not make the unrelated-resource snapshot fail.
+        # Named volumes, containers, and networks remain part of the isolation
+        # contract and are compared exactly.
+        anonymous = docker('volume', 'ls', '-q', '--filter', 'label=com.docker.volume.anonymous').split()
+        resources['volumes'] = sorted(set(resources['volumes']) - set(anonymous))
         if os.environ.get('GOPULSE_PHASE16_MATRIX') == '1':
             own = docker('ps', '-aq', '--no-trunc', '--filter', 'label=io.gopulse.phase16.runner=true').split()
             if len(own) != 1:
@@ -41,9 +48,12 @@ class CurrentRecovery(Recovery):
         # separate, explicitly allowlisted evidence document without them.
         public = {key: self.data[key] for key in ('schema', 'manifest_sha256', 'candidate',
             'completed', 'backups', 'restores', 'comparisons', 'browsers', 'failures', 'commands', 'three_sources') if key in self.data}
-        public['status'] = 'passed' if all(step in self.data['completed'] for step in (
+        full = all(step in self.data['completed'] for step in (
             'current-product-two-restores-passed', 'current-product-failure-matrix-passed',
-            'owned-cleanup-and-isolation-passed')) else 'incomplete'
+            'owned-cleanup-and-isolation-passed'))
+        phase17 = all(step in self.data['completed'] for step in (
+            'phase17-current-backup-restore-passed', 'owned-cleanup-and-isolation-passed'))
+        public['status'] = 'passed' if full or phase17 else 'incomplete'
         save(self.work/'evidence.json', public)
 
     def call(self, name, command, *args, expected=0):
@@ -120,9 +130,9 @@ class CurrentRecovery(Recovery):
             'search/posts?q='+quote(post['title']))['data']), name+' new searchable write')
         return post
 
-    def continuing(self, name):
+    def continuing(self, name, browser=True):
         if name+'-api-continuity' in self.data['completed']:
-            self.browser(name)
+            if browser:self.browser(name)
             return
         admin = self.client(name, self.data['admin'])
         user = self.client(name, self.data['user'])
@@ -146,7 +156,7 @@ class CurrentRecovery(Recovery):
                 wait_until(lambda p=post: any(row['id'] == p['id'] for row in admin.request(
                     'search/posts?q='+quote(p['title']))['data']), name+' preserved search object')
         self.mark(name+'-api-continuity')
-        self.browser(name)
+        if browser:self.browser(name)
 
     def three_sources(self, name):
         if name+'-three-source-facts' in self.data['completed']: return
@@ -240,6 +250,26 @@ class CurrentRecovery(Recovery):
             raise RuntimeError('missing failure diagnosis/recovery guidance')
         self.data.setdefault('failures', {})[scenario] = matching[-1]
         self.record()
+
+
+    def current_regression(self):
+        if 'phase17-current-backup-restore-passed' in self.data['completed']:
+            return
+        self.seed()
+        self.continuing('source', browser=False)
+        archive, facts = self.backup_project('source')
+        if self.state('source')['phase'] != 'stopped':self.call('source', 'down')
+        if not (self.work/'target'/'state.json').exists() or self.state('target')['phase'] != 'ready':
+            self.restore('target', archive)
+        self.call('target', 'verify')
+        receipt = json.loads((self.work/'target'/'restore-result.json').read_text())
+        if not receipt.get('facts_verified') or receipt['source_manifest'] != self.state('target')['manifest_digest']:
+            raise RuntimeError('missing current restore verification')
+        self.data.setdefault('restores', {})['target'] = receipt
+        self.record()
+        self.compare('target', facts)
+        self.continuing('target', browser=False)
+        self.mark('phase17-current-backup-restore-passed')
 
     def current_failures(self):
         if 'current-product-two-restores-passed' not in self.data['completed']:
