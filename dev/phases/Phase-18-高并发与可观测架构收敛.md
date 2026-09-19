@@ -14,6 +14,24 @@ GoPulse 的定位保持为“高并发业务系统 + 内建可观测系统”。
 
 本阶段不增加新业务，而是证明系统的并发能力、扩容边界、背压行为和故障隔离。
 
+## 优先级
+
+### P0：必须先完成
+
+- 建立可重复的高并发容量基线。
+- 验证主要无状态和消费组件的多副本能力。
+- 分离业务搜索与观测数据的 Elasticsearch 故障域。
+- 建立 HTTP、RabbitMQ、Kafka 和存储写入的端到端背压。
+
+P0 全部通过前，不得以扩展 P1 或引入 Kubernetes 代替并发与故障合同的验证。
+
+### P1：P0 成立后收敛
+
+- 建立不依赖可观测数据面自证的基础健康通道。
+- 将 Envelope、日志、指标和 API 错误合同收敛为机器可读单一来源。
+
+P1 是本阶段完成条件，不是可选优化；其实施顺序低于 P0。
+
 ## 里程碑定位
 
 - 所属里程碑：Milestone 5，可量化的高并发与可观测故障隔离。
@@ -22,14 +40,14 @@ GoPulse 的定位保持为“高并发业务系统 + 内建可观测系统”。
 
 ## 开发范围
 
-- 建立可重复的数据配方、混合业务负载和容量基线。
-- 记录 RPS、P95/P99、错误率、资源使用、消息积压和恢复时间。
-- 验证 Backend、Worker、Indexer、Router 和 Marshaller 的多副本能力。
-- 明确 Outbox lease、RabbitMQ consumer、Kafka partition、告警 lease 和 Monitor 插件所有权。
-- 分离业务搜索 Elasticsearch 与 Logs/Events Elasticsearch 的运行和故障域。
-- 为 HTTP、连接池、Outbox、RabbitMQ、Kafka、Marshaller 和存储写入建立有界背压。
-- 建立不依赖 Kafka、VictoriaMetrics 或观测 Elasticsearch 自证的基础健康通道。
-- 收敛 Envelope、日志字段、指标目录和 API 错误码的机器可读来源。
+- **P0**：建立可重复的数据配方、混合业务负载和容量基线。
+- **P0**：记录 RPS、P95/P99、错误率、资源使用、消息积压和恢复时间。
+- **P0**：验证 Backend、Worker、Indexer、Router 和 Marshaller 的多副本能力。
+- **P0**：明确 Outbox lease、RabbitMQ consumer、Kafka partition、告警 lease 和 Monitor 插件所有权。
+- **P0**：分离业务搜索 Elasticsearch 与 Logs/Events Elasticsearch 的运行和故障域。
+- **P0**：为 HTTP、连接池、Outbox、RabbitMQ、Kafka、Marshaller 和存储写入建立有界背压。
+- **P1**：建立不依赖 Kafka、VictoriaMetrics 或观测 Elasticsearch 自证的基础健康通道。
+- **P1**：收敛 Envelope、日志字段、指标目录和 API 错误码的机器可读来源。
 
 ## 核心任务
 
