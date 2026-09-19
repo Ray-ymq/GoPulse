@@ -79,4 +79,18 @@ describe('useAuth', () => {
     expect(auth.status.value).toBe('error')
     expect(auth.user.value).toBeNull()
   })
+  it('keeps failed logout retryable and clears identity only after confirmed logout', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: currentUser }))
+      .mockRejectedValueOnce(new TypeError('connection refused'))
+      .mockResolvedValueOnce(new Response(null, { status: 204 })))
+    const auth = useAuth()
+    await auth.initialize()
+    await expect(auth.logout()).rejects.toMatchObject({ code: 'network_error' })
+    expect(auth.user.value?.username).toBe('alice')
+    await auth.logout()
+    expect(auth.user.value).toBeNull()
+    expect(auth.status.value).toBe('anonymous')
+  })
+
 })

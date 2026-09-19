@@ -17,3 +17,7 @@ require (
 	golang.org/x/sys v0.37.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
+
+require github.com/Ray-ymq/GoPulse/componentmetrics v0.0.0
+
+replace github.com/Ray-ymq/GoPulse/componentmetrics => ../../componentmetrics

@@ -1,9 +1,12 @@
 package alert
 
 import (
+	"bytes"
 	"context"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,5 +77,19 @@ func TestCountCatalogCombinations(t *testing.T) {
 	}
 	if logquery.ValidateAlertSelector(map[string]string{"service": "backend", "module": "auth", "message": "post created"}) || eventquery.ValidateAlertSelector(map[string]string{"event_name": "exporter_plugin_started", "error_code": "start_failed"}) {
 		t.Fatal("invalid combination")
+	}
+}
+
+func TestSchedulerRoundPanicIsSafeAndDoesNotEscape(t *testing.T) {
+	var output bytes.Buffer
+	scheduler := NewScheduler(nil, nil).WithLogger(logging.New("backend", &output))
+	// A round-local panic must return to the scheduling loop rather than kill it.
+	scheduler.round(context.Background())
+	scheduler.round(context.Background())
+	if !strings.Contains(output.String(), `"reason":"round_panic"`) {
+		t.Fatal(output.String())
+	}
+	if strings.Contains(output.String(), "invalid memory") {
+		t.Fatal("panic detail leaked")
 	}
 }

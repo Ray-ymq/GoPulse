@@ -45,3 +45,6 @@ admin-frontend/dist/
 admin-frontend/coverage/
 admin-frontend/test-results/
 admin-frontend/playwright-report/
+
+# Generated immutable release bundles
+/dist/

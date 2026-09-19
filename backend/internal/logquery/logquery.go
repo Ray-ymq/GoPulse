@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net/http"
 	"net/url"
@@ -394,7 +395,7 @@ func (r *ElasticsearchRepository) ClosePointInTime(ctx context.Context, pit stri
 	return nil
 }
 func (r *ElasticsearchRepository) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	request, err := http.NewRequestWithContext(ctx, method, path, body)
+	request, err := componentmetrics.NewRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -411,6 +412,14 @@ func decodeEntry(source []byte) (Entry, error) {
 	var raw struct {
 		Timestamp        string `json:"@timestamp"`
 		LogSchemaVersion int    `json:"log_schema_version"`
+		// Runtime metadata remains in the persisted document and private logs;
+		// decode it explicitly while preserving the existing public page shape.
+		Version                string `json:"version"`
+		Revision               string `json:"revision"`
+		Event                  string `json:"event"`
+		RuntimeContractVersion string `json:"runtime_contract_version"`
+		RuntimeMode            string `json:"runtime_mode"`
+		Listen                 string `json:"listen"`
 		Entry
 	}
 	decoder := json.NewDecoder(bytes.NewReader(source))

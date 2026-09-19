@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1.7
-FROM node:24.20.0-alpine3.23 AS build
+FROM --platform=$BUILDPLATFORM node:24.20.0-alpine3.23@sha256:0388af2af070cd4736a1567cfed02469ba117848845b4165d87a333edb53d2ca AS build
 WORKDIR /src/admin-frontend
 ENV CI=true
 COPY admin-frontend/package.json admin-frontend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
+COPY frontend-shared/ /src/frontend-shared/
 COPY admin-frontend/ ./
 RUN npm test -- --run && npm run build
 
-FROM nginx:1.29.4-alpine3.23-slim AS runtime
+FROM nginx:1.29.4-alpine3.23-slim@sha256:441b69e13e79b436f9b617910633b6b6adce314c3788c3238dcd8e03b4cb512e AS runtime
 ARG VERSION
 ARG REVISION
 LABEL org.opencontainers.image.title="GoPulse Admin Frontend" \

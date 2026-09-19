@@ -153,3 +153,39 @@ func TestContainerClientAcceptsServiceDNSAndRejectsLoopback(t *testing.T) {
 		t.Fatal("host client accepted service DNS")
 	}
 }
+
+func TestExistingDailyIndexReceivesRuntimeFieldsWithoutDroppingLog(t *testing.T) {
+	upgraded, writes := false, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/_doc/"):
+			writes++
+			if !upgraded {
+				w.WriteHeader(400)
+				w.Write([]byte(`{"error":"strict mapping"}`))
+				return
+			}
+			w.WriteHeader(201)
+			w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`))
+		case strings.HasSuffix(r.URL.Path, "/_mapping"):
+			if r.Method == "PUT" {
+				upgraded = true
+				w.Write([]byte(`{"acknowledged":true}`))
+			} else {
+				writeMappingResponse(t, w, "gopulse-logs-v1-2026.09.04")
+			}
+		case strings.Contains(r.URL.Path, "/_alias/"):
+			w.Write([]byte(`{"gopulse-logs-v1-2026.09.04":{"aliases":{"gopulse-logs-v1-read":{}}}}`))
+		default:
+			w.Write([]byte(`{"acknowledged":true}`))
+		}
+	}))
+	defer server.Close()
+	client, _ := New(server.URL, time.Second)
+	if err := client.Write(context.Background(), writeRequest(t, "2026.09.04")); err != nil {
+		t.Fatal(err)
+	}
+	if !upgraded || writes != 2 {
+		t.Fatal("new schema log lost")
+	}
+}

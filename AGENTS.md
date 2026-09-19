@@ -62,6 +62,19 @@
 - If optional investigation or optional test work consumes 15 consecutive minutes without resolving a required failure or advancing production implementation, stop it immediately. Return to the shortest in-scope implementation path or record the item as a non-blocking follow-up.
 - As soon as the documented acceptance criteria and fixed completion gates pass with no blocking failure, update the implementation log and version, commit, and stop. Do not spend remaining time on opportunistic refactors, additional edge cases, or unrelated cleanup.
 
+# Acceptance Rehearsal and Immutable Candidate Rule
+
+- Before starting an expensive end-to-end acceptance matrix, run a deterministic preflight against the exact candidate manifest, Bundle, runtime contract, release receipt, and evidence verifier.
+- The preflight must validate manifest/Bundle/runtime-contract/revision binding, evidence attachment paths and hashes, schema and redaction rules, runtime-contract environment templates, and Docker resource-isolation snapshots on the actual acceptance host.
+- Treat acceptance scripts, evidence aggregators, secret scanners, receipt copiers, and cleanup logic as testable infrastructure. Add focused unit or fixture coverage for known failure modes before launching the long-running product matrix.
+- Do not start a full acceptance matrix when a deterministic preflight can detect a runner, evidence, manifest, or environment-contract error.
+- Once a candidate is frozen, any change to application code, acceptance code, evidence verification, release metadata, or runtime-contract handling invalidates all candidate receipts and requires a new candidate revision.
+- Do not repair a failed candidate in place by replacing tags, editing receipts, or reusing evidence from another revision.
+- Separate product failures from acceptance-infrastructure failures. Record the failure category and fix the smallest directly affected layer before rerunning the matrix.
+- Reuse a successful gate only when the candidate manifest, relevant code, configuration, dependencies, and execution environment are unchanged. Otherwise, rerun the affected gate and document the reason.
+- Resource-isolation checks must distinguish owned resources, foreign resources, stopped resources, and disposable anonymous test volumes; never use broad cleanup or global prune to make an isolation check pass.
+- After the final matrix passes, run the evidence verifier against the exact sanitized evidence copied for publication before creating the implementation log and final commit.
+
 # Implementation Log Rule
 
 - After completing each implementation plan under `dev/imple/Phase-XX/`, create or update its corresponding development record under `dev/logs/Phase-XX/` before reporting the plan complete.
@@ -73,11 +86,10 @@
 
 - Phase 0 and Phase-01-01 completed the original native Windows PowerShell and Unix Bash dual-platform baseline through product version `0.2.1`. Phase-01-02 through Phase 12 were implemented and accepted in WSL2/Linux with Bash as the maintained lifecycle path.
 - Phase 13 through Phase 15 complete business, plugin, alerting, and dual-frontend product capabilities in the maintained WSL2/Linux and Bash environment. Kubernetes is not a prerequisite for implementing or accepting these capabilities.
-- Phase 16 is the explicit cross-platform productization stage. Its total implementation plan must define and actually run a support matrix containing at least Linux `amd64`, macOS `arm64`, and Windows `amd64`; cross-compilation or static script inspection alone cannot establish platform support.
-- Phase 16 supports GoPulse on macOS and Windows through Linux containers and a shared product lifecycle implementation. It does not require MySQL, Kafka, Elasticsearch, GoPulse services, Exporter processes, or either Frontend application to become native Windows services or macOS daemons.
-- Phase 16 must let users invoke the supported lifecycle from macOS Terminal and Windows PowerShell/Terminal without duplicating the core orchestration logic into separate Bash and PowerShell implementations. Thin platform launchers are allowed when required by the chosen shared entry point.
-- The existing `scripts/*.ps1` files remain frozen at the `0.2.1` capability baseline and are historical artifacts; do not extend them into a second implementation of current Compose behavior. A new thin launcher may use a different explicit path/name when the Phase 16 total plan requires it.
-- For Phase 16 Windows acceptance, use the checkout and Docker Desktop arrangement defined by its support contract and validate Windows path, line-ending, file-sharing, port, signal, cleanup, and both Frontend applications. Do not claim native Windows support from a WSL-only run.
+- Phase 16 is the explicit Linux Compose productization stage. Its supported implementation and acceptance environment is Linux `amd64`; the total implementation plan must define and actually run the required product matrix on a real Linux `amd64` Docker server.
+- Phase 16 does not add or claim macOS, Windows, or `linux/arm64` product support. Cross-compilation, OCI metadata inspection, emulation, or artifacts produced by an earlier batch are not acceptance requirements for this stage and must not block its completion.
+- Phase 16 must provide one shared containerized product lifecycle implementation for the maintained Linux environment. It does not require MySQL, Kafka, Elasticsearch, GoPulse services, Exporter processes, or either Frontend application to become native host services.
+- The existing `scripts/*.ps1` files remain frozen at the `0.2.1` capability baseline and are historical artifacts; do not extend them into an implementation of current Compose behavior.
 - Phase 17 performs pre-Kubernetes engineering acceptance on the complete Compose product. It must not make Kubernetes a condition for proving that GoPulse's business and observability systems work.
 - Phase 18 through Phase 20 use WSL2/Linux as the primary Kubernetes implementation, application-testing, and integration-acceptance environment. Keep the active repository checkout in the WSL Linux filesystem, such as `/home/<user>/src/GoPulse`, rather than under `/mnt/c`, `/mnt/d`, or another Windows-mounted filesystem, and use only one Docker daemon for that workspace.
-- Phase 18 through Phase 20 must preserve the cross-platform product and multi-architecture image contracts delivered by Phase 16 where directly affected, but they do not require a Kubernetes cluster itself to run natively on macOS or Windows.
+- Phase 18 through Phase 20 must preserve the Linux `amd64` Compose product, lifecycle, release, backup, and upgrade contracts delivered by Phase 16 where directly affected.

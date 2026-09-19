@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ProductState from "../../../frontend-shared/ProductState.vue"
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
@@ -39,7 +40,7 @@ async function retry(): Promise<void> {
       <p class="muted">
         你的会话没有被清除。服务恢复后可直接重试，无需重新登录。
       </p>
-      <p v-if="errorMessage" class="notice notice--error" role="alert">{{ errorMessage }}</p>
+      <ProductState v-if="errorMessage" state="unavailable" :message="errorMessage" />
       <button class="button button--primary" type="button" :disabled="retrying" @click="retry">
         {{ retrying ? '正在重试…' : '重试认证恢复' }}
       </button>

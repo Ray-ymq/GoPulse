@@ -48,3 +48,16 @@ func itoa(value int) string {
 	}
 	return string(buffer[index:])
 }
+
+func TestProcessHealthAcceptsVersionedRuntimeContract(t *testing.T) {
+	current := Manifest{ID: "redis-exporter", Version: "1.14.3"}
+	legacy := Manifest{ID: "redis-exporter", Version: "1.9.4"}
+	modern := []byte(`{"status":"ok","contract_version":"1"}`)
+	old := []byte(`{"status":"ok","service":"redis-exporter"}`)
+	if !validProcessHealth(current, modern) || !validProcessHealth(legacy, old) {
+		t.Fatal("valid package health rejected")
+	}
+	if validProcessHealth(current, old) || validProcessHealth(legacy, modern) || validProcessHealth(current, []byte(`{"status":"ok","contract_version":"2"}`)) {
+		t.Fatal("incompatible package health accepted")
+	}
+}

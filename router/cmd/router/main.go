@@ -7,8 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/router/internal/config"
 	"github.com/Ray-ymq/GoPulse/router/internal/httpserver"
@@ -16,13 +15,14 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "router")
+	logger := componentmetrics.NewLogger("router", os.Stdout)
+	slog.SetDefault(logger)
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("configuration invalid", "event", "startup_failed")
 		os.Exit(1)
 	}
-	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	rootCtx, stop := componentmetrics.SignalContext()
 	defer stop()
 	releaseBudget := componentmetrics.BindShutdown(rootCtx, cfg.ShutdownTimeout)
 	defer releaseBudget()
@@ -40,15 +40,18 @@ func main() {
 		logger.Error("Kafka client initialization failed", "event", "startup_failed")
 		os.Exit(1)
 	}
-	internalMetrics, err := componentmetrics.StartConfigured(rootCtx, "router", func() ([]byte, bool) { return producer.Snapshot(metrics) })
+	probes, _ := componentmetrics.NewProbes(rootCtx, cfg.RequestTimeout, 250*time.Millisecond, func(ctx context.Context) error { return producer.Ready(ctx, config.Topic) })
+	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(rootCtx, "router", func() ([]byte, bool) { return producer.Snapshot(metrics) }, probes)
 	if err != nil {
 		logger.Error("metrics listener initialization failed", "event", "startup_failed")
 		os.Exit(1)
 	}
 	server := httpserver.New(cfg, producer, logger)
+	server.SetProbes(probes)
+	probes.Started()
 	serveErrors := make(chan error, 1)
 	go func() {
-		logger.Info("router listening", "event", "started")
+		logger.Info("router listening", "event", "started", "listen", cfg.Address())
 		serveErrors <- server.ListenAndServe()
 	}()
 
@@ -63,6 +66,7 @@ func main() {
 		}
 	}
 
+	probes.Stop()
 	shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {

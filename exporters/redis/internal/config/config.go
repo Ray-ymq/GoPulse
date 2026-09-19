@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"net"
 	"os"
 	"strconv"
@@ -37,6 +38,10 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	if err := componentmetrics.ValidateRuntimeEnvironment("redis-exporter"); err != nil {
+		return Config{}, fieldError(strings.TrimPrefix(err.Error(), "invalid_configuration: "), "invalid_configuration")
+	}
+
 	var cfg Config
 	var err error
 
@@ -56,6 +61,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.RedisPassword = os.Getenv("REDIS_PASSWORD")
+	if len(cfg.RedisPassword) == 0 || len(cfg.RedisPassword) > 256 || strings.ContainsAny(cfg.RedisPassword, "\x00\r\n") {
+		return Config{}, fieldError("REDIS_PASSWORD", "invalid_configuration")
+	}
 	cfg.RedisDB, err = requiredNonNegativeInt("REDIS_DB")
 	if err != nil {
 		return Config{}, err

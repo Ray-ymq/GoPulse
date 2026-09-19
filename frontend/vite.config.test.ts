@@ -13,7 +13,7 @@ describe('backendTarget', () => {
     for (const entry of Object.values(proxy)) {
       expect(entry).toEqual({
         target: 'http://localhost:18080',
-        changeOrigin: true,
+        changeOrigin: false,
       })
     }
   })

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 
 type Checker interface{ Ready(context.Context) error }
 type Server struct {
+	probes         *componentmetrics.Probes
 	server         *http.Server
 	token          string
 	timeout        time.Duration
@@ -26,11 +29,34 @@ func New(host string, port int, token string, timeout time.Duration, kafka, stor
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ready", s.ready)
-	s.server = &http.Server{Addr: net.JoinHostPort(host, strconv.Itoa(port)), Handler: mux, ReadHeaderTimeout: 2 * time.Second}
+	s.server = &http.Server{Addr: net.JoinHostPort(host, strconv.Itoa(port)), Handler: componentmetrics.HTTP(mux, logger), ReadHeaderTimeout: 2 * time.Second}
+	p, _ := componentmetrics.NewProbes(context.Background(), timeout, 250*time.Millisecond, s.Check)
+	p.Started()
+	s.SetProbes(p)
 	return s
 }
-func (s *Server) ListenAndServe() error              { return s.server.ListenAndServe() }
-func (s *Server) Shutdown(ctx context.Context) error { return s.server.Shutdown(ctx) }
+func (s *Server) ListenAndServe() error { return s.server.ListenAndServe() }
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.probes.Stop()
+	err := s.server.Shutdown(ctx)
+	if err != nil {
+		_ = s.server.Close()
+	}
+	return err
+}
+func (s *Server) SetProbes(p *componentmetrics.Probes) {
+	s.probes = p
+	s.server.Handler = p.Wrap(s.server.Handler)
+}
+func (s *Server) Check(ctx context.Context) error {
+	if s.kafka == nil || s.storage == nil {
+		return errors.New("dependency_unavailable")
+	}
+	if err := s.kafka.Ready(ctx); err != nil {
+		return err
+	}
+	return s.storage.Ready(ctx)
+}
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "marshaller"})
 }

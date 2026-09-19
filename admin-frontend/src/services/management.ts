@@ -17,7 +17,7 @@ const source = choice('metrics','logs','events'), severity = choice('warning','c
 const reducer = choice('last','min','max','avg','increase','count'), operator = choice('gt','gte','lt','lte','eq','neq')
 const window = choice('1m','5m','15m'), duration = choice('0s','1m','5m')
 const reason = choice('','rule_updated','rule_disabled','rule_deleted')
-const labelKeys = ['source','target','producer','severity','event_type','plugin_id','operation','outcome','reason_code','component','instance','job','mode','result','state','status','db','dependency','method','route','status_class','scraped_producer_kind','scraped_target_id','type','message_source','stage','storage','level','error_code','service','module','message','event_name']
+const labelKeys = ['alert_source','source','target','producer','severity','event_type','plugin_id','operation','outcome','reason_code','component','instance','job','mode','result','state','status','db','dependency','method','route','status_class','scraped_producer_kind','scraped_target_id','type','message_source','stage','storage','level','error_code','service','module','message','event_name']
 const labels = dictionary(labelKeys, text)
 const selector = shape({metric:text,labels})
 const countCatalog = shape({fields:dictionary(labelKeys,array(text)),allowed_combinations:array(labels),reducers:array(choice('count')),minimum_selectors:integer})
