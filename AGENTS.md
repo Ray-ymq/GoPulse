@@ -24,7 +24,8 @@
 - Use the three-part `major.minor.patch` format.
 - Phase 0 through Phase 3 use `0.1.x` through `0.4.x`.
 - After Phase 3 passes milestone acceptance, publish `1.0.0`.
-- Phase 4 through Phase 20 use `1.(Phase - 3).x`.
+- Phase 4 through Phase 17 use `1.(Phase - 3).x`.
+- Allocate phases and version lines after Phase 17 only in a new Phase total implementation plan; unscheduled future designs do not reserve a phase or version.
 - Reserve patch `0` as the Phase baseline. Executable batches start at patch `1` in planned execution order.
 - Each executable batch has one target version, and all implementation commits in that batch share that target.
 - The root `VERSION` file is the sole source of the current completed product version.
