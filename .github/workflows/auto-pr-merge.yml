@@ -79,7 +79,7 @@ jobs:
         if: steps.changes.outputs.has_changes == 'true'
         id: pr
         env:
-          GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           HEAD_OWNER: ${{ github.repository_owner }}
           HEAD_BRANCH: ${{ github.ref_name }}
