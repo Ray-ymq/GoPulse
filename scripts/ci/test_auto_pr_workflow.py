@@ -18,10 +18,14 @@ class AutoPRWorkflowTest(unittest.TestCase):
         workflow = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")
 
         create_position = workflow.index("- name: Create or find pull request")
-        merge_position = workflow.index("- name: Enable auto-merge")
+        merge_position = workflow.index("- name: Merge pull request")
         self.assertLess(create_position, merge_position)
         self.assertNotIn("Wait for pull-request CI", workflow)
         self.assertNotIn("gh run watch", workflow)
+        self.assertNotIn("gh pr create", workflow)
+        self.assertNotIn("gh pr merge", workflow)
+        self.assertIn('"repos/${GH_REPO}/pulls"', workflow)
+        self.assertIn('"repos/${GH_REPO}/pulls/${PR_NUMBER}/merge"', workflow)
         self.assertNotIn("actions: read", workflow)
         self.assertFalse(Path(".github/workflows/ci.yml").exists())
 
