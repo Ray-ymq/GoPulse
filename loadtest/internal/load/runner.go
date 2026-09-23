@@ -152,7 +152,10 @@ func Run(ctx context.Context, config Config) (Report, error) {
 	}
 
 	started := time.Now().UTC()
-	jobs := make(chan scheduledSlot, config.VirtualUsers*2)
+	jobs := make([]chan scheduledSlot, config.VirtualUsers)
+	for id := range jobs {
+		jobs[id] = make(chan scheduledSlot, 4)
+	}
 	accumulators := map[string]*accumulator{
 		"warmup": newAccumulator(),
 		"steady": newAccumulator(),
@@ -165,9 +168,9 @@ func Run(ctx context.Context, config Config) (Report, error) {
 	workers.Add(config.VirtualUsers)
 	for id := 0; id < config.VirtualUsers; id++ {
 		state := &vuState{id: id, corpus: &config.Corpus, credentials: &config.Credentials}
-		go func(state *vuState, cookie string) {
+		go func(id int, state *vuState, cookie string) {
 			defer workers.Done()
-			for slot := range jobs {
+			for slot := range jobs[id] {
 				if workerError.Load() != nil {
 					continue
 				}
@@ -178,7 +181,7 @@ func Run(ctx context.Context, config Config) (Report, error) {
 				globalRoutes.add(result)
 				aggregateMu.Unlock()
 			}
-		}(state, cookies[id])
+		}(id, state, cookies[id])
 	}
 
 	phases := []phaseSpec{
@@ -195,7 +198,7 @@ func Run(ctx context.Context, config Config) (Report, error) {
 		scheduled, dropped, maxLag, err := schedulePhase(ctx, phase, jobs, &slotIndex)
 		if err != nil {
 			workerError.Store(err)
-			close(jobs)
+			closeJobs(jobs)
 			workers.Wait()
 			return Report{}, err
 		}
@@ -204,7 +207,7 @@ func Run(ctx context.Context, config Config) (Report, error) {
 			ScheduledSlots: scheduled, DroppedSlots: dropped, MaxScheduleLagMS: maxLag,
 		})
 	}
-	close(jobs)
+	closeJobs(jobs)
 	workers.Wait()
 	if value := workerError.Load(); value != nil {
 		if err, ok := value.(error); ok && err != nil {
@@ -241,6 +244,12 @@ type scheduledSlot struct {
 	scheduledAt time.Time
 }
 
+func closeJobs(jobs []chan scheduledSlot) {
+	for _, channel := range jobs {
+		close(channel)
+	}
+}
+
 type phaseSpec struct {
 	name     string
 	duration time.Duration
@@ -248,7 +257,7 @@ type phaseSpec struct {
 	ramp     bool
 }
 
-func schedulePhase(ctx context.Context, phase phaseSpec, jobs chan<- scheduledSlot, slotIndex *uint64) (scheduled, dropped uint64, maxLagMS float64, resultErr error) {
+func schedulePhase(ctx context.Context, phase phaseSpec, jobs []chan scheduledSlot, slotIndex *uint64) (scheduled, dropped uint64, maxLagMS float64, resultErr error) {
 	count := uint64(math.Round(phase.duration.Seconds() * phase.rps))
 	if phase.ramp {
 		count = uint64(math.Round(phase.duration.Seconds() * phase.rps / 2))
@@ -284,8 +293,9 @@ func schedulePhase(ctx context.Context, phase phaseSpec, jobs chan<- scheduledSl
 				maxLagMS = value
 			}
 		}
+		virtualUser := int(*slotIndex % uint64(len(jobs)))
 		select {
-		case jobs <- scheduledSlot{index: *slotIndex, phase: phase.name, scheduledAt: scheduledAt}:
+		case jobs[virtualUser] <- scheduledSlot{index: *slotIndex, phase: phase.name, scheduledAt: scheduledAt}:
 		default:
 			dropped++
 		}

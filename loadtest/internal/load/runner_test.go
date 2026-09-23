@@ -84,3 +84,25 @@ func TestRunAgainstMockServerProducesSanitizedReport(t *testing.T) {
 		t.Fatalf("report leaked credentials: %s", encoded)
 	}
 }
+
+func TestSchedulePhaseAssignsSlotsDeterministicallyToVirtualUsers(t *testing.T) {
+	jobs := []chan scheduledSlot{make(chan scheduledSlot, 10), make(chan scheduledSlot, 10)}
+	slotIndex := uint64(0)
+	scheduled, dropped, _, err := schedulePhase(context.Background(), phaseSpec{
+		name: "steady", duration: 20 * time.Millisecond, rps: 500,
+	}, jobs, &slotIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled != 10 || dropped != 0 || slotIndex != 10 {
+		t.Fatalf("scheduled=%d dropped=%d slotIndex=%d", scheduled, dropped, slotIndex)
+	}
+	for virtualUser := range jobs {
+		close(jobs[virtualUser])
+		for slot := range jobs[virtualUser] {
+			if int(slot.index%uint64(len(jobs))) != virtualUser {
+				t.Fatalf("slot %d assigned to virtual user %d", slot.index, virtualUser)
+			}
+		}
+	}
+}

@@ -234,9 +234,10 @@ def evaluate_slo(rounds: list[dict]) -> dict:
             )
         )
         convergence = item["convergence"]
-        checks[f"round_{index}_search_notification_convergence"] = convergence["search_seconds"] <= 30 and convergence["notification_seconds"] <= 30
-        checks[f"round_{index}_observability_convergence"] = convergence["metrics_logs_events_seconds"] <= 60
-        checks[f"round_{index}_recovery"] = convergence["recovery_seconds"] <= 600
+        converged = convergence.get("converged") is True
+        checks[f"round_{index}_search_notification_convergence"] = converged and convergence["search_seconds"] <= 30 and convergence["notification_seconds"] <= 30
+        checks[f"round_{index}_observability_convergence"] = converged and convergence["metrics_logs_events_seconds"] <= 60
+        checks[f"round_{index}_recovery"] = converged and convergence["recovery_seconds"] <= 600
     return {"status": "passed" if all(checks.values()) else "failed", "checks": checks}
 
 
@@ -301,12 +302,15 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
         _validate_bottleneck(resources["first_bottleneck"])
         convergence = item["convergence"]
         if set(convergence) != {
+            "converged",
             "outbox_pending", "rabbit_ready", "rabbit_unacked", "search_count", "mysql_posts", "notifications", "kafka_lag",
             "logs_count_before", "logs_count_after", "events_count_before", "events_count_after",
             "marshaller_store_before", "marshaller_store_after",
             "search_seconds", "notification_seconds", "metrics_logs_events_seconds", "recovery_seconds",
         }:
             raise ValueError("convergence evidence is incomplete")
+        if not isinstance(convergence["converged"], bool):
+            raise ValueError("convergence state is invalid")
         for key in (
             "outbox_pending", "rabbit_ready", "rabbit_unacked", "search_count", "mysql_posts", "notifications", "kafka_lag",
             "logs_count_before", "logs_count_after", "events_count_before", "events_count_after",
@@ -315,17 +319,39 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
                 raise ValueError("convergence evidence contains an invalid count")
         _validate_store_counts(convergence["marshaller_store_before"], "before")
         _validate_store_counts(convergence["marshaller_store_after"], "after")
-        if convergence["outbox_pending"] != 0 or convergence["rabbit_ready"] != 0 or convergence["rabbit_unacked"] != 0 or convergence["kafka_lag"] != 0:
-            raise ValueError("round did not converge to empty queues")
-        if convergence["mysql_posts"] < 1 or convergence["search_count"] != convergence["mysql_posts"]:
-            raise ValueError("search projection did not converge to authoritative posts")
-        if convergence["notifications"] < EXPECTED_COUNTS["notifications"]:
-            raise ValueError("notification projection lost accepted business facts")
-        if convergence["logs_count_after"] <= convergence["logs_count_before"] or convergence["events_count_after"] <= convergence["events_count_before"]:
-            raise ValueError("round did not produce searchable logs and events")
-        for kind in ("metrics", "logs", "events"):
-            if convergence["marshaller_store_after"][kind] <= convergence["marshaller_store_before"][kind]:
-                raise ValueError("round did not record " + kind + " storage progress")
+        if convergence["mysql_posts"] < 1 or convergence["notifications"] < EXPECTED_COUNTS["notifications"]:
+            raise ValueError("accepted business facts were lost")
+        if convergence["converged"]:
+            if convergence["outbox_pending"] != 0 or convergence["rabbit_ready"] != 0 or convergence["rabbit_unacked"] != 0 or convergence["kafka_lag"] != 0:
+                raise ValueError("converged round did not report empty queues")
+            if convergence["search_count"] != convergence["mysql_posts"]:
+                raise ValueError("converged round did not report matching search projection")
+            if convergence["logs_count_after"] <= convergence["logs_count_before"] or convergence["events_count_after"] <= convergence["events_count_before"]:
+                raise ValueError("converged round did not produce searchable logs and events")
+            for kind in ("metrics", "logs", "events"):
+                if convergence["marshaller_store_after"][kind] <= convergence["marshaller_store_before"][kind]:
+                    raise ValueError("converged round did not record " + kind + " storage progress")
+        else:
+            if (convergence["logs_count_after"] < convergence["logs_count_before"]
+                    or convergence["events_count_after"] < convergence["events_count_before"]):
+                raise ValueError("non-converged round recorded observability regression")
+            for kind in ("metrics", "logs", "events"):
+                if convergence["marshaller_store_after"][kind] < convergence["marshaller_store_before"][kind]:
+                    raise ValueError("non-converged round recorded " + kind + " storage regression")
+            incomplete = (
+                convergence["outbox_pending"] != 0
+                or convergence["rabbit_ready"] != 0
+                or convergence["rabbit_unacked"] != 0
+                or convergence["kafka_lag"] != 0
+                or convergence["search_count"] != convergence["mysql_posts"]
+                or convergence["notifications"] < EXPECTED_COUNTS["notifications"]
+                or convergence["logs_count_after"] <= convergence["logs_count_before"]
+                or convergence["events_count_after"] <= convergence["events_count_before"]
+                or any(convergence["marshaller_store_after"][kind] <= convergence["marshaller_store_before"][kind]
+                       for kind in ("metrics", "logs", "events"))
+            )
+            if not incomplete:
+                raise ValueError("non-converged round has no incomplete convergence condition")
         for key in ("search_seconds", "notification_seconds", "metrics_logs_events_seconds", "recovery_seconds"):
             if _number(convergence[key]) < 0:
                 raise ValueError("convergence timing is invalid")

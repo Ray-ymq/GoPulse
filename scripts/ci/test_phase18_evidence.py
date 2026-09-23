@@ -103,6 +103,7 @@ def capacity():
                 "first_bottleneck": {"component": "none", "reason_code": "none_observed", "fact": "all capacity gates passed"},
             },
             "convergence": {
+                "converged": True,
                 "outbox_pending": 0, "rabbit_ready": 0, "rabbit_unacked": 0,
                 "search_count": 50000, "mysql_posts": 50000, "notifications": 500000, "kafka_lag": 0,
                 "logs_count_before": 100, "logs_count_after": 500, "events_count_before": 10, "events_count_after": 40,
@@ -195,6 +196,45 @@ class EvidenceTest(unittest.TestCase):
         document["host"]["active_compose_projects"] = ["gopulse-other"]
         with self.assertRaisesRegex(ValueError, "competing Compose"):
             validate_capacity(document)
+
+    def test_bounded_non_convergence_is_recorded_as_failed_slo(self):
+        document = capacity()
+        convergence = document["rounds"][0]["convergence"]
+        convergence.update({
+            "converged": False,
+            "outbox_pending": 1200, "rabbit_ready": 0, "rabbit_unacked": 0,
+            "search_count": 49800, "notifications": 500100, "kafka_lag": 0,
+            "search_seconds": 601, "notification_seconds": 601,
+            "metrics_logs_events_seconds": 601, "recovery_seconds": 601,
+        })
+        bottleneck = {
+            "component": "backend", "reason_code": "outbox_backlog",
+            "fact": "outbox pending reached 1200 during the load window",
+        }
+        document["rounds"][0]["resources"]["first_bottleneck"] = bottleneck
+        document["slo"] = {**evaluate_slo(document["rounds"]), "first_bottleneck": bottleneck}
+        self.assertIs(document, validate_capacity(document))
+        self.assertFalse(document["slo"]["checks"]["round_1_recovery"])
+
+    def test_non_converged_round_without_incomplete_condition_is_rejected(self):
+        document = capacity()
+        document["rounds"][0]["convergence"]["converged"] = False
+        with self.assertRaisesRegex(ValueError, "no incomplete convergence condition"):
+            validate_capacity(copy.deepcopy(document))
+
+    def test_non_converged_round_may_retain_search_backlog_without_data_loss(self):
+        document = capacity()
+        convergence = document["rounds"][0]["convergence"]
+        convergence.update({
+            "converged": False, "search_count": 49999, "search_seconds": 601,
+            "recovery_seconds": 601,
+        })
+        document["rounds"][0]["resources"]["first_bottleneck"] = {
+            "component": "search-projection", "reason_code": "search_convergence_timeout",
+            "fact": "search projection retained one stale document at the recovery deadline",
+        }
+        document["slo"] = {**evaluate_slo(document["rounds"]), "first_bottleneck": document["rounds"][0]["resources"]["first_bottleneck"]}
+        self.assertIs(document, validate_capacity(document))
 
     def test_dropped_slot_accounting_is_rejected_when_inconsistent(self):
         document = capacity()

@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from phase18_capacity import compose_override, first_bottleneck, generate_recipe, observability_progress, preflight, run_preflight
+from phase18_capacity import compose_override, first_bottleneck, generate_recipe, observability_progress, preflight, run_preflight, wait_convergence
 
 
 class CapacityRunnerTest(unittest.TestCase):
@@ -66,11 +66,45 @@ class CapacityRunnerTest(unittest.TestCase):
             'load_process': {'rss_bytes': 1},
         }
         resources = {'oom_killed': 0, 'restart_count': 0, 'max_swap_delta_bytes': 0}
-        convergence = {'search_seconds': 1, 'notification_seconds': 1, 'metrics_logs_events_seconds': 1, 'recovery_seconds': 1}
+        convergence = {'converged': True, 'outbox_pending': 0, 'rabbit_ready': 0, 'rabbit_unacked': 0, 'kafka_lag': 0,
+                       'search_count': 1, 'mysql_posts': 1, 'notifications': 500000,
+                       'search_seconds': 1, 'notification_seconds': 1, 'metrics_logs_events_seconds': 1, 'recovery_seconds': 1}
         records = [{'links': {'backend': {'gopulse_backend_outbox_pending': 7}}, 'rabbitmq': None, 'kafka_lag': None,
                     'containers': [], 'host': {}}]
         bottleneck = first_bottleneck(report, resources, convergence, records)
         self.assertEqual((bottleneck['component'], bottleneck['reason_code']), ('backend', 'outbox_backlog'))
+
+    def test_bounded_convergence_timeout_returns_truthful_partial_snapshot(self):
+        def fake_compose(_env, _compose_file, _project, *args, **_kwargs):
+            if 'mysql' in args:
+                return SimpleNamespace(returncode=0, stdout='42 500000 50000\n', stderr='')
+            if 'rabbitmq' in args:
+                return SimpleNamespace(returncode=0, stdout='queue 0 0\n', stderr='')
+            return SimpleNamespace(returncode=1, stdout='', stderr='')
+
+        baseline = {
+            'logs_count': 10, 'events_count': 5,
+            'marshaller_store_counts': {'metrics': 10, 'logs': 10, 'events': 5},
+        }
+        progressed = {
+            'logs_count': 11, 'events_count': 6,
+            'marshaller_store_counts': {'metrics': 11, 'logs': 11, 'events': 6},
+        }
+        with mock.patch('phase18_capacity.compose', side_effect=fake_compose), \
+             mock.patch('phase18_capacity.elasticsearch_count', return_value=49999), \
+             mock.patch('phase18_capacity.kafka_group_lag', return_value=0), \
+             mock.patch('phase18_capacity.observability_snapshot', return_value=progressed), \
+             mock.patch('phase18_capacity.time.monotonic', side_effect=[0, 0, 1, 1, 1]), \
+             mock.patch('phase18_capacity.time.sleep', return_value=None):
+            snapshot = wait_convergence(
+                Path('/candidate.env'), Path('/compose.yaml'), 'gopulse-p18-01-000000000000',
+                timeout=1, baseline=baseline, allow_incomplete=True,
+            )
+        self.assertFalse(snapshot['converged'])
+        self.assertEqual(snapshot['outbox_pending'], 42)
+        self.assertEqual(snapshot['search_count'], 49999)
+        self.assertEqual(snapshot['recovery_seconds'], 1.0)
+        self.assertEqual(snapshot['logs_count_after'], 11)
 
     def test_recipe_credentials_use_owner_only_files_not_argv(self):
         captured = []

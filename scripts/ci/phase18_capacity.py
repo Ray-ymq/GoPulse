@@ -45,6 +45,9 @@ def run(args, timeout=300, env=None):
 
 def require(result, operation):
     if result.returncode:
+        detail = (result.stderr or result.stdout or '').strip()
+        if detail:
+            raise RuntimeError(operation + ' failed: ' + detail[-500:])
         raise RuntimeError(operation + ' failed')
     return result.stdout
 
@@ -285,7 +288,7 @@ def observability_progress(snapshot, baseline):
     )
 
 
-def wait_convergence(env_file, compose_file, project, timeout=3600, baseline=None):
+def wait_convergence(env_file, compose_file, project, timeout=3600, baseline=None, allow_incomplete=False):
     started = time.monotonic()
     search_seconds = None
     notification_seconds = None
@@ -360,6 +363,7 @@ def wait_convergence(env_file, compose_file, project, timeout=3600, baseline=Non
                 'marshaller_store_counts': {kind: 0 for kind in ('metrics', 'logs', 'events')},
             }
             return {
+                'converged': True,
                 'outbox_pending': outbox, 'rabbit_ready': ready, 'rabbit_unacked': unacked,
                 'search_count': search_count, 'mysql_posts': posts, 'notifications': notifications,
                 'kafka_lag': kafka_lag,
@@ -372,9 +376,41 @@ def wait_convergence(env_file, compose_file, project, timeout=3600, baseline=Non
                 'metrics_logs_events_seconds': round(observability_seconds, 3),
                 'recovery_seconds': round(now, 3),
             }
-        last = state
+        last = {
+            'outbox_pending': outbox, 'rabbit_ready': ready, 'rabbit_unacked': unacked,
+            'search_count': search_count, 'mysql_posts': posts, 'notifications': notifications,
+            'kafka_lag': kafka_lag,
+        }
+        if observability is not None:
+            last['observability'] = observability
         time.sleep(3)
-    raise RuntimeError('projection convergence timeout: ' + repr(last))
+    elapsed = time.monotonic() - started
+    if last is None or latest_observability is None:
+        raise RuntimeError('projection convergence snapshot unavailable')
+    if not allow_incomplete:
+        raise RuntimeError('projection convergence timeout: ' + repr((
+            last['outbox_pending'], last['rabbit_ready'], last['rabbit_unacked'],
+            last['search_count'], last['mysql_posts'], last['notifications'], last['kafka_lag'],
+        )))
+    before = baseline or {
+        'logs_count': 0, 'events_count': 0,
+        'marshaller_store_counts': {kind: 0 for kind in ('metrics', 'logs', 'events')},
+    }
+    return {
+        'converged': False,
+        'outbox_pending': last['outbox_pending'], 'rabbit_ready': last['rabbit_ready'],
+        'rabbit_unacked': last['rabbit_unacked'], 'search_count': last['search_count'],
+        'mysql_posts': last['mysql_posts'], 'notifications': last['notifications'],
+        'kafka_lag': last['kafka_lag'],
+        'logs_count_before': before['logs_count'], 'logs_count_after': latest_observability['logs_count'],
+        'events_count_before': before['events_count'], 'events_count_after': latest_observability['events_count'],
+        'marshaller_store_before': before['marshaller_store_counts'],
+        'marshaller_store_after': latest_observability['marshaller_store_counts'],
+        'search_seconds': round(search_seconds if search_seconds is not None else elapsed, 3),
+        'notification_seconds': round(notification_seconds if notification_seconds is not None else elapsed, 3),
+        'metrics_logs_events_seconds': round(observability_seconds if observability_seconds is not None else elapsed, 3),
+        'recovery_seconds': round(elapsed, 3),
+    }
 
 
 def kafka_group_lag(env_file, compose_file, project):
@@ -528,6 +564,14 @@ def first_bottleneck(report, resources, convergence, records):
                 'fact': 'host CPU first reached %.2f percent' % record['host']['cpu_percent'],
             }
 
+    if (convergence.get('outbox_pending', 0) or convergence.get('rabbit_ready', 0)
+            or convergence.get('rabbit_unacked', 0) or convergence.get('kafka_lag', 0)):
+        return {
+            'component': 'queue-recovery', 'reason_code': 'queue_backlog_at_recovery_deadline',
+            'fact': 'recovery deadline retained outbox=%s rabbit_ready=%s rabbit_unacked=%s kafka_lag=%s' % (
+                convergence.get('outbox_pending', 0), convergence.get('rabbit_ready', 0),
+                convergence.get('rabbit_unacked', 0), convergence.get('kafka_lag', 0)),
+        }
     if convergence['search_seconds'] > 30:
         return {'component': 'search-projection', 'reason_code': 'search_convergence_timeout', 'fact': 'search projection took %.3fs' % convergence['search_seconds']}
     if convergence['notification_seconds'] > 30:
@@ -611,7 +655,7 @@ def run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
             raise RuntimeError('load generator failed: ' + (stderr or stdout)[-300:])
         recovery_started = time.monotonic()
         convergence = wait_convergence(baseline_env_file, Path(manifest['compose']['path']), project,
-                                       timeout=600, baseline=observability_baseline)
+                                       timeout=600, baseline=observability_baseline, allow_incomplete=True)
         convergence['recovery_seconds'] = round(time.monotonic() - recovery_started, 3)
         sampler.stop()
         resources = summarize(sampler.records)
@@ -666,7 +710,15 @@ def run_capacity(manifest_path, rounds, work):
         raise RuntimeError('two recipe inspections were not deterministic')
     results = []
     for round_number in range(1, rounds + 1):
-        result, _ = run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
+        for attempt in range(2):
+            try:
+                result, _ = run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
+                break
+            except RuntimeError:
+                load_report = work / ('round-%d' % round_number) / 'load-report.json'
+                if attempt or load_report.exists():
+                    raise
+                time.sleep(15)
         results.append(result)
         print('PASS: capacity round %d complete' % round_number, flush=True)
     repeated = repeatability(results)
@@ -719,19 +771,30 @@ def main():
     parser.add_argument('--preflight-only', action='store_true')
     arguments = parser.parse_args()
     work = arguments.work.resolve()
-    if arguments.preflight_only:
-        document = run_preflight(work)
-        print(json.dumps({'host': document['host'], 'problems': document['problems']}, sort_keys=True))
-        if document['problems']:
-            raise SystemExit(1)
-        return
-    if arguments.manifest is None:
-        parser.error('--manifest is required unless --preflight-only is used')
-    manifest = arguments.manifest.resolve()
-    # Bundle-relative paths are resolved inside the immutable candidate directory.
-    if not (manifest.parent / 'deploy/product/compose.yaml').exists():
-        raise ValueError('manifest parent is not a complete release bundle')
-    run_capacity(manifest, arguments.rounds, work)
+    try:
+        if arguments.preflight_only:
+            document = run_preflight(work)
+            print(json.dumps({'host': document['host'], 'problems': document['problems']}, sort_keys=True))
+            if document['problems']:
+                raise SystemExit(1)
+            return
+        if arguments.manifest is None:
+            parser.error('--manifest is required unless --preflight-only is used')
+        manifest = arguments.manifest.resolve()
+        # Bundle-relative paths are resolved inside the immutable candidate directory.
+        if not (manifest.parent / 'deploy/product/compose.yaml').exists():
+            raise ValueError('manifest parent is not a complete release bundle')
+        run_capacity(manifest, arguments.rounds, work)
+    except Exception as error:
+        # The private work directory is the only place that may retain the
+        # bounded failure detail; the public stderr intentionally omits it.
+        try:
+            path = work / 'run-error.txt'
+            path.write_text(type(error).__name__ + ': ' + str(error) + '\n')
+            path.chmod(0o600)
+        except OSError:
+            pass
+        raise
 
 
 if __name__ == '__main__':
