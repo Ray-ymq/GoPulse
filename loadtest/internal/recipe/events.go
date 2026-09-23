@@ -128,3 +128,57 @@ func (event outboxEvent) validate() error {
 	}
 	return nil
 }
+
+// notificationFact is the deterministic notification projection of a single
+// business event. RecipientID, PostID, and CommentID mirror the rules enforced
+// by the notification repository: notifications are written from the event
+// envelope, comments carry both resources, likes carry only the post, and
+// follows carry neither.
+type notificationFact struct {
+	SourceEventID string
+	Type          string
+	RecipientID   uint64
+	ActorID       uint64
+	PostID        uint64
+	CommentID     uint64
+	CreatedAt     time.Time
+}
+
+// notification derives the notification projected from one outbox event. The
+// second result is false for event types that never notify anyone and for
+// self-directed facts, which the product deliberately drops.
+func (event outboxEvent) notification() (notificationFact, bool) {
+	if event.RecipientID == 0 || event.ActorID == event.RecipientID {
+		return notificationFact{}, false
+	}
+	fact := notificationFact{
+		SourceEventID: event.EventID,
+		Type:          event.Type,
+		RecipientID:   event.RecipientID,
+		ActorID:       event.ActorID,
+		CreatedAt:     event.OccurredAt.UTC(),
+	}
+	switch event.Type {
+	case "comment.created":
+		fact.PostID = event.PostID
+		fact.CommentID = event.CommentID
+	case "post.liked":
+		fact.PostID = event.PostID
+	case "user.followed":
+	default:
+		return notificationFact{}, false
+	}
+	return fact, true
+}
+
+// forEachNotification visits every deterministic notification in the same
+// order as the outbox facts they are projected from.
+func forEachNotification(seed uint64, visit func(notificationFact) error) error {
+	return forEachOutboxEvent(seed, func(event outboxEvent) error {
+		fact, ok := event.notification()
+		if !ok {
+			return nil
+		}
+		return visit(fact)
+	})
+}

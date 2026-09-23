@@ -95,7 +95,11 @@ func Generate(ctx context.Context, database *sql.DB, options GenerateOptions) (R
 	if err := insertBookmarks(ctx, transaction); err != nil {
 		return Receipt{}, err
 	}
-	if err := insertOutbox(ctx, transaction, options.Seed); err != nil {
+	publishedAt := now().UTC()
+	if err := insertOutbox(ctx, transaction, options.Seed, publishedAt); err != nil {
+		return Receipt{}, err
+	}
+	if err := insertNotifications(ctx, transaction, options.Seed); err != nil {
 		return Receipt{}, err
 	}
 	if err := transaction.Commit(); err != nil {
@@ -147,16 +151,21 @@ SELECT
 
 func verifyMaterialized(ctx context.Context, database *sql.DB) error {
 	expected := ExpectedCounts()
-	var users, posts, comments, likes, follows, bookmarks, outbox, minUser, maxUser, minPost, maxPost, minComment, maxComment uint64
+	var users, posts, comments, likes, follows, bookmarks, outbox, published, notifications, projected uint64
+	var minUser, maxUser, minPost, maxPost, minComment, maxComment uint64
 	err := database.QueryRowContext(ctx, `
 SELECT
  (SELECT COUNT(*) FROM users), (SELECT COUNT(*) FROM posts), (SELECT COUNT(*) FROM comments),
  (SELECT COUNT(*) FROM post_likes), (SELECT COUNT(*) FROM user_follows),
  (SELECT COUNT(*) FROM post_bookmarks), (SELECT COUNT(*) FROM business_outbox),
+ (SELECT COUNT(*) FROM business_outbox WHERE status = 'published'),
+ (SELECT COUNT(*) FROM notifications),
+ (SELECT COUNT(*) FROM notifications n JOIN business_outbox o ON o.event_id = n.source_event_id),
  (SELECT MIN(id) FROM users), (SELECT MAX(id) FROM users),
  (SELECT MIN(id) FROM posts), (SELECT MAX(id) FROM posts),
  (SELECT MIN(id) FROM comments), (SELECT MAX(id) FROM comments)`).Scan(
 		&users, &posts, &comments, &likes, &follows, &bookmarks, &outbox,
+		&published, &notifications, &projected,
 		&minUser, &maxUser, &minPost, &maxPost, &minComment, &maxComment,
 	)
 	if err != nil {
@@ -168,6 +177,12 @@ SELECT
 		minUser != 1 || maxUser != 5000 || minPost != 1 || maxPost != 50000 ||
 		minComment != 1 || maxComment != 100000 {
 		return errors.New("materialized recipe counts or ID ranges differ from contract")
+	}
+	// The seeded Outbox is materialized already-published so the baseline starts
+	// from a converged steady state; every notification must trace back to the
+	// exact business event that produced it.
+	if published != expected.Outbox || notifications != expected.Notifications || projected != expected.Notifications {
+		return errors.New("materialized projections differ from contract")
 	}
 	return nil
 }
@@ -234,7 +249,13 @@ func insertBookmarks(ctx context.Context, tx *sql.Tx) error {
 	})
 }
 
-func insertOutbox(ctx context.Context, tx *sql.Tx, seed uint64) error {
+// insertOutbox materializes the deterministic Outbox already in the published
+// state. The seeded facts represent an established system, so their events have
+// been delivered; replaying 550,000 rows through the live dispatcher would only
+// measure the unmodified single-replica baseline drain rate. published_at uses
+// the generation time so the default 168h retention cannot immediately expire
+// rows whose business timestamp is the fixed 2026-01-01 reference.
+func insertOutbox(ctx context.Context, tx *sql.Tx, seed uint64, publishedAt time.Time) error {
 	rows := make([][]any, 0, batchSize)
 	flush := func() error {
 		if len(rows) == 0 {
@@ -242,7 +263,8 @@ func insertOutbox(ctx context.Context, tx *sql.Tx, seed uint64) error {
 		}
 		err := insertRows(ctx, tx, "business_outbox", []string{
 			"event_id", "event_type", "schema_version", "payload", "status", "available_at",
-			"attempt_count", "created_at", "updated_at",
+			"attempt_count", "lease_owner", "lease_expires_at", "published_at", "last_error",
+			"created_at", "updated_at",
 		}, rows)
 		rows = rows[:0]
 		return err
@@ -255,7 +277,10 @@ func insertOutbox(ctx context.Context, tx *sql.Tx, seed uint64) error {
 		if err != nil {
 			return fmt.Errorf("encode deterministic outbox payload: %w", err)
 		}
-		rows = append(rows, []any{event.EventID, event.Type, 1, payload, "pending", event.OccurredAt, 0, event.OccurredAt, event.OccurredAt})
+		rows = append(rows, []any{
+			event.EventID, event.Type, 1, payload, "published", event.OccurredAt,
+			0, nil, nil, publishedAt, nil, event.OccurredAt, publishedAt,
+		})
 		if len(rows) == batchSize {
 			return flush()
 		}
@@ -264,6 +289,44 @@ func insertOutbox(ctx context.Context, tx *sql.Tx, seed uint64) error {
 		return err
 	}
 	return flush()
+}
+
+// insertNotifications materializes the notification projection of every
+// seeded business event so the baseline starts converged. Each row is derived
+// from the same deterministic fact that produced its Outbox event.
+func insertNotifications(ctx context.Context, tx *sql.Tx, seed uint64) error {
+	rows := make([][]any, 0, batchSize)
+	flush := func() error {
+		if len(rows) == 0 {
+			return nil
+		}
+		err := insertRows(ctx, tx, "notifications", []string{
+			"source_event_id", "type", "recipient_id", "actor_id",
+			"post_id", "comment_id", "created_at",
+		}, rows)
+		rows = rows[:0]
+		return err
+	}
+	if err := forEachNotification(seed, func(fact notificationFact) error {
+		rows = append(rows, []any{
+			fact.SourceEventID, fact.Type, fact.RecipientID, fact.ActorID,
+			nullableID(fact.PostID), nullableID(fact.CommentID), fact.CreatedAt,
+		})
+		if len(rows) == batchSize {
+			return flush()
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return flush()
+}
+
+func nullableID(id uint64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
 }
 
 func batches(total uint64, visit func(start, end uint64) error) error {
