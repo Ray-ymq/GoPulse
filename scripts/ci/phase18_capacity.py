@@ -120,7 +120,7 @@ def preflight(host):
         problems.append('exactly 8 vCPU is required')
     if host['memory_bytes'] < 12 * GIB:
         problems.append('12 GiB RAM is required')
-    if host['swap_total_bytes'] != 8 * GIB:
+    if host['swap_total_bytes'] < 8 * GIB:
         problems.append('8 GiB swap is required')
     if host['disk_available_bytes'] < 100 * GIB:
         problems.append('at least 100 GiB free disk is required')

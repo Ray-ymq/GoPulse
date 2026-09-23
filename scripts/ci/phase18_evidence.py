@@ -256,7 +256,7 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
     host = document.get("host", {})
     if host.get("platform") != "linux/amd64" or host.get("host_os") != "Linux" or "WSL2" not in host.get("kernel", ""):
         raise ValueError("capacity evidence requires the reference WSL2 Linux amd64 host")
-    if host.get("cpu_count") != 8 or host.get("memory_bytes", 0) < 12 * GIB or host.get("swap_total_bytes") != 8 * GIB or host.get("disk_available_bytes", 0) < 100 * GIB:
+    if host.get("cpu_count") != 8 or host.get("memory_bytes", 0) < 12 * GIB or host.get("swap_total_bytes", 0) < 8 * GIB or host.get("disk_available_bytes", 0) < 100 * GIB:
         raise ValueError("reference host resource contract is not satisfied")
     if host.get("docker_server_os") != "linux" or host.get("docker_server_arch") != "amd64" or not host.get("docker_server_version") or not host.get("compose_version"):
         raise ValueError("reference host Docker or Compose contract is not satisfied")

@@ -6,14 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from phase18_capacity import first_bottleneck, generate_recipe, observability_progress, run_preflight
+from phase18_capacity import first_bottleneck, generate_recipe, observability_progress, preflight, run_preflight
 
 
 class CapacityRunnerTest(unittest.TestCase):
     def test_preflight_workspace_uses_owner_only_lock(self):
         host = {
             'platform': 'linux/amd64', 'host_os': 'Linux', 'kernel': '6.6-microsoft-standard-WSL2', 'cpu_count': 8,
-            'memory_bytes': 12 * 1024 ** 3, 'swap_total_bytes': 8 * 1024 ** 3,
+            'memory_bytes': 12 * 1024 ** 3, 'swap_total_bytes': 16 * 1024 ** 3,
             'disk_available_bytes': 100 * 1024 ** 3, 'docker_server_os': 'linux',
             'docker_server_arch': 'amd64', 'docker_server_version': '1', 'compose_version': '2',
             'active_compose_projects': [],
@@ -22,6 +22,18 @@ class CapacityRunnerTest(unittest.TestCase):
             document = run_preflight(Path(directory))
             self.assertEqual(document['problems'], [])
             self.assertEqual(stat.S_IMODE((Path(directory) / '.lock').stat().st_mode), 0o600)
+
+    def test_preflight_treats_swap_as_a_minimum(self):
+        host = {
+            'platform': 'linux/amd64', 'host_os': 'Linux', 'kernel': '6.6-microsoft-standard-WSL2', 'cpu_count': 8,
+            'memory_bytes': 12 * 1024 ** 3, 'swap_total_bytes': 8 * 1024 ** 3,
+            'disk_available_bytes': 100 * 1024 ** 3, 'docker_server_os': 'linux',
+            'docker_server_arch': 'amd64', 'docker_server_version': '1', 'compose_version': '2',
+            'active_compose_projects': [],
+        }
+        self.assertNotIn('8 GiB swap is required', preflight(host))
+        host['swap_total_bytes'] = 8 * 1024 ** 3 - 1
+        self.assertIn('8 GiB swap is required', preflight(host))
 
     def test_observability_progress_requires_all_three_data_paths(self):
         baseline = {

@@ -182,6 +182,14 @@ class EvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "searchable logs"):
             validate_capacity(document)
 
+    def test_swap_above_minimum_is_accepted_and_below_minimum_is_rejected(self):
+        document = capacity()
+        document["host"]["swap_total_bytes"] = 16 * 1024 ** 3
+        self.assertIs(document, validate_capacity(document))
+        document["host"]["swap_total_bytes"] = 8 * 1024 ** 3 - 1
+        with self.assertRaisesRegex(ValueError, "resource contract"):
+            validate_capacity(document)
+
     def test_competing_compose_project_is_rejected(self):
         document = capacity()
         document["host"]["active_compose_projects"] = ["gopulse-other"]
