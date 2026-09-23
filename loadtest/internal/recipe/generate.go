@@ -122,7 +122,7 @@ func Generate(ctx context.Context, database *sql.DB, options GenerateOptions) (R
 		}
 	}
 	if options.Credential != "" {
-		credentials := Credentials{SchemaVersion: SchemaVersion, Password: options.Password, Users: corpusFor(options.Seed).Users}
+		credentials := Credentials{SchemaVersion: CredentialsSchemaVersion, Password: options.Password, Users: corpusFor(options.Seed).Users}
 		if err := writeJSONAtomic(options.Credential, credentials, 0o600); err != nil {
 			return Receipt{}, err
 		}
@@ -366,11 +366,13 @@ func corpusFor(seed uint64) Corpus {
 	corpus := Corpus{SchemaVersion: SchemaVersion, Seed: seed}
 	for id := uint64(1); id <= SessionUsers; id++ {
 		corpus.Users = append(corpus.Users, CorpusUser{ID: id, Username: username(id)})
-		base := (id - 1) * UsersPerSession
 		editable := make([]uint64, 0, UsersPerSession-DeletePostsPerUser)
 		deletable := make([]uint64, 0, DeletePostsPerUser)
+		// postAuthor strides a user's posts across the whole ID range, so the
+		// session user's own posts are not adjacent. Only the author may edit
+		// or delete a post, so the corpus must offer exactly these IDs.
 		for offset := uint64(0); offset < UsersPerSession; offset++ {
-			postID := base + offset + 1
+			postID := id + offset*userCount
 			if offset < DeletePostsPerUser {
 				deletable = append(deletable, postID)
 			} else {

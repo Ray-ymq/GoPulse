@@ -638,7 +638,11 @@ def run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
         write_samples(round_dir / 'resources.json', sampler.records, resources)
         return round_value, project_hash
     finally:
-        cleanup = compose(recipe_env_file, Path(manifest['compose']['path']), project, 'down', '--volumes', '--remove-orphans', '--timeout', '30', timeout=300)
+        # down must see the same file set as up, otherwise the acceptance
+        # bridge that only the override defines is left behind as an orphan
+        # network and the owned-project inventory check fails.
+        cleanup = compose(recipe_env_file, Path(manifest['compose']['path']), project,
+                          '-f', str(override), 'down', '--volumes', '--remove-orphans', '--timeout', '30', timeout=300)
         if cleanup.returncode:
             raise RuntimeError('cleanup owned project failed')
         after = resource_inventory()

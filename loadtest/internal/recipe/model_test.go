@@ -55,7 +55,12 @@ func TestCorpusPartitionsSessionPostsWithoutOverlap(t *testing.T) {
 		if len(corpus.EditablePostIDs[index])+len(corpus.DeletePostIDs[index]) != UsersPerSession {
 			t.Fatalf("user %d post partition has wrong size", index)
 		}
+		// The product only lets the author edit or delete a post, so every
+		// corpus target must belong to the session user driving the write.
 		for _, id := range append(corpus.EditablePostIDs[index], corpus.DeletePostIDs[index]...) {
+			if postAuthor(id) != corpus.Users[index].ID {
+				t.Fatalf("post %d belongs to user %d, not session user %d", id, postAuthor(id), corpus.Users[index].ID)
+			}
 			if seen[id] {
 				t.Fatalf("post %d appears twice", id)
 			}

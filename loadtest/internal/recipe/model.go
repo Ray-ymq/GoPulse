@@ -10,11 +10,16 @@ import (
 )
 
 const (
-	SchemaVersion             = "gopulse.phase18.recipe.v1"
-	Seed               uint64 = 18002005
-	SessionUsers              = 1024
-	UsersPerSession           = 10
-	DeletePostsPerUser        = 8
+	SchemaVersion = "gopulse.phase18.recipe.v1"
+	// CredentialsSchemaVersion is the artifact contract the load generator
+	// validates before it starts; it must match load.CredentialsSchemaVersion.
+	CredentialsSchemaVersion        = "gopulse.phase18.credentials.v1"
+	Seed                     uint64 = 18002005
+	// userCount is the author pool postAuthor distributes posts over.
+	userCount          = 5000
+	SessionUsers       = 1024
+	UsersPerSession    = 10
+	DeletePostsPerUser = 8
 )
 
 // Counts is both the requested recipe and the exact post-generation assertion.
@@ -72,7 +77,7 @@ type Receipt struct {
 
 var referenceTime = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-func postAuthor(postID uint64) uint64 { return (postID-1)%5000 + 1 }
+func postAuthor(postID uint64) uint64 { return (postID-1)%uint64(userCount) + 1 }
 func postTitle(postID uint64) string  { return fmt.Sprintf("Phase18 Post %05d", postID) }
 func postContent(postID uint64) string {
 	return fmt.Sprintf("seed=%d deterministic post=%05d", Seed, postID)
