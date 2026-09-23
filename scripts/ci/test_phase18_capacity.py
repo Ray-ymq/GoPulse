@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from phase18_capacity import first_bottleneck, generate_recipe, observability_progress, preflight, run_preflight
+from phase18_capacity import compose_override, first_bottleneck, generate_recipe, observability_progress, preflight, run_preflight
 
 
 class CapacityRunnerTest(unittest.TestCase):
@@ -22,6 +22,16 @@ class CapacityRunnerTest(unittest.TestCase):
             document = run_preflight(Path(directory))
             self.assertEqual(document['problems'], [])
             self.assertEqual(stat.S_IMODE((Path(directory) / '.lock').stat().st_mode), 0o600)
+
+    def test_compose_override_uses_dedicated_acceptance_network_for_mysql(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'compose.override.yaml'
+            compose_override(path, 18307)
+            text = path.read_text()
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertIn('127.0.0.1:18307:3306', text)
+            self.assertIn('      business:\n      acceptance:\n', text)
+            self.assertIn('networks:\n  acceptance:\n', text)
 
     def test_preflight_treats_swap_as_a_minimum(self):
         host = {

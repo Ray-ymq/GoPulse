@@ -208,7 +208,19 @@ def compose(env_file, compose_file, project, *args, timeout=600):
 
 
 def compose_override(path, mysql_port):
-    path.write_text('''services:\n  mysql:\n    ports:\n      - 127.0.0.1:%d:3306\n''' % mysql_port)
+    # MySQL joins the internal business network. Docker does not publish a
+    # host port from an internal-only network, so add a dedicated bridge that
+    # only this service joins for the duration of the acceptance project.
+    path.write_text('''services:
+  mysql:
+    ports:
+      - 127.0.0.1:%d:3306
+    networks:
+      business:
+      acceptance:
+networks:
+  acceptance:
+''' % mysql_port)
     path.chmod(0o600)
 
 
