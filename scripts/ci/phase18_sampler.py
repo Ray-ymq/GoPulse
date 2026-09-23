@@ -10,6 +10,18 @@ import threading
 import time
 from pathlib import Path
 
+# Every component exposes its private metrics exposition at
+# /internal/v1/metrics on its own process listener. The application ports
+# (8080/9090/9091/9093) never serve this route.
+LINK_METRICS_SCRIPTS = {
+    'backend': 'wget -qO- --header="Authorization: Bearer $BACKEND_METRICS_TOKEN" http://127.0.0.1:19101/internal/v1/metrics',
+    'business-worker': 'wget -qO- --header="Authorization: Bearer $BUSINESS_WORKER_METRICS_TOKEN" http://127.0.0.1:19102/internal/v1/metrics',
+    'search-indexer': 'wget -qO- --header="Authorization: Bearer $SEARCH_INDEXER_METRICS_TOKEN" http://127.0.0.1:19103/internal/v1/metrics',
+    'router': 'wget -qO- --header="Authorization: Bearer $ROUTER_METRICS_TOKEN" http://127.0.0.1:19105/internal/v1/metrics',
+    'marshaller': 'wget -qO- --header="Authorization: Bearer $MARSHALLER_METRICS_TOKEN" http://127.0.0.1:19106/internal/v1/metrics',
+}
+
+
 def command(args, timeout=20, env=None):
     return subprocess.run(args, text=True, capture_output=True, timeout=timeout, env=env)
 
@@ -214,13 +226,7 @@ class Sampler:
         return result.stdout if result.returncode == 0 else ''
 
     def _links(self):
-        scripts = {
-            'backend': 'wget -qO- --header="Authorization: Bearer $BACKEND_METRICS_TOKEN" http://127.0.0.1:19101/metrics',
-            'business-worker': 'wget -qO- --header="Authorization: Bearer $BUSINESS_WORKER_METRICS_TOKEN" http://127.0.0.1:19102/metrics',
-            'search-indexer': 'wget -qO- --header="Authorization: Bearer $SEARCH_INDEXER_METRICS_TOKEN" http://127.0.0.1:19103/metrics',
-            'router': 'wget -qO- --header="Authorization: Bearer $ROUTER_METRICS_TOKEN" http://127.0.0.1:9091/metrics',
-            'marshaller': 'wget -qO- --header="Authorization: Bearer $MARSHALLER_METRICS_TOKEN" http://127.0.0.1:9093/metrics',
-        }
+        scripts = LINK_METRICS_SCRIPTS
         families = {
             'backend': ['gopulse_backend_outbox_pending', 'gopulse_backend_outbox_oldest_age_seconds'],
             'business-worker': ['gopulse_business_worker_messages_in_flight', 'gopulse_business_worker_prefetch_limit'],

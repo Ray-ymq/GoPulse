@@ -1,9 +1,22 @@
 import unittest
 
-from phase18_sampler import metric_sum, metric_value, parse_cpu_stat, parse_meminfo, parse_ratio, parse_size, summarize
+from phase18_sampler import LINK_METRICS_SCRIPTS, metric_sum, metric_value, parse_cpu_stat, parse_meminfo, parse_ratio, parse_size, summarize
 
 
 class SamplerTest(unittest.TestCase):
+    def test_link_metrics_use_the_private_component_boundary(self):
+        # Metrics are served only on the private per-process listener; the
+        # application ports return 404 and would silently zero every link sample.
+        expected = {
+            'backend': 19101, 'business-worker': 19102, 'search-indexer': 19103,
+            'router': 19105, 'marshaller': 19106,
+        }
+        self.assertEqual(set(LINK_METRICS_SCRIPTS), set(expected))
+        for service, port in expected.items():
+            script = LINK_METRICS_SCRIPTS[service]
+            self.assertIn('http://127.0.0.1:%d/internal/v1/metrics' % port, script)
+            self.assertIn('Authorization: Bearer $', script)
+
     def test_parse_host_facts(self):
         memory = parse_meminfo("MemTotal:       12582912 kB\nSwapTotal:       8388608 kB\nSwapFree:        8388608 kB\n")
         self.assertEqual(memory["MemTotal"], 12 * 1024 ** 3)

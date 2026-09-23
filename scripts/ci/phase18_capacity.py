@@ -240,7 +240,10 @@ def elasticsearch_count(env_file, compose_file, project, alias):
 
 
 def marshaller_store_counts(env_file, compose_file, project):
-    script = 'wget -qO- --header="Authorization: Bearer $MARSHALLER_METRICS_TOKEN" http://127.0.0.1:9093/metrics'
+    # Component metrics live on the private per-process listener, never on the
+    # application port, and are authenticated with the component bearer token.
+    script = ('wget -qO- --header="Authorization: Bearer $MARSHALLER_METRICS_TOKEN" '
+              'http://127.0.0.1:19106/internal/v1/metrics')
     result = compose(env_file, compose_file, project, 'exec', '-T', 'marshaller', 'sh', '-c', script, timeout=30)
     if result.returncode:
         return None
