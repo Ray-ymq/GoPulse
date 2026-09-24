@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gopulse.local/schemas/phase18-load-report.schema.json",
+  "title": "GoPulse Phase 18 capacity load report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "seed", "started_at", "finished_at", "steady_target_rps",
+    "burst_target_rps", "virtual_users", "phases", "routes", "total", "load_process"
+  ],
+  "properties": {
+    "schema_version": {"const": "gopulse.phase18.load.v1"},
+    "seed": {"type": "integer"},
+    "started_at": {"type": "string"},
+    "finished_at": {"type": "string"},
+    "steady_target_rps": {"type": "number"},
+    "burst_target_rps": {"type": "number"},
+    "virtual_users": {"type": "integer"},
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "target_rps", "duration_seconds", "scheduled_slots", "dropped_slots", "max_schedule_lag_ms", "completed_requests", "counts", "latency_by_category", "counts_by_category"],
+        "properties": {
+          "name": {"enum": ["warmup", "steady", "burst"]},
+          "target_rps": {"type": "number"},
+          "duration_seconds": {"type": "number"},
+          "scheduled_slots": {"type": "integer"},
+          "dropped_slots": {"type": "integer"},
+          "max_schedule_lag_ms": {"type": "number"},
+          "completed_requests": {"type": "integer"},
+          "counts": {"$ref": "#/$defs/counts"},
+          "latency_by_category": {"$ref": "#/$defs/latencyByCategory"},
+          "counts_by_category": {"$ref": "#/$defs/countsByCategory"}
+        }
+      }
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "method", "template", "counts", "statuses", "latency"],
+        "properties": {
+          "category": {"enum": ["read", "search", "notification_bookmark_read", "content_write", "interaction_write", "identity_session"]},
+          "method": {"type": "string"},
+          "template": {"type": "string"},
+          "counts": {"$ref": "#/$defs/counts"},
+          "statuses": {"type": "object", "additionalProperties": {"type": "integer"}},
+          "latency": {"$ref": "#/$defs/latency"}
+        }
+      }
+    },
+    "total": {"$ref": "#/$defs/counts"},
+    "load_process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rss_bytes", "goroutines", "heap_alloc_bytes"],
+      "properties": {
+        "rss_bytes": {"type": "integer"},
+        "goroutines": {"type": "integer"},
+        "heap_alloc_bytes": {"type": "integer"}
+      }
+    }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "succeeded", "explicit_rejects", "timeouts", "errors"],
+      "properties": {
+        "requests": {"type": "integer"},
+        "succeeded": {"type": "integer"},
+        "explicit_rejects": {"type": "integer"},
+        "timeouts": {"type": "integer"},
+        "errors": {"type": "integer"}
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p50_ms", "p95_ms", "p99_ms", "max_ms"],
+      "properties": {
+        "p50_ms": {"type": "number"},
+        "p95_ms": {"type": "number"},
+        "p99_ms": {"type": "number"},
+        "max_ms": {"type": "number"}
+      }
+    },
+    "latencyByCategory": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/latency"}
+    },
+    "countsByCategory": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/counts"}
+    }
+  }
+}
