@@ -8,6 +8,8 @@ import (
 
 const ReportSchemaVersion = "gopulse.phase18.load.v1"
 
+const DiagnosticSchemaVersion = "gopulse.phase18.load-diagnostic.v1"
+
 type Category string
 
 const (
@@ -82,6 +84,47 @@ type Report struct {
 	Routes          map[string]RouteReport `json:"routes"`
 	Total           CounterSummary         `json:"total"`
 	LoadProcess     ProcessStats           `json:"load_process"`
+}
+
+type DiagnosticRoute struct {
+	Category Category          `json:"category"`
+	Method   string            `json:"method"`
+	Template string            `json:"template"`
+	Counts   CounterSummary    `json:"counts"`
+	Statuses map[string]uint64 `json:"statuses"`
+	Latency  LatencySummary    `json:"latency"`
+}
+
+type DiagnosticWindow struct {
+	Sequence          int                         `json:"sequence"`
+	StartedAt         time.Time                   `json:"started_at"`
+	Phase             string                      `json:"phase"`
+	Requests          uint64                      `json:"requests"`
+	Statuses          map[string]uint64           `json:"statuses"`
+	Latency           LatencySummary              `json:"latency"`
+	LatencyByCategory map[Category]LatencySummary `json:"latency_by_category"`
+	Routes            map[string]DiagnosticRoute  `json:"routes"`
+}
+
+type ServerErrorSample struct {
+	CompletedAt time.Time `json:"completed_at"`
+	Phase       string    `json:"phase"`
+	RequestID   string    `json:"request_id,omitempty"`
+	Method      string    `json:"method"`
+	Route       string    `json:"route"`
+	Status      int       `json:"status"`
+	ErrorCode   string    `json:"error_code,omitempty"`
+	LatencyMS   float64   `json:"latency_ms"`
+}
+
+type DiagnosticReport struct {
+	SchemaVersion       string              `json:"schema_version"`
+	WindowSeconds       float64             `json:"window_seconds"`
+	StartedAt           time.Time           `json:"started_at"`
+	FinishedAt          time.Time           `json:"finished_at"`
+	Windows             []DiagnosticWindow  `json:"windows"`
+	ServerErrors        []ServerErrorSample `json:"server_errors"`
+	ServerErrorsOmitted uint64              `json:"server_errors_omitted"`
 }
 
 func percentile(values []float64, fraction float64) float64 {
