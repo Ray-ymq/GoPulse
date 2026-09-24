@@ -248,3 +248,55 @@ git diff --check
 v8/v9/v10 使用旧 corpus，不能作为本次配方修复后的验收或回归结果。后续获得
 受管环境后，应重新生成 corpus，并只执行一次最长 5 分钟的短测，同时采集
 404、500 request-id、逐秒延迟及同窗 Backend/MySQL/Outbox 证据。
+
+## 11. 2026-09-24 原始样本保全后的正式三轮
+
+先修复证据丢失窗口，再执行一次新的正式三轮。实现提交为
+`0a71f57`：资源样本逐条追加并 `fsync` 到私有 `resources.raw.jsonl`，每轮
+负载前写入 `load-binding.json`，重复性失败写独立
+`capacity-failure.json`，并增加汇总失败和重复性失败注入测试。
+
+修复后的验证命令与结果：
+
+```bash
+go -C loadtest test ./...
+scripts/verify-phase18-capacity.sh --self-test
+python3 -m py_compile scripts/ci/phase18_sampler.py \
+  scripts/ci/phase18_capacity.py scripts/ci/phase18_evidence.py
+git diff --check
+```
+
+结果：Go tests 通过；capacity self-test 共 `34 tests OK`；编译和 diff check
+通过。随后只执行一次正式三轮：
+
+```bash
+scripts/verify-phase18-capacity.sh \
+  --manifest dist/phase18-01-candidate-v6/release-manifest.json \
+  --rounds 3 --work .run/phase18-01-full-v1
+```
+
+执行结果：三轮各完成 `193500` 个请求，随后 repeatability 门禁失败并停止，
+没有重跑或换种子。RPS 偏差 `0.0%`；P95 偏差 `93.845%`；P99 偏差
+`100.036%`。因此没有生成 `capacity.json`，只有
+`.run/phase18-01-full-v1/evidence/capacity-failure.json`。
+
+本轮实际形成的持久证据：
+
+- 三轮 `resources.raw.jsonl` 分别为 `201/200/200` 条，SHA-256 与
+  `samples-receipt.json` 一致。
+- 每轮 `load-binding.json` 绑定 corpus、负载源码 commit、负载/recipe
+  二进制 SHA-256 与固定负载参数。
+- 三轮 `load-diagnostic.json`、`load-report.json`、`resources.json` 和
+  convergence 均随失败汇总保留。
+- `capacity-failure.json` 中 21 个归档工件引用的 SHA-256 已重新核对一致。
+
+第三轮有 `18` 个 500（steady `8`、burst `10`），burst 最大调度滞后为
+`360.395629 ms`。三轮恢复截止时均仍有约 `38K` Outbox pending；前两轮第一
+瓶颈为 Backend Outbox backlog，第三轮为 loadtest 调度。以上仅为失败证据，
+不构成 Phase-18-01 通过。
+
+脱敏后的全部非凭据证据归档在
+`dev/logs/Phase-18/Phase-18-01-full-v1-failure/`。`*.env`、
+`credentials.json`、可重建二进制和空锁文件未发布；归档成员及哈希见
+`evidence-manifest.json`。受管 Compose project 已清理，候选 registry 已
+停止，未执行全局 prune，未启动 Phase-18-02。

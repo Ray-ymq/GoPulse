@@ -1,0 +1,216 @@
+{
+  "archive": {
+    "bytes": 2366257,
+    "path": "phase18-01-full-v1-failure-evidence.tar.gz",
+    "sha256": "sha256:3192054de61b3b70f4c99237f2e2f020d10898830268ae743e1c5d4001124a9f"
+  },
+  "candidate": {
+    "bundle_sha256": "sha256:e0b59e814a1904d4d1a7523286c6d72465545163a94932b90326769faaab79b2",
+    "image_digests": {
+      "admin-frontend": "sha256:53be61135f87eb5177025f782cec1a1898ece66d6de137530b49d99512750ecf",
+      "backend": "sha256:e228068600210b36523522ca658243fcd55a49dfc682833e677ec6e7492e60f6",
+      "business-worker": "sha256:25fd0a6e3d466ef5b76015a6afe9ca2868c8e44485df9765366311f997e42bdf",
+      "frontend": "sha256:e8abb30097738932eb6e5c4edc73bf665e4cf23c52f27d32e43d00521b7dcfc7",
+      "marshaller": "sha256:6531ae59ee2481ab0a4dbcb74331bfa71bba77d6bb5f50d6b3db1f68b536eb68",
+      "monitor": "sha256:a670acab11ff1ab8e7674695f0f1b115706a7a2870a95a23a298fb97203ed72d",
+      "redis-exporter": "sha256:b6930df3bd5c47f79d95d1dafb19a59f256ffe95ad77cc5c44c768434504849f",
+      "router": "sha256:9eb6fddfaf4d97b9e599ab7211422bd388f437fa6c4caeb135595a8d6279a83a",
+      "search-indexer": "sha256:a3cb31001fc35da400b024170031eb43f094a5f9012d5a082f0527dccb4cc622"
+    },
+    "manifest_sha256": "sha256:56c67a79445b3e3175a92b08e444b10eda746ac89a6aee76e8bad1eb0782c84e",
+    "revision": "5aca8753587a3e23730ecc5f90e45dd6ae8e5470",
+    "version": "2.0.1"
+  },
+  "capacity_json_absent": true,
+  "corpus_sha256": "sha256:e9c6688eddc89c4fbd49d3246ea6b3896af153c33bd8b1e20cbcc4d9048e63e0",
+  "excluded": [
+    {
+      "pattern": "*.env",
+      "reason": "runtime credentials and tokens"
+    },
+    {
+      "pattern": "credentials.json",
+      "reason": "login password and account credentials"
+    },
+    {
+      "pattern": "bin/*",
+      "reason": "reproducible binaries already bound by SHA-256"
+    },
+    {
+      "pattern": ".lock",
+      "reason": "empty lock file"
+    }
+  ],
+  "execution_status": "failed",
+  "load_source_commit": "0a71f57be2f01d3950d490c7973a225cc7e3b5bc",
+  "members": [
+    {
+      "bytes": 1182,
+      "path": "binding.json",
+      "sha256": "sha256:219d66a6b63b4bd5e2d56f8bf673485f1381eeb4863eec2fa8e38ebcc81b1976"
+    },
+    {
+      "bytes": 86572,
+      "path": "evidence/capacity-failure.json",
+      "sha256": "sha256:224c593596612922e009a3cc1a2851234cbbfa1ee9668fa9ce835a7513e0d1bd"
+    },
+    {
+      "bytes": 543,
+      "path": "evidence/preflight.json",
+      "sha256": "sha256:6a1be06764871b0584ca9f94f1d13a2c7923e6d84235f6315a70ed96582158ed"
+    },
+    {
+      "bytes": 862,
+      "path": "recipe-inspect-1.json",
+      "sha256": "sha256:869742b2591e911f4c63e56d0601c9fabbe1c56267cb2389bccbd40197af5a7f"
+    },
+    {
+      "bytes": 861,
+      "path": "recipe-inspect-2.json",
+      "sha256": "sha256:79ec53ebee5f7549fafa0124b032d01d8f85d4d458700e1ac0f5549f317c6b8d"
+    },
+    {
+      "bytes": 131,
+      "path": "round-1/compose.override.yaml",
+      "sha256": "sha256:99f20ee0bfb66359fa1d2b79da2c8f0a12f590d6e3e2524318472218236b6bc8"
+    },
+    {
+      "bytes": 966052,
+      "path": "round-1/corpus.json",
+      "sha256": "sha256:e9c6688eddc89c4fbd49d3246ea6b3896af153c33bd8b1e20cbcc4d9048e63e0"
+    },
+    {
+      "bytes": 2132,
+      "path": "round-1/load-binding.json",
+      "sha256": "sha256:13ed2a6d042b105d1a84a2288868e565333bca9056b1878ab9b5c77574f19e5b"
+    },
+    {
+      "bytes": 8602643,
+      "path": "round-1/load-diagnostic.json",
+      "sha256": "sha256:31c50cd0a2ecf30dab166a3fed120d86550aea3803eea591ca6e6bda45ccdf12"
+    },
+    {
+      "bytes": 18873,
+      "path": "round-1/load-report.json",
+      "sha256": "sha256:340ae3b46a108fad0e2cbe319be62e86b3a4663578f7a21d040fa7aa2ff698ed"
+    },
+    {
+      "bytes": 866,
+      "path": "round-1/recipe-receipt.json",
+      "sha256": "sha256:4a9eefde0e5f5873ef145433c538481516c8545e38cda6cc6c571587634fb5e1"
+    },
+    {
+      "bytes": 1509935,
+      "path": "round-1/resources.json",
+      "sha256": "sha256:157dec41a04e35b9ba3b0c363ea847a1571733d55307d53cadb2b02e8d318614"
+    },
+    {
+      "bytes": 1022090,
+      "path": "round-1/resources.raw.jsonl",
+      "sha256": "sha256:3e454e63a5f8e9854b4c7bca3a26cea4797883706e694351413633408524fbc0"
+    },
+    {
+      "bytes": 216,
+      "path": "round-1/samples-receipt.json",
+      "sha256": "sha256:0f52e5919abc7834eb833640b0a52fb0529160a994d6133442bfcaf95609978a"
+    },
+    {
+      "bytes": 131,
+      "path": "round-2/compose.override.yaml",
+      "sha256": "sha256:4aa64e49d97687aa72e420df9d713cb6a90fd58a04a6563a9dccacaaedef8f3b"
+    },
+    {
+      "bytes": 966052,
+      "path": "round-2/corpus.json",
+      "sha256": "sha256:e9c6688eddc89c4fbd49d3246ea6b3896af153c33bd8b1e20cbcc4d9048e63e0"
+    },
+    {
+      "bytes": 2132,
+      "path": "round-2/load-binding.json",
+      "sha256": "sha256:15f69c5ba321c9f92472276daaa7d831a2e064bab3a0c41f2fd5d6794191e401"
+    },
+    {
+      "bytes": 8655978,
+      "path": "round-2/load-diagnostic.json",
+      "sha256": "sha256:865436c7a1cb44a58ea64c6f66d9ff7f923909c1998047bc54f00b3678fb6746"
+    },
+    {
+      "bytes": 18957,
+      "path": "round-2/load-report.json",
+      "sha256": "sha256:f85b14de9805cd462b4543f1d2728878729fc38b96890fa3a2c2ed9ca314c670"
+    },
+    {
+      "bytes": 866,
+      "path": "round-2/recipe-receipt.json",
+      "sha256": "sha256:253dd987d9e53a0273ee0215cf63ff5ba5359b10fb9e929a3b3886a123164892"
+    },
+    {
+      "bytes": 1497617,
+      "path": "round-2/resources.json",
+      "sha256": "sha256:a319e8f2bb969d0dcfd42657992c55526be6a12cd8f9f1b8534293842824b282"
+    },
+    {
+      "bytes": 1012203,
+      "path": "round-2/resources.raw.jsonl",
+      "sha256": "sha256:fa7815b84cef46b4c390fb09a9a4ef53d6130dfbe6389cfb2564b1ce6599b347"
+    },
+    {
+      "bytes": 216,
+      "path": "round-2/samples-receipt.json",
+      "sha256": "sha256:2265d5baa939e310ceefb788afeb01689a30ba1485616f185e25073a249420f8"
+    },
+    {
+      "bytes": 131,
+      "path": "round-3/compose.override.yaml",
+      "sha256": "sha256:8b6d7f855486cc40909724aa2166718f0f8198b2b5e7a14954b4cc5c87ba9c49"
+    },
+    {
+      "bytes": 966052,
+      "path": "round-3/corpus.json",
+      "sha256": "sha256:e9c6688eddc89c4fbd49d3246ea6b3896af153c33bd8b1e20cbcc4d9048e63e0"
+    },
+    {
+      "bytes": 2132,
+      "path": "round-3/load-binding.json",
+      "sha256": "sha256:ef9d6e4d0129aab35c1dc678bb9f1b881c6a2d9ff2c3de49e4a9ed54ddcce14e"
+    },
+    {
+      "bytes": 8625810,
+      "path": "round-3/load-diagnostic.json",
+      "sha256": "sha256:5808f98bb889185eec67e6e4472f79f7a8c0109a9728c760af4d2a14168664e6"
+    },
+    {
+      "bytes": 19071,
+      "path": "round-3/load-report.json",
+      "sha256": "sha256:b2a0f7de56040bc7b28af0f3bc21a5db25ecdcb7e7831b5a1c2ba365623dd1ff"
+    },
+    {
+      "bytes": 867,
+      "path": "round-3/recipe-receipt.json",
+      "sha256": "sha256:f13097739c34e11f65a41cd19357b4243813777626f161a4edd3c72263dcd54a"
+    },
+    {
+      "bytes": 1496723,
+      "path": "round-3/resources.json",
+      "sha256": "sha256:67080b0160f3b3b02a3907531eb33678cb0e45c373274c78b3473bae78810344"
+    },
+    {
+      "bytes": 1011236,
+      "path": "round-3/resources.raw.jsonl",
+      "sha256": "sha256:052ed8d064456a92eb7b82cdddbc60f44b38595a090a5f0c1a3083be265b06b7"
+    },
+    {
+      "bytes": 216,
+      "path": "round-3/samples-receipt.json",
+      "sha256": "sha256:63dcf650d28ded55a2c8003dfaaa4bd5d8937b554d8050cad3c4a89faebb83c1"
+    },
+    {
+      "bytes": 78,
+      "path": "run-error.txt",
+      "sha256": "sha256:5e29fc33d69f4f925321a5e28342e47f293bd21322dcdb23626ffe0d112800a5"
+    }
+  ],
+  "reason_code": "repeatability_gate_failed",
+  "schema": "gopulse.phase18.failure-evidence-archive.v1",
+  "source_work_directory": ".run/phase18-01-full-v1"
+}
