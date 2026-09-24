@@ -7,7 +7,10 @@
 ## 1. 批次目标
 
 本批建立后续四批共用的确定性数据、负载、资源取样和 evidence 基础，并对当前单副本产品取得三轮未优化基线。
-基线即使不满足阶段 SLO 也必须如实保留；本批不为追逐 RPS 修改产品算法、Schema 或中间件参数。
+基线即使不满足阶段 SLO 也必须如实保留；2026-09-24 规划修订后，本批允许以
+“失败基线已交付、重复性与恢复门禁未通过”收口。严格重复性、最终收敛和完整 SLO
+不在本批追加重跑，统一留给 Phase-18-05。本批不为追逐 RPS 修改产品算法、Schema
+或中间件参数。
 
 ## 2. 前置条件
 
@@ -39,13 +42,20 @@
 - 每 5 秒记录宿主/Compose 的 CPU、RSS、block I/O、network I/O、restart/OOM 和 swap 增量。
 - 记录 MySQL pool/wait、Outbox pending/oldest age、Rabbit 队列深度与 unacked、Kafka lag、Router buffer、Marshaller retry/in-flight，
   以及搜索、通知、Metrics/Logs/Events 端到端收敛。
+- 每个资源样本先以单行 JSON 独立追加并 `fsync` 到 `resources.raw.jsonl`，再进入内存汇总；
+  `resources.json` 或最终容量汇总失败不得丢失已采集样本。
+- 每轮在负载前写入 `load-binding.json`，绑定候选版本/revision/manifest、corpus SHA-256、
+  负载源码 commit、负载/recipe 二进制 SHA-256 和固定负载参数。
 - 负载器的 CPU/RSS/调度滞后单独记录；若它首先饱和、无法达到指定到达率或丢失超过 0.1% 调度槽，本轮无效。
 
 ### 3.4 单副本三轮基线
 
 - 每轮使用新建的相同 recipe project，顺序执行 5 分钟预热、15 分钟 150 RPS、2 分钟 300 RPS 和最长 10 分钟恢复。
-- 三轮之间不改变候选、配置、宿主配额或 recipe；RPS 偏差不超过 ±5%，P95/P99 偏差不超过 ±10%。
-- 报告对照阶段 SLO，但基线未通过 SLO 不允许改写为通过；必须以资源、延迟、队列或收敛证据标出第一瓶颈。
+- 三轮之间不改变候选、配置、宿主配额或 recipe；记录 RPS、P95/P99 重复性，但失败时不重跑筛选，
+  也不生成或改写通过 evidence。
+- 报告对照阶段 SLO，但基线未通过 SLO 不允许改写为通过；必须保留 `capacity-failure.json`、
+  原始资源样本和多窗口诊断，并以资源、延迟、队列或收敛证据标出第一瓶颈。
+- 第 3 轮 18 次 500 的 request-id 线索保持可追溯；只有后续出现重复或扩大时另开最小修复任务。
 
 ## 4. 不在本批范围
 
@@ -63,10 +73,13 @@
 ## 6. 验收与完成条件
 
 1. 相同 seed 两次生成得到完全相同的计数和摘要 digest，非空/非归属目标安全失败。
-2. 负载比例、到达率、分位数和错误分类自测通过，正式轮次中负载器不是第一瓶颈。
-3. 三轮单副本负载都绑定同一 `2.0.1` 候选与参考宿主，且满足重复性偏差。
-4. 报告如实记录 SLO 对照、第一瓶颈、资源峰值、积压和恢复时间，不扩大为生产容量承诺。
+2. 负载比例、到达率、分位数和错误分类自测通过，原始资源在汇总前逐样本持久化。
+3. 只执行一次固定三轮，三轮都绑定同一 `2.0.1` 候选、corpus 哈希和负载版本；通过时写
+   `capacity.json`，失败时停止并写独立 `capacity-failure.json` 与各轮原始样本，不重跑筛选。
+4. 报告如实记录 SLO 对照、第一瓶颈、资源峰值、积压、HTTP 错误和恢复时间；失败基线可作为
+   Phase-18-02 输入，但不代表重复性、恢复或 SLO 通过。
 5. 没有 OOM，测量窗口 swap 增量不超过 256 MiB，本批资源完整清理。
+6. 第 3 轮 18 次 500 的 request-id 线索被保留；本批不因未复现而扩展为一般修复。
 
 ## 7. 固定验证命令
 
@@ -74,10 +87,14 @@
 go test ./...                         # 在 loadtest/ 内
 scripts/verify-phase18-capacity.sh --self-test
 scripts/verify-phase18-capacity.sh --manifest dist/release-manifest.json --rounds 3 --work "$GOPULSE_PHASE18_WORK"
-python3 scripts/verify-phase18-evidence.py --capacity "$GOPULSE_PHASE18_WORK/evidence/capacity.json"
+test -f "$GOPULSE_PHASE18_WORK/evidence/capacity.json" || \
+  test -f "$GOPULSE_PHASE18_WORK/evidence/capacity-failure.json"
+python3 scripts/verify-phase18-evidence.py --capacity "$GOPULSE_PHASE18_WORK/evidence/capacity.json"  # 仅通过分支
 python3 scripts/ci/validate_versions.py
 python3 scripts/ci/validate_branch.py --branch develop/2.0.1 --base-ref upstream/main
 git diff --check
 ```
 
-创建同名实施记录，更新 `VERSION=2.0.1`，只提交本批文件后停止。
+创建同名实施记录，更新 `VERSION=2.0.1`，只提交本批文件后停止。失败分支必须明确记录
+“单副本失败基线已交付，重复性与恢复门禁未通过”，不得把 `capacity-failure.json`
+转换为 `capacity.json`。
