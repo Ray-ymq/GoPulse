@@ -71,3 +71,25 @@ func TestCorpusPartitionsSessionPostsWithoutOverlap(t *testing.T) {
 		t.Fatalf("session post pool=%d", len(seen))
 	}
 }
+
+func TestCorpusDeletePostsDoNotOverlapReadOrInteractionPools(t *testing.T) {
+	corpus := corpusFor(Seed)
+	readPosts := make(map[uint64]struct{}, len(corpus.ReadPostIDs))
+	for _, id := range corpus.ReadPostIDs {
+		readPosts[id] = struct{}{}
+	}
+	interactionPosts := make(map[uint64]struct{}, len(corpus.InteractionPostIDs))
+	for _, id := range corpus.InteractionPostIDs {
+		interactionPosts[id] = struct{}{}
+	}
+	for _, ids := range corpus.DeletePostIDs {
+		for _, id := range ids {
+			if _, exists := readPosts[id]; exists {
+				t.Errorf("delete post %d is also in the read pool", id)
+			}
+			if _, exists := interactionPosts[id]; exists {
+				t.Errorf("delete post %d is also in the interaction pool", id)
+			}
+		}
+	}
+}

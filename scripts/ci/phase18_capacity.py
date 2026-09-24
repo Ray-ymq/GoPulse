@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import subprocess
@@ -16,7 +17,7 @@ import time
 from pathlib import Path
 
 from phase18_evidence import GIB, atomic, evaluate_slo, repeatability, validate_capacity
-from phase18_sampler import Sampler, command, metric_sum, parse_meminfo, summarize, write_samples
+from phase18_sampler import Sampler, command, load_samples, metric_sum, parse_meminfo, sha256_file, summarize_samples, write_samples
 from release_artifacts import platform_ref, verify_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,8 +32,17 @@ EXPECTED_RANGES = {
     "posts": {"first": 1, "last": 50000},
     "comments": {"first": 1, "last": 100000},
 }
-VALID_PROJECT = __import__('re').compile(r'^gopulse-p18-01-[0-9a-f]{12}$')
+VALID_PROJECT = re.compile(r'^gopulse-p18-01-[0-9a-f]{12}$')
 LOAD_PASSWORD_BYTES = 32
+LOAD_CONFIGURATION = {
+    'virtual_users': 1024,
+    'warmup_seconds': 300,
+    'steady_seconds': 900,
+    'burst_seconds': 120,
+    'steady_target_rps': 150,
+    'burst_target_rps': 300,
+}
+REPEATABILITY_LIMITS = {'rps_percent': 5, 'p95_percent': 10, 'p99_percent': 10}
 
 
 def sha256_text(value: str) -> str:
@@ -167,6 +177,53 @@ def candidate_binding(manifest_path):
     }
 
 
+def repository_commit():
+    result = run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'])
+    commit = require(result, 'resolve loadtest source commit').strip()
+    if not re.fullmatch(r'[0-9a-f]{40}', commit):
+        raise RuntimeError('loadtest source commit is invalid')
+    return commit
+
+
+def write_round_binding(round_dir, round_number, project_hash, binding, recipe_binary, load_binary, receipt):
+    corpus = round_dir / 'corpus.json'
+    document = {
+        'schema': 'gopulse.phase18.load-binding.v1',
+        'round': round_number,
+        'project_sha256': project_hash,
+        'candidate': binding,
+        'corpus': {
+            'path': corpus.name,
+            'sha256': sha256_file(corpus),
+            'recipe_digest': receipt['digest'],
+        },
+        'load': {
+            'source_commit': repository_commit(),
+            'binary_sha256': sha256_file(load_binary),
+            'report_path': 'load-report.json',
+            'diagnostic_report_path': 'load-diagnostic.json',
+        },
+        'recipe_binary_sha256': sha256_file(recipe_binary),
+        'configuration': dict(LOAD_CONFIGURATION),
+    }
+    atomic(round_dir / 'load-binding.json', document)
+    return document
+
+
+def write_raw_samples_receipt(path, raw_path):
+    records = load_samples(raw_path)
+    document = {
+        'schema': 'gopulse.phase18.raw-samples.v1',
+        'raw_samples': {
+            'path': Path(raw_path).name,
+            'records': len(records),
+            'sha256': sha256_file(raw_path),
+        },
+    }
+    atomic(path, document)
+    return document
+
+
 def prepare_workspace(work, binding):
     work.mkdir(parents=True, exist_ok=True, mode=0o700)
     if work.stat().st_mode & 0o77:
@@ -183,7 +240,9 @@ def prepare_workspace(work, binding):
             raise ValueError('capacity workspace belongs to another candidate or host')
     else:
         atomic(binding_path, expected)
-    if (work / 'evidence' / 'capacity.json').exists():
+    completed = work / 'evidence' / 'capacity.json'
+    failed = work / 'evidence' / 'capacity-failure.json'
+    if completed.exists() or failed.exists():
         raise ValueError('capacity evidence already exists; refusing to overwrite completed acceptance')
     return lock
 
@@ -626,6 +685,9 @@ def run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
                          '-f', str(override), 'up', '-d', '--wait', '--wait-timeout', '900', timeout=1000)
         require(result, 'start isolated candidate project')
         receipt = generate_recipe(recipe_binary, binding, recipe_environment, round_dir, int(environment['MYSQL_PORT']))
+        load_binding = write_round_binding(
+            round_dir, round_number, project_hash, binding, recipe_binary, load_binary, receipt,
+        )
         reindex = compose(recipe_env_file, Path(manifest['compose']['path']), project, 'run', '--rm', '--no-deps',
                           '--entrypoint', '/usr/local/bin/search-reindex', 'search-init', timeout=1800)
         require(reindex, 'run formal search reindex')
@@ -636,13 +698,21 @@ def run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
         observability_baseline = observability_snapshot(baseline_env_file, Path(manifest['compose']['path']), project)
         if observability_baseline is None:
             raise RuntimeError('capture observability baseline before load')
-        sampler = Sampler(project, Path(manifest['compose']['path']), baseline_env_file)
+        raw_samples = round_dir / 'resources.raw.jsonl'
+        raw_receipt = round_dir / 'samples-receipt.json'
+        sampler = Sampler(project, Path(manifest['compose']['path']), baseline_env_file, raw_path=raw_samples)
         sampler.start()
         load_process = subprocess.Popen([
             str(load_binary), '--base-url', 'http://127.0.0.1:' + environment['FRONTEND_PORT'],
             '--corpus', str(round_dir / 'corpus.json'), '--credentials', str(round_dir / 'credentials.json'),
-            '--report', str(round_dir / 'load-report.json'), '--vus', '1024',
-            '--warmup', '5m', '--steady', '15m', '--burst', '2m', '--steady-rps', '150', '--burst-rps', '300',
+            '--report', str(round_dir / 'load-report.json'),
+            '--diagnostic-report', str(round_dir / 'load-diagnostic.json'),
+            '--vus', str(LOAD_CONFIGURATION['virtual_users']),
+            '--warmup', str(LOAD_CONFIGURATION['warmup_seconds']) + 's',
+            '--steady', str(LOAD_CONFIGURATION['steady_seconds']) + 's',
+            '--burst', str(LOAD_CONFIGURATION['burst_seconds']) + 's',
+            '--steady-rps', str(LOAD_CONFIGURATION['steady_target_rps']),
+            '--burst-rps', str(LOAD_CONFIGURATION['burst_target_rps']),
         ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         sampler.set_load_pid(load_process.pid)
         try:
@@ -657,29 +727,41 @@ def run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
         convergence = wait_convergence(baseline_env_file, Path(manifest['compose']['path']), project,
                                        timeout=600, baseline=observability_baseline, allow_incomplete=True)
         convergence['recovery_seconds'] = round(time.monotonic() - recovery_started, 3)
-        sampler.stop()
-        resources = summarize(sampler.records)
-        containers = [container for record in sampler.records for container in record['containers']]
+        try:
+            sampler.stop()
+        finally:
+            if raw_samples.exists():
+                write_raw_samples_receipt(raw_receipt, raw_samples)
+        records, resources = summarize_samples(raw_samples, round_dir / 'resources.json')
+        containers = [container for record in records for container in record['containers']]
         if containers:
             peak = max(containers, key=lambda item: item.get('cpu_percent', 0))
             resources['peak_container_cpu_component'] = peak.get('service', 'unknown')
-        write_samples(round_dir / 'resources.json', sampler.records, resources)
+        write_samples(round_dir / 'resources.json', records, resources)
         load_report = json.loads((round_dir / 'load-report.json').read_text())
+        evidence = {
+            'corpus_sha256': load_binding['corpus']['sha256'],
+            'load_source_commit': load_binding['load']['source_commit'],
+            'load_binary_sha256': load_binding['load']['binary_sha256'],
+            'raw_samples_sha256': sha256_file(raw_samples),
+            'raw_samples_records': len(records),
+            'load_binding_sha256': sha256_file(round_dir / 'load-binding.json'),
+        }
         round_value = {
             'id': round_number, 'project_sha256': project_hash,
             'recipe_receipt': receipt, 'load_report': load_report,
             'resources': {key: resources[key] for key in (
                 'samples', 'oom_killed', 'restart_count', 'max_swap_delta_bytes',
                 'load_process_peak_rss_bytes', 'peak_container_cpu_percent', 'first_bottleneck')},
-            'convergence': convergence,
+            'convergence': convergence, 'evidence': evidence,
         }
         round_value['resources']['first_bottleneck'] = (
-            first_bottleneck(load_report, resources, convergence, sampler.records)
+            first_bottleneck(load_report, resources, convergence, records)
             if evaluate_slo([round_value])['status'] == 'failed'
             else {'component': 'none', 'reason_code': 'none_observed', 'fact': 'all capacity gates passed'}
         )
         resources['first_bottleneck'] = round_value['resources']['first_bottleneck']
-        write_samples(round_dir / 'resources.json', sampler.records, resources)
+        write_samples(round_dir / 'resources.json', records, resources)
         return round_value, project_hash
     finally:
         # down must see the same file set as up, otherwise the acceptance
@@ -692,6 +774,74 @@ def run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
         after = resource_inventory()
         if after != before:
             raise RuntimeError('owned project cleanup changed unrelated Docker resources')
+
+
+def capacity_document(preflight_document, binding, first, results):
+    repeated = repeatability(results)
+    slo = evaluate_slo(results)
+    slo['first_bottleneck'] = None
+    if slo['status'] == 'failed':
+        slo['first_bottleneck'] = next((
+            item['resources']['first_bottleneck'] for item in results
+            if item['resources']['first_bottleneck'].get('reason_code') != 'none_observed'
+        ), {'component': 'capacity', 'reason_code': 'slo_gate_failure', 'fact': 'SLO failed without a stronger round-level signal'})
+    return {
+        'schema': 'gopulse.phase18.capacity.v1', 'execution_status': 'complete', 'complete': True,
+        'candidate': binding, 'host': preflight_document['host'],
+        'recipe': {
+            'schema_version': first['schema_version'], 'seed': first['seed'],
+            'counts': first['counts'], 'id_ranges': first['id_ranges'], 'digest': first['digest'],
+            'same_seed_repeat': True, 'nonempty_rejection': True,
+        },
+        'rounds': results, 'repeatability': repeated, 'slo': slo,
+        'cleanup': 'passed', 'secret_scan': 'passed',
+    }
+
+
+def write_repeatability_failure(work, preflight_document, binding, first, results, repeated):
+    artifacts = {}
+    for index in range(1, len(results) + 1):
+        round_dir = work / ('round-%d' % index)
+        for name in (
+            'load-binding.json', 'corpus.json', 'load-report.json', 'load-diagnostic.json',
+            'resources.raw.jsonl', 'samples-receipt.json', 'resources.json',
+        ):
+            path = round_dir / name
+            if path.is_file():
+                artifacts['round-%d/%s' % (index, name)] = {
+                    'sha256': sha256_file(path),
+                    'bytes': path.stat().st_size,
+                }
+    document = {
+        'schema': 'gopulse.phase18.capacity-failure.v1',
+        'execution_status': 'failed',
+        'complete': False,
+        'candidate': binding,
+        'host': preflight_document['host'],
+        'recipe': {
+            'schema_version': first['schema_version'], 'seed': first['seed'],
+            'counts': first['counts'], 'id_ranges': first['id_ranges'], 'digest': first['digest'],
+            'same_seed_repeat': True, 'nonempty_rejection': True,
+        },
+        'rounds': results,
+        'repeatability': repeated,
+        'failure': {
+            'stage': 'repeatability',
+            'reason_code': 'repeatability_gate_failed',
+            'checks': {
+                key: {
+                    'observed_percent': repeated[key],
+                    'limit_percent': limit,
+                    'passed': repeated[key] <= limit,
+                }
+                for key, limit in REPEATABILITY_LIMITS.items()
+            },
+        },
+        'artifacts': artifacts,
+        'cleanup': 'passed',
+    }
+    atomic(work / 'evidence' / 'capacity-failure.json', document)
+    return document
 
 
 def run_capacity(manifest_path, rounds, work):
@@ -715,31 +865,20 @@ def run_capacity(manifest_path, rounds, work):
                 result, _ = run_round(recipe_binary, load_binary, manifest, binding, work, round_number)
                 break
             except RuntimeError:
-                load_report = work / ('round-%d' % round_number) / 'load-report.json'
-                if attempt or load_report.exists():
+                round_dir = work / ('round-%d' % round_number)
+                if attempt or any((round_dir / name).exists() for name in (
+                    'load-binding.json', 'resources.raw.jsonl', 'load-report.json', 'load-diagnostic.json',
+                )):
                     raise
                 time.sleep(15)
         results.append(result)
         print('PASS: capacity round %d complete' % round_number, flush=True)
     repeated = repeatability(results)
-    slo = evaluate_slo(results)
-    slo['first_bottleneck'] = None
-    if slo['status'] == 'failed':
-        slo['first_bottleneck'] = next((
-            item['resources']['first_bottleneck'] for item in results
-            if item['resources']['first_bottleneck'].get('reason_code') != 'none_observed'
-        ), {'component': 'capacity', 'reason_code': 'slo_gate_failure', 'fact': 'SLO failed without a stronger round-level signal'})
-    document = {
-        'schema': 'gopulse.phase18.capacity.v1', 'execution_status': 'complete', 'complete': True,
-        'candidate': binding, 'host': preflight_document['host'],
-        'recipe': {
-            'schema_version': first['schema_version'], 'seed': first['seed'],
-            'counts': first['counts'], 'id_ranges': first['id_ranges'], 'digest': first['digest'],
-            'same_seed_repeat': True, 'nonempty_rejection': True,
-        },
-        'rounds': results, 'repeatability': repeated, 'slo': slo,
-        'cleanup': 'passed', 'secret_scan': 'passed',
-    }
+    failed_repeatability = [key for key, limit in REPEATABILITY_LIMITS.items() if repeated[key] > limit]
+    if failed_repeatability:
+        write_repeatability_failure(work, preflight_document, binding, first, results, repeated)
+        raise RuntimeError('three-round repeatability gate failed: ' + ', '.join(failed_repeatability))
+    document = capacity_document(preflight_document, binding, first, results)
     validate_capacity(document, manifest_path)
     atomic(work / 'evidence' / 'capacity.json', document)
     print('PASS: Phase 18-01 three-round single-replica capacity baseline', flush=True)
@@ -755,7 +894,9 @@ def run_preflight(work):
     lock_path.chmod(0o600)
     with lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if (work / 'evidence' / 'capacity.json').exists():
+        completed = work / 'evidence' / 'capacity.json'
+        failed = work / 'evidence' / 'capacity-failure.json'
+        if completed.exists() or failed.exists():
             raise ValueError('capacity evidence already exists; refusing to overwrite completed acceptance')
         document = {'schema': 'gopulse.phase18.preflight.v1', 'host': host_inventory()}
         document['problems'] = preflight(document['host'])

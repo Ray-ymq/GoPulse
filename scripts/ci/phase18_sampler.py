@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -88,35 +89,87 @@ def metric_sum(text, name, labels=None):
 
 
 class Sampler:
-    def __init__(self, project, compose_file, env_file, interval=5):
+    def __init__(self, project, compose_file, env_file, interval=5, raw_path=None):
         self.project = project
         self.compose_file = Path(compose_file)
         self.env_file = Path(env_file)
         self.interval = interval
+        self.raw_path = Path(raw_path) if raw_path is not None else None
         self.records = []
         self._stop = threading.Event()
         self._thread = None
         self._sample_lock = threading.Lock()
         self._load_pid = None
         self._cpu_before = None
+        self._raw_stream = None
+        self._failure = None
+        self._stopped = False
+
+    def _open_raw(self):
+        if self.raw_path is None or self._raw_stream is not None:
+            return
+        self.raw_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(self.raw_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_APPEND, 0o600)
+        self._raw_stream = os.fdopen(descriptor, 'a', encoding='utf-8')
+
+    def _persist_raw(self, record):
+        if self._raw_stream is None:
+            return
+        self._raw_stream.write(json.dumps(record, sort_keys=True, separators=(',', ':'), ensure_ascii=False) + '\n')
+        self._raw_stream.flush()
+        os.fsync(self._raw_stream.fileno())
+
+    def _close_raw(self):
+        if self._raw_stream is None:
+            return
+        self._raw_stream.flush()
+        os.fsync(self._raw_stream.fileno())
+        self._raw_stream.close()
+        self._raw_stream = None
 
     def set_load_pid(self, pid):
         self._load_pid = pid
 
     def start(self):
-        self._sample()
+        try:
+            self._open_raw()
+            self._sample()
+        except Exception:
+            self._close_raw()
+            raise
         self._thread = threading.Thread(target=self._run, name='phase18-sampler', daemon=True)
         self._thread.start()
 
     def stop(self):
+        if self._stopped:
+            if self._failure is not None:
+                raise RuntimeError('resource sampler failed') from self._failure
+            return
+        self._stopped = True
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=self.interval * 2 + 5)
-        self._sample()
+        failure = self._failure
+        if failure is None:
+            try:
+                self._sample()
+            except Exception as error:
+                failure = error
+        try:
+            self._close_raw()
+        except Exception as error:
+            if failure is None:
+                failure = error
+        if failure is not None:
+            raise RuntimeError('resource sampler failed') from failure
 
     def _run(self):
-        while not self._stop.wait(self.interval):
-            self._sample()
+        try:
+            while not self._stop.wait(self.interval):
+                self._sample()
+        except Exception as error:
+            self._failure = error
+            self._stop.set()
 
     def _compose(self, *args, timeout=30):
         return command(['docker', 'compose', '--project-name', self.project, '--env-file', str(self.env_file),
@@ -163,6 +216,7 @@ class Sampler:
                 'mysql': self._mysql(),
                 'kafka_lag': self._kafka_lag(),
             }
+            self._persist_raw(record)
             self.records.append(record)
 
     def _containers(self):
@@ -322,7 +376,38 @@ def summarize(records):
     }
 
 
+def load_samples(path):
+    records = []
+    with Path(path).open(encoding='utf-8') as source:
+        for line_number, line in enumerate(source, 1):
+            if not line.strip():
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError as error:
+                raise ValueError('invalid raw resource sample at line %d' % line_number) from error
+    return records
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return 'sha256:' + digest.hexdigest()
+
+
+def summarize_samples(raw_path, output_path):
+    records = load_samples(raw_path)
+    summary = summarize(records)
+    write_samples(output_path, records, summary)
+    return records, summary
+
+
 def write_samples(path, records, summary):
     path = Path(path)
-    path.write_text(json.dumps({'schema': 'gopulse.phase18.resources.v1', 'records': records, 'summary': summary}, indent=2) + '\n')
-    path.chmod(0o600)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_suffix(path.suffix + '.tmp')
+    temporary.write_text(json.dumps({'schema': 'gopulse.phase18.resources.v1', 'records': records, 'summary': summary}, indent=2) + '\n')
+    temporary.chmod(0o600)
+    temporary.replace(path)

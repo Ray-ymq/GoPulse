@@ -1,6 +1,23 @@
+import json
+import stat
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
-from phase18_sampler import LINK_METRICS_SCRIPTS, metric_sum, metric_value, parse_cpu_stat, parse_meminfo, parse_ratio, parse_size, summarize
+from phase18_sampler import (
+    LINK_METRICS_SCRIPTS,
+    Sampler,
+    load_samples,
+    metric_sum,
+    metric_value,
+    parse_cpu_stat,
+    parse_meminfo,
+    parse_ratio,
+    parse_size,
+    summarize,
+    summarize_samples,
+)
 
 
 class SamplerTest(unittest.TestCase):
@@ -59,6 +76,49 @@ class SamplerTest(unittest.TestCase):
         summary = summarize(records)
         self.assertEqual(summary["oom_killed"], 1)
         self.assertEqual(summary["restart_count"], 2)
+
+    def test_raw_sample_is_persisted_before_sampler_stops(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path = Path(directory) / 'resources.raw.jsonl'
+            sampler = Sampler(
+                'gopulse-p18-01-000000000000', Path('/compose.yaml'), Path('/candidate.env'),
+                interval=3600, raw_path=raw_path,
+            )
+            with mock.patch.object(sampler, '_containers', return_value=([], 0, 0)), \
+                 mock.patch.object(sampler, '_load_process', return_value=None), \
+                 mock.patch.object(sampler, '_links', return_value={}), \
+                 mock.patch.object(sampler, '_rabbitmq', return_value=None), \
+                 mock.patch.object(sampler, '_mysql', return_value=None), \
+                 mock.patch.object(sampler, '_kafka_lag', return_value=None):
+                sampler.start()
+                persisted_before_stop = load_samples(raw_path)
+                sampler.stop()
+            persisted_after_stop = load_samples(raw_path)
+            self.assertEqual(len(persisted_before_stop), 1)
+            self.assertEqual(len(persisted_after_stop), 2)
+            self.assertEqual(stat.S_IMODE(raw_path.stat().st_mode), 0o600)
+
+    def test_summary_failure_leaves_raw_samples_in_place(self):
+        record = {
+            'schema': 1,
+            'host': {'swap_free_bytes': 1},
+            'load_process': None,
+            'containers': [],
+            'oom_killed': 0,
+            'restart_count': 0,
+            'links': {},
+            'rabbitmq': None,
+            'kafka_lag': None,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path = Path(directory) / 'resources.raw.jsonl'
+            summary_path = Path(directory) / 'resources.json'
+            raw_path.write_text(json.dumps(record) + '\n')
+            with mock.patch('phase18_sampler.summarize', side_effect=RuntimeError('summary failed')):
+                with self.assertRaisesRegex(RuntimeError, 'summary failed'):
+                    summarize_samples(raw_path, summary_path)
+            self.assertEqual(load_samples(raw_path), [record])
+            self.assertFalse(summary_path.exists())
 
 
 if __name__ == "__main__":
