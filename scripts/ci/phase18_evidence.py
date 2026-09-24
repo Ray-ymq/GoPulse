@@ -32,6 +32,10 @@ CATEGORIES = {
 }
 PHASES = {"warmup", "steady", "burst"}
 BOTTLENECK_KEYS = {"component", "reason_code", "fact"}
+ROUND_EVIDENCE_KEYS = {
+    "corpus_sha256", "load_source_commit", "load_binary_sha256",
+    "raw_samples_sha256", "raw_samples_records", "load_binding_sha256",
+}
 
 
 def sha(path: Path) -> str:
@@ -274,7 +278,9 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
         raise ValueError("exactly three capacity rounds are required")
     projects = set()
     for index, item in enumerate(rounds, 1):
-        if set(item) != {"id", "project_sha256", "recipe_receipt", "load_report", "resources", "convergence"} or item["id"] != index:
+        if set(item) != {
+            "id", "project_sha256", "recipe_receipt", "load_report", "resources", "convergence", "evidence",
+        } or item["id"] != index:
             raise ValueError("invalid capacity round shape")
         if not re.fullmatch(r"[0-9a-f]{64}", item["project_sha256"]) or item["project_sha256"] in projects:
             raise ValueError("capacity projects must be isolated and unique")
@@ -287,6 +293,16 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
         validate_load_report(item["load_report"])
         if item["load_report"]["virtual_users"] < 1024:
             raise ValueError("capacity rounds require the fixed virtual user pool")
+        evidence = item["evidence"]
+        if not isinstance(evidence, dict) or set(evidence) != ROUND_EVIDENCE_KEYS:
+            raise ValueError("capacity round load and raw-sample binding is incomplete")
+        for key in ("corpus_sha256", "load_binary_sha256", "raw_samples_sha256", "load_binding_sha256"):
+            if not DIGEST.fullmatch(evidence[key]):
+                raise ValueError("capacity round evidence contains an invalid digest")
+        if not REVISION.fullmatch(evidence["load_source_commit"]):
+            raise ValueError("capacity round load source commit is invalid")
+        if not isinstance(evidence["raw_samples_records"], int) or evidence["raw_samples_records"] < 1:
+            raise ValueError("capacity round raw-sample receipt is incomplete")
         resources = item["resources"]
         if set(resources) != {
             "samples", "oom_killed", "restart_count", "max_swap_delta_bytes",
@@ -294,6 +310,8 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
             "first_bottleneck",
         } or resources["samples"] < 1:
             raise ValueError("resource sampling evidence is incomplete")
+        if evidence["raw_samples_records"] != resources["samples"]:
+            raise ValueError("raw resource sample count differs from the resource summary")
         for key in ("samples", "oom_killed", "restart_count", "max_swap_delta_bytes", "load_process_peak_rss_bytes"):
             if not isinstance(resources[key], int) or resources[key] < 0:
                 raise ValueError("resource sampling contains an invalid counter")

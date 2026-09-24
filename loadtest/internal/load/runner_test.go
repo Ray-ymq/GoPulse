@@ -20,6 +20,10 @@ func TestExecuteRequestClassifiesTimeoutAndExplicitRejection(t *testing.T) {
 			writer.Header().Set("Retry-After", "1")
 			writer.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = writer.Write([]byte(`{"error":{"code":"server_overloaded"}}`))
+		case "/error":
+			writer.Header().Set("X-Request-ID", "0123456789abcdef0123456789abcdef")
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = writer.Write([]byte(`{"error":{"code":"internal_error"}}`))
 		default:
 			writer.WriteHeader(http.StatusNoContent)
 		}
@@ -35,6 +39,42 @@ func TestExecuteRequestClassifiesTimeoutAndExplicitRejection(t *testing.T) {
 	rejected := executeRequest(context.Background(), client, server.URL, "session", "token", Request{Category: CategoryContentWrite, Method: http.MethodGet, Template: "GET /overloaded", Path: "/overloaded", ExpectedStatuses: statuses(http.StatusOK)}, scheduled, time.Second)
 	if !rejected.explicitReject || rejected.timeout || rejected.transportFailure {
 		t.Fatalf("rejected=%+v", rejected)
+	}
+	serverError := executeRequest(context.Background(), client, server.URL, "session", "token", Request{Category: CategoryRead, Method: http.MethodGet, Template: "GET /error", Path: "/error", ExpectedStatuses: statuses(http.StatusOK)}, scheduled, time.Second)
+	if serverError.status != http.StatusInternalServerError || serverError.requestID != "0123456789abcdef0123456789abcdef" || serverError.errorCode != "internal_error" || serverError.completedAt.IsZero() {
+		t.Fatalf("serverError=%+v", serverError)
+	}
+}
+
+func TestDiagnosticReportSeparatesOneSecondWindowsAndRetainsServerErrorRequestID(t *testing.T) {
+	started := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	diagnostics := newDiagnosticAccumulator(started)
+	diagnostics.add("steady", requestResult{
+		category: CategoryRead, route: "GET /api/v1/posts/:postId", method: http.MethodGet,
+		status: http.StatusOK, latencyMS: 10, completedAt: started.Add(100 * time.Millisecond),
+	})
+	diagnostics.add("steady", requestResult{
+		category: CategoryContentWrite, route: "DELETE /api/v1/posts/:postId", method: http.MethodDelete,
+		status: http.StatusInternalServerError, latencyMS: 250, completedAt: started.Add(1200 * time.Millisecond),
+		requestID: "0123456789abcdef0123456789abcdef", errorCode: "internal_error",
+	})
+	report := diagnostics.report(started.Add(2 * time.Second))
+	if report.WindowSeconds != 1 || len(report.Windows) != 2 || report.Windows[0].Sequence != 0 || report.Windows[1].Sequence != 1 {
+		t.Fatalf("report=%+v", report)
+	}
+	if len(report.ServerErrors) != 1 || report.ServerErrors[0].RequestID != "0123456789abcdef0123456789abcdef" || report.ServerErrors[0].ErrorCode != "internal_error" {
+		t.Fatalf("server errors=%+v", report.ServerErrors)
+	}
+	if report.Windows[0].Latency.P95MS != 10 || report.Windows[1].Latency.P95MS != 250 {
+		t.Fatalf("window latency=%+v", report.Windows)
+	}
+}
+
+func TestDiagnosticReportUsesEmptyServerErrorList(t *testing.T) {
+	started := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	report := newDiagnosticAccumulator(started).report(started.Add(time.Second))
+	if report.ServerErrors == nil || len(report.ServerErrors) != 0 {
+		t.Fatalf("server errors=%#v", report.ServerErrors)
 	}
 }
 

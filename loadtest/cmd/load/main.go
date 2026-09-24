@@ -19,7 +19,7 @@ func main() {
 func run(arguments []string) int {
 	flags := flag.NewFlagSet("phase18-load", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	var baseURL, corpusPath, credentialsPath, reportPath, cookieName string
+	var baseURL, corpusPath, credentialsPath, reportPath, diagnosticReportPath, cookieName string
 	var virtualUsers int
 	var requestTimeout, warmup, steady, burst time.Duration
 	var steadyRPS, burstRPS float64
@@ -27,6 +27,7 @@ func run(arguments []string) int {
 	flags.StringVar(&corpusPath, "corpus", "", "private deterministic corpus")
 	flags.StringVar(&credentialsPath, "credentials", "", "private load credentials")
 	flags.StringVar(&reportPath, "report", "", "sanitized load report output")
+	flags.StringVar(&diagnosticReportPath, "diagnostic-report", "", "private per-second diagnostic report output")
 	flags.StringVar(&cookieName, "cookie-name", "gopulse_session", "session cookie name")
 	flags.IntVar(&virtualUsers, "vus", 1024, "fixed virtual user count")
 	flags.DurationVar(&requestTimeout, "request-timeout", 5*time.Second, "per-attempt timeout")
@@ -59,6 +60,7 @@ func run(arguments []string) int {
 		VirtualUsers: virtualUsers, RequestTimeout: requestTimeout,
 		Warmup: warmup, Steady: steady, Burst: burst,
 		SteadyRPS: steadyRPS, BurstRPS: burstRPS, ReportPath: reportPath,
+		DiagnosticReportPath: diagnosticReportPath,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "load execution failed")
