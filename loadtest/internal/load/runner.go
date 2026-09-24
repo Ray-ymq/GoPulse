@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,18 +21,19 @@ import (
 )
 
 type Config struct {
-	BaseURL        string
-	CookieName     string
-	Corpus         Corpus
-	Credentials    Credentials
-	VirtualUsers   int
-	RequestTimeout time.Duration
-	Warmup         time.Duration
-	Steady         time.Duration
-	Burst          time.Duration
-	SteadyRPS      float64
-	BurstRPS       float64
-	ReportPath     string
+	BaseURL              string
+	CookieName           string
+	Corpus               Corpus
+	Credentials          Credentials
+	VirtualUsers         int
+	RequestTimeout       time.Duration
+	Warmup               time.Duration
+	Steady               time.Duration
+	Burst                time.Duration
+	SteadyRPS            float64
+	BurstRPS             float64
+	ReportPath           string
+	DiagnosticReportPath string
 }
 
 type requestResult struct {
@@ -43,10 +45,14 @@ type requestResult struct {
 	timeout          bool
 	explicitReject   bool
 	latencyMS        float64
+	completedAt      time.Time
+	requestID        string
+	errorCode        string
 }
 
 type accumulator struct {
 	counts            CounterSummary
+	latency           []float64
 	routes            map[string]*routeAccumulator
 	byCategoryCounts  map[Category]CounterSummary
 	byCategoryLatency map[Category][]float64
@@ -61,6 +67,136 @@ type routeAccumulator struct {
 	latency  []float64
 }
 
+type diagnosticKey struct {
+	second int64
+	phase  string
+}
+
+type diagnosticWindowAccumulator struct {
+	startedAt time.Time
+	phase     string
+	values    *accumulator
+	statuses  map[string]uint64
+}
+
+type diagnosticAccumulator struct {
+	startedAt           time.Time
+	windowSeconds       float64
+	windows             map[diagnosticKey]*diagnosticWindowAccumulator
+	serverErrors        []ServerErrorSample
+	serverErrorLimit    int
+	serverErrorsOmitted uint64
+}
+
+func newDiagnosticAccumulator(startedAt time.Time) *diagnosticAccumulator {
+	return &diagnosticAccumulator{
+		startedAt: startedAt, windowSeconds: 1,
+		windows: make(map[diagnosticKey]*diagnosticWindowAccumulator), serverErrorLimit: 1000,
+	}
+}
+
+func (value *diagnosticAccumulator) add(phase string, result requestResult) {
+	completedAt := result.completedAt
+	if completedAt.IsZero() {
+		completedAt = time.Now()
+	}
+	second := int64(completedAt.Sub(value.startedAt).Seconds())
+	if second < 0 {
+		second = 0
+	}
+	key := diagnosticKey{second: second, phase: phase}
+	window := value.windows[key]
+	if window == nil {
+		window = &diagnosticWindowAccumulator{
+			startedAt: value.startedAt.Add(time.Duration(second) * time.Second),
+			phase:     phase, values: newAccumulator(), statuses: make(map[string]uint64),
+		}
+		value.windows[key] = window
+	}
+	window.values.add(result)
+	window.statuses[diagnosticStatus(result)]++
+	if result.status >= http.StatusInternalServerError {
+		if len(value.serverErrors) < value.serverErrorLimit {
+			value.serverErrors = append(value.serverErrors, ServerErrorSample{
+				CompletedAt: completedAt.UTC(), Phase: phase, Method: result.method, Route: result.route,
+				Status: result.status, ErrorCode: safeErrorCode(result.errorCode), LatencyMS: result.latencyMS,
+				RequestID: safeRequestID(result.requestID),
+			})
+		} else {
+			value.serverErrorsOmitted++
+		}
+	}
+}
+
+func (value *diagnosticAccumulator) report(finishedAt time.Time) DiagnosticReport {
+	keys := make([]diagnosticKey, 0, len(value.windows))
+	for key := range value.windows {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].second != keys[right].second {
+			return keys[left].second < keys[right].second
+		}
+		return keys[left].phase < keys[right].phase
+	})
+	windows := make([]DiagnosticWindow, 0, len(keys))
+	for _, key := range keys {
+		window := value.windows[key]
+		routes := make(map[string]DiagnosticRoute, len(window.values.routes))
+		for name, route := range window.values.routes {
+			routes[name] = DiagnosticRoute{
+				Category: route.category, Method: route.method, Template: route.template,
+				Counts: route.counts, Statuses: route.statuses, Latency: summarize(route.latency),
+			}
+		}
+		windows = append(windows, DiagnosticWindow{
+			Sequence: int(key.second), StartedAt: window.startedAt.UTC(), Phase: window.phase,
+			Requests: window.values.counts.Requests, Statuses: window.statuses,
+			Latency:           summarize(window.values.latency),
+			LatencyByCategory: summarizeCategories(window.values.byCategoryLatency), Routes: routes,
+		})
+	}
+	return DiagnosticReport{
+		SchemaVersion: DiagnosticSchemaVersion, WindowSeconds: value.windowSeconds,
+		StartedAt: value.startedAt.UTC(), FinishedAt: finishedAt.UTC(), Windows: windows,
+		ServerErrors: value.serverErrors, ServerErrorsOmitted: value.serverErrorsOmitted,
+	}
+}
+
+func diagnosticStatus(result requestResult) string {
+	if result.timeout {
+		return "timeout"
+	}
+	if result.transportFailure {
+		return "transport_error"
+	}
+	return strconv.Itoa(result.status)
+}
+
+func safeRequestID(value string) string {
+	if len(value) != 32 {
+		return ""
+	}
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return ""
+		}
+	}
+	return value
+}
+
+func safeErrorCode(value string) string {
+	if len(value) < 1 || len(value) > 64 {
+		return ""
+	}
+	for _, character := range value {
+		if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_') {
+			return ""
+		}
+	}
+	return value
+}
+
 func newAccumulator() *accumulator {
 	return &accumulator{
 		routes:            make(map[string]*routeAccumulator),
@@ -71,6 +207,7 @@ func newAccumulator() *accumulator {
 
 func (value *accumulator) add(result requestResult) {
 	value.counts.Requests++
+	value.latency = append(value.latency, result.latencyMS)
 	categoryCounts := value.byCategoryCounts[result.category]
 	categoryCounts.Requests++
 	if result.timeout {
@@ -152,6 +289,7 @@ func Run(ctx context.Context, config Config) (Report, error) {
 	}
 
 	started := time.Now().UTC()
+	diagnostics := newDiagnosticAccumulator(started)
 	jobs := make([]chan scheduledSlot, config.VirtualUsers)
 	for id := range jobs {
 		jobs[id] = make(chan scheduledSlot, 4)
@@ -179,6 +317,7 @@ func Run(ctx context.Context, config Config) (Report, error) {
 				aggregateMu.Lock()
 				accumulators[slot.phase].add(result)
 				globalRoutes.add(result)
+				diagnostics.add(slot.phase, result)
 				aggregateMu.Unlock()
 			}
 		}(id, state, cookies[id])
@@ -232,6 +371,11 @@ func Run(ctx context.Context, config Config) (Report, error) {
 	}
 	if config.ReportPath != "" {
 		if err := writeReportAtomic(config.ReportPath, report); err != nil {
+			return Report{}, err
+		}
+	}
+	if config.DiagnosticReportPath != "" {
+		if err := writeDiagnosticAtomic(config.DiagnosticReportPath, diagnostics.report(finished)); err != nil {
 			return Report{}, err
 		}
 	}
@@ -329,6 +473,7 @@ func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieNam
 	if err != nil {
 		result.transportFailure = true
 		result.latencyMS = float64(time.Since(scheduledAt)) / float64(time.Millisecond)
+		result.completedAt = time.Now()
 		return result
 	}
 	httpRequest.Header.Set("Cookie", cookieName+"="+cookie)
@@ -337,6 +482,7 @@ func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieNam
 	}
 	response, err := client.Do(httpRequest)
 	result.latencyMS = float64(time.Since(scheduledAt)) / float64(time.Millisecond)
+	result.completedAt = time.Now()
 	if err != nil {
 		result.transportFailure = true
 		var networkError net.Error
@@ -347,6 +493,8 @@ func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieNam
 	bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 	_, _ = io.Copy(io.Discard, response.Body)
 	result.status = response.StatusCode
+	result.requestID = response.Header.Get("X-Request-ID")
+	result.errorCode = responseErrorCode(bodyBytes)
 	if response.StatusCode >= 200 && response.StatusCode < 300 && request.ExpectedStatuses[response.StatusCode] {
 		return result
 	}
@@ -360,12 +508,19 @@ func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieNam
 }
 
 func bytesContainJSONCode(body []byte, code string) bool {
+	return responseErrorCode(body) == code
+}
+
+func responseErrorCode(body []byte) string {
 	var document struct {
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`
 	}
-	return json.Unmarshal(body, &document) == nil && document.Error.Code == code
+	if json.Unmarshal(body, &document) != nil {
+		return ""
+	}
+	return document.Error.Code
 }
 
 func prepareSessions(ctx context.Context, client *http.Client, config Config) ([]string, error) {
@@ -489,6 +644,27 @@ func writeReportAtomic(path string, report Report) error {
 	if err := os.Rename(temporary, path); err != nil {
 		_ = os.Remove(temporary)
 		return fmt.Errorf("publish load report: %w", err)
+	}
+	return nil
+}
+
+func writeDiagnosticAtomic(path string, report DiagnosticReport) error {
+	encoded, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return errors.New("encode load diagnostic report")
+	}
+	encoded = append(encoded, '\n')
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, encoded, 0o600); err != nil {
+		return fmt.Errorf("write load diagnostic report: %w", err)
+	}
+	if err := os.Chmod(temporary, 0o600); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("protect load diagnostic report: %w", err)
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("publish load diagnostic report: %w", err)
 	}
 	return nil
 }
