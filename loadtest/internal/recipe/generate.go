@@ -364,6 +364,7 @@ func insertRows(ctx context.Context, tx *sql.Tx, table string, columns []string,
 
 func corpusFor(seed uint64) Corpus {
 	corpus := Corpus{SchemaVersion: SchemaVersion, Seed: seed}
+	deletablePosts := make(map[uint64]struct{}, SessionUsers*DeletePostsPerUser)
 	for id := uint64(1); id <= SessionUsers; id++ {
 		corpus.Users = append(corpus.Users, CorpusUser{ID: id, Username: username(id)})
 		editable := make([]uint64, 0, UsersPerSession-DeletePostsPerUser)
@@ -375,6 +376,7 @@ func corpusFor(seed uint64) Corpus {
 			postID := id + offset*userCount
 			if offset < DeletePostsPerUser {
 				deletable = append(deletable, postID)
+				deletablePosts[postID] = struct{}{}
 			} else {
 				editable = append(editable, postID)
 			}
@@ -384,6 +386,9 @@ func corpusFor(seed uint64) Corpus {
 	}
 	firstRead := uint64(SessionUsers*UsersPerSession + 1)
 	for id := firstRead; id <= 50000; id++ {
+		if _, deletable := deletablePosts[id]; deletable {
+			continue
+		}
 		corpus.ReadPostIDs = append(corpus.ReadPostIDs, id)
 		corpus.InteractionPostIDs = append(corpus.InteractionPostIDs, id)
 	}

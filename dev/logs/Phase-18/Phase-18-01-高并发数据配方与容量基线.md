@@ -209,3 +209,42 @@ git diff --check
 
 未提交 `VERSION` 变更，因为 `2.0.1` 已在批次初始化时写入，且本批尚未满足
 完成门禁。
+
+## 10. 2026-09-24 定界后的配方修复
+
+只读定界确认：`corpusFor()` 生成的 DELETE 帖子池与 read/interaction 帖子池
+存在交集，删除请求执行后再访问同一帖子会稳定产生 404。修复仅位于负载配方，
+没有调整错误率门禁或产品代码。
+
+本次实际完成：
+
+1. `loadtest/internal/recipe/generate.go`
+   - 从 read/interaction 池排除所有 `delete_post_ids`，保留原有 session
+     edit/delete 所有权分区和 DELETE 每 VU 配额。
+2. `loadtest/internal/recipe/model_test.go`
+   - 新增 `TestCorpusDeletePostsDoNotOverlapReadOrInteractionPools`，分别断言
+     DELETE 池与 read 池、interaction 池完全不相交。
+
+实际执行并通过的验证命令：
+
+```bash
+gofmt -w loadtest/internal/recipe/generate.go loadtest/internal/recipe/model_test.go
+go -C loadtest test ./...
+scripts/verify-phase18-capacity.sh --self-test
+git diff --check
+```
+
+结果：
+
+- loadtest Go tests：通过；
+- Phase 18 capacity self-test：通过，27 tests OK；
+- `git diff --check`：通过。
+
+当前没有属于 Phase-18-01 的受管 Compose project，只有无关的
+`gopulse-p13-local` 和 `gopulse-phase0203-integration` 项目。按定界排查限制，
+未重建配方、未启动短测，也未运行完整三轮 runner；404 消失仍缺少新配方下的
+运行时确认，500、steady 延迟和 Outbox 诊断证据也仍未采集。
+
+v8/v9/v10 使用旧 corpus，不能作为本次配方修复后的验收或回归结果。后续获得
+受管环境后，应重新生成 corpus，并只执行一次最长 5 分钟的短测，同时采集
+404、500 request-id、逐秒延迟及同窗 Backend/MySQL/Outbox 证据。
