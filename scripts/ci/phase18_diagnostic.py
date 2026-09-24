@@ -182,7 +182,7 @@ def backend_log_summary(env_file, compose_file, project, since):
 
 def load_500_samples(load_report):
     samples = []
-    for item in load_report.get('server_errors', []):
+    for item in load_report.get('server_errors') or []:
         if item.get('status') == 500:
             samples.append(dict(item))
     return samples

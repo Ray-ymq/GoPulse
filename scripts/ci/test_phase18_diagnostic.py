@@ -5,10 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from phase18_diagnostic import aggregate_load_windows, backend_log_summary, outbox_summary
+from phase18_diagnostic import aggregate_load_windows, backend_log_summary, load_500_samples, outbox_summary
 
 
 class DiagnosticTest(unittest.TestCase):
+    def test_null_server_error_list_is_treated_as_empty(self):
+        self.assertEqual(load_500_samples({'server_errors': None}), [])
+
     def test_backend_log_summary_keeps_only_bounded_operational_facts(self):
         lines = [
             {"message": "outbox event published", "event_id": "private-event-id"},

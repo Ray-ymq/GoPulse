@@ -70,6 +70,14 @@ func TestDiagnosticReportSeparatesOneSecondWindowsAndRetainsServerErrorRequestID
 	}
 }
 
+func TestDiagnosticReportUsesEmptyServerErrorList(t *testing.T) {
+	started := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	report := newDiagnosticAccumulator(started).report(started.Add(time.Second))
+	if report.ServerErrors == nil || len(report.ServerErrors) != 0 {
+		t.Fatalf("server errors=%#v", report.ServerErrors)
+	}
+}
+
 func TestRunAgainstMockServerProducesSanitizedReport(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/auth/login" {

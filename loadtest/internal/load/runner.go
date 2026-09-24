@@ -156,10 +156,14 @@ func (value *diagnosticAccumulator) report(finishedAt time.Time) DiagnosticRepor
 			LatencyByCategory: summarizeCategories(window.values.byCategoryLatency), Routes: routes,
 		})
 	}
+	serverErrors := value.serverErrors
+	if serverErrors == nil {
+		serverErrors = make([]ServerErrorSample, 0)
+	}
 	return DiagnosticReport{
 		SchemaVersion: DiagnosticSchemaVersion, WindowSeconds: value.windowSeconds,
 		StartedAt: value.startedAt.UTC(), FinishedAt: finishedAt.UTC(), Windows: windows,
-		ServerErrors: value.serverErrors, ServerErrorsOmitted: value.serverErrorsOmitted,
+		ServerErrors: serverErrors, ServerErrorsOmitted: value.serverErrorsOmitted,
 	}
 }
 
