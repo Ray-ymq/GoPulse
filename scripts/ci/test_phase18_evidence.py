@@ -112,6 +112,14 @@ def capacity():
                 "search_seconds": 3, "notification_seconds": 4,
                 "metrics_logs_events_seconds": 5, "recovery_seconds": 2,
             },
+            "evidence": {
+                "corpus_sha256": "sha256:" + str(index) * 64,
+                "load_source_commit": "f" * 40,
+                "load_binary_sha256": "sha256:" + "1" * 64,
+                "raw_samples_sha256": "sha256:" + "2" * 64,
+                "raw_samples_records": 264,
+                "load_binding_sha256": "sha256:" + "3" * 64,
+            },
         })
     document = {
         "schema": "gopulse.phase18.capacity.v1", "execution_status": "complete", "complete": True,
@@ -163,6 +171,18 @@ class EvidenceTest(unittest.TestCase):
         document["rounds"][1]["recipe_receipt"]["digest"] = "sha256:" + "f" * 64
         with self.assertRaisesRegex(ValueError, "recipe differs"):
             validate_capacity(copy.deepcopy(document))
+
+    def test_round_without_raw_sample_binding_is_rejected(self):
+        document = capacity()
+        del document["rounds"][0]["evidence"]["raw_samples_sha256"]
+        with self.assertRaisesRegex(ValueError, "raw-sample binding"):
+            validate_capacity(document)
+
+    def test_raw_sample_count_must_match_resource_summary(self):
+        document = capacity()
+        document["rounds"][0]["evidence"]["raw_samples_records"] = 263
+        with self.assertRaisesRegex(ValueError, "raw resource sample count"):
+            validate_capacity(document)
 
     def test_deleted_posts_are_compared_to_authoritative_mysql_count(self):
         document = capacity()

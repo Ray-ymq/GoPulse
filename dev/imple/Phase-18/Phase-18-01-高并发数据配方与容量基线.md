@@ -39,6 +39,10 @@
 - 每 5 秒记录宿主/Compose 的 CPU、RSS、block I/O、network I/O、restart/OOM 和 swap 增量。
 - 记录 MySQL pool/wait、Outbox pending/oldest age、Rabbit 队列深度与 unacked、Kafka lag、Router buffer、Marshaller retry/in-flight，
   以及搜索、通知、Metrics/Logs/Events 端到端收敛。
+- 每个资源样本先以单行 JSON 独立追加并 `fsync` 到该轮的 `resources.raw.jsonl`，再进入内存汇总；最终 `resources.json`
+  和容量汇总失败不得丢失已采集原始样本。
+- 每轮在启动负载前写入 `load-binding.json`，绑定候选版本/revision/manifest、corpus SHA-256、负载源码 commit、
+  负载与 recipe 二进制 SHA-256，以及固定负载参数；正式负载同时保留逐窗口诊断报告。
 - 负载器的 CPU/RSS/调度滞后单独记录；若它首先饱和、无法达到指定到达率或丢失超过 0.1% 调度槽，本轮无效。
 
 ### 3.4 单副本三轮基线
@@ -64,7 +68,8 @@
 
 1. 相同 seed 两次生成得到完全相同的计数和摘要 digest，非空/非归属目标安全失败。
 2. 负载比例、到达率、分位数和错误分类自测通过，正式轮次中负载器不是第一瓶颈。
-3. 三轮单副本负载都绑定同一 `2.0.1` 候选与参考宿主，且满足重复性偏差。
+3. 三轮单副本负载都绑定同一 `2.0.1` 候选、corpus 哈希和负载版本，且满足重复性偏差；若重复性失败，
+   必须保留独立 `capacity-failure.json` 与各轮原始样本，不得重跑筛选或生成通过证据。
 4. 报告如实记录 SLO 对照、第一瓶颈、资源峰值、积压和恢复时间，不扩大为生产容量承诺。
 5. 没有 OOM，测量窗口 swap 增量不超过 256 MiB，本批资源完整清理。
 
