@@ -511,6 +511,13 @@ class ScalingEvidenceTest(unittest.TestCase):
             self.assertGreater(result["per_instance_after"]["search-indexer-2"], 0)
             self.assertGreater(result["activity_during_removal"]["remaining_work"], 0)
             self.assertEqual(journal.document["status"], "replacement_complete")
+        self.assertEqual(activity.call_args_list, [
+            mock.call(("search-indexer", "search-indexer-2")),
+            mock.call(("search-indexer", "search-indexer-2")),
+            mock.call(("search-indexer",)),
+            mock.call(("search-indexer",)),
+            mock.call(("search-indexer", "search-indexer-2")),
+        ])
         project.require.assert_called_once_with("stop", "search-indexer-2", timeout=120)
         project.up.assert_called_once_with("search-indexer-2", timeout=600, dependencies=False)
 

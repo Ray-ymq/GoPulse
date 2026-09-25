@@ -1128,9 +1128,9 @@ def run_backend_load(project: Project, load_binary: Path, corpus: Path, credenti
             target = BACKEND_REPLACEMENT_LOAD["warmup_seconds"] + BACKEND_REPLACEMENT_LOAD["steady_seconds"] / 2
             while time.monotonic() - started < target:
                 time.sleep(0.25)
-            def activity():
+            def activity(active_services):
                 total, counters = component_counter(
-                    project, "backend", REPLICA_SERVICES["backend"][:project.replicas],
+                    project, "backend", active_services,
                 )
                 return {
                     "status": "observed" if process.poll() is None else "load_finished",
@@ -1467,14 +1467,14 @@ def replace_component_and_observe(project: Project, component: str, service: str
             component_counters_before={"total": before_total, "services": per_before},
             containers_before=container_state_snapshot(project, services),
         )
-    active = activity_probe() if activity_probe is not None else {
+    active = activity_probe(services) if activity_probe is not None else {
         "counter": before_total, "remaining_work": 1, "status": "not_instrumented",
     }
     active_samples = []
     progress_deadline = time.monotonic() + 60
     while time.monotonic() < progress_deadline:
         current_total, current = component_counter(project, component, services)
-        active = activity_probe() if activity_probe is not None else active
+        active = activity_probe(services) if activity_probe is not None else active
         active_samples.append({
             "observed_at": time.time(), "component_counters": current,
             "activity": active,
@@ -1497,7 +1497,7 @@ def replace_component_and_observe(project: Project, component: str, service: str
     stopped_at = time.time()
     project.require("kill" if force_kill else "stop", service, timeout=120)
     initial_total, initial_per_during = component_counter(project, component, survivors)
-    activity_during = activity_probe() if activity_probe is not None else active
+    activity_during = activity_probe(survivors) if activity_probe is not None else active
     if activity_probe is not None and int(activity_during.get("remaining_work", 0)) <= 0:
         if journal is not None:
             journal.update(status="failed", reason_code="replacement_work_exhausted_during_removal",
@@ -1507,7 +1507,7 @@ def replace_component_and_observe(project: Project, component: str, service: str
     during_samples = []
     while time.monotonic() < deadline:
         survivor_total, per_during = component_counter(project, component, survivors)
-        activity_during = activity_probe() if activity_probe is not None else activity_during
+        activity_during = activity_probe(survivors) if activity_probe is not None else activity_during
         state = {
             "observed_at": time.time(),
             "component_counters": per_during,
@@ -1551,7 +1551,7 @@ def replace_component_and_observe(project: Project, component: str, service: str
             journal.update(status="failed", reason_code="replacement_instance_not_resuming",
                            resume_work=resume_work)
         raise RuntimeError(component + " replacement instance did not resume work")
-    activity_after = activity_probe() if activity_probe is not None else active
+    activity_after = activity_probe(services) if activity_probe is not None else active
     result = {
         "instance": INSTANCES[component][services.index(service)],
         "service": service,
@@ -1960,7 +1960,7 @@ def replacement_rabbit(manifest: dict, binding: dict, work: Path, snapshot: Path
         replacement = replace_component_and_observe(
             project, component, component + "-2", force_kill=True,
             resume_work_probe=resume_work_probe,
-            activity_probe=lambda: rabbit_activity_probe(project, queue),
+            activity_probe=lambda _active_services: rabbit_activity_probe(project, queue),
             journal=journal,
         )
         resume_work = replacement.get("resume_work") or {"published_messages": 0}
@@ -2354,7 +2354,7 @@ def replacement_router(manifest: dict, binding: dict, work: Path, snapshot: Path
                 time.sleep(0.1)
             if not in_flight:
                 raise RuntimeError("Router publication completed before replacement began")
-            def activity():
+            def activity(_active_services):
                 total = sum(kafka_topic_offsets(project).values())
                 return {
                     "status": "observed", "counter": total,
@@ -2733,7 +2733,7 @@ def replacement_marshaller(manifest: dict, binding: dict, work: Path, snapshot: 
         sampler.start()
         sampler_started = True
 
-        def activity():
+        def activity(_active_services):
             observation = kafka_group_observation(project, group)
             committed = sum(max(0, item["committed"] or 0)
                             for item in observation["partitions"].values())
