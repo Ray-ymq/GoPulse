@@ -521,6 +521,75 @@ class ScalingEvidenceTest(unittest.TestCase):
         project.require.assert_called_once_with("stop", "search-indexer-2", timeout=120)
         project.up.assert_called_once_with("search-indexer-2", timeout=600, dependencies=False)
 
+    @mock.patch("phase18_scaling.container_state_snapshot", return_value={})
+    @mock.patch("phase18_scaling.time.sleep")
+    @mock.patch("phase18_scaling.component_counter")
+    def test_replacement_can_release_fixed_work_after_a_pre_release_baseline(
+        self, counters, _sleep, _container_states,
+    ):
+        project = mock.Mock()
+        project.replicas = 2
+        counters.side_effect = [
+            (2, {"business-worker": 1, "business-worker-2": 1}),
+            (1, {"business-worker": 1}),
+            (2, {"business-worker": 2}),
+            (3, {"business-worker": 2, "business-worker-2": 1}),
+        ]
+        release = mock.Mock()
+        activity_samples = [
+            {"status": "observed", "counter": 0, "remaining_work": 5000},
+            {"status": "observed", "counter": 2, "remaining_work": 4998},
+            {"status": "observed", "counter": 2, "remaining_work": 4998},
+            {"status": "observed", "counter": 3, "remaining_work": 4997},
+            {"status": "observed", "counter": 4, "remaining_work": 4996},
+        ]
+
+        def observe_after_release(services):
+            self.assertEqual(release.call_count, 1)
+            return activity_samples.pop(0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ObservationJournal(Path(directory) / "replacement.json", {"component": "business-worker"})
+            result = replace_component_and_observe(
+                project, "business-worker", "business-worker-2",
+                activity_probe=observe_after_release, journal=journal,
+                initial_progress={"business-worker": 0, "business-worker-2": 0},
+                release_work=release,
+            )
+
+        self.assertEqual(result["survivor_progress"], 1)
+        self.assertEqual(journal.document["status"], "replacement_complete")
+        release.assert_called_once_with()
+        self.assertEqual(counters.call_count, 4)
+
+    @mock.patch("phase18_scaling.container_state_snapshot", return_value={})
+    @mock.patch("phase18_scaling.time.sleep")
+    @mock.patch("phase18_scaling.component_counter")
+    def test_replacement_exhaustion_before_progress_persists_failure_samples(
+        self, counters, _sleep, _container_states,
+    ):
+        project = mock.Mock()
+        project.replicas = 2
+        counters.side_effect = [
+            (0, {"business-worker": 0, "business-worker-2": 0}),
+            (0, {"business-worker": 0, "business-worker-2": 0}),
+        ]
+        activity = mock.Mock(side_effect=[
+            {"status": "observed", "counter": 0, "remaining_work": 1},
+            {"status": "observed", "counter": 0, "remaining_work": 0},
+        ])
+        with tempfile.TemporaryDirectory() as directory:
+            journal = ObservationJournal(Path(directory) / "replacement.json", {"component": "business-worker"})
+            with self.assertRaisesRegex(RuntimeError, "replacement_work_exhausted_before_target_progress"):
+                replace_component_and_observe(
+                    project, "business-worker", "business-worker-2",
+                    activity_probe=activity, journal=journal,
+                )
+            self.assertEqual(journal.document["reason_code"], "replacement_work_exhausted_before_target_progress")
+            self.assertEqual(len(journal.document["before_samples"]), 1)
+            self.assertEqual(journal.document["component_counters_last"]["total"], 0)
+        project.require.assert_not_called()
+
     @mock.patch("phase18_scaling.time.sleep")
     @mock.patch("phase18_scaling.component_counter")
     def test_replacement_treats_exhausted_work_as_fixture_failure(self, counters, _sleep):
@@ -792,10 +861,15 @@ class ScalingEvidenceTest(unittest.TestCase):
             digest("a"), {"elapsed_seconds": 0.5, "samples": []},
         )
 
+        def capture_counters(*args):
+            timeline.append(("counters", *args))
+            return 0, {"business-worker": 0}
+
         with (
             mock.patch("phase18_scaling.time.monotonic", side_effect=monotonic),
             mock.patch("phase18_scaling.prepare_rabbit_backlog", return_value=fake_backlog) as prepare,
-            mock.patch("phase18_scaling.component_counter", return_value=(0, {"business-worker": 0})),
+            mock.patch("phase18_scaling.component_counter", side_effect=capture_counters),
+            mock.patch("phase18_scaling.wait_outbox_empty", side_effect=lambda _project: None),
         ):
             released = release_rabbit_backlog(
                 project, "business-worker", ("business-worker",), sampler, journal,
@@ -805,6 +879,8 @@ class ScalingEvidenceTest(unittest.TestCase):
         self.assertEqual(released[-1], 20.0)
         prepare.assert_called_once_with(project, "business-worker")
         self.assertLess(timeline.index(("up", "business-worker")),
+                        timeline.index(("counters", project, "business-worker", ("business-worker",))))
+        self.assertLess(timeline.index(("counters", project, "business-worker", ("business-worker",))),
                         timeline.index(("pause", "business-worker")))
         self.assertLess(timeline.index(("pause", "business-worker")),
                         timeline.index(("journal", "fixed_backlog_confirmed")))

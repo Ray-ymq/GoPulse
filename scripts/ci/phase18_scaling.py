@@ -1454,19 +1454,29 @@ def business_worker_resume_work_probe(project: Project, replacement_service: str
 def replace_component_and_observe(project: Project, component: str, service: str,
                                  require_resume: bool = True, force_kill: bool = False,
                                  resume_work_probe=None, activity_probe=None,
-                                 journal: ObservationJournal | None = None) -> dict:
+                                 journal: ObservationJournal | None = None,
+                                 initial_progress: dict[str, int] | None = None,
+                                 release_work=None) -> dict:
     services = REPLICA_SERVICES[component][:project.replicas]
     if service not in services:
         raise ValueError("replacement service is outside the managed topology")
-    before_total, per_before = component_counter(project, component, services)
+    if initial_progress is None:
+        before_total, per_before = component_counter(project, component, services)
+        initial_progress = {item: per_before[item] for item in services}
+    else:
+        if set(initial_progress) != set(services):
+            raise ValueError("replacement baseline does not cover the managed topology")
+        per_before = {item: int(initial_progress[item]) for item in services}
+        before_total = sum(per_before.values())
     survivors = tuple(item for item in services if item != service)
-    initial_progress = {item: per_before[item] for item in services}
     if journal is not None:
         journal.update(
             status="waiting_for_live_work",
             component_counters_before={"total": before_total, "services": per_before},
             containers_before=container_state_snapshot(project, services),
         )
+    if release_work is not None:
+        release_work()
     active = activity_probe(services) if activity_probe is not None else {
         "counter": before_total, "remaining_work": 1, "status": "not_instrumented",
     }
@@ -1479,10 +1489,25 @@ def replace_component_and_observe(project: Project, component: str, service: str
             "observed_at": time.time(), "component_counters": current,
             "activity": active,
         })
-        if all(current[item] > initial_progress[item] for item in services):
+        target_and_survivors_progressed = all(
+            current[item] > initial_progress[item] for item in services
+        )
+        remaining_work = int(active.get("remaining_work", 0))
+        if target_and_survivors_progressed and (activity_probe is None or remaining_work > 0):
             break
-        if activity_probe is not None and int(active.get("remaining_work", 0)) <= 0:
-            raise RuntimeError("replacement_work_exhausted_before_target_progress")
+        if activity_probe is not None and remaining_work <= 0:
+            reason = ("replacement_work_exhausted_before_removal"
+                      if target_and_survivors_progressed
+                      else "replacement_work_exhausted_before_target_progress")
+            if journal is not None:
+                journal.update(
+                    status="failed", reason_code=reason,
+                    component_counters_before={"total": before_total, "services": per_before},
+                    component_counters_last={"total": current_total, "services": current},
+                    activity_before=active, before_samples=active_samples,
+                    containers_before=container_state_snapshot(project, services),
+                )
+            raise RuntimeError(reason)
         time.sleep(0.25)
     else:
         if journal is not None:
@@ -1779,19 +1804,22 @@ def prepare_rabbit_backlog(project: Project, component: str,
 
 def release_rabbit_backlog(project: Project, component: str, consumers: tuple[str, ...],
                            sampler, journal: ObservationJournal) -> tuple:
+    wait_outbox_empty(project)
     readiness_started = time.monotonic()
     project.up(*consumers, timeout=900)
     cold_start_readiness = time.monotonic() - readiness_started
+    before_total, per_before = component_counter(project, component, consumers)
     project.require("pause", *consumers, timeout=30)
     journal.update(
         status="consumers_ready_and_paused",
         cold_start_readiness_seconds=round(cold_start_readiness, 3),
         consumer_services=list(consumers),
+        component_counters_before={"total": before_total, "services": per_before},
+        counter_baseline="healthy_consumers_before_fixed_backlog_release",
     )
     queue, expected, before_stats, backlog_sha, publish_convergence = prepare_rabbit_backlog(
         project, component,
     )
-    before_total, per_before = component_counter(project, component, consumers)
     journal.update(
         status="fixed_backlog_confirmed",
         queue=queue,
@@ -1934,20 +1962,30 @@ def replacement_rabbit(manifest: dict, binding: dict, work: Path, snapshot: Path
                       raw_path=resource_path)
     sampler_started = False
     try:
+        wait_outbox_empty(project)
+        readiness_started = time.monotonic()
+        services = REPLICA_SERVICES[component][:project.replicas]
+        project.up(*services, timeout=900)
+        cold_start_readiness = time.monotonic() - readiness_started
+        baseline_total, baseline_services = component_counter(project, component, services)
+        project.require("pause", *services, timeout=30)
         queue, expected, before_stats, backlog_sha, publish_convergence = prepare_rabbit_backlog(project, component)
-        project.up(component, timeout=900)
-        project.up(component + "-2", timeout=900)
         sampler.start()
         sampler_started = True
         journal.update(status="consumers_ready_with_fixed_backlog", queue=queue,
                        expected_messages=expected, backlog_event_ids_sha256=backlog_sha,
-                       before_queue=before_stats)
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            current = rabbit_queue_stats(project, queue)
-            if current["ack"] > before_stats["ack"] or current["unacknowledged"] > 0:
-                break
-            time.sleep(0.25)
+                       before_queue=before_stats, cold_start_readiness_seconds=round(cold_start_readiness, 3),
+                       consumer_services=list(services),
+                       component_counters_before={"total": baseline_total, "services": baseline_services},
+                       counter_baseline="healthy_consumers_before_fixed_backlog_release",
+                       publish_convergence=publish_convergence)
+
+        def release_backlog():
+            unpause_started = time.monotonic()
+            project.require("unpause", *services, timeout=30)
+            journal.update(status="backlog_released", release_relative_seconds=0.0,
+                           unpause_command_seconds=round(time.monotonic() - unpause_started, 3))
+
         resume_work_probe = None
         if component == "search-indexer":
             resume_work_probe = lambda: search_indexer_resume_work_probe(
@@ -1961,7 +1999,7 @@ def replacement_rabbit(manifest: dict, binding: dict, work: Path, snapshot: Path
             project, component, component + "-2", force_kill=True,
             resume_work_probe=resume_work_probe,
             activity_probe=lambda _active_services: rabbit_activity_probe(project, queue),
-            journal=journal,
+            journal=journal, initial_progress=baseline_services, release_work=release_backlog,
         )
         resume_work = replacement.get("resume_work") or {"published_messages": 0}
         expected += int(resume_work["published_messages"])
