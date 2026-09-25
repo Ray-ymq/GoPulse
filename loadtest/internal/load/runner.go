@@ -26,6 +26,7 @@ type Config struct {
 	Corpus               Corpus
 	Credentials          Credentials
 	VirtualUsers         int
+	ActiveWorkers        int
 	RequestTimeout       time.Duration
 	Warmup               time.Duration
 	Steady               time.Duration
@@ -265,8 +266,16 @@ func categoryCountsForRoute(summary CounterSummary, result requestResult) Counte
 }
 
 func Run(ctx context.Context, config Config) (Report, error) {
-	if config.VirtualUsers < 1 || config.SteadyRPS <= 0 || config.BurstRPS <= 0 || config.RequestTimeout <= 0 {
+	if config.VirtualUsers < 1 || config.ActiveWorkers < 0 || config.RequestTimeout <= 0 {
 		return Report{}, errors.New("load configuration is invalid")
+	}
+	if config.ActiveWorkers > 0 {
+		if config.ActiveWorkers > config.VirtualUsers || config.Steady <= 0 || config.Warmup < 0 ||
+			config.Burst != 0 || config.SteadyRPS != 0 || config.BurstRPS != 0 {
+			return Report{}, errors.New("closed-loop load configuration is invalid")
+		}
+	} else if config.SteadyRPS <= 0 || config.BurstRPS <= 0 {
+		return Report{}, errors.New("open-loop load configuration is invalid")
 	}
 	if config.CookieName == "" {
 		config.CookieName = "gopulse_session"
@@ -290,6 +299,9 @@ func Run(ctx context.Context, config Config) (Report, error) {
 	cookies, err := prepareSessions(ctx, client, config)
 	if err != nil {
 		return Report{}, err
+	}
+	if config.ActiveWorkers > 0 {
+		return runClosedLoop(ctx, config, client, cookies)
 	}
 
 	started := time.Now().UTC()
@@ -370,6 +382,95 @@ func Run(ctx context.Context, config Config) (Report, error) {
 		StartedAt: started, FinishedAt: finished,
 		SteadyTargetRPS: config.SteadyRPS, BurstTargetRPS: config.BurstRPS,
 		VirtualUsers: config.VirtualUsers, Phases: phaseReports,
+		Routes: renderRoutes(globalRoutes.routes), Total: globalRoutes.counts,
+		LoadProcess: processStats(),
+	}
+	if config.ReportPath != "" {
+		if err := writeReportAtomic(config.ReportPath, report); err != nil {
+			return Report{}, err
+		}
+	}
+	if config.DiagnosticReportPath != "" {
+		if err := writeDiagnosticAtomic(config.DiagnosticReportPath, diagnostics.report(finished)); err != nil {
+			return Report{}, err
+		}
+	}
+	return report, nil
+}
+
+func runClosedLoop(ctx context.Context, config Config, client *http.Client, cookies []string) (Report, error) {
+	started := time.Now()
+	warmupEnds := started.Add(config.Warmup)
+	steadyEnds := warmupEnds.Add(config.Steady)
+	diagnostics := newDiagnosticAccumulator(started)
+	accumulators := map[string]*accumulator{
+		"warmup": newAccumulator(),
+		"steady": newAccumulator(),
+	}
+	globalRoutes := newAccumulator()
+	var nextRequest atomic.Uint64
+	var aggregateMu sync.Mutex
+	var workers sync.WaitGroup
+	startGate := make(chan struct{})
+	workers.Add(config.ActiveWorkers)
+	for id := 0; id < config.ActiveWorkers; id++ {
+		state := &vuState{id: id, corpus: &config.Corpus, credentials: &config.Credentials}
+		go func(id int, state *vuState, cookie string) {
+			defer workers.Done()
+			<-startGate
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				requestStarted := time.Now()
+				if !requestStarted.Before(steadyEnds) {
+					return
+				}
+				phase := "warmup"
+				if !requestStarted.Before(warmupEnds) {
+					phase = "steady"
+				}
+				request := state.request(nextRequest.Add(1) - 1)
+				result := executeRequest(ctx, client, config.BaseURL, config.CookieName,
+					cookie, request, requestStarted, config.RequestTimeout)
+				aggregateMu.Lock()
+				accumulators[phase].add(result)
+				globalRoutes.add(result)
+				diagnostics.add(phase, result)
+				aggregateMu.Unlock()
+			}
+		}(id, state, cookies[id])
+	}
+	close(startGate)
+	workers.Wait()
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
+	}
+	finished := time.Now()
+	phaseReports := make([]PhaseReport, 0, 2)
+	for _, phase := range []struct {
+		name     string
+		duration time.Duration
+	}{{"warmup", config.Warmup}, {"steady", config.Steady}} {
+		if phase.duration <= 0 {
+			continue
+		}
+		value := accumulators[phase.name]
+		phaseReports = append(phaseReports, PhaseReport{
+			Name: phase.name, TargetRPS: 0, DurationSeconds: phase.duration.Seconds(),
+			// A closed-loop run has no offered-rate slots or dropped slots.
+			ScheduledSlots: 0, DroppedSlots: 0, MaxScheduleLagMS: 0,
+			CompletedRequests: value.counts.Requests,
+			Counts:            value.counts, LatencyByCategory: summarizeCategories(value.byCategoryLatency),
+			CountsByCategory: value.byCategoryCounts,
+		})
+	}
+	report := Report{
+		SchemaVersion: ReportSchemaVersion, Seed: config.Corpus.Seed,
+		StartedAt: started.UTC(), FinishedAt: finished.UTC(),
+		SteadyTargetRPS: 0, BurstTargetRPS: 0,
+		VirtualUsers: config.VirtualUsers, ActiveWorkers: config.ActiveWorkers,
+		MeasurementMode: "closed_loop", Phases: phaseReports,
 		Routes: renderRoutes(globalRoutes.routes), Total: globalRoutes.counts,
 		LoadProcess: processStats(),
 	}

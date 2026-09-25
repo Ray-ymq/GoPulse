@@ -16,6 +16,8 @@
     "steady_target_rps": {"type": "number"},
     "burst_target_rps": {"type": "number"},
     "virtual_users": {"type": "integer"},
+    "active_workers": {"type": "integer", "minimum": 1},
+    "measurement_mode": {"enum": ["open_loop", "closed_loop"]},
     "phases": {
       "type": "array",
       "items": {

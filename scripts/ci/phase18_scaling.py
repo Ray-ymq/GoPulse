@@ -1158,7 +1158,8 @@ def run_backend_load(project: Project, load_binary: Path, corpus: Path, credenti
     report = json.loads(report_path.read_text())
     if saturate:
         phases = report["phases"]
-        if ([phase["name"] for phase in phases] != ["warmup", "steady"]
+        if (report.get("measurement_mode") != "closed_loop"
+                or [phase["name"] for phase in phases] != ["warmup", "steady"]
                 or any(phase["target_rps"] != 0 for phase in phases)
                 or report["steady_target_rps"] != 0
                 or report["burst_target_rps"] != 0
@@ -2958,13 +2959,15 @@ def readiness_probe(manifest: dict, binding: dict, work: Path, snapshot: Path,
         if not isinstance(steady_counts, dict):
             steady_counts = {}
         readiness_result = {
+            "measurement_mode": report.get("measurement_mode"),
             "active_workers": report.get("active_workers"),
             "steady_target_rps": report.get("steady_target_rps"),
             "phase_names": [phase.get("name") if isinstance(phase, dict) else None for phase in phases],
             "backend_steady_successes": steady_counts.get("succeeded", 0),
         }
         journal.update(status="backend_readiness_observed", report=readiness_result)
-        if (readiness_result["active_workers"] != BACKEND_SATURATION["active_workers"]
+        if (readiness_result["measurement_mode"] != "closed_loop"
+                or readiness_result["active_workers"] != BACKEND_SATURATION["active_workers"]
                 or readiness_result["steady_target_rps"] != 0
                 or readiness_result["phase_names"] != ["warmup", "steady"]
                 or readiness_result["backend_steady_successes"] < 1):
@@ -2974,6 +2977,7 @@ def readiness_probe(manifest: dict, binding: dict, work: Path, snapshot: Path,
             "snapshot_sha256": sha256_file(snapshot),
             "load_report_sha256": sha256_file(report_path),
             "backend_steady_successes": readiness_result["backend_steady_successes"],
+            "backend_saturation": readiness_result,
             "rabbit": rabbit,
             "kafka_partition_observation": partition_observation,
             "kafka_offsets_before": before_offsets,

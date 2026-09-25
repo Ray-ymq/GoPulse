@@ -357,6 +357,7 @@ class ReadinessProbeTest(unittest.TestCase):
         def run_load(command, **_kwargs):
             report_path = Path(command[command.index("--report") + 1])
             report_path.write_text(json.dumps({
+                "measurement_mode": "closed_loop",
                 "active_workers": BACKEND_SATURATION["active_workers"],
                 "steady_target_rps": 0,
                 "phases": [
@@ -400,6 +401,11 @@ class ReadinessProbeTest(unittest.TestCase):
         result = json.loads((root / "evidence/readiness/readiness.json").read_text())
         self.assertEqual(result["kafka_partition_observation"]["before"], 1)
         self.assertEqual(result["kafka_partition_observation"]["after"], 4)
+        self.assertEqual(result["backend_saturation"]["measurement_mode"], "closed_loop")
+        self.assertEqual(
+            result["backend_saturation"]["active_workers"],
+            BACKEND_SATURATION["active_workers"],
+        )
         journal = json.loads((root / "evidence/readiness/readiness-observations.json").read_text())
         self.assertEqual(journal["status"], "passed")
 

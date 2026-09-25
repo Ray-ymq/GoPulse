@@ -80,6 +80,8 @@ type Report struct {
 	SteadyTargetRPS float64                `json:"steady_target_rps"`
 	BurstTargetRPS  float64                `json:"burst_target_rps"`
 	VirtualUsers    int                    `json:"virtual_users"`
+	ActiveWorkers   int                    `json:"active_workers,omitempty"`
+	MeasurementMode string                 `json:"measurement_mode,omitempty"`
 	Phases          []PhaseReport          `json:"phases"`
 	Routes          map[string]RouteReport `json:"routes"`
 	Total           CounterSummary         `json:"total"`

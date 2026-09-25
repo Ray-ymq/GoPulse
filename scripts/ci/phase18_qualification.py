@@ -42,6 +42,12 @@ SCRIPT_FILES = (
     "scripts/ci/release_manifest.py",
     "loadtest/cmd/routerpublish/main.go",
     "loadtest/cmd/routerpublish/main_test.go",
+    "loadtest/cmd/load/main.go",
+    "loadtest/cmd/load/main_test.go",
+    "loadtest/internal/load/runner.go",
+    "loadtest/internal/load/runner_test.go",
+    "loadtest/internal/load/types.go",
+    "loadtest/report.schema.json",
 )
 
 
