@@ -11,6 +11,7 @@ from pathlib import Path
 
 import phase18_scaling as runner
 from phase18_evidence import (
+    BACKEND_REPLACEMENT_PHASES,
     BOTTLENECK_SCHEMA,
     QUALIFICATION_PARSER_CASES,
     QUALIFICATION_SCHEMA,
@@ -465,6 +466,43 @@ def _replacement_summary(component: str, observation_path: Path,
     }
 
 
+def _backend_product_outcome(work: Path, report_path: Path) -> dict:
+    report = json.loads(report_path.read_text())
+    runner.validate_load_report(report)
+    phases = report["phases"]
+    if [phase["name"] for phase in phases] != list(BACKEND_REPLACEMENT_PHASES):
+        raise RuntimeError("Backend replacement load report phase order changed")
+    for phase in phases:
+        expected = BACKEND_REPLACEMENT_PHASES[phase["name"]]
+        if (phase["target_rps"] != expected["target_rps"]
+                or phase["duration_seconds"] != expected["duration_seconds"]
+                or phase["dropped_slots"] != 0
+                or phase["completed_requests"] != phase["scheduled_slots"]):
+            raise RuntimeError("Backend replacement load generator did not complete its fixed workload")
+    if (report["virtual_users"] != 1024 or report["steady_target_rps"] != 150
+            or report["burst_target_rps"] != 300):
+        raise RuntimeError("Backend replacement load report differs from the fixed workload")
+    counts = report["total"]
+    unexpected = counts["errors"] + counts["timeouts"]
+    if unexpected:
+        status, reason_code = "failed", "unexpected_request_failures"
+    elif counts["explicit_rejects"]:
+        status, reason_code = "rejected", "explicit_request_rejections"
+    else:
+        status, reason_code = "passed", "no_unexpected_request_failures"
+    return {
+        "classification": "product",
+        "status": status,
+        "reason_code": reason_code,
+        "requests": counts["requests"],
+        "succeeded": counts["succeeded"],
+        "explicit_rejects": counts["explicit_rejects"],
+        "timeouts": counts["timeouts"],
+        "errors": counts["errors"],
+        "load_report": _attachment(work, report_path),
+    }
+
+
 def _collect_resources(work: Path) -> dict:
     files = sorted(
         path for path in (work / "evidence").rglob("*.jsonl")
@@ -641,6 +679,13 @@ def run_qualification(manifest_path: Path, work: Path) -> dict:
             "backend_replacement",
             lambda: runner.replacement_backend(
                 manifest, binding, work, snapshot, corpus, credentials, load_binary,
+                allow_product_request_failures=True,
+            ),
+        )
+        backend_product_outcome = step(
+            "backend_replacement_product_outcome",
+            lambda: _backend_product_outcome(
+                work, evidence_dir / "backend-replacement" / "load-report.json",
             ),
         )
         replacements["backend"] = _replacement_summary(
@@ -820,6 +865,7 @@ def run_qualification(manifest_path: Path, work: Path) -> dict:
                 "kafka_producer_ceiling": producer_ceiling,
             },
             "replacements": replacements,
+            "product_outcomes": {"backend_replacement": backend_product_outcome},
             "resources": resource_data,
             "bottleneck_diagnostic": {
                 **_attachment(work, diagnostic_path),

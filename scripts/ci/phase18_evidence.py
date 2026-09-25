@@ -57,6 +57,11 @@ SCALING_COUNTER_SOURCES = {
     "router": "kafka_end_offset",
     "marshaller": "kafka_committed",
 }
+BACKEND_REPLACEMENT_PHASES = {
+    "warmup": {"target_rps": 150, "duration_seconds": 15},
+    "steady": {"target_rps": 150, "duration_seconds": 120},
+    "burst": {"target_rps": 300, "duration_seconds": 30},
+}
 SCALING_EXECUTION_ORDER = [
     "backend:replacement", "business-worker:replacement",
     "search-indexer:replacement", "router:replacement", "marshaller:replacement",
@@ -809,6 +814,61 @@ def _qualification_attachment(value: dict, label: str, work: Path | None) -> Non
             raise ValueError(label + " attachment is missing or has changed")
 
 
+def _validate_product_outcomes(document: dict, work: Path | None) -> None:
+    outcomes = document.get("product_outcomes")
+    if not isinstance(outcomes, dict) or set(outcomes) != {"backend_replacement"}:
+        raise ValueError("qualification product outcome coverage is incomplete")
+    outcome = outcomes["backend_replacement"]
+    required = {
+        "classification", "status", "reason_code", "requests", "succeeded",
+        "explicit_rejects", "timeouts", "errors", "load_report",
+    }
+    if not isinstance(outcome, dict) or set(outcome) != required:
+        raise ValueError("Backend replacement product outcome is incomplete")
+    if outcome.get("classification") != "product":
+        raise ValueError("Backend replacement result is misclassified")
+    count_keys = ("requests", "succeeded", "explicit_rejects", "timeouts", "errors")
+    if any(not isinstance(outcome.get(key), int) or outcome[key] < 0 for key in count_keys):
+        raise ValueError("Backend replacement product outcome has invalid counters")
+    if outcome["requests"] < 1 or sum(outcome[key] for key in count_keys[1:]) != outcome["requests"]:
+        raise ValueError("Backend replacement product outcome counters do not close")
+    unexpected = outcome["errors"] + outcome["timeouts"]
+    if unexpected:
+        expected_status, expected_reason = "failed", "unexpected_request_failures"
+    elif outcome["explicit_rejects"]:
+        expected_status, expected_reason = "rejected", "explicit_request_rejections"
+    else:
+        expected_status, expected_reason = "passed", "no_unexpected_request_failures"
+    if (outcome.get("status"), outcome.get("reason_code")) != (expected_status, expected_reason):
+        raise ValueError("Backend replacement product outcome status does not match its counters")
+    attachment = outcome.get("load_report")
+    _qualification_attachment(attachment, "Backend replacement load report", work)
+    if attachment.get("path") != "evidence/backend-replacement/load-report.json":
+        raise ValueError("Backend replacement outcome references the wrong load report")
+    if work is None:
+        return
+    try:
+        report = json.loads((work / attachment["path"]).read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("Backend replacement load report cannot be read") from error
+    validate_load_report(report)
+    phases = report["phases"]
+    if [phase["name"] for phase in phases] != list(BACKEND_REPLACEMENT_PHASES):
+        raise ValueError("Backend replacement load report phase order changed")
+    for phase in phases:
+        expected = BACKEND_REPLACEMENT_PHASES[phase["name"]]
+        if (phase["target_rps"] != expected["target_rps"]
+                or phase["duration_seconds"] != expected["duration_seconds"]
+                or phase["dropped_slots"] != 0
+                or phase["completed_requests"] != phase["scheduled_slots"]):
+            raise ValueError("Backend replacement load generator did not complete its fixed workload")
+    if (report["virtual_users"] != 1024 or report["steady_target_rps"] != 150
+            or report["burst_target_rps"] != 300):
+        raise ValueError("Backend replacement load report differs from the fixed workload")
+    if any(report["total"][key] != outcome[key] for key in count_keys):
+        raise ValueError("Backend replacement product outcome counters differ from its load report")
+
+
 def validate_bottleneck_diagnostic(document: dict, manifest: Path | None = None) -> dict:
     if not isinstance(document, dict) or document.get("schema") != BOTTLENECK_SCHEMA:
         raise ValueError("invalid Phase 18 bottleneck diagnostic schema")
@@ -982,6 +1042,8 @@ def validate_qualification(document: dict, manifest: Path | None = None,
                 raise ValueError(component + " replacement lacks live-work evidence")
         for key in ("observations_sha256", "resource_samples_sha256"):
             _require_digest(item.get(key), component + " replacement " + key)
+
+    _validate_product_outcomes(document, work)
 
     ownership = document.get("ownership")
     ownership_keys = {

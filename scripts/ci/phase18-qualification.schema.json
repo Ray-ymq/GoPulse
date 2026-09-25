@@ -8,7 +8,7 @@
     "schema", "status", "started_at", "finished_at", "candidate", "host",
     "topology", "inputs", "script_digests", "parser_fixtures", "ownership",
     "paired_workloads", "marshaller", "router", "replacements", "resources",
-    "bottleneck_diagnostic", "cleanup", "secret_scan", "attachments"
+    "product_outcomes", "bottleneck_diagnostic", "cleanup", "secret_scan", "attachments"
   ],
   "properties": {
     "schema": {"const": "gopulse.phase18.qualification.v1"},
@@ -39,6 +39,35 @@
     "router": {"type": "object"},
     "replacements": {"type": "object"},
     "resources": {"type": "object"},
+    "product_outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend_replacement"],
+      "properties": {
+        "backend_replacement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "classification", "status", "reason_code", "requests", "succeeded",
+            "explicit_rejects", "timeouts", "errors", "load_report"
+          ],
+          "properties": {
+            "classification": {"const": "product"},
+            "status": {"enum": ["passed", "rejected", "failed"]},
+            "reason_code": {"enum": [
+              "no_unexpected_request_failures", "explicit_request_rejections",
+              "unexpected_request_failures"
+            ]},
+            "requests": {"type": "integer", "minimum": 1},
+            "succeeded": {"type": "integer", "minimum": 0},
+            "explicit_rejects": {"type": "integer", "minimum": 0},
+            "timeouts": {"type": "integer", "minimum": 0},
+            "errors": {"type": "integer", "minimum": 0},
+            "load_report": {"$ref": "#/$defs/attachment"}
+          }
+        }
+      }
+    },
     "bottleneck_diagnostic": {"$ref": "#/$defs/attachment"},
     "cleanup": {"type": "object"},
     "secret_scan": {"const": "passed"},

@@ -40,6 +40,7 @@ from phase18_evidence import (
     SCALING_MIN_RATIOS,
     atomic,
     secret_scan,
+    validate_load_report,
     validate_scaling,
 )
 from phase18_sampler import Sampler, metric_sum, sha256_file
@@ -1698,7 +1699,8 @@ def pair_backend(manifest: dict, binding: dict, work: Path, snapshot: Path, corp
 
 
 def replacement_backend(manifest: dict, binding: dict, work: Path, snapshot: Path, corpus: Path,
-                        credentials: Path, load_binary: Path) -> tuple[dict, dict]:
+                        credentials: Path, load_binary: Path,
+                        allow_product_request_failures: bool = False) -> tuple[dict, dict]:
     directory = work / "evidence" / "backend-replacement"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     project = prepare_project(
@@ -1714,10 +1716,12 @@ def replacement_backend(manifest: dict, binding: dict, work: Path, snapshot: Pat
         raw = directory / "backend-replacement-observations.json"
         write_observation(raw, detail)
         report = detail["report"]
-        if report["total"]["errors"] != 0 or report["total"]["timeouts"] != 0:
+        validate_load_report(report)
+        if ((report["total"]["errors"] != 0 or report["total"]["timeouts"] != 0)
+                and not allow_product_request_failures):
             raise RuntimeError("Backend replacement load reported unexpected request failures")
         document = replacement_document(
-            "backend", detail["processed"], detail["processed"], replacement,
+            "backend", report["total"]["requests"], detail["processed"], replacement,
             0, 0, detail["processed"], "load_report", sha256_file(raw),
         )
         per_before = instance_counters("backend", replacement["per_instance_before"])
@@ -1732,7 +1736,7 @@ def replacement_backend(manifest: dict, binding: dict, work: Path, snapshot: Pat
         if per_after[removed] < 1:
             raise RuntimeError("replacement Backend did not serve after restart")
         edge = {
-            "requests": detail["processed"],
+            "requests": report["total"]["requests"],
             "successful": detail["processed"],
             "instance_counts": per_before,
             "removed_instance": removed,

@@ -6,13 +6,14 @@ from pathlib import Path
 from unittest import mock
 
 from phase18_evidence import (
+    CATEGORIES,
     BOTTLENECK_SCHEMA,
     QUALIFICATION_PARSER_CASES,
     QUALIFICATION_SCHEMA,
     validate_bottleneck_diagnostic,
     validate_qualification,
 )
-from phase18_qualification import parser_fixture_suite
+from phase18_qualification import _backend_product_outcome, parser_fixture_suite
 
 
 def digest(character):
@@ -21,6 +22,63 @@ def digest(character):
 
 def attachment(path):
     return {"path": path, "sha256": digest("a"), "bytes": 1}
+
+
+def load_counts(requests, explicit=0, timeouts=0, errors=0):
+    return {
+        "requests": requests,
+        "succeeded": requests - explicit - timeouts - errors,
+        "explicit_rejects": explicit,
+        "timeouts": timeouts,
+        "errors": errors,
+    }
+
+
+def backend_report(errors=0, explicit=0, timeouts=0, dropped_slots=0):
+    phases = []
+    for name, target, duration in (
+        ("warmup", 150, 15), ("steady", 150, 120), ("burst", 300, 30),
+    ):
+        requests = 60
+        phase_errors = errors if name == "burst" else 0
+        phase_explicit = explicit if name == "burst" else 0
+        phase_timeouts = timeouts if name == "burst" else 0
+        phase_counts = load_counts(requests, phase_explicit, phase_timeouts, phase_errors)
+        category = {key: load_counts(0) for key in CATEGORIES}
+        category["read"] = phase_counts
+        latency = {key: {"p50_ms": 1, "p95_ms": 2, "p99_ms": 3, "max_ms": 4} for key in CATEGORIES}
+        phase_dropped = dropped_slots if name == "burst" else 0
+        phases.append({
+            "name": name, "target_rps": target, "duration_seconds": duration,
+            "scheduled_slots": requests + phase_dropped, "dropped_slots": phase_dropped,
+            "max_schedule_lag_ms": 1, "completed_requests": requests,
+            "counts": phase_counts, "latency_by_category": latency,
+            "counts_by_category": category,
+        })
+    total_requests = sum(item["counts"]["requests"] for item in phases)
+    total_explicit = sum(item["counts"]["explicit_rejects"] for item in phases)
+    total_timeouts = sum(item["counts"]["timeouts"] for item in phases)
+    total_errors = sum(item["counts"]["errors"] for item in phases)
+    total = load_counts(total_requests, total_explicit, total_timeouts, total_errors)
+    return {
+        "schema_version": "gopulse.phase18.load.v1", "seed": 18002005,
+        "started_at": "2026-09-25T00:00:00Z", "finished_at": "2026-09-25T00:03:00Z",
+        "steady_target_rps": 150, "burst_target_rps": 300, "virtual_users": 1024,
+        "phases": phases,
+        "routes": {
+            "GET /api/v1/posts": {
+                "category": "read", "method": "GET", "template": "GET /api/v1/posts",
+                "counts": total,
+                "statuses": {
+                    "200": total["succeeded"], "429": total_explicit,
+                    "timeout": total_timeouts, "500": total_errors,
+                },
+                "latency": {"p50_ms": 1, "p95_ms": 2, "p99_ms": 3, "max_ms": 4},
+            }
+        },
+        "total": total,
+        "load_process": {"rss_bytes": 10, "goroutines": 1, "heap_alloc_bytes": 5},
+    }
 
 
 def candidate():
@@ -53,7 +111,7 @@ def replacement():
     }
 
 
-def qualification(work):
+def qualification(work, errors=0, explicit=0, timeouts=0, dropped_slots=0):
     candidate_value = candidate()
     diagnostic = {
         "schema": BOTTLENECK_SCHEMA, "candidate": candidate_value,
@@ -75,6 +133,10 @@ def qualification(work):
         "path": "resource.jsonl", "sha256": "sha256:" + __import__("hashlib").sha256(resource_path.read_bytes()).hexdigest(),
         "bytes": resource_path.stat().st_size,
     }
+    report_path = work / "evidence" / "backend-replacement" / "load-report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(backend_report(errors, explicit, timeouts, dropped_slots)) + "\n")
+    product_outcome = _backend_product_outcome(work, report_path)
     paired_side = {
         "cold_start_seconds": 1.0, "measurement_seconds": 2.0,
         "samples": 3, "observations_sha256": digest("6"),
@@ -147,6 +209,7 @@ def qualification(work):
         "replacements": {key: replacement() for key in (
             "backend", "business-worker", "search-indexer", "router", "marshaller",
         )},
+        "product_outcomes": {"backend_replacement": product_outcome},
         "resources": {
             "status": "passed", "sample_count": 1,
             "host_observed": True, "containers_observed": True,
@@ -162,7 +225,7 @@ def qualification(work):
             "resource_inventory_after_sha256": digest("f"),
         },
         "secret_scan": "passed",
-        "attachments": [diagnostic_attachment, resource_attachment],
+        "attachments": [diagnostic_attachment, resource_attachment, product_outcome["load_report"]],
     }
 
 
@@ -194,6 +257,31 @@ class QualificationFixtureTest(unittest.TestCase):
             work = Path(directory)
             value = qualification(work)
             validate_qualification(value, work=work)
+
+    def test_product_failure_is_preserved_without_failing_infrastructure_qualification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            value = qualification(work, errors=4)
+            validate_qualification(value, work=work)
+            self.assertEqual(value["status"], "qualified")
+            self.assertEqual(value["product_outcomes"]["backend_replacement"]["status"], "failed")
+            self.assertEqual(value["product_outcomes"]["backend_replacement"]["errors"], 4)
+
+    def test_product_outcome_must_match_its_raw_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            value = qualification(work, errors=4)
+            outcome = value["product_outcomes"]["backend_replacement"]
+            outcome["errors"] = 3
+            outcome["succeeded"] += 1
+            with self.assertRaisesRegex(ValueError, "counters differ from its load report"):
+                validate_qualification(value, work=work)
+
+    def test_product_outcome_rejects_incomplete_fixed_workload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, "did not complete its fixed workload"):
+                qualification(work, dropped_slots=1)
 
     def test_qualification_rejects_short_marshaller_window(self):
         with tempfile.TemporaryDirectory() as directory:

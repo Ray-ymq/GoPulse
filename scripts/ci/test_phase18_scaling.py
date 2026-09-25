@@ -24,6 +24,7 @@ from phase18_scaling import (
     pair_rabbit_backlog,
     prepare_workspace,
     prune_backlog,
+    replacement_backend,
     release_rabbit_backlog,
     record_pair_result,
     replace_component_and_observe,
@@ -417,6 +418,54 @@ class ReadinessProbeTest(unittest.TestCase):
         self.assertEqual(journal["partition_observation"]["after"], 1)
         self.assertEqual(journal["before_offsets"], {"0": 0})
 
+
+
+class BackendReplacementOutcomeTest(unittest.TestCase):
+    def setUp(self):
+        self.project = SimpleNamespace(down=mock.Mock())
+        self.report = {"total": {
+            "requests": 4, "succeeded": 3, "explicit_rejects": 0,
+            "timeouts": 0, "errors": 1,
+        }}
+        self.replacement = {
+            "instance": "backend-2",
+            "per_instance_before": {"backend": 10, "backend-2": 20, "backend-3": 30},
+            "per_instance_during": {"backend": 11, "backend-2": 20, "backend-3": 31},
+            "per_instance_after": {"backend": 12, "backend-2": 1, "backend-3": 32},
+            "survivor_progress": 2, "stopped_seconds": 6.0,
+        }
+        self.detail = {
+            "replacement": self.replacement, "processed": 3,
+            "report": self.report,
+        }
+        self.patches = [
+            mock.patch("phase18_scaling.prepare_project", return_value=self.project),
+            mock.patch("phase18_scaling.run_backend_load", return_value=self.detail),
+            mock.patch("phase18_scaling.write_observation"),
+            mock.patch("phase18_scaling.validate_load_report"),
+            mock.patch("phase18_scaling.sha256_file", return_value=digest("a")),
+        ]
+        for patcher in self.patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def invoke(self, **kwargs):
+        return replacement_backend(
+            {}, {}, Path("/tmp/work"), Path("/tmp/snapshot"), Path("/tmp/corpus"),
+            Path("/tmp/credentials"), Path("/tmp/load"), **kwargs,
+        )
+
+    def test_formal_replacement_gate_still_fails_on_request_errors(self):
+        with self.assertRaisesRegex(RuntimeError, "unexpected request failures"):
+            self.invoke()
+        self.project.down.assert_called_once()
+
+    def test_qualification_mode_preserves_request_error_counts(self):
+        document, edge = self.invoke(allow_product_request_failures=True)
+        self.assertEqual(document["accepted"], 4)
+        self.assertEqual(document["completed"], 3)
+        self.assertEqual(document["lost"], 1)
+        self.assertEqual((edge["requests"], edge["successful"]), (4, 3))
 
 
 class ScalingEvidenceTest(unittest.TestCase):
