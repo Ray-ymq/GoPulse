@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import json
 import tempfile
 import time
 import unittest
@@ -7,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import phase18_scaling as phase18_scaling
 from phase18_evidence import validate_scaling
 from phase18_observers import parse_kafka_consumer_group, parse_mysql_json_object
 from phase18_scaling import (
@@ -319,6 +321,96 @@ class StructuredObserverParserTest(unittest.TestCase):
             self.parse(["marshaller-group gopulse-observability-v1 0 1"])
         with self.assertRaisesRegex(RuntimeError, "requested topic"):
             self.parse(["marshaller-group other-topic 0 1 1 0 member-a /127.0.0.1 client-a"])
+
+
+class ReadinessProbeTest(unittest.TestCase):
+    def _run_probe(self, partition_count, allow_failure=False):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        inputs = {}
+        for name in ("snapshot.sql", "corpus.json", "credentials.json", "load"):
+            path = root / name
+            path.write_text("fixture\n")
+            inputs[name] = path
+
+        order = []
+        project = mock.Mock()
+        project.environment = {"FRONTEND_PORT": "18082"}
+        project.up.side_effect = lambda *args, **kwargs: order.append("project_up")
+        partition_state = {"count": 1}
+        offset_calls = {"count": 0}
+
+        def ensure_partitions(_project, minimum):
+            order.append("ensure_partitions")
+            partition_state["count"] = partition_count
+            return {"topic": "gopulse-observability-v1", "before": 1,
+                    "after": partition_count, "required_minimum": minimum}
+
+        def topic_offsets(_project):
+            order.append("topic_offsets")
+            count = partition_state["count"]
+            offset_calls["count"] += 1
+            value = 0 if offset_calls["count"] == 1 else 25
+            return {index: value for index in range(count)}
+
+        def run_load(command, **_kwargs):
+            report_path = Path(command[command.index("--report") + 1])
+            report_path.write_text(json.dumps({
+                "active_workers": BACKEND_SATURATION["active_workers"],
+                "steady_target_rps": 0,
+                "phases": [
+                    {"name": "warmup", "counts": {"succeeded": 1}},
+                    {"name": "steady", "counts": {"succeeded": 1}},
+                ],
+            }) + "\n")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        patches = (
+            mock.patch("phase18_scaling.prepare_project", return_value=project),
+            mock.patch("phase18_scaling.readiness_rabbit_lifecycle",
+                       side_effect=lambda _manifest, _binding, _work, _snapshot, component:
+                       {"component": component, "status": "passed"}),
+            mock.patch("phase18_scaling.ensure_kafka_partitions", side_effect=ensure_partitions),
+            mock.patch("phase18_scaling.kafka_topic_offsets", side_effect=topic_offsets),
+            mock.patch("phase18_scaling.concurrent_router_publish", return_value={
+                "accepted": 100, "report_sha256": digest("a"),
+            }),
+            mock.patch("phase18_scaling.subprocess.run", side_effect=run_load),
+        )
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        project.up.side_effect = lambda *args, **kwargs: order.append("project_up")
+        try:
+            phase18_scaling.readiness_probe(
+                {}, {"revision": "a" * 40}, root, inputs["snapshot.sql"],
+                inputs["corpus.json"], inputs["credentials.json"], inputs["load"],
+            )
+        except RuntimeError as error:
+            if not allow_failure:
+                raise
+            return root, order, error
+        return root, order, None
+
+    def test_readiness_expands_default_kafka_topic_before_checking_four_partitions(self):
+        root, order, _error = self._run_probe(4)
+        self.assertLess(order.index("project_up"), order.index("ensure_partitions"))
+        self.assertLess(order.index("ensure_partitions"), order.index("topic_offsets"))
+        result = json.loads((root / "evidence/readiness/readiness.json").read_text())
+        self.assertEqual(result["kafka_partition_observation"]["before"], 1)
+        self.assertEqual(result["kafka_partition_observation"]["after"], 4)
+        journal = json.loads((root / "evidence/readiness/readiness-observations.json").read_text())
+        self.assertEqual(journal["status"], "passed")
+
+    def test_readiness_failure_keeps_partition_and_offset_observations(self):
+        root, _order, error = self._run_probe(1, allow_failure=True)
+        self.assertRegex(str(error), "does not have four partitions")
+        journal = json.loads((root / "evidence/readiness/readiness-observations.json").read_text())
+        self.assertEqual(journal["status"], "failed")
+        self.assertEqual(journal["partition_observation"]["after"], 1)
+        self.assertEqual(journal["before_offsets"], {"0": 0})
+
 
 
 class ScalingEvidenceTest(unittest.TestCase):

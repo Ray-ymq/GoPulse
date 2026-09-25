@@ -2889,17 +2889,33 @@ def readiness_probe(manifest: dict, binding: dict, work: Path, snapshot: Path,
     directory = work / "evidence" / "readiness"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     report_path = directory / "load-report.json"
-    rabbit = {
-        component: readiness_rabbit_lifecycle(
-            manifest, binding, work, snapshot, component
-        )
-        for component in ("business-worker", "search-indexer")
-    }
-    project = prepare_project(manifest, binding, work, "readiness", "single", snapshot,
-                              ("backend", "frontend"))
+    journal = ObservationJournal(directory / "readiness-observations.json", {
+        "component": "cold_start_readiness",
+        "candidate_revision": binding["revision"],
+        "snapshot_sha256": sha256_file(snapshot),
+        "corpus_sha256": sha256_file(corpus),
+        "fixed_router_messages": 100,
+        "fixed_partitions": 4,
+        "backend_saturation_window_seconds": 5,
+    })
+    project = None
     try:
+        rabbit = {
+            component: readiness_rabbit_lifecycle(
+                manifest, binding, work, snapshot, component
+            )
+            for component in ("business-worker", "search-indexer")
+        }
+        project = prepare_project(manifest, binding, work, "readiness", "single", snapshot,
+                                  ("backend", "frontend"))
         project.up("router", timeout=900)
+        partition_observation = ensure_kafka_partitions(project, minimum=4)
         before_offsets = kafka_topic_offsets(project)
+        journal.update(
+            status="router_and_kafka_ready",
+            partition_observation=partition_observation,
+            before_offsets=before_offsets,
+        )
         if len(before_offsets) != 4:
             raise RuntimeError("readiness Kafka topic does not have four partitions")
         publish_probe = concurrent_router_publish(
@@ -2907,7 +2923,14 @@ def readiness_probe(manifest: dict, binding: dict, work: Path, snapshot: Path,
             concurrency=8,
         )
         after_offsets = kafka_topic_offsets(project)
-        if publish_probe["accepted"] != 100 or sum(after_offsets.values()) - sum(before_offsets.values()) != 100:
+        offset_delta = sum(after_offsets.values()) - sum(before_offsets.values())
+        journal.update(
+            status="router_publish_observed",
+            router_publisher=publish_probe,
+            after_offsets=after_offsets,
+            offset_delta=offset_delta,
+        )
+        if publish_probe["accepted"] != 100 or offset_delta != 100:
             raise RuntimeError("Router readiness publish did not reach Kafka")
         command = [
             str(load_binary), "--base-url", "http://127.0.0.1:" + project.environment["FRONTEND_PORT"],
@@ -2918,25 +2941,59 @@ def readiness_probe(manifest: dict, binding: dict, work: Path, snapshot: Path,
             "--warmup", "2s", "--steady", "3s", "--burst", "0s",
         ]
         load_result = subprocess.run(command, text=True, capture_output=True, timeout=90)
+        journal.update(
+            status="backend_readiness_command_finished",
+            load_returncode=load_result.returncode,
+            load_stdout_sha256=sha256_text(load_result.stdout or ""),
+            load_stderr_sha256=sha256_text(load_result.stderr or ""),
+            load_report_sha256=sha256_file(report_path) if report_path.exists() else None,
+        )
         require(load_result, "run Backend saturation readiness probe")
         report = json.loads(report_path.read_text())
-        if (report.get("active_workers") != BACKEND_SATURATION["active_workers"]
-                or report.get("steady_target_rps") != 0
-                or [phase["name"] for phase in report.get("phases", [])] != ["warmup", "steady"]
-                or report["phases"][1]["counts"]["succeeded"] < 1):
+        phases = report.get("phases")
+        if not isinstance(phases, list):
+            phases = []
+        steady = phases[1] if len(phases) > 1 and isinstance(phases[1], dict) else {}
+        steady_counts = steady.get("counts")
+        if not isinstance(steady_counts, dict):
+            steady_counts = {}
+        readiness_result = {
+            "active_workers": report.get("active_workers"),
+            "steady_target_rps": report.get("steady_target_rps"),
+            "phase_names": [phase.get("name") if isinstance(phase, dict) else None for phase in phases],
+            "backend_steady_successes": steady_counts.get("succeeded", 0),
+        }
+        journal.update(status="backend_readiness_observed", report=readiness_result)
+        if (readiness_result["active_workers"] != BACKEND_SATURATION["active_workers"]
+                or readiness_result["steady_target_rps"] != 0
+                or readiness_result["phase_names"] != ["warmup", "steady"]
+                or readiness_result["backend_steady_successes"] < 1):
             raise RuntimeError("Backend saturation readiness report is incomplete")
-        atomic(directory / "readiness.json", {
+        result = {
             "candidate_revision": binding["revision"],
             "snapshot_sha256": sha256_file(snapshot),
             "load_report_sha256": sha256_file(report_path),
-            "backend_steady_successes": report["phases"][1]["counts"]["succeeded"],
+            "backend_steady_successes": readiness_result["backend_steady_successes"],
             "rabbit": rabbit,
+            "kafka_partition_observation": partition_observation,
+            "kafka_offsets_before": before_offsets,
+            "kafka_offsets_after": after_offsets,
             "kafka_partitions": len(after_offsets),
             "router_published": publish_probe["accepted"],
             "router_report_sha256": publish_probe["report_sha256"],
-        })
+        }
+        atomic(directory / "readiness.json", result)
+        journal.finish("passed", result=result)
+    except Exception as error:
+        if journal.document["status"] not in {"failed", "passed"}:
+            journal.finish(
+                "failed", reason_code=type(error).__name__,
+                reason_sha256=sha256_text(str(error)),
+            )
+        raise
     finally:
-        project.down()
+        if project is not None:
+            project.down()
 
 
 def wait_row(project: Project, sql: str, timeout=60) -> str:
