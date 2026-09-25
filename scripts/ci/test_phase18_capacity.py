@@ -18,7 +18,7 @@ class CapacityRunnerTest(unittest.TestCase):
         host = {
             'platform': 'linux/amd64', 'host_os': 'Linux', 'kernel': '6.6-microsoft-standard-WSL2', 'cpu_count': 8,
             'memory_bytes': 12 * 1024 ** 3, 'swap_total_bytes': 16 * 1024 ** 3,
-            'disk_available_bytes': 100 * 1024 ** 3, 'docker_server_os': 'linux',
+            'disk_available_bytes': 80 * 1024 ** 3, 'docker_server_os': 'linux',
             'docker_server_arch': 'amd64', 'docker_server_version': '1', 'compose_version': '2',
             'active_compose_projects': [],
         }
@@ -49,13 +49,25 @@ class CapacityRunnerTest(unittest.TestCase):
         host = {
             'platform': 'linux/amd64', 'host_os': 'Linux', 'kernel': '6.6-microsoft-standard-WSL2', 'cpu_count': 8,
             'memory_bytes': 12 * 1024 ** 3, 'swap_total_bytes': 8 * 1024 ** 3,
-            'disk_available_bytes': 100 * 1024 ** 3, 'docker_server_os': 'linux',
+            'disk_available_bytes': 80 * 1024 ** 3, 'docker_server_os': 'linux',
             'docker_server_arch': 'amd64', 'docker_server_version': '1', 'compose_version': '2',
             'active_compose_projects': [],
         }
         self.assertNotIn('8 GiB swap is required', preflight(host))
         host['swap_total_bytes'] = 8 * 1024 ** 3 - 1
         self.assertIn('8 GiB swap is required', preflight(host))
+
+    def test_preflight_requires_at_least_80_gib_free_disk(self):
+        host = {
+            'platform': 'linux/amd64', 'host_os': 'Linux', 'kernel': '6.6-microsoft-standard-WSL2', 'cpu_count': 8,
+            'memory_bytes': 12 * 1024 ** 3, 'swap_total_bytes': 8 * 1024 ** 3,
+            'disk_available_bytes': 80 * 1024 ** 3, 'docker_server_os': 'linux',
+            'docker_server_arch': 'amd64', 'docker_server_version': '1', 'compose_version': '2',
+            'active_compose_projects': [],
+        }
+        self.assertNotIn('at least 80 GiB free disk is required', preflight(host))
+        host['disk_available_bytes'] -= 1
+        self.assertIn('at least 80 GiB free disk is required', preflight(host))
 
     def test_observability_progress_requires_all_three_data_paths(self):
         baseline = {
@@ -183,7 +195,7 @@ class CapacityRunnerTest(unittest.TestCase):
         host = {
             'platform': 'linux/amd64', 'host_os': 'Linux', 'kernel': '6.6-microsoft-standard-WSL2', 'cpu_count': 8,
             'memory_bytes': 12 * 1024 ** 3, 'swap_total_bytes': 16 * 1024 ** 3,
-            'disk_available_bytes': 100 * 1024 ** 3, 'docker_server_os': 'linux',
+            'disk_available_bytes': 80 * 1024 ** 3, 'docker_server_os': 'linux',
             'docker_server_arch': 'amd64', 'docker_server_version': '1', 'compose_version': '2',
             'active_compose_projects': [],
         }

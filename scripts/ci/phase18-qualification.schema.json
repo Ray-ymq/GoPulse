@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gopulse.invalid/schemas/phase18-qualification.v1.json",
+  "title": "GoPulse Phase 18-02 qualification receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "status", "started_at", "finished_at", "candidate", "host",
+    "topology", "inputs", "script_digests", "parser_fixtures", "ownership",
+    "paired_workloads", "marshaller", "router", "replacements", "resources",
+    "bottleneck_diagnostic", "cleanup", "secret_scan", "attachments"
+  ],
+  "properties": {
+    "schema": {"const": "gopulse.phase18.qualification.v1"},
+    "status": {"const": "qualified"},
+    "started_at": {"type": "number"},
+    "finished_at": {"type": "number"},
+    "candidate": {
+      "type": "object",
+      "required": ["version", "revision", "manifest_sha256", "bundle_sha256", "image_digests", "plugin_digests"],
+      "properties": {
+        "version": {"const": "2.0.2"},
+        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "manifest_sha256": {"$ref": "#/$defs/digest"},
+        "bundle_sha256": {"$ref": "#/$defs/digest"},
+        "image_digests": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}},
+        "plugin_digests": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}}
+      },
+      "additionalProperties": true
+    },
+    "host": {"type": "object", "required": ["platform"], "properties": {"platform": {"const": "linux/amd64"}}, "additionalProperties": true},
+    "topology": {"type": "object"},
+    "inputs": {"type": "object"},
+    "script_digests": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}},
+    "parser_fixtures": {"type": "object"},
+    "ownership": {"type": "object"},
+    "paired_workloads": {"type": "object"},
+    "marshaller": {"type": "object"},
+    "router": {"type": "object"},
+    "replacements": {"type": "object"},
+    "resources": {"type": "object"},
+    "bottleneck_diagnostic": {"$ref": "#/$defs/attachment"},
+    "cleanup": {"type": "object"},
+    "secret_scan": {"const": "passed"},
+    "attachments": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/attachment"}}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "attachment": {
+      "type": "object",
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "bytes": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": true
+    }
+  }
+}

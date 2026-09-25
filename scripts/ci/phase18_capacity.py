@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from phase18_evidence import GIB, atomic, evaluate_slo, repeatability, validate_capacity
+from phase18_evidence import GIB, MIN_REFERENCE_DISK_BYTES, atomic, evaluate_slo, repeatability, validate_capacity
 from phase18_sampler import Sampler, command, load_samples, metric_sum, parse_meminfo, sha256_file, summarize_samples, write_samples
 from release_artifacts import platform_ref, verify_bundle
 
@@ -135,8 +135,8 @@ def preflight(host):
         problems.append('12 GiB RAM is required')
     if host['swap_total_bytes'] < 8 * GIB:
         problems.append('8 GiB swap is required')
-    if host['disk_available_bytes'] < 100 * GIB:
-        problems.append('at least 100 GiB free disk is required')
+    if host['disk_available_bytes'] < MIN_REFERENCE_DISK_BYTES:
+        problems.append('at least 80 GiB free disk is required')
     if host['docker_server_os'] != 'linux' or host['docker_server_arch'] != 'amd64' or not host['docker_server_version']:
         problems.append('real Linux amd64 Docker Engine is required')
     if not host['compose_version']:
@@ -280,6 +280,8 @@ def compose_override(path, mysql_port):
     networks:
       business:
       acceptance:
+  backend:
+    ports: !reset []
 networks:
   acceptance:
 ''' % mysql_port)

@@ -8,10 +8,14 @@ import re
 from pathlib import Path
 
 SCHEMA = "gopulse.phase18.capacity.v1"
+SCALING_SCHEMA = "gopulse.phase18.scaling.v2"
+QUALIFICATION_SCHEMA = "gopulse.phase18.qualification.v1"
+BOTTLENECK_SCHEMA = "gopulse.phase18.bottleneck-diagnostic.v1"
 LOAD_SCHEMA = "gopulse.phase18.load.v1"
 RECIPE_SCHEMA = "gopulse.phase18.recipe.v1"
 GIB = 1024 ** 3
 MIB = 1024 ** 2
+MIN_REFERENCE_DISK_BYTES = 80 * GIB
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 REVISION = re.compile(r"^[0-9a-f]{40}$")
 SENSITIVE = re.compile(r"(?i)(password|secret|token|cookie|authorization|mysql://|amqp://)[\"\s:=]+[^\s,}\]]{8,}")
@@ -35,6 +39,50 @@ BOTTLENECK_KEYS = {"component", "reason_code", "fact"}
 ROUND_EVIDENCE_KEYS = {
     "corpus_sha256", "load_source_commit", "load_binary_sha256",
     "raw_samples_sha256", "raw_samples_records", "load_binding_sha256",
+}
+SCALING_COMPONENTS = {
+    "backend": ("backend_mixed", 3),
+    "business-worker": ("business_worker_backlog", 2),
+    "search-indexer": ("search_indexer_backlog", 2),
+    "router": ("router_concurrent_publish", 2),
+    "marshaller": ("marshaller_backlog", 2),
+}
+SCALING_MIN_RATIOS = {
+    component: 1.3 for component in SCALING_COMPONENTS if component != "backend"
+}
+SCALING_COUNTER_SOURCES = {
+    "backend": "load_report",
+    "business-worker": "rabbit_ack",
+    "search-indexer": "rabbit_ack",
+    "router": "kafka_end_offset",
+    "marshaller": "kafka_committed",
+}
+SCALING_EXECUTION_ORDER = [
+    "backend:replacement", "business-worker:replacement",
+    "search-indexer:replacement", "router:replacement", "marshaller:replacement",
+    "ownership:runtime", "ownership:tests",
+    "backend:single", "backend:multi",
+    "business-worker:single", "business-worker:multi",
+    "search-indexer:single", "search-indexer:multi",
+    "router:single", "router:multi",
+    "marshaller:single", "marshaller:multi",
+]
+SCALING_TEST_COMMANDS = {
+    "outbox_ownership": (0,),
+    "alert_ownership": (0,),
+    "rabbit_ack_redelivery": (0,),
+    "kafka_rebalance_fencing": (0,),
+    "monitor_single_owner": (0,),
+}
+QUALIFICATION_PARSER_CASES = {
+    "mysql": {
+        "future_lease", "expired_lease_reclaim", "post_release_nulls",
+        "empty_owner", "microsecond_precision", "missing_row",
+    },
+    "kafka": {
+        "empty_group", "single_member", "dual_member_four_partitions",
+        "rebalance", "unassigned_partition", "no_offsets",
+    },
 }
 
 
@@ -261,7 +309,7 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
     host = document.get("host", {})
     if host.get("platform") != "linux/amd64" or host.get("host_os") != "Linux" or "WSL2" not in host.get("kernel", ""):
         raise ValueError("capacity evidence requires the reference WSL2 Linux amd64 host")
-    if host.get("cpu_count") != 8 or host.get("memory_bytes", 0) < 12 * GIB or host.get("swap_total_bytes", 0) < 8 * GIB or host.get("disk_available_bytes", 0) < 100 * GIB:
+    if host.get("cpu_count") != 8 or host.get("memory_bytes", 0) < 12 * GIB or host.get("swap_total_bytes", 0) < 8 * GIB or host.get("disk_available_bytes", 0) < MIN_REFERENCE_DISK_BYTES:
         raise ValueError("reference host resource contract is not satisfied")
     if host.get("docker_server_os") != "linux" or host.get("docker_server_arch") != "amd64" or not host.get("docker_server_version") or not host.get("compose_version"):
         raise ValueError("reference host Docker or Compose contract is not satisfied")
@@ -388,4 +436,610 @@ def validate_capacity(document: dict, manifest: Path | None = None) -> dict:
     if document.get("cleanup") != "passed" or document.get("secret_scan") != "passed":
         raise ValueError("cleanup or secret scan did not pass")
     secret_scan(document)
+    return document
+
+
+def _require_digest(value, label: str) -> None:
+    if not isinstance(value, str) or not DIGEST.fullmatch(value):
+        raise ValueError(label + " is not a SHA-256 digest")
+
+
+def _require_positive(value, label: str) -> float:
+    number = _number(value)
+    if number <= 0:
+        raise ValueError(label + " must be positive")
+    return number
+
+
+def _validate_scaling_measurement(value: dict, label: str, replicas: int,
+                                  counter_source: str) -> float:
+    required = {
+        "replicas", "elapsed_seconds", "processed", "counter_before", "counter_after",
+        "counter_source", "input_sha256", "configuration_sha256", "report_sha256",
+        "raw_samples_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise ValueError(label + " scaling measurement is incomplete")
+    if value["replicas"] != replicas:
+        raise ValueError(label + " replica count differs from the managed topology")
+    if value["counter_source"] != counter_source:
+        raise ValueError(label + " external counter source differs")
+    elapsed = _require_positive(value["elapsed_seconds"], label + " elapsed time")
+    for key in ("processed", "counter_before", "counter_after"):
+        if not isinstance(value[key], int) or value[key] < 0:
+            raise ValueError(label + " contains an invalid counter")
+    if value["counter_after"] - value["counter_before"] != value["processed"]:
+        raise ValueError(label + " processed count is not the observed counter delta")
+    if value["processed"] < 1:
+        raise ValueError(label + " did not complete measurable work")
+    for key in ("input_sha256", "configuration_sha256", "report_sha256", "raw_samples_sha256"):
+        _require_digest(value[key], label + " " + key)
+    return value["processed"] / elapsed
+
+
+def _validate_scaling_pairs(value: dict) -> dict[str, float]:
+    if not isinstance(value, dict) or set(value) != set(SCALING_COMPONENTS):
+        raise ValueError("scaling pairs do not cover every managed component")
+    ratios = {}
+    for component, (operation, replicas) in SCALING_COMPONENTS.items():
+        item = value[component]
+        expected_fields = {
+            "operation", "acceptance", "threshold", "single", "multi", "ratio",
+            "rates_per_second",
+        }
+        if component == "backend":
+            expected_fields.add("measurement_mode")
+        if not isinstance(item, dict) or set(item) != expected_fields:
+            raise ValueError(component + " scaling pair is incomplete")
+        if component == "backend" and item["measurement_mode"] != "closed_loop":
+            raise ValueError("Backend scaling pair requires uncapped closed-loop load")
+        threshold = SCALING_MIN_RATIOS.get(component)
+        expected_acceptance = "characterization" if threshold is None else "minimum_ratio"
+        if item["operation"] != operation or item["acceptance"] != expected_acceptance:
+            raise ValueError(component + " scaling operation or acceptance differs")
+        if threshold is None:
+            if item["threshold"] is not None:
+                raise ValueError(component + " characterization must not declare a threshold")
+        elif _number(item["threshold"]) != threshold:
+            raise ValueError(component + " scaling threshold differs")
+        source = SCALING_COUNTER_SOURCES[component]
+        single = item["single"]
+        multi = item["multi"]
+        single_rate = _validate_scaling_measurement(single, component + " single", 1, source)
+        multi_rate = _validate_scaling_measurement(
+            multi, component + " multi", replicas, source
+        )
+        for key in ("input_sha256", "configuration_sha256", "counter_source"):
+            if single[key] != multi[key]:
+                raise ValueError(component + " pair did not use the same " + key)
+        ratio = multi_rate / single_rate
+        rates = item["rates_per_second"]
+        if not isinstance(rates, dict) or set(rates) != {"single", "multi"}:
+            raise ValueError(component + " lacks recomputed rates")
+        if abs(_number(rates["single"]) - single_rate) > 1e-9 or abs(_number(rates["multi"]) - multi_rate) > 1e-9:
+            raise ValueError(component + " reported rates were not recomputed from raw counters")
+        if abs(_number(item["ratio"]) - ratio) > 1e-9:
+            raise ValueError(component + " reported ratio was not recomputed from raw counters")
+        if threshold is not None and ratio < threshold:
+            raise ValueError(component + " did not reach the %.1fx scaling threshold" % threshold)
+        ratios[component] = ratio
+    return ratios
+
+
+def _validate_replacement(value: dict, component: str, replicas: int) -> None:
+    required = {
+        "instance", "accepted", "completed", "lost", "duplicate_side_effects",
+        "counter_source", "external_counter_before", "external_counter_during_removal",
+        "external_counter_after", "instance_counters_before",
+        "instance_counters_during_removal", "instance_counters_after",
+        "survivor_progress", "stopped_seconds", "observations_sha256",
+    }
+    if not isinstance(value, dict) or set(value) != required:
+        raise ValueError(component + " replacement evidence is incomplete")
+    if not isinstance(value["instance"], str) or not value["instance"].endswith(("-2", "-3")):
+        raise ValueError(component + " replacement instance is invalid")
+    if value["counter_source"] != SCALING_COUNTER_SOURCES[component]:
+        raise ValueError(component + " replacement counter source differs")
+    for key in (
+        "accepted", "completed", "lost", "duplicate_side_effects",
+        "external_counter_before", "external_counter_during_removal",
+        "external_counter_after", "survivor_progress",
+    ):
+        if not isinstance(value[key], int) or value[key] < 0:
+            raise ValueError(component + " replacement contains an invalid counter")
+    stopped = _require_positive(value["stopped_seconds"], component + " stopped duration")
+    if value["accepted"] < 1 or value["completed"] != value["accepted"]:
+        raise ValueError(component + " replacement did not complete every accepted item")
+    if value["lost"] != 0 or value["duplicate_side_effects"] != 0:
+        raise ValueError(component + " replacement lost or duplicated accepted work")
+    if not value["external_counter_before"] <= value["external_counter_during_removal"] <= value["external_counter_after"]:
+        raise ValueError(component + " replacement external counters are not monotonic")
+    if value["external_counter_after"] - value["external_counter_before"] != value["completed"]:
+        raise ValueError(component + " replacement external delta differs from completed work")
+    phases = {}
+    for key in ("instance_counters_before", "instance_counters_during_removal", "instance_counters_after"):
+        counters = value[key]
+        if not isinstance(counters, dict) or len(counters) != replicas:
+            raise ValueError(component + " replacement instance counters are incomplete")
+        if value["instance"] not in counters:
+            raise ValueError(component + " replacement instance has no counter evidence")
+        for instance, count in counters.items():
+            if not isinstance(instance, str) or not _valid_instance(instance):
+                raise ValueError(component + " replacement has an invalid instance label")
+            if not isinstance(count, int) or count < 0:
+                raise ValueError(component + " replacement counter is invalid")
+        phases[key] = counters
+    removed = value["instance"]
+    if phases["instance_counters_during_removal"][removed] != phases["instance_counters_before"][removed]:
+        raise ValueError(component + " removed instance advanced after ownership was removed")
+    survivors = sorted(set(phases["instance_counters_before"]) - {removed})
+    for instance in survivors:
+        if phases["instance_counters_during_removal"][instance] <= phases["instance_counters_before"][instance]:
+            raise ValueError(component + " surviving replica did not advance while ownership moved")
+        if phases["instance_counters_after"][instance] < phases["instance_counters_during_removal"][instance]:
+            raise ValueError(component + " surviving replica counter regressed after restart")
+    progress = sum(
+        phases["instance_counters_during_removal"][instance] - phases["instance_counters_before"][instance]
+        for instance in survivors
+    )
+    if progress != value["survivor_progress"] or progress < 1:
+        raise ValueError(component + " survivor progress was not observed")
+    if stopped <= 0:
+        raise ValueError(component + " replacement stop duration is invalid")
+    _require_digest(value["observations_sha256"], component + " replacement observations")
+
+def _valid_instance(instance: str) -> bool:
+    return bool(re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", instance or "")) and "--" not in instance
+
+
+def validate_scaling(document: dict, manifest: Path | None = None) -> dict:
+    if not isinstance(document, dict) or document.get("schema") != SCALING_SCHEMA or document.get("complete") is not True or document.get("execution_status") != "complete":
+        raise ValueError("Phase 18 scaling evidence is not complete")
+    candidate = document.get("candidate", {})
+    if candidate.get("version") != "2.0.2" or not REVISION.fullmatch(candidate.get("revision", "")):
+        raise ValueError("invalid Phase 18 scaling candidate")
+    for key in ("manifest_sha256", "bundle_sha256"):
+        _require_digest(candidate.get(key), "candidate " + key)
+    if manifest is not None and sha(manifest) != candidate["manifest_sha256"]:
+        raise ValueError("scaling evidence belongs to another release manifest")
+    if not candidate.get("image_digests") or any(not DIGEST.fullmatch(str(value)) for value in candidate["image_digests"].values()):
+        raise ValueError("candidate image digests are incomplete")
+
+    host = document.get("host", {})
+    if host.get("platform") != "linux/amd64" or host.get("host_os") != "Linux" or "WSL2" not in host.get("kernel", ""):
+        raise ValueError("scaling evidence requires the reference WSL2 Linux amd64 host")
+    if host.get("cpu_count") != 8 or host.get("memory_bytes", 0) < 12 * GIB or host.get("swap_total_bytes", 0) < 8 * GIB or host.get("disk_available_bytes", 0) < MIN_REFERENCE_DISK_BYTES:
+        raise ValueError("reference host resource contract is not satisfied")
+    if host.get("docker_server_os") != "linux" or host.get("docker_server_arch") != "amd64" or not host.get("docker_server_version") or not host.get("compose_version"):
+        raise ValueError("reference host Docker or Compose contract is not satisfied")
+    active = host.get("active_compose_projects")
+    if not isinstance(active, list) or any(not isinstance(value, str) or not value for value in active) or active:
+        raise ValueError("reference host has a competing Compose project")
+
+    topology = document.get("topology", {})
+    if set(topology) != {"replicas", "aliases", "edge_bindings"}:
+        raise ValueError("scaling topology evidence is incomplete")
+    if topology["replicas"] != {component: replicas for component, (_, replicas) in SCALING_COMPONENTS.items()}:
+        raise ValueError("scaling topology differs from the allocated replica counts")
+    aliases = topology["aliases"]
+    if not isinstance(aliases, dict) or set(aliases) != {"backend", "router"}:
+        raise ValueError("scaling topology aliases are incomplete")
+    if aliases["backend"] != ["backend-local", "backend-2", "backend-3"] or aliases["router"] != ["router-local", "router-2"]:
+        raise ValueError("scaling topology aliases do not include every replica")
+    bindings = topology["edge_bindings"]
+    if not isinstance(bindings, list) or len(bindings) != 1 or set(bindings[0]) != {"service", "host_ip", "host_port"}:
+        raise ValueError("product topology must expose exactly one edge binding")
+    if bindings[0]["service"] != "frontend" or bindings[0]["host_ip"] != "127.0.0.1" or not isinstance(bindings[0]["host_port"], int) or not 1 <= bindings[0]["host_port"] <= 65535:
+        raise ValueError("product edge binding is invalid")
+
+    inputs = document.get("inputs", {})
+    if not isinstance(inputs, dict) or set(inputs) != {
+        "corpus_sha256", "snapshot_sha256", "load_source_commit", "load_binary_sha256",
+        "router_load_binary_sha256", "recipe_receipt_sha256", "execution_order",
+    }:
+        raise ValueError("scaling common inputs are incomplete")
+    for key in ("corpus_sha256", "snapshot_sha256", "load_binary_sha256",
+                "router_load_binary_sha256", "recipe_receipt_sha256"):
+        _require_digest(inputs[key], "scaling input " + key)
+    if (not REVISION.fullmatch(inputs["load_source_commit"])
+            or inputs["load_source_commit"] != candidate["revision"]):
+        raise ValueError("scaling load source commit differs from the candidate")
+    if inputs["execution_order"] != SCALING_EXECUTION_ORDER:
+        raise ValueError("scaling execution order or paired side binding differs")
+    _validate_scaling_pairs(document.get("pairs"))
+
+    replacements = document.get("replacements")
+    if not isinstance(replacements, dict) or set(replacements) != set(SCALING_COMPONENTS):
+        raise ValueError("replacement matrix does not cover every managed component")
+    for component, (_, replicas) in SCALING_COMPONENTS.items():
+        _validate_replacement(replacements[component], component, replicas)
+
+    edge = document.get("edge", {})
+    edge_keys = {
+        "requests", "successful", "instance_counts", "removed_instance",
+        "counts_after_removal", "counts_after_restart", "successful_during_removal",
+        "successful_after_restart", "observations_sha256",
+    }
+    if not isinstance(edge, dict) or set(edge) != edge_keys:
+        raise ValueError("edge distribution evidence is incomplete")
+    for key in ("requests", "successful", "successful_during_removal", "successful_after_restart"):
+        if not isinstance(edge[key], int) or edge[key] < 0:
+            raise ValueError("edge distribution contains an invalid counter")
+    if edge["successful"] != edge["requests"] or edge["successful"] < 1:
+        raise ValueError("edge request success count is invalid")
+    expected_instances = {"backend-local", "backend-2", "backend-3"}
+    for key in ("instance_counts", "counts_after_removal", "counts_after_restart"):
+        counters = edge[key]
+        if not isinstance(counters, dict) or set(counters) != expected_instances:
+            raise ValueError("edge backend instance counters are incomplete")
+        if any(not isinstance(value, int) or value < 0 for value in counters.values()):
+            raise ValueError("edge backend instance counter is invalid")
+    if sum(edge["instance_counts"].values()) < edge["successful"] or any(value < 1 for value in edge["instance_counts"].values()):
+        raise ValueError("not every Backend replica served the edge workload")
+    removed = edge["removed_instance"]
+    if removed not in expected_instances - {"backend-local"}:
+        raise ValueError("edge removed Backend instance is invalid")
+    if edge["successful_during_removal"] < 1 or edge["successful_after_restart"] < 1:
+        raise ValueError("edge did not remain available during Backend replacement")
+    if edge["counts_after_removal"][removed] != edge["instance_counts"][removed]:
+        raise ValueError("removed Backend continued serving after it stopped")
+    survivors = expected_instances - {removed}
+    if not all(edge["counts_after_removal"][item] > edge["instance_counts"][item] for item in survivors):
+        raise ValueError("not every surviving Backend served during replacement")
+    _require_digest(edge["observations_sha256"], "edge observations")
+
+    ownership = document.get("ownership", {})
+    if not isinstance(ownership, dict) or set(ownership) != {"outbox_lease", "alert_lease", "rabbit_ack_redelivery", "kafka_rebalance_fencing", "monitor_single_owner"}:
+        raise ValueError("scaling ownership evidence is incomplete")
+    outbox = ownership["outbox_lease"]
+    if not isinstance(outbox, dict) or set(outbox) != {"future_owner", "future_lease_until", "blocked_observation", "reclaimed_observation"}:
+        raise ValueError("Outbox lease evidence is incomplete")
+    for label in ("blocked_observation", "reclaimed_observation"):
+        observation = outbox[label]
+        if not isinstance(observation, dict) or set(observation) != {"owner", "lease_until", "status", "updated_at", "counter_before", "counter_after"}:
+            raise ValueError("Outbox lease observation is incomplete")
+        for key in ("counter_before", "counter_after"):
+            if not isinstance(observation[key], int) or observation[key] < 0:
+                raise ValueError("Outbox lease counter is invalid")
+    if (outbox["blocked_observation"]["owner"] != outbox["future_owner"]
+            or outbox["blocked_observation"]["lease_until"] != outbox["future_lease_until"]
+            or outbox["blocked_observation"]["status"] != "leased"):
+        raise ValueError("Outbox future lease was not preserved")
+    if outbox["blocked_observation"]["counter_after"] != outbox["blocked_observation"]["counter_before"]:
+        raise ValueError("Outbox expired-owner lease reached publication")
+    if outbox["reclaimed_observation"]["counter_after"] - outbox["reclaimed_observation"]["counter_before"] != 1:
+        raise ValueError("Outbox expired lease was not reclaimed exactly once")
+    alert = ownership["alert_lease"]
+    if not isinstance(alert, dict) or set(alert) != {"future_owner", "future_lease_until", "blocked_observation", "reclaimed_observation"}:
+        raise ValueError("alert lease evidence is incomplete")
+    for label in ("blocked_observation", "reclaimed_observation"):
+        observation = alert[label]
+        if not isinstance(observation, dict) or set(observation) != {
+            "owner", "lease_until", "status", "last_evaluated_at",
+        }:
+            raise ValueError("alert lease observation is incomplete")
+    if alert["blocked_observation"]["owner"] != alert["future_owner"] or alert["blocked_observation"]["status"] != "leased":
+        raise ValueError("alert future lease was not preserved")
+    if alert["blocked_observation"]["last_evaluated_at"]:
+        raise ValueError("alert future lease was evaluated before expiry")
+    if alert["reclaimed_observation"]["status"] != "applied" or not alert["reclaimed_observation"]["last_evaluated_at"]:
+        raise ValueError("alert expired lease was not reclaimed")
+    rabbit = ownership["rabbit_ack_redelivery"]
+    rabbit_keys = {
+        "published", "acknowledged", "redelivery_attempts", "duplicate_side_effects",
+        "final_ready", "final_unacknowledged", "observations_sha256",
+    }
+    if not isinstance(rabbit, dict) or set(rabbit) != rabbit_keys:
+        raise ValueError("Rabbit ack/redelivery evidence is incomplete")
+    for key in rabbit_keys - {"observations_sha256"}:
+        if not isinstance(rabbit[key], int) or rabbit[key] < 0:
+            raise ValueError("Rabbit ack/redelivery contains an invalid counter")
+    if (rabbit["acknowledged"] != rabbit["published"] or rabbit["redelivery_attempts"] < 1
+            or rabbit["duplicate_side_effects"] != 0 or rabbit["final_ready"] != 0
+            or rabbit["final_unacknowledged"] != 0):
+        raise ValueError("Rabbit ack/redelivery gate failed")
+    _require_digest(rabbit["observations_sha256"], "Rabbit ack/redelivery observations")
+    kafka = ownership["kafka_rebalance_fencing"]
+    kafka_keys = {
+        "messages", "committed", "duplicate_commits", "old_owner_commits_after_revoke",
+        "final_lag", "members_before", "members_during_removal", "members_after_restart",
+        "observations_sha256",
+    }
+    if not isinstance(kafka, dict) or set(kafka) != kafka_keys:
+        raise ValueError("Kafka rebalance/fencing evidence is incomplete")
+    for key in ("messages", "committed", "duplicate_commits", "old_owner_commits_after_revoke", "final_lag"):
+        if not isinstance(kafka[key], int) or kafka[key] < 0:
+            raise ValueError("Kafka rebalance/fencing contains an invalid counter")
+    for key in ("members_before", "members_during_removal", "members_after_restart"):
+        if (not isinstance(kafka[key], list) or not kafka[key]
+                or any(not isinstance(value, str) or not value for value in kafka[key])):
+            raise ValueError("Kafka rebalance member evidence is incomplete")
+    if (kafka["committed"] != kafka["messages"] or kafka["duplicate_commits"] != 0
+            or kafka["old_owner_commits_after_revoke"] != 0 or kafka["final_lag"] != 0
+            or len(kafka["members_before"]) < 2 or len(kafka["members_after_restart"]) < 2):
+        raise ValueError("Kafka rebalance/fencing gate failed")
+    _require_digest(kafka["observations_sha256"], "Kafka rebalance/fencing observations")
+    monitor = ownership["monitor_single_owner"]
+    if not isinstance(monitor, dict) or set(monitor) != {"second_exit_code", "registry_sha256_before", "registry_sha256_after", "process_record_sha256_before", "process_record_sha256_after"}:
+        raise ValueError("Monitor single-owner evidence is incomplete")
+    if not isinstance(monitor["second_exit_code"], int) or monitor["second_exit_code"] == 0:
+        raise ValueError("second Monitor instance did not fail")
+    for key in ("registry_sha256_before", "registry_sha256_after", "process_record_sha256_before", "process_record_sha256_after"):
+        _require_digest(monitor[key], "Monitor " + key)
+    if monitor["registry_sha256_before"] != monitor["registry_sha256_after"] or monitor["process_record_sha256_before"] != monitor["process_record_sha256_after"]:
+        raise ValueError("second Monitor instance mutated plugin ownership state")
+
+    tests = document.get("tests")
+    if not isinstance(tests, dict) or set(tests) != set(SCALING_TEST_COMMANDS):
+        raise ValueError("scaling ownership test evidence is incomplete")
+    for name, item in tests.items():
+        if not isinstance(item, dict) or set(item) != {"command", "exit_code", "output_sha256"} or not isinstance(item["command"], str) or not item["command"]:
+            raise ValueError(name + " scaling test evidence is invalid")
+        if item["exit_code"] not in SCALING_TEST_COMMANDS[name]:
+            raise ValueError(name + " scaling test did not pass")
+        _require_digest(item["output_sha256"], name + " scaling test output")
+
+    cleanup = document.get("cleanup")
+    if not isinstance(cleanup, dict) or set(cleanup) != {"resource_inventory_before_sha256", "resource_inventory_after_sha256", "owned_projects_remaining", "label_cleanup"}:
+        raise ValueError("scaling cleanup evidence is incomplete")
+    _require_digest(cleanup["resource_inventory_before_sha256"], "cleanup inventory before")
+    _require_digest(cleanup["resource_inventory_after_sha256"], "cleanup inventory after")
+    if cleanup["resource_inventory_before_sha256"] != cleanup["resource_inventory_after_sha256"] or cleanup["owned_projects_remaining"] != 0 or cleanup["label_cleanup"] != "passed":
+        raise ValueError("scaling cleanup gate failed")
+    if document.get("secret_scan") != "passed":
+        raise ValueError("scaling secret scan did not pass")
+    secret_scan(document)
+    return document
+
+
+def _qualification_attachment(value: dict, label: str, work: Path | None) -> None:
+    if (not isinstance(value, dict) or not {"path", "sha256", "bytes"}.issubset(value)
+            or set(value) - {"path", "sha256", "bytes", "finding"}):
+        raise ValueError(label + " attachment reference is incomplete")
+    path = value["path"]
+    if (not isinstance(path, str) or not path or path.startswith("/")
+            or ".." in Path(path).parts or "\\" in path):
+        raise ValueError(label + " attachment path is unsafe")
+    _require_digest(value["sha256"], label + " attachment")
+    if not isinstance(value["bytes"], int) or value["bytes"] < 1:
+        raise ValueError(label + " attachment size is invalid")
+    if work is not None:
+        source = work / path
+        if not source.is_file() or source.stat().st_size != value["bytes"] or sha(source) != value["sha256"]:
+            raise ValueError(label + " attachment is missing or has changed")
+
+
+def validate_bottleneck_diagnostic(document: dict, manifest: Path | None = None) -> dict:
+    if not isinstance(document, dict) or document.get("schema") != BOTTLENECK_SCHEMA:
+        raise ValueError("invalid Phase 18 bottleneck diagnostic schema")
+    candidate = document.get("candidate")
+    if not isinstance(candidate, dict) or candidate.get("version") != "2.0.2" or not REVISION.fullmatch(candidate.get("revision", "")):
+        raise ValueError("bottleneck diagnostic candidate is invalid")
+    for key in ("manifest_sha256", "bundle_sha256"):
+        _require_digest(candidate.get(key), "bottleneck candidate " + key)
+    if manifest is not None and sha(manifest) != candidate["manifest_sha256"]:
+        raise ValueError("bottleneck diagnostic belongs to another release manifest")
+    if not candidate.get("image_digests") or any(not DIGEST.fullmatch(str(value)) for value in candidate["image_digests"].values()):
+        raise ValueError("bottleneck candidate image digests are incomplete")
+    if not candidate.get("plugin_digests") or any(not DIGEST.fullmatch(str(value)) for value in candidate["plugin_digests"].values()):
+        raise ValueError("bottleneck candidate plugin digests are incomplete")
+    if document.get("finding") not in {"component", "shared_dependency", "load_generator", "inconclusive"}:
+        raise ValueError("bottleneck diagnostic finding is invalid")
+    if not isinstance(document.get("reason_code"), str) or not document["reason_code"]:
+        raise ValueError("bottleneck diagnostic reason is missing")
+    evidence = document.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        raise ValueError("bottleneck diagnostic has no supporting evidence")
+    for index, attachment in enumerate(evidence):
+        _require_digest(attachment.get("sha256"), "bottleneck evidence %d" % index)
+        if not isinstance(attachment.get("source"), str) or not attachment["source"]:
+            raise ValueError("bottleneck evidence source is missing")
+    if not isinstance(document.get("summary"), str) or not document["summary"]:
+        raise ValueError("bottleneck diagnostic summary is missing")
+    return document
+
+
+def validate_qualification(document: dict, manifest: Path | None = None,
+                           work: Path | None = None) -> dict:
+    if (not isinstance(document, dict) or document.get("schema") != QUALIFICATION_SCHEMA
+            or document.get("status") != "qualified"):
+        raise ValueError("Phase 18 qualification is not qualified")
+    candidate = document.get("candidate")
+    if not isinstance(candidate, dict) or candidate.get("version") != "2.0.2" or not REVISION.fullmatch(candidate.get("revision", "")):
+        raise ValueError("Phase 18 qualification candidate is invalid")
+    for key in ("manifest_sha256", "bundle_sha256"):
+        _require_digest(candidate.get(key), "qualification candidate " + key)
+    if manifest is not None and sha(manifest) != candidate["manifest_sha256"]:
+        raise ValueError("qualification belongs to another release manifest")
+    if not candidate.get("image_digests") or any(not DIGEST.fullmatch(str(value)) for value in candidate["image_digests"].values()):
+        raise ValueError("qualification candidate image digests are incomplete")
+    if not candidate.get("plugin_digests") or any(not DIGEST.fullmatch(str(value)) for value in candidate["plugin_digests"].values()):
+        raise ValueError("qualification candidate plugin digests are incomplete")
+    if not isinstance(document.get("host"), dict) or document["host"].get("platform") != "linux/amd64":
+        raise ValueError("qualification host evidence is incomplete")
+    if not isinstance(document.get("started_at"), (int, float)) or not isinstance(document.get("finished_at"), (int, float)) or document["finished_at"] <= document["started_at"]:
+        raise ValueError("qualification timing bounds are invalid")
+    inputs = document.get("inputs")
+    if not isinstance(inputs, dict) or set(inputs) != {
+        "snapshot_sha256", "corpus_sha256", "recipe_receipt_sha256",
+        "recipe_binary_sha256", "load_binary_sha256", "router_publisher_binary_sha256",
+        "workload_recipe_sha256", "fixed_backlog", "execution_order",
+    }:
+        raise ValueError("qualification candidate inputs are incomplete")
+    for key in ("snapshot_sha256", "corpus_sha256", "recipe_receipt_sha256",
+                "recipe_binary_sha256", "load_binary_sha256", "router_publisher_binary_sha256"):
+        _require_digest(inputs.get(key), "qualification input " + key)
+    _require_digest(inputs.get("workload_recipe_sha256"), "qualification workload recipe")
+    barrier = inputs.get("fixed_backlog")
+    if (not isinstance(barrier, dict) or barrier.get("rabbit_messages", 0) < 1
+            or barrier.get("prefetch", 0) < 1 or not isinstance(barrier.get("release_barrier"), str)):
+        raise ValueError("qualification release barrier parameters are incomplete")
+    if not isinstance(inputs.get("execution_order"), list) or not inputs["execution_order"]:
+        raise ValueError("qualification execution order is missing")
+    script_digests = document.get("script_digests")
+    if not isinstance(script_digests, dict) or not script_digests:
+        raise ValueError("qualification verifier/probe digests are missing")
+    for name, value in script_digests.items():
+        if not isinstance(name, str) or not name or not DIGEST.fullmatch(str(value)):
+            raise ValueError("qualification verifier/probe digest is invalid")
+
+    fixtures = document.get("parser_fixtures")
+    if not isinstance(fixtures, dict) or set(fixtures) != {"mysql", "kafka", "live_mysql", "live_kafka"}:
+        raise ValueError("qualification parser evidence is incomplete")
+    for parser in ("mysql", "kafka"):
+        items = fixtures[parser]
+        if not isinstance(items, dict) or set(items) != QUALIFICATION_PARSER_CASES[parser]:
+            raise ValueError(parser + " parser fixture coverage is incomplete")
+        if any(value != "passed" for value in items.values()):
+            raise ValueError(parser + " parser fixture failed")
+    for key in ("live_mysql", "live_kafka"):
+        if not isinstance(fixtures[key], dict) or fixtures[key].get("status") != "passed":
+            raise ValueError("live " + key.removeprefix("live_") + " observer did not qualify")
+        _require_digest(fixtures[key].get("observations_sha256"), key + " observations")
+
+    rabbit_pairs = document.get("paired_workloads")
+    if not isinstance(rabbit_pairs, dict) or set(rabbit_pairs) != {"business-worker", "search-indexer"}:
+        raise ValueError("qualification RabbitMQ paired workloads are incomplete")
+    for component, pair in rabbit_pairs.items():
+        if not isinstance(pair, dict) or pair.get("status") != "passed":
+            raise ValueError(component + " paired workload did not qualify")
+        if pair.get("single_input_sha256") != pair.get("multi_input_sha256"):
+            raise ValueError(component + " single/multi input differs")
+        _require_digest(pair.get("single_input_sha256"), component + " fixed input")
+        for side in ("single", "multi"):
+            item = pair.get(side)
+            if not isinstance(item, dict):
+                raise ValueError(component + " " + side + " timing evidence is missing")
+            if _require_positive(item.get("cold_start_seconds"), component + " cold start") <= 0:
+                raise ValueError(component + " cold start duration is invalid")
+            if _require_positive(item.get("measurement_seconds"), component + " measurement") <= 0:
+                raise ValueError(component + " measurement duration is invalid")
+            if not isinstance(item.get("samples"), int) or item["samples"] < 2:
+                raise ValueError(component + " paired timeline has too few samples")
+            for key in ("observations_sha256", "resource_samples_sha256"):
+                _require_digest(item.get(key), component + " " + side + " " + key)
+
+    marshaller = document.get("marshaller")
+    if not isinstance(marshaller, dict) or set(marshaller) != {"single", "multi", "fixed_messages", "calibration"}:
+        raise ValueError("Marshaller measurement evidence is incomplete")
+    if not isinstance(marshaller["fixed_messages"], int) or marshaller["fixed_messages"] < 1:
+        raise ValueError("Marshaller qualification message count is invalid")
+    _require_digest(marshaller["calibration"].get("observations_sha256"), "Marshaller calibration")
+    for side, members in (("single", 1), ("multi", 2)):
+        item = marshaller[side]
+        if not isinstance(item, dict) or item.get("status") != "passed":
+            raise ValueError("Marshaller " + side + " measurement did not qualify")
+        if item.get("fixed_messages") != marshaller["fixed_messages"]:
+            raise ValueError("Marshaller measurement sides used different fixed input")
+        if not isinstance(item.get("partition_count"), int) or not isinstance(item.get("member_count"), int):
+            raise ValueError("Marshaller member or partition count is invalid")
+        if _require_positive(item.get("measurement_seconds"), "Marshaller " + side + " window") < 30:
+            raise ValueError("Marshaller " + side + " window is shorter than 30 seconds")
+        if not isinstance(item.get("measurement_samples"), int) or item["measurement_samples"] < 10:
+            raise ValueError("Marshaller " + side + " has fewer than 10 samples")
+        if item.get("member_count") != members or item.get("partition_count") < 4:
+            raise ValueError("Marshaller " + side + " member/partition assignment is incomplete")
+        if side == "multi" and item.get("members_owning_partitions") != 2:
+            raise ValueError("both Marshaller members did not receive partitions")
+        for key in ("observations_sha256", "resource_samples_sha256"):
+            _require_digest(item.get(key), "Marshaller " + side + " " + key)
+
+    router = document.get("router")
+    if not isinstance(router, dict) or set(router) != {"single_staircase", "multi_staircase", "kafka_producer_ceiling"}:
+        raise ValueError("Router ceiling evidence is incomplete")
+    for key in ("single_staircase", "multi_staircase"):
+        staircase = router[key]
+        if not isinstance(staircase, dict) or staircase.get("status") != "passed":
+            raise ValueError("Router " + key + " did not qualify")
+        steps = staircase.get("steps")
+        if not isinstance(steps, list) or [item.get("concurrency") for item in steps] != [1, 8, 16, 32, 64]:
+            raise ValueError("Router concurrency staircase is incomplete")
+        for step in steps:
+            if _require_positive(step.get("accepted"), "Router staircase accepted count") < 1 or _require_positive(step.get("elapsed_seconds"), "Router staircase duration") <= 0:
+                raise ValueError("Router staircase step has invalid counters")
+        _require_digest(staircase.get("observations_sha256"), "Router staircase observations")
+        _require_digest(staircase.get("resource_samples_sha256"), "Router staircase resources")
+    ceiling = router["kafka_producer_ceiling"]
+    if not isinstance(ceiling, dict) or ceiling.get("status") not in {"observed", "inconclusive"}:
+        raise ValueError("direct Kafka producer ceiling status is invalid")
+    if ceiling["status"] == "observed":
+        if _require_positive(ceiling.get("records_per_second"), "Kafka producer rate") <= 0:
+            raise ValueError("direct Kafka producer rate is invalid")
+        _require_digest(ceiling.get("observations_sha256"), "direct Kafka producer observations")
+    else:
+        if not isinstance(ceiling.get("reason_code"), str) or not ceiling["reason_code"]:
+            raise ValueError("inconclusive Kafka producer ceiling lacks a reason code")
+
+    replacements = document.get("replacements")
+    required_components = {"backend", "business-worker", "search-indexer", "router", "marshaller"}
+    if not isinstance(replacements, dict) or set(replacements) != required_components:
+        raise ValueError("qualification replacement coverage is incomplete")
+    for component, item in replacements.items():
+        if not isinstance(item, dict) or item.get("status") != "passed":
+            raise ValueError(component + " replacement did not qualify")
+        for key in ("target_progress_before", "survivor_progress_during", "replacement_progress_after", "work_retained_samples"):
+            if not isinstance(item.get(key), int) or item[key] < 1:
+                raise ValueError(component + " replacement lacks live-work evidence")
+        for key in ("observations_sha256", "resource_samples_sha256"):
+            _require_digest(item.get(key), component + " replacement " + key)
+
+    ownership = document.get("ownership")
+    ownership_keys = {
+        "status", "observations_sha256", "outbox_future_lease", "outbox_expired_reclaim",
+        "alert_future_lease", "alert_expired_reclaim", "monitor_single_owner",
+    }
+    if not isinstance(ownership, dict) or set(ownership) != ownership_keys or ownership.get("status") != "passed":
+        raise ValueError("runtime ownership fixture evidence is incomplete")
+    _require_digest(ownership.get("observations_sha256"), "runtime ownership observations")
+    if (ownership["outbox_future_lease"].get("owner") != "phase18-foreign"
+            or ownership["outbox_future_lease"].get("status") != "leased"
+            or ownership["outbox_expired_reclaim"].get("status") != "published"
+            or ownership["outbox_expired_reclaim"].get("published") != 1):
+        raise ValueError("Outbox future/expired lease fixture did not qualify")
+    if (ownership["alert_future_lease"].get("owner") != "phase18-foreign"
+            or ownership["alert_future_lease"].get("last_evaluated_at")
+            or ownership["alert_expired_reclaim"].get("status") != "applied"):
+        raise ValueError("alert future/expired lease fixture did not qualify")
+    monitor = ownership["monitor_single_owner"]
+    if (not isinstance(monitor, dict) or monitor.get("second_exit_code", 0) == 0
+            or monitor.get("registry_sha256_before") != monitor.get("registry_sha256_after")
+            or monitor.get("process_record_sha256_before") != monitor.get("process_record_sha256_after")):
+        raise ValueError("Monitor single-owner fixture did not preserve state")
+
+    resources = document.get("resources")
+    if not isinstance(resources, dict) or resources.get("status") != "passed":
+        raise ValueError("host/container/dependency resource sampling is incomplete")
+    attachments = resources.get("attachments")
+    if not isinstance(attachments, list) or not attachments:
+        raise ValueError("qualification has no raw resource samples")
+    for index, item in enumerate(attachments):
+        _qualification_attachment(item, "resource sample %d" % index, work)
+    if resources.get("containers_observed") is not True or resources.get("host_observed") is not True:
+        raise ValueError("host and per-container resource sampling are required")
+    for dependency in ("mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"):
+        if resources.get("dependencies", {}).get(dependency) != "observed":
+            raise ValueError("direct dependency sample is missing for " + dependency)
+
+    diagnostic = document.get("bottleneck_diagnostic")
+    if not isinstance(diagnostic, dict) or set(diagnostic) != {"path", "sha256", "bytes", "finding"} or diagnostic.get("finding") not in {"component", "shared_dependency", "load_generator", "inconclusive"}:
+        raise ValueError("bottleneck diagnostic summary is missing")
+    _qualification_attachment(diagnostic, "bottleneck diagnostic", work)
+    if work is not None:
+        diagnostic_document = json.loads((work / diagnostic["path"]).read_text())
+        validate_bottleneck_diagnostic(diagnostic_document, manifest)
+        if diagnostic_document.get("candidate") != candidate:
+            raise ValueError("bottleneck diagnostic belongs to another candidate revision")
+        if diagnostic_document["finding"] != diagnostic["finding"]:
+            raise ValueError("bottleneck diagnostic category changed")
+    attachments = document.get("attachments")
+    if not isinstance(attachments, list) or not attachments:
+        raise ValueError("qualification raw attachment inventory is empty")
+    for index, item in enumerate(attachments):
+        _qualification_attachment(item, "qualification attachment %d" % index, work)
+    if not isinstance(document.get("cleanup"), dict) or document["cleanup"].get("status") != "passed" or document["cleanup"].get("owned_projects_remaining") != 0:
+        raise ValueError("qualification Compose cleanup failed")
+    for key in ("resource_inventory_before_sha256", "resource_inventory_after_sha256"):
+        _require_digest(document["cleanup"].get(key), "qualification cleanup " + key)
+    if document.get("secret_scan") != "passed":
+        raise ValueError("qualification secret/path scan failed")
     return document

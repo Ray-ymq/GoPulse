@@ -1,0 +1,64 @@
+# Acceptance-only replica overlay. The production Compose file remains the
+# source for each service; this file adds named peers for deterministic probes.
+services:
+  backend-2:
+    extends:
+      file: compose.yaml
+      service: backend
+    environment:
+      GOPULSE_INSTANCE: backend-2
+    ports: !reset []
+    networks:
+      edge:
+        aliases: [backend]
+      business:
+      observability:
+  backend-3:
+    extends:
+      file: compose.yaml
+      service: backend
+    environment:
+      GOPULSE_INSTANCE: backend-3
+    ports: !reset []
+    networks:
+      edge:
+        aliases: [backend]
+      business:
+      observability:
+
+  business-worker-2:
+    extends:
+      file: compose.yaml
+      service: business-worker
+    environment:
+      GOPULSE_INSTANCE: business-worker-2
+  search-indexer-2:
+    extends:
+      file: compose.yaml
+      service: search-indexer
+    environment:
+      GOPULSE_INSTANCE: search-indexer-2
+  router-2:
+    extends:
+      file: compose.yaml
+      service: router
+    environment:
+      GOPULSE_INSTANCE: router-2
+    networks:
+      observability:
+        aliases: [router]
+  marshaller-2:
+    extends:
+      file: compose.yaml
+      service: marshaller
+    environment:
+      GOPULSE_INSTANCE: marshaller-2
+
+  monitor-2:
+    profiles: [qualification-conflict]
+    extends:
+      file: compose.yaml
+      service: monitor
+    environment:
+      GOPULSE_INSTANCE: monitor-2
+    ports: !reset []

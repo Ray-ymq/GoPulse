@@ -132,7 +132,7 @@ def capacity():
             "platform": "linux/amd64", "host_os": "Linux",
             "kernel": "6.6.0-microsoft-standard-WSL2", "cpu_count": 8,
             "memory_bytes": 12 * 1024 ** 3, "swap_total_bytes": 8 * 1024 ** 3,
-            "disk_available_bytes": 100 * 1024 ** 3,
+            "disk_available_bytes": 80 * 1024 ** 3,
             "docker_server_os": "linux", "docker_server_arch": "amd64", "docker_server_version": "1.0", "compose_version": "2.0",
             "active_compose_projects": [],
         },
@@ -153,6 +153,12 @@ class EvidenceTest(unittest.TestCase):
     def test_valid_capacity_evidence(self):
         document = capacity()
         self.assertIs(document, validate_capacity(document))
+
+    def test_capacity_rejects_disk_below_80_gib(self):
+        document = capacity()
+        document["host"]["disk_available_bytes"] = 80 * 1024 ** 3 - 1
+        with self.assertRaisesRegex(ValueError, "resource contract"):
+            validate_capacity(document)
 
     def test_repeatability_is_recomputed(self):
         document = capacity()

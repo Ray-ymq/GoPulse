@@ -11,6 +11,8 @@ import threading
 import time
 from pathlib import Path
 
+from phase18_observers import parse_kafka_consumer_group
+
 # Every component exposes its private metrics exposition at
 # /internal/v1/metrics on its own process listener. The application ports
 # (8080/9090/9091/9093) never serve this route.
@@ -91,7 +93,10 @@ def metric_sum(text, name, labels=None):
 class Sampler:
     def __init__(self, project, compose_file, env_file, interval=5, raw_path=None):
         self.project = project
-        self.compose_file = Path(compose_file)
+        if isinstance(compose_file, (list, tuple)):
+            self.compose_files = [Path(item) for item in compose_file]
+        else:
+            self.compose_files = [Path(compose_file)]
         self.env_file = Path(env_file)
         self.interval = interval
         self.raw_path = Path(raw_path) if raw_path is not None else None
@@ -104,6 +109,8 @@ class Sampler:
         self._raw_stream = None
         self._failure = None
         self._stopped = False
+        self._load_cpu_before = None
+        self._load_cpu_observed_at = None
 
     def _open_raw(self):
         if self.raw_path is None or self._raw_stream is not None:
@@ -172,8 +179,10 @@ class Sampler:
             self._stop.set()
 
     def _compose(self, *args, timeout=30):
-        return command(['docker', 'compose', '--project-name', self.project, '--env-file', str(self.env_file),
-                        '-f', str(self.compose_file), *args], timeout=timeout)
+        invocation = ['docker', 'compose', '--project-name', self.project, '--env-file', str(self.env_file)]
+        for compose_file in self.compose_files:
+            invocation.extend(['-f', str(compose_file)])
+        return command(invocation + list(args), timeout=timeout)
 
     def _sample(self):
         with self._sample_lock:
@@ -195,9 +204,46 @@ class Sampler:
                     cpu_delta = max(0.0, min(100.0, (total - idle) / total * 100))
             self._cpu_before = cpu
             containers, restarts, oom = self._containers()
+            load_process = self._load_process()
+            if load_process is not None:
+                observed = time.monotonic()
+                if self._load_cpu_before is not None and self._load_cpu_observed_at is not None:
+                    delta = load_process['cpu_ticks'] - self._load_cpu_before
+                    elapsed = observed - self._load_cpu_observed_at
+                    if elapsed > 0 and delta >= 0:
+                        clock_ticks = os.sysconf('SC_CLK_TCK')
+                        cpu_count = max(1, os.cpu_count() or 1)
+                        load_process['cpu_percent'] = max(
+                            0.0, min(100.0, delta / clock_ticks / elapsed / cpu_count * 100),
+                        )
+                self._load_cpu_before = load_process['cpu_ticks']
+                self._load_cpu_observed_at = observed
+            dependencies = {
+                'rabbitmq': self._rabbitmq(),
+                'mysql': self._mysql(),
+                'kafka': self._kafka_lag(),
+                'elasticsearch': self._elasticsearch(),
+                'victoriametrics': self._victoriametrics(),
+            }
+            component_metrics = self._links()
+            dependency_sources = {}
+            for name, value in dependencies.items():
+                status = (value or {}).get('status', 'inconclusive')
+                if name == 'kafka' and status in ('active', 'empty'):
+                    status = 'observed'
+                dependency_sources[name] = status
             record = {
                 'schema': 1,
                 'observed_at': time.time(),
+                'sources': {
+                    'host': 'observed' if memory.get('MemTotal') and cpu else 'inconclusive',
+                    'containers': 'observed' if containers else 'inconclusive',
+                    'component_metrics': {
+                        name: 'observed' if value is not None else 'inconclusive'
+                        for name, value in component_metrics.items()
+                    },
+                    'dependencies': dependency_sources,
+                },
                 'host': {
                     'mem_total_bytes': memory.get('MemTotal', 0),
                     'mem_available_bytes': memory.get('MemAvailable', 0),
@@ -210,11 +256,13 @@ class Sampler:
                 'containers': containers,
                 'restart_count': restarts,
                 'oom_killed': oom,
-                'load_process': self._load_process(),
-                'links': self._links(),
-                'rabbitmq': self._rabbitmq(),
-                'mysql': self._mysql(),
-                'kafka_lag': self._kafka_lag(),
+                'load_process': load_process,
+                'links': component_metrics,
+                'rabbitmq': dependencies['rabbitmq'],
+                'mysql': dependencies['mysql'],
+                'kafka_lag': dependencies['kafka'],
+                'elasticsearch': dependencies['elasticsearch'],
+                'victoriametrics': dependencies['victoriametrics'],
             }
             self._persist_raw(record)
             self.records.append(record)
@@ -292,60 +340,137 @@ class Sampler:
         for service, script in scripts.items():
             text = self._exec(service, script)
             values[service] = {name: metric_value(text, name) for name in families[service]} if text else None
+            if service == 'marshaller' and text:
+                stages = {}
+                for stage, result in (('consume', 'consumed'), ('validate', 'validated'),
+                                      ('store', 'stored'), ('commit', 'committed')):
+                    labels = {'stage': stage, 'result': result}
+                    stages[stage] = {
+                        'records': metric_sum(text, 'gopulse_marshaller_records_total', labels),
+                        'processing_seconds': metric_sum(
+                            text, 'gopulse_marshaller_record_processing_duration_seconds_total', labels,
+                        ),
+                    }
+                values[service]['stages'] = stages
+            elif service == 'router' and text:
+                values[service]['producer'] = {
+                    'accepted': metric_sum(text, 'gopulse_router_messages_total', {'result': 'accepted'}),
+                    'produced': metric_sum(text, 'gopulse_router_messages_total', {'result': 'produced'}),
+                    'produce_seconds': metric_sum(
+                        text, 'gopulse_router_produce_duration_seconds_total', {'result': 'produced'},
+                    ),
+                }
+            elif service in ('business-worker', 'search-indexer') and text:
+                values[service]['handler'] = {
+                    'successful_messages': metric_sum(
+                        text,
+                        'gopulse_%s_messages_total' % service.replace('-', '_'),
+                        {'result': 'success'},
+                    ),
+                    'processing_seconds': metric_sum(
+                        text,
+                        'gopulse_%s_message_processing_duration_seconds_total' % service.replace('-', '_'),
+                        {'result': 'success'},
+                    ),
+                }
         return values
 
     def _rabbitmq(self):
-        text = self._exec('rabbitmq', 'rabbitmqctl list_queues -q name messages_ready messages_unacknowledged')
+        script = r'''set -eu
+auth=$(printf '%s:%s' "$RABBITMQ_DEFAULT_USER" "$RABBITMQ_DEFAULT_PASS" | base64 | tr -d '\n')
+wget -qO- --header="Authorization: Basic $auth" http://127.0.0.1:15672/api/queues
+'''
+        text = self._exec('rabbitmq', script)
         if not text:
-            return None
-        ready = 0
-        unacked = 0
-        queues = []
-        for line in text.splitlines():
-            fields = line.split()
-            if len(fields) < 3:
-                continue
-            try:
-                queue_ready, queue_unacked = int(fields[-2]), int(fields[-1])
-            except ValueError:
-                continue
-            ready += queue_ready
-            unacked += queue_unacked
-            queues.append({'ready': queue_ready, 'unacked': queue_unacked})
-        return {'ready': ready, 'unacked': unacked, 'queues': len(queues)}
+            return {'status': 'inconclusive', 'reason_code': 'rabbitmq_management_unavailable'}
+        try:
+            queues = json.loads(text)
+            if not isinstance(queues, list):
+                raise ValueError('queue response is not a list')
+            ready = sum(int(item['messages_ready']) for item in queues)
+            unacked = sum(int(item['messages_unacknowledged']) for item in queues)
+            return {'status': 'observed', 'ready': ready, 'unacked': unacked, 'queues': len(queues)}
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return {'status': 'parse_failed', 'reason_code': 'rabbitmq_queue_json_invalid'}
 
     def _mysql(self):
-        sql = "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Innodb_buffer_pool_bytes_data','Innodb_buffer_pool_bytes_dirty')"
+        sql = "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Questions','Queries','Innodb_buffer_pool_bytes_data','Innodb_buffer_pool_bytes_dirty','Innodb_row_lock_waits','Innodb_row_lock_time')"
         text = self._exec('mysql', 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u"$MYSQL_USER" -N -B "$MYSQL_DATABASE" -e ' + repr(sql))
         if not text:
-            return None
+            return {'status': 'inconclusive', 'reason_code': 'mysql_status_unavailable'}
         values = {}
         for line in text.splitlines():
-            fields = line.split()
-            if len(fields) == 2:
-                try:
-                    values[fields[0]] = int(fields[1])
-                except ValueError:
-                    continue
-        return values or None
+            fields = line.split('\t')
+            if len(fields) != 2:
+                return {'status': 'parse_failed', 'reason_code': 'mysql_status_row_invalid'}
+            try:
+                values[fields[0]] = int(fields[1])
+            except ValueError:
+                return {'status': 'parse_failed', 'reason_code': 'mysql_status_value_invalid'}
+        return {'status': 'observed', **values} if values else {
+            'status': 'inconclusive', 'reason_code': 'mysql_status_empty',
+        }
 
     def _kafka_lag(self):
         script = 'KAFKA_GROUP=${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}; /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:19092 --describe --group "$KAFKA_GROUP"'
-        text = self._exec('kafka', script, timeout=30)
+        result = self._compose('exec', '-T', 'kafka', 'sh', '-c', script, timeout=30)
+        if result.returncode:
+            return {'status': 'inconclusive', 'reason_code': 'kafka_group_observation_unavailable'}
+        try:
+            return parse_kafka_consumer_group(
+                result.stdout, expected_group='gopulse-marshaller-metrics-v1',
+                expected_topic='gopulse-observability-v1',
+            )
+        except RuntimeError:
+            return {'status': 'parse_failed', 'reason_code': 'kafka_group_table_invalid'}
+
+    def _elasticsearch(self):
+        text = self._exec(
+            'elasticsearch',
+            'curl -fsS http://127.0.0.1:9200/_nodes/_local/stats/os,process,jvm,indices',
+            timeout=20,
+        )
         if not text:
-            return None
-        lag = 0
-        rows = 0
-        for line in text.splitlines():
-            fields = line.split()
-            if len(fields) < 6 or fields[0].upper() == 'GROUP':
-                continue
-            try:
-                lag += int(fields[5])
-                rows += 1
-            except ValueError:
-                continue
-        return {'lag': lag, 'partitions': rows}
+            return {'status': 'inconclusive', 'reason_code': 'elasticsearch_stats_unavailable'}
+        try:
+            document = json.loads(text)
+            nodes = document.get('nodes', {})
+            if len(nodes) != 1:
+                raise ValueError('unexpected node count')
+            node = next(iter(nodes.values()))
+            return {
+                'status': 'observed',
+                'cpu_percent': node.get('process', {}).get('cpu', {}).get('percent'),
+                'resident_memory_bytes': node.get('process', {}).get('mem', {}).get('resident_in_bytes'),
+                'heap_used_bytes': node.get('jvm', {}).get('mem', {}).get('heap_used_in_bytes'),
+                'index_store_bytes': node.get('indices', {}).get('store', {}).get('size_in_bytes'),
+                'indexed_documents': node.get('indices', {}).get('docs', {}).get('count'),
+                'index_operations': node.get('indices', {}).get('indexing', {}).get('index_total'),
+                'search_operations': node.get('indices', {}).get('search', {}).get('query_total'),
+            }
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return {'status': 'parse_failed', 'reason_code': 'elasticsearch_stats_json_invalid'}
+
+    def _victoriametrics(self):
+        script = r'''set -eu
+auth=$(printf '%s:%s' "$VICTORIAMETRICS_USERNAME" "$(cat /run/secrets/victoriametrics_password)" | base64 | tr -d '\n')
+wget -qO- --header="Authorization: Basic $auth" http://127.0.0.1:8428/api/v1/status/tsdb
+'''
+        text = self._exec('victoriametrics', script, timeout=20)
+        if not text:
+            return {'status': 'inconclusive', 'reason_code': 'victoriametrics_stats_unavailable'}
+        try:
+            document = json.loads(text)
+            data = document.get('data', {})
+            stats = data.get('headStats', {})
+            return {
+                'status': 'observed' if document.get('status') == 'success' else 'inconclusive',
+                'series': stats.get('numSeries'),
+                'samples': stats.get('numSamples'),
+                'reason_code': None if document.get('status') == 'success' else 'victoriametrics_status_not_success',
+            }
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+            return {'status': 'parse_failed', 'reason_code': 'victoriametrics_stats_json_invalid'}
 
 
 def summarize(records):
@@ -354,6 +479,7 @@ def summarize(records):
     started_swap = records[0]['host']['swap_free_bytes']
     max_swap_delta = max(0, started_swap - min(item['host']['swap_free_bytes'] for item in records))
     load_rss = max((item.get('load_process') or {}).get('rss_bytes', 0) for item in records)
+    load_cpu = max((item.get('load_process') or {}).get('cpu_percent', 0) or 0 for item in records)
     peak_cpu = max((container.get('cpu_percent', 0) for item in records for container in item['containers']), default=0)
     def link_peak(service, metric):
         return max((((item.get('links') or {}).get(service) or {}).get(metric) or 0) for item in records)
@@ -363,6 +489,7 @@ def summarize(records):
         'restart_count': max(int(item.get('restart_count', 0)) for item in records),
         'max_swap_delta_bytes': max_swap_delta,
         'load_process_peak_rss_bytes': load_rss,
+        'load_process_peak_cpu_percent_of_host': load_cpu,
         'peak_container_cpu_percent': peak_cpu,
         'max_outbox_pending': link_peak('backend', 'gopulse_backend_outbox_pending'),
         'max_outbox_oldest_age_seconds': link_peak('backend', 'gopulse_backend_outbox_oldest_age_seconds'),

@@ -58,6 +58,50 @@ class SamplerTest(unittest.TestCase):
             "type": "logs", "stage": "store", "result": "stored",
         }), 4)
 
+    def test_links_report_marshaller_pipeline_stage_counters_and_seconds(self):
+        sample = (
+            'gopulse_marshaller_records_total{type="logs",message_source="backend",stage="consume",result="consumed"} 10\n'
+            'gopulse_marshaller_record_processing_duration_seconds_total{type="logs",message_source="backend",stage="consume",result="consumed"} 1.5\n'
+            'gopulse_marshaller_records_total{type="logs",message_source="backend",stage="store",result="stored"} 8\n'
+            'gopulse_marshaller_record_processing_duration_seconds_total{type="logs",message_source="backend",stage="store",result="stored"} 2.25\n'
+            'gopulse_marshaller_records_total{type="logs",message_source="backend",stage="commit",result="committed"} 8\n'
+            'gopulse_marshaller_record_processing_duration_seconds_total{type="logs",message_source="backend",stage="commit",result="committed"} 0.25\n'
+        )
+        sampler = Sampler('gopulse-p18-02-test-000000000000', Path('/compose.yaml'), Path('/candidate.env'))
+        with mock.patch.object(sampler, '_exec', side_effect=lambda service, *_args, **_kwargs: sample if service == 'marshaller' else ''):
+            links = sampler._links()
+        self.assertEqual(links['marshaller']['stages']['consume'], {
+            'records': 10, 'processing_seconds': 1.5,
+        })
+        self.assertEqual(links['marshaller']['stages']['store'], {
+            'records': 8, 'processing_seconds': 2.25,
+        })
+        self.assertEqual(links['marshaller']['stages']['commit'], {
+            'records': 8, 'processing_seconds': 0.25,
+        })
+
+    def test_sample_records_container_and_dependency_source_statuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path = Path(directory) / 'resources.jsonl'
+            sampler = Sampler(
+                'gopulse-p18-02-test-000000000000', Path('/compose.yaml'), Path('/candidate.env'),
+                interval=3600, raw_path=raw_path,
+            )
+            with mock.patch.object(sampler, '_containers', return_value=([{'service': 'marshaller'}], 0, 0)), \
+                 mock.patch.object(sampler, '_load_process', return_value=None), \
+                 mock.patch.object(sampler, '_links', return_value={'marshaller': {'stages': {}}}), \
+                 mock.patch.object(sampler, '_rabbitmq', return_value={'status': 'observed'}), \
+                 mock.patch.object(sampler, '_mysql', return_value={'status': 'observed'}), \
+                 mock.patch.object(sampler, '_kafka_lag', return_value={'status': 'active'}), \
+                 mock.patch.object(sampler, '_elasticsearch', return_value={'status': 'observed'}), \
+                 mock.patch.object(sampler, '_victoriametrics', return_value={'status': 'observed'}):
+                sampler.start()
+                sample = load_samples(raw_path)[0]
+                sampler.stop()
+            self.assertEqual(sample['sources']['containers'], 'observed')
+            self.assertEqual(sample['sources']['dependencies']['kafka'], 'observed')
+            self.assertEqual(sample['sources']['dependencies']['victoriametrics'], 'observed')
+
     def test_summary_uses_swap_and_process_peaks(self):
         records = [
             {"host": {"swap_free_bytes": 8 * 1024 ** 3}, "load_process": {"rss_bytes": 10}, "containers": [{"cpu_percent": 50}], "oom_killed": 0, "restart_count": 0},
