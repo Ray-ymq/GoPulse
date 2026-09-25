@@ -1,18 +1,18 @@
-# Phase-18-04：独立健康通道与合同单一来源实施方案
+# Phase-18-05：独立健康通道与合同单一来源实施方案
 
-> 目标版本：`2.0.4`  
-> 开发分支：`develop/2.0.4`  
-> 优先级：P1，在 Phase-18-01/02/03 的 P0 容量、扩容、隔离和背压合同成立后开工
+> 目标版本：`2.0.5`
+> 开发分支：`develop/2.0.5`
+> 优先级：P1，在 Phase-18-01/02/03/04 的验收基础设施、容量、扩容、隔离和背压合同成立后开工
 
 ## 1. 批次目标
 
 建立不经可观测数据面回传的 lifecycle 健康与 canary receipt，并将 Envelope、日志、指标和 API 错误的手工重复目录收敛到 `contracts/` 机器源。
-本批不改变 Phase-18-03 的容量参数或用诊断结果替代产品数据面。
+本批不改变 Phase-18-04 的容量参数或用诊断结果替代产品数据面。
 
 ## 2. 前置条件
 
-- Phase-18-01/02/03 已合入主线，固定数据/SLO、多副本、双 ES 和背压 evidence 可复核。
-- 从最新 `upstream/main` 创建 `develop/2.0.4`，使用同一 8 vCPU/12 GiB 参考宿主。
+- Phase-18-01/02/03/04 已合入主线，固定数据/SLO、可信验收基础设施、多副本、双 ES 和背压 evidence 可复核。
+- 从最新 `upstream/main` 创建 `develop/2.0.5`，使用同一 8 vCPU/12 GiB 参考宿主。
 - 在改动前盘点并锁定当前 Go/TypeScript/Marshaller/ES 的全部手工合同消费点，不将未使用或内部实现常量扩大为公共合同。
 
 ## 3. 独立 lifecycle 健康通道
@@ -24,7 +24,7 @@
 ```json
 {
   "schema_version": 1,
-  "candidate": {"version": "2.0.4", "revision": "...", "manifest_sha256": "..."},
+  "candidate": {"version": "2.0.5", "revision": "...", "manifest_sha256": "..."},
   "generated_at": "RFC3339 UTC",
   "status": "healthy|degraded|unhealthy",
   "checks": [{"id": "...", "status": "passed|failed|unknown", "reason": "...", "facts": {}}]
@@ -90,8 +90,8 @@ scripts/verify-phase18-contracts.sh --manifest dist/release-manifest.json --work
 python3 scripts/verify-phase18-evidence.py --contracts "$GOPULSE_PHASE18_WORK/evidence/contracts.json"
 scripts/verify-runtime-contracts.sh
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/2.0.4 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/2.0.5 --base-ref upstream/main
 git diff --check
 ```
 
-创建同名实施记录，更新 `VERSION=2.0.4`，只提交本批文件后停止。
+创建同名实施记录，更新 `VERSION=2.0.5`，只提交本批文件后停止。

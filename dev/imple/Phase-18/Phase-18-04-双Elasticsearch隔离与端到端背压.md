@@ -1,20 +1,20 @@
-# Phase-18-03：双 Elasticsearch 隔离与端到端背压实施方案
+# Phase-18-04：双 Elasticsearch 隔离与端到端背压实施方案
 
-> 目标版本：`2.0.3`  
-> 开发分支：`develop/2.0.3`  
-> 直接前序：`2.0.2`；历史升级输入：`1.14.5`
+> 目标版本：`2.0.4`
+> 开发分支：`develop/2.0.4`
+> 直接前序：`2.0.3`；历史升级输入：`1.14.5`
 
 ## 1. 批次目标
 
 将当前共享 Elasticsearch 拆为业务搜索和 Logs/Events 两个故障域，并为 HTTP、连接池、
 Outbox、RabbitMQ、Kafka、Marshaller 和 sink 写入建立一致的有界背压，并验证每层在解除压力后
-能够有界恢复。本批只修复 Phase-18-01/02 证据支持的瓶颈和无界路径。完整三轮重复性、跨系统
-最终收敛和 150/300 RPS SLO 不在本批伪造通过，留给 Phase-18-05。
+能够有界恢复。本批只修复 Phase-18-01/02/03 证据支持的瓶颈和无界路径。完整三轮重复性、跨系统
+最终收敛和 150/300 RPS SLO 不在本批伪造通过，留给 Phase-18-06。
 
 ## 2. 前置条件
 
-- Phase-18-01/02 已合入主线；Phase-18-01 可以是已接受的失败基线，单/多副本基线、第一瓶颈和所有权证据可复核。
-- 从最新 `upstream/main` 创建 `develop/2.0.3`，准备独立 `1.14.5`、`2.0.2` 和 clean project。
+- Phase-18-01/02/03 已合入主线；Phase-18-01 可以是已接受的失败基线，Phase-18-02 的验收基础设施资格证据以及 Phase-18-03 的单/多副本、第一瓶颈和所有权证据可复核。
+- 从最新 `upstream/main` 创建 `develop/2.0.4`，准备独立 `1.14.5`、`2.0.3` 和 clean project。
 - 历史单 ES 数据在任何迁移前先使用正式 lifecycle 备份，不就地破坏原卷。
 
 ## 3. 实施范围
@@ -61,16 +61,16 @@ Outbox、RabbitMQ、Kafka、Marshaller 和 sink 写入建立一致的有界背�
 ## 5. 不在本批范围
 
 - Elasticsearch 集群 HA、跨宿主副本、新 Exporter 或新存储。
-- 对没有 Phase-18-01/02 瓶颈或本批超载证据的索引/SQL/缓存调优。
+- 对没有 Phase-18-01/02/03 瓶颈或本批超载证据的索引/SQL/缓存调优。
 - 独立健康 canary 和合同代码生成。
 
 ## 6. 验收与完成条件
 
-- clean、`1.14.5` 和 `2.0.2` 输入均完成双 ES 收敛，历史数据与恢复后新写入可查。
+- clean、`1.14.5` 和 `2.0.3` 输入均完成双 ES 收敛，历史数据与恢复后新写入可查。
 - 双 ES 使用独立凭据/卷/资源，交叉停机不拖垮另一数据面，format v1/v2 restore 通过。
 - 七类背压点的正常、饱和、拒绝、恢复和指标场景通过，已接受业务无静默丢失。
 - 本批验证各层有界背压、单层恢复、无 OOM/无界增长和无伪成功；完整 150/300 RPS SLO、
-  三轮重复性及跨系统最终收敛由 Phase-18-05 统一判定。
+  三轮重复性及跨系统最终收敛由 Phase-18-06 统一判定。
 
 ## 7. 固定验证命令
 
@@ -81,8 +81,8 @@ scripts/verify-backup-restore.sh --manifest dist/release-manifest.json --format-
 python3 scripts/verify-phase18-evidence.py --backpressure "$GOPULSE_PHASE18_WORK/evidence/backpressure.json"
 scripts/verify-runtime-contracts.sh
 python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch develop/2.0.3 --base-ref upstream/main
+python3 scripts/ci/validate_branch.py --branch develop/2.0.4 --base-ref upstream/main
 git diff --check
 ```
 
-创建同名实施记录，更新 `VERSION=2.0.3`，只提交本批文件后停止。
+创建同名实施记录，更新 `VERSION=2.0.4`，只提交本批文件后停止。
