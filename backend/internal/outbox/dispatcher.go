@@ -199,7 +199,13 @@ func (dispatcher *Dispatcher) runDelivery(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			_ = dispatcher.DispatchOnce(ctx)
+			more, err := dispatcher.dispatchBatch(ctx)
+			if err == nil && more {
+				// A full claim batch is direct evidence that backlog remains.
+				// Continue draining it without imposing the idle poll interval.
+				timer.Reset(0)
+				continue
+			}
 			timer.Reset(dispatcher.pollInterval)
 		}
 	}
@@ -257,28 +263,33 @@ func waitForCleanup(ctx context.Context, delay time.Duration) error {
 // DispatchOnce performs one bounded claim/publish cycle. It is exported for
 // deterministic integration and lifecycle tests; production uses Run.
 func (dispatcher *Dispatcher) DispatchOnce(ctx context.Context) error {
+	_, err := dispatcher.dispatchBatch(ctx)
+	return err
+}
+
+func (dispatcher *Dispatcher) dispatchBatch(ctx context.Context) (bool, error) {
 	if ctx == nil {
-		return errors.New("dispatch outbox events: context is required")
+		return false, errors.New("dispatch outbox events: context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	records, err := dispatcher.store.Claim(ctx, dispatcher.owner, dispatcher.claimBatch, dispatcher.leaseDuration)
 	if err != nil {
 		dispatcher.logger.Error("outbox claim failed", slog.String("reason", "storage_unavailable"))
-		return fmt.Errorf("claim outbox events: %w", err)
+		return false, fmt.Errorf("claim outbox events: %w", err)
 	}
 
 	var firstErr error
 	for _, record := range records {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false, ctx.Err()
 		}
 		if err := dispatcher.dispatchRecord(ctx, record); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
-	return firstErr
+	return len(records) == dispatcher.claimBatch, firstErr
 }
 
 func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record) error {
