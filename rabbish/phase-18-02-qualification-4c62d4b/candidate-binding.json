@@ -1,0 +1,20 @@
+{
+  "schema": "gopulse.archive.candidate-binding.v1",
+  "archive_status": "incomplete_without_terminal_receipt",
+  "version": "2.0.2",
+  "revision": "4c62d4b1ad28ed20c49b9d6f989f1e612f65ea4e",
+  "manifest_sha256": "sha256:76a91b6fb3ebda52ea88402a39e3b5d215943da55ad0ecd7a8fb72581f3a1e91",
+  "bundle_sha256": "sha256:ef80b17067008b53be34ef3e7d7518434f36e725870d57845914f6854eedae0c",
+  "platform": "linux/amd64",
+  "images": {
+    "backend": "sha256:906a95b34203fe4bb3dcb9ba57408af0adc5d29805ea2e86175ba5210e83e512",
+    "business-worker": "sha256:5e2d17c7f0fc584c99ca732de885b9111ca93f44b259c98cdef64c573206a3d2",
+    "search-indexer": "sha256:c17dfc325a7e7615d6aed5bb88af35799073f96173b00c38575dd192bdc1d067",
+    "frontend": "sha256:fcbb707f7606b6c3977744205971abd8a99b3087b2181c5b134275e9e69a29de",
+    "admin-frontend": "sha256:cb5951000855a18f4545eb297114cdbb210e9941ddaeff35b580c4afed32287c",
+    "router": "sha256:8004fe104672ca8736a8af283192f1bff949a2904ab68f9c8919f13ce205bd73",
+    "marshaller": "sha256:1e40e0ce02a627b573f353c6985bcd614e5033eebe7cb576e339cde856610f4a",
+    "monitor": "sha256:0e720509ac1d313f27b4a995d9e63149493bac108b7fd29eda14a7e107f16cad",
+    "redis-exporter": "sha256:156f07065ff88ac0d711d47809848facca226e3621d08f9c730ba870300625d7"
+  }
+}

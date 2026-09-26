@@ -1,0 +1,13 @@
+{
+  "schema": "gopulse.archive.resource-state.v1",
+  "checked_at": "2026-09-26T13:31:26+08:00",
+  "managed_compose_containers": 0,
+  "managed_compose_networks": 0,
+  "managed_compose_volumes": 0,
+  "candidate_registry": {
+    "name": "gopulse-p18-02-registry",
+    "status": "running",
+    "ownership_labels_present": false,
+    "removed_by_archive": false
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "schema": "gopulse.archive.qualification-progress.v1",
+  "archive_status": "incomplete_without_terminal_receipt",
+  "source_schema": "gopulse.phase18.qualification-progress.v1",
+  "started_at": "2026-09-26T01:00:17+08:00",
+  "last_durable_progress_at": "2026-09-26T01:11:42+08:00",
+  "source_status": "running",
+  "active_step": "business-worker_replacement",
+  "terminal_qualification_receipt_present": false,
+  "run_error_present": false,
+  "steps": [
+    {
+      "name": "host_preflight",
+      "status": "passed",
+      "result_sha256": "sha256:41f0f8f79609c1f83c0cafd28fb356fd72f70f8447e0eacb29abdb12dee1b1fa"
+    },
+    {
+      "name": "acceptance_topology",
+      "status": "passed",
+      "result_sha256": "sha256:1eaab74efef2f9e8a2097ea8b01dc33b2ef3ffc8e298ba38a153d8d2ca755951"
+    },
+    {
+      "name": "structured_parser_fixtures",
+      "status": "passed",
+      "result_sha256": "sha256:35574cd0203540bb5e8cbb87ff302962082a9e535cb141af35b981192243217f"
+    },
+    {
+      "name": "live_mysql_lease_parser",
+      "status": "passed",
+      "result_sha256": "sha256:152ffd1891f982369d2b51437e47e9bb9c524b4490965e4fdb657b41a0cf3706"
+    },
+    {
+      "name": "live_kafka_parser",
+      "status": "running",
+      "result_sha256": null
+    },
+    {
+      "name": "cold_start_readiness_probe",
+      "status": "passed",
+      "result_sha256": null
+    },
+    {
+      "name": "backend_replacement",
+      "status": "passed",
+      "result_sha256": null
+    },
+    {
+      "name": "backend_replacement_product_outcome",
+      "status": "passed",
+      "result_sha256": "sha256:0b16fbb4853f526d902c4d42debf536d2e0b27a1a21c0a0a4636de95be4b4fe2"
+    }
+  ],
+  "observations": {
+    "readiness": {
+      "backend_steady_successes": 5241,
+      "kafka_partitions": 4,
+      "router_published": 100,
+      "business_worker_expected": 100,
+      "business_worker_acknowledged": 100,
+      "search_indexer_expected": 100,
+      "search_indexer_acknowledged": 100
+    },
+    "backend_replacement": {
+      "requests": 28125,
+      "succeeded": 28125,
+      "explicit_rejects": 0,
+      "timeouts": 0,
+      "errors": 0,
+      "removed_instance": "backend-2",
+      "survivor_progress": 44,
+      "stopped_seconds": 5.109
+    },
+    "business_worker_replacement": {
+      "status": "running",
+      "sample_count": 0,
+      "usable_as_product_result": false
+    }
+  }
+}
