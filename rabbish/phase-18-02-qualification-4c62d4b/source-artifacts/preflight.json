@@ -1,0 +1,19 @@
+{
+  "schema": "gopulse.phase18.preflight.v1",
+  "host": {
+    "platform": "linux/amd64",
+    "host_os": "Linux",
+    "host_arch": "x86_64",
+    "kernel": "6.6.87.2-microsoft-standard-WSL2",
+    "cpu_count": 8,
+    "memory_bytes": 13600256000,
+    "swap_total_bytes": 17179869184,
+    "disk_available_bytes": 93373677568,
+    "docker_server_os": "linux",
+    "docker_server_arch": "amd64",
+    "docker_server_version": "29.7.2",
+    "compose_version": "Docker Compose version v5.5.0",
+    "active_compose_projects": []
+  },
+  "problems": []
+}

@@ -38,10 +38,12 @@
 这些结果仅证明对应旧脚本步骤曾完成。由于顶层运行没有终态 receipt，后续 live Kafka、
 Business Worker 及未执行步骤均不能推断为通过。
 
-## 归档边界
+## 实际数据与归档边界
 
-- 原始 work directory、候选 Bundle、镜像和大体积资源样本没有提交到 Git。
-- `evidence-checksums.sha256` 绑定原始附件内容；原始附件仍按私有运行材料处理。
+- `source-artifacts/` 包含本次运行实际生成的候选 release manifest、JSON evidence、
+  Backend 原始资源样本 JSONL 和 load diagnostic；文件内容保持原样，没有补写终态。
+- 在本目录执行 `sha256sum -c evidence-checksums.sha256` 可逐项验证实际文件。
+- 候选 Bundle、容器镜像本体、环境文件和凭据没有提交到 Git；它们只通过 manifest/digest 绑定。
 - `candidate-binding.json` 只保存候选 digest，不保存 registry 地址、凭据或私有路径。
 - `qualification-progress.sanitized.json` 是脱敏事实摘要，不冒充原始 runner receipt。
 - `resource-state.json` 记录归档时的资源检查。旧候选 registry 仍运行且没有强归属 label，

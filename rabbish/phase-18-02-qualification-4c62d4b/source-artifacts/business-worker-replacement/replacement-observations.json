@@ -1,0 +1,10 @@
+{
+  "schema": "gopulse.phase18.observation-journal.v1",
+  "status": "running",
+  "started_at": 1790356365.3575537,
+  "samples": [],
+  "component": "business-worker",
+  "counter_source": "rabbitmq_management_ack_and_instance_metrics",
+  "fresh_work_required": true,
+  "replay_policy": "new independent event IDs created through the application edge"
+}

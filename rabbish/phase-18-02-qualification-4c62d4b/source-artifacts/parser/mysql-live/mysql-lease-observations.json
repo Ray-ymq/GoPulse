@@ -1,0 +1,86 @@
+{
+  "schema": "gopulse.phase18.observation-journal.v1",
+  "status": "passed",
+  "started_at": 1790355670.2744753,
+  "samples": [],
+  "observer": "MySQL JSON_OBJECT lease probe",
+  "candidate_revision": "4c62d4b1ad28ed20c49b9d6f989f1e612f65ea4e",
+  "row_id": 1,
+  "future": {
+    "owner": "phase18-qualification",
+    "lease_until": "2026-09-25T17:11:45.808534Z",
+    "status": "leased",
+    "updated_at": "2026-09-25T17:01:45.808534Z",
+    "published": false
+  },
+  "expired": {
+    "owner": "phase18-qualification",
+    "lease_until": "2026-09-25T17:01:44.955584Z",
+    "status": "leased",
+    "updated_at": "2026-09-25T17:01:45.955584Z",
+    "published": false
+  },
+  "reclaimed": {
+    "owner": null,
+    "lease_until": null,
+    "status": "published",
+    "updated_at": "2026-09-25T17:02:07.497157Z",
+    "published": true
+  },
+  "empty_owner": {
+    "owner": "",
+    "lease_until": "2026-09-25T17:12:13.064963Z",
+    "status": "leased",
+    "updated_at": "2026-09-25T17:02:13.064963Z",
+    "published": false
+  },
+  "released": {
+    "owner": null,
+    "lease_until": null,
+    "status": "published",
+    "updated_at": "2026-09-25T17:02:13.213797Z",
+    "published": true
+  },
+  "reason_code": "live_lease_null_empty_and_precision_observed",
+  "result": {
+    "status": "passed",
+    "row_id_sha256": "sha256:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+    "future_lease": {
+      "owner": "phase18-qualification",
+      "lease_until": "2026-09-25T17:11:45.808534Z",
+      "status": "leased",
+      "updated_at": "2026-09-25T17:01:45.808534Z",
+      "published": false
+    },
+    "expired_lease": {
+      "owner": "phase18-qualification",
+      "lease_until": "2026-09-25T17:01:44.955584Z",
+      "status": "leased",
+      "updated_at": "2026-09-25T17:01:45.955584Z",
+      "published": false
+    },
+    "reclaimed_lease": {
+      "owner": null,
+      "lease_until": null,
+      "status": "published",
+      "updated_at": "2026-09-25T17:02:07.497157Z",
+      "published": true
+    },
+    "empty_owner": {
+      "owner": "",
+      "lease_until": "2026-09-25T17:12:13.064963Z",
+      "status": "leased",
+      "updated_at": "2026-09-25T17:02:13.064963Z",
+      "published": false
+    },
+    "released_nulls": {
+      "owner": null,
+      "lease_until": null,
+      "status": "published",
+      "updated_at": "2026-09-25T17:02:13.213797Z",
+      "published": true
+    },
+    "missing_row": "rejected"
+  },
+  "finished_at": 1790355733.3685355
+}

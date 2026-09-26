@@ -1,0 +1,61 @@
+{
+  "candidate_revision": "4c62d4b1ad28ed20c49b9d6f989f1e612f65ea4e",
+  "snapshot_sha256": "sha256:b6fc67bfeb04a0428b2e5ce9b4bd9b48e73c25ca4a5fdefca507a6faf78af204",
+  "load_report_sha256": "sha256:917e957e908a0e5bd77a240f45d71d6b09218aa1bcd3270273665c74f8fb760e",
+  "backend_steady_successes": 5241,
+  "backend_saturation": {
+    "measurement_mode": "closed_loop",
+    "active_workers": 128,
+    "steady_target_rps": 0,
+    "phase_names": [
+      "warmup",
+      "steady"
+    ],
+    "backend_steady_successes": 5241
+  },
+  "rabbit": {
+    "business-worker": {
+      "queue": "gopulse.business-worker.v1",
+      "expected": 100,
+      "observed": 100,
+      "acknowledged": 100,
+      "backlog_sha256": "sha256:972384aef584b0267dc4b9183fd55cd761463895748776cc7b4198eae955f900",
+      "queue_convergence_seconds": 0.647,
+      "consumer_startup_seconds": 7.619,
+      "drain_seconds": 7.689,
+      "observations_sha256": "sha256:d2d855d5560f1c33a81d358a0eb89a73477d031e0bc3994926a5b2e972984449"
+    },
+    "search-indexer": {
+      "queue": "gopulse.search-indexer.v1",
+      "expected": 100,
+      "observed": 100,
+      "acknowledged": 100,
+      "backlog_sha256": "sha256:6bc564575061dc379c865688912cd4d78098269c62a07e690b709a99a241c39f",
+      "queue_convergence_seconds": 0.643,
+      "consumer_startup_seconds": 8.564,
+      "drain_seconds": 10.357,
+      "observations_sha256": "sha256:86662461a4ec791a46b31e4e3019338f3ea6883eb6baef38851b884e2104b235"
+    }
+  },
+  "kafka_partition_observation": {
+    "topic": "gopulse-observability-v1",
+    "before": 1,
+    "after": 4,
+    "required_minimum": 4
+  },
+  "kafka_offsets_before": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0
+  },
+  "kafka_offsets_after": {
+    "0": 32,
+    "1": 23,
+    "2": 27,
+    "3": 18
+  },
+  "kafka_partitions": 4,
+  "router_published": 100,
+  "router_report_sha256": "sha256:92922f21e015d761cc717056143c6601f367954d6fe01e78e73834e8e2e2ff67"
+}

@@ -1,0 +1,48 @@
+{
+  "queue": "gopulse.business-worker.v1",
+  "expected": 100,
+  "backlog_sha256": "sha256:972384aef584b0267dc4b9183fd55cd761463895748776cc7b4198eae955f900",
+  "publish_convergence": {
+    "elapsed_seconds": 0.647,
+    "samples": [
+      {
+        "at": 0.075,
+        "ready": 60,
+        "unacknowledged": 0,
+        "ack": 0,
+        "redeliver_get": 0
+      },
+      {
+        "at": 0.647,
+        "ready": 100,
+        "unacknowledged": 0,
+        "ack": 0,
+        "redeliver_get": 0
+      }
+    ]
+  },
+  "consumer_startup_seconds": 7.619,
+  "drain_seconds": 7.689491067001654,
+  "before": {
+    "ready": 100,
+    "unacknowledged": 0,
+    "ack": 0,
+    "redeliver_get": 0
+  },
+  "after": {
+    "at": 7.689,
+    "ready": 0,
+    "unacknowledged": 0,
+    "ack": 100,
+    "redeliver_get": 0
+  },
+  "samples": [
+    {
+      "at": 7.689,
+      "ready": 0,
+      "unacknowledged": 0,
+      "ack": 100,
+      "redeliver_get": 0
+    }
+  ]
+}

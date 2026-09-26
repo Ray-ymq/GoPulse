@@ -1,0 +1,54 @@
+{
+  "schema": "gopulse.phase18.qualification-progress.v1",
+  "status": "running",
+  "started_at": 1790355617.9396923,
+  "steps": [
+    {
+      "name": "host_preflight",
+      "status": "passed",
+      "result_sha256": "sha256:41f0f8f79609c1f83c0cafd28fb356fd72f70f8447e0eacb29abdb12dee1b1fa",
+      "completed_at": 1790355618.057209
+    },
+    {
+      "name": "acceptance_topology",
+      "status": "passed",
+      "result_sha256": "sha256:1eaab74efef2f9e8a2097ea8b01dc33b2ef3ffc8e298ba38a153d8d2ca755951",
+      "completed_at": 1790355618.2301376
+    },
+    {
+      "name": "structured_parser_fixtures",
+      "status": "passed",
+      "result_sha256": "sha256:35574cd0203540bb5e8cbb87ff302962082a9e535cb141af35b981192243217f",
+      "completed_at": 1790355670.2740216
+    },
+    {
+      "name": "live_mysql_lease_parser",
+      "status": "passed",
+      "result_sha256": "sha256:152ffd1891f982369d2b51437e47e9bb9c524b4490965e4fdb657b41a0cf3706",
+      "completed_at": 1790355745.1432781
+    },
+    {
+      "name": "live_kafka_parser",
+      "status": "running"
+    },
+    {
+      "name": "cold_start_readiness_probe",
+      "status": "passed",
+      "result_sha256": null,
+      "completed_at": 1790356054.9034693
+    },
+    {
+      "name": "backend_replacement",
+      "status": "passed",
+      "result_sha256": null,
+      "completed_at": 1790356302.609622
+    },
+    {
+      "name": "backend_replacement_product_outcome",
+      "status": "passed",
+      "result_sha256": "sha256:0b16fbb4853f526d902c4d42debf536d2e0b27a1a21c0a0a4636de95be4b4fe2",
+      "completed_at": 1790356302.6106966
+    }
+  ],
+  "active_step": "business-worker_replacement"
+}

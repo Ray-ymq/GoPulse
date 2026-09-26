@@ -1,0 +1,270 @@
+{
+  "schema": "gopulse.phase18.parser-fixtures.v1",
+  "status": "passed",
+  "mysql": {
+    "future_lease": {
+      "status": "passed",
+      "raw": {
+        "input": "{\"owner\":\"phase18-fixture\",\"lease_until\":\"2099-01-01T00:00:00.123456Z\",\"status\":\"leased\",\"updated_at\":\"2098-12-31T23:59:59.987654Z\",\"published\":0}",
+        "result": {
+          "owner": "phase18-fixture",
+          "lease_until": "2099-01-01T00:00:00.123456Z",
+          "status": "leased",
+          "updated_at": "2098-12-31T23:59:59.987654Z",
+          "published": 0
+        }
+      }
+    },
+    "expired_lease": {
+      "status": "passed",
+      "raw": {
+        "input": "{\"owner\":\"phase18-expired\",\"lease_until\":\"2020-01-01T00:00:00.000001Z\",\"status\":\"leased\",\"updated_at\":\"2020-01-01T00:00:00.654321Z\",\"published\":0}",
+        "result": {
+          "owner": "phase18-expired",
+          "lease_until": "2020-01-01T00:00:00.000001Z",
+          "status": "leased",
+          "updated_at": "2020-01-01T00:00:00.654321Z",
+          "published": 0
+        }
+      }
+    },
+    "expired_lease_reclaim_state": {
+      "status": "observed",
+      "raw": {
+        "input": "{\"owner\":null,\"lease_until\":null,\"status\":\"published\",\"updated_at\":\"2020-01-01T00:00:01.123456Z\",\"published\":1}"
+      }
+    },
+    "expired_lease_reclaim": {
+      "status": "passed",
+      "raw": {
+        "input": {
+          "expired": "{\"owner\":\"phase18-expired\",\"lease_until\":\"2020-01-01T00:00:00.000001Z\",\"status\":\"leased\",\"updated_at\":\"2020-01-01T00:00:00.654321Z\",\"published\":0}",
+          "reclaimed": "{\"owner\":null,\"lease_until\":null,\"status\":\"published\",\"updated_at\":\"2020-01-01T00:00:01.123456Z\",\"published\":1}"
+        },
+        "result": {
+          "expired": {
+            "owner": "phase18-expired",
+            "lease_until": "2020-01-01T00:00:00.000001Z",
+            "status": "leased",
+            "updated_at": "2020-01-01T00:00:00.654321Z",
+            "published": 0
+          },
+          "reclaimed": {
+            "owner": null,
+            "lease_until": null,
+            "status": "published",
+            "updated_at": "2020-01-01T00:00:01.123456Z",
+            "published": 1
+          }
+        }
+      }
+    },
+    "post_release_nulls": {
+      "status": "passed",
+      "raw": {
+        "input": "{\"owner\":null,\"lease_until\":null,\"status\":\"published\",\"updated_at\":\"2026-09-25T12:00:00.000001Z\",\"published\":1}",
+        "result": {
+          "owner": null,
+          "lease_until": null,
+          "status": "published",
+          "updated_at": "2026-09-25T12:00:00.000001Z",
+          "published": 1
+        }
+      }
+    },
+    "empty_owner": {
+      "status": "passed",
+      "raw": {
+        "input": "{\"owner\":\"\",\"lease_until\":\"2026-09-25T12:00:00.654321Z\",\"status\":\"leased\",\"updated_at\":\"2026-09-25T11:59:59.999999Z\",\"published\":0}",
+        "result": {
+          "owner": "",
+          "lease_until": "2026-09-25T12:00:00.654321Z",
+          "status": "leased",
+          "updated_at": "2026-09-25T11:59:59.999999Z",
+          "published": 0
+        }
+      }
+    },
+    "microsecond_precision": {
+      "status": "passed",
+      "raw": {
+        "input": "{\"owner\":null,\"lease_until\":null,\"status\":\"published\",\"updated_at\":\"2026-09-25T12:00:00.123456Z\",\"published\":1}",
+        "result": {
+          "owner": null,
+          "lease_until": null,
+          "status": "published",
+          "updated_at": "2026-09-25T12:00:00.123456Z",
+          "published": 1
+        }
+      }
+    },
+    "missing_row": {
+      "status": "passed",
+      "raw": {
+        "input": "",
+        "result": "rejected"
+      }
+    }
+  },
+  "kafka": {
+    "empty_group": {
+      "status": "passed",
+      "raw": {
+        "input": "Consumer group phase18-fixture has no active members.\n",
+        "result": {
+          "status": "empty",
+          "reason_code": "no_active_members",
+          "group": "phase18-fixture",
+          "topic": "phase18-topic",
+          "members": [],
+          "partitions": {},
+          "lag": 0
+        }
+      }
+    },
+    "single_member": {
+      "status": "passed",
+      "raw": {
+        "input": "GROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID HOST CLIENT-ID\nphase18-fixture phase18-topic 0 10 12 2 member-a host-a client-a\n",
+        "result": {
+          "status": "active",
+          "reason_code": null,
+          "group": "phase18-fixture",
+          "topic": "phase18-topic",
+          "members": [
+            "member-a"
+          ],
+          "partitions": {
+            "0": {
+              "member": "member-a",
+              "committed": 10,
+              "log_end": 12,
+              "lag": 2
+            }
+          },
+          "unassigned_members": [],
+          "lag": 2,
+          "rows": 1
+        }
+      }
+    },
+    "dual_member_four_partitions": {
+      "status": "passed",
+      "raw": {
+        "input": "GROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID HOST CLIENT-ID\nphase18-fixture phase18-topic 0 0 1 1 member-a host-a client-a\nphase18-fixture phase18-topic 1 10 11 1 member-a host-a client-a\nphase18-fixture phase18-topic 2 20 21 1 member-b host-b client-b\nphase18-fixture phase18-topic 3 30 31 1 member-b host-b client-b\n",
+        "result": {
+          "status": "active",
+          "reason_code": null,
+          "group": "phase18-fixture",
+          "topic": "phase18-topic",
+          "members": [
+            "member-a",
+            "member-b"
+          ],
+          "partitions": {
+            "0": {
+              "member": "member-a",
+              "committed": 0,
+              "log_end": 1,
+              "lag": 1
+            },
+            "1": {
+              "member": "member-a",
+              "committed": 10,
+              "log_end": 11,
+              "lag": 1
+            },
+            "2": {
+              "member": "member-b",
+              "committed": 20,
+              "log_end": 21,
+              "lag": 1
+            },
+            "3": {
+              "member": "member-b",
+              "committed": 30,
+              "log_end": 31,
+              "lag": 1
+            }
+          },
+          "unassigned_members": [],
+          "lag": 4,
+          "rows": 4
+        }
+      }
+    },
+    "rebalance": {
+      "status": "passed",
+      "raw": {
+        "input": "Rebalancing group phase18-fixture\nGROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID HOST CLIENT-ID\nphase18-fixture phase18-topic 0 10 12 2 member-a host-a client-a\n",
+        "result": {
+          "status": "rebalancing",
+          "reason_code": "rebalancing",
+          "group": "phase18-fixture",
+          "topic": "phase18-topic",
+          "members": [
+            "member-a"
+          ],
+          "partitions": {
+            "0": {
+              "member": "member-a",
+              "committed": 10,
+              "log_end": 12,
+              "lag": 2
+            }
+          },
+          "unassigned_members": [],
+          "lag": 2,
+          "rows": 1
+        }
+      }
+    },
+    "unassigned_partition": {
+      "status": "passed",
+      "raw": {
+        "input": "GROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID HOST CLIENT-ID\nphase18-fixture phase18-topic - - - - member-a host-a client-a\n",
+        "result": {
+          "status": "assignment_pending",
+          "reason_code": "assignment_pending",
+          "group": "phase18-fixture",
+          "topic": "phase18-topic",
+          "members": [
+            "member-a"
+          ],
+          "partitions": {},
+          "unassigned_members": [
+            "member-a"
+          ],
+          "lag": null,
+          "rows": 1
+        }
+      }
+    },
+    "no_offsets": {
+      "status": "passed",
+      "raw": {
+        "input": "GROUP TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID HOST CLIENT-ID\nphase18-fixture phase18-topic 0 - - - member-a host-a client-a\n",
+        "result": {
+          "status": "active",
+          "reason_code": null,
+          "group": "phase18-fixture",
+          "topic": "phase18-topic",
+          "members": [
+            "member-a"
+          ],
+          "partitions": {
+            "0": {
+              "member": "member-a",
+              "committed": null,
+              "log_end": null,
+              "lag": null
+            }
+          },
+          "unassigned_members": [],
+          "lag": null,
+          "rows": 1
+        }
+      }
+    }
+  }
+}

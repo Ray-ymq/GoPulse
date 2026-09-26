@@ -1,0 +1,377 @@
+{
+  "schema": "gopulse.phase18.observation-journal.v1",
+  "status": "passed",
+  "started_at": 1790356128.6148279,
+  "samples": [
+    {
+      "phase": "during_removal",
+      "observed_at": 1790356203.4219031,
+      "component_counters": {
+        "backend": 3954,
+        "backend-3": 3820,
+        "backend-2": 3477
+      },
+      "activity": {
+        "status": "observed",
+        "counter": 7794,
+        "remaining_work": 1,
+        "services": {
+          "backend": 3965,
+          "backend-3": 3829
+        }
+      },
+      "containers": {
+        "backend": {
+          "status": "observed",
+          "containers": [
+            {
+              "state": "running",
+              "health": "healthy"
+            }
+          ]
+        },
+        "backend-2": {
+          "status": "observed",
+          "containers": []
+        },
+        "backend-3": {
+          "status": "observed",
+          "containers": [
+            {
+              "state": "running",
+              "health": "healthy"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "component": "backend",
+  "counter_source": "edge_instance_http_metrics",
+  "continuous_workload": "phase18_open_loop_load",
+  "component_counters_before": {
+    "total": 10218,
+    "services": {
+      "backend": 3361,
+      "backend-2": 3433,
+      "backend-3": 3424
+    }
+  },
+  "containers_before": {
+    "backend": {
+      "status": "observed",
+      "containers": [
+        {
+          "state": "running",
+          "health": "healthy"
+        }
+      ]
+    },
+    "backend-2": {
+      "status": "observed",
+      "containers": [
+        {
+          "state": "running",
+          "health": "healthy"
+        }
+      ]
+    },
+    "backend-3": {
+      "status": "observed",
+      "containers": [
+        {
+          "state": "running",
+          "health": "healthy"
+        }
+      ]
+    }
+  },
+  "before_samples": [
+    {
+      "observed_at": 1790356198.6110427,
+      "component_counters": {
+        "backend": 3394,
+        "backend-2": 3477,
+        "backend-3": 3455
+      },
+      "activity": {
+        "status": "observed",
+        "counter": 10361,
+        "remaining_work": 1,
+        "services": {
+          "backend": 3406,
+          "backend-2": 3487,
+          "backend-3": 3468
+        }
+      }
+    }
+  ],
+  "activity_before": {
+    "status": "observed",
+    "counter": 10361,
+    "remaining_work": 1,
+    "services": {
+      "backend": 3406,
+      "backend-2": 3487,
+      "backend-3": 3468
+    }
+  },
+  "activity_during": {
+    "status": "observed",
+    "counter": 7794,
+    "remaining_work": 1,
+    "services": {
+      "backend": 3965,
+      "backend-3": 3829
+    }
+  },
+  "component_counters_during": {
+    "total": 11251,
+    "services": {
+      "backend": 3954,
+      "backend-3": 3820,
+      "backend-2": 3477
+    }
+  },
+  "during_samples": [
+    {
+      "observed_at": 1790356203.4219031,
+      "component_counters": {
+        "backend": 3954,
+        "backend-3": 3820,
+        "backend-2": 3477
+      },
+      "activity": {
+        "status": "observed",
+        "counter": 7794,
+        "remaining_work": 1,
+        "services": {
+          "backend": 3965,
+          "backend-3": 3829
+        }
+      },
+      "containers": {
+        "backend": {
+          "status": "observed",
+          "containers": [
+            {
+              "state": "running",
+              "health": "healthy"
+            }
+          ]
+        },
+        "backend-2": {
+          "status": "observed",
+          "containers": []
+        },
+        "backend-3": {
+          "status": "observed",
+          "containers": [
+            {
+              "state": "running",
+              "health": "healthy"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "activity_after": {
+    "status": "observed",
+    "counter": 8855,
+    "remaining_work": 1,
+    "services": {
+      "backend": 4338,
+      "backend-2": 303,
+      "backend-3": 4214
+    }
+  },
+  "component_counters_after": {
+    "total": 8822,
+    "services": {
+      "backend": 4325,
+      "backend-2": 295,
+      "backend-3": 4202
+    }
+  },
+  "containers_after": {
+    "backend": {
+      "status": "observed",
+      "containers": [
+        {
+          "state": "running",
+          "health": "healthy"
+        }
+      ]
+    },
+    "backend-2": {
+      "status": "observed",
+      "containers": [
+        {
+          "state": "running",
+          "health": "healthy"
+        }
+      ]
+    },
+    "backend-3": {
+      "status": "observed",
+      "containers": [
+        {
+          "state": "running",
+          "health": "healthy"
+        }
+      ]
+    }
+  },
+  "resume_work": null,
+  "reason_code": "edge_work_continued_through_replacement",
+  "replacement": {
+    "instance": "backend-2",
+    "service": "backend-2",
+    "before": 10326,
+    "during": 11251,
+    "after": 8822,
+    "per_instance_before": {
+      "backend": 3394,
+      "backend-2": 3477,
+      "backend-3": 3455
+    },
+    "per_instance_during": {
+      "backend": 3954,
+      "backend-3": 3820,
+      "backend-2": 3477
+    },
+    "per_instance_after": {
+      "backend": 4325,
+      "backend-2": 295,
+      "backend-3": 4202
+    },
+    "survivor_progress": 44,
+    "stopped_seconds": 5.109,
+    "process_started_at": 1790356203.7199657,
+    "activity_before": {
+      "status": "observed",
+      "counter": 10361,
+      "remaining_work": 1,
+      "services": {
+        "backend": 3406,
+        "backend-2": 3487,
+        "backend-3": 3468
+      }
+    },
+    "activity_during_removal": {
+      "status": "observed",
+      "counter": 7794,
+      "remaining_work": 1,
+      "services": {
+        "backend": 3965,
+        "backend-3": 3829
+      }
+    },
+    "activity_after": {
+      "status": "observed",
+      "counter": 8855,
+      "remaining_work": 1,
+      "services": {
+        "backend": 4338,
+        "backend-2": 303,
+        "backend-3": 4214
+      }
+    },
+    "active_samples": [
+      {
+        "observed_at": 1790356198.6110427,
+        "component_counters": {
+          "backend": 3394,
+          "backend-2": 3477,
+          "backend-3": 3455
+        },
+        "activity": {
+          "status": "observed",
+          "counter": 10361,
+          "remaining_work": 1,
+          "services": {
+            "backend": 3406,
+            "backend-2": 3487,
+            "backend-3": 3468
+          }
+        }
+      }
+    ],
+    "during_samples": [
+      {
+        "observed_at": 1790356203.4219031,
+        "component_counters": {
+          "backend": 3954,
+          "backend-3": 3820,
+          "backend-2": 3477
+        },
+        "activity": {
+          "status": "observed",
+          "counter": 7794,
+          "remaining_work": 1,
+          "services": {
+            "backend": 3965,
+            "backend-3": 3829
+          }
+        },
+        "containers": {
+          "backend": {
+            "status": "observed",
+            "containers": [
+              {
+                "state": "running",
+                "health": "healthy"
+              }
+            ]
+          },
+          "backend-2": {
+            "status": "observed",
+            "containers": []
+          },
+          "backend-3": {
+            "status": "observed",
+            "containers": [
+              {
+                "state": "running",
+                "health": "healthy"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "containers_after": {
+      "backend": {
+        "status": "observed",
+        "containers": [
+          {
+            "state": "running",
+            "health": "healthy"
+          }
+        ]
+      },
+      "backend-2": {
+        "status": "observed",
+        "containers": [
+          {
+            "state": "running",
+            "health": "healthy"
+          }
+        ]
+      },
+      "backend-3": {
+        "status": "observed",
+        "containers": [
+          {
+            "state": "running",
+            "health": "healthy"
+          }
+        ]
+      }
+    }
+  },
+  "workload_report_sha256": "sha256:6f199a33f59e7cdaf285087ce5eca47fccc08f48d3ada848de59eb770f46fc2c",
+  "resource_samples_sha256": "sha256:aaf1ca19dfcbae222f77a0729b42e48d9c186348cbaaf97dcc6d3917664f007b",
+  "finished_at": 1790356293.679215
+}

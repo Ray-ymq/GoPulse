@@ -1,0 +1,36 @@
+{
+  "schema_version": "gopulse.phase18.recipe.v1",
+  "seed": 18002005,
+  "candidate": {
+    "version": "2.0.2",
+    "revision": "4c62d4b1ad28ed20c49b9d6f989f1e612f65ea4e",
+    "manifest_sha256": "sha256:76a91b6fb3ebda52ea88402a39e3b5d215943da55ad0ecd7a8fb72581f3a1e91"
+  },
+  "counts": {
+    "users": 5000,
+    "posts": 50000,
+    "comments": 100000,
+    "post_likes": 200000,
+    "user_follows": 200000,
+    "post_bookmarks": 25000,
+    "business_outbox": 550000,
+    "notifications": 500000
+  },
+  "id_ranges": {
+    "comments": {
+      "first": 1,
+      "last": 100000
+    },
+    "posts": {
+      "first": 1,
+      "last": 50000
+    },
+    "users": {
+      "first": 1,
+      "last": 5000
+    }
+  },
+  "digest": "sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14",
+  "generated_at": "2026-09-25T17:00:33.448038813Z",
+  "duration_ms": 31566
+}
