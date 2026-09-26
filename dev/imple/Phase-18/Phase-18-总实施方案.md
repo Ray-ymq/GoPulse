@@ -72,7 +72,8 @@ Phase-18-02 的 `develop/2.0.2` 已归档为 `archive/phase-18-02-outbox-incompl
 `archive/phase-18-02-qualification-incomplete-20260926` 仅作历史输入。Phase-18-02R 的
 `develop/2.0.2` 必须从本版方案合入后的 `upstream/main` 重建，是 Phase 18 唯一允许的补救批次。
 归档提交不得整体移植；只允许按补救批次的产品需求逐项采用，旧 receipt、manifest 和 raw evidence
-均不得作为补救批次的正式证据。
+均不得作为补救批次的正式证据。Phase-18-02R 的唯一正式运行已失败，补救分支归档为
+`archive/phase-18-02r-incomplete-20260926`；Phase 18 直接结束为 incomplete，不再新增批次。
 
 ## 5. 批次闭环
 
@@ -91,7 +92,8 @@ Phase-18-02 的 `develop/2.0.2` 已归档为 `archive/phase-18-02-outbox-incompl
 
 - 只采用已记录的最小工具修复和必要产品修复，绑定补救批次自己的候选、manifest、digest 和 evidence。
 - 预检最多执行两次；不带 `--preflight-only` 的正式入口只能启动一次，明确称为新补救批次的唯一一次运行。
-- 该唯一一次运行成功才允许继续 Phase-18-03；补救批次再次失败时，Phase 18 直接结束为 incomplete，不再新增批次。
+- 该唯一一次运行已失败（`steady_pending_bound`、`event_state_check` 未通过）；Phase 18 直接结束为
+  incomplete，不再新增批次。
 
 ### Phase-18-03（P0）：多副本正确性
 
@@ -150,7 +152,7 @@ Git 只保留：
 
 停止后记录事实和下一次最小动作，不用新的长跑掩盖失败。已经消耗的运行次数和累计时间写入实施记录；
 修改方案、分支、work directory 或失败分类均不得清零。Phase-18-02 之后只允许 `Phase-18-02R` 这一个补救批次；
-补救批次失败后 Phase 18 直接结束为 incomplete，不再新增批次。
+补救批次已失败，Phase 18 直接结束为 incomplete，不再新增批次。
 
 ## 8. 通用完成检查
 

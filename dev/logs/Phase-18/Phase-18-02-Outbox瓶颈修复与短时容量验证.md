@@ -145,3 +145,84 @@ python3 scripts/ci/validate_branch.py --branch develop/2.0.2 --base-ref upstream
 - Phase-18-02R 必须绑定自己的候选、manifest、镜像 digest 和 evidence；不能复用 `af3e5d8...` 候选、manifest、镜像或两次正式运行的 raw evidence。
 - Phase-18-02R 只能进行“新补救批次的唯一一次运行”；该运行失败后，Phase 18 直接结束为 `incomplete`，不再新增批次。
 - 失败运行的私有摘要和 raw evidence 保留在 `.run/phase18-02-af3e5d8c7834*`，未加入 Git；当前本批容器、临时 Registry 和候选镜像引用已精确清理。
+
+## 6. Phase-18-02R 补救批次实际执行
+
+批次准备：
+
+```bash
+git fetch origin main
+git switch -c develop/2.0.2 origin/main
+git cherry-pick 93714c1 4865746
+```
+
+结果：从 `origin/main=97b8226` 重建 `develop/2.0.2`，只采用 Outbox 产品修复和已记录的验收工具修复，
+没有移植旧候选或旧 raw evidence。随后提交补救方案文档和临时 `2.0.2` 候选元数据；正式运行结束后以
+`885ddfa` 撤销临时元数据，根 `VERSION` 恢复为 `2.0.1`。
+
+直接检查：
+
+```bash
+go -C backend test ./internal/outbox
+go -C backend test ./...
+go -C loadtest test ./...
+python3 -m py_compile scripts/ci/phase18_02.py scripts/ci/test_phase18_02.py
+bash -n scripts/verify-phase18-02.sh scripts/verify-runtime-contracts.sh
+scripts/verify-phase18-02.sh --self-test
+scripts/verify-phase18-capacity.sh --self-test
+```
+
+结果：Outbox 测试、完整 Backend 测试、负载工具测试、入口自测 `4 tests OK` 和容量基础自测 `34 tests OK`
+均通过。运行时合同检查和 `python3 scripts/ci/validate_versions.py` 也通过。
+
+预检共 2 次，达到补救批次上限：
+
+```bash
+PYTHONPATH=scripts/ci python3 scripts/ci/phase18_capacity.py \
+  --preflight-only --work .run/phase18-02R-host-preflight-20260926
+timeout --signal=TERM --kill-after=20s 5m scripts/verify-phase18-02.sh \
+  --preflight-only --manifest dist/release-manifest.json \
+  --work .run/phase18-02R-2474924a3bf9-preflight
+```
+
+结果：宿主预检 1 次、候选预检 1 次，均为 `problems=[]`；宿主可用空间分别为
+`128344772608` 和 `127565963264` bytes。没有再启动预检。
+
+候选构建结果：revision 为 `2474924a3bf9f57f51b61be522ba90f21b23ce8b`，manifest digest 为
+`sha256:4b445a5e73b4bf5f6c4563aa6dd5f6c7b862832f98e49bfb22d859e667982c68`，bundle digest 为
+`sha256:f5bada8ccda0a84685c4efaed439a62e0ffd2d724fcd14030617e2f9ef3962fb`。
+
+固定分支检查结果：
+
+```bash
+python3 scripts/ci/validate_branch.py --branch develop/2.0.2 --base-ref upstream/main
+```
+
+结果：失败，`develop/2.0.2 must map to exactly one authoritative allocation; found 0`。当前 Phase 18
+总方案的带优先级分配表和 `Phase-18-02R` 标识未被该旧解析器识别；这项治理门禁失败已记录，未通过修改次数
+或重跑正式入口规避。
+
+唯一正式运行：
+
+```bash
+timeout --signal=TERM --kill-after=20s 20m scripts/verify-phase18-02.sh \
+  --manifest dist/release-manifest.json \
+  --work .run/phase18-02R-2474924a3bf9-formal
+```
+
+结果：入口于 `2026-09-26 16:27:33.064 +08:00` 建立工作目录，
+于 `2026-09-26 16:37:57.914 +08:00` 生成失败摘要，可核实耗时约 `10 分 24.850 秒`。
+warmup `4500/4500`、steady `45000/45000`、burst `18000/18000` 全部完成，无错误、超时或显式拒绝。
+资源摘要为 `52` 条采样、最大 pending `290`、最大 oldest age `4.686577304s`、恢复末 pending `0`、
+OOM `0`、swap 增量 `0`、峰值容器 CPU `402%`。
+
+正式门禁结果：`steady_samples_available`、`steady_oldest_age_bound`、`recovery_sample_available`、
+`recovery_pending_bound`、错误率、突发拒绝、负载计划、OOM 和 swap 均通过；
+`steady_pending_bound` 与 `event_state_check` 失败。稳态起点 pending 为 `15`，末值为 `31`，
+超过 `OUTBOX_CLAIM_BATCH=10` 的增量上限；event state 查询没有观察到 total 行，因而未能证明持久状态闭合。
+私有错误为 `RuntimeError: Phase 18-02 short capacity gates failed`，项目精确清理通过。
+
+本次唯一正式运行失败后，Phase 18 直接结束为 `incomplete`，不再新增补救批次。原 Phase-18-02 的工具修复
+仍按历史记录标记为“未执行正式验证”；本次补救运行实际执行了该工具，但门禁未通过，不能将工具修复标记为正式验证通过。
+本次 `.run/phase18-02R-2474924a3bf9-formal` 私有摘要和 raw evidence 保留在本地，未加入 Git；候选 Registry、
+临时卷、候选镜像和 `dist` 内容已定向清理。
