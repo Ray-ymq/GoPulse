@@ -1,4 +1,6 @@
-# Phase-18-02 Outbox 瓶颈修复与短时容量验证实施记录
+# Phase-18-02 / Phase-18-02R Outbox 瓶颈修复与短时容量验证实施记录
+
+> 本记录先保留已归档的 Phase-18-02 事实；后续补充唯一的 Phase-18-02R 运行结果。
 
 ## 1. 实际完成
 
@@ -10,9 +12,9 @@
 - 增加入口自身的成功/失败窗口门禁自测，并让 `scripts/verify-runtime-contracts.sh` 在无参数时使用根 `VERSION`，以匹配本批固定命令。
 - 清理旧的 `.run`、`dist`、Go 构建缓存，以及明确属于历史 Phase 验收的旧镜像、停止容器和 Registry 卷；未执行 Docker 全局 prune。
 - 构建过一次 `2.0.2` amd64 候选并完成两次候选预检。第一次正式运行因 Elasticsearch Registry 匿名令牌请求 `EOF` 失败；定向拉取固定镜像成功后，第二次正式运行完成了完整负载窗口，但入口门禁失败。
-- 发现并修正入口门禁读取错误：实际 `DiagnosticSampler` 记录使用 backend Outbox 指标，评估器此前只读取缺失的 MySQL status 快照；同时放宽数据库状态查询的时间下界以覆盖容器时区表示。修正后的入口自测为 `4 tests OK`，尚未用新候选重新执行正式窗口。
+- 发现并修正入口门禁读取错误：实际 `DiagnosticSampler` 记录使用 backend Outbox 指标，评估器此前只读取缺失的 MySQL status 快照；同时放宽数据库状态查询的时间下界以覆盖容器时区表示。修正后的入口自测为 `4 tests OK`；工具修正未执行正式验证。
 
-本批次未完成。未生成可发布的通过摘要，根 `VERSION` 已恢复为当前已完成版本 `2.0.1`。
+原 Phase-18-02 批次未完成。未生成可发布的通过摘要，根 `VERSION` 已恢复为当前已完成版本 `2.0.1`。
 
 ## 2. 实际改动
 
@@ -140,5 +142,6 @@ python3 scripts/ci/validate_branch.py --branch develop/2.0.2 --base-ref upstream
 ## 5. 已知限制与后续项
 
 - Outbox 调度修复已通过直接 Go 测试，第二次窗口的实际负载请求和资源指标也未显示 OOM、swap 或请求错误；但正式验收证据因入口门禁缺陷无效，不能据此宣布容量条件通过。
-- 需要在新的候选 revision 上重新执行候选构建、预检和正式窗口；不能复用 `af3e5d8...` 候选、manifest、镜像或两次正式运行的 raw evidence。
+- Phase-18-02R 必须绑定自己的候选、manifest、镜像 digest 和 evidence；不能复用 `af3e5d8...` 候选、manifest、镜像或两次正式运行的 raw evidence。
+- Phase-18-02R 只能进行“新补救批次的唯一一次运行”；该运行失败后，Phase 18 直接结束为 `incomplete`，不再新增批次。
 - 失败运行的私有摘要和 raw evidence 保留在 `.run/phase18-02-af3e5d8c7834*`，未加入 Git；当前本批容器、临时 Registry 和候选镜像引用已精确清理。
