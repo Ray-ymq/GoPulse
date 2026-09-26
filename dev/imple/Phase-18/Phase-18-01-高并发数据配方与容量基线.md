@@ -6,16 +6,17 @@
 
 ## 1. 批次目标
 
-本批建立后续四批共用的确定性数据、负载、资源取样和 evidence 基础，并对当前单副本产品取得三轮未优化基线。
+本批建立后续八批共用的确定性数据、负载、资源取样和 evidence 基础，并对当前单副本产品取得三轮未优化基线。
 基线即使不满足阶段 SLO 也必须如实保留；2026-09-24 规划修订后，本批允许以
 “失败基线已交付、重复性与恢复门禁未通过”收口。严格重复性、最终收敛和完整 SLO
-不在本批追加重跑，统一留给 Phase-18-05。本批不为追逐 RPS 修改产品算法、Schema
+不在本批追加重跑；2026-09-26 重划后由 Phase-18-04 的有界短窗口重新测量，并由
+Phase-18-09 作限时集成抽样。本批不为追逐 RPS 修改产品算法、Schema
 或中间件参数。
 
 ## 2. 前置条件
 
 - Phase 17/Milestone 4 已在 `1.14.5` 完成，从最新 `upstream/main` 创建本批分支。
-- WSL2 预检确认 8 vCPU、12 GiB RAM、8 GiB swap、Linux 文件系统和至少 100 GiB 可用 SSD 空间。
+- WSL2 预检确认 8 vCPU、12 GiB RAM、8 GiB swap、Linux 文件系统和至少 80 GiB 可用 SSD 空间。
 - 宿主没有与本测试竞争的非本批 Compose project；基线前记录 Docker/Compose/kernel/CPU/内存/磁盘事实。
 - 使用本批 `2.0.1` 候选的不可变 manifest/Bundle/image digest，不从验收目录构建源码。
 
