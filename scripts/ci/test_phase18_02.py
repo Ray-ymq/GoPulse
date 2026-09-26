@@ -1,6 +1,6 @@
 import unittest
 
-from phase18_02 import evaluate_window, parse_outbox_state
+from phase18_02 import evaluate_window, parse_outbox_state, sample_outbox
 
 BASE = 1790380800
 
@@ -91,6 +91,17 @@ class Phase1802EvaluationTest(unittest.TestCase):
         )
         self.assertFalse(result["checks"]["steady_pending_bound"])
         self.assertFalse(result["passed"])
+
+    def test_uses_backend_metric_sample_when_mysql_status_is_unavailable(self):
+        result = sample_outbox({
+            "observed_at": BASE,
+            "mysql": {},
+            "links": {"backend": {
+                "gopulse_backend_outbox_pending": 7,
+                "gopulse_backend_outbox_oldest_age_seconds": 2.5,
+            }},
+        })
+        self.assertEqual(result, {"observed_at": BASE, "pending": 7.0, "oldest_age_seconds": 2.5})
 
 
 if __name__ == "__main__":

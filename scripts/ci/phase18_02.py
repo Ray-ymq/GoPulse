@@ -138,7 +138,11 @@ def parse_outbox_state(lines: list[str]) -> dict:
 
 
 def new_outbox_state(env_file: Path, compose_file: Path, project: str, started_at: float) -> dict:
-    cutoff = dt.datetime.fromtimestamp(started_at, dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+    # Runtime writes use the process clock while the seeded recipe uses fixed
+    # historical timestamps. Keep a broad lower bound so a container/database
+    # timezone representation cannot exclude the accepted window events while
+    # still excluding the January recipe rows.
+    cutoff = dt.datetime.fromtimestamp(started_at - 24 * 60 * 60, dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
     query = (
         "SELECT CONCAT('status\\t', status, '\\t', COUNT(*), '\\t', COUNT(DISTINCT event_id), '\\t', "
         "COALESCE(MAX(attempt_count), 0)) "
@@ -152,14 +156,19 @@ def new_outbox_state(env_file: Path, compose_file: Path, project: str, started_a
 
 
 def sample_outbox(record: dict) -> dict | None:
+    backend = ((record.get("links") or {}).get("backend") or {})
+    pending_metric = backend.get("gopulse_backend_outbox_pending")
+    oldest = backend.get("gopulse_backend_outbox_oldest_age_seconds")
+    if pending_metric is not None and oldest is not None:
+        return {
+            "observed_at": float(record["observed_at"]),
+            "pending": float(pending_metric),
+            "oldest_age_seconds": float(oldest),
+        }
     status = ((record.get("mysql") or {}).get("status") or {})
-    if not status:
+    if not status or oldest is None:
         return None
     pending = sum(int((status.get(name) or {}).get("count", 0)) for name in ("pending", "leased"))
-    backend = ((record.get("links") or {}).get("backend") or {})
-    oldest = backend.get("gopulse_backend_outbox_oldest_age_seconds")
-    if oldest is None:
-        return None
     return {"observed_at": float(record["observed_at"]), "pending": pending, "oldest_age_seconds": float(oldest)}
 
 
