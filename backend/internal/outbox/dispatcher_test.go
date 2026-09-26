@@ -18,12 +18,14 @@ type dispatcherStoreFake struct {
 	mu sync.Mutex
 
 	records       []Record
+	claimSequence [][]Record
 	claimErr      error
 	markErr       error
 	releaseErr    error
 	cleanupErr    error
 	cleanupResult int64
 	cleanupCalled chan struct{}
+	claimObserved chan time.Time
 	cleanupOnce   sync.Once
 
 	claimCalls   int
@@ -50,10 +52,22 @@ func (store *dispatcherStoreFake) Claim(_ context.Context, owner string, _ int, 
 	if store.claimErr != nil {
 		return nil, store.claimErr
 	}
-	records := make([]Record, len(store.records))
-	copy(records, store.records)
+	source := store.records
+	if store.claimSequence != nil {
+		index := store.claimCalls - 1
+		if index < len(store.claimSequence) {
+			source = store.claimSequence[index]
+		} else {
+			source = nil
+		}
+	}
+	records := make([]Record, len(source))
+	copy(records, source)
 	for index := range records {
 		records[index].LeaseOwner = owner
+	}
+	if store.claimObserved != nil {
+		store.claimObserved <- time.Now()
 	}
 	return records, nil
 }
@@ -316,6 +330,48 @@ func TestDispatcherRunStopsWithoutClaimingAfterCancellation(t *testing.T) {
 	}
 	if store.claimCalls != 0 {
 		t.Fatalf("claim calls=%d, want zero", store.claimCalls)
+	}
+}
+
+func TestDispatcherDrainsFullBatchesWithoutPollDelay(t *testing.T) {
+	store := &dispatcherStoreFake{
+		claimSequence: [][]Record{
+			{dispatcherTestRecord(t, 47), dispatcherTestRecord(t, 48)},
+			{},
+		},
+		claimObserved: make(chan time.Time, 2),
+	}
+	dispatcher := newDispatcherForTest(t, store, &dispatcherPublisherFake{})
+	dispatcher.pollInterval = 500 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- dispatcher.runDelivery(ctx) }()
+
+	var firstClaim, secondClaim time.Time
+	select {
+	case firstClaim = <-store.claimObserved:
+	case <-time.After(time.Second):
+		t.Fatal("dispatcher did not claim the first batch")
+	}
+	select {
+	case secondClaim = <-store.claimObserved:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("dispatcher imposed the poll delay after a full batch")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runDelivery() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runDelivery() did not stop after cancellation")
+	}
+
+	if elapsed := secondClaim.Sub(firstClaim); elapsed >= dispatcher.pollInterval/2 {
+		t.Fatalf("second claim elapsed=%s, want less than %s", elapsed, dispatcher.pollInterval/2)
 	}
 }
 
