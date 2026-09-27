@@ -20,6 +20,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 - 告警调度租约在多 Backend 下仍保持单条规则单 owner；不重复生成持久事实。
 - Worker/Indexer 使用唯一 consumer identity，副本退出时完成或安全重投当前消息。
 - 每个实例具备非敏感、有界的实例身份，可进入日志、指标和 evidence，但不参与授权。
+- 结构化日志中的有界 `instance_id` 穿过 Monitor、Marshaller、严格 Elasticsearch 映射和 Backend 查询解码，并能在管理日志详情中查看。
 - 验收能关联 accepted event、Outbox 状态、RabbitMQ delivery、通知/搜索投影和最终闭合。
 
 ## 3. 允许变更文件与逐文件验收
@@ -52,6 +53,10 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `componentmetrics/logging.go` | 公共结构化日志携带有界实例身份且保留保留字段冲突保护 |
 | `componentmetrics/runtime_test.go`、`componentmetrics/registry_test.go` | 验证实例标签、目录容量和重复/未知标签拒绝 |
 | `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go` | 接收合同接受公共 logger 发出的合法有界 `instance_id` 并拒绝非法身份，日志记录可进入 Monitor/Kafka/ES 检索链路 |
+| `marshaller/internal/logs/validation.go`、`marshaller/internal/logs/transform_test.go` | 二次日志校验接受并保留合法有界 `instance_id`，同时拒绝非法身份和未知字段 |
+| `marshaller/internal/elasticsearch/client.go`、`marshaller/internal/elasticsearch/client_test.go` | 严格日志模板将 `instance_id` 映射为 keyword，其他未登记字段仍被拒绝 |
+| `backend/internal/logquery/logquery.go`、`backend/internal/logquery/logquery_test.go` | 日志查询解码保留合法 `instance_id` 给管理 API，并拒绝非法身份和未知字段 |
+| `frontend/e2e/compose-observability.spec.ts` | Full-stack Compose 场景确认日志可见且日志详情保留有效 `instance_id` |
 | `monitor/internal/metrics/collector/components.go` | 采集不会因 DNS 随机选择而遗漏业务计算副本 |
 | `monitor/internal/metrics/collector/components_test.go` | 两个同类实例均被采集且各自身份可区分 |
 | `scripts/verify-phase18-business-scale.sh` | 正式模式只接受固定 `--repetitions 2`；run-1 失败仍保存/清理并继续 run-2，不执行全局 prune |
@@ -69,7 +74,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 
 | 单元 | 验证内容 | 合并方式 |
 | --- | --- | --- |
-| U1 | 直接 Go 测试：config、platform、outbox、alert、worker、componentmetrics、collector | 记录 `0/2`～`2/2` 和两次退出码 |
+| U1 | 直接 Go 测试：既有 config、platform、outbox、alert、worker、componentmetrics、collector，以及 Backend `./internal/logquery`、Marshaller `./internal/logs` 和 `./internal/elasticsearch` | 记录 `0/2`～`2/2` 和两次退出码 |
 | U2 | runner/self-test 的安全、次数和 evidence 负例 | 记录 `0/2`～`2/2` |
 | U3 | 冻结 `2.0.3` 候选的真实多副本业务矩阵 | 数值取两次算术平均，确定性项记 `0/2`～`2/2` |
 | U4 | runtime contract、版本、分支和 `git diff --check` | 各命令记录 `0/2`～`2/2` |
@@ -84,6 +89,7 @@ Worker、停一个 Indexer、RabbitMQ 短故障、搜索 ES 短故障、恢复�
    `run-1`、`run-2`、binding、原始输出和 summary 完整。
 3. 两次原值和平均值如实记录；成功、失败或分歧都不触发第三次运行。
 4. 结果归类为 `target_met`、`boundary_found` 或 `execution_failed`。
-5. 无论属于哪一类，创建实施记录、同步 `VERSION=2.0.3`、只提交本批文件并停止。
+5. Full-stack Compose observability gate 通过，且管理日志详情展示合法 `instance_id`。
+6. 无论属于哪一类，创建实施记录、同步 `VERSION=2.0.3`、只提交本批文件并停止。
 
 版本更新不允许被描述为多副本能力已经通过；能力声明只依据两次 evidence。
