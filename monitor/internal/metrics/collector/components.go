@@ -32,22 +32,31 @@ func StartComponents(root context.Context, mode, version string, interval, timeo
 	if interval <= 0 || timeout <= 0 || timeout >= interval || !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`).MatchString(version) {
 		return nil, errors.New("invalid component scrape configuration")
 	}
-	type target struct{ id, origin, token string }
-	targets := make([]target, 0, 6)
+	type target struct{ id, endpoint, origin, token string }
+	targets := make([]target, 0, len(componentmetrics.Components))
 	for _, id := range componentmetrics.Components {
 		address, err := componentmetrics.Address(mode, id)
 		if err != nil {
 			return nil, err
 		}
-		if mode == "container" {
-			_, port, _ := net.SplitHostPort(address)
-			address = net.JoinHostPort(id, port)
-		}
+		_, port, _ := net.SplitHostPort(address)
 		token, err := componentmetrics.Token(id)
 		if err != nil {
 			return nil, err
 		}
-		targets = append(targets, target{id, "http://" + address + componentmetrics.Path, token})
+		endpoints, err := componentmetrics.ReplicaEndpoints(id)
+		if err != nil {
+			return nil, err
+		}
+		for _, endpoint := range endpoints {
+			host := "127.0.0.1"
+			if mode == "container" {
+				host = endpoint
+			} else if endpoint != id {
+				return nil, errors.New("host component endpoints must use the local component name")
+			}
+			targets = append(targets, target{id: id, endpoint: endpoint, origin: "http://" + net.JoinHostPort(host, port) + componentmetrics.Path, token: token})
+		}
 	}
 	ctx, cancel := context.WithCancel(root)
 	c := &Components{cancel: cancel, done: make(chan struct{})}
@@ -91,14 +100,15 @@ func StartComponents(root context.Context, mode, version string, interval, timeo
 				if err != nil {
 					result = "scrape_failure"
 				}
-				componentmetrics.Active().Observe("scrapes_total", time.Since(started), "component", componentmetrics.Target(t.id), result)
+				targetID := componentmetrics.TargetFor(t.id, t.endpoint)
+				componentmetrics.Active().Observe("scrapes_total", time.Since(started), "component", targetID, result)
 				if err != nil {
 					if ctx.Err() == nil {
-						logger.Warn("component metrics unavailable", "component", t.id, "reason", "scrape_failed")
+						logger.Warn("component metrics unavailable", "component", t.id, "instance_id", t.endpoint, "reason", "scrape_failed")
 					}
 					return
 				}
-				componentmetrics.Active().Set("last_scrape_success_timestamp_seconds", float64(time.Now().Unix()), "component", componentmetrics.Target(t.id))
+				componentmetrics.Active().Set("last_scrape_success_timestamp_seconds", float64(time.Now().Unix()), "component", targetID)
 				message, err := envelope.NewComponent(t.id, version, samples, time.Now())
 				if err != nil {
 					return
@@ -111,7 +121,7 @@ func StartComponents(root context.Context, mode, version string, interval, timeo
 				if err != nil {
 					result = "publish_failure"
 				}
-				componentmetrics.Active().Observe("scrapes_total", time.Since(started), "component", componentmetrics.Target(t.id), result)
+				componentmetrics.Active().Observe("scrapes_total", time.Since(started), "component", targetID, result)
 			}
 			scrape()
 			ticker := time.NewTicker(interval)

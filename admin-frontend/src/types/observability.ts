@@ -75,6 +75,7 @@ export interface LogEntry {
   timestamp: string
   level: 'info' | 'warn' | 'error'
   service: string
+  instance_id?: string
   module: string
   message: string
   request_id?: string

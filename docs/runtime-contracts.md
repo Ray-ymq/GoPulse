@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (1.14.5)
+# GoPulse runtime contract v1 (2.0.3)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -7,7 +7,7 @@ is not a second runtime configuration service. Validate changes with:
 
 ```bash
 python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example
-scripts/verify-runtime-contracts.sh --candidate 1.14.5
+scripts/verify-runtime-contracts.sh --candidate 2.0.3
 ```
 
 ## Configuration and readiness
@@ -40,6 +40,19 @@ compatibility. Their body now uses runtime contract v1; the development status
 page accepts it without inventing per-dependency status (unknown when omitted).
 Use authenticated source-status APIs for detailed source health.
 
+## Business replicas and bounded budgets
+
+Compose runs two uniquely identified Backend, Business Worker and Search Indexer
+instances. The frontend uses one private upstream pool for Backend requests;
+session routing does not depend on stickiness. Monitor receives explicit endpoint
+lists so each named replica is scraped rather than selected by DNS resolution.
+`GOPULSE_INSTANCE_ID` is bounded, non-sensitive and diagnostic-only. Per-process
+HTTP concurrency, MySQL pool size, worker prefetch and shutdown budgets remain
+finite; the configured total MySQL budget must cover the declared replica count.
+Outbox leases and Worker consumer tags are instance-scoped, while alert rule
+leases remain single-owner facts in MySQL. This document does not claim that
+external stateful stores are replicated.
+
 ## Shutdown
 
 The first SIGTERM/SIGINT withdraws readiness before draining. HTTP requests,
@@ -63,7 +76,7 @@ attempting to replace the response.
 ## Logs and release evidence
 
 Go logs are single-line JSON with `log_schema_version`, UTC `timestamp`, `level`,
-`service`, `module`, `message`, `event`, `version`, `revision`,
+`service`, `module`, `message`, `event`, `version`, `revision`, `instance_id`,
 `runtime_contract_version` and `runtime_mode`. Event names are finite:
 `startup`, `shutdown`, `http_request`, `http_panic`, `dependency_up`,
 `dependency_down`, `operation`. Repeated dependency failures are rate limited;

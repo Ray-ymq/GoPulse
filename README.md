@@ -19,6 +19,7 @@ The repository currently provides:
 - a host-loopback-by-default Message Router with explicit container mode, strict Envelope v1 boundaries, Bearer service identity, fixed routing, acknowledged Kafka production, and original-body byte preservation;
 - a host-loopback-by-default Marshaller with explicit container mode, strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, deterministic Prometheus text conversion, authenticated VictoriaMetrics writes, and isolated strict Logs and Events Elasticsearch targets;
 - Docker/Compose-only daily full-stack lifecycle scripts, read-only container verification, deterministic managed-Exporter bootstrap, and one authoritative random-project real-browser full-stack acceptance matrix;
+- Phase 18-03 business-scale topology with two Backend, Business Worker, and Search Indexer replicas, explicit instance identities, bounded per-process budgets, stateless frontend upstream failover, and lease/consumer ownership evidence;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
 Additional component plugins, same-type plugin multi-instance collection, a containerized Linux product lifecycle, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
@@ -68,7 +69,22 @@ The checked-in credentials are development-only. Do not reuse them in production
 
 `GOPULSE_RUNTIME_MODE` defaults to `host` for direct source-level commands. Host mode retains loopback listeners and loopback dependency origins. Compose sets `container` explicitly for the Backend, Monitor, Router, Marshaller, and standalone Exporter; it binds public-in-network listeners to `0.0.0.0` inside their namespaces and injects validated service DNS such as `mysql`, `redis`, `rabbitmq`, `elasticsearch`, `monitor`, `router`, `kafka`, and `victoriametrics`. The Exporter managed as Monitor's child process remains bound to `127.0.0.1:9121` inside the Monitor container. Unknown modes, container loopback or fixed-IP dependencies, `host.docker.internal`, URL credentials where forbidden, paths, query strings, fragments, control characters, and unsafe listeners fail before application startup.
 
-Only `PUBLISHED_HOST=127.0.0.1`, `HTTP_PORT`, and `FRONTEND_PORT` control default host publication. MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, and Redis Exporter publish no host ports in `deploy/compose.yaml`. `deploy/compose.debug.yaml` is an explicit loopback-only override for historical focused host checks and is never loaded by the daily or authoritative container acceptance paths.
+Only `PUBLISHED_HOST=127.0.0.1` and `FRONTEND_PORT` control default host publication. MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, Redis Exporter, and both Backend replicas publish no host ports in `deploy/compose.yaml`. `deploy/compose.debug.yaml` is an explicit loopback-only override for historical focused host checks and is never loaded by the daily or authoritative container acceptance paths.
+
+Phase 18-03 runs two uniquely identified instances of Backend, Business Worker,
+and Search Indexer. Frontend Nginx sends same-origin API traffic through a
+private two-backend upstream; sessions do not depend on sticky routing. Monitor
+scrapes explicit `BACKEND_ENDPOINTS`, `BUSINESS_WORKER_ENDPOINTS`, and
+`SEARCH_INDEXER_ENDPOINTS` lists. `GOPULSE_INSTANCE_ID` is bounded and
+diagnostic-only; HTTP concurrency, MySQL pools, worker prefetch, leases, and
+shutdown budgets remain finite. Run the fixed two-round business matrix with:
+
+```bash
+scripts/verify-phase18-business-scale.sh --repetitions 2
+```
+
+The runner records `target_met`, `boundary_found`, or `execution_failed` under
+`.run/phase18-business-scale-*`; it does not claim state-store replication.
 
 ## Start the development environment
 
@@ -85,7 +101,6 @@ The default project publishes only:
 | Service | Address |
 | --- | --- |
 | Frontend production application and same-origin Backend proxy | `http://127.0.0.1:5173` |
-| Backend direct API/liveness/readiness | `http://127.0.0.1:8080` |
 
 The Frontend final image serves the compiled Vue application on container port 8080, falls back to `index.html` for Vue Router history routes, and proxies only `/api/v1`, `/health`, and `/ready` to `backend:8080`. The `business` and `observability` networks are internal: Frontend joins only `edge`, Backend bridges the three required networks, and browsers never connect directly to data or observability services. Monitor installs and starts the deterministic Redis Exporter package embedded in its image, keeps desired state in `monitor_plugin_data`, and remains the only owner of that managed child process.
 

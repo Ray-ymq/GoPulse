@@ -25,7 +25,7 @@ var reservedKeys = map[string]struct{}{
 	"module":             {},
 	"message":            {},
 	"msg":                {},
-	"version":            {}, "revision": {}, "event": {},
+	"version":            {}, "revision": {}, "event": {}, "instance_id": {},
 }
 
 type handler struct {
@@ -58,6 +58,7 @@ func NewLogger(service string, writer io.Writer) *slog.Logger {
 		slog.String("runtime_contract_version", RuntimeContractVersion),
 		slog.String("runtime_mode", safeRuntimeMode()),
 		slog.String("service", service),
+		slog.String("instance_id", InstanceID(service)),
 		slog.String("version", safeBuildValue("GOPULSE_VERSION", `^[0-9]+\.[0-9]+\.[0-9]+$`)),
 		slog.String("revision", safeBuildValue("GOPULSE_REVISION", `^[0-9a-f]{40}$`)),
 	})

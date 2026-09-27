@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	stdhttp "net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -96,5 +97,43 @@ func TestNewHTTPServerAppliesResourceBoundaries(t *testing.T) {
 	}
 	if shutdownTimeout != 5*time.Second {
 		t.Fatalf("shutdownTimeout = %s, want 5s", shutdownTimeout)
+	}
+}
+
+func TestBoundedHTTPHandlerRejectsRequestsAboveReplicaBudget(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	handler := boundedHTTPHandler(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+		close(started)
+		<-release
+		w.WriteHeader(stdhttp.StatusNoContent)
+	}), 1)
+
+	firstDone := make(chan struct{})
+	go func() {
+		request := httptest.NewRequest(stdhttp.MethodGet, "/", nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != stdhttp.StatusNoContent {
+			t.Errorf("first status = %d, want 204", response.Code)
+		}
+		close(firstDone)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not acquire the budget")
+	}
+
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(stdhttp.MethodGet, "/", nil))
+	if second.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("second status = %d, want 503", second.Code)
+	}
+	close(release)
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not finish")
 	}
 }

@@ -60,6 +60,14 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	replicaCount, err := replicaCountValue(lookup)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
+	maxOpenConns, maxIdleConns, connMaxLifetime, err := mysqlPoolValues(lookup, replicaCount)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	mysqlHost := valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost)
 	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", mysqlHost); err != nil {
 		return WorkerConfig{}, err
@@ -127,8 +135,14 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	}
 	return WorkerConfig{
 		MySQL: MySQLConfig{
-			Host: mysqlHost, Port: mysqlPort,
-			Database: mysqlDatabase, User: mysqlUser, Password: mysqlPassword,
+			Host:            mysqlHost,
+			Port:            mysqlPort,
+			Database:        mysqlDatabase,
+			User:            mysqlUser,
+			Password:        mysqlPassword,
+			MaxOpenConns:    maxOpenConns,
+			MaxIdleConns:    maxIdleConns,
+			ConnMaxLifetime: connMaxLifetime,
 		},
 		RabbitMQURL: rabbitMQURL,
 		LogShip:     logShip,
