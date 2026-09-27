@@ -12,6 +12,8 @@ x-mysql-environment: &mysql-environment
   MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
   MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
   MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+
+x-mysql-pool-environment: &mysql-pool-environment
   MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
@@ -21,13 +23,9 @@ x-backend-environment: &backend-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-backend-local}
   GOPULSE_REPLICA_COUNT: 2
   BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
-  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
-  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
-  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
-  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
   ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
-  <<: *mysql-environment
+  <<: [*mysql-environment, *mysql-pool-environment]
   APP_ENV: ${APP_ENV:-development}
   HTTP_HOST: 0.0.0.0
   HTTP_PORT: 8080
@@ -76,7 +74,7 @@ x-worker-environment: &worker-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-business-worker-local}
   GOPULSE_REPLICA_COUNT: 2
   BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
-  <<: *mysql-environment
+  <<: [*mysql-environment, *mysql-pool-environment]
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   LOG_MONITOR_URL: http://monitor:9090
   LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
@@ -97,7 +95,7 @@ x-indexer-environment: &indexer-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-search-indexer-local}
   GOPULSE_REPLICA_COUNT: 2
   SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
-  <<: *mysql-environment
+  <<: [*mysql-environment, *mysql-pool-environment]
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   ELASTICSEARCH_URL: http://elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
@@ -117,7 +115,7 @@ x-indexer-environment: &indexer-environment
   SEARCH_INDEXER_RECONNECT_MAX: ${SEARCH_INDEXER_RECONNECT_MAX:-30s}
 
 x-search-init-environment: &search-init-environment
-  <<: *mysql-environment
+  <<: [*mysql-environment, *mysql-pool-environment]
   ELASTICSEARCH_URL: http://elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
   SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
