@@ -100,6 +100,7 @@ Phase-18-03～18-05 的分支从开始该批时最新的 primary remote `main` �
 - 连接池、prefetch、in-flight、队列和关闭预算有显式总量/每副本上界。
 - 补齐 accepted event → Outbox → RabbitMQ → 最终业务投影的闭合证据。
 - 全栈 Compose 权威闭合门禁与单一 Frontend 宿主入口一致：Backend 不发布宿主端口。
+- Monitor 的结构化日志接收合同兼容公共 logger 发出的有界 `instance_id`，使新增副本日志可进入检索链路。
 
 文件级验收、两次验证单元和完成条件见
 [`Phase-18-03`](Phase-18-03-业务计算层多副本与异步闭合.md)。

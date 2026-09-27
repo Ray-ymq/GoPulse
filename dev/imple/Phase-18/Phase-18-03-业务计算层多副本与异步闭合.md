@@ -51,6 +51,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `componentmetrics/config.go`、`componentmetrics/catalog.go` | 实例身份与新增容量指标词汇固定、有限且不含随机高基数标签 |
 | `componentmetrics/logging.go` | 公共结构化日志携带有界实例身份且保留保留字段冲突保护 |
 | `componentmetrics/runtime_test.go`、`componentmetrics/registry_test.go` | 验证实例标签、目录容量和重复/未知标签拒绝 |
+| `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go` | 接收合同接受公共 logger 发出的合法有界 `instance_id` 并拒绝非法身份，日志记录可进入 Monitor/Kafka/ES 检索链路 |
 | `monitor/internal/metrics/collector/components.go` | 采集不会因 DNS 随机选择而遗漏业务计算副本 |
 | `monitor/internal/metrics/collector/components_test.go` | 两个同类实例均被采集且各自身份可区分 |
 | `scripts/verify-phase18-business-scale.sh` | 正式模式只接受固定 `--repetitions 2`；run-1 失败仍保存/清理并继续 run-2，不执行全局 prune |
