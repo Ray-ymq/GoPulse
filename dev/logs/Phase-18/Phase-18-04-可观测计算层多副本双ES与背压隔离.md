@@ -97,3 +97,5 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 后续：修复提交推送后等待 GitHub Actions 重新执行完整门禁；本地未重复 Phase-18-04 固定两轮正式验收。
 
 远程复核补充：运行 `36329279305` 中 Branch governance 已通过；`Scripts and Compose` 暴露 `.github/workflows/quality-gates.yml` 仍要求两个宿主回环发布，而当前 Compose 只有 Frontend 一个发布。已将该门禁登记到实施计划并调整为单个发布，等待再次推送后的远程复核。
+
+远程复核补充：运行 `36329500862` 中 Branch governance、Scripts and Compose 及全部单模块/集成 job 通过；Full-stack Compose acceptance 在 `scripts/verify-compose-observability.sh` 的旧单 ES 网络断言处失败，自动 PR job 因此跳过。已将完整拓扑断言更新为搜索 ES 仅连接 business、观测 ES 仅连接 observability，并纳入观测 ES 健康状态及持久卷检查；等待再次推送后的远程复核。
