@@ -131,3 +131,28 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `gofmt -w internal/elasticsearch/client_test.go`（Marshaller）：通过。
 - `go test ./internal/logs ./internal/elasticsearch`（Marshaller，mapping 测试补充后重跑）：通过。
 - `git diff --check`：通过。
+
+远程复核补充：运行 `36331840222` 中 Branch governance、Scripts and Compose 及全部单模块/集成 job 通过；Full-stack Compose closure 的管理员日志验收仍在 `waitForLogs` 超时。日志已由 Marshaller 接收并写入观测 ES，但 Backend 的日志/事件查询和统计仍复用了业务 ES 客户端，查询持续返回空页；该运行未生成 PR。
+
+本次继续实际变更文件：
+
+- `backend/internal/config/config.go`、`backend/internal/config/config_test.go`、`backend/internal/config/runtime_mode_test.go`：增加独立的 `OBSERVABILITY_ELASTICSEARCH_URL` 配置、主机模式默认端口和 container 服务 DNS 校验。
+- `backend/internal/platform/elasticsearch.go`、`backend/internal/platform/platform_test.go`：增加用途绑定为 `observability` 的 ES client 构造路径，并保持业务搜索 client 拒绝观测用途。
+- `backend/cmd/server/main.go`：业务搜索继续绑定业务 ES；日志、事件、统计和告警查询绑定观测 ES。
+- `backend/internal/logquery/logquery.go`、`backend/internal/logquery/logquery_test.go`：允许严格读取持久化的 `instance_id` 私有元数据，同时保持公开日志 DTO 不变。
+- `deploy/compose.yaml`、`.env.example`、`deploy/runtime-contracts.json`、`docs/runtime-contracts.md`：补齐 Backend 观测 ES 地址、健康依赖、运行时契约和拓扑文档。
+- `scripts/verify-logs.sh`、`scripts/verify-events.sh`：宿主验收向 Backend 显式提供观测 ES 地址。
+- `dev/imple/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：登记本批实际涉及的 Backend 查询、日志解码和独立验收文件。
+
+本次实际执行的检查与结果：
+
+- `gofmt -w backend/cmd/server/main.go backend/internal/config/config.go backend/internal/config/config_test.go backend/internal/config/runtime_mode_test.go backend/internal/platform/elasticsearch.go backend/internal/platform/platform_test.go backend/internal/logquery/logquery.go backend/internal/logquery/logquery_test.go`：通过。
+- `go test -count=1 ./...`（Backend）：通过。
+- `python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example`：通过。
+- `python3 -m unittest discover -s scripts/ci -p 'test_runtime_contracts.py'`：2 项通过。
+- `python3 -m unittest discover -s scripts/ci -p 'test_verify_business.py'`：12 项通过。
+- `docker compose --env-file .env.example --file deploy/compose.yaml config --quiet`：通过。
+- `bash -n scripts/verify-logs.sh scripts/verify-events.sh`、`bash scripts/verify-logs.sh --self-test`、`bash scripts/verify-events.sh --self-test`：通过。
+- `python3 -m json.tool deploy/runtime-contracts.json`、`git diff --check`：通过。
+
+限制与后续：本地未重复 Phase-18-04 固定两轮正式验收；本次提交推送后等待远程完整门禁重新执行并确认 PR 自动化结果。

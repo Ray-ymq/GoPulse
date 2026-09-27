@@ -61,10 +61,11 @@ owned partitions but remains serialized within each partition. In-flight and
 retry slots are finite, and a revoked lease cannot write or commit.
 
 Business search Elasticsearch and observation Elasticsearch are separate
-services with separate named volumes and network membership. Backend and Search
-Indexer use `elasticsearch` on the business network. Marshaller logs/events use
-`observability-elasticsearch` on the observability network; no Marshaller target
-can select the business search client. Metrics continue to use VictoriaMetrics,
+services with separate named volumes and network membership. Backend uses
+`elasticsearch` for business search and `observability-elasticsearch` for
+logs/events; Search Indexer uses `elasticsearch` on the business network.
+Marshaller logs/events use `observability-elasticsearch` on the observability
+network; no Marshaller target can select the business search client. Metrics continue to use VictoriaMetrics,
 and a failure in one observation target leaves other partitions and targets
 bounded and diagnosable rather than creating an unbounded global retry queue.
 

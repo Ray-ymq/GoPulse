@@ -55,6 +55,7 @@ func TestRuntimeModeRejectsUnknownAndUnsafeContainerHosts(t *testing.T) {
 		{key: "REDIS_HOST", value: "host.docker.internal"},
 		{key: "RABBITMQ_URL", value: "amqp://user:credential@127.0.0.1:5672/"},
 		{key: "ELASTICSEARCH_URL", value: "http://elasticsearch:9200/private"},
+		{key: "OBSERVABILITY_ELASTICSEARCH_URL", value: "http://observability-elasticsearch:9200/private"},
 		{key: "MONITOR_URL", value: "http://monitor:9090/?token=credential"},
 		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://127.0.0.1:8428"},
 		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://host.docker.internal:8428"},
@@ -83,6 +84,7 @@ func containerEnvironment() map[string]string {
 	env["REDIS_HOST"] = "redis"
 	env["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
 	env["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
+	env["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
 	env["MONITOR_URL"] = "http://monitor:9090"
 	env["BACKEND_VICTORIAMETRICS_URL"] = "http://victoriametrics:8428"
 	env["LOG_MONITOR_URL"] = "http://monitor:9090"

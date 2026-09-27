@@ -33,6 +33,7 @@ x-backend-environment: &backend-environment
   REDIS_DB: ${REDIS_DB:-0}
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   ELASTICSEARCH_URL: http://elasticsearch:9200
+  OBSERVABILITY_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
   SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
   AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
@@ -377,6 +378,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      observability-elasticsearch:
+        condition: service_healthy
     networks:
       - edge
       - business
@@ -412,6 +415,8 @@ services:
       redis:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      observability-elasticsearch:
         condition: service_healthy
     networks:
       - edge

@@ -13,9 +13,8 @@ import (
 	"github.com/elastic/go-elasticsearch/v9"
 )
 
-// Elasticsearch owns the bounded transport shared by readiness, search, and
-// reindex callers. API-specific request and response validation lives in the
-// search package.
+// Elasticsearch owns a bounded transport for one explicitly bound ES role.
+// API-specific request and response validation lives in the caller packages.
 type Elasticsearch struct {
 	client  *elasticsearch.Client
 	timeout time.Duration
@@ -33,6 +32,17 @@ func NewElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
 	if cfg.Purpose != "" && cfg.Purpose != "search" {
 		return nil, errors.New("elasticsearch client purpose must be search")
 	}
+	return newElasticsearch(cfg, "search")
+}
+
+func NewObservabilityElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
+	if cfg.Purpose != "observability" {
+		return nil, errors.New("elasticsearch client purpose must be observability")
+	}
+	return newElasticsearch(cfg, "observability")
+}
+
+func newElasticsearch(cfg config.ElasticsearchConfig, purpose string) (*Elasticsearch, error) {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: cfg.RequestTimeout}).DialContext,
@@ -52,7 +62,7 @@ func NewElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Elasticsearch{client: client, timeout: cfg.RequestTimeout, purpose: "search"}, nil
+	return &Elasticsearch{client: client, timeout: cfg.RequestTimeout, purpose: purpose}, nil
 }
 
 func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request) (*http.Response, error) {

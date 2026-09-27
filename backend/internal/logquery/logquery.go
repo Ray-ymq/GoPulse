@@ -417,6 +417,7 @@ func decodeEntry(source []byte) (Entry, error) {
 		Version                string `json:"version"`
 		Revision               string `json:"revision"`
 		Event                  string `json:"event"`
+		InstanceID             string `json:"instance_id"`
 		RuntimeContractVersion string `json:"runtime_contract_version"`
 		RuntimeMode            string `json:"runtime_mode"`
 		Listen                 string `json:"listen"`

@@ -211,6 +211,15 @@
           "aliases": []
         },
         {
+          "key": "OBSERVABILITY_ELASTICSEARCH_URL",
+          "type": "url",
+          "sensitive": false,
+          "required": false,
+          "default": "http://observability-elasticsearch:9200",
+          "compose_value": "http://observability-elasticsearch:9200",
+          "aliases": []
+        },
+        {
           "key": "GOPULSE_INSTANCE_ID",
           "type": "string",
           "sensitive": false,
@@ -580,6 +589,7 @@
         "redis",
         "rabbitmq",
         "elasticsearch",
+        "observability-elasticsearch",
         "victoriametrics",
         "monitor"
       ],
@@ -3142,6 +3152,11 @@
     },
     {
       "key": "ELASTICSEARCH_URL",
+      "type": "url",
+      "sensitive": false
+    },
+    {
+      "key": "OBSERVABILITY_ELASTICSEARCH_URL",
       "type": "url",
       "sensitive": false
     },

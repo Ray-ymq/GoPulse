@@ -30,6 +30,8 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `deploy/runtime-contracts.json`、`docs/runtime-contracts.md` | 双 ES 依赖、副本角色、配置 key 和探针与实际代码/Compose 一致 |
 | `backend/internal/config/config.go`、`backend/internal/config/config_test.go` | 搜索与观测 ES 地址分别验证，禁止错误复用或不安全 container 地址 |
 | `backend/internal/platform/elasticsearch.go`、`backend/internal/platform/platform_test.go` | client 明确绑定用途，timeout/redirect/body 上界保持 |
+| `backend/cmd/server/main.go` | Backend 的业务搜索、日志查询、事件查询和统计分别绑定对应 ES client |
+| `backend/internal/logquery/logquery.go`、`backend/internal/logquery/logquery_test.go` | 日志读取允许持久化的副本身份元数据并保持既有公开日志字段契约 |
 | `backend/cmd/search-reindex/main.go`、`backend/cmd/search-reindex/main_test.go` | reindex 只访问业务搜索 ES，观测 ES 不可成为回退目标 |
 | `backend/internal/search/elasticsearch.go`、`backend/internal/search/processor_test.go` | 搜索读写只进入业务 ES；故障后 RabbitMQ 语义保持 |
 | `router/internal/config/config.go`、`router/internal/config/config_test.go` | 多副本入口和 producer 背压配置范围/交叉校验完整 |
@@ -53,6 +55,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `scripts/ci/phase18_observability_scale.py` | 两次同候选运行、逐次原始 evidence、平均摘要和失败阶段持久化 |
 | `scripts/ci/test_phase18_observability_scale.py` | 覆盖固定次数、跨写拒绝、平均计算、失败结果和 evidence 不可覆盖 |
 | `router/README.md`、`marshaller/README.md`、`monitor/README.md`、`backend/README.md`、`README.md` | 配置、双 ES、背压和多副本边界与实际实现一致，不宣称 broker/存储 HA |
+| `scripts/verify-logs.sh`、`scripts/verify-events.sh` | 独立宿主验收为 Backend 查询显式提供观测 ES 地址，保持日志/事件读写落在同一观测存储 |
 | `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md` | 记录实际文件、两次命令/结果、均值、故障隔离结论与限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本一致为 `2.0.4` |
 
