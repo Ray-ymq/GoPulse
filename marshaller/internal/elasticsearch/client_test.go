@@ -3,6 +3,7 @@ package elasticsearch
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -66,9 +67,14 @@ func TestLogsTemplateMapsInstanceIdentityWithoutOpeningDynamicFields(t *testing.
 	if !ok {
 		t.Fatalf("mapping properties missing: %#v", mappings)
 	}
-	instance, ok := properties["instance_id"].(map[string]any)
-	if !ok || instance["type"] != "keyword" {
-		t.Fatalf("instance_id mapping = %#v, want keyword", properties["instance_id"])
+	if len(properties) != len(requiredPropertyTypes) {
+		t.Fatalf("template has %d fields; required index contract has %d", len(properties), len(requiredPropertyTypes))
+	}
+	for field, want := range requiredPropertyTypes {
+		property, ok := properties[field].(map[string]any)
+		if !ok || property["type"] != want {
+			t.Fatalf("%s mapping = %#v, want %s", field, properties[field], want)
+		}
 	}
 }
 
@@ -177,8 +183,10 @@ func TestContainerClientAcceptsServiceDNSAndRejectsLoopback(t *testing.T) {
 	}
 }
 
-func TestExistingDailyIndexReceivesRuntimeFieldsWithoutDroppingLog(t *testing.T) {
+func TestExistingDailyIndexReceivesRuntimeFieldsAndInstanceIDWithoutDroppingLog(t *testing.T) {
 	upgraded, writes := false, 0
+	var mappingProperties map[string]any
+	var mappingReadErr error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(r.URL.Path, "/_doc/"):
@@ -192,6 +200,16 @@ func TestExistingDailyIndexReceivesRuntimeFieldsWithoutDroppingLog(t *testing.T)
 			w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`))
 		case strings.HasSuffix(r.URL.Path, "/_mapping"):
 			if r.Method == "PUT" {
+				payload, err := io.ReadAll(io.LimitReader(r.Body, responseLimit))
+				if err == nil {
+					var mapping struct {
+						Properties map[string]any `json:"properties"`
+					}
+					mappingReadErr = json.Unmarshal(payload, &mapping)
+					mappingProperties = mapping.Properties
+				} else {
+					mappingReadErr = err
+				}
 				upgraded = true
 				w.Write([]byte(`{"acknowledged":true}`))
 			} else {
@@ -205,10 +223,25 @@ func TestExistingDailyIndexReceivesRuntimeFieldsWithoutDroppingLog(t *testing.T)
 	}))
 	defer server.Close()
 	client, _ := New(server.URL, time.Second)
-	if err := client.Write(context.Background(), writeRequest(t, "2026.09.04")); err != nil {
+	body, err := json.Marshal(logtransform.WriteRequest{
+		MessageID: "abcdef0123456789abcdef0123456789",
+		IndexDate: "2026.09.04",
+		Document:  json.RawMessage(`{"@timestamp":"2026-09-04T12:00:00Z","instance_id":"backend-1"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Write(context.Background(), body); err != nil {
 		t.Fatal(err)
 	}
 	if !upgraded || writes != 2 {
 		t.Fatal("new schema log lost")
+	}
+	if mappingReadErr != nil {
+		t.Fatalf("decode mapping upgrade: %v", mappingReadErr)
+	}
+	instance, ok := mappingProperties["instance_id"].(map[string]any)
+	if !ok || instance["type"] != "keyword" {
+		t.Fatalf("legacy mapping instance_id = %#v, want keyword", mappingProperties["instance_id"])
 	}
 }

@@ -31,7 +31,7 @@ var datePattern = regexp.MustCompile(`^\d{4}\.\d{2}\.\d{2}$`)
 var requiredPropertyTypes = map[string]string{
 	"version": "keyword", "revision": "keyword", "event": "keyword", "runtime_contract_version": "keyword", "runtime_mode": "keyword", "listen": "keyword",
 	"@timestamp": "date_nanos", "log_schema_version": "integer", "level": "keyword",
-	"service": "keyword", "module": "keyword", "message": "keyword", "request_id": "keyword",
+	"service": "keyword", "instance_id": "keyword", "module": "keyword", "message": "keyword", "request_id": "keyword",
 	"event_id": "keyword", "event_type": "keyword", "user_id": "long", "post_id": "long",
 	"comment_id": "long", "notification_id": "long", "outbox_id": "long", "method": "keyword",
 	"route": "keyword", "status": "long", "duration_ms": "long", "response_bytes": "long",
@@ -118,7 +118,7 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	// the runtime keyword fields to that fixed product index, then retry the
 	// same deterministic document ID once. Never discard a new-schema log.
 	if readErr == nil && response.StatusCode == http.StatusBadRequest {
-		mapping, err := c.do(ctx, http.MethodPut, "/"+index+"/_mapping", strings.NewReader(`{"properties":{"runtime_contract_version":{"type":"keyword"},"runtime_mode":{"type":"keyword"},"listen":{"type":"keyword"},"version":{"type":"keyword"},"revision":{"type":"keyword"},"event":{"type":"keyword"}}}`))
+		mapping, err := c.do(ctx, http.MethodPut, "/"+index+"/_mapping", strings.NewReader(`{"properties":{"runtime_contract_version":{"type":"keyword"},"runtime_mode":{"type":"keyword"},"listen":{"type":"keyword"},"version":{"type":"keyword"},"revision":{"type":"keyword"},"event":{"type":"keyword"},"instance_id":{"type":"keyword"}}}`))
 		if err != nil {
 			return errors.New("runtime log mapping unavailable")
 		}
