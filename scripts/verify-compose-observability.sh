@@ -240,7 +240,7 @@ cleanup() {
   if ((RESOURCES_STARTED)); then
     if assert_project_ownership; then
       if ((status != 0)); then
-        compose logs --no-color --tail 30 backend business-worker search-indexer router marshaller monitor >&2 || true
+        compose logs --no-color --tail 30 backend business-worker search-indexer search-init router marshaller monitor >&2 || true
       fi
       compose --profile exporter down --volumes --remove-orphans >/dev/null 2>&1 || status=1
     else

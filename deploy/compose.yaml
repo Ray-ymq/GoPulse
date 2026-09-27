@@ -298,7 +298,7 @@ services:
     networks:
       - business
     healthcheck:
-      test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null']
+      test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&wait_for_no_initializing_shards=true&wait_for_no_relocating_shards=true&timeout=5s" >/dev/null']
       start_period: 30s
       interval: 5s
       timeout: 10s

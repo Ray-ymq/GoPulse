@@ -198,3 +198,25 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `git diff --check`：通过。
 
 限制与后续：修复后的正式远程 Compose acceptance 尚未运行；本地只执行了目标故障场景，未把它计为固定两轮正式验收结果。等待本次提交推送后的远程门禁和 PR 自动化结果。
+
+## 2026-09-28 PR 门禁复核：持久化 ES 重启就绪条件
+
+远程运行 `36335849997` 中其余 10 个门禁均通过；Full-stack Compose acceptance 在持久化卷重启的 `compose up --wait` 阶段发现 `search-init` 退出码为 `1`，自动 PR job 因此跳过。远程清理日志当时只输出 Backend、Worker、Indexer、Router、Marshaller 和 Monitor，没有包含 `search-init` 自身日志，无法从该次证据确认初始化器的具体错误文本。
+
+本次实际变更文件：
+
+- `deploy/compose.yaml`：业务 Elasticsearch 健康检查继续等待 `yellow`，并增加等待初始化 shard 和迁移 shard 清零的条件，避免持久化恢复尚未完成就启动 `search-init`。
+- `scripts/verify-compose-observability.sh`：失败清理日志加入 `search-init`，保留初始化器的实际错误输出。
+- `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：记录本次远程失败、修复和验证。
+
+本次实际执行的检查与结果：
+
+- `bash scripts/verify-compose-observability.sh --keep`：完整 Compose 验收中 Phase-12 的启动、网络、故障隔离、持久化重启和 Redis Exporter 场景通过；后续 Phase-15 管理闭环在“创建规则”按钮未启用时超时，保留环境用于本次就绪条件复核；未重复 Phase-18-04 固定两轮 runner。
+- 在保留的隔离 Compose 环境中，对 `down --remove-orphans` 后的 `up --detach --wait --wait-timeout 420` 执行 3 轮持久化重启：每轮 `search-init` 退出码均为 `0`，日志均为 `search reindex skipped`。
+- `docker exec ... curl .../_cluster/health?wait_for_status=yellow&wait_for_no_initializing_shards=true&wait_for_no_relocating_shards=true&timeout=5s`：返回成功，且 `initializing_shards=0`、`relocating_shards=0`。
+- `bash scripts/verify-compose.sh --self-test`：通过。
+- `docker compose --env-file .env.example --file deploy/compose.yaml config`：通过。
+- `git diff --check`：通过。
+- 通过 scoped `docker compose ... down --volumes --remove-orphans` 清理保留的隔离项目，并删除本次唯一 acceptance image tags；未执行全局 Docker prune。
+
+限制与后续：新的远程 Full-stack acceptance 尚未运行；本地 Phase-12 相关路径和 3 轮持久化重启已通过，等待本次提交推送后的远程门禁和 PR 自动化结果。
