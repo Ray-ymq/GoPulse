@@ -20,7 +20,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 - 告警调度租约在多 Backend 下仍保持单条规则单 owner；不重复生成持久事实。
 - Worker/Indexer 使用唯一 consumer identity，副本退出时完成或安全重投当前消息。
 - 每个实例具备非敏感、有界的实例身份，可进入日志、指标和 evidence，但不参与授权。
-- 结构化日志中的有界 `instance_id` 穿过 Monitor、Marshaller、严格 Elasticsearch 映射和 Backend 查询解码，并能在管理日志详情中查看。
+- 结构化日志中的有界 `instance_id` 穿过 Monitor、Marshaller、严格 Elasticsearch 映射、Backend 查询解码和管理前端严格 DTO 校验，并能在管理日志详情中查看；前端继续拒绝未知字段。
 - 验收能关联 accepted event、Outbox 状态、RabbitMQ delivery、通知/搜索投影和最终闭合。
 
 ## 3. 允许变更文件与逐文件验收
@@ -56,6 +56,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `marshaller/internal/logs/validation.go`、`marshaller/internal/logs/transform_test.go` | 二次日志校验接受并保留合法有界 `instance_id`，同时拒绝非法身份和未知字段 |
 | `marshaller/internal/elasticsearch/client.go`、`marshaller/internal/elasticsearch/client_test.go` | 严格日志模板将 `instance_id` 映射为 keyword，其他未登记字段仍被拒绝 |
 | `backend/internal/logquery/logquery.go`、`backend/internal/logquery/logquery_test.go` | 日志查询解码保留合法 `instance_id` 给管理 API，并拒绝非法身份和未知字段 |
+| `admin-frontend/src/types/observability.ts`、`admin-frontend/src/services/observability.ts`、`admin-frontend/src/services/observability.test.ts` | 严格日志 DTO 接受可选 `instance_id` 并继续拒绝未知字段，使有效 API 记录能在管理日志详情中展示 |
 | `frontend/e2e/compose-observability.spec.ts` | Full-stack Compose 场景确认日志可见且日志详情保留有效 `instance_id` |
 | `monitor/internal/metrics/collector/components.go` | 采集不会因 DNS 随机选择而遗漏业务计算副本 |
 | `monitor/internal/metrics/collector/components_test.go` | 两个同类实例均被采集且各自身份可区分 |
@@ -68,6 +69,9 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本均为 `2.0.3`，由同步/校验脚本证明一致 |
 
 ## 4. 固定最终验收单元
+
+实施阶段对管理前端 DTO 的直接检查命令为
+`(cd admin-frontend && npm test -- --run src/services/observability.test.ts)`；最终 U1～U4 的固定次数和内容不变，U3 仍验证完整 Compose 观察性场景。
 
 正式 runner 以一次 `--repetitions 2` 调用创建 `run-1` 和 `run-2`。以下每一行都是 runner
 在两个 run 中各执行一次的验收单元，不能额外单独补跑：
