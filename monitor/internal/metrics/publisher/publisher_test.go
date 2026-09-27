@@ -67,3 +67,53 @@ func TestHTTPPublisherClassifiesPermanentAndTemporaryRejections(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPPublisherFailsOverAcrossBoundedRouterPool(t *testing.T) {
+	firstCalls := 0
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		firstCalls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer first.Close()
+	secondCalls := 0
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		secondCalls++
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer second.Close()
+	client, err := NewHTTPPool([]string{first.URL, second.URL}, "01234567890123456789012345678901", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Publish(context.Background(), envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"}); err != nil {
+		t.Fatal(err)
+	}
+	if firstCalls != 1 || secondCalls != 1 {
+		t.Fatalf("first=%d second=%d, want one bounded attempt per endpoint", firstCalls, secondCalls)
+	}
+}
+
+func TestHTTPPublisherDoesNotRetryPermanentRejection(t *testing.T) {
+	firstCalls := 0
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		firstCalls++
+		w.WriteHeader(http.StatusUnprocessableEntity)
+	}))
+	defer first.Close()
+	secondCalls := 0
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		secondCalls++
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer second.Close()
+	client, err := NewHTTPPool([]string{first.URL, second.URL}, "01234567890123456789012345678901", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Publish(context.Background(), envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"}); err == nil {
+		t.Fatal("permanent rejection was accepted")
+	}
+	if firstCalls != 1 || secondCalls != 0 {
+		t.Fatalf("first=%d second=%d, permanent rejection escaped bounded policy", firstCalls, secondCalls)
+	}
+}

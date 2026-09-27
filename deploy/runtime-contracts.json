@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "1",
-  "product_version": "2.0.3",
+  "product_version": "2.0.4",
   "platform": "linux/amd64",
   "components": [
     {
@@ -208,6 +208,15 @@
           "required": false,
           "default": "http://elasticsearch:9200",
           "compose_value": "http://elasticsearch:9200",
+          "aliases": []
+        },
+        {
+          "key": "OBSERVABILITY_ELASTICSEARCH_URL",
+          "type": "url",
+          "sensitive": false,
+          "required": false,
+          "default": "http://observability-elasticsearch:9200",
+          "compose_value": "http://observability-elasticsearch:9200",
           "aliases": []
         },
         {
@@ -580,6 +589,7 @@
         "redis",
         "rabbitmq",
         "elasticsearch",
+        "observability-elasticsearch",
         "victoriametrics",
         "monitor"
       ],
@@ -1223,12 +1233,30 @@
       "plugin_id": null,
       "environment": [
         {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router-local",
+          "compose_value": "router-1",
+          "aliases": []
+        },
+        {
           "key": "GOPULSE_REVISION",
           "type": "string",
           "sensitive": false,
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "2",
           "aliases": []
         },
         {
@@ -1301,6 +1329,15 @@
           "required": false,
           "default": "256",
           "compose_value": "${ROUTER_KAFKA_MAX_BUFFERED_RECORDS:-256}",
+          "aliases": []
+        },
+        {
+          "key": "ROUTER_KAFKA_MIN_PARTITIONS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "${ROUTER_KAFKA_MIN_PARTITIONS:-4}",
           "aliases": []
         },
         {
@@ -1395,12 +1432,30 @@
       "plugin_id": null,
       "environment": [
         {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller-local",
+          "compose_value": "marshaller-1",
+          "aliases": []
+        },
+        {
           "key": "GOPULSE_REVISION",
           "type": "string",
           "sensitive": false,
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "2",
           "aliases": []
         },
         {
@@ -1445,7 +1500,7 @@
           "sensitive": false,
           "required": false,
           "default": "http://elasticsearch:9200",
-          "compose_value": "http://elasticsearch:9200",
+          "compose_value": "http://observability-elasticsearch:9200",
           "aliases": []
         },
         {
@@ -1521,6 +1576,15 @@
           "aliases": []
         },
         {
+          "key": "MARSHALLER_KAFKA_MIN_PARTITIONS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "${MARSHALLER_KAFKA_MIN_PARTITIONS:-4}",
+          "aliases": []
+        },
+        {
           "key": "MARSHALLER_KAFKA_TOPIC",
           "type": "string",
           "sensitive": false,
@@ -1554,6 +1618,24 @@
           "required": true,
           "default": null,
           "compose_value": "${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_MAX_IN_FLIGHT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "4",
+          "compose_value": "${MARSHALLER_MAX_IN_FLIGHT:-8}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_MAX_RETRYING",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "4",
+          "compose_value": "${MARSHALLER_MAX_RETRYING:-4}",
           "aliases": []
         },
         {
@@ -1767,6 +1849,15 @@
           "aliases": []
         },
         {
+          "key": "MARSHALLER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller",
+          "compose_value": "marshaller,marshaller-2",
+          "aliases": []
+        },
+        {
           "key": "MONITOR_API_TOKEN",
           "type": "string",
           "sensitive": true,
@@ -1938,6 +2029,15 @@
           "aliases": []
         },
         {
+          "key": "MONITOR_ROUTER_URLS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "http://router:9091",
+          "compose_value": "http://router:9091,http://router-2:9091",
+          "aliases": []
+        },
+        {
           "key": "MONITOR_SCRAPE_INTERVAL",
           "type": "duration",
           "sensitive": false,
@@ -2043,6 +2143,15 @@
           "required": true,
           "default": null,
           "compose_value": "${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}",
+          "aliases": []
+        },
+        {
+          "key": "ROUTER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router",
+          "compose_value": "router,router-2",
           "aliases": []
         },
         {
@@ -3047,6 +3156,11 @@
       "sensitive": false
     },
     {
+      "key": "OBSERVABILITY_ELASTICSEARCH_URL",
+      "type": "url",
+      "sensitive": false
+    },
+    {
       "key": "FRONTEND_PORT",
       "type": "integer",
       "sensitive": false
@@ -3093,6 +3207,11 @@
     },
     {
       "key": "KAFKA_PORT",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "KAFKA_OBSERVABILITY_PARTITIONS",
       "type": "integer",
       "sensitive": false
     },
@@ -3147,6 +3266,11 @@
       "sensitive": false
     },
     {
+      "key": "MARSHALLER_ENDPOINTS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
       "key": "MARSHALLER_EVENT_INDEX_PREFIX",
       "type": "string",
       "sensitive": false
@@ -3187,6 +3311,11 @@
       "sensitive": false
     },
     {
+      "key": "MARSHALLER_KAFKA_MIN_PARTITIONS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "MARSHALLER_KAFKA_TOPIC",
       "type": "string",
       "sensitive": false
@@ -3205,6 +3334,16 @@
       "key": "MARSHALLER_METRICS_TOKEN",
       "type": "string",
       "sensitive": true
+    },
+    {
+      "key": "MARSHALLER_MAX_IN_FLIGHT",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_MAX_RETRYING",
+      "type": "integer",
+      "sensitive": false
     },
     {
       "key": "MARSHALLER_READINESS_TIMEOUT",
@@ -3332,6 +3471,11 @@
       "sensitive": false
     },
     {
+      "key": "MONITOR_ROUTER_URLS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
       "key": "MONITOR_SCRAPE_INTERVAL",
       "type": "duration",
       "sensitive": false
@@ -3424,6 +3568,11 @@
     {
       "key": "PUBLISHED_HOST",
       "type": "host",
+      "sensitive": false
+    },
+    {
+      "key": "OBSERVABILITY_ELASTICSEARCH_PORT",
+      "type": "integer",
       "sensitive": false
     },
     {
@@ -3532,6 +3681,11 @@
       "sensitive": false
     },
     {
+      "key": "ROUTER_KAFKA_MIN_PARTITIONS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "ROUTER_KAFKA_PRODUCE_TIMEOUT",
       "type": "duration",
       "sensitive": false
@@ -3550,6 +3704,11 @@
       "key": "ROUTER_METRICS_TOKEN",
       "type": "string",
       "sensitive": true
+    },
+    {
+      "key": "ROUTER_ENDPOINTS",
+      "type": "string",
+      "sensitive": false
     },
     {
       "key": "ROUTER_REQUEST_TIMEOUT",

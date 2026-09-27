@@ -240,7 +240,7 @@ cleanup() {
   if ((RESOURCES_STARTED)); then
     if assert_project_ownership; then
       if ((status != 0)); then
-        compose logs --no-color --tail 30 backend business-worker search-indexer router marshaller monitor >&2 || true
+        compose logs --no-color --tail 30 backend business-worker search-indexer search-init router marshaller monitor >&2 || true
       fi
       compose --profile exporter down --volumes --remove-orphans >/dev/null 2>&1 || status=1
     else
@@ -313,7 +313,7 @@ wait_running() {
 
 assert_full_state() {
   local service id state health
-  for service in mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor backend admin-frontend frontend; do
+  for service in mysql redis rabbitmq elasticsearch observability-elasticsearch kafka victoriametrics router marshaller monitor backend admin-frontend frontend; do
     id=$(owned_service_id "$service")
     state=$(docker inspect --format '{{.State.Status}}' "$id")
     health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
@@ -417,18 +417,22 @@ assert_image_contracts() {
 
 assert_network_and_ports() {
   local service id networks bindings host_ips
-  for service in admin-frontend frontend backend business-worker search-indexer mysql redis rabbitmq elasticsearch kafka victoriametrics router marshaller monitor; do
+  for service in admin-frontend frontend backend business-worker search-indexer mysql redis rabbitmq elasticsearch observability-elasticsearch kafka victoriametrics router marshaller monitor; do
     id=$(owned_service_id "$service")
     networks=$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$id")
     case $service in
       frontend|admin-frontend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks != *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_observability "* ]] || fail 'Frontend network boundary mismatch' ;;
       backend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* ]] || fail 'Backend network boundary mismatch' ;;
-      business-worker|search-indexer|elasticsearch) [[ $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
+      business-worker|search-indexer) [[ $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
+      elasticsearch) [[ $networks == *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail 'Search Elasticsearch network boundary mismatch' ;;
+      observability-elasticsearch) [[ $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail 'Observability Elasticsearch network boundary mismatch' ;;
       monitor) [[ $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail 'Monitor network boundary mismatch' ;;
       kafka|victoriametrics|router|marshaller) [[ $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
       *) [[ $networks == *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
     esac
     bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")
+    # The frontend is the sole host entry point; backend replicas stay private
+    # and are reached through the frontend's internal upstream pool.
     if [[ $service == frontend ]]; then
       host_ips=$(docker inspect --format '{{range $p, $items := .HostConfig.PortBindings}}{{range $items}}{{.HostIp}} {{end}}{{end}}' "$id")
       [[ $host_ips == '127.0.0.1 ' ]] || fail "$service is not bound exactly once to IPv4 loopback"
@@ -589,7 +593,7 @@ exercise_persistence() {
   assert_project_ownership
   compose down --remove-orphans
   RESOURCES_STARTED=0
-  for volume in mysql_data redis_data rabbitmq_data elasticsearch_data kafka_data victoriametrics_data monitor_plugin_data; do
+  for volume in mysql_data redis_data rabbitmq_data elasticsearch_data observability_elasticsearch_data kafka_data victoriametrics_data monitor_plugin_data; do
     docker volume inspect "${PROJECT_NAME}_$volume" >/dev/null || fail "persistent volume disappeared: $volume"
   done
   RESOURCES_STARTED=1

@@ -46,6 +46,32 @@ func TestClientsCanBeConstructedWhenDependenciesAreUnavailable(t *testing.T) {
 	}
 }
 
+func TestElasticsearchRejectsObservationPurpose(t *testing.T) {
+	_, err := NewElasticsearch(config.ElasticsearchConfig{
+		URL: "http://127.0.0.1:9200", RequestTimeout: time.Second, Purpose: "observability",
+	})
+	if err == nil {
+		t.Fatal("observation Elasticsearch purpose was accepted by the business client")
+	}
+}
+
+func TestObservabilityElasticsearchBindsObservationPurpose(t *testing.T) {
+	client, err := NewObservabilityElasticsearch(config.ElasticsearchConfig{
+		URL: "http://127.0.0.1:9201", RequestTimeout: time.Second, Purpose: "observability",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.Purpose() != "observability" {
+		t.Fatalf("Purpose() = %q, want observability", client.Purpose())
+	}
+	if _, err := NewObservabilityElasticsearch(config.ElasticsearchConfig{
+		URL: "http://127.0.0.1:9200", RequestTimeout: time.Second, Purpose: "search",
+	}); err == nil {
+		t.Fatal("business Elasticsearch purpose was accepted by the observation client")
+	}
+}
+
 func TestMySQLDriverConfigUsesUTCAndUTF8MB4(t *testing.T) {
 	cfg := mysqlDriverConfig(config.MySQLConfig{
 		Host:     "mysql.internal",

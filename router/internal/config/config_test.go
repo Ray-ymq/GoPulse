@@ -14,7 +14,7 @@ func TestLoadFromValidatesRouterConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFrom() error = %v", err)
 	}
-	if cfg.Address() != "127.0.0.1:9091" || cfg.KafkaTopic != Topic || len(cfg.KafkaBrokers) != 1 {
+	if cfg.Address() != "127.0.0.1:9091" || cfg.InstanceID != "router-local" || cfg.ReplicaCount != 1 || cfg.KafkaTopic != Topic || cfg.KafkaMinPartitions != 1 || len(cfg.KafkaBrokers) != 1 {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
 
@@ -34,11 +34,14 @@ func TestLoadFromValidatesRouterConfiguration(t *testing.T) {
 func TestLoadFromRejectsInvalidKafkaBounds(t *testing.T) {
 	base := map[string]string{"ROUTER_API_TOKEN": "0123456789abcdef0123456789abcdef"}
 	for name, pair := range map[string][2]string{
-		"topic":            {"ROUTER_KAFKA_TOPIC", "client-topic"},
-		"broker":           {"ROUTER_KAFKA_BROKERS", "not-a-broker"},
-		"duplicate broker": {"ROUTER_KAFKA_BROKERS", "127.0.0.1:9092,127.0.0.1:9092"},
-		"produce timeout":  {"ROUTER_KAFKA_PRODUCE_TIMEOUT", "5s"},
-		"small buffer":     {"ROUTER_KAFKA_MAX_BUFFERED_BYTES", "1048575"},
+		"topic":              {"ROUTER_KAFKA_TOPIC", "client-topic"},
+		"broker":             {"ROUTER_KAFKA_BROKERS", "not-a-broker"},
+		"duplicate broker":   {"ROUTER_KAFKA_BROKERS", "127.0.0.1:9092,127.0.0.1:9092"},
+		"produce timeout":    {"ROUTER_KAFKA_PRODUCE_TIMEOUT", "5s"},
+		"small buffer":       {"ROUTER_KAFKA_MAX_BUFFERED_BYTES", "1048575"},
+		"too few partitions": {"ROUTER_KAFKA_MIN_PARTITIONS", "0"},
+		"replica coverage":   {"GOPULSE_REPLICA_COUNT", "2"},
+		"invalid instance":   {"GOPULSE_INSTANCE_ID", "Router-1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			values := make(map[string]string, len(base)+1)
@@ -51,5 +54,21 @@ func TestLoadFromRejectsInvalidKafkaBounds(t *testing.T) {
 				t.Fatalf("LoadFrom() accepted %s=%q", pair[0], pair[1])
 			}
 		})
+	}
+}
+
+func TestLoadFromRequiresEnoughPartitionsForReplicas(t *testing.T) {
+	values := map[string]string{
+		"ROUTER_API_TOKEN":            "0123456789abcdef0123456789abcdef",
+		"GOPULSE_REPLICA_COUNT":       "2",
+		"ROUTER_KAFKA_MIN_PARTITIONS": "2",
+	}
+	lookup := func(key string) (string, bool) { value, ok := values[key]; return value, ok }
+	cfg, err := LoadFrom(lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ReplicaCount != 2 || cfg.KafkaMinPartitions != 2 {
+		t.Fatalf("unexpected replica configuration: %+v", cfg)
 	}
 }

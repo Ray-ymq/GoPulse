@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/marshaller/internal/config"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
@@ -18,12 +18,24 @@ type Kafka struct {
 	Ownership     *Ownership
 	Topic         string
 	CommitTimeout time.Duration
+	MinPartitions int
+	MaxInFlight   int
 	halted        atomic.Bool
 }
 
 func NewKafka(brokers []string, topic, group string, commitTimeout time.Duration, ownership *Ownership) (*Kafka, error) {
+	return NewKafkaWithOptions(brokers, topic, group, commitTimeout, 1, 1, ownership)
+}
+
+func NewKafkaWithOptions(brokers []string, topic, group string, commitTimeout time.Duration, minPartitions, maxInFlight int, ownership *Ownership) (*Kafka, error) {
 	if ownership == nil {
 		ownership = NewOwnership()
+	}
+	if minPartitions < 1 {
+		minPartitions = 1
+	}
+	if maxInFlight < 1 {
+		maxInFlight = 1
 	}
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...), kgo.ClientID("gopulse-marshaller"), kgo.ConsumerGroup(group), kgo.ConsumeTopics(topic),
@@ -41,7 +53,7 @@ func NewKafka(brokers []string, topic, group string, commitTimeout time.Duration
 	if err != nil {
 		return nil, err
 	}
-	return &Kafka{Client: client, Ownership: ownership, Topic: topic, CommitTimeout: commitTimeout}, nil
+	return &Kafka{Client: client, Ownership: ownership, Topic: topic, CommitTimeout: commitTimeout, MinPartitions: minPartitions, MaxInFlight: maxInFlight}, nil
 }
 func convertPartitions(input map[string][]int32) []Partition {
 	var out []Partition
@@ -76,47 +88,121 @@ func (k *Kafka) Ready(ctx context.Context) (result error) {
 		return errors.New("Kafka metadata unavailable")
 	}
 	metadata, ok := response.(*kmsg.MetadataResponse)
-	if !ok || len(metadata.Topics) != 1 || metadata.Topics[0].ErrorCode != 0 {
+	minimum := k.MinPartitions
+	if minimum < 1 {
+		minimum = 1
+	}
+	if !ok || len(metadata.Topics) != 1 || metadata.Topics[0].ErrorCode != 0 || len(metadata.Topics[0].Partitions) < minimum {
 		return errors.New("Kafka topic unavailable")
 	}
 	return nil
 }
 func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string, ...any)) error {
-	for ctx.Err() == nil {
-		fetches := k.Client.PollRecords(ctx, 1)
+	if processor == nil {
+		return errors.New("marshaller processor is required")
+	}
+	maxInFlight := k.MaxInFlight
+	if maxInFlight < 1 {
+		maxInFlight = 1
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	semaphore := make(chan struct{}, maxInFlight)
+	var workers sync.WaitGroup
+	var locksMu sync.Mutex
+	partitionLocks := make(map[Partition]*sync.Mutex)
+	var lagMu sync.Mutex
+	partitionPending := make(map[Partition]int)
+	var firstErr error
+	var firstErrMu sync.Mutex
+	partitionLock := func(partition Partition) *sync.Mutex {
+		locksMu.Lock()
+		defer locksMu.Unlock()
+		lock := partitionLocks[partition]
+		if lock == nil {
+			lock = &sync.Mutex{}
+			partitionLocks[partition] = lock
+		}
+		return lock
+	}
+	setLag := func(partition Partition, delta int) {
+		lagMu.Lock()
+		partitionPending[partition] += delta
+		pending := partitionPending[partition]
+		if pending <= 0 {
+			delete(partitionPending, partition)
+			pending = 0
+		}
+		lagMu.Unlock()
+		if metrics := componentmetrics.Active(); metrics != nil && partition.Partition >= 0 && partition.Partition < 16 {
+			metrics.Set("partition_lag", float64(pending), fmt.Sprintf("%d", partition.Partition))
+		}
+	}
+	fail := func(err error) {
+		if err == nil {
+			return
+		}
+		firstErrMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+			k.halted.Store(true)
+			cancel()
+		}
+		firstErrMu.Unlock()
+	}
+	for runCtx.Err() == nil {
+		fetches := k.Client.PollRecords(runCtx, maxInFlight)
 		if errs := fetches.Errors(); len(errs) > 0 {
 			componentmetrics.Dependency("kafka", errs[0].Err)
 			if ctx.Err() != nil {
-				return nil
+				break
 			}
 			if logf != nil {
 				logf("Kafka poll failed", "module", "consumer", "error_count", len(errs))
 			}
 			continue
 		}
-		var record *kgo.Record
 		if fetches.NumRecords() > 0 {
 			componentmetrics.Dependency("kafka", nil)
 		}
-		fetches.EachRecord(func(r *kgo.Record) { record = r })
-		if record == nil {
-			continue
-		}
-		if len(record.Value) > config.MaxRecordBytes { /* decoder classifies this normally */
-		}
-		partition := Partition{Topic: record.Topic, Partition: record.Partition}
-		lease, ok := k.Ownership.Lease(partition)
-		if !ok {
-			continue
-		}
-		item := Record{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset, Key: append([]byte(nil), record.Key...), Value: append([]byte(nil), record.Value...)}
-		if err := processor.Handle(ctx, item, lease); err != nil {
-			if errors.Is(err, ErrOwnershipLost) {
-				continue
+		fetches.EachRecord(func(record *kgo.Record) {
+			if runCtx.Err() != nil {
+				return
 			}
-			k.halted.Store(true)
-			return fmt.Errorf("partition %d halted: %w", record.Partition, err)
-		}
+			partition := Partition{Topic: record.Topic, Partition: record.Partition}
+			partitionNumber := record.Partition
+			lease, ok := k.Ownership.Lease(partition)
+			if !ok {
+				return
+			}
+			setLag(partition, 1)
+			select {
+			case semaphore <- struct{}{}:
+			case <-runCtx.Done():
+				setLag(partition, -1)
+				return
+			}
+			item := Record{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset, Key: append([]byte(nil), record.Key...), Value: append([]byte(nil), record.Value...)}
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				defer func() { <-semaphore }()
+				defer setLag(partition, -1)
+				lock := partitionLock(partition)
+				lock.Lock()
+				defer lock.Unlock()
+				if err := processor.Handle(runCtx, item, lease); err != nil && !errors.Is(err, ErrOwnershipLost) {
+					fail(fmt.Errorf("partition %d halted: %w", partitionNumber, err))
+				}
+			}()
+		})
+	}
+	workers.Wait()
+	firstErrMu.Lock()
+	err := firstErr
+	firstErrMu.Unlock()
+	if err != nil {
+		return err
 	}
 	return nil
 }

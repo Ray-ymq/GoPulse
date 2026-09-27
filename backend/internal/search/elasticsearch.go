@@ -26,10 +26,22 @@ type Performer interface {
 
 type ElasticsearchRepository struct {
 	performer Performer
+	purpose   string
 }
 
 func NewElasticsearchRepository(performer Performer) *ElasticsearchRepository {
-	return &ElasticsearchRepository{performer: performer}
+	purpose := "search"
+	if bound, ok := performer.(interface{ Purpose() string }); ok {
+		purpose = bound.Purpose()
+	}
+	return &ElasticsearchRepository{performer: performer, purpose: purpose}
+}
+
+func (repository *ElasticsearchRepository) Purpose() string {
+	if repository == nil || repository.purpose == "" {
+		return "search"
+	}
+	return repository.purpose
 }
 
 type Hit struct {
@@ -360,7 +372,7 @@ func (repository *ElasticsearchRepository) aliasIndices(ctx context.Context) ([]
 }
 
 func (repository *ElasticsearchRepository) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	if repository == nil || repository.performer == nil {
+	if repository == nil || repository.performer == nil || repository.Purpose() != "search" {
 		return nil, ErrUnavailable
 	}
 	request, err := componentmetrics.NewRequest(ctx, method, path, body)
