@@ -131,6 +131,10 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
     await expect(page.locator('.state-pill')).toHaveText('running', { timeout: 20_000 })
     await waitForMetric(page)
     await waitForLogs(page)
+    await page.locator('.record-card .row-select').first().click()
+    const instanceID = page.locator('.detail-fields dt').filter({ hasText: /^instance_id$/ })
+    await expect(instanceID).toHaveCount(1)
+    await expect(instanceID.locator('xpath=following-sibling::dd[1]')).toHaveText(/^[a-z0-9][a-z0-9-]{0,63}$/)
     await waitForEvents(page)
     expect(unexpected).toEqual([])
     return

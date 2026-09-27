@@ -49,6 +49,29 @@ func TestClientEnsuresFixedTemplateAndVerifiesWrittenIndex(t *testing.T) {
 	}
 }
 
+func TestLogsTemplateMapsInstanceIdentityWithoutOpeningDynamicFields(t *testing.T) {
+	var template map[string]any
+	if err := json.Unmarshal([]byte(templateBody), &template); err != nil {
+		t.Fatalf("decode log template: %v", err)
+	}
+	templateDefinition, ok := template["template"].(map[string]any)
+	if !ok {
+		t.Fatalf("template definition missing: %#v", template)
+	}
+	mappings, ok := templateDefinition["mappings"].(map[string]any)
+	if !ok || mappings["dynamic"] != "strict" {
+		t.Fatalf("mapping dynamic mode = %#v, want strict", mappings)
+	}
+	properties, ok := mappings["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapping properties missing: %#v", mappings)
+	}
+	instance, ok := properties["instance_id"].(map[string]any)
+	if !ok || instance["type"] != "keyword" {
+		t.Fatalf("instance_id mapping = %#v, want keyword", properties["instance_id"])
+	}
+}
+
 func TestClientReestablishesTemplateAfterLiveClusterReset(t *testing.T) {
 	var mu sync.Mutex
 	templatePuts := 0
