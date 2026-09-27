@@ -40,6 +40,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `marshaller/internal/consumer/processor.go`、`marshaller/internal/consumer/processor_test.go` | 目标级阻塞隔离、成功后提交、永久错误继续和重复写语义明确 |
 | `marshaller/internal/elasticsearch/client.go`、`marshaller/internal/elasticsearch/events_client.go` | Logs/Events 只写观测 ES；错误不越过 offset |
 | `marshaller/internal/elasticsearch/client_test.go`、`marshaller/internal/elasticsearch/events_client_test.go` | 覆盖观测 ES 路径、故障、重试、重复写和跨目标拒绝 |
+| `marshaller/internal/logs/validation.go`、`marshaller/internal/logs/transform_test.go` | 共享日志结构中的副本实例身份在 Marshaller 校验、转换和永久错误边界保持一致 |
 | `marshaller/cmd/marshaller/main.go` | 多 partition 处理和各目标关闭共享同一有界生命周期 |
 | `monitor/internal/config/config.go`、`monitor/internal/config/config_test.go` | Router 多副本入口和源队列上界校验完整 |
 | `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go` | 远程日志校验允许副本实例身份字段，保证日志入口与共享日志结构一致 |

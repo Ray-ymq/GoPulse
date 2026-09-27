@@ -59,6 +59,12 @@ func TestClientIsBoundToObservabilityPurpose(t *testing.T) {
 	}
 }
 
+func TestLogMappingIncludesReplicaIdentity(t *testing.T) {
+	if requiredPropertyTypes["instance_id"] != "keyword" || !strings.Contains(templateBody, `"instance_id":{"type":"keyword"}`) {
+		t.Fatal("log mapping does not include instance_id")
+	}
+}
+
 func TestClientReestablishesTemplateAfterLiveClusterReset(t *testing.T) {
 	var mu sync.Mutex
 	templatePuts := 0

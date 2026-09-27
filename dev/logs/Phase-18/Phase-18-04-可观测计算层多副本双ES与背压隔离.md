@@ -113,3 +113,21 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `go test ./internal/logs`（Monitor）：通过。
 - `go test ./...`（Monitor）：通过。
 - `gofmt -w internal/logs/logs.go internal/logs/logs_test.go`：通过。
+
+远程复核补充：运行 `36331061451` 中其余门禁全部通过；Full-stack Compose closure 的管理员日志验收仍在 `waitForLogs` 超时。该运行的 Marshaller 输出明确出现 `invalid_log_payload`，确认上一修复只覆盖了 Monitor 入口，Marshaller 日志转换器和观测 ES 严格 mapping 仍未登记 `instance_id`。
+
+本次继续实际变更文件：
+
+- `marshaller/internal/logs/validation.go`、`marshaller/internal/logs/transform_test.go`：允许并校验副本 `instance_id`。
+- `marshaller/internal/elasticsearch/client.go`：将 `instance_id` 加入观测日志索引模板、既有索引 mapping 扩展和 mapping 校验字段。
+- `dev/imple/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：登记 Marshaller 日志校验文件范围。
+
+本次继续实际执行的检查与结果：
+
+- `gofmt -w internal/logs/validation.go internal/logs/transform_test.go internal/elasticsearch/client.go`（Marshaller）：通过。
+- `go test ./internal/logs ./internal/elasticsearch`（Marshaller）：通过。
+- `go test ./...`（Marshaller）：通过。
+- `go test ./...`（Monitor）：通过。
+- `gofmt -w internal/elasticsearch/client_test.go`（Marshaller）：通过。
+- `go test ./internal/logs ./internal/elasticsearch`（Marshaller，mapping 测试补充后重跑）：通过。
+- `git diff --check`：通过。
