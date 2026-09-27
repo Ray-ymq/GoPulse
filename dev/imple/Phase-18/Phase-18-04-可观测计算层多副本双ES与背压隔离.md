@@ -46,6 +46,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `componentmetrics/catalog.go`、`componentmetrics/validation.go` | 新增 buffer/ownership/partition 指标词汇固定且标签基数有限 |
 | `monitor/internal/metrics/collector/components.go`、`monitor/internal/metrics/collector/components_test.go` | 所有 Router/Marshaller 副本均被采集，不被 DNS 随机结果遗漏 |
 | `scripts/verify-compose-observability.sh` | 完整 Compose 验收适配 Phase-18 多副本拓扑：前端是唯一宿主入口，Backend 副本保持内网监听并通过网络边界校验 |
+| `.github/workflows/quality-gates.yml` | Compose 配置门禁按单一 Frontend 宿主入口校验回环发布数量，并保持其他产品服务无宿主发布 |
 | `scripts/verify-phase18-observability-scale.sh` | 正式模式仅接受 `--repetitions 2`；run-1 失败仍保存/清理并继续 run-2，不全局 prune |
 | `scripts/ci/phase18_observability_scale.py` | 两次同候选运行、逐次原始 evidence、平均摘要和失败阶段持久化 |
 | `scripts/ci/test_phase18_observability_scale.py` | 覆盖固定次数、跨写拒绝、平均计算、失败结果和 evidence 不可覆盖 |
