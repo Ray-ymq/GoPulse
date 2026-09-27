@@ -19,9 +19,20 @@ import (
 type Elasticsearch struct {
 	client  *elasticsearch.Client
 	timeout time.Duration
+	purpose string
+}
+
+func (client *Elasticsearch) Purpose() string {
+	if client == nil || client.purpose == "" {
+		return "search"
+	}
+	return client.purpose
 }
 
 func NewElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
+	if cfg.Purpose != "" && cfg.Purpose != "search" {
+		return nil, errors.New("elasticsearch client purpose must be search")
+	}
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: cfg.RequestTimeout}).DialContext,
@@ -41,7 +52,7 @@ func NewElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Elasticsearch{client: client, timeout: cfg.RequestTimeout}, nil
+	return &Elasticsearch{client: client, timeout: cfg.RequestTimeout, purpose: "search"}, nil
 }
 
 func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request) (*http.Response, error) {

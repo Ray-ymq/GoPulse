@@ -1,0 +1,77 @@
+# Phase-18-04：可观测计算层多副本双 ES 与背压隔离实施记录
+
+## 实际完成
+
+- 在 `develop/2.0.4` 完成 Router、Marshaller 双副本拓扑；为副本增加可识别的 `instance_id`，Kafka topic 使用四个 partition，并将 Router buffer、Marshaller in-flight/retry 与目标阻塞状态纳入有界配置和指标。
+- 完成 Marshaller generation ownership、revoke fencing、按 partition 并行且单 partition 保序、写入成功后提交 offset、永久坏记录继续处理和目标级重试/阻塞隔离。
+- 完成业务搜索 ES 与 Logs/Events ES 的独立服务、卷、网络和地址；为业务搜索与可观测写入增加 purpose 约束，防止跨 ES 写入。
+- 完成 Monitor 多端点轮询与故障转移；补齐 runtime contract、Compose、环境样例、README、前端版本元数据和 Phase 18-04 固定验收 runner。
+- 当前产品版本已同步为 `2.0.4`。
+
+实际变更文件：
+
+- `.env.example`、`VERSION`、`README.md`、`docs/runtime-contracts.md`、`deploy/compose.yaml`、`deploy/runtime-contracts.json`。
+- `frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json`。
+- `backend/README.md`、`backend/cmd/search-reindex/main.go`、`backend/cmd/search-reindex/main_test.go`、`backend/internal/config/config.go`、`backend/internal/config/config_test.go`、`backend/internal/platform/elasticsearch.go`、`backend/internal/platform/platform_test.go`、`backend/internal/search/elasticsearch.go`、`backend/internal/search/processor_test.go`。
+- `componentmetrics/catalog.go`、`componentmetrics/validation.go`、`componentmetrics/registry_test.go`。
+- `router/README.md`、`router/cmd/router/main.go`、`router/internal/config/config.go`、`router/internal/config/config_test.go`、`router/internal/kafka/producer.go`。
+- `marshaller/README.md`、`marshaller/cmd/marshaller/main.go`、`marshaller/internal/config/config.go`、`marshaller/internal/config/config_test.go`、`marshaller/internal/consumer/kafka.go`、`marshaller/internal/consumer/ownership.go`、`marshaller/internal/consumer/processor.go`、`marshaller/internal/consumer/processor_test.go`、`marshaller/internal/elasticsearch/client.go`、`marshaller/internal/elasticsearch/client_test.go`、`marshaller/internal/elasticsearch/events_client.go`、`marshaller/internal/elasticsearch/events_client_test.go`。
+- `monitor/README.md`、`monitor/cmd/monitor/main.go`、`monitor/internal/config/config.go`、`monitor/internal/config/config_test.go`、`monitor/internal/metrics/collector/components_test.go`、`monitor/internal/metrics/publisher/publisher.go`、`monitor/internal/metrics/publisher/publisher_test.go`。
+- `scripts/verify-phase18-observability-scale.sh`、`scripts/ci/phase18_observability_scale.py`、`scripts/ci/test_phase18_observability_scale.py`。
+- 本实施记录文件。
+
+## 实际执行的检查与结果
+
+- `git fetch origin --prune`：成功；从 `origin/main` 创建 `develop/2.0.4`，随后以 `git merge --ff-only develop/2.0.3` 保留已完成的前序 Phase 18-03 提交。
+- 各 Go 模块执行 `go test -count=1 ./...` 或 Backend 受影响包测试：componentmetrics、Router、Marshaller、Monitor、Backend 均通过。
+- 各 Go 模块执行 `go vet ./...`：通过。
+- 受影响模块 race 测试：通过。
+- `npm ci --ignore-scripts --dry-run`：frontend、admin-frontend 均通过。
+- `python3 -m unittest discover -s scripts/ci -p test_phase18_observability_scale.py`：通过。
+- `python3 -m py_compile scripts/ci/phase18_observability_scale.py`：通过。
+- `python3 scripts/ci/validate_versions.py`：通过。
+- `python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example`：通过。
+- `docker compose --env-file .env.example --file deploy/compose.yaml config --quiet`：通过。
+- `docker info`：通过。
+- `git diff --check`：通过。
+
+正式 runner 只调用一次：
+
+```text
+scripts/verify-phase18-observability-scale.sh --repetitions 2
+```
+
+命令退出码为 `0`，创建了唯一的 `run-1` 和 `run-2`，未执行第三轮。证据目录为：
+`.run/phase18-observability-scale-2.0.4-13e7a9da5566-47d164a903e2/`。
+
+## 正式两轮结果
+
+| 单元 | run-1 | run-2 | 结果 |
+| --- | --- | --- | --- |
+| U1 | 通过 | 通过 | `2/2` |
+| U2 | 通过 | 通过 | `2/2` |
+| U3 | `boundary_found` | `boundary_found` | `0/2 target_met` |
+| U4 | 通过 | 通过 | `2/2` |
+
+正式汇总结果为 `boundary_found`，`target_met_runs=0`。两轮 U3 均完成 Compose build/up、健康检查、管理员初始化、故障动作、恢复动作、业务 ES/可观测 ES/Kafka group 收尾检查和 Compose 清理；清理退出码均为 `0`。通过的 U3 场景为 setup、Router 副本故障转移、Marshaller rebalance、Kafka 短故障、业务搜索 ES 故障和可观测 ES 故障。
+
+U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
+
+| 场景 | run-1 | run-2 | 平均 |
+| --- | ---: | ---: | ---: |
+| normal | 58.006 | 63.640 | 60.823 |
+| router replica failover | 2.771 | 2.818 | 2.795 |
+| marshaller rebalance | 2.714 | 2.559 | 2.636 |
+| Kafka short fault | 2.705 | 2.839 | 2.772 |
+| business search ES fault | 2.789 | 2.577 | 2.683 |
+| observability ES fault | 2.731 | 2.814 | 2.772 |
+| VictoriaMetrics fault | 22.860 | 22.833 | 22.846 |
+| recovery | 49.021 | 48.898 | 48.960 |
+
+## 偏差、限制与后续项
+
+- 初始本地分支为已完成但尚未合入远端 `main` 的 `develop/2.0.3`；按 Phase 顺序从 `origin/main` 创建 `develop/2.0.4` 后 fast-forward 保留其六个前序提交。这是为保留前序批次成果所做的基线偏差。
+- Phase-18-04 清单未单列 `componentmetrics/registry_test.go`，但新增固定指标族改变了 registry 的最大样本数；该测试同步调整为新的固定预算，否则直接测试会失败。此项已在本记录中明确登记。
+- 两轮 U3 的 `normal` 和 `recovery` 浏览器验收均在 `waitForLogs` 等待窗口内未看到记录；两轮 VictoriaMetrics 故障验收均未看到预期的不可用提示。现有证据只能确认这些 acceptance 断言失败，未在固定两轮之外继续定位。
+- 两轮四个副本 metrics probe 均退出码 `1`。冻结证据中的 probe 命令使用了 `$$ROUTER_METRICS_TOKEN` / `$$MARSHALLER_METRICS_TOKEN` 形式，未提供有效副本指标证据；这是验收脚本的后续修复项。由于本批固定 runner 只能执行一次且不得追加第三轮，未在本批修改后重跑。
+- 因 U3 在两轮均存在上述边界，本批结果不宣称 `target_met`；按计划要求仍同步 `VERSION=2.0.4`、创建本记录并提交。

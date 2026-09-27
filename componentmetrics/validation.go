@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"unicode/utf8"
 )
 
 type Sample struct {
@@ -32,6 +33,14 @@ func ValidateSample(id string, s Sample) error {
 	spec, ok := Catalog(id)
 	if !ok {
 		return errors.New("invalid component")
+	}
+	if len(s.Name) > 128 {
+		return errors.New("invalid component sample")
+	}
+	for key, value := range s.Labels {
+		if len(key) > 64 || len(value) > 128 || !utf8.ValidString(key) || !utf8.ValidString(value) {
+			return errors.New("invalid component labels")
+		}
 	}
 	for _, f := range spec.Families {
 		if f.Name == s.Name {

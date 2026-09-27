@@ -60,7 +60,13 @@ func ScrapeTargets() [][]string {
 		result = append(result, []string{"exporter_plugin", id + "-exporter-local"})
 	}
 	for _, id := range Components {
-		result = append(result, []string{"component", Target(id)})
+		endpoints, err := ReplicaEndpoints(id)
+		if err != nil {
+			endpoints = []string{id}
+		}
+		for _, endpoint := range endpoints {
+			result = append(result, []string{"component", TargetFor(id, endpoint)})
+		}
 	}
 	return result
 }
@@ -79,6 +85,14 @@ func singles(values ...string) [][]string {
 		out = append(out, []string{v})
 	}
 	return out
+}
+
+func partitionTuples() [][]string {
+	values := make([][]string, 0, 16)
+	for partition := 0; partition < 16; partition++ {
+		values = append(values, []string{fmt.Sprintf("%d", partition)})
+	}
+	return values
 }
 
 // Catalog is the authoritative producer, Monitor, Marshaller and Backend
@@ -135,7 +149,10 @@ func Catalog(id string) (Spec, bool) {
 		pair("messages_total", "produce_duration_seconds_total", []string{"type", "message_source", "result"}, expand(MessagePairs(), "accepted", "rejected", "produced"))
 		gauge("buffered_records", "count", nil, nil)
 		gauge("buffered_bytes", "bytes", nil, nil)
+		gauge("buffer_limit_records", "count", nil, nil)
+		gauge("buffer_limit_bytes", "bytes", nil, nil)
 		gauge("last_kafka_ack_timestamp_seconds", "unix_seconds", nil, nil)
+		pair("backpressure_total", "backpressure_duration_seconds_total", []string{"reason"}, singles("buffer_full", "kafka_failure", "request_canceled"))
 		dep("kafka")
 	case "marshaller":
 		var tuples [][]string
@@ -147,6 +164,10 @@ func Catalog(id string) (Spec, bool) {
 		pair("records_total", "record_processing_duration_seconds_total", []string{"type", "message_source", "stage", "result"}, tuples)
 		gauge("records_in_flight", "count", nil, nil)
 		gauge("retrying", "count", nil, nil)
+		gauge("partition_ownership", "state", []string{"partition"}, partitionTuples())
+		gauge("partition_lag", "count", []string{"partition"}, partitionTuples())
+		gauge("partition_generation", "count", []string{"partition"}, partitionTuples())
+		gauge("target_blocked", "state", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_storage_success_timestamp_seconds", "unix_seconds", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_commit_success_timestamp_seconds", "unix_seconds", nil, nil)
 		dep("kafka", "victoriametrics", "elasticsearch")

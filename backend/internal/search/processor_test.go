@@ -20,6 +20,10 @@ func (performer performerFunc) Perform(ctx context.Context, request *http.Reques
 	return performer(ctx, request)
 }
 
+type observationPerformer struct{ performerFunc }
+
+func (observationPerformer) Purpose() string { return "observability" }
+
 type processorStore struct {
 	document Document
 	err      error
@@ -123,6 +127,16 @@ func TestElasticsearchRepositoryIndexAliasRequiresAliasAndClassifiesStatuses(t *
 				t.Fatalf("IndexAlias() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestElasticsearchRepositoryRefusesObservationClient(t *testing.T) {
+	repository := NewElasticsearchRepository(observationPerformer{performerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+		t.Fatal("observation client was invoked by business search repository")
+		return nil, nil
+	})})
+	if _, err := repository.AliasExists(context.Background()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("AliasExists() error = %v, want ErrUnavailable", err)
 	}
 }
 

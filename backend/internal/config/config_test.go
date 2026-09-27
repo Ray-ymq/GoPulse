@@ -33,6 +33,9 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Monitor.RequestTimeout != 30*time.Second {
 		t.Fatalf("Monitor timeout = %s, want 30s", cfg.Monitor.RequestTimeout)
 	}
+	if cfg.Elasticsearch.Purpose != "search" {
+		t.Fatalf("Elasticsearch purpose = %q, want search", cfg.Elasticsearch.Purpose)
+	}
 	if cfg.Auth.JWTTTL != 2*time.Hour || cfg.Auth.CookieName != "gopulse_session" || cfg.Auth.CookieSecure {
 		t.Fatalf("Auth config = %#v, want local defaults", cfg.Auth)
 	}

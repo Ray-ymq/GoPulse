@@ -41,3 +41,28 @@ func TestComponentIngressContract(t *testing.T) {
 		}
 	}
 }
+
+func TestComponentCatalogIncludesEveryExplicitObservabilityReplica(t *testing.T) {
+	t.Setenv("ROUTER_ENDPOINTS", "router,router-2")
+	t.Setenv("MARSHALLER_ENDPOINTS", "marshaller,marshaller-2")
+	spec, ok := componentmetrics.Catalog("monitor")
+	if !ok {
+		t.Fatal("monitor catalog missing")
+	}
+	seen := map[string]bool{}
+	for _, family := range spec.Families {
+		if family.Name != "gopulse_monitor_scrapes_total" {
+			continue
+		}
+		for _, tuple := range family.Tuples {
+			if len(tuple) >= 3 {
+				seen[tuple[0]+":"+tuple[1]+":"+tuple[2]] = true
+			}
+		}
+	}
+	for _, target := range []string{"component:router-local", "component:router-2-local", "component:marshaller-local", "component:marshaller-2-local"} {
+		if !seen[target+":scrape_success"] {
+			t.Fatalf("target %s missing from monitor catalog", target)
+		}
+	}
+}

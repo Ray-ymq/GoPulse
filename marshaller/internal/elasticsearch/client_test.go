@@ -49,6 +49,16 @@ func TestClientEnsuresFixedTemplateAndVerifiesWrittenIndex(t *testing.T) {
 	}
 }
 
+func TestClientIsBoundToObservabilityPurpose(t *testing.T) {
+	client, err := New("http://127.0.0.1:9200", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.Purpose() != "observability" {
+		t.Fatalf("Purpose() = %q", client.Purpose())
+	}
+}
+
 func TestClientReestablishesTemplateAfterLiveClusterReset(t *testing.T) {
 	var mu sync.Mutex
 	templatePuts := 0

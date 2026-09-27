@@ -46,6 +46,15 @@ func TestClientsCanBeConstructedWhenDependenciesAreUnavailable(t *testing.T) {
 	}
 }
 
+func TestElasticsearchRejectsObservationPurpose(t *testing.T) {
+	_, err := NewElasticsearch(config.ElasticsearchConfig{
+		URL: "http://127.0.0.1:9200", RequestTimeout: time.Second, Purpose: "observability",
+	})
+	if err == nil {
+		t.Fatal("observation Elasticsearch purpose was accepted by the business client")
+	}
+}
+
 func TestMySQLDriverConfigUsesUTCAndUTF8MB4(t *testing.T) {
 	cfg := mysqlDriverConfig(config.MySQLConfig{
 		Host:     "mysql.internal",

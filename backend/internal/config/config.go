@@ -152,6 +152,7 @@ type ElasticsearchConfig struct {
 	URL            string
 	RequestTimeout time.Duration
 	ReindexBatch   int
+	Purpose        string
 }
 
 type ReindexConfig struct {
@@ -861,5 +862,5 @@ func loadElasticsearchConfig(lookup LookupFunc, runtimeMode RuntimeMode) (Elasti
 	if batch < minimumSearchReindexBatch || batch > maximumSearchReindexBatch {
 		return ElasticsearchConfig{}, fmt.Errorf("SEARCH_REINDEX_BATCH must be between %d and %d", minimumSearchReindexBatch, maximumSearchReindexBatch)
 	}
-	return ElasticsearchConfig{URL: strings.TrimRight(rawURL, "/"), RequestTimeout: timeout, ReindexBatch: batch}, nil
+	return ElasticsearchConfig{URL: strings.TrimRight(rawURL, "/"), RequestTimeout: timeout, ReindexBatch: batch, Purpose: "search"}, nil
 }
