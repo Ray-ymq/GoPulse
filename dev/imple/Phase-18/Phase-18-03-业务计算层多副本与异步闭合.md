@@ -30,11 +30,13 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | 文件 | 文件级验收条件 |
 | --- | --- |
 | `.env.example` | 新增副本、连接或实例身份配置具有安全默认值、范围说明且不含真实凭据 |
-| `deploy/compose.yaml` | 两个 Backend、Worker、Indexer 可被唯一识别并共享正确网络/Secret；只保留既有边缘端口 |
+| `deploy/compose.yaml` | 两个 Backend、Worker、Indexer 可被唯一识别并共享正确网络/Secret；Frontend 是唯一宿主机入口，Backend 仅由 Frontend upstream 访问且不发布宿主端口 |
 | `deploy/docker/frontend/nginx.conf` | 单一入口可把请求分配给两个 Backend，失败实例不会要求用户重新登录或暴露内部地址 |
+| `.github/workflows/quality-gates.yml` | Compose 发布检查与单一 Frontend 入口一致：恰有一个 `127.0.0.1` 宿主机绑定，并继续校验镜像版本、内部网络和迁移依赖 |
 | `deploy/runtime-contracts.json`、`docs/runtime-contracts.md` | 新配置、实例身份和副本角色与实际进程/Compose 一致，不提前声明未交付能力 |
 | `backend/internal/config/config.go` | 新配置强类型解析、上下界和交叉预算验证完整，错误只包含 key |
 | `backend/internal/config/config_test.go` | 覆盖默认值、边界、非法值和总连接预算负例 |
+| `backend/internal/config/worker.go`、`backend/internal/config/search_indexer.go` | Worker/Indexer 使用与副本预算一致的 MySQL 连接池配置，不回退到进程内硬编码放大 |
 | `backend/internal/platform/mysql.go` | 连接池不再硬编码放大；生命周期和 timeout 语义保持 |
 | `backend/internal/platform/platform_test.go` | 证明连接池配置被准确应用且非法预算不能启动 |
 | `backend/cmd/server/main.go` | 每个副本使用独立实例身份；Outbox/告警后台职责的 owner 与关闭顺序明确 |
@@ -46,12 +48,14 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `backend/internal/worker/runtime.go`、`backend/internal/worker/profile.go` | consumer identity 唯一；prefetch、ack/requeue、重连和退出保持有界 |
 | `backend/internal/worker/runtime_test.go`、`backend/internal/worker/integration_test.go` | 两个 consumer 都处理消息；退出/重连后无永久丢失或越权 ack |
 | `componentmetrics/config.go`、`componentmetrics/catalog.go` | 实例身份与新增容量指标词汇固定、有限且不含随机高基数标签 |
+| `componentmetrics/logging.go` | 公共结构化日志携带有界实例身份且保留保留字段冲突保护 |
 | `componentmetrics/runtime_test.go`、`componentmetrics/registry_test.go` | 验证实例标签、目录容量和重复/未知标签拒绝 |
 | `monitor/internal/metrics/collector/components.go` | 采集不会因 DNS 随机选择而遗漏业务计算副本 |
 | `monitor/internal/metrics/collector/components_test.go` | 两个同类实例均被采集且各自身份可区分 |
 | `scripts/verify-phase18-business-scale.sh` | 正式模式只接受固定 `--repetitions 2`；run-1 失败仍保存/清理并继续 run-2，不执行全局 prune |
 | `scripts/ci/phase18_business_scale.py` | 绑定同一候选/条件，写 `run-1`、`run-2` 和平均摘要，禁止第三次运行 |
 | `scripts/ci/test_phase18_business_scale.py` | 覆盖次数拒绝、平均计算、失败保留、证据不可覆盖和候选不一致拒绝 |
+| `frontend/e2e/compose-business.spec.ts` | 故障场景的异步业务写入在场景退出前完成，避免验收时序掩盖 Outbox/RabbitMQ 恢复结果 |
 | `backend/README.md`、`README.md` | 只记录实际多副本配置、运行入口、结果类型和仍未证明的状态层边界 |
 | `dev/logs/Phase-18/Phase-18-03-业务计算层多副本与异步闭合.md` | 只记录实际修改、两次命令/结果、平均值、偏差、限制和结果类型 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本均为 `2.0.3`，由同步/校验脚本证明一致 |
