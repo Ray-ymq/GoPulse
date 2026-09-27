@@ -56,6 +56,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `scripts/ci/test_phase18_observability_scale.py` | 覆盖固定次数、跨写拒绝、平均计算、失败结果和 evidence 不可覆盖 |
 | `router/README.md`、`marshaller/README.md`、`monitor/README.md`、`backend/README.md`、`README.md` | 配置、双 ES、背压和多副本边界与实际实现一致，不宣称 broker/存储 HA |
 | `scripts/verify-logs.sh`、`scripts/verify-events.sh` | 独立宿主验收为 Backend 查询显式提供观测 ES 地址，保持日志/事件读写落在同一观测存储 |
+| `admin-frontend/src/views/ObservabilityMetricsView.vue`、`admin-frontend/src/views/ObservabilityMetricsView.test.ts` | Metrics 查询在代理保留 503 状态但错误码变化时仍显示 VictoriaMetrics 不可用提示，并保持并发请求状态隔离 |
 | `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md` | 记录实际文件、两次命令/结果、均值、故障隔离结论与限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本一致为 `2.0.4` |
 

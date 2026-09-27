@@ -156,3 +156,21 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `python3 -m json.tool deploy/runtime-contracts.json`、`git diff --check`：通过。
 
 限制与后续：本地未重复 Phase-18-04 固定两轮正式验收；本次提交推送后等待远程完整门禁重新执行并确认 PR 自动化结果。
+
+远程复核补充：运行 `36333259282` 中除 Full-stack Compose acceptance 外的门禁均通过；Full-stack 的 Backend 已对 VictoriaMetrics 停止场景返回两次 `503 metrics_unavailable`，但管理端 Metrics 页面未显示预期不可用提示，自动 PR job 因此跳过。该失败发生在前次双 ES 查询修复之后，属于 Metrics 页面在 Frontend 代理 503 响应和请求并发取消边界的缺陷。
+
+本次继续实际变更文件：
+
+- `admin-frontend/src/views/ObservabilityMetricsView.vue`：按 Metrics 接口的 503 状态兜底显示 VictoriaMetrics 不可用提示；请求错误处理使用请求本地的 AbortController，避免被后续请求覆盖。
+- `admin-frontend/src/views/ObservabilityMetricsView.test.ts`：增加代理仅保留 503 状态和请求被替代后的页面提示回归测试。
+- `dev/imple/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：登记上述管理端文件范围。
+
+本次实际执行的检查与结果：
+
+- `npx vitest run src/views/ObservabilityMetricsView.test.ts`：2 项通过。
+- `npm run typecheck`（Admin Frontend）：通过。
+- `npm test -- --run`（Admin Frontend）：12 个测试文件、45 项通过。
+- `npm run build`（Admin Frontend）：通过。
+- `git diff --check`：通过。
+
+限制与后续：本地未重复 Phase-18-04 固定两轮正式验收；本次修复提交推送后等待远程 Full-stack Compose acceptance 和 PR 自动化结果。
