@@ -33,7 +33,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `deploy/compose.yaml` | 两个 Backend、Worker、Indexer 可被唯一识别并共享正确网络/Secret；Frontend 是唯一宿主机入口，Backend 仅由 Frontend upstream 访问且不发布宿主端口 |
 | `deploy/docker/frontend/nginx.conf` | 单一入口可把请求分配给两个 Backend，失败实例不会要求用户重新登录或暴露内部地址 |
 | `.github/workflows/quality-gates.yml` | Compose 发布检查与单一 Frontend 入口一致：恰有一个 `127.0.0.1` 宿主机绑定，并继续校验镜像版本、内部网络和迁移依赖 |
-| `scripts/verify-compose.sh` | 权威全栈闭合检查只要求 Frontend 绑定一次 IPv4 loopback，并明确拒绝 Backend 发布宿主端口；其他内部服务继续禁止发布端口 |
+| `scripts/verify-compose-observability.sh` | 权威全栈闭合检查只要求 Frontend 绑定一次 IPv4 loopback，并明确拒绝 Backend 发布宿主端口；其他内部服务继续禁止发布端口 |
 | `deploy/runtime-contracts.json`、`docs/runtime-contracts.md` | 新配置、实例身份和副本角色与实际进程/Compose 一致，不提前声明未交付能力 |
 | `backend/internal/config/config.go` | 新配置强类型解析、上下界和交叉预算验证完整，错误只包含 key |
 | `backend/internal/config/config_test.go` | 覆盖默认值、边界、非法值和总连接预算负例 |

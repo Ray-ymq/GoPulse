@@ -111,6 +111,7 @@ Phase-18-03～18-05 的分支从开始该批时最新的 primary remote `main` �
 - 业务搜索 Elasticsearch 与 Logs/Events Elasticsearch 使用独立服务、卷、地址和网络边界。
 - Metrics、Logs、Events 目标级故障互不形成全局阻塞；队列满和远程失败有明确、有界行为。
 - 每个 Router/Marshaller 副本都具有可区分的日志、指标和处理证据。
+- Monitor 将多 Router 目标池接入运行时 publisher，并保持有界的选择与故障转移。
 
 文件级验收、两次验证单元和完成条件见
 [`Phase-18-04`](Phase-18-04-可观测计算层多副本双ES与背压隔离.md)。
