@@ -1,6 +1,6 @@
 # GoPulse 阶段性开发文档
 
-本目录将 [`Plan.md`](Plan.md) 拆分为各阶段提纲。Phase 17 已在 `1.14.5` 完成并收口 Milestone 4；已完成阶段的提纲、实施方案和记录保持历史原貌。Phase 18 已由总实施方案分配为 `2.0.x` 的五个执行批次，当前完成产品版本仍为 `1.14.5`。
+本目录将 [`Plan.md`](Plan.md) 拆分为各阶段提纲。Phase 17 已在 `1.14.5` 完成并收口 Milestone 4；Phase-18-01/02 已在 `2.0.2` 完成容量定界和 Outbox 调度修复。Phase-18-03～18-05 已重新分配为 `2.0.3`～`2.0.5`，用于完成多副本、故障隔离、背压和独立诊断。当前完成产品版本为 `2.0.2`。
 
 ## 阶段索引
 
@@ -24,9 +24,9 @@
 | Phase 15 | `1.12.x` | [告警与管理端闭环](Phase-15-告警与管理端闭环.md) | 内部告警、双角色与独立管理端大屏 | Milestone 4 |
 | Phase 16 | `1.13.x` | [Linux 产品化与双前端交付](Phase-16-Linux产品化与双前端交付.md) | 同域双前端与 Linux `amd64` 产品交付 | Milestone 4 |
 | Phase 17 | `1.14.x` | [稳定性与工程化](Phase-17-稳定性与工程化.md) | 完整产品质量验收 | Milestone 4 收口 |
-| Phase 18 | `2.0.x` | [高并发与可观测架构收敛](Phase-18-高并发与可观测架构收敛.md) | 容量基线、多副本、背压与故障隔离 | Milestone 5 |
+| Phase 18 | `2.0.x` | [高并发与可观测架构收敛](Phase-18-高并发与可观测架构收敛.md) | 容量边界、计算层多副本、双 ES、背压与独立诊断 | Milestone 5 收口 |
 
-## 已完成执行顺序
+## 当前执行顺序
 
 ```text
 Phase 12 已完成的 Compose 基线
@@ -35,9 +35,16 @@ Phase 12 已完成的 Compose 基线
 → Phase 15 告警与管理端
 → Phase 16 Linux 产品化与双前端交付
 → Phase 17 完整产品工程验收
+→ Phase-18-01/02 容量定界与 Outbox 收口
+→ Phase-18-03～18-05 计算层多副本、故障隔离与阶段收口（下一批次）
 ```
 
-Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。Phase 18 将优先证明容量、多副本、背压和故障隔离，不以部署平台变更替代产品自身验证。
+Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。Phase 18 随后完成容量定界并将未证明项固定为下一阶段输入，没有以部署平台变更替代产品自身验证。
+
+Phase-18-01/02 已完成容量定界，但没有证明 `150 RPS` 稳定容量。Phase-18-03～18-05 继续处理
+计算层多副本正确性、业务/观测存储隔离、显式背压和独立诊断；其后才重新立项容量认证、
+状态层 HA 与 Kubernetes。
+完整发展顺序见 [高并发与可观测后续路线图](GoPulse-高并发与可观测后续路线图.md)。
 
 Kubernetes 基础部署、统一入口和集群观测已移至 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)，仅作为未排期设计，不属于当前 Phase、版本或里程碑。
 
