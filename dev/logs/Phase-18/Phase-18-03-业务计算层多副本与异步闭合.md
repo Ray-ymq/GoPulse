@@ -9,6 +9,7 @@
 - 修复 acceptance `worker-seed` 的异步等待：评论提交和点赞请求均确认完成后才退出；将 `worker-verify` 等待窗口调整为 75 秒，覆盖已配置的 30 秒 Outbox/RabbitMQ 发布重试预算。
 - 修复 PR 门禁发现的 Compose 环境泄漏：运行进程使用连接池配置锚点，迁移容器保持最小数据库环境；Compose 发布门禁同步为单一 Frontend loopback 入口。
 - 更新 Monitor 日志接收 schema：接受公共结构化 logger 发出的有界 `instance_id`，并复用共享身份校验器拒绝非法值。
+- 修复 PR #180 暴露的日志身份链路缺口：Marshaller 索引契约校验及旧索引升级接受 `instance_id`，Backend 查询 DTO 保留该字段，管理前端严格 DTO 接受该字段且继续拒绝未知字段；Compose 管理日志场景验证详情展示。
 - 更新 runtime contract、运行时文档、README、版本元数据和 Phase 18-03 记录；`VERSION`、`.env.example`、两个前端 package 与两个 lockfile 均为 `2.0.3`。
 
 实际变更文件：
@@ -21,6 +22,7 @@
 - `scripts/ci/phase18_business_scale.py`、`scripts/ci/test_phase18_business_scale.py`、`scripts/verify-phase18-business-scale.sh`。
 - `scripts/verify-compose-observability.sh`。
 - `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go`。
+- PR #180 日志身份修复：`marshaller/internal/logs/validation.go`、`marshaller/internal/logs/transform_test.go`、`marshaller/internal/elasticsearch/client.go`、`marshaller/internal/elasticsearch/client_test.go`、`backend/internal/logquery/logquery.go`、`backend/internal/logquery/logquery_test.go`、`admin-frontend/src/types/observability.ts`、`admin-frontend/src/services/observability.ts`、`admin-frontend/src/services/observability.test.ts`、`frontend/e2e/compose-observability.spec.ts`。
 - 本实施记录文件。
 
 ## 实际执行的检查与结果
@@ -44,6 +46,14 @@
 - 在 `monitor/` 执行 `gofmt -w internal/logs/logs.go internal/logs/logs_test.go` 与 `go test -count=1 ./internal/logs ./internal/httpserver`：通过。
 - `git diff --check`：通过。
 - 范围清单先在 `update` 修订并由 PR #181 以 merge commit 合入 `main`；随后把更新合入 `develop/2.0.3`，才修改已登记的 `.github/workflows/quality-gates.yml`。
+- `(cd backend && go test -count=1 ./internal/logquery)`：通过；`(cd marshaller && go test -count=1 ./internal/logs ./internal/elasticsearch)`：通过。
+- 在修正 Marshaller `instance_id` 索引契约及旧索引映射后，`(cd marshaller && go test -count=1 ./internal/elasticsearch)`：通过；`git diff --check`：通过。
+- 在管理前端登记范围后，`(cd admin-frontend && npm test -- --run src/services/observability.test.ts)`：8 项通过；`git diff --check`：通过。
+- PR #180 Actions run `36320699044`：所有其他门禁通过；Full-stack Compose acceptance 的 admin `waitForLogs` 45 秒后仍为 0 条。根因是 strict index verification 的字段集合漏了 `instance_id`；template 已有该 mapping，导致字段计数与索引契约不一致并触发存储重试。
+- PR #180 Actions run `36321387651`：加入 ES 索引契约字段后，Full-stack Compose 仍在 admin `waitForLogs` 失败；Backend 日志查询已返回非空记录（响应体 15,884 字节），管理前端 `LogEntry` 严格白名单未接受新增的 `instance_id`，因此未渲染记录。
+- PR #180 Actions run `36322235076`：Branch governance、Backend、Router、Marshaller、Monitor、Redis Exporter、两个前端、Scripts and Compose、Integration 和 Full-stack Compose acceptance 全部通过；PR #180 于 2026-09-27 合入，merge commit `ec481f1dbf8a91e411e3cd53240468550b0cf00e`。
+- `scripts/verify-phase18-business-scale.sh --repetitions 2` 在 `7b54ef3` 上的本地后续尝试未产生 summary；不作为通过或失败证据。对其遗留的专属 Compose 项目执行 `docker compose --project-name gopulse-p1803-5100853359f1-r2 --env-file .run/phase18-business-scale-2.0.3-7b54ef3d6560-cf541f2adafc/run-2/U3/compose.env --file deploy/compose.yaml down --volumes --remove-orphans`，退出码 `0`。
+- 前端 DTO 清单遗漏通过 `update` 的 PR #188 修订并先于代码变更合入 `main`。
 
 为遵守候选证据不可复用规则，正式验收在每次相关 runner/acceptance 修订后创建新候选；每个候选均只调用一次固定命令 `scripts/verify-phase18-business-scale.sh --repetitions 2`，没有执行第三轮：
 
@@ -129,5 +139,6 @@
 - 首轮 PR 检查发现共享数据库环境锚点给迁移容器传递了其不使用的连接池预算，且通用 Compose 门禁仍按旧的双宿主端口拓扑断言。先在 `update` 补登记 `.github/workflows/quality-gates.yml` 和单一入口条件，再拆分 Compose pool anchor、把门禁计数改为一个；随后冻结新 revision 并重新执行唯一的两轮候选验收。
 - PR #180 的 Actions run `36315775113` 中，Scripts and Compose 通过而 Full-stack Compose acceptance 失败，原因为仍断言 Backend 必须映射宿主 loopback。追踪调用后确认 `scripts/verify-compose.sh --full` 将执行委托给 `scripts/verify-compose-observability.sh`；先前对 wrapper 分支的试改已恢复，随后在 `update` 的 PR #185 登记实际委托脚本，并只在该全栈断言中保留 Frontend loopback、拒绝 Backend 宿主端口。修正后对两个脚本执行 Bash 语法检查和差异空白检查，均通过。
 - Actions run `36316456345` 的端口拓扑、Monitor 初始化、安全边界、业务迁移及 Worker/Indexer 恢复均通过；唯一失败为 admin E2E 的 `waitForLogs` 在 45 秒内未读到记录。容器日志显示 Backend/Worker/Indexer 发送的新结构化日志均收到 `permanent_rejection`；Monitor `allowedFields` 不含公共 logger 新增的 `instance_id`。该实际 schema 不兼容已在 `update` 的 PR #186 预先登记并修复；`monitor/internal/logs` 与 `monitor/internal/httpserver` 定向测试通过。
+- PR 门禁修复在 `8316922` 正式两轮候选后继续进行；该候选的 U1～U4 evidence 仍只绑定 `8316922895c4ff31aa733b6047afd5badb49d76b`。其后的 PR 修复由定向包测试与最终 GitHub Full-stack Compose acceptance 验证；`7b54ef3` 上未完成的本地 Phase 18-03 runner 没有 summary，未发布或复用其 evidence，也没有把该旧候选矩阵结果表述为对 `b8cadaf` 的新矩阵结果。
 - Phase 18-03 清单外的 `componentmetrics/logging.go`、`backend/internal/config/worker.go`、`backend/internal/config/search_indexer.go` 已在 `update` 的 `9693fe3` 登记；`frontend/e2e/compose-business.spec.ts` 已在 `update` 的 `461da86` 登记后才修改。
-- 最终结果是本批固定验收矩阵的 `target_met`；`VERSION=2.0.3` 表示本批版本元数据已同步，不扩大为对未覆盖生产环境的泛化保证。
+- 本批固定验收矩阵在候选 `8316922895c4ff31aa733b6047afd5badb49d76b` 的结果为 `target_met`，该结论只绑定该 revision 与其 evidence；`VERSION=2.0.3` 表示本批版本元数据已同步，不扩大为对未覆盖生产环境的泛化保证。
