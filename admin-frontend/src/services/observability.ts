@@ -161,7 +161,7 @@ const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolea
  gopulse_victoriametrics_storage_rows_deleted_total:{kind:'counter',unit:'count'},
 }
 const rangeNames = new Set(ranges.map((item) => item.value))
-const logKeys = new Set(['timestamp','level','service','module','message','request_id','event_id','event_type','user_id','post_id','comment_id','notification_id','outbox_id','method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size','document_count','panic_recovered','response_committed'])
+const logKeys = new Set(['timestamp','level','service','instance_id','module','message','request_id','event_id','event_type','user_id','post_id','comment_id','notification_id','outbox_id','method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size','document_count','panic_recovered','response_committed'])
 const metadataKeys = new Set(['plugin_id','plugin_version','previous_plugin_version','operation','from_state','to_state','error_code','scrape_status'])
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 function keysAllowed(value: Record<string, unknown>, allowed: Set<string>): boolean { return Object.keys(value).every((key) => allowed.has(key)) }
@@ -215,7 +215,7 @@ export function isLogEntry(value: unknown): value is LogEntry {
   if (!record(value) || !keysAllowed(value, logKeys) || !timestamp(value.timestamp) || !['info','warn','error'].includes(String(value.level)) || typeof value.service !== 'string' || typeof value.module !== 'string' || typeof value.message !== 'string') return false
   const service = logCatalog[value.service]; const messages = service?.[value.module]
   if (!messages || !messages.includes(value.message)) return false
-  for (const key of ['request_id','event_id','event_type','method','route','error_code','reason','operation','resource','stage','result']) if (!optionalString(value[key])) return false
+  for (const key of ['instance_id','request_id','event_id','event_type','method','route','error_code','reason','operation','resource','stage','result']) if (!optionalString(value[key])) return false
   for (const key of ['user_id','post_id','comment_id','notification_id','outbox_id','status','duration_ms','response_bytes','attempt','batch_size','document_count']) if (!optionalInteger(value[key])) return false
   return (value.panic_recovered === undefined || typeof value.panic_recovered === 'boolean') && (value.response_committed === undefined || typeof value.response_committed === 'boolean')
 }

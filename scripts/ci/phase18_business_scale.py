@@ -477,6 +477,9 @@ def run_u1(run_dir: Path) -> dict[str, Any]:
         ("backend-go-test", ROOT / "backend", ["go", "test", "-count=1", "./internal/config", "./internal/platform", "./internal/outbox", "./internal/alert", "./internal/worker", "./cmd/server"]),
         ("componentmetrics-go-test", ROOT / "componentmetrics", ["go", "test", "-count=1", "./..."]),
         ("collector-go-test", ROOT / "monitor", ["go", "test", "-count=1", "./internal/metrics/collector"]),
+        ("backend-logquery-go-test", ROOT / "backend", ["go", "test", "-count=1", "./internal/logquery"]),
+        ("marshaller-logs-go-test", ROOT / "marshaller", ["go", "test", "-count=1", "./internal/logs"]),
+        ("marshaller-elasticsearch-go-test", ROOT / "marshaller", ["go", "test", "-count=1", "./internal/elasticsearch"]),
     ]
     results = [record_command(directory, name, args, cwd=cwd, timeout=600) for name, cwd, args in commands]
     return {"commands": results, "passed": all(item["exit_code"] == 0 for item in results)}

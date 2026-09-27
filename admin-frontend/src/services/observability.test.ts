@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { componentContract } from './componentMetrics'
-import { isEventEntry, isMetricResult, observabilityApi } from './observability'
+import { isEventEntry, isLogEntry, isMetricResult, observabilityApi } from './observability'
 
 function response(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }) }
 afterEach(() => vi.unstubAllGlobals())
@@ -14,6 +14,11 @@ describe('observability runtime boundary', () => {
   it('rejects unknown metric and event fields', () => {
     expect(isMetricResult({ metric:'gopulse_redis_up',kind:'gauge',unit:'boolean',range:'15m',from:'2026-09-05T08:00:00Z',to:'2026-09-05T08:15:00Z',step_seconds:15,series:[],query:'secret' })).toBe(false)
     expect(isEventEntry({ timestamp:'2026-09-05T08:00:00Z',event_name:'exporter_plugin_started',source:'monitor',severity:'info',message:'exporter plugin started',metadata:{plugin_id:'redis-exporter'},index:'private' })).toBe(false)
+  })
+  it('accepts instance identity in log records while rejecting unknown fields', () => {
+    const entry = { timestamp:'2026-09-05T08:00:00Z',level:'info',service:'backend',instance_id:'backend-1',module:'http',message:'http request completed' }
+    expect(isLogEntry(entry)).toBe(true)
+    expect(isLogEntry({...entry, private_field:'hidden'})).toBe(false)
   })
   it('rejects impossible metric and event contracts', () => {
     expect(isMetricResult({ metric:'gopulse_redis_up',kind:'gauge',unit:'boolean',range:'15m',from:'2026-09-05T08:15:00Z',to:'2026-09-05T08:00:00Z',step_seconds:999,series:[{labels:{},points:[{timestamp:'2026-09-05T08:10:00Z',value:1},{timestamp:'2026-09-05T08:09:00Z',value:1}]},{labels:{},points:[]}] })).toBe(false)

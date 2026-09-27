@@ -21,7 +21,7 @@ func TestTransformerBuildsStrictIdempotentWriteRequest(t *testing.T) {
 	if json.Unmarshal(body, &request) != nil {
 		t.Fatalf("body=%s", body)
 	}
-	if request.MessageID != message.MessageID || request.IndexDate != "2026.09.04" || !strings.Contains(string(request.Document), `"@timestamp":"2026-09-04T12:00:00Z"`) || strings.Contains(string(request.Document), `"message_id"`) {
+	if request.MessageID != message.MessageID || request.IndexDate != "2026.09.04" || !strings.Contains(string(request.Document), `"@timestamp":"2026-09-04T12:00:00Z"`) || !strings.Contains(string(request.Document), `"instance_id":"backend-2"`) || strings.Contains(string(request.Document), `"message_id"`) {
 		t.Fatalf("request=%+v document=%s", request, request.Document)
 	}
 }
@@ -31,6 +31,18 @@ func TestTransformerRejectsUnsafeInstanceIdentity(t *testing.T) {
 	message := envelope.Envelope{MessageID: "abcdef0123456789abcdef0123456789", Type: "logs", Source: "backend", Timestamp: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC), RawPayload: payload}
 	if _, err := (Transformer{}).Transform(message); envelope.Code(err) != "invalid_log_payload" {
 		t.Fatalf("error=%v code=%q", err, envelope.Code(err))
+	}
+}
+
+func TestTransformerRejectsInvalidInstanceIdentity(t *testing.T) {
+	for _, instanceID := range []string{"Backend-2", "backend_2", "backend-", ""} {
+		t.Run(instanceID, func(t *testing.T) {
+			payload := json.RawMessage(fmt.Sprintf(`{"log_schema_version":1,"timestamp":"2026-09-04T12:00:00Z","level":"info","service":"backend","module":"post","message":"post created","instance_id":%q}`, instanceID))
+			message := envelope.Envelope{MessageID: "abcdef0123456789abcdef0123456789", Type: "logs", Source: "backend", Timestamp: time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC), RawPayload: payload}
+			if _, err := (Transformer{}).Transform(message); envelope.Code(err) != "invalid_log_payload" {
+				t.Fatalf("error=%v code=%q", err, envelope.Code(err))
+			}
+		})
 	}
 }
 

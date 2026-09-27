@@ -246,3 +246,21 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `bash scripts/verify-compose-observability.sh --keep`（提交 `2143e5f` 后）：通过；Phase 12 authoritative full-stack acceptance 通过，`phase15-closure.spec.ts` 的规则目录闭环 1 项通过，脚本保留了隔离环境供清理。
 
 限制与后续：本地完整 Compose 验收已通过；远程 Full-stack acceptance 和 PR 自动化结果仍待本次推送后确认。
+
+## 2026-09-28 PR 冲突复核
+
+远程运行 `36340068481` 的所有质量门禁（包括 Full-stack Compose acceptance）均通过；自动 PR 步骤成功创建 PR `#190`，合并步骤因 `Pull Request has merge conflicts` 失败，PR 保持开放状态。
+
+本次实际变更文件：
+
+- 合并 `origin/main` 到 `develop/2.0.4` 并解决与 Phase 18-03 历史变更的文件冲突，保留 `2.0.4` 版本元数据、双 Elasticsearch 拓扑、Router/Marshaller 双副本和 Phase 18-04 运行时合同。
+- 将 Phase 18-03 的主线日志与新增日志身份测试内容合入当前候选，并保留 Marshaller、Backend 日志查询和业务规模 runner 的两侧有效测试覆盖。
+- `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：记录本次 PR 冲突、合并和后续验证。
+
+本次实际执行的命令与结果：
+
+- `git fetch origin main`：成功。
+- `git merge --no-commit --no-ff origin/main`：产生文件冲突，随后完成冲突解决。
+- `gh api repos/Ray-ymq/GoPulse/actions/jobs/108681185223/logs`：确认失败原因为 GitHub 合并 API 返回 `Pull Request has merge conflicts (HTTP 405)`。
+
+限制与后续：合并结果尚未提交、推送和重新运行远程门禁；这些步骤完成后再记录最终结果。
