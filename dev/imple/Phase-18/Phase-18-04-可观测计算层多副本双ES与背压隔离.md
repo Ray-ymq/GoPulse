@@ -42,6 +42,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `marshaller/internal/elasticsearch/client_test.go`、`marshaller/internal/elasticsearch/events_client_test.go` | 覆盖观测 ES 路径、故障、重试、重复写和跨目标拒绝 |
 | `marshaller/cmd/marshaller/main.go` | 多 partition 处理和各目标关闭共享同一有界生命周期 |
 | `monitor/internal/config/config.go`、`monitor/internal/config/config_test.go` | Router 多副本入口和源队列上界校验完整 |
+| `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go` | 远程日志校验允许副本实例身份字段，保证日志入口与共享日志结构一致 |
 | `monitor/internal/metrics/publisher/publisher.go`、`monitor/internal/metrics/publisher/publisher_test.go` | Router 选择/失败转移有界，不因重试产生重复无界请求 |
 | `componentmetrics/catalog.go`、`componentmetrics/validation.go` | 新增 buffer/ownership/partition 指标词汇固定且标签基数有限 |
 | `monitor/internal/metrics/collector/components.go`、`monitor/internal/metrics/collector/components_test.go` | 所有 Router/Marshaller 副本均被采集，不被 DNS 随机结果遗漏 |

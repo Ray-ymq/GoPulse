@@ -99,3 +99,17 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 远程复核补充：运行 `36329279305` 中 Branch governance 已通过；`Scripts and Compose` 暴露 `.github/workflows/quality-gates.yml` 仍要求两个宿主回环发布，而当前 Compose 只有 Frontend 一个发布。已将该门禁登记到实施计划并调整为单个发布，等待再次推送后的远程复核。
 
 远程复核补充：运行 `36329500862` 中 Branch governance、Scripts and Compose 及全部单模块/集成 job 通过；Full-stack Compose acceptance 在 `scripts/verify-compose-observability.sh` 的旧单 ES 网络断言处失败，自动 PR job 因此跳过。已将完整拓扑断言更新为搜索 ES 仅连接 business、观测 ES 仅连接 observability，并纳入观测 ES 健康状态及持久卷检查；等待再次推送后的远程复核。
+
+远程复核补充：运行 `36330185241` 中网络拓扑断言已通过，Branch governance、Scripts and Compose 及全部单模块/集成 job 通过；Full-stack Compose acceptance 在管理员场景的 `waitForLogs` 等待超时，后端查询持续返回空页，日志转发出现 `permanent_rejection`。对照共享日志构造器和 Monitor 校验器确认 `instance_id` 已由所有进程写入但未列入远程日志允许字段；本批将该字段纳入 Phase-18-04 文件范围，并限制为安全 token。
+
+本次实际变更文件：
+
+- `monitor/internal/logs/logs.go`：允许并校验副本 `instance_id` 字段。
+- `monitor/internal/logs/logs_test.go`：增加合法副本身份通过和不安全身份拒绝测试。
+- `dev/imple/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：登记远程日志校验文件范围。
+
+本次实际执行的检查与结果：
+
+- `go test ./internal/logs`（Monitor）：通过。
+- `go test ./...`（Monitor）：通过。
+- `gofmt -w internal/logs/logs.go internal/logs/logs_test.go`：通过。
