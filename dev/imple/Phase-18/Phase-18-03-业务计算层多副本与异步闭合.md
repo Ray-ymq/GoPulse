@@ -35,6 +35,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `deploy/runtime-contracts.json`、`docs/runtime-contracts.md` | 新配置、实例身份和副本角色与实际进程/Compose 一致，不提前声明未交付能力 |
 | `backend/internal/config/config.go` | 新配置强类型解析、上下界和交叉预算验证完整，错误只包含 key |
 | `backend/internal/config/config_test.go` | 覆盖默认值、边界、非法值和总连接预算负例 |
+| `backend/internal/config/worker.go`、`backend/internal/config/search_indexer.go` | Worker/Indexer 使用与副本预算一致的 MySQL 连接池配置，不回退到进程内硬编码放大 |
 | `backend/internal/platform/mysql.go` | 连接池不再硬编码放大；生命周期和 timeout 语义保持 |
 | `backend/internal/platform/platform_test.go` | 证明连接池配置被准确应用且非法预算不能启动 |
 | `backend/cmd/server/main.go` | 每个副本使用独立实例身份；Outbox/告警后台职责的 owner 与关闭顺序明确 |
@@ -46,6 +47,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `backend/internal/worker/runtime.go`、`backend/internal/worker/profile.go` | consumer identity 唯一；prefetch、ack/requeue、重连和退出保持有界 |
 | `backend/internal/worker/runtime_test.go`、`backend/internal/worker/integration_test.go` | 两个 consumer 都处理消息；退出/重连后无永久丢失或越权 ack |
 | `componentmetrics/config.go`、`componentmetrics/catalog.go` | 实例身份与新增容量指标词汇固定、有限且不含随机高基数标签 |
+| `componentmetrics/logging.go` | 公共结构化日志携带有界实例身份且保留保留字段冲突保护 |
 | `componentmetrics/runtime_test.go`、`componentmetrics/registry_test.go` | 验证实例标签、目录容量和重复/未知标签拒绝 |
 | `monitor/internal/metrics/collector/components.go` | 采集不会因 DNS 随机选择而遗漏业务计算副本 |
 | `monitor/internal/metrics/collector/components_test.go` | 两个同类实例均被采集且各自身份可区分 |
