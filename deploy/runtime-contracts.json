@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "1",
-  "product_version": "1.14.5",
+  "product_version": "2.0.3",
   "platform": "linux/amd64",
   "components": [
     {
@@ -91,6 +91,15 @@
           "required": false,
           "default": "gopulse-events-v1-read",
           "compose_value": "${BACKEND_EVENT_READ_ALIAS:-gopulse-events-v1-read}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_HTTP_MAX_CONCURRENCY",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "128",
+          "compose_value": "${BACKEND_HTTP_MAX_CONCURRENCY:-128}",
           "aliases": []
         },
         {
@@ -202,6 +211,24 @@
           "aliases": []
         },
         {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "backend-local",
+          "compose_value": "backend-1",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "2",
+          "aliases": []
+        },
+        {
           "key": "GOPULSE_REVISION",
           "type": "string",
           "sensitive": false,
@@ -292,6 +319,15 @@
           "aliases": []
         },
         {
+          "key": "MYSQL_CONN_MAX_LIFETIME",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "3m",
+          "compose_value": "${MYSQL_CONN_MAX_LIFETIME:-3m}",
+          "aliases": []
+        },
+        {
           "key": "MYSQL_DATABASE",
           "type": "string",
           "sensitive": false,
@@ -310,6 +346,24 @@
           "aliases": []
         },
         {
+          "key": "MYSQL_MAX_IDLE_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "2",
+          "compose_value": "${MYSQL_MAX_IDLE_CONNS:-2}",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10",
+          "compose_value": "${MYSQL_MAX_OPEN_CONNS:-10}",
+          "aliases": []
+        },
+        {
           "key": "MYSQL_PASSWORD",
           "type": "string",
           "sensitive": true,
@@ -325,6 +379,15 @@
           "required": false,
           "default": "3306",
           "compose_value": "3306",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "60",
+          "compose_value": "${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}",
           "aliases": []
         },
         {
@@ -535,6 +598,24 @@
       "plugin_id": null,
       "environment": [
         {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "business-worker-local",
+          "compose_value": "business-worker-1",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "2",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_WORKER_MAX_RETRIES",
           "type": "integer",
           "sensitive": false,
@@ -688,6 +769,15 @@
           "aliases": []
         },
         {
+          "key": "MYSQL_CONN_MAX_LIFETIME",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "3m",
+          "compose_value": "${MYSQL_CONN_MAX_LIFETIME:-3m}",
+          "aliases": []
+        },
+        {
           "key": "MYSQL_DATABASE",
           "type": "string",
           "sensitive": false,
@@ -706,6 +796,24 @@
           "aliases": []
         },
         {
+          "key": "MYSQL_MAX_IDLE_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "2",
+          "compose_value": "${MYSQL_MAX_IDLE_CONNS:-2}",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10",
+          "compose_value": "${MYSQL_MAX_OPEN_CONNS:-10}",
+          "aliases": []
+        },
+        {
           "key": "MYSQL_PASSWORD",
           "type": "string",
           "sensitive": true,
@@ -721,6 +829,15 @@
           "required": false,
           "default": "3306",
           "compose_value": "3306",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "60",
+          "compose_value": "${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}",
           "aliases": []
         },
         {
@@ -783,6 +900,24 @@
       "compose_service": "search-indexer",
       "plugin_id": null,
       "environment": [
+        {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "search-indexer-local",
+          "compose_value": "search-indexer-1",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "2",
+          "aliases": []
+        },
         {
           "key": "ELASTICSEARCH_REQUEST_TIMEOUT",
           "type": "duration",
@@ -1015,6 +1150,42 @@
           "required": false,
           "default": "10s",
           "compose_value": "${SEARCH_INDEXER_SHUTDOWN_TIMEOUT:-10s}",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_CONN_MAX_LIFETIME",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "3m",
+          "compose_value": "${MYSQL_CONN_MAX_LIFETIME:-3m}",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_MAX_IDLE_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "2",
+          "compose_value": "${MYSQL_MAX_IDLE_CONNS:-2}",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10",
+          "compose_value": "${MYSQL_MAX_OPEN_CONNS:-10}",
+          "aliases": []
+        },
+        {
+          "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "60",
+          "compose_value": "${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}",
           "aliases": []
         }
       ],
@@ -1497,6 +1668,15 @@
       "plugin_id": null,
       "environment": [
         {
+          "key": "BACKEND_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "backend",
+          "compose_value": "backend,backend-2",
+          "aliases": []
+        },
+        {
           "key": "BACKEND_METRICS_TOKEN",
           "type": "string",
           "sensitive": true,
@@ -1506,12 +1686,39 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_WORKER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "business-worker",
+          "compose_value": "business-worker,business-worker-2",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_WORKER_METRICS_TOKEN",
           "type": "string",
           "sensitive": true,
           "required": true,
           "default": null,
           "compose_value": "${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "monitor-local",
+          "compose_value": "monitor-1",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "1",
           "aliases": []
         },
         {
@@ -1836,6 +2043,15 @@
           "required": true,
           "default": null,
           "compose_value": "${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}",
+          "aliases": []
+        },
+        {
+          "key": "SEARCH_INDEXER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "search-indexer",
+          "compose_value": "search-indexer,search-indexer-2",
           "aliases": []
         },
         {
@@ -3383,6 +3599,56 @@
     {
       "key": "SEARCH_INDEXER_SHUTDOWN_TIMEOUT",
       "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "BACKEND_ENDPOINTS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "BACKEND_HTTP_MAX_CONCURRENCY",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "BUSINESS_WORKER_ENDPOINTS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_INSTANCE_ID",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_REPLICA_COUNT",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MYSQL_CONN_MAX_LIFETIME",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MYSQL_MAX_IDLE_CONNS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MYSQL_MAX_OPEN_CONNS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "SEARCH_INDEXER_ENDPOINTS",
+      "type": "string",
       "sensitive": false
     },
     {

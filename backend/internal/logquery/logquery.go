@@ -68,6 +68,7 @@ type Entry struct {
 	Timestamp         string  `json:"timestamp"`
 	Level             string  `json:"level"`
 	Service           string  `json:"service"`
+	InstanceID        string  `json:"instance_id,omitempty"`
 	Module            string  `json:"module"`
 	Message           string  `json:"message"`
 	RequestID         string  `json:"request_id,omitempty"`
@@ -412,20 +413,27 @@ func decodeEntry(source []byte) (Entry, error) {
 	var raw struct {
 		Timestamp        string `json:"@timestamp"`
 		LogSchemaVersion int    `json:"log_schema_version"`
-		// Runtime metadata remains in the persisted document and private logs;
-		// decode it explicitly while preserving the existing public page shape.
-		Version                string `json:"version"`
-		Revision               string `json:"revision"`
-		Event                  string `json:"event"`
-		RuntimeContractVersion string `json:"runtime_contract_version"`
-		RuntimeMode            string `json:"runtime_mode"`
-		Listen                 string `json:"listen"`
+		// Runtime metadata remains persisted; decode its supported fields explicitly
+		// while exposing instance identity in the public page entry.
+		Version                string  `json:"version"`
+		Revision               string  `json:"revision"`
+		Event                  string  `json:"event"`
+		RuntimeContractVersion string  `json:"runtime_contract_version"`
+		RuntimeMode            string  `json:"runtime_mode"`
+		Listen                 string  `json:"listen"`
+		InstanceID             *string `json:"instance_id"`
 		Entry
 	}
 	decoder := json.NewDecoder(bytes.NewReader(source))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&raw); err != nil || raw.Timestamp == "" || raw.LogSchemaVersion != 1 {
 		return Entry{}, errors.New("invalid log document")
+	}
+	if raw.InstanceID != nil {
+		if componentmetrics.ValidateInstanceID(*raw.InstanceID) != nil {
+			return Entry{}, errors.New("invalid log document")
+		}
+		raw.Entry.InstanceID = *raw.InstanceID
 	}
 	raw.Entry.Timestamp = raw.Timestamp
 	return raw.Entry, nil

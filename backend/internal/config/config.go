@@ -16,8 +16,14 @@ const (
 	defaultAppEnv                 = "development"
 	defaultHTTPHost               = "127.0.0.1"
 	defaultHTTPPort               = 8080
+	defaultHTTPMaxConcurrency     = 128
+	defaultReplicaCount           = 1
 	defaultMySQLHost              = "127.0.0.1"
 	defaultMySQLPort              = 3306
+	defaultMySQLMaxOpenConns      = 10
+	defaultMySQLMaxIdleConns      = 2
+	defaultMySQLConnMaxLifetime   = 3 * time.Minute
+	defaultMySQLTotalOpenConns    = 60
 	defaultRedisHost              = "127.0.0.1"
 	defaultRedisPort              = 6379
 	defaultRedisDB                = 0
@@ -74,6 +80,16 @@ const (
 	maximumElasticsearchTimeout   = 30 * time.Second
 	minimumSearchReindexBatch     = 1
 	maximumSearchReindexBatch     = 5000
+	minimumHTTPMaxConcurrency     = 1
+	maximumHTTPMaxConcurrency     = 1024
+	minimumReplicaCount           = 1
+	maximumReplicaCount           = 8
+	minimumMySQLMaxOpenConns      = 1
+	maximumMySQLMaxOpenConns      = 100
+	minimumMySQLConnLifetime      = time.Minute
+	maximumMySQLConnLifetime      = time.Hour
+	minimumMySQLTotalOpenConns    = 1
+	maximumMySQLTotalOpenConns    = 1000
 )
 
 // LookupFunc makes configuration loading deterministic in tests without
@@ -84,8 +100,11 @@ type Config struct {
 	AlertEvaluationEnabled bool
 	RuntimeMode            RuntimeMode
 	AppEnv                 string
+	InstanceID             string
+	ReplicaCount           int
 	HTTPHost               string
 	HTTPPort               int
+	HTTPMaxConcurrency     int
 	MySQL                  MySQLConfig
 	Redis                  RedisConfig
 	RabbitMQURL            string
@@ -98,11 +117,14 @@ type Config struct {
 }
 
 type MySQLConfig struct {
-	Host     string
-	Port     int
-	Database string
-	User     string
-	Password string
+	Host            string
+	Port            int
+	Database        string
+	User            string
+	Password        string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
 }
 
 type RedisConfig struct {
@@ -192,6 +214,22 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 	appEnv, err := applicationEnvironment(lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	instanceID := valueOrDefault(lookup, "GOPULSE_INSTANCE_ID", "backend-local")
+	if err := componentmetrics.ValidateInstanceID(instanceID); err != nil {
+		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
+	}
+	replicaCount, err := replicaCountValue(lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	httpMaxConcurrency, err := integerValue(lookup, "BACKEND_HTTP_MAX_CONCURRENCY", defaultHTTPMaxConcurrency)
+	if err != nil || httpMaxConcurrency < minimumHTTPMaxConcurrency || httpMaxConcurrency > maximumHTTPMaxConcurrency {
+		return Config{}, fmt.Errorf("BACKEND_HTTP_MAX_CONCURRENCY must be between %d and %d", minimumHTTPMaxConcurrency, maximumHTTPMaxConcurrency)
+	}
+	mysqlMaxOpenConns, mysqlMaxIdleConns, mysqlConnMaxLifetime, err := mysqlPoolValues(lookup, replicaCount)
 	if err != nil {
 		return Config{}, err
 	}
@@ -401,14 +439,20 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		AlertEvaluationEnabled: alertEnabled,
 		RuntimeMode:            runtimeMode,
 		AppEnv:                 appEnv,
+		InstanceID:             instanceID,
+		ReplicaCount:           replicaCount,
 		HTTPHost:               httpHost,
 		HTTPPort:               httpPort,
+		HTTPMaxConcurrency:     httpMaxConcurrency,
 		MySQL: MySQLConfig{
-			Host:     mysqlHost,
-			Port:     mysqlPort,
-			Database: mysqlDatabase,
-			User:     mysqlUser,
-			Password: mysqlPassword,
+			Host:            mysqlHost,
+			Port:            mysqlPort,
+			Database:        mysqlDatabase,
+			User:            mysqlUser,
+			Password:        mysqlPassword,
+			MaxOpenConns:    mysqlMaxOpenConns,
+			MaxIdleConns:    mysqlMaxIdleConns,
+			ConnMaxLifetime: mysqlConnMaxLifetime,
 		},
 		Redis: RedisConfig{
 			Host:             redisHost,
@@ -445,6 +489,37 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 
 func (cfg Config) HTTPAddress() string {
 	return net.JoinHostPort(cfg.HTTPHost, strconv.Itoa(cfg.HTTPPort))
+}
+
+func replicaCountValue(lookup LookupFunc) (int, error) {
+	count, err := integerValue(lookup, "GOPULSE_REPLICA_COUNT", defaultReplicaCount)
+	if err != nil || count < minimumReplicaCount || count > maximumReplicaCount {
+		return 0, fmt.Errorf("GOPULSE_REPLICA_COUNT must be between %d and %d", minimumReplicaCount, maximumReplicaCount)
+	}
+	return count, nil
+}
+
+func mysqlPoolValues(lookup LookupFunc, replicaCount int) (int, int, time.Duration, error) {
+	maxOpen, err := integerValue(lookup, "MYSQL_MAX_OPEN_CONNS", defaultMySQLMaxOpenConns)
+	if err != nil || maxOpen < minimumMySQLMaxOpenConns || maxOpen > maximumMySQLMaxOpenConns {
+		return 0, 0, 0, fmt.Errorf("MYSQL_MAX_OPEN_CONNS must be between %d and %d", minimumMySQLMaxOpenConns, maximumMySQLMaxOpenConns)
+	}
+	maxIdle, err := integerValue(lookup, "MYSQL_MAX_IDLE_CONNS", defaultMySQLMaxIdleConns)
+	if err != nil || maxIdle < 1 || maxIdle > maxOpen {
+		return 0, 0, 0, errors.New("MYSQL_MAX_IDLE_CONNS must be between 1 and MYSQL_MAX_OPEN_CONNS")
+	}
+	lifetime, err := durationValue(lookup, "MYSQL_CONN_MAX_LIFETIME", defaultMySQLConnMaxLifetime, minimumMySQLConnLifetime, maximumMySQLConnLifetime)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	total, err := integerValue(lookup, "MYSQL_TOTAL_MAX_OPEN_CONNS", defaultMySQLTotalOpenConns)
+	if err != nil || total < minimumMySQLTotalOpenConns || total > maximumMySQLTotalOpenConns {
+		return 0, 0, 0, fmt.Errorf("MYSQL_TOTAL_MAX_OPEN_CONNS must be between %d and %d", minimumMySQLTotalOpenConns, maximumMySQLTotalOpenConns)
+	}
+	if maxOpen*replicaCount > total {
+		return 0, 0, 0, errors.New("MYSQL_TOTAL_MAX_OPEN_CONNS must cover MYSQL_MAX_OPEN_CONNS times GOPULSE_REPLICA_COUNT")
+	}
+	return maxOpen, maxIdle, lifetime, nil
 }
 
 func valueOrDefault(lookup LookupFunc, key, fallback string) string {
@@ -590,7 +665,24 @@ func LoadMySQLFrom(lookup LookupFunc) (MySQLConfig, error) {
 	if err != nil {
 		return MySQLConfig{}, err
 	}
-	return MySQLConfig{Host: host, Port: port, Database: database, User: user, Password: password}, nil
+	replicaCount, err := replicaCountValue(lookup)
+	if err != nil {
+		return MySQLConfig{}, err
+	}
+	maxOpenConns, maxIdleConns, connMaxLifetime, err := mysqlPoolValues(lookup, replicaCount)
+	if err != nil {
+		return MySQLConfig{}, err
+	}
+	return MySQLConfig{
+		Host:            host,
+		Port:            port,
+		Database:        database,
+		User:            user,
+		Password:        password,
+		MaxOpenConns:    maxOpenConns,
+		MaxIdleConns:    maxIdleConns,
+		ConnMaxLifetime: connMaxLifetime,
+	}, nil
 }
 
 // LoadReindex loads only the MySQL and Elasticsearch settings required by the
@@ -630,6 +722,14 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	if err != nil {
 		return ReindexConfig{}, err
 	}
+	replicaCount, err := replicaCountValue(lookup)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
+	maxOpenConns, maxIdleConns, connMaxLifetime, err := mysqlPoolValues(lookup, replicaCount)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
 	elasticsearch, err := loadElasticsearchConfig(lookup, runtimeMode)
 	if err != nil {
 		return ReindexConfig{}, err
@@ -640,8 +740,14 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	}
 	return ReindexConfig{
 		MySQL: MySQLConfig{
-			Host: mysqlHost, Port: mysqlPort,
-			Database: database, User: user, Password: password,
+			Host:            mysqlHost,
+			Port:            mysqlPort,
+			Database:        database,
+			User:            user,
+			Password:        password,
+			MaxOpenConns:    maxOpenConns,
+			MaxIdleConns:    maxIdleConns,
+			ConnMaxLifetime: connMaxLifetime,
 		},
 		Elasticsearch: elasticsearch,
 		LogShip:       logShip,

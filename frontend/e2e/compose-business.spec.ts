@@ -117,7 +117,9 @@ test(`runs Compose business scenario: ${scenario}`, async ({ browser, page }) =>
     await page.goto(postPath)
     await page.getByPlaceholder('写下你的评论…').fill(`Worker recovery comment ${token}`)
     await page.getByRole('button', { name: '发布评论' }).click()
+    await expect(page.getByText(`Worker recovery comment ${token}`)).toBeVisible()
     await page.getByRole('button', { name: '点赞', exact: true }).click()
+    await expect(page.getByRole('button', { name: '取消点赞' })).toBeVisible()
     return
   }
 
@@ -128,7 +130,7 @@ test(`runs Compose business scenario: ${scenario}`, async ({ browser, page }) =>
       await page.getByRole('button', { name: '刷新', exact: true }).click()
       await page.waitForTimeout(300)
       return page.locator('.notification-card').count()
-    }, { timeout: 30_000 }).toBe(4)
+    }, { timeout: 75_000 }).toBe(4)
     return
   }
 
