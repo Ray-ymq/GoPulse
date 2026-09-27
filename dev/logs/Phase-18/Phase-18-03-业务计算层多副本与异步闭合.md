@@ -4,9 +4,10 @@
 
 - 在 `develop/2.0.3`（基于 `origin/main`）完成 Backend、Business Worker、Search Indexer 双副本 Compose 拓扑；Frontend 使用两个 Backend 的私有 upstream，Monitor 使用显式副本端点列表。
 - 增加有界实例身份、HTTP 并发上限、MySQL 连接池与整套副本预算校验；Worker/Indexer 使用带实例身份的唯一 consumer tag；Backend Outbox owner 使用实例身份和进程号；结构化日志携带 `instance_id`。
-- 将连接池配置贯通 Backend、Worker、Indexer、迁移和搜索重建路径，并保留既有 lease、ack/requeue、告警租约语义。
+- 将连接池配置贯通 Backend、Worker、Indexer 和搜索重建路径；迁移容器只接收数据库连接必需项，保留既有 lease、ack/requeue、告警租约语义。
 - 增加 Phase 18-03 固定两轮 runner、自测和证据汇总；runner 对 Worker、Indexer、RabbitMQ、Elasticsearch 故障组在同一 token 下先初始化 owner/actor 账号，再执行故障场景。
 - 修复 acceptance `worker-seed` 的异步等待：评论提交和点赞请求均确认完成后才退出；将 `worker-verify` 等待窗口调整为 75 秒，覆盖已配置的 30 秒 Outbox/RabbitMQ 发布重试预算。
+- 修复 PR 门禁发现的 Compose 环境泄漏：运行进程使用连接池配置锚点，迁移容器保持最小数据库环境；Compose 发布门禁同步为单一 Frontend loopback 入口。
 - 更新 runtime contract、运行时文档、README、版本元数据和 Phase 18-03 记录；`VERSION`、`.env.example`、两个前端 package 与两个 lockfile 均为 `2.0.3`。
 
 实际变更文件：
@@ -15,7 +16,7 @@
 - `admin-frontend/package.json`、`admin-frontend/package-lock.json`、`frontend/package.json`、`frontend/package-lock.json`、`frontend/e2e/compose-business.spec.ts`。
 - `backend/cmd/server/main.go`、`backend/cmd/server/main_test.go`、`backend/internal/config/config.go`、`backend/internal/config/config_test.go`、`backend/internal/config/worker.go`、`backend/internal/config/search_indexer.go`、`backend/internal/platform/mysql.go`、`backend/internal/platform/platform_test.go`、`backend/internal/worker/runtime.go`、`backend/internal/worker/runtime_test.go`。
 - `componentmetrics/config.go`、`componentmetrics/logging.go`、`componentmetrics/runtime.go`、`componentmetrics/runtime_test.go`、`monitor/internal/metrics/collector/components.go`。
-- `deploy/compose.yaml`、`deploy/docker/frontend/nginx.conf`、`deploy/runtime-contracts.json`、`docs/runtime-contracts.md`。
+- `.github/workflows/quality-gates.yml`、`deploy/compose.yaml`、`deploy/docker/frontend/nginx.conf`、`deploy/runtime-contracts.json`、`docs/runtime-contracts.md`。
 - `scripts/ci/phase18_business_scale.py`、`scripts/ci/test_phase18_business_scale.py`、`scripts/verify-phase18-business-scale.sh`。
 - 本实施记录文件。
 
@@ -32,6 +33,12 @@
 - `npm test`：前端 67/67 通过；`npm run typecheck`：通过；两次 acceptance 修复后均执行过。
 - `gofmt`、`git diff --check`：通过。
 - `scripts/verify-phase18-business-scale.sh --repetitions 3`：按固定次数规则以退出码 `2` 拒绝。
+- PR #180 首轮 GitHub 门禁：Branch governance 因迁移容器环境白名单缺少四个 MySQL pool key 而失败；Scripts and Compose 因仍要求两个 `127.0.0.1` 宿主绑定而失败。其余已完成的 Backend、Router、Marshaller、Monitor、Redis Exporter、前端和 Integration 检查通过；Full-stack Compose acceptance 当时仍在运行。
+- 在候选树首次执行 `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：108 项中 1 项失败，失败项为 `test_compose_environments_and_probe_argv_are_role_minimal`，原因是 pool key 随共享 MySQL anchor 进入迁移容器。
+- Compose 环境锚点拆分后再次执行 `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：当前 Phase-18-03 树 100 项全部通过。
+- 按 GitHub Scripts and Compose 门禁重放 Compose 配置、单一 loopback 绑定、镜像版本、Kafka/VictoriaMetrics 镜像、迁移依赖和内部网络断言：通过。
+- `git diff --check`：通过。
+- 范围清单先在 `update` 修订并由 PR #181 以 merge commit 合入 `main`；随后把更新合入 `develop/2.0.3`，才修改已登记的 `.github/workflows/quality-gates.yml`。
 
 为遵守候选证据不可复用规则，正式验收在每次相关 runner/acceptance 修订后创建新候选；每个候选均只调用一次固定命令 `scripts/verify-phase18-business-scale.sh --repetitions 2`，没有执行第三轮：
 
@@ -39,8 +46,9 @@
 2. `4afa609f70af74136ce4cc03ea3f57c82cb244e4`：`.run/phase18-business-scale-2.0.3-4afa609f70af-b43a52a67ada/`，`boundary_found`；四个故障组的账号初始化均通过，Worker/Indexer 故障恢复也通过，但 RabbitMQ 恢复场景两轮均收到 3 条而期望 4 条通知。
 3. `e07f65d28a8bd5e1356c6b6c29e34e59755e8ae4`：`.run/phase18-business-scale-2.0.3-e07f65d28a8b-05eb189a8b14/`，`boundary_found`；run-1 U3 `target_met`，run-2 在 RabbitMQ 恢复场景因 30 秒等待窗口收到 3 条而超时；run-1 清理退出码为 `0`。
 4. 最终候选 `74e00417f9d4ceb141d9df3dd0f30651352fdf23`：`.run/phase18-business-scale-2.0.3-74e00417f9d4-112e3b2e1e84/`，固定两轮均 `target_met`。
+5. PR 门禁修正候选 `8316922895c4ff31aa733b6047afd5badb49d76b`：`.run/phase18-business-scale-2.0.3-8316922895c4-d5e751e5da45/`，固定两轮均 `target_met`；U1～U4 均为 `2/2`。binding 固定 `VERSION=2.0.3`、Compose digest `sha256:b63e4fb77b7c2800ed00e6dc3ec542fb525e4fe5d52c171f531cf7f064399f60` 与 runtime contract digest `sha256:9d1de93ce883c7309bbd8af7d502abcbb8710958e6eb71e1b35d7bb58acae20f`。
 
-## 最终候选正式两轮结果
+## 候选 4（74e0041）正式两轮结果
 
 | 单元 | run-1 | run-2 | 结果 |
 | --- | --- | --- | --- |
@@ -75,8 +83,44 @@
 | elasticsearch_fault_seed | 2.279 | 2.417 | 2.348 |
 | elasticsearch_recovery | 15.453 | 15.194 | 15.323 |
 
+## PR 门禁修正候选（8316922）正式两轮结果
+
+| 单元 | run-1 | run-2 | 结果 |
+| --- | --- | --- | --- |
+| U1 | 通过 | 通过 | `2/2` |
+| U2 | 通过 | 通过 | `2/2` |
+| U3 | `target_met` | `target_met` | `2/2` |
+| U4 | 通过 | 通过 | `2/2` |
+
+两轮均完成 Backend、Worker、Indexer 双副本健康检查、正常业务、三类计算副本故障、RabbitMQ 与搜索 Elasticsearch 短故障、恢复和最终闭合；Compose 清理退出码均为 `0`。闭合快照两轮一致：`outbox_pending_or_leased=0`、`notifications=16`、`search_alias=true`，MySQL/RabbitMQ/搜索闭合命令均退出 `0`。
+
+该候选 U3 场景耗时（秒，`run-1 / run-2 / 平均`）：
+
+| 场景 | run-1 | run-2 | 平均 |
+| --- | ---: | ---: | ---: |
+| normal | 5.421 | 4.829 | 5.125 |
+| backend_failover | 5.043 | 4.770 | 4.906 |
+| backend_failover_stop/start | 8.403 / 2.913 | 5.468 / 2.954 | 6.936 / 2.933 |
+| worker_failover_account_init | 4.805 | 4.484 | 4.644 |
+| worker_failover_stop/start | 10.369 / 1.859 | 10.366 / 1.869 | 10.367 / 1.864 |
+| worker_failover | 2.793 | 2.730 | 2.761 |
+| worker_recovery | 2.685 | 2.659 | 2.672 |
+| indexer_failover_account_init | 4.713 | 4.193 | 4.453 |
+| indexer_failover_stop/start | 10.341 / 2.670 | 10.324 / 2.712 | 10.332 / 2.691 |
+| indexer_failover | 2.360 | 2.384 | 2.372 |
+| indexer_recovery | 2.760 | 2.758 | 2.759 |
+| rabbit_fault_seed_account_init | 4.707 | 4.646 | 4.676 |
+| rabbit_fault_seed_stop/start | 1.471 / 0.430 | 1.464 / 0.438 | 1.468 / 0.434 |
+| rabbit_fault_seed | 2.785 | 2.792 | 2.788 |
+| rabbit_recovery | 23.132 | 24.464 | 23.798 |
+| elasticsearch_fault_seed_account_init | 4.898 | 4.288 | 4.593 |
+| elasticsearch_fault_seed_stop/start | 2.612 / 0.512 | 2.431 / 0.476 | 2.522 / 0.494 |
+| elasticsearch_fault_seed | 2.341 | 2.488 | 2.415 |
+| elasticsearch_recovery | 15.298 | 20.581 | 17.939 |
+
 ## 偏差、限制与后续项
 
 - 初始候选的 U3 边界由验收账号初始化缺失触发；修复后又发现 acceptance 写入未等待和 RabbitMQ 30 秒重试窗口未被等待条件覆盖。每次修订均创建了新候选并重新完成固定两轮，未修改或复用旧 evidence。
+- 首轮 PR 检查发现共享数据库环境锚点给迁移容器传递了其不使用的连接池预算，且通用 Compose 门禁仍按旧的双宿主端口拓扑断言。先在 `update` 补登记 `.github/workflows/quality-gates.yml` 和单一入口条件，再拆分 Compose pool anchor、把门禁计数改为一个；随后冻结新 revision 并重新执行唯一的两轮候选验收。
 - Phase 18-03 清单外的 `componentmetrics/logging.go`、`backend/internal/config/worker.go`、`backend/internal/config/search_indexer.go` 已在 `update` 的 `9693fe3` 登记；`frontend/e2e/compose-business.spec.ts` 已在 `update` 的 `461da86` 登记后才修改。
 - 最终结果是本批固定验收矩阵的 `target_met`；`VERSION=2.0.3` 表示本批版本元数据已同步，不扩大为对未覆盖生产环境的泛化保证。
