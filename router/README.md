@@ -29,7 +29,7 @@ The only route is:
 metrics -> gopulse-observability-v1
 ```
 
-Clients cannot select a topic through headers, query parameters, or payload fields. The franz-go producer uses `acks=all`, idempotent protocol writes, non-blocking admission against the configured 256-record and 8 MiB default client buffers, and a 3-second default delivery window. A full record/byte buffer is rejected immediately; canceling one HTTP caller does not globally abort other accepted records. Topic auto-creation is disabled by omission in the client and by the Kafka broker configuration. Compose creates the topic explicitly with one partition and replication factor one.
+Clients cannot select a topic through headers, query parameters, or payload fields. The franz-go producer uses `acks=all`, idempotent protocol writes, non-blocking admission against the configured 256-record and 8 MiB default client buffers, and a 3-second default delivery window. A full record/byte buffer is rejected immediately with bounded backpressure metrics; canceling one HTTP caller does not globally abort other accepted records. Topic auto-creation is disabled by omission in the client and by the Kafka broker configuration. Compose creates the topic explicitly with four partitions and replication factor one. Compose runs `router` and `router-2` with distinct `GOPULSE_INSTANCE_ID` values; the Router itself does not claim Kafka broker high availability.
 
 A timed-out in-flight request is uncertain: Kafka may have stored the record even though the Router did not return `202`. The Router has no background retry, disk spool, application-level deduplication, or transaction. Consumers must retain `message_id` and tolerate possible duplicates.
 
@@ -40,6 +40,8 @@ A timed-out in-flight request is uncertain: Kafka may have stored the record eve
 | `GOPULSE_RUNTIME_MODE` | `host`; only `host|container` are accepted |
 | `ROUTER_HTTP_HOST` | `127.0.0.1`; host mode requires loopback, container mode permits wildcard binding |
 | `ROUTER_HTTP_PORT` | `9091`; `1..65535` |
+| `GOPULSE_INSTANCE_ID` | bounded lowercase diagnostic identity; `router-local` by default |
+| `GOPULSE_REPLICA_COUNT` | `1..8`; Compose uses `2` |
 | `ROUTER_API_TOKEN` | required, at least 32 bytes, no CR/LF |
 | `ROUTER_REQUEST_TIMEOUT` | `5s`; `1s..30s` |
 | `ROUTER_SHUTDOWN_TIMEOUT` | `10s`; `1s..60s` |
@@ -47,6 +49,7 @@ A timed-out in-flight request is uncertain: Kafka may have stored the record eve
 | `ROUTER_KAFKA_BROKERS` | `127.0.0.1:9092`; host mode requires loopback, container mode accepts validated service DNS such as `kafka:19092` |
 | `ROUTER_KAFKA_TOPIC` | fixed `gopulse-observability-v1` |
 | `ROUTER_KAFKA_PRODUCE_TIMEOUT` | `3s`; `100ms..10s` and less than request timeout |
+| `ROUTER_KAFKA_MIN_PARTITIONS` | `1..16`; must cover the declared replica count |
 | `ROUTER_KAFKA_MAX_BUFFERED_RECORDS` | `256`; `1..1024` |
 | `ROUTER_KAFKA_MAX_BUFFERED_BYTES` | `8388608`; `1 MiB..64 MiB` and not smaller than message limit |
 

@@ -24,6 +24,8 @@ type EventsClient struct {
 	mu        sync.Mutex
 }
 
+func (c *EventsClient) Purpose() string { return "observability" }
+
 func NewEvents(baseURL string, timeout time.Duration) (*EventsClient, error) {
 	return newEvents(baseURL, timeout, false)
 }

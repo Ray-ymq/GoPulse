@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (2.0.3)
+# GoPulse runtime contract v1 (2.0.4)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -7,7 +7,7 @@ is not a second runtime configuration service. Validate changes with:
 
 ```bash
 python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example
-scripts/verify-runtime-contracts.sh --candidate 2.0.3
+scripts/verify-runtime-contracts.sh --candidate 2.0.4
 ```
 
 ## Configuration and readiness
@@ -52,6 +52,22 @@ finite; the configured total MySQL budget must cover the declared replica count.
 Outbox leases and Worker consumer tags are instance-scoped, while alert rule
 leases remain single-owner facts in MySQL. This document does not claim that
 external stateful stores are replicated.
+
+The observability compute plane also runs two named Router and Marshaller
+instances. Router publishes to a four-partition topic and rejects records when
+its finite client buffer is full. Marshaller members use one consumer group,
+manual commits and generation-scoped ownership; processing is concurrent across
+owned partitions but remains serialized within each partition. In-flight and
+retry slots are finite, and a revoked lease cannot write or commit.
+
+Business search Elasticsearch and observation Elasticsearch are separate
+services with separate named volumes and network membership. Backend uses
+`elasticsearch` for business search and `observability-elasticsearch` for
+logs/events; Search Indexer uses `elasticsearch` on the business network.
+Marshaller logs/events use `observability-elasticsearch` on the observability
+network; no Marshaller target can select the business search client. Metrics continue to use VictoriaMetrics,
+and a failure in one observation target leaves other partitions and targets
+bounded and diagnosable rather than creating an unbounded global retry queue.
 
 ## Shutdown
 

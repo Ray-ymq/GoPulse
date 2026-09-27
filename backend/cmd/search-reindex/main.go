@@ -64,6 +64,10 @@ func run(cfg config.ReindexConfig, ifMissing bool, logger *slog.Logger) error {
 		logger = logging.Discard("search-reindex")
 	}
 	searchLogger := logging.Module(logger, "search")
+	if err := validateReindexElasticsearch(cfg); err != nil {
+		searchLogger.Error("search reindex initialization failed", slog.String("stage", "elasticsearch"), slog.String("reason", "wrong_client_purpose"))
+		return err
+	}
 	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
 	if err != nil {
 		searchLogger.Error("search reindex initialization failed", slog.String("stage", "mysql"), slog.String("reason", "connection_failed"))
@@ -101,5 +105,12 @@ func run(cfg config.ReindexConfig, ifMissing bool, logger *slog.Logger) error {
 		slog.Uint64("document_count", result.DocumentCount),
 		slog.Int("batch_size", cfg.Elasticsearch.ReindexBatch),
 	)
+	return nil
+}
+
+func validateReindexElasticsearch(cfg config.ReindexConfig) error {
+	if cfg.Elasticsearch.Purpose != "search" {
+		return errors.New("search reindex requires the business search Elasticsearch client")
+	}
 	return nil
 }

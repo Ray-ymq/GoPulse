@@ -33,6 +33,12 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Monitor.RequestTimeout != 30*time.Second {
 		t.Fatalf("Monitor timeout = %s, want 30s", cfg.Monitor.RequestTimeout)
 	}
+	if cfg.Elasticsearch.Purpose != "search" {
+		t.Fatalf("Elasticsearch purpose = %q, want search", cfg.Elasticsearch.Purpose)
+	}
+	if cfg.ObservabilityElasticsearch.URL != "http://127.0.0.1:9201" || cfg.ObservabilityElasticsearch.Purpose != "observability" {
+		t.Fatalf("Observability Elasticsearch = %#v, want loopback observation client", cfg.ObservabilityElasticsearch)
+	}
 	if cfg.Auth.JWTTTL != 2*time.Hour || cfg.Auth.CookieName != "gopulse_session" || cfg.Auth.CookieSecure {
 		t.Fatalf("Auth config = %#v, want local defaults", cfg.Auth)
 	}
@@ -80,6 +86,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["OUTBOX_CLEANUP_BATCH"] = "750"
 	env["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
 	env["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
+	env["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
 	env["MONITOR_URL"] = "http://monitor:9090"
 	env["BACKEND_VICTORIAMETRICS_URL"] = "https://victoriametrics:8428"
 	env["BACKEND_VICTORIAMETRICS_USERNAME"] = "metrics-reader"
@@ -96,6 +103,9 @@ func TestLoadFromOverrides(t *testing.T) {
 	}
 	if cfg.MySQL.Host != "mysql" || cfg.MySQL.Port != 13306 {
 		t.Fatalf("unexpected MySQL config: %#v", cfg.MySQL)
+	}
+	if cfg.Elasticsearch.URL != "http://elasticsearch:9200" || cfg.Elasticsearch.Purpose != "search" || cfg.ObservabilityElasticsearch.URL != "http://observability-elasticsearch:9200" || cfg.ObservabilityElasticsearch.Purpose != "observability" {
+		t.Fatalf("unexpected Elasticsearch clients: search=%#v observability=%#v", cfg.Elasticsearch, cfg.ObservabilityElasticsearch)
 	}
 	if cfg.MySQL.MaxOpenConns != 8 || cfg.MySQL.MaxIdleConns != 4 || cfg.MySQL.ConnMaxLifetime != 11*time.Minute {
 		t.Fatalf("unexpected MySQL pool config: %#v", cfg.MySQL)

@@ -46,6 +46,11 @@ type Client struct {
 	mu      sync.Mutex
 }
 
+// Purpose is deliberately fixed: Marshaller clients are observation writers.
+// Business search access is owned by backend/internal/platform and cannot be
+// selected through a Marshaller target or envelope.
+func (c *Client) Purpose() string { return "observability" }
+
 func New(baseURL string, timeout time.Duration) (*Client, error) {
 	return newClient(baseURL, timeout, false)
 }

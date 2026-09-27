@@ -77,8 +77,8 @@ func run(logger *slog.Logger) error {
 		_ = internalMetrics.Shutdown(shutdown)
 	}()
 	var messagePublisher publisher.Transport = publisher.Discard{}
-	if cfg.RouterURL != "" {
-		messagePublisher, err = publisher.NewHTTP(cfg.RouterURL, cfg.RouterToken, cfg.PublishTimeout)
+	if len(cfg.RouterURLs) > 0 {
+		messagePublisher, err = publisher.NewHTTPPool(cfg.RouterURLs, cfg.RouterToken, cfg.PublishTimeout)
 		if err != nil {
 			return err
 		}

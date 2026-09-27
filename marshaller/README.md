@@ -9,7 +9,7 @@ Redis -> Redis Exporter -> MetricsMonitor -> Message Router
 
 ## Consumer and delivery contract
 
-Marshaller uses franz-go with consumer group `gopulse-marshaller-metrics-v1`, initial offset `earliest`, automatic commits disabled, and Topic auto-creation disabled. Records are handled one at a time per the current single-partition Topic. The Kafka key must be the same 32-character lowercase hexadecimal `message_id` contained in the value.
+Marshaller uses franz-go with consumer group `gopulse-marshaller-metrics-v1`, initial offset `earliest`, automatic commits disabled, and Topic auto-creation disabled. Compose starts two named group members against a four-partition Topic. Records are processed concurrently across owned partitions, serialized within each partition, and fenced by generation-scoped leases. The Kafka key must be the same 32-character lowercase hexadecimal `message_id` contained in the value.
 
 A valid record is committed only after strict decoding, deterministic transformation, a `204 No Content` response with an empty body from `POST /api/v1/import/prometheus`, and a still-valid partition ownership lease. A permanently invalid record is not sent to storage and is committed only while ownership remains valid so the next record can proceed. Network, timeout, authentication, redirect, non-204, and unexpected-response failures are temporary: the current record remains uncommitted and is retried with bounded cancellable backoff. A commit failure while ownership is still valid halts partition progress, keeps liveness available, makes readiness fail, and requires a controlled process restart so the formal group offset remains the recovery source. Revoke or lost-partition cancellation during an in-flight commit is classified as ownership loss instead of a permanent commit failure; the old generation cannot commit and the consumer continues after replacement assignment.
 
@@ -38,6 +38,9 @@ Required secrets are `MARSHALLER_API_TOKEN` (at least 32 bytes) and `MARSHALLER_
 | `MARSHALLER_KAFKA_TOPIC` | fixed `gopulse-observability-v1` |
 | `MARSHALLER_KAFKA_GROUP` | fixed `gopulse-marshaller-metrics-v1` |
 | `MARSHALLER_KAFKA_COMMIT_TIMEOUT` | `3s` |
+| `MARSHALLER_KAFKA_MIN_PARTITIONS` | `1..16`; Compose requires `4` |
+| `MARSHALLER_MAX_IN_FLIGHT` | `1..64`; Compose uses `8` |
+| `MARSHALLER_MAX_RETRYING` | `1..MAX_IN_FLIGHT`; Compose uses `4` |
 | `MARSHALLER_VM_URL` | `http://127.0.0.1:8428`; host mode requires loopback, container mode accepts a validated origin such as `http://victoriametrics:8428` |
 | `MARSHALLER_VM_USERNAME` | `gopulse-marshaller` |
 | `MARSHALLER_VM_TIMEOUT` | `3s` |
@@ -46,7 +49,7 @@ Required secrets are `MARSHALLER_API_TOKEN` (at least 32 bytes) and `MARSHALLER_
 | `MARSHALLER_SHUTDOWN_TIMEOUT` | `10s` |
 | `MARSHALLER_FUTURE_SKEW` | `5m` |
 
-Kafka polling is canceled only by the Marshaller run context; there is no separate application poll-timeout setting.
+Kafka polling is canceled only by the Marshaller run context; there is no separate application poll-timeout setting. In-flight records and retry sleepers are finite, so a failed VictoriaMetrics or observation-ES write blocks only its owned partition while other partitions continue within the same bounded process.
 
 `GET /health` is public and reports process liveness only. `GET /ready` requires `Authorization: Bearer <MARSHALLER_API_TOKEN>` and performs bounded Kafka Topic and authenticated VictoriaMetrics checks. Browser cookies and Backend JWTs are not accepted as service identity. Logs never include message values, storage response bodies, or credentials.
 
@@ -71,7 +74,7 @@ The authoritative Phase-12-03 full-stack gate is the no-argument `scripts/verify
 
 ## Application log storage
 
-Marshaller dispatches the shared Envelope v1 stream through explicit `metrics/redis`, `logs/backend`, `logs/business-worker`, `logs/search-indexer`, and `logs/search-reindex` targets. Every log payload is independently revalidated, must match its Envelope source, and is written idempotently with the Envelope message ID as `_id` to `gopulse-logs-v1-YYYY.MM.DD`. Permanently invalid records are committed without a storage call so the following record can continue; Elasticsearch transport or result uncertainty keeps the current offset uncommitted and preserves single-partition ordering. The fixed `gopulse-logs-v1-template` installs a strict mapping and the `gopulse-logs-v1-read` alias. `MARSHALLER_ELASTICSEARCH_URL` must be a loopback HTTP origin in host mode; container mode accepts the validated `http://elasticsearch:9200` origin used by Backend. The default request timeout is 3 seconds, and credentials, extra paths, query strings, fragments, fixed IPs, and control characters remain rejected.
+Marshaller dispatches the shared Envelope v1 stream through explicit `metrics/redis`, `logs/backend`, `logs/business-worker`, `logs/search-indexer`, and `logs/search-reindex` targets. Every log payload is independently revalidated, must match its Envelope source, and is written idempotently with the Envelope message ID as `_id` to `gopulse-logs-v1-YYYY.MM.DD`. Permanently invalid records are committed without a storage call so the following record can continue; Elasticsearch transport or result uncertainty keeps the current offset uncommitted. Records on different owned partitions proceed concurrently within the configured in-flight and retry budgets, while each partition preserves ordering and a revoked lease cannot write or commit. The fixed `gopulse-logs-v1-template` installs a strict mapping and the `gopulse-logs-v1-read` alias. `MARSHALLER_ELASTICSEARCH_URL` is the observation-only endpoint: it must be a loopback HTTP origin in host mode, while container mode accepts `http://observability-elasticsearch:9200`. It is deliberately distinct from Backend's business-search `ELASTICSEARCH_URL`; the two clients have separate roles, volumes, and Compose network membership. The default request timeout is 3 seconds, and credentials, extra paths, query strings, fragments, fixed IPs, and control characters remain rejected.
 
 ## Lifecycle event storage
 

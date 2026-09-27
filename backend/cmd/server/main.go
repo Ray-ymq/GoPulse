@@ -118,6 +118,10 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("initialize Elasticsearch client")
 	}
+	observabilityElasticsearchClient, err := platform.NewObservabilityElasticsearch(cfg.ObservabilityElasticsearch)
+	if err != nil {
+		return errors.New("initialize observability Elasticsearch client")
+	}
 
 	rabbitMQChecker, err := platform.NewRabbitMQ(cfg.RabbitMQURL)
 	if err != nil {
@@ -199,10 +203,10 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	alertRepo := alert.NewRepository(mysqlClient.DB())
 	alertHandler := alert.NewHandler(alertRepo, cfg.Auth.JWTSecret)
 	metricHandler := metricquery.NewHandler(metricquery.NewService(metricClient))
-	logRepository := logquery.NewElasticsearchRepository(elasticsearchClient)
+	logRepository := logquery.NewElasticsearchRepository(observabilityElasticsearchClient)
 	logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
 	logHandler := logquery.NewHandler(logService)
-	eventRepository := eventquery.NewElasticsearchRepository(elasticsearchClient)
+	eventRepository := eventquery.NewElasticsearchRepository(observabilityElasticsearchClient)
 	eventService := eventquery.NewService(eventRepository, cfg.Auth.JWTSecret)
 	eventHandler := eventquery.NewHandler(eventService)
 	monitorClient, err := exporterplugin.NewClient(cfg.Monitor.URL, cfg.Monitor.APIToken, cfg.Monitor.RequestTimeout)
@@ -213,10 +217,10 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	overview := &adminoverview.Service{
 		Components: adminoverview.Components(metricClient), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
 		Logs: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
-			return count.Query(ctx, elasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
+			return count.Query(ctx, observabilityElasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
 		}),
 		Events: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
-			return count.Query(ctx, elasticsearchClient, eventquery.ReadAlias, map[string]string{"severity": severity}, from, to)
+			return count.Query(ctx, observabilityElasticsearchClient, eventquery.ReadAlias, map[string]string{"severity": severity}, from, to)
 		}),
 		Alerts: func(ctx context.Context, now time.Time) adminoverview.Section {
 			summary, err := alertRepo.Overview(ctx, now, cfg.AlertEvaluationEnabled)
