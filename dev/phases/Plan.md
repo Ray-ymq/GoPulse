@@ -21,6 +21,10 @@ Metrics / Logs / Events 可观测链路
 跨平台交付与工程质量验收
     ↓
 Linux `amd64` Compose 产品交付与工程质量验收
+    ↓
+容量定界与第一瓶颈识别
+    ↓
+计算层正确扩展、故障隔离与独立诊断
 ```
 
 每个阶段必须满足两个条件：
@@ -36,6 +40,8 @@ Linux `amd64` Compose 产品交付与工程质量验收
 - Phase 16 提供一个共享容器化生命周期实现；现有 `scripts/*.ps1` 继续作为 `0.2.1` 历史快照，不扩展为当前 Compose 行为的第二套实现。
 - Phase 16 不增加或声明 macOS、Windows、`linux/arm64` 产品支持；早期批次已经生成的额外架构制品不构成后续门禁。
 - Phase 17 在完整 Compose 产品上完成工程质量验收并收口当前路线图。
+- Phase 18 在固定环境中记录容量边界并修复已定位的 Outbox 调度问题，不把边界结果改写成容量通过。
+- Phase 19 在 Compose 中证明计算层多副本、显式背压、存储故障域和独立诊断，再决定容量认证与部署平台演进。
 - Kubernetes 仅保留为[未排期的未来设计](../../docs/future/kubernetes/README.md)，不分配 Phase、版本或实施批次。
 - 未来平台适配不得降低业务、数据、安全、故障恢复、Linux CI 或 Docker 验收标准。
 
@@ -221,6 +227,7 @@ GoPulse 的四个已规划里程碑分别交付一次可独立运行、验证和
 - Milestone 2 交付指标采集 MVP，对应 Phase 4～Phase 8。
 - Milestone 3 交付完整可观测 MVP，对应 Phase 9～Phase 11。
 - Milestone 4 交付完整可交付产品 MVP，对应 Phase 12～Phase 17：业务、可观测、插件、告警、双前端、Linux 产品化和工程质量全部闭环。
+- Milestone 5 交付可扩展架构基线，对应 Phase 18～Phase 19：容量边界、计算层多副本、故障域、背压和独立诊断闭环。
 
 每个 Phase 的总实施方案必须优先形成当前阶段对所属里程碑的最小端到端贡献，并遵循以下切分规则：
 
@@ -1474,6 +1481,10 @@ Phase 15 告警与管理端闭环
 Phase 16 Linux 产品化与双前端交付
    ↓
 Phase 17 稳定性与工程化（完整产品验收）
+   ↓
+Phase 18 高并发与可观测容量定界
+   ↓
+Phase 19 并发扩展正确性与可观测故障隔离
 ```
 
 ---
@@ -1505,18 +1516,34 @@ Phase 12～Phase 17 完成：
 
 该里程碑证明 GoPulse 自身已经在当前支持环境中完整运转。未排期的 Kubernetes 设计见 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)，它不属于当前阶段或里程碑。
 
+## Milestone 5：可扩展架构基线
+
+Phase 18～Phase 19 完成：
+
+- 固定环境容量边界和第一问题清单；
+- Backend、Worker、Indexer、Router、Marshaller 的计算层多副本正确性；
+- 业务搜索与可观测 Elasticsearch 故障域隔离；
+- 显式背压、实例级身份、独立探针和机器合同单一来源；
+- 扩缩容、局部故障、恢复与最终闭合的冻结候选证据。
+
+该里程碑不等于生产级 HA 或容量 SLO。后续顺序见
+[`GoPulse 高并发与可观测后续路线图`](GoPulse-高并发与可观测后续路线图.md)。
+
 ---
 
 # 25. 当前执行状态
 
-Phase 17 与 Milestone 4 已经完成，当前完成产品版本为：
+Phase 18 已经完成，当前完成产品版本为：
 
 ```text
-1.14.5
+2.0.2
 ```
 
 已完成阶段的实施范围、验收结论、实施方案和实施记录保持完成时状态，不把未来设计追溯写入历史结果。
 
-下一实施阶段尚未分配。应先完成当前架构梳理和差距分析，再编写新的 Phase 总实施方案并分配目标版本与开发分支。
+下一实施阶段是 Phase 19，已由
+[`Phase-19-总实施方案`](../imple/Phase-19/Phase-19-总实施方案.md) 分配为 `2.1.1`～`2.1.3`。
+最近的执行入口是 Phase-19-01；必须从开始执行时最新的 primary remote `main` 创建
+`develop/2.1.1`，不得在 `update` 上实现产品代码。
 
 Kubernetes 部署、统一入口和集群观测仅作为未排期设计保存在 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)。
