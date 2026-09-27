@@ -54,6 +54,7 @@ Outbox、RabbitMQ、通知、告警和搜索最终闭合的完整证据。本批
 | `scripts/verify-phase18-business-scale.sh` | 正式模式只接受固定 `--repetitions 2`；run-1 失败仍保存/清理并继续 run-2，不执行全局 prune |
 | `scripts/ci/phase18_business_scale.py` | 绑定同一候选/条件，写 `run-1`、`run-2` 和平均摘要，禁止第三次运行 |
 | `scripts/ci/test_phase18_business_scale.py` | 覆盖次数拒绝、平均计算、失败保留、证据不可覆盖和候选不一致拒绝 |
+| `frontend/e2e/compose-business.spec.ts` | 故障场景的异步业务写入在场景退出前完成，避免验收时序掩盖 Outbox/RabbitMQ 恢复结果 |
 | `backend/README.md`、`README.md` | 只记录实际多副本配置、运行入口、结果类型和仍未证明的状态层边界 |
 | `dev/logs/Phase-18/Phase-18-03-业务计算层多副本与异步闭合.md` | 只记录实际修改、两次命令/结果、平均值、偏差、限制和结果类型 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本均为 `2.0.3`，由同步/校验脚本证明一致 |
