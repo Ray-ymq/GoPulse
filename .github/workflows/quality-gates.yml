@@ -198,7 +198,7 @@ jobs:
           rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
           version="$(tr -d '[:space:]' < VERSION)"
           printf '%s\n' "$rendered"
-          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 2 ]]
+          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 1 ]]
           for image in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
             grep -q "image: gopulse/$image:$version" <<<"$rendered"
           done

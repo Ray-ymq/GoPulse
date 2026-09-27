@@ -15,11 +15,17 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.AppEnv != "development" {
 		t.Fatalf("AppEnv = %q, want development", cfg.AppEnv)
 	}
+	if cfg.InstanceID != "backend-local" || cfg.ReplicaCount != 1 || cfg.HTTPMaxConcurrency != 128 {
+		t.Fatalf("instance/concurrency config = %#v/%d/%d", cfg.InstanceID, cfg.ReplicaCount, cfg.HTTPMaxConcurrency)
+	}
 	if cfg.HTTPHost != "127.0.0.1" || cfg.HTTPPort != 8080 {
 		t.Fatalf("HTTP endpoint = %s:%d, want 127.0.0.1:8080", cfg.HTTPHost, cfg.HTTPPort)
 	}
 	if cfg.MySQL.Host != "127.0.0.1" || cfg.MySQL.Port != 3306 {
 		t.Fatalf("MySQL endpoint = %s:%d, want 127.0.0.1:3306", cfg.MySQL.Host, cfg.MySQL.Port)
+	}
+	if cfg.MySQL.MaxOpenConns != 10 || cfg.MySQL.MaxIdleConns != 2 || cfg.MySQL.ConnMaxLifetime != 3*time.Minute {
+		t.Fatalf("MySQL pool = %#v, want bounded defaults", cfg.MySQL)
 	}
 	if cfg.Redis.Host != "127.0.0.1" || cfg.Redis.Port != 6379 || cfg.Redis.DB != 0 {
 		t.Fatalf("Redis config = %#v, want default endpoint and DB", cfg.Redis)
@@ -44,6 +50,13 @@ func TestLoadFromDefaults(t *testing.T) {
 func TestLoadFromOverrides(t *testing.T) {
 	env := requiredEnvironment()
 	env["GOPULSE_RUNTIME_MODE"] = "container"
+	env["GOPULSE_INSTANCE_ID"] = "backend-2"
+	env["GOPULSE_REPLICA_COUNT"] = "2"
+	env["BACKEND_HTTP_MAX_CONCURRENCY"] = "64"
+	env["MYSQL_MAX_OPEN_CONNS"] = "8"
+	env["MYSQL_MAX_IDLE_CONNS"] = "4"
+	env["MYSQL_CONN_MAX_LIFETIME"] = "11m"
+	env["MYSQL_TOTAL_MAX_OPEN_CONNS"] = "16"
 	env["APP_ENV"] = "test"
 	env["HTTP_HOST"] = "0.0.0.0"
 	env["HTTP_PORT"] = "18080"
@@ -78,11 +91,14 @@ func TestLoadFromOverrides(t *testing.T) {
 		t.Fatalf("LoadFrom() error = %v", err)
 	}
 
-	if cfg.RuntimeMode != RuntimeModeContainer || cfg.AppEnv != "test" || cfg.HTTPAddress() != "0.0.0.0:18080" {
+	if cfg.RuntimeMode != RuntimeModeContainer || cfg.AppEnv != "test" || cfg.HTTPAddress() != "0.0.0.0:18080" || cfg.InstanceID != "backend-2" || cfg.ReplicaCount != 2 || cfg.HTTPMaxConcurrency != 64 {
 		t.Fatalf("unexpected application config: %#v", cfg)
 	}
 	if cfg.MySQL.Host != "mysql" || cfg.MySQL.Port != 13306 {
 		t.Fatalf("unexpected MySQL config: %#v", cfg.MySQL)
+	}
+	if cfg.MySQL.MaxOpenConns != 8 || cfg.MySQL.MaxIdleConns != 4 || cfg.MySQL.ConnMaxLifetime != 11*time.Minute {
+		t.Fatalf("unexpected MySQL pool config: %#v", cfg.MySQL)
 	}
 	if cfg.Redis.Host != "redis" || cfg.Redis.Port != 16379 || cfg.Redis.DB != 3 {
 		t.Fatalf("unexpected Redis config: %#v", cfg.Redis)
@@ -137,6 +153,35 @@ func TestLoadFromRejectsInvalidPorts(t *testing.T) {
 				t.Fatalf("LoadFrom() error = %v, want field name %s", err, test.key)
 			}
 		})
+	}
+}
+
+func TestLoadFromRejectsInvalidReplicaAndPoolBudgets(t *testing.T) {
+	for _, test := range []struct{ key, value string }{
+		{key: "GOPULSE_INSTANCE_ID", value: "Backend-1"},
+		{key: "GOPULSE_REPLICA_COUNT", value: "0"},
+		{key: "GOPULSE_REPLICA_COUNT", value: "9"},
+		{key: "BACKEND_HTTP_MAX_CONCURRENCY", value: "0"},
+		{key: "BACKEND_HTTP_MAX_CONCURRENCY", value: "1025"},
+		{key: "MYSQL_MAX_OPEN_CONNS", value: "0"},
+		{key: "MYSQL_MAX_IDLE_CONNS", value: "11"},
+		{key: "MYSQL_CONN_MAX_LIFETIME", value: "30s"},
+		{key: "MYSQL_TOTAL_MAX_OPEN_CONNS", value: "1"},
+	} {
+		t.Run(test.key+"_"+test.value, func(t *testing.T) {
+			env := requiredEnvironment()
+			env[test.key] = test.value
+			if _, err := LoadFrom(mapLookup(env)); err == nil || !strings.Contains(err.Error(), test.key) {
+				t.Fatalf("LoadFrom() error = %v, want %s error", err, test.key)
+			}
+		})
+	}
+	env := requiredEnvironment()
+	env["GOPULSE_REPLICA_COUNT"] = "2"
+	env["MYSQL_MAX_OPEN_CONNS"] = "10"
+	env["MYSQL_TOTAL_MAX_OPEN_CONNS"] = "19"
+	if _, err := LoadFrom(mapLookup(env)); err == nil || !strings.Contains(err.Error(), "MYSQL_TOTAL_MAX_OPEN_CONNS") {
+		t.Fatalf("LoadFrom() error = %v, want total connection budget error", err)
 	}
 }
 

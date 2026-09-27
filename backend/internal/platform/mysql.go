@@ -14,6 +14,12 @@ import (
 
 const mysqlCollation = "utf8mb4_0900_ai_ci"
 
+const (
+	defaultMaxOpenConns    = 10
+	defaultMaxIdleConns    = 2
+	defaultConnMaxLifetime = 3 * time.Minute
+)
+
 type discardMySQLLogger struct{}
 
 func (discardMySQLLogger) Print(...any) {}
@@ -32,26 +38,44 @@ func NewMySQL(cfg config.MySQLConfig) (*MySQL, error) {
 
 // OpenMySQLDatabase opens a UTC MySQL connection for ordinary application use.
 func OpenMySQLDatabase(cfg config.MySQLConfig) (*sql.DB, error) {
-	return openMySQLDatabase(mysqlDriverConfig(cfg))
+	return openMySQLDatabase(cfg, mysqlDriverConfig(cfg))
 }
 
 // OpenMySQLMigrationDatabase opens a MySQL connection that allows versioned SQL
 // migration files to contain multiple DDL statements. General application
 // connections keep multi-statements disabled.
 func OpenMySQLMigrationDatabase(cfg config.MySQLConfig) (*sql.DB, error) {
-	return openMySQLDatabase(mysqlMigrationDriverConfig(cfg))
+	return openMySQLDatabase(cfg, mysqlMigrationDriverConfig(cfg))
 }
 
-func openMySQLDatabase(driverConfig *mysql.Config) (*sql.DB, error) {
+func openMySQLDatabase(cfg config.MySQLConfig, driverConfig *mysql.Config) (*sql.DB, error) {
 	connector, err := mysql.NewConnector(driverConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	database := sql.OpenDB(connector)
-	database.SetConnMaxLifetime(3 * time.Minute)
-	database.SetMaxIdleConns(2)
-	database.SetMaxOpenConns(10)
+	maxOpenConns := cfg.MaxOpenConns
+	if maxOpenConns <= 0 {
+		maxOpenConns = defaultMaxOpenConns
+	}
+	maxIdleConns := cfg.MaxIdleConns
+	if maxIdleConns < 0 {
+		maxIdleConns = 0
+	}
+	if maxIdleConns == 0 && cfg.MaxIdleConns == 0 {
+		maxIdleConns = defaultMaxIdleConns
+	}
+	if maxIdleConns > maxOpenConns {
+		maxIdleConns = maxOpenConns
+	}
+	connMaxLifetime := cfg.ConnMaxLifetime
+	if connMaxLifetime <= 0 {
+		connMaxLifetime = defaultConnMaxLifetime
+	}
+	database.SetConnMaxLifetime(connMaxLifetime)
+	database.SetMaxIdleConns(maxIdleConns)
+	database.SetMaxOpenConns(maxOpenConns)
 	return database, nil
 }
 

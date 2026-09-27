@@ -24,6 +24,30 @@ func TestRuntimeConfigurationRejectsUnsafeInputs(t *testing.T) {
 		t.Fatal("credential reuse accepted")
 	}
 }
+
+func TestInstanceIdentityAndReplicaEndpointCatalogAreBounded(t *testing.T) {
+	t.Setenv("GOPULSE_INSTANCE_ID", "backend-2")
+	if got := InstanceID("backend"); got != "backend-2" {
+		t.Fatalf("InstanceID() = %q, want backend-2", got)
+	}
+	for _, value := range []string{"", "Backend-2", "backend/2", strings.Repeat("a", 65)} {
+		if ValidateInstanceID(value) == nil {
+			t.Fatalf("ValidateInstanceID(%q) accepted unsafe identity", value)
+		}
+	}
+	t.Setenv("BACKEND_ENDPOINTS", "backend,backend-2")
+	endpoints, err := ReplicaEndpoints("backend")
+	if err != nil || len(endpoints) != 2 || endpoints[1] != "backend-2" {
+		t.Fatalf("ReplicaEndpoints() = %#v, error = %v", endpoints, err)
+	}
+	if got := TargetFor("backend", "backend-2"); got != "backend-2-local" {
+		t.Fatalf("TargetFor() = %q, want backend-2-local", got)
+	}
+	t.Setenv("BACKEND_ENDPOINTS", "backend,backend")
+	if _, err := ReplicaEndpoints("backend"); err == nil {
+		t.Fatal("duplicate replica endpoint accepted")
+	}
+}
 func TestHTTPCorrelationErrorsAndPanic(t *testing.T) {
 	logger := NewLogger("router", &strings.Builder{})
 	mux := http.NewServeMux()
@@ -73,6 +97,7 @@ func TestHTTPCorrelationErrorsAndPanic(t *testing.T) {
 
 func TestDependencyLogStateRateLimit(t *testing.T) {
 	var output strings.Builder
+	t.Setenv("GOPULSE_INSTANCE_ID", "router-1")
 	log := NewLogger("router", &output)
 	log.Warn("connection unavailable")
 	log.Warn("connection unavailable")
@@ -86,7 +111,7 @@ func TestDependencyLogStateRateLimit(t *testing.T) {
 		if json.Unmarshal([]byte(line), &record) != nil {
 			t.Fatal("not JSON")
 		}
-		for _, key := range []string{"log_schema_version", "timestamp", "level", "service", "module", "message", "event", "version", "revision"} {
+		for _, key := range []string{"log_schema_version", "timestamp", "level", "service", "module", "message", "event", "version", "revision", "instance_id"} {
 			if record[key] == nil {
 				t.Fatal("missing log field: " + key)
 			}

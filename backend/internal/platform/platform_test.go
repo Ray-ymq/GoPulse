@@ -97,3 +97,32 @@ func TestMySQLMigrationReadTimeoutIsSeparateAndBounded(t *testing.T) {
 		t.Fatal("migration override must not change dial or write timeouts")
 	}
 }
+
+func TestMySQLPoolConfigurationIsApplied(t *testing.T) {
+	database, err := OpenMySQLDatabase(config.MySQLConfig{
+		Host: "127.0.0.1", Port: 1, Database: "gopulse", User: "gopulse", Password: "secret",
+		MaxOpenConns: 6, MaxIdleConns: 3, ConnMaxLifetime: 11 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("OpenMySQLDatabase() error = %v", err)
+	}
+	defer database.Close()
+	stats := database.Stats()
+	if stats.MaxOpenConnections != 6 {
+		t.Fatalf("MaxOpenConnections = %d, want 6", stats.MaxOpenConnections)
+	}
+	if database.Stats().MaxOpenConnections <= 0 {
+		t.Fatal("MySQL pool did not retain a positive open-connection limit")
+	}
+}
+
+func TestMySQLPoolFallsBackToBoundedDefaults(t *testing.T) {
+	database, err := OpenMySQLDatabase(config.MySQLConfig{Host: "127.0.0.1", Port: 1, Database: "gopulse", User: "gopulse"})
+	if err != nil {
+		t.Fatalf("OpenMySQLDatabase() error = %v", err)
+	}
+	defer database.Close()
+	if got := database.Stats().MaxOpenConnections; got != defaultMaxOpenConns {
+		t.Fatalf("MaxOpenConnections = %d, want %d", got, defaultMaxOpenConns)
+	}
+}

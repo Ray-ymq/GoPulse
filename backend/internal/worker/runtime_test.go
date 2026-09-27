@@ -2,12 +2,37 @@ package worker
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+func TestRuntimeUsesBoundedUniqueInstanceConsumerIdentity(t *testing.T) {
+	runtime, err := NewRuntime("amqp://user:password@127.0.0.1:5672/", &processorFake{}, RuntimeOptions{
+		Profile:          BusinessProfile,
+		InstanceID:       "business-worker-2",
+		Prefetch:         2,
+		RetryDelay:       time.Second,
+		PublishTimeout:   time.Second,
+		ShutdownTimeout:  time.Second,
+		ReconnectMinimum: time.Millisecond,
+		ReconnectMaximum: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+	if runtime.identity != "business-worker-2" || runtime.options.InstanceID != runtime.identity {
+		t.Fatalf("runtime identity = %q, options = %q", runtime.identity, runtime.options.InstanceID)
+	}
+	first := nextConsumerTag(BusinessProfile, runtime.identity)
+	second := nextConsumerTag(BusinessProfile, runtime.identity)
+	if first == second || !strings.HasPrefix(first, "gopulse-business-worker-business-worker-2-") {
+		t.Fatalf("consumer tags are not unique and scoped: %q %q", first, second)
+	}
+}
 
 type cancellationProcessor struct {
 	started chan struct{}
