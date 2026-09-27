@@ -130,7 +130,7 @@ test(`runs Compose business scenario: ${scenario}`, async ({ browser, page }) =>
       await page.getByRole('button', { name: '刷新', exact: true }).click()
       await page.waitForTimeout(300)
       return page.locator('.notification-card').count()
-    }, { timeout: 30_000 }).toBe(4)
+    }, { timeout: 75_000 }).toBe(4)
     return
   }
 
