@@ -8,6 +8,7 @@
 - 增加 Phase 18-03 固定两轮 runner、自测和证据汇总；runner 对 Worker、Indexer、RabbitMQ、Elasticsearch 故障组在同一 token 下先初始化 owner/actor 账号，再执行故障场景。
 - 修复 acceptance `worker-seed` 的异步等待：评论提交和点赞请求均确认完成后才退出；将 `worker-verify` 等待窗口调整为 75 秒，覆盖已配置的 30 秒 Outbox/RabbitMQ 发布重试预算。
 - 修复 PR 门禁发现的 Compose 环境泄漏：运行进程使用连接池配置锚点，迁移容器保持最小数据库环境；Compose 发布门禁同步为单一 Frontend loopback 入口。
+- 更新 Monitor 日志接收 schema：接受公共结构化 logger 发出的有界 `instance_id`，并复用共享身份校验器拒绝非法值。
 - 更新 runtime contract、运行时文档、README、版本元数据和 Phase 18-03 记录；`VERSION`、`.env.example`、两个前端 package 与两个 lockfile 均为 `2.0.3`。
 
 实际变更文件：
@@ -19,6 +20,7 @@
 - `.github/workflows/quality-gates.yml`、`deploy/compose.yaml`、`deploy/docker/frontend/nginx.conf`、`deploy/runtime-contracts.json`、`docs/runtime-contracts.md`。
 - `scripts/ci/phase18_business_scale.py`、`scripts/ci/test_phase18_business_scale.py`、`scripts/verify-phase18-business-scale.sh`。
 - `scripts/verify-compose-observability.sh`。
+- `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go`。
 - 本实施记录文件。
 
 ## 实际执行的检查与结果
@@ -39,6 +41,7 @@
 - Compose 环境锚点拆分后再次执行 `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：当前 Phase-18-03 树 100 项全部通过。
 - 按 GitHub Scripts and Compose 门禁重放 Compose 配置、单一 loopback 绑定、镜像版本、Kafka/VictoriaMetrics 镜像、迁移依赖和内部网络断言：通过。
 - `bash -n scripts/verify-compose.sh scripts/verify-compose-observability.sh`：通过；`git diff --check`：通过。
+- 在 `monitor/` 执行 `gofmt -w internal/logs/logs.go internal/logs/logs_test.go` 与 `go test -count=1 ./internal/logs ./internal/httpserver`：通过。
 - `git diff --check`：通过。
 - 范围清单先在 `update` 修订并由 PR #181 以 merge commit 合入 `main`；随后把更新合入 `develop/2.0.3`，才修改已登记的 `.github/workflows/quality-gates.yml`。
 
@@ -125,5 +128,6 @@
 - 初始候选的 U3 边界由验收账号初始化缺失触发；修复后又发现 acceptance 写入未等待和 RabbitMQ 30 秒重试窗口未被等待条件覆盖。每次修订均创建了新候选并重新完成固定两轮，未修改或复用旧 evidence。
 - 首轮 PR 检查发现共享数据库环境锚点给迁移容器传递了其不使用的连接池预算，且通用 Compose 门禁仍按旧的双宿主端口拓扑断言。先在 `update` 补登记 `.github/workflows/quality-gates.yml` 和单一入口条件，再拆分 Compose pool anchor、把门禁计数改为一个；随后冻结新 revision 并重新执行唯一的两轮候选验收。
 - PR #180 的 Actions run `36315775113` 中，Scripts and Compose 通过而 Full-stack Compose acceptance 失败，原因为仍断言 Backend 必须映射宿主 loopback。追踪调用后确认 `scripts/verify-compose.sh --full` 将执行委托给 `scripts/verify-compose-observability.sh`；先前对 wrapper 分支的试改已恢复，随后在 `update` 的 PR #185 登记实际委托脚本，并只在该全栈断言中保留 Frontend loopback、拒绝 Backend 宿主端口。修正后对两个脚本执行 Bash 语法检查和差异空白检查，均通过。
+- Actions run `36316456345` 的端口拓扑、Monitor 初始化、安全边界、业务迁移及 Worker/Indexer 恢复均通过；唯一失败为 admin E2E 的 `waitForLogs` 在 45 秒内未读到记录。容器日志显示 Backend/Worker/Indexer 发送的新结构化日志均收到 `permanent_rejection`；Monitor `allowedFields` 不含公共 logger 新增的 `instance_id`。该实际 schema 不兼容已在 `update` 的 PR #186 预先登记并修复；`monitor/internal/logs` 与 `monitor/internal/httpserver` 定向测试通过。
 - Phase 18-03 清单外的 `componentmetrics/logging.go`、`backend/internal/config/worker.go`、`backend/internal/config/search_indexer.go` 已在 `update` 的 `9693fe3` 登记；`frontend/e2e/compose-business.spec.ts` 已在 `update` 的 `461da86` 登记后才修改。
 - 最终结果是本批固定验收矩阵的 `target_met`；`VERSION=2.0.3` 表示本批版本元数据已同步，不扩大为对未覆盖生产环境的泛化保证。
