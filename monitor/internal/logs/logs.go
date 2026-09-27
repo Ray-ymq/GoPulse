@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 var (
@@ -160,6 +162,10 @@ func validateOptional(fields map[string]any) error {
 				return errors.New("invalid string field")
 			}
 			switch key {
+			case "instance_id":
+				if err := componentmetrics.ValidateInstanceID(typed); err != nil {
+					return errors.New("invalid instance identity")
+				}
 			case "request_id":
 				if !requestIDPattern.MatchString(typed) {
 					return errors.New("invalid request id")
@@ -176,7 +182,7 @@ func validateOptional(fields map[string]any) error {
 				if typed != "unmatched" && (!strings.HasPrefix(typed, "/") || strings.ContainsAny(typed, "?#") || strings.Contains(typed, "//")) {
 					return errors.New("invalid route")
 				}
-			case "version", "revision", "event", "event_type", "error_code", "reason", "operation", "resource", "stage", "result", "instance_id":
+			case "version", "revision", "event", "event_type", "error_code", "reason", "operation", "resource", "stage", "result":
 				if !tokenPattern.MatchString(typed) {
 					return errors.New("invalid token")
 				}

@@ -264,3 +264,22 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `gh api repos/Ray-ymq/GoPulse/actions/jobs/108681185223/logs`：确认失败原因为 GitHub 合并 API 返回 `Pull Request has merge conflicts (HTTP 405)`。
 
 限制与后续：合并结果尚未提交、推送和重新运行远程门禁；这些步骤完成后再记录最终结果。
+
+## 2026-09-28 合并后 Marshaller 门禁回归
+
+远程运行 `36341542987` 在 Marshaller 测试阶段失败；失败用例为 `TestTransformerRejectsInvalidInstanceIdentity`，原因是合并结果保留了旧的 token 校验，`instance_id` 的大写、下划线和尾部连字符值未调用共享 `componentmetrics.ValidateInstanceID`。该失败与 PR 冲突解决后的代码实际行为一致，不能归因于远端基础设施。
+
+本次实际变更文件：
+
+- `marshaller/internal/logs/validation.go`：对 `instance_id` 使用共享身份校验器，并从通用 token 分支移除。
+- `monitor/internal/logs/logs.go`：同步同一身份校验边界，保持 Monitor 接收端与 Marshaller 转换端一致。
+- `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：记录远程回归和修复验证。
+
+本次实际执行的命令与结果：
+
+- `gh api repos/Ray-ymq/GoPulse/actions/jobs/108682491201/logs`：确认 Marshaller 失败用例和原因。
+- `(cd marshaller && go test -count=1 ./internal/logs)`：通过。
+- `(cd monitor && go test -count=1 ./internal/logs)`：通过。
+- `gofmt -l`（本次涉及 Go 文件）：无输出；`git diff --cached --check`：通过。
+
+限制与后续：修复尚未提交、推送和通过新的远程完整门禁；继续等待新的运行结果。
