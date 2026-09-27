@@ -64,3 +64,12 @@ func TestExecutePreservesReindexResultWhenShippingCannotDrain(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateReindexElasticsearchRejectsObservationClient(t *testing.T) {
+	if err := validateReindexElasticsearch(config.ReindexConfig{Elasticsearch: config.ElasticsearchConfig{Purpose: "observability"}}); err == nil {
+		t.Fatal("observation Elasticsearch client accepted by search reindex")
+	}
+	if err := validateReindexElasticsearch(config.ReindexConfig{Elasticsearch: config.ElasticsearchConfig{Purpose: "search"}}); err != nil {
+		t.Fatalf("business search client rejected: %v", err)
+	}
+}

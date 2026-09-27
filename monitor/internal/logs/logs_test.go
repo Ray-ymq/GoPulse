@@ -50,3 +50,16 @@ func TestValidateRejectsMessageFromAnotherService(t *testing.T) {
 		t.Fatal("Validate() error = nil")
 	}
 }
+
+func TestValidateAcceptsReplicaInstanceIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	body := []byte(`{"log_schema_version":1,"timestamp":"2026-09-04T12:00:00Z","level":"info","service":"backend","module":"lifecycle","message":"backend listening","instance_id":"backend-2"}`)
+	if _, err := Validate(body, now, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	bad := []byte(`{"log_schema_version":1,"timestamp":"2026-09-04T12:00:00Z","level":"info","service":"backend","module":"lifecycle","message":"backend listening","instance_id":"backend/2"}`)
+	if _, err := Validate(bad, now, time.Minute); err == nil {
+		t.Fatal("Validate() accepted an unsafe instance identity")
+	}
+}

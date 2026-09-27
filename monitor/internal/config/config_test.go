@@ -30,6 +30,39 @@ func TestLoadFromRejectsInvalidScrapeAndRouterConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadFromAcceptsBoundedRouterReplicaEndpoints(t *testing.T) {
+	values := map[string]string{
+		"MONITOR_API_TOKEN":        "01234567890123456789012345678901",
+		"LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF",
+		"MONITOR_PLUGIN_ROOT":      t.TempDir(),
+		"REDIS_HOST":               "127.0.0.1",
+		"REDIS_PORT":               "6379",
+		"REDIS_DB":                 "0",
+		"MONITOR_ROUTER_URLS":      "http://127.0.0.1:8080,http://127.0.0.1:8081",
+		"MONITOR_ROUTER_TOKEN":     "router-token-0123456789012345678901",
+		"ROUTER_ENDPOINTS":         "router,router-2",
+		"MARSHALLER_ENDPOINTS":     "marshaller,marshaller-2",
+	}
+	cfg, err := LoadFrom(func(key string) (string, bool) { value, ok := values[key]; return value, ok })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.RouterURLs) != 2 || cfg.RouterURL != "http://127.0.0.1:8080" {
+		t.Fatalf("unexpected Router pool: %+v", cfg.RouterURLs)
+	}
+}
+
+func TestLoadFromRejectsDuplicateRouterEndpoints(t *testing.T) {
+	values := map[string]string{
+		"MONITOR_API_TOKEN": "01234567890123456789012345678901", "LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF",
+		"MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0",
+		"ROUTER_ENDPOINTS": "router,router",
+	}
+	if _, err := LoadFrom(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
+		t.Fatal("duplicate Router endpoint was accepted")
+	}
+}
+
 func TestLoadFromEnforcesPhaseSixTimeoutContract(t *testing.T) {
 	base := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0"}
 	tests := []struct {
