@@ -20,6 +20,7 @@ import (
 
 type RuntimeOptions struct {
 	Profile          Profile
+	InstanceID       string
 	Prefetch         int
 	MaxRetries       int
 	RetryDelay       time.Duration
@@ -37,7 +38,10 @@ type Runtime struct {
 	options       RuntimeOptions
 	logger        *slog.Logger
 	profile       Profile
+	identity      string
 }
+
+var consumerSequence atomic.Uint64
 
 func NewRuntime(connectionURL string, processor Processor, options RuntimeOptions) (*Runtime, error) {
 	if connectionURL == "" || processor == nil {
@@ -54,12 +58,20 @@ func NewRuntime(connectionURL string, processor Processor, options RuntimeOption
 	}
 	profile := normalizeProfile(options.Profile)
 	options.Profile = profile
+	instanceID := options.InstanceID
+	if instanceID == "" {
+		instanceID = componentmetrics.InstanceID(profile.Service)
+	}
+	if err := componentmetrics.ValidateInstanceID(instanceID); err != nil {
+		return nil, errors.New("business worker instance identity is invalid")
+	}
+	options.InstanceID = instanceID
 	logger := options.Logger
 	if logger == nil {
 		logger = logging.Discard(profile.Service)
 	}
 	logger = logging.Module(logger, profile.Module)
-	return &Runtime{connectionURL: connectionURL, processor: processor, options: options, logger: logger, profile: profile}, nil
+	return &Runtime{connectionURL: connectionURL, processor: processor, options: options, logger: logger, profile: profile, identity: instanceID}, nil
 }
 
 // Run maintains a single sequential consumer session. Broker/channel closure
@@ -259,7 +271,11 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 		return nil, err
 	}
 	profile := normalizeProfile(options.Profile)
-	session := &amqpSession{connection: connection, consumerTag: fmt.Sprintf("%s-%d", profile.ConsumerTag, time.Now().UnixNano())}
+	identity := options.InstanceID
+	if identity == "" {
+		identity = componentmetrics.InstanceID(profile.Service)
+	}
+	session := &amqpSession{connection: connection, consumerTag: nextConsumerTag(profile, identity)}
 	channel, err := connection.Channel()
 	if err != nil {
 		_ = connection.Close()
@@ -289,6 +305,10 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 	}
 	session.deliveries = deliveries
 	return session, nil
+}
+
+func nextConsumerTag(profile Profile, instanceID string) string {
+	return fmt.Sprintf("%s-%s-%d", profile.ConsumerTag, instanceID, consumerSequence.Add(1))
 }
 
 func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey string, publishing amqp.Publishing) (result error) {

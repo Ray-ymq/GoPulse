@@ -12,8 +12,19 @@ x-mysql-environment: &mysql-environment
   MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
   MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
   MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
 
 x-backend-environment: &backend-environment
+  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-backend-local}
+  GOPULSE_REPLICA_COUNT: 2
+  BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
   ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
   <<: *mysql-environment
@@ -62,6 +73,8 @@ x-backend-environment: &backend-environment
   SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
 
 x-worker-environment: &worker-environment
+  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-business-worker-local}
+  GOPULSE_REPLICA_COUNT: 2
   BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
   <<: *mysql-environment
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
@@ -81,6 +94,8 @@ x-worker-environment: &worker-environment
   BUSINESS_WORKER_RECONNECT_MAX: ${BUSINESS_WORKER_RECONNECT_MAX:-30s}
 
 x-indexer-environment: &indexer-environment
+  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-search-indexer-local}
+  GOPULSE_REPLICA_COUNT: 2
   SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
   <<: *mysql-environment
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
@@ -155,6 +170,11 @@ x-marshaller-environment: &marshaller-environment
 
 x-monitor-environment: &monitor-environment
   GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_INSTANCE_ID: monitor-1
+  GOPULSE_REPLICA_COUNT: 1
+  BACKEND_ENDPOINTS: backend,backend-2
+  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
+  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
   MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
@@ -312,7 +332,9 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=80m,mode=1777
     stop_grace_period: 15s
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      GOPULSE_INSTANCE_ID: backend-1
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -322,8 +344,42 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - ${PUBLISHED_HOST:-127.0.0.1}:${HTTP_PORT:?HTTP_PORT is required}:8080
+    networks:
+      - edge
+      - business
+      - observability
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend-2:
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: backend
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=80m,mode=1777
+    stop_grace_period: 15s
+    environment:
+      <<: *backend-environment
+      GOPULSE_INSTANCE_ID: backend-2
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      search-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     networks:
       - edge
       - business
@@ -346,7 +402,38 @@ services:
     restart: on-failure:5
     read_only: true
     stop_grace_period: 15s
-    environment: *worker-environment
+    environment:
+      <<: *worker-environment
+      GOPULSE_INSTANCE_ID: business-worker-1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - business
+      - observability
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19102/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  business-worker-2:
+    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: business-worker
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment:
+      <<: *worker-environment
+      GOPULSE_INSTANCE_ID: business-worker-2
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -373,7 +460,42 @@ services:
     restart: on-failure:5
     read_only: true
     stop_grace_period: 15s
-    environment: *indexer-environment
+    environment:
+      <<: *indexer-environment
+      GOPULSE_INSTANCE_ID: search-indexer-1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      search-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - business
+      - observability
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19103/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  search-indexer-2:
+    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: search-indexer
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment:
+      <<: *indexer-environment
+      GOPULSE_INSTANCE_ID: search-indexer-2
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -430,6 +552,8 @@ services:
       admin-frontend:
         condition: service_healthy
       backend:
+        condition: service_healthy
+      backend-2:
         condition: service_healthy
     ports:
       - ${PUBLISHED_HOST:-127.0.0.1}:${FRONTEND_PORT:?FRONTEND_PORT is required}:8080
