@@ -95,3 +95,5 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `bash scripts/verify-compose.sh --self-test`、`bash -n scripts/verify-compose-observability.sh`、`git diff --check`：通过。
 
 后续：修复提交推送后等待 GitHub Actions 重新执行完整门禁；本地未重复 Phase-18-04 固定两轮正式验收。
+
+远程复核补充：运行 `36329279305` 中 Branch governance 已通过；`Scripts and Compose` 暴露 `.github/workflows/quality-gates.yml` 仍要求两个宿主回环发布，而当前 Compose 只有 Frontend 一个发布。已将该门禁登记到实施计划并调整为单个发布，等待再次推送后的远程复核。
