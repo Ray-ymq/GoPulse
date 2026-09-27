@@ -48,6 +48,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go` | 远程日志校验允许副本实例身份字段，保证日志入口与共享日志结构一致 |
 | `monitor/internal/metrics/publisher/publisher.go`、`monitor/internal/metrics/publisher/publisher_test.go` | Router 选择/失败转移有界，不因重试产生重复无界请求 |
 | `componentmetrics/catalog.go`、`componentmetrics/validation.go` | 新增 buffer/ownership/partition 指标词汇固定且标签基数有限 |
+| `scripts/ci/verify_component_metrics.py` | 组件指标 self-test 使用当前权威目录的固定样本预算，并校验管理端生成合同无漂移 |
 | `monitor/internal/metrics/collector/components.go`、`monitor/internal/metrics/collector/components_test.go` | 所有 Router/Marshaller 副本均被采集，不被 DNS 随机结果遗漏 |
 | `scripts/verify-compose-observability.sh` | 完整 Compose 验收适配 Phase-18 多副本拓扑：前端是唯一宿主入口，Backend 副本保持内网监听并通过网络边界校验 |
 | `.github/workflows/quality-gates.yml` | Compose 配置门禁按单一 Frontend 宿主入口校验回环发布数量，并保持其他产品服务无宿主发布 |
@@ -57,6 +58,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `router/README.md`、`marshaller/README.md`、`monitor/README.md`、`backend/README.md`、`README.md` | 配置、双 ES、背压和多副本边界与实际实现一致，不宣称 broker/存储 HA |
 | `scripts/verify-logs.sh`、`scripts/verify-events.sh` | 独立宿主验收为 Backend 查询显式提供观测 ES 地址，保持日志/事件读写落在同一观测存储 |
 | `admin-frontend/src/views/ObservabilityMetricsView.vue`、`admin-frontend/src/views/ObservabilityMetricsView.test.ts` | Metrics 查询在代理保留 503 状态但错误码变化时仍显示 VictoriaMetrics 不可用提示，并保持并发请求状态隔离 |
+| `admin-frontend/src/services/componentMetrics.ts` | 管理端生成的组件指标合同与 `componentmetrics` 权威目录保持一致，catalog 校验不会在发起 Metrics 查询前误拒绝多副本容量指标 |
 | `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md` | 记录实际文件、两次命令/结果、均值、故障隔离结论与限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本一致为 `2.0.4` |
 

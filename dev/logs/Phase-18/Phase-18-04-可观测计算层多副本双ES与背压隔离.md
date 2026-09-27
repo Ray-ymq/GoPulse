@@ -174,3 +174,27 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - `git diff --check`：通过。
 
 限制与后续：本地未重复 Phase-18-04 固定两轮正式验收；本次修复提交推送后等待远程 Full-stack Compose acceptance 和 PR 自动化结果。
+
+## 2026-09-28 PR 门禁复核：管理端指标目录同步
+
+远程运行 `36334287639` 中除 Full-stack Compose acceptance 外的门禁均通过；Full-stack 的 `vm-down` 场景仍未找到 VictoriaMetrics 不可用提示，自动 PR job 因此跳过。保留本地 Compose 环境复现后，Frontend access log 显示页面只请求了 `/observability/metrics/catalog`，没有继续请求 `/observability/metrics`；浏览器页面显示的是通用 catalog 响应失败文案。`componentmetrics/cmd/catalog` 对照确认管理端生成目录缺少 Router/Marshaller 的 8 个固定指标，严格校验在指标查询前拒绝了后端的 105 条目录。
+
+本次实际变更文件：
+
+- `admin-frontend/src/services/componentMetrics.ts`：从当前 `componentmetrics/cmd/catalog` 重新生成组件指标类型和合同，补齐 Router buffer/backpressure 与 Marshaller partition/target 指标。
+- `scripts/ci/verify_component_metrics.py`：同步 Router `120`、Marshaller `310` 的当前固定样本预算，使 self-test 与权威目录一致。
+- `dev/imple/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：登记生成目录和 self-test 文件范围。
+- `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：记录本次复现、修复和验证。
+
+本次实际执行的检查与结果：
+
+- `bash scripts/verify-compose-observability.sh --keep`：按原始候选复现 `vm-down` 失败，保留 Compose 环境供诊断；未重复 Phase-18-04 固定两轮 runner。
+- `go run ./componentmetrics/cmd/catalog`：输出 6 个组件、48 个组件指标族，样本预算为 `713/37/24/112/120/310`。
+- `python3 scripts/ci/verify_component_metrics.py --self-test`：修复前因 Router/Marshaller 预算过期失败；修复后通过。
+- `npm test -- --run`（Admin Frontend）：12 个测试文件、45 项通过。
+- `npm run typecheck`、`npm run build`（Admin Frontend）：通过。
+- `docker compose ... build admin-frontend`：镜像构建内置 45 项测试和生产构建均通过。
+- 更新本地 admin-frontend 镜像后运行同一 `vm-down` 浏览器流程：目录校验通过，实际发出 Metrics 请求并收到 `503 metrics_unavailable`，页面显示 VictoriaMetrics 不可用提示。
+- `git diff --check`：通过。
+
+限制与后续：修复后的正式远程 Compose acceptance 尚未运行；本地只执行了目标故障场景，未把它计为固定两轮正式验收结果。等待本次提交推送后的远程门禁和 PR 自动化结果。
