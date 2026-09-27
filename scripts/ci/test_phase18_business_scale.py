@@ -7,7 +7,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from phase18_business_scale import average, validate_candidate_binding, validate_repetitions, write_json_once
+from phase18_business_scale import (
+    average,
+    matrix_scenarios,
+    validate_candidate_binding,
+    validate_repetitions,
+    write_json_once,
+)
 
 
 class BusinessScaleRunnerTest(unittest.TestCase):
@@ -43,6 +49,14 @@ class BusinessScaleRunnerTest(unittest.TestCase):
         source = wrapper.read_text()
         self.assertIn("$2 != 2", source)
         self.assertNotIn("repetitions 3", source)
+
+    def test_fault_scenarios_initialize_same_token_accounts_before_stopping_dependency(self) -> None:
+        scenarios = {label: (token_label, initialize) for label, _, _, token_label, initialize in matrix_scenarios()}
+        for label in ("worker_failover", "indexer_failover", "rabbit_fault_seed", "elasticsearch_fault_seed"):
+            self.assertEqual(scenarios[label][1], True)
+            self.assertIsNotNone(scenarios[label][0])
+        for label in ("normal", "backend_failover", "worker_recovery", "indexer_recovery", "rabbit_recovery", "elasticsearch_recovery"):
+            self.assertEqual(scenarios[label][1], False)
 
 
 if __name__ == "__main__":

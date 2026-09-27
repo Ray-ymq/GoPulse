@@ -367,6 +367,22 @@ def closure_snapshot(
     }
 
 
+def matrix_scenarios() -> list[tuple[str, str, str | None, str | None, bool]]:
+    """Return the fixed U3 matrix and its per-fault account setup requirement."""
+    return [
+        ("normal", "business", None, None, False),
+        ("backend_failover", "business", "backend-2", None, False),
+        ("worker_failover", "worker-seed", "business-worker-2", "worker-recovery", True),
+        ("worker_recovery", "worker-verify", None, "worker-recovery", False),
+        ("indexer_failover", "indexer-seed", "search-indexer-2", "indexer-recovery", True),
+        ("indexer_recovery", "indexer-verify", None, "indexer-recovery", False),
+        ("rabbit_fault_seed", "worker-seed", "rabbitmq", "rabbit-recovery", True),
+        ("rabbit_recovery", "worker-verify", None, "rabbit-recovery", False),
+        ("elasticsearch_fault_seed", "indexer-seed", "elasticsearch", "elasticsearch-recovery", True),
+        ("elasticsearch_recovery", "indexer-verify", None, "elasticsearch-recovery", False),
+    ]
+
+
 def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[str, Any]:
     directory = run_dir / "U3"
     directory.mkdir(parents=True, exist_ok=True)
@@ -408,19 +424,21 @@ def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[
         if not all(item["status"] == "healthy" for item in matrix["health"]):
             matrix.update(status="execution_failed", reason="replica health did not converge")
             return matrix
-        scenarios = [
-            ("normal", "business", None, None),
-            ("backend_failover", "business", "backend-2", None),
-            ("worker_failover", "worker-seed", "business-worker-2", "worker-recovery"),
-            ("worker_recovery", "worker-verify", None, "worker-recovery"),
-            ("indexer_failover", "indexer-seed", "search-indexer-2", "indexer-recovery"),
-            ("indexer_recovery", "indexer-verify", None, "indexer-recovery"),
-            ("rabbit_fault_seed", "worker-seed", "rabbitmq", "rabbit-recovery"),
-            ("rabbit_recovery", "worker-verify", None, "rabbit-recovery"),
-            ("elasticsearch_fault_seed", "indexer-seed", "elasticsearch", "elasticsearch-recovery"),
-            ("elasticsearch_recovery", "indexer-verify", None, "elasticsearch-recovery"),
-        ]
-        for label, scenario, stopped, token_label in scenarios:
+        for label, scenario, stopped, token_label, initialize_accounts in matrix_scenarios():
+            if initialize_accounts:
+                setup = acceptance(
+                    directory,
+                    project,
+                    env_file,
+                    values,
+                    f"{label}_account_init",
+                    "business",
+                    token_label,
+                )
+                matrix["scenarios"].append({"name": f"{label}_account_init", "acceptance": setup})
+                if setup["exit_code"] != 0:
+                    matrix.update(status="boundary_found", reason=f"acceptance account initialization failed: {label}")
+                    return matrix
             if stopped:
                 stop = compose("stop", stopped)
                 matrix["scenarios"].append({"name": label + "_stop", "action": stop})
