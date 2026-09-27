@@ -46,6 +46,11 @@ def self_test():
     expected = {f['Name']: dict(source=s['ID'], kind=f['Kind'], unit=f['Unit'], keys=f['Keys'] or [], tuples=f['Tuples'])
                 for s in specs for f in s['Families']}
     assert actual == expected
+    label_line = next(line for line in (ROOT/'admin-frontend/src/services/management.ts').read_text().splitlines()
+                       if line.startswith('const labelKeys ='))
+    browser_labels = set(re.findall(r"'([^']+)'", label_line))
+    component_labels = {key for family in expected.values() for key in family['keys']}
+    assert component_labels <= browser_labels, sorted(component_labels - browser_labels)
     assert all(not any(key in ('source', 'target_id', 'producer_kind', 'producer_id', 'user_id') for key in f['Keys'] or [])
                for s in specs for f in s['Families'])
     print('PASS: six fixed identities, budgets and browser contract match production catalog; no Docker access')

@@ -220,3 +220,29 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - 通过 scoped `docker compose ... down --volumes --remove-orphans` 清理保留的隔离项目，并删除本次唯一 acceptance image tags；未执行全局 Docker prune。
 
 限制与后续：新的远程 Full-stack acceptance 尚未运行；本地 Phase-12 相关路径和 3 轮持久化重启已通过，等待本次提交推送后的远程门禁和 PR 自动化结果。
+
+## 2026-09-28 PR 门禁复核：管理端告警目录标签同步
+
+远程运行 `36337955785` 已验证上一项 Elasticsearch 就绪修复：持久化恢复后的两次 `search-init` 均以 `0` 退出。Full-stack 随后在 Phase 15 管理闭环失败，`/api/v1/alerts/catalog` 返回 `200`，但管理端规则页的“创建规则”按钮持续禁用；日志中没有继续请求告警列表或规则接口，自动 PR job 再次跳过。
+
+失败原因是当前组件指标目录新增了 Router 的 `reason` 标签和 Marshaller 的 `partition` 标签，管理端 `isCatalog` 的固定标签白名单未同步，严格响应校验拒绝整个 catalog，页面因此没有可用目录。
+
+本次实际变更文件：
+
+- `admin-frontend/src/services/management.ts`：补齐 `reason`、`partition` 标签白名单。
+- `admin-frontend/src/services/management.test.ts`：增加当前 Router/Marshaller 标签的 catalog 校验回归断言。
+- `scripts/ci/verify_component_metrics.py`：self-test 校验权威组件目录中的标签均已进入管理端白名单。
+- `dev/imple/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：登记管理端目录校验文件范围。
+- `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md`：记录本次远程失败、原因和验证结果。
+
+本次实际执行的检查与结果：
+
+- `npm test -- --run src/services/management.test.ts`（Admin Frontend）：12 项通过。
+- `npm run typecheck`（Admin Frontend）：通过。
+- `npm run build`（Admin Frontend）：通过。
+- `python3 scripts/ci/verify_component_metrics.py --self-test`：通过。
+- `git diff --check`：通过。
+- 首次重新执行 `bash scripts/verify-compose-observability.sh --keep`：在 Docker 启动前因工作区存在当前待提交的运行时源文件而按脚本规则停止；提交后重新执行。
+- `bash scripts/verify-compose-observability.sh --keep`（提交 `2143e5f` 后）：通过；Phase 12 authoritative full-stack acceptance 通过，`phase15-closure.spec.ts` 的规则目录闭环 1 项通过，脚本保留了隔离环境供清理。
+
+限制与后续：本地完整 Compose 验收已通过；远程 Full-stack acceptance 和 PR 自动化结果仍待本次推送后确认。

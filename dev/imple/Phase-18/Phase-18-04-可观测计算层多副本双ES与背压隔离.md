@@ -59,6 +59,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `scripts/verify-logs.sh`、`scripts/verify-events.sh` | 独立宿主验收为 Backend 查询显式提供观测 ES 地址，保持日志/事件读写落在同一观测存储 |
 | `admin-frontend/src/views/ObservabilityMetricsView.vue`、`admin-frontend/src/views/ObservabilityMetricsView.test.ts` | Metrics 查询在代理保留 503 状态但错误码变化时仍显示 VictoriaMetrics 不可用提示，并保持并发请求状态隔离 |
 | `admin-frontend/src/services/componentMetrics.ts` | 管理端生成的组件指标合同与 `componentmetrics` 权威目录保持一致，catalog 校验不会在发起 Metrics 查询前误拒绝多副本容量指标 |
+| `admin-frontend/src/services/management.ts`、`admin-frontend/src/services/management.test.ts` | 管理端告警目录校验覆盖当前组件指标的 `reason`、`partition` 标签，并保护目录加载后的规则创建能力 |
 | `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md` | 记录实际文件、两次命令/结果、均值、故障隔离结论与限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本一致为 `2.0.4` |
 
