@@ -429,7 +429,9 @@ assert_network_and_ports() {
       *) [[ $networks == *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
     esac
     bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")
-    if [[ $service == frontend || $service == backend ]]; then
+    # The frontend is the sole host entry point; backend replicas stay private
+    # and are reached through the frontend's internal upstream pool.
+    if [[ $service == frontend ]]; then
       host_ips=$(docker inspect --format '{{range $p, $items := .HostConfig.PortBindings}}{{range $items}}{{.HostIp}} {{end}}{{end}}' "$id")
       [[ $host_ips == '127.0.0.1 ' ]] || fail "$service is not bound exactly once to IPv4 loopback"
     else

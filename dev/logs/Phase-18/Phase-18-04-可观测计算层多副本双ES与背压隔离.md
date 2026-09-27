@@ -75,3 +75,23 @@ U3 acceptance 场景耗时（秒，run-1 / run-2 / 平均）：
 - 两轮 U3 的 `normal` 和 `recovery` 浏览器验收均在 `waitForLogs` 等待窗口内未看到记录；两轮 VictoriaMetrics 故障验收均未看到预期的不可用提示。现有证据只能确认这些 acceptance 断言失败，未在固定两轮之外继续定位。
 - 两轮四个副本 metrics probe 均退出码 `1`。冻结证据中的 probe 命令使用了 `$$ROUTER_METRICS_TOKEN` / `$$MARSHALLER_METRICS_TOKEN` 形式，未提供有效副本指标证据；这是验收脚本的后续修复项。由于本批固定 runner 只能执行一次且不得追加第三轮，未在本批修改后重跑。
 - 因 U3 在两轮均存在上述边界，本批结果不宣称 `target_met`；按计划要求仍同步 `VERSION=2.0.4`、创建本记录并提交。
+
+## PR 门禁修复记录
+
+实际修复：
+
+- `deploy/compose.yaml` 将 MySQL 连接池参数从共享初始化环境移到 Backend、Business Worker 和 Search Indexer 运行时环境，恢复迁移、搜索初始化和管理初始化容器的角色最小环境集合。
+- `scripts/verify-compose-observability.sh` 按当前 Phase-18 拓扑仅要求 Frontend 发布宿主回环端口；Backend 副本通过 Frontend 的内网 upstream 访问。
+- `dev/imple/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md` 补登记完整 Compose 验收脚本。
+
+实际执行的检查与结果：
+
+- 远程运行 `36325432100`：治理测试因初始化容器多出四个 MySQL 连接池变量失败；完整 Compose 验收因 Backend 未绑定宿主回环端口失败；其余产品与集成 job 通过。
+- `python3 -m unittest discover -s scripts/ci -p 'test_verify_business.py'`：通过。
+- `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`：108 项通过。
+- `python3 scripts/ci/validate_versions.py`：通过。
+- `python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example`：通过。
+- `docker compose --env-file .env.example --file deploy/compose.yaml config --format json`：通过，并确认仅 Frontend 发布宿主端口、Backend 无宿主端口。
+- `bash scripts/verify-compose.sh --self-test`、`bash -n scripts/verify-compose-observability.sh`、`git diff --check`：通过。
+
+后续：修复提交推送后等待 GitHub Actions 重新执行完整门禁；本地未重复 Phase-18-04 固定两轮正式验收。
