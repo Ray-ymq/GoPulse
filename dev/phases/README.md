@@ -1,6 +1,6 @@
 # GoPulse 阶段性开发文档
 
-本目录将 [`Plan.md`](Plan.md) 拆分为各阶段提纲。Phase 17 已在 `1.14.5` 完成并收口 Milestone 4；Phase-18-01/02 已在 `2.0.2` 完成容量定界和 Outbox 调度修复。Phase-18-03～18-05 已在 `2.0.3`～`2.0.5` 完成多副本、故障隔离、背压和独立诊断；Phase-18-05 固定矩阵结果为 `boundary_found`。当前完成产品版本为 `2.0.5`。
+本目录将 [`Plan.md`](Plan.md) 拆分为各阶段提纲。Phase 17 已在 `1.14.5` 完成并收口 Milestone 4；Phase-18-01/02 已在 `2.0.2` 完成容量定界和 Outbox 调度修复。Phase-18-03～18-05 已在 `2.0.3`～`2.0.5` 完成多副本、故障隔离、背压和独立诊断；Phase-18-05 最终固定矩阵结果为 `target_met`。当前完成产品版本为 `2.0.5`。
 
 ## 阶段索引
 
@@ -39,10 +39,11 @@ Phase 12 已完成的 Compose 基线
 → Phase-18-03～18-05 计算层多副本、故障隔离与阶段收口（已完成）
 ```
 
-Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。Phase 18 已完成机器合同、计算层多副本、故障域隔离、背压和两轮闭合证据；`boundary_found` 结果仍将未证明项固定为后续输入，没有以部署平台变更替代产品自身验证。
+Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。Phase 18 已完成机器合同、计算层多副本、故障域隔离、背压和两轮闭合证据；Phase-18-05 最终候选的固定结果为 `target_met`，没有以部署平台变更替代产品自身验证。
 
-Phase-18-01/02 没有证明 `150 RPS` 稳定容量；Phase-18-05 的两轮矩阵也没有把故障场景和容量信号
-提升为达标结论。容量认证、状态层 HA 与 Kubernetes 仍需另行立项。
+Phase-18-01/02 没有证明 `150 RPS` 稳定容量；Phase-18-05 的两轮矩阵证明的是其固定范围内的
+扩缩容、故障隔离、恢复、独立诊断和终态闭合，不替代独立容量认证。容量认证、状态层 HA 与
+Kubernetes 仍需另行立项。
 完整发展顺序见 [高并发与可观测后续路线图](GoPulse-高并发与可观测后续路线图.md)。
 
 Kubernetes 基础部署、统一入口和集群观测已移至 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)，仅作为未排期设计，不属于当前 Phase、版本或里程碑。
