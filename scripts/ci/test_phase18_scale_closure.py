@@ -9,8 +9,10 @@ from pathlib import Path
 from unittest import mock
 
 from phase18_scale_closure import (
+    COMPONENT_METRICS_PATH,
     MATRIX_ORDER,
     average,
+    capacity_metrics_path,
     final_result,
     run_repetitions,
     validate_candidate_binding,
@@ -20,6 +22,15 @@ from phase18_scale_closure import (
 
 
 class ScaleClosureRunnerTest(unittest.TestCase):
+    def test_capacity_metric_paths_match_component_contract(self) -> None:
+        self.assertEqual(
+            capacity_metrics_path(
+                {"listeners": [{"name": "probe", "port": 8080}, {"name": "metrics", "port": 19101}]}
+            ),
+            COMPONENT_METRICS_PATH,
+        )
+        self.assertEqual(capacity_metrics_path({"listeners": [{"name": "probe", "port": 9121}]}), "/metrics")
+
     def test_formal_mode_allows_only_two_runs(self) -> None:
         self.assertEqual(validate_repetitions(2), 2)
         for value in (0, 1, 3, 4):

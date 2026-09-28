@@ -96,6 +96,7 @@ ALLOWED_FILES = (
     "dev/phases/Plan.md",
     "dev/phases/README.md",
     "dev/phases/Phase-18-高并发与可观测架构收敛.md",
+    "dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md",
     "README.md",
     "VERSION",
     ".env.example",
@@ -119,6 +120,7 @@ MATRIX_ORDER = (
     "service-rebuild",
     "terminal-closure",
 )
+COMPONENT_METRICS_PATH = "/internal/v1/metrics"
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -458,6 +460,9 @@ def run_acceptance(
     scenario: str,
     spec: str,
 ) -> dict[str, Any]:
+    scenario_token = hashlib.sha256(
+        f"{values.get('GOPULSE_ACCEPTANCE_TOKEN', 'compose')}-{name}".encode()
+    ).hexdigest()[:12]
     args = compose_command(
         project,
         env_file,
@@ -468,10 +473,17 @@ def run_acceptance(
         "--no-deps",
         "-e",
         f"GOPULSE_ACCEPTANCE_SCENARIO={scenario}",
+        "-e",
+        f"GOPULSE_ACCEPTANCE_TOKEN={scenario_token}",
         "acceptance",
         spec,
     )
     return record_command(directory, name, args, timeout=900, redact_values=values)
+
+
+def capacity_metrics_path(component: dict[str, Any]) -> str:
+    listeners = {listener["name"] for listener in component["listeners"]}
+    return COMPONENT_METRICS_PATH if "metrics" in listeners else "/metrics"
 
 
 def _contract() -> dict[str, Any]:
@@ -491,6 +503,7 @@ def direct_diagnostics(
         listeners = {listener["name"]: listener["port"] for listener in component["listeners"]}
         probe_port = listeners[component["diagnostic"]["probe_listener"]]
         metrics_port = listeners.get("metrics")
+        metrics_path = capacity_metrics_path(component)
         token_key = component["id"].upper().replace("-", "_") + "_METRICS_TOKEN"
         for index, service in enumerate(component["compose_services"]):
             expected_identity = component["replica"]["instances"][index]
@@ -509,7 +522,7 @@ def direct_diagnostics(
             if metrics_port is not None:
                 body.append(
                     f'wget --quiet --header "Authorization: Bearer ${token_key}" --output-document=- '
-                    f"http://127.0.0.1:{metrics_port}/metrics | grep -E 'gopulse_' >/dev/null"
+                    f"http://127.0.0.1:{metrics_port}{metrics_path} | grep -E 'gopulse_' >/dev/null"
                 )
                 body.append('printf "capacity=metrics\\n"')
             elif component["role"] == "plugin-exporter":
@@ -594,6 +607,55 @@ def _append_acceptance(
     result = run_acceptance(directory, project, env_file, values, name, scenario, spec)
     matrix.setdefault("acceptance", []).append(result)
     return result
+
+
+def bootstrap_admin(
+    matrix: dict[str, Any],
+    directory: Path,
+    project: str,
+    env_file: Path,
+    values: dict[str, str],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    probe = _record_action(
+        matrix,
+        directory,
+        project,
+        env_file,
+        values,
+        "bootstrap-user-id",
+        "exec",
+        "-T",
+        "-e",
+        f"BOOTSTRAP_USERNAME={values['GOPULSE_OBSERVABILITY_ADMIN_USERNAME']}",
+        "mysql",
+        "sh",
+        "-ec",
+        'MYSQL_PWD="$MYSQL_PASSWORD" mysql --user="$MYSQL_USER" --batch --skip-column-names "$MYSQL_DATABASE" --execute "SELECT id FROM users WHERE username=\'${BOOTSTRAP_USERNAME}\'"',
+        timeout=60,
+    )
+    probe_path = directory / f"{probe['name']}.stdout.log"
+    user_id = probe_path.read_text(encoding="utf-8").strip() if probe_path.exists() else ""
+    if probe["exit_code"] != 0 or not re.fullmatch(r"[1-9][0-9]*", user_id):
+        return probe, None
+    promoted = _record_action(
+        matrix,
+        directory,
+        project,
+        env_file,
+        values,
+        "bootstrap-admin-role",
+        "--profile",
+        "operations",
+        "run",
+        "--rm",
+        "--no-deps",
+        "admin-role",
+        "bootstrap",
+        "--user-id",
+        user_id,
+        timeout=120,
+    )
+    return probe, promoted
 
 
 def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[str, Any]:
@@ -683,9 +745,23 @@ def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[
         matrix["diagnostics"].append({"phase": "initial", **diagnostics})
         step("normal-concurrency", "target_met" if diagnostics["failed"] == 0 and diagnostics["missing"] == 0 else "boundary_found", diagnostics=diagnostics)
         normal_business = _append_acceptance(matrix, directory, project, env_file, values, "acceptance-normal-business", "business", "e2e/compose-business.spec.ts")
+        setup = _append_acceptance(matrix, directory, project, env_file, values, "acceptance-observability-setup", "setup", "e2e/compose-observability.spec.ts")
+        bootstrap_probe, bootstrap_promoted = bootstrap_admin(matrix, directory, project, env_file, values)
         normal_observability = _append_acceptance(matrix, directory, project, env_file, values, "acceptance-normal-observability", "admin", "e2e/compose-observability.spec.ts")
+        setup_commands = [setup, bootstrap_probe, bootstrap_promoted] if bootstrap_promoted is not None else [setup, bootstrap_probe]
+        setup_ok = all(item["exit_code"] == 0 for item in setup_commands) and bootstrap_promoted is not None
+        step(
+            "observability-setup",
+            "target_met" if setup_ok else ("execution_failed" if any(item["exit_code"] in (124, 127) for item in setup_commands) else "boundary_found"),
+            setup=setup,
+            bootstrap_probe=bootstrap_probe,
+            bootstrap_promoted=bootstrap_promoted,
+        )
+        acceptance_commands = [normal_business, setup, bootstrap_probe, normal_observability]
+        if bootstrap_promoted is not None:
+            acceptance_commands.append(bootstrap_promoted)
         if normal_business["exit_code"] != 0 or normal_observability["exit_code"] != 0:
-            step("normal-acceptance", "execution_failed" if any(item["exit_code"] in (124, 127) for item in (normal_business, normal_observability)) else "boundary_found", business=normal_business, observability=normal_observability)
+            step("normal-acceptance", "execution_failed" if any(item["exit_code"] in (124, 127) for item in acceptance_commands) else "boundary_found", business=normal_business, observability=normal_observability)
         else:
             step("normal-acceptance", "target_met", business=normal_business, observability=normal_observability)
 
@@ -708,9 +784,9 @@ def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[
         step("observability-scale-down", "target_met" if observability_stop["exit_code"] == 0 and observability_start["exit_code"] == 0 else "boundary_found", stop=observability_stop, start=observability_start)
 
         for name, service, scenario, spec in (
-            ("rabbitmq-short-fault", "rabbitmq", "transport-down", "e2e/compose-business.spec.ts"),
+            ("rabbitmq-short-fault", "rabbitmq", "business", "e2e/compose-business.spec.ts"),
             ("kafka-short-fault", "kafka", "transport-down", "e2e/compose-observability.spec.ts"),
-            ("business-search-es-fault", "elasticsearch", "transport-down", "e2e/compose-business.spec.ts"),
+            ("business-search-es-fault", "elasticsearch", "business", "e2e/compose-business.spec.ts"),
             ("observability-es-fault", "observability-elasticsearch", "transport-down", "e2e/compose-observability.spec.ts"),
             ("victoriametrics-fault", "victoriametrics", "vm-down", "e2e/compose-observability.spec.ts"),
         ):
@@ -722,7 +798,7 @@ def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[
             step(name, "target_met" if okay and acceptance["exit_code"] == 0 else ("execution_failed" if any(item["exit_code"] in (124, 127) for item in (stop, acceptance, start)) else "boundary_found"), stop=stop, acceptance=acceptance, start=start, recovery=recovered)
 
         term = _record_action(matrix, directory, project, env_file, values, "single-instance-sigterm", "kill", "--signal", "SIGTERM", "backend-2", timeout=120)
-        restart = _record_action(matrix, directory, project, env_file, values, "single-instance-sigterm-restart", "up", "-d", "backend-2", timeout=180)
+        restart = _record_action(matrix, directory, project, env_file, values, "single-instance-sigterm-restart", "up", "-d", "--force-recreate", "--no-deps", "backend-2", timeout=180)
         recovery = wait_healthy(project, env_file, "backend-2", directory, values, "health-single-instance-sigterm", timeout=180)
         step("single-instance-sigterm", "target_met" if term["exit_code"] == 0 and restart["exit_code"] == 0 and recovery["status"] == "healthy" else "boundary_found", signal=term, restart=restart, recovery=recovery)
 
