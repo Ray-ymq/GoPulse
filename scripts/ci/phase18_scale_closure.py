@@ -121,6 +121,59 @@ MATRIX_ORDER = (
     "terminal-closure",
 )
 COMPONENT_METRICS_PATH = "/internal/v1/metrics"
+PLUGIN_ACCOUNT_SUFFIX = "0123456789abcdef0123456789abcdef"
+PLUGIN_VM_PASSWORD_SUFFIX = "0123456789abcdef0123456789abc"
+FAULT_ISOLATION_SCRIPT = r"""
+const base = process.env.GOPULSE_BASE_URL ?? 'http://frontend:8080'
+const token = process.env.GOPULSE_ACCEPTANCE_TOKEN ?? ''
+const kind = process.env.GOPULSE_FAULT_KIND ?? ''
+const password = `acceptance-${token}-password`
+
+async function request(cookie, path, method = 'GET', body) {
+  const headers = {}
+  if (cookie) headers.Cookie = cookie
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const response = await fetch(`${base}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const rawCookie = response.headers.get('set-cookie')
+  const nextCookie = rawCookie ? rawCookie.split(';', 1)[0] : cookie
+  const text = await response.text()
+  let data = null
+  try { data = text ? JSON.parse(text) : null } catch {}
+  return { status: response.status, cookie: nextCookie, data }
+}
+
+async function register(username) {
+  const response = await request('', '/api/v1/auth/register', 'POST', { username, password })
+  if (response.status !== 201 || !response.cookie) throw new Error(`register ${username}: ${response.status}`)
+  return response.cookie
+}
+
+async function main() {
+  if (!['rabbitmq', 'elasticsearch'].includes(kind)) throw new Error(`unsupported fault kind: ${kind}`)
+  const owner = await register(`fault_${kind}_owner_${token}`.slice(0, 32))
+  const post = await request(owner, '/api/v1/posts', 'POST', {
+    title: `Fault isolation ${kind} ${token}`,
+    content: 'The authoritative business write remains available while a downstream dependency is unavailable.',
+  })
+  if (post.status !== 201 || !post.data?.data?.id) throw new Error(`post create: ${post.status}`)
+  const postID = post.data.data.id
+  const detail = await request(owner, `/api/v1/posts/${postID}`)
+  if (detail.status !== 200) throw new Error(`post detail: ${detail.status}`)
+  if (kind === 'rabbitmq') {
+    const actor = await register(`fault_${kind}_actor_${token}`.slice(0, 32))
+    const comment = await request(actor, `/api/v1/posts/${postID}/comments`, 'POST', { content: 'RabbitMQ fault isolation comment.' })
+    if (comment.status !== 201) throw new Error(`comment create: ${comment.status}`)
+    const like = await request(actor, `/api/v1/posts/${postID}/like`, 'PUT')
+    if (like.status !== 204) throw new Error(`like create: ${like.status}`)
+  }
+}
+
+await main()
+"""
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -396,7 +449,7 @@ def candidate_environment(temp_root: Path, binding: dict[str, Any], run_number: 
             "ROUTER_API_TOKEN": f"router-{token}-0123456789abcdef0123456789abcdef",
             "MARSHALLER_API_TOKEN": f"marshaller-{token}-0123456789abcdef0123456789abcdef",
             "VICTORIAMETRICS_USERNAME": f"vm_{token}",
-            "VICTORIAMETRICS_PASSWORD": f"vm-{token}-0123456789abcdef0123456789abcdef",
+            "VICTORIAMETRICS_PASSWORD": f"vm-{token}-{PLUGIN_VM_PASSWORD_SUFFIX}",
             "BACKEND_VICTORIAMETRICS_USERNAME": f"vm_{token}",
             "BACKEND_VICTORIAMETRICS_PASSWORD": f"backend-vm-{token}-0123456789abcdef0123456789abcdef",
             "GOPULSE_OBSERVABILITY_ADMIN_USERNAME": f"admin_{token}",
@@ -459,8 +512,9 @@ def run_acceptance(
     name: str,
     scenario: str,
     spec: str,
+    acceptance_token: str | None = None,
 ) -> dict[str, Any]:
-    scenario_token = hashlib.sha256(
+    scenario_token = acceptance_token or hashlib.sha256(
         f"{values.get('GOPULSE_ACCEPTANCE_TOKEN', 'compose')}-{name}".encode()
     ).hexdigest()[:12]
     args = compose_command(
@@ -481,12 +535,45 @@ def run_acceptance(
     return record_command(directory, name, args, timeout=900, redact_values=values)
 
 
+def run_fault_isolation(
+    directory: Path,
+    project: str,
+    env_file: Path,
+    values: dict[str, str],
+    name: str,
+    kind: str,
+) -> dict[str, Any]:
+    token = hashlib.sha256(f"{values.get('GOPULSE_ACCEPTANCE_TOKEN', 'compose')}-{name}".encode()).hexdigest()[:12]
+    args = compose_command(
+        project,
+        env_file,
+        "--profile",
+        "acceptance",
+        "run",
+        "--rm",
+        "--no-deps",
+        "-e",
+        f"GOPULSE_ACCEPTANCE_TOKEN={token}",
+        "-e",
+        f"GOPULSE_FAULT_KIND={kind}",
+        "--entrypoint",
+        "node",
+        "acceptance",
+        "--input-type=module",
+        "-e",
+        FAULT_ISOLATION_SCRIPT,
+    )
+    return record_command(directory, name, args, timeout=180, redact_values=values)
+
+
 def capacity_metrics_path(component: dict[str, Any]) -> str:
     listeners = {listener["name"] for listener in component["listeners"]}
     return COMPONENT_METRICS_PATH if "metrics" in listeners else "/metrics"
 
 
 def _diagnostic_services(component: dict[str, Any], selected: set[str] | None) -> list[tuple[int, str]]:
+    if not component["compose_services"]:
+        return [(0, "monitor")] if selected is None else []
     return [
         (index, service)
         for index, service in enumerate(component["compose_services"])
@@ -516,15 +603,25 @@ def direct_diagnostics(
         token_key = component["id"].upper().replace("-", "_") + "_METRICS_TOKEN"
         for index, service in _diagnostic_services(component, services):
             expected_identity = component["replica"]["instances"][index]
-            body = [
-                "set -eu",
-                (
-                    'identity="${GOPULSE_INSTANCE_ID:-' + expected_identity + '}"'
-                    if component["replica"]["identity_source"] == "componentmetrics-fallback"
-                    else 'identity="${GOPULSE_INSTANCE_ID:-}"'
-                ),
-                'printf "identity=%s\\n" "$identity"',
-            ]
+            body = ["set -eu"]
+            if component["compose_services"]:
+                body.append(
+                    (
+                        'identity="${GOPULSE_INSTANCE_ID:-' + expected_identity + '}"'
+                        if component["replica"]["identity_source"] == "componentmetrics-fallback"
+                        else 'identity="${GOPULSE_INSTANCE_ID:-}"'
+                    )
+                )
+            else:
+                process_record = f"/var/lib/gopulse-monitor/plugins/{component['process_id']}/runtime/process.json"
+                body.extend(
+                    [
+                        f"test -s {process_record}",
+                        f"grep -Fq '\"plugin_id\":\"{component['process_id']}\"' {process_record}",
+                        f'identity="{expected_identity}"',
+                    ]
+                )
+            body.append('printf "identity=%s\\n" "$identity"')
             for path in component["diagnostic"]["paths"]:
                 body.append(f"wget --quiet --output-document=- http://127.0.0.1:{probe_port}{path} >/dev/null")
                 body.append(f'printf "probe={path}\\n"')
@@ -558,19 +655,6 @@ def direct_diagnostics(
                     "capacity_signals": component["diagnostic"]["capacity_signals"],
                     "command": result,
                     "status": "target_met" if result["exit_code"] == 0 else "boundary_found",
-                }
-            )
-        if not component["compose_services"] and services is None:
-            records.append(
-                {
-                    "process_id": component["process_id"],
-                    "service": None,
-                    "expected_identity": component["replica"]["instances"][0],
-                    "independent": component["diagnostic"]["independent"],
-                    "probe_paths": component["diagnostic"]["paths"],
-                    "capacity_signals": component["diagnostic"]["capacity_signals"],
-                    "status": "not_started",
-                    "reason": "managed plugin process is started by Monitor only when installed",
                 }
             )
     checked = sum(item["status"] == "target_met" for item in records)
@@ -616,6 +700,58 @@ def _append_acceptance(
     result = run_acceptance(directory, project, env_file, values, name, scenario, spec)
     matrix.setdefault("acceptance", []).append(result)
     return result
+
+
+def prepare_plugin_accounts(
+    matrix: dict[str, Any],
+    directory: Path,
+    project: str,
+    env_file: Path,
+    values: dict[str, str],
+) -> list[dict[str, Any]]:
+    mysql = _record_action(
+        matrix,
+        directory,
+        project,
+        env_file,
+        values,
+        "plugin-mysql-account",
+        "exec",
+        "-T",
+        "mysql",
+        "sh",
+        "-ec",
+        f'''set -eu
+token="${{MYSQL_PASSWORD#mysql-}}"
+token="${{token%-{PLUGIN_ACCOUNT_SUFFIX}}}"
+password="metrics-$token"
+MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --user=root --batch --skip-column-names --execute "CREATE USER IF NOT EXISTS 'gopulse_metrics'@'%' IDENTIFIED BY '$password'; ALTER USER 'gopulse_metrics'@'%' IDENTIFIED BY '$password';"
+''',
+        timeout=60,
+    )
+    rabbitmq = _record_action(
+        matrix,
+        directory,
+        project,
+        env_file,
+        values,
+        "plugin-rabbitmq-account",
+        "exec",
+        "-T",
+        "rabbitmq",
+        "sh",
+        "-ec",
+        f'''set -eu
+token="${{RABBITMQ_DEFAULT_PASS#rabbit-}}"
+token="${{token%-{PLUGIN_ACCOUNT_SUFFIX}}}"
+password="metrics-$token"
+if ! rabbitmqctl add_user gopulse_metrics "$password" >/dev/null 2>&1; then rabbitmqctl change_password gopulse_metrics "$password"; fi
+rabbitmqctl set_user_tags gopulse_metrics monitoring
+rabbitmqctl set_permissions -p / gopulse_metrics '^$' '^$' '^$'
+''',
+        timeout=60,
+    )
+    return [mysql, rabbitmq]
 
 
 def bootstrap_admin(
@@ -750,23 +886,37 @@ def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[
         if not health_ok:
             matrix["failure_stage"] = "initial-health"
 
-        diagnostics = direct_diagnostics(directory, project, env_file, values, "initial")
-        matrix["diagnostics"].append({"phase": "initial", **diagnostics})
-        step("normal-concurrency", "target_met" if diagnostics["failed"] == 0 and diagnostics["missing"] == 0 else "boundary_found", diagnostics=diagnostics)
         normal_business = _append_acceptance(matrix, directory, project, env_file, values, "acceptance-normal-business", "business", "e2e/compose-business.spec.ts")
         setup = _append_acceptance(matrix, directory, project, env_file, values, "acceptance-observability-setup", "setup", "e2e/compose-observability.spec.ts")
         bootstrap_probe, bootstrap_promoted = bootstrap_admin(matrix, directory, project, env_file, values)
+        plugin_accounts = prepare_plugin_accounts(matrix, directory, project, env_file, values)
+        plugin_acceptance = _append_acceptance(
+            matrix,
+            directory,
+            project,
+            env_file,
+            values,
+            "acceptance-release-plugins",
+            "plugins",
+            "e2e/compose-release-plugins.spec.ts",
+            acceptance_token=values["GOPULSE_ACCEPTANCE_TOKEN"],
+        )
         normal_observability = _append_acceptance(matrix, directory, project, env_file, values, "acceptance-normal-observability", "admin", "e2e/compose-observability.spec.ts")
-        setup_commands = [setup, bootstrap_probe, bootstrap_promoted] if bootstrap_promoted is not None else [setup, bootstrap_probe]
+        setup_commands = [setup, bootstrap_probe, *plugin_accounts, plugin_acceptance, bootstrap_promoted] if bootstrap_promoted is not None else [setup, bootstrap_probe, *plugin_accounts, plugin_acceptance]
         setup_ok = all(item["exit_code"] == 0 for item in setup_commands) and bootstrap_promoted is not None
         step(
             "observability-setup",
             "target_met" if setup_ok else ("execution_failed" if any(item["exit_code"] in (124, 127) for item in setup_commands) else "boundary_found"),
             setup=setup,
             bootstrap_probe=bootstrap_probe,
+            plugin_accounts=plugin_accounts,
+            plugin_acceptance=plugin_acceptance,
             bootstrap_promoted=bootstrap_promoted,
         )
-        acceptance_commands = [normal_business, setup, bootstrap_probe, normal_observability]
+        diagnostics = direct_diagnostics(directory, project, env_file, values, "initial")
+        matrix["diagnostics"].append({"phase": "initial", **diagnostics})
+        step("normal-concurrency", "target_met" if diagnostics["failed"] == 0 and diagnostics["missing"] == 0 else "boundary_found", diagnostics=diagnostics)
+        acceptance_commands = [normal_business, setup, bootstrap_probe, *plugin_accounts, plugin_acceptance, normal_observability]
         if bootstrap_promoted is not None:
             acceptance_commands.append(bootstrap_promoted)
         if normal_business["exit_code"] != 0 or normal_observability["exit_code"] != 0:
@@ -794,14 +944,18 @@ def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[
         step("observability-scale-down", "target_met" if observability_stop["exit_code"] == 0 and observability_start["exit_code"] == 0 else "boundary_found", stop=observability_stop, start=observability_start)
 
         for name, service, scenario, spec in (
-            ("rabbitmq-short-fault", "rabbitmq", "business", "e2e/compose-business.spec.ts"),
+            ("rabbitmq-short-fault", "rabbitmq", "fault-isolation", ""),
             ("kafka-short-fault", "kafka", "transport-down", "e2e/compose-observability.spec.ts"),
-            ("business-search-es-fault", "elasticsearch", "business", "e2e/compose-business.spec.ts"),
+            ("business-search-es-fault", "elasticsearch", "fault-isolation", ""),
             ("observability-es-fault", "observability-elasticsearch", "transport-down", "e2e/compose-observability.spec.ts"),
             ("victoriametrics-fault", "victoriametrics", "vm-down", "e2e/compose-observability.spec.ts"),
         ):
             stop = _record_action(matrix, directory, project, env_file, values, f"{name}-stop", "stop", service, timeout=180)
-            acceptance = _append_acceptance(matrix, directory, project, env_file, values, f"acceptance-{name}", scenario, spec)
+            if scenario == "fault-isolation":
+                acceptance = run_fault_isolation(directory, project, env_file, values, f"acceptance-{name}", "rabbitmq" if service == "rabbitmq" else "elasticsearch")
+                matrix.setdefault("acceptance", []).append(acceptance)
+            else:
+                acceptance = _append_acceptance(matrix, directory, project, env_file, values, f"acceptance-{name}", scenario, spec)
             start = _record_action(matrix, directory, project, env_file, values, f"{name}-start", "start", service, timeout=180)
             recovered = wait_healthy(project, env_file, service, directory, values, f"health-{name}", timeout=180)
             okay = stop["exit_code"] == 0 and start["exit_code"] == 0 and recovered["status"] == "healthy"

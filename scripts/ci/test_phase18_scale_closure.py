@@ -36,6 +36,8 @@ class ScaleClosureRunnerTest(unittest.TestCase):
         component = {"compose_services": ["backend", "backend-2"]}
         self.assertEqual(_diagnostic_services(component, {"backend"}), [(0, "backend")])
         self.assertEqual(_diagnostic_services(component, None), [(0, "backend"), (1, "backend-2")])
+        self.assertEqual(_diagnostic_services({"compose_services": []}, None), [(0, "monitor")])
+        self.assertEqual(_diagnostic_services({"compose_services": []}, {"backend"}), [])
 
     def test_formal_mode_allows_only_two_runs(self) -> None:
         self.assertEqual(validate_repetitions(2), 2)
