@@ -369,6 +369,12 @@ services:
     environment:
       <<: *backend-environment
       GOPULSE_INSTANCE_ID: backend-1
+    labels:
+      io.gopulse.runtime.process_id: backend
+      io.gopulse.runtime.role: business-api
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -384,6 +390,9 @@ services:
       - edge
       - business
       - observability
+    expose:
+      - "8080"
+      - "19101"
     healthcheck:
       test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
       start_period: 5s
@@ -407,6 +416,12 @@ services:
     environment:
       <<: *backend-environment
       GOPULSE_INSTANCE_ID: backend-2
+    labels:
+      io.gopulse.runtime.process_id: backend
+      io.gopulse.runtime.role: business-api
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -422,6 +437,9 @@ services:
       - edge
       - business
       - observability
+    expose:
+      - "8080"
+      - "19101"
     healthcheck:
       test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
       start_period: 5s
@@ -443,6 +461,12 @@ services:
     environment:
       <<: *worker-environment
       GOPULSE_INSTANCE_ID: business-worker-1
+    labels:
+      io.gopulse.runtime.process_id: business-worker
+      io.gopulse.runtime.role: business-worker
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -451,6 +475,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19102"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19102/ready"]
       interval: 5s
@@ -472,6 +498,12 @@ services:
     environment:
       <<: *worker-environment
       GOPULSE_INSTANCE_ID: business-worker-2
+    labels:
+      io.gopulse.runtime.process_id: business-worker
+      io.gopulse.runtime.role: business-worker
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -480,6 +512,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19102"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19102/ready"]
       interval: 5s
@@ -501,6 +535,12 @@ services:
     environment:
       <<: *indexer-environment
       GOPULSE_INSTANCE_ID: search-indexer-1
+    labels:
+      io.gopulse.runtime.process_id: search-indexer
+      io.gopulse.runtime.role: search-indexer
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -513,6 +553,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19103"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19103/ready"]
       interval: 5s
@@ -534,6 +576,12 @@ services:
     environment:
       <<: *indexer-environment
       GOPULSE_INSTANCE_ID: search-indexer-2
+    labels:
+      io.gopulse.runtime.process_id: search-indexer
+      io.gopulse.runtime.role: search-indexer
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -546,6 +594,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19103"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19103/ready"]
       interval: 5s
@@ -740,11 +790,18 @@ services:
     read_only: true
     stop_grace_period: 15s
     environment: *router-environment
+    labels:
+      io.gopulse.runtime.process_id: router
+      io.gopulse.runtime.role: observability-router
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       kafka-init:
         condition: service_completed_successfully
     expose:
       - "9091"
+      - "19105"
     networks:
       - observability
     healthcheck:
@@ -768,11 +825,18 @@ services:
     environment:
       <<: *router-environment
       GOPULSE_INSTANCE_ID: router-2
+    labels:
+      io.gopulse.runtime.process_id: router
+      io.gopulse.runtime.role: observability-router
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       kafka-init:
         condition: service_completed_successfully
     expose:
       - "9091"
+      - "19105"
     networks:
       - observability
     healthcheck:
@@ -794,6 +858,12 @@ services:
     read_only: true
     stop_grace_period: 15s
     environment: *marshaller-environment
+    labels:
+      io.gopulse.runtime.process_id: marshaller
+      io.gopulse.runtime.role: observability-marshaller
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: partition-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -803,6 +873,7 @@ services:
         condition: service_healthy
     expose:
       - "9093"
+      - "19106"
     networks:
       - observability
     healthcheck:
@@ -826,6 +897,12 @@ services:
     environment:
       <<: *marshaller-environment
       GOPULSE_INSTANCE_ID: marshaller-2
+    labels:
+      io.gopulse.runtime.process_id: marshaller
+      io.gopulse.runtime.role: observability-marshaller
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: partition-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -835,6 +912,7 @@ services:
         condition: service_healthy
     expose:
       - "9093"
+      - "19106"
     networks:
       - observability
     healthcheck:
@@ -860,6 +938,12 @@ services:
       - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
     stop_grace_period: 20s
     environment: *monitor-environment
+    labels:
+      io.gopulse.runtime.process_id: monitor
+      io.gopulse.runtime.role: observability-monitor
+      io.gopulse.runtime.replica_mode: singleton
+      io.gopulse.runtime.ownership: single-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       redis:
         condition: service_healthy
@@ -871,6 +955,7 @@ services:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
     expose:
       - "9090"
+      - "19104"
     networks:
       - business
       - observability
@@ -903,6 +988,12 @@ services:
       REDIS_EXPORTER_HTTP_PORT: 9121
       REDIS_EXPORTER_SCRAPE_TIMEOUT: ${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}
       REDIS_EXPORTER_SHUTDOWN_TIMEOUT: ${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}
+    labels:
+      io.gopulse.runtime.process_id: redis-exporter
+      io.gopulse.runtime.role: plugin-exporter
+      io.gopulse.runtime.replica_mode: singleton
+      io.gopulse.runtime.ownership: single-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       redis:
         condition: service_healthy

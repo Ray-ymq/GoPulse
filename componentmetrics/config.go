@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	maxInstanceIDBytes  = 64
-	maxReplicaEndpoints = 8
+	maxInstanceIDBytes         = 64
+	maxReplicaEndpoints        = 8
+	RuntimeIdentityEnvironment = "GOPULSE_INSTANCE_ID"
 )
 
 func TokenKey(id string) string {
@@ -46,7 +47,7 @@ func Mode() string {
 // typed loaders reject an invalid value; this accessor keeps low-level metric
 // and logging construction deterministic when a caller has not loaded config.
 func InstanceID(component string) string {
-	value := strings.TrimSpace(os.Getenv("GOPULSE_INSTANCE_ID"))
+	value := strings.TrimSpace(os.Getenv(RuntimeIdentityEnvironment))
 	if ValidateInstanceID(value) == nil {
 		return value
 	}
@@ -125,7 +126,7 @@ func StartConfigured(ctx context.Context, id string, snapshot Snapshot) (*Listen
 // StartConfiguredWithProbes serves process probes on the existing private
 // listener. Metrics keep their independent authentication boundary.
 func StartConfiguredWithProbes(ctx context.Context, id string, snapshot Snapshot, probes *Probes) (*Listener, error) {
-	if raw := strings.TrimSpace(os.Getenv("GOPULSE_INSTANCE_ID")); raw != "" {
+	if raw := strings.TrimSpace(os.Getenv(RuntimeIdentityEnvironment)); raw != "" {
 		if err := ValidateInstanceID(raw); err != nil {
 			return nil, errors.New("invalid instance identity")
 		}
