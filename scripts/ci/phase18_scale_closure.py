@@ -486,6 +486,14 @@ def capacity_metrics_path(component: dict[str, Any]) -> str:
     return COMPONENT_METRICS_PATH if "metrics" in listeners else "/metrics"
 
 
+def _diagnostic_services(component: dict[str, Any], selected: set[str] | None) -> list[tuple[int, str]]:
+    return [
+        (index, service)
+        for index, service in enumerate(component["compose_services"])
+        if selected is None or service in selected
+    ]
+
+
 def _contract() -> dict[str, Any]:
     return json.loads((ROOT / "deploy/runtime-contracts.json").read_text(encoding="utf-8"))
 
@@ -496,6 +504,7 @@ def direct_diagnostics(
     env_file: Path,
     values: dict[str, str],
     phase: str = "initial",
+    services: set[str] | None = None,
 ) -> dict[str, Any]:
     contract = _contract()
     records: list[dict[str, Any]] = []
@@ -505,7 +514,7 @@ def direct_diagnostics(
         metrics_port = listeners.get("metrics")
         metrics_path = capacity_metrics_path(component)
         token_key = component["id"].upper().replace("-", "_") + "_METRICS_TOKEN"
-        for index, service in enumerate(component["compose_services"]):
+        for index, service in _diagnostic_services(component, services):
             expected_identity = component["replica"]["instances"][index]
             body = [
                 "set -eu",
@@ -551,7 +560,7 @@ def direct_diagnostics(
                     "status": "target_met" if result["exit_code"] == 0 else "boundary_found",
                 }
             )
-        if not component["compose_services"]:
+        if not component["compose_services"] and services is None:
             records.append(
                 {
                     "process_id": component["process_id"],
@@ -770,10 +779,11 @@ def run_matrix(run_dir: Path, binding: dict[str, Any], run_number: int) -> dict[
         matrix["diagnostics"].append({"phase": "business-scale-up", **business_diag})
         step("business-scale-up", "target_met" if business_up["exit_code"] == 0 and business_diag["failed"] == 0 else "boundary_found", command=business_up, diagnostics=business_diag)
         business_stop = _record_action(matrix, directory, project, env_file, values, "business-scale-down", "stop", "backend-2", "business-worker-2", "search-indexer-2", timeout=180)
-        remaining_diag = direct_diagnostics(directory, project, env_file, values, "business-scale-down")
+        remaining_services = set(BUSINESS_SERVICES) - {"backend-2", "business-worker-2", "search-indexer-2"}
+        remaining_diag = direct_diagnostics(directory, project, env_file, values, "business-scale-down", remaining_services)
         matrix["diagnostics"].append({"phase": "business-scale-down", **remaining_diag})
         business_start = _record_action(matrix, directory, project, env_file, values, "business-scale-down-recover", "start", "backend-2", "business-worker-2", "search-indexer-2", timeout=180)
-        step("business-scale-down", "target_met" if business_stop["exit_code"] == 0 and business_start["exit_code"] == 0 else "boundary_found", stop=business_stop, start=business_start, diagnostics=remaining_diag)
+        step("business-scale-down", "target_met" if business_stop["exit_code"] == 0 and business_start["exit_code"] == 0 and remaining_diag["failed"] == 0 and remaining_diag["missing"] == 0 else "boundary_found", stop=business_stop, start=business_start, diagnostics=remaining_diag)
 
         observability_up = _record_action(matrix, directory, project, env_file, values, "observability-scale-up", "up", "-d", *OBSERVABILITY_SERVICES)
         observability_diag = direct_diagnostics(directory, project, env_file, values, "observability-scale-up")

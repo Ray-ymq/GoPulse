@@ -14,6 +14,7 @@ from phase18_scale_closure import (
     average,
     capacity_metrics_path,
     final_result,
+    _diagnostic_services,
     run_repetitions,
     validate_candidate_binding,
     validate_repetitions,
@@ -30,6 +31,11 @@ class ScaleClosureRunnerTest(unittest.TestCase):
             COMPONENT_METRICS_PATH,
         )
         self.assertEqual(capacity_metrics_path({"listeners": [{"name": "probe", "port": 9121}]}), "/metrics")
+
+    def test_scale_down_diagnostics_skip_stopped_instances(self) -> None:
+        component = {"compose_services": ["backend", "backend-2"]}
+        self.assertEqual(_diagnostic_services(component, {"backend"}), [(0, "backend")])
+        self.assertEqual(_diagnostic_services(component, None), [(0, "backend"), (1, "backend-2")])
 
     def test_formal_mode_allows_only_two_runs(self) -> None:
         self.assertEqual(validate_repetitions(2), 2)
