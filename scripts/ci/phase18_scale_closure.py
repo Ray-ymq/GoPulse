@@ -696,8 +696,9 @@ def _append_acceptance(
     name: str,
     scenario: str,
     spec: str,
+    acceptance_token: str | None = None,
 ) -> dict[str, Any]:
-    result = run_acceptance(directory, project, env_file, values, name, scenario, spec)
+    result = run_acceptance(directory, project, env_file, values, name, scenario, spec, acceptance_token=acceptance_token)
     matrix.setdefault("acceptance", []).append(result)
     return result
 
