@@ -33,6 +33,14 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if err != nil {
 		return SearchIndexerConfig{}, err
 	}
+	replicaCount, err := replicaCountValue(lookup)
+	if err != nil {
+		return SearchIndexerConfig{}, err
+	}
+	maxOpenConns, maxIdleConns, connMaxLifetime, err := mysqlPoolValues(lookup, replicaCount)
+	if err != nil {
+		return SearchIndexerConfig{}, err
+	}
 	mysqlHost := valueOrDefault(lookup, "MYSQL_HOST", defaultMySQLHost)
 	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", mysqlHost); err != nil {
 		return SearchIndexerConfig{}, err
@@ -103,7 +111,16 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 		return SearchIndexerConfig{}, err
 	}
 	return SearchIndexerConfig{
-		MySQL:         MySQLConfig{Host: mysqlHost, Port: mysqlPort, Database: database, User: user, Password: password},
+		MySQL: MySQLConfig{
+			Host:            mysqlHost,
+			Port:            mysqlPort,
+			Database:        database,
+			User:            user,
+			Password:        password,
+			MaxOpenConns:    maxOpenConns,
+			MaxIdleConns:    maxIdleConns,
+			ConnMaxLifetime: connMaxLifetime,
+		},
 		RabbitMQURL:   rabbitMQURL,
 		Elasticsearch: elasticsearch,
 		LogShip:       logShip,

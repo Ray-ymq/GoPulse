@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +31,10 @@ type fakeWriter struct {
 	calls   int
 	onWrite func()
 }
+
+type writerFunc func(context.Context, []byte) error
+
+func (f writerFunc) Write(ctx context.Context, body []byte) error { return f(ctx, body) }
 
 func (f *fakeWriter) Write(context.Context, []byte) error {
 	f.mu.Lock()
@@ -203,6 +208,65 @@ func TestCommitRetryExhaustionIsBounded(t *testing.T) {
 		t.Fatalf("err=%v commits=%d", err, committer.calls)
 	}
 }
+
+func TestProcessorBoundsConcurrentRetrySleepers(t *testing.T) {
+	owner := NewOwnership()
+	partitions := []Partition{{Topic: "topic", Partition: 0}, {Topic: "topic", Partition: 1}, {Topic: "topic", Partition: 2}, {Topic: "topic", Partition: 3}}
+	owner.Assign(partitions)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var active atomic.Int32
+	var maximum atomic.Int32
+	entered := make(chan struct{}, len(partitions))
+	p := baseProcessor(writerFunc(func(context.Context, []byte) error { return errors.New("temporary") }), &fakeCommitter{})
+	p.MaxRetrying = 2
+	p.Sleep = func(ctx context.Context, _ time.Duration) error {
+		current := active.Add(1)
+		for {
+			old := maximum.Load()
+			if current <= old || maximum.CompareAndSwap(old, current) {
+				break
+			}
+		}
+		entered <- struct{}{}
+		<-ctx.Done()
+		active.Add(-1)
+		return ctx.Err()
+	}
+	var workers sync.WaitGroup
+	errorsDone := make(chan error, len(partitions))
+	for _, partition := range partitions {
+		lease, ok := owner.Lease(partition)
+		if !ok {
+			t.Fatalf("missing lease for partition %d", partition.Partition)
+		}
+		workers.Add(1)
+		go func(lease Lease) {
+			defer workers.Done()
+			errorsDone <- p.Handle(ctx, Record{Partition: lease.key.Partition}, lease)
+		}(lease)
+	}
+	deadline := time.After(time.Second)
+	for i := 0; i < p.MaxRetrying; i++ {
+		select {
+		case <-entered:
+		case <-deadline:
+			t.Fatal("retry sleepers did not reach the configured bound")
+		}
+	}
+	if maximum.Load() != int32(p.MaxRetrying) {
+		t.Fatalf("maximum retry sleepers=%d, want %d", maximum.Load(), p.MaxRetrying)
+	}
+	cancel()
+	workers.Wait()
+	close(errorsDone)
+	for err := range errorsDone {
+		if !errors.Is(err, ErrOwnershipLost) {
+			t.Fatalf("Handle() error=%v, want ownership loss after cancellation", err)
+		}
+	}
+}
+
 func TestShutdownCancelsStorageBackoff(t *testing.T) {
 	_, lease := leaseFor(t)
 	ctx, cancel := context.WithCancel(context.Background())

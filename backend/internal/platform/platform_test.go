@@ -46,6 +46,32 @@ func TestClientsCanBeConstructedWhenDependenciesAreUnavailable(t *testing.T) {
 	}
 }
 
+func TestElasticsearchRejectsObservationPurpose(t *testing.T) {
+	_, err := NewElasticsearch(config.ElasticsearchConfig{
+		URL: "http://127.0.0.1:9200", RequestTimeout: time.Second, Purpose: "observability",
+	})
+	if err == nil {
+		t.Fatal("observation Elasticsearch purpose was accepted by the business client")
+	}
+}
+
+func TestObservabilityElasticsearchBindsObservationPurpose(t *testing.T) {
+	client, err := NewObservabilityElasticsearch(config.ElasticsearchConfig{
+		URL: "http://127.0.0.1:9201", RequestTimeout: time.Second, Purpose: "observability",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.Purpose() != "observability" {
+		t.Fatalf("Purpose() = %q, want observability", client.Purpose())
+	}
+	if _, err := NewObservabilityElasticsearch(config.ElasticsearchConfig{
+		URL: "http://127.0.0.1:9200", RequestTimeout: time.Second, Purpose: "search",
+	}); err == nil {
+		t.Fatal("business Elasticsearch purpose was accepted by the observation client")
+	}
+}
+
 func TestMySQLDriverConfigUsesUTCAndUTF8MB4(t *testing.T) {
 	cfg := mysqlDriverConfig(config.MySQLConfig{
 		Host:     "mysql.internal",
@@ -95,5 +121,34 @@ func TestMySQLMigrationReadTimeoutIsSeparateAndBounded(t *testing.T) {
 	}
 	if migration.Timeout != application.Timeout || migration.WriteTimeout != application.WriteTimeout {
 		t.Fatal("migration override must not change dial or write timeouts")
+	}
+}
+
+func TestMySQLPoolConfigurationIsApplied(t *testing.T) {
+	database, err := OpenMySQLDatabase(config.MySQLConfig{
+		Host: "127.0.0.1", Port: 1, Database: "gopulse", User: "gopulse", Password: "secret",
+		MaxOpenConns: 6, MaxIdleConns: 3, ConnMaxLifetime: 11 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("OpenMySQLDatabase() error = %v", err)
+	}
+	defer database.Close()
+	stats := database.Stats()
+	if stats.MaxOpenConnections != 6 {
+		t.Fatalf("MaxOpenConnections = %d, want 6", stats.MaxOpenConnections)
+	}
+	if database.Stats().MaxOpenConnections <= 0 {
+		t.Fatal("MySQL pool did not retain a positive open-connection limit")
+	}
+}
+
+func TestMySQLPoolFallsBackToBoundedDefaults(t *testing.T) {
+	database, err := OpenMySQLDatabase(config.MySQLConfig{Host: "127.0.0.1", Port: 1, Database: "gopulse", User: "gopulse"})
+	if err != nil {
+		t.Fatalf("OpenMySQLDatabase() error = %v", err)
+	}
+	defer database.Close()
+	if got := database.Stats().MaxOpenConnections; got != defaultMaxOpenConns {
+		t.Fatalf("MaxOpenConnections = %d, want %d", got, defaultMaxOpenConns)
 	}
 }

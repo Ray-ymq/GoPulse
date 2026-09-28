@@ -2,7 +2,9 @@ package logquery
 
 import (
 	"context"
+	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -89,12 +91,30 @@ func TestParseRestrictsSchemaVocabulary(t *testing.T) {
 }
 
 func TestDecodeRuntimeMetadataPreservesLogPageContract(t *testing.T) {
-	source := `{"@timestamp":"2026-09-15T12:00:00Z","log_schema_version":1,"level":"info","service":"backend","module":"http","message":"http request completed","version":"1.14.3","revision":"0123456789abcdef0123456789abcdef01234567","event":"http_request","runtime_contract_version":"1","runtime_mode":"container","listen":"0.0.0.0:8080"}`
+	source := `{"@timestamp":"2026-09-15T12:00:00Z","log_schema_version":1,"level":"info","service":"backend","module":"http","message":"http request completed","version":"1.14.3","revision":"0123456789abcdef0123456789abcdef01234567","event":"http_request","instance_id":"backend-1","runtime_contract_version":"1","runtime_mode":"container","listen":"0.0.0.0:8080"}`
 	entry, err := decodeEntry([]byte(source))
 	if err != nil || entry.Service != "backend" || entry.Timestamp != "2026-09-15T12:00:00Z" {
 		t.Fatalf("runtime log rejected: %v", err)
 	}
 	if _, err = decodeEntry([]byte(`{"@timestamp":"2026-09-15T12:00:00Z","log_schema_version":1,"unregistered_field":"value"}`)); err == nil {
 		t.Fatal("unknown persisted field accepted")
+	}
+}
+
+func TestDecodeEntryPreservesAndValidatesInstanceIdentity(t *testing.T) {
+	base := `{"@timestamp":"2026-09-15T12:00:00Z","log_schema_version":1,"level":"info","service":"backend","module":"http","message":"http request completed"}`
+	withIdentity := `{"@timestamp":"2026-09-15T12:00:00Z","log_schema_version":1,"level":"info","service":"backend","instance_id":"backend-2","module":"http","message":"http request completed"}`
+	entry, err := decodeEntry([]byte(withIdentity))
+	if err != nil || entry.InstanceID != "backend-2" {
+		t.Fatalf("instance identity rejected or lost: entry=%+v err=%v", entry, err)
+	}
+	if entry, err = decodeEntry([]byte(base)); err != nil || entry.InstanceID != "" {
+		t.Fatalf("legacy log without instance identity rejected: entry=%+v err=%v", entry, err)
+	}
+	for _, instanceID := range []string{"", "Backend-2", "backend_2", "backend-"} {
+		document := strings.Replace(withIdentity, `"backend-2"`, fmt.Sprintf("%q", instanceID), 1)
+		if _, err := decodeEntry([]byte(document)); err == nil {
+			t.Errorf("invalid instance identity %q was accepted", instanceID)
+		}
 	}
 }
