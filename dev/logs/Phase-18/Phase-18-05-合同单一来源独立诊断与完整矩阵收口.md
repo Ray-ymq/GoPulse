@@ -94,7 +94,7 @@ U3 两次项目清理的退出码均为 `0`。保留的数值原值和算术平�
 | 候选 | 正式证据 | 结果 | U1/U2/U3/U4 |
 | --- | --- | --- | --- |
 | `7d834a2` | `.run/phase18-scale-closure-2.0.5-7d834a234f4b-68f3df8150ac` | `boundary_found` | `2/2`、`2/2`、`0/2`、`2/2` |
-| `2a64bf3`（最终） | `.run/phase18-scale-closure-2.0.5-2a64bf3adfee-cb7f86577f95` | `boundary_found` | `2/2`、`2/2`、`0/2`、`2/2` |
+| `2a64bf3`（该轮最终） | `.run/phase18-scale-closure-2.0.5-2a64bf3adfee-cb7f86577f95` | `boundary_found` | `2/2`、`2/2`、`0/2`、`2/2` |
 
 两个修正候选的严格证据校验均通过。修正内容为：
 
@@ -128,7 +128,7 @@ U3 两次项目清理的退出码均为 `0`。保留的数值原值和算术平�
 - `python3 -m unittest discover -s scripts/ci -p 'test_phase18_scale_evidence.py'`：通过，6 个测试。
 - `python3 -m py_compile scripts/ci/phase18_scale_closure.py scripts/ci/test_phase18_scale_closure.py`：通过。
 - `git diff --check`：通过。
-- `scripts/verify-phase18-scale-closure.sh --repetitions 2`（最终候选 `2a64bf3`）：退出码 `0`，两轮证据完整，结果 `boundary_found`。
+- `scripts/verify-phase18-scale-closure.sh --repetitions 2`（该轮最终候选 `2a64bf3`）：退出码 `0`，两轮证据完整，结果 `boundary_found`。
 - `python3 scripts/verify-phase18-evidence.py --closure .run/phase18-scale-closure-2.0.5-2a64bf3adfee-cb7f86577f95`：通过。
 
 历史证据绑定到提交 `2a64bf3adfee8b826d45e94e705d90ff0d10624b`；该证据保持不变。
