@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (2.0.4)
+# GoPulse runtime contract v1 (2.0.5)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -6,8 +6,8 @@ shape. Environment variables remain the only configuration input; the inventory
 is not a second runtime configuration service. Validate changes with:
 
 ```bash
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example
-scripts/verify-runtime-contracts.sh --candidate 2.0.4
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.0.5
+scripts/verify-runtime-contracts.sh --candidate 2.0.5
 ```
 
 ## Configuration and readiness
@@ -39,6 +39,14 @@ paths and `/internal/`. Existing `/health` and `/ready` edge paths remain for
 compatibility. Their body now uses runtime contract v1; the development status
 page accepts it without inventing per-dependency status (unknown when omitted).
 Use authenticated source-status APIs for detailed source health.
+
+The machine contract is authoritative for process roles, Compose ownership,
+replica identity, listener privacy, diagnostic paths, and finite connection,
+queue, in-flight, and shutdown budgets. Diagnostics are direct private probes
+against each named process; they do not route through Monitor and do not add
+host-published ports. `GOPULSE_INSTANCE_ID` is the preferred bounded identity
+source, with the contract's deterministic fallback used only for managed
+singletons that have no standalone Compose service.
 
 ## Business replicas and bounded budgets
 
@@ -125,3 +133,29 @@ Kafka commit/rebalance semantics. The candidate is not externally promoted.
 Backend recognizes persisted runtime metadata when decoding logs but retains
 the existing public log-page projection, keeping both frontend validators and
 management behavior compatible.
+
+## Phase 18-05 closure evidence
+
+The final closure candidate uses one immutable contract digest and executes the
+fixed matrix exactly twice. Each run covers normal concurrency, business and
+observability scale-up/down, short RabbitMQ/Kafka faults, both Elasticsearch
+fault domains, VictoriaMetrics fault, single-instance SIGTERM, service
+rebuild, and terminal closure. The runner records direct private startup,
+liveness, readiness, and health probes, capacity signals, command output,
+failure stages, cleanup ownership, and arithmetic averages without retrying a
+third time. `target_met`, `boundary_found`, and `execution_failed` are honest
+result classifications; a boundary or execution failure remains valid evidence
+when both runs and their receipts are complete.
+
+Use the following commands for the fixed contract and evidence gates:
+
+```bash
+scripts/verify-runtime-contracts.sh --candidate 2.0.5
+scripts/verify-phase18-scale-closure.sh --repetitions 2
+python3 scripts/verify-phase18-evidence.py --closure <closure-directory>
+```
+
+The closure verifier rejects missing run-2 evidence, any run-3 artifact,
+candidate drift, mismatched numeric averages, command failures without retained
+failure records, and ledger entries outside the Phase-18-05 file scope. It does
+not infer successful capacity from a failed or boundary run.
