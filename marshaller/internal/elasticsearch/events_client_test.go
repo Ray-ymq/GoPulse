@@ -12,6 +12,16 @@ import (
 	eventtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/events"
 )
 
+func TestEventsClientIsBoundToObservabilityPurpose(t *testing.T) {
+	client, err := NewEvents("http://127.0.0.1:9200", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.Purpose() != "observability" {
+		t.Fatalf("Purpose() = %q", client.Purpose())
+	}
+}
+
 func TestEventsClientUsesIndependentTemplateIndexAndAlias(t *testing.T) {
 	var paths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

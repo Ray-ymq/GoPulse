@@ -33,7 +33,7 @@ func main() {
 	}
 	componentmetrics.Install(metrics)
 	producer, err := kafkaclient.New(kafkaclient.Config{
-		Brokers: cfg.KafkaBrokers, ProduceTimeout: cfg.KafkaProduceTimeout,
+		Brokers: cfg.KafkaBrokers, ProduceTimeout: cfg.KafkaProduceTimeout, MinPartitions: cfg.KafkaMinPartitions,
 		MaxBufferedRecords: cfg.KafkaMaxBufferedRecords, MaxBufferedBytes: cfg.KafkaMaxBufferedBytes,
 	})
 	if err != nil {
@@ -51,7 +51,7 @@ func main() {
 	probes.Started()
 	serveErrors := make(chan error, 1)
 	go func() {
-		logger.Info("router listening", "event", "started", "listen", cfg.Address())
+		logger.Info("router listening", "event", "started", "listen", cfg.Address(), "instance_id", cfg.InstanceID, "replica_count", cfg.ReplicaCount)
 		serveErrors <- server.ListenAndServe()
 	}()
 

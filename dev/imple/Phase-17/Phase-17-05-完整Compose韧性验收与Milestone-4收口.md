@@ -23,7 +23,7 @@ one 1.14.5 manifest + bundle + runtime contract
           one atomic Phase 17 evidence set
                          │
                          ▼
-       Milestone 4 closure + Phase 18 input
+       Milestone 4 closure + future deployment input
 ```
 
 只要最终矩阵仍暴露产品阻断，本批只能做最小直接修复并重跑受影响场景与最终聚合；不得通过放宽断言、移除场景或引入 Kubernetes 旁路完成收口。
@@ -121,7 +121,7 @@ one 1.14.5 manifest + bundle + runtime contract
 
 ### 3.9 文档与 Milestone 收口
 
-- 更新产品 runtime/config/Probe/error/log/Migration/consumer/故障处理文档及 Phase 18 交接说明。
+- 更新产品 runtime/config/Probe/error/log/Migration/consumer/故障处理文档及未来部署复用说明。
 - 创建同名实施记录，关联最终 evidence、所有真实命令、失败轮次、最小修复和外部发布边界。
 - 确认 Phase-17-01/02/03/04 实施记录齐全、版本/分支顺序正确、根与受管版本为 `1.14.5`。
 - 只有阶段级全部门禁通过且无阻断问题时标记 Milestone 4 完成；Kubernetes 不参与结论。
@@ -150,7 +150,7 @@ one 1.14.5 manifest + bundle + runtime contract
 - Phase 17 acceptance runner、receipt/evidence schema、聚合器与自测试
 - release candidate manifest、Bundle metadata 和 runtime contract 收录/校验
 - 只为最终矩阵实际阻断所需的最小产品文件
-- runtime、Migration、消息、告警、故障排查、支持范围和 Phase 18 交接文档
+- runtime、Migration、消息、告警、故障排查、支持范围和未来部署复用文档
 - `dev/logs/Phase-17/Phase-17-05-完整Compose韧性验收与Milestone-4收口.md`
 - `VERSION`、`.env.example` 和双 Frontend 版本元数据
 
@@ -216,7 +216,7 @@ git diff --check
 
 聚合器拒绝缺失/失败/中断场景、不同候选、非真实 Linux `amd64` runtime、Secret 命中、伪造/手工编辑 receipt、未清理受管资源或无关资源变化。
 
-## 10. 实施记录与 Phase 18 交接
+## 10. 实施记录与未来部署复用
 
 完成前创建 `dev/logs/Phase-17/Phase-17-05-完整Compose韧性验收与Milestone-4收口.md`，至少记录：
 
@@ -226,4 +226,4 @@ git diff --check
 - receipt 复用依据、与计划偏差、外部发布状态、已知限制和非阻断后续项；
 - Phase 17/Milestone 4 完成条件逐项对照。
 
-交给 Phase 18 的固定输入是 `1.14.5` Linux `amd64` 同一完整产品、运行时合同、三类 Probe、关停预算、Schema/Migration、consumer/alert 可靠性和最终 Compose evidence。Phase 18 只改变部署位置与编排方式，不得补做产品功能；达到上述条件后立即停止。
+可供未来部署适配复用的固定输入是 `1.14.5` Linux `amd64` 同一完整产品、运行时合同、三类 Probe、关停预算、Schema/Migration、consumer/alert 可靠性和最终 Compose evidence。未来适配只能改变部署位置与编排方式，不得补做产品功能；达到上述条件后立即停止。

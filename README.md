@@ -11,14 +11,17 @@ The repository currently provides:
 - authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
 - Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation and MySQL fallback;
 - versioned MySQL migrations for users and persistent roles, posts, comments, and post likes;
-- local MySQL, Redis, RabbitMQ, fixed-version Elasticsearch, single-node Kafka 4.3.1, and authenticated single-node VictoriaMetrics 1.151.0 infrastructure;
+- local MySQL, Redis, RabbitMQ, separate fixed-version business and observability Elasticsearch services, single-node Kafka 4.3.1, and authenticated single-node VictoriaMetrics 1.151.0 infrastructure;
 - transactional `post.created` Outbox delivery through an isolated RabbitMQ topology and Search Indexer;
 - single-line Schema v1 JSON lifecycle, HTTP, Outbox, Worker, Indexer, reindex, and Redis Exporter logs with bounded safe fields;
 - an independent Redis Exporter whose `/health` reports process liveness and whose `/metrics` returns a complete current Prometheus snapshot or isolated `up 0`;
 - fixed-catalog `GET /api/v1/observability/metrics` range queries backed by VictoriaMetrics, strict administrator-only Logs and Events querying, and a strict Backend trust boundary for Exporter status and actions;
 - a host-loopback-by-default Message Router with explicit container mode, strict Envelope v1 boundaries, Bearer service identity, fixed routing, acknowledged Kafka production, and original-body byte preservation;
-- a host-loopback-by-default Marshaller with explicit container mode, strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, deterministic Prometheus text conversion, authenticated VictoriaMetrics writes, and isolated strict Logs and Events Elasticsearch targets;
+- a host-loopback-by-default Marshaller with explicit container mode, strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, bounded parallel partition processing, deterministic Prometheus text conversion, authenticated VictoriaMetrics writes, and isolated strict Logs and Events writes to the observability Elasticsearch service;
 - Docker/Compose-only daily full-stack lifecycle scripts, read-only container verification, deterministic managed-Exporter bootstrap, and one authoritative random-project real-browser full-stack acceptance matrix;
+- Phase 18-03 business-scale topology with two Backend, Business Worker, and Search Indexer replicas, explicit instance identities, bounded per-process budgets, stateless frontend upstream failover, and lease/consumer ownership evidence;
+- Phase 18-04 observability-scale topology with two Router and Marshaller replicas, multi-partition Kafka ownership, separate business and observability Elasticsearch services and volumes, bounded target-local backpressure, and fixed two-run evidence;
+- Phase 18-05 machine-readable runtime contracts, private direct-diagnostic evidence, and a completed two-run scale/fault/rebuild closure classified as `boundary_found`; it does not claim all capacity or fault targets passed;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
 Additional component plugins, same-type plugin multi-instance collection, a containerized Linux product lifecycle, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
@@ -66,9 +69,40 @@ cp .env.example .env
 
 The checked-in credentials are development-only. Do not reuse them in production or commit `.env`. The root `VERSION`, Frontend package metadata, `.env.example` `GOPULSE_VERSION`, image tags, and OCI labels are kept on one version line.
 
-`GOPULSE_RUNTIME_MODE` defaults to `host` for direct source-level commands. Host mode retains loopback listeners and loopback dependency origins. Compose sets `container` explicitly for the Backend, Monitor, Router, Marshaller, and standalone Exporter; it binds public-in-network listeners to `0.0.0.0` inside their namespaces and injects validated service DNS such as `mysql`, `redis`, `rabbitmq`, `elasticsearch`, `monitor`, `router`, `kafka`, and `victoriametrics`. The Exporter managed as Monitor's child process remains bound to `127.0.0.1:9121` inside the Monitor container. Unknown modes, container loopback or fixed-IP dependencies, `host.docker.internal`, URL credentials where forbidden, paths, query strings, fragments, control characters, and unsafe listeners fail before application startup.
+`GOPULSE_RUNTIME_MODE` defaults to `host` for direct source-level commands. Host mode retains loopback listeners and loopback dependency origins. Compose sets `container` explicitly for the Backend, Monitor, Router, Marshaller, and standalone Exporter; it binds public-in-network listeners to `0.0.0.0` inside their namespaces and injects validated service DNS such as `mysql`, `redis`, `rabbitmq`, `elasticsearch`, `observability-elasticsearch`, `monitor`, `router`, `router-2`, `kafka`, and `victoriametrics`. The Exporter managed as Monitor's child process remains bound to `127.0.0.1:9121` inside the Monitor container. Unknown modes, container loopback or fixed-IP dependencies, `host.docker.internal`, URL credentials where forbidden, paths, query strings, fragments, control characters, and unsafe listeners fail before application startup.
 
-Only `PUBLISHED_HOST=127.0.0.1`, `HTTP_PORT`, and `FRONTEND_PORT` control default host publication. MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, and Redis Exporter publish no host ports in `deploy/compose.yaml`. `deploy/compose.debug.yaml` is an explicit loopback-only override for historical focused host checks and is never loaded by the daily or authoritative container acceptance paths.
+Only `PUBLISHED_HOST=127.0.0.1` and `FRONTEND_PORT` control default host publication. MySQL, Redis, RabbitMQ, both Elasticsearch services, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, Redis Exporter, and both Backend replicas publish no host ports in `deploy/compose.yaml`. `deploy/compose.debug.yaml` is an explicit loopback-only override for historical focused host checks and is never loaded by the daily or authoritative container acceptance paths.
+Only `PUBLISHED_HOST=127.0.0.1` and `FRONTEND_PORT` control default host publication. MySQL, Redis, RabbitMQ, both Elasticsearch services, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, Redis Exporter, and both Backend replicas publish no host ports in `deploy/compose.yaml`. `deploy/compose.debug.yaml` is an explicit loopback-only override for historical focused host checks and is never loaded by the daily or authoritative container acceptance paths.
+
+Phase 18-03 runs two uniquely identified instances of Backend, Business Worker,
+and Search Indexer. Frontend Nginx sends same-origin API traffic through a
+private two-backend upstream; sessions do not depend on sticky routing. Monitor
+scrapes explicit `BACKEND_ENDPOINTS`, `BUSINESS_WORKER_ENDPOINTS`, and
+`SEARCH_INDEXER_ENDPOINTS` lists. `GOPULSE_INSTANCE_ID` is bounded and
+diagnostic-only; HTTP concurrency, MySQL pools, worker prefetch, leases, and
+shutdown budgets remain finite. Run the fixed two-round business matrix with:
+
+```bash
+scripts/verify-phase18-business-scale.sh --repetitions 2
+```
+
+The runner records `target_met`, `boundary_found`, or `execution_failed` under
+`.run/phase18-business-scale-*`; it does not claim state-store replication.
+
+Phase 18-04 runs two Router and Marshaller replicas over four Kafka partitions.
+Business search remains on `elasticsearch`; Marshaller's Logs and Events clients
+use the isolated `observability-elasticsearch` service and volume. Target-local
+storage failures and bounded Kafka/HTTP queues are recorded without making one
+target block unrelated targets. Run the fixed two-round observability matrix
+with:
+
+```bash
+scripts/verify-phase18-observability-scale.sh --repetitions 2
+```
+
+The runner binds the candidate, executes each of U1–U4 in `run-1` and `run-2`,
+and writes immutable evidence and a summary under
+`.run/phase18-observability-scale-*`.
 
 ## Start the development environment
 
@@ -78,14 +112,13 @@ Run from any directory:
 /home/<user>/src/GoPulse/scripts/dev.sh
 ```
 
-The script requires Docker/Compose rather than a host Go or Node toolchain. It validates the repository, branch/version, environment file, project name, and any existing Compose ownership labels; builds all versioned self-developed images; starts the complete business and observability topology; waits for MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, Backend, and Frontend health checks; requires migration, search initialization, and Kafka Topic initialization to exit successfully; verifies Monitor's image-bundled Redis Exporter bootstrap; and runs the read-only container smoke.
+The script requires Docker/Compose rather than a host Go or Node toolchain. It validates the repository, branch/version, environment file, project name, and any existing Compose ownership labels; builds all versioned self-developed images; starts the complete business and observability topology; waits for MySQL, Redis, both Elasticsearch services, Kafka, VictoriaMetrics, Router, both Marshaller members, Monitor, Backend, and Frontend health checks; requires migration, search initialization, and Kafka Topic initialization to exit successfully; verifies Monitor's image-bundled Redis Exporter bootstrap; and runs the read-only container smoke.
 
 The default project publishes only:
 
 | Service | Address |
 | --- | --- |
 | Frontend production application and same-origin Backend proxy | `http://127.0.0.1:5173` |
-| Backend direct API/liveness/readiness | `http://127.0.0.1:8080` |
 
 The Frontend final image serves the compiled Vue application on container port 8080, falls back to `index.html` for Vue Router history routes, and proxies only `/api/v1`, `/health`, and `/ready` to `backend:8080`. The `business` and `observability` networks are internal: Frontend joins only `edge`, Backend bridges the three required networks, and browsers never connect directly to data or observability services. Monitor installs and starts the deterministic Redis Exporter package embedded in its image, keeps desired state in `monitor_plugin_data`, and remains the only owner of that managed child process.
 
@@ -479,9 +512,17 @@ Phase-12-01 advanced the product to `1.9.1`: the social and search runtime build
 
 Phase-12-02 advances the product to `1.9.2`: Router, Marshaller, Monitor, and Redis Exporter now have fixed-base, non-root, version-labeled images; explicit `host|container` validation preserves direct-source loopback safety while allowing controlled Compose service DNS; the Monitor image embeds a deterministic same-binary Redis Exporter package and restores desired state from its dedicated volume; and the default stack closes Redis Metrics plus application Logs and Monitor Events through Router, Kafka, Marshaller, VictoriaMetrics/Elasticsearch, Backend administrator APIs, and the production Frontend. The random-project `--observability` acceptance owns its resources, keeps internal ports unpublished, exercises localized failures and container/volume recovery, and finishes with a browser-driven blank-volume install/start/stop/update flow.
 
-Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument `scripts/verify-compose.sh` is now the sole authoritative container gate: it combines the social/search and administrator-observability paths in one strongly owned project, verifies image and service-identity boundaries, proves representative cache/worker/indexer and observability fault recovery, replaces application and persistent containers, performs retained-volume down/up plus post-restart writes and queries, and checks bounded shutdown and cleanup. CI runs this matrix once rather than repeating the historical component and split Compose acceptances. The verified image, job, service-DNS, network, identity, volume, liveness/readiness, and signal contracts are the Phase 13 product-closure baseline, the Phase 16 Linux productization input, and the later Phase 18 Kubernetes migration input.
+Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument `scripts/verify-compose.sh` is now the sole authoritative container gate: it combines the social/search and administrator-observability paths in one strongly owned project, verifies image and service-identity boundaries, proves representative cache/worker/indexer and observability fault recovery, replaces application and persistent containers, performs retained-volume down/up plus post-restart writes and queries, and checks bounded shutdown and cleanup. CI runs this matrix once rather than repeating the historical component and split Compose acceptances. The verified image, job, service-DNS, network, identity, volume, liveness/readiness, and signal contracts are the Phase 13 product-closure baseline, the Phase 16 Linux productization input, and reusable input for any future deployment adaptation.
 
 Phase-12-04 advances the product to `1.9.4` and re-closes Phase 12 after the independent implementation Review. The authoritative full-stack runner now builds with a run-unique image tag without changing user-owned version tags, verifies source and image identity before reuse, rejects unsafe published hosts and ports before Docker access, validates the Backend VictoriaMetrics endpoint against the selected runtime mode, narrows each Compose workload to its required environment identity, and removes official-service credentials from process and healthcheck arguments. Remote run `34019085992` passed all 11 checks, including Full-stack Compose acceptance, before PR #109 merged the batch into `main` as `102aa4f`.
+
+Phase-18-04 targets `2.0.4`: Router and Marshaller use explicit replica identities, four Kafka partitions, generation-fenced ownership, bounded in-flight/retry budgets, and target-local backpressure. Business search Elasticsearch and observability Logs/Events Elasticsearch are separate services, volumes, networks, and client purposes. Its fixed runner is `scripts/verify-phase18-observability-scale.sh --repetitions 2`; the implementation log and bound evidence are authoritative for the two required runs.
+
+Phase-18-05 completes the machine runtime contract and the fixed closure process at
+`2.0.5`. The final candidate created exactly `run-1` and `run-2`; U1, U2, and U4 were
+`2/2`, U3 was `0/2`, and both owned Compose projects cleaned successfully.
+The authoritative result is `boundary_found`, with the final evidence and follow-up
+boundaries in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
 
 ### Backend log query pipeline
 

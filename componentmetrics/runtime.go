@@ -3,6 +3,7 @@ package componentmetrics
 import (
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,6 +33,24 @@ func ValidateRuntimeEnvironment(component string) error {
 	mode := Mode()
 	if mode != "host" && mode != "container" {
 		return errors.New("invalid_configuration: GOPULSE_RUNTIME_MODE")
+	}
+	if raw := strings.TrimSpace(os.Getenv("GOPULSE_INSTANCE_ID")); raw != "" {
+		if err := ValidateInstanceID(raw); err != nil {
+			return errors.New("invalid_configuration: GOPULSE_INSTANCE_ID")
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("GOPULSE_REPLICA_COUNT")); raw != "" {
+		count, err := strconv.Atoi(raw)
+		if err != nil || count < 1 || count > 8 {
+			return errors.New("invalid_configuration: GOPULSE_REPLICA_COUNT")
+		}
+	}
+	if component == "monitor" {
+		for _, target := range []string{"backend", "business-worker", "search-indexer"} {
+			if _, err := ReplicaEndpoints(target); err != nil {
+				return errors.New("invalid_configuration: " + strings.ToUpper(strings.ReplaceAll(target, "-", "_")) + "_ENDPOINTS")
+			}
+		}
 	}
 	prefix := strings.ToUpper(strings.ReplaceAll(component, "-", "_"))
 	if raw := os.Getenv(prefix + "_SHUTDOWN_TIMEOUT"); raw != "" {

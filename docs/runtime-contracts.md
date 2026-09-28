@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (1.14.5)
+# GoPulse runtime contract v1 (2.0.5)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -6,8 +6,8 @@ shape. Environment variables remain the only configuration input; the inventory
 is not a second runtime configuration service. Validate changes with:
 
 ```bash
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example
-scripts/verify-runtime-contracts.sh --candidate 1.14.5
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.0.5
+scripts/verify-runtime-contracts.sh --candidate 2.0.5
 ```
 
 ## Configuration and readiness
@@ -40,6 +40,43 @@ compatibility. Their body now uses runtime contract v1; the development status
 page accepts it without inventing per-dependency status (unknown when omitted).
 Use authenticated source-status APIs for detailed source health.
 
+The machine contract is authoritative for process roles, Compose ownership,
+replica identity, listener privacy, diagnostic paths, and finite connection,
+queue, in-flight, and shutdown budgets. Diagnostics are direct private probes
+against each named process; they do not route through Monitor and do not add
+host-published ports. `GOPULSE_INSTANCE_ID` is the preferred bounded identity
+source, with the contract's deterministic fallback used only for managed
+singletons that have no standalone Compose service.
+
+## Business replicas and bounded budgets
+
+Compose runs two uniquely identified Backend, Business Worker and Search Indexer
+instances. The frontend uses one private upstream pool for Backend requests;
+session routing does not depend on stickiness. Monitor receives explicit endpoint
+lists so each named replica is scraped rather than selected by DNS resolution.
+`GOPULSE_INSTANCE_ID` is bounded, non-sensitive and diagnostic-only. Per-process
+HTTP concurrency, MySQL pool size, worker prefetch and shutdown budgets remain
+finite; the configured total MySQL budget must cover the declared replica count.
+Outbox leases and Worker consumer tags are instance-scoped, while alert rule
+leases remain single-owner facts in MySQL. This document does not claim that
+external stateful stores are replicated.
+
+The observability compute plane also runs two named Router and Marshaller
+instances. Router publishes to a four-partition topic and rejects records when
+its finite client buffer is full. Marshaller members use one consumer group,
+manual commits and generation-scoped ownership; processing is concurrent across
+owned partitions but remains serialized within each partition. In-flight and
+retry slots are finite, and a revoked lease cannot write or commit.
+
+Business search Elasticsearch and observation Elasticsearch are separate
+services with separate named volumes and network membership. Backend uses
+`elasticsearch` for business search and `observability-elasticsearch` for
+logs/events; Search Indexer uses `elasticsearch` on the business network.
+Marshaller logs/events use `observability-elasticsearch` on the observability
+network; no Marshaller target can select the business search client. Metrics continue to use VictoriaMetrics,
+and a failure in one observation target leaves other partitions and targets
+bounded and diagnosable rather than creating an unbounded global retry queue.
+
 ## Shutdown
 
 The first SIGTERM/SIGINT withdraws readiness before draining. HTTP requests,
@@ -63,7 +100,7 @@ attempting to replace the response.
 ## Logs and release evidence
 
 Go logs are single-line JSON with `log_schema_version`, UTC `timestamp`, `level`,
-`service`, `module`, `message`, `event`, `version`, `revision`,
+`service`, `module`, `message`, `event`, `version`, `revision`, `instance_id`,
 `runtime_contract_version` and `runtime_mode`. Event names are finite:
 `startup`, `shutdown`, `http_request`, `http_panic`, `dependency_up`,
 `dependency_down`, `operation`. Repeated dependency failures are rate limited;
@@ -96,3 +133,29 @@ Kafka commit/rebalance semantics. The candidate is not externally promoted.
 Backend recognizes persisted runtime metadata when decoding logs but retains
 the existing public log-page projection, keeping both frontend validators and
 management behavior compatible.
+
+## Phase 18-05 closure evidence
+
+The final closure candidate uses one immutable contract digest and executes the
+fixed matrix exactly twice. Each run covers normal concurrency, business and
+observability scale-up/down, short RabbitMQ/Kafka faults, both Elasticsearch
+fault domains, VictoriaMetrics fault, single-instance SIGTERM, service
+rebuild, and terminal closure. The runner records direct private startup,
+liveness, readiness, and health probes, capacity signals, command output,
+failure stages, cleanup ownership, and arithmetic averages without retrying a
+third time. `target_met`, `boundary_found`, and `execution_failed` are honest
+result classifications; a boundary or execution failure remains valid evidence
+when both runs and their receipts are complete.
+
+Use the following commands for the fixed contract and evidence gates:
+
+```bash
+scripts/verify-runtime-contracts.sh --candidate 2.0.5
+scripts/verify-phase18-scale-closure.sh --repetitions 2
+python3 scripts/verify-phase18-evidence.py --closure <closure-directory>
+```
+
+The closure verifier rejects missing run-2 evidence, any run-3 artifact,
+candidate drift, mismatched numeric averages, command failures without retained
+failure records, and ledger entries outside the Phase-18-05 file scope. It does
+not infer successful capacity from a failed or boundary run.

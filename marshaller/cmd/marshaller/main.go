@@ -57,7 +57,7 @@ func main() {
 		os.Exit(1)
 	}
 	ownership := consumer.NewOwnership()
-	kafka, err := consumer.NewKafka(cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaGroup, cfg.KafkaCommitTimeout, ownership)
+	kafka, err := consumer.NewKafkaWithOptions(cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaGroup, cfg.KafkaCommitTimeout, cfg.KafkaMinPartitions, cfg.MaxInFlight, ownership)
 	if err != nil {
 		logger.Error("Kafka client initialization failed", "module", "consumer", "event", "startup_failed")
 		os.Exit(1)
@@ -98,7 +98,7 @@ func main() {
 			"logs/search-reindex":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
 			"events/monitor":          {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024}, Writer: eventStore},
 		},
-		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, Logger: processorLogger{logger},
+		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, MaxRetrying: cfg.MaxRetrying, Logger: processorLogger{logger},
 	}
 	for _, id := range componentmetrics.Components {
 		processor.Targets["metrics/"+id] = consumer.Target{Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm}
@@ -125,7 +125,7 @@ func main() {
 	serveErrors := make(chan error, 1)
 	consumerDone := make(chan error, 1)
 	go func() {
-		logger.Info("marshaller listening", "module", "http", "event", "started", "address", cfg.HTTPHost)
+		logger.Info("marshaller listening", "module", "http", "event", "started", "address", cfg.HTTPHost, "instance_id", cfg.InstanceID, "replica_count", cfg.ReplicaCount)
 		serveErrors <- server.ListenAndServe()
 	}()
 	go func() {

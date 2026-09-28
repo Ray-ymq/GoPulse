@@ -4,7 +4,6 @@ import AdminStat from '../components/AdminStat.vue'
 import AdminIcon from '../components/AdminIcon.vue'
 import { useRoute } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ApiError } from '../services/http'
 import { metricCatalog, loadMetricCatalog, observabilityApi, ranges } from '../services/observability'
 import type { MetricName, MetricResult, QueryRange } from '../types/observability'
 
@@ -22,19 +21,27 @@ const samples = computed(() => result.value?.series.flatMap(series => series.poi
 const maximum = computed(() => samples.value.length ? samples.value.reduce((a,b) => Math.max(a,b)) : '未知')
 const average = computed(() => samples.value.length ? Number((samples.value.reduce((a,b) => a+b,0)/samples.value.length).toPrecision(6)) : '未知')
 const latest = computed(() => result.value?.series.map((series) => ({ series, labels: series.labels, point: series.points.at(-1) })).filter((item) => item.point) ?? [])
+function errorDetails(error: unknown): { code?: unknown; status?: unknown } {
+  if (typeof error !== 'object' || error === null) return {}
+  return error as { code?: unknown; status?: unknown }
+}
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'metrics_unavailable') return '指标存储或查询服务暂时不可用（VictoriaMetrics），已保留上次成功结果；这不代表所有 Exporter 目标均不可达。'
-  if (error instanceof ApiError && error.code === 'permission_denied') return '当前账号已无管理员权限。'
+  const details = errorDetails(error)
+  if ((details.code === 'metrics_unavailable' || details.status === 503)) return '指标存储或查询服务暂时不可用（VictoriaMetrics），已保留上次成功结果；这不代表所有 Exporter 目标均不可达。'
+  if (details.code === 'permission_denied') return '当前账号已无管理员权限。'
   return '指标查询失败，请稍后重试。'
 }
 async function load(): Promise<void> {
-  controller?.abort(); controller = new AbortController(); const current = ++sequence
+  controller?.abort()
+  const requestController = new AbortController()
+  controller = requestController
+  const current = ++sequence
   loading.value = true; message.value = ''
   try {
-    const next = await observabilityApi.metrics(metric.value, range.value, controller.signal)
+    const next = await observabilityApi.metrics(metric.value, range.value, requestController.signal)
     if (current !== sequence) return
     result.value = next; updatedAt.value = new Date().toLocaleString('zh-CN', { hour12:false }); if (!next.series.length) message.value = '所选时间范围内暂无指标数据。'
-  } catch (error) { if (current === sequence && !controller.signal.aborted) message.value = errorMessage(error) }
+  } catch (error) { if (current === sequence && !requestController.signal.aborted) message.value = errorMessage(error) }
   finally { if (current === sequence) loading.value = false }
 }
 onMounted(async () => {
