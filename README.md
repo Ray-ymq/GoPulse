@@ -519,10 +519,10 @@ Phase-12-04 advances the product to `1.9.4` and re-closes Phase 12 after the ind
 Phase-18-04 targets `2.0.4`: Router and Marshaller use explicit replica identities, four Kafka partitions, generation-fenced ownership, bounded in-flight/retry budgets, and target-local backpressure. Business search Elasticsearch and observability Logs/Events Elasticsearch are separate services, volumes, networks, and client purposes. Its fixed runner is `scripts/verify-phase18-observability-scale.sh --repetitions 2`; the implementation log and bound evidence are authoritative for the two required runs.
 
 Phase-18-05 completes the machine runtime contract and the fixed closure process at
-`2.0.5`. The runner created exactly `run-1` and `run-2`; U1, U2, and U4 were
+`2.0.5`. The final candidate created exactly `run-1` and `run-2`; U1, U2, and U4 were
 `2/2`, U3 was `0/2`, and both owned Compose projects cleaned successfully.
-The authoritative result is `boundary_found`, with the detailed raw values and
-follow-up boundaries in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
+The authoritative result is `boundary_found`, with the final evidence and follow-up
+boundaries in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
 
 ### Backend log query pipeline
 
