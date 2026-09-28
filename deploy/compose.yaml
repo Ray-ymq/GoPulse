@@ -16,6 +16,13 @@ x-mysql-environment: &mysql-environment
 x-backend-environment: &backend-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-backend-local}
   GOPULSE_REPLICA_COUNT: 2
+  # Metric queries validate Monitor's fixed component-target catalog, so the
+  # query service must share Monitor's replica inventory.
+  BACKEND_ENDPOINTS: backend,backend-2
+  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
+  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
+  ROUTER_ENDPOINTS: router,router-2
+  MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
   MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
@@ -153,6 +160,13 @@ x-marshaller-environment: &marshaller-environment
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   GOPULSE_INSTANCE_ID: marshaller-1
   GOPULSE_REPLICA_COUNT: 2
+  # Marshaller validates Monitor's fixed component-target catalog as well as
+  # the samples themselves; keep the replica inventory identical to Monitor.
+  BACKEND_ENDPOINTS: backend,backend-2
+  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
+  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
+  ROUTER_ENDPOINTS: router,router-2
+  MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MARSHALLER_HTTP_HOST: 0.0.0.0
@@ -394,7 +408,7 @@ services:
       - "8080"
       - "19101"
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -441,7 +455,7 @@ services:
       - "8080"
       - "19101"
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
       start_period: 5s
       interval: 5s
       timeout: 3s

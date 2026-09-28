@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (2.0.5)
+# GoPulse runtime contract v1 (2.1.1)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -6,8 +6,8 @@ shape. Environment variables remain the only configuration input; the inventory
 is not a second runtime configuration service. Validate changes with:
 
 ```bash
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.0.5
-scripts/verify-runtime-contracts.sh --candidate 2.0.5
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.1.1
+scripts/verify-runtime-contracts.sh --candidate 2.1.1
 ```
 
 ## Configuration and readiness
@@ -33,6 +33,26 @@ actual consumer session and stores. Router requires Kafka; Marshaller requires
 Kafka and its destination stores. Monitor requires initialized local state and
 catalog; a temporarily unavailable publisher is recoverable. Exporters stay
 ready when a target source fails and report their existing `up=0` metric.
+
+Backend business and management requests under `/api/v1` use the finite
+`BACKEND_HTTP_MAX_CONCURRENCY` admission slots. A saturated slot fails
+immediately with `503 backend_busy`; requests to `/startup`, `/live`, `/ready`
+and `/health` remain on the probe contract and still apply their own startup,
+dependency and stopping semantics. Compose Backend healthchecks call
+`http://127.0.0.1:8080/ready` directly inside each private container, without
+Frontend, Nginx or the business admission path.
+
+Backend capacity diagnostics are fixed and low-cardinality: in-flight requests,
+the configured concurrency limit, and rejected requests are exported as
+`gopulse_backend_http_requests_in_flight`,
+`gopulse_backend_http_concurrency_limit`, and
+`gopulse_backend_http_rejected_total`. Request latency retains the historical
+count and duration-total families and adds the fixed
+`gopulse_backend_http_request_duration_seconds_bucket`, `_count`, and `_sum`
+families. Bucket labels are `0.005`, `0.01`, `0.025`, `0.05`, `0.1`, `0.25`,
+`0.5`, `1`, `2`, `5`, `10`, and `+Inf`; dimensions remain only method, route
+template, status class, and the fixed `le` vocabulary. URL/query/identity and
+request-correlation values are not labels.
 
 No new host ports are published. The edge blocks new `/startup` and `/live`
 paths and `/internal/`. Existing `/health` and `/ready` edge paths remain for

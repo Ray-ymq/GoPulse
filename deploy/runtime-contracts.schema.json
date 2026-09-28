@@ -250,8 +250,27 @@
                 "type": "array",
                 "minItems": 1,
                 "uniqueItems": true,
+                "description": "Finite diagnostic signals; Backend's HTTP latency distribution is exposed as fixed buckets, count, and sum families.",
                 "items": {
                   "type": "string",
+                  "enum": [
+                    "metrics",
+                    "http_concurrency",
+                    "http_latency_distribution",
+                    "mysql_pool",
+                    "prefetch",
+                    "in_flight",
+                    "buffered_records",
+                    "buffered_bytes",
+                    "backpressure",
+                    "records_in_flight",
+                    "retrying",
+                    "partition_lag",
+                    "target_blocked",
+                    "event_queue",
+                    "plugins_running",
+                    "up"
+                  ],
                   "pattern": "^[a-z0-9_-]+$"
                 }
               },
