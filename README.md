@@ -21,6 +21,7 @@ The repository currently provides:
 - Docker/Compose-only daily full-stack lifecycle scripts, read-only container verification, deterministic managed-Exporter bootstrap, and one authoritative random-project real-browser full-stack acceptance matrix;
 - Phase 18-03 business-scale topology with two Backend, Business Worker, and Search Indexer replicas, explicit instance identities, bounded per-process budgets, stateless frontend upstream failover, and lease/consumer ownership evidence;
 - Phase 18-04 observability-scale topology with two Router and Marshaller replicas, multi-partition Kafka ownership, separate business and observability Elasticsearch services and volumes, bounded target-local backpressure, and fixed two-run evidence;
+- Phase 18-05 machine-readable runtime contracts, private direct-diagnostic evidence, and a completed two-run scale/fault/rebuild closure classified as `boundary_found`; it does not claim all capacity or fault targets passed;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
 Additional component plugins, same-type plugin multi-instance collection, a containerized Linux product lifecycle, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
@@ -516,6 +517,12 @@ Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument
 Phase-12-04 advances the product to `1.9.4` and re-closes Phase 12 after the independent implementation Review. The authoritative full-stack runner now builds with a run-unique image tag without changing user-owned version tags, verifies source and image identity before reuse, rejects unsafe published hosts and ports before Docker access, validates the Backend VictoriaMetrics endpoint against the selected runtime mode, narrows each Compose workload to its required environment identity, and removes official-service credentials from process and healthcheck arguments. Remote run `34019085992` passed all 11 checks, including Full-stack Compose acceptance, before PR #109 merged the batch into `main` as `102aa4f`.
 
 Phase-18-04 targets `2.0.4`: Router and Marshaller use explicit replica identities, four Kafka partitions, generation-fenced ownership, bounded in-flight/retry budgets, and target-local backpressure. Business search Elasticsearch and observability Logs/Events Elasticsearch are separate services, volumes, networks, and client purposes. Its fixed runner is `scripts/verify-phase18-observability-scale.sh --repetitions 2`; the implementation log and bound evidence are authoritative for the two required runs.
+
+Phase-18-05 completes the machine runtime contract and the fixed closure process at
+`2.0.5`. The runner created exactly `run-1` and `run-2`; U1, U2, and U4 were
+`2/2`, U3 was `0/2`, and both owned Compose projects cleaned successfully.
+The authoritative result is `boundary_found`, with the detailed raw values and
+follow-up boundaries in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
 
 ### Backend log query pipeline
 

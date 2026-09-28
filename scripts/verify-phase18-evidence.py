@@ -3,7 +3,10 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "ci"))
 
 from phase18_evidence import validate_capacity
 from phase18_scale_evidence import validate_evidence
