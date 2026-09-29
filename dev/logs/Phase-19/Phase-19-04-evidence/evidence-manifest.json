@@ -1,0 +1,449 @@
+{
+  "candidate_images": [
+    {
+      "image_id": "sha256:3083794e4f49794a4772180293b6e5ea00d0a1090bcc90ed8ca958f7a7831917",
+      "name": "backend",
+      "ref": "gopulse/backend:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:aa5aeab309422ca9cff7c39d1de02d107b45ab3bb31106b75b59370f93084bfa",
+      "name": "business-worker",
+      "ref": "gopulse/business-worker:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:6ea61b186d8f53e4d025957cc3ede42608c8ca2b693f7988f857c538e511a678",
+      "name": "search-indexer",
+      "ref": "gopulse/search-indexer:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:045e1cb7310a3931a98b1bf4dacd1a53b1371ec910eb0f9766351854e8f22d63",
+      "name": "admin-frontend",
+      "ref": "gopulse/admin-frontend:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:851c6a133145291f1a98ca36cac6e7982e5acbedf46ac61486d7c54f8235b258",
+      "name": "frontend",
+      "ref": "gopulse/frontend:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:c0457aafc3326b3ccf6a505a1997a2434f73e61ff1e6ea5a9347e5bc029c0ada",
+      "name": "router",
+      "ref": "gopulse/router:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:933817cce9bf6de46947b4251a0a9d90ed47ac3f62ca656647a43993e46b6cf4",
+      "name": "marshaller",
+      "ref": "gopulse/marshaller:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:4d6aad71ec0b1746cde326bf59f6f765eef0389667ab0ce022577de7b944db14",
+      "name": "monitor",
+      "ref": "gopulse/monitor:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    },
+    {
+      "image_id": "sha256:f8889fa7d222c4d302653ab346a56ce2e3c2aed809490f59e87106b3697fda2d",
+      "name": "redis-exporter",
+      "ref": "gopulse/redis-exporter:2.1.3-candidate-7251d32a20bc",
+      "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+      "version": "2.1.3"
+    }
+  ],
+  "capability_status": "boundary_found",
+  "closure_version": "2.1.4",
+  "excluded_from_publication": [
+    "round-*/candidate.env",
+    "round-*/baseline.env",
+    "round-*/corpus.json",
+    "round-*/credentials.json",
+    "round-*/mysql.dsn",
+    "round-*/load-password",
+    ".lock"
+  ],
+  "execution_status": "complete",
+  "publication_constraints": [
+    "Do not replace a source file or summary without rerunning the strict verifier against the same frozen candidate.",
+    "Do not publish credentials, DSNs, corpus, environment files, or load-password files.",
+    "The closure version 2.1.4 is distinct from the tested candidate version 2.1.3."
+  ],
+  "published_artifacts": [
+    {
+      "description": "sanitized capacity curve, boundary, first bottleneck, and binding summary",
+      "path": "dev/logs/Phase-19/Phase-19-04-evidence/summary.json",
+      "sha256": "sha256:22578883d55e915862525ff9e77e2fdea160ac47f1ca7c47f3d7285c1143c817"
+    }
+  ],
+  "schema": "gopulse.phase19.evidence-manifest.v1",
+  "source_work_directory": "/tmp/gopulse-phase19-04-formal-20260929a",
+  "sources": [
+    {
+      "path": "capacity-evidence.json",
+      "published": false,
+      "role": "verified formal evidence root",
+      "sha256": "sha256:2b30d433337ad34586af07f83ff078c586980ed5637d78b3890fb501aab17e2f"
+    },
+    {
+      "path": "candidate-manifest.json",
+      "published": false,
+      "role": "tested candidate binding",
+      "sha256": "sha256:09ed1dafa379472071f09d55cde57ec29ff9eb28f430f4742479f32b0ddc046e"
+    },
+    {
+      "path": "capacity-profile.json",
+      "published": false,
+      "role": "frozen profile",
+      "sha256": "sha256:08b6e74fd67d0d04660762801df7e49fdf0cd833783c2981e313eaed7334eb8f"
+    },
+    {
+      "path": "bound-compose.yaml",
+      "published": false,
+      "role": "bound Compose source",
+      "sha256": "sha256:e51351ad3dd85c46c37dca8d382a85c2d99d8d8e6e8cdaf152d6b41ac0cac8d2"
+    },
+    {
+      "path": "bound-runtime-contracts.json",
+      "published": false,
+      "role": "bound runtime contract",
+      "sha256": "sha256:cf435f6d9afb0b0ff0139b3587dd4c14e2cd3791cec099c81eb9f64babfa51a3"
+    },
+    {
+      "path": "recipe-inspect-1.json",
+      "published": false,
+      "role": "deterministic recipe inspection",
+      "sha256": "sha256:431c283c8e237c023e37105f714680bfefccb6410a9baec6bb1465e1919766b1"
+    },
+    {
+      "path": "recipe-inspect-2.json",
+      "published": false,
+      "role": "deterministic recipe inspection",
+      "sha256": "sha256:cf94110ed82d51962ff5e3496584a17cfde745eab5ed15548242337e6251d3dd"
+    },
+    {
+      "path": "round-01/recipe-receipt.json",
+      "published": false,
+      "role": "candidate-bound recipe receipt",
+      "sha256": "sha256:f4c23774be9ab091edce43871fd1c205b5d86dc10a93400308d6a7b18a323128"
+    },
+    {
+      "path": "round-01/resources.raw.jsonl",
+      "published": false,
+      "role": "raw resource samples",
+      "sha256": "sha256:d8b3bca346abf80fa4a0aa24b08586dc2d88f14750a9966acd1e7e87a54ef210"
+    },
+    {
+      "path": "round-01/resources.json",
+      "published": false,
+      "role": "derived resource summary",
+      "sha256": "sha256:b7f4f0d52c39d04de4b818fb990e1e3f059e1c233271a38d271b42b486e3253b"
+    },
+    {
+      "path": "round-01/repeat-01/load-report.json",
+      "published": false,
+      "role": "raw load report",
+      "sha256": "sha256:ec05d6e915a172b02f4834eb74704b0391b1c394f15586c58efcefa387baec84"
+    },
+    {
+      "path": "round-01/repeat-01/progress.jsonl",
+      "published": false,
+      "role": "append-only load progress",
+      "sha256": "sha256:56b5d8efb0aadd8d50c05b06c530b0dea7eec76ee40be866056a7b14189d6bf7"
+    },
+    {
+      "path": "round-01/async-rps-50.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:c803882451b284ac58e423ebd5552b95e4939901947aee74f416d03e00c2600c"
+    },
+    {
+      "path": "round-01/observability-rps-50.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:952017dd7eb67d624c40552bc750e96420e7bcbe3e34a3fdb5c0c272c8f7d91b"
+    },
+    {
+      "path": "round-01/async-rps-100.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:9b6347c612dd3ae79dca1cb4ed969f22a7a003b00c4d79ad428142146287caba"
+    },
+    {
+      "path": "round-01/observability-rps-100.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:dbc28cf38c2b2e624894376bebec6f26bf5b9103a86dce9d25c7b299996ea87c"
+    },
+    {
+      "path": "round-01/async-rps-150.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:faa6788309bb7c6b844fd71b68a43c9803e0e10cdeef16729d4ce5098ced0bd4"
+    },
+    {
+      "path": "round-01/observability-rps-150.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:f7d12319489606f28e431a231ea14e1e8f34ec83bd76aa74b68a51a5005d6e43"
+    },
+    {
+      "path": "round-01/async-rps-200.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:ba7b2553443fb0f5a479e2c7513a5243db33a7336b61f7a90ccde56ebed9b90f"
+    },
+    {
+      "path": "round-01/observability-rps-200.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:193423ae6899cdb1cf6d8683bd74532f3ccb88057a9b1a395d4346812816a40f"
+    },
+    {
+      "path": "round-02/recipe-receipt.json",
+      "published": false,
+      "role": "candidate-bound recipe receipt",
+      "sha256": "sha256:47b28a5fd6ae603fd1f7fc20af232bd88d28ffa287da6458607384c79004e387"
+    },
+    {
+      "path": "round-02/resources.raw.jsonl",
+      "published": false,
+      "role": "raw resource samples",
+      "sha256": "sha256:8604bc88ab0c8ba96f85cd53865a43e601169f74180ffa741b036c85161d29cd"
+    },
+    {
+      "path": "round-02/resources.json",
+      "published": false,
+      "role": "derived resource summary",
+      "sha256": "sha256:86bf753297b9e5c3b7c5ac770f50a35073f629a81e401d6288e80f7f02f2764b"
+    },
+    {
+      "path": "round-02/repeat-02/load-report.json",
+      "published": false,
+      "role": "raw load report",
+      "sha256": "sha256:4b71093706027f41084a9e63e46306ff598a64a2c99d2a9c75c8d03ecd42e260"
+    },
+    {
+      "path": "round-02/repeat-02/progress.jsonl",
+      "published": false,
+      "role": "append-only load progress",
+      "sha256": "sha256:57cb06cb3061926e5b018bdb3142be482b9c30a95c92dbf14fa0f567a860eea5"
+    },
+    {
+      "path": "round-02/async-rps-50.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:17adb3f08ec0a00eeca5b33211ad5d0d41bf317fcac5fc7f7f816a6ab26dc62e"
+    },
+    {
+      "path": "round-02/observability-rps-50.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:b2fdaab2f94fddbdc150996b32da09d881fb2ef83f09a7c08d9d1c968192aa56"
+    },
+    {
+      "path": "round-02/async-rps-100.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:2a3fffcf71ff1346c3caf9cf8475cbf7f72a6ec9ef5c987e69aecd4bc431e4ee"
+    },
+    {
+      "path": "round-02/observability-rps-100.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:26c4291252f7f2d29d3a606818d2a9a1b20f7d362f7848e15beedf3fbf5137ca"
+    },
+    {
+      "path": "round-02/async-rps-150.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:5a27e2b248d0c14319827abb2d1dc4dcdcc11b49a258a90e38aa094ec6637f2e"
+    },
+    {
+      "path": "round-02/observability-rps-150.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:286ef267a703161d4738884dc8cf4d82ec7efda670ddae3d1b3bceba6183b9d8"
+    },
+    {
+      "path": "round-02/async-rps-200.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:3d5a0fc66b0334c3bb47e6301233bad20debabe1f35e18eeec124871490dda7e"
+    },
+    {
+      "path": "round-02/observability-rps-200.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:846758c491add148b4193fa61f9c47c9dee6225511431b60ba5686b6fb3381c9"
+    },
+    {
+      "path": "round-03/recipe-receipt.json",
+      "published": false,
+      "role": "candidate-bound recipe receipt",
+      "sha256": "sha256:518c79a005e27a8a243ef595754ce6faf5132d0af56267473c382921891221a7"
+    },
+    {
+      "path": "round-03/resources.raw.jsonl",
+      "published": false,
+      "role": "raw resource samples",
+      "sha256": "sha256:065c4e5afcdeae7fd9dea6316730f242aa00c918c1060522fa1daa2bb035f37b"
+    },
+    {
+      "path": "round-03/resources.json",
+      "published": false,
+      "role": "derived resource summary",
+      "sha256": "sha256:9fb341dfa7860b65ddad5d9a51d3f085bd742389b32653fc2a59bf878785c8ee"
+    },
+    {
+      "path": "round-03/repeat-03/load-report.json",
+      "published": false,
+      "role": "raw load report",
+      "sha256": "sha256:7fb95105f0822d013f00640665ab5d90fcb5329c4f976d1146c7964fce03a8b2"
+    },
+    {
+      "path": "round-03/repeat-03/progress.jsonl",
+      "published": false,
+      "role": "append-only load progress",
+      "sha256": "sha256:b8c42c05459d4f829f2c866ecc0bb7e69d88fe80304331f1d203d6e00bee7e25"
+    },
+    {
+      "path": "round-03/async-rps-50.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:5fe448dc4cfa829ba48cce152e3ef63abc8ca1270ee4ef842813571fd6b85ab1"
+    },
+    {
+      "path": "round-03/observability-rps-50.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:f76f2e797c29876e35a88109cc2ee86f6d8a1439372c3544d566e66d762dfcd0"
+    },
+    {
+      "path": "round-03/async-rps-100.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:888046e5012b4c858c768630045ea1e7947a5e812ecbb0fd0c15495e7389f591"
+    },
+    {
+      "path": "round-03/observability-rps-100.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:bfa1d35a99cd60f6b412c1413619b2acaa56f322200ed94b5f8786a7fc663089"
+    },
+    {
+      "path": "round-03/async-rps-150.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:eb17b905a0d50ff4ab78ab5c560342c0243783d4b1fbaeb336c7605f821d2a1e"
+    },
+    {
+      "path": "round-03/observability-rps-150.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:5f54bd9451260288333b4f217a991a3f28183d6bb6f89588a90eb5c34dd2f691"
+    },
+    {
+      "path": "round-03/async-rps-200.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:ba2580ec90c19d6a40de3f9f6e640e3e040b25910d073b6a6867fff46b30d037"
+    },
+    {
+      "path": "round-03/observability-rps-200.jsonl",
+      "published": false,
+      "role": "raw recovery or observability receipt",
+      "sha256": "sha256:dfd5b9c021f7aa996e8c14e9209558bc42442e5d3465e5898a31d4a5d23d7562"
+    }
+  ],
+  "tested_candidate": {
+    "image_tag": "2.1.3-candidate-7251d32a20bc",
+    "images": [
+      {
+        "image_id": "sha256:3083794e4f49794a4772180293b6e5ea00d0a1090bcc90ed8ca958f7a7831917",
+        "name": "backend",
+        "ref": "gopulse/backend:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:aa5aeab309422ca9cff7c39d1de02d107b45ab3bb31106b75b59370f93084bfa",
+        "name": "business-worker",
+        "ref": "gopulse/business-worker:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:6ea61b186d8f53e4d025957cc3ede42608c8ca2b693f7988f857c538e511a678",
+        "name": "search-indexer",
+        "ref": "gopulse/search-indexer:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:045e1cb7310a3931a98b1bf4dacd1a53b1371ec910eb0f9766351854e8f22d63",
+        "name": "admin-frontend",
+        "ref": "gopulse/admin-frontend:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:851c6a133145291f1a98ca36cac6e7982e5acbedf46ac61486d7c54f8235b258",
+        "name": "frontend",
+        "ref": "gopulse/frontend:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:c0457aafc3326b3ccf6a505a1997a2434f73e61ff1e6ea5a9347e5bc029c0ada",
+        "name": "router",
+        "ref": "gopulse/router:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:933817cce9bf6de46947b4251a0a9d90ed47ac3f62ca656647a43993e46b6cf4",
+        "name": "marshaller",
+        "ref": "gopulse/marshaller:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:4d6aad71ec0b1746cde326bf59f6f765eef0389667ab0ce022577de7b944db14",
+        "name": "monitor",
+        "ref": "gopulse/monitor:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:f8889fa7d222c4d302653ab346a56ce2e3c2aed809490f59e87106b3697fda2d",
+        "name": "redis-exporter",
+        "ref": "gopulse/redis-exporter:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      }
+    ],
+    "manifest_sha256": "sha256:09ed1dafa379472071f09d55cde57ec29ff9eb28f430f4742479f32b0ddc046e",
+    "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+    "version": "2.1.3"
+  },
+  "verification": {
+    "capacity_evidence_sha256": "sha256:2b30d433337ad34586af07f83ff078c586980ed5637d78b3890fb501aab17e2f",
+    "formal_entry_invocations": 1,
+    "global_prune": false,
+    "source_set_verified_before_publication": true,
+    "strict_verifier": "PASS: Phase 19 evidence is bound, raw-preserving, and strictly verified"
+  }
+}

@@ -129,6 +129,13 @@ Phase-19-03 只允许修订宿主兼容、正式编排和真实 evidence 合同�
 被测 candidate version/revision/digest 与收口版本必须分别展示；`2.1.4` 不得被描述成另一个已测试
 候选。详细文件清单和验证见 [`Phase-19-04`](Phase-19-04-容量认证与阶段收口.md)。
 
+本批实际收口事实：被测 candidate 为 `2.1.3`，revision
+`7251d32a20bc00c126bdef2a207620320f9939bf`，manifest SHA-256 为
+`09ed1dafa379472071f09d55cde57ec29ff9eb28f430f4742479f32b0ddc046e`；收口版本为 `2.1.4`。
+正式入口只调用一次，三次独立重复均完成，严格 verifier 通过；执行状态为 `complete`，能力状态为
+`boundary_found`。首个观察到的未通过阶梯为 `50 RPS` 的异步/观测恢复门禁，正式证据与脱敏发布
+清单见 `dev/logs/Phase-19/Phase-19-04-evidence/`。
+
 ## 8. 阶段完成条件
 
 1. Phase-19-01、19-02、19-03、19-04 按顺序完成，四个分支和版本与本方案一致。

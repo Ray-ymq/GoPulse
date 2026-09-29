@@ -1,6 +1,6 @@
 # GoPulse 当前能力状态
 
-> 基线：产品版本 `2.1.3`，2026-09-29。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品版本 `2.1.4`，2026-09-29。版本完成、验收执行完成和能力达标是三个不同概念。
 
 ## 已验证
 
@@ -15,13 +15,15 @@
 - Phase-18-05 冻结候选的扩缩容、局部故障、SIGTERM、重建、独立诊断和清理矩阵。
 - Phase-19-02 的容量 profile、开环四阶梯/三重复 runner、独立资源采样、原值统计和严格 evidence verifier 已完成自测与 calibration；这只表示工具合同冻结。
 - Phase-19-03 已完成正式入口、逐轮确定性配方、轮次 endpoint、进度/资源/恢复原始证据和严格 verifier 的工具修订；这只表示验收基础设施完成，尚无正式容量结论。
+- Phase-19-04 已对冻结的 `2.1.3` candidate（revision `7251d32a20bc`）完成一次正式三重复认证；执行状态为 `complete`，能力状态为 `boundary_found`。固定同步请求门禁全部通过，但异步/观测恢复门禁未通过，正式结果已发布到 [`Phase-19-04 evidence`](../dev/logs/Phase-19/Phase-19-04-evidence/summary.json)。
 
 ## 已发现边界
 
 - Phase-18-01/02 未证明稳定 `150 RPS`；历史运行出现重复性失败、burst 错误和 Outbox 积压。
 - Phase-18-04 的原冻结候选结果为 `boundary_found`；其历史证据不因后续修复而改写。
-- 固定延迟桶支持 P50/P95/P99 的查询表达，但尚未执行 Phase 19 的正式容量 profile，不能据此声明任何吞吐或尾延迟目标达标。
-- 原 Phase-19-03 deterministic preflight 发现正式 runner 的配方物化、轮次 endpoint、宿主版本合同和真实恢复证据不闭合；正式容量入口未调用，没有容量结论。修订由新的 Phase-19-03 承担，正式认证顺延到 Phase-19-04。
+- 固定延迟桶支持 P50/P95/P99 的查询表达；Phase-19-04 正式 profile 已执行，但未达到全部容量目标，不能据此声明目标阶梯 `target_met`。
+- Phase-19-04 首个观察到的边界为 `50 RPS` 阶梯的异步/观测恢复：三次重复的恢复时间均超过 `120s` 门禁；同窗可见 Kafka lag、Outbox pending 与 Kafka 高 CPU，但这些是相关窗口证据，不构成单一根因证明。
+- 原 Phase-19-03 deterministic preflight 发现正式 runner 的配方物化、轮次 endpoint、宿主版本合同和真实恢复证据不闭合；正式容量入口未调用，没有容量结论。修订由新的 Phase-19-03 承担，正式认证已由 Phase-19-04 完成并收口为 `boundary_found`。
 - Monitor 是插件生命周期唯一所有者；状态层仍可为单节点。
 
 ## 尚未验证
