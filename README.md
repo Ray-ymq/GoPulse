@@ -547,8 +547,8 @@ The first formal-capacity preflight found acceptance-infrastructure gaps before
 the formal entry was invoked: per-repetition recipe materialization and endpoint
 binding were incomplete, and recovery/freshness receipts were not backed by
 stage-scoped raw facts. Phase-19-03 is therefore reassigned to repair and prove
-that path without producing a capacity conclusion; Phase-19-04 will certify the
-frozen `2.1.3` candidate once and publish the actual result.
+that path without producing a capacity conclusion. Phase-19-04 subsequently
+certified the frozen `2.1.3` candidate once and published the actual result.
 
 Phase-19-03 advances the product metadata to `2.1.3` and repairs the capacity
 acceptance path. The fixed entry now owns the checked-in profile, Compose and
@@ -557,8 +557,16 @@ round, derives each round's endpoint from its private port, records append-only
 load boundaries, and retains raw component, asynchronous, and observability
 receipts for strict verification. Its bounded preflight proves the acceptance
 infrastructure only; it does not execute the formal three-repeat certification
-or publish a capacity conclusion. Phase-19-04 will test the frozen `2.1.3`
-candidate and publish the actual result.
+or publish a capacity conclusion. Phase-19-04 tested the frozen `2.1.3`
+candidate and published the actual result.
+
+Phase-19-04 advances the completion version to `2.1.4` and closes Phase 19 with
+one formal three-repetition run against candidate `2.1.3` revision
+`7251d32a20bc`. Execution completed with capability status `boundary_found`:
+all synchronous request gates passed, while asynchronous/observability recovery
+did not meet the fixed gate, first observed at the `50 RPS` step. The published
+summary and raw-source manifest are in
+[`dev/logs/Phase-19/Phase-19-04-evidence/`](dev/logs/Phase-19/Phase-19-04-evidence/).
 
 ### Backend log query pipeline
 
