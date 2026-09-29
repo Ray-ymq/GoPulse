@@ -11,18 +11,22 @@ The repository currently provides:
 - authenticated post publishing, keyset-paginated post/comment reads, comments, and idempotent likes;
 - Redis cache-aside for the non-personalized post-detail projection with best-effort invalidation and MySQL fallback;
 - versioned MySQL migrations for users and persistent roles, posts, comments, and post likes;
-- local MySQL, Redis, RabbitMQ, fixed-version Elasticsearch, single-node Kafka 4.3.1, and authenticated single-node VictoriaMetrics 1.151.0 infrastructure;
+- local MySQL, Redis, RabbitMQ, separate fixed-version business and observability Elasticsearch services, single-node Kafka 4.3.1, and authenticated single-node VictoriaMetrics 1.151.0 infrastructure;
 - transactional `post.created` Outbox delivery through an isolated RabbitMQ topology and Search Indexer;
 - single-line Schema v1 JSON lifecycle, HTTP, Outbox, Worker, Indexer, reindex, and Redis Exporter logs with bounded safe fields;
 - an independent Redis Exporter whose `/health` reports process liveness and whose `/metrics` returns a complete current Prometheus snapshot or isolated `up 0`;
 - fixed-catalog `GET /api/v1/observability/metrics` range queries backed by VictoriaMetrics, strict administrator-only Logs and Events querying, and a strict Backend trust boundary for Exporter status and actions;
 - a host-loopback-by-default Message Router with explicit container mode, strict Envelope v1 boundaries, Bearer service identity, fixed routing, acknowledged Kafka production, and original-body byte preservation;
-- a host-loopback-by-default Marshaller with explicit container mode, strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, deterministic Prometheus text conversion, authenticated VictoriaMetrics writes, and isolated strict Logs and Events Elasticsearch targets;
+- a host-loopback-by-default Marshaller with explicit container mode, strict second-pass Envelope validation, manual consumer-group offsets, generation ownership fencing, bounded parallel partition processing, deterministic Prometheus text conversion, authenticated VictoriaMetrics writes, and isolated strict Logs and Events writes to the observability Elasticsearch service;
 - Docker/Compose-only daily full-stack lifecycle scripts, read-only container verification, deterministic managed-Exporter bootstrap, and one authoritative random-project real-browser full-stack acceptance matrix;
 - Phase 18-03 business-scale topology with two Backend, Business Worker, and Search Indexer replicas, explicit instance identities, bounded per-process budgets, stateless frontend upstream failover, and lease/consumer ownership evidence;
+- Phase 18-04 observability-scale topology with two Router and Marshaller replicas, multi-partition Kafka ownership, separate business and observability Elasticsearch services and volumes, bounded target-local backpressure, and fixed two-run evidence;
+- Phase 18-05 machine-readable runtime contracts, private direct-diagnostic evidence, and a completed two-run scale/fault/rebuild closure classified as `target_met`; the result is scoped to the fixed matrix and does not claim independent `150 RPS` capacity certification, state-layer HA, production SLOs, or Kubernetes support;
+- Phase-19-01 Backend API-only admission, probe isolation, fixed HTTP latency distribution families, and bounded concurrency/rejection diagnostics through the component metrics contract; this adds diagnostic evidence for later capacity work without declaring a capacity target met;
+- Phase-19-02's frozen machine-readable capacity profile, independent three-repetition runner, separate load/SUT resource sampler, raw-preserving statistics, strict evidence verifier, and bounded calibration; no formal capacity conclusion has been published;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
-Additional component plugins, same-type plugin multi-instance collection, a containerized Linux product lifecycle, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, Kubernetes, user profiles, follows, post update/delete indexing, automatic dead-queue replay, real-time notification push, and other later-phase capabilities are not implemented yet.
+Same-type plugin multi-instance collection, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, distributed tracing, automatic dead-queue replay, real-time notification push, Kubernetes, and other later-phase capabilities are not implemented yet. The current verified, boundary, and unverified capability list is maintained in [`docs/capability-status.md`](docs/capability-status.md).
 
 ## Linux product installation
 
@@ -37,7 +41,8 @@ not the product installer. Historical PowerShell scripts remain frozen at 0.2.1.
 
 ## Primary development environment
 
-Through the completed Phase 12 baseline (`1.9.4`), GoPulse uses WSL2 on Windows as its primary implementation and acceptance environment. Use the following baselines:
+Through the completed Phase 18 baseline (`2.0.5`), GoPulse maintains Linux `amd64` as its implementation and
+acceptance environment. WSL2 on Windows is one supported way to provide that Linux environment. Use the following baselines:
 
 - WSL2 with a Linux distribution;
 - Docker Desktop with WSL integration, or one WSL-native Docker Engine with the Docker Compose v2 plugin;
@@ -55,7 +60,9 @@ cd GoPulse
 
 Do not use `/mnt/c/...`, `/mnt/d/...`, or another Windows-mounted checkout as the active WSL workspace. If Docker Desktop is used, enable WSL integration for the selected distribution and do not run a second Docker daemon inside that distribution.
 
-The existing `scripts/*.ps1` files are preserved at the `0.2.1` capability baseline and were not maintained for Phase-01-02 through Phase 12. Phase 16 introduces one shared container-based lifecycle for the maintained Linux `amd64` environment rather than reviving these files as a second implementation. Until that lifecycle is implemented and accepted, WSL2/Linux and the Bash lifecycle remain the supported current baseline.
+The existing `scripts/*.ps1` files are preserved at the `0.2.1` capability baseline and were not maintained for
+later phases. Phase 16 completed one shared container-based lifecycle for the maintained Linux `amd64` environment
+rather than reviving these files as a second implementation. Linux and the Bash lifecycle are the supported current baseline.
 
 ## Local configuration
 
@@ -67,9 +74,9 @@ cp .env.example .env
 
 The checked-in credentials are development-only. Do not reuse them in production or commit `.env`. The root `VERSION`, Frontend package metadata, `.env.example` `GOPULSE_VERSION`, image tags, and OCI labels are kept on one version line.
 
-`GOPULSE_RUNTIME_MODE` defaults to `host` for direct source-level commands. Host mode retains loopback listeners and loopback dependency origins. Compose sets `container` explicitly for the Backend, Monitor, Router, Marshaller, and standalone Exporter; it binds public-in-network listeners to `0.0.0.0` inside their namespaces and injects validated service DNS such as `mysql`, `redis`, `rabbitmq`, `elasticsearch`, `monitor`, `router`, `kafka`, and `victoriametrics`. The Exporter managed as Monitor's child process remains bound to `127.0.0.1:9121` inside the Monitor container. Unknown modes, container loopback or fixed-IP dependencies, `host.docker.internal`, URL credentials where forbidden, paths, query strings, fragments, control characters, and unsafe listeners fail before application startup.
+`GOPULSE_RUNTIME_MODE` defaults to `host` for direct source-level commands. Host mode retains loopback listeners and loopback dependency origins. Compose sets `container` explicitly for the Backend, Monitor, Router, Marshaller, and standalone Exporter; it binds public-in-network listeners to `0.0.0.0` inside their namespaces and injects validated service DNS such as `mysql`, `redis`, `rabbitmq`, `elasticsearch`, `observability-elasticsearch`, `monitor`, `router`, `router-2`, `kafka`, and `victoriametrics`. The Exporter managed as Monitor's child process remains bound to `127.0.0.1:9121` inside the Monitor container. Unknown modes, container loopback or fixed-IP dependencies, `host.docker.internal`, URL credentials where forbidden, paths, query strings, fragments, control characters, and unsafe listeners fail before application startup.
 
-Only `PUBLISHED_HOST=127.0.0.1` and `FRONTEND_PORT` control default host publication. MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, Redis Exporter, and both Backend replicas publish no host ports in `deploy/compose.yaml`. `deploy/compose.debug.yaml` is an explicit loopback-only override for historical focused host checks and is never loaded by the daily or authoritative container acceptance paths.
+Only `PUBLISHED_HOST=127.0.0.1` and `FRONTEND_PORT` control default host publication. MySQL, Redis, RabbitMQ, both Elasticsearch services, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, Redis Exporter, and both Backend replicas publish no host ports in `deploy/compose.yaml`. `deploy/compose.debug.yaml` is an explicit loopback-only override for historical focused host checks and is never loaded by the daily or authoritative container acceptance paths.
 
 Phase 18-03 runs two uniquely identified instances of Backend, Business Worker,
 and Search Indexer. Frontend Nginx sends same-origin API traffic through a
@@ -86,6 +93,21 @@ scripts/verify-phase18-business-scale.sh --repetitions 2
 The runner records `target_met`, `boundary_found`, or `execution_failed` under
 `.run/phase18-business-scale-*`; it does not claim state-store replication.
 
+Phase 18-04 runs two Router and Marshaller replicas over four Kafka partitions.
+Business search remains on `elasticsearch`; Marshaller's Logs and Events clients
+use the isolated `observability-elasticsearch` service and volume. Target-local
+storage failures and bounded Kafka/HTTP queues are recorded without making one
+target block unrelated targets. Run the fixed two-round observability matrix
+with:
+
+```bash
+scripts/verify-phase18-observability-scale.sh --repetitions 2
+```
+
+The runner binds the candidate, executes each of U1–U4 in `run-1` and `run-2`,
+and writes immutable evidence and a summary under
+`.run/phase18-observability-scale-*`.
+
 ## Start the development environment
 
 Run from any directory:
@@ -94,7 +116,7 @@ Run from any directory:
 /home/<user>/src/GoPulse/scripts/dev.sh
 ```
 
-The script requires Docker/Compose rather than a host Go or Node toolchain. It validates the repository, branch/version, environment file, project name, and any existing Compose ownership labels; builds all versioned self-developed images; starts the complete business and observability topology; waits for MySQL, Redis, RabbitMQ, Elasticsearch, Kafka, VictoriaMetrics, Router, Marshaller, Monitor, Backend, and Frontend health checks; requires migration, search initialization, and Kafka Topic initialization to exit successfully; verifies Monitor's image-bundled Redis Exporter bootstrap; and runs the read-only container smoke.
+The script requires Docker/Compose rather than a host Go or Node toolchain. It validates the repository, branch/version, environment file, project name, and any existing Compose ownership labels; builds all versioned self-developed images; starts the complete business and observability topology; waits for MySQL, Redis, both Elasticsearch services, Kafka, VictoriaMetrics, Router, both Marshaller members, Monitor, Backend, and Frontend health checks; requires migration, search initialization, and Kafka Topic initialization to exit successfully; verifies Monitor's image-bundled Redis Exporter bootstrap; and runs the read-only container smoke.
 
 The default project publishes only:
 
@@ -498,9 +520,32 @@ Phase-12-03 advances the product to `1.9.3` and closes Phase 12. The no-argument
 
 Phase-12-04 advances the product to `1.9.4` and re-closes Phase 12 after the independent implementation Review. The authoritative full-stack runner now builds with a run-unique image tag without changing user-owned version tags, verifies source and image identity before reuse, rejects unsafe published hosts and ports before Docker access, validates the Backend VictoriaMetrics endpoint against the selected runtime mode, narrows each Compose workload to its required environment identity, and removes official-service credentials from process and healthcheck arguments. Remote run `34019085992` passed all 11 checks, including Full-stack Compose acceptance, before PR #109 merged the batch into `main` as `102aa4f`.
 
+Phase-18-04 targets `2.0.4`: Router and Marshaller use explicit replica identities, four Kafka partitions, generation-fenced ownership, bounded in-flight/retry budgets, and target-local backpressure. Business search Elasticsearch and observability Logs/Events Elasticsearch are separate services, volumes, networks, and client purposes. Its fixed runner is `scripts/verify-phase18-observability-scale.sh --repetitions 2`; the implementation log and bound evidence are authoritative for the two required runs.
+
+Phase-18-05 completes the machine runtime contract and the fixed closure process at
+`2.0.5`. The final candidate created exactly `run-1` and `run-2`; U1, U2, and U4 were
+`2/2`, U3 was `0/2`, and both owned Compose projects cleaned successfully.
+The authoritative result is `boundary_found`, with the final evidence and follow-up
+boundaries in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
+
+Phase-19-01 advances the product to `2.1.1` with API-only Backend admission,
+probe paths that remain available when business slots are full, direct private
+Compose readiness checks, fixed cumulative latency buckets with count and sum,
+and in-flight/limit/rejection signals. These are bounded diagnostic contracts
+for the later capacity profile; they do not claim that any throughput or tail
+latency target has been met.
+
+Phase-19-02 advances the product to `2.1.2` with the frozen
+[`capacity-profile.json`](loadtest/capacity-profile.json), an open-loop runner
+for the `50/100/150/200 RPS` ladder and three independent repetitions, separate
+load-process/SUT resource samples, raw-preserving median/min/max/CV aggregation,
+strict binding and cleanup verification, and a bounded calibration mode. This
+freezes the acceptance tooling only; it does not publish a formal capacity
+result or claim that any throughput or tail-latency target has been met.
+
 ### Backend log query pipeline
 
-Backend, Business Worker, Search Indexer, and search-reindex Schema v1 logs remain single-line JSON on stdout and, when `LOG_MONITOR_URL` is configured, are also offered to the same bounded non-blocking in-memory shipper. The shipper uses the dedicated `LOG_MONITOR_INGEST_TOKEN`; queue full affects only the remote copy, temporary transport failures retain the ordered queue head and message ID for retry, and permanent `400`/`413`/`422` input rejection drops only that remote copy. None of these outcomes changes API, RabbitMQ acknowledgement, Outbox, indexing, or reindex exit semantics. LogMonitor derives one of the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, or `logs/search-reindex` envelopes from the validated service, Router transports all four through `gopulse-observability-v1`, and Marshaller revalidates the source/payload match before idempotently storing strict documents in `gopulse-logs-v1-YYYY.MM.DD` behind `gopulse-logs-v1-read`. The formal single-partition consumer group remains `gopulse-marshaller-metrics-v1`, so a temporary Elasticsearch failure intentionally backpressures later logs and metrics until the current record succeeds. Phase-09-02 delivered all background log sources at `1.6.2`. Phase-09-03 closes Phase 9 at `1.6.3` with the final real request/event/reindex matrix, exact-filter and PIT pagination checks, credential and sensitive-data isolation, strict index/mapping separation, Elasticsearch outage recovery, Metrics coexistence, business-fault isolation, and owned resource cleanup.
+Backend, Business Worker, Search Indexer, and search-reindex Schema v1 logs remain single-line JSON on stdout and, when `LOG_MONITOR_URL` is configured, are also offered to the same bounded non-blocking in-memory shipper. The shipper uses the dedicated `LOG_MONITOR_INGEST_TOKEN`; queue full affects only the remote copy, temporary transport failures retain the ordered queue head and message ID for retry, and permanent `400`/`413`/`422` input rejection drops only that remote copy. None of these outcomes changes API, RabbitMQ acknowledgement, Outbox, indexing, or reindex exit semantics. LogMonitor derives one of the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, or `logs/search-reindex` envelopes from the validated service, Router transports all four through `gopulse-observability-v1`, and Marshaller revalidates the source/payload match before idempotently storing strict documents in `gopulse-logs-v1-YYYY.MM.DD` behind `gopulse-logs-v1-read`. The current observability topic has four partitions and two Marshaller group members with generation-scoped ownership; a target storage failure blocks only the affected bounded processing path while unrelated partitions and targets remain diagnosable. The Phase 9 historical single-member behavior remains documented in its implementation logs rather than presented as the current topology.
 
 Administrators can query the fixed read alias through `GET /api/v1/observability/logs`. Supported filters are `from`, `to`, `service`, `module`, `level`, `message`, `request_id`, `event_id`, `error_code`, `limit`, and signed `cursor`. The default range is 15 minutes, the maximum range is 24 hours, and page size is limited to 100. Authentication and current MySQL administrator authorization run before Elasticsearch access. Use `scripts/verify-logs.sh --self-test` for safety checks and `scripts/verify-logs.sh` for the isolated real API-to-Elasticsearch acceptance.
 

@@ -2,7 +2,9 @@ package load
 
 import (
 	"math"
+	"os"
 	"testing"
+	"time"
 )
 
 func TestLatencySummaryUsesNearestRank(t *testing.T) {
@@ -21,5 +23,37 @@ func TestScheduleOffsetsHonorOpenLoopRate(t *testing.T) {
 	ramp := rampScheduleOffset(50, 100_000_000_000, 100)
 	if ramp <= 0 {
 		t.Fatalf("ramp offset=%s", ramp)
+	}
+}
+
+func TestCapacityProfileIsStrictlyBoundAndUsesThreeFixedRepetitions(t *testing.T) {
+	encoded, err := os.ReadFile("../../capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, digest, err := LoadProfile("../../capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Repetitions != 3 || len(profile.Stages) != 4 || profile.Stages[0].TargetRPS != 50 || profile.Stages[3].TargetRPS != 200 {
+		t.Fatalf("profile=%+v", profile)
+	}
+	if digest != ProfileDigest(encoded) {
+		t.Fatalf("profile digest=%s", digest)
+	}
+	profile.Repetitions = 2
+	if err := ValidateProfile(profile); err == nil {
+		t.Fatal("profile accepted repetition drift")
+	}
+}
+
+func TestOutcomeSummaryKeeps429503TimeoutAndUnexpectedErrorSeparate(t *testing.T) {
+	value := newCapacityAccumulator(100, time.Second)
+	value.add(requestResult{status: 429, explicitReject: true, latencyMS: 1})
+	value.add(requestResult{status: 503, explicitReject: true, latencyMS: 2})
+	value.add(requestResult{timeout: true, transportFailure: true, latencyMS: 3})
+	value.add(requestResult{status: 500, latencyMS: 4})
+	if value.outcomes.ExplicitRejects != 2 || value.outcomes.Rejected429 != 1 || value.outcomes.Rejected503 != 1 || value.outcomes.Timeouts != 1 || value.outcomes.UnexpectedErrors != 1 || value.outcomes.TransportErrors != 0 {
+		t.Fatalf("outcomes=%+v", value.outcomes)
 	}
 }

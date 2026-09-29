@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
@@ -36,26 +37,48 @@ func (Discard) Publish(context.Context, envelope.Envelope) error { return nil }
 func (Discard) PublishRaw(context.Context, string, any) error    { return nil }
 
 type HTTP struct {
-	endpoint string
-	token    string
-	client   *http.Client
+	endpoints []string
+	token     string
+	client    *http.Client
+	next      atomic.Uint64
 }
 
 func NewHTTP(baseURL, token string, timeout time.Duration) (*HTTP, error) {
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return nil, errors.New("MONITOR_ROUTER_URL must be an HTTP base URL")
+	return NewHTTPPool([]string{baseURL}, token, timeout)
+}
+
+func NewHTTPPool(baseURLs []string, token string, timeout time.Duration) (*HTTP, error) {
+	if len(baseURLs) == 0 || len(baseURLs) > 8 {
+		return nil, errors.New("MONITOR_ROUTER_URLS must contain 1 to 8 URLs")
 	}
 	if len(token) < 32 || strings.ContainsAny(token, "\r\n") {
 		return nil, errors.New("MONITOR_ROUTER_TOKEN must contain at least 32 bytes")
+	}
+	if timeout <= 0 {
+		return nil, errors.New("MONITOR_ROUTER_TIMEOUT must be positive")
+	}
+	endpoints := make([]string, 0, len(baseURLs))
+	seen := make(map[string]struct{}, len(baseURLs))
+	for _, baseURL := range baseURLs {
+		normalized := strings.TrimSpace(baseURL)
+		parsed, err := url.Parse(normalized)
+		if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, errors.New("MONITOR_ROUTER_URLS must contain HTTP base URLs")
+		}
+		canonical := strings.TrimRight(normalized, "/")
+		if _, ok := seen[canonical]; ok {
+			return nil, errors.New("MONITOR_ROUTER_URLS must not contain duplicates")
+		}
+		seen[canonical] = struct{}{}
+		endpoints = append(endpoints, canonical+"/internal/v1/messages")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableCompression = true
 	transport.ResponseHeaderTimeout = timeout
 	return &HTTP{
-		endpoint: strings.TrimRight(baseURL, "/") + "/internal/v1/messages",
-		token:    token,
-		client:   &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		endpoints: endpoints,
+		token:     token,
+		client:    &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
 
@@ -68,14 +91,36 @@ func (p *HTTP) PublishRaw(ctx context.Context, messageID string, message any) (r
 	if err != nil {
 		return errors.New("message serialization failed")
 	}
-	req, err := componentmetrics.NewRequest(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
+	defer func() { componentmetrics.Dependency("router", result) }()
+	if len(p.endpoints) == 0 {
+		return errors.New("publisher has no Router endpoints")
+	}
+	start := int(p.next.Add(1)-1) % len(p.endpoints)
+	for attempt := 0; attempt < len(p.endpoints); attempt++ {
+		err := p.publishOnce(ctx, p.endpoints[(start+attempt)%len(p.endpoints)], messageID, body)
+		if err == nil {
+			return nil
+		}
+		var rejected RejectionError
+		if errors.As(err, &rejected) && rejected.Permanent() {
+			return err
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		result = err
+	}
+	return result
+}
+
+func (p *HTTP) publishOnce(ctx context.Context, endpoint, messageID string, body []byte) error {
+	req, err := componentmetrics.NewRequest(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return errors.New("publisher request failed")
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", messageID)
-	defer func() { componentmetrics.Dependency("router", result) }()
 	response, err := p.client.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || isTimeout(err) {

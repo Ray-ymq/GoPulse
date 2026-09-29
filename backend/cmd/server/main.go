@@ -98,6 +98,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	metrics.SetHTTPConcurrencyLimit(cfg.HTTPMaxConcurrency)
 	componentmetrics.InstallBackend(metrics)
 	defer componentmetrics.InstallBackend(nil)
 	goredis.SetLogger(&redislogging.VoidLogger{})
@@ -117,6 +118,10 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	elasticsearchClient, err := platform.NewElasticsearch(cfg.Elasticsearch)
 	if err != nil {
 		return errors.New("initialize Elasticsearch client")
+	}
+	observabilityElasticsearchClient, err := platform.NewObservabilityElasticsearch(cfg.ObservabilityElasticsearch)
+	if err != nil {
+		return errors.New("initialize observability Elasticsearch client")
 	}
 
 	rabbitMQChecker, err := platform.NewRabbitMQ(cfg.RabbitMQURL)
@@ -199,10 +204,10 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	alertRepo := alert.NewRepository(mysqlClient.DB())
 	alertHandler := alert.NewHandler(alertRepo, cfg.Auth.JWTSecret)
 	metricHandler := metricquery.NewHandler(metricquery.NewService(metricClient))
-	logRepository := logquery.NewElasticsearchRepository(elasticsearchClient)
+	logRepository := logquery.NewElasticsearchRepository(observabilityElasticsearchClient)
 	logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
 	logHandler := logquery.NewHandler(logService)
-	eventRepository := eventquery.NewElasticsearchRepository(elasticsearchClient)
+	eventRepository := eventquery.NewElasticsearchRepository(observabilityElasticsearchClient)
 	eventService := eventquery.NewService(eventRepository, cfg.Auth.JWTSecret)
 	eventHandler := eventquery.NewHandler(eventService)
 	monitorClient, err := exporterplugin.NewClient(cfg.Monitor.URL, cfg.Monitor.APIToken, cfg.Monitor.RequestTimeout)
@@ -213,10 +218,10 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	overview := &adminoverview.Service{
 		Components: adminoverview.Components(metricClient), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
 		Logs: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
-			return count.Query(ctx, elasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
+			return count.Query(ctx, observabilityElasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
 		}),
 		Events: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
-			return count.Query(ctx, elasticsearchClient, eventquery.ReadAlias, map[string]string{"severity": severity}, from, to)
+			return count.Query(ctx, observabilityElasticsearchClient, eventquery.ReadAlias, map[string]string{"severity": severity}, from, to)
 		}),
 		Alerts: func(ctx context.Context, now time.Time) adminoverview.Section {
 			summary, err := alertRepo.Overview(ctx, now, cfg.AlertEvaluationEnabled)
@@ -240,12 +245,13 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	})
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
-			Probes:        probes,
-			MySQL:         mysqlClient,
-			Redis:         redisClient,
-			RabbitMQ:      rabbitMQChecker,
-			Elasticsearch: elasticsearchClient,
-			Logger:        logger,
+			Probes:             probes,
+			MySQL:              mysqlClient,
+			Redis:              redisClient,
+			RabbitMQ:           rabbitMQChecker,
+			Elasticsearch:      elasticsearchClient,
+			Logger:             logger,
+			HTTPMaxConcurrency: cfg.HTTPMaxConcurrency,
 		},
 		backendhttp.APIRoutes{
 			Overview:        overview,
@@ -267,7 +273,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			ExporterPlugins: exporterPluginHandler,
 		},
 	)
-	server := newHTTPServer(cfg.HTTPAddress(), boundedHTTPHandler(router, cfg.HTTPMaxConcurrency))
+	server := newHTTPServer(cfg.HTTPAddress(), router)
 
 	alertCtx, cancelAlerts := context.WithCancel(signalContext)
 	alertDone := make(chan struct{})
@@ -307,30 +313,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	return serveWithDispatcher(signalContext, server, dispatcher, lifecycleLogger)
 }
 
-func boundedHTTPHandler(next stdhttp.Handler, limit int) stdhttp.Handler {
-	if next == nil || limit <= 0 {
-		return next
-	}
-	semaphore := make(chan struct{}, limit)
-	return stdhttp.HandlerFunc(func(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
-		select {
-		case semaphore <- struct{}{}:
-			defer func() { <-semaphore }()
-			next.ServeHTTP(writer, request)
-		default:
-			requestID, err := componentmetrics.NewRequestID()
-			if err == nil {
-				writer.Header().Set("X-Request-ID", requestID)
-			}
-			componentmetrics.WriteError(writer, stdhttp.StatusServiceUnavailable, "backend_busy", "service temporarily busy")
-		}
-	})
-}
-
-func newHTTPServer(address string, handler stdhttp.Handler, concurrency ...int) *stdhttp.Server {
-	if len(concurrency) > 0 {
-		handler = boundedHTTPHandler(handler, concurrency[0])
-	}
+func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
 	return &stdhttp.Server{
 		Addr:              address,
 		Handler:           handler,

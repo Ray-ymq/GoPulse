@@ -1,10 +1,11 @@
-# Component metrics contract (Phase-14-05)
+# Component metrics contract (Phase-19-01)
 
 The six built-in long-running components publish only their fixed operational
 metrics. `componentmetrics.Catalog` is the shared producer/Monitor/Marshaller/
-Backend allowlist; `componentmetrics/cmd/catalog` exports it without runtime
-configuration. The browser contract in `frontend/src/services/componentMetrics.ts`
-is generated from the same catalog and checked by the focused self-test.
+Backend allowlist; `componentmetrics/cmd/catalog` exports it using the fixed
+production endpoint inventory. The browser contract in
+`admin-frontend/src/services/componentMetrics.ts` is generated from the same
+catalog and checked by the focused self-test.
 
 ## Private endpoints and lifecycle
 
@@ -19,7 +20,8 @@ is generated from the same catalog and checked by the focused self-test.
 
 - Each process serves exactly `GET /internal/v1/metrics` on its separate listener.
   Host mode binds loopback; container mode binds the internal container network.
-  Monitor uses only the six fixed service DNS names and ports. Compose publishes
+  Monitor uses only the eleven fixed component service DNS names and ports from
+  the production endpoint inventory. Compose publishes
   none of these ports, including Backend's; the public Backend router does not
   register or proxy this endpoint. The browser queries the authenticated Backend
   metric catalog/range API, never a component endpoint or VictoriaMetrics.
@@ -33,8 +35,9 @@ is generated from the same catalog and checked by the focused self-test.
   path returns 405; GET query (including a bare `?`) or body returns 400.
   Unknown-length/chunked bodies are rejected without waiting to consume them.
   Responses never include credentials, configuration or raw errors.
-- Successful responses are Prometheus text 0.0.4, at most 262144 bytes per
-  component. HTTP request/header/read/write deadlines and header size are bounded.
+- Successful responses are Prometheus text 0.0.4, at most 1048576 bytes for
+  Backend and 262144 bytes for each other component. HTTP request/header/read/
+  write deadlines and header size are bounded.
   Bind errors fail startup. Runtime endpoint/collection failures do not enter
   business readiness, cancel consumers, undo committed facts, or undo an ack.
 - The listener uses the process root context. HTTP/consumer/outbox cleanup uses
@@ -51,15 +54,23 @@ are -1 (unobserved), 0 (last actual interaction failed) and 1 (succeeded); idle
 processes retain the last observation. No business IDs, content, raw routes,
 query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 
-### backend: 6 families, 577 maximum samples
+### backend: 14 families, 5616 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
-| `gopulse_backend_http_requests_total` | counter | count | `method`, `route`, `status_class` | 285 |
-| `gopulse_backend_http_request_duration_seconds_total` | counter | seconds | `method`, `route`, `status_class` | 285 |
+| `gopulse_backend_http_requests_total` | counter | count | `method`, `route`, `status_class` | 350 |
+| `gopulse_backend_http_request_duration_seconds_total` | counter | seconds | `method`, `route`, `status_class` | 350 |
+| `gopulse_backend_http_request_duration_seconds_bucket` | counter | count | `method`, `route`, `status_class`, `le` | 4200 |
+| `gopulse_backend_http_request_duration_seconds_count` | counter | count | `method`, `route`, `status_class` | 350 |
+| `gopulse_backend_http_request_duration_seconds_sum` | counter | seconds | `method`, `route`, `status_class` | 350 |
+| `gopulse_backend_alert_evaluation_known` | gauge | state | `alert_source` | 3 |
+| `gopulse_backend_alert_last_success_timestamp_seconds` | gauge | unix_seconds | `alert_source` | 3 |
 | `gopulse_backend_outbox_pending` | gauge | count | none | 1 |
 | `gopulse_backend_outbox_oldest_age_seconds` | gauge | seconds | none | 1 |
 | `gopulse_backend_outbox_last_publish_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
+| `gopulse_backend_http_requests_in_flight` | gauge | count | none | 1 |
+| `gopulse_backend_http_concurrency_limit` | gauge | count | none | 1 |
+| `gopulse_backend_http_rejected_total` | counter | count | none | 1 |
 | `gopulse_backend_dependency_up` | gauge | state | `dependency` | 4 |
 ### business-worker: 6 families, 37 maximum samples
 
@@ -81,18 +92,18 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_search_indexer_retrying` | gauge | count | none | 1 |
 | `gopulse_search_indexer_last_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
 | `gopulse_search_indexer_dependency_up` | gauge | state | `dependency` | 3 |
-### monitor: 7 families, 112 maximum samples
+### monitor: 7 families, 157 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
-| `gopulse_monitor_scrapes_total` | counter | count | `scraped_producer_kind`, `scraped_target_id`, `result` | 48 |
-| `gopulse_monitor_scrape_duration_seconds_total` | counter | seconds | `scraped_producer_kind`, `scraped_target_id`, `result` | 48 |
-| `gopulse_monitor_last_scrape_success_timestamp_seconds` | gauge | unix_seconds | `scraped_producer_kind`, `scraped_target_id` | 12 |
+| `gopulse_monitor_scrapes_total` | counter | count | `scraped_producer_kind`, `scraped_target_id`, `result` | 68 |
+| `gopulse_monitor_scrape_duration_seconds_total` | counter | seconds | `scraped_producer_kind`, `scraped_target_id`, `result` | 68 |
+| `gopulse_monitor_last_scrape_success_timestamp_seconds` | gauge | unix_seconds | `scraped_producer_kind`, `scraped_target_id` | 17 |
 | `gopulse_monitor_event_queue_length` | gauge | count | none | 1 |
 | `gopulse_monitor_plugins_running` | gauge | count | none | 1 |
 | `gopulse_monitor_dependency_up` | gauge | state | `dependency` | 1 |
 | `gopulse_monitor_event_queue_dropped_total` | counter | count | none | 1 |
-### router: 6 families, 112 maximum samples
+### router: 10 families, 120 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -100,9 +111,13 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_router_produce_duration_seconds_total` | counter | seconds | `type`, `message_source`, `result` | 54 |
 | `gopulse_router_buffered_records` | gauge | count | none | 1 |
 | `gopulse_router_buffered_bytes` | gauge | bytes | none | 1 |
+| `gopulse_router_buffer_limit_records` | gauge | count | none | 1 |
+| `gopulse_router_buffer_limit_bytes` | gauge | bytes | none | 1 |
 | `gopulse_router_last_kafka_ack_timestamp_seconds` | gauge | unix_seconds | none | 1 |
+| `gopulse_router_backpressure_total` | counter | count | `reason` | 3 |
+| `gopulse_router_backpressure_duration_seconds_total` | counter | seconds | `reason` | 3 |
 | `gopulse_router_dependency_up` | gauge | state | `dependency` | 1 |
-### marshaller: 7 families, 260 maximum samples
+### marshaller: 11 families, 310 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -110,20 +125,36 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_marshaller_record_processing_duration_seconds_total` | counter | seconds | `type`, `message_source`, `stage`, `result` | 126 |
 | `gopulse_marshaller_records_in_flight` | gauge | count | none | 1 |
 | `gopulse_marshaller_retrying` | gauge | count | none | 1 |
+| `gopulse_marshaller_partition_ownership` | gauge | state | `partition` | 16 |
+| `gopulse_marshaller_partition_lag` | gauge | count | `partition` | 16 |
+| `gopulse_marshaller_partition_generation` | gauge | count | `partition` | 16 |
+| `gopulse_marshaller_target_blocked` | gauge | state | `storage` | 2 |
 | `gopulse_marshaller_last_storage_success_timestamp_seconds` | gauge | unix_seconds | `storage` | 2 |
 | `gopulse_marshaller_last_commit_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
 | `gopulse_marshaller_dependency_up` | gauge | state | `dependency` | 3 |
 
 ### Label value sets and update points
 
-- Backend: 47 registered method/template pairs are frozen in
-  `componentmetrics.BackendRoutes()`, including Phase-15-01 user lookup, role update,
-  and audit query templates. There are ten fixed `_unmatched` method
+- Backend: registered method/template pairs are frozen in
+  `componentmetrics.BackendRoutes()`. There are ten fixed `_unmatched` method
   buckets (`GET POST PUT PATCH DELETE HEAD OPTIONS CONNECT TRACE unknown`),
-  and five status classes (`1xx` through `5xx`). The HTTP middleware records
-  after Gin completion/recovery, using `FullPath()`, never the request URL.
-  Its maximum is `2 × (47 + 10) × 5 + 7 = 577` samples. Dependencies are exactly
-  `mysql redis rabbitmq elasticsearch`.
+  five status classes (`1xx` through `5xx`), and twelve fixed latency buckets
+  (`0.005` through `10` seconds plus `+Inf`). The HTTP middleware records after
+  Gin completion/recovery, using `FullPath()`, never the request URL. The
+  historical request count and duration-total pair remains available. The
+  distribution is cumulative; `_count` equals the `+Inf` bucket and `_sum` is
+  the accumulated seconds. Its maximum is `350 × (2 + 12 + 2) + 16 = 5616`
+  samples. Dependencies are exactly `mysql redis rabbitmq elasticsearch`.
+- Backend tail latency can be queried by selecting the fixed bucket family and
+  its `method`, `route`, `status_class`, and `le` labels, then using the
+  VictoriaMetrics histogram quantile functions over the cumulative buckets.
+  The query catalog rejects unknown bucket values and arbitrary Prometheus
+  expressions; URL paths, IDs, request IDs, instance IDs, and user-controlled
+  labels never enter the distribution.
+- Backend admission signals report current in-flight requests, the configured
+  limit, and cumulative immediate rejections. Probe requests do not consume
+  these API slots, but readiness still checks its own dependencies and stopping
+  state.
 - Backend outbox: one aggregate SQL query every 5 seconds, with a 1-second
   timeout, reads only count and oldest creation time for pending/leased rows.
   No successful snapshot yet or a failed sample makes the endpoint return 503;
@@ -141,9 +172,11 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
   tuple. Handler completion includes the original ack; retrying brackets retry
   publication. MySQL reads/transaction operations, Elasticsearch requests and
   RabbitMQ sessions/ack/retry writes supply dependency results.
-- Monitor: twelve fixed `(scraped_producer_kind,scraped_target_id)` pairs:
-  six `exporter_plugin/<source>-exporter-local` and six
-  `component/<component>-local`. Results are `scrape_success|scrape_failure|
+- Monitor: seventeen fixed `(scraped_producer_kind,scraped_target_id)` pairs:
+  six `exporter_plugin/<source>-exporter-local` and eleven component targets
+  from the fixed `*-ENDPOINTS` inventory (`backend`, `business-worker`,
+  `search-indexer`, `router` and `marshaller` each have two endpoints;
+  `monitor` has one). Results are `scrape_success|scrape_failure|
   publish_success|publish_failure`, each with its corresponding operation's
   duration. Last scrape success records the completed successful collection;
   publish failures do not invent component business zeros. Event queue length
@@ -193,15 +226,17 @@ that count times 97 (the largest fixed query-range grid); plugin limits remain
 unchanged. Values and all returned component labels are checked again. The
 Frontend accepts only the generated matching definitions and label tuples.
 
-## Focused acceptance and Phase-14-06 handoff
+## Focused acceptance and Phase-19-01 handoff
 
 Run `bash scripts/verify-component-metrics.sh --self-test` without Docker. After
 building current product images, run `bash scripts/verify-component-metrics.sh`
-for the owned Compose scenario. It creates two users and multiple posts, drives
-notifications and create/update/delete search projection, queries every family,
-checks endpoint auth/port isolation and bounded labels, queries through the real
-Frontend, injects one Redis dependency outage and one Backend endpoint 503, then
-checks Worker/Indexer SIGTERM and replacement consumption. Six-plugin and
+or `bash scripts/verify-plugin-metrics.sh` for the owned Compose scenario. It
+creates two users and multiple posts, drives notifications and
+create/update/delete search projection, queries every family including the
+fixed Backend bucket/count/sum and capacity signals, checks endpoint
+auth/port isolation and bounded labels, queries through the real Frontend,
+injects one Redis dependency outage and one Backend endpoint 503, then checks
+Worker/Indexer SIGTERM and replacement consumption. Six-plugin and
 Logs/Events/admin-authorization regressions are included. It removes only its
 owned containers/networks/volumes and preserves pre-existing resources.
 
@@ -210,9 +245,10 @@ Backend metrics service name inside the owned project, forwarding normal
 requests to the real protected listener. Fault mode returns a fixed 503. It is
 not a product option or a token/authentication bypass.
 
-Phase-14-06 uses the six fixed source/target IDs above. Representative family
-pairs are requests/outbox-last-publish (Backend), messages/last-success (Worker
-and Indexer), scrapes/last-scrape-success (Monitor), messages/last-Kafka-ack
-(Router), and records/last-storage-success (Marshaller). Also assert Monitor's
-self-scraped `component/monitor-local` tuple and the Router/Marshaller
-`type=metrics,message_source=backend` production/storage tuples.
+The six-component regression retains the representative family pairs
+requests/outbox-last-publish (Backend), messages/last-success (Worker and
+Indexer), scrapes/last-scrape-success (Monitor), messages/last-Kafka-ack
+(Router), and records/last-storage-success (Marshaller). It also asserts
+Monitor's self-scraped `component/monitor-local` tuple and the
+Router/Marshaller `type=metrics,message_source=backend` production/storage
+tuples.

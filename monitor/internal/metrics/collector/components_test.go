@@ -41,3 +41,53 @@ func TestComponentIngressContract(t *testing.T) {
 		}
 	}
 }
+
+func TestComponentCatalogIncludesEveryExplicitObservabilityReplica(t *testing.T) {
+	t.Setenv("ROUTER_ENDPOINTS", "router,router-2")
+	t.Setenv("MARSHALLER_ENDPOINTS", "marshaller,marshaller-2")
+	spec, ok := componentmetrics.Catalog("monitor")
+	if !ok {
+		t.Fatal("monitor catalog missing")
+	}
+	seen := map[string]bool{}
+	for _, family := range spec.Families {
+		if family.Name != "gopulse_monitor_scrapes_total" {
+			continue
+		}
+		for _, tuple := range family.Tuples {
+			if len(tuple) >= 3 {
+				seen[tuple[0]+":"+tuple[1]+":"+tuple[2]] = true
+			}
+		}
+	}
+	for _, target := range []string{"component:router-local", "component:router-2-local", "component:marshaller-local", "component:marshaller-2-local"} {
+		if !seen[target+":scrape_success"] {
+			t.Fatalf("target %s missing from monitor catalog", target)
+		}
+	}
+}
+
+func TestBackendDistributionIngressRequiresFixedBucketsAndLabels(t *testing.T) {
+	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics.SetHTTPConcurrencyLimit(128)
+	metrics.ObserveOutbox(0, 0, nil)
+	metrics.ObserveRequest("GET", "/health", 200, 250*time.Millisecond)
+	body, ok := metrics.Snapshot()
+	if !ok {
+		t.Fatal("backend snapshot unavailable")
+	}
+	if _, err := ParseComponent("backend", body); err != nil {
+		t.Fatalf("valid backend distribution rejected: %v", err)
+	}
+	missing := strings.Replace(string(body), "gopulse_backend_http_request_duration_seconds_bucket{method=\"GET\",route=\"/health\",status_class=\"2xx\",le=\"0.25\"} 1\n", "", 1)
+	if _, err := ParseComponent("backend", []byte(missing)); err == nil {
+		t.Fatal("incomplete backend bucket distribution accepted")
+	}
+	foreign := strings.Replace(string(body), `le="0.25"`, `le="private"`, 1)
+	if _, err := ParseComponent("backend", []byte(foreign)); err == nil {
+		t.Fatal("foreign backend bucket label accepted")
+	}
+}

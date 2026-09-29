@@ -4,7 +4,6 @@ import AdminStat from '../components/AdminStat.vue'
 import AdminIcon from '../components/AdminIcon.vue'
 import { useRoute } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ApiError } from '../services/http'
 import { metricCatalog, loadMetricCatalog, observabilityApi, ranges } from '../services/observability'
 import type { MetricName, MetricResult, QueryRange } from '../types/observability'
 
@@ -22,19 +21,27 @@ const samples = computed(() => result.value?.series.flatMap(series => series.poi
 const maximum = computed(() => samples.value.length ? samples.value.reduce((a,b) => Math.max(a,b)) : '未知')
 const average = computed(() => samples.value.length ? Number((samples.value.reduce((a,b) => a+b,0)/samples.value.length).toPrecision(6)) : '未知')
 const latest = computed(() => result.value?.series.map((series) => ({ series, labels: series.labels, point: series.points.at(-1) })).filter((item) => item.point) ?? [])
+function errorDetails(error: unknown): { code?: unknown; status?: unknown } {
+  if (typeof error !== 'object' || error === null) return {}
+  return error as { code?: unknown; status?: unknown }
+}
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code === 'metrics_unavailable') return '指标存储或查询服务暂时不可用（VictoriaMetrics），已保留上次成功结果；这不代表所有 Exporter 目标均不可达。'
-  if (error instanceof ApiError && error.code === 'permission_denied') return '当前账号已无管理员权限。'
+  const details = errorDetails(error)
+  if ((details.code === 'metrics_unavailable' || details.status === 503)) return '指标存储或查询服务暂时不可用（VictoriaMetrics），已保留上次成功结果；这不代表所有 Exporter 目标均不可达。'
+  if (details.code === 'permission_denied') return '当前账号已无管理员权限。'
   return '指标查询失败，请稍后重试。'
 }
 async function load(): Promise<void> {
-  controller?.abort(); controller = new AbortController(); const current = ++sequence
+  controller?.abort()
+  const requestController = new AbortController()
+  controller = requestController
+  const current = ++sequence
   loading.value = true; message.value = ''
   try {
-    const next = await observabilityApi.metrics(metric.value, range.value, controller.signal)
+    const next = await observabilityApi.metrics(metric.value, range.value, requestController.signal)
     if (current !== sequence) return
     result.value = next; updatedAt.value = new Date().toLocaleString('zh-CN', { hour12:false }); if (!next.series.length) message.value = '所选时间范围内暂无指标数据。'
-  } catch (error) { if (current === sequence && !controller.signal.aborted) message.value = errorMessage(error) }
+  } catch (error) { if (current === sequence && !requestController.signal.aborted) message.value = errorMessage(error) }
   finally { if (current === sequence) loading.value = false }
 }
 onMounted(async () => {
@@ -69,7 +76,7 @@ onBeforeUnmount(() => { sequence++; controller?.abort() })
       <div class="panel metric-main"><header class="panel-heading"><h3>{{result.metric}}</h3><span class="muted">{{result.kind}} · {{result.step_seconds}}s 步长</span></header><AdminTrend :series="result.series" :unit="result.unit" /></div>
       <div class="metrics-secondary">
         <div class="panel"><header class="panel-heading"><h3>最近采样</h3><span class="muted">首条非空序列</span></header><div class="table-scroll"><table><thead><tr><th>采样时间</th><th>值（{{result.unit}}）</th></tr></thead><tbody><tr v-for="point in latest[0]?.series.points.slice(-5).reverse() ?? []" :key="point.timestamp"><td>{{new Date(point.timestamp).toLocaleTimeString('zh-CN', { hour12:false })}}</td><td>{{point.value}}</td></tr></tbody></table></div></div>
-        <div class="panel"><header class="panel-heading"><h3>时间序列（Series）</h3><span class="muted">{{result.series.length}} 条</span></header><div class="table-scroll"><table><thead><tr><th>安全标签</th><th>当前值</th><th>采样时间</th></tr></thead><tbody><tr v-for="(item,index) in latest" :key="index"><td>{{Object.entries(item.labels).map(([key,value])=>`${key}=${value}`).join(', ') || '默认序列'}}</td><td>{{item.point?.value}}</td><td>{{item.point?new Date(item.point.timestamp).toLocaleTimeString('zh-CN', { hour12:false }):'未知'}}</td></tr></tbody></table></div></div>
+        <div class="panel"><header class="panel-heading"><h3>时间序列（Series）</h3><span class="muted">{{result.series.length}} 条</span></header><div class="table-scroll"><table><thead><tr><th>安全标签</th><th>当前值</th><th>采样时间</th></tr></thead><tbody><tr v-for="(item,index) in latest" :key="index" class="series-card"><td>{{Object.entries(item.labels).map(([key,value])=>`${key}=${value}`).join(', ') || '默认序列'}}</td><td>{{item.point?.value}}</td><td>{{item.point?new Date(item.point.timestamp).toLocaleTimeString('zh-CN', { hour12:false }):'未知'}}</td></tr></tbody></table></div></div>
       </div>
       <div class="panel query-contract"><h3>查询信息</h3><dl><div><dt>返回时间窗</dt><dd>{{new Date(result.from).toLocaleString('zh-CN', { hour12:false })}} — {{new Date(result.to).toLocaleString('zh-CN', { hour12:false })}}</dd></div><div><dt>最近成功更新</dt><dd>{{updatedAt}}</dd></div></dl><p class="muted">仅展示当前指标的真实返回值，不将累计 CPU 时间解释为 CPU 使用率，也不构造同比或其他指标曲线。</p></div>
     </template>

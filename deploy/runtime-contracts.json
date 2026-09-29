@@ -1,11 +1,49 @@
 {
   "schema_version": 1,
   "contract_version": "1",
-  "product_version": "2.0.3",
+  "product_version": "2.1.1",
   "platform": "linux/amd64",
+  "authority": {
+    "source": "deploy/runtime-contracts.json",
+    "contract_kind": "machine-runtime-contract",
+    "diagnostic_mode": "direct-private-probe",
+    "host_port_policy": "no-new-host-ports",
+    "evidence_schema": "gopulse.phase18.scale-closure.v1"
+  },
   "components": [
     {
       "id": "backend",
+      "process_id": "backend",
+      "role": "business-api",
+      "compose_services": ["backend", "backend-2"],
+      "replica": {
+        "mode": "scalable",
+        "ownership": "multi-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^backend-[1-9][0-9]*$",
+        "min": 2,
+        "max": 8,
+        "configured": 2,
+        "instances": ["backend-1", "backend-2"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "capacity_signals": ["metrics", "http_concurrency", "http_latency_distribution", "mysql_pool"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "mysql", "per_instance": 10, "total": 60}],
+        "queues": [{"name": "outbox_claim", "capacity": 10}],
+        "in_flight": [{"name": "http", "capacity": 128}],
+        "shutdown_seconds": 5,
+        "stop_grace_seconds": 15
+      },
       "module": "backend",
       "entrypoint": "backend/cmd/server/main.go",
       "configuration": "backend/internal/config",
@@ -82,6 +120,51 @@
           "required": false,
           "default": "24h",
           "compose_value": "${BACKEND_EVENT_QUERY_MAX_RANGE:-24h}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "backend",
+          "compose_value": "backend,backend-2",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_WORKER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "business-worker",
+          "compose_value": "business-worker,business-worker-2",
+          "aliases": []
+        },
+        {
+          "key": "SEARCH_INDEXER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "search-indexer",
+          "compose_value": "search-indexer,search-indexer-2",
+          "aliases": []
+        },
+        {
+          "key": "ROUTER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router",
+          "compose_value": "router,router-2",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller",
+          "compose_value": "marshaller,marshaller-2",
           "aliases": []
         },
         {
@@ -208,6 +291,15 @@
           "required": false,
           "default": "http://elasticsearch:9200",
           "compose_value": "http://elasticsearch:9200",
+          "aliases": []
+        },
+        {
+          "key": "OBSERVABILITY_ELASTICSEARCH_URL",
+          "type": "url",
+          "sensitive": false,
+          "required": false,
+          "default": "http://observability-elasticsearch:9200",
+          "compose_value": "http://observability-elasticsearch:9200",
           "aliases": []
         },
         {
@@ -580,6 +672,7 @@
         "redis",
         "rabbitmq",
         "elasticsearch",
+        "observability-elasticsearch",
         "victoriametrics",
         "monitor"
       ],
@@ -591,6 +684,37 @@
     },
     {
       "id": "business-worker",
+      "process_id": "business-worker",
+      "role": "business-worker",
+      "compose_services": ["business-worker", "business-worker-2"],
+      "replica": {
+        "mode": "scalable",
+        "ownership": "multi-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^business-worker-[1-9][0-9]*$",
+        "min": 2,
+        "max": 8,
+        "configured": 2,
+        "instances": ["business-worker-1", "business-worker-2"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "capacity_signals": ["metrics", "prefetch", "in_flight", "mysql_pool"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "mysql", "per_instance": 10, "total": 60}],
+        "queues": [{"name": "rabbit_prefetch", "capacity": 10}, {"name": "log_ship", "capacity": 256}],
+        "in_flight": [{"name": "consumer", "capacity": 10}],
+        "shutdown_seconds": 10,
+        "stop_grace_seconds": 15
+      },
       "module": "backend",
       "entrypoint": "backend/cmd/business-worker/main.go",
       "configuration": "backend/internal/config",
@@ -894,6 +1018,37 @@
     },
     {
       "id": "search-indexer",
+      "process_id": "search-indexer",
+      "role": "search-indexer",
+      "compose_services": ["search-indexer", "search-indexer-2"],
+      "replica": {
+        "mode": "scalable",
+        "ownership": "multi-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^search-indexer-[1-9][0-9]*$",
+        "min": 2,
+        "max": 8,
+        "configured": 2,
+        "instances": ["search-indexer-1", "search-indexer-2"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "capacity_signals": ["metrics", "prefetch", "in_flight", "mysql_pool"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "mysql", "per_instance": 10, "total": 60}],
+        "queues": [{"name": "rabbit_prefetch", "capacity": 10}, {"name": "log_ship", "capacity": 256}],
+        "in_flight": [{"name": "consumer", "capacity": 10}],
+        "shutdown_seconds": 10,
+        "stop_grace_seconds": 15
+      },
       "module": "backend",
       "entrypoint": "backend/cmd/search-indexer/main.go",
       "configuration": "backend/internal/config",
@@ -1216,6 +1371,37 @@
     },
     {
       "id": "router",
+      "process_id": "router",
+      "role": "observability-router",
+      "compose_services": ["router", "router-2"],
+      "replica": {
+        "mode": "scalable",
+        "ownership": "multi-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^router-[1-9][0-9]*$",
+        "min": 2,
+        "max": 8,
+        "configured": 2,
+        "instances": ["router-1", "router-2"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "capacity_signals": ["metrics", "buffered_records", "buffered_bytes", "backpressure"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "kafka", "per_instance": 1, "total": 2}],
+        "queues": [{"name": "kafka_records", "capacity": 256}, {"name": "kafka_bytes", "capacity": 8388608}],
+        "in_flight": [{"name": "produce", "capacity": 256}],
+        "shutdown_seconds": 10,
+        "stop_grace_seconds": 15
+      },
       "module": "router",
       "entrypoint": "router/cmd/router/main.go",
       "configuration": "router/internal/config",
@@ -1223,12 +1409,30 @@
       "plugin_id": null,
       "environment": [
         {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router-local",
+          "compose_value": "router-1",
+          "aliases": []
+        },
+        {
           "key": "GOPULSE_REVISION",
           "type": "string",
           "sensitive": false,
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "2",
           "aliases": []
         },
         {
@@ -1301,6 +1505,15 @@
           "required": false,
           "default": "256",
           "compose_value": "${ROUTER_KAFKA_MAX_BUFFERED_RECORDS:-256}",
+          "aliases": []
+        },
+        {
+          "key": "ROUTER_KAFKA_MIN_PARTITIONS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "${ROUTER_KAFKA_MIN_PARTITIONS:-4}",
           "aliases": []
         },
         {
@@ -1388,6 +1601,37 @@
     },
     {
       "id": "marshaller",
+      "process_id": "marshaller",
+      "role": "observability-marshaller",
+      "compose_services": ["marshaller", "marshaller-2"],
+      "replica": {
+        "mode": "scalable",
+        "ownership": "partition-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^marshaller-[1-9][0-9]*$",
+        "min": 2,
+        "max": 8,
+        "configured": 2,
+        "instances": ["marshaller-1", "marshaller-2"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "capacity_signals": ["metrics", "records_in_flight", "retrying", "partition_lag", "target_blocked"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "kafka", "per_instance": 1, "total": 2}],
+        "queues": [{"name": "retrying", "capacity": 4}],
+        "in_flight": [{"name": "records", "capacity": 8}],
+        "shutdown_seconds": 10,
+        "stop_grace_seconds": 15
+      },
       "module": "marshaller",
       "entrypoint": "marshaller/cmd/marshaller/main.go",
       "configuration": "marshaller/internal/config",
@@ -1395,12 +1639,30 @@
       "plugin_id": null,
       "environment": [
         {
+          "key": "GOPULSE_INSTANCE_ID",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller-local",
+          "compose_value": "marshaller-1",
+          "aliases": []
+        },
+        {
           "key": "GOPULSE_REVISION",
           "type": "string",
           "sensitive": false,
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_REPLICA_COUNT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "2",
           "aliases": []
         },
         {
@@ -1419,6 +1681,51 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "backend",
+          "compose_value": "backend,backend-2",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_WORKER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "business-worker",
+          "compose_value": "business-worker,business-worker-2",
+          "aliases": []
+        },
+        {
+          "key": "SEARCH_INDEXER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "search-indexer",
+          "compose_value": "search-indexer,search-indexer-2",
+          "aliases": []
+        },
+        {
+          "key": "ROUTER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router",
+          "compose_value": "router,router-2",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller",
+          "compose_value": "marshaller,marshaller-2",
           "aliases": []
         },
         {
@@ -1445,7 +1752,7 @@
           "sensitive": false,
           "required": false,
           "default": "http://elasticsearch:9200",
-          "compose_value": "http://elasticsearch:9200",
+          "compose_value": "http://observability-elasticsearch:9200",
           "aliases": []
         },
         {
@@ -1521,6 +1828,15 @@
           "aliases": []
         },
         {
+          "key": "MARSHALLER_KAFKA_MIN_PARTITIONS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1",
+          "compose_value": "${MARSHALLER_KAFKA_MIN_PARTITIONS:-4}",
+          "aliases": []
+        },
+        {
           "key": "MARSHALLER_KAFKA_TOPIC",
           "type": "string",
           "sensitive": false,
@@ -1554,6 +1870,24 @@
           "required": true,
           "default": null,
           "compose_value": "${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_MAX_IN_FLIGHT",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "4",
+          "compose_value": "${MARSHALLER_MAX_IN_FLIGHT:-8}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_MAX_RETRYING",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "4",
+          "compose_value": "${MARSHALLER_MAX_RETRYING:-4}",
           "aliases": []
         },
         {
@@ -1661,6 +1995,37 @@
     },
     {
       "id": "monitor",
+      "process_id": "monitor",
+      "role": "observability-monitor",
+      "compose_services": ["monitor"],
+      "replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^monitor-[1-9][0-9]*$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": ["monitor-1"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "capacity_signals": ["metrics", "event_queue", "plugins_running"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "router", "per_instance": 2, "total": 2}],
+        "queues": [{"name": "event_queue", "capacity": 256}],
+        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "shutdown_seconds": 10,
+        "stop_grace_seconds": 20
+      },
       "module": "monitor",
       "entrypoint": "monitor/cmd/monitor/main.go",
       "configuration": "monitor/internal/config",
@@ -1764,6 +2129,15 @@
           "required": true,
           "default": null,
           "compose_value": "${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller",
+          "compose_value": "marshaller,marshaller-2",
           "aliases": []
         },
         {
@@ -1938,6 +2312,15 @@
           "aliases": []
         },
         {
+          "key": "MONITOR_ROUTER_URLS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "http://router:9091",
+          "compose_value": "http://router:9091,http://router-2:9091",
+          "aliases": []
+        },
+        {
           "key": "MONITOR_SCRAPE_INTERVAL",
           "type": "duration",
           "sensitive": false,
@@ -2046,6 +2429,15 @@
           "aliases": []
         },
         {
+          "key": "ROUTER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router",
+          "compose_value": "router,router-2",
+          "aliases": []
+        },
+        {
           "key": "SEARCH_INDEXER_ENDPOINTS",
           "type": "string",
           "sensitive": false,
@@ -2097,6 +2489,37 @@
     },
     {
       "id": "redis-exporter",
+      "process_id": "redis-exporter",
+      "role": "plugin-exporter",
+      "compose_services": ["redis-exporter"],
+      "replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "identity_pattern": "^redis-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": ["redis-exporter-local"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "capacity_signals": ["metrics", "up"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "redis", "per_instance": 1, "total": 1}],
+        "queues": [],
+        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "shutdown_seconds": 5,
+        "stop_grace_seconds": 10
+      },
       "module": "exporters/redis",
       "entrypoint": "exporters/redis/cmd/redis-exporter/main.go",
       "configuration": "exporters/redis/internal/config",
@@ -2228,6 +2651,37 @@
     },
     {
       "id": "mysql-exporter",
+      "process_id": "mysql-exporter",
+      "role": "plugin-exporter",
+      "compose_services": [],
+      "replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "identity_pattern": "^mysql-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": ["mysql-exporter-local"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "capacity_signals": ["metrics", "up"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "mysql", "per_instance": 1, "total": 1}],
+        "queues": [],
+        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "shutdown_seconds": 5,
+        "stop_grace_seconds": 10
+      },
       "module": "exporters/mysql",
       "entrypoint": "exporters/mysql/cmd/mysql-exporter/main.go",
       "configuration": "exporters/mysql/internal/runtime",
@@ -2368,6 +2822,37 @@
     },
     {
       "id": "rabbitmq-exporter",
+      "process_id": "rabbitmq-exporter",
+      "role": "plugin-exporter",
+      "compose_services": [],
+      "replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "identity_pattern": "^rabbitmq-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": ["rabbitmq-exporter-local"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "capacity_signals": ["metrics", "up"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "rabbitmq", "per_instance": 1, "total": 1}],
+        "queues": [],
+        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "shutdown_seconds": 5,
+        "stop_grace_seconds": 10
+      },
       "module": "exporters/rabbitmq",
       "entrypoint": "exporters/rabbitmq/cmd/rabbitmq-exporter/main.go",
       "configuration": "exporters/rabbitmq/internal/runtime",
@@ -2508,6 +2993,37 @@
     },
     {
       "id": "kafka-exporter",
+      "process_id": "kafka-exporter",
+      "role": "plugin-exporter",
+      "compose_services": [],
+      "replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "identity_pattern": "^kafka-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": ["kafka-exporter-local"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "capacity_signals": ["metrics", "up"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "kafka", "per_instance": 1, "total": 1}],
+        "queues": [],
+        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "shutdown_seconds": 5,
+        "stop_grace_seconds": 10
+      },
       "module": "exporters/kafka",
       "entrypoint": "exporters/kafka/cmd/kafka-exporter/main.go",
       "configuration": "exporters/kafka/internal/runtime",
@@ -2639,6 +3155,37 @@
     },
     {
       "id": "elasticsearch-exporter",
+      "process_id": "elasticsearch-exporter",
+      "role": "plugin-exporter",
+      "compose_services": [],
+      "replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "identity_pattern": "^elasticsearch-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": ["elasticsearch-exporter-local"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "capacity_signals": ["metrics", "up"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "elasticsearch", "per_instance": 1, "total": 1}],
+        "queues": [],
+        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "shutdown_seconds": 5,
+        "stop_grace_seconds": 10
+      },
       "module": "exporters/elasticsearch",
       "entrypoint": "exporters/elasticsearch/cmd/elasticsearch-exporter/main.go",
       "configuration": "exporters/elasticsearch/internal/runtime",
@@ -2770,6 +3317,37 @@
     },
     {
       "id": "victoriametrics-exporter",
+      "process_id": "victoriametrics-exporter",
+      "role": "plugin-exporter",
+      "compose_services": [],
+      "replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "identity_pattern": "^victoriametrics-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": ["victoriametrics-exporter-local"]
+      },
+      "diagnostic": {
+        "independent": true,
+        "via_monitor": false,
+        "probe_listener": "probe",
+        "paths": ["/startup", "/live", "/ready", "/health"],
+        "identity_env": null,
+        "identity_source": "componentmetrics-fallback",
+        "capacity_signals": ["metrics", "up"],
+        "host_port_published": false
+      },
+      "budgets": {
+        "connections": [{"name": "victoriametrics", "per_instance": 1, "total": 1}],
+        "queues": [],
+        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "shutdown_seconds": 5,
+        "stop_grace_seconds": 10
+      },
       "module": "exporters/victoriametrics",
       "entrypoint": "exporters/victoriametrics/cmd/victoriametrics-exporter/main.go",
       "configuration": "exporters/victoriametrics/internal/runtime",
@@ -3047,6 +3625,11 @@
       "sensitive": false
     },
     {
+      "key": "OBSERVABILITY_ELASTICSEARCH_URL",
+      "type": "url",
+      "sensitive": false
+    },
+    {
       "key": "FRONTEND_PORT",
       "type": "integer",
       "sensitive": false
@@ -3093,6 +3676,11 @@
     },
     {
       "key": "KAFKA_PORT",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "KAFKA_OBSERVABILITY_PARTITIONS",
       "type": "integer",
       "sensitive": false
     },
@@ -3147,6 +3735,11 @@
       "sensitive": false
     },
     {
+      "key": "MARSHALLER_ENDPOINTS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
       "key": "MARSHALLER_EVENT_INDEX_PREFIX",
       "type": "string",
       "sensitive": false
@@ -3187,6 +3780,11 @@
       "sensitive": false
     },
     {
+      "key": "MARSHALLER_KAFKA_MIN_PARTITIONS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "MARSHALLER_KAFKA_TOPIC",
       "type": "string",
       "sensitive": false
@@ -3205,6 +3803,16 @@
       "key": "MARSHALLER_METRICS_TOKEN",
       "type": "string",
       "sensitive": true
+    },
+    {
+      "key": "MARSHALLER_MAX_IN_FLIGHT",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_MAX_RETRYING",
+      "type": "integer",
+      "sensitive": false
     },
     {
       "key": "MARSHALLER_READINESS_TIMEOUT",
@@ -3332,6 +3940,11 @@
       "sensitive": false
     },
     {
+      "key": "MONITOR_ROUTER_URLS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
       "key": "MONITOR_SCRAPE_INTERVAL",
       "type": "duration",
       "sensitive": false
@@ -3424,6 +4037,11 @@
     {
       "key": "PUBLISHED_HOST",
       "type": "host",
+      "sensitive": false
+    },
+    {
+      "key": "OBSERVABILITY_ELASTICSEARCH_PORT",
+      "type": "integer",
       "sensitive": false
     },
     {
@@ -3532,6 +4150,11 @@
       "sensitive": false
     },
     {
+      "key": "ROUTER_KAFKA_MIN_PARTITIONS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "ROUTER_KAFKA_PRODUCE_TIMEOUT",
       "type": "duration",
       "sensitive": false
@@ -3550,6 +4173,11 @@
       "key": "ROUTER_METRICS_TOKEN",
       "type": "string",
       "sensitive": true
+    },
+    {
+      "key": "ROUTER_ENDPOINTS",
+      "type": "string",
+      "sensitive": false
     },
     {
       "key": "ROUTER_REQUEST_TIMEOUT",
