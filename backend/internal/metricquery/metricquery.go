@@ -151,12 +151,15 @@ type Labels struct {
 	MessageSource       string `json:"message_source,omitempty"`
 	Stage               string `json:"stage,omitempty"`
 	Storage             string `json:"storage,omitempty"`
+	Partition           string `json:"partition,omitempty"`
 
-	Status string `json:"status,omitempty"`
-	Result string `json:"result,omitempty"`
-	State  string `json:"state,omitempty"`
-	Mode   string `json:"mode,omitempty"`
-	DB     string `json:"db,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Result      string `json:"result,omitempty"`
+	State       string `json:"state,omitempty"`
+	Mode        string `json:"mode,omitempty"`
+	DB          string `json:"db,omitempty"`
+	LE          string `json:"le,omitempty"`
+	AlertSource string `json:"alert_source,omitempty"`
 }
 
 type Point struct {
@@ -462,6 +465,21 @@ func validateLabels(metric map[string]string, definition Definition) (Labels, st
 			return Labels{}, "", errors.New("invalid db label")
 		}
 		labels.DB = value
+	case "le":
+		if !componentmetrics.IsComponent(definition.Source) || !strings.HasSuffix(definition.Metric, "_bucket") {
+			return Labels{}, "", errors.New("invalid bucket label")
+		}
+		allowed := false
+		for _, bucket := range componentmetrics.BackendLatencyBuckets() {
+			if metric["le"] == bucket {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return Labels{}, "", errors.New("invalid bucket label")
+		}
+		labels.LE = metric["le"]
 	default:
 		return Labels{}, "", errors.New("invalid catalog")
 	}

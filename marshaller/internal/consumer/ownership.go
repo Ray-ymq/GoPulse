@@ -2,6 +2,8 @@ package consumer
 
 import (
 	"context"
+	"fmt"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"sync"
 )
 
@@ -41,6 +43,7 @@ func (o *Ownership) Assign(partitions []Partition) {
 		o.next++
 		ctx, cancel := context.WithCancel(context.Background())
 		o.parts[p] = owned{generation: o.next, ctx: ctx, cancel: cancel}
+		o.observe(p, true, o.next)
 	}
 }
 func (o *Ownership) Revoke(partitions []Partition) {
@@ -50,6 +53,7 @@ func (o *Ownership) Revoke(partitions []Partition) {
 		if old, ok := o.parts[p]; ok {
 			old.cancel()
 			delete(o.parts, p)
+			o.observe(p, false, old.generation)
 		}
 	}
 }
@@ -75,5 +79,20 @@ func (o *Ownership) CancelAll() {
 	for p, v := range o.parts {
 		v.cancel()
 		delete(o.parts, p)
+		o.observe(p, false, v.generation)
 	}
+}
+
+func (o *Ownership) observe(partition Partition, owned bool, generation uint64) {
+	metrics := componentmetrics.Active()
+	if metrics == nil || partition.Partition < 0 || partition.Partition >= 16 {
+		return
+	}
+	label := fmt.Sprintf("%d", partition.Partition)
+	value := float64(0)
+	if owned {
+		value = 1
+	}
+	metrics.Set("partition_ownership", value, label)
+	metrics.Set("partition_generation", float64(generation), label)
 }

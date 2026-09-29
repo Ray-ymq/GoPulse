@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"time"
 
@@ -23,11 +24,17 @@ type client interface {
 type Producer struct {
 	client         client
 	produceTimeout time.Duration
+	minPartitions  int
+	maxRecords     int
+	maxBytes       int
 }
+
+var ErrBufferFull = errors.New("router Kafka producer buffer is full")
 
 type Config struct {
 	Brokers            []string
 	ProduceTimeout     time.Duration
+	MinPartitions      int
 	MaxBufferedRecords int
 	MaxBufferedBytes   int
 }
@@ -45,7 +52,7 @@ func New(cfg Config) (*Producer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Producer{client: client, produceTimeout: cfg.ProduceTimeout}, nil
+	return &Producer{client: client, produceTimeout: cfg.ProduceTimeout, minPartitions: cfg.MinPartitions, maxRecords: cfg.MaxBufferedRecords, maxBytes: cfg.MaxBufferedBytes}, nil
 }
 
 func (p *Producer) Produce(ctx context.Context, topic, key string, value []byte) error {
@@ -69,16 +76,31 @@ func (p *Producer) Produce(ctx context.Context, topic, key string, value []byte)
 		outcome := "produced"
 		if err != nil {
 			outcome = "rejected"
+			reason := "kafka_failure"
+			if errors.Is(err, kgo.ErrMaxBuffered) {
+				err = fmt.Errorf("%w: %w", ErrBufferFull, err)
+				reason = "buffer_full"
+			}
+			if metrics != nil {
+				metrics.Observe("backpressure_total", time.Since(started), reason)
+			}
 		} else {
-			metrics.Set("last_kafka_ack_timestamp_seconds", float64(time.Now().Unix()))
+			if metrics != nil {
+				metrics.Set("last_kafka_ack_timestamp_seconds", float64(time.Now().Unix()))
+			}
 		}
-		metrics.Observe("messages_total", time.Since(started), messageType, source, outcome)
+		if metrics != nil {
+			metrics.Observe("messages_total", time.Since(started), messageType, source, outcome)
+		}
 		result <- err
 	})
 	select {
 	case err := <-result:
 		return err
 	case <-ctx.Done():
+		if metrics != nil {
+			metrics.Observe("backpressure_total", time.Since(started), "request_canceled")
+		}
 		return ctx.Err()
 	}
 }
@@ -99,7 +121,11 @@ func (p *Producer) Ready(ctx context.Context, topic string) (result error) {
 		return errors.New("topic metadata is unavailable")
 	}
 	topicMetadata := metadata.Topics[0]
-	if topicMetadata.ErrorCode != 0 || len(topicMetadata.Partitions) == 0 {
+	minimum := p.minPartitions
+	if minimum < 1 {
+		minimum = 1
+	}
+	if topicMetadata.ErrorCode != 0 || len(topicMetadata.Partitions) < minimum {
 		return errors.New("topic is unavailable")
 	}
 	for _, partition := range topicMetadata.Partitions {
@@ -131,5 +157,11 @@ func (p *Producer) Snapshot(metrics *componentmetrics.Registry) ([]byte, bool) {
 	}
 	metrics.Set("buffered_records", float64(stats.BufferedProduceRecords()))
 	metrics.Set("buffered_bytes", float64(stats.BufferedProduceBytes()))
+	if p.maxRecords > 0 {
+		metrics.Set("buffer_limit_records", float64(p.maxRecords))
+	}
+	if p.maxBytes > 0 {
+		metrics.Set("buffer_limit_bytes", float64(p.maxBytes))
+	}
 	return metrics.Snapshot()
 }

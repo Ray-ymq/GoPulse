@@ -486,7 +486,7 @@ func validateMetricsPayload(source string, p *Payload) error {
 	for i := range p.Samples {
 		s := &p.Samples[i]
 		v, err := s.Value.Float64()
-		if err != nil {
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 			return reject("invalid_component_value")
 		}
 		s.FloatValue = v

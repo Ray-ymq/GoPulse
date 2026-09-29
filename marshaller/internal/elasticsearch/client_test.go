@@ -50,6 +50,22 @@ func TestClientEnsuresFixedTemplateAndVerifiesWrittenIndex(t *testing.T) {
 	}
 }
 
+func TestClientIsBoundToObservabilityPurpose(t *testing.T) {
+	client, err := New("http://127.0.0.1:9200", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.Purpose() != "observability" {
+		t.Fatalf("Purpose() = %q", client.Purpose())
+	}
+}
+
+func TestLogMappingIncludesReplicaIdentity(t *testing.T) {
+	if requiredPropertyTypes["instance_id"] != "keyword" || !strings.Contains(templateBody, `"instance_id":{"type":"keyword"}`) {
+		t.Fatal("log mapping does not include instance_id")
+	}
+}
+
 func TestLogsTemplateMapsInstanceIdentityWithoutOpeningDynamicFields(t *testing.T) {
 	var template map[string]any
 	if err := json.Unmarshal([]byte(templateBody), &template); err != nil {

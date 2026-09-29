@@ -30,6 +30,8 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `deploy/runtime-contracts.json`、`docs/runtime-contracts.md` | 双 ES 依赖、副本角色、配置 key 和探针与实际代码/Compose 一致 |
 | `backend/internal/config/config.go`、`backend/internal/config/config_test.go` | 搜索与观测 ES 地址分别验证，禁止错误复用或不安全 container 地址 |
 | `backend/internal/platform/elasticsearch.go`、`backend/internal/platform/platform_test.go` | client 明确绑定用途，timeout/redirect/body 上界保持 |
+| `backend/cmd/server/main.go` | Backend 的业务搜索、日志查询、事件查询和统计分别绑定对应 ES client |
+| `backend/internal/logquery/logquery.go`、`backend/internal/logquery/logquery_test.go` | 日志读取允许持久化的副本身份元数据并保持既有公开日志字段契约 |
 | `backend/cmd/search-reindex/main.go`、`backend/cmd/search-reindex/main_test.go` | reindex 只访问业务搜索 ES，观测 ES 不可成为回退目标 |
 | `backend/internal/search/elasticsearch.go`、`backend/internal/search/processor_test.go` | 搜索读写只进入业务 ES；故障后 RabbitMQ 语义保持 |
 | `router/internal/config/config.go`、`router/internal/config/config_test.go` | 多副本入口和 producer 背压配置范围/交叉校验完整 |
@@ -40,13 +42,14 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `marshaller/internal/consumer/processor.go`、`marshaller/internal/consumer/processor_test.go` | 目标级阻塞隔离、成功后提交、永久错误继续和重复写语义明确 |
 | `marshaller/internal/elasticsearch/client.go`、`marshaller/internal/elasticsearch/events_client.go` | Logs/Events 只写观测 ES；错误不越过 offset |
 | `marshaller/internal/elasticsearch/client_test.go`、`marshaller/internal/elasticsearch/events_client_test.go` | 覆盖观测 ES 路径、故障、重试、重复写和跨目标拒绝 |
+| `marshaller/internal/logs/validation.go`、`marshaller/internal/logs/transform_test.go` | 共享日志结构中的副本实例身份在 Marshaller 校验、转换和永久错误边界保持一致 |
 | `marshaller/cmd/marshaller/main.go` | 多 partition 处理和各目标关闭共享同一有界生命周期 |
-| `componentmetrics/registry_test.go` | Router/Marshaller 新增固定指标后，其样本预算上界与 catalog 基数一致；其余进程的既有预算不变 |
 | `monitor/internal/config/config.go`、`monitor/internal/config/config_test.go` | Router 多副本入口和源队列上界校验完整 |
 | `monitor/internal/logs/logs.go`、`monitor/internal/logs/logs_test.go` | 远程日志校验允许副本实例身份字段，保证日志入口与共享日志结构一致 |
 | `monitor/cmd/monitor/main.go` | 将已校验的多 Router endpoint 配置装配到有界 failover publisher，不回退为单地址或 discard |
 | `monitor/internal/metrics/publisher/publisher.go`、`monitor/internal/metrics/publisher/publisher_test.go` | Router 选择/失败转移有界，不因重试产生重复无界请求 |
 | `componentmetrics/catalog.go`、`componentmetrics/validation.go` | 新增 buffer/ownership/partition 指标词汇固定且标签基数有限 |
+| `scripts/ci/verify_component_metrics.py` | 组件指标 self-test 使用当前权威目录的固定样本预算，并校验管理端生成合同无漂移 |
 | `monitor/internal/metrics/collector/components.go`、`monitor/internal/metrics/collector/components_test.go` | 所有 Router/Marshaller 副本均被采集，不被 DNS 随机结果遗漏 |
 | `scripts/verify-compose-observability.sh` | 完整 Compose 验收适配 Phase-18 多副本拓扑：前端是唯一宿主入口，Backend 副本保持内网监听并通过网络边界校验 |
 | `.github/workflows/quality-gates.yml` | Compose 配置门禁按单一 Frontend 宿主入口校验回环发布数量，并保持其他产品服务无宿主发布 |
@@ -54,6 +57,10 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | `scripts/ci/phase18_observability_scale.py` | 两次同候选运行、逐次原始 evidence、平均摘要和失败阶段持久化 |
 | `scripts/ci/test_phase18_observability_scale.py` | 覆盖固定次数、跨写拒绝、平均计算、失败结果和 evidence 不可覆盖 |
 | `router/README.md`、`marshaller/README.md`、`monitor/README.md`、`backend/README.md`、`README.md` | 配置、双 ES、背压和多副本边界与实际实现一致，不宣称 broker/存储 HA |
+| `scripts/verify-logs.sh`、`scripts/verify-events.sh` | 独立宿主验收为 Backend 查询显式提供观测 ES 地址，保持日志/事件读写落在同一观测存储 |
+| `admin-frontend/src/views/ObservabilityMetricsView.vue`、`admin-frontend/src/views/ObservabilityMetricsView.test.ts` | Metrics 查询在代理保留 503 状态但错误码变化时仍显示 VictoriaMetrics 不可用提示，并保持并发请求状态隔离 |
+| `admin-frontend/src/services/componentMetrics.ts` | 管理端生成的组件指标合同与 `componentmetrics` 权威目录保持一致，catalog 校验不会在发起 Metrics 查询前误拒绝多副本容量指标 |
+| `admin-frontend/src/services/management.ts`、`admin-frontend/src/services/management.test.ts` | 管理端告警目录校验覆盖当前组件指标的 `reason`、`partition` 标签，并保护目录加载后的规则创建能力 |
 | `dev/logs/Phase-18/Phase-18-04-可观测计算层多副本双ES与背压隔离.md` | 记录实际文件、两次命令/结果、均值、故障隔离结论与限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 六处产品版本一致为 `2.0.4` |
 

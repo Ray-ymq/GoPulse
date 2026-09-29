@@ -9,6 +9,18 @@ import (
 var Components = []string{"backend", "business-worker", "search-indexer", "monitor", "router", "marshaller"}
 var Plugins = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
 
+// ProcessIDs is the code-owned process identity inventory. Runtime roles,
+// replica ownership, budgets and Compose bindings remain authoritative in
+// deploy/runtime-contracts.json; the verifier rejects drift between this
+// closed metric directory and that machine contract.
+func ProcessIDs() []string {
+	result := append([]string{}, Components...)
+	for _, plugin := range Plugins {
+		result = append(result, plugin+"-exporter")
+	}
+	return result
+}
+
 func IsComponent(id string) bool {
 	for _, c := range Components {
 		if c == id {
@@ -27,6 +39,16 @@ type Family struct {
 	Required         bool
 	// Pair identifies the duration counter for a count family (and vice versa).
 	Pair string
+	// Distribution describes a physical member of a fixed histogram contract.
+	// Bucket, count, and sum are separate Prometheus families so every ingress
+	// boundary can validate the complete distribution without accepting a
+	// client-defined metric name or label.
+	Distribution *Distribution
+}
+type Distribution struct {
+	Name    string
+	Role    string
+	Buckets []string
 }
 type Spec struct {
 	ID                       string
@@ -60,7 +82,13 @@ func ScrapeTargets() [][]string {
 		result = append(result, []string{"exporter_plugin", id + "-exporter-local"})
 	}
 	for _, id := range Components {
-		result = append(result, []string{"component", Target(id)})
+		endpoints, err := ReplicaEndpoints(id)
+		if err != nil {
+			endpoints = []string{id}
+		}
+		for _, endpoint := range endpoints {
+			result = append(result, []string{"component", TargetFor(id, endpoint)})
+		}
 	}
 	return result
 }
@@ -81,10 +109,21 @@ func singles(values ...string) [][]string {
 	return out
 }
 
+func partitionTuples() [][]string {
+	values := make([][]string, 0, 16)
+	for partition := 0; partition < 16; partition++ {
+		values = append(values, []string{fmt.Sprintf("%d", partition)})
+	}
+	return values
+}
+
 // Catalog is the authoritative producer, Monitor, Marshaller and Backend
 // allowlist. All tuples are constructed from code constants, never config/input.
 func Catalog(id string) (Spec, bool) {
 	s := Spec{ID: id, MaxBodyBytes: 262144}
+	if id == "backend" {
+		s.MaxBodyBytes = BackendMaxBodyBytes
+	}
 	prefix := Prefix(id)
 	gauge := func(name, unit string, keys []string, tuples [][]string) {
 		if tuples == nil {
@@ -105,12 +144,35 @@ func Catalog(id string) (Spec, bool) {
 		for _, method := range backendMethods {
 			routes = append(routes, []string{method, "_unmatched"})
 		}
-		pair("http_requests_total", "http_request_duration_seconds_total", []string{"method", "route", "status_class"}, expand(routes, "1xx", "2xx", "3xx", "4xx", "5xx"))
+		requestTuples := expand(routes, "1xx", "2xx", "3xx", "4xx", "5xx")
+		pair("http_requests_total", "http_request_duration_seconds_total", []string{"method", "route", "status_class"}, requestTuples)
+		latencyBase := prefix + "http_request_duration_seconds"
+		latencyBuckets := BackendLatencyBuckets()
+		s.Families = append(s.Families,
+			Family{
+				Name: prefix + "http_request_duration_seconds_bucket", Kind: "counter", Unit: "count",
+				Keys: []string{"method", "route", "status_class", "le"}, Tuples: expand(requestTuples, latencyBuckets...),
+				Distribution: &Distribution{Name: latencyBase, Role: "bucket", Buckets: append([]string(nil), latencyBuckets...)},
+			},
+			Family{
+				Name: prefix + "http_request_duration_seconds_count", Kind: "counter", Unit: "count",
+				Keys: []string{"method", "route", "status_class"}, Tuples: requestTuples,
+				Distribution: &Distribution{Name: latencyBase, Role: "count", Buckets: append([]string(nil), latencyBuckets...)},
+			},
+			Family{
+				Name: latencyBase + "_sum", Kind: "counter", Unit: "seconds",
+				Keys: []string{"method", "route", "status_class"}, Tuples: requestTuples,
+				Distribution: &Distribution{Name: latencyBase, Role: "sum", Buckets: append([]string(nil), latencyBuckets...)},
+			},
+		)
 		gauge("alert_evaluation_known", "state", []string{"alert_source"}, singles("metrics", "logs", "events"))
 		gauge("alert_last_success_timestamp_seconds", "unix_seconds", []string{"alert_source"}, singles("metrics", "logs", "events"))
 		gauge("outbox_pending", "count", nil, nil)
 		gauge("outbox_oldest_age_seconds", "seconds", nil, nil)
 		gauge("outbox_last_publish_success_timestamp_seconds", "unix_seconds", nil, nil)
+		gauge("http_requests_in_flight", "count", nil, nil)
+		gauge("http_concurrency_limit", "count", nil, nil)
+		s.Families = append(s.Families, Family{Name: prefix + "http_rejected_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
 		dep("mysql", "redis", "rabbitmq", "elasticsearch")
 	case "business-worker":
 		pair("messages_total", "message_processing_duration_seconds_total", []string{"event_type", "result"}, expand(singles("comment.created", "post.liked", "user.followed", "unknown"), "success", "retry", "failure", "ack"))
@@ -135,7 +197,10 @@ func Catalog(id string) (Spec, bool) {
 		pair("messages_total", "produce_duration_seconds_total", []string{"type", "message_source", "result"}, expand(MessagePairs(), "accepted", "rejected", "produced"))
 		gauge("buffered_records", "count", nil, nil)
 		gauge("buffered_bytes", "bytes", nil, nil)
+		gauge("buffer_limit_records", "count", nil, nil)
+		gauge("buffer_limit_bytes", "bytes", nil, nil)
 		gauge("last_kafka_ack_timestamp_seconds", "unix_seconds", nil, nil)
+		pair("backpressure_total", "backpressure_duration_seconds_total", []string{"reason"}, singles("buffer_full", "kafka_failure", "request_canceled"))
 		dep("kafka")
 	case "marshaller":
 		var tuples [][]string
@@ -147,6 +212,10 @@ func Catalog(id string) (Spec, bool) {
 		pair("records_total", "record_processing_duration_seconds_total", []string{"type", "message_source", "stage", "result"}, tuples)
 		gauge("records_in_flight", "count", nil, nil)
 		gauge("retrying", "count", nil, nil)
+		gauge("partition_ownership", "state", []string{"partition"}, partitionTuples())
+		gauge("partition_lag", "count", []string{"partition"}, partitionTuples())
+		gauge("partition_generation", "count", []string{"partition"}, partitionTuples())
+		gauge("target_blocked", "state", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_storage_success_timestamp_seconds", "unix_seconds", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_commit_success_timestamp_seconds", "unix_seconds", nil, nil)
 		dep("kafka", "victoriametrics", "elasticsearch")

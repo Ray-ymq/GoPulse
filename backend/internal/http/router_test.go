@@ -9,8 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type fakeChecker struct {
@@ -45,6 +47,66 @@ func TestRuntimeProbesHardAndSoftDependencies(t *testing.T) {
 	missing := NewRouter(Dependencies{})
 	if performRequest(missing, "/ready").Code != 503 {
 		t.Fatal("missing dependency ready")
+	}
+}
+
+func TestAPIBusinessAdmissionDoesNotConsumeProbeSlot(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	probes, err := componentmetrics.NewProbes(context.Background(), time.Second, time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probes.Started()
+	metrics, err := componentmetrics.NewBackend([]componentmetrics.Route{{Method: "GET", Template: "/api/v1/test-admission"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics.ObserveOutbox(0, 0, nil)
+	metrics.SetHTTPConcurrencyLimit(1)
+	componentmetrics.InstallBackend(metrics)
+	t.Cleanup(func() { componentmetrics.InstallBackend(nil) })
+	router := NewRouter(Dependencies{Probes: probes, HTTPMaxConcurrency: 1})
+	router.GET("/api/v1/test-admission", func(c *gin.Context) {
+		close(started)
+		<-release
+		c.Status(stdhttp.StatusNoContent)
+	})
+	firstDone := make(chan struct{})
+	go func() {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(stdhttp.MethodGet, "/api/v1/test-admission", nil))
+		if response.Code != stdhttp.StatusNoContent {
+			t.Errorf("first status = %d, want 204", response.Code)
+		}
+		close(firstDone)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("business request did not acquire admission slot")
+	}
+
+	busy := performRequest(router, "/api/v1/test-admission")
+	if busy.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("saturated API status = %d, want 503", busy.Code)
+	}
+	assertJSONEqual(t, busy.Body.String(), `{"error":{"code":"backend_busy","message":"service temporarily busy"}}`)
+	for _, path := range []string{"/startup", "/live", "/ready", "/health"} {
+		probe := performRequest(router, path)
+		if probe.Code != stdhttp.StatusOK {
+			t.Fatalf("%s status while API is saturated = %d, want 200", path, probe.Code)
+		}
+	}
+	close(release)
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("business request did not finish")
+	}
+	body, ok := metrics.Snapshot()
+	if !ok || !strings.Contains(string(body), "gopulse_backend_http_rejected_total 1\n") || !strings.Contains(string(body), "gopulse_backend_http_requests_in_flight 0\n") {
+		t.Fatalf("admission metrics missing: %s", body)
 	}
 }
 func performRequest(handler stdhttp.Handler, path string) *httptest.ResponseRecorder {

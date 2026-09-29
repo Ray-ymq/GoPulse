@@ -21,6 +21,8 @@ const (
 
 type Config struct {
 	RuntimeMode          RuntimeMode
+	InstanceID           string
+	ReplicaCount         int
 	HTTPHost             string
 	HTTPPort             int
 	APIToken             string
@@ -28,6 +30,9 @@ type Config struct {
 	KafkaTopic           string
 	KafkaGroup           string
 	KafkaCommitTimeout   time.Duration
+	KafkaMinPartitions   int
+	MaxInFlight          int
+	MaxRetrying          int
 	VMURL                string
 	VMUsername           string
 	VMPassword           string
@@ -68,11 +73,20 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	password, _ := lookup("MARSHALLER_VM_PASSWORD")
 	cfg := Config{
 		RuntimeMode: runtimeMode,
+		InstanceID:  get("GOPULSE_INSTANCE_ID", "marshaller-local"),
 		HTTPHost:    get("MARSHALLER_HTTP_HOST", "127.0.0.1"), APIToken: token,
 		KafkaTopic: get("MARSHALLER_KAFKA_TOPIC", Topic), KafkaGroup: get("MARSHALLER_KAFKA_GROUP", Group),
 		VMURL: get("MARSHALLER_VM_URL", "http://127.0.0.1:8428"), VMUsername: get("MARSHALLER_VM_USERNAME", "gopulse-marshaller"), VMPassword: password,
 		ElasticsearchURL: get("MARSHALLER_ELASTICSEARCH_URL", "http://127.0.0.1:9200"),
 		MaxRecordBytes:   MaxRecordBytes, MaxOutputBytes: MaxOutputBytes,
+	}
+	if err := componentmetrics.ValidateInstanceID(cfg.InstanceID); err != nil {
+		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
+	}
+	if replica, parseErr := strconv.Atoi(get("GOPULSE_REPLICA_COUNT", "1")); parseErr != nil || replica < 1 || replica > 8 {
+		return Config{}, errors.New("GOPULSE_REPLICA_COUNT must be an integer from 1 to 8")
+	} else {
+		cfg.ReplicaCount = replica
 	}
 	if err := validateListenHost(runtimeMode, "MARSHALLER_HTTP_HOST", cfg.HTTPHost); err != nil {
 		return Config{}, err
@@ -91,6 +105,18 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if cfg.KafkaGroup != Group {
 		return Config{}, fmt.Errorf("MARSHALLER_KAFKA_GROUP must be %s", Group)
+	}
+	if cfg.KafkaMinPartitions, err = parseIntValue(get("MARSHALLER_KAFKA_MIN_PARTITIONS", "1"), 1, 16, "MARSHALLER_KAFKA_MIN_PARTITIONS"); err != nil {
+		return Config{}, err
+	}
+	if cfg.KafkaMinPartitions < cfg.ReplicaCount {
+		return Config{}, errors.New("MARSHALLER_KAFKA_MIN_PARTITIONS must cover GOPULSE_REPLICA_COUNT")
+	}
+	if cfg.MaxInFlight, err = parseIntValue(get("MARSHALLER_MAX_IN_FLIGHT", "4"), 1, 64, "MARSHALLER_MAX_IN_FLIGHT"); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxRetrying, err = parseIntValue(get("MARSHALLER_MAX_RETRYING", "4"), 1, cfg.MaxInFlight, "MARSHALLER_MAX_RETRYING"); err != nil {
+		return Config{}, err
 	}
 	if err := validateVMURL(cfg.VMURL, runtimeMode); err != nil {
 		return Config{}, err
@@ -146,6 +172,13 @@ func parseInt(s string, min, max int) int {
 		return 0
 	}
 	return v
+}
+func parseIntValue(s string, min, max int, name string) (int, error) {
+	v := parseInt(s, min, max)
+	if v == 0 {
+		return 0, fmt.Errorf("%s must be an integer from %d to %d", name, min, max)
+	}
+	return v, nil
 }
 func parseDuration(s string, min, max time.Duration) (time.Duration, error) {
 	d, err := time.ParseDuration(s)

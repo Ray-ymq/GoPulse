@@ -13,19 +13,24 @@ x-mysql-environment: &mysql-environment
   MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
   MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
 
-x-mysql-pool-environment: &mysql-pool-environment
+x-backend-environment: &backend-environment
+  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-backend-local}
+  GOPULSE_REPLICA_COUNT: 2
+  # Metric queries validate Monitor's fixed component-target catalog, so the
+  # query service must share Monitor's replica inventory.
+  BACKEND_ENDPOINTS: backend,backend-2
+  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
+  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
+  ROUTER_ENDPOINTS: router,router-2
+  MARSHALLER_ENDPOINTS: marshaller,marshaller-2
+  BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
   MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
-
-x-backend-environment: &backend-environment
-  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-backend-local}
-  GOPULSE_REPLICA_COUNT: 2
-  BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
   ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
-  <<: [*mysql-environment, *mysql-pool-environment]
+  <<: *mysql-environment
   APP_ENV: ${APP_ENV:-development}
   HTTP_HOST: 0.0.0.0
   HTTP_PORT: 8080
@@ -35,6 +40,7 @@ x-backend-environment: &backend-environment
   REDIS_DB: ${REDIS_DB:-0}
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   ELASTICSEARCH_URL: http://elasticsearch:9200
+  OBSERVABILITY_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
   SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
   AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
@@ -74,7 +80,11 @@ x-worker-environment: &worker-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-business-worker-local}
   GOPULSE_REPLICA_COUNT: 2
   BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
-  <<: [*mysql-environment, *mysql-pool-environment]
+  <<: *mysql-environment
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   LOG_MONITOR_URL: http://monitor:9090
   LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
@@ -95,7 +105,11 @@ x-indexer-environment: &indexer-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-search-indexer-local}
   GOPULSE_REPLICA_COUNT: 2
   SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
-  <<: [*mysql-environment, *mysql-pool-environment]
+  <<: *mysql-environment
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   ELASTICSEARCH_URL: http://elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
@@ -115,7 +129,7 @@ x-indexer-environment: &indexer-environment
   SEARCH_INDEXER_RECONNECT_MAX: ${SEARCH_INDEXER_RECONNECT_MAX:-30s}
 
 x-search-init-environment: &search-init-environment
-  <<: [*mysql-environment, *mysql-pool-environment]
+  <<: *mysql-environment
   ELASTICSEARCH_URL: http://elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
   SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
@@ -124,6 +138,8 @@ x-search-init-environment: &search-init-environment
 x-router-environment: &router-environment
   GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  GOPULSE_INSTANCE_ID: router-1
+  GOPULSE_REPLICA_COUNT: 2
   ROUTER_METRICS_TOKEN: ${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   ROUTER_HTTP_HOST: 0.0.0.0
@@ -135,12 +151,22 @@ x-router-environment: &router-environment
   ROUTER_KAFKA_BROKERS: kafka:19092
   ROUTER_KAFKA_TOPIC: ${ROUTER_KAFKA_TOPIC:-gopulse-observability-v1}
   ROUTER_KAFKA_PRODUCE_TIMEOUT: ${ROUTER_KAFKA_PRODUCE_TIMEOUT:-3s}
+  ROUTER_KAFKA_MIN_PARTITIONS: ${ROUTER_KAFKA_MIN_PARTITIONS:-4}
   ROUTER_KAFKA_MAX_BUFFERED_RECORDS: ${ROUTER_KAFKA_MAX_BUFFERED_RECORDS:-256}
   ROUTER_KAFKA_MAX_BUFFERED_BYTES: ${ROUTER_KAFKA_MAX_BUFFERED_BYTES:-8388608}
 
 x-marshaller-environment: &marshaller-environment
   GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  GOPULSE_INSTANCE_ID: marshaller-1
+  GOPULSE_REPLICA_COUNT: 2
+  # Marshaller validates Monitor's fixed component-target catalog as well as
+  # the samples themselves; keep the replica inventory identical to Monitor.
+  BACKEND_ENDPOINTS: backend,backend-2
+  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
+  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
+  ROUTER_ENDPOINTS: router,router-2
+  MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MARSHALLER_HTTP_HOST: 0.0.0.0
@@ -150,11 +176,14 @@ x-marshaller-environment: &marshaller-environment
   MARSHALLER_KAFKA_TOPIC: ${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-v1}
   MARSHALLER_KAFKA_GROUP: ${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}
   MARSHALLER_KAFKA_COMMIT_TIMEOUT: ${MARSHALLER_KAFKA_COMMIT_TIMEOUT:-3s}
+  MARSHALLER_KAFKA_MIN_PARTITIONS: ${MARSHALLER_KAFKA_MIN_PARTITIONS:-4}
+  MARSHALLER_MAX_IN_FLIGHT: ${MARSHALLER_MAX_IN_FLIGHT:-8}
+  MARSHALLER_MAX_RETRYING: ${MARSHALLER_MAX_RETRYING:-4}
   MARSHALLER_VM_URL: http://victoriametrics:8428
   MARSHALLER_VM_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
   MARSHALLER_VM_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
   MARSHALLER_VM_TIMEOUT: ${MARSHALLER_VM_TIMEOUT:-3s}
-  MARSHALLER_ELASTICSEARCH_URL: http://elasticsearch:9200
+  MARSHALLER_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
   MARSHALLER_ELASTICSEARCH_TIMEOUT: ${MARSHALLER_ELASTICSEARCH_TIMEOUT:-3s}
   MARSHALLER_LOG_TEMPLATE: ${MARSHALLER_LOG_TEMPLATE:-gopulse-logs-v1-template}
   MARSHALLER_LOG_INDEX_PREFIX: ${MARSHALLER_LOG_INDEX_PREFIX:-gopulse-logs-v1-}
@@ -173,6 +202,8 @@ x-monitor-environment: &monitor-environment
   BACKEND_ENDPOINTS: backend,backend-2
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
+  ROUTER_ENDPOINTS: router,router-2
+  MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
@@ -195,6 +226,7 @@ x-monitor-environment: &monitor-environment
   MONITOR_SCRAPE_TIMEOUT: ${MONITOR_SCRAPE_TIMEOUT:-3s}
   MONITOR_PUBLISH_TIMEOUT: ${MONITOR_PUBLISH_TIMEOUT:-3s}
   MONITOR_ROUTER_URL: http://router:9091
+  MONITOR_ROUTER_URLS: http://router:9091,http://router-2:9091
   MONITOR_ROUTER_TOKEN: ${ROUTER_API_TOKEN:?ROUTER_API_TOKEN is required}
   MONITOR_LOG_MAX_BYTES: ${MONITOR_LOG_MAX_BYTES:-65536}
   MONITOR_LOG_FUTURE_SKEW: ${MONITOR_LOG_FUTURE_SKEW:-5m}
@@ -279,6 +311,24 @@ services:
       - elasticsearch_data:/usr/share/elasticsearch/data
     networks:
       - business
+    healthcheck:
+      test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&wait_for_no_initializing_shards=true&wait_for_no_relocating_shards=true&timeout=5s" >/dev/null']
+      start_period: 30s
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  observability-elasticsearch:
+    image: ${GOPULSE_OBSERVABILITY_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:9.5.2}
+    restart: on-failure:5
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - observability_elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
       - observability
     healthcheck:
       test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null']
@@ -333,6 +383,12 @@ services:
     environment:
       <<: *backend-environment
       GOPULSE_INSTANCE_ID: backend-1
+    labels:
+      io.gopulse.runtime.process_id: backend
+      io.gopulse.runtime.role: business-api
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -342,12 +398,17 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      observability-elasticsearch:
+        condition: service_healthy
     networks:
       - edge
       - business
       - observability
+    expose:
+      - "8080"
+      - "19101"
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -369,6 +430,12 @@ services:
     environment:
       <<: *backend-environment
       GOPULSE_INSTANCE_ID: backend-2
+    labels:
+      io.gopulse.runtime.process_id: backend
+      io.gopulse.runtime.role: business-api
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -378,12 +445,17 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      observability-elasticsearch:
+        condition: service_healthy
     networks:
       - edge
       - business
       - observability
+    expose:
+      - "8080"
+      - "19101"
     healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=- http://127.0.0.1:8080/ready >/dev/null']
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
       start_period: 5s
       interval: 5s
       timeout: 3s
@@ -403,6 +475,12 @@ services:
     environment:
       <<: *worker-environment
       GOPULSE_INSTANCE_ID: business-worker-1
+    labels:
+      io.gopulse.runtime.process_id: business-worker
+      io.gopulse.runtime.role: business-worker
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -411,6 +489,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19102"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19102/ready"]
       interval: 5s
@@ -432,6 +512,12 @@ services:
     environment:
       <<: *worker-environment
       GOPULSE_INSTANCE_ID: business-worker-2
+    labels:
+      io.gopulse.runtime.process_id: business-worker
+      io.gopulse.runtime.role: business-worker
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -440,6 +526,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19102"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19102/ready"]
       interval: 5s
@@ -461,6 +549,12 @@ services:
     environment:
       <<: *indexer-environment
       GOPULSE_INSTANCE_ID: search-indexer-1
+    labels:
+      io.gopulse.runtime.process_id: search-indexer
+      io.gopulse.runtime.role: search-indexer
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -473,6 +567,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19103"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19103/ready"]
       interval: 5s
@@ -494,6 +590,12 @@ services:
     environment:
       <<: *indexer-environment
       GOPULSE_INSTANCE_ID: search-indexer-2
+    labels:
+      io.gopulse.runtime.process_id: search-indexer
+      io.gopulse.runtime.role: search-indexer
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -506,6 +608,8 @@ services:
     networks:
       - business
       - observability
+    expose:
+      - "19103"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19103/ready"]
       interval: 5s
@@ -656,7 +760,7 @@ services:
       - -ec
       - >-
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
-        --topic gopulse-observability-v1 --partitions 1 --replication-factor 1 &&
+        --topic gopulse-observability-v1 --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe
         --topic gopulse-observability-v1
     networks:
@@ -700,11 +804,53 @@ services:
     read_only: true
     stop_grace_period: 15s
     environment: *router-environment
+    labels:
+      io.gopulse.runtime.process_id: router
+      io.gopulse.runtime.role: observability-router
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       kafka-init:
         condition: service_completed_successfully
     expose:
       - "9091"
+      - "19105"
+    networks:
+      - observability
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9091/ready']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  router-2:
+    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: router
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment:
+      <<: *router-environment
+      GOPULSE_INSTANCE_ID: router-2
+    labels:
+      io.gopulse.runtime.process_id: router
+      io.gopulse.runtime.role: observability-router
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    expose:
+      - "9091"
+      - "19105"
     networks:
       - observability
     healthcheck:
@@ -726,15 +872,61 @@ services:
     read_only: true
     stop_grace_period: 15s
     environment: *marshaller-environment
+    labels:
+      io.gopulse.runtime.process_id: marshaller
+      io.gopulse.runtime.role: observability-marshaller
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: partition-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       kafka-init:
         condition: service_completed_successfully
       victoriametrics:
         condition: service_healthy
-      elasticsearch:
+      observability-elasticsearch:
         condition: service_healthy
     expose:
       - "9093"
+      - "19106"
+    networks:
+      - observability
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9093/ready']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  marshaller-2:
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: marshaller
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment:
+      <<: *marshaller-environment
+      GOPULSE_INSTANCE_ID: marshaller-2
+    labels:
+      io.gopulse.runtime.process_id: marshaller
+      io.gopulse.runtime.role: observability-marshaller
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: partition-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      victoriametrics:
+        condition: service_healthy
+      observability-elasticsearch:
+        condition: service_healthy
+    expose:
+      - "9093"
+      - "19106"
     networks:
       - observability
     healthcheck:
@@ -760,15 +952,24 @@ services:
       - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
     stop_grace_period: 20s
     environment: *monitor-environment
+    labels:
+      io.gopulse.runtime.process_id: monitor
+      io.gopulse.runtime.role: observability-monitor
+      io.gopulse.runtime.replica_mode: singleton
+      io.gopulse.runtime.ownership: single-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       redis:
         condition: service_healthy
       router:
         condition: service_healthy
+      router-2:
+        condition: service_healthy
     volumes:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
     expose:
       - "9090"
+      - "19104"
     networks:
       - business
       - observability
@@ -801,6 +1002,12 @@ services:
       REDIS_EXPORTER_HTTP_PORT: 9121
       REDIS_EXPORTER_SCRAPE_TIMEOUT: ${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}
       REDIS_EXPORTER_SHUTDOWN_TIMEOUT: ${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}
+    labels:
+      io.gopulse.runtime.process_id: redis-exporter
+      io.gopulse.runtime.role: plugin-exporter
+      io.gopulse.runtime.replica_mode: singleton
+      io.gopulse.runtime.ownership: single-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
       redis:
         condition: service_healthy
@@ -827,6 +1034,7 @@ volumes:
   redis_data:
   rabbitmq_data:
   elasticsearch_data:
+  observability_elasticsearch_data:
   kafka_data:
   victoriametrics_data:
   monitor_plugin_data:

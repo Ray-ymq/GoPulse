@@ -15,6 +15,8 @@ const Topic = "gopulse-observability-v1"
 
 type Config struct {
 	RuntimeMode             RuntimeMode
+	InstanceID              string
+	ReplicaCount            int
 	HTTPHost                string
 	HTTPPort                int
 	APIToken                string
@@ -24,6 +26,7 @@ type Config struct {
 	KafkaBrokers            []string
 	KafkaTopic              string
 	KafkaProduceTimeout     time.Duration
+	KafkaMinPartitions      int
 	KafkaMaxBufferedRecords int
 	KafkaMaxBufferedBytes   int
 }
@@ -53,9 +56,18 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	token, _ := lookup("ROUTER_API_TOKEN")
 	cfg := Config{
 		RuntimeMode: runtimeMode,
+		InstanceID:  get("GOPULSE_INSTANCE_ID", "router-local"),
 		HTTPHost:    get("ROUTER_HTTP_HOST", "127.0.0.1"),
 		APIToken:    token,
 		KafkaTopic:  get("ROUTER_KAFKA_TOPIC", Topic),
+	}
+	if err := componentmetrics.ValidateInstanceID(cfg.InstanceID); err != nil {
+		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
+	}
+	if replica, parseErr := strconv.Atoi(get("GOPULSE_REPLICA_COUNT", "1")); parseErr != nil || replica < 1 || replica > 8 {
+		return Config{}, errors.New("GOPULSE_REPLICA_COUNT must be an integer from 1 to 8")
+	} else {
+		cfg.ReplicaCount = replica
 	}
 	if err := validateListenHost(runtimeMode, "ROUTER_HTTP_HOST", cfg.HTTPHost); err != nil {
 		return Config{}, err
@@ -89,6 +101,12 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	if cfg.KafkaProduceTimeout >= cfg.RequestTimeout {
 		return Config{}, errors.New("ROUTER_KAFKA_PRODUCE_TIMEOUT must be less than ROUTER_REQUEST_TIMEOUT")
+	}
+	if cfg.KafkaMinPartitions, err = integer(get("ROUTER_KAFKA_MIN_PARTITIONS", "1"), 1, 16, "ROUTER_KAFKA_MIN_PARTITIONS"); err != nil {
+		return Config{}, err
+	}
+	if cfg.KafkaMinPartitions < cfg.ReplicaCount {
+		return Config{}, errors.New("ROUTER_KAFKA_MIN_PARTITIONS must cover GOPULSE_REPLICA_COUNT")
 	}
 	if cfg.KafkaMaxBufferedRecords, err = integer(get("ROUTER_KAFKA_MAX_BUFFERED_RECORDS", "256"), 1, 1024, "ROUTER_KAFKA_MAX_BUFFERED_RECORDS"); err != nil {
 		return Config{}, err

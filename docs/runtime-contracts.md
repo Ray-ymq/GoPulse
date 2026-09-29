@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (2.0.3)
+# GoPulse runtime contract v1 (2.1.1)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -6,8 +6,8 @@ shape. Environment variables remain the only configuration input; the inventory
 is not a second runtime configuration service. Validate changes with:
 
 ```bash
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example
-scripts/verify-runtime-contracts.sh --candidate 2.0.3
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.1.1
+scripts/verify-runtime-contracts.sh --candidate 2.1.1
 ```
 
 ## Configuration and readiness
@@ -34,11 +34,39 @@ Kafka and its destination stores. Monitor requires initialized local state and
 catalog; a temporarily unavailable publisher is recoverable. Exporters stay
 ready when a target source fails and report their existing `up=0` metric.
 
+Backend business and management requests under `/api/v1` use the finite
+`BACKEND_HTTP_MAX_CONCURRENCY` admission slots. A saturated slot fails
+immediately with `503 backend_busy`; requests to `/startup`, `/live`, `/ready`
+and `/health` remain on the probe contract and still apply their own startup,
+dependency and stopping semantics. Compose Backend healthchecks call
+`http://127.0.0.1:8080/ready` directly inside each private container, without
+Frontend, Nginx or the business admission path.
+
+Backend capacity diagnostics are fixed and low-cardinality: in-flight requests,
+the configured concurrency limit, and rejected requests are exported as
+`gopulse_backend_http_requests_in_flight`,
+`gopulse_backend_http_concurrency_limit`, and
+`gopulse_backend_http_rejected_total`. Request latency retains the historical
+count and duration-total families and adds the fixed
+`gopulse_backend_http_request_duration_seconds_bucket`, `_count`, and `_sum`
+families. Bucket labels are `0.005`, `0.01`, `0.025`, `0.05`, `0.1`, `0.25`,
+`0.5`, `1`, `2`, `5`, `10`, and `+Inf`; dimensions remain only method, route
+template, status class, and the fixed `le` vocabulary. URL/query/identity and
+request-correlation values are not labels.
+
 No new host ports are published. The edge blocks new `/startup` and `/live`
 paths and `/internal/`. Existing `/health` and `/ready` edge paths remain for
 compatibility. Their body now uses runtime contract v1; the development status
 page accepts it without inventing per-dependency status (unknown when omitted).
 Use authenticated source-status APIs for detailed source health.
+
+The machine contract is authoritative for process roles, Compose ownership,
+replica identity, listener privacy, diagnostic paths, and finite connection,
+queue, in-flight, and shutdown budgets. Diagnostics are direct private probes
+against each named process; they do not route through Monitor and do not add
+host-published ports. `GOPULSE_INSTANCE_ID` is the preferred bounded identity
+source, with the contract's deterministic fallback used only for managed
+singletons that have no standalone Compose service.
 
 ## Business replicas and bounded budgets
 
@@ -52,6 +80,22 @@ finite; the configured total MySQL budget must cover the declared replica count.
 Outbox leases and Worker consumer tags are instance-scoped, while alert rule
 leases remain single-owner facts in MySQL. This document does not claim that
 external stateful stores are replicated.
+
+The observability compute plane also runs two named Router and Marshaller
+instances. Router publishes to a four-partition topic and rejects records when
+its finite client buffer is full. Marshaller members use one consumer group,
+manual commits and generation-scoped ownership; processing is concurrent across
+owned partitions but remains serialized within each partition. In-flight and
+retry slots are finite, and a revoked lease cannot write or commit.
+
+Business search Elasticsearch and observation Elasticsearch are separate
+services with separate named volumes and network membership. Backend uses
+`elasticsearch` for business search and `observability-elasticsearch` for
+logs/events; Search Indexer uses `elasticsearch` on the business network.
+Marshaller logs/events use `observability-elasticsearch` on the observability
+network; no Marshaller target can select the business search client. Metrics continue to use VictoriaMetrics,
+and a failure in one observation target leaves other partitions and targets
+bounded and diagnosable rather than creating an unbounded global retry queue.
 
 ## Shutdown
 
@@ -109,3 +153,29 @@ Kafka commit/rebalance semantics. The candidate is not externally promoted.
 Backend recognizes persisted runtime metadata when decoding logs but retains
 the existing public log-page projection, keeping both frontend validators and
 management behavior compatible.
+
+## Phase 18-05 closure evidence
+
+The final closure candidate uses one immutable contract digest and executes the
+fixed matrix exactly twice. Each run covers normal concurrency, business and
+observability scale-up/down, short RabbitMQ/Kafka faults, both Elasticsearch
+fault domains, VictoriaMetrics fault, single-instance SIGTERM, service
+rebuild, and terminal closure. The runner records direct private startup,
+liveness, readiness, and health probes, capacity signals, command output,
+failure stages, cleanup ownership, and arithmetic averages without retrying a
+third time. `target_met`, `boundary_found`, and `execution_failed` are honest
+result classifications; a boundary or execution failure remains valid evidence
+when both runs and their receipts are complete.
+
+Use the following commands for the fixed contract and evidence gates:
+
+```bash
+scripts/verify-runtime-contracts.sh --candidate 2.0.5
+scripts/verify-phase18-scale-closure.sh --repetitions 2
+python3 scripts/verify-phase18-evidence.py --closure <closure-directory>
+```
+
+The closure verifier rejects missing run-2 evidence, any run-3 artifact,
+candidate drift, mismatched numeric averages, command failures without retained
+failure records, and ledger entries outside the Phase-18-05 file scope. It does
+not infer successful capacity from a failed or boundary run.
