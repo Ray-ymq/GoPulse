@@ -22,6 +22,7 @@ The repository currently provides:
 - Phase 18-03 business-scale topology with two Backend, Business Worker, and Search Indexer replicas, explicit instance identities, bounded per-process budgets, stateless frontend upstream failover, and lease/consumer ownership evidence;
 - Phase 18-04 observability-scale topology with two Router and Marshaller replicas, multi-partition Kafka ownership, separate business and observability Elasticsearch services and volumes, bounded target-local backpressure, and fixed two-run evidence;
 - Phase 18-05 machine-readable runtime contracts, private direct-diagnostic evidence, and a completed two-run scale/fault/rebuild closure classified as `target_met`; the result is scoped to the fixed matrix and does not claim independent `150 RPS` capacity certification, state-layer HA, production SLOs, or Kubernetes support;
+- Phase-19-01 Backend API-only admission, probe isolation, fixed HTTP latency distribution families, and bounded concurrency/rejection diagnostics through the component metrics contract; this adds diagnostic evidence for later capacity work without declaring a capacity target met;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
 Same-type plugin multi-instance collection, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, distributed tracing, automatic dead-queue replay, real-time notification push, Kubernetes, and other later-phase capabilities are not implemented yet. The current verified, boundary, and unverified capability list is maintained in [`docs/capability-status.md`](docs/capability-status.md).
@@ -525,6 +526,13 @@ Phase-18-05 completes the machine runtime contract and the fixed closure process
 `2/2`, U3 was `0/2`, and both owned Compose projects cleaned successfully.
 The authoritative result is `boundary_found`, with the final evidence and follow-up
 boundaries in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
+
+Phase-19-01 advances the product to `2.1.1` with API-only Backend admission,
+probe paths that remain available when business slots are full, direct private
+Compose readiness checks, fixed cumulative latency buckets with count and sum,
+and in-flight/limit/rejection signals. These are bounded diagnostic contracts
+for the later capacity profile; they do not claim that any throughput or tail
+latency target has been met.
 
 ### Backend log query pipeline
 

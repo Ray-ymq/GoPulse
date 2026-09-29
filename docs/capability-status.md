@@ -1,6 +1,6 @@
 # GoPulse 当前能力状态
 
-> 基线：产品版本 `2.0.5`，2026-09-28。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品版本 `2.1.1`，2026-09-28。版本完成、验收执行完成和能力达标是三个不同概念。
 
 ## 已验证
 
@@ -10,13 +10,15 @@
 - Outbox lease/owner、RabbitMQ ack/retry、Kafka generation ownership/manual commit 和终态闭合。
 - 业务搜索 Elasticsearch 与可观测 Elasticsearch 独立服务、卷和故障域。
 - 有界 HTTP 并发、连接池、prefetch、Kafka buffer、Marshaller in-flight/retry 与关停预算。
+- Backend 业务/管理 API 的有限准入与探针隔离；槽位耗尽时固定返回 `503 backend_busy`，四个运行时探针仍保留自身依赖和停止语义。
+- Backend 固定低基数 HTTP 延迟分布（bucket/count/sum）以及 in-flight、并发上限、拒绝计数的 Monitor → Envelope → Marshaller → VictoriaMetrics → 查询链路。
 - Phase-18-05 冻结候选的扩缩容、局部故障、SIGTERM、重建、独立诊断和清理矩阵。
 
 ## 已发现边界
 
 - Phase-18-01/02 未证明稳定 `150 RPS`；历史运行出现重复性失败、burst 错误和 Outbox 积压。
 - Phase-18-04 的原冻结候选结果为 `boundary_found`；其历史证据不因后续修复而改写。
-- 当前 HTTP 运行时指标以 count/duration total 为主，不能直接表达 P95/P99。
+- 固定延迟桶支持 P50/P95/P99 的查询表达，但尚未执行 Phase 19 的正式容量 profile，不能据此声明任何吞吐或尾延迟目标达标。
 - Monitor 是插件生命周期唯一所有者；状态层仍可为单节点。
 
 ## 尚未验证
