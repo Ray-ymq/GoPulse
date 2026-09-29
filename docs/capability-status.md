@@ -20,7 +20,7 @@
 - Phase-18-01/02 未证明稳定 `150 RPS`；历史运行出现重复性失败、burst 错误和 Outbox 积压。
 - Phase-18-04 的原冻结候选结果为 `boundary_found`；其历史证据不因后续修复而改写。
 - 固定延迟桶支持 P50/P95/P99 的查询表达，但尚未执行 Phase 19 的正式容量 profile，不能据此声明任何吞吐或尾延迟目标达标。
-- Phase-19-02 尚未执行正式三重复容量认证；calibration 不产生容量汇总，不能产生 `target_met` 或 `boundary_found`。
+- 原 Phase-19-03 deterministic preflight 发现正式 runner 的配方物化、轮次 endpoint、宿主版本合同和真实恢复证据不闭合；正式容量入口未调用，没有容量结论。修订由新的 Phase-19-03 承担，正式认证顺延到 Phase-19-04。
 - Monitor 是插件生命周期唯一所有者；状态层仍可为单节点。
 
 ## 尚未验证
