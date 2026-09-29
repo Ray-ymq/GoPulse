@@ -2,14 +2,150 @@ package load
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 )
 
 const CredentialsSchemaVersion = "gopulse.phase18.credentials.v1"
+
+type CategoryMixEntry struct {
+	Category Category `json:"category"`
+	Percent  int      `json:"percent"`
+}
+
+type RouteContract struct {
+	Category        Category `json:"category"`
+	Method          string   `json:"method"`
+	Template        string   `json:"template"`
+	AllowedStatuses []int    `json:"allowed_statuses"`
+}
+
+type WorkloadProfile struct {
+	VirtualUsers          int                `json:"virtual_users"`
+	RequestTimeoutSeconds float64            `json:"request_timeout_seconds"`
+	Mix                   []CategoryMixEntry `json:"mix"`
+	Routes                []RouteContract    `json:"routes"`
+}
+
+var canonicalMix = []CategoryMixEntry{
+	{Category: CategoryRead, Percent: 45},
+	{Category: CategorySearch, Percent: 10},
+	{Category: CategoryNotification, Percent: 10},
+	{Category: CategoryContentWrite, Percent: 15},
+	{Category: CategoryInteraction, Percent: 15},
+	{Category: CategorySession, Percent: 5},
+}
+
+func DefaultWorkloadProfile() WorkloadProfile {
+	return WorkloadProfile{
+		VirtualUsers:          1024,
+		RequestTimeoutSeconds: 5,
+		Mix:                   append([]CategoryMixEntry(nil), canonicalMix...),
+		Routes:                canonicalRoutes(),
+	}
+}
+
+func canonicalRoutes() []RouteContract {
+	return []RouteContract{
+		{Category: CategoryRead, Method: http.MethodGet, Template: "GET /api/v1/posts", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryRead, Method: http.MethodGet, Template: "GET /api/v1/posts/:postId", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryRead, Method: http.MethodGet, Template: "GET /api/v1/posts/following", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryRead, Method: http.MethodGet, Template: "GET /api/v1/posts/:postId/comments", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryRead, Method: http.MethodGet, Template: "GET /api/v1/users/:username", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategorySearch, Method: http.MethodGet, Template: "GET /api/v1/search/posts", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategorySearch, Method: http.MethodGet, Template: "GET /api/v1/search/users", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryNotification, Method: http.MethodGet, Template: "GET /api/v1/notifications", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryNotification, Method: http.MethodGet, Template: "GET /api/v1/bookmarks", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryNotification, Method: http.MethodGet, Template: "GET /api/v1/users/me/following", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryNotification, Method: http.MethodGet, Template: "GET /api/v1/users/me/followers", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryContentWrite, Method: http.MethodPost, Template: "POST /api/v1/posts", AllowedStatuses: []int{http.StatusCreated}},
+		{Category: CategoryContentWrite, Method: http.MethodPost, Template: "POST /api/v1/posts/:postId/comments", AllowedStatuses: []int{http.StatusCreated}},
+		{Category: CategoryContentWrite, Method: http.MethodPatch, Template: "PATCH /api/v1/posts/:postId", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategoryContentWrite, Method: http.MethodDelete, Template: "DELETE /api/v1/posts/:postId", AllowedStatuses: []int{http.StatusNoContent}},
+		{Category: CategoryInteraction, Method: http.MethodPut, Template: "PUT /api/v1/posts/:postId/like", AllowedStatuses: []int{http.StatusNoContent}},
+		{Category: CategoryInteraction, Method: http.MethodDelete, Template: "DELETE /api/v1/posts/:postId/like", AllowedStatuses: []int{http.StatusNoContent}},
+		{Category: CategoryInteraction, Method: http.MethodPut, Template: "PUT /api/v1/users/:userId/follow", AllowedStatuses: []int{http.StatusNoContent}},
+		{Category: CategoryInteraction, Method: http.MethodDelete, Template: "DELETE /api/v1/users/:userId/follow", AllowedStatuses: []int{http.StatusNoContent}},
+		{Category: CategoryInteraction, Method: http.MethodPut, Template: "PUT /api/v1/posts/:postId/bookmark", AllowedStatuses: []int{http.StatusNoContent}},
+		{Category: CategorySession, Method: http.MethodPost, Template: "POST /api/v1/auth/login", AllowedStatuses: []int{http.StatusOK}},
+		{Category: CategorySession, Method: http.MethodGet, Template: "GET /api/v1/users/me", AllowedStatuses: []int{http.StatusOK}},
+	}
+}
+
+func ValidateWorkloadProfile(profile WorkloadProfile) error {
+	if profile.VirtualUsers != 1024 || !boundedPositive(profile.RequestTimeoutSeconds, 60) || len(profile.Mix) != len(canonicalMix) || len(profile.Routes) != len(canonicalRoutes()) {
+		return errors.New("capacity workload identity is invalid")
+	}
+	total := 0
+	seenCategories := make(map[Category]bool, len(profile.Mix))
+	for index, entry := range profile.Mix {
+		if entry != canonicalMix[index] || entry.Percent <= 0 || seenCategories[entry.Category] {
+			return errors.New("capacity workload mix differs from the fixed route contract")
+		}
+		seenCategories[entry.Category] = true
+		total += entry.Percent
+	}
+	if total != 100 {
+		return errors.New("capacity workload mix must total 100 percent")
+	}
+	expectedRoutes := make(map[string]RouteContract, len(profile.Routes))
+	for _, route := range canonicalRoutes() {
+		expectedRoutes[route.Template] = route
+	}
+	for _, route := range profile.Routes {
+		if _, exists := expectedRoutes[route.Template]; exists {
+			if !sameRouteContract(route, expectedRoutes[route.Template]) {
+				return fmt.Errorf("capacity workload route %q differs from the fixed contract", route.Template)
+			}
+			delete(expectedRoutes, route.Template)
+		} else {
+			return fmt.Errorf("capacity workload contains unknown route %q", route.Template)
+		}
+	}
+	if len(expectedRoutes) != 0 {
+		return errors.New("capacity workload is missing a fixed route")
+	}
+	return nil
+}
+
+func sameRouteContract(left, right RouteContract) bool {
+	if left.Category != right.Category || left.Method != right.Method || len(left.AllowedStatuses) != len(right.AllowedStatuses) {
+		return false
+	}
+	leftStatuses := append([]int(nil), left.AllowedStatuses...)
+	rightStatuses := append([]int(nil), right.AllowedStatuses...)
+	sort.Ints(leftStatuses)
+	sort.Ints(rightStatuses)
+	for index := range leftStatuses {
+		if leftStatuses[index] != rightStatuses[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func ValidateRequest(profile WorkloadProfile, request Request) error {
+	for _, route := range profile.Routes {
+		if route.Template != request.Template {
+			continue
+		}
+		if route.Category != request.Category || route.Method != request.Method || len(route.AllowedStatuses) != len(request.ExpectedStatuses) {
+			return fmt.Errorf("request %q violates route contract", request.Template)
+		}
+		for _, status := range route.AllowedStatuses {
+			if !request.ExpectedStatuses[status] {
+				return fmt.Errorf("request %q has an unexpected status contract", request.Template)
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("request %q is not in the capacity profile", request.Template)
+}
 
 type User struct {
 	ID       uint64 `json:"id"`
@@ -76,25 +212,42 @@ type vuState struct {
 	id           int
 	corpus       *Corpus
 	credentials  *Credentials
+	profile      *WorkloadProfile
 	deleteCursor int
 }
 
 func (state *vuState) request(slot uint64) Request {
-	selector := int(slot % 100)
-	switch {
-	case selector < 45:
+	category := CategoryForSlot(slot, state.profile)
+	switch category {
+	case CategoryRead:
 		return state.read(slot)
-	case selector < 55:
+	case CategorySearch:
 		return state.search(slot)
-	case selector < 65:
+	case CategoryNotification:
 		return state.notifications(slot)
-	case selector < 80:
+	case CategoryContentWrite:
 		return state.contentWrite(slot)
-	case selector < 95:
+	case CategoryInteraction:
 		return state.interactionWrite(slot)
 	default:
 		return state.session(slot)
 	}
+}
+
+func CategoryForSlot(slot uint64, profile *WorkloadProfile) Category {
+	mix := canonicalMix
+	if profile != nil && len(profile.Mix) > 0 {
+		mix = profile.Mix
+	}
+	selector := int(slot % 100)
+	cumulative := 0
+	for _, entry := range mix {
+		cumulative += entry.Percent
+		if selector < cumulative {
+			return entry.Category
+		}
+	}
+	return mix[len(mix)-1].Category
 }
 
 func statuses(values ...int) map[int]bool {

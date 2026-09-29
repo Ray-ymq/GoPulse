@@ -63,3 +63,26 @@ func TestLoginRequestUsesOnlyAuthenticationFields(t *testing.T) {
 		t.Fatalf("body=%s", request.Body)
 	}
 }
+
+func TestCapacityWorkloadProfilePinsMixAndRouteStatuses(t *testing.T) {
+	profile := DefaultWorkloadProfile()
+	if err := ValidateWorkloadProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	corpus := testCorpus()
+	credentials := Credentials{SchemaVersion: CredentialsSchemaVersion, Password: "password", Users: corpus.Users}
+	state := &vuState{id: 2, corpus: &corpus, credentials: &credentials, profile: &profile}
+	for slot := uint64(0); slot < 1000; slot++ {
+		if err := ValidateRequest(profile, state.request(slot)); err != nil {
+			t.Fatalf("slot %d: %v", slot, err)
+		}
+	}
+}
+
+func TestCapacityWorkloadProfileRejectsRouteStatusDrift(t *testing.T) {
+	profile := DefaultWorkloadProfile()
+	profile.Routes[0].AllowedStatuses = []int{http.StatusCreated}
+	if err := ValidateWorkloadProfile(profile); err == nil {
+		t.Fatal("route status drift was accepted")
+	}
+}
