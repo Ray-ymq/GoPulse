@@ -61,7 +61,7 @@
         "disk_free_bytes_min",
         "docker_server_os",
         "docker_server_arch",
-        "compose_major"
+        "compose_min_version"
       ],
       "properties": {
         "platform": {"const": "linux/amd64"},
@@ -73,7 +73,7 @@
         "disk_free_bytes_min": {"$ref": "#/$defs/positiveInteger"},
         "docker_server_os": {"const": "linux"},
         "docker_server_arch": {"const": "amd64"},
-        "compose_major": {"const": 2}
+        "compose_min_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}
       }
     },
     "recipeCounts": {
@@ -239,7 +239,7 @@
     "sampling": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["interval_seconds", "required_signals"],
+      "required": ["interval_seconds", "required_signals", "required_components"],
       "properties": {
         "interval_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
         "required_signals": {
@@ -247,6 +247,12 @@
           "minItems": 4,
           "uniqueItems": true,
           "items": {"enum": ["host_cpu", "host_rss", "load_cpu", "load_rss", "load_scheduler_lag", "sut_cpu", "sut_rss", "sut_saturation", "outbox", "rabbitmq", "kafka_lag"]}
+        },
+        "required_components": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
         }
       }
     },

@@ -399,7 +399,56 @@ type CapacityRunConfig struct {
 	Candidate     CandidateBinding
 	Repeat        int
 	ReportPath    string
+	ProgressPath  string
 	Resources     *CapacityResourceReference
+}
+
+type capacityProgressWriter struct {
+	file     *os.File
+	sequence int
+}
+
+func newCapacityProgressWriter(path string) (*capacityProgressWriter, error) {
+	if path == "" {
+		return nil, nil
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open capacity progress: %w", err)
+	}
+	return &capacityProgressWriter{file: file}, nil
+}
+
+func (writer *capacityProgressWriter) write(event, stage, window, status string, scheduled, dropped, completed uint64, lag float64) error {
+	if writer == nil {
+		return nil
+	}
+	record := CapacityProgressRecord{
+		SchemaVersion: CapacityProgressSchemaVersion, Sequence: writer.sequence,
+		Event: event, Stage: stage, Window: window, Status: status, At: time.Now().UTC(),
+		ScheduledSlots: scheduled, DroppedSlots: dropped, CompletedRequests: completed,
+		MaxScheduleLagMS: lag,
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	if _, err := writer.file.Write(encoded); err != nil {
+		return err
+	}
+	if err := writer.file.Sync(); err != nil {
+		return err
+	}
+	writer.sequence++
+	return nil
+}
+
+func (writer *capacityProgressWriter) close() error {
+	if writer == nil || writer.file == nil {
+		return nil
+	}
+	return writer.file.Close()
 }
 
 type capacitySlot struct {
@@ -480,6 +529,25 @@ func RunCapacity(ctx context.Context, config CapacityRunConfig) (CapacityReport,
 	if len(config.Corpus.Users) < config.Profile.Workload.VirtualUsers || len(config.Credentials.Users) < config.Profile.Workload.VirtualUsers ||
 		config.Corpus.Seed != config.Profile.Recipe.Seed {
 		return CapacityReport{}, errors.New("capacity artifacts do not match the profile")
+	}
+	progress, err := newCapacityProgressWriter(config.ProgressPath)
+	if err != nil {
+		return CapacityReport{}, err
+	}
+	completed := false
+	defer func() {
+		if progress == nil {
+			return
+		}
+		status := "incomplete"
+		if completed {
+			status = "complete"
+		}
+		_ = progress.write("run_finished", "", "", status, 0, 0, 0, 0)
+		_ = progress.close()
+	}()
+	if err := progress.write("run_started", "", "", "started", 0, 0, 0, 0); err != nil {
+		return CapacityReport{}, err
 	}
 	if config.CookieName == "" {
 		config.CookieName = "gopulse_session"
@@ -563,6 +631,10 @@ func RunCapacity(ctx context.Context, config CapacityRunConfig) (CapacityReport,
 			{name: "measurement", target: stage.TargetRPS, duration: stage.MeasurementSeconds},
 		}
 		for _, window := range windows {
+			if err := progress.write("window_started", stage.Name, window.name, "started", 0, 0, 0, 0); err != nil {
+				stopScheduling()
+				return CapacityReport{}, err
+			}
 			scheduled, dropped, maxLag, scheduleErr := scheduleCapacityWindow(runCtx, window.target, window.duration, jobs, &slotIndex, stageIndex, window.name)
 			value := accumulators[capacityWindowKey(stageIndex, window.name)]
 			value.scheduled, value.dropped, value.maxScheduleLagMS = scheduled, dropped, maxLag
@@ -570,6 +642,14 @@ func RunCapacity(ctx context.Context, config CapacityRunConfig) (CapacityReport,
 				stopScheduling()
 				return CapacityReport{}, scheduleErr
 			}
+			if err := progress.write("window_finished", stage.Name, window.name, "complete", scheduled, dropped, 0, maxLag); err != nil {
+				stopScheduling()
+				return CapacityReport{}, err
+			}
+		}
+		if err := progress.write("recovery_started", stage.Name, "recovery", "started", 0, 0, 0, 0); err != nil {
+			stopScheduling()
+			return CapacityReport{}, err
 		}
 		recovery := time.NewTimer(secondsDuration(stage.RecoverySeconds))
 		select {
@@ -580,6 +660,10 @@ func RunCapacity(ctx context.Context, config CapacityRunConfig) (CapacityReport,
 			stopScheduling()
 			return CapacityReport{}, runCtx.Err()
 		case <-recovery.C:
+		}
+		if err := progress.write("recovery_finished", stage.Name, "recovery", "complete", 0, 0, 0, 0); err != nil {
+			stopScheduling()
+			return CapacityReport{}, err
 		}
 	}
 	stopScheduling()
@@ -612,10 +696,43 @@ func RunCapacity(ctx context.Context, config CapacityRunConfig) (CapacityReport,
 		ExecutionStatus: "complete", StartedAt: started, FinishedAt: finished,
 		Stages: stages, Total: total, LoadProcess: processStats(), Resources: config.Resources,
 	}
+	if progress != nil {
+		if err := progress.write("run_finished", "", "", "complete", 0, 0, 0, 0); err != nil {
+			return CapacityReport{}, err
+		}
+		completed = true
+		if err := progress.close(); err != nil {
+			return CapacityReport{}, err
+		}
+		progressReference, err := readCapacityProgressReference(config.ProgressPath)
+		if err != nil {
+			return CapacityReport{}, err
+		}
+		report.Progress = progressReference
+		progress = nil
+	}
 	if err := writeCapacityReportAtomic(config.ReportPath, report); err != nil {
 		return CapacityReport{}, err
 	}
+	completed = true
 	return report, nil
+}
+
+func readCapacityProgressReference(path string) (*CapacityProgressReference, error) {
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read capacity progress: %w", err)
+	}
+	records := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(encoded)), "\n") {
+		if strings.TrimSpace(line) != "" {
+			records++
+		}
+	}
+	if records == 0 {
+		return nil, errors.New("capacity progress is empty")
+	}
+	return &CapacityProgressReference{Path: "progress.jsonl", SHA256: ProfileDigest(encoded), Records: records}, nil
 }
 
 func secondsDuration(seconds float64) time.Duration {

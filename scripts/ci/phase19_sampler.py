@@ -49,6 +49,13 @@ LINK_FAMILIES = {
     "marshaller": ["gopulse_marshaller_records_in_flight", "gopulse_marshaller_retrying"],
 }
 
+DEFAULT_REQUIRED_COMPONENTS = [
+    "mysql", "redis", "rabbitmq", "elasticsearch", "observability-elasticsearch",
+    "kafka", "victoriametrics", "backend", "backend-2", "business-worker",
+    "business-worker-2", "search-indexer", "search-indexer-2", "router", "router-2",
+    "marshaller", "marshaller-2", "monitor", "frontend", "admin-frontend",
+]
+
 
 def command(args, timeout=20, env=None):
     return subprocess.run(args, text=True, capture_output=True, timeout=timeout, env=env)
@@ -157,11 +164,14 @@ def _process_stats(pid):
 
 
 class Sampler:
-    def __init__(self, project, compose_file, env_file, interval=5, raw_path=None, load_pid=None):
+    def __init__(self, project, compose_file, env_file, interval=5, raw_path=None, load_pid=None, required_components=None):
         if interval <= 0:
             raise ValueError("sampler interval must be positive")
         self.project = project
-        self.compose_file = Path(compose_file)
+        if isinstance(compose_file, (list, tuple)):
+            self.compose_files = [Path(item) for item in compose_file]
+        else:
+            self.compose_files = [Path(compose_file)]
         self.env_file = Path(env_file)
         self.interval = float(interval)
         self.raw_path = Path(raw_path) if raw_path is not None else None
@@ -175,6 +185,10 @@ class Sampler:
         self._raw_stream = None
         self._failure = None
         self._stopped = False
+        self.required_components = list(required_components or [])
+        self._stage = None
+        self._window = None
+        self._progress_sequence = None
 
     def _open_raw(self):
         if self.raw_path is None or self._raw_stream is not None:
@@ -202,6 +216,19 @@ class Sampler:
         if pid is not None and (not isinstance(pid, int) or pid <= 0):
             raise ValueError("load pid must be positive")
         self._load_pid = pid
+        if pid is not None:
+            process = _process_stats(pid)
+            self._load_before = (process, time.monotonic()) if process is not None else None
+
+    def set_window(self, stage=None, window=None, progress_sequence=None):
+        self._stage = stage
+        self._window = window
+        self._progress_sequence = progress_sequence
+
+    def record_progress(self, record):
+        """Capture an immediate boundary sample for a durable load event."""
+        self.set_window(record.get("stage") or None, record.get("window") or None, record.get("sequence"))
+        self._sample(time.monotonic(), "boundary", stage=self._stage, window=self._window, progress_sequence=self._progress_sequence)
 
     def start(self):
         try:
@@ -225,7 +252,7 @@ class Sampler:
             if self._thread.is_alive():
                 self._failure = self._failure or RuntimeError("resource sampler thread did not stop")
         failure = self._failure
-        if failure is None:
+        if failure is None and not self.required_components:
             try:
                 self._sample(time.monotonic(), "final")
             except Exception as error:
@@ -249,12 +276,15 @@ class Sampler:
             self._stop.set()
 
     def _compose(self, *args, timeout=30):
+        command_line = ["docker", "compose", "--project-name", self.project, "--env-file", str(self.env_file)]
+        for path in self.compose_files:
+            command_line.extend(["-f", str(path)])
         return command(
-            ["docker", "compose", "--project-name", self.project, "--env-file", str(self.env_file), "-f", str(self.compose_file), *args],
+            command_line + list(args),
             timeout=timeout,
         )
 
-    def _sample(self, scheduled_at, sample_kind="scheduled"):
+    def _sample(self, scheduled_at, sample_kind="scheduled", stage=None, window=None, progress_sequence=None):
         with self._sample_lock:
             memory = {}
             try:
@@ -292,17 +322,61 @@ class Sampler:
             rabbitmq = self._rabbitmq()
             mysql = self._mysql()
             kafka_lag = self._kafka_lag()
+            redis = self._redis()
+            elasticsearch = self._elasticsearch("elasticsearch")
+            observability_elasticsearch = self._elasticsearch("observability-elasticsearch")
+            victoriametrics = self._victoriametrics()
             sut_cpu = max((item.get("cpu_percent", 0) for item in containers), default=0.0)
             sut_rss = sum(item.get("memory_usage_bytes", 0) for item in containers)
             scheduler_lag_ms = max(0.0, (observed_monotonic - scheduled_at) * 1000)
             if load_process is not None:
                 load_process["scheduler_lag_ms"] = scheduler_lag_ms
+            required_component_set = set(self.required_components)
+            component_resources = {
+                item["service"]: {
+                    "cpu_percent": item.get("cpu_percent"),
+                    "rss_bytes": item.get("memory_usage_bytes", 0),
+                    "running": item.get("running", False),
+                    "restart_count": item.get("restart_count", 0),
+                    "oom_killed": item.get("oom_killed", False),
+                }
+                for item in containers
+                if item.get("service") and (not required_component_set or item.get("service") in required_component_set)
+            }
+            missing_components = sorted(set(self.required_components) - set(component_resources))
+            missing_signals = []
+            signal_present = {
+                "host_cpu": cpu is not None,
+                "host_rss": memory.get("MemTotal", 0) > 0 and memory.get("MemAvailable", 0) >= 0,
+                "load_cpu": load_process is not None and load_process.get("cpu_percent") is not None,
+                "load_rss": load_process is not None and load_process.get("rss_bytes") is not None,
+                "load_scheduler_lag": load_process is not None and load_process.get("scheduler_lag_ms") is not None,
+                "sut_cpu": bool(containers),
+                "sut_rss": bool(containers),
+                "sut_saturation": bool(links) and all(value is not None for value in links.values()),
+                "outbox": bool((links.get("backend") or {}).get("gopulse_backend_outbox_pending") is not None),
+                "rabbitmq": rabbitmq is not None,
+                "kafka_lag": kafka_lag is not None,
+            }
+            missing_signals = sorted(name for name, present in signal_present.items() if not present)
+            if sample_kind == "initial":
+                missing_signals = [name for name in missing_signals if not name.startswith("load_")]
+            if self.required_components and missing_components:
+                raise RuntimeError("required resource components missing: " + ",".join(missing_components))
+            if self.required_components and missing_signals:
+                if self._stopped and set(missing_signals) <= {"load_cpu", "load_rss", "load_scheduler_lag"}:
+                    return
+                raise RuntimeError("required resource signals missing: " + ",".join(missing_signals))
             record = {
                 "schema": SCHEMA,
                 "sequence": len(self.records),
                 "observed_at": time.time(),
                 "interval_seconds": self.interval,
                 "sample_kind": sample_kind,
+                "scheduled_at": scheduled_at if sample_kind == "scheduled" else None,
+                "stage": stage if stage is not None else self._stage,
+                "window": window if window is not None else self._window,
+                "progress_sequence": progress_sequence if progress_sequence is not None else self._progress_sequence,
                 "host": {
                     "mem_total_bytes": memory.get("MemTotal", 0),
                     "mem_available_bytes": memory.get("MemAvailable", 0),
@@ -321,7 +395,7 @@ class Sampler:
                     "oom_killed": oom,
                     "saturation": links,
                 },
-                "signals": {"rabbitmq": rabbitmq, "mysql": mysql, "kafka_lag": kafka_lag},
+                "signals": {"rabbitmq": rabbitmq, "mysql": mysql, "redis": redis, "elasticsearch": elasticsearch, "observability_elasticsearch": observability_elasticsearch, "victoriametrics": victoriametrics, "kafka_lag": kafka_lag},
                 # These aliases keep the sampler's source-level contract easy
                 # to inspect while the nested fields make ownership explicit.
                 "containers": containers,
@@ -331,12 +405,19 @@ class Sampler:
                 "rabbitmq": rabbitmq,
                 "mysql": mysql,
                 "kafka_lag": kafka_lag,
+                "redis": redis,
+                "elasticsearch": elasticsearch,
+                "observability_elasticsearch": observability_elasticsearch,
+                "victoriametrics": victoriametrics,
+                "component_resources": component_resources,
+                "missing_components": missing_components,
+                "missing_signals": missing_signals,
             }
             self._persist_raw(record)
             self.records.append(record)
 
     def _containers(self):
-        result = self._compose("ps", "-q")
+        result = self._compose("ps", "-aq")
         if result.returncode:
             raise RuntimeError("inspect owned Compose containers")
         identifiers = result.stdout.split()
@@ -392,8 +473,12 @@ class Sampler:
     def _links(self):
         values = {}
         for service, script in LINK_METRICS_SCRIPTS.items():
-            text = self._exec(service, script)
-            values[service] = {name: metric_value(text, name) for name in LINK_FAMILIES[service]} if text else None
+            service_names = [service]
+            if service in {"backend", "business-worker", "search-indexer", "router", "marshaller"}:
+                service_names.append(service + "-2")
+            for service_name in service_names:
+                text = self._exec(service_name, script)
+                values[service_name] = {name: metric_value(text, name) for name in LINK_FAMILIES[service]} if text else None
         return values
 
     def _rabbitmq(self):
@@ -429,6 +514,37 @@ class Sampler:
                     continue
         return values or None
 
+    def _redis(self):
+        text = self._exec("redis", 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" INFO stats')
+        if not text:
+            return None
+        values = {}
+        for line in text.splitlines():
+            if ":" not in line or line.startswith("#"):
+                continue
+            key, value = line.split(":", 1)
+            try:
+                values[key] = float(value)
+            except ValueError:
+                continue
+        return values or None
+
+    def _elasticsearch(self, service):
+        result = self._compose("exec", "-T", service, "sh", "-c", "curl -fsS http://127.0.0.1:9200/_cluster/health", timeout=30)
+        if result.returncode:
+            return None
+        try:
+            value = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+        return {key: value[key] for key in ("status", "number_of_nodes", "active_shards", "unassigned_shards") if key in value}
+
+    def _victoriametrics(self):
+        result = self._compose("exec", "-T", "victoriametrics", "sh", "-c", "wget -qO- http://127.0.0.1:8428/metrics", timeout=30)
+        if result.returncode:
+            return None
+        return {"up": metric_value(result.stdout, "vm_rows_inserted_total") is not None, "rows_inserted": metric_value(result.stdout, "vm_rows_inserted_total")}
+
     def _kafka_lag(self):
         script = 'KAFKA_GROUP=${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}; /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:19092 --describe --group "$KAFKA_GROUP"'
         text = self._exec("kafka", script, timeout=30)
@@ -451,6 +567,8 @@ def validate_sample_intervals(records, expected_interval, tolerance=0.25):
     if expected_interval <= 0:
         raise ValueError("sample interval must be positive")
     previous = None
+    previous_scheduled = None
+    previous_scheduled_at = None
     for index, record in enumerate(records):
         if record.get("sequence") != index:
             raise ValueError("resource sample sequence is not contiguous")
@@ -459,14 +577,19 @@ def validate_sample_intervals(records, expected_interval, tolerance=0.25):
             raise ValueError("resource sample timestamp is invalid")
         if previous is not None and observed <= previous:
             raise ValueError("resource sample timestamps are not increasing")
-        if previous is not None:
-            previous_record = records[index - 1]
-            current_kind = record.get("sample_kind", "scheduled")
-            previous_kind = previous_record.get("sample_kind", "scheduled")
-            if current_kind != "final" and previous_kind != "final":
-                delta = observed - previous
+        if record.get("sample_kind", "scheduled") == "scheduled":
+            scheduled_at = record.get("scheduled_at")
+            if previous_scheduled_at is not None and isinstance(scheduled_at, (int, float)):
+                delta = scheduled_at - previous_scheduled_at
+            elif previous_scheduled is not None:
+                delta = observed - previous_scheduled
+            else:
+                delta = None
+            if delta is not None:
                 if abs(delta - expected_interval) > max(tolerance, expected_interval * 0.05):
                     raise ValueError("resource sample interval drifted")
+            previous_scheduled = observed
+            previous_scheduled_at = scheduled_at if isinstance(scheduled_at, (int, float)) else None
         previous = observed
         declared = record.get("interval_seconds")
         if declared is not None and abs(float(declared) - expected_interval) > max(tolerance, expected_interval * 0.05):
@@ -498,11 +621,13 @@ def _max_link(records, service, metric):
     )
 
 
-def summarize(records):
+def summarize(records, required_components=None):
     if not records:
         raise ValueError("resource sampling produced no records")
     validate_sample_intervals(records, float(records[0].get("interval_seconds") or 0.001))
     started_swap = records[0]["host"].get("swap_free_bytes", 0)
+    expected_components = list(required_components or sorted({name for item in records for name in (item.get("component_resources") or {})}))
+    missing_signals = sorted({signal for item in records for signal in item.get("missing_signals", [])})
     return {
         "schema": SCHEMA,
         "samples": len(records),
@@ -528,6 +653,8 @@ def summarize(records):
         "max_rabbit_ready": max(((item.get("rabbitmq") or {}).get("ready") or 0) for item in records),
         "max_rabbit_unacked": max(((item.get("rabbitmq") or {}).get("unacked") or 0) for item in records),
         "max_kafka_lag": max(((item.get("kafka_lag") or {}).get("lag") or 0) for item in records),
+        "required_components": expected_components,
+        "missing_signals": missing_signals,
     }
 
 
@@ -540,8 +667,8 @@ def write_samples(path, records, summary):
     temporary.replace(path)
 
 
-def summarize_samples(raw_path, output_path, expected_interval=None):
+def summarize_samples(raw_path, output_path, expected_interval=None, required_components=None):
     records = load_samples(raw_path, expected_interval=expected_interval)
-    summary = summarize(records)
+    summary = summarize(records, required_components=required_components)
     write_samples(output_path, records, summary)
     return records, summary

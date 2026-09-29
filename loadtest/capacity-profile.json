@@ -12,7 +12,7 @@
     "disk_free_bytes_min": 107374182400,
     "docker_server_os": "linux",
     "docker_server_arch": "amd64",
-    "compose_major": 2
+    "compose_min_version": "2.24.0"
   },
   "recipe": {
     "schema_version": "gopulse.phase18.recipe.v1",
@@ -122,6 +122,28 @@
       "outbox",
       "rabbitmq",
       "kafka_lag"
+    ],
+    "required_components": [
+      "mysql",
+      "redis",
+      "rabbitmq",
+      "elasticsearch",
+      "observability-elasticsearch",
+      "kafka",
+      "victoriametrics",
+      "backend",
+      "backend-2",
+      "business-worker",
+      "business-worker-2",
+      "search-indexer",
+      "search-indexer-2",
+      "router",
+      "router-2",
+      "marshaller",
+      "marshaller-2",
+      "monitor",
+      "frontend",
+      "admin-frontend"
     ]
   },
   "statistics": {

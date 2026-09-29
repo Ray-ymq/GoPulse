@@ -100,10 +100,10 @@ func run(arguments []string) int {
 	_, err = load.RunCapacity(ctx, load.CapacityRunConfig{
 		BaseURL: baseURL, Corpus: corpus, Credentials: credentials,
 		Profile: profile, ProfileDigest: profileDigest, Candidate: candidate,
-		Repeat: repeat, ReportPath: reportPath,
+		Repeat: repeat, ReportPath: reportPath, ProgressPath: filepath.Join(repeatDir, "progress.jsonl"),
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "capacity load execution failed")
+		fmt.Fprintf(os.Stderr, "capacity load execution failed: %v\n", err)
 		return 1
 	}
 	return 0

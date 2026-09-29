@@ -550,6 +550,16 @@ stage-scoped raw facts. Phase-19-03 is therefore reassigned to repair and prove
 that path without producing a capacity conclusion; Phase-19-04 will certify the
 frozen `2.1.3` candidate once and publish the actual result.
 
+Phase-19-03 advances the product metadata to `2.1.3` and repairs the capacity
+acceptance path. The fixed entry now owns the checked-in profile, Compose and
+runtime contract, creates a candidate-bound deterministic recipe per isolated
+round, derives each round's endpoint from its private port, records append-only
+load boundaries, and retains raw component, asynchronous, and observability
+receipts for strict verification. Its bounded preflight proves the acceptance
+infrastructure only; it does not execute the formal three-repeat certification
+or publish a capacity conclusion. Phase-19-04 will test the frozen `2.1.3`
+candidate and publish the actual result.
+
 ### Backend log query pipeline
 
 Backend, Business Worker, Search Indexer, and search-reindex Schema v1 logs remain single-line JSON on stdout and, when `LOG_MONITOR_URL` is configured, are also offered to the same bounded non-blocking in-memory shipper. The shipper uses the dedicated `LOG_MONITOR_INGEST_TOKEN`; queue full affects only the remote copy, temporary transport failures retain the ordered queue head and message ID for retry, and permanent `400`/`413`/`422` input rejection drops only that remote copy. None of these outcomes changes API, RabbitMQ acknowledgement, Outbox, indexing, or reindex exit semantics. LogMonitor derives one of the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, or `logs/search-reindex` envelopes from the validated service, Router transports all four through `gopulse-observability-v1`, and Marshaller revalidates the source/payload match before idempotently storing strict documents in `gopulse-logs-v1-YYYY.MM.DD` behind `gopulse-logs-v1-read`. The current observability topic has four partitions and two Marshaller group members with generation-scoped ownership; a target storage failure blocks only the affected bounded processing path while unrelated partitions and targets remain diagnosable. The Phase 9 historical single-member behavior remains documented in its implementation logs rather than presented as the current topology.
