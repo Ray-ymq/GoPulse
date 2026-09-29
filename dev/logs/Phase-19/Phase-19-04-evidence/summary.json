@@ -1,0 +1,1707 @@
+{
+  "bindings": {
+    "compose": {
+      "path": "bound-compose.yaml",
+      "sha256": "sha256:e51351ad3dd85c46c37dca8d382a85c2d99d8d8e6e8cdaf152d6b41ac0cac8d2"
+    },
+    "recipe_descriptor": {
+      "digest": "sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14",
+      "schema_version": "gopulse.phase18.recipe.v1",
+      "seed": 18002005
+    },
+    "runner": {
+      "binary_sha256": "sha256:2eb200e2e37be3ee636981fed1fae3d8f6edaebf44aa53ce962b4d8486278214",
+      "source_commit": "7251d32a20bc00c126bdef2a207620320f9939bf"
+    },
+    "runtime_contract": {
+      "path": "bound-runtime-contracts.json",
+      "sha256": "sha256:cf435f6d9afb0b0ff0139b3587dd4c14e2cd3791cec099c81eb9f64babfa51a3"
+    }
+  },
+  "capability_status": "boundary_found",
+  "capacity_curve": [
+    {
+      "aggregates": {
+        "achieved_rps": {
+          "cv": 0.0,
+          "max": 50,
+          "median": 50,
+          "min": 50
+        },
+        "explicit_reject_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "max_ms": {
+          "cv": 32.3143960438336,
+          "max": 138.204206,
+          "median": 75.629932,
+          "min": 70.909368
+        },
+        "max_schedule_lag_ms": {
+          "cv": 12.653436356648223,
+          "max": 5.223062,
+          "median": 4.053897,
+          "min": 4.014699
+        },
+        "p50_ms": {
+          "cv": 0.8751178486440433,
+          "max": 3.627302,
+          "median": 3.589888,
+          "min": 3.550374
+        },
+        "p95_ms": {
+          "cv": 1.8638484822052062,
+          "max": 13.997473,
+          "median": 13.459326,
+          "min": 13.457183
+        },
+        "p99_ms": {
+          "cv": 0.8957431280149081,
+          "max": 46.764951,
+          "median": 46.462059,
+          "min": 45.773083
+        },
+        "timeout_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "unexpected_error_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        }
+      },
+      "raw": {
+        "achieved_rps": [
+          50,
+          50,
+          50
+        ],
+        "explicit_reject_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_ms": [
+          70.909368,
+          138.204206,
+          75.629932
+        ],
+        "max_schedule_lag_ms": [
+          5.223062,
+          4.014699,
+          4.053897
+        ],
+        "p50_ms": [
+          3.589888,
+          3.550374,
+          3.627302
+        ],
+        "p95_ms": [
+          13.457183,
+          13.997473,
+          13.459326
+        ],
+        "p99_ms": [
+          46.462059,
+          46.764951,
+          45.773083
+        ],
+        "timeout_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "unexpected_error_rate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "stage": "rps-50",
+      "target_rps": 50
+    },
+    {
+      "aggregates": {
+        "achieved_rps": {
+          "cv": 0.0,
+          "max": 100,
+          "median": 100,
+          "min": 100
+        },
+        "explicit_reject_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "max_ms": {
+          "cv": 7.563129068084623,
+          "max": 81.102927,
+          "median": 79.249013,
+          "min": 68.066271
+        },
+        "max_schedule_lag_ms": {
+          "cv": 20.90331690669819,
+          "max": 5.236944,
+          "median": 4.689179,
+          "min": 3.097432
+        },
+        "p50_ms": {
+          "cv": 2.0735241912059172,
+          "max": 3.947437,
+          "median": 3.821005,
+          "min": 3.755534
+        },
+        "p95_ms": {
+          "cv": 0.9218248413042078,
+          "max": 15.429975,
+          "median": 15.378939,
+          "min": 15.108436
+        },
+        "p99_ms": {
+          "cv": 0.687805131780905,
+          "max": 46.611785,
+          "median": 46.451111,
+          "min": 45.870227
+        },
+        "timeout_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "unexpected_error_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        }
+      },
+      "raw": {
+        "achieved_rps": [
+          100,
+          100,
+          100
+        ],
+        "explicit_reject_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_ms": [
+          81.102927,
+          68.066271,
+          79.249013
+        ],
+        "max_schedule_lag_ms": [
+          5.236944,
+          4.689179,
+          3.097432
+        ],
+        "p50_ms": [
+          3.755534,
+          3.947437,
+          3.821005
+        ],
+        "p95_ms": [
+          15.108436,
+          15.429975,
+          15.378939
+        ],
+        "p99_ms": [
+          46.451111,
+          45.870227,
+          46.611785
+        ],
+        "timeout_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "unexpected_error_rate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "stage": "rps-100",
+      "target_rps": 100
+    },
+    {
+      "aggregates": {
+        "achieved_rps": {
+          "cv": 0.0,
+          "max": 150,
+          "median": 150,
+          "min": 150
+        },
+        "explicit_reject_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "max_ms": {
+          "cv": 111.48218212218009,
+          "max": 1199.339745,
+          "median": 101.845607,
+          "min": 95.249589
+        },
+        "max_schedule_lag_ms": {
+          "cv": 16.81430768074184,
+          "max": 6.283916,
+          "median": 4.677581,
+          "min": 4.313284
+        },
+        "p50_ms": {
+          "cv": 0.9824163544218519,
+          "max": 3.768022,
+          "median": 3.705128,
+          "min": 3.68146
+        },
+        "p95_ms": {
+          "cv": 11.521527383536514,
+          "max": 18.031319,
+          "median": 14.476783,
+          "min": 14.039386
+        },
+        "p99_ms": {
+          "cv": 77.5810067816097,
+          "max": 218.395273,
+          "median": 47.253572,
+          "min": 46.767234
+        },
+        "timeout_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "unexpected_error_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        }
+      },
+      "raw": {
+        "achieved_rps": [
+          150,
+          150,
+          150
+        ],
+        "explicit_reject_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_ms": [
+          1199.339745,
+          101.845607,
+          95.249589
+        ],
+        "max_schedule_lag_ms": [
+          4.313284,
+          6.283916,
+          4.677581
+        ],
+        "p50_ms": [
+          3.705128,
+          3.768022,
+          3.68146
+        ],
+        "p95_ms": [
+          18.031319,
+          14.039386,
+          14.476783
+        ],
+        "p99_ms": [
+          218.395273,
+          46.767234,
+          47.253572
+        ],
+        "timeout_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "unexpected_error_rate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "stage": "rps-150",
+      "target_rps": 150
+    },
+    {
+      "aggregates": {
+        "achieved_rps": {
+          "cv": 0.0,
+          "max": 200,
+          "median": 200,
+          "min": 200
+        },
+        "explicit_reject_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "max_ms": {
+          "cv": 5.490118976019212,
+          "max": 108.406332,
+          "median": 99.390253,
+          "min": 95.105892
+        },
+        "max_schedule_lag_ms": {
+          "cv": 27.178890229832064,
+          "max": 8.692922,
+          "median": 6.100642,
+          "min": 4.456298
+        },
+        "p50_ms": {
+          "cv": 0.37016977057764994,
+          "max": 3.603804,
+          "median": 3.597908,
+          "min": 3.573119
+        },
+        "p95_ms": {
+          "cv": 5.0970479556483275,
+          "max": 16.829996,
+          "median": 15.273378,
+          "min": 15.018678
+        },
+        "p99_ms": {
+          "cv": 3.7070244396235497,
+          "max": 53.38983,
+          "median": 49.777964,
+          "min": 49.104475
+        },
+        "timeout_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        },
+        "unexpected_error_rate": {
+          "cv": 0.0,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0
+        }
+      },
+      "raw": {
+        "achieved_rps": [
+          200,
+          200,
+          200
+        ],
+        "explicit_reject_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max_ms": [
+          95.105892,
+          99.390253,
+          108.406332
+        ],
+        "max_schedule_lag_ms": [
+          6.100642,
+          4.456298,
+          8.692922
+        ],
+        "p50_ms": [
+          3.573119,
+          3.603804,
+          3.597908
+        ],
+        "p95_ms": [
+          15.018678,
+          16.829996,
+          15.273378
+        ],
+        "p99_ms": [
+          49.104475,
+          53.38983,
+          49.777964
+        ],
+        "timeout_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "unexpected_error_rate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "stage": "rps-200",
+      "target_rps": 200
+    }
+  ],
+  "closure_version": "2.1.4",
+  "execution_status": "complete",
+  "first_bottleneck": {
+    "async_terminal": [
+      {
+        "kafka_lag": 2,
+        "observed_at": 1790678655.6178906,
+        "outbox_pending": 25,
+        "rabbit_ready": 0,
+        "rabbit_unacked": 0
+      },
+      {
+        "kafka_lag": 3,
+        "observed_at": 1790679299.5560389,
+        "outbox_pending": 12,
+        "rabbit_ready": 0,
+        "rabbit_unacked": 0
+      },
+      {
+        "kafka_lag": 4,
+        "observed_at": 1790679958.125668,
+        "outbox_pending": 0,
+        "rabbit_ready": 0,
+        "rabbit_unacked": 0
+      }
+    ],
+    "classification": "async_and_observability_recovery_boundary",
+    "observability_progress": [
+      {
+        "events": false,
+        "logs": true,
+        "metrics": true
+      },
+      {
+        "events": false,
+        "logs": true,
+        "metrics": true
+      },
+      {
+        "events": false,
+        "logs": true,
+        "metrics": true
+      }
+    ],
+    "recovery_seconds": [
+      123.0173704624176,
+      122.79403829574585,
+      122.95981645584106
+    ],
+    "same_window_resources": [
+      {
+        "host_cpu_percent_max": 57.392,
+        "kafka_lag_max": 8,
+        "load_scheduler_lag_ms_max": 33856.728,
+        "outbox_pending_max": 0.0,
+        "samples": 19,
+        "sut_cpu_percent_max": 213.37,
+        "top_component_cpu": {
+          "cpu_percent": 213.37,
+          "service": "kafka"
+        },
+        "top_component_rss": {
+          "rss_bytes": 1247687999,
+          "service": "elasticsearch"
+        }
+      },
+      {
+        "host_cpu_percent_max": 52.34,
+        "kafka_lag_max": 8,
+        "load_scheduler_lag_ms_max": 33798.721,
+        "outbox_pending_max": 15.0,
+        "samples": 17,
+        "sut_cpu_percent_max": 202.19,
+        "top_component_cpu": {
+          "cpu_percent": 202.19,
+          "service": "kafka"
+        },
+        "top_component_rss": {
+          "rss_bytes": 1258425417,
+          "service": "elasticsearch"
+        }
+      },
+      {
+        "host_cpu_percent_max": 47.871,
+        "kafka_lag_max": 14,
+        "load_scheduler_lag_ms_max": 33604.538,
+        "outbox_pending_max": 2.0,
+        "samples": 17,
+        "sut_cpu_percent_max": 172.24,
+        "top_component_cpu": {
+          "cpu_percent": 172.24,
+          "service": "monitor"
+        },
+        "top_component_rss": {
+          "rss_bytes": 1268089094,
+          "service": "elasticsearch"
+        }
+      }
+    ],
+    "stage": "rps-50",
+    "statement": "The first observed failing stage is 50 RPS. Synchronous request gates pass, but asynchronous recovery exceeds 120 seconds in all repetitions; Outbox/Kafka terminal queues remain non-zero in some repetitions; and Events count does not advance in any repetition. Same-window resource and signal evidence is retained below. This identifies the first observed acceptance boundary, not a proven single causal root."
+  },
+  "formal_entry": {
+    "invocations": 1,
+    "repetitions": 3,
+    "stages": [
+      {
+        "name": "rps-50",
+        "target_rps": 50
+      },
+      {
+        "name": "rps-100",
+        "target_rps": 100
+      },
+      {
+        "name": "rps-150",
+        "target_rps": 150
+      },
+      {
+        "name": "rps-200",
+        "target_rps": 200
+      }
+    ],
+    "strict_verifier": "passed",
+    "work_directory": "/tmp/gopulse-phase19-04-formal-20260929a"
+  },
+  "host": {
+    "active_compose_projects": [],
+    "compose_version": "v5.5.0",
+    "compose_version_parsed": [
+      5,
+      5,
+      0
+    ],
+    "cpu_count": 8,
+    "disk_free_bytes": 113462226944,
+    "docker_server_arch": "amd64",
+    "docker_server_os": "linux",
+    "docker_server_version": "29.7.2",
+    "host_os": "Linux",
+    "kernel": "6.6.87.2-microsoft-standard-WSL2",
+    "memory_bytes": 13600256000,
+    "platform": "linux/amd64",
+    "swap_bytes": 17179869184
+  },
+  "limitations": [
+    "The result is scoped to this frozen 2.1.3 candidate, profile, recipe, host, and Docker/Compose environment.",
+    "boundary_found is a complete execution classification; it is not target_met and must not be generalized to production capacity.",
+    "The first bottleneck statement is evidence-based gate diagnosis; no product or acceptance-tool optimization was performed in this batch.",
+    "Credentials, DSNs, environment files, corpus files, and load-password files are excluded from publication."
+  ],
+  "profile": {
+    "id": "phase19-standard-capacity",
+    "path": "capacity-profile.json",
+    "sha256": "sha256:08b6e74fd67d0d04660762801df7e49fdf0cd833783c2981e313eaed7334eb8f"
+  },
+  "recipe": {
+    "digest": "sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14",
+    "schema_version": "gopulse.phase18.recipe.v1",
+    "seed": 18002005
+  },
+  "repetitions_detail": [
+    {
+      "cleanup": {
+        "global_prune": false,
+        "owned": true,
+        "project": "gopulse-p19-4958a2e7ae15",
+        "status": "passed"
+      },
+      "endpoint": {
+        "base_url": "http://127.0.0.1:19081",
+        "port": 19081
+      },
+      "execution_status": "complete",
+      "number": 1,
+      "project": "gopulse-p19-4958a2e7ae15",
+      "resources": {
+        "interval_seconds": 5.0,
+        "load_process_peak_cpu_percent": 9.945418252141664,
+        "load_process_peak_rss_bytes": 30203904,
+        "max_kafka_lag": 252,
+        "max_load_scheduler_lag_ms": 166127.6902279933,
+        "max_outbox_pending": 45.0,
+        "max_rabbit_ready": 0,
+        "max_rabbit_unacked": 1,
+        "missing_signals": [],
+        "oom_killed": 0,
+        "peak_container_cpu_percent": 327.64,
+        "restart_count": 0,
+        "samples": 77,
+        "sut_peak_cpu_percent": 327.64,
+        "sut_peak_rss_bytes": 4865305599
+      },
+      "stages": [
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790678532.6005201,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 123.0173704624176,
+            "terminal": {
+              "kafka_lag": 2,
+              "observed_at": 1790678655.6178906,
+              "outbox_pending": 25,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_outbox_pending",
+            "async_kafka_lag",
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 50,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 70.909368,
+            "max_schedule_lag_ms": 5.223062,
+            "p50_ms": 3.589888,
+            "p95_ms": 13.457183,
+            "p99_ms": 46.462059,
+            "target_rps": 50,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 6407,
+              "metric_count": 77
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 123.0173704624176,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 17979,
+              "metric_count": 124
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 57.392,
+            "kafka_lag_max": 8,
+            "load_scheduler_lag_ms_max": 33856.728,
+            "outbox_pending_max": 0.0,
+            "samples": 19,
+            "sut_cpu_percent_max": 213.37,
+            "top_component_cpu": {
+              "cpu_percent": 213.37,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1247687999,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-50"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790678639.1917605,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 121.09340715408325,
+            "terminal": {
+              "kafka_lag": 5,
+              "observed_at": 1790678760.2851677,
+              "outbox_pending": 15,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_outbox_pending",
+            "async_kafka_lag",
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 100,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 81.102927,
+            "max_schedule_lag_ms": 5.236944,
+            "p50_ms": 3.755534,
+            "p95_ms": 15.108436,
+            "p99_ms": 46.451111,
+            "target_rps": 100,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 16962,
+              "metric_count": 117
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 121.09340715408325,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 32285,
+              "metric_count": 154
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 65.023,
+            "kafka_lag_max": 14,
+            "load_scheduler_lag_ms_max": 74588.433,
+            "outbox_pending_max": 15.0,
+            "samples": 13,
+            "sut_cpu_percent_max": 319.96,
+            "top_component_cpu": {
+              "cpu_percent": 319.96,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1296006381,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-100"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790678743.5266793,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 121.42031025886536,
+            "terminal": {
+              "kafka_lag": 0,
+              "observed_at": 1790678864.9469895,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 150,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 1199.339745,
+            "max_schedule_lag_ms": 4.313284,
+            "p50_ms": 3.705128,
+            "p95_ms": 18.031319,
+            "p99_ms": 218.395273,
+            "target_rps": 150,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 31076,
+              "metric_count": 148
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 121.42031025886536,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 46436,
+              "metric_count": 188
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 65.569,
+            "kafka_lag_max": 95,
+            "load_scheduler_lag_ms_max": 119282.839,
+            "outbox_pending_max": 36.0,
+            "samples": 12,
+            "sut_cpu_percent_max": 301.45,
+            "top_component_cpu": {
+              "cpu_percent": 301.45,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1320702443,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-150"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790678844.4702663,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 120.16417050361633,
+            "terminal": {
+              "kafka_lag": 0,
+              "observed_at": 1790678964.6344368,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_log_progress",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 200,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 95.105892,
+            "max_schedule_lag_ms": 6.100642,
+            "p50_ms": 3.573119,
+            "p95_ms": 15.018678,
+            "p99_ms": 49.104475,
+            "target_rps": 200,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 46436,
+              "metric_count": 176
+            },
+            "progress": {
+              "events": false,
+              "logs": false,
+              "metrics": true
+            },
+            "recovery_seconds": 120.16417050361633,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 46436,
+              "metric_count": 227
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 68.363,
+            "kafka_lag_max": 96,
+            "load_scheduler_lag_ms_max": 166127.69,
+            "outbox_pending_max": 48.0,
+            "samples": 12,
+            "sut_cpu_percent_max": 327.64,
+            "top_component_cpu": {
+              "cpu_percent": 327.64,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1322849927,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-200"
+        }
+      ]
+    },
+    {
+      "cleanup": {
+        "global_prune": false,
+        "owned": true,
+        "project": "gopulse-p19-8b8a3f54b0a1",
+        "status": "passed"
+      },
+      "endpoint": {
+        "base_url": "http://127.0.0.1:19082",
+        "port": 19082
+      },
+      "execution_status": "complete",
+      "number": 2,
+      "project": "gopulse-p19-8b8a3f54b0a1",
+      "resources": {
+        "interval_seconds": 5.0,
+        "load_process_peak_cpu_percent": 9.963522845516568,
+        "load_process_peak_rss_bytes": 27586560,
+        "max_kafka_lag": 99,
+        "max_load_scheduler_lag_ms": 166310.9814049967,
+        "max_outbox_pending": 56.0,
+        "max_rabbit_ready": 0,
+        "max_rabbit_unacked": 1,
+        "missing_signals": [],
+        "oom_killed": 0,
+        "peak_container_cpu_percent": 391.61,
+        "restart_count": 0,
+        "samples": 77,
+        "sut_peak_cpu_percent": 391.61,
+        "sut_peak_rss_bytes": 4985491282
+      },
+      "stages": [
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790679176.7620006,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 122.79403829574585,
+            "terminal": {
+              "kafka_lag": 3,
+              "observed_at": 1790679299.5560389,
+              "outbox_pending": 12,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_outbox_pending",
+            "async_kafka_lag",
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 50,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 138.204206,
+            "max_schedule_lag_ms": 4.014699,
+            "p50_ms": 3.550374,
+            "p95_ms": 13.997473,
+            "p99_ms": 46.764951,
+            "target_rps": 50,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 6413,
+              "metric_count": 61
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 122.79403829574585,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 18071,
+              "metric_count": 116
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 52.34,
+            "kafka_lag_max": 8,
+            "load_scheduler_lag_ms_max": 33798.721,
+            "outbox_pending_max": 15.0,
+            "samples": 17,
+            "sut_cpu_percent_max": 202.19,
+            "top_component_cpu": {
+              "cpu_percent": 202.19,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1258425417,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-50"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790679288.9223738,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 121.4181261062622,
+            "terminal": {
+              "kafka_lag": 66,
+              "observed_at": 1790679410.3404999,
+              "outbox_pending": 11,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 1
+            }
+          },
+          "failed_dimensions": [
+            "async_outbox_pending",
+            "async_rabbit_unacked",
+            "async_kafka_lag",
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 100,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 68.066271,
+            "max_schedule_lag_ms": 4.689179,
+            "p50_ms": 3.947437,
+            "p95_ms": 15.429975,
+            "p99_ms": 45.870227,
+            "target_rps": 100,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 16968,
+              "metric_count": 116
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 121.4181261062622,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 33486,
+              "metric_count": 168
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 67.779,
+            "kafka_lag_max": 44,
+            "load_scheduler_lag_ms_max": 75959.923,
+            "outbox_pending_max": 12.0,
+            "samples": 13,
+            "sut_cpu_percent_max": 236.18,
+            "top_component_cpu": {
+              "cpu_percent": 236.18,
+              "service": "rabbitmq"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1317481218,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-100"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790679382.6283503,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 120.98638916015625,
+            "terminal": {
+              "kafka_lag": 0,
+              "observed_at": 1790679503.6147394,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 150,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 101.845607,
+            "max_schedule_lag_ms": 6.283916,
+            "p50_ms": 3.768022,
+            "p95_ms": 14.039386,
+            "p99_ms": 46.767234,
+            "target_rps": 150,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 31122,
+              "metric_count": 155
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 120.98638916015625,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 46526,
+              "metric_count": 209
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 67.91,
+            "kafka_lag_max": 12,
+            "load_scheduler_lag_ms_max": 119818.16,
+            "outbox_pending_max": 33.0,
+            "samples": 12,
+            "sut_cpu_percent_max": 210.17,
+            "top_component_cpu": {
+              "cpu_percent": 210.17,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1351840956,
+              "service": "observability-elasticsearch"
+            }
+          },
+          "stage": "rps-150"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790679488.9957545,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 121.98163318634033,
+            "terminal": {
+              "kafka_lag": 0,
+              "observed_at": 1790679610.9773877,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_log_progress",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 200,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 99.390253,
+            "max_schedule_lag_ms": 4.456298,
+            "p50_ms": 3.603804,
+            "p95_ms": 16.829996,
+            "p99_ms": 53.38983,
+            "target_rps": 200,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 46526,
+              "metric_count": 201
+            },
+            "progress": {
+              "events": false,
+              "logs": false,
+              "metrics": true
+            },
+            "recovery_seconds": 121.98163318634033,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 46526,
+              "metric_count": 246
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 68.912,
+            "kafka_lag_max": 78,
+            "load_scheduler_lag_ms_max": 166310.981,
+            "outbox_pending_max": 45.0,
+            "samples": 12,
+            "sut_cpu_percent_max": 391.61,
+            "top_component_cpu": {
+              "cpu_percent": 391.61,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1361504632,
+              "service": "observability-elasticsearch"
+            }
+          },
+          "stage": "rps-200"
+        }
+      ]
+    },
+    {
+      "cleanup": {
+        "global_prune": false,
+        "owned": true,
+        "project": "gopulse-p19-b61e04357b36",
+        "status": "passed"
+      },
+      "endpoint": {
+        "base_url": "http://127.0.0.1:19083",
+        "port": 19083
+      },
+      "execution_status": "complete",
+      "number": 3,
+      "project": "gopulse-p19-b61e04357b36",
+      "resources": {
+        "interval_seconds": 5.0,
+        "load_process_peak_cpu_percent": 9.982404614254314,
+        "load_process_peak_rss_bytes": 27820032,
+        "max_kafka_lag": 61,
+        "max_load_scheduler_lag_ms": 163251.681180991,
+        "max_outbox_pending": 45.0,
+        "max_rabbit_ready": 0,
+        "max_rabbit_unacked": 1,
+        "missing_signals": [],
+        "oom_killed": 0,
+        "peak_container_cpu_percent": 457.04,
+        "restart_count": 0,
+        "samples": 78,
+        "sut_peak_cpu_percent": 457.04,
+        "sut_peak_rss_bytes": 4852235099
+      },
+      "stages": [
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790679835.1658516,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 122.95981645584106,
+            "terminal": {
+              "kafka_lag": 4,
+              "observed_at": 1790679958.125668,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_kafka_lag",
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 50,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 75.629932,
+            "max_schedule_lag_ms": 4.053897,
+            "p50_ms": 3.627302,
+            "p95_ms": 13.459326,
+            "p99_ms": 45.773083,
+            "target_rps": 50,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 6413,
+              "metric_count": 80
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 122.95981645584106,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 18029,
+              "metric_count": 140
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 47.871,
+            "kafka_lag_max": 14,
+            "load_scheduler_lag_ms_max": 33604.538,
+            "outbox_pending_max": 2.0,
+            "samples": 17,
+            "sut_cpu_percent_max": 172.24,
+            "top_component_cpu": {
+              "cpu_percent": 172.24,
+              "service": "monitor"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1268089094,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-50"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790679935.3089526,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 120.9395043849945,
+            "terminal": {
+              "kafka_lag": 16,
+              "observed_at": 1790680056.248457,
+              "outbox_pending": 16,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_outbox_pending",
+            "async_kafka_lag",
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 100,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 79.249013,
+            "max_schedule_lag_ms": 3.097432,
+            "p50_ms": 3.821005,
+            "p95_ms": 15.378939,
+            "p99_ms": 46.611785,
+            "target_rps": 100,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 16968,
+              "metric_count": 131
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 120.9395043849945,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 31631,
+              "metric_count": 181
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 64.867,
+            "kafka_lag_max": 32,
+            "load_scheduler_lag_ms_max": 74165.974,
+            "outbox_pending_max": 15.0,
+            "samples": 15,
+            "sut_cpu_percent_max": 339.78,
+            "top_component_cpu": {
+              "cpu_percent": 339.78,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1305670057,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-100"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790680044.2085366,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 122.83873462677002,
+            "terminal": {
+              "kafka_lag": 0,
+              "observed_at": 1790680167.0472713,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 150,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 95.249589,
+            "max_schedule_lag_ms": 4.677581,
+            "p50_ms": 3.68146,
+            "p95_ms": 14.476783,
+            "p99_ms": 47.253572,
+            "target_rps": 150,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 31194,
+              "metric_count": 176
+            },
+            "progress": {
+              "events": false,
+              "logs": true,
+              "metrics": true
+            },
+            "recovery_seconds": 122.83873462677002,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 46615,
+              "metric_count": 220
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 70.385,
+            "kafka_lag_max": 47,
+            "load_scheduler_lag_ms_max": 117885.394,
+            "outbox_pending_max": 44.0,
+            "samples": 15,
+            "sut_cpu_percent_max": 457.04,
+            "top_component_cpu": {
+              "cpu_percent": 457.04,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1318554959,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-150"
+        },
+        {
+          "asynchronous": {
+            "baseline": {
+              "kafka_lag": 0,
+              "observed_at": 1790680154.687081,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            },
+            "recovery_seconds": 121.8807635307312,
+            "terminal": {
+              "kafka_lag": 0,
+              "observed_at": 1790680276.5678446,
+              "outbox_pending": 0,
+              "rabbit_ready": 0,
+              "rabbit_unacked": 0
+            }
+          },
+          "failed_dimensions": [
+            "async_recovery_seconds",
+            "observability_recovery_seconds",
+            "observability_log_progress",
+            "observability_event_progress"
+          ],
+          "gate_passed": false,
+          "measurement": {
+            "achieved_rps": 200,
+            "dropped_slots": 0,
+            "explicit_reject_rate": 0.0,
+            "max_ms": 108.406332,
+            "max_schedule_lag_ms": 8.692922,
+            "p50_ms": 3.597908,
+            "p95_ms": 15.273378,
+            "p99_ms": 49.777964,
+            "target_rps": 200,
+            "timeout_rate": 0.0,
+            "unexpected_error_rate": 0.0
+          },
+          "observability": {
+            "baseline": {
+              "events_count": 1,
+              "logs_count": 46615,
+              "metric_count": 214
+            },
+            "progress": {
+              "events": false,
+              "logs": false,
+              "metrics": true
+            },
+            "recovery_seconds": 121.8807635307312,
+            "terminal": {
+              "events_count": 1,
+              "logs_count": 46615,
+              "metric_count": 260
+            }
+          },
+          "same_window_resources": {
+            "host_cpu_percent_max": 70.192,
+            "kafka_lag_max": 41,
+            "load_scheduler_lag_ms_max": 163251.681,
+            "outbox_pending_max": 45.0,
+            "samples": 12,
+            "sut_cpu_percent_max": 322.91,
+            "top_component_cpu": {
+              "cpu_percent": 322.91,
+              "service": "kafka"
+            },
+            "top_component_rss": {
+              "rss_bytes": 1329292378,
+              "service": "elasticsearch"
+            }
+          },
+          "stage": "rps-200"
+        }
+      ]
+    }
+  ],
+  "schema": "gopulse.phase19.capacity-summary.v1",
+  "source_evidence": {
+    "candidate_manifest_sha256": "sha256:09ed1dafa379472071f09d55cde57ec29ff9eb28f430f4742479f32b0ddc046e",
+    "capacity_evidence_sha256": "sha256:2b30d433337ad34586af07f83ff078c586980ed5637d78b3890fb501aab17e2f",
+    "compose_sha256": "sha256:e51351ad3dd85c46c37dca8d382a85c2d99d8d8e6e8cdaf152d6b41ac0cac8d2",
+    "profile_sha256": "sha256:08b6e74fd67d0d04660762801df7e49fdf0cd833783c2981e313eaed7334eb8f",
+    "recipe_inspect_1_sha256": "sha256:431c283c8e237c023e37105f714680bfefccb6410a9baec6bb1465e1919766b1",
+    "recipe_inspect_2_sha256": "sha256:cf94110ed82d51962ff5e3496584a17cfde745eab5ed15548242337e6251d3dd",
+    "runtime_contract_sha256": "sha256:cf435f6d9afb0b0ff0139b3587dd4c14e2cd3791cec099c81eb9f64babfa51a3"
+  },
+  "stage_gates": [
+    {
+      "passed": false,
+      "stage": "rps-50"
+    },
+    {
+      "passed": false,
+      "stage": "rps-100"
+    },
+    {
+      "passed": false,
+      "stage": "rps-150"
+    },
+    {
+      "passed": false,
+      "stage": "rps-200"
+    }
+  ],
+  "tested_candidate": {
+    "image_tag": "2.1.3-candidate-7251d32a20bc",
+    "images": [
+      {
+        "image_id": "sha256:3083794e4f49794a4772180293b6e5ea00d0a1090bcc90ed8ca958f7a7831917",
+        "name": "backend",
+        "ref": "gopulse/backend:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:aa5aeab309422ca9cff7c39d1de02d107b45ab3bb31106b75b59370f93084bfa",
+        "name": "business-worker",
+        "ref": "gopulse/business-worker:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:6ea61b186d8f53e4d025957cc3ede42608c8ca2b693f7988f857c538e511a678",
+        "name": "search-indexer",
+        "ref": "gopulse/search-indexer:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:045e1cb7310a3931a98b1bf4dacd1a53b1371ec910eb0f9766351854e8f22d63",
+        "name": "admin-frontend",
+        "ref": "gopulse/admin-frontend:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:851c6a133145291f1a98ca36cac6e7982e5acbedf46ac61486d7c54f8235b258",
+        "name": "frontend",
+        "ref": "gopulse/frontend:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:c0457aafc3326b3ccf6a505a1997a2434f73e61ff1e6ea5a9347e5bc029c0ada",
+        "name": "router",
+        "ref": "gopulse/router:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:933817cce9bf6de46947b4251a0a9d90ed47ac3f62ca656647a43993e46b6cf4",
+        "name": "marshaller",
+        "ref": "gopulse/marshaller:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:4d6aad71ec0b1746cde326bf59f6f765eef0389667ab0ce022577de7b944db14",
+        "name": "monitor",
+        "ref": "gopulse/monitor:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      },
+      {
+        "image_id": "sha256:f8889fa7d222c4d302653ab346a56ce2e3c2aed809490f59e87106b3697fda2d",
+        "name": "redis-exporter",
+        "ref": "gopulse/redis-exporter:2.1.3-candidate-7251d32a20bc",
+        "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+        "version": "2.1.3"
+      }
+    ],
+    "manifest_sha256": "sha256:09ed1dafa379472071f09d55cde57ec29ff9eb28f430f4742479f32b0ddc046e",
+    "revision": "7251d32a20bc00c126bdef2a207620320f9939bf",
+    "version": "2.1.3"
+  }
+}

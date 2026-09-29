@@ -1603,17 +1603,17 @@ Phase 19 计划交付：
 - 机器可读容量 profile、资源绑定、统计和 evidence verifier；
 - 指定环境的容量曲线、第一瓶颈与 `target_met|boundary_found` 结论。
 
-Milestone 6 已完成 Phase-19-01/02；原正式预检为 `incomplete` 且未调用正式入口。只有修订后的
-Phase-19-03 完成、Phase-19-04 执行状态为 `complete` 后才能收口。
+Milestone 6 已完成 Phase-19-01/02；原正式预检为 `incomplete` 且未调用正式入口。修订后的
+Phase-19-03 已完成，Phase-19-04 正式执行状态为 `complete`、能力状态为 `boundary_found`，Milestone 6 已收口。
 
 ---
 
 # 27. 当前执行状态
 
-Phase-18-01/02/03/04/05 与 Phase-19-01/02 已经完成；当前完成产品版本为：
+Phase-18-01/02/03/04/05 与 Phase-19-01/02/03/04 已经完成；当前完成产品版本为：
 
 ```text
-2.1.2
+2.1.4
 ```
 
 已完成阶段的实施范围、验收结论、实施方案和实施记录保持完成时状态，不把未来设计追溯写入历史结果。
@@ -1621,8 +1621,8 @@ Phase-18-01/02/03/04/05 与 Phase-19-01/02 已经完成；当前完成产品版�
 Phase 18 总方案分配的 `2.0.3`～`2.0.5` 批次已经完成。Phase-18-05 的实施记录见
 [`Phase-18-05 实施日志`](../logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md)。
 
-Phase 19 修订为 `2.1.1`～`2.1.4` 四个批次，下一开发入口是 Phase-19-03；本修订合入 primary
-remote `main` 后，必须从最新主线创建或重建尚未推送的 `develop/2.1.3`，不得提前创建
-`develop/2.1.4`。Trace、状态层 HA、Kubernetes 和 SRE 仍需在 Phase 19 事实基础上另行规划。
+Phase 19 修订为 `2.1.1`～`2.1.4` 四个批次，均已按计划完成；Phase-19-04 对冻结的
+`2.1.3` candidate 完成正式三重复认证，结果为 `complete / boundary_found`。Trace、状态层 HA、
+Kubernetes 和 SRE 仍需在 Phase 19 事实基础上另行规划。
 
 Kubernetes 部署、统一入口和集群观测仅作为未排期设计保存在 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)。
