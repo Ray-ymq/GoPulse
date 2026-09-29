@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/loadtest/internal/load"
 )
@@ -38,6 +39,20 @@ func TestArtifactsAreAcceptedByTheLoadGenerator(t *testing.T) {
 	}
 	if loadedCorpus.Seed != Seed || len(loadedCorpus.Users) != SessionUsers {
 		t.Fatalf("corpus artifact did not round-trip")
+	}
+}
+
+func TestCapacityProfileReferencesTheDeterministicRecipeIdentity(t *testing.T) {
+	profile, _, err := load.LoadProfile("../../capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := Inspect(Seed, Candidate{}, time.Unix(0, 0))
+	if profile.Recipe.SchemaVersion != receipt.SchemaVersion || profile.Recipe.Seed != receipt.Seed || profile.Recipe.Digest != receipt.Digest {
+		t.Fatalf("profile recipe=%+v receipt=%+v", profile.Recipe, receipt)
+	}
+	if profile.Recipe.Counts.Users != receipt.Counts.Users || profile.Recipe.Counts.Posts != receipt.Counts.Posts || profile.Recipe.Counts.Notifications != receipt.Counts.Notifications {
+		t.Fatalf("profile counts=%+v receipt counts=%+v", profile.Recipe.Counts, receipt.Counts)
 	}
 }
 

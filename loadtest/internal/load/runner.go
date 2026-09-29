@@ -386,6 +386,308 @@ func Run(ctx context.Context, config Config) (Report, error) {
 	return report, nil
 }
 
+// CapacityRunConfig contains only runtime inputs. Rate, window, repetition,
+// timeout, and gate values are read from the validated profile; none of them
+// can be overridden by a caller of the formal load command.
+type CapacityRunConfig struct {
+	BaseURL       string
+	CookieName    string
+	Corpus        Corpus
+	Credentials   Credentials
+	Profile       CapacityProfile
+	ProfileDigest string
+	Candidate     CandidateBinding
+	Repeat        int
+	ReportPath    string
+	Resources     *CapacityResourceReference
+}
+
+type capacitySlot struct {
+	index       uint64
+	stage       int
+	window      string
+	scheduledAt time.Time
+}
+
+type capacityAccumulator struct {
+	targetRPS        float64
+	duration         time.Duration
+	scheduled        uint64
+	dropped          uint64
+	maxScheduleLagMS float64
+	outcomes         OutcomeSummary
+	statuses         map[string]uint64
+	latency          []float64
+}
+
+func newCapacityAccumulator(targetRPS float64, duration time.Duration) *capacityAccumulator {
+	return &capacityAccumulator{targetRPS: targetRPS, duration: duration, statuses: make(map[string]uint64)}
+}
+
+func (value *capacityAccumulator) add(result requestResult) {
+	value.outcomes.Requests++
+	value.latency = append(value.latency, result.latencyMS)
+	status := strconv.Itoa(result.status)
+	if result.timeout {
+		value.outcomes.Timeouts++
+		status = "timeout"
+	} else if result.transportFailure {
+		value.outcomes.TransportErrors++
+		status = "transport_error"
+	} else if result.explicitReject {
+		value.outcomes.ExplicitRejects++
+		if result.status == http.StatusTooManyRequests {
+			value.outcomes.Rejected429++
+		}
+		if result.status == http.StatusServiceUnavailable {
+			value.outcomes.Rejected503++
+		}
+	} else if result.status >= 200 && result.status < 300 {
+		value.outcomes.Succeeded++
+	} else {
+		value.outcomes.UnexpectedErrors++
+	}
+	value.statuses[status]++
+}
+
+func (value *capacityAccumulator) report(name string) CapacityWindowReport {
+	duration := value.duration.Seconds()
+	achieved := float64(value.outcomes.Requests) / duration
+	if duration <= 0 {
+		achieved = 0
+	}
+	return CapacityWindowReport{
+		Name: name, TargetRPS: value.targetRPS, DurationSeconds: duration,
+		ScheduledSlots: value.scheduled, DroppedSlots: value.dropped,
+		MaxScheduleLagMS: value.maxScheduleLagMS, CompletedRequests: value.outcomes.Requests,
+		AchievedRPS: achieved, Outcomes: value.outcomes,
+		Statuses: value.statuses, Latency: summarize(value.latency),
+	}
+}
+
+// RunCapacity executes exactly one independent repetition. The Python
+// orchestrator owns the three-repetition evidence directory and calls this
+// function once per repetition, so a partial run can preserve every stage that
+// was not reached without fabricating values.
+func RunCapacity(ctx context.Context, config CapacityRunConfig) (CapacityReport, error) {
+	if err := ValidateProfile(config.Profile); err != nil {
+		return CapacityReport{}, err
+	}
+	if config.BaseURL == "" || !validDigest(config.ProfileDigest) || config.Repeat < 1 || config.Repeat > config.Profile.Repetitions ||
+		config.Candidate.Version != config.Profile.TargetCandidateVersion || !validVersion(config.Candidate.Version) || !validDigest(config.Candidate.ManifestSHA256) || !validRevision(config.Candidate.Revision) || config.ReportPath == "" {
+		return CapacityReport{}, errors.New("capacity run binding is invalid")
+	}
+	if len(config.Corpus.Users) < config.Profile.Workload.VirtualUsers || len(config.Credentials.Users) < config.Profile.Workload.VirtualUsers ||
+		config.Corpus.Seed != config.Profile.Recipe.Seed {
+		return CapacityReport{}, errors.New("capacity artifacts do not match the profile")
+	}
+	if config.CookieName == "" {
+		config.CookieName = "gopulse_session"
+	}
+	requestTimeout := time.Duration(config.Profile.Workload.RequestTimeoutSeconds * float64(time.Second))
+	transport := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		MaxIdleConns:          config.Profile.Workload.VirtualUsers * 2,
+		MaxIdleConnsPerHost:   config.Profile.Workload.VirtualUsers,
+		IdleConnTimeout:       5 * time.Minute,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ExpectContinueTimeout: time.Second,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	cookies, err := prepareSessions(ctx, client, Config{
+		BaseURL: config.BaseURL, CookieName: config.CookieName, Corpus: config.Corpus,
+		Credentials: config.Credentials, VirtualUsers: config.Profile.Workload.VirtualUsers,
+		RequestTimeout: requestTimeout,
+	})
+	if err != nil {
+		return CapacityReport{}, err
+	}
+
+	started := time.Now().UTC()
+	jobs := make([]chan capacitySlot, config.Profile.Workload.VirtualUsers)
+	for index := range jobs {
+		jobs[index] = make(chan capacitySlot, 16)
+	}
+	accumulators := make(map[string]*capacityAccumulator)
+	for stageIndex, stage := range config.Profile.Stages {
+		accumulators[capacityWindowKey(stageIndex, "warmup")] = newCapacityAccumulator(stage.WarmupTargetRPS, secondsDuration(stage.WarmupSeconds))
+		accumulators[capacityWindowKey(stageIndex, "measurement")] = newCapacityAccumulator(stage.TargetRPS, secondsDuration(stage.MeasurementSeconds))
+		accumulators[capacityWindowKey(stageIndex, "recovery")] = newCapacityAccumulator(0, secondsDuration(stage.RecoverySeconds))
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var workers sync.WaitGroup
+	var workerError atomic.Value
+	var aggregateMu sync.Mutex
+	workers.Add(len(jobs))
+	for id := range jobs {
+		state := &vuState{id: id, corpus: &config.Corpus, credentials: &config.Credentials, profile: &config.Profile.Workload}
+		go func(id int, state *vuState, cookie string) {
+			defer workers.Done()
+			for slot := range jobs[id] {
+				if workerError.Load() != nil {
+					continue
+				}
+				request := state.request(slot.index)
+				if err := ValidateRequest(config.Profile.Workload, request); err != nil {
+					workerError.Store(err)
+					cancel()
+					continue
+				}
+				result := executeRequest(runCtx, client, config.BaseURL, config.CookieName, cookie, request, slot.scheduledAt, requestTimeout)
+				aggregateMu.Lock()
+				accumulators[capacityWindowKey(slot.stage, slot.window)].add(result)
+				aggregateMu.Unlock()
+			}
+		}(id, state, cookies[id])
+	}
+
+	var slotIndex uint64
+	stopScheduling := func() {
+		for _, channel := range jobs {
+			close(channel)
+		}
+		workers.Wait()
+	}
+	for stageIndex, stage := range config.Profile.Stages {
+		windows := []struct {
+			name     string
+			target   float64
+			duration float64
+		}{
+			{name: "warmup", target: stage.WarmupTargetRPS, duration: stage.WarmupSeconds},
+			{name: "measurement", target: stage.TargetRPS, duration: stage.MeasurementSeconds},
+		}
+		for _, window := range windows {
+			scheduled, dropped, maxLag, scheduleErr := scheduleCapacityWindow(runCtx, window.target, window.duration, jobs, &slotIndex, stageIndex, window.name)
+			value := accumulators[capacityWindowKey(stageIndex, window.name)]
+			value.scheduled, value.dropped, value.maxScheduleLagMS = scheduled, dropped, maxLag
+			if scheduleErr != nil {
+				stopScheduling()
+				return CapacityReport{}, scheduleErr
+			}
+		}
+		recovery := time.NewTimer(secondsDuration(stage.RecoverySeconds))
+		select {
+		case <-runCtx.Done():
+			if !recovery.Stop() {
+				<-recovery.C
+			}
+			stopScheduling()
+			return CapacityReport{}, runCtx.Err()
+		case <-recovery.C:
+		}
+	}
+	stopScheduling()
+	if value := workerError.Load(); value != nil {
+		if err, ok := value.(error); ok {
+			return CapacityReport{}, fmt.Errorf("capacity workload contract failed: %w", err)
+		}
+	}
+
+	finished := time.Now().UTC()
+	stages := make([]CapacityStageReport, 0, len(config.Profile.Stages))
+	total := OutcomeSummary{}
+	for stageIndex, stage := range config.Profile.Stages {
+		warmup := accumulators[capacityWindowKey(stageIndex, "warmup")].report("warmup")
+		measurement := accumulators[capacityWindowKey(stageIndex, "measurement")].report("measurement")
+		recovery := accumulators[capacityWindowKey(stageIndex, "recovery")].report("recovery")
+		total.Add(warmup.Outcomes)
+		total.Add(measurement.Outcomes)
+		stages = append(stages, CapacityStageReport{
+			Name: stage.Name, TargetRPS: stage.TargetRPS, Status: "complete",
+			Warmup: warmup, Measurement: measurement, Recovery: recovery,
+		})
+	}
+	report := CapacityReport{
+		SchemaVersion:   CapacityReportSchemaVersion,
+		Profile:         ProfileBinding{ID: config.Profile.ProfileID, SHA256: config.ProfileDigest},
+		Candidate:       config.Candidate,
+		Recipe:          RecipeBinding{SchemaVersion: config.Profile.Recipe.SchemaVersion, Seed: config.Profile.Recipe.Seed, Digest: config.Profile.Recipe.Digest},
+		Repeat:          RepeatBinding{Number: config.Repeat, Total: config.Profile.Repetitions},
+		ExecutionStatus: "complete", StartedAt: started, FinishedAt: finished,
+		Stages: stages, Total: total, LoadProcess: processStats(), Resources: config.Resources,
+	}
+	if err := writeCapacityReportAtomic(config.ReportPath, report); err != nil {
+		return CapacityReport{}, err
+	}
+	return report, nil
+}
+
+func secondsDuration(seconds float64) time.Duration {
+	return time.Duration(seconds * float64(time.Second))
+}
+
+func capacityWindowKey(stage int, window string) string { return fmt.Sprintf("%d:%s", stage, window) }
+
+func scheduleCapacityWindow(ctx context.Context, targetRPS, seconds float64, jobs []chan capacitySlot, slotIndex *uint64, stage int, window string) (scheduled, dropped uint64, maxLagMS float64, resultErr error) {
+	if targetRPS <= 0 || seconds <= 0 || len(jobs) == 0 {
+		return 0, 0, 0, errors.New("capacity window is invalid")
+	}
+	count := uint64(math.Round(targetRPS * seconds))
+	started := time.Now()
+	timer := time.NewTimer(0)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	defer timer.Stop()
+	for index := uint64(0); index < count; index++ {
+		if err := ctx.Err(); err != nil {
+			return 0, dropped, maxLagMS, err
+		}
+		scheduledAt := started.Add(fixedScheduleOffset(index, targetRPS))
+		if wait := time.Until(scheduledAt); wait > 0 {
+			timer.Reset(wait)
+			select {
+			case <-ctx.Done():
+				return 0, dropped, maxLagMS, ctx.Err()
+			case <-timer.C:
+			}
+		}
+		if lag := time.Since(scheduledAt); lag > 0 {
+			lagMS := float64(lag) / float64(time.Millisecond)
+			if lagMS > maxLagMS {
+				maxLagMS = lagMS
+			}
+		}
+		virtualUser := int(*slotIndex % uint64(len(jobs)))
+		slot := capacitySlot{index: *slotIndex, stage: stage, window: window, scheduledAt: scheduledAt}
+		select {
+		case jobs[virtualUser] <- slot:
+			scheduled++
+		default:
+			dropped++
+		}
+		*slotIndex++
+	}
+	return scheduled, dropped, maxLagMS, nil
+}
+
+func writeCapacityReportAtomic(path string, report CapacityReport) error {
+	encoded, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return errors.New("encode capacity report")
+	}
+	encoded = append(encoded, '\n')
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, encoded, 0o600); err != nil {
+		return fmt.Errorf("write capacity report: %w", err)
+	}
+	if err := os.Chmod(temporary, 0o600); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("protect capacity report: %w", err)
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("publish capacity report: %w", err)
+	}
+	return nil
+}
+
 type scheduledSlot struct {
 	index       uint64
 	phase       string
@@ -502,13 +804,22 @@ func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieNam
 	if response.StatusCode >= 200 && response.StatusCode < 300 && request.ExpectedStatuses[response.StatusCode] {
 		return result
 	}
-	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusServiceUnavailable {
-		if strings.TrimSpace(response.Header.Get("Retry-After")) != "" && bytesContainJSONCode(bodyBytes, "server_overloaded") {
-			result.explicitReject = true
-			return result
-		}
+	if isExplicitReject(response.StatusCode, response.Header.Get("Retry-After"), bodyBytes) {
+		result.explicitReject = true
+		return result
 	}
 	return result
+}
+
+func isExplicitReject(status int, retryAfter string, body []byte) bool {
+	if status != http.StatusTooManyRequests && status != http.StatusServiceUnavailable {
+		return false
+	}
+	code := responseErrorCode(body)
+	if code == "backend_busy" || code == "server_overloaded" {
+		return true
+	}
+	return strings.TrimSpace(retryAfter) != "" && code == "rate_limited"
 }
 
 func bytesContainJSONCode(body []byte, code string) bool {

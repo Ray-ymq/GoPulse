@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +46,15 @@ func TestExecuteRequestClassifiesTimeoutAndExplicitRejection(t *testing.T) {
 	serverError := executeRequest(context.Background(), client, server.URL, "session", "token", Request{Category: CategoryRead, Method: http.MethodGet, Template: "GET /error", Path: "/error", ExpectedStatuses: statuses(http.StatusOK)}, scheduled, time.Second)
 	if serverError.status != http.StatusInternalServerError || serverError.requestID != "0123456789abcdef0123456789abcdef" || serverError.errorCode != "internal_error" || serverError.completedAt.IsZero() {
 		t.Fatalf("serverError=%+v", serverError)
+	}
+}
+
+func TestExplicitRejectClassificationRecognizesBackendBusyWithoutMergingDependencyErrors(t *testing.T) {
+	if !isExplicitReject(http.StatusServiceUnavailable, "", []byte(`{"error":{"code":"backend_busy"}}`)) {
+		t.Fatal("backend_busy was not classified as an explicit rejection")
+	}
+	if isExplicitReject(http.StatusServiceUnavailable, "", []byte(`{"error":{"code":"search_unavailable"}}`)) {
+		t.Fatal("dependency unavailability was classified as an explicit rejection")
 	}
 }
 
@@ -144,5 +156,92 @@ func TestSchedulePhaseAssignsSlotsDeterministicallyToVirtualUsers(t *testing.T) 
 				t.Fatalf("slot %d assigned to virtual user %d", slot.index, virtualUser)
 			}
 		}
+	}
+}
+
+func TestScheduleCapacityWindowRetainsOpenLoopStageAndWindowIdentity(t *testing.T) {
+	jobs := []chan capacitySlot{make(chan capacitySlot, 16), make(chan capacitySlot, 16)}
+	var slotIndex uint64
+	scheduled, dropped, _, err := scheduleCapacityWindow(context.Background(), 100, 0.05, jobs, &slotIndex, 2, "measurement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled != 5 || dropped != 0 || slotIndex != 5 {
+		t.Fatalf("scheduled=%d dropped=%d slot=%d", scheduled, dropped, slotIndex)
+	}
+	for _, channel := range jobs {
+		close(channel)
+		for slot := range channel {
+			if slot.stage != 2 || slot.window != "measurement" {
+				t.Fatalf("slot=%+v", slot)
+			}
+		}
+	}
+}
+
+func TestScheduleCapacityWindowStopsOnlyOnContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	jobs := []chan capacitySlot{make(chan capacitySlot, 1)}
+	_, _, _, err := scheduleCapacityWindow(ctx, 100, 1, jobs, new(uint64), 0, "warmup")
+	if err == nil {
+		t.Fatal("cancelled capacity window was accepted")
+	}
+	for _, channel := range jobs {
+		close(channel)
+	}
+}
+
+func TestRunCapacityUsesFrozenStagesAndWritesOneIndependentReport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/auth/login" {
+			http.SetCookie(writer, &http.Cookie{Name: "gopulse_session", Value: "test-session", Path: "/"})
+			writer.WriteHeader(http.StatusOK)
+			return
+		}
+		switch request.Method {
+		case http.MethodPost:
+			writer.WriteHeader(http.StatusCreated)
+		case http.MethodPatch:
+			writer.WriteHeader(http.StatusOK)
+		case http.MethodPut, http.MethodDelete:
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			writer.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+	profile, digest, err := LoadProfile("../../capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range profile.Stages {
+		profile.Stages[index].WarmupSeconds = 0.04
+		profile.Stages[index].MeasurementSeconds = 0.04
+		profile.Stages[index].RecoverySeconds = 0.01
+	}
+	users := make([]User, profile.Workload.VirtualUsers)
+	editable := make([][]uint64, profile.Workload.VirtualUsers)
+	deletable := make([][]uint64, profile.Workload.VirtualUsers)
+	for index := range users {
+		users[index] = User{ID: uint64(index + 1), Username: "user" + strconv.Itoa(index+1)}
+		editable[index] = []uint64{uint64(index + 1)}
+		deletable[index] = []uint64{uint64(index + 1)}
+	}
+	corpus := Corpus{SchemaVersion: "gopulse.phase18.recipe.v1", Seed: profile.Recipe.Seed, Users: users, ReadPostIDs: []uint64{100}, InteractionPostIDs: []uint64{100}, EditablePostIDs: editable, DeletePostIDs: deletable}
+	credentials := Credentials{SchemaVersion: CredentialsSchemaVersion, Password: "password", Users: users}
+	reportPath := filepath.Join(t.TempDir(), "load-report.json")
+	report, err := RunCapacity(context.Background(), CapacityRunConfig{
+		BaseURL: server.URL, Corpus: corpus, Credentials: credentials, Profile: profile,
+		ProfileDigest: digest, Candidate: CandidateBinding{Version: "2.1.3", Revision: strings.Repeat("a", 40), ManifestSHA256: "sha256:" + strings.Repeat("b", 64)}, Repeat: 1, ReportPath: reportPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ExecutionStatus != "complete" || len(report.Stages) != 4 || report.Stages[3].TargetRPS != 200 || report.Repeat.Number != 1 || report.Repeat.Total != 3 {
+		t.Fatalf("report=%+v", report)
+	}
+	if _, err := os.Stat(reportPath); err != nil {
+		t.Fatalf("report was not written: %v", err)
 	}
 }
