@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "1",
-  "product_version": "2.0.5",
+  "product_version": "2.1.1",
   "platform": "linux/amd64",
   "authority": {
     "source": "deploy/runtime-contracts.json",
@@ -34,7 +34,7 @@
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": ["metrics", "http_concurrency", "mysql_pool"],
+        "capacity_signals": ["metrics", "http_concurrency", "http_latency_distribution", "mysql_pool"],
         "host_port_published": false
       },
       "budgets": {
@@ -120,6 +120,51 @@
           "required": false,
           "default": "24h",
           "compose_value": "${BACKEND_EVENT_QUERY_MAX_RANGE:-24h}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "backend",
+          "compose_value": "backend,backend-2",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_WORKER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "business-worker",
+          "compose_value": "business-worker,business-worker-2",
+          "aliases": []
+        },
+        {
+          "key": "SEARCH_INDEXER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "search-indexer",
+          "compose_value": "search-indexer,search-indexer-2",
+          "aliases": []
+        },
+        {
+          "key": "ROUTER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router",
+          "compose_value": "router,router-2",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller",
+          "compose_value": "marshaller,marshaller-2",
           "aliases": []
         },
         {
@@ -1636,6 +1681,51 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "backend",
+          "compose_value": "backend,backend-2",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_WORKER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "business-worker",
+          "compose_value": "business-worker,business-worker-2",
+          "aliases": []
+        },
+        {
+          "key": "SEARCH_INDEXER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "search-indexer",
+          "compose_value": "search-indexer,search-indexer-2",
+          "aliases": []
+        },
+        {
+          "key": "ROUTER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "router",
+          "compose_value": "router,router-2",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "marshaller",
+          "compose_value": "marshaller,marshaller-2",
           "aliases": []
         },
         {

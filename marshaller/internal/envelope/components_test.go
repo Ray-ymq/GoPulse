@@ -66,3 +66,83 @@ func TestComponentStorageIngressContract(t *testing.T) {
 		})
 	}
 }
+
+func TestBackendDistributionSecondValidation(t *testing.T) {
+	spec, ok := componentmetrics.Catalog("backend")
+	if !ok {
+		t.Fatal("backend catalog missing")
+	}
+	samples := []map[string]any{}
+	for _, family := range spec.Families {
+		if !family.Required {
+			continue
+		}
+		for _, tuple := range family.Tuples {
+			samples = append(samples, map[string]any{"name": family.Name, "kind": family.Kind, "labels": componentmetrics.Labels(family, tuple), "value": 0})
+		}
+	}
+	var bucket, count, sum componentmetrics.Family
+	for _, family := range spec.Families {
+		if family.Distribution == nil {
+			continue
+		}
+		switch family.Distribution.Role {
+		case "bucket":
+			bucket = family
+		case "count":
+			count = family
+		case "sum":
+			sum = family
+		}
+	}
+	base := count.Tuples[0]
+	for i, le := range bucket.Distribution.Buckets {
+		value := 0.
+		if i == len(bucket.Distribution.Buckets)-1 {
+			value = 1
+		}
+		samples = append(samples, map[string]any{"name": bucket.Name, "kind": bucket.Kind, "labels": componentmetrics.Labels(bucket, append(append([]string(nil), base...), le)), "value": value})
+	}
+	samples = append(samples,
+		map[string]any{"name": count.Name, "kind": count.Kind, "labels": componentmetrics.Labels(count, base), "value": 1.},
+		map[string]any{"name": sum.Name, "kind": sum.Kind, "labels": componentmetrics.Labels(sum, base), "value": .25},
+	)
+	message := map[string]any{
+		"schema_version": 2, "message_id": testID, "type": "metrics", "source": "backend",
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"payload":   map[string]any{"producer_kind": "component", "producer_id": "backend", "producer_version": "2.1.1", "target_id": "backend-local", "scrape_status": "success", "samples": samples},
+	}
+	decode := func(value map[string]any) error {
+		body, _ := json.Marshal(value)
+		_, err := (Decoder{MaxBytes: 2 << 20, FutureSkew: time.Minute}).Decode([]byte(testID), body)
+		return err
+	}
+	if err := decode(message); err != nil {
+		t.Fatalf("valid backend distribution rejected: %v", err)
+	}
+	for _, name := range []string{"missing bucket", "foreign bucket"} {
+		copyMessage, _ := json.Marshal(message)
+		var mutated map[string]any
+		_ = json.Unmarshal(copyMessage, &mutated)
+		mutatedPayload := mutated["payload"].(map[string]any)
+		mutatedSamples := mutatedPayload["samples"].([]any)
+		for i := range mutatedSamples {
+			item := mutatedSamples[i].(map[string]any)
+			if item["name"] != bucket.Name {
+				continue
+			}
+			labels := item["labels"].(map[string]any)
+			if name == "missing bucket" && labels["le"] == "0.25" {
+				mutatedSamples = append(mutatedSamples[:i], mutatedSamples[i+1:]...)
+				break
+			} else if name == "foreign bucket" && labels["le"] == "0.25" {
+				labels["le"] = "private"
+				break
+			}
+		}
+		mutatedPayload["samples"] = mutatedSamples
+		if err := decode(mutated); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+}

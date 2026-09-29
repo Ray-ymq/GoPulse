@@ -52,3 +52,22 @@ func TestRedisV2PreservesHistoricalStorageLabels(t *testing.T) {
 		t.Fatal("Redis series forked", err)
 	}
 }
+
+func TestTransformPreservesFixedLatencyBucketSamples(t *testing.T) {
+	m := envelope.Envelope{
+		SchemaVersion: 2, Source: "backend", Timestamp: time.Unix(0, 0).UTC(),
+		Payload: envelope.Payload{TargetID: "backend-local", ProducerKind: "component", ProducerID: "backend", ProducerVersion: "2.1.1", Samples: []envelope.Sample{
+			{Name: "gopulse_backend_http_request_duration_seconds_bucket", Labels: map[string]string{"method": "GET", "route": "/health", "status_class": "2xx", "le": "0.25"}, FloatValue: 3},
+			{Name: "gopulse_backend_http_request_duration_seconds_count", Labels: map[string]string{"method": "GET", "route": "/health", "status_class": "2xx"}, FloatValue: 3},
+			{Name: "gopulse_backend_http_request_duration_seconds_sum", Labels: map[string]string{"method": "GET", "route": "/health", "status_class": "2xx"}, FloatValue: .75},
+		}},
+	}
+	body, err := (Transformer{}).Transform(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, `le="0.25"`) || !strings.Contains(text, `route="/health"`) || !strings.Contains(text, `producer_id="backend"`) {
+		t.Fatalf("fixed distribution labels were not preserved: %s", text)
+	}
+}
