@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Phase-14-05 fixed component acceptance; never mutate pre-existing resources.
+"""Phase-19-01 fixed component acceptance; never mutate pre-existing resources.
 
-Build the seven current product images as 1.11.5 before running. Uses the actual
+Build the seven current product images as 2.1.1 before running. Uses the actual
 Compose product, two user identities and six official plugins. The only helper
 fault is a transparent, owned-network proxy for one Backend metrics endpoint.
 """
@@ -12,14 +12,13 @@ import os
 import re
 import signal
 import time
-import urllib.request
 import uuid
 
 from verify_plugin_metrics import ROOT, Client, command, wait_until
 from verify_plugin_topology import TopologyAcceptance
 from verify_plugin_isolation import SOURCES, REPRESENTATIVE
 
-VERSION = '1.11.5'
+VERSION = '2.1.1'
 COMPONENTS = ('backend', 'business-worker', 'search-indexer', 'monitor', 'router', 'marshaller')
 QUERIES = {
  'backend': ('http_requests_total', 'outbox_last_publish_success_timestamp_seconds'),
@@ -29,7 +28,16 @@ QUERIES = {
  'router': ('messages_total', 'last_kafka_ack_timestamp_seconds'),
  'marshaller': ('records_total', 'last_storage_success_timestamp_seconds'),
 }
-BUDGETS = dict(zip(COMPONENTS, (713, 37, 24, 112, 120, 310)))
+BUDGETS = dict(zip(COMPONENTS, (5616, 37, 24, 157, 120, 310)))
+COMPONENT_FAMILY_COUNT = 54
+LATENCY_BUCKETS = ('0.005', '0.01', '0.025', '0.05', '0.1', '0.25', '0.5', '1', '2', '5', '10', '+Inf')
+CATALOG_ENDPOINT_ENV = (
+    'BACKEND_ENDPOINTS=backend,backend-2',
+    'BUSINESS_WORKER_ENDPOINTS=business-worker,business-worker-2',
+    'SEARCH_INDEXER_ENDPOINTS=search-indexer,search-indexer-2',
+    'ROUTER_ENDPOINTS=router,router-2',
+    'MARSHALLER_ENDPOINTS=marshaller,marshaller-2',
+)
 
 
 def self_test():
@@ -37,23 +45,46 @@ def self_test():
     assert set(QUERIES) == set(BUDGETS) == set(COMPONENTS)
     assert all(len(queries) == 2 for queries in QUERIES.values())
     # Use the production catalog, not a separately maintained fixture list.
-    specs = json.loads(command(['go', 'run', './cmd/catalog'], timeout=60,
+    specs = json.loads(command(['env', *CATALOG_ENDPOINT_ENV, 'go', 'run', './cmd/catalog'], timeout=60,
                                cwd=ROOT/'componentmetrics').stdout)
     assert {s['ID']: s['MaxSamples'] for s in specs} == BUDGETS
     generated = (ROOT/'admin-frontend/src/services/componentMetrics.ts').read_text()
     line = next(line for line in generated.splitlines() if line.startswith('export const componentContracts:'))
     actual = json.loads(line.split(' = ', 1)[1])
-    expected = {f['Name']: dict(source=s['ID'], kind=f['Kind'], unit=f['Unit'], keys=f['Keys'] or [], tuples=f['Tuples'])
-                for s in specs for f in s['Families']}
+    expected = {}
+    for s in specs:
+        for f in s['Families']:
+            contract = dict(source=s['ID'], kind=f['Kind'], unit=f['Unit'], keys=f['Keys'] or [], tuples=f['Tuples'])
+            if f.get('Distribution'):
+                distribution = f['Distribution']
+                contract['distribution'] = {
+                    'name': distribution['Name'], 'role': distribution['Role'], 'buckets': distribution['Buckets']
+                }
+            expected[f['Name']] = contract
     assert actual == expected
     label_line = next(line for line in (ROOT/'admin-frontend/src/services/management.ts').read_text().splitlines()
                        if line.startswith('const labelKeys ='))
     browser_labels = set(re.findall(r"'([^']+)'", label_line))
     component_labels = {key for family in expected.values() for key in family['keys']}
-    assert component_labels <= browser_labels, sorted(component_labels - browser_labels)
+    assert component_labels - {'le'} <= browser_labels, sorted(component_labels - browser_labels - {'le'})
     assert all(not any(key in ('source', 'target_id', 'producer_kind', 'producer_id', 'user_id') for key in f['Keys'] or [])
                for s in specs for f in s['Families'])
-    print('PASS: six fixed identities, budgets and browser contract match production catalog; no Docker access')
+    backend = next(s for s in specs if s['ID'] == 'backend')
+    distributions = [f['Distribution'] for f in backend['Families'] if f.get('Distribution')]
+    assert {(d['Name'], d['Role']) for d in distributions} == {
+        ('gopulse_backend_http_request_duration_seconds', 'bucket'),
+        ('gopulse_backend_http_request_duration_seconds', 'count'),
+        ('gopulse_backend_http_request_duration_seconds', 'sum'),
+    }
+    assert {tuple(d['Buckets']) for d in distributions} == {LATENCY_BUCKETS}
+    assert {f['Name'] for f in backend['Families']} >= {
+        'gopulse_backend_http_requests_in_flight',
+        'gopulse_backend_http_concurrency_limit',
+        'gopulse_backend_http_rejected_total',
+    }
+    assert all(set(f['Keys'] or []) <= {'method', 'route', 'status_class', 'le', 'alert_source', 'dependency'}
+               for f in backend['Families'])
+    print('PASS: six fixed identities, budgets, distribution contract and browser contract match production catalog; no Docker access')
 
 
 # Keep command output safe, while permitting the local catalog command's cwd.
@@ -115,7 +146,14 @@ class ComponentAcceptance(TopologyAcceptance):
         return [p['value'] for s in self.query(component, suffix)['series'] if all(s['labels'].get(k) == v for k, v in labels.items()) for p in s['points'][-1:]]
 
     def positive(self, component, suffix, **labels):
-        values = self.values(component, suffix, **labels)
+        # A scalable component has one logical producer identity but can emit
+        # the same stored series from two replicas.  Progress counters and
+        # timestamps are proven by any positive point in the fresh acceptance
+        # window; exact current-value assertions remain in values().
+        data = self.query(component, suffix)
+        values = [point['value'] for series in data['series']
+                  if all(series['labels'].get(k) == v for k, v in labels.items())
+                  for point in series['points']]
         return values if values and max(values) > 0 else None
 
     def business(self):
@@ -146,13 +184,56 @@ class ComponentAcceptance(TopologyAcceptance):
         wait_until(lambda: self.positive('marshaller', 'records_total', type='metrics', message_source='backend', stage='store', result='stored'), 'Marshaller storage stage/source')
         self.record('six real component processing/progress queries', values)
 
+    def backend_latency_and_capacity(self):
+        labels = {'method': 'GET', 'route': '/api/v1/users/me', 'status_class': '2xx'}
+        def fixed_buckets():
+            series = [
+                s for s in self.query('backend', 'http_request_duration_seconds_bucket')['series']
+                if all(s['labels'].get(key) == value for key, value in labels.items())
+            ]
+            if {s['labels'].get('le') for s in series} != set(LATENCY_BUCKETS):
+                return None
+            values = {s['labels']['le']: s['points'][-1]['value'] for s in series if s['points']}
+            if set(values) != set(LATENCY_BUCKETS) or values['+Inf'] <= 0:
+                return None
+            previous = -1
+            for bucket in LATENCY_BUCKETS:
+                if values[bucket] < previous:
+                    return None
+                previous = values[bucket]
+            return values
+
+        buckets = wait_until(fixed_buckets, 'Backend fixed latency buckets')
+        tail = [buckets['+Inf']]
+        count = wait_until(
+            lambda: self.positive('backend', 'http_request_duration_seconds_count', **labels),
+            'Backend latency count',
+        )
+        total = wait_until(
+            lambda: self.positive('backend', 'http_request_duration_seconds_sum', **labels),
+            'Backend latency sum',
+        )
+        assert tail[-1] == count[-1], (tail, count)
+        assert self.values('backend', 'http_concurrency_limit') == [128]
+        in_flight = self.values('backend', 'http_requests_in_flight')
+        assert in_flight and 0 <= in_flight[-1] <= 128
+        rejected = self.values('backend', 'http_rejected_total')
+        assert rejected and rejected[-1] >= 0
+        self.record('Backend fixed latency distribution and capacity queries', {
+            'bucket_labels': list(LATENCY_BUCKETS), 'tail_count': tail[-1],
+            'count': count[-1], 'sum': total[-1], 'concurrency_limit': 128,
+            'in_flight': in_flight[-1], 'rejected_total': rejected[-1],
+        })
+
     def security_and_cardinality(self):
         catalog = self.admin.request('observability/metrics/catalog')['data']
-        assert len([d for d in catalog if d['producer_kind'] == 'component']) == 38
+        assert len([d for d in catalog if d['producer_kind'] == 'component']) == COMPONENT_FAMILY_COUNT
         query_counts = {}
         for index, component in enumerate(COMPONENTS):
             info = json.loads(command(['docker', 'inspect', self.owned_id(component)]).stdout)[0]
             assert not (info['NetworkSettings']['Ports'] or {}).get(str(19101+index)+'/tcp')
+            assert not any(info['NetworkSettings']['Ports'].get(port)
+                           for port in (info['NetworkSettings']['Ports'] or {}))
             for auth, status in [('missing', 401), ('wrong', 401), ('duplicate', 401), ('valid', 200)]:
                 assert self.endpoint(component, auth=auth)['status'] == status
             assert self.endpoint(component, path='/not-found', method='POST')['status'] == 404
@@ -171,9 +252,6 @@ class ComponentAcceptance(TopologyAcceptance):
                 assert not any(token in json.dumps(result) for token in self.tokens.values())
             assert count <= BUDGETS[component]
             query_counts[component] = {'endpoint_samples': len(lines), 'queried_series': count, 'max_samples': BUDGETS[component]}
-        public = 'http://'+self.compose('port', 'backend', '8080').stdout.decode().strip()+'/internal/v1/metrics'
-        try: urllib.request.urlopen(public, timeout=5); raise AssertionError('public metrics route exposed')
-        except urllib.error.HTTPError as error: assert error.code == 404
         self.user.request('observability/metrics/catalog', expected=403)
         self.user.request('observability/metrics?metric=gopulse_backend_http_requests_total&range=15m', expected=403)
         self.record('endpoint authentication, isolation and bounded series', query_counts)
@@ -191,16 +269,19 @@ class ComponentAcceptance(TopologyAcceptance):
 
     def dependency_fault(self):
         self.owned_id('redis')
+        def wait_for_backend_dependency(value, description):
+            def observe():
+                self.user.request(f'posts/{self.post_id}')
+                return value in self.values('backend', 'dependency_up', dependency='redis')
+            wait_until(observe, description)
         try:
             self.compose('stop', 'redis')
-            self.user.request(f'posts/{self.post_id}')  # cache fallback preserves committed business fact
-            wait_until(lambda: self.values('backend', 'dependency_up', dependency='redis') == [0], 'Redis interaction degradation metric')
+            wait_for_backend_dependency(0, 'Redis interaction degradation metric')  # cache fallback preserves committed business fact
             self.record('real Redis outage', {'backend_dependency_up': 0, 'post_detail_status': 200})
         finally:
             self.compose('start', 'redis')
             self.healthy('redis')
-        self.user.request(f'posts/{self.post_id}')
-        wait_until(lambda: self.values('backend', 'dependency_up', dependency='redis') == [1], 'Redis metric recovery')
+        wait_for_backend_dependency(1, 'Redis metric recovery')
         self.record('Redis recovery', {'backend_dependency_up': 1})
 
     def endpoint_fault(self):
@@ -217,8 +298,7 @@ class ComponentAcceptance(TopologyAcceptance):
         try:
             wait_until(lambda: self.positive('monitor', 'scrapes_total', scraped_producer_kind='component', scraped_target_id='backend-local', result='scrape_failure'), 'single endpoint failure exported')
             self.user.request(f'posts/{self.post_id}')
-            ready = urllib.request.urlopen('http://'+self.compose('port', 'backend', '8080').stdout.decode().strip()+'/ready', timeout=10)
-            assert ready.code == 200
+            assert self.endpoint('backend', path='/ready')['status'] == 200
             for source in SOURCES:
                 wait_until(lambda s=source: datetime.datetime.fromisoformat(self.status_for(s)['last_success_at'].replace('Z', '+00:00')).timestamp() > fault_at, source+' still collecting during component failure')
             for component in COMPONENTS[1:]:
@@ -235,8 +315,7 @@ class ComponentAcceptance(TopologyAcceptance):
             self.compose('stop', 'victoriametrics')
             wait_until(lambda: 'gopulse_marshaller_dependency_up{dependency="victoriametrics"} 0' in self.endpoint('marshaller')['body'], 'actual storage failure state')
             self.admin.request('observability/metrics?metric=gopulse_backend_http_requests_total&range=15m', expected=503)
-            ready = urllib.request.urlopen('http://'+self.compose('port', 'backend', '8080').stdout.decode().strip()+'/ready', timeout=10)
-            assert ready.code == 200
+            assert self.endpoint('backend', path='/ready')['status'] == 200
             post = self.admin.request('posts', 'POST', {'title': 'storage-'+self.token, 'content': 'storage-boundary'}, 201)['data']
             self.user.request(f'posts/{post["id"]}/comments', 'POST', {'content': 'during metrics storage outage'}, 201)
             wait_until(lambda: any(str(p['id']) == str(post['id']) for p in self.admin.request('search/posts?q=storage-'+self.token)['data']), 'Indexer continues during VM outage')
@@ -245,9 +324,30 @@ class ComponentAcceptance(TopologyAcceptance):
         finally:
             self.compose('start', 'victoriametrics')
             self.healthy('victoriametrics')
+        recovery_post = self.admin.request(
+            'posts', 'POST',
+            {'title': 'storage-recovery-'+self.token, 'content': 'storage-recovery-boundary'},
+            201,
+        )['data']
+        self.user.request(
+            f'posts/{recovery_post["id"]}/comments',
+            'POST',
+            {'content': 'after metrics storage recovery'},
+            201,
+        )
+        wait_until(
+            lambda: any(str(p['id']) == str(recovery_post['id'])
+                        for p in self.admin.request('search/posts?q=storage-recovery-'+self.token)['data']),
+            'Indexer progress after storage recovery',
+        )
+        wait_until(
+            lambda: any(str(n.get('post_id')) == str(recovery_post['id'])
+                        for n in self.admin.request('notifications')['data']),
+            'Worker progress after storage recovery',
+        )
         for c in ('business-worker', 'search-indexer'):
             wait_until(lambda c=c: max(self.values(c, 'last_success_timestamp_seconds') or [0]) >= began, c+' outage progress persisted after recovery')
-        wait_until(lambda: self.values('marshaller', 'dependency_up', dependency='victoriametrics') == [1], 'VM dependency recovery persisted')
+        wait_until(lambda: 1 in self.values('marshaller', 'dependency_up', dependency='victoriametrics'), 'VM dependency recovery persisted')
         self.record('metrics storage recovery', {'consumer_progress_persisted': True, 'marshaller_dependency_up': 1})
 
     def consumer_shutdown(self):
@@ -286,6 +386,7 @@ class ComponentAcceptance(TopologyAcceptance):
             wait_until(lambda s=s: self.metric_for(s, REPRESENTATIVE[s]), s+' representative plugin query')
         self.record('six-plugin representative regression', {'sources': list(SOURCES)})
         self.business()
+        self.backend_latency_and_capacity()
         self.six_components()
         self.security_and_cardinality()
         self.browser()

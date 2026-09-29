@@ -6,6 +6,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
@@ -30,6 +31,7 @@ type Dependencies struct {
 	Elasticsearch      Checker
 	Logger             *slog.Logger
 	RequestIDGenerator middleware.RequestIDGenerator
+	HTTPMaxConcurrency int
 }
 
 func ConfigureGinMode(appEnv string) error {
@@ -75,6 +77,9 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 		middleware.Recovery(httpLogger),
 		middleware.SameOrigin(),
 	)
+	if dependencies.HTTPMaxConcurrency > 0 {
+		router.Use(apiAdmission(dependencies.HTTPMaxConcurrency))
+	}
 	probes := dependencies.Probes
 	if probes == nil {
 		probes, _ = componentmetrics.NewProbes(context.Background(), checkerTimeout, 250*time.Millisecond, func(ctx context.Context) error {
@@ -108,4 +113,30 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 	}
 	registerAPIV1Routes(router, apiRoutes)
 	return router
+}
+
+func apiAdmission(limit int) gin.HandlerFunc {
+	slots := make(chan struct{}, limit)
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if path != "/api/v1" && !strings.HasPrefix(path, "/api/v1/") {
+			c.Next()
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			if metrics := componentmetrics.BackendActive(); metrics != nil {
+				metrics.ObserveHTTPStarted()
+				defer metrics.ObserveHTTPFinished()
+			}
+			defer func() { <-slots }()
+			c.Next()
+		default:
+			if metrics := componentmetrics.BackendActive(); metrics != nil {
+				metrics.ObserveHTTPRejected()
+			}
+			componentmetrics.WriteError(c.Writer, 503, "backend_busy", "service temporarily busy")
+			c.Abort()
+		}
+	}
 }

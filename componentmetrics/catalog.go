@@ -39,6 +39,16 @@ type Family struct {
 	Required         bool
 	// Pair identifies the duration counter for a count family (and vice versa).
 	Pair string
+	// Distribution describes a physical member of a fixed histogram contract.
+	// Bucket, count, and sum are separate Prometheus families so every ingress
+	// boundary can validate the complete distribution without accepting a
+	// client-defined metric name or label.
+	Distribution *Distribution
+}
+type Distribution struct {
+	Name    string
+	Role    string
+	Buckets []string
 }
 type Spec struct {
 	ID                       string
@@ -111,6 +121,9 @@ func partitionTuples() [][]string {
 // allowlist. All tuples are constructed from code constants, never config/input.
 func Catalog(id string) (Spec, bool) {
 	s := Spec{ID: id, MaxBodyBytes: 262144}
+	if id == "backend" {
+		s.MaxBodyBytes = BackendMaxBodyBytes
+	}
 	prefix := Prefix(id)
 	gauge := func(name, unit string, keys []string, tuples [][]string) {
 		if tuples == nil {
@@ -131,12 +144,35 @@ func Catalog(id string) (Spec, bool) {
 		for _, method := range backendMethods {
 			routes = append(routes, []string{method, "_unmatched"})
 		}
-		pair("http_requests_total", "http_request_duration_seconds_total", []string{"method", "route", "status_class"}, expand(routes, "1xx", "2xx", "3xx", "4xx", "5xx"))
+		requestTuples := expand(routes, "1xx", "2xx", "3xx", "4xx", "5xx")
+		pair("http_requests_total", "http_request_duration_seconds_total", []string{"method", "route", "status_class"}, requestTuples)
+		latencyBase := prefix + "http_request_duration_seconds"
+		latencyBuckets := BackendLatencyBuckets()
+		s.Families = append(s.Families,
+			Family{
+				Name: prefix + "http_request_duration_seconds_bucket", Kind: "counter", Unit: "count",
+				Keys: []string{"method", "route", "status_class", "le"}, Tuples: expand(requestTuples, latencyBuckets...),
+				Distribution: &Distribution{Name: latencyBase, Role: "bucket", Buckets: append([]string(nil), latencyBuckets...)},
+			},
+			Family{
+				Name: prefix + "http_request_duration_seconds_count", Kind: "counter", Unit: "count",
+				Keys: []string{"method", "route", "status_class"}, Tuples: requestTuples,
+				Distribution: &Distribution{Name: latencyBase, Role: "count", Buckets: append([]string(nil), latencyBuckets...)},
+			},
+			Family{
+				Name: latencyBase + "_sum", Kind: "counter", Unit: "seconds",
+				Keys: []string{"method", "route", "status_class"}, Tuples: requestTuples,
+				Distribution: &Distribution{Name: latencyBase, Role: "sum", Buckets: append([]string(nil), latencyBuckets...)},
+			},
+		)
 		gauge("alert_evaluation_known", "state", []string{"alert_source"}, singles("metrics", "logs", "events"))
 		gauge("alert_last_success_timestamp_seconds", "unix_seconds", []string{"alert_source"}, singles("metrics", "logs", "events"))
 		gauge("outbox_pending", "count", nil, nil)
 		gauge("outbox_oldest_age_seconds", "seconds", nil, nil)
 		gauge("outbox_last_publish_success_timestamp_seconds", "unix_seconds", nil, nil)
+		gauge("http_requests_in_flight", "count", nil, nil)
+		gauge("http_concurrency_limit", "count", nil, nil)
+		s.Families = append(s.Families, Family{Name: prefix + "http_rejected_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
 		dep("mysql", "redis", "rabbitmq", "elasticsearch")
 	case "business-worker":
 		pair("messages_total", "message_processing_duration_seconds_total", []string{"event_type", "result"}, expand(singles("comment.created", "post.liked", "user.followed", "unknown"), "success", "retry", "failure", "ack"))

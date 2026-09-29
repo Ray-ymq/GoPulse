@@ -71,3 +71,8 @@ it('accepts alert-source metric selectors without permitting unknown labels',()=
  expect(isCatalog({...catalog,metrics:[{...metric,label_keys:['secret']}]})).toBe(false)
  expect(isRule({...rule,selector:{...selector,labels:{secret:'hidden'}}})).toBe(false)
 })
+
+it('accepts latency bucket selectors using the Prometheus le label',()=>{
+ const metric={metric:'gopulse_backend_http_request_duration_seconds_bucket',kind:'counter',unit:'count',label_keys:['method','route','status_class','le'],allowed_tuples:[['GET','/api/v1/health','2xx','0.5']],reducers:['increase']}
+ expect(isCatalog({...catalog,metrics:[metric]})).toBe(true)
+})
