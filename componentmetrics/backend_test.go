@@ -83,8 +83,21 @@ func TestBackendFixedRequestTuplesAndPairedUpdates(t *testing.T) {
 	if strings.Contains(text, "private") || strings.Contains(text, "secret") {
 		t.Fatal("untrusted label value escaped")
 	}
-	if metrics.MaxSamples() != 117 {
-		t.Fatalf("sample budget = %d, want 117", metrics.MaxSamples())
+	if metrics.MaxSamples() != 896 {
+		t.Fatalf("sample budget = %d, want 896", metrics.MaxSamples())
+	}
+	for _, want := range []string{
+		`gopulse_backend_http_request_duration_seconds_bucket{method="GET",route="/posts/:postId",status_class="2xx",le="0.25"} 1`,
+		`gopulse_backend_http_request_duration_seconds_bucket{method="GET",route="/posts/:postId",status_class="2xx",le="+Inf"} 2`,
+		`gopulse_backend_http_request_duration_seconds_count{method="GET",route="/posts/:postId",status_class="2xx"} 2`,
+		`gopulse_backend_http_request_duration_seconds_sum{method="GET",route="/posts/:postId",status_class="2xx"} 1`,
+		`gopulse_backend_http_requests_in_flight 0`,
+		`gopulse_backend_http_concurrency_limit 0`,
+		`gopulse_backend_http_rejected_total 0`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing latency or saturation metric %q", want)
+		}
 	}
 }
 
@@ -110,6 +123,41 @@ func TestBackendConcurrentCompletion(t *testing.T) {
 	for _, name := range []string{"http_requests_total", "http_request_duration_seconds_total"} {
 		if !strings.Contains(string(body), "gopulse_backend_"+name+"{method=\"GET\",route=\"/health\",status_class=\"2xx\"} 400\n") {
 			t.Fatal("concurrent count/duration update lost")
+		}
+	}
+	if !strings.Contains(string(body), `gopulse_backend_http_request_duration_seconds_count{method="GET",route="/health",status_class="2xx"} 400`) {
+		t.Fatal("concurrent histogram count update lost")
+	}
+	if !strings.Contains(string(body), `gopulse_backend_http_request_duration_seconds_bucket{method="GET",route="/health",status_class="2xx",le="+Inf"} 400`) {
+		t.Fatal("concurrent histogram bucket update lost")
+	}
+}
+
+func TestBackendSaturationSignalsAreBoundedAndConcurrent(t *testing.T) {
+	metrics, err := NewBackend([]Route{{Method: "GET", Template: "/health"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics.SetHTTPConcurrencyLimit(2)
+	metrics.ObserveOutbox(0, 0, nil)
+	metrics.ObserveHTTPStarted()
+	metrics.ObserveHTTPStarted()
+	metrics.ObserveHTTPRejected()
+	metrics.ObserveHTTPFinished()
+	metrics.ObserveHTTPFinished()
+	metrics.ObserveHTTPFinished()
+	body, ok := metrics.Snapshot()
+	if !ok {
+		t.Fatal("snapshot unavailable")
+	}
+	text := string(body)
+	for _, want := range []string{
+		"gopulse_backend_http_requests_in_flight 0",
+		"gopulse_backend_http_concurrency_limit 2",
+		"gopulse_backend_http_rejected_total 1",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing saturation signal %q", want)
 		}
 	}
 }

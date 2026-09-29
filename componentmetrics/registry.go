@@ -78,6 +78,12 @@ func (r *Registry) lookup(suffix string, values []string) (*familyState, *cell) 
 	return f, f.cells[tupleKey(values)]
 }
 func (r *Registry) Set(suffix string, value float64, values ...string) {
+	if r == nil {
+		if b := activeBackend.Load(); b != nil && len(values) == 1 {
+			b.ObserveAlert(suffix, value, values[0])
+		}
+		return
+	}
 	f, c := r.lookup(suffix, values)
 	if c == nil || math.IsNaN(value) || math.IsInf(value, 0) || f.definition.Kind != "gauge" {
 		return
