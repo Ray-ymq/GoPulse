@@ -1,6 +1,6 @@
 # GoPulse 当前能力状态
 
-> 基线：产品版本 `2.1.2`，2026-09-29。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品版本 `2.1.3`，2026-09-29。版本完成、验收执行完成和能力达标是三个不同概念。
 
 ## 已验证
 
@@ -14,6 +14,7 @@
 - Backend 固定低基数 HTTP 延迟分布（bucket/count/sum）以及 in-flight、并发上限、拒绝计数的 Monitor → Envelope → Marshaller → VictoriaMetrics → 查询链路。
 - Phase-18-05 冻结候选的扩缩容、局部故障、SIGTERM、重建、独立诊断和清理矩阵。
 - Phase-19-02 的容量 profile、开环四阶梯/三重复 runner、独立资源采样、原值统计和严格 evidence verifier 已完成自测与 calibration；这只表示工具合同冻结。
+- Phase-19-03 已完成正式入口、逐轮确定性配方、轮次 endpoint、进度/资源/恢复原始证据和严格 verifier 的工具修订；这只表示验收基础设施完成，尚无正式容量结论。
 
 ## 已发现边界
 
