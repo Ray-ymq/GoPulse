@@ -23,6 +23,7 @@ The repository currently provides:
 - Phase 18-04 observability-scale topology with two Router and Marshaller replicas, multi-partition Kafka ownership, separate business and observability Elasticsearch services and volumes, bounded target-local backpressure, and fixed two-run evidence;
 - Phase 18-05 machine-readable runtime contracts, private direct-diagnostic evidence, and a completed two-run scale/fault/rebuild closure classified as `target_met`; the result is scoped to the fixed matrix and does not claim independent `150 RPS` capacity certification, state-layer HA, production SLOs, or Kubernetes support;
 - Phase-19-01 Backend API-only admission, probe isolation, fixed HTTP latency distribution families, and bounded concurrency/rejection diagnostics through the component metrics contract; this adds diagnostic evidence for later capacity work without declaring a capacity target met;
+- Phase-19-02's frozen machine-readable capacity profile, independent three-repetition runner, separate load/SUT resource sampler, raw-preserving statistics, strict evidence verifier, and bounded calibration; no formal capacity conclusion has been published;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
 
 Same-type plugin multi-instance collection, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, distributed tracing, automatic dead-queue replay, real-time notification push, Kubernetes, and other later-phase capabilities are not implemented yet. The current verified, boundary, and unverified capability list is maintained in [`docs/capability-status.md`](docs/capability-status.md).
@@ -533,6 +534,14 @@ Compose readiness checks, fixed cumulative latency buckets with count and sum,
 and in-flight/limit/rejection signals. These are bounded diagnostic contracts
 for the later capacity profile; they do not claim that any throughput or tail
 latency target has been met.
+
+Phase-19-02 advances the product to `2.1.2` with the frozen
+[`capacity-profile.json`](loadtest/capacity-profile.json), an open-loop runner
+for the `50/100/150/200 RPS` ladder and three independent repetitions, separate
+load-process/SUT resource samples, raw-preserving median/min/max/CV aggregation,
+strict binding and cleanup verification, and a bounded calibration mode. This
+freezes the acceptance tooling only; it does not publish a formal capacity
+result or claim that any throughput or tail-latency target has been met.
 
 ### Backend log query pipeline
 
