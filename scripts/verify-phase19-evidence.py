@@ -16,7 +16,7 @@ from phase19_evidence import validate_evidence
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", nargs="?", type=Path)
-    parser.add_argument("--directory", "--evidence-dir", dest="directory", type=Path)
+    parser.add_argument("--directory", "--evidence-dir", "--capacity", dest="directory", type=Path)
     args = parser.parse_args(argv)
     selected = args.directory or args.path
     if selected is None:

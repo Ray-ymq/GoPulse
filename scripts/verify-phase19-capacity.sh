@@ -12,7 +12,7 @@ fi
 
 if [[ ${1:-} == --calibration && $# == 1 ]]; then
   exec env PYTHONPATH="$ROOT/scripts/ci${PYTHONPATH:+:$PYTHONPATH}" \
-    python3 "$ROOT/scripts/ci/phase19_capacity.py" --calibration --profile "$ROOT/loadtest/capacity-profile.json"
+    python3 "$ROOT/scripts/ci/phase19_capacity.py" --calibration
 fi
 
 exec env PYTHONPATH="$ROOT/scripts/ci${PYTHONPATH:+:$PYTHONPATH}" \

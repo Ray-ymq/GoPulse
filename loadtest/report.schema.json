@@ -191,6 +191,16 @@
         "raw_sample_records": {"type": "integer", "minimum": 1}
       }
     },
+    "progressReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "records"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"pattern": "^sha256:[0-9a-f]{64}$"},
+        "records": {"type": "integer", "minimum": 1}
+      }
+    },
     "stop": {
       "type": "object",
       "additionalProperties": false,
@@ -217,6 +227,7 @@
         "stages": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/capacityStage"}},
         "total": {"$ref": "#/$defs/outcomes"},
         "load_process": {"$ref": "#/$defs/process"},
+        "progress": {"$ref": "#/$defs/progressReference"},
         "resources": {"$ref": "#/$defs/resourceReference"},
         "stop": {"$ref": "#/$defs/stop"}
       }

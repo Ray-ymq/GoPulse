@@ -61,5 +61,10 @@ runner, sampler, evidence, and Go loadtest self-tests; use
 `scripts/verify-phase19-evidence.py --directory <evidence-dir>` for the
 read-only evidence check.
 
-The Phase-19-02 implementation freezes this tooling and method. It does not
-publish a throughput, tail-latency, `target_met`, or `boundary_found` result.
+The Phase-19-03 implementation freezes the repaired acceptance path and its
+raw-evidence contracts. Its bounded preflight is infrastructure validation only:
+it must report `formal=false` and `capacity_status=null`, and its output cannot
+be reused as Phase-19-04 capacity evidence. The Phase-19-03 implementation does
+not publish a throughput, tail-latency, `target_met`, or `boundary_found` result;
+formal certification remains assigned to Phase-19-04 against the frozen `2.1.3`
+candidate.
