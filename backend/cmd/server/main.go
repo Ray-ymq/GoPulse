@@ -98,6 +98,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	metrics.SetHTTPConcurrencyLimit(cfg.HTTPMaxConcurrency)
 	componentmetrics.InstallBackend(metrics)
 	defer componentmetrics.InstallBackend(nil)
 	goredis.SetLogger(&redislogging.VoidLogger{})
@@ -244,12 +245,13 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	})
 	router := backendhttp.NewRouter(
 		backendhttp.Dependencies{
-			Probes:        probes,
-			MySQL:         mysqlClient,
-			Redis:         redisClient,
-			RabbitMQ:      rabbitMQChecker,
-			Elasticsearch: elasticsearchClient,
-			Logger:        logger,
+			Probes:             probes,
+			MySQL:              mysqlClient,
+			Redis:              redisClient,
+			RabbitMQ:           rabbitMQChecker,
+			Elasticsearch:      elasticsearchClient,
+			Logger:             logger,
+			HTTPMaxConcurrency: cfg.HTTPMaxConcurrency,
 		},
 		backendhttp.APIRoutes{
 			Overview:        overview,
@@ -271,7 +273,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 			ExporterPlugins: exporterPluginHandler,
 		},
 	)
-	server := newHTTPServer(cfg.HTTPAddress(), boundedHTTPHandler(router, cfg.HTTPMaxConcurrency))
+	server := newHTTPServer(cfg.HTTPAddress(), router)
 
 	alertCtx, cancelAlerts := context.WithCancel(signalContext)
 	alertDone := make(chan struct{})
@@ -311,30 +313,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	return serveWithDispatcher(signalContext, server, dispatcher, lifecycleLogger)
 }
 
-func boundedHTTPHandler(next stdhttp.Handler, limit int) stdhttp.Handler {
-	if next == nil || limit <= 0 {
-		return next
-	}
-	semaphore := make(chan struct{}, limit)
-	return stdhttp.HandlerFunc(func(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
-		select {
-		case semaphore <- struct{}{}:
-			defer func() { <-semaphore }()
-			next.ServeHTTP(writer, request)
-		default:
-			requestID, err := componentmetrics.NewRequestID()
-			if err == nil {
-				writer.Header().Set("X-Request-ID", requestID)
-			}
-			componentmetrics.WriteError(writer, stdhttp.StatusServiceUnavailable, "backend_busy", "service temporarily busy")
-		}
-	})
-}
-
-func newHTTPServer(address string, handler stdhttp.Handler, concurrency ...int) *stdhttp.Server {
-	if len(concurrency) > 0 {
-		handler = boundedHTTPHandler(handler, concurrency[0])
-	}
+func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
 	return &stdhttp.Server{
 		Addr:              address,
 		Handler:           handler,

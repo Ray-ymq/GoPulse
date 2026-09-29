@@ -20,9 +20,14 @@ type completedRequest struct {
 	count   uint64
 	seconds float64
 }
+type requestState struct {
+	count   uint64
+	seconds float64
+	buckets [backendLatencyBucketSlots]uint64
+}
 type requestSeries struct {
 	labels string
-	value  atomic.Pointer[completedRequest]
+	value  atomic.Pointer[requestState]
 }
 type backlog struct {
 	pending       int64
@@ -31,24 +36,41 @@ type backlog struct {
 }
 
 // Backend stores a fixed set of series slots allocated at router construction.
-// Hot-path updates perform no I/O, acquire no mutex, and allocate only a single
-// fixed-size count/duration pair. One atomic publication keeps the pair coherent.
+// Hot-path updates perform no I/O, acquire no mutex, and publish one immutable
+// fixed-size state so the legacy pair and histogram can never be scraped from
+// different completions.
 type Backend struct {
-	requests     map[httpTuple]*requestSeries
-	ordered      []*requestSeries
-	dependencies [4]atomic.Int32
-	outbox       atomic.Pointer[backlog]
-	lastPublish  atomic.Int64
+	requests             map[httpTuple]*requestSeries
+	ordered              []*requestSeries
+	dependencies         [4]atomic.Int32
+	outbox               atomic.Pointer[backlog]
+	lastPublish          atomic.Int64
+	httpInFlight         atomic.Int64
+	httpConcurrencyLimit atomic.Int64
+	httpRejected         atomic.Uint64
+	alertKnown           [3]atomic.Int32
+	alertLastSuccess     [3]atomic.Int64
 }
 
 var backendMethods = [...]string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE", "unknown"}
 var backendDependencies = [...]string{"mysql", "redis", "rabbitmq", "elasticsearch"}
 
-const BackendFamilies = 6
+const BackendFamilies = 14
 
 // BackendMaxRoutes guards accidental unbounded registration, not client input.
 const BackendMaxRoutes = 64
-const BackendMaxBodyBytes = 256 * 1024
+const BackendMaxBodyBytes = 1 << 20
+
+const backendLatencyBucketSlots = 12
+
+var backendLatencyBucketValues = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10}
+var backendLatencyBucketLabels = [...]string{"0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2", "5", "10", "+Inf"}
+
+// BackendLatencyBuckets returns the fixed label vocabulary for the Backend
+// latency distribution. The copy prevents callers from widening the contract.
+func BackendLatencyBuckets() []string {
+	return append([]string(nil), backendLatencyBucketLabels[:]...)
+}
 
 // NewBackend freezes exactly the supplied registered method/template pairs plus
 // a fixed unmatched bucket per allowed method. Counter tuples remain absent
@@ -108,18 +130,81 @@ func (b *Backend) ObserveRequest(method, template string, status int, elapsed ti
 		tuple.route.Template = "_unmatched"
 		series = b.requests[tuple]
 	}
-	next := &completedRequest{}
+	next := &requestState{}
 	for {
 		old := series.value.Load()
-		*next = completedRequest{count: 1, seconds: elapsed.Seconds()}
+		*next = requestState{count: 1, seconds: elapsed.Seconds()}
 		if old != nil {
 			next.count += old.count
 			next.seconds += old.seconds
+			next.buckets = old.buckets
 		}
+		seconds := elapsed.Seconds()
+		for i, bound := range backendLatencyBucketValues {
+			if seconds <= bound {
+				next.buckets[i]++
+			}
+		}
+		next.buckets[len(next.buckets)-1]++
 		if series.value.CompareAndSwap(old, next) {
 			return
 		}
 	}
+}
+
+func (b *Backend) SetHTTPConcurrencyLimit(limit int) {
+	if b == nil || limit < 0 {
+		return
+	}
+	b.httpConcurrencyLimit.Store(int64(limit))
+}
+
+func (b *Backend) ObserveHTTPStarted() {
+	if b != nil {
+		b.httpInFlight.Add(1)
+	}
+}
+
+func (b *Backend) ObserveHTTPFinished() {
+	if b == nil {
+		return
+	}
+	for {
+		current := b.httpInFlight.Load()
+		if current <= 0 || b.httpInFlight.CompareAndSwap(current, current-1) {
+			return
+		}
+	}
+}
+
+func (b *Backend) ObserveHTTPRejected() {
+	if b != nil {
+		b.httpRejected.Add(1)
+	}
+}
+
+func (b *Backend) ObserveAlert(suffix string, value float64, source string) {
+	if b == nil || (suffix != "alert_evaluation_known" && suffix != "alert_last_success_timestamp_seconds") {
+		return
+	}
+	index := -1
+	for i, allowed := range [...]string{"metrics", "logs", "events"} {
+		if source == allowed {
+			index = i
+			break
+		}
+	}
+	if index < 0 || value < 0 || value != float64(int64(value)) {
+		return
+	}
+	if suffix == "alert_evaluation_known" {
+		if value != 0 && value != 1 {
+			return
+		}
+		b.alertKnown[index].Store(int32(value))
+		return
+	}
+	b.alertLastSuccess[index].Store(int64(value))
 }
 
 func (b *Backend) ObserveDependency(name string, err error) {
@@ -160,9 +245,10 @@ func (b *Backend) ObservePublish(at time.Time, err error) {
 	}
 }
 
-// MaxSamples includes both counter families for every permitted tuple, four
-// dependencies, and three outbox gauges. No client value can increase it.
-func (b *Backend) MaxSamples() int { return len(b.ordered)*2 + 7 }
+// MaxSamples includes the historical counter pair, all fixed distribution
+// members, capacity signals, dependencies, and outbox gauges. No client value
+// can increase it.
+func (b *Backend) MaxSamples() int { return len(b.ordered)*16 + 16 }
 
 func (b *Backend) Snapshot() ([]byte, bool) {
 	state := b.outbox.Load()
@@ -170,15 +256,23 @@ func (b *Backend) Snapshot() ([]byte, bool) {
 		return nil, false
 	}
 	var out strings.Builder
-	out.WriteString("# TYPE gopulse_backend_http_requests_total counter\n# TYPE gopulse_backend_http_request_duration_seconds_total counter\n")
+	out.WriteString("# TYPE gopulse_backend_http_requests_total counter\n# TYPE gopulse_backend_http_request_duration_seconds_total counter\n# TYPE gopulse_backend_http_request_duration_seconds_bucket counter\n# TYPE gopulse_backend_http_request_duration_seconds_count counter\n# TYPE gopulse_backend_http_request_duration_seconds_sum counter\n")
 	for _, series := range b.ordered {
 		value := series.value.Load()
 		if value == nil {
 			continue
 		}
 		fmt.Fprintf(&out, "gopulse_backend_http_requests_total%s %d\ngopulse_backend_http_request_duration_seconds_total%s %s\n", series.labels, value.count, series.labels, strconv.FormatFloat(value.seconds, 'g', -1, 64))
+		for i, bucket := range backendLatencyBucketLabels {
+			fmt.Fprintf(&out, "gopulse_backend_http_request_duration_seconds_bucket%s %d\n", withLabel(series.labels, "le", bucket), value.buckets[i])
+		}
+		fmt.Fprintf(&out, "gopulse_backend_http_request_duration_seconds_count%s %d\ngopulse_backend_http_request_duration_seconds_sum%s %s\n", series.labels, value.count, series.labels, strconv.FormatFloat(value.seconds, 'g', -1, 64))
 	}
-	fmt.Fprintf(&out, "# TYPE gopulse_backend_outbox_pending gauge\ngopulse_backend_outbox_pending %d\n# TYPE gopulse_backend_outbox_oldest_age_seconds gauge\ngopulse_backend_outbox_oldest_age_seconds %s\n# TYPE gopulse_backend_outbox_last_publish_success_timestamp_seconds gauge\ngopulse_backend_outbox_last_publish_success_timestamp_seconds %d\n# TYPE gopulse_backend_dependency_up gauge\n", state.pending, strconv.FormatFloat(state.oldestSeconds, 'g', -1, 64), b.lastPublish.Load())
+	fmt.Fprintf(&out, "# TYPE gopulse_backend_alert_evaluation_known gauge\n# TYPE gopulse_backend_alert_last_success_timestamp_seconds gauge\n")
+	for i, source := range [...]string{"metrics", "logs", "events"} {
+		fmt.Fprintf(&out, "gopulse_backend_alert_evaluation_known{alert_source=%q} %d\ngopulse_backend_alert_last_success_timestamp_seconds{alert_source=%q} %d\n", source, b.alertKnown[i].Load(), source, b.alertLastSuccess[i].Load())
+	}
+	fmt.Fprintf(&out, "# TYPE gopulse_backend_outbox_pending gauge\ngopulse_backend_outbox_pending %d\n# TYPE gopulse_backend_outbox_oldest_age_seconds gauge\ngopulse_backend_outbox_oldest_age_seconds %s\n# TYPE gopulse_backend_outbox_last_publish_success_timestamp_seconds gauge\ngopulse_backend_outbox_last_publish_success_timestamp_seconds %d\n# TYPE gopulse_backend_http_requests_in_flight gauge\ngopulse_backend_http_requests_in_flight %d\n# TYPE gopulse_backend_http_concurrency_limit gauge\ngopulse_backend_http_concurrency_limit %d\n# TYPE gopulse_backend_http_rejected_total counter\ngopulse_backend_http_rejected_total %d\n# TYPE gopulse_backend_dependency_up gauge\n", state.pending, strconv.FormatFloat(state.oldestSeconds, 'g', -1, 64), b.lastPublish.Load(), b.httpInFlight.Load(), b.httpConcurrencyLimit.Load(), b.httpRejected.Load())
 	for i, name := range backendDependencies {
 		fmt.Fprintf(&out, "gopulse_backend_dependency_up{dependency=%q} %d\n", name, b.dependencies[i].Load())
 	}
@@ -186,4 +280,8 @@ func (b *Backend) Snapshot() ([]byte, bool) {
 		return nil, false
 	}
 	return []byte(out.String()), true
+}
+
+func withLabel(labels, key, value string) string {
+	return strings.TrimSuffix(labels, "}") + fmt.Sprintf(",%s=%q}", key, value)
 }

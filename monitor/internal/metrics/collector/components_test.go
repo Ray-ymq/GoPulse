@@ -66,3 +66,28 @@ func TestComponentCatalogIncludesEveryExplicitObservabilityReplica(t *testing.T)
 		}
 	}
 }
+
+func TestBackendDistributionIngressRequiresFixedBucketsAndLabels(t *testing.T) {
+	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics.SetHTTPConcurrencyLimit(128)
+	metrics.ObserveOutbox(0, 0, nil)
+	metrics.ObserveRequest("GET", "/health", 200, 250*time.Millisecond)
+	body, ok := metrics.Snapshot()
+	if !ok {
+		t.Fatal("backend snapshot unavailable")
+	}
+	if _, err := ParseComponent("backend", body); err != nil {
+		t.Fatalf("valid backend distribution rejected: %v", err)
+	}
+	missing := strings.Replace(string(body), "gopulse_backend_http_request_duration_seconds_bucket{method=\"GET\",route=\"/health\",status_class=\"2xx\",le=\"0.25\"} 1\n", "", 1)
+	if _, err := ParseComponent("backend", []byte(missing)); err == nil {
+		t.Fatal("incomplete backend bucket distribution accepted")
+	}
+	foreign := strings.Replace(string(body), `le="0.25"`, `le="private"`, 1)
+	if _, err := ParseComponent("backend", []byte(foreign)); err == nil {
+		t.Fatal("foreign backend bucket label accepted")
+	}
+}
