@@ -543,6 +543,13 @@ strict binding and cleanup verification, and a bounded calibration mode. This
 freezes the acceptance tooling only; it does not publish a formal capacity
 result or claim that any throughput or tail-latency target has been met.
 
+The first formal-capacity preflight found acceptance-infrastructure gaps before
+the formal entry was invoked: per-repetition recipe materialization and endpoint
+binding were incomplete, and recovery/freshness receipts were not backed by
+stage-scoped raw facts. Phase-19-03 is therefore reassigned to repair and prove
+that path without producing a capacity conclusion; Phase-19-04 will certify the
+frozen `2.1.3` candidate once and publish the actual result.
+
 ### Backend log query pipeline
 
 Backend, Business Worker, Search Indexer, and search-reindex Schema v1 logs remain single-line JSON on stdout and, when `LOG_MONITOR_URL` is configured, are also offered to the same bounded non-blocking in-memory shipper. The shipper uses the dedicated `LOG_MONITOR_INGEST_TOKEN`; queue full affects only the remote copy, temporary transport failures retain the ordered queue head and message ID for retry, and permanent `400`/`413`/`422` input rejection drops only that remote copy. None of these outcomes changes API, RabbitMQ acknowledgement, Outbox, indexing, or reindex exit semantics. LogMonitor derives one of the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, or `logs/search-reindex` envelopes from the validated service, Router transports all four through `gopulse-observability-v1`, and Marshaller revalidates the source/payload match before idempotently storing strict documents in `gopulse-logs-v1-YYYY.MM.DD` behind `gopulse-logs-v1-read`. The current observability topic has four partitions and two Marshaller group members with generation-scoped ownership; a target storage failure blocks only the affected bounded processing path while unrelated partitions and targets remain diagnosable. The Phase 9 historical single-member behavior remains documented in its implementation logs rather than presented as the current topology.
