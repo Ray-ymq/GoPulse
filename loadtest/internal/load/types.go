@@ -22,9 +22,10 @@ const ReportSchemaVersion = "gopulse.phase18.load.v1"
 const DiagnosticSchemaVersion = "gopulse.phase18.load-diagnostic.v1"
 
 const (
-	CapacityProfileSchemaVersion = "gopulse.phase19.capacity-profile.v1"
-	CapacityReportSchemaVersion  = "gopulse.phase19.load.v1"
-	CapacityRepetitions          = 3
+	CapacityProfileSchemaVersion  = "gopulse.phase19.capacity-profile.v1"
+	CapacityReportSchemaVersion   = "gopulse.phase19.load.v1"
+	CapacityProgressSchemaVersion = "gopulse.phase19.progress.v1"
+	CapacityRepetitions           = 3
 )
 
 type Category string
@@ -148,16 +149,16 @@ type DiagnosticReport struct {
 // of the profile, rather than runner defaults, so a candidate cannot silently
 // move to a smaller host.
 type HostProfile struct {
-	Platform         string `json:"platform"`
-	HostOS           string `json:"host_os"`
-	KernelContains   string `json:"kernel_contains"`
-	CPUCountMin      int    `json:"cpu_count_min"`
-	MemoryBytesMin   uint64 `json:"memory_bytes_min"`
-	SwapBytesMin     uint64 `json:"swap_bytes_min"`
-	DiskFreeBytesMin uint64 `json:"disk_free_bytes_min"`
-	DockerServerOS   string `json:"docker_server_os"`
-	DockerServerArch string `json:"docker_server_arch"`
-	ComposeMajor     int    `json:"compose_major"`
+	Platform          string `json:"platform"`
+	HostOS            string `json:"host_os"`
+	KernelContains    string `json:"kernel_contains"`
+	CPUCountMin       int    `json:"cpu_count_min"`
+	MemoryBytesMin    uint64 `json:"memory_bytes_min"`
+	SwapBytesMin      uint64 `json:"swap_bytes_min"`
+	DiskFreeBytesMin  uint64 `json:"disk_free_bytes_min"`
+	DockerServerOS    string `json:"docker_server_os"`
+	DockerServerArch  string `json:"docker_server_arch"`
+	ComposeMinVersion string `json:"compose_min_version"`
 }
 
 type RecipeCountsProfile struct {
@@ -233,8 +234,9 @@ type StopConditionProfile struct {
 }
 
 type SamplingProfile struct {
-	IntervalSeconds float64  `json:"interval_seconds"`
-	RequiredSignals []string `json:"required_signals"`
+	IntervalSeconds    float64  `json:"interval_seconds"`
+	RequiredSignals    []string `json:"required_signals"`
+	RequiredComponents []string `json:"required_components"`
 }
 
 type StatisticsProfile struct {
@@ -334,10 +336,34 @@ type CapacityResourceReference struct {
 	RawSampleRecords int    `json:"raw_sample_records"`
 }
 
+type CapacityProgressReference struct {
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Records int    `json:"records"`
+}
+
 type StopInfo struct {
 	Reason string `json:"reason"`
 	Stage  string `json:"stage,omitempty"`
 	Detail string `json:"detail,omitempty"`
+}
+
+// CapacityProgressRecord is an append-only boundary receipt. It is written
+// before and after every load/recovery window so an interrupted repetition
+// retains the last trustworthy stage rather than requiring a synthesized
+// summary to explain what ran.
+type CapacityProgressRecord struct {
+	SchemaVersion     string    `json:"schema_version"`
+	Sequence          int       `json:"sequence"`
+	Event             string    `json:"event"`
+	Stage             string    `json:"stage,omitempty"`
+	Window            string    `json:"window,omitempty"`
+	Status            string    `json:"status"`
+	At                time.Time `json:"at"`
+	ScheduledSlots    uint64    `json:"scheduled_slots"`
+	DroppedSlots      uint64    `json:"dropped_slots"`
+	CompletedRequests uint64    `json:"completed_requests"`
+	MaxScheduleLagMS  float64   `json:"max_schedule_lag_ms"`
 }
 
 type CapacityReport struct {
@@ -352,6 +378,7 @@ type CapacityReport struct {
 	Stages          []CapacityStageReport      `json:"stages"`
 	Total           OutcomeSummary             `json:"total"`
 	LoadProcess     ProcessStats               `json:"load_process"`
+	Progress        *CapacityProgressReference `json:"progress,omitempty"`
 	Resources       *CapacityResourceReference `json:"resources,omitempty"`
 	Stop            *StopInfo                  `json:"stop,omitempty"`
 }
@@ -391,7 +418,7 @@ func ValidateProfile(profile CapacityProfile) error {
 	}
 	if profile.Host.Platform != "linux/amd64" || profile.Host.HostOS != "Linux" || profile.Host.KernelContains == "" ||
 		profile.Host.CPUCountMin < 1 || profile.Host.MemoryBytesMin == 0 || profile.Host.SwapBytesMin == 0 ||
-		profile.Host.DiskFreeBytesMin == 0 || profile.Host.DockerServerOS != "linux" || profile.Host.DockerServerArch != "amd64" || profile.Host.ComposeMajor != 2 {
+		profile.Host.DiskFreeBytesMin == 0 || profile.Host.DockerServerOS != "linux" || profile.Host.DockerServerArch != "amd64" || !validVersion(profile.Host.ComposeMinVersion) {
 		return errors.New("capacity profile host contract is invalid")
 	}
 	if err := validateRecipeProfile(profile.Recipe); err != nil {
@@ -418,7 +445,7 @@ func ValidateProfile(profile CapacityProfile) error {
 		!profile.StopConditions.ProfileHardError || !profile.StopConditions.PreserveUnexecutedStages {
 		return errors.New("capacity profile must enable every safe stop condition")
 	}
-	if !boundedPositive(profile.Sampling.IntervalSeconds, 60) || len(profile.Sampling.RequiredSignals) == 0 {
+	if !boundedPositive(profile.Sampling.IntervalSeconds, 60) || len(profile.Sampling.RequiredSignals) == 0 || len(profile.Sampling.RequiredComponents) == 0 {
 		return errors.New("capacity profile sampling contract is invalid")
 	}
 	expectedSignals := map[string]bool{"host_cpu": true, "host_rss": true, "load_cpu": true, "load_rss": true, "load_scheduler_lag": true, "sut_cpu": true, "sut_rss": true, "sut_saturation": true, "outbox": true, "rabbitmq": true, "kafka_lag": true}
@@ -431,6 +458,13 @@ func ValidateProfile(profile CapacityProfile) error {
 			return errors.New("capacity profile contains an empty required signal")
 		}
 		seenSignals[signal] = true
+	}
+	seenComponents := make(map[string]bool, len(profile.Sampling.RequiredComponents))
+	for _, component := range profile.Sampling.RequiredComponents {
+		if component == "" || seenComponents[component] {
+			return errors.New("capacity profile contains an empty or duplicate required component")
+		}
+		seenComponents[component] = true
 	}
 	if len(profile.Statistics.Percentiles) != 3 || profile.Statistics.Percentiles[0] != .5 || profile.Statistics.Percentiles[1] != .95 || profile.Statistics.Percentiles[2] != .99 ||
 		len(profile.Statistics.Aggregations) != 4 || profile.Statistics.Aggregations[0] != "median" || profile.Statistics.Aggregations[1] != "min" || profile.Statistics.Aggregations[2] != "max" || profile.Statistics.Aggregations[3] != "cv" ||

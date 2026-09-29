@@ -35,6 +35,24 @@ class SamplerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sequence"):
             validate_sample_intervals(records, 5)
 
+    def test_boundary_samples_do_not_change_scheduled_interval_validation(self):
+        records = [
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 0, "observed_at": 1, "interval_seconds": 5, "sample_kind": "initial"},
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 1, "observed_at": 1.1, "interval_seconds": 5, "sample_kind": "boundary"},
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 2, "observed_at": 6, "interval_seconds": 5, "sample_kind": "scheduled"},
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 3, "observed_at": 6.1, "interval_seconds": 5, "sample_kind": "boundary"},
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 4, "observed_at": 11, "interval_seconds": 5, "sample_kind": "scheduled"},
+        ]
+        validate_sample_intervals(records, 5)
+
+    def test_scheduled_deadlines_allow_slow_resource_collection(self):
+        records = [
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 0, "observed_at": 1, "interval_seconds": 5, "sample_kind": "initial"},
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 1, "observed_at": 10, "interval_seconds": 5, "sample_kind": "scheduled", "scheduled_at": 100},
+            {"schema": "gopulse.phase19.resources.v1", "sequence": 2, "observed_at": 20, "interval_seconds": 5, "sample_kind": "scheduled", "scheduled_at": 105},
+        ]
+        validate_sample_intervals(records, 5)
+
     def test_summary_reports_load_and_sut_peaks_independently(self):
         records = [
             {
