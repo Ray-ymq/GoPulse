@@ -38,6 +38,7 @@
 | scripts/ci/phase20_evidence.py、scripts/ci/test_phase20_evidence.py | 原始事实重算，不接受合成通过或错窗引用 |
 | scripts/verify-phase20-diagnostic.sh、scripts/verify-phase20-evidence.py | 固定入口，真实预检和安全清理，退出码与执行状态一致 |
 | docs/phase20-capacity-methodology.md | 明确新旧语义、观察者开销、基线事实与原因分类 |
+| dev/logs/Phase-20/Phase-20-01-evidence/ | 保存候选绑定、脱敏逐阶梯事实、归属清理回执及严格校验结果；来源 digest 可复核；原始私有证据保留在仓库外，不发布密码、cookie、业务正文或私有业务标识 |
 
 若确需调整现有 sampler 的公共复用边界，先在 update 增补具体文件及兼容门禁；不复制整个旧
 编排后静默修改其历史语义。总方案的日志、状态及版本元数据规则同时适用。
