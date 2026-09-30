@@ -86,7 +86,7 @@ marker_id 仅为验收关联字段，不向产品 Envelope 或指标注入未支
 | --- | --- | --- |
 | Metrics | 从 Monitor 正常采集选择 t_drain 后一个真实 Backend 快照，保存其固定族/标签/值/源时间与 Envelope | VictoriaMetrics 可查询到相同 series、量化时间和预期值；量化误差写入 profile，禁止用 store 总数代替 |
 | Logs | 执行一个正常认证读请求，以响应 request_id 匹配其 Schema v1 请求日志，经过 Monitor 接收 | Backend 管理日志查询返回该 request_id 对应记录，并匹配 Envelope/存储身份 |
-| Events | 顺序执行归属插件的 stop → start，保存操作前后状态与响应；只在独占空项目中按操作、插件版本、时间窗及 offset 关联真实生命周期事件 | 管理事件查询返回该操作产生的明确 message_id 和合法状态变更；操作响应失败或无法唯一关联不能算通过 |
+| Events | 顺序执行归属插件的 stop → start，保存操作前后状态与响应；只在独占空项目中按操作、插件版本、时间窗及 offset 关联真实生命周期事件 | 管理事件查询返回合法状态变更，与 Kafka Envelope 及 Elasticsearch `_id=message_id` 唯一匹配；不要求管理 API 新增字段；操作响应失败或无法唯一关联不能算通过 |
 
 观测门禁探针与业务压测统计分开；插件操作后恢复原期望状态。每个标记 t_origin 在触发操作/
 选择采集快照前记录，不在慢查询后重新计时；选择/关联标记也计入其 120 秒门禁。
@@ -116,8 +116,8 @@ verifier 用台账/事实/标记原始记录重算这些判据，拒绝缺事件
 
 ```bash
 go -C loadtest test -count=1 ./...
-python3 -m unittest scripts.ci.test_phase20_diagnostic scripts.ci.test_phase20_sampler scripts.ci.test_phase20_evidence
-python3 -m unittest scripts.ci.test_phase19_capacity scripts.ci.test_phase19_sampler scripts.ci.test_phase19_evidence
+PYTHONPATH=scripts/ci python3 -m unittest scripts.ci.test_phase20_diagnostic scripts.ci.test_phase20_sampler scripts.ci.test_phase20_evidence
+PYTHONPATH=scripts/ci python3 -m unittest scripts.ci.test_phase19_capacity scripts.ci.test_phase19_sampler scripts.ci.test_phase19_evidence
 scripts/verify-phase20-diagnostic.sh --preflight --manifest <基线候选manifest> --work <预检新目录>
 scripts/verify-phase20-diagnostic.sh --baseline --manifest <同候选manifest> --work <基线新目录>
 python3 scripts/verify-phase20-evidence.py --diagnostic <基线目录>
