@@ -1,0 +1,58 @@
+{
+  "schema_version": "gopulse.phase20.optimization-profile.v1",
+  "profile_id": "phase20-optimization-verification",
+  "mode": "verify_only",
+  "candidate_version": "2.2.2",
+  "delivery_version": "2.2.3",
+  "base_profile": "loadtest/phase20-capacity-profile.json",
+  "base_profile_sha256": "sha256:87726dea82dd0907a23730a9fc9b87ca22e83e1d95cce9429100f2312a7b1a9e",
+  "base_schema": "loadtest/phase20-capacity-profile.schema.json",
+  "base_schema_sha256": "sha256:5f6942dcc22e9d1fa5448f845c4ef2dfc181d6cd4989bb81a70a0a32b8f95b02",
+  "runtime_contract": "deploy/runtime-contracts.json",
+  "runtime_contract_sha256": "sha256:6ca5d437eefcacf02ed974c5c346f18f394c59ba6bcb927ef14a731341a6d0a3",
+  "trace_overlay": "deploy/phase20-trace.yaml",
+  "trace_overlay_sha256": "sha256:510c72d064bac1402a2c385e52fde09572550da6cc7998f706120119c7bcc553",
+  "collector_config": "deploy/otel/phase20-collector.yaml",
+  "collector_config_sha256": "sha256:6d49672bd90b9c669fbde3effc427db360dd126a4d961e74d891418bd0cf2053",
+  "repetitions": 3,
+  "stages": [
+    "rps-50",
+    "rps-100",
+    "rps-150",
+    "rps-200"
+  ],
+  "trace": {
+    "mode": "controlled_overlay",
+    "sample_ratio": 1.0,
+    "propagation": "w3c_traceparent_tracestate",
+    "collector_private_network": true
+  },
+  "non_degradation": {
+    "achieved_rps_ratio": 0.95,
+    "max_p95_ms": 1000,
+    "max_p99_ms": 2000,
+    "max_schedule_lag_ms": 100,
+    "max_recovery_seconds": 120,
+    "max_timeout_rate": 0,
+    "max_unexpected_error_rate": 0,
+    "max_explicit_reject_rate": 0,
+    "cleanup_inventory_must_restore": true,
+    "global_prune_forbidden": true
+  },
+  "improvement": {
+    "status": "not_applicable",
+    "metric": "not_applicable",
+    "threshold": "not_applicable",
+    "aggregation": "not_applicable",
+    "b1": "not_applicable"
+  },
+  "required_cases": [
+    "O01",
+    "O02",
+    "O03",
+    "O05"
+  ],
+  "not_applicable_cases": {
+    "O04": "verify_only does not create B1 or withdraw a product change"
+  }
+}
