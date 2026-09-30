@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -46,6 +48,9 @@ type Envelope struct {
 	RecipientID     uint64    `json:"recipient_id,omitempty"`
 	PostID          uint64    `json:"post_id,omitempty"`
 	CommentID       *uint64   `json:"comment_id,omitempty"`
+	TraceParent     string    `json:"traceparent,omitempty"`
+	TraceState      string    `json:"tracestate,omitempty"`
+	traceContextBad bool      `json:"-"`
 }
 
 type Metadata struct {
@@ -176,6 +181,7 @@ func Encode(envelope Envelope) ([]byte, error) {
 	if err := envelope.Validate(); err != nil {
 		return nil, err
 	}
+	envelope.normalizeTraceContext()
 	body, err := json.Marshal(envelope)
 	if err != nil {
 		return nil, errors.New("encode business event")
@@ -206,7 +212,85 @@ func Decode(body []byte) (Envelope, error) {
 	if err := envelope.Validate(); err != nil {
 		return Envelope{}, err
 	}
+	envelope.normalizeTraceContext()
 	return envelope, nil
+}
+
+// SetTraceContext stores only the two W3C fields that are allowed to cross a
+// business-message boundary. Invalid optional values are omitted by Encode so
+// an otherwise valid business event remains processable.
+func (envelope *Envelope) SetTraceContext(traceParent, traceState string) {
+	if envelope == nil {
+		return
+	}
+	envelope.TraceParent = traceParent
+	envelope.TraceState = traceState
+	envelope.normalizeTraceContext()
+}
+
+func (envelope Envelope) HasInvalidTraceContext() bool { return envelope.traceContextBad }
+
+func (envelope Envelope) TraceContext() (traceParent, traceState string, valid bool) {
+	if envelope.traceContextBad || !validTraceParent(envelope.TraceParent) {
+		return "", "", false
+	}
+	if envelope.TraceState != "" && !validTraceState(envelope.TraceState) {
+		return "", "", false
+	}
+	return envelope.TraceParent, envelope.TraceState, true
+}
+
+func (envelope *Envelope) normalizeTraceContext() {
+	if envelope == nil {
+		return
+	}
+	if envelope.TraceParent == "" && envelope.TraceState == "" {
+		return
+	}
+	if !validTraceParent(envelope.TraceParent) || (envelope.TraceState != "" && !validTraceState(envelope.TraceState)) {
+		envelope.TraceParent = ""
+		envelope.TraceState = ""
+		envelope.traceContextBad = true
+	}
+}
+
+func validTraceParent(value string) bool {
+	if len(value) != 55 || value[2] != '-' || value[35] != '-' || value[52] != '-' {
+		return false
+	}
+	if !validHex(value[:2]) || value[:2] == "ff" || !validHex(value[3:35]) || allZero(value[3:35]) || !validHex(value[36:52]) || allZero(value[36:52]) || !validHex(value[53:55]) {
+		return false
+	}
+	return true
+}
+
+func validTraceState(value string) bool {
+	if value == "" || len(value) > 512 {
+		return false
+	}
+	_, err := trace.ParseTraceState(value)
+	return err == nil
+}
+
+func validHex(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func allZero(value string) bool {
+	for _, character := range value {
+		if character != '0' {
+			return false
+		}
+	}
+	return true
 }
 
 func requireJSONEnd(decoder *json.Decoder) error {

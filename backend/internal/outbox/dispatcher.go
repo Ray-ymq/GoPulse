@@ -11,6 +11,10 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -307,26 +311,53 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 		}
 		return fmt.Errorf("decode outbox event: %w", err)
 	}
+	if envelope.HasInvalidTraceContext() {
+		tracing.RecordInvalidContext()
+		if backendMetrics := componentmetrics.BackendActive(); backendMetrics != nil {
+			backendMetrics.ObserveTraceContextInvalid()
+		}
+	}
 
-	publishContext, cancel := context.WithTimeout(ctx, dispatcher.publishTimeout)
+	traceContext, span := tracing.StartFromWire(ctx, "outbox.publish", tracing.WireContext{
+		TraceParent: envelope.TraceParent,
+		TraceState:  envelope.TraceState,
+	},
+		attribute.String("gopulse.event_id", envelope.EventID),
+		attribute.String("gopulse.event_type", string(envelope.EventType)),
+		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
+		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
+		attribute.Int64("gopulse.outbox_id", int64(record.ID)),
+	)
+	defer span.End()
+	attemptID := tracing.NewAttemptID()
+	traceContext = tracing.WithAttemptID(traceContext, attemptID)
+	traceContext = tracing.WithOutboxID(traceContext, record.ID)
+	publishContext, cancel := context.WithTimeout(traceContext, dispatcher.publishTimeout)
+	publishStarted := dispatcher.clock()
 	publishErr := dispatcher.publisher.Publish(publishContext, envelope)
 	cancel()
+	if backendMetrics := componentmetrics.BackendActive(); backendMetrics != nil {
+		result := "success"
+		if publishErr != nil {
+			result = "failure"
+		}
+		backendMetrics.ObserveFreshness("publish", result, dispatcher.clock().Sub(publishStarted))
+	}
 	if publishErr != nil {
+		span.SetStatus(codes.Error, "publish_failed")
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		// A bounded publish failure is handled as part of the state machine:
 		// release it for a later attempt and keep processing the claimed batch.
 		reason := publishFailureCode(publishErr)
-		if err := dispatcher.releaseFailed(ctx, record, reason); err != nil {
+		if err := dispatcher.releaseFailed(traceContext, record, reason); err != nil {
 			return err
 		}
-		dispatcher.logger.Warn("outbox publish failed",
-			slog.Uint64("outbox_id", record.ID),
-			slog.String("event_id", envelope.EventID),
-			slog.String("event_type", string(envelope.EventType)),
-			slog.String("reason", string(reason)),
-		)
+		attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
+		attributes = append(attributes, outboxEventAttributes(envelope)...)
+		attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish"), slog.String("reason", string(reason)))
+		logging.WithTrace(dispatcher.logger, traceContext).Warn("outbox publish failed", attributes...)
 		return nil
 	}
 	if ctx.Err() != nil {
@@ -334,29 +365,37 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	}
 
 	if err := dispatcher.store.MarkPublished(ctx, record.ID, dispatcher.owner); err != nil {
-		dispatcher.logger.Error("outbox mark published failed",
-			slog.Uint64("outbox_id", record.ID),
-			slog.String("event_id", envelope.EventID),
-			slog.String("event_type", string(envelope.EventType)),
-			slog.String("reason", safeDispatcherReason(err)),
-		)
+		attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
+		attributes = append(attributes, outboxEventAttributes(envelope)...)
+		attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish_ack"), slog.String("reason", safeDispatcherReason(err)))
+		logging.WithTrace(dispatcher.logger, traceContext).Error("outbox mark published failed", attributes...)
 		if errors.Is(err, ErrLeaseLost) || ctx.Err() != nil {
 			return err
 		}
 		// A successful publish followed by a failed mark is an accepted
 		// at-least-once duplicate boundary. Releasing the lease, when still
 		// current, prevents a transient database error from stranding the row.
-		if releaseErr := dispatcher.releaseFailed(ctx, record, FailureInternal); releaseErr != nil {
+		if releaseErr := dispatcher.releaseFailed(traceContext, record, FailureInternal); releaseErr != nil {
 			return fmt.Errorf("mark published: %w; release failed: %v", err, releaseErr)
 		}
 		return fmt.Errorf("mark published: %w", err)
 	}
-	dispatcher.logger.Info("outbox event published",
-		slog.Uint64("outbox_id", record.ID),
-		slog.String("event_id", envelope.EventID),
-		slog.String("event_type", string(envelope.EventType)),
-	)
+	attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
+	attributes = append(attributes, outboxEventAttributes(envelope)...)
+	attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish_ack"))
+	logging.WithTrace(dispatcher.logger, traceContext).Info("outbox event published", attributes...)
 	return nil
+}
+
+func outboxEventAttributes(envelope bus.Envelope) []any {
+	attributes := []any{}
+	if envelope.PostID > 0 {
+		attributes = append(attributes, slog.Uint64("post_id", envelope.PostID))
+	}
+	if envelope.ContentRevision > 0 {
+		attributes = append(attributes, slog.Uint64("content_revision", envelope.ContentRevision))
+	}
+	return attributes
 }
 
 func (dispatcher *Dispatcher) releaseFailed(ctx context.Context, record Record, failure FailureCode) error {
@@ -364,7 +403,7 @@ func (dispatcher *Dispatcher) releaseFailed(ctx context.Context, record Record, 
 		return ctx.Err()
 	}
 	if err := dispatcher.store.ReleaseFailed(ctx, record.ID, dispatcher.owner, failure); err != nil {
-		dispatcher.logger.Error("outbox release failed",
+		logging.WithTrace(dispatcher.logger, ctx).Error("outbox release failed",
 			slog.Uint64("outbox_id", record.ID),
 			slog.String("event_id", record.EventID),
 			slog.String("event_type", string(record.EventType)),

@@ -2,9 +2,11 @@ package logging
 
 import (
 	"context"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 const SchemaVersion = 1
@@ -32,6 +34,19 @@ func FromContext(ctx context.Context, fallback *slog.Logger) *slog.Logger {
 		}
 	}
 	return fallback
+}
+
+// WithTrace adds only the bounded W3C identifiers from the active span. It
+// never copies baggage or request values into a log record.
+func WithTrace(logger *slog.Logger, ctx context.Context) *slog.Logger {
+	if logger == nil {
+		return logger
+	}
+	traceID, spanID, ok := tracing.TraceFields(ctx)
+	if !ok {
+		return logger
+	}
+	return logger.With(slog.String("trace_id", traceID), slog.String("span_id", spanID))
 }
 
 // Discard returns a schema-compatible logger for tests or optional wiring.

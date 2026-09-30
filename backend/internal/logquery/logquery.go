@@ -30,6 +30,8 @@ const (
 
 var requestIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var eventIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var traceIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var spanIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 var ErrUnavailable = errors.New("logs unavailable")
 var ErrAliasMissing = errors.New("log alias missing")
@@ -43,6 +45,8 @@ type Filters struct {
 	Level     string `json:"level,omitempty"`
 	Message   string `json:"message,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+	TraceID   string `json:"trace_id,omitempty"`
+	SpanID    string `json:"span_id,omitempty"`
 	EventID   string `json:"event_id,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
 }
@@ -72,10 +76,13 @@ type Entry struct {
 	Module            string  `json:"module"`
 	Message           string  `json:"message"`
 	RequestID         string  `json:"request_id,omitempty"`
+	TraceID           string  `json:"trace_id,omitempty"`
+	SpanID            string  `json:"span_id,omitempty"`
 	EventID           string  `json:"event_id,omitempty"`
 	EventType         string  `json:"event_type,omitempty"`
 	UserID            *uint64 `json:"user_id,omitempty"`
 	PostID            *uint64 `json:"post_id,omitempty"`
+	ContentRevision   *uint64 `json:"content_revision,omitempty"`
 	CommentID         *uint64 `json:"comment_id,omitempty"`
 	NotificationID    *uint64 `json:"notification_id,omitempty"`
 	OutboxID          *uint64 `json:"outbox_id,omitempty"`
@@ -126,7 +133,7 @@ func NewService(repository Repository, secret string) *Service {
 }
 
 func ParseOptions(values url.Values, now time.Time) (Options, error) {
-	allowed := map[string]bool{"from": true, "to": true, "service": true, "module": true, "level": true, "message": true, "request_id": true, "event_id": true, "error_code": true, "limit": true, "cursor": true}
+	allowed := map[string]bool{"from": true, "to": true, "service": true, "module": true, "level": true, "message": true, "request_id": true, "trace_id": true, "span_id": true, "event_id": true, "error_code": true, "limit": true, "cursor": true}
 	for key, list := range values {
 		if !allowed[key] || len(list) != 1 || list[0] == "" || !utf8.ValidString(list[0]) {
 			return Options{}, validation()
@@ -171,6 +178,8 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	options.Filters.Level = single(values, "level")
 	options.Filters.Message = single(values, "message")
 	options.Filters.RequestID = single(values, "request_id")
+	options.Filters.TraceID = single(values, "trace_id")
+	options.Filters.SpanID = single(values, "span_id")
 	options.Filters.EventID = single(values, "event_id")
 	options.Filters.ErrorCode = single(values, "error_code")
 	if !validLogVocabulary(options.Filters.Service, options.Filters.Module, options.Filters.Message) {
@@ -186,6 +195,12 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 		return Options{}, validation()
 	}
 	if options.Filters.EventID != "" && !eventIDPattern.MatchString(options.Filters.EventID) {
+		return Options{}, validation()
+	}
+	if options.Filters.TraceID != "" && (!traceIDPattern.MatchString(options.Filters.TraceID) || allZero(options.Filters.TraceID)) {
+		return Options{}, validation()
+	}
+	if options.Filters.SpanID != "" && (!spanIDPattern.MatchString(options.Filters.SpanID) || allZero(options.Filters.SpanID)) {
 		return Options{}, validation()
 	}
 	return options, nil
@@ -322,7 +337,7 @@ func (r *ElasticsearchRepository) Search(ctx context.Context, pit string, filter
 		return SearchResult{}, ErrUnavailable
 	}
 	must := []any{map[string]any{"range": map[string]any{"@timestamp": map[string]string{"gte": filters.From, "lt": filters.To}}}}
-	for field, value := range map[string]string{"service": filters.Service, "module": filters.Module, "level": filters.Level, "message": filters.Message, "request_id": filters.RequestID, "event_id": filters.EventID, "error_code": filters.ErrorCode} {
+	for field, value := range map[string]string{"service": filters.Service, "module": filters.Module, "level": filters.Level, "message": filters.Message, "request_id": filters.RequestID, "trace_id": filters.TraceID, "span_id": filters.SpanID, "event_id": filters.EventID, "error_code": filters.ErrorCode} {
 		if value != "" {
 			must = append(must, map[string]any{"term": map[string]string{field: value}})
 		}
@@ -435,6 +450,24 @@ func decodeEntry(source []byte) (Entry, error) {
 		}
 		raw.Entry.InstanceID = *raw.InstanceID
 	}
+	if raw.Entry.TraceID != "" && (!traceIDPattern.MatchString(raw.Entry.TraceID) || allZero(raw.Entry.TraceID)) {
+		return Entry{}, errors.New("invalid log document")
+	}
+	if raw.Entry.SpanID != "" && (!spanIDPattern.MatchString(raw.Entry.SpanID) || allZero(raw.Entry.SpanID)) {
+		return Entry{}, errors.New("invalid log document")
+	}
+	if raw.Entry.ContentRevision != nil && *raw.Entry.ContentRevision == 0 {
+		return Entry{}, errors.New("invalid log document")
+	}
 	raw.Entry.Timestamp = raw.Timestamp
 	return raw.Entry, nil
+}
+
+func allZero(value string) bool {
+	for _, character := range value {
+		if character != '0' {
+			return false
+		}
+	}
+	return true
 }

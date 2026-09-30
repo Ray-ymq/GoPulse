@@ -18,6 +18,8 @@ import (
 var (
 	messageIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	requestIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	traceIDPattern   = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	spanIDPattern    = regexp.MustCompile(`^[0-9a-f]{16}$`)
 	uuidPattern      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	tokenPattern     = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
 )
@@ -25,7 +27,7 @@ var (
 var allowedFields = map[string]struct{}{
 	"version": {}, "revision": {}, "event": {}, "runtime_contract_version": {}, "runtime_mode": {}, "listen": {},
 	"log_schema_version": {}, "timestamp": {}, "level": {}, "service": {}, "module": {}, "message": {}, "instance_id": {},
-	"request_id": {}, "event_id": {}, "event_type": {}, "user_id": {}, "post_id": {}, "comment_id": {},
+	"request_id": {}, "trace_id": {}, "span_id": {}, "event_id": {}, "event_type": {}, "user_id": {}, "post_id": {}, "content_revision": {}, "comment_id": {},
 	"notification_id": {}, "outbox_id": {}, "method": {}, "route": {}, "status": {}, "duration_ms": {},
 	"response_bytes": {}, "error_code": {}, "reason": {}, "operation": {}, "resource": {}, "stage": {},
 	"result": {}, "attempt": {}, "batch_size": {}, "document_count": {}, "panic_recovered": {}, "response_committed": {},
@@ -153,7 +155,7 @@ func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, 
 }
 
 func validateOptional(fields map[string]any) error {
-	positive := map[string]bool{"user_id": true, "post_id": true, "comment_id": true, "notification_id": true, "outbox_id": true}
+	positive := map[string]bool{"user_id": true, "post_id": true, "content_revision": true, "comment_id": true, "notification_id": true, "outbox_id": true}
 	nonnegative := map[string]bool{"status": true, "duration_ms": true, "response_bytes": true, "attempt": true, "batch_size": true, "document_count": true}
 	for key, value := range fields {
 		switch typed := value.(type) {
@@ -169,6 +171,14 @@ func validateOptional(fields map[string]any) error {
 			case "request_id":
 				if !requestIDPattern.MatchString(typed) {
 					return errors.New("invalid request id")
+				}
+			case "trace_id":
+				if !traceIDPattern.MatchString(typed) || strings.Trim(typed, "0") == "" {
+					return errors.New("invalid trace id")
+				}
+			case "span_id":
+				if !spanIDPattern.MatchString(typed) || strings.Trim(typed, "0") == "" {
+					return errors.New("invalid span id")
 				}
 			case "event_id":
 				if !uuidPattern.MatchString(typed) {

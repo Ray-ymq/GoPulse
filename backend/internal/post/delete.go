@@ -7,10 +7,32 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"time"
 )
 
 // Delete serializes with edits and atomically removes facts and publishes intent.
 func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
+	commitContext, commitSpan := tracing.Start(ctx, "post.commit", attribute.String("gopulse.operation", "delete"), attribute.Int64("gopulse.post_id", int64(id)))
+	defer commitSpan.End()
+	ctx = commitContext
+	commitStarted := time.Now()
+	committed := false
+	defer func() {
+		result := "failure"
+		if committed {
+			result = "success"
+		}
+		if metrics := componentmetrics.BackendActive(); metrics != nil {
+			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
+		}
+		if !committed {
+			commitSpan.SetStatus(codes.Error, "commit_failed")
+		}
+	}()
 	starter, ok := r.database.(transactionStarter)
 	if !ok || r.outbox == nil {
 		return errors.New("post deletion requires transactional outbox")
@@ -58,10 +80,17 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	if err != nil {
 		return err
 	}
-	if err = r.outbox.Insert(ctx, tx, event); err != nil {
+	commitSpan.SetAttributes(attribute.String("gopulse.event_id", event.EventID))
+	outboxID, err := insertOutbox(ctx, tx, r.outbox, event)
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if outboxID > 0 {
+		commitSpan.SetAttributes(attribute.Int64("gopulse.outbox_id", int64(outboxID)))
+	}
+	err = tx.Commit()
+	committed = err == nil
+	return err
 }
 
 func (s *Service) Delete(ctx context.Context, id, actor uint64) error {

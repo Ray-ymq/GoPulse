@@ -1,6 +1,9 @@
 import copy
 import unittest
-from phase20_evidence import Incomplete, associate, business_ready, marker_ready, recovery_result, ledger_requests
+try:
+    from phase20_evidence import Incomplete, associate, business_ready, marker_ready, recovery_result, ledger_requests
+except ModuleNotFoundError:
+    from scripts.ci.phase20_evidence import Incomplete, associate, business_ready, marker_ready, recovery_result, ledger_requests
 
 def empty():return {'posts':[],'comments':[],'relations':[],'events':[]}
 
@@ -55,8 +58,11 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(Incomplete):ledger_requests([arrival,terminal],'other',1,'rps-50')
 
     def test_log_public_projection_preserves_identity_without_runtime_fields(self):
-        from phase20_evidence import management_payload
-        payload={'timestamp':'2026-09-30T00:00:00Z','level':'info','service':'backend','module':'http','message':'http request completed','request_id':'a'*32,'method':'GET','route':'/api/v1/users/me','status':200,'duration_ms':0,'response_bytes':143,'log_schema_version':1,'version':'2.1.4','revision':'private-build','runtime_mode':'container','event':'http_request'}
+        try:
+            from phase20_evidence import management_payload
+        except ModuleNotFoundError:
+            from scripts.ci.phase20_evidence import management_payload
+        payload={'timestamp':'2026-09-30T00:00:00Z','level':'info','service':'backend','module':'http','message':'http request completed','request_id':'a'*32,'trace_id':'b'*32,'span_id':'c'*16,'content_revision':1,'method':'GET','route':'/api/v1/users/me','status':200,'duration_ms':0,'response_bytes':143,'log_schema_version':1,'version':'2.1.4','revision':'private-build','runtime_mode':'container','event':'http_request'}
         entry=management_payload('logs',payload)
         self.assertNotIn('revision',entry);self.assertEqual(entry['duration_ms'],0)
         marker={'run_id':'r','channel':'logs','marker_id':'r/logs','t_origin':1,'message_id':'b'*32,'source':'backend','timestamp':payload['timestamp'],'topic':'gopulse-observability-v1','partition':0,'offset':3,'accepted':True,'generation_evidence':{'method':'GET','route':'/api/v1/users/me','status':200,'request_id':'a'*32,'t_origin':1},'envelope':{'message_id':'b'*32,'type':'logs','source':'backend','timestamp':payload['timestamp'],'payload':payload}}

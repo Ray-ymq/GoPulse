@@ -16,7 +16,7 @@ describe('observability runtime boundary', () => {
     expect(isEventEntry({ timestamp:'2026-09-05T08:00:00Z',event_name:'exporter_plugin_started',source:'monitor',severity:'info',message:'exporter plugin started',metadata:{plugin_id:'redis-exporter'},index:'private' })).toBe(false)
   })
   it('accepts instance identity in log records while rejecting unknown fields', () => {
-    const entry = { timestamp:'2026-09-05T08:00:00Z',level:'info',service:'backend',instance_id:'backend-1',module:'http',message:'http request completed' }
+    const entry = { timestamp:'2026-09-05T08:00:00Z',level:'info',service:'backend',instance_id:'backend-1',module:'http',message:'http request completed',trace_id:'0102030405060708090a0b0c0d0e0f10',span_id:'0102030405060708',post_id:9,content_revision:1 }
     expect(isLogEntry(entry)).toBe(true)
     expect(isLogEntry({...entry, private_field:'hidden'})).toBe(false)
   })
@@ -27,7 +27,7 @@ describe('observability runtime boundary', () => {
   })
   it('sends opaque cursor without replaying filters', async () => {
     const fetchMock=vi.fn().mockResolvedValue(response({data:[],meta:{next_cursor:null}})); vi.stubGlobal('fetch',fetchMock)
-    await observabilityApi.logs({range:'15m',service:'backend',module:'http',level:'',message:'',request_id:'',event_id:'',error_code:''},'opaque+/=')
+    await observabilityApi.logs({range:'15m',service:'backend',module:'http',level:'',message:'',request_id:'',trace_id:'',span_id:'',event_id:'',error_code:''},'opaque+/=')
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/observability/logs?cursor=opaque%2B%2F%3D')
   })
 })

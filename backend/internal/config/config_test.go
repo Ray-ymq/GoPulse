@@ -51,6 +51,67 @@ func TestLoadFromDefaults(t *testing.T) {
 		cfg.Outbox.Retention != 7*24*time.Hour || cfg.Outbox.CleanupBatch != 500 {
 		t.Fatalf("Outbox config = %#v, want defaults", cfg.Outbox)
 	}
+	if cfg.Trace.Enabled || cfg.Trace.ServiceName != "backend" || cfg.Trace.SampleRatio != 0.10 || cfg.Trace.QueueCapacity != 2048 || cfg.Trace.BatchSize != 256 || cfg.Trace.BatchTimeout != time.Second || cfg.Trace.ExportTimeout != 2*time.Second || cfg.Trace.ShutdownTimeout != 5*time.Second {
+		t.Fatalf("Trace config = %#v, want bounded disabled defaults", cfg.Trace)
+	}
+}
+
+func TestLoadFromTraceConfigurationIsBounded(t *testing.T) {
+	env := requiredEnvironment()
+	env["GOPULSE_RUNTIME_MODE"] = "container"
+	env["HTTP_HOST"] = "0.0.0.0"
+	env["MYSQL_HOST"] = "mysql"
+	env["REDIS_HOST"] = "redis"
+	env["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
+	env["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
+	env["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
+	env["MONITOR_URL"] = "http://monitor:9090"
+	env["LOG_MONITOR_URL"] = "http://monitor:9090"
+	env["BACKEND_VICTORIAMETRICS_URL"] = "http://victoriametrics:8428"
+	env["LOG_MONITOR_INGEST_TOKEN"] = "local-log-ingest-token-at-least-32-bytes"
+	env["GOPULSE_TRACE_ENABLED"] = "true"
+	env["GOPULSE_TRACE_ENDPOINT"] = "otel-collector:4317"
+	env["GOPULSE_TRACE_SAMPLE_RATIO"] = "1"
+	env["GOPULSE_TRACE_QUEUE_CAPACITY"] = "1024"
+	env["GOPULSE_TRACE_BATCH_SIZE"] = "128"
+	env["GOPULSE_TRACE_BATCH_TIMEOUT"] = "2s"
+	env["GOPULSE_TRACE_EXPORT_TIMEOUT"] = "3s"
+	env["GOPULSE_TRACE_SHUTDOWN_TIMEOUT"] = "6s"
+	cfg, err := LoadFrom(mapLookup(env))
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if !cfg.Trace.Enabled || cfg.Trace.Endpoint != "otel-collector:4317" || cfg.Trace.SampleRatio != 1 || cfg.Trace.QueueCapacity != 1024 || cfg.Trace.BatchSize != 128 || cfg.Trace.BatchTimeout != 2*time.Second || cfg.Trace.ExportTimeout != 3*time.Second || cfg.Trace.ShutdownTimeout != 6*time.Second {
+		t.Fatalf("Trace config = %#v", cfg.Trace)
+	}
+	for _, test := range []struct {
+		key, value string
+		endpoint   bool
+	}{
+		{key: "GOPULSE_TRACE_SAMPLE_RATIO", value: "1.1", endpoint: true},
+		{key: "GOPULSE_TRACE_ENABLED", value: "true", endpoint: false},
+	} {
+		candidate := requiredEnvironment()
+		candidate["GOPULSE_RUNTIME_MODE"] = "container"
+		candidate["HTTP_HOST"] = "0.0.0.0"
+		candidate["MYSQL_HOST"] = "mysql"
+		candidate["REDIS_HOST"] = "redis"
+		candidate["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
+		candidate["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
+		candidate["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
+		candidate["MONITOR_URL"] = "http://monitor:9090"
+		candidate["LOG_MONITOR_URL"] = "http://monitor:9090"
+		candidate["BACKEND_VICTORIAMETRICS_URL"] = "http://victoriametrics:8428"
+		candidate["LOG_MONITOR_INGEST_TOKEN"] = "local-log-ingest-token-at-least-32-bytes"
+		candidate[test.key] = test.value
+		if test.endpoint {
+			candidate["GOPULSE_TRACE_ENABLED"] = "true"
+			candidate["GOPULSE_TRACE_ENDPOINT"] = "otel-collector:4317"
+		}
+		if _, err := LoadFrom(mapLookup(candidate)); err == nil || !strings.Contains(err.Error(), "GOPULSE_TRACE") {
+			t.Fatalf("invalid trace value %s=%s error = %v", test.key, test.value, err)
+		}
+	}
 }
 
 func TestLoadFromOverrides(t *testing.T) {

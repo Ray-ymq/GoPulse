@@ -11,9 +11,13 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type DocumentStore interface {
@@ -69,7 +73,17 @@ func NewProcessor(store DocumentStore, indexer DocumentIndexer) (*Processor, err
 }
 
 func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) error {
+	traceContext, span := tracing.Start(ctx, "search.process",
+		attribute.String("gopulse.event_id", envelope.EventID),
+		attribute.String("gopulse.event_type", string(envelope.EventType)),
+		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
+		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
+		attribute.Int64("gopulse.outbox_id", int64(tracing.OutboxID(ctx))),
+	)
+	defer span.End()
+	ctx = traceContext
 	if envelope.EventType != bus.PostCreated && envelope.EventType != bus.PostUpdated && envelope.EventType != bus.PostDeleted {
+		span.SetStatus(codes.Error, "unsupported_event_type")
 		return worker.NewPermanentError("unsupported_event_type")
 	}
 	if store, ok := processor.store.(*MySQLDocumentStore); ok {
@@ -78,6 +92,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 		tx, err := store.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 		componentmetrics.Dependency("mysql", err)
 		if err != nil {
+			span.SetStatus(codes.Error, "mysql_unavailable")
 			return err
 		}
 		defer tx.Rollback()
@@ -89,9 +104,11 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 		}
 		componentmetrics.Dependency("mysql", observedErr)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			span.SetStatus(codes.Error, "mysql_unavailable")
 			return err
 		}
 		if err = processor.project(ctx, envelope); err != nil {
+			span.SetStatus(codes.Error, "projection_failed")
 			return err
 		}
 		err = tx.Commit()
@@ -107,20 +124,36 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 		if deleter, ok := processor.indexer.(interface {
 			DeleteAlias(context.Context, uint64) error
 		}); ok {
-			return deleter.DeleteAlias(ctx, envelope.PostID)
+			indexStarted := time.Now()
+			indexContext, span := tracing.Start(ctx, "search.index.delete", attribute.Int64("gopulse.post_id", int64(envelope.PostID)))
+			defer span.End()
+			err := deleter.DeleteAlias(indexContext, envelope.PostID)
+			freshnessResult := "success"
+			if err != nil {
+				freshnessResult = "failure"
+				span.SetStatus(codes.Error, "delete_failed")
+			}
+			componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", freshnessResult)
+			return err
 		}
 		return errors.New("search indexer cannot delete missing fact")
 	}
 	if err != nil {
 		return err
 	}
-	if err := processor.indexer.IndexAlias(ctx, document); err != nil {
+	indexStarted := time.Now()
+	indexContext, span := tracing.Start(ctx, "search.index", attribute.String("gopulse.event_id", envelope.EventID), attribute.Int64("gopulse.post_id", int64(envelope.PostID)), attribute.Int64("gopulse.content_revision", int64(document.ContentRevision)), attribute.Int64("gopulse.outbox_id", int64(tracing.OutboxID(ctx))))
+	defer span.End()
+	if err := processor.indexer.IndexAlias(indexContext, document); err != nil {
+		componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "failure")
+		span.SetStatus(codes.Error, "index_failed")
 		var permanent *PermanentIndexError
 		if errors.As(err, &permanent) {
 			return worker.NewPermanentError(permanent.Reason)
 		}
 		return err
 	}
+	componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
 	return nil
 }
 
