@@ -1,0 +1,155 @@
+{
+  "cases": [
+    {
+      "case_id": "D05",
+      "elapsed_seconds": 3.6097000702284276e-05,
+      "expected": "assertions in bound test source",
+      "failure_classification": "acceptance_failure",
+      "operation": "test_phase20_diagnostic.DiagnosticTests.test_D05_other_timeout_does_not_override_first_success",
+      "preconditions": "controlled raw fixture, product dependencies excluded",
+      "raw_evidence_path": "self-tests.txt",
+      "result": "pass",
+      "timeout_seconds": 5
+    },
+    {
+      "case_id": "D06",
+      "elapsed_seconds": 0.007632988003024366,
+      "expected": "assertions in bound test source",
+      "failure_classification": "acceptance_failure",
+      "operation": "test_phase20_diagnostic.DiagnosticTests.test_D06_recovery_workers_join_before_return_to_cleanup",
+      "preconditions": "controlled raw fixture, product dependencies excluded",
+      "raw_evidence_path": "self-tests.txt",
+      "result": "pass",
+      "timeout_seconds": 5
+    },
+    {
+      "case_id": "D01",
+      "elapsed_seconds": 3.953600025852211e-05,
+      "expected": "assertions in bound test source",
+      "failure_classification": "acceptance_failure",
+      "operation": "test_phase20_evidence.EvidenceTests.test_D01_business_complete_event_not_generated_is_incomplete",
+      "preconditions": "controlled raw fixture, product dependencies excluded",
+      "raw_evidence_path": "self-tests.txt",
+      "result": "pass",
+      "timeout_seconds": 5
+    },
+    {
+      "case_id": "D02",
+      "elapsed_seconds": 2.0477000362006947e-05,
+      "expected": "assertions in bound test source",
+      "failure_classification": "acceptance_failure",
+      "operation": "test_phase20_evidence.EvidenceTests.test_D02_accepted_marker_not_queryable_is_boundary",
+      "preconditions": "controlled raw fixture, product dependencies excluded",
+      "raw_evidence_path": "self-tests.txt",
+      "result": "pass",
+      "timeout_seconds": 5
+    },
+    {
+      "case_id": "D03",
+      "elapsed_seconds": 4.700300269178115e-05,
+      "expected": "assertions in bound test source",
+      "failure_classification": "acceptance_failure",
+      "operation": "test_phase20_evidence.EvidenceTests.test_D03_selected_partition_marker_closes_despite_continuous_production",
+      "preconditions": "controlled raw fixture, product dependencies excluded",
+      "raw_evidence_path": "self-tests.txt",
+      "result": "pass",
+      "timeout_seconds": 5
+    },
+    {
+      "case_id": "D04",
+      "elapsed_seconds": 0.00012201500067021698,
+      "expected": "assertions in bound test source",
+      "failure_classification": "acceptance_failure",
+      "operation": "test_phase20_evidence.EvidenceTests.test_D04_edit_delete_and_idempotent_fact_groups",
+      "preconditions": "controlled raw fixture, product dependencies excluded",
+      "raw_evidence_path": "self-tests.txt",
+      "result": "pass",
+      "timeout_seconds": 5
+    }
+  ],
+  "executed": [
+    {
+      "elapsed_seconds": 3.6097000702284276e-05,
+      "result": "pass",
+      "test_id": "test_phase20_diagnostic.DiagnosticTests.test_D05_other_timeout_does_not_override_first_success"
+    },
+    {
+      "elapsed_seconds": 0.007632988003024366,
+      "result": "pass",
+      "test_id": "test_phase20_diagnostic.DiagnosticTests.test_D06_recovery_workers_join_before_return_to_cleanup"
+    },
+    {
+      "elapsed_seconds": 0.0003268059990659822,
+      "result": "pass",
+      "test_id": "test_phase20_diagnostic.DiagnosticTests.test_business_search_uses_public_post_id_mapping"
+    },
+    {
+      "elapsed_seconds": 0.00043964900032733567,
+      "result": "pass",
+      "test_id": "test_phase20_diagnostic.DiagnosticTests.test_large_consistent_sql_uses_stdin_without_argv_limit"
+    },
+    {
+      "elapsed_seconds": 0.0007144290029827971,
+      "result": "pass",
+      "test_id": "test_phase20_diagnostic.DiagnosticTests.test_plugin_action_is_empty_post_and_header_lookup_is_case_insensitive"
+    },
+    {
+      "elapsed_seconds": 0.012907919997815043,
+      "result": "pass",
+      "test_id": "test_phase20_diagnostic.DiagnosticTests.test_profile_preserves_frozen_recipe_and_load"
+    },
+    {
+      "elapsed_seconds": 0.00016329299978679046,
+      "result": "pass",
+      "test_id": "test_phase20_sampler.SamplerTests.test_observer_never_commits_or_creates_topic"
+    },
+    {
+      "elapsed_seconds": 0.00018146299771615304,
+      "result": "pass",
+      "test_id": "test_phase20_sampler.SamplerTests.test_owned_broker_resolution_does_not_change_other_hosts"
+    },
+    {
+      "elapsed_seconds": 4.258000262780115e-05,
+      "result": "pass",
+      "test_id": "test_phase20_sampler.SamplerTests.test_process_sampling_missing_is_not_zero_success"
+    },
+    {
+      "elapsed_seconds": 3.953600025852211e-05,
+      "result": "pass",
+      "test_id": "test_phase20_evidence.EvidenceTests.test_D01_business_complete_event_not_generated_is_incomplete"
+    },
+    {
+      "elapsed_seconds": 2.0477000362006947e-05,
+      "result": "pass",
+      "test_id": "test_phase20_evidence.EvidenceTests.test_D02_accepted_marker_not_queryable_is_boundary"
+    },
+    {
+      "elapsed_seconds": 4.700300269178115e-05,
+      "result": "pass",
+      "test_id": "test_phase20_evidence.EvidenceTests.test_D03_selected_partition_marker_closes_despite_continuous_production"
+    },
+    {
+      "elapsed_seconds": 0.00012201500067021698,
+      "result": "pass",
+      "test_id": "test_phase20_evidence.EvidenceTests.test_D04_edit_delete_and_idempotent_fact_groups"
+    },
+    {
+      "elapsed_seconds": 3.6699999327538535e-05,
+      "result": "pass",
+      "test_id": "test_phase20_evidence.EvidenceTests.test_cross_stage_and_missing_terminal_rejected"
+    },
+    {
+      "elapsed_seconds": 3.8209000194910914e-05,
+      "result": "pass",
+      "test_id": "test_phase20_evidence.EvidenceTests.test_log_public_projection_preserves_identity_without_runtime_fields"
+    },
+    {
+      "elapsed_seconds": 3.4117001632694155e-05,
+      "result": "pass",
+      "test_id": "test_phase20_evidence.EvidenceTests.test_revision_mismatch_and_duplicate_notification_fail"
+    }
+  ],
+  "formal": false,
+  "raw_sha256": "sha256:04b606edca012191772ae9dc5cfd7db28824d5d4b8a4a2cce027cac62c61b176",
+  "schema": "gopulse.phase20.self-tests.v1"
+}

@@ -245,3 +245,34 @@ func TestRunCapacityUsesFrozenStagesAndWritesOneIndependentReport(t *testing.T) 
 		t.Fatalf("report was not written: %v", err)
 	}
 }
+
+func TestDiagnosticResponseRetainsObjectRevisionWithoutBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-ID", strings.Repeat("a", 32))
+		w.WriteHeader(201)
+		_, _ = w.Write([]byte(`{"data":{"id":19,"content_revision":3,"content":"private"}}`))
+	}))
+	defer server.Close()
+	result := executeRequest(context.Background(), server.Client(), server.URL, "session", "private-cookie", Request{Category: CategoryContentWrite, Method: "POST", Path: "/api/v1/posts", Template: "POST /api/v1/posts", ExpectedStatuses: statuses(201)}, time.Now(), time.Second)
+	if result.responseID != 19 || result.responseRevision != 3 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestDiagnosticProfileCannotRunCrossStageLegacyRunner(t *testing.T) {
+	profile, _, err := LoadProfile("../../phase20-capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = RunCapacity(context.Background(), CapacityRunConfig{Profile: profile}); err == nil {
+		t.Fatal("diagnostic profile ran legacy shared-project stages")
+	}
+}
+
+func TestDiagnosticUnexpectedSuccessDoesNotBecomeAccepted(t *testing.T) {
+	value := newCapacityAccumulator(50, time.Second)
+	value.add(requestResult{status: 202, unexpectedResponse: true, latencyMS: 1})
+	if value.outcomes.Succeeded != 0 || value.outcomes.UnexpectedErrors != 1 {
+		t.Fatalf("unexpected response accepted: %+v", value.outcomes)
+	}
+}

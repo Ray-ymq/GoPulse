@@ -1,0 +1,1481 @@
+{
+  "aggregates": {
+    "rps-100": {
+      "achieved_rps": {
+        "cv": 0.0,
+        "max": 100,
+        "median": 100,
+        "min": 100,
+        "raw": [
+          100,
+          100,
+          100
+        ]
+      },
+      "p95_ms": {
+        "cv": 8.73995802824545,
+        "max": 41.357905,
+        "median": 40.105827,
+        "min": 33.69787,
+        "raw": [
+          33.69787,
+          41.357905,
+          40.105827
+        ]
+      },
+      "p99_ms": {
+        "cv": 4.011331731384862,
+        "max": 95.056271,
+        "median": 94.36073,
+        "min": 86.894279,
+        "raw": [
+          86.894279,
+          94.36073,
+          95.056271
+        ]
+      }
+    },
+    "rps-150": {
+      "achieved_rps": {
+        "cv": 0.0,
+        "max": 150,
+        "median": 150,
+        "min": 150,
+        "raw": [
+          150,
+          150,
+          150
+        ]
+      },
+      "p95_ms": {
+        "cv": 11.216295388538352,
+        "max": 47.397683,
+        "median": 38.039417,
+        "min": 37.323022,
+        "raw": [
+          38.039417,
+          47.397683,
+          37.323022
+        ]
+      },
+      "p99_ms": {
+        "cv": 5.76861373600507,
+        "max": 124.913005,
+        "median": 117.852662,
+        "min": 108.428014,
+        "raw": [
+          117.852662,
+          124.913005,
+          108.428014
+        ]
+      }
+    },
+    "rps-200": {
+      "achieved_rps": {
+        "cv": 0.0,
+        "max": 200,
+        "median": 200,
+        "min": 200,
+        "raw": [
+          200,
+          200,
+          200
+        ]
+      },
+      "p95_ms": {
+        "cv": 27.74419372248717,
+        "max": 50.691771,
+        "median": 38.721947,
+        "min": 24.834715,
+        "raw": [
+          38.721947,
+          24.834715,
+          50.691771
+        ]
+      },
+      "p99_ms": {
+        "cv": 36.68053280459811,
+        "max": 158.557225,
+        "median": 133.796044,
+        "min": 57.898742,
+        "raw": [
+          133.796044,
+          57.898742,
+          158.557225
+        ]
+      }
+    },
+    "rps-50": {
+      "achieved_rps": {
+        "cv": 0.0,
+        "max": 50,
+        "median": 50,
+        "min": 50,
+        "raw": [
+          50,
+          50,
+          50
+        ]
+      },
+      "p95_ms": {
+        "cv": 5.203338116118376,
+        "max": 16.911674,
+        "median": 16.279354,
+        "min": 14.91248,
+        "raw": [
+          14.91248,
+          16.911674,
+          16.279354
+        ]
+      },
+      "p99_ms": {
+        "cv": 78.70401492544535,
+        "max": 220.930234,
+        "median": 46.500143,
+        "min": 46.236239,
+        "raw": [
+          220.930234,
+          46.500143,
+          46.236239
+        ]
+      }
+    }
+  },
+  "candidate": {
+    "manifest_sha256": "sha256:675ad1063933a91208507449a6fdd20e7d7f84c6ea9e4763e363b3382c924685",
+    "revision": "505da366a4c66f1cae47ecca12e64df1075c979f",
+    "version": "2.1.4"
+  },
+  "capability_status": "target_met",
+  "cells": [
+    {
+      "association_counts": {
+        "events": 715,
+        "groups": 1000,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.394018753002456,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 9.640576807676553,
+          "first_success": 17753.58063991,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 5.897894460002135,
+          "first_success": 17753.585363973,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 5.9085567879992595,
+          "first_success": 17753.58127772,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 8.71603075800158,
+          "first_success": 17756.388750021,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.007429229,
+      "measurement": {
+        "achieved_rps": 50,
+        "completed_requests": 3000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 473.639109,
+          "p50_ms": 3.791508,
+          "p95_ms": 14.91248,
+          "p99_ms": 220.930234
+        },
+        "max_schedule_lag_ms": 2.506691,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 3000,
+          "succeeded": 3000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 3000,
+        "statuses": {
+          "200": 2385,
+          "201": 235,
+          "204": 380
+        },
+        "target_rps": 50
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 6894,
+          "store_bytes": 1508822
+        },
+        "before": {
+          "documents": 467,
+          "store_bytes": 298719
+        }
+      },
+      "passed": true,
+      "repeat": 1,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:95e4cce44c1a69b2edd3db0b18cf0e4b043a0b7d3a51ea27063bc06e5e2eba55",
+        "before": "sha256:c413fd559ea8d02fd5bf835860a8973dcad3c19586286bd7fc8ea7b8dae31084",
+        "cli_overhead": "sha256:b0362bc1ffdf923556b33344d93a21d20e2320a7e918c64365123cb3b681a59e",
+        "growth": "sha256:c72bdae86033799abc4c6ef926132d7a9774fe9108cc77e604347767c45678f6",
+        "ledger": "sha256:419575978a6ec584973b00a7bf1aa5f178f619e1df4f949ebc924c848fde20ff",
+        "lifecycle": "sha256:0eb7cc0d35cd3bd0bd4b6d007526967042329d08d9a5cf939688760829342b5f",
+        "load": "sha256:dd85af9806b11f02b5f73b02fb49529a84f231e7e33b603a1ad04f0831f3bd7d",
+        "markers": "sha256:b299f72ba6cb23fc9866d107fe6849e523821e38a2b7762f32a02c4115b5eed3",
+        "overhead": "sha256:d00abc3887f6153a038a47984cf514a05affb49a688d1755bccbd08cb01ec3fa",
+        "recovery": "sha256:47e20b84d11708ff662b113d9ab9523ac3090a7bd6d53d3840093e79ec9df370",
+        "resources": "sha256:f3410a750574d13db91ebb2775e6203ea1dd15ae72555c9d7c36597acfdff394"
+      },
+      "stage": "rps-50",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 1410,
+        "groups": 2010,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.4147029819978343,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 8.90142563275731,
+          "first_success": 17961.616181058,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 2.6073713799996767,
+          "first_success": 17963.286802296,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 2.6219300129996554,
+          "first_success": 17963.286523388,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 2.4981376819996512,
+          "first_success": 17963.162728125,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.003326945,
+      "measurement": {
+        "achieved_rps": 100,
+        "completed_requests": 6000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 282.341197,
+          "p50_ms": 4.181151,
+          "p95_ms": 33.69787,
+          "p99_ms": 86.894279
+        },
+        "max_schedule_lag_ms": 9.836688,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 6000,
+          "succeeded": 6000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 6000,
+        "statuses": {
+          "200": 4785,
+          "201": 450,
+          "204": 765
+        },
+        "target_rps": 100
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 11679,
+          "store_bytes": 3080937
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 31478
+        }
+      },
+      "passed": true,
+      "repeat": 1,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:d79b9a839bc7649b34b5723ed93a7745e8dcf2cb0972728c86b5ae8f88cf2f8e",
+        "before": "sha256:69266626cf2284537810343b6a2ebf60ed1baa99e802ccff5097b712142d8289",
+        "cli_overhead": "sha256:2d00cc74c81d31163d3e8062e7f6b526ff349242566f2dc11b8961fdc4f08d9c",
+        "growth": "sha256:53b77e30044945835ed160c9d77223e293a58cd5a25c5c7956830b864ca0265d",
+        "ledger": "sha256:27a49f75dac6c78f65aa14e284f75d61c71521c32ee86766c35386cce78a9c5b",
+        "lifecycle": "sha256:92c42deca59db23116ec59288285870cefd26f34558f89d653e9f1dd87d1b503",
+        "load": "sha256:e7b4cd3e0536897d974fc0e63295f9696e9255e0f04d912512c14a42e4bd0ec5",
+        "markers": "sha256:ad93d9e7a916fd555396317a0ce65448aea4d845c30c1fc5e9ad1d5a32bf465f",
+        "recovery": "sha256:a6d9eb283e96333366bd21a37dad49d3bee08a6b9333292bd245a3efbe18d642",
+        "resources": "sha256:98b3f9d4918656e81e9c894d574e79db8675148cb9bcdc65a63af0a80cb02fc0"
+      },
+      "stage": "rps-100",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 2130,
+        "groups": 3030,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.494068583000626,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 7.63305019141626,
+          "first_success": 18169.745221201,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 22.21596035499897,
+          "first_success": 18190.576222508,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 25.0787116850006,
+          "first_success": 18193.424225366,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 26.167315990001953,
+          "first_success": 18194.512826063,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.003995899,
+      "measurement": {
+        "achieved_rps": 150,
+        "completed_requests": 9000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 236.586471,
+          "p50_ms": 3.818601,
+          "p95_ms": 38.039417,
+          "p99_ms": 117.852662
+        },
+        "max_schedule_lag_ms": 62.457891,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 9000,
+          "succeeded": 9000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 9000,
+        "statuses": {
+          "200": 7170,
+          "201": 675,
+          "204": 1155
+        },
+        "target_rps": 150
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 15190,
+          "store_bytes": 4288442
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 74551
+        }
+      },
+      "passed": true,
+      "repeat": 1,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:c5e049f0f4e5276e56faf478c5bc313383cc5212bac5592948f9e9fc265403d3",
+        "before": "sha256:f525dcb661ed7fe48a5d147fa9832a570679ba85b591c731e0b334ee6ac92aa1",
+        "cli_overhead": "sha256:5c385d4062292803826e91974b9d4aecbba2fc5e1cb522f719fa0630c7023598",
+        "growth": "sha256:9fc5998e70306bd282e4dc29e0dc5c403d6e530b46064cef168cf4fafe3a47ec",
+        "ledger": "sha256:8178dc48e621350581978f2e1ac41a13a276280203bd61db8c152f19a3b37028",
+        "lifecycle": "sha256:533953db5004d0d5b3f84fd323b1597cff6917b6079d9f71b41853647820b9b6",
+        "load": "sha256:3a3cd6edd966a9b22cc367f3debd4f4ee7870a62959ccd13487c25ebdd191532",
+        "markers": "sha256:1471b066069698316fba688ecf8a601d62e63624742b94af7e4b511447876871",
+        "recovery": "sha256:89bb7318679a9fb62cb5edb3086bedd5fbe0f2b9965a3113d4de8d9c4795d074",
+        "resources": "sha256:31b7870fb8c4fd90478cd7082c82ca4acccbafb96cd3ed33949b37e8ea55aa08"
+      },
+      "stage": "rps-150",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 2813,
+        "groups": 4050,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.46774135799933,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 15.223544066739123,
+          "first_success": 18415.164193483,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 18.200882459997956,
+          "first_success": 18425.505586516,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 19.188245498997276,
+          "first_success": 18426.478178584,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 19.030157089000568,
+          "first_success": 18426.320087806,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.001994102,
+      "measurement": {
+        "achieved_rps": 200,
+        "completed_requests": 12000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 242.473482,
+          "p50_ms": 3.836559,
+          "p95_ms": 38.721947,
+          "p99_ms": 133.796044
+        },
+        "max_schedule_lag_ms": 17.293946,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 12000,
+          "succeeded": 12000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 12000,
+        "statuses": {
+          "200": 9570,
+          "201": 900,
+          "204": 1530
+        },
+        "target_rps": 200
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 16399,
+          "store_bytes": 4418901
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 64902
+        }
+      },
+      "passed": true,
+      "repeat": 1,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:664911670642f366d08dc97af974b391ddc4df1422ed0ee23f1272ecf814afbd",
+        "before": "sha256:58305c383b70ba4aa4e6e9b71dd58ff49133f820bb3d15fba39aef01b5e96f36",
+        "cli_overhead": "sha256:46de1e4d70abc1055f3d92ba532e556bfd344862f3712bb062c461064561110d",
+        "growth": "sha256:3957ea09509580f875a18b9948c6787da0cda7e1d77261bfb6d11c01e1736fb4",
+        "ledger": "sha256:75ed29a1b9dbc9467d20bd527a9b6069c84fa7e96be61e1b84529338a64f46de",
+        "lifecycle": "sha256:a6f9b6be64f215866b678a37c80bebd7a9b5faaed6c87f4896a5e9304efe1054",
+        "load": "sha256:cee3d40a73eb539dcff2170beb07b913842d24163730380c5ffde45091a7735e",
+        "markers": "sha256:2ea1f93b9fd5935c9d2115d4fdbaabeb25f8f843527f879905aa1b817200c5ab",
+        "recovery": "sha256:642a8fe41c1545d9e7d3a742749dbedf214c976cb42f5eb6ccfcbd2767d5bd4a",
+        "resources": "sha256:1f754bed8faccf6c870876b282e5e798afcffc8805a4f842cdba4f353d2583fa"
+      },
+      "stage": "rps-200",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 715,
+        "groups": 1000,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.340959463002946,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 6.2042359998158645,
+          "first_success": 18630.095803964,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 2.558268937998946,
+          "first_success": 18630.017153495,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 2.571432217002439,
+          "first_success": 18630.015298317,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 4.457231343003514,
+          "first_success": 18631.901094674,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.013887549,
+      "measurement": {
+        "achieved_rps": 50,
+        "completed_requests": 3000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 112.86101,
+          "p50_ms": 3.898742,
+          "p95_ms": 16.911674,
+          "p99_ms": 46.500143
+        },
+        "max_schedule_lag_ms": 2.741544,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 3000,
+          "succeeded": 3000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 3000,
+        "statuses": {
+          "200": 2385,
+          "201": 235,
+          "204": 380
+        },
+        "target_rps": 50
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 6399,
+          "store_bytes": 1703123
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 64902
+        }
+      },
+      "passed": true,
+      "repeat": 2,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:835e28d54bf809c69ce9c7cb1fb00b6d541b558047543f0f55ed88949f1bdd72",
+        "before": "sha256:aebb606202d2d7028726135cd51389bcc4c42974a7189404c728ba1937972248",
+        "cli_overhead": "sha256:adf23f859ce5d4ada3995d673dab6ae6f1c5659bd6f9785cf593009b52d2c9af",
+        "growth": "sha256:41740236865f6fcde25002228c116fc7c6187ac4775a35c53d06aa80ee7b5214",
+        "ledger": "sha256:0fd881ce9b9a444657279eeb7b8400a3e456ba99ab32fc10166252f600dbe2b9",
+        "lifecycle": "sha256:78cb6c071f47da9ba94ca648a4bee3bc9411a6cd41ec6e909e3a88e1334c2183",
+        "load": "sha256:008f39d2d83e6152436248152354fae447004a67d675008ef3afba44b44e7d1f",
+        "markers": "sha256:638b1d41dc255a566b53ffb397df6b1d408256dde3eb5d398b9a44fd6b953609",
+        "recovery": "sha256:d48a78dc3ea9fc944d0e4e14425a579d01600ad020ff1f2519dab5dffce0a306",
+        "resources": "sha256:e0119bd94658534854bbfb7b9e7c8536df05c3b564b57ddeabaafb4c6fdd62aa"
+      },
+      "stage": "rps-50",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 1410,
+        "groups": 2010,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.4405832500015094,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 5.40178624647524,
+          "first_success": 18837.401726499,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 1.5427962799985835,
+          "first_success": 18838.092010145,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 1.5540700239980652,
+          "first_success": 18838.088691455,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 4.497480441001244,
+          "first_success": 18841.032098264,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.003140546,
+      "measurement": {
+        "achieved_rps": 100,
+        "completed_requests": 6000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 189.036828,
+          "p50_ms": 3.840114,
+          "p95_ms": 41.357905,
+          "p99_ms": 94.36073
+        },
+        "max_schedule_lag_ms": 28.97639,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 6000,
+          "succeeded": 6000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 6000,
+        "statuses": {
+          "200": 4785,
+          "201": 450,
+          "204": 765
+        },
+        "target_rps": 100
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 11659,
+          "store_bytes": 3085912
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 55373
+        }
+      },
+      "passed": true,
+      "repeat": 2,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:4cda46e7785b73de756138052abdc875106df404bb502a255a442784fc55275d",
+        "before": "sha256:dc22ffe177afc376d5db4f3915d65950c1d623a194e8af5738e129aa720bd3a4",
+        "cli_overhead": "sha256:4e0f5446327c74fcf82723d71eac4bcf1f643c50f31c52ac0ceca1d5b8532918",
+        "growth": "sha256:12c07f32810ae1737f0bb417275f3c200d1d61751972730ffcb9e9925e2a849d",
+        "ledger": "sha256:963165f0ab2f7f09b7aec358b2215a67a2ba50f8c8adc437a76c1be3d33f5d93",
+        "lifecycle": "sha256:568125e9504ab43f15c693799105b65f3c5f39c64c193640a9abf55ebe2f2bbd",
+        "load": "sha256:aaae6e263c80bd49015f0477e36547ae24b6a837c86f6778eb41454541c571b2",
+        "markers": "sha256:d92fe40d5aec30400a39b1700522c8545e6192e66e43fc1be35d379a4066955c",
+        "recovery": "sha256:825e75b4651f461bdcbe345d38cfc829f87edee69f292e4c73bfe4d3ae52c484",
+        "resources": "sha256:ec9a12dfb9d513745f1e9db26ac718315b27126b7d61716fd950ae3f39e80a56"
+      },
+      "stage": "rps-100",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 2130,
+        "groups": 3030,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.3673856140012504,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 6.6120773924885725,
+          "first_success": 19048.786917576,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 16.05397743100184,
+          "first_success": 19063.382240545,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 15.06656202999875,
+          "first_success": 19062.380215603,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 23.032851766998647,
+          "first_success": 19070.346501892,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.00297219,
+      "measurement": {
+        "achieved_rps": 150,
+        "completed_requests": 9000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 675.094435,
+          "p50_ms": 3.760714,
+          "p95_ms": 47.397683,
+          "p99_ms": 124.913005
+        },
+        "max_schedule_lag_ms": 44.616728,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 9000,
+          "succeeded": 9000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 9000,
+        "statuses": {
+          "200": 7170,
+          "201": 675,
+          "204": 1155
+        },
+        "target_rps": 150
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 15556,
+          "store_bytes": 4515085
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 74551
+        }
+      },
+      "passed": true,
+      "repeat": 2,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:248d4d21a7a76f203491dc97326224efee405055fcbeb7521eb3c18181b75e5f",
+        "before": "sha256:ca9841f5f760e69bc50893ad80148d210df49639136903c46722713c31979161",
+        "cli_overhead": "sha256:bb52053f2ede5507dd5b05bae5bdd41ed2d9286c6c5793c21d226f37ea31f021",
+        "growth": "sha256:a42f88401f3d16b248aa08f3dd4ab92c875c4ae0d5ce67a5f3a84c6fa1848595",
+        "ledger": "sha256:10cf91d47674e5ba2febd70a6c3f09990a3b919aa6058baa90d2502553b178c1",
+        "lifecycle": "sha256:61fe9aef2eb81daa8ebe3b87efc45874c091fe1d642c2f5fd6a6588b072c8aad",
+        "load": "sha256:5cab5a80c9bd1eb3c220c8c3392c59bc6728a14419e4e5620b0fb691ba56f81a",
+        "markers": "sha256:c19fb7b82ef537fe74285d1a57ca0e3d9b885e9542fc2de1dab62f42b3b6ea5b",
+        "recovery": "sha256:39f8a10a1821cf9d92ce4e099a4167cba50a414df7f6135c94bbef4d33258100",
+        "resources": "sha256:e6f975494dc5db33011b564f72c3454420079e760be45a988d366b5cfe829c94"
+      },
+      "stage": "rps-150",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 2813,
+        "groups": 4050,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.3452508139998827,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 9.843662152750767,
+          "first_success": 19303.817048823,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 3.5744059690005088,
+          "first_success": 19303.335830184,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 3.589684140999452,
+          "first_success": 19303.336071423,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 7.493110899002204,
+          "first_success": 19307.239495025,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.001925468,
+      "measurement": {
+        "achieved_rps": 200,
+        "completed_requests": 12000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 284.597391,
+          "p50_ms": 3.713675,
+          "p95_ms": 24.834715,
+          "p99_ms": 57.898742
+        },
+        "max_schedule_lag_ms": 34.495395,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 12000,
+          "succeeded": 12000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 12000,
+        "statuses": {
+          "200": 9570,
+          "201": 900,
+          "204": 1530
+        },
+        "target_rps": 200
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 16549,
+          "store_bytes": 4462178
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 51651
+        }
+      },
+      "passed": true,
+      "repeat": 2,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:6abbfe9e5b9acf6050191b333ddc67bfc9da2e7a0590d8a14d6457a255d31745",
+        "before": "sha256:58dbf2674da736398f7ead0d652bc119695b14be33d42d90a8a0cfed4ac0fb19",
+        "cli_overhead": "sha256:e3f612a271bb755090069e7defbd1c0fd0792f943ec3e1bf582b442eeb31c28a",
+        "growth": "sha256:e84cf28d926541b5306f0d28bef83be54d49fa89ddbb99bceec15526770492d8",
+        "ledger": "sha256:15ad4ed27135cca53d98fa3752f335e8fc422dd5ede1cfc6bf68d3ccfbc114cb",
+        "lifecycle": "sha256:6e6c93f14733e1eb1a860f97ece4c69295445e8639e3f74c3293b868b56eab02",
+        "load": "sha256:5ca392bd64e61356c7b1d7dd14f1f1c945058124924269bb6681d58f8ac6d293",
+        "markers": "sha256:937b9726ac60e9b9da5c123f22b61e69ee00aba4ac85aa9deff020ece96216bb",
+        "recovery": "sha256:6dcfe22c21d9943faeacdf9b64b65f34d6d9eadf4abd1e5ec0b724d550270932",
+        "resources": "sha256:8bcf108f74ce8f6b11fcb33f9dfe54038eb316c89fba61603e09e34f3e6f548d"
+      },
+      "stage": "rps-200",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 715,
+        "groups": 1000,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.3589095970019116,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 4.441868098998384,
+          "first_success": 19510.198181929,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 1.5092501859980985,
+          "first_success": 19511.133764322,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 0.50415716399948,
+          "first_success": 19510.113343137,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 2.4286217320004653,
+          "first_success": 19512.037803733,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.01701407,
+      "measurement": {
+        "achieved_rps": 50,
+        "completed_requests": 3000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 67.661609,
+          "p50_ms": 3.890343,
+          "p95_ms": 16.279354,
+          "p99_ms": 46.236239
+        },
+        "max_schedule_lag_ms": 2.119158,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 3000,
+          "succeeded": 3000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 3000,
+        "statuses": {
+          "200": 2385,
+          "201": 235,
+          "204": 380
+        },
+        "target_rps": 50
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 6388,
+          "store_bytes": 1713490
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 74551
+        }
+      },
+      "passed": true,
+      "repeat": 3,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:3a982ba400b60b97ed4e22f687eabd8113efd2bd43a5f275c13dc4b6d9756927",
+        "before": "sha256:3780829eb77be2cf3d8612d801a67f1ccbe017e51ae9f91572e6c71500e79d06",
+        "cli_overhead": "sha256:c8cf221287e91191e941b1ddfc55008abd0b51144d5cdcbbc6d7cd92b3719021",
+        "growth": "sha256:1a673b5489920c068e46c2723ee864d937002bb294db137ff94a1f8eabb220e5",
+        "ledger": "sha256:34e2430ea936638d17bcadd80a717d3d68652ed2e3ed10d10172c34b83ea9cc8",
+        "lifecycle": "sha256:cb529a059190a48e9f60112e439f150fa63c84cff03f78e346bb11966015dc4e",
+        "load": "sha256:75dc045fedd74f14568c0f83dc626c3648e6f66096b31608dda1ec1fdcea8160",
+        "markers": "sha256:c6995fd6025e4cc44571ff74f3a8e3ed3cc8e70723d7f7873f5315bf9681898a",
+        "recovery": "sha256:cb21633202f20d901fa8aeb290b81bbfda0860ce32194e0cd1b8be179e4be982",
+        "resources": "sha256:393c1e4149a70d3ffa151a23ad06cbfc85eda36f35b7bd7197453641edb70b57"
+      },
+      "stage": "rps-50",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 1410,
+        "groups": 2010,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.3424653760012006,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 8.360776912173606,
+          "first_success": 19730.65664835,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 4.040711558001931,
+          "first_success": 19730.459945842,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 4.050422006002918,
+          "first_success": 19730.455703095,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 6.917678595000325,
+          "first_success": 19733.322956576,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.005076251,
+      "measurement": {
+        "achieved_rps": 100,
+        "completed_requests": 6000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 200.762993,
+          "p50_ms": 3.811351,
+          "p95_ms": 40.105827,
+          "p99_ms": 95.056271
+        },
+        "max_schedule_lag_ms": 4.03504,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 6000,
+          "succeeded": 6000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 6000,
+        "statuses": {
+          "200": 4785,
+          "201": 450,
+          "204": 765
+        },
+        "target_rps": 100
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 11631,
+          "store_bytes": 2365642
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 74335
+        }
+      },
+      "passed": true,
+      "repeat": 3,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:723363eebf2c39224f351cd54d140962f0031a6a89ece4f065558f622b3f75cf",
+        "before": "sha256:9a62d3322dfa40e01b245ed4040c728f6928d60bc57eb554e4b868789ae8373e",
+        "cli_overhead": "sha256:04059dfbbca5bb785b70755b6b89312081e7ddaef7b013ec5f38d75f75a1d3e2",
+        "growth": "sha256:46d5add9fd1d26c060b1067e0b968f5814ad6b6934745f9b46515c89d1ddc3c0",
+        "ledger": "sha256:874a1587318e24dc19e69ec31ed950665bcefaad308d0c2926f992284f2d70ae",
+        "lifecycle": "sha256:031bafb52941789a6378c692882dbd3269c59cea465514dfe217d53a14a6a0cc",
+        "load": "sha256:365a7f27067a98620f1b8bc5ef12a164a1ba3d5e1e2fafc905bb608834f86a6c",
+        "markers": "sha256:a0295e5a3e478874ab4b3938db19ffd4dc094c90f79f1143b5748f7faff12601",
+        "recovery": "sha256:7e85f6050e32a8b0c8c0faa750be2bf6e4d19bf4707262539b50405ebf59a134",
+        "resources": "sha256:3711ef223f2bdd13749a892f8a438a33808c439d834e5a9fbd29c7e519bd0b4c"
+      },
+      "stage": "rps-100",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 2130,
+        "groups": 3030,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.381555471001775,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 6.380854264691152,
+          "first_success": 19936.951437397,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 24.235135263999837,
+          "first_success": 19959.717706095,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 23.32022061799944,
+          "first_success": 19958.78359174,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 27.144734852998226,
+          "first_success": 19962.608100583,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.003352615,
+      "measurement": {
+        "achieved_rps": 150,
+        "completed_requests": 9000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 223.669712,
+          "p50_ms": 3.735465,
+          "p95_ms": 37.323022,
+          "p99_ms": 108.428014
+        },
+        "max_schedule_lag_ms": 36.143653,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 9000,
+          "succeeded": 9000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 9000,
+        "statuses": {
+          "200": 7170,
+          "201": 675,
+          "204": 1155
+        },
+        "target_rps": 150
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 15556,
+          "store_bytes": 4170991
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 55573
+        }
+      },
+      "passed": true,
+      "repeat": 3,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:295c16b62ceffca68d8e97e31880cd9670e32af60f33a3732fe8bb32ce474321",
+        "before": "sha256:33abbbfb9e3674d1f01d4545b1872eddc04272daaba0f73426944eb99ac0ee57",
+        "cli_overhead": "sha256:5718ba75f0ad3850501063d690ff770727f799e9591250d2e6c89b68350821c7",
+        "growth": "sha256:f291c651714e7db3ff2feb93e7ce5a70bbec41c6cd4556b89d9812d9d4192cc3",
+        "ledger": "sha256:2c43dca1bb5c8b8220c05262087e4e1595ccdb55c788555a945968e151a03585",
+        "lifecycle": "sha256:e2a99e49546f9a8689edf6ec5283c1b335369d42a4bff4d16f387d03ed7bb122",
+        "load": "sha256:5378a52423ec4b1c409f73973eb9f5cc97132b714f3962b87a33ae631f2b4486",
+        "markers": "sha256:9bd29af9f4d34b064f98bd11df594f2524f4726d382b9859efcac8a2ad1076f1",
+        "recovery": "sha256:6d6eff387b7f2fe28a54a0454ad0b47a9bcf546ad72cea08b73e0034546f8e91",
+        "resources": "sha256:af900519701a6ea46d88da8c586af6704c43e0b5478b21e3ae67f08eab4064f2"
+      },
+      "stage": "rps-150",
+      "synchronous_pass": true
+    },
+    {
+      "association_counts": {
+        "events": 2794,
+        "groups": 4031,
+        "violations": 0
+      },
+      "classification": null,
+      "cleanup": {
+        "global_prune": false,
+        "inventory_restored": true,
+        "owned": true,
+        "status": "passed"
+      },
+      "cli_probe_seconds": 1.3782392640023318,
+      "dimensions": {
+        "business": {
+          "classification": null,
+          "elapsed_seconds": 12.417230941828166,
+          "first_success": 20166.999113512,
+          "timed_out": false
+        },
+        "events": {
+          "classification": null,
+          "elapsed_seconds": 42.19090627499827,
+          "first_success": 20202.809576219,
+          "timed_out": false
+        },
+        "logs": {
+          "classification": null,
+          "elapsed_seconds": 35.194844857000135,
+          "first_success": 20195.798000188,
+          "timed_out": false
+        },
+        "metrics": {
+          "classification": null,
+          "elapsed_seconds": 44.96741800599921,
+          "first_success": 20205.570570425,
+          "timed_out": false
+        }
+      },
+      "drain_elapsed_seconds": 0.001753081,
+      "measurement": {
+        "achieved_rps": 200,
+        "completed_requests": 12000,
+        "dropped_slots": 0,
+        "duration_seconds": 60,
+        "latency": {
+          "max_ms": 529.080439,
+          "p50_ms": 3.668807,
+          "p95_ms": 50.691771,
+          "p99_ms": 158.557225
+        },
+        "max_schedule_lag_ms": 57.313427,
+        "name": "measurement",
+        "outcomes": {
+          "explicit_rejects": 0,
+          "rejected_429": 0,
+          "rejected_503": 0,
+          "requests": 12000,
+          "succeeded": 12000,
+          "timeouts": 0,
+          "transport_errors": 0,
+          "unexpected_errors": 0
+        },
+        "scheduled_slots": 12000,
+        "statuses": {
+          "200": 9570,
+          "201": 900,
+          "204": 1530
+        },
+        "target_rps": 200
+      },
+      "observability_growth": {
+        "after": {
+          "documents": 16588,
+          "store_bytes": 7848208
+        },
+        "before": {
+          "documents": 11,
+          "store_bytes": 50603
+        }
+      },
+      "passed": true,
+      "repeat": 3,
+      "sampler": {
+        "failures": 0,
+        "missing": 0,
+        "records": 17
+      },
+      "source_digests": {
+        "after": "sha256:5fa7bb7ae8c4e9fbd36686e0b6f43606a76cf7adc27941f04dfebe7da2ba0c0c",
+        "before": "sha256:ce4994a0ad6e08fbc9c39cd2380d4db580e780a5b43a1addb3d5472accfc3481",
+        "cli_overhead": "sha256:d78fc1d3639c45e04813243129e776b9e16301cd921b66a24268ad0593c8aaf3",
+        "growth": "sha256:b8195531160e0d022aa52002a46860228a9a6eb9d7ad0274468c2a9ed59cf324",
+        "ledger": "sha256:e43d8ec23ff3fbfb202adf7e171682309086edc3e34446c4d71d395542f5425e",
+        "lifecycle": "sha256:a60dcb77d471b0e3802cd4a895a280de1daba1b252347b015023ef976273bd6c",
+        "load": "sha256:765161c03d253c0e7c8f20bef4866bcc7f3809a9ce12984b9a8ce81dd3174430",
+        "markers": "sha256:32328715dff9418df8abc488216e81c03f5ba7a21b7a98f6ffffeebd5671206c",
+        "recovery": "sha256:663fd1b31a3c59f418b977a61f6d77385b54ea94fdf085e35fca593edcdc2e6a",
+        "resources": "sha256:9fc9670e30d3e62875cbf73745a43627c5a6cd0c18d9498e8872d119580a9bdf"
+      },
+      "stage": "rps-200",
+      "synchronous_pass": true
+    }
+  ],
+  "diagnostic_sha256": "sha256:9ac293ba4ef7c55fdfe858d497d753289bce0973bebff264694ac606de90d2ba",
+  "execution_status": "complete",
+  "observer_comparison": [
+    {
+      "host_cpu_after": {
+        "idle": 13019807,
+        "total": 14091886
+      },
+      "host_cpu_before": {
+        "idle": 13017126,
+        "total": 14087941
+      },
+      "max_ms": 27.00174300116487,
+      "observer_process_cpu_seconds": 3.259081861,
+      "p95_ms": 19.853713998600142,
+      "requests": 250,
+      "sampler_records": 0,
+      "sampling_enabled": false
+    },
+    {
+      "host_cpu_after": {
+        "idle": 13023503,
+        "total": 14097382
+      },
+      "host_cpu_before": {
+        "idle": 13020914,
+        "total": 14093381
+      },
+      "max_ms": 37.86390599998413,
+      "observer_process_cpu_seconds": 3.6559867409999995,
+      "p95_ms": 23.137038999266224,
+      "requests": 250,
+      "sampler_records": 1,
+      "sampling_enabled": true
+    }
+  ],
+  "profile_sha256": "sha256:87726dea82dd0907a23730a9fc9b87ca22e83e1d95cce9429100f2312a7b1a9e",
+  "schema": "gopulse.phase20.publication.v1",
+  "tool_dependencies": {
+    "cramjam": "2.11.0",
+    "kafka-python": "2.2.15",
+    "python-snappy": "0.7.3"
+  },
+  "tools": {
+    "deploy/compose.yaml": "sha256:e51351ad3dd85c46c37dca8d382a85c2d99d8d8e6e8cdaf152d6b41ac0cac8d2",
+    "deploy/runtime-contracts.json": "sha256:cf435f6d9afb0b0ff0139b3587dd4c14e2cd3791cec099c81eb9f64babfa51a3",
+    "loadtest/capacity-profile.json": "sha256:08b6e74fd67d0d04660762801df7e49fdf0cd833783c2981e313eaed7334eb8f",
+    "loadtest/capacity-profile.schema.json": "sha256:2731886fcfe51c2ee91600627a022be6c903ebe4e86e85059842285100d46907",
+    "loadtest/cmd/load/main.go": "sha256:f4bb0b68c4c1022ba3106353b8c21903c5296b31bb86a5495cc45c025342752e",
+    "loadtest/cmd/load/main_test.go": "sha256:3519c2ac8e9530bc55eb65b674a41ced44dea77db8634a5908cfee6fa7cf3238",
+    "loadtest/cmd/recipe/main.go": "sha256:386668130fc28ce99eede656d991a5c55ebd7ec81acafc334bd8edd44f021ba9",
+    "loadtest/cmd/recipe/main_test.go": "sha256:d9b27fcc5c920dc000f62e80364c885706878349f7716746c7a251cb54a4e8d1",
+    "loadtest/go.mod": "sha256:57e6ec101b2f24e6ba386fa3498a9d4639c489d10b020fb19f2b0cf0fe2227c3",
+    "loadtest/go.sum": "sha256:208267af3d4237f46d9a797cd365f45f8ea52563c4427f10d6c84865410f7ca9",
+    "loadtest/internal/load/runner.go": "sha256:21fe1dac167b0ca419c3f656daccd52bc26ebd418bc4d4b3aef91e9b971d7824",
+    "loadtest/internal/load/runner_test.go": "sha256:eab40cd4fd5ac0c6453c43310b85cdb52d3bd5468d2bba59bc24661689e42383",
+    "loadtest/internal/load/types.go": "sha256:c7ebed703d69c0935028d8b349fb5028101e76ba796d5e6f567fc3f994b3b879",
+    "loadtest/internal/load/types_test.go": "sha256:95976fdfd2a472ee35423c37f0e846c3e5785f5415dc8d905492855a86814804",
+    "loadtest/internal/load/workload.go": "sha256:74f705e958d5c400b3cc66a57e55645c47b487dd143f48eb0acdde398f467449",
+    "loadtest/internal/load/workload_test.go": "sha256:74cd3d712c811033cd0ac67f5a80926ae2bb55488ed967260af5e638f7ab1204",
+    "loadtest/internal/recipe/artifact_test.go": "sha256:006d5d005c4d6e03dc37a1aed967f24db2b5fdc2641e41a17539de5f17686d8a",
+    "loadtest/internal/recipe/events.go": "sha256:acb12f4236ffd3d200bd17697e0996cff4bad45b80f6ab859598956b58c1ec34",
+    "loadtest/internal/recipe/events_test.go": "sha256:bf24b9cecb6b2883189c64514039b23d86effa5adfedf9f21e705c921c27e45b",
+    "loadtest/internal/recipe/generate.go": "sha256:d46f50b376ef57c9ccd6b46c0c58a01e65f17460feaac9685c1360121f37db1f",
+    "loadtest/internal/recipe/model.go": "sha256:41519468cb967f2ea7940fd20f67861b57580c3a59c6b6b6ed2462d6bf42a340",
+    "loadtest/internal/recipe/model_test.go": "sha256:542df5196eb7452b8de63fef1f17737c88a468e54208754299fc0b61aedd3462",
+    "loadtest/phase20-capacity-profile.schema.json": "sha256:5f6942dcc22e9d1fa5448f845c4ef2dfc181d6cd4989bb81a70a0a32b8f95b02",
+    "loadtest/report.schema.json": "sha256:8069ecff0baee069ce130e6ff335fcbfa67e0742aef10acef82659a3371b1491",
+    "scripts/ci/phase19_capacity.py": "sha256:047be33f50a368fe51e51afc9526956b739c7ff92374441ad4a1d168057f9f2f",
+    "scripts/ci/phase19_evidence.py": "sha256:c8fa29b92b15f161e89802b9e2606778cc675d5e175bca87ad837e974608d3a4",
+    "scripts/ci/phase19_sampler.py": "sha256:d12e4065431d4a6d1cfbb658eb0d39d181d5a61058a9b1bfc024fe72322714be",
+    "scripts/ci/phase20_diagnostic.py": "sha256:f46f429be7073e5824ce43b9d57329f2f1285771aff453322381379cb40524a9",
+    "scripts/ci/phase20_evidence.py": "sha256:23229defdd7c36b0e5039f930dd04fdfa690c8b38790eafbca4bde8f49c968aa",
+    "scripts/ci/phase20_sampler.py": "sha256:9b4ce68a11fc8c19e04990de4e02425401765d3c694a3a954975056ee774a165",
+    "scripts/ci/test_phase20_diagnostic.py": "sha256:2298f29fe1f4bcb91c5a6b1ee8126813948eb6cfe57293fe81f94a7c782f1fd8",
+    "scripts/ci/test_phase20_evidence.py": "sha256:9e4ac963428beeae345130365eaa7ee6372dad919327ab1b1ed481dfb536ff64",
+    "scripts/ci/test_phase20_sampler.py": "sha256:7a246077a2cbff1c7611613da7cff4ad37c57f153396b9f3e355615972128c19",
+    "scripts/verify-phase20-diagnostic.sh": "sha256:db00dda73f657fe0b9faa8c5dd7b539aad9b839d2ddb1c7ae00cab8bd1799a12",
+    "scripts/verify-phase20-evidence.py": "sha256:c5cbed31023eca1fa986d1552e74ab0d75d70b4a1568dac480703dbeb040b751"
+  }
+}
