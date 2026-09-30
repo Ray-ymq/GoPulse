@@ -6,13 +6,20 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent/'ci'))
 from phase20_evidence import verify_directory, verify_publication
+from phase20_chain import verify_directory as verify_chain_directory
 parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--diagnostic',required=True,type=Path)
+parser.add_argument('--diagnostic',type=Path)
 parser.add_argument('--publication',type=Path)
+parser.add_argument('--chain',type=Path)
 args=parser.parse_args()
 try:
-    result=verify_directory(args.diagnostic)
-    if args.publication:result['publication']=verify_publication(args.diagnostic,args.publication)
+    if bool(args.diagnostic) == bool(args.chain):
+        parser.error('provide exactly one of --diagnostic or --chain')
+    if args.chain:
+        result=verify_chain_directory(args.chain)
+    else:
+        result=verify_directory(args.diagnostic)
+        if args.publication:result['publication']=verify_publication(args.diagnostic,args.publication)
     print(json.dumps(result,indent=2))
 except (ValueError,KeyError,OSError,TypeError) as error:
     print(json.dumps({'execution_status':'incomplete','error':str(error)}));sys.exit(1)

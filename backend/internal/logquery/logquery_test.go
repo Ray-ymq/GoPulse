@@ -76,6 +76,9 @@ func TestParseRestrictsSchemaVocabulary(t *testing.T) {
 	if _, err := ParseOptions(legal, now); err != nil {
 		t.Fatalf("legal vocabulary rejected: %v", err)
 	}
+	if _, err := ParseOptions(url.Values{"service": {"backend"}, "module": {"post"}, "message": {"post committed"}}, now); err != nil {
+		t.Fatalf("Phase 20 post commit vocabulary rejected: %v", err)
+	}
 	for name, values := range map[string]url.Values{
 		"unknown module":  {"module": {"unknown"}},
 		"unknown message": {"message": {"unknown message"}},

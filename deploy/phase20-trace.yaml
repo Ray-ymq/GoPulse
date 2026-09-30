@@ -1,0 +1,80 @@
+services:
+  phase20-collector:
+    image: otel/opentelemetry-collector-contrib:0.138.0@sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c
+    platform: linux/amd64
+    # The pinned Collector image runs as UID 10001, while a fresh named
+    # volume is created root-owned. This acceptance-only service is isolated
+    # to the private observability network and volume, so root is required to
+    # write the bounded raw-span artifact without changing product services.
+    user: "0:0"
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    restart: "no"
+    read_only: true
+    stop_grace_period: 10s
+    volumes:
+      - phase20_trace_data:/var/lib/gopulse/trace
+      - ./otel/phase20-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks:
+      - observability
+    expose:
+      - "4317"
+    labels:
+      io.gopulse.phase20.role: acceptance-trace-collector
+      io.gopulse.phase20.exporter: file
+
+  backend:
+    environment:
+      GOPULSE_TRACE_ENABLED: "true"
+      GOPULSE_TRACE_ENDPOINT: phase20-collector:4317
+      GOPULSE_TRACE_SAMPLE_RATIO: "1.0"
+    depends_on:
+      phase20-collector:
+        condition: service_started
+
+  backend-2:
+    environment:
+      GOPULSE_TRACE_ENABLED: "true"
+      GOPULSE_TRACE_ENDPOINT: phase20-collector:4317
+      GOPULSE_TRACE_SAMPLE_RATIO: "1.0"
+    depends_on:
+      phase20-collector:
+        condition: service_started
+
+  business-worker:
+    environment:
+      GOPULSE_TRACE_ENABLED: "true"
+      GOPULSE_TRACE_ENDPOINT: phase20-collector:4317
+      GOPULSE_TRACE_SAMPLE_RATIO: "1.0"
+    depends_on:
+      phase20-collector:
+        condition: service_started
+
+  business-worker-2:
+    environment:
+      GOPULSE_TRACE_ENABLED: "true"
+      GOPULSE_TRACE_ENDPOINT: phase20-collector:4317
+      GOPULSE_TRACE_SAMPLE_RATIO: "1.0"
+    depends_on:
+      phase20-collector:
+        condition: service_started
+
+  search-indexer:
+    environment:
+      GOPULSE_TRACE_ENABLED: "true"
+      GOPULSE_TRACE_ENDPOINT: phase20-collector:4317
+      GOPULSE_TRACE_SAMPLE_RATIO: "1.0"
+    depends_on:
+      phase20-collector:
+        condition: service_started
+
+  search-indexer-2:
+    environment:
+      GOPULSE_TRACE_ENABLED: "true"
+      GOPULSE_TRACE_ENDPOINT: phase20-collector:4317
+      GOPULSE_TRACE_SAMPLE_RATIO: "1.0"
+    depends_on:
+      phase20-collector:
+        condition: service_started
+
+volumes:
+  phase20_trace_data:

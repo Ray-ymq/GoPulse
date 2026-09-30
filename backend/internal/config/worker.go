@@ -30,6 +30,7 @@ type WorkerConfig struct {
 	RabbitMQURL string
 	Worker      BusinessWorkerConfig
 	LogShip     LogShipConfig
+	Trace       TraceConfig
 }
 
 type BusinessWorkerConfig struct {
@@ -133,6 +134,10 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "business-worker")
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	return WorkerConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -146,6 +151,7 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 		},
 		RabbitMQURL: rabbitMQURL,
 		LogShip:     logShip,
+		Trace:       traceConfig,
 		Worker: BusinessWorkerConfig{
 			Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay,
 			PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout,

@@ -79,10 +79,14 @@ export interface LogEntry {
   module: string
   message: string
   request_id?: string
+  trace_id?: string
+  span_id?: string
+  attempt_id?: string
   event_id?: string
   event_type?: string
   user_id?: number
   post_id?: number
+  content_revision?: number
   comment_id?: number
   notification_id?: number
   outbox_id?: number
@@ -110,6 +114,8 @@ export interface LogFilters {
   level: string
   message: string
   request_id: string
+  trace_id: string
+  span_id: string
   event_id: string
   error_code: string
 }

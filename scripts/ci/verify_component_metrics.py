@@ -28,8 +28,8 @@ QUERIES = {
  'router': ('messages_total', 'last_kafka_ack_timestamp_seconds'),
  'marshaller': ('records_total', 'last_storage_success_timestamp_seconds'),
 }
-BUDGETS = dict(zip(COMPONENTS, (5616, 37, 24, 157, 120, 310)))
-COMPONENT_FAMILY_COUNT = 54
+BUDGETS = dict(zip(COMPONENTS, (5637, 42, 37, 157, 120, 310)))
+COMPONENT_FAMILY_COUNT = 63
 LATENCY_BUCKETS = ('0.005', '0.01', '0.025', '0.05', '0.1', '0.25', '0.5', '1', '2', '5', '10', '+Inf')
 CATALOG_ENDPOINT_ENV = (
     'BACKEND_ENDPOINTS=backend,backend-2',
@@ -82,7 +82,7 @@ def self_test():
         'gopulse_backend_http_concurrency_limit',
         'gopulse_backend_http_rejected_total',
     }
-    assert all(set(f['Keys'] or []) <= {'method', 'route', 'status_class', 'le', 'alert_source', 'dependency'}
+    assert all(set(f['Keys'] or []) <= {'method', 'route', 'status_class', 'le', 'alert_source', 'dependency', 'stage', 'result'}
                for f in backend['Families'])
     print('PASS: six fixed identities, budgets, distribution contract and browser contract match production catalog; no Docker access')
 
