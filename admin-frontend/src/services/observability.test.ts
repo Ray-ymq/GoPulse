@@ -21,6 +21,10 @@ describe('observability runtime boundary', () => {
     expect(isLogEntry({...entry, private_field:'hidden'})).toBe(false)
   })
 
+  it('accepts worker attempt identity in log records', () => {
+    expect(isLogEntry({ timestamp:'2026-09-05T08:00:00Z',level:'info',service:'business-worker',module:'worker',message:'event processed',attempt_id:'0102030405060708090a0b0c0d0e0f10',event_id:'123e4567-e89b-12d3-a456-426614174000',event_type:'post.created',attempt:0,result:'success' })).toBe(true)
+  })
+
   it('accepts the Phase 20 post commit log message', () => {
     expect(isLogEntry({ timestamp:'2026-09-05T08:00:00Z',level:'info',service:'backend',module:'post',message:'post committed',post_id:9,content_revision:1 })).toBe(true)
   })
