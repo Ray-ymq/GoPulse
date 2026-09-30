@@ -1,27 +1,33 @@
 # Phase-20-03：瓶颈优化与同条件对照
 
 > 目标版本：2.2.3；开发分支：develop/2.2.3。
-> 当前状态：未开始，等待 01/02 的诊断证据解锁；不得提前创建本批分支。
+> 当前状态：已由 01/02 证据解锁；执行模式为 `verify_only`，不得创建 B1。
 
 ## 1. 目标与前置决策
 
 以 02 完成后的单链路时刻、可信容量基线和资源事实识别一个主要限制，完成一次同条件实验。
 本文件不预先授权 SQL、缓存、GC、连接池或消息参数优化。
 
-创建本批分支前，必须在 update 填写下表并合入 main：
+创建本批分支前，已在 `update` 根据 01/02 实际结果填写并合入主线下表：
 
 | 冻结项 | 当前状态/要求 |
 | --- | --- |
-| 执行模式 | optimize 或 verify_only 二选一；后者必须有可信门禁达标且无已证明产品瓶颈的原始证据 |
-| 具体问题和输入条件 | 待 01/02 证据；区分产品瓶颈、观测开销、验收错误与未产生事件 |
-| 假设和因果证据 | 待定位；记录竞争解释及如何排除，CPU/lag 相关性不能单独解锁 |
-| B0 版本、revision、制品与合同 digest | 包含 02 完成提交的主线候选；实施前冻结 |
-| 单一改动及逐文件清单 | 待定位后逐一列出；当前不授权任何产品文件 |
-| B1 构建方式和可变项 | optimize 必填，仅上述单一改动及版本元数据；verify_only 填 not_applicable 并说明，无 B1 |
-| 主改善指标、最小有意义阈值 | 指定阶梯、单位、改善方向、三重复聚合方式、阈值及依据；optimize 必填，不看结果后修改 |
-| 非退化门禁与最小产品回归 | 指定数据/消息/公共接口案例、错误率/尾延迟/资源上限、准确命令与证据路径；两种模式都必填 |
-| 最终状态与撤回验证 | optimize 登记撤回文件、最终候选构建方式及撤回后的最小固定门禁；verify_only 登记版本同步后的同等门禁 |
-| 无需优化路径 | 明确 B0 三次单候选复验，不生成 B1；主改善指标/阈值填 not_applicable，仍执行全部正确性与非退化门禁 |
+| 执行模式 | `verify_only`。01 的正式 12 单元为 `execution_status=complete`、`capability_status=target_met`，02 的 C01～C07 为完整真实矩阵；两批均没有证明产品瓶颈的原始证据。 |
+| 具体问题和输入条件 | 复验 01 的 50/100/150/200 RPS、原配方、业务比例和独立空项目语义，并复核 02 的发帖→Outbox→RabbitMQ→Indexer→搜索可见链路。01 的变化来自新验收隔离/恢复/采样语义，02 的 C02/C03 分别是受控 Elasticsearch 延迟和 Collector 故障；它们不能归因成 SQL、缓存、GC、连接池或消息参数瓶颈。 |
+| 假设和因果证据 | 不登记产品优化假设。竞争解释已由 01 的失败归档、采样开关对照和独立恢复记录，以及 02 的依赖故障/重试/重启案例区分；CPU、Kafka lag、Elasticsearch 延迟或 Trace 导出开销的相关性均不单独解锁产品改动。 |
+| B0 版本、revision、制品与合同 digest | B0=`2.2.2`，主线 revision=`4f867ad21783d158619ea88563bb6190364c6398`（2026-10-01 fetch 后的 `origin/main`，与 02 完成候选树一致）。固定输入 digest：`loadtest/phase20-capacity-profile.json`=`sha256:87726dea82dd0907a23730a9fc9b87ca22e83e1d95cce9429100f2312a7b1a9e`、`loadtest/phase20-capacity-profile.schema.json`=`sha256:5f6942dcc22e9d1fa5448f845c4ef2dfc181d6cd4989bb81a70a0a32b8f95b02`、`deploy/runtime-contracts.json`=`sha256:6ca5d437eefcacf02ed974c5c346f18f394c59ba6bcb927ef14a731341a6d0a3`、`deploy/phase20-trace.yaml`=`sha256:510c72d064bac1402a2c385e52fde09572550da6cc7998f706120119c7bcc553`、`deploy/otel/phase20-collector.yaml`=`sha256:6d49672bd90b9c669fbde3effc427db360dd126a4d961e74d891418bd0cf2053`。制品不复用 02 私有 manifest；预检从该 revision 重新构建全部自研镜像并将每个不可变 image ID、依赖 digest 和最终 manifest digest 写入本批合同，正式运行只引用该已生成合同。 |
+| 单一改动及逐文件清单 | 无产品改动。仅允许本批登记的验收工具、其测试、优化 profile/schema、验收说明、实施日志和 `VERSION`/封闭版本元数据；不允许 SQL、缓存、GC、连接池、消息参数、业务接口或运行行为文件改变。 |
+| B1 构建方式和可变项 | `not_applicable`：`verify_only` 不生成 B1，不改变产品源码、镜像行为、运行配置、profile、采样、Trace、宿主预算或阈值；只有候选 manifest 的运行时身份和本批完成元数据可记录。 |
+| 主改善指标、最小有意义阈值 | `not_applicable`。不计算改善率、不筛选最好结果、不把三次复验伪装成 A/B；每个 50/100/150/200 RPS 阶梯仍完整保留三次的吞吐、P95/P99、排空、业务/Metrics/Logs/Events 恢复、CPU/RSS/磁盘、队列和错误原值及 median/min/max/CV。 |
+| 非退化门禁与最小产品回归 | 每个单元必须满足：到达/终态台账完整、目标 RPS 达成、profile 同步错误/超时/拒绝为零、P95/P99 和调度滞后不超过既有 gate、四个恢复维度均在 120 秒内、归属清理 inventory 恢复且无 global prune；02 链路固定测试和候选合同必须通过。命令为 `python3 -m unittest scripts.ci.test_phase20_optimization scripts.ci.test_phase20_evidence`、`scripts/verify-phase20-optimization.sh --preflight --contract <冻结合同> --work <预检目录>`、`scripts/verify-phase20-optimization.sh --contract <同合同> --work <正式目录>`、`python3 scripts/verify-phase20-evidence.py --optimization <正式目录>`；原始证据固定保存于私有 `<正式目录>/`，公开仓库只保存脱敏结论。 |
+| 最终状态与撤回验证 | `not_needed` 的最终候选仍是 B0 的产品源码和行为配置，提交版本同步为 `2.2.3` 只改变版本元数据。无 B1、无实验产品 diff、无撤回；最终候选重新绑定本批合同并重跑同等正确性/非退化门禁，最终状态须由 verifier 从原始证据重算。 |
+| 无需优化路径 | 以 B0 执行 3 次独立重复、4 个独立阶梯，共 12 个归属空项目；不生成 B1、不报告改善率。只有全部适用 O01～O05、正确性、消息所有权、持久数据、公共接口和非退化门禁通过，才报告 `optimization_status=not_needed`。 |
+
+### 解锁依据
+
+- 01 的最终脱敏基线为 `execution_status=complete`、`capability_status=target_met`；12 个阶梯均有完整台账、四维恢复和归属清理，最大恢复观察上界 44.97 秒，且实施记录明确写明没有产品优化和 unresolved 容量项。
+- 02 的最终候选为 `2.2.2` 主线树，C01～C07 的真实链路、重试、旧/损坏消息、Collector 故障、重启和权限边界均完成，固定门禁和 evidence verifier 通过；C02/C03 的受控依赖故障不能作为产品瓶颈证据。
+- 因而本批只验证 B0 的可重复性和非退化事实；如果真实复验出现正确性、消息所有权、持久数据或公共接口失败，执行状态为阻断的 `incomplete`，不得改写为 `not_needed`。
 
 无法建立证据时保持待解锁，修订未执行规划；不得用泛化文件授权绕过决策门槛。
 
