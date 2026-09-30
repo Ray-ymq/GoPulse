@@ -577,8 +577,17 @@ window. The longest observed recovery bound was 44.97 seconds. The verified
 [sanitized baseline](dev/logs/Phase-20/Phase-20-01-evidence/baseline.json) retains
 per-cell facts, source digests, observer cost and finite-window storage growth.
 This new acceptance contract and sampler do not establish a product optimization
-A/B result or replace the Phase 19 historical boundary. Trace, lifecycle,
-resource budgets and final sustained acceptance remain in later Phase 20 batches.
+A/B result or replace the Phase 19 historical boundary.
+
+Phase-20-02 completed the bounded post-to-search Trace/freshness chain at `2.2.2`.
+Phase-20-03 completes `2.2.3` with a frozen `2.2.2` B0 verification:
+all twelve isolated 50/100/150/200 RPS cells passed, producing
+`complete / target_met / not_needed`. The 90,000 measurement requests had zero
+fixed error outcomes; the longest independent recovery observation was 40.74s.
+No B1 or improvement rate was produced. The
+[verified repeat values and resource costs](docs/phase20-optimization.md)
+describe this finite experiment; lifecycle, resource budgets and final sustained
+acceptance remain in Phase-20-04 through 06.
 
 ### Backend log query pipeline
 
