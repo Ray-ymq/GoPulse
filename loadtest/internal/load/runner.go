@@ -37,17 +37,21 @@ type Config struct {
 }
 
 type requestResult struct {
-	category         Category
-	route            string
-	method           string
-	status           int
-	transportFailure bool
-	timeout          bool
-	explicitReject   bool
-	latencyMS        float64
-	completedAt      time.Time
-	requestID        string
-	errorCode        string
+	unexpectedResponse bool
+	sentAt             time.Time
+	responseID         uint64
+	responseRevision   uint64
+	category           Category
+	route              string
+	method             string
+	status             int
+	transportFailure   bool
+	timeout            bool
+	explicitReject     bool
+	latencyMS          float64
+	completedAt        time.Time
+	requestID          string
+	errorCode          string
 }
 
 type accumulator struct {
@@ -223,7 +227,7 @@ func (value *accumulator) add(result requestResult) {
 	} else if result.explicitReject {
 		value.counts.ExplicitRejects++
 		categoryCounts.ExplicitRejects++
-	} else if result.status >= 200 && result.status < 300 {
+	} else if result.status >= 200 && result.status < 300 && !result.unexpectedResponse {
 		value.counts.Succeeded++
 		categoryCounts.Succeeded++
 	} else {
@@ -256,7 +260,7 @@ func categoryCountsForRoute(summary CounterSummary, result requestResult) Counte
 		summary.Errors++
 	} else if result.explicitReject {
 		summary.ExplicitRejects++
-	} else if result.status >= 200 && result.status < 300 {
+	} else if result.status >= 200 && result.status < 300 && !result.unexpectedResponse {
 		summary.Succeeded++
 	} else {
 		summary.Errors++
@@ -452,10 +456,11 @@ func (writer *capacityProgressWriter) close() error {
 }
 
 type capacitySlot struct {
-	index       uint64
-	stage       int
-	window      string
-	scheduledAt time.Time
+	scheduleLagMS float64
+	index         uint64
+	stage         int
+	window        string
+	scheduledAt   time.Time
 }
 
 type capacityAccumulator struct {
@@ -491,7 +496,7 @@ func (value *capacityAccumulator) add(result requestResult) {
 		if result.status == http.StatusServiceUnavailable {
 			value.outcomes.Rejected503++
 		}
-	} else if result.status >= 200 && result.status < 300 {
+	} else if result.status >= 200 && result.status < 300 && !result.unexpectedResponse {
 		value.outcomes.Succeeded++
 	} else {
 		value.outcomes.UnexpectedErrors++
@@ -519,6 +524,9 @@ func (value *capacityAccumulator) report(name string) CapacityWindowReport {
 // function once per repetition, so a partial run can preserve every stage that
 // was not reached without fabricating values.
 func RunCapacity(ctx context.Context, config CapacityRunConfig) (CapacityReport, error) {
+	if config.Profile.SchemaVersion != CapacityProfileSchemaVersion {
+		return CapacityReport{}, errors.New("phase20 requires isolated stage execution")
+	}
 	if err := ValidateProfile(config.Profile); err != nil {
 		return CapacityReport{}, err
 	}
@@ -741,7 +749,7 @@ func secondsDuration(seconds float64) time.Duration {
 
 func capacityWindowKey(stage int, window string) string { return fmt.Sprintf("%d:%s", stage, window) }
 
-func scheduleCapacityWindow(ctx context.Context, targetRPS, seconds float64, jobs []chan capacitySlot, slotIndex *uint64, stage int, window string) (scheduled, dropped uint64, maxLagMS float64, resultErr error) {
+func scheduleCapacityWindow(ctx context.Context, targetRPS, seconds float64, jobs []chan capacitySlot, slotIndex *uint64, stage int, window string, observers ...func(capacitySlot, bool)) (scheduled, dropped uint64, maxLagMS float64, resultErr error) {
 	if targetRPS <= 0 || seconds <= 0 || len(jobs) == 0 {
 		return 0, 0, 0, errors.New("capacity window is invalid")
 	}
@@ -772,12 +780,17 @@ func scheduleCapacityWindow(ctx context.Context, targetRPS, seconds float64, job
 			}
 		}
 		virtualUser := int(*slotIndex % uint64(len(jobs)))
-		slot := capacitySlot{index: *slotIndex, stage: stage, window: window, scheduledAt: scheduledAt}
+		slot := capacitySlot{index: *slotIndex, stage: stage, window: window, scheduledAt: scheduledAt, scheduleLagMS: math.Max(0, float64(time.Since(scheduledAt))/float64(time.Millisecond))}
+		dispatched := false
 		select {
 		case jobs[virtualUser] <- slot:
 			scheduled++
+			dispatched = true
 		default:
 			dropped++
+		}
+		for _, observe := range observers {
+			observe(slot, dispatched)
 		}
 		*slotIndex++
 	}
@@ -885,7 +898,7 @@ func rampScheduleOffset(index uint64, duration time.Duration, targetRPS float64)
 }
 
 func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieName, cookie string, request Request, scheduledAt time.Time, timeout time.Duration) requestResult {
-	result := requestResult{category: request.Category, route: request.Template, method: request.Method}
+	result := requestResult{sentAt: time.Now(), category: request.Category, route: request.Template, method: request.Method}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var body io.Reader
@@ -918,6 +931,17 @@ func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieNam
 	result.status = response.StatusCode
 	result.requestID = response.Header.Get("X-Request-ID")
 	result.errorCode = responseErrorCode(bodyBytes)
+	var payload struct {
+		Data struct {
+			ID              uint64 `json:"id"`
+			ContentRevision uint64 `json:"content_revision"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(bodyBytes, &payload) == nil {
+		result.responseID = payload.Data.ID
+		result.responseRevision = payload.Data.ContentRevision
+	}
+
 	if response.StatusCode >= 200 && response.StatusCode < 300 && request.ExpectedStatuses[response.StatusCode] {
 		return result
 	}
@@ -1099,4 +1123,143 @@ func writeDiagnosticAtomic(path string, report DiagnosticReport) error {
 		return fmt.Errorf("publish load diagnostic report: %w", err)
 	}
 	return nil
+}
+
+// RunDiagnosticStage runs one owned project only. No recovery goroutine or
+// request worker survives the drained receipt handed to the coordinator.
+func RunDiagnosticStage(ctx context.Context, config CapacityRunConfig, stageIndex int, runID, ledgerPath string) (DiagnosticStageReport, error) {
+	if err := ValidateProfile(config.Profile); err != nil {
+		return DiagnosticStageReport{}, err
+	}
+	if config.Profile.SchemaVersion != DiagnosticProfileSchemaVersion || stageIndex < 0 || stageIndex >= len(config.Profile.Stages) || runID == "" || config.Repeat < 1 || config.Repeat > 3 || config.Candidate.Version != config.Profile.TargetCandidateVersion || !validRevision(config.Candidate.Revision) || !validDigest(config.Candidate.ManifestSHA256) || !validDigest(config.ProfileDigest) || len(config.Corpus.Users) < config.Profile.Workload.VirtualUsers || len(config.Credentials.Users) < config.Profile.Workload.VirtualUsers || config.Corpus.Seed != config.Profile.Recipe.Seed {
+		return DiagnosticStageReport{}, errors.New("diagnostic stage binding is invalid")
+	}
+	file, err := os.OpenFile(ledgerPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return DiagnosticStageReport{}, err
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	var mu sync.Mutex
+	var ledgerErr error
+	record := func(row AcceptanceRecord) {
+		mu.Lock()
+		defer mu.Unlock()
+		if ledgerErr == nil {
+			ledgerErr = encoder.Encode(row)
+		}
+	}
+	if config.CookieName == "" {
+		config.CookieName = "gopulse_session"
+	}
+	timeout := secondsDuration(config.Profile.Workload.RequestTimeoutSeconds)
+	transport := &http.Transport{MaxIdleConns: 2048, MaxIdleConnsPerHost: 1024, IdleConnTimeout: time.Minute}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	cookies, err := prepareSessions(ctx, client, Config{BaseURL: config.BaseURL, CookieName: config.CookieName, Corpus: config.Corpus, Credentials: config.Credentials, VirtualUsers: config.Profile.Workload.VirtualUsers, RequestTimeout: timeout})
+	if err != nil {
+		return DiagnosticStageReport{}, err
+	}
+	stage := config.Profile.Stages[stageIndex]
+	accumulators := map[string]*capacityAccumulator{"warmup": newCapacityAccumulator(stage.WarmupTargetRPS, secondsDuration(stage.WarmupSeconds)), "measurement": newCapacityAccumulator(stage.TargetRPS, secondsDuration(stage.MeasurementSeconds))}
+	jobs := make([]chan capacitySlot, config.Profile.Workload.VirtualUsers)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	for id := range jobs {
+		jobs[id] = make(chan capacitySlot, 16)
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			state := &vuState{id: id, corpus: &config.Corpus, credentials: &config.Credentials, profile: &config.Profile.Workload}
+			for slot := range jobs[id] {
+				request := state.request(slot.index)
+				result := executeRequest(runCtx, client, config.BaseURL, config.CookieName, cookies[id], request, slot.scheduledAt, timeout)
+				outcome := "unexpected_response"
+				switch {
+				case result.timeout:
+					outcome = "timeout"
+				case result.transportFailure:
+					outcome = "transport_failure"
+				case result.explicitReject:
+					outcome = "explicit_reject"
+				case request.ExpectedStatuses[result.status]:
+					outcome = "accepted"
+				}
+				sent, done := result.sentAt, time.Now()
+				result.latencyMS = float64(done.Sub(slot.scheduledAt)) / float64(time.Millisecond)
+				result.unexpectedResponse = outcome == "unexpected_response"
+				record(AcceptanceRecord{LatencyMS: result.latencyMS, RunID: runID, Repeat: config.Repeat, Stage: stage.Name, Window: slot.window, SlotID: slot.index, OperationID: fmt.Sprintf("%s/%d", runID, slot.index), Record: "terminal", ActorID: config.Corpus.Users[id].ID, Method: request.Method, Route: request.Template, ObjectKey: request.ObjectKey(), ScheduledAt: slot.scheduledAt, SentAt: &sent, CompletedAt: &done, Status: result.status, Outcome: outcome, RequestID: safeRequestID(result.requestID), ResponseID: result.responseID, ResponseRevision: result.responseRevision, ContentDigest: request.ContentDigest()})
+				mu.Lock()
+				accumulators[slot.window].add(result)
+				mu.Unlock()
+			}
+		}(id)
+	}
+	var slotIndex uint64
+	observe := func(slot capacitySlot, dispatched bool) {
+		outcome := "scheduled"
+		if !dispatched {
+			outcome = "dropped"
+		}
+		record(AcceptanceRecord{LoadScheduleLagMS: slot.scheduleLagMS, RunID: runID, Repeat: config.Repeat, Stage: stage.Name, Window: slot.window, SlotID: slot.index, OperationID: fmt.Sprintf("%s/%d", runID, slot.index), Record: "arrival", ScheduledAt: slot.scheduledAt, Outcome: outcome})
+	}
+	var scheduleErr error
+	for _, window := range []struct {
+		name         string
+		rps, seconds float64
+	}{{"warmup", stage.WarmupTargetRPS, stage.WarmupSeconds}, {"measurement", stage.TargetRPS, stage.MeasurementSeconds}} {
+		scheduled, dropped, lag, err := scheduleCapacityWindow(runCtx, window.rps, window.seconds, jobs, &slotIndex, stageIndex, window.name, observe)
+		mu.Lock()
+		value := accumulators[window.name]
+		value.scheduled = scheduled
+		value.dropped = dropped
+		value.maxScheduleLagMS = lag
+		mu.Unlock()
+		if err != nil {
+			scheduleErr = err
+			break
+		}
+	}
+	stopped := time.Now()
+	for _, channel := range jobs {
+		close(channel)
+	}
+	drained := make(chan struct{})
+	go func() { wg.Wait(); close(drained) }()
+	timer := time.NewTimer(secondsDuration(config.Profile.Diagnostic.DrainSeconds))
+	select {
+	case <-drained:
+		if !timer.Stop() {
+			<-timer.C
+		}
+	case <-timer.C:
+		cancel()
+		<-drained
+		scheduleErr = errors.New("request drain exceeded contract")
+	}
+	finished := time.Now()
+	if err := file.Sync(); err != nil {
+		return DiagnosticStageReport{}, err
+	}
+	if ledgerErr != nil {
+		return DiagnosticStageReport{}, ledgerErr
+	}
+	encoded, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		return DiagnosticStageReport{}, err
+	}
+	status := "complete"
+	if scheduleErr != nil {
+		status = "incomplete"
+	}
+	report := DiagnosticStageReport{SchemaVersion: DiagnosticCapacityReportSchemaVersion, RunID: runID, Stage: stage.Name, Repeat: RepeatBinding{Number: config.Repeat, Total: 3}, Profile: ProfileBinding{ID: config.Profile.ProfileID, SHA256: config.ProfileDigest}, Candidate: config.Candidate, Warmup: accumulators["warmup"].report("warmup"), Measurement: accumulators["measurement"].report("measurement"), StopAt: stopped.UTC(), DrainAt: finished.UTC(), DrainElapsedSeconds: finished.Sub(stopped).Seconds(), ExecutionStatus: status, Ledger: ProfileBinding{ID: "ledger.jsonl", SHA256: ProfileDigest(encoded)}}
+	body, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return report, err
+	}
+	if err := os.WriteFile(config.ReportPath, append(body, '\n'), 0o600); err != nil {
+		return report, err
+	}
+	return report, scheduleErr
 }
