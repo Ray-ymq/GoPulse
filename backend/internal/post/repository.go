@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
@@ -39,18 +41,23 @@ type transactionStarter interface {
 type RepositoryOptions struct {
 	Outbox outbox.Writer
 	Clock  func() time.Time
+	Logger *slog.Logger
 }
 
 type MySQLRepository struct {
 	database database
 	outbox   outbox.Writer
 	clock    func() time.Time
+	logger   *slog.Logger
 }
 
 func NewMySQLRepository(database database, options ...RepositoryOptions) *MySQLRepository {
-	repository := &MySQLRepository{database: database, clock: time.Now}
+	repository := &MySQLRepository{database: database, clock: time.Now, logger: logging.Discard("backend")}
 	if len(options) > 0 {
 		repository.outbox = options[0].Outbox
+		if options[0].Logger != nil {
+			repository.logger = logging.Module(options[0].Logger, "post")
+		}
 		if options[0].Clock != nil {
 			repository.clock = options[0].Clock
 		}
@@ -108,7 +115,9 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 	if repository.outbox == nil {
 		return createPost(ctx, repository.database, authorID, title, content)
 	}
-	commitContext, commitSpan := tracing.Start(ctx, "post.commit", attribute.String("gopulse.operation", "create"))
+	commitAttemptID := tracing.NewAttemptID()
+	commitContext, commitSpan := tracing.Start(ctx, "post.commit", attribute.String("gopulse.operation", "create"), attribute.String("gopulse.attempt_id", commitAttemptID))
+	commitContext = tracing.WithAttemptID(commitContext, commitAttemptID)
 	defer commitSpan.End()
 	ctx = commitContext
 	commitStarted := time.Now()
@@ -159,6 +168,15 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 		return Post{}, errors.New("commit post transaction")
 	}
 	committed = true
+	logging.WithTrace(repository.logger, commitContext).Info("post committed",
+		slog.String("event_id", event.EventID),
+		slog.Uint64("post_id", record.ID),
+		slog.Uint64("content_revision", record.ContentRevision),
+		slog.Uint64("outbox_id", outboxID),
+		slog.String("attempt_id", commitAttemptID),
+		slog.String("stage", "commit"),
+		slog.String("result", "success"),
+	)
 	return record, nil
 }
 

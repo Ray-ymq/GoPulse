@@ -331,6 +331,7 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	defer span.End()
 	attemptID := tracing.NewAttemptID()
 	traceContext = tracing.WithAttemptID(traceContext, attemptID)
+	span.SetAttributes(attribute.String("gopulse.attempt_id", attemptID))
 	traceContext = tracing.WithOutboxID(traceContext, record.ID)
 	publishContext, cancel := context.WithTimeout(traceContext, dispatcher.publishTimeout)
 	publishStarted := dispatcher.clock()
@@ -382,7 +383,7 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	}
 	attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
 	attributes = append(attributes, outboxEventAttributes(envelope)...)
-	attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish_ack"))
+	attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish"), slog.String("result", "success"))
 	logging.WithTrace(dispatcher.logger, traceContext).Info("outbox event published", attributes...)
 	return nil
 }

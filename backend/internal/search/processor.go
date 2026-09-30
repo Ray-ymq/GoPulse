@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
 	"go.opentelemetry.io/otel/attribute"
@@ -63,13 +65,22 @@ type DocumentIndexer interface {
 type Processor struct {
 	store   DocumentStore
 	indexer DocumentIndexer
+	logger  *slog.Logger
 }
 
 func NewProcessor(store DocumentStore, indexer DocumentIndexer) (*Processor, error) {
 	if store == nil || indexer == nil {
 		return nil, errors.New("search processor requires store and indexer")
 	}
-	return &Processor{store: store, indexer: indexer}, nil
+	return &Processor{store: store, indexer: indexer, logger: logging.Module(logging.Discard("search-indexer"), "search")}, nil
+}
+
+// WithLogger attaches the process logger used for bounded index-stage records.
+func (processor *Processor) WithLogger(logger *slog.Logger) *Processor {
+	if logger != nil {
+		processor.logger = logging.Module(logger, "search")
+	}
+	return processor
 }
 
 func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) error {
@@ -145,6 +156,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 	indexContext, span := tracing.Start(ctx, "search.index", attribute.String("gopulse.event_id", envelope.EventID), attribute.Int64("gopulse.post_id", int64(envelope.PostID)), attribute.Int64("gopulse.content_revision", int64(document.ContentRevision)), attribute.Int64("gopulse.outbox_id", int64(tracing.OutboxID(ctx))))
 	defer span.End()
 	if err := processor.indexer.IndexAlias(indexContext, document); err != nil {
+		processor.logIndex(indexContext, envelope, "failure")
 		componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "failure")
 		span.SetStatus(codes.Error, "index_failed")
 		var permanent *PermanentIndexError
@@ -153,8 +165,22 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 		}
 		return err
 	}
+	processor.logIndex(indexContext, envelope, "success")
 	componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
 	return nil
+}
+
+func (processor *Processor) logIndex(ctx context.Context, envelope bus.Envelope, result string) {
+	logging.WithTrace(processor.logger, ctx).Info("event processed",
+		slog.String("event_id", envelope.EventID),
+		slog.String("event_type", string(envelope.EventType)),
+		slog.Uint64("post_id", envelope.PostID),
+		slog.Uint64("content_revision", envelope.ContentRevision),
+		slog.Uint64("outbox_id", tracing.OutboxID(ctx)),
+		slog.String("attempt_id", tracing.AttemptID(ctx)),
+		slog.String("stage", "index"),
+		slog.String("result", result),
+	)
 }
 
 type PermanentIndexError struct{ Reason string }

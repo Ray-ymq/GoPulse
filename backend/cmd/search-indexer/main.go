@@ -95,6 +95,7 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "search_processor", "invalid_dependency")
 	}
+	processor.WithLogger(logger)
 	runtime, err := worker.NewRuntime(cfg.RabbitMQURL, processor, worker.RuntimeOptions{
 		Profile:  worker.SearchProfile,
 		Prefetch: cfg.Worker.Prefetch, MaxRetries: cfg.Worker.MaxRetries,

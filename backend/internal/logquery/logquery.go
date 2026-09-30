@@ -32,6 +32,7 @@ var requestIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var eventIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 var traceIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var spanIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
+var attemptIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 var ErrUnavailable = errors.New("logs unavailable")
 var ErrAliasMissing = errors.New("log alias missing")
@@ -78,6 +79,7 @@ type Entry struct {
 	RequestID         string  `json:"request_id,omitempty"`
 	TraceID           string  `json:"trace_id,omitempty"`
 	SpanID            string  `json:"span_id,omitempty"`
+	AttemptID         string  `json:"attempt_id,omitempty"`
 	EventID           string  `json:"event_id,omitempty"`
 	EventType         string  `json:"event_type,omitempty"`
 	UserID            *uint64 `json:"user_id,omitempty"`
@@ -454,6 +456,9 @@ func decodeEntry(source []byte) (Entry, error) {
 		return Entry{}, errors.New("invalid log document")
 	}
 	if raw.Entry.SpanID != "" && (!spanIDPattern.MatchString(raw.Entry.SpanID) || allZero(raw.Entry.SpanID)) {
+		return Entry{}, errors.New("invalid log document")
+	}
+	if raw.Entry.AttemptID != "" && (!attemptIDPattern.MatchString(raw.Entry.AttemptID) || allZero(raw.Entry.AttemptID)) {
 		return Entry{}, errors.New("invalid log document")
 	}
 	if raw.Entry.ContentRevision != nil && *raw.Entry.ContentRevision == 0 {

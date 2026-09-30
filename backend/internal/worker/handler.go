@@ -126,6 +126,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		attemptID = tracing.NewAttemptID()
 	}
 	traceContext = tracing.WithAttemptID(traceContext, attemptID)
+	span.SetAttributes(attribute.String("gopulse.attempt_id", attemptID))
 	defer span.End()
 	if !handler.profile.allows(delivery.RoutingKey) {
 		span.SetStatus(codes.Error, "routing_key_not_allowed")
@@ -228,6 +229,9 @@ func (handler *Handler) logEvent(ctx context.Context, message string, delivery a
 		slog.String("event_id", eventID),
 		slog.String("event_type", eventType),
 		slog.Int("attempt", attempt),
+		slog.String("attempt_id", tracing.AttemptID(ctx)),
+		slog.String("stage", "consume"),
+		slog.String("result", "success"),
 		slog.String("reason", safeReason(reason)),
 	}
 	if handler.profile.IncludePostID && envelope.PostID > 0 {
@@ -248,6 +252,9 @@ func (handler *Handler) logFailure(ctx context.Context, message string, delivery
 		slog.String("event_id", eventID),
 		slog.String("event_type", eventType),
 		slog.Int("attempt", attempt),
+		slog.String("attempt_id", tracing.AttemptID(ctx)),
+		slog.String("stage", "consume"),
+		slog.String("result", "failure"),
 		slog.String("reason", safeReason(reason)),
 	}
 	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {

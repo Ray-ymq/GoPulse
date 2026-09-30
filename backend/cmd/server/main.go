@@ -199,7 +199,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		cfg.Redis.PostDetailTTL,
 		cfg.Redis.OperationTimeout,
 	)
-	posts := post.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
+	posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, Logger: logger})
 	postService := post.NewService(posts, postDetailCache).WithLogger(logger)
 	postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 	comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)

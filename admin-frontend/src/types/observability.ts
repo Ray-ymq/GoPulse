@@ -81,6 +81,7 @@ export interface LogEntry {
   request_id?: string
   trace_id?: string
   span_id?: string
+  attempt_id?: string
   event_id?: string
   event_type?: string
   user_id?: number

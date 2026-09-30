@@ -30,7 +30,7 @@ var allowedFields = map[string]struct{}{
 	"request_id": {}, "trace_id": {}, "span_id": {}, "event_id": {}, "event_type": {}, "user_id": {}, "post_id": {}, "content_revision": {}, "comment_id": {},
 	"notification_id": {}, "outbox_id": {}, "method": {}, "route": {}, "status": {}, "duration_ms": {},
 	"response_bytes": {}, "error_code": {}, "reason": {}, "operation": {}, "resource": {}, "stage": {},
-	"result": {}, "attempt": {}, "batch_size": {}, "document_count": {}, "panic_recovered": {}, "response_committed": {},
+	"result": {}, "attempt": {}, "attempt_id": {}, "batch_size": {}, "document_count": {}, "panic_recovered": {}, "response_committed": {},
 }
 
 var workerMessages = map[string]struct{}{
@@ -46,7 +46,7 @@ var serviceModules = map[string]map[string]map[string]struct{}{
 		"alert": {"alert evaluation failed": {}},
 		"http":  {"request id generation failed": {}, "http request completed": {}, "http panic recovered": {}},
 		"auth":  {"user registered": {}, "user logged in": {}, "user logged out": {}},
-		"post":  {"post created": {}}, "comment": {"comment created": {}},
+		"post":  {"post created": {}, "post committed": {}}, "comment": {"comment created": {}},
 		"like": {"post liked": {}, "post unliked": {}}, "notification": {"notification marked read": {}},
 		"cache":     {"post detail cache fill failed": {}, "post detail cache read failed": {}, "post detail cache invalidation failed": {}},
 		"outbox":    {"outbox cleanup failed": {}, "outbox claim failed": {}, "outbox event invalid": {}, "outbox publish failed": {}, "outbox mark published failed": {}, "outbox event published": {}, "outbox release failed": {}},
