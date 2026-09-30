@@ -1,0 +1,21 @@
+test_D05_other_timeout_does_not_override_first_success (test_phase20_diagnostic.DiagnosticTests.test_D05_other_timeout_does_not_override_first_success) ... ok
+test_D06_recovery_workers_join_before_return_to_cleanup (test_phase20_diagnostic.DiagnosticTests.test_D06_recovery_workers_join_before_return_to_cleanup) ... ok
+test_business_search_uses_public_post_id_mapping (test_phase20_diagnostic.DiagnosticTests.test_business_search_uses_public_post_id_mapping) ... ok
+test_large_consistent_sql_uses_stdin_without_argv_limit (test_phase20_diagnostic.DiagnosticTests.test_large_consistent_sql_uses_stdin_without_argv_limit) ... ok
+test_plugin_action_is_empty_post_and_header_lookup_is_case_insensitive (test_phase20_diagnostic.DiagnosticTests.test_plugin_action_is_empty_post_and_header_lookup_is_case_insensitive) ... ok
+test_profile_preserves_frozen_recipe_and_load (test_phase20_diagnostic.DiagnosticTests.test_profile_preserves_frozen_recipe_and_load) ... ok
+test_observer_never_commits_or_creates_topic (test_phase20_sampler.SamplerTests.test_observer_never_commits_or_creates_topic) ... ok
+test_owned_broker_resolution_does_not_change_other_hosts (test_phase20_sampler.SamplerTests.test_owned_broker_resolution_does_not_change_other_hosts) ... ok
+test_process_sampling_missing_is_not_zero_success (test_phase20_sampler.SamplerTests.test_process_sampling_missing_is_not_zero_success) ... ok
+test_D01_business_complete_event_not_generated_is_incomplete (test_phase20_evidence.EvidenceTests.test_D01_business_complete_event_not_generated_is_incomplete) ... ok
+test_D02_accepted_marker_not_queryable_is_boundary (test_phase20_evidence.EvidenceTests.test_D02_accepted_marker_not_queryable_is_boundary) ... ok
+test_D03_selected_partition_marker_closes_despite_continuous_production (test_phase20_evidence.EvidenceTests.test_D03_selected_partition_marker_closes_despite_continuous_production) ... ok
+test_D04_edit_delete_and_idempotent_fact_groups (test_phase20_evidence.EvidenceTests.test_D04_edit_delete_and_idempotent_fact_groups) ... ok
+test_cross_stage_and_missing_terminal_rejected (test_phase20_evidence.EvidenceTests.test_cross_stage_and_missing_terminal_rejected) ... ok
+test_log_public_projection_preserves_identity_without_runtime_fields (test_phase20_evidence.EvidenceTests.test_log_public_projection_preserves_identity_without_runtime_fields) ... ok
+test_revision_mismatch_and_duplicate_notification_fail (test_phase20_evidence.EvidenceTests.test_revision_mismatch_and_duplicate_notification_fail) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.023s
+
+OK

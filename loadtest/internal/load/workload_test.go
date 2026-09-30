@@ -86,3 +86,35 @@ func TestCapacityWorkloadProfileRejectsRouteStatusDrift(t *testing.T) {
 		t.Fatal("route status drift was accepted")
 	}
 }
+
+func TestDiagnosticIdentityOmitsReadQueryAndSessionSecrets(t *testing.T) {
+	login := LoginRequest(User{ID: 1, Username: "private-user"}, "private-password")
+	if login.ObjectKey() != "" || login.ContentDigest() != "" {
+		t.Fatal("session secrets became ledger metadata")
+	}
+	write := Request{Category: CategoryContentWrite, Method: "PATCH", Path: "/api/v1/posts/9", Body: []byte(`{"title":"title","content":"private body"}`)}
+	if write.ObjectKey() != "/api/v1/posts/9" || !validDigest(write.ContentDigest()) {
+		t.Fatal("write identity missing")
+	}
+}
+
+func TestDiagnosticFollowContractMatchesObservedAPIAndPreservesPhase19(t *testing.T) {
+	diagnostic, _, err := LoadProfile("../../phase20-capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	historical, _, err := LoadProfile("../../capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		profile WorkloadProfile
+		status  int
+	}{{diagnostic.Workload, 200}, {historical.Workload, 204}} {
+		state := vuState{id: 0, profile: &item.profile, corpus: &Corpus{Users: []User{{ID: 1}, {ID: 2}}, InteractionPostIDs: []uint64{9}}}
+		request := state.request(280)
+		if request.Template != "PUT /api/v1/users/:userId/follow" || !request.ExpectedStatuses[item.status] || len(request.ExpectedStatuses) != 1 {
+			t.Fatalf("follow contract changed: %+v", request)
+		}
+	}
+}

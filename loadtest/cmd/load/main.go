@@ -37,13 +37,16 @@ func run(arguments []string) int {
 	flags := flag.NewFlagSet("phase19-load", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var profilePath, baseURL, corpusPath, credentialsPath, candidatePath, workdir string
-	var repeat int
+	var repeat, stage int
+	var runID string
 	flags.StringVar(&profilePath, "profile", "", "validated Phase 19 capacity profile")
 	flags.StringVar(&baseURL, "base-url", "", "product edge base URL")
 	flags.StringVar(&corpusPath, "corpus", "", "private deterministic corpus")
 	flags.StringVar(&credentialsPath, "credentials", "", "private load credentials")
 	flags.StringVar(&candidatePath, "candidate-manifest", "", "immutable candidate manifest")
 	flags.StringVar(&workdir, "workdir", "", "private repetition work directory")
+	flags.IntVar(&stage, "stage", -1, "Phase 20 isolated stage index")
+	flags.StringVar(&runID, "run-id", "", "Phase 20 owned run identity")
 	flags.IntVar(&repeat, "repeat", 0, "repetition number from the frozen profile")
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
 		return 2
@@ -97,6 +100,18 @@ func run(arguments []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if profile.SchemaVersion == load.DiagnosticProfileSchemaVersion {
+		_, err = load.RunDiagnosticStage(ctx, load.CapacityRunConfig{BaseURL: baseURL, Corpus: corpus, Credentials: credentials, Profile: profile, ProfileDigest: profileDigest, Candidate: candidate, Repeat: repeat, ReportPath: reportPath}, stage, runID, filepath.Join(repeatDir, "ledger.jsonl"))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "diagnostic stage failed:", err)
+			return 1
+		}
+		return 0
+	}
+	if stage != -1 || runID != "" {
+		fmt.Fprintln(os.Stderr, "Phase 19 cannot use isolated diagnostic arguments")
+		return 2
+	}
 	_, err = load.RunCapacity(ctx, load.CapacityRunConfig{
 		BaseURL: baseURL, Corpus: corpus, Credentials: credentials,
 		Profile: profile, ProfileDigest: profileDigest, Candidate: candidate,
