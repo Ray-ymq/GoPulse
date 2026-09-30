@@ -73,7 +73,7 @@ export const logCatalog: Readonly<Record<string, Readonly<Record<string, readonl
   backend: {
     http: ['request id generation failed','http request completed','http panic recovered'],
     auth: ['user registered','user logged in','user logged out'],
-    post: ['post created'], comment: ['comment created'], like: ['post liked','post unliked'], notification: ['notification marked read'],
+    post: ['post created','post committed'], comment: ['comment created'], like: ['post liked','post unliked'], notification: ['notification marked read'],
     cache: ['post detail cache fill failed','post detail cache read failed','post detail cache invalidation failed'],
     outbox: ['outbox cleanup failed','outbox claim failed','outbox event invalid','outbox publish failed','outbox mark published failed','outbox event published','outbox release failed'],
     lifecycle: ['backend listening','backend stopped','backend server failed','backend shutdown started','backend shutdown failed','resource close failed'],

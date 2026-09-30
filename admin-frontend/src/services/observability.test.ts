@@ -20,6 +20,10 @@ describe('observability runtime boundary', () => {
     expect(isLogEntry(entry)).toBe(true)
     expect(isLogEntry({...entry, private_field:'hidden'})).toBe(false)
   })
+
+  it('accepts the Phase 20 post commit log message', () => {
+    expect(isLogEntry({ timestamp:'2026-09-05T08:00:00Z',level:'info',service:'backend',module:'post',message:'post committed',post_id:9,content_revision:1 })).toBe(true)
+  })
   it('rejects impossible metric and event contracts', () => {
     expect(isMetricResult({ metric:'gopulse_redis_up',kind:'gauge',unit:'boolean',range:'15m',from:'2026-09-05T08:15:00Z',to:'2026-09-05T08:00:00Z',step_seconds:999,series:[{labels:{},points:[{timestamp:'2026-09-05T08:10:00Z',value:1},{timestamp:'2026-09-05T08:09:00Z',value:1}]},{labels:{},points:[]}] })).toBe(false)
     expect(isEventEntry({ timestamp:'2026-09-05T08:00:00Z',event_name:'exporter_plugin_started',source:'monitor',severity:'info',message:'arbitrary',metadata:{plugin_id:'redis-exporter',operation:'start'} })).toBe(false)
