@@ -2,8 +2,9 @@
 
 > 规划基线：2026-09-28，`upstream/main=9730c57`，根 `VERSION=2.0.5`。
 >
-> Phase 18 已完成并关闭。本文只为 Phase 19 分配版本和顺序；Phase 19 之后的方向不预留
-> Phase、版本或分支。
+> 当前完成基线：2026-09-30，origin/main=e2a5fba，根 VERSION=2.1.4。
+> Phase 18/19 已完成；Phase 20 的六批规划由新总实施方案分配。Phase 20 之后不预留阶段、
+> 版本或分支。
 
 ## 1. 项目定位
 
@@ -42,7 +43,7 @@ GoPulse 不再把“社交业务”和“可观测系统”作为两条互不相
 已验证、未验证和历史边界的当前清单见
 [`docs/capability-status.md`](../../docs/capability-status.md)。
 
-## 3. 已排期：Phase 19
+## 3. 已完成：Phase 19
 
 Phase 19 使用 `2.1.x`，目标是先补齐容量诊断信号，再建立与 Phase 18 故障矩阵相互独立的
 容量认证。它不借容量测试之名开放任意性能优化。
@@ -68,17 +69,25 @@ Phase 19 使用两个互不替代的状态：
 权威批次、版本、分支和完成条件见
 [`Phase-19 总实施方案`](../imple/Phase-19/Phase-19-总实施方案.md)。
 
-## 4. Phase 19 之后的发展顺序
+Phase-19-04 对冻结 2.1.3 候选完成正式三重复，结果为 complete / boundary_found，收口版本
+为 2.1.4。以下安排不改写这一历史结果。
 
-以下方向只能根据 Phase 19 的容量与诊断事实逐项立项，目前不分配 Phase 或版本。
+## 4. 已规划：Phase 20 与后续方向
 
-### 4.1 Trace、异步关联与观测数据生命周期
+### 4.1 Phase 20：端到端性能闭环与可观测治理
 
-- 使用 W3C Trace Context / OpenTelemetry 语义贯穿 HTTP、事务 Outbox、RabbitMQ、
-  Worker、Indexer 和 Elasticsearch；Trace ID 进入日志与消息上下文，不进入指标标签。
-- 建立 accepted → published → consumed → projected/queryable 的端到端延迟和新鲜度指标。
-- 为 Logs、Events 和 VictoriaMetrics 定义保留、rollover、磁盘水位、删除失败、容量预测和恢复合同。
-- Router/Marshaller 保留自研学习价值，但入口与输出优先兼容公开标准，避免形成封闭协议孤岛。
+执行顺序为容量诊断/验收语义 → 单业务链路关联/新鲜度 → 证据驱动优化/对照 →
+观测生命周期 → 资源预算/观测开销 → 冻结候选完整验收。共一份总方案和六份拆分方案。
+
+先区分产品问题、事件未产生和测量问题；不把恢复门禁失败直接认定为 Kafka 或数据库瓶颈。
+Trace 只覆盖发帖到搜索可见这一条链路，采用标准传播/SDK 和最小 OTLP 验收接收器；
+高基数 ID 不进入指标标签，不扩展 Kafka 的三类数据职责。
+优化对象在前两批实际证据产生后才能解锁；没有产品瓶颈时发布 not_needed，不强行调参。
+保留期、资源预算与最终门禁依据实际增长/开销冻结，最终执行三个容量重复和两次 60 分钟持续运行。
+
+精确批次、版本、分支、验收和完成条件见
+[Phase 20 总实施方案](../imple/Phase-20/Phase-20-总实施方案.md)。
+当前仅完成规划；以下控制面 HA、状态层 HA、Kubernetes 与更完整 SRE 能力均未分配 Phase 或版本。
 
 ### 4.2 Monitor 控制面高可用
 
@@ -112,7 +121,6 @@ VictoriaMetrics。Redis 始终保持可丢弃缓存角色。每种状态服务�
 
 ## 6. 最近的可执行入口
 
-下一项产品开发是修订后的 Phase-19-03。必须先将本规划和 Phase 19 总实施方案合入 primary remote
-`main`；随后获取最新 `upstream/main`，读取 Phase 19 总方案与 Phase-19-03 拆分方案，从最新
-`upstream/main` 创建或重建尚未推送的 `develop/2.1.3`。在 Phase-19-03 完成并合入前，不创建
-`develop/2.1.4`。
+下一项产品开发为 Phase-20-01。必须先将 Phase 20 规划由 update 合入 primary remote main；
+随后 fetch origin，读取新总方案与 01 拆分方案，从最新 origin/main 创建 develop/2.2.1。
+本次规划不改变根 VERSION=2.1.4，不预建后续开发分支，不执行产品验收或容量实验。
