@@ -8,7 +8,7 @@ import { usePagedObservability } from '../composables/usePagedObservability'
 import { logCatalog, observabilityApi, ranges } from '../services/observability'
 import type { LogFilters } from '../types/observability'
 
-const filters = ref<LogFilters>({ range:'15m', service:'', module:'', level:'', message:'', request_id:'', event_id:'', error_code:'' })
+const filters = ref<LogFilters>({ range:'15m', service:'', module:'', level:'', message:'', request_id:'', trace_id:'', span_id:'', event_id:'', error_code:'' })
 const services = Object.keys(logCatalog)
 const modules = computed(() => filters.value.service ? Object.keys(logCatalog[filters.value.service] ?? {}) : [...new Set(Object.values(logCatalog).flatMap((service) => Object.keys(service)))] )
 const messages = computed(() => {
@@ -38,7 +38,7 @@ onMounted(apply)
     <div class="admin-title"><div><p class="admin-eyebrow">ELASTICSEARCH LOGS</p><h2>Logs</h2><p>集中查询与分析系统日志，快速定位服务问题。</p></div><button class="button" :disabled="query.loading.value" @click="apply">刷新</button></div>
     <form class="logs-query" @submit.prevent="apply">
       <div class="logs-query-main"><label class="search-field"><AdminIcon name="search"/><input v-model.trim="filters.request_id" aria-label="Request ID" maxlength="32" placeholder="精确查询 Request ID…"></label><label>日志级别<select v-model="filters.level"><option value="">全部</option><option>info</option><option>warn</option><option>error</option></select></label><label>日志来源<select v-model="filters.service"><option value="">全部</option><option v-for="item in services" :key="item">{{item}}</option></select></label><label>时间范围<select aria-label="范围" v-model="filters.range"><option v-for="item in ranges" :key="item.value" :value="item.value">{{item.label}}</option></select></label><button class="icon-button" type="submit" aria-label="应用筛选" :disabled="query.loading.value"><AdminIcon name="search"/></button></div>
-      <details class="advanced-filters"><summary>更多精确筛选</summary><div class="filter-grid"><label>模块<select v-model="filters.module"><option value="">全部</option><option v-for="item in modules" :key="item">{{item}}</option></select></label><label>固定消息<select v-model="filters.message"><option value="">全部</option><option v-for="item in messages" :key="item">{{item}}</option></select></label><label>Event ID<input v-model.trim="filters.event_id" maxlength="36"></label><label>错误码<input v-model.trim="filters.error_code" maxlength="64"></label></div><p class="muted">仅支持固定字段精确匹配，不执行全文检索。</p></details>
+      <details class="advanced-filters"><summary>更多精确筛选</summary><div class="filter-grid"><label>模块<select v-model="filters.module"><option value="">全部</option><option v-for="item in modules" :key="item">{{item}}</option></select></label><label>固定消息<select v-model="filters.message"><option value="">全部</option><option v-for="item in messages" :key="item">{{item}}</option></select></label><label>Trace ID<input v-model.trim="filters.trace_id" maxlength="32"></label><label>Span ID<input v-model.trim="filters.span_id" maxlength="16"></label><label>Event ID<input v-model.trim="filters.event_id" maxlength="36"></label><label>错误码<input v-model.trim="filters.error_code" maxlength="64"></label></div><p class="muted">仅支持固定字段精确匹配，不执行全文检索。</p></details>
     </form>
     <ProductState v-if="query.loading.value" state="loading" />
     <ProductState v-else-if="query.message.value" :state="query.state.value" :message="query.message.value" />

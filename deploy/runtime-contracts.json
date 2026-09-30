@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "1",
-  "product_version": "2.1.1",
+  "product_version": "2.2.2",
   "platform": "linux/amd64",
   "authority": {
     "source": "deploy/runtime-contracts.json",
@@ -318,6 +318,87 @@
           "required": false,
           "default": "1",
           "compose_value": "2",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_BATCH_SIZE",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "256",
+          "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "1s",
+          "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_ENABLED",
+          "type": "boolean",
+          "sensitive": false,
+          "required": false,
+          "default": "false",
+          "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_ENDPOINT",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "",
+          "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "2s",
+          "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "2048",
+          "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SAMPLE_RATIO",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "0.10",
+          "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SERVICE_NAME",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "backend",
+          "compose_value": "backend",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "5s",
+          "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
           "aliases": []
         },
         {
@@ -740,6 +821,87 @@
           "aliases": []
         },
         {
+          "key": "GOPULSE_TRACE_BATCH_SIZE",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "256",
+          "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "1s",
+          "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_ENABLED",
+          "type": "boolean",
+          "sensitive": false,
+          "required": false,
+          "default": "false",
+          "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_ENDPOINT",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "",
+          "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "2s",
+          "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "2048",
+          "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SAMPLE_RATIO",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "0.10",
+          "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SERVICE_NAME",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "business-worker",
+          "compose_value": "business-worker",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "5s",
+          "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_WORKER_MAX_RETRIES",
           "type": "integer",
           "sensitive": false,
@@ -1071,6 +1233,87 @@
           "required": false,
           "default": "1",
           "compose_value": "2",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_BATCH_SIZE",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "256",
+          "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "1s",
+          "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_ENABLED",
+          "type": "boolean",
+          "sensitive": false,
+          "required": false,
+          "default": "false",
+          "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_ENDPOINT",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "",
+          "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "2s",
+          "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "2048",
+          "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SAMPLE_RATIO",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "0.10",
+          "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SERVICE_NAME",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "search-indexer",
+          "compose_value": "search-indexer",
+          "aliases": []
+        },
+        {
+          "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "5s",
+          "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
           "aliases": []
         },
         {
@@ -3652,6 +3895,51 @@
     {
       "key": "GOPULSE_RUNTIME_MODE",
       "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_BATCH_SIZE",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_ENABLED",
+      "type": "boolean",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_ENDPOINT",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_SAMPLE_RATIO",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_SERVICE_NAME",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
+      "type": "duration",
       "sensitive": false
     },
     {

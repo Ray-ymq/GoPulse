@@ -54,7 +54,7 @@ are -1 (unobserved), 0 (last actual interaction failed) and 1 (succeeded); idle
 processes retain the last observation. No business IDs, content, raw routes,
 query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 
-### backend: 14 families, 5616 maximum samples
+### backend: 17 families, 5637 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -71,8 +71,11 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_backend_http_requests_in_flight` | gauge | count | none | 1 |
 | `gopulse_backend_http_concurrency_limit` | gauge | count | none | 1 |
 | `gopulse_backend_http_rejected_total` | counter | count | none | 1 |
+| `gopulse_backend_freshness_events_total` | counter | count | `stage`, `result` | 10 |
+| `gopulse_backend_freshness_duration_seconds_total` | counter | seconds | `stage`, `result` | 10 |
+| `gopulse_backend_trace_context_invalid_total` | counter | count | none | 1 |
 | `gopulse_backend_dependency_up` | gauge | state | `dependency` | 4 |
-### business-worker: 6 families, 37 maximum samples
+### business-worker: 9 families, 42 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -81,8 +84,11 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_business_worker_messages_in_flight` | gauge | count | none | 1 |
 | `gopulse_business_worker_prefetch_limit` | gauge | count | none | 1 |
 | `gopulse_business_worker_last_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
+| `gopulse_business_worker_freshness_events_total` | counter | count | `stage`, `result` | 2 |
+| `gopulse_business_worker_freshness_duration_seconds_total` | counter | seconds | `stage`, `result` | 2 |
+| `gopulse_business_worker_trace_context_invalid_total` | counter | count | none | 1 |
 | `gopulse_business_worker_dependency_up` | gauge | state | `dependency` | 2 |
-### search-indexer: 6 families, 24 maximum samples
+### search-indexer: 9 families, 37 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -91,6 +97,9 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_search_indexer_messages_in_flight` | gauge | count | none | 1 |
 | `gopulse_search_indexer_retrying` | gauge | count | none | 1 |
 | `gopulse_search_indexer_last_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
+| `gopulse_search_indexer_freshness_events_total` | counter | count | `stage`, `result` | 6 |
+| `gopulse_search_indexer_freshness_duration_seconds_total` | counter | seconds | `stage`, `result` | 6 |
+| `gopulse_search_indexer_trace_context_invalid_total` | counter | count | none | 1 |
 | `gopulse_search_indexer_dependency_up` | gauge | state | `dependency` | 3 |
 ### monitor: 7 families, 157 maximum samples
 

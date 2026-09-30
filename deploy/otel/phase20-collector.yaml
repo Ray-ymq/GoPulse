@@ -1,0 +1,23 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    send_batch_size: 256
+    send_batch_max_size: 256
+    timeout: 1s
+
+exporters:
+  file:
+    path: /var/lib/gopulse/trace/spans.jsonl
+    flush_interval: 1s
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [file]

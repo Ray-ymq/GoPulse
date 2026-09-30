@@ -10,7 +10,10 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -68,6 +71,9 @@ func NewHandler(processor Processor, publisher ConfirmingPublisher, options Hand
 // Handle processes exactly one delivery. Secondary retry/dead publications
 // must be confirmed before the original delivery is acknowledged.
 func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	started := time.Now()
 	metrics := componentmetrics.Active()
 	metrics.Add("messages_in_flight", 1)
@@ -76,6 +82,11 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	defer func() {
 		metrics.Add("messages_in_flight", -1)
 		metrics.Observe("messages_total", time.Since(started), identity, outcome)
+		freshnessResult := "failure"
+		if outcome == "success" {
+			freshnessResult = "success"
+		}
+		metrics.Observe("freshness_events_total", time.Since(started), "consume", freshnessResult)
 		if outcome == "success" {
 			metrics.Set("last_success_timestamp_seconds", float64(time.Now().Unix()))
 		}
@@ -91,49 +102,81 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	if decodeErr != nil {
 		return handler.deadLetter(ctx, delivery, attempt, decodeErr.Error())
 	}
+	invalidTraceContext := envelope.HasInvalidTraceContext()
+	if invalidTraceContext {
+		tracing.RecordInvalidContext()
+	}
+	wire := deliveryTraceContext(delivery, envelope)
+	traceContext, invalidWireContext := tracing.ContextFromWireWithStatus(ctx, wire)
+	invalidTraceContext = invalidTraceContext || invalidWireContext
+	if invalidTraceContext {
+		metrics.Add("trace_context_invalid_total", 1)
+	}
+	traceContext, span := tracing.Start(traceContext, "worker.consume",
+		attribute.String("gopulse.event_id", envelope.EventID),
+		attribute.String("gopulse.event_type", string(envelope.EventType)),
+		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
+		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
+		attribute.Int64("gopulse.outbox_id", int64(deliveryOutboxID(delivery.Headers))),
+		attribute.Int("gopulse.attempt", attempt),
+	)
+	traceContext = tracing.WithOutboxID(traceContext, deliveryOutboxID(delivery.Headers))
+	attemptID := deliveryAttemptID(delivery.Headers)
+	if attemptID == "" {
+		attemptID = tracing.NewAttemptID()
+	}
+	traceContext = tracing.WithAttemptID(traceContext, attemptID)
+	span.SetAttributes(attribute.String("gopulse.attempt_id", attemptID))
+	defer span.End()
 	if !handler.profile.allows(delivery.RoutingKey) {
-		return handler.deadLetter(ctx, delivery, attempt, "routing_key_not_allowed")
+		span.SetStatus(codes.Error, "routing_key_not_allowed")
+		return handler.deadLetter(traceContext, delivery, attempt, "routing_key_not_allowed")
 	}
 	if handler.profile.IgnoreSelfEvents && envelope.ActorID == envelope.RecipientID {
 		if err := handler.ack(delivery); err != nil {
-			handler.logFailure("message acknowledgement failed", delivery, attempt, "ack_failed")
+			span.SetStatus(codes.Error, "ack_failed")
+			handler.logFailure(traceContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
 			return errors.New("ack self event")
 		}
 		outcome = "success"
-		handler.logEvent("event ignored", delivery, envelope, attempt, "self_event")
+		handler.logEvent(traceContext, "event ignored", delivery, envelope, attempt, "self_event")
 		return nil
 	}
 
-	processErr := handler.processor.Process(ctx, envelope)
+	processErr := handler.processor.Process(traceContext, envelope)
 	if processErr == nil {
 		if err := handler.ack(delivery); err != nil {
-			handler.logFailure("message acknowledgement failed", delivery, attempt, "ack_failed")
+			span.SetStatus(codes.Error, "ack_failed")
+			handler.logFailure(traceContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
 			return errors.New("ack processed event")
 		}
 		outcome = "success"
-		handler.logEvent("event processed", delivery, envelope, attempt, "processed")
+		handler.logEvent(traceContext, "event processed", delivery, envelope, attempt, "processed")
 		return nil
 	}
 	if errors.Is(processErr, context.Canceled) || errors.Is(processErr, context.DeadlineExceeded) {
+		span.SetStatus(codes.Error, "processing_canceled")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
-			handler.logFailure("message requeue failed", delivery, attempt, "nack_failed")
+			handler.logFailure(traceContext, "message requeue failed", delivery, attempt, "nack_failed")
 			return errors.New("requeue canceled event")
 		}
 		return processErr
 	}
 
 	if IsPermanent(processErr) {
-		return handler.deadLetter(ctx, delivery, attempt, permanentReason(processErr))
+		span.SetStatus(codes.Error, permanentReason(processErr))
+		return handler.deadLetter(traceContext, delivery, attempt, permanentReason(processErr))
 	}
 
 	if attempt < handler.maxRetries {
-		err := handler.retry(ctx, delivery, attempt+1)
+		err := handler.retry(traceContext, delivery, attempt+1)
 		if err == nil {
 			outcome = "retry"
 		}
 		return err
 	}
-	return handler.deadLetter(ctx, delivery, attempt, "retries_exhausted")
+	span.SetStatus(codes.Error, "retries_exhausted")
+	return handler.deadLetter(traceContext, delivery, attempt, "retries_exhausted")
 }
 
 func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextAttempt int) error {
@@ -141,21 +184,25 @@ func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextA
 	defer componentmetrics.Active().Add("retrying", -1)
 	message := publishingFromDelivery(delivery)
 	message.Headers[AttemptHeader] = int32(nextAttempt)
+	// A retry is a new delivery attempt. Preserve the W3C parent context for
+	// the business chain, but never reuse the attempt identity from the
+	// failed delivery.
+	message.Headers[tracing.AttemptIDHeader] = tracing.NewAttemptID()
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
 	defer cancel()
 	if err := handler.publish(publishContext, handler.profile.Topology.RetryExchange, delivery, message); err != nil {
-		handler.logFailure("retry publish failed", delivery, nextAttempt, "publish_unavailable")
+		handler.logFailure(ctx, "retry publish failed", delivery, nextAttempt, "publish_unavailable")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
-			handler.logFailure("message requeue failed", delivery, nextAttempt, "nack_failed")
+			handler.logFailure(ctx, "message requeue failed", delivery, nextAttempt, "nack_failed")
 			return errors.New("requeue after retry publish failure")
 		}
 		return errors.New("publish retry message")
 	}
 	if err := handler.ack(delivery); err != nil {
-		handler.logFailure("message acknowledgement failed", delivery, nextAttempt, "ack_failed")
+		handler.logFailure(ctx, "message acknowledgement failed", delivery, nextAttempt, "ack_failed")
 		return errors.New("ack retried event")
 	}
-	handler.logEvent("event retry scheduled", delivery, bus.Envelope{}, nextAttempt, "retry_scheduled")
+	handler.logEvent(ctx, "event retry scheduled", delivery, bus.Envelope{}, nextAttempt, "retry_scheduled")
 	return nil
 }
 
@@ -165,43 +212,123 @@ func (handler *Handler) deadLetter(ctx context.Context, delivery amqp.Delivery, 
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
 	defer cancel()
 	if err := handler.publish(publishContext, handler.profile.Topology.DeadExchange, delivery, message); err != nil {
-		handler.logFailure("dead letter publish failed", delivery, attempt, "publish_unavailable")
+		handler.logFailure(ctx, "dead letter publish failed", delivery, attempt, "publish_unavailable")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
-			handler.logFailure("message requeue failed", delivery, attempt, "nack_failed")
+			handler.logFailure(ctx, "message requeue failed", delivery, attempt, "nack_failed")
 			return errors.New("requeue after dead publish failure")
 		}
 		return errors.New("publish dead message")
 	}
 	if err := handler.ack(delivery); err != nil {
-		handler.logFailure("message acknowledgement failed", delivery, attempt, "ack_failed")
+		handler.logFailure(ctx, "message acknowledgement failed", delivery, attempt, "ack_failed")
 		return errors.New("ack dead-lettered event")
 	}
-	handler.logEvent("event dead lettered", delivery, bus.Envelope{}, attempt, safeReason(reason))
+	handler.logEvent(ctx, "event dead lettered", delivery, bus.Envelope{}, attempt, safeReason(reason))
 	return nil
 }
 
-func (handler *Handler) logEvent(message string, delivery amqp.Delivery, envelope bus.Envelope, attempt int, reason string) {
+func (handler *Handler) logEvent(ctx context.Context, message string, delivery amqp.Delivery, envelope bus.Envelope, attempt int, reason string) {
 	eventID, eventType := deliveryIdentity(delivery)
 	attributes := []any{
 		slog.String("event_id", eventID),
 		slog.String("event_type", eventType),
 		slog.Int("attempt", attempt),
+		slog.String("attempt_id", tracing.AttemptID(ctx)),
+		slog.String("stage", "consume"),
+		slog.String("result", "success"),
 		slog.String("reason", safeReason(reason)),
 	}
 	if handler.profile.IncludePostID && envelope.PostID > 0 {
 		attributes = append(attributes, slog.Uint64("post_id", envelope.PostID))
+		if envelope.ContentRevision > 0 {
+			attributes = append(attributes, slog.Uint64("content_revision", envelope.ContentRevision))
+		}
 	}
-	handler.logger.Info(message, attributes...)
+	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
+		attributes = append(attributes, slog.Uint64("outbox_id", outboxID))
+	}
+	logging.WithTrace(handler.logger, ctx).Info(message, attributes...)
 }
 
-func (handler *Handler) logFailure(message string, delivery amqp.Delivery, attempt int, reason string) {
+func (handler *Handler) logFailure(ctx context.Context, message string, delivery amqp.Delivery, attempt int, reason string) {
 	eventID, eventType := deliveryIdentity(delivery)
-	handler.logger.Error(message,
+	attributes := []any{
 		slog.String("event_id", eventID),
 		slog.String("event_type", eventType),
 		slog.Int("attempt", attempt),
+		slog.String("attempt_id", tracing.AttemptID(ctx)),
+		slog.String("stage", "consume"),
+		slog.String("result", "failure"),
 		slog.String("reason", safeReason(reason)),
-	)
+	}
+	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
+		attributes = append(attributes, slog.Uint64("outbox_id", outboxID))
+	}
+	logging.WithTrace(handler.logger, ctx).Error(message, attributes...)
+}
+
+func deliveryTraceContext(delivery amqp.Delivery, envelope bus.Envelope) tracing.WireContext {
+	parent, parentPresent := traceHeader(delivery.Headers, tracing.TraceParentHeader)
+	state, statePresent := traceHeader(delivery.Headers, tracing.TraceStateHeader)
+	if parentPresent || statePresent {
+		return tracing.WireContext{TraceParent: parent, TraceState: state}
+	}
+	parent, state, valid := envelope.TraceContext()
+	if !valid {
+		return tracing.WireContext{}
+	}
+	return tracing.WireContext{TraceParent: parent, TraceState: state}
+}
+
+func traceHeader(headers amqp.Table, key string) (string, bool) {
+	if headers == nil {
+		return "", false
+	}
+	value, exists := headers[key]
+	if !exists {
+		return "", false
+	}
+	stringValue, ok := value.(string)
+	if !ok {
+		return "invalid", true
+	}
+	return stringValue, true
+}
+
+func deliveryOutboxID(headers amqp.Table) uint64 {
+	value, ok := headers[tracing.OutboxIDHeader]
+	if !ok {
+		return 0
+	}
+	switch number := value.(type) {
+	case int64:
+		if number > 0 {
+			return uint64(number)
+		}
+	case int32:
+		if number > 0 {
+			return uint64(number)
+		}
+	case int:
+		if number > 0 {
+			return uint64(number)
+		}
+	case uint64:
+		return number
+	case uint32:
+		return uint64(number)
+	case uint:
+		return uint64(number)
+	}
+	return 0
+}
+
+func deliveryAttemptID(headers amqp.Table) string {
+	value, _ := traceHeader(headers, tracing.AttemptIDHeader)
+	if len(value) != 32 {
+		return ""
+	}
+	return tracing.AttemptID(tracing.WithAttemptID(context.Background(), value))
 }
 
 func permanentReason(err error) string {
