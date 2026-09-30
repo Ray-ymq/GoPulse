@@ -22,10 +22,12 @@ const ReportSchemaVersion = "gopulse.phase18.load.v1"
 const DiagnosticSchemaVersion = "gopulse.phase18.load-diagnostic.v1"
 
 const (
-	CapacityProfileSchemaVersion  = "gopulse.phase19.capacity-profile.v1"
-	CapacityReportSchemaVersion   = "gopulse.phase19.load.v1"
-	CapacityProgressSchemaVersion = "gopulse.phase19.progress.v1"
-	CapacityRepetitions           = 3
+	DiagnosticProfileSchemaVersion        = "gopulse.phase20.capacity-profile.v1"
+	DiagnosticCapacityReportSchemaVersion = "gopulse.phase20.load.v1"
+	CapacityProfileSchemaVersion          = "gopulse.phase19.capacity-profile.v1"
+	CapacityReportSchemaVersion           = "gopulse.phase19.load.v1"
+	CapacityProgressSchemaVersion         = "gopulse.phase19.progress.v1"
+	CapacityRepetitions                   = 3
 )
 
 type Category string
@@ -247,7 +249,28 @@ type StatisticsProfile struct {
 	DoNotMergeLatencySamples bool      `json:"do_not_merge_latency_samples"`
 }
 
+type ObserverComparisonProfile struct {
+	TargetRPS float64 `json:"target_rps"`
+	Seconds   float64 `json:"seconds"`
+	Workers   int     `json:"workers"`
+	Route     string  `json:"route"`
+}
+
+type DiagnosticProfile struct {
+	ObserverComparison            ObserverComparisonProfile `json:"observer_comparison"`
+	DrainSeconds                  float64                   `json:"drain_seconds"`
+	RecoverySeconds               float64                   `json:"recovery_seconds"`
+	PollSeconds                   float64                   `json:"poll_seconds"`
+	StageIsolation                string                    `json:"stage_isolation"`
+	ClockAssumption               string                    `json:"clock_assumption"`
+	ClockErrorMS                  float64                   `json:"clock_error_ms"`
+	MetricTimestampQuantizationMS float64                   `json:"metric_timestamp_quantization_ms"`
+	EventPluginID                 string                    `json:"event_plugin_id"`
+	EventOperations               []string                  `json:"event_operations"`
+}
+
 type CapacityProfile struct {
+	Diagnostic             *DiagnosticProfile   `json:"diagnostic,omitempty"`
 	SchemaVersion          string               `json:"schema_version"`
 	ProfileID              string               `json:"profile_id"`
 	TargetCandidateVersion string               `json:"target_candidate_version"`
@@ -413,8 +436,21 @@ func LoadProfile(path string) (CapacityProfile, string, error) {
 }
 
 func ValidateProfile(profile CapacityProfile) error {
-	if profile.SchemaVersion != CapacityProfileSchemaVersion || !validProfileID(profile.ProfileID) || !validVersion(profile.TargetCandidateVersion) {
+	if (profile.SchemaVersion != CapacityProfileSchemaVersion && profile.SchemaVersion != DiagnosticProfileSchemaVersion) || !validProfileID(profile.ProfileID) || !validVersion(profile.TargetCandidateVersion) {
 		return errors.New("capacity profile identity is invalid")
+	}
+	if profile.SchemaVersion == DiagnosticProfileSchemaVersion {
+		d := profile.Diagnostic
+		if d == nil || d.ObserverComparison.TargetRPS != 50 || d.ObserverComparison.Seconds != 5 || d.ObserverComparison.Workers != 8 || d.ObserverComparison.Route != "GET /api/v1/users/me" || d.DrainSeconds != 30 || d.RecoverySeconds != 120 || d.PollSeconds != 1 || d.StageIsolation != "owned_empty_project" || d.ClockAssumption != "same_host_utc" || d.ClockErrorMS != 10 || d.MetricTimestampQuantizationMS != 1 || d.EventPluginID != "redis-exporter" || len(d.EventOperations) != 2 || d.EventOperations[0] != "stop" || d.EventOperations[1] != "start" {
+			return errors.New("diagnostic recovery contract is invalid")
+		}
+		for _, stage := range profile.Stages {
+			if stage.WarmupSeconds != 15 || stage.MeasurementSeconds != 60 {
+				return errors.New("diagnostic load windows are frozen")
+			}
+		}
+	} else if profile.Diagnostic != nil {
+		return errors.New("phase19 profile cannot carry diagnostic semantics")
 	}
 	if profile.Host.Platform != "linux/amd64" || profile.Host.HostOS != "Linux" || profile.Host.KernelContains == "" ||
 		profile.Host.CPUCountMin < 1 || profile.Host.MemoryBytesMin == 0 || profile.Host.SwapBytesMin == 0 ||
@@ -424,7 +460,7 @@ func ValidateProfile(profile CapacityProfile) error {
 	if err := validateRecipeProfile(profile.Recipe); err != nil {
 		return err
 	}
-	if err := ValidateWorkloadProfile(profile.Workload); err != nil {
+	if err := ValidateWorkloadForSchema(profile.Workload, profile.SchemaVersion); err != nil {
 		return err
 	}
 	if len(profile.Stages) != 4 || profile.Repetitions != CapacityRepetitions {
@@ -602,4 +638,47 @@ func summarize(values []float64) LatencySummary {
 		P50MS: percentile(values, .50), P95MS: percentile(values, .95),
 		P99MS: percentile(values, .99), MaxMS: maximum,
 	}
+}
+
+// DiagnosticStageReport deliberately has a distinct schema. Recovery is owned
+// by the coordinator, after the drained receipt, rather than a load rest window.
+type DiagnosticStageReport struct {
+	SchemaVersion       string               `json:"schema_version"`
+	RunID               string               `json:"run_id"`
+	Stage               string               `json:"stage"`
+	Repeat              RepeatBinding        `json:"repeat"`
+	Profile             ProfileBinding       `json:"profile"`
+	Candidate           CandidateBinding     `json:"candidate"`
+	Warmup              CapacityWindowReport `json:"warmup"`
+	Measurement         CapacityWindowReport `json:"measurement"`
+	StopAt              time.Time            `json:"t_stop"`
+	DrainAt             time.Time            `json:"t_drain"`
+	DrainElapsedSeconds float64              `json:"drain_elapsed_seconds"`
+	ExecutionStatus     string               `json:"execution_status"`
+	Ledger              ProfileBinding       `json:"ledger"`
+}
+
+type AcceptanceRecord struct {
+	LatencyMS         float64    `json:"latency_ms"`
+	LoadScheduleLagMS float64    `json:"load_schedule_lag_ms"`
+	RunID             string     `json:"run_id"`
+	Repeat            int        `json:"repeat"`
+	Stage             string     `json:"stage"`
+	Window            string     `json:"window"`
+	SlotID            uint64     `json:"slot_id"`
+	OperationID       string     `json:"operation_id"`
+	Record            string     `json:"record"`
+	ActorID           uint64     `json:"actor_id"`
+	Method            string     `json:"method"`
+	Route             string     `json:"route_template"`
+	ObjectKey         string     `json:"object_key"`
+	ScheduledAt       time.Time  `json:"scheduled_at"`
+	SentAt            *time.Time `json:"sent_at"`
+	CompletedAt       *time.Time `json:"completed_at"`
+	Status            int        `json:"status"`
+	Outcome           string     `json:"outcome"`
+	RequestID         string     `json:"request_id"`
+	ResponseID        uint64     `json:"response_id"`
+	ResponseRevision  uint64     `json:"response_revision"`
+	ContentDigest     string     `json:"content_digest"`
 }

@@ -1,0 +1,10 @@
+{
+  "files": {
+    "baseline.json": "sha256:ef9d5b19de27003c623435721c5758c254ae87143cea37bb2c690d7aea79514f",
+    "candidate-manifest.json": "sha256:675ad1063933a91208507449a6fdd20e7d7f84c6ea9e4763e363b3382c924685",
+    "profile.json": "sha256:87726dea82dd0907a23730a9fc9b87ca22e83e1d95cce9429100f2312a7b1a9e",
+    "self-tests.json": "sha256:90b5cc538eda26cc23ebe87a7703af9d14237dfe44565165ec59c56c14788c01",
+    "self-tests.txt": "sha256:04b606edca012191772ae9dc5cfd7db28824d5d4b8a4a2cce027cac62c61b176"
+  },
+  "schema": "gopulse.phase20.publication-manifest.v1"
+}

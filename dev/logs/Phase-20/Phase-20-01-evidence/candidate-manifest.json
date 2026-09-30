@@ -1,0 +1,72 @@
+{
+  "images": {
+    "admin-frontend": {
+      "ref": "sha256:a0f4a664cff0c2f59295b3fd4d257572c5b90cf18ebbbf7d4c10b0755a188e35",
+      "tag": "gopulse/admin-frontend:2.1.4-candidate-505da366a4c6"
+    },
+    "backend": {
+      "ref": "sha256:b1d738e7ef808091f8c60dbff198eec160dd4b4710745c95692182a4457aeb59",
+      "tag": "gopulse/backend:2.1.4-candidate-505da366a4c6"
+    },
+    "business-worker": {
+      "ref": "sha256:8ac9fd8a9cf18adf6658c5068ca6513f4d812156e924b7b0661547f7f9b826ee",
+      "tag": "gopulse/business-worker:2.1.4-candidate-505da366a4c6"
+    },
+    "frontend": {
+      "ref": "sha256:cc796150047c5f1e858eaf8a6df9d2301deb591fab91b03dcd79e0699954a29b",
+      "tag": "gopulse/frontend:2.1.4-candidate-505da366a4c6"
+    },
+    "marshaller": {
+      "ref": "sha256:eba2cd214fba985afb0361c509c23b3a08e74676bc55c108023b60e607cfb15d",
+      "tag": "gopulse/marshaller:2.1.4-candidate-505da366a4c6"
+    },
+    "monitor": {
+      "ref": "sha256:8e3dd92b0b1c17de6117af181ed9f2e156cb0afe50da43c46e2956b1c3c242e4",
+      "tag": "gopulse/monitor:2.1.4-candidate-505da366a4c6"
+    },
+    "redis-exporter": {
+      "ref": "sha256:740881d9864edf4293ca5cd3fbd8e2654d9880b6cd1748926449512fa2579743",
+      "tag": "gopulse/redis-exporter:2.1.4-candidate-505da366a4c6"
+    },
+    "router": {
+      "ref": "sha256:add35dc57a29cbf701d835e6df33db9de1b7f7718d4a9a191784f16a2bf0c666",
+      "tag": "gopulse/router:2.1.4-candidate-505da366a4c6"
+    },
+    "search-indexer": {
+      "ref": "sha256:a05186baa7710c1d3cb73974f98d9aa3964a2d8b8f7445776ba8666a6509761a",
+      "tag": "gopulse/search-indexer:2.1.4-candidate-505da366a4c6"
+    }
+  },
+  "revision": "505da366a4c66f1cae47ecca12e64df1075c979f",
+  "third_party": {
+    "elasticsearch": {
+      "ref": "sha256:9c1e1afc2bda921b35025e21c72ec6e392266995aa35ad6a47887363592718be",
+      "tag": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2"
+    },
+    "kafka": {
+      "ref": "sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837",
+      "tag": "apache/kafka:4.3.1"
+    },
+    "mysql": {
+      "ref": "sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0",
+      "tag": "mysql:8.4.0"
+    },
+    "observability-elasticsearch": {
+      "ref": "sha256:9c1e1afc2bda921b35025e21c72ec6e392266995aa35ad6a47887363592718be",
+      "tag": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2"
+    },
+    "rabbitmq": {
+      "ref": "sha256:45b2e137b64baeff1f7f4230588be8f1a08b16939a4b64f5da57c59e5dcd3282",
+      "tag": "rabbitmq:3.13.3-management-alpine"
+    },
+    "redis": {
+      "ref": "sha256:6aaf3f5e6bc8a592fbfe2cccf19eb36d27c39d12dab4f4b01556b7449e7b1f44",
+      "tag": "redis:7.2.5-alpine"
+    },
+    "victoriametrics": {
+      "ref": "sha256:6d164540a04f49ba4e696cbdb70f9fee78be1e94b8f2a1292743a0b1ab8275bd",
+      "tag": "victoriametrics/victoria-metrics:v1.151.0"
+    }
+  },
+  "version": "2.1.4"
+}

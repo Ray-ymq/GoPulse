@@ -568,6 +568,18 @@ did not meet the fixed gate, first observed at the `50 RPS` step. The published
 summary and raw-source manifest are in
 [`dev/logs/Phase-19/Phase-19-04-evidence/`](dev/logs/Phase-19/Phase-19-04-evidence/).
 
+Phase-20-01 advances the completion version to `2.2.1` and delivers isolated
+capacity diagnostics against frozen product candidate `2.1.4`. The new profile
+completed all twelve cells (four stages, three independent repeats) with
+`complete / target_met`: 50/100/150/200 RPS met the fixed synchronous gates and
+business, Metrics, Logs and Events each recovered within its own 120-second
+window. The longest observed recovery bound was 44.97 seconds. The verified
+[sanitized baseline](dev/logs/Phase-20/Phase-20-01-evidence/baseline.json) retains
+per-cell facts, source digests, observer cost and finite-window storage growth.
+This new acceptance contract and sampler do not establish a product optimization
+A/B result or replace the Phase 19 historical boundary. Trace, lifecycle,
+resource budgets and final sustained acceptance remain in later Phase 20 batches.
+
 ### Backend log query pipeline
 
 Backend, Business Worker, Search Indexer, and search-reindex Schema v1 logs remain single-line JSON on stdout and, when `LOG_MONITOR_URL` is configured, are also offered to the same bounded non-blocking in-memory shipper. The shipper uses the dedicated `LOG_MONITOR_INGEST_TOKEN`; queue full affects only the remote copy, temporary transport failures retain the ordered queue head and message ID for retry, and permanent `400`/`413`/`422` input rejection drops only that remote copy. None of these outcomes changes API, RabbitMQ acknowledgement, Outbox, indexing, or reindex exit semantics. LogMonitor derives one of the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, or `logs/search-reindex` envelopes from the validated service, Router transports all four through `gopulse-observability-v1`, and Marshaller revalidates the source/payload match before idempotently storing strict documents in `gopulse-logs-v1-YYYY.MM.DD` behind `gopulse-logs-v1-read`. The current observability topic has four partitions and two Marshaller group members with generation-scoped ownership; a target storage failure blocks only the affected bounded processing path while unrelated partitions and targets remain diagnosable. The Phase 9 historical single-member behavior remains documented in its implementation logs rather than presented as the current topology.
