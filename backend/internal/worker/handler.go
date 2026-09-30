@@ -184,6 +184,10 @@ func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextA
 	defer componentmetrics.Active().Add("retrying", -1)
 	message := publishingFromDelivery(delivery)
 	message.Headers[AttemptHeader] = int32(nextAttempt)
+	// A retry is a new delivery attempt. Preserve the W3C parent context for
+	// the business chain, but never reuse the attempt identity from the
+	// failed delivery.
+	message.Headers[tracing.AttemptIDHeader] = tracing.NewAttemptID()
 	publishContext, cancel := context.WithTimeout(ctx, handler.publishTimeout)
 	defer cancel()
 	if err := handler.publish(publishContext, handler.profile.Topology.RetryExchange, delivery, message); err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -115,6 +116,8 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 			handler := newTestHandler(t, processor, publisher, logger)
 			delivery, acknowledger := validDelivery(t, false)
 			delivery.Headers[AttemptHeader] = test.attempt
+			originalAttemptID := tracing.NewAttemptID()
+			delivery.Headers[tracing.AttemptIDHeader] = originalAttemptID
 			if err := handler.Handle(context.Background(), delivery); err != nil {
 				t.Fatalf("Handle() error = %v", err)
 			}
@@ -127,6 +130,12 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 			}
 			if call.message.MessageId != delivery.MessageId || call.message.Type != delivery.Type || string(call.message.Body) != string(delivery.Body) {
 				t.Fatal("secondary publish did not preserve message identity")
+			}
+			if test.name == "retry" {
+				nextAttemptID, ok := call.message.Headers[tracing.AttemptIDHeader].(string)
+				if !ok || nextAttemptID == originalAttemptID || len(nextAttemptID) != 32 {
+					t.Fatalf("retry attempt ID = %#v, want a new valid attempt ID", call.message.Headers[tracing.AttemptIDHeader])
+				}
 			}
 			logged := output.String()
 			if strings.Contains(logged, "password") || strings.Contains(logged, "secret") || strings.Contains(logged, string(delivery.Body)) {
