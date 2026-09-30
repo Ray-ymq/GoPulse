@@ -50,18 +50,22 @@ type Backend struct {
 	httpRejected         atomic.Uint64
 	alertKnown           [3]atomic.Int32
 	alertLastSuccess     [3]atomic.Int64
+	freshness            [10]atomic.Pointer[completedRequest]
+	traceContextInvalid  atomic.Uint64
 }
 
 var backendMethods = [...]string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE", "unknown"}
 var backendDependencies = [...]string{"mysql", "redis", "rabbitmq", "elasticsearch"}
 
-const BackendFamilies = 14
+const BackendFamilies = 17
 
 // BackendMaxRoutes guards accidental unbounded registration, not client input.
 const BackendMaxRoutes = 64
 const BackendMaxBodyBytes = 1 << 20
 
 const backendLatencyBucketSlots = 12
+
+var backendFreshnessStages = [...]string{"commit", "publish", "consume", "index", "visible"}
 
 var backendLatencyBucketValues = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10}
 var backendLatencyBucketLabels = [...]string{"0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2", "5", "10", "+Inf"}
@@ -248,7 +252,45 @@ func (b *Backend) ObservePublish(at time.Time, err error) {
 // MaxSamples includes the historical counter pair, all fixed distribution
 // members, capacity signals, dependencies, and outbox gauges. No client value
 // can increase it.
-func (b *Backend) MaxSamples() int { return len(b.ordered)*16 + 16 }
+func (b *Backend) MaxSamples() int { return len(b.ordered)*16 + 37 }
+
+func (b *Backend) ObserveFreshness(stage, result string, elapsed time.Duration) {
+	if b == nil || elapsed < 0 || (result != "success" && result != "failure") {
+		return
+	}
+	stageIndex := -1
+	for index, allowed := range backendFreshnessStages {
+		if stage == allowed {
+			stageIndex = index
+			break
+		}
+	}
+	if stageIndex < 0 {
+		return
+	}
+	if result == "failure" {
+		stageIndex += len(backendFreshnessStages)
+	}
+	next := &completedRequest{count: 1, seconds: elapsed.Seconds()}
+	cell := &b.freshness[stageIndex]
+	for {
+		old := cell.Load()
+		if old != nil {
+			next.count += old.count
+			next.seconds += old.seconds
+		}
+		if cell.CompareAndSwap(old, next) {
+			return
+		}
+		next = &completedRequest{count: 1, seconds: elapsed.Seconds()}
+	}
+}
+
+func (b *Backend) ObserveTraceContextInvalid() {
+	if b != nil {
+		b.traceContextInvalid.Add(1)
+	}
+}
 
 func (b *Backend) Snapshot() ([]byte, bool) {
 	state := b.outbox.Load()
@@ -272,7 +314,19 @@ func (b *Backend) Snapshot() ([]byte, bool) {
 	for i, source := range [...]string{"metrics", "logs", "events"} {
 		fmt.Fprintf(&out, "gopulse_backend_alert_evaluation_known{alert_source=%q} %d\ngopulse_backend_alert_last_success_timestamp_seconds{alert_source=%q} %d\n", source, b.alertKnown[i].Load(), source, b.alertLastSuccess[i].Load())
 	}
-	fmt.Fprintf(&out, "# TYPE gopulse_backend_outbox_pending gauge\ngopulse_backend_outbox_pending %d\n# TYPE gopulse_backend_outbox_oldest_age_seconds gauge\ngopulse_backend_outbox_oldest_age_seconds %s\n# TYPE gopulse_backend_outbox_last_publish_success_timestamp_seconds gauge\ngopulse_backend_outbox_last_publish_success_timestamp_seconds %d\n# TYPE gopulse_backend_http_requests_in_flight gauge\ngopulse_backend_http_requests_in_flight %d\n# TYPE gopulse_backend_http_concurrency_limit gauge\ngopulse_backend_http_concurrency_limit %d\n# TYPE gopulse_backend_http_rejected_total counter\ngopulse_backend_http_rejected_total %d\n# TYPE gopulse_backend_dependency_up gauge\n", state.pending, strconv.FormatFloat(state.oldestSeconds, 'g', -1, 64), b.lastPublish.Load(), b.httpInFlight.Load(), b.httpConcurrencyLimit.Load(), b.httpRejected.Load())
+	fmt.Fprintf(&out, "# TYPE gopulse_backend_outbox_pending gauge\ngopulse_backend_outbox_pending %d\n# TYPE gopulse_backend_outbox_oldest_age_seconds gauge\ngopulse_backend_outbox_oldest_age_seconds %s\n# TYPE gopulse_backend_outbox_last_publish_success_timestamp_seconds gauge\ngopulse_backend_outbox_last_publish_success_timestamp_seconds %d\n# TYPE gopulse_backend_http_requests_in_flight gauge\ngopulse_backend_http_requests_in_flight %d\n# TYPE gopulse_backend_http_concurrency_limit gauge\ngopulse_backend_http_concurrency_limit %d\n# TYPE gopulse_backend_http_rejected_total counter\ngopulse_backend_http_rejected_total %d\n# TYPE gopulse_backend_trace_context_invalid_total counter\ngopulse_backend_trace_context_invalid_total %d\n", state.pending, strconv.FormatFloat(state.oldestSeconds, 'g', -1, 64), b.lastPublish.Load(), b.httpInFlight.Load(), b.httpConcurrencyLimit.Load(), b.httpRejected.Load(), b.traceContextInvalid.Load())
+	fmt.Fprintf(&out, "# TYPE gopulse_backend_freshness_events_total counter\n# TYPE gopulse_backend_freshness_duration_seconds_total counter\n")
+	for index, stage := range backendFreshnessStages {
+		for resultIndex, result := range [...]string{"success", "failure"} {
+			cell := b.freshness[index+resultIndex*len(backendFreshnessStages)].Load()
+			if cell == nil {
+				continue
+			}
+			labels := fmt.Sprintf("{stage=%q,result=%q}", stage, result)
+			fmt.Fprintf(&out, "gopulse_backend_freshness_events_total%s %d\ngopulse_backend_freshness_duration_seconds_total%s %s\n", labels, cell.count, labels, strconv.FormatFloat(cell.seconds, 'g', -1, 64))
+		}
+	}
+	out.WriteString("# TYPE gopulse_backend_dependency_up gauge\n")
 	for i, name := range backendDependencies {
 		fmt.Fprintf(&out, "gopulse_backend_dependency_up{dependency=%q} %d\n", name, b.dependencies[i].Load())
 	}

@@ -17,6 +17,9 @@ func TestLoadWorkerFromRequiresOnlyWorkerDependencies(t *testing.T) {
 	if cfg.Worker.Prefetch != 10 || cfg.Worker.MaxRetries != 3 || cfg.Worker.RetryDelay != 30*time.Second {
 		t.Fatalf("worker defaults = %#v", cfg.Worker)
 	}
+	if cfg.Trace.Enabled || cfg.Trace.ServiceName != "business-worker" {
+		t.Fatalf("worker trace defaults = %#v", cfg.Trace)
+	}
 }
 
 func TestLoadWorkerFromValidatesBoundsWithoutLeakingCredentials(t *testing.T) {

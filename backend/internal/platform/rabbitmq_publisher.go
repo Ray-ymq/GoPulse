@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -232,6 +233,25 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 		MessageId:    metadata.MessageID,
 		Timestamp:    metadata.Timestamp,
 		Body:         body,
+	}
+	wire := tracing.WireFromContext(ctx)
+	if wire.TraceParent == "" {
+		parent, state, valid := envelope.TraceContext()
+		if valid {
+			wire = tracing.WireContext{TraceParent: parent, TraceState: state}
+		}
+	}
+	if wire.TraceParent != "" {
+		publishing.Headers[tracing.TraceParentHeader] = wire.TraceParent
+		if wire.TraceState != "" {
+			publishing.Headers[tracing.TraceStateHeader] = wire.TraceState
+		}
+	}
+	if attemptID := tracing.AttemptID(ctx); attemptID != "" {
+		publishing.Headers[tracing.AttemptIDHeader] = attemptID
+	}
+	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
+		publishing.Headers[tracing.OutboxIDHeader] = int64(outboxID)
 	}
 	if err := state.channel.PublishWithContext(ctx, exchange, routingKey, true, false, publishing); err != nil {
 		publisher.resetState(state, true)

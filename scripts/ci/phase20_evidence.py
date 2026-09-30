@@ -172,8 +172,8 @@ def business_ready(after, association, observed):
             if n['post_id']!=expected_post or n['comment_id']!=(p.get('comment_id') if expected_post else None):return False
     return True
 
-LOG_QUERY_FIELDS = ('timestamp','level','service','instance_id','module','message','request_id',
-    'event_id','event_type','user_id','post_id','comment_id','notification_id','outbox_id',
+LOG_QUERY_FIELDS = ('timestamp','level','service','instance_id','module','message','request_id','trace_id','span_id',
+    'event_id','event_type','user_id','post_id','content_revision','comment_id','notification_id','outbox_id',
     'method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size',
     'document_count','panic_recovered','response_committed')
 

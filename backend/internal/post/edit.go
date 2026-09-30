@@ -6,12 +6,34 @@ import (
 	"errors"
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"time"
 )
 
 var ErrPermissionDenied = errors.New("post permission denied")
 
 // Update serializes author checks, content revisions and outbox facts on the row.
 func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input CreateInput) error {
+	commitContext, commitSpan := tracing.Start(ctx, "post.commit", attribute.String("gopulse.operation", "update"), attribute.Int64("gopulse.post_id", int64(id)))
+	defer commitSpan.End()
+	ctx = commitContext
+	commitStarted := time.Now()
+	committed := false
+	defer func() {
+		result := "failure"
+		if committed {
+			result = "success"
+		}
+		if metrics := componentmetrics.BackendActive(); metrics != nil {
+			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
+		}
+		if !committed {
+			commitSpan.SetStatus(codes.Error, "commit_failed")
+		}
+	}()
 	starter, ok := r.database.(transactionStarter)
 	if !ok || r.outbox == nil {
 		return errors.New("post edit requires transactional outbox")
@@ -34,7 +56,9 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 		return ErrPermissionDenied
 	}
 	if title == input.Title && content == input.Content {
-		return tx.Commit()
+		err := tx.Commit()
+		committed = err == nil
+		return err
 	}
 	at := r.clock().UTC()
 	revision++
@@ -45,10 +69,20 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 	if err != nil {
 		return err
 	}
-	if err = r.outbox.Insert(ctx, tx, event); err != nil {
+	commitSpan.SetAttributes(
+		attribute.String("gopulse.event_id", event.EventID),
+		attribute.Int64("gopulse.content_revision", int64(revision)),
+	)
+	outboxID, err := insertOutbox(ctx, tx, r.outbox, event)
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if outboxID > 0 {
+		commitSpan.SetAttributes(attribute.Int64("gopulse.outbox_id", int64(outboxID)))
+	}
+	err = tx.Commit()
+	committed = err == nil
+	return err
 }
 
 func (r *MySQLRepository) ContentRevision(ctx context.Context, id uint64) (uint64, error) {

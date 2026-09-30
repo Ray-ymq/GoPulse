@@ -116,6 +116,7 @@ type Config struct {
 	Monitor                    MonitorConfig
 	VictoriaMetrics            VictoriaMetricsConfig
 	LogShip                    LogShipConfig
+	Trace                      TraceConfig
 }
 
 type MySQLConfig struct {
@@ -183,6 +184,18 @@ type LogShipConfig struct {
 	QueueCapacity   int
 	RetryMin        time.Duration
 	RetryMax        time.Duration
+	ShutdownTimeout time.Duration
+}
+
+type TraceConfig struct {
+	Enabled         bool
+	Endpoint        string
+	ServiceName     string
+	SampleRatio     float64
+	QueueCapacity   int
+	BatchSize       int
+	BatchTimeout    time.Duration
+	ExportTimeout   time.Duration
 	ShutdownTimeout time.Duration
 }
 
@@ -362,6 +375,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil || maxRange != 24*time.Hour {
 		return Config{}, errors.New("BACKEND_LOG_QUERY_MAX_RANGE must be 24h")
 	}
+	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "backend")
+	if err != nil {
+		return Config{}, err
+	}
 
 	authJWTSecret, err := requiredValue(lookup, "AUTH_JWT_SECRET")
 	if err != nil {
@@ -486,6 +503,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		Monitor:                    MonitorConfig{URL: monitorURL, APIToken: monitorToken, RequestTimeout: monitorTimeout},
 		VictoriaMetrics:            victoriaMetrics,
 		LogShip:                    logShip,
+		Trace:                      traceConfig,
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
@@ -497,6 +515,67 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 
 func (cfg Config) HTTPAddress() string {
 	return net.JoinHostPort(cfg.HTTPHost, strconv.Itoa(cfg.HTTPPort))
+}
+
+func loadTraceConfig(lookup LookupFunc, runtimeMode RuntimeMode, serviceName string) (TraceConfig, error) {
+	enabled, err := booleanValue(lookup, "GOPULSE_TRACE_ENABLED", false)
+	if err != nil {
+		return TraceConfig{}, err
+	}
+	configuredService := valueOrDefault(lookup, "GOPULSE_TRACE_SERVICE_NAME", serviceName)
+	if configuredService != serviceName || configuredService == "" || len(configuredService) > 64 || strings.ContainsAny(configuredService, "\r\n\t /\\") {
+		return TraceConfig{}, fmt.Errorf("GOPULSE_TRACE_SERVICE_NAME must be %s", serviceName)
+	}
+	ratioRaw := valueOrDefault(lookup, "GOPULSE_TRACE_SAMPLE_RATIO", "0.10")
+	ratio, err := strconv.ParseFloat(strings.TrimSpace(ratioRaw), 64)
+	if err != nil || ratio <= 0 || ratio > 1 {
+		return TraceConfig{}, errors.New("GOPULSE_TRACE_SAMPLE_RATIO must be greater than 0 and at most 1")
+	}
+	queueCapacity, err := integerValue(lookup, "GOPULSE_TRACE_QUEUE_CAPACITY", 2048)
+	if err != nil || queueCapacity < 1 || queueCapacity > 2048 {
+		return TraceConfig{}, errors.New("GOPULSE_TRACE_QUEUE_CAPACITY must be between 1 and 2048")
+	}
+	batchSize, err := integerValue(lookup, "GOPULSE_TRACE_BATCH_SIZE", 256)
+	if err != nil || batchSize < 1 || batchSize > queueCapacity {
+		return TraceConfig{}, errors.New("GOPULSE_TRACE_BATCH_SIZE must be between 1 and GOPULSE_TRACE_QUEUE_CAPACITY")
+	}
+	batchTimeout, err := durationValue(lookup, "GOPULSE_TRACE_BATCH_TIMEOUT", time.Second, time.Millisecond, 10*time.Second)
+	if err != nil {
+		return TraceConfig{}, err
+	}
+	exportTimeout, err := durationValue(lookup, "GOPULSE_TRACE_EXPORT_TIMEOUT", 2*time.Second, time.Millisecond, 10*time.Second)
+	if err != nil {
+		return TraceConfig{}, err
+	}
+	shutdownTimeout, err := durationValue(lookup, "GOPULSE_TRACE_SHUTDOWN_TIMEOUT", 5*time.Second, time.Millisecond, 30*time.Second)
+	if err != nil {
+		return TraceConfig{}, err
+	}
+	endpoint := strings.TrimSpace(valueOrDefault(lookup, "GOPULSE_TRACE_ENDPOINT", ""))
+	if endpoint != "" {
+		host, port, splitErr := net.SplitHostPort(endpoint)
+		if splitErr != nil || host == "" {
+			return TraceConfig{}, errors.New("GOPULSE_TRACE_ENDPOINT must be a host:port value")
+		}
+		if err := validateDependencyHost(runtimeMode, "GOPULSE_TRACE_ENDPOINT", host); err != nil {
+			return TraceConfig{}, err
+		}
+		portNumber, portErr := strconv.Atoi(port)
+		if portErr != nil {
+			return TraceConfig{}, errors.New("GOPULSE_TRACE_ENDPOINT port must be between 1 and 65535")
+		}
+		if err := validatePort("GOPULSE_TRACE_ENDPOINT port", portNumber); err != nil {
+			return TraceConfig{}, err
+		}
+	}
+	if enabled && endpoint == "" {
+		return TraceConfig{}, errors.New("GOPULSE_TRACE_ENDPOINT is required when tracing is enabled")
+	}
+	return TraceConfig{
+		Enabled: enabled, Endpoint: endpoint, ServiceName: configuredService,
+		SampleRatio: ratio, QueueCapacity: queueCapacity, BatchSize: batchSize,
+		BatchTimeout: batchTimeout, ExportTimeout: exportTimeout, ShutdownTimeout: shutdownTimeout,
+	}, nil
 }
 
 func replicaCountValue(lookup LookupFunc) (int, error) {
