@@ -9,17 +9,21 @@ from phase20_evidence import verify_directory, verify_publication
 from phase20_evidence import verify_retention_directory
 from phase20_chain import verify_directory as verify_chain_directory
 from phase20_optimization import verify_optimization_directory
+from phase20_budget import verify_budget_directory
+from phase20_closure import verify_closure_directory
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--diagnostic',type=Path)
 parser.add_argument('--publication',type=Path)
 parser.add_argument('--chain',type=Path)
 parser.add_argument('--optimization',type=Path)
 parser.add_argument('--retention',type=Path)
+parser.add_argument('--budget',type=Path)
+parser.add_argument('--preflight',type=Path)
 args=parser.parse_args()
 try:
-    selected=[value for value in (args.diagnostic,args.chain,args.optimization,args.retention) if value]
+    selected=[value for value in (args.diagnostic,args.chain,args.optimization,args.retention,args.budget,args.preflight) if value]
     if len(selected)!=1:
-        parser.error('provide exactly one of --diagnostic, --chain, --optimization, or --retention')
+        parser.error('provide exactly one evidence directory mode')
     if args.chain:
         result=verify_chain_directory(args.chain)
     elif args.optimization:
@@ -31,6 +35,11 @@ try:
         result=verify_optimization_directory(args.optimization,contract)
     elif args.retention:
         result=verify_retention_directory(args.retention)
+    elif args.budget:
+        document=json.loads((args.budget/'budget.json').read_text())
+        result=verify_budget_directory(args.budget,formal=bool(document.get('formal')))
+    elif args.preflight:
+        result=verify_closure_directory(args.preflight,formal=False)
     else:
         result=verify_directory(args.diagnostic)
         if args.publication:result['publication']=verify_publication(args.diagnostic,args.publication)

@@ -1,7 +1,12 @@
 {
   "schema_version": 1,
   "contract_version": "1",
-  "product_version": "2.2.4",
+  "product_version": "2.2.5",
+  "resource_budget": {
+    "path": "deploy/phase20-resource-budgets.json",
+    "schema": "deploy/phase20-resource-budgets.schema.json",
+    "contract_id": "phase20-05-budget-contract-20261001"
+  },
   "platform": "linux/amd64",
   "authority": {
     "source": "deploy/runtime-contracts.json",

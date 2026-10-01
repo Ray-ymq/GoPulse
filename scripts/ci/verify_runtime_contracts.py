@@ -280,6 +280,13 @@ def validate(
         raise ValueError("runtime contract product version is not semver")
     if candidate is not None and candidate != contract["product_version"]:
         raise ValueError("candidate version does not match runtime contract")
+    resource_budget = contract["resource_budget"]
+    budget_path = root / resource_budget["path"]
+    if not budget_path.is_file() or not (root / resource_budget["schema"]).is_file():
+        raise ValueError("resource budget contract files are missing")
+    budget = load(budget_path)
+    if budget.get("contract_id") != resource_budget["contract_id"] or budget.get("candidate_version") != contract["product_version"]:
+        raise ValueError("resource budget runtime binding drift")
     if check_version and contract["product_version"] != (root / "VERSION").read_text(encoding="utf-8").strip():
         raise ValueError("product version mismatch")
     if f'const RuntimeContractVersion = "{contract["contract_version"]}"' not in (root / "componentmetrics/probe.go").read_text(encoding="utf-8"):
@@ -358,10 +365,11 @@ def main() -> None:
     parser.add_argument("--compose", type=Path, default=ROOT / "deploy/compose.yaml")
     parser.add_argument("--env", type=Path, default=ROOT / ".env.example")
     parser.add_argument("--candidate")
+    parser.add_argument("--skip-version", action="store_true", help="preflight only: do not require root VERSION to be updated")
     args = parser.parse_args()
     contract = load(args.contract)
     compose = compose_document(args.compose)
-    validate(contract, compose, args.env.read_text(encoding="utf-8"), candidate=args.candidate)
+    validate(contract, compose, args.env.read_text(encoding="utf-8"), check_version=not args.skip_version, candidate=args.candidate)
     instances = [
         {
             "process_id": component["process_id"],

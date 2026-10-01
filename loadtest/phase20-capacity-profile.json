@@ -1,7 +1,12 @@
 {
   "schema_version": "gopulse.phase20.capacity-profile.v1",
   "profile_id": "phase20-isolated-diagnostic",
-  "target_candidate_version": "2.1.4",
+  "target_candidate_version": "2.2.5",
+  "resource_budget": {
+    "path": "deploy/phase20-resource-budgets.json",
+    "schema": "deploy/phase20-resource-budgets.schema.json",
+    "contract_id": "phase20-05-budget-contract-20261001"
+  },
   "host": {
     "platform": "linux/amd64",
     "host_os": "Linux",

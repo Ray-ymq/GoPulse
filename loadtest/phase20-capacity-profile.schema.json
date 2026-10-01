@@ -8,6 +8,7 @@
     "schema_version",
     "profile_id",
     "target_candidate_version",
+    "resource_budget",
     "host",
     "recipe",
     "workload",
@@ -30,6 +31,16 @@
     "target_candidate_version": {
       "type": "string",
       "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "resource_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "schema", "contract_id"],
+      "properties": {
+        "path": { "const": "deploy/phase20-resource-budgets.json" },
+        "schema": { "const": "deploy/phase20-resource-budgets.schema.json" },
+        "contract_id": { "const": "phase20-05-budget-contract-20261001" }
+      }
     },
     "host": {
       "$ref": "#/$defs/host"

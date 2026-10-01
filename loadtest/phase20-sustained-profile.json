@@ -1,0 +1,107 @@
+{
+  "schema_version": "gopulse.phase20.sustained-profile.v1",
+  "profile_id": "phase20-final-sustained",
+  "candidate_version": "2.2.5",
+  "base_capacity_profile": {
+    "path": "loadtest/phase20-capacity-profile.json",
+    "schema": "loadtest/phase20-capacity-profile.schema.json",
+    "recipe_digest": "sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14"
+  },
+  "resource_budget_contract_id": "phase20-05-budget-contract-20261001",
+  "recipe": {
+    "seed": 18002005,
+    "digest": "sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14",
+    "counts": {
+      "users": 5000,
+      "posts": 50000,
+      "comments": 100000,
+      "post_likes": 200000,
+      "user_follows": 200000,
+      "post_bookmarks": 25000,
+      "business_outbox": 550000,
+      "notifications": 500000
+    },
+    "id_ranges": {
+      "users": { "first": 1, "last": 5000 },
+      "posts": { "first": 1, "last": 50000 },
+      "comments": { "first": 1, "last": 100000 }
+    }
+  },
+  "workload": {
+    "target_rps": 200,
+    "virtual_users": 1024,
+    "request_timeout_seconds": 5,
+    "mix": [
+      { "category": "read", "percent": 45 },
+      { "category": "search", "percent": 10 },
+      { "category": "notification_bookmark_read", "percent": 10 },
+      { "category": "content_write", "percent": 15 },
+      { "category": "interaction_write", "percent": 15 },
+      { "category": "identity_session", "percent": 5 }
+    ],
+    "route_source": "loadtest/phase20-capacity-profile.json"
+  },
+  "repetitions": 2,
+  "duration_seconds": 3600,
+  "warmup_seconds": 900,
+  "sampling": {
+    "interval_seconds": 5,
+    "missing_sample_max_ratio": 0.01,
+    "required_signals": [
+      "host_cpu",
+      "host_memory",
+      "sut_cpu",
+      "sut_rss",
+      "container_memory_current",
+      "outbox",
+      "rabbitmq",
+      "kafka_lag",
+      "disk",
+      "business_freshness",
+      "metrics_freshness",
+      "logs_freshness",
+      "events_freshness"
+    ]
+  },
+  "fault": {
+    "at_minute": 15,
+    "duration_seconds": 60,
+    "target": "phase20-collector",
+    "action": "stop_then_start",
+    "recovery_action": "docker compose start phase20-collector"
+  },
+  "gates": {
+    "resource_budget_ids": [
+      "cpu.sut_peak_cores",
+      "memory.sustained_rss_delta",
+      "memory.sustained_rss_slope",
+      "disk.host_free_min",
+      "queue.outbox_pending_peak",
+      "queue.rabbit_ready_peak",
+      "queue.kafka_lag_peak"
+    ],
+    "recovery_seconds": 120,
+    "business_error_rate": 0,
+    "disk_free_bytes": 96636764160
+  },
+  "stop_conditions": {
+    "oom": true,
+    "ownership_lost": true,
+    "unsafe_cleanup": true,
+    "disk_safety_waterline": true,
+    "fault_not_effective": true
+  },
+  "evidence": {
+    "root_pattern": "/var/tmp/gopulse-phase20-05-20261001/closure/u2/",
+    "per_run_files": [
+      "candidate-manifest.json",
+      "profile.json",
+      "resources.jsonl",
+      "fault.json",
+      "freshness.jsonl",
+      "ledger.jsonl",
+      "recovery.json",
+      "cleanup.json"
+    ]
+  }
+}

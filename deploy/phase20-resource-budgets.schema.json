@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gopulse.local/schemas/phase20-resource-budgets.schema.json",
+  "title": "GoPulse Phase 20 resource and observer budget contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_id",
+    "candidate_version",
+    "dependencies",
+    "build_recipe",
+    "platform",
+    "sampling",
+    "compose_limits",
+    "budgets",
+    "overhead",
+    "failure_cases",
+    "sustained",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "gopulse.phase20.resource-budgets.v1"
+    },
+    "contract_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{7,63}$"
+    },
+    "candidate_version": {
+      "$ref": "#/$defs/semver"
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lockfile", "platform", "images"],
+      "properties": {
+        "lockfile": { "const": "deploy/release/third-party.lock.json" },
+        "platform": { "const": "linux/amd64" },
+        "images": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mysql", "redis", "rabbitmq", "elasticsearch", "kafka", "victoria-metrics", "trace-collector"],
+          "properties": {
+            "mysql": { "$ref": "#/$defs/immutableRef" },
+            "redis": { "$ref": "#/$defs/immutableRef" },
+            "rabbitmq": { "$ref": "#/$defs/immutableRef" },
+            "elasticsearch": { "$ref": "#/$defs/immutableRef" },
+            "kafka": { "$ref": "#/$defs/immutableRef" },
+            "victoria-metrics": { "$ref": "#/$defs/immutableRef" },
+            "trace-collector": { "$ref": "#/$defs/immutableRef" }
+          }
+        }
+      }
+    },
+    "build_recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "dockerfiles", "targets", "tag_pattern", "build_args", "serial_build", "source_revision"],
+      "properties": {
+        "platform": { "const": "linux/amd64" },
+        "dockerfiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["application", "observability", "frontend", "admin_frontend", "acceptance"],
+          "properties": {
+            "application": { "type": "string", "minLength": 1 },
+            "observability": { "type": "string", "minLength": 1 },
+            "frontend": { "type": "string", "minLength": 1 },
+            "admin_frontend": { "type": "string", "minLength": 1 },
+            "acceptance": { "type": "string", "minLength": 1 }
+          }
+        },
+        "targets": { "type": "array", "minItems": 10, "uniqueItems": true, "items": { "type": "string" } },
+        "tag_pattern": { "type": "string", "minLength": 1 },
+        "build_args": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "serial_build": { "const": true },
+        "source_revision": { "const": "candidate manifest revision" }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "architecture",
+        "kernel_contains",
+        "cpu_count_min",
+        "memory_bytes_min",
+        "swap_bytes_min",
+        "disk_free_bytes_min",
+        "docker_server_os",
+        "docker_server_arch",
+        "compose_version_min"
+      ],
+      "properties": {
+        "os": { "const": "Linux" },
+        "architecture": { "const": "amd64" },
+        "kernel_contains": { "type": "string", "minLength": 1 },
+        "cpu_count_min": { "type": "integer", "minimum": 1 },
+        "memory_bytes_min": { "type": "integer", "minimum": 1 },
+        "swap_bytes_min": { "type": "integer", "minimum": 0 },
+        "disk_free_bytes_min": { "type": "integer", "minimum": 1 },
+        "docker_server_os": { "const": "linux" },
+        "docker_server_arch": { "const": "amd64" },
+        "compose_version_min": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interval_seconds", "missing_sample_max_ratio", "stable_windows", "normal_load"],
+      "properties": {
+        "interval_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "missing_sample_max_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "stable_windows": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["early_start_minute", "early_end_minute", "late_start_minute", "late_end_minute"],
+          "properties": {
+            "early_start_minute": { "const": 10 },
+            "early_end_minute": { "const": 15 },
+            "late_start_minute": { "const": 55 },
+            "late_end_minute": { "const": 60 }
+          }
+        },
+        "normal_load": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target_rps", "warmup_seconds", "measurement_seconds", "repetitions"],
+          "properties": {
+            "target_rps": { "const": 200 },
+            "warmup_seconds": { "const": 15 },
+            "measurement_seconds": { "const": 60 },
+            "repetitions": { "const": 3 }
+          }
+        }
+      }
+    },
+    "compose_limits": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/limit"
+      }
+    },
+    "budgets": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "$ref": "#/$defs/budget"
+      }
+    },
+    "overhead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repetitions", "target_rps", "warmup_seconds", "measurement_seconds", "combinations", "thresholds"],
+      "properties": {
+        "repetitions": { "const": 3 },
+        "target_rps": { "const": 200 },
+        "warmup_seconds": { "const": 15 },
+        "measurement_seconds": { "const": 60 },
+        "combinations": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/combination" }
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["normal_observability", "trace_sampling", "sampler"],
+          "properties": {
+            "normal_observability": { "$ref": "#/$defs/overheadThreshold" },
+            "trace_sampling": { "$ref": "#/$defs/overheadThreshold" },
+            "sampler": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["business_p99_delta_ms", "observer_cpu_peak_cores", "missing_sample_ratio"],
+              "properties": {
+                "business_p99_delta_ms": { "type": "number", "minimum": 0 },
+                "observer_cpu_peak_cores": { "type": "number", "minimum": 0 },
+                "missing_sample_ratio": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "failure_cases": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["case_id", "target", "action", "duration_seconds", "safety_stop", "expected", "recovery_seconds"],
+        "properties": {
+          "case_id": { "type": "string", "pattern": "^B0[4-6]$" },
+          "target": { "type": "string", "minLength": 1 },
+          "action": { "type": "string", "minLength": 1 },
+          "duration_seconds": { "type": "number", "exclusiveMinimum": 0 },
+          "safety_stop": { "type": "string", "minLength": 1 },
+          "expected": { "type": "string", "minLength": 1 },
+          "recovery_seconds": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "sustained": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repetitions", "duration_seconds", "target_rps", "warmup_seconds", "fault", "required_signals"],
+      "properties": {
+        "repetitions": { "const": 2 },
+        "duration_seconds": { "const": 3600 },
+        "target_rps": { "const": 200 },
+        "warmup_seconds": { "const": 900 },
+        "fault": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["at_minute", "duration_seconds", "target", "action", "recovery_action"],
+          "properties": {
+            "at_minute": { "const": 15 },
+            "duration_seconds": { "const": 60 },
+            "target": { "const": "phase20-collector" },
+            "action": { "const": "stop_then_start" },
+            "recovery_action": { "const": "docker compose start phase20-collector" }
+          }
+        },
+        "required_signals": {
+          "type": "array",
+          "minItems": 8,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["budget_root", "preflight_root", "closure_root", "publication_allowlist"],
+      "properties": {
+        "budget_root": { "type": "string", "pattern": "^/var/tmp/gopulse-phase20-05-[a-z0-9-]+/budget/$" },
+        "preflight_root": { "type": "string", "pattern": "^/var/tmp/gopulse-phase20-05-[a-z0-9-]+/preflight/$" },
+        "closure_root": { "type": "string", "pattern": "^/var/tmp/gopulse-phase20-05-[a-z0-9-]+/closure/$" },
+        "publication_allowlist": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpus", "memory_bytes", "scope"],
+      "properties": {
+        "cpus": { "type": "number", "exclusiveMinimum": 0 },
+        "memory_bytes": { "type": "integer", "minimum": 1 },
+        "scope": { "enum": ["steady_state", "one_shot", "acceptance"] }
+      }
+    },
+    "immutableRef": {
+      "type": "string",
+      "pattern": "^[^@]+@sha256:[0-9a-f]{64}$"
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["budget_id", "target", "metric", "unit", "window", "aggregation", "comparison", "threshold", "consecutive_samples", "duration_seconds", "over_limit_action", "recovery"],
+      "properties": {
+        "budget_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{3,63}$" },
+        "target": { "type": "string", "minLength": 1 },
+        "metric": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string", "minLength": 1 },
+        "window": { "type": "string", "minLength": 1 },
+        "aggregation": { "enum": ["peak", "median", "slope", "ratio", "count"] },
+        "comparison": { "enum": ["less_equal", "greater_equal"] },
+        "threshold": { "type": "number" },
+        "consecutive_samples": { "type": "integer", "minimum": 1 },
+        "duration_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "over_limit_action": { "type": "string", "minLength": 1 },
+        "recovery": { "type": "string", "minLength": 1 }
+      }
+    },
+    "combination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "trace_enabled", "trace_sample_ratio", "sampler_enabled", "observability_services", "formal"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^O[0-3]$" },
+        "trace_enabled": { "type": "boolean" },
+        "trace_sample_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sampler_enabled": { "type": "boolean" },
+        "observability_services": { "type": "boolean" },
+        "formal": { "const": false }
+      }
+    },
+    "overheadThreshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_p99_delta_ms", "business_p99_ratio", "cpu_delta_cores", "rss_delta_bytes"],
+      "properties": {
+        "business_p99_delta_ms": { "type": "number", "minimum": 0 },
+        "business_p99_ratio": { "type": "number", "minimum": 0 },
+        "cpu_delta_cores": { "type": "number", "minimum": 0 },
+        "rss_delta_bytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

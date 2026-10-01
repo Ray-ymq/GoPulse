@@ -2,6 +2,8 @@ services:
   phase20-collector:
     image: otel/opentelemetry-collector-contrib:0.138.0@sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c
     platform: linux/amd64
+    cpus: "0.25"
+    mem_limit: 128m
     # The pinned Collector image runs as UID 10001, while a fresh named
     # volume is created root-owned. This acceptance-only service is isolated
     # to the private observability network and volume, so root is required to

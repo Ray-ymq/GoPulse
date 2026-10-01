@@ -5,6 +5,7 @@
     "schema_version",
     "contract_version",
     "product_version",
+    "resource_budget",
     "platform",
     "authority",
     "components",
@@ -20,6 +21,16 @@
     },
     "product_version": {
       "type": "string"
+    },
+    "resource_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "schema", "contract_id"],
+      "properties": {
+        "path": { "const": "deploy/phase20-resource-budgets.json" },
+        "schema": { "const": "deploy/phase20-resource-budgets.schema.json" },
+        "contract_id": { "const": "phase20-05-budget-contract-20261001" }
+      }
     },
     "platform": {
       "const": "linux/amd64"

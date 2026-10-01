@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import socket
 import threading
 import time
@@ -47,6 +48,48 @@ def process_stats(pid):
         raw=Path(f'/proc/{pid}/stat').read_text();fields=raw[raw.rindex(')')+2:].split()
         return {'cpu_ticks':int(fields[11])+int(fields[12]),'rss_bytes':int(fields[21])*os.sysconf('SC_PAGE_SIZE')}
     except (OSError,ValueError,IndexError):return None
+
+
+def cgroup_stats(pid):
+    """Read cgroup v2 counters for an owned container when the engine exposes them."""
+    if not pid:
+        return {}
+    try:
+        relative = next(line.split(':', 2)[2] for line in Path(f'/proc/{pid}/cgroup').read_text().splitlines() if line.startswith('0::'))
+        root = Path('/sys/fs/cgroup') / relative.lstrip('/')
+        result = {}
+        for name, key in (('memory.current', 'memory_current_bytes'), ('memory.max', 'memory_limit_bytes')):
+            value = (root / name).read_text().strip()
+            if value != 'max':
+                result[key] = int(value)
+        cpu_stat = root / 'cpu.stat'
+        if cpu_stat.is_file():
+            values = dict(line.split() for line in cpu_stat.read_text().splitlines() if len(line.split()) == 2)
+            if 'usage_usec' in values:
+                result['cpu_usage_usec'] = int(values['usage_usec'])
+            if 'throttled_usec' in values:
+                result['cpu_throttled_usec'] = int(values['throttled_usec'])
+            if 'nr_throttled' in values:
+                result['cpu_throttled_count'] = int(values['nr_throttled'])
+        return result
+    except (OSError, StopIteration, ValueError, IndexError):
+        return {}
+
+
+def container_budget(item, current_bytes):
+    """Return quota and memory facts without treating RSS as cgroup usage."""
+    host = item.get('HostConfig', {}) or {}
+    state = item.get('State', {}) or {}
+    result = {
+        'memory_current_bytes': int(current_bytes),
+        'memory_limit_bytes': int(host.get('Memory') or 0) or None,
+        'cpu_quota_cores': (int(host.get('NanoCpus') or 0) / 1_000_000_000) or None,
+        'container_pid': int(state.get('Pid') or 0) or None,
+    }
+    result.update(cgroup_stats(result['container_pid']))
+    # Docker stats is the portable current-memory signal.  When cgroup v2
+    # exports a more direct current value, retain it as a separate fact.
+    return result
 
 def kafka_consumer(address,group_id=None):
     from kafka import KafkaConsumer, __version__
@@ -121,7 +164,8 @@ class Sampler:
                         for line in stats.splitlines():
                             stat=json.loads(line);obj=next((i for cid,i in containers.items() if cid.startswith(stat['ID'])),None)
                             if obj:
-                                signals['containers'].append({'service':obj['Config']['Labels']['com.docker.compose.service'],'cpu_percent':parse_ratio(stat['CPUPerc']),'rss_bytes':parse_size(stat['MemUsage'].split('/')[0]),'oom':obj['State']['OOMKilled'],'running':obj['State']['Running']})
+                                current= parse_size(stat['MemUsage'].split('/')[0])
+                                signals['containers'].append({'service':obj['Config']['Labels']['com.docker.compose.service'],'cpu_percent':parse_ratio(stat['CPUPerc']),'rss_bytes':current,'oom':obj['State']['OOMKilled'],'running':obj['State']['Running'],**container_budget(obj,current)})
                         present={c['service'] for c in signals['containers']}
                         missing+=['component:'+s for s in set(self.addresses)-present]
                         if any(c['oom'] for c in signals['containers']):raise RuntimeError('owned product OOM')

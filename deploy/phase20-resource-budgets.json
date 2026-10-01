@@ -1,0 +1,160 @@
+{
+  "schema_version": "gopulse.phase20.resource-budgets.v1",
+  "contract_id": "phase20-05-budget-contract-20261001",
+  "candidate_version": "2.2.5",
+  "dependencies": {
+    "lockfile": "deploy/release/third-party.lock.json",
+    "platform": "linux/amd64",
+    "images": {
+      "mysql": "mysql:8.4.0@sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b",
+      "redis": "redis:7.2.5-alpine@sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f",
+      "rabbitmq": "rabbitmq:3.13.3-management-alpine@sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245",
+      "elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2@sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7",
+      "kafka": "apache/kafka:4.3.1@sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26",
+      "victoria-metrics": "victoriametrics/victoria-metrics:v1.151.0@sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19",
+      "trace-collector": "otel/opentelemetry-collector-contrib:0.138.0@sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c"
+    }
+  },
+  "build_recipe": {
+    "platform": "linux/amd64",
+    "dockerfiles": {
+      "application": "deploy/docker/application.Dockerfile",
+      "observability": "deploy/docker/observability.Dockerfile",
+      "frontend": "deploy/docker/frontend.Dockerfile",
+      "admin_frontend": "deploy/docker/admin-frontend.Dockerfile",
+      "acceptance": "deploy/docker/acceptance.Dockerfile"
+    },
+    "targets": ["backend", "business-worker", "search-indexer", "router", "marshaller", "monitor", "redis-exporter", "frontend", "admin-frontend", "acceptance"],
+    "tag_pattern": "phase20-05-<git revision prefix>",
+    "build_args": ["VERSION", "REVISION", "TARGETARCH"],
+    "serial_build": true,
+    "source_revision": "candidate manifest revision"
+  },
+  "platform": {
+    "os": "Linux",
+    "architecture": "amd64",
+    "kernel_contains": "WSL2",
+    "cpu_count_min": 8,
+    "memory_bytes_min": 12884901888,
+    "swap_bytes_min": 8589934592,
+    "disk_free_bytes_min": 100000000000,
+    "docker_server_os": "linux",
+    "docker_server_arch": "amd64",
+    "compose_version_min": "2.24.0"
+  },
+  "sampling": {
+    "interval_seconds": 5,
+    "missing_sample_max_ratio": 0.01,
+    "stable_windows": {
+      "early_start_minute": 10,
+      "early_end_minute": 15,
+      "late_start_minute": 55,
+      "late_end_minute": 60
+    },
+    "normal_load": {
+      "target_rps": 200,
+      "warmup_seconds": 15,
+      "measurement_seconds": 60,
+      "repetitions": 3
+    }
+  },
+  "compose_limits": {
+    "mysql": { "cpus": 2.0, "memory_bytes": 1610612736, "scope": "steady_state" },
+    "redis": { "cpus": 0.5, "memory_bytes": 268435456, "scope": "steady_state" },
+    "rabbitmq": { "cpus": 1.0, "memory_bytes": 536870912, "scope": "steady_state" },
+    "elasticsearch": { "cpus": 2.0, "memory_bytes": 1610612736, "scope": "steady_state" },
+    "observability-elasticsearch": { "cpus": 2.0, "memory_bytes": 1610612736, "scope": "steady_state" },
+    "migrate": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "one_shot" },
+    "search-init": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "one_shot" },
+    "backend": { "cpus": 2.0, "memory_bytes": 536870912, "scope": "steady_state" },
+    "backend-2": { "cpus": 2.0, "memory_bytes": 536870912, "scope": "steady_state" },
+    "business-worker": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "steady_state" },
+    "business-worker-2": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "steady_state" },
+    "search-indexer": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "steady_state" },
+    "search-indexer-2": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "steady_state" },
+    "admin-frontend": { "cpus": 0.25, "memory_bytes": 134217728, "scope": "steady_state" },
+    "frontend": { "cpus": 0.25, "memory_bytes": 134217728, "scope": "steady_state" },
+    "admin-role": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "one_shot" },
+    "acceptance": { "cpus": 0.25, "memory_bytes": 134217728, "scope": "acceptance" },
+    "kafka": { "cpus": 1.5, "memory_bytes": 805306368, "scope": "steady_state" },
+    "kafka-init": { "cpus": 0.25, "memory_bytes": 134217728, "scope": "one_shot" },
+    "victoriametrics": { "cpus": 0.75, "memory_bytes": 536870912, "scope": "steady_state" },
+    "router": { "cpus": 0.5, "memory_bytes": 268435456, "scope": "steady_state" },
+    "router-2": { "cpus": 0.5, "memory_bytes": 268435456, "scope": "steady_state" },
+    "marshaller": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "steady_state" },
+    "marshaller-2": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "steady_state" },
+    "monitor": { "cpus": 0.75, "memory_bytes": 402653184, "scope": "steady_state" },
+    "redis-exporter": { "cpus": 0.25, "memory_bytes": 134217728, "scope": "acceptance" },
+    "phase20-collector": { "cpus": 0.25, "memory_bytes": 134217728, "scope": "acceptance" }
+  },
+  "budgets": [
+    { "budget_id": "cpu.sut_peak_cores", "target": "sut_containers", "metric": "cpu_peak", "unit": "cores", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 8.75, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "stop_current_unit_and_preserve_samples", "recovery": "independent_empty_project_after_120s_waterline" },
+    { "budget_id": "cpu.load_peak_cores", "target": "load_generator", "metric": "cpu_peak", "unit": "cores", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 1.5, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "mark_budget_exceeded", "recovery": "load_process_exit" },
+    { "budget_id": "cpu.sampler_peak_cores", "target": "sampler", "metric": "cpu_peak", "unit": "cores", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 0.75, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "mark_observer_overhead_exceeded", "recovery": "sampler_joined" },
+    { "budget_id": "cpu.collector_peak_cores", "target": "phase20-collector", "metric": "cpu_peak", "unit": "cores", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 0.5, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "mark_observer_overhead_exceeded", "recovery": "collector_stopped_cleanly" },
+    { "budget_id": "cpu.host_busy_peak_cores", "target": "host", "metric": "busy_cpu", "unit": "cores", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 8.0, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "stop_current_unit_and_preserve_samples", "recovery": "host_busy_below_threshold_after_load_stop" },
+    { "budget_id": "memory.sut_rss_peak", "target": "sut_containers", "metric": "rss", "unit": "bytes", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 6442450944, "consecutive_samples": 1, "duration_seconds": 5, "over_limit_action": "stop_current_unit_and_preserve_samples", "recovery": "no_oom_or_unexpected_restart" },
+    { "budget_id": "memory.cgroup_current_peak", "target": "sut_containers", "metric": "memory.current", "unit": "bytes", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 8589934592, "consecutive_samples": 1, "duration_seconds": 5, "over_limit_action": "stop_current_unit_and_preserve_samples", "recovery": "all_containers_exit_normally" },
+    { "budget_id": "queue.outbox_pending_peak", "target": "business_outbox", "metric": "pending", "unit": "count", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 100, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "preserve_backlog_and_mark_budget_exceeded", "recovery": "pending_zero_within_120s" },
+    { "budget_id": "queue.rabbit_ready_peak", "target": "rabbitmq_business_queues", "metric": "ready", "unit": "count", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 50, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "preserve_backlog_and_mark_budget_exceeded", "recovery": "ready_zero_within_120s" },
+    { "budget_id": "queue.rabbit_unacked_peak", "target": "rabbitmq_business_queues", "metric": "unacked", "unit": "count", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 16, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "preserve_backlog_and_mark_budget_exceeded", "recovery": "unacked_zero_within_120s" },
+    { "budget_id": "queue.kafka_lag_peak", "target": "gopulse-observability-v1", "metric": "lag", "unit": "count", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 9000, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "preserve_offsets_and_mark_budget_exceeded", "recovery": "selected_waterline_closes_within_120s" },
+    { "budget_id": "disk.host_free_min", "target": "host_and_owned_volumes", "metric": "free", "unit": "bytes", "window": "every_sample", "aggregation": "peak", "comparison": "greater_equal", "threshold": 96636764160, "consecutive_samples": 1, "duration_seconds": 5, "over_limit_action": "stop_growth_fixture_and_safe_cleanup", "recovery": "inventory_restored_without_global_prune" },
+    { "budget_id": "disk.observability_es_growth_rate", "target": "observability_elasticsearch_volume", "metric": "growth", "unit": "bytes_per_minute", "window": "normal_200_rps_60s", "aggregation": "slope", "comparison": "less_equal", "threshold": 33554432, "consecutive_samples": 1, "duration_seconds": 60, "over_limit_action": "preserve_volume_readings_and_fail_case", "recovery": "retention_and_cleanup_receipt" },
+    { "budget_id": "disk.trace_total_bytes", "target": "phase20_trace_data", "metric": "bytes", "unit": "bytes", "window": "normal_and_fault_windows", "aggregation": "peak", "comparison": "less_equal", "threshold": 67108864, "consecutive_samples": 1, "duration_seconds": 5, "over_limit_action": "rotate_only_owned_trace_files", "recovery": "file_count_and_volume_inventory_bounded" },
+    { "budget_id": "memory.sustained_rss_delta", "target": "sut_containers", "metric": "late_minus_early_rss_median", "unit": "bytes", "window": "10-15_vs_55-60_minutes", "aggregation": "median", "comparison": "less_equal", "threshold": 536870912, "consecutive_samples": 1, "duration_seconds": 3600, "over_limit_action": "mark_sustained_memory_growth", "recovery": "not_applicable_preserve_run" },
+    { "budget_id": "memory.sustained_rss_slope", "target": "sut_containers", "metric": "rss_slope", "unit": "bytes_per_minute", "window": "10-60_minutes", "aggregation": "slope", "comparison": "less_equal", "threshold": 16777216, "consecutive_samples": 1, "duration_seconds": 3600, "over_limit_action": "mark_sustained_memory_growth", "recovery": "not_applicable_preserve_run" }
+  ],
+  "overhead": {
+    "repetitions": 3,
+    "target_rps": 200,
+    "warmup_seconds": 15,
+    "measurement_seconds": 60,
+    "combinations": [
+      { "id": "O0", "trace_enabled": false, "trace_sample_ratio": 0.0, "sampler_enabled": false, "observability_services": false, "formal": false },
+      { "id": "O1", "trace_enabled": false, "trace_sample_ratio": 0.0, "sampler_enabled": true, "observability_services": true, "formal": false },
+      { "id": "O2", "trace_enabled": true, "trace_sample_ratio": 1.0, "sampler_enabled": true, "observability_services": true, "formal": false },
+      { "id": "O3", "trace_enabled": false, "trace_sample_ratio": 0.0, "sampler_enabled": false, "observability_services": true, "formal": false }
+    ],
+    "thresholds": {
+      "normal_observability": { "business_p99_delta_ms": 150, "business_p99_ratio": 0.25, "cpu_delta_cores": 1.5, "rss_delta_bytes": 536870912 },
+      "trace_sampling": { "business_p99_delta_ms": 200, "business_p99_ratio": 0.25, "cpu_delta_cores": 1.0, "rss_delta_bytes": 268435456 },
+      "sampler": { "business_p99_delta_ms": 50, "observer_cpu_peak_cores": 0.75, "missing_sample_ratio": 0.01 }
+    }
+  },
+  "failure_cases": [
+    { "case_id": "B04", "target": "phase20-collector and business-worker", "action": "stop Collector for 60s and pause one Business Worker for 10s during a bounded diagnostic window", "duration_seconds": 60, "safety_stop": "stop load if business error or host free space reaches 90 GiB", "expected": "trace export degrades within queue bounds; accepted business facts and reliable events are not lost; Rabbit backlog drains", "recovery_seconds": 120 },
+    { "case_id": "B05", "target": "phase20_trace_data volume", "action": "write only owned fixture bytes up to the 64 MiB Trace waterline and exercise Collector rotation", "duration_seconds": 60, "safety_stop": "stop at 64 MiB or before host free space reaches 90 GiB", "expected": "only owned files rotate; file and volume bounds remain observable", "recovery_seconds": 30 },
+    { "case_id": "B06", "target": "owned worker and Collector containers", "action": "send SIGTERM while a bounded backlog exists, wait for grace and cleanup", "duration_seconds": 30, "safety_stop": "abort if ownership or inventory changes", "expected": "lease/offset/business facts remain safe and cleanup is owned with no global prune", "recovery_seconds": 120 }
+  ],
+  "sustained": {
+    "repetitions": 2,
+    "duration_seconds": 3600,
+    "target_rps": 200,
+    "warmup_seconds": 900,
+    "fault": {
+      "at_minute": 15,
+      "duration_seconds": 60,
+      "target": "phase20-collector",
+      "action": "stop_then_start",
+      "recovery_action": "docker compose start phase20-collector"
+    },
+    "required_signals": ["host_cpu", "host_memory", "sut_cpu", "sut_rss", "container_memory_current", "outbox", "rabbitmq", "kafka_lag", "disk", "business_freshness", "metrics_freshness", "logs_freshness", "events_freshness"]
+  },
+  "evidence": {
+    "budget_root": "/var/tmp/gopulse-phase20-05-20261001/budget/",
+    "preflight_root": "/var/tmp/gopulse-phase20-05-20261001/preflight/",
+    "closure_root": "/var/tmp/gopulse-phase20-05-20261001/closure/",
+    "publication_allowlist": [
+      "summary.json",
+      "evidence-manifest.json",
+      "resource-budgets.json",
+      "capacity-profile.json",
+      "sustained-profile.json",
+      "runtime-contract.json",
+      "trace-overlay.yaml",
+      "acceptance-matrix.md",
+      "methodology.md"
+    ]
+  }
+}

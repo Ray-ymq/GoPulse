@@ -1,7 +1,7 @@
 import socket
 import unittest
 from unittest.mock import patch
-from phase20_sampler import broker_address, _original_getaddrinfo, kafka_consumer, process_stats
+from phase20_sampler import broker_address, _original_getaddrinfo, kafka_consumer, process_stats, container_budget
 
 class SamplerTests(unittest.TestCase):
     def tearDown(self):socket.getaddrinfo=_original_getaddrinfo
@@ -17,3 +17,9 @@ class SamplerTests(unittest.TestCase):
             self.assertFalse(kwargs['enable_auto_commit']);self.assertFalse(kwargs['allow_auto_create_topics']);self.assertLessEqual(kwargs['request_timeout_ms'],3000)
     def test_process_sampling_missing_is_not_zero_success(self):
         self.assertIsNone(process_stats(99999999));self.assertIsNone(process_stats(None))
+    def test_container_budget_keeps_rss_and_memory_limit_separate(self):
+        value=container_budget({'HostConfig':{'Memory':134217728,'NanoCpus':250000000},'State':{'Pid':0}},65536)
+        self.assertEqual(value['memory_current_bytes'],65536)
+        self.assertEqual(value['memory_limit_bytes'],134217728)
+        self.assertEqual(value['cpu_quota_cores'],0.25)
+        self.assertIsNone(value['container_pid'])
