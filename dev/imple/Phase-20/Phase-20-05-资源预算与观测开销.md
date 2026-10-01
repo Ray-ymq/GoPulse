@@ -72,7 +72,7 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 
 | 项目 | 冻结值与来源 |
 | --- | --- |
-| 宿主 | Linux `amd64`、WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`、8 CPU、`MemTotal=13281496 kB`、swap `16777216 kB`、`/var/lib/docker` 可用 `105056022528` bytes；Docker Server `29.7.2`、Compose `5.5.0`。profile 下限仍为 8 CPU、12 GiB 内存、8 GiB swap、100 GB 可用空间；执行前再次写入 `host.json`，不以本表替代实际 preflight。 |
+| 宿主 | Linux `amd64`、WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`、8 CPU、`MemTotal=13281496 kB`、swap `16777216 kB`、`/var/lib/docker` 可用 `105056022528` bytes；Docker Server `29.7.2`、Compose `5.5.0`。初版 profile 下限为 100 GB；经授权的 r3 修订后，当前执行下限为 50 GB（`50000000000` bytes）。执行前再次写入 `host.json`，不以本表替代实际 preflight。 |
 | 业务配方 | 沿用 Phase 20 配方 seed `18002005`、recipe digest `sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14`、`1024` virtual users、50/100/150/200 RPS、15 秒预热、60 秒测量、三重复；原始 profile 为 `loadtest/phase20-capacity-profile.json`。 |
 | 前序资源依据 | 03 的严格复验 `docs/phase20-optimization.md` / 私有 contract digest `sha256:190405c1c6c2b72656d6699afcc5772b6cd2e0284be4431a44682bc92d8a1635`：容器 CPU 峰值 `806.6%`、RSS 峰值 `4462.235990524292 MiB`、Kafka lag 峰值 `7268`、Rabbit ready 峰值 `0`、unacked 峰值 `2`；观测 ES 单元增长最大 `13677487` bytes。 |
 | 前序开销依据 | 01 的同宿主采样器对照为启用/停用各 250 次、50 RPS、5 秒窗口，P95 `23.14/19.85 ms`、验收进程 CPU `3.656/3.259 s`；该值只冻结短窗口开销测量方法，不作为 05 正式容量结果。 |
@@ -90,7 +90,7 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 | `memory.sut_rss_peak` | SUT 容器 RSS 合计峰值 `<=6 GiB`；容器 `memory.current` 合计 `<=8 GiB`，分别记录每服务峰值；两次持续运行稳定窗口绝对增长 `<=512 MiB`、斜率 `<=16 MiB/min`。 | OOM、非预期重启或连续 3 个样本超限立即停止并标为失败；正常关停且无 OOM、窗口趋势均在限值内才恢复。 |
 | `queue.business` | Outbox pending 正常峰值 `<=100`；Rabbit ready `<=50`、unacked `<=16`；Kafka 观测 group lag 合计峰值 `<=9000`。 | 记录拒绝、重试、丢弃或背压的计数；接受事实不能丢失，停止请求后独立业务/观测水位均在 120 秒内闭合。 |
 | `queue.trace` | Trace SDK queue capacity 固定 `2048`，Collector file exporter 单轮观察的队列/失败计数均记录；正常窗口不允许业务错误，允许尽力而为 span 在出口故障时有界丢弃。 | Collector 出口失败只触发 bounded retry/drop 和故障 receipt，不得阻塞或丢失已接受业务事件；恢复后 Collector 与业务探针在 120 秒内闭合。 |
-| `disk.host` | 每个归属项目记录真实卷 used/free；宿主 free bytes `>=90 GiB`，逻辑水位 `>=95 GiB` 为 warning；不得用逻辑水位代替 OS/容器配额。 | 达到 warning 停止增长型 fixture 并记录；达到 safety 水位立即停止本单元并安全清理，禁止填满宿主或执行 global prune。 |
+| `disk.host` | 每个归属项目记录真实卷 used/free；宿主 free bytes `>=50 GB`（`50000000000` bytes），逻辑水位 `>=55 GB` 为 warning；不得用逻辑水位代替 OS/容器配额。 | 达到 warning 停止增长型 fixture 并记录；达到 safety 水位立即停止本单元并安全清理，禁止填满宿主或执行 global prune。 |
 | `disk.observability_growth` | 观测 ES 真实卷增长 `<=32 MiB/min`；Trace 目录单文件 `<=16 MiB`、总量 `<=64 MiB`、文件总数 `<=4`；按真实 docs/store/卷读数报告压缩、索引放大和回收误差。 | 触发保留/轮转合同，超限保存原始读数并失败；只删除归属目录，其他项目和业务索引不进入清理请求。 |
 | `overhead.observability` | O0/O1/O2/O3 各三重复：正常观测相对观测关闭的业务 P99 绝对差 `<=150 ms` 且比例 `<=25%`；SUT CPU 差 `<=1.50 cores`、RSS 差 `<=512 MiB`；Trace 关闭/100% 采样业务 P99 差 `<=200 ms`、CPU 差 `<=1.00 core`、RSS 差 `<=256 MiB`。 | 只报告已登记组件集合的成本，不外推全站观测成本；任一组合缺原始三重复、负载不一致或基线为零而未使用绝对阈值则 incomplete。 |
 | `overhead.sampler` | sampler 开启/关闭各三重复，使用相同低开销业务计数源；观察者 CPU 峰值 `<=0.75 core`，业务 P99 绝对差 `<=50 ms`，采样缺样 `<=1%`。 | 不得以“没有记录”记为零开销；超限保留两套原始记录，业务结果仍按独立业务门禁判定。 |
@@ -121,6 +121,20 @@ Router 每副本 `0.75/256 MiB`、Marshaller 每副本 `1.0/384 MiB`、Monitor
 `1.5/512 MiB`、Redis Exporter `0.5/128 MiB`、Frontend/Admin Frontend 各
 `0.5/128 MiB`、验收 Collector `0.25/128 MiB`。修订后的合同合入 `main` 后，必须
 从新的候选 revision 和新证据目录重新执行 B01～B07；不得复用初版候选或失败结果。
+
+#### 2.3 授权后的宿主磁盘水位修订
+
+用户于 2026-10-01 明确授权将本批次宿主磁盘最低要求从初版的 100 GB profile 下限与
+90 GiB 运行时安全水位调整为 50 GB。调整后的冻结编号为
+`phase20-05-budget-contract-20261001-r3`；50 GB 采用十进制定义，即精确为
+`50000000000` bytes。该值同时绑定 resource budget 的 `platform.disk_free_bytes_min`、
+`disk.host_free_min`、Phase 20 容量 profile、持续运行 profile 和 B04/B05 安全停止条件；
+其他 CPU/内存/队列/观测开销阈值及 B/U 操作不变。
+
+调整前的 r2 验收目录和失败证据保留为历史记录，不得改写为 r3 结果。合同编号或磁盘门禁
+发生变化即视为候选失效；必须以包含 r3 的新 revision 重建候选并重新执行 B01～B07 及固定
+门禁。历史 Docker 清理由用户单独授权，只能删除已停止且已核对无运行中引用的旧项目资源，
+不得使用 global prune，也不得删除当前候选或第三方锁定依赖。
 
 #### B 案例、U 清单与固定证据位置
 

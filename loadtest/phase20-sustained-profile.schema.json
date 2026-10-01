@@ -35,7 +35,7 @@
         "recipe_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
       }
     },
-    "resource_budget_contract_id": { "const": "phase20-05-budget-contract-20261001-r2" },
+    "resource_budget_contract_id": { "const": "phase20-05-budget-contract-20261001-r3" },
     "recipe": {
       "type": "object",
       "additionalProperties": false,
@@ -92,7 +92,7 @@
         "resource_budget_ids": { "type": "array", "minItems": 5, "uniqueItems": true, "items": { "type": "string" } },
         "recovery_seconds": { "const": 120 },
         "business_error_rate": { "const": 0 },
-        "disk_free_bytes": { "const": 96636764160 }
+        "disk_free_bytes": { "const": 50000000000 }
       }
     },
     "stop_conditions": {

@@ -27,6 +27,9 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(contract["candidate_version"], "2.2.5")
         self.assertEqual(capacity["resource_budget"]["contract_id"], contract["contract_id"])
         self.assertEqual(sustained["resource_budget_contract_id"], contract["contract_id"])
+        self.assertEqual(contract["platform"]["disk_free_bytes_min"], 50_000_000_000)
+        disk_budget = next(item for item in contract["budgets"] if item["budget_id"] == "disk.host_free_min")
+        self.assertEqual(disk_budget["threshold"], 50_000_000_000)
 
     def test_candidate_env_declares_recipe_bootstrap_user(self):
         with tempfile.TemporaryDirectory() as directory:

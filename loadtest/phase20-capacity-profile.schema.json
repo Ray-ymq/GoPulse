@@ -39,7 +39,7 @@
       "properties": {
         "path": { "const": "deploy/phase20-resource-budgets.json" },
         "schema": { "const": "deploy/phase20-resource-budgets.schema.json" },
-        "contract_id": { "const": "phase20-05-budget-contract-20261001-r2" }
+        "contract_id": { "const": "phase20-05-budget-contract-20261001-r3" }
       }
     },
     "host": {

@@ -5,7 +5,7 @@
   "resource_budget": {
     "path": "deploy/phase20-resource-budgets.json",
     "schema": "deploy/phase20-resource-budgets.schema.json",
-    "contract_id": "phase20-05-budget-contract-20261001-r2"
+    "contract_id": "phase20-05-budget-contract-20261001-r3"
   },
   "host": {
     "platform": "linux/amd64",
@@ -14,7 +14,7 @@
     "cpu_count_min": 8,
     "memory_bytes_min": 12884901888,
     "swap_bytes_min": 8589934592,
-    "disk_free_bytes_min": 107374182400,
+    "disk_free_bytes_min": 50000000000,
     "docker_server_os": "linux",
     "docker_server_arch": "amd64",
     "compose_min_version": "2.24.0"

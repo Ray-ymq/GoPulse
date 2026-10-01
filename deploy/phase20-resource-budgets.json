@@ -1,6 +1,6 @@
 {
   "schema_version": "gopulse.phase20.resource-budgets.v1",
-  "contract_id": "phase20-05-budget-contract-20261001-r2",
+  "contract_id": "phase20-05-budget-contract-20261001-r3",
   "candidate_version": "2.2.5",
   "dependencies": {
     "lockfile": "deploy/release/third-party.lock.json",
@@ -46,7 +46,7 @@
     "cpu_count_min": 8,
     "memory_bytes_min": 12884901888,
     "swap_bytes_min": 8589934592,
-    "disk_free_bytes_min": 100000000000,
+    "disk_free_bytes_min": 50000000000,
     "docker_server_os": "linux",
     "docker_server_arch": "amd64",
     "compose_version_min": "2.24.0"
@@ -108,7 +108,7 @@
     { "budget_id": "queue.rabbit_ready_peak", "target": "rabbitmq_business_queues", "metric": "ready", "unit": "count", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 50, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "preserve_backlog_and_mark_budget_exceeded", "recovery": "ready_zero_within_120s" },
     { "budget_id": "queue.rabbit_unacked_peak", "target": "rabbitmq_business_queues", "metric": "unacked", "unit": "count", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 16, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "preserve_backlog_and_mark_budget_exceeded", "recovery": "unacked_zero_within_120s" },
     { "budget_id": "queue.kafka_lag_peak", "target": "gopulse-observability-v1", "metric": "lag", "unit": "count", "window": "normal_200_rps_60s", "aggregation": "peak", "comparison": "less_equal", "threshold": 9000, "consecutive_samples": 3, "duration_seconds": 15, "over_limit_action": "preserve_offsets_and_mark_budget_exceeded", "recovery": "selected_waterline_closes_within_120s" },
-    { "budget_id": "disk.host_free_min", "target": "host_and_owned_volumes", "metric": "free", "unit": "bytes", "window": "every_sample", "aggregation": "peak", "comparison": "greater_equal", "threshold": 96636764160, "consecutive_samples": 1, "duration_seconds": 5, "over_limit_action": "stop_growth_fixture_and_safe_cleanup", "recovery": "inventory_restored_without_global_prune" },
+    { "budget_id": "disk.host_free_min", "target": "host_and_owned_volumes", "metric": "free", "unit": "bytes", "window": "every_sample", "aggregation": "peak", "comparison": "greater_equal", "threshold": 50000000000, "consecutive_samples": 1, "duration_seconds": 5, "over_limit_action": "stop_growth_fixture_and_safe_cleanup", "recovery": "inventory_restored_without_global_prune" },
     { "budget_id": "disk.observability_es_growth_rate", "target": "observability_elasticsearch_volume", "metric": "growth", "unit": "bytes_per_minute", "window": "normal_200_rps_60s", "aggregation": "slope", "comparison": "less_equal", "threshold": 33554432, "consecutive_samples": 1, "duration_seconds": 60, "over_limit_action": "preserve_volume_readings_and_fail_case", "recovery": "retention_and_cleanup_receipt" },
     { "budget_id": "disk.trace_total_bytes", "target": "phase20_trace_data", "metric": "bytes", "unit": "bytes", "window": "normal_and_fault_windows", "aggregation": "peak", "comparison": "less_equal", "threshold": 67108864, "consecutive_samples": 1, "duration_seconds": 5, "over_limit_action": "rotate_only_owned_trace_files", "recovery": "file_count_and_volume_inventory_bounded" },
     { "budget_id": "memory.sustained_rss_delta", "target": "sut_containers", "metric": "late_minus_early_rss_median", "unit": "bytes", "window": "10-15_vs_55-60_minutes", "aggregation": "median", "comparison": "less_equal", "threshold": 536870912, "consecutive_samples": 1, "duration_seconds": 3600, "over_limit_action": "mark_sustained_memory_growth", "recovery": "not_applicable_preserve_run" },
@@ -132,8 +132,8 @@
     }
   },
   "failure_cases": [
-    { "case_id": "B04", "target": "phase20-collector and business-worker", "action": "stop Collector for 60s and pause one Business Worker for 10s during a bounded diagnostic window", "duration_seconds": 60, "safety_stop": "stop load if business error or host free space reaches 90 GiB", "expected": "trace export degrades within queue bounds; accepted business facts and reliable events are not lost; Rabbit backlog drains", "recovery_seconds": 120 },
-    { "case_id": "B05", "target": "phase20_trace_data volume", "action": "write only owned fixture bytes up to the 64 MiB Trace waterline and exercise Collector rotation", "duration_seconds": 60, "safety_stop": "stop at 64 MiB or before host free space reaches 90 GiB", "expected": "only owned files rotate; file and volume bounds remain observable", "recovery_seconds": 30 },
+    { "case_id": "B04", "target": "phase20-collector and business-worker", "action": "stop Collector for 60s and pause one Business Worker for 10s during a bounded diagnostic window", "duration_seconds": 60, "safety_stop": "stop load if business error or host free space reaches 50 GB (50000000000 bytes)", "expected": "trace export degrades within queue bounds; accepted business facts and reliable events are not lost; Rabbit backlog drains", "recovery_seconds": 120 },
+    { "case_id": "B05", "target": "phase20_trace_data volume", "action": "write only owned fixture bytes up to the 64 MiB Trace waterline and exercise Collector rotation", "duration_seconds": 60, "safety_stop": "stop at 64 MiB or before host free space reaches 50 GB (50000000000 bytes)", "expected": "only owned files rotate; file and volume bounds remain observable", "recovery_seconds": 30 },
     { "case_id": "B06", "target": "owned worker and Collector containers", "action": "send SIGTERM while a bounded backlog exists, wait for grace and cleanup", "duration_seconds": 30, "safety_stop": "abort if ownership or inventory changes", "expected": "lease/offset/business facts remain safe and cleanup is owned with no global prune", "recovery_seconds": 120 }
   ],
   "sustained": {
