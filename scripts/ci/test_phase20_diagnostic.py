@@ -27,6 +27,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual(len(rows),4)
     def test_profile_preserves_frozen_recipe_and_load(self):
         profile=load_profile();self.assertEqual(profile['repetitions'],3);self.assertEqual([s['target_rps'] for s in profile['stages']],[50,100,150,200])
+        self.assertEqual(profile['host']['disk_free_bytes_min'],50_000_000_000)
         self.assertEqual(profile['diagnostic']['drain_seconds'],30);self.assertEqual(profile['diagnostic']['recovery_seconds'],120)
 
     def test_business_search_uses_public_post_id_mapping(self):

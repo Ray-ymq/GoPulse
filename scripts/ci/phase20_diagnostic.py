@@ -41,7 +41,13 @@ def load_profile():
     for route in old['workload']['routes']:
         if route['template'] in ('PUT /api/v1/users/:userId/follow','DELETE /api/v1/users/:userId/follow'):route['allowed_statuses']=[200]
     for name in ('host','recipe','workload','stages','repetitions','gates','stop_conditions','sampling','statistics'):
-        if profile[name]!=old[name]:raise Incomplete('frozen Phase 19 input drift: '+name)
+        expected=old[name]
+        if name=='host':
+            # Phase 20 owns the explicit host disk safety gate.  All other
+            # host facts remain frozen to the Phase 19 input.
+            expected=dict(expected)
+            expected['disk_free_bytes_min']=profile['host']['disk_free_bytes_min']
+        if profile[name]!=expected:raise Incomplete('frozen Phase 19 input drift: '+name)
     return profile
 
 def mysql(project,env_file,files,sql,timeout=15):
