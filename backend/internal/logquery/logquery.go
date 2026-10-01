@@ -22,6 +22,8 @@ import (
 
 const (
 	ReadAlias          = "gopulse-logs-v1-read"
+	RetentionDays      = 7
+	RetentionWindow    = RetentionDays * 24 * time.Hour
 	DefaultLimit       = 50
 	MaximumLimit       = 100
 	pitKeepAlive       = "2m"
@@ -165,6 +167,9 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 			return Options{}, validation()
 		}
 	}
+	// Keep the existing one-day page bound. A caller may still ask for a
+	// one-day slice outside the seven-day storage window; the fixed read alias
+	// then returns an empty page after lifecycle cleanup.
 	if !from.Before(to) || to.Sub(from) > 24*time.Hour || to.After(now.UTC().Add(5*time.Minute)) {
 		return Options{}, validation()
 	}

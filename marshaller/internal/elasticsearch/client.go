@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
 	"io"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	logtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/logs"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
 const (
@@ -41,9 +43,11 @@ var requiredPropertyTypes = map[string]string{
 }
 
 type Client struct {
-	baseURL string
-	client  *http.Client
-	mu      sync.Mutex
+	baseURL   string
+	client    *http.Client
+	mu        sync.Mutex
+	retention *retention.Policy
+	now       func() time.Time
 }
 
 // Purpose is deliberately fixed: Marshaller clients are observation writers.
@@ -57,6 +61,14 @@ func New(baseURL string, timeout time.Duration) (*Client, error) {
 
 func NewContainer(baseURL string, timeout time.Duration) (*Client, error) {
 	return newClient(baseURL, timeout, true)
+}
+
+func (c *Client) SetRetentionPolicy(policy retention.Policy) error {
+	if err := policy.Validate(); err != nil {
+		return err
+	}
+	c.retention = &policy
+	return nil
 }
 
 func newClient(baseURL string, timeout time.Duration, container bool) (*Client, error) {
@@ -112,6 +124,9 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 		return err
 	}
 	index := IndexPrefix + request.IndexDate
+	if err := c.checkRetentionWrite(index); err != nil {
+		return err
+	}
 	path := "/" + index + "/_doc/" + request.MessageID
 	response, err := c.do(ctx, http.MethodPut, path, bytes.NewReader(request.Document))
 	if err != nil {
@@ -153,11 +168,64 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	if json.Unmarshal(payload, &result) != nil || result.Index != index || result.ID != request.MessageID || (result.Result != "created" && result.Result != "updated" && result.Result != "noop") {
 		return errors.New("Elasticsearch returned an invalid write result")
 	}
+	if err := c.removeExpiredWrite(ctx, index); err != nil {
+		return err
+	}
 	// A successful document response is not sufficient: a cluster replacement
 	// between template ensure and auto-create could still produce an unqueryable
 	// index. Keep the Kafka offset uncommitted until strict mapping and alias are
 	// observed on the actual target index.
 	return c.verifyIndexContract(ctx, index)
+}
+
+func (c *Client) checkRetentionWrite(index string) error {
+	if c.retention == nil {
+		return nil
+	}
+	decision := c.retention.Classify(index, c.currentTime())
+	if decision.Reason == "expired" {
+		retention.ObserveLate(c.retention.Stream, "expired")
+		return &envelope.PermanentError{Code: retention.PermanentCode(c.retention.Stream)}
+	}
+	if decision.Reason != "not_expired" {
+		return errors.New("invalid retention index")
+	}
+	return nil
+}
+
+func (c *Client) removeExpiredWrite(ctx context.Context, index string) error {
+	if c.retention == nil || c.retention.Classify(index, c.currentTime()).Reason != "expired" {
+		return nil
+	}
+	block, err := c.do(ctx, http.MethodPut, "/"+index+"/_settings", strings.NewReader(`{"index":{"blocks.write":true}}`))
+	if err == nil {
+		_, _ = readLimited(block.Body)
+		block.Body.Close()
+		if block.StatusCode < 200 || block.StatusCode >= 300 {
+			err = errors.New("expired index could not be blocked")
+		}
+	}
+	if err != nil {
+		return err
+	}
+	deleted, err := c.do(ctx, http.MethodDelete, "/"+index, nil)
+	if err != nil {
+		return err
+	}
+	_, _ = readLimited(deleted.Body)
+	deleted.Body.Close()
+	if deleted.StatusCode != http.StatusNotFound && (deleted.StatusCode < 200 || deleted.StatusCode >= 300) {
+		return errors.New("expired index could not be removed")
+	}
+	retention.ObserveLate(c.retention.Stream, "expired")
+	return &envelope.PermanentError{Code: retention.PermanentCode(c.retention.Stream)}
+}
+
+func (c *Client) currentTime() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
 }
 
 func (c *Client) Ready(ctx context.Context) error {
@@ -279,4 +347,4 @@ func readLimited(body io.Reader) ([]byte, error) {
 	return value, nil
 }
 
-const templateBody = `{"index_patterns":["gopulse-logs-v1-*"],"template":{"aliases":{"gopulse-logs-v1-read":{}},"mappings":{"dynamic":"strict","properties":{"runtime_contract_version":{"type":"keyword"},"runtime_mode":{"type":"keyword"},"listen":{"type":"keyword"},"version":{"type":"keyword"},"revision":{"type":"keyword"},"event":{"type":"keyword"},"@timestamp":{"type":"date_nanos"},"log_schema_version":{"type":"integer"},"level":{"type":"keyword"},"service":{"type":"keyword"},"instance_id":{"type":"keyword"},"module":{"type":"keyword"},"message":{"type":"keyword"},"request_id":{"type":"keyword"},"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"attempt_id":{"type":"keyword"},"event_id":{"type":"keyword"},"event_type":{"type":"keyword"},"user_id":{"type":"long"},"post_id":{"type":"long"},"content_revision":{"type":"long"},"comment_id":{"type":"long"},"notification_id":{"type":"long"},"outbox_id":{"type":"long"},"method":{"type":"keyword"},"route":{"type":"keyword"},"status":{"type":"long"},"duration_ms":{"type":"long"},"response_bytes":{"type":"long"},"error_code":{"type":"keyword"},"reason":{"type":"keyword"},"operation":{"type":"keyword"},"resource":{"type":"keyword"},"stage":{"type":"keyword"},"result":{"type":"keyword"},"attempt":{"type":"long"},"batch_size":{"type":"long"},"document_count":{"type":"long"},"panic_recovered":{"type":"boolean"},"response_committed":{"type":"boolean"}}}}}`
+const templateBody = `{"index_patterns":["gopulse-logs-v1-*"],"template":{"aliases":{"gopulse-logs-v1-read":{}},"mappings":{"dynamic":"strict","_meta":{"gopulse_product":"gopulse-observability","gopulse_stream":"logs","gopulse_schema":"v1"},"properties":{"runtime_contract_version":{"type":"keyword"},"runtime_mode":{"type":"keyword"},"listen":{"type":"keyword"},"version":{"type":"keyword"},"revision":{"type":"keyword"},"event":{"type":"keyword"},"@timestamp":{"type":"date_nanos"},"log_schema_version":{"type":"integer"},"level":{"type":"keyword"},"service":{"type":"keyword"},"instance_id":{"type":"keyword"},"module":{"type":"keyword"},"message":{"type":"keyword"},"request_id":{"type":"keyword"},"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"attempt_id":{"type":"keyword"},"event_id":{"type":"keyword"},"event_type":{"type":"keyword"},"user_id":{"type":"long"},"post_id":{"type":"long"},"content_revision":{"type":"long"},"comment_id":{"type":"long"},"notification_id":{"type":"long"},"outbox_id":{"type":"long"},"method":{"type":"keyword"},"route":{"type":"keyword"},"status":{"type":"long"},"duration_ms":{"type":"long"},"response_bytes":{"type":"long"},"error_code":{"type":"keyword"},"reason":{"type":"keyword"},"operation":{"type":"keyword"},"resource":{"type":"keyword"},"stage":{"type":"keyword"},"result":{"type":"keyword"},"attempt":{"type":"long"},"batch_size":{"type":"long"},"document_count":{"type":"long"},"panic_recovered":{"type":"boolean"},"response_committed":{"type":"boolean"}}}}}`

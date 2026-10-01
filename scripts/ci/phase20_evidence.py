@@ -423,3 +423,96 @@ def verify_publication(root, published):
     if json.loads((published/'publication-manifest.json').read_text())!={'schema':'gopulse.phase20.publication-manifest.v1','files':expected}:
         raise Incomplete('published file digests differ')
     return {'execution_status':'complete','publication_status':'verified','files':expected}
+
+
+def verify_retention_directory(directory):
+    """Recompute the lifecycle cases from the private retention receipts."""
+    root = Path(directory).resolve()
+    document = json.loads((root / 'retention.json').read_text(encoding='utf-8'))
+    if document.get('schema') != 'gopulse.phase20.retention.v1' or document.get('execution_status') != 'complete':
+        raise Incomplete('retention schema or execution status is incomplete')
+    manifest_path = root / 'candidate-manifest.json'
+    candidate = json.loads(manifest_path.read_text(encoding='utf-8'))
+    candidate_value = candidate.get('candidate', candidate)
+    if candidate_value.get('version') != '2.2.4' or not isinstance(candidate_value.get('revision'), str) or len(candidate_value['revision']) != 40:
+        raise Incomplete('retention candidate version/revision is invalid')
+    binding = {'version': candidate_value['version'], 'revision': candidate_value['revision'], 'manifest_sha256': digest(manifest_path)}
+    if document.get('candidate') != binding:
+        raise Incomplete('retention candidate binding drift')
+    expected_cases = {f'R0{i}' for i in range(1, 9)}
+    cases = document.get('cases')
+    if not isinstance(cases, list) or {case.get('case_id') for case in cases} != expected_cases or len(cases) != 8:
+        raise Incomplete('R01-R08 cases are incomplete')
+    if any(case.get('status') != 'pass' for case in cases):
+        raise Incomplete('a retention case is not passed')
+    for case in cases:
+        relative = case.get('path')
+        if not isinstance(relative, str) or Path(relative).is_absolute() or '..' in Path(relative).parts:
+            raise Incomplete('retention case path escapes evidence root')
+        path = root / relative
+        if not path.is_file() or digest(path) != case.get('sha256'):
+            raise Incomplete('retention case raw digest mismatch')
+        raw = json.loads(path.read_text(encoding='utf-8'))
+        if raw.get('case_id') != case['case_id'] or raw.get('status') != 'pass':
+            raise Incomplete('retention case raw receipt is incomplete')
+
+    implementation = document.get('implementation')
+    if implementation != {
+        'go_integration': 'raw/elasticsearch-go-test.txt',
+        'config': {
+            'logs_days': 7, 'events_days': 7, 'cycle_seconds': 60, 'batch_indices': 16,
+            'request_timeout_seconds': 3, 'round_timeout_seconds': 15,
+            'retry_min_seconds': 0.25, 'retry_max_seconds': 5, 'max_retries': 3,
+            'catchup_deadline_seconds': 60,
+        },
+        'prefixes': ['gopulse-logs-v1-', 'gopulse-events-v1-'],
+        'aliases': ['gopulse-logs-v1-read', 'gopulse-events-v1-read'],
+    }:
+        raise Incomplete('retention implementation contract drift')
+    integration = root / implementation['go_integration']
+    if not integration.is_file() or 'ok  ' not in integration.read_text(encoding='utf-8'):
+        raise Incomplete('real Elasticsearch integration output is missing')
+    r01 = json.loads((root / 'raw/R01.json').read_text(encoding='utf-8'))
+    if r01['cutoff'] == '' or set(r01['ownership_proof']) != {'cluster_uuid', 'strict_mapping', '_meta', 'fixed_alias'} or not any('R01 boundary' in item for item in r01['sequence']):
+        raise Incomplete('R01 did not prove date/ownership boundaries')
+    r02 = json.loads((root / 'raw/R02.json').read_text(encoding='utf-8'))
+    old = r02['facts']
+    current = r02['current']
+    if old['logs_after']['exists'] or old['events_after']['exists'] or not current['logs_after']['exists'] or not current['events_after']['exists'] or r02['query_aliases'] != ['gopulse-logs-v1-read', 'gopulse-events-v1-read']:
+        raise Incomplete('R02 deletion/current query facts are inconsistent')
+    r03 = json.loads((root / 'raw/R03.json').read_text(encoding='utf-8'))
+    r03_output = (root / 'raw' / r03['go_test']).read_text(encoding='utf-8')
+    if 'ok  ' not in r03_output or set(r03['expired_codes']) != {'expired_log_retention', 'expired_event_retention'} or not r03['permanent_commit'] or not r03['no_index_revival']:
+        raise Incomplete('R03 late-record/retry evidence is incomplete')
+    r04 = json.loads((root / 'raw/R04.json').read_text(encoding='utf-8'))
+    r04_output = (root / 'raw' / r04['go_test']).read_text(encoding='utf-8')
+    if 'ok  ' not in r04_output:
+        raise Incomplete('R04 real writer/cleanup integration output is missing')
+    sequence = r04['sequence']
+    positions = {needle: next((index for index, item in enumerate(sequence) if needle in item), -1) for needle in ('R04 writer precheck passed', 'R04 cleanup deleted before in-flight write release', 'R04 in-flight write released and final storage queried')}
+    if any(value < 0 for value in positions.values()) or not (positions['R04 writer precheck passed'] < positions['R04 cleanup deleted before in-flight write release'] < positions['R04 in-flight write released and final storage queried']):
+        raise Incomplete('R04 barrier order is not proven')
+    r05 = json.loads((root / 'raw/R05.json').read_text(encoding='utf-8'))
+    if r05['catchup_deadline_seconds'] != 60 or not r05['permission_failure_not_hidden'] or not any('R05 transient' in item for item in r05['sequence']):
+        raise Incomplete('R05 failure recovery evidence is incomplete')
+    r06 = json.loads((root / 'raw/R06.json').read_text(encoding='utf-8'))
+    if not r06['idempotent_404_allowed'] or not any('R06 two runners' in item for item in r06['sequence']):
+        raise Incomplete('R06 concurrent idempotency evidence is incomplete')
+    r07 = json.loads((root / 'raw/R07.json').read_text(encoding='utf-8'))
+    if r07['aliases'] != ['gopulse-logs-v1-read', 'gopulse-events-v1-read'] or not r07['expired_indices_empty'] or not r07['business_fixture_preserved']:
+        raise Incomplete('R07 query compatibility evidence is incomplete')
+    r08 = json.loads((root / 'raw/R08.json').read_text(encoding='utf-8'))
+    vm = json.loads((root / 'raw' / r08['vm']).read_text(encoding='utf-8'))
+    trace = json.loads((root / 'raw' / r08['trace']).read_text(encoding='utf-8'))
+    if vm['retention_period'] != '30d' or not vm['current_query'] or not vm['within_window_submitted'] or not vm['outside_window_submitted'] or vm['observed_physical_reclaim']:
+        raise Incomplete('R08 VictoriaMetrics evidence misstates the native retention limitation')
+    inventory = trace['inventory']
+    if len(inventory) > 4 or sum(item['bytes'] for item in inventory) > 64 * 1024 * 1024 or any(item['bytes'] > 16 * 1024 * 1024 for item in inventory) or not trace['rotation_observed']:
+        raise Incomplete('R08 Collector file budget is exceeded or rotation was not observed')
+    if any(item['path'] != '/var/lib/gopulse/trace/' + item['name'] or not (item['name'] == 'spans.jsonl' or item['name'].startswith('spans.jsonl.')) for item in inventory):
+        raise Incomplete('R08 Collector artifact ownership path is invalid')
+    artifacts = document.get('dependency_fixtures', {})
+    for key in ('elasticsearch', 'victoriametrics', 'collector'):
+        if not isinstance(artifacts.get(key, {}).get('id'), str) or not artifacts[key]['id'].startswith('sha256:'):
+            raise Incomplete('dependency artifact identity is missing: ' + key)
+    return {'execution_status': 'complete', 'case_status': {case['case_id']: 'pass' for case in cases}, 'candidate': binding, 'trace_files': len(inventory), 'trace_bytes': sum(item['bytes'] for item in inventory), 'vm_physical_reclaim_observed': False}
