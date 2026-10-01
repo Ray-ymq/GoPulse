@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 try:
     import phase20_budget as budget
@@ -98,6 +99,27 @@ class BudgetTests(unittest.TestCase):
         value["trials"].pop()
         with self.assertRaises(budget.Incomplete):
             budget.validate_overhead_trials(value, contract)
+
+    def test_lightweight_counter_uses_owned_docker_stats(self):
+        counter = budget.LightweightResourceCounter(
+            "owned-project", Path("candidate.env"), [Path("compose.yaml")], 5, "O3-1", Path("resources.jsonl")
+        )
+        inspected = [{
+            "Id": "container-id",
+            "Config": {"Labels": {
+                "com.docker.compose.project": "owned-project",
+                "com.docker.compose.service": "backend",
+            }},
+            "State": {"OOMKilled": False, "Running": True},
+        }]
+        with mock.patch.object(budget, "_compose_args", return_value=["docker", "compose"]), mock.patch.object(budget, "command", return_value=object()), mock.patch.object(
+            budget,
+            "require",
+            side_effect=["container-id\n", json.dumps(inspected), '{"ID":"container-id","CPUPerc":"12.50%","MemUsage":"10MiB / 1GiB"}\n'],
+        ) as require:
+            rows = counter._capture()
+        self.assertEqual(rows, [{"service": "backend", "cpu_percent": 12.5, "rss_bytes": 10 * 1024 * 1024, "oom": False, "running": True}])
+        self.assertEqual(require.call_count, 3)
 
 
 if __name__ == "__main__":

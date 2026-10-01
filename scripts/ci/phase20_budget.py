@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -471,6 +472,106 @@ def _stats_snapshot(project: str, env_file: Path, files: list[Path]) -> dict[str
     return {"cpu_peak_cores": cpu, "rss_peak_bytes": rss}
 
 
+class LightweightResourceCounter:
+    """Capture comparable SUT CPU/RSS samples without enabling the product sampler.
+
+    O3 deliberately disables the Kafka/Rabbit/metrics observer.  It still needs
+    the same resource time series as O1/O2 so a startup or background spike is
+    not hidden by the two-point before/after fallback.  Docker stats is the
+    independent low-overhead counter source for that comparison; it does not
+    query Kafka, queues, product metrics, or any observer endpoint.
+    """
+
+    def __init__(self, project: str, env_file: Path, files: list[Path], interval: float, run_id: str, path: Path):
+        self.project = project
+        self.env_file = env_file
+        self.files = files
+        self.interval = interval
+        self.run_id = run_id
+        self.path = Path(path)
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+        self.failure: str | None = None
+        self.records: list[dict[str, Any]] = []
+
+    def start(self) -> None:
+        self.thread = threading.Thread(target=self._run, name="phase20-lightweight-resource-counter")
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        if self.thread:
+            self.thread.join(timeout=20)
+        if self.thread and self.thread.is_alive():
+            raise RuntimeError("lightweight resource counter failed to join")
+        if self.failure:
+            raise RuntimeError("lightweight resource counter failed: " + self.failure)
+
+    def _capture(self) -> list[dict[str, Any]]:
+        ids = require(_compose_args(self.project, self.env_file, self.files) + ["ps", "-q"], "list lightweight counter containers").split()
+        if not ids:
+            raise Incomplete("lightweight counter has no owned containers")
+        inspected = json.loads(require(command(["docker", "inspect", *ids], timeout=30), "inspect lightweight counter ownership"))
+        objects = {item["Id"]: item for item in inspected}
+        if any(item.get("Config", {}).get("Labels", {}).get("com.docker.compose.project") != self.project for item in inspected):
+            raise Incomplete("lightweight counter ownership changed")
+        raw = require(command(["docker", "stats", "--no-stream", "--format", "{{json .}}", *ids], timeout=30), "sample lightweight counter resources")
+        containers = []
+        for line in raw.splitlines():
+            item = json.loads(line)
+            obj = next((value for key, value in objects.items() if key.startswith(item.get("ID", ""))), None)
+            if obj is None:
+                raise Incomplete("lightweight counter returned an unknown container")
+            containers.append({
+                "service": obj.get("Config", {}).get("Labels", {}).get("com.docker.compose.service"),
+                "cpu_percent": float(item.get("CPUPerc", "0%").rstrip("%")),
+                "rss_bytes": parse_bytes(item.get("MemUsage", "0B").split("/", 1)[0]),
+                "oom": bool(obj.get("State", {}).get("OOMKilled")),
+                "running": bool(obj.get("State", {}).get("Running")),
+            })
+        if not containers:
+            raise Incomplete("lightweight counter returned no containers")
+        return containers
+
+    def _run(self) -> None:
+        next_at = time.monotonic()
+        try:
+            with self.path.open("x") as stream:
+                os.chmod(self.path, 0o600)
+                while not self.stop_event.wait(max(0, next_at - time.monotonic())):
+                    started = time.monotonic()
+                    missing: list[str] = []
+                    failure = None
+                    try:
+                        containers = self._capture()
+                    except Exception as error:
+                        containers = []
+                        failure = type(error).__name__ + ": " + str(error)
+                    finished = time.monotonic()
+                    row = {
+                        "schema": "gopulse.phase20.overhead-resources.v1",
+                        "run_id": self.run_id,
+                        "source": "docker stats --no-stream",
+                        "sampling_interval_seconds": self.interval,
+                        "sequence": len(self.records),
+                        "started_monotonic": started,
+                        "finished_monotonic": finished,
+                        "missing_signals": missing,
+                        "failure": failure,
+                        "signals": {"containers": containers},
+                    }
+                    self.records.append(row)
+                    stream.write(json.dumps(row) + "\n")
+                    stream.flush()
+                    if failure:
+                        self.failure = failure
+                        self.stop_event.set()
+                        break
+                    next_at += self.interval
+        except Exception as error:
+            self.failure = type(error).__name__ + ": " + str(error)
+
+
 def _http_window(api: Any, target_rps: int, warmup_seconds: int, measurement_seconds: int, sampler: Any | None, project: str, env_file: Path, files: list[Path], raw_path: Path) -> dict[str, Any]:
     def run_window(seconds: int, label: str) -> list[dict[str, Any]]:
         total = target_rps * seconds
@@ -574,6 +675,8 @@ def run_b03(root: Path, manifest_path: Path, manifest: dict[str, Any], contract:
                 sampler = None
                 if combination["sampler_enabled"]:
                     sampler = Sampler(project, env_file, files, values, profile, combination_id + "-" + str(repeat), trial_dir / "resources.jsonl")
+                elif combination_id == "O3":
+                    sampler = LightweightResourceCounter(project, env_file, files, float(profile["sampling"]["interval_seconds"]), combination_id + "-" + str(repeat), trial_dir / "resources.jsonl")
                 raw_path = trial_dir / "trial.json"
                 trial = _http_window(api, int(contract["overhead"]["target_rps"]), int(contract["overhead"]["warmup_seconds"]), int(contract["overhead"]["measurement_seconds"]), sampler, project, env_file, files, raw_path)
                 trial.update({"combination_id": combination_id, "repeat": repeat, "project": project, "candidate": binding})
