@@ -1,6 +1,7 @@
 # Phase-20-05：资源预算与观测开销
 
-> 目标版本：2.2.5；开发分支：develop/2.2.5；当前状态：已冻结开工合同，未开始实现。
+> 目标版本：2.2.5；开发分支：develop/2.2.5；当前状态：实施中，尚未通过验收。
+> 2026-10-02 修订测量口径、分阶段执行和工具交付门禁；本次规划修订不代表实现或验收完成。
 
 ## 1. 目标与范围
 
@@ -19,9 +20,10 @@
 - 依据每分钟实际增长估算磁盘保留成本，注明压缩、索引放大和原生回收的误差。
 - 完成 06 所需编排、verifier、持续运行 profile、故障步骤和脱敏发布工具；先完成自测与预检。
 
-预算数值、开销阈值及最终 profile 在创建本批分支前依据 01～04 证据，在 update 细化并合入
-main。完成本批时构建配方及全部执行合同冻结；实际最终镜像/Bundle/manifest 在 06 从包含
-本批完成提交的 main 构建后冻结。06 不再修改任何可执行或验收配置。
+初版预算数值、开销阈值及最终 profile 已在创建本批分支前登记。当前批次的合同修复在
+update 完成并合入 main，再并入尚未完成的 develop/2.2.5 后实施；保留已创建分支和目标版本。
+既有失败证据保持原候选身份。完成本批时构建配方及全部执行合同冻结；实际最终镜像/
+Bundle/manifest 在 06 从包含本批完成提交的 main 构建后冻结。06 不再修改任何可执行或验收配置。
 
 ## 2. 预算记录与开工前冻结项
 
@@ -72,17 +74,18 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 
 | 项目 | 冻结值与来源 |
 | --- | --- |
-| 宿主 | Linux `amd64`、WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`、8 CPU、`MemTotal=13281496 kB`、swap `16777216 kB`、`/var/lib/docker` 可用 `105056022528` bytes；Docker Server `29.7.2`、Compose `5.5.0`。初版 profile 下限为 100 GB；经授权的 r3 修订后，当前执行下限为 50 GB（`50000000000` bytes）。执行前再次写入 `host.json`，不以本表替代实际 preflight。 |
+| 宿主 | Linux `amd64`、WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`、8 CPU、`MemTotal=13281496 kB`、swap `16777216 kB`、`/var/lib/docker` 可用 `105056022528` bytes；Docker Server `29.7.2`、Compose `5.5.0`。CPU/内存/swap 下限分别为 8 CPU、12 GiB、8 GiB；初版磁盘下限为 100 GB，经已授权的 r3 修订后为 50 GB（`50000000000` bytes）。执行前再次写入 `host.json`，不以本表替代实际 preflight。 |
 | 业务配方 | 沿用 Phase 20 配方 seed `18002005`、recipe digest `sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14`、`1024` virtual users、50/100/150/200 RPS、15 秒预热、60 秒测量、三重复；原始 profile 为 `loadtest/phase20-capacity-profile.json`。 |
 | 前序资源依据 | 03 的严格复验 `docs/phase20-optimization.md` / 私有 contract digest `sha256:190405c1c6c2b72656d6699afcc5772b6cd2e0284be4431a44682bc92d8a1635`：容器 CPU 峰值 `806.6%`、RSS 峰值 `4462.235990524292 MiB`、Kafka lag 峰值 `7268`、Rabbit ready 峰值 `0`、unacked 峰值 `2`；观测 ES 单元增长最大 `13677487` bytes。 |
-| 前序开销依据 | 01 的同宿主采样器对照为启用/停用各 250 次、50 RPS、5 秒窗口，P95 `23.14/19.85 ms`、验收进程 CPU `3.656/3.259 s`；该值只冻结短窗口开销测量方法，不作为 05 正式容量结果。 |
+| 前序开销依据 | 01 的同宿主采样器对照为启用/停用各 250 次、50 RPS、5 秒窗口，P95 `23.14/19.85 ms`、验收进程 CPU `3.656/3.259 s`；该值仅为历史诊断事实，不能证明 200 RPS/60 秒的 P99 差或独立采样器 CPU 峰值符合本批门禁。正式执行前须通过 2.4 的测量自测与真实短预检。 |
 | Trace/保留依据 | 04 已冻结 Collector `0.138.0` digest `sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c`、单文件 `16 MiB`、总量 `64 MiB`、最多 `3` 个备份；VM `30d`、Logs/Events `7d` 的生命周期合同保持不变。 |
 
 #### 预算与超限合同
 
 所有 CPU/RSS/队列样本间隔固定为 `5s`；持续运行的窗口趋势使用固定样本，比较第
-10～15 分钟与第 55～60 分钟的 median。正常 200 RPS 窗口的阈值如下，阈值均以
-03 的实测最大值加明确余量冻结；B04/B05 的注入阈值不能覆盖这些正常窗口阈值。
+10～15 分钟与第 55～60 分钟的 median。下表保留既有冻结阈值；03 的总量峰值只支撑
+对应资源总量，不能代替单服务 quota 或观测成本差值的依据。每服务 quota 须核对前序该
+服务峰值，开销门禁按 2.4 的一致测量方法验证。B04/B05 的注入阈值不能覆盖正常窗口阈值。
 
 | budget_id | 目标与冻结限值 | 超限动作与恢复判据 |
 | --- | --- | --- |
@@ -90,10 +93,10 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 | `memory.sut_rss_peak` | SUT 容器 RSS 合计峰值 `<=6 GiB`；容器 `memory.current` 合计 `<=8 GiB`，分别记录每服务峰值；两次持续运行稳定窗口绝对增长 `<=512 MiB`、斜率 `<=16 MiB/min`。 | OOM、非预期重启或连续 3 个样本超限立即停止并标为失败；正常关停且无 OOM、窗口趋势均在限值内才恢复。 |
 | `queue.business` | Outbox pending 正常峰值 `<=100`；Rabbit ready `<=50`、unacked `<=16`；Kafka 观测 group lag 合计峰值 `<=9000`。 | 记录拒绝、重试、丢弃或背压的计数；接受事实不能丢失，停止请求后独立业务/观测水位均在 120 秒内闭合。 |
 | `queue.trace` | Trace SDK queue capacity 固定 `2048`，Collector file exporter 单轮观察的队列/失败计数均记录；正常窗口不允许业务错误，允许尽力而为 span 在出口故障时有界丢弃。 | Collector 出口失败只触发 bounded retry/drop 和故障 receipt，不得阻塞或丢失已接受业务事件；恢复后 Collector 与业务探针在 120 秒内闭合。 |
-| `disk.host` | 每个归属项目记录真实卷 used/free；宿主 free bytes `>=50 GB`（`50000000000` bytes），逻辑水位 `>=55 GB` 为 warning；不得用逻辑水位代替 OS/容器配额。 | 达到 warning 停止增长型 fixture 并记录；达到 safety 水位立即停止本单元并安全清理，禁止填满宿主或执行 global prune。 |
+| `disk.host` | 每个归属项目记录真实卷 used/free；宿主 free bytes `>=50000000000` 为通过，`50000000000 <= free <= 55000000000` 为 warning，`free < 50000000000` 为 safety 失败；不得用逻辑水位代替 OS/容器配额。 | warning 停止增长型 fixture 并记录；safety 立即停止本单元并安全清理，禁止填满宿主或执行 global prune。 |
 | `disk.observability_growth` | 观测 ES 真实卷增长 `<=32 MiB/min`；Trace 目录单文件 `<=16 MiB`、总量 `<=64 MiB`、文件总数 `<=4`；按真实 docs/store/卷读数报告压缩、索引放大和回收误差。 | 触发保留/轮转合同，超限保存原始读数并失败；只删除归属目录，其他项目和业务索引不进入清理请求。 |
-| `overhead.observability` | O0/O1/O2/O3 各三重复：正常观测相对观测关闭的业务 P99 绝对差 `<=150 ms` 且比例 `<=25%`；SUT CPU 差 `<=1.50 cores`、RSS 差 `<=512 MiB`；Trace 关闭/100% 采样业务 P99 差 `<=200 ms`、CPU 差 `<=1.00 core`、RSS 差 `<=256 MiB`。 | 只报告已登记组件集合的成本，不外推全站观测成本；任一组合缺原始三重复、负载不一致或基线为零而未使用绝对阈值则 incomplete。 |
-| `overhead.sampler` | sampler 开启/关闭各三重复，使用相同低开销业务计数源；观察者 CPU 峰值 `<=0.75 core`，业务 P99 绝对差 `<=50 ms`，采样缺样 `<=1%`。 | 不得以“没有记录”记为零开销；超限保留两套原始记录，业务结果仍按独立业务门禁判定。 |
+| `overhead.observability` | O0/O1/O2/O3 各三重复：正常观测 `O3-O0` 的业务 P99 增量 `<=150 ms` 且比例 `<=25%`；SUT CPU 峰值增量 `<=1.50 cores`、RSS 峰值增量 `<=512 MiB`；Trace `O2-O1` 的业务 P99 增量 `<=200 ms`、CPU 峰值增量 `<=1.00 core`、RSS 峰值增量 `<=256 MiB`。 | 三重复按各组合 median 求差；差值保留正负，绝对阈值指 ms/cores/bytes 门限，不取差值绝对值。Trace 不额外增加未登记比例门禁。缺原始三重复或负载不一致为 incomplete，已执行的有效数据超阈值为 fail。 |
+| `overhead.sampler` | 采样器 `O1-O3` 的业务 P99 增量 `<=50 ms`；独立采样器进程及其采集子进程的固定 5 秒 CPU 峰值 `<=0.75 core`；采样缺样 `<=1%`。四组合均使用相同独立低开销计数源。 | 压测器与基准计数器 CPU 分列，禁止把整体验收进程 CPU/运行时长当作采样器峰值。缺测量身份或原始计数为 incomplete，有效测量超阈值为 fail；业务结果另按独立业务门禁判定。 |
 
 Compose 的实际 limit 也在本批实现并由 B01 inspect 核对；初版冻结服务额度为：MySQL
 `2.0 CPU/1536 MiB`、Redis `0.5/256 MiB`、RabbitMQ `1.0/512 MiB`、业务与观测
@@ -122,41 +125,105 @@ Router 每副本 `0.75/256 MiB`、Marshaller 每副本 `1.0/384 MiB`、Monitor
 `0.5/128 MiB`、验收 Collector `0.25/128 MiB`。修订后的合同合入 `main` 后，必须
 从新的候选 revision 和新证据目录重新执行 B01～B07；不得复用初版候选或失败结果。
 
-#### 2.3 授权后的宿主磁盘水位修订
+#### 2.3 已授权的宿主磁盘水位修订
 
-用户于 2026-10-01 明确授权将本批次宿主磁盘最低要求从初版的 100 GB profile 下限与
-90 GiB 运行时安全水位调整为 50 GB。调整后的冻结编号为
-`phase20-05-budget-contract-20261001-r3`；50 GB 采用十进制定义，即精确为
-`50000000000` bytes。该值同时绑定 resource budget 的 `platform.disk_free_bytes_min`、
-`disk.host_free_min`、Phase 20 容量 profile、持续运行 profile 和 B04/B05 安全停止条件；
-其他 CPU/内存/队列/观测开销阈值及 B/U 操作不变。
+现有 develop/2.2.5 的规划记录已登记用户于 2026-10-01 授权把初版 100 GB profile
+下限与 90 GiB 运行时安全水位调整为 50 GB，合同编号为
+`phase20-05-budget-contract-20261001-r3`。50 GB 精确为 `50000000000` bytes，
+绑定 platform、disk budget、容量/持续运行 profile 及 B04/B05 安全停止条件。
+本次将这项既有规划同步到 update；不新增磁盘门限放宽。r2 的失败记录保持原身份，
+不得改写为 r3 结果。历史资源清理仍仅限已授权、已停止且无运行引用的精确归属资源。
 
-调整前的 r2 验收目录和失败证据保留为历史记录，不得改写为 r3 结果。合同编号或磁盘门禁
-发生变化即视为候选失效；必须以包含 r3 的新 revision 重建候选并重新执行 B01～B07 及固定
-门禁。历史 Docker 清理由用户单独授权，只能删除已停止且已核对无运行中引用的旧项目资源，
-不得使用 global prune，也不得删除当前候选或第三方锁定依赖。
+#### 2.4 测量与执行合同修复
+
+本次修订编号为 `phase20-05-budget-contract-20261002-r4`，保留 r2 的服务 quota、
+r3 的磁盘门限及其余预算数值，修正比较配对、测量身份、执行次序和工具交付要求。
+该编号须在规划合入 main 后由本批实现同步到预算/profile/schema；仅修改本文不使工具
+或候选自动成为 r4。所有相关旧候选证据失效，原始文件保留，不能补写为通过。
+
+**测量合同：**
+
+- B02/B03 使用相同既有 Go loadtest 二进制、配方、业务比例、1024 virtual users、
+  HTTP 连接策略与接受台账。业务 P99 使用测量窗口内从调度到终态的延迟；另列实际发送
+  到完成的延迟及调度滞后。仅对 `/users/me` 发请求的 Python 对照不能替代该业务负载。
+- 四组合的基准计数器、采样间隔、CPU/RSS 数据源及测量窗口相同；O0/O3 关闭增强采样器
+  后仍保存完整基准资源序列。预热样本单独记录，开销判定只使用 60 秒测量窗口。
+- 采样器在独立进程运行；CPU 使用进程及采集子进程的累计核秒增量除以实际采样间隔，
+  再取窗口峰值，同时保留累计量和区间平均。压测器、基准计数器、Collector 和宿主另列。
+  RSS 读取实际进程 RSS，容器 memory.current 使用 cgroup 原始读数，不互相改名代替。
+- Kafka 客户端绑定本单元的 broker/项目；重试受单轮 5 秒采样预算约束。按冻结时间表计算
+  应有样本数、实际数、错窗数和缺样率，不仅以成功返回的样本为分母。采样失败立即通知
+  编排器停止当前单元，不等待所有 HTTP 请求或其余组合完成后才发现线程失败。
+- 自测必须证明三种配对独立：只改变 O0 应影响正常观测比较；只改变 O2 应影响 Trace
+  比较；只改变采样器原始 CPU 应影响采样器门禁。额外验证压测 CPU 不计入采样器、缺样/
+  预热/错窗被拒绝；全部原值相等的成功 fixture 不足以证明比较公式正确。
+
+**执行次序：** 编号只标识案例，不代表先运行 B03 再做 B07。
+
+| 阶段 | 必须完成的检查 | 停点 |
+| --- | --- | --- |
+| S0 确定性检查 | schema、所有 CLI 参数/模式、预算/profile/runtime 一致性、观测 Python 依赖及版本、源码 revision、磁盘和端口、测量公式自测；构建前核对每服务历史峰值与 quota，构建后核对实际 manifest/镜像身份 | 任一失败先修最小层，不启动真实矩阵 |
+| S1 局部真实冒烟 | O0/O3/O1/O2 各一次独立空项目、200 RPS、5 秒预热+10 秒测量；验证负载业务比例、计数器、首批资源样本、Kafka 身份、终态和清理 | formal=false；不判正式开销、不计入三重复；工具失败立即停止 |
+| S2 B07 当前候选预检 | 下表冻结的真实 U1～U4 短预检及外部 evidence 校验 | 未 complete 不得进入 S3；单元测试结果不能代替真实依赖 receipt |
+| S3 固定预算验收 | B01、B02、B04、B05、B06、B03；B03 每个重复按 O0→O3→O1→O2 执行，共十二个独立空项目 | 每单元完成即写入不可变原始记录及回执，工具错误、安全失败或业务事实丢失立即停止 |
+| S4 发布与完成检查 | 重算 B01～B07、来源 digest、实际脱敏发布工件、版本/分支与归属清理 | 全部门禁通过才写完成日志、同步 2.2.5 并提交 |
+
+S0 之后的候选镜像构建阶段总上限为 60 分钟；S1～S4 的实际执行总上限为 180 分钟，
+其中 B03 总上限为 90 分钟。上限是执行保护，不是产品能力门限或预计完成保证；依据
+2026-10-01 r18 的 B03 约 57 分钟设置诊断停点，达到上限时保存阶段耗时、证据和清理回执，
+标为 infrastructure_timeout/incomplete，停止后续单元。逐项记录构建、启动、配方、收敛、
+预热、测量、恢复、校验和清理耗时，不以延长外层等待掩盖具体阶段失败。
+达到执行保护上限先停止新请求，再按既有 grace 和归属清理合同有界收尾，收尾耗时单列；
+不能为满足外层 deadline 跳过清理或缩短产品恢复门禁。S3 中逐单元可判定的采样失败、
+业务事实丢失和安全超限立即停止；三重复 median 的开销结论在规定样本完整后计算。
+
+**局部诊断与重验：**
+
+- 预算入口支持 `--case B01|B02|B03|B04|B05|B06`；B03 可进一步用
+  `--combination O0|O1|O2|O3 --repeat 1|2|3` 定位。局部模式固定 formal=false，
+  仍读取冻结参数，不接受阈值覆盖，不输出完整预算验收通过。S1 用 `--smoke` 固定短窗。
+- 入口保留案例和组合单元级检查点；只有候选 revision、manifest、工具/config/依赖 digest、
+  宿主条件均一致且旧 receipt 未失败时，才可 `--resume <同候选未完成目录>` 执行尚未开始的
+  单元。失败单元不在原目录改写或筛选重跑；故障诊断写入新目录。
+- 连续两次同类基础设施失败后停止全套入口，先执行最小失败案例并定位原因；有效修复及
+  定向回归通过后再生成新候选。比较公式、资源数据源或窗口修复影响所有 B03 组合，不只
+  重跑最后失败组合。新 revision 不复用旧候选的受影响产品或验收证据。
+- 每次修复登记改动文件、影响的 case_id、必要重验及仍有效的确定性检查。相关条件未变的
+  静态检查按 AGENTS.md 保留；旧产品证据只作为诊断来源，不重新绑定给新候选。
+- 正确测量仍超既有预算时输出 budget_exceeded/fail 并停止验收。阈值或 quota 的进一步
+  调整必须先有同负载、同统计口径的事实依据，在 update 修订并合入 main；不得把历史 P95
+  或整体验收进程平均 CPU 解释成当前 P99/独立采样器峰值的证明，不反复重跑寻找好结果。
 
 #### B 案例、U 清单与固定证据位置
 
-每个 B 案例都必须生成独立目录 `/var/tmp/gopulse-phase20-05-20261001/budget/<case_id>/`，
-包含 `receipt.json`、原始样本、候选绑定和清理回执；以下动作与位置在执行中不可删改：
+每个候选使用新的私有工作根 `<work>`；每个 B 案例生成独立目录
+`<work>/budget/<case_id>/`，包含 `receipt.json`、原始样本、候选绑定和清理回执。
+路径由 manifest 登记为相对路径并做归属校验；历史固定目录保留为历史证据，禁止覆盖。
+以下正式动作和统计窗口保持固定，S1/S2 的短窗均另标 formal=false：
 
 | case_id | 冻结操作、实际判据与证据位置 |
 | --- | --- |
 | B01 | `docker compose config --format json`、逐服务 `docker inspect`、runtime env/队列配置重算 CPU/内存/连接/队列；输出 `budget-contract.json`、`compose.json`、`inspect.json`。 |
 | B02 | 独立空项目以 200 RPS 预热 15 秒、测量 60 秒，5 秒采样，停止后最多排空 30 秒，再独立执行业务/Logs/Metrics/Events 120 秒恢复；输出 `normal-window.jsonl`、`resources.jsonl`、`recovery.jsonl` 和闭合 receipt。 |
-| B03 | 同一宿主、recipe、200 RPS、15+60 秒和三重复，固定执行 O0=`业务+HTTP基准，Trace/Router/Marshaller/Monitor 关闭`、O1=`正常观测+Trace关闭+sampler开启`、O2=`正常观测+Trace 100%+sampler开启`、O3=`正常观测+Trace关闭+sampler关闭`；O3 使用独立低开销计数源，不能以无记录代替。四个组合均输出原值、median/min/max/CV、差值和门禁。 |
+| B03 | 同一宿主、recipe/业务比例、Go 压测器、200 RPS、15+60 秒和三重复；O0=`业务+HTTP基准，Trace/Router/Marshaller/Monitor 关闭`、O1=`正常观测+Trace关闭+sampler开启`、O2=`正常观测+Trace 100%+sampler开启`、O3=`正常观测+Trace关闭+sampler关闭`。四组合均使用相同独立低开销计数源，按 2.4 执行次序和配对输出原值、median/min/max/CV、差值和门禁。 |
 | B04 | 在独立 200 RPS 故障窗口停止验收 Collector 60 秒，验证 Trace queue/导出失败和业务不阻塞；另在可清理的短窗口暂停 Business Worker 10 秒制造 Rabbit ready backlog 后恢复，验证接受事实、重试/背压、最终水位；输出注入/恢复时刻、计数、故障 receipt。 |
 | B05 | 只在 `phase20_trace_data` 归属卷/fixture 触发 64 MiB 轮转水位，记录 volume used/free、文件列表和 Collector 回执；不写宿主根目录、不删除其他项目；输出 `disk-waterline.json` 与原始目录清单。 |
 | B06 | 在 B04 产生可控积压后对归属 worker/Collector 发送 SIGTERM，核对 grace/lease/offset/业务事实、排空和归属清理；保留 `shutdown.json`、容器状态和 cleanup inventory，禁止 global prune。 |
-| B07 | 运行固定 U1～U4 短预检：启动、recipe、负载、三通道水位、C01 链路、R02/R03/R04/R06/R07/R08 生命周期、B04 故障、B06 关停、发布清单与归属清理；输出 `/var/tmp/gopulse-phase20-05-20261001/preflight/`，不能引用本批正式结果。 |
+| B07 | S3 之前运行固定 U1～U4 真实短预检：启动、recipe、负载、三通道水位、C01 链路、R02/R03/R04/R06/R07/R08 生命周期、B04 故障、B06 关停、发布清单与归属清理；输出 `<work>/preflight/`，不能引用本批正式结果。 |
 
-U1～U4 的固定内容分别为：U1 执行 50/100/150/200 RPS 四阶梯三重复；U2 执行两次
+| B07 单元 | 固定短预检与证据 |
+| --- | --- |
+| U1 | 50/200 RPS 各一次独立空项目、5 秒预热+10 秒测量，完整台账与业务/三通道独立恢复；验证使用正式编排路径但不计入正式重复 |
+| U2 | 200 RPS、15 秒预热后持续 300 秒；第 60 秒停止 Collector，持续 60 秒后恢复，期间业务继续；故障后执行独立业务/观测 120 秒恢复及探针，结束排空；不生成 60 分钟稳定性结论 |
+| U3 | 当前候选真实执行 C01 和 R02/R03/R04/R06/R07/R08，记录原始 span/查询/删除及恢复事实；B06 用真实积压验证 SIGTERM；调用已登记的真实 chain/retention/fault 入口，单元测试另列 |
+| U4 | 对上述实际候选、原始证据及选定脱敏工件执行来源 digest、凭据与归属检查；验证每个 cleanup inventory；生成并外部校验 B07 receipt |
+
+06 正式 U1～U4 的固定内容分别为：U1 执行 50/100/150/200 RPS 四阶梯三重复；U2 执行两次
 相同 recipe/200 RPS 的 60 分钟运行，预热不计时，第 15 分钟执行上表 Collector 故障
 60 秒，结束后排空并恢复；U3 执行当前候选的 C01 与 R01～R08，只有候选/配置/依赖/
 环境均可证明未变时才逐项引用前序 receipt；U4 重算候选 manifest、所有原始 digest、
 脱敏白名单、凭据/归属泄漏和每个清理 inventory。U1～U4 的证据分别固定在
-`/var/tmp/gopulse-phase20-05-20261001/closure/u1/` 至 `u4/`，06 只能读取本节冻结合同。
+`<work>/closure/u1/` 至 `u4/`，与当前 manifest 绑定；06 只能读取本节最终冻结合同。
 
 #### 依赖、构建配方与发布清单
 
@@ -184,11 +251,11 @@ schema、runtime/Trace 配置、`README.md`、`docs/capability-status.md`、六�
 
 | 文件 | 验收要求 |
 | --- | --- |
-| deploy/phase20-resource-budgets.json、deploy/phase20-resource-budgets.schema.json | 精确可机读预算、单位、超限与采样/Trace 开销阈值 |
+| deploy/phase20-resource-budgets.json、deploy/phase20-resource-budgets.schema.json | 精确可机读预算、测量身份/窗口、三种比较配对、执行保护时限、超限与采样/Trace 开销阈值 |
 | deploy/compose.yaml、deploy/phase20-trace.yaml、deploy/runtime-contracts.json、deploy/runtime-contracts.schema.json | 预算真正生效、私有网络和现有角色一致 |
 | loadtest/phase20-capacity-profile.json、loadtest/phase20-capacity-profile.schema.json、loadtest/phase20-sustained-profile.json、loadtest/phase20-sustained-profile.schema.json | 最终四阶梯/三重复及两次 60 分钟运行的负载、阈值和故障合同 |
-| scripts/ci/phase20_budget.py、test_phase20_budget.py、scripts/verify-phase20-budget.sh | 实际 inspect、增长、开销、饱和和故障降级证据 |
-| scripts/ci/phase20_closure.py、test_phase20_closure.py、scripts/verify-phase20-closure.sh | 单候选固定编排、阶段停点与归属清理，拒绝临时阈值覆盖 |
+| scripts/ci/phase20_budget.py、test_phase20_budget.py、scripts/verify-phase20-budget.sh | 实际 inspect、增长、独立测量的开销、饱和和故障降级证据，支持 smoke/case/combination/resume 并严格区分诊断与完整验收 |
+| scripts/ci/phase20_closure.py、test_phase20_closure.py、scripts/verify-phase20-closure.sh | 完整 U1～U4 正式及短预检编排、dry-run 任务图、阶段停点、检查点和归属清理，拒绝临时阈值覆盖 |
 | scripts/ci/phase20_sampler.py、test_phase20_sampler.py、phase20_evidence.py、test_phase20_evidence.py（均在 scripts/ci） | 最终资源/生命周期/链路证据可复核，拒绝缺失、错窗和漂移 |
 | scripts/verify-phase20-evidence.py、scripts/ci/verify_runtime_contracts.py、test_runtime_contracts.py（后者同 scripts/ci） | 最终入口与机器合同严格验证，不降低历史合同 |
 | docs/observability-resource-budgets.md、docs/phase20-acceptance-matrix.md、docs/phase20-capacity-methodology.md | 最终矩阵、候选绑定、数据增长、开销与超限合同 |
@@ -209,37 +276,78 @@ schema、runtime/Trace 配置、`README.md`、`docs/capability-status.md`、六�
 | B07 最终工具预检 | U1～U4 固定编排自测；同一非正式候选真实短预检覆盖启动、负载、业务/三通道水位、C01 关联、R02/R03/R04/R06/R07/R08 生命周期、故障、关停、发布校验和归属清理 |
 
 开销比较以各组合三重复的 median 为统计，按候选相同稳定负载比较业务 P99、CPU 核秒/RSS
-等原值。关闭到启用的差值与比例都保留；基线为零时比例为 null，只判冻结绝对差阈值。
+等原值，CPU/RSS 峰值增量门禁与累计 CPU/区间平均分列。固定比较为正常观测 O3-O0、
+Trace O2-O1、采样器 O1-O3；禁止同一对照差值充当两个独立成本。关闭到启用的差值与比例
+都保留；基线为零时比例为 null，只判冻结绝对差阈值，不能增加未登记的比例门禁。
 “关闭观测”的具体范围在 profile 列出；若进程仍在产生日志/指标，差值只代表被关闭的
 采集/运输/存储部分，不能声称测出所有观测成本。停止采样器的对照使用同样冻结的低开销
 基准计数源收集业务及资源结果，不能以无记录为零开销。
 
 饱和测试不得通过临时放宽 quota/阈值使结果通过；与正常容量 profile 不同的注入或诊断负载
 明确 formal=false。Trace 的有理由丢弃与可靠业务事件分别判定；普通观测出口失败不能
-解释已接受业务丢失。缺少触发或恢复证据属于 incomplete，动作不符合合同属于门禁失败。
+解释已接受业务丢失。缺少触发或恢复证据属于 incomplete，动作不符合合同或有效测量超阈值
+属于门禁失败；分别记录 execution_status 与 case status/失败分类，不能把所有异常统一记成工具 incomplete。
 连接/队列无法安全触发时必须开工前冻结最低层受控验证，不可执行后静默删例。
 
-本批命令如下；phase20 入口待实现，B07 的短窗口与固定案例由预检合同读取：
+### 4.1 最终工具交付门禁
+
+05 必须实现 06 将执行的完整接口，正式路径只能在 06 执行昂贵矩阵，但必须在 05 完成
+以下定向自测和真实短预检：
+
+| 交付项 | 05 的必要证明 |
+| --- | --- |
+| 完整正式编排 | 无 `--preflight` 的路径确实编排 U1 十二个单元、U2 两个 60 分钟单元、U3 C01/R01～R08、U4 发布校验；`--dry-run` 输出同一正式任务图与身份/profile 绑定，仅不执行依赖动作，formal=false，不产生真实通过 receipt |
+| 持续运行 runner/verifier | B07 U2 用同一 runner 的冻结短 profile 执行；定向 fixture 验证正式 10～15/55～60 分钟窗口、增长斜率、故障时长、缺样/错窗及最终全量台账，不用短运行证明长窗口通过 |
+| 真实链路与生命周期 | B07 U3 从当前候选真实入口取得原始事实并外部重算；禁止以 `unittest` 退出码、占位 `pass`、容器仅 Running 或旧版本 receipt 代替产品事实 |
+| 完整证据接口 | 支持 `--budget`、`--preflight`、`--closure`、`--publication <目录> --source <源目录>`；校验当前源候选、实际选定发布集合及各原始 digest，缺源/缺案例/错候选/错窗/回执篡改均拒绝 |
+| 停点与恢复 | 验证阶段失败阻止后续启动、采样线程失败可及时终止负载、相同候选 resume 只执行未开始单元、候选或工具漂移拒绝 resume；归属清理保存 inventory，不能 global prune |
+
+正式接口返回“本阶段尚未实现”、只支持 preflight 或接受人工拼装的 pass 摘要，均不能
+通过本批工具交付门禁。单元测试只证明工具逻辑，真实产品通过必须另有原始执行事实。
+
+### 4.2 执行命令与回归
+
+下列新增 smoke/case/combination/resume/dry-run/preflight-evidence 及 closure/publication
+参数是本批必须实现的合同接口，不声明当前已存在。按 2.4 顺序执行；诊断短窗由 profile 固定：
 
 ```bash
 docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 python3 -m unittest scripts.ci.test_phase20_budget scripts.ci.test_phase20_closure scripts.ci.test_phase20_sampler scripts.ci.test_phase20_evidence
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.2.5
-scripts/verify-phase20-budget.sh --manifest <本批非正式候选manifest> --work <预算新目录>
-python3 scripts/verify-phase20-evidence.py --budget <预算目录>
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.2.5 --skip-version
+scripts/verify-phase20-closure.sh --build-manifest <本批候选manifest> --revision <已提交实现revision>
+scripts/verify-phase20-closure.sh --dry-run --manifest <本批候选manifest> --work <任务图新目录>
+scripts/verify-phase20-budget.sh --smoke --manifest <同候选manifest> --work <冒烟新目录>
 scripts/verify-phase20-closure.sh --preflight --manifest <同候选manifest> --work <预检新目录>
 python3 scripts/verify-phase20-evidence.py --preflight <预检目录>
+scripts/verify-phase20-budget.sh --manifest <同候选manifest> --work <预算新目录> --preflight-evidence <已校验预检目录>
+python3 scripts/verify-phase20-evidence.py --budget <预算目录>
+python3 scripts/verify-phase20-evidence.py --publication <实际选定发布目录> --source <本批证据根目录>
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.2.5
 python3 scripts/ci/validate_versions.py
 python3 scripts/ci/validate_branch.py --branch develop/2.2.5 --base-ref origin/main
 git diff --check
 ```
+
+完成前根 VERSION 保持上个已完成版本，候选版本由构建参数和 runtime/manifest 绑定为
+2.2.5；S0 的 `--skip-version` 只跳过根完成版本相等检查，候选/runtime/预算身份仍必须
+校验。S4 的最后三项版本/分支检查和不带 `--skip-version` 的 runtime 校验，在验收通过并
+同步完成元数据后、完成提交前执行；不能提前改 VERSION 让 S0 通过。
+
+正式预算入口必须校验 `--preflight-evidence` 的 B07 当前候选、工具/profile/config/digest
+与实际环境身份，缺失或漂移即拒绝执行。局部定位示例为
+`scripts/verify-phase20-budget.sh --case B03 --combination O3 --repeat 1 --manifest <候选manifest> --work <诊断新目录>`；
+该结果不代替固定十二单元。对同候选尚未开始单元的恢复使用 `--resume <未完成目录>`，
+仍需提供原 manifest 和同身份的预检证据，不能绕过失败处理。
 
 回归角色/端口边界、真实资源限制、生命周期、观测失败不阻塞业务以及安全清理；
 不在本批提前运行 06 的正式三重复容量或两次 60 分钟矩阵。
 
 ## 5. 冻结时点与完成条件
 
-B01～B07 及固定门禁全部通过、执行状态 complete，预算与行为一致，开销及增长事实完整。
+B01～B07、2.4 的测量身份/执行停点及 4.1 的完整工具交付门禁全部通过，执行状态 complete，
+预算与行为一致，开销及增长事实完整。必要证据含同候选 S0/S1/B07 的通过记录、B01～B06
+正式回执及十二个 B03 原始单元、完整正式 dry-run 任务图、阶段耗时、外部校验和实际发布校验。
+局部诊断、短预检、文档修订或单元测试成功均不单独构成本批完成。
 冻结构建配方、依赖/第三方镜像 digest、矩阵/profile/工具、预算/保留/Trace 合同和发布清单，
 创建同名实际日志、更新 2.2.5 并提交后完成。本批不替代最终容量或持续运行结论。
 
