@@ -1,6 +1,6 @@
 # Phase-20-05：资源预算与观测开销
 
-> 目标版本：2.2.5；开发分支：develop/2.2.5；当前状态：未开始，依赖 04 完成。
+> 目标版本：2.2.5；开发分支：develop/2.2.5；当前状态：已冻结开工合同，未开始实现。
 
 ## 1. 目标与范围
 
@@ -61,6 +61,93 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 开工冻结表还必须登记：机器规格/可用空间、每个预算实际数值及依据、所有 B 案例的准确
 动作与证据位置、最终 U1～U4 清单、依赖/第三方镜像 digest、构建配方、发布脱敏清单。
 任一项未填不得创建 develop/2.2.5；不能在验收过程中补阈值使结果通过。
+
+### 2.1 已冻结开工登记
+
+以下登记在创建 `develop/2.2.5` 前完成，冻结编号为
+`phase20-05-budget-contract-20261001`。登记基线为 `origin/main`
+`f44ab45d857aa5981a6a278dd0c03d576b7ffa11`；本节是开工合同，不是 05 的执行结果。
+
+#### 宿主、前序事实与测量口径
+
+| 项目 | 冻结值与来源 |
+| --- | --- |
+| 宿主 | Linux `amd64`、WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`、8 CPU、`MemTotal=13281496 kB`、swap `16777216 kB`、`/var/lib/docker` 可用 `105056022528` bytes；Docker Server `29.7.2`、Compose `5.5.0`。profile 下限仍为 8 CPU、12 GiB 内存、8 GiB swap、100 GB 可用空间；执行前再次写入 `host.json`，不以本表替代实际 preflight。 |
+| 业务配方 | 沿用 Phase 20 配方 seed `18002005`、recipe digest `sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14`、`1024` virtual users、50/100/150/200 RPS、15 秒预热、60 秒测量、三重复；原始 profile 为 `loadtest/phase20-capacity-profile.json`。 |
+| 前序资源依据 | 03 的严格复验 `docs/phase20-optimization.md` / 私有 contract digest `sha256:190405c1c6c2b72656d6699afcc5772b6cd2e0284be4431a44682bc92d8a1635`：容器 CPU 峰值 `806.6%`、RSS 峰值 `4462.235990524292 MiB`、Kafka lag 峰值 `7268`、Rabbit ready 峰值 `0`、unacked 峰值 `2`；观测 ES 单元增长最大 `13677487` bytes。 |
+| 前序开销依据 | 01 的同宿主采样器对照为启用/停用各 250 次、50 RPS、5 秒窗口，P95 `23.14/19.85 ms`、验收进程 CPU `3.656/3.259 s`；该值只冻结短窗口开销测量方法，不作为 05 正式容量结果。 |
+| Trace/保留依据 | 04 已冻结 Collector `0.138.0` digest `sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c`、单文件 `16 MiB`、总量 `64 MiB`、最多 `3` 个备份；VM `30d`、Logs/Events `7d` 的生命周期合同保持不变。 |
+
+#### 预算与超限合同
+
+所有 CPU/RSS/队列样本间隔固定为 `5s`；持续运行的窗口趋势使用固定样本，比较第
+10～15 分钟与第 55～60 分钟的 median。正常 200 RPS 窗口的阈值如下，阈值均以
+03 的实测最大值加明确余量冻结；B04/B05 的注入阈值不能覆盖这些正常窗口阈值。
+
+| budget_id | 目标与冻结限值 | 超限动作与恢复判据 |
+| --- | --- | --- |
+| `cpu.sut_peak_cores` | 所有归属 SUT 容器 CPU 峰值合计 `<=8.75 cores`；另列 load generator `<=1.50 cores`、sampler `<=0.75 cores`、Collector `<=0.50 cores`、宿主忙核 `<=8.00 cores`；记录 quota、实际用量和 throttling。 | 连续 3 个样本超限为 `budget_exceeded`，停止当前正式单元并保留原始样本；无 throttling、停止调度后 120 秒内水位恢复且下一独立单元从空项目开始。 |
+| `memory.sut_rss_peak` | SUT 容器 RSS 合计峰值 `<=6 GiB`；容器 `memory.current` 合计 `<=8 GiB`，分别记录每服务峰值；两次持续运行稳定窗口绝对增长 `<=512 MiB`、斜率 `<=16 MiB/min`。 | OOM、非预期重启或连续 3 个样本超限立即停止并标为失败；正常关停且无 OOM、窗口趋势均在限值内才恢复。 |
+| `queue.business` | Outbox pending 正常峰值 `<=100`；Rabbit ready `<=50`、unacked `<=16`；Kafka 观测 group lag 合计峰值 `<=9000`。 | 记录拒绝、重试、丢弃或背压的计数；接受事实不能丢失，停止请求后独立业务/观测水位均在 120 秒内闭合。 |
+| `queue.trace` | Trace SDK queue capacity 固定 `2048`，Collector file exporter 单轮观察的队列/失败计数均记录；正常窗口不允许业务错误，允许尽力而为 span 在出口故障时有界丢弃。 | Collector 出口失败只触发 bounded retry/drop 和故障 receipt，不得阻塞或丢失已接受业务事件；恢复后 Collector 与业务探针在 120 秒内闭合。 |
+| `disk.host` | 每个归属项目记录真实卷 used/free；宿主 free bytes `>=90 GiB`，逻辑水位 `>=95 GiB` 为 warning；不得用逻辑水位代替 OS/容器配额。 | 达到 warning 停止增长型 fixture 并记录；达到 safety 水位立即停止本单元并安全清理，禁止填满宿主或执行 global prune。 |
+| `disk.observability_growth` | 观测 ES 真实卷增长 `<=32 MiB/min`；Trace 目录单文件 `<=16 MiB`、总量 `<=64 MiB`、文件总数 `<=4`；按真实 docs/store/卷读数报告压缩、索引放大和回收误差。 | 触发保留/轮转合同，超限保存原始读数并失败；只删除归属目录，其他项目和业务索引不进入清理请求。 |
+| `overhead.observability` | O0/O1/O2/O3 各三重复：正常观测相对观测关闭的业务 P99 绝对差 `<=150 ms` 且比例 `<=25%`；SUT CPU 差 `<=1.50 cores`、RSS 差 `<=512 MiB`；Trace 关闭/100% 采样业务 P99 差 `<=200 ms`、CPU 差 `<=1.00 core`、RSS 差 `<=256 MiB`。 | 只报告已登记组件集合的成本，不外推全站观测成本；任一组合缺原始三重复、负载不一致或基线为零而未使用绝对阈值则 incomplete。 |
+| `overhead.sampler` | sampler 开启/关闭各三重复，使用相同低开销业务计数源；观察者 CPU 峰值 `<=0.75 core`，业务 P99 绝对差 `<=50 ms`，采样缺样 `<=1%`。 | 不得以“没有记录”记为零开销；超限保留两套原始记录，业务结果仍按独立业务门禁判定。 |
+
+Compose 的实际 limit 也在本批实现并由 B01 inspect 核对；冻结服务额度为：MySQL
+`2.0 CPU/1536 MiB`、Redis `0.5/256 MiB`、RabbitMQ `1.0/512 MiB`、业务与观测
+Elasticsearch 各 `2.0/1536 MiB`、Kafka `1.5/768 MiB`、VictoriaMetrics
+`0.75/512 MiB`、Backend 每副本 `2.0/512 MiB`、Business Worker 与 Search
+Indexer 每副本 `0.75/384 MiB`、Router 每副本 `0.5/256 MiB`、Marshaller 每副本
+`0.75/384 MiB`、Monitor `0.75/384 MiB`、Redis Exporter `0.25/128 MiB`、
+Frontend/Admin Frontend 各 `0.25/128 MiB`、验收 Collector `0.25/128 MiB`。
+一次性 migrate/search-init/admin-role/acceptance 使用同一组构建限制但不计入并发
+稳定窗口；B01 必须证明渲染后的 `NanoCpus` 与 `Memory` 均生效。
+
+#### B 案例、U 清单与固定证据位置
+
+每个 B 案例都必须生成独立目录 `/var/tmp/gopulse-phase20-05-20261001/budget/<case_id>/`，
+包含 `receipt.json`、原始样本、候选绑定和清理回执；以下动作与位置在执行中不可删改：
+
+| case_id | 冻结操作、实际判据与证据位置 |
+| --- | --- |
+| B01 | `docker compose config --format json`、逐服务 `docker inspect`、runtime env/队列配置重算 CPU/内存/连接/队列；输出 `budget-contract.json`、`compose.json`、`inspect.json`。 |
+| B02 | 独立空项目以 200 RPS 预热 15 秒、测量 60 秒，5 秒采样，停止后最多排空 30 秒，再独立执行业务/Logs/Metrics/Events 120 秒恢复；输出 `normal-window.jsonl`、`resources.jsonl`、`recovery.jsonl` 和闭合 receipt。 |
+| B03 | 同一宿主、recipe、200 RPS、15+60 秒和三重复，固定执行 O0=`业务+HTTP基准，Trace/Router/Marshaller/Monitor 关闭`、O1=`正常观测+Trace关闭+sampler开启`、O2=`正常观测+Trace 100%+sampler开启`、O3=`正常观测+Trace关闭+sampler关闭`；O3 使用独立低开销计数源，不能以无记录代替。四个组合均输出原值、median/min/max/CV、差值和门禁。 |
+| B04 | 在独立 200 RPS 故障窗口停止验收 Collector 60 秒，验证 Trace queue/导出失败和业务不阻塞；另在可清理的短窗口暂停 Business Worker 10 秒制造 Rabbit ready backlog 后恢复，验证接受事实、重试/背压、最终水位；输出注入/恢复时刻、计数、故障 receipt。 |
+| B05 | 只在 `phase20_trace_data` 归属卷/fixture 触发 64 MiB 轮转水位，记录 volume used/free、文件列表和 Collector 回执；不写宿主根目录、不删除其他项目；输出 `disk-waterline.json` 与原始目录清单。 |
+| B06 | 在 B04 产生可控积压后对归属 worker/Collector 发送 SIGTERM，核对 grace/lease/offset/业务事实、排空和归属清理；保留 `shutdown.json`、容器状态和 cleanup inventory，禁止 global prune。 |
+| B07 | 运行固定 U1～U4 短预检：启动、recipe、负载、三通道水位、C01 链路、R02/R03/R04/R06/R07/R08 生命周期、B04 故障、B06 关停、发布清单与归属清理；输出 `/var/tmp/gopulse-phase20-05-20261001/preflight/`，不能引用本批正式结果。 |
+
+U1～U4 的固定内容分别为：U1 执行 50/100/150/200 RPS 四阶梯三重复；U2 执行两次
+相同 recipe/200 RPS 的 60 分钟运行，预热不计时，第 15 分钟执行上表 Collector 故障
+60 秒，结束后排空并恢复；U3 执行当前候选的 C01 与 R01～R08，只有候选/配置/依赖/
+环境均可证明未变时才逐项引用前序 receipt；U4 重算候选 manifest、所有原始 digest、
+脱敏白名单、凭据/归属泄漏和每个清理 inventory。U1～U4 的证据分别固定在
+`/var/tmp/gopulse-phase20-05-20261001/closure/u1/` 至 `u4/`，06 只能读取本节冻结合同。
+
+#### 依赖、构建配方与发布清单
+
+第三方镜像按 `deploy/release/third-party.lock.json` 的 `linux/amd64` digest 冻结：
+MySQL `sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b`、
+Redis `sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f`、
+RabbitMQ `sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245`、
+Elasticsearch `sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7`、
+Kafka `sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26`、
+VictoriaMetrics `sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19`，
+Collector 使用上表 04 digest。自研制品不在 05 开工前伪造 digest；05 预检从实现完成
+revision 以 `GOPULSE_VERSION=2.2.5`、`GOPULSE_REVISION=<git revision>`、
+`GOPULSE_IMAGE_TAG=phase20-05-<short revision>` 构建 backend、worker、search-indexer、
+router、marshaller、monitor、redis-exporter、两前端和 acceptance，并将实际 image ID
+写入预检 manifest。06 必须从含 05 完成提交的 main 重新构建最终自研制品。
+
+05 允许发布到仓库的脱敏集合冻结为：同名实施日志、`docs/observability-resource-budgets.md`、
+`docs/phase20-acceptance-matrix.md`、`docs/phase20-capacity-methodology.md`、预算/profile/
+schema、runtime/Trace 配置、`README.md`、`docs/capability-status.md`、六处阶段状态/版本元数据、
+严格 verifier 生成的 `summary.json`/`evidence-manifest.json`；原始业务身份、正文、凭据、
+容器环境和私有 `/var/tmp` 证据只保留在仓库外。发布前必须以来源 digest 校验该白名单，不能
+把未构建的最终自研镜像 digest 写入本批日志。
 
 ## 3. 允许变更文件与验收
 
