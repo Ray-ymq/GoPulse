@@ -35,7 +35,7 @@
         "recipe_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
       }
     },
-    "resource_budget_contract_id": { "const": "phase20-05-budget-contract-20261001" },
+    "resource_budget_contract_id": { "const": "phase20-05-budget-contract-20261001-r2" },
     "recipe": {
       "type": "object",
       "additionalProperties": false,

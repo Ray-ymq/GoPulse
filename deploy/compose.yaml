@@ -285,8 +285,8 @@ services:
   mysql:
     image: ${GOPULSE_MYSQL_IMAGE:-mysql:8.4.0}
     restart: on-failure:5
-    cpus: "2.0"
-    mem_limit: 1536m
+    cpus: "2.5"
+    mem_limit: 2048m
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
       MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
@@ -326,8 +326,8 @@ services:
   rabbitmq:
     image: ${GOPULSE_RABBITMQ_IMAGE:-rabbitmq:3.13.3-management-alpine}
     restart: on-failure:5
-    cpus: "1.0"
-    mem_limit: 512m
+    cpus: "2.0"
+    mem_limit: 768m
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
@@ -346,7 +346,7 @@ services:
     image: ${GOPULSE_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:9.5.2}
     restart: on-failure:5
     cpus: "2.0"
-    mem_limit: 1536m
+    mem_limit: 2048m
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -367,7 +367,7 @@ services:
     image: ${GOPULSE_OBSERVABILITY_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:9.5.2}
     restart: on-failure:5
     cpus: "2.0"
-    mem_limit: 1536m
+    mem_limit: 2048m
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -427,8 +427,8 @@ services:
       target: backend
       args: *image-build-args
     restart: on-failure:5
-    cpus: "2.0"
-    mem_limit: 512m
+    cpus: "4.5"
+    mem_limit: 768m
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=80m,mode=1777
@@ -476,8 +476,8 @@ services:
       target: backend
       args: *image-build-args
     restart: on-failure:5
-    cpus: "2.0"
-    mem_limit: 512m
+    cpus: "4.5"
+    mem_limit: 768m
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=80m,mode=1777
@@ -525,8 +525,8 @@ services:
       target: business-worker
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.75"
-    mem_limit: 384m
+    cpus: "1.0"
+    mem_limit: 512m
     read_only: true
     stop_grace_period: 15s
     environment:
@@ -564,8 +564,8 @@ services:
       target: business-worker
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.75"
-    mem_limit: 384m
+    cpus: "1.0"
+    mem_limit: 512m
     read_only: true
     stop_grace_period: 15s
     environment:
@@ -603,8 +603,8 @@ services:
       target: search-indexer
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.75"
-    mem_limit: 384m
+    cpus: "1.0"
+    mem_limit: 512m
     read_only: true
     stop_grace_period: 15s
     environment:
@@ -646,8 +646,8 @@ services:
       target: search-indexer
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.75"
-    mem_limit: 384m
+    cpus: "1.0"
+    mem_limit: 512m
     read_only: true
     stop_grace_period: 15s
     environment:
@@ -691,7 +691,7 @@ services:
     tmpfs:
       - /tmp
     restart: on-failure:5
-    cpus: "0.25"
+    cpus: "0.5"
     mem_limit: 128m
     stop_grace_period: 10s
     networks:
@@ -714,7 +714,7 @@ services:
     tmpfs:
       - /tmp
     restart: on-failure:5
-    cpus: "0.25"
+    cpus: "0.5"
     mem_limit: 128m
     stop_grace_period: 10s
     depends_on:
@@ -781,8 +781,8 @@ services:
   kafka:
     image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
     restart: on-failure:5
-    cpus: "1.5"
-    mem_limit: 768m
+    cpus: "2.5"
+    mem_limit: 1024m
     hostname: kafka
     environment:
       KAFKA_NODE_ID: 1
@@ -844,8 +844,8 @@ services:
   victoriametrics:
     image: ${GOPULSE_VICTORIAMETRICS_IMAGE:-victoriametrics/victoria-metrics:v1.151.0}
     restart: on-failure:5
-    cpus: "0.75"
-    mem_limit: 512m
+    cpus: "1.0"
+    mem_limit: 768m
     environment:
       VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
     secrets:
@@ -879,7 +879,7 @@ services:
       target: router
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.5"
+    cpus: "0.75"
     mem_limit: 256m
     read_only: true
     stop_grace_period: 15s
@@ -914,7 +914,7 @@ services:
       target: router
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.5"
+    cpus: "0.75"
     mem_limit: 256m
     read_only: true
     stop_grace_period: 15s
@@ -951,7 +951,7 @@ services:
       target: marshaller
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.75"
+    cpus: "1.0"
     mem_limit: 384m
     read_only: true
     stop_grace_period: 15s
@@ -990,7 +990,7 @@ services:
       target: marshaller
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.75"
+    cpus: "1.0"
     mem_limit: 384m
     read_only: true
     stop_grace_period: 15s
@@ -1033,8 +1033,8 @@ services:
       target: monitor
       args: *image-build-args
     restart: on-failure:5
-    cpus: "0.75"
-    mem_limit: 384m
+    cpus: "1.5"
+    mem_limit: 512m
     read_only: true
     tmpfs:
       - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
@@ -1078,7 +1078,7 @@ services:
       target: redis-exporter
       args: *image-build-args
     restart: "no"
-    cpus: "0.25"
+    cpus: "0.5"
     mem_limit: 128m
     read_only: true
     stop_grace_period: 10s

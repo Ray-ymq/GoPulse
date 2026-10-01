@@ -63,7 +63,7 @@ func TestDiagnosticProfileRequiresIndependentFrozenRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.ResourceBudget.Path != "deploy/phase20-resource-budgets.json" || profile.ResourceBudget.Schema != "deploy/phase20-resource-budgets.schema.json" || profile.ResourceBudget.ContractID != "phase20-05-budget-contract-20261001" {
+	if profile.ResourceBudget.Path != "deploy/phase20-resource-budgets.json" || profile.ResourceBudget.Schema != "deploy/phase20-resource-budgets.schema.json" || profile.ResourceBudget.ContractID != "phase20-05-budget-contract-20261001-r2" {
 		t.Fatalf("resource budget=%+v", profile.ResourceBudget)
 	}
 	profile.Diagnostic.DrainSeconds = 31

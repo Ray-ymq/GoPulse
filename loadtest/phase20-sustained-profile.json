@@ -7,7 +7,7 @@
     "schema": "loadtest/phase20-capacity-profile.schema.json",
     "recipe_digest": "sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14"
   },
-  "resource_budget_contract_id": "phase20-05-budget-contract-20261001",
+  "resource_budget_contract_id": "phase20-05-budget-contract-20261001-r2",
   "recipe": {
     "seed": 18002005,
     "digest": "sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14",
