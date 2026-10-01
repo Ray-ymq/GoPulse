@@ -508,7 +508,7 @@ class LightweightResourceCounter:
             raise RuntimeError("lightweight resource counter failed: " + self.failure)
 
     def _capture(self) -> list[dict[str, Any]]:
-        ids = require(_compose_args(self.project, self.env_file, self.files) + ["ps", "-q"], "list lightweight counter containers").split()
+        ids = require(command(_compose_args(self.project, self.env_file, self.files) + ["ps", "-q"], timeout=30), "list lightweight counter containers").split()
         if not ids:
             raise Incomplete("lightweight counter has no owned containers")
         inspected = json.loads(require(command(["docker", "inspect", *ids], timeout=30), "inspect lightweight counter ownership"))
