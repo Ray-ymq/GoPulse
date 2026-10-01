@@ -91,9 +91,10 @@ def container_budget(item, current_bytes):
     # exports a more direct current value, retain it as a separate fact.
     return result
 
-def sampler_process_main(project, env_file, files, environment, profile, run_id, path, stop_event):
+def sampler_process_main(project, env_file, files, environment, profile, run_id, path, stop_event, load_pid=None):
     """Run the observer in a separate process so its CPU is measurable independently."""
     sampler = Sampler(project, env_file, files, environment, profile, run_id, path)
+    sampler.set_load_pid(load_pid)
     sampler.start()
     while not stop_event.wait(0.2):
         if sampler.thread and not sampler.thread.is_alive():

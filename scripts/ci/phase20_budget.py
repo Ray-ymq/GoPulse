@@ -705,16 +705,20 @@ class ProcessSampler:
         self.process: multiprocessing.Process | None = None
         self.monitor_stop = threading.Event()
         self.monitor_thread: threading.Thread | None = None
+        self.load_pid: int | None = None
         self.cpu_samples: list[float] = []
         self.cpu_seconds = 0.0
         self.records: list[dict[str, Any]] = []
+
+    def set_load_pid(self, pid: int | None) -> None:
+        self.load_pid = pid
 
     def start(self) -> None:
         from phase20_sampler import sampler_process_main
 
         self.process = multiprocessing.Process(
             target=sampler_process_main,
-            args=(self.project, self.env_file, self.files, self.environment, self.profile, self.run_id, self.path, self.stop_event),
+            args=(self.project, self.env_file, self.files, self.environment, self.profile, self.run_id, self.path, self.stop_event, self.load_pid),
             name="phase20-independent-sampler",
         )
         self.process.start()
@@ -911,8 +915,10 @@ def _go_overhead_trial(
         ]
         shutil.copyfile(manifest_path, trial_dir / "candidate-manifest.json")
         with (trial_dir / "load.stdout").open("x") as stdout, (trial_dir / "load.stderr").open("x") as stderr:
-            counter.start()
             process = subprocess.Popen(args, stdout=stdout, stderr=stderr)
+            if hasattr(counter, "set_load_pid"):
+                counter.set_load_pid(process.pid)
+            counter.start()
             load_started = time.monotonic()
             deadline = load_started + trial_warmup + trial_measurement + 180
             while process.poll() is None:
