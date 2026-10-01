@@ -155,7 +155,7 @@ def start_collector(name: str, volume: str) -> tuple[int, dict[str, object]]:
 
 
 def send_trace_spans(endpoint: str, count: int = 15000) -> str:
-    source = f'''package main
+    source = '''package main
 
 import (
     "context"
@@ -172,30 +172,35 @@ import (
     "google.golang.org/grpc/credentials/insecure"
 )
 
-func main() {{
+func main() {
     endpoint := os.Args[1]
     count := 0
-    if _, err := fmt.Sscanf(os.Args[2], "%d", &count); err != nil {{ panic(err) }}
+    if _, err := fmt.Sscanf(os.Args[2], "%d", &count); err != nil { panic(err) }
     conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
-    if err != nil {{ panic(err) }}
+    if err != nil { panic(err) }
     defer conn.Close()
     client := collector.NewTraceServiceClient(conn)
     payload := strings.Repeat("x", 2048)
-    for start := 0; start < count; start += 100 {{
+    for start := 0; start < count; start += 100 {
         spans := make([]*trace.Span, 0, 100)
-        for i := start; i < start+100 && i < count; i++ {{
+        for i := start; i < start+100 && i < count; i++ {
             id := make([]byte, 16); id[15] = byte(i)
             spanID := make([]byte, 8); spanID[7] = byte(i)
-            spans = append(spans, &trace.Span{{
+            spans = append(spans, &trace.Span{
                 TraceId: id, SpanId: spanID, Name: "phase20-retention-budget",
                 StartTimeUnixNano: uint64(time.Now().UnixNano()), EndTimeUnixNano: uint64(time.Now().UnixNano()+1000),
-                Attributes: []*common.KeyValue{{{{Key: "bounded_payload", Value: &common.AnyValue{{Value: &common.AnyValue_StringValue{{StringValue: payload}}}}}}}},
-            }})
-        }}
-        _, err = client.Export(context.Background(), &collector.ExportTraceServiceRequest{{ResourceSpans: []*trace.ResourceSpans{{{{Resource: &resource.Resource{{Attributes: []*common.KeyValue{{{{Key: "service.name", Value: &common.AnyValue{{Value: &common.AnyValue_StringValue{{StringValue: "phase20-retention"}}}}}}}}}}}}, ScopeSpans: []*trace.ScopeSpans{{{{Spans: spans}}}}}}}}}})
-        if err != nil {{ panic(err) }}
-    }}
-}}
+                Attributes: []*common.KeyValue{{Key: "bounded_payload", Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: payload}}}},
+            })
+        }
+        request := &collector.ExportTraceServiceRequest{
+            ResourceSpans: []*trace.ResourceSpans{
+                {Resource: &resource.Resource{Attributes: []*common.KeyValue{{Key: "service.name", Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: "phase20-retention"}}}}}, ScopeSpans: []*trace.ScopeSpans{{Spans: spans}}},
+            },
+        }
+        _, err = client.Export(context.Background(), request)
+        if err != nil { panic(err) }
+    }
+}
 '''
     temporary = Path(tempfile.mkstemp(prefix="phase20-retention-", suffix=".go")[1])
     temporary.write_text(source, encoding="utf-8")
