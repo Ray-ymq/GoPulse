@@ -274,6 +274,7 @@ type CapacityProfile struct {
 	SchemaVersion          string               `json:"schema_version"`
 	ProfileID              string               `json:"profile_id"`
 	TargetCandidateVersion string               `json:"target_candidate_version"`
+	ResourceBudget         ResourceBudgetRef    `json:"resource_budget"`
 	Host                   HostProfile          `json:"host"`
 	Recipe                 RecipeProfile        `json:"recipe"`
 	Workload               WorkloadProfile      `json:"workload"`
@@ -283,6 +284,12 @@ type CapacityProfile struct {
 	StopConditions         StopConditionProfile `json:"stop_conditions"`
 	Sampling               SamplingProfile      `json:"sampling"`
 	Statistics             StatisticsProfile    `json:"statistics"`
+}
+
+type ResourceBudgetRef struct {
+	Path       string `json:"path"`
+	Schema     string `json:"schema"`
+	ContractID string `json:"contract_id"`
 }
 
 type OutcomeSummary struct {
@@ -438,6 +445,11 @@ func LoadProfile(path string) (CapacityProfile, string, error) {
 func ValidateProfile(profile CapacityProfile) error {
 	if (profile.SchemaVersion != CapacityProfileSchemaVersion && profile.SchemaVersion != DiagnosticProfileSchemaVersion) || !validProfileID(profile.ProfileID) || !validVersion(profile.TargetCandidateVersion) {
 		return errors.New("capacity profile identity is invalid")
+	}
+	if profile.SchemaVersion == DiagnosticProfileSchemaVersion && (profile.ResourceBudget.Path != "deploy/phase20-resource-budgets.json" ||
+		profile.ResourceBudget.Schema != "deploy/phase20-resource-budgets.schema.json" ||
+		profile.ResourceBudget.ContractID != "phase20-05-budget-contract-20261001") {
+		return errors.New("capacity profile resource budget binding is invalid")
 	}
 	if profile.SchemaVersion == DiagnosticProfileSchemaVersion {
 		d := profile.Diagnostic
