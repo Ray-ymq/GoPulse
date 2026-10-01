@@ -6,19 +6,27 @@
     "lockfile": "deploy/release/third-party.lock.json",
     "platform": "linux/amd64",
     "images": {
-      "mysql": "mysql:8.4.0@sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b",
-      "redis": "redis:7.2.5-alpine@sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f",
-      "rabbitmq": "rabbitmq:3.13.3-management-alpine@sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245",
-      "elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2@sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7",
-      "kafka": "apache/kafka:4.3.1@sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26",
-      "victoria-metrics": "victoriametrics/victoria-metrics:v1.151.0@sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19",
+      "mysql": "mysql:8.4.0@sha256:dab7049abafe3a0e12cbe5e49050cf149881c0cd9665c289e5808b9dad39c9e0",
+      "redis": "redis:7.2.5-alpine@sha256:6aaf3f5e6bc8a592fbfe2cccf19eb36d27c39d12dab4f4b01556b7449e7b1f44",
+      "rabbitmq": "rabbitmq:3.13.3-management-alpine@sha256:45b2e137b64baeff1f7f4230588be8f1a08b16939a4b64f5da57c59e5dcd3282",
+      "elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2@sha256:9c1e1afc2bda921b35025e21c72ec6e392266995aa35ad6a47887363592718be",
+      "kafka": "apache/kafka:4.3.1@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837",
+      "victoria-metrics": "victoriametrics/victoria-metrics:v1.151.0@sha256:6d164540a04f49ba4e696cbdb70f9fee78be1e94b8f2a1292743a0b1ab8275bd",
       "trace-collector": "otel/opentelemetry-collector-contrib:0.138.0@sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c"
+    },
+    "platform_digests": {
+      "mysql": "sha256:3e5649c69e6d75cf88fc6f8f39f877453faa4e5167b5e648007e45f54bb17f6b",
+      "redis": "sha256:015185fd658093359cc83aa8396e06c1f39ba36df3c93f79528ec23ab409e73f",
+      "rabbitmq": "sha256:c01be497320fe7f7dbd599f4cea0b47098e397f122899d016638972d52c7e245",
+      "elasticsearch": "sha256:4dd70111e8be29321bb7cdbc621032a77d5aec426e5f46522e05072056f912f7",
+      "kafka": "sha256:ccd1314e47ec76909e01f86308b4dcf2064f19f7c89759234322314b0e319e26",
+      "victoria-metrics": "sha256:fe3c311a3f1cddf52985dae7ceaf7de8aa111f5c5f591c81b6ab03b19bbeba19"
     }
   },
   "build_recipe": {
     "platform": "linux/amd64",
     "dockerfiles": {
-      "application": "deploy/docker/application.Dockerfile",
+      "application": "deploy/docker/backend.Dockerfile",
       "observability": "deploy/docker/observability.Dockerfile",
       "frontend": "deploy/docker/frontend.Dockerfile",
       "admin_frontend": "deploy/docker/admin-frontend.Dockerfile",
@@ -26,7 +34,8 @@
     },
     "targets": ["backend", "business-worker", "search-indexer", "router", "marshaller", "monitor", "redis-exporter", "frontend", "admin-frontend", "acceptance"],
     "tag_pattern": "phase20-05-<git revision prefix>",
-    "build_args": ["VERSION", "REVISION", "TARGETARCH"],
+    "build_args": ["VERSION", "REVISION", "TARGETARCH", "GOPROXY", "UPDATE_VERSION"],
+    "network_mode": "host",
     "serial_build": true,
     "source_revision": "candidate manifest revision"
   },

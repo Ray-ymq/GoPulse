@@ -98,14 +98,7 @@ def build_candidate_manifest(path: Path, revision: str) -> dict[str, Any]:
     image_refs = {name: "gopulse/" + name + ":" + tag for name in SELF_IMAGE_NAMES if name != "acceptance"}
     image_refs["acceptance"] = "gopulse/acceptance:" + tag
     dependency_refs = {name: value for name, value in contract["dependencies"]["images"].items() if name != "trace-collector"}
-    base_refs = {
-        "mysql": "mysql:8.4.0",
-        "redis": "redis:7.2.5-alpine",
-        "rabbitmq": "rabbitmq:3.13.3-management-alpine",
-        "elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:9.5.2",
-        "kafka": "apache/kafka:4.3.1",
-        "victoria-metrics": "victoriametrics/victoria-metrics:v1.151.0",
-    }
+    base_refs = {name: value.split("@", 1)[0] for name, value in dependency_refs.items()}
     values = legacy.parse_env(ROOT / ".env.example")
     values.update({
         "GOPULSE_VERSION": budget.MANIFEST_VERSION,
@@ -130,22 +123,36 @@ def build_candidate_manifest(path: Path, revision: str) -> dict[str, Any]:
     before = legacy.resource_inventory()
     project = legacy.project_name()
     try:
-        for service in ("backend", "business-worker", "search-indexer", "admin-frontend", "frontend", "router", "marshaller", "monitor", "redis-exporter", "acceptance"):
-            result = legacy.compose(project, env_path, [budget.COMPOSE_PATH, override], "build", service, timeout=3600)
-            legacy.require(result, "build candidate image " + service)
+        build_specs = [
+            ("backend", "deploy/docker/backend.Dockerfile", "backend"),
+            ("business-worker", "deploy/docker/backend.Dockerfile", "business-worker"),
+            ("search-indexer", "deploy/docker/backend.Dockerfile", "search-indexer"),
+            ("admin-frontend", "deploy/docker/admin-frontend.Dockerfile", None),
+            ("frontend", "deploy/docker/frontend.Dockerfile", None),
+            ("router", "deploy/docker/observability.Dockerfile", "router"),
+            ("marshaller", "deploy/docker/observability.Dockerfile", "marshaller"),
+            ("monitor", "deploy/docker/observability.Dockerfile", "monitor"),
+            ("redis-exporter", "deploy/docker/observability.Dockerfile", "redis-exporter"),
+            ("acceptance", "deploy/docker/acceptance.Dockerfile", None),
+        ]
+        for service, dockerfile, target in build_specs:
+            args = ["docker", "build", "--network", "host", "--platform", "linux/amd64", "--file", str(ROOT / dockerfile), "--build-arg", "VERSION=" + budget.MANIFEST_VERSION, "--build-arg", "REVISION=" + revision, "--build-arg", "TARGETARCH=amd64", "--build-arg", "GOPROXY=" + values.get("GOPROXY", "https://goproxy.cn,direct"), "--build-arg", "UPDATE_VERSION=" + values.get("GOPULSE_UPDATE_VERSION", "")]
+            if target:
+                args.extend(["--target", target])
+            args.extend(["--tag", image_refs[service], str(ROOT)])
+            legacy.require(subprocess.run(args, cwd=ROOT, text=True, capture_output=True, timeout=3600), "build candidate image " + service)
         self_artifacts = {name: image_inspect(ref) for name, ref in image_refs.items()}
         dependency_artifacts = {}
         resolved_refs = {}
         for name, base_ref in base_refs.items():
             inspected = ensure_image(base_ref)
-            expected_id = "sha256:" + contract["dependencies"]["images"][name].rsplit("@sha256:", 1)[1]
-            if inspected["id"] != expected_id:
-                raise Incomplete("third-party platform digest drift: " + name)
-            lock_ref = json.loads((ROOT / contract["dependencies"]["lockfile"]).read_text(encoding="utf-8"))["victoria-metrics" if name == "victoria-metrics" else name]["ref"]
-            if not any(value == lock_ref for value in inspected["repo_digests"]):
+            lock_ref = dependency_refs[name]
+            repository = base_ref.rsplit(":", 1)[0]
+            normalized_ref = repository + "@" + lock_ref.split("@", 1)[1]
+            if normalized_ref not in inspected["repo_digests"]:
                 raise Incomplete("third-party manifest digest drift: " + name)
             resolved_refs[name] = lock_ref
-            dependency_artifacts[name] = {"ref": lock_ref, "id": inspected["id"], "platform": "linux/amd64"}
+            dependency_artifacts[name] = {"ref": lock_ref, "id": inspected["id"], "platform": "linux/amd64", "platform_digest": contract["dependencies"]["platform_digests"][name]}
         collector = ensure_image(COLLECTOR_REF)
         after = legacy.resource_inventory()
         if before != after:
