@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -199,11 +200,15 @@ def check_candidate_artifacts(manifest: dict[str, Any]) -> dict[str, Any]:
     images = manifest.get("images") or {}
     if set(images) != required:
         raise Incomplete("closure manifest self-built image set is incomplete")
-    for group in ("images", "third_party"):
-        for name, value in (manifest.get(group) or {}).items():
-            ref = value.get("ref") if isinstance(value, dict) else value
-            if not isinstance(ref, str) or "@sha256:" not in ref:
-                raise Incomplete("closure artifact is not immutable: " + name)
+    for name, value in (manifest.get("images") or {}).items():
+        image_id = value.get("id") if isinstance(value, dict) else None
+        if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+            raise Incomplete("closure self-built image ID is not immutable: " + name)
+    for name, value in (manifest.get("third_party") or {}).items():
+        ref = value.get("ref") if isinstance(value, dict) else value
+        image_id = value.get("id") if isinstance(value, dict) else None
+        if not isinstance(ref, str) or "@sha256:" not in ref or not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+            raise Incomplete("closure third-party artifact is not immutable: " + name)
     expected_third_party = {name for name in budget.load_contract()["dependencies"]["images"] if name != "trace-collector"}
     if set(manifest.get("third_party", {})) != expected_third_party:
         raise Incomplete("closure manifest third-party image set is incomplete")

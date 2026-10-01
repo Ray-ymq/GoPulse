@@ -18,7 +18,7 @@ class ClosureTests(unittest.TestCase):
         manifest = {"images": images, "third_party": third_party, "trace_collector": {"ref": "otel/collector:test@sha256:" + "c" * 64, "id": "sha256:" + "c" * 64}}
         result = closure.check_candidate_artifacts(manifest)
         self.assertEqual(result["status"], "pass")
-        images["backend"]["ref"] = "gopulse/backend:test"
+        images["backend"]["id"] = "not-a-digest"
         with self.assertRaises(closure.Incomplete):
             closure.check_candidate_artifacts(manifest)
 
