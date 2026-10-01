@@ -24,6 +24,13 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(capacity["resource_budget"]["contract_id"], contract["contract_id"])
         self.assertEqual(sustained["resource_budget_contract_id"], contract["contract_id"])
 
+    def test_candidate_env_declares_recipe_bootstrap_user(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate.env"
+            values = budget._candidate_env({"version": "2.2.5", "revision": "a" * 40}, output)
+            self.assertEqual(values["GOPULSE_BOOTSTRAP_USER_ID"], "1")
+            self.assertIn("GOPULSE_BOOTSTRAP_USER_ID=1\n", output.read_text())
+
     def test_resource_summary_recomputes_peak_and_minimum(self):
         contract = budget.load_contract()
         rows = []

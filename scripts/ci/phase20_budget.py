@@ -385,6 +385,7 @@ def _candidate_env(manifest: dict[str, Any], output: Path) -> dict[str, str]:
         "GOPULSE_REVISION": revision,
         "GOPULSE_IMAGE_TAG": "phase20-05-" + revision[:12],
         "GOPULSE_RUNTIME_MODE": "container",
+        "GOPULSE_BOOTSTRAP_USER_ID": "1",
         "PUBLISHED_HOST": "127.0.0.1",
         "FRONTEND_PORT": "19080",
         "HTTP_PORT": "19090",
