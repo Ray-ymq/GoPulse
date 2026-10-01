@@ -441,7 +441,7 @@ def run_b02(root: Path, manifest_path: Path, manifest: dict[str, Any], contract:
     shutil.copyfile(CAPACITY_PROFILE_PATH, work / "profile.json")
     recipe_binary, load_binary = legacy.build_loadtest(work)
     cell = diagnostic.run_cell(profile, binding, candidate, recipe_binary, load_binary, work, 1, 3)
-    resources = root / cell["raw"]["resources"]["path"]
+    resources = work / cell["raw"]["resources"]["path"]
     summary = summarize_resources(read_jsonl(resources), contract)
     return {"case_id": "B02", "status": "pass", "cell": cell, "resource_summary": summary, "evidence_path": str(resources)}
 
