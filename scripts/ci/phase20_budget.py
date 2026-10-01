@@ -849,6 +849,7 @@ def _go_overhead_trial(
 ) -> dict[str, Any]:
     import phase19_capacity as legacy
     import phase20_diagnostic as diagnostic
+    import phase20_evidence as evidence
 
     trial_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     env_file = trial_dir / "candidate.env"
@@ -925,7 +926,7 @@ def _go_overhead_trial(
         counter_stopped = counter
         report = read_json(load_dir / "load-report.json")
         ledger = read_jsonl(load_dir / "ledger.jsonl")
-        if not diagnostic.recompute_load(ledger, report, profile):
+        if not evidence.recompute_load(ledger, report, profile):
             raise Incomplete("Go overhead load did not satisfy its business workload gate")
         terminals = [row for row in ledger if row.get("record") == "terminal" and row.get("window") == "measurement"]
         dispatch_latencies = []
