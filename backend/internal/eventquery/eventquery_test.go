@@ -40,6 +40,23 @@ func TestParseOptionsUsesBoundedKnownVocabulary(t *testing.T) {
 	}
 }
 
+func TestRetentionWindowKeepsExpiredSlicesAsValidQueries(t *testing.T) {
+	if RetentionDays != 7 || RetentionWindow != 7*24*time.Hour {
+		t.Fatalf("retention contract drift: days=%d window=%s", RetentionDays, RetentionWindow)
+	}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	options, err := ParseOptions(url.Values{
+		"from": {"2026-09-22T00:00:00Z"},
+		"to":   {"2026-09-22T12:00:00Z"},
+	}, now)
+	if err != nil {
+		t.Fatalf("expired historical slice rejected: %v", err)
+	}
+	if options.Filters.From != "2026-09-22T00:00:00Z" || options.Filters.To != "2026-09-22T12:00:00Z" {
+		t.Fatalf("filters=%+v", options.Filters)
+	}
+}
+
 type fakeRepository struct {
 	openErr    error
 	search     SearchResult

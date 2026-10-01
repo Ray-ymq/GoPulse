@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
 func eventEnvelope() envelope.Envelope {
@@ -45,5 +46,21 @@ func TestTransformerRejectsUnknownDuplicateAndMismatchedPayload(t *testing.T) {
 		if _, err := (Transformer{MaxBytes: 16 * 1024}).Transform(message); envelope.Code(err) != "invalid_event_payload" {
 			t.Fatalf("payload=%s error=%v", payload, err)
 		}
+	}
+}
+
+func TestTransformerAppliesUTCRetentionBeforeBuildingWrite(t *testing.T) {
+	message := eventEnvelope()
+	message.Timestamp = time.Date(2026, 9, 23, 8, 0, 0, 123000000, time.UTC)
+	message.RawPayload = json.RawMessage(strings.Replace(string(message.RawPayload), "2026-09-05", "2026-09-23", 1))
+	policy := retention.DefaultConfig().Events
+	transformer := Transformer{Retention: &policy, Now: func() time.Time { return time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC) }}
+	if _, err := transformer.Transform(message); envelope.Code(err) != "expired_event_retention" {
+		t.Fatalf("expired error=%v code=%q", err, envelope.Code(err))
+	}
+	message.Timestamp = time.Date(2026, 9, 24, 8, 0, 0, 123000000, time.UTC)
+	message.RawPayload = json.RawMessage(strings.Replace(string(message.RawPayload), "2026-09-23", "2026-09-24", 1))
+	if _, err := transformer.Transform(message); err != nil {
+		t.Fatalf("cutoff date rejected: %v", err)
 	}
 }

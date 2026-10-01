@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "1",
-  "product_version": "2.2.2",
+  "product_version": "2.2.4",
   "platform": "linux/amd64",
   "authority": {
     "source": "deploy/runtime-contracts.json",
@@ -2008,6 +2008,15 @@
           "aliases": []
         },
         {
+          "key": "MARSHALLER_EVENT_RETENTION_DAYS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "7",
+          "compose_value": "${MARSHALLER_EVENT_RETENTION_DAYS:-7}",
+          "aliases": []
+        },
+        {
           "key": "MARSHALLER_EVENT_TEMPLATE",
           "type": "string",
           "sensitive": false,
@@ -2098,6 +2107,15 @@
           "aliases": []
         },
         {
+          "key": "MARSHALLER_LOG_RETENTION_DAYS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "7",
+          "compose_value": "${MARSHALLER_LOG_RETENTION_DAYS:-7}",
+          "aliases": []
+        },
+        {
           "key": "MARSHALLER_LOG_TEMPLATE",
           "type": "string",
           "sensitive": false,
@@ -2140,6 +2158,78 @@
           "required": false,
           "default": "2s",
           "compose_value": "${MARSHALLER_READINESS_TIMEOUT:-2s}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_BATCH_INDICES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "16",
+          "compose_value": "${MARSHALLER_RETENTION_BATCH_INDICES:-16}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_CATCHUP_DEADLINE",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "60s",
+          "compose_value": "${MARSHALLER_RETENTION_CATCHUP_DEADLINE:-60s}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_CYCLE",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "60s",
+          "compose_value": "${MARSHALLER_RETENTION_CYCLE:-60s}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_MAX_RETRIES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "3",
+          "compose_value": "${MARSHALLER_RETENTION_MAX_RETRIES:-3}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_REQUEST_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "3s",
+          "compose_value": "${MARSHALLER_RETENTION_REQUEST_TIMEOUT:-3s}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_RETRY_MAX",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "5s",
+          "compose_value": "${MARSHALLER_RETENTION_RETRY_MAX:-5s}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_RETRY_MIN",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "250ms",
+          "compose_value": "${MARSHALLER_RETENTION_RETRY_MIN:-250ms}",
+          "aliases": []
+        },
+        {
+          "key": "MARSHALLER_RETENTION_ROUND_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "15s",
+          "compose_value": "${MARSHALLER_RETENTION_ROUND_TIMEOUT:-15s}",
           "aliases": []
         },
         {
@@ -4033,6 +4123,11 @@
       "sensitive": false
     },
     {
+      "key": "MARSHALLER_EVENT_RETENTION_DAYS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "MARSHALLER_EVENT_TEMPLATE",
       "type": "string",
       "sensitive": false
@@ -4083,6 +4178,11 @@
       "sensitive": false
     },
     {
+      "key": "MARSHALLER_LOG_RETENTION_DAYS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "MARSHALLER_LOG_TEMPLATE",
       "type": "string",
       "sensitive": false
@@ -4104,6 +4204,46 @@
     },
     {
       "key": "MARSHALLER_READINESS_TIMEOUT",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_BATCH_INDICES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_CATCHUP_DEADLINE",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_CYCLE",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_MAX_RETRIES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_REQUEST_TIMEOUT",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_RETRY_MAX",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_RETRY_MIN",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MARSHALLER_RETENTION_ROUND_TIMEOUT",
       "type": "duration",
       "sensitive": false
     },

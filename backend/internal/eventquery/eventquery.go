@@ -23,6 +23,8 @@ import (
 
 const (
 	ReadAlias          = "gopulse-events-v1-read"
+	RetentionDays      = 7
+	RetentionWindow    = RetentionDays * 24 * time.Hour
 	DefaultLimit       = 50
 	MaximumLimit       = 100
 	pitKeepAlive       = "2m"
@@ -142,6 +144,9 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 			return Options{}, validation()
 		}
 	}
+	// Keep the existing one-day page bound. Historical slices outside the
+	// seven-day storage window remain valid requests and resolve to an empty
+	// page once the aliased indices have been removed.
 	if !from.Before(to) || to.Sub(from) > 24*time.Hour || to.After(now.UTC().Add(5*time.Minute)) {
 		return Options{}, validation()
 	}

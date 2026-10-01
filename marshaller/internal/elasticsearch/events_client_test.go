@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
 	eventtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/events"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
 func TestEventsClientIsBoundToObservabilityPurpose(t *testing.T) {
@@ -19,6 +21,35 @@ func TestEventsClientIsBoundToObservabilityPurpose(t *testing.T) {
 	}
 	if client.Purpose() != "observability" {
 		t.Fatalf("Purpose() = %q", client.Purpose())
+	}
+}
+
+func TestEventsClientRejectsExpiredIndexBeforeWriting(t *testing.T) {
+	documentWrites := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/_index_template/") {
+			_, _ = w.Write([]byte(`{"acknowledged":true}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/_doc/") {
+			documentWrites++
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := NewEvents(server.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetRetentionPolicy(retention.DefaultConfig().Events); err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC) }
+	document := json.RawMessage(`{"@timestamp":"2026-09-20T08:00:00Z","event_schema_version":1,"event_name":"exporter_plugin_started","source":"monitor","severity":"info","message":"exporter plugin started","metadata":{"plugin_id":"redis-exporter","plugin_version":"1.7.1","operation":"start","from_state":"stopped","to_state":"running"}}`)
+	body, _ := json.Marshal(eventtransform.WriteRequest{MessageID: "abcdef0123456789abcdef0123456789", IndexDate: "2026.09.20", Document: document})
+	err = client.Write(context.Background(), body)
+	if envelope.Code(err) != "expired_event_retention" || documentWrites != 0 {
+		t.Fatalf("err=%v code=%q documentWrites=%d", err, envelope.Code(err), documentWrites)
 	}
 }
 

@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
 	eventtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/events"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
 const (
@@ -22,6 +24,8 @@ const (
 type EventsClient struct {
 	transport *Client
 	mu        sync.Mutex
+	retention *retention.Policy
+	now       func() time.Time
 }
 
 func (c *EventsClient) Purpose() string { return "observability" }
@@ -32,6 +36,14 @@ func NewEvents(baseURL string, timeout time.Duration) (*EventsClient, error) {
 
 func NewEventsContainer(baseURL string, timeout time.Duration) (*EventsClient, error) {
 	return newEvents(baseURL, timeout, true)
+}
+
+func (c *EventsClient) SetRetentionPolicy(policy retention.Policy) error {
+	if err := policy.Validate(); err != nil {
+		return err
+	}
+	c.retention = &policy
+	return nil
 }
 
 func newEvents(baseURL string, timeout time.Duration, container bool) (*EventsClient, error) {
@@ -45,7 +57,7 @@ func newEvents(baseURL string, timeout time.Duration, container bool) (*EventsCl
 	if err != nil {
 		return nil, err
 	}
-	return &EventsClient{transport: transport}, nil
+	return &EventsClient{transport: transport, now: time.Now}, nil
 }
 
 func (c *EventsClient) Write(ctx context.Context, body []byte) error {
@@ -54,6 +66,16 @@ func (c *EventsClient) Write(ctx context.Context, body []byte) error {
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&request) != nil || !idPattern.MatchString(request.MessageID) || !datePattern.MatchString(request.IndexDate) || len(request.Document) == 0 {
 		return errors.New("invalid event write request")
+	}
+	if c.retention != nil {
+		decision := c.retention.Classify(EventIndexPrefix+request.IndexDate, c.currentTime())
+		if decision.Reason == "expired" {
+			retention.ObserveLate(c.retention.Stream, "expired")
+			return &envelope.PermanentError{Code: retention.PermanentCode(c.retention.Stream)}
+		}
+		if decision.Reason != "not_expired" {
+			return errors.New("invalid retention index")
+		}
 	}
 	if err := c.ensureTemplate(ctx); err != nil {
 		return err
@@ -79,7 +101,38 @@ func (c *EventsClient) Write(ctx context.Context, body []byte) error {
 	if json.Unmarshal(payload, &result) != nil || result.Index != index || result.ID != request.MessageID || (result.Result != "created" && result.Result != "updated" && result.Result != "noop") {
 		return errors.New("Elasticsearch returned an invalid event write result")
 	}
+	if c.retention != nil && c.retention.Classify(index, c.currentTime()).Reason == "expired" {
+		block, blockErr := c.transport.do(ctx, http.MethodPut, "/"+index+"/_settings", strings.NewReader(`{"index":{"blocks.write":true}}`))
+		if blockErr == nil {
+			_, _ = readLimited(block.Body)
+			block.Body.Close()
+			if block.StatusCode < 200 || block.StatusCode >= 300 {
+				blockErr = errors.New("expired event index could not be blocked")
+			}
+		}
+		if blockErr != nil {
+			return blockErr
+		}
+		deleted, deleteErr := c.transport.do(ctx, http.MethodDelete, "/"+index, nil)
+		if deleteErr != nil {
+			return deleteErr
+		}
+		_, _ = readLimited(deleted.Body)
+		deleted.Body.Close()
+		if deleted.StatusCode != http.StatusNotFound && (deleted.StatusCode < 200 || deleted.StatusCode >= 300) {
+			return errors.New("expired event index could not be removed")
+		}
+		retention.ObserveLate(c.retention.Stream, "expired")
+		return &envelope.PermanentError{Code: retention.PermanentCode(c.retention.Stream)}
+	}
 	return c.verifyIndexContract(ctx, index)
+}
+
+func (c *EventsClient) currentTime() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
 }
 
 func (c *EventsClient) Ready(ctx context.Context) error {
@@ -221,4 +274,4 @@ func validEventAlias(payload []byte, index string) bool {
 
 const eventMappingExtensionBody = `{"properties":{"metadata":{"properties":{"error_code":{"type":"keyword"},"scrape_status":{"type":"keyword"}}}}}`
 
-const eventTemplateBody = `{"index_patterns":["gopulse-events-v1-*"],"template":{"aliases":{"gopulse-events-v1-read":{}},"mappings":{"dynamic":"strict","properties":{"@timestamp":{"type":"date_nanos"},"event_schema_version":{"type":"integer"},"event_name":{"type":"keyword"},"source":{"type":"keyword"},"severity":{"type":"keyword"},"message":{"type":"keyword"},"metadata":{"type":"object","dynamic":"strict","properties":{"plugin_id":{"type":"keyword"},"plugin_version":{"type":"keyword"},"previous_plugin_version":{"type":"keyword"},"operation":{"type":"keyword"},"from_state":{"type":"keyword"},"to_state":{"type":"keyword"},"error_code":{"type":"keyword"},"scrape_status":{"type":"keyword"}}}}}}}`
+const eventTemplateBody = `{"index_patterns":["gopulse-events-v1-*"],"template":{"aliases":{"gopulse-events-v1-read":{}},"mappings":{"dynamic":"strict","_meta":{"gopulse_product":"gopulse-observability","gopulse_stream":"events","gopulse_schema":"v1"},"properties":{"@timestamp":{"type":"date_nanos"},"event_schema_version":{"type":"integer"},"event_name":{"type":"keyword"},"source":{"type":"keyword"},"severity":{"type":"keyword"},"message":{"type":"keyword"},"metadata":{"type":"object","dynamic":"strict","properties":{"plugin_id":{"type":"keyword"},"plugin_version":{"type":"keyword"},"previous_plugin_version":{"type":"keyword"},"operation":{"type":"keyword"},"from_state":{"type":"keyword"},"to_state":{"type":"keyword"},"error_code":{"type":"keyword"},"scrape_status":{"type":"keyword"}}}}}}}`
