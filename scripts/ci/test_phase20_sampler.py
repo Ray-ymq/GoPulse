@@ -14,7 +14,7 @@ class SamplerTests(unittest.TestCase):
             import kafka
             kafka_consumer('172.30.0.2','product-group')
             kwargs=kafka.KafkaConsumer.call_args.kwargs
-            self.assertFalse(kwargs['enable_auto_commit']);self.assertFalse(kwargs['allow_auto_create_topics']);self.assertLessEqual(kwargs['request_timeout_ms'],3000)
+            self.assertFalse(kwargs['enable_auto_commit']);self.assertFalse(kwargs['allow_auto_create_topics']);self.assertLessEqual(kwargs['request_timeout_ms'],5000)
     def test_process_sampling_missing_is_not_zero_success(self):
         self.assertIsNone(process_stats(99999999));self.assertIsNone(process_stats(None))
     def test_container_budget_keeps_rss_and_memory_limit_separate(self):

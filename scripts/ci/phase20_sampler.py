@@ -96,8 +96,8 @@ def kafka_consumer(address,group_id=None):
     if __version__!='2.2.15':raise RuntimeError('frozen Kafka observer version required')
     return KafkaConsumer(bootstrap_servers=[address+':19092'],group_id=group_id,
                          enable_auto_commit=False,allow_auto_create_topics=False,
-                         request_timeout_ms=3000,session_timeout_ms=2000,heartbeat_interval_ms=1000,
-                         api_version_auto_timeout_ms=3000,fetch_max_bytes=8*1024*1024,
+                         request_timeout_ms=5000,session_timeout_ms=2000,heartbeat_interval_ms=1000,
+                         api_version_auto_timeout_ms=5000,fetch_max_bytes=8*1024*1024,
                          max_poll_records=100,client_id='gopulse-phase20-observer')
 
 def kafka_offsets(client,partitions,attempts=2):
