@@ -244,9 +244,36 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def summarize_resources(rows: list[dict[str, Any]], contract: dict[str, Any]) -> dict[str, Any]:
+def _metric_samples(text: str, family: str) -> list[float]:
+    values = []
+    pattern = re.compile(r"^" + re.escape(family) + r"(?:\{[^}]*\})?\s+([-+0-9.eE]+)\s*$")
+    for line in str(text).splitlines():
+        match = pattern.match(line.strip())
+        if match:
+            try:
+                value = float(match.group(1))
+            except ValueError:
+                continue
+            if math.isfinite(value):
+                values.append(value)
+    return values
+
+
+def _measurement_rows(rows: list[dict[str, Any]], window: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not window:
+        return rows
+    start = float(window["start_monotonic"])
+    end = float(window["end_monotonic"])
+    selected = [row for row in rows if start <= float(row.get("started_monotonic", -1)) <= end]
+    if not selected:
+        raise Incomplete("resource samples contain no measurement-window rows")
+    return selected
+
+
+def summarize_resources(rows: list[dict[str, Any]], contract: dict[str, Any], *, measurement_window: dict[str, Any] | None = None) -> dict[str, Any]:
     if not rows:
         raise Incomplete("resource samples are empty")
+    rows = _measurement_rows(rows, measurement_window)
     if any(row.get("missing_signals") or row.get("failure") for row in rows):
         raise Incomplete("resource samples contain missing signals or failure")
     containers = [row.get("signals", {}).get("containers", []) for row in rows]
@@ -268,12 +295,57 @@ def summarize_resources(rows: list[dict[str, Any]], contract: dict[str, Any]) ->
         "queue.kafka_lag_peak": max(lag),
         "disk.host_free_min": min(host_free),
     }
+    cgroup_current = [sum(int(item.get("memory_current_bytes", item.get("rss_bytes", 0)) or 0) for item in group) for group in containers]
+    outbox = []
+    for row in rows:
+        metric_values = _metric_samples(row.get("signals", {}).get("links", {}).get("backend", ""), "gopulse_backend_outbox_pending")
+        if metric_values:
+            outbox.append(sum(metric_values))
+    load_cpu = []
+    previous_load = None
+    previous_at = None
+    for row in rows:
+        load = row.get("signals", {}).get("load_process")
+        at = float(row.get("started_monotonic", 0))
+        if load and previous_load and at > previous_at:
+            ticks = float(load.get("cpu_ticks", 0)) - float(previous_load.get("cpu_ticks", 0))
+            load_cpu.append(max(0.0, ticks / os.sysconf("SC_CLK_TCK") / (at - previous_at)))
+        previous_load, previous_at = load, at
+    host_busy = []
+    previous_host = None
+    previous_host_at = None
+    for row in rows:
+        cpu = row.get("signals", {}).get("host", {}).get("cpu")
+        at = float(row.get("started_monotonic", 0))
+        if isinstance(cpu, dict) and previous_host and at > previous_host_at:
+            total = float(cpu.get("total", 0)) - float(previous_host.get("total", 0))
+            idle = float(cpu.get("idle", 0)) - float(previous_host.get("idle", 0))
+            if total > 0:
+                host_busy.append(max(0.0, (total - idle) / total * float(os.cpu_count() or 1)))
+        if isinstance(cpu, dict):
+            previous_host, previous_host_at = cpu, at
+    values.update({
+        "memory.cgroup_current_peak": max(cgroup_current),
+    })
+    if outbox:
+        values["queue.outbox_pending_peak"] = max(outbox)
+    if load_cpu:
+        values["cpu.load_peak_cores"] = max(load_cpu)
+    if host_busy:
+        values["cpu.host_busy_peak_cores"] = max(host_busy)
     statuses = {}
     for budget_id, value in values.items():
+        if budget_id not in thresholds:
+            continue
         budget = thresholds[budget_id]
         passed = value <= budget["threshold"] if budget["comparison"] == "less_equal" else value >= budget["threshold"]
         statuses[budget_id] = {"value": value, "threshold": budget["threshold"], "comparison": budget["comparison"], "status": "pass" if passed else "fail"}
-    return {"sample_count": len(rows), "cpu_sut_peak_cores": max(sut_cpu), "rss_sut_peak_bytes": max(sut_rss), "host_free_min_bytes": min(host_free), "rabbit_ready_peak": max(ready), "rabbit_unacked_peak": max(unacked), "kafka_lag_peak": max(lag), "budgets": statuses}
+    result = {"sample_count": len(rows), "cpu_sut_peak_cores": max(sut_cpu), "rss_sut_peak_bytes": max(sut_rss), "host_free_min_bytes": min(host_free), "rabbit_ready_peak": max(ready), "rabbit_unacked_peak": max(unacked), "kafka_lag_peak": max(lag), "budgets": statuses, "measurement_window": measurement_window}
+    if cgroup_current: result["cgroup_current_peak_bytes"] = max(cgroup_current)
+    if outbox: result["outbox_pending_peak"] = max(outbox)
+    if load_cpu: result["load_peak_cores"] = max(load_cpu)
+    if host_busy: result["host_busy_peak_cores"] = max(host_busy)
+    return result
 
 
 def validate_overhead_trials(
@@ -387,14 +459,27 @@ def verify_budget_directory(directory: Path, *, formal: bool = True) -> dict[str
     if b01.get("rendered", {}).get("status") != "pass" or b01.get("inspection", {}).get("status") != "pass":
         raise Incomplete("B01 did not prove rendered and inspected limits")
     if formal:
+        def check_cleanup(value: dict[str, Any], label: str) -> None:
+            cleanup = value.get("cleanup")
+            if not isinstance(cleanup, dict) or cleanup.get("status") != "passed" or cleanup.get("global_prune") is not False or not cleanup.get("owned"):
+                raise Incomplete(label + " cleanup evidence is incomplete")
+            if cleanup.get("inventory_before") != cleanup.get("inventory_after"):
+                raise Incomplete(label + " cleanup changed the Docker resource inventory")
+
+        check_cleanup(b01, "B01")
         b02 = checked["B02"]
         if b02.get("resource_summary", {}).get("sample_count", 0) <= 0 or any(item.get("status") != "pass" for item in b02["resource_summary"].get("budgets", {}).values()):
             raise Incomplete("B02 resource budget result is incomplete")
+        check_cleanup(b02.get("cell", {}), "B02")
         validate_overhead_trials(checked["B03"]["overhead"], contract)
+        for trial in checked["B03"]["overhead"].get("trials", []):
+            check_cleanup(trial, "B03 " + str(trial.get("combination_id")) + "-" + str(trial.get("repeat")))
     for case_id in ("B04", "B05", "B06"):
         raw = checked[case_id]
         if not raw.get("injection", {}).get("effective") or not raw.get("recovery", {}).get("status") == "pass":
             raise Incomplete(case_id + " lacks effective injection/recovery evidence")
+        if formal:
+            check_cleanup(raw, case_id)
     if not formal and checked["B07"].get("preflight", {}).get("status") != "pass":
         raise Incomplete("B07 preflight evidence is incomplete")
     return {"execution_status": "complete", "case_status": {case_id: "pass" for case_id in sorted(expected)}, "candidate": binding, "formal": formal}
@@ -433,6 +518,8 @@ def _compose_args(project: str, env: Path, files: list[Path]) -> list[str]:
 
 
 def run_b01(root: Path, manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
+    import phase19_capacity as legacy
+
     env = root / "candidate.env"
     _candidate_env(manifest, env)
     rendered = verify_rendered_limits(contract, compose_document(env))
@@ -441,17 +528,26 @@ def run_b01(root: Path, manifest: dict[str, Any], contract: dict[str, Any]) -> d
     override.write_text("services:\n  mysql:\n    ports:\n      - 127.0.0.1:19306:3306\n", encoding="utf-8")
     files = [COMPOSE_PATH, override]
     args = _compose_args(project, env, files)
+    inventory_before = legacy.resource_inventory()
     started = False
+    cleanup = None
     try:
         require(command(args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start B01 owned stack")
         started = True
         inspection = inspect_project(project, env, files, contract)
     finally:
-        if started:
-            cleanup = command(args + ["down", "--volumes", "--remove-orphans"], timeout=900)
-            if cleanup.returncode:
-                raise Incomplete("B01 cleanup failed")
-    return {"case_id": "B01", "status": "pass", "rendered": rendered, "inspection": inspection}
+        try:
+            if started:
+                cleanup = command(args + ["down", "--volumes", "--remove-orphans"], timeout=900)
+                if cleanup.returncode:
+                    raise Incomplete("B01 cleanup failed")
+                cleanup = {"status": "passed", "owned": True, "global_prune": False, "inventory_before": inventory_before, "inventory_after": legacy.resource_inventory()}
+                if cleanup["inventory_before"] != cleanup["inventory_after"]:
+                    raise Incomplete("B01 cleanup changed the Docker resource inventory")
+        finally:
+            env.unlink(missing_ok=True)
+            override.unlink(missing_ok=True)
+    return {"case_id": "B01", "status": "pass", "formal": True, "rendered": rendered, "inspection": inspection, "cleanup": cleanup}
 
 
 def run_b02(root: Path, manifest_path: Path, manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
@@ -466,9 +562,13 @@ def run_b02(root: Path, manifest_path: Path, manifest: dict[str, Any], contract:
     shutil.copyfile(manifest_path, work / "candidate-manifest.json")
     shutil.copyfile(CAPACITY_PROFILE_PATH, work / "profile.json")
     recipe_binary, load_binary = legacy.build_loadtest(work)
-    cell = diagnostic.run_cell(profile, binding, candidate, recipe_binary, load_binary, work, 1, 3)
+    cell = diagnostic.run_cell(profile, binding, candidate, recipe_binary, load_binary, work, 1, 3, include_overhead=False, independent_sampler=True)
     resources = work / cell["raw"]["resources"]["path"]
-    summary = summarize_resources(read_jsonl(resources), contract)
+    summary = summarize_resources(read_jsonl(resources), contract, measurement_window=cell.get("measurement_window"))
+    sampler_cpu = float(cell.get("sampler", {}).get("cpu_peak_cores", 0.0))
+    sampler_budget = next(item for item in contract["budgets"] if item["budget_id"] == "cpu.sampler_peak_cores")
+    summary["sampler_cpu_peak_cores"] = sampler_cpu
+    summary["budgets"]["cpu.sampler_peak_cores"] = {"value": sampler_cpu, "threshold": sampler_budget["threshold"], "comparison": sampler_budget["comparison"], "status": "pass" if sampler_cpu <= sampler_budget["threshold"] else "fail"}
     return {"case_id": "B02", "status": "pass", "cell": cell, "resource_summary": summary, "evidence_path": str(resources)}
 
 
@@ -742,6 +842,10 @@ def _go_overhead_trial(
     repeat: int,
     combination: dict[str, Any],
     contract: dict[str, Any],
+    *,
+    profile_path: Path = CAPACITY_PROFILE_PATH,
+    warmup_seconds: int | None = None,
+    measurement_seconds: int | None = None,
 ) -> dict[str, Any]:
     import phase19_capacity as legacy
     import phase20_diagnostic as diagnostic
@@ -766,7 +870,10 @@ def _go_overhead_trial(
     started = False
     process = None
     counter = None
+    counter_stopped = None
     corpus = credentials = None
+    inventory_before = legacy.resource_inventory()
+    trial_result = None
     try:
         args = _compose_args(project, env_file, files)
         require(command(args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start Go load overhead project " + combination_id)
@@ -786,9 +893,12 @@ def _go_overhead_trial(
             counter = LightweightResourceCounter(project, env_file, files, float(profile["sampling"]["interval_seconds"]), combination_id + "-" + str(repeat), resource_path)
         run_id = combination_id + "-" + str(repeat)
         load_dir = trial_dir / ("repeat-%02d" % repeat)
+        stage = profile["stages"][3]
+        trial_warmup = int(warmup_seconds if warmup_seconds is not None else stage["warmup_seconds"])
+        trial_measurement = int(measurement_seconds if measurement_seconds is not None else stage["measurement_seconds"])
         args = [
             str(load_binary),
-            "--profile", str(CAPACITY_PROFILE_PATH),
+            "--profile", str(profile_path),
             "--base-url", "http://127.0.0.1:" + values["FRONTEND_PORT"],
             "--corpus", str(corpus),
             "--credentials", str(credentials),
@@ -802,7 +912,8 @@ def _go_overhead_trial(
         with (trial_dir / "load.stdout").open("x") as stdout, (trial_dir / "load.stderr").open("x") as stderr:
             counter.start()
             process = subprocess.Popen(args, stdout=stdout, stderr=stderr)
-            deadline = time.monotonic() + int(contract["overhead"]["warmup_seconds"] + contract["overhead"]["measurement_seconds"]) + 180
+            load_started = time.monotonic()
+            deadline = load_started + trial_warmup + trial_measurement + 180
             while process.poll() is None:
                 if time.monotonic() > deadline:
                     process.terminate()
@@ -822,7 +933,9 @@ def _go_overhead_trial(
             scheduled = datetime.datetime.fromisoformat(str(row["scheduled_at"]).replace("Z", "+00:00"))
             completed = datetime.datetime.fromisoformat(str(row["completed_at"]).replace("Z", "+00:00"))
             dispatch_latencies.append((completed - scheduled).total_seconds() * 1000)
-        measurement_rows = [row for row in counter.records if float(row.get("started_monotonic", 0)) >= min((float(row.get("started_monotonic", 0)) for row in counter.records), default=0) + int(contract["overhead"]["warmup_seconds"])]
+        measurement_start = load_started + trial_warmup
+        measurement_end = measurement_start + trial_measurement
+        measurement_rows = [row for row in counter.records if measurement_start <= float(row.get("started_monotonic", 0)) <= measurement_end]
         cpu_values = [sum(float(item.get("cpu_percent", 0)) for item in row.get("signals", {}).get("containers", [])) / 100 for row in measurement_rows]
         rss_values = [sum(int(item.get("rss_bytes", 0)) for item in row.get("signals", {}).get("containers", [])) for row in measurement_rows]
         outcomes = report["measurement"]["outcomes"]
@@ -838,12 +951,12 @@ def _go_overhead_trial(
             "resource_source": "independent_sampler_process" if combination["sampler_enabled"] else "independent_docker_stats_counter",
         }
         write_json(trial_dir / "trial.json", raw)
-        return {
+        trial_result = {
             "combination_id": combination_id,
             "repeat": repeat,
             "target_rps": int(contract["overhead"]["target_rps"]),
-            "warmup_seconds": int(contract["overhead"]["warmup_seconds"]),
-            "measurement_seconds": int(contract["overhead"]["measurement_seconds"]),
+            "warmup_seconds": trial_warmup,
+            "measurement_seconds": trial_measurement,
             "execution_status": "complete",
             "business_errors": business_errors,
             "p99_ms": _percentile(dispatch_latencies, 0.99),
@@ -854,6 +967,7 @@ def _go_overhead_trial(
             "sampler_cpu_seconds": float(getattr(counter_stopped, "cpu_seconds", 0.0)),
             "missing_sample_ratio": (sum(bool(row.get("missing_signals") or row.get("failure")) for row in counter.records) / len(counter.records)) if counter.records else 1.0,
             "request_count": len(terminals),
+            "measurement_window": {"start_monotonic": measurement_start, "end_monotonic": measurement_end},
             "raw_path": "trial.json",
             "candidate": binding,
         }
@@ -865,7 +979,7 @@ def _go_overhead_trial(
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
-        if counter:
+        if counter and counter_stopped is None:
             try:
                 counter.stop()
             except Exception:
@@ -875,8 +989,24 @@ def _go_overhead_trial(
         if credentials:
             Path(credentials).unlink(missing_ok=True)
         if started:
-            cleanup = legacy.cleanup_project(project, env_file, files)
-            write_json(trial_dir / "cleanup.json", cleanup)
+            try:
+                cleanup = legacy.cleanup_project(project, env_file, files)
+                inventory_after = legacy.resource_inventory()
+                cleanup.update(inventory_before=inventory_before, inventory_after=inventory_after)
+                if inventory_after != inventory_before:
+                    raise Incomplete("overhead trial cleanup changed the Docker resource inventory")
+                write_json(trial_dir / "cleanup.json", cleanup)
+                if trial_result is not None:
+                    trial_result["cleanup"] = cleanup
+            finally:
+                env_file.unlink(missing_ok=True)
+                override.unlink(missing_ok=True)
+        else:
+            env_file.unlink(missing_ok=True)
+            override.unlink(missing_ok=True)
+    if trial_result is None:
+        raise Incomplete("overhead trial did not produce a result")
+    return trial_result
 
 
 def run_b03(root: Path, manifest_path: Path, manifest: dict[str, Any], contract: dict[str, Any], *, combinations: tuple[str, ...] = ("O0", "O3", "O1", "O2"), repeats: tuple[int, ...] = (1, 2, 3)) -> dict[str, Any]:
@@ -910,6 +1040,7 @@ def _prepare_fault_stack(work: Path, manifest_path: Path, manifest: dict[str, An
     profile = diagnostic.load_profile()
     binding, _ = legacy.candidate_binding(manifest_path, profile)
     work.mkdir(mode=0o700, parents=True, exist_ok=False)
+    inventory_before = legacy.resource_inventory()
     env_file = work / (label + ".env")
     _candidate_env(manifest, env_file)
     override = work / (label + ".override.yaml")
@@ -919,15 +1050,32 @@ def _prepare_fault_stack(work: Path, manifest_path: Path, manifest: dict[str, An
         files.insert(1, TRACE_COMPOSE_PATH)
     project = legacy.project_name()
     args = _compose_args(project, env_file, files)
-    legacy.require(command(args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start " + label + " stack")
-    legacy.ensure_owned_project(project, env_file, files)
-    address = legacy.mysql_service_address(project, env_file, files)
-    _, corpus, credentials, rejection = legacy.generate_recipe(recipe_binary, binding, _candidate_env(manifest, env_file), work, 3306, mysql_host=address)
-    legacy.require(command(args + ["run", "--rm", "--no-deps", "--entrypoint", "/usr/local/bin/search-reindex", "search-init"], timeout=900), "reindex " + label + " recipe")
-    legacy.wait_initial_convergence(project, env_file, files, timeout=900)
-    legacy.require(command(args + ["run", "--rm", "--no-deps", "admin-role"], timeout=60), "bootstrap " + label + " operator")
-    api = diagnostic.ProductAPI("http://127.0.0.1:" + str(legacy.parse_env(env_file)["FRONTEND_PORT"]), json.loads(credentials.read_text(encoding="utf-8")))
-    return {"project": project, "env": env_file, "override": override, "files": files, "args": args, "binding": binding, "api": api, "corpus": corpus, "credentials": credentials, "rejection": rejection}
+    started = False
+    corpus = credentials = None
+    try:
+        legacy.require(command(args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start " + label + " stack")
+        started = True
+        legacy.ensure_owned_project(project, env_file, files)
+        address = legacy.mysql_service_address(project, env_file, files)
+        _, corpus, credentials, rejection = legacy.generate_recipe(recipe_binary, binding, _candidate_env(manifest, env_file), work, 3306, mysql_host=address)
+        legacy.require(command(args + ["run", "--rm", "--no-deps", "--entrypoint", "/usr/local/bin/search-reindex", "search-init"], timeout=900), "reindex " + label + " recipe")
+        legacy.wait_initial_convergence(project, env_file, files, timeout=900)
+        legacy.require(command(args + ["run", "--rm", "--no-deps", "admin-role"], timeout=60), "bootstrap " + label + " operator")
+        api = diagnostic.ProductAPI("http://127.0.0.1:" + str(legacy.parse_env(env_file)["FRONTEND_PORT"]), json.loads(credentials.read_text(encoding="utf-8")))
+        return {"project": project, "work": work, "env": env_file, "override": override, "files": files, "args": args, "binding": binding, "api": api, "corpus": corpus, "credentials": credentials, "rejection": rejection, "inventory_before": inventory_before, "cleaned": False}
+    except Exception:
+        if corpus:
+            Path(corpus).unlink(missing_ok=True)
+        if credentials:
+            Path(credentials).unlink(missing_ok=True)
+        if started:
+            cleanup = legacy.cleanup_project(project, env_file, files)
+            inventory_after = legacy.resource_inventory()
+            cleanup.update(inventory_before=inventory_before, inventory_after=inventory_after)
+            write_json(work / "failure-cleanup.json", cleanup)
+            if inventory_after != inventory_before:
+                raise Incomplete(label + " setup cleanup changed the Docker resource inventory")
+        raise
 
 
 def _api_post(api: Any, title: str, content: str) -> dict[str, Any]:
@@ -959,9 +1107,18 @@ def _wait_empty(stack: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
 def _finish_fault_stack(stack: dict[str, Any]) -> dict[str, Any]:
     import phase19_capacity as legacy
 
+    if stack.get("cleaned"):
+        return stack["cleanup"]
     cleanup = legacy.cleanup_project(stack["project"], stack["env"], stack["files"])
+    inventory_after = legacy.resource_inventory()
+    cleanup.update(inventory_before=stack["inventory_before"], inventory_after=inventory_after, status="passed", global_prune=False)
     for path in (stack["corpus"], stack["credentials"], stack["env"], stack["override"]):
         Path(path).unlink(missing_ok=True)
+    stack["cleanup"] = cleanup
+    stack["cleaned"] = True
+    write_json(Path(stack["work"]) / "cleanup.json", cleanup)
+    if inventory_after != stack["inventory_before"]:
+        raise Incomplete("fault-case cleanup changed the Docker resource inventory")
     return cleanup
 
 
@@ -997,9 +1154,12 @@ def run_b04(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_bi
             raise Incomplete("B04 worker fault did not produce an effective bounded backlog")
         require(command(stack["args"] + ["start", "business-worker", "business-worker-2"], timeout=60), "recover B04 worker backlog")
         worker_recovery = _wait_empty(stack, 120)
-        return {"case_id": "B04", "status": "pass", "formal": True, "injection": {"effective": True, "collector": {"target": "phase20-collector", "duration_seconds": stopped_at - fault_started, "business_statuses": [item["status"] for item in business]}, "worker": {"target": "business-worker and business-worker-2", "duration_seconds": time.time() - worker_fault_start, "backlog": backlog, "business_statuses": [item["status"] for item in backlog_posts]}}, "recovery": {"status": "pass", "collector": recovered, "worker": worker_recovery}, "waterline_before": worker_before}
+        result = {"case_id": "B04", "status": "pass", "formal": True, "injection": {"effective": True, "collector": {"target": "phase20-collector", "duration_seconds": stopped_at - fault_started, "business_statuses": [item["status"] for item in business]}, "worker": {"target": "business-worker and business-worker-2", "duration_seconds": time.time() - worker_fault_start, "backlog": backlog, "business_statuses": [item["status"] for item in backlog_posts]}}, "recovery": {"status": "pass", "collector": recovered, "worker": worker_recovery}, "waterline_before": worker_before}
+        result["cleanup"] = _finish_fault_stack(stack)
+        return result
     finally:
-        _finish_fault_stack(stack)
+        if not stack.get("cleaned"):
+            _finish_fault_stack(stack)
 
 
 def run_b05(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_binary: Path, contract: dict[str, Any]) -> dict[str, Any]:
@@ -1026,11 +1186,16 @@ def run_b05(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_bi
         total = sum(item["bytes"] for item in entries)
         if total < 64 * 1024 * 1024 - 16 * 1024 or total > 64 * 1024 * 1024 or any(item["bytes"] > 16 * 1024 * 1024 for item in entries):
             raise Incomplete("B05 trace fixture did not stay within the frozen waterline")
-        return {"case_id": "B05", "status": "pass", "formal": True, "injection": {"effective": True, "target": "phase20_trace_data", "waterline_bytes": total, "logical_threshold_bytes": 64 * 1024 * 1024, "fixture_files": entries}, "recovery": {"status": "pass", "collector_running": True, "volume_owned": True}, "cleanup": {"global_prune": False}}
+        result = {"case_id": "B05", "status": "pass", "formal": True, "injection": {"effective": True, "target": "phase20_trace_data", "waterline_bytes": total, "logical_threshold_bytes": 64 * 1024 * 1024, "fixture_files": entries}, "recovery": {"status": "pass", "collector_running": True, "volume_owned": True}}
+        result["cleanup"] = _finish_fault_stack(stack)
+        return result
     finally:
-        _finish_fault_stack(stack)
-        for path in paths:
-            path.unlink(missing_ok=True)
+        try:
+            if not stack.get("cleaned"):
+                _finish_fault_stack(stack)
+        finally:
+            for path in paths:
+                path.unlink(missing_ok=True)
 
 
 def run_b06(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_binary: Path, contract: dict[str, Any]) -> dict[str, Any]:
@@ -1047,9 +1212,14 @@ def run_b06(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_bi
         states = json.loads(require(command(["docker", "inspect", *[require(command(stack["args"] + ["ps", "-q", target], timeout=30), "resolve B06 target").strip() for target in targets]], timeout=60), "inspect B06 shutdown targets"))
         require(command(stack["args"] + ["up", "-d", "--wait", "--wait-timeout", "900", "business-worker", "business-worker-2", "phase20-collector"], timeout=300), "restart B06 shutdown targets")
         recovery = _wait_empty(stack, 120)
-        return {"case_id": "B06", "status": "pass", "formal": True, "injection": {"effective": True, "signal": "SIGTERM", "targets": targets, "sent_at": sent_at, "states": [{"service": item.get("Config", {}).get("Labels", {}).get("com.docker.compose.service"), "running": item.get("State", {}).get("Running"), "exit_code": item.get("State", {}).get("ExitCode")} for item in states], "backlog": backlog, "business_statuses": [item["status"] for item in writes]}, "recovery": recovery, "cleanup": {"global_prune": False}}
+        if any(item.get("State", {}).get("Running") for item in states):
+            raise Incomplete("B06 SIGTERM did not stop every targeted service")
+        result = {"case_id": "B06", "status": "pass", "formal": True, "injection": {"effective": True, "signal": "SIGTERM", "targets": targets, "sent_at": sent_at, "states": [{"service": item.get("Config", {}).get("Labels", {}).get("com.docker.compose.service"), "running": item.get("State", {}).get("Running"), "exit_code": item.get("State", {}).get("ExitCode")} for item in states], "backlog": backlog, "business_statuses": [item["status"] for item in writes]}, "recovery": recovery}
+        result["cleanup"] = _finish_fault_stack(stack)
+        return result
     finally:
-        _finish_fault_stack(stack)
+        if not stack.get("cleaned"):
+            _finish_fault_stack(stack)
 
 
 def manifest_binding(path: Path) -> dict[str, str]:
@@ -1105,64 +1275,44 @@ def _record_case(work: Path, raw: dict[str, Any], cases: list[dict[str, Any]]) -
 
 
 def run_smoke(root: Path, manifest_path: Path, manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
-    """Run the four independent 5+10 second local smoke combinations."""
+    """Run the four independent 5+10 second Go business-mix smoke combinations."""
     import phase19_capacity as legacy
     import phase20_diagnostic as diagnostic
+    import copy
 
     profile = diagnostic.load_profile()
     binding, _ = legacy.candidate_binding(manifest_path, profile)
-    recipe_binary, _ = legacy.build_loadtest(root / "smoke-bin")
+    smoke_profile = copy.deepcopy(profile)
+    for stage in smoke_profile["stages"]:
+        if stage["name"] == "rps-200":
+            stage["warmup_seconds"] = 5
+            stage["measurement_seconds"] = 10
+            stage["recovery_seconds"] = 5
+    smoke_profile_path = root / "phase20-smoke-profile.json"
+    write_json(smoke_profile_path, smoke_profile)
+    recipe_binary, load_binary = legacy.build_loadtest(root / "smoke-bin")
     combination_map = {item["id"]: item for item in contract["overhead"]["combinations"]}
     trials = []
     for combination_id in ("O0", "O3", "O1", "O2"):
         trial_dir = root / (combination_id + "-1")
-        trial_dir.mkdir(mode=0o700)
-        env_file = trial_dir / "candidate.env"
-        values = _candidate_env(manifest, env_file)
-        if combination_id == "O2":
-            values.update({"GOPULSE_TRACE_ENABLED": "true", "GOPULSE_TRACE_ENDPOINT": "phase20-collector:4317", "GOPULSE_TRACE_SAMPLE_RATIO": "1.0"})
-        else:
-            values.update({"GOPULSE_TRACE_ENABLED": "false", "GOPULSE_TRACE_ENDPOINT": "", "GOPULSE_TRACE_SAMPLE_RATIO": "0.10"})
-        legacy.write_env(env_file, values)
-        override = legacy.compose_override(trial_dir / "compose.override.yaml", int(values["MYSQL_PORT"]))
-        project = legacy.project_name()
-        files = [COMPOSE_PATH, override] + ([TRACE_COMPOSE_PATH] if combination_id == "O2" else [])
-        started = False
-        corpus = credentials = None
-        counter = None
-        try:
-            args = _compose_args(project, env_file, files)
-            require(command(args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start smoke project " + combination_id)
-            legacy.ensure_owned_project(project, env_file, files)
-            started = True
-            address = legacy.mysql_service_address(project, env_file, files)
-            _, corpus, credentials, _ = legacy.generate_recipe(recipe_binary, binding, values, trial_dir, 3306, mysql_host=address)
-            require(command(args + ["run", "--rm", "--no-deps", "--entrypoint", "/usr/local/bin/search-reindex", "search-init"], timeout=900), "reindex smoke recipe")
-            legacy.wait_initial_convergence(project, env_file, files, timeout=900)
-            require(command(args + ["run", "--rm", "--no-deps", "admin-role"], timeout=60), "bootstrap smoke operator")
-            if not combination_map[combination_id]["observability_services"]:
-                require(command(args + ["stop", "router", "router-2", "marshaller", "marshaller-2", "monitor"], timeout=120), "stop smoke observer services")
-            if combination_map[combination_id]["sampler_enabled"]:
-                counter = ProcessSampler(project, env_file, files, values, profile, "smoke-" + combination_id, trial_dir / "resources.jsonl")
-            else:
-                counter = LightweightResourceCounter(project, env_file, files, 5, "smoke-" + combination_id, trial_dir / "resources.jsonl")
-            api = diagnostic.ProductAPI("http://127.0.0.1:" + values["FRONTEND_PORT"], json.loads(credentials.read_text(encoding="utf-8")))
-            trial = _http_window(api, 200, 5, 10, counter, project, env_file, files, trial_dir / "trial.json")
-            trial.update({"combination_id": combination_id, "repeat": 1, "workload_source": "bounded-smoke-probe", "candidate": binding})
-            trials.append(trial)
-            counter = None
-        finally:
-            if counter:
-                try:
-                    counter.stop()
-                except Exception:
-                    pass
-            if corpus:
-                Path(corpus).unlink(missing_ok=True)
-            if credentials:
-                Path(credentials).unlink(missing_ok=True)
-            if started:
-                write_json(trial_dir / "cleanup.json", legacy.cleanup_project(project, env_file, files))
+        trial = _go_overhead_trial(
+            trial_dir,
+            manifest_path,
+            manifest,
+            recipe_binary,
+            load_binary,
+            smoke_profile,
+            binding,
+            combination_id,
+            1,
+            combination_map[combination_id],
+            contract,
+            profile_path=smoke_profile_path,
+            warmup_seconds=5,
+            measurement_seconds=10,
+        )
+        trial.update({"workload_source": "go_loadtest_phase20_capacity_mix", "candidate": binding})
+        trials.append(trial)
     value = {"formal": False, "smoke": True, "trials": trials}
     value["validation"] = validate_overhead_trials(value, contract, repetitions=1, warmup_seconds=5, measurement_seconds=10, enforce_thresholds=False)
     return {"schema": "gopulse.phase20.smoke.v1", "case_id": "S1", "status": "pass", "formal": False, "candidate": binding, "overhead": value}

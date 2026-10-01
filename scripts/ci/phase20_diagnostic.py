@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse
 import base64
+import copy
 import concurrent.futures
 import datetime
 import hashlib
@@ -25,6 +26,7 @@ from phase20_sampler import Sampler, KafkaWaterline, broker_address, service_add
 
 ROOT=Path(__file__).resolve().parents[2]
 PROFILE=ROOT/'loadtest/phase20-capacity-profile.json'
+TRACE_COMPOSE=ROOT/'deploy/phase20-trace.yaml'
 
 def write_json(path,value):
     legacy.atomic_json(path,value)
@@ -190,15 +192,21 @@ def independent_recovery(origins,probe,path,run_id,deadline_seconds=120,poll_sec
     for row in sorted(rows,key=lambda r:r['observed_monotonic']):append(path,row)
     return results
 
-def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,index):
+def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,index,*,trace=False,include_overhead=True,independent_sampler=False,fault=None,max_execution_seconds=None):
     stage=profile['stages'][index];run_id=f'r{repeat}-{stage["name"]}-{secrets.token_hex(4)}'
     cell_dir=work/run_id;cell_dir.mkdir(mode=0o700)
     inventory_before=legacy.resource_inventory()
     project=legacy.project_name();env_file=cell_dir/'candidate.env'
     environment=legacy._candidate_env(candidate,env_file,repeat)
+    if trace:
+        environment.update({'GOPULSE_TRACE_ENABLED':'true','GOPULSE_TRACE_ENDPOINT':'phase20-collector:4317','GOPULSE_TRACE_SAMPLE_RATIO':'1.0'})
+    else:
+        environment.update({'GOPULSE_TRACE_ENABLED':'false','GOPULSE_TRACE_ENDPOINT':'','GOPULSE_TRACE_SAMPLE_RATIO':'0.10'})
     environment['GOPULSE_BOOTSTRAP_USER_ID']='1';legacy.write_env(env_file,environment)
     override=legacy.compose_override(cell_dir/'compose.override.yaml',int(environment['MYSQL_PORT']))
-    files=[legacy.COMPOSE_PATH,override];sampler=None;waterline=None;process=None;started=False
+    files=[legacy.COMPOSE_PATH,override]
+    if trace:files.insert(1,TRACE_COMPOSE)
+    sampler=None;waterline=None;process=None;started=False;fault_record=None;load_started=None;sampler_facts={};cleanup=None
     lifecycle=cell_dir/'lifecycle.jsonl'
     def event(name,**extra):append(lifecycle,{'event':name,'run_id':run_id,'monotonic':time.monotonic(),**extra})
     try:
@@ -212,7 +220,7 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
         api=ProductAPI('http://127.0.0.1:'+environment['FRONTEND_PORT'],json.loads(credentials.read_text()))
         addresses={s:service_address(project,env_file,files,s) for s in ('kafka','elasticsearch','observability-elasticsearch','victoriametrics')}
         broker_address(addresses['kafka']);waterline=KafkaWaterline(addresses['kafka'])
-        if repeat==1 and index==0:
+        if include_overhead and repeat==1 and index==0:
             overhead_comparison(api,lambda:Sampler(project,env_file,files,environment,profile,run_id,cell_dir/'overhead-samples.jsonl'),cell_dir/'overhead.json',profile['diagnostic']['observer_comparison'])
         growth_before=json_http('http://'+addresses['observability-elasticsearch']+':9200/_stats/store,docs')
         before=snapshot(project,env_file,files,run_id);write_json(cell_dir/'before.json',before)
@@ -220,16 +228,51 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
         # Quantify the previous expensive JVM probe once, outside measured load.
         probe_origin=time.monotonic();old_lag=legacy._kafka_lag(project,env_file,files)
         write_json(cell_dir/'cli-overhead.json',{'duration_seconds':time.monotonic()-probe_origin,'lag':old_lag,'formal_load_window':False})
-        sampler=Sampler(project,env_file,files,environment,profile,run_id,cell_dir/'resources.jsonl')
+        if independent_sampler:
+            from phase20_budget import ProcessSampler
+            sampler=ProcessSampler(project,env_file,files,environment,profile,run_id,cell_dir/'resources.jsonl')
+        else:
+            sampler=Sampler(project,env_file,files,environment,profile,run_id,cell_dir/'resources.jsonl')
         args=[str(load_binary),'--profile',str(work/'profile.json'),'--base-url',api.url,'--corpus',str(corpus),'--credentials',str(credentials),'--candidate-manifest',str(work/'candidate-manifest.json'),'--workdir',str(cell_dir),'--repeat',str(repeat),'--stage',str(index),'--run-id',run_id]
         with (cell_dir/'load.stdout').open('x') as out,(cell_dir/'load.stderr').open('x') as err:
+            load_started=time.monotonic()
             process=subprocess.Popen(args,stdout=out,stderr=err)
             sampler.set_load_pid(process.pid);sampler.start()
             start=time.monotonic()
+            fault_started=False
             while process.poll() is None:
                 waterline.poll(200)
                 if sampler.failure:raise RuntimeError('sampling failure: '+str(sampler.failure))
-                if time.monotonic()-start>150:raise RuntimeError('load exceeded fixed windows/session/drain bound')
+                if fault and not fault_started and time.monotonic()-start >= float(fault['at_seconds']):
+                    fault_started=True
+                    target=fault['target']
+                    stop_requested=time.time()
+                    legacy.require(legacy.compose(project,env_file,files,'stop',target,timeout=60),'inject bounded diagnostic fault')
+                    stopped_at=time.time()
+                    container_id=legacy.compose(project,env_file,files,'ps','-q',target,timeout=30).stdout.strip()
+                    if not container_id:raise RuntimeError('bounded diagnostic fault target has no container')
+                    stopped=json.loads(legacy.require(legacy.command(['docker','inspect',container_id],timeout=30),'inspect bounded diagnostic fault'))[0]
+                    if stopped.get('State',{}).get('Running'):
+                        raise RuntimeError('bounded diagnostic fault did not stop its target')
+                    requested_duration=float(fault['duration_seconds'])
+                    remaining=max(0.0,requested_duration-(time.time()-stopped_at))
+                    if remaining:time.sleep(remaining)
+                    restart_requested=time.time()
+                    legacy.require(legacy.compose(project,env_file,files,'start',target,timeout=60),'recover bounded diagnostic fault')
+                    running_deadline=time.monotonic()+120;running=False
+                    container_id=legacy.compose(project,env_file,files,'ps','-q',target,timeout=30).stdout.strip()
+                    while time.monotonic()<running_deadline:
+                        state=json.loads(legacy.require(legacy.command(['docker','inspect',container_id],timeout=30),'inspect recovered diagnostic fault'))[0].get('State',{})
+                        if state.get('Running'):
+                            running=True;break
+                        time.sleep(1)
+                    if not running:raise RuntimeError('bounded diagnostic fault did not recover within 120 seconds')
+                    fault_record={'target':target,'at_seconds':float(fault['at_seconds']),'requested_duration_seconds':requested_duration,'stop_requested_at':stop_requested,'stopped_at':stopped_at,'restart_requested_at':restart_requested,'recovered_at':time.time(),'effective':True,'duration_seconds':time.time()-stopped_at}
+                    write_json(cell_dir/'fault.json',fault_record)
+                limit=max_execution_seconds
+                if limit is None:
+                    limit=float(stage['warmup_seconds'])+float(stage['measurement_seconds'])+180.0
+                if time.monotonic()-start>limit:raise RuntimeError('load exceeded fixed windows/session/drain bound')
             if process.returncode:raise RuntimeError('load execution incomplete; private stderr retained')
         load_dir=cell_dir/f'repeat-{repeat:02d}'
         load=json.loads((load_dir/'load-report.json').read_text())
@@ -239,7 +282,9 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
         drain_origin=now_mono-(now_wall-drain_wall)
         append(lifecycle,{'event':'load_stopped','run_id':run_id,'monotonic':now_mono-(now_wall-stop_wall)})
         append(lifecycle,{'event':'requests_drained','run_id':run_id,'monotonic':drain_origin})
-        sampler.set_load_pid(None);sampler.stop();sampler=None
+        sampler.set_load_pid(None);sampler.stop()
+        sampler_facts={'cpu_peak_cores':float(getattr(sampler,'cpu_peak_cores',0.0)),'cpu_seconds':float(getattr(sampler,'cpu_seconds',0.0)),'sample_count':len(getattr(sampler,'records',[]))}
+        sampler=None
         after=snapshot(project,env_file,files,run_id,baseline_outbox);write_json(cell_dir/'after.json',after)
         requests=ledger_requests([json.loads(line) for line in (load_dir/'ledger.jsonl').read_text().splitlines()],run_id,repeat,stage['name'])
         association=associate(requests,before,after)
@@ -289,9 +334,14 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
         cleanup.update(inventory_before=inventory_before,inventory_after=inventory_after)
         if inventory_after!=inventory_before:raise Incomplete('cleanup resource inventory changed; raw ownership evidence retained')
         event('project_cleaned',receipt=cleanup)
+        for path in (corpus,credentials,env_file,override):
+            Path(path).unlink(missing_ok=True)
         raw_paths={'ledger':load_dir/'ledger.jsonl','load':load_dir/'load-report.json','before':cell_dir/'before.json','after':cell_dir/'after.json','markers':cell_dir/'markers.json','recovery':cell_dir/'recovery.jsonl','lifecycle':lifecycle,'resources':cell_dir/'resources.jsonl','cli_overhead':cell_dir/'cli-overhead.json','growth':cell_dir/'growth.json'}
         if (cell_dir/'overhead.json').exists():raw_paths['overhead']=cell_dir/'overhead.json'
-        return {'run_id':run_id,'repeat':repeat,'stage':stage['name'],'candidate':binding,'origins':origins,'raw':{k:{'path':str(v.relative_to(work)),'sha256':digest(v)} for k,v in raw_paths.items()},'recipe':{'receipt_sha256':digest(cell_dir/'recipe-receipt.json'),'rejection':rejection},'project':project,'execution_status':'complete'}
+        if (cell_dir/'fault.json').exists():raw_paths['fault']=cell_dir/'fault.json'
+        measurement_start=float(load_started)+float(stage['warmup_seconds'])
+        measurement_end=measurement_start+float(stage['measurement_seconds'])
+        return {'run_id':run_id,'repeat':repeat,'stage':stage['name'],'candidate':binding,'origins':origins,'measurement_window':{'start_monotonic':measurement_start,'end_monotonic':measurement_end,'warmup_seconds':stage['warmup_seconds'],'measurement_seconds':stage['measurement_seconds']},'sampler':sampler_facts,'fault':fault_record,'cleanup':cleanup,'raw':{k:{'path':str(v.relative_to(work)),'sha256':digest(v)} for k,v in raw_paths.items()},'recipe':{'receipt_sha256':digest(cell_dir/'recipe-receipt.json'),'rejection':rejection},'project':project,'execution_status':'complete'}
     finally:
         if process and process.poll() is None:
             process.terminate()
@@ -301,11 +351,14 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
         if sampler:
             try:sampler.stop()
             except Exception as error:stop_error=error
-            if sampler.thread and sampler.thread.is_alive():raise Incomplete('sampler not joined; ownership retained')
+            sampler_thread=getattr(sampler,'thread',None) or getattr(sampler,'monitor_thread',None)
+            if sampler_thread and sampler_thread.is_alive():raise Incomplete('sampler not joined; ownership retained')
         if waterline:waterline.close()
         if started:
             cleanup=legacy.cleanup_project(project,env_file,files)
             write_json(cell_dir/'failure-cleanup.json',cleanup)
+        for path in (locals().get('corpus'),locals().get('credentials'),env_file,override):
+            if path:Path(path).unlink(missing_ok=True)
         if stop_error:raise stop_error
 
 def main(arguments=None):

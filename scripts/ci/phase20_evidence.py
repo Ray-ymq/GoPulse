@@ -436,7 +436,7 @@ def verify_retention_directory(directory):
     manifest_path = root / 'candidate-manifest.json'
     candidate = json.loads(manifest_path.read_text(encoding='utf-8'))
     candidate_value = candidate.get('candidate', candidate)
-    if candidate_value.get('version') != '2.2.4' or not isinstance(candidate_value.get('revision'), str) or len(candidate_value['revision']) != 40:
+    if candidate_value.get('version') not in {'2.2.4', '2.2.5'} or not isinstance(candidate_value.get('revision'), str) or len(candidate_value['revision']) != 40:
         raise Incomplete('retention candidate version/revision is invalid')
     binding = {'version': candidate_value['version'], 'revision': candidate_value['revision'], 'manifest_sha256': digest(manifest_path)}
     if document.get('candidate') != binding:

@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET_VERSION = "2.2.4"
+SUPPORTED_CANDIDATE_VERSIONS = {"2.2.4", "2.2.5"}
 SCHEMA = "gopulse.phase20.retention.v1"
 ES_IMAGE = "docker.elastic.co/elasticsearch/elasticsearch:9.5.2"
 VM_IMAGE = "victoriametrics/victoria-metrics:v1.151.0"
@@ -127,17 +128,21 @@ def candidate_binding(manifest_path: Path) -> dict[str, str]:
     except (OSError, json.JSONDecodeError) as error:
         raise Incomplete("candidate manifest is invalid") from error
     candidate = manifest.get("candidate", manifest)
-    if not isinstance(candidate, dict) or candidate.get("version") != TARGET_VERSION:
-        raise Incomplete("candidate manifest version is not 2.2.4")
+    if not isinstance(candidate, dict) or candidate.get("version") not in SUPPORTED_CANDIDATE_VERSIONS:
+        raise Incomplete("candidate manifest version is outside the registered retention versions")
+    version = str(candidate["version"])
     revision = candidate.get("revision")
     if not isinstance(revision, str) or len(revision) != 40 or any(char not in "0123456789abcdef" for char in revision):
         raise Incomplete("candidate revision must be a 40-character git revision")
     current = require(run(["git", "rev-parse", "HEAD"], timeout=30), "resolve current revision").strip()
     if current != revision:
         raise Incomplete("candidate revision is not the checked-out revision")
-    if (ROOT / "VERSION").read_text(encoding="utf-8").strip() != TARGET_VERSION:
-        raise Incomplete("VERSION is not 2.2.4")
-    return {"version": TARGET_VERSION, "revision": revision, "manifest_sha256": digest(manifest_path)}
+    completed_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    if version == TARGET_VERSION and completed_version != TARGET_VERSION:
+        raise Incomplete("completed VERSION does not match the 2.2.4 retention candidate")
+    if version == "2.2.5" and completed_version not in {"2.2.4", "2.2.5"}:
+        raise Incomplete("completed VERSION is outside the pending 2.2.5 retention transition")
+    return {"version": version, "revision": revision, "manifest_sha256": digest(manifest_path)}
 
 
 def write_json(path: Path, value: object) -> None:
