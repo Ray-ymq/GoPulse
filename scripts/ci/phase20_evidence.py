@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 DIMENSIONS = ('business', 'metrics', 'logs', 'events')
+ROTATED_TRACE_NAME = re.compile(r'spans-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}\.jsonl$')
 
 
 def tool_inputs():
@@ -509,7 +511,7 @@ def verify_retention_directory(directory):
     inventory = trace['inventory']
     if len(inventory) > 4 or sum(item['bytes'] for item in inventory) > 64 * 1024 * 1024 or any(item['bytes'] > 16 * 1024 * 1024 for item in inventory) or not trace['rotation_observed']:
         raise Incomplete('R08 Collector file budget is exceeded or rotation was not observed')
-    if any(item['path'] != '/var/lib/gopulse/trace/' + item['name'] or not (item['name'] == 'spans.jsonl' or item['name'].startswith('spans.jsonl.')) for item in inventory):
+    if any(item['path'] != '/var/lib/gopulse/trace/' + item['name'] or not (item['name'] == 'spans.jsonl' or item['name'].startswith('spans.jsonl.') or ROTATED_TRACE_NAME.fullmatch(item['name'])) for item in inventory):
         raise Incomplete('R08 Collector artifact ownership path is invalid')
     artifacts = document.get('dependency_fixtures', {})
     for key in ('elasticsearch', 'victoriametrics', 'collector'):

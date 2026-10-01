@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -27,6 +28,7 @@ COLLECTOR_IMAGE = "otel/opentelemetry-collector-contrib:0.138.0@sha256:d535a5267
 MAX_TRACE_FILE = 16 * 1024 * 1024
 MAX_TRACE_TOTAL = 64 * 1024 * 1024
 MAX_TRACE_FILES = 4
+ROTATED_TRACE_NAME = re.compile(r"spans-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}\.jsonl$")
 
 
 class Incomplete(ValueError):
@@ -227,14 +229,17 @@ func main() {
 
 
 def trace_inventory(container: str) -> list[dict[str, object]]:
-    output = docker(["exec", container, "sh", "-c", "find /var/lib/gopulse/trace -maxdepth 1 -type f -printf '%f %s\\n'"], timeout=60)
-    result = []
-    for line in output.splitlines():
-        name, separator, size = line.rpartition(" ")
-        if not separator or not size.isdigit():
-            raise Incomplete("Collector trace inventory is not machine-readable")
-        result.append({"name": name, "bytes": int(size), "path": "/var/lib/gopulse/trace/" + name})
-    return sorted(result, key=lambda item: str(item["name"]))
+    staging = Path(tempfile.mkdtemp(prefix="phase20-trace-inventory-"))
+    try:
+        require(run(["docker", "cp", f"{container}:/var/lib/gopulse/trace/.", str(staging)], timeout=60), "copy Collector trace inventory")
+        result = []
+        for path in staging.iterdir():
+            if not path.is_file():
+                continue
+            result.append({"name": path.name, "bytes": path.stat().st_size, "path": "/var/lib/gopulse/trace/" + path.name})
+        return sorted(result, key=lambda item: str(item["name"]))
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def verify_vm(origin: str, container: str) -> dict[str, object]:
@@ -290,7 +295,7 @@ def verify_trace(collector: str) -> dict[str, object]:
     names = {str(item["name"]) for item in inventory}
     if len(inventory) > MAX_TRACE_FILES or total > MAX_TRACE_TOTAL or any(int(item["bytes"]) > MAX_TRACE_FILE for item in inventory):
         raise Incomplete(f"Collector trace budget exceeded: {inventory}")
-    if any(not (name == "spans.jsonl" or name.startswith("spans.jsonl.")) for name in names):
+    if any(not (name == "spans.jsonl" or name.startswith("spans.jsonl.") or ROTATED_TRACE_NAME.fullmatch(name)) for name in names):
         raise Incomplete("Collector wrote outside the fixed spans.jsonl rotation family")
     return {"collector_image": COLLECTOR_IMAGE, "directory": "/var/lib/gopulse/trace", "inventory": inventory, "file_limit_bytes": MAX_TRACE_FILE, "total_limit_bytes": MAX_TRACE_TOTAL, "max_files": MAX_TRACE_FILES, "rotation_observed": len(inventory) > 1, "cleanup_seconds": 0}
 
