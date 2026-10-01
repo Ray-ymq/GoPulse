@@ -225,6 +225,15 @@ func Catalog(id string) (Spec, bool) {
 		gauge("last_storage_success_timestamp_seconds", "unix_seconds", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_commit_success_timestamp_seconds", "unix_seconds", nil, nil)
 		dep("kafka", "victoriametrics", "elasticsearch")
+		cleanupResults := []string{"deleted", "not_found", "not_owned", "invalid_date", "not_expired", "transient", "permission_denied", "budget_exhausted", "unknown"}
+		streams := singles("logs", "events")
+		pair("retention_cleanup_total", "retention_cleanup_duration_seconds_total", []string{"stream", "result"}, expand(streams, cleanupResults...))
+		s.Families = append(s.Families,
+			Family{Name: prefix + "retention_late_records_total", Kind: "counter", Unit: "count", Keys: []string{"stream", "result"}, Tuples: expand(streams, "accepted", "expired", "invalid_date")},
+			Family{Name: prefix + "retention_retries_total", Kind: "counter", Unit: "count", Keys: []string{"stream", "result"}, Tuples: expand(streams, "transient", "permission_denied", "unknown")},
+		)
+		gauge("retention_last_success_timestamp_seconds", "unix_seconds", []string{"stream"}, streams)
+		gauge("retention_blocked", "state", []string{"stream"}, streams)
 	default:
 		return Spec{}, false
 	}

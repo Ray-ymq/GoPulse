@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 	"net"
 	"net/url"
 	"os"
@@ -46,6 +47,7 @@ type Config struct {
 	FutureSkew           time.Duration
 	MaxRecordBytes       int
 	MaxOutputBytes       int
+	Retention            retention.Config
 }
 
 func Load() (Config, error) {
@@ -163,6 +165,50 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if cfg.RetryMax < cfg.RetryMin {
 		return Config{}, errors.New("MARSHALLER_RETRY_MAX must be at least MARSHALLER_RETRY_MIN")
 	}
+	retentionConfig, err := loadRetentionConfig(get)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Retention = retentionConfig
+	return cfg, nil
+}
+
+func loadRetentionConfig(get func(string, string) string) (retention.Config, error) {
+	cfg := retention.DefaultConfig()
+	var err error
+	if cfg.Logs.RetentionDays, err = parseIntRange(get("MARSHALLER_LOG_RETENTION_DAYS", "7"), retention.MinDays, retention.MaxDays, "MARSHALLER_LOG_RETENTION_DAYS"); err != nil {
+		return retention.Config{}, err
+	}
+	if cfg.Events.RetentionDays, err = parseIntRange(get("MARSHALLER_EVENT_RETENTION_DAYS", "7"), retention.MinDays, retention.MaxDays, "MARSHALLER_EVENT_RETENTION_DAYS"); err != nil {
+		return retention.Config{}, err
+	}
+	if cfg.Cycle, err = parseDuration(get("MARSHALLER_RETENTION_CYCLE", "60s"), 10*time.Second, 24*time.Hour); err != nil {
+		return retention.Config{}, errors.New("MARSHALLER_RETENTION_CYCLE is invalid")
+	}
+	if cfg.BatchIndices, err = parseIntRange(get("MARSHALLER_RETENTION_BATCH_INDICES", "16"), 1, 128, "MARSHALLER_RETENTION_BATCH_INDICES"); err != nil {
+		return retention.Config{}, err
+	}
+	if cfg.RequestTimeout, err = parseDuration(get("MARSHALLER_RETENTION_REQUEST_TIMEOUT", "3s"), 100*time.Millisecond, 10*time.Second); err != nil {
+		return retention.Config{}, errors.New("MARSHALLER_RETENTION_REQUEST_TIMEOUT is invalid")
+	}
+	if cfg.RoundTimeout, err = parseDuration(get("MARSHALLER_RETENTION_ROUND_TIMEOUT", "15s"), time.Second, time.Minute); err != nil {
+		return retention.Config{}, errors.New("MARSHALLER_RETENTION_ROUND_TIMEOUT is invalid")
+	}
+	if cfg.RetryMin, err = parseDuration(get("MARSHALLER_RETENTION_RETRY_MIN", "250ms"), 10*time.Millisecond, 10*time.Second); err != nil {
+		return retention.Config{}, errors.New("MARSHALLER_RETENTION_RETRY_MIN is invalid")
+	}
+	if cfg.RetryMax, err = parseDuration(get("MARSHALLER_RETENTION_RETRY_MAX", "5s"), 100*time.Millisecond, time.Minute); err != nil {
+		return retention.Config{}, errors.New("MARSHALLER_RETENTION_RETRY_MAX is invalid")
+	}
+	if cfg.MaxRetries, err = parseIntRange(get("MARSHALLER_RETENTION_MAX_RETRIES", "3"), 0, 8, "MARSHALLER_RETENTION_MAX_RETRIES"); err != nil {
+		return retention.Config{}, err
+	}
+	if cfg.CatchupDeadline, err = parseDuration(get("MARSHALLER_RETENTION_CATCHUP_DEADLINE", "60s"), time.Second, 10*time.Minute); err != nil {
+		return retention.Config{}, errors.New("MARSHALLER_RETENTION_CATCHUP_DEADLINE is invalid")
+	}
+	if cfg.RetryMax < cfg.RetryMin {
+		return retention.Config{}, errors.New("MARSHALLER_RETENTION_RETRY_MAX must be at least MARSHALLER_RETENTION_RETRY_MIN")
+	}
 	return cfg, nil
 }
 
@@ -176,6 +222,14 @@ func parseInt(s string, min, max int) int {
 func parseIntValue(s string, min, max int, name string) (int, error) {
 	v := parseInt(s, min, max)
 	if v == 0 {
+		return 0, fmt.Errorf("%s must be an integer from %d to %d", name, min, max)
+	}
+	return v, nil
+}
+
+func parseIntRange(s string, min, max int, name string) (int, error) {
+	v, err := strconv.Atoi(s)
+	if err != nil || v < min || v > max {
 		return 0, fmt.Errorf("%s must be an integer from %d to %d", name, min, max)
 	}
 	return v, nil

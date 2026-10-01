@@ -14,6 +14,11 @@ exporters:
   file:
     path: /var/lib/gopulse/trace/spans.jsonl
     flush_interval: 1s
+    rotation:
+      max_megabytes: 16
+      max_backups: 3
+      max_days: 0
+      localtime: false
 
 service:
   pipelines:

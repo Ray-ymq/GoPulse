@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
 func TestTransformerBuildsStrictIdempotentWriteRequest(t *testing.T) {
@@ -71,5 +72,19 @@ func TestTransformAcceptsBackgroundSourcesAndRejectsSourceMismatch(t *testing.T)
 				t.Fatalf("mismatch error = %v", err)
 			}
 		})
+	}
+}
+
+func TestTransformerAppliesUTCRetentionBeforeBuildingWrite(t *testing.T) {
+	base := envelope.Envelope{MessageID: "abcdef0123456789abcdef0123456789", Type: "logs", Source: "backend", Timestamp: time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC), RawPayload: json.RawMessage(`{"log_schema_version":1,"timestamp":"2026-09-23T12:00:00Z","level":"info","service":"backend","module":"post","message":"post created"}`)}
+	policy := retention.DefaultConfig().Logs
+	transformer := Transformer{Retention: &policy, Now: func() time.Time { return time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC) }}
+	if _, err := transformer.Transform(base); envelope.Code(err) != "expired_log_retention" {
+		t.Fatalf("expired error=%v code=%q", err, envelope.Code(err))
+	}
+	base.Timestamp = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	base.RawPayload = json.RawMessage(`{"log_schema_version":1,"timestamp":"2026-09-24T12:00:00Z","level":"info","service":"backend","module":"post","message":"post created"}`)
+	if _, err := transformer.Transform(base); err != nil {
+		t.Fatalf("cutoff date rejected: %v", err)
 	}
 }

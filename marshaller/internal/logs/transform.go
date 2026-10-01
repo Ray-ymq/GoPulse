@@ -6,9 +6,14 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
-type Transformer struct{ MaxBytes int }
+type Transformer struct {
+	MaxBytes  int
+	Retention *retention.Policy
+	Now       func() time.Time
+}
 
 type WriteRequest struct {
 	MessageID string          `json:"message_id"`
@@ -33,6 +38,17 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	payloadTime, err := time.Parse(time.RFC3339Nano, validated.Timestamp)
 	if err != nil || !payloadTime.Equal(message.Timestamp) {
 		return nil, &envelope.PermanentError{Code: "timestamp_mismatch"}
+	}
+	if t.Retention != nil {
+		now := time.Now()
+		if t.Now != nil {
+			now = t.Now()
+		}
+		if t.Retention.ExpiredTimestamp(message.Timestamp, now) {
+			retention.ObserveLate(t.Retention.Stream, "expired")
+			return nil, &envelope.PermanentError{Code: retention.PermanentCode(t.Retention.Stream)}
+		}
+		retention.ObserveLate(t.Retention.Stream, "accepted")
 	}
 	var fields map[string]any
 	decoderBody := validated.Payload
