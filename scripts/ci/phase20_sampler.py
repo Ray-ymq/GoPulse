@@ -100,6 +100,18 @@ def kafka_consumer(address,group_id=None):
                          api_version_auto_timeout_ms=3000,fetch_max_bytes=8*1024*1024,
                          max_poll_records=100,client_id='gopulse-phase20-observer')
 
+def kafka_offsets(client,partitions,attempts=2):
+    last=None
+    for attempt in range(attempts):
+        try:
+            end=client.end_offsets(partitions)
+            committed={p:client.committed(p) for p in partitions}
+            return end,committed
+        except Exception as error:
+            last=error
+            if attempt+1<attempts:time.sleep(0.25)
+    raise last
+
 class KafkaWaterline:
     def __init__(self,address,topic='gopulse-observability-v1'):
         from kafka import TopicPartition
@@ -150,8 +162,7 @@ class Sampler:
                 while not self.stop_event.wait(max(0,next_at-time.monotonic())):
                     started=time.monotonic();missing=[];failure=None;signals={};probe_times={}
                     try:
-                        end=client.end_offsets(partitions)
-                        committed={p:client.committed(p) for p in partitions}
+                        end,committed=kafka_offsets(client,partitions)
                         if any(v is None for v in committed.values()):raise RuntimeError('product Kafka group offsets missing')
                         signals['kafka_lag']=[{'partition':p.partition,'end_offset':end[p],'committed_offset':committed[p],'lag':max(0,end[p]-committed[p])} for p in partitions]
                         probe_times['kafka_seconds']=time.monotonic()-started
