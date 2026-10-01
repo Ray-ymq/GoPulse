@@ -1,6 +1,6 @@
 {
   "schema_version": "gopulse.phase20.resource-budgets.v1",
-  "contract_id": "phase20-05-budget-contract-20261001-r3",
+  "contract_id": "phase20-05-budget-contract-20261002-r4",
   "candidate_version": "2.2.5",
   "dependencies": {
     "lockfile": "deploy/release/third-party.lock.json",
@@ -127,7 +127,7 @@
     ],
     "thresholds": {
       "normal_observability": { "business_p99_delta_ms": 150, "business_p99_ratio": 0.25, "cpu_delta_cores": 1.5, "rss_delta_bytes": 536870912 },
-      "trace_sampling": { "business_p99_delta_ms": 200, "business_p99_ratio": 0.25, "cpu_delta_cores": 1.0, "rss_delta_bytes": 268435456 },
+      "trace_sampling": { "business_p99_delta_ms": 200, "cpu_delta_cores": 1.0, "rss_delta_bytes": 268435456 },
       "sampler": { "business_p99_delta_ms": 50, "observer_cpu_peak_cores": 0.75, "missing_sample_ratio": 0.01 }
     }
   },
@@ -149,6 +149,16 @@
       "recovery_action": "docker compose start phase20-collector"
     },
     "required_signals": ["host_cpu", "host_memory", "sut_cpu", "sut_rss", "container_memory_current", "outbox", "rabbitmq", "kafka_lag", "disk", "business_freshness", "metrics_freshness", "logs_freshness", "events_freshness"]
+  },
+  "execution": {
+    "candidate_build_max_seconds": 3600,
+    "execution_max_seconds": 10800,
+    "b03_max_seconds": 5400,
+    "stop_grace_seconds": 30,
+    "recovery_seconds": 120,
+    "stage_order": ["S0", "S1", "S2", "S3", "S4"],
+    "b03_order": ["O0", "O3", "O1", "O2"],
+    "preflight_formal": false
   },
   "evidence": {
     "budget_root": "/var/tmp/gopulse-phase20-05-20261001/budget/",

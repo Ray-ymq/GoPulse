@@ -93,9 +93,13 @@ class BudgetTests(unittest.TestCase):
         value = {"formal": False, "trials": []}
         for combo in ("O0", "O1", "O2", "O3"):
             for repeat in (1, 2, 3):
-                value["trials"].append({"combination_id": combo, "repeat": repeat, "target_rps": 200, "warmup_seconds": 15, "measurement_seconds": 60, "execution_status": "complete", "business_errors": 0, "p99_ms": 10, "cpu_peak_cores": 1, "rss_peak_bytes": 100, "sampler_cpu_peak_cores": 0.1, "missing_sample_ratio": 0})
+                p99 = {"O0": 10, "O1": 11, "O2": 12, "O3": 12}[combo]
+                value["trials"].append({"combination_id": combo, "repeat": repeat, "target_rps": 200, "warmup_seconds": 15, "measurement_seconds": 60, "execution_status": "complete", "business_errors": 0, "p99_ms": p99, "cpu_peak_cores": 1, "rss_peak_bytes": 100, "sampler_cpu_peak_cores": 0.1, "sampler_cpu_seconds": 1.0, "missing_sample_ratio": 0})
         result = budget.validate_overhead_trials(value, contract)
         self.assertEqual(result["trials"], 12)
+        self.assertEqual(result["comparisons"]["normal_observability"]["p99_ms"]["baseline"], 10)
+        self.assertEqual(result["comparisons"]["normal_observability"]["p99_ms"]["enabled"], 12)
+        self.assertEqual(result["comparisons"]["sampler"]["p99_ms"]["delta"], -1)
         value["trials"].pop()
         with self.assertRaises(budget.Incomplete):
             budget.validate_overhead_trials(value, contract)

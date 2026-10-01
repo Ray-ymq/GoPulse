@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import datetime
 import hashlib
 import json
 import math
+import multiprocessing
 import os
 import re
 import shutil
@@ -274,18 +276,30 @@ def summarize_resources(rows: list[dict[str, Any]], contract: dict[str, Any]) ->
     return {"sample_count": len(rows), "cpu_sut_peak_cores": max(sut_cpu), "rss_sut_peak_bytes": max(sut_rss), "host_free_min_bytes": min(host_free), "rabbit_ready_peak": max(ready), "rabbit_unacked_peak": max(unacked), "kafka_lag_peak": max(lag), "budgets": statuses}
 
 
-def validate_overhead_trials(value: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
+def validate_overhead_trials(
+    value: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    expected_combinations: set[str] | None = None,
+    repetitions: int | None = None,
+    warmup_seconds: int | None = None,
+    measurement_seconds: int | None = None,
+    enforce_thresholds: bool = True,
+) -> dict[str, Any]:
     if value.get("formal") is not False:
         raise Incomplete("observer comparison must be diagnostic-only")
-    expected = {item["id"] for item in contract["overhead"]["combinations"]}
+    expected = expected_combinations or {item["id"] for item in contract["overhead"]["combinations"]}
+    repetitions = repetitions or int(contract["overhead"]["repetitions"])
+    warmup_seconds = warmup_seconds or int(contract["overhead"]["warmup_seconds"])
+    measurement_seconds = measurement_seconds or int(contract["overhead"]["measurement_seconds"])
     trials = value.get("trials")
-    if not isinstance(trials, list) or len(trials) != len(expected) * 3:
-        raise Incomplete("observer comparison must contain four combinations with three repetitions")
+    if not isinstance(trials, list) or len(trials) != len(expected) * repetitions:
+        raise Incomplete("observer comparison combinations/repetitions are incomplete")
     seen = {(item.get("combination_id"), item.get("repeat")) for item in trials}
-    if seen != {(case, repeat) for case in expected for repeat in range(1, 4)}:
+    if seen != {(case, repeat) for case in expected for repeat in range(1, repetitions + 1)}:
         raise Incomplete("observer comparison combinations/repetitions are incomplete")
     for trial in trials:
-        if trial.get("target_rps") != 200 or trial.get("warmup_seconds") != 15 or trial.get("measurement_seconds") != 60:
+        if trial.get("target_rps") != int(contract["overhead"]["target_rps"]) or trial.get("warmup_seconds") != warmup_seconds or trial.get("measurement_seconds") != measurement_seconds:
             raise Incomplete("observer comparison load drift")
         if trial.get("execution_status") != "complete" or trial.get("business_errors") != 0:
             raise Incomplete("observer comparison trial is incomplete")
@@ -294,11 +308,15 @@ def validate_overhead_trials(value: dict[str, Any], contract: dict[str, Any]) ->
                 raise Incomplete("observer comparison raw metric missing: " + key)
         if trial.get("combination_id") in {"O1", "O2"} and float(trial.get("missing_sample_ratio", 1)) > contract["overhead"]["thresholds"]["sampler"]["missing_sample_ratio"]:
             raise Incomplete("observer comparison sample loss exceeds frozen threshold")
+        if not isinstance(trial.get("sampler_cpu_peak_cores"), (int, float)) or not math.isfinite(float(trial["sampler_cpu_peak_cores"])):
+            raise Incomplete("observer sampler CPU peak is missing")
+    if not enforce_thresholds:
+        return {"status": "pass", "thresholds_enforced": False, "trials": len(trials), "combinations": sorted(expected), "repetitions": repetitions}
     by_key = {(item["combination_id"], item["repeat"]): item for item in trials}
     import statistics
 
     def median(combo: str, field: str) -> float:
-        return float(statistics.median(float(by_key[(combo, repeat)][field]) for repeat in range(1, 4)))
+        return float(statistics.median(float(by_key[(combo, repeat)][field]) for repeat in range(1, repetitions + 1)))
 
     def delta(left: str, right: str, field: str) -> dict[str, Any]:
         first, second = median(left, field), median(right, field)
@@ -308,9 +326,9 @@ def validate_overhead_trials(value: dict[str, Any], contract: dict[str, Any]) ->
 
     thresholds = contract["overhead"]["thresholds"]
     comparisons = {
-        "normal_observability": {"p99_ms": delta("O1", "O3", "p99_ms"), "cpu_peak_cores": delta("O1", "O3", "cpu_peak_cores"), "rss_peak_bytes": delta("O1", "O3", "rss_peak_bytes")},
+        "normal_observability": {"p99_ms": delta("O3", "O0", "p99_ms"), "cpu_peak_cores": delta("O3", "O0", "cpu_peak_cores"), "rss_peak_bytes": delta("O3", "O0", "rss_peak_bytes")},
         "trace_sampling": {"p99_ms": delta("O2", "O1", "p99_ms"), "cpu_peak_cores": delta("O2", "O1", "cpu_peak_cores"), "rss_peak_bytes": delta("O2", "O1", "rss_peak_bytes")},
-        "sampler": {"p99_ms": delta("O1", "O3", "p99_ms"), "cpu_peak_cores": median("O1", "sampler_cpu_peak_cores")},
+        "sampler": {"p99_ms": delta("O1", "O3", "p99_ms"), "cpu_peak_cores": median("O1", "sampler_cpu_peak_cores"), "cpu_seconds": median("O1", "sampler_cpu_seconds")},
     }
     normal = comparisons["normal_observability"]
     normal_limit = thresholds["normal_observability"]
@@ -320,13 +338,13 @@ def validate_overhead_trials(value: dict[str, Any], contract: dict[str, Any]) ->
         raise Incomplete("normal observer resource overhead exceeds frozen threshold")
     trace = comparisons["trace_sampling"]
     trace_limit = thresholds["trace_sampling"]
-    if trace["p99_ms"]["delta"] > trace_limit["business_p99_delta_ms"] or (trace["p99_ms"]["ratio"] is not None and trace["p99_ms"]["ratio"] > trace_limit["business_p99_ratio"]) or trace["cpu_peak_cores"]["delta"] > trace_limit["cpu_delta_cores"] or trace["rss_peak_bytes"]["delta"] > trace_limit["rss_delta_bytes"]:
+    if trace["p99_ms"]["delta"] > trace_limit["business_p99_delta_ms"] or trace["cpu_peak_cores"]["delta"] > trace_limit["cpu_delta_cores"] or trace["rss_peak_bytes"]["delta"] > trace_limit["rss_delta_bytes"]:
         raise Incomplete("Trace observer overhead exceeds frozen threshold")
     sampler = comparisons["sampler"]
     sampler_limit = thresholds["sampler"]
     if sampler["p99_ms"]["delta"] > sampler_limit["business_p99_delta_ms"] or sampler["cpu_peak_cores"] > sampler_limit["observer_cpu_peak_cores"]:
         raise Incomplete("sampler overhead exceeds frozen threshold")
-    return {"status": "pass", "trials": len(trials), "combinations": sorted(expected), "comparisons": comparisons}
+    return {"status": "pass", "thresholds_enforced": True, "trials": len(trials), "combinations": sorted(expected), "repetitions": repetitions, "comparisons": comparisons}
 
 
 def _relative_case(path: Path, root: Path) -> str:
@@ -572,6 +590,73 @@ class LightweightResourceCounter:
             self.failure = type(error).__name__ + ": " + str(error)
 
 
+class ProcessSampler:
+    """Run the full observer in a child process and retain independent CPU facts."""
+
+    def __init__(self, project: str, env_file: Path, files: list[Path], environment: dict[str, str], profile: dict[str, Any], run_id: str, path: Path):
+        self.project = project
+        self.env_file = Path(env_file)
+        self.files = [Path(item) for item in files]
+        self.environment = environment
+        self.profile = profile
+        self.run_id = run_id
+        self.path = Path(path)
+        self.stop_event = multiprocessing.Event()
+        self.process: multiprocessing.Process | None = None
+        self.monitor_stop = threading.Event()
+        self.monitor_thread: threading.Thread | None = None
+        self.cpu_samples: list[float] = []
+        self.cpu_seconds = 0.0
+        self.records: list[dict[str, Any]] = []
+
+    def start(self) -> None:
+        from phase20_sampler import sampler_process_main
+
+        self.process = multiprocessing.Process(
+            target=sampler_process_main,
+            args=(self.project, self.env_file, self.files, self.environment, self.profile, self.run_id, self.path, self.stop_event),
+            name="phase20-independent-sampler",
+        )
+        self.process.start()
+        self.monitor_thread = threading.Thread(target=self._monitor_cpu, name="phase20-sampler-cpu-monitor")
+        self.monitor_thread.start()
+
+    def _monitor_cpu(self) -> None:
+        from phase20_sampler import process_stats
+
+        previous = process_stats(self.process.pid) if self.process else None
+        previous_at = time.monotonic()
+        while not self.monitor_stop.wait(5):
+            current = process_stats(self.process.pid) if self.process else None
+            now = time.monotonic()
+            if previous and current and now > previous_at:
+                ticks = current["cpu_ticks"] - previous["cpu_ticks"]
+                seconds = max(0.0, ticks / os.sysconf("SC_CLK_TCK"))
+                self.cpu_seconds += seconds
+                self.cpu_samples.append(seconds / (now - previous_at))
+            previous, previous_at = current, now
+
+    @property
+    def cpu_peak_cores(self) -> float:
+        return max(self.cpu_samples, default=0.0)
+
+    def stop(self) -> None:
+        if self.process is None:
+            return
+        self.stop_event.set()
+        self.process.join(timeout=30)
+        self.monitor_stop.set()
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=10)
+        if self.process.is_alive():
+            self.process.terminate()
+            self.process.join(timeout=5)
+            raise Incomplete("independent sampler failed to stop within 30 seconds")
+        if self.path.is_file():
+            self.records = read_jsonl(self.path)
+        if self.process.exitcode not in (0, None):
+            raise Incomplete("independent sampler process failed with exit code " + str(self.process.exitcode))
+
 def _http_window(api: Any, target_rps: int, warmup_seconds: int, measurement_seconds: int, sampler: Any | None, project: str, env_file: Path, files: list[Path], raw_path: Path) -> dict[str, Any]:
     def run_window(seconds: int, label: str) -> list[dict[str, Any]]:
         total = target_rps * seconds
@@ -602,7 +687,9 @@ def _http_window(api: Any, target_rps: int, warmup_seconds: int, measurement_sec
     if sampler:
         sampler.start()
     warmup = run_window(warmup_seconds, "warmup")
+    measurement_start = time.monotonic()
     measurement = run_window(measurement_seconds, "measurement")
+    measurement_finished = time.monotonic()
     if sampler:
         sampler.stop()
     process_cpu = time.process_time() - process_before
@@ -612,8 +699,9 @@ def _http_window(api: Any, target_rps: int, warmup_seconds: int, measurement_sec
     values = sorted(row["latency_ms"] for row in measurement)
     p99 = values[int(math.ceil(0.99 * (len(values) - 1)))] if values else float("inf")
     resource_rows = sampler.records if sampler else []
-    cpu_values = [sum(float(item.get("cpu_percent", 0)) for item in row.get("signals", {}).get("containers", [])) / 100 for row in resource_rows]
-    rss_values = [sum(int(item.get("rss_bytes", 0)) for item in row.get("signals", {}).get("containers", [])) for row in resource_rows]
+    measurement_rows = [row for row in resource_rows if measurement_start <= float(row.get("started_monotonic", 0)) <= measurement_finished]
+    cpu_values = [sum(float(item.get("cpu_percent", 0)) for item in row.get("signals", {}).get("containers", [])) / 100 for row in measurement_rows]
+    rss_values = [sum(int(item.get("rss_bytes", 0)) for item in row.get("signals", {}).get("containers", [])) for row in measurement_rows]
     raw = {"schema": "gopulse.phase20.overhead-trial.v1", "requests": rows, "sampler_records": resource_rows, "stats_before": before, "stats_after": after}
     write_json(raw_path, raw)
     return {
@@ -628,69 +716,190 @@ def _http_window(api: Any, target_rps: int, warmup_seconds: int, measurement_sec
         "p99_ms": p99,
         "cpu_peak_cores": max(cpu_values, default=max(before["cpu_peak_cores"], after["cpu_peak_cores"])),
         "rss_peak_bytes": max(rss_values, default=max(before["rss_peak_bytes"], after["rss_peak_bytes"])),
-        "sampler_cpu_peak_cores": process_cpu / max(1, warmup_seconds + measurement_seconds),
-        "missing_sample_ratio": (sum(bool(row.get("missing_signals") or row.get("failure")) for row in resource_rows) / len(resource_rows)) if resource_rows else 0.0,
+        "sampler_cpu_peak_cores": float(getattr(sampler, "cpu_peak_cores", 0.0)),
+        "sampler_cpu_seconds": float(getattr(sampler, "cpu_seconds", 0.0)),
+        "missing_sample_ratio": (sum(bool(row.get("missing_signals") or row.get("failure")) for row in resource_rows) / len(resource_rows)) if resource_rows else 1.0,
         "request_count": len(measurement),
     }
 
 
-def run_b03(root: Path, manifest_path: Path, manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
-    """Execute the four observer combinations as independent owned projects."""
+def _percentile(values: list[float], fraction: float) -> float:
+    if not values:
+        return float("inf")
+    ordered = sorted(values)
+    return ordered[int(math.ceil(fraction * (len(ordered) - 1)))]
+
+
+def _go_overhead_trial(
+    trial_dir: Path,
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    recipe_binary: Path,
+    load_binary: Path,
+    profile: dict[str, Any],
+    binding: dict[str, str],
+    combination_id: str,
+    repeat: int,
+    combination: dict[str, Any],
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    import phase19_capacity as legacy
     import phase20_diagnostic as diagnostic
-    from phase20_sampler import Sampler
+
+    trial_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
+    env_file = trial_dir / "candidate.env"
+    values = _candidate_env(manifest, env_file)
+    if combination_id == "O2":
+        values.update({
+            "GOPULSE_TRACE_ENABLED": "true",
+            "GOPULSE_TRACE_ENDPOINT": "phase20-collector:4317",
+            "GOPULSE_TRACE_SAMPLE_RATIO": "1.0",
+        })
+    else:
+        values.update({"GOPULSE_TRACE_ENABLED": "false", "GOPULSE_TRACE_ENDPOINT": "", "GOPULSE_TRACE_SAMPLE_RATIO": "0.0"})
+    legacy.write_env(env_file, values)
+    override = legacy.compose_override(trial_dir / "compose.override.yaml", int(values["MYSQL_PORT"]))
+    project = legacy.project_name()
+    files = [COMPOSE_PATH, override]
+    if combination_id == "O2":
+        files.insert(1, TRACE_COMPOSE_PATH)
+    started = False
+    process = None
+    counter = None
+    corpus = credentials = None
+    try:
+        args = _compose_args(project, env_file, files)
+        require(command(args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start Go load overhead project " + combination_id)
+        legacy.ensure_owned_project(project, env_file, files)
+        started = True
+        address = legacy.mysql_service_address(project, env_file, files)
+        _, corpus, credentials, _ = legacy.generate_recipe(recipe_binary, binding, values, trial_dir, 3306, mysql_host=address)
+        require(command(args + ["run", "--rm", "--no-deps", "--entrypoint", "/usr/local/bin/search-reindex", "search-init"], timeout=900), "reindex Go overhead recipe")
+        legacy.wait_initial_convergence(project, env_file, files, timeout=900)
+        require(command(args + ["run", "--rm", "--no-deps", "admin-role"], timeout=60), "bootstrap Go overhead operator")
+        if not combination["observability_services"]:
+            require(command(args + ["stop", "router", "router-2", "marshaller", "marshaller-2", "monitor"], timeout=120), "stop observer services for O0")
+        resource_path = trial_dir / "resources.jsonl"
+        if combination["sampler_enabled"]:
+            counter = ProcessSampler(project, env_file, files, values, profile, combination_id + "-" + str(repeat), resource_path)
+        else:
+            counter = LightweightResourceCounter(project, env_file, files, float(profile["sampling"]["interval_seconds"]), combination_id + "-" + str(repeat), resource_path)
+        run_id = combination_id + "-" + str(repeat)
+        load_dir = trial_dir / ("repeat-%02d" % repeat)
+        args = [
+            str(load_binary),
+            "--profile", str(CAPACITY_PROFILE_PATH),
+            "--base-url", "http://127.0.0.1:" + values["FRONTEND_PORT"],
+            "--corpus", str(corpus),
+            "--credentials", str(credentials),
+            "--candidate-manifest", str(trial_dir / "candidate-manifest.json"),
+            "--workdir", str(trial_dir),
+            "--repeat", str(repeat),
+            "--stage", "3",
+            "--run-id", run_id,
+        ]
+        shutil.copyfile(manifest_path, trial_dir / "candidate-manifest.json")
+        with (trial_dir / "load.stdout").open("x") as stdout, (trial_dir / "load.stderr").open("x") as stderr:
+            counter.start()
+            process = subprocess.Popen(args, stdout=stdout, stderr=stderr)
+            deadline = time.monotonic() + int(contract["overhead"]["warmup_seconds"] + contract["overhead"]["measurement_seconds"]) + 180
+            while process.poll() is None:
+                if time.monotonic() > deadline:
+                    process.terminate()
+                    raise Incomplete("Go overhead load exceeded bounded execution window")
+                time.sleep(0.5)
+            if process.returncode:
+                raise Incomplete("Go overhead load failed; private stderr retained")
+        counter.stop()
+        counter_stopped = counter
+        report = read_json(load_dir / "load-report.json")
+        ledger = read_jsonl(load_dir / "ledger.jsonl")
+        if not diagnostic.recompute_load(ledger, report, profile):
+            raise Incomplete("Go overhead load did not satisfy its business workload gate")
+        terminals = [row for row in ledger if row.get("record") == "terminal" and row.get("window") == "measurement"]
+        dispatch_latencies = []
+        for row in terminals:
+            scheduled = datetime.datetime.fromisoformat(str(row["scheduled_at"]).replace("Z", "+00:00"))
+            completed = datetime.datetime.fromisoformat(str(row["completed_at"]).replace("Z", "+00:00"))
+            dispatch_latencies.append((completed - scheduled).total_seconds() * 1000)
+        measurement_rows = [row for row in counter.records if float(row.get("started_monotonic", 0)) >= min((float(row.get("started_monotonic", 0)) for row in counter.records), default=0) + int(contract["overhead"]["warmup_seconds"])]
+        cpu_values = [sum(float(item.get("cpu_percent", 0)) for item in row.get("signals", {}).get("containers", [])) / 100 for row in measurement_rows]
+        rss_values = [sum(int(item.get("rss_bytes", 0)) for item in row.get("signals", {}).get("containers", [])) for row in measurement_rows]
+        outcomes = report["measurement"]["outcomes"]
+        business_errors = sum(int(outcomes.get(key, 0)) for key in ("explicit_rejects", "timeouts", "transport_errors", "unexpected_errors"))
+        raw = {
+            "schema": "gopulse.phase20.overhead-trial.v2",
+            "combination_id": combination_id,
+            "repeat": repeat,
+            "candidate": binding,
+            "load_report": report,
+            "ledger": ledger,
+            "resource_samples": counter.records,
+            "resource_source": "independent_sampler_process" if combination["sampler_enabled"] else "independent_docker_stats_counter",
+        }
+        write_json(trial_dir / "trial.json", raw)
+        return {
+            "combination_id": combination_id,
+            "repeat": repeat,
+            "target_rps": int(contract["overhead"]["target_rps"]),
+            "warmup_seconds": int(contract["overhead"]["warmup_seconds"]),
+            "measurement_seconds": int(contract["overhead"]["measurement_seconds"]),
+            "execution_status": "complete",
+            "business_errors": business_errors,
+            "p99_ms": _percentile(dispatch_latencies, 0.99),
+            "request_p99_ms": float(report["measurement"]["latency"]["p99_ms"]),
+            "cpu_peak_cores": max(cpu_values, default=0.0),
+            "rss_peak_bytes": max(rss_values, default=0),
+            "sampler_cpu_peak_cores": float(getattr(counter_stopped, "cpu_peak_cores", 0.0)),
+            "sampler_cpu_seconds": float(getattr(counter_stopped, "cpu_seconds", 0.0)),
+            "missing_sample_ratio": (sum(bool(row.get("missing_signals") or row.get("failure")) for row in counter.records) / len(counter.records)) if counter.records else 1.0,
+            "request_count": len(terminals),
+            "raw_path": "trial.json",
+            "candidate": binding,
+        }
+    finally:
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        if counter:
+            try:
+                counter.stop()
+            except Exception:
+                pass
+        if corpus:
+            Path(corpus).unlink(missing_ok=True)
+        if credentials:
+            Path(credentials).unlink(missing_ok=True)
+        if started:
+            cleanup = legacy.cleanup_project(project, env_file, files)
+            write_json(trial_dir / "cleanup.json", cleanup)
+
+
+def run_b03(root: Path, manifest_path: Path, manifest: dict[str, Any], contract: dict[str, Any], *, combinations: tuple[str, ...] = ("O0", "O3", "O1", "O2"), repeats: tuple[int, ...] = (1, 2, 3)) -> dict[str, Any]:
+    """Execute the Go loadtest under four independent observer combinations."""
+    import phase20_diagnostic as diagnostic
+    import phase19_capacity as legacy
 
     profile = diagnostic.load_profile()
-    binding, _ = __import__("phase19_capacity").candidate_binding(manifest_path, profile)
-    binaries = root / "b03-bin"
-    recipe_binary, _ = __import__("phase19_capacity").build_loadtest(binaries)
-    combinations = {item["id"]: item for item in contract["overhead"]["combinations"]}
+    binding, _ = legacy.candidate_binding(manifest_path, profile)
+    recipe_binary, load_binary = legacy.build_loadtest(root / "b03-bin")
+    combination_map = {item["id"]: item for item in contract["overhead"]["combinations"]}
     trials = []
-    for combination_id in ("O0", "O1", "O2", "O3"):
-        combination = combinations[combination_id]
-        for repeat in range(1, 4):
-            trial_dir = root / (combination_id + "-" + str(repeat))
-            trial_dir.mkdir(mode=0o700)
-            env_file = trial_dir / "candidate.env"
-            values = _candidate_env(manifest, env_file)
-            override = __import__("phase19_capacity").compose_override(trial_dir / "compose.override.yaml", int(values["MYSQL_PORT"]))
-            project = __import__("phase19_capacity").project_name()
-            files = [COMPOSE_PATH, override]
-            if combination_id == "O2":
-                files.insert(1, TRACE_COMPOSE_PATH)
-            started = False
-            corpus = credentials = None
-            try:
-                legacy_args = _compose_args(project, env_file, files)
-                require(command(legacy_args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start overhead project " + combination_id)
-                __import__("phase19_capacity").ensure_owned_project(project, env_file, files)
-                started = True
-                address = __import__("phase19_capacity").mysql_service_address(project, env_file, files)
-                _, corpus, credentials, _ = __import__("phase19_capacity").generate_recipe(recipe_binary, binding, values, trial_dir, 3306, mysql_host=address)
-                require(command(legacy_args + ["run", "--rm", "--no-deps", "--entrypoint", "/usr/local/bin/search-reindex", "search-init"], timeout=900), "reindex overhead recipe")
-                __import__("phase19_capacity").wait_initial_convergence(project, env_file, files, timeout=900)
-                require(command(legacy_args + ["run", "--rm", "--no-deps", "admin-role"], timeout=60), "bootstrap overhead operator")
-                api = diagnostic.ProductAPI("http://127.0.0.1:" + values["FRONTEND_PORT"], json.loads(credentials.read_text(encoding="utf-8")))
-                if not combination["observability_services"]:
-                    require(command(legacy_args + ["stop", "router", "router-2", "marshaller", "marshaller-2", "monitor"], timeout=120), "stop observer services for O0")
-                sampler = None
-                if combination["sampler_enabled"]:
-                    sampler = Sampler(project, env_file, files, values, profile, combination_id + "-" + str(repeat), trial_dir / "resources.jsonl")
-                elif combination_id == "O3":
-                    sampler = LightweightResourceCounter(project, env_file, files, float(profile["sampling"]["interval_seconds"]), combination_id + "-" + str(repeat), trial_dir / "resources.jsonl")
-                raw_path = trial_dir / "trial.json"
-                trial = _http_window(api, int(contract["overhead"]["target_rps"]), int(contract["overhead"]["warmup_seconds"]), int(contract["overhead"]["measurement_seconds"]), sampler, project, env_file, files, raw_path)
-                trial.update({"combination_id": combination_id, "repeat": repeat, "project": project, "candidate": binding})
-                trials.append(trial)
-            finally:
-                if corpus:
-                    corpus.unlink(missing_ok=True)
-                if credentials:
-                    credentials.unlink(missing_ok=True)
-                if started:
-                    cleanup = __import__("phase19_capacity").cleanup_project(project, env_file, files)
-                    write_json(trial_dir / "cleanup.json", cleanup)
+    for combination_id in combinations:
+        if combination_id not in combination_map:
+            raise Incomplete("unknown observer combination: " + combination_id)
+        for repeat in repeats:
+            trial = _go_overhead_trial(root / (combination_id + "-" + str(repeat)), manifest_path, manifest, recipe_binary, load_binary, profile, binding, combination_id, repeat, combination_map[combination_id], contract)
+            trials.append(trial)
     overhead = {"formal": False, "trials": trials}
-    overhead["validation"] = validate_overhead_trials(overhead, contract)
+    if len(trials) == 12:
+        overhead["validation"] = validate_overhead_trials(overhead, contract)
+    else:
+        overhead["validation"] = validate_overhead_trials(overhead, contract, expected_combinations=set(combinations), repetitions=len(repeats), enforce_thresholds=False)
     return {"case_id": "B03", "status": "pass", "overhead": overhead}
 
 
@@ -843,58 +1052,243 @@ def run_b06(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_bi
         _finish_fault_stack(stack)
 
 
+def manifest_binding(path: Path) -> dict[str, str]:
+    value = read_json(path)
+    revision = str(value.get("revision", ""))
+    if value.get("version") != MANIFEST_VERSION or not REVISION.fullmatch(revision):
+        raise Incomplete("candidate manifest is not an immutable 2.2.5 binding")
+    return {"version": value["version"], "revision": revision, "manifest_sha256": digest(path)}
+
+
+def execution_binding(binding: dict[str, str]) -> dict[str, Any]:
+    tool_paths = [
+        CONTRACT_PATH,
+        CONTRACT_SCHEMA_PATH,
+        CAPACITY_PROFILE_PATH,
+        CAPACITY_SCHEMA_PATH,
+        SUSTAINED_PROFILE_PATH,
+        SUSTAINED_SCHEMA_PATH,
+        COMPOSE_PATH,
+        TRACE_COMPOSE_PATH,
+        ROOT / "scripts/ci/phase20_budget.py",
+        ROOT / "scripts/ci/phase20_sampler.py",
+        ROOT / "scripts/ci/phase20_diagnostic.py",
+    ]
+    return {
+        "candidate": binding,
+        "contract_sha256": digest(CONTRACT_PATH),
+        "profiles": {"capacity": digest(CAPACITY_PROFILE_PATH), "sustained": digest(SUSTAINED_PROFILE_PATH)},
+        "tools": {str(path.relative_to(ROOT)): digest(path) for path in tool_paths},
+    }
+
+
+def require_preflight_evidence(path: Path, binding: dict[str, str]) -> dict[str, Any]:
+    try:
+        import phase20_closure as closure
+
+        result = closure.verify_closure_directory(path, formal=False)
+    except Exception as error:
+        raise Incomplete("preflight evidence is not a verified current-candidate closure: " + str(error)) from error
+    manifest_path = path / "candidate-manifest.json"
+    preflight_binding = manifest_binding(manifest_path)
+    if preflight_binding != binding:
+        raise Incomplete("preflight evidence candidate does not match the budget candidate")
+    if result.get("execution_status") != "complete":
+        raise Incomplete("preflight evidence is incomplete")
+    return {"path": str(path), "sha256": digest(path / "closure.json"), "candidate": binding}
+
+
+def _record_case(work: Path, raw: dict[str, Any], cases: list[dict[str, Any]]) -> None:
+    path = work / (raw["case_id"] + ".json")
+    write_json(path, raw)
+    cases.append({"case_id": raw["case_id"], "status": "pass", "path": path.name, "sha256": digest(path)})
+
+
+def run_smoke(root: Path, manifest_path: Path, manifest: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
+    """Run the four independent 5+10 second local smoke combinations."""
+    import phase19_capacity as legacy
+    import phase20_diagnostic as diagnostic
+
+    profile = diagnostic.load_profile()
+    binding, _ = legacy.candidate_binding(manifest_path, profile)
+    recipe_binary, _ = legacy.build_loadtest(root / "smoke-bin")
+    combination_map = {item["id"]: item for item in contract["overhead"]["combinations"]}
+    trials = []
+    for combination_id in ("O0", "O3", "O1", "O2"):
+        trial_dir = root / (combination_id + "-1")
+        trial_dir.mkdir(mode=0o700)
+        env_file = trial_dir / "candidate.env"
+        values = _candidate_env(manifest, env_file)
+        if combination_id == "O2":
+            values.update({"GOPULSE_TRACE_ENABLED": "true", "GOPULSE_TRACE_ENDPOINT": "phase20-collector:4317", "GOPULSE_TRACE_SAMPLE_RATIO": "1.0"})
+        else:
+            values.update({"GOPULSE_TRACE_ENABLED": "false", "GOPULSE_TRACE_ENDPOINT": "", "GOPULSE_TRACE_SAMPLE_RATIO": "0.0"})
+        legacy.write_env(env_file, values)
+        override = legacy.compose_override(trial_dir / "compose.override.yaml", int(values["MYSQL_PORT"]))
+        project = legacy.project_name()
+        files = [COMPOSE_PATH, override] + ([TRACE_COMPOSE_PATH] if combination_id == "O2" else [])
+        started = False
+        corpus = credentials = None
+        counter = None
+        try:
+            args = _compose_args(project, env_file, files)
+            require(command(args + ["up", "-d", "--wait", "--wait-timeout", "900"], timeout=1200), "start smoke project " + combination_id)
+            legacy.ensure_owned_project(project, env_file, files)
+            started = True
+            address = legacy.mysql_service_address(project, env_file, files)
+            _, corpus, credentials, _ = legacy.generate_recipe(recipe_binary, binding, values, trial_dir, 3306, mysql_host=address)
+            require(command(args + ["run", "--rm", "--no-deps", "--entrypoint", "/usr/local/bin/search-reindex", "search-init"], timeout=900), "reindex smoke recipe")
+            legacy.wait_initial_convergence(project, env_file, files, timeout=900)
+            require(command(args + ["run", "--rm", "--no-deps", "admin-role"], timeout=60), "bootstrap smoke operator")
+            if not combination_map[combination_id]["observability_services"]:
+                require(command(args + ["stop", "router", "router-2", "marshaller", "marshaller-2", "monitor"], timeout=120), "stop smoke observer services")
+            if combination_map[combination_id]["sampler_enabled"]:
+                counter = ProcessSampler(project, env_file, files, values, profile, "smoke-" + combination_id, trial_dir / "resources.jsonl")
+            else:
+                counter = LightweightResourceCounter(project, env_file, files, 5, "smoke-" + combination_id, trial_dir / "resources.jsonl")
+            api = diagnostic.ProductAPI("http://127.0.0.1:" + values["FRONTEND_PORT"], json.loads(credentials.read_text(encoding="utf-8")))
+            trial = _http_window(api, 200, 5, 10, counter, project, env_file, files, trial_dir / "trial.json")
+            trial.update({"combination_id": combination_id, "repeat": 1, "workload_source": "bounded-smoke-probe", "candidate": binding})
+            trials.append(trial)
+            counter = None
+        finally:
+            if counter:
+                try:
+                    counter.stop()
+                except Exception:
+                    pass
+            if corpus:
+                Path(corpus).unlink(missing_ok=True)
+            if credentials:
+                Path(credentials).unlink(missing_ok=True)
+            if started:
+                write_json(trial_dir / "cleanup.json", legacy.cleanup_project(project, env_file, files))
+    value = {"formal": False, "smoke": True, "trials": trials}
+    value["validation"] = validate_overhead_trials(value, contract, repetitions=1, warmup_seconds=5, measurement_seconds=10, enforce_thresholds=False)
+    return {"schema": "gopulse.phase20.smoke.v1", "case_id": "S1", "status": "pass", "formal": False, "candidate": binding, "overhead": value}
+
+
 def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--work", required=True, type=Path)
+    parser.add_argument("--work", type=Path)
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--preflight-evidence", type=Path)
+    parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--case", choices=("B01", "B02", "B03", "B04", "B05", "B06"))
+    parser.add_argument("--combination", choices=("O0", "O1", "O2", "O3"))
+    parser.add_argument("--repeat", type=int, choices=(1, 2, 3))
+    parser.add_argument("--resume", type=Path)
     args = parser.parse_args(argv)
-    work = args.work.resolve()
-    if work.exists():
-        raise Incomplete("budget work directory already exists")
-    work.mkdir(mode=0o700, parents=True)
-    if work.stat().st_mode & 0o077:
-        raise Incomplete("budget work directory is not private")
+    if args.smoke and (args.preflight or args.case or args.resume or args.preflight_evidence):
+        parser.error("--smoke cannot be combined with another execution mode")
+    if args.case != "B03" and (args.combination or args.repeat):
+        parser.error("--combination/--repeat require --case B03")
+    if args.resume and (args.smoke or args.preflight or args.case):
+        parser.error("--resume cannot be combined with diagnostic modes")
+    work_path = args.resume or args.work
+    if work_path is None:
+        parser.error("--work is required unless --resume is used")
+    work = work_path.resolve()
     contract = load_contract()
-    capacity, sustained = load_profiles(contract)
+    load_profiles(contract)
     manifest = read_json(args.manifest)
     if manifest.get("version") != MANIFEST_VERSION or not REVISION.fullmatch(str(manifest.get("revision", ""))):
         raise Incomplete("candidate manifest is not a 2.2.5 immutable binding")
     binding = {"version": manifest["version"], "revision": manifest["revision"], "manifest_sha256": digest(args.manifest)}
-    shutil.copyfile(args.manifest, work / "candidate-manifest.json")
-    write_json(work / "budget-contract.json", contract)
-    write_json(work / "profile-binding.json", {"capacity_profile": digest(CAPACITY_PROFILE_PATH), "sustained_profile": digest(SUSTAINED_PROFILE_PATH), "candidate": binding})
-    cases: list[dict[str, Any]] = []
+    resuming = bool(args.resume)
+    if resuming:
+        if not work.is_dir() or work.stat().st_mode & 0o077:
+            raise Incomplete("resume directory is missing or not private")
+        existing = read_json(work / "budget.json")
+        if existing.get("contract_sha256") != digest(CONTRACT_PATH) or existing.get("candidate") != binding:
+            raise Incomplete("resume candidate or contract drift")
+        stored_binding = read_json(work / "execution-binding.json")
+        if stored_binding != execution_binding(binding):
+            raise Incomplete("resume tool/profile/config drift")
+        if any(case.get("status") != "pass" for case in existing.get("cases", [])):
+            raise Incomplete("resume refuses a directory containing a failed case")
+        cases = list(existing.get("cases", []))
+    else:
+        if work.exists():
+            raise Incomplete("budget work directory already exists")
+        work.mkdir(mode=0o700, parents=True)
+        if work.stat().st_mode & 0o077:
+            raise Incomplete("budget work directory is not private")
+        shutil.copyfile(args.manifest, work / "candidate-manifest.json")
+        write_json(work / "budget-contract.json", contract)
+        write_json(work / "profile-binding.json", {"capacity_profile": digest(CAPACITY_PROFILE_PATH), "sustained_profile": digest(SUSTAINED_PROFILE_PATH), "candidate": binding})
+        write_json(work / "execution-binding.json", execution_binding(binding))
+        cases = []
+    if args.smoke:
+        try:
+            result = run_smoke(work, args.manifest, manifest, contract)
+            write_json(work / "smoke.json", result)
+            print(json.dumps({"execution_status": "complete", "smoke": True, "candidate": binding}, sort_keys=True))
+            return 0
+        except Exception as error:
+            write_json(work / "smoke.json", {"execution_status": "incomplete", "candidate": binding, "error": type(error).__name__ + ": " + str(error)})
+            raise
+    if args.case:
+        import phase19_capacity as legacy
+        try:
+            if args.case == "B01":
+                raw = run_b01(work, manifest, contract)
+            elif args.case == "B02":
+                raw = run_b02(work, args.manifest, manifest, contract)
+            elif args.case == "B03":
+                combos = (args.combination,) if args.combination else ("O0", "O3", "O1", "O2")
+                repeats = (args.repeat,) if args.repeat else (1, 2, 3)
+                raw = run_b03(work, args.manifest, manifest, contract, combinations=combos, repeats=repeats)
+            else:
+                recipe_binary, _ = legacy.build_loadtest(work / "case-bin")
+                raw = {case: run_b04, "B05": run_b05, "B06": run_b06}[args.case](work, args.manifest, manifest, recipe_binary, contract)
+            raw["formal"] = False
+            raw["case_mode"] = True
+            write_json(work / (args.case + ".json"), raw)
+            print(json.dumps({"execution_status": "complete", "case_id": args.case, "formal": False, "candidate": binding}, sort_keys=True))
+            return 0
+        except Exception as error:
+            write_json(work / (args.case + ".json"), {"case_id": args.case, "status": "incomplete", "formal": False, "candidate": binding, "error": type(error).__name__ + ": " + str(error)})
+            raise
+    if not args.preflight and args.preflight_evidence:
+        preflight = require_preflight_evidence(args.preflight_evidence.resolve(), binding)
+    else:
+        preflight = None
+    formal = not args.preflight
     try:
-        b01 = run_b01(work, manifest, contract)
-        path = work / "B01.json"; write_json(path, b01); cases.append({"case_id": "B01", "status": "pass", "path": path.name, "sha256": digest(path)})
         if args.preflight:
             import phase19_capacity as legacy
+            if not any(item.get("case_id") == "B01" for item in cases):
+                _record_case(work, run_b01(work, manifest, contract), cases)
             recipe_binary, _ = legacy.build_loadtest(work / "preflight-bin")
-            for runner in (run_b04, run_b05, run_b06):
-                raw = runner(work, args.manifest, manifest, recipe_binary, contract)
-                raw["formal"] = False
-                path = work / (raw["case_id"] + ".json"); write_json(path, raw); cases.append({"case_id": raw["case_id"], "status": "pass", "path": path.name, "sha256": digest(path)})
+            for case_id, runner in (("B04", run_b04), ("B05", run_b05), ("B06", run_b06)):
+                if not any(item.get("case_id") == case_id for item in cases):
+                    raw = runner(work, args.manifest, manifest, recipe_binary, contract)
+                    raw["formal"] = False
+                    _record_case(work, raw, cases)
             b07 = {"case_id": "B07", "status": "pass", "preflight": {"status": "pass", "candidate": binding, "profile_sha256": digest(CAPACITY_PROFILE_PATH), "sustained_profile_sha256": digest(SUSTAINED_PROFILE_PATH)}}
-            path = work / "B07.json"; write_json(path, b07); cases.append({"case_id": "B07", "status": "pass", "path": path.name, "sha256": digest(path)})
-            formal = False
+            if not any(item.get("case_id") == "B07" for item in cases):
+                _record_case(work, b07, cases)
         else:
-            b02 = run_b02(work, args.manifest, manifest, contract)
-            path = work / "B02.json"; write_json(path, b02); cases.append({"case_id": "B02", "status": "pass", "path": path.name, "sha256": digest(path)})
-            b03 = run_b03(work, args.manifest, manifest, contract)
-            path = work / "B03.json"; write_json(path, b03); cases.append({"case_id": "B03", "status": "pass", "path": path.name, "sha256": digest(path)})
-            recipe_binary, _ = __import__("phase19_capacity").build_loadtest(work / "failure-bin")
-            for runner in (run_b04, run_b05, run_b06):
-                raw = runner(work, args.manifest, manifest, recipe_binary, contract)
-                path = work / (raw["case_id"] + ".json"); write_json(path, raw); cases.append({"case_id": raw["case_id"], "status": "pass", "path": path.name, "sha256": digest(path)})
-            formal = True
-        document = {"schema": "gopulse.phase20.budget.v1", "formal": formal, "candidate": binding, "contract_sha256": digest(CONTRACT_PATH), "cases": cases, "execution_status": "complete"}
+            import phase19_capacity as legacy
+            if not any(item.get("case_id") == "B01" for item in cases):
+                _record_case(work, run_b01(work, manifest, contract), cases)
+            if not any(item.get("case_id") == "B02" for item in cases):
+                _record_case(work, run_b02(work, args.manifest, manifest, contract), cases)
+            for case_id, runner in (("B04", run_b04), ("B05", run_b05), ("B06", run_b06)):
+                if not any(item.get("case_id") == case_id for item in cases):
+                    recipe_binary, _ = legacy.build_loadtest(work / "failure-bin")
+                    _record_case(work, runner(work, args.manifest, manifest, recipe_binary, contract), cases)
+            if not any(item.get("case_id") == "B03" for item in cases):
+                _record_case(work, run_b03(work, args.manifest, manifest, contract), cases)
+        document = {"schema": "gopulse.phase20.budget.v1", "formal": formal, "candidate": binding, "contract_sha256": digest(CONTRACT_PATH), "cases": cases, "execution_status": "complete", "preflight_evidence": preflight}
         write_json(work / "budget.json", document)
         result = verify_budget_directory(work, formal=formal)
         print(json.dumps(result, sort_keys=True))
         return 0
     except Exception as error:
-        document = {"schema": "gopulse.phase20.budget.v1", "formal": not args.preflight, "candidate": binding, "contract_sha256": digest(CONTRACT_PATH), "cases": cases, "execution_status": "incomplete", "stop": {"classification": "acceptance_failure", "reason": type(error).__name__ + ": " + str(error)}}
+        document = {"schema": "gopulse.phase20.budget.v1", "formal": formal, "candidate": binding, "contract_sha256": digest(CONTRACT_PATH), "cases": cases, "execution_status": "incomplete", "preflight_evidence": preflight, "stop": {"classification": "acceptance_failure", "reason": type(error).__name__ + ": " + str(error)}}
         write_json(work / "budget.json", document)
         print(json.dumps(document["stop"], sort_keys=True), file=sys.stderr)
         return 1

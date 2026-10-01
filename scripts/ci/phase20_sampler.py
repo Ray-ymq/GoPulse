@@ -91,6 +91,17 @@ def container_budget(item, current_bytes):
     # exports a more direct current value, retain it as a separate fact.
     return result
 
+def sampler_process_main(project, env_file, files, environment, profile, run_id, path, stop_event):
+    """Run the observer in a separate process so its CPU is measurable independently."""
+    sampler = Sampler(project, env_file, files, environment, profile, run_id, path)
+    sampler.start()
+    while not stop_event.wait(0.2):
+        if sampler.thread and not sampler.thread.is_alive():
+            break
+    sampler.stop()
+    if sampler.failure:
+        raise RuntimeError("sampler failed: " + str(sampler.failure))
+
 def kafka_consumer(address,group_id=None):
     from kafka import KafkaConsumer, __version__
     if __version__!='2.2.15':raise RuntimeError('frozen Kafka observer version required')

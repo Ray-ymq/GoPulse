@@ -448,7 +448,7 @@ func ValidateProfile(profile CapacityProfile) error {
 	}
 	if profile.SchemaVersion == DiagnosticProfileSchemaVersion && (profile.ResourceBudget.Path != "deploy/phase20-resource-budgets.json" ||
 		profile.ResourceBudget.Schema != "deploy/phase20-resource-budgets.schema.json" ||
-		profile.ResourceBudget.ContractID != "phase20-05-budget-contract-20261001-r3") {
+		profile.ResourceBudget.ContractID != "phase20-05-budget-contract-20261002-r4") {
 		return errors.New("capacity profile resource budget binding is invalid")
 	}
 	if profile.SchemaVersion == DiagnosticProfileSchemaVersion {

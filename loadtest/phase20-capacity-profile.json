@@ -5,7 +5,7 @@
   "resource_budget": {
     "path": "deploy/phase20-resource-budgets.json",
     "schema": "deploy/phase20-resource-budgets.schema.json",
-    "contract_id": "phase20-05-budget-contract-20261001-r3"
+    "contract_id": "phase20-05-budget-contract-20261002-r4"
   },
   "host": {
     "platform": "linux/amd64",

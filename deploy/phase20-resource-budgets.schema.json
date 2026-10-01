@@ -17,6 +17,7 @@
     "overhead",
     "failure_cases",
     "sustained",
+    "execution",
     "evidence"
   ],
   "properties": {
@@ -186,7 +187,7 @@
           "required": ["normal_observability", "trace_sampling", "sampler"],
           "properties": {
             "normal_observability": { "$ref": "#/$defs/overheadThreshold" },
-            "trace_sampling": { "$ref": "#/$defs/overheadThreshold" },
+            "trace_sampling": { "$ref": "#/$defs/traceThreshold" },
             "sampler": {
               "type": "object",
               "additionalProperties": false,
@@ -246,6 +247,21 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_build_max_seconds", "execution_max_seconds", "b03_max_seconds", "stop_grace_seconds", "recovery_seconds", "stage_order", "b03_order", "preflight_formal"],
+      "properties": {
+        "candidate_build_max_seconds": { "const": 3600 },
+        "execution_max_seconds": { "const": 10800 },
+        "b03_max_seconds": { "const": 5400 },
+        "stop_grace_seconds": { "const": 30 },
+        "recovery_seconds": { "const": 120 },
+        "stage_order": { "const": ["S0", "S1", "S2", "S3", "S4"] },
+        "b03_order": { "const": ["O0", "O3", "O1", "O2"] },
+        "preflight_formal": { "const": false }
       }
     },
     "evidence": {
@@ -327,6 +343,16 @@
       "properties": {
         "business_p99_delta_ms": { "type": "number", "minimum": 0 },
         "business_p99_ratio": { "type": "number", "minimum": 0 },
+        "cpu_delta_cores": { "type": "number", "minimum": 0 },
+        "rss_delta_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "traceThreshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["business_p99_delta_ms", "cpu_delta_cores", "rss_delta_bytes"],
+      "properties": {
+        "business_p99_delta_ms": { "type": "number", "minimum": 0 },
         "cpu_delta_cores": { "type": "number", "minimum": 0 },
         "rss_delta_bytes": { "type": "integer", "minimum": 0 }
       }

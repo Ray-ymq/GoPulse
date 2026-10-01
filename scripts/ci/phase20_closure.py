@@ -317,6 +317,35 @@ def verify_closure_directory(directory: Path, *, formal: bool = False) -> dict[s
     return {"execution_status": "complete", "candidate": binding, "case_status": {case: "pass" for case in sorted(expected)}, "formal": formal}
 
 
+def verify_publication_source(publication: Path, source: Path) -> dict[str, Any]:
+    """Verify the exact selected, allowlisted publication bytes and their manifest."""
+    contract = budget.load_contract()
+    allowlist = set(contract["evidence"]["publication_allowlist"])
+    publication = publication.resolve()
+    source = source.resolve()
+    if not publication.is_dir() or not source.is_dir():
+        raise Incomplete("publication and source must be directories")
+    for root in (publication, source):
+        entries = list(root.iterdir())
+        if any(item.is_symlink() or not item.is_file() for item in entries) or {item.name for item in entries} != allowlist:
+            raise Incomplete("publication allowlist or file type drift")
+    if any((publication / name).read_bytes() != (source / name).read_bytes() for name in allowlist):
+        raise Incomplete("selected publication bytes differ from source bytes")
+    summary = read_json(publication / "summary.json")
+    manifest = read_json(publication / "evidence-manifest.json")
+    candidate = summary.get("candidate")
+    if summary.get("execution_status") != "complete" or not isinstance(candidate, dict) or candidate.get("version") != budget.MANIFEST_VERSION or not budget.REVISION.fullmatch(str(candidate.get("revision", ""))):
+        raise Incomplete("publication summary is not a complete current-candidate result")
+    if manifest.get("schema") != "gopulse.phase20.evidence-manifest.v1" or manifest.get("candidate") != candidate:
+        raise Incomplete("publication evidence manifest candidate/schema is invalid")
+    expected = {name: digest(publication / name) for name in allowlist if name != "evidence-manifest.json"}
+    if manifest.get("files") != expected:
+        raise Incomplete("publication evidence manifest digest mismatch")
+    if summary.get("contract_sha256") != digest(budget.CONTRACT_PATH):
+        raise Incomplete("publication contract digest drift")
+    return {"execution_status": "complete", "publication_status": "verified", "candidate": candidate, "files": expected}
+
+
 def run_current_candidate_checks() -> dict[str, Any]:
     commands = [
         ["docker", "compose", "--env-file", ".env.example", "--file", "deploy/compose.yaml", "config", "--quiet"],
@@ -334,6 +363,38 @@ def run_current_candidate_checks() -> dict[str, Any]:
     return {"status": "pass", "executed": executed, "not_reused": True}
 
 
+def formal_task_graph(binding: dict[str, str]) -> dict[str, Any]:
+    """Describe the exact Phase 20-06 task graph without executing dependencies."""
+    contract = budget.load_contract()
+    capacity, sustained = budget.load_profiles(contract)
+    u1 = []
+    for repeat in range(1, 4):
+        for stage in ("rps-50", "rps-100", "rps-150", "rps-200"):
+            u1.append({"repeat": repeat, "stage": stage, "formal": True, "recipe_digest": capacity["recipe"]["digest"]})
+    u2 = [{"repeat": repeat, "duration_seconds": sustained["duration_seconds"], "fault": sustained["fault"], "formal": True} for repeat in range(1, 3)]
+    return {
+        "schema": "gopulse.phase20.closure-plan.v1",
+        "formal": False,
+        "target_formal": True,
+        "candidate": binding,
+        "contract_sha256": digest(budget.CONTRACT_PATH),
+        "profile_bindings": {"capacity": digest(budget.CAPACITY_PROFILE_PATH), "sustained": digest(budget.SUSTAINED_PROFILE_PATH)},
+        "stages": [
+            {"stage": "S0", "action": "deterministic_preflight", "formal": False},
+            {"stage": "S1", "action": "owned_short_smoke", "combinations": ["O0", "O3", "O1", "O2"], "warmup_seconds": 5, "measurement_seconds": 10, "formal": False},
+            {"stage": "S2", "action": "B07", "units": ["U1", "U2", "U3", "U4"], "formal": False},
+            {"stage": "S3", "action": "fixed_budget", "cases": ["B01", "B02", "B04", "B05", "B06", "B03"], "b03_order": contract["execution"]["b03_order"], "formal": True},
+            {"stage": "S4", "action": "publication_and_completion", "formal": True},
+        ],
+        "tasks": {
+            "U1": {"kind": "capacity", "cells": u1, "count": 12},
+            "U2": {"kind": "sustained", "runs": u2, "count": 2},
+            "U3": {"kind": "real_chain_and_lifecycle", "cases": ["C01", "R02", "R03", "R04", "R06", "R07", "R08"], "formal": True},
+            "U4": {"kind": "publication", "checks": ["candidate_manifest", "source_digests", "allowlist", "credentials", "ownership", "cleanup_inventory"], "formal": True},
+        },
+    }
+
+
 def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path)
@@ -341,14 +402,19 @@ def run(argv: list[str] | None = None) -> int:
     parser.add_argument("--build-manifest", type=Path)
     parser.add_argument("--revision")
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.build_manifest:
+        if args.preflight or args.dry_run:
+            parser.error("--build-manifest cannot be combined with execution modes")
         revision = args.revision or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         manifest = build_candidate_manifest(args.build_manifest.resolve(), revision)
         print(json.dumps(manifest, sort_keys=True))
         return 0
     if not args.manifest or not args.work:
         parser.error("--manifest and --work are required unless --build-manifest is used")
+    if args.preflight and args.dry_run:
+        parser.error("--preflight and --dry-run are mutually exclusive")
     work = args.work.resolve()
     private_work(work)
     contract = budget.load_contract()
@@ -356,6 +422,11 @@ def run(argv: list[str] | None = None) -> int:
     binding, manifest = candidate_binding(args.manifest)
     shutil.copyfile(args.manifest, work / "candidate-manifest.json")
     write_json(work / "contract-binding.json", {"contract_sha256": digest(budget.CONTRACT_PATH), "capacity_profile_sha256": digest(budget.CAPACITY_PROFILE_PATH), "sustained_profile_sha256": digest(budget.SUSTAINED_PROFILE_PATH)})
+    if args.dry_run:
+        plan = formal_task_graph(binding)
+        write_json(work / "dry-run.json", plan)
+        print(json.dumps({"execution_status": "complete", "formal": False, "dry_run": True, "candidate": binding, "task_count": 16}, sort_keys=True))
+        return 0
     try:
         if not args.preflight:
             raise Incomplete("formal closure is reserved for Phase 20-06; run --preflight in Phase 20-05")
