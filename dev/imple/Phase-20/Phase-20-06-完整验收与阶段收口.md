@@ -14,11 +14,19 @@ Docker，以及 05 已登记的发布目录、脱敏规则和证据清单。工�
 本批只执行已冻结验收并发布事实，不修改产品代码、配置、依赖、runner、verifier 或阈值。
 2.2.6 表示验收与阶段收口完成，不是另一个被正式测试的产品候选。
 
+开工前核对 05 的 4.1 节完整工具交付回执，包括同一正式任务图的 dry-run、自测、真实
+短预检和 publication/source 校验。正式路径仍只支持 preflight、U2 尚无持续运行实现、
+或 evidence 入口缺少 --closure/--source 时，本批不得解锁；缺口在未完成的 05 收口。
+
 ## 2. 固定矩阵
 
 先完成确定性工具/schema/绑定检查，再对当前冻结候选执行真实非正式 preflight，覆盖
 05 的 B07 固定案例及归属清理；只有当前候选预检完整通过才启动正式矩阵。
 05 的非正式 receipt 不能改写或复用为本批候选预检/正式证据，短预检也不计入正式重复。
+preflight 使用 05 冻结的短 profile：U1 为 50/200 RPS 两个短单元，U2 为真实 300 秒
+负载及第 60 秒开始、持续 60 秒的 Collector 故障，U3/U4 取得并校验真实原始事实。
+当前候选真实 C01/生命周期回执和业务/观测恢复必须可重算；单元测试退出码或容器 Running
+不能代替产品通过。05 的 180 分钟执行保护针对 05 固定门禁，不替代本批正式长窗口。
 
 | 单元 | 固定执行 | 结论 |
 | --- | --- | --- |
@@ -36,6 +44,11 @@ U3 的复用必须逐项记录 case_id、原 receipt/digest、候选/config/依�
 各单元保存初始化/配方、ledger、marker、span/存储查询、资源样本、故障生效/恢复与清理
 原始记录。verifier 按 case_id 输出 pass/fail/incomplete，并重算阈值/窗口/首次时刻；
 summary.json 的布尔值和 03 的实验结论均不能代替当前候选事实。
+
+逐单元保存不可变回执及阶段耗时。对相同候选因中断尚未开始的单元，可用已冻结的
+`--resume <未完成目录>` 恢复；必须重核 manifest、工具/config/profile/依赖和环境身份，
+旧失败单元不原地覆盖，不增加第四次容量重复或第三次持续运行以筛选好结果。
+候选相关变更按末节转回有效实施批次，不复用原候选受影响证据。
 
 ## 3. 允许变更文件
 
@@ -56,9 +69,10 @@ summary.json 的布尔值和 03 的实验结论均不能代替当前候选事实
 ```bash
 python3 -m unittest scripts.ci.test_phase20_closure scripts.ci.test_phase20_evidence
 python3 scripts/ci/verify_runtime_contracts.py --contract <候选runtime合同> --compose <候选compose> --env <候选env> --candidate 2.2.5
+scripts/verify-phase20-closure.sh --dry-run --manifest <2.2.5-manifest> --work <任务图新目录>
 scripts/verify-phase20-closure.sh --preflight --manifest <2.2.5-manifest> --work <预检新目录>
 python3 scripts/verify-phase20-evidence.py --preflight <预检目录>
-scripts/verify-phase20-closure.sh --manifest <同候选manifest> --work <正式新目录>
+scripts/verify-phase20-closure.sh --manifest <同候选manifest> --work <正式新目录> --preflight-evidence <已校验预检目录>
 python3 scripts/verify-phase20-evidence.py --closure <正式目录>
 python3 scripts/verify-phase20-evidence.py --publication <实际选定发布目录> --source <正式目录>
 python3 scripts/ci/validate_versions.py
