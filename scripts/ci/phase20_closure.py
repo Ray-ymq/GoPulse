@@ -236,12 +236,12 @@ def _verify_real_cell(cell: dict[str, Any], work: Path, profile: dict[str, Any],
     stage = next(item for item in profile["stages"] if item["name"] == cell["stage"])
     if load.get("candidate") != binding or load.get("execution_status") != "complete" or load.get("measurement", {}).get("target_rps") != expected_rps or load.get("warmup", {}).get("duration_seconds") != warmup_seconds or load.get("measurement", {}).get("duration_seconds") != measurement_seconds:
         raise Incomplete("real preflight cell load window or candidate drift")
-    ledger = diagnostic.read_jsonl(files["ledger"])
+    ledger = budget.read_jsonl(files["ledger"])
     if not evidence.recompute_load(ledger, load, profile):
         raise Incomplete("real preflight cell business mix did not recompute")
     if any(int(load[window]["outcomes"].get(key, 0)) for window in ("warmup", "measurement") for key in ("explicit_rejects", "timeouts", "transport_errors", "unexpected_errors")):
         raise Incomplete("real preflight cell contains business errors")
-    recovery_rows = diagnostic.read_jsonl(files["recovery"])
+    recovery_rows = budget.read_jsonl(files["recovery"])
     recovery = {}
     for channel in evidence.DIMENSIONS:
         rows = [row for row in recovery_rows if row.get("channel") == channel]
@@ -250,14 +250,14 @@ def _verify_real_cell(cell: dict[str, Any], work: Path, profile: dict[str, Any],
         recovery[channel] = {"samples": len(rows), "timed_out": all(not row.get("ready") for row in rows)}
         if all(not row.get("ready") for row in rows):
             raise Incomplete("real preflight cell recovery did not observe " + channel)
-    lifecycle = diagnostic.read_jsonl(files["lifecycle"])
+    lifecycle = budget.read_jsonl(files["lifecycle"])
     names = [row.get("event") for row in lifecycle]
     if names != ["project_started", "load_stopped", "requests_drained", "recovery_finished", "workers_joined", "project_cleaned"]:
         raise Incomplete("real preflight cell lifecycle is incomplete")
     cleanup = lifecycle[-1].get("receipt", {})
     if cleanup.get("inventory_before") != cleanup.get("inventory_after") or cleanup.get("global_prune") or not cleanup.get("owned"):
         raise Incomplete("real preflight cell cleanup inventory is unsafe")
-    resources = diagnostic.read_jsonl(files["resources"])
+    resources = budget.read_jsonl(files["resources"])
     if not resources or any(row.get("missing_signals") or row.get("failure") for row in resources):
         raise Incomplete("real preflight cell resource samples are incomplete")
     sampler_facts = cell.get("sampler", {})
