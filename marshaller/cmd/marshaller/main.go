@@ -20,6 +20,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/logging"
 	logtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/logs"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/metrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/victoriametrics"
 )
 
@@ -83,6 +84,36 @@ func main() {
 		logger.Error("Elasticsearch events client initialization failed", "module", "storage", "event", "startup_failed")
 		os.Exit(1)
 	}
+	if err := logStore.SetRetentionPolicy(cfg.Retention.Logs); err != nil {
+		logger.Error("log retention configuration invalid", "module", "lifecycle", "event", "startup_failed")
+		os.Exit(1)
+	}
+	if err := eventStore.SetRetentionPolicy(cfg.Retention.Events); err != nil {
+		logger.Error("event retention configuration invalid", "module", "lifecycle", "event", "startup_failed")
+		os.Exit(1)
+	}
+	retentionStore, err := retention.NewElasticsearch(cfg.ElasticsearchURL, cfg.ElasticsearchTimeout, cfg.RuntimeMode == config.RuntimeModeContainer)
+	if err != nil {
+		logger.Error("retention Elasticsearch client initialization failed", "module", "lifecycle", "event", "startup_failed")
+		os.Exit(1)
+	}
+	retentionRunner, err := retention.NewRunner(retentionStore, cfg.Retention)
+	if err != nil {
+		logger.Error("retention lifecycle initialization failed", "module", "lifecycle", "event", "startup_failed")
+		os.Exit(1)
+	}
+	retentionRunner.SetReportObserver(func(report retention.Report, roundErr error) {
+		if roundErr != nil {
+			logger.Warn("retention cleanup round failed", "module", "lifecycle", "event", "retention_cleanup_failed", "reason", "dependency_or_budget")
+			return
+		}
+		for _, item := range report.Items {
+			if item.Result == "deleted" || item.Result == "not_found" || item.Result == "not_expired" {
+				continue
+			}
+			logger.Warn("retention cleanup item was not removed", "module", "lifecycle", "event", "retention_cleanup_blocked", "reason", item.Result)
+		}
+	})
 	processor := &consumer.Processor{
 		Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew},
 		Targets: map[string]consumer.Target{
@@ -92,11 +123,11 @@ func main() {
 			"metrics/elasticsearch":   {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
 			"metrics/victoriametrics": {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
 			"metrics/redis":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"logs/backend":            {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"logs/business-worker":    {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"logs/search-indexer":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"logs/search-reindex":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes}, Writer: logStore},
-			"events/monitor":          {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024}, Writer: eventStore},
+			"logs/backend":            {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+			"logs/business-worker":    {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+			"logs/search-indexer":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+			"logs/search-reindex":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+			"events/monitor":          {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024, Retention: &cfg.Retention.Events}, Writer: eventStore},
 		},
 		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, MaxRetrying: cfg.MaxRetrying, Logger: processorLogger{logger},
 	}
@@ -122,6 +153,11 @@ func main() {
 		os.Exit(1)
 	}
 	probes.Started()
+	retentionDone := make(chan struct{})
+	go func() {
+		defer close(retentionDone)
+		retentionRunner.Run(rootCtx)
+	}()
 	serveErrors := make(chan error, 1)
 	consumerDone := make(chan error, 1)
 	go func() {
@@ -162,6 +198,11 @@ func main() {
 	ownership.CancelAll()
 	shutdownCtx, shutdownCancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
 	defer shutdownCancel()
+	select {
+	case <-retentionDone:
+	case <-shutdownCtx.Done():
+		exitCode = 1
+	}
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown failed", "module", "http", "event", "shutdown_failed")
 		exitCode = 1

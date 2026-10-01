@@ -113,6 +113,19 @@ func TestProcessorTransientFailureRetriesWithoutEarlyCommit(t *testing.T) {
 		t.Fatalf("writes=%d commits=%d", writer.calls, committer.calls)
 	}
 }
+
+func TestProcessorPermanentStorageFailureCommitsWithoutRetry(t *testing.T) {
+	_, lease := leaseFor(t)
+	writer := &fakeWriter{errors: []error{&envelope.PermanentError{Code: "expired_log_retention"}}}
+	committer := &fakeCommitter{}
+	p := baseProcessor(writer, committer)
+	if err := p.Handle(context.Background(), Record{}, lease); err != nil {
+		t.Fatal(err)
+	}
+	if writer.calls != 1 || committer.calls != 1 {
+		t.Fatalf("writes=%d commits=%d", writer.calls, committer.calls)
+	}
+}
 func TestProcessorCommitFailureHalts(t *testing.T) {
 	_, lease := leaseFor(t)
 	committer := &fakeCommitter{err: errors.New("commit")}

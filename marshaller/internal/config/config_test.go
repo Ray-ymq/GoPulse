@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func validEnv() map[string]string {
 	return map[string]string{"MARSHALLER_API_TOKEN": "marshaller-token-at-least-32-bytes-long", "MARSHALLER_VM_PASSWORD": "development-vm-password"}
@@ -13,8 +16,35 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.InstanceID != "marshaller-local" || cfg.ReplicaCount != 1 || cfg.KafkaTopic != Topic || cfg.KafkaGroup != Group || cfg.KafkaMinPartitions != 1 || cfg.MaxInFlight != 4 || cfg.MaxRetrying != 4 || cfg.HTTPPort != 9093 || cfg.MaxRecordBytes != MaxRecordBytes || cfg.MaxOutputBytes != MaxOutputBytes {
+	if cfg.InstanceID != "marshaller-local" || cfg.ReplicaCount != 1 || cfg.KafkaTopic != Topic || cfg.KafkaGroup != Group || cfg.KafkaMinPartitions != 1 || cfg.MaxInFlight != 4 || cfg.MaxRetrying != 4 || cfg.HTTPPort != 9093 || cfg.MaxRecordBytes != MaxRecordBytes || cfg.MaxOutputBytes != MaxOutputBytes || cfg.Retention.Logs.RetentionDays != 7 || cfg.Retention.Events.RetentionDays != 7 || cfg.Retention.Cycle != time.Minute || cfg.Retention.BatchIndices != 16 || cfg.Retention.MaxRetries != 3 {
 		t.Fatalf("unexpected defaults: %+v", cfg)
+	}
+}
+
+func TestLoadRetentionConfigurationIsBounded(t *testing.T) {
+	values := validEnv()
+	values["MARSHALLER_LOG_RETENTION_DAYS"] = "14"
+	values["MARSHALLER_EVENT_RETENTION_DAYS"] = "3"
+	values["MARSHALLER_RETENTION_BATCH_INDICES"] = "32"
+	values["MARSHALLER_RETENTION_MAX_RETRIES"] = "0"
+	cfg, err := loadMap(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Retention.Logs.RetentionDays != 14 || cfg.Retention.Events.RetentionDays != 3 || cfg.Retention.BatchIndices != 32 || cfg.Retention.MaxRetries != 0 {
+		t.Fatalf("unexpected retention config: %+v", cfg.Retention)
+	}
+	for key, value := range map[string]string{
+		"MARSHALLER_LOG_RETENTION_DAYS":    "0",
+		"MARSHALLER_EVENT_RETENTION_DAYS":  "91",
+		"MARSHALLER_RETENTION_CYCLE":       "1s",
+		"MARSHALLER_RETENTION_MAX_RETRIES": "9",
+	} {
+		bad := validEnv()
+		bad[key] = value
+		if _, err := loadMap(bad); err == nil {
+			t.Fatalf("accepted invalid %s=%s", key, value)
+		}
 	}
 }
 func TestLoadRejectsUnsafeContracts(t *testing.T) {

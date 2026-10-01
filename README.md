@@ -586,8 +586,13 @@ all twelve isolated 50/100/150/200 RPS cells passed, producing
 fixed error outcomes; the longest independent recovery observation was 40.74s.
 No B1 or improvement rate was produced. The
 [verified repeat values and resource costs](docs/phase20-optimization.md)
-describe this finite experiment; lifecycle, resource budgets and final sustained
-acceptance remain in Phase-20-04 through 06.
+describe this finite experiment. Phase-20-04 completes `2.2.4` with UTC-calendar
+Logs/Events retention, ownership-safe deletion, late-record permanent handling,
+real Elasticsearch deletion/race evidence, native VictoriaMetrics retention
+configuration and bounded Collector Trace artifacts. Its short-window evidence
+does not claim immediate VictoriaMetrics physical reclaim or long-term Trace
+storage; resource budgets and final sustained acceptance remain in Phase-20-05
+and 06.
 
 ### Backend log query pipeline
 
