@@ -228,13 +228,18 @@ def verify_vm(origin: str, container: str) -> dict[str, object]:
     status, response = http_request(origin, "/api/v1/import/prometheus", "POST", body.encode(), "text/plain")
     if status < 200 or status >= 300:
         raise Incomplete(f"VictoriaMetrics fixture import failed: HTTP {status} {response[:300]!r}")
-    status, response = http_request(origin, "/api/v1/query?query=" + urllib.parse.quote("gopulse_phase20_retention_fixture"))
-    if status != 200:
-        raise Incomplete(f"VictoriaMetrics current query failed: HTTP {status}")
-    query = json.loads(response)
-    result = query.get("data", {}).get("result", [])
-    states = {tuple(sorted(item.get("metric", {}).items())) for item in result}
-    if not any(("state", "current") in state for state in states):
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        status, response = http_request(origin, "/api/v1/query?query=" + urllib.parse.quote("gopulse_phase20_retention_fixture"))
+        if status != 200:
+            raise Incomplete(f"VictoriaMetrics current query failed: HTTP {status}")
+        query = json.loads(response)
+        result = query.get("data", {}).get("result", [])
+        states = {tuple(sorted(item.get("metric", {}).items())) for item in result}
+        if any(("state", "current") in state for state in states):
+            break
+        time.sleep(1)
+    else:
         raise Incomplete("VictoriaMetrics current sample is not queryable")
     return {"image": VM_IMAGE, "process_args": command, "retention_period": "30d", "current_query": True, "within_window_submitted": True, "outside_window_submitted": True, "observed_physical_reclaim": False, "limitation": "native 30d reclaim was not accelerated; the test records queryability and process contract without claiming immediate physical deletion"}
 
