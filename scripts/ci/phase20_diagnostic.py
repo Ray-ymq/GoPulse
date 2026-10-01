@@ -246,11 +246,11 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
                 if fault and not fault_started and time.monotonic()-start >= float(fault['at_seconds']):
                     fault_started=True
                     target=fault['target']
+                    container_id=legacy.compose(project,env_file,files,'ps','-q',target,timeout=30).stdout.strip()
+                    if not container_id:raise RuntimeError('bounded diagnostic fault target has no container')
                     stop_requested=time.time()
                     legacy.require(legacy.compose(project,env_file,files,'stop',target,timeout=60),'inject bounded diagnostic fault')
                     stopped_at=time.time()
-                    container_id=legacy.compose(project,env_file,files,'ps','-q',target,timeout=30).stdout.strip()
-                    if not container_id:raise RuntimeError('bounded diagnostic fault target has no container')
                     stopped=json.loads(legacy.require(legacy.command(['docker','inspect',container_id],timeout=30),'inspect bounded diagnostic fault'))[0]
                     if stopped.get('State',{}).get('Running'):
                         raise RuntimeError('bounded diagnostic fault did not stop its target')
