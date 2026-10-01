@@ -756,7 +756,7 @@ def _go_overhead_trial(
             "GOPULSE_TRACE_SAMPLE_RATIO": "1.0",
         })
     else:
-        values.update({"GOPULSE_TRACE_ENABLED": "false", "GOPULSE_TRACE_ENDPOINT": "", "GOPULSE_TRACE_SAMPLE_RATIO": "0.0"})
+        values.update({"GOPULSE_TRACE_ENABLED": "false", "GOPULSE_TRACE_ENDPOINT": "", "GOPULSE_TRACE_SAMPLE_RATIO": "0.10"})
     legacy.write_env(env_file, values)
     override = legacy.compose_override(trial_dir / "compose.override.yaml", int(values["MYSQL_PORT"]))
     project = legacy.project_name()
@@ -1122,7 +1122,7 @@ def run_smoke(root: Path, manifest_path: Path, manifest: dict[str, Any], contrac
         if combination_id == "O2":
             values.update({"GOPULSE_TRACE_ENABLED": "true", "GOPULSE_TRACE_ENDPOINT": "phase20-collector:4317", "GOPULSE_TRACE_SAMPLE_RATIO": "1.0"})
         else:
-            values.update({"GOPULSE_TRACE_ENABLED": "false", "GOPULSE_TRACE_ENDPOINT": "", "GOPULSE_TRACE_SAMPLE_RATIO": "0.0"})
+            values.update({"GOPULSE_TRACE_ENABLED": "false", "GOPULSE_TRACE_ENDPOINT": "", "GOPULSE_TRACE_SAMPLE_RATIO": "0.10"})
         legacy.write_env(env_file, values)
         override = legacy.compose_override(trial_dir / "compose.override.yaml", int(values["MYSQL_PORT"]))
         project = legacy.project_name()
