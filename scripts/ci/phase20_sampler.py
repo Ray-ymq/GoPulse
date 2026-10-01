@@ -137,6 +137,7 @@ class Sampler:
         self.path=Path(path);self.stop_event=threading.Event();self.thread=None
         self.load_pid=None;self.failure=None;self.records=[]
         self.addresses={s:service_address(project,env_file,files,s) for s in profile['sampling']['required_components']}
+        broker_address(self.addresses['kafka'])
     def set_load_pid(self,pid):self.load_pid=pid
     def start(self):
         self.thread=threading.Thread(target=self._run,name='phase20-sampler')

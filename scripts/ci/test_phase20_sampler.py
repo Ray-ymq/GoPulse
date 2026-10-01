@@ -1,7 +1,9 @@
 import socket
 import unittest
 from unittest.mock import patch
-from phase20_sampler import broker_address, _original_getaddrinfo, kafka_consumer, kafka_offsets, process_stats, container_budget
+from pathlib import Path
+from unittest.mock import Mock
+from phase20_sampler import Sampler, broker_address, _original_getaddrinfo, kafka_consumer, kafka_offsets, process_stats, container_budget
 
 class SamplerTests(unittest.TestCase):
     def tearDown(self):socket.getaddrinfo=_original_getaddrinfo
@@ -34,3 +36,9 @@ class SamplerTests(unittest.TestCase):
         partition=object();client=Client()
         end,committed=kafka_offsets(client,[partition])
         self.assertEqual(client.calls,2);self.assertEqual(end[partition],7);self.assertEqual(committed[partition],6)
+    @patch('phase20_sampler.broker_address')
+    @patch('phase20_sampler.service_address', return_value='192.168.224.2')
+    def test_sampler_rebinds_broker_for_each_owned_project(self, service, bind):
+        profile={'sampling':{'required_components':['kafka']}}
+        Sampler('owned-project',Path('/tmp/candidate.env'),[],{},profile,'run-id',Path('/tmp/resources.jsonl'))
+        bind.assert_called_once_with('192.168.224.2')
