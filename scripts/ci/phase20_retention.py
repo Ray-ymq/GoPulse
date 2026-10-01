@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -96,6 +97,19 @@ def wait_http(origin: str, path: str, *, timeout: int = 120) -> tuple[int, bytes
     raise Incomplete(f"dependency did not become ready: {origin}{path} ({last})")
 
 
+def wait_tcp(port_number: int, *, timeout: int = 60) -> None:
+    deadline = time.monotonic() + timeout
+    last = ""
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port_number), timeout=2):
+                return
+        except OSError as error:
+            last = str(error)
+        time.sleep(1)
+    raise Incomplete(f"dependency TCP endpoint did not become ready: 127.0.0.1:{port_number} ({last})")
+
+
 def json_request(origin: str, path: str, value: object, method: str = "PUT") -> tuple[int, dict]:
     status, body = http_request(origin, path, method, json.dumps(value).encode())
     try:
@@ -151,7 +165,9 @@ def start_collector(name: str, volume: str) -> tuple[int, dict[str, object]]:
     config = ROOT / "deploy/otel/phase20-collector.yaml"
     docker(["volume", "create", volume], timeout=60)
     docker(["run", "-d", "--name", name, "--user", "0:0", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m", "-p", "127.0.0.1::4317", "-v", f"{volume}:/var/lib/gopulse/trace", "-v", f"{config}:/etc/otelcol-contrib/config.yaml:ro", COLLECTOR_IMAGE, "--config=/etc/otelcol-contrib/config.yaml"], timeout=120)
-    return port(name, 4317), artifact
+    collector_port = port(name, 4317)
+    wait_tcp(collector_port)
+    return collector_port, artifact
 
 
 def send_trace_spans(endpoint: str, count: int = 15000) -> str:
