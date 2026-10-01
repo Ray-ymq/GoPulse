@@ -706,6 +706,7 @@ class ProcessSampler:
         self.monitor_stop = threading.Event()
         self.monitor_thread: threading.Thread | None = None
         self.load_pid: int | None = None
+        self.failure: str | None = None
         self.cpu_samples: list[float] = []
         self.cpu_seconds = 0.0
         self.records: list[dict[str, Any]] = []
@@ -759,7 +760,8 @@ class ProcessSampler:
         if self.path.is_file():
             self.records = read_jsonl(self.path)
         if self.process.exitcode not in (0, None):
-            raise Incomplete("independent sampler process failed with exit code " + str(self.process.exitcode))
+            self.failure = "independent sampler process failed with exit code " + str(self.process.exitcode)
+            raise Incomplete(self.failure)
 
 def _http_window(api: Any, target_rps: int, warmup_seconds: int, measurement_seconds: int, sampler: Any | None, project: str, env_file: Path, files: list[Path], raw_path: Path) -> dict[str, Any]:
     def run_window(seconds: int, label: str) -> list[dict[str, Any]]:
