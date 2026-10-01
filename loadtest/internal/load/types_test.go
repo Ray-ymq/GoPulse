@@ -1,6 +1,7 @@
 package load
 
 import (
+	"encoding/json"
 	"math"
 	"os"
 	"testing"
@@ -74,5 +75,47 @@ func TestDiagnosticProfileRequiresIndependentFrozenRecovery(t *testing.T) {
 	profile.SchemaVersion = CapacityProfileSchemaVersion
 	if ValidateProfile(profile) == nil {
 		t.Fatal("phase19 accepted phase20 semantics")
+	}
+}
+
+func TestRegisteredShortDiagnosticWindowsAreAcceptedOnlyForPreflight(t *testing.T) {
+	encoded, err := os.ReadFile("../../phase20-capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(encoded, &value); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic := value["diagnostic"].(map[string]any)
+	diagnostic["short_window"] = true
+	stages := value["stages"].([]any)
+	stages[0].(map[string]any)["warmup_seconds"] = 5
+	stages[0].(map[string]any)["measurement_seconds"] = 10
+	stages[0].(map[string]any)["recovery_seconds"] = 5
+	stages[3].(map[string]any)["warmup_seconds"] = 15
+	stages[3].(map[string]any)["measurement_seconds"] = 300
+	stages[3].(map[string]any)["recovery_seconds"] = 30
+	short, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := t.TempDir() + "/short-profile.json"
+	if err := os.WriteFile(path, short, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadProfile(path); err != nil {
+		t.Fatalf("registered short profile rejected: %v", err)
+	}
+	diagnostic["short_window"] = false
+	short, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, short, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadProfile(path); err == nil {
+		t.Fatal("unregistered short profile accepted")
 	}
 }

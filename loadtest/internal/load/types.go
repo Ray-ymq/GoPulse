@@ -267,6 +267,7 @@ type DiagnosticProfile struct {
 	MetricTimestampQuantizationMS float64                   `json:"metric_timestamp_quantization_ms"`
 	EventPluginID                 string                    `json:"event_plugin_id"`
 	EventOperations               []string                  `json:"event_operations"`
+	ShortWindow                   bool                      `json:"short_window,omitempty"`
 }
 
 type CapacityProfile struct {
@@ -456,9 +457,25 @@ func ValidateProfile(profile CapacityProfile) error {
 		if d == nil || d.ObserverComparison.TargetRPS != 50 || d.ObserverComparison.Seconds != 5 || d.ObserverComparison.Workers != 8 || d.ObserverComparison.Route != "GET /api/v1/users/me" || d.DrainSeconds != 30 || d.RecoverySeconds != 120 || d.PollSeconds != 1 || d.StageIsolation != "owned_empty_project" || d.ClockAssumption != "same_host_utc" || d.ClockErrorMS != 10 || d.MetricTimestampQuantizationMS != 1 || d.EventPluginID != "redis-exporter" || len(d.EventOperations) != 2 || d.EventOperations[0] != "stop" || d.EventOperations[1] != "start" {
 			return errors.New("diagnostic recovery contract is invalid")
 		}
-		for _, stage := range profile.Stages {
-			if stage.WarmupSeconds != 15 || stage.MeasurementSeconds != 60 {
-				return errors.New("diagnostic load windows are frozen")
+		if d.ShortWindow {
+			for index, stage := range profile.Stages {
+				valid := stage.WarmupSeconds == 15 && stage.MeasurementSeconds == 60 && stage.RecoverySeconds == 30
+				if index == 0 {
+					valid = valid || (stage.WarmupSeconds == 5 && stage.MeasurementSeconds == 10 && stage.RecoverySeconds == 5)
+				}
+				if index == 3 {
+					valid = valid || (stage.WarmupSeconds == 5 && stage.MeasurementSeconds == 10 && stage.RecoverySeconds == 5)
+					valid = valid || (stage.WarmupSeconds == 15 && stage.MeasurementSeconds == 300 && stage.RecoverySeconds == 30)
+				}
+				if !valid {
+					return errors.New("registered short diagnostic load window is invalid")
+				}
+			}
+		} else {
+			for _, stage := range profile.Stages {
+				if stage.WarmupSeconds != 15 || stage.MeasurementSeconds != 60 {
+					return errors.New("diagnostic load windows are frozen")
+				}
 			}
 		}
 	} else if profile.Diagnostic != nil {

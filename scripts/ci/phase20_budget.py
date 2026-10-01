@@ -1283,6 +1283,7 @@ def run_smoke(root: Path, manifest_path: Path, manifest: dict[str, Any], contrac
     profile = diagnostic.load_profile()
     binding, _ = legacy.candidate_binding(manifest_path, profile)
     smoke_profile = copy.deepcopy(profile)
+    smoke_profile["diagnostic"]["short_window"] = True
     for stage in smoke_profile["stages"]:
         if stage["name"] == "rps-200":
             stage["warmup_seconds"] = 5

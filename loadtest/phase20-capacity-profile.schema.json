@@ -87,25 +87,39 @@
       "$ref": "#/$defs/statistics"
     },
     "diagnostic": {
-      "const": {
-        "drain_seconds": 30,
-        "recovery_seconds": 120,
-        "poll_seconds": 1,
-        "stage_isolation": "owned_empty_project",
-        "clock_assumption": "same_host_utc",
-        "clock_error_ms": 10,
-        "metric_timestamp_quantization_ms": 1,
-        "event_plugin_id": "redis-exporter",
-        "event_operations": [
-          "stop",
-          "start"
-        ],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "drain_seconds",
+        "recovery_seconds",
+        "poll_seconds",
+        "stage_isolation",
+        "clock_assumption",
+        "clock_error_ms",
+        "metric_timestamp_quantization_ms",
+        "event_plugin_id",
+        "event_operations",
+        "observer_comparison"
+      ],
+      "properties": {
+        "drain_seconds": { "const": 30 },
+        "recovery_seconds": { "const": 120 },
+        "poll_seconds": { "const": 1 },
+        "stage_isolation": { "const": "owned_empty_project" },
+        "clock_assumption": { "const": "same_host_utc" },
+        "clock_error_ms": { "const": 10 },
+        "metric_timestamp_quantization_ms": { "const": 1 },
+        "event_plugin_id": { "const": "redis-exporter" },
+        "event_operations": { "const": ["stop", "start"] },
         "observer_comparison": {
-          "target_rps": 50,
-          "seconds": 5,
-          "workers": 8,
-          "route": "GET /api/v1/users/me"
-        }
+          "const": {
+            "target_rps": 50,
+            "seconds": 5,
+            "workers": 8,
+            "route": "GET /api/v1/users/me"
+          }
+        },
+        "short_window": { "const": true }
       }
     }
   },

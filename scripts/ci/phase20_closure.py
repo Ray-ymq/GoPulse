@@ -207,6 +207,7 @@ def _short_capacity_profile(*, sustained: bool = False) -> dict[str, Any]:
     import phase20_diagnostic as diagnostic
 
     profile = copy.deepcopy(diagnostic.load_profile())
+    profile["diagnostic"]["short_window"] = True
     if sustained:
         profile["stages"][3].update({"warmup_seconds": 15, "measurement_seconds": 300, "recovery_seconds": 30})
     else:
