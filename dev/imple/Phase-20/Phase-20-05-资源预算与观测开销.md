@@ -64,7 +64,7 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 
 ### 2.1 已冻结开工登记
 
-以下登记在创建 `develop/2.2.5` 前完成，冻结编号为
+以下登记在创建 `develop/2.2.5` 前完成，初版冻结编号为
 `phase20-05-budget-contract-20261001`。登记基线为 `origin/main`
 `f44ab45d857aa5981a6a278dd0c03d576b7ffa11`；本节是开工合同，不是 05 的执行结果。
 
@@ -95,7 +95,7 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 | `overhead.observability` | O0/O1/O2/O3 各三重复：正常观测相对观测关闭的业务 P99 绝对差 `<=150 ms` 且比例 `<=25%`；SUT CPU 差 `<=1.50 cores`、RSS 差 `<=512 MiB`；Trace 关闭/100% 采样业务 P99 差 `<=200 ms`、CPU 差 `<=1.00 core`、RSS 差 `<=256 MiB`。 | 只报告已登记组件集合的成本，不外推全站观测成本；任一组合缺原始三重复、负载不一致或基线为零而未使用绝对阈值则 incomplete。 |
 | `overhead.sampler` | sampler 开启/关闭各三重复，使用相同低开销业务计数源；观察者 CPU 峰值 `<=0.75 core`，业务 P99 绝对差 `<=50 ms`，采样缺样 `<=1%`。 | 不得以“没有记录”记为零开销；超限保留两套原始记录，业务结果仍按独立业务门禁判定。 |
 
-Compose 的实际 limit 也在本批实现并由 B01 inspect 核对；冻结服务额度为：MySQL
+Compose 的实际 limit 也在本批实现并由 B01 inspect 核对；初版冻结服务额度为：MySQL
 `2.0 CPU/1536 MiB`、Redis `0.5/256 MiB`、RabbitMQ `1.0/512 MiB`、业务与观测
 Elasticsearch 各 `2.0/1536 MiB`、Kafka `1.5/768 MiB`、VictoriaMetrics
 `0.75/512 MiB`、Backend 每副本 `2.0/512 MiB`、Business Worker 与 Search
@@ -104,6 +104,23 @@ Indexer 每副本 `0.75/384 MiB`、Router 每副本 `0.5/256 MiB`、Marshaller �
 Frontend/Admin Frontend 各 `0.25/128 MiB`、验收 Collector `0.25/128 MiB`。
 一次性 migrate/search-init/admin-role/acceptance 使用同一组构建限制但不计入并发
 稳定窗口；B01 必须证明渲染后的 `NanoCpus` 与 `Memory` 均生效。
+
+#### 2.2 授权后的冻结预算修订
+
+首次 B02 实际执行证明初版 quota 低于前序 03 的单服务峰值：Backend 两副本分别达到
+约 `4.15/3.12 cores`，Kafka 约 `2.03 cores`，RabbitMQ 约 `1.53 cores`，Monitor
+约 `1.10 cores`；初版限制导致真实 cgroup throttling，并在 200 RPS 窗口产生 15 个
+HTTP 500。用户已明确授权修订冻结合同；初版失败证据保留在私有目录，不作为通过结果。
+
+新的冻结编号为 `phase20-05-budget-contract-20261001-r2`，仅调整运行时 quota，预算
+统计阈值和 B/U 操作不变。修订后的服务额度为：MySQL `2.5 CPU/2048 MiB`、Redis
+`0.5/256 MiB`、RabbitMQ `2.0/768 MiB`、业务与观测 Elasticsearch 各
+`2.0/2048 MiB`、Kafka `2.5/1024 MiB`、VictoriaMetrics `1.0/768 MiB`、Backend
+每副本 `4.5/768 MiB`、Business Worker 与 Search Indexer 每副本 `1.0/512 MiB`、
+Router 每副本 `0.75/256 MiB`、Marshaller 每副本 `1.0/384 MiB`、Monitor
+`1.5/512 MiB`、Redis Exporter `0.5/128 MiB`、Frontend/Admin Frontend 各
+`0.5/128 MiB`、验收 Collector `0.25/128 MiB`。修订后的合同合入 `main` 后，必须
+从新的候选 revision 和新证据目录重新执行 B01～B07；不得复用初版候选或失败结果。
 
 #### B 案例、U 清单与固定证据位置
 
