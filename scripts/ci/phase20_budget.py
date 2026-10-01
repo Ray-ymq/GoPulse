@@ -33,6 +33,7 @@ SUSTAINED_PROFILE_PATH = ROOT / "loadtest/phase20-sustained-profile.json"
 SUSTAINED_SCHEMA_PATH = ROOT / "loadtest/phase20-sustained-profile.schema.json"
 MANIFEST_VERSION = "2.2.5"
 REVISION = re.compile(r"^[0-9a-f]{40}$")
+NANO_CPU_ROUNDING_TOLERANCE = 1024
 
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -181,6 +182,11 @@ def _limit_values(service: dict[str, Any]) -> tuple[float, int]:
     return cpu_value, parse_bytes(memory)
 
 
+def nano_cpus_match(actual: int, expected: int) -> bool:
+    """Allow the Docker daemon's sub-micro-CPU conversion rounding."""
+    return abs(int(actual) - int(expected)) <= NANO_CPU_ROUNDING_TOLERANCE
+
+
 def verify_rendered_limits(contract: dict[str, Any], document: dict[str, Any], *, include_collector: bool = False) -> dict[str, Any]:
     expected = {name: value for name, value in contract["compose_limits"].items() if include_collector or name != "phase20-collector"}
     actual_services = document.get("services", {})
@@ -216,7 +222,7 @@ def inspect_project(project: str, env_file: Path, files: list[Path], contract: d
         nano_cpus = int(host.get("NanoCpus") or 0)
         memory = int(host.get("Memory") or 0)
         expected_nano = int(round(float(frozen["cpus"]) * 1_000_000_000))
-        if nano_cpus != expected_nano or memory != int(frozen["memory_bytes"]):
+        if not nano_cpus_match(nano_cpus, expected_nano) or memory != int(frozen["memory_bytes"]):
             raise Incomplete("B01 inspect limit drift: " + service)
         state = item.get("State", {})
         if state.get("OOMKilled") or state.get("Restarting"):

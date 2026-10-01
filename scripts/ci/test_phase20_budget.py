@@ -17,6 +17,10 @@ class BudgetTests(unittest.TestCase):
         with self.assertRaises(budget.Incomplete):
             budget.parse_bytes("TBD")
 
+    def test_nano_cpu_match_allows_docker_conversion_rounding_only(self):
+        self.assertTrue(budget.nano_cpus_match(4_499_999_744, 4_500_000_000))
+        self.assertFalse(budget.nano_cpus_match(4_499_000_000, 4_500_000_000))
+
     def test_contract_is_finite_and_profile_bound(self):
         contract = budget.load_contract()
         capacity, sustained = budget.load_profiles(contract)
