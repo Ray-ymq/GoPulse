@@ -148,3 +148,53 @@ manifest digest 为
 正式通过回执。没有运行 B07 预检、完整 B01～B06、B03 十二单元、S3/S4 或 Phase-20-06；
 不能用本次结果解锁完整矩阵，也不能更新 `VERSION` 或宣称 Phase-20-05 完成。旧候选、首个
 分发错误目录和错误 SHA 构建事实均保留，未换绑任何历史回执。
+
+## 2.8 实际 B07 与 S3 接续结果（当前候选）
+
+在用户要求继续执行后，先以包含 2.7 日志提交的 `8a4d7805492392ae7632b11b3a615ea50d018ca8`
+重建候选。manifest 位于
+`/var/tmp/gopulse-phase20-05-candidate-8a4d780/manifest.json`，digest 为
+`sha256:d2b0e1a87486365b194771a4b52f2af95c324bb9a127c0b0c798ef504784b76c`。构建、第三方
+固定 digest、10 个自研镜像 OCI 身份和当前候选绑定均已核对；dry-run 任务图为 16 个任务。
+
+### B07 当前候选
+
+| 命令/操作 | 实际结果 |
+| --- | --- |
+| `scripts/verify-phase20-closure.sh --preflight --manifest .../manifest.json --work .../b07-preflight` | U1/U2/U3/U4 全部 `pass`，`execution_status=complete`，`formal=false`；真实短预检清理 inventory 通过 |
+| `python3 scripts/verify-phase20-evidence.py --preflight .../b07-preflight` | 独立候选、manifest、证据 digest 校验通过 |
+| 运行时合同 `verify_runtime_contracts.py --candidate 2.2.5 --skip-version`、`validate_versions.py`、`git diff --check` | 通过；根 `VERSION` 仍为 `2.2.4` |
+
+此前以 `c1cc85e` 构建的预检在 U3/U4 因当前 checkout 已前进到日志提交而拒绝，目录
+`.../candidate-c1cc85e/b07-preflight-r2` 保留，未复用其回执；随后以当前候选完整重跑并通过。
+
+### S3 正式预算的两个停止点
+
+正式入口使用固定命令和 B07 外部 evidence：
+`scripts/verify-phase20-budget.sh --manifest .../manifest.json --work <new> --preflight-evidence .../b07-preflight`。
+两次均先完成 B01，B02 在真实 200 RPS、15 秒预热、60 秒测量窗口停止；没有启动 B03、B04、B05 或
+B06 正式单元，也没有改写失败目录。
+
+| 证据目录 | 实际边界 |
+| --- | --- |
+| `/var/tmp/gopulse-phase20-05-candidate-8a4d780/budget-s3` | B01 通过；B02 有 13,500 条终端记录，其中 4 个 PATCH 返回 HTTP 500，数据库事实和对应 Outbox `post.updated` 已存在；关联器按未知响应排除后报告 `Incomplete: outbox event lacks unambiguous request group`；`budget.json` 为 `formal=true`、`execution_status=incomplete` |
+| `/var/tmp/gopulse-phase20-05-candidate-8a4d780/budget-s3-r2` | B01 通过；B02 有 13 个 HTTP 500（7 个 DELETE、6 个 POST），同样观察到事实/Outbox 副作用并停止，原因仍为上述 incomplete；`budget.json` 保留原始失败分类 |
+
+两个失败窗口的非接受请求均约在 1 秒完成，错误类型随写路由变化；这不是可以通过证据关联器
+改写成成功的结果。`python3 scripts/verify-phase20-evidence.py --budget .../budget-s3-r2`
+按合同返回 `execution_status=incomplete`、`budget case set is incomplete`，没有生成预算通过证据。
+
+### 有界诊断与停止决定
+
+按 2.4 的失败边界执行了两个新的 `--case B02` 有界诊断目录：
+
+* `.../diagnostic-b02-r1`：12,000 测量请求、0 业务错误、清理 inventory 前后一致；
+* `.../diagnostic-b02-r3`：12,000 测量请求、0 业务错误、清理 inventory 前后一致；旁路归属容器日志保存在
+  `.../diagnostic-b02-r3-monitor/owned-error-log.txt`，未发现测量窗口 HTTP 500。
+
+诊断通过不能替代两个正式 B02 失败回执。当前事实表明候选在相同冻结窗口下存在高并发写入时
+“业务事实已提交但 HTTP 返回 500”的产品行为；本批 2.7 允许集合只包含预算工具、测试和日志，
+明确禁止在预算批次泛化修复产品、继续放宽 quota/阈值或反复重跑寻找好结果。因此依规则停止
+S3，不更新 `VERSION`，不宣称 Phase-20-05 完成。后续必须先在 update 修订并合入适用的
+产品/合同修复计划，再由新候选重新执行受影响的 B07 与完整 S3；现有失败目录和诊断目录均为
+只读历史证据。最终执行时确认无残留 GoPulse 容器，未使用 global prune。
