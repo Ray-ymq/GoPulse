@@ -350,6 +350,15 @@ def _search_probe_overhead_ms(probes: list[dict[str, Any]]) -> int:
     return max((int(probe.get("probe_overhead_ms", 0)) for probe in probes), default=0)
 
 
+def _c01_metric_targets() -> tuple[tuple[str, tuple[str, ...], str, int], ...]:
+    """Return every business replica that can own a C01 freshness event."""
+    return (
+        ("backend", ("backend", "backend-2"), "BACKEND_METRICS_TOKEN", 19101),
+        ("business-worker", ("business-worker", "business-worker-2"), "BUSINESS_WORKER_METRICS_TOKEN", 19102),
+        ("search-indexer", ("search-indexer", "search-indexer-2"), "SEARCH_INDEXER_METRICS_TOKEN", 19103),
+    )
+
+
 def _post_with_trace(api: Any, title: str, content: str, traceparent: str) -> tuple[int, dict[str, Any], dict[str, str]]:
     # The business probe deliberately starts a new root trace.  The wire
     # context is bound to the observed root below, while incoming propagation
@@ -396,7 +405,7 @@ def run_real_c01(manifest_path: Path, root: Path, binding: dict[str, str]) -> di
         legacy.wait_initial_convergence(project, env_file, files, timeout=900)
         legacy.require(legacy.command(compose_args + ["run", "--rm", "--no-deps", "admin-role"], timeout=60), "bootstrap C01 trace operator")
         api = diagnostic.ProductAPI("http://127.0.0.1:" + values["FRONTEND_PORT"], json.loads(credentials.read_text(encoding="utf-8")))
-        addresses = {name: diagnostic.service_address(project, env_file, files, name) for name in ("elasticsearch", "observability-elasticsearch", "backend", "business-worker", "search-indexer")}
+        addresses = {name: diagnostic.service_address(project, env_file, files, name) for name in ("elasticsearch", "observability-elasticsearch")}
         before = diagnostic.snapshot(project, env_file, files, "C01-before")
         baseline_outbox = max((item["outbox_id"] for item in before["events"]), default=0)
         token = "phase20-c01-" + uuid.uuid4().hex[:12]
@@ -491,12 +500,14 @@ def run_real_c01(manifest_path: Path, root: Path, binding: dict[str, str]) -> di
         for _ in range(30):
             current_text = []
             current_samples = []
-            for service, token_name in (("backend", "BACKEND_METRICS_TOKEN"), ("business-worker", "BUSINESS_WORKER_METRICS_TOKEN"), ("search-indexer", "SEARCH_INDEXER_METRICS_TOKEN")):
-                request = urllib.request.Request("http://" + addresses[service] + ":" + {"backend": "19101", "business-worker": "19102", "search-indexer": "19103"}[service] + "/internal/v1/metrics", headers={"Authorization": "Bearer " + values[token_name]})
-                with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=3) as response_metrics:
-                    text_value = response_metrics.read(2 * 1024 * 1024).decode()
-                current_text.append("# " + service + "\n" + text_value)
-                current_samples.extend(_prometheus_samples(text_value))
+            for service, replicas, token_name, port in _c01_metric_targets():
+                for replica in replicas:
+                    address = diagnostic.service_address(project, env_file, files, replica)
+                    request = urllib.request.Request("http://" + address + ":" + str(port) + "/internal/v1/metrics", headers={"Authorization": "Bearer " + values[token_name]})
+                    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=3) as response_metrics:
+                        text_value = response_metrics.read(2 * 1024 * 1024).decode()
+                    current_text.append("# " + replica + "\n" + text_value)
+                    current_samples.extend(_prometheus_samples(text_value))
             metrics_text, metric_samples = current_text, current_samples
             if {item["labels"]["stage"] for item in metric_samples} >= required_metric_stages:
                 break

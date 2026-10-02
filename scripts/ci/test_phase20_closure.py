@@ -20,6 +20,17 @@ class ClosureTests(unittest.TestCase):
         ]
         self.assertEqual(closure._search_probe_overhead_ms(probes), 19)
 
+    def test_c01_metrics_cover_all_business_replicas(self):
+        targets = closure._c01_metric_targets()
+        self.assertEqual([target[1] for target in targets], [
+            ("backend", "backend-2"),
+            ("business-worker", "business-worker-2"),
+            ("search-indexer", "search-indexer-2"),
+        ])
+        self.assertEqual({replica for _, replicas, _, _ in targets for replica in replicas}, {
+            "backend", "backend-2", "business-worker", "business-worker-2", "search-indexer", "search-indexer-2",
+        })
+
     def test_candidate_artifact_set_is_immutable_and_complete(self):
         images = {name: {"ref": f"gopulse/{name}:test@sha256:{'a' * 64}", "id": "sha256:" + "a" * 64} for name in closure.SELF_IMAGE_NAMES}
         third_party = {name: {"ref": f"example/{name}:test@sha256:{'b' * 64}", "id": "sha256:" + "b" * 64} for name in budget.load_contract()["dependencies"]["images"] if name != "trace-collector"}
