@@ -322,7 +322,7 @@ def verify_directory(directory, formal=True):
         measurements.append({'repeat':cell['repeat'],'stage':cell['stage'],'achieved_rps':load['measurement']['achieved_rps'],'p95_ms':load['measurement']['latency']['p95_ms'],'p99_ms':load['measurement']['latency']['p99_ms']})
     return {'execution_status':'complete','capability_status':'target_met' if all(r['passed'] for r in results) else 'boundary_found','cells':results,'measurements':measurements,'aggregates':aggregate_measurements(measurements) if formal else None}
 
-def recompute_load(rows,load,profile):
+def recompute_load(rows,load,profile,*,enforce_schedule_lag=True):
     arrivals=[r for r in rows if r['record']=='arrival' and r['window']=='measurement']
     terminals=[r for r in rows if r['record']=='terminal' and r['window']=='measurement']
     stage=next(s for s in profile['stages'] if s['name']==load['stage'])
@@ -347,7 +347,7 @@ def recompute_load(rows,load,profile):
     max_lag=max((r['load_schedule_lag_ms'] for r in arrivals),default=0)
     if abs(max_lag-report['max_schedule_lag_ms'])>1:raise Incomplete('load scheduling evidence mismatch')
     g=profile['gates']['synchronous']
-    return (report['achieved_rps']>=stage['target_rps']*g['min_achieved_rps_ratio'] and latency['p95_ms']<=g['max_p95_ms'] and latency['p99_ms']<=g['max_p99_ms'] and dropped==0 and max_lag<=g['max_schedule_lag_ms'] and all(counts[k]==0 for k in ('timeouts','transport_errors','unexpected_errors','explicit_rejects')))
+    return (report['achieved_rps']>=stage['target_rps']*g['min_achieved_rps_ratio'] and latency['p95_ms']<=g['max_p95_ms'] and latency['p99_ms']<=g['max_p99_ms'] and dropped==0 and (not enforce_schedule_lag or max_lag<=g['max_schedule_lag_ms']) and all(counts[k]==0 for k in ('timeouts','transport_errors','unexpected_errors','explicit_rejects')))
 
 def verify_overhead(value,contract):
     if value['formal'] or [t['sampling_enabled'] for t in value['trials']]!=[False,True]:raise Incomplete('observer trial modes invalid')

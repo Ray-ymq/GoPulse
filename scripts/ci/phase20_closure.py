@@ -237,7 +237,7 @@ def _verify_real_cell(cell: dict[str, Any], work: Path, profile: dict[str, Any],
     if load.get("candidate") != binding or load.get("execution_status") != "complete" or load.get("measurement", {}).get("target_rps") != expected_rps or load.get("warmup", {}).get("duration_seconds") != warmup_seconds or load.get("measurement", {}).get("duration_seconds") != measurement_seconds:
         raise Incomplete("real preflight cell load window or candidate drift")
     ledger = budget.read_jsonl(files["ledger"])
-    if not evidence.recompute_load(ledger, load, profile):
+    if not evidence.recompute_load(ledger, load, profile, enforce_schedule_lag=not require_fault):
         raise Incomplete("real preflight cell business mix did not recompute")
     if any(int(load[window]["outcomes"].get(key, 0)) for window in ("warmup", "measurement") for key in ("explicit_rejects", "timeouts", "transport_errors", "unexpected_errors")):
         raise Incomplete("real preflight cell contains business errors")

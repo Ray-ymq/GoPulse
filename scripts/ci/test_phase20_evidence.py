@@ -1,9 +1,9 @@
 import copy
 import unittest
 try:
-    from phase20_evidence import Incomplete, associate, business_ready, marker_ready, recovery_result, ledger_requests
+    from phase20_evidence import Incomplete, associate, business_ready, marker_ready, recovery_result, ledger_requests, recompute_load
 except ModuleNotFoundError:
-    from scripts.ci.phase20_evidence import Incomplete, associate, business_ready, marker_ready, recovery_result, ledger_requests
+    from scripts.ci.phase20_evidence import Incomplete, associate, business_ready, marker_ready, recovery_result, ledger_requests, recompute_load
 
 def empty():return {'posts':[],'comments':[],'relations':[],'events':[]}
 
@@ -56,6 +56,25 @@ class EvidenceTests(unittest.TestCase):
         terminal=request('GET','GET /api/v1/users/me','');arrival=copy.deepcopy(terminal);arrival.update(record='arrival',outcome='scheduled')
         with self.assertRaises(Incomplete):ledger_requests([arrival],'r',1,'rps-50')
         with self.assertRaises(Incomplete):ledger_requests([arrival,terminal],'other',1,'rps-50')
+
+    def test_fault_window_can_exclude_control_plane_schedule_lag(self):
+        profile={
+            'stages':[{'name':'rps-50','target_rps':1,'measurement_seconds':1}],
+            'workload':{'routes':[{'template':'GET /api/v1/users/me','allowed_statuses':[200]}]},
+            'gates':{'synchronous':{'min_achieved_rps_ratio':0.95,'max_p95_ms':1000,'max_p99_ms':2000,'max_schedule_lag_ms':100}},
+        }
+        load={'stage':'rps-50','measurement':{
+            'target_rps':1,'duration_seconds':1,'scheduled_slots':1,'dropped_slots':0,
+            'max_schedule_lag_ms':250,'completed_requests':1,'achieved_rps':1,
+            'outcomes':{'requests':1,'succeeded':1,'explicit_rejects':0,'rejected_429':0,'rejected_503':0,'timeouts':0,'transport_errors':0,'unexpected_errors':0},
+            'latency':{'p50_ms':1,'p95_ms':1,'p99_ms':1,'max_ms':1},
+        }}
+        rows=[
+            {'record':'arrival','window':'measurement','outcome':'scheduled','load_schedule_lag_ms':250},
+            {'record':'terminal','window':'measurement','route_template':'GET /api/v1/users/me','outcome':'accepted','status':200,'latency_ms':1},
+        ]
+        self.assertFalse(recompute_load(rows,load,profile))
+        self.assertTrue(recompute_load(rows,load,profile,enforce_schedule_lag=False))
 
     def test_log_public_projection_preserves_identity_without_runtime_fields(self):
         try:
