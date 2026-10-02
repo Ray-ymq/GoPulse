@@ -1100,6 +1100,25 @@ def _queue_snapshot(stack: dict[str, Any]) -> dict[str, Any]:
     return legacy._rabbit_snapshot(stack["project"], stack["env"], stack["files"])
 
 
+def _backlog_is_nonempty(snapshot: dict[str, Any]) -> bool:
+    queue = snapshot.get("queue") or {}
+    async_state = snapshot.get("async") or {}
+    return any(int((queue if key in {"ready", "unacked"} else async_state).get(key, 0) or 0) > 0 for key in ("ready", "unacked", "outbox_pending"))
+
+
+def _wait_bounded_backlog(stack: dict[str, Any], timeout: int = 30) -> dict[str, Any]:
+    import phase19_capacity as legacy
+
+    started = time.monotonic()
+    last = None
+    while time.monotonic() - started < timeout:
+        last = {"queue": _queue_snapshot(stack), "async": legacy.async_snapshot(stack["project"], stack["env"], stack["files"])}
+        if _backlog_is_nonempty(last):
+            return last
+        time.sleep(1)
+    raise Incomplete("owned shutdown backlog did not become visible within 30 seconds: " + repr(last))
+
+
 def _wait_empty(stack: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     import phase19_capacity as legacy
 
@@ -1212,9 +1231,9 @@ def run_b06(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_bi
     try:
         require(command(stack["args"] + ["stop", "business-worker", "business-worker-2"], timeout=60), "create B06 shutdown backlog")
         writes = [_api_post(stack["api"], "B06 shutdown write " + str(index), "graceful shutdown backlog") for index in range(4)]
-        backlog = _queue_snapshot(stack)
-        if any(item["status"] != 201 for item in writes) or backlog["ready"] <= 0 and backlog["unacked"] <= 0:
+        if any(item["status"] != 201 for item in writes):
             raise Incomplete("B06 did not create an accepted bounded backlog")
+        backlog = _wait_bounded_backlog(stack)
         targets = ["business-worker", "business-worker-2", "phase20-collector"]
         sent_at = time.time()
         require(command(stack["args"] + ["kill", "-s", "SIGTERM", *targets], timeout=60), "send B06 SIGTERM")

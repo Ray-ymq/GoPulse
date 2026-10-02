@@ -125,6 +125,11 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(rows, [{"service": "backend", "cpu_percent": 12.5, "rss_bytes": 10 * 1024 * 1024, "oom": False, "running": True}])
         self.assertEqual(require.call_count, 3)
 
+    def test_backlog_is_nonempty_for_outbox_or_rabbit_waterline(self):
+        self.assertTrue(budget._backlog_is_nonempty({"queue": {"ready": 0, "unacked": 0}, "async": {"outbox_pending": 1}}))
+        self.assertTrue(budget._backlog_is_nonempty({"queue": {"ready": 2, "unacked": 0}, "async": {"outbox_pending": 0}}))
+        self.assertFalse(budget._backlog_is_nonempty({"queue": {"ready": 0, "unacked": 0}, "async": {"outbox_pending": 0}}))
+
 
 if __name__ == "__main__":
     unittest.main()
