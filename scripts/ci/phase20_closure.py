@@ -346,6 +346,10 @@ def _prometheus_samples(text: str) -> list[dict[str, Any]]:
     return samples
 
 
+def _search_probe_overhead_ms(probes: list[dict[str, Any]]) -> int:
+    return max((int(probe.get("probe_overhead_ms", 0)) for probe in probes), default=0)
+
+
 def _post_with_trace(api: Any, title: str, content: str, traceparent: str) -> tuple[int, dict[str, Any], dict[str, str]]:
     # The business probe deliberately starts a new root trace.  The wire
     # context is bound to the observed root below, while incoming propagation
@@ -399,9 +403,11 @@ def run_real_c01(manifest_path: Path, root: Path, binding: dict[str, str]) -> di
         traceparent = ""
         visible_probe = []
         initial_observed = int(time.time() * 1000)
+        initial_probe_started = time.monotonic()
         initial_page = api.call("/api/v1/search/posts?" + urllib.parse.urlencode({"q": token}))
+        initial_probe_overhead_ms = int((time.monotonic() - initial_probe_started) * 1000)
         initial_hits = [item for item in initial_page.get("data", []) if int(item.get("id", -1)) >= 0]
-        visible_probe.append({"source": "search", "query": token, "observed_at_ms": initial_observed, "hit": bool(initial_hits), **({"post_id": int(initial_hits[0]["id"]), "content_revision": int(initial_hits[0].get("content_revision", 1))} if initial_hits else {})})
+        visible_probe.append({"source": "search", "query": token, "observed_at_ms": initial_observed, "probe_overhead_ms": initial_probe_overhead_ms, "hit": bool(initial_hits), **({"post_id": int(initial_hits[0]["id"]), "content_revision": int(initial_hits[0].get("content_revision", 1))} if initial_hits else {})})
         request_start = int(time.time() * 1000)
         status, response, headers = _post_with_trace(api, "Phase 20 C01 " + token, "Current candidate real chain " + token, traceparent)
         accepted = int(time.time() * 1000)
@@ -414,9 +420,11 @@ def run_real_c01(manifest_path: Path, root: Path, binding: dict[str, str]) -> di
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             observed = int(time.time() * 1000)
+            probe_started = time.monotonic()
             page = api.call("/api/v1/search/posts?" + urllib.parse.urlencode({"q": token}))
+            probe_overhead_ms = int((time.monotonic() - probe_started) * 1000)
             hits = [item for item in page.get("data", []) if int(item.get("id", -1)) == post_id]
-            visible_probe.append({"source": "search", "query": token, "observed_at_ms": observed, "hit": bool(hits), **({"post_id": post_id, "content_revision": int(hits[0].get("content_revision", response["data"].get("content_revision", 1)))} if hits else {})})
+            visible_probe.append({"source": "search", "query": token, "observed_at_ms": observed, "probe_overhead_ms": probe_overhead_ms, "hit": bool(hits), **({"post_id": post_id, "content_revision": int(hits[0].get("content_revision", response["data"].get("content_revision", 1)))} if hits else {})})
             if hits:
                 break
             time.sleep(1)
@@ -479,13 +487,21 @@ def run_real_c01(manifest_path: Path, root: Path, binding: dict[str, str]) -> di
 
         metrics_text = []
         metric_samples = []
-        for service, token_name in (("backend", "BACKEND_METRICS_TOKEN"), ("business-worker", "BUSINESS_WORKER_METRICS_TOKEN"), ("search-indexer", "SEARCH_INDEXER_METRICS_TOKEN")):
-            request = urllib.request.Request("http://" + addresses[service] + ":" + {"backend": "19101", "business-worker": "19102", "search-indexer": "19103"}[service] + "/internal/v1/metrics", headers={"Authorization": "Bearer " + values[token_name]})
-            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=3) as response_metrics:
-                text_value = response_metrics.read(2 * 1024 * 1024).decode()
-            metrics_text.append("# " + service + "\n" + text_value)
-            metric_samples.extend(_prometheus_samples(text_value))
-        if not metric_samples or {item["labels"]["stage"] for item in metric_samples} < {"commit", "publish", "consume", "index"}:
+        required_metric_stages = {"commit", "publish", "consume", "index"}
+        for _ in range(30):
+            current_text = []
+            current_samples = []
+            for service, token_name in (("backend", "BACKEND_METRICS_TOKEN"), ("business-worker", "BUSINESS_WORKER_METRICS_TOKEN"), ("search-indexer", "SEARCH_INDEXER_METRICS_TOKEN")):
+                request = urllib.request.Request("http://" + addresses[service] + ":" + {"backend": "19101", "business-worker": "19102", "search-indexer": "19103"}[service] + "/internal/v1/metrics", headers={"Authorization": "Bearer " + values[token_name]})
+                with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=3) as response_metrics:
+                    text_value = response_metrics.read(2 * 1024 * 1024).decode()
+                current_text.append("# " + service + "\n" + text_value)
+                current_samples.extend(_prometheus_samples(text_value))
+            metrics_text, metric_samples = current_text, current_samples
+            if {item["labels"]["stage"] for item in metric_samples} >= required_metric_stages:
+                break
+            time.sleep(1)
+        if not metric_samples or {item["labels"]["stage"] for item in metric_samples} < required_metric_stages:
             raise Incomplete("C01 real freshness metrics are incomplete")
         raw_metrics_path = raw_dir / "metrics.prom"
         raw_metrics_path.write_text("\n".join(metrics_text) + "\n", encoding="utf-8"); raw_metrics_path.chmod(0o600)
@@ -497,7 +513,7 @@ def run_real_c01(manifest_path: Path, root: Path, binding: dict[str, str]) -> di
         by_name = {name: next(span for span in spans if span["name"] == name) for name in chain.SPAN_NAMES}
         traceparent = "00-" + selected_trace_id + "-" + by_name["http.server"]["span_id"] + "-01"
         t_visible = visible_probe[-1]["observed_at_ms"]
-        times = {"t_request_start": request_start, "t_accept": accepted, "t_commit": max(accepted, int(by_name["post.commit"]["end_ns"] / 1_000_000)), "t_publish_start": int(by_name["outbox.publish"]["start_ns"] / 1_000_000), "t_publish_ack": int(by_name["outbox.publish"]["end_ns"] / 1_000_000), "t_consume_start": int(by_name["worker.consume"]["start_ns"] / 1_000_000), "t_consume_end": int(by_name["worker.consume"]["end_ns"] / 1_000_000), "t_index_start": int(by_name["search.index"]["start_ns"] / 1_000_000), "t_index_ack": int(by_name["search.index"]["end_ns"] / 1_000_000), "t_visible": t_visible, "clock_error_ms": 250, "probe_overhead_ms": max(0, visible_probe[-1]["observed_at_ms"] - visible_probe[0]["observed_at_ms"])}
+        times = {"t_request_start": request_start, "t_accept": accepted, "t_commit": max(accepted, int(by_name["post.commit"]["end_ns"] / 1_000_000)), "t_publish_start": int(by_name["outbox.publish"]["start_ns"] / 1_000_000), "t_publish_ack": int(by_name["outbox.publish"]["end_ns"] / 1_000_000), "t_consume_start": int(by_name["worker.consume"]["start_ns"] / 1_000_000), "t_consume_end": int(by_name["worker.consume"]["end_ns"] / 1_000_000), "t_index_start": int(by_name["search.index"]["start_ns"] / 1_000_000), "t_index_ack": int(by_name["search.index"]["end_ns"] / 1_000_000), "t_visible": t_visible, "clock_error_ms": 250, "probe_overhead_ms": _search_probe_overhead_ms(visible_probe)}
         for previous, current in zip(chain.REQUIRED_TIMES, chain.REQUIRED_TIMES[1:]):
             if times[current] + times["clock_error_ms"] < times[previous]:
                 raise Incomplete("C01 real timestamp order is outside the frozen clock bound")

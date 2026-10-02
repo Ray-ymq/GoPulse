@@ -12,6 +12,14 @@ except ModuleNotFoundError:
 
 
 class ClosureTests(unittest.TestCase):
+    def test_search_probe_overhead_is_per_request(self):
+        probes = [
+            {"observed_at_ms": 1000, "probe_overhead_ms": 12},
+            {"observed_at_ms": 2000, "probe_overhead_ms": 19},
+            {"observed_at_ms": 5000, "probe_overhead_ms": 7},
+        ]
+        self.assertEqual(closure._search_probe_overhead_ms(probes), 19)
+
     def test_candidate_artifact_set_is_immutable_and_complete(self):
         images = {name: {"ref": f"gopulse/{name}:test@sha256:{'a' * 64}", "id": "sha256:" + "a" * 64} for name in closure.SELF_IMAGE_NAMES}
         third_party = {name: {"ref": f"example/{name}:test@sha256:{'b' * 64}", "id": "sha256:" + "b" * 64} for name in budget.load_contract()["dependencies"]["images"] if name != "trace-collector"}
