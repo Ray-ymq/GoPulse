@@ -61,6 +61,21 @@
 - Never use broad Docker cleanup or global prune to make resource-isolation checks pass.
 - Verify the exact sanitized evidence selected for publication before declaring the matrix complete.
 
+# Execution Cost and Continuation Rule
+
+- Every new or revised split implementation plan must state an execution budget before work starts: expected total active time, a cumulative ceiling, stage budgets, required experiment duration, maximum diagnostic attempts, and the stop/resume procedure.
+- Ordinary implementation files target completion within 120 minutes and have a cumulative ceiling of 180 minutes. Size unstarted batches to fit that budget. Do not hide an oversized task by renaming files or resetting the budget.
+- A necessary long-duration acceptance file must state its irreducible experiment time, setup/verification overhead, and finite total ceiling before execution. Keep it separate from product/tool development. Do not shorten a required measurement window to meet a time budget or claim that a short probe proves a long run.
+- Count discovery, implementation, builds, environment setup, diagnosis, failed attempts, validation, and cleanup across commands, revisions, work directories, and agent turns. Only an explicitly recorded inactive interval or user-requested pause may be excluded. A new candidate or retry does not reset the file's budget.
+- At 50% and 80% of the cumulative ceiling, report completed work, remaining gates, elapsed time, and the next concrete step. Do not start an expensive command whose estimated duration plus safe cleanup exceeds the remaining budget.
+- On the first acceptance-infrastructure failure, stop the full matrix and reproduce the smallest failed boundary. Allow at most two bounded diagnostic attempts for the same unresolved cause; each defaults to at most 10 minutes. A new error message is not proof of progress. Do not restart the full matrix without a reproduced cause, an actual correction, and directly affected checks.
+- Verify entry-point modes, cross-module methods, evidence schemas, process failure propagation, and cleanup on the lowest effective layer before constructing a real acceptance stack. Static/unit checks cannot replace the required real acceptance gates.
+- Before rebuilding, record which changed source/configuration affects which image, executable, gate, or evidence. Reuse unchanged build caches and valid deterministic checks. Frozen candidate identity and raw evidence rules still apply; never rebind receipts across candidates or relax a gate to save time.
+- At the cumulative ceiling or repeated-diagnosis stop, stop new work, retain actual progress and evidence, perform bounded owned cleanup, and report the unresolved item and a concrete continuation plan. Do not declare completion or create a completion commit for the unfinished implementation batch. Additional execution requires a revised bounded plan and an explicit user instruction to continue; do not request a blanket extension before making the remaining work reviewable.
+- For an acceptance already in progress when this rule is introduced, let the current bounded run produce its result under its frozen contract unless the user explicitly stops it. On a user-requested stop, cease new work, stop owned subprocesses safely, preserve raw evidence, and record a paused/incomplete checkpoint; do not automatically resume. Preserve valid current-candidate receipts; do not restart it, invalidate it retrospectively, or edit its runtime files merely to satisfy this new rule. Budget the remaining work from the transition checkpoint, with prior cost reported separately.
+
+The planning and continuation details are documented in [Implementation execution budget](docs/implementation-execution-budget.md).
+
 # Completion, Log, and Commit Rule
 
 - The implementation-log requirement applies when executing a plan under `dev/imple/Phase-XX/`.
