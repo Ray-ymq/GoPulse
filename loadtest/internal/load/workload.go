@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 const CredentialsSchemaVersion = "gopulse.phase18.credentials.v1"
@@ -218,20 +219,47 @@ type vuState struct {
 
 func (state *vuState) request(slot uint64) Request {
 	category := CategoryForSlot(slot, state.profile)
+	var request Request
 	switch category {
 	case CategoryRead:
-		return state.read(slot)
+		request = state.read(slot)
 	case CategorySearch:
-		return state.search(slot)
+		request = state.search(slot)
 	case CategoryNotification:
-		return state.notifications(slot)
+		request = state.notifications(slot)
 	case CategoryContentWrite:
-		return state.contentWrite(slot)
+		request = state.contentWrite(slot)
 	case CategoryInteraction:
-		return state.interactionWrite(slot)
+		request = state.interactionWrite(slot)
 	default:
-		return state.session(slot)
+		request = state.session(slot)
 	}
+	if state.profile != nil {
+		for _, route := range state.profile.Routes {
+			if route.Template == request.Template {
+				request.ExpectedStatuses = statuses(route.AllowedStatuses...)
+				break
+			}
+		}
+	}
+	return request
+}
+
+func ValidateWorkloadForSchema(profile WorkloadProfile, schema string) error {
+	if schema != DiagnosticProfileSchemaVersion {
+		return ValidateWorkloadProfile(profile)
+	}
+	copy := profile
+	copy.Routes = append([]RouteContract(nil), profile.Routes...)
+	for index, route := range copy.Routes {
+		if route.Template == "PUT /api/v1/users/:userId/follow" || route.Template == "DELETE /api/v1/users/:userId/follow" {
+			if len(route.AllowedStatuses) != 1 || route.AllowedStatuses[0] != http.StatusOK {
+				return errors.New("diagnostic follow route must match current public response")
+			}
+			copy.Routes[index].AllowedStatuses = []int{http.StatusNoContent}
+		}
+	}
+	return ValidateWorkloadProfile(copy)
 }
 
 func CategoryForSlot(slot uint64, profile *WorkloadProfile) Category {
@@ -378,3 +406,29 @@ func routeKey(request Request) string {
 }
 
 func formatStatus(code int) string { return strconv.Itoa(code) }
+
+// ObjectKey identifies a relationship or resource without recording cookies,
+// passwords, search text, or request bodies. Actor ID completes relationship keys.
+func (request Request) ObjectKey() string {
+	path := strings.SplitN(request.Path, "?", 2)[0]
+	if request.Method == http.MethodGet || request.Template == "POST /api/v1/auth/login" {
+		return ""
+	}
+	return path
+}
+
+func (request Request) ContentDigest() string {
+	if request.Category != CategoryContentWrite || len(request.Body) == 0 {
+		return ""
+	}
+	var content struct {
+		Title   string `json:"title"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(request.Body, &content) != nil {
+		return ""
+	}
+	// Length-free concatenation is avoided by hashing the canonical JSON tuple.
+	encoded, _ := json.Marshal([]string{content.Title, content.Content})
+	return ProfileDigest(encoded)
+}

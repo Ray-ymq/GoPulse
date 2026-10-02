@@ -54,7 +54,7 @@ are -1 (unobserved), 0 (last actual interaction failed) and 1 (succeeded); idle
 processes retain the last observation. No business IDs, content, raw routes,
 query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 
-### backend: 14 families, 5616 maximum samples
+### backend: 17 families, 5637 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -71,8 +71,11 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_backend_http_requests_in_flight` | gauge | count | none | 1 |
 | `gopulse_backend_http_concurrency_limit` | gauge | count | none | 1 |
 | `gopulse_backend_http_rejected_total` | counter | count | none | 1 |
+| `gopulse_backend_freshness_events_total` | counter | count | `stage`, `result` | 10 |
+| `gopulse_backend_freshness_duration_seconds_total` | counter | seconds | `stage`, `result` | 10 |
+| `gopulse_backend_trace_context_invalid_total` | counter | count | none | 1 |
 | `gopulse_backend_dependency_up` | gauge | state | `dependency` | 4 |
-### business-worker: 6 families, 37 maximum samples
+### business-worker: 9 families, 42 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -81,8 +84,11 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_business_worker_messages_in_flight` | gauge | count | none | 1 |
 | `gopulse_business_worker_prefetch_limit` | gauge | count | none | 1 |
 | `gopulse_business_worker_last_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
+| `gopulse_business_worker_freshness_events_total` | counter | count | `stage`, `result` | 2 |
+| `gopulse_business_worker_freshness_duration_seconds_total` | counter | seconds | `stage`, `result` | 2 |
+| `gopulse_business_worker_trace_context_invalid_total` | counter | count | none | 1 |
 | `gopulse_business_worker_dependency_up` | gauge | state | `dependency` | 2 |
-### search-indexer: 6 families, 24 maximum samples
+### search-indexer: 9 families, 37 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -91,6 +97,9 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_search_indexer_messages_in_flight` | gauge | count | none | 1 |
 | `gopulse_search_indexer_retrying` | gauge | count | none | 1 |
 | `gopulse_search_indexer_last_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
+| `gopulse_search_indexer_freshness_events_total` | counter | count | `stage`, `result` | 6 |
+| `gopulse_search_indexer_freshness_duration_seconds_total` | counter | seconds | `stage`, `result` | 6 |
+| `gopulse_search_indexer_trace_context_invalid_total` | counter | count | none | 1 |
 | `gopulse_search_indexer_dependency_up` | gauge | state | `dependency` | 3 |
 ### monitor: 7 families, 157 maximum samples
 
@@ -117,7 +126,7 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_router_backpressure_total` | counter | count | `reason` | 3 |
 | `gopulse_router_backpressure_duration_seconds_total` | counter | seconds | `reason` | 3 |
 | `gopulse_router_dependency_up` | gauge | state | `dependency` | 1 |
-### marshaller: 11 families, 310 maximum samples
+### marshaller: 17 families, 362 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
@@ -132,6 +141,12 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_marshaller_last_storage_success_timestamp_seconds` | gauge | unix_seconds | `storage` | 2 |
 | `gopulse_marshaller_last_commit_success_timestamp_seconds` | gauge | unix_seconds | none | 1 |
 | `gopulse_marshaller_dependency_up` | gauge | state | `dependency` | 3 |
+| `gopulse_marshaller_retention_cleanup_total` | counter | count | `stream`, `result` | 18 |
+| `gopulse_marshaller_retention_cleanup_duration_seconds_total` | counter | seconds | `stream`, `result` | 18 |
+| `gopulse_marshaller_retention_late_records_total` | counter | count | `stream`, `result` | 6 |
+| `gopulse_marshaller_retention_retries_total` | counter | count | `stream`, `result` | 6 |
+| `gopulse_marshaller_retention_last_success_timestamp_seconds` | gauge | unix_seconds | `stream` | 2 |
+| `gopulse_marshaller_retention_blocked` | gauge | state | `stream` | 2 |
 
 ### Label value sets and update points
 
@@ -202,6 +217,15 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
   `storage=victoriametrics|elasticsearch` timestamp. The commit timestamp only
   advances after a successful commit with valid partition ownership. Poll,
   commit and storage operations update fixed dependencies.
+- Marshaller retention cleanup and late-record signals are fixed to the two
+  streams `logs|events`. Cleanup results are the nine values
+  `deleted|not_found|not_owned|invalid_date|not_expired|transient|
+  permission_denied|budget_exhausted|unknown`; late-record results are
+  `accepted|expired|invalid_date`; retry results are
+  `transient|permission_denied|unknown`. They never include index names,
+  message IDs, object IDs, request IDs or error text. The six physical
+  retention families add 52 maximum samples, raising the Marshaller budget
+  from 310 to 362 while preserving every prior family and tuple.
 
 ## Transport, validation and queries
 

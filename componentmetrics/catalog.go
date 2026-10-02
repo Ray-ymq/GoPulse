@@ -173,15 +173,21 @@ func Catalog(id string) (Spec, bool) {
 		gauge("http_requests_in_flight", "count", nil, nil)
 		gauge("http_concurrency_limit", "count", nil, nil)
 		s.Families = append(s.Families, Family{Name: prefix + "http_rejected_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
+		pair("freshness_events_total", "freshness_duration_seconds_total", []string{"stage", "result"}, expand(singles("commit", "publish", "consume", "index", "visible"), "success", "failure"))
+		s.Families = append(s.Families, Family{Name: prefix + "trace_context_invalid_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
 		dep("mysql", "redis", "rabbitmq", "elasticsearch")
 	case "business-worker":
 		pair("messages_total", "message_processing_duration_seconds_total", []string{"event_type", "result"}, expand(singles("comment.created", "post.liked", "user.followed", "unknown"), "success", "retry", "failure", "ack"))
+		pair("freshness_events_total", "freshness_duration_seconds_total", []string{"stage", "result"}, expand(singles("consume"), "success", "failure"))
+		s.Families = append(s.Families, Family{Name: prefix + "trace_context_invalid_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
 		gauge("messages_in_flight", "count", nil, nil)
 		gauge("prefetch_limit", "count", nil, nil)
 		gauge("last_success_timestamp_seconds", "unix_seconds", nil, nil)
 		dep("mysql", "rabbitmq")
 	case "search-indexer":
 		pair("messages_total", "message_processing_duration_seconds_total", []string{"operation", "result"}, expand(singles("create", "update", "delete"), "success", "retry", "failure"))
+		pair("freshness_events_total", "freshness_duration_seconds_total", []string{"stage", "result"}, expand(singles("consume", "index", "visible"), "success", "failure"))
+		s.Families = append(s.Families, Family{Name: prefix + "trace_context_invalid_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
 		gauge("messages_in_flight", "count", nil, nil)
 		gauge("retrying", "count", nil, nil)
 		gauge("last_success_timestamp_seconds", "unix_seconds", nil, nil)
@@ -219,6 +225,15 @@ func Catalog(id string) (Spec, bool) {
 		gauge("last_storage_success_timestamp_seconds", "unix_seconds", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_commit_success_timestamp_seconds", "unix_seconds", nil, nil)
 		dep("kafka", "victoriametrics", "elasticsearch")
+		cleanupResults := []string{"deleted", "not_found", "not_owned", "invalid_date", "not_expired", "transient", "permission_denied", "budget_exhausted", "unknown"}
+		streams := singles("logs", "events")
+		pair("retention_cleanup_total", "retention_cleanup_duration_seconds_total", []string{"stream", "result"}, expand(streams, cleanupResults...))
+		s.Families = append(s.Families,
+			Family{Name: prefix + "retention_late_records_total", Kind: "counter", Unit: "count", Keys: []string{"stream", "result"}, Tuples: expand(streams, "accepted", "expired", "invalid_date")},
+			Family{Name: prefix + "retention_retries_total", Kind: "counter", Unit: "count", Keys: []string{"stream", "result"}, Tuples: expand(streams, "transient", "permission_denied", "unknown")},
+		)
+		gauge("retention_last_success_timestamp_seconds", "unix_seconds", []string{"stream"}, streams)
+		gauge("retention_blocked", "state", []string{"stream"}, streams)
 	default:
 		return Spec{}, false
 	}

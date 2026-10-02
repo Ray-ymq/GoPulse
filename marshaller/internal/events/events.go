@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
 var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
@@ -51,7 +52,11 @@ type WriteRequest struct {
 	IndexDate string          `json:"index_date"`
 	Document  json.RawMessage `json:"document"`
 }
-type Transformer struct{ MaxBytes int }
+type Transformer struct {
+	MaxBytes  int
+	Retention *retention.Policy
+	Now       func() time.Time
+}
 type spec struct {
 	message  string
 	severity string
@@ -80,6 +85,17 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	payloadTime, _ := time.Parse(time.RFC3339Nano, payload.Timestamp)
 	if !payloadTime.Equal(message.Timestamp) {
 		return nil, &envelope.PermanentError{Code: "timestamp_mismatch"}
+	}
+	if t.Retention != nil {
+		now := time.Now()
+		if t.Now != nil {
+			now = t.Now()
+		}
+		if t.Retention.ExpiredTimestamp(message.Timestamp, now) {
+			retention.ObserveLate(t.Retention.Stream, "expired")
+			return nil, &envelope.PermanentError{Code: retention.PermanentCode(t.Retention.Stream)}
+		}
+		retention.ObserveLate(t.Retention.Stream, "accepted")
 	}
 	document, err := json.Marshal(Document{payload.Timestamp, payload.EventSchemaVersion, payload.EventName, payload.Source, payload.Severity, payload.Message, payload.Metadata})
 	if err != nil {
