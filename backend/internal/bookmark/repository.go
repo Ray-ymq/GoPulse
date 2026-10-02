@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/go-sql-driver/mysql"
 )
@@ -40,6 +41,15 @@ func (repository *MySQLRepository) Delete(ctx context.Context, postID, userID ui
 // Lock the parent so concurrent permanent deletion cannot race the existence check.
 // No outbox or cache work belongs to this private relationship transaction.
 func (repository *MySQLRepository) apply(ctx context.Context, postID, userID uint64, enabled bool) error {
+	// Reapplying the desired relationship state is idempotent, including when
+	// the original COMMIT succeeded but its reply was lost. The parent lock
+	// serializes the retry with the original transaction and permanent deletion.
+	return platform.RunMySQLTransaction(ctx, func(attemptContext context.Context) (bool, error) {
+		return true, repository.applyOnce(attemptContext, postID, userID, enabled)
+	})
+}
+
+func (repository *MySQLRepository) applyOnce(ctx context.Context, postID, userID uint64, enabled bool) error {
 	tx, err := repository.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return err

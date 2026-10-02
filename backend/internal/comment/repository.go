@@ -9,6 +9,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 )
 
@@ -79,18 +80,29 @@ func (repository *MySQLRepository) Create(ctx context.Context, postID, authorID 
 	if !ok {
 		return Comment{}, errors.New("create comment: database does not support transactions")
 	}
+	var record Comment
+	err := platform.RunMySQLTransaction(ctx, func(attemptContext context.Context) (bool, error) {
+		var commitAttempted bool
+		var err error
+		record, commitAttempted, err = repository.createTransactional(attemptContext, starter, postID, authorID, content)
+		return !commitAttempted, err
+	})
+	return record, err
+}
+
+func (repository *MySQLRepository) createTransactional(ctx context.Context, starter transactionStarter, postID, authorID uint64, content string) (Comment, bool, error) {
 	transaction, err := starter.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return Comment{}, errors.New("begin comment transaction")
+		return Comment{}, false, fmt.Errorf("begin comment transaction: %w", err)
 	}
 	defer transaction.Rollback()
 
 	recipientID, err := post.FindAuthorIDForUpdate(ctx, transaction, postID)
 	if errors.Is(err, post.ErrNotFound) {
-		return Comment{}, post.ErrNotFound
+		return Comment{}, false, post.ErrNotFound
 	}
 	if err != nil {
-		return Comment{}, errors.New("lock comment recipient")
+		return Comment{}, false, fmt.Errorf("lock comment recipient: %w", err)
 	}
 
 	result, err := transaction.ExecContext(ctx,
@@ -100,31 +112,51 @@ func (repository *MySQLRepository) Create(ctx context.Context, postID, authorID 
 		content,
 	)
 	if err != nil {
-		return Comment{}, fmt.Errorf("create comment: %w", err)
+		return Comment{}, false, fmt.Errorf("create comment: %w", err)
 	}
 	identifier, err := result.LastInsertId()
 	if err != nil || identifier <= 0 {
-		return Comment{}, errors.New("create comment: invalid inserted identifier")
+		return Comment{}, false, errors.New("create comment: invalid inserted identifier")
 	}
 
 	record, err := findCommentByID(ctx, transaction, uint64(identifier))
 	if err != nil {
-		return Comment{}, err
+		return Comment{}, false, err
 	}
+	eventID := ""
 	if authorID != recipientID {
 		event, eventErr := bus.NewCommentCreated(repository.now(), authorID, recipientID, postID, uint64(identifier))
 		if eventErr != nil {
-			return Comment{}, errors.New("create comment event")
+			return Comment{}, false, errors.New("create comment event")
 		}
+		eventID = event.EventID
 		if err := repository.outbox.Insert(ctx, transaction, event); err != nil {
-			return Comment{}, errors.New("create comment outbox event")
+			return Comment{}, false, fmt.Errorf("create comment outbox event: %w", err)
 		}
 	}
 
 	if err := transaction.Commit(); err != nil {
-		return Comment{}, errors.New("commit comment transaction")
+		// A lost COMMIT reply does not prove rollback. Read the exact identities
+		// through a fresh connection; never replay a possibly committed INSERT.
+		if ctx.Err() == nil {
+			var committed bool
+			checkErr := repository.database.QueryRowContext(ctx, `
+SELECT EXISTS(
+    SELECT 1 FROM comments AS c
+    WHERE c.id = ? AND c.post_id = ? AND c.author_id = ?
+      AND CAST(c.content AS BINARY) = CAST(? AS BINARY)
+      AND (? = '' OR EXISTS(
+          SELECT 1 FROM business_outbox AS o
+          WHERE o.event_id = ? AND o.event_type = 'comment.created'
+      ))
+)`, record.ID, postID, authorID, content, eventID, eventID).Scan(&committed)
+			if checkErr == nil && committed {
+				return record, true, nil
+			}
+		}
+		return Comment{}, true, fmt.Errorf("commit comment transaction: %w", err)
 	}
-	return record, nil
+	return record, true, nil
 }
 
 func (repository *MySQLRepository) createWithoutEvent(ctx context.Context, postID, authorID uint64, content string) (Comment, error) {
