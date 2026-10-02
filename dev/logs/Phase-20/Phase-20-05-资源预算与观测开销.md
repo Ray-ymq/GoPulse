@@ -115,3 +115,36 @@ Compose 启动协议，不能证明业务事实、lease、offset 或产品 B06 �
 指纹绑定的回执；旧原始证据和仍有效的直接检查/构建缓存保留，不能拼接旧候选
 通过回执。当前 closure 无 --resume，当前候选完整 B07 未通过时不解锁 S3。
 本窗口不自动恢复完整矩阵，不更新 VERSION，不宣称 Phase-20-05 完成。
+
+## 2.7 实际 B06 定向接续（新候选）
+
+本次用户明确要求从 2.7 接续。当前分支为 `develop/2.2.5`，修复提交为
+`c1cc85e29e779de14ff3db650ac2b6e491925e82`，根 `VERSION` 保持 `2.2.4`。
+修复只涉及预算案例分发和对应单元测试；未修改产品代码、Compose restart 策略、负载、quota
+或恢复门限。修复后重新构建了新候选，未使用或改写 r10 及此前候选。
+
+候选 manifest 位于仓库外
+`/var/tmp/gopulse-phase20-05-candidate-c1cc85e/manifest.json`，版本为 `2.2.5`，
+manifest digest 为
+`sha256:aafab50d7e3cc3c84b3f1c5238bb363f4e26b514a2b7e1083a86325666a1d61e`；10 个自研镜像
+的 OCI version/revision、镜像 ID、固定第三方 digest 和产品 tree 均已核对。真实 B06 原始
+目录为 `/var/tmp/gopulse-phase20-05-candidate-c1cc85e/b06-r2`。
+
+### 实际命令与结果
+
+| 命令/操作 | 实际结果 |
+| --- | --- |
+| `python3 -m unittest scripts.ci.test_phase20_budget scripts.ci.test_phase20_closure scripts.ci.test_phase20_evidence`（修复前） | 29 项通过；随后 `--case B06` 暴露未定义分发键 `case`，在 Compose 启动前失败，原始目录 `/var/tmp/gopulse-phase20-05-candidate-77a2d04/b06` 保留 |
+| `python3 -m unittest scripts.ci.test_phase20_budget scripts.ci.test_phase20_closure scripts.ci.test_phase20_evidence`（修复后） | 30 项通过；新增案例分发回归覆盖 B04/B05/B06 |
+| `python3 -m py_compile scripts/ci/phase20_budget.py scripts/ci/test_phase20_budget.py`、`git diff --check` | 通过 |
+| `git commit -m "fix(phase20): dispatch budget fault cases"`、`git push origin develop/2.2.5` | 提交 `c1cc85e` 已推送 |
+| `scripts/verify-phase20-closure.sh --build-manifest /var/tmp/gopulse-phase20-05-candidate-c1cc85e/manifest.json --revision c1cc85e29e779de14ff3db650ac2b6e491925e82` | 新候选构建及第三方/Collector 身份绑定通过；一次错误 SHA 调用在写 manifest 前失败，未用于证据 |
+| `scripts/verify-phase20-budget.sh --case B06 --manifest /var/tmp/gopulse-phase20-05-candidate-c1cc85e/manifest.json --work /var/tmp/gopulse-phase20-05-candidate-c1cc85e/b06-r2` | 返回 `execution_status=complete`、`case_id=B06`、`formal=false`；四条业务写入均为 HTTP 201，Outbox `outbox_pending=4` |
+| B06 `shutdown.json` 独立核对 | SIGSTOP 两个 worker 后发送 SIGTERM；三个原容器 ID 均退出、exit code 0、无 OOM，`stop_seconds=0.528114`；随后 Collector 和两个 worker 显式 start，原 ID 保持 Running，水位恢复 `2.270385` 秒 |
+| B06 `cleanup.json` 独立核对、`docker ps` | `status=passed`、`owned=true`、`global_prune=false`；前后 inventory 一致、容器数均为 0；未使用 global prune |
+| `python3 scripts/ci/validate_versions.py`、`git diff --check` | 通过；根版本仍为 `2.2.4`，批次未完成 |
+
+本次 `--case B06` 结果是 2.7 的定向协议/业务关停证据，明确 `formal=false`，不产生 B06
+正式通过回执。没有运行 B07 预检、完整 B01～B06、B03 十二单元、S3/S4 或 Phase-20-06；
+不能用本次结果解锁完整矩阵，也不能更新 `VERSION` 或宣称 Phase-20-05 完成。旧候选、首个
+分发错误目录和错误 SHA 构建事实均保留，未换绑任何历史回执。
