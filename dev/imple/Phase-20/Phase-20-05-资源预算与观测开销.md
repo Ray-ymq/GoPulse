@@ -294,6 +294,64 @@ U3/U4 和正式预算尚未开始；所有旧证据保留原候选身份，不�
 下一次明确恢复前登记；本次推送不自动触发该矩阵。零业务错误、固定测量窗口及最终
 同候选完整证据要求保持。
 
+#### 2.7 B06 停止、恢复编排修复与最新接续入口
+
+2026-10-02 用户再次明确授权“修改，然后推送”。当前开发分支/目标仍为
+develop/2.2.5 / 2.2.5，根 VERSION=2.2.4；本次交付是 B06 工具修复、定向验证和推送，
+不自动恢复完整矩阵。后续“执行本文件”从本节核对最新检查点，不再从历史 2.5/2.6
+检查点默认重跑。修复完成不等于 B06 产品验收或整个 05 完成。
+
+最新已提交候选 r10 为 `2e83d08670c8697b7eaa45f7c5fb2625341d4f42`，私有证据在
+`/var/tmp/gopulse-phase20-05-candidate-r10/b06-diagnostic`。执行窗口报告事务回归、
+S1/U1/U2、C01 重验及 27 项定向检查通过；这些报告须按实际候选/工具身份逐项核对，
+不能统称 r10 的完整 B07 已通过。r10 的 B06 已制造积压，恢复命令失败；本次核对
+cleanup inventory 前后一致、owned=true、global_prune=false。S3/S4 未执行。
+
+已确认旧 B06 在造积压前 stop worker，之后又对已停止的 worker 发 SIGTERM；对
+Collector 发信号后没有等待退出，立即执行 up --wait。restart: no 仅禁止自动重启，
+不能据此更改 Collector 配置或认定产品恢复失败。修复仅允许
+scripts/ci/phase20_budget.py、scripts/ci/test_phase20_budget.py 和同名实施日志；
+不修改产品代码、Compose restart 策略、冻结负载、quota 或恢复门限。
+
+固定 B06 流程与通过条件：
+
+1. 保存并核对三个目标的唯一容器 ID、项目/服务标签及运行状态，缺失或错归属立即停止。
+2. 以 SIGSTOP 临时暂停两个仍存活的 worker 进程消费，制造四条 201 已接受写入；
+   60 秒内取得真实 Outbox/Rabbit 非空积压。该辅助暂停不算已退出或关停通过，不改变
+   业务/队列配置；SIGTERM 前三个原容器必须仍 Running，记录该辅助控制及积压证据。
+3. 向原 ID 发送 SIGTERM，随后 SIGCONT 解除 worker 的临时暂停，让存活进程处理
+   待决停止信号。所有动作与轮询共用发送 SIGTERM 后的 30 秒截止，不能仅凭信号命令
+   成功或一次 inspect 宣布关停；超时/OOM/错归属阻断恢复。
+4. 在任何恢复动作前保存 shutdown.json，含原 ID、发送/退出时刻、停止后的状态、
+   退出码及积压事实。实际停止才算注入生效；未完全退出不得启动后续恢复。
+5. 显式 compose start Collector，确认原 ID Running；再 start 两个 worker，并确认
+   原 ID Running/有 healthcheck 时 Healthy。启动及等待共用 30 秒上限，保持 restart: no，
+   不用 up --wait 重建或替换目标。恢复启动失败立即停止，不进入水位检查。
+6. 沿用独立 120 秒业务/Outbox/Rabbit/Kafka 恢复判据和原有事实安全/归属清理门禁。
+   失败也须保留 shutdown.json；finally 先解除仍有效目标的辅助暂停，再做有界归属清理。
+
+本次修复固定检查为
+`python3 -m unittest scripts.ci.test_phase20_budget scripts.ci.test_phase20_closure scripts.ci.test_phase20_evidence`、
+`python3 scripts/ci/validate_versions.py` 和 `git diff --check`。定向测试必须覆盖
+信号时目标仍存活且有积压、异步退出后才恢复、退出超时/错归属阻止后续、启动失败不
+进入恢复，以及失败收尾。另以独占小型 Compose 项目和缓存的固定 Collector/fixture
+镜像真实验证 SIGSTOP/SIGTERM/SIGCONT、restart: no 的手动启动和原 ID 保持；该
+协议验证明确 formal=false，不产生 B06 产品通过回执，不替代真实业务关停验收。
+
+本次追加成本预计 30/上限 45 分钟：定位/规划 5/8、修复 12/15、定向测试与真实协议
+验证 8/12、记录/推送/清理 5/10。22.5/36 分钟报告进度，同原因诊断最多两次、每次
+最多 10 分钟。与历史接续及 2.6 的已发生成本分别登记，不清零累计成本；到上限保存
+实际进度并停止，不能因换候选或目录自动再开一个窗口。
+
+再次明确执行 05 时，先核对修复及有效直接检查，从新提交建立受影响候选身份，再用
+已支持的 `scripts/verify-phase20-budget.sh --case B06 --manifest <新候选manifest>
+--work <新私有诊断目录>` 单独验证真实 B06（formal=false）。记录启动/物化/恢复/清理
+成本，单元数为一次 B06，不以 full B07/B03 探查该工具错误。工具变化影响 B06、U3/B07
+及共享模块指纹绑定的回执；保留仍有效的确定性检查/构建缓存和所有历史原始证据。
+当前 closure 无 --resume，不能换绑 r10 回执或承诺 B06 后直接进入 S3；只有当前候选
+完整 B07 通过才解锁 S3。恢复完整矩阵前据实际成本登记有限剩余预算；超出剩余预算
+时停止并给出具体接续清单。原十二个 B03 单元、恢复窗口和最终完成条件不减少。
+
 #### B 案例、U 清单与固定证据位置
 
 每个候选使用新的私有工作根 `<work>`；每个 B 案例生成独立目录
