@@ -1,5 +1,6 @@
 import copy
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -129,6 +130,147 @@ class BudgetTests(unittest.TestCase):
         self.assertTrue(budget._backlog_is_nonempty({"queue": {"ready": 0, "unacked": 0}, "async": {"outbox_pending": 1}}))
         self.assertTrue(budget._backlog_is_nonempty({"queue": {"ready": 2, "unacked": 0}, "async": {"outbox_pending": 0}}))
         self.assertFalse(budget._backlog_is_nonempty({"queue": {"ready": 0, "unacked": 0}, "async": {"outbox_pending": 0}}))
+
+
+class B06Tests(unittest.TestCase):
+    target_ids = {name: name + "-id" for name in ("business-worker", "business-worker-2", "phase20-collector")}
+
+    def states(self, running=True):
+        return [{"Id": container_id, "Config": {"Labels": {"com.docker.compose.project": "owned", "com.docker.compose.service": service}},
+                 "State": {"Running": running, "Restarting": False, "OOMKilled": False, "ExitCode": 0}}
+                for service, container_id in self.target_ids.items()]
+
+    def test_inspect_rejects_foreign_duplicate_missing_and_oom_targets(self):
+        stack = {"project": "owned"}
+        for invalid in ({}, {"a": ""}, {"a": "id", "b": "id"}, {"a": "id\nother"}):
+            with self.subTest(invalid=invalid), self.assertRaises(budget.Incomplete), mock.patch.object(budget, "command") as command:
+                budget._b06_target_states(stack, invalid, 5)
+            command.assert_not_called()
+        for defect in ("foreign", "missing", "oom"):
+            states = self.states()
+            if defect == "foreign":
+                states[0]["Config"]["Labels"]["com.docker.compose.project"] = "other"
+            elif defect == "missing":
+                states.pop()
+            else:
+                states[0]["State"]["OOMKilled"] = True
+            with self.subTest(defect=defect), mock.patch.object(budget, "command", return_value=subprocess.CompletedProcess([], 0, json.dumps(states), "")), self.assertRaises(budget.Incomplete):
+                budget._b06_target_states(stack, self.target_ids, 5)
+
+    def test_wait_observes_async_exit_and_health_before_returning(self):
+        starting = self.states()
+        starting[0]["State"]["Health"] = {"Status": "starting"}
+        for running, sequence in ((False, [self.states(), self.states(False)]), (True, [starting, self.states()])):
+            with self.subTest(running=running), mock.patch.object(budget, "_b06_target_states", side_effect=sequence) as inspect, mock.patch.object(budget.time, "sleep"):
+                result = budget._b06_wait_targets({}, self.target_ids, running=running, deadline=budget.time.monotonic() + 2)
+            self.assertEqual(inspect.call_count, 2)
+            self.assertEqual(result[0]["State"]["Running"], running)
+
+    def test_expired_wait_does_not_inspect_or_start(self):
+        with mock.patch.object(budget, "_b06_target_states") as inspect, self.assertRaises(budget.Incomplete):
+            budget._b06_wait_targets({}, self.target_ids, running=False, deadline=budget.time.monotonic() - 1)
+        inspect.assert_not_called()
+
+    def test_backlog_counts_are_real_and_queries_share_deadline(self):
+        stack = {"args": ["docker", "compose"]}
+        deadline = budget.time.monotonic() + 2
+        with mock.patch.object(budget, "command", side_effect=[subprocess.CompletedProcess([], 0, "1\n", ""), subprocess.CompletedProcess([], 0, "name messages_ready messages_unacknowledged\nq 0 0\n", "")]) as command:
+            result = budget._b06_wait_backlog(stack, deadline)
+        self.assertEqual(result["async"]["outbox_pending"], 1)
+        self.assertTrue(all(0 < call.kwargs["timeout"] <= 2 for call in command.call_args_list))
+        with mock.patch.object(budget, "command", return_value=subprocess.CompletedProcess([], 0, "invalid", "")), self.assertRaises(budget.Incomplete):
+            budget._b06_wait_backlog(stack, deadline)
+
+    def run_fixture(self, directory, *, stop_error=None, start_error=None, write_error=None):
+        stack = {"project": "owned", "args": ["docker", "compose", "-p", "owned"], "api": object(), "cleaned": False}
+        events = []
+
+        def command(args, **kwargs):
+            events.append(args)
+            if "ps" in args:
+                return subprocess.CompletedProcess(args, 0, self.target_ids[args[-1]] + "\n", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        def finish(value):
+            events.append(["cleanup"])
+            value["cleaned"] = True
+            return {"owned": True}
+
+        def wait(*args, **kwargs):
+            events.append(["await-exit"])
+            if stop_error:
+                raise stop_error
+            return self.states(False)
+
+        def start(*args):
+            events.append(["start"])
+            evidence = budget.read_json(Path(directory) / "B06" / "shutdown.json")
+            self.assertEqual(evidence["status"], "pass")
+            self.assertTrue(all(not item["State"]["Running"] for item in evidence["states"]))
+            if start_error:
+                raise start_error
+            return self.states()
+
+        with mock.patch.object(budget, "_prepare_fault_stack", return_value=stack), mock.patch.object(budget, "command", side_effect=command), mock.patch.object(budget, "_b06_target_states", return_value=self.states()), mock.patch.object(budget, "_api_post", side_effect=write_error, return_value={"status": 201}), mock.patch.object(budget, "_b06_wait_backlog", return_value={"queue": {"ready": 4}}), mock.patch.object(budget, "_b06_wait_targets", side_effect=wait), mock.patch.object(budget, "_b06_start_targets", side_effect=start), mock.patch.object(budget, "_wait_empty", return_value={"status": "pass"}) as waterline, mock.patch.object(budget, "_finish_fault_stack", side_effect=finish):
+            if stop_error or start_error or write_error:
+                with self.assertRaises(budget.Incomplete):
+                    budget.run_b06(Path(directory), Path("manifest"), {}, Path("recipe"), {})
+                waterline.assert_not_called()
+            else:
+                result = budget.run_b06(Path(directory), Path("manifest"), {}, Path("recipe"), {})
+                self.assertEqual(result["injection"]["business_statuses"], [201] * 4)
+                self.assertEqual(result["injection"]["backlog"]["queue"]["ready"], 4)
+                waterline.assert_called_once_with(stack, 120)
+        self.assertTrue(stack["cleaned"])
+        return events, budget.read_json(Path(directory) / "B06" / "shutdown.json")
+
+    def test_signal_exit_evidence_start_and_waterline_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events, evidence = self.run_fixture(directory)
+        signals = [item[3] for item in events if item[:3] == ["docker", "kill", "-s"]]
+        self.assertEqual(signals, ["SIGSTOP", "SIGTERM", "SIGCONT"])
+        self.assertLess(events.index(["await-exit"]), events.index(["start"]))
+        self.assertTrue(all(item["State"]["Running"] for item in evidence["before_signal"]))
+        self.assertFalse(any("stop" in item or "up" in item for item in events))
+
+    def test_failed_shutdown_or_start_never_reaches_waterline_and_preserves_evidence(self):
+        for failure in ("stop_error", "start_error", "write_error"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                events, evidence = self.run_fixture(directory, **{failure: budget.Incomplete(failure)})
+                self.assertEqual(evidence["error"], failure)
+                if failure == "stop_error":
+                    self.assertNotIn(["start"], events)
+                if failure == "write_error":
+                    self.assertTrue(any("SIGCONT" in item for item in events))
+
+    def test_start_collector_before_workers_and_stop_on_failed_start(self):
+        stack = {"args": ["docker", "compose"]}
+        with mock.patch.object(budget, "command", return_value=subprocess.CompletedProcess([], 0, "", "")) as command, mock.patch.object(budget, "_b06_wait_targets", return_value=[]) as wait:
+            budget._b06_start_targets(stack, self.target_ids)
+        self.assertEqual([call.args[0] for call in command.call_args_list], [stack["args"] + ["start", "phase20-collector"], stack["args"] + ["start", "business-worker", "business-worker-2"]])
+        self.assertEqual(wait.call_args_list[0].args[1], {"phase20-collector": "phase20-collector-id"})
+        with mock.patch.object(budget, "command", return_value=subprocess.CompletedProcess([], 1, "", "failed")) as command, mock.patch.object(budget, "_b06_wait_targets") as wait, self.assertRaises(budget.Incomplete):
+            budget._b06_start_targets(stack, self.target_ids)
+        self.assertEqual(command.call_count, 1)
+        wait.assert_not_called()
+
+    def test_foreign_initial_target_prevents_signals_and_recovery(self):
+        stack = {"project": "owned", "args": ["docker", "compose"], "cleaned": False}
+        states = self.states()
+        states[0]["Config"]["Labels"]["com.docker.compose.project"] = "foreign"
+        outputs = [subprocess.CompletedProcess([], 0, container_id + "\n", "") for container_id in self.target_ids.values()]
+        outputs.append(subprocess.CompletedProcess([], 0, json.dumps(states), ""))
+
+        def finish(value):
+            value["cleaned"] = True
+
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(budget, "_prepare_fault_stack", return_value=stack), mock.patch.object(budget, "command", side_effect=outputs) as command, mock.patch.object(budget, "_b06_start_targets") as start, mock.patch.object(budget, "_wait_empty") as waterline, mock.patch.object(budget, "_finish_fault_stack", side_effect=finish):
+            with self.assertRaisesRegex(budget.Incomplete, "ownership mismatch"):
+                budget.run_b06(Path(directory), Path("manifest"), {}, Path("recipe"), {})
+            self.assertEqual(command.call_count, 4)
+            self.assertTrue(stack["cleaned"])
+            start.assert_not_called()
+            waterline.assert_not_called()
 
 
 if __name__ == "__main__":

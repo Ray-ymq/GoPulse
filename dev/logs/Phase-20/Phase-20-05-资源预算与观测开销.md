@@ -1,6 +1,6 @@
 # Phase-20-05：资源预算与观测开销实施记录
 
-> 2026-10-02：本记录覆盖用户授权的 U2 事务阻断修复与定向回归。
+> 2026-10-02：本记录覆盖用户授权的 U2 事务阻断修复及 B06 关停恢复编排修复。
 > 批次状态仍为未完成；未运行新的完整 B07/B01～B06，不更新 VERSION（仍为 2.2.4）。
 
 ## 实际完成工作
@@ -67,3 +67,51 @@
 - 提交已完成但事实/应有事件不可证明、或调用方已取消/恢复预算耗尽时，仍返回错误；
   不以假成功掩盖未知终态，也不进行无限重试。
 - U3/U4、正式预算和发布收口尚未完成。本记录及修复提交不构成批次完成或阶段认证。
+
+## B06 关停恢复编排修复（追加授权窗口）
+
+实际交付：修订 05 的 2.7 节和总方案，规划提交 `2b7f0e6` 已经 PR #213 以
+merge commit `f4249ba` 合入 main；开发分支以 `417df99` 同步。后续执行本文件从
+2.7 的 r10 接续检查点核对，不从历史 2.5/2.6 默认重跑。本窗口没有启动产品矩阵。
+
+实际修改文件为 `scripts/ci/phase20_budget.py`、
+`scripts/ci/test_phase20_budget.py` 和本实施记录。未修改产品实现或 Compose 配置。
+
+- B06 在任何信号前核对三个唯一容器 ID、项目/服务归属、Running 和 OOM 状态。
+  用 SIGSTOP 临时暂停两个存活 worker 消费，四条 HTTP 201 写入后查询真实
+  Outbox/Rabbit 积压；辅助暂停和查询共用 60 秒期限，查询逐次限制剩余时间。
+- 向原 ID 发送 SIGTERM，再以 SIGCONT 释放 worker 的待决信号。发送、释放、
+  退出轮询共用 30 秒期限；不再先 stop worker，也不以单次 inspect 判定退出。
+  `shutdown.json` 在恢复前保存原 ID、信号/退出时刻、积压、最后观测及退出状态；
+  失败也保留该私有证据。清理前释放仍归属且存活的辅助暂停目标。
+- 显式 `compose start phase20-collector`，确认原容器存活后启动两个 worker，
+  有 healthcheck 时等到 healthy；整体启动期限 30 秒。启动失败不进入水位检查。
+  原 `_wait_empty(stack, 120)` 恢复判据及归属清理保持。
+- 定向测试验证身份/归属、OOM、真实计数解析、共享期限、异步退出、健康等待、
+  停止与恢复顺序、启动失败、失败证据和收尾，未扩大为全项目审计。
+
+| 实际命令/操作 | 结果 |
+| --- | --- |
+| `fetch origin`、规划 validate_versions/validate_branch、diff 检查及 `push origin update` | 通过；规划提交已在远端 main/update。额外 `gh pr create` 返回 main/update 无差异，查询确认 PR #213 已合入，没有重复 PR |
+| `git merge --no-edit origin/main`（develop/2.2.5） | 成功，提交 `417df99`；继续同一未完成批次 |
+| `python3 -m unittest scripts.ci.test_phase20_budget scripts.ci.test_phase20_closure scripts.ci.test_phase20_evidence` | 最终 29 项通过；首次新增 fixture 缺少 api 字段导致 4 项 KeyError，补齐后通过；后续随新增期限、归属断言运行受影响固定检查 |
+| `timeout --signal=TERM --kill-after=5s 150s python3 /var/tmp/gopulse-b06-protocol-5it0ajp4/protocol.py` | 小型真实 Compose 协议验证通过；补充最后退出观测后直接重验通过，三个目标退出码均为 0，最终关停约 1.28 秒；Collector restart=no，显式恢复后原 ID 保持，运行状态稳定；未退出时的有界等待负例正确失败 |
+| fixture `compose down --volumes --remove-orphans --timeout 10`、Docker inventory 归属复核 | 通过；仅清理本次三个容器和项目网络，未使用 global prune；全部容器/网络/卷 inventory 前后一致 |
+| `python3 scripts/ci/validate_versions.py`、`git diff --check` | 通过；VERSION 保持 2.2.4，未创建批次完成提交 |
+
+该协议项目使用缓存固定 Collector digest 和 Alpine image ID，原始操作及私有
+`protocol.json`/`shutdown.json` 位于 `/var/tmp/gopulse-b06-protocol-5it0ajp4`；
+明确 `formal=false`、`product_acceptance=false`。fixture worker 仅验证进程信号/
+Compose 启动协议，不能证明业务事实、lease、offset 或产品 B06 已通过。
+原 r10 manifest 的 SHA-256 前后相同；没有改写或换绑候选回执。
+
+本次追加授权预计 30/上限 45 分钟，从 2026-10-02 14:48:14 UTC 起累计。
+定位、合同同步约 24 分钟，超出原阶段 8 分钟估计；总上限没有延长。
+完成定向验证和记录时约 31 分钟，提交/推送成本继续追加上述私有成本台账。
+历史各窗口成本另计，本次不重置文件累计预算。
+
+剩余工作仍按 2.7：用户再次明确执行 05 后，先建立受影响新候选身份，单独运行
+真实 B06，登记实际成本和有限剩余预算。该脚本修复影响 B06/U3/B07 及共享工具
+指纹绑定的回执；旧原始证据和仍有效的直接检查/构建缓存保留，不能拼接旧候选
+通过回执。当前 closure 无 --resume，当前候选完整 B07 未通过时不解锁 S3。
+本窗口不自动恢复完整矩阵，不更新 VERSION，不宣称 Phase-20-05 完成。

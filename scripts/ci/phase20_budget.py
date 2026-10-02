@@ -1226,30 +1226,139 @@ def run_b05(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_bi
                 path.unlink(missing_ok=True)
 
 
+def _b06_remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Incomplete("B06 stage deadline exceeded")
+    return remaining
+
+
+def _b06_wait_backlog(stack: dict[str, Any], deadline: float) -> dict[str, Any]:
+    # Query only the two injection signals; legacy async_snapshot also queries
+    # Kafka and can exhaust the entire hold window inside one poll.
+    sql = "SELECT COUNT(*) FROM business_outbox WHERE status IN ('pending','leased')"
+    while True:
+        pending = require(command(stack["args"] + ["exec", "-T", "mysql", "sh", "-c", 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u"$MYSQL_USER" -N -B "$MYSQL_DATABASE" -e "$1"', "sh", sql], timeout=min(10, _b06_remaining(deadline))), "query B06 Outbox backlog").strip()
+        if not pending.isdigit():
+            raise Incomplete("B06 Outbox backlog is not a count")
+        raw = require(command(stack["args"] + ["exec", "-T", "rabbitmq", "rabbitmqctl", "list_queues", "-q", "name", "messages_ready", "messages_unacknowledged"], timeout=min(10, _b06_remaining(deadline))), "query B06 Rabbit backlog")
+        queue = {"ready": 0, "unacked": 0}
+        found = False
+        for line in raw.splitlines():
+            fields = line.split()
+            if len(fields) >= 3 and fields[-2].isdigit() and fields[-1].isdigit():
+                found = True
+                queue["ready"] += int(fields[-2])
+                queue["unacked"] += int(fields[-1])
+        if not found:
+            raise Incomplete("B06 Rabbit backlog has no queue counters")
+        snapshot = {"queue": queue, "async": {"outbox_pending": int(pending)}}
+        _b06_remaining(deadline)
+        if _backlog_is_nonempty(snapshot):
+            return snapshot
+        time.sleep(min(1, _b06_remaining(deadline)))
+
+
+def _b06_target_states(stack: dict[str, Any], target_ids: dict[str, str], timeout: float) -> list[dict[str, Any]]:
+    if not target_ids or any(not value or len(value.split()) != 1 for value in target_ids.values()) or len(set(target_ids.values())) != len(target_ids):
+        raise Incomplete("B06 requires one distinct container ID per target")
+    states = json.loads(require(command(["docker", "inspect", *target_ids.values()], timeout=timeout), "inspect B06 owned targets"))
+    expected = {container_id: service for service, container_id in target_ids.items()}
+    if len(states) != len(expected) or {item.get("Id") for item in states} != set(expected):
+        raise Incomplete("B06 target identity changed")
+    for item in states:
+        labels = item.get("Config", {}).get("Labels", {})
+        if labels.get("com.docker.compose.project") != stack["project"] or labels.get("com.docker.compose.service") != expected[item["Id"]]:
+            raise Incomplete("B06 target ownership mismatch")
+        if item.get("State", {}).get("OOMKilled"):
+            raise Incomplete("B06 target was OOM killed")
+    return states
+
+
+def _b06_wait_targets(stack: dict[str, Any], target_ids: dict[str, str], *, running: bool, deadline: float, observations: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    while True:
+        states = _b06_target_states(stack, target_ids, min(5, _b06_remaining(deadline)))
+        if observations is not None:
+            observations.update({"last_states": states, "last_observed_at": time.time()})
+        if all(
+            item["State"].get("Running") is running
+            and not item["State"].get("Restarting")
+            and (not running or item["State"].get("Health", {}).get("Status", "healthy") == "healthy")
+            for item in states
+        ):
+            _b06_remaining(deadline)
+            return states
+        time.sleep(min(0.25, _b06_remaining(deadline)))
+
+
+def _b06_start_targets(stack: dict[str, Any], target_ids: dict[str, str]) -> list[dict[str, Any]]:
+    deadline = time.monotonic() + 30
+    collector = {"phase20-collector": target_ids["phase20-collector"]}
+    workers = {service: container_id for service, container_id in target_ids.items() if service != "phase20-collector"}
+    states = []
+    for group in (collector, workers):
+        require(command(stack["args"] + ["start", *group], timeout=_b06_remaining(deadline)), "start B06 owned targets")
+        states.extend(_b06_wait_targets(stack, group, running=True, deadline=deadline))
+    return states
+
+
 def run_b06(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_binary: Path, contract: dict[str, Any]) -> dict[str, Any]:
     stack = _prepare_fault_stack(root / "B06", manifest_path, manifest, recipe_binary, "b06", trace=True)
+    held: dict[str, str] = {}
+    shutdown: dict[str, Any] = {"status": "incomplete", "signal": "SIGTERM"}
+    shutdown_path = root / "B06" / "shutdown.json"
     try:
         targets = ["business-worker", "business-worker-2", "phase20-collector"]
         target_ids = {
             target: require(command(stack["args"] + ["ps", "-q", target], timeout=30), "resolve B06 target").strip()
             for target in targets
         }
-        require(command(stack["args"] + ["stop", "business-worker", "business-worker-2"], timeout=60), "create B06 shutdown backlog")
+        states = _b06_target_states(stack, target_ids, 10)
+        if any(not item["State"].get("Running") or item["State"].get("Restarting") for item in states):
+            raise Incomplete("B06 requires live targets before injection")
+        shutdown["target_ids"] = target_ids
+        hold_deadline = time.monotonic() + 60
+        held = {service: container_id for service, container_id in target_ids.items() if service != "phase20-collector"}
+        require(command(["docker", "kill", "-s", "SIGSTOP", *held.values()], timeout=_b06_remaining(hold_deadline)), "hold B06 live worker consumption")
+        shutdown["auxiliary_control"] = {"signal": "SIGSTOP", "target_ids": dict(held)}
         writes = [_api_post(stack["api"], "B06 shutdown write " + str(index), "graceful shutdown backlog") for index in range(4)]
         if any(item["status"] != 201 for item in writes):
             raise Incomplete("B06 did not create an accepted bounded backlog")
-        backlog = _wait_bounded_backlog(stack)
+        backlog = _b06_wait_backlog(stack, hold_deadline)
+        states = _b06_target_states(stack, target_ids, min(5, _b06_remaining(hold_deadline)))
+        if any(not item["State"].get("Running") or item["State"].get("Restarting") for item in states):
+            raise Incomplete("B06 target stopped before SIGTERM")
+        shutdown.update({"backlog": backlog, "business_statuses": [item["status"] for item in writes], "before_signal": states})
         sent_at = time.time()
-        require(command(stack["args"] + ["kill", "-s", "SIGTERM", *targets], timeout=60), "send B06 SIGTERM")
-        states = json.loads(require(command(["docker", "inspect", *target_ids.values()], timeout=60), "inspect B06 shutdown targets"))
-        require(command(stack["args"] + ["up", "-d", "--wait", "--wait-timeout", "900", "business-worker", "business-worker-2", "phase20-collector"], timeout=300), "restart B06 shutdown targets")
+        deadline = time.monotonic() + 30
+        shutdown["sent_at"] = sent_at
+        write_json(shutdown_path, shutdown)
+        require(command(["docker", "kill", "-s", "SIGTERM", *target_ids.values()], timeout=_b06_remaining(deadline)), "send B06 SIGTERM")
+        require(command(["docker", "kill", "-s", "SIGCONT", *held.values()], timeout=_b06_remaining(deadline)), "release B06 live workers for shutdown")
+        held.clear()
+        states = _b06_wait_targets(stack, target_ids, running=False, deadline=deadline, observations=shutdown)
+        shutdown.update({"status": "pass", "exited_at": time.time(), "states": states, "stop_seconds": 30 - _b06_remaining(deadline)})
+        write_json(shutdown_path, shutdown)
+        started = _b06_start_targets(stack, target_ids)
         recovery = _wait_empty(stack, 120)
-        if any(item.get("State", {}).get("Running") for item in states):
-            raise Incomplete("B06 SIGTERM did not stop every targeted service")
-        result = {"case_id": "B06", "status": "pass", "formal": True, "injection": {"effective": True, "signal": "SIGTERM", "targets": targets, "sent_at": sent_at, "states": [{"service": item.get("Config", {}).get("Labels", {}).get("com.docker.compose.service"), "running": item.get("State", {}).get("Running"), "exit_code": item.get("State", {}).get("ExitCode")} for item in states], "backlog": backlog, "business_statuses": [item["status"] for item in writes]}, "recovery": recovery}
+        recovery["started_targets"] = [{"id": item["Id"], "running": item["State"]["Running"]} for item in started]
+        result = {"case_id": "B06", "status": "pass", "formal": True, "injection": {"effective": True, "signal": "SIGTERM", "targets": targets, "target_ids": target_ids, "auxiliary_control": shutdown["auxiliary_control"], "sent_at": sent_at, "states": [{"service": item.get("Config", {}).get("Labels", {}).get("com.docker.compose.service"), "running": item.get("State", {}).get("Running"), "exit_code": item.get("State", {}).get("ExitCode"), "finished_at": item.get("State", {}).get("FinishedAt")} for item in states], "backlog": backlog, "business_statuses": [item["status"] for item in writes]}, "recovery": recovery}
         result["cleanup"] = _finish_fault_stack(stack)
         return result
+    except Exception as error:
+        shutdown["error"] = str(error)
+        write_json(shutdown_path, shutdown)
+        raise
     finally:
+        if held:
+            try:
+                states = _b06_target_states(stack, held, 5)
+                live = [item["Id"] for item in states if item["State"].get("Running")]
+                if live:
+                    require(command(["docker", "kill", "-s", "SIGCONT", *live], timeout=5), "release B06 held targets during cleanup")
+            finally:
+                if not stack.get("cleaned"):
+                    _finish_fault_stack(stack)
         if not stack.get("cleaned"):
             _finish_fault_stack(stack)
 
