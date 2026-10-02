@@ -242,6 +242,58 @@ S0 之后的候选镜像构建阶段总上限为 60 分钟；S1～S4 的实际�
 和既有候选身份规则决定。等待用户明确恢复后再实施，不因规划推送自动运行。
 完整流程见 [实施耗时预算与验收接续](../../../docs/implementation-execution-budget.md)。
 
+#### 2.6 U2 阻断修复与本次推送范围
+
+2026-10-02 用户在 r6 失败后明确授权“修复吧，然后推送”。本次交付限定为已证明的
+事务失败边界、直接回归和修复提交；不自动恢复完整 B07/B01～B06，也不宣布 05 完成。
+继续使用 develop/2.2.5 和目标 2.2.5，根 VERSION 保持 2.2.4。
+
+最新候选为 `1384c8193d4026a8830780225c1868e539e69132`，证据根为
+`/var/tmp/gopulse-phase20-05-candidate-r6-EY3t06`。S0、候选构建、S1 和 U1 已报告通过，
+S2 U2 的 60,000 次测量请求有 18 次 HTTP 500；原始 ledger 实际为 4 次评论、14 次
+bookmark，与执行窗口的 3/15 汇总不同。bookmark 是私有关系事实，产品合同不产生
+Outbox 事件，不能以无事件认定丢失。评论 500 与持久事实/事件的关系须逐请求核对。
+U3/U4 和正式预算尚未开始；所有旧证据保留原候选身份，不改写失败事实。
+
+已发现普通 MySQL 连接使用固定 1 秒读写超时，失败请求的实际耗时集中在约 1 秒。
+先用受控 MySQL 协议故障复现提交应答丢失与提交前连接失败；该现象不证明 r6 每条
+错误的具体 SQL 原因。禁止以延长连接超时、降低零业务错误门禁或无限重试作为修复。
+
+允许新增的封闭文件集合如下，除此以外仍按第 3 节办理：
+
+| 文件 | 本次允许行为 |
+| --- | --- |
+| backend/internal/platform/mysql_transaction.go、mysql_transaction_test.go | 最多一次重试、共享有限上下文、取消传播及暂态错误识别；不改变驱动超时或连接池预算 |
+| backend/internal/comment/repository.go | 提交前暂态失败在原事务收尾后有界重试；提交结果未知时只读核对确切 comment ID/作者/正文及应有 Outbox event ID，未证明成功不得返回成功或重放 INSERT |
+| backend/internal/bookmark/repository.go | 有界重试幂等关系事务，保持父对象锁、重复收藏/取消语义和零 Outbox 副作用；永久错误不重试 |
+| backend/internal/integrationtest/mysql_proxy.go | 仅 integration 构建的归属 TCP 故障代理，复现应答丢失，关闭所有自有连接；不改产品协议或外部环境 |
+| backend/internal/http/transaction_recovery_integration_test.go | 真实 MySQL 与 HTTP 回归：评论提交应答丢失仍只有一条事实/事件；未提交不能伪报成功；bookmark 提交前/提交时故障后终态和幂等正确，无事件副作用 |
+
+固定回归要求与已知命令：
+
+- 在 backend 执行 `go test ./internal/platform ./internal/comment ./internal/bookmark ./internal/http`。
+- 在白名单 `gopulse_integration` 独占 MySQL 中执行
+  `go test -tags integration ./internal/http -run '^TestIntegrationTransactionRecovery$' -count=1 -timeout=90s`。
+  先在修复前记录失败复现，再在修复后核对 HTTP、持久事实和事件；不得用 mock 退出码
+  代替真实事务。setup/migration/受控清理计入成本，不启动完整验收栈。
+- 永久失败/无法证明提交、取消及重试耗尽不得被改写为成功；事务最多两次尝试，评论
+  不重放未知结果的 COMMIT，所有等待共享有限上下文。普通 MySQL 1 秒读写限制保持。
+- `python3 scripts/ci/validate_versions.py` 与 `git diff --check`；批次完成前不强行运行
+  要求 VERSION=2.2.5 的最终完成检查。修复提交及日志明确为未完成批次的中间进度。
+
+本次额外执行预算目标 60 分钟、上限 90 分钟，计时从此次授权后的首次操作开始：
+定位/规划/故障复现 15/20 分钟，修复 20/25 分钟，直接回归与独占依赖启动 15/25 分钟，
+记录/推送/清理 10/20 分钟（前数为预计、后数为上限）。45/72 分钟报告进度；同原因
+诊断最多两次、每次 10 分钟。该增量因用户明确授权登记，不重置 2.5 的已有累计成本。
+已有恢复任务缺少精确跨命令活跃时间台账，必须保留并如实登记该缺口，不能把文件 mtime
+或窗口跨度伪写成实测分钟。达到增量上限或诊断停点时保留修复进度、受控清理并停止。
+
+产品变化要求新候选。未受影响的确定性检查和构建缓存按依赖继续有效；包含这两个
+业务路径的 S1、U1/U2 及相关预算证据必须重新评估。当前 closure CLI 无 --resume，
+不能拼接旧候选回执宣称新候选通过。完整预检/预算的执行粒度、剩余成本和失效清单在
+下一次明确恢复前登记；本次推送不自动触发该矩阵。零业务错误、固定测量窗口及最终
+同候选完整证据要求保持。
+
 #### B 案例、U 清单与固定证据位置
 
 每个候选使用新的私有工作根 `<work>`；每个 B 案例生成独立目录
