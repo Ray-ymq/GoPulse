@@ -1229,15 +1229,19 @@ def run_b05(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_bi
 def run_b06(root: Path, manifest_path: Path, manifest: dict[str, Any], recipe_binary: Path, contract: dict[str, Any]) -> dict[str, Any]:
     stack = _prepare_fault_stack(root / "B06", manifest_path, manifest, recipe_binary, "b06", trace=True)
     try:
+        targets = ["business-worker", "business-worker-2", "phase20-collector"]
+        target_ids = {
+            target: require(command(stack["args"] + ["ps", "-q", target], timeout=30), "resolve B06 target").strip()
+            for target in targets
+        }
         require(command(stack["args"] + ["stop", "business-worker", "business-worker-2"], timeout=60), "create B06 shutdown backlog")
         writes = [_api_post(stack["api"], "B06 shutdown write " + str(index), "graceful shutdown backlog") for index in range(4)]
         if any(item["status"] != 201 for item in writes):
             raise Incomplete("B06 did not create an accepted bounded backlog")
         backlog = _wait_bounded_backlog(stack)
-        targets = ["business-worker", "business-worker-2", "phase20-collector"]
         sent_at = time.time()
         require(command(stack["args"] + ["kill", "-s", "SIGTERM", *targets], timeout=60), "send B06 SIGTERM")
-        states = json.loads(require(command(["docker", "inspect", *[require(command(stack["args"] + ["ps", "-q", target], timeout=30), "resolve B06 target").strip() for target in targets]], timeout=60), "inspect B06 shutdown targets"))
+        states = json.loads(require(command(["docker", "inspect", *target_ids.values()], timeout=60), "inspect B06 shutdown targets"))
         require(command(stack["args"] + ["up", "-d", "--wait", "--wait-timeout", "900", "business-worker", "business-worker-2", "phase20-collector"], timeout=300), "restart B06 shutdown targets")
         recovery = _wait_empty(stack, 120)
         if any(item.get("State", {}).get("Running") for item in states):
