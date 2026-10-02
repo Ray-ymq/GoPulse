@@ -1534,7 +1534,7 @@ def run(argv: list[str] | None = None) -> int:
                 raw = run_b03(work, args.manifest, manifest, contract, combinations=combos, repeats=repeats)
             else:
                 recipe_binary, _ = legacy.build_loadtest(work / "case-bin")
-                raw = {case: run_b04, "B05": run_b05, "B06": run_b06}[args.case](work, args.manifest, manifest, recipe_binary, contract)
+                raw = {"B04": run_b04, "B05": run_b05, "B06": run_b06}[args.case](work, args.manifest, manifest, recipe_binary, contract)
             raw["formal"] = False
             raw["case_mode"] = True
             write_json(work / (args.case + ".json"), raw)

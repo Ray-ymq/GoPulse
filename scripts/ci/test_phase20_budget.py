@@ -135,6 +135,11 @@ class BudgetTests(unittest.TestCase):
 class B06Tests(unittest.TestCase):
     target_ids = {name: name + "-id" for name in ("business-worker", "business-worker-2", "phase20-collector")}
 
+    def test_case_dispatch_selects_each_fault_runner(self):
+        self.assertIs(budget.run_b04, {"B04": budget.run_b04, "B05": budget.run_b05, "B06": budget.run_b06}["B04"])
+        self.assertIs(budget.run_b05, {"B04": budget.run_b04, "B05": budget.run_b05, "B06": budget.run_b06}["B05"])
+        self.assertIs(budget.run_b06, {"B04": budget.run_b04, "B05": budget.run_b05, "B06": budget.run_b06}["B06"])
+
     def states(self, running=True):
         return [{"Id": container_id, "Config": {"Labels": {"com.docker.compose.project": "owned", "com.docker.compose.service": service}},
                  "State": {"Running": running, "Restarting": False, "OOMKilled": False, "ExitCode": 0}}
