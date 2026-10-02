@@ -206,7 +206,7 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
     override=legacy.compose_override(cell_dir/'compose.override.yaml',int(environment['MYSQL_PORT']))
     files=[legacy.COMPOSE_PATH,override]
     if trace:files.insert(1,TRACE_COMPOSE)
-    sampler=None;waterline=None;process=None;started=False;fault_record=None;load_started=None;sampler_facts={};cleanup=None
+    sampler=None;waterline=None;process=None;started=False;fault_record=None;load_started=None;sampler_facts={};marker_observer={};cleanup=None
     lifecycle=cell_dir/'lifecycle.jsonl'
     def event(name,**extra):append(lifecycle,{'event':name,'run_id':run_id,'monotonic':time.monotonic(),**extra})
     try:
@@ -318,6 +318,7 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
                     row,extra=matches[0];markers[channel]=marker(channel,row,run_id,origins[channel],extra)
         write_json(cell_dir/'markers.json',markers)
         if set(markers)!={'metrics','logs','events'}:raise Incomplete('event_not_generated' if 'events' not in markers else 'accepted observability marker missing')
+        marker_observer={'buffer_limit':waterline.MAX_BUFFERED_MESSAGES,'buffered_messages':len(waterline.messages),'dropped_messages':waterline.dropped_messages}
         def probe(channel,remaining):
             if channel=='business':
                 facts=business_observation(project,env_file,files,after,association,addresses['elasticsearch']);return {'facts':facts,'ready':business_ready(after,association,facts)}
@@ -341,7 +342,7 @@ def run_cell(profile,binding,candidate,recipe_binary,load_binary,work,repeat,ind
         if (cell_dir/'fault.json').exists():raw_paths['fault']=cell_dir/'fault.json'
         measurement_start=float(load_started)+float(stage['warmup_seconds'])
         measurement_end=measurement_start+float(stage['measurement_seconds'])
-        return {'run_id':run_id,'repeat':repeat,'stage':stage['name'],'candidate':binding,'origins':origins,'measurement_window':{'start_monotonic':measurement_start,'end_monotonic':measurement_end,'warmup_seconds':stage['warmup_seconds'],'measurement_seconds':stage['measurement_seconds']},'sampler':sampler_facts,'fault':fault_record,'cleanup':cleanup,'raw':{k:{'path':str(v.relative_to(work)),'sha256':digest(v)} for k,v in raw_paths.items()},'recipe':{'receipt_sha256':digest(cell_dir/'recipe-receipt.json'),'rejection':rejection},'project':project,'execution_status':'complete'}
+        return {'run_id':run_id,'repeat':repeat,'stage':stage['name'],'candidate':binding,'origins':origins,'measurement_window':{'start_monotonic':measurement_start,'end_monotonic':measurement_end,'warmup_seconds':stage['warmup_seconds'],'measurement_seconds':stage['measurement_seconds']},'sampler':sampler_facts,'marker_observer':marker_observer,'fault':fault_record,'cleanup':cleanup,'raw':{k:{'path':str(v.relative_to(work)),'sha256':digest(v)} for k,v in raw_paths.items()},'recipe':{'receipt_sha256':digest(cell_dir/'recipe-receipt.json'),'rejection':rejection},'project':project,'execution_status':'complete'}
     finally:
         if process and process.poll() is None:
             process.terminate()

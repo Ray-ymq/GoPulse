@@ -5,6 +5,7 @@ No observer joins or commits offsets to the product consumer group.
 """
 from __future__ import annotations
 import base64
+from collections import deque
 import json
 import os
 import re
@@ -125,6 +126,8 @@ def kafka_offsets(client,partitions,attempts=2):
     raise last
 
 class KafkaWaterline:
+    MAX_BUFFERED_MESSAGES = 20000
+
     def __init__(self,address,topic='gopulse-observability-v1'):
         from kafka import TopicPartition
         self.consumer=kafka_consumer(address)
@@ -133,12 +136,14 @@ class KafkaWaterline:
         self.partitions=[TopicPartition(topic,p) for p in sorted(partitions)]
         self.consumer.assign(self.partitions)
         self.consumer.seek_to_end(*self.partitions)
-        self.messages=[]
+        self.messages=deque(maxlen=self.MAX_BUFFERED_MESSAGES)
+        self.dropped_messages=0
     def poll(self,timeout_ms=200):
         for partition,rows in self.consumer.poll(timeout_ms=timeout_ms).items():
             for row in rows:
+                if len(self.messages) == self.MAX_BUFFERED_MESSAGES:
+                    self.dropped_messages += 1
                 self.messages.append({'topic':partition.topic,'partition':partition.partition,'offset':row.offset,'envelope':json.loads(row.value)})
-        if len(self.messages)>20000:raise RuntimeError('marker observer memory bound exceeded')
         return self.messages
     def close(self):self.consumer.close()
 
