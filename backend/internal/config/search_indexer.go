@@ -15,6 +15,7 @@ type SearchIndexerConfig struct {
 	Elasticsearch ElasticsearchConfig
 	Worker        BusinessWorkerConfig
 	LogShip       LogShipConfig
+	Trace         TraceConfig
 }
 
 func LoadSearchIndexer() (SearchIndexerConfig, error) {
@@ -110,6 +111,10 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if err != nil {
 		return SearchIndexerConfig{}, err
 	}
+	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "search-indexer")
+	if err != nil {
+		return SearchIndexerConfig{}, err
+	}
 	return SearchIndexerConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -124,6 +129,7 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 		RabbitMQURL:   rabbitMQURL,
 		Elasticsearch: elasticsearch,
 		LogShip:       logShip,
+		Trace:         traceConfig,
 		Worker:        BusinessWorkerConfig{Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay, PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout, ReconnectMinimum: reconnectMinimum, ReconnectMaximum: reconnectMaximum},
 	}, nil
 }

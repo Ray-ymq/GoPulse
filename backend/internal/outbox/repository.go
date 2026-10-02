@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 )
 
 const (
@@ -29,6 +30,14 @@ type Executor interface {
 // by the caller, which is normally the caller's active *sql.Tx.
 type Writer interface {
 	Insert(context.Context, Executor, bus.Envelope) error
+}
+
+// MetadataWriter is implemented by the durable repository so the business
+// transaction can attach the database-assigned Outbox ID to its commit span.
+// Writer remains the compatibility seam for callers and focused tests that do
+// not need that identifier.
+type MetadataWriter interface {
+	InsertWithMetadata(context.Context, Executor, bus.Envelope) (uint64, error)
 }
 
 type Clock func() time.Time
@@ -87,15 +96,28 @@ func ExponentialBackoff(attempt uint32) time.Duration {
 // Insert writes a validated event through either *sql.DB or *sql.Tx. Callers
 // that need atomic core-fact and Outbox writes must pass their active transaction.
 func (repository *Repository) Insert(ctx context.Context, executor Executor, envelope bus.Envelope) error {
+	_, err := repository.InsertWithMetadata(ctx, executor, envelope)
+	return err
+}
+
+// InsertWithMetadata writes a validated event and returns the database row ID.
+// A driver that does not expose LastInsertId still completes the same atomic
+// insert and returns zero; the durable event ID remains the business identity.
+func (repository *Repository) InsertWithMetadata(ctx context.Context, executor Executor, envelope bus.Envelope) (uint64, error) {
 	if executor == nil {
-		return fmt.Errorf("%w: executor is required", ErrInvalidArgument)
+		return 0, fmt.Errorf("%w: executor is required", ErrInvalidArgument)
+	}
+	if ctx != nil {
+		if wire := tracing.WireFromContext(ctx); wire.TraceParent != "" {
+			envelope.SetTraceContext(wire.TraceParent, wire.TraceState)
+		}
 	}
 	payload, err := bus.Encode(envelope)
 	if err != nil {
-		return fmt.Errorf("%w: invalid business event", ErrInvalidArgument)
+		return 0, fmt.Errorf("%w: invalid business event", ErrInvalidArgument)
 	}
 	now := repository.now()
-	_, err = executor.ExecContext(ctx, `
+	result, err := executor.ExecContext(ctx, `
 		INSERT INTO business_outbox (
 			event_id, event_type, schema_version, payload, status, available_at,
 			attempt_count, lease_owner, lease_expires_at, published_at, last_error,
@@ -104,9 +126,13 @@ func (repository *Repository) Insert(ctx context.Context, executor Executor, env
 		envelope.EventID, string(envelope.EventType), envelope.SchemaVersion, payload, now, now, now,
 	)
 	if err != nil {
-		return errors.New("insert business outbox event")
+		return 0, errors.New("insert business outbox event")
 	}
-	return nil
+	identifier, err := result.LastInsertId()
+	if err != nil || identifier <= 0 {
+		return 0, nil
+	}
+	return uint64(identifier), nil
 }
 
 // Claim leases a bounded, ID-ordered batch. The transaction ends before the

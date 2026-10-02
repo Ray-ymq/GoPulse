@@ -6,12 +6,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
 	logtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/logs"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
 )
 
 func TestClientEnsuresFixedTemplateAndVerifiesWrittenIndex(t *testing.T) {
@@ -58,6 +62,132 @@ func TestClientIsBoundToObservabilityPurpose(t *testing.T) {
 	if client.Purpose() != "observability" {
 		t.Fatalf("Purpose() = %q", client.Purpose())
 	}
+}
+
+func TestClientRejectsExpiredIndexBeforeCreatingAnotherDocument(t *testing.T) {
+	documentWrites := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/_index_template/") {
+			_, _ = w.Write([]byte(`{"acknowledged":true}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/_doc/") {
+			documentWrites++
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := New(server.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetRetentionPolicy(retention.DefaultConfig().Logs); err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC) }
+	err = client.Write(context.Background(), writeRequest(t, "2026.09.20"))
+	if envelope.Code(err) != "expired_log_retention" || documentWrites != 0 {
+		t.Fatalf("err=%v code=%q documentWrites=%d", err, envelope.Code(err), documentWrites)
+	}
+}
+
+func TestRealElasticsearchWriterCleanupRace(t *testing.T) {
+	base := os.Getenv("PHASE20_RETENTION_ES_URL")
+	if base == "" {
+		t.Skip("PHASE20_RETENTION_ES_URL is not set")
+	}
+	reportPath := os.Getenv("PHASE20_RETENTION_WRITER_REPORT")
+	sequence := []string{}
+	defer func() {
+		if reportPath != "" {
+			payload, _ := json.MarshalIndent(map[string]any{"case_id": "R04", "status": "pass", "sequence": sequence}, "", "  ")
+			_ = os.MkdirAll(filepath.Dir(reportPath), 0o700)
+			_ = os.WriteFile(reportPath, append(payload, '\n'), 0o600)
+		}
+	}()
+	now := time.Now().UTC()
+	oldDate := now.AddDate(0, 0, -10).UTC().Format("2006.01.02")
+	client, err := New(base, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetRetentionPolicy(retention.DefaultConfig().Logs); err != nil {
+		t.Fatal(err)
+	}
+	precheckTime := now.AddDate(0, 0, -9)
+	client.now = func() time.Time { return precheckTime }
+	first, err := json.Marshal(logtransform.WriteRequest{MessageID: "abcdef0123456789abcdef0123456789", IndexDate: oldDate, Document: json.RawMessage(`{"@timestamp":"2026-09-20T12:00:00Z","message":"race-first"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Write(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	barrier := &writerBarrier{base: client.client.Transport, reached: make(chan struct{}), release: make(chan struct{})}
+	client.client.Transport = barrier
+	second, _ := json.Marshal(logtransform.WriteRequest{MessageID: "abcdef0123456789abcdef0123456780", IndexDate: oldDate, Document: json.RawMessage(`{"@timestamp":"2026-09-20T12:00:00Z","message":"race-second"}`)})
+	writeDone := make(chan error, 1)
+	go func() { writeDone <- client.Write(context.Background(), second) }()
+	select {
+	case <-barrier.reached:
+		sequence = append(sequence, "R04 writer precheck passed")
+	case <-time.After(5 * time.Second):
+		t.Fatal("writer request barrier was not reached")
+	}
+	client.now = func() time.Time { return now }
+	retentionStore, err := retention.NewElasticsearch(base, 3*time.Second, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := retention.NewRunner(retentionStore, retention.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.SetClock(func() time.Time { return now })
+	if report, runErr := runner.RunOnce(context.Background()); runErr != nil || !retentionReportContains(report, "gopulse-logs-v1-"+oldDate, "deleted") {
+		t.Fatalf("R04 cleanup failed: report=%+v err=%v", report, runErr)
+	}
+	sequence = append(sequence, "R04 cleanup deleted before in-flight write release")
+	close(barrier.release)
+	writeErr := <-writeDone
+	if envelope.Code(writeErr) != "expired_log_retention" {
+		t.Fatalf("in-flight write did not terminate permanently: %v", writeErr)
+	}
+	response, requestErr := http.Get(strings.TrimRight(base, "/") + "/gopulse-logs-v1-" + oldDate)
+	if requestErr != nil || response == nil || response.StatusCode != http.StatusNotFound {
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		t.Fatalf("expired index was revived after writer release: status=%v err=%v", response, requestErr)
+	}
+	_ = response.Body.Close()
+	sequence = append(sequence, "R04 in-flight write released and final storage queried")
+}
+
+func retentionReportContains(report retention.Report, index, result string) bool {
+	for _, item := range report.Items {
+		if item.Index == index && item.Result == result {
+			return true
+		}
+	}
+	return false
+}
+
+type writerBarrier struct {
+	base    http.RoundTripper
+	once    sync.Once
+	reached chan struct{}
+	release chan struct{}
+}
+
+func (b *writerBarrier) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Method == http.MethodPut && strings.Contains(request.URL.Path, "/_doc/") {
+		b.once.Do(func() {
+			close(b.reached)
+			<-b.release
+		})
+	}
+	return b.base.RoundTrip(request)
 }
 
 func TestLogMappingIncludesReplicaIdentity(t *testing.T) {

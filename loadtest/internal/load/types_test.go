@@ -57,3 +57,19 @@ func TestOutcomeSummaryKeeps429503TimeoutAndUnexpectedErrorSeparate(t *testing.T
 		t.Fatalf("outcomes=%+v", value.outcomes)
 	}
 }
+
+func TestDiagnosticProfileRequiresIndependentFrozenRecovery(t *testing.T) {
+	profile, _, err := LoadProfile("../../phase20-capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.Diagnostic.DrainSeconds = 31
+	if ValidateProfile(profile) == nil {
+		t.Fatal("accepted drain drift")
+	}
+	profile.Diagnostic.DrainSeconds = 30
+	profile.SchemaVersion = CapacityProfileSchemaVersion
+	if ValidateProfile(profile) == nil {
+		t.Fatal("phase19 accepted phase20 semantics")
+	}
+}

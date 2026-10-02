@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gopulse.local/schemas/phase20-optimization-profile.schema.json",
+  "title": "GoPulse Phase 20 optimization verification profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "mode",
+    "candidate_version",
+    "delivery_version",
+    "base_profile",
+    "base_profile_sha256",
+    "base_schema",
+    "base_schema_sha256",
+    "runtime_contract",
+    "runtime_contract_sha256",
+    "trace_overlay",
+    "trace_overlay_sha256",
+    "collector_config",
+    "collector_config_sha256",
+    "repetitions",
+    "stages",
+    "trace",
+    "non_degradation",
+    "improvement",
+    "required_cases",
+    "not_applicable_cases"
+  ],
+  "properties": {
+    "schema_version": {"const": "gopulse.phase20.optimization-profile.v1"},
+    "profile_id": {"const": "phase20-optimization-verification"},
+    "mode": {"const": "verify_only"},
+    "candidate_version": {"const": "2.2.2"},
+    "delivery_version": {"const": "2.2.3"},
+    "base_profile": {"const": "loadtest/phase20-capacity-profile.json"},
+    "base_profile_sha256": {"$ref": "#/$defs/digest"},
+    "base_schema": {"const": "loadtest/phase20-capacity-profile.schema.json"},
+    "base_schema_sha256": {"$ref": "#/$defs/digest"},
+    "runtime_contract": {"const": "deploy/runtime-contracts.json"},
+    "runtime_contract_sha256": {"$ref": "#/$defs/digest"},
+    "trace_overlay": {"const": "deploy/phase20-trace.yaml"},
+    "trace_overlay_sha256": {"$ref": "#/$defs/digest"},
+    "collector_config": {"const": "deploy/otel/phase20-collector.yaml"},
+    "collector_config_sha256": {"$ref": "#/$defs/digest"},
+    "repetitions": {"const": 3},
+    "stages": {"const": ["rps-50", "rps-100", "rps-150", "rps-200"]},
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "sample_ratio", "propagation", "collector_private_network"],
+      "properties": {
+        "mode": {"const": "controlled_overlay"},
+        "sample_ratio": {"const": 1.0},
+        "propagation": {"const": "w3c_traceparent_tracestate"},
+        "collector_private_network": {"const": true}
+      }
+    },
+    "non_degradation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "achieved_rps_ratio",
+        "max_p95_ms",
+        "max_p99_ms",
+        "max_schedule_lag_ms",
+        "max_recovery_seconds",
+        "max_timeout_rate",
+        "max_unexpected_error_rate",
+        "max_explicit_reject_rate",
+        "cleanup_inventory_must_restore",
+        "global_prune_forbidden"
+      ],
+      "properties": {
+        "achieved_rps_ratio": {"const": 0.95},
+        "max_p95_ms": {"const": 1000},
+        "max_p99_ms": {"const": 2000},
+        "max_schedule_lag_ms": {"const": 100},
+        "max_recovery_seconds": {"const": 120},
+        "max_timeout_rate": {"const": 0},
+        "max_unexpected_error_rate": {"const": 0},
+        "max_explicit_reject_rate": {"const": 0},
+        "cleanup_inventory_must_restore": {"const": true},
+        "global_prune_forbidden": {"const": true}
+      }
+    },
+    "improvement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "metric", "threshold", "aggregation", "b1"],
+      "properties": {
+        "status": {"const": "not_applicable"},
+        "metric": {"const": "not_applicable"},
+        "threshold": {"const": "not_applicable"},
+        "aggregation": {"const": "not_applicable"},
+        "b1": {"const": "not_applicable"}
+      }
+    },
+    "required_cases": {
+      "const": ["O01", "O02", "O03", "O05"]
+    },
+    "not_applicable_cases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["O04"],
+      "properties": {
+        "O04": {"const": "verify_only does not create B1 or withdraw a product change"}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

@@ -83,8 +83,8 @@ func TestBackendFixedRequestTuplesAndPairedUpdates(t *testing.T) {
 	if strings.Contains(text, "private") || strings.Contains(text, "secret") {
 		t.Fatal("untrusted label value escaped")
 	}
-	if metrics.MaxSamples() != 896 {
-		t.Fatalf("sample budget = %d, want 896", metrics.MaxSamples())
+	if metrics.MaxSamples() != 917 {
+		t.Fatalf("sample budget = %d, want 917", metrics.MaxSamples())
 	}
 	for _, want := range []string{
 		`gopulse_backend_http_request_duration_seconds_bucket{method="GET",route="/posts/:postId",status_class="2xx",le="0.25"} 1`,

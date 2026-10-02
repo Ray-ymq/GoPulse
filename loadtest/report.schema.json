@@ -4,7 +4,8 @@
   "title": "GoPulse load reports",
   "oneOf": [
     {"$ref": "#/$defs/phase18Report"},
-    {"$ref": "#/$defs/phase19Report"}
+    {"$ref": "#/$defs/phase19Report"},
+    {"$ref": "#/$defs/phase20Report"}
   ],
   "$defs": {
     "counts": {
@@ -230,6 +231,93 @@
         "progress": {"$ref": "#/$defs/progressReference"},
         "resources": {"$ref": "#/$defs/resourceReference"},
         "stop": {"$ref": "#/$defs/stop"}
+      }
+    },
+    "phase20Report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "run_id",
+        "stage",
+        "repeat",
+        "profile",
+        "candidate",
+        "warmup",
+        "measurement",
+        "t_stop",
+        "t_drain",
+        "drain_elapsed_seconds",
+        "execution_status",
+        "ledger"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "gopulse.phase20.load.v1"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "enum": [
+            "rps-50",
+            "rps-100",
+            "rps-150",
+            "rps-200"
+          ]
+        },
+        "repeat": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "number",
+            "total"
+          ],
+          "properties": {
+            "number": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
+            },
+            "total": {
+              "const": 3
+            }
+          }
+        },
+        "profile": {
+          "$ref": "#/$defs/profileBinding"
+        },
+        "candidate": {
+          "$ref": "#/$defs/candidateBinding"
+        },
+        "warmup": {
+          "$ref": "#/$defs/capacityWindow"
+        },
+        "measurement": {
+          "$ref": "#/$defs/capacityWindow"
+        },
+        "t_stop": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "t_drain": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "drain_elapsed_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "execution_status": {
+          "enum": [
+            "complete",
+            "incomplete"
+          ]
+        },
+        "ledger": {
+          "$ref": "#/$defs/profileBinding"
+        }
       }
     }
   }

@@ -10,7 +10,10 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -28,6 +31,14 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 		generate = RandomRequestID
 	}
 	return func(c *gin.Context) {
+		traceContext, invalidTraceContext := tracing.ExtractHTTPWithStatus(c.Request.Context(), c.Request.Header)
+		if invalidTraceContext {
+			if metrics := componentmetrics.BackendActive(); metrics != nil {
+				metrics.ObserveTraceContextInvalid()
+			}
+		}
+		traceContext, span := tracing.Start(traceContext, "http.server", attribute.String("http.request.method", c.Request.Method))
+		defer span.End()
 		requestID := c.Request.Header.Get(requestIDHeader)
 		var err error
 		if len(c.Request.Header.Values(requestIDHeader)) != 1 || !componentmetrics.ValidRequestID(requestID) {
@@ -40,10 +51,19 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 			return
 		}
 
-		requestLogger := logger.With(slog.String("request_id", requestID))
-		c.Request = c.Request.WithContext(logging.WithContext(componentmetrics.WithRequestID(c.Request.Context(), requestID), requestLogger))
+		requestLogger := logging.WithTrace(logger.With(slog.String("request_id", requestID)), traceContext)
+		c.Request = c.Request.WithContext(logging.WithContext(componentmetrics.WithRequestID(traceContext, requestID), requestLogger))
 		c.Header(requestIDHeader, requestID)
 		c.Next()
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
+		status := c.Writer.Status()
+		span.SetAttributes(attribute.String("http.route", route), attribute.Int("http.status_code", status))
+		if status >= stdhttp.StatusInternalServerError {
+			span.SetStatus(codes.Error, "server_error")
+		}
 	}
 }
 

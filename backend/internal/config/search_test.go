@@ -72,4 +72,7 @@ func TestLoadSearchIndexerUsesOnlyIndexerDependencies(t *testing.T) {
 	if cfg.Worker.Prefetch != 7 || cfg.Worker.RetryDelay != 4*time.Second || cfg.Elasticsearch.URL != values["ELASTICSEARCH_URL"] {
 		t.Fatalf("search indexer config = %#v", cfg)
 	}
+	if cfg.Trace.Enabled || cfg.Trace.ServiceName != "search-indexer" {
+		t.Fatalf("search indexer trace defaults = %#v", cfg.Trace)
+	}
 }

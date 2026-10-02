@@ -152,6 +152,12 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 			metrics.Observe("records_total", time.Since(started), kind, source, "store", result)
 		}
 		cancel()
+		if err != nil {
+			if code := envelope.Code(err); code != "" {
+				p.Logger.Permanent(record, code)
+				return p.commit(ctx, record, lease, kind, source)
+			}
+		}
 		if err == nil {
 			if !lease.Valid() {
 				return ErrOwnershipLost
