@@ -1,7 +1,11 @@
 # GoPulse
 
+GoPulse connects a usable Go social application with a diagnostic observability system and a reproducible cloud-native learning delivery. The target keeps a modular business core, separates runtime responsibilities, and explains concurrency and notification scaling through real business flows.
+
 The project's sole global direction, target architecture, capability order, and completion endpoint are defined in
-[GoPulse 全局架构与发展总纲](dev/phases/GoPulse-高并发与可观测后续路线图.md).
+[GoPulse 顶层架构与全局发展总纲](dev/phases/GoPulse-高并发与可观测后续路线图.md).
+Start with sections 1–4 for the product, architecture decisions, system diagram, and current-to-target changes;
+sections 5–11 define module, data, diagnostic, deployment, scaling, and failure responsibilities.
 For implemented capabilities and evidence boundaries, use [capability status](docs/capability-status.md);
 allocated implementation contracts remain authoritative for their batches.
 
