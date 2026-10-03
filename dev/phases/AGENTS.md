@@ -4,6 +4,10 @@ These instructions apply to stage overviews and roadmaps under `dev/phases/`. Re
 constraints come from [AGENTS.md](../../AGENTS.md); authoritative batch allocation and acceptance
 remain in each Phase total implementation plan under `dev/imple/`.
 
+- The sole global strategy is [GoPulse 全局架构与发展总纲](GoPulse-高并发与可观测后续路线图.md).
+  `Plan.md` preserves allocated-stage history; overviews and indexes must follow the charter for
+  future direction and must not change existing implementation contracts.
+
 - State the business/engineering result of each batch, its dependency, and the evidence needed to
   unlock it. Keep capability completion, execution completeness and measured capacity separate.
 - Estimate implementation and acceptance cost before proposing a split. Ordinary batches follow
