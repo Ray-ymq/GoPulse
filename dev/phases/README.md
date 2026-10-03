@@ -48,7 +48,7 @@ Phase 12 已完成的 Compose 基线
 → Phase-19-03 验收工具修订 → Phase-19-04 正式认证与阶段收口（已完成）
 → Phase-20-01 诊断 → 02 单链路关联 → 03 优化对照 → 04 生命周期（已完成）
 → Phase-20-05 资源预算（已开工、未完成）→ 06 最终验收（未开始）
-→ 总纲 A 诊断产品 → B Kubernetes 交付 → C 代表性并发 → D 通知伸缩 → E Java 替换与整体交付 → 维护
+→ 总纲 A 诊断产品 → B Kubernetes 交付 → C 代表性并发 → D 通知伸缩 → E 整体开源交付 → 维护
 ```
 
 Phase 17 完成后，GoPulse 已能在当前 Linux `amd64` Compose 环境中完成业务、插件、Metrics/Logs/Events、内部告警和两个 Frontend 的代表性流程。Phase 18 已完成机器合同、计算层多副本、故障域隔离、背压和两轮闭合证据；Phase-18-05 最终候选的固定结果为 `target_met`，没有以部署平台变更替代产品自身验证。
