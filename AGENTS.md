@@ -97,6 +97,8 @@ The planning and continuation details are documented in [Implementation executio
 # Authority and Conflict Rule
 
 - This file defines repository-wide execution constraints.
+- The sole global development charter is `dev/phases/GoPulse-高并发与可观测后续路线图.md`; it defines project positioning, target architecture, future capability order, scope exclusions, and the project endpoint.
+- `dev/phases/Plan.md`, stage overviews, indexes, and future-design notes are historical navigation or subordinate design inputs; they must not establish a competing global roadmap. The charter does not silently revise an already-allocated implementation contract or authorize execution.
 - The Phase total implementation plan defines batch allocation and Phase-level acceptance.
 - The split implementation plan defines the current batch scope and completion gates.
 - Matrix and release documents define detailed acceptance procedures only when referenced by the active batch.
