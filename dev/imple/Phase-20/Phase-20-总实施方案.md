@@ -146,7 +146,7 @@ verifier 逐项重算并输出 pass/fail/incomplete，拒绝缺字段、未执�
 实施记录，记录实际文件、命令、结果、偏差和限制；不预填完成日志。
 
 所有拆分方案共同允许以下封闭完成文件集合：本批同名实施日志、README.md、
-docs/capability-status.md、dev/phases/Plan.md、dev/phases/README.md、
+dev/status/capability-status.md、dev/phases/Plan.md、dev/phases/README.md、
 dev/phases/Phase-20-端到端性能闭环与可观测治理.md，以及 VERSION、.env.example、
 frontend/package.json、frontend/package-lock.json、admin-frontend/package.json、
 admin-frontend/package-lock.json。状态文件只填写实际结果，版本文件只在成功完成时同步。

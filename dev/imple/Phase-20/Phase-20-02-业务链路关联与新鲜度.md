@@ -43,7 +43,7 @@
 | backend/internal/config/config.go、config_test.go、search_indexer.go、search_indexer_test.go | Trace 配置可关闭、队列与超时有界、启动时验证 |
 | deploy/phase20-trace.yaml、deploy/otel/phase20-collector.yaml、deploy/runtime-contracts.json、runtime-contracts.schema.json（后者同 deploy 目录） | 验收专属私有 Collector、固定镜像 digest、工件归属和 Trace 预算 |
 | scripts/ci/phase20_chain.py、test_phase20_chain.py、phase20_evidence.py、test_phase20_evidence.py（均在 scripts/ci）、scripts/verify-phase20-chain.sh、scripts/verify-phase20-evidence.py | 原始 span/日志/终态关联及真实搜索可见证明 |
-| docs/phase20-trace-and-freshness.md、docs/component-metrics.md | 路径、采样、时钟、低基数合同和覆盖限制 |
+| dev/contracts/phase20-trace-and-freshness.md、dev/contracts/component-metrics.md | 路径、采样、时钟、低基数合同和覆盖限制 |
 
 文件名带“同目录”表示逐一明确列出的文件，不是通配授权。如实现需新增迁移、业务 API、
 管理 UI 或其他文件，先在 update 细化清单并合入 main，不在开发分支事后补登记。

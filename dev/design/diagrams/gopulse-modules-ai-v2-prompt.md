@@ -2,7 +2,7 @@
 
 - 生成方式：按用户指定的 imagegen 技能，调用内置 `image_gen`。
 - 当前实现基线：`VERSION=2.2.4`。
-- 最终图片：[gopulse-modules-ai-v2.png](../../../docs/diagrams/gopulse-modules-ai-v2.png)。
+- 最终图片：[gopulse-modules-ai-v2.png](gopulse-modules-ai-v2.png)。
 - 输出为 AI 生成的位图，分辨率 1536 × 1024。
 - 实际处理：全新生成一次；随后对存储访问、事务 Outbox 与 Worker 回写连接进行局部修正和残线清理。
 - 已目视核对：五个模块分区、主要中文名称、五类双副本服务、六类 Exporter、两条消息链路、两套独立 Elasticsearch 及当前单链路 Trace 范围。

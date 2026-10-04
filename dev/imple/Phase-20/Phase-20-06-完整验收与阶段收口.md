@@ -73,7 +73,7 @@ U3 的已证明可复用项/剩余项、U4 校验与清理。最低时间至少�
 - dev/logs/Phase-20/Phase-20-06-完整验收与阶段收口.md。
 - dev/logs/Phase-20/Phase-20-06-evidence/summary.json 和 evidence-manifest.json（同 evidence 目录），
   仅发布严格校验选定工件及原始来源引用，不能修改原始 receipt。
-- README.md、docs/capability-status.md、dev/phases/Plan.md、dev/phases/README.md、
+- README.md、dev/status/capability-status.md、dev/phases/Plan.md、dev/phases/README.md、
   dev/phases/Phase-20-端到端性能闭环与可观测治理.md、dev/phases/GoPulse-高并发与可观测后续路线图.md。
 - dev/imple/Phase-20/Phase-20-总实施方案.md：只记录实际最终结果，不追溯修改冻结规则。
 - VERSION、.env.example、frontend/package.json、frontend/package-lock.json、

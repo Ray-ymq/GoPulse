@@ -37,7 +37,7 @@
 | `scripts/verify-phase19-evidence.py` | 对指定目录做只读严格验证，不修复或补写 evidence |
 | `dev/validation/Phase-19/capacity-methodology.md` | 解释负载模型、统计、明确拒绝、容量拐点和能力声明边界 |
 | `.github/workflows/quality-gates.yml` | 运行工具 self-test，不在普通 PR 中执行昂贵正式容量认证 |
-| `README.md`、`docs/capability-status.md` | 记录容量工具已冻结但尚无正式结论 |
+| `README.md`、`dev/status/capability-status.md` | 记录容量工具已冻结但尚无正式结论 |
 | `dev/logs/Phase-19/Phase-19-02-容量合同与验收工具.md` | 记录实际文件、calibration、检查、偏差和限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 完成时六处版本一致为 `2.1.2` |
 

@@ -38,7 +38,7 @@
 | `dev/logs/Phase-19/Phase-19-04-evidence/summary.json` | 仅发布脱敏、严格验证后的 summary 与哈希引用，不包含凭据/环境文件 |
 | `dev/logs/Phase-19/Phase-19-04-evidence/evidence-manifest.json` | 列出发布工件、来源和 SHA-256，拒绝未验证替换 |
 | `README.md` | 只声明 `2.1.3` 冻结候选在指定环境中的实际容量或边界，不外推生产能力 |
-| `docs/capability-status.md` | 将 Phase 19 结论写入已验证或已发现边界，保留未验证项 |
+| `dev/status/capability-status.md` | 将 Phase 19 结论写入已验证或已发现边界，保留未验证项 |
 | `dev/phases/Plan.md`、`dev/phases/README.md`、`dev/phases/Phase-19-容量认证与性能可观测.md` | 记录阶段真实完成状态，不改写 Phase 18 历史 |
 | `dev/imple/Phase-19/Phase-19-总实施方案.md` | 仅填写最终候选、执行状态和能力状态，不改变既有验收规则 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 执行完整并收口时六处版本一致为 `2.1.4` |

@@ -27,7 +27,7 @@ Kafka partition，并将业务搜索与 Logs/Events Elasticsearch 分为独立�
 | --- | --- |
 | `.env.example` | 双 ES、partition、副本入口和背压配置具有明确默认值/范围且无凭据泄漏 |
 | `deploy/compose.yaml` | 搜索 ES 与观测 ES 服务/卷/网络分离；Router/Marshaller 可运行两个副本；无新增宿主端口 |
-| `deploy/runtime-contracts.json`、`docs/runtime-contracts.md` | 双 ES 依赖、副本角色、配置 key 和探针与实际代码/Compose 一致 |
+| `deploy/runtime-contracts.json`、`dev/contracts/runtime-contracts.md` | 双 ES 依赖、副本角色、配置 key 和探针与实际代码/Compose 一致 |
 | `backend/internal/config/config.go`、`backend/internal/config/config_test.go` | 搜索与观测 ES 地址分别验证，禁止错误复用或不安全 container 地址 |
 | `backend/internal/platform/elasticsearch.go`、`backend/internal/platform/platform_test.go` | client 明确绑定用途，timeout/redirect/body 上界保持 |
 | `backend/cmd/server/main.go` | Backend 的业务搜索、日志查询、事件查询和统计分别绑定对应 ES client |

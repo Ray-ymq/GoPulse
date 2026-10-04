@@ -69,8 +69,8 @@ Phase 20 已为诊断、单链路 Trace/新鲜度、优化对照、观测数据�
 总纲中的能力关卡不预留 Phase、版本或分支；既有 Phase 20 执行合同和实际失败停点保持不变。
 
 Kubernetes 已由总纲选定为 B 关卡，尚未分配实施 Phase、版本或分支。
-[`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)中的旧候选只作设计输入，
-不能扩大 B 的范围或替代开工前的环境与执行合同。
+Kubernetes 的目标与边界以[全局总纲](GoPulse-高并发与可观测后续路线图.md)为准，
+落地前仍需独立分配实施 Phase、版本、分支和执行合同。
 
 ## 核心边界
 

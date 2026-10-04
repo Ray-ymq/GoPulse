@@ -2,7 +2,7 @@
 
 > 决策日期：2026-10-03；已完成产品基线：根 `VERSION=2.2.4`。
 > 本文件是唯一全局发展总纲，决定产品终态、系统边界、架构取舍和演进顺序。
-> 图中的目标架构包含尚未实现的能力；当前事实见[能力清单](../../docs/capability-status.md)。
+> 图中的目标架构包含尚未实现的能力；当前事实见[能力清单](../status/capability-status.md)。
 > Phase 20 的已有合同、停点、预算和证据保持不变，本次设计不恢复其执行。
 
 阅读顺序：先读第 1～4 节，理解项目最后长什么样以及现在要改变什么；
@@ -204,7 +204,7 @@ sequenceDiagram
 
 业务成功的依据是 MySQL 中本次事实及其事务结果。
 HTTP 成功不等待消息消费、ES refresh 或远程观测写入；ES 写确认也不等于浏览器已经搜到。
-当前 [Trace / 新鲜度合同](../../docs/phase20-trace-and-freshness.md)已有真实搜索可见探针，继续复用。
+当前 [Trace / 新鲜度合同](../contracts/phase20-trace-and-freshness.md)已有真实搜索可见探针，继续复用。
 
 同事务 Outbox 解决“事实已提交但发布进程随后退出”的恢复责任。
 发布确认后、标记 published 前退出，消息可能再次发布；消费完成后、ack 前退出，消息可能重投。
@@ -455,7 +455,7 @@ Monitor 继续是插件期望状态和子进程的唯一所有者。
 对无状态进程，复用 startup / live / ready 与有界 drain。
 readiness 在退出前撤销，新流量停止后处理在途工作；消息 ack / retry / generation 撤销仍由应用执行。
 探针不能把软依赖故障扩大为全站重启，liveness 不做远程 I/O。
-实际运行契约见 [runtime contracts](../../docs/runtime-contracts.md)。
+实际运行契约见 [runtime contracts](../contracts/runtime-contracts.md)。
 
 ### 9.5 安装、升级和恢复是一条完整生命周期
 
@@ -473,7 +473,7 @@ readiness 在退出前撤销，新流量停止后处理在途工作；消息 ack
 数据库迁移不能由 Backend 每个副本重复执行。
 同一候选的应用制品、chart、values、运行合同与迁移版本共同形成部署身份。
 
-备份迁移既有[维护窗口停写、排空和一致导出合同](../../docs/releases/backup-restore.md)。
+备份迁移既有[维护窗口停写、排空和一致导出合同](../operations/backup-restore.md)。
 卷快照不能替代 MySQL / 队列 / 搜索 / 观测之间的一致性协调。
 首轮 Jaeger Trace 历史作为有界诊断数据，必须明确是否保留以及丢失的影响；
 任何新增备份范围须显式扩展并验证格式，不自动声称旧 format v1 包含 Jaeger。
@@ -616,7 +616,7 @@ A～E 可以由未来一个总实施方案组织为多个有界批次；具体 P
 | [根 AGENTS.md](../../AGENTS.md) | 执行约束、分支、版本、预算、证据和提交规则 |
 | 本总纲 | 产品终态、目标架构、全局顺序、取舍与完成终点 |
 | Phase 总实施方案 / 分实施方案 | 已分配批次、版本、分支、范围、预算、固定完成门禁 |
-| [能力清单](../../docs/capability-status.md)、实施日志与原始证据 | 已完成 / 已验证 / 未完成的实际事实 |
+| [能力清单](../status/capability-status.md)、实施日志与原始证据 | 已完成 / 已验证 / 未完成的实际事实 |
 | [Plan.md](Plan.md)、阶段索引、旧架构与未来设计 | 历史导航或设计输入，不能建立第二条主线 |
 
 本次只修订顶层设计，不改变根 `VERSION`，不分配未来开发分支，不降低已开工验收门禁。
