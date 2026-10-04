@@ -95,7 +95,7 @@ CPU、内存、swap、磁盘、平台和无竞争 Compose project 的既有下�
 | `scripts/ci/phase19_sampler.py`、`scripts/ci/test_phase19_sampler.py` | 样本绑定窗口/阶梯，覆盖规定组件资源与信号，缺失或采样失败不可伪装为零 |
 | `scripts/ci/phase19_evidence.py`、`scripts/ci/test_phase19_evidence.py` | 严格校验原始进度、逐阶梯恢复/新鲜度、资源引用、聚合、敏感字段和清理 |
 | `scripts/verify-phase19-capacity.sh`、`scripts/verify-phase19-evidence.py` | 与计划固定 CLI 一致；正式模式拒绝隐藏覆盖；preflight 明确 `formal=false` 且不写正式 summary |
-| `docs/capacity-methodology.md`、`README.md`、`docs/capability-status.md` | 说明工具修订、候选版本顺序和“尚无正式容量结论” |
+| `dev/validation/Phase-19/capacity-methodology.md`、`README.md`、`docs/capability-status.md` | 说明工具修订、候选版本顺序和“尚无正式容量结论” |
 | `.github/workflows/quality-gates.yml` | 运行无 Docker 的修订工具 self-test；不在普通 PR 执行正式容量认证 |
 | `dev/logs/Phase-19/Phase-19-03-容量验收工具修订.md` | 只记录实际修订、检查、preflight、偏差和限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 本批完成时六处一致为 `2.1.3` |

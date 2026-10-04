@@ -156,7 +156,7 @@ admin-frontend/package-lock.json。状态文件只填写实际结果，版本文
 ### 6.1 耗时预算与当前验收接续
 
 实施成本遵循 AGENTS.md 的 Execution Cost and Continuation Rule 和
-[实施耗时预算与验收接续](../../../docs/implementation-execution-budget.md)。
+[实施耗时预算与验收接续](../../rules/implementation-execution-budget.md)。
 05 的 22fe593、r6/r10 和单次 B06 接续保留为历史检查点。当前已推送 5c628f3；被测
 候选为 8a4d780，B07 已通过，S3 因 B02 正式业务失败停止；最新事实及修复/连续执行
 路径见 05 的 2.8 节。规划修改不启动矩阵；再次明确执行时，先记录历史成本、缺失

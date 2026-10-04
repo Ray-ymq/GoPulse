@@ -78,7 +78,7 @@ schema 拒绝空值、无限值、TBD、未登记目标与单位不符。所有�
 | --- | --- |
 | 宿主 | Linux `amd64`、WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`、8 CPU、`MemTotal=13281496 kB`、swap `16777216 kB`、`/var/lib/docker` 可用 `105056022528` bytes；Docker Server `29.7.2`、Compose `5.5.0`。CPU/内存/swap 下限分别为 8 CPU、12 GiB、8 GiB；初版磁盘下限为 100 GB，经已授权的 r3 修订后为 50 GB（`50000000000` bytes）。执行前再次写入 `host.json`，不以本表替代实际 preflight。 |
 | 业务配方 | 沿用 Phase 20 配方 seed `18002005`、recipe digest `sha256:0e61a5473f72d735ab322261e312290249f39997b649837fea32bfe2c947cf14`、`1024` virtual users、50/100/150/200 RPS、15 秒预热、60 秒测量、三重复；原始 profile 为 `loadtest/phase20-capacity-profile.json`。 |
-| 前序资源依据 | 03 的严格复验 `docs/phase20-optimization.md` / 私有 contract digest `sha256:190405c1c6c2b72656d6699afcc5772b6cd2e0284be4431a44682bc92d8a1635`：容器 CPU 峰值 `806.6%`、RSS 峰值 `4462.235990524292 MiB`、Kafka lag 峰值 `7268`、Rabbit ready 峰值 `0`、unacked 峰值 `2`；观测 ES 单元增长最大 `13677487` bytes。 |
+| 前序资源依据 | 03 的严格复验 `dev/validation/Phase-20/phase20-optimization.md` / 私有 contract digest `sha256:190405c1c6c2b72656d6699afcc5772b6cd2e0284be4431a44682bc92d8a1635`：容器 CPU 峰值 `806.6%`、RSS 峰值 `4462.235990524292 MiB`、Kafka lag 峰值 `7268`、Rabbit ready 峰值 `0`、unacked 峰值 `2`；观测 ES 单元增长最大 `13677487` bytes。 |
 | 前序开销依据 | 01 的同宿主采样器对照为启用/停用各 250 次、50 RPS、5 秒窗口，P95 `23.14/19.85 ms`、验收进程 CPU `3.656/3.259 s`；该值仅为历史诊断事实，不能证明 200 RPS/60 秒的 P99 差或独立采样器 CPU 峰值符合本批门禁。正式执行前须通过 2.4 的测量自测与真实短预检。 |
 | Trace/保留依据 | 04 已冻结 Collector `0.138.0` digest `sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c`、单文件 `16 MiB`、总量 `64 MiB`、最多 `3` 个备份；VM `30d`、Logs/Events `7d` 的生命周期合同保持不变。 |
 
@@ -242,7 +242,7 @@ S0 之后的候选镜像构建阶段总上限为 60 分钟；S1～S4 的实际�
 限时字段是否被实际执行器读取，并将阶段/子进程的等待限制为剩余预算；只有配置声明
 不能证明保护已生效。此次规则补充不要求把已有有效证据重头生成；是否重验由实际修改
 和既有候选身份规则决定。等待用户明确恢复后再实施，不因规划推送自动运行。
-完整流程见 [实施耗时预算与验收接续](../../../docs/implementation-execution-budget.md)。
+完整流程见 [实施耗时预算与验收接续](../../rules/implementation-execution-budget.md)。
 
 #### 2.6 U2 阻断修复与本次推送范围
 
@@ -532,7 +532,7 @@ router、marshaller、monitor、redis-exporter、两前端和 acceptance，并�
 写入预检 manifest。06 必须从含 05 完成提交的 main 重新构建最终自研制品。
 
 05 允许发布到仓库的脱敏集合冻结为：同名实施日志、`docs/observability-resource-budgets.md`、
-`docs/phase20-acceptance-matrix.md`、`docs/phase20-capacity-methodology.md`、预算/profile/
+`docs/phase20-acceptance-matrix.md`、`dev/validation/Phase-20/phase20-capacity-methodology.md`、预算/profile/
 schema、runtime/Trace 配置、`README.md`、`docs/capability-status.md`、六处阶段状态/版本元数据、
 严格 verifier 生成的 `summary.json`/`evidence-manifest.json`；原始业务身份、正文、凭据、
 容器环境和私有 `/var/tmp` 证据只保留在仓库外。发布前必须以来源 digest 校验该白名单，不能
@@ -549,7 +549,7 @@ schema、runtime/Trace 配置、`README.md`、`docs/capability-status.md`、六�
 | scripts/ci/phase20_closure.py、test_phase20_closure.py、scripts/verify-phase20-closure.sh | 完整 U1～U4 正式及短预检编排、dry-run 任务图、阶段停点、检查点和归属清理，拒绝临时阈值覆盖 |
 | scripts/ci/phase20_sampler.py、test_phase20_sampler.py、phase20_evidence.py、test_phase20_evidence.py（均在 scripts/ci） | 最终资源/生命周期/链路证据可复核，拒绝缺失、错窗和漂移 |
 | scripts/verify-phase20-evidence.py、scripts/ci/verify_runtime_contracts.py、test_runtime_contracts.py（后者同 scripts/ci） | 最终入口与机器合同严格验证，不降低历史合同 |
-| docs/observability-resource-budgets.md、docs/phase20-acceptance-matrix.md、docs/phase20-capacity-methodology.md | 最终矩阵、候选绑定、数据增长、开销与超限合同 |
+| docs/observability-resource-budgets.md、docs/phase20-acceptance-matrix.md、dev/validation/Phase-20/phase20-capacity-methodology.md | 最终矩阵、候选绑定、数据增长、开销与超限合同 |
 
 产品行为若暴露新的阻断缺陷，不得在预算工作中泛化修复；先按实际风险修订规划及具体文件
 清单，再进入实现。日志、状态与版本元数据文件遵循总方案。

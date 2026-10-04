@@ -31,4 +31,4 @@ Every new or revised split plan must contain the following concrete fields befor
   evidence. Planning revisions are not an instruction to resume execution.
 
 The cost ledger and continuation procedure are described in
-[Implementation execution budget](../../docs/implementation-execution-budget.md).
+[Implementation execution budget](../rules/implementation-execution-budget.md).

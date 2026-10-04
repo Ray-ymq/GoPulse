@@ -2,7 +2,7 @@
 
 Phase 19 capacity evidence is a bounded statement about one frozen GoPulse
 candidate, one deterministic Phase 18 data recipe, and the host described by
-[`loadtest/capacity-profile.json`](../loadtest/capacity-profile.json). The
+[`loadtest/capacity-profile.json`](../../../loadtest/capacity-profile.json). The
 profile is the machine-readable source for the recipe identity, 1,024 virtual
 users, the fixed workload mix, route/status contract, host minimums, windows,
 gates, safe-stop conditions, sampling interval, and statistics. Its exact file
