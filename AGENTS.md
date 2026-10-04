@@ -74,7 +74,7 @@
 - At the cumulative ceiling or repeated-diagnosis stop, stop new work, retain actual progress and evidence, perform bounded owned cleanup, and report the unresolved item and a concrete continuation plan. Do not declare completion or create a completion commit for the unfinished implementation batch. Additional execution requires a revised bounded plan and an explicit user instruction to continue; do not request a blanket extension before making the remaining work reviewable.
 - For an acceptance already in progress when this rule is introduced, let the current bounded run produce its result under its frozen contract unless the user explicitly stops it. On a user-requested stop, cease new work, stop owned subprocesses safely, preserve raw evidence, and record a paused/incomplete checkpoint; do not automatically resume. Preserve valid current-candidate receipts; do not restart it, invalidate it retrospectively, or edit its runtime files merely to satisfy this new rule. Budget the remaining work from the transition checkpoint, with prior cost reported separately.
 
-The planning and continuation details are documented in [Implementation execution budget](docs/implementation-execution-budget.md).
+The planning and continuation details are documented in [Implementation execution budget](dev/rules/implementation-execution-budget.md).
 
 # Completion, Log, and Commit Rule
 
