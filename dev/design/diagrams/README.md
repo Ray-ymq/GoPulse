@@ -17,11 +17,11 @@ Search Indexer 根据 MySQL 事实收敛业务 Elasticsearch 投影，该数据�
 
 实现事实核对来源：
 
-- [当前版本](../../VERSION)与[能力状态](../capability-status.md)。
-- [当前部署拓扑](../../deploy/compose.yaml)与[同源入口配置](../../deploy/docker/frontend/nginx.conf)。
-- [Backend API 模块](../../backend/internal/http/api.go)、[组件指标库](../../componentmetrics/)、[Exporter 模块](../../exporters/)。
-- [Monitor](../../monitor/)、[Router](../../router/)、[Marshaller](../../marshaller/)、[生命周期工具](../../lifecycle/)。
-- [顶层架构总纲](../../dev/phases/GoPulse-高并发与可观测后续路线图.md)中的当前实现基础与目标差异。
+- [当前版本](../../../VERSION)与[能力状态](../../status/capability-status.md)。
+- [当前部署拓扑](../../../deploy/compose.yaml)与[同源入口配置](../../../deploy/docker/frontend/nginx.conf)。
+- [Backend API 模块](../../../backend/internal/http/api.go)、[组件指标库](../../../componentmetrics)、[Exporter 模块](../../../exporters)。
+- [Monitor](../../../monitor)、[Router](../../../router)、[Marshaller](../../../marshaller)、[生命周期工具](../../../lifecycle)。
+- [顶层架构总纲](../../phases/GoPulse-高并发与可观测后续路线图.md)中的当前实现基础与目标差异。
 
 此图描述当前 Compose 实现。Trace 卡片限定为已实现的单业务链路与验收文件 Collector。
 总纲中的 Jaeger 产品查询、Helm、Kubernetes 与 KEDA 属于后续目标，未列为当前模块。

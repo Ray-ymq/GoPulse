@@ -533,7 +533,7 @@ router、marshaller、monitor、redis-exporter、两前端和 acceptance，并�
 
 05 允许发布到仓库的脱敏集合冻结为：同名实施日志、`docs/observability-resource-budgets.md`、
 `docs/phase20-acceptance-matrix.md`、`dev/validation/Phase-20/phase20-capacity-methodology.md`、预算/profile/
-schema、runtime/Trace 配置、`README.md`、`docs/capability-status.md`、六处阶段状态/版本元数据、
+schema、runtime/Trace 配置、`README.md`、`dev/status/capability-status.md`、六处阶段状态/版本元数据、
 严格 verifier 生成的 `summary.json`/`evidence-manifest.json`；原始业务身份、正文、凭据、
 容器环境和私有 `/var/tmp` 证据只保留在仓库外。发布前必须以来源 digest 校验该白名单，不能
 把未构建的最终自研镜像 digest 写入本批日志。

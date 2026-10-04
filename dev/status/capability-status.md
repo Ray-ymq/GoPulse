@@ -15,12 +15,12 @@
 - Phase-18-05 冻结候选的扩缩容、局部故障、SIGTERM、重建、独立诊断和清理矩阵。
 - Phase-19-02 的容量 profile、开环四阶梯/三重复 runner、独立资源采样、原值统计和严格 evidence verifier 已完成自测与 calibration；这只表示工具合同冻结。
 - Phase-19-03 已完成正式入口、逐轮确定性配方、轮次 endpoint、进度/资源/恢复原始证据和严格 verifier 的工具修订；这只表示验收基础设施完成，尚无正式容量结论。
-- Phase-19-04 已对冻结的 `2.1.3` candidate（revision `7251d32a20bc`）完成一次正式三重复认证；执行状态为 `complete`，能力状态为 `boundary_found`。固定同步请求门禁全部通过，但异步/观测恢复门禁未通过，正式结果已发布到 [`Phase-19-04 evidence`](../dev/logs/Phase-19/Phase-19-04-evidence/summary.json)。
+- Phase-19-04 已对冻结的 `2.1.3` candidate（revision `7251d32a20bc`）完成一次正式三重复认证；执行状态为 `complete`，能力状态为 `boundary_found`。固定同步请求门禁全部通过，但异步/观测恢复门禁未通过，正式结果已发布到 [`Phase-19-04 evidence`](../logs/Phase-19/Phase-19-04-evidence/summary.json)。
 
-- Phase-20-01 在冻结的 `2.1.4` 产品候选上完成独立空项目的十二个阶梯单元，新 profile 结果为 `complete / target_met`：50/100/150/200 RPS 各三次均通过固定同步门禁与四个独立恢复门禁，最长恢复观察上界 44.97 秒。接受/终态台账、真实插件 Event、精确业务事实/观测水位、开销对照和安全清理均由原始证据重算；[脱敏证据](../dev/logs/Phase-20/Phase-20-01-evidence/baseline.json) 已严格校验。完成版本为 `2.2.1`，本批没有产品优化。
+- Phase-20-01 在冻结的 `2.1.4` 产品候选上完成独立空项目的十二个阶梯单元，新 profile 结果为 `complete / target_met`：50/100/150/200 RPS 各三次均通过固定同步门禁与四个独立恢复门禁，最长恢复观察上界 44.97 秒。接受/终态台账、真实插件 Event、精确业务事实/观测水位、开销对照和安全清理均由原始证据重算；[脱敏证据](../logs/Phase-20/Phase-20-01-evidence/baseline.json) 已严格校验。完成版本为 `2.2.1`，本批没有产品优化。
 - 新旧 profile 的隔离、恢复和采样语义不同；新结果不改写 Phase 19 历史，不构成产品优化收益或旧超时单一根因的证明。
-- Phase-20-02 在 `2.2.2` 完成发帖→Outbox→RabbitMQ→Indexer→搜索可见的单链路 Trace/新鲜度与 C01～C07 真实案例，受控依赖延迟、Collector 故障、重试、异常上下文、重启和权限边界均有实际证据；范围见 [02 实施日志](../dev/logs/Phase-20/Phase-20-02-业务链路关联与新鲜度.md)。
-- Phase-20-03 在冻结 `2.2.2` B0 制品上完成四阶梯三重复：`complete / target_met / not_needed`。90,000 个测量请求的固定错误项为零，最高 P95/P99 为 46.67/148.58 ms，四维独立恢复最长 40.74 秒，12 个项目均完成归属清理。完成版本 `2.2.3` 只同步登记的版本元数据，产品源码/行为配置与 B0 一致；无 B1、无改善率。[原值与聚合](../dev/validation/Phase-20/phase20-optimization.md) 已从严格校验的私有证据生成并核对。
+- Phase-20-02 在 `2.2.2` 完成发帖→Outbox→RabbitMQ→Indexer→搜索可见的单链路 Trace/新鲜度与 C01～C07 真实案例，受控依赖延迟、Collector 故障、重试、异常上下文、重启和权限边界均有实际证据；范围见 [02 实施日志](../logs/Phase-20/Phase-20-02-业务链路关联与新鲜度.md)。
+- Phase-20-03 在冻结 `2.2.2` B0 制品上完成四阶梯三重复：`complete / target_met / not_needed`。90,000 个测量请求的固定错误项为零，最高 P95/P99 为 46.67/148.58 ms，四维独立恢复最长 40.74 秒，12 个项目均完成归属清理。完成版本 `2.2.3` 只同步登记的版本元数据，产品源码/行为配置与 B0 一致；无 B1、无改善率。[原值与聚合](../validation/Phase-20/phase20-optimization.md) 已从严格校验的私有证据生成并核对。
 - Phase-20-04 在 `2.2.4` 完成 R01～R08 生命周期验收：Logs/Events 按 UTC 日历边界保留 7 日，真实 Elasticsearch 清理验证了固定集群身份、strict mapping/归属标记、alias、删除前阻断、重试、权限失败、双副本幂等和在途写入竞态；迟到数据永久处理且不复活旧索引。VictoriaMetrics 使用原生 `30d` retentionPeriod，当前查询闭合；短时窗口未加速物理回收。Collector Trace 工件在固定归属路径内观察到轮转，文件/总量预算未越界；本结果不声明长期 Trace 存储。
 
 ## 已发现边界

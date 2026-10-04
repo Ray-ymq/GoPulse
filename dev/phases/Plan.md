@@ -59,7 +59,7 @@ Linux `amd64` Compose 产品交付与工程质量验收
 - Phase 20 在已完成 Phase 19 的事实基础上执行诊断、单链路关联、优化对照、观测生命周期、
   资源预算与最终冻结验收；01～04 已完成，当前完成版本为 `2.2.4`，
   05 在实际失败停点未完成，06 未开始。
-- Kubernetes 仅保留为[未排期的未来设计](../../docs/future/kubernetes/README.md)，不分配 Phase、版本或实施批次。
+- Kubernetes 仅保留为[未排期的未来设计](GoPulse-高并发与可观测后续路线图.md)，不分配 Phase、版本或实施批次。
 - 未来平台适配不得降低业务、数据、安全、故障恢复、Linux CI 或 Docker 验收标准。
 
 ## 1.2 用户态与访问边界
@@ -119,7 +119,7 @@ Linux `amd64` Compose 产品交付与工程质量验收
 - Linux `amd64`
 - Bash
 
-Kubernetes 部署、统一入口和集群观测只保留为[未排期的未来设计](../../docs/future/kubernetes/README.md)，不属于当前产品支持范围。
+Kubernetes 部署、统一入口和集群观测只保留为[未排期的未来设计](GoPulse-高并发与可观测后续路线图.md)，不属于当前产品支持范围。
 
 ---
 
@@ -1613,7 +1613,7 @@ Phase 12～Phase 17 完成：
 - 同域登录、双前端跨平台交付、升级、备份和恢复。
 - 统一工程质量验收。
 
-该里程碑证明 GoPulse 自身已经在当前支持环境中完整运转。未排期的 Kubernetes 设计见 [`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)，它不属于当前阶段或里程碑。
+该里程碑证明 GoPulse 自身已经在当前支持环境中完整运转。未排期的 Kubernetes 设计见 [`docs/future/kubernetes`](GoPulse-高并发与可观测后续路线图.md)，它不属于当前阶段或里程碑。
 
 ## Milestone 5：可扩展架构基线
 
@@ -1675,4 +1675,4 @@ Monitor/状态层 HA、Kubernetes 和完整 SRE 能力仍未排期。
 
 未来发展只按[全局架构与发展总纲](GoPulse-高并发与可观测后续路线图.md)执行：
 其中 B 关卡已选定 Kubernetes 交付，但尚未分配实施 Phase、版本或分支。
-[`docs/future/kubernetes`](../../docs/future/kubernetes/README.md)保留历史候选输入，不另立建设顺序。
+Kubernetes 的后续建设顺序以[全局总纲](GoPulse-高并发与可观测后续路线图.md)为准，本历史规划不另立建设顺序。

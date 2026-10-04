@@ -27,7 +27,7 @@
 | `deploy/runtime-contracts.json` | 成为完整机器事实源，覆盖全部长运行 Go 进程、副本角色、依赖和预算 |
 | `deploy/runtime-contracts.schema.json` | 严格验证新增字段、枚举、范围、唯一性和向后兼容边界 |
 | `deploy/compose.yaml` | 所有进程、探针、网络、服务和预算均能与机器合同一一对应 |
-| `docs/runtime-contracts.md` | 解释合同权威性、独立诊断、两次验收和版本/能力声明区别 |
+| `dev/contracts/runtime-contracts.md` | 解释合同权威性、独立诊断、两次验收和版本/能力声明区别 |
 | `componentmetrics/catalog.go`、`componentmetrics/config.go` | 进程/指标目录不再另建冲突事实源，漂移可被机器检查发现 |
 | `componentmetrics/cmd/catalog/main.go` | 若保留生成入口，其输出确定且只来自权威合同/受管目录 |
 | `scripts/ci/verify_runtime_contracts.py` | 校验合同与 Compose、进程目录、探针、依赖、预算和实例角色一致 |
