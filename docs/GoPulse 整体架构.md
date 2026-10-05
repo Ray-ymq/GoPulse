@@ -46,3 +46,27 @@ GoPulse 主要采用以下技术：
 但，这个项目其实我想了很久，起码有一个月，虽然是一个玩具项目，不具有生产的条件，但正因为如此，所以有很多的优化方案，比如只有 3 个 Worker 节点，如果 一个 Worker 节点挂了，正好是 Mysql，怎么办？
 
 这就涉及到了实例部署嘛，你可以委婉的表示，我本来想多实例部署的，但是主机资源不够......然后吹nb就行了 hh，当然这个是我的幻想
+
+# 五、目标架构（依据两份新设计）
+
+以下三张图对应 2026-10-05 对齐后的[可观测架构设计](<GoPulse 可观测架构设计.md>)和[高并发架构设计](<GoPulse 高并发架构设计.md>)，展示目标模块与运行边界，其中的拆分与扩展仍属于目标设计。
+
+## 5.1 目标整体架构
+
+![GoPulse 目标整体架构](../dev/design/diagrams/target-architecture/gopulse-target-overall.png)
+
+展示 M1–M9 的协作：业务系统、平台管理与查询、观测数据链路，以及实验环境和公共契约。指标、日志、事件通过接入与处理链路写入，Span 使用独立的标准 OTLP 路径。
+
+## 5.2 高并发业务目标架构
+
+![GoPulse 高并发业务目标架构](../dev/design/diagrams/target-architecture/gopulse-target-business.png)
+
+展开 B1–B10。前台业务模块默认同进程；dispatcher、通知消费者与搜索 indexer 独立运行。业务成功对应事实与 Outbox 的事务提交，缓存、搜索和遥测不决定普通事务是否成功。
+
+## 5.3 可观测目标架构
+
+![GoPulse 可观测目标架构](../dev/design/diagrams/target-architecture/gopulse-target-observability.png)
+
+区分 M2 的期望配置、M3 的实际执行、M4 的来源接入、M5 的处理写入、M6 的查询关联，以及 M7 的诊断。M6 分别查询观测后端和业务只读状态；M8 汇总环境预算，M9 复用 M1/B2 的身份事实。
+
+[高清图片、SVG 与可编辑 Excalidraw 源文件](../dev/design/diagrams/target-architecture/README.md)。
