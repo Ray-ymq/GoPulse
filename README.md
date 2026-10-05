@@ -1,17 +1,42 @@
 # GoPulse
 
-GoPulse connects a usable Go social application with a diagnostic observability system and a reproducible cloud-native learning delivery. The target keeps a modular business core, separates runtime responsibilities, and explains concurrency and notification scaling through real business flows.
+GoPulse is a Go social application used as a real workload for an observability and reliability experiment platform. Its target keeps a modular business core, separates runtime responsibilities, and explains concurrency and recovery through actual business flows.
 
-The project's sole global direction, target architecture, capability order, and completion endpoint are defined in
-[GoPulse 顶层架构与全局发展总纲](dev/phases/GoPulse-高并发与可观测后续路线图.md).
-Start with sections 1–4 for the product, architecture decisions, system diagram, and current-to-target changes;
-sections 5–11 define module, data, diagnostic, deployment, scaling, and failure responsibilities.
-For implemented capabilities and evidence boundaries, use [capability status](dev/status/capability-status.md);
-allocated implementation contracts remain authoritative for their batches.
+The target architecture is jointly defined by the [business design](<docs/GoPulse 高并发架构设计.md>)
+and [observability design](<docs/GoPulse 可观测架构设计.md>). These adopted designs describe the target;
+completed capabilities and evidence boundaries are recorded in [capability status](dev/status/capability-status.md).
+Batch order, versions, branches and acceptance remain in the allocated implementation plans.
+
+## Read first
+
+| Purpose | Entry |
+| --- | --- |
+| Find current, target, implementation and historical documents | [文档入口](docs/README.md) |
+| Understand the implemented system | [项目导读](项目导读.md), [capability status](dev/status/capability-status.md), [current module diagram](dev/design/diagrams/README.md) |
+| Run and use the product | [使用手册](使用手册.md), [Linux Bundle](deploy/release/BUNDLE-README.md) |
+| Understand the target architecture | [Business](<docs/GoPulse 高并发架构设计.md>), [observability](<docs/GoPulse 可观测架构设计.md>), [target diagrams](dev/design/diagrams/target-architecture/README.md) |
+| Find contracts, operations and validation | [Development documentation](dev/README.md) |
+| Trace phase history and execution | [Phase index](dev/phases/README.md), [implementation logs](dev/logs/README.md) |
+
+## Current state
+
+The completed product includes social/search/notification flows, two frontends, six official plugin types,
+Metrics/Logs/Events, internal alerts, Linux Compose/Bundle delivery and bounded single-chain tracing.
+The Backend, Worker, Indexer, Router and Marshaller have two-replica compute deployments;
+this does not establish state-layer HA or production capacity guarantees.
+
+Phase 20 batches 01–04 are complete. [Batch 05](dev/imple/Phase-20/Phase-20-05-资源预算与观测开销.md)
+remains unfinished at its recorded failure checkpoint; [batch 06](dev/imple/Phase-20/Phase-20-06-完整验收与阶段收口.md)
+has not started. The [total implementation plan](dev/imple/Phase-20/Phase-20-总实施方案.md) retains its allocated contract.
+Documentation organization does not resume execution or declare unfinished work complete.
+
+<details>
+<summary>Implementation background through Phase 19</summary>
+
 
 The current completed product version is recorded in [`VERSION`](VERSION). Phase 1 provides the browser-operable MySQL business system, Phase 2 adds transactional Outbox and RabbitMQ delivery, Phase 3 closes convergent Elasticsearch search, Phase 4 standardizes Schema v1 JSON logs, Phase 5 delivers the independent Redis Exporter, Phase 6 adds the authenticated Monitor Plugin Manager and metrics publishing, and Phase 7 closes the Message Router plus Kafka transport. Phase 8 closes Milestone 2 with the formal Marshaller consumer group, strict metrics Envelope v1 revalidation, deterministic Prometheus import conversion, authenticated single-node VictoriaMetrics storage/query, bounded dependency recovery, permanent-invalid continuation, deterministic replay, internal access isolation, and the full real Redis → Exporter → Monitor → Router → Kafka → Marshaller → VictoriaMetrics matrix. Phase 9 adds strict application-log transport, Elasticsearch storage, and administrator querying. Phase 10 includes successful and failed Redis Exporter lifecycle Events, unexpected-exit detection, deduplicated metrics collection and Redis-target failure/recovery episodes, bounded source retries, strict Elasticsearch storage, and administrator-only querying through the shared observability transport. Phase 11 closes Milestone 3 with a guarded administrator workspace, four-region overview, fixed VictoriaMetrics range queries, paged Logs and Events browsing, browser-operated Redis Exporter install/start/stop/update, runtime role-revocation handling, and dependency-isolated recovery, while ordinary users retain the social-only experience. Phase-12-01 packages the Frontend, Backend, Business Worker, Search Indexer, migrations, search initialization, and administrator CLI into non-root OCI images and closes the Docker/Compose-only social-business runtime. Phase-12-02 adds non-root Router, Marshaller, Monitor, and Redis Exporter images, image-bundled managed-plugin bootstrap, internal Kafka/VictoriaMetrics topology, and the complete administrator browser observability closure. MySQL remains authoritative for business data, RabbitMQ remains the business-event transport, and Kafka remains limited to observability messages. Phase-12-03 establishes the authoritative full-stack Compose matrix covering clean startup, cross-batch business and observability behavior, internal identity and port boundaries, localized faults, service replacement, retained-volume recovery, bounded shutdown, and strongly owned cleanup. Phase-12-04 closes the independent implementation Review findings with isolated acceptance image tags, strict image/source validation, least-privilege workload environments, runtime-mode safety, and credential-safe health checks.
 
-The repository currently provides:
+The implementation background includes:
 
 - a Vue 3 + Vue Router Frontend for registration, login, logout, post listing/pagination, publishing, detail, comments, likes, authenticated search, notifications, authentication recovery, and an administrator-only observability overview with Exporter management;
 - a diagnostic connectivity page at `/dev/status`, outside the business navigation;
@@ -34,6 +59,8 @@ The repository currently provides:
 - Phase-19-01 Backend API-only admission, probe isolation, fixed HTTP latency distribution families, and bounded concurrency/rejection diagnostics through the component metrics contract; this adds diagnostic evidence for later capacity work without declaring a capacity target met;
 - Phase-19-02's frozen machine-readable capacity profile, independent three-repetition runner, separate load/SUT resource sampler, raw-preserving statistics, strict evidence verifier, and bounded calibration; subsequent formal results and their candidate boundaries are recorded in the capability status document;
 - Frontend unit/component tests, real Chromium E2E acceptance, Backend unit/integration tests, and Linux quality gates.
+
+</details>
 
 Same-type plugin multi-instance collection, multiple Kafka topics, Schema Registry, SASL/TLS, multi-broker production topology, full-site tracing and a retained product Trace query backend, automatic dead-queue replay, real-time notification push, Kubernetes, and other later-phase capabilities are not implemented yet. A single-business-chain Trace contract is already implemented. The current verified, boundary, and unverified capability list is maintained in [`dev/status/capability-status.md`](dev/status/capability-status.md).
 
@@ -516,6 +543,12 @@ The root `VERSION` file is the sole completed-product version source. `frontend/
 
 ## Phase completion and current batch
 
+Current completion and the unfinished batch are summarized above and in the [Phase index](dev/phases/README.md).
+The retained notes below describe their historical phase scope and candidate; they do not allocate future work.
+
+<details>
+<summary>Expand historical phase completion notes</summary>
+
 Phase 1 core business delivery completed at `0.2.6`; the Phase 1 Review closeout completed at `0.2.7`. Phase 2-01 established the message contract and transactional Outbox at `0.3.1`; Phase 2-02 connected comment/first-like transactions to confirmed RabbitMQ delivery at `0.3.2`; Phase 2-03 added the independent, reconnecting Business Worker and idempotent notification persistence at `0.3.3`; Phase 2-04 added the recipient-scoped notification API and protected Frontend notification flow at `0.3.4`; Phase 2-05 integrated the Worker into the Bash lifecycle and passed the isolated reliability matrix at `0.3.5`. PR #39 merged that milestone into `main` on September 2, 2026 as `efff938`, and its required remote quality gates passed. Phase-02-06 performs the implementation Review closeout at `0.3.6`, adding Outbox retention cleanup, full-batch lease budgeting, controlled Worker cancellation, and no-op PR prevention. RabbitMQ remains transport rather than the final fact source, and broker failure does not invalidate an already committed MySQL business operation. Phase-03-01 delivered the rebuildable historical search loop at `0.4.1`, and Phase-03-02 delivered reliable, isolated incremental indexing and lifecycle/fault acceptance at `0.4.2`. Phase-03-03 closed the Phase 0–3 integration matrix and was merged by PR #50 on September 2, 2026 as `f54f1a2`, with all configured remote gates passing. Phase-03-04 is the sole `0.4.4` implementation-Review remediation batch: it adds PIT-stable search pagination, HMAC-protected cursors, correct pagination retry semantics, and authoritative Phase 3 status allocation. PR #51 merged `develop/0.4.4` after all push quality gates passed. Repository automation now treats those push gates as the single authoritative validation: `develop/*` runs the complete product suite, while planning-only `update` runs governance checks without duplicating Backend, Frontend, Compose, or Integration jobs. The separate pull-request CI was removed because PRs created with the workflow `GITHUB_TOKEN` require manual approval before their `pull_request` workflows can start. Milestone 1 is packaged by the release-only `develop/1.0.0` change, which synchronizes the root and Frontend product metadata to `1.0.0` and adds the [1.0.0 release notes](dev/releases/1.0.0.md). Publication is authoritative only after that change passes the remote push gates and is merged into `main`, whose root `VERSION` remains the source of truth. Phase-04-01 advances the product to `1.1.1` with Schema v1 Backend JSON logging, server-generated request IDs, structured access and panic recovery records, correlated business-action logs, safe cache-degradation warnings, and isolated `--logging-live` acceptance. Phase-04-02 closes Phase 4 at `1.1.2` by migrating Backend lifecycle, Outbox, Business Worker, Search Indexer, and search-reindex output to the same schema; event publication, processing, retry/dead, self-ignore, reconnect, and rebuild records use bounded fields and are validated by both focused logging acceptance and the retained Phase 0–3 business matrix. Phase-04-03 completed the implementation-review remediation at `1.1.3`. Phase-05-01 advances the product to `1.2.1` with the independent Redis Exporter, strict Prometheus metric contract, target-failure isolation, Bash lifecycle ownership, isolated real-Redis acceptance, and a dedicated CI job. Phase-05-02 completed the stage-level integration closeout at `1.2.2`; Phase-05-03 closes the implementation Review findings at `1.2.3` by hardening host validation, isolated cleanup, port allocation, and branch governance.
 
 
@@ -532,10 +565,11 @@ Phase-12-04 advances the product to `1.9.4` and re-closes Phase 12 after the ind
 Phase-18-04 targets `2.0.4`: Router and Marshaller use explicit replica identities, four Kafka partitions, generation-fenced ownership, bounded in-flight/retry budgets, and target-local backpressure. Business search Elasticsearch and observability Logs/Events Elasticsearch are separate services, volumes, networks, and client purposes. Its fixed runner is `scripts/verify-phase18-observability-scale.sh --repetitions 2`; the implementation log and bound evidence are authoritative for the two required runs.
 
 Phase-18-05 completes the machine runtime contract and the fixed closure process at
-`2.0.5`. The final candidate created exactly `run-1` and `run-2`; U1, U2, and U4 were
-`2/2`, U3 was `0/2`, and both owned Compose projects cleaned successfully.
-The authoritative result is `boundary_found`, with the final evidence and follow-up
-boundaries in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
+`2.0.5`. Earlier candidates recorded `boundary_found` with U3 at `0/2`; those records
+remain in the implementation log. The final candidate `d78ef11` completed exactly
+`run-1` and `run-2` with U1–U4 all `2/2`, successful owned-project cleanup and
+`target_met`. This fixed fault/scale matrix does not establish an independent capacity SLO.
+Candidate-specific results and evidence are in the [Phase-18-05 implementation log](dev/logs/Phase-18/Phase-18-05-合同单一来源独立诊断与完整矩阵收口.md).
 
 Phase-19-01 advances the product to `2.1.1` with API-only Backend admission,
 probe paths that remain available when business slots are full, direct private
@@ -603,6 +637,8 @@ does not claim immediate VictoriaMetrics physical reclaim or long-term Trace
 storage; resource budgets and final sustained acceptance remain in Phase-20-05
 and 06.
 
+</details>
+
 ### Backend log query pipeline
 
 Backend, Business Worker, Search Indexer, and search-reindex Schema v1 logs remain single-line JSON on stdout and, when `LOG_MONITOR_URL` is configured, are also offered to the same bounded non-blocking in-memory shipper. The shipper uses the dedicated `LOG_MONITOR_INGEST_TOKEN`; queue full affects only the remote copy, temporary transport failures retain the ordered queue head and message ID for retry, and permanent `400`/`413`/`422` input rejection drops only that remote copy. None of these outcomes changes API, RabbitMQ acknowledgement, Outbox, indexing, or reindex exit semantics. LogMonitor derives one of the fixed `logs/backend`, `logs/business-worker`, `logs/search-indexer`, or `logs/search-reindex` envelopes from the validated service, Router transports all four through `gopulse-observability-v1`, and Marshaller revalidates the source/payload match before idempotently storing strict documents in `gopulse-logs-v1-YYYY.MM.DD` behind `gopulse-logs-v1-read`. The current observability topic has four partitions and two Marshaller group members with generation-scoped ownership; a target storage failure blocks only the affected bounded processing path while unrelated partitions and targets remain diagnosable. The Phase 9 historical single-member behavior remains documented in its implementation logs rather than presented as the current topology.
@@ -611,6 +647,13 @@ Administrators can query the fixed read alias through `GET /api/v1/observability
 
 
 ## Administrator observability workspace
+
+For the current independent management frontend, use the [user manual](使用手册.md)
+and [operations documentation](dev/operations/README.md). The retained notes below describe
+Phase 11–14 delivery, including the older frontend route structure.
+
+<details>
+<summary>Expand Phase 11–14 administrator and plugin history</summary>
 
 Administrators can open `/admin/observability` from the main navigation. The overview independently loads the latest fixed Redis availability metric, recent application Logs, recent Monitor Events, and the current Redis Exporter fact; one unavailable dependency does not erase successful regions. Dedicated pages support the fixed query catalogs and Redis Exporter install/start/stop/update operations. The Backend remains the authorization and trust boundary: metric expressions, labels, time steps, Elasticsearch DSL, index names, PIT values, VictoriaMetrics credentials, Monitor internals, and raw upstream responses are never accepted from or exposed to the browser. Ordinary users have no navigation entry, direct management URLs resolve to `/forbidden` before any management API request, and every Exporter route repeats real-time Backend authorization.
 
@@ -650,3 +693,5 @@ VictoriaMetrics → Backend；不把存储的 `gopulse_*` 再次全量采集。
 ```bash
 bash scripts/verify-plugin-metrics.sh --sources redis,mysql,rabbitmq,kafka,elasticsearch,victoriametrics --fault-isolation
 ```
+
+</details>

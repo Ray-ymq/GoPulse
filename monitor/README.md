@@ -38,7 +38,7 @@ Phase 8 keeps Monitor's publishing contract unchanged and adds the downstream Ma
 
 Successful Redis Exporter install, start, stop, and update transitions are recorded after the Plugin Manager commits the final runtime and persistent state. The in-process EventMonitor validates the fixed Events v1 vocabulary, creates a stable 32-character lowercase hexadecimal message ID, and places the canonical `events/monitor` Envelope in a bounded queue. `Record` never waits for the Router and an enqueue or transport failure never changes the plugin API result. A single worker retries temporary Router failures with bounded backoff, skips deterministic 4xx rejections, and drains accepted records for at most `MONITOR_EVENT_SHUTDOWN_TIMEOUT` during shutdown. Queue and transport state logs never contain event bodies, URLs, tokens, or underlying errors.
 
-The queue defaults to 256 entries (`MONITOR_EVENT_QUEUE_CAPACITY`), retry bounds default to `250ms` and `5s`, shutdown drain defaults to `5s`, and `MONITOR_EVENT_MAX_BYTES` is fixed at 16384. Monitor shutdown itself does not emit a plugin-stopped event. See `docs/events-v1.md` and `scripts/verify-events.sh`.
+The queue defaults to 256 entries (`MONITOR_EVENT_QUEUE_CAPACITY`), retry bounds default to `250ms` and `5s`, shutdown drain defaults to `5s`, and `MONITOR_EVENT_MAX_BYTES` is fixed at 16384. Monitor shutdown itself does not emit a plugin-stopped event. See the [Events v1 contract](../dev/contracts/events-v1.md) and `scripts/verify-events.sh`.
 
 ## Phase-14-02 多 source
 
@@ -77,7 +77,7 @@ Protected component metrics use separate internal listeners, not the public/API
 listener. Configure the distinct `*_METRICS_TOKEN` values in `.env.example`;
 Monitor holds the six read-only tokens. Compose publishes no metrics ports.
 The exact family/label/initial-value contracts, shutdown behavior, source/target
-identities and focused acceptance command are in `docs/component-metrics.md`
+identities and focused acceptance command are in the [component metrics contract](../dev/contracts/component-metrics.md)
 (relative to the repository root). The shared standard-library-only
 `componentmetrics` module is required alongside this module for source builds;
 Docker builds copy it explicitly.
