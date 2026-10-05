@@ -1,6 +1,8 @@
-> 早期架构构想，原文保留用于理解项目起点，不决定当前能力、支持环境或后续顺序。
-> 唯一全局发展方向见[GoPulse 全局架构与发展总纲](../dev/phases/GoPulse-高并发与可观测后续路线图.md)，
-> 实际已验证能力见[能力清单](../dev/status/capability-status.md)。
+# GoPulse 架构图与设计背景
+
+> 前半部分保留早期构想及补充图片，用于理解设计背景；其中 Kubernetes 设想不代表当前实现或已分配路线。
+> 第 5 节展示两篇已采纳设计的目标图解。目标依据为[高并发设计](<GoPulse 高并发架构设计.md>)与[可观测设计](<GoPulse 可观测架构设计.md>)。
+> 当前实现与验证边界见[能力状态](../dev/status/capability-status.md)和[实现模块图](../dev/design/diagrams/README.md)；完整阅读入口见[文档导航](README.md)。
 
 GoPulse 是一个基于 **Go 与 云原生思想** 搭建的社交平台，由 基础业务系统 与 可观测系统 组成，最终统一运行在 Kubernetes 集群中
 - **基础业务系统:** 负责用户、内容、评论、点赞等正常业务

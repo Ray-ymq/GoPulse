@@ -88,7 +88,7 @@ Protected component metrics use separate internal listeners, not the public/API
 listener. Configure the distinct `*_METRICS_TOKEN` values in `.env.example`;
 Monitor holds the six read-only tokens. Compose publishes no metrics ports.
 The exact family/label/initial-value contracts, shutdown behavior, source/target
-identities and focused acceptance command are in `docs/component-metrics.md`
+identities and focused acceptance command are in the [component metrics contract](../dev/contracts/component-metrics.md)
 (relative to the repository root). The shared standard-library-only
 `componentmetrics` module is required alongside this module for source builds;
 Docker builds copy it explicitly.

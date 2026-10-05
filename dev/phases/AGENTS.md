@@ -4,9 +4,14 @@ These instructions apply to stage overviews and roadmaps under `dev/phases/`. Re
 constraints come from [AGENTS.md](../../AGENTS.md); authoritative batch allocation and acceptance
 remain in each Phase total implementation plan under `dev/imple/`.
 
-- The sole global strategy is [GoPulse 全局架构与发展总纲](GoPulse-高并发与可观测后续路线图.md).
-  `Plan.md` preserves allocated-stage history; overviews and indexes must follow the charter for
-  future direction and must not change existing implementation contracts.
+- The target architecture is jointly defined by [the business design](<../../docs/GoPulse 高并发架构设计.md>)
+  and [the observability design](<../../docs/GoPulse 可观测架构设计.md>).
+  `Plan.md` preserves allocated-stage history. Overviews and indexes link to these designs for
+  target architecture and to Phase implementation plans for batch order and acceptance.
+  They must not change existing implementation contracts or turn target capabilities into completed facts.
+
+- Keep completed-stage documents at their existing paths. Separate current and historical material
+  through navigation, preserving original versions, execution records and evidence context.
 
 - State the business/engineering result of each batch, its dependency, and the evidence needed to
   unlock it. Keep capability completion, execution completeness and measured capacity separate.

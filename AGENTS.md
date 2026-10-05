@@ -97,8 +97,10 @@ The planning and continuation details are documented in [Implementation executio
 # Authority and Conflict Rule
 
 - This file defines repository-wide execution constraints.
-- The sole global development charter is `dev/phases/GoPulse-高并发与可观测后续路线图.md`; it defines project positioning, target architecture, future capability order, scope exclusions, and the project endpoint.
-- `dev/phases/Plan.md`, stage overviews, indexes, and future-design notes are historical navigation or subordinate design inputs; they must not establish a competing global roadmap. The charter does not silently revise an already-allocated implementation contract or authorize execution.
+- The target architecture is jointly defined by `docs/GoPulse 高并发架构设计.md` and `docs/GoPulse 可观测架构设计.md`. The former owns business architecture, consistency and capacity; the latter owns observability, experiments and shared contracts. Together they define project positioning, system boundaries, scope exclusions and the design endpoint. Shared identity and environment-resource contracts are defined in the observability design and consumed by both designs.
+- The two designs describe the adopted target, not completed product capabilities. Actual capabilities and evidence boundaries are recorded in `dev/status/capability-status.md`; the root `VERSION` remains the completed-product version source.
+- `dev/phases/Plan.md`, stage overviews, indexes, diagrams and future-design notes provide navigation, history or subordinate detail. They must not establish a competing architecture or reserve future phases, versions or branches. New architecture does not silently revise an already-allocated implementation contract or authorize execution; batch order and acceptance remain in the Phase implementation plans.
+- Completed plans, logs, reviews and raw evidence retain their existing paths and historical context. Navigation separates current work from historical records; documentation organization must not rewrite receipts or turn unfinished work into completion.
 - The Phase total implementation plan defines batch allocation and Phase-level acceptance.
 - The split implementation plan defines the current batch scope and completion gates.
 - Matrix and release documents define detailed acceptance procedures only when referenced by the active batch.
