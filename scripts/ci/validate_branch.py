@@ -31,6 +31,7 @@ UPDATE_PREFIXES = (".github/", "dev/", "docs/", "scripts/ci/")
 # Module navigation and scoped repository rules are permitted by AGENTS.md.
 UPDATE_DOCUMENTATION_FILES = {
     "backend/README.md",
+    "admin-frontend/README.md",
     "monitor/README.md",
     "router/README.md",
     "marshaller/README.md",

@@ -3,6 +3,9 @@
 > 状态：未开始。目标 `2.3.3` / `develop/2.3.3`，分配以[总方案](Phase-21-总实施方案.md)为准。
 > 主要结果：对完成 2.3.2 的冻结候选执行一次 S01～S07，核验真实发布证据，按实际结果收口。
 
+> 2026-10-06 文档维护修订：收口事实集中到能力状态与本阶段合同，导航只按需维护链接；
+> 批次分配、S01～S07、候选身份、90/180 分钟预算与完成门禁保持原合同。
+
 ## 1. 进入条件与允许文件
 
 02 的 D01～D05、实际 preflight、同名日志及完成提交已进入 main。Linux amd64、Docker Compose v2、既有工具链与候选仓库可用；03 工具的 `--help`/self-test、身份/schema、失败传播与清理已经实现。任何缺口先停止本批，不边验收边开发工具。
@@ -12,11 +15,14 @@
 | 允许修改 | 精确文件/路径 |
 | --- | --- |
 | 实际日志与白名单发布证据 | `dev/logs/Phase-21/Phase-21-03-定向验收与阶段收口.md`；`dev/logs/Phase-21/Phase-21-03-evidence/` 内 `candidate.json`、`cases.json`、`cleanup.json`、`summary.json`、`publication.json`（由 02 工具实际安全 schema 生成） |
-| 当前事实与阶段导航 | `dev/status/capability-status.md`、`dev/phases/Phase-21-用户业务与管理服务分离.md`、`dev/phases/README.md`、`dev/phases/Plan.md`、`dev/README.md`、`docs/README.md`、`README.md` |
+| 当前能力事实 | `dev/status/capability-status.md`；只登记实际交付、候选证据与限制 |
+| 按需修复导航链接 | `dev/phases/Phase-21-用户业务与管理服务分离.md`、`dev/phases/README.md`、`dev/README.md`、`docs/README.md`、`README.md`；链接仍有效时无需修改，不复制版本分配、执行状态或验收数值 |
 | 本阶段合同的实际完成标记 | 本总方案/本分方案；只能登记结果与偏差，不追溯弱化验收标准 |
 | 成功后的版本元数据 | `VERSION`、`.env.example` 的版本字段、两个前端的 `package.json`/`package-lock.json`、`deploy/runtime-contracts.json` 的产品版本字段 |
 
 产品/测试/工具源码、正式配置与历史日志不在允许范围。若出现需修正的产品或验收工具失败，先保存候选/结果及归属清理，停止正式矩阵；形成合法的新修复合同与有限预算后才可修正，不能在本批偷改候选或手修 evidence。
+
+`dev/phases/Plan.md` 保留 2026-10-05 历史快照，不属于本批收口修改范围。
 
 本批完成版本 `2.3.3` 仅登记验收与版本元数据；实际被测制品是冻结的 `2.3.2`。收口文档必须区分这两者，不声称测试过重新标成 2.3.3 的镜像。元数据提交不替换 candidate tags，也不产生未执行的发布回执。
 
@@ -90,4 +96,4 @@ rtk proxy python3 scripts/ci/validate_branch.py --branch develop/2.3.3 --base-re
 rtk git diff --check
 ```
 
-完成条件：冻结同一候选 S01～S07 全部 passed、formal execution complete、归属清理完整、选定脱敏证据严格验证；同步实际能力/阶段状态和同名日志，成功后 `VERSION=2.3.3` 及登记元数据同步并提交。本阶段只声明业务/管理运行与代表性流程/单侧停止通过；共享 MySQL 故障、状态层 HA、独立 dispatcher、多目标、容量与长期稳定仍未验证。
+完成条件：冻结同一候选 S01～S07 全部 passed、formal execution complete、归属清理完整、选定脱敏证据严格验证；登记能力状态、本阶段合同完成标记和同名日志，导航仅按需修复链接，成功后 `VERSION=2.3.3` 及登记元数据同步并提交。本阶段只声明业务/管理运行与代表性流程/单侧停止通过；共享 MySQL 故障、状态层 HA、独立 dispatcher、多目标、容量与长期稳定仍未验证。
