@@ -4,6 +4,15 @@ These instructions apply to implementation plans under `dev/imple/`. The reposit
 [AGENTS.md](../../AGENTS.md) remain authoritative; do not duplicate or weaken their time, branch,
 version, acceptance, evidence, or completion constraints.
 
+## Required Test and Acceptance Planning
+
+Before creating or revising an implementation plan, read and apply
+[Test and Acceptance Planning Rules](../validation/AGENTS.md). Each split plan must map changed
+behavior to existing coverage, concrete gaps, the lowest effective test layer, reused tooling,
+permitted file changes and fixed gates. New stage numbers do not justify new executors; additions
+and retirements require the necessity and coverage evidence defined there. Preserve allocated
+acceptance contracts until an explicit plan revision changes them.
+
 ## Required Execution Budget
 
 Every new or revised split plan must contain the following concrete fields before execution:
