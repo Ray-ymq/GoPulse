@@ -19,6 +19,7 @@
 | 角色与依赖配置 | `backend/internal/config/config.go`、`config_test.go`；新增同目录 `service_role.go`、`service_role_test.go` |
 | API/准入 | `backend/internal/http/api.go`、`router.go`、`router_test.go`、`router_auth_test.go`、`component_metrics_test.go`；新增同目录 `router_roles_test.go` |
 | 受影响管理回归 | `backend/internal/http/router_metrics_test.go`、`router_logs_test.go`、`router_events_test.go`、`router_alerts_test.go`、`router_exporter_plugin_test.go` |
+| 最小真实依赖夹具 | `backend/internal/integrationtest/environment.go`（仅在现有隔离校验不足以支持角色测试时补充，不修改 CI 全局服务） |
 | 运行环境/指标的角色验证 | `componentmetrics/runtime.go`、`runtime_test.go`、`config.go`、`backend_test.go` |
 | 说明 | `backend/README.md`、`dev/contracts/runtime-contracts.md`、`dev/status/capability-status.md` |
 | 完成时元数据 | `VERSION`、`.env.example` 的版本字段、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json`、`deploy/runtime-contracts.json` 的产品版本字段 |
@@ -39,26 +40,34 @@
 
 回退为选择 combined 并使用旧 Compose；不需要数据迁移。回退不会撤销平台实际做过的角色、插件或告警变更，操作仍服从既有持久状态/审计合同。
 
-## 4. 固定门禁与命令
+## 4. 已有覆盖、缺口与固定门禁
+
+| 改变的行为 | 已有覆盖与具体缺口 | 最低有效层 / 本批补充 / gate |
+| --- | --- | --- |
+| 三角色的配置、路由、依赖与任务 | `backend/internal/config/config_test.go`、`backend/internal/http/router_test.go`、`backend/cmd/server/main_test.go` 已覆盖配置、路由和关停；缺少角色选择及未使用依赖不创建的断言 | Go 单元补 `roles_test.go`、`service_role_test.go`、`router_roles_test.go`；真实进程补 `roles_integration_test.go`。R01/R03/R04 |
+| 既有会话、实时授权与管理接口 | `backend/internal/http/router_auth_test.go`、`management_handler_test.go`、`auth_integration_test.go` 及各 `router_*_test.go` 已覆盖账号/管理行为；缺少跨两个装配的同 Cookie 与路由互斥 | 复用现有断言，在允许的新角色测试补跨装配成功、401/403、降级及引导账号保护；不重写领域用例。R01/R04 |
+| 独立准入与探针 | `router_test.go` 的 `TestAPIBusinessAdmissionDoesNotConsumeProbeSlot` 已用 started/release channel 持有测试 handler，证明满额 503、探针可用和释放；缺少两角色实际限额与互不共享槽位 | 在 `router_roles_test.go` 补 `TestServiceRoleAdmissionIsolation`，沿用该夹具及实际 router/准入接线。R01/R03；03 同候选复核 |
+| 生命周期与固定指标 | `backend/cmd/server/main_test.go` 已覆盖有界退出，`componentmetrics/runtime_test.go`、`backend_test.go` 覆盖运行配置与准入信号；缺少角色资源只启动/只关闭一次 | 扩展已有生命周期/指标检查及真实进程起停；不扩指标目录。R02/R03/R04 |
+
+`TestServiceRoleAdmissionIsolation` 是待实现的固定行为测试：按 business=128、platform=32 的实际角色配置构造两个独立 router；逐一确认 N 个请求已进入测试 handler，再断言 N+1 返回既有 `503 backend_busy`、另一角色与四探针可用、释放后恢复。每角色阻塞最多 10 秒，所有 goroutine 有界回收。handler 仅定义在测试内，不加入产品路由，也不依赖数据库延迟注入。这证明准入及隔离语义；实际容器使用同样限额由 02/03 核对。
 
 下面新增测试名为**本批待实现接口**；必须先可执行，真实依赖不可用不能用 skip 代替通过。现有命令使用当前 Go/Python 工具链，在 Linux amd64 记录结果。
 
 | gate | 检查/命令 | 通过条件与证据 |
 | --- | --- | --- |
-| R01 | `rtk go -C backend test ./cmd/server ./internal/config ./internal/http` | 三角色配置、有限路由/权限、准入与装配任务检查通过；保存命令、退出码、测试输出 |
+| R01 | `rtk go -C backend test ./cmd/server ./internal/config ./internal/http` | 三角色配置、有限路由/权限、`TestServiceRoleAdmissionIsolation` 与装配任务检查通过；保存命令、退出码、测试输出 |
 | R02 | `rtk go -C componentmetrics test ./...` | 受影响环境验证、固定目录/探针/Backend 指标合同回归通过；不增加开放标签 |
 | R03 | `rtk go -C backend test -race ./cmd/server ./internal/config ./internal/http` | 新装配生命周期及准入无已检出的竞争；不扩大为全项目 race 审计 |
 | R04 | `rtk go -C backend test -tags integration ./cmd/server -run '^TestIntegrationBackendServiceRoles$' -count=1 -timeout=180s -v`（新增） | 每角色真实启动/就绪/退出及最小账号权限验证通过，所有子案例实际执行 |
 | R05 | 完成候选执行 `rtk proxy python3 scripts/ci/validate_versions.py`、`rtk proxy python3 scripts/ci/validate_branch.py --branch develop/2.3.1 --base-ref upstream/main`、`rtk git diff --check` | 版本同步、唯一分配和 diff 检查通过；完成前不提前改 VERSION |
 
-R04 新测试使用归属独立的 MySQL Schema/账户；business/combined 另用必要 Redis、RabbitMQ、业务 ES，platform 验证这些业务依赖未配置/不可达时仍可装配。不因共享测试夹具启动全套管理后端；查询真实闭环留给 03。若真实就绪策略需要某依赖，仅启动该直接依赖并记录原因。
+R04 复用 `backend/internal/integrationtest/environment.go` 的安全约束与 `.github/workflows/quality-gates.yml` 中 integration job 的既有服务/迁移配方：`INTEGRATION_TESTS=1`、`APP_ENV=test`、独立 `gopulse_integration` MySQL 库/账户、Redis DB 15 及既有凭证变量。现有 helper 只校验环境，不负责创建。执行者在自有临时项目/数据卷中准备 MySQL、Redis、RabbitMQ、业务 ES，显式 loopback 非默认端口，迁移后才运行 Go 命令；准备最多 10 分钟，计入本批预算，不藏在 180 秒测试期限中。不得指向现有开发/生产数据。platform 子案例验证业务依赖未配置/不可达时仍能装配，不启动全套管理后端；查询闭环留给 03。需要额外就绪依赖时先记录直接原因及成本。
 
 | R04 子案例 | 固定动作与期限 | 证据/失败归属 |
 | --- | --- | --- |
 | R04-a | 三角色各一次启动；进程就绪最多 30 秒，SIGTERM 后最多 5 秒退出；夹具建立最多 10 分钟 | 探针状态、进程退出码、资源关闭/残留清单；启动语义不符为 product_failure，夹具失败为 infrastructure_failure |
 | R04-b | 从实际 router 获取模板，断言两组路由的互斥及 combined 并集；错误角色 API 404 | 有限路由清单与代表性真实 HTTP；不能只测配置枚举 |
 | R04-c | 同一真实账号 Cookie：业务 current-user 正常、管理 user 403、管理员管理成功、降级后原会话 403、引导账号不可降级 | 状态/响应摘要及数据库角色结果；不发布 Cookie/密码 |
-| R04-d | 两角色低槽位测试各一次，持有请求最多 10 秒；只证明满额 503、另一角色/探针可用和释放后恢复 | 实际 handler/准入状态，测试用延迟依赖而非生产调试 API；不测吞吐/性能 |
 
 必须回归现有注册/登录/退出/角色校验、业务写入路径及管理查询/插件/告警路由的受影响行为。沿用已有测试，仅新增改变的装配/权限/生命周期边界，不为未改领域建立覆盖率计划。R04 不替代 S03/S04 的全链路结果。
 
@@ -75,7 +84,7 @@ R04 新测试使用归属独立的 MySQL Schema/账户；business/combined 另�
 | 证据、日志、提交与安全清理 | 10 | 20 |
 | 合计 | 120 | 180 |
 
-实验成本为 3 角色 ×（最多 30 秒就绪 + 5 秒退出）+ 2 × 最多 10 秒槽位保持，必要固定观察不足 3 分钟；加账号/路由操作、夹具准备最多 10 分钟、检查与清理开销计入上表。没有长时测量或稳定性结论。每次命令设期限，夹具建立或构建超过阶段预算先停，不无限等候。
+实验成本为 3 角色 ×（最多 30 秒就绪 + 5 秒退出），另计 Go 准入测试 2 × 最多 10 秒阻塞；必要固定观察不足 3 分钟。账号/路由操作、夹具准备最多 10 分钟、检查与清理开销计入上表。没有长时测量或稳定性结论。每次命令设期限，夹具建立或构建超过阶段预算先停，不无限等候。
 
 同一未解决原因最多两次、每次最多 10 分钟最小诊断，包含在 180 分钟内。第一次基础设施失败停止 R04 整组，先复现最小边界；没有实际修正不重跑整组。产品失败修正后记录源文件→构建产物→受影响 gate，只重建相应 Backend/测试产物，复用未变配置和直接检查。
 
