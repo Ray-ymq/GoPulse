@@ -62,6 +62,11 @@ class BranchGovernanceTests(unittest.TestCase):
             ".github/workflows/ci.yml",
             "scripts/ci/validate_branch.py",
             "AGENTS.md",
+            "backend/README.md",
+            "monitor/README.md",
+            "router/README.md",
+            "marshaller/README.md",
+            "deploy/release/README.md",
         ]
         self.assertEqual(validate(self.repo, "update", None, files), [])
 
