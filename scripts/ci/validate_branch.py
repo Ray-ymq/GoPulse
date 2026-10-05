@@ -28,13 +28,14 @@ UPDATE_ROOT_FILES = {
     "README.md",
 }
 UPDATE_PREFIXES = (".github/", "dev/", "docs/", "scripts/ci/")
-# Module navigation edits are documentation organization, permitted by AGENTS.md.
+# Module navigation and scoped repository rules are permitted by AGENTS.md.
 UPDATE_DOCUMENTATION_FILES = {
     "backend/README.md",
     "monitor/README.md",
     "router/README.md",
     "marshaller/README.md",
     "deploy/release/README.md",
+    "scripts/AGENTS.md",
 }
 
 
