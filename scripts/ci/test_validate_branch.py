@@ -63,6 +63,7 @@ class BranchGovernanceTests(unittest.TestCase):
             "scripts/ci/validate_branch.py",
             "AGENTS.md",
             "backend/README.md",
+            "admin-frontend/README.md",
             "monitor/README.md",
             "router/README.md",
             "marshaller/README.md",
@@ -71,9 +72,10 @@ class BranchGovernanceTests(unittest.TestCase):
         self.assertEqual(validate(self.repo, "update", None, files), [])
 
     def test_rejects_update_application_changes_and_version(self) -> None:
-        errors = validate(self.repo, "update", None, ["backend/main.go", "frontend/src/App.vue", "VERSION"])
+        errors = validate(self.repo, "update", None, ["backend/main.go", "frontend/src/App.vue", "admin-frontend/src/main.ts", "VERSION"])
         self.assertIn("backend/main.go", errors[0])
         self.assertIn("frontend/src/App.vue", errors[0])
+        self.assertIn("admin-frontend/src/main.ts", errors[0])
         self.assertIn("VERSION", errors[0])
 
     def test_rejects_duplicate_authoritative_allocation(self) -> None:
