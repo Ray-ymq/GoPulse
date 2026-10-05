@@ -25,10 +25,10 @@ Metrics/Logs/Events, internal alerts, Linux Compose/Bundle delivery and bounded 
 The Backend, Worker, Indexer, Router and Marshaller have two-replica compute deployments;
 this does not establish state-layer HA or production capacity guarantees.
 
-Phase 20 batches 01–04 are complete. [Batch 05](dev/imple/Phase-20/Phase-20-05-资源预算与观测开销.md)
-remains unfinished at its recorded failure checkpoint; [batch 06](dev/imple/Phase-20/Phase-20-06-完整验收与阶段收口.md)
-has not started. The [total implementation plan](dev/imple/Phase-20/Phase-20-总实施方案.md) retains its allocated contract.
-Documentation organization does not resume execution or declare unfinished work complete.
+Phase 20 ends at `2.2.4` with completed batches 01–04, following the scope change on 2026-10-05.
+Unfinished batch 05 and unstarted batch 06 are cancelled; their implementation files have been removed.
+The [total implementation plan](dev/imple/Phase-20/Phase-20-总实施方案.md) records the revised scope
+and historical failures. Resource-budget and final sustained acceptance remain unverified.
 
 <details>
 <summary>Implementation background through Phase 19</summary>
@@ -634,8 +634,8 @@ Logs/Events retention, ownership-safe deletion, late-record permanent handling,
 real Elasticsearch deletion/race evidence, native VictoriaMetrics retention
 configuration and bounded Collector Trace artifacts. Its short-window evidence
 does not claim immediate VictoriaMetrics physical reclaim or long-term Trace
-storage; resource budgets and final sustained acceptance remain in Phase-20-05
-and 06.
+storage. Resource budgets and final sustained acceptance were withdrawn from
+Phase 20 on 2026-10-05 and remain unverified; any future work requires a new implementation plan.
 
 </details>
 
