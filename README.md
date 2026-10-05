@@ -30,6 +30,10 @@ Unfinished batch 05 and unstarted batch 06 are cancelled; their implementation f
 The [total implementation plan](dev/imple/Phase-20/Phase-20-总实施方案.md) records the revised scope
 and historical failures. Resource-budget and final sustained acceptance remain unverified.
 
+[Phase 21](dev/imple/Phase-21/Phase-21-总实施方案.md) is planned, with three batches for
+Backend runtime roles, split-service deployment, and focused frozen-candidate acceptance.
+It allocates `2.3.1`–`2.3.3`; implementation has not started. The completed version remains `2.2.4`.
+
 <details>
 <summary>Implementation background through Phase 19</summary>
 
