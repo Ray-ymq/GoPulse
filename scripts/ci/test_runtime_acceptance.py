@@ -4,7 +4,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from runtime_acceptance import Acceptance
 from verify_runtime_contracts import ROOT, sha256_file, validate_split_evidence, publish_split_evidence, verify_split_publication
 
 
@@ -59,6 +61,26 @@ class RuntimeAcceptanceTests(unittest.TestCase):
             evidence['cases'].pop('S07')
             with self.assertRaises(ValueError):
                 validate_split_evidence(evidence, root.parent.parent)
+
+    def test_strict_preflight_evidence_binds_manifest_digest(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.run') as directory:
+            root = Path(directory)
+            evidence = self.raw_evidence(root.parent.parent, run=root, mode='preflight', manifest='sha256:' + 'c' * 64)
+            validate_split_evidence(evidence, root.parent.parent)
+            evidence['manifest_sha256'] = 'not-a-digest'
+            with self.assertRaises(ValueError):
+                validate_split_evidence(evidence, root.parent.parent)
+
+    def test_clean_checkout_creates_private_run_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '.env.example').write_text('APP_ENV=test\nVICTORIAMETRICS_PASSWORD=test-password\n')
+            with patch('runtime_acceptance.ROOT', root), \
+                 patch('runtime_acceptance.load', return_value={}), \
+                 patch('runtime_acceptance.command', return_value=subprocess.CompletedProcess([], 0, stdout=b'HEAD\n', stderr=b'')):
+                acceptance = Acceptance('2.3.2')
+            self.assertTrue(acceptance.work.is_dir())
+            self.assertEqual(acceptance.work.parent, root / '.run')
 
     def test_publication_binds_formal_evidence_and_raw_hashes(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.run') as directory:

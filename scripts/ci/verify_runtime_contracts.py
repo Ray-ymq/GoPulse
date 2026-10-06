@@ -425,9 +425,12 @@ def validate_split_evidence(evidence: dict[str, Any], root: Path = ROOT, candida
         for key in ("stdout", "stderr"):
             _evidence_path(root, command.get(key, ""))
     preflight = evidence.get("preflight")
+    manifest_sha = evidence.get("manifest_sha256")
+    if manifest_sha is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(manifest_sha)):
+        raise ValueError("runtime evidence manifest digest is invalid")
     if mode == "preflight":
-        if evidence.get("manifest_sha256") is not None or not isinstance(preflight, dict):
-            raise ValueError("preflight evidence must not claim a manifest")
+        if not isinstance(preflight, dict):
+            raise ValueError("preflight evidence is missing admission result")
         if tuple(preflight.get("logical_argv", ())) != ("go", "-C", "backend", "test", "./internal/http", "-run", "^TestServiceRoleAdmissionIsolation$", "-count=1", "-timeout=60s", "-v"):
             raise ValueError("preflight admission command drift")
         if preflight.get("exit_code") != 0 and status == "passed":
