@@ -16,6 +16,9 @@
 
 - `scripts/ci/release_artifacts.py`：补齐已冻结 Compose 服务到逻辑镜像的显式别名。
 - `scripts/ci/test_release_artifacts.py`：增加映射闭包回归测试，覆盖所有副本别名、`platform-api`、初始化服务和 `observability-elasticsearch`，并确认未知服务仍被拒绝。
+- `scripts/ci/runtime_acceptance.py`：允许 Phase-21-03 严格 preflight 绑定同一 candidate manifest，并在 formal 模式拒绝未绑定 manifest 的旧式 preflight receipt；保留 02 的无 manifest 源码 preflight 兼容性。
+- `scripts/ci/verify_runtime_contracts.py`：允许并校验严格 preflight receipt 的 manifest digest 字段，继续拒绝格式错误或 formal 证据缺少 manifest/preflight 绑定。
+- `scripts/ci/test_runtime_acceptance.py`：保护严格 preflight evidence 的 manifest digest 合同。
 
 不修改产品源码、Compose、运行合同、manifest schema、正式验收入口或验收标准；不手工生成/修补 candidate、receipt、summary 或 publication。
 
@@ -25,14 +28,15 @@
 2. `python3 -m unittest discover -s scripts/ci -p 'test_release_*.py'` 通过。
 3. `python3 -m unittest discover -s scripts/ci -p 'test_runtime_*.py'` 通过。
 4. `python3 scripts/ci/verify_runtime_contracts.py --candidate 2.3.2` 通过。
-5. 在修复后的同一提交上重新构建全新 candidate；Bundle manifest 的 Compose 映射闭包、digest、source revision 和校验均通过。失败 candidate 不得继续进入正式验收。
+5. 严格 manifest preflight CLI 能接受 `--manifest`，生成的 preflight receipt 带有 manifest digest；formal runner 只接受与该 manifest 相同 digest 的 preflight receipt；旧式无 manifest preflight 仍可被单独识别但不能解锁 formal candidate。
+6. 在修复后的同一提交上重新构建全新 candidate；Bundle manifest 的 Compose 映射闭包、digest、source revision 和校验均通过。失败 candidate 不得继续进入正式验收。
 
 修复门禁通过后，按原 Phase-21-03 顺序重新执行 preflight、正式 S01～S07、receipt verifier、publication 和 publication verifier。旧的失败构建输出只保留为历史失败证据，不与新候选拼接。
 
 ## 4. 执行预算与停止条件
 
-- 本修复预计活跃时间 25 分钟，阶段上限 45 分钟；Phase-21-03 的累计上限仍为 180 分钟，之前约 10 分钟继续计入，不因新候选或新提交重置。
-- 预算分配：发现/合同登记 5 分钟（已完成）、实现 10 分钟、直接回归 10 分钟、修复后候选重建与 Bundle 核验 20 分钟。正式验收继续使用原方案剩余预算。
+- 本修复预计活跃时间 35 分钟，阶段上限 65 分钟；Phase-21-03 的累计上限仍为 180 分钟，之前约 20 分钟继续计入，不因新候选或新提交重置。
+- 预算分配：发现/合同登记 5 分钟（已完成）、实现 20 分钟、直接回归 10 分钟、修复后候选重建与 Bundle 核验 30 分钟。正式验收继续使用原方案剩余预算。
 - 已完成首次失败后的最小诊断；不再进行同一原因的无界尝试。若修复后映射闭包、构建或直接回归再次失败，立即保存结果并停止正式矩阵，最多只做一次不超过 10 分钟的受影响边界诊断。
 - 若累计成本达到 90/144 分钟，报告已完成门禁、剩余预算和下一步；达到 180 分钟或剩余预算不足以完成下一条命令及安全清理时停止，不更新完成版本、不生成完成提交。
 

@@ -60,6 +60,15 @@ class RuntimeAcceptanceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_split_evidence(evidence, root.parent.parent)
 
+    def test_strict_preflight_evidence_binds_manifest_digest(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / '.run') as directory:
+            root = Path(directory)
+            evidence = self.raw_evidence(root.parent.parent, run=root, mode='preflight', manifest='sha256:' + 'c' * 64)
+            validate_split_evidence(evidence, root.parent.parent)
+            evidence['manifest_sha256'] = 'not-a-digest'
+            with self.assertRaises(ValueError):
+                validate_split_evidence(evidence, root.parent.parent)
+
     def test_publication_binds_formal_evidence_and_raw_hashes(self):
         with tempfile.TemporaryDirectory(dir=ROOT / '.run') as directory:
             run = Path(directory)
