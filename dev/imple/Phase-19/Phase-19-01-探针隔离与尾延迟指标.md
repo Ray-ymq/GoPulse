@@ -26,7 +26,7 @@
 | `backend/internal/http/router.go`、`backend/internal/http/router_test.go` | 探针与 API 路由边界可单测且不改变认证/授权 |
 | `deploy/compose.yaml` | 两个 Backend healthcheck 使用直接私有探针，端口仍不发布到宿主 |
 | `deploy/runtime-contracts.json`、`deploy/runtime-contracts.schema.json` | 探针路径、监听器和新增容量信号与实际一致 |
-| `docs/runtime-contracts.md`、`docs/component-metrics.md` | 说明准入/探针隔离、桶、标签、查询和兼容边界 |
+| `dev/contracts/runtime-contracts.md`、`dev/contracts/component-metrics.md` | 说明准入/探针隔离、桶、标签、查询和兼容边界 |
 | `componentmetrics/backend.go`、`componentmetrics/backend_test.go` | 无客户端动态标签；固定桶、当前并发、上限、拒绝计数并发安全且有界 |
 | `componentmetrics/catalog.go`、`componentmetrics/registry.go`、`componentmetrics/registry_test.go`、`componentmetrics/validation.go` | 指标目录和快照严格表达分布族，拒绝缺桶、乱桶、非法 kind/label |
 | `monitor/internal/metrics/collector/components.go`、`monitor/internal/metrics/collector/components_test.go`、`monitor/internal/metrics/collector/cluster_contract_test.go` | 完整接收合法分布族并拒绝不完整或越界样本 |
@@ -37,7 +37,7 @@
 | `componentmetrics/cmd/catalog/main.go`、`admin-frontend/src/services/componentMetrics.ts` | 生成结果确定，管理端严格合同与 Go 目录一致 |
 | `scripts/ci/verify_component_metrics.py` | 校验生成合同、完整链路和桶/标签负例 |
 | `scripts/verify-plugin-metrics.sh` | 真实链路证明新 Backend 分布和饱和度指标可写入、可查询 |
-| `README.md`、`docs/capability-status.md` | 只声明本批实际证明的诊断能力，不声明容量达标 |
+| `README.md`、`dev/status/capability-status.md` | 只声明本批实际证明的诊断能力，不声明容量达标 |
 | `dev/logs/Phase-19/Phase-19-01-探针隔离与尾延迟指标.md` | 记录实际文件、检查、结果、偏差和限制 |
 | `VERSION`、`.env.example`、`frontend/package.json`、`frontend/package-lock.json`、`admin-frontend/package.json`、`admin-frontend/package-lock.json` | 完成时六处版本一致为 `2.1.1` |
 

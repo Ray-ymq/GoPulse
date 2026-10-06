@@ -43,7 +43,7 @@
 
 规划内可新增 scripts/ci/phase20_optimization.py、scripts/ci/test_phase20_optimization.py、
 scripts/verify-phase20-optimization.sh、loadtest/phase20-optimization-profile.json、
-loadtest/phase20-optimization-profile.schema.json 和 docs/phase20-optimization.md。
+loadtest/phase20-optimization-profile.schema.json 和 dev/validation/Phase-20/phase20-optimization.md。
 同时允许 scripts/ci/phase20_evidence.py、test_phase20_evidence.py（同 scripts/ci）及
 scripts/verify-phase20-evidence.py 增加本批模式/原值/撤回身份的严格校验。
 产品文件必须经第 1 节解锁后补入本文件；日志、版本与状态文件遵循总方案封闭规则。
