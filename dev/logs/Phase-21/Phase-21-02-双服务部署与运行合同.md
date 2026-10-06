@@ -20,6 +20,7 @@
 - `backend/cmd/server/main.go`
 - `backend/cmd/server/roles.go`
 - `backend/cmd/server/roles_test.go`
+- `backend/internal/http/router_roles_test.go`
 - `componentmetrics/probe.go`
 - `componentmetrics/runtime.go`
 - `componentmetrics/runtime_test.go`
@@ -65,6 +66,7 @@
 - D04 回执核验：`rtk proxy python3 scripts/ci/verify_runtime_contracts.py --evidence .run/phase21-02-preflight-20261006-r9/receipt.json` 返回 `status=passed`。
 - CI 失败修复后的本地回归：`python3 -m unittest discover -s scripts/ci -p 'test_*.py'` 通过 166 个测试；Marshaller、Monitor 全量包测试及 Backend 受影响包测试通过；`python3 scripts/ci/verify_runtime_contracts.py --candidate 2.3.2`、`python3 scripts/ci/verify_admin_frontend.py --self-test` 均通过。
 - 修复前直接运行 `bash scripts/verify-compose.sh` 被其 clean-source 前置条件拒绝（工作区包含当前修复，未进入 Docker）。修复提交形成干净候选后再次运行并进入镜像构建，但本机在 Acceptance 镜像的 Alpine `apk add` 阶段无输出等待约 11 分钟；按边界安全中止（exit 130），清理钩子确认未留下临时容器、网络、卷或验收镜像。未将该本机网络/镜像源阻塞记为产品验收通过。
+- 修复提交触发的 CI run `37463700585` 中 Backend job 暴露 `TestServiceRoleAdmissionIsolation` 只等待一个 held request 的异步测试收尾缺陷；补齐按请求数等待并以 `go test -count=100 ./internal/http -run '^TestServiceRoleAdmissionIsolation$' -timeout=120s` 复现回归通过。该 run 在发现 Backend 失败后取消，未复用其余仍运行的全栈结果。
 - 在 D04 最终回执前还执行了两次完整通过的源码预检：r8 在元数据同步前通过；其证据未作为最终回执使用。r7 的 S01～S07 通过但受到另一个临时 Compose 项目同时出现的归属清理干扰，按基础设施失败处理并未复用。
 
 ## 偏差、诊断与修正
@@ -76,6 +78,7 @@
 - 一次直接用模块名调用 `python3 -m unittest scripts.ci.test_runtime_acceptance -v` 因测试模块路径不在 `sys.path` 失败；改用计划中的 discover 入口后通过。该失败不涉及产品代码。
 - 推送 `7263380` 后的 GitHub Actions run `37443539540` 暴露了干净 CI 工作区中 `.run` 临时根目录未创建、Nginx 自检数量未随新增通用插件路由更新、Marshaller/Monitor 测试仍断言旧 runtime contract，以及全栈探针从业务容器读取平台专属 Monitor token 等问题；这些失败分别在 Branch governance、Scripts and Compose、Marshaller、Monitor 和 Full-stack Compose job 中复现。
 - 修复为由运行验收测试创建 `.run` 根目录、将上传入口自检更新为 9 个、把健康响应断言对齐 runtime contract v2，并将内部管理探针执行容器改为 `platform-api`。没有把 `MONITOR_API_TOKEN` 注入业务角色，保留业务/平台凭据边界；同时同步 `scripts/verify.sh` 的平台查询入口。
+- 修复 Backend 测试为等待全部并发 admission 请求完成后再结束用例，避免 CI 慢环境中测试返回后残留 goroutine 调用 `testing.T`。
 
 ## 已知限制与后续
 
