@@ -60,3 +60,9 @@
 - R03：通过。直接执行 backend race 测试，并在最终准入夹具清理调整后复跑。
 - R04：通过。独立 MySQL 夹具下三角色真实进程测试通过；夹具与子进程均已清理。
 - R05：通过。`validate_versions.py`、`validate_branch.py` 和 `git diff --check` 均通过；另行执行 `verify_runtime_contracts.py --candidate 2.3.1` 通过。由于环境没有 `rtk`，固定命令使用等价直接入口。
+
+## PR 集成回归修正
+
+- PR #216 的第一次 GitHub Integration job 在迁移阶段失败，原因是集成测试无条件把 MySQL 端口改为本地隔离端口 `13306`，覆盖了 GitHub Actions 既有服务的 `3306` 配置；不是 Backend 角色装配失败。
+- 修正 `roles_integration_test.go`：GitHub Actions 沿用现有服务环境，本地执行仍使用显式 loopback 非默认端口；增加默认环境变量填充，避免覆盖 CI 的隔离凭据和端口。
+- 修正后执行普通 Backend 编译测试，以及使用 `GITHUB_ACTIONS=true`、CI 端口映射和新鲜 MySQL 夹具的 R04 兼容性复现：均通过；临时容器已清理。远程 PR 的新一轮 Integration job 待本修正提交触发。

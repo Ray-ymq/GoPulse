@@ -255,31 +255,47 @@ func integrationEnvironment(t *testing.T) []string {
 	setEnvironment(&environment, "INTEGRATION_TESTS", "1")
 	setEnvironment(&environment, "APP_ENV", "test")
 	setEnvironment(&environment, "GOPULSE_RUNTIME_MODE", "host")
-	setEnvironment(&environment, "MYSQL_HOST", "127.0.0.1")
-	setEnvironment(&environment, "MYSQL_PORT", "13306")
-	setEnvironment(&environment, "MYSQL_DATABASE", "gopulse_integration")
-	setEnvironment(&environment, "MYSQL_USER", "gopulse_integration")
-	setEnvironment(&environment, "MYSQL_PASSWORD", "integration-mysql")
-	setEnvironment(&environment, "MYSQL_MAX_IDLE_CONNS", "2")
-	setEnvironment(&environment, "MYSQL_TOTAL_MAX_OPEN_CONNS", "60")
-	setEnvironment(&environment, "REDIS_HOST", "127.0.0.1")
-	setEnvironment(&environment, "REDIS_PORT", "16379")
-	setEnvironment(&environment, "REDIS_PASSWORD", "integration-redis")
-	setEnvironment(&environment, "REDIS_DB", "15")
-	setEnvironment(&environment, "RABBITMQ_URL", "amqp://integration:integration@127.0.0.1:15672/")
-	setEnvironment(&environment, "ELASTICSEARCH_URL", "http://127.0.0.1:19200")
-	setEnvironment(&environment, "OBSERVABILITY_ELASTICSEARCH_URL", "http://127.0.0.1:19201")
-	setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_URL", "http://127.0.0.1:18428")
-	setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_USERNAME", "gopulse-integration")
-	setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_PASSWORD", "integration-victoriametrics-password-32-bytes")
-	setEnvironment(&environment, "MONITOR_URL", "http://127.0.0.1:19090")
-	setEnvironment(&environment, "MONITOR_API_TOKEN", "integration-monitor-token-at-least-32-bytes")
-	setEnvironment(&environment, "AUTH_JWT_SECRET", "integration-jwt-secret-at-least-32-bytes-long")
-	setEnvironment(&environment, "AUTH_JWT_TTL", "2h")
-	setEnvironment(&environment, "AUTH_COOKIE_NAME", "gopulse_integration_session")
-	setEnvironment(&environment, "AUTH_COOKIE_SECURE", "false")
-	setEnvironment(&environment, "BACKEND_METRICS_TOKEN", "phase21-backend-metrics-token-0123456789")
-	setEnvironment(&environment, "ALERT_EVALUATION_ENABLED", "false")
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		setDefaultEnvironment(&environment, "MYSQL_HOST", "127.0.0.1")
+		setDefaultEnvironment(&environment, "MYSQL_PORT", "3306")
+		setDefaultEnvironment(&environment, "MYSQL_DATABASE", "gopulse_integration")
+		setDefaultEnvironment(&environment, "MYSQL_USER", "gopulse_integration")
+		setDefaultEnvironment(&environment, "MYSQL_PASSWORD", "integration-mysql")
+		setDefaultEnvironment(&environment, "REDIS_HOST", "127.0.0.1")
+		setDefaultEnvironment(&environment, "REDIS_PORT", "6379")
+		setDefaultEnvironment(&environment, "REDIS_PASSWORD", "integration-redis")
+		setDefaultEnvironment(&environment, "REDIS_DB", "15")
+		setDefaultEnvironment(&environment, "RABBITMQ_URL", "amqp://integration:integration@127.0.0.1:5672/")
+		setDefaultEnvironment(&environment, "ELASTICSEARCH_URL", "http://127.0.0.1:9200")
+		setDefaultEnvironment(&environment, "BACKEND_VICTORIAMETRICS_PASSWORD", "integration-victoriametrics-password-32-bytes")
+		setDefaultEnvironment(&environment, "MONITOR_API_TOKEN", "integration-monitor-token-at-least-32-bytes")
+	} else {
+		setEnvironment(&environment, "MYSQL_HOST", "127.0.0.1")
+		setEnvironment(&environment, "MYSQL_PORT", "13306")
+		setEnvironment(&environment, "MYSQL_DATABASE", "gopulse_integration")
+		setEnvironment(&environment, "MYSQL_USER", "gopulse_integration")
+		setEnvironment(&environment, "MYSQL_PASSWORD", "integration-mysql")
+		setEnvironment(&environment, "REDIS_HOST", "127.0.0.1")
+		setEnvironment(&environment, "REDIS_PORT", "16379")
+		setEnvironment(&environment, "REDIS_PASSWORD", "integration-redis")
+		setEnvironment(&environment, "REDIS_DB", "15")
+		setEnvironment(&environment, "RABBITMQ_URL", "amqp://integration:integration@127.0.0.1:15672/")
+		setEnvironment(&environment, "ELASTICSEARCH_URL", "http://127.0.0.1:19200")
+		setEnvironment(&environment, "OBSERVABILITY_ELASTICSEARCH_URL", "http://127.0.0.1:19201")
+		setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_URL", "http://127.0.0.1:18428")
+		setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_USERNAME", "gopulse-integration")
+		setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_PASSWORD", "integration-victoriametrics-password-32-bytes")
+		setEnvironment(&environment, "MONITOR_URL", "http://127.0.0.1:19090")
+		setEnvironment(&environment, "MONITOR_API_TOKEN", "integration-monitor-token-at-least-32-bytes")
+	}
+	setDefaultEnvironment(&environment, "MYSQL_MAX_IDLE_CONNS", "2")
+	setDefaultEnvironment(&environment, "MYSQL_TOTAL_MAX_OPEN_CONNS", "60")
+	setDefaultEnvironment(&environment, "AUTH_JWT_SECRET", "integration-jwt-secret-at-least-32-bytes-long")
+	setDefaultEnvironment(&environment, "AUTH_JWT_TTL", "2h")
+	setDefaultEnvironment(&environment, "AUTH_COOKIE_NAME", "gopulse_integration_session")
+	setDefaultEnvironment(&environment, "AUTH_COOKIE_SECURE", "false")
+	setDefaultEnvironment(&environment, "BACKEND_METRICS_TOKEN", "phase21-backend-metrics-token-0123456789")
+	setDefaultEnvironment(&environment, "ALERT_EVALUATION_ENABLED", "false")
 	return environment
 }
 
@@ -326,6 +342,15 @@ func freeIntegrationPort(t *testing.T) int {
 func setEnvironment(environment *[]string, key, value string) {
 	unsetEnvironment(environment, key)
 	*environment = append(*environment, key+"="+value)
+}
+
+func setDefaultEnvironment(environment *[]string, key, value string) {
+	for _, entry := range *environment {
+		if strings.HasPrefix(entry, key+"=") {
+			return
+		}
+	}
+	setEnvironment(environment, key, value)
 }
 
 func unsetEnvironment(environment *[]string, key string) {
