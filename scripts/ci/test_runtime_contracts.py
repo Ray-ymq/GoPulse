@@ -16,7 +16,7 @@ class RuntimeContractTests(unittest.TestCase):
             next(f for f in d['components'][0]['environment'] if f['sensitive'])['sensitive']=False
         def alias(d):
             d['components'][0]['environment'][0]['aliases']=[{'key':'OLD_KEY','expires':''}]
-        changes=[lambda d:d['components'].pop(),lambda d:d['components'][1].update(id=d['components'][0]['id']),lambda d:d['components'][1]['listeners'][0].update(port=d['components'][0]['listeners'][0]['port']),secret,alias,lambda d:d['components'][0]['probes'].update(ready='/live'),lambda d:d['components'][0].update(stop_grace_seconds=1),lambda d:d['components'][0]['replica'].update(instances=['backend-1']),lambda d:d['components'][0]['diagnostic'].update(via_monitor=True),lambda d:d['components'][0]['budgets']['connections'][0].update(total=1),lambda d:d.update(contract_version='2')]
+        changes=[lambda d:d['components'].pop(),lambda d:d['components'][1].update(id=d['components'][0]['id']),lambda d:d['components'][1]['listeners'][0].update(port=d['components'][0]['listeners'][0]['port']),secret,alias,lambda d:d['components'][0]['probes'].update(ready='/live'),lambda d:d['components'][0].update(stop_grace_seconds=1),lambda d:d['components'][0]['replica'].update(instances=['backend-1']),lambda d:d['components'][0]['diagnostic'].update(via_monitor=True),lambda d:d['components'][0]['budgets']['connections'][0].update(total=1),lambda d:d.update(contract_version='3')]
         for change in changes:
             with self.subTest(change=change):
                 d=copy.deepcopy(self.contract);change(d)

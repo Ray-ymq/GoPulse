@@ -70,6 +70,16 @@ type roleAssembly struct {
 	closed        bool
 }
 
+// initializeMetrics makes the shared Backend exposition scrapeable for a
+// platform-only process. The platform role has no business outbox sampler;
+// its neutral outbox fields are not a business backlog observation.
+func (assembly *roleAssembly) initializeMetrics(metrics *componentmetrics.Backend) {
+	if assembly == nil || metrics == nil || assembly.profile.business {
+		return
+	}
+	metrics.ObserveOutbox(0, 0, nil)
+}
+
 func (assembly *roleAssembly) addResource(name string, close func() error) {
 	if close != nil {
 		assembly.resources = append(assembly.resources, roleResource{name: name, close: close})

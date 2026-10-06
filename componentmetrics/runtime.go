@@ -21,6 +21,16 @@ var RuntimeDefinitions = map[string]RuntimeDefinition{
 	"router": {9091, 10}, "marshaller": {9093, 10}, "monitor": {9090, 10},
 	"redis-exporter": {9121, 5}, "mysql-exporter": {9122, 5}, "rabbitmq-exporter": {9123, 5},
 	"kafka-exporter": {9124, 5}, "elasticsearch-exporter": {9125, 5}, "victoriametrics-exporter": {9126, 5},
+	// platform-api is a separately deployed Backend role. It deliberately
+	// reuses the Backend binary, metrics token, and listener contract.
+	"platform-api": {8080, 5},
+}
+
+func runtimeComponentID(component string) string {
+	if component == "platform-api" {
+		return "backend"
+	}
+	return component
 }
 
 // ValidateRuntimeEnvironment validates only common process-boundary rules.
@@ -52,7 +62,8 @@ func ValidateRuntimeEnvironment(component string) error {
 			}
 		}
 	}
-	prefix := strings.ToUpper(strings.ReplaceAll(component, "-", "_"))
+	componentID := runtimeComponentID(component)
+	prefix := strings.ToUpper(strings.ReplaceAll(componentID, "-", "_"))
 	if raw := os.Getenv(prefix + "_SHUTDOWN_TIMEOUT"); raw != "" {
 		budget, err := time.ParseDuration(raw)
 		if err != nil || budget <= 0 || budget > time.Duration(definition.ShutdownSeconds)*time.Second {
@@ -70,8 +81,8 @@ func ValidateRuntimeEnvironment(component string) error {
 			}
 		}
 	}
-	keys := []string{TokenKey(component)}
-	switch component {
+	keys := []string{TokenKey(componentID)}
+	switch componentID {
 	case "backend":
 		keys = append(keys, "AUTH_JWT_SECRET", "LOG_MONITOR_INGEST_TOKEN", "MONITOR_API_TOKEN")
 	case "business-worker", "search-indexer":
