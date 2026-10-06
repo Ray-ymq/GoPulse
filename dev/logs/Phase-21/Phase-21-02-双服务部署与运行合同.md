@@ -79,6 +79,8 @@
 - 推送 `7263380` 后的 GitHub Actions run `37443539540` 暴露了干净 CI 工作区中 `.run` 临时根目录未创建、Nginx 自检数量未随新增通用插件路由更新、Marshaller/Monitor 测试仍断言旧 runtime contract，以及全栈探针从业务容器读取平台专属 Monitor token 等问题；这些失败分别在 Branch governance、Scripts and Compose、Marshaller、Monitor 和 Full-stack Compose job 中复现。
 - 修复为由运行验收测试创建 `.run` 根目录、将上传入口自检更新为 9 个、把健康响应断言对齐 runtime contract v2，并将内部管理探针执行容器改为 `platform-api`。没有把 `MONITOR_API_TOKEN` 注入业务角色，保留业务/平台凭据边界；同时同步 `scripts/verify.sh` 的平台查询入口。
 - 修复 Backend 测试为等待全部并发 admission 请求完成后再结束用例，避免 CI 慢环境中测试返回后残留 goroutine 调用 `testing.T`。
+- 推送 `771b85a` 后的 CI run `37464174100` 中，所有快速门禁通过，但 Full-stack Compose 在 `reset_for_management` 的第二次空状态启动中，`search-init` 因一次 Elasticsearch/MySQL 依赖瞬时失败退出；此前冷启动及第一次 down/up 均通过，失败边界集中在一次性初始化没有重试。
+- 在 `deploy/compose.yaml` 为 `search-init` 增加 5 次有界重试，等待 2/4/6/8 秒并保留最终非零失败传播；没有扩大角色环境、修改健康检查或注入凭据。最小栈正常启动通过；注入错误 Elasticsearch 地址时按 5 次尝试后非零退出；`gopulse-p21diag` 项目的容器、网络和卷已清理。
 
 ## 已知限制与后续
 

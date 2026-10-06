@@ -405,8 +405,22 @@ services:
     image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never
     restart: "no"
-    entrypoint: [/usr/local/bin/search-reindex]
-    command: [--if-missing]
+    entrypoint: [/bin/sh, -c]
+    command:
+      - |
+        attempt=1
+        while [ "$$attempt" -le 5 ]; do
+          if /usr/local/bin/search-reindex --if-missing; then
+            exit 0
+          fi
+          if [ "$$attempt" -eq 5 ]; then
+            exit 1
+          fi
+          echo "search initialization attempt $$attempt failed; retrying" >&2
+          sleep $$((attempt * 2))
+          attempt=$$((attempt + 1))
+        done
+        exit 1
     environment: *search-init-environment
     depends_on:
       migrate:
