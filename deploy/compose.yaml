@@ -13,7 +13,7 @@ x-mysql-environment: &mysql-environment
   MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
   MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
 
-x-backend-environment: &backend-environment
+x-backend-common-environment: &backend-common-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-backend-local}
   GOPULSE_REPLICA_COUNT: 2
   GOPULSE_TRACE_ENABLED: ${GOPULSE_TRACE_ENABLED:-false}
@@ -27,54 +27,41 @@ x-backend-environment: &backend-environment
   GOPULSE_TRACE_SHUTDOWN_TIMEOUT: ${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}
   # Metric queries validate Monitor's fixed component-target catalog, so the
   # query service must share Monitor's replica inventory.
-  BACKEND_ENDPOINTS: backend,backend-2
+  BACKEND_ENDPOINTS: backend,backend-2,platform-api
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
   ROUTER_ENDPOINTS: router,router-2
   MARSHALLER_ENDPOINTS: marshaller,marshaller-2
-  BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
-  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
-  ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
   <<: *mysql-environment
   APP_ENV: ${APP_ENV:-development}
   HTTP_HOST: 0.0.0.0
   HTTP_PORT: 8080
+  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
+  AUTH_JWT_TTL: ${AUTH_JWT_TTL:-2h}
+  AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-gopulse_session}
+  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+  LOG_MONITOR_URL: http://monitor:9090
+  LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+  BACKEND_LOG_READ_ALIAS: ${BACKEND_LOG_READ_ALIAS:-gopulse-logs-v1-read}
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+
+x-business-environment: &business-environment
+  <<: *backend-common-environment
+  BACKEND_SERVICE_ROLE: business
+  BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-8}
+  REDIS_POST_DETAIL_TTL: ${REDIS_POST_DETAIL_TTL:-5m}
+  REDIS_OPERATION_TIMEOUT: ${REDIS_OPERATION_TIMEOUT:-200ms}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
   REDIS_DB: ${REDIS_DB:-0}
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   ELASTICSEARCH_URL: http://elasticsearch:9200
-  OBSERVABILITY_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
-  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
-  SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
-  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
-  AUTH_JWT_TTL: ${AUTH_JWT_TTL:-2h}
-  AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-gopulse_session}
-  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
-  MONITOR_URL: http://monitor:9090
-  MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
-  MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
-  LOG_MONITOR_URL: http://monitor:9090
-  LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
-  BACKEND_VICTORIAMETRICS_URL: http://victoriametrics:8428
-  BACKEND_VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
-  BACKEND_VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
-  BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT: ${BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT:-3s}
-  BACKEND_METRIC_QUERY_DEFAULT_RANGE: ${BACKEND_METRIC_QUERY_DEFAULT_RANGE:-15m}
-  BACKEND_METRIC_QUERY_MAX_RANGE: ${BACKEND_METRIC_QUERY_MAX_RANGE:-24h}
-  BACKEND_LOG_READ_ALIAS: ${BACKEND_LOG_READ_ALIAS:-gopulse-logs-v1-read}
-  BACKEND_LOG_QUERY_DEFAULT_RANGE: ${BACKEND_LOG_QUERY_DEFAULT_RANGE:-15m}
-  BACKEND_LOG_QUERY_MAX_RANGE: ${BACKEND_LOG_QUERY_MAX_RANGE:-24h}
-  BACKEND_EVENT_READ_ALIAS: ${BACKEND_EVENT_READ_ALIAS:-gopulse-events-v1-read}
-  BACKEND_EVENT_QUERY_DEFAULT_RANGE: ${BACKEND_EVENT_QUERY_DEFAULT_RANGE:-15m}
-  BACKEND_EVENT_QUERY_MAX_RANGE: ${BACKEND_EVENT_QUERY_MAX_RANGE:-24h}
-  REDIS_POST_DETAIL_TTL: ${REDIS_POST_DETAIL_TTL:-5m}
-  REDIS_OPERATION_TIMEOUT: ${REDIS_OPERATION_TIMEOUT:-200ms}
   OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-1s}
   OUTBOX_CLAIM_BATCH: ${OUTBOX_CLAIM_BATCH:-10}
   OUTBOX_LEASE_DURATION: ${OUTBOX_LEASE_DURATION:-1m}
@@ -84,6 +71,31 @@ x-backend-environment: &backend-environment
   OUTBOX_PUBLISHED_RETENTION: ${OUTBOX_PUBLISHED_RETENTION:-168h}
   OUTBOX_CLEANUP_BATCH: ${OUTBOX_CLEANUP_BATCH:-500}
   SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
+
+x-platform-environment: &platform-environment
+  <<: *backend-common-environment
+  BACKEND_SERVICE_ROLE: platform
+  GOPULSE_REPLICA_COUNT: 1
+  BACKEND_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
+  PLATFORM_API_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
+  PLATFORM_API_MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
+  MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
+  ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
+  OBSERVABILITY_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
+  BACKEND_VICTORIAMETRICS_URL: http://victoriametrics:8428
+  BACKEND_VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+  BACKEND_VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+  BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT: ${BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT:-3s}
+  BACKEND_METRIC_QUERY_DEFAULT_RANGE: ${BACKEND_METRIC_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_METRIC_QUERY_MAX_RANGE: ${BACKEND_METRIC_QUERY_MAX_RANGE:-24h}
+  BACKEND_LOG_QUERY_DEFAULT_RANGE: ${BACKEND_LOG_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_LOG_QUERY_MAX_RANGE: ${BACKEND_LOG_QUERY_MAX_RANGE:-24h}
+  BACKEND_EVENT_READ_ALIAS: ${BACKEND_EVENT_READ_ALIAS:-gopulse-events-v1-read}
+  BACKEND_EVENT_QUERY_DEFAULT_RANGE: ${BACKEND_EVENT_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_EVENT_QUERY_MAX_RANGE: ${BACKEND_EVENT_QUERY_MAX_RANGE:-24h}
+  MONITOR_URL: http://monitor:9090
+  MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
+  MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
 
 x-worker-environment: &worker-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-business-worker-local}
@@ -99,7 +111,7 @@ x-worker-environment: &worker-environment
   GOPULSE_TRACE_SHUTDOWN_TIMEOUT: ${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}
   BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
   <<: *mysql-environment
-  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-8}
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
@@ -133,7 +145,7 @@ x-indexer-environment: &indexer-environment
   GOPULSE_TRACE_SHUTDOWN_TIMEOUT: ${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}
   SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
   <<: *mysql-environment
-  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-10}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-8}
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
@@ -189,7 +201,7 @@ x-marshaller-environment: &marshaller-environment
   GOPULSE_REPLICA_COUNT: 2
   # Marshaller validates Monitor's fixed component-target catalog as well as
   # the samples themselves; keep the replica inventory identical to Monitor.
-  BACKEND_ENDPOINTS: backend,backend-2
+  BACKEND_ENDPOINTS: backend,backend-2,platform-api
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
   ROUTER_ENDPOINTS: router,router-2
@@ -236,7 +248,7 @@ x-monitor-environment: &monitor-environment
   GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
   GOPULSE_INSTANCE_ID: monitor-1
   GOPULSE_REPLICA_COUNT: 1
-  BACKEND_ENDPOINTS: backend,backend-2
+  BACKEND_ENDPOINTS: backend,backend-2,platform-api
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
   ROUTER_ENDPOINTS: router,router-2
@@ -418,7 +430,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=80m,mode=1777
     stop_grace_period: 15s
     environment:
-      <<: *backend-environment
+      <<: *business-environment
       GOPULSE_INSTANCE_ID: backend-1
     labels:
       io.gopulse.runtime.process_id: backend
@@ -434,8 +446,6 @@ services:
       redis:
         condition: service_healthy
       rabbitmq:
-        condition: service_healthy
-      observability-elasticsearch:
         condition: service_healthy
     networks:
       - edge
@@ -465,7 +475,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=80m,mode=1777
     stop_grace_period: 15s
     environment:
-      <<: *backend-environment
+      <<: *business-environment
       GOPULSE_INSTANCE_ID: backend-2
     labels:
       io.gopulse.runtime.process_id: backend
@@ -482,7 +492,48 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    networks:
+      - edge
+      - business
+      - observability
+    expose:
+      - "8080"
+      - "19101"
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  platform-api:
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: backend
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=80m,mode=1777
+    stop_grace_period: 15s
+    environment:
+      <<: *platform-environment
+      GOPULSE_INSTANCE_ID: platform-api-1
+    labels:
+      io.gopulse.runtime.process_id: backend
+      io.gopulse.runtime.role: platform-api
+      io.gopulse.runtime.replica_mode: singleton
+      io.gopulse.runtime.ownership: single-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       observability-elasticsearch:
+        condition: service_healthy
+      victoriametrics:
         condition: service_healthy
     networks:
       - edge
@@ -693,6 +744,8 @@ services:
       backend:
         condition: service_healthy
       backend-2:
+        condition: service_healthy
+      platform-api:
         condition: service_healthy
     ports:
       - ${PUBLISHED_HOST:-127.0.0.1}:${FRONTEND_PORT:?FRONTEND_PORT is required}:8080

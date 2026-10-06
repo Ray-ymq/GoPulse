@@ -9,7 +9,9 @@ macOS, Windows and arm64 product operation are not supported by this lifecycle.
 Extract the versioned archive into a read-only bundle directory. Verify its
 external `.sha256` before extraction and `checksums` afterward. The manifest
 binds all images by index/platform digest and the embedded Compose checksum.
-A loopback candidate registry is not an external/public release.
+`backend-2` and `platform-api` are fixed aliases of the Backend image entry;
+the runtime contract records their distinct roles and identities. A loopback
+candidate registry is not an external/public release.
 
 Create a separate empty **0700** installation directory; never use a directory
 containing user files. Mount it at exactly the same absolute path inside the

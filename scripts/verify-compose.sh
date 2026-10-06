@@ -271,7 +271,7 @@ wait_running() {
 
 assert_initial_state() {
   local service id state health exit_code
-  for service in mysql redis rabbitmq elasticsearch backend frontend; do
+  for service in mysql redis rabbitmq elasticsearch backend backend-2 platform-api frontend; do
     id=$(owned_service_id "$service")
     state=$(docker inspect --format '{{.State.Status}}' "$id")
     health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
@@ -292,7 +292,7 @@ assert_initial_state() {
 
 assert_image_contracts() {
   local service image expected_entry user version revision source entrypoint
-  for service in admin-frontend frontend backend business-worker search-indexer; do
+  for service in admin-frontend frontend backend backend-2 platform-api business-worker search-indexer; do
     image=$(docker inspect --format '{{.Image}}' "$(owned_service_id "$service")")
     user=$(docker image inspect --format '{{.Config.User}}' "$image")
     version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
@@ -301,7 +301,7 @@ assert_image_contracts() {
     entrypoint=$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")
     case $service in
       frontend|admin-frontend) expected_entry='["nginx"]' ;;
-      backend) expected_entry='["/usr/local/bin/server"]' ;;
+      backend|backend-2|platform-api) expected_entry='["/usr/local/bin/server"]' ;;
       business-worker) expected_entry='["/usr/local/bin/business-worker"]' ;;
       search-indexer) expected_entry='["/usr/local/bin/search-indexer"]' ;;
     esac
@@ -319,12 +319,12 @@ assert_image_contracts() {
 
 assert_network_and_ports() {
   local service id networks bindings host_ips
-  for service in admin-frontend frontend backend business-worker search-indexer mysql redis rabbitmq elasticsearch; do
+  for service in admin-frontend frontend backend backend-2 platform-api business-worker search-indexer mysql redis rabbitmq elasticsearch; do
     id=$(owned_service_id "$service")
     networks=$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$id")
     case $service in
       frontend|admin-frontend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks != *"${PROJECT_NAME}_business "* ]] || fail 'Frontend network boundary mismatch' ;;
-      backend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks == *"${PROJECT_NAME}_business "* ]] || fail 'Backend network boundary mismatch' ;;
+      backend|backend-2|platform-api) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks == *"${PROJECT_NAME}_business "* ]] || fail 'Backend network boundary mismatch' ;;
       *) [[ $networks == *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
     esac
     bindings=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$id")

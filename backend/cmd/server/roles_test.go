@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	stdhttp "net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 func TestProfileForRoleOwnsOnlyItsBackgroundWork(t *testing.T) {
@@ -35,6 +37,31 @@ func TestProfileForRoleOwnsOnlyItsBackgroundWork(t *testing.T) {
 func TestProfileForRoleRejectsUnknownRoleBeforeAssembly(t *testing.T) {
 	if _, err := profileForRole(config.ServiceRole("worker")); err == nil {
 		t.Fatal("profileForRole(worker) error = nil")
+	}
+}
+
+func TestPlatformMetricsAreScrapeableWithoutOutboxSampler(t *testing.T) {
+	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembly := &roleAssembly{profile: roleProfile{role: config.ServiceRolePlatform, platform: true}}
+	assembly.initializeMetrics(metrics)
+	body, ok := metrics.Snapshot()
+	if !ok || !strings.Contains(string(body), "gopulse_backend_http_concurrency_limit") {
+		t.Fatal("platform metrics snapshot is unavailable")
+	}
+}
+
+func TestBusinessMetricsKeepOutboxUnknownUntilSamplerRuns(t *testing.T) {
+	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembly := &roleAssembly{profile: roleProfile{role: config.ServiceRoleBusiness, business: true}}
+	assembly.initializeMetrics(metrics)
+	if _, ok := metrics.Snapshot(); ok {
+		t.Fatal("business metrics snapshot became valid without the outbox sampler")
 	}
 }
 

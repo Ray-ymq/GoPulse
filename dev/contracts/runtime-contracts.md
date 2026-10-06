@@ -1,13 +1,13 @@
-# GoPulse runtime contract v1 (2.3.1)
+# GoPulse runtime contract v2 (2.3.2)
 
-`deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
+`deploy/runtime-contracts.json` is the machine-readable inventory of all thirteen
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
 shape. Environment variables remain the only configuration input; the inventory
 is not a second runtime configuration service. Validate changes with:
 
 ```bash
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.3.1
-scripts/verify-runtime-contracts.sh --candidate 2.3.1
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.3.2
+scripts/verify-runtime-contracts.sh --candidate 2.3.2
 ```
 
 ## Configuration and readiness
@@ -57,11 +57,13 @@ plugin control and alert evaluation. Unused role-specific configuration may be
 omitted, while configuration for the selected role remains strictly validated.
 
 The platform role uses `PLATFORM_API_MYSQL_MAX_OPEN_CONNS` (default `4`), while
-business and combined use `MYSQL_MAX_OPEN_CONNS` (default `10`). Role-local
+business uses `MYSQL_MAX_OPEN_CONNS` (default `8`) and legacy combined mode keeps
+its standalone default of `10`. Role-local
 routes are registered only by their owning role; an API sent to the other role
-therefore returns `404`. This Phase-21-01 contract is implemented in the
-Backend binary; the existing Compose inventory remains combined until the
-Phase-21-02 deployment batch.
+therefore returns `404`. The deployed `backend` and `backend-2` services use
+`business`; singleton `platform-api` uses `platform` and the same Backend image
+digest. Their private container namespaces may reuse the Backend probe and
+metrics ports without adding host ports.
 
 Backend capacity diagnostics are fixed and low-cardinality: in-flight requests,
 the configured concurrency limit, and rejected requests are exported as
@@ -77,7 +79,7 @@ request-correlation values are not labels.
 
 No new host ports are published. The edge blocks new `/startup` and `/live`
 paths and `/internal/`. Existing `/health` and `/ready` edge paths remain for
-compatibility. Their body now uses runtime contract v1; the development status
+compatibility. Their body now uses runtime contract v2; the development status
 page accepts it without inventing per-dependency status (unknown when omitted).
 Use authenticated source-status APIs for detailed source health.
 
@@ -91,10 +93,12 @@ singletons that have no standalone Compose service.
 
 ## Business replicas and bounded budgets
 
-Compose runs two uniquely identified Backend, Business Worker and Search Indexer
+Compose runs two uniquely identified business Backend, Business Worker and Search Indexer
 instances. The frontend uses one private upstream pool for Backend requests;
 session routing does not depend on stickiness. Monitor receives explicit endpoint
-lists so each named replica is scraped rather than selected by DNS resolution.
+lists (`backend,backend-2,platform-api` for Backend) so each named replica is
+scraped rather than selected by DNS resolution. The platform alias uses Backend
+component-metrics families and the `platform-api-1` identity.
 `GOPULSE_INSTANCE_ID` is bounded, non-sensitive and diagnostic-only. Per-process
 HTTP concurrency, MySQL pool size, worker prefetch and shutdown budgets remain
 finite; the configured total MySQL budget must cover the declared replica count.

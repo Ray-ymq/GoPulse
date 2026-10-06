@@ -16,7 +16,7 @@
       "const": 1
     },
     "contract_version": {
-      "const": "1"
+      "const": "2"
     },
     "product_version": {
       "type": "string"
@@ -92,6 +92,7 @@
           "role": {
             "enum": [
               "business-api",
+              "platform-api",
               "business-worker",
               "search-indexer",
               "observability-router",
