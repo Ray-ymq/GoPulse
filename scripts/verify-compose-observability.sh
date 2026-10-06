@@ -450,7 +450,7 @@ assert_internal_security() {
   compose exec -T \
     -e "GOPULSE_TEST_ROUTER_TOKEN=router-$TOKEN-0123456789abcdef0123456789" \
     -e "GOPULSE_TEST_MARSHALLER_TOKEN=metrics-marshaller-$TOKEN-0123456789abcdef0123456789" \
-    backend /bin/sh -ec '
+    platform-api /bin/sh -ec '
       http_code() {
         output=$(wget -S -O /dev/null "$@" 2>&1 || true)
         printf "%s\n" "$output" | awk "/HTTP\\// { for (i = 1; i <= NF; i++) if (\$i ~ /^HTTP\\//) code=\$(i + 1) } END { print code }"
@@ -485,7 +485,7 @@ assert_internal_security() {
 }
 
 assert_bootstrap_status() {
-  compose exec -T backend /bin/sh -ec '
+  compose exec -T platform-api /bin/sh -ec '
     status=$(wget --quiet --header "Authorization: Bearer $MONITOR_API_TOKEN" --output-document=- http://monitor:9090/internal/v1/exporter-plugins/redis-exporter)
     printf "%s" "$status" | grep -q "\"version\":\"'"$VERSION"'\""
     printf "%s" "$status" | grep -q "\"desired_state\":\"running\""

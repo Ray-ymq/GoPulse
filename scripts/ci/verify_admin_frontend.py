@@ -17,7 +17,7 @@ def self_test():
     edge = (ROOT/'deploy/docker/frontend/nginx.conf').read_text()
     assert 'location = /admin { return 308 /admin/; }' in edge
     assert 'http://admin-frontend:8080' in edge
-    assert edge.count('client_max_body_size 65m;') == 7
+    assert edge.count('client_max_body_size 65m;') == 9
     assert 'requestData' in (ROOT/'admin-frontend/src/App.test.ts').read_text()
     print('Admin Frontend self-test passed (no Docker access).')
 

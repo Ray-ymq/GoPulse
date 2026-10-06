@@ -13,6 +13,11 @@ ADMISSION = ('go', '-C', 'backend', 'test', './internal/http', '-run', '^TestSer
 
 
 class RuntimeAcceptanceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        (ROOT / '.run').mkdir(parents=True, exist_ok=True)
+
     def raw_evidence(self, root, run=None, mode='preflight', manifest=None, receipt=None):
         run = run or root / '.run' / 'unit-runtime'
         run.mkdir(parents=True, exist_ok=True)

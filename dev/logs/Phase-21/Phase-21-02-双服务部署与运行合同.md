@@ -39,13 +39,17 @@
 - `lifecycle/internal/control/compose.go`
 - `lifecycle/internal/control/compose_test.go`
 - `lifecycle/internal/release/manifest.go`
+- `marshaller/internal/httpserver/server_test.go`
+- `monitor/internal/plugin/process_test.go`
 - `scripts/ci/release_artifacts.py`
 - `scripts/ci/runtime_acceptance.py`
 - `scripts/ci/test_runtime_acceptance.py`
 - `scripts/ci/test_runtime_contracts.py`
+- `scripts/ci/verify_admin_frontend.py`
 - `scripts/ci/verify_runtime_contracts.py`
 - `scripts/verify-compose-observability.sh`
 - `scripts/verify-compose.sh`
+- `scripts/verify.sh`
 - `使用手册.md`
 - 本日志文件
 
@@ -59,6 +63,8 @@
 - D03：`rtk proxy python3 -m unittest discover -s scripts/ci -p 'test_runtime_*.py'` 通过 5 个测试；`bash -n scripts/verify-compose.sh scripts/verify-compose-observability.sh && scripts/verify-compose.sh --self-test` 通过。
 - D04 最终源码预检：`python3 scripts/ci/runtime_acceptance.py --suite service-split --preflight --candidate 2.3.2 --evidence .run/phase21-02-preflight-20261006-r9/receipt.json` 通过；最终 S01～S07 全部通过，运行证据为 `.run/gopulse-runtime-8eb91b9487f4/evidence.json`，独立项目资源清理完成。
 - D04 回执核验：`rtk proxy python3 scripts/ci/verify_runtime_contracts.py --evidence .run/phase21-02-preflight-20261006-r9/receipt.json` 返回 `status=passed`。
+- CI 失败修复后的本地回归：`python3 -m unittest discover -s scripts/ci -p 'test_*.py'` 通过 166 个测试；Marshaller、Monitor 全量包测试及 Backend 受影响包测试通过；`python3 scripts/ci/verify_runtime_contracts.py --candidate 2.3.2`、`python3 scripts/ci/verify_admin_frontend.py --self-test` 均通过。
+- 修复前直接运行 `bash scripts/verify-compose.sh` 被其 clean-source 前置条件拒绝（工作区包含当前修复，未进入 Docker）。修复提交形成干净候选后再次运行并进入镜像构建，但本机在 Acceptance 镜像的 Alpine `apk add` 阶段无输出等待约 11 分钟；按边界安全中止（exit 130），清理钩子确认未留下临时容器、网络、卷或验收镜像。未将该本机网络/镜像源阻塞记为产品验收通过。
 - 在 D04 最终回执前还执行了两次完整通过的源码预检：r8 在元数据同步前通过；其证据未作为最终回执使用。r7 的 S01～S07 通过但受到另一个临时 Compose 项目同时出现的归属清理干扰，按基础设施失败处理并未复用。
 
 ## 偏差、诊断与修正
@@ -68,6 +74,8 @@
 - S06 首次辅助器使用了业务端口 `/metrics`；根据组件实现修正为私有 `19101/internal/v1/metrics` 并带 Backend metrics token。随后暴露 platform 无 Outbox sampler 导致共享 Backend snapshot 返回 503 的真实产品边界，加入平台角色中性快照初始化及测试；最终采集三个 Backend 身份和限额证据通过。
 - 曾有一次 S01～S07 全部通过但回执因并发临时项目干扰清理检查而失败；保留失败回执，不删除或改写其 raw evidence，清空归属资源后重新执行 r8/r9。
 - 一次直接用模块名调用 `python3 -m unittest scripts.ci.test_runtime_acceptance -v` 因测试模块路径不在 `sys.path` 失败；改用计划中的 discover 入口后通过。该失败不涉及产品代码。
+- 推送 `7263380` 后的 GitHub Actions run `37443539540` 暴露了干净 CI 工作区中 `.run` 临时根目录未创建、Nginx 自检数量未随新增通用插件路由更新、Marshaller/Monitor 测试仍断言旧 runtime contract，以及全栈探针从业务容器读取平台专属 Monitor token 等问题；这些失败分别在 Branch governance、Scripts and Compose、Marshaller、Monitor 和 Full-stack Compose job 中复现。
+- 修复为由运行验收测试创建 `.run` 根目录、将上传入口自检更新为 9 个、把健康响应断言对齐 runtime contract v2，并将内部管理探针执行容器改为 `platform-api`。没有把 `MONITOR_API_TOKEN` 注入业务角色，保留业务/平台凭据边界；同时同步 `scripts/verify.sh` 的平台查询入口。
 
 ## 已知限制与后续
 
