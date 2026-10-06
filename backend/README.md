@@ -2,6 +2,28 @@
 
 The Backend exposes authenticated social APIs and administrator-only operational APIs under `/api/v1`.
 
+## Service roles
+
+`BACKEND_SERVICE_ROLE` selects the responsibilities assembled by the same
+Backend binary. It defaults to `combined`, which preserves the existing
+single-process deployment. `business` assembles registration, authentication,
+current-user and social APIs together with Redis, business Elasticsearch,
+RabbitMQ and the Outbox dispatcher. `platform` assembles database-backed
+authentication/authorization plus management, observability, alert and
+exporter-plugin APIs; it does not require or construct the business Redis,
+business Elasticsearch, RabbitMQ or Outbox resources. Both roles retain the
+shared MySQL account store, JWT/Cookie validation, request probes, structured
+logs and private metrics. A route not owned by the selected role is not
+registered and returns the existing `404` response.
+
+The platform role uses `PLATFORM_API_HTTP_MAX_CONCURRENCY` (default `32`) and
+`PLATFORM_API_MYSQL_MAX_OPEN_CONNS` (default `4`). Business and combined use
+`BACKEND_HTTP_MAX_CONCURRENCY` (default `128`) and
+`MYSQL_MAX_OPEN_CONNS` (default `10`). These are per-process limits; the
+Phase-21-01 implementation keeps the existing Compose deployment on the
+default `combined` role. The separate Compose service and proxy mapping are
+deferred to Phase-21-02.
+
 ## Exporter management boundary
 
 All `GET`/`POST /exporter-plugins...` routes execute authentication and database-authoritative administrator authorization before contacting Monitor. Successful Monitor bodies are limited to 1 MiB and recursively reject duplicate keys, unknown fields, trailing content, invalid types, non-UTC timestamps, unstable versions, unknown states, unsafe error text, and impossible state/time combinations. The Backend constructs the public `ExporterStatus` and `SafeError` DTOs only after validation; redirect, timeout, network, oversized, malformed, or unexpected-success responses map to `503 monitor_unavailable`. The exact safe-error allowlist covers both Plugin Manager lifecycle failures and Monitor's fixed metrics scrape/publish failures, so a localized Router or target outage remains visible as a safe Exporter fact instead of making an otherwise valid status untrusted. Known Plugin Manager business errors retain their stable public status and code.

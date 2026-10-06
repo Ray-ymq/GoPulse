@@ -1,4 +1,4 @@
-# GoPulse runtime contract v1 (2.1.1)
+# GoPulse runtime contract v1 (2.3.1)
 
 `deploy/runtime-contracts.json` is the machine-readable inventory of all twelve
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
@@ -6,8 +6,8 @@ shape. Environment variables remain the only configuration input; the inventory
 is not a second runtime configuration service. Validate changes with:
 
 ```bash
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.1.1
-scripts/verify-runtime-contracts.sh --candidate 2.1.1
+python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.3.1
+scripts/verify-runtime-contracts.sh --candidate 2.3.1
 ```
 
 ## Configuration and readiness
@@ -34,13 +34,34 @@ Kafka and its destination stores. Monitor requires initialized local state and
 catalog; a temporarily unavailable publisher is recoverable. Exporters stay
 ready when a target source fails and report their existing `up=0` metric.
 
-Backend business and management requests under `/api/v1` use the finite
-`BACKEND_HTTP_MAX_CONCURRENCY` admission slots. A saturated slot fails
-immediately with `503 backend_busy`; requests to `/startup`, `/live`, `/ready`
-and `/health` remain on the probe contract and still apply their own startup,
-dependency and stopping semantics. Compose Backend healthchecks call
+Backend requests under `/api/v1` use finite, role-local admission slots. The
+`business` and `combined` roles use `BACKEND_HTTP_MAX_CONCURRENCY` (default
+`128`); the `platform` role uses `PLATFORM_API_HTTP_MAX_CONCURRENCY` (default
+`32`). A saturated slot fails immediately with `503 backend_busy`; requests to
+`/startup`, `/live`, `/ready` and `/health` remain on the probe contract and
+still apply their own startup, dependency and stopping semantics. Compose
+Backend healthchecks call
 `http://127.0.0.1:8080/ready` directly inside each private container, without
 Frontend, Nginx or the business admission path.
+
+## Phase 21 service-role assembly
+
+`BACKEND_SERVICE_ROLE` accepts `combined`, `business`, or `platform`; an empty
+value defaults to `combined`. Role validation occurs before listeners,
+connections, or background tasks are created. All roles use the shared MySQL
+account store, JWT/Cookie session validation, request probes, structured logs
+and private metrics. `business` additionally owns Redis, business
+Elasticsearch, RabbitMQ and Outbox dispatch/sampling. `platform` additionally
+owns observability Elasticsearch, VictoriaMetrics, Monitor, management APIs,
+plugin control and alert evaluation. Unused role-specific configuration may be
+omitted, while configuration for the selected role remains strictly validated.
+
+The platform role uses `PLATFORM_API_MYSQL_MAX_OPEN_CONNS` (default `4`), while
+business and combined use `MYSQL_MAX_OPEN_CONNS` (default `10`). Role-local
+routes are registered only by their owning role; an API sent to the other role
+therefore returns `404`. This Phase-21-01 contract is implemented in the
+Backend binary; the existing Compose inventory remains combined until the
+Phase-21-02 deployment batch.
 
 Backend capacity diagnostics are fixed and low-cardinality: in-flight requests,
 the configured concurrency limit, and rejected requests are exported as
