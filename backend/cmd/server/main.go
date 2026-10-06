@@ -4,37 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/backend/internal/adminoverview"
-	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
-	"github.com/Ray-ymq/GoPulse/backend/internal/alert/count"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
-	"strconv"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
-	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
-	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
-	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
-	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
-	"github.com/Ray-ymq/GoPulse/backend/internal/like"
-	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
-	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
-	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logship"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
-	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
-	"github.com/Ray-ymq/GoPulse/backend/internal/post"
-	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
-	"github.com/Ray-ymq/GoPulse/backend/internal/user"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	goredis "github.com/redis/go-redis/v9"
 	redislogging "github.com/redis/go-redis/v9/logging"
 )
@@ -91,6 +72,9 @@ func main() {
 }
 
 func run(cfg config.Config, logger *slog.Logger) error {
+	if _, err := profileForRole(cfg.ServiceRole); err != nil {
+		return err
+	}
 	if logger == nil {
 		logger = logging.Discard("backend")
 	}
@@ -104,16 +88,17 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return errors.New("initialize tracing")
 	}
 	defer func() {
-		shutdownTimeout := cfg.Trace.ShutdownTimeout
-		if shutdownTimeout <= 0 {
-			shutdownTimeout = tracing.DefaultShutdownTimeout
+		traceShutdownTimeout := cfg.Trace.ShutdownTimeout
+		if traceShutdownTimeout <= 0 {
+			traceShutdownTimeout = tracing.DefaultShutdownTimeout
 		}
-		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutdownContext, cancel := context.WithTimeout(context.Background(), traceShutdownTimeout)
 		defer cancel()
 		if err := traceProvider.Shutdown(shutdownContext); err != nil {
 			lifecycleLogger.Warn("trace exporter shutdown incomplete", slog.String("reason", "shutdown_timeout"))
 		}
 	}()
+
 	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
 	if err != nil {
 		return err
@@ -126,181 +111,26 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("configure Gin mode: %w", err)
 	}
 
-	mysqlClient, err := platform.NewMySQL(cfg.MySQL)
-	if err != nil {
-		return errors.New("initialize MySQL client")
-	}
-	defer closeResource(lifecycleLogger, "mysql", mysqlClient.Close)
-
-	redisClient := platform.NewRedis(cfg.Redis)
-	defer closeResource(lifecycleLogger, "redis", redisClient.Close)
-
-	elasticsearchClient, err := platform.NewElasticsearch(cfg.Elasticsearch)
-	if err != nil {
-		return errors.New("initialize Elasticsearch client")
-	}
-	observabilityElasticsearchClient, err := platform.NewObservabilityElasticsearch(cfg.ObservabilityElasticsearch)
-	if err != nil {
-		return errors.New("initialize observability Elasticsearch client")
-	}
-
-	rabbitMQChecker, err := platform.NewRabbitMQ(cfg.RabbitMQURL)
-	if err != nil {
-		return errors.New("initialize RabbitMQ checker")
-	}
-
-	eventOutbox, err := outbox.NewRepository(mysqlClient.DB(), outbox.Options{
-		MaxClaimBatch: cfg.Outbox.ClaimBatch,
-	})
-	if err != nil {
-		return errors.New("initialize business outbox repository")
-	}
-	rabbitMQPublisher, err := platform.NewRabbitMQPublisher(
-		cfg.RabbitMQURL,
-		platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay},
-	)
-	if err != nil {
-		return errors.New("initialize RabbitMQ publisher")
-	}
-	defer closeResource(lifecycleLogger, "rabbitmq_publisher", rabbitMQPublisher.Close)
-
-	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitMQPublisher, outbox.DispatcherOptions{
-		Owner:           componentmetrics.InstanceID("backend") + "-" + strconv.Itoa(os.Getpid()),
-		PollInterval:    cfg.Outbox.PollInterval,
-		ClaimBatch:      cfg.Outbox.ClaimBatch,
-		LeaseDuration:   cfg.Outbox.LeaseDuration,
-		PublishTimeout:  cfg.Outbox.PublishTimeout,
-		CleanupInterval: cfg.Outbox.CleanupInterval,
-		Retention:       cfg.Outbox.Retention,
-		CleanupBatch:    cfg.Outbox.CleanupBatch,
-		Logger:          logging.Module(logger, "outbox"),
-	})
-	if err != nil {
-		return errors.New("initialize outbox dispatcher")
-	}
-
-	passwords, err := auth.NewPasswordManager()
-	if err != nil {
-		return errors.New("initialize password manager")
-	}
-	tokens, err := auth.NewTokenManager(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, time.Now)
-	if err != nil {
-		return errors.New("initialize token manager")
-	}
-	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
-	users := user.NewMySQLRepository(mysqlClient.DB())
-	if err := users.ValidateBootstrap(context.Background()); err != nil {
-		return fmt.Errorf("validate management bootstrap: %w", err)
-	}
-	authService := auth.NewService(users, passwords, tokens)
-	authHandler := auth.NewHandler(authService, cookies, logger)
-	postDetailCache := rediscache.NewPostDetailRepository(
-		redisClient,
-		cfg.Redis.PostDetailTTL,
-		cfg.Redis.OperationTimeout,
-	)
-	posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, Logger: logger})
-	postService := post.NewService(posts, postDetailCache).WithLogger(logger)
-	postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
-	comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-	commentService := comment.NewService(comments, postService, postDetailCache).WithLogger(logger)
-	commentHandler := comment.NewHandler(commentService, logger)
-	likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-	likeService := like.NewService(likes, postService, postDetailCache).WithLogger(logger)
-	likeHandler := like.NewHandler(likeService, logger)
-	notifications, err := notification.NewRepository(mysqlClient.DB())
-	if err != nil {
-		return errors.New("initialize notification repository")
-	}
-	notificationService := notification.NewService(notifications)
-	notificationHandler := notification.NewHandler(notificationService, logger)
-	searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
-	searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
-	searchHandler := searchpkg.NewHandler(searchService)
-	metricClient, err := metricquery.NewClient(cfg.VictoriaMetrics.URL, cfg.VictoriaMetrics.Username, cfg.VictoriaMetrics.Password, cfg.VictoriaMetrics.RequestTimeout)
-	if err != nil {
-		return errors.New("initialize VictoriaMetrics query client")
-	}
-	alertRepo := alert.NewRepository(mysqlClient.DB())
-	alertHandler := alert.NewHandler(alertRepo, cfg.Auth.JWTSecret)
-	metricHandler := metricquery.NewHandler(metricquery.NewService(metricClient))
-	logRepository := logquery.NewElasticsearchRepository(observabilityElasticsearchClient)
-	logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
-	logHandler := logquery.NewHandler(logService)
-	eventRepository := eventquery.NewElasticsearchRepository(observabilityElasticsearchClient)
-	eventService := eventquery.NewService(eventRepository, cfg.Auth.JWTSecret)
-	eventHandler := eventquery.NewHandler(eventService)
-	monitorClient, err := exporterplugin.NewClient(cfg.Monitor.URL, cfg.Monitor.APIToken, cfg.Monitor.RequestTimeout)
-	if err != nil {
-		return errors.New("initialize monitor client")
-	}
-	exporterPluginHandler := exporterplugin.NewHandler(monitorClient).WithAudit(users)
-	overview := &adminoverview.Service{
-		Components: adminoverview.Components(metricClient), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
-		Logs: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
-			return count.Query(ctx, observabilityElasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
-		}),
-		Events: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
-			return count.Query(ctx, observabilityElasticsearchClient, eventquery.ReadAlias, map[string]string{"severity": severity}, from, to)
-		}),
-		Alerts: func(ctx context.Context, now time.Time) adminoverview.Section {
-			summary, err := alertRepo.Overview(ctx, now, cfg.AlertEvaluationEnabled)
-			if err != nil {
-				return adminoverview.Section{Status: "unavailable", ReasonCode: "upstream_unavailable", Items: []any{}}
-			}
-			return adminoverview.Section{Status: "healthy", ReasonCode: "ok", ObservedAt: &now, Items: summary}
-		},
-	}
-
 	signalContext, stopSignals := componentmetrics.SignalContext()
 	defer stopSignals()
-	probes, _ := componentmetrics.NewProbes(signalContext, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
-		if err := mysqlClient.Check(ctx); err != nil {
-			return err
-		}
-		if err := platform.CheckRuntimeSchema(ctx, mysqlClient.DB()); err != nil {
-			return err
-		}
-		return users.ValidateBootstrap(ctx)
-	})
-	router := backendhttp.NewRouter(
-		backendhttp.Dependencies{
-			Probes:             probes,
-			MySQL:              mysqlClient,
-			Redis:              redisClient,
-			RabbitMQ:           rabbitMQChecker,
-			Elasticsearch:      elasticsearchClient,
-			Logger:             logger,
-			HTTPMaxConcurrency: cfg.HTTPMaxConcurrency,
-		},
-		backendhttp.APIRoutes{
-			Overview:        overview,
-			Users:           backendhttp.NewUserHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users),
-			Auth:            authHandler,
-			Posts:           postHandler,
-			Comments:        commentHandler,
-			Likes:           likeHandler,
-			Bookmarks:       bookmark.NewHandler(bookmark.NewService(bookmark.NewMySQLRepository(mysqlClient.DB()), postService), logger),
-			Logs:            logHandler,
-			Metrics:         metricHandler,
-			Alerts:          alertHandler,
-			Events:          eventHandler,
-			Notifications:   notificationHandler,
-			Search:          searchHandler,
-			Authentication:  middleware.RequireAuthentication(cookies.Name(), tokens),
-			Authorization:   middleware.RequireSuperAdmin(users),
-			Management:      backendhttp.NewManagementHandler(users, cfg.Auth.JWTSecret),
-			ExporterPlugins: exporterPluginHandler,
-		},
-	)
-	server := newHTTPServer(cfg.HTTPAddress(), router)
+	assembly, err := newRoleAssembly(cfg, logger, signalContext)
+	if err != nil {
+		return err
+	}
+	defer assembly.close(lifecycleLogger)
 
-	alertCtx, cancelAlerts := context.WithCancel(signalContext)
+	componentmetrics.BindShutdown(signalContext, shutdownTimeout)
+	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, assembly.probes)
+	if err != nil {
+		return err
+	}
+
+	alertContext, cancelAlerts := context.WithCancel(signalContext)
 	alertDone := make(chan struct{})
 	go func() {
 		defer close(alertDone)
-		if cfg.AlertEvaluationEnabled {
-			alert.NewScheduler(alertRepo, metricClient).WithCounts(logRepository, eventRepository).WithLogger(logger).Run(alertCtx)
+		if assembly.runAlertCheck != nil {
+			assembly.runAlertCheck(alertContext)
 		}
 	}()
 	defer func() {
@@ -310,27 +140,29 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		case <-time.After(3 * time.Second):
 		}
 	}()
-	componentmetrics.BindShutdown(signalContext, shutdownTimeout)
-	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, probes)
-	if err != nil {
-		return err
-	}
-	sampleCtx, cancelSample := context.WithCancel(signalContext)
+
+	sampleContext, cancelSample := context.WithCancel(signalContext)
 	sampleDone := make(chan struct{})
-	go func() { defer close(sampleDone); eventOutbox.SampleMetrics(sampleCtx, metrics) }()
+	go func() {
+		defer close(sampleDone)
+		if assembly.sampleOutbox != nil {
+			assembly.sampleOutbox(sampleContext, metrics)
+		}
+	}()
 	defer func() {
 		cancelSample()
-		shutdownCtx, cancel := componentmetrics.ShutdownContext(shutdownTimeout)
+		shutdownContext, cancel := componentmetrics.ShutdownContext(shutdownTimeout)
 		defer cancel()
-		_ = internalMetrics.Shutdown(shutdownCtx)
+		_ = internalMetrics.Shutdown(shutdownContext)
 		select {
 		case <-sampleDone:
-		case <-shutdownCtx.Done():
+		case <-shutdownContext.Done():
 		}
 	}()
 
-	probes.Started()
-	return serveWithDispatcher(signalContext, server, dispatcher, lifecycleLogger)
+	assembly.probes.Started()
+	server := newHTTPServer(cfg.HTTPAddress(), assembly.router)
+	return serveWithDispatcher(signalContext, server, assembly.dispatcher, lifecycleLogger)
 }
 
 func newHTTPServer(address string, handler stdhttp.Handler) *stdhttp.Server {
@@ -353,7 +185,7 @@ func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher
 		return errors.New("serve backend: HTTP server is required")
 	}
 	if dispatcher == nil {
-		return errors.New("serve backend: outbox dispatcher is required")
+		return serveLogged(ctx, server, server.ListenAndServe, logger)
 	}
 
 	dispatcherContext, cancelDispatcher := context.WithCancel(ctx)
@@ -424,11 +256,5 @@ func serveLogged(ctx context.Context, server *stdhttp.Server, startServer func()
 		}
 		logger.Info("backend stopped", slog.String("reason", "shutdown_complete"))
 		return nil
-	}
-}
-
-func closeResource(logger *slog.Logger, resource string, close func() error) {
-	if err := close(); err != nil {
-		logger.Warn("resource close failed", slog.String("resource", resource), slog.String("reason", "close_failed"))
 	}
 }
