@@ -46,6 +46,7 @@ class Acceptance:
         if self.candidate and (self.candidate['version'] != version):raise ValueError('candidate version mismatch')
         self.token=uuid.uuid4().hex[:12];self.project='gopulse-runtime-'+self.token
         assert re.fullmatch(r'gopulse-runtime-[0-9a-f]{12}',self.project)
+        (ROOT/'.run').mkdir(mode=0o700, parents=True, exist_ok=True)
         self.work=ROOT/'.run'/self.project;self.work.mkdir(mode=0o700)
         self.probe=self.work/'runtime-http'
         command(['env','CGO_ENABLED=0','go','build','-o',str(self.probe),str(ROOT/'scripts/ci/testdata/runtime-http.go')])
@@ -313,8 +314,6 @@ class ServiceSplitAcceptance(Acceptance):
     def __init__(self,version,manifest=None,mode='preflight',preflight_receipt=None):
         if mode not in ('preflight','formal'):
             raise ValueError('invalid service-split mode')
-        if mode=='preflight' and manifest is not None:
-            raise ValueError('service-split preflight does not accept a manifest')
         if mode=='formal' and manifest is None:
             raise ValueError('formal service-split requires a manifest')
         if mode=='formal' and preflight_receipt is None:
@@ -373,8 +372,11 @@ class ServiceSplitAcceptance(Acceptance):
         receipt=load(self.preflight_receipt)
         if receipt.get('schema')!='gopulse.phase21.service-split-evidence.v1' or receipt.get('suite')!='service-split' or receipt.get('mode')!='preflight' or receipt.get('status')!='passed':
             raise ValueError('preflight receipt is not a successful service-split receipt')
-        if receipt.get('target_version')!=self.version or receipt.get('manifest_sha256') is not None:
+        if receipt.get('target_version')!=self.version:
             raise ValueError('preflight receipt candidate identity mismatch')
+        expected_manifest=file_sha256(self.manifest_path)
+        if receipt.get('manifest_sha256')!=expected_manifest:
+            raise ValueError('preflight receipt manifest identity mismatch')
         if receipt.get('revision')!=self.values['GOPULSE_REVISION'] or receipt.get('source_hash')!=tree_sha256():
             raise ValueError('preflight receipt source identity mismatch')
         if receipt.get('compose_sha256')!=file_sha256(ROOT/'deploy/compose.yaml') or receipt.get('contract_sha256')!=file_sha256(ROOT/'deploy/runtime-contracts.json'):

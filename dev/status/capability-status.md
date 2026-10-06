@@ -1,11 +1,11 @@
 # GoPulse 当前能力状态
 
-> 基线：产品完成版本 `2.3.2`，2026-10-06。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品完成版本 `2.3.3`，2026-10-06。版本完成、验收执行完成和能力达标是三个不同概念。
 > 2026-10-05 范围调整：Phase 20 仅保留已完成的 01～04，在 `2.2.4` 结束；原 05、06 已取消。
 
-## 已规划、尚未实施
+## 已实施阶段
 
-- [Phase 21 总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)分配三批 `2.3.1`～`2.3.3`。Phase-21-01 已在 `2.3.1` 完成：Backend 支持 `combined`、`business`、`platform` 三种角色，按角色装配依赖、路由和后台任务，并通过 R01～R05 固定门禁及最小真实三角色进程检查。Phase-21-02 已在 `2.3.2` 完成双服务 Compose、同源代理、运行/采集合同、Bundle/lifecycle 固定别名及 service-split 源码预检；Phase-21-03 的冻结候选定向验收仍未开始。
+- [Phase 21 总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)分配的三批 `2.3.1`～`2.3.3` 已完成。Phase-21-01 已在 `2.3.1` 完成：Backend 支持 `combined`、`business`、`platform` 三种角色，按角色装配依赖、路由和后台任务，并通过 R01～R05 固定门禁及最小真实三角色进程检查。Phase-21-02 已在 `2.3.2` 完成双服务 Compose、同源代理、运行/采集合同、Bundle/lifecycle 固定别名及 service-split 源码预检；Phase-21-03 已在 `2.3.3` 完成冻结 `2.3.2` 候选的正式定向验收与阶段收口。
 - 共用账号、数据库和会话；Outbox dispatcher 留在业务服务。目标验收包含管理单侧停止时已有会话的业务可用，不声明隔离共享数据库故障、容量或长期稳定。
 
 ## 已验证
@@ -30,6 +30,7 @@
 - Phase-20-04 在 `2.2.4` 完成 R01～R08 生命周期验收：Logs/Events 按 UTC 日历边界保留 7 日，真实 Elasticsearch 清理验证了固定集群身份、strict mapping/归属标记、alias、删除前阻断、重试、权限失败、双副本幂等和在途写入竞态；迟到数据永久处理且不复活旧索引。VictoriaMetrics 使用原生 `30d` retentionPeriod，当前查询闭合；短时窗口未加速物理回收。Collector Trace 工件在固定归属路径内观察到轮转，文件/总量预算未越界；本结果不声明长期 Trace 存储。
 - Phase-21-01 在 `2.3.1` 完成角色配置、接口路由互斥、业务/平台独立准入、共享账号与实时管理授权的装配迁移。R04 逐一启动并停止三种角色，验证业务 current-user、平台管理授权、错误角色 `404` 与 combined 并集；本结果不声明双服务部署或 S01～S07 阶段收口。
 - Phase-21-02 在 `2.3.2` 完成：Compose 运行两个 business Backend 和一个 singleton platform-api；同源入口把管理基路径固定转发到平台服务；Backend 指标以三个实例身份进入采集合同；生命周期与制品合同保留 `platform-api → backend` 别名；D01～D05 及最终源码 preflight 的 S01～S07、归属清理均通过。该源码 preflight 不是 Phase-21-03 的冻结 Bundle 验收。
+- Phase-21-03 在完成版本 `2.3.3` 收口：冻结候选 `2.3.2`、revision `ca0aa5efb6f0` 完成严格 Bundle/preflight、正式 S01～S07、清理和 publication verifier；[白名单证据](../logs/Phase-21/Phase-21-03-evidence/summary.json)记录全部案例通过及候选身份。该结果只覆盖代表性业务/管理运行、单侧停止和有限准入/采集核对，不声明共享状态高可用、容量或长期稳定性。
 
 ## 已发现边界
 
