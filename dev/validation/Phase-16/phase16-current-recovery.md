@@ -43,4 +43,4 @@ full Compose 的 clean-source 门禁不会忽略任意用户文件。主工作�
 
 ## Phase-16-06 最终交接
 
-`1.13.6` 最终矩阵复用本配方，并在同候选新增三源实际 incident、错误口令/tamper、生命周期故障和全局隔离聚合。独立入口/已验证候选见 `dev/phase16-linux-matrix.md`，证据见 `dev/logs/Phase-16/Phase-16-06-evidence/`。验收工具内预编译 backup-fixture，产品运行不依赖宿主 Go/Python；A/B/C 备份始终同 manifest，不称为跨版本升级。
+`1.13.6` 最终矩阵复用本配方，并在同候选新增三源实际 incident、错误口令/tamper、生命周期故障和全局隔离聚合。独立入口/已验证候选见 `dev/validation/Phase-16/phase16-linux-matrix.md`，证据见 `dev/logs/Phase-16/Phase-16-06-evidence/`。验收工具内预编译 backup-fixture，产品运行不依赖宿主 Go/Python；A/B/C 备份始终同 manifest，不称为跨版本升级。
