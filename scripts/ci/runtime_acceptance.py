@@ -46,6 +46,7 @@ class Acceptance:
         if self.candidate and (self.candidate['version'] != version):raise ValueError('candidate version mismatch')
         self.token=uuid.uuid4().hex[:12];self.project='gopulse-runtime-'+self.token
         assert re.fullmatch(r'gopulse-runtime-[0-9a-f]{12}',self.project)
+        (ROOT/'.run').mkdir(mode=0o700, parents=True, exist_ok=True)
         self.work=ROOT/'.run'/self.project;self.work.mkdir(mode=0o700)
         self.probe=self.work/'runtime-http'
         command(['env','CGO_ENABLED=0','go','build','-o',str(self.probe),str(ROOT/'scripts/ci/testdata/runtime-http.go')])
