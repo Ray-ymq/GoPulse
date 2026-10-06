@@ -1,0 +1,73 @@
+{
+  "cases": {
+    "S01": {
+      "raw_sha256": [
+        "sha256:4f5f52f41fa544aad9b7d08df7b67e2e7f2c0a0e98a1359fbc1ab9ba9c436a0d"
+      ],
+      "status": "passed"
+    },
+    "S02": {
+      "raw_sha256": [
+        "sha256:fc7346523f4249af08f83ed82eb2f69f29744a2d86e277d2fbb8de03fa57fd79"
+      ],
+      "status": "passed"
+    },
+    "S03": {
+      "raw_sha256": [
+        "sha256:c4660be90b806015e5d0759f8d346e377875a1f0d104aa74042f0228f64432cc"
+      ],
+      "status": "passed"
+    },
+    "S04": {
+      "raw_sha256": [
+        "sha256:aa6719a6aa57bf263cea1ebfbce9e3d4d40d3cab7917bad2153fc84d40f9407d"
+      ],
+      "status": "passed"
+    },
+    "S05": {
+      "raw_sha256": [
+        "sha256:1c4cef964d90b07512e1402a04251602dac702848976406f3abd4c1257520eb2"
+      ],
+      "status": "passed"
+    },
+    "S06": {
+      "raw_sha256": [
+        "sha256:4fc38c100f8ef38ca4b2bb13450bb2fbdda77a9f44aad5df9517d8e2346c8da8"
+      ],
+      "status": "passed"
+    },
+    "S07": {
+      "raw_sha256": [
+        "sha256:0377cb2cb2b7e3c0902737d349ab025d4494526b8d78eb42263695f971e2d5f0"
+      ],
+      "status": "passed"
+    }
+  },
+  "cleanup": {
+    "status": "passed"
+  },
+  "evidence_path": ".run/gopulse-runtime-6906dc2cff3d/evidence.json",
+  "evidence_sha256": "sha256:1783edd4d1dfc1379c31490a11f69cf06bef0c14bb6e592587d8376cdf7d5704",
+  "identity": {
+    "compose_sha256": "sha256:785c4b30f9c0297b6634efdc717391e8d5f076cb04ac35946a0bc67701d2eca3",
+    "contract_sha256": "sha256:bf8a2d9d68e5eb2d3e3529799b42aaf8c25021a94d45efb0e663dc864f873f13",
+    "manifest_sha256": "sha256:f6d50d19557b0a08049cef91f985a4d51228337b1b7c490581008f9de8b46d0e",
+    "revision": "ca0aa5efb6f03eb303c4ff10efd2e942d289bbcb",
+    "source_hash": "sha256:636d8d5e0e93d59c0c8317cfafef04fb705bdab04dc1ae955c7cd933543f5be7",
+    "working_tree_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "instances": {
+    "backend": [
+      "backend-1",
+      "backend-2"
+    ],
+    "platform-api": [
+      "platform-api-1"
+    ]
+  },
+  "mode": "formal",
+  "schema": "gopulse.phase21.service-split-publication.v1",
+  "status": "passed",
+  "suite": "service-split",
+  "target_version": "2.3.2"
+}

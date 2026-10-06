@@ -1,0 +1,25 @@
+{
+  "cleanup": {
+    "status": "passed"
+  },
+  "identity": {
+    "compose_sha256": "sha256:785c4b30f9c0297b6634efdc717391e8d5f076cb04ac35946a0bc67701d2eca3",
+    "contract_sha256": "sha256:bf8a2d9d68e5eb2d3e3529799b42aaf8c25021a94d45efb0e663dc864f873f13",
+    "manifest_sha256": "sha256:f6d50d19557b0a08049cef91f985a4d51228337b1b7c490581008f9de8b46d0e",
+    "revision": "ca0aa5efb6f03eb303c4ff10efd2e942d289bbcb",
+    "source_hash": "sha256:636d8d5e0e93d59c0c8317cfafef04fb705bdab04dc1ae955c7cd933543f5be7",
+    "working_tree_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "passed_cases": [
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07"
+  ],
+  "schema": "gopulse.phase21.service-split-summary.v1",
+  "status": "passed",
+  "target_version": "2.3.2"
+}
