@@ -68,6 +68,24 @@ rtk proxy gh workflow run cache-warm.yml --repo Ray-ymq/GoPulse --ref main
 `CACHED`，制品 revision 对应该次提交，完整验收仍通过。不为触发 CI 新建未分配的开发
 分支、不改 VERSION。本次不额外启动完整验收；该验收在后续正常开发分支 CI 中运行。
 
+## Linux 接续结果（2026-10-06 19:58 CST）
+
+- 在现有 `/var/tmp/gopulse-phase20-plan-fix-5Jssvw` `update` worktree 执行
+  `rtk proxy git fetch upstream`，`upstream/update` 从 `e47a22c` 更新到 `6f0ccad`；随后
+  `rtk proxy git pull --ff-only upstream update` 快进成功，worktree 无未提交修改。
+- `python3 scripts/ci/validate_versions.py` 通过。
+- `python3 scripts/ci/validate_branch.py --branch update --base-ref upstream/main` 按预期报告
+  没有独有文件；`upstream/update` 已是 `upstream/main` 的祖先，空差异属于合入后的正常状态。
+- `cache-warm.yml` 的 GitHub Actions Run
+  [37436975349](https://github.com/Ray-ymq/GoPulse/actions/runs/37436975349) 以
+  `main@7ac3f1716e25bea5a7da3044f548d91556355163` 运行并成功完成。Compose、五个 Go 模块和
+  两个前端共七个 job 全部成功；日志确认 Compose 镜像层已导出到 GitHub Actions Cache，Go/npm
+  cache mount 已提取并保存，`buildkit-mounts` 主缓存也保存成功。首次预热的 Go/npm 主机缓存
+  显示 miss，随后保存成功，符合首次预热预期。
+
+本次未运行未授权的新开发分支完整产品验收，也没有验证下一次开发分支的缓存命中率、耗时收益
+或制品 revision 绑定；这些仍由后续按 Phase 分配的开发批次 CI 验证。
+
 ## 未验证项与诊断边界
 
 - GitHub Actions 实际缓存恢复/导出、首次 main 预热，以及下一开发分支的耗时收益。
