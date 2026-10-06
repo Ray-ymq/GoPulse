@@ -15,6 +15,21 @@ import urllib.request
 from release_manifest import ROOT, PRODUCTS, SOURCES, PLATFORMS, load, sha, validate, payload_digest
 
 
+COMPOSE_IMAGE_ALIASES = {
+    'backend-2': 'backend',
+    'platform-api': 'backend',
+    'business-worker-2': 'business-worker',
+    'search-indexer-2': 'search-indexer',
+    'router-2': 'router',
+    'marshaller-2': 'marshaller',
+    'observability-elasticsearch': 'elasticsearch',
+    'migrate': 'backend',
+    'search-init': 'backend',
+    'admin-role': 'backend',
+    'kafka-init': 'kafka',
+}
+
+
 def run(*args, capture=True, **kwargs):
     return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE if capture else None, **kwargs).stdout
 
@@ -116,10 +131,9 @@ def product_compose(m):
                          'config', '--no-interpolate', '--no-path-resolution', '--format', 'json'))
     doc.pop('name', None)
     doc['services'].pop('acceptance')
-    aliases = {'backend-2':'backend', 'platform-api':'backend', 'migrate':'backend', 'search-init':'backend', 'admin-role':'backend', 'kafka-init':'kafka'}
     for name, service in doc['services'].items():
         service.pop('build', None)
-        logical = aliases.get(name, name)
+        logical = COMPOSE_IMAGE_ALIASES.get(name, name)
         image = m['images'].get(logical) or m['third_party'].get(logical)
         if image is None:
             raise ValueError('unmapped product service: '+name)
