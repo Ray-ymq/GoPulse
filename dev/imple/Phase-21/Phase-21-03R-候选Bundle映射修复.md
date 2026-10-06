@@ -1,6 +1,6 @@
 # Phase-21-03R：候选 Bundle 服务映射修复
 
-> 状态：执行中（Phase-21-03 的有界修复合同）。目标候选仍为冻结产品 `2.3.2`，完成版本仍为 `2.3.3`。
+> 状态：已完成（Phase-21-03 的有界修复合同）。目标候选仍为冻结产品 `2.3.2`，完成版本为 `2.3.3`。
 > 本补充合同由 Phase-21-03 首次 candidate 构建失败触发；不重置该批次已消耗预算，也不复用失败候选。
 
 ## 1. 观察到的失败与已证明原因
@@ -9,6 +9,7 @@
 - 冻结 Compose 还包含 `search-indexer-2`、`router-2`、`marshaller-2` 和 `observability-elasticsearch`；它们分别应复用无后缀产品镜像或第三方 `elasticsearch` 镜像。
 - `product_compose()` 仅对 `backend-2`、`platform-api`、初始化服务做别名转换，副本服务名和观测 Elasticsearch 名称没有闭包映射。`victoriametrics` 已由现有第三方锁文件归一化逻辑覆盖，不属于实际缺口。
 - 这是候选构建工具的映射缺口，不是产品运行失败；S01～S07 尚未执行。
+- 映射修复后的第一次严格预检暴露 runner 仍拒绝带 manifest 的正式 preflight；边界修复后，干净 checkout 又暴露 `.run` 私有证据根未初始化。两项均在最小边界增加回归测试并修复，未改变产品、Compose 或验收标准。
 
 ## 2. 修复范围
 
@@ -45,4 +46,4 @@
 
 ## 5. 完成条件
 
-修复文件和回归测试已提交到当前未完成的 `develop/2.3.3` 批次；新 candidate 构建并严格验证通过；随后原 Phase-21-03 的 formal S01～S07、清理、脱敏 publication 及最终版本门禁全部完成。此补充合同不降低或替代任何原有阶段验收条件。
+修复文件和回归测试已提交到 `develop/2.3.3` 批次；候选 `2.3.2-candidate-ca0aa5efb6f0`（revision `ca0aa5efb6f0`）构建并严格验证通过；随后原 Phase-21-03 的 formal S01～S07、清理、脱敏 publication、publication verifier 及最终版本门禁全部完成。此补充合同不降低或替代任何原有阶段验收条件。
