@@ -17,12 +17,12 @@ logs and private metrics. A route not owned by the selected role is not
 registered and returns the existing `404` response.
 
 The platform role uses `PLATFORM_API_HTTP_MAX_CONCURRENCY` (default `32`) and
-`PLATFORM_API_MYSQL_MAX_OPEN_CONNS` (default `4`). Business and combined use
-`BACKEND_HTTP_MAX_CONCURRENCY` (default `128`) and
-`MYSQL_MAX_OPEN_CONNS` (default `10`). These are per-process limits; the
-Phase-21-01 implementation keeps the existing Compose deployment on the
-default `combined` role. The separate Compose service and proxy mapping are
-deferred to Phase-21-02.
+`PLATFORM_API_MYSQL_MAX_OPEN_CONNS` (default `4`). The deployed business role
+uses `BACKEND_HTTP_MAX_CONCURRENCY` (default `128`) and
+`MYSQL_MAX_OPEN_CONNS` (default `8`); legacy combined mode retains its
+standalone default of `10`. The Phase-21 split Compose runs `backend` and
+`backend-2` as business and `platform-api` as the singleton platform service,
+all from the same Backend image digest.
 
 ## Exporter management boundary
 

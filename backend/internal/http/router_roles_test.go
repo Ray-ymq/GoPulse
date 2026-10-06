@@ -91,10 +91,10 @@ func TestServiceRoleAdmissionIsolation(t *testing.T) {
 	}()
 	waitAdmissionStarts(t, platformStarted, 1)
 	platformRelease <- struct{}{}
-	waitAdmissionDone(t, platformProbeDone)
+	waitAdmissionDone(t, platformProbeDone, 1)
 
 	releaseAdmissionRequests(businessRelease, 128)
-	waitAdmissionDone(t, businessRequests)
+	waitAdmissionDone(t, businessRequests, 128)
 
 	platformRequests := holdAdmissionRequests(t, platform, platformStarted, 32)
 	if busy := performRequest(platform, "/api/v1/test-admission"); busy.Code != http.StatusServiceUnavailable {
@@ -111,9 +111,9 @@ func TestServiceRoleAdmissionIsolation(t *testing.T) {
 	waitAdmissionStarts(t, businessStarted, 1)
 
 	releaseAdmissionRequests(platformRelease, 32)
-	waitAdmissionDone(t, platformRequests)
+	waitAdmissionDone(t, platformRequests, 32)
 	businessRelease <- struct{}{}
-	waitAdmissionDone(t, businessProbeDone)
+	waitAdmissionDone(t, businessProbeDone, 1)
 }
 
 func admissionTestRouter(t *testing.T, limit int) (*gin.Engine, chan struct{}, chan struct{}, context.CancelFunc) {
@@ -172,14 +172,15 @@ func releaseAdmissionRequests(release chan struct{}, count int) {
 	}
 }
 
-func waitAdmissionDone(t *testing.T, done chan struct{}) {
+func waitAdmissionDone(t *testing.T, done chan struct{}, count int) {
 	t.Helper()
-	for {
+	deadline := time.NewTimer(10 * time.Second)
+	defer deadline.Stop()
+	for index := 0; index < count; index++ {
 		select {
 		case <-done:
-			return
-		case <-time.After(10 * time.Second):
-			t.Fatal("admission request did not finish")
+		case <-deadline.C:
+			t.Fatalf("admission request %d/%d did not finish", index+1, count)
 		}
 	}
 }

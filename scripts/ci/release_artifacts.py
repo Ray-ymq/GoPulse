@@ -116,7 +116,7 @@ def product_compose(m):
                          'config', '--no-interpolate', '--no-path-resolution', '--format', 'json'))
     doc.pop('name', None)
     doc['services'].pop('acceptance')
-    aliases = {'migrate':'backend', 'search-init':'backend', 'admin-role':'backend', 'kafka-init':'kafka'}
+    aliases = {'backend-2':'backend', 'platform-api':'backend', 'migrate':'backend', 'search-init':'backend', 'admin-role':'backend', 'kafka-init':'kafka'}
     for name, service in doc['services'].items():
         service.pop('build', None)
         logical = aliases.get(name, name)
