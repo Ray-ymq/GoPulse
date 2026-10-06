@@ -233,7 +233,7 @@ func (m *Manifest) CheckAssets(root string) error {
 				ID string `json:"id"`
 			} `json:"components"`
 		}
-		if json.Unmarshal(data, &contract) != nil || contract.ContractVersion != "1" || contract.ProductVersion != m.Version || len(contract.Components) != 12 {
+		if json.Unmarshal(data, &contract) != nil || contract.ContractVersion != "2" || contract.ProductVersion != m.Version || len(contract.Components) != 13 {
 			return errors.New("runtime contract identity mismatch")
 		}
 		seen := map[string]bool{}

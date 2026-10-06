@@ -47,7 +47,7 @@ func TestReadinessUnavailableIsFinite(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	response := httptest.NewRecorder()
 	s.server.Handler.ServeHTTP(response, req)
-	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"status\":\"not_ready\",\"contract_version\":\"1\"}\n" {
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"status\":\"not_ready\",\"contract_version\":\"2\"}\n" {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 }

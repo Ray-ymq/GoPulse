@@ -40,7 +40,11 @@ Metrics / Logs / Events -> Monitor -> Router -> Kafka -> Marshaller
 ```
 
 The user and administrator frontends share the same-origin edge and identity
-system. Browsers use Backend APIs to query observability data and manage plugins.
+system. Business requests are served by the two `business` Backend replicas;
+observability, alert and plugin-control requests use the singleton `platform-api`
+role through the same edge. Both roles use the same Backend image and shared
+session/MySQL contract. Browsers use Backend APIs to query observability data
+and manage plugins.
 The [module diagram](dev/design/diagrams/README.md) describes the implemented
 system; the two target designs define its intended direction.
 

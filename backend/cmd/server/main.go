@@ -118,6 +118,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	defer assembly.close(lifecycleLogger)
+	assembly.initializeMetrics(metrics)
 
 	componentmetrics.BindShutdown(signalContext, shutdownTimeout)
 	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, assembly.probes)

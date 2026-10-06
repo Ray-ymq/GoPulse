@@ -48,6 +48,21 @@ func TestInstanceIdentityAndReplicaEndpointCatalogAreBounded(t *testing.T) {
 		t.Fatal("duplicate replica endpoint accepted")
 	}
 }
+
+func TestPlatformRuntimeAliasUsesBackendDefinition(t *testing.T) {
+	t.Setenv("GOPULSE_RUNTIME_MODE", "container")
+	t.Setenv("GOPULSE_INSTANCE_ID", "platform-api-1")
+	t.Setenv("BACKEND_METRICS_TOKEN", strings.Repeat("b", 32))
+	t.Setenv("AUTH_JWT_SECRET", strings.Repeat("a", 32))
+	t.Setenv("LOG_MONITOR_INGEST_TOKEN", strings.Repeat("c", 32))
+	t.Setenv("MONITOR_API_TOKEN", strings.Repeat("d", 32))
+	if got := RuntimeDefinitions["platform-api"]; got.Port != RuntimeDefinitions["backend"].Port || got.ShutdownSeconds != RuntimeDefinitions["backend"].ShutdownSeconds {
+		t.Fatalf("platform runtime definition = %#v, want Backend alias", got)
+	}
+	if err := ValidateRuntimeEnvironment("platform-api"); err != nil {
+		t.Fatalf("platform Backend alias rejected: %v", err)
+	}
+}
 func TestHTTPCorrelationErrorsAndPanic(t *testing.T) {
 	logger := NewLogger("router", &strings.Builder{})
 	mux := http.NewServeMux()

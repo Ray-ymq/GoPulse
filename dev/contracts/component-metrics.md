@@ -1,7 +1,9 @@
 # Component metrics contract (Phase-19-01)
 
-The six built-in long-running components publish only their fixed operational
-metrics. `componentmetrics.Catalog` is the shared producer/Monitor/Marshaller/
+The six built-in long-running code components publish only their fixed operational
+metrics. A deployed `platform-api` is a Backend metrics alias: it uses the
+Backend families and token contract while its instance identity is
+`platform-api-1`. `componentmetrics.Catalog` is the shared producer/Monitor/Marshaller/
 Backend allowlist; `componentmetrics/cmd/catalog` exports it using the fixed
 production endpoint inventory. The browser contract in
 `admin-frontend/src/services/componentMetrics.ts` is generated from the same
@@ -12,6 +14,7 @@ catalog and checked by the focused self-test.
 | Component / source / producer ID | Internal port | Token variable | Target ID |
 | --- | --- | --- | --- |
 | `backend` | 19101 | `BACKEND_METRICS_TOKEN` | `backend-local` |
+| `platform-api` (Backend alias) | 19101 | `BACKEND_METRICS_TOKEN` | `platform-api-local` |
 | `business-worker` | 19102 | `BUSINESS_WORKER_METRICS_TOKEN` | `business-worker-local` |
 | `search-indexer` | 19103 | `SEARCH_INDEXER_METRICS_TOKEN` | `search-indexer-local` |
 | `monitor` | 19104 | `MONITOR_METRICS_TOKEN` | `monitor-local` |
@@ -20,7 +23,7 @@ catalog and checked by the focused self-test.
 
 - Each process serves exactly `GET /internal/v1/metrics` on its separate listener.
   Host mode binds loopback; container mode binds the internal container network.
-  Monitor uses only the eleven fixed component service DNS names and ports from
+  Monitor uses only the twelve fixed component service DNS names and ports from
   the production endpoint inventory. Compose publishes
   none of these ports, including Backend's; the public Backend router does not
   register or proxy this endpoint. The browser queries the authenticated Backend
@@ -101,13 +104,13 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
 | `gopulse_search_indexer_freshness_duration_seconds_total` | counter | seconds | `stage`, `result` | 6 |
 | `gopulse_search_indexer_trace_context_invalid_total` | counter | count | none | 1 |
 | `gopulse_search_indexer_dependency_up` | gauge | state | `dependency` | 3 |
-### monitor: 7 families, 157 maximum samples
+### monitor: 7 families, 165 maximum samples
 
 | Exact family | Kind | Unit | Label keys | Maximum tuples |
 | --- | --- | --- | --- | --- |
-| `gopulse_monitor_scrapes_total` | counter | count | `scraped_producer_kind`, `scraped_target_id`, `result` | 68 |
-| `gopulse_monitor_scrape_duration_seconds_total` | counter | seconds | `scraped_producer_kind`, `scraped_target_id`, `result` | 68 |
-| `gopulse_monitor_last_scrape_success_timestamp_seconds` | gauge | unix_seconds | `scraped_producer_kind`, `scraped_target_id` | 17 |
+| `gopulse_monitor_scrapes_total` | counter | count | `scraped_producer_kind`, `scraped_target_id`, `result` | 72 |
+| `gopulse_monitor_scrape_duration_seconds_total` | counter | seconds | `scraped_producer_kind`, `scraped_target_id`, `result` | 72 |
+| `gopulse_monitor_last_scrape_success_timestamp_seconds` | gauge | unix_seconds | `scraped_producer_kind`, `scraped_target_id` | 18 |
 | `gopulse_monitor_event_queue_length` | gauge | count | none | 1 |
 | `gopulse_monitor_plugins_running` | gauge | count | none | 1 |
 | `gopulse_monitor_dependency_up` | gauge | state | `dependency` | 1 |
@@ -175,6 +178,9 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
   No successful snapshot yet or a failed sample makes the endpoint return 503;
   it does not report a fictitious empty queue or serve a stale backlog.
   Publish-success time is updated only after the RabbitMQ publisher succeeds.
+  The `platform-api` Backend alias does not run this sampler; its fixed
+  exposition is initialized only so the shared endpoint remains scrapeable,
+  and its neutral outbox fields must not be interpreted as business backlog.
   Other dependency updates use existing ping/cache/HTTP/AMQP interactions.
 - Worker: `event_type=comment.created|post.liked|user.followed|unknown` and
   `result=success|retry|failure|ack`. Handler completion records the whole
@@ -187,9 +193,9 @@ query strings, errors, queue/topic/index names or runtime dumps are dimensions.
   tuple. Handler completion includes the original ack; retrying brackets retry
   publication. MySQL reads/transaction operations, Elasticsearch requests and
   RabbitMQ sessions/ack/retry writes supply dependency results.
-- Monitor: seventeen fixed `(scraped_producer_kind,scraped_target_id)` pairs:
-  six `exporter_plugin/<source>-exporter-local` and eleven component targets
-  from the fixed `*-ENDPOINTS` inventory (`backend`, `business-worker`,
+- Monitor: eighteen fixed `(scraped_producer_kind,scraped_target_id)` pairs:
+  six `exporter_plugin/<source>-exporter-local` and twelve component targets
+  from the fixed `*-ENDPOINTS` inventory (`backend`, `platform-api`, `business-worker`,
   `search-indexer`, `router` and `marshaller` each have two endpoints;
   `monitor` has one). Results are `scrape_success|scrape_failure|
   publish_success|publish_failure`, each with its corresponding operation's
