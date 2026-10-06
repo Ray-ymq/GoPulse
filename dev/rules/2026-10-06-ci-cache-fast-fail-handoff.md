@@ -82,13 +82,17 @@ rtk proxy gh workflow run cache-warm.yml --repo Ray-ymq/GoPulse --ref main
   两个前端共七个 job 全部成功；日志确认 Compose 镜像层已导出到 GitHub Actions Cache，Go/npm
   cache mount 已提取并保存，`buildkit-mounts` 主缓存也保存成功。首次预热的 Go/npm 主机缓存
   显示 miss，随后保存成功，符合首次预热预期。
+- 交接记录合入后触发的第二次 `cache-warm` Run
+  [37460148290](https://github.com/Ray-ymq/GoPulse/actions/runs/37460148290) 也全部成功；Compose
+  日志出现大量 `CACHED`，并再次完成 GitHub Actions Cache 导出和主缓存保存，证明重复主线预热
+  已命中缓存。
 
 本次未运行未授权的新开发分支完整产品验收，也没有验证下一次开发分支的缓存命中率、耗时收益
 或制品 revision 绑定；这些仍由后续按 Phase 分配的开发批次 CI 验证。
 
 ## 未验证项与诊断边界
 
-- GitHub Actions 实际缓存恢复/导出、首次 main 预热，以及下一开发分支的耗时收益。
+- 下一开发分支的缓存命中率、耗时收益和制品 revision 绑定。
 - 完整业务、故障恢复、重启和浏览器验收。
 - 保留当前缓存配置和原验收门禁。先定位实际失败步骤，再复现最小边界；缓存服务错误
   允许适配器去掉远程缓存重试一次，编译失败直接返回，不做无界重试。
