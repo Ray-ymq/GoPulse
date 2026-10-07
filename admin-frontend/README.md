@@ -1,9 +1,24 @@
 # GoPulse Admin Frontend
 
-Independent Vue application mounted at `/admin/`. Metrics, Logs, Events and the
-six-plugin management UI use the existing strict Backend DTOs. `/admin/` redirects
-to Metrics after session bootstrap; dashboards, alerts, users and audit pages are
-not implemented in this batch.
+Independent Vue application mounted at `/admin/` for authenticated super
+administrators. The default page is the management dashboard. Current routes are
+defined in [src/router/index.ts](src/router/index.ts):
+
+| Path | Page |
+| --- | --- |
+| `/admin/` | Dashboard |
+| `/admin/metrics` | Metrics |
+| `/admin/logs` | Logs |
+| `/admin/events` | Events |
+| `/admin/alerts` | Alerts |
+| `/admin/plugins` | Six-plugin management |
+| `/admin/users` | User roles |
+| `/admin/audit` | Audit records |
+
+Pages use the existing strict Backend DTOs and share the user application's
+identity system. Product-wide verification and limitations are recorded in
+[capability status](../dev/status/capability-status.md); usage is described in the
+[product manual](../使用手册.md).
 
 The supported product entry is the published `frontend` Compose origin.
 `admin-frontend` listens internally on 8080, joins only `edge`, and publishes no
@@ -14,7 +29,7 @@ Both containers run as numeric non-root users with read-only filesystems and
 A 403 unmounts management data and erases candidate secrets before navigating to
 `/posts`; it does not log the social session out.
 
-Local checks:
+Local checks, from `admin-frontend/`:
 
 ```bash
 npm ci

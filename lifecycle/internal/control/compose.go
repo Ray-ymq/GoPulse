@@ -16,7 +16,7 @@ func (c *Controller) labels(resource string) map[string]string {
 	return map[string]string{prefix + "installation": c.state.Token, prefix + "manifest": c.manifestHash, prefix + "resource": resource}
 }
 func (c *Controller) prepare() error {
-	aliases := map[string]string{"edge": "frontend", "migrate": "backend", "search-init": "backend", "admin-role": "backend", "kafka-init": "kafka"}
+	aliases := map[string]string{"edge": "frontend", "backend-2": "backend", "platform-api": "backend", "migrate": "backend", "search-init": "backend", "admin-role": "backend", "kafka-init": "kafka"}
 	for name, raw := range c.services {
 		if name == "lifecycle" {
 			delete(c.services, name)
@@ -34,14 +34,34 @@ func (c *Controller) prepare() error {
 		if !ok {
 			image, ok = c.manifest.ThirdParty[logical]
 		}
+		if !ok {
+			return fail(ManifestError, "compose", "service image missing from manifest: "+name)
+		}
 		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms["linux/amd64"]
-		if !ok || (s["image"] != image.Ref && s["image"] != ref) {
+		if s["image"] != image.Ref && s["image"] != ref {
 			return fail(ManifestError, "compose", "service image must match manifest: "+name)
 		}
 		s["image"] = ref
 		s["platform"] = "linux/amd64"
 		s["pull_policy"] = "never"
-		s["labels"] = c.labels(name)
+		labels := map[string]any{}
+		switch existing := s["labels"].(type) {
+		case map[string]any:
+			for key, value := range existing {
+				labels[key] = value
+			}
+		case map[string]string:
+			for key, value := range existing {
+				labels[key] = value
+			}
+		case nil:
+		default:
+			return fail(ManifestError, "compose", "invalid service labels: "+name)
+		}
+		for key, value := range c.labels(name) {
+			labels[key] = value
+		}
+		s["labels"] = labels
 		for _, key := range []string{"build", "container_name", "network_mode", "privileged", "devices", "env_file"} {
 			if _, ok := s[key]; ok {
 				return fail(ManifestError, "compose", "unsafe service field: "+key)

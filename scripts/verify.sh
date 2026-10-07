@@ -117,7 +117,7 @@ verify_image_metadata acceptance >/dev/null
 verify_image_metadata redis-exporter >/dev/null
 pass "Application image IDs and OCI version/revision/source labels match $VERSION at ${REVISION:0:12}."
 
-compose exec -T backend /bin/sh -ec '
+compose exec -T platform-api /bin/sh -ec '
   status=$(wget --quiet --header "Authorization: Bearer $MONITOR_API_TOKEN" --output-document=- http://monitor:9090/internal/v1/exporter-plugins/redis-exporter)
   printf "%s" "$status" | grep -q "\"version\":\"'"$VERSION"'\""
   printf "%s" "$status" | grep -q "\"desired_state\":\"running\""

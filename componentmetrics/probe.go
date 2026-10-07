@@ -10,7 +10,7 @@ import (
 )
 
 // RuntimeContractVersion identifies the wire semantics of the runtime probes.
-const RuntimeContractVersion = "1"
+const RuntimeContractVersion = "2"
 
 // Probes owns startup/readiness state and a single dependency-check slot.
 // A checker must honor its context. Even a broken checker that does not return

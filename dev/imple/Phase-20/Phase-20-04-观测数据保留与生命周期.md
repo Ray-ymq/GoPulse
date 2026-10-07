@@ -71,7 +71,7 @@ alias/归属标记合同和 D<C。不得把前缀匹配作为唯一所有权证�
 | backend/internal/logquery/logquery.go、logquery_test.go、backend/internal/eventquery/eventquery.go、eventquery_test.go | 保留窗口和已删除数据查询语义明确，不破坏授权/分页 |
 | deploy/compose.yaml、deploy/runtime-contracts.json、deploy/runtime-contracts.schema.json、deploy/otel/phase20-collector.yaml | VM 原生保留配置、清理权限/预算、Trace 工件轮转及归属 |
 | scripts/ci/phase20_retention.py、test_phase20_retention.py、phase20_evidence.py、test_phase20_evidence.py（均在 scripts/ci）、scripts/verify-phase20-retention.sh、scripts/verify-phase20-evidence.py | 真实归属 fixture、过期/未过期/迟到/删除失败、并发及安全清理 |
-| docs/observability-retention.md、docs/component-metrics.md | 保留/删除/查询/回收延迟、告警/限制与容量影响 |
+| dev/contracts/observability-retention.md、dev/contracts/component-metrics.md | 保留/删除/查询/回收延迟、告警/限制与容量影响 |
 
 新增固定指标名称、标签、预期目录增量和准确验证入口在开工前登记；不把配置声明当作真实
 删除证据。若竞态方案需要上述清单之外的配置/代码，先细化清单再开工。日志、状态与版本

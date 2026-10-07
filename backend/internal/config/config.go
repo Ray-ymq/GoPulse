@@ -17,10 +17,12 @@ const (
 	defaultHTTPHost                      = "127.0.0.1"
 	defaultHTTPPort                      = 8080
 	defaultHTTPMaxConcurrency            = 128
+	defaultPlatformHTTPMaxConcurrency    = 32
 	defaultReplicaCount                  = 1
 	defaultMySQLHost                     = "127.0.0.1"
 	defaultMySQLPort                     = 3306
 	defaultMySQLMaxOpenConns             = 10
+	defaultPlatformMySQLMaxOpenConns     = 4
 	defaultMySQLMaxIdleConns             = 2
 	defaultMySQLConnMaxLifetime          = 3 * time.Minute
 	defaultMySQLTotalOpenConns           = 60
@@ -98,6 +100,7 @@ const (
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
+	ServiceRole                ServiceRole
 	AlertEvaluationEnabled     bool
 	RuntimeMode                RuntimeMode
 	AppEnv                     string
@@ -209,6 +212,9 @@ type AuthConfig struct {
 }
 
 func Load() (Config, error) {
+	if _, err := LoadServiceRoleFrom(os.LookupEnv); err != nil {
+		return Config{}, err
+	}
 	if err := componentmetrics.ValidateRuntimeEnvironment("backend"); err != nil {
 		return Config{}, err
 	}
@@ -221,9 +227,16 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, errors.New("configuration lookup is required")
 	}
 
-	alertEnabled, err := booleanValue(lookup, "ALERT_EVALUATION_ENABLED", true)
+	serviceRole, err := LoadServiceRoleFrom(lookup)
 	if err != nil {
 		return Config{}, err
+	}
+	alertEnabled := false
+	if serviceRole.RunsPlatform() {
+		alertEnabled, err = booleanValue(lookup, "ALERT_EVALUATION_ENABLED", true)
+		if err != nil {
+			return Config{}, err
+		}
 	}
 	runtimeMode, err := loadRuntimeMode(lookup)
 	if err != nil {
@@ -241,11 +254,11 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	httpMaxConcurrency, err := integerValue(lookup, "BACKEND_HTTP_MAX_CONCURRENCY", defaultHTTPMaxConcurrency)
+	httpMaxConcurrency, err := httpMaxConcurrencyValue(lookup, serviceRole)
 	if err != nil || httpMaxConcurrency < minimumHTTPMaxConcurrency || httpMaxConcurrency > maximumHTTPMaxConcurrency {
-		return Config{}, fmt.Errorf("BACKEND_HTTP_MAX_CONCURRENCY must be between %d and %d", minimumHTTPMaxConcurrency, maximumHTTPMaxConcurrency)
+		return Config{}, fmt.Errorf("%s must be between %d and %d", httpMaxConcurrencyKey(serviceRole), minimumHTTPMaxConcurrency, maximumHTTPMaxConcurrency)
 	}
-	mysqlMaxOpenConns, mysqlMaxIdleConns, mysqlConnMaxLifetime, err := mysqlPoolValues(lookup, replicaCount)
+	mysqlMaxOpenConns, mysqlMaxIdleConns, mysqlConnMaxLifetime, err := mysqlPoolValuesForRole(lookup, replicaCount, serviceRole)
 	if err != nil {
 		return Config{}, err
 	}
@@ -257,9 +270,43 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err := validateDependencyHost(runtimeMode, "MYSQL_HOST", mysqlHost); err != nil {
 		return Config{}, err
 	}
-	redisHost := valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost)
-	if err := validateDependencyHost(runtimeMode, "REDIS_HOST", redisHost); err != nil {
-		return Config{}, err
+	redisHost := ""
+	redisPort := 0
+	redisDB := 0
+	redisPassword := ""
+	postDetailTTL := time.Duration(0)
+	operationTimeout := time.Duration(0)
+	if serviceRole.RunsBusiness() {
+		redisHost = valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost)
+		if err := validateDependencyHost(runtimeMode, "REDIS_HOST", redisHost); err != nil {
+			return Config{}, err
+		}
+		redisPort, err = integerValue(lookup, "REDIS_PORT", defaultRedisPort)
+		if err != nil {
+			return Config{}, err
+		}
+		if err := validatePort("REDIS_PORT", redisPort); err != nil {
+			return Config{}, err
+		}
+		redisDB, err = integerValue(lookup, "REDIS_DB", defaultRedisDB)
+		if err != nil {
+			return Config{}, err
+		}
+		if redisDB < 0 {
+			return Config{}, errors.New("REDIS_DB must be a non-negative integer")
+		}
+		redisPassword, err = requiredValue(lookup, "REDIS_PASSWORD")
+		if err != nil {
+			return Config{}, err
+		}
+		postDetailTTL, err = durationValue(lookup, "REDIS_POST_DETAIL_TTL", defaultRedisPostDetailTTL, minimumRedisPostDetailTTL, maximumRedisPostDetailTTL)
+		if err != nil {
+			return Config{}, err
+		}
+		operationTimeout, err = durationValue(lookup, "REDIS_OPERATION_TIMEOUT", defaultRedisOperationTimeout, minimumRedisOperationTimeout, maximumRedisOperationTimeout)
+		if err != nil {
+			return Config{}, err
+		}
 	}
 
 	httpPort, err := integerValue(lookup, "HTTP_PORT", defaultHTTPPort)
@@ -278,42 +325,35 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 
-	redisPort, err := integerValue(lookup, "REDIS_PORT", defaultRedisPort)
-	if err != nil {
-		return Config{}, err
+	var elasticsearch ElasticsearchConfig
+	if serviceRole.RunsBusiness() {
+		elasticsearch, err = loadElasticsearchConfig(lookup, runtimeMode)
+		if err != nil {
+			return Config{}, err
+		}
 	}
-	if err := validatePort("REDIS_PORT", redisPort); err != nil {
-		return Config{}, err
+	var observabilityElasticsearch ElasticsearchConfig
+	var victoriaMetrics VictoriaMetricsConfig
+	if serviceRole.RunsPlatform() {
+		observabilityElasticsearch, err = loadObservabilityElasticsearchConfig(lookup, runtimeMode)
+		if err != nil {
+			return Config{}, err
+		}
+		victoriaMetrics, err = loadVictoriaMetricsConfig(lookup, runtimeMode)
+		if err != nil {
+			return Config{}, err
+		}
 	}
-
-	elasticsearch, err := loadElasticsearchConfig(lookup, runtimeMode)
-	if err != nil {
-		return Config{}, err
-	}
-	observabilityElasticsearch, err := loadObservabilityElasticsearchConfig(lookup, runtimeMode)
-	if err != nil {
-		return Config{}, err
-	}
-	victoriaMetrics, err := loadVictoriaMetricsConfig(lookup, runtimeMode)
-	if err != nil {
-		return Config{}, err
-	}
-	if valueOrDefault(lookup, "BACKEND_EVENT_READ_ALIAS", "gopulse-events-v1-read") != "gopulse-events-v1-read" {
-		return Config{}, errors.New("BACKEND_EVENT_READ_ALIAS must be gopulse-events-v1-read")
-	}
-	if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_DEFAULT_RANGE", "15m") != "15m" {
-		return Config{}, errors.New("BACKEND_EVENT_QUERY_DEFAULT_RANGE must be 15m")
-	}
-	if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_MAX_RANGE", "24h") != "24h" {
-		return Config{}, errors.New("BACKEND_EVENT_QUERY_MAX_RANGE must be 24h")
-	}
-
-	redisDB, err := integerValue(lookup, "REDIS_DB", defaultRedisDB)
-	if err != nil {
-		return Config{}, err
-	}
-	if redisDB < 0 {
-		return Config{}, errors.New("REDIS_DB must be a non-negative integer")
+	if serviceRole.RunsPlatform() {
+		if valueOrDefault(lookup, "BACKEND_EVENT_READ_ALIAS", "gopulse-events-v1-read") != "gopulse-events-v1-read" {
+			return Config{}, errors.New("BACKEND_EVENT_READ_ALIAS must be gopulse-events-v1-read")
+		}
+		if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_DEFAULT_RANGE", "15m") != "15m" {
+			return Config{}, errors.New("BACKEND_EVENT_QUERY_DEFAULT_RANGE must be 15m")
+		}
+		if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_MAX_RANGE", "24h") != "24h" {
+			return Config{}, errors.New("BACKEND_EVENT_QUERY_MAX_RANGE must be 24h")
+		}
 	}
 
 	mysqlDatabase, err := requiredValue(lookup, "MYSQL_DATABASE")
@@ -328,36 +368,39 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	redisPassword, err := requiredValue(lookup, "REDIS_PASSWORD")
-	if err != nil {
-		return Config{}, err
-	}
-	rabbitMQURL, err := requiredValue(lookup, "RABBITMQ_URL")
-	if err != nil {
-		return Config{}, err
-	}
-	if err := validateRabbitMQURL(rabbitMQURL, runtimeMode); err != nil {
-		return Config{}, err
+	rabbitMQURL := ""
+	if serviceRole.RunsBusiness() {
+		rabbitMQURL, err = requiredValue(lookup, "RABBITMQ_URL")
+		if err != nil {
+			return Config{}, err
+		}
+		if err := validateRabbitMQURL(rabbitMQURL, runtimeMode); err != nil {
+			return Config{}, err
+		}
 	}
 
-	monitorToken, err := requiredValue(lookup, "MONITOR_API_TOKEN")
-	if err != nil {
-		return Config{}, err
-	}
-	if len(monitorToken) < 32 {
-		return Config{}, errors.New("MONITOR_API_TOKEN must contain at least 32 bytes")
-	}
-	monitorURL := valueOrDefault(lookup, "MONITOR_URL", defaultMonitorURL)
-	parsedMonitorURL, err := url.Parse(monitorURL)
-	if err != nil || (parsedMonitorURL.Scheme != "http" && parsedMonitorURL.Scheme != "https") || parsedMonitorURL.Host == "" || parsedMonitorURL.User != nil || parsedMonitorURL.RawQuery != "" || parsedMonitorURL.Fragment != "" {
-		return Config{}, errors.New("MONITOR_URL must be an HTTP origin without user information, query, or fragment")
-	}
-	if err := validateOriginHost(runtimeMode, "MONITOR_URL", parsedMonitorURL); err != nil {
-		return Config{}, err
-	}
-	monitorTimeout, err := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, time.Minute)
-	if err != nil {
-		return Config{}, err
+	monitorConfig := MonitorConfig{}
+	if serviceRole.RunsPlatform() {
+		monitorToken, monitorErr := requiredValue(lookup, "MONITOR_API_TOKEN")
+		if monitorErr != nil {
+			return Config{}, monitorErr
+		}
+		if len(monitorToken) < 32 {
+			return Config{}, errors.New("MONITOR_API_TOKEN must contain at least 32 bytes")
+		}
+		monitorURL := valueOrDefault(lookup, "MONITOR_URL", defaultMonitorURL)
+		parsedMonitorURL, monitorErr := url.Parse(monitorURL)
+		if monitorErr != nil || (parsedMonitorURL.Scheme != "http" && parsedMonitorURL.Scheme != "https") || parsedMonitorURL.Host == "" || parsedMonitorURL.User != nil || parsedMonitorURL.RawQuery != "" || parsedMonitorURL.Fragment != "" {
+			return Config{}, errors.New("MONITOR_URL must be an HTTP origin without user information, query, or fragment")
+		}
+		if err := validateOriginHost(runtimeMode, "MONITOR_URL", parsedMonitorURL); err != nil {
+			return Config{}, err
+		}
+		monitorTimeout, monitorErr := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, time.Minute)
+		if monitorErr != nil {
+			return Config{}, monitorErr
+		}
+		monitorConfig = MonitorConfig{URL: monitorURL, APIToken: monitorToken, RequestTimeout: monitorTimeout}
 	}
 
 	logShip, err := loadLogShipConfig(lookup, runtimeMode)
@@ -367,13 +410,15 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if valueOrDefault(lookup, "BACKEND_LOG_READ_ALIAS", "gopulse-logs-v1-read") != "gopulse-logs-v1-read" {
 		return Config{}, errors.New("BACKEND_LOG_READ_ALIAS must be gopulse-logs-v1-read")
 	}
-	defaultRange, err := durationValue(lookup, "BACKEND_LOG_QUERY_DEFAULT_RANGE", 15*time.Minute, time.Minute, 24*time.Hour)
-	if err != nil || defaultRange != 15*time.Minute {
-		return Config{}, errors.New("BACKEND_LOG_QUERY_DEFAULT_RANGE must be 15m")
-	}
-	maxRange, err := durationValue(lookup, "BACKEND_LOG_QUERY_MAX_RANGE", 24*time.Hour, time.Hour, 24*time.Hour)
-	if err != nil || maxRange != 24*time.Hour {
-		return Config{}, errors.New("BACKEND_LOG_QUERY_MAX_RANGE must be 24h")
+	if serviceRole.RunsPlatform() {
+		defaultRange, rangeErr := durationValue(lookup, "BACKEND_LOG_QUERY_DEFAULT_RANGE", 15*time.Minute, time.Minute, 24*time.Hour)
+		if rangeErr != nil || defaultRange != 15*time.Minute {
+			return Config{}, errors.New("BACKEND_LOG_QUERY_DEFAULT_RANGE must be 15m")
+		}
+		maxRange, rangeErr := durationValue(lookup, "BACKEND_LOG_QUERY_MAX_RANGE", 24*time.Hour, time.Hour, 24*time.Hour)
+		if rangeErr != nil || maxRange != 24*time.Hour {
+			return Config{}, errors.New("BACKEND_LOG_QUERY_MAX_RANGE must be 24h")
+		}
 	}
 	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "backend")
 	if err != nil {
@@ -403,63 +448,63 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, errors.New("AUTH_COOKIE_SECURE must be true outside local development and test environments")
 	}
 
-	postDetailTTL, err := durationValue(lookup, "REDIS_POST_DETAIL_TTL", defaultRedisPostDetailTTL, minimumRedisPostDetailTTL, maximumRedisPostDetailTTL)
-	if err != nil {
-		return Config{}, err
-	}
-	operationTimeout, err := durationValue(lookup, "REDIS_OPERATION_TIMEOUT", defaultRedisOperationTimeout, minimumRedisOperationTimeout, maximumRedisOperationTimeout)
-	if err != nil {
-		return Config{}, err
-	}
-
-	outboxPollInterval, err := durationValue(lookup, "OUTBOX_POLL_INTERVAL", defaultOutboxPollInterval, minimumOutboxPollInterval, maximumOutboxPollInterval)
-	if err != nil {
-		return Config{}, err
-	}
-	outboxClaimBatch, err := integerValue(lookup, "OUTBOX_CLAIM_BATCH", defaultOutboxClaimBatch)
-	if err != nil {
-		return Config{}, err
-	}
-	if outboxClaimBatch < minimumOutboxClaimBatch || outboxClaimBatch > maximumOutboxClaimBatch {
-		return Config{}, fmt.Errorf("OUTBOX_CLAIM_BATCH must be between %d and %d", minimumOutboxClaimBatch, maximumOutboxClaimBatch)
-	}
-	outboxLeaseDuration, err := durationValue(lookup, "OUTBOX_LEASE_DURATION", defaultOutboxLeaseDuration, minimumOutboxLeaseDuration, maximumOutboxLeaseDuration)
-	if err != nil {
-		return Config{}, err
-	}
-	outboxPublishTimeout, err := durationValue(lookup, "OUTBOX_PUBLISH_TIMEOUT", defaultOutboxPublishTimeout, minimumOutboxPublishTimeout, maximumOutboxPublishTimeout)
-	if err != nil {
-		return Config{}, err
-	}
-	requiredOutboxLease := time.Duration(outboxClaimBatch)*outboxPublishTimeout + outboxLeaseSafetyMargin
-	if outboxLeaseDuration < requiredOutboxLease {
-		return Config{}, fmt.Errorf("OUTBOX_LEASE_DURATION must be at least OUTBOX_CLAIM_BATCH * OUTBOX_PUBLISH_TIMEOUT + %s", outboxLeaseSafetyMargin)
-	}
-	outboxRetryDelay, err := durationValue(lookup, "OUTBOX_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
-	if err != nil {
-		return Config{}, err
-	}
-	searchRetryDelay, err := durationValue(lookup, "SEARCH_INDEXER_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
-	if err != nil {
-		return Config{}, err
-	}
-	outboxCleanupInterval, err := durationValue(lookup, "OUTBOX_CLEANUP_INTERVAL", defaultOutboxCleanupInterval, minimumOutboxCleanupInterval, maximumOutboxCleanupInterval)
-	if err != nil {
-		return Config{}, err
-	}
-	outboxRetention, err := durationValue(lookup, "OUTBOX_PUBLISHED_RETENTION", defaultOutboxRetention, minimumOutboxRetention, maximumOutboxRetention)
-	if err != nil {
-		return Config{}, err
-	}
-	outboxCleanupBatch, err := integerValue(lookup, "OUTBOX_CLEANUP_BATCH", defaultOutboxCleanupBatch)
-	if err != nil {
-		return Config{}, err
-	}
-	if outboxCleanupBatch < minimumOutboxCleanupBatch || outboxCleanupBatch > maximumOutboxCleanupBatch {
-		return Config{}, fmt.Errorf("OUTBOX_CLEANUP_BATCH must be between %d and %d", minimumOutboxCleanupBatch, maximumOutboxCleanupBatch)
+	outboxConfig := OutboxConfig{}
+	if serviceRole.RunsBusiness() {
+		outboxPollInterval, outboxErr := durationValue(lookup, "OUTBOX_POLL_INTERVAL", defaultOutboxPollInterval, minimumOutboxPollInterval, maximumOutboxPollInterval)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		outboxClaimBatch, outboxErr := integerValue(lookup, "OUTBOX_CLAIM_BATCH", defaultOutboxClaimBatch)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		if outboxClaimBatch < minimumOutboxClaimBatch || outboxClaimBatch > maximumOutboxClaimBatch {
+			return Config{}, fmt.Errorf("OUTBOX_CLAIM_BATCH must be between %d and %d", minimumOutboxClaimBatch, maximumOutboxClaimBatch)
+		}
+		outboxLeaseDuration, outboxErr := durationValue(lookup, "OUTBOX_LEASE_DURATION", defaultOutboxLeaseDuration, minimumOutboxLeaseDuration, maximumOutboxLeaseDuration)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		outboxPublishTimeout, outboxErr := durationValue(lookup, "OUTBOX_PUBLISH_TIMEOUT", defaultOutboxPublishTimeout, minimumOutboxPublishTimeout, maximumOutboxPublishTimeout)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		requiredOutboxLease := time.Duration(outboxClaimBatch)*outboxPublishTimeout + outboxLeaseSafetyMargin
+		if outboxLeaseDuration < requiredOutboxLease {
+			return Config{}, fmt.Errorf("OUTBOX_LEASE_DURATION must be at least OUTBOX_CLAIM_BATCH * OUTBOX_PUBLISH_TIMEOUT + %s", outboxLeaseSafetyMargin)
+		}
+		outboxRetryDelay, outboxErr := durationValue(lookup, "OUTBOX_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		searchRetryDelay, outboxErr := durationValue(lookup, "SEARCH_INDEXER_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		outboxCleanupInterval, outboxErr := durationValue(lookup, "OUTBOX_CLEANUP_INTERVAL", defaultOutboxCleanupInterval, minimumOutboxCleanupInterval, maximumOutboxCleanupInterval)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		outboxRetention, outboxErr := durationValue(lookup, "OUTBOX_PUBLISHED_RETENTION", defaultOutboxRetention, minimumOutboxRetention, maximumOutboxRetention)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		outboxCleanupBatch, outboxErr := integerValue(lookup, "OUTBOX_CLEANUP_BATCH", defaultOutboxCleanupBatch)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		if outboxCleanupBatch < minimumOutboxCleanupBatch || outboxCleanupBatch > maximumOutboxCleanupBatch {
+			return Config{}, fmt.Errorf("OUTBOX_CLEANUP_BATCH must be between %d and %d", minimumOutboxCleanupBatch, maximumOutboxCleanupBatch)
+		}
+		outboxConfig = OutboxConfig{
+			PollInterval: outboxPollInterval, ClaimBatch: outboxClaimBatch, LeaseDuration: outboxLeaseDuration,
+			PublishTimeout: outboxPublishTimeout, RetryDelay: outboxRetryDelay, SearchRetryDelay: searchRetryDelay,
+			CleanupInterval: outboxCleanupInterval, Retention: outboxRetention, CleanupBatch: outboxCleanupBatch,
+		}
 	}
 
 	return Config{
+		ServiceRole:            serviceRole,
 		AlertEvaluationEnabled: alertEnabled,
 		RuntimeMode:            runtimeMode,
 		AppEnv:                 appEnv,
@@ -486,21 +531,11 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			PostDetailTTL:    postDetailTTL,
 			OperationTimeout: operationTimeout,
 		},
-		RabbitMQURL: rabbitMQURL,
-		Outbox: OutboxConfig{
-			PollInterval:     outboxPollInterval,
-			ClaimBatch:       outboxClaimBatch,
-			LeaseDuration:    outboxLeaseDuration,
-			PublishTimeout:   outboxPublishTimeout,
-			RetryDelay:       outboxRetryDelay,
-			SearchRetryDelay: searchRetryDelay,
-			CleanupInterval:  outboxCleanupInterval,
-			Retention:        outboxRetention,
-			CleanupBatch:     outboxCleanupBatch,
-		},
+		RabbitMQURL:                rabbitMQURL,
+		Outbox:                     outboxConfig,
 		Elasticsearch:              elasticsearch,
 		ObservabilityElasticsearch: observabilityElasticsearch,
-		Monitor:                    MonitorConfig{URL: monitorURL, APIToken: monitorToken, RequestTimeout: monitorTimeout},
+		Monitor:                    monitorConfig,
 		VictoriaMetrics:            victoriaMetrics,
 		LogShip:                    logShip,
 		Trace:                      traceConfig,
@@ -515,6 +550,20 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 
 func (cfg Config) HTTPAddress() string {
 	return net.JoinHostPort(cfg.HTTPHost, strconv.Itoa(cfg.HTTPPort))
+}
+
+func httpMaxConcurrencyKey(role ServiceRole) string {
+	if role == ServiceRolePlatform {
+		return "PLATFORM_API_HTTP_MAX_CONCURRENCY"
+	}
+	return "BACKEND_HTTP_MAX_CONCURRENCY"
+}
+
+func httpMaxConcurrencyValue(lookup LookupFunc, role ServiceRole) (int, error) {
+	if role == ServiceRolePlatform {
+		return integerValue(lookup, httpMaxConcurrencyKey(role), defaultPlatformHTTPMaxConcurrency)
+	}
+	return integerValue(lookup, httpMaxConcurrencyKey(role), defaultHTTPMaxConcurrency)
 }
 
 func loadTraceConfig(lookup LookupFunc, runtimeMode RuntimeMode, serviceName string) (TraceConfig, error) {
@@ -587,9 +636,20 @@ func replicaCountValue(lookup LookupFunc) (int, error) {
 }
 
 func mysqlPoolValues(lookup LookupFunc, replicaCount int) (int, int, time.Duration, error) {
-	maxOpen, err := integerValue(lookup, "MYSQL_MAX_OPEN_CONNS", defaultMySQLMaxOpenConns)
+	return mysqlPoolValuesWithKey(lookup, replicaCount, "MYSQL_MAX_OPEN_CONNS", defaultMySQLMaxOpenConns)
+}
+
+func mysqlPoolValuesForRole(lookup LookupFunc, replicaCount int, role ServiceRole) (int, int, time.Duration, error) {
+	if role == ServiceRolePlatform {
+		return mysqlPoolValuesWithKey(lookup, replicaCount, "PLATFORM_API_MYSQL_MAX_OPEN_CONNS", defaultPlatformMySQLMaxOpenConns)
+	}
+	return mysqlPoolValues(lookup, replicaCount)
+}
+
+func mysqlPoolValuesWithKey(lookup LookupFunc, replicaCount int, maxOpenKey string, maxOpenDefault int) (int, int, time.Duration, error) {
+	maxOpen, err := integerValue(lookup, maxOpenKey, maxOpenDefault)
 	if err != nil || maxOpen < minimumMySQLMaxOpenConns || maxOpen > maximumMySQLMaxOpenConns {
-		return 0, 0, 0, fmt.Errorf("MYSQL_MAX_OPEN_CONNS must be between %d and %d", minimumMySQLMaxOpenConns, maximumMySQLMaxOpenConns)
+		return 0, 0, 0, fmt.Errorf("%s must be between %d and %d", maxOpenKey, minimumMySQLMaxOpenConns, maximumMySQLMaxOpenConns)
 	}
 	maxIdle, err := integerValue(lookup, "MYSQL_MAX_IDLE_CONNS", defaultMySQLMaxIdleConns)
 	if err != nil || maxIdle < 1 || maxIdle > maxOpen {

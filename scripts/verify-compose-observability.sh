@@ -240,7 +240,7 @@ cleanup() {
   if ((RESOURCES_STARTED)); then
     if assert_project_ownership; then
       if ((status != 0)); then
-        compose logs --no-color --tail 30 backend business-worker search-indexer search-init router marshaller monitor >&2 || true
+      compose logs --no-color --tail 30 backend backend-2 platform-api business-worker search-indexer search-init router marshaller monitor >&2 || true
       fi
       compose --profile exporter down --volumes --remove-orphans >/dev/null 2>&1 || status=1
     else
@@ -277,7 +277,7 @@ owned_service_id() {
   config_files=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$id")
   [[ $config_files == *"$COMPOSE_FILE"* ]] || fail "$service config-file label mismatch"
   case $service in
-    admin-frontend|frontend|backend|business-worker|search-indexer|router|marshaller|monitor|redis-exporter)
+    admin-frontend|frontend|backend|backend-2|platform-api|business-worker|search-indexer|router|marshaller|monitor|redis-exporter)
       image=$(docker inspect --format '{{.Image}}' "$id")
       image_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
       image_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
@@ -313,7 +313,7 @@ wait_running() {
 
 assert_full_state() {
   local service id state health
-  for service in mysql redis rabbitmq elasticsearch observability-elasticsearch kafka victoriametrics router marshaller monitor backend admin-frontend frontend; do
+  for service in mysql redis rabbitmq elasticsearch observability-elasticsearch kafka victoriametrics router marshaller monitor backend backend-2 platform-api admin-frontend frontend; do
     id=$(owned_service_id "$service")
     state=$(docker inspect --format '{{.State.Status}}' "$id")
     health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
@@ -388,7 +388,7 @@ assert_image_contracts() {
   docker run --rm --entrypoint /bin/sh "gopulse/frontend:$IMAGE_TAG" -ec \
     '! command -v go && ! command -v node && ! command -v npm && test ! -d /src && ! find /usr/share/nginx/html -name "*.map" -print -quit | grep -q . && ! grep -R -E "(mysql|redis|rabbitmq|elasticsearch|kafka|victoriametrics|monitor|router|marshaller):[0-9]+|AUTH_JWT_SECRET|MONITOR_API_TOKEN|LOG_MONITOR_INGEST_TOKEN|ROUTER_API_TOKEN|MARSHALLER_API_TOKEN" /usr/share/nginx/html'
 
-  for service in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
+  for service in admin-frontend frontend backend backend-2 platform-api business-worker search-indexer router marshaller monitor; do
     container_id=$(owned_service_id "$service")
     readonly=$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")
     privileged=$(docker inspect --format '{{.HostConfig.Privileged}}' "$container_id")
@@ -422,7 +422,7 @@ assert_network_and_ports() {
     networks=$(docker inspect --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}' "$id")
     case $service in
       frontend|admin-frontend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks != *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_observability "* ]] || fail 'Frontend network boundary mismatch' ;;
-      backend) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* ]] || fail 'Backend network boundary mismatch' ;;
+      backend|backend-2|platform-api) [[ $networks == *"${PROJECT_NAME}_edge "* && $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* ]] || fail 'Backend network boundary mismatch' ;;
       business-worker|search-indexer) [[ $networks == *"${PROJECT_NAME}_business "* && $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail "$service network boundary mismatch" ;;
       elasticsearch) [[ $networks == *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail 'Search Elasticsearch network boundary mismatch' ;;
       observability-elasticsearch) [[ $networks == *"${PROJECT_NAME}_observability "* && $networks != *"${PROJECT_NAME}_business "* && $networks != *"${PROJECT_NAME}_edge "* ]] || fail 'Observability Elasticsearch network boundary mismatch' ;;
@@ -450,7 +450,7 @@ assert_internal_security() {
   compose exec -T \
     -e "GOPULSE_TEST_ROUTER_TOKEN=router-$TOKEN-0123456789abcdef0123456789" \
     -e "GOPULSE_TEST_MARSHALLER_TOKEN=metrics-marshaller-$TOKEN-0123456789abcdef0123456789" \
-    backend /bin/sh -ec '
+    platform-api /bin/sh -ec '
       http_code() {
         output=$(wget -S -O /dev/null "$@" 2>&1 || true)
         printf "%s\n" "$output" | awk "/HTTP\\// { for (i = 1; i <= NF; i++) if (\$i ~ /^HTTP\\//) code=\$(i + 1) } END { print code }"
@@ -485,7 +485,7 @@ assert_internal_security() {
 }
 
 assert_bootstrap_status() {
-  compose exec -T backend /bin/sh -ec '
+  compose exec -T platform-api /bin/sh -ec '
     status=$(wget --quiet --header "Authorization: Bearer $MONITOR_API_TOKEN" --output-document=- http://monitor:9090/internal/v1/exporter-plugins/redis-exporter)
     printf "%s" "$status" | grep -q "\"version\":\"'"$VERSION"'\""
     printf "%s" "$status" | grep -q "\"desired_state\":\"running\""
@@ -609,7 +609,7 @@ exercise_persistence() {
 
 exercise_signal_shutdown() {
   local service id exit_code
-  for service in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
+  for service in admin-frontend frontend backend backend-2 platform-api business-worker search-indexer router marshaller monitor; do
     id=$(owned_service_id "$service")
     compose stop --timeout 25 "$service"
     exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")
@@ -753,7 +753,7 @@ run_observability_scenario admin
 exercise_failure victoriametrics vm-down
 exercise_failure monitor monitor-down
 exercise_failure router transport-down
-for service in backend business-worker search-indexer monitor marshaller; do
+for service in backend backend-2 platform-api business-worker search-indexer monitor marshaller; do
   replace_service "$service"
 done
 assert_bootstrap_status
