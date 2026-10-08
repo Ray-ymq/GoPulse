@@ -20,6 +20,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 )
 
 const (
@@ -41,12 +44,25 @@ func TestIntegrationBackendServiceRoles(t *testing.T) {
 		t.Fatalf("create integration cookie jar: %v", err)
 	}
 	httpClient := &http.Client{Jar: client, Timeout: 3 * time.Second}
+	mysqlConfig, err := config.LoadMySQL()
+	if err != nil {
+		t.Fatalf("load integration MySQL configuration: %v", err)
+	}
+	database, err := platform.OpenMySQLDatabase(mysqlConfig)
+	if err != nil {
+		t.Fatalf("open integration MySQL database: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
 	username := fmt.Sprintf("phase21_%d", time.Now().UnixNano()%1000000000)
 	password := "phase21-integration-password"
 
 	business := startIntegrationServer(t, serverBinary, backendDir, roleEnvironment(base, "business", 128))
 	waitIntegrationReady(t, business, httpClient)
 	userID := registerIntegrationUser(t, httpClient, business.address, username, password)
+	t.Cleanup(func() {
+		_, _ = database.Exec(`DELETE FROM bootstrap_super_admin WHERE user_id=?`, userID)
+		_, _ = database.Exec(`DELETE FROM users WHERE id=?`, userID)
+	})
 	runIntegrationCommand(t, backendDir, integrationCommandTimeout, roleEnvironment(base, "business", 128), "go", "run", "./cmd/admin-role", "promote", "--username", username)
 	if status := integrationStatus(t, httpClient, business.address+"/api/v1/users/me"); status != http.StatusOK {
 		t.Fatalf("business current-user status = %d, want 200", status)
@@ -270,23 +286,23 @@ func integrationEnvironment(t *testing.T) []string {
 		setDefaultEnvironment(&environment, "BACKEND_VICTORIAMETRICS_PASSWORD", "integration-victoriametrics-password-32-bytes")
 		setDefaultEnvironment(&environment, "MONITOR_API_TOKEN", "integration-monitor-token-at-least-32-bytes")
 	} else {
-		setEnvironment(&environment, "MYSQL_HOST", "127.0.0.1")
-		setEnvironment(&environment, "MYSQL_PORT", "13306")
-		setEnvironment(&environment, "MYSQL_DATABASE", "gopulse_integration")
-		setEnvironment(&environment, "MYSQL_USER", "gopulse_integration")
-		setEnvironment(&environment, "MYSQL_PASSWORD", "integration-mysql")
-		setEnvironment(&environment, "REDIS_HOST", "127.0.0.1")
-		setEnvironment(&environment, "REDIS_PORT", "16379")
-		setEnvironment(&environment, "REDIS_PASSWORD", "integration-redis")
-		setEnvironment(&environment, "REDIS_DB", "15")
-		setEnvironment(&environment, "RABBITMQ_URL", "amqp://integration:integration@127.0.0.1:15672/")
-		setEnvironment(&environment, "ELASTICSEARCH_URL", "http://127.0.0.1:19200")
-		setEnvironment(&environment, "OBSERVABILITY_ELASTICSEARCH_URL", "http://127.0.0.1:19201")
-		setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_URL", "http://127.0.0.1:18428")
-		setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_USERNAME", "gopulse-integration")
-		setEnvironment(&environment, "BACKEND_VICTORIAMETRICS_PASSWORD", "integration-victoriametrics-password-32-bytes")
-		setEnvironment(&environment, "MONITOR_URL", "http://127.0.0.1:19090")
-		setEnvironment(&environment, "MONITOR_API_TOKEN", "integration-monitor-token-at-least-32-bytes")
+		setDefaultEnvironment(&environment, "MYSQL_HOST", "127.0.0.1")
+		setDefaultEnvironment(&environment, "MYSQL_PORT", "23306")
+		setDefaultEnvironment(&environment, "MYSQL_DATABASE", "gopulse_integration")
+		setDefaultEnvironment(&environment, "MYSQL_USER", "gopulse_integration")
+		setDefaultEnvironment(&environment, "MYSQL_PASSWORD", "integration-mysql")
+		setDefaultEnvironment(&environment, "REDIS_HOST", "127.0.0.1")
+		setDefaultEnvironment(&environment, "REDIS_PORT", "26379")
+		setDefaultEnvironment(&environment, "REDIS_PASSWORD", "integration-redis")
+		setDefaultEnvironment(&environment, "REDIS_DB", "15")
+		setDefaultEnvironment(&environment, "RABBITMQ_URL", "amqp://gopulse_integration:integration-rabbitmq@127.0.0.1:25672/")
+		setDefaultEnvironment(&environment, "ELASTICSEARCH_URL", "http://127.0.0.1:29200")
+		setDefaultEnvironment(&environment, "OBSERVABILITY_ELASTICSEARCH_URL", "http://127.0.0.1:29201")
+		setDefaultEnvironment(&environment, "BACKEND_VICTORIAMETRICS_URL", "http://127.0.0.1:18428")
+		setDefaultEnvironment(&environment, "BACKEND_VICTORIAMETRICS_USERNAME", "gopulse-test-marshaller")
+		setDefaultEnvironment(&environment, "BACKEND_VICTORIAMETRICS_PASSWORD", "test-victoria-metrics-password-32-bytes")
+		setDefaultEnvironment(&environment, "MONITOR_URL", "http://127.0.0.1:19090")
+		setDefaultEnvironment(&environment, "MONITOR_API_TOKEN", "test-monitor-api-token-32-bytes-0123456789")
 	}
 	setDefaultEnvironment(&environment, "MYSQL_MAX_IDLE_CONNS", "2")
 	setDefaultEnvironment(&environment, "MYSQL_TOTAL_MAX_OPEN_CONNS", "60")
