@@ -3,6 +3,19 @@ name: Warm main build caches
 on:
   push:
     branches: [main]
+    paths:
+      - '.github/actions/compose-build-cache/**'
+      - 'deploy/docker/**'
+      - 'deploy/compose*.yaml'
+      - 'deploy/plugins/*.tar.gz'
+      - 'deploy/plugins/*.sha256'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'admin-frontend/package.json'
+      - 'admin-frontend/package-lock.json'
+      - 'scripts/ci/compose_build_cache.py'
   workflow_dispatch:
 
 permissions:
