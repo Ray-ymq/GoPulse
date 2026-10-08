@@ -19,8 +19,11 @@ from local_development import (
     compose_environment,
     check_ports,
     digest_paths,
+    e2e_ports,
     integration_lock,
+    port_argument,
     run_integration,
+    run_e2e,
     parse_dotenv,
     process_birth_identity,
     process_owned,
@@ -68,6 +71,27 @@ class LocalDevelopmentTests(unittest.TestCase):
     def test_integration_scope_rejects_unknown_before_docker(self) -> None:
         with self.assertRaises(DevelopmentError):
             run_integration(Path(tempfile.mkdtemp()), "unknown")
+
+    def test_e2e_scope_rejects_unknown_before_docker(self) -> None:
+        with self.assertRaises(DevelopmentError):
+            run_e2e(Path(tempfile.mkdtemp()), "unknown", {})
+
+    def test_e2e_ports_include_source_and_browser_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".env.example").write_text("HTTP_PORT=8080\n", encoding="utf-8")
+            values = compose_environment(root, "test")
+            business = e2e_ports(values, False)
+            observe = e2e_ports(values, True)
+            self.assertIn(18080, business)
+            self.assertIn(15173, business)
+            self.assertIn(15174, observe)
+            self.assertIn(19090, observe)
+
+    def test_e2e_port_argument_rejects_out_of_range_values(self) -> None:
+        self.assertEqual(port_argument("15173"), "15173")
+        with self.assertRaises(Exception):
+            port_argument("65536")
 
     def test_integration_lock_rejects_second_owner(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

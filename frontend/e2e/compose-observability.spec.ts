@@ -68,11 +68,11 @@ async function waitForEvents(page: Page): Promise<void> {
   }, { timeout: 60_000 }).toBeGreaterThan(0)
 }
 
-function trackUnexpectedOrigins(page: Page): string[] {
+function trackUnexpectedOrigins(page: Page, expectedOrigin: string): string[] {
   const unexpected: string[] = []
   page.on('request', request => {
     const url = new URL(request.url())
-    if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== 'http://frontend:8080') unexpected.push(request.url())
+    if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== expectedOrigin) unexpected.push(request.url())
   })
   return unexpected
 }
@@ -112,7 +112,7 @@ test(`runs Compose observability scenario: ${scenario}`, async ({ browser, page 
     return
   }
 
-  const unexpected = trackUnexpectedOrigins(page)
+  const unexpected = trackUnexpectedOrigins(page, new URL(process.env.GOPULSE_BASE_URL ?? 'http://frontend:8080').origin)
   await login(page, adminUsername)
 
   if (scenario === 'admin') {

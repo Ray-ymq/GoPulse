@@ -4616,6 +4616,11 @@
       "sensitive": false
     },
     {
+      "key": "ADMIN_FRONTEND_PORT",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "GOPULSE_BOOTSTRAP_USER_ID",
       "type": "string",
       "sensitive": false
