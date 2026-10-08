@@ -178,6 +178,16 @@ func TestRedisConfigurationSeparationAndReplacement(t *testing.T) {
 	if _, _, err := ParseRedisConfiguration(host, "host", nil); err != nil {
 		t.Fatal(err)
 	}
+	integrationHost := []byte(strings.Replace(string(host), `"port":6379`, `"port":26379`, 1))
+	if config, _, err := ParseRedisConfiguration(integrationHost, "host", nil); err != nil || config.Port != 26379 {
+		t.Fatalf("loopback integration port rejected: config=%+v err=%v", config, err)
+	}
+	for _, port := range []string{"0", "65536"} {
+		invalidPort := []byte(strings.Replace(string(host), `"port":6379`, `"port":`+port, 1))
+		if _, _, err := ParseRedisConfiguration(invalidPort, "host", nil); err == nil {
+			t.Fatalf("invalid host port %s accepted", port)
+		}
+	}
 	if _, _, err := ParseRedisConfiguration(data, "host", nil); err == nil {
 		t.Fatal("container DNS allowed in host mode")
 	}

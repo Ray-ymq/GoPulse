@@ -1431,7 +1431,13 @@ trap 'on_signal 143' TERM
 
 main() {
   local mode=full
-  if [[ ${1:-} == --self-test ]]; then
+  if [[ ${1:-} == --native ]]; then
+    shift
+    [[ $# == 0 ]] || { fail 'usage: verify-business.sh [--native|--self-test|--search-rebuild|--search-live|--logging-live]'; return 2; }
+    info 'Delegating business verification to the native Go integration entrypoint.'
+    (cd "$REPO_ROOT" && exec make integration SCOPE=business)
+    return
+  elif [[ ${1:-} == --self-test ]]; then
     self_test
     return
   elif [[ ${1:-} == --search-rebuild ]]; then
@@ -1444,7 +1450,7 @@ main() {
     mode=logging-live
     shift
   fi
-  [[ $# == 0 ]] || { fail 'usage: verify-business.sh [--self-test|--search-rebuild|--search-live|--logging-live]'; return 2; }
+  [[ $# == 0 ]] || { fail 'usage: verify-business.sh [--native|--self-test|--search-rebuild|--search-live|--logging-live]'; return 2; }
   require_tools
   TOKEN=${ACCEPTANCE_TOKEN:-$(python3 -c 'import secrets; print(secrets.token_hex(6))')}
   PROJECT_NAME="gopulse-acceptance-$TOKEN"

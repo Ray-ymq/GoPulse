@@ -324,5 +324,7 @@ jobs:
             echo "Database migration attempt $attempt/$max_attempts failed while the isolated MySQL service was starting; retrying in 3s." >&2
             sleep 3
           done
+      - name: Prepare search index
+        run: go run ./cmd/search-reindex --if-missing
       - name: Run integration tests against required dependencies
-        run: go test -count=1 -tags=integration ./...
+        run: go test -p 1 -count=1 -tags=integration ./...

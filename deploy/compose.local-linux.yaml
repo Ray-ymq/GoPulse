@@ -1,6 +1,9 @@
 services:
   monitor:
     profiles: [observe]
+    depends_on:
+      redis:
+        condition: service_healthy
     image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:local}
     pull_policy: never
     restart: on-failure:5

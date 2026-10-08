@@ -9,6 +9,8 @@ Compose projects used by the Phase 22 development workflow.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -84,6 +86,12 @@ MODULES = {
     "monitor": ("monitor", ("go", "test", "./...")),
     "frontend": ("frontend", ("npm", "test")),
     "admin-frontend": ("admin-frontend", ("npm", "test")),
+    "exporters/elasticsearch": ("exporters/elasticsearch", ("go", "test", "./...")),
+    "exporters/kafka": ("exporters/kafka", ("go", "test", "./...")),
+    "exporters/mysql": ("exporters/mysql", ("go", "test", "./...")),
+    "exporters/rabbitmq": ("exporters/rabbitmq", ("go", "test", "./...")),
+    "exporters/redis": ("exporters/redis", ("go", "test", "./...")),
+    "exporters/victoriametrics": ("exporters/victoriametrics", ("go", "test", "./...")),
 }
 
 
@@ -105,12 +113,29 @@ class Workspace:
         return self.private_root / "state.json"
 
     @property
+    def integration_state_path(self) -> Path:
+        return self.private_root / "integration-state.json"
+
+    @property
+    def integration_lock_path(self) -> Path:
+        return self.private_root / "integration.lock"
+
+    @property
     def project_dev(self) -> str:
         return f"gopulse-{self.identity}-dev"
 
     @property
     def project_test(self) -> str:
-        return f"gopulse-{self.identity}-test"
+        # A Monitor image owns a compile-time release catalog. Keep test
+        # volumes candidate-scoped so a newer image cannot inherit a plugin
+        # volume whose active release is not registered in that image.
+        version = "current"
+        version_path = self.root / "VERSION"
+        if version_path.is_file():
+            candidate = version_path.read_text(encoding="utf-8").strip()
+            if SEMVER.fullmatch(candidate):
+                version = candidate.replace(".", "")
+        return f"gopulse-{self.identity}-test-{version}"
 
 
 def workspace_for(root: Path) -> Workspace:
@@ -202,19 +227,33 @@ def compose_environment(root: Path, mode: str, explicit_env: str | None = None, 
         # is the isolation boundary consumed by the later integration batch.
         values.update({
             "APP_ENV": "test", "GOPULSE_RUNTIME_MODE": "host", "BACKEND_SERVICE_ROLE": "combined",
+            "HTTP_HOST": "127.0.0.1", "MYSQL_HOST": "127.0.0.1", "REDIS_HOST": "127.0.0.1",
             "HTTP_PORT": "18080", "FRONTEND_PORT": "15173", "ADMIN_FRONTEND_PORT": "15174", "ALERT_EVALUATION_ENABLED": "false",
-            "GOPULSE_TRACE_ENABLED": "false", "MYSQL_PORT": "13306", "MYSQL_DATABASE": "gopulse_integration",
+            "GOPULSE_TRACE_ENABLED": "false", "MYSQL_PORT": "23306", "MYSQL_DATABASE": "gopulse_integration",
             "MYSQL_USER": "gopulse_integration", "MYSQL_PASSWORD": "integration-mysql",
-            "MYSQL_ROOT_PASSWORD": "integration-root", "REDIS_PORT": "16379", "REDIS_PASSWORD": "integration-redis",
-            "REDIS_DB": "15", "RABBITMQ_PORT": "15673", "RABBITMQ_MANAGEMENT_PORT": "15674",
+            "MYSQL_ROOT_PASSWORD": "integration-root", "REDIS_PORT": "26379", "REDIS_PASSWORD": "integration-redis",
+            "REDIS_DB": "15", "RABBITMQ_PORT": "25672", "RABBITMQ_MANAGEMENT_PORT": "25673",
             "RABBITMQ_USER": "gopulse_integration", "RABBITMQ_PASSWORD": "integration-rabbitmq",
-            "RABBITMQ_URL": "amqp://gopulse_integration:integration-rabbitmq@127.0.0.1:15673/",
-            "ELASTICSEARCH_PORT": "19200", "ELASTICSEARCH_URL": "http://127.0.0.1:19200",
-            "OBSERVABILITY_ELASTICSEARCH_PORT": "19201", "OBSERVABILITY_ELASTICSEARCH_URL": "http://127.0.0.1:19201",
+            "RABBITMQ_URL": "amqp://gopulse_integration:integration-rabbitmq@127.0.0.1:25672/",
+            "ELASTICSEARCH_PORT": "29200", "ELASTICSEARCH_URL": "http://127.0.0.1:29200",
+            "OBSERVABILITY_ELASTICSEARCH_PORT": "29201", "OBSERVABILITY_ELASTICSEARCH_URL": "http://127.0.0.1:29201",
             "KAFKA_PORT": "19092", "VICTORIAMETRICS_PORT": "18428", "BACKEND_VICTORIAMETRICS_URL": "http://127.0.0.1:18428",
+            "VICTORIAMETRICS_USERNAME": "gopulse-test-marshaller", "VICTORIAMETRICS_PASSWORD": "test-victoria-metrics-password-32-bytes",
+            "BACKEND_VICTORIAMETRICS_USERNAME": "gopulse-test-marshaller", "BACKEND_VICTORIAMETRICS_PASSWORD": "test-victoria-metrics-password-32-bytes",
+            "MARSHALLER_VM_USERNAME": "gopulse-test-marshaller", "MARSHALLER_VM_PASSWORD": "test-victoria-metrics-password-32-bytes",
+            "MARSHALLER_VM_URL": "http://127.0.0.1:18428", "MARSHALLER_ELASTICSEARCH_URL": "http://127.0.0.1:29201",
             "MONITOR_HTTP_PORT": "19090", "MONITOR_URL": "http://127.0.0.1:19090",
+            "MONITOR_BOOTSTRAP_PACKAGE": "/opt/gopulse/packages/gopulse-redis-exporter.tar.gz",
             "ROUTER_HTTP_PORT": "19091", "MARSHALLER_HTTP_PORT": "19093", "FRONTEND_PORT": "15173", "ADMIN_FRONTEND_PORT": "15174",
-            "LOG_MONITOR_URL": "", "LOG_MONITOR_INGEST_TOKEN": "", "REDIS_POST_DETAIL_TTL": "5m",
+            "ROUTER_KAFKA_BROKERS": "127.0.0.1:19092", "MARSHALLER_KAFKA_BROKERS": "127.0.0.1:19092",
+            "ROUTER_API_TOKEN": "test-router-api-token-32-bytes-0123456789", "ROUTER_METRICS_TOKEN": "test-router-metrics-token-32-bytes-0123456789",
+            "MARSHALLER_API_TOKEN": "test-marshaller-api-token-32-bytes-0123456789", "MARSHALLER_METRICS_TOKEN": "test-marshaller-metrics-token-32-bytes-0123456789",
+            "MONITOR_API_TOKEN": "test-monitor-api-token-32-bytes-0123456789", "MONITOR_METRICS_TOKEN": "test-monitor-metrics-token-32-bytes-0123456789",
+            "MONITOR_ROUTER_TOKEN": "test-router-api-token-32-bytes-0123456789", "REDIS_EXPORTER_HTTP_PORT": "19121",
+            "LOG_MONITOR_URL": "http://127.0.0.1:19090", "LOG_MONITOR_INGEST_TOKEN": "test-log-ingest-token-32-bytes-0123456789",
+            "MONITOR_ROUTER_URL": "http://127.0.0.1:19091", "MONITOR_ROUTER_URLS": "http://127.0.0.1:19091",
+            "REDIS_POST_DETAIL_TTL": "5m", "AUTH_JWT_SECRET": "test-integration-jwt-secret-32-bytes-0123456789",
+            "AUTH_COOKIE_NAME": "gopulse_test_session", "AUTH_COOKIE_SECURE": "false",
             "BACKEND_ENDPOINTS": "backend", "BUSINESS_WORKER_ENDPOINTS": "business-worker",
             "SEARCH_INDEXER_ENDPOINTS": "search-indexer", "ROUTER_ENDPOINTS": "router", "MARSHALLER_ENDPOINTS": "marshaller",
         })
@@ -308,11 +347,13 @@ def load_state(workspace: Workspace) -> dict[str, object] | None:
     return state
 
 
-def run_command(command: Sequence[str], *, cwd: Path, env: Mapping[str, str] | None = None, label: str) -> None:
+def run_command(command: Sequence[str], *, cwd: Path, env: Mapping[str, str] | None = None, label: str, timeout: float | None = None) -> None:
     try:
-        completed = subprocess.run(list(command), cwd=cwd, env=dict(env) if env is not None else None, check=False)
+        completed = subprocess.run(list(command), cwd=cwd, env=dict(env) if env is not None else None, check=False, timeout=timeout)
     except OSError as exc:
         raise DevelopmentError(f"{label} could not start: {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise DevelopmentError(f"{label} exceeded its {int(timeout or 0)}s bound") from exc
     if completed.returncode != 0:
         raise DevelopmentError(f"{label} failed with exit code {completed.returncode}")
 
@@ -327,8 +368,8 @@ def compose_command(project: str, env_file: Path, files: Sequence[Path], profile
     return command
 
 
-def compose_up(workspace: Workspace, env_file: Path, values: Mapping[str, str], observe: bool) -> tuple[str, list[Path]]:
-    project = workspace.project_dev
+def compose_up(workspace: Workspace, env_file: Path, values: Mapping[str, str], observe: bool, project: str | None = None) -> tuple[str, list[Path]]:
+    project = project or workspace.project_dev
     files = [workspace.root / "deploy" / "compose.local.yaml"]
     if observe:
         files.append(workspace.root / "deploy" / "compose.local-linux.yaml")
@@ -453,7 +494,7 @@ def build_binary(workspace: Workspace, env: Mapping[str, str], name: str, packag
     return binary
 
 
-def spawn_process(workspace: Workspace, state: dict[str, object], name: str, command: Sequence[str], env: Mapping[str, str], cwd: Path) -> None:
+def spawn_process(workspace: Workspace, state: dict[str, object], name: str, command: Sequence[str], env: Mapping[str, str], cwd: Path, state_path: Path | None = None) -> None:
     log_path = workspace.private_root / "logs" / f"{name}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_handle = log_path.open("ab")
@@ -476,7 +517,7 @@ def spawn_process(workspace: Workspace, state: dict[str, object], name: str, com
     processes = state.setdefault("processes", {})
     assert isinstance(processes, dict)
     processes[name] = record
-    save_json(workspace.state_path, state)
+    save_json(state_path or workspace.state_path, state)
 
 
 def terminate_process(record: Mapping[str, object]) -> None:
@@ -543,7 +584,7 @@ def start_lifecycle(root: Path, mode: str, explicit_env: str | None, observe: bo
         return
     required_ports = [int(values["HTTP_PORT"]), int(values["FRONTEND_PORT"]), 19101, 19102, 19103]
     if observe:
-        required_ports.extend([int(values["ROUTER_HTTP_PORT"]), 19105, int(values["MARSHALLER_HTTP_PORT"]), 19106, int(values["MONITOR_HTTP_PORT"]), int(values["ADMIN_FRONTEND_PORT"])])
+        required_ports.extend([int(values["ROUTER_HTTP_PORT"]), 19105, int(values["MARSHALLER_HTTP_PORT"]), 19106, int(values["MONITOR_HTTP_PORT"]), int(values["ADMIN_FRONTEND_PORT"]), int(values["REDIS_EXPORTER_HTTP_PORT"])])
     check_ports(required_ports)
     project, compose_files = compose_up(workspace, env_file, values, observe)
     state: dict[str, object] = {
@@ -624,6 +665,170 @@ def start_lifecycle(root: Path, mode: str, explicit_env: str | None, observe: bo
         raise
 
 
+@contextmanager
+def integration_lock(workspace: Workspace):
+    workspace.private_root.mkdir(parents=True, exist_ok=True)
+    handle = workspace.integration_lock_path.open("a+")
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise DevelopmentError("another integration or browser check owns the test environment lock") from exc
+        yield
+    finally:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def integration_ports(values: Mapping[str, str], observe: bool) -> list[int]:
+    ports = [int(values[key]) for key in ("MYSQL_PORT", "REDIS_PORT", "RABBITMQ_PORT", "RABBITMQ_MANAGEMENT_PORT", "ELASTICSEARCH_PORT")]
+    if observe:
+        ports.extend(int(values[key]) for key in ("KAFKA_PORT", "VICTORIAMETRICS_PORT", "OBSERVABILITY_ELASTICSEARCH_PORT", "MONITOR_HTTP_PORT", "ROUTER_HTTP_PORT", "MARSHALLER_HTTP_PORT", "REDIS_EXPORTER_HTTP_PORT"))
+        ports.extend([int(values["HTTP_PORT"]), 19101, 19102, 19103, 19105, 19106])
+    return ports
+
+
+def start_observe_test_processes(root: Path, workspace: Workspace, state: dict[str, object], values: dict[str, str]) -> None:
+    """Start only the source services required by the native observability flow."""
+    one_shot_env = dict(values)
+    one_shot_env["LOG_MONITOR_URL"] = ""
+    one_shot_env["LOG_MONITOR_INGEST_TOKEN"] = ""
+    run_command(["go", "run", "./cmd/migrate", "up"], cwd=root / "backend", env=one_shot_env, label="test database migration")
+    run_command(["go", "run", "./cmd/search-reindex", "--if-missing"], cwd=root / "backend", env=one_shot_env, label="test search reindex")
+
+    binary_digest = source_digest(root, observe=False)
+    backend = build_binary(workspace, values, "integration-backend", "./cmd/server", binary_digest)
+    router_digest = source_digest(root, observe=True)
+    router = workspace.private_root / "bin" / "integration-router"
+    marshaller = workspace.private_root / "bin" / "integration-marshaller"
+    for name, directory, package, output in [
+        ("integration-router", root / "router", "./cmd/router", router),
+        ("integration-marshaller", root / "marshaller", "./cmd/marshaller", marshaller),
+    ]:
+        metadata = workspace.private_root / "bin" / f"{name}.json"
+        previous = json.loads(metadata.read_text(encoding="utf-8")) if metadata.is_file() else {}
+        if not output.is_file() or previous.get("digest") != router_digest:
+            run_command(["go", "build", "-trimpath", "-o", str(output), package], cwd=directory, env=values, label=f"build {name}")
+            save_json(metadata, {"name": name, "digest": router_digest, "command": ["go", "build", "-trimpath", "-o", str(output), package]})
+    admin_role = build_binary(workspace, values, "integration-admin-role", "./cmd/admin-role", binary_digest)
+
+    router_env = dict(values)
+    router_env["GOPULSE_INSTANCE_ID"] = "router-test"
+    marshaller_env = dict(values)
+    marshaller_env["GOPULSE_INSTANCE_ID"] = "marshaller-test"
+    backend_env = dict(values)
+    backend_env["GOPULSE_INSTANCE_ID"] = "backend-test"
+    spawn_process(workspace, state, "router", [str(router)], router_env, root / "router", workspace.integration_state_path)
+    wait_http(f"http://127.0.0.1:{values['ROUTER_HTTP_PORT']}/ready", timeout=180, token=values["ROUTER_API_TOKEN"], label="test Router", process_record=state["processes"]["router"])
+    spawn_process(workspace, state, "marshaller", [str(marshaller)], marshaller_env, root / "marshaller", workspace.integration_state_path)
+    wait_http(f"http://127.0.0.1:{values['MARSHALLER_HTTP_PORT']}/ready", timeout=180, token=values["MARSHALLER_API_TOKEN"], label="test Marshaller", process_record=state["processes"]["marshaller"])
+    spawn_process(workspace, state, "backend", [str(backend)], backend_env, root / "backend", workspace.integration_state_path)
+    wait_http(f"http://127.0.0.1:{values['HTTP_PORT']}/ready", timeout=180, label="test Backend", process_record=state["processes"]["backend"])
+    wait_http(f"http://127.0.0.1:{values['MONITOR_HTTP_PORT']}/ready", timeout=180, token=values["MONITOR_API_TOKEN"], label="test Monitor")
+
+    admin_username = f"observe_admin_{workspace.identity}"
+    admin_password = "observe-admin-password-32-bytes-0123456789"
+    values["OBSERVE_ADMIN_USERNAME"] = admin_username
+    values["OBSERVE_ADMIN_PASSWORD"] = admin_password
+    registration = json.dumps({"username": admin_username, "password": admin_password}, separators=(",", ":"))
+    curl = ["curl", "--silent", "--show-error", "--max-time", "20", "-H", "Content-Type: application/json", "-d", registration, "-o", os.devnull, "-w", "%{http_code}", f"http://127.0.0.1:{values['HTTP_PORT']}/api/v1/auth/register"]
+    registered = subprocess.run(curl, cwd=root, env=dict(values), stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True)
+    if registered.returncode != 0 or registered.stdout.strip() not in {"201", "409"}:
+        raise DevelopmentError("test observability admin registration failed")
+    run_command([str(admin_role), "promote", "--username", admin_username], cwd=root / "backend", env=values, label="test observability admin-role bootstrap")
+
+
+def cleanup_observe_admin(root: Path, workspace: Workspace, state: Mapping[str, object], values: Mapping[str, str]) -> None:
+    """Remove only the deterministic administrator created by observe tests."""
+    username = values.get("OBSERVE_ADMIN_USERNAME", "")
+    if not username:
+        return
+    if not re.fullmatch(r"observe_admin_[0-9a-f]+", username):
+        raise DevelopmentError("refusing to clean an unexpected observability test username")
+    sql_username = username.replace("\\", "\\\\").replace("'", "\\'")
+    sql = (
+        "DELETE FROM bootstrap_super_admin "
+        f"WHERE user_id=(SELECT id FROM users WHERE username='{sql_username}'); "
+        f"DELETE FROM users WHERE username='{sql_username}';"
+    )
+    env_file = Path(str(state.get("env_file", "")))
+    project = str(state.get("project", ""))
+    raw_files = state.get("compose_files", [])
+    files = [Path(str(item)) for item in raw_files] if isinstance(raw_files, list) else []
+    if not project or not env_file.is_file() or not files:
+        raise DevelopmentError("cannot clean observability test administrator without Compose state")
+    command = compose_command(
+        project, env_file, files, ["observe"],
+        [
+            "exec", "-T", "mysql", "mysql", "-uroot",
+            f"-p{values['MYSQL_ROOT_PASSWORD']}", values["MYSQL_DATABASE"], "-e", sql,
+        ],
+    )
+    run_command(command, cwd=root, env=dict(os.environ), label="observability test administrator cleanup")
+
+
+def run_integration(root: Path, scope: str) -> None:
+    if scope not in {"business", "observe"}:
+        raise DevelopmentError(f"unknown integration SCOPE={scope!r}; expected business or observe")
+    workspace, values, env_file = application_environment(root, "test", None)
+    observe = scope == "observe"
+    lifecycle = load_state(workspace)
+    if lifecycle and lifecycle.get("status") == "running":
+        raise DevelopmentError("cannot start integration while this workspace owns a development lifecycle; run make stop first")
+    with integration_lock(workspace):
+        check_ports(integration_ports(values, observe))
+        project, compose_files = compose_up(workspace, env_file, values, observe, project=workspace.project_test)
+        source = source_digest(root, observe=observe)
+        state: dict[str, object] = {
+            "schema": 1, "status": "running", "workspace_root": str(workspace.root), "workspace_id": workspace.identity,
+            "branch": subprocess.run(["git", "branch", "--show-current"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
+            "revision": subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
+            "mode": "integration", "scope": scope, "observe": observe, "project": project,
+            "compose_files": [str(path) for path in compose_files], "env_file": str(env_file), "source_digest": source,
+            "compose_digest": digest_paths(root, compose_files), "monitor_image": monitor_image_tag(root) if observe else "",
+            "started_at": now(), "processes": {}, "logs": {},
+        }
+        save_json(workspace.integration_state_path, state)
+        try:
+            if observe:
+                start_observe_test_processes(root, workspace, state, values)
+                test_env = dict(values)
+                test_env.update({"INTEGRATION_TESTS": "1", "OBSERVABILITY_INTEGRATION": "1"})
+                run_command(["go", "-C", "backend", "test", "-p", "1", "-tags=integration,observability_integration", "./internal/http", "-run", "^TestObservabilityFlowIntegration$", "-count=1", "-timeout", "6m"], cwd=root, env=test_env, label="observability integration tests", timeout=390)
+            else:
+                one_shot_env = dict(values)
+                one_shot_env["LOG_MONITOR_URL"] = ""
+                one_shot_env["LOG_MONITOR_INGEST_TOKEN"] = ""
+                run_command(["go", "run", "./cmd/migrate", "up"], cwd=root / "backend", env=one_shot_env, label="test database migration")
+                run_command(["go", "run", "./cmd/search-reindex", "--if-missing"], cwd=root / "backend", env=one_shot_env, label="test search reindex")
+                test_env = dict(values)
+                test_env["INTEGRATION_TESTS"] = "1"
+                test_env["LOG_MONITOR_URL"] = ""
+                test_env["LOG_MONITOR_INGEST_TOKEN"] = ""
+                run_command(["go", "-C", "backend", "test", "-p", "1", "-tags=integration", "./..."], cwd=root, env=test_env, label="business integration tests", timeout=900)
+            state["status"] = "passed"
+            print(f"[gopulse] integration scope={scope} passed for test project {project}")
+        except BaseException:
+            state["status"] = "failed"
+            raise
+        finally:
+            for record in list(state.get("processes", {}).values()):
+                if isinstance(record, dict):
+                    terminate_process(record)
+            try:
+                if observe:
+                    cleanup_observe_admin(root, workspace, state, values)
+            except BaseException:
+                state["status"] = "failed"
+                raise
+            finally:
+                compose_down(workspace, state)
+                state["stopped_at"] = now()
+                save_json(workspace.integration_state_path, state)
+
+
 def run_test(root: Path, module: str) -> None:
     if module not in MODULES:
         known = ", ".join(sorted(MODULES))
@@ -693,7 +898,10 @@ def build_parser() -> argparse.ArgumentParser:
     stop_command.set_defaults(handler=lambda _args: stop(Path.cwd()))
     monitor = subparsers.add_parser("monitor-image")
     monitor.set_defaults(handler=lambda _args: prepare_monitor_image(Path.cwd()))
-    for name in ("integration", "e2e"):
+    integration = subparsers.add_parser("integration")
+    integration.add_argument("--scope", default="business")
+    integration.set_defaults(handler=lambda args: run_integration(Path.cwd(), args.scope))
+    for name in ("e2e",):
         command = subparsers.add_parser(name)
         command.set_defaults(handler=lambda _args, name=name: unsupported(name))
     return parser

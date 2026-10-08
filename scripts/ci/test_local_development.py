@@ -19,6 +19,8 @@ from local_development import (
     compose_environment,
     check_ports,
     digest_paths,
+    integration_lock,
+    run_integration,
     parse_dotenv,
     process_birth_identity,
     process_owned,
@@ -48,8 +50,32 @@ class LocalDevelopmentTests(unittest.TestCase):
             self.assertEqual(values["MYSQL_DATABASE"], "gopulse_integration")
             self.assertEqual(values["MYSQL_USER"], "gopulse_integration")
             self.assertEqual(values["REDIS_DB"], "15")
-            self.assertEqual(values["MYSQL_PORT"], "13306")
+            self.assertEqual(values["MYSQL_PORT"], "23306")
             self.assertEqual(values["HTTP_PORT"], "18080")
+
+    def test_test_environment_rejects_development_dependency_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".env.example").write_text("MYSQL_HOST=127.0.0.1\n", encoding="utf-8")
+            caller = root / "dev.env"
+            caller.write_text("MYSQL_DATABASE=gopulse\nMYSQL_PORT=3306\nELASTICSEARCH_URL=http://127.0.0.1:9200\n", encoding="utf-8")
+            values = compose_environment(root, "test", str(caller), {})
+            self.assertEqual(values["MYSQL_DATABASE"], "gopulse_integration")
+            self.assertEqual(values["MYSQL_PORT"], "23306")
+            self.assertEqual(values["ELASTICSEARCH_URL"], "http://127.0.0.1:29200")
+            self.assertEqual(values["OBSERVABILITY_ELASTICSEARCH_URL"], "http://127.0.0.1:29201")
+
+    def test_integration_scope_rejects_unknown_before_docker(self) -> None:
+        with self.assertRaises(DevelopmentError):
+            run_integration(Path(tempfile.mkdtemp()), "unknown")
+
+    def test_integration_lock_rejects_second_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = workspace_for(Path(directory))
+            with integration_lock(workspace):
+                with self.assertRaises(DevelopmentError):
+                    with integration_lock(workspace):
+                        pass
 
     def test_source_digest_includes_local_replace_module(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -121,6 +147,11 @@ class LocalDevelopmentTests(unittest.TestCase):
         second = workspace_for(Path("/tmp/gopulse-b"))
         self.assertNotEqual(first.identity, second.identity)
         self.assertTrue(first.project_dev.endswith("-dev"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "VERSION").write_text("2.4.2\n", encoding="utf-8")
+            self.assertTrue(workspace_for(root).project_test.endswith("-test-242"))
 
 
 if __name__ == "__main__":

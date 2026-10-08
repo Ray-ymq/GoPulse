@@ -17,7 +17,7 @@ test:
 	@$(LOCAL_DEVELOPMENT) test --module "$(MODULE)"
 
 integration:
-	@$(LOCAL_DEVELOPMENT) integration
+	@$(LOCAL_DEVELOPMENT) integration --scope "$(if $(SCOPE),$(SCOPE),business)"
 
 e2e:
 	@$(LOCAL_DEVELOPMENT) e2e
