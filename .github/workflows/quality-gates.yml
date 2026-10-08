@@ -550,14 +550,6 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm exec -- playwright install --with-deps chromium
-      - name: Preserve runner toolchain for native processes
-        shell: bash
-        run: |
-          {
-            printf 'PATH=%s\n' "$PATH"
-            printf 'HOME=%s\n' "$HOME"
-          } > "$RUNNER_TEMP/gopulse-e2e.env"
-          echo "GOPULSE_ENV_FILE=$RUNNER_TEMP/gopulse-e2e.env" >> "$GITHUB_ENV"
       - name: Run native business browser checks
         run: make e2e SCOPE=business
 
@@ -583,14 +575,6 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm exec -- playwright install --with-deps chromium
-      - name: Preserve runner toolchain for native processes
-        shell: bash
-        run: |
-          {
-            printf 'PATH=%s\n' "$PATH"
-            printf 'HOME=%s\n' "$HOME"
-          } > "$RUNNER_TEMP/gopulse-e2e.env"
-          echo "GOPULSE_ENV_FILE=$RUNNER_TEMP/gopulse-e2e.env" >> "$GITHUB_ENV"
       - name: Prepare the fixed Linux Monitor input
         run: make monitor-image
       - name: Run native observability browser checks

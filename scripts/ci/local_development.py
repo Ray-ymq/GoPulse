@@ -673,14 +673,14 @@ def start_lifecycle(root: Path, mode: str, explicit_env: str | None, observe: bo
 
         ensure_npm_dependencies(root, "frontend")
         frontend_env = dict(values)
-        spawn_process(workspace, state, "frontend", ["npm", "run", "dev", "--", "--port", values["FRONTEND_PORT"]], frontend_env, root / "frontend")
+        spawn_process(workspace, state, "frontend", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", values["FRONTEND_PORT"]], frontend_env, root / "frontend")
         wait_http(f"http://127.0.0.1:{values['FRONTEND_PORT']}/", timeout=180, label="user Vite", process_record=state["processes"]["frontend"])
         if observe:
             ensure_npm_dependencies(root, "admin-frontend")
             admin_env = dict(values)
             admin_port = values["ADMIN_FRONTEND_PORT"]
             admin_env["FRONTEND_PORT"] = admin_port
-            spawn_process(workspace, state, "admin-frontend", ["npm", "run", "dev", "--", "--port", admin_port], admin_env, root / "admin-frontend")
+            spawn_process(workspace, state, "admin-frontend", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", admin_port], admin_env, root / "admin-frontend")
             wait_http(f"http://127.0.0.1:{admin_port}/admin/", timeout=180, label="admin Vite", process_record=state["processes"]["admin-frontend"])
             wait_http(f"http://127.0.0.1:{values['MONITOR_HTTP_PORT']}/ready", timeout=180, token=values["MONITOR_API_TOKEN"], label="Monitor")
         print(f"[gopulse] {mode} is ready for workspace {workspace.identity}")
@@ -835,13 +835,13 @@ def start_e2e_test_processes(root: Path, workspace: Workspace, state: dict[str, 
 
     ensure_npm_dependencies(root, "frontend")
     frontend_env = dict(values)
-    spawn_process(workspace, state, "frontend", ["npm", "run", "dev", "--", "--port", values["FRONTEND_PORT"]], frontend_env, root / "frontend", workspace.integration_state_path)
+    spawn_process(workspace, state, "frontend", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", values["FRONTEND_PORT"]], frontend_env, root / "frontend", workspace.integration_state_path)
     wait_http(f"http://127.0.0.1:{values['FRONTEND_PORT']}/", timeout=180, label="test user Vite", process_record=state["processes"]["frontend"])
     if observe:
         ensure_npm_dependencies(root, "admin-frontend")
         admin_env = dict(values)
         admin_env["FRONTEND_PORT"] = values["ADMIN_FRONTEND_PORT"]
-        spawn_process(workspace, state, "admin-frontend", ["npm", "run", "dev", "--", "--port", values["ADMIN_FRONTEND_PORT"]], admin_env, root / "admin-frontend", workspace.integration_state_path)
+        spawn_process(workspace, state, "admin-frontend", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", values["ADMIN_FRONTEND_PORT"]], admin_env, root / "admin-frontend", workspace.integration_state_path)
         wait_http(f"http://127.0.0.1:{values['ADMIN_FRONTEND_PORT']}/admin/", timeout=180, label="test admin Vite", process_record=state["processes"]["admin-frontend"])
 
     if observe:
