@@ -61,9 +61,15 @@ func ParseRedisConfiguration(data []byte, mode string, previous *RedisSecret) (R
 	if json.Unmarshal(raw, &config) != nil {
 		return fail()
 	}
+	if config.Port < 1 || config.Port > 65535 {
+		return fail()
+	}
 	switch mode {
 	case "host":
-		if (config.Host != "127.0.0.1" && config.Host != "::1") || config.Port != 6379 {
+		// Host-mode Monitor may use a loopback-published dependency port, such
+		// as the isolated integration Redis port. The host boundary remains
+		// loopback-only; the container mode contract below stays fixed at 6379.
+		if config.Host != "127.0.0.1" && config.Host != "::1" {
 			return fail()
 		}
 	case "container":
