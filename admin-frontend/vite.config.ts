@@ -19,6 +19,18 @@ export function backendTarget(environment: Record<string, string | undefined>): 
   return `http://localhost:${port}`
 }
 
+export function frontendPort(environment: Record<string, string | undefined>): number {
+  const rawPort = environment.FRONTEND_PORT?.trim() || '5174'
+  if (!/^\d+$/.test(rawPort)) {
+    throw new Error('FRONTEND_PORT must be an integer from 1 to 65535')
+  }
+  const port = Number(rawPort)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('FRONTEND_PORT must be an integer from 1 to 65535')
+  }
+  return port
+}
+
 export function backendProxyConfig(environment: Record<string, string | undefined>) {
   const target = backendTarget(environment)
   const proxy = () => ({ target, changeOrigin: false })
@@ -33,6 +45,7 @@ export default defineConfig(({ mode }) => {
   const loadedEnvironment = loadEnv(mode, repositoryRoot, '')
   const environment = {
     HTTP_PORT: process.env.HTTP_PORT ?? loadedEnvironment.HTTP_PORT,
+    FRONTEND_PORT: process.env.ADMIN_FRONTEND_PORT ?? process.env.FRONTEND_PORT ?? loadedEnvironment.ADMIN_FRONTEND_PORT ?? loadedEnvironment.FRONTEND_PORT,
   }
 
   return {
@@ -41,7 +54,7 @@ export default defineConfig(({ mode }) => {
     resolve: { dedupe: ['vue'], alias: { vue: resolve(configDirectory, 'node_modules/vue') } },
     server: {
       host: 'localhost',
-      port: 5174,
+      port: frontendPort(environment),
       strictPort: true,
       proxy: backendProxyConfig(environment),
     },
