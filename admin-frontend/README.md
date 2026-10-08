@@ -40,6 +40,14 @@ npm run build
 
 For UI development, start `npm run dev` in both applications. Use only the user
 Vite origin on port 5173; it proxies `/admin` to the admin Vite server on 5174.
+
+For the source-based browser gate, use `make e2e SCOPE=observe` from the repository
+root. It starts isolated test dependencies, both Vite servers, the source Backend,
+Router, Marshaller, and the fixed Linux Monitor image; it then checks same-origin
+cookies, administrator data, ordinary-user denial, role demotion, and current
+metrics/logs/events/plugin state. It stops only processes and resources owned by
+that test project. `make test MODULE=admin-frontend` remains the focused Vitest
+entry.
 Container acceptance remains authoritative:
 
 ```bash

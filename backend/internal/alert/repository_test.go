@@ -29,6 +29,16 @@ func TestOwnedMySQLStateAndLease(t *testing.T) {
 		t.Fatal("open owned database")
 	}
 	defer db.Close()
+	assertOwnedMySQLStateAndLease(t, db)
+}
+
+// assertOwnedMySQLStateAndLease is shared by the historical verifier-owned
+// database test and the Phase-22 integration environment. Keeping the state
+// machine assertions in one place prevents the new native gate from drifting
+// from the existing alert contract.
+func assertOwnedMySQLStateAndLease(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var e error
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	var actor uint64
