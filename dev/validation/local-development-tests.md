@@ -19,6 +19,8 @@
 
 工具门禁为：`python3 -m unittest discover -s scripts/ci -p test_local_development.py`、`bash -n scripts/verify-business.sh`、`bash scripts/verify-business.sh --self-test`。`make integration` 默认委托 business，`scripts/verify-business.sh --native` 也只委托该入口。
 
+CI Integration 门禁在 migration 后执行 `go run ./cmd/search-reindex --if-missing`，再使用 `go test -p 1 -count=1 -tags=integration ./...`；这样与本批原生入口一致，并避免共享 Elasticsearch alias 与 MySQL named lock 的并行竞态。
+
 ## 保留的专项入口与边界
 
 `verify-monitor.sh`、`verify-router.sh`、`verify-marshaller.sh`、`verify-exporter.sh`、`verify-component-metrics.sh`、`verify-logs.sh`、`verify-events.sh`、`verify-alerts.sh`、`verify-plugin-state.sh` 及 Phase 20 链路/证据工具仍保留。它们继续承担容器安全、插件制品、重启持久化、故障恢复、长期评估、容量、完整 Trace 和发布证据等本批没有替代的专项检查；本批原生入口不宣称覆盖这些能力。

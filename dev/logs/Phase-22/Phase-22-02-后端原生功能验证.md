@@ -69,6 +69,8 @@ make test MODULE=exporters/victoriametrics
 - `make integration SCOPE=business`：最终候选通过。实际命令为 `go -C backend test -p 1 -tags=integration ./...`；Backend 全包、O02 告警集成和业务 HTTP 全链路均通过。测试项目为 `gopulse-62320475d701-test-242`。
 - `make integration SCOPE=observe`：最终候选通过。实际命令为 `go -C backend test -p 1 -tags=integration,observability_integration ./internal/http -run '^TestObservabilityFlowIntegration$' -count=1 -timeout 6m`，耗时约 34.6 秒；指标、日志、运行事件及权限失败断言通过。测试项目为 `gopulse-62320475d701-test-242`。
 - `make integration SCOPE=observe` 结束时仅清理本次创建的 `observe_admin_<workspace-id>` 和对应 `bootstrap_super_admin` 记录，随后 business 门禁从空 bootstrap 状态通过。
+- 远端 GitHub Actions run `37758791665` 首次失败：Integration job 的 O02 用户名超过 `VARCHAR(32)`，且 CI 未准备搜索 alias、并行执行共享 Elasticsearch/MySQL 集成包，导致 business 搜索等待和 named lock 级联超时；其它质量门禁通过。
+- 修正为短 O02 用户名、允许本机与 CI 两组隔离 RabbitMQ/Elasticsearch 端点，并在 CI migration 后执行 `search-reindex --if-missing`、以 `go test -p 1` 串行运行；本地已按同样命令完成全量通过。
 
 ## 失败、修正与偏差
 

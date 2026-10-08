@@ -17,6 +17,8 @@ const (
 	allowedRedisDB      = 15
 	allowedRabbitMQURL  = "amqp://gopulse_integration:integration-rabbitmq@127.0.0.1:25672/"
 	allowedSearchURL    = "http://127.0.0.1:29200"
+	allowedCIRabbitURL  = "amqp://integration:integration@127.0.0.1:5672/"
+	allowedCISearchURL  = "http://127.0.0.1:9200"
 	allowedObserveURL   = "http://127.0.0.1:29201"
 	allowedMetricsURL   = "http://127.0.0.1:18428"
 	allowedMonitorURL   = "http://127.0.0.1:19090"
@@ -49,6 +51,12 @@ func Environment(t *testing.T) config.Config {
 	if cfg.Redis.DB != allowedRedisDB {
 		t.Fatalf("REDIS_DB = %d, want whitelisted %d", cfg.Redis.DB, allowedRedisDB)
 	}
+	if !oneOf(cfg.RabbitMQURL, allowedRabbitMQURL, allowedCIRabbitURL) {
+		t.Fatalf("RABBITMQ_URL = %q, want a whitelisted local or CI integration endpoint", cfg.RabbitMQURL)
+	}
+	if !oneOf(cfg.Elasticsearch.URL, allowedSearchURL, allowedCISearchURL) {
+		t.Fatalf("ELASTICSEARCH_URL = %q, want a whitelisted local or CI integration endpoint", cfg.Elasticsearch.URL)
+	}
 	return cfg
 }
 
@@ -73,4 +81,13 @@ func ObservabilityEnvironment(t *testing.T) config.Config {
 
 func lookup(key string) string {
 	return os.Getenv(key)
+}
+
+func oneOf(value string, allowed ...string) bool {
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }

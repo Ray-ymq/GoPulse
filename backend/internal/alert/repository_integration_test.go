@@ -36,7 +36,7 @@ func ensureIntegrationSuperAdmin(t *testing.T, database *sql.DB) (uint64, func()
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("find bootstrap super admin: %v", err)
 	}
-	username := fmt.Sprintf("phase22_alert_%d", time.Now().UnixNano())
+	username := fmt.Sprintf("p22_alert_%d", time.Now().UnixNano()%10000000000)
 	result, err := database.Exec(`INSERT INTO users(username,password_hash,role) VALUES (?, ?, 'super_admin')`, username, "not-a-login")
 	if err != nil {
 		t.Fatalf("create alert integration super admin: %v", err)
