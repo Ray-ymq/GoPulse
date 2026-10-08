@@ -78,6 +78,30 @@ def changed_files(repo: Path, base_ref: str) -> list[str]:
     return [path.replace("\\", "/") for path in result.stdout.split("\0") if path]
 
 
+def _base_version(repo: Path, base_ref: str) -> str:
+    result = subprocess.run(
+        ["git", "show", f"{base_ref}:VERSION"],
+        cwd=repo,
+        check=True,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+    )
+    return result.stdout.strip()
+
+
+def _split_plan(repo: Path, batch: str) -> Path | None:
+    phase = batch.rsplit("-", 1)[0]
+    candidates = sorted(
+        path
+        for path in (repo / "dev" / "imple" / phase).glob(f"{batch}-*.md")
+        if path.name != f"{phase}-总实施方案.md"
+    )
+    if len(candidates) > 1:
+        raise ValueError(f"{batch} has multiple split implementation plans")
+    return candidates[0] if candidates else None
+
+
 def update_path_allowed(path: str) -> bool:
     normalized = path.replace("\\", "/")
     while normalized.startswith("./"):
@@ -92,9 +116,18 @@ def update_path_allowed(path: str) -> bool:
     return "/" not in normalized and normalized.lower().endswith(".md")
 
 
-def validate(repo: Path, branch: str, base_ref: str | None, supplied_changes: Iterable[str]) -> list[str]:
+def validate(
+    repo: Path,
+    branch: str,
+    base_ref: str | None,
+    supplied_changes: Iterable[str],
+    mode: str = "completion",
+) -> list[str]:
     errors: list[str] = []
     supplied = [path.replace("\\", "/") for path in supplied_changes]
+
+    if mode not in {"development", "completion"}:
+        return ["mode must be development or completion"]
 
     if branch == "update":
         files = supplied if supplied else (changed_files(repo, base_ref) if base_ref else [])
@@ -127,8 +160,33 @@ def validate(repo: Path, branch: str, base_ref: str | None, supplied_changes: It
         errors.append("VERSION is required for a completed development batch")
     else:
         completed_version = version_file.read_text(encoding="utf-8").strip()
-        if completed_version != branch_version:
+        if mode == "development":
+            if not base_ref:
+                errors.append("development mode requires --base-ref for the primary main branch")
+            else:
+                try:
+                    base_version = _base_version(repo, base_ref)
+                except (OSError, subprocess.CalledProcessError) as exc:
+                    errors.append(f"could not read completed VERSION from {base_ref}: {exc}")
+                else:
+                    allowed = {base_version, branch_version}
+                    if completed_version not in allowed:
+                        errors.append(
+                            f"VERSION is {completed_version!r}; development mode allows base {base_version!r} or target {branch_version!r}"
+                        )
+        elif completed_version != branch_version:
             errors.append(f"VERSION is {completed_version!r}; expected {branch_version!r} for {branch}")
+
+    if mode == "completion":
+        try:
+            split_plan = _split_plan(repo, allocation.batch)
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            if split_plan is not None:
+                log_path = repo / "dev" / "logs" / split_plan.relative_to(repo / "dev" / "imple")
+                if not log_path.is_file():
+                    errors.append(f"completion log is required: {log_path.relative_to(repo)}")
 
     return errors
 
@@ -139,6 +197,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--branch", required=True)
     parser.add_argument("--base-ref")
     parser.add_argument("--changed-file", action="append", default=[])
+    parser.add_argument("--mode", choices=("development", "completion"), default="completion")
     return parser.parse_args()
 
 
@@ -146,7 +205,7 @@ def main() -> int:
     args = parse_args()
     repo = args.repo.resolve()
     try:
-        errors = validate(repo, args.branch, args.base_ref, args.changed_file)
+        errors = validate(repo, args.branch, args.base_ref, args.changed_file, args.mode)
     except (OSError, subprocess.CalledProcessError) as exc:
         print(f"branch governance validation could not run: {exc}", file=sys.stderr)
         return 2

@@ -32,7 +32,7 @@ jobs:
       run_product_checks: ${{ github.ref_name != 'update' }}
 
   open-and-merge:
-    if: github.actor == 'Ray-ymq'
+    if: github.actor == 'Ray-ymq' && (github.ref_name == 'update' || needs.quality-gates.outputs.completion_ready == 'true')
     needs: quality-gates
     name: Open PR and merge
     runs-on: ubuntu-latest

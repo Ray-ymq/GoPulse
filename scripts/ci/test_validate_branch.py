@@ -39,6 +39,39 @@ class BranchGovernanceTests(unittest.TestCase):
     def test_accepts_authoritative_development_branch(self) -> None:
         self.assertEqual(validate(self.repo, "develop/0.1.6", None, []), [])
 
+    def test_development_mode_accepts_base_version(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.name", "GoPulse CI"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@gopulse.invalid"], cwd=self.repo, check=True)
+        (self.repo / "VERSION").write_text("0.1.5\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "base"], cwd=self.repo, check=True)
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True, capture_output=True).stdout.strip()
+        (self.repo / "VERSION").write_text("0.1.5\n", encoding="utf-8")
+        self.assertEqual(validate(self.repo, "develop/0.1.6", base, [], "development"), [])
+
+    def test_development_mode_accepts_the_base_version_until_completion(self) -> None:
+        subprocess.run(["git", "init", "--quiet"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.name", "GoPulse CI"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@gopulse.invalid"], cwd=self.repo, check=True)
+        (self.repo / "VERSION").write_text("0.1.5\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "base"], cwd=self.repo, check=True)
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.repo, check=True, text=True, capture_output=True).stdout.strip()
+        (self.repo / "VERSION").write_text("0.1.5\n", encoding="utf-8")
+        errors = validate(self.repo, "develop/0.1.6", base, [], "development")
+        self.assertEqual(errors, [])
+
+    def test_completion_mode_requires_the_split_batch_log(self) -> None:
+        plan = self.repo / "dev/imple/Phase-00/Phase-00-06-close.md"
+        plan.write_text("# close\n", encoding="utf-8")
+        errors = validate(self.repo, "develop/0.1.6", None, [], "completion")
+        self.assertIn("completion log is required", errors[0])
+        log = self.repo / "dev/logs/Phase-00/Phase-00-06-close.md"
+        log.parent.mkdir(parents=True)
+        log.write_text("# actual\n", encoding="utf-8")
+        self.assertEqual(validate(self.repo, "develop/0.1.6", None, [], "completion"), [])
+
     def test_accepts_authoritative_release_branch(self) -> None:
         self.add_release_allocation()
         (self.repo / "VERSION").write_text("1.0.0\n", encoding="utf-8")
