@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backendProxyConfig, backendTarget } from './vite.config'
+import { adminTarget, backendProxyConfig, backendTarget, frontendPort } from './vite.config'
 
 describe('backendTarget', () => {
   it('uses the Backend default port', () => {
@@ -21,6 +21,22 @@ describe('backendTarget', () => {
   it.each(['zero', '0', '65536', '-1'])('rejects invalid HTTP_PORT %s', (port) => {
     expect(() => backendTarget({ HTTP_PORT: port })).toThrow(
       'HTTP_PORT must be an integer from 1 to 65535',
+    )
+  })
+})
+
+describe('native frontend ports and admin proxy', () => {
+  it('accepts the isolated native frontend and admin ports', () => {
+    expect(frontendPort({ FRONTEND_PORT: '15173' })).toBe(15173)
+    expect(adminTarget({ ADMIN_FRONTEND_PORT: '15174' })).toBe('http://localhost:15174')
+  })
+
+  it.each(['zero', '0', '65536', '-1'])('rejects invalid native port %s', (port) => {
+    expect(() => frontendPort({ FRONTEND_PORT: port })).toThrow(
+      'FRONTEND_PORT must be an integer from 1 to 65535',
+    )
+    expect(() => adminTarget({ ADMIN_FRONTEND_PORT: port })).toThrow(
+      'ADMIN_FRONTEND_PORT must be an integer from 1 to 65535',
     )
   })
 })

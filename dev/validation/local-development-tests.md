@@ -24,3 +24,15 @@ CI Integration 门禁在 migration 后执行 `go run ./cmd/search-reindex --if-m
 ## 保留的专项入口与边界
 
 `verify-monitor.sh`、`verify-router.sh`、`verify-marshaller.sh`、`verify-exporter.sh`、`verify-component-metrics.sh`、`verify-logs.sh`、`verify-events.sh`、`verify-alerts.sh`、`verify-plugin-state.sh` 及 Phase 20 链路/证据工具仍保留。它们继续承担容器安全、插件制品、重启持久化、故障恢复、长期评估、容量、完整 Trace 和发布证据等本批没有替代的专项检查；本批原生入口不宣称覆盖这些能力。
+
+## Phase-22-03 前端与本机浏览器入口
+
+| 能力 | 原生承接 | 实际门禁 |
+| --- | --- | --- |
+| 用户与管理组件、请求状态、代理端口 | 两前端 Vitest、Vite 配置测试、typecheck/build | `make test MODULE=frontend`、`make test MODULE=admin-frontend`、两前端 `npm run typecheck` 与 `npm run build` |
+| 业务真实浏览器链路 | `business.spec.ts`、`compose-business.spec.ts` 的 business 场景 | `make e2e SCOPE=business`；最终 3 个用例通过，排除两条需要外部 search seed 的用例 |
+| 管理同源、Cookie、401/403、角色降级 | `admin-frontend.spec.ts` 三条固定用例 | `make e2e SCOPE=observe` 的第一组；最终 3 个用例通过 |
+| 指标、日志、运行事件与插件状态页面 | `compose-observability.spec.ts` 的 admin 场景及真实 test Monitor/Router/Marshaller | `make e2e SCOPE=observe` 的第二组；最终 1 个用例通过，要求实际数据点并完成归属清理 |
+| native 入口 | `local_development.py` 的 test Compose、锁、源码进程、Vite 启停和 trace 保留 | `make e2e` 默认 business；未知 scope/端口失败；`scripts/verify-admin-frontend.sh --native` 仅委托两前端检查 |
+
+本批 native 浏览器不替代 Nginx 头、UID、只读根、镜像扫描、插件制品、恢复和容量专项检查；这些仍由既有容器工具保留。

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+from http.cookiejar import CookieJar
 import fcntl
 import hashlib
 import json
@@ -26,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Mapping, Sequence
 from urllib.error import HTTPError, URLError
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPCookieProcessor, ProxyHandler, Request, build_opener
 
 
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -294,6 +295,21 @@ def source_digest(root: Path, observe: bool = False) -> str:
     paths: list[Path] = [root / "backend", root / "componentmetrics"]
     if observe:
         paths.extend([root / "router", root / "marshaller"])
+    return digest_paths(root, paths)
+
+
+def e2e_source_digest(root: Path, observe: bool = False) -> str:
+    paths: list[Path] = [
+        root / "frontend" / "src", root / "frontend" / "e2e", root / "frontend" / "package.json",
+        root / "frontend" / "package-lock.json", root / "frontend" / "playwright.config.ts",
+        root / "frontend" / "vite.config.ts", root / "frontend" / "vite.config.test.ts",
+    ]
+    if observe:
+        paths.extend([
+            root / "admin-frontend" / "src", root / "admin-frontend" / "package.json",
+            root / "admin-frontend" / "package-lock.json", root / "admin-frontend" / "vite.config.ts",
+            root / "admin-frontend" / "vite.config.test.ts",
+        ])
     return digest_paths(root, paths)
 
 
@@ -565,13 +581,21 @@ def check_existing_state(workspace: Workspace, mode: str, source: str, environme
     return state
 
 
-def application_environment(root: Path, mode: str, explicit_env: str | None) -> tuple[Workspace, dict[str, str], Path]:
+def application_environment(root: Path, mode: str, explicit_env: str | None, overrides: Mapping[str, str] | None = None) -> tuple[Workspace, dict[str, str], Path]:
     workspace = workspace_for(root)
     values = compose_environment(root, mode, explicit_env)
+    if overrides:
+        values.update(overrides)
     env_file = write_private_env(workspace, mode, values)
     process_env = dict(os.environ)
     process_env.update(values)
     return workspace, process_env, env_file
+
+
+def port_argument(raw: str) -> str:
+    if not raw.isdigit() or not 1 <= int(raw) <= 65535:
+        raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535")
+    return str(int(raw))
 
 
 def start_lifecycle(root: Path, mode: str, explicit_env: str | None, observe: bool) -> None:
@@ -690,6 +714,226 @@ def integration_ports(values: Mapping[str, str], observe: bool) -> list[int]:
     return ports
 
 
+def e2e_ports(values: Mapping[str, str], observe: bool) -> list[int]:
+    ports = integration_ports(values, observe)
+    ports.extend([int(values["HTTP_PORT"]), int(values["FRONTEND_PORT"]), 19101, 19102, 19103])
+    if observe:
+        ports.append(int(values["ADMIN_FRONTEND_PORT"]))
+    return ports
+
+
+def register_test_account(root: Path, values: Mapping[str, str], username: str, password: str) -> None:
+    registration = json.dumps({"username": username, "password": password}, separators=(",", ":"))
+    command = [
+        "curl", "--silent", "--show-error", "--max-time", "20", "-H", "Content-Type: application/json",
+        "-d", registration, "-o", os.devnull, "-w", "%{http_code}",
+        f"http://127.0.0.1:{values['HTTP_PORT']}/api/v1/auth/register",
+    ]
+    try:
+        registered = subprocess.run(command, cwd=root, env=dict(values), stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DevelopmentError(f"test account registration for {username} could not complete") from exc
+    if registered.returncode != 0 or registered.stdout.strip() not in {"201", "409"}:
+        raise DevelopmentError(f"test account registration for {username} failed")
+
+
+def browser_api_json(values: Mapping[str, str], path: str, method: str, payload: Mapping[str, object], cookies: CookieJar, label: str) -> dict[str, object]:
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    request = Request(
+        f"http://127.0.0.1:{values['HTTP_PORT']}{path}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method=method,
+    )
+    opener = build_opener(ProxyHandler({}), HTTPCookieProcessor(cookies))
+    try:
+        with opener.open(request, timeout=20) as response:
+            if not 200 <= response.status < 300:
+                raise DevelopmentError(f"{label} returned HTTP {response.status}")
+            decoded = json.loads(response.read().decode("utf-8"))
+    except DevelopmentError:
+        raise
+    except (OSError, ValueError, HTTPError, URLError) as exc:
+        raise DevelopmentError(f"{label} failed") from exc
+    if not isinstance(decoded, dict):
+        raise DevelopmentError(f"{label} returned an invalid JSON object")
+    return decoded
+
+
+def test_account_id(values: Mapping[str, str], username: str, password: str) -> int:
+    cookies = CookieJar()
+    browser_api_json(values, "/api/v1/auth/login", "POST", {"username": username, "password": password}, cookies, f"test account login for {username}")
+    response = browser_api_json(values, "/api/v1/users/me", "GET", {}, cookies, f"test account identity for {username}")
+    data = response.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("id"), int) or data["id"] <= 0:
+        raise DevelopmentError(f"test account identity for {username} returned an invalid user")
+    return int(data["id"])
+
+
+def promote_test_account_via_api(values: Mapping[str, str], admin_username: str, target_username: str, password: str) -> None:
+    target_id = test_account_id(values, target_username, password)
+    cookies = CookieJar()
+    browser_api_json(values, "/api/v1/auth/login", "POST", {"username": admin_username, "password": password}, cookies, "test browser administrator login")
+    response = browser_api_json(values, f"/api/v1/admin/users/{target_id}/role", "PUT", {"role": "super_admin"}, cookies, "test browser demotion-role setup")
+    data = response.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("user"), dict) or data["user"].get("role") != "super_admin":
+        raise DevelopmentError("test browser demotion-role setup returned an invalid role")
+
+
+def start_e2e_test_processes(root: Path, workspace: Workspace, state: dict[str, object], values: dict[str, str], observe: bool) -> None:
+    """Start the source services and Vite processes used by a browser scope."""
+    one_shot_env = dict(values)
+    one_shot_env["LOG_MONITOR_URL"] = ""
+    one_shot_env["LOG_MONITOR_INGEST_TOKEN"] = ""
+    run_command(["go", "run", "./cmd/migrate", "up"], cwd=root / "backend", env=one_shot_env, label="test database migration")
+    run_command(["go", "run", "./cmd/search-reindex", "--if-missing"], cwd=root / "backend", env=one_shot_env, label="test search reindex")
+
+    binary_digest = source_digest(root, observe=False)
+    backend = build_binary(workspace, values, "e2e-backend", "./cmd/server", binary_digest)
+    if not observe:
+        worker = build_binary(workspace, values, "e2e-business-worker", "./cmd/business-worker", binary_digest)
+        indexer = build_binary(workspace, values, "e2e-search-indexer", "./cmd/search-indexer", binary_digest)
+
+    if observe:
+        router_digest = source_digest(root, observe=True)
+        router = workspace.private_root / "bin" / "e2e-router"
+        marshaller = workspace.private_root / "bin" / "e2e-marshaller"
+        for name, directory, package, output in [
+            ("e2e-router", root / "router", "./cmd/router", router),
+            ("e2e-marshaller", root / "marshaller", "./cmd/marshaller", marshaller),
+        ]:
+            metadata = workspace.private_root / "bin" / f"{name}.json"
+            previous = json.loads(metadata.read_text(encoding="utf-8")) if metadata.is_file() else {}
+            if not output.is_file() or previous.get("digest") != router_digest:
+                run_command(["go", "build", "-trimpath", "-o", str(output), package], cwd=directory, env=values, label=f"build {name}")
+                save_json(metadata, {"name": name, "digest": router_digest, "command": ["go", "build", "-trimpath", "-o", str(output), package]})
+        router_env = dict(values)
+        router_env["GOPULSE_INSTANCE_ID"] = "router-e2e"
+        marshaller_env = dict(values)
+        marshaller_env["GOPULSE_INSTANCE_ID"] = "marshaller-e2e"
+        spawn_process(workspace, state, "router", [str(router)], router_env, root / "router", workspace.integration_state_path)
+        wait_http(f"http://127.0.0.1:{values['ROUTER_HTTP_PORT']}/ready", timeout=180, token=values["ROUTER_API_TOKEN"], label="test Router", process_record=state["processes"]["router"])
+        spawn_process(workspace, state, "marshaller", [str(marshaller)], marshaller_env, root / "marshaller", workspace.integration_state_path)
+        wait_http(f"http://127.0.0.1:{values['MARSHALLER_HTTP_PORT']}/ready", timeout=180, token=values["MARSHALLER_API_TOKEN"], label="test Marshaller", process_record=state["processes"]["marshaller"])
+
+    backend_env = dict(values)
+    backend_env["GOPULSE_INSTANCE_ID"] = "backend-e2e"
+    spawn_process(workspace, state, "backend", [str(backend)], backend_env, root / "backend", workspace.integration_state_path)
+    wait_http(f"http://127.0.0.1:{values['HTTP_PORT']}/ready", timeout=180, label="test Backend", process_record=state["processes"]["backend"])
+
+    if not observe:
+        worker_env = dict(values)
+        worker_env["GOPULSE_INSTANCE_ID"] = "business-worker-e2e"
+        spawn_process(workspace, state, "business-worker", [str(worker)], worker_env, root / "backend", workspace.integration_state_path)
+        wait_http("http://127.0.0.1:19102/ready", timeout=180, label="test Business Worker", process_record=state["processes"]["business-worker"])
+        indexer_env = dict(values)
+        indexer_env["GOPULSE_INSTANCE_ID"] = "search-indexer-e2e"
+        spawn_process(workspace, state, "search-indexer", [str(indexer)], indexer_env, root / "backend", workspace.integration_state_path)
+        wait_http("http://127.0.0.1:19103/ready", timeout=180, label="test Search Indexer", process_record=state["processes"]["search-indexer"])
+    else:
+        wait_http(f"http://127.0.0.1:{values['MONITOR_HTTP_PORT']}/ready", timeout=180, token=values["MONITOR_API_TOKEN"], label="test Monitor")
+
+    ensure_npm_dependencies(root, "frontend")
+    frontend_env = dict(values)
+    spawn_process(workspace, state, "frontend", ["npm", "run", "dev", "--", "--port", values["FRONTEND_PORT"]], frontend_env, root / "frontend", workspace.integration_state_path)
+    wait_http(f"http://127.0.0.1:{values['FRONTEND_PORT']}/", timeout=180, label="test user Vite", process_record=state["processes"]["frontend"])
+    if observe:
+        ensure_npm_dependencies(root, "admin-frontend")
+        admin_env = dict(values)
+        admin_env["FRONTEND_PORT"] = values["ADMIN_FRONTEND_PORT"]
+        spawn_process(workspace, state, "admin-frontend", ["npm", "run", "dev", "--", "--port", values["ADMIN_FRONTEND_PORT"]], admin_env, root / "admin-frontend", workspace.integration_state_path)
+        wait_http(f"http://127.0.0.1:{values['ADMIN_FRONTEND_PORT']}/admin/", timeout=180, label="test admin Vite", process_record=state["processes"]["admin-frontend"])
+
+    if observe:
+        admin_username = f"observe_admin_{workspace.identity}"
+        user_username = f"observe_user_{workspace.identity}"
+        demotion_username = f"observe_demote_{workspace.identity}"
+        password = "observe-browser-password-32-bytes-0123456789"
+        values.update({
+            "OBSERVE_ADMIN_USERNAME": admin_username,
+            "OBSERVE_USER_USERNAME": user_username,
+            "OBSERVE_DEMOTION_USERNAME": demotion_username,
+            "OBSERVE_ADMIN_PASSWORD": password,
+        })
+        for username in (admin_username, user_username, demotion_username):
+            register_test_account(root, values, username, password)
+        admin_role = build_binary(workspace, values, "e2e-admin-role", "./cmd/admin-role", binary_digest)
+        run_command([str(admin_role), "promote", "--username", admin_username], cwd=root / "backend", env=values, label="test browser admin-role bootstrap")
+        promote_test_account_via_api(values, admin_username, demotion_username, password)
+
+
+def run_e2e(root: Path, scope: str, overrides: Mapping[str, str]) -> None:
+    if scope not in {"business", "observe"}:
+        raise DevelopmentError(f"unknown e2e SCOPE={scope!r}; expected business or observe")
+    observe = scope == "observe"
+    workspace, values, env_file = application_environment(root, "test", None, overrides)
+    lifecycle = load_state(workspace)
+    if lifecycle and lifecycle.get("status") == "running":
+        raise DevelopmentError("cannot start browser checks while this workspace owns a development lifecycle; run make stop first")
+    with integration_lock(workspace):
+        check_ports(e2e_ports(values, observe))
+        project, compose_files = compose_up(workspace, env_file, values, observe, project=workspace.project_test)
+        source = e2e_source_digest(root, observe=observe)
+        state: dict[str, object] = {
+            "schema": 1, "status": "running", "workspace_root": str(workspace.root), "workspace_id": workspace.identity,
+            "branch": subprocess.run(["git", "branch", "--show-current"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
+            "revision": subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
+            "mode": "e2e", "scope": scope, "observe": observe, "project": project,
+            "compose_files": [str(path) for path in compose_files], "env_file": str(env_file), "source_digest": source,
+            "compose_digest": digest_paths(root, compose_files), "monitor_image": monitor_image_tag(root) if observe else "",
+            "started_at": now(), "processes": {}, "logs": {}, "browser_traces": str(root / "test-results"),
+        }
+        save_json(workspace.integration_state_path, state)
+        try:
+            start_e2e_test_processes(root, workspace, state, values, observe)
+            browser_env = dict(os.environ)
+            browser_env.update(values)
+            browser_env["GOPULSE_BASE_URL"] = f"http://127.0.0.1:{values['FRONTEND_PORT']}"
+            browser_env["GOPULSE_ACCEPTANCE_TOKEN"] = f"{workspace.identity}{int(time.time())}"
+            if observe:
+                browser_env.update({
+                    "GOPULSE_ADMIN_USERNAME": values["OBSERVE_ADMIN_USERNAME"],
+                    "GOPULSE_USER_USERNAME": values["OBSERVE_USER_USERNAME"],
+                    "GOPULSE_DEMOTION_USERNAME": values["OBSERVE_DEMOTION_USERNAME"],
+                    "GOPULSE_ACCEPTANCE_PASSWORD": values["OBSERVE_ADMIN_PASSWORD"],
+                    "GOPULSE_OBSERVABILITY_ADMIN_USERNAME": values["OBSERVE_ADMIN_USERNAME"],
+                    "GOPULSE_OBSERVABILITY_USER_USERNAME": values["OBSERVE_USER_USERNAME"],
+                    "GOPULSE_OBSERVABILITY_PASSWORD": values["OBSERVE_ADMIN_PASSWORD"],
+                    "GOPULSE_REDIS_PASSWORD": values["REDIS_PASSWORD"],
+                })
+                admin_command = ["npm", "exec", "--", "playwright", "test", "e2e/admin-frontend.spec.ts", "--grep", "same-origin paths|ordinary user|database demotion"]
+                observe_command = ["npm", "exec", "--", "playwright", "test", "e2e/compose-observability.spec.ts"]
+                state["browser_commands"] = [admin_command, observe_command]
+                run_command(admin_command, cwd=root / "frontend", env=browser_env, label="native admin browser checks", timeout=600)
+                observe_env = dict(browser_env)
+                observe_env["GOPULSE_ACCEPTANCE_SCENARIO"] = "admin"
+                run_command(observe_command, cwd=root / "frontend", env=observe_env, label="native observability browser checks", timeout=600)
+            else:
+                browser_command = ["npm", "exec", "--", "playwright", "test", "e2e/business.spec.ts", "e2e/compose-business.spec.ts", "--grep-invert", "search-rebuild|search-live"]
+                state["browser_commands"] = [browser_command]
+                browser_env["GOPULSE_ACCEPTANCE_SCENARIO"] = "business"
+                run_command(browser_command, cwd=root / "frontend", env=browser_env, label="native business browser checks", timeout=600)
+            state["status"] = "passed"
+            print(f"[gopulse] e2e scope={scope} passed for test project {project}")
+        except BaseException:
+            state["status"] = "failed"
+            raise
+        finally:
+            for record in list(state.get("processes", {}).values()):
+                if isinstance(record, dict):
+                    terminate_process(record)
+            try:
+                if observe:
+                    cleanup_observe_admin(root, workspace, state, values)
+            except BaseException:
+                state["status"] = "failed"
+                raise
+            finally:
+                compose_down(workspace, state)
+                state["stopped_at"] = now()
+                save_json(workspace.integration_state_path, state)
+
+
 def start_observe_test_processes(root: Path, workspace: Workspace, state: dict[str, object], values: dict[str, str]) -> None:
     """Start only the source services required by the native observability flow."""
     one_shot_env = dict(values)
@@ -741,18 +985,28 @@ def start_observe_test_processes(root: Path, workspace: Workspace, state: dict[s
 
 
 def cleanup_observe_admin(root: Path, workspace: Workspace, state: Mapping[str, object], values: Mapping[str, str]) -> None:
-    """Remove only the deterministic administrator created by observe tests."""
-    username = values.get("OBSERVE_ADMIN_USERNAME", "")
-    if not username:
+    """Remove only deterministic accounts created by the observability test."""
+    usernames = [values.get("OBSERVE_ADMIN_USERNAME", "")]
+    for key in ("OBSERVE_USER_USERNAME", "OBSERVE_DEMOTION_USERNAME"):
+        if values.get(key):
+            usernames.append(values[key])
+    usernames = [username for username in usernames if username]
+    if not usernames:
         return
-    if not re.fullmatch(r"observe_admin_[0-9a-f]+", username):
-        raise DevelopmentError("refusing to clean an unexpected observability test username")
-    sql_username = username.replace("\\", "\\\\").replace("'", "\\'")
-    sql = (
-        "DELETE FROM bootstrap_super_admin "
-        f"WHERE user_id=(SELECT id FROM users WHERE username='{sql_username}'); "
-        f"DELETE FROM users WHERE username='{sql_username}';"
-    )
+    for username in usernames:
+        if not re.fullmatch(r"observe_(?:admin|user|demote)_[0-9a-f]+", username):
+            raise DevelopmentError("refusing to clean an unexpected observability test username")
+    escaped = [username.replace("\\", "\\\\").replace("'", "\\'") for username in usernames]
+    quoted = ",".join(f"'{username}'" for username in escaped)
+    sql = " ".join([
+        f"DELETE n FROM notifications AS n LEFT JOIN users AS recipient ON recipient.id=n.recipient_id LEFT JOIN users AS actor ON actor.id=n.actor_id LEFT JOIN posts AS post ON post.id=n.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id LEFT JOIN comments AS comment ON comment.id=n.comment_id LEFT JOIN users AS comment_author ON comment_author.id=comment.author_id WHERE recipient.username IN ({quoted}) OR actor.username IN ({quoted}) OR post_author.username IN ({quoted}) OR comment_author.username IN ({quoted});",
+        f"DELETE b FROM post_bookmarks AS b LEFT JOIN users AS bookmark_user ON bookmark_user.id=b.user_id LEFT JOIN posts AS post ON post.id=b.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE bookmark_user.username IN ({quoted}) OR post_author.username IN ({quoted});",
+        f"DELETE l FROM post_likes AS l LEFT JOIN users AS liker ON liker.id=l.user_id LEFT JOIN posts AS post ON post.id=l.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE liker.username IN ({quoted}) OR post_author.username IN ({quoted});",
+        f"DELETE comment FROM comments AS comment LEFT JOIN users AS comment_author ON comment_author.id=comment.author_id LEFT JOIN posts AS post ON post.id=comment.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE comment_author.username IN ({quoted}) OR post_author.username IN ({quoted});",
+        f"DELETE post FROM posts AS post INNER JOIN users AS post_author ON post_author.id=post.author_id WHERE post_author.username IN ({quoted});",
+        f"DELETE FROM bootstrap_super_admin WHERE user_id IN (SELECT id FROM users WHERE username IN ({quoted}));",
+        f"DELETE FROM users WHERE username IN ({quoted});",
+    ])
     env_file = Path(str(state.get("env_file", "")))
     project = str(state.get("project", ""))
     raw_files = state.get("compose_files", [])
@@ -901,9 +1155,18 @@ def build_parser() -> argparse.ArgumentParser:
     integration = subparsers.add_parser("integration")
     integration.add_argument("--scope", default="business")
     integration.set_defaults(handler=lambda args: run_integration(Path.cwd(), args.scope))
-    for name in ("e2e",):
-        command = subparsers.add_parser(name)
-        command.set_defaults(handler=lambda _args, name=name: unsupported(name))
+    e2e = subparsers.add_parser("e2e")
+    e2e.add_argument("--scope", default="business")
+    e2e.add_argument("--http-port", type=port_argument)
+    e2e.add_argument("--frontend-port", type=port_argument)
+    e2e.add_argument("--admin-frontend-port", type=port_argument)
+    e2e.set_defaults(handler=lambda args: run_e2e(Path.cwd(), args.scope, {
+        key: value for key, value in {
+            "HTTP_PORT": args.http_port,
+            "FRONTEND_PORT": args.frontend_port,
+            "ADMIN_FRONTEND_PORT": args.admin_frontend_port,
+        }.items() if value is not None
+    }))
     return parser
 
 

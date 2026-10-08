@@ -4,7 +4,7 @@ PYTHON ?= python3
 LOCAL_DEVELOPMENT := $(PYTHON) scripts/ci/local_development.py
 
 help:
-	@printf '%s\n' 'GoPulse local commands:' '  make dev              start source Backend, Worker, Indexer, and user Vite' '  make dev-observe      add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name run the smallest module test command' '  make monitor-image    prepare the explicit Linux Monitor development image' '  make stop             stop only this workspace-owned processes and dependencies'
+	@printf '%s\n' 'GoPulse local commands:' '  make dev              start source Backend, Worker, Indexer, and user Vite' '  make dev-observe      add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name run the smallest module test command' '  make e2e [SCOPE=name] run native business or observability Playwright checks' '  make monitor-image    prepare the explicit Linux Monitor development image' '  make stop             stop only this workspace-owned processes and dependencies'
 
 dev:
 	@$(LOCAL_DEVELOPMENT) dev
@@ -20,7 +20,7 @@ integration:
 	@$(LOCAL_DEVELOPMENT) integration --scope "$(if $(SCOPE),$(SCOPE),business)"
 
 e2e:
-	@$(LOCAL_DEVELOPMENT) e2e
+	@$(LOCAL_DEVELOPMENT) e2e --scope "$(if $(SCOPE),$(SCOPE),business)"
 
 stop:
 	@$(LOCAL_DEVELOPMENT) stop
