@@ -1,18 +1,22 @@
 # Phase-22-04：CI 与文档收口
 
-> 状态：待实施。2026-10-08 修订。目标 `2.4.4`，分支 `develop/2.4.4`；依赖修订后的 03 已完成进入 main，且 02/03 的业务与观测门禁均有实际日志。
+> 状态：已完成；实现、固定门禁、真实 CI 与日志已收口。2026-10-08 修订。目标 `2.4.4`，分支 `develop/2.4.4`；实际结果见 [实施日志](../../logs/Phase-22/Phase-22-04-CI与文档收口.md)。
 
 ## 1. 交付与允许文件
 
 交付按真实改动选择 CI，分开开发校验与完成自动合并校验，README 默认源码启动，覆盖映射登记全部保留工具类别。保留既有自动 PR/合并偏好；不增加一套发布执行器。
 
-允许文件：`.github/workflows/quality-gates.yml`、`.github/workflows/auto-pr-merge.yml`、`.github/workflows/cache-warm.yml`、`.github/workflows/release-candidate.yml`、`scripts/ci/quality_scope.py`、`scripts/ci/test_quality_scope.py`、`scripts/ci/validate_branch.py`、`scripts/ci/test_validate_branch.py`、`scripts/start-development-batch.sh`、`README.md`、`backend/README.md`、`admin-frontend/README.md`、`dev/validation/local-development-tests.md`、`dev/status/capability-status.md`、本 Phase 五份方案的状态标记；完成元数据 VERSION/.env.example/两前端 package.json/package-lock.json 和同名日志。冻结设计、历史日志/证据和用户已有改动不在范围内。
+允许文件：`.github/workflows/quality-gates.yml`、`.github/workflows/auto-pr-merge.yml`、`.github/workflows/cache-warm.yml`、`.github/workflows/release-candidate.yml`、`scripts/ci/quality_scope.py`、`scripts/ci/test_quality_scope.py`、`scripts/ci/validate_branch.py`、`scripts/ci/test_validate_branch.py`、`scripts/ci/local_development.py`、`scripts/start-development-batch.sh`、`README.md`、`backend/README.md`、`admin-frontend/README.md`、`dev/validation/local-development-tests.md`、`dev/status/capability-status.md`、本 Phase 五份方案的状态标记；完成元数据 VERSION/.env.example/两前端 package.json/package-lock.json 和同名日志。冻结设计、历史日志/证据和用户已有改动不在范围内。
+
+本批追加的 `scripts/ci/local_development.py` 改动仅限于用户前端和管理前端 Vite 启动命令显式传入 `--host 127.0.0.1`，覆盖 dev lifecycle 与 business/observe e2e；不得扩展到生命周期状态、端口分配、进程回收或浏览器断言。该边界与既有 helper 的 `127.0.0.1` readiness 探测和 `.env.example` 的 IPv4 loopback 约定保持一致。
 
 quality_scope 只提供确定的路径到检查映射，不建立新验收执行器。Go 模块/本地 replace 依赖变化触发消费者；前端分别选择；backend 消费者变化触发必要业务 integration；观测采集/传输/存储/查询及插件接口变化触发 02 的 observe integration；同源代理、登录/角色与管理入口变化触发 03 对应浏览器检查；部署/Dockerfile 变化触发既有容器门禁；工具变化运行相关自测/语法；文档只做治理。未知非文档路径保守触发产品检查，不静默跳过。base 使用共同祖先比较，不能仅看最后一条提交。
 
 现有 quality-gates 只有 Redis Exporter 独立 job，缺另外五个 Exporter 和 componentmetrics 的独立选择。本批在既有 quality-gates.yml 内补齐模块/矩阵项；backend、monitor、router、marshaller、componentmetrics 和六个 exporters 各能按自身改动执行 Go 测试。componentmetrics 等本地 replace 依赖变化必须根据实际 go.mod 选中消费者，不能只测试共享库。观测链路相关路径包括 backend/internal/observability、metricquery、logquery、eventquery、alert、相应 HTTP/配置和 monitor/router/marshaller；普通帖子页面样式变化不因此启动完整观测或容器矩阵。
 
 真实业务和观测 job 分别调用已实现的 `make integration SCOPE=business`、`make integration SCOPE=observe`；浏览器按选择调用 `make e2e SCOPE=business` 或 `make e2e SCOPE=observe`，源码/测试环境归属及退出语义沿用 01～03。CI 需要官方插件时，在独立准备步骤确认固定 Monitor 镜像输入身份；首次无可复用镜像时显式仅构建 Monitor，输入未变时复用可用镜像/构建缓存，不产生 Backend/Router/Marshaller 业务镜像或候选 Bundle。Linux 插件真实运行失败不能改为 macOS 单元 skip 来放行。
+
+追加的 IPv4 绑定修复固定验证：检查四个 Vite 启动调用均包含 `--host 127.0.0.1`；运行 local_development 相关 Python unittest、shell/YAML/diff 检查；最终真实 CI 必须重新通过 business 与 observe e2e readiness 及浏览器断言。
 
 Docker cache warm 仅实际构建输入变化时运行；Go 测试、文档和普通页面变化不隐式预热全部镜像。容器安全、完整官方插件生命周期、故障恢复、容量和正式发布验收继续保留明确入口，按相关改动或当前实施合同要求调用，不把历史 Phase 矩阵重新加入普通提交。
 
@@ -45,6 +49,8 @@ README 快速开始包含 make dev/dev-observe/test/integration/e2e/stop、busin
 | 总计 | 120 | 180 |
 
 一次最终 CI，Go/前端 job 可在独立 runner 并行；真实业务与观测分别执行固定入口，各自包含准备和有界清理，浏览器按必要改动选择，单次最终 CI 预计适配 35 分钟、上限 55 分钟。等待与失败诊断计入累计成本；无容量/长时实验，不新增虚假路径提交来反复启动 CI。源码/配置未变的 01～03 成功结果继续有效。配置选择测试是工具测试，不能冒充业务/观测/容器验收；相关部署变化仍必须触发真实容器 gate。
+
+2026-10-08 续行预算：本次用户批准的范围修订预计主动执行 25 分钟，累计上限 45 分钟；计划为 5 分钟修订与直接检查、10 分钟本地 Vite 边界验证、25 分钟最多一次真实 CI、5 分钟收口。若真实 CI 再次出现同一 readiness 边界或达到上限，立即停止，不再尝试第三次矩阵；后续需再次修订计划并获得用户明确继续指令。
 
 ## 4. 停止与阶段完成
 

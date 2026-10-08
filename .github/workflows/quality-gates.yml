@@ -2,6 +2,10 @@ name: Reusable Quality Gates
 
 on:
   workflow_call:
+    outputs:
+      completion_ready:
+        description: The branch has the target VERSION and its same-named completion log.
+        value: ${{ jobs.governance.outputs.completion_ready }}
     inputs:
       branch:
         description: Branch being validated
@@ -24,6 +28,9 @@ jobs:
   governance:
     name: Branch governance
     runs-on: ubuntu-latest
+    outputs:
+      checks: ${{ steps.scope.outputs.checks }}
+      completion_ready: ${{ steps.completion.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,12 +40,29 @@ jobs:
       - name: Validate version metadata
         run: python3 scripts/ci/validate_versions.py
       - name: Validate branch allocation and scope
-        run: python3 scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}"
+        run: python3 scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}" --mode development
+      - name: Select checks from the common-ancestor diff
+        id: scope
+        run: python3 scripts/ci/quality_scope.py --base-ref "${{ inputs.base_ref }}" --format json --github-output "$GITHUB_OUTPUT"
+      - name: Check completion metadata without blocking development branches
+        id: completion
+        shell: bash
+        run: |
+          set +e
+          python3 scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}" --mode completion
+          status=$?
+          set -e
+          if [[ "$status" -eq 0 ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'Completion metadata is not ready; product checks remain authoritative for this development push.'
+          fi
 
   backend:
     name: Backend
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).backend == true
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -61,7 +85,7 @@ jobs:
   router:
     name: Message Router
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).router == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +105,7 @@ jobs:
   marshaller:
     name: Marshaller
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).marshaller == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,7 +125,7 @@ jobs:
   monitor:
     name: Monitor
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).monitor == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,7 +145,7 @@ jobs:
   redis-exporter:
     name: Redis Exporter
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).exporters_redis == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -138,13 +162,151 @@ jobs:
       - name: Race test
         run: cd exporters/redis && go test -race -count=1 ./...
 
+  componentmetrics:
+    name: Component metrics
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).componentmetrics == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: componentmetrics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: componentmetrics/go.mod
+          cache-dependency-path: componentmetrics/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+
+  mysql-exporter:
+    name: MySQL Exporter
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).exporters_mysql == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exporters/mysql
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: exporters/mysql/go.mod
+          cache-dependency-path: exporters/mysql/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+
+  rabbitmq-exporter:
+    name: RabbitMQ Exporter
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).exporters_rabbitmq == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exporters/rabbitmq
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: exporters/rabbitmq/go.mod
+          cache-dependency-path: exporters/rabbitmq/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+
+  elasticsearch-exporter:
+    name: Elasticsearch Exporter
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).exporters_elasticsearch == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exporters/elasticsearch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: exporters/elasticsearch/go.mod
+          cache-dependency-path: exporters/elasticsearch/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+
+  kafka-exporter:
+    name: Kafka Exporter
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).exporters_kafka == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exporters/kafka
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: exporters/kafka/go.mod
+          cache-dependency-path: exporters/kafka/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+
+  victoriametrics-exporter:
+    name: VictoriaMetrics Exporter
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).exporters_victoriametrics == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exporters/victoriametrics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: exporters/victoriametrics/go.mod
+          cache-dependency-path: exporters/victoriametrics/go.sum
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race -count=1 ./...
+
   frontend:
     name: Frontend (${{ matrix.app }})
     needs: governance
     strategy:
       matrix:
-        app: [frontend, admin-frontend]
-    if: inputs.run_product_checks
+        app: [frontend]
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).frontend == true
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -160,10 +322,29 @@ jobs:
       - run: npm test -- --run
       - run: npm run build
 
+  admin-frontend:
+    name: Admin frontend
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).admin_frontend == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: admin-frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --run
+      - run: npm run build
+
   compose-full-stack:
     name: Full-stack Compose acceptance
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).compose == true
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -177,7 +358,7 @@ jobs:
   scripts-and-compose:
     name: Scripts and Compose
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && (fromJSON(needs.governance.outputs.checks).tools == true || fromJSON(needs.governance.outputs.checks).compose == true)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -222,7 +403,7 @@ jobs:
   integration:
     name: Integration
     needs: governance
-    if: inputs.run_product_checks
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).integration_business == true
     runs-on: ubuntu-latest
     services:
       mysql:
@@ -327,4 +508,74 @@ jobs:
       - name: Prepare search index
         run: go run ./cmd/search-reindex --if-missing
       - name: Run integration tests against required dependencies
-        run: go test -p 1 -count=1 -tags=integration ./...
+        working-directory: .
+        run: make integration SCOPE=business
+
+  integration-observe:
+    name: Native observability integration
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).integration_observe == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Prepare the fixed Linux Monitor input
+        run: make monitor-image
+      - name: Run native observability integration
+        run: make integration SCOPE=observe
+
+  e2e-business:
+    name: Native business browser checks
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).e2e_business == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install browser dependencies
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm exec -- playwright install --with-deps chromium
+      - name: Run native business browser checks
+        run: make e2e SCOPE=business
+
+  e2e-observe:
+    name: Native observability browser checks
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).e2e_observe == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install browser dependencies
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm exec -- playwright install --with-deps chromium
+      - name: Prepare the fixed Linux Monitor input
+        run: make monitor-image
+      - name: Run native observability browser checks
+        run: make e2e SCOPE=observe

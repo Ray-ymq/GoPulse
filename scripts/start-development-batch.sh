@@ -3,7 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd -P)
-REMOTE=origin
+REMOTE=
+REMOTE_EXPLICIT=0
 PUSH=0
 
 usage() {
@@ -11,10 +12,11 @@ usage() {
 Usage: scripts/start-development-batch.sh Phase-XX-YY [--remote REMOTE] [--push]
 
 Fetch the selected remote main, resolve the authoritative batch allocation, create
-its develop/x.x.x branch, synchronize VERSION/.env/npm metadata, validate it, and
-commit the bootstrap metadata. Untracked files are preserved and never staged.
+its develop/x.x.x branch, and validate the development baseline. VERSION/.env/npm
+metadata remain unchanged until the batch completion commit. Untracked files are
+preserved and never staged.
 
---push also publishes the new branch after validating its name.
+  --push also publishes the new branch after validating its name.
 USAGE
 }
 fail() { printf '[gopulse-branch] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -25,7 +27,7 @@ BATCH=$1
 shift
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --remote) [[ $# -ge 2 ]] || fail '--remote requires a remote name'; REMOTE=$2; shift 2 ;;
+    --remote) [[ $# -ge 2 ]] || fail '--remote requires a remote name'; REMOTE=$2; REMOTE_EXPLICIT=1; shift 2 ;;
     --push) PUSH=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "unknown argument: $1" ;;
@@ -36,6 +38,21 @@ done
 cd "$REPO_ROOT"
 [[ -z "$(git diff --name-only)" ]] || fail 'tracked working-tree changes exist; commit or stash them before starting a batch'
 [[ -z "$(git diff --cached --name-only)" ]] || fail 'staged changes exist; commit or unstage them before starting a batch'
+if (( ! REMOTE_EXPLICIT )); then
+  configured_remote=$(git config --get branch.main.remote || true)
+  if [[ -n "$configured_remote" ]]; then
+    REMOTE=$configured_remote
+  else
+    mapfile -t candidates < <(git remote)
+    if [[ ${#candidates[@]} -eq 1 ]]; then
+      REMOTE=${candidates[0]}
+    elif [[ ${#candidates[@]} -eq 0 ]]; then
+      fail 'no primary remote is configured; pass --remote explicitly'
+    else
+      fail 'multiple remotes exist without branch.main.remote; pass --remote explicitly'
+    fi
+  fi
+fi
 git remote get-url "$REMOTE" >/dev/null 2>&1 || fail "remote does not exist: $REMOTE"
 
 info "Fetching $REMOTE/main"
@@ -72,16 +89,8 @@ if [[ -n "$(git ls-remote --heads "$REMOTE" "refs/heads/$BRANCH")" ]]; then
 fi
 
 git switch -c "$BRANCH" "$REMOTE/main"
-python3 scripts/ci/sync_version_metadata.py --repo "$REPO_ROOT" --version "$VERSION"
-python3 scripts/ci/validate_versions.py
-python3 scripts/ci/validate_branch.py --branch "$BRANCH" --base-ref "$REMOTE/main"
-
-git add VERSION .env.example frontend/package.json frontend/package-lock.json admin-frontend/package.json admin-frontend/package-lock.json
-if git diff --cached --quiet; then
-  info 'Version metadata was already synchronized; no bootstrap commit was needed.'
-else
-  git commit -m "chore: initialize $BATCH version metadata"
-fi
+python3 scripts/ci/validate_branch.py --branch "$BRANCH" --base-ref "$REMOTE/main" --mode development
+info 'Development branch created without changing VERSION or creating a bootstrap commit.'
 
 if (( PUSH )); then
   git push --set-upstream "$REMOTE" "$BRANCH"

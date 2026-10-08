@@ -57,6 +57,18 @@ The Backend query identity must match the local VictoriaMetrics identity used by
 
 Phase 11 established the administrator browser and trust-boundary contract with `scripts/verify-observability-ui.sh`. Phase-12-03 carries that contract into the authoritative full-stack topology through the no-argument `scripts/verify-compose.sh`: Chromium reaches only Frontend/Backend, ordinary users remain denied before internal calls, administrators query real Metrics/Logs/Events and manage the Monitor-owned Exporter, and representative business and observability failures recover inside one strongly owned project.
 
+## Native development and validation
+
+For ordinary source work, use `make dev` or `make dev-observe` from the repository
+root and run focused module checks with `make test MODULE=backend`. Real dependency
+coverage uses `make integration SCOPE=business` for social, Outbox, notification,
+search, and alert-state behavior, or `make integration SCOPE=observe` for the
+Monitor → Router → Kafka → Marshaller → query path and its authorization boundary.
+Both scopes own an isolated test project and clean only their own accounts and
+processes. These short native checks do not replace the container security,
+complete plugin lifecycle, recovery, capacity, long alert-cycle, Trace, Bundle, or
+release-evidence entries listed in the validation documentation.
+
 ## Phase 12 container runtime contract
 
 Direct source commands default to `GOPULSE_RUNTIME_MODE=host`, which retains loopback listener and dependency-origin restrictions. Compose sets `GOPULSE_RUNTIME_MODE=container`; in that mode the Backend listens on `0.0.0.0:8080` and accepts validated service DNS only. The complete topology uses `mysql:3306`, `redis:6379`, `rabbitmq:5672`, business search Elasticsearch at `elasticsearch:9200`, observability Elasticsearch at `observability-elasticsearch:9200`, `monitor:9090`, and `victoriametrics:8428`; Backend, Business Worker, and Search Indexer ship bounded log copies to Monitor without adding it to business readiness. Search Reindex is pinned to the business Elasticsearch purpose, while Marshaller writes only to the observability endpoint. Loopback or fixed-IP container dependencies, `host.docker.internal`, unknown modes, malformed origins, URL paths, query strings, fragments, embedded HTTP credentials, and control characters are rejected as applicable.
