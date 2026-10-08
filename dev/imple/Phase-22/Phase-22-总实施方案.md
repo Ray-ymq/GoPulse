@@ -1,6 +1,6 @@
 # Phase 22 总实施方案：本机开发与测试流程简化
 
-> 状态：01 已开始但未完成，02～04 待实施。初稿日期：2026-10-07；本次规划修订：2026-10-08。当前完成版本：`2.3.3`。
+> 状态：Phase-22-01～04 已完成。初稿日期：2026-10-07；本次规划修订：2026-10-08；阶段收口：2026-10-08。当前完成版本：`2.4.4`。
 > 用户已授权实施本方案；规划先在 `update` 提交并以 merge commit 合入 main，再依次执行四批。
 
 ## 1. 阶段结果
@@ -22,9 +22,9 @@
 | Phase-22-03 | `2.4.3` | `develop/2.4.3` | 用户及管理前端测试、本机业务与观测 Playwright | 02 完成并进入 main |
 | Phase-22-04 | `2.4.4` | `develop/2.4.4` | 业务及观测 CI 选择、完成校验、文档和工具映射收口 | 03 完成并进入 main |
 
-分方案：[01](Phase-22-01-本机启动与依赖隔离.md)、[02](Phase-22-02-后端原生功能验证.md)、[03](Phase-22-03-前端与本机浏览器验证.md)、[04](Phase-22-04-CI与文档收口.md)。每批先 fetch 当前主远端 `upstream`、重读本总方案和前批日志，从最新 `upstream/main` 创建已分配分支。不能沿用完成分支，不能把实现放在 update。已有未提交修改留在原 checkout；实现使用独立工作树。
+分方案：[01](Phase-22-01-本机启动与依赖隔离.md)、[02](Phase-22-02-后端原生功能验证.md)、[03](Phase-22-03-前端与本机浏览器验证.md)、[04](Phase-22-04-CI与文档收口.md)。每批先 fetch 当前主远端、重读本总方案和前批日志，从最新主线创建已分配分支。不能沿用完成分支，不能把实现放在 update。已有未提交修改留在原 checkout；实现使用独立工作树。
 
-本次修订补齐未开始的 02～04 的观测覆盖，不增加批次、不调整版本或分支。01 的实现、未完成日志、已通过检查和累计成本保留；其原有启动门禁不变。修订规划不代表恢复当前受 Docker 基础设施阻塞的运行，也不代表任何新增检查已经实现或通过。方案文件保留原路径，后续同名实施日志与之对应。
+本次修订补齐 02～04 的观测覆盖，不增加批次、不调整版本或分支。01～03 的实现、日志、已通过检查和累计成本保留；04 的选择/文档、IPv4 Vite readiness 修复、固定门禁和真实 CI 已按同名日志收口。方案文件保留原路径，同名实施日志与之对应。
 
 旧批次初始化脚本提前修改 VERSION，在 04 修正前不调用它；用普通 git 创建已分配分支。完成时同步 VERSION、.env.example 和两前端版本元数据，添加同名真实日志，完成校验后提交；开发中不提前更新完成版本。
 
@@ -36,9 +36,9 @@
 | `make dev-observe` | 01：增加 Kafka、VM、观测 ES、Router/Marshaller、管理 Vite；Monitor 使用固定 Linux 容器 |
 | `make test MODULE=…` | 01 提供模块转发；02 固定验证 backend、monitor、router、marshaller、componentmetrics 和六个 exporters；03 固定验证两个前端；未知模块失败 |
 | `make integration` / `make integration SCOPE=business` | 02：独立测试项目/数据卷，运行后端真实依赖集成测试；串行 Go 包，避免共享队列互扰 |
-| `make integration SCOPE=observe` | 02 待实现：隔离测试配置上运行源码 Backend/Router/Marshaller 和固定 Monitor，Go 测试验证新指标、日志、运行事件及查询权限 |
+| `make integration SCOPE=observe` | 02：隔离测试配置上运行源码 Backend/Router/Marshaller 和固定 Monitor，Go 测试验证新指标、日志、运行事件及查询权限 |
 | `make e2e` / `make e2e SCOPE=business` | 03：测试项目上的源码应用与现有业务 Playwright；不连接开发数据库 |
-| `make e2e SCOPE=observe` | 03 待实现：复用观测测试环境，运行用户 Vite 与管理 Vite，验证真实管理页面及普通用户隔离 |
+| `make e2e SCOPE=observe` | 03：复用观测测试环境，运行用户 Vite 与管理 Vite，验证真实管理页面及普通用户隔离 |
 | `make stop` | 01：停止本工作树启动的本机进程与依赖容器，保留命名卷 |
 | `make monitor-image` | 01：显式首次准备或修改 Monitor/插件后，仅构建 Monitor 开发镜像；日常入口不隐式构建 |
 

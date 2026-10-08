@@ -50,45 +50,59 @@ system; the two target designs define its intended direction.
 
 ## Development quick start
 
-Use Linux `amd64`, Bash, Git, and Docker Engine with Docker Compose v2. WSL2 is a
-supported way to provide Linux; keep its checkout in the Linux filesystem.
-The documented local baseline requires at least 2 CPUs, 6 GiB RAM, and 5 GiB
-available disk space. See the [product manual](使用手册.md) for setup details.
+Use Linux `amd64`, Bash, Git, Docker Engine with Compose v2, Go, Node.js/npm, and
+Chromium for browser checks. WSL2 is supported; keep the checkout in the Linux
+filesystem. The documented local baseline requires at least 2 CPUs, 6 GiB RAM,
+and 5 GiB available disk space.
 
-From the repository root:
-
-```bash
-scripts/dev.sh
-scripts/verify.sh
-```
-
-On first startup, `dev.sh` creates `.env` from `.env.example` if absent, builds the
-application images, initializes dependencies, and verifies the owned Compose
-project. These commands run through Docker and require no host Go or Node
-installation. The example credentials are for local development; keep `.env`
-private and review its credentials before use in another environment.
-
-The default edge address is [http://127.0.0.1:5173](http://127.0.0.1:5173).
-It serves the social frontend and `/admin/`, with same-origin `/api/v1` requests.
-Only the edge publishes a host port; Backend, storage, and observability services
-remain on private Compose networks.
-
-To choose another owned project or environment file:
+After installing the toolchains declared by the module and package files, the
+first frontend/browser setup is:
 
 ```bash
-scripts/dev.sh --project-name gopulse-demo --env-file /path/to/development.env
-scripts/verify.sh --project-name gopulse-demo --env-file /path/to/development.env
+npm --prefix frontend ci
+npm --prefix admin-frontend ci
+npm --prefix frontend exec -- playwright install chromium
+cp .env.example .env       # review and keep local credentials private
 ```
 
-To stop the default project:
+Daily source development runs Go/Vite on the host while Docker supplies only
+owned persistent dependencies:
 
 ```bash
-scripts/down.sh
+make dev
+make dev-observe                         # add Router/Marshaller/Monitor/admin Vite
+make test MODULE=backend
+make integration SCOPE=business
+make integration SCOPE=observe
+make e2e SCOPE=business
+make e2e SCOPE=observe
+make stop
 ```
 
-Named volumes are retained by default. See each script's `--help` for ownership
-checks and explicit cleanup options. Account usage, super-administrator
-initialization, and routine troubleshooting are in the [product manual](使用手册.md).
+`business` and `observe` use isolated test projects, ports, volumes, and locks;
+they never reuse the development data. `make monitor-image` is a separate Linux
+command for the trusted Monitor/plugin image. It is required before an observe
+run when the image is absent or its inputs changed, and does not build business
+images or push a Bundle. The native entries fail on unknown modules/scopes,
+unowned port conflicts, missing dependencies, and child-process failures.
+
+The previous container and release paths remain explicit:
+
+| Capability | Existing entry |
+| --- | --- |
+| Full container development/verification | `scripts/dev.sh`, `scripts/verify.sh`, `scripts/down.sh`, `scripts/verify-compose.sh` |
+| Plugin lifecycle and exporter contracts | `scripts/verify-plugin-state.sh`, `scripts/verify-exporter.sh`, `scripts/verify-monitor.sh` |
+| Alert evaluation and management state | `scripts/verify-alerts.sh`, `scripts/ci/verify_dashboard.py`, `scripts/verify-role-management.sh` |
+| Recovery and persistence | `scripts/ci/verify_current_recovery.py`, `dev/operations/backup-restore.md` |
+| Capacity and long-window experiments | `scripts/verify-phase18-business-scale.sh`, `scripts/verify-phase18-observability-scale.sh`, `dev/validation/Phase-19/`, `dev/validation/Phase-20/` |
+| Bundle/release and evidence | `scripts/verify-release-artifacts.sh`, `scripts/ci/release_artifacts.py`, `.github/workflows/release-candidate.yml` |
+
+The default native user edge is [http://127.0.0.1:15173](http://127.0.0.1:15173)
+for test browser runs; development uses the configured `FRONTEND_PORT` (5173 by
+default). See the [product manual](使用手册.md) for account setup and
+troubleshooting. The [local validation map](dev/validation/local-development-tests.md)
+records which native checks replace ordinary assertions and which specialized
+container, plugin, recovery, capacity, artifact, and evidence checks remain.
 
 ## Product installation and recovery
 

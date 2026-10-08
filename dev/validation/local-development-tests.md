@@ -1,4 +1,4 @@
-# Phase-22-02 原生验证入口登记
+# Phase-22 原生验证入口登记
 
 本文件登记本批执行过的日常原生入口及仍保留的专项入口，避免把模块单测误记为跨进程验收。
 
@@ -36,3 +36,32 @@ CI Integration 门禁在 migration 后执行 `go run ./cmd/search-reindex --if-m
 | native 入口 | `local_development.py` 的 test Compose、锁、源码进程、Vite 启停和 trace 保留 | `make e2e` 默认 business；未知 scope/端口失败；`scripts/verify-admin-frontend.sh --native` 仅委托两前端检查 |
 
 本批 native 浏览器不替代 Nginx 头、UID、只读根、镜像扫描、插件制品、恢复和容量专项检查；这些仍由既有容器工具保留。
+
+## Phase-22-04 CI 选择与保留映射
+
+`scripts/ci/quality_scope.py` 使用目标分支与主线共同祖先的完整 diff，按实际
+路径选择下列已有入口；空 diff 和文档-only diff 只运行治理检查。
+
+| 变更类别 | 选择的日常门禁 |
+| --- | --- |
+| Backend、业务 HTTP 或本地 Go replace 依赖 | 对应 Backend/消费者模块 Go 测试；必要时 `make integration SCOPE=business` 和 business 浏览器 |
+| `internal/observability`、Metrics/Logs/Events/alert/query、Monitor/Router/Marshaller 或六个 Exporter | 对应模块 Go 测试；`make integration SCOPE=observe`；管理代理/权限/入口变化再选 `make e2e SCOPE=observe` |
+| `componentmetrics` | componentmetrics 及所有实际 `replace` 消费者，不只测试共享库；观测真实链路按路径选择 |
+| 用户 Frontend | Frontend Vitest/build 和 `make e2e SCOPE=business`；代理或管理入口变化同时选择 observe 浏览器 |
+| Admin Frontend | Admin Frontend Vitest/build 和 `make e2e SCOPE=observe` |
+| `deploy/`、Dockerfile 或 Compose/action 输入 | 既有 Compose/container gate；不把普通源码测试升级为完整镜像矩阵 |
+| `scripts/` 工具 | 工具 Python unittest、Bash 语法和该工具拥有的原生入口；旧工具调用保持可达 |
+| 未知非文档路径 | 保守选择完整产品检查，不静默跳过 |
+
+CI 为 backend、router、marshaller、monitor、componentmetrics 和六个 Exporter
+提供独立 Go job；业务与观测集成分别调用 `make integration SCOPE=business|observe`，
+浏览器按选择调用对应 `make e2e`。Monitor/plugin 镜像只在观测门禁准备步骤中显式
+构建或复用；日常 Go、文档和普通页面改动不预热全部 Compose 镜像。
+
+以下专项入口及其独有断言继续保留：`verify-compose.sh`、
+`verify-compose-observability.sh`、`verify-monitor.sh`、`verify-router.sh`、
+`verify-marshaller.sh`、`verify-exporter.sh`、`verify-component-metrics.sh`、
+`verify-logs.sh`、`verify-events.sh`、`verify-alerts.sh`、
+`verify-plugin-state.sh`，以及 Phase 18～20 的容量、恢复、长期评估、制品和
+证据工具。它们不因本机入口可用而从 CI 或仓库删除；持续告警周期、容器安全、
+完整插件生命周期、故障恢复、容量、Bundle 和发布证据仍按各自计划触发。
