@@ -1,17 +1,18 @@
 # GoPulse 当前能力状态
 
-> 基线：产品完成版本 `2.4.4`，2026-10-08。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品完成版本 `2.4.5`，2026-10-09。版本完成、验收执行完成和能力达标是三个不同概念。
 > 2026-10-05 范围调整：Phase 20 仅保留已完成的 01～04，在 `2.2.4` 结束；原 05、06 已取消。
 
 ## 已实施阶段
 
-- Phase 22 在 `2.4.4` 完成四批收口：本机 Go/Vite 开发与隔离测试入口、业务与可观测原生模块/真实链路、用户与管理浏览器验证，以及按共同祖先改动选择 CI、开发/完成分支校验和文档映射。Phase-22-04 的实际门禁与限制见 [实施日志](../logs/Phase-22/Phase-22-04-CI与文档收口.md)；真实 CI run `37781739950` 的治理、模块、集成、浏览器和 full-stack Compose job 全部通过。
+- Phase 22 在 `2.4.5` 完成五批收口：本机 Go/Vite 开发与隔离测试入口、业务与可观测原生模块/真实链路、用户与管理浏览器验证、按共同祖先改动选择 CI/开发完成分支校验和文档映射，以及迁移 CLI 的 Go 原生 MySQL 验收与一次性 Python 工具退役。Phase-22-04 的实际门禁与限制见 [实施日志](../logs/Phase-22/Phase-22-04-CI与文档收口.md)；Phase-22-05 的迁移覆盖、退役边界和门禁见 [实施日志](../logs/Phase-22/Phase-22-05-原生验收与脚本精简.md)。Phase-22-04 真实 CI run `37781739950` 的治理、模块、集成、浏览器和 full-stack Compose job 全部通过，05 的实际 CI 记录在同名日志中。
 - [Phase 21 总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)分配的三批 `2.3.1`～`2.3.3` 已完成。Phase-21-01 已在 `2.3.1` 完成：Backend 支持 `combined`、`business`、`platform` 三种角色，按角色装配依赖、路由和后台任务，并通过 R01～R05 固定门禁及最小真实三角色进程检查。Phase-21-02 已在 `2.3.2` 完成双服务 Compose、同源代理、运行/采集合同、Bundle/lifecycle 固定别名及 service-split 源码预检；Phase-21-03 已在 `2.3.3` 完成冻结 `2.3.2` 候选的正式定向验收与阶段收口。
 - 共用账号、数据库和会话；Outbox dispatcher 留在业务服务。目标验收包含管理单侧停止时已有会话的业务可用，不声明隔离共享数据库故障、容量或长期稳定。
 
 ## 已验证
 
 - 社交业务、搜索、通知、插件、Metrics、Logs、Events、内部告警与双 Frontend 端到端闭环。
+- 迁移 CLI 通过所属 Go 包的真实 MySQL 集成验收：空库并发与重复 up、锁超时、dirty/ahead 拒绝、DDL 权限失败后的 dirty 保留、显式 v12 恢复、退出码/脱敏和 owner-checked 容器及匿名卷清理；该回执只覆盖迁移状态边界，不替代 Phase 17～21 的备份恢复、容量、长期运行或发布专项验收。
 - Linux `amd64` Compose 与 Bundle 生命周期、同 Bundle 备份恢复和私有网络边界。
 - Backend、Business Worker、Search Indexer、Router、Marshaller 双副本计算层。
 - Outbox lease/owner、RabbitMQ ack/retry、Kafka generation ownership/manual commit 和终态闭合。
