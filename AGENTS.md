@@ -1,8 +1,9 @@
 # Task Classification, Version, and Branch Rule
 
 - Read-only analysis, diagnosis, review, and status reporting do not require a new branch or commit.
-- Planning, architecture, implementation-plan, documentation-organization, planning-metadata, and repository-rule work may be performed directly on `update`.
-- Changes unique to `update` relative to the latest primary-remote `main` must remain within that planning scope. Merging `main` into `update` does not violate this rule.
+- Planning, architecture, implementation-plan, documentation-organization, planning-metadata, repository-rule, and repository-maintenance work may be performed directly on `update`.
+- Repository maintenance covers the CI and acceptance tooling under `scripts/` and `.github/`: retiring a tool whose capability has been formally retired, together with its self-tests, forwarders, and live references. It does not cover product code, module test code, application validation, `VERSION`, or release metadata. A retirement must name the capability it removes, the decision that retired it, and what stays valid.
+- Changes unique to `update` relative to the latest primary-remote `main` must remain within that planning and maintenance scope. Merging `main` into `update` does not violate this rule.
 - Do not use `update` for product implementation, test implementation, application validation, or ordinary development pull requests.
 - Every executable product-development change must belong to a documented implementation batch.
 - Before starting a new implementation batch:
