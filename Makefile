@@ -31,7 +31,7 @@ REQUIRE_MODULE = test -n "$(MODULE)" || { printf '%s\n' '[gopulse] ERROR: MODULE
 
 help:
 	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package [PLATFORM=] [OUTPUT=] [REGISTRY=] [RUNTIME=1] [PROMOTE=1]' '                            build and verify an immutable release candidate' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make e2e [SCOPE=name]     run native business or observability Playwright checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
-	@printf '%s\n' '  make verify-compose [SCOPE=observability]  run the native Compose acceptance closure' '  make verify-business                       run the native business acceptance suite' '  make verify-observe SCOPE=name             run the native observability suite' '  make verify-plugins|verify-alerts|verify-roles|verify-pages  run focused acceptance suites' '  make verify-lifecycle INSTALL=clean|reuse  run lifecycle acceptance' '  make stack-up|stack-down|stack-verify       manage the owned Compose stack'
+	@printf '%s\n' '  make verify-compose [SCOPE=observability]  run the native Compose acceptance closure' '  make verify-business                       run the native business acceptance suite' '  make verify-observe SCOPE=name             run the native observability suite' '  make verify-plugins|verify-alerts|verify-roles|verify-pages  run focused acceptance suites' '  make verify-lifecycle INSTALL=clean|reuse [LIFECYCLE_INSTALL=PATH]  run lifecycle acceptance' '  make stack-up|stack-down|stack-verify       manage the owned Compose stack'
 
 test:
 	@$(REQUIRE_MODULE)
@@ -123,7 +123,7 @@ verify-pages:
 	@$(ACCEPTANCE) pages $(if $(KEEP),--keep,)
 
 verify-lifecycle:
-	@$(ACCEPTANCE) lifecycle --install "$(if $(INSTALL),$(INSTALL),clean)" --manifest "$(if $(MANIFEST),$(MANIFEST),dist/release-manifest.json)" $(if $(PLATFORM),--platform $(PLATFORM),)
+	@$(ACCEPTANCE) lifecycle --install "$(if $(INSTALL),$(INSTALL),clean)" --manifest "$(if $(MANIFEST),$(MANIFEST),dist/release-manifest.json)" $(if $(LIFECYCLE_INSTALL),--install-path "$(LIFECYCLE_INSTALL)",) $(if $(PLATFORM),--platform $(PLATFORM),)
 
 stack-up:
 	@$(DEVENV) stack-up

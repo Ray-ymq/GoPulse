@@ -19,7 +19,7 @@ commands:
   alerts [--keep] [--receipt PATH]
   roles [--keep] [--receipt PATH]
   pages [--keep] [--receipt PATH]
-  lifecycle [--install clean|reuse] [--manifest PATH] [--platform PLATFORM]
+  lifecycle [--install clean|reuse] [--install-path PATH] [--manifest PATH] [--platform PLATFORM]
   reconcile-accounts [--keep] [--receipt PATH]
 `
 
@@ -81,7 +81,7 @@ func parse(args []string) (scenario.Options, error) {
 			switch name {
 			case "--keep", "--self-test":
 				value = "true"
-			case "--scope", "--receipt", "--manifest", "--candidate", "--install", "--platform":
+			case "--scope", "--receipt", "--manifest", "--candidate", "--install", "--install-path", "--platform":
 				if index+1 >= len(args) {
 					return scenario.Options{}, fmt.Errorf("%s requires a value", name)
 				}
@@ -108,6 +108,8 @@ func parse(args []string) (scenario.Options, error) {
 			options.Candidate = value
 		case "--install":
 			options.Install = value
+		case "--install-path":
+			options.InstallPath = value
 		case "--platform":
 			options.Platform = value
 		default:

@@ -3,9 +3,11 @@ package scenario
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -49,7 +51,7 @@ func Lifecycle(root string, options Options) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	runner, err := newLifecycleRunner(session, bundle, options.Install)
+	runner, err := newLifecycleRunner(session, bundle, options.Install, options.InstallPath)
 	if err != nil {
 		_ = session.Cleanup()
 		return err
@@ -57,6 +59,9 @@ func Lifecycle(root string, options Options) (returnErr error) {
 	defer func() {
 		if !options.Keep {
 			if cleanupErr := runner.purge(); returnErr == nil && cleanupErr != nil {
+				returnErr = cleanupErr
+			}
+			if cleanupErr := runner.removeOwnedRoot(); returnErr == nil && cleanupErr != nil {
 				returnErr = cleanupErr
 			}
 		}
@@ -71,7 +76,7 @@ func Lifecycle(root string, options Options) (returnErr error) {
 	}()
 
 	if options.Install == "reuse" {
-		returnErr = runner.reuse(options.Install)
+		returnErr = runner.reuse()
 	} else {
 		returnErr = runner.clean()
 	}
@@ -84,41 +89,79 @@ func Lifecycle(root string, options Options) (returnErr error) {
 }
 
 type lifecycleRunner struct {
-	session *harness.Session
-	bundle  string
-	install string
-	project string
-	port    string
-	state   map[string]any
+	session       *harness.Session
+	bundle        string
+	install       string
+	project       string
+	port          string
+	state         map[string]any
+	temporaryRoot string
+	owned         bool
 }
 
-func newLifecycleRunner(session *harness.Session, bundle, mode string) (*lifecycleRunner, error) {
+func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath string) (*lifecycleRunner, error) {
+	if mode != "clean" && mode != "reuse" {
+		return nil, fmt.Errorf("install must be clean or reuse")
+	}
+	installPath := strings.TrimSpace(requestedPath)
+	if installPath == "" {
+		installPath = strings.TrimSpace(os.Getenv("GOPULSE_LIFECYCLE_INSTALL"))
+	}
+	owned := false
+	temporaryRoot := ""
+	install := installPath
+	if mode == "reuse" && install == "" {
+		return nil, fmt.Errorf("reuse mode requires --install-path or GOPULSE_LIFECYCLE_INSTALL")
+	}
+	if install != "" && !filepath.IsAbs(install) {
+		return nil, fmt.Errorf("lifecycle install path must be absolute")
+	}
+	if mode == "clean" && install == "" {
+		var err error
+		temporaryRoot, err = os.MkdirTemp("", "gopulse lifecycle ")
+		if err != nil {
+			return nil, err
+		}
+		install = filepath.Join(temporaryRoot, "installation with spaces")
+		owned = true
+	}
+	if mode == "clean" {
+		if err := os.Mkdir(install, 0o700); err != nil {
+			if temporaryRoot != "" {
+				_ = os.RemoveAll(temporaryRoot)
+			}
+			return nil, fmt.Errorf("create lifecycle install path: %w", err)
+		}
+	}
 	if mode == "reuse" {
-		return nil, fmt.Errorf("reuse mode requires an existing installation path")
+		if stat, err := os.Stat(install); err != nil || !stat.IsDir() {
+			return nil, fmt.Errorf("reuse installation path must be an existing directory")
+		}
 	}
-	installRoot, err := os.MkdirTemp("", "gopulse lifecycle ")
-	if err != nil {
-		return nil, err
-	}
-	install := filepath.Join(installRoot, "installation with spaces")
-	if err := os.Mkdir(install, 0o700); err != nil {
-		_ = os.RemoveAll(installRoot)
-		return nil, err
-	}
-	port, err := freePort()
-	if err != nil {
-		_ = os.RemoveAll(installRoot)
-		return nil, err
+	port := 0
+	if mode == "clean" {
+		var err error
+		port, err = freePort()
+		if err != nil {
+			if temporaryRoot != "" {
+				_ = os.RemoveAll(temporaryRoot)
+			}
+			return nil, err
+		}
 	}
 	socket := "/var/run/docker.sock"
 	stat, err := os.Stat(socket)
 	if err != nil {
-		_ = os.RemoveAll(installRoot)
+		if temporaryRoot != "" {
+			_ = os.RemoveAll(temporaryRoot)
+		}
 		return nil, fmt.Errorf("Docker socket is unavailable: %w", err)
 	}
 	socketStat, ok := stat.Sys().(*syscall.Stat_t)
 	if !ok {
-		_ = os.RemoveAll(installRoot)
+		if temporaryRoot != "" {
+			_ = os.RemoveAll(temporaryRoot)
+		}
 		return nil, fmt.Errorf("cannot inspect Docker socket ownership")
 	}
 	for key, value := range map[string]string{
@@ -131,11 +174,13 @@ func newLifecycleRunner(session *harness.Session, bundle, mode string) (*lifecyc
 		session.SetValue(key, value)
 	}
 	return &lifecycleRunner{
-		session: session,
-		bundle:  bundle,
-		install: install,
-		project: "gopulse-lifecycle-" + session.Token,
-		port:    fmt.Sprintf("%d", port),
+		session:       session,
+		bundle:        bundle,
+		install:       install,
+		project:       "gopulse-lifecycle-" + session.Token,
+		port:          fmt.Sprintf("%d", port),
+		temporaryRoot: temporaryRoot,
+		owned:         owned,
 	}, nil
 }
 
@@ -203,8 +248,69 @@ func (r *lifecycleRunner) clean() error {
 	return r.expect("down", 0)
 }
 
-func (r *lifecycleRunner) reuse(_ string) error {
-	return fmt.Errorf("reuse mode requires --install to name an existing installation")
+func (r *lifecycleRunner) reuse() error {
+	beforeState, err := readPrivateJSON(filepath.Join(r.install, "state.json"))
+	if err != nil {
+		return fmt.Errorf("reuse installation state is invalid: %w", err)
+	}
+	restore, err := readPrivateJSON(filepath.Join(r.install, "restore-result.json"))
+	if err != nil {
+		return fmt.Errorf("reuse requires a successful restore-result.json: %w", err)
+	}
+	verified, _ := restore["facts_verified"].(bool)
+	if !verified {
+		return fmt.Errorf("reuse requires a restore result with facts_verified=true")
+	}
+	if _, err := os.Stat(filepath.Join(r.install, "restore-pending.json")); err == nil {
+		return fmt.Errorf("reuse refuses an installation with restore-pending.json")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	r.state = beforeState
+	if err := r.expect("up", 0); err != nil {
+		return err
+	}
+	before, err := r.snapshot()
+	if err != nil {
+		return err
+	}
+	if err := r.expect("verify", 0); err != nil {
+		return err
+	}
+	if _, err := r.expectJSON("status", 0); err != nil {
+		return err
+	}
+	after, err := r.snapshot()
+	if err != nil {
+		return err
+	}
+	if string(before.state) != string(after.state) || string(before.secrets) != string(after.secrets) {
+		return fmt.Errorf("read-only lifecycle verify mutated restored state")
+	}
+	for _, key := range []string{"project", "installation_token", "manifest_digest", "version", "edge_port"} {
+		if beforeState[key] != afterStateValue(after.state, key) {
+			return fmt.Errorf("restored identity changed on lifecycle reuse: %s", key)
+		}
+	}
+	status, err := r.expectJSON("status", 0)
+	if err != nil {
+		return err
+	}
+	edge, _ := status["edge"].(string)
+	for _, path := range []string{"/login", "/admin/"} {
+		if err := checkHTML(edge + path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func afterStateValue(raw []byte, key string) any {
+	var value map[string]any
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+	return value[key]
 }
 
 type lifecycleSnapshot struct {
@@ -230,7 +336,11 @@ func (r *lifecycleRunner) expect(command string, code int, flags ...string) erro
 		return fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
 	}
 	if command == "init" && code == 0 {
-		r.state, _ = readJSON(result.Stdout)
+		state, err := readJSON(result.Stdout)
+		if err != nil {
+			return fmt.Errorf("lifecycle init returned invalid JSON: %w", err)
+		}
+		r.state = state
 	}
 	return nil
 }
@@ -258,6 +368,9 @@ func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
 }
 
 func (r *lifecycleRunner) purge() error {
+	if !r.owned {
+		return nil
+	}
 	if r.state == nil {
 		return nil
 	}
@@ -270,6 +383,13 @@ func (r *lifecycleRunner) purge() error {
 		return fmt.Errorf("lifecycle cleanup exited %d", result.ExitCode)
 	}
 	return nil
+}
+
+func (r *lifecycleRunner) removeOwnedRoot() error {
+	if !r.owned || r.temporaryRoot == "" {
+		return nil
+	}
+	return os.RemoveAll(r.temporaryRoot)
 }
 
 func requireBundle(manifest, bundle string) error {
@@ -297,7 +417,33 @@ func validateManifestIdentity(path, root string) error {
 	if err != nil || strings.TrimSpace(string(version)) != manifest.Version {
 		return fmt.Errorf("lifecycle manifest version does not match VERSION")
 	}
+	revision, err := commandOutput(root, "git", "rev-parse", "HEAD")
+	if err != nil || strings.TrimSpace(revision) != manifest.Revision {
+		return fmt.Errorf("lifecycle manifest revision does not match HEAD")
+	}
 	return nil
+}
+
+func commandOutput(root, name string, args ...string) (string, error) {
+	command := exec.Command(name, args...)
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func readPrivateJSON(path string) (map[string]any, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func readJSON(output string) (map[string]any, error) {
@@ -328,6 +474,22 @@ func checkHTTP(url string) error {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("lifecycle endpoint %s returned HTTP %d", url, response.StatusCode)
+	}
+	return nil
+}
+
+func checkHTML(url string) error {
+	response, err := (&http.Client{}).Get(url)
+	if err != nil {
+		return fmt.Errorf("lifecycle endpoint %s failed: %w", url, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("lifecycle endpoint %s returned HTTP %d", url, response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil || !strings.Contains(strings.ToLower(string(body)), "<html") {
+		return fmt.Errorf("lifecycle endpoint %s did not return an HTML document", url)
 	}
 	return nil
 }
