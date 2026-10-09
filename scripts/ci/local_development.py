@@ -79,23 +79,6 @@ KNOWN_CONFIG_KEYS = {
     "VICTORIAMETRICS_USERNAME",
 }
 
-MODULES = {
-    "backend": ("backend", ("go", "test", "./...")),
-    "componentmetrics": ("componentmetrics", ("go", "test", "./...")),
-    "router": ("router", ("go", "test", "./...")),
-    "marshaller": ("marshaller", ("go", "test", "./...")),
-    "monitor": ("monitor", ("go", "test", "./...")),
-    "frontend": ("frontend", ("npm", "test")),
-    "admin-frontend": ("admin-frontend", ("npm", "test")),
-    "exporters/elasticsearch": ("exporters/elasticsearch", ("go", "test", "./...")),
-    "exporters/kafka": ("exporters/kafka", ("go", "test", "./...")),
-    "exporters/mysql": ("exporters/mysql", ("go", "test", "./...")),
-    "exporters/rabbitmq": ("exporters/rabbitmq", ("go", "test", "./...")),
-    "exporters/redis": ("exporters/redis", ("go", "test", "./...")),
-    "exporters/victoriametrics": ("exporters/victoriametrics", ("go", "test", "./...")),
-}
-
-
 class DevelopmentError(RuntimeError):
     """A bounded, user-actionable local lifecycle failure."""
 
@@ -1083,17 +1066,6 @@ def run_integration(root: Path, scope: str) -> None:
                 save_json(workspace.integration_state_path, state)
 
 
-def run_test(root: Path, module: str) -> None:
-    if module not in MODULES:
-        known = ", ".join(sorted(MODULES))
-        raise DevelopmentError(f"unknown MODULE={module!r}; expected one of: {known}")
-    directory, command = MODULES[module]
-    if module in {"frontend", "admin-frontend"}:
-        ensure_npm_dependencies(root, directory)
-    env = dict(os.environ)
-    run_command(command, cwd=root / directory, env=env, label=f"tests for {module}")
-
-
 def prepare_monitor_image(root: Path) -> None:
     if platform.system() != "Linux":
         raise DevelopmentError("monitor-image is supported only on Linux")
@@ -1145,9 +1117,6 @@ def build_parser() -> argparse.ArgumentParser:
         command = subparsers.add_parser(name)
         command.add_argument("--env-file")
         command.set_defaults(handler=lambda args, mode=mode, observe=observe: start_lifecycle(Path.cwd(), mode, args.env_file, observe))
-    test = subparsers.add_parser("test")
-    test.add_argument("--module", required=True)
-    test.set_defaults(handler=lambda args: run_test(Path.cwd(), args.module))
     stop_command = subparsers.add_parser("stop")
     stop_command.set_defaults(handler=lambda _args: stop(Path.cwd()))
     monitor = subparsers.add_parser("monitor-image")

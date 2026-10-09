@@ -19,15 +19,20 @@
 
 | 文件 | 改动 |
 | --- | --- |
-| `Makefile`（根） | 新增 `GO_MODULES` / `NPM_MODULES` 变量作为**模块清单唯一来源**；`test` / `check` 改为 `cd $(MODULE) && $(MAKE) …` 调度；新增 `check-all`；保留既有 `dev`/`integration`/`e2e`/`stop` 不动 |
-| `scripts/ci/local_development.py` | 仅删除纯转发部分：`MODULES` 表、`run_test`、`test` 子命令及其 argparse 注册 |
-| `.github/workflows/quality-gates.yml` | 各模块 job 的命令改为 `make check MODULE=x` / `make test MODULE=x RACE=1`；**job 数量与并行结构不变** |
-| `scripts/ci/test_local_development.py` | 删除或改写仅覆盖被删转发层的用例；保留其余用例 |
+| `Makefile`（根） | 新增 `GO_MODULES` / `NPM_MODULES` 变量作为**模块清单唯一来源**；`test` / `race` / `check` / `build` 改为 `$(MAKE) -C $(MODULE) …` 调度；新增 `check-all`；保留既有 `dev` / `dev-observe` / `integration` / `e2e` / `stop` / `monitor-image` 不动 |
+| `scripts/ci/local_development.py` | 仅删除纯转发部分：`MODULES` 表、`run_test`、`test` 子命令及其 argparse 注册。`ensure_npm_dependencies` 保留（`start_lifecycle` 与 `run_e2e` 仍调用） |
+| `.github/workflows/quality-gates.yml` | 11 个 Go job 的命令改为 `make check` / `make test` / `make race`；2 个前端 job 改为 `make test` / `make build`；新增 `lifecycle` 与 `loadtest` 两个 job。**原 20 个 job 全部保留，`if` 条件不变** |
+| `scripts/ci/quality_scope.py` | `MODULES` / `GO_MODULE_ROOTS` 增加 `lifecycle`、`loadtest`；新增 `STANDALONE_MODULES` 防止这两个模块误触发集成与浏览器矩阵 |
+| `scripts/ci/test_local_development.py` | 移除 `MODULES` 导入与断言，保留 `compose_environment` 拒绝未知模块的断言 |
+| `VERSION` 及产品版本元数据 | `.env.example`、`frontend/package{,-lock}.json`、`admin-frontend/package{,-lock}.json` 同步到 `2.5.1` |
 | `dev/imple/Phase-23/Phase-23-01-*.md` | 完成后的实测记录 |
 
 不属于本批：`make deps` / `dev` / `stop`（23-03）、`integration` / `e2e`（23-04、05）、
 `build` / `package` 的镜像与交付部分（23-02、06）、`componentmetrics` 发版（23-02）、
 `scripts/` 其余内容的删除（23-07）。
+
+**根 `build` 的边界**：本批提供**组件级** `build`（Go 为 `go build ./...`，前端为 `npm run build`），
+因为 CI 前端 job 原本就执行 `npm run build`。产品级构建、镜像与 Bundle 仍属 23-02 / 23-06。
 
 **模块集合**（15 个，根 Makefile 变量为唯一来源）：
 
@@ -46,18 +51,27 @@
 
 ## 2. 验证映射与固定门禁
 
+| 字段 | 内容 |
+| --- | --- |
+| 验证对象 | 组件级测试与检查入口是否真实执行原命令；根 Makefile 是否正确调度；模块清单是否唯一；CI 与本地是否执行同一目标 |
+| 已有覆盖 | 各模块 `go.mod` 与 `_test.go`；`scripts/ci/local_development.py` 的 `MODULES` 表与 `run_test`（本批退役）；`.github/workflows/quality-gates.yml` 各模块 job 的内联命令（本批改为调用 Make）；`scripts/ci/test_quality_scope.py` |
+| 最低有效层级 | 命令层与单元层。改动的行为是"执行哪个命令、覆盖哪些模块"，不是产品逻辑；集成与浏览器层的既有门禁不在本批范围，也不需要为本批新增 |
+| 本批变更 | 新增 15 个组件 `Makefile`；改写根 `Makefile`；删除 Python 转发层与其用例；`quality_scope.py` 增加两个模块并防误触发；改写 13 个模块 job、新增 2 个 job |
+| 固定门禁 | 见下表判据，以及本节末尾的治理门禁命令 |
+
 | 判据 | 验证方式 |
 | --- | --- |
 | 组件 Makefile 齐全 | 15 个模块各有 `Makefile`，提供 `test` 与 `check`；Go 模块另有 `race` 与 `build` |
 | 组件可独立执行 | `cd <module> && make test` 对 15 个模块逐一成功；不依赖根 Makefile |
-| 根调度正确 | `make test MODULE=x` 实际 `cd` 到该模块并调用组件 Makefile；`MODULE` 缺失时以非零退出并给出用法 |
-| 目标集合完整 | `make check-all` 覆盖 15 个模块；缺一个即失败 |
-| 与旧入口等价 | 对同一模块，`make test MODULE=x` 与改动前 `python3 scripts/ci/local_development.py test --module x` 的命令与退出码一致 |
-| `check` 语义正确 | 覆盖 gofmt、`go vet`、前端 `typecheck`；注入格式错误/类型错误时必须失败 |
-| `race` 生效 | `make test MODULE=backend RACE=1` 实际带 `-race` |
+| 根调度正确 | `make test MODULE=x` 调度到该模块的 Makefile；`MODULE` 缺失时以非零退出并给出用法 |
+| 目标集合完整 | `make check-all` 覆盖 15 个模块（含 `lifecycle`、`loadtest`）；缺一个即失败 |
+| 与旧入口等价 | 对同一模块，`make test MODULE=x` 与改动前 `python3 scripts/ci/local_development.py test --module x` 执行同一命令并同样传递退出码 |
+| `check` 语义正确 | Go 覆盖 `gofmt` 与 `go vet`，前端覆盖 `typecheck`；注入格式错误或 `vet` 失败时必须非零退出并给出诊断 |
+| `race` 目标可用 | `make race MODULE=x` 实际带 `-race`；Go 模块均提供该目标（前端不提供） |
 | 纯转发层已删 | `local_development.py` 中不再有 `MODULES` / `run_test` / `test` 子命令；`make test` 不调用 Python |
 | 模块清单唯一 | 仓库中只有根 Makefile 一处模块清单；Python 侧无第二份 |
-| CI 命令单一来源 | `quality-gates.yml` 各模块 job 内不再出现 `go test` / `gofmt` / `go vet` / `npm` 字面命令；job 数量与改动前一致 |
+| CI 命令单一来源 | 各模块 job 内不再出现 `go test` / `gofmt` / `go vet` / `npm test` / `npm run build` 字面命令；原 20 个 job 全部保留且 `if` 条件不变，另新增 `lifecycle` / `loadtest` 两个 |
+| 无重复检查 | 同一 job 内不重复执行同一检查；前端 `typecheck` 由 `npm run build` 内部执行，故前端 job 不再单独加 `check` 步骤 |
 | CI 与本地一致 | CI 绿，且本地跑同一目标得到相同结果 |
 | 无回归 | `python3 -m unittest discover -s scripts/ci -p 'test_*.py'` 通过（数量变化须逐项解释） |
 
