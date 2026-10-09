@@ -132,7 +132,8 @@
 - D2：`make help` 不再含 `monitor-image`，`README.md` 与
   `dev/validation/local-development-tests.md` 的命令与 `make help` 一致；
   `python3 -m unittest discover -s scripts/ci -p 'test_*.py'` 84 项全绿（`OK`）。
-- D3：本分支推送后的 `quality-gates.yml` 结果记录在本日志末尾的"分支 CI"小节。
+- D3：本分支推送后 `quality-gates.yml` 全部 23 个 job 成功，四个矩阵 job 实际执行；
+  PR #236 已合并到 `main`（详见"分支 CI"）。
 - D4：`validate_branch.py --branch develop/2.5.3 --mode completion` 在写入本日志前以
   `ERROR: completion log is required` 退出 1，写入日志后重跑通过（见"分支 CI"小节）；
   `make test/race/check MODULE=devtools` 在最终候选上全通过。
@@ -179,3 +180,18 @@
   累计约 225 分钟，未触顶；分段边界均按硬停执行，未发生重复诊断超限（观测基线失败用 1 次定向诊断定位为环境条件）。
 - 50%/80% 报告点：累计约 195 分钟时已完成 A、B 全部门禁与 C 段实现，剩余 C 段真实回执、
   D1–D4 与本文档；80%（312 分钟）未达到。
+
+## 分支 CI
+
+- 推送提交 `61ee330` 触发 `auto-pr-merge` 复用 `quality-gates.yml`（run `37932843949`），全部 23 个
+  job 成功：Branch governance、Local environment helper、Integration、Native observability integration、
+  Native business browser checks、Native observability browser checks、Scripts and Compose、Backend、
+  Frontend (frontend)、Admin frontend、Monitor、Message Router、Marshaller、Component metrics、
+  六个 Exporter、Lifecycle installer、Load test tool、Full-stack Compose acceptance。
+- 四个矩阵 job（Integration、Native observability integration、Native business browser checks、
+  Native observability browser checks）均为实际执行而非跳过；根 `Makefile` 改动按既有规则触发全量选择，
+  按实际结果记录。
+- `open-and-merge` 在 `completion_ready=true` 下创建 PR #236，并于 `2026-10-09T13:08:35Z` 合并到 `main`
+  （`main` 现为 `1da8eb2`）。
+- 推送后 `python3 scripts/ci/validate_branch.py --branch develop/2.5.3 --mode completion` 输出
+  `Branch governance passed for develop/2.5.3.`，退出 0。
