@@ -105,7 +105,8 @@ type State struct {
 	Revision            string                   `json:"revision"`
 	Schema              int                      `json:"schema"`
 	SourceDigest        string                   `json:"source_digest"`
-	Stage               string                   `json:"stage"`
+	Scope               string                   `json:"scope,omitempty"`
+	Stage               string                   `json:"stage,omitempty"`
 	StartedAt           string                   `json:"started_at"`
 	Status              string                   `json:"status"`
 	StoppedAt           string                   `json:"stopped_at,omitempty"`

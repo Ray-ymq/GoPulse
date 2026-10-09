@@ -19,9 +19,7 @@ from local_development import (
     check_ports,
     digest_paths,
     e2e_ports,
-    integration_lock,
     port_argument,
-    run_integration,
     run_e2e,
     parse_dotenv,
     process_birth_identity,
@@ -30,7 +28,6 @@ from local_development import (
     source_digest,
     workspace_for,
 )
-
 
 class LocalDevelopmentTests(unittest.TestCase):
     def test_dotenv_merge_keeps_defaults_and_caller_override_without_expansion(self) -> None:
@@ -67,10 +64,6 @@ class LocalDevelopmentTests(unittest.TestCase):
             self.assertEqual(values["ELASTICSEARCH_URL"], "http://127.0.0.1:29200")
             self.assertEqual(values["OBSERVABILITY_ELASTICSEARCH_URL"], "http://127.0.0.1:29201")
 
-    def test_integration_scope_rejects_unknown_before_docker(self) -> None:
-        with self.assertRaises(DevelopmentError):
-            run_integration(Path(tempfile.mkdtemp()), "unknown")
-
     def test_e2e_scope_rejects_unknown_before_docker(self) -> None:
         with self.assertRaises(DevelopmentError):
             run_e2e(Path(tempfile.mkdtemp()), "unknown", {})
@@ -91,14 +84,6 @@ class LocalDevelopmentTests(unittest.TestCase):
         self.assertEqual(port_argument("15173"), "15173")
         with self.assertRaises(Exception):
             port_argument("65536")
-
-    def test_integration_lock_rejects_second_owner(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = workspace_for(Path(directory))
-            with integration_lock(workspace):
-                with self.assertRaises(DevelopmentError):
-                    with integration_lock(workspace):
-                        pass
 
     def test_source_digest_includes_local_replace_module(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -173,7 +158,6 @@ class LocalDevelopmentTests(unittest.TestCase):
             root = Path(directory)
             (root / "VERSION").write_text("2.4.2\n", encoding="utf-8")
             self.assertTrue(workspace_for(root).project_test.endswith("-test-242"))
-
 
 if __name__ == "__main__":
     unittest.main()

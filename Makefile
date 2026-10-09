@@ -86,7 +86,7 @@ dev-observe:
 	@$(DEVENV) dev-observe
 
 integration:
-	@$(LOCAL_DEVELOPMENT) integration --scope "$(if $(SCOPE),$(SCOPE),business)"
+	@$(DEVENV) integration --scope "$(if $(SCOPE),$(SCOPE),business)"
 
 e2e:
 	@$(LOCAL_DEVELOPMENT) e2e --scope "$(if $(SCOPE),$(SCOPE),business)"

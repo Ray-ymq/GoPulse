@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/testenv"
 )
 
 const usage = `usage: devenv <command> [options]
@@ -24,6 +25,7 @@ commands:
   dev [--env-file PATH]                               start the source development environment
   dev-observe [--env-file PATH]                       start the observation environment
   stop                                                stop everything this workspace owns
+  integration [--scope business|observe]               run one isolated integration scope
   monitor-image                                       prepare or reuse the Monitor image
 `
 
@@ -70,6 +72,12 @@ func run(args []string) int {
 		err = devrun.Dev(root, true, parsed.envFile)
 	case "stop":
 		err = devrun.Stop(root)
+	case "integration":
+		scope := parsed.scope
+		if scope == "" {
+			scope = testenv.ScopeBusiness
+		}
+		err = testenv.Integration(root, scope)
 	case "monitor-image":
 		err = devrun.MonitorImage(root)
 	default:

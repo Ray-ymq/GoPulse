@@ -571,16 +571,11 @@ def integration_lock(workspace: Workspace):
             handle.close()
 
 
-def integration_ports(values: Mapping[str, str], observe: bool) -> list[int]:
+def e2e_ports(values: Mapping[str, str], observe: bool) -> list[int]:
     ports = [int(values[key]) for key in ("MYSQL_PORT", "REDIS_PORT", "RABBITMQ_PORT", "RABBITMQ_MANAGEMENT_PORT", "ELASTICSEARCH_PORT")]
     if observe:
         ports.extend(int(values[key]) for key in ("KAFKA_PORT", "VICTORIAMETRICS_PORT", "OBSERVABILITY_ELASTICSEARCH_PORT", "MONITOR_HTTP_PORT", "ROUTER_HTTP_PORT", "MARSHALLER_HTTP_PORT", "REDIS_EXPORTER_HTTP_PORT"))
         ports.extend([int(values["HTTP_PORT"]), 19101, 19102, 19103, 19105, 19106])
-    return ports
-
-
-def e2e_ports(values: Mapping[str, str], observe: bool) -> list[int]:
-    ports = integration_ports(values, observe)
     ports.extend([int(values["HTTP_PORT"]), int(values["FRONTEND_PORT"]), 19101, 19102, 19103])
     if observe:
         ports.append(int(values["ADMIN_FRONTEND_PORT"]))
@@ -727,6 +722,45 @@ def start_e2e_test_processes(root: Path, workspace: Workspace, state: dict[str, 
         promote_test_account_via_api(values, admin_username, demotion_username, password)
 
 
+def cleanup_observe_admin(root: Path, workspace: Workspace, state: Mapping[str, object], values: Mapping[str, str]) -> None:
+    """Remove only deterministic accounts created by the observability test."""
+    usernames = [values.get("OBSERVE_ADMIN_USERNAME", "")]
+    for key in ("OBSERVE_USER_USERNAME", "OBSERVE_DEMOTION_USERNAME"):
+        if values.get(key):
+            usernames.append(values[key])
+    usernames = [username for username in usernames if username]
+    if not usernames:
+        return
+    for username in usernames:
+        if not re.fullmatch(r"observe_(?:admin|user|demote)_[0-9a-f]+", username):
+            raise DevelopmentError("refusing to clean an unexpected observability test username")
+    escaped = [username.replace("\\", "\\\\").replace("'", "\\'") for username in usernames]
+    quoted = ",".join(f"'{username}'" for username in escaped)
+    sql = " ".join([
+        f"DELETE n FROM notifications AS n LEFT JOIN users AS recipient ON recipient.id=n.recipient_id LEFT JOIN users AS actor ON actor.id=n.actor_id LEFT JOIN posts AS post ON post.id=n.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id LEFT JOIN comments AS comment ON comment.id=n.comment_id LEFT JOIN users AS comment_author ON comment_author.id=comment.author_id WHERE recipient.username IN ({quoted}) OR actor.username IN ({quoted}) OR post_author.username IN ({quoted}) OR comment_author.username IN ({quoted});",
+        f"DELETE b FROM post_bookmarks AS b LEFT JOIN users AS bookmark_user ON bookmark_user.id=b.user_id LEFT JOIN posts AS post ON post.id=b.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE bookmark_user.username IN ({quoted}) OR post_author.username IN ({quoted});",
+        f"DELETE l FROM post_likes AS l LEFT JOIN users AS liker ON liker.id=l.user_id LEFT JOIN posts AS post ON post.id=l.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE liker.username IN ({quoted}) OR post_author.username IN ({quoted});",
+        f"DELETE comment FROM comments AS comment LEFT JOIN users AS comment_author ON comment_author.id=comment.author_id LEFT JOIN posts AS post ON post.id=comment.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE comment_author.username IN ({quoted}) OR post_author.username IN ({quoted});",
+        f"DELETE post FROM posts AS post INNER JOIN users AS post_author ON post_author.id=post.author_id WHERE post_author.username IN ({quoted});",
+        f"DELETE FROM bootstrap_super_admin WHERE user_id IN (SELECT id FROM users WHERE username IN ({quoted}));",
+        f"DELETE FROM users WHERE username IN ({quoted});",
+    ])
+    env_file = Path(str(state.get("env_file", "")))
+    project = str(state.get("project", ""))
+    raw_files = state.get("compose_files", [])
+    files = [Path(str(item)) for item in raw_files] if isinstance(raw_files, list) else []
+    if not project or not env_file.is_file() or not files:
+        raise DevelopmentError("cannot clean observability test administrator without Compose state")
+    command = compose_command(
+        project, env_file, files, ["observe"],
+        [
+            "exec", "-T", "mysql", "mysql", "-uroot",
+            f"-p{values['MYSQL_ROOT_PASSWORD']}", values["MYSQL_DATABASE"], "-e", sql,
+        ],
+    )
+    run_command(command, cwd=root, env=dict(os.environ), label="observability test administrator cleanup")
+
+
 def run_e2e(root: Path, scope: str, overrides: Mapping[str, str]) -> None:
     if scope not in {"business", "observe"}:
         raise DevelopmentError(f"unknown e2e SCOPE={scope!r}; expected business or observe")
@@ -799,163 +833,11 @@ def run_e2e(root: Path, scope: str, overrides: Mapping[str, str]) -> None:
                 save_json(workspace.integration_state_path, state)
 
 
-def start_observe_test_processes(root: Path, workspace: Workspace, state: dict[str, object], values: dict[str, str]) -> None:
-    """Start only the source services required by the native observability flow."""
-    one_shot_env = dict(values)
-    one_shot_env["LOG_MONITOR_URL"] = ""
-    one_shot_env["LOG_MONITOR_INGEST_TOKEN"] = ""
-    run_command(["go", "run", "./cmd/migrate", "up"], cwd=root / "backend", env=one_shot_env, label="test database migration")
-    run_command(["go", "run", "./cmd/search-reindex", "--if-missing"], cwd=root / "backend", env=one_shot_env, label="test search reindex")
-
-    binary_digest = source_digest(root, observe=False)
-    backend = build_binary(workspace, values, "integration-backend", "./cmd/server", binary_digest)
-    router_digest = source_digest(root, observe=True)
-    router = workspace.private_root / "bin" / "integration-router"
-    marshaller = workspace.private_root / "bin" / "integration-marshaller"
-    for name, directory, package, output in [
-        ("integration-router", root / "router", "./cmd/router", router),
-        ("integration-marshaller", root / "marshaller", "./cmd/marshaller", marshaller),
-    ]:
-        metadata = workspace.private_root / "bin" / f"{name}.json"
-        previous = json.loads(metadata.read_text(encoding="utf-8")) if metadata.is_file() else {}
-        if not output.is_file() or previous.get("digest") != router_digest:
-            run_command(["go", "build", "-trimpath", "-o", str(output), package], cwd=directory, env=values, label=f"build {name}")
-            save_json(metadata, {"name": name, "digest": router_digest, "command": ["go", "build", "-trimpath", "-o", str(output), package]})
-    admin_role = build_binary(workspace, values, "integration-admin-role", "./cmd/admin-role", binary_digest)
-
-    router_env = dict(values)
-    router_env["GOPULSE_INSTANCE_ID"] = "router-test"
-    marshaller_env = dict(values)
-    marshaller_env["GOPULSE_INSTANCE_ID"] = "marshaller-test"
-    backend_env = dict(values)
-    backend_env["GOPULSE_INSTANCE_ID"] = "backend-test"
-    spawn_process(workspace, state, "router", [str(router)], router_env, root / "router", workspace.integration_state_path)
-    wait_http(f"http://127.0.0.1:{values['ROUTER_HTTP_PORT']}/ready", timeout=180, token=values["ROUTER_API_TOKEN"], label="test Router", process_record=state["processes"]["router"])
-    spawn_process(workspace, state, "marshaller", [str(marshaller)], marshaller_env, root / "marshaller", workspace.integration_state_path)
-    wait_http(f"http://127.0.0.1:{values['MARSHALLER_HTTP_PORT']}/ready", timeout=180, token=values["MARSHALLER_API_TOKEN"], label="test Marshaller", process_record=state["processes"]["marshaller"])
-    spawn_process(workspace, state, "backend", [str(backend)], backend_env, root / "backend", workspace.integration_state_path)
-    wait_http(f"http://127.0.0.1:{values['HTTP_PORT']}/ready", timeout=180, label="test Backend", process_record=state["processes"]["backend"])
-    wait_http(f"http://127.0.0.1:{values['MONITOR_HTTP_PORT']}/ready", timeout=180, token=values["MONITOR_API_TOKEN"], label="test Monitor")
-
-    admin_username = f"observe_admin_{workspace.identity}"
-    admin_password = "observe-admin-password-32-bytes-0123456789"
-    values["OBSERVE_ADMIN_USERNAME"] = admin_username
-    values["OBSERVE_ADMIN_PASSWORD"] = admin_password
-    registration = json.dumps({"username": admin_username, "password": admin_password}, separators=(",", ":"))
-    curl = ["curl", "--silent", "--show-error", "--max-time", "20", "-H", "Content-Type: application/json", "-d", registration, "-o", os.devnull, "-w", "%{http_code}", f"http://127.0.0.1:{values['HTTP_PORT']}/api/v1/auth/register"]
-    registered = subprocess.run(curl, cwd=root, env=dict(values), stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, text=True)
-    if registered.returncode != 0 or registered.stdout.strip() not in {"201", "409"}:
-        raise DevelopmentError("test observability admin registration failed")
-    run_command([str(admin_role), "promote", "--username", admin_username], cwd=root / "backend", env=values, label="test observability admin-role bootstrap")
-
-
-def cleanup_observe_admin(root: Path, workspace: Workspace, state: Mapping[str, object], values: Mapping[str, str]) -> None:
-    """Remove only deterministic accounts created by the observability test."""
-    usernames = [values.get("OBSERVE_ADMIN_USERNAME", "")]
-    for key in ("OBSERVE_USER_USERNAME", "OBSERVE_DEMOTION_USERNAME"):
-        if values.get(key):
-            usernames.append(values[key])
-    usernames = [username for username in usernames if username]
-    if not usernames:
-        return
-    for username in usernames:
-        if not re.fullmatch(r"observe_(?:admin|user|demote)_[0-9a-f]+", username):
-            raise DevelopmentError("refusing to clean an unexpected observability test username")
-    escaped = [username.replace("\\", "\\\\").replace("'", "\\'") for username in usernames]
-    quoted = ",".join(f"'{username}'" for username in escaped)
-    sql = " ".join([
-        f"DELETE n FROM notifications AS n LEFT JOIN users AS recipient ON recipient.id=n.recipient_id LEFT JOIN users AS actor ON actor.id=n.actor_id LEFT JOIN posts AS post ON post.id=n.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id LEFT JOIN comments AS comment ON comment.id=n.comment_id LEFT JOIN users AS comment_author ON comment_author.id=comment.author_id WHERE recipient.username IN ({quoted}) OR actor.username IN ({quoted}) OR post_author.username IN ({quoted}) OR comment_author.username IN ({quoted});",
-        f"DELETE b FROM post_bookmarks AS b LEFT JOIN users AS bookmark_user ON bookmark_user.id=b.user_id LEFT JOIN posts AS post ON post.id=b.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE bookmark_user.username IN ({quoted}) OR post_author.username IN ({quoted});",
-        f"DELETE l FROM post_likes AS l LEFT JOIN users AS liker ON liker.id=l.user_id LEFT JOIN posts AS post ON post.id=l.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE liker.username IN ({quoted}) OR post_author.username IN ({quoted});",
-        f"DELETE comment FROM comments AS comment LEFT JOIN users AS comment_author ON comment_author.id=comment.author_id LEFT JOIN posts AS post ON post.id=comment.post_id LEFT JOIN users AS post_author ON post_author.id=post.author_id WHERE comment_author.username IN ({quoted}) OR post_author.username IN ({quoted});",
-        f"DELETE post FROM posts AS post INNER JOIN users AS post_author ON post_author.id=post.author_id WHERE post_author.username IN ({quoted});",
-        f"DELETE FROM bootstrap_super_admin WHERE user_id IN (SELECT id FROM users WHERE username IN ({quoted}));",
-        f"DELETE FROM users WHERE username IN ({quoted});",
-    ])
-    env_file = Path(str(state.get("env_file", "")))
-    project = str(state.get("project", ""))
-    raw_files = state.get("compose_files", [])
-    files = [Path(str(item)) for item in raw_files] if isinstance(raw_files, list) else []
-    if not project or not env_file.is_file() or not files:
-        raise DevelopmentError("cannot clean observability test administrator without Compose state")
-    command = compose_command(
-        project, env_file, files, ["observe"],
-        [
-            "exec", "-T", "mysql", "mysql", "-uroot",
-            f"-p{values['MYSQL_ROOT_PASSWORD']}", values["MYSQL_DATABASE"], "-e", sql,
-        ],
-    )
-    run_command(command, cwd=root, env=dict(os.environ), label="observability test administrator cleanup")
-
-
-def run_integration(root: Path, scope: str) -> None:
-    if scope not in {"business", "observe"}:
-        raise DevelopmentError(f"unknown integration SCOPE={scope!r}; expected business or observe")
-    workspace, values, env_file = application_environment(root, "test", None)
-    observe = scope == "observe"
-    lifecycle = load_state(workspace)
-    if lifecycle and lifecycle.get("status") == "running":
-        raise DevelopmentError("cannot start integration while this workspace owns a development lifecycle; run make stop first")
-    with integration_lock(workspace):
-        check_ports(integration_ports(values, observe))
-        project, compose_files = compose_up(workspace, env_file, values, observe, project=workspace.project_test)
-        source = source_digest(root, observe=observe)
-        state: dict[str, object] = {
-            "schema": 1, "status": "running", "workspace_root": str(workspace.root), "workspace_id": workspace.identity,
-            "branch": subprocess.run(["git", "branch", "--show-current"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
-            "revision": subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
-            "mode": "integration", "scope": scope, "observe": observe, "project": project,
-            "compose_files": [str(path) for path in compose_files], "env_file": str(env_file), "source_digest": source,
-            "compose_digest": digest_paths(root, compose_files), "monitor_image": monitor_image_tag(root) if observe else "",
-            "started_at": now(), "processes": {}, "logs": {},
-        }
-        save_json(workspace.integration_state_path, state)
-        try:
-            if observe:
-                start_observe_test_processes(root, workspace, state, values)
-                test_env = dict(values)
-                test_env.update({"INTEGRATION_TESTS": "1", "OBSERVABILITY_INTEGRATION": "1"})
-                run_command(["go", "-C", "backend", "test", "-p", "1", "-tags=integration,observability_integration", "./internal/http", "-run", "^TestObservabilityFlowIntegration$", "-count=1", "-timeout", "6m"], cwd=root, env=test_env, label="observability integration tests", timeout=390)
-            else:
-                one_shot_env = dict(values)
-                one_shot_env["LOG_MONITOR_URL"] = ""
-                one_shot_env["LOG_MONITOR_INGEST_TOKEN"] = ""
-                run_command(["go", "run", "./cmd/migrate", "up"], cwd=root / "backend", env=one_shot_env, label="test database migration")
-                run_command(["go", "run", "./cmd/search-reindex", "--if-missing"], cwd=root / "backend", env=one_shot_env, label="test search reindex")
-                test_env = dict(values)
-                test_env["INTEGRATION_TESTS"] = "1"
-                test_env["LOG_MONITOR_URL"] = ""
-                test_env["LOG_MONITOR_INGEST_TOKEN"] = ""
-                run_command(["go", "-C", "backend", "test", "-p", "1", "-tags=integration", "./..."], cwd=root, env=test_env, label="business integration tests", timeout=900)
-            state["status"] = "passed"
-            print(f"[gopulse] integration scope={scope} passed for test project {project}")
-        except BaseException:
-            state["status"] = "failed"
-            raise
-        finally:
-            for record in list(state.get("processes", {}).values()):
-                if isinstance(record, dict):
-                    terminate_process(record)
-            try:
-                if observe:
-                    cleanup_observe_admin(root, workspace, state, values)
-            except BaseException:
-                state["status"] = "failed"
-                raise
-            finally:
-                compose_down(workspace, state)
-                state["stopped_at"] = now()
-                save_json(workspace.integration_state_path, state)
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    # The development, observation, and stop lifecycles now run in
-    # devtools/cmd/devenv; this module keeps the isolated test lifecycles.
-    integration = subparsers.add_parser("integration")
-    integration.add_argument("--scope", default="business")
-    integration.set_defaults(handler=lambda args: run_integration(Path.cwd(), args.scope))
+    # The development, observation, stop, and integration lifecycles now run in
+    # devtools/cmd/devenv; this module keeps the isolated browser lifecycle.
     e2e = subparsers.add_parser("e2e")
     e2e.add_argument("--scope", default="business")
     e2e.add_argument("--http-port", type=port_argument)
