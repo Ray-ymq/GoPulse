@@ -12,6 +12,4 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 )
 
-require github.com/Ray-ymq/GoPulse/componentmetrics v0.0.0
-
-replace github.com/Ray-ymq/GoPulse/componentmetrics => ../../componentmetrics
+require github.com/Ray-ymq/GoPulse/componentmetrics v0.1.0

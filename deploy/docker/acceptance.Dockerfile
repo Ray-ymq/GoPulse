@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1.7
 FROM golang:1.26.0-alpine3.23 AS exporter-package
 WORKDIR /src/exporters/redis
-COPY componentmetrics/ /src/componentmetrics/
 ARG GOPROXY=https://goproxy.cn,direct
 COPY exporters/redis/go.mod exporters/redis/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
@@ -11,16 +10,15 @@ ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
     go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/gopulse-redis-exporter ./cmd/redis-exporter
-RUN apk add --no-cache bash python3 tar gzip
-COPY componentmetrics/ /src/componentmetrics/
+RUN apk add --no-cache tar gzip
 COPY monitor/ /src/monitor/
-COPY VERSION /src/VERSION
-COPY scripts/package-redis-exporter.sh /src/scripts/package-redis-exporter.sh
+ENV GOPROXY=${GOPROXY}
 ARG VERSION
 ARG UPDATE_VERSION
-RUN /src/scripts/package-redis-exporter.sh --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
+WORKDIR /src/monitor
+RUN go run ./cmd/plugin-package --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
       --binary /out/gopulse-redis-exporter --output /out/redis-exporter-install.tar.gz && \
-    /src/scripts/package-redis-exporter.sh --version "$UPDATE_VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
+    go run ./cmd/plugin-package --version "$UPDATE_VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
       --binary /out/gopulse-redis-exporter --output /out/redis-exporter-update.tar.gz
 
 FROM golang:1.26.0-alpine3.23 AS recovery-audit
