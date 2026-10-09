@@ -64,23 +64,18 @@ jobs:
     needs: governance
     if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).backend == true
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Check
+        run: make check MODULE=backend
       - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
+        run: make test MODULE=backend
       - name: Race test
-        run: go test -race -count=1 ./...
+        run: make race MODULE=backend
 
   router:
     name: Message Router
@@ -93,14 +88,12 @@ jobs:
         with:
           go-version-file: router/go.mod
           cache-dependency-path: router/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l router)"
+      - name: Check
+        run: make check MODULE=router
       - name: Test
-        run: cd router && go test -count=1 ./...
-      - name: Vet
-        run: cd router && go vet ./...
+        run: make test MODULE=router
       - name: Race test
-        run: cd router && go test -race -count=1 ./...
+        run: make race MODULE=router
 
   marshaller:
     name: Marshaller
@@ -113,14 +106,12 @@ jobs:
         with:
           go-version-file: marshaller/go.mod
           cache-dependency-path: marshaller/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l marshaller)"
+      - name: Check
+        run: make check MODULE=marshaller
       - name: Test
-        run: cd marshaller && go test -count=1 ./...
-      - name: Vet
-        run: cd marshaller && go vet ./...
+        run: make test MODULE=marshaller
       - name: Race test
-        run: cd marshaller && go test -race -count=1 ./...
+        run: make race MODULE=marshaller
 
   monitor:
     name: Monitor
@@ -133,14 +124,12 @@ jobs:
         with:
           go-version-file: monitor/go.mod
           cache-dependency-path: monitor/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l monitor)"
+      - name: Check
+        run: make check MODULE=monitor
       - name: Test
-        run: cd monitor && go test -count=1 ./...
-      - name: Vet
-        run: cd monitor && go vet ./...
+        run: make test MODULE=monitor
       - name: Race test
-        run: cd monitor && go test -race -count=1 ./...
+        run: make race MODULE=monitor
 
   redis-exporter:
     name: Redis Exporter
@@ -153,152 +142,156 @@ jobs:
         with:
           go-version-file: exporters/redis/go.mod
           cache-dependency-path: exporters/redis/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l exporters/redis)"
+      - name: Check
+        run: make check MODULE=exporters/redis
       - name: Test
-        run: cd exporters/redis && go test -count=1 ./...
-      - name: Vet
-        run: cd exporters/redis && go vet ./...
+        run: make test MODULE=exporters/redis
       - name: Race test
-        run: cd exporters/redis && go test -race -count=1 ./...
+        run: make race MODULE=exporters/redis
 
   componentmetrics:
     name: Component metrics
     needs: governance
     if: fromJSON(needs.governance.outputs.checks).componentmetrics == true && inputs.run_product_checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: componentmetrics
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: componentmetrics/go.mod
           cache-dependency-path: componentmetrics/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Check
+        run: make check MODULE=componentmetrics
       - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
+        run: make test MODULE=componentmetrics
       - name: Race test
-        run: go test -race -count=1 ./...
+        run: make race MODULE=componentmetrics
 
   mysql-exporter:
     name: MySQL Exporter
     needs: governance
     if: fromJSON(needs.governance.outputs.checks).exporters_mysql == true && inputs.run_product_checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: exporters/mysql
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: exporters/mysql/go.mod
           cache-dependency-path: exporters/mysql/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Check
+        run: make check MODULE=exporters/mysql
       - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
+        run: make test MODULE=exporters/mysql
       - name: Race test
-        run: go test -race -count=1 ./...
+        run: make race MODULE=exporters/mysql
 
   rabbitmq-exporter:
     name: RabbitMQ Exporter
     needs: governance
     if: fromJSON(needs.governance.outputs.checks).exporters_rabbitmq == true && inputs.run_product_checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: exporters/rabbitmq
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: exporters/rabbitmq/go.mod
           cache-dependency-path: exporters/rabbitmq/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Check
+        run: make check MODULE=exporters/rabbitmq
       - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
+        run: make test MODULE=exporters/rabbitmq
       - name: Race test
-        run: go test -race -count=1 ./...
+        run: make race MODULE=exporters/rabbitmq
 
   elasticsearch-exporter:
     name: Elasticsearch Exporter
     needs: governance
     if: fromJSON(needs.governance.outputs.checks).exporters_elasticsearch == true && inputs.run_product_checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: exporters/elasticsearch
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: exporters/elasticsearch/go.mod
           cache-dependency-path: exporters/elasticsearch/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Check
+        run: make check MODULE=exporters/elasticsearch
       - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
+        run: make test MODULE=exporters/elasticsearch
       - name: Race test
-        run: go test -race -count=1 ./...
+        run: make race MODULE=exporters/elasticsearch
 
   kafka-exporter:
     name: Kafka Exporter
     needs: governance
     if: fromJSON(needs.governance.outputs.checks).exporters_kafka == true && inputs.run_product_checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: exporters/kafka
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: exporters/kafka/go.mod
           cache-dependency-path: exporters/kafka/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Check
+        run: make check MODULE=exporters/kafka
       - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
+        run: make test MODULE=exporters/kafka
       - name: Race test
-        run: go test -race -count=1 ./...
+        run: make race MODULE=exporters/kafka
 
   victoriametrics-exporter:
     name: VictoriaMetrics Exporter
     needs: governance
     if: fromJSON(needs.governance.outputs.checks).exporters_victoriametrics == true && inputs.run_product_checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: exporters/victoriametrics
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: exporters/victoriametrics/go.mod
           cache-dependency-path: exporters/victoriametrics/go.sum
-      - name: Verify formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Check
+        run: make check MODULE=exporters/victoriametrics
       - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
+        run: make test MODULE=exporters/victoriametrics
       - name: Race test
-        run: go test -race -count=1 ./...
+        run: make race MODULE=exporters/victoriametrics
+
+  lifecycle:
+    name: Lifecycle installer
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).lifecycle == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: lifecycle/go.mod
+          cache-dependency-path: lifecycle/go.sum
+      - name: Check
+        run: make check MODULE=lifecycle
+      - name: Test
+        run: make test MODULE=lifecycle
+      - name: Race test
+        run: make race MODULE=lifecycle
+
+  loadtest:
+    name: Load test tool
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).loadtest == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: loadtest/go.mod
+          cache-dependency-path: loadtest/go.sum
+      - name: Check
+        run: make check MODULE=loadtest
+      - name: Test
+        run: make test MODULE=loadtest
+      - name: Race test
+        run: make race MODULE=loadtest
 
   frontend:
     name: Frontend (${{ matrix.app }})
@@ -308,9 +301,6 @@ jobs:
         app: [frontend]
     if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks).frontend == true
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ matrix.app }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -318,18 +308,16 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: ${{ matrix.app }}/package-lock.json
-      - run: npm ci
-      - run: npm test -- --run
-      - run: npm run build
+      - name: Test
+        run: make test MODULE=frontend
+      - name: Build
+        run: make build MODULE=frontend
 
   admin-frontend:
     name: Admin frontend
     needs: governance
     if: fromJSON(needs.governance.outputs.checks).admin_frontend == true && inputs.run_product_checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: admin-frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -337,9 +325,10 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: admin-frontend/package-lock.json
-      - run: npm ci
-      - run: npm test -- --run
-      - run: npm run build
+      - name: Test
+        run: make test MODULE=admin-frontend
+      - name: Build
+        run: make build MODULE=admin-frontend
 
   compose-full-stack:
     name: Full-stack Compose acceptance

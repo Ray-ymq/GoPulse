@@ -22,7 +22,12 @@ MODULES = (
     "exporters/elasticsearch",
     "exporters/kafka",
     "exporters/victoriametrics",
+    # Standalone tooling modules: they are built and tested, but they do not
+    # participate in the product integration or browser matrices.
+    "lifecycle",
+    "loadtest",
 )
+STANDALONE_MODULES = ("lifecycle", "loadtest")
 CHECKS = MODULES + (
     "frontend",
     "admin_frontend",
@@ -46,6 +51,8 @@ GO_MODULE_ROOTS = {
     "exporters/elasticsearch": "exporters/elasticsearch",
     "exporters/kafka": "exporters/kafka",
     "exporters/victoriametrics": "exporters/victoriametrics",
+    "lifecycle": "lifecycle",
+    "loadtest": "loadtest",
 }
 
 DOC_SUFFIXES = (".md", ".markdown", ".rst", ".adoc", ".txt")
@@ -224,6 +231,9 @@ def select(repo: Path, paths: Iterable[str]) -> Scope:
             if path == module_root + "/go.mod" or path == module_root + "/go.sum":
                 for consumer in _local_replace_consumers(repo, module_root):
                     checks[consumer] = True
+            if module in STANDALONE_MODULES:
+                reasons.append(f"{path}: {module} module checks")
+                continue
             if module == "componentmetrics":
                 for consumer in _local_replace_consumers(repo, "componentmetrics"):
                     checks[consumer] = True
