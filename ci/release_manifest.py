@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 PLATFORMS = ('linux/amd64', 'linux/arm64')
 PRODUCTS = ('backend', 'business-worker', 'search-indexer', 'frontend', 'admin-frontend', 'router', 'marshaller', 'monitor', 'redis-exporter')
 SOURCES = ('redis', 'mysql', 'rabbitmq', 'kafka', 'elasticsearch', 'victoriametrics')

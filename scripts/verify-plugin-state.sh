@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-exec python3 "$ROOT/scripts/ci/verify_plugin_state.py" "$@"
+exec python3 "$ROOT/ci/verify_plugin_state.py" "$@"

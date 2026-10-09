@@ -38,7 +38,7 @@ def inputs(args):
 
 def source_checkout(target, explicit=None):
     import subprocess
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     paths = [explicit] if explicit else [root]
     if not explicit:
         listing = subprocess.check_output(['git','-C',str(root),'worktree','list','--porcelain'],text=True)
@@ -106,7 +106,7 @@ def main():
     from verify_current_recovery import CurrentRecovery
     from verify_phase17_migration import MigrationAcceptance
     from verify_backup_restore import save
-    root=Path(__file__).resolve().parents[2]
+    root=Path(__file__).resolve().parents[1]
     source_root=None if args.migration_only or args.compose_receipt else source_checkout(target,args.candidate_source)
     baseline = CurrentRecovery.resources()
     receipt = {'schema': 'gopulse.phase17-state.v1', **binding,
@@ -114,7 +114,7 @@ def main():
                'candidate_revision': target['revision'], 'complete': False, 'checks': {}}
     save(work/'receipt.json', receipt)
     migration_path=work/'migration-receipt.json'
-    migration_stamp={**binding,'implementation_sha256':identity(root/'scripts/ci/verify_phase17_migration.py')}
+    migration_stamp={**binding,'implementation_sha256':identity(root/'ci/verify_phase17_migration.py')}
     try:
         old=json.loads(migration_path.read_text()) if migration_path.exists() else {}
         if old.get('binding')==migration_stamp and old.get('status')=='passed':
@@ -137,10 +137,10 @@ def main():
             receipt['pending']=['candidate_business','candidate_marshaller','candidate_alerts','candidate_compose']
             return 0
         env={**os.environ,'GOPULSE_RELEASE_MANIFEST':str(args.manifest.resolve())}
-        shared=[root/'scripts/ci/candidate_runtime.py',root/'scripts/ci/release_artifacts.py']
+        shared=[root/'ci/candidate_runtime.py',root/'ci/release_artifacts.py']
         gates=[('business',[str(root/'scripts/verify-business.sh')],[root/'scripts/verify-business.sh'],root),
                ('marshaller',[str(root/'scripts/verify-marshaller.sh')],[root/'scripts/verify-marshaller.sh'],root),
-               ('alerts',[str(root/'scripts/verify-alerts.sh')],[root/'scripts/ci/verify_alerts.py',root/'scripts/ci/verify_alert_sources.py',root/'scripts/ci/verify_plugin_metrics.py'],root)]
+               ('alerts',[str(root/'scripts/verify-alerts.sh')],[root/'ci/verify_alerts.py',root/'ci/verify_alert_sources.py',root/'ci/verify_plugin_metrics.py'],root)]
         for name,command,files,cwd in gates:
             receipt['checks'][name]=command_gate(name,command,work,binding,files+shared,env,cwd)
             save(work/'receipt.json',receipt)

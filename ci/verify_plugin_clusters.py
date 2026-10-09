@@ -227,7 +227,7 @@ class ClusterAcceptance(Acceptance):
               '-e','GOPULSE_P14_ADMIN='+self.admin_name,'-e','GOPULSE_P14_PASSWORD='+self.auth_password]
         for source in ['mysql','rabbitmq']:args+=['-e','GOPULSE_P1402_'+source.upper()+'_SECRET='+self.account(source)['password']]
         args+=['-e','GOPULSE_P1402_DATABASE=gopulse_'+self.token,
-               '-v',str(Path(__file__).resolve().parents[2]/'frontend/e2e/phase14-clusters.spec.ts')+':/work/frontend/e2e/phase14-clusters.spec.ts:ro',
+               '-v',str(Path(__file__).resolve().parents[1]/'frontend/e2e/phase14-clusters.spec.ts')+':/work/frontend/e2e/phase14-clusters.spec.ts:ro',
                'gopulse/acceptance:1.10.6','e2e/phase14-clusters.spec.ts']
         result=command(args,timeout=180,check=False)
         output=(result.stdout+result.stderr).decode(errors='replace')

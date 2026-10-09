@@ -29,6 +29,7 @@ MODULES = (
     # The native local environment helper drives the integration and browser
     # matrices, so its own changes select those checks as well.
     "devtools",
+    "acceptance",
 )
 STANDALONE_MODULES = ("lifecycle", "loadtest")
 CHECKS = MODULES + (
@@ -57,6 +58,7 @@ GO_MODULE_ROOTS = {
     "lifecycle": "lifecycle",
     "loadtest": "loadtest",
     "devtools": "devtools",
+    "acceptance": "acceptance",
 }
 
 DOC_SUFFIXES = (".md", ".markdown", ".rst", ".adoc", ".txt")
@@ -204,18 +206,20 @@ def select(repo: Path, paths: Iterable[str]) -> Scope:
             reasons.append(f"{path}: native environment helper gate")
             continue
 
-        if path.startswith("scripts/"):
+        if path.startswith("ci/"):
             checks["tools"] = True
-            if "verify-compose" in path or "verify-release" in path:
-                checks["compose"] = True
-            if "verify-business" in path:
-                checks["integration_business"] = True
-            if "verify-observability" in path or "verify-logs" in path or "verify-events" in path:
-                checks["integration_observe"] = True
-            if "verify-admin" in path or "frontend" in path:
-                checks["e2e_business"] = True
-                checks["e2e_observe"] = True
-            reasons.append(f"{path}: tool self-test/syntax gate")
+            reasons.append(f"{path}: governance tool gate")
+            continue
+
+        if path.startswith("acceptance/"):
+            checks["acceptance"] = True
+            checks["compose"] = True
+            checks["integration_business"] = True
+            checks["integration_observe"] = True
+            checks["e2e_business"] = True
+            checks["e2e_observe"] = True
+            checks["tools"] = True
+            reasons.append(f"{path}: native acceptance module and real acceptance gates")
             continue
 
         if path.startswith("frontend/"):

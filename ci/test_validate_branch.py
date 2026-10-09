@@ -93,7 +93,7 @@ class BranchGovernanceTests(unittest.TestCase):
         files = [
             "dev/imple/Phase-01/plan.md",
             ".github/workflows/ci.yml",
-            "scripts/ci/validate_branch.py",
+            "ci/validate_branch.py",
             "scripts/verify-phase18-capacity.sh",
             "scripts/verify-phase20-evidence.py",
             "AGENTS.md",

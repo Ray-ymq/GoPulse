@@ -37,7 +37,7 @@ class IsolationAcceptance(TopologyAcceptance):
         self.fault.mkdir()
         (self.fault/'source').write_text('')
         command(['env', 'CGO_ENABLED=0', 'go', 'build', '-o', str(self.work/'fault-router'),
-                 str(ROOT/'scripts/ci/testdata/plugin-fault-router.go')])
+                 str(ROOT/'ci/testdata/plugin-fault-router.go')])
         self.override['services']['fault-router'] = {
             'image': 'golang:1.26.0-alpine3.23', 'entrypoint': ['/probe/fault-router'],
             'volumes': [str(self.work/'fault-router')+':/probe/fault-router:ro', str(self.fault)+':/fault:ro'],

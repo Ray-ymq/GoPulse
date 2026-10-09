@@ -17,7 +17,7 @@ from verify_plugin_metrics import Client, wait_until
 from verify_alerts import rule
 from release_artifacts import verify_bundle, platform_ref
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def save(path, value):

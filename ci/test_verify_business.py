@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "verify-business.sh"
 OBSERVABILITY_SCRIPT = REPO / "scripts" / "verify-compose-observability.sh"
 LIFECYCLE_SCRIPTS = tuple(

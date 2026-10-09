@@ -28,9 +28,9 @@ UPDATE_ROOT_FILES = {
     "README.md",
 }
 # `update` carries repository planning and maintenance: governance metadata, documentation,
-# and the CI/acceptance tooling under `scripts/`. Product code and module test trees still
+# and the CI/acceptance tooling under `ci/`. Product code and module test trees still
 # require a documented implementation batch. See AGENTS.md.
-UPDATE_PREFIXES = (".github/", "dev/", "docs/", "scripts/")
+UPDATE_PREFIXES = (".github/", "dev/", "docs/", "ci/", "scripts/")
 # Module navigation and scoped repository rules are permitted by AGENTS.md.
 UPDATE_DOCUMENTATION_FILES = {
     "backend/README.md",
@@ -39,7 +39,7 @@ UPDATE_DOCUMENTATION_FILES = {
     "router/README.md",
     "marshaller/README.md",
     "deploy/release/README.md",
-    "scripts/AGENTS.md",
+    "ci/AGENTS.md",
 }
 
 

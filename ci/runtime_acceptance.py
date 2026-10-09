@@ -49,7 +49,7 @@ class Acceptance:
         (ROOT/'.run').mkdir(mode=0o700, parents=True, exist_ok=True)
         self.work=ROOT/'.run'/self.project;self.work.mkdir(mode=0o700)
         self.probe=self.work/'runtime-http'
-        command(['env','CGO_ENABLED=0','go','build','-o',str(self.probe),str(ROOT/'scripts/ci/testdata/runtime-http.go')])
+        command(['env','CGO_ENABLED=0','go','build','-o',str(self.probe),str(ROOT/'ci/testdata/runtime-http.go')])
         self.ids={};self.extra=[];self.results=[];self.log_results={};self.started=False
         self.contract=load(ROOT/'deploy/runtime-contracts.json')
         self.values={k:v for k,v in (line.split('=',1) for line in (ROOT/'.env.example').read_text().splitlines() if '=' in line and not line.startswith('#'))}

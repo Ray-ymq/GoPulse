@@ -1487,7 +1487,7 @@ main() {
   ELASTICSEARCH_CONTAINER_ID=$(verify_service_ownership elasticsearch 9200 "$ELASTICSEARCH_PORT")
 
   if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
-    python3 "$REPO_ROOT/scripts/ci/candidate_runtime.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --output "$TEMP_DIR" --binary backend --binary business-worker --binary search-indexer >"$TEMP_DIR/candidate.json"
+    python3 "$REPO_ROOT/ci/candidate_runtime.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --output "$TEMP_DIR" --binary backend --binary business-worker --binary search-indexer >"$TEMP_DIR/candidate.json"
     mv "$TEMP_DIR/server" "$TEMP_DIR/gopulse-backend"
     mv "$TEMP_DIR/business-worker" "$TEMP_DIR/gopulse-business-worker"
     mv "$TEMP_DIR/search-indexer" "$TEMP_DIR/gopulse-search-indexer"

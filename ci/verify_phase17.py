@@ -15,7 +15,7 @@ from phase17_evidence import atomic, sha, verify
 from release_artifacts import verify_bundle
 from verify_current_recovery import CurrentRecovery
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -59,9 +59,9 @@ def main():
     paths={'runtime':work/'runtime.json','clean':work/'lifecycle-clean.json','failure':work/'lifecycle-failure.json',
            'state':work/'state'/'receipt.json','recovery':work/'recovery'/'evidence.json'}
     windows={}
-    windows['runtime']=run([sys.executable,str(ROOT/'scripts/ci/runtime_acceptance.py'),'--candidate','1.14.5','--manifest',str(a.manifest),'--evidence',str(paths['runtime'])],logs/'runtime.log')
-    windows['clean']=run([sys.executable,str(ROOT/'scripts/ci/verify_product_lifecycle.py'),'--platform','linux/amd64','--manifest',str(a.manifest),'--clean-install','--evidence',str(paths['clean'])],logs/'lifecycle-clean.log')
-    windows['failure']=run([sys.executable,str(ROOT/'scripts/ci/verify_product_lifecycle.py'),'--platform','linux/amd64','--manifest',str(a.manifest),'--failure-matrix','--evidence',str(paths['failure'])],logs/'lifecycle-failure.log')
+    windows['runtime']=run([sys.executable,str(ROOT/'ci/runtime_acceptance.py'),'--candidate','1.14.5','--manifest',str(a.manifest),'--evidence',str(paths['runtime'])],logs/'runtime.log')
+    windows['clean']=run([sys.executable,str(ROOT/'ci/verify_product_lifecycle.py'),'--platform','linux/amd64','--manifest',str(a.manifest),'--clean-install','--evidence',str(paths['clean'])],logs/'lifecycle-clean.log')
+    windows['failure']=run([sys.executable,str(ROOT/'ci/verify_product_lifecycle.py'),'--platform','linux/amd64','--manifest',str(a.manifest),'--failure-matrix','--evidence',str(paths['failure'])],logs/'lifecycle-failure.log')
     windows['state']=run([str(ROOT/'scripts/verify-phase17-state.sh'),'--from-manifest',str(a.from_manifest),'--manifest',str(a.manifest),'--work',str(work/'state'),'--compose-receipt',str(receipt)],logs/'state.log')
     windows['recovery']=run([str(ROOT/'scripts/verify-backup-restore.sh'),'--platform','linux/amd64','--manifest',str(a.manifest),'--work',str(work/'recovery'),'--current-regression'],logs/'recovery.log')
     run([str(ROOT/'scripts/verify-backup-restore.sh'),'--platform','linux/amd64','--manifest',str(a.manifest),'--work',str(work/'recovery'),'--current-product','--cleanup'],logs/'recovery-cleanup.log')

@@ -49,7 +49,7 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertIn("default: true", gates)
         self.assertEqual(gates.count("if: inputs.run_product_checks"), 9)
         self.assertIn("compose-full-stack:", gates)
-        self.assertIn("run: scripts/verify-compose.sh", gates)
+        self.assertIn("run: make verify-compose", gates)
         self.assertNotIn("compose-business:", gates)
 
     def test_integration_migration_retries_transient_mysql_startup(self):

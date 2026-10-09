@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 LABEL = 'io.gopulse.portable-test'
 
 

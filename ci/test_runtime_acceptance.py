@@ -46,7 +46,7 @@ class RuntimeAcceptanceTests(unittest.TestCase):
         }
 
     def test_cli_exposes_split_modes_and_rejects_mixed_default_mode(self):
-        script = ROOT / 'scripts/ci/runtime_acceptance.py'
+        script = ROOT / 'ci/runtime_acceptance.py'
         help_result = subprocess.run([sys.executable, str(script), '--help'], capture_output=True, text=True)
         self.assertEqual(help_result.returncode, 0)
         self.assertIn('--suite', help_result.stdout)

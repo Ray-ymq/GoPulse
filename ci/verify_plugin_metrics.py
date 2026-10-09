@@ -21,7 +21,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 VERSION = '1.11.1'
 PATTERN = re.compile(r'^gopulse-p1401-[a-f0-9]{12}$')
 

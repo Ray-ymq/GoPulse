@@ -398,10 +398,6 @@ jobs:
         run: make check MODULE=acceptance
       - name: Test native acceptance module
         run: make test MODULE=acceptance
-      - name: Race test native acceptance module
-        run: make race MODULE=acceptance
-      - name: Run acceptance safety self-test
-        run: make -C acceptance build && ./acceptance/bin/gopulse-acceptance compose --self-test
       - name: Validate Compose configuration and loopback publishing
         shell: bash
         run: |

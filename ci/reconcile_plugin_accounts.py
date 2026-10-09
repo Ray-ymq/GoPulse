@@ -19,7 +19,7 @@ import sys
 import urllib.request
 import urllib.error
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 
 class SafeFailure(Exception):
     pass

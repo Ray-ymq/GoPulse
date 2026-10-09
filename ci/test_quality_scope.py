@@ -91,7 +91,7 @@ class QualityScopeTests(unittest.TestCase):
 
     def test_deployment_and_tools_have_narrow_boundaries(self) -> None:
         deployment = select(self.repo, ["deploy/docker/backend.Dockerfile"])
-        tool = select(self.repo, ["scripts/ci/quality_scope.py"])
+        tool = select(self.repo, ["ci/quality_scope.py"])
         self.assertTrue(deployment.checks["compose"])
         self.assertTrue(deployment.checks["tools"])
         self.assertFalse(deployment.checks["backend"])

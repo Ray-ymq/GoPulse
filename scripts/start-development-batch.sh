@@ -89,7 +89,7 @@ if [[ -n "$(git ls-remote --heads "$REMOTE" "refs/heads/$BRANCH")" ]]; then
 fi
 
 git switch -c "$BRANCH" "$REMOTE/main"
-python3 scripts/ci/validate_branch.py --branch "$BRANCH" --base-ref "$REMOTE/main" --mode development
+python3 ci/validate_branch.py --branch "$BRANCH" --base-ref "$REMOTE/main" --mode development
 info 'Development branch created without changing VERSION or creating a bootstrap commit.'
 
 if (( PUSH )); then

@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[1]
 
 class ReleaseSnapshotTest(unittest.TestCase):
     def test_none_is_not_a_tag(self):

@@ -109,7 +109,7 @@ class ComponentAcceptance(TopologyAcceptance):
         self.fault = self.work/'component-fault'
         self.fault.mkdir()
         binary = self.work/'component-probe'
-        command(['env', 'CGO_ENABLED=0', 'go', 'build', '-o', str(binary), str(ROOT/'scripts/ci/testdata/component-probe.go')])
+        command(['env', 'CGO_ENABLED=0', 'go', 'build', '-o', str(binary), str(ROOT/'ci/testdata/component-probe.go')])
         self.override['services']['component-probe'] = {
             'image': 'golang:1.26.0-alpine3.23', 'entrypoint': ['/probe/component-probe', 'serve'],
             'volumes': [str(binary)+':/probe/component-probe:ro', str(self.fault)+':/fault:ro'],

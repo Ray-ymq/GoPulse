@@ -264,7 +264,7 @@ docker exec "$KAFKA_ID" /opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.
 (cd "$REPO_ROOT/router" && go build -o "$TEMP_DIR/verify-consumer" ./cmd/verify-consumer)
 (cd "$REPO_ROOT/marshaller" && go build -o "$TEMP_DIR/verify-group-member" ./cmd/verify-group-member)
 if [[ -n ${GOPULSE_RELEASE_MANIFEST:-} ]]; then
-  python3 "$REPO_ROOT/scripts/ci/candidate_runtime.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --output "$TEMP_DIR" --binary marshaller >"$TEMP_DIR/candidate.json"
+  python3 "$REPO_ROOT/ci/candidate_runtime.py" --manifest "$GOPULSE_RELEASE_MANIFEST" --output "$TEMP_DIR" --binary marshaller >"$TEMP_DIR/candidate.json"
   MONITOR_IMAGE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monitor"])' "$TEMP_DIR/candidate.json")
   ROUTER_IMAGE=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["router"])' "$TEMP_DIR/candidate.json")
   CANDIDATE_VERSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$TEMP_DIR/candidate.json")

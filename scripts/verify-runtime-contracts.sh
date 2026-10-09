@@ -8,9 +8,9 @@ for source in redis mysql rabbitmq kafka elasticsearch victoriametrics; do
   printf 'PASS: %s exporter package and race gates\n' "$source"
 done
 python3 -m unittest discover -s "$ROOT/scripts/ci" -p test_runtime_contracts.py
-python3 "$ROOT/scripts/ci/verify_runtime_contracts.py" \
+python3 "$ROOT/ci/verify_runtime_contracts.py" \
   --contract "$ROOT/deploy/runtime-contracts.json" \
   --compose "$ROOT/deploy/compose.yaml" \
   --env "$ROOT/.env.example" \
   --candidate "$2"
-exec python3 "$ROOT/scripts/ci/runtime_acceptance.py" --candidate "$2"
+exec python3 "$ROOT/ci/runtime_acceptance.py" --candidate "$2"
