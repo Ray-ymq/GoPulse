@@ -157,6 +157,11 @@ func (s *Session) Value(key string) string { return s.values[key] }
 // SetValue adds a non-secret derived value to the private scenario environment.
 func (s *Session) SetValue(key, value string) { s.values[key] = value }
 
+// Environment returns the private process environment used by commands in
+// this acceptance session. It is used only for bounded asynchronous probes
+// whose process must be signalled before it exits.
+func (s *Session) Environment() []string { return s.environment() }
+
 func (s *Session) Run(name string, args ...string) Result { return s.run(name, args...) }
 
 func (s *Session) run(name string, args ...string) Result {

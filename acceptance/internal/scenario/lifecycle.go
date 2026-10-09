@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/acceptance/internal/harness"
 )
@@ -76,7 +77,13 @@ func Lifecycle(root string, options Options) (returnErr error) {
 	}()
 
 	if options.Install == "reuse" {
-		returnErr = runner.reuse()
+		if options.FailureMatrix {
+			returnErr = fmt.Errorf("failure matrix requires a clean installation")
+		} else {
+			returnErr = runner.reuse()
+		}
+	} else if options.FailureMatrix {
+		returnErr = runner.failureMatrix()
 	} else {
 		returnErr = runner.clean()
 	}
@@ -97,6 +104,8 @@ type lifecycleRunner struct {
 	state         map[string]any
 	temporaryRoot string
 	owned         bool
+	endpoint      string
+	socketGID     string
 }
 
 func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath string) (*lifecycleRunner, error) {
@@ -181,6 +190,8 @@ func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath st
 		port:          fmt.Sprintf("%d", port),
 		temporaryRoot: temporaryRoot,
 		owned:         owned,
+		endpoint:      "unix:///var/run/docker.sock",
+		socketGID:     fmt.Sprintf("%d", socketStat.Gid),
 	}, nil
 }
 
@@ -305,6 +316,287 @@ func (r *lifecycleRunner) reuse() error {
 	return nil
 }
 
+// failureMatrix reproduces the lifecycle failure contract at the same native
+// boundary as the clean install scenario. Every injected fault is scoped to
+// this runner's installation, project, or bundle copy.
+func (r *lifecycleRunner) failureMatrix() error {
+	if err := r.expect("doctor", 0, "--port", r.port); err != nil {
+		return err
+	}
+	if err := r.expect("init", 0, "--port", r.port); err != nil {
+		return err
+	}
+	if err := r.expect("init", 14, "--port", r.port); err != nil {
+		return err
+	}
+	if err := r.expect("verify", 19); err != nil {
+		return err
+	}
+	if err := r.expect("up", 0); err != nil {
+		return err
+	}
+
+	invalid, err := os.MkdirTemp("", "gopulse invalid bundle ")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(invalid)
+	if err := copyTree(r.bundle, invalid); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(invalid, "README.md"), []byte("tampered\n"), 0o644); err != nil {
+		return err
+	}
+	r.session.SetValue("GOPULSE_BUNDLE_DIR", invalid)
+	if err := r.expect("doctor", 10, "--port", r.port); err != nil {
+		return err
+	}
+	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
+
+	r.endpoint = "unix:///missing-daemon"
+	if err := r.expect("doctor", 11, "--port", r.port); err != nil {
+		return err
+	}
+	r.endpoint = "unix:///var/run/docker.sock"
+
+	if err := r.expectDirect("doctor", 13, true, "--port", r.port); err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp4", "127.0.0.1:"+r.port)
+	if err != nil {
+		return err
+	}
+	if err := r.expect("doctor", 15, "--port", r.port); err != nil {
+		listener.Close()
+		return err
+	}
+	listener.Close()
+
+	if err := os.Chmod(r.install, 0o755); err != nil {
+		return err
+	}
+	if err := r.expect("status", 14); err != nil {
+		_ = os.Chmod(r.install, 0o700)
+		return err
+	}
+	if err := os.Chmod(r.install, 0o700); err != nil {
+		return err
+	}
+	if err := r.expect("down", 2, "--purge", "--confirm", "foreign"); err != nil {
+		return err
+	}
+
+	lock, err := os.OpenFile(filepath.Join(r.install, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
+		return err
+	}
+	if err := r.expect("up", 16); err != nil {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		lock.Close()
+		return err
+	}
+	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	lock.Close()
+
+	foreign := r.projectName() + "_mysql_data"
+	created := r.session.Run("docker", "volume", "create", foreign)
+	if created.ExitCode != 0 {
+		return fmt.Errorf("create foreign volume failed with exit code %d", created.ExitCode)
+	}
+	if err := r.expect("up", 17); err != nil {
+		_ = r.session.Run("docker", "volume", "rm", foreign)
+		return err
+	}
+	removed := r.session.Run("docker", "volume", "rm", foreign)
+	if removed.ExitCode != 0 {
+		return fmt.Errorf("remove foreign volume failed with exit code %d", removed.ExitCode)
+	}
+
+	if err := r.signal("SIGINT"); err != nil {
+		return err
+	}
+	if err := r.expect("down", 0); err != nil {
+		return err
+	}
+	if err := r.expect("up", 0); err != nil {
+		return err
+	}
+	if err := r.signal("SIGTERM"); err != nil {
+		return err
+	}
+	if err := r.expect("down", 0); err != nil {
+		return err
+	}
+	if err := r.expect("up", 0); err != nil {
+		return err
+	}
+
+	mysql := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service=mysql")
+	if mysql.ExitCode != 0 || strings.TrimSpace(mysql.Stdout) == "" {
+		return fmt.Errorf("find lifecycle MySQL container failed")
+	}
+	mysqlID := strings.Fields(mysql.Stdout)[0]
+	paused := r.session.Run("docker", "pause", mysqlID)
+	if paused.ExitCode != 0 {
+		return fmt.Errorf("pause lifecycle dependency failed with exit code %d", paused.ExitCode)
+	}
+	upErr := r.expect("up", 18)
+	unpaused := r.session.Run("docker", "unpause", mysqlID)
+	if unpaused.ExitCode != 0 {
+		return fmt.Errorf("unpause lifecycle dependency failed with exit code %d", unpaused.ExitCode)
+	}
+	if upErr != nil {
+		return upErr
+	}
+	return r.expect("down", 0)
+}
+
+func (r *lifecycleRunner) projectName() string {
+	if project, ok := r.state["project"].(string); ok && project != "" {
+		return project
+	}
+	return "gopulse-unknown"
+}
+
+func (r *lifecycleRunner) expectDirect(command string, code int, lowDisk bool, flags ...string) error {
+	result := r.direct(command, lowDisk, flags...)
+	if result.ExitCode != code {
+		return fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+	}
+	return nil
+}
+
+func (r *lifecycleRunner) direct(command string, lowDisk bool, flags ...string) harness.Result {
+	image, err := r.lifecycleImage()
+	if err != nil {
+		return harness.Result{ExitCode: 1, Stderr: err.Error()}
+	}
+	user := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	if lowDisk {
+		user = "0:0"
+	}
+	args := []string{"run", "--rm", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", user, "--group-add", r.socketGID, "--tmpfs", "/tmp"}
+	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", r.bundle+":/bundle:ro")
+	if lowDisk {
+		args = append(args, "--tmpfs", r.install+":rw,size=1048576,mode=0700")
+	} else {
+		args = append(args, "-v", r.install+":"+r.install)
+	}
+	args = append(args, image, command, "--install", r.install, "--bundle", "/bundle", "--endpoint", r.endpoint)
+	args = append(args, flags...)
+	return r.session.Run("docker", args...)
+}
+
+func (r *lifecycleRunner) lifecycleImage() (string, error) {
+	raw, err := os.ReadFile(filepath.Join(r.bundle, "compose.yaml"))
+	if err != nil {
+		return "", err
+	}
+	var document struct {
+		Services map[string]struct {
+			Image string `json:"image"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil || document.Services["lifecycle"].Image == "" {
+		return "", fmt.Errorf("lifecycle bundle image is invalid")
+	}
+	return document.Services["lifecycle"].Image, nil
+}
+
+func (r *lifecycleRunner) signal(name string) error {
+	container := "gopulse-lifecycle-signal-" + name[3:] + "-" + r.session.Token[:8]
+	args := []string{"compose", "--project-name", r.project, "--file", filepath.Join(r.bundle, "compose.yaml"), "run", "--name", container, "--rm", "-T", "--no-deps", "lifecycle", "up", "--install", r.install, "--bundle", "/bundle", "--endpoint", r.endpoint}
+	command := exec.Command("docker", args...)
+	command.Dir = r.session.Root
+	command.Env = r.session.Environment()
+	if err := command.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	deadline := time.Now().Add(120 * time.Second)
+	reached := false
+	finished := false
+	for time.Now().Before(deadline) {
+		state, err := readPrivateJSON(filepath.Join(r.install, "state.json"))
+		if err == nil && state["phase"] == "pull" && state["operation_id"] != r.state["operation_id"] {
+			reached = true
+			break
+		}
+		select {
+		case <-done:
+			finished = true
+		default:
+		}
+		if finished {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !reached {
+		if !finished {
+			_ = command.Process.Kill()
+			<-done
+		}
+		return fmt.Errorf("lifecycle up did not reach pull before signal injection")
+	}
+	kill := exec.Command("docker", "kill", "--signal", name, container)
+	if output, err := kill.CombinedOutput(); err != nil {
+		_ = command.Process.Kill()
+		if !finished {
+			<-done
+		}
+		return fmt.Errorf("send %s to lifecycle runner: %v", name, strings.TrimSpace(string(output)))
+	}
+	err := <-done
+	if exit := exitCode(err); exit != 20 {
+		return fmt.Errorf("lifecycle %s exited %d, expected 20", name, exit)
+	}
+	state, err := readPrivateJSON(filepath.Join(r.install, "state.json"))
+	if err != nil || state["phase"] != "interrupted" {
+		return fmt.Errorf("lifecycle %s did not persist interrupted state", name)
+	}
+	return nil
+}
+
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if exit, ok := err.(*exec.ExitError); ok {
+		return exit.ExitCode()
+	}
+	return 1
+}
+
+func copyTree(source, target string) error {
+	return filepath.WalkDir(source, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		destination := filepath.Join(target, relative)
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destination, data, 0o644)
+	})
+}
+
 func afterStateValue(raw []byte, key string) any {
 	var value map[string]any
 	if json.Unmarshal(raw, &value) != nil {
@@ -361,7 +653,7 @@ func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
 	args := []string{
 		"compose", "--project-name", r.project, "--file", filepath.Join(r.bundle, "compose.yaml"),
 		"run", "--rm", "-T", "--no-deps", "lifecycle", command,
-		"--install", r.install, "--bundle", "/bundle", "--endpoint", "unix:///var/run/docker.sock",
+		"--install", r.install, "--bundle", "/bundle", "--endpoint", r.endpoint,
 	}
 	args = append(args, flags...)
 	return r.session.Run("docker", args...)

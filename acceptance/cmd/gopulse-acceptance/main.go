@@ -19,7 +19,7 @@ commands:
   alerts [--keep] [--receipt PATH]
   roles [--keep] [--receipt PATH]
   pages [--keep] [--receipt PATH]
-  lifecycle [--install clean|reuse] [--install-path PATH] [--manifest PATH] [--platform PLATFORM]
+  lifecycle [--install clean|reuse] [--install-path PATH] [--failure-matrix] [--manifest PATH] [--platform PLATFORM]
   reconcile-accounts [--keep] [--receipt PATH]
 `
 
@@ -79,7 +79,7 @@ func parse(args []string) (scenario.Options, error) {
 			name, value = key, inline
 		} else if strings.HasPrefix(name, "--") {
 			switch name {
-			case "--keep", "--self-test":
+			case "--keep", "--self-test", "--failure-matrix":
 				value = "true"
 			case "--scope", "--receipt", "--manifest", "--candidate", "--install", "--install-path", "--platform":
 				if index+1 >= len(args) {
@@ -110,6 +110,8 @@ func parse(args []string) (scenario.Options, error) {
 			options.Install = value
 		case "--install-path":
 			options.InstallPath = value
+		case "--failure-matrix":
+			options.FailureMatrix = true
 		case "--platform":
 			options.Platform = value
 		default:

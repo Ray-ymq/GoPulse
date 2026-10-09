@@ -190,6 +190,7 @@ func runComposeGate(repo *Repo, manifest string) error {
 	for _, args := range [][]string{
 		{"compose", "--scope", "observability", "--manifest", manifest},
 		{"lifecycle", "--install", "clean", "--manifest", manifest, "--platform", "linux/amd64"},
+		{"lifecycle", "--install", "clean", "--failure-matrix", "--manifest", manifest, "--platform", "linux/amd64"},
 	} {
 		if err := runNativeAcceptance(commandPath, repo.Root, args...); err != nil {
 			return err
