@@ -1,5 +1,10 @@
 # Phase 19 capacity methodology
 
+> **Executor status**: the Phase 18–20 formal-matrix executors
+> (`scripts/verify-phase*-*.sh`, `scripts/ci/phase1x_*.py`) were retired and deleted. This
+> document keeps the method and the recorded conclusions; sources and raw receipts remain in
+> Git history. Current entries are listed in [capability status](../../status/capability-status.md).
+
 Phase 19 capacity evidence is a bounded statement about one frozen GoPulse
 candidate, one deterministic Phase 18 data recipe, and the host described by
 [`loadtest/capacity-profile.json`](../../../loadtest/capacity-profile.json). The

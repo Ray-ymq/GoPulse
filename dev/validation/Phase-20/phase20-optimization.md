@@ -1,5 +1,10 @@
 # Phase 20-03 optimization verification
 
+> **Executor status**: the Phase 18–20 formal-matrix executors
+> (`scripts/verify-phase*-*.sh`, `scripts/ci/phase1x_*.py`) were retired and deleted. This
+> document keeps the method and the recorded conclusions; sources and raw receipts remain in
+> Git history. Current entries are listed in [capability status](../../status/capability-status.md).
+
 Phase 20-03 is frozen as `verify_only`. Phase 20-01 completed its twelve-cell
 capacity baseline without an unresolved product cause, and Phase 20-02
 completed the bounded trace/freshness chain while its dependency-delay and

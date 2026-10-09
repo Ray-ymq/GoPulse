@@ -1,5 +1,9 @@
 # Phase 20 容量诊断方法
 
+> **执行器状态**：Phase 18–20 的正式矩阵执行器（`scripts/verify-phase*-*.sh`、
+> `scripts/ci/phase1x_*.py`）已退役删除；本文件保留方法与已记录结论，源码与原始回执见
+> Git 历史。现行入口见[能力状态](../../status/capability-status.md)。
+
 本批修订验收基础设施。被测产品基线为 `2.1.4`，实施完成版本为 `2.2.1`；两者不能互换。
 Phase 19 的 profile、原始回执、执行状态和容量边界保持历史事实。
 

@@ -63,13 +63,16 @@ message content, credentials, and arbitrary baggage are rejected as metric
 labels. `trace_context_invalid_total` is an unlabelled counter on Backend,
 Business Worker, and Search Indexer.
 
-The evidence verifier in `scripts/ci/phase20_chain.py` recomputes all seven
-cases. It checks identity stability, parent links, span intervals, log
-coverage, metric labels, clock bounds, retry attempt separation, strict old
-and malformed-message handling, authorization responses, and the final
-business search observation. It uses `scripts/verify-phase20-chain.sh` for
-candidate binding and `scripts/verify-phase20-evidence.py --chain` for the
-same work directory.
+The Chain evidence verifier (`scripts/ci/phase20_chain.py`, with
+`scripts/verify-phase20-chain.sh` for candidate binding and
+`scripts/verify-phase20-evidence.py --chain` for the same work directory)
+recomputed all seven cases: identity stability, parent links, span intervals,
+log coverage, metric labels, clock bounds, retry attempt separation, strict old
+and malformed-message handling, authorization responses, and the final business
+search observation. Those executors are retired together with the Phase 18-20
+formal matrix; the contract above and the case list below remain in force, and
+the source plus the original receipts remain in Git history and
+[Phase-20 logs](../../logs/Phase-20/).
 
 The covered cases are C01 normal creation, C02 a 30 second index dependency
 delay, C03 a 30 second private Collector outage, C04 duplicate delivery and a
