@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/testenv"
 )
@@ -29,6 +30,7 @@ commands:
   integration [--scope business|observe]               run one isolated integration scope
   e2e [--scope business|observe] [--http-port N]      run one isolated browser scope
       [--frontend-port N] [--admin-frontend-port N]
+	build-cache [--print] [--no-cache]                    render/build Compose images
 `
 
 type options struct {
@@ -37,6 +39,8 @@ type options struct {
 	httpPort          string
 	frontendPort      string
 	adminFrontendPort string
+	printOnly         bool
+	noCache           bool
 }
 
 func main() {
@@ -81,6 +85,13 @@ func run(args []string) int {
 		err = testenv.Integration(root, defaultScope(parsed.scope))
 	case "e2e":
 		err = testenv.E2E(root, defaultScope(parsed.scope), parsed.overrides())
+	case "build-cache":
+		code, buildErr := buildcache.Run(root, buildcache.Options{PrintOnly: parsed.printOnly, NoCache: parsed.noCache})
+		if buildErr != nil {
+			fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", buildErr)
+			return 1
+		}
+		return code
 	default:
 		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: unknown command: %s\n%s", command, usage)
 		return 2
@@ -122,7 +133,9 @@ func parseOptions(args []string) (options, error) {
 		if key, inline, found := strings.Cut(name, "="); found {
 			name, value = key, inline
 		} else if strings.HasPrefix(name, "--") {
-			if isFlagWithValue(name) {
+			if isBooleanFlag(name) {
+				value = "true"
+			} else if isFlagWithValue(name) {
 				if index+1 >= len(args) {
 					return options{}, fmt.Errorf("%s requires a value", name)
 				}
@@ -145,6 +158,10 @@ func parseOptions(args []string) (options, error) {
 			parsed.adminFrontendPort = value
 		case "--env-file":
 			parsed.envFile = value
+		case "--print":
+			parsed.printOnly = true
+		case "--no-cache":
+			parsed.noCache = true
 		default:
 			return options{}, fmt.Errorf("unknown option: %s", name)
 		}
@@ -164,6 +181,14 @@ func parseOptions(args []string) (options, error) {
 func isFlagWithValue(name string) bool {
 	switch name {
 	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port":
+		return true
+	}
+	return false
+}
+
+func isBooleanFlag(name string) bool {
+	switch name {
+	case "--print", "--no-cache":
 		return true
 	}
 	return false

@@ -29,7 +29,7 @@ IMAGE_TARGETS := backend business-worker search-indexer admin-frontend frontend 
 REQUIRE_MODULE = test -n "$(MODULE)" || { printf '%s\n' '[gopulse] ERROR: MODULE is required, for example make test MODULE=backend' >&2; exit 2; }
 
 help:
-	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [IMAGES=name] [DRY_RUN=1]  build the local Compose images' '  make package [PLATFORM=] [OUTPUT=] [REGISTRY=] [RUNTIME=1] [PROMOTE=1]' '                            build and verify an immutable release candidate' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make e2e [SCOPE=name]     run native business or observability Playwright checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
+	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package [PLATFORM=] [OUTPUT=] [REGISTRY=] [RUNTIME=1] [PROMOTE=1]' '                            build and verify an immutable release candidate' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make e2e [SCOPE=name]     run native business or observability Playwright checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
 
 test:
 	@$(REQUIRE_MODULE)
@@ -65,17 +65,12 @@ build-programs:
 	  $(MAKE) --no-print-directory -C $$module build || exit 1; \
 	done
 
-# The version metadata mirrors scripts/ci/compose_build_cache.py so the CI cache
-# helper and this entry point derive the same build definition from one VERSION.
+CACHE ?= none
+
+# Build definitions and optional GitHub cache policy are owned by devtools so
+# local runs and CI invoke the same tested implementation.
 build-images:
-	@set -eu; \
-	version="$$(tr -d '[:space:]' < VERSION)"; \
-	printf '%s' "$$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { printf '%s\n' "[gopulse] ERROR: VERSION must be major.minor.patch, found '$$version'" >&2; exit 2; }; \
-	update="$$(printf '%s' "$$version" | awk -F. '{ printf "%d.%d.%d", $$1, $$2, $$3 + 1 }')"; \
-	revision="$$(git rev-parse HEAD 2>/dev/null || printf '%s' unknown)"; \
-	targets="$(if $(IMAGES),$(IMAGES),$(IMAGE_TARGETS))"; \
-	GOPULSE_VERSION="$$version" GOPULSE_IMAGE_TAG="$$version" GOPULSE_REVISION="$$revision" GOPULSE_UPDATE_VERSION="$$update" \
-	  docker compose --env-file .env.example --file deploy/compose.yaml build $(if $(DRY_RUN),--print,) $$targets
+	@$(DEVENV) build-cache $(if $(filter gha,$(CACHE)),,$(if $(filter none,$(CACHE)),--no-cache,$(error CACHE must be gha or none))) $(if $(DRY_RUN),--print,)
 
 # PLATFORM defaults to the local amd64 candidate. A dual-platform candidate needs
 # an emulated builder and runs in CI; PROMOTE=1 additionally requires the
