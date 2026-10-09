@@ -57,7 +57,7 @@ The checked-in token in `.env.example` is for local development only.
 
 ## Lifecycle and validation
 
-`scripts/dev.sh` builds `gopulse/router:<VERSION>` and starts it after healthy Kafka and the idempotent Topic initializer. The image runs as numeric user `10002:10001`, uses `/usr/local/bin/router` as PID 1, has a read-only root filesystem, and publishes no host port. Router joins only the internal `observability` network. `scripts/down.sh` stops the complete Compose project while preserving daily named volumes, and `scripts/verify.sh` performs read-only ownership, image, port, and readiness checks without consuming a record.
+`make dev-observe` builds and starts the Router after healthy Kafka and the idempotent Topic initializer. The image runs as numeric user `10002:10001`, uses `/usr/local/bin/router` as PID 1, has a read-only root filesystem, and publishes no host port. Router joins only the internal `observability` network. `make stack-down` stops the complete Compose project while preserving daily named volumes, and `make stack-verify` performs read-only ownership, image, port, and readiness checks without consuming a record.
 
 Run focused validation with:
 
@@ -65,13 +65,12 @@ Run focused validation with:
 (cd router && go test -count=1 ./...)
 (cd router && go vet ./...)
 (cd router && go test -race -count=1 ./...)
-scripts/verify-router.sh --self-test
-scripts/verify-router.sh
+make verify-observe SCOPE=router
 ```
 
 The default Router acceptance uses a random isolated Compose project, loopback ports, Kafka volume, Redis target, plugin root, process set, and bounded Consumer identity. It proves direct byte integrity, invalid-request non-production, real Monitor `success` and `target_unavailable` Envelopes, Kafka outage/recovery without Router or Monitor restart, and ownership-safe cleanup. Its bounded JSON evidence lines retain the tested offset ranges, message IDs, record keys, value/body SHA-256 digests, scrape states, HTTP outage statuses, and stable Router/Monitor PIDs without printing tokens or raw message bodies.
 
-The authoritative Phase-12-03 full-stack gate is the no-argument `scripts/verify-compose.sh`. It validates Router's image and internal-only network contract, Bearer identity, service-DNS Kafka connection, Browser → Backend isolation, Router failure as a localized observability degradation while social writes continue, same-volume Kafka/Router recovery, bounded shutdown, and strongly owned Compose cleanup. The focused `verify-router.sh` remains useful for byte-level source diagnostics but is not the completion gate.
+The authoritative Phase-12-03 full-stack gate is the no-argument `make verify-compose`. It validates Router's image and internal-only network contract, Bearer identity, service-DNS Kafka connection, Browser → Backend isolation, Router failure as a localized observability degradation while social writes continue, same-volume Kafka/Router recovery, bounded shutdown, and strongly owned Compose cleanup.
 
 Phase 8 keeps Router as the byte-preserving producer for the unchanged record contract. Marshaller independently validates the original bytes, writes accepted metrics to VictoriaMetrics, and commits through `gopulse-marshaller-metrics-v1`; the Phase 8-03 acceptance captures a real Router-produced record for deterministic replay and confirms Router never parses, cleans, stores, or commits metrics payloads.
 

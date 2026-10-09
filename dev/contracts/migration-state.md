@@ -62,12 +62,10 @@ must not overwrite it. The admin frontend catalog mirrors these two gauges.
 
 ## Immutable candidate state acceptance
 
-Run `scripts/verify-phase17-state.sh --from-manifest <1.13.6 bundle manifest>
---manifest <1.14.5 bundle manifest> --work <private directory>` on Linux amd64.
-The source registry and candidate registry must be reachable. The runner validates
-both complete bundles, binds its private journal to their SHA-256 identities, and
-requires a clean checkout of the candidate revision (discovered from Git worktrees
-or supplied with `--candidate-source`) for the existing Compose gate.
+The Phase 17 immutable candidate-state executor is retired. Current lifecycle
+verification uses `make verify-lifecycle INSTALL=clean MANIFEST=<candidate manifest>
+PLATFORM=linux/amd64`; it binds the private receipt to the candidate manifest and
+revision and runs the current Compose gate.
 
 The data path uses the **source** release lifecycle to generate real data, back up,
 inspect and restore it. Candidate `validate/status/up` then run against the restored

@@ -63,9 +63,7 @@ message content, credentials, and arbitrary baggage are rejected as metric
 labels. `trace_context_invalid_total` is an unlabelled counter on Backend,
 Business Worker, and Search Indexer.
 
-The Chain evidence verifier (`scripts/ci/phase20_chain.py`, with
-`scripts/verify-phase20-chain.sh` for candidate binding and
-`scripts/verify-phase20-evidence.py --chain` for the same work directory)
+The historical Chain evidence verifier and its candidate-binding wrappers
 recomputed all seven cases: identity stability, parent links, span intervals,
 log coverage, metric labels, clock bounds, retry attempt separation, strict old
 and malformed-message handling, authorization responses, and the final business

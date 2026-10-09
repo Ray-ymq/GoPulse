@@ -36,4 +36,4 @@ Trace 只作为本批验收接收器，固定写入 Collector 归属 volume 的 
 
 ## 验证入口
 
-组件指标目录使用 `python3 scripts/ci/verify_component_metrics.py --self-test` 校验。R01～R08 的完整生命周期执行器（`scripts/verify-phase20-retention.sh --manifest <candidate> --work <new-directory>` 与 `python3 scripts/verify-phase20-evidence.py --retention <same-directory>`）已随 Phase 18–20 正式矩阵退役删除；本节合同继续有效，但不再由该入口证明，源码与原始回执见 Git 历史及 [Phase-20 实施日志](../logs/Phase-20/)。固定 Go、Backend、Monitor、Frontend、runtime contract、版本、分支和 `git diff --check` 门禁按 Phase-20-04 方案执行。
+组件指标目录使用 `make verify-plugins` 的原生专项验收校验。R01～R08 的完整生命周期执行器已随 Phase 18–20 正式矩阵退役删除；本节合同继续有效，但不再由该历史入口证明，源码与原始回执见 Git 历史及 [Phase-20 实施日志](../logs/Phase-20/)。固定 Go、Backend、Monitor、Frontend、runtime contract、版本、分支和 `git diff --check` 门禁按 Phase-20-04 方案执行。

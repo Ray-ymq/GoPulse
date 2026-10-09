@@ -1,5 +1,5 @@
 // Package stack owns the container-native daily lifecycle that used to live in
-// scripts/dev.sh, scripts/down.sh and scripts/verify.sh.
+// make dev, make stack-down and make stack-verify.
 package stack
 
 import (

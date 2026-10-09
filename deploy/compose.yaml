@@ -1042,7 +1042,7 @@ services:
       retries: 20
 
   # MySQL/RabbitMQ collector Secrets are reconciled after startup through
-  # scripts/reconcile-plugin-accounts.sh; no admin credentials enter Monitor.
+  # acceptance reconcile-accounts; no admin credentials enter Monitor.
   monitor:
     image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never

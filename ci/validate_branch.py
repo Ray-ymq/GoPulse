@@ -30,7 +30,7 @@ UPDATE_ROOT_FILES = {
 # `update` carries repository planning and maintenance: governance metadata, documentation,
 # and the CI/acceptance tooling under `ci/`. Product code and module test trees still
 # require a documented implementation batch. See AGENTS.md.
-UPDATE_PREFIXES = (".github/", "dev/", "docs/", "ci/", "scripts/")
+UPDATE_PREFIXES = (".github/", "dev/", "docs/", "ci/")
 # Module navigation and scoped repository rules are permitted by AGENTS.md.
 UPDATE_DOCUMENTATION_FILES = {
     "backend/README.md",

@@ -5,10 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-try:
-    from sync_version_metadata import VersionMetadataError, sync
-except ModuleNotFoundError:
-    from scripts.ci.sync_version_metadata import VersionMetadataError, sync
+from sync_version_metadata import VersionMetadataError, sync
 
 
 class SyncVersionMetadataTests(unittest.TestCase):

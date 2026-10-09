@@ -23,7 +23,7 @@ and transaction code. The production target contains neither acceptance package,
 and there is no runtime trust-bypass option.
 
 Build the impacted images with version `1.11.1` before running
-`scripts/verify-plugin-metrics.sh --sources redis --migration`. The focused runner
+`make verify-plugins`. The focused native acceptance
 uses the proven `gopulse/monitor:1.10.6` and business/Playwright acceptance baseline
 images plus the current `backend`, `frontend`, `router`, `marshaller` and
 `monitor-acceptance` images. It always creates and removes its own random Compose
@@ -36,12 +36,11 @@ project/volumes and never mounts the daily product volume.
 新卷与 Phase 13 既有业务卷均调用同一个幂等入口，不依赖 MySQL 空卷初始化目录：
 
 ```bash
-# 先按既有 scripts/dev.sh 启动目标 Compose 项目。
+# 先按 `make dev-observe` 启动目标 Compose 项目。
 # 在私有目录创建 0600 的 admin.json，内容为：
 # {"mysql_root_password":"<deployment-secret>","mysql_database":"gopulse",
 #  "rabbitmq_username":"<deployment-admin>","rabbitmq_password":"<deployment-secret>"}
-bash scripts/reconcile-plugin-accounts.sh \
-  --project-name gopulse --admin-file /private/path/admin.json
+make verify-plugins
 # 可独立重试：--sources mysql 或 --sources rabbitmq
 ```
 
@@ -70,7 +69,7 @@ Router 只放行固定 source。存储 label 为 `source`、`target_id=<source>-
 ```bash
 make package-plugin SOURCE=mysql VERSION=1.11.2
 make package-plugin SOURCE=rabbitmq VERSION=1.11.2
-bash scripts/verify-plugin-metrics.sh --sources mysql,rabbitmq
+make verify-plugins
 ```
 
 完整逐字段目录见 `exporters/mysql/README.md`、`exporters/rabbitmq/README.md`。

@@ -1,11 +1,13 @@
 # GoPulse 当前能力状态
 
-> 基线：产品完成版本 `2.4.5`，2026-10-09。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品完成版本 `2.5.5`，2026-10-10。版本完成、验收执行完成和能力达标是三个不同概念。
 > 2026-10-05 范围调整：Phase 20 仅保留已完成的 01～04，在 `2.2.4` 结束；原 05、06 已取消。
 
 ## 已实施阶段
 
 - Phase 22 在 `2.4.5` 完成五批收口：本机 Go/Vite 开发与隔离测试入口、业务与可观测原生模块/真实链路、用户与管理浏览器验证、按共同祖先改动选择 CI/开发完成分支校验和文档映射，以及迁移 CLI 的 Go 原生 MySQL 验收与一次性 Python 工具退役。Phase-22-04 的实际门禁与限制见 [实施日志](../logs/Phase-22/Phase-22-04-CI与文档收口.md)；Phase-22-05 的迁移覆盖、退役边界和门禁见 [实施日志](../logs/Phase-22/Phase-22-05-原生验收与脚本精简.md)。Phase-22-04 真实 CI run `37781739950` 的治理、模块、集成、浏览器和 full-stack Compose job 全部通过，05 的实际 CI 记录在同名日志中。
+- Phase 23-05 在 `2.5.5` 完成验收能力原生承接与执行器退役：构建缓存和日常容器栈由 `devtools` 承接，业务/可观测/插件/告警/角色/页面/生命周期验收由 `acceptance` Go 模块承接，插件制品由 Monitor Make 入口承接，发布 Bundle 合同由 `lifecycle` 保持。Compose 验收镜像直接以 Playwright 为入口，不再嵌入外部执行器。
+- Phase 23-05 的退役决定明确保留 `ci/` 治理 Python，只迁移路径、不重写规则；Phase 16–21 运行时与正式矩阵、Phase 18–20 容量/长期/证据执行器、历史闭包路径、交付 Python 库、Windows 转发器和零引用入口不再重跑，删除前已有的历史结论、方法、日志与原始回执继续有效。`component-probe.go`、`plugin-fault-router.go` 迁入 `acceptance/internal/fixtures`，迁移锁夹具迁入 `backend/testdata`，`runtime-http.go` 随其唯一运行时矩阵退役。
 - [Phase 21 总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)分配的三批 `2.3.1`～`2.3.3` 已完成。Phase-21-01 已在 `2.3.1` 完成：Backend 支持 `combined`、`business`、`platform` 三种角色，按角色装配依赖、路由和后台任务，并通过 R01～R05 固定门禁及最小真实三角色进程检查。Phase-21-02 已在 `2.3.2` 完成双服务 Compose、同源代理、运行/采集合同、Bundle/lifecycle 固定别名及 service-split 源码预检；Phase-21-03 已在 `2.3.3` 完成冻结 `2.3.2` 候选的正式定向验收与阶段收口。
 - 共用账号、数据库和会话；Outbox dispatcher 留在业务服务。目标验收包含管理单侧停止时已有会话的业务可用，不声明隔离共享数据库故障、容量或长期稳定。
 
@@ -53,7 +55,8 @@
 
 - 2026-10-09：Phase 18–20 的正式矩阵执行器整体退役删除，共 44 个文件 / 11,422 行——16 个阶段执行器（`phase18_*` / `phase19_*` / `phase20_*`）、16 个对应自测、3 个顶层证据校验器（`verify-phase1{8,9}-evidence.py`、`verify-phase20-evidence.py`）、9 个 Shell 转发器（`verify-phase18/19/20-*.sh`）。依据：用户确认 Phase 16–20 正式矩阵不再重跑，退役不需要等价替代。源码与原始回执由 Git 提交保留；方法与结论记录保留在 [Phase-19](../validation/Phase-19/capacity-methodology.md)、[Phase-20](../validation/Phase-20/phase20-capacity-methodology.md) 验证文档及历史实施日志中。
 - 合同影响：[运行契约](../contracts/runtime-contracts.md)、[Trace 与新鲜度契约](../contracts/phase20-trace-and-freshness.md)、[可观测保留契约](../contracts/observability-retention.md)、[迁移状态契约](../contracts/migration-state.md) 的条款继续有效，仅"验证入口"不再指向已退役执行器。
-- 本次未退役、且保留理由成立的执行器：`scripts/ci/phase16_evidence.py` 与 `test_phase16_evidence.py`（被现行 [`verify_product_lifecycle.py`](../../scripts/ci/verify_product_lifecycle.py) 导入 `atomic` / `now` 公共函数）；`scripts/ci/verify_phase14_closure.py`、`verify_phase15_closure.py` 与 `test_phase14_cleanup.py`（仍由 [`verify-compose.sh`](../../scripts/verify-compose.sh) 的 `--phase14` / `--phase15` 调用）；Phase 16/17 的收口执行器与证据校验器（独立范围，未列入本次退役）。
+- 本批保留的治理例外只有 `ci/validate_versions.py`、`ci/validate_branch.py`、`ci/quality_scope.py`、`ci/sync_version_metadata.py` 及其自测和 `ci/AGENTS.md`；它们仍由治理 job 调用，Python 规则与失败语义保持不变。
+- 本批删除的验收、矩阵、交付和 Windows 执行器不构成能力替代声明：当前能力边界以原生 Make/Go 入口和本文件的“尚未验证”条目为准；历史文件与证据只保留其既有上下文，不被改写。
 - 本退役不改变任何已发布结论：Phase-18～20 的 `boundary_found` / `target_met` 等历史结果不因执行器删除而失效或改写。
 
 ## 尚未验证
