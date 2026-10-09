@@ -25,14 +25,17 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      - name: Start isolated loopback registry
-        run: docker run -d --name candidate-registry -p 127.0.0.1:15001:5000 registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
-      - name: Build and verify candidate
-        run: |
-          python3 scripts/ci/release_artifacts.py build --registry 127.0.0.1:15001/gopulse
-          scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/amd64 --runtime
-          scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/arm64 --metadata-only
-          python3 scripts/ci/release_artifacts.py promote --manifest dist/release-manifest.json
+      # The runner's default docker driver cannot build multi-platform images,
+      # and the container driver must share the host network to reach the
+      # loopback registry the delivery chain starts and removes itself.
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+      # One entry point owns the whole chain: it starts and removes its own
+      # loopback registry, verifies the real amd64 runtime, records the arm64
+      # metadata-only receipt and promotes the same digests.
+      - name: Build, verify and promote the candidate
+        run: make package PLATFORM=linux/amd64,linux/arm64 RUNTIME=1 PROMOTE=1
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -42,6 +45,3 @@ jobs:
             dist/gopulse-*-bundle.tar.gz*
             dist/verification-*.json
           retention-days: 14
-      - name: Remove owned registry
-        if: always()
-        run: docker rm -f -v candidate-registry || true
