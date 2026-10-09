@@ -25,7 +25,6 @@ exporters
 marshaller
 monitor
 router
-scripts
 使用手册.md
 使用指南.md
 AGENTS.md
@@ -39,10 +38,5 @@ README.md
 !exporters/
 !exporters/redis/
 !exporters/redis/**
-!scripts/
-!scripts/package-redis-exporter.sh
-
-!scripts/ci/
-!scripts/ci/**
 # User-owned reference workspace is not a product build input.
 /Management_Center

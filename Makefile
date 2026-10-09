@@ -123,7 +123,7 @@ verify-pages:
 	@$(ACCEPTANCE) pages $(if $(KEEP),--keep,)
 
 verify-lifecycle:
-	@$(ACCEPTANCE) lifecycle --install "$(if $(INSTALL),$(INSTALL),clean)" $(if $(MANIFEST),--manifest $(MANIFEST),) $(if $(PLATFORM),--platform $(PLATFORM),)
+	@$(ACCEPTANCE) lifecycle --install "$(if $(INSTALL),$(INSTALL),clean)" --manifest "$(if $(MANIFEST),$(MANIFEST),dist/release-manifest.json)" $(if $(PLATFORM),--platform $(PLATFORM),)
 
 stack-up:
 	@$(DEVENV) stack-up

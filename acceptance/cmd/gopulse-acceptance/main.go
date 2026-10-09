@@ -41,9 +41,26 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "[gopulse-acceptance] ERROR: %v\n", err)
 		return 1
 	}
-	if command == "compose" {
+	switch command {
+	case "compose":
 		err = scenario.Compose(root, options)
-	} else {
+	case "business":
+		err = scenario.Business(root, options)
+	case "observe":
+		err = scenario.Observe(root, options)
+	case "plugins":
+		err = scenario.Plugins(root, options)
+	case "alerts":
+		err = scenario.Alerts(root, options)
+	case "roles":
+		err = scenario.Roles(root, options)
+	case "pages":
+		err = scenario.Pages(root, options)
+	case "reconcile-accounts":
+		err = scenario.ReconcileAccounts(root, options)
+	case "lifecycle":
+		err = scenario.Lifecycle(root, options)
+	default:
 		err = scenario.Unsupported(command)
 	}
 	if err != nil {

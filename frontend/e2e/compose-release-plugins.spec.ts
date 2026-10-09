@@ -14,8 +14,8 @@ test('candidate six-plugin collection and scoped failure', async ({ request }) =
   const sources = ['redis', 'mysql', 'rabbitmq', 'kafka', 'elasticsearch', 'victoriametrics']
   const common = { connect_timeout: '1s', scrape_timeout: '3s' }
   const configurations: Record<string, { config: Record<string, unknown>; secrets: Record<string, string> }> = {
-    mysql: { config: { ...common, host: 'mysql', port: 3306, database: `gopulse_${token}`, username: 'gopulse_metrics' }, secrets: { password: `metrics-${token}` } },
-    rabbitmq: { config: { ...common, host: 'rabbitmq', management_port: 15672, vhost: '/', username: 'gopulse_metrics' }, secrets: { password: `metrics-${token}` } },
+    mysql: { config: { ...common, host: 'mysql', port: 3306, database: `gopulse_${token}`, username: 'gopulse_metrics' }, secrets: { password: process.env.GOPULSE_PLUGIN_ACCOUNT_PASSWORD ?? `metrics-${token}` } },
+    rabbitmq: { config: { ...common, host: 'rabbitmq', management_port: 15672, vhost: '/', username: 'gopulse_metrics' }, secrets: { password: process.env.GOPULSE_PLUGIN_ACCOUNT_PASSWORD ?? `metrics-${token}` } },
     kafka: { config: { ...common, host: 'kafka', port: 19092, topic: 'gopulse-observability-v1', consumer_group: 'gopulse-marshaller-metrics-v1' }, secrets: {} },
     elasticsearch: { config: { ...common, host: 'elasticsearch', port: 9200 }, secrets: {} },
     victoriametrics: { config: { ...common, host: 'victoriametrics', port: 8428, username: `vm_${token}` }, secrets: { password: `vm-${token}-0123456789abcdef0123456789abc` } },

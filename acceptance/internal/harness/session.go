@@ -45,6 +45,7 @@ type Session struct {
 	Cleaned  bool
 	Commands []CommandRecord
 	receipt  receipt.Document
+	values   map[string]string
 }
 
 func New(root string, keep bool) (*Session, error) {
@@ -93,6 +94,7 @@ func New(root string, keep bool) (*Session, error) {
 		EnvFile:  envFile,
 		Keep:     keep,
 		receipt:  receipt.New(project, version, revision),
+		values:   values,
 	}, nil
 }
 
@@ -122,13 +124,46 @@ func (s *Session) Compose(args ...string) Result {
 	return s.run("docker", command...)
 }
 
+// AcceptanceRun executes one of the checked-in Playwright scenarios inside
+// the acceptance image. Environment names are passed without values so the
+// command inherits the private session environment without placing secrets in
+// the receipt command arguments.
+func (s *Session) AcceptanceRun(scenario, spec string, environment ...string) Result {
+	return s.AcceptanceRunArgs(scenario, spec, nil, environment...)
+}
+
+// AcceptanceRunArgs is AcceptanceRun with additional Playwright arguments,
+// such as a focused grep used by a migrated specialist suite.
+func (s *Session) AcceptanceRunArgs(scenario, spec string, extra []string, environment ...string) Result {
+	args := []string{"--profile", "acceptance", "run", "--rm", "--no-deps"}
+	for _, key := range environment {
+		if _, ok := s.values[key]; !ok {
+			continue
+		}
+		args = append(args, "-e", key)
+	}
+	if scenario != "" {
+		s.values["GOPULSE_ACCEPTANCE_SCENARIO"] = scenario
+		args = append(args, "-e", "GOPULSE_ACCEPTANCE_SCENARIO")
+	}
+	args = append(args, "acceptance", spec)
+	args = append(args, extra...)
+	return s.Compose(args...)
+}
+
+// Value returns a private generated acceptance value for scenario wiring.
+func (s *Session) Value(key string) string { return s.values[key] }
+
+// SetValue adds a non-secret derived value to the private scenario environment.
+func (s *Session) SetValue(key, value string) { s.values[key] = value }
+
 func (s *Session) Run(name string, args ...string) Result { return s.run(name, args...) }
 
 func (s *Session) run(name string, args ...string) Result {
 	started := time.Now()
 	command := exec.Command(name, args...)
 	command.Dir = s.Root
-	command.Env = acceptanceEnvironment(s.Version, s.Revision, s.Token)
+	command.Env = s.environment()
 	stdout, stderr := &strings.Builder{}, &strings.Builder{}
 	command.Stdout = stdout
 	command.Stderr = stderr
@@ -295,6 +330,13 @@ func applyAcceptanceValues(values map[string]string, token, version, revision st
 	values["GOPULSE_OBSERVABILITY_ADMIN_USERNAME"] = "admin_" + token
 	values["GOPULSE_OBSERVABILITY_USER_USERNAME"] = "user_" + token
 	values["GOPULSE_OBSERVABILITY_PASSWORD"] = "acceptance-" + token + "-password"
+	values["GOPULSE_PLUGIN_ACCOUNT_PASSWORD"] = "metrics-" + token
+	values["GOPULSE_ADMIN_USERNAME"] = values["GOPULSE_OBSERVABILITY_ADMIN_USERNAME"]
+	values["GOPULSE_USER_USERNAME"] = values["GOPULSE_OBSERVABILITY_USER_USERNAME"]
+	values["GOPULSE_DEMOTION_USERNAME"] = values["GOPULSE_OBSERVABILITY_ADMIN_USERNAME"]
+	values["GOPULSE_ACCEPTANCE_PASSWORD"] = values["GOPULSE_OBSERVABILITY_PASSWORD"]
+	values["GOPULSE_BASE_URL"] = "http://frontend:8080"
+	values["GOPULSE_SCREENSHOT_DIR"] = "frontend/test-results"
 	for _, key := range []string{"BACKEND_METRICS_TOKEN", "BUSINESS_WORKER_METRICS_TOKEN", "SEARCH_INDEXER_METRICS_TOKEN", "MONITOR_METRICS_TOKEN", "ROUTER_METRICS_TOKEN", "MARSHALLER_METRICS_TOKEN"} {
 		values[key] = "metrics-" + strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(key, ""), "_METRICS_TOKEN")) + "-" + token + "-0123456789abcdef0123456789"
 	}
@@ -334,7 +376,7 @@ func writeEnv(path string, values map[string]string) error {
 	return os.Chmod(path, 0o600)
 }
 
-func acceptanceEnvironment(version, revision, token string) []string {
+func acceptanceEnvironment(version, revision, token string, generated map[string]string) []string {
 	values := map[string]string{}
 	for _, entry := range os.Environ() {
 		key, value, found := strings.Cut(entry, "=")
@@ -346,6 +388,9 @@ func acceptanceEnvironment(version, revision, token string) []string {
 	values["GOPULSE_REVISION"] = revision
 	values["GOPULSE_IMAGE_TAG"] = version
 	values["GOPULSE_ACCEPTANCE_TOKEN"] = token
+	for key, value := range generated {
+		values[key] = value
+	}
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -356,4 +401,8 @@ func acceptanceEnvironment(version, revision, token string) []string {
 		result = append(result, key+"="+values[key])
 	}
 	return result
+}
+
+func (s *Session) environment() []string {
+	return acceptanceEnvironment(s.Version, s.Revision, s.Token, s.values)
 }

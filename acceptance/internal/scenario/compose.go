@@ -28,6 +28,16 @@ func Compose(root string, options Options) (returnErr error) {
 	if options.Scope != "" && options.Scope != "observability" && options.Scope != "business" {
 		return fmt.Errorf("scope must be business or observability")
 	}
+	if options.Manifest != "" {
+		if options.Scope == "business" {
+			return runStack(root, options, false, false, []suiteSpec{
+				{name: "business", scenario: "business", spec: "e2e/compose-business.spec.ts"},
+			})
+		}
+		return runStack(root, options, true, false, []suiteSpec{
+			{name: "observability", scenario: "admin", spec: "e2e/compose-observability.spec.ts", environment: observabilityEnvironment},
+		})
+	}
 	session, err := harness.New(root, options.Keep)
 	if err != nil {
 		return err
@@ -101,6 +111,18 @@ func promoteAdmin(session *harness.Session) error {
 	if !positiveInteger(userID) {
 		return fmt.Errorf("acceptance administrator ID is invalid: %q", userID)
 	}
+	userQuery := "MYSQL_PWD=\"$MYSQL_PASSWORD\" mysql --user=\"$MYSQL_USER\" --batch --skip-column-names \"$MYSQL_DATABASE\" --execute \"SELECT id FROM users WHERE username='user_" + session.Token + "'\""
+	userResult := session.Compose("exec", "-T", "mysql", "sh", "-ec", userQuery)
+	if userResult.ExitCode != 0 {
+		return fmt.Errorf("query acceptance user failed with exit code %d", userResult.ExitCode)
+	}
+	ordinaryID := strings.TrimSpace(userResult.Stdout)
+	if !positiveInteger(ordinaryID) {
+		return fmt.Errorf("acceptance user ID is invalid: %q", ordinaryID)
+	}
+	session.SetValue("GOPULSE_ADMIN_ID", userID)
+	session.SetValue("GOPULSE_USER_ID", ordinaryID)
+	session.SetValue("GOPULSE_DEMOTION_ID", ordinaryID)
 	bootstrap := session.Compose("--profile", "operations", "run", "--rm", "--no-deps", "admin-role", "bootstrap", "--user-id", userID)
 	if bootstrap.ExitCode != 0 {
 		return fmt.Errorf("bootstrap acceptance administrator failed with exit code %d", bootstrap.ExitCode)
@@ -121,7 +143,7 @@ func positiveInteger(value string) bool {
 }
 
 func runSpec(session *harness.Session, scenario, spec string) error {
-	result := session.Compose("--profile", "acceptance", "run", "--rm", "--no-deps", "-e", "GOPULSE_ACCEPTANCE_SCENARIO="+scenario, "acceptance", spec)
+	result := session.AcceptanceRun(scenario, spec, "GOPULSE_OBSERVABILITY_ADMIN_USERNAME", "GOPULSE_OBSERVABILITY_USER_USERNAME", "GOPULSE_OBSERVABILITY_PASSWORD")
 	if result.ExitCode != 0 {
 		return fmt.Errorf("Compose acceptance %s failed with exit code %d", scenario, result.ExitCode)
 	}

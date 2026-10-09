@@ -17,6 +17,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/stack"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/testenv"
 )
 
@@ -30,6 +31,9 @@ commands:
   integration [--scope business|observe]               run one isolated integration scope
   e2e [--scope business|observe] [--http-port N]      run one isolated browser scope
       [--frontend-port N] [--admin-frontend-port N]
+	stack-up                                             start the container-native product stack
+	stack-down                                           stop it and preserve named volumes
+	stack-verify                                         verify ownership, health and loopback ports
 	build-cache [--print] [--no-cache]                    render/build Compose images
 `
 
@@ -85,6 +89,12 @@ func run(args []string) int {
 		err = testenv.Integration(root, defaultScope(parsed.scope))
 	case "e2e":
 		err = testenv.E2E(root, defaultScope(parsed.scope), parsed.overrides())
+	case "stack-up":
+		err = stack.Up(root)
+	case "stack-down":
+		err = stack.Down(root)
+	case "stack-verify":
+		err = stack.Verify(root)
 	case "build-cache":
 		code, buildErr := buildcache.Run(root, buildcache.Options{PrintOnly: parsed.printOnly, NoCache: parsed.noCache})
 		if buildErr != nil {
