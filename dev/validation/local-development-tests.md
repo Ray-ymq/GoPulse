@@ -40,6 +40,22 @@ CI Integration 门禁在 migration 后执行 `go run ./cmd/search-reindex --if-m
 
 本批 native 浏览器不替代 Nginx 头、UID、只读根、镜像扫描、插件制品、恢复和容量专项检查；这些仍由既有容器工具保留。
 
+## Phase-23-03 本机开发与观测入口的原生承接
+
+`make deps`、`make dev`、`make dev-observe`、`make stop` 与 `make monitor-image`
+已由 `devtools`（Go 模块，组件 Makefile 提供 `test`/`race`/`check`/`build`）承接。
+该助手持有工作区身份、私有状态与环境文件、源码进程归属判定、Compose 项目生命周期
+以及按需准备/复用内容寻址的 Monitor 镜像；`stop` 仅在记录的进程身份仍然匹配时终止
+进程，并且从不下沉 `--volumes`。`scripts/ci/local_development.py` 仍承接
+`make integration` 与 `make e2e` 的隔离 test scope，其开发态入口已在本批删除，
+test scope 的迁移与 Python 退役在本批后续阶段完成。
+
+本批开发态门禁为：`make test MODULE=devtools`、`make race MODULE=devtools`、
+`make check MODULE=devtools`、`python3 -m unittest discover -s scripts/ci -p 'test_*.py'`，
+以及真实执行的 `make deps`（两次）、`make dev`（两次）、`make stop`、
+`make dev-observe`、`make monitor-image` 与失败注入（未归属端口、非法 `VERSION`、
+非法 `HTTP_PORT`）。
+
 ## Phase-22-04 CI 选择与保留映射
 
 `scripts/ci/quality_scope.py` 使用目标分支与主线共同祖先的完整 diff，按实际

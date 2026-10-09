@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Run GoPulse's host development lifecycle with owned, isolated state.
+"""Run GoPulse's isolated integration and browser test lifecycles.
 
-The complete container lifecycle remains in scripts/dev.sh and scripts/down.sh.
-This helper owns only local source processes and the third-party dependency
-Compose projects used by the Phase 22 development workflow.
+The development, observation, and stop lifecycles moved to the native
+devtools/cmd/devenv helper in Phase 23-03. This module keeps the isolated test
+lifecycles, which own their own Compose project, ports, and private state.
 """
 
 from __future__ import annotations
@@ -537,33 +537,6 @@ def terminate_process(record: Mapping[str, object]) -> None:
             pass
 
 
-def stop_state(workspace: Workspace, state: dict[str, object], *, down: bool) -> None:
-    processes = state.get("processes", {})
-    if isinstance(processes, dict):
-        for record in list(processes.values()):
-            if isinstance(record, dict):
-                terminate_process(record)
-    if down:
-        compose_down(workspace, state)
-    state["status"] = "stopped"
-    state["stopped_at"] = now()
-    save_json(workspace.state_path, state)
-
-
-def check_existing_state(workspace: Workspace, mode: str, source: str, environment: str) -> dict[str, object] | None:
-    state = load_state(workspace)
-    if not state or state.get("status") in {"stopped", "failed"}:
-        return None
-    if state.get("mode") != mode:
-        raise DevelopmentError(f"workspace already owns an active {state.get('mode')} lifecycle; run make stop first")
-    if state.get("source_digest") != source or state.get("environment_digest") != environment:
-        raise DevelopmentError("active local lifecycle inputs changed; run make stop before restarting")
-    processes = state.get("processes", {})
-    if not isinstance(processes, dict) or not processes or not all(isinstance(value, dict) and process_owned(value) for value in processes.values()):
-        raise DevelopmentError("owned local process state is stale or a process exited; run make stop before restarting")
-    return state
-
-
 def application_environment(root: Path, mode: str, explicit_env: str | None, overrides: Mapping[str, str] | None = None) -> tuple[Workspace, dict[str, str], Path]:
     workspace = workspace_for(root)
     values = compose_environment(root, mode, explicit_env)
@@ -579,97 +552,6 @@ def port_argument(raw: str) -> str:
     if not raw.isdigit() or not 1 <= int(raw) <= 65535:
         raise argparse.ArgumentTypeError("port must be an integer from 1 to 65535")
     return str(int(raw))
-
-
-def start_lifecycle(root: Path, mode: str, explicit_env: str | None, observe: bool) -> None:
-    workspace, values, env_file = application_environment(root, mode, explicit_env)
-    source = source_digest(root, observe=observe)
-    environment_digest = digest_paths(root, [env_file])
-    existing = check_existing_state(workspace, mode, source, environment_digest)
-    if existing:
-        print(f"[gopulse] {mode} is already running for workspace {workspace.identity}")
-        return
-    required_ports = [int(values["HTTP_PORT"]), int(values["FRONTEND_PORT"]), 19101, 19102, 19103]
-    if observe:
-        required_ports.extend([int(values["ROUTER_HTTP_PORT"]), 19105, int(values["MARSHALLER_HTTP_PORT"]), 19106, int(values["MONITOR_HTTP_PORT"]), int(values["ADMIN_FRONTEND_PORT"]), int(values["REDIS_EXPORTER_HTTP_PORT"])])
-    check_ports(required_ports)
-    project, compose_files = compose_up(workspace, env_file, values, observe)
-    state: dict[str, object] = {
-        "schema": 1, "status": "running", "workspace_root": str(workspace.root), "workspace_id": workspace.identity,
-        "branch": subprocess.run(["git", "branch", "--show-current"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
-        "revision": subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip(),
-        "mode": mode, "observe": observe, "project": project, "compose_files": [str(path) for path in compose_files],
-        "env_file": str(env_file), "source_digest": source, "environment_digest": environment_digest,
-        "compose_digest": digest_paths(root, compose_files),
-        "monitor_input_digest": monitor_input_digest(root) if observe else "",
-        "monitor_image": monitor_image_tag(root) if observe else "",
-        "preparation_commands": [["go", "run", "./cmd/migrate", "up"], ["go", "run", "./cmd/search-reindex", "--if-missing"]],
-        "started_at": now(), "processes": {}, "logs": {},
-    }
-    save_json(workspace.state_path, state)
-    try:
-        one_shot_env = dict(values)
-        one_shot_env["LOG_MONITOR_URL"] = ""
-        one_shot_env["LOG_MONITOR_INGEST_TOKEN"] = ""
-        run_command(["go", "run", "./cmd/migrate", "up"], cwd=root / "backend", env=one_shot_env, label="database migration")
-        run_command(["go", "run", "./cmd/search-reindex", "--if-missing"], cwd=root / "backend", env=one_shot_env, label="search reindex")
-
-        binary_digest = source_digest(root, observe=False)
-        backend = build_binary(workspace, values, "backend", "./cmd/server", binary_digest)
-        worker = build_binary(workspace, values, "business-worker", "./cmd/business-worker", binary_digest)
-        indexer = build_binary(workspace, values, "search-indexer", "./cmd/search-indexer", binary_digest)
-
-        if observe:
-            router_digest = source_digest(root, observe=True)
-            router = workspace.private_root / "bin" / "router"
-            marshaller = workspace.private_root / "bin" / "marshaller"
-            for name, directory, package, output in [
-                ("router", root / "router", "./cmd/router", router),
-                ("marshaller", root / "marshaller", "./cmd/marshaller", marshaller),
-            ]:
-                metadata = workspace.private_root / "bin" / f"{name}.json"
-                previous = json.loads(metadata.read_text(encoding="utf-8")) if metadata.is_file() else {}
-                if not output.is_file() or previous.get("digest") != router_digest:
-                    run_command(["go", "build", "-trimpath", "-o", str(output), package], cwd=directory, env=values, label=f"build {name}")
-                    save_json(metadata, {"name": name, "digest": router_digest, "command": ["go", "build", "-trimpath", "-o", str(output), package]})
-            router_env = dict(values)
-            router_env["GOPULSE_INSTANCE_ID"] = "router-local"
-            marshaller_env = dict(values)
-            marshaller_env["GOPULSE_INSTANCE_ID"] = "marshaller-local"
-            spawn_process(workspace, state, "router", [str(router)], router_env, root / "router")
-            wait_http(f"http://127.0.0.1:{values['ROUTER_HTTP_PORT']}/ready", timeout=180, token=values["ROUTER_API_TOKEN"], label="Router", process_record=state["processes"]["router"])
-            spawn_process(workspace, state, "marshaller", [str(marshaller)], marshaller_env, root / "marshaller")
-            wait_http(f"http://127.0.0.1:{values['MARSHALLER_HTTP_PORT']}/ready", timeout=180, token=values["MARSHALLER_API_TOKEN"], label="Marshaller", process_record=state["processes"]["marshaller"])
-
-        backend_env = dict(values)
-        backend_env["GOPULSE_INSTANCE_ID"] = "backend-local"
-        worker_env = dict(values)
-        worker_env["GOPULSE_INSTANCE_ID"] = "business-worker-local"
-        indexer_env = dict(values)
-        indexer_env["GOPULSE_INSTANCE_ID"] = "search-indexer-local"
-        spawn_process(workspace, state, "backend", [str(backend)], backend_env, root / "backend")
-        wait_http(f"http://127.0.0.1:{values['HTTP_PORT']}/ready", timeout=180, label="Backend", process_record=state["processes"]["backend"])
-        spawn_process(workspace, state, "business-worker", [str(worker)], worker_env, root / "backend")
-        wait_http("http://127.0.0.1:19102/ready", timeout=180, label="Business Worker", process_record=state["processes"]["business-worker"])
-        spawn_process(workspace, state, "search-indexer", [str(indexer)], indexer_env, root / "backend")
-        wait_http("http://127.0.0.1:19103/ready", timeout=180, label="Search Indexer", process_record=state["processes"]["search-indexer"])
-
-        ensure_npm_dependencies(root, "frontend")
-        frontend_env = dict(values)
-        spawn_process(workspace, state, "frontend", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", values["FRONTEND_PORT"]], frontend_env, root / "frontend")
-        wait_http(f"http://127.0.0.1:{values['FRONTEND_PORT']}/", timeout=180, label="user Vite", process_record=state["processes"]["frontend"])
-        if observe:
-            ensure_npm_dependencies(root, "admin-frontend")
-            admin_env = dict(values)
-            admin_port = values["ADMIN_FRONTEND_PORT"]
-            admin_env["FRONTEND_PORT"] = admin_port
-            spawn_process(workspace, state, "admin-frontend", ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", admin_port], admin_env, root / "admin-frontend")
-            wait_http(f"http://127.0.0.1:{admin_port}/admin/", timeout=180, label="admin Vite", process_record=state["processes"]["admin-frontend"])
-            wait_http(f"http://127.0.0.1:{values['MONITOR_HTTP_PORT']}/ready", timeout=180, token=values["MONITOR_API_TOKEN"], label="Monitor")
-        print(f"[gopulse] {mode} is ready for workspace {workspace.identity}")
-    except BaseException:
-        stop_state(workspace, state, down=True)
-        raise
 
 
 @contextmanager
@@ -1066,61 +948,11 @@ def run_integration(root: Path, scope: str) -> None:
                 save_json(workspace.integration_state_path, state)
 
 
-def prepare_monitor_image(root: Path) -> None:
-    if platform.system() != "Linux":
-        raise DevelopmentError("monitor-image is supported only on Linux")
-    tag = monitor_image_tag(root)
-    workspace = workspace_for(root)
-    marker = workspace.private_root / "monitor-image.json"
-    if marker.is_file():
-        try:
-            metadata = json.loads(marker.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            metadata = {}
-        if metadata.get("tag") == tag:
-            try:
-                subprocess.run(["docker", "image", "inspect", tag], cwd=root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                print(f"[gopulse] reusing prepared Monitor image {tag}")
-                return
-            except (OSError, subprocess.CalledProcessError):
-                pass
-    version = (root / "VERSION").read_text(encoding="utf-8").strip()
-    if not SEMVER.fullmatch(version):
-        raise DevelopmentError("VERSION must use major.minor.patch before building Monitor")
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
-    run_command([
-        "docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/observability.Dockerfile",
-        "--build-arg", f"VERSION={version}", "--build-arg", f"REVISION={revision}", "--tag", tag, ".",
-    ], cwd=root, label="Monitor image preparation")
-    save_json(marker, {"tag": tag, "input_digest": monitor_input_digest(root), "revision": revision, "version": version, "built_at": now()})
-    print(f"[gopulse] prepared Monitor image {tag}")
-
-
-def stop(root: Path) -> None:
-    workspace = workspace_for(root)
-    state = load_state(workspace)
-    if state is None:
-        print(f"[gopulse] no owned local lifecycle for workspace {workspace.identity}")
-        return
-    stop_state(workspace, state, down=True)
-    print(f"[gopulse] stopped owned local lifecycle for workspace {workspace.identity}; named volumes were preserved")
-
-
-def unsupported(name: str) -> None:
-    raise DevelopmentError(f"make {name} is reserved for a later Phase-22 batch and is intentionally not implemented in Phase-22-01")
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name, mode, observe in [("dev", "dev", False), ("dev-observe", "observe", True)]:
-        command = subparsers.add_parser(name)
-        command.add_argument("--env-file")
-        command.set_defaults(handler=lambda args, mode=mode, observe=observe: start_lifecycle(Path.cwd(), mode, args.env_file, observe))
-    stop_command = subparsers.add_parser("stop")
-    stop_command.set_defaults(handler=lambda _args: stop(Path.cwd()))
-    monitor = subparsers.add_parser("monitor-image")
-    monitor.set_defaults(handler=lambda _args: prepare_monitor_image(Path.cwd()))
+    # The development, observation, and stop lifecycles now run in
+    # devtools/cmd/devenv; this module keeps the isolated test lifecycles.
     integration = subparsers.add_parser("integration")
     integration.add_argument("--scope", default="business")
     integration.set_defaults(handler=lambda args: run_integration(Path.cwd(), args.scope))

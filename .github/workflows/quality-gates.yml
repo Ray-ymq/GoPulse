@@ -293,6 +293,23 @@ jobs:
       - name: Race test
         run: make race MODULE=loadtest
 
+  devtools:
+    name: Local environment helper
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).devtools == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: devtools/go.mod
+      - name: Check
+        run: make check MODULE=devtools
+      - name: Test
+        run: make test MODULE=devtools
+      - name: Race test
+        run: make race MODULE=devtools
+
   frontend:
     name: Frontend (${{ matrix.app }})
     needs: governance

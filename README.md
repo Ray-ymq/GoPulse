@@ -69,6 +69,7 @@ Daily source development runs Go/Vite on the host while Docker supplies only
 owned persistent dependencies:
 
 ```bash
+make deps                                # only the owned persistent dependencies
 make dev
 make dev-observe                         # add Router/Marshaller/Monitor/admin Vite
 make test MODULE=backend
@@ -80,11 +81,15 @@ make stop
 ```
 
 `business` and `observe` use isolated test projects, ports, volumes, and locks;
-they never reuse the development data. `make monitor-image` is a separate Linux
-command for the trusted Monitor/plugin image. It is required before an observe
-run when the image is absent or its inputs changed, and does not build business
-images or push a Bundle. The native entries fail on unknown modules/scopes,
-unowned port conflicts, missing dependencies, and child-process failures.
+they never reuse the development data. `make deps`, `make dev`, `make dev-observe`,
+and `make stop` run the native helper in `devtools`, which owns the workspace
+identity, the private state and environment files, the source processes, and the
+Compose projects. It stops a lifecycle only while the recorded process identity
+still matches, and it never deletes named volumes. The observe entries prepare or
+reuse the content-addressed Monitor image on demand; `make monitor-image` is the
+explicit Linux command for that same preparation. The native entries fail on
+unknown modules/scopes, unowned port conflicts, missing dependencies, and
+child-process failures.
 
 The previous container and release paths remain explicit:
 
