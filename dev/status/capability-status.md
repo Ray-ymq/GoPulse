@@ -49,6 +49,13 @@
 - 原 05 冻结候选 `8a4d780` 的两次正式 B02 窗口出现 HTTP 500 与已写入业务事实/Outbox；具体失败阶段和根因尚未证明，两次短诊断未复现不能替代正式失败。取消不表示修复，该未完成候选的现象也不直接外推为 `2.2.4` 的已复现缺陷。
 - Milestone 7 仅按四批实际交付范围收口；原资源预算、独立观测开销、最终候选完整矩阵和持续运行目标未交付。历史分支、日志及原始证据保留，不改写为完成。
 
+## 已退役的执行器
+
+- 2026-10-09：Phase 18–20 的正式矩阵执行器整体退役删除，共 44 个文件 / 11,422 行——16 个阶段执行器（`phase18_*` / `phase19_*` / `phase20_*`）、16 个对应自测、3 个顶层证据校验器（`verify-phase1{8,9}-evidence.py`、`verify-phase20-evidence.py`）、9 个 Shell 转发器（`verify-phase18/19/20-*.sh`）。依据：用户确认 Phase 16–20 正式矩阵不再重跑，退役不需要等价替代。源码与原始回执由 Git 提交保留；方法与结论记录保留在 [Phase-19](../validation/Phase-19/capacity-methodology.md)、[Phase-20](../validation/Phase-20/phase20-capacity-methodology.md) 验证文档及历史实施日志中。
+- 合同影响：[运行契约](../contracts/runtime-contracts.md)、[Trace 与新鲜度契约](../contracts/phase20-trace-and-freshness.md)、[可观测保留契约](../contracts/observability-retention.md)、[迁移状态契约](../contracts/migration-state.md) 的条款继续有效，仅"验证入口"不再指向已退役执行器。
+- 本次未退役、且保留理由成立的执行器：`scripts/ci/phase16_evidence.py` 与 `test_phase16_evidence.py`（被现行 [`verify_product_lifecycle.py`](../../scripts/ci/verify_product_lifecycle.py) 导入 `atomic` / `now` 公共函数）；`scripts/ci/verify_phase14_closure.py`、`verify_phase15_closure.py` 与 `test_phase14_cleanup.py`（仍由 [`verify-compose.sh`](../../scripts/verify-compose.sh) 的 `--phase14` / `--phase15` 调用）；Phase 16/17 的收口执行器与证据校验器（独立范围，未列入本次退役）。
+- 本退役不改变任何已发布结论：Phase-18～20 的 `boundary_found` / `target_met` 等历史结果不因执行器删除而失效或改写。
+
 ## 尚未验证
 
 - 本批冻结环境/配方之外的吞吐、尾延迟、持续运行或单位资源容量声明。
