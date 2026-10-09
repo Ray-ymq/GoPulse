@@ -54,7 +54,7 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 | `acceptance/internal/probe/**`、`acceptance/internal/fixtures/**` | 由 `scripts/ci/testdata/` 迁入的夹具：`component-probe.go`（原消费方 `verify_component_metrics.py:112`）、`plugin-fault-router.go`（`verify_plugin_isolation.py:40`）；`runtime-http.go` 随 `runtime_acceptance.py` 退役，不预置 |
 | `devtools/internal/buildcache/**`、`devtools/cmd/devenv` 的 `build-cache` 子命令 | 由 `compose_build_cache.py` 迁入的构建缓存实现与用例 |
 | `devtools/internal/stack/**` | 由 `scripts/dev.sh` / `down.sh` / `verify.sh` 迁入的容器原生栈日常生命周期（`stack-up` / `stack-down` / `stack-verify`） |
-| `ci/**` | 治理工具新路径：`validate_versions.py`、`validate_branch.py`、`quality_scope.py`、`sync_version_metadata.py`、`AGENTS.md` 及其 5 个自测模块、2 个数据自测（迁移，不重写） |
+| `ci/**` | 治理工具新路径（用户 2026-10-09 确认保留 Python、只迁移不重写）：`validate_versions.py`、`validate_branch.py`、`quality_scope.py`、`sync_version_metadata.py`、`AGENTS.md` 及其 19 个自测模块中被保留的部分。迁移必须同步这些工具内部的路径表：`validate_branch.py:27`（`AGENTS.md` 文档路径）与 `:42`（允许文件清单中的 `scripts/AGENTS.md`）、`test_validate_branch.py:99` 的期望值、`quality_scope.py:160` 的文档路径集合；校验规则与失败语义逐字保持不变 |
 | `backend/testdata/migration-lock.go`（或 `acceptance/internal/fixtures/`） | `scripts/ci/testdata/migration-lock.go` 的迁移落点（唯一消费方是 `backend/cmd/migrate/main_integration_test.go:103,105`） |
 | `deploy/docker/acceptance.Dockerfile` 的内联入口（无新增脚本文件） | 删除 `COPY scripts/ci/` 与 `acceptance-entrypoint.sh`，ENTRYPOINT 直接使用镜像内 `npx playwright test` |
 
@@ -93,12 +93,12 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 | G6 可观测专项 | `verify-exporter.sh` 520、`verify-monitor.sh` 258、`verify-router.sh` 531、`verify-marshaller.sh` 852、`verify-logs.sh` 364、`verify-events.sh` 316、`ci/test_marshaller_cleanup.py` 25 | `make verify-observe SCOPE=<suite>` | C2-1…C2-7 | C |
 | G7 插件·告警·角色·页面 | `ci/verify_plugin_metrics.py` 342、`verify_plugin_isolation.py` 322、`verify_plugin_topology.py` 409、`verify_plugin_clusters.py` 242、`verify_plugin_state.py` 173、`verify_component_metrics.py` 417、`verify_alerts.py` 352、`verify_alert_sources.py` 131、`verify_role_management.py` 394、`verify_admin_visual.py` 131、`verify_admin_frontend.py` 103、`verify_dashboard.py` 101、`reconcile_plugin_accounts.py` 243、`frontend_bundle_browser.py` 83；转发器 `verify-plugin-metrics.sh` 11、`verify-component-metrics.sh` 4、`verify-plugin-state.sh` 4、`verify-alerts.sh` 4、`verify-role-management.sh` 4、`verify-admin-frontend.sh` 9、`verify-observability-ui.sh` 9、`reconcile-plugin-accounts.sh` 4 | `make verify-plugins\|verify-alerts\|verify-roles\|verify-pages` | C3-1…C3-9 | C |
 | G8 产品生命周期与恢复 | `ci/verify_product_lifecycle.py` 210、`verify_reused_install.py` 36、`verify-product-lifecycle.sh` 4、`verify_current_recovery.py` 339、`verify_backup_restore.py` 283、`verify-backup-restore.sh` 4、`ci/test_verify_current_recovery.py` 38 | `acceptance lifecycle`（D1）；恢复/备份断言迁入 Go 或用例 | D1-1…D1-6 | D |
-| G9 运行时契约与阶段矩阵 | `ci/runtime_acceptance.py` 684、`test_runtime_acceptance.py` 103、`ci/verify_runtime_contracts.py` 575、`test_runtime_contracts.py` 25、`verify-runtime-contracts.sh` 16、`ci/phase16_acceptance.py` 169、`phase16_evidence.py` 108、`test_phase16_evidence.py` 60、`phase17_evidence.py` 98、`verify_phase17.py` 114、`verify_phase17_state.py` 176、`verify_phase17_migration.py` 222、`test_phase17_evidence.py` 37、`test_phase17_state.py` 45、`verify_phase14_closure.py` 290、`verify_phase15_closure.py` 490、`test_phase14_cleanup.py` 46、`verify-phase16-evidence.py` 15、`verify-phase17-evidence.py` 11、`verify-phase17.sh` 4、`verify-phase17-state.sh` 4、`ci/acceptance-entrypoint.sh` 7 | 退役（依据见 §1.5） | E1-1…E1-4、D2 | D/E |
-| G10 交付库 | `ci/release_artifacts.py` 302、`release_manifest.py` 95、`test_release_artifacts.py` 75、`test_release_manifest.py` 47、`test_release_snapshot.py` 34 | Go `lifecycle/internal/packaging` 已承接 manifest / bundle / env / promote | E2-1…E2-3 | E |
-| G11 治理与版本工具 | `ci/validate_versions.py` 76、`validate_branch.py` 224、`quality_scope.py` 334、`sync_version_metadata.py` 107、`test_validate_versions.py` 73、`test_validate_branch.py` 167、`test_quality_scope.py` 120、`test_sync_version_metadata.py` 78、`test_auto_pr_workflow.py` 67、`AGENTS.md` 70 | **迁移**到 `ci/`（不重写，保留 Python；总方案 §3.3 明确排除其清理） | F1-1…F1-4 | F |
+| G9 运行时契约与阶段矩阵 | `ci/runtime_acceptance.py` 684、`test_runtime_acceptance.py` 103、`ci/verify_runtime_contracts.py` 575、`test_runtime_contracts.py` 25、`verify-runtime-contracts.sh` 16、`ci/phase16_acceptance.py` 169、`phase16_evidence.py` 108、`test_phase16_evidence.py` 60、`phase17_evidence.py` 98、`verify_phase17.py` 114、`verify_phase17_state.py` 176、`verify_phase17_migration.py` 222、`test_phase17_evidence.py` 37、`test_phase17_state.py` 45、`verify_phase14_closure.py` 290、`verify_phase15_closure.py` 490、`test_phase14_cleanup.py` 46、`verify-phase16-evidence.py` 15、`verify-phase17-evidence.py` 11、`verify-phase17.sh` 4、`verify-phase17-state.sh` 4、`ci/acceptance-entrypoint.sh` 7 | 退役（依据见 §1.5） | F1-1…F1-4、D2 | D/F |
+| G10 交付库 | `ci/release_artifacts.py` 302、`release_manifest.py` 95、`test_release_artifacts.py` 75、`test_release_manifest.py` 47、`test_release_snapshot.py` 34 | Go `lifecycle/internal/packaging` 已承接 manifest / bundle / env / promote | F2-1…F2-3 | F |
+| G11 治理与版本工具 | `ci/validate_versions.py` 76、`validate_branch.py` 224、`quality_scope.py` 334、`sync_version_metadata.py` 107、`test_validate_versions.py` 73、`test_validate_branch.py` 167、`test_quality_scope.py` 120、`test_sync_version_metadata.py` 78、`test_auto_pr_workflow.py` 67、`AGENTS.md` 70 | **迁移**到 `ci/`（用户 2026-10-09 确认：保留 Python、只迁移不重写；总方案 §3.3 明确其不属于清理对象） | E1-1…E3-2 | E |
 | G12 容器栈日常入口 | `dev.sh` 171、`down.sh` 86、`verify.sh` 129 | `devtools/internal/stack` + `make stack-up\|stack-down\|stack-verify` | C4-1…C4-3 | C |
-| G13 Windows | `dev.ps1` 667、`down.ps1` 172、`verify.ps1` 181 | 退役（零活引用；Windows 支持边界见 §1.5） | E3-1 | E |
-| G14 其他入口与夹具 | `ci/test_compose_acceptance_env.py` 39、`ci/testdata/component-probe.go` 58、`plugin-fault-router.go` 57、`runtime-http.go` 53、`migration-lock.go` 33、`start-development-batch.sh` 99、`test-backup-format.sh` 5、`test-frontends.sh` 6、`test-lifecycle.sh` 5 | `component-probe.go`、`plugin-fault-router.go` 迁入 `acceptance/internal/fixtures`（C3 使用）；`migration-lock.go` 迁到 `backend/testdata`（唯一消费方 `backend/cmd/migrate/main_integration_test.go:105`）；`runtime-http.go` 随 `runtime_acceptance.py` 退役（其唯一消费方已退役；承接后的 suite 若确需容器内探针，再在 `acceptance/internal/probe` 内新增，不预置）；`start-development-batch.sh` 的校验职责由 `ci/` 或 `make` 目标承载；其余零引用退役 | E3-2、F2-1 | E/F |
+| G13 Windows | `dev.ps1` 667、`down.ps1` 172、`verify.ps1` 181 | 退役（零活引用；Windows 支持边界见 §1.5） | F3-1 | F |
+| G14 其他入口与夹具 | `ci/test_compose_acceptance_env.py` 39、`ci/testdata/component-probe.go` 58、`plugin-fault-router.go` 57、`runtime-http.go` 53、`migration-lock.go` 33、`start-development-batch.sh` 99、`test-backup-format.sh` 5、`test-frontends.sh` 6、`test-lifecycle.sh` 5 | `component-probe.go`、`plugin-fault-router.go` 迁入 `acceptance/internal/fixtures`（C3 使用）；`migration-lock.go` 迁到 `backend/testdata`（唯一消费方 `backend/cmd/migrate/main_integration_test.go:105`）；`runtime-http.go` 随 `runtime_acceptance.py` 退役（其唯一消费方已退役；承接后的 suite 若确需容器内探针，再在 `acceptance/internal/probe` 内新增，不预置）；`start-development-batch.sh` 的校验职责由 `ci/` 或 `make` 目标承载；其余零引用退役 | F3-2、E2-1 | C、E、F |
 
 合计：97 文件 / 17,701 行（与 §1.7 实测一致）。
 
@@ -120,9 +120,14 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 | Windows PowerShell 入口 | `dev.ps1`、`down.ps1`、`verify.ps1` | 零执行调用者：三个文件均只在文档与彼此的一条报错文案中被提及（`dev.ps1:327` 提示用户手工运行 `down.ps1`，不是调用）；能力由 Go/Make 与容器原生栈承载；Windows 原生支持不再声明，边界写入 `capability-status.md` |
 | 零引用或纯转发入口 | `test-lifecycle.sh`、`test-backup-format.sh`、`test-frontends.sh`、`verify-observability-ui.sh`（兼容转发）、`reconcile-plugin-accounts.sh` 以及 G7/G9 内已随能力承接的转发器 | 零执行调用者或唯一职责是转发到本轮已承接/退役的实现；文档引用同步更新 |
 
-**保留 Python 的例外**：治理与版本校验器（`ci/**`，1,316 行）保留 Python 实现。总方案 §3.3 明确其
-"保留为独立步骤，不属于本次清理对象"，§4 的阶段结果也只覆盖"开发、测试、构建或交付步骤"。若后续
-要求连它们也 Go 化，追加子段 F1b（预计 240 / 上限 300），不在本批累计上限内。
+以上五组退役已由用户 2026-10-09 确认（见 §8）；退役后能力边界、重跑前提与替代入口写入
+`capability-status.md`，历史证据不改写。
+
+**保留 Python 的例外（用户 2026-10-09 确认）**：治理与版本校验器（`ci/**`，1,316 行）保留 Python
+实现，只迁移不重写：校验规则与失败语义逐字不变，仅更新必要的路径引用（工具内部路径表、CI 命令、
+规则文档引用），并要求原有 19 个自测与 CI 治理检查全部通过。依据：总方案 §3.3 明确其"保留为独立
+步骤，不属于本次清理对象"，§4 的阶段结果只覆盖"开发、测试、构建或交付步骤"。本批不安排 Go 重写
+（原可选子段 F1b 已按该确认取消）。
 
 ### 1.6 不改变
 
@@ -177,9 +182,12 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
   `test_auto_pr_workflow.py`、`AGENTS.md` 原样迁移到 `ci/`；`governance` job 的 4 条命令与 discovery
   路径、`dev/imple/AGENTS.md`、`dev/phases/AGENTS.md`、`dev/README.md`、`README.md` 的引用同步更新。
 - `quality_scope.py` 的 `scripts/**` 分支（`:207-219`）删除，新增 `ci/**`（治理自测 + 对应检查）与
-  `acceptance/**`（acceptance 模块 + Compose/集成/浏览器按需）映射；未知路径仍保守全量。
-- 迁移只改路径与引用，不改判定逻辑；迁移后 `python3 -m unittest discover -s ci -p 'test_*.py'` 必须
-  与迁移前用例数一致（数量变化须逐项解释）。
+  `acceptance/**`（acceptance 模块 + Compose/集成/浏览器按需）映射；未知路径仍保守全量。`acceptance/**`
+  的映射在段 B 模块落地时先就地补上（避免每个 acceptance 改动都触发保守全量），迁移在段 E 完成。
+- 迁移只改路径与引用，不改判定逻辑：`validate_branch.py:27,42`、`test_validate_branch.py:99`、
+  `quality_scope.py:160` 的 `AGENTS.md` 路径表同步改为 `ci/AGENTS.md`（该文件仍被工具作为规则文档读取）；
+  迁移后 `python3 -m unittest discover -s ci -p 'test_*.py'` 必须与段 A 采集的 19 模块基线逐模块、
+  逐用例数一致（随能力退役的删除项按 §1.5 逐项登记差异）。
 
 ### 2.4 验收镜像与浏览器入口
 
@@ -212,7 +220,7 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 | `make -C monitor plugin-package-bin` | `scripts/package-redis-exporter.sh` | C | C2-6 |
 | `devenv build-cache [--print] [--no-cache]` | 同上（本机与 CI 同一实现） | A | A1–A4 |
 | `gopulse-acceptance <subcommand> [--keep] [--receipt PATH] [--manifest PATH] [--candidate VER]` | 上述各脚本的 CLI 表面 | B–D | 全部真实门禁 |
-| `ci/{validate_versions,validate_branch,quality_scope,sync_version_metadata}.py` | `scripts/ci/` 下同名工具（原样迁移） | F | F1-1…F1-4 |
+| `ci/{validate_versions,validate_branch,quality_scope,sync_version_metadata}.py` | `scripts/ci/` 下同名工具（原样迁移） | E | E1-1…E1-4 |
 
 ## 3. 分段执行与强制停点
 
@@ -221,14 +229,17 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 
 | 段 | 范围 | 预计 / 上限 | 强制停点产物 |
 | --- | --- | --- | --- |
-| A | 构建缓存承接（G1）与 CI 面基线 | 120 / 180 | A1–A5 通过；CI 面基线清单 |
+| A | 构建缓存承接（G1）与 CI 面基线 | 120 / 180 | A1–A6 通过；CI 面与治理基线清单 |
 | B | Compose 全栈闭包承接（G3、G4 的 `release_candidate_env`） | 240 / 300（B1/B2 各 ≤180） | B1–B6 通过；`make verify-compose` 真实闭包回执 |
 | C | 业务与可观测专项承接（G5、G6、G7、G2、G4、G12） | 420 / 540（C1 130/180、C2 150/180、C3 110/180、C4 30/120） | C1-1…C4-3 通过；各 suite 真实回执 |
 | D | 产品生命周期承接与验收镜像入口（G8、G9 的 entrypoint） | 150 / 180 | D1-1…D2-2 通过；隔离安装回执 |
-| E | 历史矩阵、交付库与零引用退役（G9、G10、G13、G14 的退役部分） | 120 / 180 | E1-1…E3-2 通过；活引用 0 证明 |
-| F | 治理工具迁移与文档收口（G11、G14 的迁移部分） | 120 / 180 | F1-1…F3-2 通过；文档 0 处旧命令 |
-| G | §4 五条全量复验（全新检出、冻结候选） | 180 / 240 | C1–C5 全部通过并留原始回执 |
+| E | 治理工具迁移与文档收口（G11、G14 的迁移部分） | 120 / 180 | E1-1…E3-2 通过；19 个自测在 `ci/` 的等价证明（含删除项的逐项差异）；文档 0 处旧命令 |
+| F | 历史矩阵、交付库与零引用退役（G9、G10、G13、G14 的退役部分） | 120 / 180 | F1-1…F3-2 通过；活引用 0 证明 |
+| G | §4 五条全量复验（全新检出、冻结候选） | 180 / 240 | G1–G5 全部通过并留原始回执 |
 | H | 全量删除与阶段收口 | 90 / 120 | `scripts/` 0 文件；CI 绿；日志、`VERSION=2.5.5`、完成提交 |
+
+执行顺序为 A→B→C→D→E→F→G→H：治理迁移（E）刻意排在退役（F）之前，先证明迁移后原有自测在 `ci/`
+全部通过，再删除随能力退役的测试模块并逐项登记差异；避免"先删后迁"使迁移等价性失去可运行基线。
 
 ## 4. 验证映射与固定门禁
 
@@ -259,6 +270,7 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 | A3 | 单测覆盖 7 条行为 | `make test MODULE=devtools`、`make race MODULE=devtools`、`make check MODULE=devtools` | 冷构建、过滤等价、缓存失败重试一次、重试失败原样传播（23）、编译器失败不重试（17）、`--no-cache`、`--print` 全部有对应用例 |
 | A4 | 真实 bake 可用 | 真实 `devenv build-cache --print` 后对 1 个目标 `docker buildx bake --load`（如 frontend，参考 37 s） | 退出 0，产出镜像；缓存类失败路径在真实环境不误判 |
 | A5 | CI 切换 | `action.yml` 改为 `make build-images CACHE=gha`；`cache-warm.yml:18` 路径过滤改 `devtools/**`；两个 job 加 `setup-go` | YAML 可解析；`grep -c compose_build_cache .github/ Makefile` = 0；CI 结果在段 G/H 的分支运行中确认 |
+| A6 | 治理与 CI 面基线采集 | `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`（记录 19 个模块与逐模块用例数）；`quality-gates.yml` governance 的 4 条校验器命令及其退出码；`quality-gates.yml:379` 的 17 个 `bash -n` 脚本清单；`:382-390` 的 9 个 `--self-test` 清单；`:392-405` 的 Compose 渲染断言命令 | 基线清单写入实施日志，作为段 E 迁移等价与段 F 退役差异的比对基准；本段只采集不修改 |
 
 **段 B（Compose 全栈闭包）**
 
@@ -269,7 +281,7 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 | B3 | 业务路径真实通过 | `make verify-compose`（默认全栈） | 退出 0；15 个断言组全过；11 次验收容器运行；`--keep` 时现场保留、默认清理后无容器/网络残留、命名卷按合同处理 |
 | B4 | 全量观测路径真实通过 | `make verify-compose SCOPE=observability` | 退出 0；40 个断言组（含 candidate 模式、隔离/权限/挂载、凭据扫描、插件矩阵）全过；24 次验收容器运行 |
 | B5 | 失败注入 | 占用回环端口、未归属项目同名、构建失败各一次 | 均非零退出、只清理自有资源、既有项目不被触碰、诊断可操作 |
-| B6 | CI 切换 | `quality-gates.yml:350-362` 改 `make verify-compose`（加 `setup-go`）；`test_auto_pr_workflow.py` 的断言同步 | YAML 可解析；CI `compose-full-stack` job 绿（段 G/H 的分支运行） |
+| B6 | CI 切换 | `quality-gates.yml:350-362` 改 `make verify-compose`（加 `setup-go`）；`scripts/ci/test_auto_pr_workflow.py:50,52` 的断言**先就地同步**（该文件在段 E 才迁移） | YAML 可解析；`make test`/discovery 中该模块绿；CI `compose-full-stack` job 绿（段 G/H 的分支运行） |
 
 **段 C（业务、可观测与专项）**
 
@@ -290,21 +302,24 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 | D1-7 | 复用安装 | `make verify-lifecycle INSTALL=reuse MANIFEST=…` 的前置与 `/login`、`/admin/` 200 断言等价 |
 | D2-1…D2-2 | 验收镜像入口改造 | 不再 COPY `scripts/`；`docker compose --profile acceptance run --rm --no-deps acceptance e2e/compose-smoke.spec.ts` 通过 |
 
-**段 E（历史矩阵、交付库与零引用退役）**
+**段 E（治理迁移与文档）**
 
 | 编号 | 判据 | 期望结果与证据 |
 | --- | --- | --- |
-| E1-1…E1-4 | 退役集合逐项核对 | 13 文件 / 1,063 行与工作树逐文件一致；无活导入；`python3 -m unittest discover`（迁移后 `ci/`）用例数变化逐项解释；`grep -rn 'phase1[67]' .github Makefile */Makefile acceptance ci devtools lifecycle` 无活引用 |
-| E2-1…E2-3 | 交付库退役 | `release_artifacts` / `release_manifest` / `release_candidate_env` 活导入 0（`grep -rn` 证明）；`make package` 与 `gopulse-package env` 回归通过；`make package` 第二次数值错误（拒绝覆盖）仍为退出 2 |
-| E3-1…E3-2 | 零引用与 Windows 退役 | `git grep` 证明 0 执行调用者；文档引用已改写；`testdata` 夹具迁入后 `make test MODULE=backend` 与 `make test MODULE=acceptance` 通过 |
+| E1-1 | 迁移等价（19 个自测） | `python3 -m unittest discover -s ci -p 'test_*.py'`：迁移后仍存在的模块逐个模块、逐个用例数与段 A 基线一致且全绿；随能力退役而不再存在的模块逐项登记（模块 → 退役能力 → 删除用例数 → §1.5 依据），不得出现"未解释的减少" |
+| E1-2 | 规则与失败语义不变 | 逐条对照：合规分支通过、不合规分支名非零退出且消息类别不变（`validate_branch.py` 的 development 与 completion 两种模式）；`VERSION` 不一致仍非零（`validate_versions.py`）；`quality_scope.py` 的 JSON 键、`acceptance/**` / `ci/**` / `devtools/**` / 未知路径选择与保守全量语义一致；`sync_version_metadata.py` 幂等 |
+| E1-3 | 路径表与规则引用已同步 | `validate_branch.py:27,42`、`test_validate_branch.py:99`、`quality_scope.py:160` 指向 `ci/AGENTS.md`（该文件仍被作为规则文档读取）；`grep -rn 'scripts/AGENTS.md' .github ci dev/imple/AGENTS.md dev/phases/AGENTS.md` 无命中（历史方案与日志不改写） |
+| E1-4 | CI 治理检查通过 | `develop/2.5.5` 上 governance job 绿：4 条校验器命令与 `ci/` discovery 全部实际执行；`validate_branch.py --mode development` 在 `develop/2.5.5` 通过 |
+| E2-1 | 文档 0 处旧命令 | `grep -rn 'scripts/' README.md */README.md 使用手册.md dev/validation dev/operations dev/contracts`（排除历史日志与 `dev/imple/**`）无遗留可执行命令 |
+| E3-1…E3-2 | CI 步骤替换 | 原 `scripts-and-compose` job 改名并改跑 `acceptance` 模块检查 + Compose 渲染断言；Runner 的 `bash -n` / `--self-test` 步骤删除；YAML 可解析 |
 
-**段 F（治理迁移与文档）**
+**段 F（历史矩阵、交付库与零引用退役）**
 
 | 编号 | 判据 | 期望结果与证据 |
 | --- | --- | --- |
-| F1-1…F1-4 | 迁移等价 | `ci/` 下 4 个校验器 + 自测原样运行；`python3 -m unittest discover -s ci -p 'test_*.py'` 与迁移前用例数一致；`quality_scope.py` 对 `acceptance/**`、`ci/**`、`devtools/**` 选择正确；`validate_branch.py --mode development` 在 `develop/2.5.5` 通过 |
-| F2-1 | 文档 0 处旧命令 | `grep -rn 'scripts/' README.md */README.md 使用手册.md dev/validation dev/operations dev/contracts`（排除历史日志与 `dev/imple/**`）无遗留可执行命令 |
-| F3-1…F3-2 | CI 步骤替换 | `scripts-and-compose` job 改名并改跑 `acceptance` 模块检查 + Compose 渲染断言；Runner 的 `bash -n` / `--self-test` 步骤删除；YAML 可解析 |
+| F1-1…F1-4 | 退役集合逐项核对 | 13 文件 / 1,063 行与工作树逐文件一致；无活导入；`ci/` discovery 的用例数变化与段 E 登记一致；`grep -rn 'phase1[67]' .github Makefile */Makefile acceptance ci devtools lifecycle` 无活引用 |
+| F2-1…F2-3 | 交付库退役 | `release_artifacts` / `release_manifest` / `release_candidate_env` 活导入 0（`grep -rn` 证明）；`make package` 与 `gopulse-package env` 回归通过；`make package` 第二次数值错误（拒绝覆盖）仍为退出 2 |
+| F3-1…F3-2 | 零引用与 Windows 退役 | `git grep` 证明 0 执行调用者；文档引用已改写；`testdata` 夹具迁入后 `make test MODULE=backend` 与 `make test MODULE=acceptance` 通过 |
 
 **段 H（删除与收口）**
 
@@ -322,11 +337,11 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 
 | 编号 | 判据 | 命令 / 方式 | 期望结果与证据 |
 | --- | --- | --- | --- |
-| C1 | 启动开发环境并安全停止 | `make deps`（两次）→ `make dev` → 端点 2xx → `make stop` → `make dev-observe` → `make stop` | 依赖健康且幂等；停止后无本工作区容器/网络，命名卷保留，端口可重新绑定；不存在未归属资源被误删 |
-| C2 | 模块、集成与浏览器测试 | `make test MODULE=<17 模块>`、`make check-all`、`make integration SCOPE=business\|observe`、`make e2e SCOPE=business\|observe`；并发第二次 `make integration` | 全过；并发第二次在锁处立即非零且互不干扰；真实回执 `status=passed`、0 残留 |
-| C3 | CI 使用相同入口 | 推送 `develop/2.5.5` 后核对全部 job | 全绿；产品 job 均调用 Make 目标；`grep -rn 'python3 scripts/' .github` = 0；治理 job 只调用 `ci/` |
-| C4 | 生成 Bundle 并隔离安装 | `make package PLATFORM=linux/amd64 RUNTIME=1` → `make verify-lifecycle INSTALL=clean MANIFEST=dist/release-manifest.json PLATFORM=linux/amd64` | Bundle/manifest/摘要产出；隔离安装 14 条退出码一致、卸载后无残留 |
-| C5 | 失败非零退出并清理本次资源 | 端口占用、依赖未就绪、测试失败、构建失败、非法 `VERSION`、未知 scope | 逐一非零退出、只清理本次资源、诊断可操作 |
+| G1 | 启动开发环境并安全停止 | `make deps`（两次）→ `make dev` → 端点 2xx → `make stop` → `make dev-observe` → `make stop` | 依赖健康且幂等；停止后无本工作区容器/网络，命名卷保留，端口可重新绑定；不存在未归属资源被误删 |
+| G2 | 模块、集成与浏览器测试 | `make test MODULE=<17 模块>`、`make check-all`、`make integration SCOPE=business\|observe`、`make e2e SCOPE=business\|observe`；并发第二次 `make integration` | 全过；并发第二次在锁处立即非零且互不干扰；真实回执 `status=passed`、0 残留 |
+| G3 | CI 使用相同入口 | 推送 `develop/2.5.5` 后核对全部 job | 全绿；产品 job 均调用 Make 目标；`grep -rn 'python3 scripts/' .github` = 0；治理 job 只调用 `ci/` |
+| G4 | 生成 Bundle 并隔离安装 | `make package PLATFORM=linux/amd64 RUNTIME=1` → `make verify-lifecycle INSTALL=clean MANIFEST=dist/release-manifest.json PLATFORM=linux/amd64` | Bundle/manifest/摘要产出；隔离安装 14 条退出码一致、卸载后无残留 |
+| G5 | 失败非零退出并清理本次资源 | 端口占用、依赖未就绪、测试失败、构建失败、非法 `VERSION`、未知 scope | 逐一非零退出、只清理本次资源、诊断可操作 |
 
 **失败分类**：产品失败（断言不等价、归属或清理错误、真实集成/浏览器失败）修最小受影响层并只重验
 受影响门禁；验收基础设施失败（Docker daemon、registry、网络、runner 资源）先做最小复现，第一次即
@@ -350,8 +365,9 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
 **完成条件**（缺一不可）：
 
 1. `git ls-files scripts` 为空且工作树中不存在 `scripts/` 目录；`dev/**` 之外的 `scripts/` 活引用为 0；
-2. §4.3 段门禁 A1–H5 全部通过；未开始、待核对或未通过的项一律计为未完成，不得计入完成；
-3. §4.4 的 C1–C5 在全新检出、冻结候选上全部通过并留原始回执；
+2. §4.3 段门禁全部通过（A1–A6、B1–B6、C1-1…C4-3、D1-1…D2-2、E1-1…E3-2、F1-1…F3-2、H1–H5）；
+   未开始、待核对或未通过的项一律计为未完成，不得计入完成；
+3. §4.4 的 G1–G5（五条判据）在全新检出、冻结候选上全部通过并留原始回执；
 4. 每个被删除文件都有承接目标或 §1.5 的退役依据，并已写入 `capability-status.md`（含能力边界与
    Python 保留例外）；
 5. `VERSION` / `.env.example` / 4 个前端包文件 / `deploy/runtime-contracts.json` 同步为 `2.5.5`，
@@ -373,15 +389,16 @@ Compose 承载，或由本方案登记的退役决定正式退役；并在该终
   完成提交。续做需修订的有界方案与用户明确指示；已删除文件与已通过门禁不回滚、不重做。
 
 **接续粒度**：按段 A–H 恢复，段内不提供更细粒度恢复（不承诺不存在的 `--resume`）。段间依赖：
-B 依赖 A 的 CI 面基线；C 依赖 B 的编排核心（同模块共享 harness）；D 依赖 B/C 的 harness；G 依赖
-A–F 全部完成；H 依赖 G 通过。
+B 依赖 A 的 CI 面基线；C 依赖 B 的编排核心（同模块共享 harness）；D 依赖 B/C 的 harness；E 依赖 A
+采集的治理与 CI 基线；F 依赖 E 的迁移结果（退役模块从 `ci/` 删除并与 E1-1 的差异登记一致）；
+G 依赖 A–F 全部完成；H 依赖 G 通过。
 
 ## 7. 与其他文件的关系
 
 - 承总方案 §4：五条判据在段 G 全量复验通过后才执行段 H 的删除；本方案同步修订总方案 §2/§5.1/§5.4/§6。
 - 承 23-02 §6 与 23-03 §6 的接续项：`compose_build_cache.py` 原生承接（段 A）、`package-redis-exporter.sh`
   与 `monitor_input_digest`（段 C）、Python 退役汇总（段 H，`capability-status.md`）。
-- 承 23-04 §6 的 7 个接续项：交付库退役（段 E2）、`verify-compose*.sh` 与生命周期验收承接（段 B/D）、
+- 承 23-04 §6 的 7 个接续项：交付库退役（段 F2）、`verify-compose*.sh` 与生命周期验收承接（段 B/D）、
   arm64 措辞统一（段 D 回执）、`rabbish/PLAN-closeout-2026-10-09.md` 重新取证（本方案 §1.5 已从工作树
   重建 13 文件 / 1,063 行清单，并核对与总方案 §5.4 一致；该文件实际位于仓库外 scratch 路径
   `/home/ray/rabbish/PLAN-closeout-2026-10-09.md`，不是仓库路径，不作为权威依据）。
@@ -397,8 +414,9 @@ A–F 全部完成；H 依赖 G 通过。
 | 批次范围 | 用户明确要求 **23-05 全部完成**：不做"先收口、后续批次再迁"的拆分，也不退役仍在使用的验收能力来换速度。本方案据此把 97 文件全部纳入删除台账 |
 | 预算登记 | 单批长时文件：预计 1,440 / 累计上限 1,920 分钟，段边界强制停点。依据：CI 仍依赖的 `verify-compose*.sh`（1,242 行）与业务/可观测专项（G5+G6+G7 共 8,301 行）必须原生承接；实测吞吐（23-03 在 225 分钟内完成约 3,000 行 Go 与全部门禁；23-04 在 95 分钟内完成约 2,500 行 Go 与真实安装）给出 1,200–1,500 行/小时的参考 |
 | 承接架构 | 新增 `acceptance` 模块承载验收编排与断言；不把验收逻辑塞进 `devtools`（其职责是本机开发环境），也不新增多个执行器（`ci/AGENTS.md` §3） |
-| 治理工具处置 | 迁移到 `ci/` 并保留 Python：总方案 §3.3 明确其不属于本次清理对象；Go 重写登记为可选子段 F1b（240/300），需用户明确指示才执行 |
-| 历史矩阵退役 | Phase 16/17（13 文件 / 1,063 行）依据 `capability-status.md:54` 的既有用户决定退役；Phase 13/14/15 历史闭包路径与 Phase 17/21 运行时矩阵按 §1.5 新增登记退役。三项退役在本方案获批时一并生效 |
+| 治理工具处置（用户 2026-10-09 确认） | 保留 Python 并迁移到 `ci/`：只更新必要的路径引用，校验规则与失败语义逐字不变，原有 19 个自测与 CI 治理检查全部通过。不做 Go 重写（原可选子段 F1b 取消）。理由：总方案 §3.3 明确其不属于本次清理对象；重写 1,316 行门禁逻辑会引入影响每个 PR 的回归风险而无能力收益 |
+| 历史矩阵退役（用户 2026-10-09 确认） | Phase 16/17（13 文件 / 1,063 行）依据 `capability-status.md:54` 的既有用户决定退役；Phase 13/14/15 历史闭包路径与 Phase 17/21 运行时矩阵按 §1.5 新增登记退役；PowerShell 三个入口按零活引用退役。三组退役自本方案确认起生效 |
+| 执行顺序 | 治理迁移（段 E）先于退役（段 F）：先证明迁移后原有自测在 `ci/` 全部通过，再删除随能力退役的测试模块并逐项登记差异；避免"先删后迁"使迁移等价性失去可运行基线 |
 | PowerShell 退役 | 零活引用；不再声明 Windows 原生入口，能力边界写入 `capability-status.md` |
 | 哈希与字节一致性 | Go 与 Python 在 JSON 键顺序/转义上的差异不作为门禁；等价性以同一制品上的语义与断言语义为准（沿用 23-04 偏差 3 的处理） |
 | 可拆分为多批 | 若执行中发现单批过长，段边界即批次边界：`A+B`（2.5.5）、`C`（2.5.6）、`D+E+F`（2.5.7）、`G+H`（2.5.8）；拆分只需改总方案 §2/§5.1，不需改写本文件 |
