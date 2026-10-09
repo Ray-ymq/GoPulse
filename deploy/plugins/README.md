@@ -68,8 +68,8 @@ Router 只放行固定 source。存储 label 为 `source`、`target_id=<source>-
 不存 producer version label。Redis 历史存储身份保持不变。
 
 ```bash
-bash scripts/package-redis-exporter.sh --source mysql --version 1.11.2
-bash scripts/package-redis-exporter.sh --source rabbitmq --version 1.11.2
+make package-plugin SOURCE=mysql VERSION=1.11.2
+make package-plugin SOURCE=rabbitmq VERSION=1.11.2
 bash scripts/verify-plugin-metrics.sh --sources mysql,rabbitmq
 ```
 

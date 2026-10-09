@@ -19,7 +19,7 @@ go run ./cmd/redis-exporter
 
 `GOPULSE_RUNTIME_MODE` defaults to `host`. Host mode requires `REDIS_EXPORTER_HTTP_HOST` and `REDIS_HOST` to remain loopback; container mode accepts `0.0.0.0` plus validated service DNS such as `redis`, while rejecting fixed IPs, `host.docker.internal`, control characters, and unknown modes. The Exporter managed by Monitor intentionally still uses `127.0.0.1:9121` inside the Monitor container, so only its parent can scrape it. The standalone `exporter` Compose profile uses the same binary in `gopulse/redis-exporter:<VERSION>` and exposes port 9121 only to the internal `business` network.
 
-The final image runs `/usr/local/bin/gopulse-redis-exporter` as numeric user `10004:10001`, uses a read-only root filesystem, and publishes no host port. `scripts/package-redis-exporter.sh --binary ... --arch ...` can package an already-built executable deterministically. The Monitor image uses that path during its build, and acceptance verifies that the package entrypoint digest equals the standalone image binary digest.
+The final image runs `/usr/local/bin/gopulse-redis-exporter` as numeric user `10004:10001`, uses a read-only root filesystem, and publishes no host port. `make package-plugin BINARY=... ARCH=...` can package an already-built executable deterministically. The Monitor image uses the same Go packager during its build, and acceptance verifies that the package entrypoint digest equals the standalone image binary digest.
 
 ## Endpoints
 
@@ -76,13 +76,13 @@ connection-test API; the command itself never manages persistent plugin state.
 An explicit v2 package can be prepared with:
 
 ```bash
-bash scripts/package-redis-exporter.sh --contract-version 2 --version 1.11.1 \
-  --output .run/packages/redis-v2.tar.gz
+make package-plugin CONTRACT_VERSION=2 VERSION=1.11.1 \
+  OUTPUT=.run/packages/redis-v2.tar.gz
 ```
 
 This uses the Monitor module's canonical schema generator and requires Go even
-with `--binary`. The archive contains only the manifest, schema and executable;
-it contains no configuration instance or credentials. The default is now v2. Use `--contract-version 1` only when reproducing an
+with `BINARY=`. The archive contains only the manifest, schema and executable;
+it contains no configuration instance or credentials. The default is now v2. Use `CONTRACT_VERSION=1` only when reproducing an
 explicitly supported historical package from its original source and toolchain. Package metadata and
 checksums do **not** establish release trust: the v2 artifact must still be pinned
 in an image-built release catalog before a manager can execute it. The batch development record contains the separate runtime and migration

@@ -34,8 +34,9 @@ transactions 仅表示显式命令数，不代表 autocommit 或所有引擎事�
 
 ```bash
 (cd exporters/mysql && go test ./...)
-bash scripts/package-redis-exporter.sh --source mysql --version 1.11.2
+make package-plugin SOURCE=mysql VERSION=1.11.2
 ```
 
-包构建入口保留历史文件名，`--source` 只放行 redis/mysql/rabbitmq；新插件仅支持 Manifest v2。
+包构建入口是 `monitor/cmd/plugin-package`（`make package-plugin` 转发），`SOURCE` 只放行
+redis/mysql/rabbitmq/kafka/elasticsearch/victoriametrics；新插件仅支持 Manifest v2。
 账号交付入口与新卷/旧卷流程见 `deploy/plugins/README.md`。
