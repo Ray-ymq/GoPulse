@@ -15,8 +15,17 @@ const prefix = "io.gopulse.lifecycle."
 func (c *Controller) labels(resource string) map[string]string {
 	return map[string]string{prefix + "installation": c.state.Token, prefix + "manifest": c.manifestHash, prefix + "resource": resource}
 }
+
+// composeAliases resolves runtime service names to one released image.
+// Every alias of the delivery-side table must be covered here, plus the edge
+// service that the bundle derives from the frontend service.
+var composeAliases = map[string]string{"edge": "frontend", "backend-2": "backend", "platform-api": "backend",
+	"business-worker-2": "business-worker", "search-indexer-2": "search-indexer", "router-2": "router",
+	"marshaller-2": "marshaller", "observability-elasticsearch": "elasticsearch",
+	"migrate": "backend", "search-init": "backend", "admin-role": "backend", "kafka-init": "kafka"}
+
 func (c *Controller) prepare() error {
-	aliases := map[string]string{"edge": "frontend", "backend-2": "backend", "platform-api": "backend", "migrate": "backend", "search-init": "backend", "admin-role": "backend", "kafka-init": "kafka"}
+	aliases := composeAliases
 	for name, raw := range c.services {
 		if name == "lifecycle" {
 			delete(c.services, name)

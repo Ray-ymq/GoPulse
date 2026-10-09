@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Ray-ymq/GoPulse/lifecycle/internal/packaging"
 	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
 )
 
@@ -50,5 +51,16 @@ func TestPrepareResolvesBackendAliasesAndPreservesRuntimeLabels(t *testing.T) {
 	platformLabels := services["platform-api"].(map[string]any)["labels"].(map[string]any)
 	if platformLabels["io.gopulse.runtime.role"] != "platform-api" {
 		t.Fatalf("platform role label was overwritten: %#v", platformLabels)
+	}
+}
+
+func TestComposeAliasesCoverDeliveryAliasesAndEdge(t *testing.T) {
+	for service, logical := range packaging.ComposeImageAliases() {
+		if composeAliases[service] != logical {
+			t.Errorf("%s must resolve to %s, got %q", service, logical, composeAliases[service])
+		}
+	}
+	if composeAliases["edge"] != "frontend" {
+		t.Errorf("edge must resolve to frontend, got %q", composeAliases["edge"])
 	}
 }

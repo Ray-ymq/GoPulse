@@ -46,6 +46,15 @@ var composeImageAliases = map[string]string{
 	"kafka-init":                  "kafka",
 }
 
+// ComposeImageAliases returns a copy of the delivery-side runtime alias table.
+func ComposeImageAliases() map[string]string {
+	out := make(map[string]string, len(composeImageAliases))
+	for name, logical := range composeImageAliases {
+		out[name] = logical
+	}
+	return out
+}
+
 var (
 	registryNamespace = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.:-]*(/[a-z0-9._-]+)*$`)
 	platformArgument  = regexp.MustCompile(`^linux/(amd64|arm64)(,linux/(amd64|arm64))?$`)
