@@ -94,7 +94,7 @@ The previous container and release paths remain explicit:
 | Plugin lifecycle and exporter contracts | `scripts/verify-plugin-state.sh`, `scripts/verify-exporter.sh`, `scripts/verify-monitor.sh` |
 | Alert evaluation and management state | `scripts/verify-alerts.sh`, `scripts/ci/verify_dashboard.py`, `scripts/verify-role-management.sh` |
 | Recovery and persistence | `scripts/ci/verify_current_recovery.py`, `dev/operations/backup-restore.md` |
-| Capacity and long-window experiments | `scripts/verify-phase18-business-scale.sh`, `scripts/verify-phase18-observability-scale.sh`, `dev/validation/Phase-19/`, `dev/validation/Phase-20/` |
+| Capacity and long-window experiments | `dev/validation/Phase-19/`, `dev/validation/Phase-20/` (the Phase 18–20 formal executors are retired; see [capability status](dev/status/capability-status.md)) |
 | Bundle/release and evidence | `scripts/verify-release-artifacts.sh`, `scripts/ci/release_artifacts.py`, `.github/workflows/release-candidate.yml` |
 
 The default native user edge is [http://127.0.0.1:15173](http://127.0.0.1:15173)

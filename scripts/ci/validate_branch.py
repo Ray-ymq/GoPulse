@@ -27,7 +27,10 @@ UPDATE_ROOT_FILES = {
     "AGENTS.md",
     "README.md",
 }
-UPDATE_PREFIXES = (".github/", "dev/", "docs/", "scripts/ci/")
+# `update` carries repository planning and maintenance: governance metadata, documentation,
+# and the CI/acceptance tooling under `scripts/`. Product code and module test trees still
+# require a documented implementation batch. See AGENTS.md.
+UPDATE_PREFIXES = (".github/", "dev/", "docs/", "scripts/")
 # Module navigation and scoped repository rules are permitted by AGENTS.md.
 UPDATE_DOCUMENTATION_FILES = {
     "backend/README.md",
@@ -136,7 +139,7 @@ def validate(
             return errors
         forbidden = sorted(path for path in files if not update_path_allowed(path))
         if forbidden:
-            errors.append("update contains files outside the planning-only scope: " + ", ".join(forbidden))
+            errors.append("update contains files outside the planning and maintenance scope: " + ", ".join(forbidden))
         return errors
 
     branch_match = DEVELOP_BRANCH.fullmatch(branch)

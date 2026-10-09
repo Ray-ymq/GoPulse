@@ -192,15 +192,16 @@ third time. `target_met`, `boundary_found`, and `execution_failed` are honest
 result classifications; a boundary or execution failure remains valid evidence
 when both runs and their receipts are complete.
 
-Use the following commands for the fixed contract and evidence gates:
+Use the following command for the fixed contract gate:
 
 ```bash
 scripts/verify-runtime-contracts.sh --candidate 2.0.5
-scripts/verify-phase18-scale-closure.sh --repetitions 2
-python3 scripts/verify-phase18-evidence.py --closure <closure-directory>
 ```
 
-The closure verifier rejects missing run-2 evidence, any run-3 artifact,
-candidate drift, mismatched numeric averages, command failures without retained
-failure records, and ledger entries outside the Phase-18-05 file scope. It does
-not infer successful capacity from a failed or boundary run.
+The Phase-18-05 closure gate (`scripts/verify-phase18-scale-closure.sh --repetitions 2`
+followed by `python3 scripts/verify-phase18-evidence.py --closure <closure-directory>`) is
+retired together with the Phase 18-20 formal matrix. It rejected missing run-2 evidence, any
+run-3 artifact, candidate drift, mismatched numeric averages, command failures without retained
+failure records, and ledger entries outside the Phase-18-05 file scope, and never inferred
+successful capacity from a failed or boundary run. Source and original receipts remain in Git
+history and [Phase-18 logs](../../logs/Phase-18/).
