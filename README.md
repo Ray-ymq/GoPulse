@@ -100,7 +100,7 @@ The previous container and release paths remain explicit:
 | Alert evaluation and management state | `scripts/verify-alerts.sh`, `scripts/ci/verify_dashboard.py`, `scripts/verify-role-management.sh` |
 | Recovery and persistence | `scripts/ci/verify_current_recovery.py`, `dev/operations/backup-restore.md` |
 | Capacity and long-window experiments | `dev/validation/Phase-19/`, `dev/validation/Phase-20/` (the Phase 18–20 formal executors are retired; see [capability status](dev/status/capability-status.md)) |
-| Bundle/release and evidence | `scripts/verify-release-artifacts.sh`, `scripts/ci/release_artifacts.py`, `.github/workflows/release-candidate.yml` |
+| Bundle/release and evidence | `make package` ([gopulse-package](lifecycle/cmd/gopulse-package/main.go)), `.github/workflows/release-candidate.yml` |
 
 The default native user edge is [http://127.0.0.1:15173](http://127.0.0.1:15173)
 for test browser runs; development uses the configured `FRONTEND_PORT` (5173 by

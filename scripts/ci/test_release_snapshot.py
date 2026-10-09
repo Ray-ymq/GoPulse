@@ -1,12 +1,9 @@
 """Regression for digest-only image snapshots and cleanup's masked exit status."""
-import contextlib
-import io
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from verify_release_artifacts import run_compose_gate
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -35,9 +32,3 @@ if assert_snapshot_preserved; then exit 0; else exit 17; fi
             result=subprocess.run(['bash','-c',script],env={**os.environ,'SNAPSHOT_DIR':directory,'REPO_ROOT':directory},capture_output=True,text=True)
             self.assertEqual(result.returncode,17)
             self.assertIn('mapping changed: bad',result.stderr)
-
-    def test_runtime_gate_rejects_logged_error_with_zero_exit(self):
-        with contextlib.redirect_stdout(io.StringIO()):
-            run_compose_gate(['bash','-c','echo "[gopulse-compose] PASS: complete"'],os.environ)
-            with self.assertRaises(RuntimeError):
-                run_compose_gate(['bash','-c','echo "[gopulse-compose] ERROR: fixture"; exit 0'],os.environ)

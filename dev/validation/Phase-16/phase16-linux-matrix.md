@@ -17,7 +17,9 @@ GOPULSE_ACCEPTANCE_IMAGE=sha256:… scripts/verify-release-artifacts.sh \
   --manifest <candidate>/release-manifest.json --platform linux/amd64 --runtime
 ```
 
-该命令包含完整 `scripts/verify-compose.sh`，无需单独重复。成功生成 `verification-amd64.json`。将 Bundle 解压至独立路径（支持空格），同时保留原 tar.gz 供校验；不能直接在构建输出目录安装。
+该命令包含完整 `scripts/verify-compose.sh`，无需单独重复。成功生成 `verification-amd64.json`。
+（Phase-23-04 起交付入口改为原生 `make package RUNTIME=1`：等价地执行同一固定 Compose 闭包并写出同一份
+回执；上方的历史命令保留为 Phase-16 当时的执行记录。）将 Bundle 解压至独立路径（支持空格），同时保留原 tar.gz 供校验；不能直接在构建输出目录安装。
 
 验收 Compose 入口为 `deploy/phase16-acceptance.yaml` 的 `acceptance` profile，避免开发 Compose 的服务依赖、构建定义和私密环境污染矩阵 runner：
 
