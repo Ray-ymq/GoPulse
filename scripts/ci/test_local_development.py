@@ -15,7 +15,6 @@ import unittest
 
 from local_development import (
     DevelopmentError,
-    MODULES,
     compose_environment,
     check_ports,
     digest_paths,
@@ -157,9 +156,7 @@ class LocalDevelopmentTests(unittest.TestCase):
         finally:
             sock.close()
 
-    def test_module_contract_rejects_unknown_module(self) -> None:
-        self.assertIn("backend", MODULES)
-        self.assertNotIn("unknown", MODULES)
+    def test_compose_environment_rejects_unknown_module(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / ".env.example").write_text("HTTP_PORT=8080\n", encoding="utf-8")
