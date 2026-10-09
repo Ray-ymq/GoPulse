@@ -90,6 +90,8 @@ type ProcessRecord struct {
 // sorted JSON the replaced helper wrote, so old and new receipts stay diffable.
 type State struct {
 	Branch              string                   `json:"branch"`
+	BrowserCommands     [][]string               `json:"browser_commands,omitempty"`
+	BrowserTraces       string                   `json:"browser_traces,omitempty"`
 	ComposeDigest       string                   `json:"compose_digest"`
 	ComposeFiles        []string                 `json:"compose_files"`
 	EnvFile             string                   `json:"env_file"`

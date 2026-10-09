@@ -527,8 +527,6 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: Prepare the fixed Linux Monitor input
-        run: make monitor-image
       - name: Run native observability integration
         run: make integration SCOPE=observe
 
@@ -579,7 +577,5 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm exec -- playwright install --with-deps chromium
-      - name: Prepare the fixed Linux Monitor input
-        run: make monitor-image
       - name: Run native observability browser checks
         run: make e2e SCOPE=observe

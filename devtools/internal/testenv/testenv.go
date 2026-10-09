@@ -65,7 +65,7 @@ type session struct {
 
 // newSession merges the test-mode environment contract, writes the private test
 // environment file, and resolves the candidate-scoped Compose command.
-func newSession(root string, observe bool) (*session, error) {
+func newSession(root string, observe bool, overrides map[string]string) (*session, error) {
 	ws, err := workspace.For(root)
 	if err != nil {
 		return nil, err
@@ -73,6 +73,11 @@ func newSession(root string, observe bool) (*session, error) {
 	values, err := envfile.Compose(ws.Root, envfile.ModeTest, "", Environ())
 	if err != nil {
 		return nil, err
+	}
+	// Explicit entry-point values win over the merged contract and reach the
+	// private environment file, the children, and the recorded state alike.
+	for key, value := range overrides {
+		values[key] = value
 	}
 	envFile, err := envfile.WritePrivate(ws.PrivateRoot(), envfile.ModeTest, values)
 	if err != nil {
@@ -138,7 +143,7 @@ func Integration(root, scope string) error {
 	if err != nil {
 		return err
 	}
-	current, err := newSession(root, observe)
+	current, err := newSession(root, observe, nil)
 	if err != nil {
 		return err
 	}
@@ -316,6 +321,12 @@ func (s *session) saveIntegrationState(state *workspace.State) error {
 		"started_at":     state.StartedAt,
 		"processes":      state.Processes,
 		"logs":           state.Logs,
+	}
+	if state.BrowserTraces != "" {
+		document["browser_traces"] = state.BrowserTraces
+	}
+	if len(state.BrowserCommands) > 0 {
+		document["browser_commands"] = state.BrowserCommands
 	}
 	if state.StoppedAt != "" {
 		document["stopped_at"] = state.StoppedAt

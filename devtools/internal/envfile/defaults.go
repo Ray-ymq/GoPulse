@@ -1,6 +1,7 @@
 package envfile
 
-// Ported verbatim from scripts/ci/local_development.py (Phase-22-04 implementation,
+// Ported verbatim from the Python orchestration helper that this batch retired
+// (Phase-22-04 implementation,
 // deleted at the end of this batch) so the merged environment is byte-equivalent:
 // callers keep the same precedence and the test mode keeps the same hard isolation
 // values. Regenerate only from an authoritative source, never by hand.

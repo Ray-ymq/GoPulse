@@ -86,8 +86,8 @@ and `make stop` run the native helper in `devtools`, which owns the workspace
 identity, the private state and environment files, the source processes, and the
 Compose projects. It stops a lifecycle only while the recorded process identity
 still matches, and it never deletes named volumes. The observe entries prepare or
-reuse the content-addressed Monitor image on demand; `make monitor-image` is the
-explicit Linux command for that same preparation. The native entries fail on
+reuse the content-addressed Monitor image on demand, on Linux only. The native
+entries fail on
 unknown modules/scopes, unowned port conflicts, missing dependencies, and
 child-process failures.
 

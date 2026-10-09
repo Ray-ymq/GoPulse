@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -26,12 +27,16 @@ commands:
   dev-observe [--env-file PATH]                       start the observation environment
   stop                                                stop everything this workspace owns
   integration [--scope business|observe]               run one isolated integration scope
-  monitor-image                                       prepare or reuse the Monitor image
+  e2e [--scope business|observe] [--http-port N]      run one isolated browser scope
+      [--frontend-port N] [--admin-frontend-port N]
 `
 
 type options struct {
-	scope   string
-	envFile string
+	scope             string
+	envFile           string
+	httpPort          string
+	frontendPort      string
+	adminFrontendPort string
 }
 
 func main() {
@@ -73,13 +78,9 @@ func run(args []string) int {
 	case "stop":
 		err = devrun.Stop(root)
 	case "integration":
-		scope := parsed.scope
-		if scope == "" {
-			scope = testenv.ScopeBusiness
-		}
-		err = testenv.Integration(root, scope)
-	case "monitor-image":
-		err = devrun.MonitorImage(root)
+		err = testenv.Integration(root, defaultScope(parsed.scope))
+	case "e2e":
+		err = testenv.E2E(root, defaultScope(parsed.scope), parsed.overrides())
 	default:
 		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: unknown command: %s\n%s", command, usage)
 		return 2
@@ -89,6 +90,28 @@ func run(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func defaultScope(scope string) string {
+	if scope == "" {
+		return testenv.ScopeBusiness
+	}
+	return scope
+}
+
+// overrides are the explicit entry-point values an isolated scope accepts.
+func (o options) overrides() map[string]string {
+	values := map[string]string{}
+	for key, value := range map[string]string{
+		"HTTP_PORT":           o.httpPort,
+		"FRONTEND_PORT":       o.frontendPort,
+		"ADMIN_FRONTEND_PORT": o.adminFrontendPort,
+	} {
+		if value != "" {
+			values[key] = value
+		}
+	}
+	return values
 }
 
 func parseOptions(args []string) (options, error) {
@@ -114,10 +137,25 @@ func parseOptions(args []string) (options, error) {
 		switch name {
 		case "--scope":
 			parsed.scope = value
+		case "--http-port":
+			parsed.httpPort = value
+		case "--frontend-port":
+			parsed.frontendPort = value
+		case "--admin-frontend-port":
+			parsed.adminFrontendPort = value
 		case "--env-file":
 			parsed.envFile = value
 		default:
 			return options{}, fmt.Errorf("unknown option: %s", name)
+		}
+	}
+	for _, port := range []string{parsed.httpPort, parsed.frontendPort, parsed.adminFrontendPort} {
+		if port == "" {
+			continue
+		}
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return options{}, fmt.Errorf("port must be an integer from 1 to 65535")
 		}
 	}
 	return parsed, nil
@@ -125,7 +163,7 @@ func parseOptions(args []string) (options, error) {
 
 func isFlagWithValue(name string) bool {
 	switch name {
-	case "--scope", "--env-file":
+	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port":
 		return true
 	}
 	return false

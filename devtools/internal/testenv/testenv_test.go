@@ -64,6 +64,33 @@ func TestIntegrationPortsAreIsolatedPerScope(t *testing.T) {
 	}
 }
 
+func TestE2EPortsIncludeSourceAndBrowserPorts(t *testing.T) {
+	values := envfile.Values{
+		"MYSQL_PORT": "23306", "REDIS_PORT": "26379", "RABBITMQ_PORT": "25672",
+		"RABBITMQ_MANAGEMENT_PORT": "25673", "ELASTICSEARCH_PORT": "29200",
+		"KAFKA_PORT": "19092", "VICTORIAMETRICS_PORT": "18428",
+		"OBSERVABILITY_ELASTICSEARCH_PORT": "29201", "MONITOR_HTTP_PORT": "19090",
+		"ROUTER_HTTP_PORT": "19091", "MARSHALLER_HTTP_PORT": "19093",
+		"REDIS_EXPORTER_HTTP_PORT": "19121", "HTTP_PORT": "18080",
+		"FRONTEND_PORT": "15173", "ADMIN_FRONTEND_PORT": "15174",
+	}
+	business := e2ePorts(values, false)
+	for _, port := range []int{18080, 15173, 19101, 19102, 19103} {
+		if !slices.Contains(business, port) {
+			t.Fatalf("business browser ports %v do not cover %d", business, port)
+		}
+	}
+	if slices.Contains(business, 15174) {
+		t.Fatalf("business browser ports %v must not include the admin Vite port", business)
+	}
+	observe := e2ePorts(values, true)
+	for _, port := range []int{15174, 19090, 19091, 19093, 19121} {
+		if !slices.Contains(observe, port) {
+			t.Fatalf("observe browser ports %v do not cover %d", observe, port)
+		}
+	}
+}
+
 func TestIntegrationLockIsExclusive(t *testing.T) {
 	current := testSession(t, false)
 	release, err := current.lock()

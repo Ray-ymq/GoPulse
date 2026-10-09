@@ -277,19 +277,6 @@ func Stop(root string) error {
 	return nil
 }
 
-// MonitorImage prepares or reuses the Monitor development image. The observe
-// lifecycles call the same function on demand; the explicit entry point stays
-// until its remaining callers migrate to those lifecycles.
-func MonitorImage(root string) error {
-	ws, err := workspace.For(root)
-	if err != nil {
-		return err
-	}
-	current := &session{root: ws.Root, ws: ws, processEnv: Environ(), values: envfile.Values{}}
-	_, err = current.ensureMonitorImage()
-	return err
-}
-
 // environment carries the resolved digests of one lifecycle start.
 type environment struct {
 	environmentDigest string
