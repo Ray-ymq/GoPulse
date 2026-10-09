@@ -26,6 +26,9 @@ MODULES = (
     # participate in the product integration or browser matrices.
     "lifecycle",
     "loadtest",
+    # The native local environment helper drives the integration and browser
+    # matrices, so its own changes select those checks as well.
+    "devtools",
 )
 STANDALONE_MODULES = ("lifecycle", "loadtest")
 CHECKS = MODULES + (
@@ -53,6 +56,7 @@ GO_MODULE_ROOTS = {
     "exporters/victoriametrics": "exporters/victoriametrics",
     "lifecycle": "lifecycle",
     "loadtest": "loadtest",
+    "devtools": "devtools",
 }
 
 DOC_SUFFIXES = (".md", ".markdown", ".rst", ".adoc", ".txt")
@@ -191,13 +195,17 @@ def select(repo: Path, paths: Iterable[str]) -> Scope:
             reasons.append(f"{path}: deployment/container gate")
             continue
 
+        if path.startswith("devtools/"):
+            checks["devtools"] = True
+            checks["integration_business"] = True
+            checks["integration_observe"] = True
+            checks["e2e_business"] = True
+            checks["e2e_observe"] = True
+            reasons.append(f"{path}: native environment helper gate")
+            continue
+
         if path.startswith("scripts/"):
             checks["tools"] = True
-            if path.startswith("scripts/ci/local_development"):
-                checks["integration_business"] = True
-                checks["integration_observe"] = True
-                checks["e2e_business"] = True
-                checks["e2e_observe"] = True
             if "verify-compose" in path or "verify-release" in path:
                 checks["compose"] = True
             if "verify-business" in path:
