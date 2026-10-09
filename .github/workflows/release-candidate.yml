@@ -25,9 +25,12 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      # The runner's default docker driver cannot build multi-platform images;
-      # the delivery chain needs the container driver setup below.
+      # The runner's default docker driver cannot build multi-platform images,
+      # and the container driver must share the host network to reach the
+      # loopback registry the delivery chain starts and removes itself.
       - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
       # One entry point owns the whole chain: it starts and removes its own
       # loopback registry, verifies the real amd64 runtime, records the arm64
       # metadata-only receipt and promotes the same digests.
