@@ -1,13 +1,16 @@
-.PHONY: help dev dev-observe test race check check-all build build-programs build-images package-plugin integration e2e stop monitor-image
+.PHONY: help deps dev dev-observe test race check check-all build build-programs build-images package-plugin integration e2e stop
 
-PYTHON ?= python3
-LOCAL_DEVELOPMENT := $(PYTHON) scripts/ci/local_development.py
+# The development, observation, and stop lifecycles run in the native helper.
+# Building it first keeps the failure exit codes and signal handling intact,
+# which `go run` cannot preserve.
+DEVENV := $(MAKE) --no-print-directory -C devtools build && ./devtools/bin/devenv
 
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
 GO_MODULES := backend componentmetrics router marshaller monitor lifecycle loadtest \
               exporters/elasticsearch exporters/kafka exporters/mysql \
-              exporters/rabbitmq exporters/redis exporters/victoriametrics
+              exporters/rabbitmq exporters/redis exporters/victoriametrics \
+              devtools
 NPM_MODULES := frontend admin-frontend
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 
@@ -19,7 +22,7 @@ IMAGE_TARGETS := backend business-worker search-indexer admin-frontend frontend 
 REQUIRE_MODULE = test -n "$(MODULE)" || { printf '%s\n' '[gopulse] ERROR: MODULE is required, for example make test MODULE=backend' >&2; exit 2; }
 
 help:
-	@printf '%s\n' 'GoPulse commands:' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [IMAGES=name] [DRY_RUN=1]  build the local Compose images' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make e2e [SCOPE=name]     run native business or observability Playwright checks' '  make monitor-image        prepare the explicit Linux Monitor development image' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
+	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [IMAGES=name] [DRY_RUN=1]  build the local Compose images' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make e2e [SCOPE=name]     run native business or observability Playwright checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
 
 test:
 	@$(REQUIRE_MODULE)
@@ -70,20 +73,21 @@ build-images:
 package-plugin:
 	@$(MAKE) --no-print-directory -C monitor package-plugin
 
+deps:
+	@$(DEVENV) deps $(if $(SCOPE),--scope $(SCOPE),)
+
 dev:
-	@$(LOCAL_DEVELOPMENT) dev
+	@$(DEVENV) dev
 
 dev-observe:
-	@$(LOCAL_DEVELOPMENT) dev-observe
+	@$(DEVENV) dev-observe
 
 integration:
-	@$(LOCAL_DEVELOPMENT) integration --scope "$(if $(SCOPE),$(SCOPE),business)"
+	@$(DEVENV) integration --scope "$(if $(SCOPE),$(SCOPE),business)"
 
 e2e:
-	@$(LOCAL_DEVELOPMENT) e2e --scope "$(if $(SCOPE),$(SCOPE),business)"
+	@$(DEVENV) e2e --scope "$(if $(SCOPE),$(SCOPE),business)"
 
 stop:
-	@$(LOCAL_DEVELOPMENT) stop
+	@$(DEVENV) stop
 
-monitor-image:
-	@$(LOCAL_DEVELOPMENT) monitor-image

@@ -24,6 +24,7 @@ class QualityScopeTests(unittest.TestCase):
             "exporters/elasticsearch",
             "exporters/kafka",
             "exporters/victoriametrics",
+            "devtools",
         ):
             path = self.repo / root
             path.mkdir(parents=True)
@@ -45,6 +46,16 @@ class QualityScopeTests(unittest.TestCase):
     def test_documentation_only_does_not_start_product_checks(self) -> None:
         scope = select(self.repo, ["README.md", "dev/validation/local-development-tests.md"])
         self.assertFalse(any(scope.checks.values()))
+
+    def test_native_environment_helper_selects_every_matrix_check(self) -> None:
+        scope = select(self.repo, ["devtools/internal/devrun/devrun.go"])
+        self.assertTrue(scope.checks["devtools"])
+        self.assertTrue(scope.checks["integration_business"])
+        self.assertTrue(scope.checks["integration_observe"])
+        self.assertTrue(scope.checks["e2e_business"])
+        self.assertTrue(scope.checks["e2e_observe"])
+        self.assertFalse(scope.checks["backend"])
+        self.assertFalse(scope.checks["tools"])
 
     def test_single_module_selects_only_that_module(self) -> None:
         scope = select(self.repo, ["monitor/internal/plugin/plugin.go"])
