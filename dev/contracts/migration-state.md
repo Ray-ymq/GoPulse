@@ -27,10 +27,17 @@ up, but up rejects every dirty version except the specifically resumable version
 remain dependent on successful completion of the job; Backend additionally checks
 schema readiness.
 
-`python3 scripts/ci/verify_migration_state.py` tests isolated real MySQL
-empty/concurrent/current/repeat and dirty/ahead refusal. Its receipt is explicitly
-**not** a substitute for the full Phase-17-04 candidate acceptance or the required
-1.13.6 backup/restore upgrade evidence.
+`INTEGRATION_TESTS=1 go -C backend test -tags=integration ./cmd/migrate \
+-run '^TestMigrationStateIntegration$' -count=1 -v -timeout 6m` tests an owned,
+isolated MySQL 8.4.0 container through the real migration CLI. It covers
+empty/concurrent/current/repeat, lock timeout, dirty/ahead refusal, DDL permission
+failure, explicit v12 recovery, exit codes, credential redaction and owner-checked
+container/anonymous-volume cleanup. The test logs a `gopulse.migration-state.v1`
+JSON receipt only after cleanup; it is explicitly **not** a substitute for the full
+Phase-17-04 candidate acceptance or the required 1.13.6 backup/restore upgrade
+evidence. `make integration SCOPE=business` includes this package through the
+existing `go test -tags=integration ./...` entry and still uses its separate shared
+business test environment for the other integration packages.
 
 ## Message processing
 
