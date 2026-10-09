@@ -89,11 +89,13 @@ class BranchGovernanceTests(unittest.TestCase):
         errors = validate(self.repo, "develop/0.1.6", None, [])
         self.assertIn("expected '0.1.6'", errors[0])
 
-    def test_accepts_update_planning_scope(self) -> None:
+    def test_accepts_update_maintenance_scope(self) -> None:
         files = [
             "dev/imple/Phase-01/plan.md",
             ".github/workflows/ci.yml",
             "scripts/ci/validate_branch.py",
+            "scripts/verify-phase18-capacity.sh",
+            "scripts/verify-phase20-evidence.py",
             "AGENTS.md",
             "backend/README.md",
             "admin-frontend/README.md",
@@ -105,10 +107,22 @@ class BranchGovernanceTests(unittest.TestCase):
         self.assertEqual(validate(self.repo, "update", None, files), [])
 
     def test_rejects_update_application_changes_and_version(self) -> None:
-        errors = validate(self.repo, "update", None, ["backend/main.go", "frontend/src/App.vue", "admin-frontend/src/main.ts", "VERSION"])
+        errors = validate(
+            self.repo,
+            "update",
+            None,
+            [
+                "backend/main.go",
+                "frontend/src/App.vue",
+                "admin-frontend/src/main.ts",
+                "deploy/docker/acceptance.Dockerfile",
+                "VERSION",
+            ],
+        )
         self.assertIn("backend/main.go", errors[0])
         self.assertIn("frontend/src/App.vue", errors[0])
         self.assertIn("admin-frontend/src/main.ts", errors[0])
+        self.assertIn("deploy/docker/acceptance.Dockerfile", errors[0])
         self.assertIn("VERSION", errors[0])
 
     def test_rejects_duplicate_authoritative_allocation(self) -> None:
