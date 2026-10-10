@@ -160,7 +160,7 @@ func takeLock(path string) (func(), error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(handle.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		handle.Close()
+		_ = handle.Close()
 		return nil, fmt.Errorf("another %s dependency installation owns the lock", filepath.Base(filepath.Dir(path)))
 	}
 	return func() {

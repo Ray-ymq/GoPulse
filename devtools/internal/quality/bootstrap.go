@@ -100,7 +100,7 @@ func downloadFile(url, path, expectedSHA string) error {
 	if err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s returned HTTP %d", url, response.StatusCode)
 	}
@@ -109,14 +109,14 @@ func downloadFile(url, path, expectedSHA string) error {
 		return err
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
+	defer func() { _ = os.Remove(temporaryPath) }()
 	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
+		_ = temporary.Close()
 		return err
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(temporary, hash), response.Body); err != nil {
-		temporary.Close()
+		_ = temporary.Close()
 		return err
 	}
 	if err := temporary.Close(); err != nil {
@@ -137,7 +137,7 @@ func fileMatchesSHA256(path, expected string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return false, err
@@ -166,12 +166,12 @@ func extractLintBinary(archivePath, directory string) error {
 	if err != nil {
 		return err
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	gzipReader, err := gzip.NewReader(archive)
 	if err != nil {
 		return err
 	}
-	defer gzipReader.Close()
+	defer func() { _ = gzipReader.Close() }()
 	tarReader := tar.NewReader(gzipReader)
 	found := false
 	for {
@@ -191,21 +191,21 @@ func extractLintBinary(archivePath, directory string) error {
 		}
 		temporaryPath := temporary.Name()
 		if _, err := io.Copy(temporary, tarReader); err != nil {
-			temporary.Close()
-			os.Remove(temporaryPath)
+			_ = temporary.Close()
+			_ = os.Remove(temporaryPath)
 			return err
 		}
 		if err := temporary.Chmod(0o700); err != nil {
-			temporary.Close()
-			os.Remove(temporaryPath)
+			_ = temporary.Close()
+			_ = os.Remove(temporaryPath)
 			return err
 		}
 		if err := temporary.Close(); err != nil {
-			os.Remove(temporaryPath)
+			_ = os.Remove(temporaryPath)
 			return err
 		}
 		if err := os.Rename(temporaryPath, filepath.Join(directory, "golangci-lint")); err != nil {
-			os.Remove(temporaryPath)
+			_ = os.Remove(temporaryPath)
 			return err
 		}
 		found = true
@@ -254,7 +254,7 @@ func ensurePlaywright(root, application, browser string) error {
 		return err
 	}
 	if !hasInstalledBrowser(browserRoot, browser) {
-		return fmt.Errorf("Playwright did not install the requested browser %s", browser)
+		return fmt.Errorf("playwright did not install the requested browser %s", browser)
 	}
 	return workspace.SaveJSON(markerPath, map[string]string{"application": application, "browser": browser, "digest": digest})
 }
@@ -287,7 +287,7 @@ func takeQualityLock(path string) (func(), error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(handle.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		handle.Close()
+		_ = handle.Close()
 		return nil, fmt.Errorf("another Playwright installation owns the lock")
 	}
 	return func() {
