@@ -47,17 +47,21 @@
 
 | 命令 | 行为与成功条件 |
 | --- | --- |
-| `make docs-check BASE_REF=upstream/main` | 检查当前入口与当前正文、命令和冻结路径；不安装前端依赖、不启动容器，首次可编译 devenv |
-| `make doctor` | 检查 Go/Node/npm/Python/Docker/Compose，列出实际版本和缺失条件；不启动业务或改全局工具 |
-| `make bootstrap [MODULE=frontend]` | 安装校验过的项目内 lint 工具、前端依赖与 Chromium；MODULE 只准备指定应用 |
+| `make docs-check BASE_REF=upstream/main` | BASE_REF 必填；检查当前入口、正文、命令和冻结 diff，问题非零；不安装前端依赖、不启动容器，首次可编译 devenv |
+| `make doctor` | 检查 Go/Node/npm/Python/Docker daemon/buildx/Compose 必需功能，列出实际版本和缺失条件；缺失非零，不启动业务或改全局工具 |
+| `make bootstrap [MODULE=frontend] [TOOLS_ONLY=1]` | MODULE 仅空/frontend/admin-frontend，空为两应用，均准备 lint；TOOLS_ONLY 只准备 Go lint 且与 MODULE 互斥；版本/SHA/安装错误非零 |
 | `make lint MODULE=backend` | 完整 lint；存在告警非零退出，完整扫描报告写入本次运行目录 |
 | `make lint MODULE=frontend BASE_REF=upstream/main` | 完整扫描，再按共同祖先 diff 分类；新增告警阻断，存量报告不冒充零告警 |
 | `make lint-all` | 扫描全部模块，全部无告警才成功 |
-| `make verify BASE_REF=upstream/main PLAN_ONLY=1` | 只输出模块、必需步骤和选择原因，无测试/容器副作用 |
-| `make verify BASE_REF=upstream/main` | 执行选择范围的既有检查、lint 与真实验证；必需步骤或清理失败均非零退出 |
-| `make verify MODULE=backend` | 只做该模块 check/lint/test/race/build，报告标注模块范围 |
+| `make verify BASE_REF=upstream/main PLAN_ONLY=1` | stdout 单个 gopulse.quality-scope.v1 JSON；无产物、安装、测试/容器副作用 |
+| `make verify BASE_REF=upstream/main` | lint 继承 BASE_REF，只新增阻断；执行共同选择器的必需步骤，缺失、失败或清理失败非零 |
+| `make verify MODULE=backend` | 只做该模块 check/严格 lint/test/race/build；有告警非零，不能代替整批新增门禁 |
+| `make check-compose` | 提取 native-acceptance 的全部 Compose 静态断言为共用入口；只渲染，不代替真实闭包 |
 
-BASE_REF 必须存在，CI 使用 origin/main。verify 的 MODULE 与 BASE_REF 互斥。
+BASE_REF 必须存在，docs-check/verify 的 ref 形式不得省略；CI lint 显式使用 origin/main，
+所有依赖共同祖先的 job checkout 使用 fetch-depth: 0。verify 的 MODULE 与 BASE_REF 互斥。
+边界值、输出字段、check-id→命令、报告生产方和退出语义以
+[实施合同 §3](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#3-接口与行为合同)为准。
 本地范围纳入 tracked 工作区 diff 和模块内新增源码，不能漏掉未提交改动。
 Go 使用 linter 的共同祖先参数；ESLint JSON 按实际文件/行 diff 分类。
 删除、重命名、多提交及主线推进均需验证，不使用仅比较上一提交的 --new。
@@ -72,14 +76,15 @@ Go 使用 linter 的共同祖先参数；ESLint JSON 按实际文件/行 diff �
 | 检查 | 失败条件 |
 | --- | --- |
 | 当前入口与当前正文（含本次未修改的正文，首扫覆盖存量断链）的本地链接、图片、锚点 | 目标/锚点缺失、路径越出仓库；代码示例内的链接文本不当成有效引用 |
-| 当前命令 | 声明的 Make target、MODULE 或 npm script 不存在；拟新增接口仅在标为方案的材料内允许 |
+| 当前命令 | 声明的 Make target、MODULE 或 npm script 不存在；登记的方案正文只有明确的待实现接口白名单可豁免，其他检查继续 |
 | 新文档归属 | 新 Markdown 无法从目录、导航或配置确定正文归属；不能通过忽略整个目录漏检 |
 | 冻结文件 | 相对实际共同祖先的 diff 触及三份冻结原文 |
 | 历史边界 | 当前入口指向已删除文件或没有定位信息的归档；保留的历史正文按原候选解释，不按现行接口强行重验 |
 
 外部链接不在线探测。语义、架构一致性与能力证据仍需人工复核，链接通过不能证明产品完成。
 最低层覆盖正常引用、缺失文件/锚点、重命名、代码块、错误模块/脚本及冻结 diff；
-真实 docs-only CI 只运行治理与文档检查。
+真实 docs-only CI 只运行治理、文档检查和结果汇总。本批待实现接口豁免在 F 删除，
+G09 在没有该豁免的冻结候选上检查；不能整目录忽略方案。
 
 已有调查发现存量断链位于冻结原文、历史日志与评审、已取消方案和已退役执行器引用中。
 docs-check 首扫按材料职责报告现状与本次回归；当前入口的断链仍须修复，
@@ -94,6 +99,8 @@ docs-check 首扫按材料职责报告现状与本次回归；当前入口的断
   Docker/Compose 按必需功能检查；本地受支持的 Go 1.26.x 与固定 CI 版本差异如实报告。
 - lint 二进制固定版本与 SHA256，保存在 .run/tools。Chromium 使用锁定 Playwright 的安装入口。
   宿主库不足明确失败，不自动安装系统软件。
+  CI 以 OS/架构、toolchains 摘要、Go/lint 版本作缓存键，每 job 用 TOOLS_ONLY 再校验；
+  冷 miss 的下载计入 job 时间，不假设不同 runner 共用下载。
 - 前端成功标记绑定 package.json、lockfile、实际 Node/npm、OS/架构。
   目录/标记缺失或摘要变化才 npm ci；失败不写标记，输入未变则复用。
 - 每工作区、每应用独立安装锁；Make、devrun、e2e 共用 frontenddeps。
@@ -108,14 +115,18 @@ Go 首批仅 staticcheck、errcheck、unused；配置版本 2，单模块超时 
 vue/no-mutating-props、vue/no-side-effects-in-computed-properties。保留 vue-tsc/tsc。
 两个配置引用共享纯规则数据，由各应用加载本地插件；D 先验证 Vue/TypeScript parser 兼容并锁定版本。
 
-新增告警阻断，首次全量存量扫描如实登记；不整目录排除、扩大基线或全仓格式重写。
+本批正常门禁只阻断 BASE_REF 分类后的新增及工具/扫描/报告错误。
+严格 lint/lint-all 的存量非零是必须核对条数与退出码的预期行为，不能作为正常 CI 的命令。
+Go 先保存完整扫描，再以同输入缓存分类，配置显式指向根 .golangci.yml；前端保存完整 JSON。
+首次存量如实登记，不预设必然存在；不整目录排除、扩大基线或全仓格式重写。
 行为修复先进入分方案的精确文件与回归范围。改动复核沿用[工程入口](../README.md#代码改动约定)。
 
 ### E：失败报告
 
 日常诊断是有界运行产物；长期能力证据按[实施记录](../logs/README.md#证据按用途留存)管理。
-原始材料保存 .run/private-reports/<run_id>（目录 0700、文件 0600），发布副本保存
-.run/reports/<run_id>。工程摘要用 gopulse.engineering-run.v1，现有验收 schema 不改。
+原始材料保存 .run/local/<identity>/private-reports/<run_id>（目录 0700、文件 0600），
+发布副本保存 .run/local/<identity>/reports/<run_id>，沿用 workspace.For 的工作区身份。
+工程摘要用 gopulse.engineering-run.v1，现有验收 schema 不改，原 receipt 判据优先。
 
 成功运行保存 summary.json 与 steps.json；失败、取消或清理失败再生成实际需要的诊断和
 复现材料。不重复抄写终端成功输出，不为成功运行生成空错误文件，不自动提交到 dev/logs。
@@ -128,7 +139,8 @@ vue/no-mutating-props、vue/no-side-effects-in-computed-properties。保留 vue-
 无法验证脱敏的文件不发布，仍需诊断的原始材料私有保存。复现命令从已知参数生成，不复制秘密命令串。
 执行顺序为主失败 → 留诊断 → 停进程 → 清理归属资源 → 最终摘要；取消/超时/清理失败分别记录。
 
-实施文件的段 E 明确诊断保留期限、每工作区容量上限及超限行为。清理复用归属检查，只处理
+实施合同 §3.4 定义生产方、run_id、结束时间、期限/容量、触发点、原 receipt 与工程摘要边界。
+清理复用归属检查，只处理
 已结束、无后续用途且达到留存期限的本工作区报告目录；当前运行、仍需接续或支撑正式结论的
 材料不得自动删除。不能确定用途或安全归属时报告原因；超限不覆盖仍需保留的材料。
 长期依据先选定并存入合同约定的位置，已有结论保存定位信息与校验摘要，
@@ -140,9 +152,10 @@ Compose 浏览器容器不在复制报告前 --rm：分配本次身份，退出�
 
 ### F：范围、CI 和结果
 
-根 Makefile 新增无副作用的 list-go-modules/list-npm-modules。
+H 在根 Makefile 新增无副作用的 list-go-modules/list-npm-modules，F 消费这些清单。
 ci 选择器读取清单，保留 checks/reasons，增加文档检查及 go_modules/npm_modules 输出；
-verify 消费同一 JSON，不再写第二份选择器。模块集合为：
+verify 消费同一 JSON 和 required_steps，不再写第二份选择器；docs key/job 固定为
+docs/docs-check，PLAN_ONLY 输出和旧字段兼容见实施合同 §3.3。模块集合为：
 
 `backend componentmetrics router marshaller monitor lifecycle loadtest devtools acceptance`
 及 `exporters/{elasticsearch,kafka,mysql,rabbitmq,redis,victoriametrics}`；
@@ -155,19 +168,24 @@ verify 消费同一 JSON，不再写第二份选择器。模块集合为：
 | job | 入口与上限 |
 | --- | --- |
 | 文档 | docs-check，5 分钟；update 可运行，无产品环境 |
-| Go / 前端 | 模块 check/lint/test/race/build；30 / 20 分钟 |
+| Go / 前端 | 模块 check/lint（BASE_REF=origin/main）/test/race/build；30 / 20 分钟；前端无 race |
 | integration | business / observe 原生入口，30 / 25 分钟 |
-| e2e / Compose | 两浏览器 scope 各 25 分钟；verify-compose 60 分钟 |
-| release candidate | 既有双架构 package 链，120 分钟，仍按现有发布许可 |
+| e2e / Compose | business/observe 25/30 分钟；verify-compose 60 分钟 |
+| release candidate | 既有双架构/PROMOTE 链，本批不改、不触发；本批交付按 G07/G10 的本地 amd64 验证 |
 
 本地与 CI 的准备、参数和真实边界逐项对齐，保留现有 services 的独有步骤。
-缓存预热读取同一清单；缓存不代表验证成功。结束后上传实际结果摘要，失败时再上传已核验的诊断白名单。
-自动 PR 保持 completion_ready、身份/token 校验、update merge/保留分支与开发 squash 策略。
+共享 ESLint 配置显式选两前端及消费者，.golangci.yml 只选 Go 模块，toolchains 选真实消费者。
+缓存预热读取同一清单；保留 main 限制，分支只有静态/fixture 验证，main 真实预热单列限制。
+新增 quality-result 对照步骤与真实结果；结束后只上传必要摘要和已核验的失败白名单。
+docs-only 通过既有 push 调用的父提交差异子调用验证，保留主线完整权威调用；不依赖尚未进入
+默认分支的 dispatch。自动 PR 保持身份/token、update merge/保留分支与开发 squash；
+completion_ready 由 quality-result 在实际必需检查成功后输出；本批还核对 R1 验证与
+R2 的收口登记，不能仅因 R1 的目标 VERSION/日志存在就开 PR，也不预写最终 CI 已成功。
 
 ### 实施文件范围
 
 允许新增/修改文件和必要的既有覆盖统一登记在
-[Phase-23-06](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#5-允许文件与复用边界)，
+[Phase-23-06](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#6-允许文件与复用边界)，
 本设计不再维护第二份执行清单。新增产品问题先记录复现、精确文件和回归，再修订该分方案。
 
 ## 5. 单文件实施
@@ -178,7 +196,7 @@ H → A → B → C → D → E → F → G 是文件内实施顺序，共用分
 
 分配查询[Phase 23 总方案](../imple/Phase-23/Phase-23-总实施方案.md#2-正式分配与进入顺序)；
 成本、窗口、固定门禁、停止与接续查询
-[实施文件](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#7-成本窗口与停止)。
+[实施文件](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#7-预算与实验成本)。
 本设计不另维护预算，触顶或失败按同一文件保留实际进度，不能通过换文件或重开计时绕过停止点。
 
 开工前核对工具/npm/Node/parser 兼容、下载身份、实际 lint 存量、远端必需 job 名与构建成本。
@@ -187,9 +205,11 @@ H → A → B → C → D → E → F → G 是文件内实施顺序，共用分
 
 ## 6. 整体完成条件
 
-H～F 完成后，在合并前以同一已提交 revision 的干净独立 checkout 完成组合验收。
+H～F 完成后，先在 R0（2.5.5）的干净 checkout 完成组合验收；成功后才同步 2.5.6 与同名
+实际日志到 R1，重验版本敏感的全量范围、前端、Bundle/安装与权威 CI。R2 只完成事实登记，
+保留 R1 发布候选，不给原制品换绑最终提交。每轮冻结各自 revision、输入和制品。
 下表定义必须覆盖的行为；固定执行集合、范围基线与候选身份以
-[单文件实施合同](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#6-固定完成门禁)为准，
+[单文件实施合同](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#4-验证映射与固定门禁)为准，
 不能合入后以空 diff 声称全量验证完成。
 
 | case_id | 操作 | 必须得到的结果 |
@@ -205,7 +225,8 @@ H～F 完成后，在合并前以同一已提交 revision 的干净独立 checko
 | G09 | docs-check；受控副本断链/错模块/冻结 diff | 真实问题非零退出，历史正文不改；当前命令与索引能定位 |
 
 同候选、相关输入与环境未变的 G04/G05 成功检查不重复；相关变动仅重验受影响集合。
-G07 不声明完整备份恢复或长期稳定性。全部通过后才更新能力状态和产品完成元数据，
+G07 不声明完整备份恢复或长期稳定性。版本敏感证据的再次验证与停点见实施合同 §7～9；
+全部实际门禁通过才登记能力状态和收口完成，
 日志只写实际交付、必要验证结论、偏差和限制，引用已有 CI 与结论所需证据。
 
 参考接口：[golangci 安装](https://golangci-lint.run/docs/welcome/install/local/)与
