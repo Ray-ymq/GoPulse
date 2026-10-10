@@ -53,10 +53,10 @@ lint:
 	@python3 ci/lint.py --module "$(MODULE)" $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
 
 lint-all:
-	@for module in $(MODULES); do \
+	@status=0; for module in $(MODULES); do \
 	  printf '%s\n' "==> lint $$module"; \
-	  $(MAKE) --no-print-directory lint MODULE=$$module || exit 1; \
-	done
+	  $(MAKE) --no-print-directory lint MODULE=$$module || status=1; \
+	done; exit $$status
 
 test:
 	@$(REQUIRE_MODULE)

@@ -140,7 +140,10 @@ func (s *session) e2eState(scope string, observe bool, image string) (*workspace
 	if err != nil {
 		return nil, err
 	}
-	state.BrowserTraces = filepath.Join(s.root, "test-results")
+	// Playwright runs with the frontend module as its cwd, so reports land
+	// beneath the application rather than the repository root. Keep this path
+	// explicit so failure evidence can copy it before the lifecycle is removed.
+	state.BrowserTraces = filepath.Join(s.root, "frontend", "test-results")
 	return state, nil
 }
 
