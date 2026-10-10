@@ -10,8 +10,8 @@ GoPulse 是以社交业务为真实负载的 Go 可观测与可靠性实验项�
 | 数据与异步任务 | [Outbox](backend/internal/outbox/)、[Worker](backend/internal/worker/)、[搜索](backend/internal/search/)、[消息合同](dev/contracts/migration-state.md) | `make integration SCOPE=business` |
 | 用户端、管理端 | [用户路由](frontend/src/router/index.ts)、[管理路由](admin-frontend/src/router/index.ts)、[管理端说明](admin-frontend/README.md) | `make test MODULE=frontend` / `admin-frontend`；浏览器用 `make e2e SCOPE=business` / `observe` |
 | 插件和采集 | [Monitor](monitor/README.md)、[Exporters](exporters/README.md) | 所属模块测试；真实观测用 `make integration SCOPE=observe` |
-| 观测传输与存储 | [Router](router/README.md)、[Marshaller](marshaller/README.md)、[技术契约](dev/contracts/README.md) | 所属模块测试及 observe integration |
-| 共享指标 | [componentmetrics](componentmetrics/)、[指标合同](dev/contracts/component-metrics.md) | 本模块及受影响消费者测试 |
+| 观测传输与存储 | [Router](router/README.md)、[Marshaller](marshaller/README.md)、[技术契约](dev/contracts/README.md) | `make test MODULE=router` / `marshaller`；真实观测用 `make integration SCOPE=observe` |
+| 共享指标 | [componentmetrics](componentmetrics/)、[指标合同](dev/contracts/component-metrics.md) | `make test MODULE=componentmetrics`，并按需跑受影响消费者的模块测试 |
 | 本机环境、测试、构建 | [devenv](devtools/cmd/devenv/main.go)、[原生入口登记](dev/validation/local-development-tests.md) | `make test MODULE=devtools` |
 | Compose 验收、Bundle | [acceptance](acceptance/cmd/gopulse-acceptance/main.go)、[lifecycle](lifecycle/)、[Bundle 指南](deploy/release/BUNDLE-README.md) | 模块测试及当前计划指定的 `make verify-*` / `make package` |
 | 规则、文档、CI | [工程入口](dev/README.md)、[工具规则](ci/AGENTS.md)、[质量 workflow](.github/workflows/quality-gates.yml) | 治理检查；核对改动正文的链接和实际命令 |
