@@ -76,6 +76,18 @@ check-all:
 	  $(MAKE) --no-print-directory check MODULE=$$module || exit 1; \
 	done
 
+check-compose:
+	@python3 ci/check_compose.py
+
+verify:
+ifdef MODULE
+	@$(DEVENV) verify --module "$(MODULE)" $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
+else ifeq ($(PLAN_ONLY),1)
+	@python3 ci/quality_scope.py --base-ref "$(BASE_REF)" --format json
+else
+	@$(DEVENV) verify --base-ref "$(BASE_REF)" $(if $(BRANCH),--branch "$(BRANCH)",) $(if $(PLAN_ONLY),--plan-only,)
+endif
+
 # Bare "make build" builds every program, frontend and local image; passing MODULE
 # keeps the per-component build used by callers and by the module jobs.
 build:

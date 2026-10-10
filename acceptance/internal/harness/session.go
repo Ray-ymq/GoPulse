@@ -46,6 +46,9 @@ type Session struct {
 	Commands []CommandRecord
 	receipt  receipt.Document
 	values   map[string]string
+	failure  *failureEvidence
+	cleanup  bool
+	runIndex int
 }
 
 func New(root string, keep bool) (*Session, error) {
@@ -116,6 +119,9 @@ func (s *Session) SetStatus(status string, err error) {
 	s.receipt.Status = status
 	if err != nil {
 		s.receipt.Error = err.Error()
+		if status == "failed" {
+			s.ensureFailure(err, -1)
+		}
 	}
 }
 
@@ -135,7 +141,9 @@ func (s *Session) AcceptanceRun(scenario, spec string, environment ...string) Re
 // AcceptanceRunArgs is AcceptanceRun with additional Playwright arguments,
 // such as a focused grep used by a migrated specialist suite.
 func (s *Session) AcceptanceRunArgs(scenario, spec string, extra []string, environment ...string) Result {
-	args := []string{"--profile", "acceptance", "run", "--rm", "--no-deps"}
+	s.runIndex++
+	container := fmt.Sprintf("%s-accept-%02d", s.Project, s.runIndex)
+	args := []string{"--profile", "acceptance", "run", "--name", container, "--no-deps"}
 	for _, key := range environment {
 		if _, ok := s.values[key]; !ok {
 			continue
@@ -148,7 +156,20 @@ func (s *Session) AcceptanceRunArgs(scenario, spec string, extra []string, envir
 	}
 	args = append(args, "acceptance", spec)
 	args = append(args, extra...)
-	return s.Compose(args...)
+	result := s.Compose(args...)
+	if result.ExitCode != 0 {
+		// The acceptance image writes traces and screenshots below this path. Copy
+		// them while the named one-shot container still exists, before targeted
+		// removal and project cleanup.
+		if err := s.captureBrowserReport(container, spec); err != nil {
+			s.addCleanupFailure("browser report collection: " + err.Error())
+		}
+	}
+	removed := s.removeOneShot(container)
+	if removed.ExitCode != 0 && result.ExitCode == 0 {
+		return removed
+	}
+	return result
 }
 
 // Value returns a private generated acceptance value for scenario wiring.
@@ -189,6 +210,11 @@ func (s *Session) run(name string, args ...string) Result {
 		fmt.Fprint(os.Stderr, result.Stderr)
 	}
 	s.Commands = append(s.Commands, CommandRecord{Args: append([]string{name}, args...), ExitCode: result.ExitCode, DurationMS: time.Since(started).Milliseconds()})
+	s.runIndex++
+	if result.ExitCode != 0 {
+		s.ensureFailure(fmt.Errorf("%s failed with exit code %d", strings.Join(append([]string{name}, args...), " "), result.ExitCode), result.ExitCode)
+	}
+	s.recordFailureCommand(name, args, result)
 	return result
 }
 
@@ -220,24 +246,41 @@ func (s *Session) Cleanup() error {
 		return nil
 	}
 	s.Cleaned = true
+	s.cleanup = true
 	if s.Keep {
+		s.finalizeFailure()
 		return nil
 	}
 	if !s.Started {
-		return os.RemoveAll(s.TempDir)
+		removeErr := os.RemoveAll(s.TempDir)
+		if removeErr != nil {
+			s.addCleanupFailure(removeErr.Error())
+		}
+		s.finalizeFailure()
+		return removeErr
 	}
 	if err := contracts.ValidateProjectName(s.Project); err != nil {
 		return err
+	}
+	if s.failure != nil {
+		logs := s.Compose("logs", "--no-color", "--timestamps")
+		if logs.Stdout != "" || logs.Stderr != "" {
+			s.writeFailureText("compose-logs", logs.Stdout+"\n"+logs.Stderr)
+		}
 	}
 	result := s.Compose("down", "--volumes", "--remove-orphans")
 	removeErr := os.RemoveAll(s.TempDir)
 	if result.ExitCode != 0 {
 		s.receipt.CleanupPassed = false
+		s.addCleanupFailure(fmt.Sprintf("acceptance cleanup failed with exit code %d", result.ExitCode))
+		s.finalizeFailure()
 		return fmt.Errorf("acceptance cleanup failed with exit code %d", result.ExitCode)
 	}
 	if removeErr != nil {
 		s.receipt.CleanupPassed = false
+		s.addCleanupFailure(removeErr.Error())
 	}
+	s.finalizeFailure()
 	return removeErr
 }
 

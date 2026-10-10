@@ -59,6 +59,81 @@ jobs:
             echo 'Completion metadata is not ready; product checks remain authoritative for this development push.'
           fi
 
+  docs:
+    name: Documentation and frozen-text checks
+    needs: governance
+    if: always() && needs.governance.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check current documentation and frozen designs
+        run: make docs-check BASE_REF="${{ inputs.base_ref }}"
+
+  module-verify:
+    name: Module verify (${{ matrix.module }})
+    needs: governance
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {module: backend, check: backend, go_mod: backend/go.mod, lock: frontend/package-lock.json}
+          - {module: componentmetrics, check: componentmetrics, go_mod: componentmetrics/go.mod, lock: frontend/package-lock.json}
+          - {module: router, check: router, go_mod: router/go.mod, lock: frontend/package-lock.json}
+          - {module: marshaller, check: marshaller, go_mod: marshaller/go.mod, lock: frontend/package-lock.json}
+          - {module: monitor, check: monitor, go_mod: monitor/go.mod, lock: frontend/package-lock.json}
+          - {module: lifecycle, check: lifecycle, go_mod: lifecycle/go.mod, lock: frontend/package-lock.json}
+          - {module: loadtest, check: loadtest, go_mod: loadtest/go.mod, lock: frontend/package-lock.json}
+          - {module: exporters/elasticsearch, check: exporters_elasticsearch, go_mod: exporters/elasticsearch/go.mod, lock: frontend/package-lock.json}
+          - {module: exporters/kafka, check: exporters_kafka, go_mod: exporters/kafka/go.mod, lock: frontend/package-lock.json}
+          - {module: exporters/mysql, check: exporters_mysql, go_mod: exporters/mysql/go.mod, lock: frontend/package-lock.json}
+          - {module: exporters/rabbitmq, check: exporters_rabbitmq, go_mod: exporters/rabbitmq/go.mod, lock: frontend/package-lock.json}
+          - {module: exporters/redis, check: exporters_redis, go_mod: exporters/redis/go.mod, lock: frontend/package-lock.json}
+          - {module: exporters/victoriametrics, check: exporters_victoriametrics, go_mod: exporters/victoriametrics/go.mod, lock: frontend/package-lock.json}
+          - {module: devtools, check: devtools, go_mod: devtools/go.mod, lock: frontend/package-lock.json}
+          - {module: acceptance, check: acceptance, go_mod: acceptance/go.mod, lock: frontend/package-lock.json}
+          - {module: frontend, check: frontend, go_mod: devtools/go.mod, lock: frontend/package-lock.json}
+          - {module: admin-frontend, check: admin_frontend, go_mod: devtools/go.mod, lock: admin-frontend/package-lock.json}
+    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks)[matrix.check] == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.go_mod }}
+          cache-dependency-path: ${{ matrix.go_mod }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.lock }}
+      - name: Prepare native lint tool
+        run: make bootstrap TOOLS_ONLY=1
+      - name: Run the shared module verification entry point
+        run: make verify MODULE="${{ matrix.module }}" BASE_REF="${{ inputs.base_ref }}"
+
+  quality-result:
+    name: Quality result completeness
+    needs: [governance, docs, module-verify, backend, componentmetrics, router, marshaller, monitor, redis-exporter, mysql-exporter, rabbitmq-exporter, elasticsearch-exporter, kafka-exporter, victoriametrics-exporter, lifecycle, loadtest, devtools, acceptance, frontend, admin-frontend, compose-full-stack, native-acceptance, integration, integration-observe, e2e-business, e2e-observe]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject missing, failed, cancelled, or unexpected skipped checks
+        env:
+          GOPULSE_CHECKS: ${{ needs.governance.outputs.checks }}
+          GOPULSE_NEEDS: ${{ toJSON(needs) }}
+          GOPULSE_RUN_PRODUCT_CHECKS: ${{ inputs.run_product_checks }}
+        run: >-
+          python3 ci/validate_quality_result.py
+          --checks "$GOPULSE_CHECKS"
+          --needs "$GOPULSE_NEEDS"
+          --run-product-checks "$GOPULSE_RUN_PRODUCT_CHECKS"
+
   backend:
     name: Backend
     needs: governance
@@ -382,6 +457,19 @@ jobs:
       - uses: ./.github/actions/compose-build-cache
       - name: Run the authoritative Phase 12 Compose closure
         run: make verify-compose
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-failure-diagnostics
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            .run/local/**/failures/**/failure.txt
+            .run/local/**/failures/**/environment.txt
+            .run/local/**/failures/**/reproduce.txt
+            .run/local/**/failures/**/cleanup.txt
+            .run/local/**/failures/**/logs/*.txt
 
   native-acceptance:
     name: Native acceptance tooling
@@ -399,20 +487,20 @@ jobs:
       - name: Test native acceptance module
         run: make test MODULE=acceptance
       - name: Validate Compose configuration and loopback publishing
-        shell: bash
-        run: |
-          set -euo pipefail
-          rendered="$(docker compose --env-file .env.example --file deploy/compose.yaml config)"
-          version="$(tr -d '[:space:]' < VERSION)"
-          printf '%s\n' "$rendered"
-          [[ $(grep -c 'host_ip: 127.0.0.1' <<<"$rendered") -eq 1 ]]
-          for image in admin-frontend frontend backend business-worker search-indexer router marshaller monitor; do
-            grep -q "image: gopulse/$image:$version" <<<"$rendered"
-          done
-          grep -q 'image: apache/kafka:4.3.1' <<<"$rendered"
-          grep -q 'image: victoriametrics/victoria-metrics:v1.151.0' <<<"$rendered"
-          grep -q 'condition: service_completed_successfully' <<<"$rendered"
-          [[ $(grep -c 'internal: true' <<<"$rendered") -eq 2 ]]
+        run: make check-compose
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-acceptance-failure-diagnostics
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            .run/local/**/failures/**/failure.txt
+            .run/local/**/failures/**/environment.txt
+            .run/local/**/failures/**/reproduce.txt
+            .run/local/**/failures/**/cleanup.txt
+            .run/local/**/failures/**/logs/*.txt
 
   integration:
     name: Integration
@@ -524,6 +612,19 @@ jobs:
       - name: Run integration tests against required dependencies
         working-directory: .
         run: make integration SCOPE=business
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-failure-diagnostics
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            .run/local/**/failures/**/failure.txt
+            .run/local/**/failures/**/environment.txt
+            .run/local/**/failures/**/reproduce.txt
+            .run/local/**/failures/**/cleanup.txt
+            .run/local/**/failures/**/logs/*.txt
 
   integration-observe:
     name: Native observability integration
@@ -539,6 +640,19 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Run native observability integration
         run: make integration SCOPE=observe
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-observe-failure-diagnostics
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            .run/local/**/failures/**/failure.txt
+            .run/local/**/failures/**/environment.txt
+            .run/local/**/failures/**/reproduce.txt
+            .run/local/**/failures/**/cleanup.txt
+            .run/local/**/failures/**/logs/*.txt
 
   e2e-business:
     name: Native business browser checks
@@ -564,6 +678,19 @@ jobs:
           npm exec -- playwright install --with-deps chromium
       - name: Run native business browser checks
         run: make e2e SCOPE=business
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-business-failure-diagnostics
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            .run/local/**/failures/**/failure.txt
+            .run/local/**/failures/**/environment.txt
+            .run/local/**/failures/**/reproduce.txt
+            .run/local/**/failures/**/cleanup.txt
+            .run/local/**/failures/**/logs/*.txt
 
   e2e-observe:
     name: Native observability browser checks
@@ -589,3 +716,16 @@ jobs:
           npm exec -- playwright install --with-deps chromium
       - name: Run native observability browser checks
         run: make e2e SCOPE=observe
+      - name: Upload sanitized failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-observe-failure-diagnostics
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            .run/local/**/failures/**/failure.txt
+            .run/local/**/failures/**/environment.txt
+            .run/local/**/failures/**/reproduce.txt
+            .run/local/**/failures/**/cleanup.txt
+            .run/local/**/failures/**/logs/*.txt

@@ -161,6 +161,16 @@ func TestIntegrationFailurePropagatesAndCleansUp(t *testing.T) {
 	if document["mode"] != "integration" || document["scope"] != ScopeBusiness {
 		t.Fatalf("mode/scope %v/%v", document["mode"], document["scope"])
 	}
+	if current.diagnostic == nil {
+		t.Fatal("failed integration did not create a diagnostic report")
+	}
+	failureRaw, readErr := os.ReadFile(filepath.Join(current.diagnostic.Directory(), "failure.txt"))
+	if readErr != nil {
+		t.Fatalf("read diagnostic failure report: %v", readErr)
+	}
+	if !strings.Contains(string(failureRaw), "observability integration tests failed with exit code 1") {
+		t.Fatalf("diagnostic report lost primary failure: %s", failureRaw)
+	}
 	keys := make([]string, 0, len(document))
 	for key := range document {
 		keys = append(keys, key)

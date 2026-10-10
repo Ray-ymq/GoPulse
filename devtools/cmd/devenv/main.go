@@ -42,6 +42,7 @@ commands:
 	bootstrap [--module frontend|admin-frontend] [--tools-only]
 	                                                        prepare lint tools, frontend dependencies, and Chromium
 	frontend-deps --module frontend|admin-frontend       prepare one application's npm dependencies
+	verify --base-ref REF [--branch BRANCH] [--plan-only] [--module MODULE]
 `
 
 type options struct {
@@ -54,6 +55,9 @@ type options struct {
 	noCache           bool
 	module            string
 	toolsOnly         bool
+	baseRef           string
+	branch            string
+	planOnly          bool
 }
 
 func main() {
@@ -129,6 +133,20 @@ func run(args []string) int {
 			return 2
 		}
 		err = frontenddeps.Ensure(root, parsed.module)
+	case "verify":
+		if parsed.toolsOnly {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: verify does not accept --tools-only")
+			return 2
+		}
+		if parsed.module != "" {
+			if parsed.planOnly || parsed.branch != "" {
+				fmt.Fprintln(os.Stderr, "[gopulse] ERROR: --plan-only and --branch require full verify")
+				return 2
+			}
+			err = quality.VerifyModule(root, parsed.module, parsed.baseRef)
+		} else {
+			err = quality.Verify(root, parsed.baseRef, parsed.branch, parsed.planOnly)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: unknown command: %s\n%s", command, usage)
 		return 2
@@ -218,6 +236,12 @@ func parseOptions(args []string) (options, error) {
 			parsed.noCache = true
 		case "--module":
 			parsed.module = value
+		case "--base-ref":
+			parsed.baseRef = value
+		case "--branch":
+			parsed.branch = value
+		case "--plan-only":
+			parsed.planOnly = true
 		case "--tools-only":
 			parsed.toolsOnly = true
 		default:
@@ -238,7 +262,7 @@ func parseOptions(args []string) (options, error) {
 
 func isFlagWithValue(name string) bool {
 	switch name {
-	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port", "--module":
+	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port", "--module", "--base-ref", "--branch":
 		return true
 	}
 	return false
@@ -246,7 +270,7 @@ func isFlagWithValue(name string) bool {
 
 func isBooleanFlag(name string) bool {
 	switch name {
-	case "--print", "--no-cache", "--tools-only":
+	case "--print", "--no-cache", "--tools-only", "--plan-only":
 		return true
 	}
 	return false
