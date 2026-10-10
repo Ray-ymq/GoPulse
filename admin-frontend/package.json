@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host localhost",
     "test": "vitest run",
+    "lint": "eslint .",
     "test:watch": "vitest",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "build": "npm run typecheck && vite build",
@@ -16,7 +17,11 @@
     "vue-router": "4.6.4"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "8.71.1",
+    "@typescript-eslint/parser": "8.71.1",
     "@playwright/test": "1.62.1",
+    "eslint": "10.12.0",
+    "eslint-plugin-vue": "10.11.1",
     "@types/node": "26.4.0",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.4.6",
@@ -24,6 +29,7 @@
     "typescript": "6.0.3",
     "vite": "8.2.2",
     "vitest": "4.1.11",
+    "vue-eslint-parser": "10.4.0",
     "vue-tsc": "3.3.11"
   }
 }

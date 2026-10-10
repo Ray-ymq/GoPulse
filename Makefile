@@ -49,6 +49,15 @@ bootstrap:
 	@test -z "$(TOOLS_ONLY)" || test -z "$(MODULE)" || { printf '%s\n' '[gopulse] ERROR: TOOLS_ONLY=1 and MODULE are mutually exclusive' >&2; exit 2; }
 	@$(DEVENV) bootstrap $(if $(MODULE),--module "$(MODULE)",) $(if $(TOOLS_ONLY),--tools-only,)
 
+lint:
+	@python3 ci/lint.py --module "$(MODULE)" $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
+
+lint-all:
+	@for module in $(MODULES); do \
+	  printf '%s\n' "==> lint $$module"; \
+	  $(MAKE) --no-print-directory lint MODULE=$$module || exit 1; \
+	done
+
 test:
 	@$(REQUIRE_MODULE)
 	@$(MAKE) --no-print-directory -C $(MODULE) test
