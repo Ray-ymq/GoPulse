@@ -15,7 +15,7 @@
 | 修改 API、消息、指标或持久状态 | [技术契约](contracts/README.md) | 所属模块、调用方和对应合同测试 |
 | 排查部署、启停或恢复问题 | [操作说明](operations/README.md)、[Bundle 指南](../deploy/release/BUNDLE-README.md) | [生命周期实现](../lifecycle/internal/control/)、实际日志及能力边界 |
 | 查找实际做过的工作 | [实施记录](logs/README.md) | 同名日志、实际 CI 记录及结论引用的证据 |
-| 阅读整体工程改造 | [工程稳定性方案](design/GoPulse-工程稳定性改造方案.md) | 已完成的规则/文档整理与待排期的工具实现分别标注 |
+| 阅读整体工程改造 | [工程稳定性设计](design/GoPulse-工程稳定性改造方案.md) | [Phase-23-06](imple/Phase-23/Phase-23-06-工程稳定性改造.md)的单文件实施范围、门禁与预算 |
 
 ## 目录职责与事实来源
 

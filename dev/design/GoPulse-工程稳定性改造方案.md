@@ -1,8 +1,8 @@
 # GoPulse 工程稳定性改造方案
 
-> 2026-10-10。规则、文档入口、默认清理与证据留存已修订；下文的可执行改造尚未实施。
+> 2026-10-10。规则、文档入口、默认清理与证据留存已修订；可执行改造已分配到 Phase-23-06，待实施。
 > 源码调查基线：upstream/main 的 `0610f3f`，完成产品版本 `2.5.5`。
-> 本文不分配 Phase、版本或分支；工具实现须纳入正式总方案与分方案。
+> 本文保留实现设计；批次分配由 [Phase 23 总方案](../imple/Phase-23/Phase-23-总实施方案.md)登记，文件范围、固定门禁和预算由唯一[实施文件](../imple/Phase-23/Phase-23-06-工程稳定性改造.md)定义。
 
 ## 1. 本次直接改掉了什么
 
@@ -28,7 +28,7 @@
 
 ## 2. 整体工程能力要达到什么
 
-| 模块 | 完成后具体能做什么 | 尚需实施 |
+| 模块 | 完成后具体能做什么 | 文件内实施段 |
 | --- | --- | --- |
 | 文档 | 本地和 CI 能按已有目录与导航发现断链、错误命令/模块、冻结路径改动和无正文归属的新文档 | H |
 | 环境 | 开发者能先检查工具，再准备项目内依赖，不靠猜测环境缺什么 | A |
@@ -39,7 +39,7 @@
 | 交付 | 干净环境真实 integration、浏览器、Compose 与 Bundle 安装能走通 | G |
 
 沿用现有 15 个 Go 模块、两个前端、Make、devenv、acceptance 和 lifecycle。
-不新增贡献流程、产品功能或另一套环境管理器。正式批次据本文的范围、文件和门禁分配。
+不新增贡献流程、产品功能或另一套环境管理器。下文设计由 Phase-23-06 在一个实施文件内全部交付。
 
 ## 3. 新入口与准确行为
 
@@ -128,7 +128,7 @@ vue/no-mutating-props、vue/no-side-effects-in-computed-properties。保留 vue-
 无法验证脱敏的文件不发布，仍需诊断的原始材料私有保存。复现命令从已知参数生成，不复制秘密命令串。
 执行顺序为主失败 → 留诊断 → 停进程 → 清理归属资源 → 最终摘要；取消/超时/清理失败分别记录。
 
-E 分方案明确诊断保留期限、每工作区容量上限及超限行为。清理复用归属检查，只处理
+实施文件的段 E 明确诊断保留期限、每工作区容量上限及超限行为。清理复用归属检查，只处理
 已结束、无后续用途且达到留存期限的本工作区报告目录；当前运行、仍需接续或支撑正式结论的
 材料不得自动删除。不能确定用途或安全归属时报告原因；超限不覆盖仍需保留的材料。
 长期依据先选定并存入合同约定的位置，已有结论保存定位信息与校验摘要，
@@ -164,67 +164,33 @@ verify 消费同一 JSON，不再写第二份选择器。模块集合为：
 缓存预热读取同一清单；缓存不代表验证成功。结束后上传实际结果摘要，失败时再上传已核验的诊断白名单。
 自动 PR 保持 completion_ready、身份/token 校验、update merge/保留分支与开发 squash 策略。
 
-### 允许文件清单
+### 实施文件范围
 
-| 单元 | 新增/修改文件 |
-| --- | --- |
-| H | Makefile；devtools/config/documents.json；internal/quality/docs.go 及测试；devenv CLI/测试；ci/quality_scope.py 及测试；quality-gates.yml |
-| A | Makefile；devtools/toolchains.json；internal/quality/{doctor,bootstrap}.go 及测试；devenv CLI/测试 |
-| B | internal/frontenddeps/deps.go 及测试；devrun/applications.go 与 devrun_test.go；testenv/e2e.go 与 testenv_test.go；两个前端 Makefile |
-| C | .golangci.yml；15 个模块 Makefile；internal/quality/lint.go 及测试；devenv CLI/测试 |
-| D | 两前端 eslint.config.mjs、package.json/lock；devtools/config/eslint-rules.mjs；lint 助手和测试 |
-| E | internal/diagnostics/report.go 及测试；testenv/{testenv,processes,e2e}.go 及测试；proc/proc.go 及测试；frontend/playwright.config.ts；acceptance harness/session 与测试、scenario/{compose,suites,lifecycle}.go、CLI/测试 |
-| F | internal/quality/verify.go 及测试；devenv CLI/测试；ci/quality_scope.py/测试；ci/validate_quality_result.py/测试；quality-gates、cache-warm、auto-pr-merge、release-candidate workflows；ci/test_auto_pr_workflow.py |
-| 各批 / G | 根 AGENTS/README、dev/README 和原生入口登记只同步已实现接口；G 成功后登记能力状态 |
+允许新增/修改文件和必要的既有覆盖统一登记在
+[Phase-23-06](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#5-允许文件与复用边界)，
+本设计不再维护第二份执行清单。新增产品问题先记录复现、精确文件和回归，再修订该分方案。
 
-上表 internal 路径默认在 devtools；acceptance 的路径明确注明。
-遇到新增产品问题，先记录复现、精确文件和回归，再修订分方案，不顺手扩大到全仓治理。
+## 5. 单文件实施
 
-## 5. 实施顺序与本方案成本
+按用户 2026-10-10 的要求，本设计的可执行改造全部纳入一个 Phase-23-06 实施文件。
+H → A → B → C → D → E → F → G 是文件内实施顺序，共用分支、候选和完成版本；
+过程检查通过后进入下一段，全部实现与组合验收通过后统一收口，不按字母拆分批次。
 
-H → A → B → C → D → E → F → G。字母只是提案单元，不是已分配批次。
-以下预算只用于本方案自己的任务规模控制，不成为所有仓库任务的固定时间制度。
-“每单元累计上限 180 分钟”是本次为便于拆批所定的上限，不是新的默认值，
-也不是正式分方案可以照抄的预算；正式分方案按[成本与接续](../rules/implementation-execution-budget.md)
-自行登记结果、门禁、成本、停止点和接续方式，并按进入预检的实际范围调整。
+分配查询[Phase 23 总方案](../imple/Phase-23/Phase-23-总实施方案.md#2-正式分配与进入顺序)；
+成本、窗口、固定门禁、停止与接续查询
+[实施文件](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#7-成本窗口与停止)。
+本设计不另维护预算，触顶或失败按同一文件保留实际进度，不能通过换文件或重开计时绕过停止点。
 
-| 单元 | 预计活跃时间 / 累计上限 | 固定完成门禁 |
-| --- | --- | --- |
-| H | 100 / 180 分钟 | 文档边界 fixture；devtools check/test/race；真实 docs-only CI |
-| A | 80 / 180 分钟 | 工具成功/缺失/版本与下载身份失败；bootstrap；devtools check/test/race；治理 |
-| B | 100 / 180 分钟 | 首装/复用/锁变化/失败/互斥；两前端 check/test/build；真实 dev 与两 e2e scope |
-| C | 100 / 180 分钟 | 配置与全量存量报告；新增违规非零退出；Go 既有 check/test/race |
-| D | 100 / 180 分钟 | parser 兼容与违规 fixture；新增/存量分类；两前端 check/test/build 和 e2e |
-| E | 120 / 180 分钟 | 脱敏/路径/主失败与清理失败；过期普通诊断清理、活动/接续材料与外部目录保护；实际 integration、e2e、Compose 代表失败 |
-| F | 120 / 180 分钟 | diff/矩阵/失败传播；文档、单模块、共享、权限、部署、未知路径；真实 CI/artifact |
-| G | 120 / 180 分钟 | 下节 G01～G09，干净环境、同候选与实际交付 |
-
-预计 840 分钟（14 小时），累计上限 1440 分钟（24 小时），均为未测估算。
-正式分方案按进入预检调整拆分；每单元的上限分配如下（分钟）：
-
-| 单元 | 发现/实现 | 直接检查 | 构建/准备 | 真实/CI | 证据/清理 | 机动 |
-| --- | --- | --- | --- | --- | --- | --- |
-| H | 60 | 30 | 10 | 55 | 10 | 15 |
-| A | 65 | 20 | 15 | 55 | 10 | 15 |
-| B | 55 | 20 | 15 | 65 | 10 | 15 |
-| C | 55 | 25 | 15 | 60 | 10 | 15 |
-| D | 55 | 20 | 20 | 60 | 10 | 15 |
-| E | 50 | 25 | 15 | 65 | 15 | 10 |
-| F | 45 | 25 | 15 | 70 | 15 | 10 |
-| G | 10 | 15 | 30 | 90 | 20 | 15 |
-
-本改造不含新容量/长时实验，required experiment duration 为 0；真实门禁仍需执行。
-首次基础设施失败停止整组，同原因最多两次、每次 10 分钟最小诊断，计入该单元成本。
-到上限保留通过/失败/未开始、必要失败诊断与接续依据，归属清理后停止；具体剩余方案与明确指令后接续。
-本节分钟数只属于本方案；正式分方案须给出自己的预算依据，不能以“改造方案已写 180 分钟”代替登记。
-
-开工前仍须核对 npm/Node 与 ESLint/parser 兼容、实际 lint 存量、远端分支保护旧 job 名和构建成本。
-开始构建前登记源/config 到镜像/门禁的影响，复用未变缓存和有效检查，不换绑候选回执。
+开工前核对工具/npm/Node/parser 兼容、下载身份、实际 lint 存量、远端必需 job 名与构建成本。
+相关输入未变的成功检查继续有效；候选、Bundle、manifest 或合同变化时只重验受影响证据，
+不换绑既有回执。普通报告与长期能力依据按既有清理和留存原则处理。
 
 ## 6. 整体完成条件
 
-H～F 进入主线后，在已提交 revision 的干净独立 checkout 运行。
-阶段 diff 基线固定 0610f3f，覆盖整个改造；不能合入后以空 diff 声称全量验证完成。
+H～F 完成后，在合并前以同一已提交 revision 的干净独立 checkout 完成组合验收。
+下表定义必须覆盖的行为；固定执行集合、范围基线与候选身份以
+[单文件实施合同](../imple/Phase-23/Phase-23-06-工程稳定性改造.md#6-固定完成门禁)为准，
+不能合入后以空 diff 声称全量验证完成。
 
 | case_id | 操作 | 必须得到的结果 |
 | --- | --- | --- |
@@ -248,4 +214,4 @@ G07 不声明完整备份恢复或长期稳定性。全部通过后才更新能�
 [Vue 插件](https://eslint.vuejs.org/user-guide/)、
 [TypeScript parser](https://typescript-eslint.io/getting-started/)。
 
-本次完成的是规则和文档重写，尚未新增上述命令、安装 lint、执行这组产品验收或改变 VERSION。
+当前完成的是规则和文档重写以及 Phase-23-06 的单文件规划；上述命令、lint 与产品组合验收仍待实施，VERSION 保持已完成值。

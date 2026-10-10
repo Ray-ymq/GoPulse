@@ -9,7 +9,7 @@
 
 | 阶段 | 权威方案 | 实际记录 |
 | --- | --- | --- |
-| Phase 23：原生入口替代 scripts | [总实施方案](../imple/Phase-23/Phase-23-总实施方案.md) | [日志目录](../logs/Phase-23/) |
+| Phase 23：原生入口与工程稳定性 | [总实施方案](../imple/Phase-23/Phase-23-总实施方案.md) | [日志目录](../logs/Phase-23/) |
 | Phase 22：本机开发与测试流程简化 | [总实施方案](../imple/Phase-22/Phase-22-总实施方案.md) | [日志目录](../logs/Phase-22/) |
 | Phase 21：用户业务与管理服务分离 | [总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)、[阶段导航](Phase-21-用户业务与管理服务分离.md) | [日志目录](../logs/Phase-21/) |
 
