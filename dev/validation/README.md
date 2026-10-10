@@ -25,5 +25,6 @@
 | Phase 19 | [容量方法](Phase-19/capacity-methodology.md) |
 | Phase 20 | [容量方法](Phase-20/phase20-capacity-methodology.md)、[优化对照](Phase-20/phase20-optimization.md) |
 
-实际执行结果与原始证据保存在 [logs](../logs/README.md)。查阅文档不授权重跑、
-恢复暂停验收或改变候选；执行按实施合同和预算进行。
+实际执行结果从 [logs](../logs/README.md)及其引用的 CI、证据或归档读取；按用途保留，
+不要求所有输出常驻源码目录。查阅文档不授权重跑、恢复暂停验收或改变候选；
+执行按实施合同和预算进行。

@@ -14,7 +14,7 @@
 | 选择本机测试 | [原生入口登记](validation/local-development-tests.md) | 模块 Makefile、直接相关用例及当前分方案的固定门禁 |
 | 修改 API、消息、指标或持久状态 | [技术契约](contracts/README.md) | 所属模块、调用方和对应合同测试 |
 | 排查部署、启停或恢复问题 | [操作说明](operations/README.md)、[Bundle 指南](../deploy/release/BUNDLE-README.md) | [生命周期实现](../lifecycle/internal/control/)、实际日志及能力边界 |
-| 查找实际做过的工作 | [实施记录](logs/README.md) | 同名日志、候选、回执和原始证据 |
+| 查找实际做过的工作 | [实施记录](logs/README.md) | 同名日志、实际 CI 记录及结论引用的证据 |
 | 阅读整体工程改造 | [工程稳定性方案](design/GoPulse-工程稳定性改造方案.md) | 已完成的规则/文档整理与待排期的工具实现分别标注 |
 
 ## 目录职责与事实来源
@@ -29,9 +29,9 @@
 | [contracts](contracts/README.md) | 运行、数据、消息、指标与协议正文 | 修改合同同时核对生产方、消费方和验证边界 |
 | [operations](operations/README.md) | 使用、部署、排障与恢复步骤 | 命令有实际入口，支持范围引用能力状态 |
 | [validation](validation/README.md) | 当前原生验证入口与历史方法 | 已退役执行器不作为当前可运行命令；门禁由实施合同引用 |
-| [logs](logs/README.md) | 实际实施、命令、偏差与原始证据 | 同名镜像实施方案；只写真实执行结果 |
-| [rules](rules/) | 执行预算及有日期的维护记录 | 根 AGENTS 优先；旧维护记录按其日期理解 |
-| [releases](releases/) / [review](review/README.md) | 发布快照与历史评审 | 保留当时的候选、范围与结论 |
+| [logs](logs/README.md) | 实际交付、验证结论、偏差与限制 | 同名镜像实施批次；引用已有 CI 与必要证据 |
+| [rules](rules/) | 昂贵验收的成本与接续 | 补充根 AGENTS 的执行细节 |
+| [releases](releases/) / [review](review/README.md) | 发布快照与历史评审 | 按根清理原则处理，保留材料不改变当时的候选、范围与结论 |
 
 ## 编写实施方案
 
@@ -40,6 +40,7 @@
 命令或配置改变时列出相应文档。待实现入口标明状态，不能作为已可执行的前置条件。
 昂贵构建与真实/长时验收按[成本与接续](rules/implementation-execution-budget.md)约定预算；
 普通任务不另填时间台账。原已分配计划的预算和门禁继续按其合同执行。
+规则、规划和导航维护在对应正文与提交说明中记录，不为此另建阶段日志。
 
 总方案位于 `dev/imple/Phase-XX/Phase-XX-总实施方案.md`，分方案是同目录下的
 `Phase-XX-NN-<名称>.md`，实际日志同名镜像到 `dev/logs/Phase-XX/`。
@@ -72,31 +73,19 @@
 
 1. 先确定正文归属。事实写 status，接口写 contracts，步骤写 operations/validation，
    执行合同写 imple，实际结果写 logs；导航只链接，避免建立第二份版本、状态或门禁清单。
-2. 每份新设计或方案说明是草案、已分配合同还是已实施记录。历史材料按日期和候选阅读；
-   图必须区分目标与实现快照。当前架构入口不能把旧版本图标为当前运行拓扑。
+2. 新设计或方案在入口说明草案、已分配合同或已实施的边界。历史材料按日期和候选阅读；
+   图必须区分目标与实现快照。只有缺少说明会导致误用时才补说明，不给每份保留材料另贴标签。
 3. 命令从 Makefile、package scripts 和实际 CLI 核对；前置环境、工作目录、模块/scope
    要能定位。待实现接口明确标为拟新增；示例用当前已分配分支或注明占位符。
 4. 改公开行为、配置、命令或恢复步骤时，同批维护直接相关正文与验证；没有相关影响时
    不为收口同步所有 README。能力状态只接受真实完成结果。
-5. 合并重复正文或规则时保留独有要求、更新有效引用，再删除多余文件。祖先 AGENTS
-   已覆盖的要求不在子目录重抄；三份冻结文件及已完成合同、日志、评审和原始证据按根规则保留。
+5. 按根[默认清理原则](../AGENTS.md#默认清理)处理重复或过时内容；合并正文时保留独有要求、
+   更新有效引用，再删除多余文件。祖先 AGENTS 已覆盖的要求不在子目录重抄；
+   三份冻结文件仍保留原路径和原文，历史材料与证据按实际用途留存。
 6. 提交前检查改动文档的本地链接、锚点、源码路径、命令和权威关系。报告结果时注明统计范围
-   （本次改动还是全量）；三份冻结原文与历史日志、评审、已取消方案中的断链按原样保留，
-   不计入本次回归。自动文档门禁仍是
+   （本次改动还是全量）；保留的历史正文按原候选解释，不为适配现行接口改写。
+   当前入口仍须可定位；纯历史正文的既有断链不计入本次回归。自动文档门禁仍是
    [改造方案](design/GoPulse-工程稳定性改造方案.md)中的待实现项，当前不宣称 CI 已会拦截。
-
-## 移除的旧入口
-
-以下转发页和规则已移除。历史记录中的文件名保留当时含义；查原文使用其 Git revision，
-查目前正文使用下列入口。转发页无有效链接或代码调用；旧规划规则的有效引用已更新。
-
-| 旧路径 | 当前正文 |
-| --- | --- |
-| `dev/imple/AGENTS.md`、`dev/phases/AGENTS.md` | [根开发指南](../AGENTS.md)、本页的实施方案说明 |
-| `docs/runtime-contracts.md` | [运行契约](contracts/runtime-contracts.md) |
-| `docs/component-metrics.md` | [组件指标](contracts/component-metrics.md) |
-| `docs/events-v1.md` | [Events v1](contracts/events-v1.md) |
-| `docs/releases/backup-restore.md` | [备份恢复](operations/backup-restore.md) |
 
 [Plan.md](phases/Plan.md)、[早期全局发展总纲](phases/GoPulse-高并发与可观测后续路线图.md)
 和[历史候选设计](../docs/future/kubernetes/README.md)用于追溯各自研究基线。
