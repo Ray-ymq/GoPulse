@@ -1,5 +1,13 @@
 # 当前候选产品恢复验收
 
+> **执行器状态**：本文件的执行器（`scripts/ci/release_artifacts.py`、
+> `scripts/ci/verify_current_recovery.py`、`scripts/ci/verify_backup_restore.py` 与
+> `scripts/verify-backup-restore.sh`）已随 Phase-23-05（`2.5.5`）退役并删除；发布候选入口由
+> `make package` 与 `lifecycle` 承接，隔离安装与复用安装由 `make verify-lifecycle` 承接。
+> 真实备份/恢复未在本轮等价承接（生产 Kafka 拓扑与备份引擎的单分区合同不兼容，属后续范围）。
+> 本文件保留方法与当时的结论，下方命令是退役前的原始命令，源码与原始回执保留在 Git 历史；
+> 当前能力边界见[能力状态](../../status/capability-status.md)。
+
 仅支持真实 Linux amd64、同一 manifest 的空 project 恢复。不是跨版本升级。
 
 从已提交源码构建当前候选，再用同版本 acceptance 镜像的不可变本地 image ID：
