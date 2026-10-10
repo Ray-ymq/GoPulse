@@ -102,7 +102,7 @@ func TestMigrationStateIntegration(t *testing.T) {
 	f.binary = filepath.Join(work, "migrate")
 	locker := filepath.Join(work, "migration-lock")
 	f.requireCommand("build migrate", f.command(ctx, 90*time.Second, nil, "", "go", "build", "-o", f.binary, "./cmd/migrate"))
-	f.requireCommand("build lock fixture", f.command(ctx, 90*time.Second, nil, "", "go", "build", "-o", locker, filepath.Join(f.backend, "..", "scripts", "ci", "testdata", "migration-lock.go")))
+	f.requireCommand("build lock fixture", f.command(ctx, 90*time.Second, nil, "", "go", "build", "-o", locker, filepath.Join(f.backend, "testdata", "migration-lock.go")))
 
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
