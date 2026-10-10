@@ -118,7 +118,6 @@ func TestMonitorInputDigestCoversPackagingInputs(t *testing.T) {
 	write(t, root, "exporters/redis/main.go", "package main\n")
 	write(t, root, "deploy/docker/observability.Dockerfile", "FROM scratch\n")
 	write(t, root, "deploy/plugins/redis-exporter.json", "{}\n")
-	write(t, root, "scripts/package-redis-exporter.sh", "#!/usr/bin/env bash\n")
 
 	before, err := MonitorInput(root)
 	if err != nil {
@@ -129,7 +128,6 @@ func TestMonitorInputDigestCoversPackagingInputs(t *testing.T) {
 		"monitor/main.go":                        "package main // changed\n",
 		"deploy/docker/observability.Dockerfile": "FROM scratch\n# changed\n",
 		"deploy/plugins/redis-exporter.json":     "{\"changed\": true}\n",
-		"scripts/package-redis-exporter.sh":      "#!/usr/bin/env bash\n# changed\n",
 	} {
 		write(t, root, name, content)
 		after, err := MonitorInput(root)

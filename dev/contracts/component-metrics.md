@@ -258,9 +258,7 @@ Frontend accepts only the generated matching definitions and label tuples.
 
 ## Focused acceptance and Phase-19-01 handoff
 
-Run `bash scripts/verify-component-metrics.sh --self-test` without Docker. After
-building current product images, run `bash scripts/verify-component-metrics.sh`
-or `bash scripts/verify-plugin-metrics.sh` for the owned Compose scenario. It
+Run `make verify-plugins` for the owned Compose scenario. It
 creates two users and multiple posts, drives notifications and
 create/update/delete search projection, queries every family including the
 fixed Backend bucket/count/sum and capacity signals, checks endpoint

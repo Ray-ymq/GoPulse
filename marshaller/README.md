@@ -55,7 +55,7 @@ Kafka polling is canceled only by the Marshaller run context; there is no separa
 
 ## Lifecycle and validation
 
-`scripts/dev.sh` builds `gopulse/marshaller:<VERSION>` and starts it after Kafka Topic initialization, VictoriaMetrics, and Elasticsearch are available. The image runs as numeric user `10003:10001`, uses `/usr/local/bin/marshaller` as PID 1, has a read-only root filesystem, joins only the internal `observability` network, and publishes no host port. `scripts/down.sh` stops the complete Compose project while preserving daily named volumes, and `scripts/verify.sh` performs read-only ownership, image, dependency, readiness, volume, and fixed-query checks.
+`make dev-observe` builds and starts the Marshaller after Kafka Topic initialization, VictoriaMetrics, and Elasticsearch are available. The image runs as numeric user `10003:10001`, uses `/usr/local/bin/marshaller` as PID 1, has a read-only root filesystem, joins only the internal `observability` network, and publishes no host port. `make stack-down` stops the complete Compose project while preserving daily named volumes, and `make stack-verify` performs read-only ownership, image, dependency, readiness, volume, and fixed-query checks.
 
 Focused validation:
 
@@ -64,13 +64,12 @@ Focused validation:
 (cd marshaller && go test -count=1 ./...)
 (cd marshaller && go vet ./...)
 (cd marshaller && go test -race -count=1 ./...)
-scripts/verify-marshaller.sh --self-test
-scripts/verify-marshaller.sh
+make verify-observe SCOPE=marshaller
 ```
 
 The default acceptance uses a random owned Compose project, temporary credentials, and loopback ports. It seeds real Redis key, TTL, hit, miss, and command activity; verifies all 10 families/11 success samples and their fixed labels against Redis/Exporter evidence; captures a real Kafka record with bounded partition/offset/timestamp metadata; proves three representative structural, key/ID, and payload-contract rejections add no VictoriaMetrics rows before a later real message continues; checks target-unavailable/recovery without restarting Router, Marshaller, or Monitor; rejects browser cookies, Backend-style JWT/query tokens, and wrong internal credentials; retains offsets during VictoriaMetrics failure; proves same-process storage recovery, explicit uncommitted-record recovery after Marshaller restart, Kafka broker restart/formal-group rejoin, and a captured-real replay with one stable millisecond point; and finishes with unchanged `vm_rows_invalid_total` plus complete process/container/network/volume cleanup. The shell scenarios use observable dependency and offset transitions; exact delayed-acceptance and revoke/lost races remain covered by deterministic Consumer tests.
 
-The authoritative Phase-12-03 full-stack gate is the no-argument `scripts/verify-compose.sh`. It validates the Marshaller image and internal network, Bearer identity, service-DNS dependencies, real administrator Metrics/Logs/Events queries, VM and transport failure isolation with social availability, Marshaller/Kafka/VM/Elasticsearch replacement, committed-offset and storage-volume recovery, bounded shutdown, and strongly owned cleanup. The focused `verify-marshaller.sh` remains useful for low-level delivery/replay diagnostics but is not the completion gate.
+The authoritative Phase-12-03 full-stack gate is the no-argument `make verify-compose`. It validates the Marshaller image and internal network, Bearer identity, service-DNS dependencies, real administrator Metrics/Logs/Events queries, VM and transport failure isolation with social availability, Marshaller/Kafka/VM/Elasticsearch replacement, committed-offset and storage-volume recovery, bounded shutdown, and strongly owned cleanup.
 
 ## Application log storage
 

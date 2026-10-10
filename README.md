@@ -91,14 +91,14 @@ entries fail on
 unknown modules/scopes, unowned port conflicts, missing dependencies, and
 child-process failures.
 
-The previous container and release paths remain explicit:
+The native container, acceptance, and release paths remain explicit:
 
 | Capability | Existing entry |
 | --- | --- |
-| Full container development/verification | `scripts/dev.sh`, `scripts/verify.sh`, `scripts/down.sh`, `scripts/verify-compose.sh` |
-| Plugin lifecycle and exporter contracts | `scripts/verify-plugin-state.sh`, `scripts/verify-exporter.sh`, `scripts/verify-monitor.sh` |
-| Alert evaluation and management state | `scripts/verify-alerts.sh`, `scripts/ci/verify_dashboard.py`, `scripts/verify-role-management.sh` |
-| Recovery and persistence | `scripts/ci/verify_current_recovery.py`, `dev/operations/backup-restore.md` |
+| Full container development/verification | `make dev`, `make dev-observe`, `make stack-verify`, `make stop`, `make verify-compose` |
+| Plugin lifecycle and exporter contracts | `make verify-plugins`, `make verify-observe SCOPE=exporter|monitor` |
+| Alert evaluation and management state | `make verify-alerts`, `make verify-roles`, `make verify-pages` |
+| Recovery and persistence | `make verify-lifecycle INSTALL=clean|reuse`, `dev/operations/backup-restore.md` |
 | Capacity and long-window experiments | `dev/validation/Phase-19/`, `dev/validation/Phase-20/` (the Phase 18–20 formal executors are retired; see [capability status](dev/status/capability-status.md)) |
 | Bundle/release and evidence | `make package` ([gopulse-package](lifecycle/cmd/gopulse-package/main.go)), `.github/workflows/release-candidate.yml` |
 
@@ -153,8 +153,7 @@ npm run build
 ```
 
 Select regression and real-system gates from the active implementation plan.
-[scripts/verify-compose.sh](scripts/verify-compose.sh) is the full-stack Compose
-entry; its scope is documented in the
+`make verify-compose` is the full-stack Compose entry; its scope is documented in the
 [Compose acceptance guide](dev/validation/Phase-17/phase17-compose-matrix.md).
 Integration tests require explicitly isolated dependencies and safety markers;
 see the selected batch contract before running them.

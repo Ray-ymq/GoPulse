@@ -49,13 +49,13 @@ Only the fixed `mode` label and configured numeric `db` label are emitted. Targe
 
 ```bash
 (cd exporters/redis && go test -count=1 ./...)
-scripts/verify-exporter.sh --self-test
-scripts/verify-exporter.sh
+make test MODULE=exporters/redis
+make verify-observe SCOPE=exporter
 ```
 
 The focused real acceptance uses a random, ownership-validated Compose project and Redis 7.2.5 volume. It proves live values, stopped-target isolation, authentication failure, timeout, recovery without exporter restart, bounded SIGTERM shutdown, and cleanup without changing the daily stack.
 
-The no-argument Phase-12-03 `scripts/verify-compose.sh` verifies the standalone image against real Redis success, `up 0`, authentication failure, same-process recovery, and SIGTERM. The default complete stack does not start that profile as a duplicate runtime: Monitor bootstraps and remains the single owner of the embedded package, restores desired state from `monitor_plugin_data`, and preserves the HTTP status, Prometheus 0.0.4, process ownership, and signal-shutdown boundaries described here.
+The no-argument Phase-12-03 `make verify-compose` verifies the standalone image against real Redis success, `up 0`, authentication failure, same-process recovery, and SIGTERM. The default complete stack does not start that profile as a duplicate runtime: Monitor bootstraps and remains the single owner of the embedded package, restores desired state from `monitor_plugin_data`, and preserves the HTTP status, Prometheus 0.0.4, process ownership, and signal-shutdown boundaries described here.
 
 ## Phase 14 one-shot check and package preparation
 

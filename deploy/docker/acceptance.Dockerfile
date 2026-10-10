@@ -50,9 +50,7 @@ COPY --from=acceptance-docker /usr/libexec/docker/cli-plugins/docker-compose /us
 COPY --from=acceptance-docker /lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1
 COPY --from=acceptance-docker /lib/libc.musl-x86_64.so.1 /lib/libc.musl-x86_64.so.1
 COPY --from=recovery-audit /out/backup-fixture /usr/local/bin/backup-fixture
-COPY scripts/ci/ /work/scripts/ci/
-COPY deploy/release/ /work/deploy/release/
 COPY VERSION /work/VERSION
 ENV GOPULSE_BACKUP_FIXTURE=/usr/local/bin/backup-fixture
 USER 1000:1000
-ENTRYPOINT ["/bin/sh", "/work/scripts/ci/acceptance-entrypoint.sh"]
+ENTRYPOINT ["npx", "playwright", "test"]

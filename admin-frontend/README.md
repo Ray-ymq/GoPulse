@@ -48,11 +48,10 @@ cookies, administrator data, ordinary-user denial, role demotion, and current
 metrics/logs/events/plugin state. It stops only processes and resources owned by
 that test project. `make test MODULE=admin-frontend` remains the focused Vitest
 entry.
-Container acceptance remains authoritative:
+The native page acceptance remains authoritative:
 
 ```bash
-bash scripts/verify-admin-frontend.sh --self-test
-bash scripts/verify-admin-frontend.sh --existing-management
+make verify-pages
 ```
 
 The real gate builds current images and uses a unique owned Compose project,

@@ -61,7 +61,11 @@ runs:
             "${{ runner.temp }}/gopulse-buildkit-mounts/go-build": "/root/.cache/go-build",
             "${{ runner.temp }}/gopulse-buildkit-mounts/npm": "/root/.npm"
           }
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: devtools/go.mod
+        cache-dependency-path: devtools/go.mod
     - name: Build Compose images with optional remote caches
       if: steps.builder.outcome == 'success'
       shell: bash
-      run: python3 scripts/ci/compose_build_cache.py
+      run: make build-images CACHE=gha
