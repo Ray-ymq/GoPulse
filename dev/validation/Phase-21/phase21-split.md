@@ -1,5 +1,12 @@
 # Phase 21-02 双服务部署与运行合同
 
+> **执行器状态**：Phase 17/21 运行时矩阵执行器（`scripts/ci/runtime_acceptance.py`、
+> `scripts/ci/verify_runtime_contracts.py` 及其自测和 `scripts/verify-runtime-contracts.sh` 转发器）
+> 已随 Phase-23-05（`2.5.5`）退役并删除；`deploy/runtime-contracts.json` 的候选校验由
+> `gopulse-package verify` 与 `make verify-compose` 承接。本文件保留方法与当时的结论，下文
+> "固定检查"是退役前的原始命令，源码与原始回执保留在 Git 历史；当前能力边界见
+> [能力状态](../../status/capability-status.md)。
+
 本批把同一个 Backend 镜像拆成两个运行角色：`backend`/`backend-2` 使用
 `business`，`platform-api` 使用 `platform`。后者是 Backend 的固定指标与制品
 别名，不是第二个镜像。四组管理/观测 API 由同源 Nginx 入口精确转发到
