@@ -154,7 +154,10 @@ func (s *session) runBrowserChecks(state *workspace.State, scope string, observe
 	}
 	environment := copyEnvironment(s.processEnv)
 	environment["GOPULSE_BASE_URL"] = fmt.Sprintf("http://127.0.0.1:%s", s.values["FRONTEND_PORT"])
-	environment["GOPULSE_ACCEPTANCE_TOKEN"] = fmt.Sprintf("%s%d", s.ws.Identity, time.Now().Unix())
+	// The browser fixtures deliberately truncate this value when building
+	// usernames. Put a full-resolution value first so repeated runs against the
+	// candidate-scoped data volume cannot collide on the first 16 characters.
+	environment["GOPULSE_ACCEPTANCE_TOKEN"] = browserAcceptanceToken(s.ws)
 	frontend := filepath.Join(s.root, "frontend")
 	commands := [][]string{}
 	labels := []string{}
@@ -198,6 +201,10 @@ func (s *session) runBrowserChecks(state *workspace.State, scope string, observe
 		}
 	}
 	return nil
+}
+
+func browserAcceptanceToken(ws workspace.Workspace) string {
+	return fmt.Sprintf("%016x%s", uint64(time.Now().UnixNano()), ws.Identity)
 }
 
 // startBrowserProcesses starts the source services and both Vite processes the

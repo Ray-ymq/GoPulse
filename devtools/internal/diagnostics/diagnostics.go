@@ -204,7 +204,7 @@ func (r *Report) CopyTree(label, source string) error {
 		return fmt.Errorf("diagnostic tree %s is not a directory", source)
 	}
 	destination := filepath.Join(r.directory, "artifacts", safeName(label))
-	if err := safeMkdir(destination); err != nil {
+	if err := safeMkdirAll(r.directory, destination); err != nil {
 		return err
 	}
 	total := int64(0)
