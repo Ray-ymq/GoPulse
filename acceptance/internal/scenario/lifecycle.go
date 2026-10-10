@@ -362,15 +362,12 @@ func (r *lifecycleRunner) failureMatrix() error {
 	if err := r.expectDirect("doctor", 13, true, "--port", r.port); err != nil {
 		return err
 	}
-	listener, err := net.Listen("tcp4", "127.0.0.1:"+r.port)
-	if err != nil {
-		return err
-	}
+	// The ready product already owns the configured edge port. Reuse that
+	// real publication for the occupied-port contract instead of opening a
+	// second listener in the acceptance process.
 	if err := r.expect("doctor", 15, "--port", r.port); err != nil {
-		listener.Close()
 		return err
 	}
-	listener.Close()
 
 	if err := os.Chmod(r.install, 0o755); err != nil {
 		return err
@@ -402,7 +399,14 @@ func (r *lifecycleRunner) failureMatrix() error {
 	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	lock.Close()
 
+	if err := r.expect("down", 0); err != nil {
+		return err
+	}
 	foreign := r.projectName() + "_mysql_data"
+	removedOwned := r.session.Run("docker", "volume", "rm", foreign)
+	if removedOwned.ExitCode != 0 {
+		return fmt.Errorf("remove owned volume before foreign injection failed with exit code %d", removedOwned.ExitCode)
+	}
 	created := r.session.Run("docker", "volume", "create", foreign)
 	if created.ExitCode != 0 {
 		return fmt.Errorf("create foreign volume failed with exit code %d", created.ExitCode)
@@ -414,6 +418,9 @@ func (r *lifecycleRunner) failureMatrix() error {
 	removed := r.session.Run("docker", "volume", "rm", foreign)
 	if removed.ExitCode != 0 {
 		return fmt.Errorf("remove foreign volume failed with exit code %d", removed.ExitCode)
+	}
+	if err := r.expect("up", 0); err != nil {
+		return err
 	}
 
 	if err := r.signal("SIGINT"); err != nil {
