@@ -70,7 +70,7 @@ and malformed-message handling, authorization responses, and the final business
 search observation. Those executors are retired together with the Phase 18-20
 formal matrix; the contract above and the case list below remain in force, and
 the source plus the original receipts remain in Git history and
-[Phase-20 logs](../../logs/Phase-20/).
+[Phase-20 logs](../logs/Phase-20/).
 
 The covered cases are C01 normal creation, C02 a 30 second index dependency
 delay, C03 a 30 second private Collector outage, C04 duplicate delivery and a

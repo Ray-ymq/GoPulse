@@ -43,7 +43,7 @@
 
 | 命令 | 行为与成功条件 |
 | --- | --- |
-| `make docs-check BASE_REF=upstream/main` | 检查当前入口、修改正文、命令和冻结路径；不安装前端依赖、不启动容器，首次可编译 devenv |
+| `make docs-check BASE_REF=upstream/main` | 检查当前入口与当前正文、命令和冻结路径；不安装前端依赖、不启动容器，首次可编译 devenv |
 | `make doctor` | 检查 Go/Node/npm/Python/Docker/Compose，列出实际版本和缺失条件；不启动业务或改全局工具 |
 | `make bootstrap [MODULE=frontend]` | 安装校验过的项目内 lint 工具、前端依赖与 Chromium；MODULE 只准备指定应用 |
 | `make lint MODULE=backend` | 完整 lint；存在告警非零退出，完整报告保留 |
@@ -66,7 +66,7 @@ Go 使用 linter 的共同祖先参数；ESLint JSON 按实际文件/行 diff �
 
 | 检查 | 失败条件 |
 | --- | --- |
-| 当前入口及修改正文的本地链接、图片、锚点 | 目标/锚点缺失、路径越出仓库；代码示例内的链接文本不当成有效引用 |
+| 当前入口与当前正文（含本次未修改的正文，首扫覆盖存量断链）的本地链接、图片、锚点 | 目标/锚点缺失、路径越出仓库；代码示例内的链接文本不当成有效引用 |
 | 当前命令 | 声明的 Make target、MODULE 或 npm script 不存在；拟新增接口仅在标为方案的材料内允许 |
 | 新文档归属 | 新 Markdown 未归入导航、当前正文、方案、历史或冻结类别；不能通过忽略整个目录漏检 |
 | 冻结文件 | 相对实际共同祖先的 diff 触及三份冻结原文 |
