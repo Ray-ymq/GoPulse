@@ -133,3 +133,81 @@
   停止/删除；不保留验收或 lifecycle 容器、网络、volume 残留。
 - 完成提交前执行 `git ls-files scripts` 为空、`test ! -d scripts`、`ci` governance/branch/version
   completion 校验与 `git status` 核对；提交只包含本实施日志。
+
+## 阶段收口补充记录（2026-10-10，`update`）
+
+本节为阶段收口时追加的记录，不改写上文执行时写入的任何内容：上文的命令、结果与结论保持原样，
+本节只补充门禁覆盖对照、执行时未登记的偏差、成本台账现状、证据位置与后续项。
+
+### 门禁覆盖对照（来源：私有执行台账 `ledger.md`）
+
+执行时的逐段观察、逐模块用例计数与部分命令耗时记录在私有证据根的 `ledger.md`
+（`file_id: phase23-05-20261010`），该文件按
+[实施耗时预算与验收接续](../../rules/implementation-execution-budget.md) §2/§4.1 留在私有证据根，
+未随本日志提交。按该台账与证据根回执，对照分方案 §4.3 的登记情况：
+
+| 门禁组 | 台账/回执中的记录 | 登记形式 |
+| --- | --- | --- |
+| A1–A6 | Stage A：`A1-A6 passed`；A4 记录 bake 退出 0 / 12.7 s；A6 记录 19 模块 / 83 用例的逐模块计数与 17 个 `bash -n`、9 个 `--self-test` 基线 | 范围结论 + 分项证据 |
+| B1–B6 | B1/B2、B3、B4、B5、B6 逐项；B3/B4 含项目名、`status=passed`、14/13 条记录命令 | 逐项 |
+| C1–C4 | C1、C2、C3、C4 逐组叙述（含首次失败与修复） | 逐组 |
+| D1-1…D1-6 | 未逐编号列出；干净安装由 G4 覆盖，失败矩阵由 `41b0261` 与 `failure-matrix-replay.log` 覆盖（code 10/11/13/14/15/16/17/18/19 与 signal 20，退出 0 且清理） | 汇总（未逐编号） |
+| D1-7、D2 | clean/reuse 回执；验收镜像入口改造 | 逐项 |
+| E1-1…E3-2 | 迁移后 `ci/` 保留 5 模块 / 38 用例，基线 19 模块 / 83 用例（逐模块计数在台账 Stage A）；台账记录基线治理校验退出码（`validate_versions`、development `validate_branch`、`quality_scope` 均为 0，completion 校验按预期在收口前失败），迁移后由 CI governance job 实际执行；文档旧命令改写 | 汇总（未逐编号） |
+| F1-1…F3-2 | F 段叙述：非治理资产与全部 tracked `scripts/` 删除后 `make test MODULE=acceptance`、`make test MODULE=backend`、`git diff --check` 通过 | 汇总（未逐编号） |
+| G1–G5 | 上文"G1-G5 固定候选复验" | 逐项 |
+| H1–H5 | H1/H2 扫描；H3 见 `dev/status/capability-status.md`；H4 见本日志与 completion 校验；H5 见 CI run `38020663371` 与 `38021301537` | 逐项 |
+
+**已知偏差（§4.2）**：分方案 §4.2 要求"每段开工先产出该段被替代文件的断言清单……写入实施日志"，
+本日志没有逐文件的断言清单。可替代的逐文件信息是分方案 §1.3 的 97 文件删除台账（文件 + 行数 +
+承接目标 + 删除条件 + 段）与 §1.5 的退役依据；本次收口据实登记为偏差，不补写执行时未留痕的清单。
+
+### 未登记的偏差：`scripts/` 删除先于 §4 五条判据复验
+
+- 分方案 §1.3 规定"删除时机由所在段决定，且必须先满足该行的删除条件"；而总方案 §4、
+  总方案 §2 的 23-05 进入条件与分方案 §7 要求"§4 五条判据在删除前的候选上全量通过"后才删除
+  `scripts/`。两条规则互相冲突，执行采用了 §1.3。
+- 实际顺序：97 个 tracked 文件在 `cbc3394`（62 个，01:53）与 `659c720`（35 个，01:58）删除；
+  冻结候选 `cab06eb` 为 10:46，G1–G5 回执时间为 10:37–11:37。因此不存在"删除前候选"上的五条判据回执。
+- 实质安全性由删除前已通过的真实门禁（B3/B4 回执、C1–C4、D1-7）与删除后最终候选上的 G1–G5
+  共同覆盖；但按规则字面，该进入条件未满足。此偏差执行时未登记，现补记。
+- **后续项**：是否需要在删除前候选上补做一次五条判据复验，交用户决定；本记录不代替该决定。
+
+### 执行时未写入本日志的其他诊断与修复（来源：`ledger.md`）
+
+- B3 首次全栈闭包在 `marshaller-2-1` 启动即失败：新 harness 生成的 `MARSHALLER_API_TOKEN` 为
+  31 字节，低于 `marshaller/internal/config` 要求的 32 字节；修正
+  `acceptance/internal/harness/session.go` 并增加生成长度断言后通过。
+- C2 exporter 首次失败于原生账号边界的 MySQL 503，先做原生账号和解，再只重跑受影响的 suite。
+- C4 容器栈承接发现基础拓扑隐藏 backend 发布，原生 helper 改用临时自有 override 后通过；
+  命名卷集合前后一致。
+- B6 的治理路径在段 E 迁移前保持待办，随后由 `ci/` 迁移完成。
+
+### 成本台账现状（偏差）
+
+私有台账登记了 `file_id`、预算（预计 1,440 / 累计上限 1,920 分钟）、阶段与候选，但**没有**逐命令的
+开始/结束与耗时，也没有累计耗时与 50%/80% 停点报告（[预算规则](../../rules/implementation-execution-budget.md)
+§1/§2 要求）。现存的实测量只有零散项（如 A4 的 bake 12.7 s）。本次收口据实登记为成本记录不完整，
+不补写执行时未记录的时间。
+
+### 证据位置与完整性核对（本次收口执行）
+
+- 执行时证据根：`/tmp/gopulse-phase23-05-evidence`（61 文件）。本次收口复制到持久位置
+  `/home/ray/gopulse-private-evidence/phase23-05-20261010` 并生成 `SHA256SUMS`；61 个文件校验
+  全部通过，`SHA256SUMS` = `sha256:a72b4550d18336167348601ff561abd1482c462259c27eab9bf26c4fbd939fac`，
+  `ledger.md` = `sha256:725eafd90f8f51765a797fe4a96949ec9426905bdfeca141a0e743776c95d6a7`。
+- 本次收口实际核对：`release-manifest.json` 实算摘要等于上文登记的
+  `sha256:c56d89986a37cd429dbbf37f6cd9a6ae93278d9da74545e66fd36858f4e75c7d`；
+  `reuse-receipt-cab06eb.json` 与 `reuse-clean-receipt-cab06eb.json` 均为 `status=passed`、
+  `cleanup_passed=true`、`isolation_preserved=true`；`g3-ci-run-38020663371-final.json` 为
+  completed/success；CI run `38021301537` 的 25 个 job 全部 success；仓库内
+  `git ls-files scripts` 为空、`test ! -d scripts` 通过。
+- 数字更正：上文"相对 `origin/main` 实际变更 172 个文件"未计本日志自身，实际为 173 个。
+
+### 本次收口同时修正的文档
+
+- `dev/validation/Phase-21/phase21-split.md`、`dev/validation/Phase-16/phase16-current-recovery.md`
+  补退役说明（分方案 §1.4 要求；原 E2-1 扫描出 13 处无说明的旧命令，见本日志上文 E2 门禁）。
+- 根 `AGENTS.md` 的仓库维护范围路径由 `scripts/` 更正为 `ci/`（H2 的唯一命中，原登记为偏差）。
+- `dev/imple/Phase-23/Phase-23-总实施方案.md` 头部收口为"已完成、当前完成版本 `2.5.5`"，
+  §1 的 101 文件更正为 97。
