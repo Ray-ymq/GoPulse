@@ -46,7 +46,7 @@ or collector account with mutation privileges are added. A configured origin is
 also the entire dial allowlist, including advertised broker addresses.
 
 Validation: `go test ./...`; full owned-source gate:
-`bash scripts/verify-plugin-metrics.sh --sources kafka,elasticsearch` from the
+`make verify-plugins` from the
 repository root. Only that gate may temporarily add a same-version follower to
 prove a real under-replicated snapshot. It restores one replica and removes its
 resources; this does not expand product support to multiple brokers/targets.

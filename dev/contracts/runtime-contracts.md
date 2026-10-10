@@ -3,11 +3,12 @@
 `deploy/runtime-contracts.json` is the machine-readable inventory of all thirteen
 long-running Go processes. `deploy/runtime-contracts.schema.json` defines its
 shape. Environment variables remain the only configuration input; the inventory
-is not a second runtime configuration service. Validate changes with:
+is not a second runtime configuration service. Validate changes with the native
+Compose and Bundle gates:
 
 ```bash
-python3 scripts/ci/verify_runtime_contracts.py --contract deploy/runtime-contracts.json --compose deploy/compose.yaml --env .env.example --candidate 2.3.2
-scripts/verify-runtime-contracts.sh --candidate 2.3.2
+make verify-compose
+make package PLATFORM=linux/amd64 RUNTIME=1
 ```
 
 ## Configuration and readiness
@@ -192,15 +193,13 @@ third time. `target_met`, `boundary_found`, and `execution_failed` are honest
 result classifications; a boundary or execution failure remains valid evidence
 when both runs and their receipts are complete.
 
-Use the following command for the fixed contract gate:
+Use the following command for the fixed native contract gate:
 
 ```bash
-scripts/verify-runtime-contracts.sh --candidate 2.0.5
+make verify-compose
 ```
 
-The Phase-18-05 closure gate (`scripts/verify-phase18-scale-closure.sh --repetitions 2`
-followed by `python3 scripts/verify-phase18-evidence.py --closure <closure-directory>`) is
-retired together with the Phase 18-20 formal matrix. It rejected missing run-2 evidence, any
+The Phase-18-05 closure gate is retired together with the Phase 18-20 formal matrix. It rejected missing run-2 evidence, any
 run-3 artifact, candidate drift, mismatched numeric averages, command failures without retained
 failure records, and ledger entries outside the Phase-18-05 file scope, and never inferred
 successful capacity from a failed or boundary run. Source and original receipts remain in Git

@@ -116,8 +116,7 @@ go run ./cmd/gopulse backup-inspect \
 ## 验证与未完成范围
 
 ```bash
-scripts/test-backup-format.sh
-(cd lifecycle && go test ./...)
+make test MODULE=lifecycle
 ```
 
 测试直接覆盖认证 round trip、Secret 独立加密、错误口令、tamper、危险 archive、

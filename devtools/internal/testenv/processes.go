@@ -199,10 +199,25 @@ func (s *session) cleanup(state *workspace.State, observe bool) {
 // flows may create for this workspace.
 func (s *session) observationUsernames() ([]string, error) {
 	usernames := []string{}
-	for _, key := range []string{"OBSERVE_ADMIN_USERNAME", "OBSERVE_USER_USERNAME", "OBSERVE_DEMOTION_USERNAME"} {
-		if value := s.values[key]; value != "" {
-			usernames = append(usernames, value)
+	add := func(username string) {
+		if username == "" {
+			return
 		}
+		for _, existing := range usernames {
+			if existing == username {
+				return
+			}
+		}
+		usernames = append(usernames, username)
+	}
+	for _, key := range []string{"OBSERVE_ADMIN_USERNAME", "OBSERVE_USER_USERNAME", "OBSERVE_DEMOTION_USERNAME"} {
+		add(s.values[key])
+	}
+	// The observability integration creates the matching user directly in the
+	// flow test, while the browser suite records all three names in values.
+	// Derive that integration-only name so both scopes clean the same database.
+	if admin := s.values["OBSERVE_ADMIN_USERNAME"]; strings.HasPrefix(admin, "observe_admin_") {
+		add(strings.Replace(admin, "observe_admin_", "observe_user_", 1))
 	}
 	for _, username := range usernames {
 		if !observeUsernamePattern.MatchString(username) {

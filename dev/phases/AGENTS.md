@@ -5,7 +5,7 @@ constraints come from [AGENTS.md](../../AGENTS.md); authoritative batch allocati
 remain in each Phase total implementation plan under `dev/imple/`.
 
 - Before creating or revising a stage overview or roadmap, read and apply
-  [Test and Acceptance Tool Rules](../../scripts/AGENTS.md). Describe the capability and
+  [Test and Acceptance Tool Rules](../../ci/AGENTS.md). Describe the capability and
   existing verification that the stage will reuse; do not allocate a new acceptance-tool suite
   merely because the phase changes. Keep exact test mappings and executable gates in the
   authoritative implementation plans, and preserve existing contracts and historical evidence.

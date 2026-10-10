@@ -142,7 +142,6 @@ func MonitorInput(root string) (string, error) {
 		filepath.Join(root, "monitor"),
 		filepath.Join(root, "exporters"),
 		filepath.Join(root, "deploy", "docker", "observability.Dockerfile"),
-		filepath.Join(root, "scripts", "package-redis-exporter.sh"),
 		filepath.Join(root, "deploy", "plugins"),
 	})
 }

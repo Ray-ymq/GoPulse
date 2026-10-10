@@ -17,6 +17,6 @@
 
 ## 本批验收入口
 
-`python3 scripts/ci/verify_admin_visual.py` 创建独立、有归属标签的真实 Linux amd64 Compose 验收环境，执行现有管理、dashboard、真实依赖停机 partial 和专用响应式浏览器用例。截图保存到输出 evidence 目录的 `screenshots/`；包含 1440×1000、820×1000、390×844 四页截图。普通页面状态不使用 API mock。结束时清理本次容器、网络、卷、临时凭据和候选镜像，不删除已有资源。
+`make verify-pages` 创建独立、有归属标签的真实 Linux amd64 Compose 验收环境，执行现有管理、dashboard、真实依赖停机 partial 和专用响应式浏览器用例。截图保存到输出 evidence 目录的 `screenshots/`；包含 1440×1000、820×1000、390×844 四页截图。普通页面状态不使用 API mock。结束时清理本次容器、网络、卷、临时凭据和候选镜像，不删除已有资源。
 
 这个入口只用于本批展示验收，不替代 Phase 17 后续运行时/持久状态/全产品验收。
