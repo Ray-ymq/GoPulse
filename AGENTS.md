@@ -1,113 +1,69 @@
-# Task Classification, Version, and Branch Rule
+# GoPulse 开发指南
 
-- Read-only analysis, diagnosis, review, and status reporting do not require a new branch or commit.
-- Planning, architecture, implementation-plan, documentation-organization, planning-metadata, repository-rule, and repository-maintenance work may be performed directly on `update`.
-- Repository maintenance covers the CI and acceptance tooling under `ci/` and `.github/`: retiring a tool whose capability has been formally retired, together with its self-tests, forwarders, and live references. It does not cover product code, module test code, application validation, `VERSION`, or release metadata. A retirement must name the capability it removes, the decision that retired it, and what stays valid.
-- Changes unique to `update` relative to the latest primary-remote `main` must remain within that planning and maintenance scope. Merging `main` into `update` does not violate this rule.
-- Do not use `update` for product implementation, test implementation, application validation, or ordinary development pull requests.
-- Every executable product-development change must belong to a documented implementation batch.
-- Before starting a new implementation batch:
-  1. Fetch the configured primary remote.
-  2. Read the Phase total implementation plan.
-  3. Determine the batch target version.
-  4. Create the allocated branch from the primary remote's `main`.
-- Development branches must match `^develop/[0-9]+\.[0-9]+\.[0-9]+$`.
-- Continue using the current development branch only for work belonging to the same implementation batch or pull request.
-- Do not continue using a completed development branch after its pull request has been opened or the batch has been completed.
-- The Phase total implementation plan at `dev/imple/Phase-XX/Phase-XX-总实施方案.md` is authoritative for batch order, target versions, and branch allocation.
-- If an unstarted batch split or order changes, update the total implementation plan and recalculate affected uncreated branches.
-- Never silently rename or renumber a branch that has already been pushed; coordinate the change with the user.
-- Pull requests from `update` to `main` must use merge commits and must not delete `update`.
-- Ordinary `develop/x.x.x` pull requests may use squash merge and delete their branches.
+GoPulse 是以社交业务为真实负载的 Go 可观测与可靠性实验项目。按本次改变的组件阅读和验证。
 
-# Version Rule
+## Repository Map and Reading Order
 
-- Use the three-part `major.minor.patch` format.
-- Phase 0 through Phase 3 use `0.1.x` through `0.4.x`.
-- After Phase 3 passes milestone acceptance, publish `1.0.0`.
-- Phase 4 through Phase 17 use `1.(Phase - 3).x`.
-- Allocate phases and version lines after Phase 17 only in a new Phase total implementation plan; unscheduled future designs do not reserve a phase or version.
-- Reserve patch `0` as the Phase baseline. Executable batches start at patch `1` in planned execution order.
-- Each executable batch has one target version, and all implementation commits in that batch share that target.
-- The root `VERSION` file is the sole source of the current completed product version.
-- At successful batch completion, update `VERSION` to the batch target and include it in the completion commit.
-- Work performed within the permitted scope of `update` does not change `VERSION`.
+| 修改什么 | 先从哪里看 | 验证入口（仓库根目录） |
+| --- | --- | --- |
+| 业务 API、运行角色 | [API](backend/internal/http/api.go)、[角色装配](backend/cmd/server/roles.go)、[Backend](backend/README.md) | `make test MODULE=backend` |
+| 数据与异步任务 | [Outbox](backend/internal/outbox/)、[Worker](backend/internal/worker/)、[搜索](backend/internal/search/)、[消息合同](dev/contracts/migration-state.md) | `make integration SCOPE=business` |
+| 用户端、管理端 | [用户路由](frontend/src/router/index.ts)、[管理路由](admin-frontend/src/router/index.ts)、[管理端说明](admin-frontend/README.md) | `make test MODULE=frontend` / `admin-frontend`；浏览器用 `make e2e SCOPE=business` / `observe` |
+| 插件和采集 | [Monitor](monitor/README.md)、[Exporters](exporters/README.md) | 所属模块测试；真实观测用 `make integration SCOPE=observe` |
+| 观测传输与存储 | [Router](router/README.md)、[Marshaller](marshaller/README.md)、[技术契约](dev/contracts/README.md) | `make test MODULE=router` / `marshaller`；真实观测用 `make integration SCOPE=observe` |
+| 共享指标 | [componentmetrics](componentmetrics/)、[指标合同](dev/contracts/component-metrics.md) | `make test MODULE=componentmetrics`，并按需跑受影响消费者的模块测试 |
+| 本机环境、测试、构建 | [devenv](devtools/cmd/devenv/main.go)、[原生入口登记](dev/validation/local-development-tests.md) | `make test MODULE=devtools` |
+| Compose 验收、Bundle | [acceptance](acceptance/cmd/gopulse-acceptance/main.go)、[lifecycle](lifecycle/)、[Bundle 指南](deploy/release/BUNDLE-README.md) | 模块测试及当前计划指定的 `make verify-*` / `make package` |
+| 规则、文档、CI | [工程入口](dev/README.md)、[工具规则](ci/AGENTS.md)、[质量 workflow](.github/workflows/quality-gates.yml) | 治理检查；核对改动正文的链接和实际命令 |
 
-# Implementation and Validation Rule
+模块名与构建方式从根 [Makefile](Makefile)读取，依赖版本从对应 go.mod/package-lock 读取。
+产品工作先读[能力状态](dev/status/capability-status.md)和[已分配实施计划](dev/phases/README.md)；
+修改公开合同再读相关正文，规划验证时读 ci/AGENTS.md。
 
-- Treat the current implementation plan as the acceptance contract.
-- A Phase total implementation plan must define Phase-level capabilities, cross-batch integration results, acceptance criteria, and milestone completion conditions.
-- A split implementation plan must define its scope, acceptance criteria, validation commands where known, required regression scope, and explicit completion condition.
-- Initial discovery must stay limited to directly affected project code, tests, configuration, and public interfaces.
-- Inspect third-party source only when a concrete build, runtime, or required-test failure cannot be resolved from the local call site, public API, documentation, and reported error.
-- Do not turn implementation work into a general code audit, dependency audit, coverage campaign, architecture review, or speculative hardening pass unless the user explicitly requests it.
-- Add or change tests only when they prove changed acceptance behavior, reproduce an observed defect, or protect a changed security boundary, persistent-data invariant, or public contract.
-- Prefer the lowest effective test layer and the smallest representative set of success and failure cases.
-- Run validation in stages:
-  1. Run the smallest directly affected checks during implementation.
-  2. Run the batch plan's fixed completion gates against the final candidate.
-- Expand validation only for a recorded concrete risk or observed regression.
-- A successful check remains valid while its relevant code, configuration, dependencies, candidate metadata, and execution environment remain unchanged.
-- If the candidate changes after a check, rerun the affected check. Do not rerun unrelated successful checks.
-- Stop when the documented acceptance criteria and fixed completion gates pass with no blocking issue. Record unrelated or non-blocking findings as follow-up items.
+## 分支与版本
 
-# Release Candidate Rule
+- 只读分析直接进行；规则、规划和文档维护使用 `update`。产品代码、模块测试和应用验证使用已分配实施批次。
+- 新产品批次先 fetch 主远端，读取总方案的目标版本和分配，从主远端 main 创建分支；
+  分支必须匹配 `^develop/[0-9]+\.[0-9]+\.[0-9]+$`。
+- 批次完成或 PR 打开后，不继续使用该开发分支。调整未开始分配先修改总方案；已推送分支的改名/重编号与用户协调。
+- `VERSION` 是已完成版本的唯一来源，格式为 major.minor.patch。成功收口时与同名日志一起提交；update 不修改它。
+- 可执行 CI/验收工具改动也纳入批次。正式退役能力的工具、测试和有效引用清理可在 update，注明决定、删除能力和仍有效的覆盖。
+- update PR 使用 merge commit 并保留分支；普通开发 PR 可 squash 并删除分支。
 
-- When a batch requires a frozen release candidate or an expensive product acceptance matrix, follow that batch's implementation plan and referenced matrix document.
-- Run deterministic preflight before the full matrix.
-- Bind the candidate revision, Bundle, manifest, runtime contract, receipts, and published evidence.
-- Any relevant application, acceptance, verification, or release-metadata change invalidates the affected candidate evidence and requires a new candidate revision.
-- Do not repair a failed candidate by editing receipts, replacing tags, or reusing evidence from another revision.
-- Distinguish product failures from acceptance-infrastructure failures and fix the smallest affected layer.
-- Never use broad Docker cleanup or global prune to make resource-isolation checks pass.
-- Verify the exact sanitized evidence selected for publication before declaring the matrix complete.
+## 实现与验证
 
-# Execution Cost and Continuation Rule
+- 按实施计划交付。总方案定义阶段结果、批次和里程碑；分方案定义文件范围、验收条件与固定门禁。
+- 聚焦直接相关代码，复用现有接口、助手和测试。测试证明改变的行为、真实缺陷或安全/持久化/公开合同。
+- 实现中跑最小检查，最终候选跑固定门禁。有效检查只在相关代码、配置、依赖、身份或环境改变后重跑。
+- 最终检查本次 diff 的接口兼容、事实源、权限、消息确认、取消和资源归属；细节见[代码约定](dev/README.md#代码改动约定)。
+- 昂贵构建、真实验收和长时实验提前在计划中约定成本、窗口和停止点，按[成本与接续规则](dev/rules/implementation-execution-budget.md)执行。
+- 通过即收口；无关问题记录后续项。失败或未完成工作保留实际进度，不能作完成声明。
 
-- Every new or revised split implementation plan must state an execution budget before work starts: expected total active time, a cumulative ceiling, stage budgets, required experiment duration, maximum diagnostic attempts, and the stop/resume procedure.
-- Ordinary implementation files target completion within 120 minutes and have a cumulative ceiling of 180 minutes. Size unstarted batches to fit that budget. Do not hide an oversized task by renaming files or resetting the budget.
-- A necessary long-duration acceptance file must state its irreducible experiment time, setup/verification overhead, and finite total ceiling before execution. Keep it separate from product/tool development. Do not shorten a required measurement window to meet a time budget or claim that a short probe proves a long run.
-- Count discovery, implementation, builds, environment setup, diagnosis, failed attempts, validation, and cleanup across commands, revisions, work directories, and agent turns. Only an explicitly recorded inactive interval or user-requested pause may be excluded. A new candidate or retry does not reset the file's budget.
-- At 50% and 80% of the cumulative ceiling, report completed work, remaining gates, elapsed time, and the next concrete step. Do not start an expensive command whose estimated duration plus safe cleanup exceeds the remaining budget.
-- On the first acceptance-infrastructure failure, stop the full matrix and reproduce the smallest failed boundary. Allow at most two bounded diagnostic attempts for the same unresolved cause; each defaults to at most 10 minutes. A new error message is not proof of progress. Do not restart the full matrix without a reproduced cause, an actual correction, and directly affected checks.
-- Verify entry-point modes, cross-module methods, evidence schemas, process failure propagation, and cleanup on the lowest effective layer before constructing a real acceptance stack. Static/unit checks cannot replace the required real acceptance gates.
-- Before rebuilding, record which changed source/configuration affects which image, executable, gate, or evidence. Reuse unchanged build caches and valid deterministic checks. Frozen candidate identity and raw evidence rules still apply; never rebind receipts across candidates or relax a gate to save time.
-- At the cumulative ceiling or repeated-diagnosis stop, stop new work, retain actual progress and evidence, perform bounded owned cleanup, and report the unresolved item and a concrete continuation plan. Do not declare completion or create a completion commit for the unfinished implementation batch. Additional execution requires a revised bounded plan and an explicit user instruction to continue; do not request a blanket extension before making the remaining work reviewable.
-- For an acceptance already in progress when this rule is introduced, let the current bounded run produce its result under its frozen contract unless the user explicitly stops it. On a user-requested stop, cease new work, stop owned subprocesses safely, preserve raw evidence, and record a paused/incomplete checkpoint; do not automatically resume. Preserve valid current-candidate receipts; do not restart it, invalidate it retrospectively, or edit its runtime files merely to satisfy this new rule. Budget the remaining work from the transition checkpoint, with prior cost reported separately.
+## 默认清理
 
-The planning and continuation details are documented in [Implementation execution budget](dev/rules/implementation-execution-budget.md).
+- 确认不再承担功能、依赖、有效合同或必要事实依据的内容，更新有效引用后直接删除；需要保留的正常保留。
+- 删除前核对实际用途和调用方；尚未查清不等于无用，也不能据此宣称仍有效。
+- 不为清理逐个添加“保留”“待删”“暂不删除”标签、占位页或额外的删除清单；只有缺少说明会导致误用时，才在已有正文或导航补充必要说明。
 
-# Completion, Log, and Commit Rule
+## 架构与证据
 
-- The implementation-log requirement applies when executing a plan under `dev/imple/Phase-XX/`.
-- Before declaring that implementation plan complete, create or update the corresponding file under `dev/logs/Phase-XX/` using the same Markdown filename.
-- The implementation log must record only:
-  - Work actually completed.
-  - Files actually changed.
-  - Commands actually executed and their results.
-  - Deviations from the plan.
-  - Known limitations and follow-up items.
-- Never record planned or unverified work as completed.
-- After a task completes successfully and modifies project files, create a Git commit before reporting completion.
-- Do not create a completion commit for failed, cancelled, or incomplete work unless the user explicitly asks to preserve that state.
-- Stage and commit only files changed for the current task. Never include unrelated, pre-existing, or user-owned changes.
-- Write commit messages in English and use Conventional Commits when practical.
-- Run proportionate checks before committing. If a required check cannot run or fails, report that clearly.
-- Do not create an empty commit.
+- [设计索引](dev/design/README.md)登记生效目标；[能力状态](dev/status/capability-status.md)记录当前事实；
+  总/分实施方案定义执行合同，日志记录实际结果，导航不另建版本、状态或门禁副本。
+- 下级文档只补充细节，不得放宽本文的分支、版本、安全、证据或提交约束；
+  权威文档冲突或工作无法归入有效批次时，停止并询问用户。
+- 2026-10-06 的[高并发设计](<docs/GoPulse 高并发架构设计.md>)、
+  [可观测设计](<docs/GoPulse 可观测架构设计.md>)和[落地大纲](dev/design/GoPulse-目标架构落地大纲.md)保留原路径与原文。
+  改变目标需用户批准新基线；草案不预留 Phase、版本或分支，也不改写已分配合同。
+- 冻结验收绑定 revision、Bundle、manifest、合同和回执；相关变动重验受影响证据，不编辑回执或换绑候选。
+- 只清理本次拥有的进程、容器、卷与文件，不使用全局 prune。发布前核验实际选定的脱敏证据。
+- 执行计划时更新 logs 下同名文件，记录实际交付、必要验证结论、偏差和限制；日常验证复用测试与 CI 记录，不逐条复制成功输出。
+- 仍被能力、恢复或发布结论引用的证据保留足以复核的候选、环境、方法与关键原始数据；日常诊断按用途和约定期限保存，具体见[实施记录](dev/logs/README.md)。已分配验收合同的证据要求继续有效。
+- 历史结论保持当时的候选、范围和实际结果。纯历史过程材料可从工作树移除，先确认原文已在可定位的 Git revision 或可靠归档中保留并更新当前引用；不得借清理改写历史结果。
 
-# Authority and Conflict Rule
+## 提交与常见陷阱
 
-- This file defines repository-wide execution constraints.
-- The effective target architecture is defined by the explicitly approved baseline registered in `dev/design/README.md`. The 2026-10-06 baseline's two designs are `docs/GoPulse 高并发架构设计.md` and `docs/GoPulse 可观测架构设计.md`. The former owns business architecture, consistency and capacity; the latter owns observability, experiments and shared contracts. Together they define project positioning, system boundaries, scope exclusions and the design endpoint. Shared identity and environment-resource contracts are defined in the observability design and consumed by both designs.
-- The two designs and `dev/design/GoPulse-目标架构落地大纲.md` form the frozen baseline dated 2026-10-06. The outline decomposes the designs into topics and dependencies; it does not independently define architecture or allocate implementation batches. Preserve these three files at their existing paths without future edits, including formatting, link repairs, progress updates or appended decisions. Their source references, current-state descriptions and validation records are snapshots of the stated research baselines.
-- `dev/design/README.md` registers the effective architecture baseline and maintains detailed-design links, decisions and implementation mappings. This index may evolve, but cannot independently change the target or make a draft authoritative. Capability status, Phase plans and logs retain their existing authority.
-- Detailed designs and implementation plans may refine interfaces, data structures, unspecified parameters and batch allocation within the adopted target. They must preserve applicable architecture constraints and hard dependencies; listing every outline topic does not make all topics prerequisites for every batch.
-- If evidence reveals a target conflict, an infeasible assumption or a required architecture change, stop the affected work and record the evidence, proposed change and impact on both designs, the outline and allocated contracts for user review. A replacement baseline requires explicit user approval, new documents and registration in the design index; retain the original frozen files. Approval of a new baseline does not itself authorize product execution or revise an allocated implementation contract.
-- The two designs describe the adopted target, not completed product capabilities. Actual capabilities and evidence boundaries are recorded in `dev/status/capability-status.md`; the root `VERSION` remains the completed-product version source.
-- `dev/phases/Plan.md`, stage overviews, indexes, diagrams and future-design notes provide navigation, history or subordinate detail. They must not establish a competing architecture or reserve future phases, versions or branches. New architecture does not silently revise an already-allocated implementation contract or authorize execution; batch order and acceptance remain in the Phase implementation plans.
-- Completed plans, logs, reviews and raw evidence retain their existing paths and historical context. Navigation separates current work from historical records; documentation organization must not rewrite receipts or turn unfinished work into completion.
-- The Phase total implementation plan defines batch allocation and Phase-level acceptance.
-- The split implementation plan defines the current batch scope and completion gates.
-- Matrix and release documents define detailed acceptance procedures only when referenced by the active batch.
-- A lower-level document may add detail but must not silently weaken branch, version, safety, evidence, or commit constraints from this file.
-- If authoritative documents conflict or the requested work cannot be assigned to a valid batch, stop and ask the user before changing project files.
+- 成功修改项目文件后提交当前任务文件；使用英文 Conventional Commits。先做相称检查，不带入用户或其他任务的改动。
+- Go 是多模块仓库，根 `go test ./...` 不代表全量；裸 `make build` 会构建镜像，局部构建应指定 MODULE。
+- 前端锁文件变化后在相应应用运行 `npm ci`；现有目录不会可靠触发自动重装。
+- `make dev` 是宿主源码开发，`make stack-up` 是 Compose 栈；测试项目与开发数据隔离。
+- 历史图和矩阵按原版本阅读；拟新增的 doctor/bootstrap/lint/verify/docs-check 以[改造方案](dev/design/GoPulse-工程稳定性改造方案.md)状态为准。
