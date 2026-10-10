@@ -11,12 +11,15 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/quality"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/stack"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/testenv"
 )
@@ -35,6 +38,10 @@ commands:
 	stack-down                                           stop it and preserve named volumes
 	stack-verify                                         verify ownership, health and loopback ports
 	build-cache [--print] [--no-cache]                    render/build Compose images
+	doctor                                                check host prerequisites without starting services
+	bootstrap [--module frontend|admin-frontend] [--tools-only]
+	                                                        prepare lint tools, frontend dependencies, and Chromium
+	frontend-deps --module frontend|admin-frontend       prepare one application's npm dependencies
 `
 
 type options struct {
@@ -45,6 +52,8 @@ type options struct {
 	adminFrontendPort string
 	printOnly         bool
 	noCache           bool
+	module            string
+	toolsOnly         bool
 }
 
 func main() {
@@ -62,7 +71,7 @@ func run(args []string) int {
 		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", err)
 		return 2
 	}
-	root, err := os.Getwd()
+	root, err := repositoryRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", err)
 		return 1
@@ -102,6 +111,24 @@ func run(args []string) int {
 			return 1
 		}
 		return code
+	case "doctor":
+		if parsed.module != "" || parsed.toolsOnly {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: doctor does not accept bootstrap options")
+			return 2
+		}
+		err = quality.Doctor(root)
+	case "bootstrap":
+		err = quality.Bootstrap(root, parsed.module, parsed.toolsOnly)
+	case "frontend-deps":
+		if parsed.toolsOnly {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps does not accept --tools-only")
+			return 2
+		}
+		if parsed.module != "frontend" && parsed.module != "admin-frontend" {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps requires --module frontend or admin-frontend")
+			return 2
+		}
+		err = frontenddeps.Ensure(root, parsed.module)
 	default:
 		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: unknown command: %s\n%s", command, usage)
 		return 2
@@ -118,6 +145,23 @@ func defaultScope(scope string) string {
 		return testenv.ScopeBusiness
 	}
 	return scope
+}
+
+func repositoryRoot() (string, error) {
+	current, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(current, "devtools", "toolchains.json")); err == nil {
+			return current, nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return os.Getwd()
+		}
+		current = parent
+	}
 }
 
 // overrides are the explicit entry-point values an isolated scope accepts.
@@ -172,6 +216,10 @@ func parseOptions(args []string) (options, error) {
 			parsed.printOnly = true
 		case "--no-cache":
 			parsed.noCache = true
+		case "--module":
+			parsed.module = value
+		case "--tools-only":
+			parsed.toolsOnly = true
 		default:
 			return options{}, fmt.Errorf("unknown option: %s", name)
 		}
@@ -190,7 +238,7 @@ func parseOptions(args []string) (options, error) {
 
 func isFlagWithValue(name string) bool {
 	switch name {
-	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port":
+	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port", "--module":
 		return true
 	}
 	return false
@@ -198,7 +246,7 @@ func isFlagWithValue(name string) bool {
 
 func isBooleanFlag(name string) bool {
 	switch name {
-	case "--print", "--no-cache":
+	case "--print", "--no-cache", "--tools-only":
 		return true
 	}
 	return false

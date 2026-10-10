@@ -42,6 +42,13 @@ list-npm-modules:
 docs-check:
 	@python3 ci/check_docs.py $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
 
+doctor:
+	@$(DEVENV) doctor
+
+bootstrap:
+	@test -z "$(TOOLS_ONLY)" || test -z "$(MODULE)" || { printf '%s\n' '[gopulse] ERROR: TOOLS_ONLY=1 and MODULE are mutually exclusive' >&2; exit 2; }
+	@$(DEVENV) bootstrap $(if $(MODULE),--module "$(MODULE)",) $(if $(TOOLS_ONLY),--tools-only,)
+
 test:
 	@$(REQUIRE_MODULE)
 	@$(MAKE) --no-print-directory -C $(MODULE) test

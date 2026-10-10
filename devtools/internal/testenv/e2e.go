@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/ready"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
@@ -427,12 +428,7 @@ func (s *session) apiJSON(client *http.Client, path, method string, payload map[
 }
 
 func (s *session) ensureNpmDependencies(directory string) error {
-	target := filepath.Join(s.root, directory)
-	if info, err := os.Stat(filepath.Join(target, "node_modules")); err == nil && info.IsDir() {
-		return nil
-	}
-	return proc.Run([]string{"npm", "ci", "--no-audit", "--no-fund"}, target, s.processEnv,
-		"npm dependency installation for "+directory, 0)
+	return frontenddeps.Ensure(s.root, directory)
 }
 
 func instance(environment map[string]string, identifier string) map[string]string {
