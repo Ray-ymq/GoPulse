@@ -16,4 +16,4 @@ check:
 	$(GO) vet ./...
 
 build:
-	$(GO) build -o bin/devenv ./cmd/devenv
+	@$(GO) build -o bin/devenv ./cmd/devenv

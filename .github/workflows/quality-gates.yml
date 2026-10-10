@@ -16,7 +16,7 @@ on:
         required: true
         type: string
       run_product_checks:
-        description: Run Backend, Router, Marshaller, Monitor, Redis Exporter, Frontend, scripts/Compose, and Integration checks
+        description: Run Backend, Router, Marshaller, Monitor, Redis Exporter, Frontend, Compose, and Integration checks
         required: false
         default: true
         type: boolean
@@ -36,20 +36,20 @@ jobs:
         with:
           fetch-depth: 0
       - name: Test governance rules
-        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+        run: python3 -m unittest discover -s ci -p 'test_*.py'
       - name: Validate version metadata
-        run: python3 scripts/ci/validate_versions.py
+        run: python3 ci/validate_versions.py
       - name: Validate branch allocation and scope
-        run: python3 scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}" --mode development
+        run: python3 ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}" --mode development
       - name: Select checks from the common-ancestor diff
         id: scope
-        run: python3 scripts/ci/quality_scope.py --base-ref "${{ inputs.base_ref }}" --format json --github-output "$GITHUB_OUTPUT"
+        run: python3 ci/quality_scope.py --base-ref "${{ inputs.base_ref }}" --format json --github-output "$GITHUB_OUTPUT"
       - name: Check completion metadata without blocking development branches
         id: completion
         shell: bash
         run: |
           set +e
-          python3 scripts/ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}" --mode completion
+          python3 ci/validate_branch.py --branch "${{ inputs.branch }}" --base-ref "${{ inputs.base_ref }}" --mode completion
           status=$?
           set -e
           if [[ "$status" -eq 0 ]]; then
@@ -310,6 +310,24 @@ jobs:
       - name: Race test
         run: make race MODULE=devtools
 
+  acceptance:
+    name: Native acceptance module
+    needs: governance
+    if: fromJSON(needs.governance.outputs.checks).acceptance == true && inputs.run_product_checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: acceptance/go.mod
+          cache-dependency-path: acceptance/go.mod
+      - name: Check
+        run: make check MODULE=acceptance
+      - name: Test
+        run: make test MODULE=acceptance
+      - name: Race test
+        run: make race MODULE=acceptance
+
   frontend:
     name: Frontend (${{ matrix.app }})
     needs: governance
@@ -357,37 +375,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: acceptance/go.mod
+          cache-dependency-path: acceptance/go.mod
       - uses: ./.github/actions/compose-build-cache
       - name: Run the authoritative Phase 12 Compose closure
-        run: scripts/verify-compose.sh
+        run: make verify-compose
 
-  scripts-and-compose:
-    name: Scripts and Compose
+  native-acceptance:
+    name: Native acceptance tooling
     needs: governance
     if: inputs.run_product_checks && (fromJSON(needs.governance.outputs.checks).tools == true || fromJSON(needs.governance.outputs.checks).compose == true)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify LF checkout and Bash syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git ls-files --eol -- 'scripts/*.sh' 'backend/**/*.go' 'exporters/redis/**/*.go' 'monitor/**/*.go' 'router/**/*.go' 'marshaller/**/*.go' | grep -Ev 'w/lf'; then
-            echo 'Expected Bash and Go working-tree files to use LF.' >&2
-            exit 1
-          fi
-          bash -n scripts/dev.sh scripts/down.sh scripts/verify.sh scripts/verify-compose.sh scripts/verify-compose-observability.sh scripts/verify-business.sh scripts/verify-exporter.sh scripts/verify-monitor.sh scripts/verify-router.sh scripts/verify-marshaller.sh scripts/verify-logs.sh scripts/verify-events.sh scripts/verify-observability-ui.sh scripts/verify-admin-frontend.sh scripts/package-redis-exporter.sh scripts/start-development-batch.sh scripts/verify-plugin-state.sh
-      - name: Run acceptance safety negative tests
-        run: |
-          bash scripts/verify-compose.sh --self-test
-          bash scripts/verify-business.sh --self-test
-          bash scripts/verify-exporter.sh --self-test
-          bash scripts/verify-monitor.sh --self-test
-          bash scripts/verify-router.sh --self-test
-          bash scripts/verify-marshaller.sh --self-test
-          bash scripts/verify-logs.sh --self-test
-          bash scripts/verify-events.sh --self-test
-          bash scripts/verify-observability-ui.sh --self-test
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: acceptance/go.mod
+          cache-dependency-path: acceptance/go.mod
+      - name: Check native acceptance module
+        run: make check MODULE=acceptance
+      - name: Test native acceptance module
+        run: make test MODULE=acceptance
       - name: Validate Compose configuration and loopback publishing
         shell: bash
         run: |

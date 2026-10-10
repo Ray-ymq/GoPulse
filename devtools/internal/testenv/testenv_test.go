@@ -91,6 +91,20 @@ func TestE2EPortsIncludeSourceAndBrowserPorts(t *testing.T) {
 	}
 }
 
+func TestObservationUsernamesIncludesIntegrationUser(t *testing.T) {
+	current := testSession(t, true)
+	current.values["OBSERVE_ADMIN_USERNAME"] = "observe_admin_0123456789abcdef"
+
+	got, err := current.observationUsernames()
+	if err != nil {
+		t.Fatalf("observationUsernames returned an error: %v", err)
+	}
+	want := []string{"observe_admin_0123456789abcdef", "observe_user_0123456789abcdef"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("observationUsernames() = %v, want %v", got, want)
+	}
+}
+
 func TestIntegrationLockIsExclusive(t *testing.T) {
 	current := testSession(t, false)
 	release, err := current.lock()

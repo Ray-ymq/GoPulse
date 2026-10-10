@@ -14,9 +14,10 @@ import (
 	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
 )
 
-// composeGateMarker is printed by the fixed Compose closure on any acceptance
-// error; an old runner can still exit 0, so the marker is blocking by itself.
-const composeGateMarker = "[gopulse-compose] ERROR:"
+// composeGateMarker is printed by the native acceptance closure on any
+// acceptance error; a runner that reports an error but exits zero is still
+// blocking by itself.
+const composeGateMarker = "[gopulse-acceptance] ERROR:"
 
 // verificationReceipt is the immutable receipt record a promotion gate reads.
 // The field order matches the receipts already stored with earlier candidates.
@@ -157,16 +158,51 @@ func runtimeVerify(repo *Repo, m *release.Manifest, path, platform string) error
 	return runComposeGate(repo, path)
 }
 
-// runComposeGate streams the fixed Compose closure and fails on a reported
-// acceptance error even when the script exits successfully.
+// runComposeGate builds the native acceptance command when needed, then
+// streams the fixed candidate closure and fails on a reported acceptance
+// error even when the runner exits successfully.
 func runComposeGate(repo *Repo, manifest string) error {
-	script := filepath.Join(repo.Root, "scripts", "verify-compose.sh")
-	if _, err := os.Stat(script); err != nil {
-		return fmt.Errorf("fixed Compose closure is missing: %s", script)
+	commandPath := filepath.Join(repo.Root, "acceptance", "bin", "gopulse-acceptance")
+	removeCommand := false
+	if _, err := os.Stat(commandPath); err != nil {
+		temporary, err := os.CreateTemp("", "gopulse-acceptance-")
+		if err != nil {
+			return err
+		}
+		commandPath = temporary.Name()
+		if err := temporary.Close(); err != nil {
+			os.Remove(commandPath)
+			return err
+		}
+		removeCommand = true
+		defer os.Remove(commandPath)
+		build := exec.Command("go", "build", "-o", commandPath, "./cmd/gopulse-acceptance")
+		build.Dir = filepath.Join(repo.Root, "acceptance")
+		build.Stdout = os.Stdout
+		build.Stderr = os.Stderr
+		if err := build.Run(); err != nil {
+			return fmt.Errorf("build native acceptance command: %w", err)
+		}
 	}
-	cmd := exec.Command(script)
-	cmd.Dir = repo.Root
-	cmd.Env = append(os.Environ(), "GOPULSE_RELEASE_MANIFEST="+manifest)
+	if removeCommand {
+		_ = os.Chmod(commandPath, 0o700)
+	}
+	for _, args := range [][]string{
+		{"compose", "--scope", "observability", "--manifest", manifest},
+		{"lifecycle", "--install", "clean", "--manifest", manifest, "--platform", "linux/amd64"},
+		{"lifecycle", "--install", "clean", "--failure-matrix", "--manifest", manifest, "--platform", "linux/amd64"},
+	} {
+		if err := runNativeAcceptance(commandPath, repo.Root, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runNativeAcceptance(commandPath, root string, args ...string) error {
+	cmd := exec.Command(commandPath, args...)
+	cmd.Dir = root
+	cmd.Env = os.Environ()
 	stream, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -179,14 +215,19 @@ func runComposeGate(repo *Repo, manifest string) error {
 	scanner := bufio.NewScanner(stream)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for scanner.Scan() {
-		fmt.Println(scanner.Text())
-		if strings.Contains(scanner.Text(), composeGateMarker) {
+		line := scanner.Text()
+		fmt.Println(line)
+		if strings.Contains(line, composeGateMarker) {
 			reported = true
 		}
 	}
-	waitErr := cmd.Wait()
-	if waitErr != nil || reported {
-		return errors.New("Compose acceptance reported a failure; no success receipt emitted")
+	if err := scanner.Err(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return err
+	}
+	if err := cmd.Wait(); err != nil || reported {
+		return errors.New("native acceptance reported a failure; no success receipt emitted")
 	}
 	return nil
 }
