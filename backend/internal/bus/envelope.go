@@ -14,7 +14,11 @@ import (
 )
 
 const (
-	SchemaVersion = 1
+	SchemaVersionV1 = 1
+	SchemaVersionV2 = 2
+	// SchemaVersion remains the production/default encoder version. Phase
+	// 24-01 keeps normal producers on the legacy v1 shape.
+	SchemaVersion = SchemaVersionV1
 
 	MaxMessageBytes = 16 * 1024
 	JSONContentType = "application/json"
@@ -40,6 +44,8 @@ const (
 
 type Envelope struct {
 	ContentRevision uint64    `json:"content_revision,omitempty"`
+	DataEpoch       string    `json:"data_epoch,omitempty"`
+	CommandID       string    `json:"command_id,omitempty"`
 	SchemaVersion   int       `json:"schema_version"`
 	EventID         string    `json:"event_id"`
 	EventType       EventType `json:"event_type"`
@@ -72,6 +78,32 @@ func NewPostCreated(occurredAt time.Time, actorID, postID uint64) (Envelope, err
 	return newEnvelope(PostCreated, occurredAt, actorID, 0, postID, nil)
 }
 
+// NewV2PostCreated is a controlled-activation constructor. Normal Phase
+// 24-01 producers continue to use NewPostCreated and emit v1.
+func NewV2PostCreated(occurredAt time.Time, epoch, commandID string, actorID, postID, revision uint64) (Envelope, error) {
+	return newVersionedEnvelope(SchemaVersionV2, PostCreated, occurredAt, actorID, 0, postID, nil, epoch, commandID, revision)
+}
+
+func NewV2CommentCreated(occurredAt time.Time, epoch string, actorID, recipientID, postID, commentID uint64) (Envelope, error) {
+	return newVersionedEnvelope(SchemaVersionV2, CommentCreated, occurredAt, actorID, recipientID, postID, &commentID, epoch, "", 0)
+}
+
+func NewV2UserFollowed(occurredAt time.Time, epoch string, follower, followed uint64) (Envelope, error) {
+	return newVersionedEnvelope(SchemaVersionV2, UserFollowed, occurredAt, follower, followed, 0, nil, epoch, "", 0)
+}
+
+func NewV2PostLiked(occurredAt time.Time, epoch string, actorID, recipientID, postID uint64) (Envelope, error) {
+	return newVersionedEnvelope(SchemaVersionV2, PostLiked, occurredAt, actorID, recipientID, postID, nil, epoch, "", 0)
+}
+
+func NewV2PostUpdated(occurredAt time.Time, epoch string, actorID, postID, revision uint64) (Envelope, error) {
+	return newVersionedEnvelope(SchemaVersionV2, PostUpdated, occurredAt, actorID, 0, postID, nil, epoch, "", revision)
+}
+
+func NewV2PostDeleted(occurredAt time.Time, epoch string, actorID, postID uint64) (Envelope, error) {
+	return newVersionedEnvelope(SchemaVersionV2, PostDeleted, occurredAt, actorID, 0, postID, nil, epoch, "", 0)
+}
+
 func newEnvelope(eventType EventType, occurredAt time.Time, actorID, recipientID, postID uint64, commentID *uint64) (Envelope, error) {
 	eventID, err := newUUID()
 	if err != nil {
@@ -93,9 +125,32 @@ func newEnvelope(eventType EventType, occurredAt time.Time, actorID, recipientID
 	return envelope, nil
 }
 
+func newVersionedEnvelope(version int, eventType EventType, occurredAt time.Time, actorID, recipientID, postID uint64, commentID *uint64, epoch, commandID string, revision uint64) (Envelope, error) {
+	eventID, err := newUUID()
+	if err != nil {
+		return Envelope{}, err
+	}
+	event := Envelope{
+		SchemaVersion: version, EventID: eventID, EventType: eventType, OccurredAt: occurredAt.UTC(),
+		ActorID: actorID, RecipientID: recipientID, PostID: postID, CommentID: commentID,
+		DataEpoch: epoch, CommandID: commandID, ContentRevision: revision,
+	}
+	if err := event.Validate(); err != nil {
+		return Envelope{}, err
+	}
+	return event, nil
+}
+
 func (envelope Envelope) Validate() error {
-	if envelope.SchemaVersion != SchemaVersion {
-		return fmt.Errorf("business event schema version must be %d", SchemaVersion)
+	if envelope.SchemaVersion != SchemaVersionV1 && envelope.SchemaVersion != SchemaVersionV2 {
+		return fmt.Errorf("business event schema version must be %d or %d", SchemaVersionV1, SchemaVersionV2)
+	}
+	if envelope.SchemaVersion == SchemaVersionV1 {
+		if envelope.DataEpoch != "" || envelope.CommandID != "" {
+			return errors.New("v1 business event must not contain generation identity")
+		}
+	} else if !validUUID(envelope.DataEpoch) {
+		return errors.New("v2 business event data epoch must be a canonical UUID")
 	}
 	if !validUUID(envelope.EventID) {
 		return errors.New("business event ID must be a canonical UUID")
@@ -134,13 +189,39 @@ func (envelope Envelope) Validate() error {
 		if envelope.EventType == PostUpdated && envelope.ContentRevision < 2 {
 			return errors.New("post.updated requires revision")
 		}
+		if envelope.SchemaVersion == SchemaVersionV2 && envelope.EventType == PostCreated {
+			if !validUUID(envelope.CommandID) {
+				return errors.New("v2 post.created requires a command ID")
+			}
+			if envelope.ContentRevision == 0 {
+				return errors.New("v2 post.created requires a positive content revision")
+			}
+		} else if envelope.CommandID != "" {
+			return errors.New("command ID is only valid for v2 post.created")
+		}
 		if envelope.RecipientID != 0 || envelope.CommentID != nil {
-			return errors.New("post.created event must not include recipient or comment IDs")
+			return errors.New("post event must not include recipient or comment IDs")
 		}
 	default:
 		return errors.New("business event type is unsupported")
 	}
 	return nil
+}
+
+// CompatibilityClass is explicit because v1 carries no epoch and can never
+// satisfy a v2 application-completion contract.
+type CompatibilityClass string
+
+const (
+	LegacyUnknown CompatibilityClass = "legacy_unknown"
+	EpochV2       CompatibilityClass = "v2"
+)
+
+func (envelope Envelope) CompatibilityClass() CompatibilityClass {
+	if envelope.SchemaVersion == SchemaVersionV2 {
+		return EpochV2
+	}
+	return LegacyUnknown
 }
 
 func (envelope Envelope) RoutingKey() (string, error) {

@@ -7,6 +7,7 @@
 | --- | --- |
 | [运行契约](runtime-contracts.md) | 配置、就绪与进程运行边界 |
 | [Migration 与消息状态](migration-state.md) | 迁移、检查点与消息处理可靠性 |
+| [业务代际与搜索完成](business-stages.md) | epoch、兼容消息、搜索完成、留存屏障与恢复准备 |
 | [组件指标](component-metrics.md) | 指标目录、私有端点与低基数约束 |
 | [Metrics 告警](alerts-metrics.md) | Phase-15-02 的告警 API 与评估范围 |
 | [Events v1](events-v1.md) | 事件词汇及投递边界 |

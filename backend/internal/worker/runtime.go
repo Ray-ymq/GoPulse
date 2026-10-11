@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -20,6 +21,7 @@ import (
 
 type RuntimeOptions struct {
 	Profile          Profile
+	Admission        bus.Admission
 	InstanceID       string
 	Prefetch         int
 	MaxRetries       int
@@ -102,7 +104,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 		connectionUnavailable = false
 		attempt = 0
 		handler, err := NewHandler(runtime.processor, session, HandlerOptions{
-			MaxRetries: runtime.options.MaxRetries, PublishTimeout: runtime.options.PublishTimeout, Logger: runtime.safeLogger(), Profile: runtime.profile,
+			MaxRetries: runtime.options.MaxRetries, PublishTimeout: runtime.options.PublishTimeout, Logger: runtime.safeLogger(), Profile: runtime.profile, Admission: runtime.options.Admission,
 		})
 		if err != nil {
 			if closeErr := session.Close(); closeErr != nil {
