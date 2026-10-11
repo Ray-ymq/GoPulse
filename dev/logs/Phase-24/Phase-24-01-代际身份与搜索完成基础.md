@@ -29,6 +29,12 @@
 
 固定门禁运行期间使用单一 owned Compose 项目。最终业务 integration 通过后，只删除了该项目的四个精确命名卷，未执行全局 prune。
 
+## CI 后续修复
+
+- 首次推送的 [质量 workflow run 38140055431](https://github.com/Ray-ymq/GoPulse/actions/runs/38140055431) 仅在 Full-stack Compose acceptance 的 business 场景失败；其余质量、模块、集成、浏览器和可观测 job 均通过。
+- 失败诊断显示普通 `search-init --if-missing` 创建的索引没有当前 `business_environment.data_epoch` 的 mapping `_meta`；Backend 已启用 epoch-aware search，因此搜索接口持续返回 `503 search_unavailable`，不是 Elasticsearch、RabbitMQ 或索引事件处理失败。
+- 修复 `backend/cmd/search-reindex` 普通路径，使其把 `Ensure` 返回的当前 epoch 传给 `RunForEpoch`；restore 专用路径不变。修复后的本地 `rtk proxy make verify MODULE=backend BASE_REF=upstream/main` 和 `rtk proxy make verify-compose` 均通过，Compose business、observability 与 smoke 场景全部通过并完成专属资源清理。
+
 ## 偏差与处理
 
 - 计划进入基线的 schema target 为 13；本批按合同新增连续 migration 14，旧 migration SQL 保持不变，迁移集成随后改为验证 target dirty 拒绝及显式 v12 恢复路径。

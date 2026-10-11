@@ -120,7 +120,8 @@ func runWithOptions(cfg config.ReindexConfig, options reindexOptions, logger *sl
 	if err != nil {
 		return errors.New("create business state repository")
 	}
-	if _, err := state.Ensure(ctx); err != nil {
+	environment, err := state.Ensure(ctx)
+	if err != nil {
 		return errors.New("initialize business state")
 	}
 	searchLogger.Info("search reindex started", slog.Int("batch_size", cfg.Elasticsearch.ReindexBatch))
@@ -162,7 +163,7 @@ func runWithOptions(cfg config.ReindexConfig, options reindexOptions, logger *sl
 		)
 		return nil
 	}
-	result, err := reindexer.Run(ctx, options.ifMissing)
+	result, err := reindexer.RunForEpoch(ctx, options.ifMissing, environment.DataEpoch)
 	if err != nil {
 		return fmt.Errorf("search reindex operation failed: %w", err)
 	}
