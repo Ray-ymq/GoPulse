@@ -1,12 +1,13 @@
 # GoPulse 当前能力状态
 
-> 基线：产品完成版本 `2.5.5`，2026-10-10。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品完成版本 `2.5.6`，2026-10-11。版本完成、验收执行完成和能力达标是三个不同概念。
 > 2026-10-05 范围调整：Phase 20 仅保留已完成的 01～04，在 `2.2.4` 结束；原 05、06 已取消。
 
 ## 已实施阶段
 
 - Phase 22 在 `2.4.5` 完成五批收口：本机 Go/Vite 开发与隔离测试入口、业务与可观测原生模块/真实链路、用户与管理浏览器验证、按共同祖先改动选择 CI/开发完成分支校验和文档映射，以及迁移 CLI 的 Go 原生 MySQL 验收与一次性 Python 工具退役。Phase-22-04 的实际门禁与限制见 [实施日志](../logs/Phase-22/Phase-22-04-CI与文档收口.md)；Phase-22-05 的迁移覆盖、退役边界和门禁见 [实施日志](../logs/Phase-22/Phase-22-05-原生验收与脚本精简.md)。Phase-22-04 真实 CI run `37781739950` 的治理、模块、集成、浏览器和 full-stack Compose job 全部通过，05 的实际 CI 记录在同名日志中。
 - Phase 23-05 在 `2.5.5` 完成验收能力原生承接与执行器退役：构建缓存和日常容器栈由 `devtools` 承接，业务/可观测/插件/告警/角色/页面/生命周期验收由 `acceptance` Go 模块承接，插件制品由 Monitor Make 入口承接，发布 Bundle 合同由 `lifecycle` 保持。Compose 验收镜像直接以 Playwright 为入口，不再嵌入外部执行器。
+- Phase 23-06 在 `2.5.6` 完成工程稳定性改造：根 Make 与 CI 共用模块选择，doctor/bootstrap 可靠判断本机工具和依赖，Go/前端新增缺陷门禁，失败诊断在清理后仍可定位，开发、integration、E2E、Compose、Bundle/lifecycle 均有本地和远端实际验证。统一 lint 的存量告警仍如实保留，新增告警为零；最终质量 workflow `38123004454` 的 44 个 job 全部成功。
 - Phase 23-05 的退役决定明确保留 `ci/` 治理 Python，只迁移路径、不重写规则；Phase 16–21 运行时与正式矩阵、Phase 18–20 容量/长期/证据执行器、历史闭包路径、交付 Python 库、Windows 转发器和零引用入口不再重跑，删除前已有的历史结论、方法、日志与原始回执继续有效。`component-probe.go`、`plugin-fault-router.go` 迁入 `acceptance/internal/fixtures`，迁移锁夹具迁入 `backend/testdata`，`runtime-http.go` 随其唯一运行时矩阵退役。
 - [Phase 21 总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)分配的三批 `2.3.1`～`2.3.3` 已完成。Phase-21-01 已在 `2.3.1` 完成：Backend 支持 `combined`、`business`、`platform` 三种角色，按角色装配依赖、路由和后台任务，并通过 R01～R05 固定门禁及最小真实三角色进程检查。Phase-21-02 已在 `2.3.2` 完成双服务 Compose、同源代理、运行/采集合同、Bundle/lifecycle 固定别名及 service-split 源码预检；Phase-21-03 已在 `2.3.3` 完成冻结 `2.3.2` 候选的正式定向验收与阶段收口。
 - 共用账号、数据库和会话；Outbox dispatcher 留在业务服务。目标验收包含管理单侧停止时已有会话的业务可用，不声明隔离共享数据库故障、容量或长期稳定。
