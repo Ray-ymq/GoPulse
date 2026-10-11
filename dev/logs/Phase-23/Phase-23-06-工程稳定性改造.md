@@ -101,6 +101,11 @@
 - 修复后的 [权威质量 workflow run 38115665206](https://github.com/Ray-ymq/GoPulse/actions/runs/38115665206)
   已完成并成功：44 个 job 全部成功，无失败；其中 `Open PR and merge` 按 completion metadata 未就绪
   正确 skipped。治理、文档、模块矩阵、集成、浏览器和 Compose job 均实际运行并通过。
+- 随后的日志补充提交 `57c15a8` 首次运行同一 workflow 时，`Integration` 的
+  `TestMigrationStateIntegration` 因 owned MySQL 动态端口连接失败返回 `connection_failure`；依赖启动、
+  迁移、索引准备与清理均成功，失败诊断摘录已由 `integration-failure-diagnostics` artifact 保留。
+  对失败 job 的 attempt 2 重试通过，run `38116197670` 最终为 success，44 个 job 全部成功，证明该次
+  失败为可重试的 CI 依赖瞬态，未修改产品代码。
 
 ## 未完成收口与后续限制
 
