@@ -29,14 +29,14 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertNotIn("actions: read", workflow)
         self.assertFalse(Path(".github/workflows/ci.yml").exists())
 
-    def test_merge_uses_expected_user_token_and_creation_uses_job_token(self):
+    def test_all_pr_mutations_use_owner_token(self):
         workflow = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")
 
         self.assertEqual(
             workflow.count("GH_TOKEN: ${{ secrets.RAY_GITHUB_TOKEN }}"),
-            2,
+            3,
         )
-        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 1)
+        self.assertEqual(workflow.count("GH_TOKEN: ${{ github.token }}"), 0)
         self.assertIn("login=\"$(gh api user --jq '.login')\"", workflow)
         self.assertIn("if [[ \"$login\" != 'Ray-ymq' ]]", workflow)
 
