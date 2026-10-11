@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/compose"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/diagnostics"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
@@ -57,10 +58,14 @@ type session struct {
 	command    compose.Command
 	// The three effectful steps stay overridable so the failure and cleanup
 	// contract is covered without Docker.
-	startDependencies func(map[string]string) error
-	stopDependencies  func(*workspace.State)
-	runTestSuite      func(*workspace.State, string, bool) error
-	prepareMonitor    func(*session) (string, error)
+	startDependencies      func(map[string]string) error
+	stopDependencies       func(*workspace.State)
+	runTestSuite           func(*workspace.State, string, bool) error
+	prepareMonitor         func(*session) (string, error)
+	stopDependenciesResult func(*workspace.State) error
+	diagnostic             *diagnostics.Report
+	diagnosticErrors       []error
+	lastCommand            proc.Result
 }
 
 // newSession merges the test-mode environment contract, writes the private test
@@ -108,9 +113,11 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 		command:    compose.Command{Project: project, EnvFile: envFile, Files: files, Profiles: profiles},
 	}
 	current.startDependencies = func(environment map[string]string) error {
-		return current.command.Up(current.root, environment)
+		return current.runCommand(current.command.Args("up", "--detach", "--wait", "--wait-timeout", "420"), current.root, environment,
+			"Compose dependency startup for "+current.project, 0)
 	}
 	current.stopDependencies = current.composeDown
+	current.stopDependenciesResult = current.composeDownResult
 	current.runTestSuite = func(state *workspace.State, scope string, observe bool) error {
 		return current.runIntegrationTests(state, scope, observe)
 	}
@@ -169,36 +176,67 @@ func runIntegration(current *session, scope string, observe bool) error {
 	if err := proc.CheckPorts(integrationPorts(current.values, observe), nil); err != nil {
 		return err
 	}
+	current.beginDiagnostics("integration", scope, observe)
 	composeEnv := copyEnvironment(current.processEnv)
 	if observe {
 		image, err := current.prepareMonitor(current)
 		if err != nil {
+			current.finishDiagnostics(err, current.pendingState(), nil)
 			return err
 		}
 		composeEnv["GOPULSE_MONITOR_IMAGE"] = image
 	}
 	if err := current.startDependencies(composeEnv); err != nil {
-		current.stopDependencies(current.pendingState())
+		primaryExit := current.lastCommand.ExitCode
+		if primaryExit == 0 {
+			primaryExit = -1
+		}
+		cleanupErrors := current.stopForFailure(current.pendingState())
+		current.collectFailureEvidence(current.pendingState())
+		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
 	state, err := current.integrationState(scope, observe, composeEnv["GOPULSE_MONITOR_IMAGE"])
 	if err != nil {
-		current.stopDependencies(current.pendingState())
+		primaryExit := current.lastCommand.ExitCode
+		if primaryExit == 0 {
+			primaryExit = -1
+		}
+		cleanupErrors := current.stopForFailure(current.pendingState())
+		current.collectFailureEvidence(current.pendingState())
+		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
 	if err := current.saveIntegrationState(state); err != nil {
-		current.stopDependencies(state)
+		primaryExit := current.lastCommand.ExitCode
+		if primaryExit == 0 {
+			primaryExit = -1
+		}
+		cleanupErrors := current.stopForFailure(state)
+		current.collectFailureEvidence(state)
+		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
 
 	runErr := current.runTestSuite(state, scope, observe)
+	primaryExit := current.lastCommand.ExitCode
+	if runErr != nil && primaryExit == 0 {
+		primaryExit = -1
+	}
 	if runErr != nil {
 		state.Status = "failed"
+		current.collectFailureEvidence(state)
 	} else {
 		state.Status = "passed"
 		fmt.Printf("[gopulse] integration scope=%s passed for test project %s\n", scope, current.project)
 	}
-	current.cleanup(state, observe)
+	cleanupErrors := current.cleanup(state, observe)
+	if runErr != nil {
+		current.finishDiagnosticsWithExit(runErr, primaryExit, cleanupErrors)
+	}
+	if runErr == nil && len(cleanupErrors) > 0 {
+		return fmt.Errorf("integration cleanup failed: %s", joinErrors(cleanupErrors))
+	}
 	return runErr
 }
 
@@ -289,13 +327,29 @@ func (s *session) git(args ...string) string {
 }
 
 func (s *session) composeDown(state *workspace.State) {
+	_ = s.composeDownResult(state)
+}
+
+func (s *session) composeDownResult(state *workspace.State) error {
 	environment := copyEnvironment(s.processEnv)
 	if state != nil && state.MonitorImage != "" {
 		environment["GOPULSE_MONITOR_IMAGE"] = state.MonitorImage
 	}
-	if err := s.command.Down(s.root, environment); err != nil {
-		fmt.Fprintf(os.Stderr, "[gopulse] warning: %v\n", err)
+	return s.runCommand(s.command.Args("down", "--remove-orphans"), s.root, environment,
+		"Compose dependency stop for "+s.project, 0)
+}
+
+func (s *session) stopForFailure(state *workspace.State) []error {
+	if s.stopDependenciesResult != nil {
+		if err := s.stopDependenciesResult(state); err != nil {
+			return []error{err}
+		}
+		return nil
 	}
+	if s.stopDependencies != nil {
+		s.stopDependencies(state)
+	}
+	return nil
 }
 
 // saveIntegrationState writes exactly the document keys the integration state
@@ -350,4 +404,120 @@ func readMetadata(path string) map[string]any {
 	}
 	_ = json.Unmarshal(raw, &metadata)
 	return metadata
+}
+
+func (s *session) runCommand(command []string, cwd string, environment map[string]string, label string, timeout time.Duration) error {
+	result, err := proc.RunCaptured(command, cwd, environment, label, timeout)
+	s.lastCommand = result
+	if s.diagnostic != nil {
+		if recordErr := s.diagnostic.RecordCommand(diagnostics.Command{
+			Label: label, Args: result.Command, Cwd: result.Cwd, ExitCode: result.ExitCode,
+			Stdout: result.Stdout, Stderr: result.Stderr, TimedOut: result.TimedOut,
+		}); recordErr != nil {
+			s.diagnosticErrors = append(s.diagnosticErrors, recordErr)
+		}
+	}
+	return err
+}
+
+func (s *session) beginDiagnostics(mode, scope string, observe bool) {
+	version := ""
+	if raw, err := os.ReadFile(filepath.Join(s.root, "VERSION")); err == nil {
+		version = strings.TrimSpace(string(raw))
+	}
+	secrets := []string{}
+	for key, value := range s.values {
+		upper := strings.ToUpper(key)
+		if value != "" && (strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "TOKEN") || strings.Contains(upper, "SECRET") || strings.Contains(upper, "COOKIE")) {
+			secrets = append(secrets, value)
+		}
+	}
+	for key, value := range s.processEnv {
+		upper := strings.ToUpper(key)
+		if value != "" && (strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "TOKEN") || strings.Contains(upper, "SECRET") || strings.Contains(upper, "COOKIE")) {
+			secrets = append(secrets, value)
+		}
+	}
+	reproduction := [][]string{{"make", mode, "SCOPE=" + scope}}
+	if mode == "e2e" {
+		reproduction = [][]string{{"make", "e2e", "SCOPE=" + scope}}
+	}
+	environment := map[string]string{
+		"workspace_id":   s.ws.Identity,
+		"workspace_root": s.ws.Root,
+		"compose_files":  strings.Join(s.files, ","),
+		"observe":        fmt.Sprintf("%t", observe),
+	}
+	report, err := diagnostics.New(s.ws, diagnostics.Metadata{
+		Label: mode + "-" + scope, Project: s.project, Branch: s.git("branch", "--show-current"),
+		Revision: s.git("rev-parse", "HEAD"), Version: version, Mode: mode, Scope: scope,
+		Environment: environment, Reproduction: reproduction, Secrets: secrets,
+	})
+	if err != nil {
+		s.diagnosticErrors = append(s.diagnosticErrors, err)
+		return
+	}
+	s.diagnostic = report
+}
+
+func (s *session) collectFailureEvidence(state *workspace.State) {
+	if s.diagnostic == nil {
+		return
+	}
+	for name, record := range state.Processes {
+		if record.Log == "" {
+			continue
+		}
+		if err := s.diagnostic.CopyText("process-"+name, record.Log); err != nil {
+			s.diagnosticErrors = append(s.diagnosticErrors, err)
+		}
+	}
+	if state.BrowserTraces != "" {
+		if err := s.diagnostic.CopyTree("browser-report", state.BrowserTraces); err != nil {
+			s.diagnosticErrors = append(s.diagnosticErrors, err)
+		}
+	}
+}
+
+func (s *session) reportDiagnosticErrors() {
+	for _, err := range s.diagnosticErrors {
+		fmt.Fprintf(os.Stderr, "[gopulse] warning: diagnostic evidence: %v\n", err)
+	}
+}
+
+func (s *session) finishDiagnostics(primary error, state *workspace.State, cleanupErrors []error) {
+	if primary == nil {
+		return
+	}
+	if state != nil {
+		s.collectFailureEvidence(state)
+	}
+	exitCode := s.lastCommand.ExitCode
+	if exitCode == 0 {
+		exitCode = -1
+	}
+	s.finishDiagnosticsWithExit(primary, exitCode, cleanupErrors)
+}
+
+func (s *session) finishDiagnosticsWithExit(primary error, exitCode int, cleanupErrors []error) {
+	if s.diagnostic == nil {
+		return
+	}
+	for _, cleanupErr := range cleanupErrors {
+		s.diagnostic.AddCleanupError(cleanupErr)
+	}
+	if err := s.diagnostic.Finalize(primary, exitCode); err != nil {
+		s.diagnosticErrors = append(s.diagnosticErrors, err)
+	}
+	s.reportDiagnosticErrors()
+}
+
+func joinErrors(errors []error) string {
+	parts := make([]string, 0, len(errors))
+	for _, err := range errors {
+		if err != nil {
+			parts = append(parts, err.Error())
+		}
+	}
+	return strings.Join(parts, "; ")
 }

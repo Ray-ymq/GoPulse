@@ -203,4 +203,4 @@ The Phase-18-05 closure gate is retired together with the Phase 18-20 formal mat
 run-3 artifact, candidate drift, mismatched numeric averages, command failures without retained
 failure records, and ledger entries outside the Phase-18-05 file scope, and never inferred
 successful capacity from a failed or boundary run. Source and original receipts remain in Git
-history and [Phase-18 logs](../../logs/Phase-18/).
+history and [Phase-18 logs](../logs/Phase-18/).

@@ -91,6 +91,21 @@ func TestE2EPortsIncludeSourceAndBrowserPorts(t *testing.T) {
 	}
 }
 
+func TestBrowserAcceptanceTokenHasUniqueTruncatedPrefix(t *testing.T) {
+	current := testSession(t, false)
+	first := browserAcceptanceToken(current.ws)
+	second := browserAcceptanceToken(current.ws)
+	if len(first) < 16 || len(second) < 16 {
+		t.Fatalf("acceptance tokens are too short: %q %q", first, second)
+	}
+	if first[:16] == second[:16] {
+		t.Fatalf("acceptance token prefix must change between browser runs: %q", first[:16])
+	}
+	if !strings.Contains(first, current.ws.Identity) {
+		t.Fatalf("acceptance token %q does not retain workspace identity %q", first, current.ws.Identity)
+	}
+}
+
 func TestObservationUsernamesIncludesIntegrationUser(t *testing.T) {
 	current := testSession(t, true)
 	current.values["OBSERVE_ADMIN_USERNAME"] = "observe_admin_0123456789abcdef"
@@ -160,6 +175,16 @@ func TestIntegrationFailurePropagatesAndCleansUp(t *testing.T) {
 	}
 	if document["mode"] != "integration" || document["scope"] != ScopeBusiness {
 		t.Fatalf("mode/scope %v/%v", document["mode"], document["scope"])
+	}
+	if current.diagnostic == nil {
+		t.Fatal("failed integration did not create a diagnostic report")
+	}
+	failureRaw, readErr := os.ReadFile(filepath.Join(current.diagnostic.Directory(), "failure.txt"))
+	if readErr != nil {
+		t.Fatalf("read diagnostic failure report: %v", readErr)
+	}
+	if !strings.Contains(string(failureRaw), "observability integration tests failed with exit code 1") {
+		t.Fatalf("diagnostic report lost primary failure: %s", failureRaw)
 	}
 	keys := make([]string, 0, len(document))
 	for key := range document {

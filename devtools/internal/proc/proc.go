@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -20,6 +21,89 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
 )
+
+const capturedOutputLimit = 2 * 1024 * 1024
+
+// Result is the bounded, terminal-visible result of one foreground command.
+// ExitCode is kept separate from Error so callers can preserve the native
+// process status when they write failure evidence.
+type Result struct {
+	Command  []string
+	Cwd      string
+	ExitCode int
+	Stdout   string
+	Stderr   string
+	TimedOut bool
+	Started  time.Time
+}
+
+type boundedBuffer struct {
+	buffer strings.Builder
+	limit  int
+}
+
+func (b *boundedBuffer) Write(value []byte) (int, error) {
+	remaining := b.limit - b.buffer.Len()
+	if remaining > 0 {
+		if len(value) > remaining {
+			_, _ = b.buffer.Write(value[:remaining])
+		} else {
+			_, _ = b.buffer.Write(value)
+		}
+	}
+	return len(value), nil
+}
+
+func (b *boundedBuffer) String() string { return b.buffer.String() }
+
+// RunCaptured executes a foreground command, mirrors its output to the
+// terminal, and returns bounded stdout/stderr for failure diagnostics.
+func RunCaptured(command []string, cwd string, overrides map[string]string, label string, timeout time.Duration) (Result, error) {
+	if len(command) == 0 {
+		return Result{Command: append([]string(nil), command...), Cwd: cwd, ExitCode: -1}, fmt.Errorf("%s has no command", label)
+	}
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+	} else {
+		ctx = context.Background()
+	}
+	stdout, stderr := &boundedBuffer{limit: capturedOutputLimit}, &boundedBuffer{limit: capturedOutputLimit}
+	process := exec.CommandContext(ctx, command[0], command[1:]...)
+	process.Dir = cwd
+	process.Env = Environment(overrides)
+	process.Stdin = os.Stdin
+	process.Stdout = io.MultiWriter(os.Stdout, stdout)
+	process.Stderr = io.MultiWriter(os.Stderr, stderr)
+	started := time.Now()
+	err := process.Run()
+	result := Result{
+		Command:  append([]string(nil), command...),
+		Cwd:      cwd,
+		ExitCode: 0,
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		Started:  started,
+	}
+	if err == nil {
+		return result, nil
+	}
+	result.ExitCode = -1
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		result.ExitCode = exit.ExitCode()
+	}
+	if ctx.Err() != nil && timeout > 0 {
+		result.TimedOut = true
+		return result, fmt.Errorf("%s exceeded its %ds bound", label, int(timeout.Seconds()))
+	}
+	if result.ExitCode >= 0 {
+		return result, fmt.Errorf("%s failed with exit code %d", label, result.ExitCode)
+	}
+	return result, fmt.Errorf("%s could not start: %v", label, err)
+}
 
 // Environment merges caller overrides over the calling process environment,
 // which is what every owned child and one-shot command receives.
@@ -111,35 +195,8 @@ func CheckPorts(ports []int, owned []workspace.ProcessRecord) error {
 // Run executes a foreground command with inherited standard streams. The
 // command must preserve its exit code: callers depend on failure propagation.
 func Run(command []string, cwd string, overrides map[string]string, label string, timeout time.Duration) error {
-	if len(command) == 0 {
-		return fmt.Errorf("%s has no command", label)
-	}
-	var ctx context.Context
-	var cancel context.CancelFunc
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-	} else {
-		ctx = context.Background()
-	}
-	process := exec.CommandContext(ctx, command[0], command[1:]...)
-	process.Dir = cwd
-	process.Env = Environment(overrides)
-	process.Stdin = os.Stdin
-	process.Stdout = os.Stdout
-	process.Stderr = os.Stderr
-	err := process.Run()
-	if err == nil {
-		return nil
-	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		if ctx.Err() != nil && timeout > 0 {
-			return fmt.Errorf("%s exceeded its %ds bound", label, int(timeout.Seconds()))
-		}
-		return fmt.Errorf("%s failed with exit code %d", label, exit.ExitCode())
-	}
-	return fmt.Errorf("%s could not start: %v", label, err)
+	_, err := RunCaptured(command, cwd, overrides, label, timeout)
+	return err
 }
 
 // Capture runs a command and returns its standard output.

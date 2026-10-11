@@ -31,18 +31,18 @@ func (s *session) runIntegrationTests(state *workspace.State, scope string, obse
 		oneShot := s.testEnvironment()
 		oneShot["LOG_MONITOR_URL"] = ""
 		oneShot["LOG_MONITOR_INGEST_TOKEN"] = ""
-		if err := proc.Run([]string{"go", "run", "./cmd/migrate", "up"},
+		if err := s.runCommand([]string{"go", "run", "./cmd/migrate", "up"},
 			filepath.Join(s.root, "backend"), oneShot, "test database migration", 0); err != nil {
 			return err
 		}
-		if err := proc.Run([]string{"go", "run", "./cmd/search-reindex", "--if-missing"},
+		if err := s.runCommand([]string{"go", "run", "./cmd/search-reindex", "--if-missing"},
 			filepath.Join(s.root, "backend"), oneShot, "test search reindex", 0); err != nil {
 			return err
 		}
 		environment := s.testEnvironment()
 		environment["LOG_MONITOR_URL"] = ""
 		environment["LOG_MONITOR_INGEST_TOKEN"] = ""
-		return proc.Run([]string{"go", "-C", "backend", "test", "-p", "1", "-tags=integration", "./..."},
+		return s.runCommand([]string{"go", "-C", "backend", "test", "-p", "1", "-tags=integration", "./..."},
 			s.root, environment, "business integration tests", businessIntegrationTimeout)
 	}
 	if err := s.startObservationProcesses(state); err != nil {
@@ -50,7 +50,7 @@ func (s *session) runIntegrationTests(state *workspace.State, scope string, obse
 	}
 	environment := s.testEnvironment()
 	environment["OBSERVABILITY_INTEGRATION"] = "1"
-	return proc.Run([]string{"go", "-C", "backend", "test", "-p", "1",
+	return s.runCommand([]string{"go", "-C", "backend", "test", "-p", "1",
 		"-tags=integration,observability_integration", "./internal/http",
 		"-run", "^TestObservabilityFlowIntegration$", "-count=1", "-timeout", "6m"},
 		s.root, environment, "observability integration tests", observeIntegrationTimeout)
@@ -75,11 +75,11 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	oneShot["LOG_MONITOR_URL"] = ""
 	oneShot["LOG_MONITOR_INGEST_TOKEN"] = ""
 	backendDir := filepath.Join(s.root, "backend")
-	if err := proc.Run([]string{"go", "run", "./cmd/migrate", "up"}, backendDir, oneShot,
+	if err := s.runCommand([]string{"go", "run", "./cmd/migrate", "up"}, backendDir, oneShot,
 		"test database migration", 0); err != nil {
 		return err
 	}
-	if err := proc.Run([]string{"go", "run", "./cmd/search-reindex", "--if-missing"}, backendDir, oneShot,
+	if err := s.runCommand([]string{"go", "run", "./cmd/search-reindex", "--if-missing"}, backendDir, oneShot,
 		"test search reindex", 0); err != nil {
 		return err
 	}
@@ -172,27 +172,38 @@ func (s *session) registerObservationAdmin(username, adminRole string) error {
 	default:
 		return fmt.Errorf("test observability admin registration failed")
 	}
-	return proc.Run([]string{adminRole, "promote", "--username", username},
+	return s.runCommand([]string{adminRole, "promote", "--username", username},
 		filepath.Join(s.root, "backend"), s.testEnvironment(), "test observability admin-role bootstrap", 0)
 }
 
 // cleanup terminates the owned test processes and removes only the accounts the
 // observation flow created.
-func (s *session) cleanup(state *workspace.State, observe bool) {
+func (s *session) cleanup(state *workspace.State, observe bool) []error {
+	cleanupErrors := []error{}
 	for _, record := range state.Processes {
 		proc.Terminate(record)
 	}
 	if observe {
 		if err := s.cleanupObservationAccounts(state); err != nil {
 			state.Status = "failed"
+			cleanupErrors = append(cleanupErrors, err)
 			fmt.Fprintf(os.Stderr, "[gopulse] warning: %v\n", err)
 		}
 	}
-	s.stopDependencies(state)
+	if s.stopDependenciesResult != nil {
+		if err := s.stopDependenciesResult(state); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+			fmt.Fprintf(os.Stderr, "[gopulse] warning: %v\n", err)
+		}
+	} else if s.stopDependencies != nil {
+		s.stopDependencies(state)
+	}
 	state.StoppedAt = now()
 	if err := s.saveIntegrationState(state); err != nil {
+		cleanupErrors = append(cleanupErrors, err)
 		fmt.Fprintf(os.Stderr, "[gopulse] warning: %v\n", err)
 	}
+	return cleanupErrors
 }
 
 // observationUsernames is the deterministic set the browser and integration
@@ -271,7 +282,7 @@ func (s *session) buildBinary(name, directory, pkg, sourceDigest string) (string
 		return "", err
 	}
 	command := []string{"go", "build", "-trimpath", "-o", binary, pkg}
-	if err := proc.Run(command, directory, s.processEnv, "build "+name, 0); err != nil {
+	if err := s.runCommand(command, directory, s.processEnv, "build "+name, 0); err != nil {
 		return "", err
 	}
 	if err := workspace.SaveJSON(metadata, map[string]any{
@@ -322,7 +333,7 @@ func ensureMonitorImage(s *session) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := proc.Run([]string{
+	if err := s.runCommand([]string{
 		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/observability.Dockerfile",
 		"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision, "--tag", tag, ".",
 	}, s.root, s.processEnv, "Monitor image preparation", 0); err != nil {
