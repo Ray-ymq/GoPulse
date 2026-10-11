@@ -3,9 +3,9 @@
 ## 执行身份与阶段状态
 
 - 执行分支：`develop/2.5.6`，从 `origin/main` 的 `0610f3f` 创建；该 revision 是本批固定基线。
-- 目标版本：`2.5.6`。本次实现和本地验收期间 `VERSION` 保持已完成值 `2.5.5`；最终版本元数据尚未收口。
+- 目标版本：`2.5.6`。实现和原始行为验收期间 `VERSION` 保持已完成值 `2.5.5`；本次收口重验已将受管版本元数据同步为 `2.5.6`。
 - 实现提交：`7c19660`、`12fcfe8`、`f2e750b`、`4a0c0d8`、`5e78c8f`、`8b4aa62`、`77413f7`、`f29137e`。
-- 本日志记录本地与远端实际结果；版本同步和正式发布收口仍单独按完成元数据条件处理。
+- 本日志记录本地与远端实际结果；2.5.6 候选 Bundle 与最终 head 的远端权威 CI 结果在后续小节补录。
 
 ## 实际交付
 
@@ -61,9 +61,21 @@
 | `make verify-compose` | 生产 SPA、business、observability setup/admin 均通过。 |
 | `make docs-check BASE_REF=0610f3f`、`make check-compose` | 均通过。 |
 
+## 2.5.6 版本同步重验（2026-10-11）
+
+- 使用 `ci/sync_version_metadata.py --version 2.5.6` 同步 `VERSION`、`.env.example` 以及两套
+  前端 package/lock；按既有发布约定将 `deploy/runtime-contracts.json` 的 `product_version` 同步为
+  `2.5.6`。未升级依赖，仅改变产品版本身份。
+- `python3 ci/validate_versions.py`、development/completion 两种
+  `validate_branch.py --branch develop/2.5.6 --base-ref 0610f3f`、JSON/Compose 静态检查和
+  `git diff --check` 均通过。
+- 版本输入变化后的完整 `make verify BASE_REF=0610f3f BRANCH=develop/2.5.6` 退出码为 0；17 个
+  模块、两组 integration、两组 E2E 和 Compose 全栈闭包均以 `2.5.6` 重新执行并通过。统一 lint
+  仍如实报告基线存量问题，新增问题为 0。
+
 ## 候选 Bundle 与 lifecycle
 
-- 首次标准 `make package PLATFORM=linux/amd64 RUNTIME=1` 构建、元数据检查、Compose runtime gate 和
+- 版本同步前的实现候选以 `VERSION=2.5.5` 构建、元数据检查、Compose runtime gate 和
   lifecycle failure matrix 均通过；其默认临时 registry 按工具合同在命令退出时删除。
 - 直接将该命令与独立 `make verify-lifecycle` 串行执行时，后者因 manifest 中的临时 registry 已被
   删除而得到 `registry index unavailable for frontend`。这不是 Bundle 内容失败，而是独立验收超出
@@ -106,10 +118,11 @@
   迁移、索引准备与清理均成功，失败诊断摘录已由 `integration-failure-diagnostics` artifact 保留。
   对失败 job 的 attempt 2 重试通过，run `38116197670` 最终为 success，44 个 job 全部成功，证明该次
   失败为可重试的 CI 依赖瞬态，未修改产品代码。
+- 随后推送当前日志提交 `917bf9a` 的最终质量 run
+  [38116998812](https://github.com/Ray-ymq/GoPulse/actions/runs/38116998812) 也已成功：44 个 job
+  全部成功，无失败；`Open PR and merge` 因当时版本完成元数据尚未就绪而 skipped。
 
-## 未完成收口与后续限制
+## 2.5.6 候选与最终远端门禁
 
-- `VERSION` 仍为 `2.5.5`，未修改 `.env.example`、前端版本/lock 或 runtime contract 版本字段；这些
-  只能在目标版本正式收口时按实际候选同步，并需要重新验证受影响输入。
-- completion metadata 校验尚未通过，因此本日志记录为“本地实现、固定门禁与远端质量已通过，正式版本
-  收口待执行”，不宣称 Phase-23-06 已完成。
+- 2.5.6 候选 Bundle、manifest、验证回执及最终 head 的远端质量 run 将在实际完成后补录；在此之前不
+  宣称 Phase-23-06 正式完成。
