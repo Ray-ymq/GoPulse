@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-MODULES = (
+DEFAULT_GO_MODULES = (
     "backend",
     "componentmetrics",
     "router",
@@ -31,8 +31,11 @@ MODULES = (
     "devtools",
     "acceptance",
 )
+DEFAULT_NPM_MODULES = ("frontend", "admin-frontend")
+MODULES = DEFAULT_GO_MODULES
+NPM_MODULES = DEFAULT_NPM_MODULES
 STANDALONE_MODULES = ("lifecycle", "loadtest")
-CHECKS = MODULES + (
+LOGICAL_CHECKS = (
     "frontend",
     "admin_frontend",
     "integration_business",
@@ -42,24 +45,10 @@ CHECKS = MODULES + (
     "compose",
     "tools",
 )
+NPM_CHECKS = tuple(module.replace("-", "_") for module in NPM_MODULES)
+CHECKS = MODULES + NPM_CHECKS + LOGICAL_CHECKS
 
-GO_MODULE_ROOTS = {
-    "backend": "backend",
-    "componentmetrics": "componentmetrics",
-    "router": "router",
-    "marshaller": "marshaller",
-    "monitor": "monitor",
-    "exporters/redis": "exporters/redis",
-    "exporters/mysql": "exporters/mysql",
-    "exporters/rabbitmq": "exporters/rabbitmq",
-    "exporters/elasticsearch": "exporters/elasticsearch",
-    "exporters/kafka": "exporters/kafka",
-    "exporters/victoriametrics": "exporters/victoriametrics",
-    "lifecycle": "lifecycle",
-    "loadtest": "loadtest",
-    "devtools": "devtools",
-    "acceptance": "acceptance",
-}
+GO_MODULE_ROOTS = {module: module for module in DEFAULT_GO_MODULES}
 
 DOC_SUFFIXES = (".md", ".markdown", ".rst", ".adoc", ".txt")
 OBSERVE_BACKEND_PARTS = (
@@ -131,18 +120,48 @@ def changed_files(repo: Path, base_ref: str, head_ref: str = "HEAD") -> list[str
     return [_normalise(path) for path in result.stdout.split("\0") if path]
 
 
-def _module_for_path(path: str) -> str | None:
-    for module, root in GO_MODULE_ROOTS.items():
+def module_lists(repo: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Read the root Make module lists without compiling or installing anything."""
+
+    makefile = repo / "Makefile"
+    if not makefile.is_file():
+        return DEFAULT_GO_MODULES, DEFAULT_NPM_MODULES
+    try:
+        go = subprocess.run(
+            ["make", "--no-print-directory", "list-go-modules"],
+            cwd=repo,
+            check=True,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+        ).stdout.split()
+        npm = subprocess.run(
+            ["make", "--no-print-directory", "list-npm-modules"],
+            cwd=repo,
+            check=True,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+        ).stdout.split()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError(f"root Make module lists are unavailable: {exc}") from exc
+    if not go or not npm or len(set(go)) != len(go) or len(set(npm)) != len(npm):
+        raise ValueError("root Make module lists must be non-empty and unique")
+    return tuple(go), tuple(npm)
+
+
+def _module_for_path(path: str, roots: dict[str, str]) -> str | None:
+    for module, root in roots.items():
         if path == root or path.startswith(root + "/"):
             return module
     return None
 
 
-def _local_replace_consumers(repo: Path, module_root: str) -> set[str]:
+def _local_replace_consumers(repo: Path, module_root: str, roots: dict[str, str]) -> set[str]:
     """Find Go modules that consume a local replacement module."""
 
     consumers: set[str] = set()
-    for module, root in GO_MODULE_ROOTS.items():
+    for module, root in roots.items():
         go_mod = repo / root / "go.mod"
         if not go_mod.is_file():
             continue
@@ -165,14 +184,17 @@ def _is_documentation(path: str) -> bool:
 
 
 def _all_product(checks: dict[str, bool]) -> None:
-    for name in CHECKS:
+    for name in checks:
         if name != "tools":
             checks[name] = True
     checks["tools"] = True
 
 
 def select(repo: Path, paths: Iterable[str]) -> Scope:
-    checks = {name: False for name in CHECKS}
+    go_modules, npm_modules = module_lists(repo)
+    npm_checks = tuple(module.replace("-", "_") for module in npm_modules)
+    checks = {name: False for name in go_modules + npm_checks + LOGICAL_CHECKS}
+    module_roots = {module: module for module in go_modules}
     normalised = tuple(sorted({_normalise(path) for path in paths if _normalise(path)}))
     reasons: list[str] = []
 
@@ -236,18 +258,18 @@ def select(repo: Path, paths: Iterable[str]) -> Scope:
             reasons.append(f"{path}: management frontend checks")
             continue
 
-        module = _module_for_path(path)
+        module = _module_for_path(path, module_roots)
         if module is not None:
             checks[module] = True
-            module_root = GO_MODULE_ROOTS[module]
+            module_root = module_roots[module]
             if path == module_root + "/go.mod" or path == module_root + "/go.sum":
-                for consumer in _local_replace_consumers(repo, module_root):
+                for consumer in _local_replace_consumers(repo, module_root, module_roots):
                     checks[consumer] = True
             if module in STANDALONE_MODULES:
                 reasons.append(f"{path}: {module} module checks")
                 continue
             if module == "componentmetrics":
-                for consumer in _local_replace_consumers(repo, "componentmetrics"):
+                for consumer in _local_replace_consumers(repo, "componentmetrics", module_roots):
                     checks[consumer] = True
                 checks["integration_observe"] = True
             if module == "backend":

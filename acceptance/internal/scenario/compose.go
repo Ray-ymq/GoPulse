@@ -72,7 +72,7 @@ func Compose(root string, options Options) (returnErr error) {
 		session.SetStatus("failed", err)
 		return err
 	}
-	smoke := session.Compose("--profile", "acceptance", "run", "--rm", "--no-deps", "acceptance", "e2e/compose-smoke.spec.ts")
+	smoke := session.AcceptanceRun("", "e2e/compose-smoke.spec.ts")
 	if smoke.ExitCode != 0 {
 		err := fmt.Errorf("Compose smoke acceptance failed with exit code %d", smoke.ExitCode)
 		session.SetStatus("failed", err)

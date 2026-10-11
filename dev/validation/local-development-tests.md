@@ -27,12 +27,13 @@ Bundle 使用 `make package PLATFORM=linux/amd64 RUNTIME=1`，生命周期验收
 ```bash
 python3 -m unittest discover -s ci -p 'test_*.py'
 python3 ci/validate_versions.py
-python3 ci/validate_branch.py --branch develop/2.5.5 --base-ref origin/main --mode development
+python3 ci/validate_branch.py --branch "$(git branch --show-current)" --base-ref origin/main --mode development
 python3 ci/quality_scope.py --changed-file acceptance/internal/scenario/compose.go --format json
 ```
 
 `ci/` 的治理检查只校验版本、分支、变更范围和工作流合同。产品验收由 `acceptance` Go 模块负责，
 不把治理自测当作真实依赖或浏览器验收。
+分支命令使用当前实际分支；产品实施须已由总方案分配，不能把示例里的已完成分支再次用于开发。
 
 ## 原生验收入口
 

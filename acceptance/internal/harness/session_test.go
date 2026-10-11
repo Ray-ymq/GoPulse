@@ -78,6 +78,33 @@ func TestPortConflictAndCommandFailureAreVisible(t *testing.T) {
 	}
 }
 
+func TestFailedCommandKeepsPrivateDiagnosticAfterCleanup(t *testing.T) {
+	root := t.TempDir()
+	tempDir := filepath.Join(root, "owned-temp")
+	if err := os.Mkdir(tempDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	session := &Session{Root: root, TempDir: tempDir, Token: "012345abcdef"}
+	result := session.Run("sh", "-c", "printf 'token=do-not-publish'; exit 9")
+	if result.ExitCode != 9 {
+		t.Fatalf("controlled failure exit = %d", result.ExitCode)
+	}
+	session.SetStatus("failed", &testFailure{message: "acceptance failed"})
+	if err := session.Cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if session.failure == nil || session.failure.directory == "" {
+		t.Fatal("failed command did not create durable evidence")
+	}
+	raw, err := os.ReadFile(filepath.Join(session.failure.directory, "failure.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "primary_exit_code: 9") || strings.Contains(string(raw), "do-not-publish") {
+		t.Fatalf("failure evidence is incomplete or unsanitized: %s", raw)
+	}
+}
+
 func TestKeepPreservesOwnedEnvironment(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "VERSION"), []byte("2.5.5\n"), 0o644); err != nil {
@@ -107,3 +134,7 @@ func TestKeepPreservesOwnedEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type testFailure struct{ message string }
+
+func (e *testFailure) Error() string { return e.message }
