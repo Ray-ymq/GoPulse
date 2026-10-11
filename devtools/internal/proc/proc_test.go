@@ -149,6 +149,23 @@ func TestRunPropagatesExitCode(t *testing.T) {
 	}
 }
 
+func TestRunCapturedPreservesExitAndOutput(t *testing.T) {
+	result, err := RunCaptured([]string{"sh", "-c", "printf 'stdout'; printf 'stderr' >&2; exit 7"}, t.TempDir(), nil, "captured failure", 0)
+	if err == nil || result.ExitCode != 7 {
+		t.Fatalf("captured result = %+v, error = %v", result, err)
+	}
+	if result.Stdout != "stdout" || result.Stderr != "stderr" {
+		t.Fatalf("captured output = stdout %q stderr %q", result.Stdout, result.Stderr)
+	}
+}
+
+func TestRunCapturedReportsCancellation(t *testing.T) {
+	result, err := RunCaptured([]string{"sh", "-c", "while :; do :; done"}, t.TempDir(), nil, "cancelled failure", 50*time.Millisecond)
+	if err == nil || !result.TimedOut || result.ExitCode == 0 {
+		t.Fatalf("cancellation result = %+v, error = %v", result, err)
+	}
+}
+
 func TestRunReportsMissingProgram(t *testing.T) {
 	err := Run([]string{"gopulse-program-that-does-not-exist"}, t.TempDir(), nil, "missing step", 0)
 	if err == nil || !strings.Contains(err.Error(), "could not start") {

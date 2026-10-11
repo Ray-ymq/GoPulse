@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/ready"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
@@ -54,36 +55,67 @@ func runE2E(current *session, scope string, observe bool) error {
 	if err := proc.CheckPorts(e2ePorts(current.values, observe), nil); err != nil {
 		return err
 	}
+	current.beginDiagnostics("e2e", scope, observe)
 	composeEnv := copyEnvironment(current.processEnv)
 	if observe {
 		image, err := current.prepareMonitor(current)
 		if err != nil {
+			current.finishDiagnostics(err, current.pendingState(), nil)
 			return err
 		}
 		composeEnv["GOPULSE_MONITOR_IMAGE"] = image
 	}
 	if err := current.startDependencies(composeEnv); err != nil {
-		current.stopDependencies(current.pendingState())
+		primaryExit := current.lastCommand.ExitCode
+		if primaryExit == 0 {
+			primaryExit = -1
+		}
+		cleanupErrors := current.stopForFailure(current.pendingState())
+		current.collectFailureEvidence(current.pendingState())
+		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
 	state, err := current.e2eState(scope, observe, composeEnv["GOPULSE_MONITOR_IMAGE"])
 	if err != nil {
-		current.stopDependencies(current.pendingState())
+		primaryExit := current.lastCommand.ExitCode
+		if primaryExit == 0 {
+			primaryExit = -1
+		}
+		cleanupErrors := current.stopForFailure(current.pendingState())
+		current.collectFailureEvidence(current.pendingState())
+		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
 	if err := current.saveIntegrationState(state); err != nil {
-		current.stopDependencies(state)
+		primaryExit := current.lastCommand.ExitCode
+		if primaryExit == 0 {
+			primaryExit = -1
+		}
+		cleanupErrors := current.stopForFailure(state)
+		current.collectFailureEvidence(state)
+		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
 
 	runErr := current.runBrowserChecks(state, scope, observe)
+	primaryExit := current.lastCommand.ExitCode
+	if runErr != nil && primaryExit == 0 {
+		primaryExit = -1
+	}
 	if runErr != nil {
 		state.Status = "failed"
+		current.collectFailureEvidence(state)
 	} else {
 		state.Status = "passed"
 		fmt.Printf("[gopulse] e2e scope=%s passed for test project %s\n", scope, current.project)
 	}
-	current.cleanup(state, observe)
+	cleanupErrors := current.cleanup(state, observe)
+	if runErr != nil {
+		current.finishDiagnosticsWithExit(runErr, primaryExit, cleanupErrors)
+	}
+	if runErr == nil && len(cleanupErrors) > 0 {
+		return fmt.Errorf("e2e cleanup failed: %s", joinErrors(cleanupErrors))
+	}
 	return runErr
 }
 
@@ -108,7 +140,10 @@ func (s *session) e2eState(scope string, observe bool, image string) (*workspace
 	if err != nil {
 		return nil, err
 	}
-	state.BrowserTraces = filepath.Join(s.root, "test-results")
+	// Playwright runs with the frontend module as its cwd, so reports land
+	// beneath the application rather than the repository root. Keep this path
+	// explicit so failure evidence can copy it before the lifecycle is removed.
+	state.BrowserTraces = filepath.Join(s.root, "frontend", "test-results")
 	return state, nil
 }
 
@@ -119,7 +154,10 @@ func (s *session) runBrowserChecks(state *workspace.State, scope string, observe
 	}
 	environment := copyEnvironment(s.processEnv)
 	environment["GOPULSE_BASE_URL"] = fmt.Sprintf("http://127.0.0.1:%s", s.values["FRONTEND_PORT"])
-	environment["GOPULSE_ACCEPTANCE_TOKEN"] = fmt.Sprintf("%s%d", s.ws.Identity, time.Now().Unix())
+	// The browser fixtures deliberately truncate this value when building
+	// usernames. Put a full-resolution value first so repeated runs against the
+	// candidate-scoped data volume cannot collide on the first 16 characters.
+	environment["GOPULSE_ACCEPTANCE_TOKEN"] = browserAcceptanceToken(s.ws)
 	frontend := filepath.Join(s.root, "frontend")
 	commands := [][]string{}
 	labels := []string{}
@@ -158,11 +196,15 @@ func (s *session) runBrowserChecks(state *workspace.State, scope string, observe
 		}
 		current := copyEnvironment(environment)
 		current["GOPULSE_ACCEPTANCE_SCENARIO"] = scenario
-		if err := proc.Run(command, frontend, current, labels[index], browserTimeout); err != nil {
+		if err := s.runCommand(command, frontend, current, labels[index], browserTimeout); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func browserAcceptanceToken(ws workspace.Workspace) string {
+	return fmt.Sprintf("%016x%s", uint64(time.Now().UnixNano()), ws.Identity)
 }
 
 // startBrowserProcesses starts the source services and both Vite processes the
@@ -172,11 +214,11 @@ func (s *session) startBrowserProcesses(state *workspace.State, observe bool) er
 	oneShot["LOG_MONITOR_URL"] = ""
 	oneShot["LOG_MONITOR_INGEST_TOKEN"] = ""
 	backendDir := filepath.Join(s.root, "backend")
-	if err := proc.Run([]string{"go", "run", "./cmd/migrate", "up"}, backendDir, oneShot,
+	if err := s.runCommand([]string{"go", "run", "./cmd/migrate", "up"}, backendDir, oneShot,
 		"test database migration", 0); err != nil {
 		return err
 	}
-	if err := proc.Run([]string{"go", "run", "./cmd/search-reindex", "--if-missing"}, backendDir, oneShot,
+	if err := s.runCommand([]string{"go", "run", "./cmd/search-reindex", "--if-missing"}, backendDir, oneShot,
 		"test search reindex", 0); err != nil {
 		return err
 	}
@@ -310,7 +352,7 @@ func (s *session) registerBrowserAccounts(buildDigest string) error {
 	if err != nil {
 		return err
 	}
-	if err := proc.Run([]string{adminRole, "promote", "--username", admin},
+	if err := s.runCommand([]string{adminRole, "promote", "--username", admin},
 		filepath.Join(s.root, "backend"), s.testEnvironment(), "test browser admin-role bootstrap", 0); err != nil {
 		return err
 	}
@@ -427,12 +469,7 @@ func (s *session) apiJSON(client *http.Client, path, method string, payload map[
 }
 
 func (s *session) ensureNpmDependencies(directory string) error {
-	target := filepath.Join(s.root, directory)
-	if info, err := os.Stat(filepath.Join(target, "node_modules")); err == nil && info.IsDir() {
-		return nil
-	}
-	return proc.Run([]string{"npm", "ci", "--no-audit", "--no-fund"}, target, s.processEnv,
-		"npm dependency installation for "+directory, 0)
+	return frontenddeps.Ensure(s.root, directory)
 }
 
 func instance(environment map[string]string, identifier string) map[string]string {
