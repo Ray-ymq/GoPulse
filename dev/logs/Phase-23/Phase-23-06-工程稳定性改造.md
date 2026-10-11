@@ -4,7 +4,7 @@
 
 - 执行分支：`develop/2.5.6`，从 `origin/main` 的 `0610f3f` 创建；该 revision 是本批固定基线。
 - 目标版本：`2.5.6`。实现和原始行为验收期间 `VERSION` 保持已完成值 `2.5.5`；本次收口重验已将受管版本元数据同步为 `2.5.6`。
-- 实现提交：`7c19660`、`12fcfe8`、`f2e750b`、`4a0c0d8`、`5e78c8f`、`8b4aa62`、`77413f7`、`f29137e`。
+- 实现提交：`7c19660`、`12fcfe8`、`f2e750b`、`4a0c0d8`、`5e78c8f`、`8b4aa62`、`77413f7`、`f29137e`；版本收口提交为 `ed4ce5e`。
 - 本日志记录本地与远端实际结果；2.5.6 候选 Bundle 与最终 head 的远端权威 CI 结果在后续小节补录。
 
 ## 实际交付
@@ -124,5 +124,18 @@
 
 ## 2.5.6 候选与最终远端门禁
 
-- 2.5.6 候选 Bundle、manifest、验证回执及最终 head 的远端质量 run 将在实际完成后补录；在此之前不
-  宣称 Phase-23-06 正式完成。
+- 2.5.6 候选由收口提交 `ed4ce5e538eb987306ef11b55c7ad1912f3054f5` 构建。命令
+  `make package PLATFORM=linux/amd64 OUTPUT=dist/phase23-06-candidate-256 REGISTRY=127.0.0.1:15006/gopulse RUNTIME=1`
+  退出 0；Compose runtime、lifecycle clean/failure matrix 均通过。候选 manifest 文件摘要为
+  `sha256:fd4079a4330bab26240aca0a183ebff8fb3d481b82a0d9024e0d8c75b366fc6f`，manifest 的 payload
+  `bundle_sha256` 为 `sha256:18d57a3d9da4f82de9906e341da1321adb9f035d973f9be8fb1b6f5ed96c1bcf`，Bundle
+  归档及 detached checksum 为 `sha256:73a4ce5ece4de49ecabf343e2fafe7defdc951371c646a2a91709ff044dc95f2`，
+  `verification-amd64.json` 文件摘要为
+  `sha256:39555cc86a51fc5922c07a64ac9250ad106cd25b67ad278d4283eb3891e6d826`。
+- 使用同一 manifest 独立执行
+  `make verify-lifecycle INSTALL=clean PLATFORM=linux/amd64 MANIFEST=dist/phase23-06-candidate-256/release-manifest.json`；
+  2.5.6 的 doctor、安装边界、ready/health、HTTP/logs、停止/重启/verify 及清理矩阵均完成，日志中的
+  manifest digest 与候选一致。独立 registry `gopulse-phase23-06-registry` 和 acceptance 生成物随后按
+  归属定向清理，未使用全局 prune。
+- 2.5.6 候选已完成本地交付验收；最终 head 的远端质量 workflow 及自动 PR/合并结果仍待推送后补录，
+  在远端权威 CI 成功前不宣称 Phase-23-06 正式完成。
