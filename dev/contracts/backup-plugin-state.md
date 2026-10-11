@@ -47,9 +47,7 @@ monitor plugin-state import --root /var/lib/gopulse-monitor/plugins
 ```bash
 (cd monitor && go test ./... && go vet ./...)
 (cd monitor && go test -race ./internal/plugin)
-scripts/verify-plugin-state.sh \
-  --monitor-image sha256:<本次构建的本地不可变镜像ID> \
-  --evidence .run/phase16-04-portable/evidence.json
+make verify-plugins
 ```
 
 容器验证使用真实 Redis 和 Monitor，从实际运行产生的 revision 导出，导入新 volume 后验证相同逻辑身份和新的采集成功时间，并拒绝 live export / nonempty import。

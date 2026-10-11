@@ -12,11 +12,11 @@ capabilities, evidence boundaries, pending work, and limitations are maintained 
 
 | Purpose | Entry |
 | --- | --- |
-| Understand the project | [项目导读](项目导读.md), [implemented architecture diagram](dev/design/diagrams/README.md) |
+| Understand the project | [项目导读](项目导读.md), [architecture snapshot](dev/design/diagrams/README.md) |
 | Run and use the product | [使用手册](使用手册.md), [Linux Bundle guide](deploy/release/BUNDLE-README.md) |
 | Find verified capabilities and pending work | [Capability status](dev/status/capability-status.md) |
 | Understand the target architecture | [Business design](<docs/GoPulse 高并发架构设计.md>), [observability design](<docs/GoPulse 可观测架构设计.md>) |
-| Find contracts, operations, and validation | [Development documentation](dev/README.md) |
+| Develop, plan, and select validation | [Engineering guide](dev/README.md), [repository map and rules](AGENTS.md) |
 | Find allocated work and historical records | [Phase index](dev/phases/README.md), [implementation logs](dev/logs/README.md) |
 | Browse all documentation | [文档入口](docs/README.md) |
 
@@ -45,8 +45,9 @@ observability, alert and plugin-control requests use the singleton `platform-api
 role through the same edge. Both roles use the same Backend image and shared
 session/MySQL contract. Browsers use Backend APIs to query observability data
 and manage plugins.
-The [module diagram](dev/design/diagrams/README.md) describes the implemented
-system; the two target designs define its intended direction.
+The [module diagram](dev/design/diagrams/README.md) preserves an earlier implementation
+snapshot. Current service roles are described above; the two target designs define
+the intended direction.
 
 ## Development quick start
 
@@ -69,6 +70,7 @@ Daily source development runs Go/Vite on the host while Docker supplies only
 owned persistent dependencies:
 
 ```bash
+make deps                                # only the owned persistent dependencies
 make dev
 make dev-observe                         # add Router/Marshaller/Monitor/admin Vite
 make test MODULE=backend
@@ -80,22 +82,26 @@ make stop
 ```
 
 `business` and `observe` use isolated test projects, ports, volumes, and locks;
-they never reuse the development data. `make monitor-image` is a separate Linux
-command for the trusted Monitor/plugin image. It is required before an observe
-run when the image is absent or its inputs changed, and does not build business
-images or push a Bundle. The native entries fail on unknown modules/scopes,
-unowned port conflicts, missing dependencies, and child-process failures.
+they never reuse the development data. `make deps`, `make dev`, `make dev-observe`,
+and `make stop` run the native helper in `devtools`, which owns the workspace
+identity, the private state and environment files, the source processes, and the
+Compose projects. It stops a lifecycle only while the recorded process identity
+still matches, and it never deletes named volumes. The observe entries prepare or
+reuse the content-addressed Monitor image on demand, on Linux only. The native
+entries fail on
+unknown modules/scopes, unowned port conflicts, missing dependencies, and
+child-process failures.
 
-The previous container and release paths remain explicit:
+The native container, acceptance, and release paths remain explicit:
 
 | Capability | Existing entry |
 | --- | --- |
-| Full container development/verification | `scripts/dev.sh`, `scripts/verify.sh`, `scripts/down.sh`, `scripts/verify-compose.sh` |
-| Plugin lifecycle and exporter contracts | `scripts/verify-plugin-state.sh`, `scripts/verify-exporter.sh`, `scripts/verify-monitor.sh` |
-| Alert evaluation and management state | `scripts/verify-alerts.sh`, `scripts/ci/verify_dashboard.py`, `scripts/verify-role-management.sh` |
-| Recovery and persistence | `scripts/ci/verify_current_recovery.py`, `dev/operations/backup-restore.md` |
-| Capacity and long-window experiments | `scripts/verify-phase18-business-scale.sh`, `scripts/verify-phase18-observability-scale.sh`, `dev/validation/Phase-19/`, `dev/validation/Phase-20/` |
-| Bundle/release and evidence | `scripts/verify-release-artifacts.sh`, `scripts/ci/release_artifacts.py`, `.github/workflows/release-candidate.yml` |
+| Full container development/verification | `make stack-up`, `make stack-verify`, `make stack-down`, `make verify-compose` |
+| Plugin lifecycle and exporter contracts | `make verify-plugins`, `make verify-observe SCOPE=exporter|monitor` |
+| Alert evaluation and management state | `make verify-alerts`, `make verify-roles`, `make verify-pages` |
+| Recovery and persistence | `make verify-lifecycle INSTALL=clean|reuse`, `dev/operations/backup-restore.md` |
+| Capacity and long-window experiments | `dev/validation/Phase-19/`, `dev/validation/Phase-20/` (the Phase 18–20 formal executors are retired; see [capability status](dev/status/capability-status.md)) |
+| Bundle/release and evidence | `make package` ([gopulse-package](lifecycle/cmd/gopulse-package/main.go)), `.github/workflows/release-candidate.yml` |
 
 The default native user edge is [http://127.0.0.1:15173](http://127.0.0.1:15173)
 for test browser runs; development uses the configured `FRONTEND_PORT` (5173 by
@@ -148,13 +154,12 @@ npm run build
 ```
 
 Select regression and real-system gates from the active implementation plan.
-[scripts/verify-compose.sh](scripts/verify-compose.sh) is the full-stack Compose
-entry; its scope is documented in the
+`make verify-compose` is the full-stack Compose entry; its scope is documented in the
 [Compose acceptance guide](dev/validation/Phase-17/phase17-compose-matrix.md).
 Integration tests require explicitly isolated dependencies and safety markers;
 see the selected batch contract before running them.
 
-## Contributing and documentation
+## Engineering rules and documentation
 
 Read [AGENTS.md](AGENTS.md) and the allocated Phase total and split implementation
 plans before starting a batch. The [Phase index](dev/phases/README.md) links to
@@ -162,6 +167,8 @@ those contracts; they own batch order, target versions, branches, budgets, and
 completion gates. Update the completed product version only at successful batch
 completion, following the repository rules.
 
-Navigation pages link to capability facts and implementation contracts instead
-of copying current versions, execution status, or experiment results. Completed
-plans, logs, reviews, and raw evidence retain their historical paths and context.
+The [engineering guide](dev/README.md) defines code review boundaries, plan contents,
+document ownership, and current validation entry points. Repository rules live in
+[AGENTS.md](AGENTS.md); tool reuse requirements live in [ci/AGENTS.md](ci/AGENTS.md).
+Navigation links to capability facts and implementation contracts. Historical plans,
+logs, reviews, diagrams, and evidence retain their recorded versions and context.

@@ -54,5 +54,5 @@ up=1 and the full snapshot; do not claim up=0 was stored while storage was down.
 
 ```bash
 (cd exporters/victoriametrics && go test ./...)
-bash scripts/package-redis-exporter.sh --source victoriametrics --version 1.11.4
+make package-plugin SOURCE=victoriametrics VERSION=1.11.4
 ```

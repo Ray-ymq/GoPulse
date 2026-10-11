@@ -52,4 +52,4 @@ failure and recovery without restarting the Exporter; it never enables security
 on the normal business target.
 
 Validation: `go test ./...`; from repository root:
-`bash scripts/verify-plugin-metrics.sh --sources kafka,elasticsearch`.
+`make verify-plugins`.

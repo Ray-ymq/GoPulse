@@ -37,5 +37,5 @@ up 单位 boolean，其余 count。deliver_get 包含四种 delivery/get；redel
 
 ```bash
 (cd exporters/rabbitmq && go test ./...)
-bash scripts/package-redis-exporter.sh --source rabbitmq --version 1.11.2
+make package-plugin SOURCE=rabbitmq VERSION=1.11.2
 ```

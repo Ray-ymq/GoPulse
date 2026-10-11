@@ -1,0 +1,3 @@
+#!/bin/sh
+# Phase-23-02 packaging fixture (not a product binary)
+exit 0

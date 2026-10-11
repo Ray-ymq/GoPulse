@@ -15,7 +15,7 @@ on:
       - 'frontend/package-lock.json'
       - 'admin-frontend/package.json'
       - 'admin-frontend/package-lock.json'
-      - 'scripts/ci/compose_build_cache.py'
+      - 'devtools/**'
   workflow_dispatch:
 
 permissions:
@@ -33,6 +33,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: devtools/go.mod
+          cache-dependency-path: devtools/go.mod
       - uses: ./.github/actions/compose-build-cache
 
   go:

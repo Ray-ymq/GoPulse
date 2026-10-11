@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "node": {
+    "major": 24,
+    "minimum": "24.20.0"
+  },
+  "npm": {
+    "major": 11,
+    "minimum": "11.19.0"
+  },
+  "python": {
+    "minimum": "3.12.0"
+  },
+  "golangci_lint": {
+    "version": "2.14.0",
+    "release": "https://github.com/golangci/golangci-lint/releases/download/v2.14.0",
+    "archives": {
+      "linux/amd64": {
+        "name": "golangci-lint-2.14.0-linux-amd64.tar.gz",
+        "sha256": "ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab"
+      },
+      "linux/arm64": {
+        "name": "golangci-lint-2.14.0-linux-arm64.tar.gz",
+        "sha256": "ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae"
+      },
+      "darwin/amd64": {
+        "name": "golangci-lint-2.14.0-darwin-amd64.tar.gz",
+        "sha256": "a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d"
+      },
+      "darwin/arm64": {
+        "name": "golangci-lint-2.14.0-darwin-arm64.tar.gz",
+        "sha256": "5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3"
+      }
+    }
+  },
+  "playwright": {
+    "browser": "chromium"
+  }
+}

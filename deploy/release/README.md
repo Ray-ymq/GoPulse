@@ -1,21 +1,31 @@
 # Immutable release artifacts
 
-From a committed source tree, build all ten images (nine products plus the
-lifecycle tool) from the same Git archive:
+From a committed source tree, one native entry point builds all ten images (nine
+products plus the lifecycle tool) from the same Git archive, verifies them and
+promotes the identical digests:
 
 ```bash
-python3 scripts/ci/release_artifacts.py build --registry 127.0.0.1:15001/gopulse
-scripts/verify-release-artifacts.sh --self-test
-scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/amd64 --runtime
-scripts/verify-release-artifacts.sh --manifest dist/release-manifest.json --platform linux/arm64 --metadata-only
-python3 scripts/ci/release_artifacts.py promote --manifest dist/release-manifest.json
+make package                                   # local amd64 candidate
+make package RUNTIME=1                         # adds the real runtime and Compose gate
+make package PLATFORM=linux/amd64,linux/arm64 RUNTIME=1 PROMOTE=1   # CI: both platforms, then promote
 ```
 
-The caller owns the registry and must expose a local probe registry on loopback
-only. BuildKit needs arm64 build support; emulation is build infrastructure only,
-not real arm64 product acceptance. The runtime gate invokes the fixed full Compose
-acceptance once with immutable candidate references and its existing cleanup and
-ownership checks. Run from a clean checkout/worktree; no user files are removed.
+`make package` starts a uniquely named loopback registry when `REGISTRY` is not
+given and removes only that container when it exits, so a clean checkout needs no
+manual preparation. BuildKit needs arm64 build support; emulation is build
+infrastructure only, not real arm64 product acceptance, so a dual-platform
+candidate runs in CI. The runtime gate invokes the fixed full Compose acceptance
+once with immutable candidate references and its existing cleanup and ownership
+checks. It requires a real matching Linux amd64 server; every other platform
+records a metadata-only receipt, and `PROMOTE=1` refuses to run without the
+matching receipt of every platform in the candidate. Run from a clean
+checkout/worktree; no user files are removed.
+
+Exit codes: `0` success; `2` argument or precondition error (uncommitted source
+tree, invalid registry namespace or platform, missing manifest, existing complete
+candidate); `1` runtime failure. The implementation is
+`lifecycle/cmd/gopulse-package`, which reuses the release manifest contract in
+`lifecycle/internal/release`.
 
 Do not reuse an output directory containing a complete manifest. Failed builds
 leave build diagnostics, not a complete manifest. A Git archive prevents untracked
@@ -27,7 +37,7 @@ are locked in `build-bases.lock.json` and Dockerfiles. Update these only for a
 required compatibility change and record the affected regression. No third-party
 version upgrade was required for Phase-16-01.
 
-The manifest schema is closed. Python validation also checks cross-field identity,
+The manifest schema is closed. Validation also checks cross-field identity,
 platform sets and catalog uniqueness. The Linux-only lifecycle module reads the
 same v2 runtime contract, rejects duplicate JSON keys and checks tool/server
 architecture without mutating the Docker server. Backend image aliases for

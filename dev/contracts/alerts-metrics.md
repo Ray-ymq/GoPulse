@@ -61,8 +61,7 @@
 在 `.env` 中设置 `ALERT_EVALUATION_ENABLED=false` 并重建 Backend 容器，仅停止后台评估；规则与当前/历史 API、社交业务和 readiness 条件不变。这个开关不会自动关闭或恢复已触发告警。
 
 ```bash
-bash scripts/verify-alerts.sh --self-test
-bash scripts/verify-alerts.sh --sources metrics
+make verify-alerts
 ```
 
 真实验收创建独立强归属 Compose project，构建当前 checkout 的 Backend/迁移/运维二进制，复用 Phase 14 `1.11.5` 未修改运行镜像作为指标链路基线。需本机已有这些基线镜像、Go 工具链与 Docker/Compose。工具使用真实 Redis 客户端和既有 Monitor → Router → Kafka → Marshaller → VictoriaMetrics 链路，不直接导入样本来冒充告警闭环。证据保留在专属 `.run/gopulse-p1401-<随机标识>/` 下，退出时清理专属容器、网络、卷及临时凭据，不操作日常环境资源。

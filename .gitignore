@@ -48,3 +48,5 @@ admin-frontend/playwright-report/
 
 # Generated immutable release bundles
 /dist/
+devtools/bin/
+lifecycle/bin/

@@ -4,7 +4,7 @@
 
 `develop/1.13.6` 继承已合入主线的 `1.13.5`。允许在验收前从已提交源码构建并发布一次候选。产品安装只使用 Docker/Compose 与独立解压的 Bundle；验收工具容器与开发机的构建工具不是产品宿主依赖。
 
-使用 `scripts/ci/release_artifacts.py build --registry <registry>/gopulse --output <candidate> --platform linux/amd64` 生产候选。用相同 Git revision 构建 `deploy/docker/acceptance.Dockerfile` 并推送验收镜像，记录其 registry digest 和 image ID。最终矩阵和 Compose 固定门禁使用 `GOPULSE_ACCEPTANCE_IMAGE=sha256:…`，不得再构建验收镜像或产品制品。
+执行器已随 Phase-23-05 退役，重跑需新方案。使用 `scripts/ci/release_artifacts.py build --registry <registry>/gopulse --output <candidate> --platform linux/amd64` 生产候选。用相同 Git revision 构建 `deploy/docker/acceptance.Dockerfile` 并推送验收镜像，记录其 registry digest 和 image ID。最终矩阵和 Compose 固定门禁使用 `GOPULSE_ACCEPTANCE_IMAGE=sha256:…`，不得再构建验收镜像或产品制品。
 
 候选冻结后如产品/验收实现出现直接阻断，保留失败记录、修复并提交新 revision，重新生成新候选；不可原地覆盖已冻结 manifest、Bundle 或混用不同候选通过证据。
 
@@ -17,7 +17,9 @@ GOPULSE_ACCEPTANCE_IMAGE=sha256:… scripts/verify-release-artifacts.sh \
   --manifest <candidate>/release-manifest.json --platform linux/amd64 --runtime
 ```
 
-该命令包含完整 `scripts/verify-compose.sh`，无需单独重复。成功生成 `verification-amd64.json`。将 Bundle 解压至独立路径（支持空格），同时保留原 tar.gz 供校验；不能直接在构建输出目录安装。
+该命令包含完整 `scripts/verify-compose.sh`，无需单独重复。成功生成 `verification-amd64.json`。
+（Phase-23-04 起交付入口改为原生 `make package RUNTIME=1`：等价地执行同一固定 Compose 闭包并写出同一份
+回执；上方的历史命令保留为 Phase-16 当时的执行记录。）将 Bundle 解压至独立路径（支持空格），同时保留原 tar.gz 供校验；不能直接在构建输出目录安装。
 
 验收 Compose 入口为 `deploy/phase16-acceptance.yaml` 的 `acceptance` profile，避免开发 Compose 的服务依赖、构建定义和私密环境污染矩阵 runner：
 
