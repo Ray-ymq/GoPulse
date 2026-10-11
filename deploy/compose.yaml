@@ -391,7 +391,8 @@ services:
     pull_policy: never
     restart: "no"
     entrypoint: [/bin/sh, -c]
-    # status rejects dirty; only up may resume the explicitly supported v12.
+    # status rejects dirty; up may resume only the explicitly supported legacy
+    # dirty version. A failed target migration remains a recovery stop.
     command:
       - '/usr/local/bin/migrate validate && { /usr/local/bin/migrate status; code=$$?; [ "$$code" -eq 0 ] || [ "$$code" -eq 4 ]; } && exec /usr/local/bin/migrate up'
     environment: *mysql-environment
@@ -408,9 +409,18 @@ services:
     entrypoint: [/bin/sh, -c]
     command:
       - |
+        if [ -n "$$GOPULSE_RESTORE_OPERATION" ] || [ -n "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" ] || [ -n "$$GOPULSE_RESTORE_NEW_EPOCH" ]; then
+          if [ -z "$$GOPULSE_RESTORE_OPERATION" ] || [ -z "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" ] || [ -z "$$GOPULSE_RESTORE_NEW_EPOCH" ]; then
+            echo "restore preparation requires operation and both epochs" >&2
+            exit 1
+          fi
+          set -- --restore-operation "$$GOPULSE_RESTORE_OPERATION" --expected-old-epoch "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" --new-epoch "$$GOPULSE_RESTORE_NEW_EPOCH"
+        else
+          set -- --if-missing
+        fi
         attempt=1
         while [ "$$attempt" -le 5 ]; do
-          if /usr/local/bin/search-reindex --if-missing; then
+          if /usr/local/bin/search-reindex "$$@"; then
             exit 0
           fi
           if [ "$$attempt" -eq 5 ]; then
@@ -421,7 +431,11 @@ services:
           attempt=$$((attempt + 1))
         done
         exit 1
-    environment: *search-init-environment
+    environment:
+      <<: *search-init-environment
+      GOPULSE_RESTORE_OPERATION: ${GOPULSE_RESTORE_OPERATION:-}
+      GOPULSE_RESTORE_EXPECTED_OLD_EPOCH: ${GOPULSE_RESTORE_EXPECTED_OLD_EPOCH:-}
+      GOPULSE_RESTORE_NEW_EPOCH: ${GOPULSE_RESTORE_NEW_EPOCH:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

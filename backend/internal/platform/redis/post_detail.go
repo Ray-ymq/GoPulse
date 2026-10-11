@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	postDetailVersion   = 1
-	postDetailKeyPrefix = "gopulse:post:detail:v1:"
+	postDetailVersion        = 1
+	postDetailKeyPrefix      = "gopulse:post:detail:v1:"
+	postDetailEpochKeyPrefix = "gopulse:post:detail:v1:epoch:"
 )
 
 var ErrInvalidPostDetail = errors.New("invalid cached post detail")
@@ -31,6 +32,9 @@ type PostDetailRepository struct {
 	client           Client
 	ttl              time.Duration
 	operationTimeout time.Duration
+	epochProvider    interface {
+		CurrentEpoch(context.Context) (string, error)
+	}
 }
 
 type postDetailEnvelope struct {
@@ -46,15 +50,43 @@ func NewPostDetailRepository(client Client, ttl, operationTimeout time.Duration)
 	}
 }
 
+func (repository *PostDetailRepository) WithEpochProvider(provider interface {
+	CurrentEpoch(context.Context) (string, error)
+}) *PostDetailRepository {
+	if repository != nil {
+		repository.epochProvider = provider
+	}
+	return repository
+}
+
 func PostDetailKey(postID uint64) string {
 	return postDetailKeyPrefix + strconv.FormatUint(postID, 10)
+}
+
+func PostDetailKeyForEpoch(epoch string, postID uint64) string {
+	return postDetailEpochKeyPrefix + epoch + ":" + strconv.FormatUint(postID, 10)
+}
+
+func (repository *PostDetailRepository) key(ctx context.Context, postID uint64) (string, error) {
+	if repository.epochProvider == nil {
+		return PostDetailKey(postID), nil
+	}
+	epoch, err := repository.epochProvider.CurrentEpoch(ctx)
+	if err != nil || epoch == "" {
+		return "", errors.New("read current business data epoch")
+	}
+	return PostDetailKeyForEpoch(epoch, postID), nil
 }
 
 func (repository *PostDetailRepository) Get(ctx context.Context, postID uint64) (post.PublicProjection, bool, error) {
 	operationContext, cancel := context.WithTimeout(ctx, repository.operationTimeout)
 	defer cancel()
 
-	value, err := repository.client.Get(operationContext, PostDetailKey(postID))
+	key, err := repository.key(operationContext, postID)
+	if err != nil {
+		return post.PublicProjection{}, false, err
+	}
+	value, err := repository.client.Get(operationContext, key)
 	if errors.Is(err, platform.ErrRedisKeyNotFound) {
 		return post.PublicProjection{}, false, nil
 	}
@@ -80,7 +112,11 @@ func (repository *PostDetailRepository) Set(ctx context.Context, projection post
 
 	operationContext, cancel := context.WithTimeout(ctx, repository.operationTimeout)
 	defer cancel()
-	if err := repository.client.Set(operationContext, PostDetailKey(projection.ID), string(payload), repository.ttl); err != nil {
+	key, err := repository.key(operationContext, projection.ID)
+	if err != nil {
+		return err
+	}
+	if err := repository.client.Set(operationContext, key, string(payload), repository.ttl); err != nil {
 		return fmt.Errorf("write post detail cache: %w", err)
 	}
 	return nil
@@ -89,7 +125,11 @@ func (repository *PostDetailRepository) Set(ctx context.Context, projection post
 func (repository *PostDetailRepository) Invalidate(ctx context.Context, postID uint64) error {
 	operationContext, cancel := context.WithTimeout(ctx, repository.operationTimeout)
 	defer cancel()
-	if err := repository.client.Delete(operationContext, PostDetailKey(postID)); err != nil {
+	key, err := repository.key(operationContext, postID)
+	if err != nil {
+		return err
+	}
+	if err := repository.client.Delete(operationContext, key); err != nil {
 		return fmt.Errorf("invalidate post detail cache: %w", err)
 	}
 	return nil

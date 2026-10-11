@@ -1,7 +1,7 @@
 # Migration and message state reliability
 
-`backend/migrations` is the only schema source. The current schema target remains
-13; product version changes do not require placeholder DDL.
+`backend/migrations` is the only schema source. The current schema target is 14;
+product version changes do not require placeholder DDL.
 
 ## Migration CLI
 
@@ -22,16 +22,23 @@ Exit codes: 0 success/no change, 2 usage/configuration, 3 database connection,
 Error output contains fixed safe reasons, never the underlying SQL or DSN.
 
 The Compose one-shot executes validate, status, up. Status exit 4 may proceed to
-up, but up rejects every dirty version except the specifically resumable version
-12. This does not authorize arbitrary force/clear. Backend, Worker and Indexer
-remain dependent on successful completion of the job; Backend additionally checks
-schema readiness.
+up, but up rejects every dirty version except the explicitly resumable legacy
+version 12. A failed target migration remains dirty and is not automatically
+replayed or cleared; use the supported recovery path. This does not authorize
+arbitrary force/clear. Backend, Worker and Indexer remain dependent on successful
+completion of the job; Backend additionally checks schema readiness.
+
+Migration 14 adds the durable business environment/epoch, command structure,
+consumer requirements, application/failure summaries, bounded message parking and
+per-epoch async budget. It does not backfill command or completion evidence. The
+normal deployment remains `legacy_v1`; v2 fixtures and consumer admission are
+compatible-readiness only.
 
 `INTEGRATION_TESTS=1 go -C backend test -tags=integration ./cmd/migrate \
 -run '^TestMigrationStateIntegration$' -count=1 -v -timeout 6m` tests an owned,
 isolated MySQL 8.4.0 container through the real migration CLI. It covers
 empty/concurrent/current/repeat, lock timeout, dirty/ahead refusal, DDL permission
-failure, explicit v12 recovery, exit codes, credential redaction and owner-checked
+failure, explicit v13-to-v14 recovery, exit codes, credential redaction and owner-checked
 container/anonymous-volume cleanup. The test logs a `gopulse.migration-state.v1`
 JSON receipt only after cleanup; it is explicitly **not** a substitute for the full
 Phase-17-04 candidate acceptance or the required 1.13.6 backup/restore upgrade

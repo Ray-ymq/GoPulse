@@ -45,6 +45,24 @@ Backend healthchecks call
 `http://127.0.0.1:8080/ready` directly inside each private container, without
 Frontend, Nginx or the business admission path.
 
+## Phase 24 business epoch boundary
+
+The business roles also require migration 14 and a readable
+`business_environment`. Normal startup keeps `legacy_v1` and the v1 producer
+shape. Worker and Search Indexer perform a durable epoch/ready admission before
+processing a delivery; rejected legacy, stale or ungrounded v2 payloads are
+parked before acknowledgement, while a state-store failure requeues the original.
+The search indexer binds v2 completion evidence to the actual physical index
+generation and index epoch. Redis post-detail keys and search cursors are
+epoch-scoped when the business role is assembled.
+
+`search-init` normally invokes `/usr/local/bin/search-reindex --if-missing`.
+Lifecycle restore supplies the bounded one-shot `GOPULSE_RESTORE_OPERATION`,
+`GOPULSE_RESTORE_EXPECTED_OLD_EPOCH` and `GOPULSE_RESTORE_NEW_EPOCH` inputs;
+partial input is rejected and these values are not ordinary application
+configuration. The restore job leaves the environment non-ready on failure and
+only starts product services after the new alias/generation is verified.
+
 ## Phase 21 service-role assembly
 
 `BACKEND_SERVICE_ROLE` accepts `combined`, `business`, or `platform`; an empty

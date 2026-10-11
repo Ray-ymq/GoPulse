@@ -57,6 +57,25 @@ type SearchResult struct {
 	Hits        []Hit
 }
 
+// IndexWriteResult is the authoritative response from the physical ES write.
+// IndexAliasResult never resolves the alias after the write to guess where the
+// request landed.
+type IndexWriteResult struct {
+	Index            string
+	DocumentID       string
+	Version          uint64
+	Conflict         bool
+	ConflictVerified bool
+	Epoch            string
+}
+
+type DeleteResult struct {
+	Index      string
+	DocumentID string
+	Found      bool
+	Epoch      string
+}
+
 func (repository *ElasticsearchRepository) AliasExists(ctx context.Context) (bool, error) {
 	response, err := repository.do(ctx, http.MethodHead, "/_alias/"+url.PathEscape(AliasName), nil)
 	if err != nil {
@@ -77,8 +96,8 @@ func (repository *ElasticsearchRepository) ResolveGeneration(ctx context.Context
 	if err != nil {
 		return "", err
 	}
-	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_ = response.Body.Close()
 		return "", ErrUnavailable
 	}
 	var aliases map[string]json.RawMessage
@@ -92,6 +111,21 @@ func (repository *ElasticsearchRepository) ResolveGeneration(ctx context.Context
 		return index, nil
 	}
 	return "", ErrUnavailable
+}
+
+func (repository *ElasticsearchRepository) ResolveGenerationForEpoch(ctx context.Context, epoch string) (string, error) {
+	if !validEpoch(epoch) {
+		return "", ErrUnavailable
+	}
+	index, err := repository.ResolveGeneration(ctx)
+	if err != nil {
+		return "", err
+	}
+	actual, err := repository.IndexEpoch(ctx, index)
+	if err != nil || actual != epoch {
+		return "", ErrUnavailable
+	}
+	return index, nil
 }
 
 func (repository *ElasticsearchRepository) OpenPointInTime(ctx context.Context, generation string) (string, error) {
@@ -228,10 +262,30 @@ func (repository *ElasticsearchRepository) ClosePointInTime(ctx context.Context,
 }
 
 func (repository *ElasticsearchRepository) CreateIndex(ctx context.Context, index string) error {
+	return repository.CreateIndexForEpoch(ctx, index, "")
+}
+
+func (repository *ElasticsearchRepository) CreateIndexForEpoch(ctx context.Context, index, epoch string) error {
 	if !validPhysicalIndex(index) {
 		return errors.New("invalid physical search index")
 	}
-	response, err := repository.do(ctx, http.MethodPut, "/"+index, bytes.NewReader(Mapping))
+	if epoch != "" && !validEpoch(epoch) {
+		return errors.New("invalid search data epoch")
+	}
+	body := append([]byte(nil), Mapping...)
+	if epoch != "" {
+		var contract map[string]any
+		if err := json.Unmarshal(Mapping, &contract); err != nil {
+			return errors.New("invalid search mapping contract")
+		}
+		mappings, ok := contract["mappings"].(map[string]any)
+		if !ok {
+			return errors.New("invalid search mapping contract")
+		}
+		mappings["_meta"] = map[string]string{"gopulse_data_epoch": epoch}
+		body, _ = json.Marshal(contract)
+	}
+	response, err := repository.do(ctx, http.MethodPut, "/"+index, bytes.NewReader(body))
 	return expectSuccess(response, err)
 }
 
@@ -343,6 +397,82 @@ func (repository *ElasticsearchRepository) DeleteIndex(ctx context.Context, inde
 	}
 	response, err := repository.do(ctx, http.MethodDelete, "/"+index, nil)
 	return expectSuccess(response, err)
+}
+
+// IndexEpoch reads metadata from the exact physical index returned by ES.
+func (repository *ElasticsearchRepository) IndexEpoch(ctx context.Context, index string) (string, error) {
+	if !validPhysicalIndex(index) {
+		return "", ErrUnavailable
+	}
+	response, err := repository.do(ctx, http.MethodGet, "/"+index+"/_mapping", nil)
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_ = response.Body.Close()
+		return "", ErrUnavailable
+	}
+	var payload map[string]struct {
+		Mappings struct {
+			Meta map[string]json.RawMessage `json:"_meta"`
+		} `json:"mappings"`
+	}
+	decodeErr := decodeJSON(response.Body, &payload)
+	_ = response.Body.Close()
+	if decodeErr != nil || len(payload) != 1 {
+		return "", ErrUnavailable
+	}
+	for _, raw := range payload {
+		for _, key := range []string{"gopulse_data_epoch", "data_epoch"} {
+			if rawValue, ok := raw.Mappings.Meta[key]; ok {
+				var epoch string
+				if json.Unmarshal(rawValue, &epoch) == nil && validEpoch(epoch) {
+					return epoch, nil
+				}
+			}
+		}
+	}
+	return repository.indexEpochSetting(ctx, index)
+}
+
+func (repository *ElasticsearchRepository) indexEpochSetting(ctx context.Context, index string) (string, error) {
+	response, err := repository.do(ctx, http.MethodGet, "/"+index+"/_settings/index.gopulse.data_epoch", nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", ErrUnavailable
+	}
+	var payload map[string]json.RawMessage
+	if err := decodeJSON(response.Body, &payload); err != nil || len(payload) != 1 {
+		return "", ErrUnavailable
+	}
+	for _, raw := range payload {
+		var value struct {
+			Settings struct {
+				Index map[string]json.RawMessage `json:"index"`
+			} `json:"settings"`
+		}
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return "", ErrUnavailable
+		}
+		for _, key := range []string{"gopulse.data_epoch", "data_epoch", "gopulse"} {
+			if rawValue, ok := value.Settings.Index[key]; ok {
+				var epoch string
+				if json.Unmarshal(rawValue, &epoch) == nil && validEpoch(epoch) {
+					return epoch, nil
+				}
+			}
+		}
+		if nested, ok := value.Settings.Index["gopulse"]; ok {
+			var object map[string]string
+			if json.Unmarshal(nested, &object) == nil && validEpoch(object["data_epoch"]) {
+				return object["data_epoch"], nil
+			}
+		}
+	}
+	return "", ErrUnavailable
 }
 
 func (repository *ElasticsearchRepository) aliasIndices(ctx context.Context) ([]string, error) {

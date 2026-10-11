@@ -24,6 +24,23 @@ standalone default of `10`. The Phase-21 split Compose runs `backend` and
 `backend-2` as business and `platform-api` as the singleton platform service,
 all from the same Backend image digest.
 
+## Business epoch and search completion
+
+Migration 14 creates the durable business environment, epoch-scoped consumer
+requirements, search application results, bounded failure/parking summaries and
+async budget. Backend, Business Worker and Search Indexer read the current epoch
+from MySQL before business side effects; the business role also scopes Redis post
+details and search cursors to that epoch. Normal Phase-24-01 production remains
+`legacy_v1`. Envelope v2 and its strict consumer admission are available for
+fixtures and the next activation batch, but this batch does not enable v2 post
+production or command idempotency.
+
+Search completion records use the actual Elasticsearch physical generation and
+are separate from fact rebuilds. `search-reindex --if-missing` remains the normal
+maintenance entry. Restore preparation uses its all-or-nothing operation/old
+epoch/new epoch flags and marks the durable environment ready only after alias,
+index metadata, old-epoch rejection and new-epoch admission checks pass.
+
 ## Exporter management boundary
 
 All `GET`/`POST /exporter-plugins...` routes execute authentication and database-authoritative administrator authorization before contacting Monitor. Successful Monitor bodies are limited to 1 MiB and recursively reject duplicate keys, unknown fields, trailing content, invalid types, non-UTC timestamps, unstable versions, unknown states, unsafe error text, and impossible state/time combinations. The Backend constructs the public `ExporterStatus` and `SafeError` DTOs only after validation; redirect, timeout, network, oversized, malformed, or unexpected-success responses map to `503 monitor_unavailable`. The exact safe-error allowlist covers both Plugin Manager lifecycle failures and Monitor's fixed metrics scrape/publish failures, so a localized Router or target outage remains visible as a safe Exporter fact instead of making an otherwise valid status untrusted. Known Plugin Manager business errors retain their stable public status and code.

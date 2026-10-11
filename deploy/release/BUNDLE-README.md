@@ -92,6 +92,12 @@ offsets as backup evidence, rather than manufacturing broker messages.
 A failed restore does not publish ready. Only new strongly owned target resources
 are cleaned; retain the archive and retry `restore` after fixing the reported
 cause. A pending restore cannot be bypassed with ordinary `up` or `verify`.
+For a Phase-24-01 schema-14 target, the private restore journal retains one
+operation and new `data_epoch`; the lifecycle runs the bundled search-reindex
+restore preparation before any product service starts. It verifies the restored
+facts, the new physical search generation and epoch admission, while old-epoch
+messages remain rejected. This is a same-Bundle, drained-backup preparation
+contract, not a cross-version or arbitrary-point-in-time restore guarantee.
 `doctor --diagnostics-dir ABS_PRIVATE_DIRECTORY` writes bounded metadata-only
 JSON diagnostics in an existing private directory. Do not publish installation
 state or secrets with a support report.

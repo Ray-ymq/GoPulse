@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 )
 
@@ -44,9 +45,14 @@ type Clock func() time.Time
 type Backoff func(attempt uint32) time.Duration
 
 type Options struct {
-	Clock         Clock
-	Backoff       Backoff
-	MaxClaimBatch int
+	Clock               Clock
+	Backoff             Backoff
+	MaxClaimBatch       int
+	RetentionAccounting RetentionAccounting
+}
+
+type RetentionAccounting interface {
+	ReleaseRetentionTx(context.Context, businessstate.Executor, []string, time.Time) error
 }
 
 type Repository struct {
@@ -54,6 +60,7 @@ type Repository struct {
 	clock         Clock
 	backoff       Backoff
 	maxClaimBatch int
+	accounting    RetentionAccounting
 }
 
 func NewRepository(database *sql.DB, options Options) (*Repository, error) {
@@ -75,7 +82,7 @@ func NewRepository(database *sql.DB, options Options) (*Repository, error) {
 	if maxClaimBatch < 1 || maxClaimBatch > DefaultMaxClaimBatch {
 		return nil, fmt.Errorf("%w: max claim batch must be between 1 and %d", ErrInvalidArgument, DefaultMaxClaimBatch)
 	}
-	return &Repository{database: database, clock: clock, backoff: backoff, maxClaimBatch: maxClaimBatch}, nil
+	return &Repository{database: database, clock: clock, backoff: backoff, maxClaimBatch: maxClaimBatch, accounting: options.RetentionAccounting}, nil
 }
 
 func ExponentialBackoff(attempt uint32) time.Duration {
@@ -285,25 +292,91 @@ func (repository *Repository) CleanupPublished(ctx context.Context, publishedBef
 	if batch < 1 || batch > maximumCleanupBatch {
 		return 0, fmt.Errorf("%w: cleanup batch must be between 1 and %d", ErrInvalidArgument, maximumCleanupBatch)
 	}
-	result, err := repository.database.ExecContext(ctx, `
-		DELETE FROM business_outbox
-		WHERE id IN (
-			SELECT id FROM (
-				SELECT id
-				FROM business_outbox
-				WHERE status = 'published' AND published_at < ?
-				ORDER BY id
-				LIMIT ?
-			) AS expired_published
-		)`, publishedBefore.UTC(), batch)
+	tx, err := repository.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return 0, errors.New("cleanup published outbox events")
+		return 0, errors.New("begin cleanup published outbox events")
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, `
+		SELECT o.id, o.event_id
+		FROM business_outbox AS o
+		WHERE o.status = 'published' AND o.published_at < ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM business_event_requirements AS r
+			WHERE r.event_id = o.event_id
+			  AND (r.closed_at IS NULL OR r.retain_until IS NULL OR r.retain_until >= ?)
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM business_commands AS c
+			WHERE c.event_id = o.event_id
+			  AND (c.retained_until IS NULL OR c.retained_until >= ?)
+		  )
+		ORDER BY o.id
+		LIMIT ?
+		FOR UPDATE SKIP LOCKED`, publishedBefore.UTC(), publishedBefore.UTC(), publishedBefore.UTC(), batch)
+	if err != nil {
+		return 0, errors.New("select cleanup published outbox events")
+	}
+	ids := make([]uint64, 0, batch)
+	eventIDs := make([]string, 0, batch)
+	for rows.Next() {
+		var id uint64
+		var eventID string
+		if err := rows.Scan(&id, &eventID); err != nil {
+			_ = rows.Close()
+			return 0, errors.New("scan cleanup published outbox event")
+		}
+		ids = append(ids, id)
+		eventIDs = append(eventIDs, eventID)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, errors.New("close cleanup published outbox events")
+	}
+	if err := rows.Err(); err != nil {
+		return 0, errors.New("iterate cleanup published outbox events")
+	}
+	if len(ids) == 0 {
+		if err := tx.Commit(); err != nil {
+			return 0, errors.New("commit empty outbox cleanup")
+		}
+		return 0, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	arguments := make([]any, 0, len(ids)+2)
+	arguments = append(arguments, idsToAny(ids)...)
+	arguments = append(arguments, StatusPublished, publishedBefore.UTC())
+	result, err := tx.ExecContext(ctx, `DELETE FROM business_outbox WHERE id IN (`+placeholders+`) AND status=? AND published_at < ?`, arguments...)
+	if err != nil {
+		return 0, errors.New("delete cleanup published outbox events")
 	}
 	deleted, err := result.RowsAffected()
 	if err != nil {
 		return 0, errors.New("count cleaned outbox events")
 	}
+	if repository.accounting != nil && deleted > 0 {
+		if err := repository.accounting.ReleaseRetentionTx(ctx, tx, eventIDs[:minInt(len(eventIDs), int(deleted))], repository.now()); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, errors.New("commit cleanup published outbox events")
+	}
 	return deleted, nil
+}
+
+func idsToAny(ids []uint64) []any {
+	values := make([]any, len(ids))
+	for index, id := range ids {
+		values[index] = id
+	}
+	return values
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func (repository *Repository) now() time.Time {
