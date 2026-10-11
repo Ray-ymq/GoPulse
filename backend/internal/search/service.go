@@ -38,6 +38,7 @@ type Options struct {
 
 type Cursor struct {
 	QueryDigest string
+	DataEpoch   string
 	Generation  string
 	PointInTime string
 	ExpiresAt   int64
@@ -48,6 +49,7 @@ type Cursor struct {
 type cursorPayload struct {
 	Version     int     `json:"v"`
 	QueryDigest string  `json:"q"`
+	DataEpoch   string  `json:"epoch,omitempty"`
 	Generation  string  `json:"generation"`
 	PointInTime string  `json:"pit"`
 	ExpiresAt   int64   `json:"expires_at"`
@@ -74,10 +76,13 @@ type Page struct {
 }
 
 type Service struct {
-	searcher  Searcher
-	hydrator  Hydrator
-	cursorKey []byte
-	now       func() time.Time
+	searcher      Searcher
+	hydrator      Hydrator
+	cursorKey     []byte
+	now           func() time.Time
+	epochProvider interface {
+		CurrentEpoch(context.Context) (string, error)
+	}
 }
 
 func NewService(searcher Searcher, hydrator Hydrator, cursorSecret string) *Service {
@@ -87,6 +92,15 @@ func NewService(searcher Searcher, hydrator Hydrator, cursorSecret string) *Serv
 		cursorKey: deriveCursorKey(cursorSecret),
 		now:       time.Now,
 	}
+}
+
+func (service *Service) WithEpochProvider(provider interface {
+	CurrentEpoch(context.Context) (string, error)
+}) *Service {
+	if service != nil {
+		service.epochProvider = provider
+	}
+	return service
 }
 
 func ParseOptions(values url.Values) (Options, error) {
@@ -144,7 +158,15 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 		}
 	}
 
-	generation, err := service.searcher.ResolveGeneration(ctx)
+	dataEpoch := ""
+	var err error
+	if service.epochProvider != nil {
+		dataEpoch, err = service.epochProvider.CurrentEpoch(ctx)
+		if err != nil || dataEpoch == "" {
+			return Page{}, unavailableError()
+		}
+	}
+	generation, err := service.resolveGeneration(ctx, dataEpoch)
 	if err != nil {
 		return Page{}, unavailableError()
 	}
@@ -152,7 +174,7 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 	pointInTime := ""
 	var after *Hit
 	if options.Cursor != nil {
-		if options.Cursor.Generation != generation {
+		if options.Cursor.Generation != generation || (dataEpoch != "" && options.Cursor.DataEpoch != dataEpoch) {
 			_ = service.searcher.ClosePointInTime(ctx, options.Cursor.PointInTime)
 			return Page{}, validationError("cursor is invalid")
 		}
@@ -226,6 +248,7 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 	if hasMore {
 		token, err := encodeCursor(Cursor{
 			QueryDigest: queryDigest,
+			DataEpoch:   dataEpoch,
 			Generation:  generation,
 			PointInTime: pointInTime,
 			ExpiresAt:   service.now().Add(pointInTimeKeepAlive).Unix(),
@@ -240,6 +263,17 @@ func (service *Service) Search(ctx context.Context, viewerID uint64, options Opt
 		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
 	}
 	return page, nil
+}
+
+func (service *Service) resolveGeneration(ctx context.Context, epoch string) (string, error) {
+	if epoch != "" {
+		if resolver, ok := service.searcher.(interface {
+			ResolveGenerationForEpoch(context.Context, string) (string, error)
+		}); ok {
+			return resolver.ResolveGenerationForEpoch(ctx, epoch)
+		}
+	}
+	return service.searcher.ResolveGeneration(ctx)
 }
 
 func EncodeCursor(cursor Cursor, secret string) (string, error) {
@@ -283,6 +317,7 @@ func DecodeCursor(token string) (Cursor, error) {
 	}
 	cursor := Cursor{
 		QueryDigest: raw.QueryDigest,
+		DataEpoch:   raw.DataEpoch,
 		Generation:  raw.Generation,
 		PointInTime: raw.PointInTime,
 		ExpiresAt:   raw.ExpiresAt,
@@ -308,8 +343,11 @@ func marshalCursor(cursor Cursor) ([]byte, error) {
 	if _, err := hex.DecodeString(cursor.QueryDigest); err != nil {
 		return nil, errors.New("search cursor fields are invalid")
 	}
+	if cursor.DataEpoch != "" && !validEpoch(cursor.DataEpoch) {
+		return nil, errors.New("search cursor fields are invalid")
+	}
 	return json.Marshal(cursorPayload{
-		Version: cursorVersion, QueryDigest: cursor.QueryDigest, Generation: cursor.Generation,
+		Version: cursorVersion, QueryDigest: cursor.QueryDigest, DataEpoch: cursor.DataEpoch, Generation: cursor.Generation,
 		PointInTime: cursor.PointInTime, ExpiresAt: cursor.ExpiresAt,
 		Score: cursor.After.Score, CreatedAt: cursor.After.CreatedAt, PostID: cursor.After.PostID, ShardDoc: cursor.After.ShardDoc,
 	})
