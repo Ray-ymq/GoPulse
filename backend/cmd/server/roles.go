@@ -15,6 +15,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/alert/count"
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
+	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
@@ -130,6 +131,13 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	}
 	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	users := user.NewMySQLRepository(mysqlClient.DB())
+	state, err := businessstate.NewRepository(mysqlClient.DB())
+	if err != nil {
+		return nil, errors.New("initialize business state repository")
+	}
+	if _, err := state.Ensure(context.Background()); err != nil {
+		return nil, errors.New("initialize business environment")
+	}
 	if err := users.ValidateBootstrap(context.Background()); err != nil {
 		return nil, fmt.Errorf("validate management bootstrap: %w", err)
 	}
@@ -154,7 +162,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if err != nil {
 			return nil, errors.New("initialize RabbitMQ checker")
 		}
-		eventOutbox, err = outbox.NewRepository(mysqlClient.DB(), outbox.Options{MaxClaimBatch: cfg.Outbox.ClaimBatch})
+		eventOutbox, err = outbox.NewRepository(mysqlClient.DB(), outbox.Options{MaxClaimBatch: cfg.Outbox.ClaimBatch, RetentionAccounting: state})
 		if err != nil {
 			return nil, errors.New("initialize business outbox repository")
 		}
@@ -187,7 +195,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		authService := auth.NewService(users, passwords, tokens)
 		authHandler := auth.NewHandler(authService, cookies, logger)
-		postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+		postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(state)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, Logger: logger})
 		postService := post.NewService(posts, postDetailCache).WithLogger(logger)
 		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
@@ -204,7 +212,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		notificationService := notification.NewService(notifications)
 		notificationHandler := notification.NewHandler(notificationService, logger)
 		searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
-		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
+		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
 
 		routes.Auth = authHandler
 		routes.Users = backendhttp.NewUserHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users)
@@ -277,6 +285,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			return err
 		}
 		if err := platform.CheckRuntimeSchema(ctx, mysqlClient.DB()); err != nil {
+			return err
+		}
+		if _, err := state.Current(ctx); err != nil {
 			return err
 		}
 		return users.ValidateBootstrap(ctx)

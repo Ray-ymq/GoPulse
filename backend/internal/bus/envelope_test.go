@@ -76,6 +76,65 @@ func TestDecodeRejectsInvalidBusinessEvents(t *testing.T) {
 	}
 }
 
+func TestV2FixturesCoverAllBusinessEventShapesAndKeepProductionV1(t *testing.T) {
+	occurredAt := time.Date(2026, time.September, 2, 2, 3, 4, 0, time.UTC)
+	epoch := "123e4567-e89b-12d3-a456-426614174000"
+	command := "123e4567-e89b-12d3-a456-426614174001"
+	created, err := NewV2PostCreated(occurredAt, epoch, command, 11, 22, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtures := []Envelope{created}
+	for _, factory := range []func() (Envelope, error){
+		func() (Envelope, error) { return NewV2CommentCreated(occurredAt, epoch, 11, 22, 33, 44) },
+		func() (Envelope, error) { return NewV2UserFollowed(occurredAt, epoch, 11, 22) },
+		func() (Envelope, error) { return NewV2PostLiked(occurredAt, epoch, 11, 22, 33) },
+		func() (Envelope, error) { return NewV2PostUpdated(occurredAt, epoch, 11, 33, 2) },
+		func() (Envelope, error) { return NewV2PostDeleted(occurredAt, epoch, 11, 33) },
+	} {
+		fixture, err := factory()
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixtures = append(fixtures, fixture)
+	}
+	for _, fixture := range fixtures {
+		if fixture.SchemaVersion != SchemaVersionV2 || fixture.CompatibilityClass() != EpochV2 {
+			t.Fatalf("fixture = %#v", fixture)
+		}
+		body, err := Encode(fixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := Decode(body)
+		if err != nil || decoded.DataEpoch != epoch {
+			t.Fatalf("v2 round trip = %#v, %v", decoded, err)
+		}
+	}
+	legacy, err := NewPostCreated(occurredAt, 11, 22)
+	if err != nil || legacy.SchemaVersion != SchemaVersionV1 || legacy.DataEpoch != "" || legacy.CommandID != "" || legacy.CompatibilityClass() != LegacyUnknown {
+		t.Fatalf("legacy event = %#v, %v", legacy, err)
+	}
+}
+
+func TestV2RejectsMissingIdentityAndUnapprovedFields(t *testing.T) {
+	valid := `{"schema_version":2,"data_epoch":"123e4567-e89b-12d3-a456-426614174000","command_id":"123e4567-e89b-12d3-a456-426614174001","event_id":"123e4567-e89b-12d3-a456-426614174002","event_type":"post.created","occurred_at":"2026-09-02T02:03:04Z","actor_id":11,"post_id":22,"content_revision":1}`
+	for name, body := range map[string]string{
+		"missing epoch":          strings.Replace(valid, `"data_epoch":"123e4567-e89b-12d3-a456-426614174000",`, "", 1),
+		"missing command":        strings.Replace(valid, `"command_id":"123e4567-e89b-12d3-a456-426614174001",`, "", 1),
+		"missing revision":       strings.Replace(valid, `,"content_revision":1`, "", 1),
+		"command on v1":          strings.Replace(strings.Replace(valid, `"schema_version":2`, `"schema_version":1`, 1), `"data_epoch":"123e4567-e89b-12d3-a456-426614174000",`, "", 1),
+		"command on other event": strings.Replace(valid, `"post.created"`, `"post.updated"`, 1),
+		"unknown field":          strings.Replace(valid, `"content_revision":1`, `"content_revision":1,"title":"secret"`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Decode([]byte(body)); err == nil {
+				t.Fatal("invalid v2 event accepted")
+			}
+		})
+	}
+}
+
 func TestDecodeRejectsOversizedBodyBeforeJSONParsing(t *testing.T) {
 	body := bytes.Repeat([]byte{'x'}, MaxMessageBytes+1)
 	if _, err := Decode(body); err == nil || !strings.Contains(err.Error(), "size limit") {

@@ -101,11 +101,16 @@ func run(args []string, output io.Writer) error {
 	if version > int(target) {
 		return fail("ahead", 5)
 	}
+	originalVersion, originalDirty := version, dirty
 	if dirty {
 		if version != 12 {
 			return fail("dirty", 4)
 		}
 		if err := resumeLocked(driver, sourceDriver); err != nil {
+			return fail("apply_failure", 8)
+		}
+		version, dirty, err = driver.Version()
+		if err != nil || dirty {
 			return fail("apply_failure", 8)
 		}
 	}
@@ -130,7 +135,7 @@ func run(args []string, output io.Writer) error {
 			return fail("apply_failure", 8)
 		}
 	}
-	return json.NewEncoder(output).Encode(map[string]any{"binary_target": target, "database_version": target, "state": "current", "changed": version != int(target) || dirty})
+	return json.NewEncoder(output).Encode(map[string]any{"binary_target": target, "database_version": target, "state": "current", "changed": originalVersion != int(target) || originalDirty})
 }
 func schemaState(version int, dirty bool, target uint) string {
 	if version > int(target) {

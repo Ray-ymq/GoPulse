@@ -55,6 +55,42 @@ func TestAtomicPrivateAndLock(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreJournalReusesEpochAndRejectsAnotherSource(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, restoreJournalFile)
+	journal := restoreJournal{
+		Schema: 1, OperationID: strings.Repeat("a", 64),
+		SourceManifest:   "sha256:" + strings.Repeat("b", 64),
+		ExpectedOldEpoch: "123e4567-e89b-12d3-a456-426614174000",
+		NewEpoch:         "123e4567-e89b-12d3-a456-426614174001",
+	}
+	if err := saveRestoreJournal(path, journal); err != nil {
+		t.Fatal(err)
+	}
+	loaded, resumed, err := loadRestoreJournal(path, journal.SourceManifest)
+	if err != nil || !resumed || loaded != journal {
+		t.Fatalf("loaded=%#v resumed=%v err=%v", loaded, resumed, err)
+	}
+	if _, _, err := loadRestoreJournal(path, "sha256:"+strings.Repeat("c", 64)); err == nil {
+		t.Fatal("restore journal was reused for another source manifest")
+	}
+}
+
+func TestNewEpochIsCanonicalAndUnique(t *testing.T) {
+	first, err := newEpoch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newEpoch()
+	if err != nil || first == second || !validEpoch(first) || !validEpoch(second) {
+		t.Fatalf("epochs = %q, %q; err=%v", first, second, err)
+	}
+}
+
 func fixture(t *testing.T) *Controller {
 	t.Helper()
 	dir := t.TempDir()
