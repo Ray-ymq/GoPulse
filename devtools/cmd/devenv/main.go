@@ -1,0 +1,277 @@
+// Command devenv runs GoPulse's local development, observation, and isolated
+// test lifecycles with owned state and bounded cleanup.
+//
+// The Makefile targets `deps`, `dev`, `dev-observe`, `stop`, `integration`, and
+// `e2e` dispatch here. Every lifecycle keeps its state under
+// .run/local/<workspace>/ so unrelated checkouts never share projects,
+// volumes, or ports.
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+
+	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/quality"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/stack"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/testenv"
+)
+
+const usage = `usage: devenv <command> [options]
+
+commands:
+  deps [--scope business|observe] [--env-file PATH]   start the development dependencies
+  dev [--env-file PATH]                               start the source development environment
+  dev-observe [--env-file PATH]                       start the observation environment
+  stop                                                stop everything this workspace owns
+  integration [--scope business|observe]               run one isolated integration scope
+  e2e [--scope business|observe] [--http-port N]      run one isolated browser scope
+      [--frontend-port N] [--admin-frontend-port N]
+	stack-up                                             start the container-native product stack
+	stack-down                                           stop it and preserve named volumes
+	stack-verify                                         verify ownership, health and loopback ports
+	build-cache [--print] [--no-cache]                    render/build Compose images
+	doctor                                                check host prerequisites without starting services
+	bootstrap [--module frontend|admin-frontend] [--tools-only]
+	                                                        prepare lint tools, frontend dependencies, and Chromium
+	frontend-deps --module frontend|admin-frontend       prepare one application's npm dependencies
+	verify --base-ref REF [--branch BRANCH] [--plan-only] [--module MODULE]
+`
+
+type options struct {
+	scope             string
+	envFile           string
+	httpPort          string
+	frontendPort      string
+	adminFrontendPort string
+	printOnly         bool
+	noCache           bool
+	module            string
+	toolsOnly         bool
+	baseRef           string
+	branch            string
+	planOnly          bool
+}
+
+func main() {
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		fmt.Fprint(os.Stderr, usage)
+		return 2
+	}
+	command := args[0]
+	parsed, err := parseOptions(args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", err)
+		return 2
+	}
+	root, err := repositoryRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", err)
+		return 1
+	}
+
+	interrupted := make(chan os.Signal, 1)
+	signal.Notify(interrupted, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-interrupted
+		fmt.Fprintln(os.Stderr, "[gopulse] interrupted")
+		os.Exit(130)
+	}()
+
+	switch command {
+	case "deps":
+		err = devrun.Deps(root, parsed.scope, parsed.envFile)
+	case "dev":
+		err = devrun.Dev(root, false, parsed.envFile)
+	case "dev-observe":
+		err = devrun.Dev(root, true, parsed.envFile)
+	case "stop":
+		err = devrun.Stop(root)
+	case "integration":
+		err = testenv.Integration(root, defaultScope(parsed.scope))
+	case "e2e":
+		err = testenv.E2E(root, defaultScope(parsed.scope), parsed.overrides())
+	case "stack-up":
+		err = stack.Up(root)
+	case "stack-down":
+		err = stack.Down(root)
+	case "stack-verify":
+		err = stack.Verify(root)
+	case "build-cache":
+		code, buildErr := buildcache.Run(root, buildcache.Options{PrintOnly: parsed.printOnly, NoCache: parsed.noCache})
+		if buildErr != nil {
+			fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", buildErr)
+			return 1
+		}
+		return code
+	case "doctor":
+		if parsed.module != "" || parsed.toolsOnly {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: doctor does not accept bootstrap options")
+			return 2
+		}
+		err = quality.Doctor(root)
+	case "bootstrap":
+		err = quality.Bootstrap(root, parsed.module, parsed.toolsOnly)
+	case "frontend-deps":
+		if parsed.toolsOnly {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps does not accept --tools-only")
+			return 2
+		}
+		if parsed.module != "frontend" && parsed.module != "admin-frontend" {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps requires --module frontend or admin-frontend")
+			return 2
+		}
+		err = frontenddeps.Ensure(root, parsed.module)
+	case "verify":
+		if parsed.toolsOnly {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: verify does not accept --tools-only")
+			return 2
+		}
+		if parsed.module != "" {
+			if parsed.planOnly || parsed.branch != "" {
+				fmt.Fprintln(os.Stderr, "[gopulse] ERROR: --plan-only and --branch require full verify")
+				return 2
+			}
+			err = quality.VerifyModule(root, parsed.module, parsed.baseRef)
+		} else {
+			err = quality.Verify(root, parsed.baseRef, parsed.branch, parsed.planOnly)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: unknown command: %s\n%s", command, usage)
+		return 2
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func defaultScope(scope string) string {
+	if scope == "" {
+		return testenv.ScopeBusiness
+	}
+	return scope
+}
+
+func repositoryRoot() (string, error) {
+	current, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(current, "devtools", "toolchains.json")); err == nil {
+			return current, nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return os.Getwd()
+		}
+		current = parent
+	}
+}
+
+// overrides are the explicit entry-point values an isolated scope accepts.
+func (o options) overrides() map[string]string {
+	values := map[string]string{}
+	for key, value := range map[string]string{
+		"HTTP_PORT":           o.httpPort,
+		"FRONTEND_PORT":       o.frontendPort,
+		"ADMIN_FRONTEND_PORT": o.adminFrontendPort,
+	} {
+		if value != "" {
+			values[key] = value
+		}
+	}
+	return values
+}
+
+func parseOptions(args []string) (options, error) {
+	parsed := options{}
+	for index := 0; index < len(args); index++ {
+		name := args[index]
+		value := ""
+		if key, inline, found := strings.Cut(name, "="); found {
+			name, value = key, inline
+		} else if strings.HasPrefix(name, "--") {
+			if isBooleanFlag(name) {
+				value = "true"
+			} else if isFlagWithValue(name) {
+				if index+1 >= len(args) {
+					return options{}, fmt.Errorf("%s requires a value", name)
+				}
+				index++
+				value = args[index]
+			} else {
+				return options{}, fmt.Errorf("unknown option: %s", name)
+			}
+		} else {
+			return options{}, fmt.Errorf("unexpected argument: %s", name)
+		}
+		switch name {
+		case "--scope":
+			parsed.scope = value
+		case "--http-port":
+			parsed.httpPort = value
+		case "--frontend-port":
+			parsed.frontendPort = value
+		case "--admin-frontend-port":
+			parsed.adminFrontendPort = value
+		case "--env-file":
+			parsed.envFile = value
+		case "--print":
+			parsed.printOnly = true
+		case "--no-cache":
+			parsed.noCache = true
+		case "--module":
+			parsed.module = value
+		case "--base-ref":
+			parsed.baseRef = value
+		case "--branch":
+			parsed.branch = value
+		case "--plan-only":
+			parsed.planOnly = true
+		case "--tools-only":
+			parsed.toolsOnly = true
+		default:
+			return options{}, fmt.Errorf("unknown option: %s", name)
+		}
+	}
+	for _, port := range []string{parsed.httpPort, parsed.frontendPort, parsed.adminFrontendPort} {
+		if port == "" {
+			continue
+		}
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return options{}, fmt.Errorf("port must be an integer from 1 to 65535")
+		}
+	}
+	return parsed, nil
+}
+
+func isFlagWithValue(name string) bool {
+	switch name {
+	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port", "--module", "--base-ref", "--branch":
+		return true
+	}
+	return false
+}
+
+func isBooleanFlag(name string) bool {
+	switch name {
+	case "--print", "--no-cache", "--tools-only", "--plan-only":
+		return true
+	}
+	return false
+}
