@@ -4,8 +4,8 @@
 
 - 执行分支：`develop/2.5.6`，从 `origin/main` 的 `0610f3f` 创建；该 revision 是本批固定基线。
 - 目标版本：`2.5.6`。本次实现和本地验收期间 `VERSION` 保持已完成值 `2.5.5`；最终版本元数据尚未收口。
-- 实现提交：`7c19660`、`12fcfe8`、`f2e750b`、`4a0c0d8`、`5e78c8f`、`8b4aa62`、`77413f7`。
-- 本日志记录本地实际结果，不把尚未执行的远端权威 CI、版本同步或发布收口写为完成。
+- 实现提交：`7c19660`、`12fcfe8`、`f2e750b`、`4a0c0d8`、`5e78c8f`、`8b4aa62`、`77413f7`、`f29137e`。
+- 本日志记录本地与远端实际结果；版本同步和正式发布收口仍单独按完成元数据条件处理。
 
 ## 实际交付
 
@@ -93,10 +93,18 @@
 - 本地完整验证输出保留在 `/tmp/gopulse-verify-full-final-77413f7.log` 供本次排查复核；临时 acceptance
   二进制已移出工作树，工作树在写入本日志前保持干净。
 
+## 远端质量补充（2026-10-11）
+
+- `develop/2.5.6` 已推送到 `origin`，远端 head 为 `f29137ef90d6d3150f214d42d0537b6f7cb92068`。
+- 初次 push 的 run `38115564843` 在 job 创建前因 workflow 配置错误失败；`actionlint` 定位为
+  job-level `if` 使用了不可用的 `matrix` context，已由 `f29137e` 将选择条件下移到 matrix steps。
+- 修复后的 [权威质量 workflow run 38115665206](https://github.com/Ray-ymq/GoPulse/actions/runs/38115665206)
+  已完成并成功：44 个 job 全部成功，无失败；其中 `Open PR and merge` 按 completion metadata 未就绪
+  正确 skipped。治理、文档、模块矩阵、集成、浏览器和 Compose job 均实际运行并通过。
+
 ## 未完成收口与后续限制
 
-- 尚未推送 `develop/2.5.6`，因此没有最终 head 的 GitHub 权威质量 workflow、CI 诊断摘录下载或远端
-  结论；也没有运行需要目标版本已同步的 completion 校验。
 - `VERSION` 仍为 `2.5.5`，未修改 `.env.example`、前端版本/lock 或 runtime contract 版本字段；这些
-  只能在远端质量通过后按实际候选同步，并需要重新验证受影响输入。
-- 本日志因此记录为“本地实现与固定门禁已完成、正式版本/远端收口待执行”，不宣称 Phase-23-06 已完成。
+  只能在目标版本正式收口时按实际候选同步，并需要重新验证受影响输入。
+- completion metadata 校验尚未通过，因此本日志记录为“本地实现、固定门禁与远端质量已通过，正式版本
+  收口待执行”，不宣称 Phase-23-06 已完成。
