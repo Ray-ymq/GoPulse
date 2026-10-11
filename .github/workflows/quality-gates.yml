@@ -95,25 +95,30 @@ jobs:
           - {module: acceptance, check: acceptance, go_mod: acceptance/go.mod, lock: frontend/package-lock.json}
           - {module: frontend, check: frontend, go_mod: devtools/go.mod, lock: frontend/package-lock.json}
           - {module: admin-frontend, check: admin_frontend, go_mod: devtools/go.mod, lock: admin-frontend/package-lock.json}
-    if: inputs.run_product_checks && fromJSON(needs.governance.outputs.checks)[matrix.check] == true
+    if: inputs.run_product_checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        if: fromJSON(needs.governance.outputs.checks)[matrix.check] == true
         with:
           fetch-depth: 0
       - uses: actions/setup-go@v5
+        if: fromJSON(needs.governance.outputs.checks)[matrix.check] == true
         with:
           go-version-file: ${{ matrix.go_mod }}
           cache-dependency-path: ${{ matrix.go_mod }}
       - uses: actions/setup-node@v4
+        if: fromJSON(needs.governance.outputs.checks)[matrix.check] == true
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: ${{ matrix.lock }}
       - name: Prepare native lint tool
+        if: fromJSON(needs.governance.outputs.checks)[matrix.check] == true
         run: make bootstrap TOOLS_ONLY=1
       - name: Run the shared module verification entry point
+        if: fromJSON(needs.governance.outputs.checks)[matrix.check] == true
         run: make verify MODULE="${{ matrix.module }}" BASE_REF="${{ inputs.base_ref }}"
 
   quality-result:
