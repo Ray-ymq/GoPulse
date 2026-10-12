@@ -1,6 +1,6 @@
 # GoPulse 当前能力状态
 
-> 基线：产品完成版本 `2.6.1`，2026-10-11。版本完成、验收执行完成和能力达标是三个不同概念。
+> 基线：产品完成版本 `2.6.2`，2026-10-12。版本完成、验收执行完成和能力达标是三个不同概念。
 > 2026-10-05 范围调整：Phase 20 仅保留已完成的 01～04，在 `2.2.4` 结束；原 05、06 已取消。
 
 ## 已实施阶段
@@ -9,6 +9,7 @@
 - Phase 23-05 在 `2.5.5` 完成验收能力原生承接与执行器退役：构建缓存和日常容器栈由 `devtools` 承接，业务/可观测/插件/告警/角色/页面/生命周期验收由 `acceptance` Go 模块承接，插件制品由 Monitor Make 入口承接，发布 Bundle 合同由 `lifecycle` 保持。Compose 验收镜像直接以 Playwright 为入口，不再嵌入外部执行器。
 - Phase 23-06 在 `2.5.6` 完成工程稳定性改造：根 Make 与 CI 共用模块选择，doctor/bootstrap 可靠判断本机工具和依赖，Go/前端新增缺陷门禁，失败诊断在清理后仍可定位，开发、integration、E2E、Compose、Bundle/lifecycle 均有本地和远端实际验证。统一 lint 的存量告警仍如实保留，新增告警为零；最终质量 workflow `38123004454` 的 44 个 job 全部成功。
 - Phase-24-01 在 `2.6.1` 完成代际身份与搜索完成基础：[实施日志](../logs/Phase-24/Phase-24-01-代际身份与搜索完成基础.md)记录 migration 14、epoch/完成证据/有界停放与留存预算、v1 兼容消费者准入、v2 fixture、实际搜索 generation 与 `_meta` 代际核验、清理屏障及 lifecycle 恢复准备；生产仍保持 `legacy_v1`。
+- Phase-24-02 在 `2.6.2` 完成发帖命令幂等与安全重试：[实施日志](../logs/Phase-24/Phase-24-02-发帖幂等与安全重试.md)记录 migration 15、v2 activation、同事务 command/post/Outbox/search 义务、稳定结果与用户端身份复用；真实 MySQL/RabbitMQ/Redis/Elasticsearch business integration 和 3/3 business E2E 通过。管理端阶段查证、平台适配和完整 V1 冻结矩阵仍属于后续批次。
 - Phase 23-05 的退役决定明确保留 `ci/` 治理 Python，只迁移路径、不重写规则；Phase 16–21 运行时与正式矩阵、Phase 18–20 容量/长期/证据执行器、历史闭包路径、交付 Python 库、Windows 转发器和零引用入口不再重跑，删除前已有的历史结论、方法、日志与原始回执继续有效。`component-probe.go`、`plugin-fault-router.go` 迁入 `acceptance/internal/fixtures`，迁移锁夹具迁入 `backend/testdata`，`runtime-http.go` 随其唯一运行时矩阵退役。
 - [Phase 21 总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)分配的三批 `2.3.1`～`2.3.3` 已完成。Phase-21-01 已在 `2.3.1` 完成：Backend 支持 `combined`、`business`、`platform` 三种角色，按角色装配依赖、路由和后台任务，并通过 R01～R05 固定门禁及最小真实三角色进程检查。Phase-21-02 已在 `2.3.2` 完成双服务 Compose、同源代理、运行/采集合同、Bundle/lifecycle 固定别名及 service-split 源码预检；Phase-21-03 已在 `2.3.3` 完成冻结 `2.3.2` 候选的正式定向验收与阶段收口。
 - 共用账号、数据库和会话；Outbox dispatcher 留在业务服务。目标验收包含管理单侧停止时已有会话的业务可用，不声明隔离共享数据库故障、容量或长期稳定。
@@ -18,6 +19,7 @@
 - 社交业务、搜索、通知、插件、Metrics、Logs、Events、内部告警与双 Frontend 端到端闭环。
 - 迁移 CLI 通过所属 Go 包的真实 MySQL 集成验收：空库并发与重复 up、锁超时、dirty/ahead 拒绝、DDL 权限失败后的 dirty 保留、显式 v12 恢复、退出码/脱敏和 owner-checked 容器及匿名卷清理；该回执只覆盖迁移状态边界，不替代 Phase 17～21 的备份恢复、容量、长期运行或发布专项验收。
 - Phase-24-01 固定门禁通过：backend、lifecycle、devtools 的 verify（含测试、race、build，新增 lint 告警为零）、business integration、Compose 检查和 docs-check 均通过；真实 MySQL/Elasticsearch/RabbitMQ 恢复准备用例验证事实摘要不变、新旧 epoch 行为及失败后 `restore-pending` 保留。
+- Phase-24-02 固定行为已通过真实 business integration、business E2E，以及 backend/frontend/lifecycle/devtools verify、Compose 和 docs 门禁；前端 Vitest/typecheck、迁移 15、command 并发/冲突/删除结果与业务搜索收敛均在本批日志中记录。
 - Linux `amd64` Compose 与 Bundle 生命周期、同 Bundle 备份恢复和私有网络边界。
 - Backend、Business Worker、Search Indexer、Router、Marshaller 双副本计算层。
 - Outbox lease/owner、RabbitMQ ack/retry、Kafka generation ownership/manual commit 和终态闭合。
@@ -64,8 +66,8 @@
 
 ## 尚未验证
 
-- Phase-24-02 的 v2 发帖生产、命令幂等与安全重试尚未交付；本批生产仍为 `legacy_v1`。
 - Phase-24-03/04 的受限阶段查证接口、平台适配和管理页面，以及 Phase-24-05 的完整 V1 冻结矩阵尚未交付；本批不声明完整 V1 能力达标。
+- Phase-24-02 的 activation gate 只自动检查 MySQL 持久 Outbox 的 v1 `pending/leased` drain；RabbitMQ unacked/retry/dead 队列与 ES 当前 generation 仍须由 rollout/restore 步骤停排、排空或停放并核验，不由本批启动代码自动宣称完成。
 - 恢复仅完成同 Bundle、已排空备份的代际准备与失败停点验证；跨版本、任意时点恢复和正式 Bundle 恢复矩阵尚未验证。
 - 本批冻结环境/配方之外的吞吐、尾延迟、持续运行或单位资源容量声明。
 - 原 05/06 规划的正式资源预算、观测/Trace/采样器开销、最终同一候选集成验收与两次独立 60 分钟持续运行；本阶段范围收口不补足这些证据。

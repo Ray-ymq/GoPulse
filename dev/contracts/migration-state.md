@@ -1,6 +1,6 @@
 # Migration and message state reliability
 
-`backend/migrations` is the only schema source. The current schema target is 14;
+`backend/migrations` is the only schema source. The current schema target is 15;
 product version changes do not require placeholder DDL.
 
 ## Migration CLI
@@ -30,9 +30,10 @@ completion of the job; Backend additionally checks schema readiness.
 
 Migration 14 adds the durable business environment/epoch, command structure,
 consumer requirements, application/failure summaries, bounded message parking and
-per-epoch async budget. It does not backfill command or completion evidence. The
-normal deployment remains `legacy_v1`; v2 fixtures and consumer admission are
-compatible-readiness only.
+per-epoch async budget. Migration 15 expands the existing Outbox schema-version
+constraint from v1 to the controlled v1/v2 range; it does not backfill command or
+completion evidence. The normal deployment activates v2 only after the
+Phase-24-02 drain gate.
 
 `INTEGRATION_TESTS=1 go -C backend test -tags=integration ./cmd/migrate \
 -run '^TestMigrationStateIntegration$' -count=1 -v -timeout 6m` tests an owned,

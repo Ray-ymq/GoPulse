@@ -32,6 +32,11 @@ const knownErrorCodes = new Set([
   'username_conflict',
   'user_not_found',
   'post_not_found',
+  'data_epoch_mismatch',
+  'idempotency_conflict',
+  'command_result_unknown',
+  'command_outcome_unknown',
+  'business_async_backlog',
   'notification_not_found',
   'search_unavailable',
   'metrics_unavailable',
@@ -116,6 +121,20 @@ export async function requestData<T>(path: string, init: RequestInit = {}): Prom
     throw new ApiError('invalid_response', '服务器返回了无法识别的数据。', response.status)
   }
   return (body as unknown as DataEnvelope<T>).data
+}
+
+export async function requestDataWithMeta<T, M>(
+  path: string,
+  validateData: (value: unknown) => value is T,
+  validateMeta: (value: unknown) => value is M,
+  init: RequestInit = {},
+): Promise<{ data: T; meta: M }> {
+  const response = await request(path, init)
+  const body = await parseJSON(response)
+  if (!isRecord(body) || !hasExactKeys(body, ['data', 'meta']) || !validateData(body.data) || !validateMeta(body.meta)) {
+    throw new ApiError('invalid_response', '服务器返回了无法识别的数据。', response.status)
+  }
+  return { data: body.data, meta: body.meta }
 }
 
 export async function requestValidatedData<T>(

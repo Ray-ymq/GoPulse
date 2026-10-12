@@ -139,7 +139,30 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 		completedAt, retainUntil, completedAt, application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision); err != nil {
 		return errors.New("close business event requirement")
 	}
+	// Phase-24-02 post-create transactions reserve the retained command/event
+	// budget before commit. Older standalone requirements created by the 01
+	// repository retain the original accounting semantics and are charged on
+	// first completion. The durable command row is the discriminator; no extra
+	// schema bit or heuristic based on the post is needed.
+	var commandReserved bool
+	if err := executor.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM business_commands
+			WHERE data_epoch=? AND event_id=? AND command_type=?
+		)`, application.DataEpoch, application.EventID, PostCreateCommandType).Scan(&commandReserved); err != nil {
+		return errors.New("check command retention reservation")
+	}
 	bytes := uint64(payloadBytes + RetentionMetadataBytes)
+	if commandReserved {
+		if _, err := executor.ExecContext(ctx, `
+			UPDATE business_async_budget
+			SET open_requirements=CASE WHEN open_requirements > 0 THEN open_requirements-1 ELSE 0 END,
+			    updated_at=?
+			WHERE data_epoch=?`, completedAt, application.DataEpoch); err != nil {
+			return errors.New("account closed business event requirement")
+		}
+		return nil
+	}
 	if _, err := executor.ExecContext(ctx, `
 		UPDATE business_async_budget
 		SET open_requirements=CASE WHEN open_requirements > 0 THEN open_requirements-1 ELSE 0 END,
@@ -151,7 +174,7 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 }
 
 func (repository *Repository) FindApplication(ctx context.Context, application Application) (bool, error) {
-	if err := validateApplication(application); err != nil {
+	if err := validateApplicationLookup(application); err != nil {
 		return false, err
 	}
 	var exists bool
