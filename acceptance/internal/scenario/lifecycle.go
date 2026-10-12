@@ -482,20 +482,26 @@ func (r *lifecycleRunner) direct(command string, lowDisk bool, flags ...string) 
 	if err != nil {
 		return harness.Result{ExitCode: 1, Stderr: err.Error()}
 	}
-	user := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-	if lowDisk {
-		user = "0:0"
-	}
-	args := []string{"run", "--rm", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", user, "--group-add", r.socketGID, "--tmpfs", "/tmp"}
-	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", r.bundle+":/bundle:ro")
-	if lowDisk {
-		args = append(args, "--tmpfs", r.install+":rw,size=1048576,mode=0700")
-	} else {
-		args = append(args, "-v", r.install+":"+r.install)
-	}
+	args := directArgs(os.Getuid(), os.Getgid(), r.socketGID, r.bundle, r.install, lowDisk)
 	args = append(args, image, command, "--install", r.install, "--bundle", "/bundle", "--endpoint", r.endpoint)
 	args = append(args, flags...)
 	return r.session.Run("docker", args...)
+}
+
+func directArgs(uid, gid int, socketGID, bundle, install string, lowDisk bool) []string {
+	user := fmt.Sprintf("%d:%d", uid, gid)
+	args := []string{"run", "--rm", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", user, "--group-add", socketGID, "--tmpfs", "/tmp"}
+	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", bundle+":/bundle:ro")
+	if lowDisk {
+		// Root loses DAC_OVERRIDE with the hardened container flags above. Use
+		// the host tool identity for the read-only Bundle and make the scoped
+		// low-disk tmpfs private to that same identity.
+		tmpfs := fmt.Sprintf("%s:rw,size=1048576,mode=0700,uid=%d,gid=%d", install, uid, gid)
+		args = append(args, "--tmpfs", tmpfs)
+	} else {
+		args = append(args, "-v", install+":"+install)
+	}
+	return args
 }
 
 func (r *lifecycleRunner) lifecycleImage() (string, error) {
