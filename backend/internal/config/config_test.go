@@ -419,14 +419,15 @@ func TestLoadFromRejectsUnsafeVictoriaMetricsConfiguration(t *testing.T) {
 
 func requiredEnvironment() map[string]string {
 	return map[string]string{
-		"MYSQL_DATABASE":                   "gopulse",
-		"MYSQL_USER":                       "gopulse",
-		"MYSQL_PASSWORD":                   "mysql-secret",
-		"REDIS_PASSWORD":                   "redis-secret",
-		"RABBITMQ_URL":                     "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
-		"AUTH_JWT_SECRET":                  "local-development-jwt-secret-32-bytes-minimum",
-		"MONITOR_API_TOKEN":                "local-monitor-api-token-at-least-32-bytes",
-		"BACKEND_VICTORIAMETRICS_PASSWORD": "local-victoriametrics-password-at-least-32-bytes",
+		"MYSQL_DATABASE":                    "gopulse",
+		"MYSQL_USER":                        "gopulse",
+		"MYSQL_PASSWORD":                    "mysql-secret",
+		"REDIS_PASSWORD":                    "redis-secret",
+		"RABBITMQ_URL":                      "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
+		"AUTH_JWT_SECRET":                   "local-development-jwt-secret-32-bytes-minimum",
+		"BUSINESS_STAGE_SERVICE_CREDENTIAL": "local-business-stage-service-credential-at-least-32-bytes",
+		"MONITOR_API_TOKEN":                 "local-monitor-api-token-at-least-32-bytes",
+		"BACKEND_VICTORIAMETRICS_PASSWORD":  "local-victoriametrics-password-at-least-32-bytes",
 	}
 }
 

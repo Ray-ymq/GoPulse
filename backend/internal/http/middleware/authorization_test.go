@@ -106,3 +106,35 @@ func TestRequireSuperAdminRejectsLookupFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireServiceCredential(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		provided   string
+		wantStatus int
+		wantCalls  int
+	}{
+		{name: "missing", wantStatus: stdhttp.StatusUnauthorized},
+		{name: "wrong", provided: "wrong", wantStatus: stdhttp.StatusUnauthorized},
+		{name: "correct", provided: "service-credential", wantStatus: stdhttp.StatusNoContent, wantCalls: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			router := gin.New()
+			calls := 0
+			router.Use(RequireServiceCredential("service-credential"))
+			router.GET("/private", func(c *gin.Context) {
+				calls++
+				c.Status(stdhttp.StatusNoContent)
+			})
+			request := httptest.NewRequest(stdhttp.MethodGet, "/private", nil)
+			if test.provided != "" {
+				request.Header.Set("X-GoPulse-Business-Stage-Credential", test.provided)
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != test.wantStatus || calls != test.wantCalls {
+				t.Fatalf("status=%d calls=%d, want status=%d calls=%d; body=%s", response.Code, calls, test.wantStatus, test.wantCalls, response.Body.String())
+			}
+		})
+	}
+}
