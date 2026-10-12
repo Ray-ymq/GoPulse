@@ -266,8 +266,8 @@ function pageQuery(filters: Record<string,string>, cursor?: string): string {
   if (cursor) { params.set('cursor', cursor); return params.toString() }
   const range = ranges.find((item) => item.value === filters.range) ?? ranges[0]
   const to = new Date(); const from = new Date(to.getTime() - range.milliseconds)
-  params.set('from', from.toISOString()); params.set('to', to.toISOString()); params.set('limit', '50')
-  for (const [key, value] of Object.entries(filters)) if (key !== 'range' && value.trim()) params.set(key, value.trim())
+  params.set('from', filters.from?.trim() || from.toISOString()); params.set('to', filters.to?.trim() || to.toISOString()); params.set('limit', '50')
+  for (const [key, value] of Object.entries(filters)) if (key !== 'range' && key !== 'from' && key !== 'to' && typeof value === 'string' && value.trim()) params.set(key, value.trim())
   return params.toString()
 }
 export const observabilityApi = {

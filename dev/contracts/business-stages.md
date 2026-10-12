@@ -65,6 +65,26 @@ refresh、全表扫描或关键词兜底。Logs 关联只接受 typed identity�
 真实 OTLP ID；未配置查询能力时返回 `not_configured`，不生成伪造链接或 ID。各 source 的
 失败不会覆盖已经取得的其他 source，也不会把未知填成零或 false。
 
+## 管理端与验收证据
+
+管理员页面位于 `/admin/business-stages`，只复用管理员 Cookie，不增加业务写操作。进入页面先读取
+`/post-commands/context` 的当前 epoch；查询时必须填写一个且仅一个 `command_id`、`event_id` 或正整数
+`post_id`。历史 epoch 可手动输入，默认 Logs/Trace 窗口为最近 15 分钟且不超过 24 小时；新查询或离开页面
+取消旧请求，晚到结果不能覆盖当前身份。页面把 `known`、`no_evidence`、`legacy_unknown`、`stale_epoch`、
+`expired`、`backend_error`、`not_configured` 和 `sampling` 分开展示，不把缺日志、缺 Span 或未完成依据解释为
+业务失败。
+
+Logs 跳转只带原始 selector、`data_epoch` 及有界 `from/to`，Logs 服务按 typed exact filters 发送，不执行全文
+检索。Trace 只显示响应中已有的真实 ID，未配置后端时显示能力说明。普通用户在管理应用挂载前被带回社交页，
+会话降权由现有 403 handler 立即卸载管理内容。
+
+原生 `make verify-business SCOPE=v1` 保留旧 business suite；V1 模式要求同一 revision 的完整 release manifest、
+Bundle 和 linux/amd64 镜像 digest，并把 `mode=preflight|formal`、逐 case 状态、业务身份、关键时刻、raw 路径/sha256
+和清理事实写进现有 `gopulse.acceptance.v1` 私有回执。`PREFLIGHT=1` 只允许一条真实创建→阶段页面链路，不能冒充
+V01～V12；`VERIFY_EVIDENCE=1` 只读取既有 receipt/raw，`PUBLICATION` 只生成白名单摘要。validator 拒绝未开始案例
+冒充完成、缩短故障/恢复窗口、候选漂移、raw hash 不符、未知敏感字段和清理失败。故障 proxy 位于 acceptance
+私有 fixture，不能被产品路由装配。
+
 Logs v1 的 `command_id`、`data_epoch`、`projection_generation`、`routing_contract_revision`、
 `consumer` 是可选扩展。Monitor/Marshaller 对它们做严格格式和有限枚举校验，template、现有
 index mapping 与 retention allowlist 保持一致；缺字段的旧日志仍可读，不回填到当前 epoch。

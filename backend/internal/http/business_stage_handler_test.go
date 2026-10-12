@@ -75,6 +75,24 @@ func TestBusinessStageHandlerParsesPublicEvidenceWindowAndCookie(t *testing.T) {
 	}
 }
 
+func TestBusinessStageHandlerParsesInternalEvidenceWindow(t *testing.T) {
+	querier := &recordingBusinessStageQuerier{}
+	router := newBusinessStageTestRouter(querier, false)
+	request := httptest.NewRequest(http.MethodGet, "/business-stages?epoch="+testBusinessEpoch+"&post_id=17&include=logs,trace&from=2026-10-12T09:00:00Z&to=2026-10-12T09:30:00Z", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", response.Code, response.Body.String())
+	}
+	if len(querier.queries) != 1 {
+		t.Fatalf("queries = %d, want 1", len(querier.queries))
+	}
+	query := querier.queries[0]
+	if query.DataEpoch != testBusinessEpoch || query.PostID != 17 || len(query.LogSources) != 2 || query.LogFrom.IsZero() || query.LogTo.IsZero() {
+		t.Fatalf("parsed query = %#v", query)
+	}
+}
+
 func TestBusinessStageHandlerRequiresEvidenceWindowToNameSources(t *testing.T) {
 	querier := &recordingBusinessStageQuerier{}
 	router := newBusinessStageTestRouter(querier, true)
