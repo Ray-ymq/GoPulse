@@ -25,10 +25,6 @@ exporters
 marshaller
 monitor
 router
-使用手册.md
-使用指南.md
-AGENTS.md
-README.md
 !router/
 !router/**
 !marshaller/
