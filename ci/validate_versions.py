@@ -9,6 +9,24 @@ import sys
 from pathlib import Path
 
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+OPENAPI = Path("backend/api/openapi.yaml")
+
+
+def openapi_info_version(text: str) -> str | None:
+    """Read info.version from the checked-in API description without a YAML parser."""
+
+    inside = False
+    for line in text.splitlines():
+        if line.startswith("info:"):
+            inside = True
+            continue
+        if inside:
+            if line and not line[0].isspace():
+                return None
+            match = re.match(r"^  version:[ \t]*(\S+)[ \t]*$", line)
+            if match:
+                return match.group(1)
+    return None
 
 
 def validate(repo: Path) -> list[str]:
@@ -59,6 +77,19 @@ def validate(repo: Path) -> list[str]:
                 errors.append(
                     f"frontend lockfile root package version is {locked_version!r}; expected root VERSION {version!r}"
                 )
+
+    try:
+        openapi_text = (repo / OPENAPI).read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"could not read {OPENAPI}: {exc}")
+    else:
+        document_version = openapi_info_version(openapi_text)
+        if document_version is None:
+            errors.append(f"{OPENAPI} has no info.version")
+        elif document_version != version:
+            errors.append(
+                f"{OPENAPI} info.version is {document_version!r}; expected root VERSION {version!r}"
+            )
     return errors
 
 

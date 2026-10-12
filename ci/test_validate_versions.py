@@ -27,6 +27,12 @@ class VersionMetadataTests(unittest.TestCase):
         admin.mkdir()
         for name in ("package.json", "package-lock.json"):
             (admin / name).write_text((frontend / name).read_text(), encoding="utf-8")
+        openapi = self.repo / "backend/api/openapi.yaml"
+        openapi.parent.mkdir(parents=True, exist_ok=True)
+        openapi.write_text(
+            "openapi: 3.1.0\ninfo:\n  title: GoPulse API\n  version: 0.2.7\npaths: {}\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -67,6 +73,19 @@ class VersionMetadataTests(unittest.TestCase):
     def test_rejects_non_semver_root_version(self) -> None:
         (self.repo / "VERSION").write_text("0.2\n", encoding="utf-8")
         self.assertIn("major.minor.patch", validate(self.repo)[0])
+
+    def test_rejects_api_description_version_drift(self) -> None:
+        (self.repo / "backend/api/openapi.yaml").write_text(
+            "openapi: 3.1.0\ninfo:\n  title: GoPulse API\n  version: 0.2.6\npaths: {}\n",
+            encoding="utf-8",
+        )
+        self.assertIn("backend/api/openapi.yaml info.version", validate(self.repo)[0])
+
+    def test_rejects_api_description_without_info_version(self) -> None:
+        (self.repo / "backend/api/openapi.yaml").write_text(
+            "openapi: 3.1.0\ninfo:\n  title: GoPulse API\npaths: {}\n", encoding="utf-8"
+        )
+        self.assertIn("has no info.version", validate(self.repo)[0])
 
 
 if __name__ == "__main__":
