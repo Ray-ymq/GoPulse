@@ -11,7 +11,7 @@ func TestEmbeddedPhaseOneMigrationContainsRequiredSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Source() error = %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	version, err := source.First()
 	if err != nil {
@@ -133,6 +133,39 @@ func TestEmbeddedBusinessOutboxMigrationContainsOnlyPhaseTwoOutboxSchema(t *test
 	}
 }
 
+func TestEmbeddedBusinessOutboxV2MigrationExpandsSchemaVersionConstraint(t *testing.T) {
+	source, err := Source()
+	if err != nil {
+		t.Fatalf("Source() error = %v", err)
+	}
+	defer func() { _ = source.Close() }()
+	version, err := source.Next(14)
+	if err != nil || version != 15 {
+		t.Fatalf("Next(14) = %d, %v; want 15", version, err)
+	}
+	reader, identifier, err := source.ReadUp(version)
+	if err != nil {
+		t.Fatalf("ReadUp(15) error = %v", err)
+	}
+	up, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil || identifier != "business_outbox_v2" {
+		t.Fatalf("up identifier=%q error=%v", identifier, err)
+	}
+	if !strings.Contains(string(up), "DROP CHECK chk_business_outbox_schema_version") || !strings.Contains(string(up), "schema_version IN (1, 2)") {
+		t.Fatalf("v2 migration does not expand the schema constraint: %s", up)
+	}
+	downReader, downIdentifier, err := source.ReadDown(version)
+	if err != nil {
+		t.Fatalf("ReadDown(15) error = %v", err)
+	}
+	down, err := io.ReadAll(downReader)
+	_ = downReader.Close()
+	if err != nil || downIdentifier != "business_outbox_v2" || !strings.Contains(string(down), "schema_version = 1") {
+		t.Fatalf("down identifier=%q error=%v sql=%s", downIdentifier, err, down)
+	}
+}
+
 func TestEmbeddedNotificationsMigrationContainsIdempotencyAndRelationships(t *testing.T) {
 	source, err := Source()
 	if err != nil {
@@ -177,6 +210,57 @@ func TestEmbeddedNotificationsMigrationContainsIdempotencyAndRelationships(t *te
 	}
 	if downIdentifier != "notifications" || strings.TrimSpace(string(down)) != "DROP TABLE notifications;" {
 		t.Fatalf("notifications down migration = %q (%q)", string(down), downIdentifier)
+	}
+}
+
+func TestEmbeddedBusinessStageMigrationContainsBoundedIdentityAndEvidence(t *testing.T) {
+	source, err := Source()
+	if err != nil {
+		t.Fatalf("Source() error = %v", err)
+	}
+	defer func() { _ = source.Close() }()
+	reader, identifier, err := source.ReadUp(14)
+	if err != nil {
+		t.Fatalf("ReadUp(14) error = %v", err)
+	}
+	raw, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil {
+		t.Fatalf("read business stage migration: %v", err)
+	}
+	if identifier != "business_stage_evidence" {
+		t.Fatalf("identifier = %q", identifier)
+	}
+	sql := string(raw)
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS business_environment",
+		"CREATE TABLE IF NOT EXISTS business_commands",
+		"CREATE TABLE IF NOT EXISTS business_event_requirements",
+		"CREATE TABLE IF NOT EXISTS business_application_results",
+		"CREATE TABLE IF NOT EXISTS business_event_failures",
+		"CREATE TABLE IF NOT EXISTS business_message_parking",
+		"CREATE TABLE IF NOT EXISTS business_async_budget",
+		"uq_business_command_idempotency",
+		"uq_business_application_result",
+		"uq_business_message_parking",
+		"chk_business_requirement_closure",
+		"chk_business_budget_parked",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Fatalf("business stage migration missing %q", required)
+		}
+	}
+	downReader, downIdentifier, err := source.ReadDown(14)
+	if err != nil {
+		t.Fatalf("ReadDown(14) error = %v", err)
+	}
+	down, err := io.ReadAll(downReader)
+	_ = downReader.Close()
+	if err != nil || downIdentifier != "business_stage_evidence" {
+		t.Fatalf("read business stage down migration: %v (%q)", err, downIdentifier)
+	}
+	if strings.Index(string(down), "DROP TABLE IF EXISTS business_async_budget") > strings.Index(string(down), "DROP TABLE IF EXISTS business_environment") {
+		t.Fatal("business stage down migration must drop budget before environment")
 	}
 }
 

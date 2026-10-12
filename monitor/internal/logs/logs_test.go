@@ -11,8 +11,8 @@ func TestValidateBuildsEnvelopeForEveryApplicationSource(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	cases := []struct{ service, module, message, fields string }{
 		{"backend", "lifecycle", "backend listening", `,"instance_id":"backend-1"`},
-		{"business-worker", "worker", "event processed", `,"event_id":"123e4567-e89b-12d3-a456-426614174000","event_type":"comment.created","attempt":0,"reason":"processed"`},
-		{"search-indexer", "search", "event processed", `,"event_id":"123e4567-e89b-12d3-a456-426614174001","event_type":"post.created","post_id":7,"attempt":0,"reason":"processed"`},
+		{"business-worker", "worker", "event processed", `,"event_id":"123e4567-e89b-12d3-a456-426614174000","command_id":"123e4567-e89b-42d3-a456-426614174001","data_epoch":"123e4567-e89b-42d3-a456-426614174000","event_type":"comment.created","consumer":"business","attempt":0,"reason":"processed"`},
+		{"search-indexer", "search", "event processed", `,"event_id":"123e4567-e89b-12d3-a456-426614174001","command_id":"123e4567-e89b-42d3-a456-426614174001","data_epoch":"123e4567-e89b-42d3-a456-426614174000","event_type":"post.created","projection_generation":"gopulse-post-search-v1-20261012","routing_contract_revision":"post-created-search/1","consumer":"search","post_id":7,"attempt":0,"reason":"processed"`},
 		{"search-reindex", "search", "search reindex completed", `,"result":"completed","batch_size":500,"document_count":7`},
 	}
 	for _, test := range cases {

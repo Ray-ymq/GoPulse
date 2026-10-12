@@ -22,12 +22,13 @@ var (
 	spanIDPattern    = regexp.MustCompile(`^[0-9a-f]{16}$`)
 	uuidPattern      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	tokenPattern     = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
+	identityPattern  = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,255}$`)
 )
 
 var allowedFields = map[string]struct{}{
 	"version": {}, "revision": {}, "event": {}, "runtime_contract_version": {}, "runtime_mode": {}, "listen": {},
 	"log_schema_version": {}, "timestamp": {}, "level": {}, "service": {}, "module": {}, "message": {}, "instance_id": {},
-	"request_id": {}, "trace_id": {}, "span_id": {}, "event_id": {}, "event_type": {}, "user_id": {}, "post_id": {}, "content_revision": {}, "comment_id": {},
+	"request_id": {}, "trace_id": {}, "span_id": {}, "event_id": {}, "command_id": {}, "data_epoch": {}, "event_type": {}, "projection_generation": {}, "routing_contract_revision": {}, "consumer": {}, "user_id": {}, "post_id": {}, "content_revision": {}, "comment_id": {},
 	"notification_id": {}, "outbox_id": {}, "method": {}, "route": {}, "status": {}, "duration_ms": {},
 	"response_bytes": {}, "error_code": {}, "reason": {}, "operation": {}, "resource": {}, "stage": {},
 	"result": {}, "attempt": {}, "attempt_id": {}, "batch_size": {}, "document_count": {}, "panic_recovered": {}, "response_committed": {},
@@ -183,6 +184,22 @@ func validateOptional(fields map[string]any) error {
 			case "event_id":
 				if !uuidPattern.MatchString(typed) {
 					return errors.New("invalid event id")
+				}
+			case "command_id", "data_epoch":
+				if !uuidPattern.MatchString(typed) {
+					return errors.New("invalid business identity")
+				}
+			case "projection_generation":
+				if !identityPattern.MatchString(typed) {
+					return errors.New("invalid projection generation")
+				}
+			case "routing_contract_revision":
+				if typed != "post-created-search/1" {
+					return errors.New("invalid routing contract revision")
+				}
+			case "consumer":
+				if typed != "business" && typed != "search" {
+					return errors.New("invalid consumer")
 				}
 			case "method":
 				if typed != "GET" && typed != "POST" && typed != "PUT" && typed != "PATCH" && typed != "DELETE" && typed != "OPTIONS" && typed != "HEAD" {

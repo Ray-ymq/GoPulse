@@ -17,6 +17,79 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 )
 
+func TestIntegrationCleanupHonorsEvidenceAndCommandRetention(t *testing.T) {
+	cfg := integrationtest.Environment(t)
+	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	if err != nil {
+		t.Fatalf("OpenMySQLDatabase() error = %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	repository, err := outbox.NewRepository(database, outbox.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := newIntegrationEvent(t, time.Now().UTC(), 901)
+	if err := repository.Insert(ctx, database, event); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+	claimed, err := repository.Claim(ctx, "cleanup-evidence", 1, time.Minute)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("Claim() records=%d error=%v", len(claimed), err)
+	}
+	if err := repository.MarkPublished(ctx, claimed[0].ID, claimed[0].LeaseOwner); err != nil {
+		t.Fatalf("MarkPublished() error = %v", err)
+	}
+	var epoch string
+	if err := database.QueryRowContext(ctx, `SELECT data_epoch FROM business_environment WHERE singleton=1`).Scan(&epoch); err != nil {
+		t.Fatalf("read business epoch: %v", err)
+	}
+	old := time.Now().UTC().Add(-48 * time.Hour)
+	if _, err := database.ExecContext(ctx, `INSERT INTO business_event_requirements (data_epoch,event_id,consumer,routing_contract_revision,applicable_object_version,payload_bytes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`, epoch, event.EventID, "search", "post-created-search/1", 1, 1, old, old); err != nil {
+		t.Fatalf("insert open requirement: %v", err)
+	}
+	cleanup := func() {
+		_, _ = database.ExecContext(context.Background(), `DELETE FROM business_commands WHERE event_id=?`, event.EventID)
+		_, _ = database.ExecContext(context.Background(), `DELETE FROM business_event_requirements WHERE event_id=?`, event.EventID)
+		_, _ = database.ExecContext(context.Background(), `DELETE FROM business_outbox WHERE event_id=?`, event.EventID)
+	}
+	t.Cleanup(cleanup)
+	if _, err := repository.CleanupPublished(ctx, time.Now().UTC().Add(time.Second), 10); err != nil {
+		t.Fatalf("open requirement cleanup error=%v", err)
+	}
+	assertIntegrationEventCount(t, ctx, database, event.EventID, 1)
+	if _, err := database.ExecContext(ctx, `UPDATE business_event_requirements SET closed_at=?, retain_until=?, updated_at=? WHERE event_id=?`, old, old, old, event.EventID); err != nil {
+		t.Fatalf("close requirement: %v", err)
+	}
+	commandID := "123e4567-e89b-12d3-a456-426614174003"
+	if _, err := database.ExecContext(ctx, `INSERT INTO business_commands (data_epoch,command_id,user_id,command_type,request_digest,event_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?, ?, ?)`, epoch, commandID, 1, "post.create", make([]byte, 32), event.EventID, "succeeded", old, old); err != nil {
+		t.Fatalf("insert command result: %v", err)
+	}
+	if _, err := repository.CleanupPublished(ctx, time.Now().UTC().Add(time.Second), 10); err != nil {
+		t.Fatalf("unretained command cleanup error=%v", err)
+	}
+	assertIntegrationEventCount(t, ctx, database, event.EventID, 1)
+	if _, err := database.ExecContext(ctx, `UPDATE business_commands SET retained_until=? WHERE event_id=?`, old, event.EventID); err != nil {
+		t.Fatalf("retain command: %v", err)
+	}
+	if deleted, err := repository.CleanupPublished(ctx, time.Now().UTC().Add(time.Second), 10); err != nil || deleted < 1 {
+		t.Fatalf("fully retained cleanup deleted=%d err=%v", deleted, err)
+	}
+	assertIntegrationEventCount(t, ctx, database, event.EventID, 0)
+}
+
+func assertIntegrationEventCount(t *testing.T, ctx context.Context, database *sql.DB, eventID string, want int) {
+	t.Helper()
+	var count int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM business_outbox WHERE event_id=?`, eventID).Scan(&count); err != nil {
+		t.Fatalf("count outbox event %s: %v", eventID, err)
+	}
+	if count != want {
+		t.Fatalf("outbox event %s count=%d, want %d", eventID, count, want)
+	}
+}
+
 type fakeClock struct {
 	mutex sync.RWMutex
 	now   time.Time

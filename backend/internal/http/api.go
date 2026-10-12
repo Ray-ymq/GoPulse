@@ -8,6 +8,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
+	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
@@ -18,23 +19,27 @@ import (
 )
 
 type APIRoutes struct {
-	Overview        *adminoverview.Service
-	Alerts          *alert.Handler
-	Management      *ManagementHandler
-	Bookmarks       *bookmark.Handler
-	Users           *UserHandler
-	Auth            *auth.Handler
-	Posts           *post.Handler
-	Comments        *comment.Handler
-	Likes           *like.Handler
-	Logs            *logquery.Handler
-	Metrics         *metricquery.Handler
-	Events          *eventquery.Handler
-	Notifications   *notification.Handler
-	Search          *search.Handler
-	Authentication  gin.HandlerFunc
-	Authorization   gin.HandlerFunc
-	ExporterPlugins *exporterplugin.Handler
+	Overview               *adminoverview.Service
+	Alerts                 *alert.Handler
+	Management             *ManagementHandler
+	Bookmarks              *bookmark.Handler
+	Users                  *UserHandler
+	Auth                   *auth.Handler
+	Posts                  *post.Handler
+	Comments               *comment.Handler
+	Likes                  *like.Handler
+	Logs                   *logquery.Handler
+	Metrics                *metricquery.Handler
+	Events                 *eventquery.Handler
+	Notifications          *notification.Handler
+	Search                 *search.Handler
+	Authentication         gin.HandlerFunc
+	Authorization          gin.HandlerFunc
+	ExporterPlugins        *exporterplugin.Handler
+	BusinessStages         *BusinessStageHandler
+	InternalBusinessStages *BusinessStageHandler
+	InternalAuthorization  gin.HandlerFunc
+	ServiceCredential      string
 }
 
 func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
@@ -48,6 +53,11 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 
 	if routes.Authentication == nil {
 		return
+	}
+	if routes.InternalBusinessStages != nil && routes.InternalAuthorization != nil && routes.ServiceCredential != "" {
+		internal := router.Group("/internal/v1")
+		internal.Use(routes.Authentication, routes.InternalAuthorization, middleware.RequireServiceCredential(routes.ServiceCredential))
+		internal.GET("/business-stages", routes.InternalBusinessStages.Handle)
 	}
 	protected := api.Group("")
 	protected.Use(routes.Authentication)
@@ -68,6 +78,8 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		protected.GET("/search/users", routes.Users.Search)
 	}
 	if routes.Posts != nil {
+		protected.GET("/post-commands/context", routes.Posts.CommandContext)
+		protected.GET("/post-commands/result", routes.Posts.CommandResult)
 		protected.POST("/posts", routes.Posts.Create)
 		protected.GET("/posts", routes.Posts.List)
 		protected.GET("/bookmarks", routes.Posts.Bookmarks)
@@ -106,6 +118,9 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		}
 		if routes.Events != nil {
 			observability.GET("/events", routes.Events.List)
+		}
+		if routes.BusinessStages != nil {
+			observability.GET("/business-stages", routes.BusinessStages.Handle)
 		}
 	}
 	if routes.Alerts != nil && routes.Authorization != nil {

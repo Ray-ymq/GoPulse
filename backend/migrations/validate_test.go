@@ -6,7 +6,7 @@ import (
 )
 
 func TestInventory(t *testing.T) {
-	if target, err := Target(); err != nil || target != 13 {
+	if target, err := Target(); err != nil || target != 15 {
 		t.Fatalf("target=%d err=%v", target, err)
 	}
 	for _, names := range [][]string{

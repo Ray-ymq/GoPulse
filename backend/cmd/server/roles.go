@@ -15,6 +15,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/alert/count"
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
+	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
@@ -130,6 +131,16 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	}
 	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	users := user.NewMySQLRepository(mysqlClient.DB())
+	var state *businessstate.Repository
+	if profile.business {
+		state, err = businessstate.NewRepository(mysqlClient.DB())
+		if err != nil {
+			return nil, errors.New("initialize business state repository")
+		}
+		if _, err := state.Ensure(context.Background()); err != nil {
+			return nil, errors.New("initialize business environment")
+		}
+	}
 	if err := users.ValidateBootstrap(context.Background()); err != nil {
 		return nil, fmt.Errorf("validate management bootstrap: %w", err)
 	}
@@ -140,8 +151,12 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	var rabbitMQChecker *platform.RabbitMQ
 	var eventOutbox *outbox.Repository
 	var dispatcher *outbox.Dispatcher
+	var stageService *businessstate.QueryService
 	routes := backendhttp.APIRoutes{Authentication: authentication}
 	if profile.business {
+		if err := state.ActivateV2(context.Background(), "phase-24-02"); err != nil {
+			return nil, errors.New("activate business event v2")
+		}
 		redisClient = platform.NewRedis(cfg.Redis)
 		assembly.addResource("redis", redisClient.Close)
 
@@ -154,7 +169,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if err != nil {
 			return nil, errors.New("initialize RabbitMQ checker")
 		}
-		eventOutbox, err = outbox.NewRepository(mysqlClient.DB(), outbox.Options{MaxClaimBatch: cfg.Outbox.ClaimBatch})
+		eventOutbox, err = outbox.NewRepository(mysqlClient.DB(), outbox.Options{MaxClaimBatch: cfg.Outbox.ClaimBatch, RetentionAccounting: state, EnableV2: true})
 		if err != nil {
 			return nil, errors.New("initialize business outbox repository")
 		}
@@ -185,10 +200,11 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if passwordErr != nil {
 			return nil, errors.New("initialize password manager")
 		}
+		users.WithOutbox(eventOutbox)
 		authService := auth.NewService(users, passwords, tokens)
 		authHandler := auth.NewHandler(authService, cookies, logger)
-		postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
-		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, Logger: logger})
+		postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(state)
+		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts, postDetailCache).WithLogger(logger)
 		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
@@ -204,7 +220,15 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		notificationService := notification.NewService(notifications)
 		notificationHandler := notification.NewHandler(notificationService, logger)
 		searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
-		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret)
+		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
+		facts, factErr := businessstate.NewPostFactReader(mysqlClient.DB())
+		if factErr != nil {
+			return nil, errors.New("initialize business stage fact reader")
+		}
+		stageService, err = businessstate.NewQueryService(state, facts, businessStageVisibility{repository: searchRepository}, nil, cfg.Trace.Enabled)
+		if err != nil {
+			return nil, errors.New("initialize business stage query service")
+		}
 
 		routes.Auth = authHandler
 		routes.Users = backendhttp.NewUserHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users)
@@ -214,6 +238,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.Bookmarks = bookmark.NewHandler(bookmark.NewService(bookmark.NewMySQLRepository(mysqlClient.DB()), postService), logger)
 		routes.Notifications = notificationHandler
 		routes.Search = searchpkg.NewHandler(searchService)
+		routes.InternalBusinessStages = backendhttp.NewBusinessStageHandler(stageService, false)
+		routes.InternalAuthorization = middleware.RequireSuperAdmin(users)
+		routes.ServiceCredential = cfg.BusinessStage.Credential
 		assembly.dispatcher = dispatcher
 		assembly.sampleOutbox = func(ctx context.Context, metrics *componentmetrics.Backend) { eventOutbox.SampleMetrics(ctx, metrics) }
 	}
@@ -232,6 +259,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		logRepository := logquery.NewElasticsearchRepository(observabilityElasticsearchClient)
 		logService := logquery.NewService(logRepository, cfg.Auth.JWTSecret)
 		logHandler := logquery.NewHandler(logService)
+		if stageService != nil {
+			stageService.WithLogReader(businessStageLogs{service: logService})
+		}
 		eventRepository := eventquery.NewElasticsearchRepository(observabilityElasticsearchClient)
 		eventService := eventquery.NewService(eventRepository, cfg.Auth.JWTSecret)
 		eventHandler := eventquery.NewHandler(eventService)
@@ -263,6 +293,15 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.Alerts = alert.NewHandler(alertRepo, cfg.Auth.JWTSecret)
 		routes.Events = eventHandler
 		routes.Authorization = middleware.RequireSuperAdmin(users)
+		if stageService != nil {
+			routes.BusinessStages = backendhttp.NewBusinessStageHandler(stageService, true)
+		} else {
+			stageClient, clientErr := businessstate.NewHTTPClient(cfg.BusinessStage.Endpoints, cfg.BusinessStage.Credential, nil)
+			if clientErr != nil {
+				return nil, errors.New("initialize business stage private client")
+			}
+			routes.BusinessStages = backendhttp.NewBusinessStageHandler(stageClient, true)
+		}
 		routes.Management = backendhttp.NewManagementHandler(users, cfg.Auth.JWTSecret)
 		routes.ExporterPlugins = exporterPluginHandler
 		assembly.runAlertCheck = func(ctx context.Context) {
@@ -278,6 +317,11 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		if err := platform.CheckRuntimeSchema(ctx, mysqlClient.DB()); err != nil {
 			return err
+		}
+		if state != nil {
+			if _, err := state.Current(ctx); err != nil {
+				return err
+			}
 		}
 		return users.ValidateBootstrap(ctx)
 	})
@@ -298,4 +342,38 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes,
 	)
 	return assembly, nil
+}
+
+type businessStageVisibility struct {
+	repository *searchpkg.ElasticsearchRepository
+}
+
+func (adapter businessStageVisibility) CheckVisibility(ctx context.Context, epoch string, postID, revision uint64) (businessstate.VisibilityResult, error) {
+	result, err := adapter.repository.CheckVisibility(ctx, epoch, postID, revision)
+	return businessstate.VisibilityResult{Matched: result.Matched, Epoch: result.Epoch, Generation: result.Generation, Version: result.Version, ReadAt: result.ReadAt}, err
+}
+
+type businessStageLogs struct {
+	service *logquery.Service
+}
+
+func (adapter businessStageLogs) QueryCorrelation(ctx context.Context, query businessstate.LogCorrelationQuery) (businessstate.LogCorrelationResult, error) {
+	result, err := adapter.service.QueryCorrelation(ctx, logquery.CorrelationQuery{DataEpoch: query.DataEpoch, CommandID: query.CommandID, EventID: query.EventID, PostID: query.PostID, From: query.From, To: query.To, Limit: query.Limit})
+	if err != nil {
+		return businessstate.LogCorrelationResult{}, err
+	}
+	entries := make([]businessstate.LogCorrelationEntry, 0, len(result.Entries))
+	for _, entry := range result.Entries {
+		postID := uint64(0)
+		if entry.PostID != nil {
+			postID = *entry.PostID
+		}
+		entries = append(entries, businessstate.LogCorrelationEntry{
+			Timestamp: entry.Timestamp, Level: entry.Level, Service: entry.Service, InstanceID: entry.InstanceID,
+			Module: entry.Module, Message: entry.Message, TraceID: entry.TraceID, SpanID: entry.SpanID,
+			AttemptID: entry.AttemptID, EventID: entry.EventID, CommandID: entry.CommandID,
+			DataEpoch: entry.DataEpoch, PostID: postID,
+		})
+	}
+	return businessstate.LogCorrelationResult{Entries: entries, Truncated: result.Truncated, Quality: result.Quality}, nil
 }

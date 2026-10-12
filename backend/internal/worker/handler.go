@@ -36,6 +36,7 @@ type HandlerOptions struct {
 	MaxRetries     int
 	PublishTimeout time.Duration
 	Logger         *slog.Logger
+	Admission      bus.Admission
 }
 
 type Handler struct {
@@ -45,6 +46,7 @@ type Handler struct {
 	publishTimeout time.Duration
 	logger         *slog.Logger
 	profile        Profile
+	admission      bus.Admission
 }
 
 func NewHandler(processor Processor, publisher ConfirmingPublisher, options HandlerOptions) (*Handler, error) {
@@ -64,7 +66,7 @@ func NewHandler(processor Processor, publisher ConfirmingPublisher, options Hand
 	}
 	return &Handler{
 		processor: processor, publisher: publisher, maxRetries: options.MaxRetries,
-		publishTimeout: options.PublishTimeout, logger: logger, profile: profile,
+		publishTimeout: options.PublishTimeout, logger: logger, profile: profile, admission: options.Admission,
 	}, nil
 }
 
@@ -94,12 +96,15 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	attempt, attemptErr := deliveryAttempt(delivery.Headers)
 	envelope, decodeErr := DecodeDelivery(delivery)
 	if attemptErr != nil {
+		if handler.admission != nil {
+			return handler.parkRaw(ctx, delivery, attempt, "invalid_attempt")
+		}
 		return handler.deadLetter(ctx, delivery, attempt, "invalid_attempt")
 	}
-	if attempt > handler.maxRetries {
-		return handler.deadLetter(ctx, delivery, attempt, "attempt_exceeds_max")
-	}
 	if decodeErr != nil {
+		if handler.admission != nil {
+			return handler.parkRaw(ctx, delivery, attempt, decodeErr.Error())
+		}
 		return handler.deadLetter(ctx, delivery, attempt, decodeErr.Error())
 	}
 	invalidTraceContext := envelope.HasInvalidTraceContext()
@@ -115,6 +120,9 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	traceContext, span := tracing.Start(traceContext, "worker.consume",
 		attribute.String("gopulse.event_id", envelope.EventID),
 		attribute.String("gopulse.event_type", string(envelope.EventType)),
+		attribute.String("gopulse.data_epoch", envelope.DataEpoch),
+		attribute.String("gopulse.command_id", envelope.CommandID),
+		attribute.String("gopulse.consumer", handler.profile.Consumer),
 		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
 		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
 		attribute.Int64("gopulse.outbox_id", int64(deliveryOutboxID(delivery.Headers))),
@@ -130,7 +138,37 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	defer span.End()
 	if !handler.profile.allows(delivery.RoutingKey) {
 		span.SetStatus(codes.Error, "routing_key_not_allowed")
+		if err := handler.recordFailure(traceContext, envelope, "dead", "routing_key_not_allowed"); err != nil {
+			return handler.requeueFailure(traceContext, delivery, err)
+		}
 		return handler.deadLetter(traceContext, delivery, attempt, "routing_key_not_allowed")
+	}
+	if handler.admission != nil {
+		decision, admissionErr := handler.admit(traceContext, envelope)
+		if admissionErr != nil {
+			span.SetStatus(codes.Error, "admission_unavailable")
+			return handler.requeueAdmission(traceContext, delivery, admissionErr)
+		}
+		if decision == bus.AdmissionPark {
+			if err := handler.admission.ParkMessage(traceContext, parkingMessage(delivery, envelope, attempt, "epoch_or_legacy_rejected")); err != nil {
+				span.SetStatus(codes.Error, "parking_failed")
+				return handler.requeueAdmission(traceContext, delivery, err)
+			}
+			if err := handler.ack(delivery); err != nil {
+				span.SetStatus(codes.Error, "ack_failed")
+				handler.logFailure(traceContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
+				return errors.New("ack parked event")
+			}
+			outcome = "success"
+			handler.logEvent(traceContext, "event parked", delivery, envelope, attempt, "epoch_or_legacy_rejected")
+			return nil
+		}
+	}
+	if attempt > handler.maxRetries {
+		if err := handler.recordFailure(traceContext, envelope, "dead", "attempt_exceeds_max"); err != nil {
+			return handler.requeueFailure(traceContext, delivery, err)
+		}
+		return handler.deadLetter(traceContext, delivery, attempt, "attempt_exceeds_max")
 	}
 	if handler.profile.IgnoreSelfEvents && envelope.ActorID == envelope.RecipientID {
 		if err := handler.ack(delivery); err != nil {
@@ -165,10 +203,16 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 
 	if IsPermanent(processErr) {
 		span.SetStatus(codes.Error, permanentReason(processErr))
+		if err := handler.recordFailure(traceContext, envelope, "dead", permanentReason(processErr)); err != nil {
+			return handler.requeueFailure(traceContext, delivery, err)
+		}
 		return handler.deadLetter(traceContext, delivery, attempt, permanentReason(processErr))
 	}
 
 	if attempt < handler.maxRetries {
+		if err := handler.recordFailure(traceContext, envelope, "retry", processErr.Error()); err != nil {
+			return handler.requeueFailure(traceContext, delivery, err)
+		}
 		err := handler.retry(traceContext, delivery, attempt+1)
 		if err == nil {
 			outcome = "retry"
@@ -176,7 +220,77 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		return err
 	}
 	span.SetStatus(codes.Error, "retries_exhausted")
+	if err := handler.recordFailure(traceContext, envelope, "dead", "retries_exhausted"); err != nil {
+		return handler.requeueFailure(traceContext, delivery, err)
+	}
 	return handler.deadLetter(traceContext, delivery, attempt, "retries_exhausted")
+}
+
+func (handler *Handler) admit(ctx context.Context, envelope bus.Envelope) (bus.AdmissionDecision, error) {
+	if consumerAdmission, ok := handler.admission.(interface {
+		CheckEnvelopeForConsumer(context.Context, bus.Envelope, string) (bus.AdmissionDecision, error)
+	}); ok && handler.profile.Consumer != "" {
+		return consumerAdmission.CheckEnvelopeForConsumer(ctx, envelope, handler.profile.Consumer)
+	}
+	return handler.admission.CheckEnvelope(ctx, envelope)
+}
+
+func (handler *Handler) requeueAdmission(ctx context.Context, delivery amqp.Delivery, cause error) error {
+	if nackErr := delivery.Nack(false, true); nackErr != nil {
+		handler.logFailure(ctx, "message requeue failed", delivery, deliveryAttemptForLog(delivery), "nack_failed")
+		return fmt.Errorf("requeue after admission failure: %w", nackErr)
+	}
+	return cause
+}
+
+func (handler *Handler) requeueFailure(ctx context.Context, delivery amqp.Delivery, cause error) error {
+	if nackErr := delivery.Nack(false, true); nackErr != nil {
+		handler.logFailure(ctx, "message requeue failed", delivery, deliveryAttemptForLog(delivery), "nack_failed")
+		return fmt.Errorf("requeue after failure evidence error: %w", nackErr)
+	}
+	return cause
+}
+
+func (handler *Handler) recordFailure(ctx context.Context, envelope bus.Envelope, kind, reason string) error {
+	if handler.admission == nil || envelope.SchemaVersion != bus.SchemaVersionV2 || envelope.DataEpoch == "" || envelope.EventID == "" {
+		return nil
+	}
+	recorder, ok := handler.admission.(bus.FailureRecorder)
+	if !ok {
+		return nil
+	}
+	return recorder.RecordFailure(ctx, bus.FailureRecord{
+		DataEpoch: envelope.DataEpoch, EventID: envelope.EventID, Consumer: handler.profile.Consumer,
+		Kind: kind, Reason: reason, OccurredAt: time.Now().UTC(),
+	})
+}
+
+func (handler *Handler) parkRaw(ctx context.Context, delivery amqp.Delivery, attempt int, reason string) error {
+	if err := handler.admission.ParkMessage(ctx, parkingMessage(delivery, bus.Envelope{}, attempt, reason)); err != nil {
+		return handler.requeueAdmission(ctx, delivery, err)
+	}
+	if err := handler.ack(delivery); err != nil {
+		handler.logFailure(ctx, "message acknowledgement failed", delivery, attempt, "ack_failed")
+		return errors.New("ack parked invalid event")
+	}
+	return nil
+}
+
+func parkingMessage(delivery amqp.Delivery, envelope bus.Envelope, attempt int, reason string) bus.ParkingMessage {
+	return bus.ParkingMessage{
+		SourceEpoch: envelope.DataEpoch, EventID: envelope.EventID,
+		EventType: string(envelope.EventType), SchemaVersion: envelope.SchemaVersion,
+		RoutingKey: delivery.RoutingKey, SourceKind: "broker", Payload: append([]byte(nil), delivery.Body...),
+		Reason: reason, AttemptCount: attempt,
+	}
+}
+
+func deliveryAttemptForLog(delivery amqp.Delivery) int {
+	attempt, err := deliveryAttempt(delivery.Headers)
+	if err != nil {
+		return 0
+	}
+	return attempt
 }
 
 func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextAttempt int) error {
@@ -244,6 +358,15 @@ func (handler *Handler) logEvent(ctx context.Context, message string, delivery a
 			attributes = append(attributes, slog.Uint64("content_revision", envelope.ContentRevision))
 		}
 	}
+	if envelope.DataEpoch != "" {
+		attributes = append(attributes, slog.String("data_epoch", envelope.DataEpoch))
+	}
+	if envelope.CommandID != "" {
+		attributes = append(attributes, slog.String("command_id", envelope.CommandID))
+	}
+	if handler.profile.Consumer != "" {
+		attributes = append(attributes, slog.String("consumer", handler.profile.Consumer))
+	}
 	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
 		attributes = append(attributes, slog.Uint64("outbox_id", outboxID))
 	}
@@ -263,6 +386,23 @@ func (handler *Handler) logFailure(ctx context.Context, message string, delivery
 	}
 	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
 		attributes = append(attributes, slog.Uint64("outbox_id", outboxID))
+	}
+	if handler.profile.Consumer != "" {
+		attributes = append(attributes, slog.String("consumer", handler.profile.Consumer))
+	}
+	if envelope, err := DecodeDelivery(delivery); err == nil {
+		if envelope.DataEpoch != "" {
+			attributes = append(attributes, slog.String("data_epoch", envelope.DataEpoch))
+		}
+		if envelope.CommandID != "" {
+			attributes = append(attributes, slog.String("command_id", envelope.CommandID))
+		}
+		if handler.profile.IncludePostID && envelope.PostID > 0 {
+			attributes = append(attributes, slog.Uint64("post_id", envelope.PostID))
+			if envelope.ContentRevision > 0 {
+				attributes = append(attributes, slog.Uint64("content_revision", envelope.ContentRevision))
+			}
+		}
 	}
 	logging.WithTrace(handler.logger, ctx).Error(message, attributes...)
 }
