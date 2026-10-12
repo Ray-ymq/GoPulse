@@ -75,6 +75,13 @@ The authoritative Phase-12-03 full-stack gate is the no-argument `make verify-co
 
 Marshaller dispatches the shared Envelope v1 stream through explicit `metrics/redis`, `logs/backend`, `logs/business-worker`, `logs/search-indexer`, and `logs/search-reindex` targets. Every log payload is independently revalidated, must match its Envelope source, and is written idempotently with the Envelope message ID as `_id` to `gopulse-logs-v1-YYYY.MM.DD`. Permanently invalid records are committed without a storage call so the following record can continue; Elasticsearch transport or result uncertainty keeps the current offset uncommitted. Records on different owned partitions proceed concurrently within the configured in-flight and retry budgets, while each partition preserves ordering and a revoked lease cannot write or commit. The fixed `gopulse-logs-v1-template` installs a strict mapping and the `gopulse-logs-v1-read` alias. `MARSHALLER_ELASTICSEARCH_URL` is the observation-only endpoint: it must be a loopback HTTP origin in host mode, while container mode accepts `http://observability-elasticsearch:9200`. It is deliberately distinct from Backend's business-search `ELASTICSEARCH_URL`; the two clients have separate roles, volumes, and Compose network membership. The default request timeout is 3 seconds, and credentials, extra paths, query strings, fragments, fixed IPs, and control characters remain rejected.
 
+The five optional stage-correlation fields `command_id`, `data_epoch`,
+`projection_generation`, `routing_contract_revision`, and `consumer` are
+strictly transformed, mapped as keywords, and included in existing-index
+mapping updates and retention field checks. Old documents without them remain
+readable. The fields are technical correlation only; they do not carry command
+digests, post bodies, or user identifiers.
+
 ## Lifecycle event storage
 
 Marshaller dispatches `events/monitor` to an independent Events transformer and Elasticsearch writer. The transformer revalidates the fixed Events v1 payload, requires Envelope/payload source and timestamp equality, renames `timestamp` to `@timestamp`, and retains only the documented fields. The writer uses `message_id` as `_id`, the fixed `gopulse-events-v1-template`, daily `gopulse-events-v1-YYYY.MM.DD` indices, and the `gopulse-events-v1-read` alias. Root and metadata mappings are strict. Template, mapping, and alias checks complete before the Kafka offset is committed; a temporary Events Store failure therefore preserves ordering and retries the same record. Marshaller readiness covers VictoriaMetrics, Logs storage, and Events storage while `/health` remains liveness-only.

@@ -120,6 +120,9 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	traceContext, span := tracing.Start(traceContext, "worker.consume",
 		attribute.String("gopulse.event_id", envelope.EventID),
 		attribute.String("gopulse.event_type", string(envelope.EventType)),
+		attribute.String("gopulse.data_epoch", envelope.DataEpoch),
+		attribute.String("gopulse.command_id", envelope.CommandID),
+		attribute.String("gopulse.consumer", handler.profile.Consumer),
 		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
 		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
 		attribute.Int64("gopulse.outbox_id", int64(deliveryOutboxID(delivery.Headers))),
@@ -355,6 +358,15 @@ func (handler *Handler) logEvent(ctx context.Context, message string, delivery a
 			attributes = append(attributes, slog.Uint64("content_revision", envelope.ContentRevision))
 		}
 	}
+	if envelope.DataEpoch != "" {
+		attributes = append(attributes, slog.String("data_epoch", envelope.DataEpoch))
+	}
+	if envelope.CommandID != "" {
+		attributes = append(attributes, slog.String("command_id", envelope.CommandID))
+	}
+	if handler.profile.Consumer != "" {
+		attributes = append(attributes, slog.String("consumer", handler.profile.Consumer))
+	}
 	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
 		attributes = append(attributes, slog.Uint64("outbox_id", outboxID))
 	}
@@ -374,6 +386,23 @@ func (handler *Handler) logFailure(ctx context.Context, message string, delivery
 	}
 	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
 		attributes = append(attributes, slog.Uint64("outbox_id", outboxID))
+	}
+	if handler.profile.Consumer != "" {
+		attributes = append(attributes, slog.String("consumer", handler.profile.Consumer))
+	}
+	if envelope, err := DecodeDelivery(delivery); err == nil {
+		if envelope.DataEpoch != "" {
+			attributes = append(attributes, slog.String("data_epoch", envelope.DataEpoch))
+		}
+		if envelope.CommandID != "" {
+			attributes = append(attributes, slog.String("command_id", envelope.CommandID))
+		}
+		if handler.profile.IncludePostID && envelope.PostID > 0 {
+			attributes = append(attributes, slog.Uint64("post_id", envelope.PostID))
+			if envelope.ContentRevision > 0 {
+				attributes = append(attributes, slog.Uint64("content_revision", envelope.ContentRevision))
+			}
+		}
 	}
 	logging.WithTrace(handler.logger, ctx).Error(message, attributes...)
 }

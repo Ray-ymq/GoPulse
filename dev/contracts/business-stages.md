@@ -38,6 +38,37 @@ Worker/Indexer 在处理副作用前读取持久环境。旧 epoch、恢复期�
 领域事务内计费，清理只释放本次实际删除的 Outbox 事件。未闭合必要义务或未到保留期的
 命令/完成引用都会阻止 `CleanupPublished`。
 
+## 受限阶段查证
+
+业务角色提供私有的 `GET /internal/v1/business-stages`，平台角色提供管理员保护的
+`GET /api/v1/observability/business-stages`。两者都要求 canonical `epoch` 和且仅一个
+`command_id`、`event_id`、`post_id`；公共接口可用 `include=logs,trace` 指定来源，并在
+`from/to` 中提供不超过 24 小时的 UTC 窗口。未知参数、重复来源、模糊对象或越界窗口均为
+固定校验错误。公共接口只转发当前管理 Cookie；独立 platform 通过最多两个配置的私网
+`BUSINESS_STAGE_ENDPOINTS` 选择一个上游，RPC 最多 2 秒、总请求最多 3 秒、并发槽最多 4，
+不重试、不 hedge，也不接受用户提供的地址。business 查询每实例最多两个槽，槽满立即返回
+`503 business_stage_busy`。
+
+私有接口同时要求专用 `BUSINESS_STAGE_SERVICE_CREDENTIAL` 和管理 Cookie；业务端重新从
+MySQL 读取当前角色，不能信任 user/role header。凭据由 lifecycle 私有环境随机生成、备份保护
+和诊断脱敏，Compose 不发布业务私网端口，edge 的 `/internal/` 仍返回 404。platform 不创建
+业务 Elasticsearch、业务完成 Repository 或阶段查询数据库池；combined 直接复用本地领域
+service，不绕 loopback HTTP。
+
+响应只返回请求/当前 epoch、解析后的技术身份、固定的命令/Outbox/消费者/完成/失败摘要、
+预算水位以及逐来源 `quality`。每类摘要最多 20 条，不含用户 ID、正文、digest 或 payload。
+当前可见性只在当前 epoch 且 MySQL 事实仍存在时，解析 current alias 的物理 generation，
+用一次 typed exact-object ES 查询核验 `data_epoch/post_id/content_revision`；不使用 GET-by-id、
+refresh、全表扫描或关键词兜底。Logs 关联只接受 typed identity，单次后端请求最多 100 条、
+窗口最多 24 小时；旧日志缺 `data_epoch` 只能是 `legacy_unknown` 线索，alias 缺失为
+`expired`，无命中为 `no_evidence`，后端故障为 `backend_error`。Trace 只回传已有日志中的
+真实 OTLP ID；未配置查询能力时返回 `not_configured`，不生成伪造链接或 ID。各 source 的
+失败不会覆盖已经取得的其他 source，也不会把未知填成零或 false。
+
+Logs v1 的 `command_id`、`data_epoch`、`projection_generation`、`routing_contract_revision`、
+`consumer` 是可选扩展。Monitor/Marshaller 对它们做严格格式和有限枚举校验，template、现有
+index mapping 与 retention allowlist 保持一致；缺字段的旧日志仍可读，不回填到当前 epoch。
+
 ## 恢复准备
 
 `search-reindex` 的普通入口仍是 `--if-missing`。恢复准备必须同时提供：

@@ -24,6 +24,26 @@ standalone default of `10`. The Phase-21 split Compose runs `backend` and
 `backend-2` as business and `platform-api` as the singleton platform service,
 all from the same Backend image digest.
 
+## Restricted business-stage evidence
+
+The business role owns the private `GET /internal/v1/business-stages` query and
+the platform role exposes the administrator-only
+`GET /api/v1/observability/business-stages` adapter. Both require one typed
+epoch-scoped command, event, or post selector. The platform adapter forwards
+the authenticated management Cookie to one of at most two trusted private
+business origins; it does not accept a user URL, retry, or hedge. The private
+route requires both that Cookie and the independently generated
+`BUSINESS_STAGE_SERVICE_CREDENTIAL`, then re-reads the current database role.
+
+The response is a bounded evidence summary, not a post detail endpoint. It
+keeps command/Outbox/consumer/completion/failure identities and safe statuses,
+current budget watermarks, typed search visibility, and optional bounded Logs
+correlation. Bodies, digests, user IDs, raw payloads, arbitrary DSL, and fake
+Trace IDs are excluded. Current visibility uses the current physical search
+generation, an epoch- and revision-exact search query, and the current MySQL
+post fact. Logs use a typed one-request correlation query with a 24-hour window;
+old records without an epoch remain historical clues only.
+
 ## Business epoch and search completion
 
 Migration 14 creates the durable business environment, epoch-scoped consumer

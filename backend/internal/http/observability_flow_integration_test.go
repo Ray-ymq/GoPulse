@@ -49,6 +49,86 @@ func TestObservabilityFlowIntegration(t *testing.T) {
 		}
 	}
 
+	commandStatus, commandBody := observeJSON(t, user, http.MethodGet, baseURL+"/api/v1/post-commands/context", "", "")
+	if commandStatus != http.StatusOK {
+		t.Fatalf("post command context status=%d body=%s", commandStatus, commandBody)
+	}
+	var commandContext struct {
+		Data struct {
+			DataEpoch string `json:"data_epoch"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(commandBody, &commandContext); err != nil || commandContext.Data.DataEpoch == "" {
+		t.Fatalf("post command context body=%s err=%v", commandBody, err)
+	}
+	commandKey := fmt.Sprintf("123e4567-e89b-42d3-a456-%012x", time.Now().UnixNano()&0xffffffffffff)
+	stageActionAt := time.Now().UTC()
+	createStatus, createBody := observeJSONWithHeaders(t, user, http.MethodPost, baseURL+"/api/v1/posts", `{"title":"stage evidence post","content":"stage evidence content"}`, "", map[string]string{
+		"Idempotency-Key":      commandKey,
+		"X-GoPulse-Data-Epoch": commandContext.Data.DataEpoch,
+	})
+	if createStatus != http.StatusCreated {
+		t.Fatalf("stage evidence post status=%d body=%s", createStatus, createBody)
+	}
+	var created struct {
+		Meta struct {
+			CommandID string `json:"command_id"`
+			EventID   string `json:"event_id"`
+			DataEpoch string `json:"data_epoch"`
+			PostID    uint64 `json:"post_id"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(createBody, &created); err != nil || created.Meta.CommandID == "" || created.Meta.EventID == "" || created.Meta.DataEpoch != commandContext.Data.DataEpoch || created.Meta.PostID == 0 {
+		t.Fatalf("stage evidence post response body=%s err=%v", createBody, err)
+	}
+
+	waitObserve(t, 90*time.Second, func() bool {
+		from := stageActionAt.Add(-time.Second).Format(time.RFC3339Nano)
+		to := time.Now().UTC().Format(time.RFC3339Nano)
+		stageURL := baseURL + "/api/v1/observability/business-stages?epoch=" + url.QueryEscape(created.Meta.DataEpoch) + "&command_id=" + url.QueryEscape(created.Meta.CommandID) + "&check_visibility=true&include=logs,trace&from=" + url.QueryEscape(from) + "&to=" + url.QueryEscape(to)
+		status, body := observeJSON(t, admin, http.MethodGet, stageURL, "", "")
+		if status != http.StatusOK {
+			return false
+		}
+		var stage struct {
+			Data struct {
+				Resolved struct {
+					CommandID string `json:"command_id"`
+					EventID   string `json:"event_id"`
+					PostID    uint64 `json:"post_id"`
+				} `json:"resolved"`
+				Evidence struct {
+					Command struct {
+						Quality string `json:"quality"`
+					} `json:"command"`
+					Logs struct {
+						Quality string `json:"quality"`
+						Entries []struct {
+							CommandID string `json:"command_id"`
+							DataEpoch string `json:"data_epoch"`
+						} `json:"entries"`
+					} `json:"logs"`
+					Visibility struct {
+						Quality string `json:"quality"`
+						Matched *bool  `json:"matched"`
+					} `json:"visibility"`
+				} `json:"evidence"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(body, &stage) != nil {
+			return false
+		}
+		if stage.Data.Resolved.CommandID != created.Meta.CommandID || stage.Data.Resolved.EventID != created.Meta.EventID || stage.Data.Resolved.PostID != created.Meta.PostID || stage.Data.Evidence.Command.Quality != "known" || stage.Data.Evidence.Visibility.Quality != "known" || stage.Data.Evidence.Visibility.Matched == nil || !*stage.Data.Evidence.Visibility.Matched || stage.Data.Evidence.Logs.Quality == "" {
+			return false
+		}
+		for _, entry := range stage.Data.Evidence.Logs.Entries {
+			if entry.CommandID == created.Meta.CommandID && entry.DataEpoch == created.Meta.DataEpoch {
+				return true
+			}
+		}
+		return false
+	})
+
 	requestID := fmt.Sprintf("%032x", time.Now().UnixNano())
 	if status, body := observeJSON(t, user, http.MethodGet, baseURL+"/api/v1/posts", "", requestID); status != http.StatusOK {
 		t.Fatalf("request that seeds log status=%d body=%s", status, body)
@@ -164,6 +244,10 @@ func newObserveClient(t *testing.T) *http.Client {
 }
 
 func observeJSON(t *testing.T, client *http.Client, method, endpoint, body, requestID string) (int, []byte) {
+	return observeJSONWithHeaders(t, client, method, endpoint, body, requestID, nil)
+}
+
+func observeJSONWithHeaders(t *testing.T, client *http.Client, method, endpoint, body, requestID string, headers map[string]string) (int, []byte) {
 	t.Helper()
 	var reader io.Reader
 	if body != "" {
@@ -178,6 +262,9 @@ func observeJSON(t *testing.T, client *http.Client, method, endpoint, body, requ
 	}
 	if requestID != "" {
 		req.Header.Set("X-Request-ID", requestID)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
 	}
 	response, err := client.Do(req)
 	if err != nil {

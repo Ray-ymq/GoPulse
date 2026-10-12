@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
@@ -93,6 +95,7 @@ const (
 	maximumMySQLConnLifetime             = time.Hour
 	minimumMySQLTotalOpenConns           = 1
 	maximumMySQLTotalOpenConns           = 1000
+	minimumBusinessStageCredentialBytes  = 32
 )
 
 // LookupFunc makes configuration loading deterministic in tests without
@@ -120,6 +123,7 @@ type Config struct {
 	VictoriaMetrics            VictoriaMetricsConfig
 	LogShip                    LogShipConfig
 	Trace                      TraceConfig
+	BusinessStage              BusinessStageConfig
 }
 
 type MySQLConfig struct {
@@ -202,6 +206,11 @@ type TraceConfig struct {
 	ShutdownTimeout time.Duration
 }
 
+type BusinessStageConfig struct {
+	Credential string
+	Endpoints  []string
+}
+
 func (c LogShipConfig) Enabled() bool { return c.Endpoint != "" }
 
 type AuthConfig struct {
@@ -249,6 +258,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	instanceID := valueOrDefault(lookup, "GOPULSE_INSTANCE_ID", "backend-local")
 	if err := componentmetrics.ValidateInstanceID(instanceID); err != nil {
 		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
+	}
+	businessStage, err := loadBusinessStageConfig(lookup, runtimeMode, serviceRole)
+	if err != nil {
+		return Config{}, err
 	}
 	replicaCount, err := replicaCountValue(lookup)
 	if err != nil {
@@ -539,6 +552,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		VictoriaMetrics:            victoriaMetrics,
 		LogShip:                    logShip,
 		Trace:                      traceConfig,
+		BusinessStage:              businessStage,
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
@@ -546,6 +560,50 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			CookieSecure: authCookieSecure,
 		},
 	}, nil
+}
+
+func loadBusinessStageConfig(lookup LookupFunc, runtimeMode RuntimeMode, role ServiceRole) (BusinessStageConfig, error) {
+	credential, present := lookup("BUSINESS_STAGE_SERVICE_CREDENTIAL")
+	if !present || credential == "" {
+		if runtimeMode == RuntimeModeContainer {
+			return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_SERVICE_CREDENTIAL is required in container runtime")
+		}
+		var raw [minimumBusinessStageCredentialBytes]byte
+		if _, err := rand.Read(raw[:]); err != nil {
+			return BusinessStageConfig{}, errors.New("generate local business stage credential")
+		}
+		credential = hex.EncodeToString(raw[:])
+	}
+	if len([]byte(credential)) < minimumBusinessStageCredentialBytes || strings.ContainsAny(credential, "\r\n\t ") {
+		return BusinessStageConfig{}, fmt.Errorf("BUSINESS_STAGE_SERVICE_CREDENTIAL must contain at least %d bytes", minimumBusinessStageCredentialBytes)
+	}
+	config := BusinessStageConfig{Credential: credential}
+	if !role.RunsPlatform() || role == ServiceRoleCombined {
+		return config, nil
+	}
+	rawEndpoints, present := lookup("BUSINESS_STAGE_ENDPOINTS")
+	if !present || strings.TrimSpace(rawEndpoints) == "" {
+		if runtimeMode == RuntimeModeContainer {
+			return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_ENDPOINTS is required for the platform role")
+		}
+		rawEndpoints = "http://127.0.0.1:8080"
+	}
+	parts := strings.Split(rawEndpoints, ",")
+	if len(parts) < 1 || len(parts) > 2 {
+		return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_ENDPOINTS must contain at most two origins")
+	}
+	for _, raw := range parts {
+		origin := strings.TrimSpace(raw)
+		parsed, err := url.Parse(origin)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" {
+			return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_ENDPOINTS must contain HTTP origins")
+		}
+		if err := validateOriginHost(runtimeMode, "BUSINESS_STAGE_ENDPOINTS", parsed); err != nil {
+			return BusinessStageConfig{}, err
+		}
+		config.Endpoints = append(config.Endpoints, strings.TrimRight(origin, "/"))
+	}
+	return config, nil
 }
 
 func (cfg Config) HTTPAddress() string {

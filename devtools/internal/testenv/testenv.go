@@ -428,13 +428,13 @@ func (s *session) beginDiagnostics(mode, scope string, observe bool) {
 	secrets := []string{}
 	for key, value := range s.values {
 		upper := strings.ToUpper(key)
-		if value != "" && (strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "TOKEN") || strings.Contains(upper, "SECRET") || strings.Contains(upper, "COOKIE")) {
+		if value != "" && (strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "TOKEN") || strings.Contains(upper, "SECRET") || strings.Contains(upper, "CREDENTIAL") || strings.Contains(upper, "COOKIE")) {
 			secrets = append(secrets, value)
 		}
 	}
 	for key, value := range s.processEnv {
 		upper := strings.ToUpper(key)
-		if value != "" && (strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "TOKEN") || strings.Contains(upper, "SECRET") || strings.Contains(upper, "COOKIE")) {
+		if value != "" && (strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "TOKEN") || strings.Contains(upper, "SECRET") || strings.Contains(upper, "CREDENTIAL") || strings.Contains(upper, "COOKIE")) {
 			secrets = append(secrets, value)
 		}
 	}

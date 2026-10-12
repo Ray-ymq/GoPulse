@@ -24,6 +24,8 @@ const (
 	CodeCommandResultUnknown      Code = "command_result_unknown"
 	CodeCommandOutcomeUnknown     Code = "command_outcome_unknown"
 	CodeBusinessAsyncBacklog      Code = "business_async_backlog"
+	CodeBusinessStageBusy         Code = "business_stage_busy"
+	CodeBusinessStageUnavailable  Code = "business_stage_unavailable"
 	CodeNotificationNotFound      Code = "notification_not_found"
 	CodeSearchUnavailable         Code = "search_unavailable"
 	CodeMetricsUnavailable        Code = "metrics_unavailable"

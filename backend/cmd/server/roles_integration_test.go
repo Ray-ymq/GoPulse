@@ -307,6 +307,7 @@ func integrationEnvironment(t *testing.T) []string {
 	setDefaultEnvironment(&environment, "MYSQL_MAX_IDLE_CONNS", "2")
 	setDefaultEnvironment(&environment, "MYSQL_TOTAL_MAX_OPEN_CONNS", "60")
 	setDefaultEnvironment(&environment, "AUTH_JWT_SECRET", "integration-jwt-secret-at-least-32-bytes-long")
+	setDefaultEnvironment(&environment, "BUSINESS_STAGE_SERVICE_CREDENTIAL", "integration-business-stage-service-credential-32-bytes")
 	setDefaultEnvironment(&environment, "AUTH_JWT_TTL", "2h")
 	setDefaultEnvironment(&environment, "AUTH_COOKIE_NAME", "gopulse_integration_session")
 	setDefaultEnvironment(&environment, "AUTH_COOKIE_SECURE", "false")
@@ -317,7 +318,7 @@ func integrationEnvironment(t *testing.T) []string {
 
 func roleEnvironment(base []string, role string, concurrency int) []string {
 	environment := append([]string(nil), base...)
-	for _, key := range []string{"BACKEND_SERVICE_ROLE", "HTTP_PORT", "GOPULSE_INSTANCE_ID", "BACKEND_HTTP_MAX_CONCURRENCY", "PLATFORM_API_HTTP_MAX_CONCURRENCY", "MYSQL_MAX_OPEN_CONNS", "PLATFORM_API_MYSQL_MAX_OPEN_CONNS"} {
+	for _, key := range []string{"BACKEND_SERVICE_ROLE", "HTTP_PORT", "GOPULSE_INSTANCE_ID", "BACKEND_HTTP_MAX_CONCURRENCY", "PLATFORM_API_HTTP_MAX_CONCURRENCY", "MYSQL_MAX_OPEN_CONNS", "PLATFORM_API_MYSQL_MAX_OPEN_CONNS", "BUSINESS_STAGE_ENDPOINTS"} {
 		unsetEnvironment(&environment, key)
 	}
 	setEnvironment(&environment, "BACKEND_SERVICE_ROLE", role)

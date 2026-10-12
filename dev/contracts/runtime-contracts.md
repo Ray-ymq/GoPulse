@@ -90,6 +90,16 @@ therefore returns `404`. The deployed `backend` and `backend-2` services use
 digest. Their private container namespaces may reuse the Backend probe and
 metrics ports without adding host ports.
 
+The business and platform roles share the sensitive
+`BUSINESS_STAGE_SERVICE_CREDENTIAL` runtime key. Platform-only containers also
+require `BUSINESS_STAGE_ENDPOINTS`, a maximum-two-origin list constrained to
+trusted business service DNS names. The platform stage adapter makes one
+uncached private request per query; business stage reads use two immediate
+query slots, platform RPC uses four, and the database/RPC/platform deadlines
+are 500 ms/2 s/3 s. The service credential is generated and retained by the
+private lifecycle environment and is redacted from diagnostics and lifecycle
+logs.
+
 Backend capacity diagnostics are fixed and low-cardinality: in-flight requests,
 the configured concurrency limit, and rejected requests are exported as
 `gopulse_backend_http_requests_in_flight`,
