@@ -76,9 +76,11 @@ func (handler *BusinessStageHandler) Handle(c *gin.Context) {
 func parseBusinessStageQuery(c *gin.Context, public bool, now time.Time) (businessstate.StageQuery, error) {
 	values := c.Request.URL.Query()
 	allowed := map[string]bool{"epoch": true, "command_id": true, "event_id": true, "post_id": true, "check_visibility": true}
-	if public {
-		allowed["from"], allowed["to"], allowed["include"] = true, true, true
-	}
+	// The platform adapter forwards the bounded evidence selector to the
+	// business role. Keep the private endpoint's parser in lockstep with the
+	// public contract so a separated platform can request the same logs/trace
+	// evidence as a combined role.
+	allowed["from"], allowed["to"], allowed["include"] = true, true, true
 	for key, list := range values {
 		if !allowed[key] || len(list) != 1 || list[0] == "" || !utf8.ValidString(list[0]) {
 			return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage query parameters are invalid")
@@ -105,30 +107,28 @@ func parseBusinessStageQuery(c *gin.Context, public bool, now time.Time) (busine
 		}
 		query.CheckVisibility = raw == "true"
 	}
-	if public {
-		include := singleQueryValue(values, "include")
-		if include != "" {
-			for _, source := range strings.Split(include, ",") {
-				if source != businessstate.StageSourceLogs && source != businessstate.StageSourceTrace || containsString(query.LogSources, source) {
-					return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence sources are invalid")
-				}
-				query.LogSources = append(query.LogSources, source)
+	include := singleQueryValue(values, "include")
+	if include != "" {
+		for _, source := range strings.Split(include, ",") {
+			if source != businessstate.StageSourceLogs && source != businessstate.StageSourceTrace || containsString(query.LogSources, source) {
+				return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence sources are invalid")
 			}
+			query.LogSources = append(query.LogSources, source)
 		}
-		fromRaw, toRaw := singleQueryValue(values, "from"), singleQueryValue(values, "to")
-		if fromRaw != "" || toRaw != "" {
-			if fromRaw == "" || toRaw == "" || len(query.LogSources) == 0 {
-				return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence window is invalid")
-			}
-			var parseErr error
-			query.LogFrom, parseErr = time.Parse(time.RFC3339Nano, fromRaw)
-			if parseErr != nil || query.LogFrom.Location() != time.UTC {
-				return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence window is invalid")
-			}
-			query.LogTo, parseErr = time.Parse(time.RFC3339Nano, toRaw)
-			if parseErr != nil || query.LogTo.Location() != time.UTC || !query.LogFrom.Before(query.LogTo) || query.LogTo.Sub(query.LogFrom) > 24*time.Hour || query.LogTo.After(now.Add(5*time.Minute)) {
-				return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence window is invalid")
-			}
+	}
+	fromRaw, toRaw := singleQueryValue(values, "from"), singleQueryValue(values, "to")
+	if fromRaw != "" || toRaw != "" {
+		if fromRaw == "" || toRaw == "" || len(query.LogSources) == 0 {
+			return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence window is invalid")
+		}
+		var parseErr error
+		query.LogFrom, parseErr = time.Parse(time.RFC3339Nano, fromRaw)
+		if parseErr != nil || query.LogFrom.Location() != time.UTC {
+			return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence window is invalid")
+		}
+		query.LogTo, parseErr = time.Parse(time.RFC3339Nano, toRaw)
+		if parseErr != nil || query.LogTo.Location() != time.UTC || !query.LogFrom.Before(query.LogTo) || query.LogTo.Sub(query.LogFrom) > 24*time.Hour || query.LogTo.After(now.Add(5*time.Minute)) {
+			return businessstate.StageQuery{}, apperror.New(apperror.CodeValidationFailed, "business stage evidence window is invalid")
 		}
 	}
 	if err := query.Validate(); err != nil {
