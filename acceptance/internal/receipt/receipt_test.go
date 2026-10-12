@@ -126,3 +126,32 @@ func TestV1SensitiveFieldIsRejected(t *testing.T) {
 		t.Fatalf("sensitive field was accepted: %v", err)
 	}
 }
+
+func TestFormalRawFactsAreBoundedAndFailedCasesMayPreservePartialChecks(t *testing.T) {
+	document, rawDirectory := validV1Document(t)
+	document.Status = "failed"
+	document.V1.Cases[0].Status = "failed"
+	document.V1.Cases[0].FailureClass = "infrastructure_failure"
+	document.V1.Cases[0].ActualAction = "created the identity before the controlled fault was unavailable"
+	evidence := RawEvidence{CaseID: "V01", Identity: document.V1.Cases[0].Identity, Checks: RawChecks{Created: true}, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Facts: []RawFact{{Name: "requests", Value: 1}, {Name: "commands", Value: 1}}}
+	path := filepath.Join(rawDirectory, "cases", "V01.json")
+	if err := WriteRawEvidence(path, evidence); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := DigestFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.V1.Cases[0].Raw.SHA256 = digest
+	receiptPath := filepath.Join(t.TempDir(), "failed.json")
+	if err := WriteAtomic(receiptPath, document); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyV1(receiptPath); err != nil {
+		t.Fatalf("failed partial raw evidence was rejected: %v", err)
+	}
+	evidence.Facts = append(evidence.Facts, RawFact{Name: "requests", Value: 2})
+	if err := WriteRawEvidence(filepath.Join(t.TempDir(), "invalid.json"), evidence); err == nil {
+		t.Fatal("duplicate raw fact was accepted")
+	}
+}

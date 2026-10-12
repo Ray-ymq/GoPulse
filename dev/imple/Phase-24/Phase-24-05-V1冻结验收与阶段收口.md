@@ -1,8 +1,8 @@
 # Phase-24-05：V1 冻结验收与阶段收口
 
-> 状态：候选 runtime gate 与 V1 preflight 已通过，但未完成（2026-10-12，正式 V01～V12 工具未实现）。完成版本 `2.6.5`，分支 `develop/2.6.5`。
+> 状态：候选 runtime gate 与 V1 preflight 已通过，但未完成（2026-10-12，formal V01～V12 driver 已补齐并通过 acceptance 模块自测，尚未绑定新候选执行正式矩阵）。完成版本 `2.6.5`，分支 `develop/2.6.5`。
 > 实际产品候选：04 已完成的 `2.6.4`，完整 revision 与不可变 Bundle/manifest 在开工时记录。
-> 实际结果：修复 lifecycle direct fixture 后，候选构建/runtime gate、preflight V01 和 Verify Evidence 通过；当前 formal runner 仍在 V01 baseline 后明确返回未实现，正式 V01～V12 未开始，不能收口。
+> 实际结果：修复 lifecycle direct fixture 后，候选构建/runtime gate、preflight V01 和 Verify Evidence 通过；formal runner 现在执行 native V02～V12 driver、写入有界 raw facts，并对不可控边界记录 `infrastructure_failure`，但尚未在新候选上运行，不能收口。
 
 ## 1. 进入条件与允许文件
 
@@ -18,7 +18,9 @@
 | 成功完成元数据 | `VERSION`、`.env.example` 的产品版本字段、两个前端 `package.json` / `package-lock.json`、`deploy/runtime-contracts.json` 的产品版本字段 |
 | 必要导航 | 阶段/设计索引及相关现有入口，只修真实链接，不复制版本、案例或状态 |
 
-产品、测试、工具源码、正式配置和历史回执不在本批修改范围。
+产品、正式配置和历史回执不在本批修改范围。此前正式入口缺少 V02～V12 driver；本次按用户明确要求，
+在尚未启动新的正式矩阵前补齐 acceptance driver、raw facts 校验和 fault fixture 自测，不降低固定案例、
+证据、预算或清理标准。该实现提交后必须重新构建并绑定新的候选，不能复用旧候选或旧回执。
 产品失败或工具需要修正时，保存 failed/not_started、原始证据和清理结果，
 停止矩阵，按仓库规则另行明确有效修复合同后执行；不能改完候选继续用旧 receipt。
 
@@ -99,7 +101,9 @@ Trace 结果按受控采样/文件输出范围解释，不声称公共 Trace 查
 
 ## 4. 固定命令与证据核验
 
-下面 V1 扩展是 04 的待实现交付，05 开工时必须验证已存在。
+下面 V1 扩展已在本次正式矩阵启动前补齐：formal runner 负责候选栈上的 native V02～V12 动作、
+受限持久事实和每案例 raw 写入；V01 仍由浏览器基线负责。重新执行前必须从包含该实现的 revision
+构建新的 Bundle/manifest/镜像，并以新的 receipt 绑定它。
 在冻结 checkout 的仓库根运行，PHASE24_* 均为登记的私有绝对路径；
 BASE_REF 固定到规划/开发检查使用的具体 revision，不在矩阵中漂移。
 
@@ -117,7 +121,8 @@ rtk proxy make verify-business SCOPE=v1 MANIFEST="$PHASE24_MANIFEST" RECEIPT="$P
 
 直接检查有效且相关源码/依赖/配置/身份未变时引用原记录，不无条件重跑；
 需要补跑的检查及原因在日志登记。package 的既有 runtime 检查不代替 V01～V12。
-V11 原生场景内部调用现有 lifecycle/backup/restore 能力，不另执行无关完整历史矩阵。
+V11 的空目标 lifecycle/backup/restore hand-off 尚未接入当前 driver；正式执行前若仍不可控，必须保留
+`infrastructure_failure`，不能以普通创建和阶段查询代替该固定子项。
 
 原始证据保留 HTTP 台账、最小事实/义务/完成查询、Broker/代理时序、实际 ES 结果、
 来源质量、所需 Go 输出、恢复 journal 的安全摘要、资源前后清单和关键 hash。

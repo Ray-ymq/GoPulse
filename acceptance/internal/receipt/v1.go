@@ -116,11 +116,20 @@ type RawChecks struct {
 	PreciseLogsLink bool `json:"precise_logs_link"`
 }
 
+// RawFact is a small numeric observation emitted by a formal case. Keeping
+// this list typed and bounded lets raw evidence carry counts without becoming
+// a dump of request bodies, SQL, credentials, or dependency payloads.
+type RawFact struct {
+	Name  string `json:"name"`
+	Value int64  `json:"value"`
+}
+
 type RawEvidence struct {
 	CaseID     string     `json:"case_id"`
 	Identity   V1Identity `json:"identity"`
 	Checks     RawChecks  `json:"checks"`
 	CapturedAt string     `json:"captured_at"`
+	Facts      []RawFact  `json:"facts,omitempty"`
 }
 
 type PublicationCase struct {
@@ -343,8 +352,14 @@ func VerifyV1(path string) (Document, error) {
 		if err := decodeStrict(data, &evidence); err != nil {
 			return Document{}, fmt.Errorf("parse V1 raw evidence for %s: %w", item.CaseID, err)
 		}
-		if evidence.CaseID != item.CaseID || evidence.Identity != item.Identity || !evidence.Checks.Created || !evidence.Checks.StagePage || !evidence.Checks.PreciseLogsLink || !validTime(evidence.CapturedAt) {
+		if err := validateRawEvidence(evidence); err != nil {
+			return Document{}, fmt.Errorf("validate V1 raw evidence for %s: %w", item.CaseID, err)
+		}
+		if evidence.CaseID != item.CaseID || evidence.Identity != item.Identity || !evidence.Checks.Created {
 			return Document{}, fmt.Errorf("V1 raw evidence does not match case %s", item.CaseID)
+		}
+		if item.Status == "passed" && (!evidence.Checks.StagePage || !evidence.Checks.PreciseLogsLink) {
+			return Document{}, fmt.Errorf("V1 passed raw evidence is incomplete for case %s", item.CaseID)
 		}
 	}
 	return document, nil
@@ -359,7 +374,48 @@ func ReadRawEvidence(path string) (RawEvidence, error) {
 	if err := decodeStrict(data, &evidence); err != nil {
 		return RawEvidence{}, err
 	}
+	if err := validateRawEvidence(evidence); err != nil {
+		return RawEvidence{}, err
+	}
 	return evidence, nil
+}
+
+// WriteRawEvidence publishes one private raw case file atomically. Formal
+// runners use this instead of writing JSON themselves so preflight and formal
+// evidence have identical permissions and publication semantics.
+func WriteRawEvidence(path string, evidence RawEvidence) error {
+	if err := validateRawEvidence(evidence); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(evidence, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".raw-")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(raw); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 func DigestFile(path string) (string, error) {
@@ -472,6 +528,44 @@ func validateSensitiveJSON(raw []byte) error {
 		return err
 	}
 	return validateSensitive(value)
+}
+
+var v1RawFactNames = map[string]bool{
+	"applications":             true,
+	"broker_confirmed":         true,
+	"broker_published":         true,
+	"cancelled":                true,
+	"commands":                 true,
+	"conflicts":                true,
+	"cleanup_removed":          true,
+	"epoch_changed":            true,
+	"fault_requests":           true,
+	"http_success":             true,
+	"http_unavailable":         true,
+	"open_requirements_after":  true,
+	"open_requirements_before": true,
+	"platform_unavailable":     true,
+	"posts":                    true,
+	"redelivered":              true,
+	"recovery_seconds":         true,
+	"requirements":             true,
+	"requests":                 true,
+	"unique_events":            true,
+	"unique_posts":             true,
+}
+
+func validateRawEvidence(evidence RawEvidence) error {
+	if evidence.CaseID == "" || !v1UUID.MatchString(evidence.Identity.DataEpoch) || !v1UUID.MatchString(evidence.Identity.CommandID) || !v1UUID.MatchString(evidence.Identity.EventID) || evidence.Identity.PostID == 0 || !validTime(evidence.CapturedAt) {
+		return errors.New("V1 raw evidence identity or timestamp is invalid")
+	}
+	seen := make(map[string]bool, len(evidence.Facts))
+	for _, fact := range evidence.Facts {
+		if !v1RawFactNames[fact.Name] || seen[fact.Name] || fact.Value < 0 {
+			return fmt.Errorf("V1 raw fact %q is invalid", fact.Name)
+		}
+		seen[fact.Name] = true
+	}
+	return nil
 }
 
 func validTime(value string) bool {

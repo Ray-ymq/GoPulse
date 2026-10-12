@@ -81,7 +81,8 @@ Logs 跳转只带原始 selector、`data_epoch` 及有界 `from/to`，Logs 服�
 原生 `make verify-business SCOPE=v1` 保留旧 business suite；V1 模式要求同一 revision 的完整 release manifest、
 Bundle 和 linux/amd64 镜像 digest，并把 `mode=preflight|formal`、逐 case 状态、业务身份、关键时刻、raw 路径/sha256
 和清理事实写进现有 `gopulse.acceptance.v1` 私有回执。`PREFLIGHT=1` 只允许一条真实创建→阶段页面链路，不能冒充
-V01～V12；`VERIFY_EVIDENCE=1` 只读取既有 receipt/raw，`PUBLICATION` 只生成白名单摘要。validator 拒绝未开始案例
+V01～V12；formal 使用候选栈上的 native driver 执行 V02～V12，并只在 raw 中保存固定名称的有界数值事实；
+不可控故障边界必须记为 `infrastructure_failure`，前置失败后的案例保持 `not_started`。`VERIFY_EVIDENCE=1` 只读取既有 receipt/raw，`PUBLICATION` 只生成白名单摘要。validator 拒绝未开始案例
 冒充完成、缩短故障/恢复窗口、候选漂移、raw hash 不符、未知敏感字段和清理失败。故障 proxy 位于 acceptance
 私有 fixture，不能被产品路由装配。
 

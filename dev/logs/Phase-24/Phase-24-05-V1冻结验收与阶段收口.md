@@ -1,6 +1,6 @@
 # Phase-24-05：V1 冻结验收与阶段收口
 
-> 状态：未完成。2026-10-12 首次候选在 lifecycle failure matrix 的低磁盘子项发生 `infrastructure_failure`；修复验收 fixture 后，候选 runtime gate、V1 preflight 和 Verify Evidence 通过，但正式 V01～V12 未开始，不产生 `validation_complete` 或产品能力结论。
+> 状态：未完成。2026-10-12 首次候选在 lifecycle failure matrix 的低磁盘子项发生 `infrastructure_failure`；修复验收 fixture 后，候选 runtime gate、V1 preflight 和 Verify Evidence 通过。随后按用户明确要求补齐 formal V01～V12 native driver，但尚未绑定新候选执行正式矩阵，不产生 `validation_complete` 或产品能力结论。
 > 执行分支：`develop/2.6.5`；候选产品版本：`2.6.4`。
 
 ## 实际执行范围
@@ -25,11 +25,13 @@
 
 - `PREFLIGHT=1` 已通过：回执 `.run/phase24-05/preflight-receipt-701e4ff-v1.json` 为 `status=passed`、`mode=preflight`、候选 revision 为 `701e4ff5e2ad4d77e55c23fb2bab361d183346f8`，V01 为 `passed`，raw SHA-256 为 `sha256:bcc3d09eba8536a2b6e7a6accc06d4b6dc0f892bd55f6fcc9bf6c04583a4efc1`，顶层和 V01 cleanup 均通过。
 - preflight 的 `VERIFY_EVIDENCE=1` 已通过；它只核验 preflight receipt/raw，不等价于正式矩阵。
-- 未执行正式 V1 命令：当前 `acceptance/internal/scenario/v1.go` 的 formal 分支在 V01 baseline 后明确返回 `formal V1 matrix is incomplete: Phase-24-05 actions remain not_started`，尚未实现 V02～V12 固定动作。按本分方案“正式矩阵中不得开发工具”的约束，不能启动半实现正式矩阵，也不能拼接旧回执。
+- 首次正式入口探测未执行矩阵：当时 `acceptance/internal/scenario/v1.go` 的 formal 分支在 V01 baseline 后明确返回 `formal V1 matrix is incomplete: Phase-24-05 actions remain not_started`，因此 V02～V12 没有被误标为通过，也没有拼接旧回执。
+- 后续实施已补齐 `acceptance/internal/scenario/v1_driver.go`：V02～V12 使用候选栈上的原生 HTTP、Compose 服务窗口和 MySQL 最小持久事实查询；`receipt` 增加固定名称的非负 numeric facts 与私有 raw 原子写入/校验；response-loss fixture 只丢真实 201 发帖响应，fixture 自测覆盖冲突和非发帖响应不被丢弃。driver 对没有真实提交身份的案例保持 `not_started`，对已有身份但缺少确定故障控制的案例记录 `failed/infrastructure_failure`，前置失败后的后续案例保持 `not_started`。
+- 本次源码实施已通过 acceptance `go test ./...`、`go vet ./...`、模块 test/race/check，以及相对基线新增 lint 为 0；这些是工具自测，不是冻结候选正式验收。
 - 因此正式 V01～V12、正式 receipt、publication 和 `2.6.5` 完成元数据均未产生；`VERSION`、环境版本、前端 package/lock、runtime contract 产品版本仍为 `2.6.4`。这次 preflight/runtime 结果不声明完整 V1 能力达标。
 
 ## 清理、证据与后续
 
 - 本批 acceptance/lifecycle 项目、容器、网络和卷已按归属清理；registry 容器和本批候选镜像标签也已显式清理，没有使用全局 prune。候选 Bundle、manifest、preflight raw 和私有失败/修复摘要保留在 `.run/phase24-05/` 供复核，不入 Git。
 - 首次失败证据仍保留在 `.run/phase24-05/failure-evidence.json`；修复后 runtime/preflight 事实摘要保留在 `.run/phase24-05/repair-evidence.json`。未以新 receipt 重置正式预算。
-- 后续必须先为 V02～V12 补齐并审定正式验收工具/合同，再新建正式目录和 receipt 执行；不能把本次 preflight 或 runtime gate 改称阶段完成。
+- 下一步必须从包含上述实现的提交重新构建 Bundle/manifest/镜像，建立新的正式目录和 receipt，再执行 formal 与 Verify Evidence；旧候选 `701e4ff...` 的 preflight 不能复用于新工具，也不能把本次 preflight 或 runtime gate 改称阶段完成。当前已知 V04/V05/V06/V08/V11/V12 的精确故障/恢复控制仍会在 driver 中如实形成 `infrastructure_failure`，除非先按合同补齐其受控 fixture/恢复接线。

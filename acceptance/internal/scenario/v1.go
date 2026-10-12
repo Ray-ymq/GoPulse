@@ -27,10 +27,9 @@ var v1PlannedActions = map[string]string{
 	"V12": "cancel an in-flight query and verify owned cleanup and evidence closure",
 }
 
-// BusinessV1 owns the new candidate-pinned V1 entry point. The formal runner
-// records the complete case plan but leaves the fault cases not_started until
-// Phase-24-05 supplies their frozen actions; it never turns that gap into a
-// passing receipt.
+// BusinessV1 owns the candidate-pinned V1 entry point. Preflight remains the
+// short browser contract; formal mode executes the native case driver and
+// records any unavailable fault control as an infrastructure failure.
 func BusinessV1(root string, options Options) (returnErr error) {
 	if options.Keep {
 		return fmt.Errorf("V1 acceptance does not allow --keep")
@@ -155,10 +154,11 @@ func runV1Stack(root string, options Options, manifestPath, receiptPath string, 
 		return err
 	}
 	if mode == receipt.V1ModeFormal {
-		err := fmt.Errorf("formal V1 matrix is incomplete: Phase-24-05 actions remain not_started")
-		session.SetV1Evidence(evidence)
-		session.SetStatus("failed", err)
-		return err
+		if err := runV1Formal(session, &evidence, rawDirectory, deadline); err != nil {
+			session.SetV1Evidence(evidence)
+			session.SetStatus("failed", err)
+			return err
+		}
 	}
 	session.SetV1Evidence(evidence)
 	session.SetStatus("passed", nil)
@@ -249,7 +249,11 @@ func verifyV1Evidence(root, manifestPath, receiptPath, publicationPath string) e
 func newV1Evidence(candidate receipt.CandidateIdentity, mode string, budget time.Duration, rawDirectory string) receipt.V1Evidence {
 	ids := []string{"GOPULSE_ACCEPTANCE_BUDGET", "GOPULSE_OBSERVABILITY_ADMIN_USERNAME", "GOPULSE_OBSERVABILITY_PASSWORD", "GOPULSE_OBSERVABILITY_USER_USERNAME", "GOPULSE_V1_CASE_EVIDENCE", "GOPULSE_V1_CASE_ID"}
 	sort.Strings(ids)
-	evidence := receipt.V1Evidence{Version: receipt.V1EvidenceVersion, Mode: mode, Candidate: candidate, Source: receipt.V1SourcePinned, Contract: receipt.V1Contract, Tool: candidate.Tool, ConfigSHA256: candidate.ConfigSHA256, RawDirectory: rawDirectory, Environment: ids, Load: receipt.LoadProfile{Clients: 1, MaxInFlight: 1, BudgetSeconds: int64(budget / time.Second)}}
+	clients, maxInFlight := 1, 1
+	if mode == receipt.V1ModeFormal {
+		clients, maxInFlight = 10, 10
+	}
+	evidence := receipt.V1Evidence{Version: receipt.V1EvidenceVersion, Mode: mode, Candidate: candidate, Source: receipt.V1SourcePinned, Contract: receipt.V1Contract, Tool: candidate.Tool, ConfigSHA256: candidate.ConfigSHA256, RawDirectory: rawDirectory, Environment: ids, Load: receipt.LoadProfile{Clients: clients, MaxInFlight: maxInFlight, BudgetSeconds: int64(budget / time.Second)}}
 	caseIDs := []string{"V01"}
 	if mode == receipt.V1ModeFormal {
 		caseIDs = append([]string(nil), receipt.V1CaseIDs...)

@@ -26,8 +26,10 @@ make verify-business SCOPE=v1 \
 任一 asset/image/plugin 校验失败都会在启动栈前失败。
 
 `PREFLIGHT=1` 运行 owned Compose 的 smoke、账号准备和新的真实浏览器链路：创建一条帖子，进入业务阶段页，
-验证精确 Logs 跳转及普通用户拒绝，并写入唯一 `V01` raw。它不是正式矩阵；formal 模式会保存完整 V01～V12
-计划，未实现的 Phase-24-05 案例明确为 `not_started`，因此不会产生 passed 回执。
+验证精确 Logs 跳转及普通用户拒绝，并写入唯一 `V01` raw。它不是正式矩阵；formal 模式会执行完整 V01～V12
+案例计划：V01 沿用浏览器基线，V02～V12 使用候选栈上的受限原生 HTTP/Compose/持久事实 driver，并为每个已取得
+真实提交身份的案例写入有界 numeric facts。当前候选尚未执行 formal；driver 无法控制的故障边界如实记为
+`infrastructure_failure`，前置失败后的案例保持 `not_started`，因此不能产生 passed 回执。
 
 证据核验不启动 Docker：
 
@@ -46,8 +48,8 @@ make verify-business SCOPE=v1 \
 
 外壳仍是 `gopulse.acceptance.v1`。`v1_evidence` 包含 candidate/manifest/Bundle/source/contract/tool/config、
 epoch/command/event/post/generation/revision、环境变量名和受限负载摘要。每个案例记录 planned/actual action、
-`passed|failed|not_started`、失败分类、关键时刻、窗口、raw 相对路径及 `sha256:` checksum。raw 仅是非敏感的
-阶段浏览器断言，不包含正文、digest、Cookie、凭证或原始 SQL。
+`passed|failed|not_started`、失败分类、关键时刻、窗口、raw 相对路径及 `sha256:` checksum。preflight raw 是非敏感的
+阶段浏览器断言；formal raw 只允许固定名称的非负数值事实，均不包含正文、digest、Cookie、凭证或原始 SQL。
 
 预检和完整矩阵必须使用不同的实际 candidate/revision；本批不编辑回执、不换绑制品，也不把 timeout 参数当作
 跨准备、浏览器、诊断和清理的总预算证明。
