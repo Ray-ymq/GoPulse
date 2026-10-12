@@ -10,6 +10,18 @@
 - 查询失败而保留旧记录时，旧结果不是最新事实。使用刷新/重试；告警 `unknown` / `stale` 不代表恢复。
 - HTTP loopback 安装使用 HttpOnly、Path=/、SameSite=Lax cookie，Secure=false；这不是公网 HTTPS 支持声明。非本地配置应按 Backend 安全约束使用 Secure cookie 和 HTTPS。浏览器不存储明文登录凭据。写请求必须同源：edge 保留含端口 Host，并覆盖转发协议；Backend 拒绝不匹配的 Origin 或跨源 Fetch Metadata。无浏览器来源头的自动化 API 客户端保持原有合同。
 
+## 发帖安全重试
+
+普通用户的 NewPostView 在新建发帖前读取当前 `data_epoch`，生成配对的
+`Idempotency-Key` 和 epoch，并把当前用户、规范化正文、首次发送时间和服务端提供的
+7 日窗口放进该用户的 `sessionStorage` 草稿。刷新或传输失败会复用同一身份；首次发送后
+正文锁定，不能修改内容后继续使用旧 key。结果未知时先显示查证入口，查证无结果仍可用
+相同内容重试；超过窗口、epoch 变化或用户明确选择“开始新的发帖”才结束该命令。
+
+草稿不保存 Cookie、token、密码、key hash 或 request digest；成功查证后删除。退出登录、
+未授权恢复或切换到其他账号会清理对应账号草稿。命令成功但帖子已删除时，页面只显示结果
+不可读取，不把查证转换成第二篇帖子。
+
 ## 维护与验收
 
 `frontend-shared/` 是两个生产构建共同的基础输入；不要只复制一端样式或日期函数。静态 runtime 镜像不含 Node、开发 server 或源码映射。

@@ -149,8 +149,8 @@ func TestMigrationStateIntegration(t *testing.T) {
 	f.awaitMySQL()
 
 	validated := f.migrate("validate", 0)
-	if validated.State != "valid" || validated.BinaryTarget != 14 {
-		t.Fatal("expected valid migration source with the contracted target 14")
+	if validated.State != "valid" || validated.BinaryTarget != 15 {
+		t.Fatal("expected valid migration source with the contracted target 15")
 	}
 	f.receipt.BinaryTarget = validated.BinaryTarget
 	f.requireState(f.migrate("status", 0), "clean", -1)
@@ -206,13 +206,14 @@ func TestMigrationStateIntegration(t *testing.T) {
 	f.sql(fmt.Sprintf("UPDATE schema_migrations SET version=%d,dirty=0;", validated.BinaryTarget))
 	// Local-only reverse setup; this is not a product rollback/recovery mechanism.
 	f.migrate("down", 0)
+	f.migrate("down", 0)
 	f.requireState(f.migrate("status", 0), "behind", 13)
 	beforeFailedApply := f.sql("SHOW TABLES;")
 	f.sql("REVOKE CREATE ON gopulse.* FROM 'gopulse'@'%';")
 	if f.migrate("up", 8).Reason != "apply_failure" {
 		t.Fatal("DDL permission failure must report apply_failure")
 	}
-	f.requireState(f.migrate("status", 4), "dirty", validated.BinaryTarget)
+	f.requireState(f.migrate("status", 4), "dirty", 14)
 	if f.sql("SHOW TABLES;") != beforeFailedApply || f.sql(dataQuery) != baselineData ||
 		f.sql("SELECT version,dirty FROM schema_migrations;") != "14\t1" {
 		t.Fatal("DDL permission failure must preserve data and the dirty marker")
@@ -222,7 +223,7 @@ func TestMigrationStateIntegration(t *testing.T) {
 	}
 	f.receipt.Checks = append(f.receipt.Checks, "apply_failure_keeps_dirty")
 	f.sql("GRANT CREATE ON gopulse.* TO 'gopulse'@'%';")
-	// The target migration failed before changing schema 14, so normalize the
+	// Migration 14 failed before changing schema 14, so normalize the
 	// fixture to the last clean version and then exercise the only supported
 	// explicit dirty recovery path: migration 12.
 	f.sql("UPDATE schema_migrations SET version=13,dirty=0;")
@@ -233,10 +234,10 @@ func TestMigrationStateIntegration(t *testing.T) {
 	recovered := f.migrate("up", 0)
 	f.requireState(recovered, "current", validated.BinaryTarget)
 	if recovered.Changed == nil || !*recovered.Changed || f.sql("SHOW TABLES;") != baseline || f.sql(dataQuery) != baselineData ||
-		f.sql("SELECT version,dirty FROM schema_migrations;") != "14\t0" {
-		t.Fatal("explicit v12 resume must restore target 14 and preserve existing data")
+		f.sql("SELECT version,dirty FROM schema_migrations;") != "15\t0" {
+		t.Fatal("explicit v12 resume must restore target 15 and preserve existing data")
 	}
-	f.receipt.Checks = append(f.receipt.Checks, "explicit_v12_resume_then_v14")
+	f.receipt.Checks = append(f.receipt.Checks, "explicit_v12_resume_then_v15")
 	f.checksPassed = true
 }
 

@@ -150,6 +150,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	var dispatcher *outbox.Dispatcher
 	routes := backendhttp.APIRoutes{Authentication: authentication}
 	if profile.business {
+		if err := state.ActivateV2(context.Background(), "phase-24-02"); err != nil {
+			return nil, errors.New("activate business event v2")
+		}
 		redisClient = platform.NewRedis(cfg.Redis)
 		assembly.addResource("redis", redisClient.Close)
 
@@ -162,7 +165,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if err != nil {
 			return nil, errors.New("initialize RabbitMQ checker")
 		}
-		eventOutbox, err = outbox.NewRepository(mysqlClient.DB(), outbox.Options{MaxClaimBatch: cfg.Outbox.ClaimBatch, RetentionAccounting: state})
+		eventOutbox, err = outbox.NewRepository(mysqlClient.DB(), outbox.Options{MaxClaimBatch: cfg.Outbox.ClaimBatch, RetentionAccounting: state, EnableV2: true})
 		if err != nil {
 			return nil, errors.New("initialize business outbox repository")
 		}
@@ -193,10 +196,11 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if passwordErr != nil {
 			return nil, errors.New("initialize password manager")
 		}
+		users.WithOutbox(eventOutbox)
 		authService := auth.NewService(users, passwords, tokens)
 		authHandler := auth.NewHandler(authService, cookies, logger)
 		postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(state)
-		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, Logger: logger})
+		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts, postDetailCache).WithLogger(logger)
 		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)

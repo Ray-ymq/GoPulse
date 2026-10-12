@@ -49,6 +49,11 @@ type Options struct {
 	Backoff             Backoff
 	MaxClaimBatch       int
 	RetentionAccounting RetentionAccounting
+	// EnableV2 upgrades non-command events inside the caller's transaction.
+	// post.created is produced as v2 by the post command writer because it
+	// carries a command identity; all other existing producers can share this
+	// transaction-local upgrade path.
+	EnableV2 bool
 }
 
 type RetentionAccounting interface {
@@ -61,6 +66,7 @@ type Repository struct {
 	backoff       Backoff
 	maxClaimBatch int
 	accounting    RetentionAccounting
+	enableV2      bool
 }
 
 func NewRepository(database *sql.DB, options Options) (*Repository, error) {
@@ -82,7 +88,7 @@ func NewRepository(database *sql.DB, options Options) (*Repository, error) {
 	if maxClaimBatch < 1 || maxClaimBatch > DefaultMaxClaimBatch {
 		return nil, fmt.Errorf("%w: max claim batch must be between 1 and %d", ErrInvalidArgument, DefaultMaxClaimBatch)
 	}
-	return &Repository{database: database, clock: clock, backoff: backoff, maxClaimBatch: maxClaimBatch, accounting: options.RetentionAccounting}, nil
+	return &Repository{database: database, clock: clock, backoff: backoff, maxClaimBatch: maxClaimBatch, accounting: options.RetentionAccounting, enableV2: options.EnableV2}, nil
 }
 
 func ExponentialBackoff(attempt uint32) time.Duration {
@@ -113,6 +119,45 @@ func (repository *Repository) Insert(ctx context.Context, executor Executor, env
 func (repository *Repository) InsertWithMetadata(ctx context.Context, executor Executor, envelope bus.Envelope) (uint64, error) {
 	if executor == nil {
 		return 0, fmt.Errorf("%w: executor is required", ErrInvalidArgument)
+	}
+	if repository.enableV2 && envelope.SchemaVersion == bus.SchemaVersionV1 {
+		reader, ok := executor.(interface {
+			QueryRowContext(context.Context, string, ...any) *sql.Row
+		})
+		if !ok {
+			return 0, fmt.Errorf("%w: v2 event upgrade requires a transactional reader", ErrInvalidArgument)
+		}
+		var epoch, status, mode string
+		if err := reader.QueryRowContext(ctx, `
+			SELECT data_epoch, status, mode FROM business_environment
+			WHERE singleton=1 FOR SHARE`).Scan(&epoch, &status, &mode); err != nil {
+			return 0, errors.New("read business event activation")
+		}
+		if status != businessstate.StatusReady || mode != businessstate.ModeV2 {
+			return 0, errors.New("business event activation is not ready")
+		}
+		var err error
+		envelope, err = envelope.WithDataEpoch(epoch)
+		if err != nil {
+			return 0, fmt.Errorf("%w: upgrade business event", ErrInvalidArgument)
+		}
+	}
+	if repository.enableV2 && envelope.SchemaVersion == bus.SchemaVersionV2 {
+		reader, ok := executor.(interface {
+			QueryRowContext(context.Context, string, ...any) *sql.Row
+		})
+		if !ok {
+			return 0, fmt.Errorf("%w: v2 event validation requires a transactional reader", ErrInvalidArgument)
+		}
+		var epoch, status, mode string
+		if err := reader.QueryRowContext(ctx, `
+			SELECT data_epoch, status, mode FROM business_environment
+			WHERE singleton=1 FOR SHARE`).Scan(&epoch, &status, &mode); err != nil {
+			return 0, errors.New("read business event activation")
+		}
+		if status != businessstate.StatusReady || mode != businessstate.ModeV2 || envelope.DataEpoch != epoch {
+			return 0, businessstate.ErrEpochMismatch
+		}
 	}
 	if ctx != nil {
 		if wire := tracing.WireFromContext(ctx); wire.TraceParent != "" {

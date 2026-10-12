@@ -47,14 +47,20 @@ Frontend, Nginx or the business admission path.
 
 ## Phase 24 business epoch boundary
 
-The business roles also require migration 14 and a readable
-`business_environment`. Normal startup keeps `legacy_v1` and the v1 producer
-shape. Worker and Search Indexer perform a durable epoch/ready admission before
+The business roles also require migration 15 and a readable
+`business_environment`. The business role performs the durable v1 Outbox drain
+gate and then activates v2; new fact writers use the current epoch and the post
+command writer emits v2 `post.created`. Worker and Search Indexer perform a durable epoch/ready admission before
 processing a delivery; rejected legacy, stale or ungrounded v2 payloads are
 parked before acknowledgement, while a state-store failure requeues the original.
 The search indexer binds v2 completion evidence to the actual physical index
 generation and index epoch. Redis post-detail keys and search cursors are
 epoch-scoped when the business role is assembled.
+
+The activation gate only observes the durable MySQL Outbox rows. A rollout must
+stop old producers/consumers, drain or durably park broker unacked/retry/dead
+intent, and verify the current search generation before starting the v2 business
+role; those external dependency checks are not inferred from `published` alone.
 
 `search-init` normally invokes `/usr/local/bin/search-reindex --if-missing`.
 Lifecycle restore supplies the bounded one-shot `GOPULSE_RESTORE_OPERATION`,

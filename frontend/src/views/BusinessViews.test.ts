@@ -14,7 +14,7 @@ const post = {
   content: 'Frontend business flow',
   created_at: '2026-09-01T00:00:00Z',
   updated_at: '2026-09-01T00:00:00Z',
-  author: { id: 1, username: 'alice' },
+  author: { id: 1, username: 'alice', display_name: '' },
   comment_count: 1,
   like_count: 0,
   liked_by_me: false, edited_at: null, content_revision: 1, bookmarked_by_me: false,
@@ -58,7 +58,25 @@ describe('business views', () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const path = pathOf(input)
       if (path.endsWith('/users/me')) return Promise.resolve(jsonResponse({ data: user }))
-      return Promise.resolve(jsonResponse({ data: post }, 201))
+      if (path.endsWith('/post-commands/context')) return Promise.resolve(jsonResponse({
+        data: {
+          data_epoch: '123e4567-e89b-12d3-a456-426614174000',
+          retry_window_seconds: 604800,
+          retry_window_until: '2026-12-08T00:00:00Z',
+        },
+      }))
+      return Promise.resolve(jsonResponse({
+        data: post,
+        meta: {
+          command_id: '123e4567-e89b-12d3-a456-426614174001',
+          event_id: '123e4567-e89b-12d3-a456-426614174002',
+          data_epoch: '123e4567-e89b-12d3-a456-426614174000',
+          post_id: post.id,
+          committed_at: '2026-09-01T00:00:00Z',
+          replayed: false,
+          resource_state: 'available',
+        },
+      }, 201))
     })
     vi.stubGlobal('fetch', fetchMock)
     const router = await authenticatedRouter('/posts/new')

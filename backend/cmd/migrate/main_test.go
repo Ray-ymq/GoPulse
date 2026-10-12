@@ -25,9 +25,9 @@ func TestSchemaStates(t *testing.T) {
 		dirty   bool
 		want    string
 	}{
-		{-1, false, "clean"}, {13, false, "behind"}, {14, false, "current"}, {12, true, "dirty"}, {15, false, "ahead"}, {15, true, "ahead"},
+		{-1, false, "clean"}, {14, false, "behind"}, {15, false, "current"}, {12, true, "dirty"}, {16, false, "ahead"}, {16, true, "ahead"},
 	} {
-		if got := schemaState(tc.version, tc.dirty, 14); got != tc.want {
+		if got := schemaState(tc.version, tc.dirty, 15); got != tc.want {
 			t.Fatalf("state = %s, want %s", got, tc.want)
 		}
 	}
@@ -37,7 +37,7 @@ func TestValidateDoesNotRequireDatabase(t *testing.T) {
 	if err := run([]string{"validate"}, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), `"binary_target":14`) {
+	if !strings.Contains(output.String(), `"binary_target":15`) {
 		t.Fatal(output.String())
 	}
 }

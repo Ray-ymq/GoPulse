@@ -34,12 +34,14 @@ const (
 )
 
 var (
-	ErrInvalidArgument   = errors.New("business state argument is invalid")
-	ErrNotReady          = errors.New("business state is not ready")
-	ErrEpochMismatch     = errors.New("business event belongs to another data epoch")
-	ErrBudgetExceeded    = errors.New("business async budget is exhausted")
-	ErrParkingCapacity   = errors.New("business message parking capacity is exhausted")
-	ErrRequirementAbsent = errors.New("business event requirement is absent")
+	ErrInvalidArgument      = errors.New("business state argument is invalid")
+	ErrNotReady             = errors.New("business state is not ready")
+	ErrEpochMismatch        = errors.New("business event belongs to another data epoch")
+	ErrBudgetExceeded       = errors.New("business async budget is exhausted")
+	ErrParkingCapacity      = errors.New("business message parking capacity is exhausted")
+	ErrRequirementAbsent    = errors.New("business event requirement is absent")
+	ErrCommandAlreadyExists = errors.New("business command already exists")
+	ErrActivationNotDrained = errors.New("business v1 activation drain is incomplete")
 )
 
 type Environment struct {
@@ -208,6 +210,16 @@ func validateRequirement(requirement Requirement) error {
 }
 
 func validateApplication(application Application) error {
+	if err := validateApplicationLookup(application); err != nil {
+		return err
+	}
+	if application.Result != "applied" && application.Result != "no_effect_resource_absent" {
+		return fmt.Errorf("%w: application result is invalid", ErrInvalidArgument)
+	}
+	return nil
+}
+
+func validateApplicationLookup(application Application) error {
 	if err := validateRequirement(Requirement{
 		DataEpoch: application.DataEpoch, EventID: application.EventID,
 		Consumer: application.Consumer, RoutingContractRevision: application.RoutingContractRevision,
@@ -216,9 +228,6 @@ func validateApplication(application Application) error {
 	}
 	if err := validateText(application.ProjectionGeneration, "projection generation", 255); err != nil {
 		return err
-	}
-	if application.Result != "applied" && application.Result != "no_effect_resource_absent" {
-		return fmt.Errorf("%w: application result is invalid", ErrInvalidArgument)
 	}
 	return nil
 }

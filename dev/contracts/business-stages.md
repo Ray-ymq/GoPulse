@@ -1,16 +1,23 @@
 # 业务代际、搜索完成与异步留存
 
-Phase-24-01 建立业务阶段的持久基础。数据库 migration 14 是唯一结构来源；
+Phase-24-01 建立业务阶段的持久基础，Phase-24-02 以 migration 15 扩展 Outbox
+约束；`backend/migrations` 是唯一结构来源。
 `business_environment` 保存唯一当前 `data_epoch`、`ready/restoring` 状态、
 `legacy_v1/v2` 模式和 v1 兼容许可。普通重启调用 `Ensure` 只补齐缺失的预算行，
 不会重新生成 epoch。
 
+Phase-24-02 的 migration 15 将已有 Outbox 的 schema-version 约束扩展为
+`1/2`，使受控激活后的 v2 事件可以仍在同一 Outbox 事务边界内落库；它不回填
+历史 command 或完成证据。
+
 ## 消息边界
 
-生产默认编码仍是严格的 Envelope v1，分类为 `legacy_unknown`，不产生 v2 搜索完成承诺。
-Envelope v2 保留六类现有事件；所有 v2 事件必须携带 canonical UUID `data_epoch`，
-`post.created` 还必须携带 `command_id` 和正 `content_revision`。本批只提供构造器、
-严格解码和消费者 fixture 支持，不切换生产发帖方。
+Phase-24-02 的业务角色在持久 DB drain gate 通过后启用 v2；新发帖使用带
+`command_id` 的 v2 `post.created`，其他现有业务事件由共享 Outbox 在同一事实事务内补齐
+当前 epoch。Envelope v2 保留六类现有事件；所有 v2 事件必须携带 canonical UUID
+`data_epoch`，`post.created` 还必须携带 `command_id` 和正 `content_revision`。
+历史 v1 仍分类为 `legacy_unknown`，不产生 v2 搜索完成承诺；activation 不自动探测
+RabbitMQ 的 unacked/retry/dead 队列或 ES generation，它们仍是 rollout 前的停排、排空/停放和核验步骤。
 
 Worker/Indexer 在处理副作用前读取持久环境。旧 epoch、恢复期间的消息、未启用 v1
 兼容许可，以及缺少 `search` 必要义务的 v2 搜索事件，只有在原 payload 成功写入

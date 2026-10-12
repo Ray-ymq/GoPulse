@@ -1,6 +1,6 @@
 # Phase-24-02：发帖幂等与安全重试
 
-> 状态：已分配，尚未实施。目标版本 `2.6.2`，分支 `develop/2.6.2`。
+> 状态：已完成（2026-10-12）。目标版本 `2.6.2`，分支 `develop/2.6.2`。
 > 结果：发帖命令可在约定窗口内安全重试，用户端自动复用命令身份，新事件及其必要消费义务开始生效。
 > 共同字段、资源与留存以[总方案](Phase-24-总实施方案.md)为准。
 
@@ -127,3 +127,12 @@ rtk proxy make docs-check BASE_REF=upstream/main
 完成条件：表中行为与固定门禁通过，所有实际生产者/消费者兼容，新协议启用及恢复停点有记录；
 同名日志写明只有带配对身份的发帖有安全重试承诺。
 成功后同步 `2.6.2` 元数据并完成治理校验/提交，不提前声明管理端阶段查证已交付。
+
+## 6. 实际完成结果
+
+- 已完成 migration 15：将既有 Outbox 的 schema-version 约束扩展为 `1/2`；新增命令、预算、完成证据和迁移故障路径的测试保持在真实 MySQL 入口内。
+- 业务角色启动时执行当前环境的持久 activation gate；数据库中的 v1 Outbox `pending/leased` 未排空时拒绝切换。切换后发帖命令把规范摘要、帖子事实、v2 `post.created`、Outbox 行和 `search` 义务放入同一事务，其他已有业务事件通过共享 Outbox 补齐当前 epoch。
+- 发帖 HTTP/API 和用户端已交付配对身份、稳定结果、冲突、未知结果、删除后最小结果、7 日窗口和按用户隔离的 sessionStorage 草稿；未保存 token、key hash 或依赖配置，本地 digest 仅用于检测正文变更，不作为服务端凭据。
+- 真实业务集成和浏览器 E2E 已证明 10 路同 key 并发只产生一条 command/post/event/义务；同摘要重放、摘要冲突、跨用户隔离、删除后查证、Outbox→RabbitMQ→Search 完成及既有通知闭环均通过。
+- 固定门禁已通过：backend/frontend/lifecycle/devtools verify、business integration、business E2E、Compose 静态检查和 docs-check；版本元数据已同步为 `2.6.2`，两套前端依赖已按锁文件重新安装。
+- activation 不代替外部 rollout 编排对 RabbitMQ unacked/retry/dead 队列和 ES 当前 generation 的检查；上线前仍须按本方案停止旧进程、排空或持久停放历史意图、核验当前搜索代际，再启动本批构建。未完成 Phase-24-03/04/05 的管理查证、平台适配和完整 V1 冻结矩阵。

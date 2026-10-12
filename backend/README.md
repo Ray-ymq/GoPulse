@@ -28,12 +28,13 @@ all from the same Backend image digest.
 
 Migration 14 creates the durable business environment, epoch-scoped consumer
 requirements, search application results, bounded failure/parking summaries and
-async budget. Backend, Business Worker and Search Indexer read the current epoch
+async budget. Migration 15 permits the controlled v2 Outbox schema version.
+Backend, Business Worker and Search Indexer read the current epoch
 from MySQL before business side effects; the business role also scopes Redis post
-details and search cursors to that epoch. Normal Phase-24-01 production remains
-`legacy_v1`. Envelope v2 and its strict consumer admission are available for
-fixtures and the next activation batch, but this batch does not enable v2 post
-production or command idempotency.
+details and search cursors to that epoch. Phase-24-02 activates v2 after the
+durable drain check. Envelope v2 events carry the current epoch; retryable post
+creation also stores command identity and its search obligation in the same
+MySQL transaction.
 
 Search completion records use the actual Elasticsearch physical generation and
 are separate from fact rebuilds. `search-reindex --if-missing` remains the normal
