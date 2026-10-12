@@ -8,8 +8,12 @@ func TestUsageAndStrictParsing(t *testing.T) {
 			t.Fatalf("run(%v) = %d, want 2", args, code)
 		}
 	}
-	if _, err := parse([]string{"--scope", "observability", "--receipt=receipt.json"}); err != nil {
+	options, err := parse([]string{"--scope", "v1", "--manifest", "candidate/release-manifest.json", "--receipt=receipt.json", "--preflight", "--budget=30m", "--verify-evidence", "--publication", "publication.json"})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if options.Scope != "v1" || !options.Preflight || options.Budget != "30m" || !options.VerifyEvidence || options.Publication != "publication.json" {
+		t.Fatalf("V1 options were not parsed: %+v", options)
 	}
 	for _, args := range [][]string{{"--unknown"}, {"--scope"}, {"--self-test", "--keep"}} {
 		if _, err := parse(args); err == nil {

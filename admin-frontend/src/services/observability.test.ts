@@ -43,8 +43,19 @@ describe('observability runtime boundary', () => {
   })
   it('sends opaque cursor without replaying filters', async () => {
     const fetchMock=vi.fn().mockResolvedValue(response({data:[],meta:{next_cursor:null}})); vi.stubGlobal('fetch',fetchMock)
-    await observabilityApi.logs({range:'15m',service:'backend',module:'http',level:'',message:'',request_id:'',trace_id:'',span_id:'',event_id:'',error_code:''},'opaque+/=')
+    await observabilityApi.logs({range:'15m',service:'backend',module:'http',level:'',message:'',request_id:'',trace_id:'',span_id:'',event_id:'',error_code:'',command_id:'',data_epoch:'',post_id:''},'opaque+/=')
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/observability/logs?cursor=opaque%2B%2F%3D')
+  })
+
+  it('preserves a bounded stage identity and evidence window on Logs queries', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: [], meta: { next_cursor: null } })); vi.stubGlobal('fetch', fetchMock)
+    await observabilityApi.logs({ range: '15m', service: '', module: '', level: '', message: '', request_id: '', trace_id: '', span_id: '', event_id: '', error_code: '', command_id: '123e4567-e89b-42d3-a456-426614174001', data_epoch: '123e4567-e89b-42d3-a456-426614174000', post_id: '7', from: '2026-10-12T09:45:00Z', to: '2026-10-12T10:00:00Z' })
+    const path = fetchMock.mock.calls[0][0] as string
+    expect(path).toContain('command_id=123e4567-e89b-42d3-a456-426614174001')
+    expect(path).toContain('data_epoch=123e4567-e89b-42d3-a456-426614174000')
+    expect(path).toContain('post_id=7')
+    expect(path).toContain('from=2026-10-12T09%3A45%3A00Z')
+    expect(path).toContain('to=2026-10-12T10%3A00%3A00Z')
   })
 })
 
