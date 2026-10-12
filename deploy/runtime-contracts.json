@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "2",
-  "product_version": "2.6.2",
+  "product_version": "2.6.3",
   "platform": "linux/amd64",
   "authority": {
     "source": "deploy/runtime-contracts.json",
@@ -282,6 +282,15 @@
           "required": true,
           "default": null,
           "compose_value": null,
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
+          "type": "string",
+          "sensitive": true,
+          "required": true,
+          "default": null,
+          "compose_value": "${BUSINESS_STAGE_SERVICE_CREDENTIAL:?BUSINESS_STAGE_SERVICE_CREDENTIAL is required}",
           "aliases": []
         },
         {
@@ -4046,6 +4055,24 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_STAGE_ENDPOINTS",
+          "type": "string",
+          "sensitive": false,
+          "required": true,
+          "default": null,
+          "compose_value": "${BUSINESS_STAGE_ENDPOINTS:-http://backend:8080,http://backend-2:8080}",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
+          "type": "string",
+          "sensitive": true,
+          "required": true,
+          "default": null,
+          "compose_value": "${BUSINESS_STAGE_SERVICE_CREDENTIAL:?BUSINESS_STAGE_SERVICE_CREDENTIAL is required}",
+          "aliases": []
+        },
+        {
           "key": "BACKEND_VICTORIAMETRICS_PASSWORD",
           "type": "string",
           "sensitive": true,
@@ -4554,6 +4581,16 @@
       "key": "BACKEND_VICTORIAMETRICS_USERNAME",
       "type": "string",
       "sensitive": false
+    },
+    {
+      "key": "BUSINESS_STAGE_ENDPOINTS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
+      "type": "string",
+      "sensitive": true
     },
     {
       "key": "BUSINESS_WORKER_MAX_RETRIES",

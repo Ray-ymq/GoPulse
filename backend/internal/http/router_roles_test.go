@@ -19,8 +19,11 @@ import (
 
 func TestServiceRoleRoutesAreMutuallyExclusive(t *testing.T) {
 	business := NewRouter(Dependencies{}, APIRoutes{
-		Auth:           auth.NewHandler(nil, nil),
-		Authentication: func(c *gin.Context) { c.Next() },
+		Auth:                   auth.NewHandler(nil, nil),
+		Authentication:         func(c *gin.Context) { c.Next() },
+		InternalBusinessStages: NewBusinessStageHandler(nil, false),
+		InternalAuthorization:  func(c *gin.Context) { c.Next() },
+		ServiceCredential:      "business-stage-test-credential-32-bytes",
 	})
 	platform := NewRouter(Dependencies{}, APIRoutes{
 		Authentication:  func(c *gin.Context) { c.Next() },
@@ -32,6 +35,7 @@ func TestServiceRoleRoutesAreMutuallyExclusive(t *testing.T) {
 		Alerts:          alert.NewHandler(nil, "test-secret"),
 		Management:      NewManagementHandler(nil, "test-secret"),
 		ExporterPlugins: exporterplugin.NewHandler(nil),
+		BusinessStages:  NewBusinessStageHandler(nil, true),
 	})
 
 	assertRoute(t, business, "/api/v1/auth/login", true)
@@ -40,6 +44,7 @@ func TestServiceRoleRoutesAreMutuallyExclusive(t *testing.T) {
 	assertRoute(t, business, "/api/v1/observability/metrics", false)
 	assertRoute(t, business, "/api/v1/admin/users/:userId", false)
 	assertRoute(t, business, "/api/v1/exporter-plugins", false)
+	assertRoute(t, business, "/internal/v1/business-stages", true)
 
 	assertRoute(t, platform, "/api/v1/auth/login", false)
 	assertRoute(t, platform, "/api/v1/users/me", false)
@@ -49,6 +54,8 @@ func TestServiceRoleRoutesAreMutuallyExclusive(t *testing.T) {
 	assertRoute(t, platform, "/api/v1/alerts/rules", true)
 	assertRoute(t, platform, "/api/v1/admin/users/:userId", true)
 	assertRoute(t, platform, "/api/v1/exporter-plugins", true)
+	assertRoute(t, platform, "/api/v1/observability/business-stages", true)
+	assertRoute(t, platform, "/internal/v1/business-stages", false)
 }
 
 func assertRoute(t *testing.T, router *gin.Engine, path string, want bool) {
