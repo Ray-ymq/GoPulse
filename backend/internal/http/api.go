@@ -68,6 +68,8 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 		protected.GET("/search/users", routes.Users.Search)
 	}
 	if routes.Posts != nil {
+		protected.GET("/post-commands/context", routes.Posts.CommandContext)
+		protected.GET("/post-commands/result", routes.Posts.CommandResult)
 		protected.POST("/posts", routes.Posts.Create)
 		protected.GET("/posts", routes.Posts.List)
 		protected.GET("/bookmarks", routes.Posts.Bookmarks)

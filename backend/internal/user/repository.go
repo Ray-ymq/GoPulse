@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -22,10 +23,26 @@ type Repository interface {
 
 type MySQLRepository struct {
 	database *sql.DB
+	outbox   outbox.Writer
 }
 
-func NewMySQLRepository(database *sql.DB) *MySQLRepository {
-	return &MySQLRepository{database: database}
+type RepositoryOptions struct {
+	Outbox outbox.Writer
+}
+
+func NewMySQLRepository(database *sql.DB, options ...RepositoryOptions) *MySQLRepository {
+	repository := &MySQLRepository{database: database}
+	if len(options) > 0 {
+		repository.outbox = options[0].Outbox
+	}
+	return repository
+}
+
+func (repository *MySQLRepository) WithOutbox(writer outbox.Writer) *MySQLRepository {
+	if repository != nil {
+		repository.outbox = writer
+	}
+	return repository
 }
 
 func (repository *MySQLRepository) Create(ctx context.Context, username, passwordHash string) (User, error) {

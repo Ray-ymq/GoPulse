@@ -11,6 +11,11 @@ type dataEnvelope struct {
 	Data any `json:"data"`
 }
 
+type dataMetaEnvelope struct {
+	Data any `json:"data"`
+	Meta any `json:"meta"`
+}
+
 type pageEnvelope struct {
 	Data any      `json:"data"`
 	Meta pageMeta `json:"meta"`
@@ -35,6 +40,13 @@ type errorBody struct {
 // Data writes the common successful response envelope.
 func Data(c *gin.Context, status int, data any) {
 	c.JSON(status, dataEnvelope{Data: data})
+}
+
+// DataWithMeta writes a successful result with a bounded, endpoint-specific
+// metadata object. It is used by command responses whose identity must remain
+// stable across a replay.
+func DataWithMeta(c *gin.Context, status int, data any, meta any) {
+	c.JSON(status, dataMetaEnvelope{Data: data, Meta: meta})
 }
 
 // Page writes a successful response with cursor pagination metadata.
@@ -72,13 +84,13 @@ func mapError(err error) (int, apperror.Code, string) {
 		return stdhttp.StatusUnauthorized, appError.Code, appError.Message
 	case apperror.CodePermissionDenied:
 		return stdhttp.StatusForbidden, appError.Code, appError.Message
-	case apperror.CodeAlertConflict, apperror.CodeAlertRuleLimit, apperror.CodeBootstrapProtected, apperror.CodePluginUpgradeRequired, apperror.CodeUsernameConflict, apperror.CodePluginConflict, apperror.CodePluginOperationInProgress:
+	case apperror.CodeAlertConflict, apperror.CodeAlertRuleLimit, apperror.CodeBootstrapProtected, apperror.CodePluginUpgradeRequired, apperror.CodeUsernameConflict, apperror.CodePluginConflict, apperror.CodePluginOperationInProgress, apperror.CodeDataEpochMismatch, apperror.CodeIdempotencyConflict:
 		return stdhttp.StatusConflict, appError.Code, appError.Message
-	case apperror.CodeAlertNotFound, apperror.CodeUserNotFound, apperror.CodePostNotFound, apperror.CodeNotificationNotFound, apperror.CodePluginNotFound:
+	case apperror.CodeAlertNotFound, apperror.CodeUserNotFound, apperror.CodePostNotFound, apperror.CodeNotificationNotFound, apperror.CodePluginNotFound, apperror.CodeCommandResultUnknown:
 		return stdhttp.StatusNotFound, appError.Code, appError.Message
 	case apperror.CodePluginOperationFailed:
 		return stdhttp.StatusUnprocessableEntity, appError.Code, appError.Message
-	case apperror.CodeAlertsUnavailable, apperror.CodeSetupUnavailable, apperror.CodeSearchUnavailable, apperror.CodeMonitorUnavailable, apperror.CodeMetricsUnavailable, apperror.CodeLogsUnavailable, apperror.CodeEventsUnavailable:
+	case apperror.CodeAlertsUnavailable, apperror.CodeSetupUnavailable, apperror.CodeSearchUnavailable, apperror.CodeMonitorUnavailable, apperror.CodeMetricsUnavailable, apperror.CodeLogsUnavailable, apperror.CodeEventsUnavailable, apperror.CodeCommandOutcomeUnknown, apperror.CodeBusinessAsyncBacklog:
 		return stdhttp.StatusServiceUnavailable, appError.Code, appError.Message
 	default:
 		return stdhttp.StatusInternalServerError, apperror.CodeInternal, "an internal error occurred"

@@ -104,6 +104,27 @@ func NewV2PostDeleted(occurredAt time.Time, epoch string, actorID, postID uint64
 	return newVersionedEnvelope(SchemaVersionV2, PostDeleted, occurredAt, actorID, 0, postID, nil, epoch, "", 0)
 }
 
+// NewUUID returns a canonical UUID for a durable business identity. The
+// event constructors use the same generator, but commands need their own
+// identity before the post-created envelope is encoded.
+func NewUUID() (string, error) { return newUUID() }
+
+// WithDataEpoch upgrades an existing event while preserving its event ID.
+// Producers call this inside their fact transaction so every v2 event carries
+// the same epoch as the fact it accompanies. post.created additionally needs a
+// command ID and therefore must be constructed with NewV2PostCreated.
+func (envelope Envelope) WithDataEpoch(epoch string) (Envelope, error) {
+	if !validUUID(epoch) {
+		return Envelope{}, errors.New("business event data epoch must be a canonical UUID")
+	}
+	envelope.SchemaVersion = SchemaVersionV2
+	envelope.DataEpoch = epoch
+	if err := envelope.Validate(); err != nil {
+		return Envelope{}, err
+	}
+	return envelope, nil
+}
+
 func newEnvelope(eventType EventType, occurredAt time.Time, actorID, recipientID, postID uint64, commentID *uint64) (Envelope, error) {
 	eventID, err := newUUID()
 	if err != nil {

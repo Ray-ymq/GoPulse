@@ -48,6 +48,22 @@ export interface CreatePostInput {
   content: string
 }
 
+export interface PostCommandMeta {
+  command_id: string
+  event_id: string
+  data_epoch: string
+  post_id: number
+  committed_at: string
+  replayed: boolean
+  resource_state: 'available' | 'unavailable'
+}
+
+export interface PostCommandContext {
+  data_epoch: string
+  retry_window_seconds: number
+  retry_window_until: string
+}
+
 export interface CreateCommentInput {
   content: string
 }
@@ -65,6 +81,11 @@ export type ApiErrorCode =
   | 'username_conflict'
   | 'user_not_found'
   | 'post_not_found'
+  | 'data_epoch_mismatch'
+  | 'idempotency_conflict'
+  | 'command_result_unknown'
+  | 'command_outcome_unknown'
+  | 'business_async_backlog'
   | 'search_unavailable'
   | 'metrics_unavailable'
   | 'logs_unavailable'

@@ -45,9 +45,12 @@ func (r *MySQLRepository) SetFollow(ctx context.Context, viewer, target uint64, 
 		if e != nil {
 			return profileError(e)
 		}
-		writer, e := outbox.NewRepository(r.database, outbox.Options{})
-		if e != nil {
-			return profileError(e)
+		writer := r.outbox
+		if writer == nil {
+			writer, e = outbox.NewRepository(r.database, outbox.Options{})
+			if e != nil {
+				return profileError(e)
+			}
 		}
 		if e = writer.Insert(ctx, tx, event); e != nil {
 			return profileError(e)

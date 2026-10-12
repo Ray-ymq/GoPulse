@@ -268,11 +268,16 @@ func (processor *Processor) resolveGeneration(ctx context.Context, epoch string)
 }
 
 func (processor *Processor) recordApplication(ctx context.Context, envelope bus.Envelope, generation, result string, version uint64) error {
-	return processor.businessState.RecordApplication(ctx, businessstate.Application{
+	application := businessstate.Application{
 		DataEpoch: envelope.DataEpoch, EventID: envelope.EventID, Consumer: businessstate.ConsumerSearch,
 		RoutingContractRevision: businessstate.SearchRoutingContractV1, ProjectionGeneration: generation,
 		Result: result, ActualVersion: version,
-	})
+	}
+	if err := processor.businessState.RecordApplication(ctx, application); err != nil {
+		processor.logger.Error("search application result failed", slog.String("event_id", envelope.EventID), slog.String("result", result), slog.String("projection_generation", generation), slog.String("reason", err.Error()))
+		return err
+	}
+	return nil
 }
 
 func (processor *Processor) logIndex(ctx context.Context, envelope bus.Envelope, result string) {
