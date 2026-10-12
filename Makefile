@@ -82,7 +82,7 @@ ifdef MODULE
 else ifeq ($(PLAN_ONLY),1)
 	@python3 ci/quality_scope.py --base-ref "$(BASE_REF)" --format json
 else
-	@$(DEVENV) verify --base-ref "$(BASE_REF)" $(if $(BRANCH),--branch "$(BRANCH)",) $(if $(PLAN_ONLY),--plan-only,)
+	@$(DEVENV) verify --base-ref "$(BASE_REF)" $(if $(PLAN_ONLY),--plan-only,)
 endif
 
 # Bare "make build" builds every program, frontend and local image; passing MODULE
