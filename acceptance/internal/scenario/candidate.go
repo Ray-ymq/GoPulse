@@ -157,7 +157,10 @@ func pinnedCandidateIdentity(path string, manifest pinnedManifest, data []byte) 
 	return receipt.CandidateIdentity{
 		Version: manifest.Version, Revision: manifest.Revision,
 		ManifestPath: path, ManifestSHA256: digestBytes(data),
-		BundlePath: bundlePath, BundleSHA256: manifest.BundleSHA256,
+		// CandidateIdentity records the transported Bundle archive digest;
+		// manifest.BundleSHA256 remains the separate payload digest validated
+		// by verifyBundleAssets above.
+		BundlePath: bundlePath, BundleSHA256: bundleHash,
 		SourceRevision: manifest.Revision, ContractSHA256: assetDigest(manifest.RuntimeContract),
 		Tool: "gopulse-acceptance", ToolRevision: manifest.Revision, ConfigSHA256: configHash,
 	}, nil
