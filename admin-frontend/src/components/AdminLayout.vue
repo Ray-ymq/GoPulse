@@ -11,7 +11,7 @@ const logoutError = ref(false)
 const loggingOut = ref(false)
 const groups = [
   { title: '概览', links: [{ to: '/', label: '系统概览', icon: 'home' }] },
-  { title: '可观测', links: [{ to: '/metrics', label: 'Metrics', icon: 'metrics' }, { to: '/logs', label: 'Logs', icon: 'logs' }, { to: '/events', label: 'Events', icon: 'events' }, { to: '/alerts', label: 'Alerts', icon: 'alerts' }] },
+  { title: '可观测', links: [{ to: '/metrics', label: 'Metrics', icon: 'metrics' }, { to: '/logs', label: 'Logs', icon: 'logs' }, { to: '/events', label: 'Events', icon: 'events' }, { to: '/alerts', label: 'Alerts', icon: 'alerts' }, { to: '/business-stages', label: '业务阶段', icon: 'pulse' }] },
   { title: '采集管理', links: [{ to: '/plugins', label: 'Exporter', icon: 'box' }] },
   { title: '系统管理', links: [{ to: '/users', label: '用户角色', icon: 'users' }, { to: '/audit', label: '审计', icon: 'audit' }] },
 ]

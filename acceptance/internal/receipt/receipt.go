@@ -19,17 +19,18 @@ type Command struct {
 }
 
 type Document struct {
-	Schema             string    `json:"schema"`
-	Status             string    `json:"status"`
-	Project            string    `json:"project"`
-	Version            string    `json:"version"`
-	Revision           string    `json:"revision"`
-	StartedAt          string    `json:"started_at"`
-	FinishedAt         string    `json:"finished_at"`
-	CleanupPassed      bool      `json:"cleanup_passed"`
-	IsolationPreserved bool      `json:"isolation_preserved"`
-	Commands           []Command `json:"commands"`
-	Error              string    `json:"error,omitempty"`
+	Schema             string      `json:"schema"`
+	Status             string      `json:"status"`
+	Project            string      `json:"project"`
+	Version            string      `json:"version"`
+	Revision           string      `json:"revision"`
+	StartedAt          string      `json:"started_at"`
+	FinishedAt         string      `json:"finished_at"`
+	CleanupPassed      bool        `json:"cleanup_passed"`
+	IsolationPreserved bool        `json:"isolation_preserved"`
+	Commands           []Command   `json:"commands"`
+	Error              string      `json:"error,omitempty"`
+	V1                 *V1Evidence `json:"v1_evidence,omitempty"`
 }
 
 func New(project, version, revision string) Document {

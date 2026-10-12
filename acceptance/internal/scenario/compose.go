@@ -11,16 +11,20 @@ import (
 )
 
 type Options struct {
-	Scope         string
-	Keep          bool
-	SelfTest      bool
-	Receipt       string
-	Manifest      string
-	Candidate     string
-	Install       string
-	InstallPath   string
-	FailureMatrix bool
-	Platform      string
+	Scope          string
+	Keep           bool
+	SelfTest       bool
+	Receipt        string
+	Manifest       string
+	Candidate      string
+	Install        string
+	InstallPath    string
+	FailureMatrix  bool
+	Platform       string
+	Preflight      bool
+	Budget         string
+	VerifyEvidence bool
+	Publication    string
 }
 
 func Compose(root string, options Options) (returnErr error) {
