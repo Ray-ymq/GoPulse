@@ -4,7 +4,7 @@
 
 ## 实际交付
 
-- 分支：`develop/2.6.4`；工作树 `VERSION` 保持 `2.6.3`，符合本批短预检使用已完成版本身份的约定。
+- 分支：`develop/2.6.4`；短预检候选按约定使用当时已完成版本 `2.6.3`，预检通过后已将工作树及产品版本元数据收口为 `2.6.4`。
 - 实现提交：`b56aa003a040e07fb806156d9e0d7e3f1b77b4e5`、`f59e40a78a022699588f477140e9dd59b6e84bdd`、`3df27de`、`5c23fa3`。
 - 管理端新增 `/admin/business-stages`，支持当前/历史 epoch、command/event/post 单一身份查证、阶段质量与来源分离、精确 Logs 关联、取消及晚到响应保护；浏览器用例覆盖真实创建、阶段查询和普通用户拒绝。
 - acceptance 新增 pinned candidate 身份、V1 receipt/raw validator、preflight/Verify Evidence 入口和仅验收 fault fixture；默认 business scope 保持不变。
@@ -28,7 +28,7 @@
 - `devtools`：`make verify MODULE=devtools BASE_REF=origin/main` 通过，存量 lint `24`、新增 `0`，test/race/vet 通过。
 - `backend`：`make verify MODULE=backend BASE_REF=origin/main` 通过，存量 lint `107`、新增 `0`，go test/race/vet/build 通过。
 - `make e2e SCOPE=observe` 通过：3 个管理端回归、1 个 `business-stages` 浏览器用例、1 个 Compose observability 用例；`make check-compose` 通过。
-- `make docs-check BASE_REF=origin/main`、`python3 ci/check_docs.py --base-ref origin/main`、`make check-compose`、分支校验、版本校验和 `git diff --check` 均通过。
+- 版本收口后，`python3 ci/validate_versions.py`、分支 development/completion 校验、`python3 -m json.tool deploy/runtime-contracts.json`、`make check-compose`、`make docs-check BASE_REF=origin/main` 和 `git diff --check` 均通过；两个前端在锁文件同步后重新执行 `npm ci` 成功。旧版 `verify_runtime_contracts.py` 已退役，未作为本批验证入口。
 
 ## 偏差与限制
 
