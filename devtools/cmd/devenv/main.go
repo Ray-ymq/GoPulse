@@ -42,7 +42,7 @@ commands:
 	bootstrap [--module frontend|admin-frontend] [--tools-only]
 	                                                        prepare lint tools, frontend dependencies, and Chromium
 	frontend-deps --module frontend|admin-frontend       prepare one application's npm dependencies
-	verify --base-ref REF [--branch BRANCH] [--plan-only] [--module MODULE]
+	verify --base-ref REF [--plan-only] [--module MODULE]
 `
 
 type options struct {
@@ -56,7 +56,6 @@ type options struct {
 	module            string
 	toolsOnly         bool
 	baseRef           string
-	branch            string
 	planOnly          bool
 }
 
@@ -139,13 +138,13 @@ func run(args []string) int {
 			return 2
 		}
 		if parsed.module != "" {
-			if parsed.planOnly || parsed.branch != "" {
-				fmt.Fprintln(os.Stderr, "[gopulse] ERROR: --plan-only and --branch require full verify")
+			if parsed.planOnly {
+				fmt.Fprintln(os.Stderr, "[gopulse] ERROR: --plan-only requires full verify")
 				return 2
 			}
 			err = quality.VerifyModule(root, parsed.module, parsed.baseRef)
 		} else {
-			err = quality.Verify(root, parsed.baseRef, parsed.branch, parsed.planOnly)
+			err = quality.Verify(root, parsed.baseRef, parsed.planOnly)
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "[gopulse] ERROR: unknown command: %s\n%s", command, usage)
@@ -238,8 +237,6 @@ func parseOptions(args []string) (options, error) {
 			parsed.module = value
 		case "--base-ref":
 			parsed.baseRef = value
-		case "--branch":
-			parsed.branch = value
 		case "--plan-only":
 			parsed.planOnly = true
 		case "--tools-only":
@@ -262,7 +259,7 @@ func parseOptions(args []string) (options, error) {
 
 func isFlagWithValue(name string) bool {
 	switch name {
-	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port", "--module", "--base-ref", "--branch":
+	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port", "--module", "--base-ref":
 		return true
 	}
 	return false
