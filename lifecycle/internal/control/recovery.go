@@ -48,8 +48,35 @@ type restoredBackup struct {
 
 var portableValues = map[string]bool{"MYSQL_DATABASE": true, "MYSQL_USER": true, "RABBITMQ_USER": true, "VICTORIAMETRICS_USERNAME": true, "AUTH_COOKIE_SECURE": true}
 
+const restoreJournalFile = "restore-pending.json"
+
+func loadRestoreJournal(path, sourceManifest string) (restoreJournal, bool, error) {
+	raw, err := readPrivate(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return restoreJournal{}, false, nil
+	}
+	if err != nil {
+		return restoreJournal{}, false, fail(Permission, "restore-journal", "cannot read restore journal")
+	}
+	var journal restoreJournal
+	if strictData(raw, &journal) != nil || journal.Schema != 1 || !validOperationID(journal.OperationID) || journal.SourceManifest != sourceManifest || !validEpoch(journal.NewEpoch) || (journal.ExpectedOldEpoch != "" && (!validEpoch(journal.ExpectedOldEpoch) || journal.ExpectedOldEpoch == journal.NewEpoch)) {
+		return restoreJournal{}, false, fail(BackupInvalid, "restore-journal", "invalid restore journal or source manifest")
+	}
+	return journal, true, nil
+}
+
+func saveRestoreJournal(path string, journal restoreJournal) error {
+	if journal.Schema != 1 || !validOperationID(journal.OperationID) || journal.SourceManifest == "" || !validEpoch(journal.NewEpoch) || (journal.ExpectedOldEpoch != "" && (!validEpoch(journal.ExpectedOldEpoch) || journal.ExpectedOldEpoch == journal.NewEpoch)) {
+		return fail(BackupInvalid, "restore-journal", "invalid restore journal")
+	}
+	if err := atomicFile(path, marshal(journal)); err != nil {
+		return fail(Permission, "restore-journal", "cannot persist restore journal")
+	}
+	return nil
+}
+
 func credentialKey(k string) bool {
-	return strings.Contains(k, "PASSWORD") || strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET")
+	return strings.Contains(k, "PASSWORD") || strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET") || strings.Contains(k, "CREDENTIAL")
 }
 
 func (c *Controller) disk(required uint64) error {
@@ -105,6 +132,13 @@ func (c *Controller) quiesce() error {
 	}
 	if e := c.waitDrain(func() (bool, error) {
 		b, e := c.sql("SELECT COUNT(*) FROM business_outbox WHERE published_at IS NULL;")
+		if e != nil {
+			return false, e
+		}
+		if strings.TrimSpace(string(b)) != "0" {
+			return false, nil
+		}
+		b, e = c.sql("SELECT COUNT(*) FROM business_event_requirements r JOIN business_environment e ON e.singleton = 1 WHERE e.mode = 'v2' AND r.closed_at IS NULL;")
 		if e != nil {
 			return false, e
 		}
@@ -394,14 +428,27 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 			}
 		}
 	}
-	c.state.Operation = random()
+	marker := filepath.Join(c.dir, restoreJournalFile)
+	journal, resumed, journalErr := loadRestoreJournal(marker, r.Manifest.ReleaseDigest)
+	if journalErr != nil {
+		return journalErr
+	}
+	if !resumed {
+		newEpochValue, e := newEpoch()
+		if e != nil {
+			return fail(Failed, "restore-journal", "cannot allocate restore data epoch")
+		}
+		journal = restoreJournal{Schema: 1, OperationID: random(), SourceManifest: r.Manifest.ReleaseDigest, NewEpoch: newEpochValue}
+	}
+	c.state.Operation = journal.OperationID
 	c.state.FailedStage = ""
 	if err = c.save(); err != nil {
 		return err
 	}
-	marker := filepath.Join(c.dir, "restore-pending.json")
-	if err = atomicFile(marker, marshal(map[string]any{"schema": 1, "operation_id": c.state.Operation, "source_manifest": r.Manifest.ReleaseDigest})); err != nil {
-		return fail(Permission, "restore-journal", "cannot persist restore journal")
+	if !resumed {
+		if err = saveRestoreJournal(marker, journal); err != nil {
+			return err
+		}
 	}
 	defer func() {
 		if err == nil {
@@ -451,6 +498,25 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 	}
 	if _, err = c.sql(string(r.Files["mysql.sql"])); err != nil {
 		return err
+	}
+	if err = c.phase("restore-identity"); err != nil {
+		return err
+	}
+	identity, e := c.sql("SELECT data_epoch, status FROM business_environment WHERE singleton = 1;")
+	if e != nil {
+		return e
+	}
+	identityFields := strings.Fields(string(identity))
+	if len(identityFields) != 2 || !validEpoch(identityFields[0]) || identityFields[1] != "ready" {
+		return fail(Failed, "restore-identity", "restored business identity is not ready")
+	}
+	if journal.ExpectedOldEpoch == "" {
+		journal.ExpectedOldEpoch = identityFields[0]
+		if err = saveRestoreJournal(marker, journal); err != nil {
+			return err
+		}
+	} else if journal.ExpectedOldEpoch != identityFields[0] {
+		return fail(Failed, "restore-identity", "restored business identity differs from the restore journal")
 	}
 	if err = c.phase("restore-search"); err != nil {
 		return err
@@ -543,12 +609,18 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 	if err = c.phase("restore-applications"); err != nil {
 		return err
 	}
+	// These values are transient Compose inputs. They are deliberately added
+	// after secrets.json was written so an interrupted restore cannot persist a
+	// one-shot restore command into the normal runtime environment.
+	c.env["GOPULSE_RESTORE_OPERATION"] = journal.OperationID
+	c.env["GOPULSE_RESTORE_EXPECTED_OLD_EPOCH"] = journal.ExpectedOldEpoch
+	c.env["GOPULSE_RESTORE_NEW_EPOCH"] = journal.NewEpoch
 	// up runs migration/bootstrap and health checks; the pending marker remains
 	// until they all pass, preventing an interrupted operation being resumed as ready.
 	if err = c.startProduct(false); err != nil {
 		return err
 	}
-	if err = atomicFile(filepath.Join(c.dir, "restore-result.json"), marshal(map[string]any{"schema": 1, "operation_id": c.state.Operation, "source_manifest": r.Manifest.ReleaseDigest, "cutover": r.Manifest.Domains["mysql"].Cutover, "facts_verified": true, "session_policy": r.Config.Sessions, "kafka_policy": "drained-new-topic-rebase-zero"})); err != nil {
+	if err = atomicFile(filepath.Join(c.dir, "restore-result.json"), marshal(map[string]any{"schema": 1, "operation_id": journal.OperationID, "source_manifest": r.Manifest.ReleaseDigest, "expected_old_epoch": journal.ExpectedOldEpoch, "new_epoch": journal.NewEpoch, "cutover": r.Manifest.Domains["mysql"].Cutover, "facts_verified": true, "session_policy": r.Config.Sessions, "kafka_policy": "drained-new-topic-rebase-zero"})); err != nil {
 		return err
 	}
 	if err = os.Remove(marker); err != nil {

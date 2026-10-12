@@ -11,6 +11,7 @@ defined in [src/router/index.ts](src/router/index.ts):
 | `/admin/logs` | Logs |
 | `/admin/events` | Events |
 | `/admin/alerts` | Alerts |
+| `/admin/business-stages` | Business stage evidence |
 | `/admin/plugins` | Six-plugin management |
 | `/admin/users` | User roles |
 | `/admin/audit` | Audit records |
@@ -44,10 +45,17 @@ Vite origin on port 5173; it proxies `/admin` to the admin Vite server on 5174.
 For the source-based browser gate, use `make e2e SCOPE=observe` from the repository
 root. It starts isolated test dependencies, both Vite servers, the source Backend,
 Router, Marshaller, and the fixed Linux Monitor image; it then checks same-origin
-cookies, administrator data, ordinary-user denial, role demotion, and current
-metrics/logs/events/plugin state. It stops only processes and resources owned by
-that test project. `make test MODULE=admin-frontend` remains the focused Vitest
-entry.
+cookies, administrator data, ordinary-user denial, role demotion, the business-stage
+creation/query/precise-Logs association, and current metrics/logs/events/plugin state.
+It stops only processes and resources owned by that test project. `make test
+MODULE=admin-frontend` remains the focused Vitest entry.
+
+Business stage evidence is a manual, read-only administrator query. The page obtains
+the current `data_epoch`, accepts exactly one command/event/post selector, keeps
+submitted, broker, search-completion, current-visibility and telemetry qualities
+separate, cancels an older query on refresh/unmount, and never exposes content,
+digests, credentials or synthetic Trace links. Logs navigation carries the original
+typed identity and the bounded evidence window.
 The native page acceptance remains authoritative:
 
 ```bash

@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/processlog"
@@ -87,6 +88,13 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 			lifecycleLogger.Warn("resource close failed", slog.String("resource", "mysql"), slog.String("reason", "close_failed"))
 		}
 	}()
+	state, err := businessstate.NewRepository(mysqlClient.DB())
+	if err != nil {
+		return indexerInitializationFailure(lifecycleLogger, "business_state", "invalid_dependency")
+	}
+	if _, err := state.Ensure(context.Background()); err != nil {
+		return indexerInitializationFailure(lifecycleLogger, "business_state", "not_ready")
+	}
 	elasticsearchClient, err := platform.NewElasticsearch(cfg.Elasticsearch)
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "elasticsearch", "connection_failed")
@@ -95,10 +103,11 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "search_processor", "invalid_dependency")
 	}
-	processor.WithLogger(logger)
+	processor.WithLogger(logger).WithBusinessState(state)
 	runtime, err := worker.NewRuntime(cfg.RabbitMQURL, processor, worker.RuntimeOptions{
-		Profile:  worker.SearchProfile,
-		Prefetch: cfg.Worker.Prefetch, MaxRetries: cfg.Worker.MaxRetries,
+		Profile:   worker.SearchProfile,
+		Admission: state,
+		Prefetch:  cfg.Worker.Prefetch, MaxRetries: cfg.Worker.MaxRetries,
 		RetryDelay: cfg.Worker.RetryDelay, PublishTimeout: cfg.Worker.PublishTimeout,
 		ShutdownTimeout:  cfg.Worker.ShutdownTimeout,
 		ReconnectMinimum: cfg.Worker.ReconnectMinimum, ReconnectMaximum: cfg.Worker.ReconnectMaximum,

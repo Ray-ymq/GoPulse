@@ -45,6 +45,30 @@ Backend healthchecks call
 `http://127.0.0.1:8080/ready` directly inside each private container, without
 Frontend, Nginx or the business admission path.
 
+## Phase 24 business epoch boundary
+
+The business roles also require migration 15 and a readable
+`business_environment`. The business role performs the durable v1 Outbox drain
+gate and then activates v2; new fact writers use the current epoch and the post
+command writer emits v2 `post.created`. Worker and Search Indexer perform a durable epoch/ready admission before
+processing a delivery; rejected legacy, stale or ungrounded v2 payloads are
+parked before acknowledgement, while a state-store failure requeues the original.
+The search indexer binds v2 completion evidence to the actual physical index
+generation and index epoch. Redis post-detail keys and search cursors are
+epoch-scoped when the business role is assembled.
+
+The activation gate only observes the durable MySQL Outbox rows. A rollout must
+stop old producers/consumers, drain or durably park broker unacked/retry/dead
+intent, and verify the current search generation before starting the v2 business
+role; those external dependency checks are not inferred from `published` alone.
+
+`search-init` normally invokes `/usr/local/bin/search-reindex --if-missing`.
+Lifecycle restore supplies the bounded one-shot `GOPULSE_RESTORE_OPERATION`,
+`GOPULSE_RESTORE_EXPECTED_OLD_EPOCH` and `GOPULSE_RESTORE_NEW_EPOCH` inputs;
+partial input is rejected and these values are not ordinary application
+configuration. The restore job leaves the environment non-ready on failure and
+only starts product services after the new alias/generation is verified.
+
 ## Phase 21 service-role assembly
 
 `BACKEND_SERVICE_ROLE` accepts `combined`, `business`, or `platform`; an empty
@@ -65,6 +89,16 @@ therefore returns `404`. The deployed `backend` and `backend-2` services use
 `business`; singleton `platform-api` uses `platform` and the same Backend image
 digest. Their private container namespaces may reuse the Backend probe and
 metrics ports without adding host ports.
+
+The business and platform roles share the sensitive
+`BUSINESS_STAGE_SERVICE_CREDENTIAL` runtime key. Platform-only containers also
+require `BUSINESS_STAGE_ENDPOINTS`, a maximum-two-origin list constrained to
+trusted business service DNS names. The platform stage adapter makes one
+uncached private request per query; business stage reads use two immediate
+query slots, platform RPC uses four, and the database/RPC/platform deadlines
+are 500 ms/2 s/3 s. The service credential is generated and retained by the
+private lifecycle environment and is redacted from diagnostics and lifecycle
+logs.
 
 Backend capacity diagnostics are fixed and low-cardinality: in-flight requests,
 the configured concurrency limit, and rejected requests are exported as

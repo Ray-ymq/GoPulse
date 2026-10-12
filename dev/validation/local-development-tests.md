@@ -40,7 +40,7 @@ python3 ci/quality_scope.py --changed-file acceptance/internal/scenario/compose.
 | 能力 | 入口 | 断言边界 |
 | --- | --- | --- |
 | 全栈 Compose 闭包 | `make verify-compose`；观测闭包使用 `SCOPE=observability` | 项目归属、网络/端口、凭据、业务/观测 Playwright、插件生命周期和清理 |
-| 业务矩阵 | `make verify-business` | 注册、登录、帖子、评论、通知、搜索、权限和失败恢复 |
+| 业务矩阵 | `make verify-business`；V1 工具/预检使用 `SCOPE=v1 MANIFEST=... RECEIPT=... PREFLIGHT=1 BUDGET=...` | 注册、登录、帖子、评论、通知、搜索、权限和失败恢复；V1 预检另验证阶段页面、精确 Logs 关联、候选身份和 raw evidence，不能替代 Phase-24-05 正式矩阵 |
 | 可观测专项 | `make verify-observe SCOPE=exporter|monitor|router|marshaller|logs|events` | Redis exporter、插件传输、Kafka、Marshaller、日志和事件链路 |
 | 插件与组件 | `make verify-plugins` | 六类插件、组件指标、账号解和持久状态 |
 | 告警 | `make verify-alerts` | 告警目录、规则、评估状态、历史、租约和恢复 |
@@ -59,6 +59,10 @@ Bundle 篡改、磁盘、端口、权限、错误确认、外部卷、信号和�
 用户端和管理端的本地检查仍使用各自 package 文件声明的 `npm ci`、`npm test`、`npm run typecheck`
 和 `npm run build`。真实业务浏览器使用 `make e2e SCOPE=business`，管理与观测浏览器使用
 `make e2e SCOPE=observe`；完整页面验收使用 `make verify-pages`。
+
+`make e2e SCOPE=observe` 原生选择包含 `frontend/e2e/business-stages.spec.ts`；该用例从真实发帖响应读取
+`data_epoch/command_id/event_id/post_id`，查证 `/admin/business-stages`，校验 typed Logs 跳转，并验证普通用户
+不会挂载管理页面或发出阶段 API。V1 acceptance 复用同一 spec，并额外保存非敏感 raw 断言。
 
 业务注册、Outbox、RabbitMQ、通知、搜索、告警状态、角色和审计由 `make integration SCOPE=business`
 覆盖；Redis exporter → Monitor → Router → Kafka → Marshaller → 查询 API 和观测权限由

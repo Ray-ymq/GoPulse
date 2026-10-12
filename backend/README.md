@@ -24,6 +24,44 @@ standalone default of `10`. The Phase-21 split Compose runs `backend` and
 `backend-2` as business and `platform-api` as the singleton platform service,
 all from the same Backend image digest.
 
+## Restricted business-stage evidence
+
+The business role owns the private `GET /internal/v1/business-stages` query and
+the platform role exposes the administrator-only
+`GET /api/v1/observability/business-stages` adapter. Both require one typed
+epoch-scoped command, event, or post selector. The platform adapter forwards
+the authenticated management Cookie to one of at most two trusted private
+business origins; it does not accept a user URL, retry, or hedge. The private
+route requires both that Cookie and the independently generated
+`BUSINESS_STAGE_SERVICE_CREDENTIAL`, then re-reads the current database role.
+
+The response is a bounded evidence summary, not a post detail endpoint. It
+keeps command/Outbox/consumer/completion/failure identities and safe statuses,
+current budget watermarks, typed search visibility, and optional bounded Logs
+correlation. Bodies, digests, user IDs, raw payloads, arbitrary DSL, and fake
+Trace IDs are excluded. Current visibility uses the current physical search
+generation, an epoch- and revision-exact search query, and the current MySQL
+post fact. Logs use a typed one-request correlation query with a 24-hour window;
+old records without an epoch remain historical clues only.
+
+## Business epoch and search completion
+
+Migration 14 creates the durable business environment, epoch-scoped consumer
+requirements, search application results, bounded failure/parking summaries and
+async budget. Migration 15 permits the controlled v2 Outbox schema version.
+Backend, Business Worker and Search Indexer read the current epoch
+from MySQL before business side effects; the business role also scopes Redis post
+details and search cursors to that epoch. Phase-24-02 activates v2 after the
+durable drain check. Envelope v2 events carry the current epoch; retryable post
+creation also stores command identity and its search obligation in the same
+MySQL transaction.
+
+Search completion records use the actual Elasticsearch physical generation and
+are separate from fact rebuilds. `search-reindex --if-missing` remains the normal
+maintenance entry. Restore preparation uses its all-or-nothing operation/old
+epoch/new epoch flags and marks the durable environment ready only after alias,
+index metadata, old-epoch rejection and new-epoch admission checks pass.
+
 ## Exporter management boundary
 
 All `GET`/`POST /exporter-plugins...` routes execute authentication and database-authoritative administrator authorization before contacting Monitor. Successful Monitor bodies are limited to 1 MiB and recursively reject duplicate keys, unknown fields, trailing content, invalid types, non-UTC timestamps, unstable versions, unknown states, unsafe error text, and impossible state/time combinations. The Backend constructs the public `ExporterStatus` and `SafeError` DTOs only after validation; redirect, timeout, network, oversized, malformed, or unexpected-success responses map to `503 monitor_unavailable`. The exact safe-error allowlist covers both Plugin Manager lifecycle failures and Monitor's fixed metrics scrape/publish failures, so a localized Router or target outage remains visible as a safe Exporter fact instead of making an otherwise valid status untrusted. Known Plugin Manager business errors retain their stable public status and code.

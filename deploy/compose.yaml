@@ -36,6 +36,7 @@ x-backend-common-environment: &backend-common-environment
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
+  BUSINESS_STAGE_SERVICE_CREDENTIAL: ${BUSINESS_STAGE_SERVICE_CREDENTIAL:?BUSINESS_STAGE_SERVICE_CREDENTIAL is required}
   <<: *mysql-environment
   APP_ENV: ${APP_ENV:-development}
   HTTP_HOST: 0.0.0.0
@@ -78,6 +79,7 @@ x-platform-environment: &platform-environment
   GOPULSE_REPLICA_COUNT: 1
   BACKEND_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
   PLATFORM_API_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
+  BUSINESS_STAGE_ENDPOINTS: ${BUSINESS_STAGE_ENDPOINTS:-http://backend:8080,http://backend-2:8080}
   PLATFORM_API_MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
   MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
   ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
@@ -391,7 +393,8 @@ services:
     pull_policy: never
     restart: "no"
     entrypoint: [/bin/sh, -c]
-    # status rejects dirty; only up may resume the explicitly supported v12.
+    # status rejects dirty; up may resume only the explicitly supported legacy
+    # dirty version. A failed target migration remains a recovery stop.
     command:
       - '/usr/local/bin/migrate validate && { /usr/local/bin/migrate status; code=$$?; [ "$$code" -eq 0 ] || [ "$$code" -eq 4 ]; } && exec /usr/local/bin/migrate up'
     environment: *mysql-environment
@@ -408,9 +411,18 @@ services:
     entrypoint: [/bin/sh, -c]
     command:
       - |
+        if [ -n "$$GOPULSE_RESTORE_OPERATION" ] || [ -n "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" ] || [ -n "$$GOPULSE_RESTORE_NEW_EPOCH" ]; then
+          if [ -z "$$GOPULSE_RESTORE_OPERATION" ] || [ -z "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" ] || [ -z "$$GOPULSE_RESTORE_NEW_EPOCH" ]; then
+            echo "restore preparation requires operation and both epochs" >&2
+            exit 1
+          fi
+          set -- --restore-operation "$$GOPULSE_RESTORE_OPERATION" --expected-old-epoch "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" --new-epoch "$$GOPULSE_RESTORE_NEW_EPOCH"
+        else
+          set -- --if-missing
+        fi
         attempt=1
         while [ "$$attempt" -le 5 ]; do
-          if /usr/local/bin/search-reindex --if-missing; then
+          if /usr/local/bin/search-reindex "$$@"; then
             exit 0
           fi
           if [ "$$attempt" -eq 5 ]; then
@@ -421,7 +433,11 @@ services:
           attempt=$$((attempt + 1))
         done
         exit 1
-    environment: *search-init-environment
+    environment:
+      <<: *search-init-environment
+      GOPULSE_RESTORE_OPERATION: ${GOPULSE_RESTORE_OPERATION:-}
+      GOPULSE_RESTORE_EXPECTED_OLD_EPOCH: ${GOPULSE_RESTORE_EXPECTED_OLD_EPOCH:-}
+      GOPULSE_RESTORE_NEW_EPOCH: ${GOPULSE_RESTORE_NEW_EPOCH:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

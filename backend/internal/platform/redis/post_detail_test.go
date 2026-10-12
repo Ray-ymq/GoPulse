@@ -18,6 +18,12 @@ type fakeClient struct {
 	delete func(context.Context, string) error
 }
 
+type fakeEpochProvider struct{ epoch string }
+
+func (provider fakeEpochProvider) CurrentEpoch(context.Context) (string, error) {
+	return provider.epoch, nil
+}
+
 func (client *fakeClient) Get(ctx context.Context, key string) (string, error) {
 	return client.get(ctx, key)
 }
@@ -159,6 +165,41 @@ func TestPostDetailRepositoryInvalidatesExpectedKey(t *testing.T) {
 	}}, 5*time.Minute, 50*time.Millisecond)
 	if err := repository.Invalidate(context.Background(), 31); err != nil {
 		t.Fatalf("Invalidate() error=%v", err)
+	}
+}
+
+func TestPostDetailRepositoryUsesEpochKeyspaceWhenConfigured(t *testing.T) {
+	projection := cachedProjection()
+	provider := fakeEpochProvider{epoch: "123e4567-e89b-12d3-a456-426614174000"}
+	want := PostDetailKeyForEpoch(provider.epoch, projection.ID)
+	repository := NewPostDetailRepository(&fakeClient{
+		get: func(_ context.Context, key string) (string, error) {
+			if key != want {
+				t.Fatalf("Get() key=%q want=%q", key, want)
+			}
+			return encodedEnvelope(t, postDetailVersion, projection), nil
+		},
+		set: func(_ context.Context, key, _ string, _ time.Duration) error {
+			if key != want {
+				t.Fatalf("Set() key=%q want=%q", key, want)
+			}
+			return nil
+		},
+		delete: func(_ context.Context, key string) error {
+			if key != want {
+				t.Fatalf("Delete() key=%q want=%q", key, want)
+			}
+			return nil
+		},
+	}, 5*time.Minute, 50*time.Millisecond).WithEpochProvider(provider)
+	if _, hit, err := repository.Get(context.Background(), projection.ID); err != nil || !hit {
+		t.Fatalf("Get() hit=%t err=%v", hit, err)
+	}
+	if err := repository.Set(context.Background(), projection); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Invalidate(context.Background(), projection.ID); err != nil {
+		t.Fatal(err)
 	}
 }
 

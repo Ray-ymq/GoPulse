@@ -13,7 +13,7 @@ const usage = `usage: gopulse-acceptance <command> [options]
 
 commands:
   compose [--scope business|observability] [--keep] [--self-test] [--receipt PATH]
-  business [--keep] [--receipt PATH]
+	 business [--scope v1] [--manifest PATH] [--receipt PATH] [--preflight] [--budget DURATION] [--verify-evidence] [--publication PATH]
   observe [--keep] [--receipt PATH]
   plugins [--keep] [--receipt PATH]
   alerts [--keep] [--receipt PATH]
@@ -79,9 +79,9 @@ func parse(args []string) (scenario.Options, error) {
 			name, value = key, inline
 		} else if strings.HasPrefix(name, "--") {
 			switch name {
-			case "--keep", "--self-test", "--failure-matrix":
+			case "--keep", "--self-test", "--failure-matrix", "--preflight", "--verify-evidence":
 				value = "true"
-			case "--scope", "--receipt", "--manifest", "--candidate", "--install", "--install-path", "--platform":
+			case "--scope", "--receipt", "--manifest", "--candidate", "--install", "--install-path", "--platform", "--budget", "--publication":
 				if index+1 >= len(args) {
 					return scenario.Options{}, fmt.Errorf("%s requires a value", name)
 				}
@@ -114,6 +114,14 @@ func parse(args []string) (scenario.Options, error) {
 			options.FailureMatrix = true
 		case "--platform":
 			options.Platform = value
+		case "--preflight":
+			options.Preflight = true
+		case "--budget":
+			options.Budget = value
+		case "--verify-evidence":
+			options.VerifyEvidence = true
+		case "--publication":
+			options.Publication = value
 		default:
 			return scenario.Options{}, fmt.Errorf("unknown option: %s", name)
 		}

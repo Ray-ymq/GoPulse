@@ -26,6 +26,15 @@ type fakeSearcher struct {
 	closed      []string
 }
 
+type fakeEpochProvider struct {
+	epoch string
+	err   error
+}
+
+func (provider *fakeEpochProvider) CurrentEpoch(context.Context) (string, error) {
+	return provider.epoch, provider.err
+}
+
 func (fake *fakeSearcher) ResolveGeneration(context.Context) (string, error) {
 	if fake.resolveErr != nil {
 		return "", fake.resolveErr
@@ -138,6 +147,27 @@ func TestServiceHydratesInHitOrderAndInvalidatesOldGeneration(t *testing.T) {
 	if len(searcher.closed) != 1 || searcher.closed[0] != cursor.PointInTime {
 		t.Fatalf("closed PITs = %#v", searcher.closed)
 	}
+}
+
+func TestServiceBindsCursorToDataEpoch(t *testing.T) {
+	generation := PhysicalIndexPrefix + "20260902t120000z-epoch"
+	searcher := &fakeSearcher{generation: generation, pointInTime: "pit-epoch", hits: []Hit{
+		{PostID: 2, Score: 2, CreatedAt: "2026-09-02T05:00:00Z", ShardDoc: 2},
+		{PostID: 1, Score: 1, CreatedAt: "2026-09-02T04:00:00Z", ShardDoc: 1},
+	}}
+	provider := &fakeEpochProvider{epoch: "123e4567-e89b-12d3-a456-426614174000"}
+	service := NewService(searcher, &fakeHydrator{records: []post.Post{{ID: 1}, {ID: 2}}}, testCursorSecret).WithEpochProvider(provider)
+	page, err := service.Search(context.Background(), 7, Options{Query: "epoch", Limit: 1})
+	if err != nil || page.NextCursor == nil {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+	cursor, err := DecodeCursor(*page.NextCursor)
+	if err != nil || cursor.DataEpoch != provider.epoch {
+		t.Fatalf("cursor=%#v err=%v", cursor, err)
+	}
+	provider.epoch = "123e4567-e89b-12d3-a456-426614174001"
+	_, err = service.Search(context.Background(), 7, Options{Query: "epoch", Limit: 1, Cursor: &cursor})
+	assertApplicationCode(t, err, apperror.CodeValidationFailed)
 }
 
 func TestServiceRejectsTamperedCursorAndExpiredPointInTime(t *testing.T) {

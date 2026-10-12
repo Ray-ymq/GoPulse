@@ -365,7 +365,7 @@ func (c *Controller) status(strict bool) (any, error) {
 }
 func (c *Controller) redact(text string) string {
 	for k, v := range c.env {
-		if len(v) > 0 && (strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET") || strings.Contains(k, "PASSWORD")) {
+		if len(v) > 0 && (strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET") || strings.Contains(k, "PASSWORD") || strings.Contains(k, "CREDENTIAL")) {
 			text = strings.ReplaceAll(text, v, "[REDACTED]")
 		}
 	}

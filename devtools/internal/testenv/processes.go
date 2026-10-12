@@ -95,6 +95,14 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	if err != nil {
 		return err
 	}
+	worker, err := s.buildBinary("integration-business-worker", backendDir, "./cmd/business-worker", buildDigest)
+	if err != nil {
+		return err
+	}
+	indexer, err := s.buildBinary("integration-search-indexer", backendDir, "./cmd/search-indexer", buildDigest)
+	if err != nil {
+		return err
+	}
 	router, err := s.buildBinary("integration-router", filepath.Join(s.root, "router"), "./cmd/router", observationDigest)
 	if err != nil {
 		return err
@@ -114,6 +122,10 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	marshallerEnv["GOPULSE_INSTANCE_ID"] = "marshaller-test"
 	backendEnv := copyEnvironment(s.values)
 	backendEnv["GOPULSE_INSTANCE_ID"] = "backend-test"
+	workerEnv := copyEnvironment(s.values)
+	workerEnv["GOPULSE_INSTANCE_ID"] = "business-worker-test"
+	indexerEnv := copyEnvironment(s.values)
+	indexerEnv["GOPULSE_INSTANCE_ID"] = "search-indexer-test"
 
 	if err := s.spawn(state, "router", []string{router}, routerEnv, filepath.Join(s.root, "router")); err != nil {
 		return err
@@ -134,6 +146,20 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	}
 	if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/ready", s.values["HTTP_PORT"]), readinessTimeout,
 		"", "test Backend", aliveIn(state, "backend")); err != nil {
+		return err
+	}
+	if err := s.spawn(state, "business-worker", []string{worker}, workerEnv, backendDir); err != nil {
+		return err
+	}
+	if err := ready.Wait("http://127.0.0.1:19102/ready", readinessTimeout, "",
+		"test Business Worker", aliveIn(state, "business-worker")); err != nil {
+		return err
+	}
+	if err := s.spawn(state, "search-indexer", []string{indexer}, indexerEnv, backendDir); err != nil {
+		return err
+	}
+	if err := ready.Wait("http://127.0.0.1:19103/ready", readinessTimeout, "",
+		"test Search Indexer", aliveIn(state, "search-indexer")); err != nil {
 		return err
 	}
 	if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/ready", s.values["MONITOR_HTTP_PORT"]), readinessTimeout,

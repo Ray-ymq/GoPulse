@@ -7,9 +7,11 @@ import type {
   Notification,
   Page,
   Post,
+  PostCommandContext,
+  PostCommandMeta,
   PublicUser,
 } from '../types/api'
-import { requestData, requestPage, requestValidatedData, requestValidatedPage, requestVoid } from './http'
+import { requestData, requestDataWithMeta, requestPage, requestValidatedData, requestValidatedPage, requestVoid } from './http'
 
 const encodeCursor = (cursor: string) => encodeURIComponent(cursor)
 
@@ -64,6 +66,26 @@ function isPost(value: unknown): value is Post {
     && typeof value.bookmarked_by_me === 'boolean'
 }
 
+function isCommandMeta(value: unknown): value is PostCommandMeta {
+  if (!isRecord(value) || !hasExactKeys(value, ['command_id', 'event_id', 'data_epoch', 'post_id', 'committed_at', 'replayed', 'resource_state'])) return false
+  return typeof value.command_id === 'string'
+    && typeof value.event_id === 'string'
+    && typeof value.data_epoch === 'string'
+    && isPositiveID(value.post_id)
+    && isTimestamp(value.committed_at)
+    && typeof value.replayed === 'boolean'
+    && (value.resource_state === 'available' || value.resource_state === 'unavailable')
+}
+
+function isCommandContext(value: unknown): value is PostCommandContext {
+  if (!isRecord(value) || !hasExactKeys(value, ['data_epoch', 'retry_window_seconds', 'retry_window_until'])) return false
+  return typeof value.data_epoch === 'string'
+    && typeof value.retry_window_seconds === 'number'
+    && Number.isSafeInteger(value.retry_window_seconds)
+    && value.retry_window_seconds > 0
+    && isTimestamp(value.retry_window_until)
+}
+
 function isNotification(value: unknown): value is Notification {
   if (!isRecord(value) || !hasExactKeys(value, ['id', 'type', 'created_at', 'read_at', 'actor', 'post_id', 'comment_id', ...(value.resource_deleted === undefined ? [] : ['resource_deleted'])])) return false
   if (!isRecord(value.actor) || !hasExactKeys(value.actor, ['id', 'username', ...(value.actor.display_name === undefined ? [] : ['display_name'])])) return false
@@ -115,6 +137,17 @@ export const postApi = {
     requestValidatedData<Post>(`/posts/${id}`, isPost, { method: 'PATCH', body: JSON.stringify(input) }),
   create: (input: CreatePostInput) =>
     requestData<Post>('/posts', { method: 'POST', body: JSON.stringify(input) }),
+  commandContext: () => requestValidatedData<PostCommandContext>('/post-commands/context', isCommandContext),
+  createWithCommand: (input: CreatePostInput, dataEpoch: string, idempotencyKey: string) =>
+    requestDataWithMeta<Post | null, PostCommandMeta>('/posts', value => value === null || isPost(value), isCommandMeta, {
+      method: 'POST',
+      body: JSON.stringify(input),
+      headers: { 'Idempotency-Key': idempotencyKey, 'X-GoPulse-Data-Epoch': dataEpoch },
+    }),
+  commandResult: (dataEpoch: string, idempotencyKey: string) =>
+    requestDataWithMeta<Post | null, PostCommandMeta>('/post-commands/result', value => value === null || isPost(value), isCommandMeta, {
+      headers: { 'Idempotency-Key': idempotencyKey, 'X-GoPulse-Data-Epoch': dataEpoch },
+    }),
   comments: (postId: number, cursor?: string, limit = 20): Promise<Page<Comment>> =>
     requestPage<Comment>(
       `/posts/${postId}/comments?limit=${limit}${cursor ? `&cursor=${encodeCursor(cursor)}` : ''}`,

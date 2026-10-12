@@ -109,12 +109,14 @@ type ReindexClient interface {
 type ReindexResult struct {
 	Changed       bool
 	DocumentCount uint64
+	Generation    string
 }
 
 type Reindexer struct {
 	store  *ReindexStore
 	client ReindexClient
 	batch  int
+	epoch  string
 }
 
 func NewReindexer(store *ReindexStore, client ReindexClient, batch int) *Reindexer {
@@ -122,9 +124,20 @@ func NewReindexer(store *ReindexStore, client ReindexClient, batch int) *Reindex
 }
 
 func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) (ReindexResult, error) {
+	return reindexer.RunForEpoch(ctx, ifMissing, "")
+}
+
+// RunForEpoch builds a fresh physical generation carrying the supplied data
+// epoch. It never inserts application-completion rows: a rebuild is a fact
+// scan, not the replay of any individual event.
+func (reindexer *Reindexer) RunForEpoch(ctx context.Context, ifMissing bool, epoch string) (ReindexResult, error) {
 	if reindexer == nil || reindexer.store == nil || reindexer.client == nil || reindexer.batch < 1 {
 		return ReindexResult{}, errors.New("search reindexer is invalid")
 	}
+	if epoch != "" && !validEpoch(epoch) {
+		return ReindexResult{}, errors.New("search reindex epoch is invalid")
+	}
+	reindexer.epoch = epoch
 	lock, err := reindexer.store.Acquire(ctx)
 	if err != nil {
 		return ReindexResult{}, err
@@ -147,11 +160,24 @@ func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) (ReindexRes
 				if err != nil {
 					return ReindexResult{}, err
 				}
-				if ready {
+				if ready && epoch == "" {
 					return ReindexResult{Changed: false}, nil
 				}
-			} else {
+			} else if epoch == "" {
 				return ReindexResult{Changed: false}, nil
+			}
+			if epoch != "" {
+				if metadata, ok := reindexer.client.(interface {
+					IndexEpoch(context.Context, string) (string, error)
+				}); ok {
+					current, metadataErr := reindexer.currentAliasGeneration(ctx)
+					if metadataErr == nil {
+						actual, epochErr := metadata.IndexEpoch(ctx, current)
+						if epochErr == nil && actual == epoch && readyMapping(reindexer.client, ctx) {
+							return ReindexResult{Changed: false, Generation: current}, nil
+						}
+					}
+				}
 			}
 		}
 	}
@@ -160,7 +186,16 @@ func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) (ReindexRes
 	if err != nil {
 		return ReindexResult{}, err
 	}
-	if err := reindexer.client.CreateIndex(ctx, index); err != nil {
+	if creator, ok := reindexer.client.(interface {
+		CreateIndexForEpoch(context.Context, string, string) error
+	}); ok {
+		err = creator.CreateIndexForEpoch(ctx, index, epoch)
+	} else if epoch == "" {
+		err = reindexer.client.CreateIndex(ctx, index)
+	} else {
+		err = errors.New("search client cannot create an epoch-bound index")
+	}
+	if err != nil {
 		return ReindexResult{}, fmt.Errorf("create search index: %w", err)
 	}
 	switched := false
@@ -228,7 +263,22 @@ func (reindexer *Reindexer) Run(ctx context.Context, ifMissing bool) (ReindexRes
 			return ReindexResult{}, fmt.Errorf("delete old search index: %w", err)
 		}
 	}
-	return ReindexResult{Changed: true, DocumentCount: mysqlCount}, nil
+	if epoch != "" {
+		if actual, err := reindexer.currentAliasGeneration(ctx); err != nil || actual != index {
+			return ReindexResult{}, errors.New("search alias generation changed during epoch reindex")
+		}
+		metadata, ok := reindexer.client.(interface {
+			IndexEpoch(context.Context, string) (string, error)
+		})
+		if !ok {
+			return ReindexResult{}, errors.New("search client cannot verify index epoch metadata")
+		}
+		actual, err := metadata.IndexEpoch(ctx, index)
+		if err != nil || actual != epoch {
+			return ReindexResult{}, errors.New("search index epoch metadata mismatch")
+		}
+	}
+	return ReindexResult{Changed: true, DocumentCount: mysqlCount, Generation: index}, nil
 }
 
 func (reindexer *Reindexer) copyRange(ctx context.Context, index string, after, maximum uint64) error {
@@ -240,12 +290,35 @@ func (reindexer *Reindexer) copyRange(ctx context.Context, index string, after, 
 		if len(documents) == 0 {
 			break
 		}
+		for index := range documents {
+			documents[index].DataEpoch = reindexer.epoch
+		}
 		if err := reindexer.client.BulkIndex(ctx, index, documents); err != nil {
 			return fmt.Errorf("bulk index posts: %w", err)
 		}
 		after = documents[len(documents)-1].PostID
 	}
 	return nil
+}
+
+func (reindexer *Reindexer) currentAliasGeneration(ctx context.Context) (string, error) {
+	if resolver, ok := reindexer.client.(interface {
+		ResolveGeneration(context.Context) (string, error)
+	}); ok {
+		return resolver.ResolveGeneration(ctx)
+	}
+	return "", ErrUnavailable
+}
+
+func readyMapping(client ReindexClient, ctx context.Context) bool {
+	checker, ok := client.(interface {
+		RevisionMappingReady(context.Context) (bool, error)
+	})
+	if !ok {
+		return true
+	}
+	ready, err := checker.RevisionMappingReady(ctx)
+	return err == nil && ready
 }
 
 func newPhysicalIndexName() (string, error) {
