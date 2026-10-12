@@ -1,0 +1,4235 @@
+openapi: 3.1.0
+
+info:
+  title: GoPulse API
+  version: 2.6.2
+  summary: 社交业务与观测系统的 HTTP 接口
+  description: |
+    GoPulse 后端对外暴露的 `/api/v1` 接口，以及用于探针的运行时端点。
+
+    ## 会话与鉴权
+
+    登录成功后服务端下发会话 Cookie（默认名 `gopulse_session`，可用 `AUTH_COOKIE_NAME` 覆盖），
+    属性为 `HttpOnly`、`SameSite=Lax`，`Secure` 由部署环境决定，有效期与配置的会话 TTL 一致。
+    受保护接口只认这个 Cookie，不使用 `Authorization` 头，也没有第三方 JWT。
+
+    管理端接口在会话之上再校验角色：角色以 MySQL 中的记录为准，必须是超级管理员；
+    未认证返回 401 `authentication_required`，角色不足返回 403 `permission_denied`，
+    超级管理员记录被保护或初始化存储不可用时分别返回 409 `bootstrap_super_admin_protected`
+    与 503 `management_setup_unavailable`。
+
+    ## 同源写保护
+
+    非 GET/HEAD/OPTIONS 请求会校验来源：带 `Origin` 时要求其 scheme 与 host 与请求一致
+    （`X-Forwarded-Proto` 参与判断），无 `Origin` 但带 `Sec-Fetch-Site` 时要求值为
+    `same-origin` 或 `none`，否则返回 403 `permission_denied`。
+    不带这两个头的非浏览器客户端不受影响。
+
+    ## 响应信封
+
+    成功响应统一为 `{"data": ...}`；分页接口附加 `"meta": {"next_cursor": ...}`；
+    带稳定身份的命令响应附加端点自定义的 `meta` 对象。
+    失败响应统一为 `{"error": {"code", "message", "request_id"}}`，`code` 是稳定标识，
+    `request_id` 回显 `X-Request-ID`（框架层写出时总是存在，业务层写出时可能省略）。
+
+    错误码到状态码的映射由后端集中维护：
+
+    | HTTP | 错误码 |
+    | --- | --- |
+    | 400 | `validation_failed`、`plugin_package_invalid` |
+    | 401 | `authentication_required`、`invalid_credentials` |
+    | 403 | `permission_denied` |
+    | 404 | `alert_not_found`、`user_not_found`、`post_not_found`、`notification_not_found`、`plugin_not_found`、`command_result_unknown` |
+    | 409 | `alert_revision_conflict`、`alert_rule_limit`、`bootstrap_super_admin_protected`、`upgrade_required`、`username_conflict`、`plugin_conflict`、`plugin_operation_in_progress`、`data_epoch_mismatch`、`idempotency_conflict` |
+    | 422 | `plugin_operation_failed` |
+    | 503 | `alerts_unavailable`、`management_setup_unavailable`、`search_unavailable`、`monitor_unavailable`、`metrics_unavailable`、`logs_unavailable`、`events_unavailable`、`command_outcome_unknown`、`business_async_backlog`、`backend_busy` |
+    | 500 | `internal_error` |
+
+    未匹配的路径返回 404 `not_found`（框架层写出，`request_id` 恒存在），方法不匹配返回 405
+    `method_not_allowed`，后端并发准入配额耗尽返回 503 `backend_busy`，三者都使用同一信封。
+    删除类接口成功时返回 204 且不带响应体。
+
+    ## 请求头与体积
+
+    `X-Request-ID` 只在恰好一个取值且为 32 位小写十六进制时沿用，否则服务端重新生成；
+    无论哪种情况响应都会回显该头，错误信封的 `request_id` 取自同一个值。
+
+    请求体上限按端点分档：`/api/v1` 下的 JSON 端点默认 64 KiB，超出返回 400
+    `validation_failed`；exporter 插件配置与连通性测试的 JSON 上限 16 KiB，插件包上限
+    64 MiB。JSON 端点拒绝未知字段、重复键与多值请求体；插件配置端点还要求
+    `Content-Type` 恰好为 `application/json` 且不带参数，并不允许 `Content-Encoding`。
+
+    ## 标识与编号
+
+    用户、帖子、评论、通知、规则与事件的 ID 是 64 位无符号整数，以 JSON 数字返回；
+    超出 JavaScript 安全整数范围时前端应转换为字符串处理。路径参数只接受规范的十进制写法，
+    前导零（`007`）被拒绝并返回 400 `validation_failed`。
+
+    ## 分页
+
+    列表接口使用游标分页：帖子、用户维度、搜索、通知与评论的 `limit` 默认为 20、上限为 50；
+    审计、告警、日志与事件的 `limit` 默认为 50、上限为 100。`cursor` 取自上一页
+    `meta.next_cursor`，`next_cursor` 为 `null` 表示已到末尾。
+    同一参数重复出现或格式不合法时返回 400 `validation_failed`；观测类接口对未知参数更严格，
+    查询里出现目录外的键同样返回 400。
+    游标形态按端点不同：帖子与通知是未签名的时间戳游标，收藏带 HMAC 签名并绑定查看者，
+    搜索类游标绑定查询词与数据快照且有存活时间；审计、告警、日志与事件的游标必须单独使用，
+    与任何过滤条件同时出现会被拒绝。游标不可跨端点或跨用户复用。
+
+    ## 幂等
+
+    `POST /api/v1/posts` 与 `GET /api/v1/post-commands/result` 支持幂等重放：
+    两个请求头 `Idempotency-Key` 与 `X-GoPulse-Data-Epoch` 可选，但必须同时出现，
+    取值都是规范的小写 UUID。同键同 epoch 且内容摘要一致时返回原结果并置 `meta.replayed`；
+    内容不同返回 409 `idempotency_conflict`，epoch 过期返回 409 `data_epoch_mismatch`。
+    其余写接口不具备幂等键，重复调用按其自身语义处理（点赞、收藏、标记已读为幂等；
+    删除第二次返回 404）。
+
+    ## 运行端点
+
+    `/startup`、`/live`、`/ready`、`/health` 不在 `/api/v1` 下，不要求会话，
+    返回 `{"status": ..., "contract_version": ...}`，供 Compose 健康检查与验收工具使用。
+
+servers:
+  - url: /
+    description: 与前端同源的入口；生产环境由 nginx 转发到 backend 副本
+
+tags:
+  - name: Auth
+    description: 注册、登录、登出与会话恢复
+  - name: Users
+    description: 用户资料、关系与用户维度列表
+  - name: Posts
+    description: 帖子读写、幂等命令与搜索可见性
+  - name: Interactions
+    description: 评论、点赞与收藏
+  - name: Search
+    description: 帖子与用户检索
+  - name: Notifications
+    description: 异步通知
+  - name: Admin
+    description: 总览、用户与角色、审计事件
+  - name: Observability
+    description: |
+      指标、日志与事件查询。三类数据各自独立：指标后端不可用返回 503 `metrics_unavailable`，
+      日志存储不可用返回 503 `logs_unavailable`，事件存储不可用返回 503 `events_unavailable`。
+  - name: Alerts
+    description: |
+      告警规则、当前事件与历史。告警存储不可用时统一返回 503 `alerts_unavailable`；
+      写操作以 `revision` 做乐观并发控制，版本不一致返回 409 `alert_revision_conflict`。
+  - name: Exporter Plugins
+    description: |
+      管理端专用的 exporter 插件安装、配置与生命周期接口。上游 monitor 失败统一映射为
+      503 `monitor_unavailable`；请求形状由中间件先校验：任何查询串都返回 400
+      `plugin_package_invalid`，GET 与启停接口还要求请求体为空，非 GET 请求会先写审计。
+  - name: Runtime
+    description: 探针端点
+
+security:
+  - cookieAuth: []
+
+paths:
+  /startup:
+    get:
+      tags: [Runtime]
+      summary: 进程启动探针
+      description: |
+        进程完成初始化后返回 200；未完成时返回 503 `starting`。
+        响应带 `Cache-Control: no-store` 与 `X-Content-Type-Options: nosniff`，并回显 `X-Request-ID`。
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ProbeOk'
+        '400':
+          $ref: '#/components/responses/ProbeInvalid'
+        '405':
+          $ref: '#/components/responses/ProbeMethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/ProbeStarting'
+
+  /live:
+    get:
+      tags: [Runtime]
+      summary: 进程存活探针
+      description: 进程存活即返回 200，不检查依赖。
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ProbeOk'
+        '400':
+          $ref: '#/components/responses/ProbeInvalid'
+        '405':
+          $ref: '#/components/responses/ProbeMethodNotAllowed'
+
+  /ready:
+    get:
+      tags: [Runtime]
+      summary: 就绪探针
+      description: |
+        依赖检查通过返回 200；依赖不可用返回 503 `not_ready`，停机中返回 503 `stopping`。
+        检查内容为 MySQL 连通性与运行时模式，结果缓存 250 毫秒。
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ProbeOk'
+        '400':
+          $ref: '#/components/responses/ProbeInvalid'
+        '405':
+          $ref: '#/components/responses/ProbeMethodNotAllowed'
+        '503':
+          $ref: '#/components/responses/ProbeNotReady'
+
+  /health:
+    get:
+      tags: [Runtime]
+      summary: 健康探针
+      description: 与 `/ready` 共用同一处理器，但不做依赖检查，也不因未启动或停机而返回 503。
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/ProbeOk'
+        '400':
+          $ref: '#/components/responses/ProbeInvalid'
+        '405':
+          $ref: '#/components/responses/ProbeMethodNotAllowed'
+
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: 注册账号并建立会话
+      description: |
+        用户名在 `utf8mb4_0900_ai_ci` 排序规则下唯一，因此大小写与重音不同的同名注册同样返回冲突。
+        成功后与登录一样下发会话 Cookie。
+      security: []
+      requestBody:
+        $ref: '#/components/requestBodies/Credentials'
+      responses:
+        '201':
+          description: 注册成功。
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataUserPublic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: 用户名已被占用。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                conflict:
+                  value:
+                    error:
+                      code: username_conflict
+                      message: username is already taken
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: 登录并下发会话 Cookie
+      description: |
+        用户名不存在与密码不匹配返回同一错误码，不区分原因。
+      security: []
+      requestBody:
+        $ref: '#/components/requestBodies/Credentials'
+      responses:
+        '200':
+          description: 登录成功。
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataUserPublic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: 凭据不匹配。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                invalid:
+                  value:
+                    error:
+                      code: invalid_credentials
+                      message: invalid username or password
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: 清除会话 Cookie
+      description: |
+        不要求已登录：无论当前会话是否有效都返回 204，并把 Cookie 置为过期。
+        请求体被忽略。
+      security: []
+      responses:
+        '204':
+          description: 会话已清除。
+          headers:
+            Set-Cookie:
+              description: 同名 Cookie，`Max-Age=-1`，立即过期。
+              schema:
+                type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users/me:
+    get:
+      tags: [Users]
+      summary: 读取当前会话的用户
+      description: |
+        会话令牌有效但用户已不存在时返回 401 并同时清除会话 Cookie。
+        `management_setup_available` 反映管理端初始化存储是否可用，不可用时省略。
+      responses:
+        '200':
+          description: 当前用户。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataUserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users/me/profile:
+    patch:
+      tags: [Users]
+      summary: 更新当前用户的资料
+      description: |
+        两个字段都必须出现，缺少任一字段返回 400，不做部分更新。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileInput'
+      responses:
+        '200':
+          description: 更新后的资料。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users/{userId}/follow:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    put:
+      tags: [Users]
+      summary: 关注用户
+      description: |
+        重复关注保持 200 且状态仍为已关注；自己关注自己返回 400。
+        成功时同事务写入 `user_follows` 与 `user.followed` 事件。
+      responses:
+        '200':
+          description: 关注后的关系状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFollowState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Users]
+      summary: 取消关注
+      description: 未关注时同样返回 200 且状态为未关注。
+      responses:
+        '200':
+          description: 取消后的关系状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFollowState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users/me/following:
+    get:
+      tags: [Users]
+      summary: 我关注的人
+      description: |
+        按关注关系创建时间倒序，游标时间戳取自 `user_follows.created_at`。
+        只接受 `limit` 与 `cursor`，出现其他查询参数返回 400 `validation_failed`。
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 关注列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataProfilePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users/me/followers:
+    get:
+      tags: [Users]
+      summary: 关注我的人
+      description: 与「我关注的人」使用同一游标契约，时间戳取自关注关系创建时间。
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 粉丝列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataProfilePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users/{username}:
+    get:
+      tags: [Users]
+      summary: 按用户名读取资料
+      description: |
+        查询按列的排序规则做等值比较，大小写与重音不敏感。
+      parameters:
+        - $ref: '#/components/parameters/Username'
+      responses:
+        '200':
+          description: 用户资料。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/users/{username}/posts:
+    get:
+      tags: [Users]
+      summary: 读取指定用户的帖子
+      description: 用户不存在时返回 404，不做空列表兜底；未知查询参数被忽略。
+      parameters:
+        - $ref: '#/components/parameters/Username'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 该用户的帖子。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPostPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/search/users:
+    get:
+      tags: [Search]
+      summary: 检索用户
+      description: |
+        匹配分三档：用户名完全相等、用户名或昵称前缀匹配、包含匹配，按档位升序、同档按 `id` 升序。
+        游标带 HMAC 签名并绑定查询词，换词复用游标返回 400。
+        只接受 `q`、`limit`、`cursor`，出现其他查询参数返回 400 `validation_failed`。
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/UserSearchCursor'
+      responses:
+        '200':
+          description: 匹配到的用户。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataProfilePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/post-commands/context:
+    get:
+      tags: [Posts]
+      summary: 读取命令上下文
+      description: |
+        返回当前 `data_epoch` 与命令结果保留窗口，用于发起或查证幂等写命令。
+        只读探测，可任意重试。
+      responses:
+        '200':
+          description: 命令上下文。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataCommandContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/post-commands/result:
+    get:
+      tags: [Posts]
+      summary: 查证幂等命令的结果
+      description: |
+        用与创建时相同的两个请求头取回已提交命令的结果，不改动状态，可任意重试。
+        命令不存在、尚未成功或已超出保留窗口时返回 404 `command_result_unknown`。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: 创建时使用的幂等键，规范的小写 UUID。
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        - name: X-GoPulse-Data-Epoch
+          in: header
+          required: true
+          description: 创建时使用的数据 epoch，与幂等键必须成对出现。
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      responses:
+        '200':
+          description: 命令结果；`meta.replayed` 恒为 `true`。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPostCommand'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: 命令结果不可用。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                unknown:
+                  value:
+                    error:
+                      code: command_result_unknown
+                      message: the post command result is not available
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/posts:
+    post:
+      tags: [Posts]
+      summary: 创建帖子
+      description: |
+        作者取自会话，请求体不接受作者字段。
+        两个幂等请求头可选但必须成对：不带时按普通创建处理，带时按 `Idempotency-Key` 重放。
+        推荐流程是先取 `GET /api/v1/post-commands/context` 的 `data_epoch`，再带两个头提交；
+        超时后用同样的两个头重试本接口或调用结果查证接口。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/DataEpoch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostInput'
+      responses:
+        '201':
+          description: 创建结果；可能带命令元数据。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPostOrCommand'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 命令结果的保留窗口已过期。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                expired:
+                  value:
+                    error:
+                      code: command_result_unknown
+                      message: the post command result is not available
+        '409':
+          description: 幂等键冲突或数据 epoch 不匹配。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                idempotency:
+                  value:
+                    error:
+                      code: idempotency_conflict
+                      message: the idempotency key was already used with different content
+                epoch:
+                  value:
+                    error:
+                      code: data_epoch_mismatch
+                      message: the post command belongs to another data epoch
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      tags: [Posts]
+      summary: 时间线
+      description: |
+        按创建时间倒序返回全部帖子；未知查询参数被静默忽略。
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 帖子列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPostPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/posts/following:
+    get:
+      tags: [Posts]
+      summary: 关注流
+      description: |
+        只返回当前用户已关注作者的帖子，按创建时间倒序。
+        只接受 `limit` 与 `cursor`，出现其他查询参数返回 400 `validation_failed`。
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 关注流列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPostPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/bookmarks:
+    get:
+      tags: [Posts]
+      summary: 我的收藏
+      description: |
+        按收藏时间倒序，游标由服务端签名并绑定当前查看者，换用户复用返回 400。
+        只接受 `limit` 与 `cursor`，出现其他查询参数返回 400 `validation_failed`。
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/BookmarkCursor'
+      responses:
+        '200':
+          description: 收藏列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPostPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/posts/{postId}:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    get:
+      tags: [Posts]
+      summary: 帖子详情
+      responses:
+        '200':
+          description: 帖子详情。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPost'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      tags: [Posts]
+      summary: 编辑帖子
+      description: |
+        只有作者可以编辑，非作者返回 403。
+        请求体是完整内容而非部分更新；内容未变化时不递增 `content_revision`、不产生事件。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostInput'
+      responses:
+        '200':
+          description: 更新后的帖子。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPost'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 非作者编辑。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                author:
+                  value:
+                    error:
+                      code: permission_denied
+                      message: only the author may edit this post
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Posts]
+      summary: 删除帖子
+      description: |
+        只有作者可以删除。删除在同一事务内级联删除评论、点赞与收藏，
+        并把相关通知的关联资源置空，随后写入 `post.deleted` 事件；重复删除返回 404。
+      responses:
+        '204':
+          description: 已删除。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 非作者删除。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                author:
+                  value:
+                    error:
+                      code: permission_denied
+                      message: only the author may delete this post
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/posts/{postId}/comments:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    post:
+      tags: [Interactions]
+      summary: 发表评论
+      description: 无幂等键，重复提交会产生多条评论。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentInput'
+      responses:
+        '201':
+          description: 已创建的评论。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataComment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      tags: [Interactions]
+      summary: 评论列表
+      description: 按评论 ID 倒序；未知查询参数被静默忽略。
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 评论列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataCommentPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/posts/{postId}/like:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    put:
+      tags: [Interactions]
+      summary: 点赞
+      description: 幂等：重复点赞同样返回 204，且不会重复产生事件。
+      responses:
+        '204':
+          description: 已点赞。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Interactions]
+      summary: 取消点赞
+      description: 幂等：未点赞时同样返回 204。
+      responses:
+        '204':
+          description: 已取消点赞。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/posts/{postId}/bookmark:
+    parameters:
+      - $ref: '#/components/parameters/PostId'
+    put:
+      tags: [Interactions]
+      summary: 收藏
+      description: 幂等：重复收藏同样返回 204。
+      responses:
+        '204':
+          description: 已收藏。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Interactions]
+      summary: 取消收藏
+      description: 幂等：未收藏时同样返回 204。
+      responses:
+        '204':
+          description: 已取消收藏。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/search/posts:
+    get:
+      tags: [Search]
+      summary: 检索帖子
+      description: |
+        命中结果回表补齐，检索引擎中已不存在的文档被丢弃。
+        游标是绑定查询词与快照的会话令牌，存活 2 分钟，过期后需要从第一页重新检索。
+        只接受 `q`、`limit`、`cursor`，出现其他查询参数返回 400 `validation_failed`。
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/PostSearchCursor'
+      responses:
+        '200':
+          description: 检索结果。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPostPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: 检索引擎或其快照不可用。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                unavailable:
+                  value:
+                    error:
+                      code: search_unavailable
+                      message: search is temporarily unavailable
+
+  /api/v1/notifications:
+    get:
+      tags: [Notifications]
+      summary: 通知列表
+      description: |
+        按创建时间倒序。通知由异步 worker 从事件落库，因此存在可见延迟；
+        未知查询参数被静默忽略。
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: 通知列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataNotificationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/notifications/{notificationId}/read:
+    patch:
+      tags: [Notifications]
+      summary: 标记通知已读
+      description: |
+        幂等：重复标记保留首次已读时间。
+        他人的通知按不存在处理，返回 404。
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '204':
+          description: 已标记为已读。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/overview:
+    get:
+      tags: [Admin]
+      summary: 管理端总览
+      description: |
+        汇总组件、关键指标、日志、事件、插件与告警分段。
+        单个分段不可用时该分段的 `status` 为 `unavailable`、`items` 为空数组，整体仍返回 200。
+      parameters:
+        - $ref: '#/components/parameters/OverviewRange'
+      responses:
+        '200':
+          description: 总览快照。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAdminSnapshot'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/users/{userId}:
+    get:
+      tags: [Admin]
+      summary: 读取指定用户的账号视图
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 账号视图。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataManagedUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/users/{userId}/role:
+    put:
+      tags: [Admin]
+      summary: 变更用户角色
+      description: |
+        受保护的引导账号不能被降级，返回 409 `bootstrap_super_admin_protected`。
+        `changed` 反映角色是否真的发生变化。
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              additionalProperties: false
+              properties:
+                role:
+                  type: string
+                  enum: [user, super_admin]
+      responses:
+        '200':
+          description: 变更结果。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataRoleChange'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: 引导账号受保护，不能移除超级管理员角色。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                protected:
+                  value:
+                    error:
+                      code: bootstrap_super_admin_protected
+                      message: the bootstrap super administrator role is protected
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/audit-events:
+    get:
+      tags: [Admin]
+      summary: 审计事件
+      description: |
+        按发生时间倒序。时间窗口默认最近 90 天且上限为 90 天。
+        只接受下列参数，出现未知参数名或重复参数返回 400；`cursor` 必须单独使用，
+        与任何过滤条件或时间参数同时出现也返回 400。
+      parameters:
+        - $ref: '#/components/parameters/AuditCursor'
+        - $ref: '#/components/parameters/CappedLimit'
+        - $ref: '#/components/parameters/WindowStart'
+        - $ref: '#/components/parameters/WindowEnd'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditResourceType'
+        - $ref: '#/components/parameters/AuditOutcome'
+      responses:
+        '200':
+          description: 审计事件列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAuditEventPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/observability/metrics:
+    get:
+      tags: [Observability]
+      summary: 查询指标序列
+      description: |
+        `metric` 必须来自指标目录；返回按窗口聚合后的序列。
+        上游不可用或返回结构不符合合同时返回 503 `metrics_unavailable`。
+      parameters:
+        - $ref: '#/components/parameters/MetricName'
+        - $ref: '#/components/parameters/MetricRange'
+      responses:
+        '200':
+          description: 指标序列。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataMetricResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/observability/metrics/catalog:
+    get:
+      tags: [Observability]
+      summary: 指标目录
+      description: |
+        返回可查询的指标定义。不接受任何查询参数，请求体必须为空；
+        目录不包含标签取值以外的生产者信息与查询表达式。
+      responses:
+        '200':
+          description: 指标定义列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataMetricDefinitionList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/observability/logs:
+    get:
+      tags: [Observability]
+      summary: 查询日志
+      description: |
+        时间为 UTC 的 RFC3339Nano，窗口最长为 24 小时且终点不得晚于当前时间 5 分钟以上。
+        日志存储保留 7 天，早于保留窗口的合法时间片返回空页。
+        只接受下列参数，出现未知参数名、重复参数或空值返回 400；`cursor` 必须单独使用。
+        归档别名缺失时返回 200 与空数组。
+      parameters:
+        - $ref: '#/components/parameters/RangeFrom'
+        - $ref: '#/components/parameters/RangeTo'
+        - $ref: '#/components/parameters/LogService'
+        - $ref: '#/components/parameters/LogModule'
+        - $ref: '#/components/parameters/LogMessage'
+        - $ref: '#/components/parameters/LogLevel'
+        - $ref: '#/components/parameters/RequestIdFilter'
+        - $ref: '#/components/parameters/TraceIdFilter'
+        - $ref: '#/components/parameters/SpanIdFilter'
+        - $ref: '#/components/parameters/EventIdFilter'
+        - $ref: '#/components/parameters/LogErrorCode'
+        - $ref: '#/components/parameters/CappedLimit'
+        - $ref: '#/components/parameters/ResourceCursor'
+      responses:
+        '200':
+          description: 日志页。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataLogPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/observability/events:
+    get:
+      tags: [Observability]
+      summary: 查询平台事件
+      description: |
+        时间与分页约束同日志查询；`event_name`、`severity`、`operation`、`error_code`
+        之间必须彼此相容，否则返回 400。除 `cursor` 外每个取值最长 256 字符。
+      parameters:
+        - $ref: '#/components/parameters/RangeFrom'
+        - $ref: '#/components/parameters/RangeTo'
+        - $ref: '#/components/parameters/EventSource'
+        - $ref: '#/components/parameters/EventName'
+        - $ref: '#/components/parameters/EventSeverity'
+        - $ref: '#/components/parameters/PluginIdFilter'
+        - $ref: '#/components/parameters/EventOperation'
+        - $ref: '#/components/parameters/EventErrorCode'
+        - $ref: '#/components/parameters/CappedLimit'
+        - $ref: '#/components/parameters/ResourceCursor'
+      responses:
+        '200':
+          description: 事件页。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataEventPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/catalog:
+    get:
+      tags: [Alerts]
+      summary: 告警目录
+      description: 返回可创建的来源、指标定义、算子、窗口与持续时间的可选值；不接受查询参数，请求体必须为空。
+      responses:
+        '200':
+          description: 告警目录。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertCatalog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/rules:
+    get:
+      tags: [Alerts]
+      summary: 规则列表
+      description: |
+        按规则 ID 倒序。只接受 `limit`、`source`、`status`、`cursor`；
+        出现 `severity`、`rule`、`start`、`end` 或其他参数返回 400。
+      parameters:
+        - $ref: '#/components/parameters/CappedLimit'
+        - $ref: '#/components/parameters/AlertSource'
+        - $ref: '#/components/parameters/AlertStatus'
+        - $ref: '#/components/parameters/AlertCursor'
+      responses:
+        '200':
+          description: 规则列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertRulePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      tags: [Alerts]
+      summary: 创建规则
+      description: |
+        `enabled` 必填，`revision` 必须为 0 或省略。
+        未删除规则数量达到上限时返回 409 `alert_rule_limit`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleInput'
+      responses:
+        '201':
+          description: 已创建的规则。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/rules/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/AlertRuleId'
+    get:
+      tags: [Alerts]
+      summary: 读取规则
+      responses:
+        '200':
+          description: 规则详情。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      tags: [Alerts]
+      summary: 整体替换规则
+      description: |
+        语义是整体替换：除 `enabled`（必须省略，沿用库中状态）外所有字段都要给出，
+        `revision` 必须与库中版本一致，否则返回 409 `alert_revision_conflict`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleInput'
+      responses:
+        '200':
+          description: 更新后的规则。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Alerts]
+      summary: 删除规则
+      description: 软删除；同样要求请求体携带 `revision`，成功返回 204 且无响应体。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRevisionRequest'
+      responses:
+        '204':
+          description: 已删除。
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/rules/{ruleId}/enable:
+    post:
+      tags: [Alerts]
+      summary: 启用规则
+      description: 请求体只允许 `revision`；启用的规则若处于触发中则保留触发状态。
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRevisionRequest'
+      responses:
+        '200':
+          description: 启用后的规则。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/rules/{ruleId}/disable:
+    post:
+      tags: [Alerts]
+      summary: 停用规则
+      description: 请求体只允许 `revision`；停用会关闭当前活动事件。
+      parameters:
+        - $ref: '#/components/parameters/AlertRuleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRevisionRequest'
+      responses:
+        '200':
+          description: 停用后的规则。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/current:
+    get:
+      tags: [Alerts]
+      summary: 当前活动事件
+      description: |
+        固定返回处于触发中的事件，按严重级别、首次触发时间升序排列。
+        只接受 `limit`、`source`、`severity`、`cursor`；`status`、`rule`、`start`、`end` 返回 400。
+      parameters:
+        - $ref: '#/components/parameters/CappedLimit'
+        - $ref: '#/components/parameters/AlertSource'
+        - $ref: '#/components/parameters/AlertSeverity'
+        - $ref: '#/components/parameters/AlertCursor'
+      responses:
+        '200':
+          description: 活动事件列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertIncidentPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/alerts/history:
+    get:
+      tags: [Alerts]
+      summary: 历史事件
+      description: |
+        时间窗口默认最近 90 天且上限为 90 天，按首次触发时间倒序。
+        只接受 `limit`、`source`、`severity`、`status`、`rule`、`start`、`end`、`cursor`。
+      parameters:
+        - $ref: '#/components/parameters/CappedLimit'
+        - $ref: '#/components/parameters/AlertSource'
+        - $ref: '#/components/parameters/AlertSeverity'
+        - $ref: '#/components/parameters/IncidentStatus'
+        - $ref: '#/components/parameters/RuleFilterId'
+        - $ref: '#/components/parameters/WindowStart'
+        - $ref: '#/components/parameters/WindowEnd'
+        - $ref: '#/components/parameters/AlertCursor'
+      responses:
+        '200':
+          description: 历史事件列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataAlertIncidentPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins:
+    get:
+      tags: [Exporter Plugins]
+      summary: 插件状态列表
+      description: |
+        返回已安装插件的状态，按插件 ID 升序。
+        不接受查询参数，请求体必须为空；任一插件状态不符合合同时返回 503 `monitor_unavailable`。
+      responses:
+        '200':
+          description: 插件状态列表。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatusList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/catalog:
+    get:
+      tags: [Exporter Plugins]
+      summary: 插件目录
+      description: 固定返回 6 个官方 exporter 的配置模式与当前配置状态，顺序稳定。
+      responses:
+        '200':
+          description: 插件目录。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginCatalog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/install:
+    post:
+      tags: [Exporter Plugins]
+      summary: 上传并安装插件包
+      description: |
+        以 `multipart/form-data` 上传插件包：首个 part 的字段名必须是 `package` 且带文件名，
+        包体不超过 64 MiB，且不允许附加 part。
+        实际安装的插件由包内容决定，因此路径中没有插件 ID；审计记录固定归属 `redis-exporter`。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [package]
+              properties:
+                package:
+                  type: string
+                  format: binary
+                  description: 插件包，字段名必须是 `package`。
+      responses:
+        '201':
+          description: 安装后的插件状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatus'
+        '400':
+          description: 上传形状不合法或包内容非法。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                package:
+                  value:
+                    error:
+                      code: plugin_package_invalid
+                      message: plugin package is invalid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 上游执行安装失败。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                failed:
+                  value:
+                    error:
+                      code: plugin_operation_failed
+                      message: plugin operation failed
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/{pluginId}:
+    parameters:
+      - $ref: '#/components/parameters/PluginId'
+    get:
+      tags: [Exporter Plugins]
+      summary: 读取单个插件状态
+      description: 插件 ID 必须是 6 个官方 exporter 之一，否则返回 404。
+      responses:
+        '200':
+          description: 插件状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: 插件不存在。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                not_found:
+                  value:
+                    error:
+                      code: plugin_not_found
+                      message: plugin was not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/{pluginId}/install:
+    post:
+      tags: [Exporter Plugins]
+      summary: 使用配置文件安装插件
+      description: |
+        以 JSON 提供配置与密钥；`Content-Type` 必须是 `application/json` 且不带参数，
+        请求体不超过 16 KiB。创建时 `secrets` 必须显式给出（`kafka-exporter` 例外，发送 `{}`）。
+      parameters:
+        - $ref: '#/components/parameters/PluginId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginConfigRequest'
+      responses:
+        '201':
+          description: 安装后的插件状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 上游执行安装失败。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                failed:
+                  value:
+                    error:
+                      code: plugin_operation_failed
+                      message: plugin operation failed
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/{pluginId}/connection-test:
+    post:
+      tags: [Exporter Plugins]
+      summary: 连通性测试
+      description: |
+        请求体与安装相同；成功时 `reachable` 恒为 `true`，连不通由上游失败映射为 503。
+      parameters:
+        - $ref: '#/components/parameters/PluginId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginConfigRequest'
+      responses:
+        '200':
+          description: 连通性结果。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginReachable'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/{pluginId}/configuration:
+    put:
+      tags: [Exporter Plugins]
+      summary: 更新插件配置
+      description: |
+        与安装使用同一请求体，但省略 `secrets.password` 表示保留已存密钥。
+        配置来源允许容器模式或宿主模式之一，最终由 monitor 按其部署模式复核。
+      parameters:
+        - $ref: '#/components/parameters/PluginId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PluginConfigRequest'
+      responses:
+        '200':
+          description: 更新后的插件状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 上游执行配置更新失败。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                failed:
+                  value:
+                    error:
+                      code: plugin_operation_failed
+                      message: plugin operation failed
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/{pluginId}/start:
+    post:
+      tags: [Exporter Plugins]
+      summary: 启动插件
+      description: 不接受查询参数，请求体必须为空。
+      parameters:
+        - $ref: '#/components/parameters/PluginId'
+      responses:
+        '200':
+          description: 启动后的插件状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 上游执行启动失败。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                failed:
+                  value:
+                    error:
+                      code: plugin_operation_failed
+                      message: plugin operation failed
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/{pluginId}/stop:
+    post:
+      tags: [Exporter Plugins]
+      summary: 停止插件
+      description: 不接受查询参数，请求体必须为空。
+      parameters:
+        - $ref: '#/components/parameters/PluginId'
+      responses:
+        '200':
+          description: 停止后的插件状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 上游执行停止失败。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                failed:
+                  value:
+                    error:
+                      code: plugin_operation_failed
+                      message: plugin operation failed
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/exporter-plugins/{pluginId}/update:
+    post:
+      tags: [Exporter Plugins]
+      summary: 使用新包升级插件
+      description: |
+        与包上传安装相同的 `multipart/form-data` 契约，成功返回 200。
+        目标版本不受支持时返回 409 `upgrade_required`。
+      parameters:
+        - $ref: '#/components/parameters/PluginId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [package]
+              properties:
+                package:
+                  type: string
+                  format: binary
+                  description: 插件包，字段名必须是 `package`。
+      responses:
+        '200':
+          description: 升级后的插件状态。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataPluginStatus'
+        '400':
+          description: 上传形状不合法或包内容非法。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                package:
+                  value:
+                    error:
+                      code: plugin_package_invalid
+                      message: plugin package is invalid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: 上游执行升级失败。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
+                failed:
+                  value:
+                    error:
+                      code: plugin_operation_failed
+                      message: plugin operation failed
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: gopulse_session
+      description: 登录接口下发的会话 Cookie；名称可由 `AUTH_COOKIE_NAME` 覆盖。
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: 目标用户的数字 ID，必须是十进制正整数；`me` 之类别名不被接受。
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]*$'
+    Username:
+      name: username
+      in: path
+      required: true
+      description: 用户名；按列的排序规则做等值比较，大小写与重音不敏感。
+      schema:
+        type: string
+    PostId:
+      name: postId
+      in: path
+      required: true
+      description: 帖子 ID，必须是十进制正整数。
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]*$'
+    NotificationId:
+      name: notificationId
+      in: path
+      required: true
+      description: 通知 ID，必须是十进制正整数；他人的通知按不存在处理。
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]*$'
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: 单页条数，取值 1 到 50，缺省 20。
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        上一页响应中 `meta.next_cursor` 的原值。
+        帖子、关注关系与通知的游标是未签名的时间戳游标，最长为 512 字符；
+        评论游标最长为 256 字符。游标不可跨端点或跨用户复用。
+      schema:
+        type: string
+    BookmarkCursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        收藏列表的游标，最长为 600 字符，由服务端签名并绑定当前查看者；
+        被篡改或换用户复用返回 400。
+      schema:
+        type: string
+        maxLength: 600
+    PostSearchCursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        帖子搜索的游标，最长为 8192 字节，绑定查询词、数据 epoch 与检索引擎快照；
+        快照存活 2 分钟，过期后需要从第一页重新检索。
+      schema:
+        type: string
+        maxLength: 8192
+    UserSearchCursor:
+      name: cursor
+      in: query
+      required: false
+      description: 用户检索的游标，最长为 2048 字符，带签名并绑定查询词，换词复用返回 400。
+      schema:
+        type: string
+        maxLength: 2048
+    SearchQuery:
+      name: q
+      in: query
+      required: true
+      description: 检索词，去除首尾空白后按 Unicode 码点计 1 到 200 个字符；必须恰好出现一次。
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        幂等键，规范的小写 UUID（36 字符，版本位 1-5）。
+        必须与 `X-GoPulse-Data-Epoch` 同时出现，只带其一返回 400。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    DataEpoch:
+      name: X-GoPulse-Data-Epoch
+      in: header
+      required: false
+      description: |
+        数据 epoch，取自 `GET /api/v1/post-commands/context` 的 `data_epoch`，格式与幂等键相同。
+        与当前 epoch 不一致返回 409 `data_epoch_mismatch`。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+
+    PluginId:
+      name: pluginId
+      in: path
+      required: true
+      description: exporter 插件 ID，必须是 6 个官方 exporter 之一。
+      schema:
+        type: string
+        enum:
+          - redis-exporter
+          - mysql-exporter
+          - rabbitmq-exporter
+          - kafka-exporter
+          - elasticsearch-exporter
+          - victoriametrics-exporter
+    OverviewRange:
+      name: range
+      in: query
+      required: true
+      description: 总览的时间窗口；当前只接受 `15m`，省略或其他取值返回 400。
+      schema:
+        type: string
+        enum: ['15m']
+    MetricName:
+      name: metric
+      in: query
+      required: true
+      description: 指标名，必须来自 `GET /api/v1/observability/metrics/catalog`；最长 128 字符，不含控制字符。
+      schema:
+        type: string
+        maxLength: 128
+    MetricRange:
+      name: range
+      in: query
+      required: false
+      description: 查询窗口，缺省 `15m`；步长由窗口决定（15 秒、60 秒、300 秒、900 秒）。
+      schema:
+        type: string
+        enum: ['15m', '1h', '6h', '24h']
+        default: 15m
+    RangeFrom:
+      name: from
+      in: query
+      required: false
+      description: 窗口起点，RFC3339Nano 且必须为 UTC；缺省为 `to` 前 15 分钟。
+      schema:
+        type: string
+        format: date-time
+    RangeTo:
+      name: to
+      in: query
+      required: false
+      description: 窗口终点，RFC3339Nano 且必须为 UTC；缺省为当前时间，不得超过当前时间 5 分钟以上。
+      schema:
+        type: string
+        format: date-time
+    LogService:
+      name: service
+      in: query
+      required: false
+      description: 服务名过滤，取值来自日志词表；与 `module`、`message` 的组合必须存在。
+      schema:
+        type: string
+    LogModule:
+      name: module
+      in: query
+      required: false
+      description: 模块名过滤，取值来自日志词表。
+      schema:
+        type: string
+    LogMessage:
+      name: message
+      in: query
+      required: false
+      description: 消息名过滤，取值来自日志词表。
+      schema:
+        type: string
+    LogLevel:
+      name: level
+      in: query
+      required: false
+      description: 日志级别。
+      schema:
+        type: string
+        enum: [info, warn, error]
+    RequestIdFilter:
+      name: request_id
+      in: query
+      required: false
+      description: 请求 ID，32 位小写十六进制。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
+    TraceIdFilter:
+      name: trace_id
+      in: query
+      required: false
+      description: 追踪 ID，32 位小写十六进制且不得全为 0。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
+    SpanIdFilter:
+      name: span_id
+      in: query
+      required: false
+      description: Span ID，16 位小写十六进制且不得全为 0。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{16}$'
+    EventIdFilter:
+      name: event_id
+      in: query
+      required: false
+      description: 事件 ID，规范的小写 UUID。
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    LogErrorCode:
+      name: error_code
+      in: query
+      required: false
+      description: 错误码，取值来自平台错误码词表。
+      schema:
+        type: string
+        enum:
+          - validation_failed
+          - authentication_required
+          - permission_denied
+          - invalid_credentials
+          - username_conflict
+          - post_not_found
+          - notification_not_found
+          - search_unavailable
+          - metrics_unavailable
+          - logs_unavailable
+          - events_unavailable
+          - plugin_package_invalid
+          - plugin_not_found
+          - plugin_conflict
+          - plugin_operation_in_progress
+          - plugin_operation_failed
+          - monitor_unavailable
+          - internal_error
+    EventSource:
+      name: source
+      in: query
+      required: false
+      description: 事件来源。
+      schema:
+        type: string
+        enum: [monitor]
+    EventName:
+      name: event_name
+      in: query
+      required: false
+      description: 事件名，取值与 `severity`、`operation`、`error_code` 必须互相匹配。
+      schema:
+        type: string
+        enum:
+          - exporter_plugin_installed
+          - exporter_plugin_started
+          - exporter_plugin_stopped
+          - exporter_plugin_updated
+          - exporter_plugin_failed
+          - exporter_plugin_exited
+          - metrics_collection_failed
+          - metrics_collection_recovered
+          - metrics_target_unavailable
+          - metrics_target_recovered
+    EventSeverity:
+      name: severity
+      in: query
+      required: false
+      description: 事件级别，必须是 `event_name` 对应的固定级别。
+      schema:
+        type: string
+        enum: [info, warn, error]
+    EventOperation:
+      name: operation
+      in: query
+      required: false
+      description: 操作名，必须属于 `event_name` 允许的集合。
+      schema:
+        type: string
+        enum: [install, start, stop, update, recover, scrape, publish]
+    EventErrorCode:
+      name: error_code
+      in: query
+      required: false
+      description: 事件错误码，必须与 `event_name`、`operation` 相容。
+      schema:
+        type: string
+        enum:
+          - start_failed
+          - stop_failed
+          - update_failed
+          - rollback_failed
+          - recovery_failed
+          - recovery_invalid
+          - process_exited
+          - scrape_timeout
+          - network_failed
+          - response_too_large
+          - parse_failed
+          - contract_invalid
+          - content_invalid
+          - http_invalid
+          - scrape_failed
+          - message_id_failed
+          - publish_failed
+    PluginIdFilter:
+      name: plugin_id
+      in: query
+      required: false
+      description: exporter 插件 ID。
+      schema:
+        type: string
+        enum:
+          - redis-exporter
+          - mysql-exporter
+          - rabbitmq-exporter
+          - kafka-exporter
+          - elasticsearch-exporter
+          - victoriametrics-exporter
+    ResourceCursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        不透明游标，由服务端签名并绑定发起者与查询类型；必须是唯一的查询参数，
+        与任何过滤条件或时间参数同时出现时返回 400。
+      schema:
+        type: string
+        maxLength: 8192
+    CappedLimit:
+      name: limit
+      in: query
+      required: false
+      description: 单页条数，取值 1 到 100，缺省 50。
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    AuditCursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        审计列表的不透明游标，最长 2048 字符，由服务端签名并绑定发起者；
+        必须是唯一的查询参数，与任何过滤条件或时间参数同时出现时返回 400。
+      schema:
+        type: string
+        maxLength: 2048
+    AlertCursor:
+      name: cursor
+      in: query
+      required: false
+      description: 告警列表的不透明游标，最长 4096 字符，绑定发起者、查询类型与过滤条件。
+      schema:
+        type: string
+        maxLength: 4096
+    AlertSource:
+      name: source
+      in: query
+      required: false
+      description: 规则或事件的数据来源。
+      schema:
+        type: string
+        enum: [metrics, logs, events]
+    AlertSeverity:
+      name: severity
+      in: query
+      required: false
+      description: 严重级别。
+      schema:
+        type: string
+        enum: [warning, critical]
+    AlertStatus:
+      name: status
+      in: query
+      required: false
+      description: 规则当前的评估状态；仅规则列表接受该过滤。
+      schema:
+        type: string
+        enum: [normal, pending, firing, disabled]
+    IncidentStatus:
+      name: status
+      in: query
+      required: false
+      description: 事件状态；仅历史查询接受该过滤。
+      schema:
+        type: string
+        enum: [firing, recovered, closed]
+    RuleFilterId:
+      name: rule
+      in: query
+      required: false
+      description: 规则 ID，规范十进制正整数；仅历史查询接受该过滤。
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]*$'
+    AlertRuleId:
+      name: ruleId
+      in: path
+      required: true
+      description: 告警规则 ID，规范十进制正整数。
+      schema:
+        type: string
+        pattern: '^[1-9][0-9]*$'
+    WindowStart:
+      name: start
+      in: query
+      required: false
+      description: 窗口起点，RFC3339Nano；缺省为终点前 90 天，允许非 UTC 时区。
+      schema:
+        type: string
+        format: date-time
+    WindowEnd:
+      name: end
+      in: query
+      required: false
+      description: 窗口终点，RFC3339Nano；缺省为服务端当前时间，允许非 UTC 时区。
+      schema:
+        type: string
+        format: date-time
+    AuditAction:
+      name: action
+      in: query
+      required: false
+      description: 审计动作过滤。
+      schema:
+        type: string
+        enum:
+          - bootstrap.declare
+          - user.role.change
+          - rule.create
+          - rule.update
+          - rule.enable
+          - rule.disable
+          - rule.delete
+          - plugin.connection-test
+          - plugin.install
+          - plugin.configuration
+          - plugin.start
+          - plugin.stop
+          - plugin.update
+          - alert.trigger
+          - alert.recover
+          - alert.close
+    AuditResourceType:
+      name: resource_type
+      in: query
+      required: false
+      description: 审计资源类型过滤。
+      schema:
+        type: string
+        enum: [user, rule, plugin, alert]
+    AuditOutcome:
+      name: outcome
+      in: query
+      required: false
+      description: 审计结果过滤。
+      schema:
+        type: string
+        enum: [succeeded, failed, unknown]
+
+  schemas:
+    ErrorCode:
+      type: string
+      description: 稳定的错误标识，新增取值属于兼容变更。
+      enum:
+        - validation_failed
+        - authentication_required
+        - invalid_credentials
+        - permission_denied
+        - internal_error
+        - user_not_found
+        - username_conflict
+        - post_not_found
+        - notification_not_found
+        - idempotency_conflict
+        - command_result_unknown
+        - command_outcome_unknown
+        - data_epoch_mismatch
+        - business_async_backlog
+        - search_unavailable
+        - metrics_unavailable
+        - logs_unavailable
+        - events_unavailable
+        - alerts_unavailable
+        - alert_not_found
+        - alert_revision_conflict
+        - alert_rule_limit
+        - bootstrap_super_admin_protected
+        - management_setup_unavailable
+        - plugin_package_invalid
+        - plugin_not_found
+        - plugin_conflict
+        - plugin_operation_in_progress
+        - plugin_operation_failed
+        - upgrade_required
+        - monitor_unavailable
+        - not_found
+        - method_not_allowed
+        - backend_busy
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          description: 可直接展示给调用方的安全描述，不含内部细节。
+        request_id:
+          type: string
+          description: 回显请求的 `X-Request-ID`，便于与日志和事件关联。
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/Error'
+
+    PageMeta:
+      type: object
+      required: [next_cursor]
+      properties:
+        next_cursor:
+          type: [string, 'null']
+          description: 下一页游标；为 `null` 时表示没有更多数据。
+
+    Credentials:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          description: 去除首尾空白后 3 到 32 字节，仅允许 `[A-Za-z0-9_]`。
+        password:
+          type: string
+          description: 至少 8 个 Unicode 码点，且 UTF-8 编码不超过 72 字节。
+
+    UserPublic:
+      type: object
+      required: [id, username, role, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        username:
+          type: string
+        role:
+          type: string
+          enum: [user, super_admin]
+        created_at:
+          type: string
+          format: date-time
+        management_setup_available:
+          type: boolean
+          description: 管理端初始化存储是否可用；不可用或查询失败时该字段省略。
+
+    ProfileInput:
+      type: object
+      required: [display_name, bio]
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          description: 去除首尾空白后 1 到 64 个 Unicode 码点；两个字段必须同时出现。
+        bio:
+          type: string
+          description: 允许空串；去除首尾空白后最多 160 个 Unicode 码点。
+
+    Profile:
+      type: object
+      required: [id, username, display_name, bio, created_at, following, is_self]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        username:
+          type: string
+        display_name:
+          type: string
+        bio:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        following:
+          type: boolean
+          description: 当前查看者是否关注该用户；查看自己时恒为 `false`。
+        is_self:
+          type: boolean
+          description: 该资料是否属于当前查看者。
+
+    FollowState:
+      type: object
+      required: [following]
+      properties:
+        following:
+          type: boolean
+
+    PostAuthor:
+      type: object
+      required: [id, username, display_name, following]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        username:
+          type: string
+        display_name:
+          type: string
+        following:
+          type: boolean
+          description: 当前查看者是否关注该作者。
+
+    Post:
+      type: object
+      required:
+        - id
+        - title
+        - content
+        - created_at
+        - updated_at
+        - edited_at
+        - content_revision
+        - bookmarked_by_me
+        - liked_by_me
+        - comment_count
+        - like_count
+        - author
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        title:
+          type: string
+          description: 去除首尾空白后 1 到 120 个 Unicode 码点。
+        content:
+          type: string
+          description: 去除首尾空白后 1 到 10000 个 Unicode 码点。
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        edited_at:
+          type: [string, 'null']
+          format: date-time
+          description: 从未编辑时为 `null`。
+        content_revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 内容修订号，每次内容变化递增。
+        bookmarked_by_me:
+          type: boolean
+        liked_by_me:
+          type: boolean
+        comment_count:
+          type: integer
+          format: int64
+          minimum: 0
+        like_count:
+          type: integer
+          format: int64
+          minimum: 0
+        author:
+          $ref: '#/components/schemas/PostAuthor'
+
+    PostInput:
+      type: object
+      required: [title, content]
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          description: 去除首尾空白后 1 到 120 个 Unicode 码点。
+        content:
+          type: string
+          description: 去除首尾空白后 1 到 10000 个 Unicode 码点。
+
+    CommentAuthor:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        username:
+          type: string
+
+    Comment:
+      type: object
+      required: [id, post_id, content, created_at, author]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        post_id:
+          type: integer
+          format: int64
+          minimum: 1
+        content:
+          type: string
+          description: 去除首尾空白后 1 到 2000 个 Unicode 码点。
+        created_at:
+          type: string
+          format: date-time
+        author:
+          $ref: '#/components/schemas/CommentAuthor'
+
+    CommentInput:
+      type: object
+      required: [content]
+      additionalProperties: false
+      properties:
+        content:
+          type: string
+          description: 去除首尾空白后 1 到 2000 个 Unicode 码点。
+
+    NotificationActor:
+      type: object
+      required: [id, username, display_name]
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        username:
+          type: string
+        display_name:
+          type: string
+
+    Notification:
+      type: object
+      required:
+        - id
+        - type
+        - created_at
+        - read_at
+        - actor
+        - post_id
+        - comment_id
+        - resource_deleted
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        type:
+          type: string
+          description: |
+            事件类型。当前业务拓扑只投递 `comment.created`、`post.liked`、`user.followed`，
+            其余取值保留给同一事件族的历史与后续装配。
+          enum:
+            - comment.created
+            - post.liked
+            - user.followed
+            - post.created
+            - post.updated
+            - post.deleted
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: [string, 'null']
+          format: date-time
+          description: 未读时为 `null`。
+        actor:
+          $ref: '#/components/schemas/NotificationActor'
+        post_id:
+          type: [integer, 'null']
+          format: int64
+          description: 关联帖子；帖子被删除后置为 `null`。
+        comment_id:
+          type: [integer, 'null']
+          format: int64
+          description: 关联评论；帖子被删除后置为 `null`。
+        resource_deleted:
+          type: boolean
+          description: 非关注类通知在关联资源被删除后为 `true`。
+
+    CommandMeta:
+      type: object
+      required: [command_id, event_id, data_epoch, post_id, committed_at, replayed, resource_state]
+      properties:
+        command_id:
+          type: string
+          description: 幂等键对应的命令 ID。
+        event_id:
+          type: string
+          description: 该命令产生的事件 ID，可用于与事件查询对齐。
+        data_epoch:
+          type: string
+          description: 命令所属的数据 epoch。
+        post_id:
+          type: integer
+          format: int64
+          minimum: 1
+        committed_at:
+          type: string
+          format: date-time
+          description: 命令首次提交的时间；重放时保持不变。
+        replayed:
+          type: boolean
+          description: 是否为重放响应。
+        resource_state:
+          type: string
+          enum: [available, unavailable]
+          description: 命令已提交时目标资源的可读性；`unavailable` 时 `data` 为 `null`。
+
+    CommandContext:
+      type: object
+      required: [data_epoch, retry_window_seconds, retry_window_until]
+      properties:
+        data_epoch:
+          type: string
+          description: 当前生效的数据 epoch，作为 `X-GoPulse-Data-Epoch` 使用。
+        retry_window_seconds:
+          type: integer
+          format: int64
+          description: 命令结果的保留窗口，当前为 604800 秒（7 天）。
+        retry_window_until:
+          type: string
+          format: date-time
+          description: 保留窗口的结束时间。
+
+    DataUserPublic:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/UserPublic'
+
+    DataProfile:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Profile'
+
+    DataProfilePage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Profile'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataFollowState:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/FollowState'
+
+    DataPost:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Post'
+
+    DataPostPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataPostCommand:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/Post'
+            - type: 'null'
+          description: 资源当前不可读时为 `null`，此时 `meta.resource_state` 为 `unavailable`。
+        meta:
+          $ref: '#/components/schemas/CommandMeta'
+
+    DataPostOrCommand:
+      description: |
+        创建帖子返回两种形状之一：不带幂等键且未产生命令元数据时是 `{"data": Post}`；
+        产生命令元数据时是 `{"data": Post|null, "meta": CommandMeta}`。
+      oneOf:
+        - $ref: '#/components/schemas/DataPost'
+        - $ref: '#/components/schemas/DataPostCommand'
+
+    DataCommandContext:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CommandContext'
+
+    DataComment:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Comment'
+
+    DataCommentPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataNotificationPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    AdminComponent:
+      type: object
+      required: [id, status, observed_at, reason_code]
+      properties:
+        id:
+          type: string
+          description: 组件 ID，固定集合之一：`backend`、`business-worker`、`search-indexer`、`monitor`、`router`、`marshaller`。
+        status:
+          $ref: '#/components/schemas/AdminStatus'
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        reason_code:
+          type: string
+
+    AdminKeyMetric:
+      type: object
+      required: [id, value, unit, observed_at, status, reason_code]
+      properties:
+        id:
+          type: string
+          description: 关键指标 ID，固定 6 项。
+        value:
+          type: [number, 'null']
+        unit:
+          type: string
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        status:
+          $ref: '#/components/schemas/AdminStatus'
+        reason_code:
+          type: string
+
+    AdminSeverityCount:
+      type: object
+      required: [severity, value, status]
+      properties:
+        severity:
+          type: string
+          enum: [info, warn, error]
+        value:
+          type: [integer, 'null']
+          format: int64
+        status:
+          $ref: '#/components/schemas/AdminStatus'
+
+    AdminPlugin:
+      type: object
+      required: [id, installed, desired, observed, up, observed_at, status, reason_code]
+      properties:
+        id:
+          type: string
+          description: exporter 插件 ID，固定 6 项。
+        installed:
+          type: [boolean, 'null']
+        desired:
+          type: string
+        observed:
+          type: string
+        up:
+          type: [number, 'null']
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        status:
+          $ref: '#/components/schemas/AdminStatus'
+        reason_code:
+          type: string
+
+    AdminAlertRecovery:
+      type: object
+      required: [rule_id, revision, severity, recovered_at]
+      properties:
+        rule_id:
+          type: integer
+          format: int64
+        revision:
+          type: integer
+          format: int64
+        severity:
+          type: string
+          enum: [warning, critical]
+        recovered_at:
+          type: string
+          format: date-time
+
+    AdminAlertSummary:
+      type: object
+      required:
+        - recoveries
+        - warning_firing
+        - critical_firing
+        - pending
+        - unknown
+        - recently_recovered
+        - evaluator_enabled
+        - last_success_at
+      properties:
+        recoveries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminAlertRecovery'
+        warning_firing:
+          type: integer
+          format: int64
+        critical_firing:
+          type: integer
+          format: int64
+        pending:
+          type: integer
+          format: int64
+        unknown:
+          type: integer
+          format: int64
+        recently_recovered:
+          type: integer
+          format: int64
+        evaluator_enabled:
+          type: boolean
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+
+    AdminStatus:
+      type: string
+      enum: [healthy, degraded, unavailable]
+
+    AdminSection:
+      type: object
+      required: [status, observed_at, reason_code]
+      properties:
+        status:
+          $ref: '#/components/schemas/AdminStatus'
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        reason_code:
+          type: string
+          description: |
+            取值为 `ok`、`partial_data`、`stale`、`dependency_down`、`missing`、`not_installed`、
+            `process_failed`、`monitor_unavailable`、`upstream_unavailable` 之一。
+
+    AdminSnapshot:
+      type: object
+      required: [generated_at, status, components, key_metrics, logs, events, plugins, alerts]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/AdminStatus'
+        components:
+          allOf:
+            - $ref: '#/components/schemas/AdminSection'
+            - type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AdminComponent'
+        key_metrics:
+          allOf:
+            - $ref: '#/components/schemas/AdminSection'
+            - type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AdminKeyMetric'
+        logs:
+          allOf:
+            - $ref: '#/components/schemas/AdminSection'
+            - type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AdminSeverityCount'
+        events:
+          allOf:
+            - $ref: '#/components/schemas/AdminSection'
+            - type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AdminSeverityCount'
+        plugins:
+          allOf:
+            - $ref: '#/components/schemas/AdminSection'
+            - type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AdminPlugin'
+        alerts:
+          allOf:
+            - $ref: '#/components/schemas/AdminSection'
+            - type: object
+              required: [items]
+              properties:
+                items:
+                  description: 正常情况下是单个汇总对象；该分段不可用时为空数组。
+                  oneOf:
+                    - $ref: '#/components/schemas/AdminAlertSummary'
+                    - type: array
+                      maxItems: 0
+                      items: {}
+
+    MetricDefinition:
+      type: object
+      required: [source, target_id, producer_kind, producer_id, metric, kind, unit]
+      properties:
+        source:
+          type: string
+        target_id:
+          type: string
+        producer_kind:
+          type: string
+        producer_id:
+          type: string
+        metric:
+          type: string
+        kind:
+          type: string
+          enum: [gauge, counter]
+        unit:
+          type: string
+
+    MetricAlertDefinition:
+      type: object
+      required: [metric, kind, unit, label_keys, allowed_tuples, reducers]
+      properties:
+        metric:
+          type: string
+        kind:
+          type: string
+          enum: [gauge, counter]
+        unit:
+          type: string
+        label_keys:
+          type: array
+          items:
+            type: string
+        allowed_tuples:
+          type: array
+          description: 允许出现的标签取值组合，顺序与 `label_keys` 对齐。
+          items:
+            type: array
+            items:
+              type: string
+        reducers:
+          type: array
+          items:
+            type: string
+
+    MetricLabels:
+      type: object
+      description: 指标标签，未出现的标签被省略。
+      properties:
+        method: {type: string}
+        route: {type: string}
+        status_class: {type: string}
+        event_type: {type: string}
+        operation: {type: string}
+        dependency: {type: string}
+        scraped_producer_kind: {type: string}
+        scraped_target_id: {type: string}
+        type: {type: string}
+        message_source: {type: string}
+        stage: {type: string}
+        storage: {type: string}
+        partition: {type: string}
+        status: {type: string}
+        result: {type: string}
+        state: {type: string}
+        mode: {type: string}
+        db: {type: string}
+        le: {type: string}
+        alert_source: {type: string}
+
+    MetricPoint:
+      type: object
+      required: [timestamp, value]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        value:
+          type: number
+
+    MetricSeries:
+      type: object
+      required: [labels, points]
+      properties:
+        labels:
+          $ref: '#/components/schemas/MetricLabels'
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricPoint'
+
+    MetricResult:
+      type: object
+      required: [metric, kind, unit, range, from, to, step_seconds, series]
+      properties:
+        metric:
+          type: string
+        kind:
+          type: string
+          enum: [gauge, counter]
+        unit:
+          type: string
+        range:
+          type: string
+          enum: ['15m', '1h', '6h', '24h']
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        step_seconds:
+          type: integer
+          format: int64
+          enum: [15, 60, 300, 900]
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricSeries'
+
+    LogEntry:
+      type: object
+      required: [timestamp, level, service, module, message]
+      description: 只有 5 个固定字段必然出现，其余字段按日志上下文出现。
+      properties:
+        timestamp: {type: string, format: date-time}
+        level: {type: string, enum: [info, warn, error]}
+        service: {type: string}
+        module: {type: string}
+        message: {type: string}
+        instance_id: {type: string}
+        request_id: {type: string}
+        trace_id: {type: string}
+        span_id: {type: string}
+        attempt_id: {type: string}
+        event_id: {type: string}
+        event_type: {type: string}
+        user_id: {type: integer, format: int64}
+        post_id: {type: integer, format: int64}
+        content_revision: {type: integer, format: int64}
+        comment_id: {type: integer, format: int64}
+        notification_id: {type: integer, format: int64}
+        outbox_id: {type: integer, format: int64}
+        method: {type: string}
+        route: {type: string}
+        status: {type: integer, format: int64}
+        duration_ms: {type: integer, format: int64}
+        response_bytes: {type: integer, format: int64}
+        error_code: {type: string}
+        reason: {type: string}
+        operation: {type: string}
+        resource: {type: string}
+        stage: {type: string}
+        result: {type: string}
+        attempt: {type: integer, format: int64}
+        batch_size: {type: integer, format: int64}
+        document_count: {type: integer, format: int64}
+        panic_recovered: {type: boolean}
+        response_committed: {type: boolean}
+
+    EventMetadata:
+      type: object
+      required: [plugin_id]
+      properties:
+        plugin_id: {type: string}
+        plugin_version: {type: string}
+        previous_plugin_version: {type: string}
+        operation: {type: string}
+        from_state: {type: string}
+        to_state: {type: string}
+        error_code: {type: string}
+        scrape_status: {type: string}
+
+    EventEntry:
+      type: object
+      required: [timestamp, event_name, source, severity, message, metadata]
+      properties:
+        timestamp: {type: string, format: date-time}
+        event_name: {type: string}
+        source: {type: string}
+        severity: {type: string, enum: [info, warn, error]}
+        message: {type: string}
+        metadata:
+          $ref: '#/components/schemas/EventMetadata'
+
+    ManagedUser:
+      type: object
+      required: [id, username, role, created_at, is_bootstrap_super_admin]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        role:
+          type: string
+          enum: [user, super_admin]
+        created_at:
+          type: string
+          format: date-time
+        is_bootstrap_super_admin:
+          type: boolean
+
+    RoleChange:
+      type: object
+      required: [user, changed]
+      properties:
+        user:
+          $ref: '#/components/schemas/ManagedUser'
+        changed:
+          type: boolean
+          description: 角色是否实际发生变化。
+
+    AuditEvent:
+      type: object
+      required:
+        - id
+        - operation_id
+        - occurred_at
+        - actor_kind
+        - actor_user_id
+        - action
+        - resource_type
+        - resource_id
+        - phase
+        - outcome
+        - request_id
+        - details_json
+      properties:
+        id:
+          type: integer
+          format: int64
+        operation_id:
+          type: string
+          description: 审计操作 ID，32 位小写十六进制。
+        occurred_at:
+          type: string
+          format: date-time
+        actor_kind:
+          type: string
+          enum: [user, system]
+        actor_user_id:
+          type: [integer, 'null']
+          format: int64
+          description: 系统动作时为 `null`。
+        action:
+          type: string
+          description: 动作名，取自固定集合，例如 `user.role.change`、`plugin.install`、`alert.trigger`。
+        resource_type:
+          type: string
+          enum: [user, rule, plugin, alert]
+        resource_id:
+          type: string
+        phase:
+          type: string
+          enum: [requested, completed]
+        outcome:
+          type: string
+          enum: [succeeded, failed, unknown]
+        request_id:
+          type: string
+        details_json:
+          description: 动作相关的结构化明细，形状随 `action` 变化。
+
+    AlertSelector:
+      type: object
+      required: [metric, labels]
+      properties:
+        metric:
+          type: string
+          description: 仅 `metrics` 来源使用；`logs` 与 `events` 来源必须为空串。
+        labels:
+          type: [object, 'null']
+          additionalProperties:
+            type: string
+          description: |
+            `metrics` 来源必须显式给出，键集合与指标定义的 `label_keys` 一致，取值组合必须命中 `allowed_tuples`；
+            无标签的指标发送 `{}`。
+
+    AlertRuleInput:
+      type: object
+      required: [name, severity, source, selector, reducer, operator, threshold, window, for]
+      properties:
+        name:
+          type: string
+          description: 1 到 80 字节，合法 UTF-8，至少含一个非空白字符，不含控制字符。
+        enabled:
+          type: boolean
+          description: 仅创建时必填；更新时必须省略，取值沿用库中已有状态。
+        severity:
+          type: string
+          enum: [warning, critical]
+        source:
+          type: string
+          enum: [metrics, logs, events]
+        selector:
+          $ref: '#/components/schemas/AlertSelector'
+        reducer:
+          type: string
+          description: |
+            `metrics` 来源取该指标定义的 `reducers`（gauge 为 `last`、`max`、`min`、`avg`，counter 为 `increase`）；
+            `logs` 与 `events` 来源必须为 `count`。
+        operator:
+          type: string
+          enum: [gt, gte, lt, lte, eq, neq]
+        threshold:
+          type: number
+          description: 非 NaN/Inf，绝对值不超过 1e15。
+        window:
+          type: string
+          enum: ['1m', '5m', '15m']
+        for:
+          type: string
+          enum: ['0s', '1m', '5m']
+          description: 持续时间不得超过 `window`。
+        revision:
+          type: integer
+          format: int64
+          description: 创建时必须为 0 或省略；更新、启停与删除时必须不小于 1，并与库中版本一致。
+
+    AlertRevisionRequest:
+      type: object
+      required: [revision]
+      additionalProperties: false
+      description: 启停与删除只接受版本号，用于乐观并发控制。
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 必须与库中当前版本一致，否则返回 409 `alert_revision_conflict`。
+
+    AlertState:
+      type: object
+      required:
+        - state
+        - data_status
+        - pending_since
+        - active_incident_id
+        - last_value
+        - last_evaluated_at
+        - last_success_at
+        - error_code
+      properties:
+        state:
+          type: string
+          enum: [normal, pending, firing, disabled]
+        data_status:
+          type: string
+          enum: [ok, unknown, stale]
+          description: 创建与更新响应固定为 `unknown`。
+        pending_since:
+          type: [string, 'null']
+          format: date-time
+        active_incident_id:
+          type: [integer, 'null']
+          format: int64
+        last_value:
+          type: [number, 'null']
+        last_evaluated_at:
+          type: [string, 'null']
+          format: date-time
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+        error_code:
+          type: string
+          description: 空串或 `<source>_unknown`，例如 `metrics_unknown`。
+
+    AlertRule:
+      allOf:
+        - $ref: '#/components/schemas/AlertRuleInput'
+        - type: object
+          required: [enabled, revision, id, created_by, updated_by, created_at, updated_at, evaluation]
+          properties:
+            enabled:
+              type: boolean
+            revision:
+              type: integer
+              format: int64
+              minimum: 1
+            id:
+              type: integer
+              format: int64
+            created_by:
+              type: integer
+              format: int64
+            updated_by:
+              type: integer
+              format: int64
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            evaluation:
+              $ref: '#/components/schemas/AlertState'
+
+    AlertIncident:
+      type: object
+      required:
+        - id
+        - rule_id
+        - revision
+        - name
+        - severity
+        - source
+        - object
+        - status
+        - first_triggered_at
+        - last_triggered_at
+        - last_evaluated_at
+        - recovered_at
+        - closed_at
+        - resolution_reason
+        - last_value
+        - evaluation_count
+        - data_status
+      properties:
+        id:
+          type: integer
+          format: int64
+        rule_id:
+          type: integer
+          format: int64
+        revision:
+          type: integer
+          format: int64
+        name:
+          type: string
+        severity:
+          type: string
+          enum: [warning, critical]
+        source:
+          type: string
+          enum: [metrics, logs, events]
+        object:
+          $ref: '#/components/schemas/AlertSelector'
+        status:
+          type: string
+          enum: [firing, recovered, closed]
+        first_triggered_at:
+          type: string
+          format: date-time
+        last_triggered_at:
+          type: string
+          format: date-time
+        last_evaluated_at:
+          type: string
+          format: date-time
+        recovered_at:
+          type: [string, 'null']
+          format: date-time
+        closed_at:
+          type: [string, 'null']
+          format: date-time
+        resolution_reason:
+          type: string
+          description: 空串或 `rule_updated`、`rule_disabled`、`rule_deleted`。
+        last_value:
+          type: [number, 'null']
+        evaluation_count:
+          type: integer
+          format: int64
+        data_status:
+          type: string
+          description: 规则当前的数据状态；无关联状态行时为 `historical`。
+
+    CountCatalog:
+      type: object
+      required: [fields, allowed_combinations, reducers, minimum_selectors]
+      properties:
+        fields:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        allowed_combinations:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              type: string
+        reducers:
+          type: array
+          items:
+            type: string
+        minimum_selectors:
+          type: integer
+
+    AlertCatalog:
+      type: object
+      required: [logs, events, creatable_sources, metrics, operators, windows, for, severities]
+      properties:
+        logs:
+          $ref: '#/components/schemas/CountCatalog'
+        events:
+          $ref: '#/components/schemas/CountCatalog'
+        creatable_sources:
+          type: array
+          items:
+            type: string
+            enum: [metrics, logs, events]
+        metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricAlertDefinition'
+        operators:
+          type: array
+          items:
+            type: string
+        windows:
+          type: array
+          items:
+            type: string
+        for:
+          type: array
+          items:
+            type: string
+        severities:
+          type: array
+          items:
+            type: string
+
+    PluginLastError:
+      type: object
+      required: [code, message, at]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        at:
+          type: string
+          format: date-time
+
+    PluginStatus:
+      type: object
+      required:
+        - id
+        - name
+        - version
+        - kind
+        - source
+        - desired_state
+        - observed_state
+        - installed_at
+        - updated_at
+        - started_at
+        - last_scrape_at
+        - last_success_at
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+          description: 语义化版本。
+        kind:
+          type: string
+          description: 当前固定为 `metrics-exporter`。
+        source:
+          type: string
+          description: 6 个官方 exporter 之一。
+        desired_state:
+          type: string
+          enum: [running, stopped]
+        observed_state:
+          type: string
+          enum: [installing, starting, running, stopping, stopped, updating, failed]
+        installed_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        started_at:
+          type: [string, 'null']
+          format: date-time
+        last_scrape_at:
+          type: [string, 'null']
+          format: date-time
+        last_success_at:
+          type: [string, 'null']
+          format: date-time
+        last_error:
+          $ref: '#/components/schemas/PluginLastError'
+
+    PluginConfigField:
+      type: object
+      required: [name, type, required, secret]
+      properties:
+        name: {type: string}
+        type:
+          type: string
+          enum: [hostname, port, integer, string, secret, duration]
+        required: {type: boolean}
+        secret: {type: boolean}
+        minimum: {type: integer}
+        maximum: {type: integer}
+        enum:
+          type: array
+          items:
+            type: string
+          description: 仅固定取值的字段给出，例如 `vhost`、`topic`。
+
+    PluginSchema:
+      type: object
+      required: [schema_version, plugin_id, fields]
+      properties:
+        schema_version:
+          type: integer
+          enum: [1]
+        plugin_id:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/PluginConfigField'
+
+    PluginCatalogItem:
+      type: object
+      required: [id, name, source, available, configured, secret_configured, revision, summary, schema]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+        available:
+          type: boolean
+        configured:
+          type: boolean
+        secret_configured:
+          type: boolean
+        revision:
+          type: string
+          description: 未配置时为空串，已配置时为 32 位小写十六进制。
+        summary:
+          type: string
+          enum: [not_configured, configured, upgrade_required]
+        schema:
+          $ref: '#/components/schemas/PluginSchema'
+
+    PluginConfigRequest:
+      type: object
+      required: [config]
+      additionalProperties: false
+      properties:
+        config:
+          type: object
+          description: |
+            插件专属配置，键集合必须与 `GET /api/v1/exporter-plugins/catalog` 中该插件的 `fields` 对齐：
+            - `redis-exporter`：`host`、`port`、`database`、`connect_timeout`、`scrape_timeout`
+            - `mysql-exporter`：`host`、`port`、`database`、`username`、`connect_timeout`、`scrape_timeout`
+            - `rabbitmq-exporter`：`host`、`management_port`、`vhost`、`username`、`connect_timeout`、`scrape_timeout`
+            - `kafka-exporter`：`host`、`port`、`topic`、`consumer_group`、`connect_timeout`、`scrape_timeout`
+            - `elasticsearch-exporter`：`host`、`port`、`username`（可选）、`connect_timeout`、`scrape_timeout`
+            - `victoriametrics-exporter`：`host`、`port`、`username`、`connect_timeout`、`scrape_timeout`
+
+            校验细节：`port` 类字段只接受 JSON 整数；`hostname` 只接受字符串，容器模式必须是官方主机名，
+            宿主模式必须是 `127.0.0.1` 或 `::1`；`duration` 类字段要求 `connect_timeout` 不小于 100ms、
+            `scrape_timeout` 不大于 10s，且前者不大于后者；`string` 类字段只允许字母、数字、`.`、`_`、`-`；
+            固定取值字段必须等于目录中声明的枚举值。
+          additionalProperties: true
+        secrets:
+          type: object
+          additionalProperties: false
+          description: |
+            只允许 `password` 键，值为 1 到 256 字节的合法 UTF-8，且不含控制字符。
+            `kafka-exporter` 不使用密钥；`elasticsearch-exporter` 的用户名与密码必须同时提供或同时省略。
+            创建与连通性测试必须显式提供；更新配置时省略表示沿用已存密钥。
+          properties:
+            password:
+              type: string
+
+    PluginReachable:
+      type: object
+      required: [reachable]
+      properties:
+        reachable:
+          type: boolean
+
+    DataAdminSnapshot:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AdminSnapshot'
+
+    DataMetricDefinitionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricDefinition'
+
+    DataMetricResult:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MetricResult'
+
+    DataLogPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataEventPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventEntry'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataAlertCatalog:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AlertCatalog'
+
+    DataAlertRule:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AlertRule'
+
+    DataAlertRulePage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertRule'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataAlertIncidentPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertIncident'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataManagedUser:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/ManagedUser'
+
+    DataRoleChange:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RoleChange'
+
+    DataAuditEventPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    DataPluginStatus:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/PluginStatus'
+
+    DataPluginStatusList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PluginStatus'
+
+    DataPluginCatalog:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PluginCatalogItem'
+
+    DataPluginReachable:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/PluginReachable'
+
+    Probe:
+      type: object
+      required: [status, contract_version]
+      properties:
+        status:
+          type: string
+          description: 探针状态，取值 `ok`、`starting`、`stopping`、`not_ready`、`invalid_request`、`method_not_allowed`、`not_found`。
+        contract_version:
+          type: string
+          description: 运行时合同版本，与发布 Bundle 中的合同一致。
+
+  requestBodies:
+    Credentials:
+      required: true
+      description: 注册与登录共用同一请求体；未知字段被拒绝。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Credentials'
+
+  headers:
+    SessionCookie:
+      description: |
+        会话 Cookie，值为 HS256 签名的令牌，`HttpOnly`、`SameSite=Lax`，
+        `Secure` 与有效期由部署配置决定（默认 2 小时）。
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: 请求形状或参数校验失败。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            validation:
+              value:
+                error:
+                  code: validation_failed
+                  message: limit must be an integer between 1 and 50
+    Unauthorized:
+      description: 缺少有效会话。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            required:
+              value:
+                error:
+                  code: authentication_required
+                  message: authentication is required
+    Forbidden:
+      description: 已认证但权限不足，或跨源写请求被拒。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            permission:
+              value:
+                error:
+                  code: permission_denied
+                  message: super administrator permission is required
+    NotFound:
+      description: 目标资源不存在。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            not_found:
+              value:
+                error:
+                  code: post_not_found
+                  message: post not found
+    Conflict:
+      description: 与当前资源状态冲突，例如幂等键复用、用户名占用或版本冲突。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ServiceUnavailable:
+      description: 依赖不可用、结果未知或写入积压。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            unavailable:
+              value:
+                error:
+                  code: search_unavailable
+                  message: search is temporarily unavailable
+            busy:
+              value:
+                error:
+                  code: backend_busy
+                  message: service temporarily busy
+    InternalError:
+      description: 未预期的服务端错误；响应不包含内部细节。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            internal:
+              value:
+                error:
+                  code: internal_error
+                  message: an internal error occurred
+    ProbeOk:
+      description: 探针通过。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Probe'
+          examples:
+            ok:
+              value:
+                status: ok
+                contract_version: '2'
+    ProbeInvalid:
+      description: 探针收到查询串、请求体或传输编码。
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+          description: 固定为 `no-store`。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Probe'
+          examples:
+            invalid:
+              value:
+                status: invalid_request
+                contract_version: '2'
+    ProbeMethodNotAllowed:
+      description: 探针只接受 GET。
+      headers:
+        Allow:
+          schema:
+            type: string
+          description: 固定为 `GET`。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Probe'
+          examples:
+            method:
+              value:
+                status: method_not_allowed
+                contract_version: '2'
+    ProbeStarting:
+      description: 进程尚未完成启动。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Probe'
+    ProbeNotReady:
+      description: 依赖检查未通过或进程正在停机。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Probe'
