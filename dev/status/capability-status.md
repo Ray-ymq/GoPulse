@@ -11,7 +11,7 @@
 - Phase-24-01 在 `2.6.1` 完成代际身份与搜索完成基础：[实施日志](../logs/Phase-24/Phase-24-01-代际身份与搜索完成基础.md)记录 migration 14、epoch/完成证据/有界停放与留存预算、v1 兼容消费者准入、v2 fixture、实际搜索 generation 与 `_meta` 代际核验、清理屏障及 lifecycle 恢复准备；生产仍保持 `legacy_v1`。
 - Phase-24-02 在 `2.6.2` 完成发帖命令幂等与安全重试：[实施日志](../logs/Phase-24/Phase-24-02-发帖幂等与安全重试.md)记录 migration 15、v2 activation、同事务 command/post/Outbox/search 义务、稳定结果与用户端身份复用；真实 MySQL/RabbitMQ/Redis/Elasticsearch business integration 和 3/3 business E2E 通过。管理端阶段查证、平台适配和完整 V1 冻结矩阵仍属于后续批次。
 - Phase-24-03 在 `2.6.3` 完成受限阶段查证：[实施日志](../logs/Phase-24/Phase-24-03-受限状态接口与证据关联.md)记录 business 私网查询、platform 受信适配、实时管理授权、当前搜索代际可见性、Logs 关联质量和严格字段传播；固定模块门禁、business/observe 真实链路、Compose 与 docs-check 均通过。管理端阶段页面和完整 V1 冻结矩阵仍属于后续批次。
-- Phase-24-04 的管理端页面、typed Logs 关联、阶段浏览器 spec、V1 receipt/validator、pinned candidate preflight 工具和 acceptance fault fixture 已在 `develop/2.6.4` 实施；模块级测试、前端 typecheck/build 与工具自测已通过，真实 native e2e、短预检和固定门禁结果以同名实施日志为准，在完成前不产生完整 V1 能力结论。
+- Phase-24-04 的管理端页面、typed Logs 关联、阶段浏览器 spec、V1 receipt/validator、pinned candidate preflight 工具和 acceptance fault fixture 已在 `develop/2.6.4` 实施；模块级测试、前端 typecheck/build、固定门禁、真实 observe native e2e、linux/amd64 `RUNTIME=1` 候选、V1 preflight V01 与 Verify Evidence 均已通过，实际候选和清理记录见[同名实施日志](../logs/Phase-24/Phase-24-04-管理端阶段页面与原生验收.md)。Phase-24-05 的完整 V01～V12 冻结矩阵仍未执行，本批不产生完整 V1 能力结论。
 - Phase 23-05 的退役决定明确保留 `ci/` 治理 Python，只迁移路径、不重写规则；Phase 16–21 运行时与正式矩阵、Phase 18–20 容量/长期/证据执行器、历史闭包路径、交付 Python 库、Windows 转发器和零引用入口不再重跑，删除前已有的历史结论、方法、日志与原始回执继续有效。`component-probe.go`、`plugin-fault-router.go` 迁入 `acceptance/internal/fixtures`，迁移锁夹具迁入 `backend/testdata`，`runtime-http.go` 随其唯一运行时矩阵退役。
 - [Phase 21 总实施方案](../imple/Phase-21/Phase-21-总实施方案.md)分配的三批 `2.3.1`～`2.3.3` 已完成。Phase-21-01 已在 `2.3.1` 完成：Backend 支持 `combined`、`business`、`platform` 三种角色，按角色装配依赖、路由和后台任务，并通过 R01～R05 固定门禁及最小真实三角色进程检查。Phase-21-02 已在 `2.3.2` 完成双服务 Compose、同源代理、运行/采集合同、Bundle/lifecycle 固定别名及 service-split 源码预检；Phase-21-03 已在 `2.3.3` 完成冻结 `2.3.2` 候选的正式定向验收与阶段收口。
 - 共用账号、数据库和会话；Outbox dispatcher 留在业务服务。目标验收包含管理单侧停止时已有会话的业务可用，不声明隔离共享数据库故障、容量或长期稳定。
@@ -69,7 +69,7 @@
 
 ## 尚未验证
 
-- Phase-24-04 的管理端阶段页面和 Phase-24-05 的完整 V1 冻结矩阵尚未交付；本批不声明完整 V1 能力达标。
+- Phase-24-05 的完整 V1 冻结矩阵尚未交付；Phase-24-04 已完成管理端阶段页面、真实 preflight V01 与证据核验，但本批不声明完整 V1 能力达标。
 - Phase-24-02 的 activation gate 只自动检查 MySQL 持久 Outbox 的 v1 `pending/leased` drain；RabbitMQ unacked/retry/dead 队列与 ES 当前 generation 仍须由 rollout/restore 步骤停排、排空或停放并核验，不由本批启动代码自动宣称完成。
 - 恢复仅完成同 Bundle、已排空备份的代际准备与失败停点验证；跨版本、任意时点恢复和正式 Bundle 恢复矩阵尚未验证。
 - 本批冻结环境/配方之外的吞吐、尾延迟、持续运行或单位资源容量声明。
