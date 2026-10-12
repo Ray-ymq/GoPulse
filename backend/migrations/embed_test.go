@@ -133,6 +133,39 @@ func TestEmbeddedBusinessOutboxMigrationContainsOnlyPhaseTwoOutboxSchema(t *test
 	}
 }
 
+func TestEmbeddedBusinessOutboxV2MigrationExpandsSchemaVersionConstraint(t *testing.T) {
+	source, err := Source()
+	if err != nil {
+		t.Fatalf("Source() error = %v", err)
+	}
+	defer func() { _ = source.Close() }()
+	version, err := source.Next(14)
+	if err != nil || version != 15 {
+		t.Fatalf("Next(14) = %d, %v; want 15", version, err)
+	}
+	reader, identifier, err := source.ReadUp(version)
+	if err != nil {
+		t.Fatalf("ReadUp(15) error = %v", err)
+	}
+	up, err := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil || identifier != "business_outbox_v2" {
+		t.Fatalf("up identifier=%q error=%v", identifier, err)
+	}
+	if !strings.Contains(string(up), "DROP CHECK chk_business_outbox_schema_version") || !strings.Contains(string(up), "schema_version IN (1, 2)") {
+		t.Fatalf("v2 migration does not expand the schema constraint: %s", up)
+	}
+	downReader, downIdentifier, err := source.ReadDown(version)
+	if err != nil {
+		t.Fatalf("ReadDown(15) error = %v", err)
+	}
+	down, err := io.ReadAll(downReader)
+	_ = downReader.Close()
+	if err != nil || downIdentifier != "business_outbox_v2" || !strings.Contains(string(down), "schema_version = 1") {
+		t.Fatalf("down identifier=%q error=%v sql=%s", downIdentifier, err, down)
+	}
+}
+
 func TestEmbeddedNotificationsMigrationContainsIdempotencyAndRelationships(t *testing.T) {
 	source, err := Source()
 	if err != nil {

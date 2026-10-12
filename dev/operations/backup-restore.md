@@ -17,5 +17,12 @@ lifecycle，不直接运行数据库工具，不把宿主机进程当作第二�
   pending restore 禁止用普通 up/verify 绕过。不要手工删除 marker 使半恢复系统上线。
 - `doctor --diagnostics-dir ABS` 需要已有私有目录；输出仅限脱敏元数据，不上传 state/secrets 或业务导出。
 
+Phase-24-02 的业务恢复沿用同一 Bundle、已排空备份和新 epoch 准备边界。旧 epoch 的
+发帖命令 header、旧缓存、游标和消息不会自动转换到新 epoch；历史 command/result 保留原
+作用域，不能被重新标记为新 epoch 的完成证据。恢复启动前必须完成 migration 15、v2
+消费者/Outbox 兼容检查和当前搜索物理 generation 核验；RabbitMQ 未确认或 retry/dead
+意图必须先排空或按原 payload 持久停放。任何一步失败都保持 `restore-pending`/非 ready，
+不能以普通启动绕过代际屏障。
+
 实际验收与已知限制见 `dev/logs/Phase-16/Phase-16-04-一致备份恢复与诊断闭环.md`。
 本批不声明 1.9.4 升级、在线热备、跨架构、macOS 或 Windows 产品支持。

@@ -8,6 +8,40 @@ type CreateInput struct {
 	Content string `json:"content"`
 }
 
+// CommandRequest is supplied only for the retryable post-create path. An
+// empty request intentionally means a new, non-idempotent command.
+type CommandRequest struct {
+	DataEpoch      string
+	IdempotencyKey string
+}
+
+func (request CommandRequest) Keyed() bool {
+	return request.DataEpoch != "" || request.IdempotencyKey != ""
+}
+
+// CommandMeta is the stable public identity of a committed post command.
+// It contains no key hash, request digest, or dependency details.
+type CommandMeta struct {
+	CommandID     string    `json:"command_id"`
+	EventID       string    `json:"event_id"`
+	DataEpoch     string    `json:"data_epoch"`
+	PostID        uint64    `json:"post_id"`
+	CommittedAt   time.Time `json:"committed_at"`
+	Replayed      bool      `json:"replayed"`
+	ResourceState string    `json:"resource_state"`
+}
+
+type CreateResult struct {
+	Post *Post
+	Meta CommandMeta
+}
+
+type CommandContext struct {
+	DataEpoch        string    `json:"data_epoch"`
+	RetryWindow      int64     `json:"retry_window_seconds"`
+	RetryWindowUntil time.Time `json:"retry_window_until"`
+}
+
 // Author is the public author summary embedded in post responses.
 type Author struct {
 	Following   bool   `json:"following"`

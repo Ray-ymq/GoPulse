@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 )
 
 // Ensure creates the initial environment exactly once. The migration seeds a
@@ -79,7 +81,7 @@ func scanEnvironment(row *sql.Row) (Environment, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Environment{}, ErrNotReady
 		}
-		return Environment{}, errors.New("read business environment")
+		return Environment{}, fmt.Errorf("read business environment: %w", err)
 	}
 	if validateEpoch(environment.DataEpoch) != nil || !validMode(environment.Mode) || (environment.Status != StatusReady && environment.Status != StatusRestoring) {
 		return Environment{}, errors.New("business environment is invalid")
@@ -101,6 +103,52 @@ func (repository *Repository) SetMode(ctx context.Context, mode string, revision
 	}
 	if err := tx.Commit(); err != nil {
 		return errors.New("commit business mode update")
+	}
+	return nil
+}
+
+// ActivateV2 performs the durable cut-over used by the business API. It does
+// not generate a new epoch. Calling it repeatedly is safe, while a restoring
+// environment never becomes writable merely because a process restarted.
+func (repository *Repository) ActivateV2(ctx context.Context, revision string) error {
+	if repository == nil || repository.database == nil || ctx == nil || revision == "" || len(revision) > 64 {
+		return fmt.Errorf("%w: activation arguments are invalid", ErrInvalidArgument)
+	}
+	tx, err := repository.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return errors.New("begin business v2 activation")
+	}
+	defer func() { _ = tx.Rollback() }()
+	environment, err := scanEnvironment(tx.QueryRowContext(ctx, `
+		SELECT data_epoch, status, mode, v1_compatibility_enabled, activation_revision,
+		       COALESCE(restore_operation_id, ''), created_at, updated_at
+		FROM business_environment WHERE singleton=1 FOR UPDATE`))
+	if err != nil {
+		return err
+	}
+	if environment.Status != StatusReady {
+		return ErrNotReady
+	}
+	if environment.Mode == ModeV2 && !environment.V1Compatibility {
+		return nil
+	}
+	var pendingLegacy int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM business_outbox
+		WHERE schema_version=? AND status IN ('pending', 'leased')`, bus.SchemaVersionV1).Scan(&pendingLegacy); err != nil {
+		return errors.New("check business v1 drain")
+	}
+	if pendingLegacy > 0 {
+		return ErrActivationNotDrained
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE business_environment
+		SET mode=?, v1_compatibility_enabled=FALSE, activation_revision=?, updated_at=?
+		WHERE singleton=1`, ModeV2, revision, repository.now()); err != nil {
+		return errors.New("activate business v2")
+	}
+	if err := tx.Commit(); err != nil {
+		return errors.New("commit business v2 activation")
 	}
 	return nil
 }
