@@ -1,4 +1,4 @@
-.PHONY: help list-go-modules list-npm-modules docs-check doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package package-plugin integration e2e stop verify-compose verify-business verify-observe verify-plugins verify-alerts verify-roles verify-pages verify-lifecycle stack-up stack-down stack-verify
+.PHONY: help list-go-modules list-npm-modules doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package package-plugin integration e2e stop verify-compose verify-business verify-observe verify-plugins verify-alerts verify-roles verify-pages verify-lifecycle stack-up stack-down stack-verify
 
 # The development, observation, and stop lifecycles run in the native helper.
 # Building it first keeps the failure exit codes and signal handling intact,
@@ -38,9 +38,6 @@ list-go-modules:
 
 list-npm-modules:
 	@printf '%s\n' $(NPM_MODULES)
-
-docs-check:
-	@python3 ci/check_docs.py $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
 
 doctor:
 	@$(DEVENV) doctor
