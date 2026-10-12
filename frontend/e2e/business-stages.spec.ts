@@ -42,7 +42,15 @@ async function writeCaseEvidence(identity: StageIdentity): Promise<void> {
   const { writeFile } = await import('node:fs/promises')
   await writeFile(path, JSON.stringify({
     case_id: process.env.GOPULSE_V1_CASE_ID ?? 'V01',
-    identity,
+    // The post command response also carries committed_at and replay fields.
+    // Keep the raw V1 identity limited to the four technical selectors in its
+    // contract instead of leaking unrelated response metadata.
+    identity: {
+      command_id: identity.command_id,
+      event_id: identity.event_id,
+      data_epoch: identity.data_epoch,
+      post_id: identity.post_id,
+    },
     checks: { created: true, stage_page: true, precise_logs_link: true },
     captured_at: new Date().toISOString(),
   }) + '\n', { mode: 0o600 })
