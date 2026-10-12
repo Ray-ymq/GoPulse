@@ -5,6 +5,7 @@
 | 需要验证什么 | 查询位置 |
 | --- | --- |
 | 模块测试、真实依赖、浏览器、Compose 与生命周期 | [原生入口登记](local-development-tests.md) |
+| 业务阶段 V1 工具、回执和短预检 | [Business V1 原生验收合同](business-v1.md) |
 | 本批必须执行哪些检查、使用什么候选与预算 | [阶段索引](../phases/README.md)链接的总方案和分方案 |
 | 是否需要新测试或验收工具 | [工具复用规则](../../ci/AGENTS.md) |
 | 哪些结果已证明、哪些能力尚未验证 | [能力状态](../status/capability-status.md) |

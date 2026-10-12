@@ -8,12 +8,13 @@ import Users from '../views/UsersView.vue'
 import Audit from '../views/AuditView.vue'
 import Dashboard from '../views/DashboardView.vue'
 import Plugins from '../views/ObservabilityExportersView.vue'
+import BusinessStages from '../views/BusinessStagesView.vue'
 export const router = createRouter({ history: createWebHistory('/admin/'), routes: [
   { path: '/', component: AdminLayout, children: [
     { path: '', component: Dashboard },
     {path:'alerts',component:Alerts},{path:'users',component:Users},{path:'audit',component:Audit},
     { path: 'metrics', component: Metrics }, { path: 'logs', component: Logs },
-    { path: 'events', component: Events }, { path: 'plugins', component: Plugins },
+    { path: 'events', component: Events }, { path: 'plugins', component: Plugins }, { path: 'business-stages', component: BusinessStages },
   ] },
   { path: '/:pathMatch(.*)*', redirect: '/metrics' },
 ] })
