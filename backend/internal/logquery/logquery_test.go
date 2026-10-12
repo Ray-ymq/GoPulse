@@ -22,6 +22,16 @@ func (r *fakeRepository) Search(_ context.Context, pit string, filters Filters, 
 }
 func (r *fakeRepository) ClosePointInTime(context.Context, string) error { r.closes++; return nil }
 
+type fakeCorrelationRepository struct {
+	fakeRepository
+	queries []CorrelationQuery
+}
+
+func (r *fakeCorrelationRepository) SearchCorrelation(_ context.Context, query CorrelationQuery) (CorrelationResult, error) {
+	r.queries = append(r.queries, query)
+	return CorrelationResult{Entries: []Entry{{CommandID: query.CommandID, DataEpoch: query.DataEpoch}}, Quality: "known"}, nil
+}
+
 func TestParseAndQueryUsesBoundedDefaults(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	options, err := ParseOptions(url.Values{"request_id": {"0123456789abcdef0123456789abcdef"}}, now)
@@ -63,6 +73,39 @@ func TestRetentionWindowKeepsExpiredSlicesAsValidQueries(t *testing.T) {
 func TestParseRejectsCursorMixedWithFilters(t *testing.T) {
 	if _, err := ParseOptions(url.Values{"cursor": {"abc"}, "limit": {"1"}}, time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)); err == nil {
 		t.Fatal("mixed cursor was accepted")
+	}
+}
+
+func TestQueryCorrelationUsesOneTypedBoundedRequest(t *testing.T) {
+	repository := &fakeCorrelationRepository{}
+	service := NewService(repository, "01234567890123456789012345678901")
+	from := time.Date(2026, 9, 4, 11, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour)
+	result, err := service.QueryCorrelation(context.Background(), CorrelationQuery{
+		DataEpoch: "123e4567-e89b-42d3-a456-426614174000",
+		CommandID: "123e4567-e89b-42d3-a456-426614174001",
+		From:      from,
+		To:        to,
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Quality != "known" || len(result.Entries) != 1 || len(repository.queries) != 1 {
+		t.Fatalf("result=%+v queries=%d", result, len(repository.queries))
+	}
+	if repository.queries[0].Limit != 100 || repository.queries[0].CommandID == "" {
+		t.Fatalf("correlation query=%+v", repository.queries[0])
+	}
+	if _, err := service.QueryCorrelation(context.Background(), CorrelationQuery{
+		DataEpoch: "123e4567-e89b-42d3-a456-426614174000",
+		CommandID: "123e4567-e89b-42d3-a456-426614174001",
+		EventID:   "123e4567-e89b-42d3-a456-426614174002",
+		From:      from,
+		To:        to,
+		Limit:     1,
+	}); err == nil {
+		t.Fatal("ambiguous correlation selectors were accepted")
 	}
 }
 

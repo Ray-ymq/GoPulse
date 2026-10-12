@@ -466,7 +466,7 @@ func (c *Controller) initialize(port int) error {
 	for _, match := range r.FindAllSubmatch(data, -1) {
 		key := string(match[1])
 		if _, ok := c.env[key]; !ok {
-			if strings.Contains(key, "PASSWORD") || strings.Contains(key, "TOKEN") || strings.Contains(key, "SECRET") {
+			if strings.Contains(key, "PASSWORD") || strings.Contains(key, "TOKEN") || strings.Contains(key, "SECRET") || strings.Contains(key, "CREDENTIAL") {
 				c.env[key] = random()
 			} else {
 				return fail(ManifestError, "configuration", "unsupported required configuration key: "+key)

@@ -23,6 +23,12 @@ needed. A legacy message without these fields remains valid. A malformed
 optional field is removed, counted, and processed as a new root while the
 business Envelope still has to pass its ordinary validation.
 
+Phase-24 stage evidence may expose only existing OTLP `trace_id`/`span_id`
+values observed in correlated Logs. It does not add a Trace query backend,
+persist a global trace-completion table, or synthesize IDs. The query response
+uses `not_configured` or a sampling/missing explanation when the existing
+non-blocking Collector path has no queryable record.
+
 The frozen span graph is:
 
 ```text

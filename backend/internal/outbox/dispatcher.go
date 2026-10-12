@@ -324,6 +324,8 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	},
 		attribute.String("gopulse.event_id", envelope.EventID),
 		attribute.String("gopulse.event_type", string(envelope.EventType)),
+		attribute.String("gopulse.data_epoch", envelope.DataEpoch),
+		attribute.String("gopulse.command_id", envelope.CommandID),
 		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
 		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
 		attribute.Int64("gopulse.outbox_id", int64(record.ID)),
@@ -395,6 +397,12 @@ func outboxEventAttributes(envelope bus.Envelope) []any {
 	}
 	if envelope.ContentRevision > 0 {
 		attributes = append(attributes, slog.Uint64("content_revision", envelope.ContentRevision))
+	}
+	if envelope.DataEpoch != "" {
+		attributes = append(attributes, slog.String("data_epoch", envelope.DataEpoch))
+	}
+	if envelope.CommandID != "" {
+		attributes = append(attributes, slog.String("command_id", envelope.CommandID))
 	}
 	return attributes
 }

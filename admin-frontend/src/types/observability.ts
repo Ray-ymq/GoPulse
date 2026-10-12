@@ -83,7 +83,12 @@ export interface LogEntry {
   span_id?: string
   attempt_id?: string
   event_id?: string
+  command_id?: string
+  data_epoch?: string
   event_type?: string
+  projection_generation?: string
+  routing_contract_revision?: string
+  consumer?: string
   user_id?: number
   post_id?: number
   content_revision?: number

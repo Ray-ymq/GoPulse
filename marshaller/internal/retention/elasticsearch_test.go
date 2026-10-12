@@ -87,7 +87,7 @@ func TestElasticsearchRejectsUnmarkedSamePrefixIndex(t *testing.T) {
 func mappingResponse(index string, stream Stream, marker bool) []byte {
 	properties := map[string]any{}
 	if stream == Logs {
-		for _, name := range []string{"version", "revision", "event", "runtime_contract_version", "runtime_mode", "listen", "@timestamp", "log_schema_version", "level", "service", "instance_id", "module", "message", "request_id", "trace_id", "span_id", "attempt_id", "event_id", "event_type", "user_id", "post_id", "content_revision", "comment_id", "notification_id", "outbox_id", "method", "route", "status", "duration_ms", "response_bytes", "error_code", "reason", "operation", "resource", "stage", "result", "attempt", "batch_size", "document_count", "panic_recovered", "response_committed"} {
+		for _, name := range []string{"version", "revision", "event", "runtime_contract_version", "runtime_mode", "listen", "@timestamp", "log_schema_version", "level", "service", "instance_id", "module", "message", "request_id", "trace_id", "span_id", "attempt_id", "event_id", "command_id", "data_epoch", "event_type", "projection_generation", "routing_contract_revision", "consumer", "user_id", "post_id", "content_revision", "comment_id", "notification_id", "outbox_id", "method", "route", "status", "duration_ms", "response_bytes", "error_code", "reason", "operation", "resource", "stage", "result", "attempt", "batch_size", "document_count", "panic_recovered", "response_committed"} {
 			properties[name] = map[string]string{"type": "keyword"}
 		}
 	}
@@ -364,7 +364,7 @@ func integrationProperties(stream Stream) map[string]any {
 			"metadata": map[string]any{"type": "object", "dynamic": "strict", "properties": metadata},
 		}
 	}
-	for _, name := range []string{"version", "revision", "event", "runtime_contract_version", "runtime_mode", "listen", "@timestamp", "log_schema_version", "level", "service", "instance_id", "module", "message", "request_id", "trace_id", "span_id", "attempt_id", "event_id", "event_type", "user_id", "post_id", "content_revision", "comment_id", "notification_id", "outbox_id", "method", "route", "status", "duration_ms", "response_bytes", "error_code", "reason", "operation", "resource", "stage", "result", "attempt", "batch_size", "document_count", "panic_recovered", "response_committed"} {
+	for _, name := range []string{"version", "revision", "event", "runtime_contract_version", "runtime_mode", "listen", "@timestamp", "log_schema_version", "level", "service", "instance_id", "module", "message", "request_id", "trace_id", "span_id", "attempt_id", "event_id", "command_id", "data_epoch", "event_type", "projection_generation", "routing_contract_revision", "consumer", "user_id", "post_id", "content_revision", "comment_id", "notification_id", "outbox_id", "method", "route", "status", "duration_ms", "response_bytes", "error_code", "reason", "operation", "resource", "stage", "result", "attempt", "batch_size", "document_count", "panic_recovered", "response_committed"} {
 		properties[name] = map[string]string{"type": "keyword"}
 	}
 	return properties

@@ -34,6 +34,16 @@ Phase 8 keeps Monitor's publishing contract unchanged and adds the downstream Ma
 
 `POST /internal/v1/logs` accepts one Schema v1 log from the fixed `backend`, `business-worker`, `search-indexer`, or `search-reindex` service vocabulary, up to `MONITOR_LOG_MAX_BYTES` (default 65536). It requires the dedicated `LOG_MONITOR_INGEST_TOKEN`, a unique 32-character lowercase hexadecimal `Idempotency-Key`, exact `application/json`, and no content encoding. Valid logs are strictly cleaned and published as the matching `logs/<service>` Envelope v1 source; only Router `202 Accepted` becomes Monitor `202 Accepted`. Invalid entries receive a safe 4xx response and unavailable transport receives `503 transport_unavailable`. Request IDs remain Backend-request scoped, while Worker/Indexer correlation uses the existing event ID.
 
+Logs v1 also accepts the optional typed correlation fields `command_id`,
+`data_epoch`, `projection_generation`, `routing_contract_revision`, and
+`consumer`. Their UUID/token formats are strict; omission remains valid for
+historical logs. The allowed consumer values are `business` and `search`, and
+the routing revision is currently defined for the `search` projection. These
+fields are validated at ingest and retained for Marshaller's strict mapping,
+so a missing epoch is never silently assigned to the current business
+generation; historical records remain distinguishable from current-generation
+evidence.
+
 ## Lifecycle Events
 
 Successful Redis Exporter install, start, stop, and update transitions are recorded after the Plugin Manager commits the final runtime and persistent state. The in-process EventMonitor validates the fixed Events v1 vocabulary, creates a stable 32-character lowercase hexadecimal message ID, and places the canonical `events/monitor` Envelope in a bounded queue. `Record` never waits for the Router and an enqueue or transport failure never changes the plugin API result. A single worker retries temporary Router failures with bounded backoff, skips deterministic 4xx rejections, and drains accepted records for at most `MONITOR_EVENT_SHUTDOWN_TIMEOUT` during shutdown. Queue and transport state logs never contain event bodies, URLs, tokens, or underlying errors.
