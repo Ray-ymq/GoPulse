@@ -1,8 +1,8 @@
 # Phase-24-05：V1 冻结验收与阶段收口
 
-> 状态：已分配，尚未实施。完成版本 `2.6.5`，分支 `develop/2.6.5`。
+> 状态：已执行至候选 runtime gate，但未完成（2026-10-12，`infrastructure_failure`）。完成版本 `2.6.5`，分支 `develop/2.6.5`。
 > 实际产品候选：04 已完成的 `2.6.4`，完整 revision 与不可变 Bundle/manifest 在开工时记录。
-> 结果：一次同候选 V01～V12 正式矩阵、原始证据/实际 publication 校验及归属清理全部通过后，按真实范围收口。
+> 实际结果：候选构建、直接门禁和既有 runtime 的 Compose/lifecycle clean 通过；failure matrix 低磁盘子项因工具权限边界返回错误 code，`PREFLIGHT` 与 V01～V12 未开始，不能收口。
 
 ## 1. 进入条件与允许文件
 
