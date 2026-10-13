@@ -25,6 +25,14 @@ describe('observability runtime boundary', () => {
     expect(isLogEntry({ timestamp:'2026-09-05T08:00:00Z',level:'info',service:'business-worker',module:'worker',message:'event processed',attempt_id:'0102030405060708090a0b0c0d0e0f10',event_id:'123e4567-e89b-12d3-a456-426614174000',event_type:'post.created',attempt:0,result:'success' })).toBe(true)
   })
 
+  it('accepts business stage correlation fields while rejecting invalid values', () => {
+    const entry = { timestamp:'2026-09-05T08:00:00Z',level:'info',service:'search-indexer',module:'search',message:'event processed',event_id:'123e4567-e89b-12d3-a456-426614174001',command_id:'123e4567-e89b-42d3-a456-426614174002',data_epoch:'123e4567-e89b-42d3-a456-426614174000',event_type:'post.created',projection_generation:'gopulse-post-search-v1-20261012',routing_contract_revision:'post-created-search/1',consumer:'search',post_id:7,attempt:0,reason:'processed' }
+    expect(isLogEntry(entry)).toBe(true)
+    expect(isLogEntry({...entry, data_epoch:'not-an-epoch'})).toBe(false)
+    expect(isLogEntry({...entry, consumer:'admin'})).toBe(false)
+    expect(isLogEntry({...entry, routing_contract_revision:'post-created-search/2'})).toBe(false)
+  })
+
   it('accepts the Phase 20 post commit log message', () => {
     expect(isLogEntry({ timestamp:'2026-09-05T08:00:00Z',level:'info',service:'backend',module:'post',message:'post committed',post_id:9,content_revision:1 })).toBe(true)
   })
@@ -35,8 +43,19 @@ describe('observability runtime boundary', () => {
   })
   it('sends opaque cursor without replaying filters', async () => {
     const fetchMock=vi.fn().mockResolvedValue(response({data:[],meta:{next_cursor:null}})); vi.stubGlobal('fetch',fetchMock)
-    await observabilityApi.logs({range:'15m',service:'backend',module:'http',level:'',message:'',request_id:'',trace_id:'',span_id:'',event_id:'',error_code:''},'opaque+/=')
+    await observabilityApi.logs({range:'15m',service:'backend',module:'http',level:'',message:'',request_id:'',trace_id:'',span_id:'',event_id:'',error_code:'',command_id:'',data_epoch:'',post_id:''},'opaque+/=')
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/observability/logs?cursor=opaque%2B%2F%3D')
+  })
+
+  it('preserves a bounded stage identity and evidence window on Logs queries', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ data: [], meta: { next_cursor: null } })); vi.stubGlobal('fetch', fetchMock)
+    await observabilityApi.logs({ range: '15m', service: '', module: '', level: '', message: '', request_id: '', trace_id: '', span_id: '', event_id: '', error_code: '', command_id: '123e4567-e89b-42d3-a456-426614174001', data_epoch: '123e4567-e89b-42d3-a456-426614174000', post_id: '7', from: '2026-10-12T09:45:00Z', to: '2026-10-12T10:00:00Z' })
+    const path = fetchMock.mock.calls[0][0] as string
+    expect(path).toContain('command_id=123e4567-e89b-42d3-a456-426614174001')
+    expect(path).toContain('data_epoch=123e4567-e89b-42d3-a456-426614174000')
+    expect(path).toContain('post_id=7')
+    expect(path).toContain('from=2026-10-12T09%3A45%3A00Z')
+    expect(path).toContain('to=2026-10-12T10%3A00%3A00Z')
   })
 })
 

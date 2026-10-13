@@ -97,6 +97,10 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 	traceContext, span := tracing.Start(ctx, "search.process",
 		attribute.String("gopulse.event_id", envelope.EventID),
 		attribute.String("gopulse.event_type", string(envelope.EventType)),
+		attribute.String("gopulse.data_epoch", envelope.DataEpoch),
+		attribute.String("gopulse.command_id", envelope.CommandID),
+		attribute.String("gopulse.routing_contract_revision", businessstate.SearchRoutingContractV1),
+		attribute.String("gopulse.consumer", businessstate.ConsumerSearch),
 		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
 		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
 		attribute.Int64("gopulse.outbox_id", int64(tracing.OutboxID(ctx))),
@@ -248,7 +252,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 			return err
 		}
 	}
-	processor.logIndex(indexContext, envelope, "success")
+	processor.logIndex(indexContext, envelope, "success", writeResult.Index)
 	componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
 	return nil
 }
@@ -274,23 +278,39 @@ func (processor *Processor) recordApplication(ctx context.Context, envelope bus.
 		Result: result, ActualVersion: version,
 	}
 	if err := processor.businessState.RecordApplication(ctx, application); err != nil {
-		processor.logger.Error("search application result failed", slog.String("event_id", envelope.EventID), slog.String("result", result), slog.String("projection_generation", generation), slog.String("reason", err.Error()))
+		processor.logger.Error("search application result failed", slog.String("event_id", envelope.EventID), slog.String("data_epoch", envelope.DataEpoch), slog.String("consumer", businessstate.ConsumerSearch), slog.String("routing_contract_revision", businessstate.SearchRoutingContractV1), slog.String("result", result), slog.String("projection_generation", generation), slog.String("reason", "application_result_write_failed"))
 		return err
 	}
 	return nil
 }
 
-func (processor *Processor) logIndex(ctx context.Context, envelope bus.Envelope, result string) {
-	logging.WithTrace(processor.logger, ctx).Info("event processed",
+func (processor *Processor) logIndex(ctx context.Context, envelope bus.Envelope, result string, generations ...string) {
+	generation := ""
+	if len(generations) > 0 {
+		generation = generations[0]
+	}
+	attributes := []any{
 		slog.String("event_id", envelope.EventID),
 		slog.String("event_type", string(envelope.EventType)),
 		slog.Uint64("post_id", envelope.PostID),
 		slog.Uint64("content_revision", envelope.ContentRevision),
 		slog.Uint64("outbox_id", tracing.OutboxID(ctx)),
 		slog.String("attempt_id", tracing.AttemptID(ctx)),
+		slog.String("consumer", businessstate.ConsumerSearch),
+		slog.String("routing_contract_revision", businessstate.SearchRoutingContractV1),
 		slog.String("stage", "index"),
 		slog.String("result", result),
-	)
+	}
+	if envelope.DataEpoch != "" {
+		attributes = append(attributes, slog.String("data_epoch", envelope.DataEpoch))
+	}
+	if envelope.CommandID != "" {
+		attributes = append(attributes, slog.String("command_id", envelope.CommandID))
+	}
+	if generation != "" {
+		attributes = append(attributes, slog.String("projection_generation", generation))
+	}
+	logging.WithTrace(processor.logger, ctx).Info("event processed", attributes...)
 }
 
 type PermanentIndexError struct{ Reason string }

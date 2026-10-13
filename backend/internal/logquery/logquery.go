@@ -32,26 +32,34 @@ const (
 
 var requestIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var eventIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var dataEpochPattern = eventIDPattern
 var traceIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var spanIDPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 var attemptIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var boundedTokenPattern = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,255}$`)
 
 var ErrUnavailable = errors.New("logs unavailable")
 var ErrAliasMissing = errors.New("log alias missing")
 var ErrPITExpired = errors.New("log PIT expired")
 
 type Filters struct {
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Service   string `json:"service,omitempty"`
-	Module    string `json:"module,omitempty"`
-	Level     string `json:"level,omitempty"`
-	Message   string `json:"message,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
-	TraceID   string `json:"trace_id,omitempty"`
-	SpanID    string `json:"span_id,omitempty"`
-	EventID   string `json:"event_id,omitempty"`
-	ErrorCode string `json:"error_code,omitempty"`
+	From                    string `json:"from"`
+	To                      string `json:"to"`
+	Service                 string `json:"service,omitempty"`
+	Module                  string `json:"module,omitempty"`
+	Level                   string `json:"level,omitempty"`
+	Message                 string `json:"message,omitempty"`
+	RequestID               string `json:"request_id,omitempty"`
+	TraceID                 string `json:"trace_id,omitempty"`
+	SpanID                  string `json:"span_id,omitempty"`
+	EventID                 string `json:"event_id,omitempty"`
+	CommandID               string `json:"command_id,omitempty"`
+	DataEpoch               string `json:"data_epoch,omitempty"`
+	PostID                  string `json:"post_id,omitempty"`
+	ProjectionGeneration    string `json:"projection_generation,omitempty"`
+	RoutingContractRevision string `json:"routing_contract_revision,omitempty"`
+	Consumer                string `json:"consumer,omitempty"`
+	ErrorCode               string `json:"error_code,omitempty"`
 }
 type Options struct {
 	Filters Filters
@@ -72,40 +80,45 @@ type cursorPayload struct {
 }
 
 type Entry struct {
-	Timestamp         string  `json:"timestamp"`
-	Level             string  `json:"level"`
-	Service           string  `json:"service"`
-	InstanceID        string  `json:"instance_id,omitempty"`
-	Module            string  `json:"module"`
-	Message           string  `json:"message"`
-	RequestID         string  `json:"request_id,omitempty"`
-	TraceID           string  `json:"trace_id,omitempty"`
-	SpanID            string  `json:"span_id,omitempty"`
-	AttemptID         string  `json:"attempt_id,omitempty"`
-	EventID           string  `json:"event_id,omitempty"`
-	EventType         string  `json:"event_type,omitempty"`
-	UserID            *uint64 `json:"user_id,omitempty"`
-	PostID            *uint64 `json:"post_id,omitempty"`
-	ContentRevision   *uint64 `json:"content_revision,omitempty"`
-	CommentID         *uint64 `json:"comment_id,omitempty"`
-	NotificationID    *uint64 `json:"notification_id,omitempty"`
-	OutboxID          *uint64 `json:"outbox_id,omitempty"`
-	Method            string  `json:"method,omitempty"`
-	Route             string  `json:"route,omitempty"`
-	Status            *int64  `json:"status,omitempty"`
-	DurationMS        *int64  `json:"duration_ms,omitempty"`
-	ResponseBytes     *int64  `json:"response_bytes,omitempty"`
-	ErrorCode         string  `json:"error_code,omitempty"`
-	Reason            string  `json:"reason,omitempty"`
-	Operation         string  `json:"operation,omitempty"`
-	Resource          string  `json:"resource,omitempty"`
-	Stage             string  `json:"stage,omitempty"`
-	Result            string  `json:"result,omitempty"`
-	Attempt           *int64  `json:"attempt,omitempty"`
-	BatchSize         *int64  `json:"batch_size,omitempty"`
-	DocumentCount     *int64  `json:"document_count,omitempty"`
-	PanicRecovered    *bool   `json:"panic_recovered,omitempty"`
-	ResponseCommitted *bool   `json:"response_committed,omitempty"`
+	Timestamp               string  `json:"timestamp"`
+	Level                   string  `json:"level"`
+	Service                 string  `json:"service"`
+	InstanceID              string  `json:"instance_id,omitempty"`
+	Module                  string  `json:"module"`
+	Message                 string  `json:"message"`
+	RequestID               string  `json:"request_id,omitempty"`
+	TraceID                 string  `json:"trace_id,omitempty"`
+	SpanID                  string  `json:"span_id,omitempty"`
+	AttemptID               string  `json:"attempt_id,omitempty"`
+	EventID                 string  `json:"event_id,omitempty"`
+	EventType               string  `json:"event_type,omitempty"`
+	CommandID               string  `json:"command_id,omitempty"`
+	DataEpoch               string  `json:"data_epoch,omitempty"`
+	ProjectionGeneration    string  `json:"projection_generation,omitempty"`
+	RoutingContractRevision string  `json:"routing_contract_revision,omitempty"`
+	Consumer                string  `json:"consumer,omitempty"`
+	UserID                  *uint64 `json:"user_id,omitempty"`
+	PostID                  *uint64 `json:"post_id,omitempty"`
+	ContentRevision         *uint64 `json:"content_revision,omitempty"`
+	CommentID               *uint64 `json:"comment_id,omitempty"`
+	NotificationID          *uint64 `json:"notification_id,omitempty"`
+	OutboxID                *uint64 `json:"outbox_id,omitempty"`
+	Method                  string  `json:"method,omitempty"`
+	Route                   string  `json:"route,omitempty"`
+	Status                  *int64  `json:"status,omitempty"`
+	DurationMS              *int64  `json:"duration_ms,omitempty"`
+	ResponseBytes           *int64  `json:"response_bytes,omitempty"`
+	ErrorCode               string  `json:"error_code,omitempty"`
+	Reason                  string  `json:"reason,omitempty"`
+	Operation               string  `json:"operation,omitempty"`
+	Resource                string  `json:"resource,omitempty"`
+	Stage                   string  `json:"stage,omitempty"`
+	Result                  string  `json:"result,omitempty"`
+	Attempt                 *int64  `json:"attempt,omitempty"`
+	BatchSize               *int64  `json:"batch_size,omitempty"`
+	DocumentCount           *int64  `json:"document_count,omitempty"`
+	PanicRecovered          *bool   `json:"panic_recovered,omitempty"`
+	ResponseCommitted       *bool   `json:"response_committed,omitempty"`
 }
 type Hit struct {
 	Entry Entry
@@ -118,6 +131,29 @@ type SearchResult struct {
 type Page struct {
 	Entries    []Entry
 	NextCursor *string
+}
+
+// CorrelationQuery is the internal, typed log association contract used by
+// business-stage reads. It cannot carry a caller supplied DSL or free-form
+// field list and is deliberately capped at one bounded backend request.
+type CorrelationQuery struct {
+	DataEpoch string
+	CommandID string
+	EventID   string
+	PostID    uint64
+	From      time.Time
+	To        time.Time
+	Limit     int
+}
+
+type CorrelationResult struct {
+	Entries   []Entry
+	Truncated bool
+	Quality   string
+}
+
+type CorrelationRepository interface {
+	SearchCorrelation(context.Context, CorrelationQuery) (CorrelationResult, error)
 }
 
 type Repository interface {
@@ -137,7 +173,7 @@ func NewService(repository Repository, secret string) *Service {
 }
 
 func ParseOptions(values url.Values, now time.Time) (Options, error) {
-	allowed := map[string]bool{"from": true, "to": true, "service": true, "module": true, "level": true, "message": true, "request_id": true, "trace_id": true, "span_id": true, "event_id": true, "error_code": true, "limit": true, "cursor": true}
+	allowed := map[string]bool{"from": true, "to": true, "service": true, "module": true, "level": true, "message": true, "request_id": true, "trace_id": true, "span_id": true, "event_id": true, "command_id": true, "data_epoch": true, "post_id": true, "projection_generation": true, "routing_contract_revision": true, "consumer": true, "error_code": true, "limit": true, "cursor": true}
 	for key, list := range values {
 		if !allowed[key] || len(list) != 1 || list[0] == "" || !utf8.ValidString(list[0]) {
 			return Options{}, validation()
@@ -188,6 +224,12 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	options.Filters.TraceID = single(values, "trace_id")
 	options.Filters.SpanID = single(values, "span_id")
 	options.Filters.EventID = single(values, "event_id")
+	options.Filters.CommandID = single(values, "command_id")
+	options.Filters.DataEpoch = single(values, "data_epoch")
+	options.Filters.PostID = single(values, "post_id")
+	options.Filters.ProjectionGeneration = single(values, "projection_generation")
+	options.Filters.RoutingContractRevision = single(values, "routing_contract_revision")
+	options.Filters.Consumer = single(values, "consumer")
 	options.Filters.ErrorCode = single(values, "error_code")
 	if !validLogVocabulary(options.Filters.Service, options.Filters.Module, options.Filters.Message) {
 		return Options{}, validation()
@@ -203,6 +245,23 @@ func ParseOptions(values url.Values, now time.Time) (Options, error) {
 	}
 	if options.Filters.EventID != "" && !eventIDPattern.MatchString(options.Filters.EventID) {
 		return Options{}, validation()
+	}
+	if options.Filters.CommandID != "" && !eventIDPattern.MatchString(options.Filters.CommandID) {
+		return Options{}, validation()
+	}
+	if options.Filters.DataEpoch != "" && !dataEpochPattern.MatchString(options.Filters.DataEpoch) {
+		return Options{}, validation()
+	}
+	if options.Filters.PostID != "" {
+		postID, parseErr := strconv.ParseUint(options.Filters.PostID, 10, 64)
+		if parseErr != nil || postID == 0 {
+			return Options{}, validation()
+		}
+	}
+	for _, value := range []string{options.Filters.ProjectionGeneration, options.Filters.RoutingContractRevision, options.Filters.Consumer} {
+		if value != "" && !boundedTokenPattern.MatchString(value) {
+			return Options{}, validation()
+		}
 	}
 	if options.Filters.TraceID != "" && (!traceIDPattern.MatchString(options.Filters.TraceID) || allZero(options.Filters.TraceID)) {
 		return Options{}, validation()
@@ -268,6 +327,49 @@ func (s *Service) Query(ctx context.Context, options Options) (Page, error) {
 		return Page{}, unavailable()
 	}
 	return Page{Entries: entries, NextCursor: &cursor}, nil
+}
+
+func (s *Service) QueryCorrelation(ctx context.Context, query CorrelationQuery) (CorrelationResult, error) {
+	if s == nil || s.repository == nil || ctx == nil || !dataEpochPattern.MatchString(query.DataEpoch) || query.Limit < 1 || query.Limit > MaximumLimit || query.From.IsZero() || query.To.IsZero() || query.From.Location() != time.UTC || query.To.Location() != time.UTC || !query.From.Before(query.To) || query.To.Sub(query.From) > 24*time.Hour {
+		return CorrelationResult{}, validation()
+	}
+	selectors := 0
+	if query.CommandID != "" {
+		selectors++
+		if !eventIDPattern.MatchString(query.CommandID) {
+			return CorrelationResult{}, validation()
+		}
+	}
+	if query.EventID != "" {
+		selectors++
+		if !eventIDPattern.MatchString(query.EventID) {
+			return CorrelationResult{}, validation()
+		}
+	}
+	if query.PostID != 0 {
+		selectors++
+	}
+	if selectors != 1 {
+		return CorrelationResult{}, validation()
+	}
+	searcher, ok := s.repository.(CorrelationRepository)
+	if !ok {
+		return CorrelationResult{}, unavailable()
+	}
+	result, err := searcher.SearchCorrelation(ctx, query)
+	if errors.Is(err, ErrAliasMissing) {
+		return CorrelationResult{Entries: []Entry{}, Quality: "expired"}, nil
+	}
+	if err != nil {
+		return CorrelationResult{}, unavailable()
+	}
+	if result.Quality == "" {
+		result.Quality = "no_evidence"
+		if len(result.Entries) > 0 {
+			result.Quality = "known"
+		}
+	}
+	return result, nil
 }
 
 func deriveKey(secret string) []byte {
@@ -344,7 +446,7 @@ func (r *ElasticsearchRepository) Search(ctx context.Context, pit string, filter
 		return SearchResult{}, ErrUnavailable
 	}
 	must := []any{map[string]any{"range": map[string]any{"@timestamp": map[string]string{"gte": filters.From, "lt": filters.To}}}}
-	for field, value := range map[string]string{"service": filters.Service, "module": filters.Module, "level": filters.Level, "message": filters.Message, "request_id": filters.RequestID, "trace_id": filters.TraceID, "span_id": filters.SpanID, "event_id": filters.EventID, "error_code": filters.ErrorCode} {
+	for field, value := range map[string]string{"service": filters.Service, "module": filters.Module, "level": filters.Level, "message": filters.Message, "request_id": filters.RequestID, "trace_id": filters.TraceID, "span_id": filters.SpanID, "event_id": filters.EventID, "command_id": filters.CommandID, "data_epoch": filters.DataEpoch, "post_id": filters.PostID, "projection_generation": filters.ProjectionGeneration, "routing_contract_revision": filters.RoutingContractRevision, "consumer": filters.Consumer, "error_code": filters.ErrorCode} {
 		if value != "" {
 			must = append(must, map[string]any{"term": map[string]string{field: value}})
 		}
@@ -399,6 +501,85 @@ func (r *ElasticsearchRepository) Search(ctx context.Context, pit string, filter
 			return SearchResult{}, ErrUnavailable
 		}
 		result.Hits = append(result.Hits, Hit{Entry: entry, Sort: sort})
+	}
+	return result, nil
+}
+
+func (r *ElasticsearchRepository) SearchCorrelation(ctx context.Context, query CorrelationQuery) (CorrelationResult, error) {
+	if !dataEpochPattern.MatchString(query.DataEpoch) || query.Limit < 1 || query.Limit > MaximumLimit || query.From.IsZero() || query.To.IsZero() {
+		return CorrelationResult{}, ErrUnavailable
+	}
+	filters := []any{map[string]any{"range": map[string]any{"@timestamp": map[string]string{"gte": query.From.Format(time.RFC3339Nano), "lt": query.To.Format(time.RFC3339Nano)}}}}
+	// A v1 log may predate epoch propagation. It remains a historical clue
+	// only when its exact durable identity matches; it is never treated as a
+	// current-epoch execution proof.
+	filters = append(filters, map[string]any{"bool": map[string]any{"should": []any{
+		map[string]any{"term": map[string]string{"data_epoch": query.DataEpoch}},
+		map[string]any{"bool": map[string]any{"must_not": []any{map[string]any{"exists": map[string]string{"field": "data_epoch"}}}}},
+	}, "minimum_should_match": 1}})
+	if query.CommandID != "" {
+		filters = append(filters, map[string]any{"term": map[string]string{"command_id": query.CommandID}})
+	}
+	if query.EventID != "" {
+		filters = append(filters, map[string]any{"term": map[string]string{"event_id": query.EventID}})
+	}
+	if query.PostID != 0 {
+		filters = append(filters, map[string]any{"term": map[string]any{"post_id": query.PostID}})
+	}
+	body, err := json.Marshal(map[string]any{
+		"size":  query.Limit + 1,
+		"query": map[string]any{"bool": map[string]any{"filter": filters}},
+		"sort":  []any{map[string]any{"@timestamp": map[string]string{"order": "desc", "format": "strict_date_optional_time_nanos"}}, map[string]any{"_shard_doc": map[string]string{"order": "desc"}}},
+	})
+	if err != nil {
+		return CorrelationResult{}, ErrUnavailable
+	}
+	response, err := r.do(ctx, http.MethodPost, "/"+ReadAlias+"/_search", bytes.NewReader(body))
+	if err != nil {
+		return CorrelationResult{}, ErrUnavailable
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode == http.StatusNotFound {
+		return CorrelationResult{}, ErrAliasMissing
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return CorrelationResult{}, ErrUnavailable
+	}
+	var payload struct {
+		Hits struct {
+			Hits []struct {
+				Source json.RawMessage `json:"_source"`
+			} `json:"hits"`
+		} `json:"hits"`
+	}
+	if err := decodeLimited(response.Body, &payload); err != nil {
+		return CorrelationResult{}, ErrUnavailable
+	}
+	result := CorrelationResult{Entries: make([]Entry, 0, min(len(payload.Hits.Hits), query.Limit))}
+	hasLegacy := false
+	for index, hit := range payload.Hits.Hits {
+		if index >= query.Limit {
+			result.Truncated = true
+			break
+		}
+		entry, err := decodeEntry(hit.Source)
+		if err != nil {
+			return CorrelationResult{}, ErrUnavailable
+		}
+		if entry.DataEpoch != "" && entry.DataEpoch != query.DataEpoch {
+			return CorrelationResult{}, ErrUnavailable
+		}
+		if entry.DataEpoch == "" {
+			hasLegacy = true
+		}
+		result.Entries = append(result.Entries, entry)
+	}
+	if len(result.Entries) == 0 {
+		result.Quality = "no_evidence"
+	} else if hasLegacy {
+		result.Quality = "legacy_unknown"
+	} else {
+		result.Quality = "known"
 	}
 	return result, nil
 }
@@ -465,6 +646,17 @@ func decodeEntry(source []byte) (Entry, error) {
 	}
 	if raw.Entry.AttemptID != "" && (!attemptIDPattern.MatchString(raw.Entry.AttemptID) || allZero(raw.Entry.AttemptID)) {
 		return Entry{}, errors.New("invalid log document")
+	}
+	if raw.DataEpoch != "" && !dataEpochPattern.MatchString(raw.DataEpoch) {
+		return Entry{}, errors.New("invalid log document")
+	}
+	if raw.CommandID != "" && !eventIDPattern.MatchString(raw.CommandID) {
+		return Entry{}, errors.New("invalid log document")
+	}
+	for _, value := range []string{raw.ProjectionGeneration, raw.RoutingContractRevision, raw.Consumer} {
+		if value != "" && !boundedTokenPattern.MatchString(value) {
+			return Entry{}, errors.New("invalid log document")
+		}
 	}
 	if raw.Entry.ContentRevision != nil && *raw.Entry.ContentRevision == 0 {
 		return Entry{}, errors.New("invalid log document")

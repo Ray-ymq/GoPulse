@@ -37,6 +37,12 @@ var observabilityEnvironment = []string{
 // exercises the clean registration path as well as post, comment, like and
 // session recovery.
 func Business(root string, options Options) (returnErr error) {
+	if options.Scope == "v1" || options.Preflight || options.VerifyEvidence || options.Budget != "" || options.Publication != "" {
+		if options.Scope != "v1" {
+			return fmt.Errorf("V1 options require --scope v1")
+		}
+		return BusinessV1(root, options)
+	}
 	return runStack(root, options, false, false, []suiteSpec{
 		{name: "business", scenario: "business", spec: "e2e/business.spec.ts"},
 		{name: "compose-business", scenario: "business", spec: "e2e/compose-business.spec.ts"},

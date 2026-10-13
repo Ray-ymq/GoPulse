@@ -76,7 +76,7 @@ func saveRestoreJournal(path string, journal restoreJournal) error {
 }
 
 func credentialKey(k string) bool {
-	return strings.Contains(k, "PASSWORD") || strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET")
+	return strings.Contains(k, "PASSWORD") || strings.Contains(k, "TOKEN") || strings.Contains(k, "SECRET") || strings.Contains(k, "CREDENTIAL")
 }
 
 func (c *Controller) disk(required uint64) error {
