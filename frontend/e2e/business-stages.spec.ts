@@ -73,11 +73,23 @@ test('creates a post, checks its stage evidence, and preserves ordinary-user den
   await page.getByRole('button', { name: '查证阶段', exact: true }).click()
   const response = await stageResponse
   expect(response.status()).toBe(200)
-  const stage = await response.json() as { data?: { resolved?: StageIdentity, evidence?: { command?: { quality?: string } } } }
+  const stage = await response.json() as {
+    data?: {
+      resolved?: StageIdentity
+      evidence?: {
+        command?: { quality?: string }
+        logs?: { quality?: string, entries?: Array<{ command_id?: string, data_epoch?: string }> }
+      }
+    }
+  }
   expect(stage.data?.resolved?.command_id).toBe(identity.command_id)
   expect(stage.data?.resolved?.event_id).toBe(identity.event_id)
   expect(stage.data?.resolved?.post_id).toBe(identity.post_id)
   expect(stage.data?.evidence?.command?.quality).toBe('known')
+  expect(stage.data?.evidence?.logs?.quality).toBe('known')
+  expect(stage.data?.evidence?.logs?.entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({ command_id: identity.command_id, data_epoch: identity.data_epoch }),
+  ]))
   const commandCard = page.locator('article.stage-evidence-card').filter({ hasText: '命令提交' })
   await expect(commandCard).toContainText('命令提交')
   await expect(commandCard).toContainText('已知依据')

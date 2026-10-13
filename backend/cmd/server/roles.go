@@ -300,7 +300,11 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			if clientErr != nil {
 				return nil, errors.New("initialize business stage private client")
 			}
-			routes.BusinessStages = backendhttp.NewBusinessStageHandler(stageClient, true)
+			routes.BusinessStages = backendhttp.NewBusinessStageHandler(platformBusinessStageQuerier{
+				client:          stageClient,
+				logs:            logService,
+				traceConfigured: cfg.Trace.Enabled,
+			}, true)
 		}
 		routes.Management = backendhttp.NewManagementHandler(users, cfg.Auth.JWTSecret)
 		routes.ExporterPlugins = exporterPluginHandler
@@ -376,4 +380,131 @@ func (adapter businessStageLogs) QueryCorrelation(ctx context.Context, query bus
 		})
 	}
 	return businessstate.LogCorrelationResult{Entries: entries, Truncated: result.Truncated, Quality: result.Quality}, nil
+}
+
+// platformBusinessStageQuerier keeps durable state reads on the business
+// role, while completing the public stage response with the platform-owned
+// observability evidence. A separated platform must not expose the business
+// role's logs_unavailable placeholder as its own result.
+type platformBusinessStageQuerier struct {
+	client          *businessstate.HTTPClient
+	logs            *logquery.Service
+	traceConfigured bool
+}
+
+func (querier platformBusinessStageQuerier) Query(ctx context.Context, query businessstate.StageQuery) (businessstate.StageResponse, error) {
+	return querier.query(ctx, query, "")
+}
+
+func (querier platformBusinessStageQuerier) QueryWithSession(ctx context.Context, query businessstate.StageQuery, cookie string) (businessstate.StageResponse, error) {
+	return querier.query(ctx, query, cookie)
+}
+
+func (querier platformBusinessStageQuerier) query(ctx context.Context, query businessstate.StageQuery, cookie string) (businessstate.StageResponse, error) {
+	if querier.client == nil {
+		return businessstate.StageResponse{}, businessstate.ErrStageRemote
+	}
+	response, err := querier.client.QueryWithSession(ctx, query, cookie)
+	if err != nil || len(query.LogSources) == 0 {
+		return response, err
+	}
+
+	now := time.Now().UTC()
+	from, to := query.LogFrom, query.LogTo
+	if from.IsZero() {
+		to = now
+		from = to.Add(-15 * time.Minute)
+	}
+	correlationQuery := logquery.CorrelationQuery{DataEpoch: query.DataEpoch, From: from, To: to, Limit: businessstate.StageMaximumLogs}
+	switch {
+	case query.CommandID != "":
+		correlationQuery.CommandID = query.CommandID
+	case query.EventID != "":
+		correlationQuery.EventID = query.EventID
+	default:
+		correlationQuery.PostID = query.PostID
+	}
+
+	if querier.logs == nil {
+		return querier.setStageEvidenceUnavailable(response, query, now), nil
+	}
+	correlation, err := querier.logs.QueryCorrelation(ctx, correlationQuery)
+	if err != nil {
+		return querier.setStageEvidenceUnavailable(response, query, now), nil
+	}
+	if containsStageSource(query.LogSources, businessstate.StageSourceLogs) {
+		logs := businessstate.StageSource{Source: businessstate.StageSourceLogs, ReadAt: stageTimePtr(now), Quality: correlation.Quality, Truncated: correlation.Truncated}
+		for _, entry := range correlation.Entries {
+			logs.Entries = append(logs.Entries, platformStageLogEntry(entry))
+		}
+		if logs.Quality == "" {
+			logs.Quality = businessstate.StageQualityNoEvidence
+		}
+		response.Evidence.Logs = logs
+	}
+	if containsStageSource(query.LogSources, businessstate.StageSourceTrace) {
+		trace := businessstate.StageSource{Source: businessstate.StageSourceTrace, ReadAt: stageTimePtr(now)}
+		for _, entry := range correlation.Entries {
+			if entry.TraceID != "" && !containsStageValue(trace.TraceIDs, entry.TraceID) {
+				trace.TraceIDs = append(trace.TraceIDs, entry.TraceID)
+			}
+		}
+		if len(trace.TraceIDs) > 0 {
+			trace.Quality = businessstate.StageQualityKnown
+		} else if !querier.traceConfigured {
+			trace.Quality = businessstate.StageQualityNotConfigured
+			trace.Sampling = "trace_query_not_configured"
+		} else {
+			trace.Quality = businessstate.StageQualitySampling
+			trace.Sampling = "trace_id_not_observed"
+		}
+		response.Evidence.Trace = trace
+	}
+	return response, nil
+}
+
+func (querier platformBusinessStageQuerier) setStageEvidenceUnavailable(response businessstate.StageResponse, query businessstate.StageQuery, now time.Time) businessstate.StageResponse {
+	if containsStageSource(query.LogSources, businessstate.StageSourceLogs) {
+		response.Evidence.Logs = businessstate.StageSource{Source: businessstate.StageSourceLogs, ReadAt: stageTimePtr(now), Quality: businessstate.StageQualityBackendError, Reason: "logs_unavailable"}
+	}
+	if containsStageSource(query.LogSources, businessstate.StageSourceTrace) {
+		response.Evidence.Trace = businessstate.StageSource{Source: businessstate.StageSourceTrace, ReadAt: stageTimePtr(now), Quality: businessstate.StageQualityBackendError, Reason: "trace_evidence_unavailable"}
+	}
+	return response
+}
+
+func platformStageLogEntry(entry logquery.Entry) businessstate.StageLogEntry {
+	postID := uint64(0)
+	if entry.PostID != nil {
+		postID = *entry.PostID
+	}
+	return businessstate.StageLogEntry{
+		Timestamp: entry.Timestamp, Level: entry.Level, Service: entry.Service, InstanceID: entry.InstanceID,
+		Module: entry.Module, Message: entry.Message, TraceID: entry.TraceID, SpanID: entry.SpanID,
+		AttemptID: entry.AttemptID, EventID: entry.EventID, CommandID: entry.CommandID,
+		DataEpoch: entry.DataEpoch, PostID: postID,
+	}
+}
+
+func stageTimePtr(value time.Time) *time.Time {
+	value = value.UTC()
+	return &value
+}
+
+func containsStageSource(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func containsStageValue(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
