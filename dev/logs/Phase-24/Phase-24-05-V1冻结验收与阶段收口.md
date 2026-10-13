@@ -56,3 +56,12 @@
 - 接续修订的完整直接门禁通过：`make verify MODULE=acceptance BASE_REF=upstream/main` 与 `make verify MODULE=lifecycle BASE_REF=upstream/main`（含 vet、test、race、build）；新增 lint 均为 0，存量分别 24、45。新增 fixture 的关闭操作明确为 best-effort，测试清理检查错误，确认无调用后删除旧 `runBoundary` 助手；未放宽正式案例。文档治理检查通过。
 - 上述工具修改提交后必须重新冻结候选，历史 manifest/回执保持原身份；正式矩阵、publication 与完成元数据仍未通过。此前跨构建、失败和诊断的成本继续累计，本次记录不表示重置原预算。
 - 本地复用修订已提交为 `8c22f8d`，native acceptance 已重新构建；该提交尚无新候选真实验收。预算复核对现存顶层 24 份 receipt/preflight 的命令耗时去重，得到可确认活跃下限 `2,086,649 ms`（34 分 46.649 秒）；起止区间并集为 43 分 53.075 秒，不能把区间内等待全部当作硬下限。10 份 package verification 没有耗时字段，跨构建、远端等待与人工成本仍未知，无法证明原 180 分钟上限的剩余量，故未启动新的完整栈。接续建议为最多 60 分钟：新候选构建/runtime 25 分钟、preflight/核验 5 分钟、formal 25 分钟、清理/记录 5 分钟；任一步失败立即停止，不追加诊断或重试、不延长固定案例窗口。此窗口须用户明确批准预算调整，不能视作原累计成本重置。
+
+## 批准接续执行结果（2026-10-13）
+
+- 用户批准最多 60 分钟接续窗口；历史 Phase24 累计预算未重置。执行前确认 `HEAD=63eb3f5bdf499135869671d1d3b9ca8edfef2aeb`，其父提交为 `8c22f8d`，并保留日志提交 `63eb3f5`。tracked 工作树无修改；未跟踪的已重建 `acceptance/bin/gopulse-acceptance` 未被修改或删除，`VERSION` 仍为 `2.6.4`。
+- 从该 HEAD 新建候选 `.run/phase24-05/candidate-63eb3f5-v1`，registry 为本轮独立 `127.0.0.1:15027/gopulse`，使用本地已核验的 pinned `registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`。候选 manifest 绑定 revision `63eb3f5bdf499135869671d1d3b9ca8edfef2aeb`，manifest SHA-256 为 `sha256:e7dbb316c2966142231d7b747bc80bcddae56b39b7bf1e3cad3d540c6db61148`，Bundle archive SHA-256 为 `sha256:faddb5e39ab01bf153aafa103714a7b4ef253b9d3f0f76d002c474638f469f80`。
+- `make package PLATFORM=linux/amd64 OUTPUT=.run/phase24-05/candidate-63eb3f5-v1 REGISTRY=127.0.0.1:15027/gopulse RUNTIME=1` 在 `2026-10-13T20:09:49+08:00` 至 `2026-10-13T20:16:55+08:00` 执行。10 个产品/lifecycle 镜像已构建推送，候选 manifest/Bundle 已生成，产品与 third-party metadata 检查通过；runtime Compose observability closure 通过并清理。
+- runtime 的 lifecycle failure matrix 随后在既有固定入口失败：`{"code":10,"stage":"digest","message":"registry platform digest unavailable for kafka"}`，上层记录 `lifecycle doctor exited 10, expected 0`，package 退出状态为 2。因此这是 infrastructure failure 停点，不能产生产品能力结论；候选没有 `verification-amd64.json`。
+- 由于 runtime gate 失败，短 preflight、preflight Verify Evidence、正式 V01～V12、正式 receipt、publication 均未开始/未产生。失败原始输出保留于 `.run/phase24-05/candidate-63eb3f5-v1/build-runtime.log`；本候选目录及 Bundle、manifest、build metadata 继续保留。没有编辑任何历史候选或回执。
+- 归属清理已完成：runtime closure 的本轮 acceptance/lifecycle 容器、网络、卷均已清理；本轮 registry 容器 `gopulse-phase24-05-registry-63eb3f5` 已删除。此前 registry `gopulse-phase24-05-registry-4b5d16f` 未触碰；未使用全局 prune。该接续从 `20:09:48` 到 `20:16:55` 实际约 7 分 07 秒，计入历史累计，不重置 Phase24 预算。
