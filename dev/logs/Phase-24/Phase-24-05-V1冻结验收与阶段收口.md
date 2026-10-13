@@ -55,3 +55,4 @@
 - V03 最小诊断未复现原端口 null，原代理已删除，仍无法确证根因。失败路径现于恢复/删除代理之前通过 harness 私有失败证据记录 `.State`、端口映射和有界日志，不输出完整容器 Env。预冻结审查还修复 ES effect proxy upstream 缺少 `http://` 的确定启动缺陷，参数测试通过。
 - 接续修订的完整直接门禁通过：`make verify MODULE=acceptance BASE_REF=upstream/main` 与 `make verify MODULE=lifecycle BASE_REF=upstream/main`（含 vet、test、race、build）；新增 lint 均为 0，存量分别 24、45。新增 fixture 的关闭操作明确为 best-effort，测试清理检查错误，确认无调用后删除旧 `runBoundary` 助手；未放宽正式案例。文档治理检查通过。
 - 上述工具修改提交后必须重新冻结候选，历史 manifest/回执保持原身份；正式矩阵、publication 与完成元数据仍未通过。此前跨构建、失败和诊断的成本继续累计，本次记录不表示重置原预算。
+- 本地复用修订已提交为 `8c22f8d`，native acceptance 已重新构建；该提交尚无新候选真实验收。预算复核对现存顶层 24 份 receipt/preflight 的命令耗时去重，得到可确认活跃下限 `2,086,649 ms`（34 分 46.649 秒）；起止区间并集为 43 分 53.075 秒，不能把区间内等待全部当作硬下限。10 份 package verification 没有耗时字段，跨构建、远端等待与人工成本仍未知，无法证明原 180 分钟上限的剩余量，故未启动新的完整栈。接续建议为最多 60 分钟：新候选构建/runtime 25 分钟、preflight/核验 5 分钟、formal 25 分钟、清理/记录 5 分钟；任一步失败立即停止，不追加诊断或重试、不延长固定案例窗口。此窗口须用户明确批准预算调整，不能视作原累计成本重置。
