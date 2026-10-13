@@ -119,26 +119,39 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 }
 
 func publishedControlPort(runner *formalV1Runner, container, controlPort string) (int, error) {
-	inspect := runner.session.Run("docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", container)
-	if inspect.ExitCode != 0 {
-		return 0, fmt.Errorf("inspect %s control port failed with exit code %d", container, inspect.ExitCode)
+	deadline := time.Now().Add(10 * time.Second)
+	var lastErr error
+	for {
+		inspect := runner.session.Run("docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", container)
+		if inspect.ExitCode != 0 {
+			lastErr = fmt.Errorf("inspect %s control port failed with exit code %d", container, inspect.ExitCode)
+		} else {
+			var ports map[string][]struct {
+				HostIP   string `json:"HostIp"`
+				HostPort string `json:"HostPort"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimSpace(inspect.Stdout)), &ports); err != nil {
+				lastErr = fmt.Errorf("decode %s control port mapping: %w", container, err)
+			} else {
+				bindings := ports[controlPort+"/tcp"]
+				if len(bindings) == 1 && bindings[0].HostPort != "" {
+					port, err := strconv.Atoi(bindings[0].HostPort)
+					if err == nil && port >= 1 && port <= 65535 {
+						return port, nil
+					}
+					lastErr = fmt.Errorf("invalid %s control port %q", container, bindings[0].HostPort)
+				} else {
+					// Docker can briefly report a null dynamic binding immediately
+					// after start while the userland proxy is being installed.
+					lastErr = fmt.Errorf("%s control port was not published", container)
+				}
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return 0, lastErr
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	var ports map[string][]struct {
-		HostIP   string `json:"HostIp"`
-		HostPort string `json:"HostPort"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(inspect.Stdout)), &ports); err != nil {
-		return 0, fmt.Errorf("decode %s control port mapping: %w", container, err)
-	}
-	bindings := ports[controlPort+"/tcp"]
-	if len(bindings) != 1 || bindings[0].HostPort == "" {
-		return 0, fmt.Errorf("%s control port was not published", container)
-	}
-	port, err := strconv.Atoi(bindings[0].HostPort)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, fmt.Errorf("invalid %s control port %q", container, bindings[0].HostPort)
-	}
-	return port, nil
 }
 
 func (runner *formalV1Runner) businessNetwork() (string, error) {
