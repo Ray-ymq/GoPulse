@@ -148,8 +148,17 @@ func (runner *formalV1Runner) containerID(service string) (string, error) {
 
 func (runner *formalV1Runner) buildFixture(fixture string) (string, error) {
 	path := filepath.Join(runner.session.TempDir, fixture)
-	if result := runner.session.Run("go", "build", "-trimpath", "-o", path, "./acceptance/internal/fixtures/"+fixture); result.ExitCode != 0 {
-		return "", fmt.Errorf("build %s failed with exit code %d", fixture, result.ExitCode)
+	// The repository intentionally contains multiple Go modules and has no
+	// root go.mod. Build acceptance fixtures in their owning module just like
+	// the response-loss fixture; invoking go from the repository root makes
+	// every protocol-control case fail before it can start.
+	result := runner.session.Run("go", "-C", "acceptance", "build", "-trimpath", "-o", path, "./internal/fixtures/"+fixture)
+	if result.ExitCode != 0 {
+		detail := strings.TrimSpace(result.Stderr)
+		if detail == "" {
+			return "", fmt.Errorf("build %s failed with exit code %d", fixture, result.ExitCode)
+		}
+		return "", fmt.Errorf("build %s failed with exit code %d: %s", fixture, result.ExitCode, detail)
 	}
 	if err := os.Chmod(path, 0o755); err != nil {
 		return "", err
