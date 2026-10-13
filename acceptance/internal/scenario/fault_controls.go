@@ -47,6 +47,9 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if err != nil {
 		return nil, err
 	}
+	if err := runner.ensureRunnerOnBusinessNetwork(network); err != nil {
+		return nil, err
+	}
 	upstreamID, err := runner.containerID(service)
 	if err != nil {
 		return nil, err
@@ -58,9 +61,9 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	container := fmt.Sprintf("%s-fault-%s-%s", runner.session.Project, service, runner.session.Token[:8])
 	// The formal runner lives in the acceptance container, which is attached to
 	// the private business network by the acceptance Compose profile. Use the
-	// control container's service alias instead of publishing a host-loopback
-	// port that is unreachable from that container.
-	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...), controlURL: "http://" + service + ":" + controlPort}
+	// control container's DNS name instead of publishing a host-loopback port
+	// that is unreachable from that container.
+	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...), controlURL: "http://" + container + ":" + controlPort}
 	ready := false
 	rewired := false
 	defer func() {
@@ -108,6 +111,25 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	}
 	ready = true
 	return control, nil
+}
+
+func (runner *formalV1Runner) ensureRunnerOnBusinessNetwork(network string) error {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("find acceptance runner container: %w", err)
+	}
+	inspect := runner.session.Run("docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", hostname)
+	if inspect.ExitCode != 0 {
+		return fmt.Errorf("inspect acceptance runner network failed with exit code %d", inspect.ExitCode)
+	}
+	if strings.Contains(inspect.Stdout, `"`+network+`"`) {
+		return nil
+	}
+	connect := runner.session.Run("docker", "network", "connect", network, hostname)
+	if connect.ExitCode == 0 {
+		return nil
+	}
+	return fmt.Errorf("connect acceptance runner to business network failed with exit code %d", connect.ExitCode)
 }
 
 func (runner *formalV1Runner) businessNetwork() (string, error) {
