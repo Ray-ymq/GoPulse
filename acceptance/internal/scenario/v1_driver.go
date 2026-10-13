@@ -7,6 +7,7 @@ package scenario
 // as infrastructure_failure instead of being declared passed.
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -41,21 +42,24 @@ const (
 )
 
 type v1HTTPMeta struct {
-	CommandID     string    `json:"command_id"`
-	EventID       string    `json:"event_id"`
-	DataEpoch     string    `json:"data_epoch"`
-	PostID        uint64    `json:"post_id"`
-	CommittedAt   time.Time `json:"committed_at"`
-	Replayed      bool      `json:"replayed"`
-	ResourceState string    `json:"resource_state"`
+	CommandID      string    `json:"command_id"`
+	EventID        string    `json:"event_id"`
+	DataEpoch      string    `json:"data_epoch"`
+	PostID         uint64    `json:"post_id"`
+	CommittedAt    time.Time `json:"committed_at"`
+	Replayed       bool      `json:"replayed"`
+	ResourceState  string    `json:"resource_state"`
+	idempotencyKey string
 }
 
 type v1CreateResult struct {
-	Status    int
-	Meta      v1HTTPMeta
-	Replayed  bool
-	ErrorCode string
-	Err       error
+	Status     int
+	Meta       v1HTTPMeta
+	Replayed   bool
+	ErrorCode  string
+	Err        error
+	StartedAt  time.Time
+	FinishedAt time.Time
 }
 
 type v1StageResult struct {
@@ -238,12 +242,14 @@ func (client *v1HTTPClient) commandEpoch(ctx context.Context) (string, error) {
 }
 
 func (client *v1HTTPClient) create(ctx context.Context, epoch, key, title, content, traceparent string) v1CreateResult {
+	started := time.Now().UTC()
 	headers := map[string]string{"Idempotency-Key": key, "X-GoPulse-Data-Epoch": epoch}
 	if traceparent != "" {
 		headers["traceparent"] = traceparent
 	}
 	status, body, err := client.do(ctx, http.MethodPost, "/api/v1/posts", headers, map[string]string{"title": title, "content": content})
-	result := v1CreateResult{Status: status, Err: err}
+	result := v1CreateResult{Status: status, Err: err, StartedAt: started}
+	result.FinishedAt = time.Now().UTC()
 	if err != nil {
 		return result
 	}
@@ -265,10 +271,81 @@ func (client *v1HTTPClient) create(ctx context.Context, epoch, key, title, conte
 		result.Err = decodeErr
 		return result
 	}
-	result.Meta = v1HTTPMeta{CommandID: envelope.Meta.CommandID, EventID: envelope.Meta.EventID, DataEpoch: envelope.Meta.DataEpoch, PostID: envelope.Meta.PostID, CommittedAt: envelope.Meta.CommittedAt, Replayed: envelope.Meta.Replayed, ResourceState: envelope.Meta.ResourceState}
+	result.Meta = v1HTTPMeta{CommandID: envelope.Meta.CommandID, EventID: envelope.Meta.EventID, DataEpoch: envelope.Meta.DataEpoch, PostID: envelope.Meta.PostID, CommittedAt: envelope.Meta.CommittedAt, Replayed: envelope.Meta.Replayed, ResourceState: envelope.Meta.ResourceState, idempotencyKey: key}
 	result.Replayed = result.Meta.Replayed
 	result.ErrorCode = envelope.Error.Code
 	return result
+}
+
+func (client *v1HTTPClient) commandResult(ctx context.Context, meta v1HTTPMeta) v1CreateResult {
+	started := time.Now().UTC()
+	result := v1CreateResult{StartedAt: started}
+	if meta.idempotencyKey == "" {
+		result.Err = errors.New("command result requires the original idempotency key")
+		result.FinishedAt = time.Now().UTC()
+		return result
+	}
+	status, body, err := client.do(ctx, http.MethodGet, "/api/v1/post-commands/result", map[string]string{
+		"Idempotency-Key":      meta.idempotencyKey,
+		"X-GoPulse-Data-Epoch": meta.DataEpoch,
+	}, nil)
+	result.Status, result.Err, result.FinishedAt = status, err, time.Now().UTC()
+	if err != nil {
+		return result
+	}
+	var envelope struct {
+		Meta struct {
+			CommandID     string    `json:"command_id"`
+			EventID       string    `json:"event_id"`
+			DataEpoch     string    `json:"data_epoch"`
+			PostID        uint64    `json:"post_id"`
+			CommittedAt   time.Time `json:"committed_at"`
+			Replayed      bool      `json:"replayed"`
+			ResourceState string    `json:"resource_state"`
+		} `json:"meta"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if decodeErr := json.Unmarshal(body, &envelope); decodeErr != nil {
+		result.Err = decodeErr
+		return result
+	}
+	result.Meta = v1HTTPMeta{CommandID: envelope.Meta.CommandID, EventID: envelope.Meta.EventID, DataEpoch: envelope.Meta.DataEpoch, PostID: envelope.Meta.PostID, CommittedAt: envelope.Meta.CommittedAt, Replayed: envelope.Meta.Replayed, ResourceState: envelope.Meta.ResourceState, idempotencyKey: meta.idempotencyKey}
+	result.Replayed = result.Meta.Replayed
+	result.ErrorCode = envelope.Error.Code
+	return result
+}
+
+func (client *v1HTTPClient) currentUserID(ctx context.Context) (uint64, error) {
+	status, body, err := client.do(ctx, http.MethodGet, "/api/v1/users/me", nil, nil)
+	if err != nil {
+		return 0, err
+	}
+	if status != http.StatusOK {
+		return 0, fmt.Errorf("current-user returned HTTP %d", status)
+	}
+	var envelope struct {
+		Data struct {
+			ID uint64 `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil || envelope.Data.ID == 0 {
+		return 0, errors.New("current-user response did not contain an id")
+	}
+	return envelope.Data.ID, nil
+}
+
+func (client *v1HTTPClient) cookieHeader() string {
+	parsed, err := url.Parse(client.baseURL)
+	if err != nil || client.client.Jar == nil {
+		return ""
+	}
+	var values []string
+	for _, cookie := range client.client.Jar.Cookies(parsed) {
+		values = append(values, cookie.Name+"="+cookie.Value)
+	}
+	return strings.Join(values, "; ")
 }
 
 func (client *v1HTTPClient) stage(ctx context.Context, meta v1HTTPMeta, visibility bool) v1StageHTTPResult {
@@ -351,6 +428,100 @@ func newV1HTTPClient(baseURL string) *v1HTTPClient {
 
 func (client *v1HTTPClient) withBaseURL(baseURL string) *v1HTTPClient {
 	return &v1HTTPClient{baseURL: strings.TrimRight(baseURL, "/"), client: &http.Client{Jar: client.client.Jar, Timeout: v1HTTPTimeout}}
+}
+
+func (runner *formalV1Runner) composeTrace(args ...string) error {
+	result := runner.session.ComposeFiles([]string{"deploy/phase20-trace.yaml"}, args...)
+	if result.ExitCode != 0 {
+		return fmt.Errorf("trace overlay Compose failed with exit code %d", result.ExitCode)
+	}
+	return nil
+}
+
+func (runner *formalV1Runner) internalServiceURL(service, port string) (string, error) {
+	container, err := runner.containerID(service)
+	if err != nil {
+		return "", err
+	}
+	result := runner.session.Run("docker", "inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", container)
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("inspect %s address failed with exit code %d", service, result.ExitCode)
+	}
+	addresses := strings.Fields(result.Stdout)
+	if len(addresses) == 0 {
+		return "", fmt.Errorf("%s has no container address", service)
+	}
+	return "http://" + net.JoinHostPort(addresses[0], port), nil
+}
+
+func (runner *formalV1Runner) privateComponentMetrics(service, port, token string) (string, error) {
+	if token == "" {
+		return "", fmt.Errorf("%s metrics token is not configured", service)
+	}
+	base, err := runner.internalServiceURL(service, port)
+	if err != nil {
+		return "", err
+	}
+	request, err := http.NewRequest(http.MethodGet, base+"/internal/v1/metrics", nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := (&http.Client{Timeout: 3 * time.Second}).Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s private metrics returned HTTP %d", service, response.StatusCode)
+	}
+	return string(body), nil
+}
+
+func (runner *formalV1Runner) telemetryMetricEvidence() (bool, error) {
+	monitor, monitorErr := runner.privateComponentMetrics("monitor", "19104", runner.session.Value("MONITOR_METRICS_TOKEN"))
+	router, routerErr := runner.privateComponentMetrics("router", "19105", runner.session.Value("ROUTER_METRICS_TOKEN"))
+	if monitorErr != nil || routerErr != nil {
+		return false, errors.Join(monitorErr, routerErr)
+	}
+	return strings.Contains(monitor, "gopulse_monitor_event_queue_dropped_total") || strings.Contains(router, "gopulse_router_backpressure_total"), nil
+}
+
+func (runner *formalV1Runner) traceExportPresent() (bool, error) {
+	result := runner.session.ComposeFiles([]string{"deploy/phase20-trace.yaml"}, "ps", "-q", "phase20-collector")
+	if result.ExitCode != 0 {
+		return false, fmt.Errorf("find trace collector failed with exit code %d", result.ExitCode)
+	}
+	containers := strings.Fields(result.Stdout)
+	if len(containers) != 1 {
+		return false, fmt.Errorf("expected one trace collector, found %d", len(containers))
+	}
+	temporary, err := os.CreateTemp(runner.session.TempDir, "trace-export-")
+	if err != nil {
+		return false, err
+	}
+	temporaryPath := temporary.Name()
+	if err := temporary.Close(); err != nil {
+		_ = os.Remove(temporaryPath)
+		return false, err
+	}
+	defer func() { _ = os.Remove(temporaryPath) }()
+	copyResult := runner.session.Run("docker", "cp", containers[0]+":/var/lib/gopulse/trace/spans.jsonl", temporaryPath)
+	if copyResult.ExitCode != 0 {
+		// A running collector without a flushed file is an observed absence of
+		// export, not a host-permission failure. The formal case reports it as
+		// product evidence below.
+		return false, nil
+	}
+	data, err := os.ReadFile(temporaryPath)
+	if err != nil {
+		return false, err
+	}
+	return len(bytes.TrimSpace(data)) > 0, nil
 }
 
 func composeServiceURL(session *harness.Session, service, port string) (string, error) {
@@ -892,19 +1063,27 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 	var metas []v1HTTPMeta
 	var primary v1HTTPMeta
 	var success int64
+	var unavailable int64
 	for window := 0; window < 2; window++ {
-		if err := runner.compose("stop", "elasticsearch"); err != nil {
-			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
-		}
-		windowStarted := time.Now()
-		if window == 1 {
-			if err := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "elasticsearch"); err != nil {
+		if window == 0 {
+			if result := runner.session.Compose("stop", "elasticsearch"); result.ExitCode != 0 {
+				err := fmt.Errorf("stop Elasticsearch failed with exit code %d", result.ExitCode)
 				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 			}
-			if err := runner.compose("pause", "elasticsearch"); err != nil {
-				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, "pause Elasticsearch: "+err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
+		} else {
+			if result := runner.session.Compose("up", "--detach", "--wait", "--wait-timeout", "420", "elasticsearch"); result.ExitCode != 0 {
+				err := fmt.Errorf("restore Elasticsearch before delayed window failed with exit code %d", result.ExitCode)
+				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
+			}
+			if result := runner.session.Compose("pause", "elasticsearch"); result.ExitCode != 0 {
+				err := fmt.Errorf("pause Elasticsearch failed with exit code %d", result.ExitCode)
+				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 			}
 		}
+		// The clock starts only after the dependency is actually unavailable or
+		// paused. Startup and pause time are control overhead, not evidence for
+		// the required sixty-second fault window.
+		windowStarted := time.Now().UTC()
 		for index := 0; index < v1FaultRequests; index++ {
 			if index > 0 {
 				if err := waitUntil(runner.deadline, windowStarted.Add(time.Duration(index)*v1FaultRequestEvery)); err != nil {
@@ -912,6 +1091,9 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 				}
 			}
 			result := runner.admin.create(context.Background(), runner.commandEpoch, mustV1UUID(), fmt.Sprintf("%s window %d request %d", caseID, window, index), "bounded search fault request", v1TraceParent)
+			if result.Status == 0 || result.Status >= http.StatusInternalServerError {
+				unavailable++
+			}
 			if result.Status == http.StatusCreated {
 				success++
 				metas = append(metas, result.Meta)
@@ -924,19 +1106,37 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
 		if window == 1 {
-			_ = runner.compose("unpause", "elasticsearch")
+			if result := runner.session.Compose("unpause", "elasticsearch"); result.ExitCode != 0 {
+				err := fmt.Errorf("unpause Elasticsearch failed with exit code %d", result.ExitCode)
+				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
+			}
 		}
-		if err := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "elasticsearch"); err != nil {
+		if result := runner.session.Compose("up", "--detach", "--wait", "--wait-timeout", "420", "elasticsearch"); result.ExitCode != 0 {
+			err := fmt.Errorf("restore Elasticsearch after window failed with exit code %d", result.ExitCode)
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
 	}
 	recovered := runner.waitAllStages(metas, v1RecoveryWait)
 	facts := v1DurableFacts{}
-	if primary.CommandID != "" {
-		facts, _ = runner.facts(primary)
+	var factsErr error
+	for _, meta := range metas {
+		current, err := runner.facts(meta)
+		if err != nil {
+			factsErr = errors.Join(factsErr, err)
+			continue
+		}
+		facts.Commands += current.Commands
+		facts.Posts += current.Posts
+		facts.Outbox += current.Outbox
+		facts.Requirements += current.Requirements
+		facts.Applications += current.Applications
+		facts.BrokerPublished += current.BrokerPublished
 	}
-	item := runner.completedCase(caseID, primary, started, action, recovered, recovered, []receipt.RawFact{{Name: "fault_requests", Value: int64(len(metas))}, {Name: "http_success", Value: success}, {Name: "requests", Value: int64(v1FaultRequests * 2)}, {Name: "applications", Value: facts.Applications}}, 120, int64(time.Since(started)/time.Second))
-	if success != int64(v1FaultRequests*2) || !recovered {
+	item := runner.completedCase(caseID, primary, started, action+"; first subwindow unavailable and second subwindow delayed", recovered, recovered, []receipt.RawFact{{Name: "fault_requests", Value: int64(v1FaultRequests * 2)}, {Name: "fault_windows", Value: 2}, {Name: "http_success", Value: success}, {Name: "http_unavailable", Value: unavailable}, {Name: "requests", Value: int64(v1FaultRequests * 2)}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "applications", Value: facts.Applications}, {Name: "business_independent", Value: boolInt(success == int64(v1FaultRequests*2))}}, 120, int64(time.Since(started)/time.Second))
+	if factsErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", "durable facts: "+factsErr.Error()), factsErr
+	}
+	if success != int64(v1FaultRequests*2) || facts.Commands != success || facts.Posts != success || facts.Requirements != success || facts.Applications != success || !recovered {
 		return itemAsFailed(item, "product_failure", "business create or search recovery failed during the required windows"), errors.New(caseID + " fault windows failed")
 	}
 	return item, nil
@@ -1025,22 +1225,58 @@ func (runner *formalV1Runner) runV08() (receipt.V1Case, error) {
 
 func (runner *formalV1Runner) runV09() (receipt.V1Case, error) {
 	started := time.Now().UTC()
-	services := []string{"monitor", "router", "observability-elasticsearch"}
+	if err := runner.composeTrace("up", "--detach", "--wait", "--wait-timeout", "420", "phase20-collector", "backend", "backend-2", "business-worker", "business-worker-2", "search-indexer", "search-indexer-2"); err != nil {
+		return runner.failedCase("V09", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, "start pinned OTLP/Collector overlay: "+err.Error(), false, nil, 0, 0), err
+	}
+	// The overlay is acceptance-owned. Remove it and force the normal candidate
+	// definitions back before V10 starts; otherwise trace-enabled environment
+	// values would silently leak into the following case.
+	traceRestored := false
+	restoreTrace := func() error {
+		if traceRestored {
+			return nil
+		}
+		var first error
+		if result := runner.session.ComposeFiles([]string{"deploy/phase20-trace.yaml"}, "rm", "-sf", "phase20-collector"); result.ExitCode != 0 {
+			first = fmt.Errorf("remove trace collector failed with exit code %d", result.ExitCode)
+		}
+		if result := runner.session.Compose("up", "--detach", "--wait", "--wait-timeout", "420", "--force-recreate", "--no-deps", "backend", "backend-2", "business-worker", "business-worker-2", "search-indexer", "search-indexer-2"); result.ExitCode != 0 && first == nil {
+			first = fmt.Errorf("restore normal telemetry environment failed with exit code %d", result.ExitCode)
+		}
+		if first == nil {
+			traceRestored = true
+		}
+		return first
+	}
+	defer func() { _ = restoreTrace() }()
+	windows := []struct {
+		name     string
+		services []string
+	}{
+		{name: "collector", services: []string{"phase20-collector"}},
+		{name: "router", services: []string{"router", "router-2"}},
+		{name: "observability-elasticsearch", services: []string{"observability-elasticsearch"}},
+	}
 	var metas []v1HTTPMeta
 	var primary v1HTTPMeta
 	var success int64
-	for _, service := range services {
-		if err := runner.compose("stop", service); err != nil {
-			return runner.failedCase("V09", primaryIdentity(primary, runner.commandEpoch), started, "stop "+service+": "+err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
+	var unavailable int64
+	for _, window := range windows {
+		if result := runner.session.ComposeFiles([]string{"deploy/phase20-trace.yaml"}, append([]string{"stop"}, window.services...)...); result.ExitCode != 0 {
+			err := fmt.Errorf("stop %s: Compose exit code %d", window.name, result.ExitCode)
+			return runner.failedCase("V09", primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
-		windowStarted := time.Now()
+		windowStarted := time.Now().UTC()
 		for index := 0; index < v1FaultRequests; index++ {
 			if index > 0 {
 				if err := waitUntil(runner.deadline, windowStarted.Add(time.Duration(index)*v1FaultRequestEvery)); err != nil {
 					return runner.failedCase("V09", primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 				}
 			}
-			result := runner.admin.create(context.Background(), runner.commandEpoch, mustV1UUID(), fmt.Sprintf("V09 %s %d", service, index), "bounded telemetry fault request", v1TraceParent)
+			result := runner.admin.create(context.Background(), runner.commandEpoch, mustV1UUID(), fmt.Sprintf("V09 %s %d", window.name, index), "bounded telemetry fault request", v1TraceParent)
+			if result.Status == 0 || result.Status >= http.StatusInternalServerError {
+				unavailable++
+			}
 			if result.Status == http.StatusCreated {
 				success++
 				metas = append(metas, result.Meta)
@@ -1052,13 +1288,43 @@ func (runner *formalV1Runner) runV09() (receipt.V1Case, error) {
 		if err := waitUntil(runner.deadline, windowStarted.Add(v1FaultWindow)); err != nil {
 			return runner.failedCase("V09", primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
-		if err := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", service); err != nil {
-			return runner.failedCase("V09", primaryIdentity(primary, runner.commandEpoch), started, "recover "+service+": "+err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
+		if result := runner.session.ComposeFiles([]string{"deploy/phase20-trace.yaml"}, append([]string{"up", "--detach", "--wait", "--wait-timeout", "420"}, window.services...)...); result.ExitCode != 0 {
+			err := fmt.Errorf("recover %s: Compose exit code %d", window.name, result.ExitCode)
+			return runner.failedCase("V09", primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
 	}
 	recovered := runner.waitAllStages(metas, v1RecoveryWait)
-	item := runner.completedCase("V09", primary, started, "held Monitor, Router, and observability Elasticsearch fault windows with twelve business requests each", recovered, recovered, []receipt.RawFact{{Name: "fault_requests", Value: int64(len(services) * v1FaultRequests)}, {Name: "http_success", Value: success}, {Name: "requests", Value: int64(len(services) * v1FaultRequests)}}, 180, 0)
-	if success != int64(len(services)*v1FaultRequests) || !recovered {
+	facts := v1DurableFacts{}
+	var factsErr error
+	for _, meta := range metas {
+		current, err := runner.facts(meta)
+		if err != nil {
+			factsErr = errors.Join(factsErr, err)
+			continue
+		}
+		facts.Commands += current.Commands
+		facts.Posts += current.Posts
+		facts.Outbox += current.Outbox
+		facts.Requirements += current.Requirements
+		facts.Applications += current.Applications
+	}
+	traceExported, traceErr := runner.traceExportPresent()
+	metricEvidence, metricErr := runner.telemetryMetricEvidence()
+	restoreErr := restoreTrace()
+	item := runner.completedCase("V09", primary, started, "held the pinned OTLP/Collector, Monitor-to-Router, and observability Logs Elasticsearch fault windows with twelve business requests each", recovered, recovered, []receipt.RawFact{{Name: "fault_requests", Value: int64(len(windows) * v1FaultRequests)}, {Name: "fault_windows", Value: int64(len(windows))}, {Name: "http_success", Value: success}, {Name: "http_unavailable", Value: unavailable}, {Name: "requests", Value: int64(len(windows) * v1FaultRequests)}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "applications", Value: facts.Applications}, {Name: "business_independent", Value: boolInt(success == int64(len(windows)*v1FaultRequests) && facts.Applications == success)}, {Name: "telemetry_export_observed", Value: boolInt(traceExported)}, {Name: "telemetry_retry_observed", Value: boolInt(metricEvidence)}, {Name: "telemetry_drop_observed", Value: boolInt(metricEvidence)}, {Name: "telemetry_unknown", Value: boolInt(!metricEvidence)}}, 180, int64(time.Since(started)/time.Second))
+	if factsErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", "durable facts: "+factsErr.Error()), factsErr
+	}
+	if traceErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", "trace export evidence: "+traceErr.Error()), traceErr
+	}
+	if metricErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", "telemetry metric evidence: "+metricErr.Error()), metricErr
+	}
+	if restoreErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", "restore normal telemetry environment: "+restoreErr.Error()), restoreErr
+	}
+	if success != int64(len(windows)*v1FaultRequests) || facts.Commands != success || facts.Posts != success || facts.Requirements != success || facts.Applications != success || !recovered || !traceExported {
 		return itemAsFailed(item, "product_failure", "business writes or completion recovery did not remain available during telemetry faults"), errors.New("V09 telemetry fault recovery failed")
 	}
 	return item, nil
@@ -1079,7 +1345,7 @@ func (runner *formalV1Runner) runV10() (receipt.V1Case, error) {
 				return runner.failedCase("V10", primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 			}
 		}
-		result := runner.admin.create(context.Background(), runner.commandEpoch, mustV1UUID(), fmt.Sprintf("V10 platform outage %d", index), "business request during platform outage", v1TraceParent)
+		result := runner.user.create(context.Background(), runner.commandEpoch, mustV1UUID(), fmt.Sprintf("V10 platform outage %d", index), "business request during platform outage", v1TraceParent)
 		if result.Status == http.StatusCreated {
 			success++
 			metas = append(metas, result.Meta)
@@ -1096,9 +1362,80 @@ func (runner *formalV1Runner) runV10() (receipt.V1Case, error) {
 		return runner.failedCase("V10", primaryIdentity(primary, runner.commandEpoch), started, "recover platform-api: "+err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 	}
 	recovered := runner.waitAllStages(metas, time.Minute)
-	ordinaryDenied := runner.user.stage(context.Background(), primary, true).Status == http.StatusForbidden
-	item := runner.completedCase("V10", primary, started, "stopped platform-api for sixty seconds, continued business writes, checked management failure, recovered, and verified ordinary-user denial", recovered, recovered, []receipt.RawFact{{Name: "requests", Value: v1FaultRequests}, {Name: "http_success", Value: success}, {Name: "platform_unavailable", Value: boolInt(platformUnavailable)}}, 60, 0)
-	if success != v1FaultRequests || !platformUnavailable || !ordinaryDenied || !recovered {
+	commandResult := runner.user.commandResult(context.Background(), primary)
+	searchStatus, _, searchErr := runner.user.do(context.Background(), http.MethodGet, "/api/v1/search/posts?q="+url.QueryEscape("Phase-24 V10"), nil, nil)
+	frontendPostsStatus, _, postsErr := runner.admin.do(context.Background(), http.MethodGet, "/posts", nil, nil)
+	frontendAdminStatus, _, adminFrontendErr := runner.admin.do(context.Background(), http.MethodGet, "/admin/", nil, nil)
+	noSession := newV1HTTPClient(runner.baseURL)
+	unauthenticatedStatus, _, unauthenticatedErr := noSession.do(context.Background(), http.MethodGet, "/api/v1/admin/overview", nil, nil)
+	publicInternalStatus, _, publicInternalErr := noSession.do(context.Background(), http.MethodGet, "/internal/v1/business-stages", nil, nil)
+	userID, userIDErr := runner.user.currentUserID(context.Background())
+	rolePromoteStatus, rolePromoteErr := 0, error(nil)
+	rolePromotedAccessStatus := 0
+	roleDemoteStatus, roleDemoteErr := 0, error(nil)
+	roleDemotedAccessStatus := 0
+	if userIDErr == nil {
+		rolePromoteStatus, _, rolePromoteErr = runner.admin.do(context.Background(), http.MethodPut, "/api/v1/admin/users/"+strconv.FormatUint(userID, 10)+"/role", nil, map[string]string{"role": "super_admin"})
+		if rolePromoteErr == nil && rolePromoteStatus == http.StatusOK {
+			rolePromotedAccessStatus, _, rolePromoteErr = runner.user.do(context.Background(), http.MethodGet, "/api/v1/admin/overview", nil, nil)
+		}
+		roleDemoteStatus, _, roleDemoteErr = runner.admin.do(context.Background(), http.MethodPut, "/api/v1/admin/users/"+strconv.FormatUint(userID, 10)+"/role", nil, map[string]string{"role": "user"})
+		if roleDemoteErr == nil && roleDemoteStatus == http.StatusOK {
+			roleDemotedAccessStatus, _, roleDemoteErr = runner.user.do(context.Background(), http.MethodGet, "/api/v1/admin/overview", nil, nil)
+		}
+	}
+	internalURL, internalURLErr := runner.internalServiceURL("backend", "8080")
+	wrongCredentialStatus := 0
+	wrongCredentialErr := internalURLErr
+	if wrongCredentialErr == nil {
+		internalClient := newV1HTTPClient(internalURL)
+		wrongCredentialStatus, _, wrongCredentialErr = internalClient.do(context.Background(), http.MethodGet, "/internal/v1/business-stages", map[string]string{
+			"Cookie":                              runner.admin.cookieHeader(),
+			"X-GoPulse-Business-Stage-Credential": "wrong-private-credential",
+		}, nil)
+	}
+	facts := v1DurableFacts{}
+	var factsErr error
+	for _, meta := range metas {
+		current, err := runner.facts(meta)
+		if err != nil {
+			factsErr = errors.Join(factsErr, err)
+			continue
+		}
+		facts.Commands += current.Commands
+		facts.Posts += current.Posts
+		facts.Outbox += current.Outbox
+		facts.Requirements += current.Requirements
+		facts.Applications += current.Applications
+	}
+	item := runner.completedCase("V10", primary, started, "stopped platform-api for sixty seconds, continued ordinary-user writes and reads, checked both same-origin frontend routes, recovered, and verified live role promotion/demotion plus private-route rejection", recovered, recovered, []receipt.RawFact{
+		{Name: "requests", Value: v1FaultRequests},
+		{Name: "http_success", Value: success},
+		{Name: "platform_unavailable", Value: boolInt(platformUnavailable)},
+		{Name: "commands", Value: facts.Commands},
+		{Name: "posts", Value: facts.Posts},
+		{Name: "requirements", Value: facts.Requirements},
+		{Name: "applications", Value: facts.Applications},
+		{Name: "command_result_available", Value: boolInt(commandResult.Status == http.StatusOK)},
+		{Name: "search_available", Value: boolInt(searchStatus == http.StatusOK)},
+		{Name: "frontend_routes", Value: boolInt(frontendPostsStatus == http.StatusOK && frontendAdminStatus == http.StatusOK)},
+		{Name: "unauthenticated_denied", Value: boolInt(unauthenticatedStatus == http.StatusUnauthorized)},
+		{Name: "internal_denied", Value: boolInt(publicInternalStatus != http.StatusOK)},
+		{Name: "wrong_private_credential", Value: boolInt(wrongCredentialStatus == http.StatusUnauthorized)},
+		{Name: "role_promoted", Value: boolInt(rolePromoteStatus == http.StatusOK && rolePromotedAccessStatus == http.StatusOK)},
+		{Name: "role_demoted", Value: boolInt(roleDemoteStatus == http.StatusOK && roleDemotedAccessStatus == http.StatusForbidden)},
+	}, 60, int64(time.Since(started)/time.Second))
+	for _, failure := range []struct {
+		err  error
+		name string
+	}{
+		{searchErr, "search request"}, {postsErr, "frontend posts route"}, {adminFrontendErr, "frontend admin route"}, {unauthenticatedErr, "unauthenticated request"}, {publicInternalErr, "public internal denial"}, {userIDErr, "ordinary user identity"}, {rolePromoteErr, "role promotion"}, {roleDemoteErr, "role demotion"}, {wrongCredentialErr, "private credential request"}, {factsErr, "durable facts"},
+	} {
+		if failure.err != nil {
+			return itemAsFailed(item, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
+		}
+	}
+	if success != v1FaultRequests || facts.Commands != success || facts.Posts != success || facts.Requirements != success || facts.Applications != success || !platformUnavailable || commandResult.Status != http.StatusOK || searchStatus != http.StatusOK || frontendPostsStatus != http.StatusOK || frontendAdminStatus != http.StatusOK || unauthenticatedStatus != http.StatusUnauthorized || publicInternalStatus == http.StatusOK || wrongCredentialStatus != http.StatusUnauthorized || rolePromoteStatus != http.StatusOK || rolePromotedAccessStatus != http.StatusOK || roleDemoteStatus != http.StatusOK || roleDemotedAccessStatus != http.StatusForbidden || !recovered {
 		return itemAsFailed(item, "product_failure", "platform-side failure boundary or recovery did not match the contract"), errors.New("V10 platform failure boundary did not hold")
 	}
 	return item, nil
