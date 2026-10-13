@@ -97,14 +97,14 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if result := runner.session.Run("docker", args...); result.ExitCode != 0 {
 		return nil, fmt.Errorf("create %s protocol control failed with exit code %d", service, result.ExitCode)
 	}
+	if result := runner.session.Run("docker", "start", container); result.ExitCode != 0 {
+		return nil, fmt.Errorf("start %s protocol control failed with exit code %d", service, result.ExitCode)
+	}
 	controlPortNumber, err := publishedControlPort(runner, container, controlPort)
 	if err != nil {
 		return nil, err
 	}
 	control.controlURL = "http://127.0.0.1:" + strconv.Itoa(controlPortNumber)
-	if result := runner.session.Run("docker", "start", container); result.ExitCode != 0 {
-		return nil, fmt.Errorf("start %s protocol control failed with exit code %d", service, result.ExitCode)
-	}
 	if err := control.waitReady(10 * time.Second); err != nil {
 		return nil, err
 	}
