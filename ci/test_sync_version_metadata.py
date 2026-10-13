@@ -29,6 +29,12 @@ class SyncVersionMetadataTests(unittest.TestCase):
             else:
                 document = {"name": name, "private": True, "version": "1.13.3"}
             path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        openapi = self.repo / "backend/api/openapi.yaml"
+        openapi.parent.mkdir(parents=True, exist_ok=True)
+        openapi.write_text(
+            "openapi: 3.1.0\ninfo:\n  title: GoPulse API\n  version: 1.13.3\npaths: {}\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -44,6 +50,7 @@ class SyncVersionMetadataTests(unittest.TestCase):
                 "frontend/package-lock.json",
                 "admin-frontend/package.json",
                 "admin-frontend/package-lock.json",
+                "backend/api/openapi.yaml",
             },
         )
         self.assertEqual((self.repo / "VERSION").read_text(encoding="utf-8"), "1.13.4\n")
@@ -58,7 +65,18 @@ class SyncVersionMetadataTests(unittest.TestCase):
             self.assertEqual(document["version"], "1.13.4")
             if relative.endswith("package-lock.json"):
                 self.assertEqual(document["packages"][""]["version"], "1.13.4")
+        openapi_text = (self.repo / "backend/api/openapi.yaml").read_text(encoding="utf-8")
+        self.assertIn("  version: 1.13.4\n", openapi_text)
+        self.assertIn("openapi: 3.1.0\n", openapi_text)
         self.assertEqual(sync(self.repo, "1.13.4"), [])
+
+    def test_sync_rejects_api_description_without_info_version(self) -> None:
+        (self.repo / "backend/api/openapi.yaml").write_text(
+            "openapi: 3.1.0\ninfo:\n  title: GoPulse API\npaths: {}\n", encoding="utf-8"
+        )
+        with self.assertRaises(VersionMetadataError):
+            sync(self.repo, "1.13.4")
+        self.assertEqual((self.repo / "VERSION").read_text(encoding="utf-8"), "1.13.3\n")
 
     def test_sync_rejects_invalid_version_without_partial_update(self) -> None:
         with self.assertRaises(VersionMetadataError):

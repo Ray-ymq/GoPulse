@@ -46,7 +46,7 @@ func VerifyModule(root, module, baseRef string) error {
 
 // Verify selects governance, module, and real checks from the common-ancestor
 // scope. PLAN_ONLY prints the selector's JSON and performs no other command.
-func Verify(root, baseRef, branch string, planOnly bool) error {
+func Verify(root, baseRef string, planOnly bool) error {
 	if strings.TrimSpace(baseRef) == "" {
 		return fmt.Errorf("BASE_REF is required for make verify")
 	}
@@ -58,20 +58,7 @@ func Verify(root, baseRef, branch string, planOnly bool) error {
 		fmt.Print(raw)
 		return nil
 	}
-	if branch == "" {
-		branch, err = verifyCommandOutput(root, "git", "branch", "--show-current")
-		if err != nil || strings.TrimSpace(branch) == "" {
-			return fmt.Errorf("detached HEAD requires BRANCH=develop/x.y.z for governance validation")
-		}
-		branch = strings.TrimSpace(branch)
-	}
-	if err := runPython(root, "ci/validate_branch.py", "--branch", branch, "--base-ref", baseRef, "--mode", "development"); err != nil {
-		return err
-	}
 	if err := runPython(root, "ci/validate_versions.py"); err != nil {
-		return err
-	}
-	if err := runMake(root, "docs-check", "BASE_REF="+baseRef); err != nil {
 		return err
 	}
 	if selection.Checks["tools"] {

@@ -15,6 +15,7 @@ PACKAGE_FILES = (
     Path("admin-frontend/package.json"),
     Path("admin-frontend/package-lock.json"),
 )
+OPENAPI = Path("backend/api/openapi.yaml")
 
 
 class VersionMetadataError(ValueError):
@@ -64,6 +65,25 @@ def _render_package(path: Path, version: str) -> str:
     return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
 
 
+def _render_openapi(path: Path, version: str) -> str:
+    if not path.is_file():
+        raise VersionMetadataError(f"missing {path}")
+    inside, replaced = False, False
+    output: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+        if line.startswith("info:"):
+            inside = True
+        elif inside and line[:1] not in {"", " ", "\t", "\n"}:
+            inside = False
+        elif inside and re.match(r"^  version:", line):
+            line = f"  version: {version}\n"
+            replaced = True
+        output.append(line)
+    if not replaced:
+        raise VersionMetadataError(f"{path} has no info.version")
+    return "".join(output)
+
+
 def sync(repo: Path, version: str) -> list[Path]:
     """Update the root and all product package metadata, returning changed paths."""
     if not SEMVER.fullmatch(version):
@@ -79,6 +99,7 @@ def sync(repo: Path, version: str) -> list[Path]:
         if not path.is_file():
             raise VersionMetadataError(f"missing {relative}")
         updates.append((relative, path, _render_package(path, version)))
+    updates.append((OPENAPI, repo / OPENAPI, _render_openapi(repo / OPENAPI, version)))
 
     changed: list[Path] = []
     for relative, path, content in updates:
