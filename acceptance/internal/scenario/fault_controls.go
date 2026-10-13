@@ -21,15 +21,17 @@ const (
 )
 
 type dependencyControl struct {
-	runner           *formalV1Runner
-	container        string
-	containerCreated bool
-	network          string
-	upstreamID       string
-	service          string
-	services         []string
-	controlURL       string
-	restored         bool
+	runner                *formalV1Runner
+	container             string
+	containerCreated      bool
+	network               string
+	controlNetwork        string
+	controlNetworkCreated bool
+	upstreamID            string
+	service               string
+	services              []string
+	controlURL            string
+	restored              bool
 }
 
 func (runner *formalV1Runner) startMySQLControl(mode string, services ...string) (*dependencyControl, error) {
@@ -54,7 +56,8 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 		return nil, err
 	}
 	container := fmt.Sprintf("%s-fault-%s-%s", runner.session.Project, service, runner.session.Token[:8])
-	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...)}
+	controlNetwork := fmt.Sprintf("%s-fault-control-%s-%s", runner.session.Project, service, runner.session.Token[:8])
+	control := &dependencyControl{runner: runner, container: container, network: network, controlNetwork: controlNetwork, upstreamID: upstreamID, service: service, services: append([]string(nil), services...)}
 	ready := false
 	rewired := false
 	defer func() {
@@ -69,11 +72,10 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if err != nil {
 		return nil, err
 	}
-	// The native acceptance runner executes on the host, while the proxy must
-	// remain on the private business network to reach the rewired dependency.
-	// Publish only the control listener on a Docker-assigned loopback port; the
-	// data listener stays private and is reached by the application through the
-	// service alias.
+	// The business network is internal, so Docker cannot publish a host port for
+	// a container created directly on it. Create an owned ordinary bridge for
+	// the host-visible control listener, then attach the proxy to business for
+	// the private data path. The data listener is never published to the host.
 	if result := runner.session.Run("docker", "network", "disconnect", network, upstreamID); result.ExitCode != 0 {
 		return nil, fmt.Errorf("disconnect %s from business network failed with exit code %d", service, result.ExitCode)
 	}
@@ -81,6 +83,10 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if result := runner.session.Run("docker", "network", "connect", "--alias", service+"-upstream", network, upstreamID); result.ExitCode != 0 {
 		return nil, fmt.Errorf("reconnect %s with upstream alias failed with exit code %d", service, result.ExitCode)
 	}
+	if result := runner.session.Run("docker", "network", "create", "--label", "io.gopulse.acceptance.project="+runner.session.Project, "--label", "io.gopulse.acceptance.owner=v1-fault-control", controlNetwork); result.ExitCode != 0 {
+		return nil, fmt.Errorf("create %s control network failed with exit code %d", service, result.ExitCode)
+	}
+	control.controlNetworkCreated = true
 	image := runner.session.Value("GOPULSE_ACCEPTANCE_IMAGE")
 	if image == "" {
 		image = "gopulse/acceptance:" + runner.session.Value("GOPULSE_IMAGE_TAG")
@@ -90,7 +96,7 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 		"create", "--name", container,
 		"--label", "io.gopulse.acceptance.project=" + runner.session.Project,
 		"--label", "io.gopulse.acceptance.owner=v1-fault-control",
-		"--network", network, "--network-alias", service,
+		"--network", controlNetwork,
 		"--publish", "127.0.0.1::" + controlPort,
 		"--volume", binaryPath + ":/usr/local/bin/gopulse-fault-control:ro",
 		"--entrypoint", "/usr/local/bin/gopulse-fault-control", image,
@@ -103,6 +109,9 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 		return nil, fmt.Errorf("create %s protocol control failed with exit code %d", service, result.ExitCode)
 	}
 	control.containerCreated = true
+	if result := runner.session.Run("docker", "network", "connect", "--alias", service, network, container); result.ExitCode != 0 {
+		return nil, fmt.Errorf("connect %s protocol control to business network failed with exit code %d", service, result.ExitCode)
+	}
 	if result := runner.session.Run("docker", "start", container); result.ExitCode != 0 {
 		return nil, fmt.Errorf("start %s protocol control failed with exit code %d", service, result.ExitCode)
 	}
@@ -319,6 +328,11 @@ func (control *dependencyControl) Restore() error {
 	if control.containerCreated {
 		if result := control.runner.session.Run("docker", "rm", "-f", control.container); result.ExitCode != 0 {
 			remember(fmt.Errorf("remove fault control failed with exit code %d", result.ExitCode))
+		}
+	}
+	if control.controlNetworkCreated {
+		if result := control.runner.session.Run("docker", "network", "rm", control.controlNetwork); result.ExitCode != 0 {
+			remember(fmt.Errorf("remove fault control network failed with exit code %d", result.ExitCode))
 		}
 	}
 	if result := control.runner.session.Run("docker", "network", "disconnect", control.network, control.upstreamID); result.ExitCode != 0 {
