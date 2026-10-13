@@ -198,13 +198,13 @@ func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath st
 }
 
 func (r *lifecycleRunner) clean() error {
-	if err := r.expect("doctor", 0, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 0, "--port", r.port); err != nil {
+	if err := r.expect("init", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 14, "--port", r.port); err != nil {
+	if err := r.expect("init", 14, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	if err := r.expect("verify", 19); err != nil {
@@ -265,10 +265,10 @@ func (r *lifecycleRunner) clean() error {
 // restore hand-off. It returns the private restore-result facts so the formal
 // business case can bind them to the epoch-generation assertions.
 func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, error) {
-	if err := r.expect("doctor", 0, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 0, localImageValidationFlags(r.port)...); err != nil {
 		return nil, err
 	}
-	if err := r.expect("init", 0, "--port", r.port); err != nil {
+	if err := r.expect("init", 0, localImageValidationFlags(r.port)...); err != nil {
 		return nil, err
 	}
 	if err := r.expect("up", 0); err != nil {
@@ -302,10 +302,10 @@ func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, e
 		_ = target.purge()
 		_ = target.removeOwnedRoot()
 	}()
-	if err := target.expect("doctor", 0, "--port", target.port); err != nil {
+	if err := target.expect("doctor", 0, localImageValidationFlags(target.port)...); err != nil {
 		return nil, err
 	}
-	if err := target.expect("init", 0, "--port", target.port); err != nil {
+	if err := target.expect("init", 0, localImageValidationFlags(target.port)...); err != nil {
 		return nil, err
 	}
 	targetArchive := filepath.Join(target.install, "v1-restore.gpb")
@@ -469,13 +469,13 @@ func (r *lifecycleRunner) reuse() error {
 // boundary as the clean install scenario. Every injected fault is scoped to
 // this runner's installation, project, or bundle copy.
 func (r *lifecycleRunner) failureMatrix() error {
-	if err := r.expect("doctor", 0, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 0, "--port", r.port); err != nil {
+	if err := r.expect("init", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 14, "--port", r.port); err != nil {
+	if err := r.expect("init", 14, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	if err := r.expect("verify", 19); err != nil {
@@ -497,24 +497,24 @@ func (r *lifecycleRunner) failureMatrix() error {
 		return err
 	}
 	r.session.SetValue("GOPULSE_BUNDLE_DIR", invalid)
-	if err := r.expect("doctor", 10, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 10, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
 
 	r.endpoint = "unix:///missing-daemon"
-	if err := r.expect("doctor", 11, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 11, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	r.endpoint = "unix:///var/run/docker.sock"
 
-	if err := r.expectDirect("doctor", 13, true, "--port", r.port); err != nil {
+	if err := r.expectDirect("doctor", 13, true, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	// The ready product already owns the configured edge port. Reuse that
 	// real publication for the occupied-port contract instead of opening a
 	// second listener in the acceptance process.
-	if err := r.expect("doctor", 15, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 15, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 
@@ -616,6 +616,10 @@ func (r *lifecycleRunner) projectName() string {
 		return project
 	}
 	return "gopulse-unknown"
+}
+
+func localImageValidationFlags(port string) []string {
+	return []string{"--local-images", "--port", port}
 }
 
 func (r *lifecycleRunner) expectDirect(command string, code int, lowDisk bool, flags ...string) error {
