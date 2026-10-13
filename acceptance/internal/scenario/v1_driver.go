@@ -699,14 +699,45 @@ func (runner *formalV1Runner) runV02() (receipt.V1Case, error) {
 	}
 	conflict := runner.admin.create(context.Background(), runner.commandEpoch, key, title+" conflict", "different digest", v1TraceParent)
 	otherUser := runner.user.create(context.Background(), runner.commandEpoch, key, title+" other-user", "same digest", v1TraceParent)
-	stageOK, logsOK := runner.waitStage(primary.Meta, true, v1StageWait)
+	adminID, adminIDErr := runner.admin.currentUserID(context.Background())
+	userID, userIDErr := runner.user.currentUserID(context.Background())
 	facts, factsErr := runner.facts(primary.Meta)
-	factsList := []receipt.RawFact{{Name: "requests", Value: int64(len(responses))}, {Name: "http_success", Value: int64(countStatus(responses, http.StatusCreated))}, {Name: "conflicts", Value: boolInt(conflict.Status == http.StatusConflict && conflict.ErrorCode == "idempotency_conflict")}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "applications", Value: facts.Applications}, {Name: "unique_events", Value: facts.Outbox}, {Name: "unique_posts", Value: facts.Posts}}
-	item := runner.completedCase("V02", primary.Meta, started, "sent ten same-key requests, checked one durable identity, rejected a different digest, and used the same key for another user", stageOK, logsOK, factsList, 0, 0)
+	otherFacts := v1DurableFacts{}
+	var otherFactsErr error
+	if otherUser.Status == http.StatusCreated && otherUser.Meta.CommandID != "" && otherUser.Meta.EventID != "" && otherUser.Meta.PostID != 0 {
+		otherFacts, otherFactsErr = runner.facts(otherUser.Meta)
+	}
+	ownerDistinct := adminIDErr == nil && userIDErr == nil && adminID != 0 && userID != 0 && adminID != userID
+	otherIdentityDistinct := otherUser.Meta.DataEpoch == primary.Meta.DataEpoch && otherUser.Meta.CommandID != "" && otherUser.Meta.CommandID != primary.Meta.CommandID && otherUser.Meta.EventID != "" && otherUser.Meta.EventID != primary.Meta.EventID && otherUser.Meta.PostID != 0 && otherUser.Meta.PostID != primary.Meta.PostID
+	otherFactsValid := otherFactsErr == nil && otherFacts.Commands == 1 && otherFacts.Posts == 1 && otherFacts.Outbox == 1 && otherFacts.Requirements == 1
+	factsList := []receipt.RawFact{
+		{Name: "requests", Value: int64(len(responses))},
+		{Name: "http_success", Value: int64(countStatus(responses, http.StatusCreated))},
+		{Name: "conflicts", Value: boolInt(conflict.Status == http.StatusConflict && conflict.ErrorCode == "idempotency_conflict")},
+		{Name: "commands", Value: facts.Commands},
+		{Name: "posts", Value: facts.Posts},
+		{Name: "requirements", Value: facts.Requirements},
+		{Name: "unique_events", Value: facts.Outbox},
+		{Name: "unique_posts", Value: facts.Posts},
+		{Name: "owner_distinct", Value: boolInt(ownerDistinct)},
+		{Name: "other_user_created", Value: boolInt(otherUser.Status == http.StatusCreated)},
+		{Name: "other_identity_distinct", Value: boolInt(otherIdentityDistinct)},
+		{Name: "other_commands", Value: otherFacts.Commands},
+		{Name: "other_posts", Value: otherFacts.Posts},
+		{Name: "other_requirements", Value: otherFacts.Requirements},
+		{Name: "other_events", Value: otherFacts.Outbox},
+	}
+	item := runner.completedCase("V02", primary.Meta, started, "sent ten same-key requests, checked one durable identity, rejected a different digest, and verified an independent identity for another user", false, false, factsList, 0, 0)
 	if factsErr != nil {
 		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
 	}
-	passed := countStatus(responses, http.StatusCreated) == 10 && conflict.Status == http.StatusConflict && conflict.ErrorCode == "idempotency_conflict" && otherUser.Status == http.StatusCreated && facts.Commands == 1 && facts.Posts == 1 && facts.Outbox == 1 && facts.Requirements == 1 && stageOK
+	if adminIDErr != nil || userIDErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", errors.Join(adminIDErr, userIDErr).Error()), errors.Join(adminIDErr, userIDErr)
+	}
+	if otherFactsErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", otherFactsErr.Error()), otherFactsErr
+	}
+	passed := countStatus(responses, http.StatusCreated) == 10 && conflict.Status == http.StatusConflict && conflict.ErrorCode == "idempotency_conflict" && otherUser.Status == http.StatusCreated && facts.Commands == 1 && facts.Posts == 1 && facts.Outbox == 1 && facts.Requirements == 1 && ownerDistinct && otherIdentityDistinct && otherFactsValid
 	if !passed {
 		return itemAsFailed(item, "product_failure", "idempotency or user ownership invariant did not hold"), errors.New("V02 idempotency or ownership invariant did not hold")
 	}

@@ -155,3 +155,36 @@ func TestFormalRawFactsAreBoundedAndFailedCasesMayPreservePartialChecks(t *testi
 		t.Fatal("duplicate raw fact was accepted")
 	}
 }
+
+func TestV02PassedEvidenceDoesNotRequireStagePage(t *testing.T) {
+	document, rawDirectory := validV1Document(t)
+	document.Status = "failed"
+	formal := *document.V1
+	formal.Mode = V1ModeFormal
+	formal.Cases = make([]V1Case, 0, len(V1CaseIDs))
+	identity := document.V1.Cases[0].Identity
+	rawPath := filepath.Join(rawDirectory, "cases", "V02.json")
+	if err := WriteRawEvidence(rawPath, RawEvidence{CaseID: "V02", Identity: identity, Checks: RawChecks{Created: true}, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := DigestFile(rawPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, id := range V1CaseIDs {
+		item := V1Case{CaseID: id, Status: "not_started", PlannedAction: "planned"}
+		if id == "V02" {
+			item = V1Case{CaseID: "V02", Status: "passed", PlannedAction: "repeat the same idempotency key", ActualAction: "checked durable identities", Identity: identity, Moments: []Moment{{Name: "start", Actual: now.Format(time.RFC3339Nano)}, {Name: "finish", Actual: now.Add(time.Second).Format(time.RFC3339Nano)}}, Raw: RawRecord{Path: "cases/V02.json", SHA256: digest}, CleanupPassed: true}
+		}
+		formal.Cases = append(formal.Cases, item)
+	}
+	document.V1 = &formal
+	path := filepath.Join(t.TempDir(), "formal.json")
+	if err := WriteAtomic(path, document); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyV1(path); err != nil {
+		t.Fatalf("V02 evidence without stage page was rejected: %v", err)
+	}
+}
