@@ -159,8 +159,7 @@ func (s *session) runBrowserChecks(state *workspace.State, scope string, observe
 	// candidate-scoped data volume cannot collide on the first 16 characters.
 	environment["GOPULSE_ACCEPTANCE_TOKEN"] = browserAcceptanceToken(s.ws)
 	frontend := filepath.Join(s.root, "frontend")
-	commands := [][]string{}
-	labels := []string{}
+	commands, labels := browserCheckCommands(observe)
 	if observe {
 		for key, source := range map[string]string{
 			"GOPULSE_ADMIN_USERNAME":               "OBSERVE_ADMIN_USERNAME",
@@ -174,16 +173,6 @@ func (s *session) runBrowserChecks(state *workspace.State, scope string, observe
 		} {
 			environment[key] = s.values[source]
 		}
-		admin := []string{"npm", "exec", "--", "playwright", "test", "e2e/admin-frontend.spec.ts",
-			"--grep", "same-origin paths|ordinary user|database demotion"}
-		observability := []string{"npm", "exec", "--", "playwright", "test", "e2e/compose-observability.spec.ts"}
-		commands = append(commands, admin, observability)
-		labels = append(labels, "native admin browser checks", "native observability browser checks")
-	} else {
-		business := []string{"npm", "exec", "--", "playwright", "test", "e2e/business.spec.ts",
-			"e2e/compose-business.spec.ts", "--grep-invert", "search-rebuild|search-live"}
-		commands = append(commands, business)
-		labels = append(labels, "native business browser checks")
 	}
 	state.BrowserCommands = commands
 	if err := s.saveIntegrationState(state); err != nil {
@@ -201,6 +190,19 @@ func (s *session) runBrowserChecks(state *workspace.State, scope string, observe
 		}
 	}
 	return nil
+}
+
+func browserCheckCommands(observe bool) ([][]string, []string) {
+	if observe {
+		admin := []string{"npm", "exec", "--", "playwright", "test", "e2e/admin-frontend.spec.ts",
+			"--grep", "same-origin paths|ordinary user|database demotion"}
+		businessStages := []string{"npm", "exec", "--", "playwright", "test", "e2e/business-stages.spec.ts"}
+		observability := []string{"npm", "exec", "--", "playwright", "test", "e2e/compose-observability.spec.ts"}
+		return [][]string{admin, businessStages, observability}, []string{"native admin browser checks", "native business-stage browser checks", "native observability browser checks"}
+	}
+	business := []string{"npm", "exec", "--", "playwright", "test", "e2e/business.spec.ts",
+		"e2e/compose-business.spec.ts", "--grep-invert", "search-rebuild|search-live"}
+	return [][]string{business}, []string{"native business browser checks"}
 }
 
 func browserAcceptanceToken(ws workspace.Workspace) string {

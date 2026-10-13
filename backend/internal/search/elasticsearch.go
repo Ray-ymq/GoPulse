@@ -11,13 +11,15 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const maximumResponseBytes = 8 << 20
 
 var (
-	ErrUnavailable        = errors.New("search unavailable")
-	ErrPointInTimeExpired = errors.New("search point in time expired")
+	ErrUnavailable             = errors.New("search unavailable")
+	ErrPointInTimeExpired      = errors.New("search point in time expired")
+	ErrVisibilityEpochMismatch = errors.New("search visibility epoch mismatch")
 )
 
 type Performer interface {
@@ -55,6 +57,88 @@ type SearchResult struct {
 	Generation  string
 	PointInTime string
 	Hits        []Hit
+}
+
+// VisibilityResult is the bounded, point-in-time answer for one post. It is
+// intentionally separate from the public search page, which may hydrate many
+// posts and therefore cannot serve as a visibility proof.
+type VisibilityResult struct {
+	Matched    bool
+	Epoch      string
+	Generation string
+	Version    uint64
+	ReadAt     time.Time
+}
+
+// CheckVisibility resolves the current alias, verifies the exact physical
+// generation's epoch metadata, and performs one typed exact-object search.
+// It never uses GET-by-id, refreshes, a caller supplied index, or arbitrary
+// query JSON.
+func (repository *ElasticsearchRepository) CheckVisibility(ctx context.Context, epoch string, postID, contentRevision uint64) (VisibilityResult, error) {
+	if !validEpoch(epoch) || postID == 0 || contentRevision == 0 {
+		return VisibilityResult{}, ErrUnavailable
+	}
+	generation, err := repository.ResolveGeneration(ctx)
+	if err != nil {
+		return VisibilityResult{}, err
+	}
+	actualEpoch, err := repository.IndexEpoch(ctx, generation)
+	if err != nil {
+		return VisibilityResult{}, err
+	}
+	if actualEpoch != epoch {
+		return VisibilityResult{Epoch: actualEpoch, Generation: generation, ReadAt: time.Now().UTC()}, ErrVisibilityEpochMismatch
+	}
+	body, err := json.Marshal(map[string]any{
+		"size":             1,
+		"track_total_hits": true,
+		"version":          true,
+		"_source":          []string{"data_epoch", "post_id", "content_revision"},
+		"query": map[string]any{"bool": map[string]any{"filter": []any{
+			map[string]any{"term": map[string]any{"data_epoch": epoch}},
+			map[string]any{"term": map[string]any{"post_id": postID}},
+			map[string]any{"term": map[string]any{"content_revision": contentRevision}},
+		}}},
+	})
+	if err != nil {
+		return VisibilityResult{}, ErrUnavailable
+	}
+	response, err := repository.do(ctx, http.MethodPost, "/"+url.PathEscape(generation)+"/_search", bytes.NewReader(body))
+	if err != nil {
+		return VisibilityResult{}, err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return VisibilityResult{}, ErrUnavailable
+	}
+	var payload struct {
+		Hits struct {
+			Hits []struct {
+				Index   string `json:"_index"`
+				ID      string `json:"_id"`
+				Version uint64 `json:"_version"`
+				Source  struct {
+					Epoch           string `json:"data_epoch"`
+					PostID          uint64 `json:"post_id"`
+					ContentRevision uint64 `json:"content_revision"`
+				} `json:"_source"`
+			} `json:"hits"`
+		} `json:"hits"`
+	}
+	if err := decodeJSON(response.Body, &payload); err != nil {
+		return VisibilityResult{}, ErrUnavailable
+	}
+	result := VisibilityResult{Epoch: epoch, Generation: generation, ReadAt: time.Now().UTC()}
+	if len(payload.Hits.Hits) == 0 {
+		return result, nil
+	}
+	hit := payload.Hits.Hits[0]
+	if hit.Index != generation || hit.ID != strconv.FormatUint(postID, 10) || hit.Source.Epoch != epoch || hit.Source.PostID != postID || hit.Source.ContentRevision != contentRevision {
+		return VisibilityResult{}, ErrUnavailable
+	}
+	result.Matched = true
+	result.Version = hit.Source.ContentRevision
+	return result, nil
 }
 
 // IndexWriteResult is the authoritative response from the physical ES write.
@@ -100,6 +184,7 @@ func (repository *ElasticsearchRepository) ResolveGeneration(ctx context.Context
 		_ = response.Body.Close()
 		return "", ErrUnavailable
 	}
+	defer func() { _ = response.Body.Close() }()
 	var aliases map[string]json.RawMessage
 	if err := decodeJSON(response.Body, &aliases); err != nil || len(aliases) != 1 {
 		return "", ErrUnavailable

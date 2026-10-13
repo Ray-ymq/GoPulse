@@ -43,6 +43,8 @@ const knownErrorCodes = new Set([
   'plugin_operation_in_progress',
   'plugin_operation_failed',
   'monitor_unavailable',
+  'business_stage_busy',
+  'business_stage_unavailable',
   'internal_error',
 ])
 

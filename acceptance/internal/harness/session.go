@@ -125,6 +125,13 @@ func (s *Session) SetStatus(status string, err error) {
 	}
 }
 
+// SetV1Evidence attaches the private, versioned business-stage section to the
+// normal acceptance receipt. The section is copied by value so a scenario can
+// finish its case ledger before cleanup updates the outer facts.
+func (s *Session) SetV1Evidence(evidence receipt.V1Evidence) {
+	s.receipt.V1 = &evidence
+}
+
 func (s *Session) Compose(args ...string) Result {
 	command := append([]string{"compose", "--project-name", s.Project, "--env-file", s.EnvFile, "--file", filepath.Join(s.Root, "deploy", "compose.yaml")}, args...)
 	return s.run("docker", command...)
@@ -141,6 +148,16 @@ func (s *Session) AcceptanceRun(scenario, spec string, environment ...string) Re
 // AcceptanceRunArgs is AcceptanceRun with additional Playwright arguments,
 // such as a focused grep used by a migrated specialist suite.
 func (s *Session) AcceptanceRunArgs(scenario, spec string, extra []string, environment ...string) Result {
+	return s.acceptanceRunArgs(scenario, spec, extra, "", environment...)
+}
+
+// AcceptanceRunWithEvidence copies one bounded, non-secret evidence file from
+// the one-shot acceptance container before that container is removed.
+func (s *Session) AcceptanceRunWithEvidence(scenario, spec string, hostPath string, extra []string, environment ...string) Result {
+	return s.acceptanceRunArgs(scenario, spec, extra, hostPath, environment...)
+}
+
+func (s *Session) acceptanceRunArgs(scenario, spec string, extra []string, evidenceHostPath string, environment ...string) Result {
 	s.runIndex++
 	container := fmt.Sprintf("%s-accept-%02d", s.Project, s.runIndex)
 	args := []string{"--profile", "acceptance", "run", "--name", container, "--no-deps"}
@@ -157,6 +174,22 @@ func (s *Session) AcceptanceRunArgs(scenario, spec string, extra []string, envir
 	args = append(args, "acceptance", spec)
 	args = append(args, extra...)
 	result := s.Compose(args...)
+	if evidenceHostPath != "" {
+		containerPath := s.Value("GOPULSE_V1_CASE_EVIDENCE")
+		if containerPath == "" {
+			s.addCleanupFailure("V1 evidence path is not configured")
+			if result.ExitCode == 0 {
+				result.ExitCode = 1
+				s.ensureFailure(fmt.Errorf("V1 evidence path is not configured"), result.ExitCode)
+			}
+		} else if copyErr := s.copyAcceptanceEvidence(container, containerPath, evidenceHostPath); copyErr != nil {
+			s.addCleanupFailure(copyErr.Error())
+			if result.ExitCode == 0 {
+				result.ExitCode = 1
+				s.ensureFailure(copyErr, result.ExitCode)
+			}
+		}
+	}
 	if result.ExitCode != 0 {
 		// The acceptance image writes traces and screenshots below this path. Copy
 		// them while the named one-shot container still exists, before targeted
@@ -170,6 +203,17 @@ func (s *Session) AcceptanceRunArgs(scenario, spec string, extra []string, envir
 		return removed
 	}
 	return result
+}
+
+func (s *Session) copyAcceptanceEvidence(container, containerPath, hostPath string) error {
+	if err := os.MkdirAll(filepath.Dir(hostPath), 0o700); err != nil {
+		return fmt.Errorf("create V1 evidence directory: %w", err)
+	}
+	result := s.Run("docker", "cp", container+":"+containerPath, hostPath)
+	if result.ExitCode != 0 {
+		return fmt.Errorf("copy V1 evidence failed with exit code %d", result.ExitCode)
+	}
+	return os.Chmod(hostPath, 0o600)
 }
 
 // Value returns a private generated acceptance value for scenario wiring.
@@ -248,6 +292,7 @@ func (s *Session) Cleanup() error {
 	s.Cleaned = true
 	s.cleanup = true
 	if s.Keep {
+		s.syncV1Cleanup()
 		s.finalizeFailure()
 		return nil
 	}
@@ -256,6 +301,7 @@ func (s *Session) Cleanup() error {
 		if removeErr != nil {
 			s.addCleanupFailure(removeErr.Error())
 		}
+		s.syncV1Cleanup()
 		s.finalizeFailure()
 		return removeErr
 	}
@@ -273,6 +319,7 @@ func (s *Session) Cleanup() error {
 	if result.ExitCode != 0 {
 		s.receipt.CleanupPassed = false
 		s.addCleanupFailure(fmt.Sprintf("acceptance cleanup failed with exit code %d", result.ExitCode))
+		s.syncV1Cleanup()
 		s.finalizeFailure()
 		return fmt.Errorf("acceptance cleanup failed with exit code %d", result.ExitCode)
 	}
@@ -280,8 +327,22 @@ func (s *Session) Cleanup() error {
 		s.receipt.CleanupPassed = false
 		s.addCleanupFailure(removeErr.Error())
 	}
+	s.syncV1Cleanup()
 	s.finalizeFailure()
 	return removeErr
+}
+
+func (s *Session) syncV1Cleanup() {
+	if s.receipt.V1 == nil {
+		return
+	}
+	s.receipt.V1.CleanupPassed = s.receipt.CleanupPassed
+	if !s.receipt.CleanupPassed && s.receipt.V1.CleanupError == "" {
+		s.receipt.V1.CleanupError = s.receipt.Error
+		if s.receipt.V1.CleanupError == "" {
+			s.receipt.V1.CleanupError = "acceptance cleanup failed"
+		}
+	}
 }
 
 func (s *Session) WriteReceipt(path string) error {

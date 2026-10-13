@@ -161,7 +161,7 @@ const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolea
  gopulse_victoriametrics_storage_rows_deleted_total:{kind:'counter',unit:'count'},
 }
 const rangeNames = new Set(ranges.map((item) => item.value))
-const logKeys = new Set(['timestamp','level','service','instance_id','module','message','request_id','trace_id','span_id','attempt_id','event_id','event_type','user_id','post_id','content_revision','comment_id','notification_id','outbox_id','method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size','document_count','panic_recovered','response_committed'])
+const logKeys = new Set(['timestamp','level','service','instance_id','module','message','request_id','trace_id','span_id','attempt_id','event_id','command_id','data_epoch','event_type','projection_generation','routing_contract_revision','consumer','user_id','post_id','content_revision','comment_id','notification_id','outbox_id','method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size','document_count','panic_recovered','response_committed'])
 const metadataKeys = new Set(['plugin_id','plugin_version','previous_plugin_version','operation','from_state','to_state','error_code','scrape_status'])
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 function keysAllowed(value: Record<string, unknown>, allowed: Set<string>): boolean { return Object.keys(value).every((key) => allowed.has(key)) }
@@ -169,6 +169,8 @@ function timestamp(value: unknown): value is string { return typeof value === 's
 function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) }
 function optionalString(value: unknown): boolean { return value === undefined || typeof value === 'string' }
 function optionalInteger(value: unknown): boolean { return value === undefined || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) }
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const identity = /^[A-Za-z0-9._:/-]{1,255}$/
 
 export function isMetricResult(value: unknown): value is MetricResult {
   if (!record(value) || Object.keys(value).sort().join() !== ['from','kind','metric','range','series','step_seconds','to','unit'].sort().join()) return false
@@ -215,9 +217,14 @@ export function isLogEntry(value: unknown): value is LogEntry {
   if (!record(value) || !keysAllowed(value, logKeys) || !timestamp(value.timestamp) || !['info','warn','error'].includes(String(value.level)) || typeof value.service !== 'string' || typeof value.module !== 'string' || typeof value.message !== 'string') return false
   const service = logCatalog[value.service]; const messages = service?.[value.module]
   if (!messages || !messages.includes(value.message)) return false
-  for (const key of ['instance_id','request_id','trace_id','span_id','attempt_id','event_id','event_type','method','route','error_code','reason','operation','resource','stage','result']) if (!optionalString(value[key])) return false
+  for (const key of ['instance_id','request_id','trace_id','span_id','attempt_id','event_id','command_id','data_epoch','event_type','projection_generation','routing_contract_revision','consumer','method','route','error_code','reason','operation','resource','stage','result']) if (!optionalString(value[key])) return false
   if (value.trace_id !== undefined && (!/^[0-9a-f]{32}$/.test(String(value.trace_id)) || /^0+$/.test(String(value.trace_id)))) return false
   if (value.span_id !== undefined && (!/^[0-9a-f]{16}$/.test(String(value.span_id)) || /^0+$/.test(String(value.span_id)))) return false
+  if (value.command_id !== undefined && !uuid.test(String(value.command_id))) return false
+  if (value.data_epoch !== undefined && !uuid.test(String(value.data_epoch))) return false
+  if (value.projection_generation !== undefined && !identity.test(String(value.projection_generation))) return false
+  if (value.routing_contract_revision !== undefined && value.routing_contract_revision !== 'post-created-search/1') return false
+  if (value.consumer !== undefined && value.consumer !== 'business' && value.consumer !== 'search') return false
   for (const key of ['user_id','post_id','content_revision','comment_id','notification_id','outbox_id','status','duration_ms','response_bytes','attempt','batch_size','document_count']) if (!optionalInteger(value[key])) return false
   return (value.panic_recovered === undefined || typeof value.panic_recovered === 'boolean') && (value.response_committed === undefined || typeof value.response_committed === 'boolean')
 }
@@ -259,8 +266,8 @@ function pageQuery(filters: Record<string,string>, cursor?: string): string {
   if (cursor) { params.set('cursor', cursor); return params.toString() }
   const range = ranges.find((item) => item.value === filters.range) ?? ranges[0]
   const to = new Date(); const from = new Date(to.getTime() - range.milliseconds)
-  params.set('from', from.toISOString()); params.set('to', to.toISOString()); params.set('limit', '50')
-  for (const [key, value] of Object.entries(filters)) if (key !== 'range' && value.trim()) params.set(key, value.trim())
+  params.set('from', filters.from?.trim() || from.toISOString()); params.set('to', filters.to?.trim() || to.toISOString()); params.set('limit', '50')
+  for (const [key, value] of Object.entries(filters)) if (key !== 'range' && key !== 'from' && key !== 'to' && typeof value === 'string' && value.trim()) params.set(key, value.trim())
   return params.toString()
 }
 export const observabilityApi = {

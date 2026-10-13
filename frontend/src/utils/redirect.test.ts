@@ -5,6 +5,7 @@ describe('cross-application login destination', () => {
     expect(loginDestination(undefined, 'user')).toBe('/posts')
     expect(loginDestination(undefined, 'super_admin')).toBe('/admin/')
     expect(loginDestination('/admin/logs?service=backend', 'super_admin')).toBe('/admin/logs?service=backend')
+    expect(loginDestination('/admin/business-stages', 'super_admin')).toBe('/admin/business-stages')
     expect(loginDestination('/admin', 'super_admin')).toBe('/admin/')
     expect(loginDestination('/admin/logs', 'user')).toBe('/posts')
   })
