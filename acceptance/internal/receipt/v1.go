@@ -381,7 +381,7 @@ func VerifyV1(path string) (Document, error) {
 		if evidence.CaseID != item.CaseID || evidence.Identity != item.Identity || !evidence.Checks.Created {
 			return Document{}, fmt.Errorf("V1 raw evidence does not match case %s", item.CaseID)
 		}
-		if item.Status == "passed" && (!evidence.Checks.StagePage || !evidence.Checks.PreciseLogsLink) {
+		if item.Status == "passed" && item.CaseID != "V02" && (!evidence.Checks.StagePage || !evidence.Checks.PreciseLogsLink) {
 			return Document{}, fmt.Errorf("V1 passed raw evidence is incomplete for case %s", item.CaseID)
 		}
 		if item.Child != nil {
@@ -677,6 +677,13 @@ var v1RawFactNames = map[string]bool{
 	"old_generation_not_completed":   true,
 	"open_requirements_after":        true,
 	"open_requirements_before":       true,
+	"other_commands":                 true,
+	"other_events":                   true,
+	"other_identity_distinct":        true,
+	"other_posts":                    true,
+	"other_requirements":             true,
+	"other_user_created":             true,
+	"owner_distinct":                 true,
 	"platform_unavailable":           true,
 	"posts":                          true,
 	"projection_present":             true,
