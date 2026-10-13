@@ -178,7 +178,7 @@ def _local_replace_consumers(repo: Path, module_root: str, roots: dict[str, str]
 def _is_documentation(path: str) -> bool:
     if path.startswith("dev/") or path.startswith("docs/"):
         return True
-    if path in {"README.md", "AGENTS.md", "项目导读.md", "使用手册.md"}:
+    if path in {"README.md", "AGENTS.md"}:
         return True
     return path.lower().endswith(DOC_SUFFIXES)
 

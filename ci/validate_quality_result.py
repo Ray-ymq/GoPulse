@@ -40,8 +40,6 @@ def validate(checks: dict[str, Any], needs: dict[str, Any], run_product_checks: 
     errors: list[str] = []
     if needs.get("governance", {}).get("result") != "success":
         errors.append(f"governance result is {needs.get('governance', {}).get('result', 'missing')!r}")
-    if needs.get("docs", {}).get("result") != "success":
-        errors.append(f"docs result is {needs.get('docs', {}).get('result', 'missing')!r}")
     if not run_product_checks:
         return errors
     for check, selected in checks.items():

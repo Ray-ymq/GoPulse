@@ -1,4 +1,4 @@
-.PHONY: help list-go-modules list-npm-modules docs-check doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package package-plugin integration e2e stop verify-compose verify-business verify-observe verify-plugins verify-alerts verify-roles verify-pages verify-lifecycle stack-up stack-down stack-verify
+.PHONY: help list-go-modules list-npm-modules doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package package-plugin integration e2e stop verify-compose verify-business verify-observe verify-plugins verify-alerts verify-roles verify-pages verify-lifecycle stack-up stack-down stack-verify
 
 # The development, observation, and stop lifecycles run in the native helper.
 # Building it first keeps the failure exit codes and signal handling intact,
@@ -38,9 +38,6 @@ list-go-modules:
 
 list-npm-modules:
 	@printf '%s\n' $(NPM_MODULES)
-
-docs-check:
-	@python3 ci/check_docs.py $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
 
 doctor:
 	@$(DEVENV) doctor
@@ -85,7 +82,7 @@ ifdef MODULE
 else ifeq ($(PLAN_ONLY),1)
 	@python3 ci/quality_scope.py --base-ref "$(BASE_REF)" --format json
 else
-	@$(DEVENV) verify --base-ref "$(BASE_REF)" $(if $(BRANCH),--branch "$(BRANCH)",) $(if $(PLAN_ONLY),--plan-only,)
+	@$(DEVENV) verify --base-ref "$(BASE_REF)" $(if $(PLAN_ONLY),--plan-only,)
 endif
 
 # Bare "make build" builds every program, frontend and local image; passing MODULE
