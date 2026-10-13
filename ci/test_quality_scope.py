@@ -44,7 +44,7 @@ class QualityScopeTests(unittest.TestCase):
         self.assertFalse(any(scope.checks.values()))
 
     def test_documentation_only_does_not_start_product_checks(self) -> None:
-        scope = select(self.repo, ["README.md", "dev/validation/local-development-tests.md"])
+        scope = select(self.repo, ["README.md", "docs/GoPulse 高并发架构设计.md"])
         self.assertFalse(any(scope.checks.values()))
 
     def test_native_environment_helper_selects_every_matrix_check(self) -> None:
