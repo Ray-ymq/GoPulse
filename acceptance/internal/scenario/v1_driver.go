@@ -1658,9 +1658,18 @@ func (runner *formalV1Runner) compose(args ...string) error {
 func (runner *formalV1Runner) startFaultProxy(mode string) (string, error) {
 	runner.fixtureOnce.Do(func() {
 		path := filepath.Join(runner.session.TempDir, "business-fault-proxy")
-		result := runner.session.Run("go", "build", "-trimpath", "-o", path, "./acceptance/internal/fixtures/business-fault-proxy")
+		// The repository is intentionally multi-module: the acceptance module owns
+		// this fixture, while the repository root has no go.mod.  Use Go's -C
+		// option so the command is still recorded by the session but resolves the
+		// fixture from acceptance/go.mod rather than failing at the repository root.
+		result := runner.session.Run("go", "-C", "acceptance", "build", "-trimpath", "-o", path, "./internal/fixtures/business-fault-proxy")
 		if result.ExitCode != 0 {
-			runner.fixtureErr = fmt.Errorf("build business fault fixture failed with exit code %d", result.ExitCode)
+			detail := strings.TrimSpace(result.Stderr)
+			if detail == "" {
+				runner.fixtureErr = fmt.Errorf("build business fault fixture failed with exit code %d", result.ExitCode)
+				return
+			}
+			runner.fixtureErr = fmt.Errorf("build business fault fixture failed with exit code %d: %s", result.ExitCode, detail)
 			return
 		}
 		runner.fixtureBinary = path
