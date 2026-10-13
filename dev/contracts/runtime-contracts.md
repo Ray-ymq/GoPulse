@@ -45,6 +45,13 @@ Backend healthchecks call
 `http://127.0.0.1:8080/ready` directly inside each private container, without
 Frontend, Nginx or the business admission path.
 
+Business API, Business Worker, Search Indexer and Search Reindex share the
+`BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS` integer limit. It defaults to `10000`;
+the Phase-24 V08 acceptance profile sets it to `8` through the private Compose
+environment, fills that budget with real requests, and restores the default
+before the case ends. The value is bounded to `1..10000` and is reported by the
+stage budget as the active admission limit.
+
 ## Phase 24 business epoch boundary
 
 The business roles also require migration 15 and a readable

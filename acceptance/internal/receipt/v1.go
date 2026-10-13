@@ -84,6 +84,7 @@ type V1Case struct {
 	WindowSeconds   int64      `json:"window_seconds,omitempty"`
 	RecoverySeconds int64      `json:"recovery_seconds,omitempty"`
 	Raw             RawRecord  `json:"raw,omitempty"`
+	Child           *RawRecord `json:"child,omitempty"`
 	CleanupPassed   bool       `json:"cleanup_passed"`
 	CleanupError    string     `json:"cleanup_error,omitempty"`
 }
@@ -130,6 +131,19 @@ type RawEvidence struct {
 	Checks     RawChecks  `json:"checks"`
 	CapturedAt string     `json:"captured_at"`
 	Facts      []RawFact  `json:"facts,omitempty"`
+}
+
+type ChildReceipt struct {
+	CaseID            string     `json:"case_id"`
+	TaskID            string     `json:"task_id"`
+	Status            string     `json:"status"`
+	Identity          V1Identity `json:"identity"`
+	StartedAt         string     `json:"started_at"`
+	CancelRequestedAt string     `json:"cancel_requested_at"`
+	FinishedAt        string     `json:"finished_at"`
+	CompletedStages   []string   `json:"completed_stages,omitempty"`
+	CleanupRemoved    bool       `json:"cleanup_removed"`
+	OwnedResource     string     `json:"owned_resource"`
 }
 
 type PublicationCase struct {
@@ -246,7 +260,7 @@ func validateCase(item V1Case, mode string) error {
 			return fmt.Errorf("failed V1 case %s has incomplete failure or cleanup facts", item.CaseID)
 		}
 	case "not_started":
-		if item.ActualAction != "" || item.Raw.Path != "" || item.Raw.SHA256 != "" || len(item.Moments) != 0 || item.CleanupPassed {
+		if item.ActualAction != "" || item.Raw.Path != "" || item.Raw.SHA256 != "" || item.Child != nil || len(item.Moments) != 0 || item.CleanupPassed {
 			return fmt.Errorf("not-started V1 case %s contains completion evidence", item.CaseID)
 		}
 	default:
@@ -297,6 +311,15 @@ func validateCase(item V1Case, mode string) error {
 	}
 	if item.CleanupError != "" {
 		return fmt.Errorf("V1 case %s has a cleanup error", item.CaseID)
+	}
+	if item.CaseID == "V12" && item.Child == nil {
+		return errors.New("V12 requires a child receipt")
+	}
+	if item.CaseID != "V12" && item.Child != nil {
+		return fmt.Errorf("V1 case %s has an unexpected child receipt", item.CaseID)
+	}
+	if item.Child != nil && (!v1RawPath.MatchString(item.Child.Path) || strings.HasPrefix(item.Child.Path, "/") || strings.Contains(item.Child.Path, "..") || !v1Digest.MatchString(item.Child.SHA256)) {
+		return fmt.Errorf("V1 case %s child receipt reference is invalid", item.CaseID)
 	}
 	return nil
 }
@@ -361,6 +384,32 @@ func VerifyV1(path string) (Document, error) {
 		if item.Status == "passed" && (!evidence.Checks.StagePage || !evidence.Checks.PreciseLogsLink) {
 			return Document{}, fmt.Errorf("V1 passed raw evidence is incomplete for case %s", item.CaseID)
 		}
+		if item.Child != nil {
+			childRelative := filepath.Clean(filepath.FromSlash(item.Child.Path))
+			if filepath.IsAbs(childRelative) || childRelative == "." || childRelative == ".." || strings.HasPrefix(childRelative, ".."+string(filepath.Separator)) {
+				return Document{}, fmt.Errorf("V1 child receipt path escapes its directory for %s", item.CaseID)
+			}
+			childPath := filepath.Join(root, childRelative)
+			resolvedChild, err := filepath.EvalSymlinks(childPath)
+			if err != nil || !within(root, resolvedChild) {
+				return Document{}, fmt.Errorf("resolve V1 child receipt for %s", item.CaseID)
+			}
+			childInfo, err := os.Lstat(childPath)
+			if err != nil || childInfo.Mode()&os.ModeSymlink != 0 || !childInfo.Mode().IsRegular() || childInfo.Mode().Perm()&0o077 != 0 {
+				return Document{}, fmt.Errorf("V1 child receipt is not a private regular file for %s", item.CaseID)
+			}
+			childRaw, err := os.ReadFile(resolvedChild)
+			if err != nil || sum(childRaw) != item.Child.SHA256 {
+				return Document{}, fmt.Errorf("V1 child receipt checksum mismatch for %s", item.CaseID)
+			}
+			var child ChildReceipt
+			if err := decodeStrict(childRaw, &child); err != nil {
+				return Document{}, fmt.Errorf("parse V1 child receipt for %s: %w", item.CaseID, err)
+			}
+			if err := validateChildReceipt(child, item); err != nil {
+				return Document{}, fmt.Errorf("validate V1 child receipt for %s: %w", item.CaseID, err)
+			}
+		}
 	}
 	return document, nil
 }
@@ -416,6 +465,64 @@ func WriteRawEvidence(path string, evidence RawEvidence) error {
 		return err
 	}
 	return os.Chmod(path, 0o600)
+}
+
+func WriteChildReceipt(path string, child ChildReceipt) error {
+	if err := validateChildReceiptShape(child); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(child, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".child-")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(raw); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func validateChildReceiptShape(child ChildReceipt) error {
+	if child.CaseID != "V12" || !v1UUID.MatchString(child.TaskID) || (child.Status != "canceled" && child.Status != "incomplete") || !v1UUID.MatchString(child.Identity.DataEpoch) || !v1UUID.MatchString(child.Identity.CommandID) || !v1UUID.MatchString(child.Identity.EventID) || child.Identity.PostID == 0 || !v1RawPath.MatchString(child.OwnedResource) || !child.CleanupRemoved || !validTime(child.StartedAt) || !validTime(child.CancelRequestedAt) || !validTime(child.FinishedAt) {
+		return errors.New("child receipt is incomplete")
+	}
+	started, _ := time.Parse(time.RFC3339Nano, child.StartedAt)
+	cancelled, _ := time.Parse(time.RFC3339Nano, child.CancelRequestedAt)
+	finished, _ := time.Parse(time.RFC3339Nano, child.FinishedAt)
+	if cancelled.Before(started) || finished.Before(cancelled) {
+		return errors.New("child receipt timestamps are not ordered")
+	}
+	return nil
+}
+
+func validateChildReceipt(child ChildReceipt, item V1Case) error {
+	if err := validateChildReceiptShape(child); err != nil {
+		return err
+	}
+	if child.Identity != item.Identity {
+		return errors.New("child receipt identity does not match its case")
+	}
+	return nil
 }
 
 func DigestFile(path string) (string, error) {
@@ -531,27 +638,59 @@ func validateSensitiveJSON(raw []byte) error {
 }
 
 var v1RawFactNames = map[string]bool{
-	"applications":             true,
-	"broker_confirmed":         true,
-	"broker_published":         true,
-	"cancelled":                true,
-	"commands":                 true,
-	"conflicts":                true,
-	"cleanup_removed":          true,
-	"epoch_changed":            true,
-	"fault_requests":           true,
-	"http_success":             true,
-	"http_unavailable":         true,
-	"open_requirements_after":  true,
-	"open_requirements_before": true,
-	"platform_unavailable":     true,
-	"posts":                    true,
-	"redelivered":              true,
-	"recovery_seconds":         true,
-	"requirements":             true,
-	"requests":                 true,
-	"unique_events":            true,
-	"unique_posts":             true,
+	"applications":                   true,
+	"broker_received":                true,
+	"broker_confirmed":               true,
+	"broker_published":               true,
+	"cancelled":                      true,
+	"commit_observed":                true,
+	"commit_result_dropped":          true,
+	"completion_blocked":             true,
+	"completion_present":             true,
+	"completion_disconnect":          true,
+	"completion_effect_observed":     true,
+	"completion_response_dropped":    true,
+	"commands":                       true,
+	"conflicts":                      true,
+	"cleanup_removed":                true,
+	"child_cleanup_removed":          true,
+	"child_incomplete":               true,
+	"consumer_ack_dropped":           true,
+	"consumer_delivery_received":     true,
+	"consumer_disconnect":            true,
+	"consumer_redelivered":           true,
+	"consumer_redelivery_ack":        true,
+	"epoch_changed":                  true,
+	"es_effect_observed":             true,
+	"es_response_dropped":            true,
+	"fault_requests":                 true,
+	"http_success":                   true,
+	"http_unavailable":               true,
+	"low_water_limit":                true,
+	"mysql_disconnect":               true,
+	"old_epoch_rejected":             true,
+	"old_generation_not_completed":   true,
+	"open_requirements_after":        true,
+	"open_requirements_before":       true,
+	"platform_unavailable":           true,
+	"posts":                          true,
+	"projection_present":             true,
+	"generation_changed":             true,
+	"publisher_confirm_dropped":      true,
+	"publisher_confirmed":            true,
+	"publisher_disconnect":           true,
+	"publisher_received":             true,
+	"redelivered":                    true,
+	"rejected":                       true,
+	"recovery_seconds":               true,
+	"response_loss_http_unavailable": true,
+	"response_loss_replayed":         true,
+	"response_loss_unique_events":    true,
+	"restore_verified":               true,
+	"requirements":                   true,
+	"requests":                       true,
+	"unique_events":                  true,
+	"unique_posts":                   true,
 }
 
 func validateRawEvidence(evidence RawEvidence) error {

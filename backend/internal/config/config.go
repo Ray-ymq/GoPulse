@@ -15,87 +15,90 @@ import (
 )
 
 const (
-	defaultAppEnv                        = "development"
-	defaultHTTPHost                      = "127.0.0.1"
-	defaultHTTPPort                      = 8080
-	defaultHTTPMaxConcurrency            = 128
-	defaultPlatformHTTPMaxConcurrency    = 32
-	defaultReplicaCount                  = 1
-	defaultMySQLHost                     = "127.0.0.1"
-	defaultMySQLPort                     = 3306
-	defaultMySQLMaxOpenConns             = 10
-	defaultPlatformMySQLMaxOpenConns     = 4
-	defaultMySQLMaxIdleConns             = 2
-	defaultMySQLConnMaxLifetime          = 3 * time.Minute
-	defaultMySQLTotalOpenConns           = 60
-	defaultRedisHost                     = "127.0.0.1"
-	defaultRedisPort                     = 6379
-	defaultRedisDB                       = 0
-	defaultElasticsearchURL              = "http://127.0.0.1:9200"
-	defaultObservabilityElasticsearchURL = "http://127.0.0.1:9201"
-	defaultMonitorURL                    = "http://127.0.0.1:9090"
-	defaultVictoriaMetricsURL            = "http://127.0.0.1:8428"
-	defaultVictoriaMetricsUser           = "gopulse-marshaller"
-	defaultVictoriaMetricsTimeout        = 3 * time.Second
-	defaultMonitorTimeout                = 30 * time.Second
-	defaultLogShipRequestTimeout         = 2 * time.Second
-	defaultLogShipQueueCapacity          = 256
-	defaultLogShipRetryMin               = 250 * time.Millisecond
-	defaultLogShipRetryMax               = 5 * time.Second
-	defaultLogShipShutdown               = 5 * time.Second
-	defaultElasticsearchTimeout          = 3 * time.Second
-	defaultSearchReindexBatch            = 500
-	defaultAuthJWTTTL                    = 2 * time.Hour
-	defaultAuthCookieName                = "gopulse_session"
-	defaultRedisPostDetailTTL            = 5 * time.Minute
-	defaultRedisOperationTimeout         = 200 * time.Millisecond
-	defaultOutboxPollInterval            = time.Second
-	defaultOutboxClaimBatch              = 10
-	defaultOutboxLeaseDuration           = time.Minute
-	defaultOutboxPublishTimeout          = 5 * time.Second
-	defaultOutboxRetryDelay              = 30 * time.Second
-	defaultOutboxCleanupInterval         = time.Hour
-	defaultOutboxRetention               = 7 * 24 * time.Hour
-	defaultOutboxCleanupBatch            = 500
-	outboxLeaseSafetyMargin              = time.Second
-	minimumJWTSecretBytes                = 32
-	minimumAuthJWTTTL                    = 5 * time.Minute
-	maximumAuthJWTTTL                    = 24 * time.Hour
-	minimumRedisPostDetailTTL            = time.Second
-	maximumRedisPostDetailTTL            = 24 * time.Hour
-	minimumRedisOperationTimeout         = 10 * time.Millisecond
-	maximumRedisOperationTimeout         = 5 * time.Second
-	minimumOutboxPollInterval            = 10 * time.Millisecond
-	maximumOutboxPollInterval            = time.Minute
-	minimumOutboxClaimBatch              = 1
-	maximumOutboxClaimBatch              = 100
-	minimumOutboxLeaseDuration           = time.Second
-	maximumOutboxLeaseDuration           = 10 * time.Minute
-	minimumOutboxPublishTimeout          = 10 * time.Millisecond
-	maximumOutboxPublishTimeout          = 30 * time.Second
-	minimumOutboxRetryDelay              = time.Second
-	maximumOutboxRetryDelay              = 24 * time.Hour
-	minimumOutboxCleanupInterval         = time.Minute
-	maximumOutboxCleanupInterval         = 24 * time.Hour
-	minimumOutboxRetention               = time.Hour
-	maximumOutboxRetention               = 365 * 24 * time.Hour
-	minimumOutboxCleanupBatch            = 1
-	maximumOutboxCleanupBatch            = 1000
-	minimumElasticsearchTimeout          = 100 * time.Millisecond
-	maximumElasticsearchTimeout          = 30 * time.Second
-	minimumSearchReindexBatch            = 1
-	maximumSearchReindexBatch            = 5000
-	minimumHTTPMaxConcurrency            = 1
-	maximumHTTPMaxConcurrency            = 1024
-	minimumReplicaCount                  = 1
-	maximumReplicaCount                  = 8
-	minimumMySQLMaxOpenConns             = 1
-	maximumMySQLMaxOpenConns             = 100
-	minimumMySQLConnLifetime             = time.Minute
-	maximumMySQLConnLifetime             = time.Hour
-	minimumMySQLTotalOpenConns           = 1
-	maximumMySQLTotalOpenConns           = 1000
-	minimumBusinessStageCredentialBytes  = 32
+	defaultAppEnv                           = "development"
+	defaultHTTPHost                         = "127.0.0.1"
+	defaultHTTPPort                         = 8080
+	defaultHTTPMaxConcurrency               = 128
+	defaultPlatformHTTPMaxConcurrency       = 32
+	defaultReplicaCount                     = 1
+	defaultMySQLHost                        = "127.0.0.1"
+	defaultMySQLPort                        = 3306
+	defaultMySQLMaxOpenConns                = 10
+	defaultPlatformMySQLMaxOpenConns        = 4
+	defaultMySQLMaxIdleConns                = 2
+	defaultMySQLConnMaxLifetime             = 3 * time.Minute
+	defaultMySQLTotalOpenConns              = 60
+	defaultRedisHost                        = "127.0.0.1"
+	defaultRedisPort                        = 6379
+	defaultRedisDB                          = 0
+	defaultElasticsearchURL                 = "http://127.0.0.1:9200"
+	defaultObservabilityElasticsearchURL    = "http://127.0.0.1:9201"
+	defaultMonitorURL                       = "http://127.0.0.1:9090"
+	defaultVictoriaMetricsURL               = "http://127.0.0.1:8428"
+	defaultVictoriaMetricsUser              = "gopulse-marshaller"
+	defaultVictoriaMetricsTimeout           = 3 * time.Second
+	defaultMonitorTimeout                   = 30 * time.Second
+	defaultLogShipRequestTimeout            = 2 * time.Second
+	defaultLogShipQueueCapacity             = 256
+	defaultLogShipRetryMin                  = 250 * time.Millisecond
+	defaultLogShipRetryMax                  = 5 * time.Second
+	defaultLogShipShutdown                  = 5 * time.Second
+	defaultElasticsearchTimeout             = 3 * time.Second
+	defaultSearchReindexBatch               = 500
+	defaultBusinessAsyncMaxOpenRequirements = 10000
+	defaultAuthJWTTTL                       = 2 * time.Hour
+	defaultAuthCookieName                   = "gopulse_session"
+	defaultRedisPostDetailTTL               = 5 * time.Minute
+	defaultRedisOperationTimeout            = 200 * time.Millisecond
+	defaultOutboxPollInterval               = time.Second
+	defaultOutboxClaimBatch                 = 10
+	defaultOutboxLeaseDuration              = time.Minute
+	defaultOutboxPublishTimeout             = 5 * time.Second
+	defaultOutboxRetryDelay                 = 30 * time.Second
+	defaultOutboxCleanupInterval            = time.Hour
+	defaultOutboxRetention                  = 7 * 24 * time.Hour
+	defaultOutboxCleanupBatch               = 500
+	outboxLeaseSafetyMargin                 = time.Second
+	minimumJWTSecretBytes                   = 32
+	minimumAuthJWTTTL                       = 5 * time.Minute
+	maximumAuthJWTTTL                       = 24 * time.Hour
+	minimumRedisPostDetailTTL               = time.Second
+	maximumRedisPostDetailTTL               = 24 * time.Hour
+	minimumRedisOperationTimeout            = 10 * time.Millisecond
+	maximumRedisOperationTimeout            = 5 * time.Second
+	minimumOutboxPollInterval               = 10 * time.Millisecond
+	maximumOutboxPollInterval               = time.Minute
+	minimumOutboxClaimBatch                 = 1
+	maximumOutboxClaimBatch                 = 100
+	minimumOutboxLeaseDuration              = time.Second
+	maximumOutboxLeaseDuration              = 10 * time.Minute
+	minimumOutboxPublishTimeout             = 10 * time.Millisecond
+	maximumOutboxPublishTimeout             = 30 * time.Second
+	minimumOutboxRetryDelay                 = time.Second
+	maximumOutboxRetryDelay                 = 24 * time.Hour
+	minimumOutboxCleanupInterval            = time.Minute
+	maximumOutboxCleanupInterval            = 24 * time.Hour
+	minimumOutboxRetention                  = time.Hour
+	maximumOutboxRetention                  = 365 * 24 * time.Hour
+	minimumOutboxCleanupBatch               = 1
+	maximumOutboxCleanupBatch               = 1000
+	minimumElasticsearchTimeout             = 100 * time.Millisecond
+	maximumElasticsearchTimeout             = 30 * time.Second
+	minimumSearchReindexBatch               = 1
+	maximumSearchReindexBatch               = 5000
+	minimumBusinessAsyncMaxOpenRequirements = 1
+	maximumBusinessAsyncMaxOpenRequirements = 10000
+	minimumHTTPMaxConcurrency               = 1
+	maximumHTTPMaxConcurrency               = 1024
+	minimumReplicaCount                     = 1
+	maximumReplicaCount                     = 8
+	minimumMySQLMaxOpenConns                = 1
+	maximumMySQLMaxOpenConns                = 100
+	minimumMySQLConnLifetime                = time.Minute
+	maximumMySQLConnLifetime                = time.Hour
+	minimumMySQLTotalOpenConns              = 1
+	maximumMySQLTotalOpenConns              = 1000
+	minimumBusinessStageCredentialBytes     = 32
 )
 
 // LookupFunc makes configuration loading deterministic in tests without
@@ -103,27 +106,28 @@ const (
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
-	ServiceRole                ServiceRole
-	AlertEvaluationEnabled     bool
-	RuntimeMode                RuntimeMode
-	AppEnv                     string
-	InstanceID                 string
-	ReplicaCount               int
-	HTTPHost                   string
-	HTTPPort                   int
-	HTTPMaxConcurrency         int
-	MySQL                      MySQLConfig
-	Redis                      RedisConfig
-	RabbitMQURL                string
-	Outbox                     OutboxConfig
-	Auth                       AuthConfig
-	Elasticsearch              ElasticsearchConfig
-	ObservabilityElasticsearch ElasticsearchConfig
-	Monitor                    MonitorConfig
-	VictoriaMetrics            VictoriaMetricsConfig
-	LogShip                    LogShipConfig
-	Trace                      TraceConfig
-	BusinessStage              BusinessStageConfig
+	ServiceRole                      ServiceRole
+	AlertEvaluationEnabled           bool
+	RuntimeMode                      RuntimeMode
+	AppEnv                           string
+	InstanceID                       string
+	ReplicaCount                     int
+	HTTPHost                         string
+	HTTPPort                         int
+	HTTPMaxConcurrency               int
+	MySQL                            MySQLConfig
+	Redis                            RedisConfig
+	RabbitMQURL                      string
+	Outbox                           OutboxConfig
+	Auth                             AuthConfig
+	Elasticsearch                    ElasticsearchConfig
+	ObservabilityElasticsearch       ElasticsearchConfig
+	Monitor                          MonitorConfig
+	VictoriaMetrics                  VictoriaMetricsConfig
+	LogShip                          LogShipConfig
+	Trace                            TraceConfig
+	BusinessStage                    BusinessStageConfig
+	BusinessAsyncMaxOpenRequirements uint64
 }
 
 type MySQLConfig struct {
@@ -166,9 +170,10 @@ type ElasticsearchConfig struct {
 }
 
 type ReindexConfig struct {
-	MySQL         MySQLConfig
-	Elasticsearch ElasticsearchConfig
-	LogShip       LogShipConfig
+	MySQL                            MySQLConfig
+	Elasticsearch                    ElasticsearchConfig
+	LogShip                          LogShipConfig
+	BusinessAsyncMaxOpenRequirements uint64
 }
 
 type VictoriaMetricsConfig struct {
@@ -272,6 +277,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, fmt.Errorf("%s must be between %d and %d", httpMaxConcurrencyKey(serviceRole), minimumHTTPMaxConcurrency, maximumHTTPMaxConcurrency)
 	}
 	mysqlMaxOpenConns, mysqlMaxIdleConns, mysqlConnMaxLifetime, err := mysqlPoolValuesForRole(lookup, replicaCount, serviceRole)
+	if err != nil {
+		return Config{}, err
+	}
+	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
 	if err != nil {
 		return Config{}, err
 	}
@@ -544,15 +553,16 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			PostDetailTTL:    postDetailTTL,
 			OperationTimeout: operationTimeout,
 		},
-		RabbitMQURL:                rabbitMQURL,
-		Outbox:                     outboxConfig,
-		Elasticsearch:              elasticsearch,
-		ObservabilityElasticsearch: observabilityElasticsearch,
-		Monitor:                    monitorConfig,
-		VictoriaMetrics:            victoriaMetrics,
-		LogShip:                    logShip,
-		Trace:                      traceConfig,
-		BusinessStage:              businessStage,
+		RabbitMQURL:                      rabbitMQURL,
+		Outbox:                           outboxConfig,
+		Elasticsearch:                    elasticsearch,
+		ObservabilityElasticsearch:       observabilityElasticsearch,
+		Monitor:                          monitorConfig,
+		VictoriaMetrics:                  victoriaMetrics,
+		LogShip:                          logShip,
+		Trace:                            traceConfig,
+		BusinessStage:                    businessStage,
+		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
@@ -560,6 +570,14 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			CookieSecure: authCookieSecure,
 		},
 	}, nil
+}
+
+func businessAsyncMaxOpenRequirementsValue(lookup LookupFunc) (uint64, error) {
+	value, err := integerValue(lookup, "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS", defaultBusinessAsyncMaxOpenRequirements)
+	if err != nil || value < minimumBusinessAsyncMaxOpenRequirements || value > maximumBusinessAsyncMaxOpenRequirements {
+		return 0, fmt.Errorf("BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS must be an integer between %d and %d", minimumBusinessAsyncMaxOpenRequirements, maximumBusinessAsyncMaxOpenRequirements)
+	}
+	return uint64(value), nil
 }
 
 func loadBusinessStageConfig(lookup LookupFunc, runtimeMode RuntimeMode, role ServiceRole) (BusinessStageConfig, error) {
@@ -943,6 +961,10 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	if err != nil {
 		return ReindexConfig{}, err
 	}
+	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
 	return ReindexConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -954,8 +976,9 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 			MaxIdleConns:    maxIdleConns,
 			ConnMaxLifetime: connMaxLifetime,
 		},
-		Elasticsearch: elasticsearch,
-		LogShip:       logShip,
+		Elasticsearch:                    elasticsearch,
+		LogShip:                          logShip,
+		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 	}, nil
 }
 

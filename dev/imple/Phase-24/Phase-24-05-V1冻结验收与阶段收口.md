@@ -2,7 +2,7 @@
 
 > 状态：候选 runtime gate 与 V1 preflight 已通过，但未完成（2026-10-12，formal V01～V12 driver 已补齐并通过 acceptance 模块自测，尚未绑定新候选执行正式矩阵）。完成版本 `2.6.5`，分支 `develop/2.6.5`。
 > 实际产品候选：04 已完成的 `2.6.4`，完整 revision 与不可变 Bundle/manifest 在开工时记录。
-> 实际结果：修复 lifecycle direct fixture 后，候选构建/runtime gate、preflight V01 和 Verify Evidence 通过；formal runner 现在执行 native V02～V12 driver、写入有界 raw facts，并对不可控边界记录 `infrastructure_failure`，但尚未在新候选上运行，不能收口。
+> 实际结果：修复 lifecycle direct fixture 后，候选构建/runtime gate、preflight V01 和 Verify Evidence 通过；formal runner 已补齐 V02～V12 的 native driver、协议控制、低水位配置、恢复代际查证和取消子回执，但尚未在新候选上运行，不能收口。
 
 ## 1. 进入条件与允许文件
 
@@ -18,8 +18,8 @@
 | 成功完成元数据 | `VERSION`、`.env.example` 的产品版本字段、两个前端 `package.json` / `package-lock.json`、`deploy/runtime-contracts.json` 的产品版本字段 |
 | 必要导航 | 阶段/设计索引及相关现有入口，只修真实链接，不复制版本、案例或状态 |
 
-产品、正式配置和历史回执不在本批修改范围。此前正式入口缺少 V02～V12 driver；本次按用户明确要求，
-在尚未启动新的正式矩阵前补齐 acceptance driver、raw facts 校验和 fault fixture 自测，不降低固定案例、
+历史回执不在本批修改范围。此前正式入口缺少 V02～V12 driver；本次按用户明确要求，
+在尚未启动新的正式矩阵前补齐 acceptance driver、生产配置接线、raw facts 校验和 fault fixture 自测，不降低固定案例、
 证据、预算或清理标准。该实现提交后必须重新构建并绑定新的候选，不能复用旧候选或旧回执。
 产品失败或工具需要修正时，保存 failed/not_started、原始证据和清理结果，
 停止矩阵，按仓库规则另行明确有效修复合同后执行；不能改完候选继续用旧 receipt。
@@ -78,7 +78,7 @@ registry 必须覆盖后续独立验收拉取，直到验收/核验完成才按�
 | V11 代际与恢复 | 同一数据 epoch 重建后旧 generation 完成不冒充新完成；当前可见独立查证，再重投记录实际新代际。按同 Bundle 排空备份恢复到空 owned 目标，建立新 epoch；重送旧事件/旧 header/旧游标并注入旧缓存键不得混入 | 原/新 epoch、alias/index metadata、完成作用域、journal 原事实 hash 与后置准备、旧事件停放；旧事件不改变当前投影版本/序列。恢复最多 15 min，失败必须 pending/非 ready |
 | V12 取消、清理与证据 | 取消一个受控验收子任务，子回执如实保存执行/未开始且有限恢复/归属清理；父场景验证后继续。最终完整矩阵清理、原始 hash 和实际 publication 校验通过 | 子回执保持 canceled/incomplete，不改成 completed；父案例验证预期取消。清理各最多 5 min，非归属资源前后不变 |
 
-V05/V06 的故障通过 04 已验证的私网代理/进程控制实现，无生产后门。
+V03～V06 的故障通过 acceptance 私网协议/HTTP 代理控制真实 COMMIT、AMQP confirm/ack、ES effect 和完成落库窗口，无生产后门。
 V11 停止源栈后启动恢复目标，保留独立 owner 与来源关系，清理两者都要核对所有权。
 旧事件拒绝须查当前索引序列/版本及新 epoch 完成表，正文 hash 相同不足以证明未发生旧写入。
 恢复事实重建不制造旧命令在新 epoch 的完成结果。
@@ -102,7 +102,8 @@ Trace 结果按受控采样/文件输出范围解释，不声称公共 Trace 查
 ## 4. 固定命令与证据核验
 
 下面 V1 扩展已在本次正式矩阵启动前补齐：formal runner 负责候选栈上的 native V02～V12 动作、
-受限持久事实和每案例 raw 写入；V01 仍由浏览器基线负责。重新执行前必须从包含该实现的 revision
+受限持久事实、协议故障控制、V08 有效配置、V11 lifecycle hand-off、V12 子回执和每案例 raw 写入；
+V01 仍由浏览器基线负责。重新执行前必须从包含该实现的 revision
 构建新的 Bundle/manifest/镜像，并以新的 receipt 绑定它。
 在冻结 checkout 的仓库根运行，PHASE24_* 均为登记的私有绝对路径；
 BASE_REF 固定到规划/开发检查使用的具体 revision，不在矩阵中漂移。
@@ -121,8 +122,8 @@ rtk proxy make verify-business SCOPE=v1 MANIFEST="$PHASE24_MANIFEST" RECEIPT="$P
 
 直接检查有效且相关源码/依赖/配置/身份未变时引用原记录，不无条件重跑；
 需要补跑的检查及原因在日志登记。package 的既有 runtime 检查不代替 V01～V12。
-V11 的空目标 lifecycle/backup/restore hand-off 尚未接入当前 driver；正式执行前若仍不可控，必须保留
-`infrastructure_failure`，不能以普通创建和阶段查询代替该固定子项。
+V11 的空目标 lifecycle/backup/restore hand-off 已接入当前 driver，并额外核验新 epoch、旧事件拒绝、
+新 ES generation 和旧事件在新 epoch 中没有完成记录；正式执行仍必须绑定包含该接线的新候选。
 
 原始证据保留 HTTP 台账、最小事实/义务/完成查询、Broker/代理时序、实际 ES 结果、
 来源质量、所需 Go 输出、恢复 journal 的安全摘要、资源前后清单和关键 hash。

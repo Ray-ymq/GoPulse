@@ -1,0 +1,244 @@
+// Command mysql-protocol-proxy is a bounded MySQL packet proxy used only by
+// native acceptance. It understands enough of the classic protocol to select
+// one COM_QUERY response, while forwarding every other packet unchanged.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+const (
+	modeCommitResult    = "commit-result"
+	modeCompletionWrite = "completion-write"
+	maxPacketPayload    = 64 << 20
+)
+
+type status struct {
+	Mode             string `json:"mode"`
+	QueriesSeen      uint64 `json:"queries_seen"`
+	TargetQueries    uint64 `json:"target_queries"`
+	UpstreamEffect   uint64 `json:"upstream_effect"`
+	ResponseDropped  uint64 `json:"response_dropped"`
+	ConnectionClosed uint64 `json:"connection_closed"`
+}
+
+type statusStore struct {
+	mu sync.Mutex
+	status
+}
+
+type connectionState struct {
+	mu    sync.Mutex
+	armed bool
+}
+
+func (state *connectionState) setArmed() {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.armed = true
+}
+
+func (state *connectionState) isArmed() bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.armed
+}
+
+func (store *statusStore) update(update func(*status)) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	update(&store.status)
+}
+
+func (store *statusStore) snapshot() status {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.status
+}
+
+func main() {
+	listen := flag.String("listen", "0.0.0.0:3306", "MySQL proxy listener")
+	control := flag.String("control", "127.0.0.1:19125", "status HTTP listener")
+	upstream := flag.String("upstream", "", "upstream MySQL address")
+	mode := flag.String("mode", modeCommitResult, "commit-result or completion-write")
+	flag.Parse()
+	if *upstream == "" || (*mode != modeCommitResult && *mode != modeCompletionWrite) {
+		fmt.Fprintln(os.Stderr, "upstream and a supported mode are required")
+		os.Exit(2)
+	}
+	store := &statusStore{status: status{Mode: *mode}}
+	listener, err := net.Listen("tcp", *listen)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer listener.Close()
+	controlServer := &http.Server{Addr: *control, Handler: statusHandler(store), ReadHeaderTimeout: 2 * time.Second}
+	controlListener, err := net.Listen("tcp", *control)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer controlListener.Close()
+	go func() { _ = controlServer.Serve(controlListener) }()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = controlServer.Shutdown(shutdown)
+	}()
+	for {
+		client, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+		go proxy(client, *upstream, *mode, store)
+	}
+}
+
+func statusHandler(store *statusStore) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/ready" {
+			writer.WriteHeader(http.StatusOK)
+			return
+		}
+		if request.URL.Path != "/status" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(store.snapshot())
+	})
+}
+
+func proxy(client net.Conn, upstreamAddress, mode string, store *statusStore) {
+	defer client.Close()
+	upstream, err := net.DialTimeout("tcp", upstreamAddress, 5*time.Second)
+	if err != nil {
+		return
+	}
+	defer upstream.Close()
+	closed := make(chan struct{})
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			store.update(func(value *status) { value.ConnectionClosed++ })
+			close(closed)
+			_ = client.Close()
+			_ = upstream.Close()
+		})
+	}
+	var wait sync.WaitGroup
+	connection := &connectionState{}
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		clientToServer(client, upstream, mode, store, connection)
+		closeBoth()
+	}()
+	go func() {
+		defer wait.Done()
+		serverToClient(upstream, client, mode, store, connection, closeBoth)
+		closeBoth()
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Minute):
+		closeBoth()
+	}
+	wait.Wait()
+}
+
+func clientToServer(client, upstream net.Conn, mode string, store *statusStore, connection *connectionState) {
+	for {
+		payload, sequence, err := readPacket(client)
+		if err != nil {
+			return
+		}
+		if len(payload) > 0 && payload[0] == 0x03 {
+			query := strings.ToUpper(strings.TrimSpace(string(payload[1:])))
+			target := (mode == modeCommitResult && strings.HasPrefix(query, "COMMIT")) || (mode == modeCompletionWrite && strings.Contains(query, "BUSINESS_APPLICATION_RESULTS"))
+			store.update(func(value *status) {
+				value.QueriesSeen++
+				if target {
+					value.TargetQueries++
+				}
+			})
+			if target {
+				connection.setArmed()
+			}
+		}
+		if err := writePacket(upstream, payload, sequence); err != nil {
+			return
+		}
+	}
+}
+
+func serverToClient(upstream, client net.Conn, mode string, store *statusStore, connection *connectionState, closeBoth func()) {
+	for {
+		payload, sequence, err := readPacket(upstream)
+		if err != nil {
+			return
+		}
+		if connection.isArmed() && isSuccessfulResponse(payload) {
+			store.update(func(value *status) { value.UpstreamEffect++ })
+			store.update(func(value *status) { value.ResponseDropped++ })
+			closeBoth()
+			return
+		}
+		if err := writePacket(client, payload, sequence); err != nil {
+			return
+		}
+	}
+}
+
+func isSuccessfulResponse(payload []byte) bool {
+	return len(payload) > 0 && (payload[0] == 0x00 || payload[0] == 0xfe)
+}
+
+func readPacket(reader io.Reader) ([]byte, byte, error) {
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(reader, header); err != nil {
+		return nil, 0, err
+	}
+	size := int(header[0]) | int(header[1])<<8 | int(header[2])<<16
+	if size > maxPacketPayload {
+		return nil, 0, errors.New("MySQL packet is too large")
+	}
+	payload := make([]byte, size)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return nil, 0, err
+	}
+	return payload, header[3], nil
+}
+
+func writePacket(writer io.Writer, payload []byte, sequence byte) error {
+	if len(payload) > maxPacketPayload || len(payload) > 0xffffff {
+		return errors.New("MySQL packet is too large")
+	}
+	header := []byte{byte(len(payload)), byte(len(payload) >> 8), byte(len(payload) >> 16), sequence}
+	if _, err := writer.Write(header); err != nil {
+		return err
+	}
+	_, err := writer.Write(payload)
+	return err
+}

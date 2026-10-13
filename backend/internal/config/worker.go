@@ -26,11 +26,12 @@ const (
 )
 
 type WorkerConfig struct {
-	MySQL       MySQLConfig
-	RabbitMQURL string
-	Worker      BusinessWorkerConfig
-	LogShip     LogShipConfig
-	Trace       TraceConfig
+	MySQL                            MySQLConfig
+	RabbitMQURL                      string
+	Worker                           BusinessWorkerConfig
+	LogShip                          LogShipConfig
+	Trace                            TraceConfig
+	BusinessAsyncMaxOpenRequirements uint64
 }
 
 type BusinessWorkerConfig struct {
@@ -138,6 +139,10 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	return WorkerConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -149,9 +154,10 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 			MaxIdleConns:    maxIdleConns,
 			ConnMaxLifetime: connMaxLifetime,
 		},
-		RabbitMQURL: rabbitMQURL,
-		LogShip:     logShip,
-		Trace:       traceConfig,
+		RabbitMQURL:                      rabbitMQURL,
+		LogShip:                          logShip,
+		Trace:                            traceConfig,
+		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		Worker: BusinessWorkerConfig{
 			Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay,
 			PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout,

@@ -17,6 +17,9 @@ func TestLoadWorkerFromRequiresOnlyWorkerDependencies(t *testing.T) {
 	if cfg.Worker.Prefetch != 10 || cfg.Worker.MaxRetries != 3 || cfg.Worker.RetryDelay != 30*time.Second {
 		t.Fatalf("worker defaults = %#v", cfg.Worker)
 	}
+	if cfg.BusinessAsyncMaxOpenRequirements != 10000 {
+		t.Fatalf("worker business async limit = %d, want 10000", cfg.BusinessAsyncMaxOpenRequirements)
+	}
 	if cfg.Trace.Enabled || cfg.Trace.ServiceName != "business-worker" {
 		t.Fatalf("worker trace defaults = %#v", cfg.Trace)
 	}
@@ -32,6 +35,7 @@ func TestLoadWorkerFromValidatesBoundsWithoutLeakingCredentials(t *testing.T) {
 		{"BUSINESS_WORKER_MAX_RETRIES", "-1"}, {"BUSINESS_WORKER_MAX_RETRIES", "21"},
 		{"BUSINESS_WORKER_PUBLISH_TIMEOUT", "1ms"}, {"BUSINESS_WORKER_SHUTDOWN_TIMEOUT", "500ms"},
 		{"BUSINESS_WORKER_RECONNECT_MIN", "50ms"}, {"BUSINESS_WORKER_RECONNECT_MAX", "6m"},
+		{"BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS", "0"}, {"BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS", "10001"},
 	} {
 		t.Run(test.key+test.value, func(t *testing.T) {
 			env := make(map[string]string, len(base)+1)

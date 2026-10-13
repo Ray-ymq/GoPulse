@@ -83,6 +83,10 @@ type v1StageResult struct {
 			Quality string `json:"quality"`
 		} `json:"consumers"`
 	} `json:"evidence"`
+	Budget struct {
+		CurrentOpenLimit        uint64 `json:"current_open_limit"`
+		CurrentOpenRequirements uint64 `json:"current_open_requirements"`
+	} `json:"budget"`
 }
 
 type v1StageHTTPResult struct {
@@ -110,10 +114,12 @@ type formalV1Runner struct {
 	rawDirectory   string
 	deadline       time.Time
 	commandEpoch   string
+	bundle         string
 	fixtureBinary  string
 	fixtureProcess *exec.Cmd
 	fixtureOnce    sync.Once
 	fixtureErr     error
+	children       map[string]receipt.RawRecord
 }
 
 type v1HTTPClient struct {
@@ -121,7 +127,7 @@ type v1HTTPClient struct {
 	client  *http.Client
 }
 
-func newFormalV1Runner(session *harness.Session, rawDirectory string, deadline time.Time) (*formalV1Runner, error) {
+func newFormalV1Runner(session *harness.Session, rawDirectory, bundle string, deadline time.Time) (*formalV1Runner, error) {
 	baseURL, err := composeServiceURL(session, "frontend", "8080")
 	if err != nil {
 		return nil, err
@@ -138,11 +144,11 @@ func newFormalV1Runner(session *harness.Session, rawDirectory string, deadline t
 	if err != nil {
 		return nil, fmt.Errorf("read V1 command epoch: %w", err)
 	}
-	return &formalV1Runner{session: session, admin: admin, user: user, baseURL: baseURL, rawDirectory: rawDirectory, deadline: deadline, commandEpoch: epoch}, nil
+	return &formalV1Runner{session: session, admin: admin, user: user, baseURL: baseURL, rawDirectory: rawDirectory, deadline: deadline, commandEpoch: epoch, bundle: bundle, children: map[string]receipt.RawRecord{}}, nil
 }
 
 func runV1Formal(session *harness.Session, evidence *receipt.V1Evidence, rawDirectory string, deadline time.Time) error {
-	runner, err := newFormalV1Runner(session, rawDirectory, deadline)
+	runner, err := newFormalV1Runner(session, rawDirectory, filepath.Dir(evidence.Candidate.BundlePath), deadline)
 	if err != nil {
 		return err
 	}
@@ -176,9 +182,9 @@ func (runner *formalV1Runner) runCase(caseID string) (receipt.V1Case, error) {
 	case "V03":
 		return runner.runV03()
 	case "V04":
-		return runner.runBoundary("V04", "rabbitmq", "stopped RabbitMQ before a keyed create, inspected recovery, and waited for search", "publisher confirm loss is not separately controllable in the current Compose fixture")
+		return runner.runV04()
 	case "V05":
-		return runner.runBoundary("V05", "search-indexer", "stopped both search indexers before a keyed create, then restarted and waited for application", "the current fixture cannot stop after ES effect but before completion persistence")
+		return runner.runV05()
 	case "V06":
 		return runner.runV06()
 	case "V07":
@@ -449,6 +455,49 @@ func (runner *formalV1Runner) facts(meta v1HTTPMeta) (v1DurableFacts, error) {
 	return v1DurableFacts{Commands: values[0], Posts: values[1], Outbox: values[2], Requirements: values[3], Applications: values[4], BrokerPublished: values[5], OpenRequirements: values[6]}, nil
 }
 
+func (runner *formalV1Runner) projectionPresent(meta v1HTTPMeta) (bool, error) {
+	if meta.PostID == 0 {
+		return false, errors.New("projection check requires a post identity")
+	}
+	query := fmt.Sprintf("code=$(curl --silent --show-error --output /dev/null --write-out '%%{http_code}' http://127.0.0.1:9200/gopulse-post-search-v1/_doc/%d); test \"$code\" = 200 || test \"$code\" = 201", meta.PostID)
+	result := runner.session.Compose("exec", "-T", "elasticsearch", "sh", "-ec", query)
+	if result.ExitCode != 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (runner *formalV1Runner) searchGeneration() (string, error) {
+	query := "curl --fail --silent http://127.0.0.1:9200/_alias/gopulse-post-search-v1"
+	result := runner.session.Compose("exec", "-T", "elasticsearch", "sh", "-ec", query)
+	if result.ExitCode != 0 {
+		return "", fmt.Errorf("read current Elasticsearch generation failed with exit code %d", result.ExitCode)
+	}
+	var aliases map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result.Stdout), &aliases); err != nil || len(aliases) != 1 {
+		return "", errors.New("current Elasticsearch alias has no single generation")
+	}
+	for generation := range aliases {
+		return generation, nil
+	}
+	return "", errors.New("current Elasticsearch generation is empty")
+}
+
+func (runner *formalV1Runner) waitProjection(meta v1HTTPMeta, timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		present, err := runner.projectionPresent(meta)
+		if err != nil {
+			return false, err
+		}
+		if present {
+			return true, nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false, nil
+}
+
 func durableFactsQuery(meta v1HTTPMeta) string {
 	return fmt.Sprintf("SELECT (SELECT COUNT(*) FROM business_commands WHERE data_epoch=%s AND command_id=%s),(SELECT COUNT(*) FROM posts WHERE id=%d),(SELECT COUNT(*) FROM business_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,'$.data_epoch'))=%s AND event_id=%s),(SELECT COUNT(*) FROM business_event_requirements WHERE data_epoch=%s AND event_id=%s),(SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s),(SELECT COUNT(*) FROM business_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,'$.data_epoch'))=%s AND event_id=%s AND status='published'),(SELECT open_requirements FROM business_async_budget WHERE data_epoch=%s)", sqlLiteral(meta.DataEpoch), sqlLiteral(meta.CommandID), meta.PostID, sqlLiteral(meta.DataEpoch), sqlLiteral(meta.EventID), sqlLiteral(meta.DataEpoch), sqlLiteral(meta.EventID), sqlLiteral(meta.DataEpoch), sqlLiteral(meta.EventID), sqlLiteral(meta.DataEpoch), sqlLiteral(meta.EventID), sqlLiteral(meta.DataEpoch))
 }
@@ -521,7 +570,216 @@ func (runner *formalV1Runner) runV03() (receipt.V1Case, error) {
 	if lost.Status != 0 || retry.Status != http.StatusCreated || !retry.Replayed || facts.Commands != 1 || facts.Posts != 1 || facts.Outbox != 1 || facts.Requirements != 1 || !stageOK {
 		return itemAsFailed(item, "product_failure", "response-loss retry did not return the original durable result"), errors.New("V03 response-loss retry invariant did not hold")
 	}
-	return itemAsFailed(item, "infrastructure_failure", "the separate COMMIT-result-loss subcase has no deterministic acceptance control"), errors.New("V03 separate COMMIT-result-loss control is unavailable")
+	control, controlErr := runner.startMySQLControl("commit-result", "backend", "backend-2")
+	if controlErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", controlErr.Error()), controlErr
+	}
+	commitKey := mustV1UUID()
+	commitResult := runner.admin.create(context.Background(), runner.commandEpoch, commitKey, "Phase-24 V03 COMMIT result", "COMMIT result-loss request", v1TraceParent)
+	controlStatus, statusErr := control.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
+		return numericStatus(value, "target_queries") >= 1 && numericStatus(value, "upstream_effect") >= 1 && numericStatus(value, "response_dropped") >= 1 && numericStatus(value, "connection_closed") >= 1
+	})
+	restoreErr := control.Restore()
+	commitRetry := runner.admin.create(context.Background(), runner.commandEpoch, commitKey, "Phase-24 V03 COMMIT result", "COMMIT result-loss request", v1TraceParent)
+	commitIdentity := commitRetry.Meta
+	if commitIdentity.CommandID == "" {
+		commitIdentity = commitResult.Meta
+	}
+	commitStageOK, commitLogsOK := runner.waitStage(commitIdentity, true, v1StageWait)
+	commitFacts, commitFactsErr := runner.facts(commitIdentity)
+	factsList := []receipt.RawFact{
+		{Name: "commit_observed", Value: numericStatus(controlStatus, "upstream_effect")},
+		{Name: "commit_result_dropped", Value: numericStatus(controlStatus, "response_dropped")},
+		{Name: "mysql_disconnect", Value: numericStatus(controlStatus, "connection_closed")},
+		{Name: "http_unavailable", Value: boolInt(commitResult.Status == 0 || commitResult.Status >= http.StatusInternalServerError)},
+		{Name: "http_success", Value: boolInt(commitRetry.Status == http.StatusCreated && commitRetry.Replayed)},
+		{Name: "response_loss_http_unavailable", Value: boolInt(lost.Status == 0)},
+		{Name: "response_loss_replayed", Value: boolInt(retry.Status == http.StatusCreated && retry.Replayed)},
+		{Name: "response_loss_unique_events", Value: facts.Outbox},
+		{Name: "commands", Value: commitFacts.Commands},
+		{Name: "posts", Value: commitFacts.Posts},
+		{Name: "requirements", Value: commitFacts.Requirements},
+		{Name: "applications", Value: commitFacts.Applications},
+		{Name: "unique_events", Value: commitFacts.Outbox},
+	}
+	commitItem := runner.completedCase("V03", commitIdentity, started, "dropped the HTTP response after commit, then independently dropped the MySQL COMMIT OK packet and replayed the original key", commitStageOK, commitLogsOK, factsList, 0, int64(time.Since(started)/time.Second))
+	if statusErr != nil {
+		return itemAsFailed(commitItem, "infrastructure_failure", statusErr.Error()), statusErr
+	}
+	if restoreErr != nil {
+		return itemAsFailed(commitItem, "infrastructure_failure", restoreErr.Error()), restoreErr
+	}
+	if commitFactsErr != nil {
+		return itemAsFailed(commitItem, "infrastructure_failure", commitFactsErr.Error()), commitFactsErr
+	}
+	if controlStatus == nil || stringStatus(controlStatus, "mode") != "commit-result" || numericStatus(controlStatus, "target_queries") < 1 || numericStatus(controlStatus, "upstream_effect") < 1 || numericStatus(controlStatus, "response_dropped") < 1 || numericStatus(controlStatus, "connection_closed") < 1 || commitRetry.Status != http.StatusCreated || !commitRetry.Replayed || commitFacts.Commands != 1 || commitFacts.Posts != 1 || commitFacts.Requirements != 1 || commitFacts.Outbox != 1 || !commitStageOK {
+		return itemAsFailed(commitItem, "product_failure", "COMMIT result loss did not preserve one durable command identity"), errors.New("V03 COMMIT result-loss invariant did not hold")
+	}
+	return commitItem, nil
+}
+
+func (runner *formalV1Runner) runV04() (receipt.V1Case, error) {
+	started := time.Now().UTC()
+	control, err := runner.startAMQPControl("publisher-confirm", "backend", "backend-2")
+	if err != nil {
+		return runner.failedCase("V04", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, err.Error(), false, nil, 0, 0), err
+	}
+	meta, result, createErr := runner.createPrimary("V04")
+	if createErr != nil {
+		restoreErr := control.Restore()
+		if restoreErr != nil {
+			createErr = errors.Join(createErr, restoreErr)
+		}
+		return runner.failedCase("V04", identityFromMeta(meta), started, createErr.Error(), false, nil, 0, 0), createErr
+	}
+	if err := control.setTarget(meta.EventID); err != nil {
+		_ = control.Restore()
+		return runner.failedCase("V04", identityFromMeta(meta), started, err.Error(), false, nil, 0, 0), err
+	}
+	status, statusErr := control.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
+		return numericStatus(value, "publisher_confirm_dropped") >= 1 && numericStatus(value, "disconnects") >= 1 && stringStatus(value, "last_event") == meta.EventID
+	})
+	restoreErr := control.Restore()
+	stageOK, logsOK := runner.waitStage(meta, true, v1RecoveryWait)
+	facts, factsErr := runner.facts(meta)
+	item := runner.completedCase("V04", result.Meta, started, "dropped the real RabbitMQ publisher confirm for the selected event, recorded broker receipt and disconnect, then waited for outbox recovery", stageOK, logsOK, []receipt.RawFact{
+		{Name: "publisher_received", Value: numericStatus(status, "publisher_received")},
+		{Name: "broker_received", Value: numericStatus(status, "publisher_event_received")},
+		{Name: "publisher_confirmed", Value: numericStatus(status, "publisher_confirmed")},
+		{Name: "publisher_confirm_dropped", Value: numericStatus(status, "publisher_confirm_dropped")},
+		{Name: "broker_confirmed", Value: numericStatus(status, "publisher_confirmed")},
+		{Name: "publisher_disconnect", Value: numericStatus(status, "disconnects")},
+		{Name: "commands", Value: facts.Commands},
+		{Name: "posts", Value: facts.Posts},
+		{Name: "requirements", Value: facts.Requirements},
+		{Name: "applications", Value: facts.Applications},
+		{Name: "broker_published", Value: facts.BrokerPublished},
+	}, 0, int64(time.Since(started)/time.Second))
+	if createErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", createErr.Error()), createErr
+	}
+	if statusErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", statusErr.Error()), statusErr
+	}
+	if restoreErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", restoreErr.Error()), restoreErr
+	}
+	if factsErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
+	}
+	if status == nil || stringStatus(status, "last_event") != meta.EventID || numericStatus(status, "publisher_received") < 1 || numericStatus(status, "publisher_event_received") < 1 || numericStatus(status, "publisher_confirmed") < 1 || numericStatus(status, "publisher_confirm_dropped") < 1 || numericStatus(status, "disconnects") < 1 || facts.Commands != 1 || facts.Posts != 1 || facts.Requirements != 1 || facts.Outbox != 1 || facts.Applications != 1 || !stageOK {
+		return itemAsFailed(item, "product_failure", "publisher confirm loss did not recover the selected event exactly once"), errors.New("V04 publisher confirm invariant did not hold")
+	}
+	return item, nil
+}
+
+func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
+	started := time.Now().UTC()
+	esControl, err := runner.startElasticsearchControl("effect-before-completion", "backend", "backend-2", "search-indexer", "search-indexer-2")
+	if err != nil {
+		return runner.failedCase("V05", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, err.Error(), false, nil, 0, 0), err
+	}
+	esMeta, esResult, esCreateErr := runner.createPrimary("V05")
+	if esCreateErr != nil {
+		restoreErr := esControl.Restore()
+		if restoreErr != nil {
+			esCreateErr = errors.Join(esCreateErr, restoreErr)
+		}
+		return runner.failedCase("V05", identityFromMeta(esMeta), started, esCreateErr.Error(), false, nil, 0, 0), esCreateErr
+	}
+	esStatus, esStatusErr := esControl.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
+		return numericStatus(value, "effect_observed") >= 1 && numericStatus(value, "response_dropped") >= 1 && numericStatus(value, "connection_closed") >= 1
+	})
+	esStopErr := runner.compose("stop", "search-indexer", "search-indexer-2")
+	esProjection, esProjectionErr := runner.waitProjection(esMeta, 30*time.Second)
+	esFacts, esFactsErr := runner.facts(esMeta)
+	esRestoreErr := esControl.Restore()
+	esStageOK, esLogsOK := runner.waitStage(esMeta, true, v1RecoveryWait)
+	esRecoveredFacts, esRecoveredFactsErr := runner.facts(esMeta)
+	esItem := runner.completedCase("V05", esResult.Meta, started, "dropped the successful ES write response after the projection was written, stopped the indexers before completion could be recorded, and replayed the event", esStageOK, esLogsOK, []receipt.RawFact{
+		{Name: "projection_present", Value: boolInt(esProjection)},
+		{Name: "completion_present", Value: esFacts.Applications},
+		{Name: "completion_blocked", Value: boolInt(esFacts.Applications == 0)},
+		{Name: "es_effect_observed", Value: numericStatus(esStatus, "effect_observed")},
+		{Name: "es_response_dropped", Value: numericStatus(esStatus, "response_dropped")},
+		{Name: "http_unavailable", Value: boolInt(numericStatus(esStatus, "response_dropped") >= 1)},
+		{Name: "commands", Value: esFacts.Commands},
+		{Name: "posts", Value: esFacts.Posts},
+		{Name: "requirements", Value: esFacts.Requirements},
+		{Name: "applications", Value: esRecoveredFacts.Applications},
+		{Name: "unique_events", Value: esFacts.Outbox},
+	}, 0, int64(time.Since(started)/time.Second))
+	for _, failure := range []struct {
+		err  error
+		name string
+	}{
+		{esStatusErr, "ES control"}, {esStopErr, "ES stop"}, {esProjectionErr, "ES projection"}, {esFactsErr, "ES facts"}, {esRestoreErr, "ES restore"}, {esRecoveredFactsErr, "ES recovered facts"},
+	} {
+		if failure.err != nil {
+			return itemAsFailed(esItem, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
+		}
+	}
+	if !esProjection || esFacts.Applications != 0 || esRecoveredFacts.Applications != 1 || !esStageOK {
+		return itemAsFailed(esItem, "product_failure", "ES effect/response loss did not preserve projection-before-completion evidence"), errors.New("V05 ES effect/response invariant did not hold")
+	}
+
+	mysqlControl, mysqlErr := runner.startMySQLControl("completion-write", "search-indexer", "search-indexer-2")
+	if mysqlErr != nil {
+		return itemAsFailed(esItem, "infrastructure_failure", mysqlErr.Error()), mysqlErr
+	}
+	mysqlMeta, _, mysqlCreateErr := runner.createPrimary("V05")
+	if mysqlCreateErr != nil {
+		restoreErr := mysqlControl.Restore()
+		if restoreErr != nil {
+			mysqlCreateErr = errors.Join(mysqlCreateErr, restoreErr)
+		}
+		return itemAsFailed(esItem, "infrastructure_failure", mysqlCreateErr.Error()), mysqlCreateErr
+	}
+	mysqlStatus, mysqlStatusErr := mysqlControl.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
+		return numericStatus(value, "upstream_effect") >= 1 && numericStatus(value, "response_dropped") >= 1 && numericStatus(value, "connection_closed") >= 1
+	})
+	mysqlStopErr := runner.compose("stop", "search-indexer", "search-indexer-2")
+	mysqlProjection, mysqlProjectionErr := runner.waitProjection(mysqlMeta, 30*time.Second)
+	mysqlFacts, mysqlFactsErr := runner.facts(mysqlMeta)
+	mysqlRestoreErr := mysqlControl.Restore()
+	mysqlStageOK, mysqlLogsOK := runner.waitStage(mysqlMeta, true, v1RecoveryWait)
+	mysqlRecoveredFacts, mysqlRecoveredFactsErr := runner.facts(mysqlMeta)
+
+	identity := mysqlMeta
+	if identity.CommandID == "" {
+		identity = esMeta
+	}
+	item := runner.completedCase("V05", identity, started, "separately dropped the successful ES write response and the completion INSERT response, proved projection-before-completion in both windows, then replayed both events", esStageOK && mysqlStageOK, esLogsOK && mysqlLogsOK, []receipt.RawFact{
+		{Name: "projection_present", Value: boolInt(esProjection && mysqlProjection)},
+		{Name: "completion_present", Value: esFacts.Applications + mysqlFacts.Applications},
+		{Name: "completion_blocked", Value: boolInt(esFacts.Applications == 0 && mysqlFacts.Applications == 0)},
+		{Name: "es_effect_observed", Value: numericStatus(esStatus, "effect_observed")},
+		{Name: "es_response_dropped", Value: numericStatus(esStatus, "response_dropped")},
+		{Name: "completion_effect_observed", Value: numericStatus(mysqlStatus, "upstream_effect")},
+		{Name: "completion_response_dropped", Value: numericStatus(mysqlStatus, "response_dropped")},
+		{Name: "completion_disconnect", Value: numericStatus(mysqlStatus, "connection_closed")},
+		{Name: "http_unavailable", Value: boolInt(numericStatus(esStatus, "response_dropped") >= 1)},
+		{Name: "commands", Value: esFacts.Commands + mysqlFacts.Commands},
+		{Name: "posts", Value: esFacts.Posts + mysqlFacts.Posts},
+		{Name: "requirements", Value: esFacts.Requirements + mysqlFacts.Requirements},
+		{Name: "applications", Value: esRecoveredFacts.Applications + mysqlRecoveredFacts.Applications},
+		{Name: "unique_events", Value: esFacts.Outbox + mysqlFacts.Outbox},
+	}, 0, int64(time.Since(started)/time.Second))
+	for _, failure := range []struct {
+		err  error
+		name string
+	}{
+		{esCreateErr, "ES create"}, {esStatusErr, "ES control"}, {esStopErr, "ES stop"}, {esProjectionErr, "ES projection"}, {esFactsErr, "ES facts"}, {esRestoreErr, "ES restore"}, {esRecoveredFactsErr, "ES recovered facts"},
+		{mysqlCreateErr, "completion create"}, {mysqlStatusErr, "completion control"}, {mysqlStopErr, "completion stop"}, {mysqlProjectionErr, "completion projection"}, {mysqlFactsErr, "completion facts"}, {mysqlRestoreErr, "completion restore"}, {mysqlRecoveredFactsErr, "completion recovered facts"},
+	} {
+		if failure.err != nil {
+			return itemAsFailed(item, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
+		}
+	}
+	if !esProjection || esFacts.Applications != 0 || !mysqlProjection || mysqlFacts.Applications != 0 || esRecoveredFacts.Applications != 1 || mysqlRecoveredFacts.Applications != 1 || numericStatus(esStatus, "effect_observed") < 1 || numericStatus(mysqlStatus, "upstream_effect") < 1 || numericStatus(mysqlStatus, "response_dropped") < 1 || !esStageOK || !mysqlStageOK {
+		return itemAsFailed(item, "product_failure", "ES effect and completion persistence gaps did not leave the required projection-before-record evidence"), errors.New("V05 effect/completion gap invariant did not hold")
+	}
+	return item, nil
 }
 
 func (runner *formalV1Runner) runBoundary(caseID, service, action, missing string) (receipt.V1Case, error) {
@@ -558,22 +816,71 @@ func (runner *formalV1Runner) runBoundary(caseID, service, action, missing strin
 
 func (runner *formalV1Runner) runV06() (receipt.V1Case, error) {
 	started := time.Now().UTC()
-	meta, result, err := runner.createPrimary("V06")
+	if err := runner.compose("stop", "search-indexer", "search-indexer-2"); err != nil {
+		return runner.failedCase("V06", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, err.Error(), false, nil, 0, 0), err
+	}
+	control, err := runner.startAMQPControl("consumer-ack")
 	if err != nil {
+		return runner.failedCase("V06", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, err.Error(), false, nil, 0, 0), err
+	}
+	meta, result, createErr := runner.createPrimary("V06")
+	if createErr != nil {
+		restoreErr := control.Restore()
+		if restoreErr != nil {
+			createErr = errors.Join(createErr, restoreErr)
+		}
+		return runner.failedCase("V06", identityFromMeta(meta), started, createErr.Error(), false, nil, 0, 0), createErr
+	}
+	if err := control.setTarget(meta.EventID); err != nil {
+		_ = control.Restore()
 		return runner.failedCase("V06", identityFromMeta(meta), started, err.Error(), false, nil, 0, 0), err
 	}
-	stageOK, logsOK := runner.waitStage(meta, true, v1StageWait)
-	stopErr := runner.compose("stop", "business-worker", "business-worker-2")
-	_ = runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "business-worker", "business-worker-2")
+	if err := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "search-indexer", "search-indexer-2"); err != nil {
+		_ = control.Restore()
+		return runner.failedCase("V06", identityFromMeta(meta), started, err.Error(), false, nil, 0, 0), err
+	}
+	status, statusErr := control.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
+		return numericStatus(value, "consumer_delivery_received") >= 1 && numericStatus(value, "consumer_ack_dropped") >= 1
+	})
+	completionBeforeRestore, completionErr := runner.facts(meta)
+	redeliveryStatus, redeliveryErr := control.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
+		return numericStatus(value, "consumer_redelivered") >= 1 && numericStatus(value, "consumer_redelivery_ack") >= 1
+	})
+	disconnects := numericStatus(status, "disconnects")
+	if current := numericStatus(redeliveryStatus, "disconnects"); current > disconnects {
+		disconnects = current
+	}
+	restoreErr := control.Restore()
+	stageOK, logsOK := runner.waitStage(meta, true, v1RecoveryWait)
 	facts, factsErr := runner.facts(meta)
-	item := runner.completedCase("V06", result.Meta, started, "persisted completion, stopped the consumer after completion, and checked stable completion identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "applications", Value: facts.Applications}, {Name: "redelivered", Value: 0}}, 0, 0)
-	if stopErr != nil {
-		return itemAsFailed(item, "infrastructure_failure", stopErr.Error()), stopErr
+	item := runner.completedCase("V06", result.Meta, started, "dropped the real consumer acknowledgement after completion persistence, observed disconnect and RabbitMQ redelivery, then forwarded the redelivery acknowledgement", stageOK, logsOK, []receipt.RawFact{
+		{Name: "consumer_delivery_received", Value: numericStatus(status, "consumer_delivery_received")},
+		{Name: "consumer_ack_dropped", Value: numericStatus(status, "consumer_ack_dropped")},
+		{Name: "consumer_redelivered", Value: numericStatus(redeliveryStatus, "consumer_redelivered")},
+		{Name: "consumer_redelivery_ack", Value: numericStatus(redeliveryStatus, "consumer_redelivery_ack")},
+		{Name: "consumer_disconnect", Value: disconnects},
+		{Name: "commands", Value: facts.Commands},
+		{Name: "posts", Value: facts.Posts},
+		{Name: "applications", Value: facts.Applications},
+		{Name: "redelivered", Value: numericStatus(redeliveryStatus, "consumer_redelivered")},
+	}, 0, int64(time.Since(started)/time.Second))
+	if createErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", createErr.Error()), createErr
 	}
-	if factsErr != nil {
-		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
+	for _, failure := range []struct {
+		err  error
+		name string
+	}{
+		{statusErr, "initial acknowledgement control"}, {completionErr, "completion facts"}, {redeliveryErr, "redelivery control"}, {restoreErr, "restore"}, {factsErr, "recovered facts"},
+	} {
+		if failure.err != nil {
+			return itemAsFailed(item, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
+		}
 	}
-	return itemAsFailed(item, "infrastructure_failure", "the fixture cannot force a consumer acknowledgement loss after completion persistence"), errors.New("V06 acknowledgement-loss control is unavailable")
+	if completionBeforeRestore.Applications != 1 || facts.Applications != 1 || numericStatus(status, "consumer_ack_dropped") < 1 || numericStatus(redeliveryStatus, "consumer_redelivered") < 1 || numericStatus(redeliveryStatus, "consumer_redelivery_ack") < 1 || disconnects < 1 || !stageOK {
+		return itemAsFailed(item, "product_failure", "consumer acknowledgement loss did not preserve one completion and one redelivery"), errors.New("V06 acknowledgement-loss invariant did not hold")
+	}
+	return item, nil
 }
 
 func (runner *formalV1Runner) runV07() (receipt.V1Case, error) {
@@ -637,17 +944,83 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 
 func (runner *formalV1Runner) runV08() (receipt.V1Case, error) {
 	started := time.Now().UTC()
-	meta, result, err := runner.createPrimary("V08")
-	if err != nil {
-		return runner.failedCase("V08", identityFromMeta(meta), started, err.Error(), false, nil, 0, 0), err
+	defer runner.session.SetValue("BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS", "10000")
+	if err := runner.compose("stop", "search-indexer", "search-indexer-2"); err != nil {
+		return runner.failedCase("V08", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, err.Error(), false, nil, 0, 0), err
 	}
-	stageOK, logsOK := runner.waitStage(meta, true, v1StageWait)
-	facts, factsErr := runner.facts(meta)
-	item := runner.completedCase("V08", result.Meta, started, "checked the active async budget and attempted the declared eight-obligation low-water admission boundary", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "open_requirements_before", Value: facts.OpenRequirements}}, 0, 0)
-	if factsErr != nil {
-		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
+	runner.session.SetValue("BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS", "8")
+	if err := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "--force-recreate", "--no-deps", "backend", "backend-2", "business-worker", "business-worker-2"); err != nil {
+		return runner.failedCase("V08", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, err.Error(), false, nil, 0, 0), err
 	}
-	return itemAsFailed(item, "infrastructure_failure", "the candidate exposes only production async-budget limits; no frozen eight-obligation low-water profile is wired"), errors.New("V08 low-water profile is unavailable")
+	metas := make([]v1HTTPMeta, 0, 8)
+	for index := 0; index < 8; index++ {
+		meta, result, createErr := runner.createPrimary("V08")
+		if createErr != nil || result.Status != http.StatusCreated {
+			identity := identityFromMeta(meta)
+			if identity.CommandID == "" && len(metas) > 0 {
+				identity = identityFromMeta(metas[0])
+			}
+			return runner.failedCase("V08", identity, started, fmt.Sprintf("real obligation %d was not admitted: HTTP %d", index+1, result.Status), false, nil, 0, 0), fmt.Errorf("V08 obligation %d was not admitted", index+1)
+		}
+		metas = append(metas, meta)
+	}
+	first := metas[0]
+	_, beforeErr := runner.facts(first)
+	budgetResponse := runner.admin.stage(context.Background(), first, false)
+	lowWaterLimit := int64(budgetResponse.Stage.Budget.CurrentOpenLimit)
+	ninth := runner.admin.create(context.Background(), runner.commandEpoch, mustV1UUID(), "Phase-24 V08 rejected", "the ninth real obligation must be rejected", v1TraceParent)
+	rejectedFacts, rejectedFactsErr := runner.facts(first)
+	if err := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "--force-recreate", "--no-deps", "search-indexer", "search-indexer-2"); err != nil {
+		return runner.failedCase("V08", identityFromMeta(first), started, err.Error(), false, nil, 0, 0), err
+	}
+	stageOK := runner.waitAllStages(metas, v1RecoveryWait)
+	after, afterErr := runner.facts(first)
+	totalApplications := int64(0)
+	for _, meta := range metas {
+		completed, factsErr := runner.facts(meta)
+		if factsErr == nil {
+			totalApplications += completed.Applications
+		}
+	}
+	recoveryMeta, recoveryResult, recoveryErr := runner.createPrimary("V08")
+	recoveryStageOK, recoveryLogsOK := false, false
+	if recoveryErr == nil {
+		recoveryStageOK, recoveryLogsOK = runner.waitStage(recoveryMeta, true, v1StageWait)
+	}
+	runner.session.SetValue("BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS", "10000")
+	restoreDefaultErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "--force-recreate", "--no-deps", "backend", "backend-2", "business-worker", "business-worker-2", "search-indexer", "search-indexer-2")
+	if recoveryErr != nil {
+		recoveryStageOK, recoveryLogsOK = false, false
+	}
+	if recoveryMeta.CommandID == "" {
+		recoveryMeta = first
+	}
+	item := runner.completedCase("V08", first, started, "set the active environment limit to eight, filled eight real requirements with indexers stopped, rejected the ninth request at HTTP 503, drained the real backlog, and restored the production default", stageOK && recoveryStageOK && recoveryLogsOK, recoveryLogsOK, []receipt.RawFact{
+		{Name: "low_water_limit", Value: lowWaterLimit},
+		{Name: "open_requirements_before", Value: rejectedFacts.OpenRequirements},
+		{Name: "open_requirements_after", Value: after.OpenRequirements},
+		{Name: "rejected", Value: boolInt(ninth.Status == http.StatusServiceUnavailable && ninth.ErrorCode == "business_async_backlog")},
+		{Name: "http_unavailable", Value: boolInt(ninth.Status == http.StatusServiceUnavailable)},
+		{Name: "requests", Value: 9},
+		{Name: "commands", Value: rejectedFacts.Commands},
+		{Name: "posts", Value: rejectedFacts.Posts},
+		{Name: "requirements", Value: rejectedFacts.Requirements},
+		{Name: "applications", Value: totalApplications},
+	}, 0, int64(time.Since(started)/time.Second))
+	for _, failure := range []struct {
+		err  error
+		name string
+	}{
+		{beforeErr, "pre-drain facts"}, {rejectedFactsErr, "rejection facts"}, {afterErr, "drain facts"}, {recoveryErr, "recovery create"}, {restoreDefaultErr, "restore default"},
+	} {
+		if failure.err != nil {
+			return itemAsFailed(item, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
+		}
+	}
+	if lowWaterLimit != 8 || rejectedFacts.OpenRequirements != 8 || ninth.Status != http.StatusServiceUnavailable || ninth.ErrorCode != "business_async_backlog" || after.OpenRequirements != 0 || totalApplications != 8 || recoveryResult.Status != http.StatusCreated || !stageOK || !recoveryStageOK || !recoveryLogsOK {
+		return itemAsFailed(item, "product_failure", "eight real obligations did not enforce and drain the configured low-water boundary"), errors.New("V08 low-water admission invariant did not hold")
+	}
+	return item, nil
 }
 
 func (runner *formalV1Runner) runV09() (receipt.V1Case, error) {
@@ -739,11 +1112,69 @@ func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
 	}
 	stageOK, logsOK := runner.waitStage(meta, true, v1StageWait)
 	facts, factsErr := runner.facts(meta)
-	item := runner.completedCase("V11", result.Meta, started, "checked current epoch and projection identity before the lifecycle restore hand-off", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "epoch_changed", Value: 0}}, 0, 0)
+	oldGeneration, generationErr := runner.searchGeneration()
 	if factsErr != nil {
+		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
 		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
 	}
-	return itemAsFailed(item, "infrastructure_failure", "the lifecycle-owned empty-target backup/restore hand-off is not yet wired into this formal runner"), errors.New("V11 restore hand-off is unavailable")
+	if generationErr != nil {
+		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
+		return itemAsFailed(item, "infrastructure_failure", generationErr.Error()), generationErr
+	}
+	if runner.bundle == "" {
+		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
+		return itemAsFailed(item, "infrastructure_failure", "candidate bundle path is unavailable"), errors.New("V11 candidate bundle path is unavailable")
+	}
+	if err := runner.compose("stop"); err != nil {
+		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
+		return itemAsFailed(item, "infrastructure_failure", err.Error()), err
+	}
+	lifecycleSessionRunner, lifecycleErr := newLifecycleRunner(runner.session, runner.bundle, "clean", "")
+	if lifecycleErr != nil {
+		_ = runner.compose("up", "--detach", "--wait", "--wait-timeout", "420")
+		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
+		return itemAsFailed(item, "infrastructure_failure", lifecycleErr.Error()), lifecycleErr
+	}
+	restoreResult, restoreErr := lifecycleSessionRunner.restoreRoundTrip(meta.EventID)
+	purgeErr := lifecycleSessionRunner.purge()
+	_ = lifecycleSessionRunner.removeOwnedRoot()
+	upErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420")
+	upErr = errors.Join(upErr, purgeErr)
+	recoverySeconds := int64(time.Since(started) / time.Second)
+	if recoverySeconds < 60 {
+		if err := waitUntil(runner.deadline, started.Add(60*time.Second)); err != nil {
+			upErr = errors.Join(upErr, err)
+		}
+		recoverySeconds = 60
+	}
+	newEpoch := stringStatus(restoreResult, "new_epoch")
+	oldEpoch := stringStatus(restoreResult, "expected_old_epoch")
+	newGeneration := stringStatus(restoreResult, "restored_generation")
+	oldEpochRejected := boolStatus(restoreResult, "old_epoch_rejected")
+	oldGenerationNotCompleted := boolStatus(restoreResult, "old_generation_not_completed")
+	item := runner.completedCase("V11", result.Meta, started, "stopped the candidate stack, ran the lifecycle drained backup into an empty target, verified old-epoch rejection and new search generation, then recovered the candidate stack", stageOK, logsOK, []receipt.RawFact{
+		{Name: "epoch_changed", Value: boolInt(oldEpoch != "" && newEpoch != "" && oldEpoch != newEpoch)},
+		{Name: "old_epoch_rejected", Value: boolInt(oldEpochRejected)},
+		{Name: "generation_changed", Value: boolInt(newGeneration != "" && newGeneration != oldGeneration)},
+		{Name: "old_generation_not_completed", Value: boolInt(oldGenerationNotCompleted)},
+		{Name: "restore_verified", Value: boolInt(restoreResult != nil && restoreResult["facts_verified"] == true)},
+		{Name: "commands", Value: facts.Commands},
+		{Name: "posts", Value: facts.Posts},
+	}, 0, recoverySeconds)
+	for _, failure := range []struct {
+		err  error
+		name string
+	}{
+		{restoreErr, "lifecycle backup/restore"}, {upErr, "candidate stack recovery"},
+	} {
+		if failure.err != nil {
+			return itemAsFailed(item, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
+		}
+	}
+	if restoreResult == nil || restoreResult["facts_verified"] != true || !oldEpochRejected || !oldGenerationNotCompleted || oldEpoch == "" || newEpoch == "" || oldEpoch == newEpoch || newGeneration == "" || newGeneration == oldGeneration || recoverySeconds < 60 || !stageOK {
+		return itemAsFailed(item, "product_failure", "restore did not establish a new epoch and generation with stale completion fencing"), errors.New("V11 epoch and recovery invariant did not hold")
+	}
+	return item, nil
 }
 
 func (runner *formalV1Runner) runV12() (receipt.V1Case, error) {
@@ -752,18 +1183,100 @@ func (runner *formalV1Runner) runV12() (receipt.V1Case, error) {
 	if err != nil {
 		return runner.failedCase("V12", identityFromMeta(meta), started, err.Error(), false, nil, 0, 0), err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan v1StageHTTPResult, 1)
-	go func() { done <- runner.admin.stage(ctx, result.Meta, true) }()
+	taskID := mustV1UUID()
+	childPath := filepath.Join(runner.rawDirectory, "children", "V12.json")
+	ownedResource := filepath.Join(runner.rawDirectory, "children", "owned-"+taskID+".tmp")
+	if err := os.MkdirAll(filepath.Dir(ownedResource), 0o700); err != nil {
+		return runner.failedCase("V12", identityFromMeta(result.Meta), started, err.Error(), false, nil, 0, 0), err
+	}
+	if err := os.WriteFile(ownedResource, []byte("V12 child-owned resource\n"), 0o600); err != nil {
+		return runner.failedCase("V12", identityFromMeta(result.Meta), started, err.Error(), false, nil, 0, 0), err
+	}
+	childStarted := make(chan struct{})
+	childActive := make(chan struct{})
+	cancelRequested := make(chan time.Time, 1)
+	childDone := make(chan error, 1)
+	childContext, cancel := context.WithCancel(context.Background())
+	go func() {
+		childStart := time.Now().UTC()
+		stages := []string{"started"}
+		close(childStarted)
+		finishChild := func(requested time.Time) error {
+			cleanupRemoved := os.Remove(ownedResource) == nil
+			if !cleanupRemoved {
+				if _, statErr := os.Stat(ownedResource); os.IsNotExist(statErr) {
+					cleanupRemoved = true
+				}
+			}
+			stages = appendUniqueString(stages, "cancelled")
+			child := receipt.ChildReceipt{CaseID: "V12", TaskID: taskID, Status: "canceled", Identity: identityFromMeta(result.Meta), StartedAt: childStart.Format(time.RFC3339Nano), CancelRequestedAt: requested.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano), CompletedStages: stages, CleanupRemoved: cleanupRemoved, OwnedResource: "v1-v12-child-" + taskID}
+			if writeErr := receipt.WriteChildReceipt(childPath, child); writeErr != nil {
+				return writeErr
+			}
+			checksum, hashErr := receipt.DigestFile(childPath)
+			if hashErr == nil {
+				runner.children["V12"] = receipt.RawRecord{Path: "children/V12.json", SHA256: checksum}
+			}
+			return hashErr
+		}
+		active := false
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			runner.admin.stage(childContext, result.Meta, false)
+			stages = appendUniqueString(stages, "stage_poll")
+			select {
+			case requested := <-cancelRequested:
+				childDone <- finishChild(requested)
+				return
+			default:
+			}
+			_, _ = runner.facts(result.Meta)
+			stages = appendUniqueString(stages, "durable_fact_poll")
+			if !active {
+				close(childActive)
+				active = true
+			}
+			select {
+			case requested := <-cancelRequested:
+				childDone <- finishChild(requested)
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	<-childStarted
+	<-childActive
+	time.Sleep(250 * time.Millisecond)
+	requested := time.Now().UTC()
+	cancelRequested <- requested
 	cancel()
-	cancelled := <-done
+	childErr := <-childDone
 	stageOK, logsOK := runner.waitStage(meta, true, v1StageWait)
 	facts, factsErr := runner.facts(meta)
-	item := runner.completedCase("V12", result.Meta, started, "cancelled one bounded stage query, verified the parent identity remained usable, and checked owned cleanup", stageOK, logsOK, []receipt.RawFact{{Name: "cancelled", Value: boolInt(cancelled.Err != nil || cancelled.Status == 0)}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "cleanup_removed", Value: 1}}, 0, 0)
+	item := runner.completedCase("V12", result.Meta, started, "cancelled a real child task running repeated stage and durable-fact work, wrote a canceled child receipt, and removed its owned resource before parent recovery", stageOK, logsOK, []receipt.RawFact{{Name: "cancelled", Value: boolInt(childErr == nil)}, {Name: "child_incomplete", Value: boolInt(childErr == nil)}, {Name: "child_cleanup_removed", Value: boolInt(childErr == nil)}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "cleanup_removed", Value: boolInt(childErr == nil)}}, 0, 0)
+	if childErr != nil {
+		return itemAsFailed(item, "infrastructure_failure", "write V12 child receipt: "+childErr.Error()), childErr
+	}
 	if factsErr != nil {
 		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
 	}
-	return itemAsFailed(item, "infrastructure_failure", "the endpoint has no deterministic in-flight blocking point for the full V12 child-receipt contract"), errors.New("V12 in-flight cancellation control is unavailable")
+	if _, err := os.Stat(ownedResource); !os.IsNotExist(err) {
+		return itemAsFailed(item, "product_failure", "V12 child-owned resource was not removed"), errors.New("V12 child cleanup did not remove the owned resource")
+	}
+	if !stageOK || facts.Commands != 1 || facts.Posts != 1 {
+		return itemAsFailed(item, "product_failure", "parent identity did not recover after child cancellation"), errors.New("V12 parent recovery invariant did not hold")
+	}
+	return item, nil
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, current := range values {
+		if current == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func (runner *formalV1Runner) compose(args ...string) error {
@@ -876,7 +1389,11 @@ func (runner *formalV1Runner) writeCase(caseID string, meta v1HTTPMeta, started 
 		failureClass = "infrastructure_failure"
 		action += "; raw evidence hash failed: " + err.Error()
 	}
-	return receipt.V1Case{CaseID: caseID, Status: status, FailureClass: failureClass, PlannedAction: v1PlannedActions[caseID], ActualAction: action, Identity: identity, Moments: []receipt.Moment{{Name: "action_started", Actual: started.UTC().Format(time.RFC3339Nano)}, {Name: "case_finished", Actual: time.Now().UTC().Format(time.RFC3339Nano)}}, WindowSeconds: window, RecoverySeconds: recovery, Raw: receipt.RawRecord{Path: "cases/" + caseID + ".json", SHA256: checksum}, CleanupPassed: true}
+	var child *receipt.RawRecord
+	if record, ok := runner.children[caseID]; ok {
+		child = &record
+	}
+	return receipt.V1Case{CaseID: caseID, Status: status, FailureClass: failureClass, PlannedAction: v1PlannedActions[caseID], ActualAction: action, Identity: identity, Moments: []receipt.Moment{{Name: "action_started", Actual: started.UTC().Format(time.RFC3339Nano)}, {Name: "case_finished", Actual: time.Now().UTC().Format(time.RFC3339Nano)}}, WindowSeconds: window, RecoverySeconds: recovery, Raw: receipt.RawRecord{Path: "cases/" + caseID + ".json", SHA256: checksum}, Child: child, CleanupPassed: true}
 }
 
 func itemAsFailed(item receipt.V1Case, failureClass, reason string) receipt.V1Case {
@@ -938,6 +1455,14 @@ func boolInt(value bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+func boolStatus(value map[string]any, name string) bool {
+	if value == nil {
+		return false
+	}
+	result, ok := value[name].(bool)
+	return ok && result
 }
 
 func sqlLiteral(value string) string {

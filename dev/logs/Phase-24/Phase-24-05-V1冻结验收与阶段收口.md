@@ -34,4 +34,13 @@
 
 - 本批 acceptance/lifecycle 项目、容器、网络和卷已按归属清理；registry 容器和本批候选镜像标签也已显式清理，没有使用全局 prune。候选 Bundle、manifest、preflight raw 和私有失败/修复摘要保留在 `.run/phase24-05/` 供复核，不入 Git。
 - 首次失败证据仍保留在 `.run/phase24-05/failure-evidence.json`；修复后 runtime/preflight 事实摘要保留在 `.run/phase24-05/repair-evidence.json`。未以新 receipt 重置正式预算。
-- 下一步必须从包含上述实现的提交重新构建 Bundle/manifest/镜像，建立新的正式目录和 receipt，再执行 formal 与 Verify Evidence；旧候选 `701e4ff...` 的 preflight 不能复用于新工具，也不能把本次 preflight 或 runtime gate 改称阶段完成。当前已知 V04/V05/V06/V08/V11/V12 的精确故障/恢复控制仍会在 driver 中如实形成 `infrastructure_failure`，除非先按合同补齐其受控 fixture/恢复接线。
+- 下一步必须从包含上述实现的提交重新构建 Bundle/manifest/镜像，建立新的正式目录和 receipt，再执行 formal 与 Verify Evidence；旧候选 `701e4ff...` 的 preflight 不能复用于新工具，也不能把本次 preflight 或 runtime gate 改称阶段完成。此前记录的 V04/V05/V06/V08/V11/V12 控制缺口已在本轮源码中补齐，仍需新候选实际运行验证。
+
+## 本轮补强实现（2026-10-13）
+
+- V03 新增 acceptance 私网 MySQL packet proxy。`commit-result` 模式只丢真实成功 `COMMIT` 返回包并关闭该业务数据库连接；既有 HTTP response-loss 子项仍独立运行。回执同时记录上游 effect、丢包、断连、重试和 MySQL 最小持久事实，未把 HTTP 丢响应当作 COMMIT 结果证明。
+- V04/V06 新增 raw AMQP 0-9-1 proxy。发布侧解析真实 Basic.Publish 内容和 publisher confirm，消费侧解析指定 Search Indexer 队列的 Basic.Deliver、完成后的 Basic.Ack、连接断开和 redelivery；只对指定事件丢一次 confirm/ack，恢复后核对稳定 event_id 和唯一完成。
+- V05 新增 ES HTTP effect proxy 与 MySQL completion-write 控制。两个子项在 effect/响应丢失后立即停止 Indexer，分别核对投影存在、完成记录不存在，再移除代理并重投；第二个子项单独阻断完成 INSERT 的成功响应。
+- V08 将 `BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS` 接入 Backend、Worker、Indexer、Reindex 和 runtime contract，默认保持 `10000`，formal profile 设为 `8`，由八个真实创建请求占满后检查第九个 503 和真实计数释放；配置、默认值、边界和 Repository limit 均有单测。
+- V11 通过已有 lifecycle drained backup、空 owned restore target 和 `search-reindex` hand-off，补充新 epoch、旧 epoch admission rejection、新 alias generation，以及旧事件在新 epoch 中无 completion row 的独立 SQL fence。V12 启动真实 stage/fact polling 子任务，取消后写入私有 canceled child receipt 并删除其归属临时资源；receipt verifier 校验子回执 hash、身份、时序和私有权限。
+- 本轮自测已通过 `cd acceptance && go test ./...`、Backend 受影响包测试和 `make check-compose`；formal V01～V12 尚未绑定新 Bundle 执行，旧候选 receipt 不适用于本轮源码/合同变更，阶段仍未完成。
