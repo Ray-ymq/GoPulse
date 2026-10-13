@@ -2,7 +2,7 @@
 # - RAY_GITHUB_TOKEN must contain a fine-grained token owned by
 #   Ray-ymq with Contents and Pull requests read/write access to this repository.
 # - The push quality gates are authoritative; PR mutations fail closed unless the
-#   configured token authenticates as Ray-ymq.
+#   pusher, rerun actor, PR author, and configured token all belong to Ray-ymq.
 
 name: Auto PR and Merge
 
@@ -12,8 +12,7 @@ on:
       - main
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: auto-pr-merge-${{ github.ref }}
@@ -28,10 +27,10 @@ jobs:
     uses: ./.github/workflows/quality-gates.yml
     with:
       base_ref: origin/main
-      run_product_checks: ${{ github.ref_name != 'update' }}
+      run_product_checks: true
 
   open-and-merge:
-    if: github.actor == 'Ray-ymq' && needs.quality-gates.result == 'success'
+    if: github.actor_id == '195848614' && github.actor == 'Ray-ymq' && github.triggering_actor == 'Ray-ymq' && needs.quality-gates.result == 'success'
     needs: quality-gates
     name: Open PR and merge
     runs-on: ubuntu-latest
@@ -49,6 +48,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [[ "$GITHUB_ACTOR_ID" != '195848614' || "$GITHUB_ACTOR" != 'Ray-ymq' || "$GITHUB_TRIGGERING_ACTOR" != 'Ray-ymq' ]]; then
+            echo 'Only Ray-ymq may initiate or rerun automatic PR mutations.' >&2
+            exit 1
+          fi
+
           if [[ -z "$GH_TOKEN" ]]; then
             echo 'RAY_GITHUB_TOKEN is not configured.' >&2
             exit 1
@@ -57,6 +61,12 @@ jobs:
           login="$(gh api user --jq '.login')"
           if [[ "$login" != 'Ray-ymq' ]]; then
             printf 'RAY_GITHUB_TOKEN must authenticate as Ray-ymq; got %s.\n' "$login" >&2
+            exit 1
+          fi
+
+          user_id="$(gh api user --jq '.id')"
+          if [[ "$user_id" != '195848614' ]]; then
+            echo 'RAY_GITHUB_TOKEN must belong to the configured Ray-ymq account ID.' >&2
             exit 1
           fi
 
@@ -104,7 +114,7 @@ jobs:
             )"
             body="$(
               printf '%s\n\n- Source: `%s`\n- Target: `%s`\n- Commit: `%s`\n- Quality gates: %s/%s/actions/runs/%s\n' \
-                'Automatically created after the branch passed its authoritative push quality gates. The update branch runs governance checks only; development branches run the complete product quality suite.' \
+                'Automatically created for Ray-ymq after the branch passed its authoritative push quality gates. All branches select product checks from their changed files; documentation-only changes skip product checks.' \
                 "$HEAD_BRANCH" \
                 "$BASE_BRANCH" \
                 "$HEAD_SHA" \
@@ -147,6 +157,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          pr="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}")"
+          if ! jq -e \
+            --arg repository "$GH_REPO" \
+            --arg head "$HEAD_BRANCH" \
+            --arg base "$BASE_BRANCH" \
+            --arg revision "$HEAD_SHA" \
+            '.user.login == "Ray-ymq" and .user.id == 195848614
+             and .state == "open" and .draft == false
+             and .head.repo.full_name == $repository and .head.ref == $head and .head.sha == $revision
+             and .base.repo.full_name == $repository and .base.ref == $base' \
+            >/dev/null <<<"$pr"; then
+            echo 'Automatic merge requires a non-draft Ray-ymq PR with the verified repository, branches, and head revision.' >&2
+            exit 1
+          fi
 
           if [[ "$HEAD_BRANCH" == "update" ]]; then
             merge_strategy="merge"

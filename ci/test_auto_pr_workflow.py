@@ -40,11 +40,12 @@ class AutoPRWorkflowTest(unittest.TestCase):
         self.assertIn("login=\"$(gh api user --jq '.login')\"", workflow)
         self.assertIn("if [[ \"$login\" != 'Ray-ymq' ]]", workflow)
 
-    def test_update_push_runs_governance_only(self):
+    def test_all_branches_use_changed_file_product_selection(self):
         caller = Path(".github/workflows/auto-pr-merge.yml").read_text(encoding="utf-8")
         gates = Path(".github/workflows/quality-gates.yml").read_text(encoding="utf-8")
 
-        self.assertIn("run_product_checks: ${{ github.ref_name != 'update' }}", caller)
+        self.assertIn("run_product_checks: true", caller)
+        self.assertNotIn("github.ref_name != 'update'", caller)
         self.assertIn("run_product_checks:", gates)
         self.assertIn("default: true", gates)
         self.assertEqual(gates.count("if: inputs.run_product_checks"), 10)
