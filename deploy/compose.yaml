@@ -830,6 +830,7 @@ services:
         condition: service_healthy
     networks:
       - edge
+      - business
 
   kafka:
     image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}

@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -21,15 +20,14 @@ const (
 )
 
 type dependencyControl struct {
-	runner      *formalV1Runner
-	container   string
-	network     string
-	upstreamID  string
-	service     string
-	services    []string
-	controlURL  string
-	controlPort int
-	restored    bool
+	runner     *formalV1Runner
+	container  string
+	network    string
+	upstreamID string
+	service    string
+	services   []string
+	controlURL string
+	restored   bool
 }
 
 func (runner *formalV1Runner) startMySQLControl(mode string, services ...string) (*dependencyControl, error) {
@@ -57,12 +55,12 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if err != nil {
 		return nil, err
 	}
-	controlPortNumber, err := v1FreePort()
-	if err != nil {
-		return nil, err
-	}
 	container := fmt.Sprintf("%s-fault-%s-%s", runner.session.Project, service, runner.session.Token[:8])
-	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...), controlPort: controlPortNumber, controlURL: "http://127.0.0.1:" + strconv.Itoa(controlPortNumber)}
+	// The formal runner lives in the acceptance container, which is attached to
+	// the private business network by the acceptance Compose profile. Use the
+	// control container's service alias instead of publishing a host-loopback
+	// port that is unreachable from that container.
+	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...), controlURL: "http://" + service + ":" + controlPort}
 	ready := false
 	rewired := false
 	defer func() {
@@ -86,7 +84,6 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 		"--label", "io.gopulse.acceptance.project=" + runner.session.Project,
 		"--label", "io.gopulse.acceptance.owner=v1-fault-control",
 		"--network", network, "--network-alias", service,
-		"--publish", "127.0.0.1:" + strconv.Itoa(controlPortNumber) + ":" + controlPort,
 		"--volume", binaryPath + ":/usr/local/bin/gopulse-fault-control:ro",
 		"--entrypoint", "/usr/local/bin/gopulse-fault-control", image,
 		"--listen", "0.0.0.0:" + dataPort,
