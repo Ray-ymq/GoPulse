@@ -6,11 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 const prefix = "io.gopulse.lifecycle."
+const lifecyclePlatform = "linux/amd64"
+
+var immutableImageReference = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
 
 func (c *Controller) labels(resource string) map[string]string {
 	return map[string]string{prefix + "installation": c.state.Token, prefix + "manifest": c.manifestHash, prefix + "resource": resource}
@@ -46,12 +50,12 @@ func (c *Controller) prepare() error {
 		if !ok {
 			return fail(ManifestError, "compose", "service image missing from manifest: "+name)
 		}
-		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms["linux/amd64"]
+		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms[lifecyclePlatform]
 		if s["image"] != image.Ref && s["image"] != ref {
 			return fail(ManifestError, "compose", "service image must match manifest: "+name)
 		}
 		s["image"] = ref
-		s["platform"] = "linux/amd64"
+		s["platform"] = lifecyclePlatform
 		s["pull_policy"] = "never"
 		labels := map[string]any{}
 		switch existing := s["labels"].(type) {
@@ -404,8 +408,6 @@ func (c *Controller) logs(service string, tail int, since, until string) (string
 }
 
 func (c *Controller) pull() error {
-	// Docker verifies content-addressed pulls. Every service uses the selected
-	// platform digest, never tags or mutable defaults.
 	seen := map[string]bool{}
 	for _, name := range sortedKeys(c.services) {
 		s := c.services[name].(map[string]any)
@@ -414,9 +416,76 @@ func (c *Controller) pull() error {
 			continue
 		}
 		seen[ref] = true
-		if _, e := c.docker("pull", "--platform", "linux/amd64", ref); e != nil {
+		local, e := c.localImage(ref)
+		if e != nil {
+			return e
+		}
+		if local {
+			continue
+		}
+		if _, e := c.docker("pull", "--platform", lifecyclePlatform, ref); e != nil {
 			return fail(ManifestError, "pull", "cannot pull manifest digest for "+name)
+		}
+		local, e = c.localImage(ref)
+		if e != nil {
+			return e
+		}
+		if !local {
+			return fail(ManifestError, "pull", "pulled image is not available at the requested digest for "+name)
 		}
 	}
 	return nil
+}
+
+type localImageMetadata struct {
+	OS           string   `json:"Os"`
+	Architecture string   `json:"Architecture"`
+	RepoDigests  []string `json:"RepoDigests"`
+}
+
+// localImage accepts only the exact platform digest the Compose document will
+// use. A failed inspect is a cache miss only when Docker explicitly says that
+// the image is absent; daemon failures and invalid metadata remain failures.
+func (c *Controller) localImage(ref string) (bool, error) {
+	if !immutableImageReference.MatchString(ref) {
+		return false, fail(ManifestError, "pull", "service image must use an immutable digest: "+ref)
+	}
+	b, e := c.docker("image", "inspect", "--platform", lifecyclePlatform, "--format", "{{json .}}", ref)
+	if e != nil {
+		if isMissingImage(e) {
+			return false, nil
+		}
+		return false, fail(Daemon, "pull", "cannot inspect local image")
+	}
+	var image localImageMetadata
+	if json.Unmarshal(b, &image) != nil || image.OS == "" || image.Architecture == "" {
+		return false, fail(ManifestError, "pull", "invalid local image metadata")
+	}
+	if image.OS+"/"+image.Architecture != lifecyclePlatform {
+		return false, fail(ManifestError, "pull", "local image platform does not match linux/amd64")
+	}
+	for _, digest := range image.RepoDigests {
+		if sameImageDigest(ref, digest) {
+			return true, nil
+		}
+	}
+	return false, fail(ManifestError, "pull", "local image digest does not match manifest")
+}
+
+func sameImageDigest(expected, actual string) bool {
+	expectedRepository, expectedDigest, expectedOK := canonicalImageDigest(expected)
+	actualRepository, actualDigest, actualOK := canonicalImageDigest(actual)
+	return expectedOK && actualOK && expectedRepository == actualRepository && expectedDigest == actualDigest
+}
+
+func canonicalImageDigest(ref string) (string, string, bool) {
+	if !immutableImageReference.MatchString(ref) {
+		return "", "", false
+	}
+	at := strings.LastIndex(ref, "@sha256:")
+	repository := ref[:at]
+	if colon := strings.LastIndex(repository, ":"); colon > strings.LastIndex(repository, "/") {
+		repository = repository[:colon]
+	}
+	return repository, ref[at+1:], true
 }

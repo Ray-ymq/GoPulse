@@ -61,6 +61,17 @@ type Controller struct {
 	services              map[string]any
 }
 
+type dockerFailure struct {
+	cause  error
+	stderr string
+}
+
+func (e *dockerFailure) Error() string {
+	return "Docker operation failed; inspect scoped status/logs (raw diagnostics suppressed)"
+}
+
+func (e *dockerFailure) Unwrap() error { return e.cause }
+
 func (c *Controller) docker(args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(c.ctx, "docker", append([]string{"--host", c.endpoint}, args...)...)
 	isolate(cmd)
@@ -69,9 +80,22 @@ func (c *Controller) docker(args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	b, e := cmd.Output()
 	if e != nil {
-		return nil, errors.New("Docker operation failed; inspect scoped status/logs (raw diagnostics suppressed)")
+		return nil, &dockerFailure{cause: e, stderr: stderr.String()}
 	}
 	return b, nil
+}
+
+func isMissingImage(err error) bool {
+	var failure *dockerFailure
+	if !errors.As(err, &failure) {
+		return false
+	}
+	var exit *exec.ExitError
+	if !errors.As(failure.cause, &exit) || exit.ExitCode() != 1 {
+		return false
+	}
+	detail := strings.ToLower(strings.TrimSpace(failure.stderr))
+	return strings.Contains(detail, "no such image") || strings.Contains(detail, "no such object") || strings.Contains(detail, "unable to find image")
 }
 
 // Kill the entire Docker/Compose process group on cancellation before releasing

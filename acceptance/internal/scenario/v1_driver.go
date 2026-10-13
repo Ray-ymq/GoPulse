@@ -474,7 +474,7 @@ func (runner *formalV1Runner) privateComponentMetrics(service, port, token strin
 	if err != nil {
 		return "", err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
 	if err != nil {
 		return "", err
@@ -985,38 +985,6 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 		return itemAsFailed(item, "product_failure", "ES effect and completion persistence gaps did not leave the required projection-before-record evidence"), errors.New("V05 effect/completion gap invariant did not hold")
 	}
 	return item, nil
-}
-
-func (runner *formalV1Runner) runBoundary(caseID, service, action, missing string) (receipt.V1Case, error) {
-	started := time.Now().UTC()
-	services := []string{service}
-	if service == "search-indexer" {
-		services = []string{"search-indexer", "search-indexer-2"}
-	}
-	stopArgs := append([]string{"stop"}, services...)
-	if err := runner.compose(stopArgs...); err != nil {
-		identity := receipt.V1Identity{DataEpoch: runner.commandEpoch}
-		return runner.failedCase(caseID, identity, started, "stop "+service+": "+err.Error(), false, nil, 0, 0), err
-	}
-	meta, result, createErr := runner.createPrimary(caseID)
-	upArgs := append([]string{"up", "--detach", "--wait", "--wait-timeout", "420"}, services...)
-	recoverErr := runner.compose(upArgs...)
-	stageOK, logsOK := runner.waitStage(meta, true, v1RecoveryWait)
-	facts, factsErr := runner.facts(meta)
-	item := runner.completedCase(caseID, result.Meta, started, action, stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "applications", Value: facts.Applications}, {Name: "broker_published", Value: facts.BrokerPublished}}, 0, int64(time.Since(started)/time.Second))
-	if createErr != nil {
-		return itemAsFailed(item, "infrastructure_failure", createErr.Error()), createErr
-	}
-	if recoverErr != nil {
-		return itemAsFailed(item, "infrastructure_failure", "service recovery failed: "+recoverErr.Error()), recoverErr
-	}
-	if factsErr != nil {
-		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
-	}
-	if !stageOK {
-		return itemAsFailed(item, "product_failure", "search completion did not recover after service returned"), errors.New("service boundary recovery failed")
-	}
-	return itemAsFailed(item, "infrastructure_failure", missing), errors.New(missing)
 }
 
 func (runner *formalV1Runner) runV06() (receipt.V1Case, error) {

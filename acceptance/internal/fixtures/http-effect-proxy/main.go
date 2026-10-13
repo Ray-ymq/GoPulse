@@ -67,13 +67,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	controlListener, err := net.Listen("tcp", *control)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer controlListener.Close()
+	defer func() { _ = controlListener.Close() }()
 	go func() { _ = controlServer.Serve(controlListener) }()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -125,7 +125,7 @@ func proxyHandler(target *url.URL, state *store) http.Handler {
 			http.Error(writer, "upstream unavailable", http.StatusBadGateway)
 			return
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		payload, readErr := io.ReadAll(io.LimitReader(response.Body, 8<<20+1))
 		if readErr != nil || len(payload) > 8<<20 {
 			http.Error(writer, "response rejected", http.StatusBadGateway)
