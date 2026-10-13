@@ -125,6 +125,20 @@ func TestStartDependencyControlFailurePreservesContainerDiagnostics(t *testing.T
 	if got := readFaultControlLog(t, logPath); !strings.Contains(got, "rm -f") {
 		t.Fatalf("created container was not owned-cleaned: %s", got)
 	}
+	got := readFaultControlLog(t, logPath)
+	controlNetwork := session.Project + "-fault-control-mysql-" + session.Token[:8]
+	if !faultControlLogHasCommand(got, "network create --label io.gopulse.acceptance.project="+session.Project+" --label io.gopulse.acceptance.owner=v1-fault-control "+controlNetwork) {
+		t.Fatalf("owned external control network was not created: %s", got)
+	}
+	if !faultControlLogHasCommand(got, "network connect --alias mysql test-network") {
+		t.Fatalf("fault proxy was not attached to the private business network: %s", got)
+	}
+	if !strings.Contains(got, "--network "+controlNetwork+" --publish 127.0.0.1::19125") {
+		t.Fatalf("fault proxy was not created on the external control network: %s", got)
+	}
+	if !faultControlLogHasCommand(got, "network rm "+controlNetwork) {
+		t.Fatalf("owned external control network was not removed: %s", got)
+	}
 }
 
 func TestStartDependencyControlFailureSkipsDiagnosticsForUncreatedContainer(t *testing.T) {
