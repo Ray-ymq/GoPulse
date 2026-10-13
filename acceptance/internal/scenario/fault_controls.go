@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -47,9 +48,6 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if err != nil {
 		return nil, err
 	}
-	if err := runner.ensureRunnerOnBusinessNetwork(network); err != nil {
-		return nil, err
-	}
 	upstreamID, err := runner.containerID(service)
 	if err != nil {
 		return nil, err
@@ -59,11 +57,12 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 		return nil, err
 	}
 	container := fmt.Sprintf("%s-fault-%s-%s", runner.session.Project, service, runner.session.Token[:8])
-	// The formal runner lives in the acceptance container, which is attached to
-	// the private business network by the acceptance Compose profile. Use the
-	// control container's DNS name instead of publishing a host-loopback port
-	// that is unreachable from that container.
-	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...), controlURL: "http://" + container + ":" + controlPort}
+	// The native acceptance runner executes on the host, while the proxy must
+	// remain on the private business network to reach the rewired dependency.
+	// Publish only the control listener on a Docker-assigned loopback port; the
+	// data listener stays private and is reached by the application through the
+	// service alias.
+	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...)}
 	ready := false
 	rewired := false
 	defer func() {
@@ -87,6 +86,7 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 		"--label", "io.gopulse.acceptance.project=" + runner.session.Project,
 		"--label", "io.gopulse.acceptance.owner=v1-fault-control",
 		"--network", network, "--network-alias", service,
+		"--publish", "127.0.0.1::" + controlPort,
 		"--volume", binaryPath + ":/usr/local/bin/gopulse-fault-control:ro",
 		"--entrypoint", "/usr/local/bin/gopulse-fault-control", image,
 		"--listen", "0.0.0.0:" + dataPort,
@@ -97,6 +97,11 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if result := runner.session.Run("docker", args...); result.ExitCode != 0 {
 		return nil, fmt.Errorf("create %s protocol control failed with exit code %d", service, result.ExitCode)
 	}
+	controlPortNumber, err := publishedControlPort(runner, container, controlPort)
+	if err != nil {
+		return nil, err
+	}
+	control.controlURL = "http://127.0.0.1:" + strconv.Itoa(controlPortNumber)
 	if result := runner.session.Run("docker", "start", container); result.ExitCode != 0 {
 		return nil, fmt.Errorf("start %s protocol control failed with exit code %d", service, result.ExitCode)
 	}
@@ -113,23 +118,27 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	return control, nil
 }
 
-func (runner *formalV1Runner) ensureRunnerOnBusinessNetwork(network string) error {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return fmt.Errorf("find acceptance runner container: %w", err)
-	}
-	inspect := runner.session.Run("docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", hostname)
+func publishedControlPort(runner *formalV1Runner, container, controlPort string) (int, error) {
+	inspect := runner.session.Run("docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", container)
 	if inspect.ExitCode != 0 {
-		return fmt.Errorf("inspect acceptance runner network failed with exit code %d", inspect.ExitCode)
+		return 0, fmt.Errorf("inspect %s control port failed with exit code %d", container, inspect.ExitCode)
 	}
-	if strings.Contains(inspect.Stdout, `"`+network+`"`) {
-		return nil
+	var ports map[string][]struct {
+		HostIP   string `json:"HostIp"`
+		HostPort string `json:"HostPort"`
 	}
-	connect := runner.session.Run("docker", "network", "connect", network, hostname)
-	if connect.ExitCode == 0 {
-		return nil
+	if err := json.Unmarshal([]byte(strings.TrimSpace(inspect.Stdout)), &ports); err != nil {
+		return 0, fmt.Errorf("decode %s control port mapping: %w", container, err)
 	}
-	return fmt.Errorf("connect acceptance runner to business network failed with exit code %d", connect.ExitCode)
+	bindings := ports[controlPort+"/tcp"]
+	if len(bindings) != 1 || bindings[0].HostPort == "" {
+		return 0, fmt.Errorf("%s control port was not published", container)
+	}
+	port, err := strconv.Atoi(bindings[0].HostPort)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("invalid %s control port %q", container, bindings[0].HostPort)
+	}
+	return port, nil
 }
 
 func (runner *formalV1Runner) businessNetwork() (string, error) {
