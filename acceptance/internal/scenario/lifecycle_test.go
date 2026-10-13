@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+func TestLocalImageValidationFlagsPinLocalDigestChecks(t *testing.T) {
+	got := localImageValidationFlags("18080")
+	want := []string{"--local-images", "--port", "18080"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("local image validation flags = %#v, want %#v", got, want)
+	}
+}
+
 func TestDirectArgsLowDiskUsesToolIdentity(t *testing.T) {
 	got := directArgs(1000, 1001, "989", "/bundle", "/install", true)
 	want := []string{
