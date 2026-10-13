@@ -10,12 +10,13 @@ import (
 )
 
 type SearchIndexerConfig struct {
-	MySQL         MySQLConfig
-	RabbitMQURL   string
-	Elasticsearch ElasticsearchConfig
-	Worker        BusinessWorkerConfig
-	LogShip       LogShipConfig
-	Trace         TraceConfig
+	MySQL                            MySQLConfig
+	RabbitMQURL                      string
+	Elasticsearch                    ElasticsearchConfig
+	Worker                           BusinessWorkerConfig
+	LogShip                          LogShipConfig
+	Trace                            TraceConfig
+	BusinessAsyncMaxOpenRequirements uint64
 }
 
 func LoadSearchIndexer() (SearchIndexerConfig, error) {
@@ -115,6 +116,10 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if err != nil {
 		return SearchIndexerConfig{}, err
 	}
+	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
+	if err != nil {
+		return SearchIndexerConfig{}, err
+	}
 	return SearchIndexerConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -126,11 +131,12 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 			MaxIdleConns:    maxIdleConns,
 			ConnMaxLifetime: connMaxLifetime,
 		},
-		RabbitMQURL:   rabbitMQURL,
-		Elasticsearch: elasticsearch,
-		LogShip:       logShip,
-		Trace:         traceConfig,
-		Worker:        BusinessWorkerConfig{Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay, PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout, ReconnectMinimum: reconnectMinimum, ReconnectMaximum: reconnectMaximum},
+		RabbitMQURL:                      rabbitMQURL,
+		Elasticsearch:                    elasticsearch,
+		LogShip:                          logShip,
+		Trace:                            traceConfig,
+		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
+		Worker:                           BusinessWorkerConfig{Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay, PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout, ReconnectMinimum: reconnectMinimum, ReconnectMaximum: reconnectMaximum},
 	}, nil
 }
 

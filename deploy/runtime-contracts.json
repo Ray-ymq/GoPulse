@@ -285,6 +285,15 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
           "type": "string",
           "sensitive": true,
@@ -920,6 +929,15 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_WORKER_MAX_RETRIES",
           "type": "integer",
           "sensitive": false,
@@ -1494,6 +1512,15 @@
           "required": true,
           "default": null,
           "compose_value": "amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
           "aliases": []
         },
         {
@@ -4055,6 +4082,15 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_STAGE_ENDPOINTS",
           "type": "string",
           "sensitive": false,
@@ -4580,6 +4616,11 @@
     {
       "key": "BACKEND_VICTORIAMETRICS_USERNAME",
       "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+      "type": "integer",
       "sensitive": false
     },
     {

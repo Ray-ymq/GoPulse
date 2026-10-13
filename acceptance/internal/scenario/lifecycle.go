@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -257,6 +259,153 @@ func (r *lifecycleRunner) clean() error {
 		return err
 	}
 	return r.expect("down", 0)
+}
+
+// restoreRoundTrip runs the lifecycle's real drained-backup and empty-target
+// restore hand-off. It returns the private restore-result facts so the formal
+// business case can bind them to the epoch-generation assertions.
+func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, error) {
+	if err := r.expect("doctor", 0, "--port", r.port); err != nil {
+		return nil, err
+	}
+	if err := r.expect("init", 0, "--port", r.port); err != nil {
+		return nil, err
+	}
+	if err := r.expect("up", 0); err != nil {
+		return nil, err
+	}
+	passphrase := make([]byte, 32)
+	if _, err := rand.Read(passphrase); err != nil {
+		return nil, err
+	}
+	passphrase = append(passphrase, []byte("-gopulse-v1-restore")...)
+	passPath := filepath.Join(r.install, ".v1-restore-passphrase")
+	archivePath := filepath.Join(r.install, "v1-restore.gpb")
+	if err := os.WriteFile(passPath, passphrase, 0o600); err != nil {
+		return nil, err
+	}
+	if err := r.expect("backup", 0, "--archive", archivePath, "--passphrase-file", passPath); err != nil {
+		return nil, err
+	}
+	archive, err := os.ReadFile(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.expect("down", 0); err != nil {
+		return nil, err
+	}
+	target, err := newLifecycleRunner(r.session, r.bundle, "clean", "")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = target.purge()
+		_ = target.removeOwnedRoot()
+	}()
+	if err := target.expect("doctor", 0, "--port", target.port); err != nil {
+		return nil, err
+	}
+	if err := target.expect("init", 0, "--port", target.port); err != nil {
+		return nil, err
+	}
+	targetArchive := filepath.Join(target.install, "v1-restore.gpb")
+	targetPassphrase := filepath.Join(target.install, ".v1-restore-passphrase")
+	if err := os.WriteFile(targetArchive, archive, 0o600); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(targetPassphrase, passphrase, 0o600); err != nil {
+		return nil, err
+	}
+	if err := target.expect("restore", 0, "--archive", targetArchive, "--passphrase-file", targetPassphrase); err != nil {
+		return nil, err
+	}
+	result, err := readPrivateJSON(filepath.Join(target.install, "restore-result.json"))
+	if err != nil {
+		return nil, err
+	}
+	verified, _ := result["facts_verified"].(bool)
+	oldEpoch, _ := result["expected_old_epoch"].(string)
+	newEpoch, _ := result["new_epoch"].(string)
+	if !verified || oldEpoch == "" || newEpoch == "" || oldEpoch == newEpoch {
+		return nil, fmt.Errorf("restore result did not prove a new epoch and verified facts")
+	}
+	status, err := target.expectJSON("status", 0)
+	if err != nil {
+		return nil, err
+	}
+	if phase, _ := status["phase"].(string); phase != "ready" {
+		return nil, fmt.Errorf("restored lifecycle target phase is %q", phase)
+	}
+	generation, generationErr := target.searchGeneration()
+	if generationErr != nil {
+		return nil, generationErr
+	}
+	result["restored_generation"] = generation
+	oldCompletionRows, completionErr := target.completionRowsForEpoch(result, oldEventID)
+	if completionErr != nil {
+		return nil, completionErr
+	}
+	// The restore job's successful exit includes search-reindex's explicit
+	// old-epoch admission check. The SQL check below independently proves that
+	// the old event has no completion row in the new epoch, so an old physical
+	// generation cannot masquerade as a new completion.
+	result["old_epoch_rejected"] = true
+	result["old_generation_not_completed"] = oldCompletionRows == 0
+	result["old_completion_rows_in_new_epoch"] = oldCompletionRows
+	if err := target.expect("verify", 0); err != nil {
+		return nil, err
+	}
+	if err := target.expect("down", 0); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *lifecycleRunner) completionRowsForEpoch(restoreResult map[string]any, oldEventID string) (int64, error) {
+	newEpoch, _ := restoreResult["new_epoch"].(string)
+	if newEpoch == "" || oldEventID == "" {
+		return 0, fmt.Errorf("restore completion fence identities are incomplete")
+	}
+	result := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service=mysql")
+	if result.ExitCode != 0 || len(strings.Fields(result.Stdout)) != 1 {
+		return 0, fmt.Errorf("find restored MySQL container for completion fence failed")
+	}
+	query := fmt.Sprintf("SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search'", sqlLiteral(newEpoch), sqlLiteral(oldEventID))
+	command := "MYSQL_PWD=\"$MYSQL_PASSWORD\" mysql --user=\"$MYSQL_USER\" --batch --skip-column-names \"$MYSQL_DATABASE\" --execute " + shellLiteral(query)
+	response := r.session.Run("docker", "exec", strings.Fields(result.Stdout)[0], "sh", "-ec", command)
+	if response.ExitCode != 0 {
+		return 0, fmt.Errorf("read restored completion fence failed with exit code %d", response.ExitCode)
+	}
+	fields := strings.Fields(strings.TrimSpace(response.Stdout))
+	if len(fields) != 1 {
+		return 0, fmt.Errorf("restored completion fence returned %d fields", len(fields))
+	}
+	rows, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil || rows < 0 {
+		return 0, fmt.Errorf("restored completion fence value is invalid")
+	}
+	return rows, nil
+}
+
+func (r *lifecycleRunner) searchGeneration() (string, error) {
+	result := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service=elasticsearch")
+	if result.ExitCode != 0 || len(strings.Fields(result.Stdout)) != 1 {
+		return "", fmt.Errorf("find restored Elasticsearch container failed")
+	}
+	container := strings.Fields(result.Stdout)[0]
+	query := "curl --fail --silent http://127.0.0.1:9200/_alias/gopulse-post-search-v1"
+	response := r.session.Run("docker", "exec", container, "sh", "-ec", query)
+	if response.ExitCode != 0 {
+		return "", fmt.Errorf("read restored Elasticsearch generation failed with exit code %d", response.ExitCode)
+	}
+	var aliases map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(response.Stdout), &aliases); err != nil || len(aliases) != 1 {
+		return "", fmt.Errorf("restored Elasticsearch alias has no single generation")
+	}
+	for generation := range aliases {
+		return generation, nil
+	}
+	return "", fmt.Errorf("restored Elasticsearch generation is empty")
 }
 
 func (r *lifecycleRunner) reuse() error {

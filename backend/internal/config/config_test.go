@@ -15,6 +15,9 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.AppEnv != "development" {
 		t.Fatalf("AppEnv = %q, want development", cfg.AppEnv)
 	}
+	if cfg.BusinessAsyncMaxOpenRequirements != 10000 {
+		t.Fatalf("BusinessAsyncMaxOpenRequirements = %d, want 10000", cfg.BusinessAsyncMaxOpenRequirements)
+	}
 	if cfg.InstanceID != "backend-local" || cfg.ReplicaCount != 1 || cfg.HTTPMaxConcurrency != 128 {
 		t.Fatalf("instance/concurrency config = %#v/%d/%d", cfg.InstanceID, cfg.ReplicaCount, cfg.HTTPMaxConcurrency)
 	}
@@ -153,6 +156,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["BACKEND_VICTORIAMETRICS_USERNAME"] = "metrics-reader"
 	env["BACKEND_VICTORIAMETRICS_PASSWORD"] = "metrics-reader-password-at-least-32-bytes"
 	env["BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT"] = "4s"
+	env["BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS"] = "8"
 
 	cfg, err := LoadFrom(mapLookup(env))
 	if err != nil {
@@ -161,6 +165,9 @@ func TestLoadFromOverrides(t *testing.T) {
 
 	if cfg.RuntimeMode != RuntimeModeContainer || cfg.AppEnv != "test" || cfg.HTTPAddress() != "0.0.0.0:18080" || cfg.InstanceID != "backend-2" || cfg.ReplicaCount != 2 || cfg.HTTPMaxConcurrency != 64 {
 		t.Fatalf("unexpected application config: %#v", cfg)
+	}
+	if cfg.BusinessAsyncMaxOpenRequirements != 8 {
+		t.Fatalf("BusinessAsyncMaxOpenRequirements = %d, want 8", cfg.BusinessAsyncMaxOpenRequirements)
 	}
 	if cfg.MySQL.Host != "mysql" || cfg.MySQL.Port != 13306 {
 		t.Fatalf("unexpected MySQL config: %#v", cfg.MySQL)
@@ -188,6 +195,19 @@ func TestLoadFromOverrides(t *testing.T) {
 		cfg.Outbox.RetryDelay != 2*time.Minute || cfg.Outbox.CleanupInterval != 30*time.Minute ||
 		cfg.Outbox.Retention != 720*time.Hour || cfg.Outbox.CleanupBatch != 750 {
 		t.Fatalf("unexpected Outbox config: %#v", cfg.Outbox)
+	}
+}
+
+func TestLoadFromRejectsInvalidBusinessAsyncRequirementLimit(t *testing.T) {
+	for _, value := range []string{"not-an-int", "0", "10001"} {
+		t.Run(value, func(t *testing.T) {
+			env := requiredEnvironment()
+			env["BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS"] = value
+			_, err := LoadFrom(mapLookup(env))
+			if err == nil || !strings.Contains(err.Error(), "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS") {
+				t.Fatalf("LoadFrom() error = %v, want business async limit error", err)
+			}
+		})
 	}
 }
 

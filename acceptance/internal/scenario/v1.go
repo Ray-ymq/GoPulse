@@ -247,7 +247,7 @@ func verifyV1Evidence(root, manifestPath, receiptPath, publicationPath string) e
 }
 
 func newV1Evidence(candidate receipt.CandidateIdentity, mode string, budget time.Duration, rawDirectory string) receipt.V1Evidence {
-	ids := []string{"GOPULSE_ACCEPTANCE_BUDGET", "GOPULSE_OBSERVABILITY_ADMIN_USERNAME", "GOPULSE_OBSERVABILITY_PASSWORD", "GOPULSE_OBSERVABILITY_USER_USERNAME", "GOPULSE_V1_CASE_EVIDENCE", "GOPULSE_V1_CASE_ID"}
+	ids := []string{"BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS", "GOPULSE_ACCEPTANCE_BUDGET", "GOPULSE_OBSERVABILITY_ADMIN_USERNAME", "GOPULSE_OBSERVABILITY_PASSWORD", "GOPULSE_OBSERVABILITY_USER_USERNAME", "GOPULSE_V1_CASE_EVIDENCE", "GOPULSE_V1_CASE_ID"}
 	sort.Strings(ids)
 	clients, maxInFlight := 1, 1
 	if mode == receipt.V1ModeFormal {

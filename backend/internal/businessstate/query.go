@@ -365,10 +365,11 @@ func (service *QueryService) readPersistent(ctx context.Context, query StageQuer
 		return persistentStage{}, ErrStageBackend
 	}
 	readAt := now
+	limits := service.repository.BudgetLimits()
 	response := StageResponse{RequestedEpoch: query.DataEpoch, CurrentEpoch: environment.DataEpoch, Evidence: StageEvidence{
 		Command: source(StageSourceCommand, readAt), Broker: source(StageSourceBroker, readAt),
 		Visibility: source(StageSourceVisibility, readAt), Logs: source(StageSourceLogs, readAt), Trace: source(StageSourceTrace, readAt),
-	}, Budget: StageBudget{CurrentOpenLimit: MaximumOpenRequirements, RetainedGroupsLimit: MaximumRetainedGroups, RetainedBytesLimit: MaximumRetainedBytes}}
+	}, Budget: StageBudget{CurrentOpenLimit: limits.OpenRequirements, RetainedGroupsLimit: MaximumRetainedGroups, RetainedBytesLimit: MaximumRetainedBytes}}
 	response.Evidence.Visibility.Quality = StageQualityNotRequested
 	response.Evidence.Logs.Quality = StageQualityNotRequested
 	response.Evidence.Trace.Quality = StageQualityNotRequested
@@ -382,7 +383,7 @@ func (service *QueryService) readPersistent(ctx context.Context, query StageQuer
 	response.Budget.CurrentOpenRequirements = budget.currentOpen
 	response.Budget.RetainedGroups = budget.retainedGroups
 	response.Budget.RetainedBytes = budget.retainedBytes
-	response.Budget.AtEightyPercent = budget.currentOpen*100 >= MaximumOpenRequirements*80 || budget.retainedGroups*100 >= MaximumRetainedGroups*80 || budget.retainedBytes*100 >= MaximumRetainedBytes*80
+	response.Budget.AtEightyPercent = budget.currentOpen*100 >= limits.OpenRequirements*80 || budget.retainedGroups*100 >= MaximumRetainedGroups*80 || budget.retainedBytes*100 >= MaximumRetainedBytes*80
 
 	stage := persistentStage{response: response}
 	command, found, err := service.findCommand(ctx, query)
