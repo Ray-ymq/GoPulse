@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/acceptance/internal/harness"
 	"github.com/Ray-ymq/GoPulse/acceptance/internal/receipt"
@@ -59,6 +61,12 @@ type pinnedManifest struct {
 	SupportedUpgradeSources []string                  `json:"supported_upgrade_sources"`
 }
 
+type candidateImageInspection struct {
+	RepoDigests  []string `json:"RepoDigests"`
+	OS           string   `json:"Os"`
+	Architecture string   `json:"Architecture"`
+}
+
 var (
 	pinnedDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	pinnedRef    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
@@ -66,10 +74,12 @@ var (
 	pinnedRev    = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
+const candidateImageInspectFormat = "{{json .}}"
+
 // configureCandidate validates and exposes the immutable platform references
 // through the same Compose environment variables used by the source stack.
-// Pulling is explicit because the product Compose contract intentionally uses
-// pull_policy=never for local development.
+// Exact local digest images are verified before reuse; missing images are
+// pulled explicitly because Compose uses pull_policy=never.
 func configureCandidate(session *harness.Session, path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -95,15 +105,15 @@ func configureCandidate(session *harness.Session, path string) error {
 		}
 		key := "GOPULSE_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_IMAGE"
 		session.SetValue(key, ref)
-		if result := session.Run("docker", "pull", ref); result.ExitCode != 0 {
-			return fmt.Errorf("pull candidate image %s failed with exit code %d", name, result.ExitCode)
+		if err := ensureCandidateImage(session, name, ref); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 // configurePinnedCandidate is the V1 boundary. It validates the complete
-// release bundle before pulling any image and exposes only linux/amd64 digest
+// release bundle before checking any image and exposes only linux/amd64 digest
 // references to Compose. It intentionally does not fall back to source images.
 func configurePinnedCandidate(session *harness.Session, path string) (receipt.CandidateIdentity, error) {
 	manifest, data, err := readPinnedManifest(path, session.Version, session.Revision)
@@ -128,11 +138,138 @@ func configurePinnedCandidate(session *harness.Session, path string) (receipt.Ca
 		}
 		key := "GOPULSE_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_IMAGE"
 		session.SetValue(key, ref)
-		if result := session.Run("docker", "pull", ref); result.ExitCode != 0 {
-			return receipt.CandidateIdentity{}, fmt.Errorf("pull candidate image %s failed with exit code %d", name, result.ExitCode)
+		if err := ensureCandidateImage(session, name, ref); err != nil {
+			return receipt.CandidateIdentity{}, err
 		}
 	}
 	return identity, nil
+}
+
+// ensureCandidateImage reuses an already available immutable image only after
+// checking its exact digest reference and linux/amd64 platform. A failed first
+// inspect is expected for a missing local image, so the original pull path is
+// retained. The post-pull inspect is mandatory and never falls back to a tag.
+func ensureCandidateImage(session *harness.Session, name, ref string) error {
+	inspection, result, err := inspectCandidateImage(session, ref)
+	if err != nil {
+		return fmt.Errorf("inspect candidate image %s: %w", name, err)
+	}
+	if result.ExitCode == 0 {
+		if !candidateImageInspectionMatches(ref, inspection) {
+			return fmt.Errorf("candidate image %s local inspect is not the exact linux/amd64 image %s", name, ref)
+		}
+		return nil
+	} else if !missingCandidateImage(result) {
+		return fmt.Errorf("inspect candidate image %s failed with exit code %d%s", name, result.ExitCode, commandErrorDetail(result))
+	}
+
+	if pulled := session.Run("docker", "pull", "--platform", "linux/amd64", ref); pulled.ExitCode != 0 {
+		return fmt.Errorf("pull candidate image %s failed with exit code %d", name, pulled.ExitCode)
+	}
+	inspection, result, err = inspectCandidateImage(session, ref)
+	if err != nil {
+		return fmt.Errorf("inspect candidate image %s after pull: %w", name, err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("inspect candidate image %s after pull failed with exit code %d%s", name, result.ExitCode, commandErrorDetail(result))
+	}
+	if !candidateImageInspectionMatches(ref, inspection) {
+		return fmt.Errorf("candidate image %s after pull is not the exact linux/amd64 image %s", name, ref)
+	}
+	return nil
+}
+
+func inspectCandidateImage(session *harness.Session, ref string) (candidateImageInspection, harness.Result, error) {
+	result := runCandidateProbe(session, "docker", "image", "inspect", "--platform", "linux/amd64", "--format", candidateImageInspectFormat, ref)
+	if result.ExitCode != 0 {
+		return candidateImageInspection{}, result, nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(result.Stdout))
+	var inspection candidateImageInspection
+	if err := decoder.Decode(&inspection); err != nil {
+		return candidateImageInspection{}, result, fmt.Errorf("parse Docker image inspect output: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return candidateImageInspection{}, result, errorsf("Docker image inspect returned trailing output")
+		}
+		return candidateImageInspection{}, result, fmt.Errorf("parse Docker image inspect output: %w", err)
+	}
+	return inspection, result, nil
+}
+
+func candidateImageInspectionMatches(ref string, inspection candidateImageInspection) bool {
+	if inspection.OS != "linux" || inspection.Architecture != "amd64" {
+		return false
+	}
+	if len(inspection.RepoDigests) == 0 {
+		return false
+	}
+	expectedRepoDigest := canonicalCandidateRepoDigest(ref)
+	for _, repoDigest := range inspection.RepoDigests {
+		if repoDigest == ref || repoDigest == expectedRepoDigest {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalCandidateRepoDigest(ref string) string {
+	base, digest, found := strings.Cut(ref, "@")
+	if !found {
+		return ref
+	}
+	if slash := strings.LastIndex(base, "/"); strings.LastIndex(base, ":") > slash {
+		base = base[:strings.LastIndex(base, ":")]
+	}
+	return base + "@" + digest
+}
+
+func missingCandidateImage(result harness.Result) bool {
+	if result.ExitCode != 1 {
+		return false
+	}
+	detail := strings.ToLower(strings.TrimSpace(result.Stderr))
+	return strings.Contains(detail, "no such image") || strings.Contains(detail, "no such object") || strings.Contains(detail, "unable to find image")
+}
+
+func commandErrorDetail(result harness.Result) string {
+	detail := strings.TrimSpace(result.Stderr)
+	if detail == "" {
+		return ""
+	}
+	return ": " + detail
+}
+
+// runCandidateProbe records an inspect without treating the expected cache
+// miss as an acceptance failure. Session.Run deliberately marks every
+// non-zero command as failed, which is correct for actions but not for this
+// read-only cache probe.
+func runCandidateProbe(session *harness.Session, name string, args ...string) harness.Result {
+	started := time.Now()
+	command := exec.Command(name, args...)
+	command.Dir = session.Root
+	command.Env = session.Environment()
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	command.Stdout = stdout
+	command.Stderr = stderr
+	err := command.Run()
+	result := harness.Result{Stdout: stdout.String(), Stderr: stderr.String()}
+	if err == nil {
+		result.ExitCode = 0
+	} else if exit, ok := err.(*exec.ExitError); ok {
+		result.ExitCode = exit.ExitCode()
+	} else {
+		result.ExitCode = 1
+		result.Stderr = strings.TrimSpace(result.Stderr + "\n" + err.Error())
+	}
+	session.Commands = append(session.Commands, harness.CommandRecord{
+		Args:       append([]string{name}, args...),
+		ExitCode:   result.ExitCode,
+		DurationMS: time.Since(started).Milliseconds(),
+	})
+	return result
 }
 
 func pinnedCandidateIdentity(path string, manifest pinnedManifest, data []byte) (receipt.CandidateIdentity, error) {

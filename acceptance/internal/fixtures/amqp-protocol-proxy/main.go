@@ -154,13 +154,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	controlListener, err := net.Listen("tcp", *control)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer controlListener.Close()
+	defer func() { _ = controlListener.Close() }()
 	controlServer := &http.Server{Addr: *control, Handler: controlHandler(state), ReadHeaderTimeout: 2 * time.Second}
 	go func() { _ = controlServer.Serve(controlListener) }()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -210,12 +210,12 @@ func controlHandler(state *store) http.Handler {
 }
 
 func proxy(client net.Conn, upstreamAddress, mode string, state *store) {
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	upstream, err := net.DialTimeout("tcp", upstreamAddress, 5*time.Second)
 	if err != nil {
 		return
 	}
-	defer upstream.Close()
+	defer func() { _ = upstream.Close() }()
 	closed := make(chan struct{})
 	var closeOnce sync.Once
 	closeBoth := func() {

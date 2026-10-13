@@ -185,6 +185,7 @@ func TestStartupFailureRetainsNonReadyPhase(t *testing.T) {
 	}
 	fakeDocker(t, `case "$3" in
  ps|network|volume) exit 0;;
+	image) printf '%s' 'Error response from daemon: No such image: cached' >&2; exit 1;;
  pull) exit 1;;
  *) exit 99;;
  esac`)

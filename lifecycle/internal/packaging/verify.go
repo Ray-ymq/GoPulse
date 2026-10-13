@@ -2,6 +2,7 @@ package packaging
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -136,7 +137,7 @@ func runtimeVerify(repo *Repo, m *release.Manifest, path, platform string) error
 	if err != nil {
 		return err
 	}
-	if err := attached("", "docker", "pull", ref); err != nil {
+	if err := ensureRuntimeImage(ref, platform); err != nil {
 		return err
 	}
 	probe, err := output("", "docker", "run", "--rm", "--read-only", "--network", "none", "--cap-drop", "ALL", ref, "version", "--json")
@@ -156,6 +157,88 @@ func runtimeVerify(repo *Repo, m *release.Manifest, path, platform string) error
 	}
 	// The full Compose acceptance runs ONCE against the candidate digests.
 	return runComposeGate(repo, path)
+}
+
+// ensureRuntimeImage reuses an immutable platform image already in the local
+// image store. Only an explicit Docker "no such image" result permits a pull;
+// successful inspection with a mismatched platform or digest is a hard error.
+// A pulled image is inspected again before it can reach the runtime probe.
+func ensureRuntimeImage(ref, platform string) error {
+	matched, err := inspectRuntimeImage(ref, platform)
+	if err != nil {
+		return err
+	}
+	if matched {
+		fmt.Printf("PASS local image: %s\n", ref)
+		return nil
+	}
+	if err := attached("", "docker", "pull", ref); err != nil {
+		return err
+	}
+	matched, err = inspectRuntimeImage(ref, platform)
+	if err != nil {
+		return fmt.Errorf("pulled image verification failed: %w", err)
+	}
+	if !matched {
+		return fmt.Errorf("pulled image %s is still missing", ref)
+	}
+	fmt.Printf("PASS pulled image: %s\n", ref)
+	return nil
+}
+
+// inspectRuntimeImage returns matched=false only for an explicit local image
+// miss. Every other inspect failure, including malformed metadata, is fatal so
+// a bad local image cannot be silently replaced by a pull.
+func inspectRuntimeImage(ref, platform string) (bool, error) {
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("docker", "image", "inspect", "--platform", platform, "--format", "{{json .}}", ref)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		message := strings.ToLower(stderr.String())
+		if strings.Contains(message, "no such image") || strings.Contains(message, "no such object") {
+			return false, nil
+		}
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			return false, fmt.Errorf("cannot inspect local image %s: %w", ref, err)
+		}
+		return false, fmt.Errorf("cannot inspect local image %s: %s", ref, detail)
+	}
+	var image struct {
+		OS           string   `json:"Os"`
+		Architecture string   `json:"Architecture"`
+		RepoDigests  []string `json:"RepoDigests"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &image); err != nil {
+		return false, fmt.Errorf("invalid local image inspection for %s: %w", ref, err)
+	}
+	actualPlatform := image.OS + "/" + image.Architecture
+	if actualPlatform != platform {
+		return false, fmt.Errorf("local image platform mismatch: got %s, want %s", actualPlatform, platform)
+	}
+	want := normalizeRepoDigest(ref)
+	for _, digest := range image.RepoDigests {
+		if normalizeRepoDigest(digest) == want {
+			return true, nil
+		}
+	}
+	return false, fmt.Errorf("local image RepoDigest mismatch: want %s", ref)
+}
+
+// normalizeRepoDigest removes only the tag from a repository reference. The
+// colon in a registry host such as 127.0.0.1:15001 is before the last slash
+// and therefore remains part of the repository identity.
+func normalizeRepoDigest(ref string) string {
+	at := strings.LastIndexByte(ref, '@')
+	if at < 0 {
+		return ref
+	}
+	repository := ref[:at]
+	if colon := strings.LastIndexByte(repository, ':'); colon > strings.LastIndexByte(repository, '/') {
+		repository = repository[:colon]
+	}
+	return repository + ref[at:]
 }
 
 // runComposeGate builds the native acceptance command when needed, then

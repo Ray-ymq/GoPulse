@@ -69,7 +69,7 @@
 
 ## 尚未验证
 
-- Phase-24-05 的完整 V1 冻结矩阵尚未交付。首次候选曾因 lifecycle direct fixture 的 `0:0` 无法读取 `0700` Bundle 目录而在 manifest code `10` 停止；修复后低磁盘实际返回 code `13`，候选 runtime gate、preflight V01 和 Verify Evidence 通过。formal V01～V12 native driver 已完成模块级 test/race/vet/lint 校验，但尚未绑定包含该实现的新候选执行；正式矩阵、publication 和 `2.6.5` 完成元数据均未执行，本批不声明完整 V1 能力达标。
+- Phase-24-05 的完整 V1 冻结矩阵尚未交付。2026-10-13 候选 `644c0e3` 的 runtime gate、preflight 和 Verify Evidence 通过；其正式矩阵 V01/V02 通过，V03 在协议代理控制端口读取处发生基础设施失败，V04～V12 未开始。接续候选 `d3dafbb` 又因 lifecycle 镜像拉取失败停止；用户指定本地固定摘要镜像复用的工具修订仍待新候选验证。实际候选、失败依据与接续记录见[同名日志](../logs/Phase-24/Phase-24-05-V1冻结验收与阶段收口.md)。正式矩阵、publication 和 `2.6.5` 完成元数据仍未通过，本批不声明完整 V1 能力达标。
 - Phase-24-02 的 activation gate 只自动检查 MySQL 持久 Outbox 的 v1 `pending/leased` drain；RabbitMQ unacked/retry/dead 队列与 ES 当前 generation 仍须由 rollout/restore 步骤停排、排空或停放并核验，不由本批启动代码自动宣称完成。
 - 恢复仅完成同 Bundle、已排空备份的代际准备与失败停点验证；跨版本、任意时点恢复和正式 Bundle 恢复矩阵尚未验证。
 - 本批冻结环境/配方之外的吞吐、尾延迟、持续运行或单位资源容量声明。

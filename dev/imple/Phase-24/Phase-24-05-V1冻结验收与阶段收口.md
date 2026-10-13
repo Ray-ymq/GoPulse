@@ -1,8 +1,8 @@
 # Phase-24-05：V1 冻结验收与阶段收口
 
-> 状态：候选 runtime gate 与 V1 preflight 已通过，但未完成（2026-10-12，formal V01～V12 driver 已补齐并通过 acceptance 模块自测，尚未绑定新候选执行正式矩阵）。完成版本 `2.6.5`，分支 `develop/2.6.5`。
+> 状态：未完成（2026-10-13，候选 runtime/preflight 已通过；正式矩阵 V01/V02 通过，V03 基础设施失败，后续未开始；接续工具修订待重新冻结验收）。完成版本 `2.6.5`，分支 `develop/2.6.5`。
 > 实际产品候选：04 已完成的 `2.6.4`，完整 revision 与不可变 Bundle/manifest 在开工时记录。
-> 实际结果：修复 lifecycle direct fixture 后，候选构建/runtime gate、preflight V01 和 Verify Evidence 通过；formal runner 已补齐 V02～V12 的 native driver、协议控制、低水位配置、恢复代际查证和取消子回执，但尚未在新候选上运行，不能收口。
+> 实际结果：详见同名日志。正式 V01～V12 尚未全通过，publication 和完成元数据未通过，不能收口。
 
 ## 1. 进入条件与允许文件
 
@@ -55,6 +55,12 @@ V08 的低水位 profile 在冻结前登记：未闭合上限 8，保留组数 1
 先完成直接检查/fixture 自测，建立新 Bundle 和私有 registry，再跑同候选 preflight。
 registry 必须覆盖后续独立验收拉取，直到验收/核验完成才按归属清理。
 缺 manifest、不可拉 digest、清理/证据失败立即停，禁止回退源码模式。
+
+2026-10-13 用户追加本次接续使用本地镜像：运行验收前对 manifest 指定的不可变
+Linux/amd64 平台摘要核对本地镜像，摘要与平台均匹配时复用本地内容，避免每次
+启动重复拉取。仅有同名 tag、错误平台或不匹配摘要不能满足此条件；缺失镜像仍须
+按原摘要获取并校验，获取失败停止。制品的 metadata、Bundle、候选身份与正式证据
+门禁继续有效。本地复用记录不证明当时远端可获取；工具修改提交后重新冻结候选。
 
 ## 3. V01～V12 固定案例
 

@@ -21,14 +21,15 @@ const (
 )
 
 type dependencyControl struct {
-	runner     *formalV1Runner
-	container  string
-	network    string
-	upstreamID string
-	service    string
-	services   []string
-	controlURL string
-	restored   bool
+	runner           *formalV1Runner
+	container        string
+	containerCreated bool
+	network          string
+	upstreamID       string
+	service          string
+	services         []string
+	controlURL       string
+	restored         bool
 }
 
 func (runner *formalV1Runner) startMySQLControl(mode string, services ...string) (*dependencyControl, error) {
@@ -43,7 +44,7 @@ func (runner *formalV1Runner) startElasticsearchControl(mode string, services ..
 	return runner.startDependencyControl(controlElasticsearch, "http-effect-proxy", "9200", "19127", mode, services...)
 }
 
-func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort, controlPort, mode string, services ...string) (*dependencyControl, error) {
+func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort, controlPort, mode string, services ...string) (result *dependencyControl, returnErr error) {
 	network, err := runner.businessNetwork()
 	if err != nil {
 		return nil, err
@@ -52,24 +53,27 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if err != nil {
 		return nil, err
 	}
+	container := fmt.Sprintf("%s-fault-%s-%s", runner.session.Project, service, runner.session.Token[:8])
+	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...)}
+	ready := false
+	rewired := false
+	defer func() {
+		if returnErr != nil {
+			runner.recordDependencyControlFailure(container, control.containerCreated, returnErr)
+		}
+		if !ready && rewired {
+			_ = control.Restore()
+		}
+	}()
 	binaryPath, err := runner.buildFixture(fixture)
 	if err != nil {
 		return nil, err
 	}
-	container := fmt.Sprintf("%s-fault-%s-%s", runner.session.Project, service, runner.session.Token[:8])
 	// The native acceptance runner executes on the host, while the proxy must
 	// remain on the private business network to reach the rewired dependency.
 	// Publish only the control listener on a Docker-assigned loopback port; the
 	// data listener stays private and is reached by the application through the
 	// service alias.
-	control := &dependencyControl{runner: runner, container: container, network: network, upstreamID: upstreamID, service: service, services: append([]string(nil), services...)}
-	ready := false
-	rewired := false
-	defer func() {
-		if !ready && rewired {
-			_ = control.Restore()
-		}
-	}()
 	if result := runner.session.Run("docker", "network", "disconnect", network, upstreamID); result.ExitCode != 0 {
 		return nil, fmt.Errorf("disconnect %s from business network failed with exit code %d", service, result.ExitCode)
 	}
@@ -81,6 +85,7 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	if image == "" {
 		image = "gopulse/acceptance:" + runner.session.Value("GOPULSE_IMAGE_TAG")
 	}
+	upstream := dependencyControlUpstream(service, dataPort)
 	args := []string{
 		"create", "--name", container,
 		"--label", "io.gopulse.acceptance.project=" + runner.session.Project,
@@ -91,12 +96,13 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 		"--entrypoint", "/usr/local/bin/gopulse-fault-control", image,
 		"--listen", "0.0.0.0:" + dataPort,
 		"--control", "0.0.0.0:" + controlPort,
-		"--upstream", service + "-upstream:" + dataPort,
+		"--upstream", upstream,
 		"--mode", mode,
 	}
 	if result := runner.session.Run("docker", args...); result.ExitCode != 0 {
 		return nil, fmt.Errorf("create %s protocol control failed with exit code %d", service, result.ExitCode)
 	}
+	control.containerCreated = true
 	if result := runner.session.Run("docker", "start", container); result.ExitCode != 0 {
 		return nil, fmt.Errorf("start %s protocol control failed with exit code %d", service, result.ExitCode)
 	}
@@ -116,6 +122,26 @@ func (runner *formalV1Runner) startDependencyControl(service, fixture, dataPort,
 	}
 	ready = true
 	return control, nil
+}
+
+func dependencyControlUpstream(service, dataPort string) string {
+	upstream := service + "-upstream:" + dataPort
+	if service == controlElasticsearch {
+		return "http://" + upstream
+	}
+	return upstream
+}
+
+func (runner *formalV1Runner) recordDependencyControlFailure(container string, containerCreated bool, err error) {
+	if err == nil {
+		return
+	}
+	runner.session.SetStatus("failed", err)
+	if !containerCreated {
+		return
+	}
+	runner.session.Run("docker", "inspect", "--format", "{{json .State}} {{json .NetworkSettings.Ports}}", container)
+	runner.session.Run("docker", "logs", "--tail", "100", container)
 }
 
 func publishedControlPort(runner *formalV1Runner, container, controlPort string) (int, error) {
@@ -234,7 +260,7 @@ func (control *dependencyControl) status(ctx context.Context) (map[string]any, e
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fault control status returned HTTP %d", response.StatusCode)
 	}
@@ -272,7 +298,7 @@ func (control *dependencyControl) setTarget(eventID string) error {
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("set fault control target returned HTTP %d", response.StatusCode)
 	}
@@ -290,8 +316,10 @@ func (control *dependencyControl) Restore() error {
 			first = err
 		}
 	}
-	if result := control.runner.session.Run("docker", "rm", "-f", control.container); result.ExitCode != 0 {
-		remember(fmt.Errorf("remove fault control failed with exit code %d", result.ExitCode))
+	if control.containerCreated {
+		if result := control.runner.session.Run("docker", "rm", "-f", control.container); result.ExitCode != 0 {
+			remember(fmt.Errorf("remove fault control failed with exit code %d", result.ExitCode))
+		}
 	}
 	if result := control.runner.session.Run("docker", "network", "disconnect", control.network, control.upstreamID); result.ExitCode != 0 {
 		remember(fmt.Errorf("disconnect upstream alias failed with exit code %d", result.ExitCode))

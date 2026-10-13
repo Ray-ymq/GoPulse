@@ -1,6 +1,6 @@
 # Phase-24-05：V1 冻结验收与阶段收口
 
-> 状态：未完成。2026-10-12 首次候选在 lifecycle failure matrix 的低磁盘子项发生 `infrastructure_failure`；修复验收 fixture 后，候选 runtime gate、V1 preflight 和 Verify Evidence 通过。随后按用户明确要求补齐 formal V01～V12 native driver，但尚未绑定新候选执行正式矩阵，不产生 `validation_complete` 或产品能力结论。
+> 状态：未完成（更新于 2026-10-13）。正式矩阵已执行到 V03：V01/V02 通过，V03 基础设施失败，后续未开始；接续候选又在 runtime gate 拉取镜像时失败。现已修订本地镜像复用和故障诊断工具，仍需重新冻结及验收，不产生 `validation_complete` 或阶段完成结论。下文按执行时间保留各次实际结果。
 > 执行分支：`develop/2.6.5`；候选产品版本：`2.6.4`。
 
 ## 实际执行范围
@@ -44,3 +44,14 @@
 - V08 将 `BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS` 接入 Backend、Worker、Indexer、Reindex 和 runtime contract，默认保持 `10000`，formal profile 设为 `8`，由八个真实创建请求占满后检查第九个 503 和真实计数释放；配置、默认值、边界和 Repository limit 均有单测。
 - V11 通过已有 lifecycle drained backup、空 owned restore target 和 `search-reindex` hand-off，补充新 epoch、旧 epoch admission rejection、新 alias generation，以及旧事件在新 epoch 中无 completion row 的独立 SQL fence。V12 启动真实 stage/fact polling 子任务，取消后写入私有 canceled child receipt 并删除其归属临时资源；receipt verifier 校验子回执 hash、身份、时序和私有权限。
 - 本轮自测已通过 `cd acceptance && go test ./...`、Backend 受影响包测试和 `make check-compose`；formal V01～V12 尚未绑定新 Bundle 执行，旧候选 receipt 不适用于本轮源码/合同变更，阶段仍未完成。
+
+## 接续验收与本地镜像核对（2026-10-13）
+
+- 候选 `.run/phase24-05/candidate-644c0e3-v1` 完成 package runtime/Compose/lifecycle 门禁；同候选 preflight 和其 Verify Evidence 通过。正式回执 `.run/phase24-05/receipt-644c0e3-v1.json` 在 V03 MySQL 协议代理启动后读取控制端口时失败，Docker 输出 `{"19125/tcp":null}`；该回执及原始证据继续保留，不能据此声明 COMMIT 故障子项通过。
+- `d3dafbb9edea9ccfb290d3eb9c468e070ff0070d` 为控制端口加入 10 秒有界等待，acceptance 模块测试通过。该变化尚未由正式矩阵验证；端口返回 null 的底层原因仍需最小复现，不能将竞态推测记成已证实根因。
+- 新候选 `.run/phase24-05/candidate-d3dafbb-v1` 在 lifecycle failure matrix 中提前返回 `cannot pull manifest digest for elasticsearch`，实际 code 10，而测试预期进入注入故障后的 code 18；没有生成成功 runtime 回执。Docker 日志随后有同一 Elasticsearch 平台摘要成功拉取记录；原失败的底层 stderr 被 lifecycle 抑制，不能确定为某个具体网络错误。
+- 用户明确要求本次使用本地镜像，并指定 `gpt-5.6-luna`、推理强度 `max` 子 agent，由主 agent 调度。CLI 实际版本为 `0.162.1`，该模型已成功执行只读子任务；子 agent 核对上述新候选的 16 个固定 Linux/amd64 镜像，结果为全部存在、无缺失、无平台或 RepoDigest 不匹配。核对使用精确平台摘要的 `docker image inspect --platform linux/amd64`，未启动产品栈或拉取镜像。
+- 本地镜像复用已接入 acceptance、lifecycle up/restore 与 package runtime probe：精确平台摘要和 RepoDigest 匹配才复用；仅明确缺失才拉取，拉取后再次校验。平台、摘要、元数据或 Docker daemon 异常直接失败；RepoDigest 比较规范化 tag，同时保留 registry 端口和仓库归属。acceptance/lifecycle 模块测试通过，覆盖缓存命中、缺失、错误平台/摘要及拉取后复核。
+- V03 最小诊断未复现原端口 null，原代理已删除，仍无法确证根因。失败路径现于恢复/删除代理之前通过 harness 私有失败证据记录 `.State`、端口映射和有界日志，不输出完整容器 Env。预冻结审查还修复 ES effect proxy upstream 缺少 `http://` 的确定启动缺陷，参数测试通过。
+- 接续修订的完整直接门禁通过：`make verify MODULE=acceptance BASE_REF=upstream/main` 与 `make verify MODULE=lifecycle BASE_REF=upstream/main`（含 vet、test、race、build）；新增 lint 均为 0，存量分别 24、45。新增 fixture 的关闭操作明确为 best-effort，测试清理检查错误，确认无调用后删除旧 `runBoundary` 助手；未放宽正式案例。文档治理检查通过。
+- 上述工具修改提交后必须重新冻结候选，历史 manifest/回执保持原身份；正式矩阵、publication 与完成元数据仍未通过。此前跨构建、失败和诊断的成本继续累计，本次记录不表示重置原预算。
