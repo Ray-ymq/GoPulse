@@ -349,10 +349,13 @@ func (client *v1HTTPClient) cookieHeader() string {
 }
 
 func (client *v1HTTPClient) stage(ctx context.Context, meta v1HTTPMeta, visibility bool) v1StageHTTPResult {
-	from := meta.CommittedAt.Add(-time.Second)
-	if meta.CommittedAt.IsZero() {
-		from = time.Now().UTC().Add(-time.Minute)
-	}
+	// committed_at is a durable identity field, not the start of the
+	// observability pipeline. Under the formal fault windows the request log
+	// and the asynchronous projection can be written on opposite sides of that
+	// timestamp. Keep the selector exact, but use the same bounded evidence
+	// horizon as the stage service's default query instead of excluding a valid
+	// log merely because it precedes the commit by a second.
+	from := time.Now().UTC().Add(-15 * time.Minute)
 	values := url.Values{}
 	values.Set("epoch", meta.DataEpoch)
 	values.Set("command_id", meta.CommandID)
