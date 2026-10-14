@@ -314,6 +314,22 @@ func (control *dependencyControl) setTarget(eventID string) error {
 	return nil
 }
 
+func (control *dependencyControl) arm() error {
+	request, err := http.NewRequest(http.MethodPost, control.controlURL+"/arm", nil)
+	if err != nil {
+		return err
+	}
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("arm fault control returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func (control *dependencyControl) Restore() error {
 	if control == nil || control.restored {
 		return nil

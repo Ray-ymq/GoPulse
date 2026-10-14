@@ -2,6 +2,8 @@ package scenario
 
 import (
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,6 +87,20 @@ func TestDependencyControlUpstreamUsesURLOnlyForElasticsearch(t *testing.T) {
 				t.Fatalf("dependencyControlUpstream(%q, %q) = %q, want %q", test.service, test.port, got, test.want)
 			}
 		})
+	}
+}
+
+func TestDependencyControlArmUsesPrivateControlURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/arm" {
+			t.Fatalf("arm request = %s %s", request.Method, request.URL.Path)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	control := &dependencyControl{controlURL: server.URL}
+	if err := control.arm(); err != nil {
+		t.Fatalf("arm() error = %v", err)
 	}
 }
 

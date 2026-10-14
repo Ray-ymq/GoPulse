@@ -2,8 +2,44 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestTargetRequiresExplicitArm(t *testing.T) {
+	store := &statusStore{status: status{Mode: modeCommitResult}}
+	if store.claimTarget() {
+		t.Fatal("target was claimed before arm")
+	}
+	store.arm()
+	if !store.claimTarget() {
+		t.Fatal("armed target was not claimed")
+	}
+	if store.claimTarget() {
+		t.Fatal("target remained armed after one claim")
+	}
+	if got := store.snapshot().TargetQueries; got != 1 {
+		t.Fatalf("target queries = %d, want 1", got)
+	}
+}
+
+func TestStatusHandlerArmsWithPOSTOnly(t *testing.T) {
+	store := &statusStore{status: status{Mode: modeCommitResult}}
+	get := httptest.NewRecorder()
+	statusHandler(store).ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/arm", nil))
+	if get.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /arm status = %d, want %d", get.Code, http.StatusMethodNotAllowed)
+	}
+	post := httptest.NewRecorder()
+	statusHandler(store).ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/arm", nil))
+	if post.Code != http.StatusNoContent {
+		t.Fatalf("POST /arm status = %d, want %d", post.Code, http.StatusNoContent)
+	}
+	if !store.claimTarget() {
+		t.Fatal("POST /arm did not arm the next target")
+	}
+}
 
 func TestMySQLPacketRoundTrip(t *testing.T) {
 	payload := []byte{0x00, 0x01, 0xfe, 0xff}
