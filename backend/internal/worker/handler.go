@@ -219,11 +219,37 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		}
 		return err
 	}
+	if handler.deferExhausted(envelope) {
+		span.SetStatus(codes.Error, "recovery_deferred")
+		if err := handler.recordFailure(traceContext, envelope, "retry", "recovery_deferred"); err != nil {
+			return handler.requeueFailure(traceContext, delivery, err)
+		}
+		// The search projection is recoverable work. Reset the bounded attempt
+		// cycle after the confirmed retry publication so a temporary dependency
+		// outage cannot turn an open application obligation into a dead letter.
+		err := handler.retry(traceContext, delivery, 0)
+		if err == nil {
+			outcome = "retry"
+		}
+		return err
+	}
 	span.SetStatus(codes.Error, "retries_exhausted")
 	if err := handler.recordFailure(traceContext, envelope, "dead", "retries_exhausted"); err != nil {
 		return handler.requeueFailure(traceContext, delivery, err)
 	}
 	return handler.deadLetter(traceContext, delivery, attempt, "retries_exhausted")
+}
+
+func (handler *Handler) deferExhausted(envelope bus.Envelope) bool {
+	if !handler.profile.RetryOnExhaustion || handler.profile.Consumer != "search" || envelope.SchemaVersion != bus.SchemaVersionV2 {
+		return false
+	}
+	switch envelope.EventType {
+	case bus.PostCreated, bus.PostUpdated, bus.PostDeleted:
+		return true
+	default:
+		return false
+	}
 }
 
 func (handler *Handler) admit(ctx context.Context, envelope bus.Envelope) (bus.AdmissionDecision, error) {
@@ -481,7 +507,7 @@ func permanentReason(err error) string {
 
 func safeReason(reason string) string {
 	switch reason {
-	case "processed", "self_event", "retry_scheduled", "retries_exhausted",
+	case "processed", "self_event", "retry_scheduled", "recovery_deferred", "retries_exhausted",
 		"invalid_attempt", "attempt_exceeds_max", "invalid_body", "routing_key_mismatch",
 		"invalid_envelope", "message_id_mismatch", "content_type_mismatch", "message_type_mismatch",
 		"delivery_mode_mismatch", "timestamp_mismatch", "routing_key_not_allowed",
