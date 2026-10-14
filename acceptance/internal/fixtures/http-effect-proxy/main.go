@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,11 +26,14 @@ type status struct {
 	EffectObserved   uint64 `json:"effect_observed"`
 	ResponseDropped  uint64 `json:"response_dropped"`
 	ConnectionClosed uint64 `json:"connection_closed"`
+	TargetPostID     uint64 `json:"target_post_id"`
+	TargetHit        bool   `json:"target_hit"`
 }
 
 type store struct {
-	mu    sync.Mutex
-	value status
+	mu           sync.Mutex
+	value        status
+	targetPostID uint64
 }
 
 func (state *store) update(update func(*status)) {
@@ -42,6 +46,40 @@ func (state *store) snapshot() status {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.value
+}
+
+func (state *store) setPostTarget(postID uint64) error {
+	if postID == 0 {
+		return fmt.Errorf("target post ID must be positive")
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.targetPostID != 0 && state.targetPostID != postID {
+		return fmt.Errorf("target post ID is already set")
+	}
+	state.targetPostID = postID
+	state.value.TargetPostID = postID
+	return nil
+}
+
+func (state *store) shouldDrop(request *http.Request, responseStatus int) bool {
+	if !isEffectRequest(nil, request, responseStatus) {
+		return false
+	}
+	postID, ok := projectionPostID(request)
+	if !ok {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.targetPostID == 0 || state.targetPostID != postID {
+		return false
+	}
+	state.value.EffectObserved++
+	state.value.ResponseDropped++
+	state.value.ConnectionClosed++
+	state.value.TargetHit = true
+	return true
 }
 
 func main() {
@@ -96,6 +134,23 @@ func controlHandler(state *store) http.Handler {
 			writer.WriteHeader(http.StatusOK)
 			return
 		}
+		if request.URL.Path == "/target" {
+			if request.Method != http.MethodGet {
+				writer.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			postID, err := strconv.ParseUint(request.URL.Query().Get("post_id"), 10, 64)
+			if err != nil || postID == 0 {
+				http.Error(writer, "post_id must be a positive integer", http.StatusBadRequest)
+				return
+			}
+			if err := state.setPostTarget(postID); err != nil {
+				http.Error(writer, err.Error(), http.StatusConflict)
+				return
+			}
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if request.URL.Path != "/status" {
 			http.NotFound(writer, request)
 			return
@@ -132,12 +187,7 @@ func proxyHandler(target *url.URL, state *store) http.Handler {
 			return
 		}
 		state.update(func(value *status) { value.RequestsSeen++ })
-		if isEffectRequest(target, request, response.StatusCode) {
-			state.update(func(value *status) {
-				value.EffectObserved++
-				value.ResponseDropped++
-				value.ConnectionClosed++
-			})
+		if state.shouldDrop(request, response.StatusCode) {
 			dropConnection(writer)
 			return
 		}
@@ -152,7 +202,23 @@ func proxyHandler(target *url.URL, state *store) http.Handler {
 }
 
 func isEffectRequest(_ *url.URL, request *http.Request, status int) bool {
-	return request != nil && request.Method == http.MethodPut && strings.Contains(request.URL.Path, "/gopulse-post-search-v1/_doc/") && status >= 200 && status < 300
+	if request == nil || request.Method != http.MethodPut || status < 200 || status >= 300 {
+		return false
+	}
+	_, ok := projectionPostID(request)
+	return ok
+}
+
+func projectionPostID(request *http.Request) (uint64, bool) {
+	if request == nil {
+		return 0, false
+	}
+	parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+	if len(parts) != 3 || parts[0] != "gopulse-post-search-v1" || parts[1] != "_doc" {
+		return 0, false
+	}
+	postID, err := strconv.ParseUint(parts[2], 10, 64)
+	return postID, err == nil && postID > 0
 }
 
 func dropConnection(writer http.ResponseWriter) {

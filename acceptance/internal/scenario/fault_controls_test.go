@@ -104,6 +104,20 @@ func TestDependencyControlArmUsesPrivateControlURL(t *testing.T) {
 	}
 }
 
+func TestDependencyControlSetPostTargetUsesPrivateControlURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/target" || request.URL.Query().Get("post_id") != "42" {
+			t.Fatalf("post target request = %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	control := &dependencyControl{controlURL: server.URL}
+	if err := control.setPostTarget(42); err != nil {
+		t.Fatalf("setPostTarget() error = %v", err)
+	}
+}
+
 func TestStartDependencyControlFailurePreservesContainerDiagnostics(t *testing.T) {
 	session, logPath := newFaultControlTestSession(t, "start-fail")
 	defer cleanupFaultControlTestSession(t, session)
