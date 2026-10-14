@@ -779,6 +779,10 @@ func (runner *formalV1Runner) runV03() (receipt.V1Case, error) {
 	if controlErr != nil {
 		return itemAsFailed(item, "infrastructure_failure", controlErr.Error()), controlErr
 	}
+	if armErr := control.arm(); armErr != nil {
+		_ = control.Restore()
+		return itemAsFailed(item, "infrastructure_failure", "arm MySQL COMMIT-result control: "+armErr.Error()), armErr
+	}
 	commitKey := mustV1UUID()
 	commitResult := runner.admin.create(context.Background(), runner.commandEpoch, commitKey, "Phase-24 V03 COMMIT result", "COMMIT result-loss request", v1TraceParent)
 	controlStatus, statusErr := control.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
@@ -939,6 +943,14 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 			mysqlCreateErr = errors.Join(mysqlCreateErr, restoreErr)
 		}
 		return itemAsFailed(esItem, "infrastructure_failure", mysqlCreateErr.Error()), mysqlCreateErr
+	}
+	mysqlArmErr := mysqlControl.arm()
+	if mysqlArmErr != nil {
+		mysqlRestoreErr := mysqlControl.Restore()
+		if mysqlRestoreErr != nil {
+			mysqlArmErr = errors.Join(mysqlArmErr, mysqlRestoreErr)
+		}
+		return itemAsFailed(esItem, "infrastructure_failure", "arm MySQL completion-write control: "+mysqlArmErr.Error()), mysqlArmErr
 	}
 	mysqlStatus, mysqlStatusErr := mysqlControl.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
 		return numericStatus(value, "upstream_effect") >= 1 && numericStatus(value, "response_dropped") >= 1 && numericStatus(value, "connection_closed") >= 1

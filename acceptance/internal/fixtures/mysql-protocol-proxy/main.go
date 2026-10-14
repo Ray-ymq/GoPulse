@@ -38,6 +38,7 @@ type status struct {
 type statusStore struct {
 	mu sync.Mutex
 	status
+	armed bool
 }
 
 type connectionState struct {
@@ -67,6 +68,23 @@ func (store *statusStore) snapshot() status {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	return store.status
+}
+
+func (store *statusStore) arm() {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.armed = true
+}
+
+func (store *statusStore) claimTarget() bool {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if !store.armed {
+		return false
+	}
+	store.armed = false
+	store.TargetQueries++
+	return true
 }
 
 func main() {
@@ -119,6 +137,16 @@ func statusHandler(store *statusStore) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/ready" {
 			writer.WriteHeader(http.StatusOK)
+			return
+		}
+		if request.URL.Path == "/arm" {
+			if request.Method != http.MethodPost {
+				writer.Header().Set("Allow", http.MethodPost)
+				writer.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			store.arm()
+			writer.WriteHeader(http.StatusNoContent)
 			return
 		}
 		if request.URL.Path != "/status" {
@@ -177,13 +205,8 @@ func clientToServer(client, upstream net.Conn, mode string, store *statusStore, 
 		if len(payload) > 0 && payload[0] == 0x03 {
 			query := strings.ToUpper(strings.TrimSpace(string(payload[1:])))
 			target := (mode == modeCommitResult && strings.HasPrefix(query, "COMMIT")) || (mode == modeCompletionWrite && strings.Contains(query, "BUSINESS_APPLICATION_RESULTS"))
-			store.update(func(value *status) {
-				value.QueriesSeen++
-				if target {
-					value.TargetQueries++
-				}
-			})
-			if target {
+			store.update(func(value *status) { value.QueriesSeen++ })
+			if target && store.claimTarget() {
 				connection.setArmed()
 			}
 		}
