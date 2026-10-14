@@ -461,6 +461,10 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 		if err == nil {
 			return
 		}
+		// Capture the failed Compose output, owned service status and logs before
+		// cleanup removes the target containers. The outer command defer sees the
+		// saved marker and does not overwrite this pre-cleanup evidence.
+		err = c.captureFailureDiagnostic(err, "restore")
 		old := c.ctx
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
