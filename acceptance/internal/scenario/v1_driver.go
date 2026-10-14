@@ -903,6 +903,7 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 	esProjection, esProjectionErr := runner.waitProjection(esMeta, 30*time.Second)
 	esFacts, esFactsErr := runner.facts(esMeta)
 	esRestoreErr := esControl.Restore()
+	esRestartErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "search-indexer", "search-indexer-2")
 	esStageOK, esLogsOK := runner.waitStage(esMeta, true, v1RecoveryWait)
 	esRecoveredFacts, esRecoveredFactsErr := runner.facts(esMeta)
 	esItem := runner.completedCase("V05", esResult.Meta, started, "dropped the successful ES write response after the projection was written, stopped the indexers before completion could be recorded, and replayed the event", esStageOK, esLogsOK, []receipt.RawFact{
@@ -922,7 +923,7 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 		err  error
 		name string
 	}{
-		{esStatusErr, "ES control"}, {esStopErr, "ES stop"}, {esProjectionErr, "ES projection"}, {esFactsErr, "ES facts"}, {esRestoreErr, "ES restore"}, {esRecoveredFactsErr, "ES recovered facts"},
+		{esStatusErr, "ES control"}, {esStopErr, "ES stop"}, {esProjectionErr, "ES projection"}, {esFactsErr, "ES facts"}, {esRestoreErr, "ES restore"}, {esRestartErr, "ES restart"}, {esRecoveredFactsErr, "ES recovered facts"},
 	} {
 		if failure.err != nil {
 			return itemAsFailed(esItem, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
@@ -959,6 +960,7 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 	mysqlProjection, mysqlProjectionErr := runner.waitProjection(mysqlMeta, 30*time.Second)
 	mysqlFacts, mysqlFactsErr := runner.facts(mysqlMeta)
 	mysqlRestoreErr := mysqlControl.Restore()
+	mysqlRestartErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "search-indexer", "search-indexer-2")
 	mysqlStageOK, mysqlLogsOK := runner.waitStage(mysqlMeta, true, v1RecoveryWait)
 	mysqlRecoveredFacts, mysqlRecoveredFactsErr := runner.facts(mysqlMeta)
 
@@ -986,8 +988,8 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 		err  error
 		name string
 	}{
-		{esCreateErr, "ES create"}, {esStatusErr, "ES control"}, {esStopErr, "ES stop"}, {esProjectionErr, "ES projection"}, {esFactsErr, "ES facts"}, {esRestoreErr, "ES restore"}, {esRecoveredFactsErr, "ES recovered facts"},
-		{mysqlCreateErr, "completion create"}, {mysqlStatusErr, "completion control"}, {mysqlStopErr, "completion stop"}, {mysqlProjectionErr, "completion projection"}, {mysqlFactsErr, "completion facts"}, {mysqlRestoreErr, "completion restore"}, {mysqlRecoveredFactsErr, "completion recovered facts"},
+		{esCreateErr, "ES create"}, {esStatusErr, "ES control"}, {esStopErr, "ES stop"}, {esProjectionErr, "ES projection"}, {esFactsErr, "ES facts"}, {esRestoreErr, "ES restore"}, {esRestartErr, "ES restart"}, {esRecoveredFactsErr, "ES recovered facts"},
+		{mysqlCreateErr, "completion create"}, {mysqlStatusErr, "completion control"}, {mysqlStopErr, "completion stop"}, {mysqlProjectionErr, "completion projection"}, {mysqlFactsErr, "completion facts"}, {mysqlRestoreErr, "completion restore"}, {mysqlRestartErr, "completion restart"}, {mysqlRecoveredFactsErr, "completion recovered facts"},
 	} {
 		if failure.err != nil {
 			return itemAsFailed(item, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
