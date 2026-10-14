@@ -24,6 +24,20 @@
 产品失败或工具需要修正时，保存 failed/not_started、原始证据和清理结果，
 停止矩阵，按仓库规则另行明确有效修复合同后执行；不能改完候选继续用旧 receipt。
 
+### 接续修复合同（2026-10-14）
+
+本次 V07 停点已完成归属核对，接续修复允许修改的文件固定为：
+
+| 归属 | 允许文件 | 固定范围 |
+| --- | --- | --- |
+| B6 / B7 | `backend/internal/worker/profile.go`、`backend/internal/worker/handler.go`、`backend/internal/worker/handler_test.go` | 仅补齐 Search Profile 对 V2 post 搜索临时故障的有界重试耗尽后自动重驱动；不改 retry profile、数据库 schema、epoch 准入、Outbox 身份或完成记录合同 |
+| M8 | `acceptance/internal/scenario/v1_driver.go`、`acceptance/internal/receipt/v1.go`、对应 receipt / scenario 单测 | 仅修正 V07 子窗口边界、恢复截止和逐窗证据；不缩短故障窗口、不放宽恢复期限、不改旧回执或 raw |
+| 其他 | 无 | 不修改 migration、公开 API、生产版本字段、旧候选、旧 receipt、旧 raw、旧 Compose 日志 |
+
+产品修复的完成条件是：V2 search post.created / post.updated / post.deleted 的临时处理错误在有限 retry 耗尽后，仍以原始 body、MessageId、event identity、epoch 和 routing key 确认发布到 search retry exchange，并把下一轮尝试从 0 开始；原投递只在二次发布确认后 ack。重复完成仍由现有 `(epoch,event,consumer,routing contract)` 唯一完成记录去重，完成记录写入后才释放未闭合义务；永久错误继续进入 search dead exchange，业务 Profile 的耗尽行为不变。必要义务未闭合时不得清理其 Outbox / intent。
+
+直接门禁固定为 backend worker 单测、acceptance receipt / scenario 单测、backend 与 acceptance 模块门禁，以及受影响的真实 business integration。通过后必须重新构建新的 candidate / Bundle / manifest，再按本文件的 preflight、Verify Evidence 和正式 V01～V07 入口执行；V07 两个窗口各自必须完成故障撤除、依赖健康、全部义务闭合和当前可见，单窗故障至少 60 秒、故障撤除起恢复最多 120 秒。任何一个窗口或 V01～V07 失败，后续案例保持 `not_started`。
+
 ## 2. 候选、环境与预检
 
 在独立干净 checkout 冻结完整 `2.6.4` revision。

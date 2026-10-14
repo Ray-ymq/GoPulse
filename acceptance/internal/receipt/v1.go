@@ -73,20 +73,32 @@ type Moment struct {
 	Actual  string `json:"actual"`
 }
 
+type V1Subwindow struct {
+	Index               int    `json:"index"`
+	FaultSeconds        int64  `json:"fault_seconds"`
+	RecoverySeconds     int64  `json:"recovery_seconds"`
+	FaultStartedAt      string `json:"fault_started_at,omitempty"`
+	FaultEndedAt        string `json:"fault_ended_at,omitempty"`
+	DependencyReadyAt   string `json:"dependency_ready_at,omitempty"`
+	ObligationsClosedAt string `json:"obligations_closed_at,omitempty"`
+	VisibleAt           string `json:"visible_at,omitempty"`
+}
+
 type V1Case struct {
-	CaseID          string     `json:"case_id"`
-	Status          string     `json:"status"`
-	FailureClass    string     `json:"failure_class,omitempty"`
-	PlannedAction   string     `json:"planned_action"`
-	ActualAction    string     `json:"actual_action,omitempty"`
-	Identity        V1Identity `json:"identity"`
-	Moments         []Moment   `json:"moments,omitempty"`
-	WindowSeconds   int64      `json:"window_seconds,omitempty"`
-	RecoverySeconds int64      `json:"recovery_seconds,omitempty"`
-	Raw             RawRecord  `json:"raw,omitempty"`
-	Child           *RawRecord `json:"child,omitempty"`
-	CleanupPassed   bool       `json:"cleanup_passed"`
-	CleanupError    string     `json:"cleanup_error,omitempty"`
+	CaseID          string        `json:"case_id"`
+	Status          string        `json:"status"`
+	FailureClass    string        `json:"failure_class,omitempty"`
+	PlannedAction   string        `json:"planned_action"`
+	ActualAction    string        `json:"actual_action,omitempty"`
+	Identity        V1Identity    `json:"identity"`
+	Moments         []Moment      `json:"moments,omitempty"`
+	Subwindows      []V1Subwindow `json:"subwindows,omitempty"`
+	WindowSeconds   int64         `json:"window_seconds,omitempty"`
+	RecoverySeconds int64         `json:"recovery_seconds,omitempty"`
+	Raw             RawRecord     `json:"raw,omitempty"`
+	Child           *RawRecord    `json:"child,omitempty"`
+	CleanupPassed   bool          `json:"cleanup_passed"`
+	CleanupError    string        `json:"cleanup_error,omitempty"`
 }
 
 type LoadProfile struct {
@@ -260,7 +272,7 @@ func validateCase(item V1Case, mode string) error {
 			return fmt.Errorf("failed V1 case %s has incomplete failure or cleanup facts", item.CaseID)
 		}
 	case "not_started":
-		if item.ActualAction != "" || item.Raw.Path != "" || item.Raw.SHA256 != "" || item.Child != nil || len(item.Moments) != 0 || item.CleanupPassed {
+		if item.ActualAction != "" || item.Raw.Path != "" || item.Raw.SHA256 != "" || item.Child != nil || len(item.Moments) != 0 || len(item.Subwindows) != 0 || item.CleanupPassed {
 			return fmt.Errorf("not-started V1 case %s contains completion evidence", item.CaseID)
 		}
 	default:
@@ -272,6 +284,9 @@ func validateCase(item V1Case, mode string) error {
 	if item.Status == "not_started" {
 		return nil
 	}
+	if len(item.Subwindows) > 0 && item.CaseID != "V07" {
+		return fmt.Errorf("V1 case %s has unexpected subwindow evidence", item.CaseID)
+	}
 	if !v1UUID.MatchString(item.Identity.DataEpoch) || !v1UUID.MatchString(item.Identity.CommandID) || !v1UUID.MatchString(item.Identity.EventID) || item.Identity.PostID == 0 {
 		return fmt.Errorf("V1 case %s has incomplete business identity", item.CaseID)
 	}
@@ -280,15 +295,30 @@ func validateCase(item V1Case, mode string) error {
 	}
 	if mode == V1ModeFormal && item.Status == "passed" {
 		switch item.CaseID {
-		case "V07", "V09":
+		case "V09":
 			if item.WindowSeconds < 60 {
 				return fmt.Errorf("V1 case %s shortened its required 60 second fault window", item.CaseID)
+			}
+		case "V07":
+			if item.WindowSeconds < 60 {
+				return fmt.Errorf("V1 case %s shortened its required 60 second fault window", item.CaseID)
+			}
+			if len(item.Subwindows) != 2 {
+				return errors.New("V1 case V07 must record two recovered subwindows")
+			}
+			for _, subwindow := range item.Subwindows {
+				if subwindow.FaultSeconds < 60 || subwindow.RecoverySeconds > 120 {
+					return fmt.Errorf("V1 case V07 subwindow %d violates its timing contract", subwindow.Index)
+				}
 			}
 		case "V11":
 			if item.RecoverySeconds < 60 {
 				return fmt.Errorf("V1 case %s shortened its recovery window", item.CaseID)
 			}
 		}
+	}
+	if err := validateSubwindows(item.Subwindows, mode == V1ModeFormal && item.Status == "passed" && item.CaseID == "V07"); err != nil {
+		return fmt.Errorf("V1 case %s subwindows: %w", item.CaseID, err)
 	}
 	if len(item.Moments) < 2 {
 		return fmt.Errorf("V1 case %s has too few moments", item.CaseID)
@@ -320,6 +350,71 @@ func validateCase(item V1Case, mode string) error {
 	}
 	if item.Child != nil && (!v1RawPath.MatchString(item.Child.Path) || strings.HasPrefix(item.Child.Path, "/") || strings.Contains(item.Child.Path, "..") || !v1Digest.MatchString(item.Child.SHA256)) {
 		return fmt.Errorf("V1 case %s child receipt reference is invalid", item.CaseID)
+	}
+	return nil
+}
+
+func validateSubwindows(subwindows []V1Subwindow, requireComplete bool) error {
+	seen := map[int]bool{}
+	for _, subwindow := range subwindows {
+		if subwindow.Index < 0 || seen[subwindow.Index] || subwindow.FaultSeconds < 0 || subwindow.RecoverySeconds < 0 {
+			return fmt.Errorf("invalid subwindow %d", subwindow.Index)
+		}
+		seen[subwindow.Index] = true
+		controlMoments := []struct {
+			name string
+			at   string
+		}{
+			{"fault_started_at", subwindow.FaultStartedAt},
+			{"fault_ended_at", subwindow.FaultEndedAt},
+			{"dependency_ready_at", subwindow.DependencyReadyAt},
+		}
+		var previous time.Time
+		for _, moment := range controlMoments {
+			if moment.at == "" {
+				if requireComplete {
+					return fmt.Errorf("subwindow %d is missing %s", subwindow.Index, moment.name)
+				}
+				continue
+			}
+			if !validTime(moment.at) {
+				return fmt.Errorf("subwindow %d has invalid %s", subwindow.Index, moment.name)
+			}
+			at, _ := time.Parse(time.RFC3339Nano, moment.at)
+			if !previous.IsZero() && at.Before(previous) {
+				return fmt.Errorf("subwindow %d moments are not ordered", subwindow.Index)
+			}
+			previous = at
+		}
+		for _, moment := range []struct {
+			name string
+			at   string
+		}{
+			{"obligations_closed_at", subwindow.ObligationsClosedAt},
+			{"visible_at", subwindow.VisibleAt},
+		} {
+			if moment.at == "" {
+				if requireComplete {
+					return fmt.Errorf("subwindow %d is missing %s", subwindow.Index, moment.name)
+				}
+				continue
+			}
+			if !validTime(moment.at) {
+				return fmt.Errorf("subwindow %d has invalid %s", subwindow.Index, moment.name)
+			}
+			at, _ := time.Parse(time.RFC3339Nano, moment.at)
+			if !previous.IsZero() && at.Before(previous) {
+				return fmt.Errorf("subwindow %d %s precedes dependency readiness", subwindow.Index, moment.name)
+			}
+		}
+		if requireComplete && (subwindow.FaultSeconds < 60 || subwindow.RecoverySeconds > 120) {
+			return fmt.Errorf("subwindow %d violates the 60 second fault and 120 second recovery limits", subwindow.Index)
+		}
+	}
+	if requireComplete {
+		if len(subwindows) != 2 || !seen[0] || !seen[1] {
+			return errors.New("two subwindows with indexes 0 and 1 are required")
+		}
 	}
 	return nil
 }

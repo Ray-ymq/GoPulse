@@ -110,6 +110,16 @@ type v1DurableFacts struct {
 	OpenRequirements int64
 }
 
+type v1SearchWindowObservation struct {
+	Index               int
+	FaultStartedAt      time.Time
+	FaultEndedAt        time.Time
+	DependencyReadyAt   time.Time
+	ObligationsClosedAt time.Time
+	VisibleAt           time.Time
+	Facts               v1DurableFacts
+}
+
 type formalV1Runner struct {
 	session        *harness.Session
 	admin          *v1HTTPClient
@@ -602,9 +612,9 @@ func (runner *formalV1Runner) waitAllStages(metas []v1HTTPMeta, timeout time.Dur
 // recovery deadline. The stage page can become complete before the retry
 // delivery records business_application_results, so treating stage readiness
 // as the end of the recovery wait can capture a partial result set.
-func (runner *formalV1Runner) waitSearchRecovery(metas []v1HTTPMeta, timeout time.Duration) (bool, v1DurableFacts, error) {
+func (runner *formalV1Runner) waitSearchRecovery(metas []v1HTTPMeta, timeout time.Duration) (v1SearchWindowObservation, error) {
 	if len(metas) == 0 {
-		return false, v1DurableFacts{}, errors.New("search recovery requires at least one committed request")
+		return v1SearchWindowObservation{}, errors.New("search recovery requires at least one committed request")
 	}
 	end := time.Now().Add(timeout)
 	if end.After(runner.deadline) {
@@ -612,16 +622,24 @@ func (runner *formalV1Runner) waitSearchRecovery(metas []v1HTTPMeta, timeout tim
 	}
 	var latest v1DurableFacts
 	var lastErr error
+	var obligationsClosedAt time.Time
+	var visibleAt time.Time
 	for time.Now().Before(end) {
-		all := true
+		allApplications := true
+		allVisible := true
+		factsErr := false
 		current := v1DurableFacts{}
 		for _, meta := range metas {
 			stage := runner.admin.stage(context.Background(), meta, true)
 			stageReady := stage.Status == http.StatusOK && stage.Stage.Resolved.CommandID == meta.CommandID && stage.Stage.Evidence.Command.Quality == "known" && hasKnownConsumer(stage.Stage) && stage.Stage.Evidence.Visibility.Quality == "known" && stage.Stage.Evidence.Visibility.Matched != nil && *stage.Stage.Evidence.Visibility.Matched && stage.LogsKnown
+			if !stageReady {
+				allVisible = false
+			}
 			facts, err := runner.facts(meta)
 			if err != nil {
 				lastErr = err
-				all = false
+				factsErr = true
+				allApplications = false
 				continue
 			}
 			current.Commands += facts.Commands
@@ -630,17 +648,31 @@ func (runner *formalV1Runner) waitSearchRecovery(metas []v1HTTPMeta, timeout tim
 			current.Requirements += facts.Requirements
 			current.Applications += facts.Applications
 			current.BrokerPublished += facts.BrokerPublished
-			if !stageReady || facts.Applications < 1 {
-				all = false
+			if facts.Applications < 1 {
+				allApplications = false
 			}
 		}
-		latest = current
-		if all {
-			return true, latest, nil
+		if !factsErr {
+			lastErr = nil
 		}
-		time.Sleep(time.Second)
+		latest = current
+		now := time.Now().UTC()
+		if allApplications && latest.Applications >= int64(len(metas)) && obligationsClosedAt.IsZero() {
+			obligationsClosedAt = now
+		}
+		// The two boundaries are tracked independently so a ready stage page
+		// cannot hide an unclosed durable application obligation.
+		if allVisible && visibleAt.IsZero() {
+			visibleAt = now
+		}
+		// Return both timestamps only after this poll has observed both.
+		if obligationsClosedAt.IsZero() || visibleAt.IsZero() {
+			time.Sleep(time.Second)
+			continue
+		}
+		return v1SearchWindowObservation{Facts: latest, ObligationsClosedAt: obligationsClosedAt, VisibleAt: visibleAt}, nil
 	}
-	return false, latest, lastErr
+	return v1SearchWindowObservation{Facts: latest}, lastErr
 }
 
 func hasKnownConsumer(stage v1StageResult) bool {
@@ -1180,10 +1212,12 @@ func (runner *formalV1Runner) runV07() (receipt.V1Case, error) {
 
 func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V1Case, error) {
 	started := time.Now().UTC()
-	var metas []v1HTTPMeta
 	var primary v1HTTPMeta
 	var success int64
 	var unavailable int64
+	var requests int64
+	observations := make([]v1SearchWindowObservation, 0, 2)
+	moments := make([]receipt.Moment, 0, 14)
 	for window := 0; window < 2; window++ {
 		if window == 0 {
 			if result := runner.session.Compose("stop", "elasticsearch"); result.ExitCode != 0 {
@@ -1204,6 +1238,8 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 		// paused. Startup and pause time are control overhead, not evidence for
 		// the required sixty-second fault window.
 		windowStarted := time.Now().UTC()
+		windowMetas := make([]v1HTTPMeta, 0, v1FaultRequests)
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("fault_window_%d_started", window), Actual: windowStarted.Format(time.RFC3339Nano)})
 		for index := 0; index < v1FaultRequests; index++ {
 			if index > 0 {
 				if err := waitUntil(runner.deadline, windowStarted.Add(time.Duration(index)*v1FaultRequestEvery)); err != nil {
@@ -1211,12 +1247,13 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 				}
 			}
 			result := runner.admin.create(context.Background(), runner.commandEpoch, mustV1UUID(), fmt.Sprintf("%s window %d request %d", caseID, window, index), "bounded search fault request", v1TraceParent)
+			requests++
 			if result.Status == 0 || result.Status >= http.StatusInternalServerError {
 				unavailable++
 			}
 			if result.Status == http.StatusCreated {
 				success++
-				metas = append(metas, result.Meta)
+				windowMetas = append(windowMetas, result.Meta)
 				if primary.CommandID == "" {
 					primary = result.Meta
 				}
@@ -1225,6 +1262,8 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 		if err := waitUntil(runner.deadline, windowStarted.Add(v1FaultWindow)); err != nil {
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
+		windowEnded := time.Now().UTC()
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("fault_window_%d_ended", window), Actual: windowEnded.Format(time.RFC3339Nano)})
 		if window == 1 {
 			if result := runner.session.Compose("unpause", "elasticsearch"); result.ExitCode != 0 {
 				err := fmt.Errorf("unpause Elasticsearch failed with exit code %d", result.ExitCode)
@@ -1235,16 +1274,134 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 			err = fmt.Errorf("restore Elasticsearch after window: %w", err)
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
+		dependencyReady := time.Now().UTC()
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("dependency_%d_ready", window), Actual: dependencyReady.Format(time.RFC3339Nano)})
+		observation := v1SearchWindowObservation{Index: window, FaultStartedAt: windowStarted, FaultEndedAt: windowEnded, DependencyReadyAt: dependencyReady}
+		remaining := time.Until(windowEnded.Add(v1RecoveryWait))
+		var recoveryErr error
+		if len(windowMetas) > 0 && remaining > 0 {
+			recovery, err := runner.waitSearchRecovery(windowMetas, remaining)
+			recoveryErr = err
+			observation.Facts = recovery.Facts
+			observation.ObligationsClosedAt = recovery.ObligationsClosedAt
+			observation.VisibleAt = recovery.VisibleAt
+		}
+		observations = append(observations, observation)
+		moments = appendSearchWindowMoments(moments, observation)
+		item := runner.completedCaseWithDetails(caseID, primary, started, action+fmt.Sprintf("; completed subwindow %d", window), !observation.ObligationsClosedAt.IsZero() && !observation.VisibleAt.IsZero(), !observation.ObligationsClosedAt.IsZero() && !observation.VisibleAt.IsZero(), searchWindowFacts(observations, requests, success, unavailable), maxSearchWindowFaultSeconds(observations), maxSearchWindowRecoverySeconds(observations), moments, searchWindowReceipts(observations))
+		if recoveryErr != nil {
+			return itemAsFailed(item, "infrastructure_failure", "durable facts: "+recoveryErr.Error()), recoveryErr
+		}
+		faultSeconds := elapsedSeconds(observation.FaultStartedAt, observation.FaultEndedAt)
+		recoverySeconds := searchWindowRecoverySeconds(observation)
+		if observation.ObligationsClosedAt.IsZero() || observation.VisibleAt.IsZero() || faultSeconds < int64(v1FaultWindow/time.Second) || recoverySeconds > int64(v1RecoveryWait/time.Second) {
+			err := errors.New(caseID + fmt.Sprintf(" subwindow %d did not satisfy the 60 second fault and 120 second recovery contract", window))
+			return itemAsFailed(item, "product_failure", err.Error()), err
+		}
 	}
-	recovered, facts, factsErr := runner.waitSearchRecovery(metas, v1RecoveryWait)
-	item := runner.completedCase(caseID, primary, started, action+"; first subwindow unavailable and second subwindow delayed", recovered, recovered, []receipt.RawFact{{Name: "fault_requests", Value: int64(v1FaultRequests * 2)}, {Name: "fault_windows", Value: 2}, {Name: "http_success", Value: success}, {Name: "http_unavailable", Value: unavailable}, {Name: "requests", Value: int64(v1FaultRequests * 2)}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "applications", Value: facts.Applications}, {Name: "business_independent", Value: boolInt(success == int64(v1FaultRequests*2))}}, 120, int64(time.Since(started)/time.Second))
-	if factsErr != nil {
-		return itemAsFailed(item, "infrastructure_failure", "durable facts: "+factsErr.Error()), factsErr
-	}
-	if success != int64(v1FaultRequests*2) || facts.Commands != success || facts.Posts != success || facts.Requirements != success || facts.Applications != success || !recovered {
-		return itemAsFailed(item, "product_failure", "business create or search recovery failed during the required windows"), errors.New(caseID + " fault windows failed")
+	facts := aggregateSearchWindowFacts(observations)
+	recovered := len(observations) == 2
+	item := runner.completedCaseWithDetails(caseID, primary, started, action+"; each subwindow restored dependency, closed obligations, and verified visibility", recovered, recovered, searchWindowFacts(observations, requests, success, unavailable), maxSearchWindowFaultSeconds(observations), maxSearchWindowRecoverySeconds(observations), moments, searchWindowReceipts(observations))
+	expectedRequests := int64(v1FaultRequests * 2)
+	if requests != expectedRequests || success != expectedRequests || facts.Commands != success || facts.Posts != success || facts.Requirements != success || facts.Applications != success || !recovered {
+		err := errors.New(caseID + " fault windows failed")
+		return itemAsFailed(item, "product_failure", "business create or search recovery failed during the required windows"), err
 	}
 	return item, nil
+}
+
+func aggregateSearchWindowFacts(observations []v1SearchWindowObservation) v1DurableFacts {
+	var total v1DurableFacts
+	for _, observation := range observations {
+		total.Commands += observation.Facts.Commands
+		total.Posts += observation.Facts.Posts
+		total.Outbox += observation.Facts.Outbox
+		total.Requirements += observation.Facts.Requirements
+		total.Applications += observation.Facts.Applications
+		total.BrokerPublished += observation.Facts.BrokerPublished
+		total.OpenRequirements += observation.Facts.OpenRequirements
+	}
+	return total
+}
+
+func searchWindowFacts(observations []v1SearchWindowObservation, requests, success, unavailable int64) []receipt.RawFact {
+	facts := aggregateSearchWindowFacts(observations)
+	result := []receipt.RawFact{{Name: "fault_requests", Value: requests}, {Name: "fault_windows", Value: int64(len(observations))}, {Name: "http_success", Value: success}, {Name: "http_unavailable", Value: unavailable}, {Name: "requests", Value: requests}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "applications", Value: facts.Applications}, {Name: "business_independent", Value: boolInt(success == requests)}}
+	for _, observation := range observations {
+		result = append(result,
+			receipt.RawFact{Name: fmt.Sprintf("fault_window_%d_seconds", observation.Index), Value: elapsedSeconds(observation.FaultStartedAt, observation.FaultEndedAt)},
+			receipt.RawFact{Name: fmt.Sprintf("recovery_%d_seconds", observation.Index), Value: searchWindowRecoverySeconds(observation)},
+		)
+	}
+	return result
+}
+
+func searchWindowReceipts(observations []v1SearchWindowObservation) []receipt.V1Subwindow {
+	result := make([]receipt.V1Subwindow, 0, len(observations))
+	for _, observation := range observations {
+		result = append(result, receipt.V1Subwindow{Index: observation.Index, FaultSeconds: elapsedSeconds(observation.FaultStartedAt, observation.FaultEndedAt), RecoverySeconds: searchWindowRecoverySeconds(observation), FaultStartedAt: formatMoment(observation.FaultStartedAt), FaultEndedAt: formatMoment(observation.FaultEndedAt), DependencyReadyAt: formatMoment(observation.DependencyReadyAt), ObligationsClosedAt: formatMoment(observation.ObligationsClosedAt), VisibleAt: formatMoment(observation.VisibleAt)})
+	}
+	return result
+}
+
+func appendSearchWindowMoments(moments []receipt.Moment, observation v1SearchWindowObservation) []receipt.Moment {
+	if !observation.ObligationsClosedAt.IsZero() && !observation.VisibleAt.IsZero() {
+		if observation.ObligationsClosedAt.Before(observation.VisibleAt) {
+			moments = append(moments, receipt.Moment{Name: fmt.Sprintf("obligations_%d_closed", observation.Index), Actual: formatMoment(observation.ObligationsClosedAt)}, receipt.Moment{Name: fmt.Sprintf("visibility_%d_known", observation.Index), Actual: formatMoment(observation.VisibleAt)})
+		} else {
+			moments = append(moments, receipt.Moment{Name: fmt.Sprintf("visibility_%d_known", observation.Index), Actual: formatMoment(observation.VisibleAt)}, receipt.Moment{Name: fmt.Sprintf("obligations_%d_closed", observation.Index), Actual: formatMoment(observation.ObligationsClosedAt)})
+		}
+	} else if !observation.ObligationsClosedAt.IsZero() {
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("obligations_%d_closed", observation.Index), Actual: formatMoment(observation.ObligationsClosedAt)})
+	} else if !observation.VisibleAt.IsZero() {
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("visibility_%d_known", observation.Index), Actual: formatMoment(observation.VisibleAt)})
+	}
+	return moments
+}
+
+func searchWindowRecoverySeconds(observation v1SearchWindowObservation) int64 {
+	latest := observation.ObligationsClosedAt
+	if observation.VisibleAt.After(latest) {
+		latest = observation.VisibleAt
+	}
+	if latest.IsZero() {
+		latest = time.Now().UTC()
+	}
+	return elapsedSeconds(observation.FaultEndedAt, latest)
+}
+
+func maxSearchWindowFaultSeconds(observations []v1SearchWindowObservation) int64 {
+	var maximum int64
+	for _, observation := range observations {
+		if value := elapsedSeconds(observation.FaultStartedAt, observation.FaultEndedAt); value > maximum {
+			maximum = value
+		}
+	}
+	return maximum
+}
+
+func maxSearchWindowRecoverySeconds(observations []v1SearchWindowObservation) int64 {
+	var maximum int64
+	for _, observation := range observations {
+		if value := searchWindowRecoverySeconds(observation); value > maximum {
+			maximum = value
+		}
+	}
+	return maximum
+}
+
+func elapsedSeconds(start, end time.Time) int64 {
+	if start.IsZero() || end.Before(start) {
+		return 0
+	}
+	return int64(end.Sub(start) / time.Second)
+}
+
+func formatMoment(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
 
 func (runner *formalV1Runner) runV08() (receipt.V1Case, error) {
@@ -1848,10 +2005,14 @@ func (runner *formalV1Runner) stopFaultProxy() error {
 }
 
 func (runner *formalV1Runner) completedCase(caseID string, meta v1HTTPMeta, started time.Time, action string, stageOK, logsOK bool, facts []receipt.RawFact, window, recovery int64) receipt.V1Case {
+	return runner.completedCaseWithDetails(caseID, meta, started, action, stageOK, logsOK, facts, window, recovery, nil, nil)
+}
+
+func (runner *formalV1Runner) completedCaseWithDetails(caseID string, meta v1HTTPMeta, started time.Time, action string, stageOK, logsOK bool, facts []receipt.RawFact, window, recovery int64, extraMoments []receipt.Moment, subwindows []receipt.V1Subwindow) receipt.V1Case {
 	if meta.PostID == 0 || meta.CommandID == "" || meta.EventID == "" {
 		return notStartedCase(caseID)
 	}
-	return runner.writeCase(caseID, meta, started, "passed", "", action, stageOK, logsOK, facts, window, recovery)
+	return runner.writeCaseWithDetails(caseID, meta, started, "passed", "", action, stageOK, logsOK, facts, window, recovery, extraMoments, subwindows)
 }
 
 func (runner *formalV1Runner) failedCase(caseID string, identity receipt.V1Identity, started time.Time, reason string, stageOK bool, facts []receipt.RawFact, window, recovery int64) receipt.V1Case {
@@ -1862,6 +2023,10 @@ func (runner *formalV1Runner) failedCase(caseID string, identity receipt.V1Ident
 }
 
 func (runner *formalV1Runner) writeCase(caseID string, meta v1HTTPMeta, started time.Time, status, failureClass, action string, stageOK, logsOK bool, facts []receipt.RawFact, window, recovery int64) receipt.V1Case {
+	return runner.writeCaseWithDetails(caseID, meta, started, status, failureClass, action, stageOK, logsOK, facts, window, recovery, nil, nil)
+}
+
+func (runner *formalV1Runner) writeCaseWithDetails(caseID string, meta v1HTTPMeta, started time.Time, status, failureClass, action string, stageOK, logsOK bool, facts []receipt.RawFact, window, recovery int64, extraMoments []receipt.Moment, subwindows []receipt.V1Subwindow) receipt.V1Case {
 	identity := identityFromMeta(meta)
 	if identity.DataEpoch == "" {
 		identity.DataEpoch = runner.commandEpoch
@@ -1889,7 +2054,10 @@ func (runner *formalV1Runner) writeCase(caseID string, meta v1HTTPMeta, started 
 	if record, ok := runner.children[caseID]; ok {
 		child = &record
 	}
-	return receipt.V1Case{CaseID: caseID, Status: status, FailureClass: failureClass, PlannedAction: v1PlannedActions[caseID], ActualAction: action, Identity: identity, Moments: []receipt.Moment{{Name: "action_started", Actual: started.UTC().Format(time.RFC3339Nano)}, {Name: "case_finished", Actual: time.Now().UTC().Format(time.RFC3339Nano)}}, WindowSeconds: window, RecoverySeconds: recovery, Raw: receipt.RawRecord{Path: "cases/" + caseID + ".json", SHA256: checksum}, Child: child, CleanupPassed: true}
+	moments := []receipt.Moment{{Name: "action_started", Actual: started.UTC().Format(time.RFC3339Nano)}}
+	moments = append(moments, extraMoments...)
+	moments = append(moments, receipt.Moment{Name: "case_finished", Actual: time.Now().UTC().Format(time.RFC3339Nano)})
+	return receipt.V1Case{CaseID: caseID, Status: status, FailureClass: failureClass, PlannedAction: v1PlannedActions[caseID], ActualAction: action, Identity: identity, Moments: moments, Subwindows: subwindows, WindowSeconds: window, RecoverySeconds: recovery, Raw: receipt.RawRecord{Path: "cases/" + caseID + ".json", SHA256: checksum}, Child: child, CleanupPassed: true}
 }
 
 func itemAsFailed(item receipt.V1Case, failureClass, reason string) receipt.V1Case {

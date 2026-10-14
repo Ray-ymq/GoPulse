@@ -280,9 +280,76 @@ func TestSearchProfileRoutesPermanentProcessorFailureDirectlyToSearchDead(t *tes
 	}
 }
 
+func TestSearchProfileDefersExhaustedV2ProjectionFailure(t *testing.T) {
+	processor := &processorFake{err: errors.New("elasticsearch unavailable")}
+	publisher := &publisherFake{}
+	handler, err := NewHandler(processor, publisher, HandlerOptions{
+		Profile: SearchProfile, MaxRetries: 3, PublishTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, acknowledger := validV2SearchDelivery(t)
+	delivery.Headers[AttemptHeader] = int32(3)
+	originalBody := append([]byte(nil), delivery.Body...)
+	originalAttemptID := tracing.NewAttemptID()
+	delivery.Headers[tracing.AttemptIDHeader] = originalAttemptID
+	if err := handler.Handle(context.Background(), delivery); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if processor.calls != 1 || acknowledger.acks != 1 || acknowledger.nacks != 0 || len(publisher.calls) != 1 {
+		t.Fatalf("processor=%d acks=%d nacks=%d publishes=%d", processor.calls, acknowledger.acks, acknowledger.nacks, len(publisher.calls))
+	}
+	call := publisher.calls[0]
+	if call.exchange != platform.SearchRetryExchange || call.routingKey != delivery.RoutingKey || call.message.Headers[AttemptHeader] != int32(0) {
+		t.Fatalf("deferred search publish = %#v", call)
+	}
+	if call.message.MessageId != delivery.MessageId || call.message.Type != delivery.Type || !bytes.Equal(call.message.Body, originalBody) {
+		t.Fatal("deferred publish did not preserve the original event")
+	}
+	originalEnvelope, err := bus.Decode(originalBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deferredEnvelope, err := bus.Decode(call.message.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deferredEnvelope.EventID != originalEnvelope.EventID || deferredEnvelope.DataEpoch != originalEnvelope.DataEpoch || deferredEnvelope.CommandID != originalEnvelope.CommandID {
+		t.Fatalf("deferred event identity = %+v, want %+v", deferredEnvelope, originalEnvelope)
+	}
+	nextAttemptID, ok := call.message.Headers[tracing.AttemptIDHeader].(string)
+	if !ok || nextAttemptID == originalAttemptID || len(nextAttemptID) != 32 {
+		t.Fatalf("deferred attempt ID = %#v, want a new valid attempt ID", call.message.Headers[tracing.AttemptIDHeader])
+	}
+}
+
 func validSearchDelivery(t *testing.T) (amqp.Delivery, *acknowledgerFake) {
 	t.Helper()
 	envelope, err := bus.NewPostCreated(time.Date(2026, time.September, 2, 5, 6, 7, 0, time.UTC), 1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := bus.Encode(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, _ := envelope.Metadata()
+	acknowledger := &acknowledgerFake{}
+	return amqp.Delivery{
+		Acknowledger: acknowledger, DeliveryTag: 1, Headers: amqp.Table{},
+		ContentType: metadata.ContentType, DeliveryMode: amqp.Persistent, MessageId: metadata.MessageID,
+		Timestamp: metadata.Timestamp, Type: metadata.Type, RoutingKey: bus.PostCreatedRoutingKey, Body: body,
+	}, acknowledger
+}
+
+func validV2SearchDelivery(t *testing.T) (amqp.Delivery, *acknowledgerFake) {
+	t.Helper()
+	envelope, err := bus.NewV2PostCreated(
+		time.Date(2026, time.September, 2, 5, 6, 7, 0, time.UTC),
+		"123e4567-e89b-42d3-a456-426614174000",
+		"123e4567-e89b-42d3-a456-426614174001", 1, 3, 1,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -93,6 +93,26 @@ func TestV1EvidenceRejectsShortWindowAndBadHash(t *testing.T) {
 	}
 }
 
+func TestV07SubwindowsKeepIndependentRecoveryBoundaries(t *testing.T) {
+	now := time.Date(2026, time.October, 14, 4, 0, 0, 0, time.UTC)
+	subwindows := []V1Subwindow{{
+		Index: 0, FaultSeconds: 60, RecoverySeconds: 45,
+		FaultStartedAt: now.Format(time.RFC3339Nano), FaultEndedAt: now.Add(60 * time.Second).Format(time.RFC3339Nano),
+		DependencyReadyAt: now.Add(61 * time.Second).Format(time.RFC3339Nano), ObligationsClosedAt: now.Add(90 * time.Second).Format(time.RFC3339Nano), VisibleAt: now.Add(91 * time.Second).Format(time.RFC3339Nano),
+	}, {
+		Index: 1, FaultSeconds: 60, RecoverySeconds: 120,
+		FaultStartedAt: now.Add(200 * time.Second).Format(time.RFC3339Nano), FaultEndedAt: now.Add(260 * time.Second).Format(time.RFC3339Nano),
+		DependencyReadyAt: now.Add(261 * time.Second).Format(time.RFC3339Nano), ObligationsClosedAt: now.Add(379 * time.Second).Format(time.RFC3339Nano), VisibleAt: now.Add(380 * time.Second).Format(time.RFC3339Nano),
+	}}
+	if err := validateSubwindows(subwindows, true); err != nil {
+		t.Fatalf("valid V07 subwindows rejected: %v", err)
+	}
+	subwindows[1].VisibleAt = now.Add(259 * time.Second).Format(time.RFC3339Nano)
+	if err := validateSubwindows(subwindows, true); err == nil {
+		t.Fatal("visibility before dependency readiness was accepted")
+	}
+}
+
 func TestV1PublicationIsWhitelisted(t *testing.T) {
 	document, _ := validV1Document(t)
 	path := filepath.Join(t.TempDir(), "publication.json")
