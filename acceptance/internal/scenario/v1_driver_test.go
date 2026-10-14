@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,18 @@ func TestPrivateComponentMetricsBypassesHostProxy(t *testing.T) {
 	defer transport.CloseIdleConnections()
 	if transport.Proxy != nil {
 		t.Fatal("private component metrics probe must bypass the host proxy")
+	}
+}
+
+func TestPrivateV1HTTPClientBypassesHostProxy(t *testing.T) {
+	client := newPrivateV1HTTPClient("http://192.0.2.1:8080")
+	transport, ok := client.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("private client transport type = %T, want *http.Transport", client.client.Transport)
+	}
+	defer transport.CloseIdleConnections()
+	if transport.Proxy != nil {
+		t.Fatal("private V1 HTTP client must bypass the host proxy")
 	}
 }
 

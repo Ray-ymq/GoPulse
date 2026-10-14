@@ -507,6 +507,12 @@ func privateMetricsTransport() *http.Transport {
 	return transport
 }
 
+func newPrivateV1HTTPClient(baseURL string) *v1HTTPClient {
+	client := newV1HTTPClient(baseURL)
+	client.client.Transport = privateMetricsTransport()
+	return client
+}
+
 func (runner *formalV1Runner) telemetryMetricEvidence() (bool, error) {
 	monitor, monitorErr := runner.privateComponentMetrics("monitor", "19104", runner.session.Value("MONITOR_METRICS_TOKEN"))
 	router, routerErr := runner.privateComponentMetrics("router", "19105", runner.session.Value("ROUTER_METRICS_TOKEN"))
@@ -1644,7 +1650,8 @@ func (runner *formalV1Runner) runV10() (receipt.V1Case, error) {
 	frontendPostsStatus, _, postsErr := runner.admin.do(context.Background(), http.MethodGet, "/posts", nil, nil)
 	frontendAdminStatus, _, adminFrontendErr := runner.admin.do(context.Background(), http.MethodGet, "/admin/", nil, nil)
 	noSession := newV1HTTPClient(runner.baseURL)
-	unauthenticatedStatus, _, unauthenticatedErr := noSession.do(context.Background(), http.MethodGet, "/api/v1/admin/overview", nil, nil)
+	const adminOverviewPath = "/api/v1/admin/overview?range=15m"
+	unauthenticatedStatus, _, unauthenticatedErr := noSession.do(context.Background(), http.MethodGet, adminOverviewPath, nil, nil)
 	publicInternalStatus, _, publicInternalErr := noSession.do(context.Background(), http.MethodGet, "/internal/v1/business-stages", nil, nil)
 	userID, userIDErr := runner.user.currentUserID(context.Background())
 	rolePromoteStatus, rolePromoteErr := 0, error(nil)
@@ -1654,18 +1661,19 @@ func (runner *formalV1Runner) runV10() (receipt.V1Case, error) {
 	if userIDErr == nil {
 		rolePromoteStatus, _, rolePromoteErr = runner.admin.do(context.Background(), http.MethodPut, "/api/v1/admin/users/"+strconv.FormatUint(userID, 10)+"/role", nil, map[string]string{"role": "super_admin"})
 		if rolePromoteErr == nil && rolePromoteStatus == http.StatusOK {
-			rolePromotedAccessStatus, _, rolePromoteErr = runner.user.do(context.Background(), http.MethodGet, "/api/v1/admin/overview", nil, nil)
+			rolePromotedAccessStatus, _, rolePromoteErr = runner.user.do(context.Background(), http.MethodGet, adminOverviewPath, nil, nil)
 		}
 		roleDemoteStatus, _, roleDemoteErr = runner.admin.do(context.Background(), http.MethodPut, "/api/v1/admin/users/"+strconv.FormatUint(userID, 10)+"/role", nil, map[string]string{"role": "user"})
 		if roleDemoteErr == nil && roleDemoteStatus == http.StatusOK {
-			roleDemotedAccessStatus, _, roleDemoteErr = runner.user.do(context.Background(), http.MethodGet, "/api/v1/admin/overview", nil, nil)
+			roleDemotedAccessStatus, _, roleDemoteErr = runner.user.do(context.Background(), http.MethodGet, adminOverviewPath, nil, nil)
 		}
 	}
 	internalURL, internalURLErr := runner.internalServiceURL("backend", "8080")
 	wrongCredentialStatus := 0
 	wrongCredentialErr := internalURLErr
 	if wrongCredentialErr == nil {
-		internalClient := newV1HTTPClient(internalURL)
+		internalClient := newPrivateV1HTTPClient(internalURL)
+		defer internalClient.client.Transport.(*http.Transport).CloseIdleConnections()
 		wrongCredentialStatus, _, wrongCredentialErr = internalClient.do(context.Background(), http.MethodGet, "/internal/v1/business-stages", map[string]string{
 			"Cookie":                              runner.admin.cookieHeader(),
 			"X-GoPulse-Business-Stage-Credential": "wrong-private-credential",
