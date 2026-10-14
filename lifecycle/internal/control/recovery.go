@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -248,7 +249,13 @@ func (c *Controller) snapshot(pass []byte) (backup.Manifest, map[string][]byte, 
 		return m, nil, e
 	}
 	files["kafka.json"] = marshal(kafka)
-	m.Domains["kafka"] = backup.Domain{Cutover: cutover, Start: cutover, End: cutover, Counts: map[string]int64{"topics": 1, "partitions": 1}, Offsets: map[string]int64{kafka.Topic + "/0": kafka.Offsets[0].Committed}, Drained: kafka.Offsets[0].Committed == kafka.Offsets[0].End}
+	kafkaOffsets := map[string]int64{}
+	kafkaDrained := true
+	for _, offset := range kafka.Offsets {
+		kafkaOffsets[kafka.Topic+"/"+strconv.Itoa(offset.Partition)] = offset.Committed
+		kafkaDrained = kafkaDrained && offset.Committed == offset.End
+	}
+	m.Domains["kafka"] = backup.Domain{Cutover: cutover, Start: cutover, End: cutover, Counts: map[string]int64{"topics": 1, "partitions": int64(len(kafka.Offsets))}, Offsets: kafkaOffsets, Drained: kafkaDrained}
 	if e = c.phase("export-plugins"); e != nil {
 		return m, nil, e
 	}
@@ -554,8 +561,13 @@ func (c *Controller) restore(r *restoredBackup) (err error) {
 	if e != nil {
 		return e
 	}
-	if restoredKafka.Offsets[0].Committed != 0 || restoredKafka.Offsets[0].End != 0 || string(marshal(sourceKafka.Configs)) != string(marshal(restoredKafka.Configs)) {
+	if !validKafkaOffsets(sourceKafka.Offsets, true) || len(restoredKafka.Offsets) != len(sourceKafka.Offsets) || !validKafkaOffsets(restoredKafka.Offsets, true) || string(marshal(sourceKafka.Configs)) != string(marshal(restoredKafka.Configs)) {
 		return fail(Failed, "restore-verify-kafka", "new-topic offset/configuration verification failed")
+	}
+	for _, offset := range restoredKafka.Offsets {
+		if offset.Committed != 0 || offset.End != 0 {
+			return fail(Failed, "restore-verify-kafka", "new-topic offset/configuration verification failed")
+		}
 	}
 	if err = c.phase("restore-plugins"); err != nil {
 		return err

@@ -51,3 +51,31 @@ func TestPendingCiphertextCleanupIsOperationScoped(t *testing.T) {
 		t.Fatal("link target changed")
 	}
 }
+
+func TestValidKafkaOffsetsSupportsCurrentPartitionTopology(t *testing.T) {
+	offsets := []kafkaOffset{
+		{Topic: "gopulse-observability-v1", Partition: 0, Committed: 10, End: 10},
+		{Topic: "gopulse-observability-v1", Partition: 1, Committed: 11, End: 11},
+		{Topic: "gopulse-observability-v1", Partition: 2, Committed: 12, End: 12},
+		{Topic: "gopulse-observability-v1", Partition: 3, Committed: 13, End: 13},
+	}
+	if !validKafkaOffsets(offsets, true) {
+		t.Fatal("current four-partition drained topology was rejected")
+	}
+	if validKafkaOffsets(append([]kafkaOffset(nil), offsets[:3]...), true) == false {
+		t.Fatal("a valid bounded prefix should remain valid")
+	}
+}
+
+func TestValidKafkaOffsetsRejectsGapsAndUndrainedPartitions(t *testing.T) {
+	offsets := []kafkaOffset{
+		{Topic: "gopulse-observability-v1", Partition: 0, Committed: 10, End: 11},
+		{Topic: "gopulse-observability-v1", Partition: 2, Committed: 12, End: 12},
+	}
+	if validKafkaOffsets(offsets, false) {
+		t.Fatal("partition gap was accepted")
+	}
+	if validKafkaOffsets([]kafkaOffset{{Topic: "gopulse-observability-v1", Partition: 0, Committed: 10, End: 11}}, true) {
+		t.Fatal("undrained partition was accepted")
+	}
+}
