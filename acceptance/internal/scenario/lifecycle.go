@@ -1,6 +1,7 @@
 package scenario
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -255,9 +257,10 @@ func (r *lifecycleRunner) clean() error {
 }
 
 // restoreRoundTrip runs the lifecycle's real drained-backup and empty-target
-// restore hand-off. It returns the private restore-result facts so the formal
-// business case can bind them to the epoch-generation assertions.
-func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, error) {
+// restore hand-off. The source is seeded through the public business API so
+// the archive contains real users, posts, outbox events, search documents,
+// completion rows, and a cache/cursor from the old epoch.
+func (r *lifecycleRunner) restoreRoundTrip() (map[string]any, error) {
 	if err := r.expect("doctor", 0, localImageValidationFlags(r.port)...); err != nil {
 		return nil, err
 	}
@@ -265,6 +268,14 @@ func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, e
 		return nil, err
 	}
 	if err := r.expect("up", 0); err != nil {
+		return nil, err
+	}
+	status, err := r.expectJSON("status", 0)
+	if err != nil {
+		return nil, err
+	}
+	fixture, err := r.prepareV11Source(status)
+	if err != nil {
 		return nil, err
 	}
 	passphrase := make([]byte, 32)
@@ -325,7 +336,7 @@ func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, e
 	if !verified || oldEpoch == "" || newEpoch == "" || oldEpoch == newEpoch {
 		return nil, fmt.Errorf("restore result did not prove a new epoch and verified facts")
 	}
-	status, err := target.expectJSON("status", 0)
+	status, err = target.expectJSON("status", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -337,17 +348,13 @@ func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, e
 		return nil, generationErr
 	}
 	result["restored_generation"] = generation
-	oldCompletionRows, completionErr := target.completionRowsForEpoch(result, oldEventID)
-	if completionErr != nil {
-		return nil, completionErr
+	result["source_generation"] = fixture.OldGeneration
+	if fixture.Primary.DataEpoch != oldEpoch {
+		return nil, fmt.Errorf("source fixture epoch %q differs from restored old epoch %q", fixture.Primary.DataEpoch, oldEpoch)
 	}
-	// The restore job's successful exit includes search-reindex's explicit
-	// old-epoch admission check. The SQL check below independently proves that
-	// the old event has no completion row in the new epoch, so an old physical
-	// generation cannot masquerade as a new completion.
-	result["old_epoch_rejected"] = true
-	result["old_generation_not_completed"] = oldCompletionRows == 0
-	result["old_completion_rows_in_new_epoch"] = oldCompletionRows
+	if err := target.verifyV11Restore(result, fixture); err != nil {
+		return nil, err
+	}
 	if err := target.expect("verify", 0); err != nil {
 		return nil, err
 	}
@@ -357,38 +364,446 @@ func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, e
 	return result, nil
 }
 
-func (r *lifecycleRunner) completionRowsForEpoch(restoreResult map[string]any, oldEventID string) (int64, error) {
-	newEpoch, _ := restoreResult["new_epoch"].(string)
-	if newEpoch == "" || oldEventID == "" {
-		return 0, fmt.Errorf("restore completion fence identities are incomplete")
+func (r *lifecycleRunner) prepareV11Source(status map[string]any) (v11RestoreFixture, error) {
+	edge, _ := status["edge"].(string)
+	if edge == "" {
+		return v11RestoreFixture{}, errors.New("V11 lifecycle source status has no edge")
 	}
-	result := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service=mysql")
-	if result.ExitCode != 0 || len(strings.Fields(result.Stdout)) != 1 {
-		return 0, fmt.Errorf("find restored MySQL container for completion fence failed")
+	client := newV1HTTPClient(edge)
+	username := "v11source_" + r.session.Token
+	password := "V11-source-" + r.session.Token + "-password"
+	if err := client.register(context.Background(), username, password); err != nil {
+		return v11RestoreFixture{}, fmt.Errorf("register V11 lifecycle source user: %w", err)
 	}
-	query := fmt.Sprintf("SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search'", sqlLiteral(newEpoch), sqlLiteral(oldEventID))
+	epoch, err := client.commandEpoch(context.Background())
+	if err != nil {
+		return v11RestoreFixture{}, fmt.Errorf("read V11 lifecycle source epoch: %w", err)
+	}
+	query := "V11 restore source " + r.session.Token[:8]
+	primaryTitle := query + " primary"
+	primaryContent := query + " primary content"
+	secondaryTitle := query + " secondary"
+	secondaryContent := query + " secondary content"
+	primary := client.create(context.Background(), epoch, mustV1UUID(), primaryTitle, primaryContent, v1TraceParent)
+	if primary.Status != http.StatusCreated || primary.Meta.EventID == "" {
+		if primary.Err != nil {
+			return v11RestoreFixture{}, fmt.Errorf("create V11 lifecycle source primary post: %w", primary.Err)
+		}
+		return v11RestoreFixture{}, fmt.Errorf("create V11 lifecycle source primary post returned HTTP %d", primary.Status)
+	}
+	secondary := client.create(context.Background(), epoch, mustV1UUID(), secondaryTitle, secondaryContent, v1TraceParent)
+	if secondary.Status != http.StatusCreated || secondary.Meta.EventID == "" {
+		if secondary.Err != nil {
+			return v11RestoreFixture{}, fmt.Errorf("create V11 lifecycle source secondary post: %w", secondary.Err)
+		}
+		return v11RestoreFixture{}, fmt.Errorf("create V11 lifecycle source secondary post returned HTTP %d", secondary.Status)
+	}
+	fixture := v11RestoreFixture{
+		Primary:          primary.Meta,
+		Secondary:        secondary.Meta,
+		Query:            query,
+		PrimaryTitle:     primaryTitle,
+		PrimaryContent:   primaryContent,
+		SecondaryTitle:   secondaryTitle,
+		SecondaryContent: secondaryContent,
+		Username:         username,
+		Password:         password,
+	}
+	if err := r.waitV11SourceReady(client, &fixture); err != nil {
+		return v11RestoreFixture{}, err
+	}
+	fixture.OldGeneration, err = r.searchGeneration()
+	if err != nil {
+		return v11RestoreFixture{}, err
+	}
+	primaryView, err := client.detail(context.Background(), fixture.Primary.PostID)
+	if err != nil {
+		return v11RestoreFixture{}, fmt.Errorf("read V11 lifecycle source cache seed: %w", err)
+	}
+	fixture.CachePayload, err = stalePostCachePayload(primaryView)
+	if err != nil {
+		return v11RestoreFixture{}, fmt.Errorf("encode V11 old cache fixture: %w", err)
+	}
+	fixture.OldCacheKey = "gopulse:post:detail:v1:epoch:" + fixture.Primary.DataEpoch + ":" + strconv.FormatUint(fixture.Primary.PostID, 10)
+	fixture.LegacyCacheKey = "gopulse:post:detail:v1:" + strconv.FormatUint(fixture.Primary.PostID, 10)
+	if err := r.redisSet(fixture.OldCacheKey, fixture.CachePayload); err != nil {
+		return v11RestoreFixture{}, fmt.Errorf("seed V11 old epoch cache: %w", err)
+	}
+	if err := r.redisSet(fixture.LegacyCacheKey, fixture.CachePayload); err != nil {
+		return v11RestoreFixture{}, fmt.Errorf("seed V11 legacy cache: %w", err)
+	}
+	oldKeyPresent, err := r.redisExists(fixture.OldCacheKey)
+	if err != nil {
+		return v11RestoreFixture{}, err
+	}
+	if !oldKeyPresent {
+		return v11RestoreFixture{}, errors.New("V11 lifecycle source old cache key was not stored")
+	}
+	return fixture, nil
+}
+
+func (r *lifecycleRunner) waitV11SourceReady(client *v1HTTPClient, fixture *v11RestoreFixture) error {
+	end := time.Now().Add(v1StageWait)
+	var lastErr error
+	for time.Now().Before(end) {
+		primary, primaryErr := client.detail(context.Background(), fixture.Primary.PostID)
+		secondary, secondaryErr := client.detail(context.Background(), fixture.Secondary.PostID)
+		page, searchErr := client.search(context.Background(), fixture.Query, 1, "")
+		allPosts, allSearchErr := client.search(context.Background(), fixture.Query, 50, "")
+		completionQuery := fmt.Sprintf("SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search'", sqlLiteral(fixture.Primary.DataEpoch), sqlLiteral(fixture.Primary.EventID))
+		completionRaw, completionErr := r.mysqlQuery(completionQuery)
+		completion := int64(0)
+		if completionErr == nil {
+			completion, completionErr = parseSingleInt(completionRaw, "V11 source completion")
+		}
+		if primaryErr == nil && secondaryErr == nil && searchErr == nil && allSearchErr == nil && completionErr == nil && primary.ID == fixture.Primary.PostID && primary.Title == fixture.PrimaryTitle && primary.Content == fixture.PrimaryContent && secondary.ID == fixture.Secondary.PostID && secondary.Title == fixture.SecondaryTitle && secondary.Content == fixture.SecondaryContent && hasSearchPosts(allPosts, fixture.Primary.PostID, fixture.Secondary.PostID) && page.NextCursor != "" && completion > 0 {
+			fixture.OldCursor = page.NextCursor
+			return nil
+		}
+		for _, current := range []error{primaryErr, secondaryErr, searchErr, allSearchErr, completionErr} {
+			if current != nil {
+				lastErr = current
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if lastErr != nil {
+		return fmt.Errorf("wait V11 lifecycle source facts: %w", lastErr)
+	}
+	return errors.New("wait V11 lifecycle source facts timed out")
+}
+
+func (r *lifecycleRunner) verifyV11Restore(result map[string]any, fixture v11RestoreFixture) error {
+	oldEpoch, _ := result["expected_old_epoch"].(string)
+	newEpoch, _ := result["new_epoch"].(string)
+	newGeneration, _ := result["restored_generation"].(string)
+	if oldEpoch == "" || newEpoch == "" || newGeneration == "" || oldEpoch == newEpoch {
+		return errors.New("V11 restore identities are incomplete")
+	}
+	status, err := r.expectJSON("status", 0)
+	if err != nil {
+		return err
+	}
+	edge, _ := status["edge"].(string)
+	if edge == "" {
+		return errors.New("V11 restored target status has no edge")
+	}
+	client := newV1HTTPClient(edge)
+	if err := client.login(context.Background(), fixture.Username, fixture.Password); err != nil {
+		return fmt.Errorf("login to V11 restored target: %w", err)
+	}
+	if err := r.redisSet(fixture.OldCacheKey, fixture.CachePayload); err != nil {
+		return fmt.Errorf("inject V11 old epoch cache: %w", err)
+	}
+	if err := r.redisSet(fixture.LegacyCacheKey, fixture.CachePayload); err != nil {
+		return fmt.Errorf("inject V11 legacy cache: %w", err)
+	}
+	primary, primaryErr := client.detail(context.Background(), fixture.Primary.PostID)
+	secondary, secondaryErr := client.detail(context.Background(), fixture.Secondary.PostID)
+	currentSearch, searchErr := client.search(context.Background(), fixture.Query, 50, "")
+	postCountRaw, postCountErr := r.mysqlQuery("SELECT COUNT(*) FROM posts")
+	postCount, postCountErr := parseSingleInt(postCountRaw, "V11 restored posts")
+	if primaryErr != nil || secondaryErr != nil || searchErr != nil || postCountErr != nil {
+		return errors.Join(primaryErr, secondaryErr, searchErr, postCountErr)
+	}
+	restoredDataVerified := primary.ID == fixture.Primary.PostID && primary.Title == fixture.PrimaryTitle && primary.Content == fixture.PrimaryContent && secondary.ID == fixture.Secondary.PostID && secondary.Title == fixture.SecondaryTitle && secondary.Content == fixture.SecondaryContent && hasSearchPosts(currentSearch, fixture.Primary.PostID, fixture.Secondary.PostID) && postCount == 2
+	newCacheKey := "gopulse:post:detail:v1:epoch:" + newEpoch + ":" + strconv.FormatUint(fixture.Primary.PostID, 10)
+	oldCachePresent, err := r.redisExists(fixture.OldCacheKey)
+	if err != nil {
+		return err
+	}
+	newCachePresent, err := r.redisExists(newCacheKey)
+	if err != nil {
+		return err
+	}
+	oldCacheIsolated := restoredDataVerified && oldCachePresent && newCachePresent
+	indexCount, indexedDocuments, indexEpochVerified, err := r.searchIndexFacts(newGeneration, newEpoch, []uint64{fixture.Primary.PostID, fixture.Secondary.PostID})
+	if err != nil {
+		return err
+	}
+	newIndexVerified := indexEpochVerified && indexCount == postCount && indexedDocuments == 2
+	oldIndexRemoved, err := r.searchIndexMissing(fixture.OldGeneration)
+	if err != nil {
+		return err
+	}
+	beforePosts := postCount
+	oldHeader := client.create(context.Background(), fixture.Primary.DataEpoch, fixture.Primary.idempotencyKey, "V11 old header replay", "V11 old header replay content", v1TraceParent)
+	afterPostsRaw, err := r.mysqlQuery("SELECT COUNT(*) FROM posts")
+	if err != nil {
+		return err
+	}
+	afterPosts, err := parseSingleInt(afterPostsRaw, "V11 post count after old header")
+	if err != nil {
+		return err
+	}
+	oldHeaderRejected := oldHeader.Status == http.StatusConflict && oldHeader.ErrorCode == "data_epoch_mismatch" && beforePosts == afterPosts
+	oldCursorStatus, _, err := client.do(context.Background(), http.MethodGet, "/api/v1/search/posts?"+url.Values{"q": {fixture.Query}, "limit": {"1"}, "cursor": {fixture.OldCursor}}.Encode(), nil, nil)
+	if err != nil {
+		return fmt.Errorf("replay V11 old search cursor: %w", err)
+	}
+	oldCursorRejected := oldCursorStatus == http.StatusBadRequest
+	completionRows, err := r.completionFenceCounts(oldEpoch, newEpoch, fixture.Primary.EventID, fixture.OldGeneration)
+	if err != nil {
+		return err
+	}
+	if completionRows[0] < 1 || completionRows[2] < 1 {
+		return fmt.Errorf("V11 restored old completion row is missing: old_epoch=%d old_generation=%d", completionRows[0], completionRows[2])
+	}
+	if err := r.requeueOldOutbox(fixture.Primary.EventID); err != nil {
+		return err
+	}
+	parkingRows, newCompletionRows, published, err := r.waitV11OldMessage(fixture, oldEpoch, newEpoch)
+	if err != nil {
+		return err
+	}
+	finalCompletionRows, err := r.completionFenceCounts(oldEpoch, newEpoch, fixture.Primary.EventID, fixture.OldGeneration)
+	if err != nil {
+		return err
+	}
+	finalPrimary, finalPrimaryErr := client.detail(context.Background(), fixture.Primary.PostID)
+	finalSecondary, finalSecondaryErr := client.detail(context.Background(), fixture.Secondary.PostID)
+	if finalPrimaryErr != nil || finalSecondaryErr != nil {
+		return errors.Join(finalPrimaryErr, finalSecondaryErr)
+	}
+	oldMessageParked := parkingRows > 0 && published > 0 && finalPrimary.ID == primary.ID && finalPrimary.Title == primary.Title && finalPrimary.Content == primary.Content && finalPrimary.ContentRevision == primary.ContentRevision && finalSecondary.ID == secondary.ID && finalSecondary.Title == secondary.Title && finalSecondary.Content == secondary.Content && finalSecondary.ContentRevision == secondary.ContentRevision
+	oldCompletionNotReused := finalCompletionRows[0] >= 1 && finalCompletionRows[2] >= 1 && finalCompletionRows[1] == 0 && newCompletionRows == 0
+	result["restored_data_verified"] = restoredDataVerified
+	result["restored_posts"] = postCount
+	result["restored_search_documents"] = indexCount
+	result["old_cache_isolated"] = oldCacheIsolated
+	result["old_header_rejected"] = oldHeaderRejected
+	result["old_cursor_rejected"] = oldCursorRejected
+	result["old_message_parked"] = oldMessageParked
+	result["old_epoch_rejected"] = oldHeaderRejected && oldMessageParked
+	result["old_generation_not_completed"] = finalCompletionRows[1] == 0
+	result["old_completion_rows_in_new_epoch"] = finalCompletionRows[1]
+	result["old_completion_rows_in_old_epoch"] = finalCompletionRows[0]
+	result["old_completion_rows_in_old_generation"] = finalCompletionRows[2]
+	result["old_completion_not_reused"] = oldCompletionNotReused
+	result["new_index_verified"] = newIndexVerified
+	result["old_index_removed"] = oldIndexRemoved
+	return nil
+}
+
+func (r *lifecycleRunner) serviceContainer(service string) (string, error) {
+	result := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service="+service)
+	containers := strings.Fields(result.Stdout)
+	if result.ExitCode != 0 || len(containers) != 1 {
+		return "", fmt.Errorf("find lifecycle %s container failed", service)
+	}
+	return containers[0], nil
+}
+
+func (r *lifecycleRunner) mysqlQuery(query string) (string, error) {
+	container, err := r.serviceContainer("mysql")
+	if err != nil {
+		return "", err
+	}
 	command := "MYSQL_PWD=\"$MYSQL_PASSWORD\" mysql --user=\"$MYSQL_USER\" --batch --skip-column-names \"$MYSQL_DATABASE\" --execute " + shellLiteral(query)
-	response := r.session.Run("docker", "exec", strings.Fields(result.Stdout)[0], "sh", "-ec", command)
+	response := r.session.Run("docker", "exec", container, "sh", "-ec", command)
 	if response.ExitCode != 0 {
-		return 0, fmt.Errorf("read restored completion fence failed with exit code %d", response.ExitCode)
+		return "", fmt.Errorf("lifecycle MySQL query failed with exit code %d", response.ExitCode)
 	}
-	fields := strings.Fields(strings.TrimSpace(response.Stdout))
+	return strings.TrimSpace(response.Stdout), nil
+}
+
+func parseSingleInt(raw, name string) (int64, error) {
+	fields := strings.Fields(strings.TrimSpace(raw))
 	if len(fields) != 1 {
-		return 0, fmt.Errorf("restored completion fence returned %d fields", len(fields))
+		return 0, fmt.Errorf("%s returned %d fields", name, len(fields))
 	}
-	rows, err := strconv.ParseInt(fields[0], 10, 64)
-	if err != nil || rows < 0 {
-		return 0, fmt.Errorf("restored completion fence value is invalid")
+	value, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%s value is invalid", name)
 	}
-	return rows, nil
+	return value, nil
+}
+
+func parseIntFields(raw, name string, count int) ([]int64, error) {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) != count {
+		return nil, fmt.Errorf("%s returned %d fields, expected %d", name, len(fields), count)
+	}
+	values := make([]int64, count)
+	for index, field := range fields {
+		value, err := strconv.ParseInt(field, 10, 64)
+		if err != nil || value < 0 {
+			return nil, fmt.Errorf("%s value %q is invalid", name, field)
+		}
+		values[index] = value
+	}
+	return values, nil
+}
+
+func (r *lifecycleRunner) redisSet(key string, value []byte) error {
+	container, err := r.serviceContainer("redis")
+	if err != nil {
+		return err
+	}
+	command := "redis-cli --no-auth-warning --raw SET " + shellLiteral(key) + " " + shellLiteral(string(value)) + " EX 900"
+	response := r.session.Run("docker", "exec", container, "sh", "-ec", command)
+	if response.ExitCode != 0 || strings.TrimSpace(response.Stdout) != "OK" {
+		return fmt.Errorf("seed lifecycle Redis key failed with exit code %d", response.ExitCode)
+	}
+	return nil
+}
+
+func (r *lifecycleRunner) redisExists(key string) (bool, error) {
+	container, err := r.serviceContainer("redis")
+	if err != nil {
+		return false, err
+	}
+	command := "redis-cli --no-auth-warning --raw EXISTS " + shellLiteral(key)
+	response := r.session.Run("docker", "exec", container, "sh", "-ec", command)
+	if response.ExitCode != 0 {
+		return false, fmt.Errorf("read lifecycle Redis key failed with exit code %d", response.ExitCode)
+	}
+	value, err := parseSingleInt(response.Stdout, "lifecycle Redis key existence")
+	return value == 1, err
+}
+
+func (r *lifecycleRunner) completionFenceCounts(oldEpoch, newEpoch, eventID, oldGeneration string) ([]int64, error) {
+	if oldEpoch == "" || newEpoch == "" || eventID == "" || oldGeneration == "" {
+		return nil, errors.New("V11 completion fence identities are incomplete")
+	}
+	query := fmt.Sprintf("SELECT (SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search'),(SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search'),(SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search' AND projection_generation=%s)", sqlLiteral(oldEpoch), sqlLiteral(eventID), sqlLiteral(newEpoch), sqlLiteral(eventID), sqlLiteral(oldEpoch), sqlLiteral(eventID), sqlLiteral(oldGeneration))
+	raw, err := r.mysqlQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	return parseIntFields(raw, "V11 completion fence", 3)
+}
+
+func (r *lifecycleRunner) requeueOldOutbox(eventID string) error {
+	if eventID == "" {
+		return errors.New("V11 old message event identity is empty")
+	}
+	query := fmt.Sprintf("UPDATE business_outbox SET status='pending', available_at=UTC_TIMESTAMP(6), attempt_count=0, lease_owner=NULL, lease_expires_at=NULL, published_at=NULL, last_error=NULL, updated_at=UTC_TIMESTAMP(6) WHERE event_id=%s AND status='published'; SELECT ROW_COUNT()", sqlLiteral(eventID))
+	raw, err := r.mysqlQuery(query)
+	if err != nil {
+		return fmt.Errorf("requeue V11 restored old outbox message: %w", err)
+	}
+	changed, err := parseSingleInt(raw, "V11 old outbox requeue")
+	if err != nil {
+		return err
+	}
+	if changed != 1 {
+		return fmt.Errorf("V11 old outbox message was not requeued, changed rows=%d", changed)
+	}
+	return nil
+}
+
+func (r *lifecycleRunner) waitV11OldMessage(fixture v11RestoreFixture, oldEpoch, newEpoch string) (int64, int64, int64, error) {
+	end := time.Now().Add(v1StageWait)
+	var lastErr error
+	for time.Now().Before(end) {
+		query := fmt.Sprintf("SELECT (SELECT COUNT(*) FROM business_message_parking WHERE event_id=%s AND source_epoch=%s),(SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search'),(SELECT COUNT(*) FROM business_outbox WHERE event_id=%s AND status='published')", sqlLiteral(fixture.Primary.EventID), sqlLiteral(oldEpoch), sqlLiteral(newEpoch), sqlLiteral(fixture.Primary.EventID), sqlLiteral(fixture.Primary.EventID))
+		raw, err := r.mysqlQuery(query)
+		if err == nil {
+			values, parseErr := parseIntFields(raw, "V11 old message replay", 3)
+			if parseErr == nil {
+				if values[0] > 0 && values[1] == 0 && values[2] > 0 {
+					return values[0], values[1], values[2], nil
+				}
+			} else {
+				lastErr = parseErr
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if lastErr != nil {
+		return 0, 0, 0, fmt.Errorf("wait V11 old message replay: %w", lastErr)
+	}
+	return 0, 0, 0, errors.New("wait V11 old message replay timed out")
+}
+
+func (r *lifecycleRunner) searchIndexFacts(generation, epoch string, postIDs []uint64) (int64, int64, bool, error) {
+	if generation == "" || epoch == "" {
+		return 0, 0, false, errors.New("V11 search index facts require a generation and epoch")
+	}
+	container, err := r.serviceContainer("elasticsearch")
+	if err != nil {
+		return 0, 0, false, err
+	}
+	indexPath := url.PathEscape(generation)
+	countResponse := r.session.Run("docker", "exec", container, "sh", "-ec", "curl --fail --silent http://127.0.0.1:9200/"+indexPath+"/_count")
+	if countResponse.ExitCode != 0 {
+		return 0, 0, false, fmt.Errorf("read V11 search index count failed with exit code %d", countResponse.ExitCode)
+	}
+	var countPayload struct {
+		Count int64 `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(countResponse.Stdout), &countPayload); err != nil || countPayload.Count < 0 {
+		return 0, 0, false, errors.New("V11 search index count is invalid")
+	}
+	mappingResponse := r.session.Run("docker", "exec", container, "sh", "-ec", "curl --fail --silent http://127.0.0.1:9200/"+indexPath+"/_mapping")
+	if mappingResponse.ExitCode != 0 {
+		return 0, 0, false, fmt.Errorf("read V11 search index metadata failed with exit code %d", mappingResponse.ExitCode)
+	}
+	var mappings map[string]struct {
+		Mappings struct {
+			Meta map[string]string `json:"_meta"`
+		} `json:"mappings"`
+	}
+	if err := json.Unmarshal([]byte(mappingResponse.Stdout), &mappings); err != nil {
+		return 0, 0, false, errors.New("V11 search index metadata is invalid")
+	}
+	indexEpochVerified := false
+	for _, value := range mappings {
+		if value.Mappings.Meta["gopulse_data_epoch"] == epoch {
+			indexEpochVerified = true
+		}
+	}
+	indexedDocuments := int64(0)
+	for _, postID := range postIDs {
+		documentResponse := r.session.Run("docker", "exec", container, "sh", "-ec", "curl --fail --silent 'http://127.0.0.1:9200/"+indexPath+"/_doc/"+strconv.FormatUint(postID, 10)+"?_source=data_epoch,post_id,content_revision'")
+		if documentResponse.ExitCode != 0 {
+			return 0, 0, false, fmt.Errorf("read V11 search document %d failed with exit code %d", postID, documentResponse.ExitCode)
+		}
+		var document struct {
+			Found  bool `json:"found"`
+			Source struct {
+				DataEpoch string `json:"data_epoch"`
+				PostID    uint64 `json:"post_id"`
+			} `json:"_source"`
+		}
+		if err := json.Unmarshal([]byte(documentResponse.Stdout), &document); err != nil {
+			return 0, 0, false, errors.New("V11 search document is invalid")
+		}
+		if document.Found && document.Source.DataEpoch == epoch && document.Source.PostID == postID {
+			indexedDocuments++
+		}
+	}
+	return countPayload.Count, indexedDocuments, indexEpochVerified, nil
+}
+
+func (r *lifecycleRunner) searchIndexMissing(generation string) (bool, error) {
+	if generation == "" {
+		return false, errors.New("V11 old search generation is empty")
+	}
+	container, err := r.serviceContainer("elasticsearch")
+	if err != nil {
+		return false, err
+	}
+	path := url.PathEscape(generation)
+	command := "code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:9200/" + path + "); printf '%s' \"$code\"; test \"$code\" = 404"
+	response := r.session.Run("docker", "exec", container, "sh", "-ec", command)
+	if response.ExitCode == 0 {
+		return true, nil
+	}
+	if strings.TrimSpace(response.Stdout) == "200" {
+		return false, nil
+	}
+	return false, fmt.Errorf("check V11 old search generation returned HTTP %q", strings.TrimSpace(response.Stdout))
 }
 
 func (r *lifecycleRunner) searchGeneration() (string, error) {
-	result := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service=elasticsearch")
-	if result.ExitCode != 0 || len(strings.Fields(result.Stdout)) != 1 {
-		return "", fmt.Errorf("find restored Elasticsearch container failed")
+	container, err := r.serviceContainer("elasticsearch")
+	if err != nil {
+		return "", err
 	}
-	container := strings.Fields(result.Stdout)[0]
 	query := "curl --fail --silent http://127.0.0.1:9200/_alias/gopulse-post-search-v1"
 	response := r.session.Run("docker", "exec", container, "sh", "-ec", query)
 	if response.ExitCode != 0 {

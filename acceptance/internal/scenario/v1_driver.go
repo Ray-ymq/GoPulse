@@ -62,6 +62,47 @@ type v1CreateResult struct {
 	FinishedAt time.Time
 }
 
+type v1PostView struct {
+	EditedAt        json.RawMessage `json:"edited_at"`
+	ContentRevision uint64          `json:"content_revision"`
+	ID              uint64          `json:"id"`
+	Title           string          `json:"title"`
+	Content         string          `json:"content"`
+	CreatedAt       string          `json:"created_at"`
+	UpdatedAt       string          `json:"updated_at"`
+	Author          struct {
+		ID          uint64 `json:"id"`
+		Username    string `json:"username"`
+		DisplayName string `json:"display_name"`
+	} `json:"author"`
+	CommentCount uint64 `json:"comment_count"`
+	LikeCount    uint64 `json:"like_count"`
+}
+
+type v1SearchPage struct {
+	Posts      []v1PostView
+	NextCursor string
+}
+
+// v11RestoreFixture is kept in memory only. Its request key, cursor, cache
+// value, and login password are test inputs, never receipt facts.
+type v11RestoreFixture struct {
+	Primary          v1HTTPMeta
+	Secondary        v1HTTPMeta
+	Query            string
+	PrimaryTitle     string
+	PrimaryContent   string
+	SecondaryTitle   string
+	SecondaryContent string
+	Username         string
+	Password         string
+	OldCursor        string
+	CachePayload     []byte
+	OldCacheKey      string
+	LegacyCacheKey   string
+	OldGeneration    string
+}
+
 type v1StageResult struct {
 	Resolved struct {
 		CommandID string `json:"command_id"`
@@ -232,6 +273,20 @@ func (client *v1HTTPClient) login(ctx context.Context, username, password string
 	return nil
 }
 
+func (client *v1HTTPClient) register(ctx context.Context, username, password string) error {
+	if strings.TrimSpace(username) == "" || password == "" {
+		return errors.New("acceptance source account is not configured")
+	}
+	status, _, err := client.do(ctx, http.MethodPost, "/api/v1/auth/register", nil, map[string]string{"username": username, "password": password})
+	if err != nil {
+		return err
+	}
+	if status != http.StatusCreated {
+		return fmt.Errorf("register returned HTTP %d", status)
+	}
+	return nil
+}
+
 func (client *v1HTTPClient) commandEpoch(ctx context.Context) (string, error) {
 	status, body, err := client.do(ctx, http.MethodGet, "/api/v1/post-commands/context", nil, nil)
 	if err != nil {
@@ -325,6 +380,96 @@ func (client *v1HTTPClient) commandResult(ctx context.Context, meta v1HTTPMeta) 
 	result.Replayed = result.Meta.Replayed
 	result.ErrorCode = envelope.Error.Code
 	return result
+}
+
+func (client *v1HTTPClient) detail(ctx context.Context, postID uint64) (v1PostView, error) {
+	if postID == 0 {
+		return v1PostView{}, errors.New("post detail requires a post identity")
+	}
+	status, body, err := client.do(ctx, http.MethodGet, "/api/v1/posts/"+strconv.FormatUint(postID, 10), nil, nil)
+	if err != nil {
+		return v1PostView{}, err
+	}
+	if status != http.StatusOK {
+		return v1PostView{}, fmt.Errorf("post detail returned HTTP %d", status)
+	}
+	var envelope struct {
+		Data v1PostView `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return v1PostView{}, err
+	}
+	if envelope.Data.ID != postID {
+		return v1PostView{}, fmt.Errorf("post detail returned id %d, expected %d", envelope.Data.ID, postID)
+	}
+	return envelope.Data, nil
+}
+
+func (client *v1HTTPClient) search(ctx context.Context, query string, limit int, cursor string) (v1SearchPage, error) {
+	values := url.Values{}
+	values.Set("q", query)
+	values.Set("limit", strconv.Itoa(limit))
+	if cursor != "" {
+		values.Set("cursor", cursor)
+	}
+	status, body, err := client.do(ctx, http.MethodGet, "/api/v1/search/posts?"+values.Encode(), nil, nil)
+	if err != nil {
+		return v1SearchPage{}, err
+	}
+	if status != http.StatusOK {
+		return v1SearchPage{}, fmt.Errorf("search returned HTTP %d", status)
+	}
+	var envelope struct {
+		Data []v1PostView `json:"data"`
+		Meta struct {
+			NextCursor *string `json:"next_cursor"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return v1SearchPage{}, err
+	}
+	page := v1SearchPage{Posts: envelope.Data}
+	if envelope.Meta.NextCursor != nil {
+		page.NextCursor = *envelope.Meta.NextCursor
+	}
+	return page, nil
+}
+
+func hasSearchPosts(page v1SearchPage, postIDs ...uint64) bool {
+	seen := make(map[uint64]bool, len(page.Posts))
+	for _, post := range page.Posts {
+		seen[post.ID] = true
+	}
+	for _, postID := range postIDs {
+		if !seen[postID] {
+			return false
+		}
+	}
+	return true
+}
+
+func stalePostCachePayload(post v1PostView) ([]byte, error) {
+	editedAt := post.EditedAt
+	if len(editedAt) == 0 {
+		editedAt = json.RawMessage("null")
+	}
+	projection := map[string]any{
+		"edited_at":        editedAt,
+		"content_revision": post.ContentRevision,
+		"id":               post.ID,
+		"title":            "V11 stale old-cache sentinel",
+		"content":          "V11 stale old-cache sentinel",
+		"created_at":       post.CreatedAt,
+		"updated_at":       post.UpdatedAt,
+		"author": map[string]any{
+			"id":           post.Author.ID,
+			"username":     post.Author.Username,
+			"display_name": post.Author.DisplayName,
+		},
+		"comment_count": post.CommentCount,
+		"like_count":    post.LikeCount,
+	}
+	return json.Marshal(map[string]any{"version": 1, "post": projection})
 }
 
 func (client *v1HTTPClient) currentUserID(ctx context.Context) (uint64, error) {
@@ -1761,14 +1906,9 @@ func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
 	}
 	stageOK, logsOK := runner.waitStage(meta, true, v1StageWait)
 	facts, factsErr := runner.facts(meta)
-	oldGeneration, generationErr := runner.searchGeneration()
 	if factsErr != nil {
 		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
 		return itemAsFailed(item, "infrastructure_failure", factsErr.Error()), factsErr
-	}
-	if generationErr != nil {
-		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
-		return itemAsFailed(item, "infrastructure_failure", generationErr.Error()), generationErr
 	}
 	if runner.bundle == "" {
 		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
@@ -1785,7 +1925,7 @@ func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
 		return itemAsFailed(item, "infrastructure_failure", lifecycleErr.Error()), lifecycleErr
 	}
 	lifecycleSessionRunner.diagnosticDestination = filepath.Join(runner.rawDirectory, "cases", "V11-lifecycle-source.json")
-	restoreResult, restoreErr := lifecycleSessionRunner.restoreRoundTrip(meta.EventID)
+	restoreResult, restoreErr := lifecycleSessionRunner.restoreRoundTrip()
 	purgeErr := lifecycleSessionRunner.purge()
 	_ = lifecycleSessionRunner.removeOwnedRoot()
 	upErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420")
@@ -1802,17 +1942,28 @@ func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
 	}
 	newEpoch := stringStatus(restoreResult, "new_epoch")
 	oldEpoch := stringStatus(restoreResult, "expected_old_epoch")
+	oldGeneration := stringStatus(restoreResult, "source_generation")
 	newGeneration := stringStatus(restoreResult, "restored_generation")
 	oldEpochRejected := boolStatus(restoreResult, "old_epoch_rejected")
 	oldGenerationNotCompleted := boolStatus(restoreResult, "old_generation_not_completed")
-	item := runner.completedCase("V11", result.Meta, started, "stopped the candidate stack, ran the lifecycle drained backup into an empty target, verified old-epoch rejection and new search generation, then recovered the candidate stack", stageOK, logsOK, []receipt.RawFact{
+	item := runner.completedCase("V11", result.Meta, started, "stopped the candidate stack, seeded a real lifecycle source, ran its drained backup into an empty target, replayed old headers/cursor/cache/message, verified the restored data and new search generation, then recovered the candidate stack", stageOK, logsOK, []receipt.RawFact{
 		{Name: "epoch_changed", Value: boolInt(oldEpoch != "" && newEpoch != "" && oldEpoch != newEpoch)},
 		{Name: "old_epoch_rejected", Value: boolInt(oldEpochRejected)},
 		{Name: "generation_changed", Value: boolInt(newGeneration != "" && newGeneration != oldGeneration)},
 		{Name: "old_generation_not_completed", Value: boolInt(oldGenerationNotCompleted)},
 		{Name: "restore_verified", Value: boolInt(restoreResult != nil && restoreResult["facts_verified"] == true)},
+		{Name: "restored_data_verified", Value: boolInt(boolStatus(restoreResult, "restored_data_verified"))},
+		{Name: "old_header_rejected", Value: boolInt(boolStatus(restoreResult, "old_header_rejected"))},
+		{Name: "old_cursor_rejected", Value: boolInt(boolStatus(restoreResult, "old_cursor_rejected"))},
+		{Name: "old_cache_isolated", Value: boolInt(boolStatus(restoreResult, "old_cache_isolated"))},
+		{Name: "old_message_parked", Value: boolInt(boolStatus(restoreResult, "old_message_parked"))},
+		{Name: "new_index_verified", Value: boolInt(boolStatus(restoreResult, "new_index_verified"))},
+		{Name: "old_index_removed", Value: boolInt(boolStatus(restoreResult, "old_index_removed"))},
+		{Name: "old_completion_not_reused", Value: boolInt(boolStatus(restoreResult, "old_completion_not_reused"))},
 		{Name: "commands", Value: facts.Commands},
 		{Name: "posts", Value: facts.Posts},
+		{Name: "other_posts", Value: intStatus(restoreResult, "restored_posts")},
+		{Name: "other_events", Value: intStatus(restoreResult, "old_completion_rows_in_old_epoch")},
 	}, 0, recoverySeconds)
 	for _, failure := range []struct {
 		err  error
@@ -1824,8 +1975,8 @@ func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
 			return itemAsFailed(item, "infrastructure_failure", failure.name+": "+failure.err.Error()), failure.err
 		}
 	}
-	if restoreResult == nil || restoreResult["facts_verified"] != true || !oldEpochRejected || !oldGenerationNotCompleted || oldEpoch == "" || newEpoch == "" || oldEpoch == newEpoch || newGeneration == "" || newGeneration == oldGeneration || recoverySeconds < 60 || !stageOK {
-		return itemAsFailed(item, "product_failure", "restore did not establish a new epoch and generation with stale completion fencing"), errors.New("V11 epoch and recovery invariant did not hold")
+	if restoreResult == nil || restoreResult["facts_verified"] != true || !oldEpochRejected || !oldGenerationNotCompleted || !boolStatus(restoreResult, "restored_data_verified") || !boolStatus(restoreResult, "old_header_rejected") || !boolStatus(restoreResult, "old_cursor_rejected") || !boolStatus(restoreResult, "old_cache_isolated") || !boolStatus(restoreResult, "old_message_parked") || !boolStatus(restoreResult, "new_index_verified") || !boolStatus(restoreResult, "old_completion_not_reused") || !boolStatus(restoreResult, "old_index_removed") || oldEpoch == "" || newEpoch == "" || oldEpoch == newEpoch || newGeneration == "" || newGeneration == oldGeneration || recoverySeconds < 60 || !stageOK {
+		return itemAsFailed(item, "product_failure", "restore did not establish isolated restored data, stale-input rejection, and new-index completion fencing"), errors.New("V11 restore isolation invariant did not hold")
 	}
 	return item, nil
 }
@@ -2181,6 +2332,27 @@ func boolStatus(value map[string]any, name string) bool {
 	}
 	result, ok := value[name].(bool)
 	return ok && result
+}
+
+func intStatus(value map[string]any, name string) int64 {
+	if value == nil {
+		return 0
+	}
+	switch result := value[name].(type) {
+	case int:
+		if result >= 0 {
+			return int64(result)
+		}
+	case int64:
+		if result >= 0 {
+			return result
+		}
+	case float64:
+		if result >= 0 && result == float64(int64(result)) {
+			return int64(result)
+		}
+	}
+	return 0
 }
 
 func sqlLiteral(value string) string {

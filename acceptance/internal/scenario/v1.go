@@ -23,7 +23,7 @@ var v1PlannedActions = map[string]string{
 	"V08": "exhaust the declared business-stage budget and verify fixed rejection",
 	"V09": "hold the bounded telemetry fault window for at least 60 seconds",
 	"V10": "exercise the platform or permission failure boundary",
-	"V11": "change epoch and verify stale evidence plus recovery identity",
+	"V11": "restore real business data and reject old headers, cursor, cache, message, and completion generation",
 	"V12": "cancel an in-flight query and verify owned cleanup and evidence closure",
 }
 
