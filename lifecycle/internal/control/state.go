@@ -13,15 +13,16 @@ import (
 )
 
 type State struct {
-	Schema      int    `json:"schema"`
-	Version     string `json:"version"`
-	Manifest    string `json:"manifest_digest"`
-	Project     string `json:"project"`
-	Token       string `json:"installation_token"`
-	Port        int    `json:"edge_port"`
-	Phase       string `json:"phase"`
-	Operation   string `json:"operation_id"`
-	FailedStage string `json:"failed_stage,omitempty"`
+	Schema         int               `json:"schema"`
+	Version        string            `json:"version"`
+	Manifest       string            `json:"manifest_digest"`
+	Project        string            `json:"project"`
+	Token          string            `json:"installation_token"`
+	Port           int               `json:"edge_port"`
+	Phase          string            `json:"phase"`
+	Operation      string            `json:"operation_id"`
+	FailedStage    string            `json:"failed_stage,omitempty"`
+	NetworkSubnets map[string]string `json:"network_subnets,omitempty"`
 }
 
 // restoreJournal is the durable hand-off between logical fact restoration and

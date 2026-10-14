@@ -14,6 +14,8 @@ func TestComposeFailureCapturesOnlyRedactedBoundedOutput(t *testing.T) {
 	if err := c.initialize(18080); err != nil {
 		t.Fatal(err)
 	}
+	c.doc["networks"] = map[string]any{"business": map[string]any{}}
+	c.state.NetworkSubnets = map[string]string{"business": "10.240.1.0/24"}
 	secret := c.env["AUTH_JWT_SECRET"]
 	fakeDocker(t, `case "$3" in
 compose) printf 'compose failed AUTH_JWT_SECRET=%s\n' "$AUTH_JWT_SECRET" >&2; exit 18 ;;

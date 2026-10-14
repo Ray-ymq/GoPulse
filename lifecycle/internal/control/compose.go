@@ -123,6 +123,9 @@ func (c *Controller) compose(args ...string) error {
 	if e := c.prepare(); e != nil {
 		return e
 	}
+	if e := c.ensureNetworkSubnets(); e != nil {
+		return e
+	}
 	b, _ := json.Marshal(c.doc)
 	argv := []string{"--host", c.endpoint, "compose", "--project-name", c.state.Project, "--project-directory", c.dir, "--env-file", "/dev/null", "-f", "-"}
 	cmd := exec.CommandContext(c.ctx, "docker", append(argv, args...)...)
