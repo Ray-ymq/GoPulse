@@ -656,7 +656,7 @@ func (runner *formalV1Runner) waitSearchRecovery(metas []v1HTTPMeta, timeout tim
 			lastErr = nil
 		}
 		latest = current
-		now := time.Now().UTC()
+		now := time.Now()
 		if allApplications && latest.Applications >= int64(len(metas)) && obligationsClosedAt.IsZero() {
 			obligationsClosedAt = now
 		}
@@ -1211,7 +1211,7 @@ func (runner *formalV1Runner) runV07() (receipt.V1Case, error) {
 }
 
 func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V1Case, error) {
-	started := time.Now().UTC()
+	started := time.Now()
 	var primary v1HTTPMeta
 	var success int64
 	var unavailable int64
@@ -1237,9 +1237,12 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 		// The clock starts only after the dependency is actually unavailable or
 		// paused. Startup and pause time are control overhead, not evidence for
 		// the required sixty-second fault window.
-		windowStarted := time.Now().UTC()
+		// Keep the monotonic clock attached while scheduling the fault window.
+		// Formatting the timestamp as UTC at the boundary would strip it and
+		// allow a host wall-clock adjustment to shorten the required window.
+		windowStarted := time.Now()
 		windowMetas := make([]v1HTTPMeta, 0, v1FaultRequests)
-		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("fault_window_%d_started", window), Actual: windowStarted.Format(time.RFC3339Nano)})
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("fault_window_%d_started", window), Actual: windowStarted.UTC().Format(time.RFC3339Nano)})
 		for index := 0; index < v1FaultRequests; index++ {
 			if index > 0 {
 				if err := waitUntil(runner.deadline, windowStarted.Add(time.Duration(index)*v1FaultRequestEvery)); err != nil {
@@ -1262,8 +1265,8 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 		if err := waitUntil(runner.deadline, windowStarted.Add(v1FaultWindow)); err != nil {
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
-		windowEnded := time.Now().UTC()
-		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("fault_window_%d_ended", window), Actual: windowEnded.Format(time.RFC3339Nano)})
+		windowEnded := time.Now()
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("fault_window_%d_ended", window), Actual: windowEnded.UTC().Format(time.RFC3339Nano)})
 		if window == 1 {
 			if result := runner.session.Compose("unpause", "elasticsearch"); result.ExitCode != 0 {
 				err := fmt.Errorf("unpause Elasticsearch failed with exit code %d", result.ExitCode)
@@ -1274,8 +1277,8 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 			err = fmt.Errorf("restore Elasticsearch after window: %w", err)
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
-		dependencyReady := time.Now().UTC()
-		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("dependency_%d_ready", window), Actual: dependencyReady.Format(time.RFC3339Nano)})
+		dependencyReady := time.Now()
+		moments = append(moments, receipt.Moment{Name: fmt.Sprintf("dependency_%d_ready", window), Actual: dependencyReady.UTC().Format(time.RFC3339Nano)})
 		observation := v1SearchWindowObservation{Index: window, FaultStartedAt: windowStarted, FaultEndedAt: windowEnded, DependencyReadyAt: dependencyReady}
 		remaining := time.Until(windowEnded.Add(v1RecoveryWait))
 		var recoveryErr error
@@ -1365,7 +1368,7 @@ func searchWindowRecoverySeconds(observation v1SearchWindowObservation) int64 {
 		latest = observation.VisibleAt
 	}
 	if latest.IsZero() {
-		latest = time.Now().UTC()
+		latest = time.Now()
 	}
 	return elapsedSeconds(observation.FaultEndedAt, latest)
 }
@@ -1528,7 +1531,7 @@ func (runner *formalV1Runner) runV09() (receipt.V1Case, error) {
 			err := fmt.Errorf("stop %s: Compose exit code %d", window.name, result.ExitCode)
 			return runner.failedCase("V09", primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
-		windowStarted := time.Now().UTC()
+		windowStarted := time.Now()
 		for index := 0; index < v1FaultRequests; index++ {
 			if index > 0 {
 				if err := waitUntil(runner.deadline, windowStarted.Add(time.Duration(index)*v1FaultRequestEvery)); err != nil {
@@ -1704,7 +1707,7 @@ func (runner *formalV1Runner) runV10() (receipt.V1Case, error) {
 }
 
 func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
-	started := time.Now().UTC()
+	started := time.Now()
 	meta, result, err := runner.createPrimary("V11")
 	if err != nil {
 		return runner.failedCase("V11", identityFromMeta(meta), started, err.Error(), false, nil, 0, 0), err
