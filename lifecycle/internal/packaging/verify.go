@@ -20,6 +20,8 @@ import (
 // blocking by itself.
 const composeGateMarker = "[gopulse-acceptance] ERROR:"
 
+var errLocalImageMissing = errors.New("local image missing")
+
 // verificationReceipt is the immutable receipt record a promotion gate reads.
 // The field order matches the receipts already stored with earlier candidates.
 type verificationReceipt struct {
@@ -224,6 +226,68 @@ func inspectRuntimeImage(ref, platform string) (bool, error) {
 		}
 	}
 	return false, fmt.Errorf("local image RepoDigest mismatch: want %s", ref)
+}
+
+// inspectLocalThirdPartyImage verifies a locked source image without asking a
+// registry for its manifest. Docker exposes the exact platform manifest digest
+// through RepoDigests and the platform/configuration through image inspect;
+// that is sufficient to bind the local image to the third-party lock while
+// keeping an offline candidate verification genuinely offline.
+func inspectLocalThirdPartyImage(image release.Image, platform string) error {
+	ref, err := PlatformRef(image, platform)
+	if err != nil {
+		return err
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("docker", "image", "inspect", "--platform", platform, "--format", "{{json .}}", ref)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		message := strings.ToLower(stderr.String())
+		if strings.Contains(message, "no such image") || strings.Contains(message, "no such object") {
+			return fmt.Errorf("%w: %s", errLocalImageMissing, ref)
+		}
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			return fmt.Errorf("cannot inspect local third-party image %s: %w", ref, err)
+		}
+		return fmt.Errorf("cannot inspect local third-party image %s: %s", ref, detail)
+	}
+	var inspected struct {
+		OS           string   `json:"Os"`
+		Architecture string   `json:"Architecture"`
+		RepoDigests  []string `json:"RepoDigests"`
+		RootFS       struct {
+			Type   string   `json:"Type"`
+			Layers []string `json:"Layers"`
+		} `json:"RootFS"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &inspected); err != nil {
+		return fmt.Errorf("invalid local third-party image inspection for %s: %w", ref, err)
+	}
+	if inspected.OS+"/"+inspected.Architecture != platform {
+		return fmt.Errorf("local third-party image platform mismatch: got %s/%s, want %s", inspected.OS, inspected.Architecture, platform)
+	}
+	want := normalizeRepoDigest(ref)
+	matched := false
+	for _, digest := range inspected.RepoDigests {
+		if normalizeRepoDigest(digest) == want {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return fmt.Errorf("local third-party image RepoDigest mismatch: want %s", ref)
+	}
+	if inspected.RootFS.Type != "layers" || len(inspected.RootFS.Layers) == 0 {
+		return fmt.Errorf("local third-party image has no layer metadata: %s", ref)
+	}
+	for _, layer := range inspected.RootFS.Layers {
+		if !digestValue.MatchString(layer) {
+			return fmt.Errorf("local third-party image has invalid layer metadata: %s", ref)
+		}
+	}
+	return nil
 }
 
 // normalizeRepoDigest removes only the tag from a repository reference. The

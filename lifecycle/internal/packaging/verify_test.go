@@ -65,6 +65,35 @@ func TestNormalizeRepoDigestRemovesTagButPreservesRegistryPort(t *testing.T) {
 	}
 }
 
+func TestInspectLocalThirdPartyImageReusesLockedPlatformImage(t *testing.T) {
+	indexDigest := "sha256:" + strings.Repeat("a", 64)
+	platformDigest := "sha256:" + strings.Repeat("b", 64)
+	image := release.Image{
+		Ref:       "redis:7.2.5-alpine@" + indexDigest,
+		Platforms: map[string]string{"linux/amd64": platformDigest},
+	}
+	_, log := writeFakeDocker(t, `
+case "$1" in
+  image) printf '%s\n' '{"Os":"linux","Architecture":"amd64","RepoDigests":["redis@`+platformDigest+`"],"RootFS":{"Type":"layers","Layers":["sha256:`+strings.Repeat("c", 64)+`"]}}' ;;
+  buildx) echo "unexpected registry access" >&2; exit 1 ;;
+esac
+`)
+	if err := inspectLocalThirdPartyImage(image, "linux/amd64"); err != nil {
+		t.Fatalf("matching local third-party image should pass: %v", err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "image inspect --platform linux/amd64") || !strings.Contains(got, platformDigest) {
+		t.Fatalf("local verification did not inspect the locked platform ref: %s", got)
+	}
+	if strings.Contains(got, "buildx imagetools") {
+		t.Fatalf("local third-party verification contacted a registry: %s", got)
+	}
+}
+
 func TestEnsureRuntimeImageReusesExactMatchingPlatformDigest(t *testing.T) {
 	m, ref := runtimeManifest()
 	dockerRoot, log := writeFakeDocker(t, `
