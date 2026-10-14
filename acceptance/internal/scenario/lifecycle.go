@@ -866,13 +866,27 @@ func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
 // runner command. Multiple lifecycle runners share a session, so a temporary
 // runner must not leave its bundle or install path behind for the next one.
 func (r *lifecycleRunner) bindSessionPaths() func() {
-	previousBundle := r.session.Value("GOPULSE_BUNDLE_DIR")
-	previousInstall := r.session.Value("GOPULSE_INSTALL_DIR")
-	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
-	r.session.SetValue("GOPULSE_INSTALL_DIR", r.install)
+	previous := map[string]string{
+		"GOPULSE_BUNDLE_DIR":  r.session.Value("GOPULSE_BUNDLE_DIR"),
+		"GOPULSE_INSTALL_DIR": r.session.Value("GOPULSE_INSTALL_DIR"),
+		"GOPULSE_TOOL_UID":    r.session.Value("GOPULSE_TOOL_UID"),
+		"GOPULSE_TOOL_GID":    r.session.Value("GOPULSE_TOOL_GID"),
+		"GOPULSE_SOCKET_GID":  r.session.Value("GOPULSE_SOCKET_GID"),
+	}
+	values := map[string]string{
+		"GOPULSE_BUNDLE_DIR":  r.bundle,
+		"GOPULSE_INSTALL_DIR": r.install,
+		"GOPULSE_TOOL_UID":    fmt.Sprintf("%d", os.Getuid()),
+		"GOPULSE_TOOL_GID":    fmt.Sprintf("%d", os.Getgid()),
+		"GOPULSE_SOCKET_GID":  r.socketGID,
+	}
+	for key, value := range values {
+		r.session.SetValue(key, value)
+	}
 	return func() {
-		r.session.SetValue("GOPULSE_BUNDLE_DIR", previousBundle)
-		r.session.SetValue("GOPULSE_INSTALL_DIR", previousInstall)
+		for key, value := range previous {
+			r.session.SetValue(key, value)
+		}
 	}
 }
 
