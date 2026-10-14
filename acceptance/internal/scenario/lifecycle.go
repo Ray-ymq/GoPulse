@@ -858,6 +858,11 @@ func (r *lifecycleRunner) copyFailureDiagnostic() error {
 }
 
 func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
+	// V11 uses two lifecycle installations in one acceptance session. The
+	// Compose wrapper resolves these paths from the session environment, so
+	// restore the runner's own paths before every command.
+	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
+	r.session.SetValue("GOPULSE_INSTALL_DIR", r.install)
 	args := []string{
 		"compose", "--project-name", r.project, "--file", filepath.Join(r.bundle, "compose.yaml"),
 		"run", "--rm", "-T", "--no-deps", "lifecycle", command,
