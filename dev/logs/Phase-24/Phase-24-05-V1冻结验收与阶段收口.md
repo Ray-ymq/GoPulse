@@ -1,6 +1,6 @@
 # Phase-24-05：V1 冻结验收与阶段收口
 
-> 状态：未完成（更新于 2026-10-13）。正式矩阵已执行到 V03：V01/V02 通过，V03 基础设施失败，后续未开始；接续候选又在 runtime gate 拉取镜像时失败。现已修订本地镜像复用和故障诊断工具，仍需重新冻结及验收，不产生 `validation_complete` 或阶段完成结论。下文按执行时间保留各次实际结果。
+> 状态：未完成（更新于 2026-10-14）。最新候选已通过 Compose/runtime gate，正式矩阵的第二次启动完成 V01～V06，但 V07 暴露真实产品失败：24 个请求中只有 21 个 search application 完成，3 个事件在 ES 两段故障窗口内耗尽既有 3 次重试并进入死信；V08～V12 未开始。仍不产生 `validation_complete` 或阶段完成结论。下文按执行时间保留各次实际结果。
 > 执行分支：`develop/2.6.5`；候选产品版本：`2.6.4`。
 
 ## 实际执行范围
@@ -65,3 +65,12 @@
 - runtime 的 lifecycle failure matrix 随后在既有固定入口失败：`{"code":10,"stage":"digest","message":"registry platform digest unavailable for kafka"}`，上层记录 `lifecycle doctor exited 10, expected 0`，package 退出状态为 2。因此这是 infrastructure failure 停点，不能产生产品能力结论；候选没有 `verification-amd64.json`。
 - 由于 runtime gate 失败，短 preflight、preflight Verify Evidence、正式 V01～V12、正式 receipt、publication 均未开始/未产生。失败原始输出保留于 `.run/phase24-05/candidate-63eb3f5-v1/build-runtime.log`；本候选目录及 Bundle、manifest、build metadata 继续保留。没有编辑任何历史候选或回执。
 - 归属清理已完成：runtime closure 的本轮 acceptance/lifecycle 容器、网络、卷均已清理；本轮 registry 容器 `gopulse-phase24-05-registry-63eb3f5` 已删除。此前 registry `gopulse-phase24-05-registry-4b5d16f` 未触碰；未使用全局 prune。该接续从 `20:09:48` 到 `20:16:55` 实际约 7 分 07 秒，计入历史累计，不重置 Phase24 预算。
+
+## 本轮正式矩阵结果（2026-10-14）
+
+- 为修正 V07 恢复等待只看阶段就绪、未绑定每条完成记录的问题，提交 `2e90582` 增加了同一 120 秒恢复期限内的逐元数据持久 `business_application_results` 轮询；`make verify MODULE=acceptance BASE_REF=upstream/main` 通过，存量 lint 24、新增 0。该修订仅修正验收工具的等待/断言时序，未改变产品重试配置。
+- 从该提交构建的新候选为 `.run/phase24-05/candidate-2e90582-v1`，本地 registry 为 `127.0.0.1:15030/gopulse`。候选 manifest revision 为 `2e9058219003c8f305c828edc82d593ee4225a1e`，manifest 文件 SHA-256 为 `04bd5262045e21e44d84eff3bd8ecfc7525e49181b2629614fb62fd1537f2f15`，Bundle 文件 SHA-256 为 `b49a85ccb16a36ae0fce487eaf2ba9b24b2eacf2149c86c40862f65b8a26dfd3`；本地镜像平台摘要和 runtime/Compose gate 均通过。
+- 同候选第一次正式启动回执 `.run/phase24-05/receipt-2e90582-v1.json` 发生在 V01 前的基础设施失败：`migrate` 连接失败且 `kafka-init` 等待节点分配超时。回执 SHA-256 为 `83d670860ffdeb4ff819bd3737c84d49e7babf544e54dff4944c945f2bfa7734`，原始 Compose 日志保留在 `.run/local/e4e11fe0ac91/failures/20261014T031530.083532897Z-acceptance-aad0143b1d06/logs/compose-logs.txt`；归属清理通过。没有把该次基础设施失败解释成产品结论。
+- 同候选第二次正式回执 `.run/phase24-05/receipt-2e90582-v2.json` 启动成功，V01～V06 均通过；回执 SHA-256 为 `79d284cca9d8920f44fbc2c30f36b13a77f38edf38cbdfed912569604211125b`。V07 两个 60 秒 ES 故障窗口实际发出 24 个请求，HTTP/命令/post/义务均为 24，但持久 search application 只有 21，恢复耗时 261 秒，超过固定 120 秒期限，故为 `product_failure`；V08～V12 按前置失败规则为 `not_started`，归属清理通过。
+- V07 原始回执 `.run/phase24-05/receipt-2e90582-v2.json.raw-5ce8992b64f9/cases/V07.json` SHA-256 为 `00fdd17e1607b47016e510ce1dc1d4efdf2117572a24e00e156d4ce82d30dec0`。缺失的 3 条是 post 10、11、12；对应 search-indexer 日志显示它们在 ES 不可用/延迟窗口中按 `30s` 间隔连续失败，达到 `SEARCH_INDEXER_MAX_RETRIES=3` 后以 `retries_exhausted` dead-letter，恢复后已没有可消费重试。完整 Compose 原始日志 SHA-256 为 `350b42608728eee617ba5a8dc61f87ded8f38f620912b48cd5a8d5404bc4c205`，路径为 `.run/local/e4e11fe0ac91/failures/20261014T032346.359227192Z-acceptance-5ce8992b64f9/logs/compose-logs.txt`。
+- 该结果不是验收工具误判，也不能用延长恢复期限、减少窗口、删除完成记录断言或临时修改 retry profile 修复。Phase-24-05 已冻结现有 Worker/Indexer 的 prefetch、retry、lease 配置，并要求产品失败后停止矩阵；因此当前不进入 V08～V12。后续必须先在有效的产品修复合同/所属实施批次中解决“两个连续 60 秒依赖故障期间必要事件不能耗尽而丢失”的语义，完成相称测试与直接门禁，再以新 revision、新 Bundle/manifest、新候选和新 receipt 重跑受影响矩阵；旧 receipt、raw 和候选保持不变。
