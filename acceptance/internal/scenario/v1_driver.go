@@ -1146,8 +1146,8 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 			}
 		} else {
-			if result := runner.session.Compose("up", "--detach", "--wait", "--wait-timeout", "420", "elasticsearch"); result.ExitCode != 0 {
-				err := fmt.Errorf("restore Elasticsearch before delayed window failed with exit code %d", result.ExitCode)
+			if err := runner.restoreHealthyService("elasticsearch"); err != nil {
+				err = fmt.Errorf("restore Elasticsearch before delayed window: %w", err)
 				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 			}
 			if result := runner.session.Compose("pause", "elasticsearch"); result.ExitCode != 0 {
@@ -1186,8 +1186,8 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 				return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 			}
 		}
-		if result := runner.session.Compose("up", "--detach", "--wait", "--wait-timeout", "420", "elasticsearch"); result.ExitCode != 0 {
-			err := fmt.Errorf("restore Elasticsearch after window failed with exit code %d", result.ExitCode)
+		if err := runner.restoreHealthyService("elasticsearch"); err != nil {
+			err = fmt.Errorf("restore Elasticsearch after window: %w", err)
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
 	}
@@ -1697,6 +1697,51 @@ func (runner *formalV1Runner) compose(args ...string) error {
 		return fmt.Errorf("Compose %s failed with exit code %d", strings.Join(args, " "), result.ExitCode)
 	}
 	return nil
+}
+
+func (runner *formalV1Runner) restoreHealthyService(service string) error {
+	result := runner.session.Compose("up", "--detach", service)
+	if result.ExitCode != 0 {
+		return fmt.Errorf("start %s failed with exit code %d", service, result.ExitCode)
+	}
+	return runner.waitHealthyService(service, 420*time.Second)
+}
+
+func (runner *formalV1Runner) waitHealthyService(service string, timeout time.Duration) error {
+	end := time.Now().Add(timeout)
+	if end.After(runner.deadline) {
+		end = runner.deadline
+	}
+	lastStatus := ""
+	var lastErr error
+	for time.Now().Before(end) {
+		ps := runner.session.Compose("ps", "-q", service)
+		if ps.ExitCode != 0 {
+			lastErr = fmt.Errorf("find %s container failed with exit code %d", service, ps.ExitCode)
+		} else {
+			containers := strings.Fields(ps.Stdout)
+			if len(containers) != 1 {
+				lastErr = fmt.Errorf("expected one %s container, found %d", service, len(containers))
+			} else {
+				inspect := runner.session.Run("docker", "inspect", "--format", "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}", containers[0])
+				if inspect.ExitCode != 0 {
+					lastErr = fmt.Errorf("inspect %s container failed with exit code %d", service, inspect.ExitCode)
+				} else {
+					lastStatus = strings.TrimSpace(inspect.Stdout)
+					parts := strings.SplitN(lastStatus, "|", 2)
+					if len(parts) == 2 && parts[0] == "running" && parts[1] == "healthy" {
+						return nil
+					}
+					lastErr = fmt.Errorf("%s container is not healthy", service)
+				}
+			}
+		}
+		time.Sleep(1 * time.Second)
+	}
+	if lastErr != nil {
+		return fmt.Errorf("wait for %s health timed out (last status %q): %w", service, lastStatus, lastErr)
+	}
+	return fmt.Errorf("wait for %s health timed out (last status %q)", service, lastStatus)
 }
 
 func (runner *formalV1Runner) startFaultProxy(mode string) (string, error) {
