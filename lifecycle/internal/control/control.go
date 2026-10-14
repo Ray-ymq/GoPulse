@@ -60,6 +60,7 @@ type Controller struct {
 	env                   map[string]string
 	doc                   map[string]any
 	services              map[string]any
+	lastComposeFailure    *composeFailure
 }
 
 type dockerFailure struct {
@@ -159,8 +160,13 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	}
 	c := &Controller{ctx: ctx, dir: filepath.Clean(*dir), bundle: filepath.Clean(*bundle), endpoint: *endpoint, localImages: *localImages}
 	defer func() {
-		if resultErr != nil && (command == "backup" || command == "restore" || (command == "doctor" && *diagnosticDir != "")) {
-			resultErr = c.recoveryDiagnostic(resultErr, *diagnosticDir, command)
+		if resultErr != nil {
+			if command == "up" || command == "down" || command == "backup" || command == "restore" {
+				resultErr = c.captureFailureDiagnostic(resultErr, command)
+			}
+			if command == "backup" || command == "restore" || (command == "doctor" && *diagnosticDir != "") {
+				resultErr = c.recoveryDiagnostic(resultErr, *diagnosticDir, command)
+			}
 		}
 	}()
 	if *diagnosticDir != "" && (!filepath.IsAbs(*diagnosticDir) || privateDir(*diagnosticDir) != nil) {

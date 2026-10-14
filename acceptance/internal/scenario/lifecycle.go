@@ -3,6 +3,7 @@ package scenario
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -98,16 +99,17 @@ func Lifecycle(root string, options Options) (returnErr error) {
 }
 
 type lifecycleRunner struct {
-	session       *harness.Session
-	bundle        string
-	install       string
-	project       string
-	port          string
-	state         map[string]any
-	temporaryRoot string
-	owned         bool
-	endpoint      string
-	socketGID     string
+	session               *harness.Session
+	bundle                string
+	install               string
+	project               string
+	port                  string
+	state                 map[string]any
+	temporaryRoot         string
+	owned                 bool
+	endpoint              string
+	socketGID             string
+	diagnosticDestination string
 }
 
 func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath string) (*lifecycleRunner, error) {
@@ -297,6 +299,9 @@ func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, e
 	target, err := newLifecycleRunner(r.session, r.bundle, "clean", "")
 	if err != nil {
 		return nil, err
+	}
+	if r.diagnosticDestination != "" {
+		target.diagnosticDestination = strings.TrimSuffix(r.diagnosticDestination, ".json") + "-target.json"
 	}
 	defer func() {
 		_ = target.purge()
@@ -791,7 +796,11 @@ func (r *lifecycleRunner) snapshot() (lifecycleSnapshot, error) {
 func (r *lifecycleRunner) expect(command string, code int, flags ...string) error {
 	result := r.run(command, flags...)
 	if result.ExitCode != code {
-		return fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		failure := fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		if diagnosticErr := r.copyFailureDiagnostic(); diagnosticErr != nil {
+			return errors.Join(failure, diagnosticErr)
+		}
+		return failure
 	}
 	if command == "init" && code == 0 {
 		state, err := readJSON(result.Stdout)
@@ -806,13 +815,46 @@ func (r *lifecycleRunner) expect(command string, code int, flags ...string) erro
 func (r *lifecycleRunner) expectJSON(command string, code int, flags ...string) (map[string]any, error) {
 	result := r.run(command, flags...)
 	if result.ExitCode != code {
-		return nil, fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		failure := fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		if diagnosticErr := r.copyFailureDiagnostic(); diagnosticErr != nil {
+			return nil, errors.Join(failure, diagnosticErr)
+		}
+		return nil, failure
 	}
 	value, err := readJSON(result.Stdout)
 	if err != nil {
 		return nil, fmt.Errorf("lifecycle %s returned invalid JSON: %w", command, err)
 	}
 	return value, nil
+}
+
+func (r *lifecycleRunner) copyFailureDiagnostic() error {
+	if r.diagnosticDestination == "" {
+		return nil
+	}
+	state, err := readPrivateJSON(filepath.Join(r.install, "state.json"))
+	if err != nil {
+		return fmt.Errorf("read failed lifecycle state for diagnostics: %w", err)
+	}
+	operation, _ := state["operation_id"].(string)
+	if operation == "" {
+		return fmt.Errorf("failed lifecycle state has no operation identity")
+	}
+	source := filepath.Join(r.install, "diagnostics", "failure-"+operation+".json")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return fmt.Errorf("read lifecycle failure diagnostic: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(r.diagnosticDestination), 0700); err != nil {
+		return fmt.Errorf("create lifecycle diagnostic destination: %w", err)
+	}
+	if err := os.WriteFile(r.diagnosticDestination, data, 0600); err != nil {
+		return fmt.Errorf("save lifecycle failure diagnostic: %w", err)
+	}
+	if err := os.Chmod(r.diagnosticDestination, 0600); err != nil {
+		return fmt.Errorf("protect lifecycle failure diagnostic: %w", err)
+	}
+	return nil
 }
 
 func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
