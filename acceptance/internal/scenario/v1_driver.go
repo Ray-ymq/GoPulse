@@ -598,6 +598,51 @@ func (runner *formalV1Runner) waitAllStages(metas []v1HTTPMeta, timeout time.Dur
 	return false
 }
 
+// waitSearchRecovery keeps the stage and durable completion checks inside one
+// recovery deadline. The stage page can become complete before the retry
+// delivery records business_application_results, so treating stage readiness
+// as the end of the recovery wait can capture a partial result set.
+func (runner *formalV1Runner) waitSearchRecovery(metas []v1HTTPMeta, timeout time.Duration) (bool, v1DurableFacts, error) {
+	if len(metas) == 0 {
+		return false, v1DurableFacts{}, errors.New("search recovery requires at least one committed request")
+	}
+	end := time.Now().Add(timeout)
+	if end.After(runner.deadline) {
+		end = runner.deadline
+	}
+	var latest v1DurableFacts
+	var lastErr error
+	for time.Now().Before(end) {
+		all := true
+		current := v1DurableFacts{}
+		for _, meta := range metas {
+			stage := runner.admin.stage(context.Background(), meta, true)
+			stageReady := stage.Status == http.StatusOK && stage.Stage.Resolved.CommandID == meta.CommandID && stage.Stage.Evidence.Command.Quality == "known" && hasKnownConsumer(stage.Stage) && stage.Stage.Evidence.Visibility.Quality == "known" && stage.Stage.Evidence.Visibility.Matched != nil && *stage.Stage.Evidence.Visibility.Matched && stage.LogsKnown
+			facts, err := runner.facts(meta)
+			if err != nil {
+				lastErr = err
+				all = false
+				continue
+			}
+			current.Commands += facts.Commands
+			current.Posts += facts.Posts
+			current.Outbox += facts.Outbox
+			current.Requirements += facts.Requirements
+			current.Applications += facts.Applications
+			current.BrokerPublished += facts.BrokerPublished
+			if !stageReady || facts.Applications < 1 {
+				all = false
+			}
+		}
+		latest = current
+		if all {
+			return true, latest, nil
+		}
+		time.Sleep(time.Second)
+	}
+	return false, latest, lastErr
+}
+
 func hasKnownConsumer(stage v1StageResult) bool {
 	for _, consumer := range stage.Evidence.Consumers {
 		if consumer.Quality == "known" {
@@ -1191,22 +1236,7 @@ func (runner *formalV1Runner) runSearchWindows(caseID, action string) (receipt.V
 			return runner.failedCase(caseID, primaryIdentity(primary, runner.commandEpoch), started, err.Error(), false, nil, int64(time.Since(started)/time.Second), 0), err
 		}
 	}
-	recovered := runner.waitAllStages(metas, v1RecoveryWait)
-	facts := v1DurableFacts{}
-	var factsErr error
-	for _, meta := range metas {
-		current, err := runner.facts(meta)
-		if err != nil {
-			factsErr = errors.Join(factsErr, err)
-			continue
-		}
-		facts.Commands += current.Commands
-		facts.Posts += current.Posts
-		facts.Outbox += current.Outbox
-		facts.Requirements += current.Requirements
-		facts.Applications += current.Applications
-		facts.BrokerPublished += current.BrokerPublished
-	}
+	recovered, facts, factsErr := runner.waitSearchRecovery(metas, v1RecoveryWait)
 	item := runner.completedCase(caseID, primary, started, action+"; first subwindow unavailable and second subwindow delayed", recovered, recovered, []receipt.RawFact{{Name: "fault_requests", Value: int64(v1FaultRequests * 2)}, {Name: "fault_windows", Value: 2}, {Name: "http_success", Value: success}, {Name: "http_unavailable", Value: unavailable}, {Name: "requests", Value: int64(v1FaultRequests * 2)}, {Name: "commands", Value: facts.Commands}, {Name: "posts", Value: facts.Posts}, {Name: "requirements", Value: facts.Requirements}, {Name: "applications", Value: facts.Applications}, {Name: "business_independent", Value: boolInt(success == int64(v1FaultRequests*2))}}, 120, int64(time.Since(started)/time.Second))
 	if factsErr != nil {
 		return itemAsFailed(item, "infrastructure_failure", "durable facts: "+factsErr.Error()), factsErr
