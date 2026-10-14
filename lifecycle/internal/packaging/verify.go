@@ -305,34 +305,31 @@ func normalizeRepoDigest(ref string) string {
 	return repository + ref[at:]
 }
 
-// runComposeGate builds the native acceptance command when needed, then
-// streams the fixed candidate closure and fails on a reported acceptance
-// error even when the runner exits successfully.
+// runComposeGate builds the native acceptance command from the current
+// repository every time. An existing untracked binary can belong to an older
+// revision and must never decide the current candidate's runtime result.
+// It then streams the fixed candidate closure and fails on a reported
+// acceptance error even when the runner exits successfully.
 func runComposeGate(repo *Repo, manifest string) error {
-	commandPath := filepath.Join(repo.Root, "acceptance", "bin", "gopulse-acceptance")
-	removeCommand := false
-	if _, err := os.Stat(commandPath); err != nil {
-		temporary, err := os.CreateTemp("", "gopulse-acceptance-")
-		if err != nil {
-			return err
-		}
-		commandPath = temporary.Name()
-		if err := temporary.Close(); err != nil {
-			os.Remove(commandPath)
-			return err
-		}
-		removeCommand = true
-		defer os.Remove(commandPath)
-		build := exec.Command("go", "build", "-o", commandPath, "./cmd/gopulse-acceptance")
-		build.Dir = filepath.Join(repo.Root, "acceptance")
-		build.Stdout = os.Stdout
-		build.Stderr = os.Stderr
-		if err := build.Run(); err != nil {
-			return fmt.Errorf("build native acceptance command: %w", err)
-		}
+	temporary, err := os.CreateTemp("", "gopulse-acceptance-")
+	if err != nil {
+		return err
 	}
-	if removeCommand {
-		_ = os.Chmod(commandPath, 0o700)
+	commandPath := temporary.Name()
+	if err := temporary.Close(); err != nil {
+		_ = os.Remove(commandPath)
+		return err
+	}
+	if err := os.Remove(commandPath); err != nil {
+		return fmt.Errorf("prepare native acceptance command: %w", err)
+	}
+	defer func() { _ = os.Remove(commandPath) }()
+	build := exec.Command("go", "build", "-o", commandPath, "./cmd/gopulse-acceptance")
+	build.Dir = filepath.Join(repo.Root, "acceptance")
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("build native acceptance command: %w", err)
 	}
 	for _, args := range [][]string{
 		{"compose", "--scope", "observability", "--manifest", manifest},

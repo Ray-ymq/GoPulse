@@ -38,6 +38,12 @@
 
 直接门禁固定为 backend worker 单测、acceptance receipt / scenario 单测、backend 与 acceptance 模块门禁，以及受影响的真实 business integration。通过后必须重新构建新的 candidate / Bundle / manifest，再按本文件的 preflight、Verify Evidence 和正式 V01～V07 入口执行；V07 两个窗口各自必须完成故障撤除、依赖健康、全部义务闭合和当前可见，单窗故障至少 60 秒、故障撤除起恢复最多 120 秒。任何一个窗口或 V01～V07 失败，后续案例保持 `not_started`。
 
+### Runtime gate runner 修复合同（2026-10-14）
+
+本次 runtime 停点的归属核对发现，`lifecycle/internal/packaging/verify.go` 原先按文件存在性复用未跟踪的 `acceptance/bin/gopulse-acceptance`，可能执行早于候选 revision 的验收逻辑。允许追加修改该文件及 `lifecycle/internal/packaging/verify_test.go`，范围仅限于每次 runtime gate 从当前 acceptance 源码构建临时 runner，并用回归测试证明过期的同名二进制不会被复用；不改变候选产品镜像、生命周期业务语义、正式案例、既有失败证据或历史 candidate / receipt / raw。
+
+完成条件是：包装模块测试、vet、race、build 和固定 verify 通过，lint 相对基线无新增；旧 candidate 的失败摘要保持不变，修复后必须以新的 revision / Bundle / manifest 重新绑定 candidate，不能把局部重跑结果写成旧 candidate 的正式 runtime verification，也不能据此启动 preflight 或正式矩阵。
+
 ## 2. 候选、环境与预检
 
 在独立干净 checkout 冻结完整 `2.6.4` revision。

@@ -71,6 +71,8 @@
 
 - Phase-24-05 的完整 V1 冻结矩阵尚未交付。2026-10-13 候选 `644c0e3` 的 runtime gate、preflight 和 Verify Evidence 通过；其正式矩阵 V01/V02 通过，V03 在协议代理控制端口读取处发生基础设施失败，V04～V12 未开始。接续候选 `d3dafbb` 因 lifecycle 镜像拉取失败停止；随后绑定本地固定摘要镜像复用修订的候选 `63eb3f5` 在 lifecycle failure matrix 的 Kafka 平台摘要检查发生基础设施失败，preflight 和正式矩阵未开始。实际候选、失败依据与接续记录见[同名日志](../logs/Phase-24/Phase-24-05-V1冻结验收与阶段收口.md)。正式矩阵、publication 和 `2.6.5` 完成元数据仍未通过，本批不声明完整 V1 能力达标。
 - 2026-10-14 接续候选 `6dc98f6…` 已完成镜像、Bundle/manifest 和 runtime Compose smoke/observability closure，但 lifecycle `up` 的 services 阶段返回基础设施失败 code 18；preflight、正式 V01～V12 和 publication 未开始，不能把 V07 或完整 V1 标为已验证。
+- 保留上述 runtime 停点后，仅在候选绑定的 `6dc98f6` revision 上重跑失败的 lifecycle failure matrix；同候选 manifest/Bundle 下命令退出 0，code 18 被按暂停 MySQL 的预期负向用例接受，且专属资源已清理。该局部重跑没有生成正式 runtime verification，也没有启动 preflight 或正式矩阵，不能替代完整候选 gate。
+- runtime 停点根因已定位为复用了内嵌旧 revision `8da3c07` 的未跟踪 acceptance runner；`lifecycle/internal/packaging/verify.go` 已改为每次从当前源码构建临时 runner，lifecycle 固定 verify 通过且新增 lint 为零。该工具修复尚未绑定新的 candidate / Bundle / manifest，旧 candidate 仍不能直接进入 preflight。
 - Phase-24-02 的 activation gate 只自动检查 MySQL 持久 Outbox 的 v1 `pending/leased` drain；RabbitMQ unacked/retry/dead 队列与 ES 当前 generation 仍须由 rollout/restore 步骤停排、排空或停放并核验，不由本批启动代码自动宣称完成。
 - 恢复仅完成同 Bundle、已排空备份的代际准备与失败停点验证；跨版本、任意时点恢复和正式 Bundle 恢复矩阵尚未验证。
 - 本批冻结环境/配方之外的吞吐、尾延迟、持续运行或单位资源容量声明。

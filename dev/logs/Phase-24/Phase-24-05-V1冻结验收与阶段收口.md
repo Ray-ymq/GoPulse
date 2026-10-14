@@ -89,3 +89,10 @@
 - 该候选第一次尝试因指定的独立 registry 尚未启动而在首个 backend push 返回 connection refused；按归属启动唯一的 pinned `registry:2@sha256:a3d8…` 容器后重新执行，镜像和 Bundle 构建完成。该环境准备偏差未改变候选源码、manifest 或旧证据。
 - 第二次 runtime closure 的 Compose smoke、observability closure 和栈健康检查通过；lifecycle failure matrix 在固定 `up` 服务阶段返回 `{"code":18,"stage":"services","message":"Compose failed; use status/logs; data and resources retained for retry"}`，package 以 code 2 停止。该次没有生成 runtime success verification，也没有启动 V1 preflight、Verify Evidence 或正式矩阵，不能据此产生产品失败结论。
 - 本候选的失败摘要保留在 `.run/phase24-05/candidate-6dc98f6-v1/runtime-failure.json`，candidate / Bundle / manifest 保留供复核；本次 registry `gopulse-phase24-05-registry-6dc98f6` 已按归属删除，未触碰仍在运行的旧 registry 或旧候选。当前必须先处理该 runtime 基础设施停点，再从同一修复 revision 或新的实际修订重新绑定 candidate；不复用未通过 runtime gate 的候选进入 preflight。
+
+## 接续 runtime 失败步重跑（2026-10-14）
+
+- 旧停点 `.run/phase24-05/candidate-6dc98f6-v1/runtime-failure.json` 保持原样。为满足候选 manifest 的 revision 身份校验，本次在 detached `6dc98f6` worktree 中只执行原 runtime 的 lifecycle 子步骤，没有重建镜像、Bundle、manifest，也没有启动 preflight、Verify Evidence 或正式 V01～V12。
+- 先对 clean lifecycle 子步骤做同候选复现，`up` 到 `ready`，后续 verify、停启和 down 均通过；随后严格重跑原停点对应的 `lifecycle --install clean --failure-matrix`。该命令退出 `0`，未输出 `[gopulse-acceptance] ERROR:`；原 code 18 在本次仍由暂停 MySQL 的预期负向用例产生，之后完成解冻、down 和清理。原始重跑日志为 `.run/phase24-05/runtime-retry-2.log`，摘要为 `.run/phase24-05/candidate-6dc98f6-v1/runtime-retry-2.json`。
+- 对照旧 raw 失败目录 `.run/local/e4e11fe0ac91/failures/20261014T052344.278783122Z-acceptance-b3e026170b94/`，code 18 是 failure matrix 的预期返回码，并非产品能力失败；结合本次无错误标记的成功重跑，现有证据支持 runtime gate 在预期故障注入的服务失败处发生了一次性基础设施/时序误停。进一步检查发现本机复用的 `acceptance/bin/gopulse-acceptance` 内嵌 revision 为旧的 `8da3c07`，而候选绑定 `6dc98f6`；已修复 `lifecycle/internal/packaging/verify.go`，runtime gate 现在每次从当前 acceptance 源码构建临时 runner，并由 `lifecycle/internal/packaging/verify_test.go` 防止过期二进制复用。
+- 本次重跑的专属 project、容器、网络、卷和安装目录均已清理；旧错误摘要、candidate、Bundle、manifest 和历史 raw 均保留。由于没有重新执行完整 `make package ... RUNTIME=1`，不能补写 `verification-amd64.json`，也不把该局部重跑改称 runtime gate 的正式成功；preflight 和正式矩阵继续停在原计划边界。
