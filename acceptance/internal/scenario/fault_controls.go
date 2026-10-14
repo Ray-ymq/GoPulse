@@ -314,6 +314,24 @@ func (control *dependencyControl) setTarget(eventID string) error {
 	return nil
 }
 
+func (control *dependencyControl) setPostTarget(postID uint64) error {
+	values := url.Values{}
+	values.Set("post_id", strconv.FormatUint(postID, 10))
+	request, err := http.NewRequest(http.MethodGet, control.controlURL+"/target?"+values.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	response, err := (&http.Client{Timeout: 2 * time.Second}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("set ES fault control post target returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func (control *dependencyControl) arm() error {
 	request, err := http.NewRequest(http.MethodPost, control.controlURL+"/arm", nil)
 	if err != nil {

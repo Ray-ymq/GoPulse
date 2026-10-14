@@ -884,7 +884,11 @@ func (runner *formalV1Runner) runV04() (receipt.V1Case, error) {
 
 func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 	started := time.Now().UTC()
-	esControl, err := runner.startElasticsearchControl("effect-before-completion", "backend", "backend-2", "search-indexer", "search-indexer-2")
+	esInitialStopErr := runner.compose("stop", "search-indexer", "search-indexer-2")
+	if esInitialStopErr != nil {
+		return runner.failedCase("V05", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, esInitialStopErr.Error(), false, nil, 0, 0), esInitialStopErr
+	}
+	esControl, err := runner.startElasticsearchControl("effect-before-completion", "backend", "backend-2")
 	if err != nil {
 		return runner.failedCase("V05", receipt.V1Identity{DataEpoch: runner.commandEpoch}, started, err.Error(), false, nil, 0, 0), err
 	}
@@ -896,8 +900,24 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 		}
 		return runner.failedCase("V05", identityFromMeta(esMeta), started, esCreateErr.Error(), false, nil, 0, 0), esCreateErr
 	}
+	esTargetErr := esControl.setPostTarget(esMeta.PostID)
+	if esTargetErr != nil {
+		restoreErr := esControl.Restore()
+		if restoreErr != nil {
+			esTargetErr = errors.Join(esTargetErr, restoreErr)
+		}
+		return runner.failedCase("V05", identityFromMeta(esMeta), started, "set ES target: "+esTargetErr.Error(), false, nil, 0, 0), esTargetErr
+	}
+	esStartErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "search-indexer", "search-indexer-2")
+	if esStartErr != nil {
+		restoreErr := esControl.Restore()
+		if restoreErr != nil {
+			esStartErr = errors.Join(esStartErr, restoreErr)
+		}
+		return runner.failedCase("V05", identityFromMeta(esMeta), started, "start ES indexers: "+esStartErr.Error(), false, nil, 0, 0), esStartErr
+	}
 	esStatus, esStatusErr := esControl.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
-		return numericStatus(value, "effect_observed") >= 1 && numericStatus(value, "response_dropped") >= 1 && numericStatus(value, "connection_closed") >= 1
+		return value["target_hit"] == true && numericStatus(value, "effect_observed") >= 1 && numericStatus(value, "response_dropped") >= 1 && numericStatus(value, "connection_closed") >= 1
 	})
 	esStopErr := runner.compose("stop", "search-indexer", "search-indexer-2")
 	esProjection, esProjectionErr := runner.waitProjection(esMeta, 30*time.Second)
@@ -933,7 +953,11 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 		return itemAsFailed(esItem, "product_failure", "ES effect/response loss did not preserve projection-before-completion evidence"), errors.New("V05 ES effect/response invariant did not hold")
 	}
 
-	mysqlControl, mysqlErr := runner.startMySQLControl("completion-write", "search-indexer", "search-indexer-2")
+	mysqlInitialStopErr := runner.compose("stop", "search-indexer", "search-indexer-2")
+	if mysqlInitialStopErr != nil {
+		return itemAsFailed(esItem, "infrastructure_failure", "stop indexers before completion-write control: "+mysqlInitialStopErr.Error()), mysqlInitialStopErr
+	}
+	mysqlControl, mysqlErr := runner.startMySQLControl("completion-write")
 	if mysqlErr != nil {
 		return itemAsFailed(esItem, "infrastructure_failure", mysqlErr.Error()), mysqlErr
 	}
@@ -952,6 +976,14 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 			mysqlArmErr = errors.Join(mysqlArmErr, mysqlRestoreErr)
 		}
 		return itemAsFailed(esItem, "infrastructure_failure", "arm MySQL completion-write control: "+mysqlArmErr.Error()), mysqlArmErr
+	}
+	mysqlStartErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "search-indexer", "search-indexer-2")
+	if mysqlStartErr != nil {
+		mysqlRestoreErr := mysqlControl.Restore()
+		if mysqlRestoreErr != nil {
+			mysqlStartErr = errors.Join(mysqlStartErr, mysqlRestoreErr)
+		}
+		return itemAsFailed(esItem, "infrastructure_failure", "start completion-write indexers: "+mysqlStartErr.Error()), mysqlStartErr
 	}
 	mysqlStatus, mysqlStatusErr := mysqlControl.waitStatus(v1RecoveryWait, func(value map[string]any) bool {
 		return numericStatus(value, "upstream_effect") >= 1 && numericStatus(value, "response_dropped") >= 1 && numericStatus(value, "connection_closed") >= 1
