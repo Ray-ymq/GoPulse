@@ -580,9 +580,36 @@ func (runner *formalV1Runner) createPrimary(caseID string) (v1HTTPMeta, v1Create
 	title := "Phase-24 " + caseID + " " + key[:8]
 	result := runner.admin.create(context.Background(), runner.commandEpoch, key, title, "bounded formal acceptance request for "+caseID, v1TraceParent)
 	if result.Status != http.StatusCreated || result.Meta.CommandID == "" {
+		if result.Err != nil {
+			return result.Meta, result, fmt.Errorf("%s create request failed: %w", caseID, result.Err)
+		}
 		return result.Meta, result, fmt.Errorf("%s create returned HTTP %d", caseID, result.Status)
 	}
 	return result.Meta, result, nil
+}
+
+func (runner *formalV1Runner) refreshAfterRecovery() error {
+	baseURL, err := composeServiceURL(runner.session, "frontend", "8080")
+	if err != nil {
+		return fmt.Errorf("resolve recovered frontend endpoint: %w", err)
+	}
+	admin := newV1HTTPClient(baseURL)
+	if err := admin.login(context.Background(), runner.session.Value("GOPULSE_OBSERVABILITY_ADMIN_USERNAME"), runner.session.Value("GOPULSE_OBSERVABILITY_PASSWORD")); err != nil {
+		return fmt.Errorf("recovered administrator login: %w", err)
+	}
+	user := newV1HTTPClient(baseURL)
+	if err := user.login(context.Background(), runner.session.Value("GOPULSE_OBSERVABILITY_USER_USERNAME"), runner.session.Value("GOPULSE_OBSERVABILITY_PASSWORD")); err != nil {
+		return fmt.Errorf("recovered ordinary-user login: %w", err)
+	}
+	epoch, err := admin.commandEpoch(context.Background())
+	if err != nil {
+		return fmt.Errorf("read recovered command epoch: %w", err)
+	}
+	runner.baseURL = baseURL
+	runner.admin = admin
+	runner.user = user
+	runner.commandEpoch = epoch
+	return nil
 }
 
 func (runner *formalV1Runner) waitStage(meta v1HTTPMeta, visibility bool, timeout time.Duration) (bool, bool) {
@@ -1769,6 +1796,9 @@ func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
 			upErr = errors.Join(upErr, err)
 		}
 		recoverySeconds = 60
+	}
+	if upErr == nil {
+		upErr = runner.refreshAfterRecovery()
 	}
 	newEpoch := stringStatus(restoreResult, "new_epoch")
 	oldEpoch := stringStatus(restoreResult, "expected_old_epoch")

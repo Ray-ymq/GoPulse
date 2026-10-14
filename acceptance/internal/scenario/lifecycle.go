@@ -177,15 +177,6 @@ func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath st
 		}
 		return nil, fmt.Errorf("cannot inspect Docker socket ownership")
 	}
-	for key, value := range map[string]string{
-		"GOPULSE_BUNDLE_DIR":  bundle,
-		"GOPULSE_INSTALL_DIR": install,
-		"GOPULSE_TOOL_UID":    fmt.Sprintf("%d", os.Getuid()),
-		"GOPULSE_TOOL_GID":    fmt.Sprintf("%d", os.Getgid()),
-		"GOPULSE_SOCKET_GID":  fmt.Sprintf("%d", socketStat.Gid),
-	} {
-		session.SetValue(key, value)
-	}
 	return &lifecycleRunner{
 		session:       session,
 		bundle:        bundle,
