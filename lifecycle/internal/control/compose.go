@@ -132,11 +132,36 @@ func (c *Controller) compose(args ...string) error {
 	for k, v := range c.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	// Never echo Compose output, environment, or rendered configuration.
+	var stdout, stderr boundedDiagnosticOutput
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if e := cmd.Run(); e != nil {
+		c.lastComposeFailure = &composeFailure{
+			Action:       c.composeAction(args),
+			ExitCode:     commandExitCode(e),
+			ProcessError: c.redact(e.Error()),
+			Stdout:       c.redact(stdout.String()),
+			Stderr:       c.redact(stderr.String()),
+			Truncated:    stdout.truncated || stderr.truncated,
+		}
 		return fail(Failed, c.state.Phase, "Compose failed; use status/logs; data and resources retained for retry")
 	}
+	c.lastComposeFailure = nil
 	return nil
+}
+
+func (c *Controller) composeAction(args []string) string {
+	var safe []string
+	for index, arg := range args {
+		if index == 0 || strings.HasPrefix(arg, "-") {
+			safe = append(safe, arg)
+			continue
+		}
+		if _, ok := c.services[arg]; ok {
+			safe = append(safe, arg)
+		}
+	}
+	return strings.Join(safe, " ")
 }
 
 type Container struct {
@@ -373,7 +398,7 @@ func (c *Controller) redact(text string) string {
 			text = strings.ReplaceAll(text, v, "[REDACTED]")
 		}
 	}
-	return strings.ReplaceAll(text, c.state.Token, "[REDACTED]")
+	return c.redactDiagnostic(strings.ReplaceAll(text, c.state.Token, "[REDACTED]"))
 }
 func (c *Controller) logs(service string, tail int, since, until string) (string, error) {
 	if _, ok := c.services[service]; !ok || service == "lifecycle" {

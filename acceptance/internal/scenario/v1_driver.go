@@ -1757,6 +1757,7 @@ func (runner *formalV1Runner) runV11() (receipt.V1Case, error) {
 		item := runner.completedCase("V11", result.Meta, started, "created the pre-restore identity", stageOK, logsOK, []receipt.RawFact{{Name: "commands", Value: facts.Commands}}, 0, 0)
 		return itemAsFailed(item, "infrastructure_failure", lifecycleErr.Error()), lifecycleErr
 	}
+	lifecycleSessionRunner.diagnosticDestination = filepath.Join(runner.rawDirectory, "cases", "V11-lifecycle-source.json")
 	restoreResult, restoreErr := lifecycleSessionRunner.restoreRoundTrip(meta.EventID)
 	purgeErr := lifecycleSessionRunner.purge()
 	_ = lifecycleSessionRunner.removeOwnedRoot()

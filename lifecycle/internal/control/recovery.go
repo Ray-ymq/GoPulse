@@ -676,7 +676,7 @@ func (c *Controller) recoveryDiagnostic(err error, explicitDir string, command s
 		cancel()
 	}
 	safe := map[string]any{"schema": 1, "command_scope": command, "operation_id": operation, "version": version, "health_summary": health, "manifest_digest": c.manifestHash, "phase": c.state.Phase, "failure_stage": f.Stage, "exit_code": f.Code, "recovery": "source: up then retry backup; empty target: retry restore with the same verified archive; never start a pending restore"}
-	if atomicFile(path, marshal(safe)) == nil {
+	if atomicFile(path, marshal(safe)) == nil && f.Diagnostic == "" {
 		f.Diagnostic = path
 	}
 	return f
