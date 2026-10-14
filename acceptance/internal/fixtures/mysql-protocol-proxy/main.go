@@ -282,7 +282,7 @@ func serverToClient(upstream, client net.Conn, mode string, store *statusStore, 
 
 func targetQuery(mode, query string) bool {
 	query = strings.ToUpper(strings.TrimSpace(query))
-	return (mode == modeCommitResult && strings.HasPrefix(query, "COMMIT")) || (mode == modeCompletionWrite && strings.Contains(query, "BUSINESS_APPLICATION_RESULTS"))
+	return (mode == modeCommitResult && strings.HasPrefix(query, "COMMIT")) || (mode == modeCompletionWrite && strings.HasPrefix(query, "INSERT") && strings.Contains(query, "BUSINESS_APPLICATION_RESULTS"))
 }
 
 func isSuccessfulResponse(payload []byte) bool {
