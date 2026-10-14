@@ -28,6 +28,23 @@ var composeAliases = map[string]string{"edge": "frontend", "backend-2": "backend
 	"marshaller-2": "marshaller", "observability-elasticsearch": "elasticsearch",
 	"migrate": "backend", "search-init": "backend", "admin-role": "backend", "kafka-init": "kafka"}
 
+var oneShotServices = map[string]bool{"migrate": true, "kafka-init": true, "search-init": true}
+
+func runtimeServiceNames(services map[string]any) []string {
+	var names []string
+	for _, name := range sortedKeys(services) {
+		if oneShotServices[name] {
+			continue
+		}
+		service, ok := services[name].(map[string]any)
+		if !ok || service["profiles"] != nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
 func (c *Controller) prepare() error {
 	aliases := composeAliases
 	for name, raw := range c.services {
@@ -312,7 +329,9 @@ func (c *Controller) startProduct(publish bool) error {
 	if e := c.phase("services"); e != nil {
 		return e
 	}
-	if e := c.compose("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "240"); e != nil {
+	args := []string{"up", "-d", "--no-build", "--pull", "never", "--no-deps", "--wait", "--wait-timeout", "240"}
+	args = append(args, runtimeServiceNames(c.services)...)
+	if e := c.compose(args...); e != nil {
 		return e
 	}
 	if _, e := c.status(true); e != nil {

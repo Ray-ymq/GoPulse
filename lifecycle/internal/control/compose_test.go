@@ -68,6 +68,23 @@ func TestComposeAliasesCoverDeliveryAliasesAndEdge(t *testing.T) {
 	}
 }
 
+func TestRuntimeServiceNamesExcludeInitializationJobsAndProfiles(t *testing.T) {
+	services := map[string]any{
+		"backend":     map[string]any{},
+		"edge":        map[string]any{},
+		"frontend":    map[string]any{},
+		"migrate":     map[string]any{},
+		"kafka-init":  map[string]any{},
+		"search-init": map[string]any{},
+		"admin-role":  map[string]any{"profiles": []any{"operations"}},
+	}
+	want := []string{"backend", "edge", "frontend"}
+	got := runtimeServiceNames(services)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("runtime services = %v, want %v", got, want)
+	}
+}
+
 func preparedPullFixture(t *testing.T) (*Controller, string) {
 	t.Helper()
 	c := fixture(t)
