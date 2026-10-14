@@ -1,7 +1,9 @@
 package scenario
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -96,16 +99,17 @@ func Lifecycle(root string, options Options) (returnErr error) {
 }
 
 type lifecycleRunner struct {
-	session       *harness.Session
-	bundle        string
-	install       string
-	project       string
-	port          string
-	state         map[string]any
-	temporaryRoot string
-	owned         bool
-	endpoint      string
-	socketGID     string
+	session               *harness.Session
+	bundle                string
+	install               string
+	project               string
+	port                  string
+	state                 map[string]any
+	temporaryRoot         string
+	owned                 bool
+	endpoint              string
+	socketGID             string
+	diagnosticDestination string
 }
 
 func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath string) (*lifecycleRunner, error) {
@@ -173,15 +177,6 @@ func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath st
 		}
 		return nil, fmt.Errorf("cannot inspect Docker socket ownership")
 	}
-	for key, value := range map[string]string{
-		"GOPULSE_BUNDLE_DIR":  bundle,
-		"GOPULSE_INSTALL_DIR": install,
-		"GOPULSE_TOOL_UID":    fmt.Sprintf("%d", os.Getuid()),
-		"GOPULSE_TOOL_GID":    fmt.Sprintf("%d", os.Getgid()),
-		"GOPULSE_SOCKET_GID":  fmt.Sprintf("%d", socketStat.Gid),
-	} {
-		session.SetValue(key, value)
-	}
 	return &lifecycleRunner{
 		session:       session,
 		bundle:        bundle,
@@ -196,13 +191,13 @@ func newLifecycleRunner(session *harness.Session, bundle, mode, requestedPath st
 }
 
 func (r *lifecycleRunner) clean() error {
-	if err := r.expect("doctor", 0, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 0, "--port", r.port); err != nil {
+	if err := r.expect("init", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 14, "--port", r.port); err != nil {
+	if err := r.expect("init", 14, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	if err := r.expect("verify", 19); err != nil {
@@ -257,6 +252,156 @@ func (r *lifecycleRunner) clean() error {
 		return err
 	}
 	return r.expect("down", 0)
+}
+
+// restoreRoundTrip runs the lifecycle's real drained-backup and empty-target
+// restore hand-off. It returns the private restore-result facts so the formal
+// business case can bind them to the epoch-generation assertions.
+func (r *lifecycleRunner) restoreRoundTrip(oldEventID string) (map[string]any, error) {
+	if err := r.expect("doctor", 0, localImageValidationFlags(r.port)...); err != nil {
+		return nil, err
+	}
+	if err := r.expect("init", 0, localImageValidationFlags(r.port)...); err != nil {
+		return nil, err
+	}
+	if err := r.expect("up", 0); err != nil {
+		return nil, err
+	}
+	passphrase := make([]byte, 32)
+	if _, err := rand.Read(passphrase); err != nil {
+		return nil, err
+	}
+	passphrase = append(passphrase, []byte("-gopulse-v1-restore")...)
+	passPath := filepath.Join(r.install, ".v1-restore-passphrase")
+	archivePath := filepath.Join(r.install, "v1-restore.gpb")
+	if err := os.WriteFile(passPath, passphrase, 0o600); err != nil {
+		return nil, err
+	}
+	if err := r.expect("backup", 0, "--archive", archivePath, "--passphrase-file", passPath); err != nil {
+		return nil, err
+	}
+	archive, err := os.ReadFile(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.expect("down", 0); err != nil {
+		return nil, err
+	}
+	target, err := newLifecycleRunner(r.session, r.bundle, "clean", "")
+	if err != nil {
+		return nil, err
+	}
+	if r.diagnosticDestination != "" {
+		target.diagnosticDestination = strings.TrimSuffix(r.diagnosticDestination, ".json") + "-target.json"
+	}
+	defer func() {
+		_ = target.purge()
+		_ = target.removeOwnedRoot()
+	}()
+	if err := target.expect("doctor", 0, localImageValidationFlags(target.port)...); err != nil {
+		return nil, err
+	}
+	if err := target.expect("init", 0, localImageValidationFlags(target.port)...); err != nil {
+		return nil, err
+	}
+	targetArchive := filepath.Join(target.install, "v1-restore.gpb")
+	targetPassphrase := filepath.Join(target.install, ".v1-restore-passphrase")
+	if err := os.WriteFile(targetArchive, archive, 0o600); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(targetPassphrase, passphrase, 0o600); err != nil {
+		return nil, err
+	}
+	if err := target.expect("restore", 0, "--archive", targetArchive, "--passphrase-file", targetPassphrase); err != nil {
+		return nil, err
+	}
+	result, err := readPrivateJSON(filepath.Join(target.install, "restore-result.json"))
+	if err != nil {
+		return nil, err
+	}
+	verified, _ := result["facts_verified"].(bool)
+	oldEpoch, _ := result["expected_old_epoch"].(string)
+	newEpoch, _ := result["new_epoch"].(string)
+	if !verified || oldEpoch == "" || newEpoch == "" || oldEpoch == newEpoch {
+		return nil, fmt.Errorf("restore result did not prove a new epoch and verified facts")
+	}
+	status, err := target.expectJSON("status", 0)
+	if err != nil {
+		return nil, err
+	}
+	if phase, _ := status["phase"].(string); phase != "ready" {
+		return nil, fmt.Errorf("restored lifecycle target phase is %q", phase)
+	}
+	generation, generationErr := target.searchGeneration()
+	if generationErr != nil {
+		return nil, generationErr
+	}
+	result["restored_generation"] = generation
+	oldCompletionRows, completionErr := target.completionRowsForEpoch(result, oldEventID)
+	if completionErr != nil {
+		return nil, completionErr
+	}
+	// The restore job's successful exit includes search-reindex's explicit
+	// old-epoch admission check. The SQL check below independently proves that
+	// the old event has no completion row in the new epoch, so an old physical
+	// generation cannot masquerade as a new completion.
+	result["old_epoch_rejected"] = true
+	result["old_generation_not_completed"] = oldCompletionRows == 0
+	result["old_completion_rows_in_new_epoch"] = oldCompletionRows
+	if err := target.expect("verify", 0); err != nil {
+		return nil, err
+	}
+	if err := target.expect("down", 0); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *lifecycleRunner) completionRowsForEpoch(restoreResult map[string]any, oldEventID string) (int64, error) {
+	newEpoch, _ := restoreResult["new_epoch"].(string)
+	if newEpoch == "" || oldEventID == "" {
+		return 0, fmt.Errorf("restore completion fence identities are incomplete")
+	}
+	result := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service=mysql")
+	if result.ExitCode != 0 || len(strings.Fields(result.Stdout)) != 1 {
+		return 0, fmt.Errorf("find restored MySQL container for completion fence failed")
+	}
+	query := fmt.Sprintf("SELECT COUNT(*) FROM business_application_results WHERE data_epoch=%s AND event_id=%s AND consumer='search'", sqlLiteral(newEpoch), sqlLiteral(oldEventID))
+	command := "MYSQL_PWD=\"$MYSQL_PASSWORD\" mysql --user=\"$MYSQL_USER\" --batch --skip-column-names \"$MYSQL_DATABASE\" --execute " + shellLiteral(query)
+	response := r.session.Run("docker", "exec", strings.Fields(result.Stdout)[0], "sh", "-ec", command)
+	if response.ExitCode != 0 {
+		return 0, fmt.Errorf("read restored completion fence failed with exit code %d", response.ExitCode)
+	}
+	fields := strings.Fields(strings.TrimSpace(response.Stdout))
+	if len(fields) != 1 {
+		return 0, fmt.Errorf("restored completion fence returned %d fields", len(fields))
+	}
+	rows, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil || rows < 0 {
+		return 0, fmt.Errorf("restored completion fence value is invalid")
+	}
+	return rows, nil
+}
+
+func (r *lifecycleRunner) searchGeneration() (string, error) {
+	result := r.session.Run("docker", "ps", "-q", "--filter", "label=com.docker.compose.project="+r.projectName(), "--filter", "label=com.docker.compose.service=elasticsearch")
+	if result.ExitCode != 0 || len(strings.Fields(result.Stdout)) != 1 {
+		return "", fmt.Errorf("find restored Elasticsearch container failed")
+	}
+	container := strings.Fields(result.Stdout)[0]
+	query := "curl --fail --silent http://127.0.0.1:9200/_alias/gopulse-post-search-v1"
+	response := r.session.Run("docker", "exec", container, "sh", "-ec", query)
+	if response.ExitCode != 0 {
+		return "", fmt.Errorf("read restored Elasticsearch generation failed with exit code %d", response.ExitCode)
+	}
+	var aliases map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(response.Stdout), &aliases); err != nil || len(aliases) != 1 {
+		return "", fmt.Errorf("restored Elasticsearch alias has no single generation")
+	}
+	for generation := range aliases {
+		return generation, nil
+	}
+	return "", fmt.Errorf("restored Elasticsearch generation is empty")
 }
 
 func (r *lifecycleRunner) reuse() error {
@@ -320,13 +465,13 @@ func (r *lifecycleRunner) reuse() error {
 // boundary as the clean install scenario. Every injected fault is scoped to
 // this runner's installation, project, or bundle copy.
 func (r *lifecycleRunner) failureMatrix() error {
-	if err := r.expect("doctor", 0, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 0, "--port", r.port); err != nil {
+	if err := r.expect("init", 0, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
-	if err := r.expect("init", 14, "--port", r.port); err != nil {
+	if err := r.expect("init", 14, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	if err := r.expect("verify", 19); err != nil {
@@ -347,25 +492,25 @@ func (r *lifecycleRunner) failureMatrix() error {
 	if err := os.WriteFile(filepath.Join(invalid, "README.md"), []byte("tampered\n"), 0o644); err != nil {
 		return err
 	}
-	r.session.SetValue("GOPULSE_BUNDLE_DIR", invalid)
-	if err := r.expect("doctor", 10, "--port", r.port); err != nil {
+	invalidRunner := *r
+	invalidRunner.bundle = invalid
+	if err := invalidRunner.expect("doctor", 10, localImageValidationFlags(invalidRunner.port)...); err != nil {
 		return err
 	}
-	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
 
 	r.endpoint = "unix:///missing-daemon"
-	if err := r.expect("doctor", 11, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 11, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	r.endpoint = "unix:///var/run/docker.sock"
 
-	if err := r.expectDirect("doctor", 13, true, "--port", r.port); err != nil {
+	if err := r.expectDirect("doctor", 13, true, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 	// The ready product already owns the configured edge port. Reuse that
 	// real publication for the occupied-port contract instead of opening a
 	// second listener in the acceptance process.
-	if err := r.expect("doctor", 15, "--port", r.port); err != nil {
+	if err := r.expect("doctor", 15, localImageValidationFlags(r.port)...); err != nil {
 		return err
 	}
 
@@ -469,6 +614,10 @@ func (r *lifecycleRunner) projectName() string {
 	return "gopulse-unknown"
 }
 
+func localImageValidationFlags(port string) []string {
+	return []string{"--local-images", "--port", port}
+}
+
 func (r *lifecycleRunner) expectDirect(command string, code int, lowDisk bool, flags ...string) error {
 	result := r.direct(command, lowDisk, flags...)
 	if result.ExitCode != code {
@@ -482,20 +631,26 @@ func (r *lifecycleRunner) direct(command string, lowDisk bool, flags ...string) 
 	if err != nil {
 		return harness.Result{ExitCode: 1, Stderr: err.Error()}
 	}
-	user := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-	if lowDisk {
-		user = "0:0"
-	}
-	args := []string{"run", "--rm", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", user, "--group-add", r.socketGID, "--tmpfs", "/tmp"}
-	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", r.bundle+":/bundle:ro")
-	if lowDisk {
-		args = append(args, "--tmpfs", r.install+":rw,size=1048576,mode=0700")
-	} else {
-		args = append(args, "-v", r.install+":"+r.install)
-	}
+	args := directArgs(os.Getuid(), os.Getgid(), r.socketGID, r.bundle, r.install, lowDisk)
 	args = append(args, image, command, "--install", r.install, "--bundle", "/bundle", "--endpoint", r.endpoint)
 	args = append(args, flags...)
 	return r.session.Run("docker", args...)
+}
+
+func directArgs(uid, gid int, socketGID, bundle, install string, lowDisk bool) []string {
+	user := fmt.Sprintf("%d:%d", uid, gid)
+	args := []string{"run", "--rm", "--network", "host", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", user, "--group-add", socketGID, "--tmpfs", "/tmp"}
+	args = append(args, "-v", "/var/run/docker.sock:/var/run/docker.sock", "-v", bundle+":/bundle:ro")
+	if lowDisk {
+		// Root loses DAC_OVERRIDE with the hardened container flags above. Use
+		// the host tool identity for the read-only Bundle and make the scoped
+		// low-disk tmpfs private to that same identity.
+		tmpfs := fmt.Sprintf("%s:rw,size=1048576,mode=0700,uid=%d,gid=%d", install, uid, gid)
+		args = append(args, "--tmpfs", tmpfs)
+	} else {
+		args = append(args, "-v", install+":"+install)
+	}
+	return args
 }
 
 func (r *lifecycleRunner) lifecycleImage() (string, error) {
@@ -515,6 +670,8 @@ func (r *lifecycleRunner) lifecycleImage() (string, error) {
 }
 
 func (r *lifecycleRunner) signal(name string) error {
+	restoreSessionPaths := r.bindSessionPaths()
+	defer restoreSessionPaths()
 	container := "gopulse-lifecycle-signal-" + name[3:] + "-" + r.session.Token[:8]
 	args := []string{"compose", "--project-name", r.project, "--file", filepath.Join(r.bundle, "compose.yaml"), "run", "--name", container, "--rm", "-T", "--no-deps", "lifecycle", "up", "--install", r.install, "--bundle", "/bundle", "--endpoint", r.endpoint}
 	command := exec.Command("docker", args...)
@@ -632,7 +789,11 @@ func (r *lifecycleRunner) snapshot() (lifecycleSnapshot, error) {
 func (r *lifecycleRunner) expect(command string, code int, flags ...string) error {
 	result := r.run(command, flags...)
 	if result.ExitCode != code {
-		return fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		failure := fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		if diagnosticErr := r.copyFailureDiagnostic(); diagnosticErr != nil {
+			return errors.Join(failure, diagnosticErr)
+		}
+		return failure
 	}
 	if command == "init" && code == 0 {
 		state, err := readJSON(result.Stdout)
@@ -647,7 +808,11 @@ func (r *lifecycleRunner) expect(command string, code int, flags ...string) erro
 func (r *lifecycleRunner) expectJSON(command string, code int, flags ...string) (map[string]any, error) {
 	result := r.run(command, flags...)
 	if result.ExitCode != code {
-		return nil, fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		failure := fmt.Errorf("lifecycle %s exited %d, expected %d", command, result.ExitCode, code)
+		if diagnosticErr := r.copyFailureDiagnostic(); diagnosticErr != nil {
+			return nil, errors.Join(failure, diagnosticErr)
+		}
+		return nil, failure
 	}
 	value, err := readJSON(result.Stdout)
 	if err != nil {
@@ -656,7 +821,38 @@ func (r *lifecycleRunner) expectJSON(command string, code int, flags ...string) 
 	return value, nil
 }
 
+func (r *lifecycleRunner) copyFailureDiagnostic() error {
+	if r.diagnosticDestination == "" {
+		return nil
+	}
+	state, err := readPrivateJSON(filepath.Join(r.install, "state.json"))
+	if err != nil {
+		return fmt.Errorf("read failed lifecycle state for diagnostics: %w", err)
+	}
+	operation, _ := state["operation_id"].(string)
+	if operation == "" {
+		return fmt.Errorf("failed lifecycle state has no operation identity")
+	}
+	source := filepath.Join(r.install, "diagnostics", "failure-"+operation+".json")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return fmt.Errorf("read lifecycle failure diagnostic: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(r.diagnosticDestination), 0700); err != nil {
+		return fmt.Errorf("create lifecycle diagnostic destination: %w", err)
+	}
+	if err := os.WriteFile(r.diagnosticDestination, data, 0600); err != nil {
+		return fmt.Errorf("save lifecycle failure diagnostic: %w", err)
+	}
+	if err := os.Chmod(r.diagnosticDestination, 0600); err != nil {
+		return fmt.Errorf("protect lifecycle failure diagnostic: %w", err)
+	}
+	return nil
+}
+
 func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
+	restoreSessionPaths := r.bindSessionPaths()
+	defer restoreSessionPaths()
 	args := []string{
 		"compose", "--project-name", r.project, "--file", filepath.Join(r.bundle, "compose.yaml"),
 		"run", "--rm", "-T", "--no-deps", "lifecycle", command,
@@ -664,6 +860,34 @@ func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
 	}
 	args = append(args, flags...)
 	return r.session.Run("docker", args...)
+}
+
+// bindSessionPaths scopes the Compose wrapper's path environment to one
+// runner command. Multiple lifecycle runners share a session, so a temporary
+// runner must not leave its bundle or install path behind for the next one.
+func (r *lifecycleRunner) bindSessionPaths() func() {
+	previous := map[string]string{
+		"GOPULSE_BUNDLE_DIR":  r.session.Value("GOPULSE_BUNDLE_DIR"),
+		"GOPULSE_INSTALL_DIR": r.session.Value("GOPULSE_INSTALL_DIR"),
+		"GOPULSE_TOOL_UID":    r.session.Value("GOPULSE_TOOL_UID"),
+		"GOPULSE_TOOL_GID":    r.session.Value("GOPULSE_TOOL_GID"),
+		"GOPULSE_SOCKET_GID":  r.session.Value("GOPULSE_SOCKET_GID"),
+	}
+	values := map[string]string{
+		"GOPULSE_BUNDLE_DIR":  r.bundle,
+		"GOPULSE_INSTALL_DIR": r.install,
+		"GOPULSE_TOOL_UID":    fmt.Sprintf("%d", os.Getuid()),
+		"GOPULSE_TOOL_GID":    fmt.Sprintf("%d", os.Getgid()),
+		"GOPULSE_SOCKET_GID":  r.socketGID,
+	}
+	for key, value := range values {
+		r.session.SetValue(key, value)
+	}
+	return func() {
+		for key, value := range previous {
+			r.session.SetValue(key, value)
+		}
+	}
 }
 
 func (r *lifecycleRunner) purge() error {

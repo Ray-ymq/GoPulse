@@ -60,7 +60,7 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 	if inserted == 0 {
 		return nil
 	}
-	if open >= MaximumOpenRequirements {
+	if open >= repository.BudgetLimits().OpenRequirements {
 		return ErrBudgetExceeded
 	}
 	if _, err := executor.ExecContext(ctx, `UPDATE business_async_budget SET open_requirements=open_requirements+1, updated_at=? WHERE data_epoch=?`, repository.now(), requirement.DataEpoch); err != nil {

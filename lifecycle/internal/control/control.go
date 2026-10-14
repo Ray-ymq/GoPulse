@@ -51,15 +51,29 @@ func (e *Failure) Error() string             { return e.Message }
 func fail(code int, stage, msg string) error { return &Failure{Code: code, Stage: stage, Message: msg} }
 
 type Controller struct {
-	ctx                   context.Context
-	dir, bundle, endpoint string
-	manifest              *release.Manifest
-	manifestHash          string
-	state                 State
-	env                   map[string]string
-	doc                   map[string]any
-	services              map[string]any
+	ctx                    context.Context
+	dir, bundle, endpoint  string
+	localImages            bool
+	manifest               *release.Manifest
+	manifestHash           string
+	state                  State
+	env                    map[string]string
+	doc                    map[string]any
+	services               map[string]any
+	lastComposeFailure     *composeFailure
+	failureDiagnosticSaved bool
 }
+
+type dockerFailure struct {
+	cause  error
+	stderr string
+}
+
+func (e *dockerFailure) Error() string {
+	return "Docker operation failed; inspect scoped status/logs (raw diagnostics suppressed)"
+}
+
+func (e *dockerFailure) Unwrap() error { return e.cause }
 
 func (c *Controller) docker(args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(c.ctx, "docker", append([]string{"--host", c.endpoint}, args...)...)
@@ -69,9 +83,22 @@ func (c *Controller) docker(args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	b, e := cmd.Output()
 	if e != nil {
-		return nil, errors.New("Docker operation failed; inspect scoped status/logs (raw diagnostics suppressed)")
+		return nil, &dockerFailure{cause: e, stderr: stderr.String()}
 	}
 	return b, nil
+}
+
+func isMissingImage(err error) bool {
+	var failure *dockerFailure
+	if !errors.As(err, &failure) {
+		return false
+	}
+	var exit *exec.ExitError
+	if !errors.As(failure.cause, &exit) || exit.ExitCode() != 1 {
+		return false
+	}
+	detail := strings.ToLower(strings.TrimSpace(failure.stderr))
+	return strings.Contains(detail, "no such image") || strings.Contains(detail, "no such object") || strings.Contains(detail, "unable to find image")
 }
 
 // Kill the entire Docker/Compose process group on cancellation before releasing
@@ -105,6 +132,7 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	bundle := fs.String("bundle", "/bundle", "immutable bundle directory")
 	endpoint := fs.String("endpoint", "", "explicit unix:///path Docker endpoint")
 	port := fs.Int("port", 18080, "loopback edge port (init/doctor)")
+	localImages := fs.Bool("local-images", false, "acceptance-only: validate immutable images from the local Docker image store")
 	service := fs.String("service", "edge", "allowlisted service (logs)")
 	tail := fs.Int("tail", 100, "log lines, 1..1000")
 	since := fs.String("since", "", "RFC3339 start time")
@@ -118,6 +146,9 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	if fs.Parse(args[1:]) != nil || fs.NArg() != 0 || !filepath.IsAbs(*dir) || !filepath.IsAbs(*bundle) || !strings.HasPrefix(*endpoint, "unix:///") || *port < 1024 || *port > 65535 {
 		return fail(Usage, "arguments", "require absolute --install/--bundle, explicit local --endpoint unix:///path and port 1024..65535")
 	}
+	if *localImages && command != "doctor" && command != "init" {
+		return fail(Usage, "arguments", "--local-images is only valid for doctor or init acceptance checks")
+	}
 	if *tail < 1 || *tail > 1000 {
 		return fail(Usage, "arguments", "tail must be 1..1000")
 	}
@@ -128,10 +159,15 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 			}
 		}
 	}
-	c := &Controller{ctx: ctx, dir: filepath.Clean(*dir), bundle: filepath.Clean(*bundle), endpoint: *endpoint}
+	c := &Controller{ctx: ctx, dir: filepath.Clean(*dir), bundle: filepath.Clean(*bundle), endpoint: *endpoint, localImages: *localImages}
 	defer func() {
-		if resultErr != nil && (command == "backup" || command == "restore" || (command == "doctor" && *diagnosticDir != "")) {
-			resultErr = c.recoveryDiagnostic(resultErr, *diagnosticDir, command)
+		if resultErr != nil {
+			if command == "up" || command == "down" || command == "backup" || command == "restore" {
+				resultErr = c.captureFailureDiagnostic(resultErr, command)
+			}
+			if command == "backup" || command == "restore" || (command == "doctor" && *diagnosticDir != "") {
+				resultErr = c.recoveryDiagnostic(resultErr, *diagnosticDir, command)
+			}
 		}
 	}()
 	if *diagnosticDir != "" && (!filepath.IsAbs(*diagnosticDir) || privateDir(*diagnosticDir) != nil) {
@@ -390,11 +426,25 @@ func (c *Controller) doctor(port int) error {
 	for n, i := range c.manifest.ThirdParty {
 		images[n] = i
 	}
-	for name, image := range images {
+	for _, name := range sortedImageKeys(images) {
+		image := images[name]
+		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms[lifecyclePlatform]
+		if c.localImages {
+			local, err := c.localImage(ref)
+			if err != nil {
+				if failure, ok := err.(*Failure); ok {
+					return fail(failure.Code, "local-digest", "local image validation failed for "+name)
+				}
+				return fail(ManifestError, "local-digest", "local image validation failed for "+name)
+			}
+			if !local {
+				return fail(ManifestError, "local-digest", "local image is missing for "+name)
+			}
+			continue
+		}
 		if err := c.distribution(image.Ref, false); err != nil {
 			return fail(ManifestError, "digest", "registry index unavailable for "+name)
 		}
-		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms["linux/amd64"]
 		if err := c.distribution(ref, true); err != nil {
 			return fail(ManifestError, "digest", "registry platform digest unavailable for "+name)
 		}
@@ -487,6 +537,15 @@ func (c *Controller) initialize(port int) error {
 	return nil
 }
 func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedImageKeys(m map[string]release.Image) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
