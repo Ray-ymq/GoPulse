@@ -480,7 +480,13 @@ func (runner *formalV1Runner) privateComponentMetrics(service, port, token strin
 		return "", err
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := (&http.Client{Timeout: 3 * time.Second}).Do(request)
+	// Compose service addresses are private container IPs. They must bypass
+	// the host's HTTP proxy; otherwise a proxy that does not know the Docker
+	// network can delay the probe until its timeout instead of reaching the
+	// component listener directly.
+	transport := privateMetricsTransport()
+	defer transport.CloseIdleConnections()
+	response, err := (&http.Client{Transport: transport, Timeout: 3 * time.Second}).Do(request)
 	if err != nil {
 		return "", err
 	}
@@ -493,6 +499,12 @@ func (runner *formalV1Runner) privateComponentMetrics(service, port, token strin
 		return "", fmt.Errorf("%s private metrics returned HTTP %d", service, response.StatusCode)
 	}
 	return string(body), nil
+}
+
+func privateMetricsTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return transport
 }
 
 func (runner *formalV1Runner) telemetryMetricEvidence() (bool, error) {
