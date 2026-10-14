@@ -113,6 +113,21 @@ func TestV07SubwindowsKeepIndependentRecoveryBoundaries(t *testing.T) {
 	}
 }
 
+func TestV07RawFactsAreWhitelisted(t *testing.T) {
+	document, rawDirectory := validV1Document(t)
+	facts := []RawFact{
+		{Name: "fault_window_0_seconds", Value: 60},
+		{Name: "fault_window_1_seconds", Value: 60},
+		{Name: "recovery_0_seconds", Value: 45},
+		{Name: "recovery_1_seconds", Value: 120},
+	}
+	path := filepath.Join(rawDirectory, "cases", "V07.json")
+	evidence := RawEvidence{CaseID: "V07", Identity: document.V1.Cases[0].Identity, Checks: RawChecks{Created: true}, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Facts: facts}
+	if err := WriteRawEvidence(path, evidence); err != nil {
+		t.Fatalf("V07 raw facts were rejected: %v", err)
+	}
+}
+
 func TestV1PublicationIsWhitelisted(t *testing.T) {
 	document, _ := validV1Document(t)
 	path := filepath.Join(t.TempDir(), "publication.json")
