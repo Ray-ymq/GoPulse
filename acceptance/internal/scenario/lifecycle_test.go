@@ -50,6 +50,8 @@ func TestLifecycleRunnerBadBundleAndInterleavedPaths(t *testing.T) {
 	t.Setenv("GOPULSE_TEST_LOG", logPath)
 
 	session := newLifecycleTestSession(t)
+	initialBundle := session.Value("GOPULSE_BUNDLE_DIR")
+	initialInstall := session.Value("GOPULSE_INSTALL_DIR")
 	sourceBundle := filepath.Join(t.TempDir(), "source-bundle")
 	sourceInstall := filepath.Join(t.TempDir(), "source-install")
 	badBundle := filepath.Join(t.TempDir(), "bad-bundle")
@@ -89,6 +91,12 @@ func TestLifecycleRunnerBadBundleAndInterleavedPaths(t *testing.T) {
 	}
 	if target.bundle != targetBundle || target.install != targetInstall {
 		t.Fatalf("target runner path changed: bundle=%q install=%q", target.bundle, target.install)
+	}
+	if got := session.Value("GOPULSE_BUNDLE_DIR"); got != initialBundle {
+		t.Fatalf("shared bundle path changed after interleaved commands: %q", got)
+	}
+	if got := session.Value("GOPULSE_INSTALL_DIR"); got != initialInstall {
+		t.Fatalf("shared install path changed after interleaved commands: %q", got)
 	}
 
 	raw, err := os.ReadFile(logPath)
