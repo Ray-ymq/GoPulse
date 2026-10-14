@@ -96,3 +96,17 @@ esac`, containerJSON))
 		t.Fatalf("diagnostic directory permissions = %v %o, want 700", err, info.Mode().Perm())
 	}
 }
+
+func TestFailureDiagnosticDoesNotOverwriteStateBeforeLoad(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	c := &Controller{dir: dir}
+	if err := c.captureFailureDiagnostic(fail(Locked, "lock", "another operation holds the installation lock"), "up"); err == nil {
+		t.Fatal("expected lock failure")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state.json")); !os.IsNotExist(err) {
+		t.Fatalf("unloaded failure created or changed state: %v", err)
+	}
+}
