@@ -629,6 +629,33 @@ func (runner *formalV1Runner) facts(meta v1HTTPMeta) (v1DurableFacts, error) {
 	return v1DurableFacts{Commands: values[0], Posts: values[1], Outbox: values[2], Requirements: values[3], Applications: values[4], BrokerPublished: values[5], OpenRequirements: values[6]}, nil
 }
 
+// waitApplication waits for the durable completion row itself. A stage page
+// can become readable from its command/event evidence before a delayed retry
+// leaves the retry queue, so stage visibility alone is not a completion
+// boundary for effect-before-record acceptance cases.
+func (runner *formalV1Runner) waitApplication(meta v1HTTPMeta, timeout time.Duration) (v1DurableFacts, error) {
+	end := time.Now().Add(timeout)
+	if end.After(runner.deadline) {
+		end = runner.deadline
+	}
+	var latest v1DurableFacts
+	var lastErr error
+	for time.Now().Before(end) {
+		facts, err := runner.facts(meta)
+		if err == nil {
+			latest = facts
+			lastErr = nil
+			if facts.Applications >= 1 {
+				return facts, nil
+			}
+		} else {
+			lastErr = err
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return latest, lastErr
+}
+
 func (runner *formalV1Runner) projectionPresent(meta v1HTTPMeta) (bool, error) {
 	if meta.PostID == 0 {
 		return false, errors.New("projection check requires a post identity")
@@ -924,8 +951,8 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 	esFacts, esFactsErr := runner.facts(esMeta)
 	esRestoreErr := esControl.Restore()
 	esRestartErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "search-indexer", "search-indexer-2")
+	esRecoveredFacts, esRecoveredFactsErr := runner.waitApplication(esMeta, v1RecoveryWait)
 	esStageOK, esLogsOK := runner.waitStage(esMeta, true, v1RecoveryWait)
-	esRecoveredFacts, esRecoveredFactsErr := runner.facts(esMeta)
 	esItem := runner.completedCase("V05", esResult.Meta, started, "dropped the successful ES write response after the projection was written, stopped the indexers before completion could be recorded, and replayed the event", esStageOK, esLogsOK, []receipt.RawFact{
 		{Name: "projection_present", Value: boolInt(esProjection)},
 		{Name: "completion_present", Value: esFacts.Applications},
@@ -993,8 +1020,8 @@ func (runner *formalV1Runner) runV05() (receipt.V1Case, error) {
 	mysqlFacts, mysqlFactsErr := runner.facts(mysqlMeta)
 	mysqlRestoreErr := mysqlControl.Restore()
 	mysqlRestartErr := runner.compose("up", "--detach", "--wait", "--wait-timeout", "420", "search-indexer", "search-indexer-2")
+	mysqlRecoveredFacts, mysqlRecoveredFactsErr := runner.waitApplication(mysqlMeta, v1RecoveryWait)
 	mysqlStageOK, mysqlLogsOK := runner.waitStage(mysqlMeta, true, v1RecoveryWait)
-	mysqlRecoveredFacts, mysqlRecoveredFactsErr := runner.facts(mysqlMeta)
 
 	identity := mysqlMeta
 	if identity.CommandID == "" {
