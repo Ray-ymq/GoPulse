@@ -27,15 +27,37 @@ func writeFakeDocker(t *testing.T, body string) (string, string) {
 	return root, log
 }
 
-func writeFakeAcceptance(t *testing.T, root string) {
+func writeFakeAcceptance(t *testing.T, root, body string) {
 	t.Helper()
-	command := filepath.Join(root, "acceptance", "bin", "gopulse-acceptance")
-	if err := os.MkdirAll(filepath.Dir(command), 0o755); err != nil {
+	source := filepath.Join(root, "fake-gopulse-acceptance")
+	if err := os.WriteFile(source, []byte("#!/usr/bin/env bash\n"+body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(command, []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "acceptance"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goCommand := filepath.Join(bin, "go")
+	if err := os.WriteFile(goCommand, []byte(`#!/usr/bin/env bash
+set -eu
+output=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    shift
+    output="$1"
+  fi
+  shift
+done
+cp "$GOPULSE_TEST_ACCEPTANCE_SOURCE" "$output"
+chmod 0755 "$output"
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOPULSE_TEST_ACCEPTANCE_SOURCE", source)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func runtimeManifest() (*release.Manifest, string) {
@@ -104,7 +126,7 @@ case "$1" in
   pull) echo "unexpected pull" >&2; exit 1 ;;
 esac
 `)
-	writeFakeAcceptance(t, dockerRoot)
+	writeFakeAcceptance(t, dockerRoot, "exit 0\n")
 	if err := runtimeVerify(&Repo{Root: dockerRoot}, m, filepath.Join(dockerRoot, "release-manifest.json"), "linux/amd64"); err != nil {
 		t.Fatalf("matching local image should pass runtime verification: %v", err)
 	}
@@ -280,11 +302,14 @@ func TestComposeGateRejectsLoggedErrorWithZeroExit(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			command := filepath.Join(root, "acceptance", "bin", "gopulse-acceptance")
-			if err := os.MkdirAll(filepath.Dir(command), 0o755); err != nil {
+			writeFakeAcceptance(t, root, test.body)
+			// Keep an older executable in the conventional location. The gate
+			// must build and run the current source fixture instead of reusing it.
+			stale := filepath.Join(root, "acceptance", "bin", "gopulse-acceptance")
+			if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(command, []byte("#!/usr/bin/env bash\n"+test.body), 0o755); err != nil {
+			if err := os.WriteFile(stale, []byte("#!/usr/bin/env bash\necho '[gopulse-acceptance] ERROR: stale runner'\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			err := runComposeGate(&Repo{Root: root}, filepath.Join(root, "release-manifest.json"))
