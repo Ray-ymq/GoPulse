@@ -95,6 +95,9 @@ func TestTargetQueryRecognizesTextAndPreparedModes(t *testing.T) {
 	if !targetQuery(modeCompletionWrite, "INSERT INTO BUSINESS_APPLICATION_RESULTS VALUES (?)") {
 		t.Fatal("completion INSERT was not recognized")
 	}
+	if targetQuery(modeCompletionWrite, "SELECT EXISTS(SELECT 1 FROM BUSINESS_APPLICATION_RESULTS)") {
+		t.Fatal("completion lookup was incorrectly recognized")
+	}
 	if targetQuery(modeCompletionWrite, "SELECT * FROM posts") {
 		t.Fatal("unrelated query was recognized")
 	}
