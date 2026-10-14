@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -119,7 +120,12 @@ func handler(target *url.URL, mode string, delay time.Duration) http.Handler {
 			case <-timer.C:
 			}
 		}
-		if shouldDrop(mode, response.Header) {
+		payload, readErr := io.ReadAll(io.LimitReader(response.Body, 4<<20+1))
+		if readErr != nil || len(payload) > 4<<20 {
+			http.Error(writer, "proxy response rejected", http.StatusBadGateway)
+			return
+		}
+		if shouldDrop(mode, response.Header) || shouldDropCommittedHTTP(mode, request, response.StatusCode, payload) {
 			dropConnection(writer)
 			return
 		}
@@ -133,8 +139,22 @@ func handler(target *url.URL, mode string, delay time.Duration) http.Handler {
 			writer.Header().Set("X-GoPulse-Fault", "completion-missing-after-effect")
 		}
 		writer.WriteHeader(response.StatusCode)
-		_, _ = io.CopyN(writer, response.Body, 4<<20)
+		_, _ = writer.Write(payload)
 	})
+}
+
+func shouldDropCommittedHTTP(mode string, request *http.Request, status int, payload []byte) bool {
+	if mode != modeResponseAfterCommit || request.Method != http.MethodPost || request.URL.Path != "/api/v1/posts" || status != http.StatusCreated {
+		return false
+	}
+	var envelope struct {
+		Meta struct {
+			CommandID string `json:"command_id"`
+			EventID   string `json:"event_id"`
+			PostID    uint64 `json:"post_id"`
+		} `json:"meta"`
+	}
+	return json.Unmarshal(payload, &envelope) == nil && envelope.Meta.CommandID != "" && envelope.Meta.EventID != "" && envelope.Meta.PostID > 0
 }
 
 func shouldDrop(mode string, headers http.Header) bool {

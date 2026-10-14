@@ -416,6 +416,23 @@ type kafkaState struct {
 	RestorePolicy string            `json:"restore_policy"`
 }
 
+const maxKafkaPartitions = 16
+
+func validKafkaOffsets(offsets []kafkaOffset, requireDrained bool) bool {
+	if len(offsets) == 0 || len(offsets) > maxKafkaPartitions {
+		return false
+	}
+	for partition, offset := range offsets {
+		if offset.Topic != "gopulse-observability-v1" || offset.Partition != partition || offset.Committed < 0 || offset.End < offset.Committed {
+			return false
+		}
+		if requireDrained && offset.Committed != offset.End {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *Controller) kafkaState() (kafkaState, error) {
 	state := kafkaState{Schema: 1, Topic: "gopulse-observability-v1", Group: "gopulse-marshaller-metrics-v1", Offsets: []kafkaOffset{}, RestorePolicy: "drained-new-topic-rebase-zero", Configs: map[string]string{}}
 	b, e := c.native("kafka", nil, "/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "127.0.0.1:19092", "--describe", "--group", state.Group)
@@ -435,8 +452,9 @@ func (c *Controller) kafkaState() (kafkaState, error) {
 		}
 		state.Offsets = append(state.Offsets, kafkaOffset{f[1], p, offset, end})
 	}
-	if len(state.Offsets) != 1 || state.Offsets[0].Partition != 0 {
-		return state, fail(NotReady, "kafka-drain", "expected the supported single-partition consumer topology")
+	sort.Slice(state.Offsets, func(i, j int) bool { return state.Offsets[i].Partition < state.Offsets[j].Partition })
+	if !validKafkaOffsets(state.Offsets, false) {
+		return state, fail(NotReady, "kafka-drain", "expected the supported contiguous consumer topology")
 	}
 	config, e := c.native("kafka", nil, "/opt/kafka/bin/kafka-configs.sh", "--bootstrap-server", "127.0.0.1:19092", "--describe", "--entity-type", "topics", "--entity-name", state.Topic)
 	if e != nil {
@@ -472,10 +490,10 @@ func (c *Controller) kafkaEmpty() (bool, error) {
 }
 func (c *Controller) kafkaImport(data []byte) error {
 	var state kafkaState
-	if strictData(data, &state) != nil || state.Schema != 1 || state.Topic != "gopulse-observability-v1" || state.Group != "gopulse-marshaller-metrics-v1" || state.RestorePolicy != "drained-new-topic-rebase-zero" || len(state.Offsets) != 1 || state.Offsets[0].Committed != state.Offsets[0].End || state.Offsets[0].Partition != 0 {
+	if strictData(data, &state) != nil || state.Schema != 1 || state.Topic != "gopulse-observability-v1" || state.Group != "gopulse-marshaller-metrics-v1" || state.RestorePolicy != "drained-new-topic-rebase-zero" || !validKafkaOffsets(state.Offsets, true) {
 		return fail(BackupInvalid, "kafka-import", "unsupported offset topology")
 	}
-	args := []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "127.0.0.1:19092", "--create", "--topic", state.Topic, "--partitions", "1", "--replication-factor", "1"}
+	args := []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "127.0.0.1:19092", "--create", "--topic", state.Topic, "--partitions", strconv.Itoa(len(state.Offsets)), "--replication-factor", "1"}
 	keys := make([]string, 0, len(state.Configs))
 	for k := range state.Configs {
 		keys = append(keys, k)

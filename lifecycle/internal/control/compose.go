@@ -6,11 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 const prefix = "io.gopulse.lifecycle."
+const lifecyclePlatform = "linux/amd64"
+
+var immutableImageReference = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
 
 func (c *Controller) labels(resource string) map[string]string {
 	return map[string]string{prefix + "installation": c.state.Token, prefix + "manifest": c.manifestHash, prefix + "resource": resource}
@@ -23,6 +27,23 @@ var composeAliases = map[string]string{"edge": "frontend", "backend-2": "backend
 	"business-worker-2": "business-worker", "search-indexer-2": "search-indexer", "router-2": "router",
 	"marshaller-2": "marshaller", "observability-elasticsearch": "elasticsearch",
 	"migrate": "backend", "search-init": "backend", "admin-role": "backend", "kafka-init": "kafka"}
+
+var oneShotServices = map[string]bool{"migrate": true, "kafka-init": true, "search-init": true}
+
+func runtimeServiceNames(services map[string]any) []string {
+	var names []string
+	for _, name := range sortedKeys(services) {
+		if oneShotServices[name] {
+			continue
+		}
+		service, ok := services[name].(map[string]any)
+		if !ok || service["profiles"] != nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
+}
 
 func (c *Controller) prepare() error {
 	aliases := composeAliases
@@ -46,12 +67,12 @@ func (c *Controller) prepare() error {
 		if !ok {
 			return fail(ManifestError, "compose", "service image missing from manifest: "+name)
 		}
-		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms["linux/amd64"]
+		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms[lifecyclePlatform]
 		if s["image"] != image.Ref && s["image"] != ref {
 			return fail(ManifestError, "compose", "service image must match manifest: "+name)
 		}
 		s["image"] = ref
-		s["platform"] = "linux/amd64"
+		s["platform"] = lifecyclePlatform
 		s["pull_policy"] = "never"
 		labels := map[string]any{}
 		switch existing := s["labels"].(type) {
@@ -119,6 +140,9 @@ func (c *Controller) compose(args ...string) error {
 	if e := c.prepare(); e != nil {
 		return e
 	}
+	if e := c.ensureNetworkSubnets(); e != nil {
+		return e
+	}
 	b, _ := json.Marshal(c.doc)
 	argv := []string{"--host", c.endpoint, "compose", "--project-name", c.state.Project, "--project-directory", c.dir, "--env-file", "/dev/null", "-f", "-"}
 	cmd := exec.CommandContext(c.ctx, "docker", append(argv, args...)...)
@@ -128,11 +152,36 @@ func (c *Controller) compose(args ...string) error {
 	for k, v := range c.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	// Never echo Compose output, environment, or rendered configuration.
+	var stdout, stderr boundedDiagnosticOutput
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if e := cmd.Run(); e != nil {
+		c.lastComposeFailure = &composeFailure{
+			Action:       c.composeAction(args),
+			ExitCode:     commandExitCode(e),
+			ProcessError: c.redact(e.Error()),
+			Stdout:       c.redact(stdout.String()),
+			Stderr:       c.redact(stderr.String()),
+			Truncated:    stdout.truncated || stderr.truncated,
+		}
 		return fail(Failed, c.state.Phase, "Compose failed; use status/logs; data and resources retained for retry")
 	}
+	c.lastComposeFailure = nil
 	return nil
+}
+
+func (c *Controller) composeAction(args []string) string {
+	var safe []string
+	for index, arg := range args {
+		if index == 0 || strings.HasPrefix(arg, "-") {
+			safe = append(safe, arg)
+			continue
+		}
+		if _, ok := c.services[arg]; ok {
+			safe = append(safe, arg)
+		}
+	}
+	return strings.Join(safe, " ")
 }
 
 type Container struct {
@@ -280,7 +329,9 @@ func (c *Controller) startProduct(publish bool) error {
 	if e := c.phase("services"); e != nil {
 		return e
 	}
-	if e := c.compose("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "240"); e != nil {
+	args := []string{"up", "-d", "--no-build", "--pull", "never", "--no-deps", "--wait", "--wait-timeout", "240"}
+	args = append(args, runtimeServiceNames(c.services)...)
+	if e := c.compose(args...); e != nil {
 		return e
 	}
 	if _, e := c.status(true); e != nil {
@@ -369,7 +420,7 @@ func (c *Controller) redact(text string) string {
 			text = strings.ReplaceAll(text, v, "[REDACTED]")
 		}
 	}
-	return strings.ReplaceAll(text, c.state.Token, "[REDACTED]")
+	return c.redactDiagnostic(strings.ReplaceAll(text, c.state.Token, "[REDACTED]"))
 }
 func (c *Controller) logs(service string, tail int, since, until string) (string, error) {
 	if _, ok := c.services[service]; !ok || service == "lifecycle" {
@@ -404,8 +455,6 @@ func (c *Controller) logs(service string, tail int, since, until string) (string
 }
 
 func (c *Controller) pull() error {
-	// Docker verifies content-addressed pulls. Every service uses the selected
-	// platform digest, never tags or mutable defaults.
 	seen := map[string]bool{}
 	for _, name := range sortedKeys(c.services) {
 		s := c.services[name].(map[string]any)
@@ -414,9 +463,76 @@ func (c *Controller) pull() error {
 			continue
 		}
 		seen[ref] = true
-		if _, e := c.docker("pull", "--platform", "linux/amd64", ref); e != nil {
+		local, e := c.localImage(ref)
+		if e != nil {
+			return e
+		}
+		if local {
+			continue
+		}
+		if _, e := c.docker("pull", "--platform", lifecyclePlatform, ref); e != nil {
 			return fail(ManifestError, "pull", "cannot pull manifest digest for "+name)
+		}
+		local, e = c.localImage(ref)
+		if e != nil {
+			return e
+		}
+		if !local {
+			return fail(ManifestError, "pull", "pulled image is not available at the requested digest for "+name)
 		}
 	}
 	return nil
+}
+
+type localImageMetadata struct {
+	OS           string   `json:"Os"`
+	Architecture string   `json:"Architecture"`
+	RepoDigests  []string `json:"RepoDigests"`
+}
+
+// localImage accepts only the exact platform digest the Compose document will
+// use. A failed inspect is a cache miss only when Docker explicitly says that
+// the image is absent; daemon failures and invalid metadata remain failures.
+func (c *Controller) localImage(ref string) (bool, error) {
+	if !immutableImageReference.MatchString(ref) {
+		return false, fail(ManifestError, "pull", "service image must use an immutable digest: "+ref)
+	}
+	b, e := c.docker("image", "inspect", "--platform", lifecyclePlatform, "--format", "{{json .}}", ref)
+	if e != nil {
+		if isMissingImage(e) {
+			return false, nil
+		}
+		return false, fail(Daemon, "pull", "cannot inspect local image")
+	}
+	var image localImageMetadata
+	if json.Unmarshal(b, &image) != nil || image.OS == "" || image.Architecture == "" {
+		return false, fail(ManifestError, "pull", "invalid local image metadata")
+	}
+	if image.OS+"/"+image.Architecture != lifecyclePlatform {
+		return false, fail(ManifestError, "pull", "local image platform does not match linux/amd64")
+	}
+	for _, digest := range image.RepoDigests {
+		if sameImageDigest(ref, digest) {
+			return true, nil
+		}
+	}
+	return false, fail(ManifestError, "pull", "local image digest does not match manifest")
+}
+
+func sameImageDigest(expected, actual string) bool {
+	expectedRepository, expectedDigest, expectedOK := canonicalImageDigest(expected)
+	actualRepository, actualDigest, actualOK := canonicalImageDigest(actual)
+	return expectedOK && actualOK && expectedRepository == actualRepository && expectedDigest == actualDigest
+}
+
+func canonicalImageDigest(ref string) (string, string, bool) {
+	if !immutableImageReference.MatchString(ref) {
+		return "", "", false
+	}
+	at := strings.LastIndex(ref, "@sha256:")
+	repository := ref[:at]
+	if colon := strings.LastIndex(repository, ":"); colon > strings.LastIndex(repository, "/") {
+		repository = repository[:colon]
+	}
+	return repository, ref[at+1:], true
 }

@@ -236,7 +236,7 @@ func (repository *Repository) ReservePostCreateTx(ctx context.Context, executor 
 	if err := rows.Close(); err != nil {
 		return errors.New("close command budgets")
 	}
-	if !foundCurrent || currentOpen >= MaximumOpenRequirements || totalGroups >= MaximumRetainedGroups || totalBytes > MaximumRetainedBytes-uint64(reservation.PayloadBytes+RetentionMetadataBytes) {
+	if !foundCurrent || currentOpen >= repository.BudgetLimits().OpenRequirements || totalGroups >= MaximumRetainedGroups || totalBytes > MaximumRetainedBytes-uint64(reservation.PayloadBytes+RetentionMetadataBytes) {
 		return ErrBudgetExceeded
 	}
 	if _, err := executor.ExecContext(ctx, `

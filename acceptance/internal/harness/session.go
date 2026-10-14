@@ -133,7 +133,25 @@ func (s *Session) SetV1Evidence(evidence receipt.V1Evidence) {
 }
 
 func (s *Session) Compose(args ...string) Result {
-	command := append([]string{"compose", "--project-name", s.Project, "--env-file", s.EnvFile, "--file", filepath.Join(s.Root, "deploy", "compose.yaml")}, args...)
+	return s.ComposeFiles(nil, args...)
+}
+
+// ComposeFiles runs the acceptance project with the base product Compose file
+// followed by explicitly-owned overlays.  Overlays are used only for
+// acceptance controls that are part of the frozen candidate contract (for
+// example the phase-20 OTLP file exporter); callers remain responsible for
+// bringing the base project back to its normal definition before the next
+// case.
+func (s *Session) ComposeFiles(files []string, args ...string) Result {
+	command := []string{"compose", "--project-name", s.Project, "--env-file", s.EnvFile, "--file", filepath.Join(s.Root, "deploy", "compose.yaml")}
+	for _, file := range files {
+		if filepath.IsAbs(file) {
+			command = append(command, "--file", file)
+			continue
+		}
+		command = append(command, "--file", filepath.Join(s.Root, file))
+	}
+	command = append(command, args...)
 	return s.run("docker", command...)
 }
 

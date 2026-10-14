@@ -1,9 +1,32 @@
 package businessstate
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 )
+
+func TestRepositoryBudgetLimitDefaultsAndAcceptanceOverride(t *testing.T) {
+	defaultRepository, err := NewRepository(&sql.DB{})
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	if got := defaultRepository.BudgetLimits().OpenRequirements; got != MaximumOpenRequirements {
+		t.Fatalf("default open requirement limit = %d, want %d", got, MaximumOpenRequirements)
+	}
+	overridden, err := NewRepository(&sql.DB{}, WithOpenRequirementsLimit(8))
+	if err != nil {
+		t.Fatalf("NewRepository(8) error = %v", err)
+	}
+	if got := overridden.BudgetLimits().OpenRequirements; got != 8 {
+		t.Fatalf("override open requirement limit = %d, want 8", got)
+	}
+	for _, limit := range []uint64{0, MaximumOpenRequirements + 1} {
+		if _, err := NewRepository(&sql.DB{}, WithOpenRequirementsLimit(limit)); err == nil {
+			t.Fatalf("accepted invalid open requirement limit %d", limit)
+		}
+	}
+}
 
 func TestIdentityValidationIsCanonicalAndBounded(t *testing.T) {
 	if err := ValidateEpoch("123e4567-e89b-12d3-a456-426614174000"); err != nil {

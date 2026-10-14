@@ -73,19 +73,32 @@ type Moment struct {
 	Actual  string `json:"actual"`
 }
 
+type V1Subwindow struct {
+	Index               int    `json:"index"`
+	FaultSeconds        int64  `json:"fault_seconds"`
+	RecoverySeconds     int64  `json:"recovery_seconds"`
+	FaultStartedAt      string `json:"fault_started_at,omitempty"`
+	FaultEndedAt        string `json:"fault_ended_at,omitempty"`
+	DependencyReadyAt   string `json:"dependency_ready_at,omitempty"`
+	ObligationsClosedAt string `json:"obligations_closed_at,omitempty"`
+	VisibleAt           string `json:"visible_at,omitempty"`
+}
+
 type V1Case struct {
-	CaseID          string     `json:"case_id"`
-	Status          string     `json:"status"`
-	FailureClass    string     `json:"failure_class,omitempty"`
-	PlannedAction   string     `json:"planned_action"`
-	ActualAction    string     `json:"actual_action,omitempty"`
-	Identity        V1Identity `json:"identity"`
-	Moments         []Moment   `json:"moments,omitempty"`
-	WindowSeconds   int64      `json:"window_seconds,omitempty"`
-	RecoverySeconds int64      `json:"recovery_seconds,omitempty"`
-	Raw             RawRecord  `json:"raw,omitempty"`
-	CleanupPassed   bool       `json:"cleanup_passed"`
-	CleanupError    string     `json:"cleanup_error,omitempty"`
+	CaseID          string        `json:"case_id"`
+	Status          string        `json:"status"`
+	FailureClass    string        `json:"failure_class,omitempty"`
+	PlannedAction   string        `json:"planned_action"`
+	ActualAction    string        `json:"actual_action,omitempty"`
+	Identity        V1Identity    `json:"identity"`
+	Moments         []Moment      `json:"moments,omitempty"`
+	Subwindows      []V1Subwindow `json:"subwindows,omitempty"`
+	WindowSeconds   int64         `json:"window_seconds,omitempty"`
+	RecoverySeconds int64         `json:"recovery_seconds,omitempty"`
+	Raw             RawRecord     `json:"raw,omitempty"`
+	Child           *RawRecord    `json:"child,omitempty"`
+	CleanupPassed   bool          `json:"cleanup_passed"`
+	CleanupError    string        `json:"cleanup_error,omitempty"`
 }
 
 type LoadProfile struct {
@@ -116,11 +129,33 @@ type RawChecks struct {
 	PreciseLogsLink bool `json:"precise_logs_link"`
 }
 
+// RawFact is a small numeric observation emitted by a formal case. Keeping
+// this list typed and bounded lets raw evidence carry counts without becoming
+// a dump of request bodies, SQL, credentials, or dependency payloads.
+type RawFact struct {
+	Name  string `json:"name"`
+	Value int64  `json:"value"`
+}
+
 type RawEvidence struct {
 	CaseID     string     `json:"case_id"`
 	Identity   V1Identity `json:"identity"`
 	Checks     RawChecks  `json:"checks"`
 	CapturedAt string     `json:"captured_at"`
+	Facts      []RawFact  `json:"facts,omitempty"`
+}
+
+type ChildReceipt struct {
+	CaseID            string     `json:"case_id"`
+	TaskID            string     `json:"task_id"`
+	Status            string     `json:"status"`
+	Identity          V1Identity `json:"identity"`
+	StartedAt         string     `json:"started_at"`
+	CancelRequestedAt string     `json:"cancel_requested_at"`
+	FinishedAt        string     `json:"finished_at"`
+	CompletedStages   []string   `json:"completed_stages,omitempty"`
+	CleanupRemoved    bool       `json:"cleanup_removed"`
+	OwnedResource     string     `json:"owned_resource"`
 }
 
 type PublicationCase struct {
@@ -237,7 +272,7 @@ func validateCase(item V1Case, mode string) error {
 			return fmt.Errorf("failed V1 case %s has incomplete failure or cleanup facts", item.CaseID)
 		}
 	case "not_started":
-		if item.ActualAction != "" || item.Raw.Path != "" || item.Raw.SHA256 != "" || len(item.Moments) != 0 || item.CleanupPassed {
+		if item.ActualAction != "" || item.Raw.Path != "" || item.Raw.SHA256 != "" || item.Child != nil || len(item.Moments) != 0 || len(item.Subwindows) != 0 || item.CleanupPassed {
 			return fmt.Errorf("not-started V1 case %s contains completion evidence", item.CaseID)
 		}
 	default:
@@ -249,6 +284,9 @@ func validateCase(item V1Case, mode string) error {
 	if item.Status == "not_started" {
 		return nil
 	}
+	if len(item.Subwindows) > 0 && item.CaseID != "V07" {
+		return fmt.Errorf("V1 case %s has unexpected subwindow evidence", item.CaseID)
+	}
 	if !v1UUID.MatchString(item.Identity.DataEpoch) || !v1UUID.MatchString(item.Identity.CommandID) || !v1UUID.MatchString(item.Identity.EventID) || item.Identity.PostID == 0 {
 		return fmt.Errorf("V1 case %s has incomplete business identity", item.CaseID)
 	}
@@ -257,15 +295,30 @@ func validateCase(item V1Case, mode string) error {
 	}
 	if mode == V1ModeFormal && item.Status == "passed" {
 		switch item.CaseID {
-		case "V07", "V09":
+		case "V09":
 			if item.WindowSeconds < 60 {
 				return fmt.Errorf("V1 case %s shortened its required 60 second fault window", item.CaseID)
+			}
+		case "V07":
+			if item.WindowSeconds < 60 {
+				return fmt.Errorf("V1 case %s shortened its required 60 second fault window", item.CaseID)
+			}
+			if len(item.Subwindows) != 2 {
+				return errors.New("V1 case V07 must record two recovered subwindows")
+			}
+			for _, subwindow := range item.Subwindows {
+				if subwindow.FaultSeconds < 60 || subwindow.RecoverySeconds > 120 {
+					return fmt.Errorf("V1 case V07 subwindow %d violates its timing contract", subwindow.Index)
+				}
 			}
 		case "V11":
 			if item.RecoverySeconds < 60 {
 				return fmt.Errorf("V1 case %s shortened its recovery window", item.CaseID)
 			}
 		}
+	}
+	if err := validateSubwindows(item.Subwindows, mode == V1ModeFormal && item.Status == "passed" && item.CaseID == "V07"); err != nil {
+		return fmt.Errorf("V1 case %s subwindows: %w", item.CaseID, err)
 	}
 	if len(item.Moments) < 2 {
 		return fmt.Errorf("V1 case %s has too few moments", item.CaseID)
@@ -288,6 +341,80 @@ func validateCase(item V1Case, mode string) error {
 	}
 	if item.CleanupError != "" {
 		return fmt.Errorf("V1 case %s has a cleanup error", item.CaseID)
+	}
+	if item.CaseID == "V12" && item.Child == nil {
+		return errors.New("V12 requires a child receipt")
+	}
+	if item.CaseID != "V12" && item.Child != nil {
+		return fmt.Errorf("V1 case %s has an unexpected child receipt", item.CaseID)
+	}
+	if item.Child != nil && (!v1RawPath.MatchString(item.Child.Path) || strings.HasPrefix(item.Child.Path, "/") || strings.Contains(item.Child.Path, "..") || !v1Digest.MatchString(item.Child.SHA256)) {
+		return fmt.Errorf("V1 case %s child receipt reference is invalid", item.CaseID)
+	}
+	return nil
+}
+
+func validateSubwindows(subwindows []V1Subwindow, requireComplete bool) error {
+	seen := map[int]bool{}
+	for _, subwindow := range subwindows {
+		if subwindow.Index < 0 || seen[subwindow.Index] || subwindow.FaultSeconds < 0 || subwindow.RecoverySeconds < 0 {
+			return fmt.Errorf("invalid subwindow %d", subwindow.Index)
+		}
+		seen[subwindow.Index] = true
+		controlMoments := []struct {
+			name string
+			at   string
+		}{
+			{"fault_started_at", subwindow.FaultStartedAt},
+			{"fault_ended_at", subwindow.FaultEndedAt},
+			{"dependency_ready_at", subwindow.DependencyReadyAt},
+		}
+		var previous time.Time
+		for _, moment := range controlMoments {
+			if moment.at == "" {
+				if requireComplete {
+					return fmt.Errorf("subwindow %d is missing %s", subwindow.Index, moment.name)
+				}
+				continue
+			}
+			if !validTime(moment.at) {
+				return fmt.Errorf("subwindow %d has invalid %s", subwindow.Index, moment.name)
+			}
+			at, _ := time.Parse(time.RFC3339Nano, moment.at)
+			if !previous.IsZero() && at.Before(previous) {
+				return fmt.Errorf("subwindow %d moments are not ordered", subwindow.Index)
+			}
+			previous = at
+		}
+		for _, moment := range []struct {
+			name string
+			at   string
+		}{
+			{"obligations_closed_at", subwindow.ObligationsClosedAt},
+			{"visible_at", subwindow.VisibleAt},
+		} {
+			if moment.at == "" {
+				if requireComplete {
+					return fmt.Errorf("subwindow %d is missing %s", subwindow.Index, moment.name)
+				}
+				continue
+			}
+			if !validTime(moment.at) {
+				return fmt.Errorf("subwindow %d has invalid %s", subwindow.Index, moment.name)
+			}
+			at, _ := time.Parse(time.RFC3339Nano, moment.at)
+			if !previous.IsZero() && at.Before(previous) {
+				return fmt.Errorf("subwindow %d %s precedes dependency readiness", subwindow.Index, moment.name)
+			}
+		}
+		if requireComplete && (subwindow.FaultSeconds < 60 || subwindow.RecoverySeconds > 120) {
+			return fmt.Errorf("subwindow %d violates the 60 second fault and 120 second recovery limits", subwindow.Index)
+		}
+	}
+	if requireComplete {
+		if len(subwindows) != 2 || !seen[0] || !seen[1] {
+			return errors.New("two subwindows with indexes 0 and 1 are required")
+		}
 	}
 	return nil
 }
@@ -343,8 +470,40 @@ func VerifyV1(path string) (Document, error) {
 		if err := decodeStrict(data, &evidence); err != nil {
 			return Document{}, fmt.Errorf("parse V1 raw evidence for %s: %w", item.CaseID, err)
 		}
-		if evidence.CaseID != item.CaseID || evidence.Identity != item.Identity || !evidence.Checks.Created || !evidence.Checks.StagePage || !evidence.Checks.PreciseLogsLink || !validTime(evidence.CapturedAt) {
+		if err := validateRawEvidence(evidence); err != nil {
+			return Document{}, fmt.Errorf("validate V1 raw evidence for %s: %w", item.CaseID, err)
+		}
+		if evidence.CaseID != item.CaseID || evidence.Identity != item.Identity || !evidence.Checks.Created {
 			return Document{}, fmt.Errorf("V1 raw evidence does not match case %s", item.CaseID)
+		}
+		if item.Status == "passed" && item.CaseID != "V02" && (!evidence.Checks.StagePage || !evidence.Checks.PreciseLogsLink) {
+			return Document{}, fmt.Errorf("V1 passed raw evidence is incomplete for case %s", item.CaseID)
+		}
+		if item.Child != nil {
+			childRelative := filepath.Clean(filepath.FromSlash(item.Child.Path))
+			if filepath.IsAbs(childRelative) || childRelative == "." || childRelative == ".." || strings.HasPrefix(childRelative, ".."+string(filepath.Separator)) {
+				return Document{}, fmt.Errorf("V1 child receipt path escapes its directory for %s", item.CaseID)
+			}
+			childPath := filepath.Join(root, childRelative)
+			resolvedChild, err := filepath.EvalSymlinks(childPath)
+			if err != nil || !within(root, resolvedChild) {
+				return Document{}, fmt.Errorf("resolve V1 child receipt for %s", item.CaseID)
+			}
+			childInfo, err := os.Lstat(childPath)
+			if err != nil || childInfo.Mode()&os.ModeSymlink != 0 || !childInfo.Mode().IsRegular() || childInfo.Mode().Perm()&0o077 != 0 {
+				return Document{}, fmt.Errorf("V1 child receipt is not a private regular file for %s", item.CaseID)
+			}
+			childRaw, err := os.ReadFile(resolvedChild)
+			if err != nil || sum(childRaw) != item.Child.SHA256 {
+				return Document{}, fmt.Errorf("V1 child receipt checksum mismatch for %s", item.CaseID)
+			}
+			var child ChildReceipt
+			if err := decodeStrict(childRaw, &child); err != nil {
+				return Document{}, fmt.Errorf("parse V1 child receipt for %s: %w", item.CaseID, err)
+			}
+			if err := validateChildReceipt(child, item); err != nil {
+				return Document{}, fmt.Errorf("validate V1 child receipt for %s: %w", item.CaseID, err)
+			}
 		}
 	}
 	return document, nil
@@ -359,7 +518,106 @@ func ReadRawEvidence(path string) (RawEvidence, error) {
 	if err := decodeStrict(data, &evidence); err != nil {
 		return RawEvidence{}, err
 	}
+	if err := validateRawEvidence(evidence); err != nil {
+		return RawEvidence{}, err
+	}
 	return evidence, nil
+}
+
+// WriteRawEvidence publishes one private raw case file atomically. Formal
+// runners use this instead of writing JSON themselves so preflight and formal
+// evidence have identical permissions and publication semantics.
+func WriteRawEvidence(path string, evidence RawEvidence) error {
+	if err := validateRawEvidence(evidence); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(evidence, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".raw-")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(raw); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func WriteChildReceipt(path string, child ChildReceipt) error {
+	if err := validateChildReceiptShape(child); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(child, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".child-")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(raw); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+func validateChildReceiptShape(child ChildReceipt) error {
+	if child.CaseID != "V12" || !v1UUID.MatchString(child.TaskID) || (child.Status != "canceled" && child.Status != "incomplete") || !v1UUID.MatchString(child.Identity.DataEpoch) || !v1UUID.MatchString(child.Identity.CommandID) || !v1UUID.MatchString(child.Identity.EventID) || child.Identity.PostID == 0 || !v1RawPath.MatchString(child.OwnedResource) || !child.CleanupRemoved || !validTime(child.StartedAt) || !validTime(child.CancelRequestedAt) || !validTime(child.FinishedAt) {
+		return errors.New("child receipt is incomplete")
+	}
+	started, _ := time.Parse(time.RFC3339Nano, child.StartedAt)
+	cancelled, _ := time.Parse(time.RFC3339Nano, child.CancelRequestedAt)
+	finished, _ := time.Parse(time.RFC3339Nano, child.FinishedAt)
+	if cancelled.Before(started) || finished.Before(cancelled) {
+		return errors.New("child receipt timestamps are not ordered")
+	}
+	return nil
+}
+
+func validateChildReceipt(child ChildReceipt, item V1Case) error {
+	if err := validateChildReceiptShape(child); err != nil {
+		return err
+	}
+	if child.Identity != item.Identity {
+		return errors.New("child receipt identity does not match its case")
+	}
+	return nil
 }
 
 func DigestFile(path string) (string, error) {
@@ -472,6 +730,101 @@ func validateSensitiveJSON(raw []byte) error {
 		return err
 	}
 	return validateSensitive(value)
+}
+
+var v1RawFactNames = map[string]bool{
+	"applications":                   true,
+	"business_independent":           true,
+	"broker_received":                true,
+	"broker_confirmed":               true,
+	"broker_published":               true,
+	"cancelled":                      true,
+	"command_result_available":       true,
+	"commit_observed":                true,
+	"commit_result_dropped":          true,
+	"completion_blocked":             true,
+	"completion_present":             true,
+	"completion_disconnect":          true,
+	"completion_effect_observed":     true,
+	"completion_response_dropped":    true,
+	"commands":                       true,
+	"conflicts":                      true,
+	"cleanup_removed":                true,
+	"child_cleanup_removed":          true,
+	"child_incomplete":               true,
+	"consumer_ack_dropped":           true,
+	"consumer_delivery_received":     true,
+	"consumer_disconnect":            true,
+	"consumer_redelivered":           true,
+	"consumer_redelivery_ack":        true,
+	"epoch_changed":                  true,
+	"es_effect_observed":             true,
+	"es_response_dropped":            true,
+	"fault_requests":                 true,
+	"fault_windows":                  true,
+	"fault_window_0_seconds":         true,
+	"fault_window_1_seconds":         true,
+	"frontend_routes":                true,
+	"http_success":                   true,
+	"http_unavailable":               true,
+	"internal_denied":                true,
+	"low_water_limit":                true,
+	"mysql_disconnect":               true,
+	"old_epoch_rejected":             true,
+	"old_generation_not_completed":   true,
+	"open_requirements_after":        true,
+	"open_requirements_before":       true,
+	"other_commands":                 true,
+	"other_events":                   true,
+	"other_identity_distinct":        true,
+	"other_posts":                    true,
+	"other_requirements":             true,
+	"other_user_created":             true,
+	"owner_distinct":                 true,
+	"platform_unavailable":           true,
+	"posts":                          true,
+	"projection_present":             true,
+	"generation_changed":             true,
+	"publisher_confirm_dropped":      true,
+	"publisher_confirmed":            true,
+	"publisher_disconnect":           true,
+	"publisher_received":             true,
+	"redelivered":                    true,
+	"rejected":                       true,
+	"recovery_seconds":               true,
+	"recovery_0_seconds":             true,
+	"recovery_1_seconds":             true,
+	"role_demoted":                   true,
+	"role_promoted":                  true,
+	"response_loss_http_unavailable": true,
+	"response_loss_replayed":         true,
+	"response_loss_unique_events":    true,
+	"restore_verified":               true,
+	"requirements":                   true,
+	"requests":                       true,
+	"search_available":               true,
+	"telemetry_drop_observed":        true,
+	"telemetry_export_observed":      true,
+	"telemetry_retry_observed":       true,
+	"telemetry_unknown":              true,
+	"unauthenticated_denied":         true,
+	"unique_events":                  true,
+	"unique_posts":                   true,
+	"wrong_private_credential":       true,
+}
+
+func validateRawEvidence(evidence RawEvidence) error {
+	if evidence.CaseID == "" || !v1UUID.MatchString(evidence.Identity.DataEpoch) || !v1UUID.MatchString(evidence.Identity.CommandID) || !v1UUID.MatchString(evidence.Identity.EventID) || evidence.Identity.PostID == 0 || !validTime(evidence.CapturedAt) {
+		return errors.New("V1 raw evidence identity or timestamp is invalid")
+	}
+	seen := make(map[string]bool, len(evidence.Facts))
+	for _, fact := range evidence.Facts {
+		if !v1RawFactNames[fact.Name] || seen[fact.Name] || fact.Value < 0 {
+			return fmt.Errorf("V1 raw fact %q is invalid", fact.Name)
+		}
+		seen[fact.Name] = true
+	}
+	return nil
 }
 
 func validTime(value string) bool {

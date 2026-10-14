@@ -93,6 +93,41 @@ func TestV1EvidenceRejectsShortWindowAndBadHash(t *testing.T) {
 	}
 }
 
+func TestV07SubwindowsKeepIndependentRecoveryBoundaries(t *testing.T) {
+	now := time.Date(2026, time.October, 14, 4, 0, 0, 0, time.UTC)
+	subwindows := []V1Subwindow{{
+		Index: 0, FaultSeconds: 60, RecoverySeconds: 45,
+		FaultStartedAt: now.Format(time.RFC3339Nano), FaultEndedAt: now.Add(60 * time.Second).Format(time.RFC3339Nano),
+		DependencyReadyAt: now.Add(61 * time.Second).Format(time.RFC3339Nano), ObligationsClosedAt: now.Add(90 * time.Second).Format(time.RFC3339Nano), VisibleAt: now.Add(91 * time.Second).Format(time.RFC3339Nano),
+	}, {
+		Index: 1, FaultSeconds: 60, RecoverySeconds: 120,
+		FaultStartedAt: now.Add(200 * time.Second).Format(time.RFC3339Nano), FaultEndedAt: now.Add(260 * time.Second).Format(time.RFC3339Nano),
+		DependencyReadyAt: now.Add(261 * time.Second).Format(time.RFC3339Nano), ObligationsClosedAt: now.Add(379 * time.Second).Format(time.RFC3339Nano), VisibleAt: now.Add(380 * time.Second).Format(time.RFC3339Nano),
+	}}
+	if err := validateSubwindows(subwindows, true); err != nil {
+		t.Fatalf("valid V07 subwindows rejected: %v", err)
+	}
+	subwindows[1].VisibleAt = now.Add(259 * time.Second).Format(time.RFC3339Nano)
+	if err := validateSubwindows(subwindows, true); err == nil {
+		t.Fatal("visibility before dependency readiness was accepted")
+	}
+}
+
+func TestV07RawFactsAreWhitelisted(t *testing.T) {
+	document, rawDirectory := validV1Document(t)
+	facts := []RawFact{
+		{Name: "fault_window_0_seconds", Value: 60},
+		{Name: "fault_window_1_seconds", Value: 60},
+		{Name: "recovery_0_seconds", Value: 45},
+		{Name: "recovery_1_seconds", Value: 120},
+	}
+	path := filepath.Join(rawDirectory, "cases", "V07.json")
+	evidence := RawEvidence{CaseID: "V07", Identity: document.V1.Cases[0].Identity, Checks: RawChecks{Created: true}, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Facts: facts}
+	if err := WriteRawEvidence(path, evidence); err != nil {
+		t.Fatalf("V07 raw facts were rejected: %v", err)
+	}
+}
+
 func TestV1PublicationIsWhitelisted(t *testing.T) {
 	document, _ := validV1Document(t)
 	path := filepath.Join(t.TempDir(), "publication.json")
@@ -124,5 +159,67 @@ func TestV1SensitiveFieldIsRejected(t *testing.T) {
 	}
 	if _, err := VerifyV1(path); err == nil || !strings.Contains(err.Error(), "sensitive") {
 		t.Fatalf("sensitive field was accepted: %v", err)
+	}
+}
+
+func TestFormalRawFactsAreBoundedAndFailedCasesMayPreservePartialChecks(t *testing.T) {
+	document, rawDirectory := validV1Document(t)
+	document.Status = "failed"
+	document.V1.Cases[0].Status = "failed"
+	document.V1.Cases[0].FailureClass = "infrastructure_failure"
+	document.V1.Cases[0].ActualAction = "created the identity before the controlled fault was unavailable"
+	evidence := RawEvidence{CaseID: "V01", Identity: document.V1.Cases[0].Identity, Checks: RawChecks{Created: true}, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano), Facts: []RawFact{{Name: "requests", Value: 1}, {Name: "commands", Value: 1}}}
+	path := filepath.Join(rawDirectory, "cases", "V01.json")
+	if err := WriteRawEvidence(path, evidence); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := DigestFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.V1.Cases[0].Raw.SHA256 = digest
+	receiptPath := filepath.Join(t.TempDir(), "failed.json")
+	if err := WriteAtomic(receiptPath, document); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyV1(receiptPath); err != nil {
+		t.Fatalf("failed partial raw evidence was rejected: %v", err)
+	}
+	evidence.Facts = append(evidence.Facts, RawFact{Name: "requests", Value: 2})
+	if err := WriteRawEvidence(filepath.Join(t.TempDir(), "invalid.json"), evidence); err == nil {
+		t.Fatal("duplicate raw fact was accepted")
+	}
+}
+
+func TestV02PassedEvidenceDoesNotRequireStagePage(t *testing.T) {
+	document, rawDirectory := validV1Document(t)
+	document.Status = "failed"
+	formal := *document.V1
+	formal.Mode = V1ModeFormal
+	formal.Cases = make([]V1Case, 0, len(V1CaseIDs))
+	identity := document.V1.Cases[0].Identity
+	rawPath := filepath.Join(rawDirectory, "cases", "V02.json")
+	if err := WriteRawEvidence(rawPath, RawEvidence{CaseID: "V02", Identity: identity, Checks: RawChecks{Created: true}, CapturedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := DigestFile(rawPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for _, id := range V1CaseIDs {
+		item := V1Case{CaseID: id, Status: "not_started", PlannedAction: "planned"}
+		if id == "V02" {
+			item = V1Case{CaseID: "V02", Status: "passed", PlannedAction: "repeat the same idempotency key", ActualAction: "checked durable identities", Identity: identity, Moments: []Moment{{Name: "start", Actual: now.Format(time.RFC3339Nano)}, {Name: "finish", Actual: now.Add(time.Second).Format(time.RFC3339Nano)}}, Raw: RawRecord{Path: "cases/V02.json", SHA256: digest}, CleanupPassed: true}
+		}
+		formal.Cases = append(formal.Cases, item)
+	}
+	document.V1 = &formal
+	path := filepath.Join(t.TempDir(), "formal.json")
+	if err := WriteAtomic(path, document); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyV1(path); err != nil {
+		t.Fatalf("V02 evidence without stage page was rejected: %v", err)
 	}
 }

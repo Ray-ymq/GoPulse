@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
@@ -185,6 +187,7 @@ func TestStartupFailureRetainsNonReadyPhase(t *testing.T) {
 	}
 	fakeDocker(t, `case "$3" in
  ps|network|volume) exit 0;;
+	image) printf '%s' 'Error response from daemon: No such image: cached' >&2; exit 1;;
  pull) exit 1;;
  *) exit 99;;
  esac`)
@@ -223,5 +226,129 @@ func TestDistributionDescriptorWithoutOptionalPlatforms(t *testing.T) {
 	}
 	if e := c.distribution("registry.example/image@sha256:"+strings.Repeat("b", 64), true); e == nil {
 		t.Fatal("wrong descriptor accepted")
+	}
+}
+
+func doctorTestController(t *testing.T, localImages bool) (*Controller, int, string) {
+	t.Helper()
+	c := fixture(t)
+	indexDigest := "sha256:" + strings.Repeat("a", 64)
+	platformDigest := "sha256:" + strings.Repeat("b", 64)
+	image := release.Image{
+		Ref:       "registry.example/gopulse/lifecycle@" + indexDigest,
+		Platforms: map[string]string{lifecyclePlatform: platformDigest},
+	}
+	c.manifest.Lifecycle = image
+	c.manifest.Images = map[string]release.Image{}
+	c.manifest.ThirdParty = map[string]release.Image{}
+	c.localImages = localImages
+	c.endpoint = "unix:///does/not/exist"
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return c, port, image.Ref[:strings.LastIndex(image.Ref, "@")] + "@" + platformDigest
+}
+
+func doctorDockerScript(inspect string) string {
+	return `case "$3/$4" in
+ image/inspect) ` + inspect + ` ;;
+ info/*) printf '%s' '{"MemTotal":8589934592,"NCPU":2}' ;;
+ *) exit 99 ;;
+ esac`
+}
+
+func TestDoctorLocalImagesValidatesExactPlatformDigestWithoutDistribution(t *testing.T) {
+	c, port, _ := doctorTestController(t, true)
+	fakeDocker(t, doctorDockerScript(`printf '{"Os":"linux","Architecture":"amd64","RepoDigests":["%s"]}' "$9"`))
+	if err := c.doctor(port); err != nil {
+		t.Fatalf("local image doctor rejected matching image: %v", err)
+	}
+}
+
+func TestDoctorLocalImagesRejectsMissingOrInvalidImages(t *testing.T) {
+	tests := []struct {
+		name    string
+		inspect string
+		code    int
+	}{
+		{
+			name:    "missing",
+			inspect: `printf 'Error response from daemon: No such image: %s\n' "$9" >&2; exit 1`,
+			code:    ManifestError,
+		},
+		{
+			name:    "wrong platform",
+			inspect: `printf '{"Os":"linux","Architecture":"arm64","RepoDigests":["%s"]}' "$9"`,
+			code:    ManifestError,
+		},
+		{
+			name:    "wrong digest",
+			inspect: `printf '%s' '{"Os":"linux","Architecture":"amd64","RepoDigests":["registry.example/other@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]}'`,
+			code:    ManifestError,
+		},
+		{
+			name:    "daemon error",
+			inspect: `exit 42`,
+			code:    Daemon,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, port, _ := doctorTestController(t, true)
+			fakeDocker(t, doctorDockerScript(test.inspect))
+			err := c.doctor(port)
+			failure, ok := err.(*Failure)
+			if !ok || failure.Code != test.code || failure.Stage != "local-digest" {
+				t.Fatalf("doctor error = %v, want local-digest code %d", err, test.code)
+			}
+		})
+	}
+}
+
+func TestDoctorDefaultModeKeepsDistributionValidation(t *testing.T) {
+	c, port, _ := doctorTestController(t, false)
+	var requests int32
+	socket := filepath.Join(t.TempDir(), "docker.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		const prefix = "/v1.43/distribution/"
+		path := strings.TrimSuffix(strings.TrimPrefix(r.URL.EscapedPath(), prefix), "/json")
+		ref, err := url.PathUnescape(path)
+		if err != nil {
+			http.Error(w, "bad reference", http.StatusBadRequest)
+			return
+		}
+		at := strings.LastIndex(ref, "@")
+		if at < 0 {
+			http.Error(w, "bad reference", http.StatusBadRequest)
+			return
+		}
+		platforms := []map[string]string(nil)
+		if ref == c.manifest.Lifecycle.Ref {
+			platforms = []map[string]string{{"OS": "linux", "Architecture": "amd64"}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"Descriptor": map[string]string{"digest": ref[at+1:]},
+			"Platforms":  platforms,
+		})
+	})}
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Close() }()
+	c.endpoint = "unix://" + socket
+	fakeDocker(t, doctorDockerScript(`exit 99`))
+	if err := c.doctor(port); err != nil {
+		t.Fatalf("default distribution doctor rejected valid descriptors: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 2 {
+		t.Fatalf("distribution requests = %d, want index and platform validation", got)
 	}
 }
