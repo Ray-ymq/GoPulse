@@ -51,16 +51,17 @@ func (e *Failure) Error() string             { return e.Message }
 func fail(code int, stage, msg string) error { return &Failure{Code: code, Stage: stage, Message: msg} }
 
 type Controller struct {
-	ctx                   context.Context
-	dir, bundle, endpoint string
-	localImages           bool
-	manifest              *release.Manifest
-	manifestHash          string
-	state                 State
-	env                   map[string]string
-	doc                   map[string]any
-	services              map[string]any
-	lastComposeFailure    *composeFailure
+	ctx                    context.Context
+	dir, bundle, endpoint  string
+	localImages            bool
+	manifest               *release.Manifest
+	manifestHash           string
+	state                  State
+	env                    map[string]string
+	doc                    map[string]any
+	services               map[string]any
+	lastComposeFailure     *composeFailure
+	failureDiagnosticSaved bool
 }
 
 type dockerFailure struct {

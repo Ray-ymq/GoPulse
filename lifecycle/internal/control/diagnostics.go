@@ -103,6 +103,9 @@ func (c *Controller) captureFailureDiagnostic(err error, command string) error {
 	if !errors.As(err, &failure) {
 		failure = &Failure{Code: Failed, Stage: c.state.Phase, Message: "lifecycle operation failed"}
 	}
+	if c.failureDiagnosticSaved {
+		return failure
+	}
 	if c.state.FailedStage == "" {
 		c.state.FailedStage = failure.Stage
 		_ = c.save()
@@ -141,6 +144,7 @@ func (c *Controller) captureFailureDiagnostic(err error, command string) error {
 	}
 	path := filepath.Join(directory, "failure-"+operation+".json")
 	if atomicFile(path, marshal(diagnostic)) == nil {
+		c.failureDiagnosticSaved = true
 		failure.Diagnostic = path
 	}
 	return failure
