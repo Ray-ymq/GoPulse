@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+func TestPrivateComponentMetricsBypassesHostProxy(t *testing.T) {
+	transport := privateMetricsTransport()
+	defer transport.CloseIdleConnections()
+	if transport.Proxy != nil {
+		t.Fatal("private component metrics probe must bypass the host proxy")
+	}
+}
+
 func TestHasPreciseLogRequiresTheRequestedIdentity(t *testing.T) {
 	meta := v1HTTPMeta{CommandID: "123e4567-e89b-42d3-a456-426614174001", DataEpoch: "123e4567-e89b-42d3-a456-426614174000"}
 	var stage v1StageResult
