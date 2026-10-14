@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -42,8 +43,10 @@ type statusStore struct {
 }
 
 type connectionState struct {
-	mu    sync.Mutex
-	armed bool
+	mu                   sync.Mutex
+	armed                bool
+	pendingPrepareTarget bool
+	preparedTargets      map[uint32]bool
 }
 
 func (state *connectionState) setArmed() {
@@ -56,6 +59,36 @@ func (state *connectionState) isArmed() bool {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.armed
+}
+
+func (state *connectionState) notePrepare(target bool) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.pendingPrepareTarget = target
+}
+
+func (state *connectionState) registerPreparedResponse(payload []byte) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if !state.pendingPrepareTarget {
+		state.pendingPrepareTarget = false
+		return
+	}
+	state.pendingPrepareTarget = false
+	if len(payload) < 5 || payload[0] != 0x00 {
+		return
+	}
+	if state.preparedTargets == nil {
+		state.preparedTargets = make(map[uint32]bool)
+	}
+	statementID := binary.LittleEndian.Uint32(payload[1:5])
+	state.preparedTargets[statementID] = true
+}
+
+func (state *connectionState) isPreparedTarget(statementID uint32) bool {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.preparedTargets[statementID]
 }
 
 func (store *statusStore) update(update func(*status)) {
@@ -202,10 +235,22 @@ func clientToServer(client, upstream net.Conn, mode string, store *statusStore, 
 		if err != nil {
 			return
 		}
-		if len(payload) > 0 && payload[0] == 0x03 {
-			query := strings.ToUpper(strings.TrimSpace(string(payload[1:])))
-			target := (mode == modeCommitResult && strings.HasPrefix(query, "COMMIT")) || (mode == modeCompletionWrite && strings.Contains(query, "BUSINESS_APPLICATION_RESULTS"))
-			store.update(func(value *status) { value.QueriesSeen++ })
+		if len(payload) > 0 {
+			target := false
+			switch payload[0] {
+			case 0x03: // COM_QUERY
+				query := strings.ToUpper(strings.TrimSpace(string(payload[1:])))
+				target = targetQuery(mode, query)
+				store.update(func(value *status) { value.QueriesSeen++ })
+			case 0x16: // COM_STMT_PREPARE
+				query := strings.ToUpper(strings.TrimSpace(string(payload[1:])))
+				connection.notePrepare(targetQuery(mode, query))
+			case 0x17: // COM_STMT_EXECUTE
+				if len(payload) >= 5 {
+					statementID := binary.LittleEndian.Uint32(payload[1:5])
+					target = connection.isPreparedTarget(statementID)
+				}
+			}
 			if target && store.claimTarget() {
 				connection.setArmed()
 			}
@@ -222,6 +267,7 @@ func serverToClient(upstream, client net.Conn, mode string, store *statusStore, 
 		if err != nil {
 			return
 		}
+		connection.registerPreparedResponse(payload)
 		if connection.isArmed() && isSuccessfulResponse(payload) {
 			store.update(func(value *status) { value.UpstreamEffect++ })
 			store.update(func(value *status) { value.ResponseDropped++ })
@@ -232,6 +278,11 @@ func serverToClient(upstream, client net.Conn, mode string, store *statusStore, 
 			return
 		}
 	}
+}
+
+func targetQuery(mode, query string) bool {
+	query = strings.ToUpper(strings.TrimSpace(query))
+	return (mode == modeCommitResult && strings.HasPrefix(query, "COMMIT")) || (mode == modeCompletionWrite && strings.Contains(query, "BUSINESS_APPLICATION_RESULTS"))
 }
 
 func isSuccessfulResponse(payload []byte) bool {

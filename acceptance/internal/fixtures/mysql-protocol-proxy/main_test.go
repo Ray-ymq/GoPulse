@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -69,5 +70,32 @@ func TestSuccessfulMySQLResponsesExcludeErrors(t *testing.T) {
 		if got := isSuccessfulResponse(test.payload); got != test.want {
 			t.Fatalf("isSuccessfulResponse(%#v) = %t, want %t", test.payload, got, test.want)
 		}
+	}
+}
+
+func TestPreparedStatementTargetIsRegisteredFromPrepareResponse(t *testing.T) {
+	state := &connectionState{}
+	state.notePrepare(targetQuery(modeCompletionWrite, "INSERT INTO business_application_results (event_id) VALUES (?)"))
+	response := make([]byte, 5)
+	response[0] = 0x00
+	binary.LittleEndian.PutUint32(response[1:], 42)
+	state.registerPreparedResponse(response)
+	if !state.isPreparedTarget(42) {
+		t.Fatal("prepared completion statement was not registered")
+	}
+	if state.isPreparedTarget(43) {
+		t.Fatal("unrelated prepared statement was registered")
+	}
+}
+
+func TestTargetQueryRecognizesTextAndPreparedModes(t *testing.T) {
+	if !targetQuery(modeCommitResult, "COMMIT") {
+		t.Fatal("COMMIT was not recognized")
+	}
+	if !targetQuery(modeCompletionWrite, "INSERT INTO BUSINESS_APPLICATION_RESULTS VALUES (?)") {
+		t.Fatal("completion INSERT was not recognized")
+	}
+	if targetQuery(modeCompletionWrite, "SELECT * FROM posts") {
+		t.Fatal("unrelated query was recognized")
 	}
 }
