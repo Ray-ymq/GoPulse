@@ -501,11 +501,11 @@ func (r *lifecycleRunner) failureMatrix() error {
 	if err := os.WriteFile(filepath.Join(invalid, "README.md"), []byte("tampered\n"), 0o644); err != nil {
 		return err
 	}
-	r.session.SetValue("GOPULSE_BUNDLE_DIR", invalid)
-	if err := r.expect("doctor", 10, localImageValidationFlags(r.port)...); err != nil {
+	invalidRunner := *r
+	invalidRunner.bundle = invalid
+	if err := invalidRunner.expect("doctor", 10, localImageValidationFlags(invalidRunner.port)...); err != nil {
 		return err
 	}
-	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
 
 	r.endpoint = "unix:///missing-daemon"
 	if err := r.expect("doctor", 11, localImageValidationFlags(r.port)...); err != nil {
@@ -679,6 +679,8 @@ func (r *lifecycleRunner) lifecycleImage() (string, error) {
 }
 
 func (r *lifecycleRunner) signal(name string) error {
+	restoreSessionPaths := r.bindSessionPaths()
+	defer restoreSessionPaths()
 	container := "gopulse-lifecycle-signal-" + name[3:] + "-" + r.session.Token[:8]
 	args := []string{"compose", "--project-name", r.project, "--file", filepath.Join(r.bundle, "compose.yaml"), "run", "--name", container, "--rm", "-T", "--no-deps", "lifecycle", "up", "--install", r.install, "--bundle", "/bundle", "--endpoint", r.endpoint}
 	command := exec.Command("docker", args...)
@@ -858,11 +860,8 @@ func (r *lifecycleRunner) copyFailureDiagnostic() error {
 }
 
 func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
-	// V11 uses two lifecycle installations in one acceptance session. The
-	// Compose wrapper resolves these paths from the session environment, so
-	// restore the runner's own paths before every command.
-	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
-	r.session.SetValue("GOPULSE_INSTALL_DIR", r.install)
+	restoreSessionPaths := r.bindSessionPaths()
+	defer restoreSessionPaths()
 	args := []string{
 		"compose", "--project-name", r.project, "--file", filepath.Join(r.bundle, "compose.yaml"),
 		"run", "--rm", "-T", "--no-deps", "lifecycle", command,
@@ -870,6 +869,20 @@ func (r *lifecycleRunner) run(command string, flags ...string) harness.Result {
 	}
 	args = append(args, flags...)
 	return r.session.Run("docker", args...)
+}
+
+// bindSessionPaths scopes the Compose wrapper's path environment to one
+// runner command. Multiple lifecycle runners share a session, so a temporary
+// runner must not leave its bundle or install path behind for the next one.
+func (r *lifecycleRunner) bindSessionPaths() func() {
+	previousBundle := r.session.Value("GOPULSE_BUNDLE_DIR")
+	previousInstall := r.session.Value("GOPULSE_INSTALL_DIR")
+	r.session.SetValue("GOPULSE_BUNDLE_DIR", r.bundle)
+	r.session.SetValue("GOPULSE_INSTALL_DIR", r.install)
+	return func() {
+		r.session.SetValue("GOPULSE_BUNDLE_DIR", previousBundle)
+		r.session.SetValue("GOPULSE_INSTALL_DIR", previousInstall)
+	}
 }
 
 func (r *lifecycleRunner) purge() error {
