@@ -1,6 +1,6 @@
 # Phase-24-05：V1 冻结验收与阶段收口
 
-> 状态：未完成（更新于 2026-10-14）。最新候选已通过 Compose/runtime gate，正式矩阵的第二次启动完成 V01～V06，但 V07 暴露真实产品失败：24 个请求中只有 21 个 search application 完成，3 个事件在 ES 两段故障窗口内耗尽既有 3 次重试并进入死信；V08～V12 未开始。仍不产生 `validation_complete` 或阶段完成结论。下文按执行时间保留各次实际结果。
+> 状态：未完成（更新于 2026-10-14）。历史候选的正式矩阵在 V07 暴露真实产品失败：24 个请求中只有 21 个 search application 完成；接续修复候选 `6dc98f6…` 的 runtime gate 又在 lifecycle `up` 的 `services` 阶段发生基础设施失败（code 18），因此 preflight 和正式矩阵尚未开始。仍不产生 `validation_complete` 或阶段完成结论。下文按执行时间保留各次实际结果。
 > 执行分支：`develop/2.6.5`；候选产品版本：`2.6.4`。
 
 ## 实际执行范围
@@ -81,4 +81,11 @@
 - 产品行为现在对 V2 `post.created`、`post.updated`、`post.deleted` 在有限重试耗尽后自动把原事件以 attempt `0` 重投 search retry exchange；二次发布确认后才 ack 原投递。事件 body、MessageId、event identity、command、epoch 和 routing key 保留，永久处理错误仍进入 search dead exchange，业务 Profile 的耗尽行为不变。现有完成记录唯一性和完成前置于确认的顺序继续负责副作用去重与未闭合义务留存。
 - V07 driver 现在每个 60 秒故障窗口独立执行：撤除故障、等待 Elasticsearch 健康、等待该窗口全部 `business_application_results` 和当前可见性，再进入下一窗口；单窗恢复截止从该窗故障结束计算 120 秒。新 receipt 私有字段记录每窗故障起止、依赖就绪、义务关闭、可见时刻及恢复秒数，不能再把两个窗口和控制耗时合并成一个恢复值。
 - 直接验证通过：`make test MODULE=backend`、`make test MODULE=acceptance`、`make check MODULE=backend`、`make check MODULE=acceptance`、`make check-compose`、`make integration SCOPE=business`；`make verify MODULE=backend BASE_REF=origin/main`、`make verify MODULE=acceptance BASE_REF=origin/main`、`make verify MODULE=lifecycle BASE_REF=origin/main` 也通过。各模块的既有 lint 告警分别为 backend 107、acceptance 24、lifecycle 45，本次新增均为 0；acceptance verify 首次发现的本次计时静态检查已修正后重跑通过。
-- 接续产品修复尚未绑定新 candidate / Bundle / manifest，也未启动新的 preflight 或正式矩阵。下一步按固定顺序构建新的不可变候选并执行 runtime gate、短预检和 Verify Evidence；旧候选 `2e90582…`、旧 receipt、raw 及原始 Compose 日志保持原身份。
+- 接续产品修复已绑定新 candidate / Bundle / manifest，但 runtime gate 尚未通过，因此未启动新的 preflight 或正式矩阵；旧候选 `2e90582…`、旧 receipt、raw 及原始 Compose 日志保持原身份。
+
+## 接续候选 runtime 停点（2026-10-14）
+
+- 提交 `6dc98f6` 的新候选目录为 `.run/phase24-05/candidate-6dc98f6-v1`，版本仍为 `2.6.4`；manifest 绑定完整 revision `6dc98f63e556b2646c04d5917e739c6675cdaa8b`，manifest SHA-256 为 `sha256:16572edfda0e6938b0ab53f6fd7fa5a32de873be29ee4088ead9d85ecb6c2957`，Bundle SHA-256 为 `sha256:dda0ca64aca3471965e123ed2e3c7d538df6844e49ca8a08aea8b6d3cf7e9776`。所有产品/插件镜像的 metadata 和 Linux/amd64 digest 检查在 runtime 启动前通过。
+- 该候选第一次尝试因指定的独立 registry 尚未启动而在首个 backend push 返回 connection refused；按归属启动唯一的 pinned `registry:2@sha256:a3d8…` 容器后重新执行，镜像和 Bundle 构建完成。该环境准备偏差未改变候选源码、manifest 或旧证据。
+- 第二次 runtime closure 的 Compose smoke、observability closure 和栈健康检查通过；lifecycle failure matrix 在固定 `up` 服务阶段返回 `{"code":18,"stage":"services","message":"Compose failed; use status/logs; data and resources retained for retry"}`，package 以 code 2 停止。该次没有生成 runtime success verification，也没有启动 V1 preflight、Verify Evidence 或正式矩阵，不能据此产生产品失败结论。
+- 本候选的失败摘要保留在 `.run/phase24-05/candidate-6dc98f6-v1/runtime-failure.json`，candidate / Bundle / manifest 保留供复核；本次 registry `gopulse-phase24-05-registry-6dc98f6` 已按归属删除，未触碰仍在运行的旧 registry 或旧候选。当前必须先处理该 runtime 基础设施停点，再从同一修复 revision 或新的实际修订重新绑定 candidate；不复用未通过 runtime gate 的候选进入 preflight。
