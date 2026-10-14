@@ -106,7 +106,10 @@ func (c *Controller) captureFailureDiagnostic(err error, command string) error {
 	if c.failureDiagnosticSaved {
 		return failure
 	}
-	if c.state.FailedStage == "" {
+	// A lock can fail before the controller loads the installation state. Do
+	// not serialize the zero-value controller over a valid state file while
+	// capturing diagnostics for that pre-load failure.
+	if c.state.Schema == 1 && c.state.Project != "" && len(c.state.Token) == 64 && c.state.FailedStage == "" {
 		c.state.FailedStage = failure.Stage
 		_ = c.save()
 	}
