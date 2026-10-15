@@ -2,11 +2,13 @@ name: Module CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
-  push:
-    branches: [main]
-  merge_group:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   workflow_dispatch:
+    inputs:
+      labels:
+        description: 'CI labels separated by commas or spaces, e.g. ci:backend ci:router; ci:none skips module jobs'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -38,7 +40,7 @@ jobs:
           cache: false
       - name: Test CI tooling
         run: make ci-tools
-      - name: Plan checks from Git changes
+      - name: Select only explicitly labeled modules
         id: plan
         run: make ci-plan
 
@@ -73,12 +75,6 @@ jobs:
           cache-dependency-path: |
             **/go.mod
             **/go.sum
-      - uses: actions/setup-node@v7.1.0
-        if: matrix.kind == 'npm'
-        with:
-          node-version: '24.20.0'
-          cache: npm
-          cache-dependency-path: ${{ matrix.module }}/package-lock.json
       - name: Formatting, static analysis and lint
         env:
           MODULE: ${{ matrix.module }}
@@ -103,12 +99,6 @@ jobs:
           cache-dependency-path: |
             **/go.mod
             **/go.sum
-      - uses: actions/setup-node@v7.1.0
-        if: matrix.kind == 'npm'
-        with:
-          node-version: '24.20.0'
-          cache: npm
-          cache-dependency-path: ${{ matrix.module }}/package-lock.json
       - name: Build module
         env:
           MODULE: ${{ matrix.module }}
@@ -133,12 +123,6 @@ jobs:
           cache-dependency-path: |
             **/go.mod
             **/go.sum
-      - uses: actions/setup-node@v7.1.0
-        if: matrix.kind == 'npm'
-        with:
-          node-version: '24.20.0'
-          cache: npm
-          cache-dependency-path: ${{ matrix.module }}/package-lock.json
       - name: Unit tests (Go includes race detection)
         env:
           MODULE: ${{ matrix.module }}

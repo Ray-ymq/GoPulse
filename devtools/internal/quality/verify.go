@@ -31,7 +31,8 @@ func VerifyModule(root, module, baseRef string) error {
 	return nil
 }
 
-// Verify checks modules selected from the common-ancestor diff. Integration,
+// Verify checks only directly changed Go modules in a local common-ancestor diff.
+// GitHub CI selects modules exclusively from PR labels instead. Integration,
 // browser, Compose runtime and release commands remain explicit entry points.
 func Verify(root, baseRef string, planOnly bool) error {
 	if strings.TrimSpace(baseRef) == "" {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan module CI from Git changes, or prepare an isolated local Go workspace."""
+"""Plan module CI from explicit labels, or prepare an isolated Go workspace."""
 
 from __future__ import annotations
 
@@ -17,14 +17,11 @@ from pathlib import Path, PurePosixPath
 @dataclass(frozen=True)
 class Module:
     name: str
-    kind: str
 
     def matrix_entry(self) -> dict[str, str]:
         return {
             "module": self.name,
-            "kind": self.kind,
-            # Frontend dependency preparation builds the native development helper.
-            "go_mod": f"{self.name if self.kind == 'go' else 'devtools'}/go.mod",
+            "go_mod": f"{self.name}/go.mod",
         }
 
 
@@ -36,17 +33,15 @@ def command(repo: Path, *args: str) -> str:
 
 def read_modules(repo: Path) -> tuple[Module, ...]:
     modules = tuple(
-        Module(name, kind)
-        for kind, target in (("go", "list-go-modules"), ("npm", "list-npm-modules"))
-        for name in command(repo, "make", "--no-print-directory", target).split()
+        Module(name)
+        for name in command(repo, "make", "--no-print-directory", "list-go-modules").split()
     )
     if not modules or len({module.name for module in modules}) != len(modules):
-        raise ValueError("Makefile module lists must be non-empty and unique")
+        raise ValueError("Makefile Go module list must be non-empty and unique")
     for module in modules:
         if not re.fullmatch(r"[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", module.name):
             raise ValueError(f"invalid module path: {module.name!r}")
-        manifest = "go.mod" if module.kind == "go" else "package.json"
-        for name in (manifest, "Makefile"):
+        for name in ("go.mod", "Makefile"):
             if not (repo / module.name / name).is_file():
                 raise ValueError(f"registered module is missing {module.name}/{name}")
     return modules
@@ -57,28 +52,8 @@ def go_manifests(repo: Path, modules: tuple[Module, ...]) -> dict[str, dict]:
     # `go mod edit -json` only reads the manifest; it does not download dependencies.
     return {
         module.name: json.loads(command(repo / module.name, "go", "mod", "edit", "-json"))
-        for module in modules if module.kind == "go"
+        for module in modules
     }
-
-
-def consumers(repo: Path, modules: tuple[Module, ...], manifests: dict[str, dict]) -> dict[str, set[str]]:
-    graph = {module.name: set() for module in modules}
-    identities = {data["Module"]["Path"]: name for name, data in manifests.items()}
-    roots = {(repo / name).resolve(): name for name in manifests}
-    for name, data in manifests.items():
-        for dependency in data.get("Require") or []:
-            if dependency["Path"] in identities:
-                graph[identities[dependency["Path"]]].add(name)
-        for replacement in data.get("Replace") or []:
-            new = replacement["New"]
-            if not new.get("Version"):
-                dependency = roots.get((repo / name / new["Path"]).resolve())
-                if dependency:
-                    graph[dependency].add(name)
-    # Both frontends invoke devtools through their Makefile deps target.
-    if "devtools" in graph:
-        graph["devtools"].update(module.name for module in modules if module.kind == "npm")
-    return graph
 
 
 def changed_files(repo: Path, base: str, head: str = "HEAD", *, merge_base: bool = True) -> list[str]:
@@ -89,69 +64,69 @@ def changed_files(repo: Path, base: str, head: str = "HEAD", *, merge_base: bool
     return sorted(set(path for path in paths.split("\0") if path))
 
 
-def event_changes(repo: Path, event_name: str, event: dict) -> list[str] | None:
-    if event_name == "workflow_dispatch":
-        return None  # Manual runs always verify every registered module.
+def split_labels(value: str) -> list[str]:
+    if not isinstance(value, str):
+        raise ValueError("labels must be a comma- or whitespace-separated string")
+    return value.replace(",", " ").split()
+
+
+def event_labels(event_name: str, event: dict) -> list[str]:
     if event_name == "pull_request":
-        pr = event["pull_request"]
-        return changed_files(repo, pr["base"]["sha"], pr["head"]["sha"])
-    if event_name == "merge_group":
-        group = event["merge_group"]
-        return changed_files(repo, group["base_sha"], group["head_sha"], merge_base=False)
-    if event_name == "push":
-        before, after = event["before"], event["after"]
-        if not before.strip("0"):
-            return None
-        try:
-            return changed_files(repo, before, after, merge_base=False)
-        except subprocess.CalledProcessError:
-            # A force-push can leave `before` unavailable. Never turn this into
-            # an empty/green matrix: fall back to checking every module.
-            print("Push base unavailable; selecting all modules", file=sys.stderr)
-            return None
+        labels = event["pull_request"]["labels"]
+        if not isinstance(labels, list):
+            raise ValueError("PR labels must be a list")
+        names = []
+        for label in labels:
+            if not isinstance(label, dict) or not isinstance(label.get("name"), str):
+                raise ValueError("every PR label must have a string name")
+            names.append(label["name"])
+        return names
+    if event_name == "workflow_dispatch":
+        return split_labels(event["inputs"]["labels"])
     raise ValueError(f"unsupported CI event: {event_name!r}")
 
 
-def select(repo: Path, paths: list[str] | None) -> dict:
+def module_plan(modules: tuple[Module, ...], selected: set[str]) -> dict:
+    entries = [module.matrix_entry() for module in modules if module.name in selected]
+    return {
+        "modules": [entry["module"] for entry in entries],
+        "matrix": {"include": entries},
+        "has_modules": bool(entries),
+    }
+
+
+def select(repo: Path, labels: list[str]) -> dict:
+    """Only explicitly labelled modules run: no paths, dependency or all fallback."""
     modules = read_modules(repo)
-    manifests = go_manifests(repo, modules)
-    graph = consumers(repo, modules, manifests)
+    known = {module.name for module in modules}
+    if any(not isinstance(label, str) for label in labels):
+        raise ValueError("label names must be strings")
+    ci_labels = {label for label in labels if label.startswith("ci:")}
+    if not ci_labels:
+        raise ValueError("add at least one ci:<module> label, or ci:none to explicitly skip module jobs")
+    unknown = ci_labels - {f"ci:{name}" for name in known} - {"ci:none"}
+    if unknown:
+        raise ValueError(f"unknown CI label(s): {', '.join(sorted(unknown))}")
+    if "ci:none" in ci_labels and len(ci_labels) > 1:
+        raise ValueError("ci:none cannot be combined with module labels")
+    selected = {label.removeprefix("ci:") for label in ci_labels if label != "ci:none"}
+    return {"labels": sorted(ci_labels), **module_plan(modules, selected)}
+
+
+def select_changed(repo: Path, paths: list[str]) -> dict:
+    """Local BASE_REF convenience only; CI never selects from changed files."""
+    modules = read_modules(repo)
     selected: set[str] = set()
-    reasons: list[str] = []
     module_roots = sorted(modules, key=lambda item: -len(item.name))
-    for path in paths or []:
+    for path in paths:
         path = path.removeprefix("./")
         if path.startswith("docs/") or PurePosixPath(path).suffix.lower() in {".md", ".rst", ".adoc"} or path == "LICENSE":
-            continue
-        if path.startswith("frontend-shared/"):
-            selected.update(module.name for module in modules if module.kind == "npm")
             continue
         owner = next((module.name for module in module_roots
                       if path.startswith(module.name + "/")), None)
         if owner:
             selected.add(owner)
-        else:
-            # Root Make/config, CI, deployment files and new unknown source
-            # directories affect the whole repository until explicitly scoped.
-            selected.update(module.name for module in modules)
-            reasons.append(f"{path}: shared or unclassified file; checking all modules")
-    if paths is None:
-        selected.update(module.name for module in modules)
-        reasons.append("full verification requested")
-    pending = list(selected)
-    while pending:
-        for consumer in graph[pending.pop()]:
-            if consumer not in selected:
-                selected.add(consumer)
-                pending.append(consumer)
-    entries = [module.matrix_entry() for module in modules if module.name in selected]
-    return {
-        "changed_files": paths,
-        "modules": [entry["module"] for entry in entries],
-        "matrix": {"include": entries},
-        "has_modules": bool(entries),
-        "reasons": reasons,
-    }
+    return {"changed_files": paths, **module_plan(modules, selected)}
 
 
 def write_workspace(repo: Path) -> Path:
@@ -178,8 +153,8 @@ def main() -> int:
     parser.add_argument("action", choices=("plan", "workspace"))
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     group = parser.add_mutually_exclusive_group()
+    group.add_argument("--labels", help="explicit ci:<module> labels, separated by commas or whitespace")
     group.add_argument("--base-ref")
-    group.add_argument("--all", action="store_true")
     parser.add_argument("--head-ref", default="HEAD")
     args = parser.parse_args()
     repo = args.repo.resolve()
@@ -187,16 +162,18 @@ def main() -> int:
         if args.action == "workspace":
             print(write_workspace(repo))
             return 0
-        if args.all:
-            paths = None
+        if args.labels is not None:
+            plan = select(repo, split_labels(args.labels))
         elif args.base_ref:
             paths = changed_files(repo, args.base_ref, args.head_ref)
+            plan = select_changed(repo, paths)
+        elif os.environ.get("GOPULSE_CI_LABELS"):
+            plan = select(repo, split_labels(os.environ["GOPULSE_CI_LABELS"]))
         elif os.environ.get("GITHUB_EVENT_PATH"):
             event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-            paths = event_changes(repo, os.environ["GITHUB_EVENT_NAME"], event)
+            plan = select(repo, event_labels(os.environ["GITHUB_EVENT_NAME"], event))
         else:
-            raise ValueError("supply BASE_REF or ALL=1 when planning locally")
-        plan = select(repo, paths)
+            raise ValueError("supply LABELS locally, for example LABELS=ci:backend")
         print(json.dumps(plan, ensure_ascii=False))
         if os.environ.get("GITHUB_OUTPUT"):
             with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:

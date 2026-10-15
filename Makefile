@@ -1,4 +1,4 @@
-.PHONY: help list-go-modules list-npm-modules doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package package-plugin integration e2e stop verify-compose verify-business verify-observe verify-plugins verify-alerts verify-roles verify-pages verify-lifecycle stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
+.PHONY: help list-go-modules list-npm-modules list-ci-labels doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package package-plugin integration e2e stop verify-compose verify-business verify-observe verify-plugins verify-alerts verify-roles verify-pages verify-lifecycle stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
 
 # The development, observation, and stop lifecycles run in the native helper.
 # Building it first keeps the failure exit codes and signal handling intact,
@@ -38,7 +38,7 @@ REQUIRE_MODULE = $(if $(and $(MODULE),$(filter $(MODULE),$(MODULES))),:,printf '
 help:
 	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package [PLATFORM=] [OUTPUT=] [REGISTRY=] [RUNTIME=1] [PROMOTE=1]' '                            build and verify an immutable release candidate' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make e2e [SCOPE=name]     run native business or observability Playwright checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
 	@printf '%s\n' '  make verify-compose [SCOPE=observability]  run the native Compose acceptance closure' '  make verify-business [SCOPE=v1] [MANIFEST=PATH] [RECEIPT=PATH] [PREFLIGHT=1] [BUDGET=30m] [VERIFY_EVIDENCE=1] [PUBLICATION=PATH]' '                                           run the native business acceptance suite or V1 evidence gate' '  make verify-observe SCOPE=name             run the native observability suite' '  make verify-plugins|verify-alerts|verify-roles|verify-pages  run focused acceptance suites' '  make verify-lifecycle INSTALL=clean|reuse [FAILURE_MATRIX=1] [LIFECYCLE_INSTALL=PATH]  run lifecycle acceptance' '  make stack-up|stack-down|stack-verify       manage the owned Compose stack'
-	@printf '%s\n' '' 'Module CI (same commands locally and on GitHub):' '  make ci-plan BASE_REF=ref  show modules changed since the common ancestor' '  make ci-plan ALL=1         show the full module matrix' '  make ci-tools             test CI selection and commit validation' '  make ci-check MODULE=name formatting, static analysis and lint' '  make ci-build MODULE=name build one module' '  make ci-test MODULE=name  unit tests; Go tests include race detection' '  make verify MODULE=name   run ci-check, ci-test and ci-build' '  make verify BASE_REF=ref  run the above checks for affected modules'
+	@printf '%s\n' '' 'Module CI (same commands locally and on GitHub):' '  make list-ci-labels        list supported PR labels' '  make ci-plan LABELS="ci:backend ci:router"  show exactly those module jobs' '  make ci-tools             test CI selection and commit validation' '  make ci-check MODULE=name formatting, static analysis and lint' '  make ci-build MODULE=name build one module' '  make ci-test MODULE=name  unit tests; Go tests include race detection' '  make verify MODULE=name   run ci-check, ci-test and ci-build' '  make verify BASE_REF=ref  local-only checks for directly changed Go modules'
 	@printf '%s\n' '' 'Commit conventions:' '  make hooks-install        enable commit-msg checks in this repository' '  make check-commits [BASE_REF=ref]  validate new commits since policy adoption' '  make check-commits MESSAGE_FILE=path  validate a commit message file'
 
 list-go-modules:
@@ -46,6 +46,9 @@ list-go-modules:
 
 list-npm-modules:
 	@printf '%s\n' $(NPM_MODULES)
+
+list-ci-labels:
+	@printf '%s\n' $(addprefix ci:,$(GO_MODULES)) ci:none
 
 doctor:
 	@$(DEVENV) doctor
@@ -90,8 +93,11 @@ check-all:
 check-compose:
 	@docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
 
+ci-plan: export GOPULSE_CI_LABELS := $(LABELS)
 ci-plan:
-	@python3 ci/modules.py plan $(if $(filter 1,$(ALL)),--all,$(if $(BASE_REF),--base-ref "$(BASE_REF)",))
+	@test -z "$(ALL)" || { printf '%s\n' 'ALL is no longer supported; select explicit ci:<module> labels.' >&2; exit 2; }
+	@test -z "$$GOPULSE_CI_LABELS" || test -z "$(BASE_REF)" || { printf '%s\n' 'LABELS and the local-only BASE_REF mode are mutually exclusive.' >&2; exit 2; }
+	@python3 ci/modules.py plan $(if $(BASE_REF),--base-ref "$(BASE_REF)",)
 
 ci-tools:
 	@python3 -m unittest discover -s ci -p 'test_*.py' -v
