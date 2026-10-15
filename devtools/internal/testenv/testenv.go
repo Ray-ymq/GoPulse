@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -97,7 +98,11 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	files := []string{filepath.Join(ws.Root, "deploy", "compose.local.yaml")}
 	profiles := []string{}
 	if observe {
-		files = append(files, filepath.Join(ws.Root, "deploy", "compose.local-linux.yaml"))
+		override, err := observeComposeOverride(ws.Root)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, override)
 		profiles = append(profiles, "observe")
 	}
 	project := ws.ProjectTest()
@@ -123,6 +128,15 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	}
 	current.prepareMonitor = ensureMonitorImage
 	return current, nil
+}
+
+func observeComposeOverride(root string) (string, error) {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		return filepath.Join(root, "deploy", "compose.local-"+runtime.GOOS+".yaml"), nil
+	default:
+		return "", fmt.Errorf("observation mode is not supported on %s", runtime.GOOS)
+	}
 }
 
 // lock takes the exclusive test environment lock without waiting.

@@ -33,6 +33,17 @@ const (
 	RetentionMetadataBytes    = 1024
 )
 
+// BudgetLimits contains the admission limits shared by command creation,
+// requirement registration, and business-stage queries. The production
+// default remains 10,000; acceptance can select a smaller bounded profile.
+type BudgetLimits struct {
+	OpenRequirements uint64
+}
+
+func DefaultBudgetLimits() BudgetLimits {
+	return BudgetLimits{OpenRequirements: MaximumOpenRequirements}
+}
+
 var (
 	ErrInvalidArgument      = errors.New("business state argument is invalid")
 	ErrNotReady             = errors.New("business state is not ready")
@@ -107,13 +118,42 @@ type ParkingMessage = bus.ParkingMessage
 type Repository struct {
 	database *sql.DB
 	clock    func() time.Time
+	limits   BudgetLimits
 }
 
-func NewRepository(database *sql.DB) (*Repository, error) {
+type RepositoryOption func(*Repository) error
+
+func WithOpenRequirementsLimit(limit uint64) RepositoryOption {
+	return func(repository *Repository) error {
+		if limit == 0 || limit > MaximumOpenRequirements {
+			return fmt.Errorf("%w: open requirement limit must be between 1 and %d", ErrInvalidArgument, MaximumOpenRequirements)
+		}
+		repository.limits.OpenRequirements = limit
+		return nil
+	}
+}
+
+func NewRepository(database *sql.DB, options ...RepositoryOption) (*Repository, error) {
 	if database == nil {
 		return nil, fmt.Errorf("%w: database is required", ErrInvalidArgument)
 	}
-	return &Repository{database: database, clock: time.Now}, nil
+	repository := &Repository{database: database, clock: time.Now, limits: DefaultBudgetLimits()}
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		if err := option(repository); err != nil {
+			return nil, err
+		}
+	}
+	return repository, nil
+}
+
+func (repository *Repository) BudgetLimits() BudgetLimits {
+	if repository == nil || repository.limits.OpenRequirements == 0 {
+		return DefaultBudgetLimits()
+	}
+	return repository.limits
 }
 
 func (repository *Repository) WithClock(clock func() time.Time) *Repository {

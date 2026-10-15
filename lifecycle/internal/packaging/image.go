@@ -140,6 +140,15 @@ func checkProductLabels(config imageConfig, version, revision string) error {
 // InspectImage re-derives the manifest record from the registry and checks it
 // has not drifted, including the OCI identity of product images.
 func InspectImage(image release.Image, platform, version, revision string, product bool) error {
+	if !product {
+		localErr := inspectLocalThirdPartyImage(image, platform)
+		if localErr == nil {
+			return nil
+		}
+		if !errors.Is(localErr, errLocalImageMissing) {
+			return localErr
+		}
+	}
 	index, err := rawReference(image.Ref)
 	if err != nil {
 		return err

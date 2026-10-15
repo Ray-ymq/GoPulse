@@ -88,7 +88,7 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 			lifecycleLogger.Warn("resource close failed", slog.String("resource", "mysql"), slog.String("reason", "close_failed"))
 		}
 	}()
-	state, err := businessstate.NewRepository(mysqlClient.DB())
+	state, err := businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements))
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "business_state", "invalid_dependency")
 	}

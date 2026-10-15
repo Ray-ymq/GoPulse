@@ -11,6 +11,16 @@ type StageIdentity = {
   post_id: number
 }
 
+type StagePayload = {
+  data?: {
+    resolved?: StageIdentity
+    evidence?: {
+      command?: { quality?: string }
+      logs?: { quality?: string, entries?: Array<{ command_id?: string, data_epoch?: string }> }
+    }
+  }
+}
+
 async function login(page: Page, username: string): Promise<void> {
   await page.goto('/login')
   await page.getByLabel('用户名').fill(username)
@@ -69,15 +79,28 @@ test('creates a post, checks its stage evidence, and preserves ordinary-user den
   await expect(page.getByLabel('Data epoch')).toHaveValue(identity.data_epoch)
   await page.getByLabel('Command ID').fill(identity.command_id)
 
-  const stageResponse = page.waitForResponse(response => response.url().includes('/api/v1/observability/business-stages?') && response.request().method() === 'GET')
-  await page.getByRole('button', { name: '查证阶段', exact: true }).click()
-  const response = await stageResponse
-  expect(response.status()).toBe(200)
-  const stage = await response.json() as { data?: { resolved?: StageIdentity, evidence?: { command?: { quality?: string } } } }
-  expect(stage.data?.resolved?.command_id).toBe(identity.command_id)
-  expect(stage.data?.resolved?.event_id).toBe(identity.event_id)
-  expect(stage.data?.resolved?.post_id).toBe(identity.post_id)
-  expect(stage.data?.evidence?.command?.quality).toBe('known')
+  let stage: StagePayload | undefined
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const stageResponse = page.waitForResponse(response => response.url().includes('/api/v1/observability/business-stages?') && response.request().method() === 'GET')
+    await page.getByRole('button', { name: '查证阶段', exact: true }).click()
+    const response = await stageResponse
+    expect(response.status()).toBe(200)
+    stage = await response.json() as StagePayload
+    const entries = stage.data?.evidence?.logs?.entries ?? []
+    const preciseLogObserved = entries.some(entry => entry.command_id === identity.command_id && entry.data_epoch === identity.data_epoch)
+    if (stage.data?.evidence?.logs?.quality === 'known' && preciseLogObserved) break
+    await page.waitForTimeout(1000)
+  }
+  expect(stage).toBeDefined()
+  const finalStage = stage as StagePayload
+  expect(finalStage.data?.resolved?.command_id).toBe(identity.command_id)
+  expect(finalStage.data?.resolved?.event_id).toBe(identity.event_id)
+  expect(finalStage.data?.resolved?.post_id).toBe(identity.post_id)
+  expect(finalStage.data?.evidence?.command?.quality).toBe('known')
+  expect(finalStage.data?.evidence?.logs?.quality).toBe('known')
+  expect(finalStage.data?.evidence?.logs?.entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({ command_id: identity.command_id, data_epoch: identity.data_epoch }),
+  ]))
   const commandCard = page.locator('article.stage-evidence-card').filter({ hasText: '命令提交' })
   await expect(commandCard).toContainText('命令提交')
   await expect(commandCard).toContainText('已知依据')

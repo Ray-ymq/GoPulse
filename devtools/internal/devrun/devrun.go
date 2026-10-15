@@ -91,7 +91,11 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	files := []string{filepath.Join(ws.Root, "deploy", "compose.local.yaml")}
 	profiles := []string{}
 	if observe {
-		files = append(files, filepath.Join(ws.Root, "deploy", "compose.local-linux.yaml"))
+		override, err := observeComposeOverride(ws.Root)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, override)
 		profiles = append(profiles, "observe")
 	}
 	project := ws.ProjectDev()
@@ -105,6 +109,17 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 		files:      files,
 		command:    compose.Command{Project: project, EnvFile: envFile, Files: files, Profiles: profiles},
 	}, nil
+}
+
+func observeComposeOverride(root string) (string, error) {
+	name := ""
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		name = "compose.local-" + runtime.GOOS + ".yaml"
+	default:
+		return "", fmt.Errorf("observation mode is not supported on %s", runtime.GOOS)
+	}
+	return filepath.Join(root, "deploy", name), nil
 }
 
 // Deps starts or refreshes the development dependency project and records a
@@ -367,9 +382,6 @@ func (s *session) monitorImageTag() string {
 // exists, so an unchanged environment never rebuilds it, and otherwise builds
 // it once.
 func (s *session) ensureMonitorImage() (string, error) {
-	if runtime.GOOS != "linux" {
-		return "", fmt.Errorf("dev-observe requires Linux for the trusted host-network Monitor image")
-	}
 	tag := s.monitorImageTag()
 	if proc.Succeeds([]string{"docker", "image", "inspect", tag}, s.root, s.processEnv) {
 		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
