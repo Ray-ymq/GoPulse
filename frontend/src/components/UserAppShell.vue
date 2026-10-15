@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
+import ProductIcon from '../../../frontend-shared/ProductIcon.vue'
 import '../user.css'
 const auth = useAuth()
 const router = useRouter()
@@ -20,17 +21,17 @@ async function logout() {
     <aside class="user-sidebar">
       <RouterLink class="user-brand" to="/posts" aria-label="GoPulse 首页">G<span>oPulse</span></RouterLink>
       <nav class="user-navigation" aria-label="用户主导航">
-        <RouterLink to="/posts" aria-label="首页"><span aria-hidden="true">⌂</span><span class="nav-label">首页</span></RouterLink>
-        <RouterLink to="/search" aria-label="搜索"><span aria-hidden="true">⌕</span><span class="nav-label">搜索</span></RouterLink>
-        <RouterLink to="/notifications" aria-label="通知"><span aria-hidden="true">♧</span><span class="nav-label">通知</span></RouterLink>
-        <RouterLink to="/bookmarks"><span aria-hidden="true">♧</span><span class="nav-label">收藏</span></RouterLink>
-        <RouterLink :to="`/users/${auth.user.value?.username}`" aria-label="我的资料"><span aria-hidden="true">◎</span><span class="nav-label">我的资料</span></RouterLink>
+        <RouterLink to="/posts" aria-label="首页"><ProductIcon name="home" :size="24" /><span class="nav-label">首页</span></RouterLink>
+        <RouterLink to="/search" aria-label="搜索"><ProductIcon name="search" :size="24" /><span class="nav-label">搜索</span></RouterLink>
+        <RouterLink to="/notifications" aria-label="通知"><ProductIcon name="bell" :size="24" /><span class="nav-label">通知</span></RouterLink>
+        <RouterLink to="/bookmarks" aria-label="收藏"><ProductIcon name="bookmark" :size="24" /><span class="nav-label">收藏</span></RouterLink>
+        <RouterLink :to="`/users/${auth.user.value?.username}`" aria-label="我的资料"><ProductIcon name="profile" :size="24" /><span class="nav-label">我的资料</span></RouterLink>
       </nav>
-      <RouterLink class="user-publish" to="/posts/new" aria-label="发布"><span aria-hidden="true">＋</span><span class="nav-label">发布</span></RouterLink>
+      <RouterLink class="user-publish" to="/posts/new" aria-label="发布"><ProductIcon name="plus" :size="22" /><span class="nav-label">发布</span></RouterLink>
       <div class="user-account">
         <p>@{{ auth.user.value?.username }}</p>
         <a v-if="auth.user.value?.role === 'super_admin'" href="/admin/">管理中心</a>
-        <button :disabled="leaving" @click="logout">{{ leaving ? '退出中…' : '退出' }}</button>
+        <button type="button" :disabled="leaving" @click="logout">{{ leaving ? '退出中…' : '退出' }}</button>
         <p v-if="error" role="alert">{{ error }}</p>
       </div>
     </aside>

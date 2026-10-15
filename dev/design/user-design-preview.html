@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GoPulse 用户端 · 设计样例</title>
+  <style>
+    :root {
+      --page: #f3f6fb;
+      --surface: #fff;
+      --surface-soft: #f8faff;
+      --sidebar: #1c2c42;
+      --sidebar-deep: #172438;
+      --sidebar-text: #dfe8f4;
+      --sidebar-muted: #9eafc7;
+      --text: #14233e;
+      --muted: #7183a1;
+      --muted-strong: #536987;
+      --border: #e1e9f3;
+      --primary: #1269ed;
+      --primary-soft: #e8f1ff;
+      --success: #009d63;
+      --success-soft: #ddf7eb;
+      --warning: #b87500;
+      --warning-soft: #fff1d7;
+      --danger: #df2944;
+      --danger-soft: #ffe3e8;
+      --radius: 9px;
+      --shadow: 0 12px 30px rgba(32, 57, 91, 0.055);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-width: 320px; background: var(--page); }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      color: var(--text);
+      background: var(--page);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, textarea, input { font: inherit; }
+    button { cursor: pointer; }
+    a { color: inherit; text-decoration: none; }
+    h1, h2, h3, p { margin-top: 0; }
+
+    button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visible {
+      outline: 3px solid rgba(18, 105, 237, 0.3);
+      outline-offset: 3px;
+    }
+
+    .icon {
+      width: 18px;
+      height: 18px;
+      flex: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.7;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 232px minmax(0, 680px) 300px;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      width: 232px;
+      height: 100vh;
+      flex-direction: column;
+      padding: 0 12px;
+      color: var(--sidebar-text);
+      background: linear-gradient(145deg, var(--sidebar), var(--sidebar-deep));
+    }
+
+    .brand {
+      display: flex;
+      height: 68px;
+      align-items: center;
+      gap: 10px;
+      margin: 0 -12px 27px;
+      padding: 0 20px;
+      border-bottom: 1px solid rgba(220, 232, 247, 0.14);
+      white-space: nowrap;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 31px;
+      height: 31px;
+      place-items: center;
+      border: 1px solid rgba(129, 191, 255, 0.42);
+      border-radius: 9px;
+      color: #82c2ff;
+      background: rgba(20, 113, 241, 0.2);
+    }
+
+    .brand-mark .icon { width: 21px; height: 21px; }
+    .brand-copy { display: grid; gap: 1px; }
+    .brand-copy strong { font-size: 17px; font-weight: 700; }
+    .brand-copy small { color: #aebed2; font-size: 11px; }
+
+    .nav-group { margin-bottom: 27px; }
+    .nav-label { margin: 0 12px 10px; color: var(--sidebar-muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+
+    .nav-item {
+      display: flex;
+      min-height: 41px;
+      align-items: center;
+      gap: 13px;
+      margin: 3px 0;
+      padding: 0 13px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: #d8e1ee;
+      transition: background 160ms ease, color 160ms ease;
+    }
+
+    .nav-item .icon { color: #aabbd2; }
+    .nav-item:hover { color: #fff; background: rgba(255, 255, 255, .06); }
+    .nav-item.is-active { border-color: rgba(85, 157, 255, .72); color: #fff; background: linear-gradient(110deg, #0865ed, #1a78f5); box-shadow: 0 7px 18px rgba(2, 91, 218, .2); }
+    .nav-item.is-active .icon { color: #fff; }
+
+    .publish-button {
+      display: inline-flex;
+      min-height: 42px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin: 1px 0 0;
+      border: 0;
+      border-radius: 7px;
+      color: #fff;
+      background: var(--primary);
+      font-weight: 700;
+      box-shadow: 0 8px 18px rgba(18, 105, 237, .22);
+    }
+
+    .publish-button:hover { background: #075ed8; }
+
+    .sidebar-account {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: auto;
+      margin-bottom: 21px;
+      padding: 11px 10px;
+      border: 1px solid rgba(213, 228, 247, .12);
+      border-radius: 7px;
+    }
+
+    .avatar {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      flex: none;
+      place-items: center;
+      border-radius: 50%;
+      color: #3265a9;
+      background: #e7f0fc;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .avatar.large { width: 42px; height: 42px; }
+    .avatar.mint { color: #147455; background: #dff6eb; }
+    .avatar.orange { color: #8b5d13; background: #fff0cf; }
+    .avatar.purple { color: #6b47b3; background: #eee6ff; }
+    .account-copy { display: grid; min-width: 0; gap: 2px; }
+    .account-copy strong { overflow: hidden; color: #f1f6fd; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .account-copy small { color: var(--sidebar-muted); font-size: 10px; }
+
+    .feed {
+      min-width: 0;
+      border-right: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .feed-header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      min-height: 69px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, .95);
+      backdrop-filter: blur(12px);
+    }
+
+    .feed-heading { display: grid; gap: 3px; }
+    .feed-heading h1 { margin: 0; font-size: 19px; line-height: 1.2; }
+    .feed-heading span { color: var(--muted); font-size: 10px; }
+
+    .refresh {
+      display: inline-grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--muted-strong);
+      background: #fff;
+    }
+
+    .refresh:hover { color: var(--primary); border-color: #a8c1e1; background: var(--surface-soft); }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .tab {
+      position: relative;
+      flex: 1;
+      min-height: 47px;
+      border: 0;
+      color: var(--muted);
+      background: transparent;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .tab::after { position: absolute; right: 23%; bottom: 0; left: 23%; height: 3px; border-radius: 3px 3px 0 0; background: transparent; content: ""; }
+    .tab:hover { color: var(--primary); }
+    .tab.is-active { color: var(--text); }
+    .tab.is-active::after { background: var(--primary); }
+
+    .composer {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 12px;
+      padding: 17px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 64px;
+      resize: vertical;
+      border: 0;
+      outline: 0;
+      color: var(--text);
+      background: transparent;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .composer textarea::placeholder { color: #9aa9bc; }
+    .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; grid-column: 2; }
+    .composer-hint { color: var(--muted); font-size: 10px; }
+
+    .button {
+      display: inline-flex;
+      min-height: 34px;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 13px;
+      border: 1px solid var(--primary);
+      border-radius: 6px;
+      color: #fff;
+      background: var(--primary);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .button:hover { border-color: #0756c8; background: #075ed8; }
+
+    .post {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 12px;
+      padding: 18px 20px 15px;
+      border-bottom: 1px solid var(--border);
+      transition: background 160ms ease;
+    }
+
+    .post:hover { background: #fbfdff; }
+    .post-main { min-width: 0; }
+    .post-meta { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+    .post-meta strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .post-meta span, .post-time { color: var(--muted); font-size: 10px; }
+    .post-time::before { margin-right: 7px; content: "·"; }
+    .post-title { margin: 8px 0 6px; color: var(--text); font-size: 15px; line-height: 1.4; }
+    .post-body { margin: 0; color: var(--muted-strong); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+
+    .post-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+    .tag { display: inline-flex; min-height: 22px; align-items: center; padding: 0 7px; border-radius: 5px; color: #3569aa; background: var(--primary-soft); font-size: 10px; }
+    .tag.green { color: #147455; background: var(--success-soft); }
+    .tag.orange { color: #8b5d13; background: var(--warning-soft); }
+
+    .post-actions { display: flex; align-items: center; gap: 18px; margin-top: 13px; }
+
+    .post-action {
+      display: inline-flex;
+      min-height: 30px;
+      align-items: center;
+      gap: 5px;
+      padding: 0;
+      border: 0;
+      color: var(--muted);
+      background: transparent;
+      font-size: 10px;
+    }
+
+    .post-action .icon { width: 15px; height: 15px; }
+    .post-action:hover, .post-action.is-active { color: var(--primary); }
+    .post-action.is-liked { color: var(--danger); }
+
+    .context {
+      min-width: 0;
+      padding: 20px 18px 40px;
+    }
+
+    .context-panel {
+      margin-bottom: 14px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .context-panel h2 { margin: 0 0 14px; font-size: 14px; }
+    .context-panel > p { margin: 0 0 13px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+    .health {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 10px;
+      border-radius: 7px;
+      color: var(--success);
+      background: var(--success-soft);
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .health-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+    .topic, .suggestion {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 11px 0;
+      border-bottom: 1px solid #edf1f6;
+    }
+
+    .topic:last-child, .suggestion:last-child { border-bottom: 0; padding-bottom: 0; }
+    .topic:first-of-type, .suggestion:first-of-type { padding-top: 0; }
+    .topic-copy, .suggestion-copy { display: grid; min-width: 0; gap: 3px; }
+    .topic-copy strong, .suggestion-copy strong { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .topic-copy span, .suggestion-copy span { color: var(--muted); font-size: 10px; }
+
+    .follow {
+      min-height: 28px;
+      padding: 0 9px;
+      border: 1px solid #b9d0ee;
+      border-radius: 5px;
+      color: var(--primary);
+      background: #fff;
+      font-size: 10px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .follow.is-following { border-color: var(--success); color: var(--success); background: var(--success-soft); }
+
+    .context-link { display: inline-flex; margin-top: 13px; color: var(--primary); font-size: 10px; font-weight: 650; }
+
+    .mobile-menu { display: none; }
+
+    .toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 30;
+      display: flex;
+      min-width: 220px;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      border: 1px solid #cdebdc;
+      border-radius: 7px;
+      color: #146d4c;
+      background: #effcf5;
+      box-shadow: 0 16px 35px rgba(22, 85, 57, .16);
+      font-size: 11px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .toast.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+    @media (max-width: 1180px) {
+      .app-shell { grid-template-columns: 220px minmax(0, 680px); }
+      .sidebar { width: 220px; }
+      .context { display: none; }
+    }
+
+    @media (max-width: 760px) {
+      .app-shell { display: block; padding-bottom: 67px; }
+      .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 244px;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+      }
+      .sidebar.is-open { transform: translateX(0); }
+      .mobile-menu {
+        display: inline-grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        color: var(--muted-strong);
+        background: #fff;
+      }
+      .feed { border: 0; }
+      .feed-header { padding: 0 16px; }
+      .composer, .post { padding-right: 16px; padding-left: 16px; }
+      .mobile-nav {
+        position: fixed;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 8;
+        display: flex;
+        height: 67px;
+        align-items: center;
+        justify-content: space-around;
+        padding-bottom: env(safe-area-inset-bottom);
+        border-top: 1px solid var(--border);
+        background: rgba(255, 255, 255, .97);
+        backdrop-filter: blur(12px);
+      }
+      .mobile-nav a { display: grid; min-width: 58px; min-height: 46px; place-items: center; gap: 2px; color: var(--muted); font-size: 9px; }
+      .mobile-nav a.is-active { color: var(--primary); font-weight: 700; }
+      .mobile-nav .icon { width: 18px; height: 18px; }
+    }
+
+    @media (min-width: 761px) { .mobile-nav { display: none; } }
+    @media (max-width: 430px) { .post-actions { gap: 12px; } .composer-hint { display: none; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }
+  </style>
+  <style>
+    /* Refined user-product variant: lighter navigation, more breathing room, less dashboard density. */
+    :root {
+      --page: #eef2f7;
+      --surface: #ffffff;
+      --surface-soft: #f7f9fc;
+      --sidebar: #ffffff;
+      --sidebar-deep: #ffffff;
+      --sidebar-text: #172033;
+      --sidebar-muted: #8b9ab0;
+      --border: #e5ebf3;
+      --primary: #3f6ee8;
+      --primary-soft: #edf3ff;
+      --shadow: 0 16px 40px rgba(31, 53, 83, 0.045);
+    }
+
+    body { background: var(--page); }
+
+    .app-shell {
+      grid-template-columns: 238px minmax(0, 720px) 292px;
+      gap: 18px;
+      max-width: 1430px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    .sidebar {
+      width: 238px;
+      padding: 0 12px;
+      color: var(--sidebar-text);
+      background: var(--sidebar);
+      border-right: 1px solid var(--border);
+    }
+
+    .brand {
+      margin: 0 -12px 27px;
+      padding: 0 19px;
+      border-bottom-color: var(--border);
+    }
+
+    .brand-mark {
+      border-color: #d7e4ff;
+      color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    .brand-copy strong { color: var(--text); }
+    .brand-copy small { color: var(--muted); }
+    .nav-label { color: #9ba9bc; }
+
+    .nav-item {
+      min-height: 43px;
+      color: #667892;
+    }
+
+    .nav-item .icon { color: #91a0b4; }
+    .nav-item:hover { color: var(--text); background: #f6f8fb; }
+
+    .nav-item.is-active {
+      border-color: transparent;
+      color: #2454b9;
+      background: var(--primary-soft);
+      box-shadow: none;
+    }
+
+    .nav-item.is-active .icon { color: var(--primary); }
+    .publish-button { border-radius: 9px; box-shadow: 0 8px 18px rgba(63, 110, 232, .14); }
+
+    .sidebar-account {
+      border-color: transparent;
+      background: #f6f8fb;
+    }
+
+    .account-copy strong { color: var(--text); }
+
+    .feed {
+      min-height: calc(100vh - 40px);
+      margin: 20px 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      box-shadow: var(--shadow);
+    }
+
+    .feed-header {
+      position: static;
+      min-height: 78px;
+      padding: 0 24px;
+      background: rgba(255, 255, 255, .98);
+      backdrop-filter: none;
+    }
+
+    .feed-heading h1 { font-size: 21px; letter-spacing: -.02em; }
+    .tabs { padding: 0 14px; }
+    .tab::after { right: 28%; left: 28%; }
+
+    .composer {
+      padding: 20px 24px 16px;
+      background: #fbfdff;
+    }
+
+    .post { padding: 22px 24px 18px; }
+    .post:hover { background: #fcfdff; }
+    .post-title { font-size: 16px; }
+    .post-body { max-width: 600px; font-size: 13px; line-height: 1.7; }
+    .post-actions { margin-top: 15px; }
+
+    .context { padding: 20px 0 40px; }
+
+    .context-panel {
+      border-radius: 13px;
+      box-shadow: none;
+    }
+
+    .context-panel h2 { font-size: 15px; }
+
+    @media (max-width: 1180px) {
+      .app-shell { grid-template-columns: 220px minmax(0, 720px); }
+      .sidebar { width: 220px; }
+    }
+
+    @media (max-width: 760px) {
+      .app-shell { display: block; padding: 0 0 67px; }
+      .sidebar { width: 244px; }
+      .feed { min-height: 100vh; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+      .feed-header { padding: 0 16px; }
+    }
+  </style>
+</head>
+<body>
+  <svg aria-hidden="true" width="0" height="0" style="position:absolute">
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h4l3-9 4 18 3-9h6" /></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" /></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><path d="M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14m5 12 6 6" /></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M5 16h14l-2-3V9a5 5 0 0 0-10 0v4l-2 3m5 4h4M12 2v2" /></symbol>
+    <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18l-6-4-6 4V4Z" /></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8M4 22v-4a8 8 0 0 1 16 0v4" /></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 8.8c0 5.5-8.8 10.2-8.8 10.2S3.2 14.3 3.2 8.8A4.8 4.8 0 0 1 12 6.1a4.8 4.8 0 0 1 8.8 2.7Z" /></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-8 8H7l-4 2 1.5-4A8 8 0 1 1 20 11.5Z" /></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="m16 8 5-5m0 0v5m0-5h-5M20 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" /></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7a9 9 0 0 0-15-2L2 8m0-6v6h6m-4 9a9 9 0 0 0 15 2l3-3m0 6v-6h-6" /></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6" /></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#home" aria-label="GoPulse 首页">
+        <span class="brand-mark"><svg class="icon"><use href="#i-pulse" /></svg></span>
+        <span class="brand-copy"><strong>GoPulse</strong><small>社区工作台</small></span>
+      </a>
+      <nav aria-label="用户主导航">
+        <div class="nav-group">
+          <p class="nav-label">我的空间</p>
+          <a class="nav-item is-active" href="#home" data-nav="首页"><svg class="icon"><use href="#i-home" /></svg><span>首页</span></a>
+          <a class="nav-item" href="#search" data-nav="搜索"><svg class="icon"><use href="#i-search" /></svg><span>搜索</span></a>
+          <a class="nav-item" href="#notifications" data-nav="通知"><svg class="icon"><use href="#i-bell" /></svg><span>通知 <small style="color:#82c2ff">3</small></span></a>
+          <a class="nav-item" href="#bookmarks" data-nav="收藏"><svg class="icon"><use href="#i-bookmark" /></svg><span>收藏</span></a>
+          <a class="nav-item" href="#profile" data-nav="我的资料"><svg class="icon"><use href="#i-user" /></svg><span>我的资料</span></a>
+        </div>
+        <div class="nav-group">
+          <p class="nav-label">快速操作</p>
+          <button class="publish-button" type="button" id="publishShortcut"><svg class="icon"><use href="#i-plus" /></svg>发布内容</button>
+        </div>
+      </nav>
+      <div class="sidebar-account"><span class="avatar">RL</span><span class="account-copy"><strong>Ray Liu</strong><small>@ray · 在线</small></span></div>
+    </aside>
+
+    <main class="feed" id="mainContent">
+      <header class="feed-header">
+        <button class="mobile-menu" id="mobileMenu" type="button" aria-label="打开导航" aria-expanded="false"><svg class="icon"><use href="#i-search" /></svg></button>
+        <div class="feed-heading"><h1 id="pageTitle">首页</h1><span id="pageHint">分享进展，发现值得关注的内容</span></div>
+        <button class="refresh" id="refreshButton" type="button" aria-label="刷新内容"><svg class="icon"><use href="#i-refresh" /></svg></button>
+      </header>
+
+      <div class="tabs" role="tablist" aria-label="首页内容筛选">
+        <button class="tab is-active" type="button" role="tab" aria-selected="true" data-tab="全部">全部</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="关注中">关注中</button>
+      </div>
+
+      <section class="composer" aria-label="发布内容">
+        <span class="avatar large">RL</span>
+        <textarea id="composerText" aria-label="发布内容" placeholder="分享你正在推进的事情…"></textarea>
+        <div class="composer-footer"><span class="composer-hint">短句、进展或问题都可以</span><button class="button" id="publishButton" type="button">发布</button></div>
+      </section>
+
+      <section aria-label="帖子列表">
+        <article class="post">
+          <span class="avatar mint">KM</span>
+          <div class="post-main">
+            <div class="post-meta"><strong>Kate Miller</strong><span>@kate</span><span class="post-time">12 分钟前</span></div>
+            <h2 class="post-title">GoPulse 的新一轮可观测性改造已经完成</h2>
+            <p class="post-body">现在可以从同一个工作台查看组件健康、采集状态和业务阶段。最有价值的变化是：异常状态不再只显示一个红点，而是直接告诉你发生了什么，以及下一步可以做什么。</p>
+            <div class="post-tags"><span class="tag">可观测性</span><span class="tag green">已完成</span></div>
+            <div class="post-actions"><button class="post-action" data-action="comment"><svg class="icon"><use href="#i-message" /></svg><span>8</span></button><button class="post-action" data-action="like"><svg class="icon"><use href="#i-heart" /></svg><span data-count="24">24</span></button><button class="post-action" data-action="bookmark"><svg class="icon"><use href="#i-bookmark" /></svg><span>收藏</span></button><button class="post-action" data-action="share"><svg class="icon"><use href="#i-share" /></svg><span>分享</span></button></div>
+          </div>
+        </article>
+
+        <article class="post">
+          <span class="avatar orange">JL</span>
+          <div class="post-main">
+            <div class="post-meta"><strong>Jason Lee</strong><span>@jason</span><span class="post-time">36 分钟前</span></div>
+            <h2 class="post-title">今天的发布窗口需要关注数据库连接池</h2>
+            <p class="post-body">压测期间发现高峰流量下连接建立时间变长。修复方案已经进入验证，预计 15:30 前给出结论。</p>
+            <div class="post-tags"><span class="tag orange">需要关注</span><span class="tag">工程实践</span></div>
+            <div class="post-actions"><button class="post-action" data-action="comment"><svg class="icon"><use href="#i-message" /></svg><span>3</span></button><button class="post-action is-liked" data-action="like"><svg class="icon"><use href="#i-heart" /></svg><span data-count="12">12</span></button><button class="post-action" data-action="bookmark"><svg class="icon"><use href="#i-bookmark" /></svg><span>收藏</span></button><button class="post-action" data-action="share"><svg class="icon"><use href="#i-share" /></svg><span>分享</span></button></div>
+          </div>
+        </article>
+
+        <article class="post">
+          <span class="avatar purple">AS</span>
+          <div class="post-main">
+            <div class="post-meta"><strong>Ana Silva</strong><span>@ana</span><span class="post-time">1 小时前</span></div>
+            <h2 class="post-title">把“空状态”当作产品的一部分</h2>
+            <p class="post-body">没有数据时，用户需要知道原因，也需要知道下一步。一个好的空状态不是“暂无数据”，而是“这里还没有记录，你可以从创建第一条规则开始”。</p>
+            <div class="post-tags"><span class="tag">产品设计</span></div>
+            <div class="post-actions"><button class="post-action" data-action="comment"><svg class="icon"><use href="#i-message" /></svg><span>15</span></button><button class="post-action" data-action="like"><svg class="icon"><use href="#i-heart" /></svg><span data-count="47">47</span></button><button class="post-action is-active" data-action="bookmark"><svg class="icon"><use href="#i-bookmark" /></svg><span>已收藏</span></button><button class="post-action" data-action="share"><svg class="icon"><use href="#i-share" /></svg><span>分享</span></button></div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <aside class="context" aria-label="社区信息">
+      <section class="context-panel">
+        <h2>系统状态</h2>
+        <p>社区服务和内容查询均正常。状态以最近一次检查结果为准。</p>
+        <div class="health"><i class="health-dot"></i>全部服务正常</div>
+      </section>
+
+      <section class="context-panel">
+        <h2>热门话题</h2>
+        <div class="topic"><span class="topic-copy"><strong>#可观测性</strong><span>128 条讨论</span></span><svg class="icon" style="color:#9aabc0"><use href="#i-arrow" /></svg></div>
+        <div class="topic"><span class="topic-copy"><strong>#工程实践</strong><span>86 条讨论</span></span><svg class="icon" style="color:#9aabc0"><use href="#i-arrow" /></svg></div>
+        <div class="topic"><span class="topic-copy"><strong>#产品设计</strong><span>54 条讨论</span></span><svg class="icon" style="color:#9aabc0"><use href="#i-arrow" /></svg></div>
+        <a class="context-link" href="#topics">查看全部话题 <svg class="icon" style="width:13px;height:13px"><use href="#i-arrow" /></svg></a>
+      </section>
+
+      <section class="context-panel">
+        <h2>推荐关注</h2>
+        <div class="suggestion"><span style="display:flex;align-items:center;gap:8px;min-width:0"><span class="avatar" style="width:30px;height:30px;font-size:10px">MW</span><span class="suggestion-copy"><strong>Michael Wong</strong><span>@michael</span></span></span><button class="follow" type="button">关注</button></div>
+        <div class="suggestion"><span style="display:flex;align-items:center;gap:8px;min-width:0"><span class="avatar mint" style="width:30px;height:30px;font-size:10px">LN</span><span class="suggestion-copy"><strong>Linda Ng</strong><span>@linda</span></span></span><button class="follow" type="button">关注</button></div>
+        <a class="context-link" href="#users">发现更多用户 <svg class="icon" style="width:13px;height:13px"><use href="#i-arrow" /></svg></a>
+      </section>
+    </aside>
+  </div>
+
+  <nav class="mobile-nav" aria-label="移动端主导航">
+    <a class="is-active" href="#home"><svg class="icon"><use href="#i-home" /></svg><span>首页</span></a>
+    <a href="#search"><svg class="icon"><use href="#i-search" /></svg><span>搜索</span></a>
+    <a href="#notifications"><svg class="icon"><use href="#i-bell" /></svg><span>通知</span></a>
+    <a href="#profile"><svg class="icon"><use href="#i-user" /></svg><span>我的</span></a>
+  </nav>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><svg class="icon"><use href="#i-check" /></svg><span id="toastText">操作已完成</span></div>
+
+  <script>
+    const sidebar = document.querySelector('#sidebar')
+    const mobileMenu = document.querySelector('#mobileMenu')
+    const toast = document.querySelector('#toast')
+    const toastText = document.querySelector('#toastText')
+    const composerText = document.querySelector('#composerText')
+    const pageTitle = document.querySelector('#pageTitle')
+    const pageHint = document.querySelector('#pageHint')
+    let toastTimer
+
+    function showToast(message) {
+      toastText.textContent = message
+      toast.classList.add('is-visible')
+      window.clearTimeout(toastTimer)
+      toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 2200)
+    }
+
+    function closeSidebar() {
+      sidebar.classList.remove('is-open')
+      mobileMenu.setAttribute('aria-expanded', 'false')
+    }
+
+    mobileMenu.addEventListener('click', () => {
+      const isOpen = sidebar.classList.toggle('is-open')
+      mobileMenu.setAttribute('aria-expanded', String(isOpen))
+    })
+
+    document.querySelectorAll('[data-nav]').forEach((item) => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('[data-nav]').forEach((nav) => nav.classList.remove('is-active'))
+        item.classList.add('is-active')
+        pageTitle.textContent = item.dataset.nav
+        pageHint.textContent = item.dataset.nav === '首页' ? '分享进展，发现值得关注的内容' : `${item.dataset.nav} 样例页面`
+        showToast(`已切换到「${item.dataset.nav}」`)
+        closeSidebar()
+      })
+    })
+
+    document.querySelectorAll('[data-tab]').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('[data-tab]').forEach((item) => { item.classList.remove('is-active'); item.setAttribute('aria-selected', 'false') })
+        tab.classList.add('is-active')
+        tab.setAttribute('aria-selected', 'true')
+        showToast(tab.dataset.tab === '关注中' ? '已切换到关注内容' : '已显示全部内容')
+      })
+    })
+
+    document.querySelectorAll('[data-action]').forEach((action) => {
+      action.addEventListener('click', () => {
+        const type = action.dataset.action
+        if (type === 'like') {
+          const count = action.querySelector('[data-count]')
+          const active = action.classList.toggle('is-liked')
+          if (count) count.textContent = String(Number(count.textContent) + (active ? 1 : -1))
+          showToast(active ? '已点赞' : '已取消点赞')
+        } else if (type === 'bookmark') {
+          const active = action.classList.toggle('is-active')
+          const label = action.querySelector('span:last-child')
+          if (label) label.textContent = active ? '已收藏' : '收藏'
+          showToast(active ? '已收藏' : '已取消收藏')
+        } else {
+          showToast(type === 'comment' ? '打开评论区（演示）' : '分享链接已复制（演示）')
+        }
+      })
+    })
+
+    document.querySelectorAll('.follow').forEach((button) => {
+      button.addEventListener('click', () => {
+        const active = button.classList.toggle('is-following')
+        button.textContent = active ? '已关注' : '关注'
+        showToast(active ? '已关注用户' : '已取消关注')
+      })
+    })
+
+    function publish() {
+      if (!composerText.value.trim()) {
+        composerText.focus()
+        showToast('先写一点内容再发布')
+        return
+      }
+      composerText.value = ''
+      showToast('内容已发布（演示）')
+    }
+
+    document.querySelector('#publishButton').addEventListener('click', publish)
+    document.querySelector('#publishShortcut').addEventListener('click', () => { composerText.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }) })
+    document.querySelector('#refreshButton').addEventListener('click', () => showToast('内容已刷新'))
+  </script>
+</body>
+</html>

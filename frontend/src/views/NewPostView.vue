@@ -6,6 +6,7 @@ import { usePostCommand } from '../composables/usePostCommand'
 import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { CreatePostInput, PostCommandMeta } from '../types/api'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -112,8 +113,8 @@ watch(() => route.params.postId, load, { immediate: true })
       <section class="form-card">
         <p class="eyebrow">NEW POST</p>
         <h1>{{ editing ? '编辑帖子' : '发布帖子' }}</h1>
-        <p v-if="loading" role="status">加载中…</p>
-        <p v-if="loadError" role="alert">{{ loadError }} <button @click="load">重试</button></p>
+        <ProductState v-if="loading" state="loading" message="正在读取帖子…" />
+        <ProductState v-else-if="loadError" state="unavailable" :message="loadError" action-label="重试" @retry="load" />
         <template v-if="!loading && !loadError">
           <p v-if="command.outcomeUnknown.value && !editing" class="notice notice--error" role="alert">
             提交结果尚未确认。可以查证提交结果，或使用相同内容重试；请不要修改正文后继续使用当前身份。

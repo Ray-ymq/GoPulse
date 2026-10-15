@@ -3,6 +3,7 @@ import FollowButton from '../components/FollowButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PostCard from '../components/PostCard.vue'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 import { searchApi, userApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Post, UserProfile } from '../types/api'
@@ -15,6 +16,7 @@ const posts = ref<Post[]>([])
 const users = ref<UserProfile[]>([])
 const userTab = computed(() => route.query.tab === 'users')
 const resultCount = computed(() => userTab.value ? users.value.length : posts.value.length)
+const errorState = computed<'stale' | 'unavailable'>(() => resultCount.value ? 'stale' : 'unavailable')
 async function selectTab(tab: string) { await router.push({ path: '/search', query: { q: input.value.trim() || undefined, tab } }) }
 const nextCursor = ref<string | null>(null)
 const loading = ref(false)
@@ -120,8 +122,8 @@ watch(
       </section>
 
       <div class="user-tabs" role="tablist" aria-label="搜索类型">
-        <button role="tab" :aria-selected="!userTab" @click="selectTab('posts')">帖子</button>
-        <button role="tab" :aria-selected="userTab" @click="selectTab('users')">用户</button>
+        <button type="button" role="tab" :aria-selected="!userTab" @click="selectTab('posts')">帖子</button>
+        <button type="button" role="tab" :aria-selected="userTab" @click="selectTab('users')">用户</button>
       </div>
       <form class="search-form" role="search" @submit.prevent="submit">
         <label class="sr-only" for="post-search">搜索词</label>
@@ -129,14 +131,13 @@ watch(
         <button class="button button--primary" type="submit" :disabled="loading">搜索</button>
       </form>
 
-      <p v-if="errorMessage" class="notice notice--error" role="alert">
-        {{ errorMessage }}
-        <button v-if="activeQuery" class="inline-action" type="button" @click="retry">重试</button>
-      </p>
-      <p v-if="!activeQuery" class="state-card">输入关键词开始搜索。</p>
-      <p v-else-if="loading && resultCount === 0" class="state-card">正在搜索…</p>
-      <p v-else-if="loaded && resultCount === 0 && !nextCursor" class="state-card">没有找到相关{{ userTab ? '用户' : '帖子' }}。</p>
-      <section v-else class="post-list" aria-live="polite">
+      <ProductState v-if="errorMessage" :state="errorState" :message="errorMessage">
+        <template #actions><button class="inline-action" type="button" @click="retry">重试</button></template>
+      </ProductState>
+      <ProductState v-else-if="!activeQuery" state="empty" message="输入关键词开始搜索。" />
+      <ProductState v-else-if="loading && resultCount === 0" state="loading" message="正在搜索…" />
+      <ProductState v-else-if="loaded && resultCount === 0 && !nextCursor" state="empty" :message="`没有找到相关${userTab ? '用户' : '帖子'}。`" />
+      <section v-if="resultCount" class="post-list" aria-live="polite">
         <template v-if="userTab"><article v-for="user in users" :key="user.id" class="user-result"><RouterLink :to="`/users/${user.username}`">
           <span class="user-avatar" aria-hidden="true">{{ Array.from(user.display_name)[0]?.toUpperCase() }}</span>
           <div><strong>{{ user.display_name }}</strong><p class="muted">@{{ user.username }}</p><p>{{ user.bio }}</p></div>

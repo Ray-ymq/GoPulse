@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import PostCard from '../components/PostCard.vue'
 import { postApi } from '../services/api'
 import type { Post } from '../types/api'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 const posts = ref<Post[]>([])
 const cursor = ref<string | null>(null)
 const loading = ref(false)
@@ -25,11 +26,11 @@ onMounted(() => void load())
   <main class="content-shell">
     <header class="page-heading"><h1>我的收藏</h1></header>
     <p class="muted">仅你可见。已删除的帖子会自动跳过；取消收藏后，下次打开列表不再显示。</p>
-    <p v-if="error" role="alert">{{ error }} <button @click="load">重试</button></p>
-    <p v-if="loading" role="status">正在加载收藏…</p>
-    <p v-if="loaded && !posts.length" class="state-card">还没有收藏的帖子。</p>
-    <section class="post-list" aria-live="polite"><PostCard v-for="post in posts" :key="post.id" :post="post" /></section>
-    <button v-if="cursor" class="button" :disabled="loading" @click="load">加载更多</button>
+    <ProductState v-if="error && !posts.length" state="unavailable" :message="error" action-label="重试" @retry="load" />
+    <ProductState v-else-if="loading && !loaded" state="loading" message="正在读取收藏…" />
+    <ProductState v-else-if="loaded && !posts.length" state="empty" message="还没有收藏的帖子。" />
+    <section v-if="posts.length" class="post-list" aria-live="polite"><PostCard v-for="post in posts" :key="post.id" :post="post" /></section>
+    <button v-if="cursor" class="button" type="button" :disabled="loading" @click="load">加载更多</button>
     <p v-else-if="loaded && posts.length" class="muted">已经到底了</p>
   </main>
 </template>

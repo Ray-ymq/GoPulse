@@ -16,9 +16,9 @@ const coordinates = computed(() => {
 <template>
   <figure v-if="points.length" class="metric-figure">
     <svg class="metric-chart" viewBox="0 0 1000 240" preserveAspectRatio="none" role="img" :aria-label="`指标趋势：${points.length} 个采样点，最小 ${stats.min}，最大 ${stats.max} ${unit}`">
-      <polygon v-if="points.length > 1" :points="`10,240 ${coordinates} 990,240`" fill="#edf3ff" />
-      <polyline v-if="points.length > 1" :points="coordinates" fill="none" stroke="#2864f5" stroke-width="2" vector-effect="non-scaling-stroke" />
-      <circle v-else cx="500" cy="120" r="4" fill="#2864f5" />
+      <polygon v-if="points.length > 1" :points="`10,240 ${coordinates} 990,240`" fill="var(--gp-primary-soft)" />
+      <polyline v-if="points.length > 1" :points="coordinates" fill="none" stroke="var(--gp-primary)" stroke-width="2" vector-effect="non-scaling-stroke" />
+      <circle v-else cx="500" cy="120" r="4" fill="var(--gp-primary)" />
     </svg>
     <figcaption class="chart-caption"><span>MIN {{ stats.min }}</span><span>MAX {{ stats.max }}</span><span>{{ points.length }} 个采样点 · {{ unit }}</span><span>纵轴按当前时序范围缩放</span></figcaption>
   </figure>

@@ -7,6 +7,7 @@ import PostCard from '../components/PostCard.vue'
 import { userApi } from '../services/api'
 import type { UserProfile, Post } from '../types/api'
 import { formatDate } from '../utils/format'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 const route = useRoute()
 const profile = ref<UserProfile | null>(null)
 const posts = ref<Post[]>([])
@@ -69,15 +70,15 @@ watch(() => route.params.username, () => {
 <template>
   <main>
     <header class="page-heading"><h1>用户资料</h1></header>
-    <p v-if="error" class="notice notice--error" role="alert">{{ error }} <button @click="load(!profile)">重试</button></p>
-    <p v-if="loading && !profile" class="state-card" role="status">正在加载资料…</p>
+    <ProductState v-if="error && !profile" state="unavailable" :message="error" action-label="重试" @retry="load(!profile)" />
+    <ProductState v-else-if="loading && !profile" state="loading" message="正在读取资料…" />
     <section v-if="profile" class="user-profile" aria-label="公开资料">
       <span class="user-avatar user-avatar--large" aria-hidden="true">{{ Array.from(profile.display_name)[0]?.toUpperCase() }}</span>
       <h1>{{ profile.display_name }}</h1><p class="muted">@{{ profile.username }}</p>
       <p class="bio">{{ profile.bio }}</p><p class="muted">加入于 {{ formatDate(profile.created_at) }}</p>
       <FollowButton :target="profile" />
       <nav v-if="profile.is_self" aria-label="我的关系"><RouterLink to="/me/following">我的关注</RouterLink> · <RouterLink to="/me/followers">我的粉丝</RouterLink></nav>
-      <button v-if="profile.is_self && !editing" class="button" @click="edit">编辑资料</button>
+      <button v-if="profile.is_self && !editing" class="button" type="button" @click="edit">编辑资料</button>
     </section>
     <p v-if="success" class="notice" role="status">{{ success }}</p>
     <form v-if="editing" class="profile-form" aria-label="编辑资料" @submit.prevent="save">
@@ -87,14 +88,15 @@ watch(() => route.params.username, () => {
       <label>个人介绍<textarea v-model="bio" rows="4" :aria-invalid="!!bioError" aria-describedby="bio-error bio-count" /></label>
       <span id="bio-count">{{ bioCount }} / 160</span><p v-if="bioError" id="bio-error" role="alert">{{ bioError }}</p>
       <p v-if="saveError" role="alert">{{ saveError }}</p>
-      <button class="button button--primary" :disabled="saving || !!nameError || !!bioError">{{ saving ? '保存中…' : '保存资料' }}</button>
+      <button class="button button--primary" type="submit" :disabled="saving || !!nameError || !!bioError">{{ saving ? '保存中…' : '保存资料' }}</button>
       <button type="button" class="button" :disabled="saving" @click="editing = false">取消</button>
     </form>
     <section v-if="profile" aria-label="用户帖子">
       <PostCard v-for="post in posts" :key="post.id" :post="post" />
-      <p v-if="!loading && !error && posts.length === 0" class="state-card">还没有帖子。</p>
-      <p v-if="loading" class="state-card" role="status">正在加载帖子…</p>
-      <div v-if="cursor" class="load-more"><button class="button" :disabled="loading" @click="load()">加载更多</button></div>
+      <ProductState v-if="error && profile && !posts.length" state="stale" :message="error" action-label="重试" @retry="load()" />
+      <ProductState v-else-if="loading" state="loading" message="正在读取帖子…" />
+      <ProductState v-else-if="!error && posts.length === 0" state="empty" message="还没有帖子。" />
+      <div v-if="cursor" class="load-more"><button class="button" type="button" :disabled="loading" @click="load()">加载更多</button></div>
     </section>
   </main>
 </template>
