@@ -86,8 +86,9 @@ describe('business views', () => {
     await wrapper.get('input[name="title"]').setValue(post.title)
     await wrapper.get('textarea[name="content"]').setValue(post.content)
     await wrapper.get('form').trigger('submit')
-    await flushPromises()
-    expect(router.currentRoute.value.path).toBe('/posts/9')
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe('/posts/9')
+    })
   })
 
   it('publishes comments, refreshes server state, and performs explicit like requests', async () => {
