@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ProductTime from "../../../frontend-shared/ProductTime.vue"
 import ProductState from "../../../frontend-shared/ProductState.vue"
+import ProductStatus from "../../../frontend-shared/ProductStatus.vue"
 import { computed, onMounted, ref, watch } from 'vue'
 import { usePagedObservability } from '../composables/usePagedObservability'
 import { eventErrorCodes, eventNames, eventOperations, eventSeverities, observabilityApi, ranges } from '../services/observability'
@@ -19,7 +20,7 @@ onMounted(apply)
 </script>
 <template>
   <section>
-    <div class="admin-title"><div><p class="admin-eyebrow">MONITOR EVENTS</p><h2>运行事件</h2><p>事件是有界的 best-effort / at-least-once 可观测记录；未查到事件不代表操作绝对未发生。</p></div><button class="button" :disabled="query.loading.value" @click="apply">刷新</button></div>
+    <div class="admin-title"><div><p class="admin-eyebrow">MONITOR EVENTS</p><h2>运行事件</h2><p>事件是有界的 best-effort / at-least-once 可观测记录；未查到事件不代表操作绝对未发生。</p></div><button class="button" type="button" :disabled="query.loading.value" @click="apply">刷新</button></div>
     <form class="filter-grid" @submit.prevent="apply">
       <label>范围<select v-model="filters.range"><option v-for="item in ranges" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
       <label>来源<select v-model="filters.source"><option value="">全部</option><option value="monitor">monitor</option></select></label>
@@ -31,15 +32,15 @@ onMounted(apply)
       <button class="button" type="submit" :disabled="query.loading.value">应用筛选</button>
     </form>
     <ProductState v-if="query.loading.value" state="loading" />
-    <ProductState v-else-if="query.message.value" :state="query.state.value" :message="query.message.value" />
+    <ProductState v-else-if="query.message.value" :state="query.state.value" :message="query.message.value" action-label="重试" @retry="query.load(true)" />
     <p v-if="query.updatedAt.value" class="last-updated">最近成功更新：{{ query.updatedAt.value }}</p>
     <div class="record-list" :aria-busy="query.loading.value">
       <article v-for="(entry,index) in query.items.value" :key="`${entry.timestamp}-${index}`" class="record-card">
-        <div class="record-card__header"><ProductTime :value="entry.timestamp" /><span :class="`level level--${entry.severity}`">{{ entry.severity }}</span></div>
+        <div class="record-card__header"><ProductTime :value="entry.timestamp" /><ProductStatus :status="entry.severity" /></div>
         <h3>{{ labels[entry.event_name] }} <code>{{ entry.event_name }}</code></h3><p>{{ entry.message }}</p>
         <dl class="metadata-list"><div><dt>source</dt><dd>{{ entry.source }}</dd></div><template v-for="(value,key) in entry.metadata" :key="key"><div><dt>{{ key }}</dt><dd>{{ value }}</dd></div></template></dl>
       </article>
     </div>
-    <button v-if="query.cursor.value" class="button button--secondary load-more" :disabled="query.loadingMore.value" @click="query.load(false)">{{ query.loadingMore.value ? '加载中…' : '加载更多' }}</button>
+    <button v-if="query.cursor.value" class="button button--secondary load-more" type="button" :disabled="query.loadingMore.value" @click="query.load(false)">{{ query.loadingMore.value ? '加载中…' : '加载更多' }}</button>
   </section>
 </template>

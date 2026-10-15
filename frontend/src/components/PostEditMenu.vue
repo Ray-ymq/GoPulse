@@ -41,7 +41,7 @@ const { user } = useAuth()
 </template>
 
 <style scoped>
-dialog { max-width: min(90vw, 32rem); border: 1px solid #777; border-radius: 12px; padding: 24px; }
-dialog::backdrop { background: #0008; }
-.delete-danger { color: #b91c1c; margin-left: 12px; }
+dialog { max-width: min(90vw, 32rem); border: 1px solid var(--gp-border-strong); border-radius: var(--gp-radius-lg); padding: var(--gp-space-6); color: var(--gp-text); background: var(--gp-surface); }
+dialog::backdrop { background: var(--gp-overlay); }
+.delete-danger { color: var(--gp-danger-strong); margin-left: var(--gp-space-3); }
 </style>

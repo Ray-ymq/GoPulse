@@ -30,8 +30,8 @@ async function logout() {
     <a class="gp-skip" href="#admin-main">跳至主要内容</a>
     <aside class="admin-sidebar">
       <div class="admin-brand"><AdminIcon name="pulse" :size="30" /><strong>GoPulse <small>管理中心</small></strong></div>
-      <button class="nav-toggle button button--secondary" :aria-expanded="open" aria-controls="admin-navigation" @click="open = !open"><AdminIcon name="menu" />管理导航</button>
-      <nav id="admin-navigation" class="admin-nav" :class="{ 'is-open': open }" aria-label="可观测导航">
+      <button class="nav-toggle button button--secondary" type="button" :aria-expanded="open" aria-controls="admin-navigation" @click="open = !open"><AdminIcon name="menu" />管理导航</button>
+      <nav id="admin-navigation" class="admin-nav" :class="{ 'is-open': open }" aria-label="可观测导航" @keydown.esc="open = false">
         <div v-for="group in groups" :key="group.title" class="nav-group">
           <p>{{ group.title }}</p>
           <RouterLink v-for="link in group.links" :key="link.to" :to="link.to" @click="open = false"><AdminIcon :name="link.icon" />{{ link.label }}</RouterLink>
@@ -42,7 +42,7 @@ async function logout() {
     <div class="admin-workspace">
       <header class="admin-header">
         <div class="admin-breadcrumb"><AdminIcon name="menu" /><span>GoPulse</span><span>/</span><h1>可观测中心</h1><span>/</span><strong>{{ title }}</strong></div>
-        <div class="admin-account"><a class="button button--secondary" href="/posts">返回社交</a><span class="account-avatar"><AdminIcon name="user" /></span><span class="admin-identity">{{ auth.user.value?.username }} <small>超级管理员</small></span><button class="button button--secondary" :disabled="loggingOut" @click="logout">退出登录</button></div>
+        <div class="admin-account"><a class="button button--secondary" href="/posts">返回社交</a><span class="account-avatar"><AdminIcon name="user" /></span><span class="admin-identity">{{ auth.user.value?.username }} <small>超级管理员</small></span><button class="button button--secondary" type="button" :disabled="loggingOut" @click="logout">退出登录</button></div>
         <p v-if="logoutError" role="alert">退出失败，请重试。</p>
       </header>
       <main id="admin-main" tabindex="-1" class="admin-content"><RouterView /></main>
