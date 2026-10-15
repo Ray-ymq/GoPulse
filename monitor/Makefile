@@ -3,6 +3,8 @@
 
 GO ?= go
 
+include ../make/go-lint.mk
+
 # Official plugin archives. The version defaults to the repository VERSION and the
 # architecture to the host GOARCH; both can be overridden per invocation, and the
 # archive bytes stay reproducible through monitor/cmd/plugin-package.

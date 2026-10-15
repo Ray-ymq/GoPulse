@@ -2,6 +2,8 @@
 # The root Makefile dispatches here as: make <target> MODULE=lifecycle
 
 GO ?= go
+
+include ../make/go-lint.mk
 PACKAGE ?= ./bin/gopulse-package
 
 .PHONY: test race check build package

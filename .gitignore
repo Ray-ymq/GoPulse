@@ -50,3 +50,4 @@ admin-frontend/playwright-report/
 /dist/
 devtools/bin/
 lifecycle/bin/
+acceptance/bin/
