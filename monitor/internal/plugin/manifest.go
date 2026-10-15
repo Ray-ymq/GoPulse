@@ -29,6 +29,13 @@ func ParseManifestV2(data []byte) (Manifest, error) {
 	return parseManifest(data, 2)
 }
 
+// ParseManifestV2ForArch validates a v2 package for a selected target
+// architecture. Build tooling uses this when it validates a cross-built Linux
+// package on a different host architecture.
+func ParseManifestV2ForArch(data []byte, arch string) (Manifest, error) {
+	return parseManifestForArch(data, 2, arch)
+}
+
 func parseManifest(data []byte, schemaVersion int) (Manifest, error) {
 	return parseManifestForArch(data, schemaVersion, runtime.GOARCH)
 }

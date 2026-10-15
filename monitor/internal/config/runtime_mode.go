@@ -52,7 +52,16 @@ func validateDependencyHost(mode RuntimeMode, key, host string) error {
 		}
 		return fmt.Errorf("%s must use a loopback host in host mode", key)
 	}
-	if host == "localhost" || host == "host.docker.internal" || net.ParseIP(host) != nil || !isServiceDNSName(host) {
+	// Docker Desktop exposes native macOS processes through this hostname.
+	// The local Darwin Compose overlay uses it only for the Monitor-to-Router
+	// bridge; Redis remains on the Compose network.
+	if host == "host.docker.internal" {
+		if key == "MONITOR_ROUTER_URL" || key == "MONITOR_ROUTER_URLS" {
+			return nil
+		}
+		return fmt.Errorf("%s must use a service DNS name in container mode", key)
+	}
+	if host == "localhost" || net.ParseIP(host) != nil || !isServiceDNSName(host) {
 		return fmt.Errorf("%s must use a service DNS name in container mode", key)
 	}
 	return nil

@@ -169,19 +169,13 @@ func TestUpdateDoubleStartFailureReportsFailedAndRestoresPersistentVersion(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldExecutableBytes, err := os.ReadFile("/usr/bin/yes")
-	if err != nil {
-		t.Fatal(err)
-	}
+	oldExecutableBytes := testExecutable(t, true)
 	oldPackage := writeExecutablePackage(t, "1.3.3", oldExecutableBytes)
 	if _, err = manager.Install(context.Background(), oldPackage); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
 	healthAvailable.Store(false)
-	failingExecutableBytes, err := os.ReadFile("/bin/false")
-	if err != nil {
-		t.Fatal(err)
-	}
+	failingExecutableBytes := testExecutable(t, false)
 	failingPackage := writeExecutablePackage(t, "1.3.4", failingExecutableBytes)
 	if _, err = manager.Update(context.Background(), PluginID, failingPackage); err == nil {
 		t.Fatal("Update() succeeded despite both new start and old restart failing")
@@ -219,10 +213,7 @@ func TestUpdateRegistryFailureRestoresMemoryCurrentAndDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := os.ReadFile("/usr/bin/yes")
-	if err != nil {
-		t.Fatal(err)
-	}
+	executable := testExecutable(t, true)
 	if _, err = manager.Install(context.Background(), writeExecutablePackage(t, "1.3.3", executable)); err != nil {
 		t.Fatal(err)
 	}
@@ -287,10 +278,7 @@ func TestManagerRecordsOnlySuccessfulLifecycleTransitions(t *testing.T) {
 	}
 	recorder := &recordingEvents{accept: false}
 	manager.AttachEvents(recorder)
-	executable, err := os.ReadFile("/usr/bin/yes")
-	if err != nil {
-		t.Fatal(err)
-	}
+	executable := testExecutable(t, true)
 	if _, err = manager.Install(context.Background(), writeExecutablePackage(t, "1.7.0", executable)); err != nil {
 		t.Fatal(err)
 	}
@@ -346,10 +334,7 @@ func TestManagerRecordsTerminalStartFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := os.ReadFile("/usr/bin/yes")
-	if err != nil {
-		t.Fatal(err)
-	}
+	executable := testExecutable(t, true)
 	if _, err = manager.Install(context.Background(), writeExecutablePackage(t, "1.7.2", executable)); err != nil {
 		t.Fatal(err)
 	}
@@ -380,10 +365,7 @@ func TestManagerRecordsUnexpectedExitAfterStateCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := os.ReadFile("/usr/bin/yes")
-	if err != nil {
-		t.Fatal(err)
-	}
+	executable := testExecutable(t, true)
 	if _, err = manager.Install(context.Background(), writeExecutablePackage(t, "1.7.2", executable)); err != nil {
 		t.Fatal(err)
 	}
@@ -470,10 +452,7 @@ func TestBootstrapInstallsPreservesDesiredStateUpgradesAndRejectsDowngrade(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := os.ReadFile("/usr/bin/yes")
-	if err != nil {
-		t.Fatal(err)
-	}
+	executable := testExecutable(t, true)
 	versionOne := writeExecutablePackage(t, "1.9.1", executable)
 	installed, err := manager.Bootstrap(context.Background(), versionOne)
 	if err != nil || installed.Version != "1.9.1" || installed.DesiredState != DesiredRunning {

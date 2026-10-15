@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 )
@@ -40,7 +41,7 @@ func validatePluginRoot(root string) (string, error) {
 	if !filepath.IsAbs(root) {
 		return "", errors.New("plugin root must be absolute")
 	}
-	clean := filepath.Clean(root)
+	clean := normalizePluginRoot(root)
 	if clean == string(filepath.Separator) {
 		return "", errors.New("plugin root must not be the filesystem root")
 	}
@@ -55,6 +56,22 @@ func validatePluginRoot(root string) (string, error) {
 		return "", err
 	}
 	return clean, nil
+}
+
+// normalizePluginRoot resolves macOS system aliases before checking path
+// components. The aliases are created by the operating system, not by the
+// caller, and /var is the parent of Go's default temporary directory.
+func normalizePluginRoot(root string) string {
+	clean := filepath.Clean(root)
+	if runtime.GOOS != "darwin" {
+		return clean
+	}
+	for _, alias := range []string{"/etc", "/tmp", "/var"} {
+		if clean == alias || strings.HasPrefix(clean, alias+string(filepath.Separator)) {
+			return filepath.Clean("/private" + clean)
+		}
+	}
+	return clean
 }
 
 func samePath(left, right string) bool {
@@ -84,7 +101,7 @@ func repositoryRoot() string {
 }
 
 func rejectSymlinkComponents(path string) error {
-	clean := filepath.Clean(path)
+	clean := normalizePluginRoot(path)
 	volume := filepath.VolumeName(clean)
 	remainder := strings.TrimPrefix(clean, volume)
 	current := volume + string(filepath.Separator)

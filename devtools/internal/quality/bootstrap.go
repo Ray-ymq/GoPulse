@@ -260,6 +260,9 @@ func ensurePlaywright(root, application, browser string) error {
 }
 
 func hasInstalledBrowser(root, browser string) bool {
+	if browser != "chromium" {
+		return false
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return false
@@ -268,11 +271,17 @@ func hasInstalledBrowser(root, browser string) bool {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), browser+"-") {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(root, entry.Name(), "chrome-linux", "chrome")); err == nil && browser == "chromium" {
-			return true
+		paths := []string{
+			filepath.Join(root, entry.Name(), "chrome-linux", "chrome"),
+			filepath.Join(root, entry.Name(), "chrome-linux64", "chrome"),
 		}
-		if _, err := os.Stat(filepath.Join(root, entry.Name(), "chrome-linux64", "chrome")); err == nil && browser == "chromium" {
-			return true
+		if runtime.GOOS == "darwin" {
+			paths = append(paths, filepath.Join(root, entry.Name(), "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"))
+		}
+		for _, path := range paths {
+			if info, err := os.Stat(path); err == nil && !info.IsDir() {
+				return true
+			}
 		}
 	}
 	return false

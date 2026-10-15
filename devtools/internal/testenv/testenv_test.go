@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -234,7 +235,7 @@ func testSession(t *testing.T, observe bool) *session {
 	directory := t.TempDir()
 	current := testSessionFor(t, root, workspaceFor(t, directory))
 	if observe {
-		current.files = append(current.files, filepath.Join(root, "deploy", "compose.local-linux.yaml"))
+		current.files = append(current.files, filepath.Join(root, "deploy", "compose.local-"+runtime.GOOS+".yaml"))
 		current.profiles = []string{"observe"}
 		current.command.Files = current.files
 		current.command.Profiles = current.profiles

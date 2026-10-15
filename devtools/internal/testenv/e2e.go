@@ -1,6 +1,8 @@
 package testenv
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -206,7 +208,13 @@ func browserCheckCommands(observe bool) ([][]string, []string) {
 }
 
 func browserAcceptanceToken(ws workspace.Workspace) string {
-	return fmt.Sprintf("%016x%s", uint64(time.Now().UnixNano()), ws.Identity)
+	prefix := make([]byte, 8)
+	if _, err := rand.Read(prefix); err != nil {
+		// crypto/rand failures are not expected on supported hosts. Keep the
+		// token unique if a constrained test host cannot provide randomness.
+		return fmt.Sprintf("%016x%s", uint64(time.Now().UnixNano()), ws.Identity)
+	}
+	return hex.EncodeToString(prefix) + ws.Identity
 }
 
 // startBrowserProcesses starts the source services and both Vite processes the
