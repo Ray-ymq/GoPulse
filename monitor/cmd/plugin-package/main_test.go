@@ -74,7 +74,7 @@ func TestCurrentArchivesMatchReference(t *testing.T) {
 				t.Fatalf("members = %v", members)
 			}
 			manifest, schema := readManifestAndSchema(t, output)
-			parsed, err := plugin.ParseManifestV2(manifest)
+			parsed, err := plugin.ParseManifestV2ForArch(manifest, "amd64")
 			if err != nil {
 				t.Fatal(err)
 			}

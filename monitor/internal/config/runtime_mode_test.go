@@ -41,6 +41,12 @@ func TestRuntimeModeKeepsMonitorHostSafeAndAcceptsContainerDNS(t *testing.T) {
 	if cfg.RuntimeMode != RuntimeModeContainer || cfg.HTTPHost != "0.0.0.0" || cfg.RouterURL != "http://router:9091" {
 		t.Fatalf("container config=%+v", cfg)
 	}
+	container["MONITOR_ROUTER_URL"] = "http://host.docker.internal:9091"
+	container["ROUTER_ENDPOINTS"] = "host.docker.internal"
+	container["MARSHALLER_ENDPOINTS"] = "host.docker.internal"
+	if cfg, err := LoadFrom(mapLookup(container)); err != nil || cfg.RouterURL != "http://host.docker.internal:9091" {
+		t.Fatalf("Docker Desktop host bridge config=%+v error=%v", cfg, err)
+	}
 }
 
 func TestRuntimeModeRejectsUnsafeMonitorOrigins(t *testing.T) {
@@ -50,6 +56,7 @@ func TestRuntimeModeRejectsUnsafeMonitorOrigins(t *testing.T) {
 		{"MONITOR_ROUTER_URL", "http://router:9091/private"},
 		{"MONITOR_ROUTER_URL", "http://router:9091?token=secret"},
 		{"REDIS_HOST", "127.0.0.1"},
+		{"REDIS_HOST", "host.docker.internal"},
 		{"REDIS_EXPORTER_HTTP_HOST", "0.0.0.0"},
 		{"MONITOR_BOOTSTRAP_PACKAGE", "relative/package.tar.gz"},
 	} {

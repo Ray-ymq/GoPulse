@@ -1,8 +1,8 @@
 // Package proc runs foreground commands and owns background child processes.
 //
-// Ownership is proven by the process birth token: for a live PID the kernel
-// start time read from /proc/<pid>/stat is compared with the recorded value, so
-// a recycled PID is never mistaken for a process this workspace started.
+// Ownership is proven by the process birth token. The platform-specific
+// implementation reads the kernel process start time, so a recycled PID is
+// never mistaken for a process this workspace started.
 package proc
 
 import (
@@ -127,28 +127,6 @@ func Environment(overrides map[string]string) []string {
 		environment = append(environment, key+"="+merged[key])
 	}
 	return environment
-}
-
-// BirthIdentity returns the kernel start time of a live, non-zombie PID.
-func BirthIdentity(pid int) (string, bool) {
-	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return "", false
-	}
-	closing := strings.LastIndex(string(raw), ")")
-	if closing < 0 {
-		return "", false
-	}
-	fields := strings.Fields(string(raw)[closing+1:])
-	if len(fields) <= 19 {
-		return "", false
-	}
-	if fields[0] == "Z" {
-		return "", false
-	}
-	// fields[0] is the state field (field 3 of /proc/<pid>/stat), so the start
-	// time (field 22) is fields[19].
-	return fields[19], true
 }
 
 // Owned reports whether the record still refers to the process it started.

@@ -43,14 +43,7 @@ func runtimeFixture(t *testing.T) (ManagerConfig, *releaseCatalog, map[string]st
 	releases := []Release{}
 	paths := map[string]string{}
 	for _, version := range []string{"1.10.6", "1.11.1", "1.11.2", "1.11.3"} {
-		executable := "/usr/bin/yes"
-		if version == "1.11.2" {
-			executable = "/bin/false"
-		}
-		binary, err := os.ReadFile(executable)
-		if err != nil {
-			t.Fatal(err)
-		}
+		binary := testExecutable(t, version != "1.11.2")
 		purpose := "retained"
 		var archive string
 		if version == "1.10.6" {
@@ -69,7 +62,7 @@ func runtimeFixture(t *testing.T) (ManagerConfig, *releaseCatalog, map[string]st
 		}
 		path := filepath.Join(images, version+".tar.gz")
 		raw, _ := os.ReadFile(archive)
-		if err = os.WriteFile(path, raw, 0600); err != nil {
+		if err := os.WriteFile(path, raw, 0600); err != nil {
 			t.Fatal(err)
 		}
 		pin, err := InspectBuildRelease(path, purpose)

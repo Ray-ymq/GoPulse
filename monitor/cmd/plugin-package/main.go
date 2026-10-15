@@ -1,12 +1,13 @@
 // Command plugin-package builds one deterministic official plugin archive.
 //
-// The archive bytes are a published contract: every contract version delegates
-// archive creation to the system tar and gzip with fixed arguments, so the frozen
-// legacy, Phase 14 and current packages stay byte reproducible. The command only
-// decides validation, package layout, permissions and metadata.
+// The archive bytes are a published contract: every contract version uses fixed
+// archive settings, so the frozen legacy, Phase 14 and current packages stay
+// byte reproducible. The command only decides validation, package layout,
+// permissions and metadata.
 package main
 
 import (
+	"archive/tar"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,7 +18,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/monitor/internal/plugin"
 )
@@ -86,10 +89,8 @@ func run(arguments []string) (string, error) {
 	if err = validate(opts); err != nil {
 		return "", err
 	}
-	for _, tool := range []string{"tar", "gzip"} {
-		if _, err = exec.LookPath(tool); err != nil {
-			return "", fmt.Errorf("%s is required to build the archive", tool)
-		}
+	if _, err = exec.LookPath("gzip"); err != nil {
+		return "", fmt.Errorf("gzip is required to build the archive")
 	}
 	if opts.output == "" {
 		root, rootErr := repositoryRoot(opts.repoRoot)
@@ -243,16 +244,108 @@ func copyExecutable(source, destination string) error {
 	return os.Chmod(destination, 0o755)
 }
 
-// writeTar keeps the historical argument set: a fixed modification time, numeric
-// ownership, USTAR headers and name-sorted members make the bytes reproducible.
+// writeTar keeps the historical archive settings without depending on GNU tar,
+// which is not available with the same flags on the macOS system tar.
 func writeTar(directory, archive string, files []string) error {
-	arguments := []string{"--sort=name", "--mtime=@0", "--owner=0", "--group=0", "--numeric-owner", "--format=ustar", "-C", directory, "-cf", archive}
-	command := exec.Command("tar", append(arguments, files...)...)
-	command.Stdout, command.Stderr = os.Stderr, os.Stderr
-	if err := command.Run(); err != nil {
-		return fmt.Errorf("tar failed: %w", err)
+	output, err := os.Create(archive)
+	if err != nil {
+		return err
 	}
-	return nil
+	writer := tar.NewWriter(output)
+	for _, name := range files {
+		path := filepath.Join(directory, filepath.FromSlash(name))
+		input, openErr := os.Open(path)
+		if openErr != nil {
+			output.Close()
+			return openErr
+		}
+		info, statErr := input.Stat()
+		if statErr != nil {
+			input.Close()
+			output.Close()
+			return statErr
+		}
+		header, headerErr := tar.FileInfoHeader(info, "")
+		if headerErr != nil {
+			input.Close()
+			output.Close()
+			return headerErr
+		}
+		header.Name = name
+		header.Mode = int64(info.Mode().Perm())
+		header.ModTime = time.Unix(0, 0)
+		header.AccessTime = time.Time{}
+		header.ChangeTime = time.Time{}
+		header.Uid = 0
+		header.Gid = 0
+		header.Uname = ""
+		header.Gname = ""
+		header.Format = tar.FormatUSTAR
+		if err = writer.WriteHeader(header); err == nil {
+			_, err = io.Copy(writer, input)
+		}
+		closeErr := input.Close()
+		if err != nil {
+			output.Close()
+			return err
+		}
+		if closeErr != nil {
+			output.Close()
+			return closeErr
+		}
+	}
+	if err = writer.Close(); err != nil {
+		output.Close()
+		return err
+	}
+	if err = output.Close(); err != nil {
+		return err
+	}
+	return normalizeTarHeaders(archive)
+}
+
+// normalizeTarHeaders clears the device fields the historical GNU tar writer
+// emitted for regular files. archive/tar writes octal zeroes there, so
+// normalize them before the archive is compressed.
+func normalizeTarHeaders(archive string) error {
+	data, err := os.ReadFile(archive)
+	if err != nil {
+		return err
+	}
+	for offset := 0; offset+512 <= len(data); {
+		header := data[offset : offset+512]
+		allZero := true
+		for _, value := range header {
+			if value != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			break
+		}
+		for index := 329; index < 345; index++ {
+			header[index] = 0
+		}
+		for index := 148; index < 156; index++ {
+			header[index] = ' '
+		}
+		var checksum int
+		for _, value := range header {
+			checksum += int(value)
+		}
+		copy(header[148:156], []byte(fmt.Sprintf("%06o\x00 ", checksum)))
+		rawSize := strings.Trim(string(header[124:136]), " \x00")
+		size, parseErr := strconv.ParseInt(rawSize, 8, 64)
+		if parseErr != nil || size < 0 {
+			return errors.New("invalid USTAR member size")
+		}
+		offset += 512 + ((int(size) + 511) / 512 * 512)
+	}
+	if remainder := len(data) % 10240; remainder != 0 {
+		data = append(data, make([]byte, 10240-remainder)...)
+	}
+	return os.WriteFile(archive, data, 0o600)
 }
 
 // writeGzip omits the name and timestamp so repeated builds stay identical.

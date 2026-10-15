@@ -1018,7 +1018,7 @@ func (m *Manager) ConnectionTest(ctx context.Context, id string, data []byte) er
 		}
 	}
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
+	configurePluginProcess(cmd)
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return nil
