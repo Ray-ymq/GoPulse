@@ -2,10 +2,13 @@
 import AdminTrend from '../components/AdminTrend.vue'
 import AdminStat from '../components/AdminStat.vue'
 import AdminIcon from '../components/AdminIcon.vue'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 import { useRoute } from 'vue-router'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { metricCatalog, loadMetricCatalog, observabilityApi, ranges } from '../services/observability'
 import type { MetricName, MetricResult, QueryRange } from '../types/observability'
+
+type ProductStateName = 'loading' | 'empty' | 'partial' | 'stale' | 'denied' | 'unavailable'
 
 const route = useRoute()
 const options = ref<typeof metricCatalog>([])
@@ -21,6 +24,7 @@ const samples = computed(() => result.value?.series.flatMap(series => series.poi
 const maximum = computed(() => samples.value.length ? samples.value.reduce((a,b) => Math.max(a,b)) : '未知')
 const average = computed(() => samples.value.length ? Number((samples.value.reduce((a,b) => a+b,0)/samples.value.length).toPrecision(6)) : '未知')
 const latest = computed(() => result.value?.series.map((series) => ({ series, labels: series.labels, point: series.points.at(-1) })).filter((item) => item.point) ?? [])
+const messageState = computed<ProductStateName>(() => !result.value ? 'unavailable' : result.value.series.length ? 'stale' : 'empty')
 function errorDetails(error: unknown): { code?: unknown; status?: unknown } {
   if (typeof error !== 'object' || error === null) return {}
   return error as { code?: unknown; status?: unknown }
@@ -65,7 +69,9 @@ onBeforeUnmount(() => { sequence++; controller?.abort() })
       <button class="button" type="submit" :disabled="loading"><AdminIcon name="refresh" />{{loading?'查询中…':'应用'}}</button>
       <button class="icon-button" type="button" aria-label="刷新" :disabled="loading" @click="load"><AdminIcon name="refresh" /></button>
     </form>
-    <p v-if="loading" role="status">正在查询指标…</p><p v-if="message" class="notice" role="status">{{message}}</p>
+    <ProductState v-if="loading && !result" state="loading" message="正在查询指标…" />
+    <ProductState v-else-if="message" :state="messageState" :message="message" action-label="重试" @retry="load" />
+    <p v-if="loading && result" class="last-updated" role="status">正在刷新指标，当前仍显示上次成功结果…</p>
     <template v-if="result">
       <div class="summary-grid">
         <AdminStat label="当前值" :value="latest[0]?.point?.value ?? '未知'" :note="`首条非空序列 · ${result.unit}`" icon="database" tone="green"><span class="metric-value">{{latest[0]?.point?.value ?? '未知'}}</span></AdminStat>
