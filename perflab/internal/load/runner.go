@@ -186,7 +186,7 @@ func safeRequestID(value string) string {
 		return ""
 	}
 	for _, character := range value {
-		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
 			return ""
 		}
 	}
@@ -198,7 +198,7 @@ func safeErrorCode(value string) string {
 		return ""
 	}
 	for _, character := range value {
-		if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_') {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' {
 			return ""
 		}
 	}
@@ -925,7 +925,8 @@ func executeRequest(ctx context.Context, client *http.Client, baseURL, cookieNam
 		result.timeout = errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError) && networkError.Timeout()
 		return result
 	}
-	defer response.Body.Close()
+	// The body is drained below; closing it is cleanup and does not change the HTTP outcome.
+	defer func() { _ = response.Body.Close() }()
 	bodyBytes, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
 	_, _ = io.Copy(io.Discard, response.Body)
 	result.status = response.StatusCode
@@ -961,10 +962,6 @@ func isExplicitReject(status int, retryAfter string, body []byte) bool {
 		return true
 	}
 	return strings.TrimSpace(retryAfter) != "" && code == "rate_limited"
-}
-
-func bytesContainJSONCode(body []byte, code string) bool {
-	return responseErrorCode(body) == code
 }
 
 func responseErrorCode(body []byte) string {
@@ -1029,7 +1026,8 @@ func loginSession(ctx context.Context, client *http.Client, baseURL, cookieName 
 	if err != nil {
 		return "", errors.New("login request failed")
 	}
-	defer response.Body.Close()
+	// The body is drained below; closing it is cleanup and does not change the login outcome.
+	defer func() { _ = response.Body.Close() }()
 	_, _ = io.Copy(io.Discard, response.Body)
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("login status %d", response.StatusCode)
@@ -1138,7 +1136,8 @@ func RunDiagnosticStage(ctx context.Context, config CapacityRunConfig, stageInde
 	if err != nil {
 		return DiagnosticStageReport{}, err
 	}
-	defer file.Close()
+	// Preserve the primary error on early returns. The final close is checked before publishing.
+	defer func() { _ = file.Close() }()
 	encoder := json.NewEncoder(file)
 	var mu sync.Mutex
 	var ledgerErr error
@@ -1244,6 +1243,9 @@ func RunDiagnosticStage(ctx context.Context, config CapacityRunConfig, stageInde
 	}
 	if ledgerErr != nil {
 		return DiagnosticStageReport{}, ledgerErr
+	}
+	if err := file.Close(); err != nil {
+		return DiagnosticStageReport{}, fmt.Errorf("close diagnostic ledger: %w", err)
 	}
 	encoded, err := os.ReadFile(ledgerPath)
 	if err != nil {

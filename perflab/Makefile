@@ -1,5 +1,5 @@
 # Component targets for this Go module.
-# The root Makefile dispatches here as: make <target> MODULE=loadtest
+# The root Makefile dispatches here as: make <target> MODULE=perflab
 
 GO ?= go
 

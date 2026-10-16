@@ -13,14 +13,14 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/Ray-ymq/GoPulse/loadtest/internal/recipe"
+	"github.com/Ray-ymq/GoPulse/perflab/internal/recipe"
 )
 
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
-func run(arguments []string) int {
+func run(arguments []string) (exitCode int) {
 	flags := flag.NewFlagSet("phase18-recipe", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var options recipe.GenerateOptions
@@ -64,7 +64,14 @@ func run(arguments []string) int {
 		fmt.Fprintln(os.Stderr, "open recipe database failed")
 		return 1
 	}
-	defer database.Close()
+	defer func() {
+		if err := database.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "close recipe database failed")
+			if exitCode == 0 {
+				exitCode = 1
+			}
+		}
+	}()
 	database.SetMaxOpenConns(4)
 	database.SetMaxIdleConns(1)
 	database.SetConnMaxLifetime(3 * time.Minute)

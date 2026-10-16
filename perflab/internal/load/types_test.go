@@ -1,8 +1,10 @@
 package load
 
 import (
+	"encoding/json"
 	"math"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -44,6 +46,34 @@ func TestCapacityProfileIsStrictlyBoundAndUsesThreeFixedRepetitions(t *testing.T
 	profile.Repetitions = 2
 	if err := ValidateProfile(profile); err == nil {
 		t.Fatal("profile accepted repetition drift")
+	}
+}
+
+func TestCapacityProfileRejectsNegativeAsynchronousCounts(t *testing.T) {
+	encoded, err := os.ReadFile("../../capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"max_outbox_pending", "max_rabbit_ready", "max_rabbit_unacked", "max_kafka_lag"} {
+		t.Run(field, func(t *testing.T) {
+			var profile map[string]any
+			if err := json.Unmarshal(encoded, &profile); err != nil {
+				t.Fatal(err)
+			}
+			gates := profile["gates"].(map[string]any)["asynchronous"].(map[string]any)
+			gates[field] = -1
+			invalid, err := json.Marshal(profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "profile.json")
+			if err := os.WriteFile(path, invalid, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := LoadProfile(path); err == nil {
+				t.Fatal("accepted a negative asynchronous count")
+			}
+		})
 	}
 }
 

@@ -15,7 +15,7 @@ OUTPUT   ?= dist
 
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
-GO_MODULES := backend componentmetrics router marshaller monitor lifecycle loadtest \
+GO_MODULES := backend componentmetrics router marshaller monitor lifecycle perflab \
               exporters/elasticsearch exporters/kafka exporters/mysql \
               exporters/rabbitmq exporters/redis exporters/victoriametrics \
               devtools acceptance

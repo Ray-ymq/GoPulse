@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -400,12 +399,6 @@ func LoginRequest(user User, password string) Request {
 	body, _ := json.Marshal(map[string]string{"username": user.Username, "password": password})
 	return Request{Category: CategorySession, Method: http.MethodPost, Template: "POST /api/v1/auth/login", Path: "/api/v1/auth/login", Body: body, ExpectedStatuses: statuses(http.StatusOK)}
 }
-
-func routeKey(request Request) string {
-	return request.Template
-}
-
-func formatStatus(code int) string { return strconv.Itoa(code) }
 
 // ObjectKey identifies a relationship or resource without recording cookies,
 // passwords, search text, or request bodies. Actor ID completes relationship keys.

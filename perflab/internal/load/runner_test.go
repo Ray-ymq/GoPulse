@@ -3,6 +3,8 @@ package load
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -266,6 +268,80 @@ func TestDiagnosticProfileCannotRunCrossStageLegacyRunner(t *testing.T) {
 	}
 	if _, err = RunCapacity(context.Background(), CapacityRunConfig{Profile: profile}); err == nil {
 		t.Fatal("diagnostic profile ran legacy shared-project stages")
+	}
+}
+
+func TestDiagnosticStageCancellationPreservesCompleteLedger(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/auth/login" {
+			http.SetCookie(writer, &http.Cookie{Name: "gopulse_session", Value: "test-session", Path: "/"})
+			return
+		}
+		cancel()
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	profile, digest, err := LoadProfile("../../phase20-capacity-profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corpus := Corpus{SchemaVersion: "gopulse.phase18.recipe.v1", Seed: profile.Recipe.Seed, ReadPostIDs: []uint64{5000}}
+	for index := 0; index < profile.Workload.VirtualUsers; index++ {
+		id := uint64(index + 1)
+		corpus.Users = append(corpus.Users, User{ID: id, Username: "user" + strconv.Itoa(index+1)})
+		corpus.EditablePostIDs = append(corpus.EditablePostIDs, []uint64{id})
+		corpus.DeletePostIDs = append(corpus.DeletePostIDs, []uint64{id + 2000})
+	}
+	directory := t.TempDir()
+	reportPath := filepath.Join(directory, "load-report.json")
+	ledgerPath := filepath.Join(directory, "ledger.jsonl")
+	report, err := RunDiagnosticStage(ctx, CapacityRunConfig{
+		BaseURL: server.URL, Corpus: corpus,
+		Credentials: Credentials{SchemaVersion: CredentialsSchemaVersion, Password: "password", Users: corpus.Users},
+		Profile:     profile, ProfileDigest: digest,
+		Candidate: CandidateBinding{Version: profile.TargetCandidateVersion, Revision: strings.Repeat("a", 40), ManifestSHA256: "sha256:" + strings.Repeat("b", 64)},
+		Repeat:    1, ReportPath: reportPath,
+	}, 0, "cancelled-run", ledgerPath)
+	if !errors.Is(err, context.Canceled) || report.ExecutionStatus != "incomplete" {
+		t.Fatalf("status=%q err=%v", report.ExecutionStatus, err)
+	}
+	ledger, err := os.ReadFile(ledgerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Ledger.SHA256 != ProfileDigest(ledger) {
+		t.Fatal("report digest differs from the finalized ledger")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(ledger)))
+	var arrivals, terminals uint64
+	for {
+		var record AcceptanceRecord
+		if err := decoder.Decode(&record); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if record.Record == "arrival" && record.Outcome == "scheduled" {
+			arrivals++
+		} else if record.Record == "terminal" {
+			terminals++
+		}
+	}
+	if arrivals == 0 || terminals != arrivals {
+		t.Fatalf("arrivals=%d terminals=%d", arrivals, terminals)
+	}
+	encoded, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved DiagnosticStageReport
+	if err := json.Unmarshal(encoded, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.ExecutionStatus != "incomplete" || saved.Ledger != report.Ledger {
+		t.Fatalf("saved report does not preserve cancellation and ledger identity: %+v", saved)
 	}
 }
 

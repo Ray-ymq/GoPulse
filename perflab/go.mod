@@ -1,4 +1,4 @@
-module github.com/Ray-ymq/GoPulse/loadtest
+module github.com/Ray-ymq/GoPulse/perflab
 
 go 1.26
 

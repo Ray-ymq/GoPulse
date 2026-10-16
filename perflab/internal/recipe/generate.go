@@ -51,7 +51,7 @@ type GenerateOptions struct {
 	Now        func() time.Time
 }
 
-func Generate(ctx context.Context, database *sql.DB, options GenerateOptions) (Receipt, error) {
+func Generate(ctx context.Context, database *sql.DB, options GenerateOptions) (result Receipt, returnErr error) {
 	if database == nil || strings.TrimSpace(options.DSN) != "" && database == nil {
 		return Receipt{}, errors.New("recipe database is required")
 	}
@@ -75,7 +75,11 @@ func Generate(ctx context.Context, database *sql.DB, options GenerateOptions) (R
 	if err != nil {
 		return Receipt{}, errors.New("begin recipe transaction")
 	}
-	defer transaction.Rollback()
+	defer func() {
+		if err := transaction.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			returnErr = errors.Join(returnErr, errors.New("rollback recipe transaction"))
+		}
+	}()
 
 	if err := insertUsers(ctx, transaction, options.Seed, string(passwordHash)); err != nil {
 		return Receipt{}, err

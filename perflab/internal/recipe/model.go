@@ -161,7 +161,8 @@ func Digest(seed uint64) string {
 		writeUint(digest, bookmarkUser(id))
 	}
 	writeString(digest, "business_outbox")
-	forEachOutboxEvent(seed, func(event outboxEvent) error {
+	// This visitor only hashes values and always returns nil, so iteration cannot fail.
+	_ = forEachOutboxEvent(seed, func(event outboxEvent) error {
 		writeString(digest, event.Type)
 		writeString(digest, event.EventID)
 		writeUint(digest, event.ActorID)

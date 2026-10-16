@@ -537,7 +537,7 @@ func validateGates(gates GateProfile) error {
 		return errors.New("capacity profile synchronous gates are invalid")
 	}
 	asyncGates := gates.Asynchronous
-	if !positiveFinite(asyncGates.MaxRecoverySeconds) || asyncGates.MaxOutboxPending < 0 || asyncGates.MaxRabbitReady < 0 || asyncGates.MaxRabbitUnacked < 0 || asyncGates.MaxKafkaLag < 0 {
+	if !positiveFinite(asyncGates.MaxRecoverySeconds) {
 		return errors.New("capacity profile asynchronous gates are invalid")
 	}
 	if !positiveFinite(gates.Observability.MaxRecoverySeconds) {
@@ -588,7 +588,7 @@ func validRevision(value string) bool {
 		return false
 	}
 	for _, character := range value {
-		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
 			return false
 		}
 	}

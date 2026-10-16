@@ -16,7 +16,7 @@ import (
 	"regexp"
 	"syscall"
 
-	"github.com/Ray-ymq/GoPulse/loadtest/internal/load"
+	"github.com/Ray-ymq/GoPulse/perflab/internal/load"
 )
 
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)

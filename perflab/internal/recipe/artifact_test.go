@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/loadtest/internal/load"
+	"github.com/Ray-ymq/GoPulse/perflab/internal/load"
 )
 
 // TestArtifactsAreAcceptedByTheLoadGenerator pins the producer/consumer
