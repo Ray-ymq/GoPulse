@@ -1201,7 +1201,8 @@ paths:
       tags: [Observability]
       summary: 查询指标序列
       description: |
-        `metric` 必须来自指标目录；返回按窗口聚合后的序列。
+        `metric` 接受已配置来源命名空间中的合法指标名，无需在代码目录中登记。
+        返回所选窗口的原始指标序列，并保留动态维度标签。最多返回 1024 条序列。
         上游不可用或返回结构不符合合同时返回 503 `metrics_unavailable`。
       parameters:
         - $ref: '#/components/parameters/MetricName'
@@ -1229,8 +1230,11 @@ paths:
       tags: [Observability]
       summary: 指标目录
       description: |
-        返回可查询的指标定义。不接受任何查询参数，请求体必须为空；
-        目录不包含标签取值以外的生产者信息与查询表达式。
+        以最近 24 小时为发现窗口，从存储中的指标元数据发现指标，并合并历史指标的显示预设。
+        存储的序列发现接口按 UTC 日期取整时间窗口。
+        指标类型取自采集结果。单位按名称后缀推断，历史预设可补充单位；未知单位为 `none`。
+        标签键通过 `label_keys` 返回。不接受查询参数，请求体必须为空。
+        目录最多包含 2048 项。存储不可用或目录超过上限时返回 503。
       responses:
         '200':
           description: 指标定义列表。
@@ -2202,7 +2206,7 @@ components:
       name: metric
       in: query
       required: true
-      description: 指标名，必须来自 `GET /api/v1/observability/metrics/catalog`；最长 128 字符，不含控制字符。
+      description: 指标名，需使用已配置来源的 `gopulse_<source>_` 前缀；来源名称中的连字符替换为下划线。可从动态目录发现，无需在代码中登记。最长 128 字符，只接受字母、数字和下划线。
       schema:
         type: string
         maxLength: 128
@@ -3258,6 +3262,14 @@ components:
           enum: [gauge, counter]
         unit:
           type: string
+          enum: [none, boolean, seconds, count, bytes, state, unix_seconds]
+        label_keys:
+          type: array
+          maxItems: 16
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 64
 
     MetricAlertDefinition:
       type: object
@@ -3288,28 +3300,11 @@ components:
 
     MetricLabels:
       type: object
-      description: 指标标签，未出现的标签被省略。
-      properties:
-        method: {type: string}
-        route: {type: string}
-        status_class: {type: string}
-        event_type: {type: string}
-        operation: {type: string}
-        dependency: {type: string}
-        scraped_producer_kind: {type: string}
-        scraped_target_id: {type: string}
-        type: {type: string}
-        message_source: {type: string}
-        stage: {type: string}
-        storage: {type: string}
-        partition: {type: string}
-        status: {type: string}
-        result: {type: string}
-        state: {type: string}
-        mode: {type: string}
-        db: {type: string}
-        le: {type: string}
-        alert_source: {type: string}
+      description: 动态指标标签。每条序列最多 16 个标签，标签键最长 64 字节，标签值最长 256 字节。来源和生产者身份由服务端校验，不作为业务标签返回。
+      maxProperties: 16
+      additionalProperties:
+        type: string
+        maxLength: 256
 
     MetricPoint:
       type: object

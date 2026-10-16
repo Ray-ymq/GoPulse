@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var ErrUnavailable = errors.New("target_unavailable")
@@ -74,31 +77,244 @@ type stats struct {
 	} `json:"_all"`
 }
 
+type nodeStatsResponse struct {
+	Nodes map[string]nodeStats `json:"nodes"`
+}
+
+type nodeStats struct {
+	JVM struct {
+		Mem struct {
+			HeapUsed *uint64 `json:"heap_used_in_bytes"`
+			HeapMax  *uint64 `json:"heap_max_in_bytes"`
+		} `json:"mem"`
+		GC struct {
+			Collectors map[string]gcStats `json:"collectors"`
+		} `json:"gc"`
+	} `json:"jvm"`
+	ThreadPool map[string]threadPoolStats `json:"thread_pool"`
+	Indices    struct {
+		Search   searchStats   `json:"search"`
+		Indexing indexingStats `json:"indexing"`
+	} `json:"indices"`
+	FS struct {
+		Total struct {
+			Total     *uint64 `json:"total_in_bytes"`
+			Free      *uint64 `json:"free_in_bytes"`
+			Available *uint64 `json:"available_in_bytes"`
+		} `json:"total"`
+	} `json:"fs"`
+}
+
+type gcStats struct {
+	CollectionCount *uint64 `json:"collection_count"`
+	CollectionTime  *uint64 `json:"collection_time_in_millis"`
+}
+
+type threadPoolStats struct {
+	Threads   *uint64 `json:"threads"`
+	Queue     *uint64 `json:"queue"`
+	Active    *uint64 `json:"active"`
+	Rejected  *uint64 `json:"rejected"`
+	Completed *uint64 `json:"completed"`
+}
+
+type searchStats struct {
+	QueryTotal      *uint64 `json:"query_total"`
+	QueryTimeMillis *uint64 `json:"query_time_in_millis"`
+	QueryCurrent    *uint64 `json:"query_current"`
+	FetchTotal      *uint64 `json:"fetch_total"`
+	FetchTimeMillis *uint64 `json:"fetch_time_in_millis"`
+	FetchCurrent    *uint64 `json:"fetch_current"`
+}
+
+type indexingStats struct {
+	IndexTotal      *uint64 `json:"index_total"`
+	IndexTimeMillis *uint64 `json:"index_time_in_millis"`
+	IndexCurrent    *uint64 `json:"index_current"`
+	IndexFailed     *uint64 `json:"index_failed"`
+}
+
+type sample struct {
+	name, kind string
+	labels     map[string]string
+	value      string
+}
+
+func addSample(samples *[]sample, name, kind, value string, labels map[string]string) {
+	copyLabels := make(map[string]string, len(labels))
+	for key, label := range labels {
+		copyLabels[key] = label
+	}
+	*samples = append(*samples, sample{name: name, kind: kind, labels: copyLabels, value: value})
+}
+
+func renderSamples(samples []sample) string {
+	types := map[string]string{}
+	for _, item := range samples {
+		types[item.name] = item.kind
+	}
+	typeNames := make([]string, 0, len(types))
+	for name := range types {
+		typeNames = append(typeNames, name)
+	}
+	sort.Strings(typeNames)
+	var b strings.Builder
+	for _, name := range typeNames {
+		fmt.Fprintf(&b, "# TYPE %s %s\n", name, types[name])
+	}
+	sort.Slice(samples, func(i, j int) bool {
+		if samples[i].name != samples[j].name {
+			return samples[i].name < samples[j].name
+		}
+		return labelKey(samples[i].labels) < labelKey(samples[j].labels)
+	})
+	for _, item := range samples {
+		fmt.Fprintf(&b, "%s%s %s\n", item.name, formatLabels(item.labels), item.value)
+	}
+	return b.String()
+}
+
+func formatLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+strconv.Quote(labels[key]))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func labelKey(labels map[string]string) string {
+	return formatLabels(labels)
+}
+
 func Collect(ctx context.Context, c *Client) (string, error) {
 	var h health
 	var s stats
-	if c.read(ctx, "/_cluster/health", &h) != nil || c.read(ctx, "/_stats/docs,store?level=cluster", &s) != nil {
+	var ns nodeStatsResponse
+	if c.read(ctx, "/_cluster/health", &h) != nil || c.read(ctx, "/_stats/docs,store?level=cluster", &s) != nil || c.read(ctx, "/_nodes/stats/jvm,thread_pool,indices,fs", &ns) != nil {
 		return "", ErrUnavailable
 	}
-	if h.TimedOut == nil || *h.TimedOut || (h.Status != "green" && h.Status != "yellow" && h.Status != "red") || s.Shards.Total == nil || s.Shards.Successful == nil || s.Shards.Failed == nil || *s.Shards.Failed != 0 {
+	if h.TimedOut == nil || *h.TimedOut || (h.Status != "green" && h.Status != "yellow" && h.Status != "red") || s.Shards.Total == nil || s.Shards.Successful == nil || s.Shards.Failed == nil || *s.Shards.Failed != 0 || len(ns.Nodes) == 0 || len(ns.Nodes) > 128 {
 		return "", ErrUnavailable
 	}
-	names := []string{"nodes", "data_nodes", "active_primary_shards", "active_shards", "relocating_shards", "initializing_shards", "unassigned_shards", "pending_tasks", "documents", "store_size_bytes"}
-	values := []*uint64{h.Nodes, h.DataNodes, h.Primary, h.Active, h.Relocating, h.Initializing, h.Unassigned, h.Pending, s.All.Primaries.Docs.Count, s.All.Primaries.Store.Bytes}
-	var b strings.Builder
-	b.WriteString("# TYPE gopulse_elasticsearch_up gauge\ngopulse_elasticsearch_up 1\n# TYPE gopulse_elasticsearch_cluster_health_status gauge\n")
+	var samples []sample
+	addSample(&samples, "gopulse_elasticsearch_up", "gauge", "1", nil)
 	for _, status := range []string{"green", "yellow", "red"} {
 		value := 0
 		if h.Status == status {
 			value = 1
 		}
-		fmt.Fprintf(&b, "gopulse_elasticsearch_cluster_health_status{status=%q} %d\n", status, value)
+		addSample(&samples, "gopulse_elasticsearch_cluster_health_status", "gauge", strconv.Itoa(value), map[string]string{"status": status})
 	}
+	names := []string{"nodes", "data_nodes", "active_primary_shards", "active_shards", "relocating_shards", "initializing_shards", "unassigned_shards", "pending_tasks", "documents", "store_size_bytes"}
+	values := []*uint64{h.Nodes, h.DataNodes, h.Primary, h.Active, h.Relocating, h.Initializing, h.Unassigned, h.Pending, s.All.Primaries.Docs.Count, s.All.Primaries.Store.Bytes}
 	for i, name := range names {
 		if values[i] == nil {
 			return "", ErrUnavailable
 		}
-		fmt.Fprintf(&b, "# TYPE gopulse_elasticsearch_%s gauge\ngopulse_elasticsearch_%s %d\n", name, name, *values[i])
+		addSample(&samples, "gopulse_elasticsearch_"+name, "gauge", strconv.FormatUint(*values[i], 10), nil)
 	}
-	return b.String(), nil
+
+	threadPools := []string{"search", "write", "get", "management", "refresh", "flush", "force_merge", "snapshot", "generic", "listener"}
+	nodeIDs := make([]string, 0, len(ns.Nodes))
+	for nodeID := range ns.Nodes {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	sort.Strings(nodeIDs)
+	for _, nodeID := range nodeIDs {
+		node := ns.Nodes[nodeID]
+		if !validLabel(nodeID) || node.JVM.Mem.HeapUsed == nil || node.JVM.Mem.HeapMax == nil || node.FS.Total.Total == nil || node.FS.Total.Free == nil || node.FS.Total.Available == nil {
+			return "", ErrUnavailable
+		}
+		labels := map[string]string{"node_id": nodeID}
+		addSample(&samples, "gopulse_elasticsearch_jvm_heap_used_bytes", "gauge", strconv.FormatUint(*node.JVM.Mem.HeapUsed, 10), labels)
+		addSample(&samples, "gopulse_elasticsearch_jvm_heap_max_bytes", "gauge", strconv.FormatUint(*node.JVM.Mem.HeapMax, 10), labels)
+		addSample(&samples, "gopulse_elasticsearch_filesystem_bytes", "gauge", strconv.FormatUint(*node.FS.Total.Total, 10), map[string]string{"node_id": nodeID, "state": "total"})
+		addSample(&samples, "gopulse_elasticsearch_filesystem_bytes", "gauge", strconv.FormatUint(*node.FS.Total.Free, 10), map[string]string{"node_id": nodeID, "state": "free"})
+		addSample(&samples, "gopulse_elasticsearch_filesystem_bytes", "gauge", strconv.FormatUint(*node.FS.Total.Available, 10), map[string]string{"node_id": nodeID, "state": "available"})
+		gcNames := make([]string, 0, len(node.JVM.GC.Collectors))
+		for gcName := range node.JVM.GC.Collectors {
+			gcNames = append(gcNames, gcName)
+		}
+		if len(gcNames) > 16 {
+			return "", ErrUnavailable
+		}
+		sort.Strings(gcNames)
+		for _, gcName := range gcNames {
+			if !validLabel(gcName) {
+				return "", ErrUnavailable
+			}
+			gc := node.JVM.GC.Collectors[gcName]
+			gcLabels := map[string]string{"node_id": nodeID, "gc": gcName}
+			if gc.CollectionCount != nil {
+				addSample(&samples, "gopulse_elasticsearch_jvm_gc_collections_total", "counter", strconv.FormatUint(*gc.CollectionCount, 10), gcLabels)
+			}
+			if gc.CollectionTime != nil {
+				addSample(&samples, "gopulse_elasticsearch_jvm_gc_collection_time_seconds_total", "counter", strconv.FormatFloat(float64(*gc.CollectionTime)/1000, 'g', -1, 64), gcLabels)
+			}
+		}
+		for _, pool := range threadPools {
+			stats, ok := node.ThreadPool[pool]
+			if !ok {
+				continue
+			}
+			poolLabels := map[string]string{"node_id": nodeID, "thread_pool": pool}
+			if stats.Active != nil {
+				addSample(&samples, "gopulse_elasticsearch_thread_pool_active", "gauge", strconv.FormatUint(*stats.Active, 10), poolLabels)
+			}
+			if stats.Queue != nil {
+				addSample(&samples, "gopulse_elasticsearch_thread_pool_queue", "gauge", strconv.FormatUint(*stats.Queue, 10), poolLabels)
+			}
+			if stats.Completed != nil {
+				addSample(&samples, "gopulse_elasticsearch_thread_pool_completed_total", "counter", strconv.FormatUint(*stats.Completed, 10), poolLabels)
+			}
+			if stats.Rejected != nil {
+				addSample(&samples, "gopulse_elasticsearch_thread_pool_rejected_total", "counter", strconv.FormatUint(*stats.Rejected, 10), poolLabels)
+			}
+		}
+		search := node.Indices.Search
+		for _, metric := range []struct {
+			name, kind, operation string
+			value                 *uint64
+			scale                 float64
+		}{
+			{"search_operations_total", "counter", "query", search.QueryTotal, 1},
+			{"search_duration_seconds_total", "counter", "query", search.QueryTimeMillis, 0.001},
+			{"search_in_flight", "gauge", "query", search.QueryCurrent, 1},
+			{"search_operations_total", "counter", "fetch", search.FetchTotal, 1},
+			{"search_duration_seconds_total", "counter", "fetch", search.FetchTimeMillis, 0.001},
+			{"search_in_flight", "gauge", "fetch", search.FetchCurrent, 1},
+		} {
+			if metric.value != nil {
+				addSample(&samples, "gopulse_elasticsearch_"+metric.name, metric.kind, strconv.FormatFloat(float64(*metric.value)*metric.scale, 'g', -1, 64), map[string]string{"node_id": nodeID, "operation": metric.operation})
+			}
+		}
+		indexing := node.Indices.Indexing
+		for _, metric := range []struct {
+			name, kind string
+			value      *uint64
+			scale      float64
+		}{
+			{"indexing_operations_total", "counter", indexing.IndexTotal, 1},
+			{"indexing_duration_seconds_total", "counter", indexing.IndexTimeMillis, 0.001},
+			{"indexing_in_flight", "gauge", indexing.IndexCurrent, 1},
+			{"indexing_failed_total", "counter", indexing.IndexFailed, 1},
+		} {
+			if metric.value != nil {
+				addSample(&samples, "gopulse_elasticsearch_"+metric.name, metric.kind, strconv.FormatFloat(float64(*metric.value)*metric.scale, 'g', -1, 64), labels)
+			}
+		}
+	}
+	return renderSamples(samples), nil
+}
+
+func validLabel(value string) bool {
+	return value != "" && utf8.ValidString(value) && len(value) <= 256 && !strings.ContainsRune(value, 0)
 }

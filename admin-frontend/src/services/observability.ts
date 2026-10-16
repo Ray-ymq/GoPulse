@@ -1,4 +1,4 @@
-import { componentContracts, componentContract, validComponentLabels, validComponentValue } from './componentMetrics'
+import { componentContracts } from './componentMetrics'
 import type { Page } from '../types/api'
 import type { EventEntry, EventFilters, LogEntry, LogFilters, MetricName, MetricResult, QueryRange } from '../types/observability'
 import { requestValidatedData, requestValidatedPage } from './http'
@@ -106,59 +106,13 @@ export const eventNames = [
   'metrics_target_unavailable', 'metrics_target_recovered',
 ] as const
 
-const metricNames = new Set(metricCatalog.map((item) => item.value))
-const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolean'|'seconds'|'count'|'bytes'|'state'|'unix_seconds'; label?:'mode'|'db'|'result'|'state'|'status' }> = {
- ...componentContracts,
-  gopulse_redis_up:{kind:'gauge',unit:'boolean'},gopulse_redis_uptime_seconds:{kind:'gauge',unit:'seconds'},gopulse_redis_connected_clients:{kind:'gauge',unit:'count'},gopulse_redis_used_memory_bytes:{kind:'gauge',unit:'bytes'},
-  gopulse_redis_commands_processed_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_hits_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_misses_total:{kind:'counter',unit:'count'},gopulse_redis_cpu_seconds_total:{kind:'counter',unit:'seconds',label:'mode'},
-  gopulse_redis_db_keys:{kind:'gauge',unit:'count',label:'db'},gopulse_redis_db_expiring_keys:{kind:'gauge',unit:'count',label:'db'},
-  gopulse_mysql_up:{kind:'gauge',unit:'boolean'},
-  gopulse_mysql_uptime_seconds:{kind:'gauge',unit:'seconds'},
-  gopulse_mysql_connections:{kind:'gauge',unit:'count'},
-  gopulse_mysql_max_connections:{kind:'gauge',unit:'count'},
-  gopulse_mysql_threads_running:{kind:'gauge',unit:'count'},
-  gopulse_mysql_queries_total:{kind:'counter',unit:'count'},
-  gopulse_mysql_slow_queries_total:{kind:'counter',unit:'count'},
-  gopulse_mysql_transactions_total:{kind:'counter',unit:'count',label:'result'},
-  gopulse_mysql_buffer_pool_data_bytes:{kind:'gauge',unit:'bytes'},
-  gopulse_mysql_buffer_pool_dirty_bytes:{kind:'gauge',unit:'bytes'},
-  gopulse_rabbitmq_up:{kind:'gauge',unit:'boolean'},
-  gopulse_rabbitmq_connections:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_channels:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_queues:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_consumers:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_messages:{kind:'gauge',unit:'count',label:'state'},
-  gopulse_rabbitmq_published_total:{kind:'counter',unit:'count'},
-  gopulse_rabbitmq_delivered_total:{kind:'counter',unit:'count'},
-  gopulse_rabbitmq_acked_total:{kind:'counter',unit:'count'},
- gopulse_kafka_up:{kind:'gauge',unit:'boolean'},
- gopulse_kafka_brokers:{kind:'gauge',unit:'count'},
- gopulse_kafka_controller_available:{kind:'gauge',unit:'boolean'},
- gopulse_kafka_partitions:{kind:'gauge',unit:'count'},
- gopulse_kafka_under_replicated_partitions:{kind:'gauge',unit:'count'},
- gopulse_kafka_offline_partitions:{kind:'gauge',unit:'count'},
- gopulse_kafka_consumer_group_lag:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_up:{kind:'gauge',unit:'boolean'},
- gopulse_elasticsearch_cluster_health_status:{kind:'gauge',unit:'boolean',label:'status'},
- gopulse_elasticsearch_nodes:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_data_nodes:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_active_primary_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_active_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_relocating_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_initializing_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_unassigned_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_pending_tasks:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_documents:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_store_size_bytes:{kind:'gauge',unit:'bytes'},
- gopulse_victoriametrics_up:{kind:'gauge',unit:'boolean'},
- gopulse_victoriametrics_rows_inserted_total:{kind:'counter',unit:'count'},
- gopulse_victoriametrics_query_requests_total:{kind:'counter',unit:'count'},
- gopulse_victoriametrics_active_timeseries:{kind:'gauge',unit:'count'},
- gopulse_victoriametrics_storage_rows:{kind:'gauge',unit:'count'},
- gopulse_victoriametrics_storage_size_bytes:{kind:'gauge',unit:'bytes'},
- gopulse_victoriametrics_free_disk_space_bytes:{kind:'gauge',unit:'bytes'},
- gopulse_victoriametrics_active_merges:{kind:'gauge',unit:'count'},
- gopulse_victoriametrics_storage_rows_deleted_total:{kind:'counter',unit:'count'},
+const metricSources = ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics','backend','business-worker','search-indexer','monitor','router','marshaller'] as const
+const metricUnits = new Set(['none','boolean','seconds','count','bytes','state','unix_seconds'])
+function validMetricName(value: unknown): value is string {
+ return typeof value === 'string' && value.length <= 128 && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value) && metricSources.some(source => value.startsWith(`gopulse_${source.replaceAll('-', '_')}_`) && value.length > `gopulse_${source.replaceAll('-', '_')}_`.length)
+}
+function validMetricLabels(labels: Record<string, unknown>): boolean {
+ return Object.keys(labels).length <= 16 && Object.entries(labels).every(([key,value]) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && key.length <= 64 && !key.startsWith('__') && !['source','target_id','producer_kind','producer_id','producer_version'].includes(key) && typeof value === 'string' && new TextEncoder().encode(value).length <= 256 && !value.includes('\0'))
 }
 const rangeNames = new Set(ranges.map((item) => item.value))
 const logKeys = new Set(['timestamp','level','service','instance_id','module','message','request_id','trace_id','span_id','attempt_id','event_id','command_id','data_epoch','event_type','projection_generation','routing_contract_revision','consumer','user_id','post_id','content_revision','comment_id','notification_id','outbox_id','method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size','document_count','panic_recovered','response_committed'])
@@ -174,37 +128,25 @@ const identity = /^[A-Za-z0-9._:/-]{1,255}$/
 
 export function isMetricResult(value: unknown): value is MetricResult {
   if (!record(value) || Object.keys(value).sort().join() !== ['from','kind','metric','range','series','step_seconds','to','unit'].sort().join()) return false
-  if (typeof value.metric !== 'string' || !metricNames.has(value.metric as MetricName) || (value.kind !== 'gauge' && value.kind !== 'counter') || !['boolean','seconds','count','bytes','state','unix_seconds'].includes(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series)) return false
-  const contract = metricContracts[value.metric as MetricName]
-  const component = componentContract(value.metric)
-  if (value.series.length > (component?.tuples.length ?? 32)) return false
+  if (!validMetricName(value.metric) || (value.kind !== 'gauge' && value.kind !== 'counter') || !metricUnits.has(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series)) return false
+  if (value.series.length > 1024) return false
   const range = ranges.find((item) => item.value === value.range)
   const expectedSteps: Record<QueryRange, number> = { '15m':15, '1h':60, '6h':300, '24h':900 }
   const from = Date.parse(value.from); const to = Date.parse(value.to)
-  if (!range || from >= to || to - from !== range.milliseconds || value.step_seconds !== expectedSteps[value.range as QueryRange] || value.kind !== contract.kind || value.unit !== contract.unit) return false
+  if (!range || from >= to || to - from !== range.milliseconds || value.step_seconds !== expectedSteps[value.range as QueryRange]) return false
   let points = 0
   const seriesKeys = new Set<string>()
   return value.series.every((series) => {
     if (!record(series) || Object.keys(series).sort().join() !== 'labels,points' || !record(series.labels) || !Array.isArray(series.points)) return false
-    if (component) { if (!validComponentLabels(component, series.labels)) return false } else {
-    if (!keysAllowed(series.labels, new Set(['mode','db','result','state','status']))) return false
-    if (series.labels.mode !== undefined && series.labels.mode !== 'user' && series.labels.mode !== 'system') return false
-    if (contract.label === undefined && Object.keys(series.labels).length !== 0) return false
-    if (contract.label === 'mode' && (Object.keys(series.labels).length !== 1 || series.labels.mode === undefined)) return false
-    if (contract.label === 'db' && (Object.keys(series.labels).length !== 1 || series.labels.db === undefined)) return false
-    if (series.labels.db !== undefined && (typeof series.labels.db !== 'string' || !/^(0|[1-9][0-9]*)$/.test(series.labels.db))) return false
-    if (contract.label === 'result' && (Object.keys(series.labels).length !== 1 || !['commit','rollback'].includes(String(series.labels.result)))) return false
-    if (contract.label === 'state' && (Object.keys(series.labels).length !== 1 || !['ready','unacked'].includes(String(series.labels.state)))) return false
-    if (contract.label === 'status' && (Object.keys(series.labels).length !== 1 || !['green','yellow','red'].includes(String(series.labels.status)))) return false
-    }
+    if (!validMetricLabels(series.labels)) return false
     const seriesKey = JSON.stringify(Object.entries(series.labels).sort(([a], [b]) => a.localeCompare(b)))
     if (seriesKeys.has(seriesKey)) return false
     seriesKeys.add(seriesKey)
     let previous = Number.NEGATIVE_INFINITY
     return series.points.every((point) => {
       points++
-      if (points > (component ? component.tuples.length * 97 : 4096) || !record(point) || Object.keys(point).sort().join() !== 'timestamp,value' || !timestamp(point.timestamp) || !finite(point.value)) return false
-      if (component && !validComponentValue(value.metric as string, component, point.value)) return false
+      if (points > 1024 * 97 || !record(point) || Object.keys(point).sort().join() !== 'timestamp,value' || !timestamp(point.timestamp) || !finite(point.value)) return false
+      if ((value.kind === 'counter' && point.value < 0) || (value.unit === 'state' && ![-1,0,1].includes(point.value)) || (value.unit === 'boolean' && ![0,1].includes(point.value))) return false
       const at = Date.parse(point.timestamp)
       if (at < from || at > to || at <= previous) return false
       previous = at
@@ -276,15 +218,14 @@ export const observabilityApi = {
   events: (filters: EventFilters, cursor?: string, signal?: AbortSignal): Promise<Page<EventEntry>> => requestValidatedPage(`/observability/events?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isEventEntry, { signal }),
 }
 
-export interface MetricDescriptor { metric: MetricName; kind: string; unit: string; source: string; target_id: string; producer_kind: 'exporter_plugin'|'component'; producer_id: string }
+export interface MetricDescriptor { metric: MetricName; kind: 'gauge'|'counter'; unit: string; source: string; target_id: string; producer_kind: 'exporter_plugin'|'component'; producer_id: string; label_keys?: string[] }
 export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
- if (!Array.isArray(value) || value.length !== metricCatalog.length || new Set(value.map(item => record(item) ? item.metric : undefined)).size !== value.length) return false
+ if (!Array.isArray(value) || value.length > 2048 || new Set(value.map(item => record(item) ? item.metric : undefined)).size !== value.length) return false
  return value.every(item => {
-  if (!record(item) || Object.keys(item).length !== 7 || !metricNames.has(item.metric as MetricName)) return false
-  const name = item.metric as MetricName; const contract = metricContracts[name]; const component = componentContract(name)
-  if (item.kind !== contract.kind || item.unit !== contract.unit) return false
-  if (component) return item.source === component.source && item.producer_kind === 'component' && item.producer_id === component.source && item.target_id === `${component.source}-local`
-  return ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics'].includes(String(item.source)) && name.startsWith(`gopulse_${item.source}_`) && item.target_id === `${item.source}-exporter-local` && item.producer_kind === 'exporter_plugin' && item.producer_id === `${item.source}-exporter`
+  if (!record(item) || !keysAllowed(item,new Set(['metric','kind','unit','source','target_id','producer_kind','producer_id','label_keys'])) || !validMetricName(item.metric) || (item.kind !== 'gauge' && item.kind !== 'counter') || !metricUnits.has(String(item.unit)) || typeof item.source !== 'string' || !metricSources.includes(item.source as typeof metricSources[number]) || !item.metric.startsWith(`gopulse_${item.source.replaceAll('-', '_')}_`)) return false
+  if (item.label_keys !== undefined && (!Array.isArray(item.label_keys) || new Set(item.label_keys).size !== item.label_keys.length || !item.label_keys.every(key => typeof key === 'string') || !validMetricLabels(Object.fromEntries(item.label_keys.map(key => [key,'']))))) return false
+  const component = ['backend','business-worker','search-indexer','monitor','router','marshaller'].includes(item.source)
+  return item.producer_kind === (component ? 'component' : 'exporter_plugin') && item.producer_id === (component ? item.source : `${item.source}-exporter`) && item.target_id === (component ? `${item.source}-local` : `${item.source}-exporter-local`)
  })
 }
 export const loadMetricCatalog = (signal?: AbortSignal) => requestValidatedData('/observability/metrics/catalog', isMetricCatalog, { signal })

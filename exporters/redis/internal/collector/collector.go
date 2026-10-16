@@ -25,17 +25,42 @@ type Failure struct{ Reason FailureReason }
 func (f *Failure) Error() string { return string(f.Reason) }
 
 type Snapshot struct {
-	UptimeSeconds          uint64
-	ConnectedClients       uint64
-	UsedMemoryBytes        uint64
-	CommandsProcessedTotal uint64
-	KeyspaceHitsTotal      uint64
-	KeyspaceMissesTotal    uint64
-	CPUUserSeconds         float64
-	CPUSystemSeconds       float64
-	DB                     int
-	DBKeys                 uint64
-	DBExpiringKeys         uint64
+	UptimeSeconds           uint64
+	ConnectedClients        uint64
+	UsedMemoryBytes         uint64
+	CommandsProcessedTotal  uint64
+	KeyspaceHitsTotal       uint64
+	KeyspaceMissesTotal     uint64
+	CPUUserSeconds          float64
+	CPUSystemSeconds        float64
+	DB                      int
+	DBKeys                  uint64
+	DBExpiringKeys          uint64
+	MaxMemoryBytes          *uint64
+	UsedMemoryRSSBytes      *uint64
+	MemoryFragmentation     *float64
+	BlockedClients          *uint64
+	RejectedConnections     *uint64
+	EvictedKeysTotal        *uint64
+	ExpiredKeysTotal        *uint64
+	NetworkInputBytesTotal  *uint64
+	NetworkOutputBytesTotal *uint64
+	CommandStats            map[string]CommandStats
+}
+
+type CommandStats struct {
+	CallsTotal        uint64
+	DurationUsecTotal uint64
+	RejectedTotal     uint64
+	FailedTotal       uint64
+}
+
+// TrackedCommands is deliberately finite. Redis exposes one commandstats
+// entry per command name, so exporting the complete section would make label
+// cardinality depend on application traffic.
+var TrackedCommands = []string{
+	"append", "del", "exists", "expire", "get", "hget", "hset", "incr", "lpop", "lpush",
+	"mget", "mset", "rpop", "rpush", "sadd", "srem", "set", "smembers", "zadd", "zrange",
 }
 
 type Collector interface {
@@ -54,7 +79,7 @@ type RedisCollector struct {
 func New(client infoClient, db int) *RedisCollector { return &RedisCollector{client: client, db: db} }
 
 func (c *RedisCollector) Collect(ctx context.Context) (Snapshot, error) {
-	info, err := c.client.Info(ctx, "server", "clients", "memory", "stats", "cpu", "keyspace").Result()
+	info, err := c.client.Info(ctx, "server", "clients", "memory", "stats", "cpu", "keyspace", "commandstats").Result()
 	if err != nil {
 		return Snapshot{}, classifyRedisError(ctx, err)
 	}
@@ -90,6 +115,11 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 		return Snapshot{}, errors.New("invalid database")
 	}
 	wanted := map[string]string{}
+	commandStats := map[string]CommandStats{}
+	tracked := make(map[string]bool, len(TrackedCommands))
+	for _, command := range TrackedCommands {
+		tracked[command] = true
+	}
 	required := map[string]struct{}{
 		"uptime_in_seconds": {}, "connected_clients": {}, "used_memory": {},
 		"total_commands_processed": {}, "keyspace_hits": {}, "keyspace_misses": {},
@@ -112,6 +142,25 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 				return Snapshot{}, errors.New("duplicate field")
 			}
 			wanted[name] = value
+		}
+		if _, ok := optionalInfoFields[name]; ok {
+			if _, duplicate := wanted[name]; duplicate {
+				return Snapshot{}, errors.New("duplicate field")
+			}
+			wanted[name] = value
+		}
+		if strings.HasPrefix(name, "cmdstat_") {
+			command := strings.TrimPrefix(name, "cmdstat_")
+			if tracked[command] {
+				if _, duplicate := commandStats[command]; duplicate {
+					return Snapshot{}, errors.New("duplicate commandstats field")
+				}
+				stats, err := parseCommandStats(value)
+				if err != nil {
+					return Snapshot{}, err
+				}
+				commandStats[command] = stats
+			}
 		}
 		if name == dbField {
 			if dbSeen {
@@ -157,7 +206,106 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 			return Snapshot{}, err
 		}
 	}
+	if snapshot.MaxMemoryBytes, err = optionalUint(wanted, "maxmemory"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.UsedMemoryRSSBytes, err = optionalUint(wanted, "used_memory_rss"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.MemoryFragmentation, err = optionalFloat(wanted, "mem_fragmentation_ratio"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.BlockedClients, err = optionalUint(wanted, "blocked_clients"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.RejectedConnections, err = optionalUint(wanted, "rejected_connections"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.EvictedKeysTotal, err = optionalUint(wanted, "evicted_keys"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.ExpiredKeysTotal, err = optionalUint(wanted, "expired_keys"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.NetworkInputBytesTotal, err = optionalUint(wanted, "total_net_input_bytes"); err != nil {
+		return Snapshot{}, err
+	}
+	if snapshot.NetworkOutputBytesTotal, err = optionalUint(wanted, "total_net_output_bytes"); err != nil {
+		return Snapshot{}, err
+	}
+	if len(commandStats) > 0 {
+		snapshot.CommandStats = commandStats
+	}
 	return snapshot, nil
+}
+
+var optionalInfoFields = map[string]struct{}{
+	"maxmemory": {}, "used_memory_rss": {}, "mem_fragmentation_ratio": {},
+	"blocked_clients": {}, "rejected_connections": {}, "evicted_keys": {}, "expired_keys": {},
+	"total_net_input_bytes": {}, "total_net_output_bytes": {},
+}
+
+func parseCommandStats(value string) (CommandStats, error) {
+	parts := strings.Split(value, ",")
+	fields := make(map[string]string, len(parts))
+	for _, part := range parts {
+		key, field, ok := strings.Cut(part, "=")
+		if !ok || key == "" || field == "" {
+			return CommandStats{}, errors.New("invalid commandstats field")
+		}
+		if _, duplicate := fields[key]; duplicate {
+			return CommandStats{}, errors.New("duplicate commandstats value")
+		}
+		fields[key] = field
+	}
+	parse := func(name string) (uint64, error) {
+		value, ok := fields[name]
+		if !ok {
+			return 0, errors.New("missing commandstats value")
+		}
+		return parseUint(value)
+	}
+	calls, err := parse("calls")
+	if err != nil {
+		return CommandStats{}, err
+	}
+	usec, err := parse("usec")
+	if err != nil {
+		return CommandStats{}, err
+	}
+	rejected, err := parse("rejected_calls")
+	if err != nil {
+		return CommandStats{}, err
+	}
+	failed, err := parse("failed_calls")
+	if err != nil {
+		return CommandStats{}, err
+	}
+	return CommandStats{CallsTotal: calls, DurationUsecTotal: usec, RejectedTotal: rejected, FailedTotal: failed}, nil
+}
+
+func optionalUint(values map[string]string, name string) (*uint64, error) {
+	value, ok := values[name]
+	if !ok {
+		return nil, nil
+	}
+	parsed, err := parseUint(value)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func optionalFloat(values map[string]string, name string) (*float64, error) {
+	value, ok := values[name]
+	if !ok {
+		return nil, nil
+	}
+	parsed, err := parseFloat(value)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
 }
 
 func parseUint(value string) (uint64, error) {

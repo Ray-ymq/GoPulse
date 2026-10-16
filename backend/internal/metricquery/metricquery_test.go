@@ -35,7 +35,7 @@ func TestParseOptionsAndServiceValidateResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Metric != options.Definition.Metric || len(result.Series) != 1 || result.Series[0].Labels.Mode != "user" || result.Series[0].Points[0].Value != 12.5 {
+	if result.Metric != options.Definition.Metric || len(result.Series) != 1 || result.Series[0].Labels["mode"] != "user" || result.Series[0].Points[0].Value != 12.5 {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if upstream.query != `gopulse_redis_cpu_seconds_total{source="redis",target_id="redis-exporter-local"}` {
@@ -91,7 +91,7 @@ func TestClientRejectsOversizedResponseHeader(t *testing.T) {
 }
 
 func TestRedisRejectsAdditionalProducerLabels(t *testing.T) {
-	definition := Catalog[0]
+	definition := Presets[0]
 	labels := map[string]string{"__name__": definition.Metric, "source": "redis", "target_id": "redis-exporter-local"}
 	if _, _, err := validateLabels(labels, definition); err != nil {
 		t.Fatal("historical provenance rejected", err)

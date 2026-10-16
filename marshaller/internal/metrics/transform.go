@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +50,47 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 		b.WriteByte(' ')
 		b.WriteString(strconv.FormatInt(message.Timestamp.UnixMilli(), 10))
 		b.WriteByte('\n')
+		if b.Len() > limit {
+			return nil, ErrOutputTooLarge
+		}
+	}
+	// Store one descriptor per metric in the same import as its samples.
+	// Descriptor labels do not change the identity of existing data series.
+	type descriptor struct {
+		name, kind string
+		keys       map[string]bool
+	}
+	descriptors := map[string]*descriptor{}
+	for _, sample := range samples {
+		if !metriccontract.ValidKind(sample.Kind) {
+			continue
+		}
+		d := descriptors[sample.Name]
+		if d == nil {
+			d = &descriptor{name: sample.Name, kind: sample.Kind, keys: map[string]bool{}}
+			descriptors[sample.Name] = d
+		}
+		for key := range sample.Labels {
+			d.keys[key] = true
+		}
+	}
+	names := make([]string, 0, len(descriptors))
+	for name := range descriptors {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		d := descriptors[name]
+		keys := make([]string, 0, len(d.keys))
+		for key := range d.keys {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		kind, id := "exporter_plugin", message.Source+"-exporter"
+		if componentmetrics.IsComponent(message.Source) {
+			kind, id = "component", message.Source
+		}
+		fmt.Fprintf(&b, `%s{source="%s",target_id="%s",producer_kind="%s",producer_id="%s",metric="%s",kind="%s",unit="%s",label_keys="%s"} 1 %d`+"\n", metriccontract.MetadataName, message.Source, message.Payload.TargetID, kind, id, d.name, d.kind, metriccontract.Unit(d.name, d.kind), strings.Join(keys, ","), message.Timestamp.UnixMilli())
 		if b.Len() > limit {
 			return nil, ErrOutputTooLarge
 		}

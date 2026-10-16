@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -100,7 +101,7 @@ func encode(families []*dto.MetricFamily) ([]byte, error) {
 
 func successFamilies(snapshot collector.Snapshot) []*dto.MetricFamily {
 	db := strconv.Itoa(snapshot.DB)
-	return []*dto.MetricFamily{
+	families := []*dto.MetricFamily{
 		upFamily(1),
 		gaugeFamily("gopulse_redis_uptime_seconds", "Current Redis process uptime in seconds.", float64(snapshot.UptimeSeconds), nil),
 		gaugeFamily("gopulse_redis_connected_clients", "Current number of Redis client connections.", float64(snapshot.ConnectedClients), nil),
@@ -112,6 +113,58 @@ func successFamilies(snapshot collector.Snapshot) []*dto.MetricFamily {
 		gaugeFamily("gopulse_redis_db_keys", "Current number of keys in the configured Redis database.", float64(snapshot.DBKeys), map[string]string{"db": db}),
 		gaugeFamily("gopulse_redis_db_expiring_keys", "Current number of expiring keys in the configured Redis database.", float64(snapshot.DBExpiringKeys), map[string]string{"db": db}),
 	}
+	if snapshot.MaxMemoryBytes != nil {
+		families = append(families, gaugeFamily("gopulse_redis_maxmemory_bytes", "Configured maximum Redis memory in bytes.", float64(*snapshot.MaxMemoryBytes), nil))
+	}
+	if snapshot.UsedMemoryRSSBytes != nil {
+		families = append(families, gaugeFamily("gopulse_redis_used_memory_rss_bytes", "Resident memory used by Redis in bytes.", float64(*snapshot.UsedMemoryRSSBytes), nil))
+	}
+	if snapshot.MemoryFragmentation != nil {
+		families = append(families, gaugeFamily("gopulse_redis_memory_fragmentation_ratio", "Redis memory fragmentation ratio.", *snapshot.MemoryFragmentation, nil))
+	}
+	if snapshot.BlockedClients != nil {
+		families = append(families, gaugeFamily("gopulse_redis_blocked_clients", "Current number of clients blocked on Redis operations.", float64(*snapshot.BlockedClients), nil))
+	}
+	if snapshot.RejectedConnections != nil {
+		families = append(families, counterFamily("gopulse_redis_rejected_connections_total", "Total Redis connections rejected by the server.", float64(*snapshot.RejectedConnections), nil))
+	}
+	if snapshot.EvictedKeysTotal != nil {
+		families = append(families, counterFamily("gopulse_redis_evicted_keys_total", "Total Redis keys evicted because of the memory policy.", float64(*snapshot.EvictedKeysTotal), nil))
+	}
+	if snapshot.ExpiredKeysTotal != nil {
+		families = append(families, counterFamily("gopulse_redis_expired_keys_total", "Total Redis keys removed because they expired.", float64(*snapshot.ExpiredKeysTotal), nil))
+	}
+	if snapshot.NetworkInputBytesTotal != nil {
+		families = append(families, counterFamily("gopulse_redis_network_input_bytes_total", "Total bytes received by Redis from clients.", float64(*snapshot.NetworkInputBytesTotal), nil))
+	}
+	if snapshot.NetworkOutputBytesTotal != nil {
+		families = append(families, counterFamily("gopulse_redis_network_output_bytes_total", "Total bytes sent by Redis to clients.", float64(*snapshot.NetworkOutputBytesTotal), nil))
+	}
+	commands := make([]string, 0, len(snapshot.CommandStats))
+	for command := range snapshot.CommandStats {
+		commands = append(commands, command)
+	}
+	sort.Strings(commands)
+	commandFamilies := make(map[string]*dto.MetricFamily, 4)
+	for _, command := range commands {
+		stats := snapshot.CommandStats[command]
+		labels := map[string]string{"command": command}
+		for _, family := range []*dto.MetricFamily{
+			counterFamily("gopulse_redis_command_calls_total", "Total calls for the tracked Redis command.", float64(stats.CallsTotal), labels),
+			counterFamily("gopulse_redis_command_duration_seconds_total", "Total execution time for the tracked Redis command in seconds.", float64(stats.DurationUsecTotal)/1e6, labels),
+			counterFamily("gopulse_redis_command_rejected_total", "Total tracked Redis command calls rejected by the server.", float64(stats.RejectedTotal), labels),
+			counterFamily("gopulse_redis_command_failed_total", "Total tracked Redis command calls that failed.", float64(stats.FailedTotal), labels),
+		} {
+			// Emit one declaration per family, with a sample for each command.
+			if existing := commandFamilies[family.GetName()]; existing != nil {
+				existing.Metric = append(existing.Metric, family.Metric...)
+			} else {
+				commandFamilies[family.GetName()] = family
+				families = append(families, family)
+			}
+		}
+	}
+	return families
 }
 
 func upFamily(value float64) *dto.MetricFamily {

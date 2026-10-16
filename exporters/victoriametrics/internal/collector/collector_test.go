@@ -45,6 +45,23 @@ func TestSnapshotContract(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotIncludesBoundedWriteAndCacheDetails(t *testing.T) {
+	body, err := Snapshot(fixture() + "vm_rows_ignored_total{reason=\"big_timestamp\"} 2\n" + "vm_slow_row_inserts_total 3\n" + "vm_cache_size_bytes{type=\"storage/tsid\"} 4\n" + "vm_cache_size_max_bytes{type=\"storage/tsid\"} 8\n" + "vm_cache_requests_total{type=\"storage/tsid\"} 10\n" + "vm_cache_misses_total{type=\"storage/tsid\"} 1\n" + "vm_cache_entries{type=\"storage/tsid\"} 5\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`gopulse_victoriametrics_rows_ignored_total{reason="big_timestamp"} 2`,
+		"gopulse_victoriametrics_slow_row_inserts_total 3",
+		`gopulse_victoriametrics_cache_size_bytes{type="storage/tsid"} 4`,
+		`gopulse_victoriametrics_cache_misses_total{type="storage/tsid"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in %s", want, body)
+		}
+	}
+}
 func TestAuthenticatedFailureAndRecovery(t *testing.T) {
 	fail := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

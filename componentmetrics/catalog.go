@@ -12,7 +12,7 @@ var Plugins = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "
 // ProcessIDs is the code-owned process identity inventory. Runtime roles,
 // replica ownership, budgets and Compose bindings remain authoritative in
 // deploy/runtime-contracts.json; the verifier rejects drift between this
-// closed metric directory and that machine contract.
+// process inventory and that machine contract.
 func ProcessIDs() []string {
 	result := append([]string{}, Components...)
 	for _, plugin := range Plugins {
@@ -40,9 +40,8 @@ type Family struct {
 	// Pair identifies the duration counter for a count family (and vice versa).
 	Pair string
 	// Distribution describes a physical member of a fixed histogram contract.
-	// Bucket, count, and sum are separate Prometheus families so every ingress
-	// boundary can validate the complete distribution without accepting a
-	// client-defined metric name or label.
+	// The component registry emits bucket, count, and sum as separate families.
+	// Transport validation checks their structure without a metric directory.
 	Distribution *Distribution
 }
 type Distribution struct {

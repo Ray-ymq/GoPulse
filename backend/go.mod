@@ -2,6 +2,8 @@ module github.com/Ray-ymq/GoPulse/backend
 
 go 1.26
 
+replace github.com/Ray-ymq/GoPulse/componentmetrics => ../componentmetrics
+
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.0

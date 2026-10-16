@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/exporters/redis/internal/collector"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 )
 
 type fakeCollector struct {
@@ -39,17 +42,66 @@ func TestHealthDoesNotCollect(t *testing.T) {
 }
 
 func TestMetricsSuccessEncodesFixedFamilies(t *testing.T) {
-	source := &fakeCollector{snapshot: collector.Snapshot{UptimeSeconds: 5, ConnectedClients: 2, UsedMemoryBytes: 42, CommandsProcessedTotal: 11, KeyspaceHitsTotal: 7, KeyspaceMissesTotal: 3, CPUUserSeconds: 1.5, CPUSystemSeconds: .5, DB: 2, DBKeys: 4, DBExpiringKeys: 1}}
+	maxMemory, rss, fragmentation := uint64(100), uint64(42), 1.25
+	source := &fakeCollector{snapshot: collector.Snapshot{UptimeSeconds: 5, ConnectedClients: 2, UsedMemoryBytes: 42, CommandsProcessedTotal: 11, KeyspaceHitsTotal: 7, KeyspaceMissesTotal: 3, CPUUserSeconds: 1.5, CPUSystemSeconds: .5, DB: 2, DBKeys: 4, DBExpiringKeys: 1, MaxMemoryBytes: &maxMemory, UsedMemoryRSSBytes: &rss, MemoryFragmentation: &fragmentation, CommandStats: map[string]collector.CommandStats{"get": {CallsTotal: 3, DurationUsecTotal: 500000, RejectedTotal: 1, FailedTotal: 2}}}}
 	response := httptest.NewRecorder()
 	New(source, time.Second, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := response.Body.String()
 	if response.Code != http.StatusOK || source.calls != 1 || response.Header().Get("Content-Type") != metricsContentType || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d calls=%d headers=%v", response.Code, source.calls, response.Header())
 	}
-	for _, sample := range []string{"gopulse_redis_up 1", "gopulse_redis_commands_processed_total 11", `gopulse_redis_cpu_seconds_total{mode="user"} 1.5`, `gopulse_redis_cpu_seconds_total{mode="system"} 0.5`, `gopulse_redis_db_keys{db="2"} 4`} {
+	for _, sample := range []string{"gopulse_redis_up 1", "gopulse_redis_commands_processed_total 11", `gopulse_redis_cpu_seconds_total{mode="user"} 1.5`, `gopulse_redis_cpu_seconds_total{mode="system"} 0.5`, `gopulse_redis_db_keys{db="2"} 4`, "gopulse_redis_maxmemory_bytes 100", "gopulse_redis_used_memory_rss_bytes 42", "gopulse_redis_memory_fragmentation_ratio 1.25", `gopulse_redis_command_calls_total{command="get"} 3`, `gopulse_redis_command_duration_seconds_total{command="get"} 0.5`} {
 		if !strings.Contains(body, sample) {
 			t.Fatalf("missing %q in:\n%s", sample, body)
 		}
+	}
+}
+
+func TestMetricsCommandStatsShareFamilies(t *testing.T) {
+	source := &fakeCollector{snapshot: collector.Snapshot{CommandStats: map[string]collector.CommandStats{
+		"get": {CallsTotal: 3, DurationUsecTotal: 500000, RejectedTotal: 1, FailedTotal: 2},
+		"set": {CallsTotal: 5, DurationUsecTotal: 250000, RejectedTotal: 0, FailedTotal: 1},
+	}}}
+	response := httptest.NewRecorder()
+	New(source, time.Second, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	parser := expfmt.NewTextParser(model.LegacyValidation)
+	families, err := parser.TextToMetricFamilies(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("metrics response cannot be parsed: %v", err)
+	}
+	for name, want := range map[string]map[string]float64{
+		"gopulse_redis_command_calls_total":            {"get": 3, "set": 5},
+		"gopulse_redis_command_duration_seconds_total": {"get": 0.5, "set": 0.25},
+		"gopulse_redis_command_rejected_total":         {"get": 1, "set": 0},
+		"gopulse_redis_command_failed_total":           {"get": 2, "set": 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, declaration := range []string{"# HELP ", "# TYPE "} {
+				if count := strings.Count(body, declaration+name+" "); count != 1 {
+					t.Fatalf("%s declaration count = %d, want 1", declaration, count)
+				}
+			}
+			family := families[name]
+			if family == nil || family.GetType() != dto.MetricType_COUNTER || len(family.Metric) != len(want) {
+				t.Fatalf("unexpected metric family: %v", family)
+			}
+			seen := make(map[string]bool)
+			for _, metric := range family.Metric {
+				if len(metric.Label) != 1 || metric.Label[0].GetName() != "command" {
+					t.Fatalf("unexpected command labels: %v", metric.Label)
+				}
+				command := metric.Label[0].GetValue()
+				value, ok := want[command]
+				if !ok || seen[command] || metric.Counter == nil || metric.Counter.GetValue() != value {
+					t.Fatalf("unexpected command sample: %v", metric)
+				}
+				seen[command] = true
+			}
+		})
 	}
 }
 

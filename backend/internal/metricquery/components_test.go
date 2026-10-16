@@ -7,7 +7,7 @@ import (
 )
 
 func TestComponentQueryProvenanceAndUnknownDependency(t *testing.T) {
-	d := definitions["gopulse_monitor_dependency_up"]
+	d := presets["gopulse_monitor_dependency_up"]
 	if d.ProducerKind != "component" || !strings.Contains(QueryExpression(d.Metric), `producer_kind="component"`) {
 		t.Fatal("component catalog/provenance missing")
 	}
@@ -28,8 +28,8 @@ func TestComponentQueryProvenanceAndUnknownDependency(t *testing.T) {
 	}
 }
 
-func TestBackendLatencyBucketQueryPreservesFixedBucketLabel(t *testing.T) {
-	d, ok := definitions["gopulse_backend_http_request_duration_seconds_bucket"]
+func TestBackendLatencyBucketQueryPreservesDynamicBucketLabel(t *testing.T) {
+	d, ok := presets["gopulse_backend_http_request_duration_seconds_bucket"]
 	if !ok {
 		t.Fatal("backend latency bucket missing from query catalog")
 	}
@@ -40,18 +40,18 @@ func TestBackendLatencyBucketQueryPreservesFixedBucketLabel(t *testing.T) {
 	}
 	body, _ := json.Marshal(map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{map[string]any{"metric": metric, "values": []any{[]any{1750000000, "3"}}}}}})
 	series, err := decodeResponse(body, d)
-	if err != nil || len(series) != 1 || series[0].Labels.LE != "0.25" {
+	if err != nil || len(series) != 1 || series[0].Labels["le"] != "0.25" {
 		t.Fatalf("bucket label was not preserved: %#v, %v", series, err)
 	}
 	metric["le"] = "0.3"
 	body, _ = json.Marshal(map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{map[string]any{"metric": metric, "values": []any{[]any{1750000000, "3"}}}}}})
-	if _, err := decodeResponse(body, d); err == nil {
-		t.Fatal("unknown latency bucket accepted")
+	if _, err := decodeResponse(body, d); err != nil {
+		t.Fatal("new latency bucket rejected", err)
 	}
 }
 
 func TestBackendAlertQueryPreservesFixedAlertSourceLabel(t *testing.T) {
-	d, ok := definitions["gopulse_backend_alert_evaluation_known"]
+	d, ok := presets["gopulse_backend_alert_evaluation_known"]
 	if !ok {
 		t.Fatal("backend alert catalog missing")
 	}
@@ -66,13 +66,13 @@ func TestBackendAlertQueryPreservesFixedAlertSourceLabel(t *testing.T) {
 		}},
 	}})
 	series, err := decodeResponse(body, d)
-	if err != nil || len(series) != 1 || series[0].Labels.AlertSource != "metrics" {
+	if err != nil || len(series) != 1 || series[0].Labels["alert_source"] != "metrics" {
 		t.Fatalf("alert source label was not preserved: %#v, %v", series, err)
 	}
 }
 
 func TestMarshallerPartitionQueryPreservesFixedPartitionLabel(t *testing.T) {
-	d, ok := definitions["gopulse_marshaller_partition_ownership"]
+	d, ok := presets["gopulse_marshaller_partition_ownership"]
 	if !ok {
 		t.Fatal("marshaller partition catalog missing")
 	}
@@ -87,7 +87,7 @@ func TestMarshallerPartitionQueryPreservesFixedPartitionLabel(t *testing.T) {
 		}},
 	}})
 	series, err := decodeResponse(body, d)
-	if err != nil || len(series) != 1 || series[0].Labels.Partition != "3" {
+	if err != nil || len(series) != 1 || series[0].Labels["partition"] != "3" {
 		t.Fatalf("partition label was not preserved: %#v, %v", series, err)
 	}
 }

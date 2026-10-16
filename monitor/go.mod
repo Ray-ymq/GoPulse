@@ -2,6 +2,8 @@ module github.com/Ray-ymq/GoPulse/monitor
 
 go 1.26
 
+replace github.com/Ray-ymq/GoPulse/componentmetrics => ../componentmetrics
+
 require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.2

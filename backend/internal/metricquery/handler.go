@@ -38,5 +38,17 @@ func (h *Handler) Catalog(c *gin.Context) {
 		response.Error(c, apperror.New(apperror.CodeValidationFailed, "query parameters are invalid"))
 		return
 	}
-	response.Data(c, http.StatusOK, Catalog)
+	application, ok := h.application.(interface {
+		Catalog(context.Context) ([]Definition, error)
+	})
+	if !ok {
+		response.Error(c, unavailable())
+		return
+	}
+	entries, err := application.Catalog(c.Request.Context())
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Data(c, http.StatusOK, entries)
 }

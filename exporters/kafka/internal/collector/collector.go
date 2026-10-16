@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/twmb/franz-go/pkg/kmsg"
@@ -78,6 +80,7 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 		controller = 1
 	}
 	parts := map[int32]bool{}
+	partitionMeta := map[int32]kmsg.MetadataResponseTopicPartition{}
 	under, offline := 0, 0
 	list := kmsg.NewPtrListOffsetsRequest()
 	lt := kmsg.NewListOffsetsRequestTopic()
@@ -91,6 +94,7 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 			return "", ErrUnavailable
 		}
 		parts[p.Partition] = true
+		partitionMeta[p.Partition] = p
 		if len(p.ISR) < len(p.Replicas) {
 			under++
 		}
@@ -125,12 +129,14 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 		return "", ErrUnavailable
 	}
 	seen := map[int32]bool{}
+	committed := map[int32]int64{}
 	var lag int64
 	for _, p := range offsets.Topics[0].Partitions {
 		if !parts[p.Partition] || seen[p.Partition] || p.ErrorCode != 0 || p.Offset < 0 {
 			return "", ErrUnavailable
 		}
 		seen[p.Partition] = true
+		committed[p.Partition] = p.Offset
 		if d := end[p.Partition] - p.Offset; d > 0 {
 			if lag > math.MaxInt64-d {
 				return "", ErrUnavailable
@@ -143,6 +149,44 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 	var b strings.Builder
 	for i, n := range names {
 		fmt.Fprintf(&b, "# TYPE gopulse_kafka_%s gauge\ngopulse_kafka_%s %d\n", n, n, values[i])
+	}
+	for _, name := range []string{"partition_log_end_offset", "consumer_committed_offset", "consumer_partition_lag", "partition_replicas", "partition_isr", "partition_under_replicated", "partition_offline", "partition_leader"} {
+		fmt.Fprintf(&b, "# TYPE gopulse_kafka_%s gauge\n", name)
+	}
+	partitions := make([]int, 0, len(parts))
+	for partition := range parts {
+		partitions = append(partitions, int(partition))
+	}
+	sort.Ints(partitions)
+	for _, value := range partitions {
+		partition := int32(value)
+		p := partitionMeta[partition]
+		labels := fmt.Sprintf(`{consumer_group=%q,topic=%q,partition=%q}`, Group, Topic, strconv.Itoa(value))
+		fmt.Fprintf(&b, "gopulse_kafka_partition_log_end_offset%s %d\n", labels, end[partition])
+		fmt.Fprintf(&b, "gopulse_kafka_consumer_committed_offset%s %d\n", labels, committed[partition])
+		partitionLag := end[partition] - committed[partition]
+		if partitionLag < 0 {
+			return "", ErrUnavailable
+		}
+		fmt.Fprintf(&b, "gopulse_kafka_consumer_partition_lag%s %d\n", labels, partitionLag)
+		fmt.Fprintf(&b, "gopulse_kafka_partition_replicas%s %d\n", labels, len(p.Replicas))
+		fmt.Fprintf(&b, "gopulse_kafka_partition_isr%s %d\n", labels, len(p.ISR))
+		underReplicated := 0
+		if len(p.ISR) < len(p.Replicas) {
+			underReplicated = 1
+		}
+		offlinePartition := 0
+		if p.Leader < 0 {
+			offlinePartition = 1
+		}
+		fmt.Fprintf(&b, "gopulse_kafka_partition_under_replicated%s %d\n", labels, underReplicated)
+		fmt.Fprintf(&b, "gopulse_kafka_partition_offline%s %d\n", labels, offlinePartition)
+		leaderLabels := fmt.Sprintf(`{topic=%q,partition=%q,node_id=%q}`, Topic, strconv.Itoa(value), strconv.FormatInt(int64(p.Leader), 10))
+		leaderAvailable := 0
+		if p.Leader >= 0 {
+			leaderAvailable = 1
+		}
+		fmt.Fprintf(&b, "gopulse_kafka_partition_leader%s %d\n", leaderLabels, leaderAvailable)
 	}
 	return b.String(), nil
 }

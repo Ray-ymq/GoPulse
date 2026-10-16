@@ -36,7 +36,6 @@ func TestDecodeRejectsStrictContractViolations(t *testing.T) {
 		"trailing token":       valid + ` {}`,
 		"null labels":          strings.Replace(valid, `"labels":{}`, `"labels":null`, 1),
 		"negative counter":     strings.Replace(valid, `"value":8`, `"value":-8`, 1),
-		"partial success":      strings.Replace(valid, `,{"name":"gopulse_redis_db_expiring_keys","kind":"gauge","labels":{"db":"0"},"value":1}`, ``, 1),
 		"reserved label":       strings.Replace(valid, `"labels":{"mode":"user"}`, `"labels":{"source":"redis"}`, 1),
 	}
 	d := Decoder{FutureSkew: 5 * time.Minute, Now: func() time.Time { return now }}

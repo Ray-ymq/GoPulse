@@ -13,8 +13,8 @@ type AlertDefinition struct {
 }
 
 func AlertCatalog() []AlertDefinition {
-	out := make([]AlertDefinition, 0, len(Catalog))
-	for _, d := range Catalog {
+	out := make([]AlertDefinition, 0, len(Presets))
+	for _, d := range Presets {
 		a := AlertDefinition{Metric: d.Metric, Kind: d.Kind, Unit: d.Unit, Keys: []string{}, Tuples: [][]string{{}}, Reducers: []string{"last", "max", "min", "avg"}}
 		if d.Kind == "counter" {
 			a.Reducers = []string{"increase"}

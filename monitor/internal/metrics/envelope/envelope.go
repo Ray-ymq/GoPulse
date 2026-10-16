@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
 	"strings"
 	"time"
 )
@@ -71,11 +72,11 @@ func NewV2(pluginID, version, status string, samples []Sample, timestamp time.Ti
 }
 
 func NewComponent(id, version string, samples []Sample, at time.Time) (Envelope, error) {
-	checked := make([]componentmetrics.Sample, len(samples))
+	checked := make([]metriccontract.Sample, len(samples))
 	for i, sample := range samples {
-		checked[i] = componentmetrics.Sample{Name: sample.Name, Kind: sample.Kind, Labels: sample.Labels, Value: sample.Value}
+		checked[i] = metriccontract.Sample{Name: sample.Name, Kind: sample.Kind, Labels: sample.Labels, Value: sample.Value}
 	}
-	if err := componentmetrics.Validate(id, checked); err != nil {
+	if err := metriccontract.Validate(id, checked); err != nil {
 		return Envelope{}, err
 	}
 	e, err := New(id, version, "success", samples, at)

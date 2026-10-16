@@ -1,7 +1,6 @@
 package collector
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -10,16 +9,13 @@ import (
 	"net"
 	"net/http"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/publisher"
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
-	"github.com/prometheus/common/model"
 )
 
 // Components is independent of the plugin registry and lifecycle API.
@@ -73,7 +69,6 @@ func StartComponents(root context.Context, mode, version string, interval, timeo
 			client := &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			scrape := func() {
 				started := time.Now()
-				spec, _ := componentmetrics.Catalog(t.id)
 				request, err := componentmetrics.NewRequest(ctx, http.MethodGet, t.origin, nil)
 				if err != nil {
 					return
@@ -82,7 +77,7 @@ func StartComponents(root context.Context, mode, version string, interval, timeo
 				response, err := client.Do(request)
 				var samples []envelope.Sample
 				if err == nil {
-					body, readErr := io.ReadAll(io.LimitReader(response.Body, int64(spec.MaxBodyBytes)+1))
+					body, readErr := io.ReadAll(io.LimitReader(response.Body, metriccontract.MaxBodyBytes+1))
 					_ = response.Body.Close()
 					mediaType, _, mediaErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
 					if len(response.Header.Values("Content-Type")) != 1 || mediaErr != nil || mediaType != "text/plain" || response.Header.Get("Content-Encoding") != "" {
@@ -150,64 +145,8 @@ func (c *Components) Shutdown(ctx context.Context) error {
 }
 
 func ParseComponent(id string, body []byte) ([]envelope.Sample, error) {
-	spec, ok := componentmetrics.Catalog(id)
-	if !ok || len(body) > spec.MaxBodyBytes || bytes.ContainsRune(body, 0) {
-		return nil, errors.New("invalid component body")
+	if !componentmetrics.IsComponent(id) {
+		return nil, errors.New("invalid component")
 	}
-	allowed := make(map[string]componentmetrics.Family, len(spec.Families))
-	for _, f := range spec.Families {
-		allowed[f.Name] = f
-	}
-	// TYPE-only families may be omitted by the text parser when no tuple exists.
-	// Still reject unknown declarations rather than letting empty extras through.
-	for _, line := range strings.Split(string(body), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[0] == "#" && (fields[1] == "TYPE" || fields[1] == "HELP") {
-			if _, ok := allowed[fields[2]]; !ok {
-				return nil, errors.New("unknown component family")
-			}
-		}
-	}
-	parser := expfmt.NewTextParser(model.LegacyValidation)
-	families, err := parser.TextToMetricFamilies(bytes.NewReader(body))
-	if err != nil {
-		return nil, errors.New("invalid component exposition")
-	}
-	var checked []componentmetrics.Sample
-	for name, family := range families {
-		f, ok := allowed[name]
-		if !ok {
-			return nil, errors.New("unknown component family")
-		}
-		for _, metric := range family.Metric {
-			if len(checked) >= spec.MaxSamples || metric.TimestampMs != nil {
-				return nil, errors.New("invalid component sample")
-			}
-			labels := make(map[string]string, len(metric.Label))
-			for _, label := range metric.Label {
-				key := label.GetName()
-				if _, duplicate := labels[key]; duplicate {
-					return nil, errors.New("duplicate component label")
-				}
-				labels[key] = label.GetValue()
-			}
-			var value float64
-			if f.Kind == "counter" && family.GetType() == dto.MetricType_COUNTER && metric.Counter != nil {
-				value = metric.Counter.GetValue()
-			} else if f.Kind == "gauge" && family.GetType() == dto.MetricType_GAUGE && metric.Gauge != nil {
-				value = metric.Gauge.GetValue()
-			} else {
-				return nil, errors.New("invalid component kind")
-			}
-			checked = append(checked, componentmetrics.Sample{Name: name, Kind: f.Kind, Labels: labels, Value: value})
-		}
-	}
-	if err := componentmetrics.Validate(id, checked); err != nil {
-		return nil, err
-	}
-	samples := make([]envelope.Sample, len(checked))
-	for i, s := range checked {
-		samples[i] = envelope.Sample{Name: s.Name, Kind: s.Kind, Labels: s.Labels, Value: s.Value}
-	}
-	return samples, nil
+	return parseExposition(id, body)
 }

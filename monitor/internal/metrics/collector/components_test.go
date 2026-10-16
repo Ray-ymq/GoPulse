@@ -15,13 +15,10 @@ func TestComponentIngressContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, bad := range map[string]string{
-		"family":        string(body) + "# TYPE extra gauge\nextra 1\n",
-		"label key":     strings.Replace(string(body), `dependency="router"`, `dependency="router",source="backend"`, 1),
-		"label value":   strings.Replace(string(body), `dependency="router"`, `dependency="private-host"`, 1),
-		"duplicate":     string(body) + "gopulse_monitor_event_queue_length 0\n",
-		"infinite":      strings.Replace(string(body), "gopulse_monitor_event_queue_length 0", "gopulse_monitor_event_queue_length +Inf", 1),
-		"unpaired":      strings.Replace(string(body), "gopulse_monitor_scrape_duration_seconds_total{scraped_producer_kind=\"component\",scraped_target_id=\"monitor-local\",result=\"scrape_success\"} 1\n", "", 1),
-		"sample budget": string(body) + strings.Repeat("gopulse_monitor_event_queue_length 0\n", 112),
+		"family":    string(body) + "# TYPE extra gauge\nextra 1\n",
+		"label key": strings.Replace(string(body), `dependency="router"`, `dependency="router",source="backend"`, 1),
+		"duplicate": string(body) + "gopulse_monitor_event_queue_length 0\n",
+		"infinite":  strings.Replace(string(body), "gopulse_monitor_event_queue_length 0", "gopulse_monitor_event_queue_length +Inf", 1),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseComponent("monitor", []byte(bad)); err == nil {
@@ -67,7 +64,7 @@ func TestComponentCatalogIncludesEveryExplicitObservabilityReplica(t *testing.T)
 	}
 }
 
-func TestBackendDistributionIngressRequiresFixedBucketsAndLabels(t *testing.T) {
+func TestBackendDistributionIngressRequiresCompleteCumulativeBuckets(t *testing.T) {
 	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +79,7 @@ func TestBackendDistributionIngressRequiresFixedBucketsAndLabels(t *testing.T) {
 	if _, err := ParseComponent("backend", body); err != nil {
 		t.Fatalf("valid backend distribution rejected: %v", err)
 	}
-	missing := strings.Replace(string(body), "gopulse_backend_http_request_duration_seconds_bucket{method=\"GET\",route=\"/health\",status_class=\"2xx\",le=\"0.25\"} 1\n", "", 1)
+	missing := strings.Replace(string(body), "gopulse_backend_http_request_duration_seconds_count{method=\"GET\",route=\"/health\",status_class=\"2xx\"} 1\n", "", 1)
 	if _, err := ParseComponent("backend", []byte(missing)); err == nil {
 		t.Fatal("incomplete backend bucket distribution accepted")
 	}

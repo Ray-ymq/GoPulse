@@ -18,6 +18,7 @@ FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS marshaller-build
 WORKDIR /src/marshaller
 ARG GOPROXY=https://goproxy.cn,direct
 COPY marshaller/go.mod marshaller/go.sum ./
+COPY componentmetrics/ /src/componentmetrics/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY marshaller/ ./
 ARG TARGETOS=linux
@@ -87,6 +88,7 @@ FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS exporter-package
 RUN apk add --no-cache tar gzip
 WORKDIR /src
 COPY monitor/ ./monitor/
+COPY componentmetrics/ ./componentmetrics/
 COPY --from=exporter-build /out/gopulse-redis-exporter /out/gopulse-redis-exporter
 ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
@@ -158,6 +160,7 @@ FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS monitor-build
 WORKDIR /src/monitor
 ARG GOPROXY=https://goproxy.cn,direct
 COPY monitor/go.mod monitor/go.sum ./
+COPY componentmetrics/ /src/componentmetrics/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY monitor/ ./
 COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /packages/gopulse-redis-exporter.tar.gz

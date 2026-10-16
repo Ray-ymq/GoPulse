@@ -13,10 +13,20 @@ uptime_in_seconds:101
 connected_clients:3
 # Memory
 used_memory:4096
+used_memory_rss:6144
+maxmemory:16384
+mem_fragmentation_ratio:1.5
 # Stats
 total_commands_processed:45
 keyspace_hits:12
 keyspace_misses:2
+blocked_clients:1
+rejected_connections:4
+evicted_keys:5
+expired_keys:6
+total_net_input_bytes:700
+total_net_output_bytes:800
+cmdstat_get:calls=10,usec=100,rejected_calls=1,failed_calls=2
 # CPU
 used_cpu_sys:1.25
 used_cpu_user:2.5
@@ -29,7 +39,7 @@ func TestParseInfoCreatesCompleteSnapshotAndDefaultsMissingDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.UptimeSeconds != 101 || snapshot.ConnectedClients != 3 || snapshot.UsedMemoryBytes != 4096 || snapshot.CommandsProcessedTotal != 45 || snapshot.KeyspaceHitsTotal != 12 || snapshot.KeyspaceMissesTotal != 2 || snapshot.CPUUserSeconds != 2.5 || snapshot.CPUSystemSeconds != 1.25 || snapshot.DB != 2 || snapshot.DBKeys != 7 || snapshot.DBExpiringKeys != 3 {
+	if snapshot.UptimeSeconds != 101 || snapshot.ConnectedClients != 3 || snapshot.UsedMemoryBytes != 4096 || snapshot.CommandsProcessedTotal != 45 || snapshot.KeyspaceHitsTotal != 12 || snapshot.KeyspaceMissesTotal != 2 || snapshot.CPUUserSeconds != 2.5 || snapshot.CPUSystemSeconds != 1.25 || snapshot.DB != 2 || snapshot.DBKeys != 7 || snapshot.DBExpiringKeys != 3 || snapshot.MaxMemoryBytes == nil || *snapshot.MaxMemoryBytes != 16384 || snapshot.UsedMemoryRSSBytes == nil || *snapshot.UsedMemoryRSSBytes != 6144 || snapshot.MemoryFragmentation == nil || *snapshot.MemoryFragmentation != 1.5 || snapshot.CommandStats["get"].CallsTotal != 10 {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
 	missing, err := ParseInfo(validInfo, 9)
@@ -74,7 +84,7 @@ type fakeInfoClient struct {
 
 func (f *fakeInfoClient) Info(_ context.Context, sections ...string) *goredis.StringCmd {
 	f.calls++
-	if len(sections) != 6 {
+	if len(sections) != 7 {
 		return goredis.NewStringResult("", context.Canceled)
 	}
 	return goredis.NewStringResult(f.result, f.err)
