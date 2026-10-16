@@ -232,8 +232,8 @@ func (s *session) cleanup(state *workspace.State, observe bool) []error {
 	return cleanupErrors
 }
 
-// observationUsernames is the deterministic set the browser and integration
-// flows may create for this workspace.
+// observationUsernames is the deterministic set the integration flow may
+// create for this workspace.
 func (s *session) observationUsernames() ([]string, error) {
 	usernames := []string{}
 	add := func(username string) {
@@ -251,8 +251,7 @@ func (s *session) observationUsernames() ([]string, error) {
 		add(s.values[key])
 	}
 	// The observability integration creates the matching user directly in the
-	// flow test, while the browser suite records all three names in values.
-	// Derive that integration-only name so both scopes clean the same database.
+	// flow test. Derive that integration-only name so cleanup covers both users.
 	if admin := s.values["OBSERVE_ADMIN_USERNAME"]; strings.HasPrefix(admin, "observe_admin_") {
 		add(strings.Replace(admin, "observe_admin_", "observe_user_", 1))
 	}

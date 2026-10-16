@@ -1,7 +1,6 @@
 package packaging
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -14,11 +13,6 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
 )
-
-// composeGateMarker is printed by the native acceptance closure on any
-// acceptance error; a runner that reports an error but exits zero is still
-// blocking by itself.
-const composeGateMarker = "[gopulse-acceptance] ERROR:"
 
 var errLocalImageMissing = errors.New("local image missing")
 
@@ -33,7 +27,7 @@ type verificationReceipt struct {
 
 // Verify inspects the candidate against its registry digests and writes the
 // receipt the promotion gate requires. Foreign platforms stay metadata-only.
-func Verify(repo *Repo, manifestPath, platform string, runtimeGate bool) error {
+func Verify(manifestPath, platform string, runtimeGate bool) error {
 	path, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return err
@@ -92,10 +86,10 @@ func Verify(repo *Repo, manifestPath, platform string, runtimeGate bool) error {
 	}
 	status := "metadata-only; real arm64 runtime DEFERRED to Phase-16-06"
 	if runtimeGate {
-		if err := runtimeVerify(repo, m, path, platform); err != nil {
+		if err := runtimeVerify(m, platform); err != nil {
 			return err
 		}
-		status = "amd64-runtime-and-compose-passed"
+		status = "amd64-runtime-passed"
 	}
 	manifest, err := os.ReadFile(path)
 	if err != nil {
@@ -117,10 +111,9 @@ func Verify(repo *Repo, manifestPath, platform string, runtimeGate bool) error {
 	return nil
 }
 
-// runtimeVerify proves the candidate runs on this host before any promotion:
-// the tool image starts read-only and the fixed Compose closure consumes the
-// candidate platform digests exactly once.
-func runtimeVerify(repo *Repo, m *release.Manifest, path, platform string) error {
+// runtimeVerify proves the lifecycle candidate runs on this host before any
+// promotion. The tool image starts read-only and reports its bound identity.
+func runtimeVerify(m *release.Manifest, platform string) error {
 	serverJSON, err := output("", "docker", "version", "--format", "{{json .Server}}")
 	if err != nil {
 		return err
@@ -157,8 +150,7 @@ func runtimeVerify(repo *Repo, m *release.Manifest, path, platform string) error
 	if result.Version != m.Version || result.Revision != m.Revision || result.Platform != platform {
 		return errors.New("lifecycle runtime mismatch")
 	}
-	// The full Compose acceptance runs ONCE against the candidate digests.
-	return runComposeGate(repo, path)
+	return nil
 }
 
 // ensureRuntimeImage reuses an immutable platform image already in the local
@@ -303,75 +295,4 @@ func normalizeRepoDigest(ref string) string {
 		repository = repository[:colon]
 	}
 	return repository + ref[at:]
-}
-
-// runComposeGate builds the native acceptance command from the current
-// repository every time. An existing untracked binary can belong to an older
-// revision and must never decide the current candidate's runtime result.
-// It then streams the fixed candidate closure and fails on a reported
-// acceptance error even when the runner exits successfully.
-func runComposeGate(repo *Repo, manifest string) error {
-	temporary, err := os.CreateTemp("", "gopulse-acceptance-")
-	if err != nil {
-		return err
-	}
-	commandPath := temporary.Name()
-	if err := temporary.Close(); err != nil {
-		_ = os.Remove(commandPath)
-		return err
-	}
-	if err := os.Remove(commandPath); err != nil {
-		return fmt.Errorf("prepare native acceptance command: %w", err)
-	}
-	defer func() { _ = os.Remove(commandPath) }()
-	build := exec.Command("go", "build", "-o", commandPath, "./cmd/gopulse-acceptance")
-	build.Dir = filepath.Join(repo.Root, "acceptance")
-	build.Stdout = os.Stdout
-	build.Stderr = os.Stderr
-	if err := build.Run(); err != nil {
-		return fmt.Errorf("build native acceptance command: %w", err)
-	}
-	for _, args := range [][]string{
-		{"compose", "--scope", "observability", "--manifest", manifest},
-		{"lifecycle", "--install", "clean", "--manifest", manifest, "--platform", "linux/amd64"},
-		{"lifecycle", "--install", "clean", "--failure-matrix", "--manifest", manifest, "--platform", "linux/amd64"},
-	} {
-		if err := runNativeAcceptance(commandPath, repo.Root, args...); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func runNativeAcceptance(commandPath, root string, args ...string) error {
-	cmd := exec.Command(commandPath, args...)
-	cmd.Dir = root
-	cmd.Env = os.Environ()
-	stream, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = cmd.Stdout
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	reported := false
-	scanner := bufio.NewScanner(stream)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for scanner.Scan() {
-		line := scanner.Text()
-		fmt.Println(line)
-		if strings.Contains(line, composeGateMarker) {
-			reported = true
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return err
-	}
-	if err := cmd.Wait(); err != nil || reported {
-		return errors.New("native acceptance reported a failure; no success receipt emitted")
-	}
-	return nil
 }

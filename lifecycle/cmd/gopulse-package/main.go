@@ -54,7 +54,7 @@ func run(arguments []string) error {
 	manifest := flags.String("manifest", "", "release manifest of an existing candidate")
 	version := flags.String("version", "", "expected candidate version")
 	revision := flags.String("revision", "", "expected candidate revision")
-	runtimeGate := flags.Bool("runtime", false, "run the real runtime and Compose acceptance")
+	runtimeGate := flags.Bool("runtime", false, "run the real lifecycle runtime identity check")
 	promote := flags.Bool("promote", false, "promote the verified candidate to its release tags")
 	if err := flags.Parse(arguments[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -83,14 +83,10 @@ func run(arguments []string) error {
 		fmt.Println("Candidate complete; not externally published:", path)
 		return nil
 	case "verify":
-		repo, err := packaging.OpenRepo(*repository)
-		if err != nil {
-			return err
-		}
 		if *manifest == "" {
 			return &packaging.UsageError{Message: "verify requires --manifest"}
 		}
-		return packaging.Verify(repo, *manifest, *platforms, *runtimeGate)
+		return packaging.Verify(*manifest, *platforms, *runtimeGate)
 	case "promote":
 		if *manifest == "" {
 			return &packaging.UsageError{Message: "promote requires --manifest"}
@@ -132,7 +128,7 @@ func runCandidate(repository, registry, platforms, output string, runtimeGate, p
 		return err
 	}
 	for index, platform := range strings.Split(platforms, ",") {
-		if err := packaging.Verify(repo, path, platform, runtimeGate && index == 0); err != nil {
+		if err := packaging.Verify(path, platform, runtimeGate && index == 0); err != nil {
 			return err
 		}
 	}

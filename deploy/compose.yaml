@@ -806,32 +806,6 @@ services:
     networks:
       - business
 
-  acceptance:
-    profiles: [acceptance]
-    image: gopulse/acceptance:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
-    pull_policy: never
-    build:
-      context: ..
-      dockerfile: deploy/docker/acceptance.Dockerfile
-      args:
-        <<: *image-build-args
-        UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
-    environment:
-      GOPULSE_BASE_URL: http://frontend:8080
-      GOPULSE_ACCEPTANCE_TOKEN: ${GOPULSE_ACCEPTANCE_TOKEN:-compose}
-      GOPULSE_ACCEPTANCE_SCENARIO: ${GOPULSE_ACCEPTANCE_SCENARIO:-business}
-      GOPULSE_OBSERVABILITY_ADMIN_USERNAME: ${GOPULSE_OBSERVABILITY_ADMIN_USERNAME:-}
-      GOPULSE_OBSERVABILITY_USER_USERNAME: ${GOPULSE_OBSERVABILITY_USER_USERNAME:-}
-      GOPULSE_OBSERVABILITY_PASSWORD: ${GOPULSE_OBSERVABILITY_PASSWORD:-}
-      GOPULSE_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      GOPULSE_UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
-    depends_on:
-      frontend:
-        condition: service_healthy
-    networks:
-      - edge
-      - business
-
   kafka:
     image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
     restart: on-failure:5
@@ -1062,8 +1036,6 @@ services:
       timeout: 3s
       retries: 20
 
-  # MySQL/RabbitMQ collector Secrets are reconciled after startup through
-  # acceptance reconcile-accounts; no admin credentials enter Monitor.
   monitor:
     image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
     pull_policy: never

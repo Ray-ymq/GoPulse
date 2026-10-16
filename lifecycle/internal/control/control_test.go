@@ -229,7 +229,7 @@ func TestDistributionDescriptorWithoutOptionalPlatforms(t *testing.T) {
 	}
 }
 
-func doctorTestController(t *testing.T, localImages bool) (*Controller, int, string) {
+func doctorTestController(t *testing.T) (*Controller, int, string) {
 	t.Helper()
 	c := fixture(t)
 	indexDigest := "sha256:" + strings.Repeat("a", 64)
@@ -241,7 +241,6 @@ func doctorTestController(t *testing.T, localImages bool) (*Controller, int, str
 	c.manifest.Lifecycle = image
 	c.manifest.Images = map[string]release.Image{}
 	c.manifest.ThirdParty = map[string]release.Image{}
-	c.localImages = localImages
 	c.endpoint = "unix:///does/not/exist"
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -262,56 +261,8 @@ func doctorDockerScript(inspect string) string {
  esac`
 }
 
-func TestDoctorLocalImagesValidatesExactPlatformDigestWithoutDistribution(t *testing.T) {
-	c, port, _ := doctorTestController(t, true)
-	fakeDocker(t, doctorDockerScript(`printf '{"Os":"linux","Architecture":"amd64","RepoDigests":["%s"]}' "$9"`))
-	if err := c.doctor(port); err != nil {
-		t.Fatalf("local image doctor rejected matching image: %v", err)
-	}
-}
-
-func TestDoctorLocalImagesRejectsMissingOrInvalidImages(t *testing.T) {
-	tests := []struct {
-		name    string
-		inspect string
-		code    int
-	}{
-		{
-			name:    "missing",
-			inspect: `printf 'Error response from daemon: No such image: %s\n' "$9" >&2; exit 1`,
-			code:    ManifestError,
-		},
-		{
-			name:    "wrong platform",
-			inspect: `printf '{"Os":"linux","Architecture":"arm64","RepoDigests":["%s"]}' "$9"`,
-			code:    ManifestError,
-		},
-		{
-			name:    "wrong digest",
-			inspect: `printf '%s' '{"Os":"linux","Architecture":"amd64","RepoDigests":["registry.example/other@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"]}'`,
-			code:    ManifestError,
-		},
-		{
-			name:    "daemon error",
-			inspect: `exit 42`,
-			code:    Daemon,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			c, port, _ := doctorTestController(t, true)
-			fakeDocker(t, doctorDockerScript(test.inspect))
-			err := c.doctor(port)
-			failure, ok := err.(*Failure)
-			if !ok || failure.Code != test.code || failure.Stage != "local-digest" {
-				t.Fatalf("doctor error = %v, want local-digest code %d", err, test.code)
-			}
-		})
-	}
-}
-
 func TestDoctorDefaultModeKeepsDistributionValidation(t *testing.T) {
-	c, port, _ := doctorTestController(t, false)
+	c, port, _ := doctorTestController(t)
 	var requests int32
 	socket := filepath.Join(t.TempDir(), "docker.sock")
 	listener, err := net.Listen("unix", socket)

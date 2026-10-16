@@ -34,7 +34,7 @@ const (
 var archPattern = regexp.MustCompile(`^[a-z0-9]+$`)
 
 // usageError separates invalid invocation from a failed build or environment, so
-// the exit status stays distinguishable for callers and acceptance scripts.
+// the exit status stays distinguishable for callers and shell wrappers.
 type usageError struct{ message string }
 
 func (e usageError) Error() string { return e.message }

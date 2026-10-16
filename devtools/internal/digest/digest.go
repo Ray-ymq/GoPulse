@@ -110,30 +110,6 @@ func Source(root string, observe bool) (string, error) {
 // SourceBuilds digests the sources that produce the locally built binaries.
 func SourceBuilds(root string) (string, error) { return Source(root, false) }
 
-// E2ESource digests everything a browser run consumes: the frontend sources
-// and configuration, plus the admin frontend for the observation scope.
-func E2ESource(root string, observe bool) (string, error) {
-	items := []string{
-		filepath.Join(root, "frontend", "src"),
-		filepath.Join(root, "frontend", "e2e"),
-		filepath.Join(root, "frontend", "package.json"),
-		filepath.Join(root, "frontend", "package-lock.json"),
-		filepath.Join(root, "frontend", "playwright.config.ts"),
-		filepath.Join(root, "frontend", "vite.config.ts"),
-		filepath.Join(root, "frontend", "vite.config.test.ts"),
-	}
-	if observe {
-		items = append(items,
-			filepath.Join(root, "admin-frontend", "src"),
-			filepath.Join(root, "admin-frontend", "package.json"),
-			filepath.Join(root, "admin-frontend", "package-lock.json"),
-			filepath.Join(root, "admin-frontend", "vite.config.ts"),
-			filepath.Join(root, "admin-frontend", "vite.config.test.ts"),
-		)
-	}
-	return Paths(root, items)
-}
-
 // MonitorInput digests everything that changes the prepared Monitor image.
 func MonitorInput(root string) (string, error) {
 	return Paths(root, []string{

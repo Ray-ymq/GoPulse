@@ -1,7 +1,6 @@
 // Package testenv owns the isolated test lifecycles: a candidate-scoped Compose
 // project with its own ports, volumes, private state, and exclusive environment
-// lock, the source test processes, and the deterministic test account cleanup
-// that the integration and browser entries share.
+// lock, the source test processes, and deterministic test account cleanup.
 package testenv
 
 import (
@@ -150,7 +149,7 @@ func (s *session) lock() (func(), error) {
 	}
 	if err := syscall.Flock(int(handle.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		handle.Close()
-		return nil, fmt.Errorf("another integration or browser check owns the test environment lock")
+		return nil, fmt.Errorf("another integration check owns the test environment lock")
 	}
 	return func() {
 		_ = syscall.Flock(int(handle.Fd()), syscall.LOCK_UN)
@@ -390,12 +389,6 @@ func (s *session) saveIntegrationState(state *workspace.State) error {
 		"processes":      state.Processes,
 		"logs":           state.Logs,
 	}
-	if state.BrowserTraces != "" {
-		document["browser_traces"] = state.BrowserTraces
-	}
-	if len(state.BrowserCommands) > 0 {
-		document["browser_commands"] = state.BrowserCommands
-	}
 	if state.StoppedAt != "" {
 		document["stopped_at"] = state.StoppedAt
 	}
@@ -453,9 +446,6 @@ func (s *session) beginDiagnostics(mode, scope string, observe bool) {
 		}
 	}
 	reproduction := [][]string{{"make", mode, "SCOPE=" + scope}}
-	if mode == "e2e" {
-		reproduction = [][]string{{"make", "e2e", "SCOPE=" + scope}}
-	}
 	environment := map[string]string{
 		"workspace_id":   s.ws.Identity,
 		"workspace_root": s.ws.Root,
@@ -483,11 +473,6 @@ func (s *session) collectFailureEvidence(state *workspace.State) {
 			continue
 		}
 		if err := s.diagnostic.CopyText("process-"+name, record.Log); err != nil {
-			s.diagnosticErrors = append(s.diagnosticErrors, err)
-		}
-	}
-	if state.BrowserTraces != "" {
-		if err := s.diagnostic.CopyTree("browser-report", state.BrowserTraces); err != nil {
 			s.diagnosticErrors = append(s.diagnosticErrors, err)
 		}
 	}

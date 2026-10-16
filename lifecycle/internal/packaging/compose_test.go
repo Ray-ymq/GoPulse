@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// composeServices mirrors the product Compose model: every runtime service
-// plus the acceptance helper that never ships in a bundle.
+// composeServices mirrors the product Compose model: every runtime service.
 func composeServices(extra map[string]any) map[string]any {
 	names := []string{
 		"backend", "backend-2", "platform-api", "migrate", "search-init", "admin-role",
@@ -20,7 +19,6 @@ func composeServices(extra map[string]any) map[string]any {
 	for _, name := range names {
 		services[name] = map[string]any{"build": map[string]any{"context": ".."}, "ports": []any{"1:1"}}
 	}
-	services["acceptance"] = map[string]any{"image": "acceptance"}
 	for name, service := range extra {
 		services[name] = service
 	}
@@ -61,9 +59,6 @@ func renderedServices(t *testing.T, document []byte) map[string]map[string]any {
 				t.Errorf("%s %s keeps a project-scoped name", kind, name)
 			}
 		}
-	}
-	if _, ok := model.Services["acceptance"]; ok {
-		t.Error("acceptance service must not ship in a product bundle")
 	}
 	return model.Services
 }

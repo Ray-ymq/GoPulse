@@ -54,10 +54,6 @@ func productCompose(m *release.Manifest, document []byte) ([]byte, error) {
 	if !ok {
 		return nil, errors.New("Compose model has no services")
 	}
-	if _, ok := services["acceptance"]; !ok {
-		return nil, errors.New("Compose model has no acceptance service")
-	}
-	delete(services, "acceptance")
 	for name, raw := range services {
 		service, ok := raw.(map[string]any)
 		if !ok {

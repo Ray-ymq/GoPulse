@@ -141,38 +141,3 @@ func TestMonitorInputDigestCoversPackagingInputs(t *testing.T) {
 		before = after
 	}
 }
-
-func TestE2ESourceDigestCoversFrontendAndAdminScope(t *testing.T) {
-	root := t.TempDir()
-	write(t, root, "frontend/src/main.ts", "export {}\n")
-	write(t, root, "frontend/e2e/business.spec.ts", "test()\n")
-	write(t, root, "frontend/package.json", "{}\n")
-	write(t, root, "admin-frontend/src/main.ts", "export {}\n")
-
-	business, err := E2ESource(root, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	observation, err := E2ESource(root, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if business == observation {
-		t.Fatal("the observation scope must digest the admin frontend as well")
-	}
-	write(t, root, "admin-frontend/src/main.ts", "export {} // changed\n")
-	changedObservation, err := E2ESource(root, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if changedObservation == observation {
-		t.Error("admin frontend sources must contribute to the observation digest")
-	}
-	unchangedBusiness, err := E2ESource(root, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if unchangedBusiness != business {
-		t.Error("an admin frontend change must not invalidate the business scope")
-	}
-}

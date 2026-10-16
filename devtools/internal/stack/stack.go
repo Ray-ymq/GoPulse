@@ -19,7 +19,7 @@ var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
 var productTargets = []string{
 	"backend", "business-worker", "search-indexer", "admin-frontend", "frontend",
-	"acceptance", "router", "marshaller", "monitor", "redis-exporter",
+	"router", "marshaller", "monitor", "redis-exporter",
 }
 
 var requiredServices = []string{

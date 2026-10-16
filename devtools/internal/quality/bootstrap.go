@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,15 +13,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
 )
 
 // Bootstrap prepares the pinned lint tool and, unless toolsOnly is set, the
-// requested frontend dependencies and its private Chromium installation.
+// requested frontend dependencies.
 func Bootstrap(root, application string, toolsOnly bool) error {
 	if toolsOnly && application != "" {
 		return fmt.Errorf("TOOLS_ONLY=1 cannot be combined with MODULE=%s", application)
@@ -47,9 +43,6 @@ func Bootstrap(root, application string, toolsOnly bool) error {
 	}
 	for _, name := range applications {
 		if err := frontenddeps.Ensure(root, name); err != nil {
-			return err
-		}
-		if err := ensurePlaywright(root, name, config.Playwright.Browser); err != nil {
 			return err
 		}
 	}
@@ -215,103 +208,4 @@ func extractLintBinary(archivePath, directory string) error {
 		return fmt.Errorf("golangci-lint archive does not contain its binary")
 	}
 	return nil
-}
-
-func ensurePlaywright(root, application, browser string) error {
-	ws, err := workspace.For(root)
-	if err != nil {
-		return err
-	}
-	nodeVersion, err := commandOutput("node", "--version")
-	if err != nil {
-		return err
-	}
-	npmVersion, err := commandOutput("npm", "--version")
-	if err != nil {
-		return err
-	}
-	digest, err := frontenddeps.InputDigest(filepath.Join(root, application), application, strings.TrimSpace(nodeVersion), strings.TrimSpace(npmVersion))
-	if err != nil {
-		return err
-	}
-	browserRoot := filepath.Join(root, ".run", "tools", "playwright-browsers")
-	markerPath := filepath.Join(ws.PrivateRoot(), "playwright", application+".json")
-	if markerMatches(markerPath, digest) && hasInstalledBrowser(browserRoot, browser) {
-		fmt.Printf("[gopulse] reusing Playwright %s for %s\n", browser, application)
-		return nil
-	}
-	release, err := takeQualityLock(filepath.Join(ws.PrivateRoot(), "playwright", "chromium.lock"))
-	if err != nil {
-		return err
-	}
-	defer release()
-	if err := os.MkdirAll(browserRoot, 0o700); err != nil {
-		return err
-	}
-	if err := proc.Run([]string{"npm", "exec", "--", "playwright", "install", browser}, filepath.Join(root, application), map[string]string{
-		"PLAYWRIGHT_BROWSERS_PATH": browserRoot,
-	}, "Playwright "+browser+" installation for "+application, 0); err != nil {
-		return err
-	}
-	if !hasInstalledBrowser(browserRoot, browser) {
-		return fmt.Errorf("playwright did not install the requested browser %s", browser)
-	}
-	return workspace.SaveJSON(markerPath, map[string]string{"application": application, "browser": browser, "digest": digest})
-}
-
-func hasInstalledBrowser(root, browser string) bool {
-	if browser != "chromium" {
-		return false
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), browser+"-") {
-			continue
-		}
-		paths := []string{
-			filepath.Join(root, entry.Name(), "chrome-linux", "chrome"),
-			filepath.Join(root, entry.Name(), "chrome-linux64", "chrome"),
-		}
-		if runtime.GOOS == "darwin" {
-			paths = append(paths, filepath.Join(root, entry.Name(), "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"))
-		}
-		for _, path := range paths {
-			if info, err := os.Stat(path); err == nil && !info.IsDir() {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func takeQualityLock(path string) (func(), error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	handle, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if err := syscall.Flock(int(handle.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = handle.Close()
-		return nil, fmt.Errorf("another Playwright installation owns the lock")
-	}
-	return func() {
-		_ = syscall.Flock(int(handle.Fd()), syscall.LOCK_UN)
-		_ = handle.Close()
-	}, nil
-}
-
-func markerMatches(path, digest string) bool {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	marker := struct {
-		Digest string `json:"digest"`
-	}{}
-	return json.Unmarshal(raw, &marker) == nil && marker.Digest == digest
 }

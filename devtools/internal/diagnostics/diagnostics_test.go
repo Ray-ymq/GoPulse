@@ -98,36 +98,6 @@ func TestDiagnosticRejectsSymlinkSourceAndPrivatePath(t *testing.T) {
 	}
 }
 
-func TestCopyTreeCreatesPrivateArtifactParents(t *testing.T) {
-	root := t.TempDir()
-	ws, err := workspace.For(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	report, err := New(ws, Metadata{Label: "browser-failure"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	source := filepath.Join(root, "test-results")
-	if err := os.MkdirAll(filepath.Join(source, "case"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(source, "case", "error-context.md"), []byte("failure"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := report.CopyTree("browser-report", source); err != nil {
-		t.Fatal(err)
-	}
-	artifact := filepath.Join(report.Directory(), "artifacts", "browser-report", "case", "error-context.md")
-	content, err := os.ReadFile(artifact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(content) != "failure" {
-		t.Fatalf("copied browser report = %q, want failure", content)
-	}
-}
-
 type testError struct{ message string }
 
 func (e *testError) Error() string { return e.message }

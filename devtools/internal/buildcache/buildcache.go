@@ -25,7 +25,6 @@ var Targets = []string{
 	"search-indexer",
 	"admin-frontend",
 	"frontend",
-	"acceptance",
 	"router",
 	"marshaller",
 	"monitor",

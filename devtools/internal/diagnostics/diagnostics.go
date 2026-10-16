@@ -1,7 +1,6 @@
 // Package diagnostics writes private, post-cleanup failure evidence for one
 // workspace. It deliberately has no public receipt schema: the files are
-// operator material, while lifecycle and acceptance receipts keep their
-// existing contracts.
+// operator material, while lifecycle receipts keep their existing contract.
 package diagnostics
 
 import (
@@ -21,7 +20,6 @@ import (
 
 const (
 	maxTextBytes = 2 * 1024 * 1024
-	maxTreeBytes = 20 * 1024 * 1024
 	maxPathParts = 64
 )
 
@@ -126,7 +124,7 @@ func (r *Report) AddCleanupError(err error) {
 	}
 }
 
-// CopyText copies a bounded text log or browser report into the report. Source
+// CopyText copies a bounded text log into the report. Source
 // symlinks are rejected; the destination remains private and mode 0600.
 func (r *Report) CopyText(label, source string) error {
 	info, err := os.Lstat(source)
@@ -189,73 +187,6 @@ func (r *Report) WriteText(label, text string) error {
 		return err
 	}
 	r.logs = append(r.logs, path)
-	return nil
-}
-
-// CopyTree preserves a bounded browser report directory before its owning
-// process or container is removed. It accepts only regular files and refuses
-// symlink entries so the report cannot walk outside the intended source tree.
-func (r *Report) CopyTree(label, source string) error {
-	info, err := os.Lstat(source)
-	if err != nil {
-		return fmt.Errorf("read diagnostic tree %s: %w", source, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("diagnostic tree %s is not a directory", source)
-	}
-	destination := filepath.Join(r.directory, "artifacts", safeName(label))
-	if err := safeMkdirAll(r.directory, destination); err != nil {
-		return err
-	}
-	total := int64(0)
-	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == source {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("diagnostic tree contains symlink %s", path)
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if !entry.Type().IsRegular() {
-			return nil
-		}
-		fileInfo, statErr := entry.Info()
-		if statErr != nil {
-			return statErr
-		}
-		if total+fileInfo.Size() > maxTreeBytes {
-			return fmt.Errorf("diagnostic tree exceeds 20 MiB")
-		}
-		relative, relErr := filepath.Rel(source, path)
-		if relErr != nil || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || relative == ".." {
-			return fmt.Errorf("diagnostic artifact escapes source tree")
-		}
-		content, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		target := filepath.Join(destination, relative)
-		parent := filepath.Dir(target)
-		if parent != destination {
-			if err := safeMkdirAll(destination, parent); err != nil {
-				return err
-			}
-		}
-		if err := writePrivate(target, content); err != nil {
-			return err
-		}
-		total += fileInfo.Size()
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	r.logs = append(r.logs, destination)
 	return nil
 }
 

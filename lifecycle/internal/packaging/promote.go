@@ -16,7 +16,7 @@ import (
 // receiptStatus is the closed status vocabulary of the verification receipts.
 func receiptStatus(arch string) string {
 	if arch == "amd64" {
-		return "amd64-runtime-and-compose-passed"
+		return "amd64-runtime-passed"
 	}
 	return "metadata-only; real arm64 runtime DEFERRED to Phase-16-06"
 }

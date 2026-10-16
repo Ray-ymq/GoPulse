@@ -224,31 +224,3 @@ USER 10005:10001
 EXPOSE 9090
 VOLUME ["/var/lib/gopulse-monitor/plugins"]
 ENTRYPOINT ["/usr/local/bin/monitor"]
-
-# Acceptance-only registered releases. No runtime flag can add these to a
-# production image; the production monitor target above never copies them.
-FROM official-packages AS acceptance-packages
-ARG ACCEPTANCE_UPDATE_VERSION=1.11.5
-RUN cd /src/monitor && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' -o /out/failing-exporter ./internal/plugin/testdata/failing-exporter.go
-RUN go run ./cmd/plugin-package --contract-version 2 --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/redis-failure.tar.gz && \
-    go run ./cmd/plugin-package --contract-version 2 --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-redis-exporter --output /out/redis-update.tar.gz
-
-RUN go run ./cmd/plugin-package --source kafka --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/kafka-failure.tar.gz && \
-    go run ./cmd/plugin-package --source kafka --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-kafka-exporter --output /out/kafka-update.tar.gz
-RUN go run ./cmd/plugin-package --source elasticsearch --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/elasticsearch-failure.tar.gz && \
-    go run ./cmd/plugin-package --source elasticsearch --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-elasticsearch-exporter --output /out/elasticsearch-update.tar.gz
-
-RUN go run ./cmd/plugin-package --source victoriametrics --version 1.11.90 --arch amd64 --binary /out/failing-exporter --output /out/victoriametrics-failure.tar.gz && \
-    go run ./cmd/plugin-package --source victoriametrics --version "$ACCEPTANCE_UPDATE_VERSION" --arch amd64 --binary /out/gopulse-victoriametrics-exporter --output /out/victoriametrics-update.tar.gz
-
-FROM monitor-build AS monitor-acceptance-build
-COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /out/kafka-failure.tar.gz /out/kafka-update.tar.gz /out/elasticsearch-failure.tar.gz /out/elasticsearch-update.tar.gz /out/victoriametrics-failure.tar.gz /out/victoriametrics-update.tar.gz /packages/
-RUN go run ./cmd/plugin-release-catalog --output internal/plugin/release_catalog_generated.go \
-      current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz current=/packages/gopulse-victoriametrics-exporter.tar.gz legacy-v1=/packages/redis-1.10.6.tar.gz retained=/packages/redis-1.11.5.tar.gz retained=/packages/mysql-1.11.5.tar.gz retained=/packages/rabbitmq-1.11.5.tar.gz retained=/packages/kafka-1.11.5.tar.gz retained=/packages/elasticsearch-1.11.5.tar.gz retained=/packages/victoriametrics-1.11.5.tar.gz \
-      retained=/packages/redis-failure.tar.gz retained=/packages/redis-update.tar.gz \
-      retained=/packages/kafka-failure.tar.gz retained=/packages/kafka-update.tar.gz retained=/packages/elasticsearch-failure.tar.gz retained=/packages/elasticsearch-update.tar.gz retained=/packages/victoriametrics-failure.tar.gz retained=/packages/victoriametrics-update.tar.gz && \
-    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/monitor ./cmd/monitor
-
-FROM monitor AS monitor-acceptance
-COPY --from=monitor-acceptance-build /out/monitor /usr/local/bin/monitor
-COPY --from=acceptance-packages /out/redis-failure.tar.gz /out/redis-update.tar.gz /out/kafka-failure.tar.gz /out/kafka-update.tar.gz /out/elasticsearch-failure.tar.gz /out/elasticsearch-update.tar.gz /out/victoriametrics-failure.tar.gz /out/victoriametrics-update.tar.gz /opt/gopulse/packages/

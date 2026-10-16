@@ -53,7 +53,6 @@ func fail(code int, stage, msg string) error { return &Failure{Code: code, Stage
 type Controller struct {
 	ctx                    context.Context
 	dir, bundle, endpoint  string
-	localImages            bool
 	manifest               *release.Manifest
 	manifestHash           string
 	state                  State
@@ -132,7 +131,6 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	bundle := fs.String("bundle", "/bundle", "immutable bundle directory")
 	endpoint := fs.String("endpoint", "", "explicit unix:///path Docker endpoint")
 	port := fs.Int("port", 18080, "loopback edge port (init/doctor)")
-	localImages := fs.Bool("local-images", false, "acceptance-only: validate immutable images from the local Docker image store")
 	service := fs.String("service", "edge", "allowlisted service (logs)")
 	tail := fs.Int("tail", 100, "log lines, 1..1000")
 	since := fs.String("since", "", "RFC3339 start time")
@@ -146,9 +144,6 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 	if fs.Parse(args[1:]) != nil || fs.NArg() != 0 || !filepath.IsAbs(*dir) || !filepath.IsAbs(*bundle) || !strings.HasPrefix(*endpoint, "unix:///") || *port < 1024 || *port > 65535 {
 		return fail(Usage, "arguments", "require absolute --install/--bundle, explicit local --endpoint unix:///path and port 1024..65535")
 	}
-	if *localImages && command != "doctor" && command != "init" {
-		return fail(Usage, "arguments", "--local-images is only valid for doctor or init acceptance checks")
-	}
 	if *tail < 1 || *tail > 1000 {
 		return fail(Usage, "arguments", "tail must be 1..1000")
 	}
@@ -159,7 +154,7 @@ func Run(ctx context.Context, args []string, version, revision string, out io.Wr
 			}
 		}
 	}
-	c := &Controller{ctx: ctx, dir: filepath.Clean(*dir), bundle: filepath.Clean(*bundle), endpoint: *endpoint, localImages: *localImages}
+	c := &Controller{ctx: ctx, dir: filepath.Clean(*dir), bundle: filepath.Clean(*bundle), endpoint: *endpoint}
 	defer func() {
 		if resultErr != nil {
 			if command == "up" || command == "down" || command == "backup" || command == "restore" {
@@ -429,19 +424,6 @@ func (c *Controller) doctor(port int) error {
 	for _, name := range sortedImageKeys(images) {
 		image := images[name]
 		ref := strings.Split(image.Ref, "@")[0] + "@" + image.Platforms[lifecyclePlatform]
-		if c.localImages {
-			local, err := c.localImage(ref)
-			if err != nil {
-				if failure, ok := err.(*Failure); ok {
-					return fail(failure.Code, "local-digest", "local image validation failed for "+name)
-				}
-				return fail(ManifestError, "local-digest", "local image validation failed for "+name)
-			}
-			if !local {
-				return fail(ManifestError, "local-digest", "local image is missing for "+name)
-			}
-			continue
-		}
 		if err := c.distribution(image.Ref, false); err != nil {
 			return fail(ManifestError, "digest", "registry index unavailable for "+name)
 		}
