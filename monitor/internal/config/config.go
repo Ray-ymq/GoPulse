@@ -18,6 +18,7 @@ type Config struct {
 	HTTPPort             int
 	APIToken             string
 	PluginRoot           string
+	ReleaseCatalog       string
 	BootstrapPackage     string
 	RequestTimeout       time.Duration
 	ShutdownTimeout      time.Duration
@@ -92,6 +93,13 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, errors.New("MONITOR_BOOTSTRAP_PACKAGE must be an absolute path")
 		}
 		bootstrapPackage = filepath.Clean(bootstrapPackage)
+	}
+	releaseCatalog := value("MONITOR_RELEASE_CATALOG", "")
+	if releaseCatalog != "" {
+		if strings.ContainsAny(releaseCatalog, "\x00\r\n") || !filepath.IsAbs(releaseCatalog) {
+			return Config{}, errors.New("MONITOR_RELEASE_CATALOG must be an absolute path")
+		}
+		releaseCatalog = filepath.Clean(releaseCatalog)
 	}
 	parseDuration := func(key string, fallback, min, max time.Duration) (time.Duration, error) {
 		raw := value(key, fallback.String())
@@ -179,7 +187,14 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	for _, key := range []string{"REDIS_HOST", "REDIS_PORT", "REDIS_DB"} {
 		if strings.TrimSpace(env[key]) == "" {
-			return Config{}, fmt.Errorf("%s is required", key)
+			switch key {
+			case "REDIS_HOST":
+				env[key] = "127.0.0.1"
+			case "REDIS_PORT":
+				env[key] = "6379"
+			case "REDIS_DB":
+				env[key] = "0"
+			}
 		}
 	}
 	if err := validateDependencyHost(runtimeMode, "REDIS_HOST", env["REDIS_HOST"]); err != nil {
@@ -203,7 +218,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if len(routerURLs) > 0 {
 		routerURL = routerURLs[0]
 	}
-	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterURLs: routerURLs, RouterToken: routerToken, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, ExporterEnv: env}, nil
+	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, ReleaseCatalog: releaseCatalog, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterURLs: routerURLs, RouterToken: routerToken, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, ExporterEnv: env}, nil
 }
 
 func parseRouterURLs(list, fallback string, runtimeMode RuntimeMode) ([]string, error) {

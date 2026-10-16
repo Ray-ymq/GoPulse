@@ -5,8 +5,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
 )
 
 // pluginArchive builds one plugin package: the metadata, an ELF entry point of
@@ -95,5 +99,46 @@ func TestPluginRecordValidatesArchiveIdentity(t *testing.T) {
 	}
 	if upgrade.Purpose != "upgrade-only" || upgrade.Schema != "" {
 		t.Fatalf("a package without a config schema is upgrade-only: %+v", upgrade)
+	}
+}
+
+func TestPluginRecordsCopiesPlatformPackagesAndCatalog(t *testing.T) {
+	root, output := t.TempDir(), t.TempDir()
+	for _, source := range Sources {
+		id := source + "-exporter"
+		archive := pluginArchive(t, id, "2.5.4", "amd64", true)
+		name := "gopulse-" + source + "-exporter-2.5.4-linux-amd64.tar.gz"
+		if err := os.WriteFile(filepath.Join(root, name), archive, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if source == "redis" {
+			decoy := pluginArchive(t, id, "9.9.9", "arm64", true)
+			if err := os.WriteFile(filepath.Join(root, "gopulse-redis-exporter-9.9.9-linux-arm64.tar.gz"), decoy, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	legacy := pluginArchive(t, "redis-exporter", "1.9.4", "amd64", false)
+	if err := os.WriteFile(filepath.Join(root, "redis-1.9.4.tar.gz"), legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "catalog.json"), []byte(`{"schema_version":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	records, err := PluginRecords(release.Image{}, "linux/amd64", output, root)
+	if err != nil {
+		t.Fatalf("independent package records failed: %v", err)
+	}
+	if len(records) != len(Sources)+1 {
+		t.Fatalf("records = %d, want %d", len(records), len(Sources)+1)
+	}
+	if _, err := os.Stat(filepath.Join(output, "catalog.json")); err != nil {
+		t.Fatalf("catalog was not copied: %v", err)
+	}
+	for _, source := range Sources {
+		name := "gopulse-" + source + "-exporter-2.5.4-linux-amd64.tar.gz"
+		if _, err := os.Stat(filepath.Join(output, name)); err != nil {
+			t.Fatalf("current %s package was not copied: %v", source, err)
+		}
 	}
 }

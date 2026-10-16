@@ -102,6 +102,20 @@ func TestServiceMappingClosesCurrentCompose(t *testing.T) {
 	if services["backend-2"]["image"] != services["backend"]["image"] || services["platform-api"]["image"] != services["backend"]["image"] {
 		t.Error("backend-2 and platform-api must reuse the backend image")
 	}
+	volumes, ok := services["monitor"]["volumes"].([]any)
+	if !ok {
+		t.Fatal("monitor package volume is missing")
+	}
+	packageVolume := false
+	for _, raw := range volumes {
+		volume, ok := raw.(map[string]any)
+		if ok && volume["target"] == "/opt/gopulse/packages" && volume["source"] == "../../plugins/${GOPULSE_PLUGIN_ARCH:-amd64}" && volume["type"] == "bind" {
+			packageVolume = true
+		}
+	}
+	if !packageVolume {
+		t.Error("monitor must mount the bundle's independent Exporter packages")
+	}
 }
 
 // TestUnknownServiceIsRejected mirrors

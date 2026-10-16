@@ -71,7 +71,7 @@ func New(cfg Config) (*Monitor, error) {
 	if cfg.Source == "" {
 		cfg.Source = "redis"
 	}
-	if cfg.Source != "redis" && cfg.Source != "mysql" && cfg.Source != "rabbitmq" && cfg.Source != "kafka" && cfg.Source != "elasticsearch" && cfg.Source != "victoriametrics" {
+	if strings.ContainsAny(cfg.Source, "\x00\r\n \t") || !validMetricIdentifier(cfg.Source) {
 		return nil, errors.New("invalid source")
 	}
 	if cfg.Interval <= 0 || cfg.Timeout <= 0 || cfg.Timeout >= cfg.Interval {
@@ -102,6 +102,21 @@ func New(cfg Config) (*Monitor, error) {
 	transport.ResponseHeaderTimeout = cfg.Timeout
 	client := &http.Client{Timeout: cfg.Timeout, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return &Monitor{cfg: cfg, client: client}, nil
+}
+
+func validMetricIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, r := range value {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-' {
+			return false
+		}
+		if i == 0 && r >= '0' && r <= '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Monitor) Enable(manifest plugin.Manifest) {
@@ -157,15 +172,19 @@ func (m *Monitor) run(ctx context.Context, done chan struct{}, manifest plugin.M
 func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	ctx, cancel := context.WithTimeout(parent, m.cfg.Timeout)
 	defer cancel()
+	targetID := manifest.TargetID
+	if targetID == "" {
+		targetID = manifest.ID + "-local"
+	}
 	started := time.Now()
 	status, samples, completedAt, err := m.fetch(ctx, manifest.MetricsPath)
 	result := "scrape_success"
 	if err != nil || status != "success" {
 		result = "scrape_failure"
 	}
-	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", manifest.ID+"-local", result)
+	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", targetID, result)
 	if result == "scrape_success" {
-		componentmetrics.Active().Set("last_scrape_success_timestamp_seconds", float64(completedAt.Unix()), "exporter_plugin", manifest.ID+"-local")
+		componentmetrics.Active().Set("last_scrape_success_timestamp_seconds", float64(completedAt.Unix()), "exporter_plugin", targetID)
 	}
 	if err != nil {
 		if parent.Err() != nil {
@@ -179,11 +198,12 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	if parent.Err() != nil {
 		return
 	}
-	newEnvelope := envelope.New
+	var message envelope.Envelope
 	if manifest.MetricsContractVersion == 2 {
-		newEnvelope = envelope.NewV2
+		message, err = envelope.NewV2WithIdentity(manifest.ID, manifest.Version, manifest.Source, manifest.TargetID, status, samples, completedAt)
+	} else {
+		message, err = envelope.New(manifest.ID, manifest.Version, status, samples, completedAt)
 	}
-	message, err := newEnvelope(manifest.ID, manifest.Version, status, samples, completedAt)
 	if err != nil {
 		m.cfg.Update(Update{ErrorCode: "message_id_failed", ErrorMessage: "metrics message could not be created"})
 		m.recordCollectionFailure("message_id_failed")
@@ -196,7 +216,7 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	if err != nil {
 		result = "publish_failure"
 	}
-	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", manifest.ID+"-local", result)
+	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", targetID, result)
 	publishCancel()
 	if err != nil {
 		if parent.Err() == nil {

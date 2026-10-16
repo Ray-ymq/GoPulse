@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"io"
+	"strings"
+	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -136,6 +139,122 @@ func uniqueJSON(data []byte) bool {
 	}
 	_, err := dec.Token()
 	return err == io.EOF
+}
+
+// validateConfigurationRequest checks the source-independent DTO boundary.
+// Endpoint restrictions, authentication combinations and target reachability
+// belong to the Exporter and Monitor runtime contracts.
+func validateConfigurationRequest(data []byte, schema ConfigSchema, preserveSecrets bool) bool {
+	if !uniqueJSON(data) || schema.SchemaVersion != 1 || len(schema.Fields) == 0 {
+		return false
+	}
+	var request map[string]json.RawMessage
+	if decodeStrict(data, &request) != nil || request == nil {
+		return false
+	}
+	for key := range request {
+		if key != "config" && key != "secrets" {
+			return false
+		}
+	}
+	var config map[string]json.RawMessage
+	if raw, ok := request["config"]; !ok || decodeStrict(raw, &config) != nil || config == nil {
+		return false
+	}
+	secrets := map[string]json.RawMessage{}
+	if raw, ok := request["secrets"]; ok {
+		if decodeStrict(raw, &secrets) != nil || secrets == nil {
+			return false
+		}
+	}
+	fields := map[string]ConfigField{}
+	for _, field := range schema.Fields {
+		if field.Name == "" || fields[field.Name].Name != "" || (field.Secret && field.Type != "secret") || (!field.Secret && field.Type == "secret") {
+			return false
+		}
+		fields[field.Name] = field
+	}
+	for name, raw := range config {
+		field, ok := fields[name]
+		if !ok || field.Secret || !validateSchemaValue(raw, field) {
+			return false
+		}
+	}
+	for name, raw := range secrets {
+		field, ok := fields[name]
+		if !ok || !field.Secret || !validateSchemaValue(raw, field) {
+			return false
+		}
+	}
+	for _, field := range schema.Fields {
+		if field.Required {
+			if field.Secret {
+				if _, ok := secrets[field.Name]; !ok && !preserveSecrets {
+					return false
+				}
+			} else if _, ok := config[field.Name]; !ok {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validateSchemaValue(raw json.RawMessage, field ConfigField) bool {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false
+	}
+	switch field.Type {
+	case "integer", "port":
+		var value int
+		if json.Unmarshal(raw, &value) != nil {
+			return false
+		}
+		if field.Type == "port" && (value < 1 || value > 65535) {
+			return false
+		}
+		return withinInt(int64(value), field.Minimum, field.Maximum)
+	case "duration":
+		var value string
+		if json.Unmarshal(raw, &value) != nil {
+			return false
+		}
+		duration, err := time.ParseDuration(value)
+		return err == nil && withinInt(duration.Milliseconds(), field.Minimum, field.Maximum)
+	default:
+		var value string
+		if json.Unmarshal(raw, &value) != nil || !utf8.ValidString(value) {
+			return false
+		}
+		if field.Type == "hostname" && strings.TrimSpace(value) == "" {
+			return false
+		}
+		if field.Type == "string" || field.Type == "secret" || field.Type == "hostname" {
+			length := utf8.RuneCountInString(value)
+			if !withinInt(int64(length), field.Minimum, field.Maximum) {
+				return false
+			}
+		}
+		if len(field.Enum) > 0 {
+			found := false
+			for _, allowed := range field.Enum {
+				found = found || value == allowed
+			}
+			if !found {
+				return false
+			}
+		}
+		for _, r := range value {
+			if unicode.IsControl(r) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func withinInt(value int64, minimum, maximum *int) bool {
+	return (minimum == nil || value >= int64(*minimum)) && (maximum == nil || value <= int64(*maximum))
 }
 
 // ValidateConfigSchema checks both byte integrity and the exact official shape,

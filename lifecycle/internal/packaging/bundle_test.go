@@ -56,3 +56,32 @@ func TestBundleRoundTripIsDeterministicAndTamperProof(t *testing.T) {
 		t.Error("an archive changed after assembly must be rejected")
 	}
 }
+
+func TestBundleIncludesIndependentExporterInputs(t *testing.T) {
+	repo := fixtureRepo(t)
+	output, packageRoot := t.TempDir(), t.TempDir()
+	packageDir := filepath.Join(packageRoot, "plugins", "amd64")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageDir, "catalog.json"), []byte(`{"schema_version":1,"modules":[],"releases":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageDir, "gopulse-redis-exporter-2.5.4-linux-amd64.tar.gz"), []byte{0, 'p', '\r'}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteBundle(repo, fixtureManifest("2.5.4"), productTopology(), output, packageRoot); err != nil {
+		t.Fatalf("bundle assembly failed: %v", err)
+	}
+	for _, name := range []string{
+		"plugins/amd64/catalog.json",
+		"plugins/amd64/gopulse-redis-exporter-2.5.4-linux-amd64.tar.gz",
+	} {
+		if _, err := os.Stat(filepath.Join(output, filepath.FromSlash(name))); err != nil {
+			t.Fatalf("bundle asset %s is missing: %v", name, err)
+		}
+	}
+	if _, err := VerifyBundle(filepath.Join(output, "release-manifest.json")); err != nil {
+		t.Fatalf("bundle with independent Exporter inputs must verify: %v", err)
+	}
+}

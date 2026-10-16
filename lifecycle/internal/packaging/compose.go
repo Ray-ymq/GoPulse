@@ -74,6 +74,13 @@ func productCompose(m *release.Manifest, document []byte) ([]byte, error) {
 		service["image"] = image.Ref
 		service["pull_policy"] = "always"
 	}
+	monitor, ok := services["monitor"].(map[string]any)
+	if !ok {
+		return nil, errors.New("Compose model has no monitor service")
+	}
+	if err := bindExporterPackages(monitor); err != nil {
+		return nil, err
+	}
 	// Reuse the existing frontend reverse proxy as the sole product edge and
 	// keep the frontend itself internal; development Compose stays unchanged.
 	frontend, ok := services["frontend"].(map[string]any)
@@ -109,6 +116,25 @@ func productCompose(m *release.Manifest, document []byte) ([]byte, error) {
 		}
 	}
 	return encodeJSON(model)
+}
+
+func bindExporterPackages(service map[string]any) error {
+	const target = "/opt/gopulse/packages"
+	const source = "../../plugins/${GOPULSE_PLUGIN_ARCH:-amd64}"
+	volumes, _ := service["volumes"].([]any)
+	for _, raw := range volumes {
+		item, ok := raw.(map[string]any)
+		if !ok || item["target"] != target {
+			continue
+		}
+		item["type"] = "bind"
+		item["source"] = source
+		item["read_only"] = true
+		delete(item, "volume")
+		return nil
+	}
+	service["volumes"] = append(volumes, map[string]any{"type": "bind", "source": source, "target": target, "read_only": true})
+	return nil
 }
 
 // toolService is the fixed lifecycle tool service shipped in the bundle.

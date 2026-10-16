@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "mysql-exporter",
+  "name": "GoPulse MySQL Exporter",
+  "source": "mysql",
+  "entrypoint": "bin/gopulse-mysql-exporter",
+  "target_id": "mysql-exporter-local",
+  "host_port": 3306,
+  "container_port": 3306,
+  "health_path": "/health",
+  "metrics_path": "/metrics",
+  "listen_port": 9122,
+  "runtime_contract_version": 1,
+  "metrics_contract_version": 2,
+  "config_schema_path": "config.schema.json"
+}

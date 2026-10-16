@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "kafka-exporter",
+  "name": "GoPulse Kafka Exporter",
+  "source": "kafka",
+  "entrypoint": "bin/gopulse-kafka-exporter",
+  "target_id": "kafka-exporter-local",
+  "host_port": 9092,
+  "container_port": 19092,
+  "health_path": "/health",
+  "metrics_path": "/metrics",
+  "listen_port": 9124,
+  "runtime_contract_version": 1,
+  "metrics_contract_version": 2,
+  "config_schema_path": "config.schema.json"
+}

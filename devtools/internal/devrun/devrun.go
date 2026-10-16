@@ -14,6 +14,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/devtools/internal/compose"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/monitorimage"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
@@ -78,6 +79,7 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	if err != nil {
 		return nil, err
 	}
+	values["MONITOR_PACKAGE_DIR"] = filepath.Join(ws.Root, ".run", "packages")
 	envFile, err := envfile.WritePrivate(ws.PrivateRoot(), mode, values)
 	if err != nil {
 		return nil, err
@@ -380,17 +382,20 @@ func (s *session) ensureMonitorImage() (string, error) {
 	if !semverLike(version) {
 		return "", fmt.Errorf("VERSION must use major.minor.patch before building Monitor")
 	}
+	if err := exporterpackages.Prepare(s.root, s.values["MONITOR_PACKAGE_DIR"], s.processEnv); err != nil {
+		return "", err
+	}
 	revision := s.git("rev-parse", "HEAD")
 	input, err := digest.MonitorInput(s.root)
 	if err != nil {
 		return "", err
 	}
-	if monitorimage.Reusable(s.root, input, revision, s.processEnv) {
+	if monitorimage.Reusable(s.root, input, s.processEnv) {
 		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
 		return tag, nil
 	}
 	if err := proc.Run([]string{
-		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/observability.Dockerfile",
+		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/monitor.Dockerfile",
 		"--label", monitorimage.InputLabel + "=" + input,
 		"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision, "--tag", tag, ".",
 	}, s.root, s.processEnv, "Monitor image preparation", 0); err != nil {

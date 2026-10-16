@@ -59,13 +59,25 @@ func New(pluginID, pluginVersion, status string, samples []Sample, timestamp tim
 // NewV2 retains the historical Redis sample/series identity while identifying
 // the producer in transport metadata, never as extra Redis storage labels.
 func NewV2(pluginID, version, status string, samples []Sample, timestamp time.Time) (Envelope, error) {
+	return NewV2WithIdentity(pluginID, version, strings.TrimSuffix(pluginID, "-exporter"), pluginID+"-local", status, samples, timestamp)
+}
+
+// NewV2WithIdentity preserves the metric contract while using the deployment
+// descriptor's source and target identity in transport metadata.
+func NewV2WithIdentity(pluginID, version, source, targetID, status string, samples []Sample, timestamp time.Time) (Envelope, error) {
+	if source == "" {
+		source = strings.TrimSuffix(pluginID, "-exporter")
+	}
+	if targetID == "" {
+		targetID = pluginID + "-local"
+	}
 	e, err := New(pluginID, version, status, samples, timestamp)
 	if err != nil {
 		return e, err
 	}
 	e.SchemaVersion = 2
-	e.Source = strings.TrimSuffix(pluginID, "-exporter")
-	e.Payload.TargetID = pluginID + "-local"
+	e.Source = source
+	e.Payload.TargetID = targetID
 	e.Payload.PluginID, e.Payload.PluginVersion = "", ""
 	e.Payload.ProducerKind, e.Payload.ProducerID, e.Payload.ProducerVersion = "exporter_plugin", pluginID, version
 	return e, nil

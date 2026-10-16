@@ -1041,7 +1041,7 @@ services:
     pull_policy: never
     build:
       context: ..
-      dockerfile: deploy/docker/observability.Dockerfile
+      dockerfile: deploy/docker/monitor.Dockerfile
       target: monitor
       args: *image-build-args
     restart: on-failure:5
@@ -1065,6 +1065,7 @@ services:
         condition: service_healthy
     volumes:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
+      - ${MONITOR_PACKAGE_DIR:-../.run/packages}:/opt/gopulse/packages:ro
     expose:
       - "9090"
       - "19104"

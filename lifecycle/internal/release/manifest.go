@@ -185,7 +185,7 @@ func (m *Manifest) Validate() error {
 		seen[key] = true
 		switch p.Purpose {
 		case "current":
-			if p.Version != m.Version || (p.Arch != "amd64" && p.Arch != "arm64") || !digest.MatchString(p.Schema) {
+			if !semver.MatchString(p.Version) || (p.Arch != "amd64" && p.Arch != "arm64") || !digest.MatchString(p.Schema) {
 				return errors.New("invalid current plugin")
 			}
 			current[p.ID+"/"+p.Arch] = true

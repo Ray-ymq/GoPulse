@@ -84,6 +84,7 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	for key, value := range overrides {
 		values[key] = value
 	}
+	values["MONITOR_PACKAGE_DIR"] = filepath.Join(ws.Root, ".run", "packages")
 	envFile, err := envfile.WritePrivate(ws.PrivateRoot(), envfile.ModeTest, values)
 	if err != nil {
 		return nil, err

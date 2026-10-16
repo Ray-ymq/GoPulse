@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,21 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && managedCommand(os.Args[1]) {
+		if len(os.Args) != 4 || os.Args[2] != "--config" {
+			_ = exportercontract.Result(os.Stdout, false, "invalid_arguments")
+			os.Exit(2)
+		}
+		code, err := runManaged(os.Args[1], os.Args[3])
+		if err != nil {
+			if code == "" {
+				code = "runtime_failed"
+			}
+			_ = exportercontract.Result(os.Stdout, false, code)
+			os.Exit(1)
+		}
+		return
+	}
 	if run() != nil {
 		if len(os.Args) > 1 {
 			fmt.Fprintln(os.Stdout, `{"reachable":false,"code":"target_unavailable"}`)
@@ -28,15 +44,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if len(os.Args) > 1 && (len(os.Args) != 2 || os.Args[1] != "--check") {
+		return runtime.ErrConfig
+	}
+	return runWithConfig(cfg, len(os.Args) > 1)
+}
+
+func runWithConfig(cfg runtime.Config, check bool) error {
 	db, err := runtime.Open(cfg)
 	if err != nil {
 		return err
 	}
 	defer db.CloseIdleConnections()
-	if len(os.Args) > 1 {
-		if len(os.Args) != 2 || os.Args[1] != "--check" {
-			return runtime.ErrConfig
-		}
+	if check {
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.ScrapeTimeout)
 		defer cancel()
 		if _, err := collector.Collect(ctx, db); err != nil {
@@ -55,4 +75,28 @@ func run() error {
 	defer listener.Close()
 	logger := componentmetrics.NewLogger("rabbitmq-exporter", os.Stdout)
 	return componentmetrics.ServeRuntime(ctx, server, listener, 5*time.Second, logger)
+}
+
+func managedCommand(command string) bool {
+	return command == "check-config" || command == "check-connection" || command == "serve"
+}
+
+func runManaged(command, path string) (string, error) {
+	if command == "check-config" {
+		if _, err := runtime.LoadFile(path); err != nil {
+			return "invalid_configuration", err
+		}
+		return "", exportercontract.Result(os.Stdout, true, "ok")
+	}
+	cfg, err := runtime.LoadFile(path)
+	if err != nil {
+		return "invalid_configuration", err
+	}
+	if command == "check-connection" {
+		if err := runWithConfig(cfg, true); err != nil {
+			return "target_unavailable", err
+		}
+		return "", nil
+	}
+	return "runtime_failed", runWithConfig(cfg, false)
 }

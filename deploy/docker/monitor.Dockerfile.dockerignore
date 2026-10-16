@@ -1,0 +1,7 @@
+# The Monitor image has its own build context. Exporter source, packages and
+# historical archives are deployment inputs and must not enter this context.
+*
+!monitor/
+!monitor/**
+!componentmetrics/
+!componentmetrics/**

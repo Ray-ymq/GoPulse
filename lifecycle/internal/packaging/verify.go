@@ -27,7 +27,7 @@ type verificationReceipt struct {
 
 // Verify inspects the candidate against its registry digests and writes the
 // receipt the promotion gate requires. Foreign platforms stay metadata-only.
-func Verify(manifestPath, platform string, runtimeGate bool) error {
+func Verify(manifestPath, platform string, runtimeGate bool, packageRoots ...string) error {
 	path, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return err
@@ -56,7 +56,11 @@ func Verify(manifestPath, platform string, runtimeGate bool) error {
 		fmt.Printf("PASS third-party metadata: %s %s\n", name, platform)
 	}
 	arch := platformArch(platform)
-	records, err := PluginRecords(m.Images["monitor"], platform, filepath.Join(filepath.Dir(path), "verified-plugins", arch))
+	packageRoot := filepath.Join(filepath.Dir(path), "packages")
+	if len(packageRoots) > 0 && packageRoots[0] != "" {
+		packageRoot = packageRoots[0]
+	}
+	records, err := PluginRecords(m.Images["monitor"], platform, filepath.Join(filepath.Dir(path), "verified-plugins", arch), packageRoot)
 	if err != nil {
 		return err
 	}

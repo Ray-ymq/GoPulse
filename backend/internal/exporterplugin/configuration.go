@@ -3,14 +3,12 @@ package exporterplugin
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
 	"github.com/gin-gonic/gin"
 	"io"
 	"mime"
 	"net/http"
-	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -34,15 +32,15 @@ func (c *Client) Catalog(ctx context.Context) ([]CatalogItem, error) {
 	var result struct {
 		Data []CatalogItem `json:"data"`
 	}
-	if !uniqueJSON(body) || decodeStrict(body, &result) != nil || len(result.Data) != 6 {
+	if !uniqueJSON(body) || decodeStrict(body, &result) != nil || len(result.Data) == 0 || len(result.Data) > 64 {
 		return nil, monitorUnavailable()
 	}
-	for i, item := range result.Data {
-		entry := OfficialCatalog()[i]
-		schema, _ := OfficialSchema(entry.ID)
-		if item.ID != entry.ID || item.Source != entry.Source || item.Name != "GoPulse "+entry.Source+" Exporter" || !reflect.DeepEqual(item.Schema, schema) || (!entry.Available && item.Available) || (!item.Available && item.Configured) || (item.SecretConfigured && !item.Configured) || (item.Configured && entry.Source != "kafka" && entry.Source != "elasticsearch" && !item.SecretConfigured) || (entry.Source == "kafka" && item.SecretConfigured) {
+	seen := map[string]bool{}
+	for _, item := range result.Data {
+		if !validPluginID(item.ID) || !validSafeName(item.Name, 80) || !validSource(item.Source) || item.Schema.PluginID != item.ID || item.Schema.SchemaVersion != 1 || len(item.Schema.Fields) == 0 || !validConfigSchema(item.Schema) || seen[item.ID] || (!item.Available && item.Configured) || (item.SecretConfigured && !item.Configured) {
 			return nil, monitorUnavailable()
 		}
+		seen[item.ID] = true
 		if !item.Configured {
 			if item.Revision != "" || item.Summary != "not_configured" {
 				return nil, monitorUnavailable()
@@ -54,6 +52,85 @@ func (c *Client) Catalog(ctx context.Context) ([]CatalogItem, error) {
 		}
 	}
 	return result.Data, nil
+}
+
+var pluginIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,127}$`)
+
+func validPluginID(id string) bool { return pluginIDPattern.MatchString(id) }
+
+func validSource(source string) bool {
+	if source == "" || len(source) > 128 {
+		return false
+	}
+	for index, r := range source {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-' {
+			return false
+		}
+		if index == 0 && (r < 'a' || r > 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+func validSafeName(value string, limit int) bool {
+	if value == "" || len(value) > limit || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validConfigSchema(schema ConfigSchema) bool {
+	seen := map[string]bool{}
+	for _, field := range schema.Fields {
+		if !validConfigField(field) || seen[field.Name] {
+			return false
+		}
+		seen[field.Name] = true
+	}
+	return true
+}
+
+func validConfigField(field ConfigField) bool {
+	if !validFieldName(field.Name) || (field.Type == "secret") != field.Secret {
+		return false
+	}
+	switch field.Type {
+	case "hostname", "port", "integer", "string", "secret", "duration":
+	default:
+		return false
+	}
+	if field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, item := range field.Enum {
+		if item == "" || seen[item] {
+			return false
+		}
+		seen[item] = true
+	}
+	return true
+}
+
+func validFieldName(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+		if index == 0 && (r < 'a' || r > 'z') {
+			return false
+		}
+	}
+	return true
 }
 func (h *Handler) Catalog(c *gin.Context) {
 	items, err := h.client.Catalog(c.Request.Context())
@@ -85,50 +162,19 @@ func (h *Handler) Configuration(c *gin.Context) {
 	if strings.HasSuffix(c.Request.URL.Path, "/connection-test") {
 		action = "connection-test"
 	}
-	// Both boundaries enforce the same config DTO. Backend permits either known
-	// runtime origin; Monitor enforces its actual deployment mode and saved Secret.
-	if id == "redis-exporter" {
-		var previous *RedisSecret
-		if action == "configuration" {
-			previous = &RedisSecret{Password: "preserve-placeholder"}
-		}
-		_, _, err = ParseRedisConfigurationRequest(body, "container", previous)
-		if err != nil {
-			_, _, err = ParseRedisConfigurationRequest(body, "host", previous)
-		}
-	} else if id == "mysql-exporter" || id == "rabbitmq-exporter" || id == "kafka-exporter" || id == "elasticsearch-exporter" || id == "victoriametrics-exporter" {
-		var previous json.RawMessage
-		if action == "configuration" {
-			previous = json.RawMessage(`{"password":"preserve-placeholder"}`)
-			if id == "kafka-exporter" {
-				previous = json.RawMessage(`{}`)
-			}
-		}
-		// The Backend has no saved Secret. For optional authentication validate
-		// both possible preservation states; Monitor validates the actual one.
-		if action == "configuration" && id == "elasticsearch-exporter" {
-			for _, candidate := range []json.RawMessage{json.RawMessage(`{}`), previous} {
-				for _, mode := range []string{"container", "host"} {
-					_, _, err = (clusterAdapter{id: id}).Parse(body, mode, candidate)
-					if err == nil {
-						break
-					}
-				}
-				if err == nil {
-					break
-				}
-			}
-		} else {
-			_, _, err = (clusterAdapter{id: id}).Parse(body, "container", previous)
-			if err != nil {
-				_, _, err = (clusterAdapter{id: id}).Parse(body, "host", previous)
-			}
-		}
-	} else {
-		response.Error(c, apperror.New(apperror.CodePluginNotFound, "plugin was not found"))
+	items, catalogErr := h.client.Catalog(c.Request.Context())
+	if catalogErr != nil {
+		response.Error(c, catalogErr)
 		return
 	}
-	if err != nil {
+	var catalogItem *CatalogItem
+	for i := range items {
+		if items[i].ID == id {
+			catalogItem = &items[i]
+			break
+		}
+	}
+	if catalogItem == nil || !catalogItem.Available || !validateConfigurationRequest(body, catalogItem.Schema, action == "configuration") {
 		response.Error(c, invalidConfig())
 		return
 	}
