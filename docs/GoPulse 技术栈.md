@@ -40,7 +40,6 @@
 | OpenTelemetry | 1.37.0 | 分布式链路追踪 |
 | Exporter Plugins | 自研 | 基础组件性能指标采集 |
 | Monitor | 自研 | 指标采集调度、日志与事件接收、插件管理 |
-| Message Router | 自研 | 可观测数据路由与转发 |
 | Marshaller | 自研 | 可观测数据清洗、转换与存储写入 |
 
 # 工程化与部署

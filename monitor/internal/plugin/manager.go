@@ -847,7 +847,7 @@ func (m *Manager) RecordSourceMetrics(id string, scrapeAt, successAt *time.Time,
 }
 
 // RuntimeReady checks only the initialized local ownership/catalog boundary.
-// Router availability is recoverable through the bounded publisher/queues.
+// Message publication availability is recoverable through the bounded publisher/queues.
 func (m *Manager) RuntimeReady(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()

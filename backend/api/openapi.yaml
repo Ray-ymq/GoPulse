@@ -3033,7 +3033,7 @@ components:
       properties:
         id:
           type: string
-          description: 组件 ID，固定集合之一：`backend`、`business-worker`、`search-indexer`、`monitor`、`router`、`marshaller`。
+          description: 组件 ID，固定集合之一：`backend`、`business-worker`、`search-indexer`、`monitor`、`marshaller`。
         status:
           $ref: '#/components/schemas/AdminStatus'
         observed_at:

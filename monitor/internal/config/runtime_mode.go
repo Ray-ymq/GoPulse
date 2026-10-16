@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
-	"strconv"
 	"strings"
 )
 
@@ -52,35 +50,11 @@ func validateDependencyHost(mode RuntimeMode, key, host string) error {
 		}
 		return fmt.Errorf("%s must use a loopback host in host mode", key)
 	}
-	// Docker Desktop exposes native macOS processes through this hostname.
-	// The local Darwin Compose overlay uses it only for the Monitor-to-Router
-	// bridge; Redis remains on the Compose network.
 	if host == "host.docker.internal" {
-		if key == "MONITOR_ROUTER_URL" || key == "MONITOR_ROUTER_URLS" {
-			return nil
-		}
 		return fmt.Errorf("%s must use a service DNS name in container mode", key)
 	}
 	if host == "localhost" || net.ParseIP(host) != nil || !isServiceDNSName(host) {
 		return fmt.Errorf("%s must use a service DNS name in container mode", key)
-	}
-	return nil
-}
-
-func validateHTTPOrigin(mode RuntimeMode, key, raw string) error {
-	if strings.ContainsAny(raw, "\x00\r\n") {
-		return fmt.Errorf("%s must be an HTTP origin without credentials, path, query, fragment, or control characters", key)
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return fmt.Errorf("%s must be an HTTP origin without credentials, path, query, fragment, or control characters", key)
-	}
-	port, portErr := strconv.Atoi(parsed.Port())
-	if portErr != nil || port < 1 || port > 65535 {
-		return fmt.Errorf("%s must include a valid port", key)
-	}
-	if err := validateDependencyHost(mode, key, parsed.Hostname()); err != nil {
-		return err
 	}
 	return nil
 }

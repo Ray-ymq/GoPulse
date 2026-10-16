@@ -77,7 +77,6 @@ func TestSourceDigestCoversLocalReplaceModulesAndScope(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "backend/go.mod", "module example\n\nreplace github.com/Ray-ymq/GoPulse/componentmetrics => ../componentmetrics\n")
 	write(t, root, "componentmetrics/metrics.go", "package componentmetrics\n")
-	write(t, root, "router/main.go", "package main\n")
 	write(t, root, "marshaller/main.go", "package main\n")
 
 	development, err := Source(root, false)
@@ -89,7 +88,7 @@ func TestSourceDigestCoversLocalReplaceModulesAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	if development == observation {
-		t.Fatal("the observation scope must digest Router and Marshaller as well")
+		t.Fatal("the observation scope must digest Marshaller as well")
 	}
 
 	// The replaced helper's regression: a locally replaced module is a build input.

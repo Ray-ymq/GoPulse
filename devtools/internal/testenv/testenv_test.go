@@ -46,7 +46,7 @@ func TestIntegrationPortsAreIsolatedPerScope(t *testing.T) {
 		"RABBITMQ_MANAGEMENT_PORT": "25673", "ELASTICSEARCH_PORT": "29200",
 		"KAFKA_PORT": "19092", "VICTORIAMETRICS_PORT": "18428",
 		"OBSERVABILITY_ELASTICSEARCH_PORT": "29201", "MONITOR_HTTP_PORT": "19090",
-		"ROUTER_HTTP_PORT": "19091", "MARSHALLER_HTTP_PORT": "19093",
+		"MARSHALLER_HTTP_PORT":     "19093",
 		"REDIS_EXPORTER_HTTP_PORT": "19121", "HTTP_PORT": "18080",
 	}
 	business := integrationPorts(values, false)
@@ -55,12 +55,12 @@ func TestIntegrationPortsAreIsolatedPerScope(t *testing.T) {
 		t.Fatalf("business ports %v, want %v", business, wantBusiness)
 	}
 	observe := integrationPorts(values, true)
-	for _, port := range []int{19092, 18428, 29201, 19090, 19091, 19093, 19121, 18080, 19101, 19102, 19103, 19105, 19106} {
+	for _, port := range []int{19092, 18428, 29201, 19090, 19093, 19121, 18080, 19101, 19102, 19103, 19106} {
 		if !slices.Contains(observe, port) {
 			t.Fatalf("observe ports %v do not cover %d", observe, port)
 		}
 	}
-	if len(observe) != len(wantBusiness)+13 {
+	if len(observe) != len(wantBusiness)+11 {
 		t.Fatalf("observe ports %v do not extend the business set exactly once", observe)
 	}
 }

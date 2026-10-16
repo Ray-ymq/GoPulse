@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var Components = []string{"backend", "business-worker", "search-indexer", "monitor", "router", "marshaller"}
+var Components = []string{"backend", "business-worker", "search-indexer", "monitor", "marshaller"}
 var Plugins = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
 
 // ProcessIDs is the code-owned process identity inventory. Runtime roles,
@@ -196,17 +196,7 @@ func Catalog(id string) (Spec, bool) {
 		gauge("last_scrape_success_timestamp_seconds", "unix_seconds", []string{"scraped_producer_kind", "scraped_target_id"}, ScrapeTargets())
 		gauge("event_queue_length", "count", nil, nil)
 		gauge("plugins_running", "count", nil, nil)
-		dep("router")
 		s.Families = append(s.Families, Family{Name: prefix + "event_queue_dropped_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
-	case "router":
-		pair("messages_total", "produce_duration_seconds_total", []string{"type", "message_source", "result"}, expand(MessagePairs(), "accepted", "rejected", "produced"))
-		gauge("buffered_records", "count", nil, nil)
-		gauge("buffered_bytes", "bytes", nil, nil)
-		gauge("buffer_limit_records", "count", nil, nil)
-		gauge("buffer_limit_bytes", "bytes", nil, nil)
-		gauge("last_kafka_ack_timestamp_seconds", "unix_seconds", nil, nil)
-		pair("backpressure_total", "backpressure_duration_seconds_total", []string{"reason"}, singles("buffer_full", "kafka_failure", "request_canceled"))
-		dep("kafka")
 	case "marshaller":
 		var tuples [][]string
 		for _, p := range MessagePairs() {

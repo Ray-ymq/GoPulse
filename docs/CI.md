@@ -58,7 +58,7 @@ make build MODULE=frontend   # 类型检查、Vite 构建
 
 ```sh
 make ci-tools
-make ci-plan LABELS="ci:backend ci:router"
+make ci-plan LABELS="ci:backend ci:marshaller"
 make ci-plan LABELS=ci:none
 make verify MODULE=backend
 ```

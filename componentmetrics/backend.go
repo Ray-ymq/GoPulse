@@ -35,7 +35,7 @@ type backlog struct {
 	valid         bool
 }
 
-// Backend stores a fixed set of series slots allocated at router construction.
+// Backend stores a fixed set of series slots allocated at registry construction.
 // Hot-path updates perform no I/O, acquire no mutex, and publish one immutable
 // fixed-size state so the legacy pair and histogram can never be scraped from
 // different completions.

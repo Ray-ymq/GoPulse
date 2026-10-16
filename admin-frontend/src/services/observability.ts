@@ -106,7 +106,7 @@ export const eventNames = [
   'metrics_target_unavailable', 'metrics_target_recovered',
 ] as const
 
-const metricSources = ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics','backend','business-worker','search-indexer','monitor','router','marshaller'] as const
+const metricSources = ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics','backend','business-worker','search-indexer','monitor','marshaller'] as const
 const metricUnits = new Set(['none','boolean','seconds','count','bytes','state','unix_seconds'])
 function validMetricName(value: unknown): value is string {
  return typeof value === 'string' && value.length <= 128 && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value) && metricSources.some(source => value.startsWith(`gopulse_${source.replaceAll('-', '_')}_`) && value.length > `gopulse_${source.replaceAll('-', '_')}_`.length)
@@ -224,7 +224,7 @@ export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
  return value.every(item => {
   if (!record(item) || !keysAllowed(item,new Set(['metric','kind','unit','source','target_id','producer_kind','producer_id','label_keys'])) || !validMetricName(item.metric) || (item.kind !== 'gauge' && item.kind !== 'counter') || !metricUnits.has(String(item.unit)) || typeof item.source !== 'string' || !metricSources.includes(item.source as typeof metricSources[number]) || !item.metric.startsWith(`gopulse_${item.source.replaceAll('-', '_')}_`)) return false
   if (item.label_keys !== undefined && (!Array.isArray(item.label_keys) || new Set(item.label_keys).size !== item.label_keys.length || !item.label_keys.every(key => typeof key === 'string') || !validMetricLabels(Object.fromEntries(item.label_keys.map(key => [key,'']))))) return false
-  const component = ['backend','business-worker','search-indexer','monitor','router','marshaller'].includes(item.source)
+  const component = ['backend','business-worker','search-indexer','monitor','marshaller'].includes(item.source)
   return item.producer_kind === (component ? 'component' : 'exporter_plugin') && item.producer_id === (component ? item.source : `${item.source}-exporter`) && item.target_id === (component ? `${item.source}-local` : `${item.source}-exporter-local`)
  })
 }

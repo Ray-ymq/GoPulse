@@ -27,7 +27,7 @@ func Token(id string) (string, error) {
 			return "", errors.New("component metrics tokens must be independent")
 		}
 	}
-	for _, key := range []string{"MONITOR_API_TOKEN", "ROUTER_API_TOKEN", "MARSHALLER_API_TOKEN", "MONITOR_LOG_INGEST_TOKEN", "JWT_SECRET", "AUTH_JWT_SECRET", "LOG_MONITOR_INGEST_TOKEN"} {
+	for _, key := range []string{"MONITOR_API_TOKEN", "MARSHALLER_API_TOKEN", "MONITOR_LOG_INGEST_TOKEN", "JWT_SECRET", "AUTH_JWT_SECRET", "LOG_MONITOR_INGEST_TOKEN"} {
 		if os.Getenv(key) == token {
 			return "", errors.New("component metrics token must not be an API credential")
 		}

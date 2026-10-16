@@ -77,12 +77,6 @@ func run(logger *slog.Logger) error {
 		_ = internalMetrics.Shutdown(shutdown)
 	}()
 	var messagePublisher publisher.Transport = publisher.Discard{}
-	if len(cfg.RouterURLs) > 0 {
-		messagePublisher, err = publisher.NewHTTPPool(cfg.RouterURLs, cfg.RouterToken, cfg.PublishTimeout)
-		if err != nil {
-			return err
-		}
-	}
 	eventMonitor, err := events.NewMonitor(events.Config{Capacity: cfg.EventQueueCapacity, Timeout: cfg.PublishTimeout, RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: messagePublisher, Logger: logger})
 	if err != nil {
 		return err

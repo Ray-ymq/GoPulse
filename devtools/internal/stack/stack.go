@@ -19,12 +19,12 @@ var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
 var productTargets = []string{
 	"backend", "business-worker", "search-indexer", "admin-frontend", "frontend",
-	"router", "marshaller", "monitor", "redis-exporter",
+	"marshaller", "monitor", "redis-exporter",
 }
 
 var requiredServices = []string{
 	"mysql", "redis", "rabbitmq", "elasticsearch", "kafka", "victoriametrics",
-	"router", "marshaller", "monitor", "backend", "business-worker", "search-indexer",
+	"marshaller", "monitor", "backend", "business-worker", "search-indexer",
 	"admin-frontend", "frontend",
 }
 
@@ -91,7 +91,7 @@ func Verify(root string) error {
 			return err
 		}
 	}
-	for _, service := range append([]string{"admin-frontend", "mysql", "redis", "rabbitmq", "elasticsearch", "kafka", "victoriametrics", "router", "marshaller", "monitor", "business-worker", "search-indexer"}, "platform-api") {
+	for _, service := range append([]string{"admin-frontend", "mysql", "redis", "rabbitmq", "elasticsearch", "kafka", "victoriametrics", "marshaller", "monitor", "business-worker", "search-indexer"}, "platform-api") {
 		if err := ctx.verifyNotPublished(service); err != nil {
 			return err
 		}

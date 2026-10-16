@@ -281,10 +281,9 @@ func integrationPorts(values envfile.Values, observe bool) []int {
 			integer(values, "VICTORIAMETRICS_PORT"),
 			integer(values, "OBSERVABILITY_ELASTICSEARCH_PORT"),
 			integer(values, "MONITOR_HTTP_PORT"),
-			integer(values, "ROUTER_HTTP_PORT"),
 			integer(values, "MARSHALLER_HTTP_PORT"),
 			integer(values, "REDIS_EXPORTER_HTTP_PORT"),
-			integer(values, "HTTP_PORT"), 19101, 19102, 19103, 19105, 19106)
+			integer(values, "HTTP_PORT"), 19101, 19102, 19103, 19106)
 	}
 	return ports
 }

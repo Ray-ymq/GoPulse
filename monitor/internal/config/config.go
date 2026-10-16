@@ -27,9 +27,6 @@ type Config struct {
 	ScrapeInterval       time.Duration
 	ScrapeTimeout        time.Duration
 	PublishTimeout       time.Duration
-	RouterURL            string
-	RouterURLs           []string
-	RouterToken          string
 	LogIngestToken       string
 	LogMaxBytes          int64
 	LogFutureSkew        time.Duration
@@ -54,7 +51,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	for _, key := range []string{"ROUTER_ENDPOINTS", "MARSHALLER_ENDPOINTS"} {
+	for _, key := range []string{"MARSHALLER_ENDPOINTS"} {
 		if raw, ok := lookup(key); ok && strings.TrimSpace(raw) != "" {
 			if err := validateReplicaEndpoints(key, raw); err != nil {
 				return Config{}, err
@@ -140,14 +137,6 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	routerURLs, err := parseRouterURLs(value("MONITOR_ROUTER_URLS", ""), value("MONITOR_ROUTER_URL", ""), runtimeMode)
-	if err != nil {
-		return Config{}, err
-	}
-	routerToken, _ := lookup("MONITOR_ROUTER_TOKEN")
-	if len(routerURLs) > 0 && (len(routerToken) < 32 || strings.ContainsAny(routerToken, "\r\n")) {
-		return Config{}, errors.New("MONITOR_ROUTER_TOKEN must contain at least 32 bytes when a Router URL is set")
-	}
 	logToken, ok := lookup("LOG_MONITOR_INGEST_TOKEN")
 	if !ok || len(logToken) < 32 || strings.ContainsAny(logToken, "\r\n") || logToken == token {
 		return Config{}, errors.New("LOG_MONITOR_INGEST_TOKEN must be a distinct token of at least 32 bytes")
@@ -214,43 +203,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil || exporterPort < 1 || exporterPort > 65535 {
 		return Config{}, errors.New("REDIS_EXPORTER_HTTP_PORT must be between 1 and 65535")
 	}
-	routerURL := ""
-	if len(routerURLs) > 0 {
-		routerURL = routerURLs[0]
-	}
-	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, ReleaseCatalog: releaseCatalog, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterURLs: routerURLs, RouterToken: routerToken, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, ExporterEnv: env}, nil
-}
-
-func parseRouterURLs(list, fallback string, runtimeMode RuntimeMode) ([]string, error) {
-	raw := strings.TrimSpace(list)
-	if raw == "" {
-		raw = strings.TrimSpace(fallback)
-	}
-	if raw == "" {
-		return nil, nil
-	}
-	parts := strings.Split(raw, ",")
-	if len(parts) == 0 || len(parts) > 8 {
-		return nil, errors.New("MONITOR_ROUTER_URLS must contain 1 to 8 URLs")
-	}
-	seen := make(map[string]struct{}, len(parts))
-	urls := make([]string, 0, len(parts))
-	for _, part := range parts {
-		url := strings.TrimSpace(part)
-		if url == "" {
-			return nil, errors.New("MONITOR_ROUTER_URLS contains an empty URL")
-		}
-		if err := validateHTTPOrigin(runtimeMode, "MONITOR_ROUTER_URLS", url); err != nil {
-			return nil, err
-		}
-		canonical := strings.TrimRight(url, "/")
-		if _, ok := seen[canonical]; ok {
-			return nil, errors.New("MONITOR_ROUTER_URLS must not contain duplicates")
-		}
-		seen[canonical] = struct{}{}
-		urls = append(urls, canonical)
-	}
-	return urls, nil
+	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, ReleaseCatalog: releaseCatalog, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, ExporterEnv: env}, nil
 }
 
 func validateReplicaEndpoints(key, raw string) error {

@@ -34,7 +34,7 @@ const trends=ref<(MetricResult|null)[]>([null,null]),trendLoading=ref(false)
 let controller:AbortController|null=null
 function rows(name:string){const items=data.value?.sections[name]?.items;return Array.isArray(items)?items:[]}
 function alertValue(key:string){const items=data.value?.sections.alerts?.items;return items&&!Array.isArray(items)?items[key]:null}
-const componentTypes:Record<string,string>={backend:'业务 API', 'business-worker':'异步任务','search-indexer':'搜索索引',monitor:'监控服务',router:'消息路由',marshaller:'日志处理'}
+const componentTypes:Record<string,string>={backend:'业务 API', 'business-worker':'异步任务','search-indexer':'搜索索引',monitor:'监控服务',marshaller:'日志处理'}
 async function load() {
   if (busy.value) return
   busy.value=true;error.value=false;data.value=null;trends.value=[null,null];trendLoading.value=true
