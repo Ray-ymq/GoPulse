@@ -179,8 +179,8 @@ func TestIntegrationSucceedsWithoutCleanupFailure(t *testing.T) {
 	if document["status"] != "passed" || document["observe"] != true {
 		t.Fatalf("final state %v", document)
 	}
-	if document["monitor_image"] == "" {
-		t.Fatal("an observation scope must record the Monitor image tag")
+	if document["monitor_image"] != "gopulse/monitor:latest" {
+		t.Fatalf("an observation scope must use Monitor latest, got %v", document["monitor_image"])
 	}
 	if len(document["compose_files"].([]any)) != 2 {
 		t.Fatalf("observe compose files %v", document["compose_files"])
@@ -200,7 +200,7 @@ func testSession(t *testing.T, observe bool) *session {
 	}
 	// The unit layer must never build or inspect an image.
 	current.prepareMonitor = func(*session) (string, error) {
-		return "gopulse/monitor:local-0123456789abcdef", nil
+		return "gopulse/monitor:latest", nil
 	}
 	return current
 }

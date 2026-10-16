@@ -1,7 +1,7 @@
 // Package packaging implements the immutable release candidate: it builds the
 // product images from a committed Git archive, assembles the transport bundle,
-// verifies the candidate against its registry digests and promotes the same
-// index. The manifest contract itself lives in lifecycle/internal/release.
+// verifies the candidate against its registry digests and confirms latest
+// still selects the same index. The manifest lives in lifecycle/internal/release.
 package packaging
 
 import (

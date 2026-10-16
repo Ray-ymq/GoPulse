@@ -55,7 +55,7 @@ func run(arguments []string) error {
 	version := flags.String("version", "", "expected candidate version")
 	revision := flags.String("revision", "", "expected candidate revision")
 	runtimeGate := flags.Bool("runtime", false, "run the real lifecycle runtime identity check")
-	promote := flags.Bool("promote", false, "promote the verified candidate to its release tags")
+	promote := flags.Bool("promote", false, "confirm the verified candidate under the latest image tags")
 	if err := flags.Parse(arguments[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil

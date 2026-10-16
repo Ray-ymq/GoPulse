@@ -4704,11 +4704,6 @@
       "sensitive": false
     },
     {
-      "key": "GOPULSE_IMAGE_TAG",
-      "type": "string",
-      "sensitive": false
-    },
-    {
       "key": "GOPULSE_REVISION",
       "type": "string",
       "sensitive": false

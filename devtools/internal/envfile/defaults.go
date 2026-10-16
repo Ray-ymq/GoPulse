@@ -28,7 +28,6 @@ var knownConfigKeys = map[string]struct{}{
 	"ELASTICSEARCH_REQUEST_TIMEOUT":         {},
 	"ELASTICSEARCH_URL":                     {},
 	"FRONTEND_PORT":                         {},
-	"GOPULSE_IMAGE_TAG":                     {},
 	"GOPULSE_INSTANCE_ID":                   {},
 	"GOPULSE_REPLICA_COUNT":                 {},
 	"GOPULSE_RUNTIME_MODE":                  {},

@@ -122,7 +122,9 @@ func Parse(data []byte) (*Manifest, error) {
 	return &m, nil
 }
 func checkImage(i Image) error {
-	if !immutable.MatchString(i.Ref) || strings.Contains(strings.Split(i.Ref, "@")[0], ":latest") || (len(i.Platforms) < 1 || len(i.Platforms) > 2) {
+	// latest is a naming policy, not an identity: the required digest still
+	// pins the exact index even after that tag is replaced by another build.
+	if !immutable.MatchString(i.Ref) || (len(i.Platforms) < 1 || len(i.Platforms) > 2) {
 		return errors.New("image must have immutable index and the supported Linux platform set")
 	}
 	for p, d := range i.Platforms {

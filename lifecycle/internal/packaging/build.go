@@ -62,7 +62,7 @@ func Build(repo *Repo, registry, platformList, output string) (string, error) {
 	images := map[string]release.Image{}
 	for _, name := range append(append([]string{}, Products...), "lifecycle") {
 		spec := specOf(name)
-		tag := fmt.Sprintf("%s/%s:%s-candidate-%s", registry, name, version, revision[:12])
+		tag := releaseTarget(registry + "/" + name)
 		args := []string{"buildx", "build", "--platform", platformList, "--provenance=false",
 			"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision,
 			"--metadata-file", filepath.Join(out, name+"-build.json"),

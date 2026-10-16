@@ -13,7 +13,7 @@ import (
 // fixtures. Unit tests never talk to a registry.
 func fixtureImage(name string) release.Image {
 	return release.Image{
-		Ref:       "registry.example/gopulse/" + name + "@sha256:" + strings.Repeat("1", 64),
+		Ref:       "registry.example/gopulse/" + name + ":latest@sha256:" + strings.Repeat("1", 64),
 		Platforms: map[string]string{"linux/amd64": "sha256:" + strings.Repeat("2", 64)},
 	}
 }

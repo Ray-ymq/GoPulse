@@ -171,7 +171,8 @@ func environmentWithIdentity(version, revision string, base []string) []string {
 	}
 	values["GOPULSE_VERSION"] = version
 	values["GOPULSE_REVISION"] = revision
-	values["GOPULSE_IMAGE_TAG"] = version
+	// Image tags are fixed at latest in Compose; version remains build metadata.
+	delete(values, "GOPULSE_IMAGE_TAG")
 	values["GOPULSE_UPDATE_VERSION"] = fmt.Sprintf("%s.%s.%d", parts[0], parts[1], patch+1)
 	return sortedEnvironment(values)
 }

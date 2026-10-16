@@ -19,6 +19,7 @@ func fakeRunner(repo string, results *[]commandResult, configs *[]bakeDefinition
 				targets[target] = targetDefinition{
 					"context": rawJSON(repo),
 					"target":  rawJSON(target),
+					"tags":    rawJSON([]string{"gopulse/" + target + ":latest"}),
 				}
 			}
 			raw, _ := json.Marshal(composeDefinition{Target: targets})
@@ -84,6 +85,30 @@ func TestBuildWithoutCache(t *testing.T) {
 	}
 	if _, ok := configs[0].Target["backend"]["cache-from"]; ok {
 		t.Fatal("cold build unexpectedly included cache-from")
+	}
+	for _, name := range Targets {
+		var tags []string
+		if err := json.Unmarshal(configs[0].Target[name]["tags"], &tags); err != nil {
+			t.Fatal(err)
+		}
+		if len(tags) != 1 || tags[0] != "gopulse/"+name+":latest" {
+			t.Fatalf("%s tags=%v, want only gopulse/%s:latest", name, tags, name)
+		}
+	}
+}
+
+func TestVersionAndRevisionRemainMetadataNotImageTags(t *testing.T) {
+	environment := environmentWithIdentity("2.6.5", "commit", []string{
+		"GOPULSE_IMAGE_TAG=1.13.6", "GOPULSE_VERSION=old", "GOPULSE_REVISION=old",
+	})
+	values := strings.Join(environment, "\n")
+	if strings.Contains(values, "GOPULSE_IMAGE_TAG=") {
+		t.Fatalf("obsolete version tag leaked into build environment: %s", values)
+	}
+	for _, expected := range []string{"GOPULSE_VERSION=2.6.5", "GOPULSE_REVISION=commit"} {
+		if !strings.Contains(values, expected) {
+			t.Fatalf("build metadata %s missing: %s", expected, values)
+		}
 	}
 }
 

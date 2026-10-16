@@ -393,7 +393,7 @@ services:
       retries: 30
 
   migrate:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     restart: "no"
     entrypoint: [/bin/sh, -c]
@@ -409,7 +409,7 @@ services:
       - business
 
   search-init:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     restart: "no"
     entrypoint: [/bin/sh, -c]
@@ -451,7 +451,7 @@ services:
       - business
 
   backend:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
       context: ..
@@ -496,7 +496,7 @@ services:
       retries: 20
 
   backend-2:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
       context: ..
@@ -541,7 +541,7 @@ services:
       retries: 20
 
   platform-api:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
       context: ..
@@ -584,7 +584,7 @@ services:
       retries: 20
 
   business-worker:
-    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:latest}
     pull_policy: never
     build:
       context: ..
@@ -621,7 +621,7 @@ services:
       start_period: 5s
 
   business-worker-2:
-    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:latest}
     pull_policy: never
     build:
       context: ..
@@ -658,7 +658,7 @@ services:
       start_period: 5s
 
   search-indexer:
-    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:latest}
     pull_policy: never
     build:
       context: ..
@@ -699,7 +699,7 @@ services:
       start_period: 5s
 
   search-indexer-2:
-    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:latest}
     pull_policy: never
     build:
       context: ..
@@ -740,7 +740,7 @@ services:
       start_period: 5s
 
   admin-frontend:
-    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:latest}
     pull_policy: never
     build:
       context: ..
@@ -761,7 +761,7 @@ services:
       retries: 20
 
   frontend:
-    image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:latest}
     pull_policy: never
     build:
       context: ..
@@ -794,7 +794,7 @@ services:
 
   admin-role:
     profiles: [operations]
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/admin-role]
@@ -893,7 +893,7 @@ services:
 
 
   router:
-    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:latest}
     pull_policy: never
     build:
       context: ..
@@ -926,7 +926,7 @@ services:
       retries: 20
 
   router-2:
-    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:latest}
     pull_policy: never
     build:
       context: ..
@@ -961,7 +961,7 @@ services:
       retries: 20
 
   marshaller:
-    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
     pull_policy: never
     build:
       context: ..
@@ -998,7 +998,7 @@ services:
       retries: 20
 
   marshaller-2:
-    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
     pull_policy: never
     build:
       context: ..
@@ -1037,7 +1037,7 @@ services:
       retries: 20
 
   monitor:
-    image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:latest}
     pull_policy: never
     build:
       context: ..
@@ -1080,7 +1080,7 @@ services:
 
   redis-exporter:
     profiles: [exporter]
-    image: ${GOPULSE_REDIS_EXPORTER_IMAGE:-gopulse/redis-exporter:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_REDIS_EXPORTER_IMAGE:-gopulse/redis-exporter:latest}
     pull_policy: never
     build:
       context: ..

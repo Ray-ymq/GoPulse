@@ -165,7 +165,7 @@ func newContext(root string) (*context, error) {
 		return nil, err
 	}
 	env := append([]string{}, os.Environ()...)
-	env = append(env, "GOPULSE_VERSION="+version, "GOPULSE_REVISION="+revision, "GOPULSE_IMAGE_TAG="+version)
+	env = append(env, "GOPULSE_VERSION="+version, "GOPULSE_REVISION="+revision)
 	return &context{
 		root:         absolute,
 		composeDir:   filepath.Join(absolute, "deploy"),

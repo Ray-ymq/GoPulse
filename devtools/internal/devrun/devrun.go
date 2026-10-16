@@ -14,6 +14,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/devtools/internal/compose"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/monitorimage"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
 )
@@ -368,25 +369,13 @@ func (s *session) monitorImage(observe bool) string {
 }
 
 func (s *session) monitorImageTag() string {
-	input, err := digest.MonitorInput(s.root)
-	if err != nil {
-		return "gopulse/monitor:local"
-	}
-	if len(input) < 16 {
-		return "gopulse/monitor:local"
-	}
-	return "gopulse/monitor:local-" + input[:16]
+	return monitorimage.Tag
 }
 
-// ensureMonitorImage reuses the content-addressed Monitor image when it already
-// exists, so an unchanged environment never rebuilds it, and otherwise builds
-// it once.
+// ensureMonitorImage reuses latest only when its source and revision labels
+// still match, so replacing the shared tag cannot silently reuse stale code.
 func (s *session) ensureMonitorImage() (string, error) {
 	tag := s.monitorImageTag()
-	if proc.Succeeds([]string{"docker", "image", "inspect", tag}, s.root, s.processEnv) {
-		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
-		return tag, nil
-	}
 	version := strings.TrimSpace(s.readFile(filepath.Join(s.root, "VERSION")))
 	if !semverLike(version) {
 		return "", fmt.Errorf("VERSION must use major.minor.patch before building Monitor")
@@ -396,8 +385,13 @@ func (s *session) ensureMonitorImage() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if monitorimage.Reusable(s.root, input, revision, s.processEnv) {
+		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
+		return tag, nil
+	}
 	if err := proc.Run([]string{
 		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/observability.Dockerfile",
+		"--label", monitorimage.InputLabel + "=" + input,
 		"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision, "--tag", tag, ".",
 	}, s.root, s.processEnv, "Monitor image preparation", 0); err != nil {
 		return "", err

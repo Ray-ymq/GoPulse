@@ -67,3 +67,21 @@ func TestAMD64ProductDoesNotRequireARMArtifacts(t *testing.T) {
 		t.Fatal("missing supported amd64 image accepted")
 	}
 }
+
+func TestLatestImageStillRequiresImmutableDigest(t *testing.T) {
+	m := fixture(t)
+	image := m.Images["backend"]
+	image.Ref = "gopulse/backend:latest@sha256:" + strings.Repeat("1", 64)
+	m.Images["backend"] = image
+	data, _ := json.Marshal(m)
+	if _, err := Parse(data); err != nil {
+		t.Fatalf("latest pinned by digest must be accepted: %v", err)
+	}
+	for _, ref := range []string{"gopulse/backend:latest", "gopulse/backend:latest@sha256:invalid"} {
+		image.Ref = ref
+		m.Images["backend"] = image
+		if m.Validate() == nil {
+			t.Fatalf("latest without a valid digest was accepted: %s", ref)
+		}
+	}
+}

@@ -16,7 +16,7 @@ func TestImageRecordBindsIndexAndPlatformDigests(t *testing.T) {
 		platform("linux", "amd64", "sha256:"+strings.Repeat("a", 64)) + `,` +
 		platform("linux", "arm64", "sha256:"+strings.Repeat("b", 64)) + `,` +
 		platform("unknown", "unknown", "sha256:"+strings.Repeat("c", 64)) + `]}`
-	ref := "registry.example/gopulse/backend:2.5.4-candidate-0123456789ab"
+	ref := "registry.example/gopulse/backend:latest"
 	record, err := imageRecord(ref, []byte(raw))
 	if err != nil {
 		t.Fatalf("a valid index must be recorded: %v", err)
@@ -43,8 +43,20 @@ func TestImageRecordBindsIndexAndPlatformDigests(t *testing.T) {
 // observed defect: splitting on the first colon promoted a repository named
 // after the registry host.
 func TestReleaseTargetKeepsTheRepositoryOfARegistryWithAPort(t *testing.T) {
-	ref := "127.0.0.1:15001/gopulse/backend:2.5.4-candidate-0123456789ab@sha256:" + strings.Repeat("a", 64)
-	if got := releaseTarget(ref, "2.5.4"); got != "127.0.0.1:15001/gopulse/backend:2.5.4" {
-		t.Fatalf("unexpected promotion target: %s", got)
+	for _, ref := range []string{
+		"127.0.0.1:15001/gopulse/backend:latest",
+		"127.0.0.1:15001/gopulse/backend",
+	} {
+		if got := releaseTarget(ref + "@sha256:" + strings.Repeat("a", 64)); got != "127.0.0.1:15001/gopulse/backend:latest" {
+			t.Fatalf("unexpected promotion target: %s", got)
+		}
+	}
+}
+
+func TestAllProductTargetsUseLatest(t *testing.T) {
+	for _, name := range append(append([]string{}, Products...), "lifecycle") {
+		if got, want := releaseTarget("gopulse/"+name), "gopulse/"+name+":latest"; got != want {
+			t.Fatalf("image target=%s, want %s", got, want)
+		}
 	}
 }

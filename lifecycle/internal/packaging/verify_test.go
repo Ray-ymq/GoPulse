@@ -31,7 +31,7 @@ func runtimeManifest() (*release.Manifest, string) {
 	indexDigest := "sha256:" + strings.Repeat("a", 64)
 	platformDigest := "sha256:" + strings.Repeat("b", 64)
 	image := release.Image{
-		Ref:       "127.0.0.1:15001/gopulse/lifecycle:2.6.5-candidate-0123456789ab@" + indexDigest,
+		Ref:       "127.0.0.1:15001/gopulse/lifecycle:latest@" + indexDigest,
 		Platforms: map[string]string{"linux/amd64": platformDigest},
 	}
 	m := &release.Manifest{
@@ -39,7 +39,7 @@ func runtimeManifest() (*release.Manifest, string) {
 		Revision:  strings.Repeat("c", 40),
 		Lifecycle: image,
 	}
-	return m, "127.0.0.1:15001/gopulse/lifecycle:2.6.5-candidate-0123456789ab@" + platformDigest
+	return m, "127.0.0.1:15001/gopulse/lifecycle:latest@" + platformDigest
 }
 
 func runtimeRepoDigest() string {
@@ -47,7 +47,7 @@ func runtimeRepoDigest() string {
 }
 
 func TestNormalizeRepoDigestRemovesTagButPreservesRegistryPort(t *testing.T) {
-	ref := "127.0.0.1:15001/gopulse/lifecycle:2.6.5-candidate-0123456789ab@sha256:" + strings.Repeat("a", 64)
+	ref := "127.0.0.1:15001/gopulse/lifecycle:latest@sha256:" + strings.Repeat("a", 64)
 	want := "127.0.0.1:15001/gopulse/lifecycle@sha256:" + strings.Repeat("a", 64)
 	if got := normalizeRepoDigest(ref); got != want {
 		t.Fatalf("unexpected normalized repo digest: got %s, want %s", got, want)

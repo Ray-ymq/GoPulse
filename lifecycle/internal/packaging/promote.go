@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,8 +20,8 @@ func receiptStatus(arch string) string {
 	return "metadata-only; real arm64 runtime DEFERRED to Phase-16-06"
 }
 
-// Promote copies the exact verified indexes to their release tags. It refuses
-// to run without matching receipts and never rebuilds or reserializes an image.
+// Promote confirms the exact verified indexes under latest. It refuses to run
+// without matching receipts and never rebuilds or reserializes an image.
 func Promote(manifestPath string) error {
 	path, err := filepath.Abs(manifestPath)
 	if err != nil {
@@ -67,7 +66,7 @@ func Promote(manifestPath string) error {
 		if name != "lifecycle" {
 			image = m.Images[name]
 		}
-		if err := promoteImage(image, m.Version); err != nil {
+		if err := promoteImage(image); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
@@ -75,41 +74,25 @@ func Promote(manifestPath string) error {
 	return nil
 }
 
-// releaseTarget derives the release tag of one immutable reference. Only the
-// tag is replaced: a registry host with a port keeps its own colon.
-func releaseTarget(ref, version string) string {
+// releaseTarget derives the latest tag of one immutable reference. Only the
+// image tag is replaced: a registry host with a port keeps its own colon.
+func releaseTarget(ref string) string {
 	repository := strings.Split(ref, "@")[0]
-	if index := strings.LastIndexByte(repository, ':'); index >= 0 {
+	if index := strings.LastIndexByte(repository, ':'); index > strings.LastIndexByte(repository, '/') {
 		repository = repository[:index]
 	}
-	return repository + ":" + version
+	return repository + ":latest"
 }
 
-func promoteImage(image release.Image, version string) error {
-	ref := image.Ref
-	target := releaseTarget(ref, version)
-	cmd := exec.Command("docker", "buildx", "imagetools", "inspect", "--raw", target)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	switch err := cmd.Run(); {
-	case err == nil:
-		if Sum(stdout.Bytes()) != strings.Split(ref, "@")[1] {
-			return errors.New("refusing to replace an existing version with different content")
-		}
-	case !strings.Contains(strings.ToLower(stderr.String()), "not found"):
-		return errors.New("cannot establish whether promotion target exists")
-	}
-	// Copy the exact index, not a rebuilt or reserialized single-arch image.
-	if err := attached("", "docker", "buildx", "imagetools", "create", "--prefer-index=true", "-t", target, ref); err != nil {
-		return err
-	}
-	promoted, err := rawReference(target)
+func promoteImage(image release.Image) error {
+	// Build already published latest. Confirmation must not write the tag
+	// again, since doing so could replace another build published meanwhile.
+	published, err := rawReference(releaseTarget(image.Ref))
 	if err != nil {
 		return err
 	}
-	if Sum(promoted) != strings.Split(ref, "@")[1] {
-		return errors.New("promotion changed index digest")
+	if Sum(published) != strings.Split(image.Ref, "@")[1] {
+		return errors.New("latest changed after candidate build; refusing to replace different content")
 	}
 	return nil
 }

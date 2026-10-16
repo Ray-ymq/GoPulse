@@ -13,6 +13,13 @@ binds all images by index/platform digest and the embedded Compose checksum.
 the runtime contract records their distinct roles and identities. A loopback
 candidate registry is not an external/public release.
 
+All GoPulse-owned images use `gopulse/<component>:latest` (prefixed with the
+configured registry for delivery). Product versions and Git revisions remain
+in OCI labels and the manifest, not image tags. Bundle references also include
+`@sha256:...`, so updating `latest` cannot change an existing installation's
+selected image. Candidate builds update `latest` before verification; shared
+registries must not treat the tag alone as proof of a verified release.
+
 Create a separate empty **0700** installation directory; never use a directory
 containing user files. Mount it at exactly the same absolute path inside the
 tool container (Docker resolves file secrets on the host). The bundled tool Compose entry selects the lifecycle image by its immutable

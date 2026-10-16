@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/monitorimage"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/ready"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
@@ -337,14 +338,10 @@ func aliveIn(state *workspace.State, name string) func() bool {
 	}
 }
 
-// ensureMonitorImage prepares or reuses the content-addressed Monitor image so an
-// observation test scope never depends on a manual preparation step.
+// ensureMonitorImage prepares latest or reuses it only when its source and
+// revision labels still match this observation test scope.
 func ensureMonitorImage(s *session) (string, error) {
-	tag := monitorImageTag(s.root)
-	if proc.Succeeds([]string{"docker", "image", "inspect", tag}, s.root, s.processEnv) {
-		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
-		return tag, nil
-	}
+	tag := monitorimage.Tag
 	raw, err := os.ReadFile(filepath.Join(s.root, "VERSION"))
 	if err != nil {
 		return "", err
@@ -358,8 +355,13 @@ func ensureMonitorImage(s *session) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if monitorimage.Reusable(s.root, input, revision, s.processEnv) {
+		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
+		return tag, nil
+	}
 	if err := s.runCommand([]string{
 		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/observability.Dockerfile",
+		"--label", monitorimage.InputLabel + "=" + input,
 		"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision, "--tag", tag, ".",
 	}, s.root, s.processEnv, "Monitor image preparation", 0); err != nil {
 		return "", err
@@ -371,16 +373,6 @@ func ensureMonitorImage(s *session) (string, error) {
 	}
 	fmt.Printf("[gopulse] prepared Monitor image %s\n", tag)
 	return tag, nil
-}
-
-// monitorImageTag is the content-addressed tag both test scopes and the
-// development observation lifecycle share.
-func monitorImageTag(root string) string {
-	input, err := digest.MonitorInput(root)
-	if err != nil || len(input) < 16 {
-		return "gopulse/monitor:local"
-	}
-	return "gopulse/monitor:local-" + input[:16]
 }
 
 func semverLike(version string) bool {
