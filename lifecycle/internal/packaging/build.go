@@ -20,8 +20,10 @@ func specOf(name string) buildSpec {
 	switch name {
 	case "backend", "business-worker", "search-indexer":
 		return buildSpec{dockerfile: "backend", target: name}
-	case "router", "marshaller", "monitor", "redis-exporter":
+	case "router", "marshaller", "redis-exporter":
 		return buildSpec{dockerfile: "observability", target: name}
+	case "monitor":
+		return buildSpec{dockerfile: "monitor", target: name}
 	default:
 		return buildSpec{dockerfile: name}
 	}
@@ -31,7 +33,7 @@ func platformArch(platform string) string { return platform[strings.LastIndexByt
 
 // Build pushes the candidate images and assembles the bundle. The manifest is
 // published last so an interrupted build never leaves a complete candidate.
-func Build(repo *Repo, registry, platformList, output string) (string, error) {
+func Build(repo *Repo, registry, platformList, output string, packageRoots ...string) (string, error) {
 	if !registryNamespace.MatchString(registry) {
 		return "", usagef("invalid registry namespace: %s", registry)
 	}
@@ -58,6 +60,10 @@ func Build(repo *Repo, registry, platformList, output string) (string, error) {
 	}
 	if _, err := os.Stat(filepath.Join(out, "release-manifest.json")); err == nil {
 		return "", usagef("refusing to overwrite complete candidate: %s", filepath.Join(out, "release-manifest.json"))
+	}
+	packageRoot := filepath.Join(repo.Root, ".run", "packages")
+	if len(packageRoots) > 0 && packageRoots[0] != "" {
+		packageRoot = packageRoots[0]
 	}
 	images := map[string]release.Image{}
 	for _, name := range append(append([]string{}, Products...), "lifecycle") {
@@ -116,7 +122,7 @@ func Build(repo *Repo, registry, platformList, output string) (string, error) {
 		m.Images[name] = images[name]
 	}
 	for _, platform := range strings.Split(platformList, ",") {
-		records, err := PluginRecords(m.Images["monitor"], platform, filepath.Join(out, "plugins", platformArch(platform)))
+		records, err := PluginRecords(m.Images["monitor"], platform, filepath.Join(out, "plugins", platformArch(platform)), packageRoot)
 		if err != nil {
 			return "", err
 		}
@@ -139,7 +145,7 @@ func Build(repo *Repo, registry, platformList, output string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := WriteBundle(repo, m, product, staging); err != nil {
+	if err := WriteBundle(repo, m, product, staging, out); err != nil {
 		return "", err
 	}
 	manifest := filepath.Join(out, "release-manifest.json")

@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,13 +55,38 @@ type runtimeCore struct {
 
 func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
 	if cfg.PackagesRoot == "" {
-		cfg.PackagesRoot = "/opt/gopulse/packages"
+		if cfg.CatalogPath != "" {
+			cfg.PackagesRoot = filepath.Dir(cfg.CatalogPath)
+		} else {
+			cfg.PackagesRoot = "/opt/gopulse/packages"
+		}
+	}
+	if cfg.CatalogPath == "" {
+		cfg.CatalogPath = filepath.Join(cfg.PackagesRoot, "catalog.json")
 	}
 	var releases []Release
-	if json.Unmarshal([]byte(compiledReleaseJSON), &releases) != nil {
+	var entries []CatalogEntry
+	if info, err := os.Stat(cfg.CatalogPath); err == nil {
+		if !info.Mode().IsRegular() || info.Size() > 64<<10 {
+			return nil, NewError(CodePackageInvalid, "official plugin release is invalid")
+		}
+		data, err := os.ReadFile(cfg.CatalogPath)
+		if err != nil || !uniqueJSON(data) {
+			return nil, NewError(CodePackageInvalid, "official plugin release is invalid")
+		}
+		var snapshot CatalogSnapshot
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&snapshot) != nil || snapshot.SchemaVersion != 1 || len(snapshot.Modules) == 0 {
+			return nil, NewError(CodePackageInvalid, "official plugin release is invalid")
+		}
+		entries, releases = snapshot.Modules, snapshot.Releases
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, NewError(CodePackageInvalid, "official plugin release is invalid")
+	} else if json.Unmarshal([]byte(compiledReleaseJSON), &releases) != nil {
 		return nil, operationFailed()
 	}
-	catalog, err := newReleaseCatalog(cfg.PackagesRoot, releases)
+	catalog, err := newReleaseCatalogForArchWithEntries(cfg.PackagesRoot, releases, runtime.GOARCH, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -98,13 +125,13 @@ func newRuntimeCore(ctx context.Context, cfg ManagerConfig, catalog *releaseCata
 		return nil, err
 	}
 	c := &runtimeCore{cfg: cfg, catalog: catalog, identity: identity, slots: map[string]*runtimeSlot{}, releaseLease: releaseLease}
-	for _, item := range OfficialCatalog() {
+	for _, item := range catalogEntries(catalog) {
 		c.slots[item.ID] = &runtimeSlot{operation: make(chan struct{}, 1)}
 	}
 	// Load old state only if there is no active commit for that ID. A damaged
 	// legacy registry cannot prevent recovery from an already committed revision.
 	old, legacyErr := loadRegistry(root)
-	for _, item := range OfficialCatalog() {
+	for _, item := range catalogEntries(catalog) {
 		slot := c.slots[item.ID]
 		active, err := c.loadActive(item.ID)
 		if errors.Is(err, os.ErrNotExist) {
@@ -159,6 +186,12 @@ func newRuntimeCore(ctx context.Context, cfg ManagerConfig, catalog *releaseCata
 	}
 	return c, nil
 }
+func catalogEntries(catalog *releaseCatalog) []CatalogEntry {
+	if catalog != nil && len(catalog.entries) > 0 {
+		return append([]CatalogEntry(nil), catalog.entries...)
+	}
+	return OfficialCatalog()
+}
 func (c *runtimeCore) dir(id string) string { return filepath.Join(c.cfg.Root, id) }
 func (c *runtimeCore) slot(id string) (*runtimeSlot, error) {
 	s, ok := c.slots[id]
@@ -193,7 +226,7 @@ func (c *runtimeCore) list() []Status {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	out := []Status{}
-	for _, entry := range OfficialCatalog() {
+	for _, entry := range catalogEntries(c.catalog) {
 		if s := c.slots[entry.ID]; s.active != nil {
 			out = append(out, s.status)
 		}
@@ -327,11 +360,86 @@ func (c *runtimeCore) prepare(id string, r *revision) error {
 			return err
 		}
 	}
+	if c.isExternalCatalog() {
+		if err := c.writeRuntimeConfig(id, r); err != nil {
+			return err
+		}
+	}
 	if err := syncDir(parent); err != nil {
 		return err
 	}
 	if c.interrupt != nil {
 		return c.interrupt("prepared")
+	}
+	return nil
+}
+
+func (c *runtimeCore) isExternalCatalog() bool {
+	return c.catalog != nil && len(c.catalog.entries) > 0
+}
+
+func (c *runtimeCore) runtimeConfigPath(id string, revision string) string {
+	return filepath.Join(c.dir(id), "revisions", revision, "runtime.json")
+}
+
+func (c *runtimeCore) runtimeFor(id string) exportercontract.Runtime {
+	entry, _ := c.catalog.entry(id)
+	mode := c.cfg.ExporterEnv["GOPULSE_RUNTIME_MODE"]
+	if mode == "" {
+		mode = "host"
+	}
+	scrape := c.cfg.ScrapeTimeout
+	if scrape <= 0 {
+		scrape = 3 * time.Second
+	}
+	shutdown := c.cfg.StopTimeout
+	if shutdown <= 0 {
+		shutdown = 5 * time.Second
+	}
+	return exportercontract.Runtime{Mode: mode, ListenHost: "127.0.0.1", ListenPort: entry.Port, ConnectTimeout: scrape.String(), ScrapeTimeout: scrape.String(), ShutdownTimeout: shutdown.String()}
+}
+
+func (c *runtimeCore) writeRuntimeConfig(id string, r *revision) error {
+	data, err := exportercontract.Encode(r.Config, r.Secret, c.runtimeFor(id))
+	if err != nil {
+		return operationFailed()
+	}
+	return atomicWrite(c.runtimeConfigPath(id, r.ID), data, 0600)
+}
+
+func (c *runtimeCore) validateCandidate(ctx context.Context, id string, r *revision) error {
+	if !c.isExternalCatalog() {
+		return nil
+	}
+	if err := c.writeRuntimeConfig(id, r); err != nil {
+		return err
+	}
+	return c.runManagedCommand(ctx, id, r, "check-config")
+}
+
+func (c *runtimeCore) runManagedCommand(ctx context.Context, id string, r *revision, command string) error {
+	entry := filepath.Join(c.dir(id), "releases", r.Entry.Manifest.Version, filepath.FromSlash(r.Entry.Manifest.Entrypoint))
+	configPath := c.runtimeConfigPath(id, r.ID)
+	timeout := c.cfg.StartupTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(commandCtx, entry, command, "--config", configPath)
+	cmd.Dir = filepath.Dir(filepath.Dir(entry))
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "GOPULSE_RUNTIME_MODE=" + c.runtimeFor(id).Mode}
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+	configurePluginProcess(cmd)
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = time.Second
+	if err := cmd.Run(); err != nil {
+		return operationFailed()
 	}
 	return nil
 }
@@ -394,7 +502,13 @@ func (c *runtimeCore) ensureRelease(r *revision) error {
 		return err
 	}
 	var existing Manifest
-	if err = strictFile(filepath.Join(dir, "plugin.json"), &existing); err != nil || existing != m {
+	if err = strictFile(filepath.Join(dir, "plugin.json"), &existing); err != nil {
+		return operationFailed()
+	}
+	// TargetID belongs to the deployment catalog and is intentionally absent
+	// from the package manifest. Reattach it before comparing pinned metadata.
+	existing.TargetID = m.TargetID
+	if existing != m {
 		return operationFailed()
 	}
 	entry := filepath.Join(dir, m.Entrypoint)
@@ -416,20 +530,27 @@ func (c *runtimeCore) ensureRelease(r *revision) error {
 	}
 	if m.SchemaVersion == 2 {
 		schema, err := os.ReadFile(filepath.Join(dir, m.ConfigSchemaPath))
-		if err != nil || rejectSymlinkComponents(filepath.Join(dir, m.ConfigSchemaPath)) != nil || ValidateConfigSchema(schema, m) != nil {
+		validateSchema := ValidateConfigSchema
+		if c.isExternalCatalog() {
+			validateSchema = ValidateExternalConfigSchema
+		}
+		if err != nil || rejectSymlinkComponents(filepath.Join(dir, m.ConfigSchemaPath)) != nil || validateSchema(schema, m) != nil {
 			return operationFailed()
 		}
 	}
 	return nil
 }
 func (c *runtimeCore) env(r *revision) map[string]string {
+	if c.isExternalCatalog() {
+		return map[string]string{"GOPULSE_RUNTIME_MODE": c.runtimeFor(r.Entry.Manifest.ID).Mode, "GOPULSE_VERSION": r.Entry.Manifest.Version, "_GOPULSE_REVISION": r.ID}
+	}
 	env := map[string]string{"GOPULSE_VERSION": r.Entry.Manifest.Version, "GOPULSE_REVISION": os.Getenv("GOPULSE_REVISION")}
 	for k, v := range c.cfg.ExporterEnv {
 		if k == "GOPULSE_RUNTIME_MODE" || (r.Entry.Manifest.Source == "redis" && strings.HasPrefix(k, "REDIS_")) {
 			env[k] = v
 		}
 	}
-	entry, _ := LookupOfficial(r.Entry.Manifest.ID)
+	entry, _ := c.catalog.entry(r.Entry.Manifest.ID)
 	if entry.Source != "redis" {
 		prefix := strings.ToUpper(entry.Source)
 		env[prefix+"_EXPORTER_HTTP_HOST"] = "127.0.0.1"
@@ -447,24 +568,32 @@ func (c *runtimeCore) env(r *revision) map[string]string {
 	return env
 }
 func (c *runtimeCore) health(id string) string {
-	if id == PluginID {
+	if id == PluginID && !c.isExternalCatalog() {
 		return c.cfg.HealthURL
 	}
-	entry, _ := LookupOfficial(id)
-	return "http://127.0.0.1:" + strconv.Itoa(entry.Port) + "/health"
+	entry, _ := c.catalog.entry(id)
+	path := entry.HealthPath
+	if path == "" {
+		path = "/health"
+	}
+	return "http://127.0.0.1:" + strconv.Itoa(entry.Port) + path
 }
 func (c *runtimeCore) launch(ctx context.Context, id string, r *revision, trial bool) (*runtimeProcess, error) {
 	if err := c.ensureRelease(r); err != nil {
 		return nil, err
 	}
-	rp, err := startProcess(ctx, c.dir(id), r.Entry.Manifest, c.env(r), c.health(id), c.cfg.StartupTimeout)
+	args := []string(nil)
+	if c.isExternalCatalog() {
+		args = []string{"serve", "--config", c.runtimeConfigPath(id, r.ID)}
+	}
+	rp, err := startProcess(ctx, c.dir(id), r.Entry.Manifest, c.env(r), c.health(id), c.cfg.StartupTimeout, args...)
 	if err != nil {
 		return nil, err
 	}
 	if trial {
 		timeout, cancel := context.WithTimeout(ctx, c.cfg.StartupTimeout)
 		defer cancel()
-		request, _ := componentmetrics.NewRequest(timeout, http.MethodGet, strings.TrimSuffix(c.health(id), "/health")+"/metrics", nil)
+		request, _ := componentmetrics.NewRequest(timeout, http.MethodGet, c.metrics(id), nil)
 		client := &http.Client{Timeout: c.cfg.StartupTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		response, e := client.Do(request)
 		if e == nil {
@@ -490,6 +619,17 @@ func (c *runtimeCore) launch(ctx context.Context, id string, r *revision, trial 
 		}
 	}
 	return rp, nil
+}
+func (c *runtimeCore) metrics(id string) string {
+	if id == PluginID && !c.isExternalCatalog() {
+		return strings.TrimSuffix(c.cfg.HealthURL, "/health") + "/metrics"
+	}
+	entry, _ := c.catalog.entry(id)
+	path := entry.MetricsPath
+	if path == "" {
+		path = "/metrics"
+	}
+	return "http://127.0.0.1:" + strconv.Itoa(entry.Port) + path
 }
 func (c *runtimeCore) stopProcess(ctx context.Context, id string) error {
 	s := c.slots[id]
@@ -580,6 +720,11 @@ func (c *runtimeCore) restore(ctx context.Context, id string, r *revision) error
 	if err := c.ensureRelease(r); err != nil {
 		return err
 	}
+	if c.isExternalCatalog() {
+		if err := c.writeRuntimeConfig(id, r); err != nil {
+			return err
+		}
+	}
 	if err := c.cleanRecord(id); err != nil {
 		return err
 	}
@@ -602,6 +747,10 @@ func (c *runtimeCore) transact(ctx context.Context, id string, next *revision) (
 	}
 	if err := c.prepare(id, next); err != nil {
 		return Status{}, err
+	}
+	if err := c.validateCandidate(ctx, id, next); err != nil {
+		_ = os.RemoveAll(filepath.Join(c.dir(id), "revisions", next.ID))
+		return Status{}, NewError(CodeFailed, "plugin configuration is invalid")
 	}
 	if err := c.stopProcess(ctx, id); err != nil {
 		return Status{}, err
@@ -659,6 +808,25 @@ func (c *runtimeCore) transact(ctx context.Context, id string, next *revision) (
 	return c.get(id)
 }
 func (c *runtimeCore) parseRequest(id string, data []byte, previous json.RawMessage) (json.RawMessage, json.RawMessage, error) {
+	if c.isExternalCatalog() {
+		if _, err := c.slot(id); err != nil {
+			return nil, nil, err
+		}
+		config, secret, hasSecrets, err := exportercontract.ReadManagement(data)
+		if err != nil {
+			return nil, nil, invalidConfig()
+		}
+		if _, err = exportercontract.Object(config); err != nil {
+			return nil, nil, invalidConfig()
+		}
+		if !hasSecrets && len(previous) > 0 {
+			if _, err = exportercontract.Object(previous); err != nil {
+				return nil, nil, invalidConfig()
+			}
+			secret = append(json.RawMessage(nil), previous...)
+		}
+		return append(json.RawMessage(nil), config...), append(json.RawMessage(nil), secret...), nil
+	}
 	mode := c.cfg.ExporterEnv["GOPULSE_RUNTIME_MODE"]
 	if mode == "" {
 		mode = "host"
@@ -679,7 +847,11 @@ func (c *runtimeCore) configure(ctx context.Context, id string, data []byte, ins
 		return Status{}, err
 	}
 	defer unlock(s)
-	if _, ok := adapterFor(id); !ok {
+	if !c.isExternalCatalog() {
+		if _, ok := adapterFor(id); !ok {
+			return Status{}, unavailable()
+		}
+	} else if _, err := c.slot(id); err != nil {
 		return Status{}, unavailable()
 	}
 	if install && s.active != nil {
@@ -891,6 +1063,18 @@ func (c *runtimeCore) bootstrap(ctx context.Context) (Status, error) {
 	} else if pe, ok := AsError(err); !ok || pe.Code != CodeNotFound {
 		return Status{}, err
 	}
+	if c.isExternalCatalog() {
+		// The legacy local Compose bootstrap still supplies Redis settings through
+		// Monitor environment variables. Convert that compatibility input to the
+		// public generic DTO; all validation and source semantics remain in Redis
+		// Exporter after this boundary.
+		legacy, secret := c.legacyConfig()
+		config := map[string]any{
+			"host": legacy.Host, "port": legacy.Port, "database": legacy.Database,
+			"connect_timeout": legacy.ConnectTimeout, "scrape_timeout": legacy.ScrapeTimeout,
+		}
+		return c.configure(ctx, PluginID, configRequest(config, map[string]any{"password": secret.Password}), true)
+	}
 	cfg, secret := c.legacyConfig()
 	return c.configure(ctx, PluginID, configRequest(cfg, secret), true)
 }
@@ -944,8 +1128,9 @@ func (c *runtimeCore) shutdown(ctx context.Context) error {
 	if c.closed {
 		return nil
 	}
-	results := make(chan error, len(OfficialCatalog()))
-	for _, item := range OfficialCatalog() {
+	entries := catalogEntries(c.catalog)
+	results := make(chan error, len(entries))
+	for _, item := range entries {
 		go func(id string) {
 			s, err := c.lock(ctx, id)
 			if err != nil {
@@ -965,7 +1150,7 @@ func (c *runtimeCore) shutdown(ctx context.Context) error {
 		}(item.ID)
 	}
 	var failures []error
-	for range OfficialCatalog() {
+	for range entries {
 		if err := <-results; err != nil {
 			failures = append(failures, err)
 		}
@@ -986,7 +1171,7 @@ func (m *Manager) Configure(ctx context.Context, id string, data []byte, install
 	return m.core.configure(ctx, id, data, install)
 }
 func (m *Manager) ConnectionTest(ctx context.Context, id string, data []byte) error {
-	if m.core == nil || (id != PluginID && id != "mysql-exporter" && id != "rabbitmq-exporter" && id != "kafka-exporter" && id != "elasticsearch-exporter" && id != "victoriametrics-exporter") {
+	if m.core == nil || (m.core.isExternalCatalog() && m.core.slots[id] == nil) || (!m.core.isExternalCatalog() && id != PluginID && id != "mysql-exporter" && id != "rabbitmq-exporter" && id != "kafka-exporter" && id != "elasticsearch-exporter" && id != "victoriametrics-exporter") {
 		return unavailable()
 	}
 	c := m.core
@@ -1010,13 +1195,30 @@ func (m *Manager) ConnectionTest(ctx context.Context, id string, data []byte) er
 	}
 	timeout, cancel := context.WithTimeout(ctx, c.cfg.StartupTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(timeout, filepath.Join(stage, pin.Manifest.Entrypoint), "--check")
-	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	for key, value := range c.env(&revision{Entry: registryEntry{Manifest: pin.Manifest}, Config: cfg, Secret: secret}) {
-		if key != "_GOPULSE_REVISION" {
-			cmd.Env = append(cmd.Env, key+"="+value)
+	if c.isExternalCatalog() {
+		checkPath := filepath.Join(stage, "runtime.json")
+		data, err := exportercontract.Encode(cfg, secret, c.runtimeFor(id))
+		if err != nil || os.WriteFile(checkPath, data, 0600) != nil {
+			return operationFailed()
 		}
+		cmd := exec.CommandContext(timeout, filepath.Join(stage, pin.Manifest.Entrypoint), "check-connection", "--config", checkPath)
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		return runConnectionCommand(cmd, timeout)
+	} else {
+		cmd := exec.CommandContext(timeout, filepath.Join(stage, pin.Manifest.Entrypoint), "--check")
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		for key, value := range c.env(&revision{Entry: registryEntry{Manifest: pin.Manifest}, Config: cfg, Secret: secret}) {
+			if key != "_GOPULSE_REVISION" {
+				cmd.Env = append(cmd.Env, key+"="+value)
+			}
+		}
+		return runConnectionCommand(cmd, timeout)
 	}
+	return nil
+}
+
+func runConnectionCommand(cmd *exec.Cmd, timeout context.Context) error {
+	cmd.Env = append(cmd.Env, "GOPULSE_RUNTIME_MODE=host")
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	configurePluginProcess(cmd)
 	cmd.Cancel = func() error {

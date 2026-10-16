@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 
 	"strings"
 	"time"
@@ -18,8 +19,8 @@ import (
 )
 
 type Config struct {
-	Host, Username, Password, Listen string
-	ConnectTimeout, ScrapeTimeout    time.Duration
+	Host, Port, Username, Password, Listen string
+	ConnectTimeout, ScrapeTimeout          time.Duration
 }
 
 var ErrConfig = errors.New("invalid_configuration")
@@ -29,9 +30,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	c := Config{Host: os.Getenv("ELASTICSEARCH_HOST"), Username: os.Getenv("ELASTICSEARCH_USERNAME"), Password: os.Getenv("ELASTICSEARCH_PASSWORD")}
+	c := Config{Host: os.Getenv("ELASTICSEARCH_HOST"), Port: os.Getenv("ELASTICSEARCH_PORT"), Username: os.Getenv("ELASTICSEARCH_USERNAME"), Password: os.Getenv("ELASTICSEARCH_PASSWORD")}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
-	if (mode == "container" && c.Host != "elasticsearch") || ((mode == "host" || mode == "") && c.Host != "127.0.0.1" && c.Host != "::1") || (mode != "" && mode != "host" && mode != "container") || os.Getenv("ELASTICSEARCH_PORT") != "9200" {
+	if !validTarget(mode, c.Host, c.Port) {
 		return Config{}, ErrConfig
 	}
 	for _, s := range []string{c.Username} {
@@ -70,17 +71,42 @@ func Load() (Config, error) {
 	if port == "" {
 		port = "9125"
 	}
-	if (host != "127.0.0.1" && host != "::1") || port != "9125" {
+	if !validListen(mode, host, port) {
 		return Config{}, ErrConfig
 	}
 	c.Listen = net.JoinHostPort(host, port)
 	return c, nil
 }
 
+func validTarget(mode, host, port string) bool {
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || host == "" || strings.ContainsAny(host, "\x00\r\n \t/@") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if mode == "host" || mode == "" {
+		return host == "localhost" || ip != nil && ip.IsLoopback()
+	}
+	return mode == "container" && ip == nil
+}
+
+func validListen(mode, host, port string) bool {
+	ip := net.ParseIP(host)
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || ip == nil {
+		return false
+	}
+	return (mode == "container" && (ip.IsLoopback() || ip.IsUnspecified())) || ((mode == "host" || mode == "") && ip.IsLoopback())
+}
+
 func Open(c Config) (*collector.Client, error) {
 	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: c.ConnectTimeout}).DialContext, DisableCompression: true, ResponseHeaderTimeout: c.ScrapeTimeout}
 	client := &http.Client{Transport: transport, Timeout: c.ScrapeTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &collector.Client{HTTP: client, Origin: "http://" + net.JoinHostPort(c.Host, "9200"), Username: c.Username, Password: c.Password}, nil
+	port := c.Port
+	if port == "" {
+		port = "9200"
+	}
+	return &collector.Client{HTTP: client, Origin: "http://" + net.JoinHostPort(c.Host, port), Username: c.Username, Password: c.Password}, nil
 }
 
 func Handler(db *collector.Client, timeout time.Duration) http.Handler {

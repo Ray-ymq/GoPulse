@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "victoriametrics-exporter",
+  "name": "GoPulse VictoriaMetrics Exporter",
+  "source": "victoriametrics",
+  "entrypoint": "bin/gopulse-victoriametrics-exporter",
+  "target_id": "victoriametrics-exporter-local",
+  "host_port": 8428,
+  "container_port": 8428,
+  "health_path": "/health",
+  "metrics_path": "/metrics",
+  "listen_port": 9126,
+  "runtime_contract_version": 1,
+  "metrics_contract_version": 2,
+  "config_schema_path": "config.schema.json"
+}

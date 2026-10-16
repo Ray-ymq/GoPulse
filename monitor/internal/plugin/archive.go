@@ -2,9 +2,11 @@ package plugin
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -34,6 +36,10 @@ func extractPackageContract(archivePath, staging string, schemaVersion int) (Man
 }
 
 func extractPackageContractForArch(archivePath, staging string, schemaVersion int, arch string) (Manifest, error) {
+	return extractPackageContractForEntry(archivePath, staging, schemaVersion, arch, nil)
+}
+
+func extractPackageContractForEntry(archivePath, staging string, schemaVersion int, arch string, expected *CatalogEntry) (Manifest, error) {
 	info, err := os.Stat(archivePath)
 	if err != nil || info.Size() > MaxPackageBytes {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
@@ -78,10 +84,14 @@ func extractPackageContractForArch(archivePath, staging string, schemaVersion in
 					return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 				}
 			} else {
-				allowed := clean == "plugin.json" || clean == "config.schema.json"
-				for _, item := range OfficialCatalog() {
-					if item.Available && clean == item.Entrypoint {
-						allowed = true
+				allowed := clean == "plugin.json" || clean == "config.schema.json" || clean == "descriptor.json"
+				if expected != nil {
+					allowed = allowed || clean == expected.Entrypoint
+				} else {
+					for _, item := range OfficialCatalog() {
+						if item.Available && clean == item.Entrypoint {
+							allowed = true
+						}
 					}
 				}
 				if !allowed {
@@ -135,23 +145,43 @@ func extractPackageContractForArch(archivePath, staging string, schemaVersion in
 	if err != nil {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 	}
-	manifest, err := parseManifestForArch(data, schemaVersion, arch)
+	manifest, err := parseManifestForArchWithEntry(data, schemaVersion, arch, expected)
 	if err != nil {
 		return Manifest{}, err
 	}
+	if expected != nil {
+		manifest.TargetID = expected.TargetID
+	}
 	if schemaVersion == 2 {
-		official, known := LookupOfficial(manifest.ID)
-		if !known || !official.Available || !seen[manifest.Entrypoint] || !seen["config.schema.json"] {
+		if expected == nil {
+			official, known := LookupOfficial(manifest.ID)
+			if !known || !official.Available {
+				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+			}
+		} else if manifest.ID != expected.ID || !expected.Available {
+			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+		}
+		if !seen[manifest.Entrypoint] || !seen["config.schema.json"] || (expected != nil && len(expected.Schema.Fields) > 0 && !seen["descriptor.json"]) {
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 		}
 		for name := range seen {
-			if name != "bin" && name != "plugin.json" && name != "config.schema.json" && name != manifest.Entrypoint {
+			if name != "bin" && name != "plugin.json" && name != "config.schema.json" && name != "descriptor.json" && name != manifest.Entrypoint {
 				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 			}
 		}
 		schema, readErr := os.ReadFile(filepath.Join(staging, "config.schema.json"))
-		if readErr != nil || ValidateConfigSchema(schema, manifest) != nil {
+		validateSchema := ValidateConfigSchema
+		if expected != nil && len(expected.Schema.Fields) > 0 {
+			validateSchema = ValidateExternalConfigSchema
+		}
+		if readErr != nil || validateSchema(schema, manifest) != nil {
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+		}
+		if expected != nil && len(expected.Schema.Fields) > 0 {
+			descriptor, readErr := os.ReadFile(filepath.Join(staging, "descriptor.json"))
+			if readErr != nil || !descriptorMatches(descriptor, *expected) {
+				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
+			}
 		}
 	}
 	entry := filepath.Join(staging, filepath.FromSlash(manifest.Entrypoint))
@@ -173,4 +203,29 @@ func extractPackageContractForArch(archivePath, staging string, schemaVersion in
 		return Manifest{}, wrap(CodeFailed, "plugin operation failed", err)
 	}
 	return manifest, nil
+}
+
+func descriptorMatches(data []byte, expected CatalogEntry) bool {
+	var descriptor struct {
+		SchemaVersion          int    `json:"schema_version"`
+		ID                     string `json:"id"`
+		Name                   string `json:"name"`
+		Source                 string `json:"source"`
+		TargetID               string `json:"target_id"`
+		Entrypoint             string `json:"entrypoint"`
+		HealthPath             string `json:"health_path"`
+		MetricsPath            string `json:"metrics_path"`
+		ListenPort             int    `json:"listen_port"`
+		HostPort               int    `json:"host_port"`
+		ContainerPort          int    `json:"container_port"`
+		RuntimeContractVersion int    `json:"runtime_contract_version"`
+		MetricsContractVersion int    `json:"metrics_contract_version"`
+		ConfigSchemaPath       string `json:"config_schema_path"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&descriptor) != nil {
+		return false
+	}
+	return descriptor.SchemaVersion == 1 && descriptor.ID == expected.ID && descriptor.Name == expected.Name && descriptor.Source == expected.Source && descriptor.TargetID == expected.TargetID && descriptor.Entrypoint == expected.Entrypoint && descriptor.HealthPath == expected.HealthPath && descriptor.MetricsPath == expected.MetricsPath && descriptor.ListenPort == expected.Port && descriptor.HostPort == expected.HostPort && descriptor.ContainerPort == expected.ContainerPort && descriptor.RuntimeContractVersion == expected.RuntimeContractVersion && descriptor.MetricsContractVersion == expected.MetricsContractVersion && descriptor.ConfigSchemaPath == expected.ConfigSchemaPath
 }

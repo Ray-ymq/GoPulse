@@ -87,28 +87,47 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS exporter-package
 RUN apk add --no-cache tar gzip
 WORKDIR /src
-COPY monitor/ ./monitor/
-COPY componentmetrics/ ./componentmetrics/
+COPY devtools/go.mod devtools/go.sum /src/devtools/
+COPY devtools/cmd/exporter-package/ /src/devtools/cmd/exporter-package/
+COPY devtools/cmd/exporter-catalog/ /src/devtools/cmd/exporter-catalog/
+COPY exporters/redis/descriptor.json /src/exporters/redis/descriptor.json
+COPY exporters/redis/config.schema.json /src/exporters/redis/config.schema.json
+COPY exporters/redis/VERSION /src/exporters/redis/VERSION
+COPY exporters/mysql/descriptor.json /src/exporters/mysql/descriptor.json
+COPY exporters/mysql/config.schema.json /src/exporters/mysql/config.schema.json
+COPY exporters/mysql/VERSION /src/exporters/mysql/VERSION
+COPY exporters/rabbitmq/descriptor.json /src/exporters/rabbitmq/descriptor.json
+COPY exporters/rabbitmq/config.schema.json /src/exporters/rabbitmq/config.schema.json
+COPY exporters/rabbitmq/VERSION /src/exporters/rabbitmq/VERSION
+COPY exporters/kafka/descriptor.json /src/exporters/kafka/descriptor.json
+COPY exporters/kafka/config.schema.json /src/exporters/kafka/config.schema.json
+COPY exporters/kafka/VERSION /src/exporters/kafka/VERSION
+COPY exporters/elasticsearch/descriptor.json /src/exporters/elasticsearch/descriptor.json
+COPY exporters/elasticsearch/config.schema.json /src/exporters/elasticsearch/config.schema.json
+COPY exporters/elasticsearch/VERSION /src/exporters/elasticsearch/VERSION
+COPY exporters/victoriametrics/descriptor.json /src/exporters/victoriametrics/descriptor.json
+COPY exporters/victoriametrics/config.schema.json /src/exporters/victoriametrics/config.schema.json
+COPY exporters/victoriametrics/VERSION /src/exporters/victoriametrics/VERSION
 COPY --from=exporter-build /out/gopulse-redis-exporter /out/gopulse-redis-exporter
 ARG GOPROXY=https://goproxy.cn,direct
 ENV GOPROXY=${GOPROXY}
 ARG VERSION
 ARG TARGETARCH
-WORKDIR /src/monitor
-RUN go run ./cmd/plugin-package --contract-version 2 --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" \
+WORKDIR /src/devtools
+RUN go run ./cmd/exporter-package --repo-root /src --source redis --version "$(cat /src/exporters/redis/VERSION)" --arch "${TARGETARCH:-$(go env GOARCH)}" \
     --binary /out/gopulse-redis-exporter --output /out/gopulse-redis-exporter.tar.gz
 
 COPY --from=mysql-exporter-build /out/gopulse-mysql-exporter /out/gopulse-mysql-exporter
-RUN go run ./cmd/plugin-package --source mysql --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-mysql-exporter --output /out/gopulse-mysql-exporter.tar.gz
+RUN go run ./cmd/exporter-package --repo-root /src --source mysql --version "$(cat /src/exporters/mysql/VERSION)" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-mysql-exporter --output /out/gopulse-mysql-exporter.tar.gz
 COPY --from=rabbitmq-exporter-build /out/gopulse-rabbitmq-exporter /out/gopulse-rabbitmq-exporter
-RUN go run ./cmd/plugin-package --source rabbitmq --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-rabbitmq-exporter --output /out/gopulse-rabbitmq-exporter.tar.gz
+RUN go run ./cmd/exporter-package --repo-root /src --source rabbitmq --version "$(cat /src/exporters/rabbitmq/VERSION)" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-rabbitmq-exporter --output /out/gopulse-rabbitmq-exporter.tar.gz
 
 COPY --from=kafka-exporter-build /out/gopulse-kafka-exporter /out/gopulse-kafka-exporter
-RUN go run ./cmd/plugin-package --source kafka --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-kafka-exporter --output /out/gopulse-kafka-exporter.tar.gz
+RUN go run ./cmd/exporter-package --repo-root /src --source kafka --version "$(cat /src/exporters/kafka/VERSION)" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-kafka-exporter --output /out/gopulse-kafka-exporter.tar.gz
 COPY --from=elasticsearch-exporter-build /out/gopulse-elasticsearch-exporter /out/gopulse-elasticsearch-exporter
-RUN go run ./cmd/plugin-package --source elasticsearch --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-elasticsearch-exporter --output /out/gopulse-elasticsearch-exporter.tar.gz
+RUN go run ./cmd/exporter-package --repo-root /src --source elasticsearch --version "$(cat /src/exporters/elasticsearch/VERSION)" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-elasticsearch-exporter --output /out/gopulse-elasticsearch-exporter.tar.gz
 COPY --from=victoriametrics-exporter-build /out/gopulse-victoriametrics-exporter /out/gopulse-victoriametrics-exporter
-RUN go run ./cmd/plugin-package --source victoriametrics --version "$VERSION" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-victoriametrics-exporter --output /out/gopulse-victoriametrics-exporter.tar.gz
+RUN go run ./cmd/exporter-package --repo-root /src --source victoriametrics --version "$(cat /src/exporters/victoriametrics/VERSION)" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-victoriametrics-exporter --output /out/gopulse-victoriametrics-exporter.tar.gz
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS legacy-exporter-build
 WORKDIR /legacy
@@ -143,16 +162,16 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 
 FROM exporter-package AS official-packages
 COPY --from=upgrade-exporter-build /out/upgrade-exporter /out/upgrade-exporter
-RUN go run ./cmd/plugin-package --contract-version 1 --version 1.9.4 --arch amd64 --binary /out/upgrade-exporter --output /out/redis-1.9.4.tar.gz
+RUN go run ./cmd/exporter-package --repo-root /src --contract-version 1 --source redis --version 1.9.4 --arch amd64 --binary /out/upgrade-exporter --output /out/redis-1.9.4.tar.gz
 COPY --from=legacy-exporter-build /out/legacy-exporter /out/legacy-exporter
-RUN go run ./cmd/plugin-package --contract-version 1 --version 1.10.6 --arch amd64 --binary /out/legacy-exporter --output /out/redis-1.10.6.tar.gz && \
+RUN go run ./cmd/exporter-package --repo-root /src --contract-version 1 --source redis --version 1.10.6 --arch amd64 --binary /out/legacy-exporter --output /out/redis-1.10.6.tar.gz && \
     echo 'b992b0dfa80a0983b9af63e4c2a4770216bfd7fcb718af2cd451281cf3306727  /out/redis-1.10.6.tar.gz' | sha256sum -c -
 
 COPY --from=phase14-exporters-build /out/ /phase14-binaries/
 COPY deploy/plugins/phase14-1.11.5.sha256 /tmp/phase14.sha256
 RUN mkdir /out/retained && \
     for source in redis mysql rabbitmq kafka elasticsearch victoriametrics; do \
-      go run ./cmd/plugin-package --source "$source" --contract-version 2 --version 1.11.5 --arch amd64 \
+      go run ./cmd/exporter-package --repo-root /src --source "$source" --contract-version 2 --version 1.11.5 --arch amd64 \
         --binary /phase14-binaries/phase14-$source --output /out/retained/$source-1.11.5.tar.gz || exit 1; \
     done && cd /out/retained && sha256sum -c /tmp/phase14.sha256
 
@@ -163,13 +182,6 @@ COPY monitor/go.mod monitor/go.sum ./
 COPY componentmetrics/ /src/componentmetrics/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY monitor/ ./
-COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /packages/gopulse-redis-exporter.tar.gz
-COPY --from=official-packages /out/redis-1.10.6.tar.gz /out/redis-1.9.4.tar.gz /packages/
-COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /out/gopulse-kafka-exporter.tar.gz /out/gopulse-elasticsearch-exporter.tar.gz /out/gopulse-victoriametrics-exporter.tar.gz /packages/
-COPY --from=official-packages /out/retained/ /packages/
-ARG TARGETARCH
-RUN legacy=""; if [ "$TARGETARCH" = amd64 ]; then legacy="legacy-v1=/packages/redis-1.10.6.tar.gz retained=/packages/redis-1.11.5.tar.gz retained=/packages/mysql-1.11.5.tar.gz retained=/packages/rabbitmq-1.11.5.tar.gz retained=/packages/kafka-1.11.5.tar.gz retained=/packages/elasticsearch-1.11.5.tar.gz retained=/packages/victoriametrics-1.11.5.tar.gz legacy-v1=/packages/redis-1.9.4.tar.gz"; fi; \
-    go run ./cmd/plugin-release-catalog --arch "$TARGETARCH" --output internal/plugin/release_catalog_generated.go current=/packages/gopulse-redis-exporter.tar.gz current=/packages/gopulse-mysql-exporter.tar.gz current=/packages/gopulse-rabbitmq-exporter.tar.gz current=/packages/gopulse-kafka-exporter.tar.gz current=/packages/gopulse-elasticsearch-exporter.tar.gz current=/packages/gopulse-victoriametrics-exporter.tar.gz $legacy
 
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -217,12 +229,8 @@ EXPOSE 9121
 ENTRYPOINT ["/usr/local/bin/gopulse-redis-exporter"]
 
 FROM runtime AS monitor
-COPY --from=official-packages /out/retained/ /opt/gopulse/packages/
 LABEL org.opencontainers.image.title="GoPulse Monitor"
 COPY --from=monitor-build --chown=10005:10001 /out/monitor /usr/local/bin/monitor
-COPY --from=official-packages /out/gopulse-redis-exporter.tar.gz /opt/gopulse/packages/gopulse-redis-exporter.tar.gz
-COPY --from=official-packages /out/redis-1.10.6.tar.gz /out/redis-1.9.4.tar.gz /opt/gopulse/packages/
-COPY --from=official-packages /out/gopulse-mysql-exporter.tar.gz /out/gopulse-rabbitmq-exporter.tar.gz /out/gopulse-kafka-exporter.tar.gz /out/gopulse-elasticsearch-exporter.tar.gz /out/gopulse-victoriametrics-exporter.tar.gz /opt/gopulse/packages/
 USER 10005:10001
 EXPOSE 9090
 VOLUME ["/var/lib/gopulse-monitor/plugins"]

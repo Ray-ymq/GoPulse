@@ -56,7 +56,7 @@ func saveProcessRecord(pluginDir string, record processRecord) error {
 }
 func removeProcessRecord(pluginDir string) { _ = os.Remove(processRecordPath(pluginDir)) }
 
-func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env map[string]string, healthURL string, startup time.Duration) (*runtimeProcess, error) {
+func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env map[string]string, healthURL string, startup time.Duration, args ...string) (*runtimeProcess, error) {
 	release := filepath.Join(pluginDir, "releases", manifest.Version)
 	executable, err := filepath.Abs(filepath.Join(release, filepath.FromSlash(manifest.Entrypoint)))
 	if err != nil {
@@ -66,18 +66,20 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(executable)
+	cmd := exec.Command(executable, args...)
 	cmd.Dir = release
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	entry, _ := LookupOfficial(manifest.ID)
 	allowed := map[string]bool{"GOPULSE_RUNTIME_MODE": true, "GOPULSE_VERSION": true, "GOPULSE_REVISION": true}
-	prefix := strings.ToUpper(entry.Source)
-	for _, suffix := range []string{"HOST", "PORT", "MANAGEMENT_PORT", "PASSWORD", "USERNAME", "DB", "DATABASE", "VHOST", "EXPORTER_HTTP_HOST", "EXPORTER_HTTP_PORT", "EXPORTER_SCRAPE_TIMEOUT", "EXPORTER_CONNECT_TIMEOUT", "EXPORTER_SHUTDOWN_TIMEOUT"} {
-		allowed[prefix+"_"+suffix] = true
-	}
-	if entry.Source == "kafka" {
-		allowed["KAFKA_TOPIC"] = true
-		allowed["KAFKA_CONSUMER_GROUP"] = true
+	if len(args) == 0 {
+		entry, _ := LookupOfficial(manifest.ID)
+		prefix := strings.ToUpper(entry.Source)
+		for _, suffix := range []string{"HOST", "PORT", "MANAGEMENT_PORT", "PASSWORD", "USERNAME", "DB", "DATABASE", "VHOST", "EXPORTER_HTTP_HOST", "EXPORTER_HTTP_PORT", "EXPORTER_SCRAPE_TIMEOUT", "EXPORTER_CONNECT_TIMEOUT", "EXPORTER_SHUTDOWN_TIMEOUT"} {
+			allowed[prefix+"_"+suffix] = true
+		}
+		if entry.Source == "kafka" {
+			allowed["KAFKA_TOPIC"] = true
+			allowed["KAFKA_CONSUMER_GROUP"] = true
+		}
 	}
 	for key, value := range env {
 		if allowed[key] {

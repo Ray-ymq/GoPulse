@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Ray-ymq/GoPulse/lifecycle/internal/release"
@@ -31,33 +32,31 @@ type pluginManifest struct {
 	ConfigSchemaSHA256 string `json:"config_schema_sha256"`
 }
 
-// PluginRecords copies the plugin packages out of the candidate Monitor image
-// and records their identity. It only pulls and copies: foreign-architecture
-// plugin binaries are never executed.
-func PluginRecords(image release.Image, platform, directory string) ([]release.Plugin, error) {
-	ref, err := PlatformRef(image, platform)
+// PluginRecords reads independently published Exporter packages from the
+// deployment input directory and records their identity. It only copies and
+// validates package bytes; foreign-architecture binaries are never executed.
+// The image argument remains for source compatibility with callers that also
+// validate the Monitor image in the same loop.
+func PluginRecords(image release.Image, platform, directory string, packageRoots ...string) ([]release.Plugin, error) {
+	_ = image
+	if len(packageRoots) == 0 || packageRoots[0] == "" {
+		return nil, errors.New("Exporter package input directory is required")
+	}
+	packageRoot, err := filepath.Abs(packageRoots[0])
 	if err != nil {
 		return nil, err
 	}
-	if err := attached("", "docker", "pull", "--platform", platform, ref); err != nil {
-		return nil, err
-	}
-	created, err := output("", "docker", "create", "--platform", platform, ref)
-	if err != nil {
-		return nil, err
-	}
-	id := strings.TrimSpace(created)
-	defer func() { _ = attached("", "docker", "rm", "-v", id) }()
 	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return nil, err
-	}
-	if err := attached("", "docker", "cp", id+":/opt/gopulse/packages/.", directory); err != nil {
 		return nil, err
 	}
 	arch := platform[strings.LastIndexByte(platform, '/')+1:]
 	names := make([]string, 0, len(Sources)+1)
 	for _, source := range Sources {
-		names = append(names, "gopulse-"+source+"-exporter.tar.gz")
+		name, findErr := currentPackage(packageRoot, source, arch)
+		if findErr != nil {
+			return nil, findErr
+		}
+		names = append(names, name)
 	}
 	if platform == "linux/amd64" {
 		// The 1.9.4 upgrade input is amd64-only and never a current package.
@@ -65,17 +64,67 @@ func PluginRecords(image release.Image, platform, directory string) ([]release.P
 	}
 	records := make([]release.Plugin, 0, len(names))
 	for _, name := range names {
-		data, err := os.ReadFile(filepath.Join(directory, name))
+		data, err := os.ReadFile(filepath.Join(packageRoot, name))
 		if err != nil {
-			return nil, fmt.Errorf("candidate Monitor image has no %s", name)
+			return nil, fmt.Errorf("Exporter package input has no %s", name)
 		}
 		record, err := pluginRecord(data, arch)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
+		if err = os.WriteFile(filepath.Join(directory, name), data, 0o644); err != nil {
+			return nil, err
+		}
 		records = append(records, record)
 	}
+	if err := copyCatalog(packageRoot, directory, arch); err != nil {
+		return nil, err
+	}
 	return records, nil
+}
+
+func copyCatalog(root, directory, arch string) error {
+	candidates := []string{
+		filepath.Join(root, "catalog-linux-"+arch+".json"),
+		filepath.Join(root, "catalog-"+arch+".json"),
+		filepath.Join(root, "catalog.json"),
+	}
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("Exporter catalog input is not a regular file: %s", filepath.Base(candidate))
+		}
+		data, err := os.ReadFile(candidate)
+		if err != nil || len(data) == 0 || len(data) > 64<<10 || !json.Valid(data) {
+			return errors.New("Exporter catalog input is invalid")
+		}
+		if err := os.WriteFile(filepath.Join(directory, "catalog.json"), data, 0o644); err != nil {
+			return err
+		}
+		return nil
+	}
+	return errors.New("Exporter catalog input is missing")
+}
+
+func currentPackage(root, source, arch string) (string, error) {
+	patterns := []string{
+		filepath.Join(root, "gopulse-"+source+"-exporter-linux-"+arch+".tar.gz"),
+		filepath.Join(root, "gopulse-"+source+"-exporter.tar.gz"),
+	}
+	for _, path := range patterns {
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return filepath.Base(path), nil
+		}
+	}
+	candidates, err := filepath.Glob(filepath.Join(root, "gopulse-"+source+"-exporter-*-linux-"+arch+".tar.gz"))
+	if err != nil || len(candidates) == 0 {
+		return "", fmt.Errorf("Exporter package input has no current %s package for %s", source, arch)
+	}
+	sort.Strings(candidates)
+	return filepath.Base(candidates[len(candidates)-1]), nil
 }
 
 // pluginRecord validates one plugin archive against its own metadata without

@@ -74,7 +74,7 @@ func (h *Handler) Update(c *gin.Context) {
 	h.upload(c, "/internal/v1/exporter-plugins/"+id+"/update", http.StatusOK)
 }
 func pluginIdentifier(c *gin.Context) (string, bool) {
-	if _, known := LookupOfficial(c.Param("pluginId")); !known {
+	if !validPluginID(c.Param("pluginId")) {
 		response.Error(c, apperror.New(apperror.CodePluginNotFound, "plugin was not found"))
 		return "", false
 	}

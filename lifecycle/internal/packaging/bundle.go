@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -63,7 +64,7 @@ func archiveName(version string) string { return "gopulse-" + version + "-bundle
 // WriteBundle assembles the transport bundle from the resolved product
 // topology and verifies what it just wrote. The manifest is published by the
 // caller last so an interrupted build leaves no complete candidate.
-func WriteBundle(repo *Repo, m *release.Manifest, product []byte, out string) error {
+func WriteBundle(repo *Repo, m *release.Manifest, product []byte, out string, bundleRoots ...string) error {
 	tool, err := ToolCompose(m)
 	if err != nil {
 		return err
@@ -76,6 +77,11 @@ func WriteBundle(repo *Repo, m *release.Manifest, product []byte, out string) er
 		"deploy/product/compose.yaml": product,
 		"compose.yaml":                tool,
 		"README.md":                   readme,
+	}
+	if len(bundleRoots) > 0 {
+		if err := addPackageFiles(files, bundleRoots[0]); err != nil {
+			return err
+		}
 	}
 	if atLeast(m.Version, 1, 14, 3) {
 		for _, asset := range []string{"deploy/runtime-contracts.json", "deploy/runtime-contracts.schema.json"} {
@@ -191,6 +197,9 @@ func VerifyBundle(path string) (*release.Manifest, error) {
 		}
 		files[name] = content
 	}
+	if err := addPackageFiles(files, root); err != nil {
+		return nil, err
+	}
 	compose, ok := files[m.Compose.Path]
 	if !ok || Sum(compose) != m.Compose.SHA256 || payloadDigest(files) != m.BundleSHA256 {
 		return nil, errors.New("bundle asset checksum mismatch")
@@ -224,6 +233,43 @@ func VerifyBundle(path string) (*release.Manifest, error) {
 	return m, nil
 }
 
+func addPackageFiles(files map[string][]byte, root string) error {
+	plugins := filepath.Join(root, "plugins")
+	if _, err := os.Stat(plugins); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return filepath.WalkDir(plugins, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return errors.New("Exporter package bundle contains a non-regular file")
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+			return errors.New("Exporter package bundle path is invalid")
+		}
+		name := filepath.ToSlash(relative)
+		if !strings.HasPrefix(name, "plugins/") || name == "plugins/" {
+			return errors.New("Exporter package bundle path is invalid")
+		}
+		if _, exists := files[name]; exists {
+			return errors.New("duplicate bundle asset")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[name] = data
+		return nil
+	})
+}
+
 // checkArchive enforces the closed member allowlist and the byte equality
 // between the archive and the extracted bundle.
 func checkArchive(archive []byte, allowed map[string]bool, root string) error {
@@ -247,7 +293,10 @@ func checkArchive(archive []byte, allowed map[string]bool, root string) error {
 			return errors.New("invalid bundle archive")
 		}
 		stored, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(header.Name)))
-		if err != nil || !bytes.Equal(content, stored) || bytes.ContainsRune(content, '\r') || bytes.IndexByte(content, 0) >= 0 {
+		if err != nil || !bytes.Equal(content, stored) {
+			return errors.New("bundle bytes or LF mismatch")
+		}
+		if !strings.HasPrefix(header.Name, "plugins/") && (bytes.ContainsRune(content, '\r') || bytes.IndexByte(content, 0) >= 0) {
 			return errors.New("bundle bytes or LF mismatch")
 		}
 		seen[header.Name] = true

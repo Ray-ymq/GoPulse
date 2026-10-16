@@ -15,6 +15,7 @@ import (
 
 type ManagerConfig struct {
 	PackagesRoot           string
+	CatalogPath            string
 	ValidateSnapshot       func(int, []byte) error
 	ValidateSourceSnapshot func(string, int, []byte) error
 	Root                   string
@@ -22,6 +23,7 @@ type ManagerConfig struct {
 	HealthURL              string
 	StartupTimeout         time.Duration
 	StopTimeout            time.Duration
+	ScrapeTimeout          time.Duration
 	Now                    func() time.Time
 	EventRecorder          EventRecorder
 }

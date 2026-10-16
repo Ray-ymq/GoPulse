@@ -92,15 +92,15 @@ func run(logger *slog.Logger) error {
 		_ = eventMonitor.Close(closeCtx)
 		cancel()
 	}()
-	manager, err = plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ValidateSourceSnapshot: collector.ValidateSuccessfulSourceSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, EventRecorder: eventMonitor})
+	manager, err = plugin.NewManager(ctx, plugin.ManagerConfig{Root: cfg.PluginRoot, CatalogPath: cfg.ReleaseCatalog, ValidateSnapshot: collector.ValidateSuccessfulSnapshot, ValidateSourceSnapshot: collector.ValidateSuccessfulSourceSnapshot, ExporterEnv: cfg.ExporterEnv, HealthURL: cfg.ExporterHealthURL(), StartupTimeout: cfg.StartupTimeout, StopTimeout: cfg.StopTimeout, ScrapeTimeout: cfg.ScrapeTimeout, EventRecorder: eventMonitor})
 	if err != nil {
 		return err
 	}
-	for _, entry := range plugin.OfficialCatalog() {
+	for _, entry := range manager.ExecutionCatalog() {
 		if !entry.Available {
 			continue
 		}
-		metricsMonitor, err := collector.New(collector.Config{Source: entry.Source, Host: "127.0.0.1", Port: exporterScrapePort(cfg, entry), Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout, Publisher: messagePublisher, Events: eventMonitor, Update: func(update collector.Update) {
+		metricsMonitor, err := collector.New(collector.Config{Source: entry.Source, Host: "127.0.0.1", Port: strconv.Itoa(entry.Port), Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout, Publisher: messagePublisher, Events: eventMonitor, Update: func(update collector.Update) {
 			manager.RecordSourceMetrics(entry.ID, update.ScrapeAt, update.SuccessAt, update.ErrorCode, update.ErrorMessage)
 		}})
 		if err != nil {
@@ -175,8 +175,10 @@ func run(logger *slog.Logger) error {
 	}
 }
 
+// Kept as a small compatibility helper for callers that still construct a
+// scrape task from the legacy Config shape.
 func exporterScrapePort(cfg config.Config, entry plugin.CatalogEntry) string {
-	if entry.ID == plugin.PluginID {
+	if entry.ID == plugin.PluginID && cfg.ExporterEnv["REDIS_EXPORTER_HTTP_PORT"] != "" {
 		return cfg.ExporterEnv["REDIS_EXPORTER_HTTP_PORT"]
 	}
 	return strconv.Itoa(entry.Port)

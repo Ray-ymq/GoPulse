@@ -29,7 +29,7 @@ func (h *Handler) Audit(c *gin.Context) {
 	if id == "" {
 		id = pluginID
 	}
-	if _, ok := LookupOfficial(id); !ok {
+	if !validPluginID(id) {
 		c.Next()
 		return
 	}

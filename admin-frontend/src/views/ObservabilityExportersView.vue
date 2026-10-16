@@ -26,8 +26,11 @@ function selectPlugin(id: string): void {
  showUpdate.value = false; selected.value = id; password.value = ''; message.value = ''; clearPackage()
  status.value = statuses.value.find(item => item.id === id) ?? null
  for (const key of Object.keys(configuration)) delete configuration[key]
- const source = id.replace('-exporter', '')
- Object.assign(configuration, { host: '', connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: '', username: '' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: '' } : source === 'kafka' ? { port: 19092, topic: '', consumer_group: '' } : source === 'victoriametrics' ? { port: 8428, username: '' } : { port: 9200 })
+ const item = catalog.value.find(candidate => candidate.id === id)
+ for (const field of item?.schema.fields ?? []) {
+   if (field.secret) continue
+   configuration[field.name] = field.enum?.[0] ?? (field.type === 'integer' || field.type === 'port' ? field.minimum ?? 0 : field.type === 'duration' ? '1s' : '')
+ }
 }
 async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {
   if (busy.value) return
@@ -66,7 +69,7 @@ function errorMessage(error: unknown): string {
 }
 async function load(): Promise<void> {
   controller?.abort(); controller = new AbortController(); loading.value = true; loadFailed.value = false; message.value = ''
-  try { const [items, descriptors] = await Promise.all([exporterApi.list(controller.signal), pluginConfigApi.catalog(controller.signal)]); catalog.value = descriptors; statuses.value = items; status.value = items.find(item => item.id === selected.value) ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString('zh-CN', { hour12:false }); if (!items.length) message.value = '尚未安装 Redis Exporter，请配置目标并安装官方包。' }
+  try { const [items, descriptors] = await Promise.all([exporterApi.list(controller.signal), pluginConfigApi.catalog(controller.signal)]); catalog.value = descriptors; statuses.value = items; status.value = items.find(item => item.id === selected.value) ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString('zh-CN', { hour12:false }); if (!items.length) message.value = '尚未安装 Exporter，请配置目标并安装获准包。' }
   catch (error) { if (!controller.signal.aborted) { loadFailed.value = true; message.value = errorMessage(error) } }
   finally { loading.value = false }
 }

@@ -111,13 +111,14 @@ func Source(root string, observe bool) (string, error) {
 func SourceBuilds(root string) (string, error) { return Source(root, false) }
 
 // MonitorInput digests everything that changes the prepared Monitor image.
+// Exporter source, packages, and historical archives are deployment inputs;
+// they are deliberately excluded so changing one module does not invalidate
+// the Monitor image.
 func MonitorInput(root string) (string, error) {
 	return Paths(root, []string{
 		filepath.Join(root, "VERSION"),
 		filepath.Join(root, "componentmetrics"),
 		filepath.Join(root, "monitor"),
-		filepath.Join(root, "exporters"),
-		filepath.Join(root, "deploy", "docker", "observability.Dockerfile"),
-		filepath.Join(root, "deploy", "plugins"),
+		filepath.Join(root, "deploy", "docker", "monitor.Dockerfile"),
 	})
 }

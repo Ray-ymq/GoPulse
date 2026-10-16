@@ -199,7 +199,7 @@ func decodeStatusList(payload []byte) ([]Status, error) {
 		return nil, errors.New("invalid list envelope")
 	}
 	var rawItems []json.RawMessage
-	if err := decodeStrict(data, &rawItems); err != nil || rawItems == nil || len(rawItems) > 6 {
+	if err := decodeStrict(data, &rawItems); err != nil || rawItems == nil || len(rawItems) > 64 {
 		return nil, errors.New("invalid status list")
 	}
 	items := make([]Status, 0, len(rawItems))

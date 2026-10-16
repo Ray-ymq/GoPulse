@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	"time"
 
@@ -30,15 +32,7 @@ func Load() (Config, error) {
 
 	c := Config{Host: os.Getenv("KAFKA_HOST"), Port: os.Getenv("KAFKA_PORT")}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
-	if mode == "container" {
-		if c.Host != "kafka" || c.Port != "19092" {
-			return c, ErrConfig
-		}
-	} else if mode == "host" || mode == "" {
-		if (c.Host != "127.0.0.1" && c.Host != "::1") || c.Port != "9092" {
-			return c, ErrConfig
-		}
-	} else {
+	if !validTarget(mode, c.Host, c.Port) {
 		return c, ErrConfig
 	}
 	if os.Getenv("KAFKA_TOPIC") != collector.Topic || os.Getenv("KAFKA_CONSUMER_GROUP") != collector.Group {
@@ -60,11 +54,32 @@ func Load() (Config, error) {
 	if port == "" {
 		port = "9124"
 	}
-	if (host != "127.0.0.1" && host != "::1") || port != "9124" {
+	if !validListen(mode, host, port) {
 		return c, ErrConfig
 	}
 	c.Listen = net.JoinHostPort(host, port)
 	return c, nil
+}
+
+func validTarget(mode, host, port string) bool {
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || host == "" || strings.ContainsAny(host, "\x00\r\n \t/@") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if mode == "host" || mode == "" {
+		return host == "localhost" || ip != nil && ip.IsLoopback()
+	}
+	return mode == "container" && ip == nil
+}
+
+func validListen(mode, host, port string) bool {
+	ip := net.ParseIP(host)
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || ip == nil {
+		return false
+	}
+	return (mode == "container" && (ip.IsLoopback() || ip.IsUnspecified())) || ((mode == "host" || mode == "") && ip.IsLoopback())
 }
 func Open(c Config) (*collector.Client, error) {
 	// Pin the public request shape, notably OffsetFetch v7 (Kafka 2.8).

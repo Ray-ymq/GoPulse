@@ -110,13 +110,13 @@ func TestSourceDigestCoversLocalReplaceModulesAndScope(t *testing.T) {
 	}
 }
 
-func TestMonitorInputDigestCoversPackagingInputs(t *testing.T) {
+func TestMonitorInputDigestExcludesExporterPackagingInputs(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "VERSION", "2.5.3\n")
 	write(t, root, "monitor/main.go", "package main\n")
 	write(t, root, "componentmetrics/metrics.go", "package componentmetrics\n")
 	write(t, root, "exporters/redis/main.go", "package main\n")
-	write(t, root, "deploy/docker/observability.Dockerfile", "FROM scratch\n")
+	write(t, root, "deploy/docker/monitor.Dockerfile", "FROM scratch\n")
 	write(t, root, "deploy/plugins/redis-exporter.json", "{}\n")
 
 	before, err := MonitorInput(root)
@@ -124,10 +124,9 @@ func TestMonitorInputDigestCoversPackagingInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"VERSION":                                "2.5.4\n",
-		"monitor/main.go":                        "package main // changed\n",
-		"deploy/docker/observability.Dockerfile": "FROM scratch\n# changed\n",
-		"deploy/plugins/redis-exporter.json":     "{\"changed\": true}\n",
+		"VERSION":                          "2.5.4\n",
+		"monitor/main.go":                  "package main // changed\n",
+		"deploy/docker/monitor.Dockerfile": "FROM scratch\n# changed\n",
 	} {
 		write(t, root, name, content)
 		after, err := MonitorInput(root)
@@ -139,5 +138,14 @@ func TestMonitorInputDigestCoversPackagingInputs(t *testing.T) {
 		}
 		write(t, root, name, content)
 		before = after
+	}
+	write(t, root, "exporters/redis/main.go", "package main // changed\n")
+	write(t, root, "deploy/plugins/redis-exporter.json", "{\"changed\": true}\n")
+	after, err := MonitorInput(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatal("Exporter sources and historical packages must not invalidate Monitor input")
 	}
 }

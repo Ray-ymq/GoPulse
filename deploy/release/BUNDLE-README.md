@@ -9,6 +9,9 @@ macOS, Windows and arm64 product operation are not supported by this lifecycle.
 Extract the versioned archive into a read-only bundle directory. Verify its
 external `.sha256` before extraction and `checksums` afterward. The manifest
 binds all images by index/platform digest and the embedded Compose checksum.
+The product Compose mounts the independent Exporter packages and catalog from
+`plugins/${GOPULSE_PLUGIN_ARCH:-amd64}` inside this bundle. The supported
+product default is Linux amd64.
 `backend-2` and `platform-api` are fixed aliases of the Backend image entry;
 the runtime contract records their distinct roles and identities. A loopback
 candidate registry is not an external/public release.

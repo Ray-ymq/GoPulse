@@ -52,6 +52,7 @@ func run(arguments []string) error {
 	platforms := flags.String("platform", "linux/amd64", "candidate platforms, e.g. linux/amd64,linux/arm64")
 	registry := flags.String("registry", "", "registry namespace (default: an owned loopback registry)")
 	manifest := flags.String("manifest", "", "release manifest of an existing candidate")
+	exporterPackages := flags.String("exporter-packages", "", "directory containing independently built Exporter packages")
 	version := flags.String("version", "", "expected candidate version")
 	revision := flags.String("revision", "", "expected candidate revision")
 	runtimeGate := flags.Bool("runtime", false, "run the real lifecycle runtime identity check")
@@ -67,7 +68,7 @@ func run(arguments []string) error {
 	}
 	switch command {
 	case "run":
-		return runCandidate(*repository, *registry, *platforms, *output, *runtimeGate, *promote)
+		return runCandidate(*repository, *registry, *platforms, *output, *exporterPackages, *runtimeGate, *promote)
 	case "build":
 		repo, err := packaging.OpenRepo(*repository)
 		if err != nil {
@@ -76,7 +77,7 @@ func run(arguments []string) error {
 		if *registry == "" {
 			return &packaging.UsageError{Message: "build requires --registry"}
 		}
-		path, err := packaging.Build(repo, *registry, *platforms, *output)
+		path, err := packaging.Build(repo, *registry, *platforms, *output, *exporterPackages)
 		if err != nil {
 			return err
 		}
@@ -86,7 +87,7 @@ func run(arguments []string) error {
 		if *manifest == "" {
 			return &packaging.UsageError{Message: "verify requires --manifest"}
 		}
-		return packaging.Verify(*manifest, *platforms, *runtimeGate)
+		return packaging.Verify(*manifest, *platforms, *runtimeGate, *exporterPackages)
 	case "promote":
 		if *manifest == "" {
 			return &packaging.UsageError{Message: "promote requires --manifest"}
@@ -109,7 +110,7 @@ func run(arguments []string) error {
 
 // runCandidate owns the whole delivery chain, including the registry it starts
 // when the caller does not provide one.
-func runCandidate(repository, registry, platforms, output string, runtimeGate, promote bool) error {
+func runCandidate(repository, registry, platforms, output, exporterPackages string, runtimeGate, promote bool) error {
 	repo, err := packaging.OpenRepo(repository)
 	if err != nil {
 		return err
@@ -123,12 +124,12 @@ func runCandidate(repository, registry, platforms, output string, runtimeGate, p
 		defer owned.Stop()
 		namespace = owned.Namespace
 	}
-	path, err := packaging.Build(repo, namespace, platforms, output)
+	path, err := packaging.Build(repo, namespace, platforms, output, exporterPackages)
 	if err != nil {
 		return err
 	}
 	for index, platform := range strings.Split(platforms, ",") {
-		if err := packaging.Verify(path, platform, runtimeGate && index == 0); err != nil {
+		if err := packaging.Verify(path, platform, runtimeGate && index == 0, exporterPackages); err != nil {
 			return err
 		}
 	}

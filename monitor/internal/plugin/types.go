@@ -19,6 +19,7 @@ type Manifest struct {
 	Version                string `json:"version"`
 	Kind                   string `json:"kind"`
 	Source                 string `json:"source"`
+	TargetID               string `json:"target_id,omitempty"`
 	OS                     string `json:"os"`
 	Arch                   string `json:"arch"`
 	Entrypoint             string `json:"entrypoint"`

@@ -103,6 +103,7 @@ var knownConfigKeys = map[string]struct{}{
 	"MONITOR_METRICS_TOKEN":                 {},
 	"MONITOR_PLUGIN_STARTUP_TIMEOUT":        {},
 	"MONITOR_PLUGIN_STOP_TIMEOUT":           {},
+	"MONITOR_PACKAGE_DIR":                   {},
 	"MONITOR_PUBLISH_TIMEOUT":               {},
 	"MONITOR_REQUEST_TIMEOUT":               {},
 	"MONITOR_ROUTER_TOKEN":                  {},

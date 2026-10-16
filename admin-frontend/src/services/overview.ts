@@ -25,7 +25,7 @@ function item(v: unknown, name: string): v is Record<string,unknown> {
   if (k === 'unit') return x === 'count'
   if (k === 'severity') return ['info','warn','error'].includes(String(x))
   if (['desired','observed'].includes(k)) return ['unknown','running','stopped','failed','starting','stopping','installed'].includes(String(x))
-  if (k === 'id') return typeof x === 'string' && /^(gopulse_(backend_outbox_pending|business_worker_messages_in_flight|search_indexer_retrying|monitor_event_queue_length|router_buffered_records|marshaller_retrying)|backend|business-worker|search-indexer|monitor|router|marshaller|(redis|mysql|kafka|elasticsearch|rabbitmq|victoriametrics)-exporter)$/.test(x)
+  if (k === 'id') return typeof x === 'string' && (/^(gopulse_(backend_outbox_pending|business_worker_messages_in_flight|search_indexer_retrying|monitor_event_queue_length|router_buffered_records|marshaller_retrying)|backend|business-worker|search-indexer|monitor|router|marshaller)$/.test(x) || /^[a-z][a-z0-9-]{0,127}-exporter$/.test(x))
   return false
  })
 }
