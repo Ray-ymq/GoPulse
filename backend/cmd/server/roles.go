@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	stdhttp "net/http"
 	"os"
 	"strconv"
@@ -31,9 +32,12 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
+	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/gin-gonic/gin"
 )
 
 type roleProfile struct {
@@ -152,6 +156,8 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	var eventOutbox *outbox.Repository
 	var dispatcher *outbox.Dispatcher
 	var stageService *businessstate.QueryService
+	var protectionBudget *resourcebudget.Budget
+	var rateLimitHandler gin.HandlerFunc
 	routes := backendhttp.APIRoutes{Authentication: authentication}
 	if profile.business {
 		if err := state.ActivateV2(context.Background(), "phase-24-02"); err != nil {
@@ -159,6 +165,32 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		redisClient = platform.NewRedis(cfg.Redis)
 		assembly.addResource("redis", redisClient.Close)
+		protectionBudget, err = resourcebudget.New(resourcebudget.Config{
+			Auth: cfg.Protection.ResourceAuth, Read: cfg.Protection.ResourceRead, Write: cfg.Protection.ResourceWrite,
+			Database: cfg.Protection.ResourceDatabase, Rebuild: cfg.Protection.ResourceRebuild, Waiter: cfg.Protection.ResourceWaiter,
+		})
+		if err != nil {
+			return nil, errors.New("initialize backend resource budget")
+		}
+		if cfg.Protection.RateLimitEnabled {
+			trustedProxies := make([]*net.IPNet, 0, len(cfg.Protection.TrustedProxyCIDRs))
+			for _, raw := range cfg.Protection.TrustedProxyCIDRs {
+				_, network, parseErr := net.ParseCIDR(raw)
+				if parseErr != nil {
+					return nil, errors.New("parse trusted proxy network")
+				}
+				trustedProxies = append(trustedProxies, network)
+			}
+			localLimiter, localErr := ratelimit.NewLocalLimiter(cfg.Protection.LocalMaxIdentities)
+			if localErr != nil {
+				return nil, errors.New("initialize local rate limiter")
+			}
+			sharedLimiter := ratelimit.NewSharedLimiter(redisClient, cfg.Protection.RateLimitOperationTimeout)
+			rateLimitHandler, err = backendhttp.NewRateLimitHandler(sharedLimiter, localLimiter, protectionPolicies(cfg.Redis.PostDetailTTL), trustedProxies)
+			if err != nil {
+				return nil, errors.New("initialize shared rate limiter")
+			}
+		}
 
 		elasticsearchClient, err = platform.NewElasticsearch(cfg.Elasticsearch)
 		if err != nil {
@@ -206,6 +238,23 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(state)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts, postDetailCache).WithLogger(logger)
+		if cfg.Protection.PostBodyV2Enabled {
+			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
+				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
+				MaxExecutors:         cfg.Protection.ResourceRebuild,
+				MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
+				MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
+				WaitTimeout:          cfg.Redis.OperationTimeout * 5,
+				TaskTimeout:          cfg.Redis.OperationTimeout * 10,
+				Budget:               protectionBudget,
+			})
+			postService.WithBodyCache(postDetailCache, rebuild)
+			assembly.addResource("post_body_rebuild", func() error {
+				shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				return rebuild.Stop(shutdownContext)
+			})
+		}
 		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		commentService := comment.NewService(comments, postService, postDetailCache).WithLogger(logger)
@@ -343,7 +392,18 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			Logger:             logger,
 			HTTPMaxConcurrency: cfg.HTTPMaxConcurrency,
 		},
-		routes,
+		func() backendhttp.APIRoutes {
+			if rateLimitHandler != nil {
+				routes.PublicRateLimit = rateLimitHandler
+				routes.ProtectedRateLimit = rateLimitHandler
+			}
+			if protectionBudget != nil {
+				budgetHandler := middleware.ResourceBudget(protectionBudget)
+				routes.PublicResourceBudget = budgetHandler
+				routes.ResourceBudget = budgetHandler
+			}
+			return routes
+		}(),
 	)
 	return assembly, nil
 }

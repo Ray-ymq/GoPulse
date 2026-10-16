@@ -233,3 +233,41 @@ func TestPostDetailRepositoryOperationsUseShortTimeouts(t *testing.T) {
 		t.Fatalf("operations took %s, want bounded timeout", elapsed)
 	}
 }
+
+func TestPostDetailRepositoryV2UsesCompleteBodyKeyAndSeparatesDynamicFields(t *testing.T) {
+	key := post.BodyKey{Epoch: "123e4567-e89b-12d3-a456-426614174000", PostID: 31, ContentRevision: 4}
+	body := post.Body{ID: 31, AuthorID: 7, ContentRevision: 4, Title: "title", Content: "content", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	var stored string
+	var storedTTL time.Duration
+	repository := NewPostDetailRepository(&fakeClient{
+		get: func(_ context.Context, got string) (string, error) {
+			if got != PostBodyKey(key) {
+				t.Fatalf("GetBody() key=%q", got)
+			}
+			return stored, nil
+		},
+		set: func(_ context.Context, got, value string, ttl time.Duration) error {
+			if got != PostBodyKey(key) {
+				t.Fatalf("SetBody() key=%q", got)
+			}
+			stored, storedTTL = value, ttl
+			return nil
+		},
+	}, 5*time.Minute, 50*time.Millisecond)
+	if err := repository.SetBody(context.Background(), key, body); err != nil {
+		t.Fatal(err)
+	}
+	if storedTTL < 4*time.Minute || storedTTL > 6*time.Minute {
+		t.Fatalf("jittered TTL=%s", storedTTL)
+	}
+	if strings.Contains(stored, "comment_count") || strings.Contains(stored, "like_count") || strings.Contains(stored, "username") || strings.Contains(stored, "liked_by_me") {
+		t.Fatalf("v2 body contains dynamic fields: %s", stored)
+	}
+	got, hit, err := repository.GetBody(context.Background(), key)
+	if err != nil || !hit || got != body {
+		t.Fatalf("GetBody() body=%#v hit=%t err=%v", got, hit, err)
+	}
+	if _, hit, err := repository.GetBody(context.Background(), post.BodyKey{Epoch: "bad:epoch", PostID: key.PostID, ContentRevision: key.ContentRevision}); !errors.Is(err, ErrInvalidPostDetail) || hit {
+		t.Fatalf("invalid body key result hit=%t err=%v", hit, err)
+	}
+}

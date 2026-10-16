@@ -24,7 +24,9 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-gopulse-redis}
       REDISCLI_AUTH: ${REDIS_PASSWORD:-gopulse-redis}
-    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"']
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-512mb}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-noeviction}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}" --maxmemory "$${REDIS_MAXMEMORY}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY}"']
     ports:
       - 127.0.0.1:${REDIS_PORT:-6379}:6379
     volumes:

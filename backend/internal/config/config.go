@@ -50,6 +50,14 @@ const (
 	defaultAuthCookieName                   = "gopulse_session"
 	defaultRedisPostDetailTTL               = 5 * time.Minute
 	defaultRedisOperationTimeout            = 200 * time.Millisecond
+	defaultRedisPoolSize                    = 16
+	defaultRateLimitLocalMaxIdentities      = 1024
+	defaultResourceAuth                     = 16
+	defaultResourceRead                     = 64
+	defaultResourceWrite                    = 32
+	defaultResourceDatabase                 = 32
+	defaultResourceRebuild                  = 8
+	defaultResourceWaiter                   = 256
 	defaultOutboxPollInterval               = time.Second
 	defaultOutboxClaimBatch                 = 10
 	defaultOutboxLeaseDuration              = time.Minute
@@ -66,6 +74,10 @@ const (
 	maximumRedisPostDetailTTL               = 24 * time.Hour
 	minimumRedisOperationTimeout            = 10 * time.Millisecond
 	maximumRedisOperationTimeout            = 5 * time.Second
+	minimumRedisPoolSize                    = 1
+	maximumRedisPoolSize                    = 256
+	minimumRateLimitLocalMaxIdentities      = 1
+	maximumRateLimitLocalMaxIdentities      = 100000
 	minimumOutboxPollInterval               = 10 * time.Millisecond
 	maximumOutboxPollInterval               = time.Minute
 	minimumOutboxClaimBatch                 = 1
@@ -128,6 +140,7 @@ type Config struct {
 	Trace                            TraceConfig
 	BusinessStage                    BusinessStageConfig
 	BusinessAsyncMaxOpenRequirements uint64
+	Protection                       ProtectionConfig
 }
 
 type MySQLConfig struct {
@@ -146,8 +159,26 @@ type RedisConfig struct {
 	Port             int
 	Password         string
 	DB               int
+	PoolSize         int
+	PoolTimeout      time.Duration
 	PostDetailTTL    time.Duration
 	OperationTimeout time.Duration
+}
+
+// ProtectionConfig is deliberately static. It is loaded once with the
+// process configuration and is never consulted per request.
+type ProtectionConfig struct {
+	RateLimitEnabled          bool
+	PostBodyV2Enabled         bool
+	RateLimitOperationTimeout time.Duration
+	LocalMaxIdentities        int
+	ResourceAuth              int
+	ResourceRead              int
+	ResourceWrite             int
+	ResourceDatabase          int
+	ResourceRebuild           int
+	ResourceWaiter            int
+	TrustedProxyCIDRs         []string
 }
 
 type OutboxConfig struct {
@@ -296,8 +327,11 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	redisPort := 0
 	redisDB := 0
 	redisPassword := ""
+	redisPoolSize := 0
+	redisPoolTimeout := time.Duration(0)
 	postDetailTTL := time.Duration(0)
 	operationTimeout := time.Duration(0)
+	protection := ProtectionConfig{}
 	if serviceRole.RunsBusiness() {
 		redisHost = valueOrDefault(lookup, "REDIS_HOST", defaultRedisHost)
 		if err := validateDependencyHost(runtimeMode, "REDIS_HOST", redisHost); err != nil {
@@ -326,6 +360,18 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			return Config{}, err
 		}
 		operationTimeout, err = durationValue(lookup, "REDIS_OPERATION_TIMEOUT", defaultRedisOperationTimeout, minimumRedisOperationTimeout, maximumRedisOperationTimeout)
+		if err != nil {
+			return Config{}, err
+		}
+		redisPoolSize, err = integerValue(lookup, "REDIS_POOL_SIZE", defaultRedisPoolSize)
+		if err != nil || redisPoolSize < minimumRedisPoolSize || redisPoolSize > maximumRedisPoolSize {
+			return Config{}, fmt.Errorf("REDIS_POOL_SIZE must be between %d and %d", minimumRedisPoolSize, maximumRedisPoolSize)
+		}
+		redisPoolTimeout, err = durationValue(lookup, "REDIS_POOL_TIMEOUT", operationTimeout, minimumRedisOperationTimeout, maximumRedisOperationTimeout)
+		if err != nil {
+			return Config{}, err
+		}
+		protection, err = loadProtectionConfig(lookup, operationTimeout)
 		if err != nil {
 			return Config{}, err
 		}
@@ -550,6 +596,8 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			Port:             redisPort,
 			Password:         redisPassword,
 			DB:               redisDB,
+			PoolSize:         redisPoolSize,
+			PoolTimeout:      redisPoolTimeout,
 			PostDetailTTL:    postDetailTTL,
 			OperationTimeout: operationTimeout,
 		},
@@ -563,6 +611,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		Trace:                            traceConfig,
 		BusinessStage:                    businessStage,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
+		Protection:                       protection,
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
 			JWTTTL:       authJWTTTL,
@@ -570,6 +619,63 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			CookieSecure: authCookieSecure,
 		},
 	}, nil
+}
+
+func loadProtectionConfig(lookup LookupFunc, redisTimeout time.Duration) (ProtectionConfig, error) {
+	protection := ProtectionConfig{}
+	enabled, err := booleanValue(lookup, "BACKEND_RATE_LIMIT_ENABLED", false)
+	if err != nil {
+		return ProtectionConfig{}, err
+	}
+	bodyV2Enabled, err := booleanValue(lookup, "BACKEND_POST_BODY_V2_ENABLED", false)
+	if err != nil {
+		return ProtectionConfig{}, err
+	}
+	operationTimeout, err := durationValue(lookup, "BACKEND_RATE_LIMIT_OPERATION_TIMEOUT", redisTimeout, minimumRedisOperationTimeout, maximumRedisOperationTimeout)
+	if err != nil {
+		return ProtectionConfig{}, err
+	}
+	localMax, err := integerValue(lookup, "BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES", defaultRateLimitLocalMaxIdentities)
+	if err != nil || localMax < minimumRateLimitLocalMaxIdentities || localMax > maximumRateLimitLocalMaxIdentities {
+		return ProtectionConfig{}, fmt.Errorf("BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES must be between %d and %d", minimumRateLimitLocalMaxIdentities, maximumRateLimitLocalMaxIdentities)
+	}
+	values := []struct {
+		key      string
+		fallback int
+		assign   func(int)
+	}{
+		{"BACKEND_RESOURCE_AUTH", defaultResourceAuth, func(value int) { protection.ResourceAuth = value }},
+		{"BACKEND_RESOURCE_READ", defaultResourceRead, func(value int) { protection.ResourceRead = value }},
+		{"BACKEND_RESOURCE_WRITE", defaultResourceWrite, func(value int) { protection.ResourceWrite = value }},
+		{"BACKEND_RESOURCE_DATABASE", defaultResourceDatabase, func(value int) { protection.ResourceDatabase = value }},
+		{"BACKEND_RESOURCE_REBUILD", defaultResourceRebuild, func(value int) { protection.ResourceRebuild = value }},
+		{"BACKEND_RESOURCE_WAITER", defaultResourceWaiter, func(value int) { protection.ResourceWaiter = value }},
+	}
+	for _, item := range values {
+		value, valueErr := integerValue(lookup, item.key, item.fallback)
+		if valueErr != nil || value < 1 || value > maximumHTTPMaxConcurrency*4 {
+			return ProtectionConfig{}, fmt.Errorf("%s must be between 1 and %d", item.key, maximumHTTPMaxConcurrency*4)
+		}
+		item.assign(value)
+	}
+	protection.RateLimitEnabled = enabled
+	protection.PostBodyV2Enabled = bodyV2Enabled
+	protection.RateLimitOperationTimeout = operationTimeout
+	protection.LocalMaxIdentities = localMax
+	rawProxies := valueOrDefault(lookup, "BACKEND_TRUSTED_PROXY_CIDRS", "")
+	if rawProxies != "" {
+		for _, raw := range strings.Split(rawProxies, ",") {
+			cidr := strings.TrimSpace(raw)
+			if cidr == "" {
+				return ProtectionConfig{}, errors.New("BACKEND_TRUSTED_PROXY_CIDRS contains an empty entry")
+			}
+			if _, _, parseErr := net.ParseCIDR(cidr); parseErr != nil {
+				return ProtectionConfig{}, errors.New("BACKEND_TRUSTED_PROXY_CIDRS must contain CIDR networks")
+			}
+			protection.TrustedProxyCIDRs = append(protection.TrustedProxyCIDRs, cidr)
+		}
+	}
+	return protection, nil
 }
 
 func businessAsyncMaxOpenRequirementsValue(lookup LookupFunc) (uint64, error) {

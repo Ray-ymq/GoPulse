@@ -65,6 +65,7 @@ func TestBackendFixedRequestTuplesAndPairedUpdates(t *testing.T) {
 	metrics.ObserveOutbox(0, 0, nil)
 	metrics.ObserveRequest("GET", "/posts/:postId", 200, 250*time.Millisecond)
 	metrics.ObserveRequest("GET", "/posts/:postId", 200, 750*time.Millisecond)
+	metrics.ObserveCacheOriginDuration("success", 3*time.Millisecond)
 	// Neither a business ID nor an unknown HTTP method can create a label value.
 	metrics.ObserveRequest("GET", "/posts/private-post-id?secret=1", 404, time.Second)
 	metrics.ObserveRequest("private-method", "/private", 404, time.Second)
@@ -73,6 +74,8 @@ func TestBackendFixedRequestTuplesAndPairedUpdates(t *testing.T) {
 	for _, want := range []string{
 		"gopulse_backend_http_requests_total{method=\"GET\",route=\"/posts/:postId\",status_class=\"2xx\"} 2\n",
 		"gopulse_backend_http_request_duration_seconds_total{method=\"GET\",route=\"/posts/:postId\",status_class=\"2xx\"} 1\n",
+		"gopulse_backend_cache_origin_total{result=\"success\"} 1\n",
+		"gopulse_backend_cache_origin_duration_seconds_total{result=\"success\"} 0.003\n",
 		"gopulse_backend_http_requests_total{method=\"GET\",route=\"_unmatched\",status_class=\"4xx\"} 1\n",
 		"gopulse_backend_http_requests_total{method=\"unknown\",route=\"_unmatched\",status_class=\"4xx\"} 1\n",
 	} {
@@ -83,8 +86,8 @@ func TestBackendFixedRequestTuplesAndPairedUpdates(t *testing.T) {
 	if strings.Contains(text, "private") || strings.Contains(text, "secret") {
 		t.Fatal("untrusted label value escaped")
 	}
-	if metrics.MaxSamples() != 917 {
-		t.Fatalf("sample budget = %d, want 917", metrics.MaxSamples())
+	if metrics.MaxSamples() != 993 {
+		t.Fatalf("sample budget = %d, want 993", metrics.MaxSamples())
 	}
 	for _, want := range []string{
 		`gopulse_backend_http_request_duration_seconds_bucket{method="GET",route="/posts/:postId",status_class="2xx",le="0.25"} 1`,

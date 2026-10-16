@@ -174,6 +174,17 @@ func Catalog(id string) (Spec, bool) {
 		s.Families = append(s.Families, Family{Name: prefix + "http_rejected_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
 		pair("freshness_events_total", "freshness_duration_seconds_total", []string{"stage", "result"}, expand(singles("commit", "publish", "consume", "index", "visible"), "success", "failure"))
 		s.Families = append(s.Families, Family{Name: prefix + "trace_context_invalid_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
+		s.Families = append(s.Families,
+			Family{Name: prefix + "cache_requests_total", Kind: "counter", Unit: "count", Keys: []string{"result"}, Tuples: singles("hit", "miss", "invalid", "error")},
+			Family{Name: prefix + "cache_origin_total", Kind: "counter", Unit: "count", Keys: []string{"result"}, Tuples: singles("success", "failure", "version_changed"), Pair: prefix + "cache_origin_duration_seconds_total"},
+			Family{Name: prefix + "cache_origin_duration_seconds_total", Kind: "counter", Unit: "seconds", Keys: []string{"result"}, Tuples: singles("success", "failure", "version_changed"), Pair: prefix + "cache_origin_total"},
+			Family{Name: prefix + "rate_limit_decisions_total", Kind: "counter", Unit: "count", Keys: []string{"policy", "mode", "result"}, Tuples: expand(expand(singles("auth_source", "login_attempt", "post_read", "fact_write", "interaction_like"), "shared", "local"), "allow", "deny", "error")},
+			Family{Name: prefix + "resource_rejected_total", Kind: "counter", Unit: "count", Keys: []string{"resource", "reason"}, Tuples: expand(singles("auth", "read", "write"), "capacity", "rate_limited", "unavailable")},
+		)
+		pair("db_operations_total", "db_operation_duration_seconds_total", []string{"operation", "result"}, expand(singles("post_context", "post_body", "post_dynamic", "post_viewer"), "success", "failure", "version_changed"))
+		gauge("cache_rebuild_in_flight", "count", nil, nil)
+		gauge("cache_waiters", "count", nil, nil)
+		gauge("cache_registered_waiters", "count", nil, nil)
 		dep("mysql", "redis", "rabbitmq", "elasticsearch")
 	case "business-worker":
 		pair("messages_total", "message_processing_duration_seconds_total", []string{"event_type", "result"}, expand(singles("comment.created", "post.liked", "user.followed", "unknown"), "success", "retry", "failure", "ack"))

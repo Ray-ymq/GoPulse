@@ -90,7 +90,9 @@ func mapError(err error) (int, apperror.Code, string) {
 		return stdhttp.StatusNotFound, appError.Code, appError.Message
 	case apperror.CodePluginOperationFailed:
 		return stdhttp.StatusUnprocessableEntity, appError.Code, appError.Message
-	case apperror.CodeAlertsUnavailable, apperror.CodeSetupUnavailable, apperror.CodeSearchUnavailable, apperror.CodeMonitorUnavailable, apperror.CodeMetricsUnavailable, apperror.CodeLogsUnavailable, apperror.CodeEventsUnavailable, apperror.CodeCommandOutcomeUnknown, apperror.CodeBusinessAsyncBacklog, apperror.CodeBusinessStageBusy, apperror.CodeBusinessStageUnavailable:
+	case apperror.CodeRateLimited:
+		return stdhttp.StatusTooManyRequests, appError.Code, appError.Message
+	case apperror.CodeRateLimitUnavailable, apperror.CodeBackendBusy, apperror.CodePostReadUnavailable, apperror.CodeAlertsUnavailable, apperror.CodeSetupUnavailable, apperror.CodeSearchUnavailable, apperror.CodeMonitorUnavailable, apperror.CodeMetricsUnavailable, apperror.CodeLogsUnavailable, apperror.CodeEventsUnavailable, apperror.CodeCommandOutcomeUnknown, apperror.CodeBusinessAsyncBacklog, apperror.CodeBusinessStageBusy, apperror.CodeBusinessStageUnavailable:
 		return stdhttp.StatusServiceUnavailable, appError.Code, appError.Message
 	default:
 		return stdhttp.StatusInternalServerError, apperror.CodeInternal, "an internal error occurred"

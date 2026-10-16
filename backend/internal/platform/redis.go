@@ -19,13 +19,27 @@ type Redis struct {
 }
 
 func NewRedis(cfg config.RedisConfig) *Redis {
+	poolSize := cfg.PoolSize
+	if poolSize <= 0 {
+		poolSize = 16
+	}
+	poolTimeout := cfg.PoolTimeout
+	if poolTimeout <= 0 {
+		poolTimeout = cfg.OperationTimeout
+	}
+	if poolTimeout <= 0 {
+		poolTimeout = time.Second
+	}
 	return &Redis{client: goredis.NewClient(&goredis.Options{
 		Addr:         net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
 		Password:     cfg.Password,
 		DB:           cfg.DB,
-		DialTimeout:  time.Second,
-		ReadTimeout:  time.Second,
-		WriteTimeout: time.Second,
+		PoolSize:     poolSize,
+		PoolTimeout:  poolTimeout,
+		MaxRetries:   0,
+		DialTimeout:  poolTimeout,
+		ReadTimeout:  poolTimeout,
+		WriteTimeout: poolTimeout,
 	})}
 }
 
@@ -58,6 +72,27 @@ func (client *Redis) Delete(ctx context.Context, key string) error {
 	err := client.client.Del(ctx, key).Err()
 	componentmetrics.Dependency("redis", err)
 	return err
+}
+
+// Eval executes one bounded Lua script. Higher-level adapters own the script
+// text and key contract; exposing only Eval keeps the platform client small
+// while allowing shared limiters to use Redis TIME atomically.
+func (client *Redis) Eval(ctx context.Context, script string, keys []string, args ...any) (any, error) {
+	value, err := client.client.Eval(ctx, script, keys, args...).Result()
+	componentmetrics.Dependency("redis", err)
+	return value, err
+}
+
+func (client *Redis) EvalSha(ctx context.Context, sha string, keys []string, args ...any) (any, error) {
+	value, err := client.client.EvalSha(ctx, sha, keys, args...).Result()
+	componentmetrics.Dependency("redis", err)
+	return value, err
+}
+
+func (client *Redis) ScriptLoad(ctx context.Context, script string) (string, error) {
+	value, err := client.client.ScriptLoad(ctx, script).Result()
+	componentmetrics.Dependency("redis", err)
+	return value, err
 }
 
 func (client *Redis) TTL(ctx context.Context, key string) (time.Duration, error) {

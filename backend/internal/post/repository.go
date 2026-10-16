@@ -462,6 +462,125 @@ func (repository *MySQLRepository) FindPublicByID(ctx context.Context, postID ui
 	return findPublicByID(ctx, repository.database, postID)
 }
 
+// ReadContext obtains the epoch, visibility, owner and content revision that
+// define one immutable body lookup. The production assembly supplies the
+// business-state repository so the epoch read uses the same authoritative
+// database connection as the post fact.
+func (repository *MySQLRepository) ReadContext(ctx context.Context, postID uint64) (readContext ReadContext, err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_context", err, time.Since(started)) }()
+	if repository == nil || repository.database == nil || postID == 0 {
+		return ReadContext{}, errors.New("read post context: invalid argument")
+	}
+	var epoch, status string
+	var authorID, revision sql.NullInt64
+	err = repository.database.QueryRowContext(ctx, `
+SELECT e.data_epoch, e.status, p.author_id, p.content_revision
+FROM business_environment AS e
+LEFT JOIN posts AS p ON p.id=?
+WHERE e.singleton=1`, postID).Scan(&epoch, &status, &authorID, &revision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ReadContext{}, errors.New("business environment is not ready")
+	}
+	if err != nil {
+		return ReadContext{}, fmt.Errorf("read post context: %w", err)
+	}
+	if status != businessstate.StatusReady {
+		return ReadContext{}, ErrReadContextChanged
+	}
+	if businessstate.ValidateEpoch(epoch) != nil {
+		return ReadContext{}, errors.New("business environment epoch is invalid")
+	}
+	if !authorID.Valid || !revision.Valid || authorID.Int64 <= 0 || revision.Int64 <= 0 {
+		return ReadContext{}, ErrNotFound
+	}
+	readContext = ReadContext{Epoch: epoch, PostID: postID, AuthorID: uint64(authorID.Int64), ContentRevision: uint64(revision.Int64), Visible: true, ReadAt: repository.clock().UTC()}
+	return readContext, nil
+}
+
+// FindBody is version constrained. A revision mismatch is not silently
+// rebound to the current row; the caller must start a new request read.
+func (repository *MySQLRepository) FindBody(ctx context.Context, key BodyKey) (body Body, err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_body", err, time.Since(started)) }()
+	if repository == nil || repository.database == nil || !key.Valid() {
+		return Body{}, errors.New("find post body: invalid argument")
+	}
+	if repository.state != nil {
+		current, err := repository.state.CurrentEpoch(ctx)
+		if err != nil {
+			return Body{}, fmt.Errorf("find post body epoch: %w", err)
+		}
+		if current != key.Epoch {
+			return Body{}, ErrReadContextChanged
+		}
+	}
+	err = repository.database.QueryRowContext(ctx, `
+SELECT id, author_id, title, content, created_at, updated_at, edited_at, content_revision
+FROM posts WHERE id=? AND content_revision=?`, key.PostID, key.ContentRevision).Scan(
+		&body.ID, &body.AuthorID, &body.Title, &body.Content, &body.CreatedAt, &body.UpdatedAt, &body.EditedAt, &body.ContentRevision,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		var currentRevision uint64
+		checkErr := repository.database.QueryRowContext(ctx, `SELECT content_revision FROM posts WHERE id=?`, key.PostID).Scan(&currentRevision)
+		if errors.Is(checkErr, sql.ErrNoRows) {
+			return Body{}, ErrNotFound
+		}
+		if checkErr != nil {
+			return Body{}, fmt.Errorf("find post body revision: %w", checkErr)
+		}
+		if currentRevision != key.ContentRevision {
+			return Body{}, ErrReadContextChanged
+		}
+		return Body{}, ErrNotFound
+	}
+	if err != nil {
+		return Body{}, fmt.Errorf("find post body: %w", err)
+	}
+	if !body.ValidForKey(key) {
+		return Body{}, ErrReadContextChanged
+	}
+	return body, nil
+}
+
+// FindDynamic keeps mutable author data and interaction counts on the
+// authoritative path. Both counts are read by one SQL statement so a detail
+// response never turns a failed count into a fabricated zero.
+func (repository *MySQLRepository) FindDynamic(ctx context.Context, postID, authorID uint64) (dynamic DynamicProjection, err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_dynamic", err, time.Since(started)) }()
+	if repository == nil || repository.database == nil || postID == 0 || authorID == 0 {
+		return DynamicProjection{}, errors.New("find post dynamic data: invalid argument")
+	}
+	err = repository.database.QueryRowContext(ctx, `
+SELECT u.id, u.username, u.display_name,
+       (SELECT COUNT(*) FROM comments AS c WHERE c.post_id=p.id),
+       (SELECT COUNT(*) FROM post_likes AS likes WHERE likes.post_id=p.id)
+FROM posts AS p INNER JOIN users AS u ON u.id=p.author_id
+WHERE p.id=? AND p.author_id=?`, postID, authorID).Scan(
+		&dynamic.Author.ID, &dynamic.Author.Username, &dynamic.Author.DisplayName, &dynamic.CommentCount, &dynamic.LikeCount,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DynamicProjection{}, ErrNotFound
+	}
+	if err != nil {
+		return DynamicProjection{}, fmt.Errorf("find post dynamic data: %w", err)
+	}
+	return dynamic, nil
+}
+
+func observePostDB(operation string, err error, elapsed time.Duration) {
+	if metrics := componentmetrics.BackendActive(); metrics != nil {
+		result := "success"
+		if errors.Is(err, ErrReadContextChanged) {
+			result = "version_changed"
+		} else if err != nil {
+			result = "failure"
+		}
+		metrics.ObserveDBOperation(operation, result, elapsed)
+	}
+}
+
 func findPublicByID(ctx context.Context, database database, postID uint64) (PublicProjection, error) {
 	row := database.QueryRowContext(ctx, fmt.Sprintf(postPublicReadSelect, "")+`
 WHERE p.id = ?`, postID)
@@ -475,12 +594,13 @@ WHERE p.id = ?`, postID)
 	return projection, nil
 }
 
-func (repository *MySQLRepository) LikedByViewer(ctx context.Context, postID, viewerID uint64) (bool, error) {
+func (repository *MySQLRepository) LikedByViewer(ctx context.Context, postID, viewerID uint64) (liked bool, err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
 	if viewerID == 0 {
 		return false, nil
 	}
-	var liked bool
-	if err := repository.database.QueryRowContext(ctx,
+	if err = repository.database.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?)`,
 		postID,
 		viewerID,
@@ -634,7 +754,9 @@ WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 }
 
 // HydrateAuthors refreshes mutable summaries after cache reads, in one query.
-func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records []Post) error {
+func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records []Post) (err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
 	if len(records) == 0 {
 		return nil
 	}
@@ -670,7 +792,9 @@ func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records [
 	return nil
 }
 
-func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, viewer uint64) error {
+func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, viewer uint64) (err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
 	if len(records) == 0 || viewer == 0 {
 		return nil
 	}
@@ -703,7 +827,9 @@ func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, 
 }
 
 // HydrateBookmarks never writes personalized facts into a shared projection.
-func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, viewer uint64) error {
+func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, viewer uint64) (err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
 	for i := range records {
 		records[i].BookmarkedByMe = false
 	}

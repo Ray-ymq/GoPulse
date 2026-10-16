@@ -34,6 +34,10 @@ type APIRoutes struct {
 	Notifications          *notification.Handler
 	Search                 *search.Handler
 	Authentication         gin.HandlerFunc
+	PublicRateLimit        gin.HandlerFunc
+	ProtectedRateLimit     gin.HandlerFunc
+	PublicResourceBudget   gin.HandlerFunc
+	ResourceBudget         gin.HandlerFunc
 	Authorization          gin.HandlerFunc
 	ExporterPlugins        *exporterplugin.Handler
 	BusinessStages         *BusinessStageHandler
@@ -46,6 +50,12 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	api := router.Group("/api/v1")
 	if routes.Auth != nil {
 		authRoutes := api.Group("/auth")
+		if routes.PublicRateLimit != nil {
+			authRoutes.Use(routes.PublicRateLimit)
+		}
+		if routes.PublicResourceBudget != nil {
+			authRoutes.Use(routes.PublicResourceBudget)
+		}
 		authRoutes.POST("/register", routes.Auth.Register)
 		authRoutes.POST("/login", routes.Auth.Login)
 		authRoutes.POST("/logout", routes.Auth.Logout)
@@ -61,6 +71,12 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	}
 	protected := api.Group("")
 	protected.Use(routes.Authentication)
+	if routes.ProtectedRateLimit != nil {
+		protected.Use(routes.ProtectedRateLimit)
+	}
+	if routes.ResourceBudget != nil {
+		protected.Use(routes.ResourceBudget)
+	}
 	if routes.Auth != nil {
 		protected.GET("/users/me", routes.Auth.CurrentUser)
 	}
