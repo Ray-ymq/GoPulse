@@ -4,7 +4,7 @@
 
 ## 什么时候运行
 
-- PR 创建、更新、重新打开、修改标题、添加或移除标签时运行；模块测试使用 GitHub 生成的合并版本，提交规范检查使用 PR 的实际提交。
+- PR 创建、更新、重新打开、修改标题或正文、添加或移除标签时运行；模块测试使用 GitHub 生成的合并版本，提交规范检查使用 PR 的实际提交。
 - 手动运行必须输入模块标签，支持逗号或空格分隔，不再默认全量检查。
 - 不再监听 `push` 或 `merge_group`。这些事件没有 PR 模块标签，不据此推断或扩大模块范围；直接推送 main 不会运行本工作流，也不支持合并队列检查。
 - 同一个 PR 或分支有新任务时，取消旧任务；每个任务有独立超时。
@@ -75,8 +75,65 @@ make verify MODULE=backend
 
 采用 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)，项目类型固定在 `.conventional-commits.json`：`build`、`chore`、`ci`、`docs`、`feat`、`fix`、`perf`、`refactor`、`revert`、`style`、`test`，统一小写。
 
-格式为 `type(scope)!: description`，scope 和 `!` 可省略，描述可用中文或英文；正文和标题之间空一行。破坏性改动使用 `!` 或 `BREAKING CHANGE: 描述`（也支持 `BREAKING-CHANGE`）。例如 `fix(frontend): 等待发帖后的路由跳转`、`ci: rebuild module-based checks`。
+标题格式为 `type(scope)!: description`，scope 和 `!` 可省略，描述可用中文或英文。破坏性改动使用 `!` 或 `BREAKING CHANGE: 描述`（也支持 `BREAKING-CHANGE`），说明兼容性变化和迁移要求。例如 `fix(frontend): 等待发帖后的路由跳转`、`ci: rebuild module-based checks`。
 
-运行 `make hooks-install` 启用本仓库的提交钩子；克隆到新目录后需要重新运行。`make check-commits BASE_REF=origin/main` 可检查分支新增提交。PR 标题同样需要合规，修改标题会重新触发 CI。
+### Commit 正文
 
-规则从配置中的 `legacy_ref`（本轮重构前的 `506a12f`）之后生效，不改写或追溯旧提交；不要移动此起点来豁免后续提交。真实 merge commit 豁免，但普通提交仅写成 `Merge ...` 不会被放行。`--no-verify` 只能绕过本地钩子，PR 和手动运行中的 CI 仍会拦截不合规的新提交；直接推送 main 不触发本工作流。
+一个 commit 描述一项完整改动。标题与正文之间空一行，正文固定包含三个非空部分；小改动可以每部分各写一句，不省略章节。
+
+- `背景：`：说明问题、触发条件或改动原因。
+- `改动：`：说明具体改动和行为变化。
+- `验证：`：记录实际执行的命令及结果，必要时补充人工检查。
+
+也支持英文标签 `Background:`、`Changes:`、`Validation:`，以及 Markdown 标题形式（例如 `## 背景`）。以下是假设修复已完成、测试已通过时的写法，不代表本规范修改执行过这些业务测试：
+
+```text
+fix(backend): 避免重复点赞导致计数增加
+
+背景：
+同一用户重复点赞时，帖子点赞数可能重复增加。
+
+改动：
+- 已点赞时直接返回成功。
+- 仅在新增点赞记录成功后更新计数。
+
+验证：
+- 新增重复点赞测试，确认点赞数只增加一次。
+- 在 backend 目录执行 go test ./...，通过。
+```
+
+验证必须如实填写。没有运行测试时写“未执行：具体原因”；不适用时说明原因和已做的检查，例如“未执行产品测试：仅修改文档，已人工核对命令和链接”。不要预填“通过”，也不要把计划运行的命令写成已执行结果。
+
+### PR 描述
+
+PR 标题使用相同的标题格式。正文汇总 PR 的最终改动，使用以下四个非空章节，不必逐条重复 commit 历史：
+
+```markdown
+## 背景
+说明问题、触发条件和预期行为。
+
+## 改动
+说明本次交付的最终行为和主要改动。
+
+## 验证
+填写实际执行的命令及结果；未执行或不适用时说明原因。
+
+## 影响与风险
+说明影响范围、兼容性，以及迁移、部署或回滚要求。
+无额外要求时，也需要明确说明。
+```
+
+英文对应标题是 `Background`、`Changes`、`Validation`、`Impact and risks`。验证部分遵循与 commit 相同的真实性要求。
+
+### 模板与校验
+
+- [`.gitmessage`](../.gitmessage) 提供 commit 模板；[PR 模板](../.github/pull_request_template.md) 在 GitHub 创建 PR 时提供正文结构。模板提示均为注释，需填写实际内容。
+- 运行 `make hooks-install` 安装提交钩子并设置当前仓库的 commit 模板；之后不带 `-m` 的 `git commit` 会打开模板。克隆到新目录后需重新安装。安装不会覆盖已有的其他 hook 路径或 commit 模板。
+- `git commit -m` 不会自动带出模板，仍需填写完整正文；本地钩子始终检查新提交的三个部分。
+- `make check-commits MESSAGE_FILE=/path/to/message.txt` 检查一份提交说明；`make check-commits BASE_REF=origin/main` 检查分支新增提交。
+- CI 检查新增提交、PR 标题和正文；修改 PR 标题或正文会重新触发校验。缺少章节、空章节、仅含注释、`TODO`、`TBD`、`待补充` 等占位内容会失败。放在代码块或 HTML 注释中的章节示例不能代替实际章节。
+- 校验检查结构和非空内容，不判断测试结果是否真实。模块测试结果仍由对应 CI 任务验证；人工检查和未执行原因由评审核对。
+
+标题规则仍从配置中的 `legacy_ref`（`506a12f`）之后生效。新增正文规则从 `body_required_after`（`3258f77`）之后生效：该提交及其已有祖先保留原正文，之后的新提交必须填写三个部分。新增正文生效点不改变原有标题检查范围；两个生效点都不能移动来豁免后续提交。
+
+真实 merge commit 豁免，但普通提交仅写成 `Merge ...` 不会被放行。`--no-verify` 只能绕过本地钩子，PR 和手动运行中的 CI 仍会拦截不合规的新提交。PR 正文使用当前规则，直接推送 main 不触发本工作流。

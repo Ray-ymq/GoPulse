@@ -38,7 +38,7 @@ help:
 	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Router, Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package [PLATFORM=] [OUTPUT=] [REGISTRY=] [RUNTIME=1] [PROMOTE=1]' '                            build and verify an immutable release candidate' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
 	@printf '%s\n' '  make stack-up|stack-down|stack-verify       manage the owned Compose stack'
 	@printf '%s\n' '' 'Module CI (same commands locally and on GitHub):' '  make list-ci-labels        list supported PR labels' '  make ci-plan LABELS="ci:backend ci:router"  show exactly those module jobs' '  make ci-tools             test CI selection and commit validation' '  make ci-check MODULE=name formatting, static analysis and lint' '  make ci-build MODULE=name build one module' '  make ci-test MODULE=name  unit tests; Go tests include race detection' '  make verify MODULE=name   run ci-check, ci-test and ci-build' '  make verify BASE_REF=ref  local-only checks for directly changed Go modules'
-	@printf '%s\n' '' 'Commit conventions:' '  make hooks-install        enable commit-msg checks in this repository' '  make check-commits [BASE_REF=ref]  validate new commits since policy adoption' '  make check-commits MESSAGE_FILE=path  validate a commit message file'
+	@printf '%s\n' '' 'Commit conventions:' '  make hooks-install        enable commit-msg checks and the commit template' '  make check-commits [BASE_REF=ref]  validate new commits and PR descriptions in CI' '  make check-commits MESSAGE_FILE=path  validate a commit message file'
 
 list-go-modules:
 	@printf '%s\n' $(GO_MODULES)
@@ -107,9 +107,13 @@ check-commits:
 hooks-install:
 	@configured="$$(git config --get core.hooksPath || true)"; \
 	  test -z "$$configured" || test "$$configured" = .githooks || { printf '%s\n' 'Existing core.hooksPath is configured; refusing to overwrite it.' >&2; exit 2; }
+	@configured="$$(git config --get commit.template || true)"; \
+	  template="$$(git rev-parse --show-toplevel)/.gitmessage"; \
+	  test -z "$$configured" || test "$$configured" = .gitmessage || test "$$configured" = "$$template" || { printf '%s\n' 'Existing commit.template is configured; refusing to overwrite it.' >&2; exit 2; }
 	@chmod +x .githooks/commit-msg
 	@git config --local core.hooksPath .githooks
-	@printf '%s\n' 'Enabled Conventional Commits checks for this repository.'
+	@git config --local commit.template "$$(git rev-parse --show-toplevel)/.gitmessage"
+	@printf '%s\n' 'Enabled commit checks and the commit template for this repository.'
 
 ci-workspace:
 	@python3 ci/modules.py workspace

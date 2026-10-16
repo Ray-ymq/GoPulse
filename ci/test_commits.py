@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -9,12 +10,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from commits import Policy, check_file, commit_ids, event_range, git, read_policy, validate_message, validate_title
+from commits import Policy, check_file, commit_ids, event_range, git, read_policy, validate_message, validate_pr_body, validate_title
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TYPES = ("build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test")
-POLICY = Policy(TYPES, "a" * 40)
+POLICY = Policy(TYPES, "a" * 40, "b" * 40)
+BODY = "背景：\n重复请求会增加计数。\n\n改动：\n仅在新增记录后更新计数。\n\n验证：\ngo test ./...：通过。\n"
+PR_BODY = BODY + "\n影响与风险：\n涉及点赞接口，无数据库结构变更。\n"
+
+
+def structured_message(title: str) -> str:
+    return f"{title}\n\n{BODY}"
 
 
 class MessageTests(unittest.TestCase):
@@ -47,24 +54,89 @@ class MessageTests(unittest.TestCase):
 
     def test_body_requires_blank_separator(self) -> None:
         self.assertTrue(validate_message("fix: a change\nBody without separator\n", POLICY))
-        self.assertEqual(validate_message("fix: a change\n\nDetailed explanation.\n", POLICY), [])
+        self.assertEqual(validate_message(structured_message("fix: a change"), POLICY), [])
 
     def test_breaking_footer(self) -> None:
         for footer in ("BREAKING CHANGE: migrate clients", "BREAKING-CHANGE: 更新配置"):
             with self.subTest(footer=footer):
-                self.assertEqual(validate_message(f"feat: a change\n\n{footer}\n", POLICY), [])
+                self.assertEqual(validate_message(structured_message("feat: a change") + f"\n{footer}\n", POLICY), [])
 
     def test_invalid_breaking_footer(self) -> None:
         for footer in ("breaking change: migrate", "Breaking-Change: migrate", "BREAKING CHANGE:", "BREAKING CHANGE: "):
             with self.subTest(footer=footer):
-                self.assertTrue(validate_message(f"feat: a change\n\n{footer}\n", POLICY))
+                self.assertTrue(validate_message(structured_message("feat: a change") + f"\n{footer}\n", POLICY))
 
     def test_bang_does_not_require_breaking_footer(self) -> None:
-        self.assertEqual(validate_message("feat!: change defaults\n", POLICY), [])
+        self.assertEqual(validate_message(structured_message("feat!: change defaults"), POLICY), [])
 
     def test_trailers_and_long_descriptions_are_allowed(self) -> None:
-        message = "fix: " + "描述" * 100 + "\n\nBody.\n\nCloses: #123\nSigned-off-by: A <a@example.test>\n"
+        message = structured_message("fix: " + "描述" * 100) + "\nCloses: #123\nSigned-off-by: A <a@example.test>\n"
         self.assertEqual(validate_message(message, POLICY), [])
+
+    def test_new_messages_require_all_sections(self) -> None:
+        for body in ("", "Only a description.", BODY.replace("改动：", "内容：")):
+            with self.subTest(body=body):
+                self.assertTrue(validate_message(f"fix: a change\n\n{body}", POLICY))
+
+    def test_legacy_body_remains_optional(self) -> None:
+        self.assertEqual(validate_message("fix: a change\n", POLICY, require_body=False), [])
+        self.assertTrue(validate_message("Invalid title\n", POLICY, require_body=False))
+
+    def test_english_and_inline_sections(self) -> None:
+        message = "fix: count once\n\nBackground: duplicate requests inflate counts\nChanges: insert once\nValidation: go test ./... passed\n"
+        self.assertEqual(validate_message(message, POLICY), [])
+
+    def test_unrun_validation_requires_an_explanation_instead_of_a_placeholder(self) -> None:
+        message = structured_message("docs: clarify the policy")
+        for explanation in ("未执行：仅修改文档，未运行产品测试。", "不适用：没有可执行代码，已人工检查链接。"):
+            with self.subTest(explanation=explanation):
+                self.assertEqual(validate_message(message.replace("go test ./...：通过。", explanation), POLICY), [])
+
+
+class PRBodyTests(unittest.TestCase):
+    def test_chinese_and_english_markdown_sections(self) -> None:
+        for body in (
+            "## 背景\n重复请求。\n## 改动\n仅新增一次。\n## 验证\n单测通过。\n## 影响与风险\n无迁移要求。",
+            "## Background\nDuplicate requests.\n## Changes\nInsert once.\n## Validation\nTests passed.\n## Impact and risks\nNo migration required.",
+            PR_BODY,
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(validate_pr_body(body), [])
+
+    def test_missing_empty_and_placeholder_sections_are_rejected(self) -> None:
+        for body in (None, "", BODY, "## 背景\n## 改动\n## 验证\n## 影响与风险"):
+            with self.subTest(body=body):
+                self.assertTrue(validate_pr_body(body))
+        for placeholder in ("", "TODO", "TBD", "待补充", "- [ ]", "- **待填写**", "未执行", "不适用", "..."):
+            with self.subTest(placeholder=placeholder):
+                self.assertTrue(validate_pr_body(PR_BODY.replace("go test ./...：通过。", placeholder)))
+
+    def test_comments_and_code_examples_do_not_supply_missing_sections(self) -> None:
+        for body in (
+            f"<!-- {PR_BODY} -->",
+            f"```markdown\n{PR_BODY}\n```",
+            f"~~~~markdown\n{PR_BODY}\n~~~~",
+            "## 背景\n<!-- hint -->\n## 改动\n<!-- hint -->\n## 验证\n<!-- hint -->\n## 影响与风险\n<!-- hint -->",
+            "## 背景\n<!-- unfinished hint\n" + PR_BODY,
+        ):
+            with self.subTest(body=body):
+                self.assertTrue(validate_pr_body(body))
+
+    def test_content_under_another_heading_does_not_fill_an_empty_section(self) -> None:
+        body = PR_BODY.replace("go test ./...：通过。", "## 其他\n单测通过。")
+        self.assertTrue(validate_pr_body(body))
+
+    def test_validation_can_include_a_fenced_command(self) -> None:
+        body = PR_BODY.replace("go test ./...：通过。", "```sh\ngo test ./...\n```\n结果：通过。")
+        self.assertEqual(validate_pr_body(body), [])
+
+    def test_wrong_body_type_fails_validation(self) -> None:
+        self.assertTrue(validate_pr_body(123))
+
+    def test_unfilled_repository_templates_are_rejected(self) -> None:
+        self.assertTrue(validate_pr_body((ROOT / ".github/pull_request_template.md").read_text()))
+        message = git(ROOT, "stripspace", "--strip-comments", input_text=(ROOT / ".gitmessage").read_text())
+        self.assertTrue(validate_message(message, POLICY))
 
 
 class RepositoryFixture(unittest.TestCase):
@@ -89,7 +161,7 @@ class RepositoryFixture(unittest.TestCase):
         return path
 
     def write_policy(self, **overrides: object) -> None:
-        data = {"types": list(TYPES), "legacy_ref": self.legacy, **overrides}
+        data = {"types": list(TYPES), "legacy_ref": self.legacy, "body_required_after": self.legacy, **overrides}
         self.write(".conventional-commits.json", json.dumps(data))
 
     def commit(self, message: str) -> str:
@@ -109,7 +181,7 @@ class RepositoryFixture(unittest.TestCase):
 
 class PolicyTests(RepositoryFixture):
     def test_policy_is_read_from_repository(self) -> None:
-        self.assertEqual(self.policy, Policy(TYPES, self.legacy))
+        self.assertEqual(self.policy, Policy(TYPES, self.legacy, self.legacy))
 
     def test_invalid_types(self) -> None:
         for types in ([], ["fix", "fix"], ["Fix"], [123], "fix", [{}]):
@@ -119,11 +191,12 @@ class PolicyTests(RepositoryFixture):
                     read_policy(self.repo)
 
     def test_baseline_requires_full_sha(self) -> None:
-        for legacy_ref in ("main", "abc123", "z" * 40, 123):
-            with self.subTest(legacy_ref=legacy_ref):
-                self.write_policy(legacy_ref=legacy_ref)
-                with self.assertRaises(ValueError):
-                    read_policy(self.repo)
+        for field in ("legacy_ref", "body_required_after"):
+            for value in ("main", "abc123", "z" * 40, 123):
+                with self.subTest(field=field, value=value):
+                    self.write_policy(**{field: value})
+                    with self.assertRaises(ValueError):
+                        read_policy(self.repo)
 
 
 class RangeTests(RepositoryFixture):
@@ -145,7 +218,7 @@ class RangeTests(RepositoryFixture):
 
     def test_base_excludes_already_accepted_commits(self) -> None:
         base = self.commit("A previous commit not in this change")
-        head = self.commit("fix: current change")
+        head = self.commit(structured_message("fix: current change"))
         self.assertEqual(commit_ids(self.repo, self.policy, base), [head])
         self.assertEqual(self.cli("--base-ref", base).returncode, 0)
 
@@ -180,10 +253,41 @@ class RangeTests(RepositoryFixture):
         base = self.commit("Base branch change outside the PR")
         self.assertEqual(commit_ids(self.repo, self.policy, base, feature), [feature])
 
+    def test_body_policy_does_not_rewrite_existing_history(self) -> None:
+        previous = self.commit("fix: existing title-only change")
+        self.write_policy(body_required_after=previous)
+        self.assertEqual(self.cli().returncode, 0)
+        new = self.commit("fix: missing new body")
+        result = self.cli()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(new[:12], result.stderr)
+        self.assertNotIn(previous[:12], result.stderr)
+
+    def test_body_baseline_does_not_exempt_invalid_old_titles(self) -> None:
+        previous = self.commit("Invalid title after original policy adoption")
+        self.write_policy(body_required_after=previous)
+        result = self.cli()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(previous[:12], result.stderr)
+
+    def test_missing_body_baseline_fails_instead_of_skipping(self) -> None:
+        self.write_policy(body_required_after="f" * 40)
+        self.assertEqual(self.cli().returncode, 1)
+
+    def test_body_policy_also_applies_to_commits_from_a_diverged_branch(self) -> None:
+        git(self.repo, "checkout", "--quiet", "-b", "feature")
+        feature = self.commit("fix: missing feature body")
+        git(self.repo, "checkout", "--quiet", "main")
+        baseline = self.commit("ci: old main change")
+        self.write_policy(body_required_after=baseline)
+        result = self.cli("--base-ref", baseline, "--head-ref", feature)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(feature[:12], result.stderr)
+
 
 class EventTests(RepositoryFixture):
     def pr_event(self, title: str, head: str | None = None) -> dict:
-        return {"pull_request": {"base": {"sha": self.legacy}, "head": {"sha": head or self.legacy}, "title": title}}
+        return {"pull_request": {"base": {"sha": self.legacy}, "head": {"sha": head or self.legacy}, "title": title, "body": PR_BODY}}
 
     def test_pr_title_checked_even_without_new_commits(self) -> None:
         result = self.cli(event_name="pull_request", event=self.pr_event("Update documentation"))
@@ -192,9 +296,27 @@ class EventTests(RepositoryFixture):
         self.assertIn("Checked 0 new", result.stdout)
 
     def test_valid_pr_title_and_commits(self) -> None:
-        head = self.commit("fix(frontend): 修复跳转")
+        head = self.commit(structured_message("fix(frontend): 修复跳转"))
         result = self.cli(event_name="pull_request", event=self.pr_event("fix: 修复跳转", head))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_pr_body_checked_even_without_new_commits(self) -> None:
+        for body in (None, "", BODY):
+            with self.subTest(body=body):
+                event = self.pr_event("docs: clarify policy")
+                event["pull_request"]["body"] = body
+                result = self.cli(event_name="pull_request", event=event)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("PR body:", result.stderr)
+                self.assertIn("Checked 0 new", result.stdout)
+
+    def test_editing_pr_body_rechecks_the_description(self) -> None:
+        event = self.pr_event("docs: clarify policy")
+        event["action"] = "edited"
+        event["pull_request"]["body"] = "## 背景\nTODO"
+        self.assertEqual(self.cli(event_name="pull_request", event=event).returncode, 1)
+        event["pull_request"]["body"] = PR_BODY
+        self.assertEqual(self.cli(event_name="pull_request", event=event).returncode, 0)
 
     def test_push_checks_every_commit_not_just_tip(self) -> None:
         bad = self.commit("Invalid middle commit")
@@ -215,7 +337,7 @@ class EventTests(RepositoryFixture):
                 self.assertIn(head[:12], result.stderr)
 
     def test_merge_group_range(self) -> None:
-        head = self.commit("ci: update workflow")
+        head = self.commit(structured_message("ci: update workflow"))
         event = {"merge_group": {"base_sha": self.legacy, "head_sha": head}}
         self.assertEqual(event_range(self.repo, "merge_group", event), (self.legacy, head, None))
         result = self.cli(event_name="merge_group", event=event)
@@ -239,6 +361,14 @@ class EventTests(RepositoryFixture):
         self.assertFalse((self.repo / "SHOULD_NOT_EXIST").exists())
         self.assertFalse((self.repo / "ALSO_SHOULD_NOT_EXIST").exists())
 
+    def test_pr_body_is_data_not_shell_code(self) -> None:
+        event = self.pr_event("fix: count once")
+        event["pull_request"]["body"] = PR_BODY + "\n$(touch SHOULD_NOT_EXIST) `touch ALSO_SHOULD_NOT_EXIST`"
+        result = self.cli(event_name="pull_request", event=event)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.repo / "SHOULD_NOT_EXIST").exists())
+        self.assertFalse((self.repo / "ALSO_SHOULD_NOT_EXIST").exists())
+
 
 class HookTests(RepositoryFixture):
     def install_hook(self) -> None:
@@ -257,17 +387,27 @@ class HookTests(RepositoryFixture):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("Commit format error:", rejected.stderr)
         self.assertEqual(git(self.repo, "rev-parse", "HEAD").strip(), self.legacy)
-        self.assertNotEqual(self.commit("fix(frontend): 修复跳转"), self.legacy)
+        self.assertNotEqual(self.commit(structured_message("fix(frontend): 修复跳转")), self.legacy)
+
+    def test_real_hook_rejects_title_only_commit(self) -> None:
+        self.install_hook()
+        rejected = subprocess.run(
+            ["git", "commit", "--quiet", "--allow-empty", "-m", "fix: missing explanation"],
+            cwd=self.repo, text=True, capture_output=True,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("required section", rejected.stderr)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD").strip(), self.legacy)
 
     def test_editor_comments_and_trailing_whitespace_use_git_cleanup(self) -> None:
-        message = self.write("message with spaces.txt", "# Editor hint\nfix: a change  \n\nBody.  \n# Another hint\n")
+        message = self.write("message with spaces.txt", "# Editor hint\n" + structured_message("fix: a change  ") + "# Another hint\n")
         self.assertEqual(check_file(self.repo, message, self.policy), [])
         result = self.cli("--message-file", str(message))
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_custom_comment_character(self) -> None:
         git(self.repo, "config", "core.commentChar", ";")
-        message = self.write("message.txt", "; Editor hint\nfix: a change\n\n; Another hint\n")
+        message = self.write("message.txt", "; Editor hint\n" + structured_message("fix: a change") + "; Another hint\n")
         self.assertEqual(check_file(self.repo, message, self.policy), [])
 
     def test_blank_message_is_rejected(self) -> None:
@@ -282,10 +422,60 @@ class HookTests(RepositoryFixture):
     def test_real_merge_hook_is_exempt(self) -> None:
         self.install_hook()
         git(self.repo, "checkout", "--quiet", "-b", "feature")
-        self.commit("feat: feature change")
+        self.commit(structured_message("feat: feature change"))
         git(self.repo, "checkout", "--quiet", "main")
-        self.commit("ci: main change")
+        self.commit(structured_message("ci: main change"))
         git(self.repo, "merge", "--quiet", "--no-ff", "feature", "-m", "Merge feature into main")
+        self.assertEqual(self.cli().returncode, 0)
+
+
+class TemplateInstallationTests(RepositoryFixture):
+    def setUp(self) -> None:
+        super().setUp()
+        for relative in ("Makefile", ".gitmessage", ".githooks/commit-msg", "ci/commits.py"):
+            target = self.repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative, target)
+
+    def install(self) -> subprocess.CompletedProcess:
+        return subprocess.run(["make", "hooks-install"], cwd=self.repo, text=True, capture_output=True)
+
+    def test_install_sets_hook_and_template_and_is_repeatable(self) -> None:
+        for _ in range(2):
+            result = self.install()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(git(self.repo, "config", "--get", "core.hooksPath").strip(), ".githooks")
+            self.assertEqual(git(self.repo, "config", "--get", "commit.template").strip(), str(self.repo / ".gitmessage"))
+
+    def test_install_preserves_custom_template_and_hook_path(self) -> None:
+        for key, value in (("core.hooksPath", "custom-hooks"), ("commit.template", "custom-message.txt")):
+            with self.subTest(key=key):
+                git(self.repo, "config", key, value)
+                result = self.install()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("refusing to overwrite", result.stderr)
+                self.assertEqual(git(self.repo, "config", "--get", key).strip(), value)
+                git(self.repo, "config", "--unset", key)
+
+    def test_commit_from_subdirectory_opens_the_template_and_runs_the_hook(self) -> None:
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        editor = self.write("test editor.py", (
+            f"#!{sys.executable}\n"
+            "import sys\nfrom pathlib import Path\n"
+            "message = Path(sys.argv[1])\n"
+            "assert '背景：' in message.read_text(encoding='utf-8')\n"
+            f"message.write_text({structured_message('fix: count once')!r}, encoding='utf-8')\n"
+        ))
+        editor.chmod(0o755)
+        directory = self.repo / "nested directory"
+        directory.mkdir()
+        environment = {**os.environ, "GIT_EDITOR": shlex.quote(str(editor))}
+        result = subprocess.run(
+            ["git", "commit", "--quiet", "--allow-empty"], cwd=directory,
+            text=True, capture_output=True, env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.cli().returncode, 0)
 
 

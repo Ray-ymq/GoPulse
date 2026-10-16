@@ -12,5 +12,6 @@
     "style",
     "test"
   ],
-  "legacy_ref": "506a12f2996aff81a9d32e0276812c1c3fae3149"
+  "legacy_ref": "506a12f2996aff81a9d32e0276812c1c3fae3149",
+  "body_required_after": "3258f77a62d951d633a7f7280b594c4d808b06c9"
 }
