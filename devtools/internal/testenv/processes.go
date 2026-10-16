@@ -7,11 +7,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/monitorimage"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/ready"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
@@ -85,6 +85,9 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 		"test search reindex", 0); err != nil {
 		return err
 	}
+	if err := exporterpackages.Prepare(s.root, s.values["MONITOR_PACKAGE_DIR"], s.processEnv); err != nil {
+		return err
+	}
 	buildDigest, err := digest.SourceBuilds(s.root)
 	if err != nil {
 		return err
@@ -113,6 +116,17 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	if err != nil {
 		return err
 	}
+	monitorDigest, err := digest.Paths(s.root, []string{
+		filepath.Join(s.root, "componentmetrics"),
+		filepath.Join(s.root, "monitor"),
+	})
+	if err != nil {
+		return err
+	}
+	monitor, err := s.buildBinary("integration-monitor", filepath.Join(s.root, "monitor"), "./cmd/monitor", monitorDigest)
+	if err != nil {
+		return err
+	}
 	adminRole, err := s.buildBinary("integration-admin-role", backendDir, "./cmd/admin-role", buildDigest)
 	if err != nil {
 		return err
@@ -128,6 +142,13 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	workerEnv["GOPULSE_INSTANCE_ID"] = "business-worker-test"
 	indexerEnv := copyEnvironment(s.values)
 	indexerEnv["GOPULSE_INSTANCE_ID"] = "search-indexer-test"
+	monitorEnv := copyEnvironment(s.values)
+	monitorEnv["GOPULSE_RUNTIME_MODE"] = "host"
+	monitorEnv["GOPULSE_INSTANCE_ID"] = "monitor-test"
+	monitorEnv["MONITOR_HTTP_HOST"] = "127.0.0.1"
+	monitorEnv["MONITOR_PLUGIN_ROOT"] = filepath.Join(s.ws.PrivateRoot(), "monitor-plugins")
+	monitorEnv["MONITOR_RELEASE_CATALOG"] = filepath.Join(s.values["MONITOR_PACKAGE_DIR"], "catalog.json")
+	monitorEnv["MONITOR_BOOTSTRAP_PACKAGE"] = redisExporterPackage(s.root, s.values["MONITOR_PACKAGE_DIR"])
 
 	if err := s.spawn(state, "router", []string{router}, routerEnv, filepath.Join(s.root, "router")); err != nil {
 		return err
@@ -164,8 +185,11 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 		"test Search Indexer", aliveIn(state, "search-indexer")); err != nil {
 		return err
 	}
+	if err := s.spawn(state, "monitor", []string{monitor}, monitorEnv, filepath.Join(s.root, "monitor")); err != nil {
+		return err
+	}
 	if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/ready", s.values["MONITOR_HTTP_PORT"]), readinessTimeout,
-		s.values["MONITOR_API_TOKEN"], "test Monitor", nil); err != nil {
+		monitorEnv["MONITOR_API_TOKEN"], "test Monitor", aliveIn(state, "monitor")); err != nil {
 		return err
 	}
 
@@ -176,6 +200,18 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 		return err
 	}
 	return s.saveIntegrationState(state)
+}
+
+func redisExporterPackage(root, packagesRoot string) string {
+	versionBytes, err := os.ReadFile(filepath.Join(root, "exporters", "redis", "VERSION"))
+	if err != nil {
+		return ""
+	}
+	version := strings.TrimSpace(string(versionBytes))
+	if version == "" {
+		return ""
+	}
+	return filepath.Join(packagesRoot, fmt.Sprintf("gopulse-redis-exporter-%s-linux-%s.tar.gz", version, runtime.GOARCH))
 }
 
 // registerObservationAdmin creates the deterministic administrator and promotes
@@ -337,62 +373,4 @@ func aliveIn(state *workspace.State, name string) func() bool {
 		record, found := state.Processes[name]
 		return found && proc.Owned(record)
 	}
-}
-
-// ensureMonitorImage prepares latest or reuses it only when its source and
-// revision labels still match this observation test scope.
-func ensureMonitorImage(s *session) (string, error) {
-	tag := monitorimage.Tag
-	raw, err := os.ReadFile(filepath.Join(s.root, "VERSION"))
-	if err != nil {
-		return "", err
-	}
-	version := strings.TrimSpace(string(raw))
-	if !semverLike(version) {
-		return "", fmt.Errorf("VERSION must use major.minor.patch before building Monitor")
-	}
-	if err := exporterpackages.Prepare(s.root, s.values["MONITOR_PACKAGE_DIR"], s.processEnv); err != nil {
-		return "", err
-	}
-	revision := s.git("rev-parse", "HEAD")
-	input, err := digest.MonitorInput(s.root)
-	if err != nil {
-		return "", err
-	}
-	if monitorimage.Reusable(s.root, input, s.processEnv) {
-		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
-		return tag, nil
-	}
-	if err := s.runCommand([]string{
-		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/monitor.Dockerfile",
-		"--label", monitorimage.InputLabel + "=" + input,
-		"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision, "--tag", tag, ".",
-	}, s.root, s.processEnv, "Monitor image preparation", 0); err != nil {
-		return "", err
-	}
-	if err := workspace.SaveJSON(filepath.Join(s.ws.PrivateRoot(), "monitor-image.json"), map[string]string{
-		"tag": tag, "input_digest": input, "revision": revision, "version": version, "built_at": now(),
-	}); err != nil {
-		return "", err
-	}
-	fmt.Printf("[gopulse] prepared Monitor image %s\n", tag)
-	return tag, nil
-}
-
-func semverLike(version string) bool {
-	parts := strings.Split(version, ".")
-	if len(parts) != 3 {
-		return false
-	}
-	for _, part := range parts {
-		if part == "" {
-			return false
-		}
-		for _, character := range part {
-			if character < '0' || character > '9' {
-				return false
-			}
-		}
-	}
-	return true
 }

@@ -1,6 +1,6 @@
 // Package digest computes the content-addressed identities the local
 // lifecycles bind to: source trees, the private environment file, Compose
-// files, and the Monitor image inputs.
+// files, and the Monitor build inputs.
 //
 // The byte layout is the one the replaced Python helper used (big-endian
 // length-prefixed relative path and content), so a digest recorded by either
@@ -110,10 +110,10 @@ func Source(root string, observe bool) (string, error) {
 // SourceBuilds digests the sources that produce the locally built binaries.
 func SourceBuilds(root string) (string, error) { return Source(root, false) }
 
-// MonitorInput digests everything that changes the prepared Monitor image.
+// MonitorInput digests everything that changes the Monitor container image.
 // Exporter source, packages, and historical archives are deployment inputs;
 // they are deliberately excluded so changing one module does not invalidate
-// the Monitor image.
+// the image. Native integration builds use the Monitor source digest directly.
 func MonitorInput(root string) (string, error) {
 	return Paths(root, []string{
 		filepath.Join(root, "VERSION"),

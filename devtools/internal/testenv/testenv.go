@@ -61,7 +61,6 @@ type session struct {
 	startDependencies      func(map[string]string) error
 	stopDependencies       func(*workspace.State)
 	runTestSuite           func(*workspace.State, string, bool) error
-	prepareMonitor         func(*session) (string, error)
 	stopDependenciesResult func(*workspace.State) error
 	diagnostic             *diagnostics.Report
 	diagnosticErrors       []error
@@ -118,7 +117,9 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 		command:    compose.Command{Project: project, EnvFile: envFile, Files: files, Profiles: profiles},
 	}
 	current.startDependencies = func(environment map[string]string) error {
-		return current.runCommand(current.command.Args("up", "--detach", "--wait", "--wait-timeout", "420"), current.root, environment,
+		arguments := []string{"up", "--detach", "--wait", "--wait-timeout", "420"}
+		arguments = append(arguments, composeDependencyServices(observe)...)
+		return current.runCommand(current.command.Args(arguments...), current.root, environment,
 			"Compose dependency startup for "+current.project, 0)
 	}
 	current.stopDependencies = current.composeDown
@@ -126,8 +127,18 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	current.runTestSuite = func(state *workspace.State, scope string, observe bool) error {
 		return current.runIntegrationTests(state, scope, observe)
 	}
-	current.prepareMonitor = ensureMonitorImage
 	return current, nil
+}
+
+// composeDependencyServices limits an integration Compose project to the
+// third-party services it owns. Observation application processes, including
+// Monitor, are built and started as host binaries by startObservationProcesses.
+func composeDependencyServices(observe bool) []string {
+	services := []string{"mysql", "redis", "rabbitmq", "elasticsearch"}
+	if observe {
+		services = append(services, "kafka", "kafka-init", "victoriametrics", "observability-elasticsearch")
+	}
+	return services
 }
 
 func observeComposeOverride(root string) (string, error) {
@@ -192,14 +203,6 @@ func runIntegration(current *session, scope string, observe bool) error {
 	}
 	current.beginDiagnostics("integration", scope, observe)
 	composeEnv := copyEnvironment(current.processEnv)
-	if observe {
-		image, err := current.prepareMonitor(current)
-		if err != nil {
-			current.finishDiagnostics(err, current.pendingState(), nil)
-			return err
-		}
-		composeEnv["GOPULSE_MONITOR_IMAGE"] = image
-	}
 	if err := current.startDependencies(composeEnv); err != nil {
 		primaryExit := current.lastCommand.ExitCode
 		if primaryExit == 0 {
@@ -210,7 +213,7 @@ func runIntegration(current *session, scope string, observe bool) error {
 		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
-	state, err := current.integrationState(scope, observe, composeEnv["GOPULSE_MONITOR_IMAGE"])
+	state, err := current.integrationState(scope, observe)
 	if err != nil {
 		primaryExit := current.lastCommand.ExitCode
 		if primaryExit == 0 {
@@ -301,7 +304,7 @@ func (s *session) pendingState() *workspace.State {
 	return &workspace.State{Project: s.project, EnvFile: s.envFile, ComposeFiles: s.files}
 }
 
-func (s *session) integrationState(scope string, observe bool, image string) (*workspace.State, error) {
+func (s *session) integrationState(scope string, observe bool) (*workspace.State, error) {
 	source, err := digest.Source(s.root, observe)
 	if err != nil {
 		return nil, err
@@ -324,11 +327,13 @@ func (s *session) integrationState(scope string, observe bool, image string) (*w
 		EnvFile:       s.envFile,
 		SourceDigest:  source,
 		ComposeDigest: composeDigest,
-		MonitorImage:  image,
-		StartedAt:     now(),
-		Processes:     map[string]workspace.ProcessRecord{},
-		Logs:          map[string]string{},
-		Scope:         scope,
+		// Keep the historical state key for readers of older integration receipts.
+		// Native observation tests do not create or consume a Monitor image.
+		MonitorImage: "",
+		StartedAt:    now(),
+		Processes:    map[string]workspace.ProcessRecord{},
+		Logs:         map[string]string{},
+		Scope:        scope,
 	}, nil
 }
 

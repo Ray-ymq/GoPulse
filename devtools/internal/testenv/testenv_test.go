@@ -65,6 +65,22 @@ func TestIntegrationPortsAreIsolatedPerScope(t *testing.T) {
 	}
 }
 
+func TestComposeDependenciesExcludeApplicationProcesses(t *testing.T) {
+	for _, service := range composeDependencyServices(false) {
+		if service == "monitor" {
+			t.Fatal("business dependencies unexpectedly include Monitor")
+		}
+	}
+	for _, service := range composeDependencyServices(true) {
+		if service == "monitor" {
+			t.Fatal("observation dependencies unexpectedly include Monitor")
+		}
+	}
+	if got := composeDependencyServices(true); len(got) != 8 {
+		t.Fatalf("observation dependencies %v, want eight third-party services", got)
+	}
+}
+
 func TestObservationUsernamesIncludesIntegrationUser(t *testing.T) {
 	current := testSession(t, true)
 	current.values["OBSERVE_ADMIN_USERNAME"] = "observe_admin_0123456789abcdef"
@@ -179,8 +195,8 @@ func TestIntegrationSucceedsWithoutCleanupFailure(t *testing.T) {
 	if document["status"] != "passed" || document["observe"] != true {
 		t.Fatalf("final state %v", document)
 	}
-	if document["monitor_image"] != "gopulse/monitor:latest" {
-		t.Fatalf("an observation scope must use Monitor latest, got %v", document["monitor_image"])
+	if document["monitor_image"] != "" {
+		t.Fatalf("native observation scope must not record a Monitor image, got %v", document["monitor_image"])
 	}
 	if len(document["compose_files"].([]any)) != 2 {
 		t.Fatalf("observe compose files %v", document["compose_files"])
@@ -197,10 +213,6 @@ func testSession(t *testing.T, observe bool) *session {
 		current.profiles = []string{"observe"}
 		current.command.Files = current.files
 		current.command.Profiles = current.profiles
-	}
-	// The unit layer must never build or inspect an image.
-	current.prepareMonitor = func(*session) (string, error) {
-		return "gopulse/monitor:latest", nil
 	}
 	return current
 }

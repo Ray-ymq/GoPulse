@@ -62,8 +62,8 @@ func (w Workspace) LogRoot() string { return filepath.Join(w.PrivateRoot(), "log
 // ProjectDev is the development dependency Compose project.
 func (w Workspace) ProjectDev() string { return "gopulse-" + w.Identity + "-dev" }
 
-// ProjectTest is the isolated test Compose project. A Monitor image owns a
-// compile-time release catalog, so test volumes stay candidate-scoped.
+// ProjectTest is the isolated test Compose project. Its dependency volumes stay
+// candidate-scoped even though application processes run as host binaries.
 func (w Workspace) ProjectTest() string {
 	version := "current"
 	if raw, err := os.ReadFile(filepath.Join(w.Root, "VERSION")); err == nil {
