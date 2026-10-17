@@ -198,6 +198,29 @@ var Presets = func() []Definition {
 	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_free_disk_space_bytes", Kind: "gauge", Unit: "bytes", label: ""})
 	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_active_merges", Kind: "gauge", Unit: "count", label: ""})
 	items = append(items, Definition{Source: "victoriametrics", TargetID: "victoriametrics-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "victoriametrics-exporter", Metric: "gopulse_victoriametrics_storage_rows_deleted_total", Kind: "counter", Unit: "count", label: ""})
+	for _, item := range []Definition{
+		{Metric: "gopulse_victoriametrics_write_batches_total", Kind: "counter", Unit: "count", label: "type"},
+		{Metric: "gopulse_victoriametrics_write_batch_rows_total", Kind: "counter", Unit: "count", label: "type"},
+		{Metric: "gopulse_victoriametrics_write_requests_total", Kind: "counter", Unit: "count", label: "path"},
+		{Metric: "gopulse_victoriametrics_write_errors_total", Kind: "counter", Unit: "count", label: "path"},
+		{Metric: "gopulse_victoriametrics_query_errors_total", Kind: "counter", Unit: "count", label: "path"},
+		{Metric: "gopulse_victoriametrics_query_duration_seconds_total", Kind: "counter", Unit: "seconds"},
+		{Metric: "gopulse_victoriametrics_active_queries", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_victoriametrics_query_capacity", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_victoriametrics_query_limit_reached_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_victoriametrics_query_limit_timeout_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_victoriametrics_process_cpu_seconds_total", Kind: "counter", Unit: "seconds"},
+		{Metric: "gopulse_victoriametrics_process_resident_memory_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_victoriametrics_go_heap_alloc_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_victoriametrics_go_heap_sys_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_victoriametrics_go_gc_cycles_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_victoriametrics_go_gc_pause_seconds_total", Kind: "counter", Unit: "seconds"},
+		{Metric: "gopulse_victoriametrics_go_goroutines", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_victoriametrics_go_threads", Kind: "gauge", Unit: "count"},
+	} {
+		item.Source, item.TargetID, item.ProducerKind, item.ProducerID = "victoriametrics", "victoriametrics-exporter-local", "exporter_plugin", "victoriametrics-exporter"
+		items = append(items, item)
+	}
 	for _, id := range componentmetrics.Components {
 		spec, _ := componentmetrics.Catalog(id)
 		for _, f := range spec.Families {

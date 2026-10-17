@@ -47,15 +47,32 @@ func TestSnapshotContract(t *testing.T) {
 }
 
 func TestSnapshotIncludesBoundedWriteAndCacheDetails(t *testing.T) {
-	body, err := Snapshot(fixture() + "vm_rows_ignored_total{reason=\"big_timestamp\"} 2\n" + "vm_slow_row_inserts_total 3\n" + "vm_cache_size_bytes{type=\"storage/tsid\"} 4\n" + "vm_cache_size_max_bytes{type=\"storage/tsid\"} 8\n" + "vm_cache_requests_total{type=\"storage/tsid\"} 10\n" + "vm_cache_misses_total{type=\"storage/tsid\"} 1\n" + "vm_cache_entries{type=\"storage/tsid\"} 5\n")
+	body, err := Snapshot(fixture() + "vm_rows_ignored_total{reason=\"big_timestamp\"} 2\n" + "vm_slow_row_inserts_total 3\n" + "vm_rows_per_insert_count{type=\"promremotewrite\"} 4\n" + "vm_rows_per_insert_sum{type=\"promremotewrite\"} 10\n" + "vm_http_requests_total{path=\"/api/v1/write\"} 11\n" + "vm_http_request_errors_total{path=\"/api/v1/query\"} 12\n" + "vmselect_request_duration_seconds_sum 13.5\n" + "vm_concurrent_select_current 2\n" + "vm_concurrent_select_capacity 8\n" + "vm_concurrent_select_limit_reached_total 3\n" + "vm_concurrent_select_limit_timeout_total 1\n" + "vm_cache_size_bytes{type=\"storage/tsid\"} 4\n" + "vm_cache_size_max_bytes{type=\"storage/tsid\"} 8\n" + "vm_cache_requests_total{type=\"storage/tsid\"} 10\n" + "vm_cache_misses_total{type=\"storage/tsid\"} 1\n" + "vm_cache_entries{type=\"storage/tsid\"} 5\n" + "process_cpu_seconds_total 14.5\n" + "process_resident_memory_bytes 100\n" + "go_memstats_heap_alloc_bytes 200\n" + "go_memstats_heap_sys_bytes 300\n" + "go_gc_duration_seconds_count 4\n" + "go_gc_duration_seconds_sum 0.5\n" + "go_goroutines 6\n" + "go_threads 7\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		`gopulse_victoriametrics_rows_ignored_total{reason="big_timestamp"} 2`,
 		"gopulse_victoriametrics_slow_row_inserts_total 3",
+		`gopulse_victoriametrics_write_batches_total{type="promremotewrite"} 4`,
+		`gopulse_victoriametrics_write_batch_rows_total{type="promremotewrite"} 10`,
+		`gopulse_victoriametrics_write_requests_total{path="/api/v1/write"} 11`,
+		`gopulse_victoriametrics_query_errors_total{path="/api/v1/query"} 12`,
+		"gopulse_victoriametrics_query_duration_seconds_total 13.5",
+		"gopulse_victoriametrics_active_queries 2",
+		"gopulse_victoriametrics_query_capacity 8",
+		"gopulse_victoriametrics_query_limit_reached_total 3",
+		"gopulse_victoriametrics_query_limit_timeout_total 1",
 		`gopulse_victoriametrics_cache_size_bytes{type="storage/tsid"} 4`,
 		`gopulse_victoriametrics_cache_misses_total{type="storage/tsid"} 1`,
+		"gopulse_victoriametrics_process_cpu_seconds_total 14.5",
+		"gopulse_victoriametrics_process_resident_memory_bytes 100",
+		"gopulse_victoriametrics_go_heap_alloc_bytes 200",
+		"gopulse_victoriametrics_go_heap_sys_bytes 300",
+		"gopulse_victoriametrics_go_gc_cycles_total 4",
+		"gopulse_victoriametrics_go_gc_pause_seconds_total 0.5",
+		"gopulse_victoriametrics_go_goroutines 6",
+		"gopulse_victoriametrics_go_threads 7",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in %s", want, body)

@@ -47,11 +47,31 @@ var mappings = []mapping{
 var optionalMappings = []mapping{
 	{"rows_ignored_total", "counter", "vm_rows_ignored_total", "reason", []string{"big_timestamp", "big_label_name", "big_label_value", "too_many_labels", "duplicate_label", "bad_value", "timestamp_too_old", "timestamp_too_new"}, false, true},
 	{"slow_row_inserts_total", "counter", "vm_slow_row_inserts_total", "", []string{""}, false, false},
+	// v1.151.0 exposes insert batch histograms rather than a byte counter. Keep
+	// both parts so the write path can show batch count and accumulated rows.
+	{"write_batches_total", "counter", "vm_rows_per_insert_count", "type", []string{"csvimport", "datadogsketches", "datadogv1", "datadogv2", "graphite", "influx", "native", "newrelic", "opentelemetry", "opentsdb", "opentsdbhttp", "prometheus", "promremotewrite", "promscrape", "vmimport", "zabbixconnector"}, false, true},
+	{"write_batch_rows_total", "counter", "vm_rows_per_insert_sum", "type", []string{"csvimport", "datadogsketches", "datadogv1", "datadogv2", "graphite", "influx", "native", "newrelic", "opentelemetry", "opentsdb", "opentsdbhttp", "prometheus", "promremotewrite", "promscrape", "vmimport", "zabbixconnector"}, false, true},
+	{"write_requests_total", "counter", "vm_http_requests_total", "path", []string{"/api/v1/write", "/api/v1/import", "/api/v1/import/csv", "/api/v1/import/native", "/api/v1/import/prometheus", "/influx/write", "/influx/api/v2/write", "/datadog/api/v1/series", "/datadog/api/v2/series", "/datadog/api/beta/sketches", "/opentelemetry/v1/metrics", "/zabbixconnector/api/v1/history", "/newrelic/infra/v2/metrics/events/bulk"}, false, true},
+	{"write_errors_total", "counter", "vm_http_request_errors_total", "path", []string{"/api/v1/write", "/api/v1/import", "/api/v1/import/csv", "/api/v1/import/native", "/api/v1/import/prometheus", "/influx/write", "/influx/api/v2/write", "/datadog/api/v1/series", "/datadog/api/v2/series", "/datadog/api/beta/sketches", "/opentelemetry/v1/metrics", "/zabbixconnector/api/v1/history", "/newrelic/infra/v2/metrics/events/bulk"}, false, true},
+	{"query_errors_total", "counter", "vm_http_request_errors_total", "path", []string{"/api/v1/query", "/api/v1/query_range"}, false, true},
+	{"query_duration_seconds_total", "counter", "vmselect_request_duration_seconds_sum", "", []string{""}, false, false},
+	{"active_queries", "gauge", "vm_concurrent_select_current", "", []string{""}, false, false},
+	{"query_capacity", "gauge", "vm_concurrent_select_capacity", "", []string{""}, false, false},
+	{"query_limit_reached_total", "counter", "vm_concurrent_select_limit_reached_total", "", []string{""}, false, false},
+	{"query_limit_timeout_total", "counter", "vm_concurrent_select_limit_timeout_total", "", []string{""}, false, false},
 	{"cache_size_bytes", "gauge", "vm_cache_size_bytes", "type", []string{"indexdb/indexBlocks", "indexdb/tagFiltersToMetricIDs", "indexdb/tagFiltersLoops", "storage/hour_metric_ids", "storage/indexBlocks", "storage/tsid", "storage/metricIDs", "storage/metricName", "storage/regexps", "storage/regexpPrefixes", "promql/rollupResult"}, false, true},
 	{"cache_size_max_bytes", "gauge", "vm_cache_size_max_bytes", "type", []string{"indexdb/indexBlocks", "indexdb/tagFiltersToMetricIDs", "indexdb/tagFiltersLoops", "storage/hour_metric_ids", "storage/indexBlocks", "storage/tsid", "storage/metricIDs", "storage/metricName", "storage/regexps", "storage/regexpPrefixes", "promql/rollupResult"}, false, true},
 	{"cache_requests_total", "counter", "vm_cache_requests_total", "type", []string{"indexdb/indexBlocks", "indexdb/tagFiltersToMetricIDs", "indexdb/tagFiltersLoops", "storage/hour_metric_ids", "storage/indexBlocks", "storage/tsid", "storage/metricIDs", "storage/metricName", "storage/regexps", "storage/regexpPrefixes", "promql/rollupResult"}, false, true},
 	{"cache_misses_total", "counter", "vm_cache_misses_total", "type", []string{"indexdb/indexBlocks", "indexdb/tagFiltersToMetricIDs", "indexdb/tagFiltersLoops", "storage/hour_metric_ids", "storage/indexBlocks", "storage/tsid", "storage/metricIDs", "storage/metricName", "storage/regexps", "storage/regexpPrefixes", "promql/rollupResult"}, false, true},
 	{"cache_entries", "gauge", "vm_cache_entries", "type", []string{"indexdb/indexBlocks", "indexdb/tagFiltersToMetricIDs", "indexdb/tagFiltersLoops", "storage/indexBlocks", "storage/tsid", "storage/metricIDs", "storage/metricName", "storage/regexps", "storage/regexpPrefixes", "promql/rollupResult"}, false, true},
+	{"process_cpu_seconds_total", "counter", "process_cpu_seconds_total", "", []string{""}, false, false},
+	{"process_resident_memory_bytes", "gauge", "process_resident_memory_bytes", "", []string{""}, false, false},
+	{"go_heap_alloc_bytes", "gauge", "go_memstats_heap_alloc_bytes", "", []string{""}, false, false},
+	{"go_heap_sys_bytes", "gauge", "go_memstats_heap_sys_bytes", "", []string{""}, false, false},
+	{"go_gc_cycles_total", "counter", "go_gc_duration_seconds_count", "", []string{""}, false, false},
+	{"go_gc_pause_seconds_total", "counter", "go_gc_duration_seconds_sum", "", []string{""}, false, false},
+	{"go_goroutines", "gauge", "go_goroutines", "", []string{""}, false, false},
+	{"go_threads", "gauge", "go_threads", "", []string{""}, false, false},
 }
 
 func Collect(ctx context.Context, c *Client) (string, error) {
