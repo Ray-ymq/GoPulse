@@ -91,3 +91,15 @@ func TestV2ProducerAndHistoricalRedisIdentity(t *testing.T) {
 		t.Fatal("invalid record blocked following valid record", err)
 	}
 }
+
+func TestDecodeNewMetricBatch(t *testing.T) {
+	now := time.Date(2026, 9, 4, 1, 2, 3, 123000000, time.UTC)
+	body := fmt.Sprintf(`{"schema_version":2,"message_id":"%s","type":"metrics","source":"redis","timestamp":"%s","payload":{"dataid":1001,"time":%d,"timestamp":%d,"data":[{"dimension":{},"metrics":{"gopulse_redis_up":1},"timestamp":%d}]}}`, testID, now.Format(time.RFC3339Nano), now.Unix(), now.Unix(), now.UnixMilli())
+	message, err := (Decoder{Now: func() time.Time { return now }}).Decode([]byte(testID), []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.SchemaVersion != 2 || len(message.Payload.Data) != 1 || message.Payload.Data[0].Metrics["gopulse_redis_up"].String() != "1" {
+		t.Fatalf("unexpected metric batch: %+v", message.Payload)
+	}
+}

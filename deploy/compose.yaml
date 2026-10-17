@@ -194,8 +194,8 @@ x-marshaller-environment: &marshaller-environment
   MARSHALLER_HTTP_PORT: 9093
   MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
   MARSHALLER_KAFKA_BROKERS: kafka:19092
-  MARSHALLER_KAFKA_TOPIC: ${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-v1}
-  MARSHALLER_KAFKA_GROUP: ${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}
+  MARSHALLER_KAFKA_TOPIC: ${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-metrics}
+  MARSHALLER_KAFKA_GROUP: ${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics}
   MARSHALLER_KAFKA_COMMIT_TIMEOUT: ${MARSHALLER_KAFKA_COMMIT_TIMEOUT:-3s}
   MARSHALLER_KAFKA_MIN_PARTITIONS: ${MARSHALLER_KAFKA_MIN_PARTITIONS:-4}
   MARSHALLER_MAX_IN_FLIGHT: ${MARSHALLER_MAX_IN_FLIGHT:-8}
@@ -254,6 +254,10 @@ x-monitor-environment: &monitor-environment
   MONITOR_SCRAPE_INTERVAL: ${MONITOR_SCRAPE_INTERVAL:-15s}
   MONITOR_SCRAPE_TIMEOUT: ${MONITOR_SCRAPE_TIMEOUT:-3s}
   MONITOR_PUBLISH_TIMEOUT: ${MONITOR_PUBLISH_TIMEOUT:-3s}
+  MONITOR_KAFKA_BROKERS: kafka:19092
+  MONITOR_KAFKA_PRODUCE_TIMEOUT: ${MONITOR_KAFKA_PRODUCE_TIMEOUT:-3s}
+  MONITOR_KAFKA_MAX_BUFFERED_RECORDS: ${MONITOR_KAFKA_MAX_BUFFERED_RECORDS:-128}
+  MONITOR_KAFKA_MAX_BUFFERED_BYTES: ${MONITOR_KAFKA_MAX_BUFFERED_BYTES:-8388608}
   MONITOR_LOG_MAX_BYTES: ${MONITOR_LOG_MAX_BYTES:-65536}
   MONITOR_LOG_FUTURE_SKEW: ${MONITOR_LOG_FUTURE_SKEW:-5m}
   MONITOR_EVENT_QUEUE_CAPACITY: ${MONITOR_EVENT_QUEUE_CAPACITY:-256}
@@ -829,10 +833,12 @@ services:
       - /bin/bash
       - -ec
       - >-
+        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events
+        gopulse-observability-metrics-dlq gopulse-observability-logs-dlq gopulse-observability-events-dlq; do
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
-        --topic gopulse-observability-v1 --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1 &&
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe
-        --topic gopulse-observability-v1
+        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1;
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic "$${topic}";
+        done
     networks:
       - observability
 
@@ -959,6 +965,8 @@ services:
       io.gopulse.runtime.ownership: single-owner
       io.gopulse.runtime.diagnostic: direct-private-probe
     depends_on:
+      kafka-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:

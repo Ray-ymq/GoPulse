@@ -76,7 +76,22 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		_ = internalMetrics.Shutdown(shutdown)
 	}()
-	var messagePublisher publisher.Transport = publisher.Discard{}
+	messagePublisher, err := publisher.NewKafka(publisher.KafkaConfig{
+		Brokers:            cfg.KafkaBrokers,
+		ProduceTimeout:     cfg.KafkaProduceTimeout,
+		MaxBufferedRecords: cfg.KafkaMaxBufferedRecords,
+		MaxBufferedBytes:   cfg.KafkaMaxBufferedBytes,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		if closeErr := messagePublisher.Close(closeCtx); closeErr != nil {
+			logger.Warn("Kafka publisher shutdown failed", "module", "publisher", "event", "shutdown_failed")
+		}
+		cancel()
+	}()
 	eventMonitor, err := events.NewMonitor(events.Config{Capacity: cfg.EventQueueCapacity, Timeout: cfg.PublishTimeout, RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: messagePublisher, Logger: logger})
 	if err != nil {
 		return err

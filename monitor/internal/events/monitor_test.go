@@ -49,6 +49,17 @@ func TestContractAndCanonicalEnvelope(t *testing.T) {
 		if err != nil || envelope.Payload.EventName != name || envelope.Timestamp != event.Timestamp {
 			t.Fatalf("%s decode=%+v err=%v", name, envelope, err)
 		}
+		var wire struct {
+			Payload struct {
+				DataID int `json:"dataid"`
+				Data   []struct {
+					EventName string `json:"event_name"`
+				} `json:"data"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(body, &wire); err != nil || wire.Payload.DataID != EventsDataID || len(wire.Payload.Data) != 1 || wire.Payload.Data[0].EventName != name {
+			t.Fatalf("%s is not a batch event: %s", name, body)
+		}
 	}
 	bad := testEvent("exporter_plugin_started")
 	bad.Message = "free text"

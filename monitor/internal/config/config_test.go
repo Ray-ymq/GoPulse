@@ -8,7 +8,7 @@ func TestLoadFromValidatesSecurityBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFrom() error = %v", err)
 	}
-	if cfg.HTTPAddress() != "127.0.0.1:9090" || cfg.ExporterHealthURL() != "http://127.0.0.1:9121/health" || cfg.ScrapeInterval.String() != "15s" || cfg.ScrapeTimeout.String() != "3s" {
+	if cfg.HTTPAddress() != "127.0.0.1:9090" || cfg.ExporterHealthURL() != "http://127.0.0.1:9121/health" || cfg.ScrapeInterval.String() != "15s" || cfg.ScrapeTimeout.String() != "3s" || len(cfg.KafkaBrokers) != 1 || cfg.KafkaBrokers[0] != "127.0.0.1:9092" || cfg.KafkaProduceTimeout.String() != "3s" || cfg.KafkaMaxBufferedRecords != 128 || cfg.KafkaMaxBufferedBytes != 8388608 {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
 	values["MONITOR_API_TOKEN"] = "short"

@@ -54,10 +54,10 @@ func TestPendingCiphertextCleanupIsOperationScoped(t *testing.T) {
 
 func TestValidKafkaOffsetsSupportsCurrentPartitionTopology(t *testing.T) {
 	offsets := []kafkaOffset{
-		{Topic: "gopulse-observability-v1", Partition: 0, Committed: 10, End: 10},
-		{Topic: "gopulse-observability-v1", Partition: 1, Committed: 11, End: 11},
-		{Topic: "gopulse-observability-v1", Partition: 2, Committed: 12, End: 12},
-		{Topic: "gopulse-observability-v1", Partition: 3, Committed: 13, End: 13},
+		{Topic: "gopulse-observability-metrics", Partition: 0, Committed: 10, End: 10},
+		{Topic: "gopulse-observability-metrics", Partition: 1, Committed: 11, End: 11},
+		{Topic: "gopulse-observability-metrics", Partition: 2, Committed: 12, End: 12},
+		{Topic: "gopulse-observability-metrics", Partition: 3, Committed: 13, End: 13},
 	}
 	if !validKafkaOffsets(offsets, true) {
 		t.Fatal("current four-partition drained topology was rejected")
@@ -69,13 +69,13 @@ func TestValidKafkaOffsetsSupportsCurrentPartitionTopology(t *testing.T) {
 
 func TestValidKafkaOffsetsRejectsGapsAndUndrainedPartitions(t *testing.T) {
 	offsets := []kafkaOffset{
-		{Topic: "gopulse-observability-v1", Partition: 0, Committed: 10, End: 11},
-		{Topic: "gopulse-observability-v1", Partition: 2, Committed: 12, End: 12},
+		{Topic: "gopulse-observability-metrics", Partition: 0, Committed: 10, End: 11},
+		{Topic: "gopulse-observability-metrics", Partition: 2, Committed: 12, End: 12},
 	}
 	if validKafkaOffsets(offsets, false) {
 		t.Fatal("partition gap was accepted")
 	}
-	if validKafkaOffsets([]kafkaOffset{{Topic: "gopulse-observability-v1", Partition: 0, Committed: 10, End: 11}}, true) {
+	if validKafkaOffsets([]kafkaOffset{{Topic: "gopulse-observability-metrics", Partition: 0, Committed: 10, End: 11}}, true) {
 		t.Fatal("undrained partition was accepted")
 	}
 }

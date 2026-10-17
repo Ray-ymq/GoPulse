@@ -17,6 +17,7 @@ type Kafka struct {
 	Client        *kgo.Client
 	Ownership     *Ownership
 	Topic         string
+	DLQTopic      string
 	CommitTimeout time.Duration
 	MinPartitions int
 	MaxInFlight   int
@@ -40,6 +41,8 @@ func NewKafkaWithOptions(brokers []string, topic, group string, commitTimeout ti
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...), kgo.ClientID("gopulse-marshaller"), kgo.ConsumerGroup(group), kgo.ConsumeTopics(topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), kgo.DisableAutoCommit(),
+		kgo.RequiredAcks(kgo.AllISRAcks()), kgo.AllowIdempotentProduceCancellation(),
+		kgo.RecordDeliveryTimeout(commitTimeout),
 		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
 			ownership.Assign(convertPartitions(assigned))
 		}),
@@ -72,6 +75,22 @@ func (k *Kafka) Commit(ctx context.Context, record Record) error {
 	commitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return k.Client.CommitRecords(commitCtx, &kgo.Record{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset})
+}
+
+func (k *Kafka) DeadLetter(ctx context.Context, record Record, reason string) error {
+	if k.DLQTopic == "" {
+		return errors.New("Kafka DLQ topic is not configured")
+	}
+	result := k.Client.ProduceSync(ctx, &kgo.Record{
+		Topic: k.DLQTopic,
+		Key:   append([]byte(nil), record.Key...),
+		Value: append([]byte(nil), record.Value...),
+		Headers: []kgo.RecordHeader{{
+			Key:   "gopulse-rejection-code",
+			Value: []byte(reason),
+		}},
+	})
+	return result.FirstErr()
 }
 func (k *Kafka) Ready(ctx context.Context) (result error) {
 	defer func() { componentmetrics.Dependency("kafka", result) }()

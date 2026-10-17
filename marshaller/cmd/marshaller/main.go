@@ -57,12 +57,27 @@ func main() {
 		logger.Error("configuration invalid", "module", "lifecycle", "event", "startup_failed")
 		os.Exit(1)
 	}
-	ownership := consumer.NewOwnership()
-	kafka, err := consumer.NewKafkaWithOptions(cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaGroup, cfg.KafkaCommitTimeout, cfg.KafkaMinPartitions, cfg.MaxInFlight, ownership)
+	newKafka := func(topic, group string) (*consumer.Kafka, error) {
+		return consumer.NewKafkaWithOptions(cfg.KafkaBrokers, topic, group, cfg.KafkaCommitTimeout, cfg.KafkaMinPartitions, cfg.MaxInFlight, consumer.NewOwnership())
+	}
+	metricsKafka, err := newKafka(config.MetricsTopic, config.MetricsGroup)
 	if err != nil {
-		logger.Error("Kafka client initialization failed", "module", "consumer", "event", "startup_failed")
+		logger.Error("Kafka metrics client initialization failed", "module", "consumer", "event", "startup_failed")
 		os.Exit(1)
 	}
+	metricsKafka.DLQTopic = config.MetricsDLQ
+	logsKafka, err := newKafka(config.LogsTopic, config.LogsGroup)
+	if err != nil {
+		logger.Error("Kafka logs client initialization failed", "module", "consumer", "event", "startup_failed")
+		os.Exit(1)
+	}
+	logsKafka.DLQTopic = config.LogsDLQ
+	eventsKafka, err := newKafka(config.EventsTopic, config.EventsGroup)
+	if err != nil {
+		logger.Error("Kafka events client initialization failed", "module", "consumer", "event", "startup_failed")
+		os.Exit(1)
+	}
+	eventsKafka.DLQTopic = config.EventsDLQ
 	vm := victoriametrics.New(cfg.VMURL, cfg.VMUsername, cfg.VMPassword, cfg.VMTimeout)
 	var logStore *elasticsearch.Client
 	if cfg.RuntimeMode == config.RuntimeModeContainer {
@@ -114,25 +129,42 @@ func main() {
 			logger.Warn("retention cleanup item was not removed", "module", "lifecycle", "event", "retention_cleanup_blocked", "reason", item.Result)
 		}
 	})
-	processor := &consumer.Processor{
-		Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew},
-		Targets: map[string]consumer.Target{
-			"metrics/mysql":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"metrics/rabbitmq":        {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"metrics/kafka":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"metrics/elasticsearch":   {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"metrics/victoriametrics": {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"metrics/redis":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
-			"logs/backend":            {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
-			"logs/business-worker":    {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
-			"logs/search-indexer":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
-			"logs/search-reindex":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
-			"events/monitor":          {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024, Retention: &cfg.Retention.Events}, Writer: eventStore},
-		},
-		Committer: kafka, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, MaxRetrying: cfg.MaxRetrying, Logger: processorLogger{logger},
+	targets := map[string]consumer.Target{
+		"metrics/mysql":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+		"metrics/rabbitmq":        {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+		"metrics/kafka":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+		"metrics/elasticsearch":   {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+		"metrics/victoriametrics": {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+		"metrics/redis":           {Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm},
+		"logs/backend":            {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+		"logs/business-worker":    {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+		"logs/search-indexer":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+		"logs/search-reindex":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
+		"events/monitor":          {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024, Retention: &cfg.Retention.Events}, Writer: eventStore},
 	}
 	for _, id := range componentmetrics.Components {
-		processor.Targets["metrics/"+id] = consumer.Target{Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm}
+		targets["metrics/"+id] = consumer.Target{Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm}
+	}
+	newProcessor := func(expectedType string, committer consumer.Committer) *consumer.Processor {
+		return &consumer.Processor{
+			Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew}, ExpectedType: expectedType,
+			Targets: targets, Committer: committer, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, MaxRetrying: cfg.MaxRetrying, Logger: processorLogger{logger},
+		}
+	}
+	metricsProcessor := newProcessor("metrics", metricsKafka)
+	logsProcessor := newProcessor("logs", logsKafka)
+	eventsProcessor := newProcessor("events", eventsKafka)
+	metricsProcessor.DeadLetter = metricsKafka
+	logsProcessor.DeadLetter = logsKafka
+	eventsProcessor.DeadLetter = eventsKafka
+	kafkaStreams, err := consumer.NewSet(
+		consumer.Stream{Name: "metrics", Kafka: metricsKafka, Processor: metricsProcessor},
+		consumer.Stream{Name: "logs", Kafka: logsKafka, Processor: logsProcessor},
+		consumer.Stream{Name: "events", Kafka: eventsKafka, Processor: eventsProcessor},
+	)
+	if err != nil {
+		logger.Error("Kafka stream initialization failed", "module", "consumer", "event", "startup_failed")
+		os.Exit(1)
 	}
 	state, err := componentmetrics.New("marshaller")
 	if err != nil {
@@ -140,7 +172,7 @@ func main() {
 		os.Exit(1)
 	}
 	componentmetrics.Install(state)
-	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafka, storageReadiness{vm: vm, logs: logStore, events: eventStore}, logger)
+	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafkaStreams, storageReadiness{vm: vm, logs: logStore, events: eventStore}, logger)
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	releaseBudget := componentmetrics.BindShutdown(rootCtx, cfg.ShutdownTimeout)
@@ -165,7 +197,7 @@ func main() {
 		serveErrors <- server.ListenAndServe()
 	}()
 	go func() {
-		consumerDone <- kafka.Run(rootCtx, processor, func(message string, args ...any) { logger.Warn(message, args...) })
+		consumerDone <- kafkaStreams.Run(rootCtx, func(message string, args ...any) { logger.Warn(message, args...) })
 	}()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
@@ -195,7 +227,6 @@ func main() {
 	signal.Stop(signals)
 	probes.Stop()
 	cancel()
-	ownership.CancelAll()
 	shutdownCtx, shutdownCancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
 	defer shutdownCancel()
 	select {
@@ -210,7 +241,7 @@ func main() {
 	if err := internalMetrics.Shutdown(shutdownCtx); err != nil {
 		exitCode = 1
 	}
-	if err := kafka.Close(shutdownCtx); err != nil {
+	if err := kafkaStreams.Close(shutdownCtx); err != nil {
 		logger.Error("Kafka shutdown failed", "module", "consumer", "event", "shutdown_failed")
 		exitCode = 1
 	}

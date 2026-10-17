@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -64,7 +65,32 @@ func (c *EventsClient) Write(ctx context.Context, body []byte) error {
 	var request eventtransform.WriteRequest
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&request) != nil || !idPattern.MatchString(request.MessageID) || !datePattern.MatchString(request.IndexDate) || len(request.Document) == 0 {
+	if decoder.Decode(&request) != nil {
+		return errors.New("invalid event write request")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("invalid event write request")
+	}
+	if len(request.Items) > 0 {
+		if len(request.Items) > 256 || !idPattern.MatchString(request.MessageID) {
+			return errors.New("invalid event write request")
+		}
+		for _, item := range request.Items {
+			if !idPattern.MatchString(item.MessageID) || !datePattern.MatchString(item.IndexDate) || len(item.Document) == 0 {
+				return errors.New("invalid event write request")
+			}
+			itemBody, err := json.Marshal(eventtransform.WriteRequest{MessageID: item.MessageID, IndexDate: item.IndexDate, Document: item.Document})
+			if err != nil {
+				return errors.New("invalid event write request")
+			}
+			if err := c.Write(ctx, itemBody); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if !idPattern.MatchString(request.MessageID) || !datePattern.MatchString(request.IndexDate) || len(request.Document) == 0 {
 		return errors.New("invalid event write request")
 	}
 	if c.retention != nil {

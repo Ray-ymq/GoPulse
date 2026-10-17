@@ -1872,8 +1872,8 @@
           "type": "string",
           "sensitive": false,
           "required": false,
-          "default": "gopulse-marshaller-metrics-v1",
-          "compose_value": "${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}",
+          "default": "gopulse-marshaller-metrics",
+          "compose_value": "${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics}",
           "aliases": []
         },
         {
@@ -1890,8 +1890,8 @@
           "type": "string",
           "sensitive": false,
           "required": false,
-          "default": "gopulse-observability-v1",
-          "compose_value": "${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-v1}",
+          "default": "gopulse-observability-metrics",
+          "compose_value": "${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-metrics}",
           "aliases": []
         },
         {
@@ -2349,6 +2349,42 @@
           "required": false,
           "default": "9090",
           "compose_value": "9090",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_KAFKA_BROKERS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "kafka:19092",
+          "compose_value": "kafka:19092",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_KAFKA_MAX_BUFFERED_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "8388608",
+          "compose_value": "${MONITOR_KAFKA_MAX_BUFFERED_BYTES:-8388608}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_KAFKA_MAX_BUFFERED_RECORDS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "128",
+          "compose_value": "${MONITOR_KAFKA_MAX_BUFFERED_RECORDS:-128}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_KAFKA_PRODUCE_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "3s",
+          "compose_value": "${MONITOR_KAFKA_PRODUCE_TIMEOUT:-3s}",
           "aliases": []
         },
         {
@@ -4743,6 +4779,26 @@
     {
       "key": "MONITOR_HTTP_PORT",
       "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_KAFKA_BROKERS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_KAFKA_MAX_BUFFERED_BYTES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_KAFKA_MAX_BUFFERED_RECORDS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_KAFKA_PRODUCE_TIMEOUT",
+      "type": "duration",
       "sensitive": false
     },
     {
