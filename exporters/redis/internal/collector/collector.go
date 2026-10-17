@@ -48,6 +48,7 @@ type Snapshot struct {
 	NetworkInputBytesTotal  *uint64
 	NetworkOutputBytesTotal *uint64
 	CommandStats            map[string]CommandStats
+	CommandLatencyStats     map[string]CommandLatencyStats
 	Replication             ReplicationSnapshot
 	Persistence             PersistenceSnapshot
 }
@@ -95,6 +96,10 @@ type CommandStats struct {
 	FailedTotal       uint64
 }
 
+type CommandLatencyStats struct {
+	PercentilesUsec map[float64]float64
+}
+
 // TrackedCommands is deliberately finite. Redis exposes one commandstats
 // entry per command name, so exporting the complete section would make label
 // cardinality depend on application traffic.
@@ -121,7 +126,7 @@ type RedisCollector struct {
 func New(client infoClient, db int) *RedisCollector { return &RedisCollector{client: client, db: db} }
 
 func (c *RedisCollector) Collect(ctx context.Context) (Snapshot, error) {
-	info, err := c.client.Info(ctx, "server", "clients", "memory", "stats", "cpu", "keyspace", "commandstats", "replication", "persistence").Result()
+	info, err := c.client.Info(ctx, "server", "clients", "memory", "stats", "cpu", "keyspace", "commandstats", "latencystats", "replication", "persistence").Result()
 	if err != nil {
 		return Snapshot{}, classifyRedisError(ctx, err)
 	}
@@ -158,6 +163,7 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 	}
 	wanted := map[string]string{}
 	commandStats := map[string]CommandStats{}
+	commandLatencyStats := map[string]CommandLatencyStats{}
 	replicas := map[int]ReplicaSnapshot{}
 	tracked := make(map[string]bool, len(TrackedCommands))
 	for _, command := range TrackedCommands {
@@ -213,6 +219,24 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 					return Snapshot{}, err
 				}
 				commandStats[command] = stats
+			}
+		}
+		if strings.HasPrefix(name, "latency_percentiles_usec_") {
+			command := strings.TrimPrefix(name, "latency_percentiles_usec_")
+			if tracked[command] {
+				// Redis keeps the percentile field names in INFO even when
+				// latency tracking is disabled or no sample exists yet.
+				if strings.TrimSpace(value) == "" {
+					continue
+				}
+				if _, duplicate := commandLatencyStats[command]; duplicate {
+					return Snapshot{}, errors.New("duplicate latencystats field")
+				}
+				percentiles, err := parseCommandLatencyStats(value)
+				if err != nil {
+					return Snapshot{}, err
+				}
+				commandLatencyStats[command] = CommandLatencyStats{PercentilesUsec: percentiles}
 			}
 		}
 		if name == dbField {
@@ -291,6 +315,9 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 	}
 	if len(commandStats) > 0 {
 		snapshot.CommandStats = commandStats
+	}
+	if len(commandLatencyStats) > 0 {
+		snapshot.CommandLatencyStats = commandLatencyStats
 	}
 	snapshot.Replication, err = parseReplication(wanted, replicas)
 	if err != nil {
@@ -543,6 +570,55 @@ func parseCommandStats(value string) (CommandStats, error) {
 		return CommandStats{}, err
 	}
 	return CommandStats{CallsTotal: calls, DurationUsecTotal: usec, RejectedTotal: rejected, FailedTotal: failed}, nil
+}
+
+func parseCommandLatencyStats(value string) (map[float64]float64, error) {
+	parts := strings.Split(value, ",")
+	percentiles := make(map[float64]float64, len(parts))
+	if len(parts) == 0 {
+		return nil, errors.New("missing latencystats value")
+	}
+	for _, part := range parts {
+		key, raw, ok := strings.Cut(part, "=")
+		if !ok || !strings.HasPrefix(key, "p") || len(key) == 1 || raw == "" {
+			return nil, errors.New("invalid latencystats field")
+		}
+		quantile, err := parseLatencyQuantile(strings.TrimPrefix(key, "p"))
+		if err != nil {
+			return nil, err
+		}
+		usec, err := parseFloat(raw)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := percentiles[quantile]; duplicate {
+			return nil, errors.New("duplicate latencystats percentile")
+		}
+		percentiles[quantile] = usec
+	}
+	return percentiles, nil
+}
+
+func parseLatencyQuantile(value string) (float64, error) {
+	percent, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(percent) || math.IsInf(percent, 0) {
+		return 0, errors.New("invalid latencystats percentile")
+	}
+	quantile := percent / 100
+	if !strings.Contains(value, ".") && percent > 100 {
+		// Redis 7.0-compatible builds have emitted compact names such as p999
+		// for the configured 99.9th percentile. Keep accepting that spelling
+		// while the current 7.2 format emits p99.9.
+		if !strings.HasPrefix(value, "99") {
+			return 0, errors.New("invalid latencystats percentile")
+		}
+		quantile = percent / math.Pow10(len(value))
+	}
+	quantile = math.Round(quantile*1e6) / 1e6
+	if quantile < 0 || quantile > 1 {
+		return 0, errors.New("invalid latencystats percentile")
+	}
+	return quantile, nil
 }
 
 func optionalUint(values map[string]string, name string) (*uint64, error) {

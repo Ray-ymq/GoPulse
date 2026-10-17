@@ -167,6 +167,39 @@ func successFamilies(snapshot collector.Snapshot) []*dto.MetricFamily {
 			}
 		}
 	}
+	latencyCommands := make([]string, 0, len(snapshot.CommandLatencyStats))
+	for command := range snapshot.CommandLatencyStats {
+		if _, ok := snapshot.CommandStats[command]; ok {
+			latencyCommands = append(latencyCommands, command)
+		}
+	}
+	sort.Strings(latencyCommands)
+	latencySamples := make([]gaugeSample, 0)
+	latencyCounts := make([]counterSample, 0, len(latencyCommands))
+	latencySums := make([]gaugeSample, 0, len(latencyCommands))
+	for _, command := range latencyCommands {
+		stats := snapshot.CommandStats[command]
+		latencyCounts = append(latencyCounts, counterSample{Labels: map[string]string{"command": command}, Value: float64(stats.CallsTotal)})
+		latencySums = append(latencySums, gaugeSample{Labels: map[string]string{"command": command}, Value: float64(stats.DurationUsecTotal) / 1e6})
+		quantiles := make([]float64, 0, len(snapshot.CommandLatencyStats[command].PercentilesUsec))
+		for quantile := range snapshot.CommandLatencyStats[command].PercentilesUsec {
+			quantiles = append(quantiles, quantile)
+		}
+		sort.Float64s(quantiles)
+		for _, quantile := range quantiles {
+			latencySamples = append(latencySamples, gaugeSample{
+				Labels: map[string]string{"command": command, "quantile": strconv.FormatFloat(quantile, 'g', -1, 64)},
+				Value:  snapshot.CommandLatencyStats[command].PercentilesUsec[quantile] / 1e6,
+			})
+		}
+	}
+	if len(latencySamples) > 0 {
+		families = append(families,
+			gaugeSamplesFamily("gopulse_redis_command_latency_seconds", "Redis command latency percentiles in seconds for the configured latency-tracking window.", latencySamples),
+			counterSamplesFamily("gopulse_redis_command_latency_seconds_count", "Number of calls represented by the Redis command latency percentiles.", latencyCounts),
+			gaugeSamplesFamily("gopulse_redis_command_latency_seconds_sum", "Total command execution time represented by the Redis command latency percentiles in seconds.", latencySums),
+		)
+	}
 	if snapshot.Replication.Role != "" {
 		families = append(families, gaugeFamily("gopulse_redis_replication_role", "Current Redis replication role.", 1, map[string]string{"role": snapshot.Replication.Role}))
 	}
@@ -265,6 +298,11 @@ type gaugeSample struct {
 	Value  float64
 }
 
+type counterSample struct {
+	Labels map[string]string
+	Value  float64
+}
+
 func gaugeSamplesFamily(name, help string, samples []gaugeSample) *dto.MetricFamily {
 	gaugeType := dto.MetricType_GAUGE
 	metrics := make([]*dto.Metric, 0, len(samples))
@@ -272,6 +310,14 @@ func gaugeSamplesFamily(name, help string, samples []gaugeSample) *dto.MetricFam
 		metrics = append(metrics, &dto.Metric{Label: labelPairs(sample.Labels), Gauge: &dto.Gauge{Value: floatPtr(sample.Value)}})
 	}
 	return &dto.MetricFamily{Name: stringPtr(name), Help: stringPtr(help), Type: &gaugeType, Metric: metrics}
+}
+func counterSamplesFamily(name, help string, samples []counterSample) *dto.MetricFamily {
+	counterType := dto.MetricType_COUNTER
+	metrics := make([]*dto.Metric, 0, len(samples))
+	for _, sample := range samples {
+		metrics = append(metrics, &dto.Metric{Label: labelPairs(sample.Labels), Counter: &dto.Counter{Value: floatPtr(sample.Value)}})
+	}
+	return &dto.MetricFamily{Name: stringPtr(name), Help: stringPtr(help), Type: &counterType, Metric: metrics}
 }
 func counterFamily(name, help string, value float64, labels map[string]string, extra ...map[string]float64) *dto.MetricFamily {
 	counterType := dto.MetricType_COUNTER

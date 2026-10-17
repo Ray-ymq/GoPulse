@@ -251,8 +251,8 @@ var jmxMappings = []jmxMapping{
 	{name: "jvm_heap_used_bytes", kind: "gauge", upstream: []string{"java_lang_memory_heapmemoryusage_used", "java_lang_memory_heapmemoryusage_used_bytes", "jvm_memory_heap_used_bytes"}, scale: 1, labelAliases: map[string]string{}},
 	{name: "jvm_heap_max_bytes", kind: "gauge", upstream: []string{"java_lang_memory_heapmemoryusage_max", "java_lang_memory_heapmemoryusage_max_bytes", "jvm_memory_heap_max_bytes"}, scale: 1, labelAliases: map[string]string{}},
 	{name: "jvm_threads", kind: "gauge", upstream: []string{"java_lang_threading_threadcount", "jvm_threads"}, scale: 1, labelAliases: map[string]string{}},
-	{name: "jvm_gc_collections_total", kind: "counter", upstream: []string{"java_lang_garbagecollector_collectioncount", "jvm_gc_collections_total"}, scale: 1, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
-	{name: "jvm_gc_collection_time_seconds_total", kind: "counter", upstream: []string{"java_lang_garbagecollector_collectiontime"}, scale: 0.001, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
+	{name: "jvm_gc_collections_total", kind: "counter", upstream: []string{"java_lang_garbagecollector_collectioncount", "java_lang_garbagecollector_collectioncount_total", "jvm_gc_collections_total"}, scale: 1, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
+	{name: "jvm_gc_collection_time_seconds_total", kind: "counter", upstream: []string{"java_lang_garbagecollector_collectiontime", "java_lang_garbagecollector_collectiontime_total"}, scale: 0.001, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
 	{name: "jvm_gc_collection_time_seconds_total", kind: "counter", upstream: []string{"jvm_gc_collection_time_seconds_total"}, scale: 1, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
 }
 

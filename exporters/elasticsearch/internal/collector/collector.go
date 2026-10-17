@@ -248,11 +248,19 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 	var h health
 	var s stats
 	var ns nodeStatsResponse
-	if c.read(ctx, "/_cluster/health", &h) != nil || c.read(ctx, "/_stats/docs,store?level=cluster", &s) != nil || c.read(ctx, "/_nodes/stats/jvm,thread_pool,indices,fs,breakers", &ns) != nil {
+	if c.read(ctx, "/_cluster/health", &h) != nil || c.read(ctx, "/_stats/docs,store?level=cluster", &s) != nil || c.read(ctx, "/_nodes/stats/jvm,thread_pool,indices,fs,breaker", &ns) != nil {
 		return "", ErrUnavailable
 	}
 	if h.TimedOut == nil || *h.TimedOut || (h.Status != "green" && h.Status != "yellow" && h.Status != "red") || s.Shards.Total == nil || s.Shards.Successful == nil || s.Shards.Failed == nil || *s.Shards.Failed != 0 || len(ns.Nodes) == 0 || len(ns.Nodes) > 128 {
 		return "", ErrUnavailable
+	}
+	// Elasticsearch returns an empty _all.primaries object when a fresh
+	// cluster has no user indices. That is a valid zero-valued snapshot, not a
+	// malformed response.
+	if *s.Shards.Total == 0 && *s.Shards.Successful == 0 {
+		zero := uint64(0)
+		s.All.Primaries.Docs.Count = &zero
+		s.All.Primaries.Store.Bytes = &zero
 	}
 	var samples []sample
 	addSample(&samples, "gopulse_elasticsearch_up", "gauge", "1", nil)

@@ -210,6 +210,7 @@ func validateBuckets(samples []Sample, seen map[string]Sample) error {
 
 var unitOverrides = map[string]string{
 	"gopulse_redis_blocked_clients":                         "count",
+	"gopulse_redis_command_latency_seconds_count":           "count",
 	"gopulse_redis_memory_fragmentation_ratio":              "none",
 	"gopulse_redis_replication_role":                        "state",
 	"gopulse_redis_replication_connected_replicas":          "count",
@@ -337,7 +338,7 @@ func Unit(name, kind string) string {
 	if unit, ok := unitOverrides[name]; ok {
 		return unit
 	}
-	base := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(name, "_total"), "_sum"), "_bucket")
+	base := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(name, "_total"), "_sum"), "_bucket"), "_count")
 	switch {
 	case strings.HasSuffix(base, "_timestamp_seconds"):
 		return "unix_seconds"

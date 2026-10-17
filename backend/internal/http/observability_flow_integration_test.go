@@ -4,9 +4,11 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -16,10 +18,28 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 func TestObservabilityFlowIntegration(t *testing.T) {
 	cfg := integrationtest.ObservabilityEnvironment(t)
+	redisClient := goredis.NewClient(&goredis.Options{
+		Addr:     net.JoinHostPort(cfg.Redis.Host, fmt.Sprintf("%d", cfg.Redis.Port)),
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
+	redisCtx, redisCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer redisCancel()
+	for i := 0; i < 8; i++ {
+		key := fmt.Sprintf("gopulse:observability:latency:%d", i)
+		if err := redisClient.Set(redisCtx, key, "acceptance", time.Minute).Err(); err != nil {
+			t.Fatalf("seed Redis SET for latency acceptance: %v", err)
+		}
+		if _, err := redisClient.Get(redisCtx, key).Result(); err != nil {
+			t.Fatalf("seed Redis GET for latency acceptance: %v", err)
+		}
+	}
 	adminUsername := mustObserveEnv(t, "OBSERVE_ADMIN_USERNAME")
 	adminPassword := mustObserveEnv(t, "OBSERVE_ADMIN_PASSWORD")
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.HTTPPort)
@@ -129,6 +149,34 @@ func TestObservabilityFlowIntegration(t *testing.T) {
 		return false
 	})
 
+	waitObserve(t, 90*time.Second, func() bool {
+		status, body := observeJSON(t, admin, http.MethodGet, baseURL+"/api/v1/observability/metrics?metric=gopulse_redis_command_latency_seconds&command=get&quantile=0.999", "", "")
+		if status != http.StatusOK {
+			return false
+		}
+		var result struct {
+			Data struct {
+				Unit   string `json:"unit"`
+				Series []struct {
+					Labels map[string]string `json:"labels"`
+					Points []struct {
+						Value float64 `json:"value"`
+					} `json:"points"`
+				} `json:"series"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(body, &result) != nil || result.Data.Unit != "seconds" {
+			return false
+		}
+		for _, series := range result.Data.Series {
+			if series.Labels["command"] != "get" || series.Labels["quantile"] != "0.999" || len(series.Points) == 0 {
+				continue
+			}
+			return series.Points[len(series.Points)-1].Value >= 0
+		}
+		return false
+	})
+
 	requestID := fmt.Sprintf("%032x", time.Now().UnixNano())
 	if status, body := observeJSON(t, user, http.MethodGet, baseURL+"/api/v1/posts", "", requestID); status != http.StatusOK {
 		t.Fatalf("request that seeds log status=%d body=%s", status, body)
@@ -231,7 +279,7 @@ func TestObservabilityFlowIntegration(t *testing.T) {
 		}
 		return stopped && started
 	})
-	t.Logf("observability flow passed request_id=%s action_at=%s metric=redis logs=backend events=plugin lifecycle", requestID, actionAt.Format(time.RFC3339Nano))
+	t.Logf("observability flow passed request_id=%s action_at=%s metric=redis+latency logs=backend events=plugin lifecycle", requestID, actionAt.Format(time.RFC3339Nano))
 }
 
 func newObserveClient(t *testing.T) *http.Client {

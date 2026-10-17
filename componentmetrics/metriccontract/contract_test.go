@@ -82,6 +82,9 @@ func TestHistogramIntegrityDoesNotDependOnFixedBuckets(t *testing.T) {
 func TestUnitOverridesCoverExporterDimensions(t *testing.T) {
 	for name, want := range map[string]string{
 		"gopulse_redis_blocked_clients":                         "count",
+		"gopulse_redis_command_latency_seconds":                 "seconds",
+		"gopulse_redis_command_latency_seconds_count":           "count",
+		"gopulse_redis_command_latency_seconds_sum":             "seconds",
 		"gopulse_redis_replication_role":                        "state",
 		"gopulse_redis_replica_offset":                          "bytes",
 		"gopulse_redis_aof_enabled":                             "boolean",

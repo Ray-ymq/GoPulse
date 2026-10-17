@@ -117,6 +117,10 @@ java_lang_memory_heapmemoryusage_used 200
 java_lang_garbagecollector_collectiontime{name="G1 Young"} 12
 # TYPE java_lang_garbagecollector_collectioncount counter
 java_lang_garbagecollector_collectioncount{name="G1 Young"} 3
+# TYPE java_lang_garbagecollector_collectioncount_total counter
+java_lang_garbagecollector_collectioncount_total{gc="G1 Old Generation"} 4
+# TYPE java_lang_garbagecollector_collectiontime_total counter
+java_lang_garbagecollector_collectiontime_total{gc="G1 Old Generation"} 8
 # TYPE gopulse_fake_metric gauge
 gopulse_fake_metric 999
 `) + "\n"))
@@ -136,6 +140,8 @@ gopulse_fake_metric 999
 		"gopulse_kafka_jvm_heap_used_bytes 200",
 		`gopulse_kafka_jvm_gc_collection_time_seconds_total{gc="G1 Young"} 0.012`,
 		`gopulse_kafka_jvm_gc_collections_total{gc="G1 Young"} 3`,
+		`gopulse_kafka_jvm_gc_collection_time_seconds_total{gc="G1 Old Generation"} 0.008`,
+		`gopulse_kafka_jvm_gc_collections_total{gc="G1 Old Generation"} 4`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q in %s", want, body)

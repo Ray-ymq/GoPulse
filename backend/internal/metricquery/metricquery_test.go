@@ -70,6 +70,26 @@ func TestMetricSelectorsAreScopedAndSampleTimeIsReturned(t *testing.T) {
 	}
 }
 
+func TestRedisCommandLatencyQuantileQueryPreservesSecondsAndLabels(t *testing.T) {
+	options, err := ParseOptions(url.Values{"metric": {"gopulse_redis_command_latency_seconds"}, "command": {"get"}, "quantile": {"0.999"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.Definition.Unit != "seconds" || options.Definition.Kind != "gauge" || len(options.Definition.LabelKeys) != 2 {
+		t.Fatalf("unexpected latency definition: %#v", options.Definition)
+	}
+	upstream := &stubUpstream{body: []byte(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"gopulse_redis_command_latency_seconds","source":"redis","target_id":"redis-exporter-local","command":"get","quantile":"0.999"},"values":[[1788595200,"0.00000975"]]}]}}`)}
+	service := NewService(upstream)
+	service.now = func() time.Time { return time.Date(2026, 9, 5, 8, 15, 0, 0, time.UTC) }
+	result, err := service.Query(context.Background(), options)
+	if err != nil || result.Unit != "seconds" || len(result.Series) != 1 || result.Series[0].Labels["quantile"] != "0.999" || result.Series[0].Points[0].Value != 0.00000975 {
+		t.Fatalf("unexpected latency result: %#v, %v", result, err)
+	}
+	if upstream.query != `gopulse_redis_command_latency_seconds{source="redis",target_id="redis-exporter-local",command="get",quantile="0.999"}` {
+		t.Fatalf("query=%q", upstream.query)
+	}
+}
+
 func TestDerivedRateHandlesCounterReset(t *testing.T) {
 	options, err := ParseOptions(url.Values{"metric": {"gopulse_redis_commands_qps"}, "range": {"15m"}})
 	if err != nil {

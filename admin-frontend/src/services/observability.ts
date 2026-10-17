@@ -46,6 +46,7 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_redis_connection_usage_ratio', label: 'Redis 连接使用率' },
   { value: 'gopulse_redis_memory_usage_ratio', label: 'Redis 内存使用率' },
   { value: 'gopulse_redis_command_average_duration_seconds', label: 'Redis 分命令平均耗时' },
+  { value: 'gopulse_redis_command_latency_seconds', label: 'Redis 分命令延迟分位数' },
   { value: 'gopulse_mysql_up', label: 'mysql up' },
   { value: 'gopulse_mysql_uptime_seconds', label: 'mysql uptime_seconds' },
   { value: 'gopulse_mysql_connections', label: 'mysql connections' },

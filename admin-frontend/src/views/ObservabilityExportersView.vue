@@ -130,7 +130,7 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
           <label v-for="field in selectedItem.schema.fields" :key="field.name" class="field"><span>{{fieldLabel(field.name)}} <span v-if="field.required" class="required">*</span></span>
             <input v-if="field.secret" v-model="password" type="password" autocomplete="new-password" :aria-label="field.name" :disabled="busy">
             <input v-else-if="field.type==='port'||field.type==='integer'" v-model.number="configuration[field.name]" type="number" :min="field.minimum" :max="field.maximum" :aria-label="field.name" :disabled="busy">
-            <input v-else v-model="configuration[field.name]" :aria-label="field.name" :disabled="busy">
+            <input v-else v-model="configuration[field.name]" :type="field.type==='url'?'url':'text'" :aria-label="field.name" :disabled="busy">
           </label>
           <div class="exporter-actions configuration-actions"><button class="button button--secondary" type="button" :disabled="busy || (selectedItem.schema.fields.some(field=>field.secret&&field.required)&&!password)" @click="configure('check')"><AdminIcon name="link" />{{operation==='check'?'测试中…':'连接测试'}}</button><button v-if="!status" class="button" type="button" :disabled="busy || (selectedItem.schema.fields.some(field=>field.secret&&field.required)&&!password)" @click="configure('install')"><AdminIcon name="save" />安装并启动</button><button v-else class="button" type="button" :disabled="busy||selectedItem.summary==='upgrade_required'" @click="configure('save')"><AdminIcon name="save" />替换配置</button></div>
         </div>

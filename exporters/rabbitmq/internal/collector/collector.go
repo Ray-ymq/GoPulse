@@ -119,7 +119,7 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 	var channels []scoped
 	var queues []queue
 	var nodes []node
-	if c.read(ctx, "/api/vhosts/%2F/connections", &connections) != nil || connections == nil || c.read(ctx, "/api/vhosts/%2F/channels", &channels) != nil || channels == nil || c.read(ctx, "/api/queues/%2F", &queues) != nil || queues == nil || c.read(ctx, "/api/nodes", &nodes) != nil || nodes == nil || len(nodes) == 0 {
+	if c.read(ctx, "/api/vhosts/%2F/connections", &connections) != nil || connections == nil || c.read(ctx, "/api/vhosts/%2F/channels", &channels) != nil || channels == nil || c.read(ctx, "/api/queues/%2F", &queues) != nil || queues == nil || c.read(ctx, "/api/nodes?columns=name,mem_used,mem_limit,disk_free,disk_free_limit,fd_used,fd_total,proc_used,proc_total,mem_alarm,disk_free_alarm,io_read_count,io_write_count,io_sync_count,io_seek_count,io_reopen_count,io_read_avg_time,io_write_avg_time,io_sync_avg_time,io_seek_avg_time,io_reopen_avg_time", &nodes) != nil || nodes == nil || len(nodes) == 0 {
 		return "", ErrUnavailable
 	}
 	for _, item := range connections {
@@ -214,7 +214,7 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 		hasMemoryAlarm = hasMemoryAlarm || n.MemoryAlarm != nil
 		hasDiskAlarm = hasDiskAlarm || n.DiskFreeAlarm != nil
 		hasNodeIOOperations = hasNodeIOOperations || n.IOReadCount != nil || n.IOWriteCount != nil || n.IOSyncCount != nil || n.IOSeekCount != nil || n.IOReopenCount != nil
-		hasNodeIOAverage = hasNodeIOAverage || validAverageMicroseconds(n.IOReadAvg) || validAverageMicroseconds(n.IOWriteAvg) || validAverageMicroseconds(n.IOSyncAvg) || validAverageMicroseconds(n.IOSeekAvg) || validAverageMicroseconds(n.IOReopenAvg)
+		hasNodeIOAverage = hasNodeIOAverage || validAverageMilliseconds(n.IOReadAvg) || validAverageMilliseconds(n.IOWriteAvg) || validAverageMilliseconds(n.IOSyncAvg) || validAverageMilliseconds(n.IOSeekAvg) || validAverageMilliseconds(n.IOReopenAvg)
 	}
 	fmt.Fprint(&b, "# TYPE gopulse_rabbitmq_queue_messages gauge\n# TYPE gopulse_rabbitmq_queue_consumers gauge\n# TYPE gopulse_rabbitmq_queue_messages_total counter\n")
 	if hasQueueMemory {
@@ -310,8 +310,8 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 			if item.count != nil {
 				fmt.Fprintf(&b, "gopulse_rabbitmq_node_io_operations_total{node_id=%q,operation=%q} %d\n", n.Name, item.operation, *item.count)
 			}
-			if validAverageMicroseconds(item.average) {
-				fmt.Fprintf(&b, "gopulse_rabbitmq_node_io_average_duration_seconds{node_id=%q,operation=%q} %s\n", n.Name, item.operation, strconv.FormatFloat(*item.average/1e6, 'g', -1, 64))
+			if validAverageMilliseconds(item.average) {
+				fmt.Fprintf(&b, "gopulse_rabbitmq_node_io_average_duration_seconds{node_id=%q,operation=%q} %s\n", n.Name, item.operation, strconv.FormatFloat(*item.average/1000, 'g', -1, 64))
 			}
 		}
 	}
@@ -334,7 +334,7 @@ func nodeIOMetrics(n node) []nodeIOMetric {
 	}
 }
 
-func validAverageMicroseconds(value *float64) bool {
+func validAverageMilliseconds(value *float64) bool {
 	return value != nil && *value >= 0 && !math.IsNaN(*value) && !math.IsInf(*value, 0)
 }
 

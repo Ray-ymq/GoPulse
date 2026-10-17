@@ -4068,7 +4068,7 @@ components:
         name: {type: string}
         type:
           type: string
-          enum: [hostname, port, integer, string, secret, duration]
+          enum: [hostname, port, integer, string, secret, duration, url]
         required: {type: boolean}
         secret: {type: boolean}
         minimum: {type: integer}

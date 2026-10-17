@@ -30,6 +30,9 @@ var Presets = func() []Definition {
 		{Metric: "gopulse_redis_command_duration_seconds_total", Kind: "counter", Unit: "seconds", label: "command"},
 		{Metric: "gopulse_redis_command_rejected_total", Kind: "counter", Unit: "count", label: "command"},
 		{Metric: "gopulse_redis_command_failed_total", Kind: "counter", Unit: "count", label: "command"},
+		{Metric: "gopulse_redis_command_latency_seconds", Kind: "gauge", Unit: "seconds", LabelKeys: []string{"command", "quantile"}},
+		{Metric: "gopulse_redis_command_latency_seconds_count", Kind: "counter", Unit: "count", label: "command"},
+		{Metric: "gopulse_redis_command_latency_seconds_sum", Kind: "gauge", Unit: "seconds", label: "command"},
 	}
 	for i := range items {
 		items[i].Source = "redis"

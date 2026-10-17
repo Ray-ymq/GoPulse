@@ -84,7 +84,7 @@ export function isPluginCatalog(value: unknown): value is PluginCatalogItem[] {
     return item.schema.fields.length > 0 && item.schema.fields.length <= 64 && item.schema.fields.every((field: unknown) => {
       if (!isRecord(field) || !exactKeys(field, ['name','type','required','secret'], ['minimum','maximum','enum']) || typeof field.name !== 'string' || !/^[a-z][a-z0-9_]{0,127}$/.test(field.name) || names.has(field.name)) return false
       names.add(field.name)
-      return ['hostname','port','integer','string','secret','duration'].includes(String(field.type)) && typeof field.required === 'boolean' && typeof field.secret === 'boolean' && field.secret === (field.type === 'secret') && (field.minimum === undefined || Number.isInteger(field.minimum)) && (field.maximum === undefined || Number.isInteger(field.maximum)) && (field.enum === undefined || Array.isArray(field.enum) && field.enum.every((v: unknown) => typeof v === 'string'))
+      return ['hostname','port','integer','string','secret','duration','url'].includes(String(field.type)) && typeof field.required === 'boolean' && typeof field.secret === 'boolean' && field.secret === (field.type === 'secret') && (field.minimum === undefined || Number.isInteger(field.minimum)) && (field.maximum === undefined || Number.isInteger(field.maximum)) && (field.enum === undefined || Array.isArray(field.enum) && field.enum.every((v: unknown) => typeof v === 'string'))
     })
   })
 }

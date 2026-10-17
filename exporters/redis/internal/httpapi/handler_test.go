@@ -46,17 +46,62 @@ func TestHealthDoesNotCollect(t *testing.T) {
 func TestMetricsSuccessEncodesFixedFamilies(t *testing.T) {
 	maxMemory, rss, fragmentation := uint64(100), uint64(42), 1.25
 	maxClients := uint64(100)
-	source := &fakeCollector{snapshot: collector.Snapshot{UptimeSeconds: 5, ConnectedClients: 2, UsedMemoryBytes: 42, CommandsProcessedTotal: 11, KeyspaceHitsTotal: 7, KeyspaceMissesTotal: 3, CPUUserSeconds: 1.5, CPUSystemSeconds: .5, DB: 2, DBKeys: 4, DBExpiringKeys: 1, MaxMemoryBytes: &maxMemory, MaxClients: &maxClients, UsedMemoryRSSBytes: &rss, MemoryFragmentation: &fragmentation, CommandStats: map[string]collector.CommandStats{"get": {CallsTotal: 3, DurationUsecTotal: 500000, RejectedTotal: 1, FailedTotal: 2}}}}
+	source := &fakeCollector{snapshot: collector.Snapshot{UptimeSeconds: 5, ConnectedClients: 2, UsedMemoryBytes: 42, CommandsProcessedTotal: 11, KeyspaceHitsTotal: 7, KeyspaceMissesTotal: 3, CPUUserSeconds: 1.5, CPUSystemSeconds: .5, DB: 2, DBKeys: 4, DBExpiringKeys: 1, MaxMemoryBytes: &maxMemory, MaxClients: &maxClients, UsedMemoryRSSBytes: &rss, MemoryFragmentation: &fragmentation, CommandStats: map[string]collector.CommandStats{"get": {CallsTotal: 3, DurationUsecTotal: 500000, RejectedTotal: 1, FailedTotal: 2}}, CommandLatencyStats: map[string]collector.CommandLatencyStats{"get": {PercentilesUsec: map[float64]float64{0.5: 5, 0.99: 7.5}}}}}
 	response := httptest.NewRecorder()
 	New(source, time.Second, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := response.Body.String()
 	if response.Code != http.StatusOK || source.calls != 1 || response.Header().Get("Content-Type") != metricsContentType || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d calls=%d headers=%v", response.Code, source.calls, response.Header())
 	}
-	for _, sample := range []string{"gopulse_redis_up 1", "gopulse_redis_commands_processed_total 11", `gopulse_redis_cpu_seconds_total{mode="user"} 1.5`, `gopulse_redis_cpu_seconds_total{mode="system"} 0.5`, `gopulse_redis_db_keys{db="2"} 4`, "gopulse_redis_maxmemory_bytes 100", "gopulse_redis_max_clients 100", "gopulse_redis_used_memory_rss_bytes 42", "gopulse_redis_memory_fragmentation_ratio 1.25", `gopulse_redis_command_calls_total{command="get"} 3`, `gopulse_redis_command_duration_seconds_total{command="get"} 0.5`} {
+	for _, sample := range []string{"gopulse_redis_up 1", "gopulse_redis_commands_processed_total 11", `gopulse_redis_cpu_seconds_total{mode="user"} 1.5`, `gopulse_redis_cpu_seconds_total{mode="system"} 0.5`, `gopulse_redis_db_keys{db="2"} 4`, "gopulse_redis_maxmemory_bytes 100", "gopulse_redis_max_clients 100", "gopulse_redis_used_memory_rss_bytes 42", "gopulse_redis_memory_fragmentation_ratio 1.25", `gopulse_redis_command_calls_total{command="get"} 3`, `gopulse_redis_command_duration_seconds_total{command="get"} 0.5`, `gopulse_redis_command_latency_seconds_count{command="get"} 3`, `gopulse_redis_command_latency_seconds_sum{command="get"} 0.5`} {
 		if !strings.Contains(body, sample) {
 			t.Fatalf("missing %q in:\n%s", sample, body)
 		}
+	}
+	parser := expfmt.NewTextParser(model.LegacyValidation)
+	families, err := parser.TextToMetricFamilies(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("metrics response cannot be parsed: %v", err)
+	}
+	latency := families["gopulse_redis_command_latency_seconds"]
+	if latency == nil || len(latency.Metric) != 2 {
+		t.Fatalf("unexpected latency family: %#v", latency)
+	}
+	for _, metric := range latency.Metric {
+		labels := make(map[string]string, len(metric.Label))
+		for _, label := range metric.Label {
+			labels[label.GetName()] = label.GetValue()
+		}
+		if labels["command"] != "get" {
+			t.Fatalf("unexpected latency labels: %v", labels)
+		}
+		if labels["quantile"] == "0.5" && metric.Gauge.GetValue() != 5e-6 {
+			t.Fatalf("unexpected p50: %v", metric)
+		}
+	}
+}
+
+func TestMetricsCommandLatencySharesSummaryContract(t *testing.T) {
+	source := &fakeCollector{snapshot: collector.Snapshot{
+		CommandStats:        map[string]collector.CommandStats{"get": {CallsTotal: 4, DurationUsecTotal: 120000}},
+		CommandLatencyStats: map[string]collector.CommandLatencyStats{"get": {PercentilesUsec: map[float64]float64{0.5: 3, 0.999: 9}}},
+	}}
+	response := httptest.NewRecorder()
+	New(source, time.Second, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	parser := expfmt.NewTextParser(model.LegacyValidation)
+	families, err := parser.TextToMetricFamilies(strings.NewReader(response.Body.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	latency := families["gopulse_redis_command_latency_seconds"]
+	if latency == nil || latency.GetType() != dto.MetricType_GAUGE || len(latency.Metric) != 2 {
+		t.Fatalf("unexpected latency family: %#v", latency)
+	}
+	if families["gopulse_redis_command_latency_seconds_count"].GetMetric()[0].GetCounter().GetValue() != 4 || families["gopulse_redis_command_latency_seconds_sum"].GetMetric()[0].GetGauge().GetValue() != .12 {
+		t.Fatalf("summary count/sum mismatch: %#v", families)
 	}
 }
 

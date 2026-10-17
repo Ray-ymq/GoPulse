@@ -383,7 +383,7 @@ func validConfigField(field configField) bool {
 		return false
 	}
 	switch field.Type {
-	case "hostname", "port", "integer", "string", "secret", "duration":
+	case "hostname", "port", "integer", "string", "secret", "duration", "url":
 	default:
 		return false
 	}
