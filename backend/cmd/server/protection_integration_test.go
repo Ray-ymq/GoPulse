@@ -191,6 +191,7 @@ type protectionResult struct {
 type protectionInstance struct {
 	server   *httptest.Server
 	assembly *roleAssembly
+	name     string
 	address  string
 	closed   bool
 }
@@ -216,11 +217,21 @@ func startProtectionAssembly(t *testing.T, base []string, instance, redisPort st
 	if err != nil {
 		t.Fatalf("load protection instance configuration: %v", err)
 	}
-	assembly, err := newRoleAssembly(cfg, logging.Discard("backend"), context.Background())
-	if err != nil {
-		t.Fatalf("assemble protection instance %s: %v", instance, err)
+	var assembly *roleAssembly
+	for attempt := 0; attempt < 3; attempt++ {
+		assembly, err = newRoleAssembly(cfg, logging.Discard("backend"), context.Background())
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "invalid connection") || attempt == 2 {
+			t.Fatalf("assemble protection instance %s: %v", instance, err)
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
-	instanceServer := &protectionInstance{server: httptest.NewServer(assembly.router), assembly: assembly}
+	instanceServer := &protectionInstance{server: httptest.NewServer(assembly.router), assembly: assembly, name: "server-1"}
+	if strings.HasSuffix(instance, "-2") {
+		instanceServer.name = "server-2"
+	}
 	instanceServer.address = instanceServer.server.URL
 	t.Cleanup(instanceServer.close)
 	return instanceServer

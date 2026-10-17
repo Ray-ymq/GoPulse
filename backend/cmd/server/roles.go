@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -68,6 +69,7 @@ type roleResource struct {
 
 type roleAssembly struct {
 	profile       roleProfile
+	database      *sql.DB
 	probes        *componentmetrics.Probes
 	router        stdhttp.Handler
 	dispatcher    *outbox.Dispatcher
@@ -129,6 +131,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	if err != nil {
 		return nil, errors.New("initialize MySQL client")
 	}
+	assembly.database = mysqlClient.DB()
 	assembly.addResource("mysql", mysqlClient.Close)
 
 	tokens, err := auth.NewTokenManager(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, time.Now)
@@ -144,7 +147,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			return nil, errors.New("initialize business state repository")
 		}
 		if _, err := state.Ensure(context.Background()); err != nil {
-			return nil, errors.New("initialize business environment")
+			return nil, fmt.Errorf("initialize business environment: %w", err)
 		}
 	}
 	if err := users.ValidateBootstrap(context.Background()); err != nil {
