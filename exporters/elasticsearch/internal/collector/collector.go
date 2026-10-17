@@ -93,10 +93,18 @@ type nodeStats struct {
 	} `json:"jvm"`
 	ThreadPool map[string]threadPoolStats `json:"thread_pool"`
 	Indices    struct {
-		Search   searchStats   `json:"search"`
-		Indexing indexingStats `json:"indexing"`
+		Search       searchStats    `json:"search"`
+		Indexing     indexingStats  `json:"indexing"`
+		QueryCache   cacheStats     `json:"query_cache"`
+		RequestCache cacheStats     `json:"request_cache"`
+		Fielddata    fielddataStats `json:"fielddata"`
+		Merges       mergeStats     `json:"merges"`
+		Refresh      refreshStats   `json:"refresh"`
+		Flush        flushStats     `json:"flush"`
+		Segments     segmentsStats  `json:"segments"`
 	} `json:"indices"`
-	FS struct {
+	Breakers map[string]breakerStats `json:"breakers"`
+	FS       struct {
 		Total struct {
 			Total     *uint64 `json:"total_in_bytes"`
 			Free      *uint64 `json:"free_in_bytes"`
@@ -134,11 +142,53 @@ type indexingStats struct {
 	IndexFailed     *uint64 `json:"index_failed"`
 }
 
+type cacheStats struct {
+	MemorySize *uint64 `json:"memory_size_in_bytes"`
+	HitCount   *uint64 `json:"hit_count"`
+	MissCount  *uint64 `json:"miss_count"`
+	Evictions  *uint64 `json:"evictions"`
+}
+
+type fielddataStats struct {
+	MemorySize *uint64 `json:"memory_size_in_bytes"`
+}
+
+type mergeStats struct {
+	Current     *uint64 `json:"current"`
+	CurrentSize *uint64 `json:"current_size_in_bytes"`
+	Total       *uint64 `json:"total"`
+	TotalTime   *uint64 `json:"total_time_in_millis"`
+}
+
+type refreshStats struct {
+	Total     *uint64 `json:"total"`
+	TotalTime *uint64 `json:"total_time_in_millis"`
+	Listeners *uint64 `json:"listeners"`
+}
+
+type flushStats struct {
+	Total     *uint64 `json:"total"`
+	TotalTime *uint64 `json:"total_time_in_millis"`
+}
+
+type segmentsStats struct {
+	Count  *uint64 `json:"count"`
+	Memory *uint64 `json:"memory_in_bytes"`
+}
+
+type breakerStats struct {
+	LimitSize     *uint64 `json:"limit_size_in_bytes"`
+	EstimatedSize *uint64 `json:"estimated_size_in_bytes"`
+	Tripped       *uint64 `json:"tripped"`
+}
+
 type sample struct {
 	name, kind string
 	labels     map[string]string
 	value      string
 }
+
+var supportedCircuitBreakers = []string{"parent", "fielddata", "request", "in_flight_requests", "accounting", "model_inference"}
 
 func addSample(samples *[]sample, name, kind, value string, labels map[string]string) {
 	copyLabels := make(map[string]string, len(labels))
@@ -198,7 +248,7 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 	var h health
 	var s stats
 	var ns nodeStatsResponse
-	if c.read(ctx, "/_cluster/health", &h) != nil || c.read(ctx, "/_stats/docs,store?level=cluster", &s) != nil || c.read(ctx, "/_nodes/stats/jvm,thread_pool,indices,fs", &ns) != nil {
+	if c.read(ctx, "/_cluster/health", &h) != nil || c.read(ctx, "/_stats/docs,store?level=cluster", &s) != nil || c.read(ctx, "/_nodes/stats/jvm,thread_pool,indices,fs,breakers", &ns) != nil {
 		return "", ErrUnavailable
 	}
 	if h.TimedOut == nil || *h.TimedOut || (h.Status != "green" && h.Status != "yellow" && h.Status != "red") || s.Shards.Total == nil || s.Shards.Successful == nil || s.Shards.Failed == nil || *s.Shards.Failed != 0 || len(ns.Nodes) == 0 || len(ns.Nodes) > 128 {
@@ -309,6 +359,66 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 		} {
 			if metric.value != nil {
 				addSample(&samples, "gopulse_elasticsearch_"+metric.name, metric.kind, strconv.FormatFloat(float64(*metric.value)*metric.scale, 'g', -1, 64), labels)
+			}
+		}
+		for _, cache := range []struct {
+			name  string
+			stats cacheStats
+		}{
+			{name: "query", stats: node.Indices.QueryCache},
+			{name: "request", stats: node.Indices.RequestCache},
+		} {
+			cacheLabels := map[string]string{"node_id": nodeID, "cache": cache.name}
+			if cache.stats.MemorySize != nil {
+				addSample(&samples, "gopulse_elasticsearch_cache_memory_bytes", "gauge", strconv.FormatUint(*cache.stats.MemorySize, 10), cacheLabels)
+			}
+			if cache.stats.HitCount != nil {
+				addSample(&samples, "gopulse_elasticsearch_cache_hits_total", "counter", strconv.FormatUint(*cache.stats.HitCount, 10), cacheLabels)
+			}
+			if cache.stats.MissCount != nil {
+				addSample(&samples, "gopulse_elasticsearch_cache_misses_total", "counter", strconv.FormatUint(*cache.stats.MissCount, 10), cacheLabels)
+			}
+			if cache.stats.Evictions != nil {
+				addSample(&samples, "gopulse_elasticsearch_cache_evictions_total", "counter", strconv.FormatUint(*cache.stats.Evictions, 10), cacheLabels)
+			}
+		}
+		for _, metric := range []struct {
+			name  string
+			kind  string
+			value *uint64
+			scale float64
+		}{
+			{name: "merge_operations_total", kind: "counter", value: node.Indices.Merges.Total, scale: 1},
+			{name: "merge_duration_seconds_total", kind: "counter", value: node.Indices.Merges.TotalTime, scale: 0.001},
+			{name: "merge_in_flight", kind: "gauge", value: node.Indices.Merges.Current, scale: 1},
+			{name: "merge_current_size_bytes", kind: "gauge", value: node.Indices.Merges.CurrentSize, scale: 1},
+			{name: "refresh_operations_total", kind: "counter", value: node.Indices.Refresh.Total, scale: 1},
+			{name: "refresh_duration_seconds_total", kind: "counter", value: node.Indices.Refresh.TotalTime, scale: 0.001},
+			{name: "refresh_listeners", kind: "gauge", value: node.Indices.Refresh.Listeners, scale: 1},
+			{name: "flush_operations_total", kind: "counter", value: node.Indices.Flush.Total, scale: 1},
+			{name: "flush_duration_seconds_total", kind: "counter", value: node.Indices.Flush.TotalTime, scale: 0.001},
+			{name: "fielddata_memory_bytes", kind: "gauge", value: node.Indices.Fielddata.MemorySize, scale: 1},
+			{name: "segments_count", kind: "gauge", value: node.Indices.Segments.Count, scale: 1},
+			{name: "segments_memory_bytes", kind: "gauge", value: node.Indices.Segments.Memory, scale: 1},
+		} {
+			if metric.value != nil {
+				addSample(&samples, "gopulse_elasticsearch_"+metric.name, metric.kind, strconv.FormatFloat(float64(*metric.value)*metric.scale, 'g', -1, 64), labels)
+			}
+		}
+		for _, breakerName := range supportedCircuitBreakers {
+			breaker, ok := node.Breakers[breakerName]
+			if !ok {
+				continue
+			}
+			breakerLabels := map[string]string{"node_id": nodeID, "breaker": breakerName}
+			if breaker.Tripped != nil {
+				addSample(&samples, "gopulse_elasticsearch_circuit_breaker_tripped_total", "counter", strconv.FormatUint(*breaker.Tripped, 10), breakerLabels)
+			}
+			if breaker.EstimatedSize != nil {
+				addSample(&samples, "gopulse_elasticsearch_circuit_breaker_estimated_bytes", "gauge", strconv.FormatUint(*breaker.EstimatedSize, 10), breakerLabels)
+			}
+			if breaker.LimitSize != nil {
+				addSample(&samples, "gopulse_elasticsearch_circuit_breaker_limit_bytes", "gauge", strconv.FormatUint(*breaker.LimitSize, 10), breakerLabels)
 			}
 		}
 	}

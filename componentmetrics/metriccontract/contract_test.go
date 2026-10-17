@@ -81,20 +81,22 @@ func TestHistogramIntegrityDoesNotDependOnFixedBuckets(t *testing.T) {
 
 func TestUnitOverridesCoverExporterDimensions(t *testing.T) {
 	for name, want := range map[string]string{
-		"gopulse_redis_blocked_clients":             "count",
-		"gopulse_redis_replication_role":            "state",
-		"gopulse_redis_replica_offset":              "bytes",
-		"gopulse_redis_aof_enabled":                 "boolean",
-		"gopulse_mysql_buffer_pool_pages":           "count",
-		"gopulse_mysql_active_transactions":         "count",
-		"gopulse_mysql_redo_lsn_current":            "bytes",
-		"gopulse_rabbitmq_queue_messages":           "count",
-		"gopulse_rabbitmq_queue_memory_bytes":       "bytes",
-		"gopulse_rabbitmq_node_io_operations_total": "count",
-		"gopulse_kafka_consumer_partition_lag":      "count",
-		"gopulse_kafka_partition_offline":           "boolean",
-		"gopulse_elasticsearch_thread_pool_queue":   "count",
-		"gopulse_victoriametrics_cache_entries":     "count",
+		"gopulse_redis_blocked_clients":                      "count",
+		"gopulse_redis_replication_role":                     "state",
+		"gopulse_redis_replica_offset":                       "bytes",
+		"gopulse_redis_aof_enabled":                          "boolean",
+		"gopulse_mysql_buffer_pool_pages":                    "count",
+		"gopulse_mysql_active_transactions":                  "count",
+		"gopulse_mysql_redo_lsn_current":                     "bytes",
+		"gopulse_rabbitmq_queue_messages":                    "count",
+		"gopulse_rabbitmq_queue_memory_bytes":                "bytes",
+		"gopulse_rabbitmq_node_io_operations_total":          "count",
+		"gopulse_kafka_consumer_partition_lag":               "count",
+		"gopulse_kafka_partition_offline":                    "boolean",
+		"gopulse_elasticsearch_thread_pool_queue":            "count",
+		"gopulse_elasticsearch_cache_hits_total":             "count",
+		"gopulse_elasticsearch_merge_duration_seconds_total": "seconds",
+		"gopulse_victoriametrics_cache_entries":              "count",
 	} {
 		if got := Unit(name, "gauge"); got != want {
 			t.Fatalf("Unit(%q)=%q want %q", name, got, want)
