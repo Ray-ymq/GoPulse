@@ -47,7 +47,7 @@ const (
 	// budget is intentionally compared with the old path, while the body-cache
 	// candidate is compared with the protected-old path so the cache-path
 	// decision is not confounded with the protection cost.
-	r09ProtectedGoodputMin             = 0.80
+	r09ProtectedGoodputMin             = 0.90
 	r09NewPathGoodputMin               = 0.95
 	r09DBWorkMaxRatio                  = 0.95
 	r09MaxNormalRejectRate             = 0.01

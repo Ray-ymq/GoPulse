@@ -48,8 +48,8 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Redis.PostDetailTTL != 5*time.Minute || cfg.Redis.OperationTimeout != 200*time.Millisecond || cfg.Redis.PoolSize != 16 || cfg.Redis.PoolTimeout != 200*time.Millisecond {
 		t.Fatalf("Redis durations = %#v, want defaults", cfg.Redis)
 	}
-	if cfg.Protection.RateLimitEnabled || cfg.Protection.PostBodyV2Enabled || cfg.Protection.RateLimitOperationTimeout != 200*time.Millisecond || cfg.Protection.LocalMaxIdentities != 1024 || cfg.Protection.ResourceAuth != 16 || cfg.Protection.ResourceRead != 64 || cfg.Protection.ResourceWrite != 32 || cfg.Protection.ResourceDatabase != 32 || cfg.Protection.ResourceRebuild != 8 || cfg.Protection.ResourceWaiter != 256 || len(cfg.Protection.TrustedProxyCIDRs) != 0 {
-		t.Fatalf("Protection config = %#v, want bounded disabled defaults", cfg.Protection)
+	if !cfg.Protection.RateLimitEnabled || !cfg.Protection.PostBodyV2Enabled || cfg.Protection.RateLimitOperationTimeout != 200*time.Millisecond || cfg.Protection.LocalMaxIdentities != 1024 || cfg.Protection.ResourceAuth != 16 || cfg.Protection.ResourceRead != 64 || cfg.Protection.ResourceWrite != 32 || cfg.Protection.ResourceDatabase != 32 || cfg.Protection.ResourceRebuild != 8 || cfg.Protection.ResourceWaiter != 256 || len(cfg.Protection.TrustedProxyCIDRs) != 0 {
+		t.Fatalf("Protection config = %#v, want bounded enabled defaults", cfg.Protection)
 	}
 	if cfg.Outbox.PollInterval != time.Second || cfg.Outbox.ClaimBatch != 10 ||
 		cfg.Outbox.LeaseDuration != time.Minute || cfg.Outbox.PublishTimeout != 5*time.Second ||

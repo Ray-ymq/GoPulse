@@ -623,11 +623,11 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 
 func loadProtectionConfig(lookup LookupFunc, redisTimeout time.Duration) (ProtectionConfig, error) {
 	protection := ProtectionConfig{}
-	enabled, err := booleanValue(lookup, "BACKEND_RATE_LIMIT_ENABLED", false)
+	enabled, err := booleanValue(lookup, "BACKEND_RATE_LIMIT_ENABLED", true)
 	if err != nil {
 		return ProtectionConfig{}, err
 	}
-	bodyV2Enabled, err := booleanValue(lookup, "BACKEND_POST_BODY_V2_ENABLED", false)
+	bodyV2Enabled, err := booleanValue(lookup, "BACKEND_POST_BODY_V2_ENABLED", true)
 	if err != nil {
 		return ProtectionConfig{}, err
 	}

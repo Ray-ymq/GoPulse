@@ -190,8 +190,8 @@
           "type": "boolean",
           "sensitive": false,
           "required": false,
-          "default": "false",
-          "compose_value": "${BACKEND_POST_BODY_V2_ENABLED:-false}",
+          "default": "true",
+          "compose_value": "${BACKEND_POST_BODY_V2_ENABLED:-true}",
           "aliases": []
         },
         {
@@ -199,8 +199,8 @@
           "type": "boolean",
           "sensitive": false,
           "required": false,
-          "default": "false",
-          "compose_value": "${BACKEND_RATE_LIMIT_ENABLED:-false}",
+          "default": "true",
+          "compose_value": "${BACKEND_RATE_LIMIT_ENABLED:-true}",
           "aliases": []
         },
         {
