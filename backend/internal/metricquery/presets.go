@@ -124,13 +124,20 @@ var Presets = func() []Definition {
 	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_published_total", Kind: "counter", Unit: "count", label: ""})
 	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_delivered_total", Kind: "counter", Unit: "count", label: ""})
 	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_acked_total", Kind: "counter", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_connections_blocked", Kind: "gauge", Unit: "count", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_connection_received_bytes_total", Kind: "counter", Unit: "bytes", label: ""})
+	items = append(items, Definition{Source: "rabbitmq", TargetID: "rabbitmq-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "rabbitmq-exporter", Metric: "gopulse_rabbitmq_connection_sent_bytes_total", Kind: "counter", Unit: "bytes", label: ""})
 	for _, item := range []Definition{
 		{Metric: "gopulse_rabbitmq_queue_messages", Kind: "gauge", Unit: "count", LabelKeys: []string{"vhost", "queue", "state"}},
 		{Metric: "gopulse_rabbitmq_queue_consumers", Kind: "gauge", Unit: "count", LabelKeys: []string{"vhost", "queue"}},
 		{Metric: "gopulse_rabbitmq_queue_consumer_capacity", Kind: "gauge", Unit: "none", LabelKeys: []string{"vhost", "queue"}},
+		{Metric: "gopulse_rabbitmq_queue_memory_bytes", Kind: "gauge", Unit: "bytes", LabelKeys: []string{"vhost", "queue"}},
+		{Metric: "gopulse_rabbitmq_queue_message_bytes", Kind: "gauge", Unit: "bytes", LabelKeys: []string{"vhost", "queue"}},
 		{Metric: "gopulse_rabbitmq_queue_messages_total", Kind: "counter", Unit: "count", LabelKeys: []string{"vhost", "queue", "operation"}},
 		{Metric: "gopulse_rabbitmq_node_memory_used_bytes", Kind: "gauge", Unit: "bytes", label: "node_id"},
 		{Metric: "gopulse_rabbitmq_node_memory_limit_bytes", Kind: "gauge", Unit: "bytes", label: "node_id"},
+		{Metric: "gopulse_rabbitmq_node_io_operations_total", Kind: "counter", Unit: "count", LabelKeys: []string{"node_id", "operation"}},
+		{Metric: "gopulse_rabbitmq_node_io_average_duration_seconds", Kind: "gauge", Unit: "seconds", LabelKeys: []string{"node_id", "operation"}},
 	} {
 		item.Source, item.TargetID, item.ProducerKind, item.ProducerID = "rabbitmq", "rabbitmq-exporter-local", "exporter_plugin", "rabbitmq-exporter"
 		items = append(items, item)
