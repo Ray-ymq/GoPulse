@@ -1,11 +1,27 @@
 export type MetricName = string
 export type QueryRange = '15m' | '1h' | '6h' | '24h'
+export interface MetricDescriptor {
+  metric: MetricName
+  kind: 'gauge' | 'counter'
+  unit: string
+  source: string
+  target_id: string
+  producer_kind: 'exporter_plugin' | 'component'
+  producer_id: string
+  label_keys?: string[]
+  value_kind?: 'raw' | 'rate' | 'ratio' | 'average'
+  display_unit?: string
+}
 export interface MetricPoint { timestamp: string; value: number }
 export interface MetricSeries { labels: Record<string, string>; points: MetricPoint[] }
 export interface MetricResult {
   metric: MetricName
   kind: 'gauge' | 'counter'
   unit: 'none' | 'boolean' | 'seconds' | 'count' | 'bytes' | 'state' | 'unix_seconds'
+  value_kind?: 'raw' | 'rate' | 'ratio' | 'average'
+  display_unit?: string
+  quality?: 'complete' | 'sampling' | 'zero_denominator'
+  sampled_at?: string
   range: QueryRange
   from: string
   to: string

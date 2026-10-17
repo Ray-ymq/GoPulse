@@ -22,21 +22,27 @@ import (
 )
 
 const (
-	maximumBodyBytes = 2 << 20
-	maximumSeries    = 1024
-	maximumPoints    = maximumSeries * 97
+	maximumBodyBytes          = 2 << 20
+	maximumSeries             = 1024
+	maximumPoints             = maximumSeries * 97
+	maximumSelectorCount      = 8
+	maximumSelectorValueBytes = 256
 )
 
 type Definition struct {
-	Source       string   `json:"source"`
-	TargetID     string   `json:"target_id"`
-	ProducerKind string   `json:"producer_kind"`
-	ProducerID   string   `json:"producer_id"`
-	Metric       string   `json:"metric"`
-	Kind         string   `json:"kind"`
-	Unit         string   `json:"unit"`
-	LabelKeys    []string `json:"label_keys,omitempty"`
-	label        string
+	Source         string   `json:"source"`
+	TargetID       string   `json:"target_id"`
+	ProducerKind   string   `json:"producer_kind"`
+	ProducerID     string   `json:"producer_id"`
+	Metric         string   `json:"metric"`
+	Kind           string   `json:"kind"`
+	Unit           string   `json:"unit"`
+	LabelKeys      []string `json:"label_keys,omitempty"`
+	ValueKind      string   `json:"value_kind,omitempty"`
+	DisplayUnit    string   `json:"display_unit,omitempty"`
+	label          string
+	labelKeysKnown bool
+	derived        *derivedPlan
 }
 
 type Range struct {
@@ -55,6 +61,7 @@ var ranges = map[string]Range{
 type Options struct {
 	Definition Definition
 	Range      Range
+	Labels     Labels
 }
 
 type Labels map[string]string
@@ -73,6 +80,10 @@ type Result struct {
 	Metric      string   `json:"metric"`
 	Kind        string   `json:"kind"`
 	Unit        string   `json:"unit"`
+	ValueKind   string   `json:"value_kind,omitempty"`
+	DisplayUnit string   `json:"display_unit,omitempty"`
+	Quality     string   `json:"quality,omitempty"`
+	SampledAt   string   `json:"sampled_at,omitempty"`
 	Range       string   `json:"range"`
 	From        string   `json:"from"`
 	To          string   `json:"to"`
@@ -81,12 +92,19 @@ type Result struct {
 }
 
 func ParseOptions(values url.Values) (Options, error) {
-	if len(values) < 1 || len(values) > 2 {
+	if len(values) < 1 || len(values) > maximumSelectorCount+2 {
 		return Options{}, validation()
 	}
+	labels := Labels{}
 	for key, entries := range values {
-		if key != "metric" && key != "range" || len(entries) != 1 || entries[0] == "" || len(entries[0]) > 128 || hasControl(entries[0]) {
+		if len(entries) != 1 || entries[0] == "" || len(entries[0]) > maximumSelectorValueBytes || hasControl(entries[0]) {
 			return Options{}, validation()
+		}
+		if key != "metric" && key != "range" {
+			if !validSelectorKey(key) || len(labels) >= maximumSelectorCount {
+				return Options{}, validation()
+			}
+			labels[key] = entries[0]
 		}
 	}
 	metricValues, ok := values["metric"]
@@ -108,18 +126,29 @@ func ParseOptions(values url.Values) (Options, error) {
 	if !ok {
 		return Options{}, validation()
 	}
-	return Options{Definition: definition, Range: rangeValue}, nil
+	return Options{Definition: definition, Range: rangeValue, Labels: labels}, nil
 }
 
 func QueryExpression(metric string) string {
+	return queryExpression(metric, nil)
+}
+
+func queryExpression(metric string, labels Labels) string {
 	d, ok := definitionFor(metric)
-	if !ok {
+	if !ok || d.derived != nil {
 		return ""
 	}
-	if d.Source == "redis" {
-		return metric + `{source="redis",target_id="redis-exporter-local"}`
+	selectors := make([]string, 0, len(labels))
+	for key, value := range labels {
+		selectors = append(selectors, key+"="+strconv.Quote(value))
 	}
-	return fmt.Sprintf(`%s{source="%s",target_id="%s",producer_kind="%s",producer_id="%s"}`, metric, d.Source, d.TargetID, d.ProducerKind, d.ProducerID)
+	sort.Strings(selectors)
+	identity := []string{`source="` + d.Source + `"`, `target_id="` + d.TargetID + `"`}
+	if d.Source != "redis" {
+		identity = append(identity, `producer_kind="`+d.ProducerKind+`"`, `producer_id="`+d.ProducerID+`"`)
+	}
+	selectors = append(identity, selectors...)
+	return metric + "{" + strings.Join(selectors, ",") + "}"
 }
 
 type Upstream interface {
@@ -136,34 +165,103 @@ func NewService(upstream Upstream) *Service { return &Service{upstream: upstream
 func (s *Service) Query(ctx context.Context, options Options) (Result, error) {
 	to := s.now().UTC()
 	from := to.Add(-options.Range.Duration)
-	if discovery, ok := s.upstream.(MetricDiscovery); ok {
-		entries, err := discovery.DiscoverMetrics(ctx, options.Definition.Metric, to.Add(-24*time.Hour), to)
+	if options.Definition.derived != nil {
+		result, err := s.queryDerived(ctx, options, from, to)
 		if err != nil {
 			return Result{}, unavailable()
 		}
-		if len(entries) > 1 {
-			return Result{}, unavailable()
-		}
-		if len(entries) == 1 {
-			options.Definition = entries[0]
-		}
+		return result, nil
 	}
-	if options.Definition.Kind == "" {
+	definition, err := s.resolveDefinition(ctx, options.Definition, from, to)
+	if err != nil || definition.Kind == "" {
 		return Result{}, unavailable()
 	}
-	body, err := s.upstream.QueryRange(ctx, QueryExpression(options.Definition.Metric), from, to, options.Range.Step)
+	if !validSelectors(options.Labels, definition) {
+		return Result{}, validation()
+	}
+	body, err := s.upstream.QueryRange(ctx, queryExpression(definition.Metric, options.Labels), from, to, options.Range.Step)
 	if err != nil {
 		return Result{}, unavailable()
 	}
-	series, err := decodeResponse(body, options.Definition)
+	series, err := decodeResponse(body, definition)
 	if err != nil {
 		return Result{}, unavailable()
 	}
-	return Result{
-		Metric: options.Definition.Metric, Kind: options.Definition.Kind, Unit: options.Definition.Unit,
-		Range: options.Range.Name, From: formatTime(from), To: formatTime(to),
-		StepSeconds: int64(options.Range.Step / time.Second), Series: series,
-	}, nil
+	return newResult(definition, options.Range, from, to, series), nil
+}
+
+func (s *Service) resolveDefinition(ctx context.Context, definition Definition, from, to time.Time) (Definition, error) {
+	if definition.derived != nil {
+		return definition, nil
+	}
+	discovery, ok := s.upstream.(MetricDiscovery)
+	if !ok {
+		return definition, nil
+	}
+	entries, err := discovery.DiscoverMetrics(ctx, definition.Metric, to.Add(-24*time.Hour), to)
+	if err != nil {
+		return Definition{}, err
+	}
+	if len(entries) > 1 {
+		return Definition{}, errors.New("metric has multiple definitions")
+	}
+	if len(entries) == 1 {
+		return entries[0], nil
+	}
+	return definition, nil
+}
+
+func newResult(definition Definition, queryRange Range, from, to time.Time, series []Series) Result {
+	result := Result{
+		Metric: definition.Metric, Kind: definition.Kind, Unit: definition.Unit,
+		ValueKind: definition.ValueKind, DisplayUnit: definition.DisplayUnit,
+		Range: queryRange.Name, From: formatTime(from), To: formatTime(to),
+		StepSeconds: int64(queryRange.Step / time.Second), Series: series,
+	}
+	var sampledAt time.Time
+	for _, row := range series {
+		if len(row.Points) == 0 {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, row.Points[len(row.Points)-1].Timestamp)
+		if err == nil && at.After(sampledAt) {
+			sampledAt = at
+		}
+	}
+	if !sampledAt.IsZero() {
+		result.SampledAt = formatTime(sampledAt)
+	}
+	return result
+}
+
+func validSelectors(labels Labels, definition Definition) bool {
+	allowed := make(map[string]bool, len(definition.LabelKeys))
+	for _, key := range definition.LabelKeys {
+		allowed[key] = true
+	}
+	for key := range labels {
+		if !validSelectorKey(key) || definition.labelKeysKnown && !allowed[key] {
+			return false
+		}
+	}
+	return true
+}
+
+func validSelectorKey(key string) bool {
+	if key == "" || len(key) > metriccontract.MaxLabelNameBytes || strings.HasPrefix(key, "__") {
+		return false
+	}
+	for index, character := range key {
+		letter := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
+		digit := character >= '0' && character <= '9'
+		if !letter && character != '_' && !(digit && index > 0) {
+			return false
+		}
+		if index == 0 && character >= '0' && character <= '9' {
+			return false
+		}
+	}
+	return key != "source" && key != "target_id" && key != "producer_kind" && key != "producer_id" && key != "producer_version" && key != "metric" && key != "range"
 }
 
 type Client struct {

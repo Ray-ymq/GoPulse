@@ -1251,6 +1251,13 @@ paths:
       parameters:
         - $ref: '#/components/parameters/MetricName'
         - $ref: '#/components/parameters/MetricRange'
+        - $ref: '#/components/parameters/MetricQueue'
+        - $ref: '#/components/parameters/MetricPartition'
+        - $ref: '#/components/parameters/MetricCommand'
+        - $ref: '#/components/parameters/MetricNode'
+        - $ref: '#/components/parameters/MetricNodeID'
+        - $ref: '#/components/parameters/MetricTopic'
+        - $ref: '#/components/parameters/MetricConsumerGroup'
       responses:
         '200':
           description: 指标序列。
@@ -2263,6 +2270,48 @@ components:
         type: string
         enum: ['15m', '1h', '6h', '24h']
         default: 15m
+    MetricQueue:
+      name: queue
+      in: query
+      required: false
+      description: 动态队列标签；仅在指标目录声明 `queue` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricPartition:
+      name: partition
+      in: query
+      required: false
+      description: 动态分区标签；仅在指标目录声明 `partition` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricCommand:
+      name: command
+      in: query
+      required: false
+      description: 动态命令标签；仅在指标目录声明 `command` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricNode:
+      name: node
+      in: query
+      required: false
+      description: 动态节点标签；仅在指标目录声明 `node` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricNodeID:
+      name: node_id
+      in: query
+      required: false
+      description: 动态节点身份标签；仅在指标目录声明 `node_id` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricTopic:
+      name: topic
+      in: query
+      required: false
+      description: 动态 Topic 标签；仅在指标目录声明 `topic` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricConsumerGroup:
+      name: consumer_group
+      in: query
+      required: false
+      description: 动态消费者组标签；仅在指标目录声明 `consumer_group` 时有效。
+      schema: {type: string, maxLength: 256}
     RangeFrom:
       name: from
       in: query
@@ -3423,6 +3472,12 @@ components:
           items:
             type: string
             maxLength: 64
+        value_kind:
+          type: string
+          enum: [raw, rate, ratio, average]
+        display_unit:
+          type: string
+          maxLength: 32
 
     MetricAlertDefinition:
       type: object
@@ -3491,6 +3546,18 @@ components:
           enum: [gauge, counter]
         unit:
           type: string
+        value_kind:
+          type: string
+          enum: [raw, rate, ratio, average]
+        display_unit:
+          type: string
+          maxLength: 32
+        quality:
+          type: string
+          enum: [complete, sampling, zero_denominator]
+        sampled_at:
+          type: string
+          format: date-time
         range:
           type: string
           enum: ['15m', '1h', '6h', '24h']

@@ -24,6 +24,9 @@ type MetricDiscovery interface {
 }
 
 func definitionFor(metric string) (Definition, bool) {
+	if derived, ok := derivedDefinition(metric); ok {
+		return derived, true
+	}
 	for _, source := range append(append([]string{}, componentmetrics.Plugins...), componentmetrics.Components...) {
 		if !metriccontract.ValidName(source, metric) {
 			continue
@@ -34,6 +37,8 @@ func definitionFor(metric string) (Definition, bool) {
 		}
 		if preset, ok := presets[metric]; ok {
 			d.Kind, d.Unit = preset.Kind, preset.Unit
+			d.LabelKeys = append([]string(nil), preset.LabelKeys...)
+			d.labelKeysKnown = preset.labelKeysKnown
 		}
 		return d, true
 	}
@@ -53,6 +58,9 @@ func (s *Service) Catalog(ctx context.Context) ([]Definition, error) {
 	// Presets keep historical metrics visible during a rolling upgrade.
 	byName := make(map[string]Definition, len(Presets)+len(entries))
 	for _, d := range Presets {
+		byName[d.Metric] = d
+	}
+	for _, d := range derivedCatalog() {
 		byName[d.Metric] = d
 	}
 	for _, d := range entries {
@@ -156,6 +164,7 @@ func decodeDefinitions(body []byte, requested string) ([]Definition, error) {
 			d.LabelKeys = append(d.LabelKeys, key)
 		}
 		sort.Strings(d.LabelKeys)
+		d.labelKeysKnown = true
 		byName[d.Metric] = d
 	}
 	result := make([]Definition, 0, len(byName))

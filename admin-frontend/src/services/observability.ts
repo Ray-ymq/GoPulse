@@ -1,6 +1,6 @@
 import { componentContracts } from './componentMetrics'
 import type { Page } from '../types/api'
-import type { EventEntry, EventFilters, LogEntry, LogFilters, MetricName, MetricResult, QueryRange } from '../types/observability'
+import type { EventEntry, EventFilters, LogEntry, LogFilters, MetricDescriptor, MetricName, MetricResult, QueryRange } from '../types/observability'
 import { requestValidatedData, requestValidatedPage } from './http'
 
 export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> = [
@@ -127,8 +127,12 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const identity = /^[A-Za-z0-9._:/-]{1,255}$/
 
 export function isMetricResult(value: unknown): value is MetricResult {
-  if (!record(value) || Object.keys(value).sort().join() !== ['from','kind','metric','range','series','step_seconds','to','unit'].sort().join()) return false
+  if (!record(value) || !keysAllowed(value, new Set(['from','kind','metric','range','series','step_seconds','to','unit','value_kind','display_unit','quality','sampled_at']))) return false
   if (!validMetricName(value.metric) || (value.kind !== 'gauge' && value.kind !== 'counter') || !metricUnits.has(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series)) return false
+  if (value.value_kind !== undefined && !['raw','rate','ratio','average'].includes(String(value.value_kind))) return false
+  if (value.display_unit !== undefined && (typeof value.display_unit !== 'string' || value.display_unit.length > 32)) return false
+  if (value.quality !== undefined && !['complete','sampling','zero_denominator'].includes(String(value.quality))) return false
+  if (value.sampled_at !== undefined && !timestamp(value.sampled_at)) return false
   if (value.series.length > 1024) return false
   const range = ranges.find((item) => item.value === value.range)
   const expectedSteps: Record<QueryRange, number> = { '15m':15, '1h':60, '6h':300, '24h':900 }
@@ -213,16 +217,24 @@ function pageQuery(filters: Record<string,string>, cursor?: string): string {
   return params.toString()
 }
 export const observabilityApi = {
-  metrics: (metric: MetricName, range: QueryRange, signal?: AbortSignal) => requestValidatedData<MetricResult>(`/observability/metrics?${new URLSearchParams({ metric, range })}`, isMetricResult, { signal }),
+  metrics: (metric: MetricName, range: QueryRange, labelsOrSignal: Record<string, string> | AbortSignal = {}, signal?: AbortSignal) => {
+    const isSignal = (value: Record<string, string> | AbortSignal): value is AbortSignal => typeof AbortSignal !== 'undefined' && value instanceof AbortSignal
+    const labels = isSignal(labelsOrSignal) ? {} : labelsOrSignal
+    const requestSignal = isSignal(labelsOrSignal) ? labelsOrSignal : signal
+    const params = new URLSearchParams({ metric, range })
+    for (const [key, value] of Object.entries(labels)) if (value.trim()) params.set(key, value.trim())
+    return requestValidatedData<MetricResult>(`/observability/metrics?${params}`, isMetricResult, { signal: requestSignal })
+  },
   logs: (filters: LogFilters, cursor?: string, signal?: AbortSignal): Promise<Page<LogEntry>> => requestValidatedPage(`/observability/logs?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isLogEntry, { signal }),
   events: (filters: EventFilters, cursor?: string, signal?: AbortSignal): Promise<Page<EventEntry>> => requestValidatedPage(`/observability/events?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isEventEntry, { signal }),
 }
 
-export interface MetricDescriptor { metric: MetricName; kind: 'gauge'|'counter'; unit: string; source: string; target_id: string; producer_kind: 'exporter_plugin'|'component'; producer_id: string; label_keys?: string[] }
 export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
  if (!Array.isArray(value) || value.length > 2048 || new Set(value.map(item => record(item) ? item.metric : undefined)).size !== value.length) return false
  return value.every(item => {
-  if (!record(item) || !keysAllowed(item,new Set(['metric','kind','unit','source','target_id','producer_kind','producer_id','label_keys'])) || !validMetricName(item.metric) || (item.kind !== 'gauge' && item.kind !== 'counter') || !metricUnits.has(String(item.unit)) || typeof item.source !== 'string' || !metricSources.includes(item.source as typeof metricSources[number]) || !item.metric.startsWith(`gopulse_${item.source.replaceAll('-', '_')}_`)) return false
+  if (!record(item) || !keysAllowed(item,new Set(['metric','kind','unit','source','target_id','producer_kind','producer_id','label_keys','value_kind','display_unit'])) || !validMetricName(item.metric) || (item.kind !== 'gauge' && item.kind !== 'counter') || !metricUnits.has(String(item.unit)) || typeof item.source !== 'string' || !metricSources.includes(item.source as typeof metricSources[number]) || !item.metric.startsWith(`gopulse_${item.source.replaceAll('-', '_')}_`)) return false
+  if (item.value_kind !== undefined && !['raw','rate','ratio','average'].includes(String(item.value_kind))) return false
+  if (item.display_unit !== undefined && (typeof item.display_unit !== 'string' || item.display_unit.length > 32)) return false
   if (item.label_keys !== undefined && (!Array.isArray(item.label_keys) || new Set(item.label_keys).size !== item.label_keys.length || !item.label_keys.every(key => typeof key === 'string') || !validMetricLabels(Object.fromEntries(item.label_keys.map(key => [key,'']))))) return false
   const component = ['backend','business-worker','search-indexer','monitor','marshaller'].includes(item.source)
   return item.producer_kind === (component ? 'component' : 'exporter_plugin') && item.producer_id === (component ? item.source : `${item.source}-exporter`) && item.target_id === (component ? `${item.source}-local` : `${item.source}-exporter-local`)
