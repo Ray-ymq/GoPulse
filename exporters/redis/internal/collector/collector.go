@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -37,6 +38,7 @@ type Snapshot struct {
 	DBKeys                  uint64
 	DBExpiringKeys          uint64
 	MaxMemoryBytes          *uint64
+	MaxClients              *uint64
 	UsedMemoryRSSBytes      *uint64
 	MemoryFragmentation     *float64
 	BlockedClients          *uint64
@@ -46,6 +48,44 @@ type Snapshot struct {
 	NetworkInputBytesTotal  *uint64
 	NetworkOutputBytesTotal *uint64
 	CommandStats            map[string]CommandStats
+	Replication             ReplicationSnapshot
+	Persistence             PersistenceSnapshot
+}
+
+type ReplicationSnapshot struct {
+	Role                   string
+	ConnectedReplicas      *uint64
+	MasterReplOffset       *uint64
+	MasterLastIOSecondsAgo *uint64
+	MasterLinkUp           *bool
+	SyncInProgress         *bool
+	Replicas               []ReplicaSnapshot
+}
+
+type ReplicaSnapshot struct {
+	Index      int
+	State      string
+	Offset     uint64
+	LagSeconds uint64
+	LinkUp     bool
+}
+
+type PersistenceSnapshot struct {
+	RDBChangesSinceLastSave   *uint64
+	RDBBGSAVEInProgress       *bool
+	RDBLastSaveTimestamp      *uint64
+	RDBLastBGSAVESuccess      *bool
+	RDBCurrentBGSAVEDuration  *uint64
+	AOFEnabled                *bool
+	AOFRewriteInProgress      *bool
+	AOFRewriteScheduled       *bool
+	AOFLastRewriteSuccess     *bool
+	AOFCurrentRewriteDuration *uint64
+	AOFLastWriteSuccess       *bool
+	AOFRewritesTotal          *uint64
+	AOFRewriteFailuresTotal   *uint64
+	AOFBaseSizeBytes          *uint64
+	AOFCurrentSizeBytes       *uint64
 }
 
 type CommandStats struct {
@@ -63,6 +103,8 @@ var TrackedCommands = []string{
 	"mget", "mset", "rpop", "rpush", "sadd", "srem", "set", "smembers", "zadd", "zrange",
 }
 
+const maximumReplicas = 32
+
 type Collector interface {
 	Collect(context.Context) (Snapshot, error)
 }
@@ -79,7 +121,7 @@ type RedisCollector struct {
 func New(client infoClient, db int) *RedisCollector { return &RedisCollector{client: client, db: db} }
 
 func (c *RedisCollector) Collect(ctx context.Context) (Snapshot, error) {
-	info, err := c.client.Info(ctx, "server", "clients", "memory", "stats", "cpu", "keyspace", "commandstats").Result()
+	info, err := c.client.Info(ctx, "server", "clients", "memory", "stats", "cpu", "keyspace", "commandstats", "replication", "persistence").Result()
 	if err != nil {
 		return Snapshot{}, classifyRedisError(ctx, err)
 	}
@@ -116,6 +158,7 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 	}
 	wanted := map[string]string{}
 	commandStats := map[string]CommandStats{}
+	replicas := map[int]ReplicaSnapshot{}
 	tracked := make(map[string]bool, len(TrackedCommands))
 	for _, command := range TrackedCommands {
 		tracked[command] = true
@@ -148,6 +191,16 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 				return Snapshot{}, errors.New("duplicate field")
 			}
 			wanted[name] = value
+		}
+		if index, ok := replicaIndex(name); ok {
+			if _, duplicate := replicas[index]; duplicate {
+				return Snapshot{}, errors.New("duplicate replica")
+			}
+			replica, err := parseReplica(value, index)
+			if err != nil {
+				return Snapshot{}, err
+			}
+			replicas[index] = replica
 		}
 		if strings.HasPrefix(name, "cmdstat_") {
 			command := strings.TrimPrefix(name, "cmdstat_")
@@ -209,6 +262,9 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 	if snapshot.MaxMemoryBytes, err = optionalUint(wanted, "maxmemory"); err != nil {
 		return Snapshot{}, err
 	}
+	if snapshot.MaxClients, err = optionalUint(wanted, "maxclients"); err != nil {
+		return Snapshot{}, err
+	}
 	if snapshot.UsedMemoryRSSBytes, err = optionalUint(wanted, "used_memory_rss"); err != nil {
 		return Snapshot{}, err
 	}
@@ -236,13 +292,218 @@ func ParseInfo(info string, db int) (Snapshot, error) {
 	if len(commandStats) > 0 {
 		snapshot.CommandStats = commandStats
 	}
+	snapshot.Replication, err = parseReplication(wanted, replicas)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	snapshot.Persistence, err = parsePersistence(wanted)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	return snapshot, nil
 }
 
 var optionalInfoFields = map[string]struct{}{
-	"maxmemory": {}, "used_memory_rss": {}, "mem_fragmentation_ratio": {},
+	"maxmemory": {}, "maxclients": {}, "used_memory_rss": {}, "mem_fragmentation_ratio": {},
 	"blocked_clients": {}, "rejected_connections": {}, "evicted_keys": {}, "expired_keys": {},
 	"total_net_input_bytes": {}, "total_net_output_bytes": {},
+	"role": {}, "connected_slaves": {}, "master_repl_offset": {}, "master_last_io_seconds_ago": {},
+	"master_link_status": {}, "master_sync_in_progress": {},
+	"rdb_changes_since_last_save": {}, "rdb_bgsave_in_progress": {}, "rdb_last_save_time": {},
+	"rdb_last_bgsave_status": {}, "rdb_current_bgsave_time_sec": {},
+	"aof_enabled": {}, "aof_rewrite_in_progress": {}, "aof_rewrite_scheduled": {},
+	"aof_last_rewrite_status": {}, "aof_current_rewrite_time_sec": {}, "aof_last_write_status": {},
+	"aof_rewrites": {}, "aof_rewrites_consecutive_failures": {}, "aof_base_size": {}, "aof_current_size": {},
+}
+
+func replicaIndex(name string) (int, bool) {
+	prefix := ""
+	for _, candidate := range []string{"slave", "replica"} {
+		if strings.HasPrefix(name, candidate) {
+			prefix = candidate
+			break
+		}
+	}
+	if prefix == "" || len(name) == len(prefix) {
+		return 0, false
+	}
+	value := name[len(prefix):]
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+	}
+	index, err := strconv.Atoi(value)
+	if err != nil || index < 0 || index >= maximumReplicas {
+		return 0, false
+	}
+	return index, true
+}
+
+func parseReplica(value string, index int) (ReplicaSnapshot, error) {
+	fields, err := keyValueFields(value)
+	if err != nil {
+		return ReplicaSnapshot{}, err
+	}
+	state, ok := fields["state"]
+	if !ok || (state != "online" && state != "wait_bgsave" && state != "wait_bgsync") {
+		return ReplicaSnapshot{}, errors.New("invalid replica state")
+	}
+	offset, err := parseUint(fields["offset"])
+	if err != nil {
+		return ReplicaSnapshot{}, err
+	}
+	lag, err := parseUint(fields["lag"])
+	if err != nil {
+		return ReplicaSnapshot{}, err
+	}
+	return ReplicaSnapshot{Index: index, State: state, Offset: offset, LagSeconds: lag, LinkUp: state == "online"}, nil
+}
+
+func parseReplication(values map[string]string, replicas map[int]ReplicaSnapshot) (ReplicationSnapshot, error) {
+	var snapshot ReplicationSnapshot
+	var err error
+	if role, ok := values["role"]; ok {
+		switch role {
+		case "master":
+			snapshot.Role = role
+		case "slave", "replica":
+			snapshot.Role = "replica"
+		default:
+			return ReplicationSnapshot{}, errors.New("invalid replication role")
+		}
+	}
+	if snapshot.ConnectedReplicas, err = optionalUint(values, "connected_slaves"); err != nil {
+		return ReplicationSnapshot{}, err
+	}
+	if snapshot.MasterReplOffset, err = optionalUint(values, "master_repl_offset"); err != nil {
+		return ReplicationSnapshot{}, err
+	}
+	if snapshot.MasterLastIOSecondsAgo, err = optionalDuration(values, "master_last_io_seconds_ago"); err != nil {
+		return ReplicationSnapshot{}, err
+	}
+	if snapshot.MasterLinkUp, err = optionalStatus(values, "master_link_status"); err != nil {
+		return ReplicationSnapshot{}, err
+	}
+	if snapshot.SyncInProgress, err = optionalBoolean(values, "master_sync_in_progress"); err != nil {
+		return ReplicationSnapshot{}, err
+	}
+	indices := make([]int, 0, len(replicas))
+	for index := range replicas {
+		indices = append(indices, index)
+	}
+	sort.Ints(indices)
+	for _, index := range indices {
+		snapshot.Replicas = append(snapshot.Replicas, replicas[index])
+	}
+	return snapshot, nil
+}
+
+func parsePersistence(values map[string]string) (PersistenceSnapshot, error) {
+	var snapshot PersistenceSnapshot
+	var err error
+	if snapshot.RDBChangesSinceLastSave, err = optionalUint(values, "rdb_changes_since_last_save"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.RDBBGSAVEInProgress, err = optionalBoolean(values, "rdb_bgsave_in_progress"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.RDBLastSaveTimestamp, err = optionalUint(values, "rdb_last_save_time"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.RDBLastBGSAVESuccess, err = optionalStatus(values, "rdb_last_bgsave_status"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.RDBCurrentBGSAVEDuration, err = optionalDuration(values, "rdb_current_bgsave_time_sec"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFEnabled, err = optionalBoolean(values, "aof_enabled"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFEnabled == nil || !*snapshot.AOFEnabled {
+		return snapshot, nil
+	}
+	if snapshot.AOFRewriteInProgress, err = optionalBoolean(values, "aof_rewrite_in_progress"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFRewriteScheduled, err = optionalBoolean(values, "aof_rewrite_scheduled"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFLastRewriteSuccess, err = optionalStatus(values, "aof_last_rewrite_status"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFCurrentRewriteDuration, err = optionalDuration(values, "aof_current_rewrite_time_sec"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFLastWriteSuccess, err = optionalStatus(values, "aof_last_write_status"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFRewritesTotal, err = optionalUint(values, "aof_rewrites"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFRewriteFailuresTotal, err = optionalUint(values, "aof_rewrites_consecutive_failures"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFBaseSizeBytes, err = optionalUint(values, "aof_base_size"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	if snapshot.AOFCurrentSizeBytes, err = optionalUint(values, "aof_current_size"); err != nil {
+		return PersistenceSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func keyValueFields(value string) (map[string]string, error) {
+	parts := strings.Split(value, ",")
+	fields := make(map[string]string, len(parts))
+	for _, part := range parts {
+		key, field, ok := strings.Cut(part, "=")
+		if !ok || key == "" || field == "" {
+			return nil, errors.New("invalid info field")
+		}
+		if _, duplicate := fields[key]; duplicate {
+			return nil, errors.New("duplicate info field")
+		}
+		fields[key] = field
+	}
+	return fields, nil
+}
+
+func optionalBoolean(values map[string]string, name string) (*bool, error) {
+	value, ok := values[name]
+	if !ok {
+		return nil, nil
+	}
+	if value != "0" && value != "1" {
+		return nil, errors.New("invalid boolean")
+	}
+	parsed := value == "1"
+	return &parsed, nil
+}
+
+func optionalStatus(values map[string]string, name string) (*bool, error) {
+	value, ok := values[name]
+	if !ok {
+		return nil, nil
+	}
+	var parsed bool
+	switch value {
+	case "ok", "success", "online", "up":
+		parsed = true
+	case "err", "fail", "failed", "down":
+		parsed = false
+	default:
+		return nil, errors.New("invalid status")
+	}
+	return &parsed, nil
+}
+
+func optionalDuration(values map[string]string, name string) (*uint64, error) {
+	value, ok := values[name]
+	if !ok || value == "-1" {
+		return nil, nil
+	}
+	return optionalUint(values, name)
 }
 
 func parseCommandStats(value string) (CommandStats, error) {

@@ -41,6 +41,35 @@ var Presets = func() []Definition {
 			items[i].labelKeysKnown = true
 		}
 	}
+	for _, item := range []Definition{
+		{Metric: "gopulse_redis_replication_role", Kind: "gauge", Unit: "state", label: "role"},
+		{Metric: "gopulse_redis_replication_connected_replicas", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_redis_replication_master_repl_offset", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_redis_replication_master_last_io_seconds_ago", Kind: "gauge", Unit: "seconds"},
+		{Metric: "gopulse_redis_replication_master_link_up", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_replication_sync_in_progress", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_replica_offset", Kind: "gauge", Unit: "bytes", label: "replica"},
+		{Metric: "gopulse_redis_replica_lag_seconds", Kind: "gauge", Unit: "seconds", label: "replica"},
+		{Metric: "gopulse_redis_replica_link_up", Kind: "gauge", Unit: "boolean", label: "replica"},
+		{Metric: "gopulse_redis_rdb_changes_since_last_save", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_redis_rdb_bgsave_in_progress", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_rdb_last_save_timestamp_seconds", Kind: "gauge", Unit: "unix_seconds"},
+		{Metric: "gopulse_redis_rdb_last_bgsave_success", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_rdb_current_bgsave_duration_seconds", Kind: "gauge", Unit: "seconds"},
+		{Metric: "gopulse_redis_aof_enabled", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_aof_rewrite_in_progress", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_aof_rewrite_scheduled", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_aof_last_rewrite_success", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_aof_current_rewrite_duration_seconds", Kind: "gauge", Unit: "seconds"},
+		{Metric: "gopulse_redis_aof_last_write_success", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_redis_aof_rewrites_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_redis_aof_rewrite_consecutive_failures", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_redis_aof_base_size_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_redis_aof_current_size_bytes", Kind: "gauge", Unit: "bytes"},
+	} {
+		item.Source, item.TargetID, item.ProducerKind, item.ProducerID = "redis", "redis-exporter-local", "exporter_plugin", "redis-exporter"
+		items = append(items, item)
+	}
 	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_up", Kind: "gauge", Unit: "boolean", label: ""})
 	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_uptime_seconds", Kind: "gauge", Unit: "seconds", label: ""})
 	items = append(items, Definition{Source: "mysql", TargetID: "mysql-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "mysql-exporter", Metric: "gopulse_mysql_connections", Kind: "gauge", Unit: "count", label: ""})
@@ -71,6 +100,17 @@ var Presets = func() []Definition {
 		{Metric: "gopulse_mysql_data_pending", Kind: "gauge", Unit: "count", label: "operation"},
 		{Metric: "gopulse_mysql_log_pending", Kind: "gauge", Unit: "count", label: "operation"},
 		{Metric: "gopulse_mysql_redo_log_waits_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_mysql_deadlocks_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_mysql_undo_history_length", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_mysql_undo_slots_used", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_mysql_active_transactions", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_mysql_transaction_oldest_age_seconds", Kind: "gauge", Unit: "seconds"},
+		{Metric: "gopulse_mysql_transaction_rows_locked", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_mysql_transaction_rows_modified", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_mysql_redo_lsn_current", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_mysql_redo_lsn_last_checkpoint", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_mysql_redo_checkpoint_age_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_mysql_redo_log_capacity_bytes", Kind: "gauge", Unit: "bytes"},
 	} {
 		item.Source, item.TargetID, item.ProducerKind, item.ProducerID = "mysql", "mysql-exporter-local", "exporter_plugin", "mysql-exporter"
 		items = append(items, item)

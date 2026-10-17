@@ -21,6 +21,8 @@ type fakeCollector struct {
 	err      error
 }
 
+func uint64Ptr(value uint64) *uint64 { return &value }
+
 func (f *fakeCollector) Collect(context.Context) (collector.Snapshot, error) {
 	f.calls++
 	return f.snapshot, f.err
@@ -43,14 +45,15 @@ func TestHealthDoesNotCollect(t *testing.T) {
 
 func TestMetricsSuccessEncodesFixedFamilies(t *testing.T) {
 	maxMemory, rss, fragmentation := uint64(100), uint64(42), 1.25
-	source := &fakeCollector{snapshot: collector.Snapshot{UptimeSeconds: 5, ConnectedClients: 2, UsedMemoryBytes: 42, CommandsProcessedTotal: 11, KeyspaceHitsTotal: 7, KeyspaceMissesTotal: 3, CPUUserSeconds: 1.5, CPUSystemSeconds: .5, DB: 2, DBKeys: 4, DBExpiringKeys: 1, MaxMemoryBytes: &maxMemory, UsedMemoryRSSBytes: &rss, MemoryFragmentation: &fragmentation, CommandStats: map[string]collector.CommandStats{"get": {CallsTotal: 3, DurationUsecTotal: 500000, RejectedTotal: 1, FailedTotal: 2}}}}
+	maxClients := uint64(100)
+	source := &fakeCollector{snapshot: collector.Snapshot{UptimeSeconds: 5, ConnectedClients: 2, UsedMemoryBytes: 42, CommandsProcessedTotal: 11, KeyspaceHitsTotal: 7, KeyspaceMissesTotal: 3, CPUUserSeconds: 1.5, CPUSystemSeconds: .5, DB: 2, DBKeys: 4, DBExpiringKeys: 1, MaxMemoryBytes: &maxMemory, MaxClients: &maxClients, UsedMemoryRSSBytes: &rss, MemoryFragmentation: &fragmentation, CommandStats: map[string]collector.CommandStats{"get": {CallsTotal: 3, DurationUsecTotal: 500000, RejectedTotal: 1, FailedTotal: 2}}}}
 	response := httptest.NewRecorder()
 	New(source, time.Second, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := response.Body.String()
 	if response.Code != http.StatusOK || source.calls != 1 || response.Header().Get("Content-Type") != metricsContentType || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d calls=%d headers=%v", response.Code, source.calls, response.Header())
 	}
-	for _, sample := range []string{"gopulse_redis_up 1", "gopulse_redis_commands_processed_total 11", `gopulse_redis_cpu_seconds_total{mode="user"} 1.5`, `gopulse_redis_cpu_seconds_total{mode="system"} 0.5`, `gopulse_redis_db_keys{db="2"} 4`, "gopulse_redis_maxmemory_bytes 100", "gopulse_redis_used_memory_rss_bytes 42", "gopulse_redis_memory_fragmentation_ratio 1.25", `gopulse_redis_command_calls_total{command="get"} 3`, `gopulse_redis_command_duration_seconds_total{command="get"} 0.5`} {
+	for _, sample := range []string{"gopulse_redis_up 1", "gopulse_redis_commands_processed_total 11", `gopulse_redis_cpu_seconds_total{mode="user"} 1.5`, `gopulse_redis_cpu_seconds_total{mode="system"} 0.5`, `gopulse_redis_db_keys{db="2"} 4`, "gopulse_redis_maxmemory_bytes 100", "gopulse_redis_max_clients 100", "gopulse_redis_used_memory_rss_bytes 42", "gopulse_redis_memory_fragmentation_ratio 1.25", `gopulse_redis_command_calls_total{command="get"} 3`, `gopulse_redis_command_duration_seconds_total{command="get"} 0.5`} {
 		if !strings.Contains(body, sample) {
 			t.Fatalf("missing %q in:\n%s", sample, body)
 		}
@@ -102,6 +105,40 @@ func TestMetricsCommandStatsShareFamilies(t *testing.T) {
 				seen[command] = true
 			}
 		})
+	}
+}
+
+func TestMetricsIncludesReplicationAndPersistenceAndOmitsDisabledAOFDetails(t *testing.T) {
+	linkUp := true
+	aofEnabled := false
+	source := &fakeCollector{snapshot: collector.Snapshot{
+		Replication: collector.ReplicationSnapshot{
+			Role: "master", ConnectedReplicas: uint64Ptr(1), MasterReplOffset: uint64Ptr(44),
+			Replicas: []collector.ReplicaSnapshot{{Index: 0, Offset: 42, LagSeconds: 1, LinkUp: true}},
+		},
+		Persistence: collector.PersistenceSnapshot{
+			RDBLastSaveTimestamp: uint64Ptr(1700000000), RDBLastBGSAVESuccess: &linkUp, AOFEnabled: &aofEnabled,
+		},
+	}}
+	response := httptest.NewRecorder()
+	New(source, time.Second, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := response.Body.String()
+	for _, sample := range []string{
+		`gopulse_redis_replication_role{role="master"} 1`,
+		"gopulse_redis_replication_connected_replicas 1",
+		"gopulse_redis_replication_master_repl_offset 44",
+		`gopulse_redis_replica_offset{replica="0"} 42`,
+		`gopulse_redis_replica_link_up{replica="0"} 1`,
+		"gopulse_redis_rdb_last_save_timestamp_seconds 1.7e+09",
+		"gopulse_redis_rdb_last_bgsave_success 1",
+		"gopulse_redis_aof_enabled 0",
+	} {
+		if !strings.Contains(body, sample) {
+			t.Fatalf("missing %q in:\n%s", sample, body)
+		}
+	}
+	if strings.Contains(body, "aof_current_size_bytes") || strings.Contains(body, "aof_last_write_success") {
+		t.Fatalf("disabled AOF details were exported:\n%s", body)
 	}
 }
 

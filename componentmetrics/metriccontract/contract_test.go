@@ -82,7 +82,12 @@ func TestHistogramIntegrityDoesNotDependOnFixedBuckets(t *testing.T) {
 func TestUnitOverridesCoverExporterDimensions(t *testing.T) {
 	for name, want := range map[string]string{
 		"gopulse_redis_blocked_clients":           "count",
+		"gopulse_redis_replication_role":          "state",
+		"gopulse_redis_replica_offset":            "bytes",
+		"gopulse_redis_aof_enabled":               "boolean",
 		"gopulse_mysql_buffer_pool_pages":         "count",
+		"gopulse_mysql_active_transactions":       "count",
+		"gopulse_mysql_redo_lsn_current":          "bytes",
 		"gopulse_rabbitmq_queue_messages":         "count",
 		"gopulse_kafka_consumer_partition_lag":    "count",
 		"gopulse_kafka_partition_offline":         "boolean",

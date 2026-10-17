@@ -3,7 +3,6 @@ package metricquery
 import (
 	"context"
 	"errors"
-	"sort"
 	"time"
 )
 
@@ -342,8 +341,4 @@ func stripSeriesLabels(series []Series, keys []string) []Series {
 		result = append(result, Series{Labels: dropLabels(row.Labels, keys), Points: append([]Point(nil), row.Points...)})
 	}
 	return result
-}
-
-func sortDefinitions(definitions []Definition) {
-	sort.Slice(definitions, func(i, j int) bool { return definitions[i].Metric < definitions[j].Metric })
 }

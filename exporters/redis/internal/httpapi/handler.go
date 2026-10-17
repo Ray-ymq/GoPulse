@@ -116,6 +116,9 @@ func successFamilies(snapshot collector.Snapshot) []*dto.MetricFamily {
 	if snapshot.MaxMemoryBytes != nil {
 		families = append(families, gaugeFamily("gopulse_redis_maxmemory_bytes", "Configured maximum Redis memory in bytes.", float64(*snapshot.MaxMemoryBytes), nil))
 	}
+	if snapshot.MaxClients != nil {
+		families = append(families, gaugeFamily("gopulse_redis_max_clients", "Configured maximum Redis client connections.", float64(*snapshot.MaxClients), nil))
+	}
 	if snapshot.UsedMemoryRSSBytes != nil {
 		families = append(families, gaugeFamily("gopulse_redis_used_memory_rss_bytes", "Resident memory used by Redis in bytes.", float64(*snapshot.UsedMemoryRSSBytes), nil))
 	}
@@ -164,6 +167,87 @@ func successFamilies(snapshot collector.Snapshot) []*dto.MetricFamily {
 			}
 		}
 	}
+	if snapshot.Replication.Role != "" {
+		families = append(families, gaugeFamily("gopulse_redis_replication_role", "Current Redis replication role.", 1, map[string]string{"role": snapshot.Replication.Role}))
+	}
+	if snapshot.Replication.ConnectedReplicas != nil {
+		families = append(families, gaugeFamily("gopulse_redis_replication_connected_replicas", "Current number of connected Redis replicas.", float64(*snapshot.Replication.ConnectedReplicas), nil))
+	}
+	if snapshot.Replication.MasterReplOffset != nil {
+		families = append(families, gaugeFamily("gopulse_redis_replication_master_repl_offset", "Redis replication offset reported by the master.", float64(*snapshot.Replication.MasterReplOffset), nil))
+	}
+	if snapshot.Replication.MasterLastIOSecondsAgo != nil {
+		families = append(families, gaugeFamily("gopulse_redis_replication_master_last_io_seconds_ago", "Seconds since the last replication I/O with the master.", float64(*snapshot.Replication.MasterLastIOSecondsAgo), nil))
+	}
+	if snapshot.Replication.MasterLinkUp != nil {
+		families = append(families, gaugeFamily("gopulse_redis_replication_master_link_up", "Whether the Redis replica link to its master is up.", boolFloat(snapshot.Replication.MasterLinkUp), nil))
+	}
+	if snapshot.Replication.SyncInProgress != nil {
+		families = append(families, gaugeFamily("gopulse_redis_replication_sync_in_progress", "Whether Redis replication synchronization is in progress.", boolFloat(snapshot.Replication.SyncInProgress), nil))
+	}
+	if len(snapshot.Replication.Replicas) > 0 {
+		offsets := make([]gaugeSample, 0, len(snapshot.Replication.Replicas))
+		lags := make([]gaugeSample, 0, len(snapshot.Replication.Replicas))
+		links := make([]gaugeSample, 0, len(snapshot.Replication.Replicas))
+		for _, replica := range snapshot.Replication.Replicas {
+			labels := map[string]string{"replica": strconv.Itoa(replica.Index)}
+			offsets = append(offsets, gaugeSample{Labels: labels, Value: float64(replica.Offset)})
+			lags = append(lags, gaugeSample{Labels: labels, Value: float64(replica.LagSeconds)})
+			links = append(links, gaugeSample{Labels: labels, Value: boolFloat(&replica.LinkUp)})
+		}
+		families = append(families,
+			gaugeSamplesFamily("gopulse_redis_replica_offset", "Replication offset reported for each Redis replica.", offsets),
+			gaugeSamplesFamily("gopulse_redis_replica_lag_seconds", "Replication lag reported for each Redis replica in seconds.", lags),
+			gaugeSamplesFamily("gopulse_redis_replica_link_up", "Whether each Redis replica is online.", links),
+		)
+	}
+	if snapshot.Persistence.RDBChangesSinceLastSave != nil {
+		families = append(families, gaugeFamily("gopulse_redis_rdb_changes_since_last_save", "Redis changes since the last RDB save.", float64(*snapshot.Persistence.RDBChangesSinceLastSave), nil))
+	}
+	if snapshot.Persistence.RDBBGSAVEInProgress != nil {
+		families = append(families, gaugeFamily("gopulse_redis_rdb_bgsave_in_progress", "Whether a Redis RDB background save is in progress.", boolFloat(snapshot.Persistence.RDBBGSAVEInProgress), nil))
+	}
+	if snapshot.Persistence.RDBLastSaveTimestamp != nil {
+		families = append(families, gaugeFamily("gopulse_redis_rdb_last_save_timestamp_seconds", "Unix timestamp of the last Redis RDB save.", float64(*snapshot.Persistence.RDBLastSaveTimestamp), nil))
+	}
+	if snapshot.Persistence.RDBLastBGSAVESuccess != nil {
+		families = append(families, gaugeFamily("gopulse_redis_rdb_last_bgsave_success", "Whether the last Redis RDB background save succeeded.", boolFloat(snapshot.Persistence.RDBLastBGSAVESuccess), nil))
+	}
+	if snapshot.Persistence.RDBCurrentBGSAVEDuration != nil {
+		families = append(families, gaugeFamily("gopulse_redis_rdb_current_bgsave_duration_seconds", "Current Redis RDB background save duration in seconds.", float64(*snapshot.Persistence.RDBCurrentBGSAVEDuration), nil))
+	}
+	if snapshot.Persistence.AOFEnabled != nil {
+		families = append(families, gaugeFamily("gopulse_redis_aof_enabled", "Whether Redis AOF persistence is enabled.", boolFloat(snapshot.Persistence.AOFEnabled), nil))
+	}
+	if snapshot.Persistence.AOFEnabled != nil && *snapshot.Persistence.AOFEnabled {
+		if snapshot.Persistence.AOFRewriteInProgress != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_rewrite_in_progress", "Whether a Redis AOF rewrite is in progress.", boolFloat(snapshot.Persistence.AOFRewriteInProgress), nil))
+		}
+		if snapshot.Persistence.AOFRewriteScheduled != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_rewrite_scheduled", "Whether a Redis AOF rewrite is scheduled.", boolFloat(snapshot.Persistence.AOFRewriteScheduled), nil))
+		}
+		if snapshot.Persistence.AOFLastRewriteSuccess != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_last_rewrite_success", "Whether the last Redis AOF rewrite succeeded.", boolFloat(snapshot.Persistence.AOFLastRewriteSuccess), nil))
+		}
+		if snapshot.Persistence.AOFCurrentRewriteDuration != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_current_rewrite_duration_seconds", "Current Redis AOF rewrite duration in seconds.", float64(*snapshot.Persistence.AOFCurrentRewriteDuration), nil))
+		}
+		if snapshot.Persistence.AOFLastWriteSuccess != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_last_write_success", "Whether the last Redis AOF write succeeded.", boolFloat(snapshot.Persistence.AOFLastWriteSuccess), nil))
+		}
+		if snapshot.Persistence.AOFRewritesTotal != nil {
+			families = append(families, counterFamily("gopulse_redis_aof_rewrites_total", "Total Redis AOF rewrite operations.", float64(*snapshot.Persistence.AOFRewritesTotal), nil))
+		}
+		if snapshot.Persistence.AOFRewriteFailuresTotal != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_rewrite_consecutive_failures", "Consecutive Redis AOF rewrite failures.", float64(*snapshot.Persistence.AOFRewriteFailuresTotal), nil))
+		}
+		if snapshot.Persistence.AOFBaseSizeBytes != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_base_size_bytes", "Redis AOF base size in bytes.", float64(*snapshot.Persistence.AOFBaseSizeBytes), nil))
+		}
+		if snapshot.Persistence.AOFCurrentSizeBytes != nil {
+			families = append(families, gaugeFamily("gopulse_redis_aof_current_size_bytes", "Current Redis AOF size in bytes.", float64(*snapshot.Persistence.AOFCurrentSizeBytes), nil))
+		}
+	}
 	return families
 }
 
@@ -174,6 +258,20 @@ func upFamily(value float64) *dto.MetricFamily {
 func gaugeFamily(name, help string, value float64, labels map[string]string) *dto.MetricFamily {
 	gaugeType := dto.MetricType_GAUGE
 	return &dto.MetricFamily{Name: stringPtr(name), Help: stringPtr(help), Type: &gaugeType, Metric: []*dto.Metric{{Label: labelPairs(labels), Gauge: &dto.Gauge{Value: floatPtr(value)}}}}
+}
+
+type gaugeSample struct {
+	Labels map[string]string
+	Value  float64
+}
+
+func gaugeSamplesFamily(name, help string, samples []gaugeSample) *dto.MetricFamily {
+	gaugeType := dto.MetricType_GAUGE
+	metrics := make([]*dto.Metric, 0, len(samples))
+	for _, sample := range samples {
+		metrics = append(metrics, &dto.Metric{Label: labelPairs(sample.Labels), Gauge: &dto.Gauge{Value: floatPtr(sample.Value)}})
+	}
+	return &dto.MetricFamily{Name: stringPtr(name), Help: stringPtr(help), Type: &gaugeType, Metric: metrics}
 }
 func counterFamily(name, help string, value float64, labels map[string]string, extra ...map[string]float64) *dto.MetricFamily {
 	counterType := dto.MetricType_COUNTER
@@ -198,3 +296,10 @@ func labelPairs(labels map[string]string) []*dto.LabelPair {
 }
 func stringPtr(value string) *string  { return &value }
 func floatPtr(value float64) *float64 { return &value }
+
+func boolFloat(value *bool) float64 {
+	if value != nil && *value {
+		return 1
+	}
+	return 0
+}

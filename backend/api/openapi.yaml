@@ -1258,6 +1258,8 @@ paths:
         - $ref: '#/components/parameters/MetricNodeID'
         - $ref: '#/components/parameters/MetricTopic'
         - $ref: '#/components/parameters/MetricConsumerGroup'
+        - $ref: '#/components/parameters/MetricRole'
+        - $ref: '#/components/parameters/MetricReplica'
       responses:
         '200':
           description: 指标序列。
@@ -2311,6 +2313,18 @@ components:
       in: query
       required: false
       description: 动态消费者组标签；仅在指标目录声明 `consumer_group` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricRole:
+      name: role
+      in: query
+      required: false
+      description: 动态角色标签；仅在指标目录声明 `role` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricReplica:
+      name: replica
+      in: query
+      required: false
+      description: 动态副本标签；仅在指标目录声明 `replica` 时有效。
       schema: {type: string, maxLength: 256}
     RangeFrom:
       name: from
