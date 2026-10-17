@@ -235,6 +235,7 @@ var testDefaults = map[string]string{
 	"MONITOR_API_TOKEN":                 "test-monitor-api-token-32-bytes-0123456789",
 	"MONITOR_BOOTSTRAP_PACKAGE":         "/opt/gopulse/packages/gopulse-redis-exporter.tar.gz",
 	"MONITOR_HTTP_PORT":                 "19090",
+	"MONITOR_KAFKA_BROKERS":             "127.0.0.1:19092",
 	"MONITOR_METRICS_TOKEN":             "test-monitor-metrics-token-32-bytes-0123456789",
 	"MONITOR_URL":                       "http://127.0.0.1:19090",
 	"MYSQL_DATABASE":                    "gopulse_integration",
