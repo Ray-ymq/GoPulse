@@ -164,9 +164,6 @@ func (c *Controller) quiesce() error {
 	if e := c.compose("stop", "--timeout", "30", "monitor"); e != nil {
 		return e
 	}
-	if e := c.compose("stop", "--timeout", "30", "router"); e != nil {
-		return e
-	}
 	if e := c.waitDrain(c.kafkaEmpty); e != nil {
 		return e
 	}

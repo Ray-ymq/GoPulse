@@ -16,7 +16,7 @@ func TestComponentIngressContract(t *testing.T) {
 	}
 	for name, bad := range map[string]string{
 		"family":    string(body) + "# TYPE extra gauge\nextra 1\n",
-		"label key": strings.Replace(string(body), `dependency="router"`, `dependency="router",source="backend"`, 1),
+		"label key": strings.Replace(string(body), "gopulse_monitor_event_queue_length 0", "gopulse_monitor_event_queue_length{source=\"backend\"} 0", 1),
 		"duplicate": string(body) + "gopulse_monitor_event_queue_length 0\n",
 		"infinite":  strings.Replace(string(body), "gopulse_monitor_event_queue_length 0", "gopulse_monitor_event_queue_length +Inf", 1),
 	} {
@@ -26,7 +26,7 @@ func TestComponentIngressContract(t *testing.T) {
 			}
 		})
 	}
-	// All five non-Backend producers legitimately have no counter tuples at boot.
+	// All non-Backend producers legitimately have no counter tuples at boot.
 	for _, id := range componentmetrics.Components {
 		if id == "backend" {
 			continue
@@ -40,7 +40,6 @@ func TestComponentIngressContract(t *testing.T) {
 }
 
 func TestComponentCatalogIncludesEveryExplicitObservabilityReplica(t *testing.T) {
-	t.Setenv("ROUTER_ENDPOINTS", "router,router-2")
 	t.Setenv("MARSHALLER_ENDPOINTS", "marshaller,marshaller-2")
 	spec, ok := componentmetrics.Catalog("monitor")
 	if !ok {
@@ -57,7 +56,7 @@ func TestComponentCatalogIncludesEveryExplicitObservabilityReplica(t *testing.T)
 			}
 		}
 	}
-	for _, target := range []string{"component:router-local", "component:router-2-local", "component:marshaller-local", "component:marshaller-2-local"} {
+	for _, target := range []string{"component:marshaller-local", "component:marshaller-2-local"} {
 		if !seen[target+":scrape_success"] {
 			t.Fatalf("target %s missing from monitor catalog", target)
 		}

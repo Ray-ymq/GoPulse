@@ -95,5 +95,5 @@ it('accepts component scraped labels and unknown dependency with additional dime
  const value = {metric:'gopulse_monitor_last_scrape_success_timestamp_seconds',kind:'gauge',unit:'unix_seconds',range:'15m',from:'2026-09-11T08:00:00Z',to:'2026-09-11T08:15:00Z',step_seconds:15,series:[{labels:{scraped_producer_kind:'component',scraped_target_id:'monitor-local'},points:[{timestamp:'2026-09-11T08:15:00Z',value:0}]}]}
  expect(isMetricResult(value)).toBe(true)
  expect(isMetricResult({...value,series:[{...value.series[0],labels:{...value.series[0]!.labels,node:'node-2'}}]})).toBe(true)
- expect(isMetricResult({...value,metric:'gopulse_monitor_dependency_up',unit:'state',series:[{labels:{dependency:'router'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(true)
+ expect(isMetricResult({...value,metric:'gopulse_backend_dependency_up',unit:'state',series:[{labels:{dependency:'redis'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(true)
 })

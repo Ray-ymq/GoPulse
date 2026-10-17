@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -29,14 +30,44 @@ type Metadata struct {
 	ScrapeStatus          string `json:"scrape_status,omitempty"`
 }
 
+const EventsDataID = 2001
+
+type BatchItem struct {
+	EventName string
+	Target    string
+	Content   string
+	Count     int
+	Dimension map[string]string
+	Timestamp time.Time
+}
+
+type BatchPayload struct {
+	DataID int         `json:"dataid"`
+	Data   []BatchWire `json:"data"`
+}
+
+type BatchWire struct {
+	EventName string            `json:"event_name"`
+	Target    string            `json:"target"`
+	Event     BatchEvent        `json:"event"`
+	Dimension map[string]string `json:"dimension"`
+	Timestamp int64             `json:"timestamp"`
+}
+
+type BatchEvent struct {
+	Content string `json:"content"`
+	Count   int    `json:"count"`
+}
+
 type Payload struct {
-	EventSchemaVersion int      `json:"event_schema_version"`
-	EventName          string   `json:"event_name"`
-	Source             string   `json:"source"`
-	Severity           string   `json:"severity"`
-	Timestamp          string   `json:"timestamp"`
-	Message            string   `json:"message"`
-	Metadata           Metadata `json:"metadata"`
+	EventSchemaVersion int         `json:"event_schema_version"`
+	EventName          string      `json:"event_name"`
+	Source             string      `json:"source"`
+	Severity           string      `json:"severity"`
+	Timestamp          string      `json:"timestamp"`
+	Message            string      `json:"message"`
+	Metadata           Metadata    `json:"metadata"`
+	Items              []BatchItem `json:"-"`
 }
 type Document struct {
 	Timestamp          string   `json:"@timestamp"`
@@ -48,6 +79,13 @@ type Document struct {
 	Metadata           Metadata `json:"metadata"`
 }
 type WriteRequest struct {
+	MessageID string          `json:"message_id"`
+	IndexDate string          `json:"index_date"`
+	Document  json.RawMessage `json:"document"`
+	Items     []WriteItem     `json:"items,omitempty"`
+}
+
+type WriteItem struct {
 	MessageID string          `json:"message_id"`
 	IndexDate string          `json:"index_date"`
 	Document  json.RawMessage `json:"document"`
@@ -82,6 +120,9 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	if payload.Source != message.Source {
 		return nil, &envelope.PermanentError{Code: "source_mismatch"}
 	}
+	if len(payload.Items) > 0 {
+		return t.transformBatch(message, payload.Items)
+	}
 	payloadTime, _ := time.Parse(time.RFC3339Nano, payload.Timestamp)
 	if !payloadTime.Equal(message.Timestamp) {
 		return nil, &envelope.PermanentError{Code: "timestamp_mismatch"}
@@ -101,16 +142,73 @@ func (t Transformer) Transform(message envelope.Envelope) ([]byte, error) {
 	if err != nil {
 		return nil, &envelope.PermanentError{Code: "transform_failed"}
 	}
-	request, err := json.Marshal(WriteRequest{message.MessageID, message.Timestamp.UTC().Format("2006.01.02"), document})
+	request, err := json.Marshal(WriteRequest{MessageID: message.MessageID, IndexDate: message.Timestamp.UTC().Format("2006.01.02"), Document: document})
 	if err != nil {
 		return nil, &envelope.PermanentError{Code: "transform_failed"}
 	}
 	return request, nil
 }
 
+func (t Transformer) transformBatch(message envelope.Envelope, items []BatchItem) ([]byte, error) {
+	writeItems := make([]WriteItem, 0, len(items))
+	for i, item := range items {
+		if t.Retention != nil {
+			now := time.Now()
+			if t.Now != nil {
+				now = t.Now()
+			}
+			if t.Retention.ExpiredTimestamp(item.Timestamp, now) {
+				retention.ObserveLate(t.Retention.Stream, "expired")
+				return nil, &envelope.PermanentError{Code: retention.PermanentCode(t.Retention.Stream)}
+			}
+		}
+		spec := specs[item.EventName]
+		document, err := json.Marshal(Document{item.Timestamp.Format(time.RFC3339Nano), 1, item.EventName, "monitor", spec.severity, item.Content, metadataFromBatch(item)})
+		if err != nil {
+			return nil, &envelope.PermanentError{Code: "transform_failed"}
+		}
+		id := message.MessageID
+		if len(items) > 1 {
+			id += "-" + strconv.Itoa(i)
+		}
+		writeItems = append(writeItems, WriteItem{MessageID: id, IndexDate: item.Timestamp.UTC().Format("2006.01.02"), Document: document})
+	}
+	if len(writeItems) == 1 {
+		return json.Marshal(WriteRequest{MessageID: writeItems[0].MessageID, IndexDate: writeItems[0].IndexDate, Document: writeItems[0].Document})
+	}
+	return json.Marshal(WriteRequest{MessageID: message.MessageID, Items: writeItems})
+}
+
+func metadataFromBatch(item BatchItem) Metadata {
+	metadata := Metadata{PluginID: item.Target}
+	for key, value := range item.Dimension {
+		switch key {
+		case "plugin_version":
+			metadata.PluginVersion = value
+		case "previous_plugin_version":
+			metadata.PreviousPluginVersion = value
+		case "operation":
+			metadata.Operation = value
+		case "from_state":
+			metadata.FromState = value
+		case "to_state":
+			metadata.ToState = value
+		case "error_code":
+			metadata.ErrorCode = value
+		case "scrape_status":
+			metadata.ScrapeStatus = value
+		}
+	}
+	return metadata
+}
+
 func Validate(body []byte, envelopeTime time.Time) (Payload, error) {
 	if !utf8.Valid(body) || len(body) == 0 || checkUnique(body) != nil {
 		return Payload{}, errors.New("invalid event payload")
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) == nil && (fields["dataid"] != nil || fields["data"] != nil) {
+		return validateBatch(body, envelopeTime)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
@@ -136,6 +234,62 @@ func Validate(body []byte, envelopeTime time.Time) (Payload, error) {
 		}
 	}
 	return payload, nil
+}
+
+func validateBatch(body []byte, envelopeTime time.Time) (Payload, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil || len(fields) != 2 || fields["dataid"] == nil || fields["data"] == nil {
+		return Payload{}, errors.New("invalid event payload")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var batch BatchPayload
+	if decoder.Decode(&batch) != nil || expectEOF(decoder) != nil || batch.DataID != EventsDataID || len(batch.Data) == 0 || len(batch.Data) > 256 {
+		return Payload{}, errors.New("invalid event payload")
+	}
+	items := make([]BatchItem, len(batch.Data))
+	for i, item := range batch.Data {
+		spec, ok := specs[item.EventName]
+		if !ok || item.Event.Content != spec.message || item.Event.Count < 1 || item.Target == "" || !safe(item.Target) {
+			return Payload{}, errors.New("invalid event vocabulary")
+		}
+		at := time.UnixMilli(item.Timestamp).UTC()
+		if item.Timestamp <= 0 || at.After(envelopeTime.UTC()) {
+			return Payload{}, errors.New("invalid event timestamp")
+		}
+		metadata := metadataFromBatch(BatchItem{Target: item.Target, Dimension: item.Dimension})
+		if err := validBatchDimension(item.Dimension); err != nil || !validMetadata(item.EventName, metadata) {
+			return Payload{}, errors.New("invalid event metadata")
+		}
+		values := []string{item.EventName, item.Target, item.Event.Content}
+		for key, value := range item.Dimension {
+			values = append(values, key, value)
+		}
+		for _, value := range values {
+			if !safe(value) {
+				return Payload{}, errors.New("unsafe event text")
+			}
+		}
+		items[i] = BatchItem{EventName: item.EventName, Target: item.Target, Content: item.Event.Content, Count: item.Event.Count, Dimension: item.Dimension, Timestamp: at}
+	}
+	first := items[0]
+	firstSpec := specs[first.EventName]
+	metadata := metadataFromBatch(first)
+	return Payload{EventSchemaVersion: 1, EventName: first.EventName, Source: "monitor", Severity: firstSpec.severity, Timestamp: envelopeTime.UTC().Format(time.RFC3339Nano), Message: first.Content, Metadata: metadata, Items: items}, nil
+}
+
+func validBatchDimension(dimension map[string]string) error {
+	if dimension == nil {
+		return errors.New("missing dimension")
+	}
+	for key := range dimension {
+		switch key {
+		case "plugin_version", "previous_plugin_version", "operation", "from_state", "to_state", "error_code", "scrape_status":
+		default:
+			return errors.New("unknown dimension")
+		}
+	}
+	return nil
 }
 
 func validMetadata(name string, m Metadata) bool {

@@ -7,7 +7,7 @@ import (
 )
 
 func TestFixedCatalogBudgetsAndInitialState(t *testing.T) {
-	budgets := map[string]int{"backend": 5713, "business-worker": 42, "search-indexer": 37, "monitor": 112, "router": 120, "marshaller": 362}
+	budgets := map[string]int{"backend": 5713, "business-worker": 42, "search-indexer": 37, "monitor": 102, "marshaller": 348}
 	for _, id := range Components {
 		spec, _ := Catalog(id)
 		if spec.MaxSamples != budgets[id] {
@@ -24,7 +24,14 @@ func TestFixedCatalogBudgetsAndInitialState(t *testing.T) {
 		if !ok || len(body) > spec.MaxBodyBytes {
 			t.Fatal("invalid initial body")
 		}
-		if !strings.Contains(string(body), "_dependency_up{dependency=") {
+		hasDependency := false
+		for _, family := range spec.Families {
+			if strings.HasSuffix(family.Name, "_dependency_up") {
+				hasDependency = true
+				break
+			}
+		}
+		if hasDependency && !strings.Contains(string(body), "_dependency_up{dependency=") {
 			t.Fatal("missing unknown dependency")
 		}
 	}

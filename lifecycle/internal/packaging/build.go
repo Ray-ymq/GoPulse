@@ -20,7 +20,7 @@ func specOf(name string) buildSpec {
 	switch name {
 	case "backend", "business-worker", "search-indexer":
 		return buildSpec{dockerfile: "backend", target: name}
-	case "router", "marshaller", "redis-exporter":
+	case "marshaller", "redis-exporter":
 		return buildSpec{dockerfile: "observability", target: name}
 	case "monitor":
 		return buildSpec{dockerfile: "monitor", target: name}

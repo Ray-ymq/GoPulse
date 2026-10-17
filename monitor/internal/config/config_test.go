@@ -8,7 +8,7 @@ func TestLoadFromValidatesSecurityBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFrom() error = %v", err)
 	}
-	if cfg.HTTPAddress() != "127.0.0.1:9090" || cfg.ExporterHealthURL() != "http://127.0.0.1:9121/health" || cfg.ScrapeInterval.String() != "15s" || cfg.ScrapeTimeout.String() != "3s" {
+	if cfg.HTTPAddress() != "127.0.0.1:9090" || cfg.ExporterHealthURL() != "http://127.0.0.1:9121/health" || cfg.ScrapeInterval.String() != "15s" || cfg.ScrapeTimeout.String() != "3s" || len(cfg.KafkaBrokers) != 1 || cfg.KafkaBrokers[0] != "127.0.0.1:9092" || cfg.KafkaProduceTimeout.String() != "3s" || cfg.KafkaMaxBufferedRecords != 128 || cfg.KafkaMaxBufferedBytes != 8388608 {
 		t.Fatalf("unexpected defaults: %#v", cfg)
 	}
 	values["MONITOR_API_TOKEN"] = "short"
@@ -17,20 +17,16 @@ func TestLoadFromValidatesSecurityBoundary(t *testing.T) {
 	}
 }
 
-func TestLoadFromRejectsInvalidScrapeAndRouterConfiguration(t *testing.T) {
+func TestLoadFromRejectsInvalidScrapeConfiguration(t *testing.T) {
 	values := map[string]string{"MONITOR_API_TOKEN": "01234567890123456789012345678901", "LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF", "MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0", "MONITOR_SCRAPE_INTERVAL": "3s", "MONITOR_SCRAPE_TIMEOUT": "3s"}
 	lookup := func(key string) (string, bool) { v, ok := values[key]; return v, ok }
 	if _, err := LoadFrom(lookup); err == nil {
 		t.Fatal("scrape timeout equal to interval was accepted")
 	}
 	values["MONITOR_SCRAPE_INTERVAL"] = "15s"
-	values["MONITOR_ROUTER_URL"] = "http://127.0.0.1:8080"
-	if _, err := LoadFrom(lookup); err == nil {
-		t.Fatal("router URL without token was accepted")
-	}
 }
 
-func TestLoadFromAcceptsBoundedRouterReplicaEndpoints(t *testing.T) {
+func TestLoadFromAcceptsBoundedMarshallerReplicaEndpoints(t *testing.T) {
 	values := map[string]string{
 		"MONITOR_API_TOKEN":        "01234567890123456789012345678901",
 		"LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF",
@@ -38,28 +34,25 @@ func TestLoadFromAcceptsBoundedRouterReplicaEndpoints(t *testing.T) {
 		"REDIS_HOST":               "127.0.0.1",
 		"REDIS_PORT":               "6379",
 		"REDIS_DB":                 "0",
-		"MONITOR_ROUTER_URLS":      "http://127.0.0.1:8080,http://127.0.0.1:8081",
-		"MONITOR_ROUTER_TOKEN":     "router-token-0123456789012345678901",
-		"ROUTER_ENDPOINTS":         "router,router-2",
 		"MARSHALLER_ENDPOINTS":     "marshaller,marshaller-2",
 	}
 	cfg, err := LoadFrom(func(key string) (string, bool) { value, ok := values[key]; return value, ok })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.RouterURLs) != 2 || cfg.RouterURL != "http://127.0.0.1:8080" {
-		t.Fatalf("unexpected Router pool: %+v", cfg.RouterURLs)
+	if cfg.HTTPAddress() != "127.0.0.1:9090" {
+		t.Fatalf("unexpected Monitor config: %+v", cfg)
 	}
 }
 
-func TestLoadFromRejectsDuplicateRouterEndpoints(t *testing.T) {
+func TestLoadFromRejectsDuplicateMarshallerEndpoints(t *testing.T) {
 	values := map[string]string{
 		"MONITOR_API_TOKEN": "01234567890123456789012345678901", "LOG_MONITOR_INGEST_TOKEN": "abcdefghijklmnopqrstuvwxyzABCDEF",
 		"MONITOR_PLUGIN_ROOT": t.TempDir(), "REDIS_HOST": "127.0.0.1", "REDIS_PORT": "6379", "REDIS_DB": "0",
-		"ROUTER_ENDPOINTS": "router,router",
+		"MARSHALLER_ENDPOINTS": "marshaller,marshaller",
 	}
 	if _, err := LoadFrom(func(key string) (string, bool) { value, ok := values[key]; return value, ok }); err == nil {
-		t.Fatal("duplicate Router endpoint was accepted")
+		t.Fatal("duplicate Marshaller endpoint was accepted")
 	}
 }
 

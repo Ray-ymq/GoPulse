@@ -108,10 +108,6 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	if err != nil {
 		return err
 	}
-	router, err := s.buildBinary("integration-router", filepath.Join(s.root, "router"), "./cmd/router", observationDigest)
-	if err != nil {
-		return err
-	}
 	marshaller, err := s.buildBinary("integration-marshaller", filepath.Join(s.root, "marshaller"), "./cmd/marshaller", observationDigest)
 	if err != nil {
 		return err
@@ -132,8 +128,6 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 		return err
 	}
 
-	routerEnv := copyEnvironment(s.values)
-	routerEnv["GOPULSE_INSTANCE_ID"] = "router-test"
 	marshallerEnv := copyEnvironment(s.values)
 	marshallerEnv["GOPULSE_INSTANCE_ID"] = "marshaller-test"
 	backendEnv := copyEnvironment(s.values)
@@ -150,13 +144,6 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	monitorEnv["MONITOR_RELEASE_CATALOG"] = filepath.Join(s.values["MONITOR_PACKAGE_DIR"], "catalog.json")
 	monitorEnv["MONITOR_BOOTSTRAP_PACKAGE"] = redisExporterPackage(s.root, s.values["MONITOR_PACKAGE_DIR"])
 
-	if err := s.spawn(state, "router", []string{router}, routerEnv, filepath.Join(s.root, "router")); err != nil {
-		return err
-	}
-	if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/ready", s.values["ROUTER_HTTP_PORT"]), readinessTimeout,
-		s.values["ROUTER_API_TOKEN"], "test Router", aliveIn(state, "router")); err != nil {
-		return err
-	}
 	if err := s.spawn(state, "marshaller", []string{marshaller}, marshallerEnv, filepath.Join(s.root, "marshaller")); err != nil {
 		return err
 	}

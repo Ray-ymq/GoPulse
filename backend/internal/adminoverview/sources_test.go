@@ -17,7 +17,7 @@ func TestFreshAndStaleKeyMetrics(t *testing.T) {
 	for _, age := range []time.Duration{time.Second, 2 * time.Minute} {
 		s := KeyMetrics(pointsStub{now.Add(-age)})(context.Background(), now)
 		items := s.Items.([]Metric)
-		if len(items) != 6 || *items[0].Value != 7 {
+		if len(items) != 5 || *items[0].Value != 7 {
 			t.Fatal("lost fixed metric samples")
 		}
 		if age > freshness {

@@ -55,7 +55,6 @@
         "search-indexer",
         "frontend",
         "admin-frontend",
-        "router",
         "marshaller",
         "monitor",
         "redis-exporter"
@@ -186,37 +185,6 @@
           }
         },
         "admin-frontend": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "ref",
-            "platforms"
-          ],
-          "properties": {
-            "ref": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[0-9a-f]{64}$"
-            },
-            "platforms": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "linux/amd64"
-              ],
-              "properties": {
-                "linux/amd64": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                },
-                "linux/arm64": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                }
-              }
-            }
-          }
-        },
-        "router": {
           "type": "object",
           "additionalProperties": false,
           "required": [

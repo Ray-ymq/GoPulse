@@ -13,8 +13,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-const Topic = "gopulse-observability-v1"
-const Group = "gopulse-marshaller-metrics-v1"
+const Topic = "gopulse-observability-metrics"
+const Group = "gopulse-marshaller-metrics"
 const Unavailable = "# TYPE gopulse_kafka_up gauge\ngopulse_kafka_up 0\n"
 
 var ErrUnavailable = errors.New("target_unavailable")

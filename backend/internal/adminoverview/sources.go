@@ -18,8 +18,8 @@ type Metric struct {
 	ReasonCode string     `json:"reason_code"`
 }
 
-var componentIDs = []string{"backend", "business-worker", "search-indexer", "monitor", "router", "marshaller"}
-var keyNames = []string{"outbox_pending", "messages_in_flight", "retrying", "event_queue_length", "buffered_records", "retrying"}
+var componentIDs = []string{"backend", "business-worker", "search-indexer", "monitor", "marshaller"}
+var keyNames = []string{"outbox_pending", "messages_in_flight", "retrying", "event_queue_length", "retrying"}
 
 const freshness = 90 * time.Second
 

@@ -50,20 +50,8 @@ func (s *session) startApplications(state *workspace.State, observe bool, env en
 		if err != nil {
 			return err
 		}
-		router, err := s.buildBinary("router", filepath.Join(s.root, "router"), "./cmd/router", observationDigest)
-		if err != nil {
-			return err
-		}
 		marshaller, err := s.buildBinary("marshaller", filepath.Join(s.root, "marshaller"), "./cmd/marshaller", observationDigest)
 		if err != nil {
-			return err
-		}
-		if err := s.spawn(state, "router", []string{router},
-			instance(s.processEnv, "router-local"), filepath.Join(s.root, "router")); err != nil {
-			return err
-		}
-		if err := ready.Wait(s.url(env, "ROUTER_HTTP_PORT", "/ready"), readinessTimeout,
-			env.token["ROUTER_API_TOKEN"], "Router", s.alive(state, "router")); err != nil {
 			return err
 		}
 		if err := s.spawn(state, "marshaller", []string{marshaller},

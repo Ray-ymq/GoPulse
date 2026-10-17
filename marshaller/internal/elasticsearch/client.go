@@ -27,7 +27,7 @@ const (
 	responseLimit = 16 << 10
 )
 
-var idPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var idPattern = regexp.MustCompile(`^[0-9a-f]{32}(?:-[0-9]+)?$`)
 var datePattern = regexp.MustCompile(`^\d{4}\.\d{2}\.\d{2}$`)
 
 var requiredPropertyTypes = map[string]string{
@@ -114,7 +114,32 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 	var request logtransform.WriteRequest
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil || !idPattern.MatchString(request.MessageID) || !datePattern.MatchString(request.IndexDate) || len(request.Document) == 0 {
+	if err := decoder.Decode(&request); err != nil {
+		return errors.New("invalid log write request")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("invalid log write request")
+	}
+	if len(request.Items) > 0 {
+		if len(request.Items) > 256 || !idPattern.MatchString(request.MessageID) {
+			return errors.New("invalid log write request")
+		}
+		for _, item := range request.Items {
+			if !idPattern.MatchString(item.MessageID) || !datePattern.MatchString(item.IndexDate) || len(item.Document) == 0 {
+				return errors.New("invalid log write request")
+			}
+			itemBody, err := json.Marshal(logtransform.WriteRequest{MessageID: item.MessageID, IndexDate: item.IndexDate, Document: item.Document})
+			if err != nil {
+				return errors.New("invalid log write request")
+			}
+			if err := c.Write(ctx, itemBody); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if !idPattern.MatchString(request.MessageID) || !datePattern.MatchString(request.IndexDate) || len(request.Document) == 0 {
 		return errors.New("invalid log write request")
 	}
 	// Elasticsearch templates are external cluster state. Re-ensure the fixed

@@ -18,7 +18,7 @@ type RuntimeDefinition struct {
 
 var RuntimeDefinitions = map[string]RuntimeDefinition{
 	"backend": {8080, 5}, "business-worker": {19102, 10}, "search-indexer": {19103, 10},
-	"router": {9091, 10}, "marshaller": {9093, 10}, "monitor": {9090, 10},
+	"marshaller": {9093, 10}, "monitor": {9090, 10},
 	"redis-exporter": {9121, 5}, "mysql-exporter": {9122, 5}, "rabbitmq-exporter": {9123, 5},
 	"kafka-exporter": {9124, 5}, "elasticsearch-exporter": {9125, 5}, "victoriametrics-exporter": {9126, 5},
 	// platform-api is a separately deployed Backend role. It deliberately
@@ -70,7 +70,7 @@ func ValidateRuntimeEnvironment(component string) error {
 			return errors.New("invalid_configuration: " + prefix + "_SHUTDOWN_TIMEOUT")
 		}
 	}
-	for key, maxSeconds := range map[string]int{"ROUTER_REQUEST_TIMEOUT": 5, "MARSHALLER_READINESS_TIMEOUT": 2} {
+	for key, maxSeconds := range map[string]int{"MARSHALLER_READINESS_TIMEOUT": 2} {
 		if !strings.HasPrefix(key, prefix+"_") {
 			continue
 		}
@@ -87,12 +87,10 @@ func ValidateRuntimeEnvironment(component string) error {
 		keys = append(keys, "AUTH_JWT_SECRET", "LOG_MONITOR_INGEST_TOKEN", "MONITOR_API_TOKEN")
 	case "business-worker", "search-indexer":
 		keys = append(keys, "LOG_MONITOR_INGEST_TOKEN")
-	case "router":
-		keys = append(keys, "ROUTER_API_TOKEN")
 	case "marshaller":
 		keys = append(keys, "MARSHALLER_API_TOKEN")
 	case "monitor":
-		keys = append(keys, "MONITOR_API_TOKEN", "MONITOR_ROUTER_TOKEN", "LOG_MONITOR_INGEST_TOKEN")
+		keys = append(keys, "MONITOR_API_TOKEN", "LOG_MONITOR_INGEST_TOKEN")
 	}
 	seen := map[string]bool{}
 	for _, key := range keys {

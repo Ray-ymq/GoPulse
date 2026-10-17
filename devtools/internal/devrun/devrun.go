@@ -190,7 +190,7 @@ func Deps(root, scope, explicitEnv string) error {
 }
 
 // Dev starts the source development lifecycle; observe adds the observation
-// dependencies, Router, Marshaller, admin frontend, and Monitor container.
+// dependencies, Marshaller, admin frontend, and Monitor container.
 func Dev(root string, observe bool, explicitEnv string) error {
 	return start(root, observe, explicitEnv)
 }
@@ -241,8 +241,7 @@ func start(root string, observe bool, explicitEnv string) error {
 		}
 	}
 	if observe {
-		requiredPorts = append(requiredPorts, env.integer("ROUTER_HTTP_PORT"), 19105,
-			env.integer("MARSHALLER_HTTP_PORT"), 19106, env.integer("MONITOR_HTTP_PORT"),
+		requiredPorts = append(requiredPorts, env.integer("MARSHALLER_HTTP_PORT"), 19106, env.integer("MONITOR_HTTP_PORT"),
 			env.integer("ADMIN_FRONTEND_PORT"), env.integer("REDIS_EXPORTER_HTTP_PORT"))
 	}
 	if err := proc.CheckPorts(requiredPorts, owned); err != nil {

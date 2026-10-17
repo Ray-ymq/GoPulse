@@ -20,7 +20,7 @@ import (
 
 // Products, Sources and Platforms mirror the closed release manifest contract.
 var (
-	Products  = []string{"backend", "business-worker", "search-indexer", "frontend", "admin-frontend", "router", "marshaller", "monitor", "redis-exporter"}
+	Products  = []string{"backend", "business-worker", "search-indexer", "frontend", "admin-frontend", "marshaller", "monitor", "redis-exporter"}
 	Sources   = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
 	Platforms = []string{"linux/amd64", "linux/arm64"}
 )
@@ -37,7 +37,6 @@ var composeImageAliases = map[string]string{
 	"platform-api":                "backend",
 	"business-worker-2":           "business-worker",
 	"search-indexer-2":            "search-indexer",
-	"router-2":                    "router",
 	"marshaller-2":                "marshaller",
 	"observability-elasticsearch": "elasticsearch",
 	"migrate":                     "backend",

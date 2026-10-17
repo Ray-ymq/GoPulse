@@ -120,10 +120,12 @@ services:
       - /bin/bash
       - -ec
       - >-
+        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events
+        gopulse-observability-metrics-dlq gopulse-observability-logs-dlq gopulse-observability-events-dlq; do
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
-        --topic gopulse-observability-v1 --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1 &&
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe
-        --topic gopulse-observability-v1
+        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1;
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic "$${topic}";
+        done
     tmpfs:
       - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
       - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777

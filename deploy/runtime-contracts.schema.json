@@ -95,7 +95,6 @@
               "platform-api",
               "business-worker",
               "search-indexer",
-              "observability-router",
               "observability-marshaller",
               "observability-monitor",
               "plugin-exporter"

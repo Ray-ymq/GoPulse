@@ -54,7 +54,7 @@ func OfficialSchema(id string) (ConfigSchema, error) {
 	case "rabbitmq":
 		fields = append(fields, ConfigField{Name: "vhost", Type: "string", Required: true, Enum: []string{"/"}}, boundedField("username", "string", 1, 64))
 	case "kafka":
-		fields = append(fields, ConfigField{Name: "topic", Type: "string", Required: true, Enum: []string{"gopulse-observability-v1"}}, ConfigField{Name: "consumer_group", Type: "string", Required: true, Enum: []string{"gopulse-marshaller-metrics-v1"}})
+		fields = append(fields, ConfigField{Name: "topic", Type: "string", Required: true, Enum: []string{"gopulse-observability-metrics"}}, ConfigField{Name: "consumer_group", Type: "string", Required: true, Enum: []string{"gopulse-marshaller-metrics"}})
 	case "elasticsearch":
 		f := boundedField("username", "string", 1, 64)
 		f.Required = false

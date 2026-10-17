@@ -423,7 +423,7 @@ func validKafkaOffsets(offsets []kafkaOffset, requireDrained bool) bool {
 		return false
 	}
 	for partition, offset := range offsets {
-		if offset.Topic != "gopulse-observability-v1" || offset.Partition != partition || offset.Committed < 0 || offset.End < offset.Committed {
+		if offset.Topic != "gopulse-observability-metrics" || offset.Partition != partition || offset.Committed < 0 || offset.End < offset.Committed {
 			return false
 		}
 		if requireDrained && offset.Committed != offset.End {
@@ -434,7 +434,7 @@ func validKafkaOffsets(offsets []kafkaOffset, requireDrained bool) bool {
 }
 
 func (c *Controller) kafkaState() (kafkaState, error) {
-	state := kafkaState{Schema: 1, Topic: "gopulse-observability-v1", Group: "gopulse-marshaller-metrics-v1", Offsets: []kafkaOffset{}, RestorePolicy: "drained-new-topic-rebase-zero", Configs: map[string]string{}}
+	state := kafkaState{Schema: 1, Topic: "gopulse-observability-metrics", Group: "gopulse-marshaller-metrics", Offsets: []kafkaOffset{}, RestorePolicy: "drained-new-topic-rebase-zero", Configs: map[string]string{}}
 	b, e := c.native("kafka", nil, "/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "127.0.0.1:19092", "--describe", "--group", state.Group)
 	if e != nil {
 		return state, e
@@ -490,7 +490,7 @@ func (c *Controller) kafkaEmpty() (bool, error) {
 }
 func (c *Controller) kafkaImport(data []byte) error {
 	var state kafkaState
-	if strictData(data, &state) != nil || state.Schema != 1 || state.Topic != "gopulse-observability-v1" || state.Group != "gopulse-marshaller-metrics-v1" || state.RestorePolicy != "drained-new-topic-rebase-zero" || !validKafkaOffsets(state.Offsets, true) {
+	if strictData(data, &state) != nil || state.Schema != 1 || state.Topic != "gopulse-observability-metrics" || state.Group != "gopulse-marshaller-metrics" || state.RestorePolicy != "drained-new-topic-rebase-zero" || !validKafkaOffsets(state.Offsets, true) {
 		return fail(BackupInvalid, "kafka-import", "unsupported offset topology")
 	}
 	args := []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "127.0.0.1:19092", "--create", "--topic", state.Topic, "--partitions", strconv.Itoa(len(state.Offsets)), "--replication-factor", "1"}

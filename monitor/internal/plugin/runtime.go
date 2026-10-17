@@ -1214,7 +1214,6 @@ func (m *Manager) ConnectionTest(ctx context.Context, id string, data []byte) er
 		}
 		return runConnectionCommand(cmd, timeout)
 	}
-	return nil
 }
 
 func runConnectionCommand(cmd *exec.Cmd, timeout context.Context) error {

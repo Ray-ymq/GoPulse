@@ -38,6 +38,9 @@ type Target struct {
 type Committer interface {
 	Commit(context.Context, Record) error
 }
+type DeadLetterer interface {
+	DeadLetter(context.Context, Record, string) error
+}
 type Logger interface {
 	Permanent(Record, string)
 	Transient(Record)
@@ -51,10 +54,12 @@ func (nopLogger) Accepted(Record)          {}
 
 type Processor struct {
 	Decoder            Decoder
+	ExpectedType       string
 	Transformer        Transformer
 	Writer             Writer
 	Targets            map[string]Target
 	Committer          Committer
+	DeadLetter         DeadLetterer
 	RetryMin, RetryMax time.Duration
 	MaxRetrying        int
 	Logger             Logger
@@ -102,16 +107,17 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		if code == "" {
 			return err
 		}
-		p.Logger.Permanent(record, code)
-		return p.commit(ctx, record, lease, kind, source)
+		return p.reject(ctx, record, lease, kind, source, code)
+	}
+	if p.ExpectedType != "" && message.Type != p.ExpectedType {
+		return p.reject(ctx, record, lease, kind, source, "unsupported_envelope")
 	}
 	target := Target{Transformer: p.Transformer, Writer: p.Writer}
 	if p.Targets != nil {
 		var ok bool
 		target, ok = p.Targets[message.Type+"/"+message.Source]
 		if !ok || target.Transformer == nil || target.Writer == nil {
-			p.Logger.Permanent(record, "unsupported_envelope")
-			return p.commit(ctx, record, lease, kind, source)
+			return p.reject(ctx, record, lease, kind, source, "unsupported_envelope")
 		}
 	}
 	body, err := target.Transformer.Transform(message)
@@ -120,8 +126,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		if code == "" {
 			code = "transform_failed"
 		}
-		p.Logger.Permanent(record, code)
-		return p.commit(ctx, record, lease, kind, source)
+		return p.reject(ctx, record, lease, kind, source, code)
 	}
 	delay := p.RetryMin
 	for {
@@ -154,8 +159,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		cancel()
 		if err != nil {
 			if code := envelope.Code(err); code != "" {
-				p.Logger.Permanent(record, code)
-				return p.commit(ctx, record, lease, kind, source)
+				return p.reject(ctx, record, lease, kind, source, code)
 			}
 		}
 		if err == nil {
@@ -196,6 +200,18 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		}
 	}
 }
+
+func (p *Processor) reject(ctx context.Context, record Record, lease Lease, kind, source, code string) error {
+	if p.DeadLetter != nil {
+		if err := p.DeadLetter.DeadLetter(ctx, record, code); err != nil {
+			p.Logger.Transient(record)
+			return err
+		}
+	}
+	p.Logger.Permanent(record, code)
+	return p.commit(ctx, record, lease, kind, source)
+}
+
 func (p *Processor) commit(ctx context.Context, record Record, lease Lease, identity ...string) (result error) {
 	started := time.Now()
 	kind, source := "unknown", "unknown"

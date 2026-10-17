@@ -95,14 +95,14 @@ func Paths(root string, items []string) (string, error) {
 }
 
 // Source digests the product source of one local lifecycle. The observation
-// lifecycle additionally depends on the Router and Marshaller.
+// lifecycle additionally depends on the Marshaller.
 func Source(root string, observe bool) (string, error) {
 	items := []string{
 		filepath.Join(root, "backend"),
 		filepath.Join(root, "componentmetrics"),
 	}
 	if observe {
-		items = append(items, filepath.Join(root, "router"), filepath.Join(root, "marshaller"))
+		items = append(items, filepath.Join(root, "marshaller"))
 	}
 	return Paths(root, items)
 }

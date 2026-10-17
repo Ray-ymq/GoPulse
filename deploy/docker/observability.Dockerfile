@@ -2,18 +2,6 @@
 ARG GO_IMAGE=golang:1.26.0-alpine3.23@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5
 ARG RUNTIME_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
-FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS router-build
-WORKDIR /src/router
-ARG GOPROXY=https://goproxy.cn,direct
-COPY router/go.mod router/go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
-COPY router/ ./
-ARG TARGETOS=linux
-ARG TARGETARCH
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH:-$(go env GOARCH)} \
-    go build -trimpath -ldflags='-s -w' -o /out/router ./cmd/router
-
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS marshaller-build
 WORKDIR /src/marshaller
 ARG GOPROXY=https://goproxy.cn,direct
@@ -192,7 +180,6 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 FROM ${RUNTIME_IMAGE} AS runtime
 RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -g 10001 -S gopulse && \
-    adduser -u 10002 -S -D -H -G gopulse router && \
     adduser -u 10003 -S -D -H -G gopulse marshaller && \
     adduser -u 10004 -S -D -H -G gopulse exporter && \
     adduser -u 10005 -S -D -H -G gopulse monitor && \
@@ -206,13 +193,6 @@ ARG REVISION
 LABEL org.opencontainers.image.source="https://github.com/Ray-ymq/GoPulse" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
-
-FROM runtime AS router
-LABEL org.opencontainers.image.title="GoPulse Message Router"
-COPY --from=router-build --chown=10002:10001 /out/router /usr/local/bin/router
-USER 10002:10001
-EXPOSE 9091
-ENTRYPOINT ["/usr/local/bin/router"]
 
 FROM runtime AS marshaller
 LABEL org.opencontainers.image.title="GoPulse Marshaller"

@@ -69,7 +69,7 @@ func TestMissingOffsetAndSnapshotRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(body, "gopulse_kafka_consumer_group_lag 3\n") || !strings.Contains(body, "gopulse_kafka_brokers 1\n") || !strings.Contains(body, `gopulse_kafka_consumer_partition_lag{consumer_group="gopulse-marshaller-metrics-v1",topic="gopulse-observability-v1",partition="0"} 3`) || !strings.Contains(body, `gopulse_kafka_partition_replicas{consumer_group="gopulse-marshaller-metrics-v1",topic="gopulse-observability-v1",partition="0"} 1`) {
+		if !strings.Contains(body, "gopulse_kafka_consumer_group_lag 3\n") || !strings.Contains(body, "gopulse_kafka_brokers 1\n") || !strings.Contains(body, `gopulse_kafka_consumer_partition_lag{consumer_group="gopulse-marshaller-metrics",topic="gopulse-observability-metrics",partition="0"} 3`) || !strings.Contains(body, `gopulse_kafka_partition_replicas{consumer_group="gopulse-marshaller-metrics",topic="gopulse-observability-metrics",partition="0"} 1`) {
 			t.Fatal(body)
 		}
 	}

@@ -15,7 +15,6 @@ func monitorEnvironment(t *testing.T) map[string]string {
 		"REDIS_DB":                 "0",
 		"REDIS_EXPORTER_HTTP_HOST": "127.0.0.1",
 		"REDIS_EXPORTER_HTTP_PORT": "9121",
-		"MONITOR_ROUTER_TOKEN":     "router-token-at-least-32-bytes-long",
 	}
 }
 
@@ -32,29 +31,19 @@ func TestRuntimeModeKeepsMonitorHostSafeAndAcceptsContainerDNS(t *testing.T) {
 	container := monitorEnvironment(t)
 	container["GOPULSE_RUNTIME_MODE"] = "container"
 	container["MONITOR_HTTP_HOST"] = "0.0.0.0"
-	container["MONITOR_ROUTER_URL"] = "http://router:9091"
 	container["REDIS_HOST"] = "redis"
 	cfg, err := LoadFrom(mapLookup(container))
 	if err != nil {
 		t.Fatalf("container config error=%v", err)
 	}
-	if cfg.RuntimeMode != RuntimeModeContainer || cfg.HTTPHost != "0.0.0.0" || cfg.RouterURL != "http://router:9091" {
+	if cfg.RuntimeMode != RuntimeModeContainer || cfg.HTTPHost != "0.0.0.0" {
 		t.Fatalf("container config=%+v", cfg)
-	}
-	container["MONITOR_ROUTER_URL"] = "http://host.docker.internal:9091"
-	container["ROUTER_ENDPOINTS"] = "host.docker.internal"
-	container["MARSHALLER_ENDPOINTS"] = "host.docker.internal"
-	if cfg, err := LoadFrom(mapLookup(container)); err != nil || cfg.RouterURL != "http://host.docker.internal:9091" {
-		t.Fatalf("Docker Desktop host bridge config=%+v error=%v", cfg, err)
 	}
 }
 
 func TestRuntimeModeRejectsUnsafeMonitorOrigins(t *testing.T) {
 	for _, test := range []struct{ key, value string }{
 		{"GOPULSE_RUNTIME_MODE", "cluster"},
-		{"MONITOR_ROUTER_URL", "http://user:secret@router:9091"},
-		{"MONITOR_ROUTER_URL", "http://router:9091/private"},
-		{"MONITOR_ROUTER_URL", "http://router:9091?token=secret"},
 		{"REDIS_HOST", "127.0.0.1"},
 		{"REDIS_HOST", "host.docker.internal"},
 		{"REDIS_EXPORTER_HTTP_HOST", "0.0.0.0"},
@@ -64,7 +53,6 @@ func TestRuntimeModeRejectsUnsafeMonitorOrigins(t *testing.T) {
 			env := monitorEnvironment(t)
 			env["GOPULSE_RUNTIME_MODE"] = "container"
 			env["MONITOR_HTTP_HOST"] = "0.0.0.0"
-			env["MONITOR_ROUTER_URL"] = "http://router:9091"
 			env["REDIS_HOST"] = "redis"
 			env[test.key] = test.value
 			_, err := LoadFrom(mapLookup(env))

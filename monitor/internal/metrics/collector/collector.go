@@ -198,17 +198,14 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	if parent.Err() != nil {
 		return
 	}
-	var message envelope.Envelope
-	if manifest.MetricsContractVersion == 2 {
-		message, err = envelope.NewV2WithIdentity(manifest.ID, manifest.Version, manifest.Source, manifest.TargetID, status, samples, completedAt)
-	} else {
-		message, err = envelope.New(manifest.ID, manifest.Version, status, samples, completedAt)
-	}
+	message, err := envelope.NewSource(m.cfg.Source, samples, completedAt)
 	if err != nil {
 		m.cfg.Update(Update{ErrorCode: "message_id_failed", ErrorMessage: "metrics message could not be created"})
 		m.recordCollectionFailure("message_id_failed")
 		return
 	}
+	message.Payload.ScrapeStatus = status
+	message.Payload.TargetID = targetID
 	publishCtx, publishCancel := context.WithTimeout(parent, m.cfg.PublishTimeout)
 	started = time.Now()
 	err = m.cfg.Publisher.Publish(publishCtx, message)

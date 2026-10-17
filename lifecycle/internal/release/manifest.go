@@ -16,7 +16,7 @@ import (
 )
 
 var platforms = []string{"linux/amd64", "linux/arm64"}
-var products = []string{"backend", "business-worker", "search-indexer", "frontend", "admin-frontend", "router", "marshaller", "monitor", "redis-exporter"}
+var products = []string{"backend", "business-worker", "search-indexer", "frontend", "admin-frontend", "marshaller", "monitor", "redis-exporter"}
 var sources = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
 var digest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 var revision = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -155,7 +155,7 @@ func (m *Manifest) Validate() error {
 			return errors.New("invalid runtime contract asset")
 		}
 	}
-	if len(m.Images) != 9 || len(m.ThirdParty) != 6 {
+	if len(m.Images) != len(products) || len(m.ThirdParty) != len(sources) {
 		return errors.New("incomplete image set")
 	}
 	for _, name := range products {
@@ -235,7 +235,7 @@ func (m *Manifest) CheckAssets(root string) error {
 				ID string `json:"id"`
 			} `json:"components"`
 		}
-		if json.Unmarshal(data, &contract) != nil || contract.ContractVersion != "2" || contract.ProductVersion != m.Version || len(contract.Components) != 13 {
+		if json.Unmarshal(data, &contract) != nil || contract.ContractVersion != "2" || contract.ProductVersion != m.Version || len(contract.Components) != 12 {
 			return errors.New("runtime contract identity mismatch")
 		}
 		seen := map[string]bool{}

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       labels:
-        description: 'CI labels separated by commas or spaces, e.g. ci:backend ci:router; ci:none skips module jobs'
+        description: 'CI labels separated by commas or spaces, e.g. ci:backend ci:marshaller; ci:none skips module jobs'
         required: true
         type: string
 

@@ -24,7 +24,7 @@ func (c *Controller) labels(resource string) map[string]string {
 // Every alias of the delivery-side table must be covered here, plus the edge
 // service that the bundle derives from the frontend service.
 var composeAliases = map[string]string{"edge": "frontend", "backend-2": "backend", "platform-api": "backend",
-	"business-worker-2": "business-worker", "search-indexer-2": "search-indexer", "router-2": "router",
+	"business-worker-2": "business-worker", "search-indexer-2": "search-indexer",
 	"marshaller-2": "marshaller", "observability-elasticsearch": "elasticsearch",
 	"migrate": "backend", "search-init": "backend", "admin-role": "backend", "kafka-init": "kafka"}
 

@@ -76,14 +76,17 @@ func TestExplicitEnvironmentFileMustExist(t *testing.T) {
 func TestTestModeForcesIsolationOverCallerAndFile(t *testing.T) {
 	// A developer's .env must never leak into an isolated test stack.
 	root := fixture(t, map[string]string{
-		".env.example": "HTTP_PORT=8080\nMYSQL_PORT=3306\nMYSQL_USER=gopulse\nMYSQL_DATABASE=gopulse\nREDIS_PORT=6379\nREDIS_DB=0\n",
-		".env":         "MYSQL_PORT=3306\nMYSQL_USER=gopulse\nMYSQL_DATABASE=gopulse\nREDIS_DB=0\nAPP_ENV=development\n",
+		".env.example": "HTTP_PORT=8080\nMYSQL_PORT=3306\nMYSQL_USER=gopulse\nMYSQL_DATABASE=gopulse\nREDIS_PORT=6379\nREDIS_DB=0\nMONITOR_KAFKA_BROKERS=127.0.0.1:9092\n",
+		".env":         "MYSQL_PORT=3306\nMYSQL_USER=gopulse\nMYSQL_DATABASE=gopulse\nREDIS_DB=0\nAPP_ENV=development\nMONITOR_KAFKA_BROKERS=127.0.0.1:29092\n",
 	})
 	values, err := Compose(root, ModeTest, "", map[string]string{
-		"MYSQL_PORT":     "3306",
-		"MYSQL_DATABASE": "gopulse",
-		"REDIS_DB":       "0",
-		"APP_ENV":        "development",
+		"MYSQL_PORT":               "3306",
+		"MYSQL_DATABASE":           "gopulse",
+		"REDIS_DB":                 "0",
+		"APP_ENV":                  "development",
+		"KAFKA_PORT":               "39092",
+		"MONITOR_KAFKA_BROKERS":    "127.0.0.1:39092",
+		"MARSHALLER_KAFKA_BROKERS": "127.0.0.1:39092",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -103,14 +106,15 @@ func TestTestModeForcesIsolationOverCallerAndFile(t *testing.T) {
 		"RABBITMQ_PORT":             "25672",
 		"VICTORIAMETRICS_PORT":      "18428",
 		"MONITOR_HTTP_PORT":         "19090",
-		"ROUTER_HTTP_PORT":          "19091",
+		"KAFKA_PORT":                "19092",
+		"MONITOR_KAFKA_BROKERS":     "127.0.0.1:19092",
+		"MARSHALLER_KAFKA_BROKERS":  "127.0.0.1:19092",
 		"MARSHALLER_HTTP_PORT":      "19093",
 		"REDIS_EXPORTER_HTTP_PORT":  "19121",
 		"AUTH_COOKIE_NAME":          "gopulse_test_session",
 		"BACKEND_ENDPOINTS":         "backend",
 		"BUSINESS_WORKER_ENDPOINTS": "business-worker",
 		"SEARCH_INDEXER_ENDPOINTS":  "search-indexer",
-		"ROUTER_ENDPOINTS":          "router",
 		"MARSHALLER_ENDPOINTS":      "marshaller",
 		"MONITOR_BOOTSTRAP_PACKAGE": "/opt/gopulse/packages/gopulse-redis-exporter.tar.gz",
 	}

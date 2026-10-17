@@ -81,13 +81,83 @@ type Validated struct {
 	Timestamp string
 	Source    string
 	Payload   json.RawMessage
+	Entries   []Entry
+}
+
+type Entry struct {
+	Timestamp string
+	Level     string
+	Service   string
+	Module    string
+	Message   string
+	Fields    map[string]any
+}
+
+type wireEntry struct {
+	Timestamp string         `json:"timestamp"`
+	Level     string         `json:"level"`
+	Service   string         `json:"service"`
+	Module    string         `json:"module"`
+	Message   string         `json:"message"`
+	Fields    map[string]any `json:"fields"`
+}
+
+type wirePayload struct {
+	DataID int         `json:"dataid"`
+	Time   int64       `json:"time"`
+	Data   []wireEntry `json:"data"`
 }
 
 func NewEnvelope(messageID string, value Validated) (Envelope, error) {
 	if !messageIDPattern.MatchString(messageID) {
 		return Envelope{}, errors.New("invalid message id")
 	}
-	return Envelope{SchemaVersion: 1, MessageID: messageID, Type: "logs", Source: value.Source, Timestamp: value.Timestamp, Payload: value.Payload}, nil
+	timestamp, err := time.Parse(time.RFC3339Nano, value.Timestamp)
+	if err != nil || timestamp.Location() != time.UTC || value.Source == "" {
+		return Envelope{}, errors.New("invalid log envelope")
+	}
+	entries := make([]wireEntry, 0, len(value.Entries))
+	if len(value.Entries) > 0 {
+		for _, entry := range value.Entries {
+			if entry.Service != value.Source || entry.Timestamp == "" {
+				return Envelope{}, errors.New("invalid log envelope")
+			}
+			if _, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err != nil {
+				return Envelope{}, errors.New("invalid log envelope")
+			}
+			entries = append(entries, wireEntry{Timestamp: entry.Timestamp, Level: entry.Level, Service: entry.Service, Module: entry.Module, Message: entry.Message, Fields: entry.Fields})
+		}
+	} else {
+		decoder := json.NewDecoder(bytes.NewReader(value.Payload))
+		decoder.UseNumber()
+		var fields map[string]any
+		if err := decoder.Decode(&fields); err != nil || fields == nil || expectEOF(decoder) != nil {
+			return Envelope{}, errors.New("invalid log envelope")
+		}
+		extra := make(map[string]any)
+		for key, item := range fields {
+			switch key {
+			case "log_schema_version", "timestamp", "level", "service", "module", "message":
+			default:
+				extra[key] = item
+			}
+		}
+		level, levelOK := fields["level"].(string)
+		module, moduleOK := fields["module"].(string)
+		message, messageOK := fields["message"].(string)
+		if !levelOK || !moduleOK || !messageOK {
+			return Envelope{}, errors.New("invalid log envelope")
+		}
+		entries = append(entries, wireEntry{Timestamp: value.Timestamp, Level: level, Service: value.Source, Module: module, Message: message, Fields: extra})
+	}
+	if len(entries) == 0 || timestamp.Unix() <= 0 {
+		return Envelope{}, errors.New("invalid log envelope")
+	}
+	payload, err := json.Marshal(wirePayload{DataID: 3001, Time: timestamp.Unix(), Data: entries})
+	if err != nil {
+		return Envelope{}, errors.New("log serialization failed")
+	}
+	return Envelope{SchemaVersion: 2, MessageID: messageID, Type: "logs", Source: value.Source, Timestamp: value.Timestamp, Payload: payload}, nil
 }
 
 func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, error) {
@@ -96,6 +166,9 @@ func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, 
 	}
 	if err := checkUnique(body); err != nil {
 		return Validated{}, err
+	}
+	if batch, ok := decodeBatch(body); ok {
+		return validateBatch(batch, now, futureSkew)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
@@ -153,6 +226,107 @@ func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, 
 		return Validated{}, errors.New("log serialization failed")
 	}
 	return Validated{Timestamp: timestamp, Source: service, Payload: canonical}, nil
+}
+
+func decodeBatch(body []byte) (wirePayload, bool) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return wirePayload{}, false
+	}
+	if fields["dataid"] == nil && fields["data"] == nil && fields["time"] == nil {
+		return wirePayload{}, false
+	}
+	if len(fields) != 3 || fields["dataid"] == nil || fields["time"] == nil || fields["data"] == nil {
+		return wirePayload{}, true
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	var batch wirePayload
+	if decoder.Decode(&batch) != nil || expectEOF(decoder) != nil {
+		return wirePayload{}, true
+	}
+	return batch, true
+}
+
+func validateBatch(batch wirePayload, now time.Time, futureSkew time.Duration) (Validated, error) {
+	if batch.DataID != 3001 || batch.Time <= 0 || len(batch.Data) == 0 || len(batch.Data) > 256 {
+		return Validated{}, errors.New("invalid log batch")
+	}
+	if batch.Data[0].Service == "" {
+		return Validated{}, errors.New("invalid service")
+	}
+	source := batch.Data[0].Service
+	entries := make([]Entry, len(batch.Data))
+	for i, raw := range batch.Data {
+		if raw.Fields == nil || raw.Timestamp == "" || !strings.HasSuffix(raw.Timestamp, "Z") {
+			return Validated{}, errors.New("invalid log entry")
+		}
+		if raw.Service != source {
+			return Validated{}, errors.New("log source mismatch")
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, raw.Timestamp)
+		if err != nil || parsed.Location() != time.UTC || parsed.After(now.UTC().Add(futureSkew)) {
+			return Validated{}, errors.New("invalid log timestamp")
+		}
+		if i == 0 && batch.Time != parsed.Unix() {
+			return Validated{}, errors.New("invalid log batch time")
+		}
+		if raw.Level != "info" && raw.Level != "warn" && raw.Level != "error" {
+			return Validated{}, errors.New("invalid log vocabulary")
+		}
+		modules, ok := serviceModules[raw.Service]
+		if !ok {
+			return Validated{}, errors.New("invalid service")
+		}
+		messages, ok := modules[raw.Module]
+		if !ok {
+			return Validated{}, errors.New("invalid module")
+		}
+		if _, ok := messages[raw.Message]; !ok {
+			return Validated{}, errors.New("invalid message")
+		}
+		if err := validateBatchFields(raw.Fields); err != nil {
+			return Validated{}, err
+		}
+		fields := make(map[string]any, len(raw.Fields))
+		for key, value := range raw.Fields {
+			fields[key] = value
+		}
+		entries[i] = Entry{Timestamp: raw.Timestamp, Level: raw.Level, Service: raw.Service, Module: raw.Module, Message: raw.Message, Fields: fields}
+	}
+	if entries[0].Timestamp == "" {
+		return Validated{}, errors.New("invalid log entry")
+	}
+	canonical, err := json.Marshal(flattenEntry(entries[0]))
+	if err != nil {
+		return Validated{}, errors.New("log serialization failed")
+	}
+	return Validated{Timestamp: entries[0].Timestamp, Source: source, Payload: canonical, Entries: entries}, nil
+}
+
+func validateBatchFields(fields map[string]any) error {
+	for key := range fields {
+		if _, ok := allowedFields[key]; !ok || key == "timestamp" || key == "level" || key == "service" || key == "module" || key == "message" || key == "log_schema_version" {
+			return fmt.Errorf("unknown field %q", key)
+		}
+	}
+	return validateOptional(fields)
+}
+
+func flattenEntry(entry Entry) map[string]any {
+	fields := map[string]any{
+		"log_schema_version": 1,
+		"timestamp":          entry.Timestamp,
+		"level":              entry.Level,
+		"service":            entry.Service,
+		"module":             entry.Module,
+		"message":            entry.Message,
+	}
+	for key, value := range entry.Fields {
+		fields[key] = value
+	}
+	return fields
 }
 
 func validateOptional(fields map[string]any) error {

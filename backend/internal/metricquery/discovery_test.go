@@ -190,7 +190,7 @@ func TestMetricNamesCannotInjectQueries(t *testing.T) {
 }
 
 func TestDiscoveryPreservesHistoricalDependencyStateUnit(t *testing.T) {
-	row := map[string]string{"__name__": "gopulse_metric_metadata", "source": "monitor", "target_id": "monitor-local", "producer_kind": "component", "producer_id": "monitor", "metric": "gopulse_monitor_dependency_up", "kind": "gauge", "unit": "boolean", "label_keys": "dependency"}
+	row := map[string]string{"__name__": "gopulse_metric_metadata", "source": "backend", "target_id": "backend-local", "producer_kind": "component", "producer_id": "backend", "metric": "gopulse_backend_dependency_up", "kind": "gauge", "unit": "boolean", "label_keys": "dependency"}
 	body, _ := json.Marshal(map[string]any{"status": "success", "data": []map[string]string{row}})
 	definitions, err := decodeDefinitions(body, "")
 	if err != nil || len(definitions) != 1 || definitions[0].Unit != "state" {

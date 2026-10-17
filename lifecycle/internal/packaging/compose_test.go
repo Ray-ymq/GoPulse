@@ -11,7 +11,7 @@ func composeServices(extra map[string]any) map[string]any {
 	names := []string{
 		"backend", "backend-2", "platform-api", "migrate", "search-init", "admin-role",
 		"business-worker", "business-worker-2", "search-indexer", "search-indexer-2",
-		"router", "router-2", "marshaller", "marshaller-2", "monitor", "redis-exporter",
+		"marshaller", "marshaller-2", "monitor", "redis-exporter",
 		"frontend", "admin-frontend", "redis", "mysql", "rabbitmq", "kafka", "kafka-init",
 		"elasticsearch", "observability-elasticsearch", "victoriametrics",
 	}
@@ -135,7 +135,7 @@ func TestAliasTableMatchesRetainedDeliveryContract(t *testing.T) {
 	expected := map[string]string{
 		"backend-2": "backend", "platform-api": "backend",
 		"business-worker-2": "business-worker", "search-indexer-2": "search-indexer",
-		"router-2": "router", "marshaller-2": "marshaller",
+		"marshaller-2":                "marshaller",
 		"observability-elasticsearch": "elasticsearch",
 		"migrate":                     "backend", "search-init": "backend", "admin-role": "backend",
 		"kafka-init": "kafka",

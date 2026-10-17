@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	SchemaVersion = 1
+	SchemaVersion = 2
+	EventsDataID  = 2001
 	Source        = "monitor"
 	MaxEnvelope   = 16 * 1024
 )
@@ -37,6 +38,24 @@ type Event struct {
 	Timestamp          string   `json:"timestamp"`
 	Message            string   `json:"message"`
 	Metadata           Metadata `json:"metadata"`
+}
+
+type EventItem struct {
+	EventName string            `json:"event_name"`
+	Target    string            `json:"target"`
+	Event     EventBody         `json:"event"`
+	Dimension map[string]string `json:"dimension"`
+	Timestamp int64             `json:"timestamp"`
+}
+
+type EventBody struct {
+	Content string `json:"content"`
+	Count   int    `json:"count"`
+}
+
+type BatchPayload struct {
+	DataID int         `json:"dataid"`
+	Data   []EventItem `json:"data"`
 }
 
 type Envelope struct {
@@ -93,8 +112,16 @@ func NewMetrics(name, errorCode, scrapeStatus string, at time.Time) Event {
 }
 
 func Validate(event Event, now time.Time) error {
+	return validateVersion(event, now, SchemaVersion)
+}
+
+func validateLegacy(event Event, now time.Time) error {
+	return validateVersion(event, now, 1)
+}
+
+func validateVersion(event Event, now time.Time, schemaVersion int) error {
 	spec, ok := specifications[event.EventName]
-	if !ok || event.EventSchemaVersion != SchemaVersion || event.Source != Source || event.Severity != spec.severity || event.Message != spec.message {
+	if !ok || event.EventSchemaVersion != schemaVersion || event.Source != Source || event.Severity != spec.severity || event.Message != spec.message {
 		return errors.New("event contract is invalid")
 	}
 	at, err := time.Parse(time.RFC3339Nano, event.Timestamp)
@@ -175,7 +202,15 @@ func CanonicalEnvelope(event Event, messageID string, now time.Time) ([]byte, er
 	if err := Validate(event, now); err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(Envelope{SchemaVersion: SchemaVersion, MessageID: messageID, Type: "events", Source: Source, Timestamp: event.Timestamp, Payload: event})
+	batch := BatchPayload{DataID: EventsDataID, Data: []EventItem{itemFromEvent(event)}}
+	body, err := json.Marshal(struct {
+		SchemaVersion int          `json:"schema_version"`
+		MessageID     string       `json:"message_id"`
+		Type          string       `json:"type"`
+		Source        string       `json:"source"`
+		Timestamp     string       `json:"timestamp"`
+		Payload       BatchPayload `json:"payload"`
+	}{SchemaVersion, messageID, "events", Source, event.Timestamp, batch})
 	if err != nil {
 		return nil, errors.New("event serialization failed")
 	}
@@ -192,22 +227,134 @@ func DecodeStrict(body []byte, now time.Time) (Envelope, error) {
 	if err := checkUniqueJSON(body); err != nil {
 		return Envelope{}, errors.New("event envelope is invalid")
 	}
+	var raw struct {
+		SchemaVersion int             `json:"schema_version"`
+		MessageID     string          `json:"message_id"`
+		Type          string          `json:"type"`
+		Source        string          `json:"source"`
+		Timestamp     string          `json:"timestamp"`
+		Payload       json.RawMessage `json:"payload"`
+	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
-	var envelope Envelope
-	if err := decoder.Decode(&envelope); err != nil {
+	if err := decoder.Decode(&raw); err != nil {
 		return Envelope{}, errors.New("event envelope is invalid")
 	}
 	if err := expectJSONEOF(decoder); err != nil {
 		return Envelope{}, errors.New("event envelope has trailing data")
 	}
-	if envelope.SchemaVersion != SchemaVersion || envelope.Type != "events" || envelope.Source != Source || envelope.Timestamp != envelope.Payload.Timestamp {
+	if raw.Type != "events" || raw.Source != Source || len(raw.MessageID) != 32 || strings.Trim(raw.MessageID, "0123456789abcdef") != "" {
 		return Envelope{}, errors.New("event envelope is invalid")
 	}
-	if _, err := CanonicalEnvelope(envelope.Payload, envelope.MessageID, now); err != nil {
+	at, err := time.Parse(time.RFC3339Nano, raw.Timestamp)
+	if err != nil || at.Location() != time.UTC {
+		return Envelope{}, errors.New("event envelope is invalid")
+	}
+	if raw.SchemaVersion == 1 {
+		legacyDecoder := json.NewDecoder(bytes.NewReader(raw.Payload))
+		legacyDecoder.DisallowUnknownFields()
+		var event Event
+		if err := legacyDecoder.Decode(&event); err != nil || expectJSONEOF(legacyDecoder) != nil || event.Timestamp != raw.Timestamp {
+			return Envelope{}, errors.New("event envelope is invalid")
+		}
+		if _, err := canonicalLegacyEnvelope(event, raw.MessageID, now); err != nil {
+			return Envelope{}, fmt.Errorf("event envelope is invalid: %w", err)
+		}
+		return Envelope{SchemaVersion: raw.SchemaVersion, MessageID: raw.MessageID, Type: raw.Type, Source: raw.Source, Timestamp: raw.Timestamp, Payload: event}, nil
+	}
+	if raw.SchemaVersion != SchemaVersion {
+		return Envelope{}, errors.New("event envelope is invalid")
+	}
+	event, err := eventFromBatch(raw.Payload, raw.Timestamp, now)
+	if err != nil {
 		return Envelope{}, fmt.Errorf("event envelope is invalid: %w", err)
 	}
-	return envelope, nil
+	return Envelope{SchemaVersion: raw.SchemaVersion, MessageID: raw.MessageID, Type: raw.Type, Source: raw.Source, Timestamp: raw.Timestamp, Payload: event}, nil
+}
+
+func itemFromEvent(event Event) EventItem {
+	dimension := map[string]string{}
+	metadata := event.Metadata
+	for key, value := range map[string]string{
+		"plugin_version": metadata.PluginVersion, "previous_plugin_version": metadata.PreviousPluginVersion,
+		"operation": metadata.Operation, "from_state": metadata.FromState, "to_state": metadata.ToState,
+		"error_code": metadata.ErrorCode, "scrape_status": metadata.ScrapeStatus,
+	} {
+		if value != "" {
+			dimension[key] = value
+		}
+	}
+	at, _ := time.Parse(time.RFC3339Nano, event.Timestamp)
+	return EventItem{EventName: event.EventName, Target: metadata.PluginID, Event: EventBody{Content: event.Message, Count: 1}, Dimension: dimension, Timestamp: at.UnixMilli()}
+}
+
+func eventFromBatch(body []byte, outerTimestamp string, now time.Time) (Event, error) {
+	if checkUniqueJSON(body) != nil {
+		return Event{}, errors.New("invalid event payload")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var payload BatchPayload
+	if err := decoder.Decode(&payload); err != nil || expectJSONEOF(decoder) != nil || payload.DataID != EventsDataID || len(payload.Data) == 0 || len(payload.Data) > 256 {
+		return Event{}, errors.New("invalid event payload")
+	}
+	at, err := time.Parse(time.RFC3339Nano, outerTimestamp)
+	if err != nil || at.Location() != time.UTC || at.After(now.UTC().Add(5*time.Minute)) {
+		return Event{}, errors.New("invalid event timestamp")
+	}
+	var first Event
+	for i, item := range payload.Data {
+		itemTime := time.UnixMilli(item.Timestamp).UTC()
+		if item.Timestamp <= 0 || itemTime.After(at) || item.Event.Count < 1 || item.Target == "" || !safeString(item.Target) {
+			return Event{}, errors.New("invalid event item")
+		}
+		spec, ok := specifications[item.EventName]
+		if !ok || item.Event.Content != spec.message || item.Dimension == nil {
+			return Event{}, errors.New("invalid event vocabulary")
+		}
+		metadata := Metadata{PluginID: item.Target}
+		for key, value := range item.Dimension {
+			if value == "" || !safeString(key) || !safeString(value) {
+				return Event{}, errors.New("invalid event dimension")
+			}
+			switch key {
+			case "plugin_version":
+				metadata.PluginVersion = value
+			case "previous_plugin_version":
+				metadata.PreviousPluginVersion = value
+			case "operation":
+				metadata.Operation = value
+			case "from_state":
+				metadata.FromState = value
+			case "to_state":
+				metadata.ToState = value
+			case "error_code":
+				metadata.ErrorCode = value
+			case "scrape_status":
+				metadata.ScrapeStatus = value
+			default:
+				return Event{}, errors.New("invalid event dimension")
+			}
+		}
+		event := Event{EventSchemaVersion: SchemaVersion, EventName: item.EventName, Source: Source, Severity: spec.severity, Timestamp: itemTime.Format(time.RFC3339Nano), Message: item.Event.Content, Metadata: metadata}
+		if err := Validate(event, now); err != nil {
+			return Event{}, err
+		}
+		if i == 0 {
+			first = event
+		}
+	}
+	return first, nil
+}
+
+func canonicalLegacyEnvelope(event Event, messageID string, now time.Time) ([]byte, error) {
+	if len(messageID) != 32 || strings.Trim(messageID, "0123456789abcdef") != "" {
+		return nil, errors.New("message id is invalid")
+	}
+	if err := validateLegacy(event, now); err != nil {
+		return nil, err
+	}
+	return json.Marshal(Envelope{SchemaVersion: 1, MessageID: messageID, Type: "events", Source: Source, Timestamp: event.Timestamp, Payload: event})
 }
 
 func validSemver(value string) bool {
