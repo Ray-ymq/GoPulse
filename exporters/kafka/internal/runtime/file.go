@@ -13,7 +13,7 @@ func LoadFile(path string) (Config, error) {
 		return Config{}, err
 	}
 	fields, err := exportercontract.Object(envelope.Config)
-	if err != nil || !only(fields, "host", "port", "topic", "consumer_group", "connect_timeout", "scrape_timeout") {
+	if err != nil || !only(fields, "host", "port", "topic", "consumer_group", "connect_timeout", "scrape_timeout", "jmx_url") {
 		return Config{}, ErrConfig
 	}
 	secrets, err := exportercontract.Object(envelope.Secrets)
@@ -44,10 +44,15 @@ func LoadFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, ErrConfig
 	}
+	jmxURL, err := exportercontract.String(fields, "jmx_url", false)
+	if err != nil {
+		return Config{}, ErrConfig
+	}
 	values := exportercontract.RuntimeEnvironment("KAFKA", envelope.Runtime)
 	values["KAFKA_HOST"], values["KAFKA_PORT"] = host, strconv.Itoa(port)
 	values["KAFKA_TOPIC"], values["KAFKA_CONSUMER_GROUP"] = topic, group
 	values["KAFKA_EXPORTER_CONNECT_TIMEOUT"], values["KAFKA_EXPORTER_SCRAPE_TIMEOUT"] = connect, scrape
+	values["KAFKA_EXPORTER_JMX_URL"] = jmxURL
 	return exportercontract.LoadWithEnvironment(values, Load)
 }
 

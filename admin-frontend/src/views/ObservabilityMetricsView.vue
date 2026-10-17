@@ -33,7 +33,7 @@ function unitLabel(unit: string): string {
   return ({ none: '无量纲', boolean: '布尔状态', seconds: '秒', count: '计数', bytes: '字节', state: '状态', unix_seconds: 'Unix 秒' } as Record<string, string>)[unit] ?? unit
 }
 function labelLabel(key: string): string {
-  return ({ queue: '队列', vhost: '虚拟主机', partition: '分区', command: '命令', node: '节点', node_id: '节点', topic: 'Topic', consumer_group: '消费者组', operation: '操作', state: '状态', result: '结果', mode: '模式', gc: 'GC', thread_pool: '线程池', role: '角色', replica: '副本', cache: '缓存', breaker: '断路器' } as Record<string, string>)[key] ?? key
+  return ({ queue: '队列', vhost: '虚拟主机', partition: '分区', command: '命令', node: '节点', node_id: '节点', topic: 'Topic', consumer_group: '消费者组', operation: '操作', request: '请求', version: '版本', error: '错误', processor: '网络处理器', state: '状态', result: '结果', mode: '模式', gc: 'GC', thread_pool: '线程池', role: '角色', replica: '副本', cache: '缓存', breaker: '断路器' } as Record<string, string>)[key] ?? key
 }
 function qualityLabel(value?: MetricResult['quality']): string {
   return ({ complete: '采样完整', sampling: '采样不足', zero_denominator: '分母为零，已跳过无效比例' } as Record<string, string>)[value ?? ''] ?? '真实采样'

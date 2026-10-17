@@ -149,6 +149,34 @@ var Presets = func() []Definition {
 	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_under_replicated_partitions", Kind: "gauge", Unit: "count", label: ""})
 	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_offline_partitions", Kind: "gauge", Unit: "count", label: ""})
 	items = append(items, Definition{Source: "kafka", TargetID: "kafka-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "kafka-exporter", Metric: "gopulse_kafka_consumer_group_lag", Kind: "gauge", Unit: "count", label: ""})
+	for _, item := range []Definition{
+		{Metric: "gopulse_kafka_jmx_up", Kind: "gauge", Unit: "boolean"},
+		{Metric: "gopulse_kafka_broker_bytes_in_total", Kind: "counter", Unit: "bytes", label: "topic"},
+		{Metric: "gopulse_kafka_broker_bytes_out_total", Kind: "counter", Unit: "bytes", label: "topic"},
+		{Metric: "gopulse_kafka_broker_messages_in_total", Kind: "counter", Unit: "count", label: "topic"},
+		{Metric: "gopulse_kafka_request_total", Kind: "counter", Unit: "count", LabelKeys: []string{"request", "version"}},
+		{Metric: "gopulse_kafka_request_errors_total", Kind: "counter", Unit: "count", LabelKeys: []string{"request", "error", "version"}},
+		{Metric: "gopulse_kafka_request_duration_seconds_total", Kind: "counter", Unit: "seconds", LabelKeys: []string{"request", "version"}},
+		{Metric: "gopulse_kafka_request_queue_duration_seconds_total", Kind: "counter", Unit: "seconds", LabelKeys: []string{"request", "version"}},
+		{Metric: "gopulse_kafka_request_local_duration_seconds_total", Kind: "counter", Unit: "seconds", LabelKeys: []string{"request", "version"}},
+		{Metric: "gopulse_kafka_request_remote_duration_seconds_total", Kind: "counter", Unit: "seconds", LabelKeys: []string{"request", "version"}},
+		{Metric: "gopulse_kafka_request_queue_size", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_kafka_network_processor_idle_ratio", Kind: "gauge", Unit: "none", label: "processor"},
+		{Metric: "gopulse_kafka_request_handler_idle_ratio", Kind: "gauge", Unit: "none"},
+		{Metric: "gopulse_kafka_broker_under_replicated_partitions", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_kafka_isr_shrinks_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_kafka_isr_expands_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_kafka_leader_elections_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_kafka_unclean_leader_elections_total", Kind: "counter", Unit: "count"},
+		{Metric: "gopulse_kafka_jvm_heap_used_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_kafka_jvm_heap_max_bytes", Kind: "gauge", Unit: "bytes"},
+		{Metric: "gopulse_kafka_jvm_threads", Kind: "gauge", Unit: "count"},
+		{Metric: "gopulse_kafka_jvm_gc_collections_total", Kind: "counter", Unit: "count", label: "gc"},
+		{Metric: "gopulse_kafka_jvm_gc_collection_time_seconds_total", Kind: "counter", Unit: "seconds", label: "gc"},
+	} {
+		item.Source, item.TargetID, item.ProducerKind, item.ProducerID = "kafka", "kafka-exporter-local", "exporter_plugin", "kafka-exporter"
+		items = append(items, item)
+	}
 	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_up", Kind: "gauge", Unit: "boolean", label: ""})
 	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_cluster_health_status", Kind: "gauge", Unit: "boolean", label: "status"})
 	items = append(items, Definition{Source: "elasticsearch", TargetID: "elasticsearch-exporter-local", ProducerKind: "exporter_plugin", ProducerID: "elasticsearch-exporter", Metric: "gopulse_elasticsearch_nodes", Kind: "gauge", Unit: "count", label: ""})

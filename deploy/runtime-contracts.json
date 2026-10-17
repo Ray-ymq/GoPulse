@@ -3331,6 +3331,15 @@
           "aliases": []
         },
         {
+          "key": "KAFKA_EXPORTER_JMX_URL",
+          "type": "url",
+          "sensitive": false,
+          "required": false,
+          "default": "",
+          "compose_value": null,
+          "aliases": []
+        },
+        {
           "key": "KAFKA_EXPORTER_HTTP_HOST",
           "type": "host",
           "sensitive": false,

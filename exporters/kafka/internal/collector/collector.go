@@ -5,11 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
@@ -23,9 +29,20 @@ type readClient interface {
 	kmsg.Requestor
 	Close()
 }
-type Client struct{ Kafka readClient }
+type Client struct {
+	Kafka   readClient
+	JMXHTTP *http.Client
+	JMXURL  string
+}
 
-func (c *Client) CloseIdleConnections() { c.Kafka.Close() }
+func (c *Client) CloseIdleConnections() {
+	if c.Kafka != nil {
+		c.Kafka.Close()
+	}
+	if c.JMXHTTP != nil {
+		c.JMXHTTP.CloseIdleConnections()
+	}
+}
 
 func Collect(ctx context.Context, c *Client) (string, error) {
 	req := kmsg.NewPtrMetadataRequest()
@@ -188,5 +205,201 @@ func Collect(ctx context.Context, c *Client) (string, error) {
 		}
 		fmt.Fprintf(&b, "gopulse_kafka_partition_leader%s %d\n", leaderLabels, leaderAvailable)
 	}
-	return b.String(), nil
+	body := b.String()
+	if c.JMXURL == "" {
+		return body, nil
+	}
+	jmx, err := collectJMX(ctx, c)
+	if err != nil {
+		return body + "# TYPE gopulse_kafka_jmx_up gauge\ngopulse_kafka_jmx_up 0\n", nil
+	}
+	return body + renderJMX(jmx), nil
+}
+
+type jmxMapping struct {
+	upstream     []string
+	name         string
+	kind         string
+	scale        float64
+	labelAliases map[string]string
+}
+
+type jmxSample struct {
+	name, kind string
+	labels     map[string]string
+	value      string
+}
+
+var jmxMappings = []jmxMapping{
+	{name: "broker_bytes_in_total", kind: "counter", upstream: []string{"kafka_server_brokertopicmetrics_bytesin_total"}, scale: 1, labelAliases: map[string]string{"topic": "topic"}},
+	{name: "broker_bytes_out_total", kind: "counter", upstream: []string{"kafka_server_brokertopicmetrics_bytesout_total"}, scale: 1, labelAliases: map[string]string{"topic": "topic"}},
+	{name: "broker_messages_in_total", kind: "counter", upstream: []string{"kafka_server_brokertopicmetrics_messagesin_total"}, scale: 1, labelAliases: map[string]string{"topic": "topic"}},
+	{name: "request_total", kind: "counter", upstream: []string{"kafka_network_requestmetrics_requests_total"}, scale: 1, labelAliases: map[string]string{"request": "request", "name": "request", "version": "version"}},
+	{name: "request_errors_total", kind: "counter", upstream: []string{"kafka_network_requestmetrics_errors_total"}, scale: 1, labelAliases: map[string]string{"request": "request", "name": "request", "version": "version", "error": "error"}},
+	{name: "request_duration_seconds_total", kind: "counter", upstream: []string{"kafka_network_requestmetrics_totaltimems_total"}, scale: 0.001, labelAliases: map[string]string{"request": "request", "name": "request", "version": "version"}},
+	{name: "request_queue_duration_seconds_total", kind: "counter", upstream: []string{"kafka_network_requestmetrics_requestqueuetimems_total"}, scale: 0.001, labelAliases: map[string]string{"request": "request", "name": "request", "version": "version"}},
+	{name: "request_local_duration_seconds_total", kind: "counter", upstream: []string{"kafka_network_requestmetrics_localtimems_total"}, scale: 0.001, labelAliases: map[string]string{"request": "request", "name": "request", "version": "version"}},
+	{name: "request_remote_duration_seconds_total", kind: "counter", upstream: []string{"kafka_network_requestmetrics_remotetimems_total"}, scale: 0.001, labelAliases: map[string]string{"request": "request", "name": "request", "version": "version"}},
+	{name: "request_queue_size", kind: "gauge", upstream: []string{"kafka_network_requestchannel_requestqueuesize"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "network_processor_idle_ratio", kind: "gauge", upstream: []string{"kafka_network_processor_avgidle_percent", "kafka_network_processor_idle_percent"}, scale: 0.01, labelAliases: map[string]string{"networkProcessor": "processor", "processor": "processor"}},
+	{name: "request_handler_idle_ratio", kind: "gauge", upstream: []string{"kafka_server_kafkarequesthandlerpool_requesthandleravgidle_percent"}, scale: 0.01, labelAliases: map[string]string{}},
+	{name: "broker_under_replicated_partitions", kind: "gauge", upstream: []string{"kafka_server_replicamanager_underreplicatedpartitions"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "isr_shrinks_total", kind: "counter", upstream: []string{"kafka_server_replicamanager_isrshrinks_total"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "isr_expands_total", kind: "counter", upstream: []string{"kafka_server_replicamanager_isrexpands_total"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "leader_elections_total", kind: "counter", upstream: []string{"kafka_controller_controllerstats_leaderelections_total"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "unclean_leader_elections_total", kind: "counter", upstream: []string{"kafka_controller_controllerstats_uncleanleaderelections_total"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "jvm_heap_used_bytes", kind: "gauge", upstream: []string{"java_lang_memory_heapmemoryusage_used", "java_lang_memory_heapmemoryusage_used_bytes", "jvm_memory_heap_used_bytes"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "jvm_heap_max_bytes", kind: "gauge", upstream: []string{"java_lang_memory_heapmemoryusage_max", "java_lang_memory_heapmemoryusage_max_bytes", "jvm_memory_heap_max_bytes"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "jvm_threads", kind: "gauge", upstream: []string{"java_lang_threading_threadcount", "jvm_threads"}, scale: 1, labelAliases: map[string]string{}},
+	{name: "jvm_gc_collections_total", kind: "counter", upstream: []string{"java_lang_garbagecollector_collectioncount", "jvm_gc_collections_total"}, scale: 1, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
+	{name: "jvm_gc_collection_time_seconds_total", kind: "counter", upstream: []string{"java_lang_garbagecollector_collectiontime"}, scale: 0.001, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
+	{name: "jvm_gc_collection_time_seconds_total", kind: "counter", upstream: []string{"jvm_gc_collection_time_seconds_total"}, scale: 1, labelAliases: map[string]string{"name": "gc", "gc": "gc"}},
+}
+
+func collectJMX(ctx context.Context, c *Client) ([]jmxSample, error) {
+	client := c.JMXHTTP
+	if client == nil {
+		client = http.DefaultClient
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.JMXURL, nil)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Encoding") != "" {
+		return nil, ErrUnavailable
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
+	if err != nil || len(body) > 1<<20 {
+		return nil, ErrUnavailable
+	}
+	parser := expfmt.NewTextParser(model.LegacyValidation)
+	families, err := parser.TextToMetricFamilies(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("jmx parse: %w", err)
+	}
+	if len(families) > 1024 {
+		return nil, ErrUnavailable
+	}
+	lookup := map[string]jmxMapping{}
+	for _, mapping := range jmxMappings {
+		for _, upstream := range mapping.upstream {
+			lookup[upstream] = mapping
+		}
+	}
+	seen := map[string]bool{}
+	samples := make([]jmxSample, 0, 64)
+	for upstream, family := range families {
+		mapping, ok := lookup[upstream]
+		if !ok || family == nil {
+			continue
+		}
+		for _, metric := range family.Metric {
+			if len(samples) >= 2048 {
+				return nil, ErrUnavailable
+			}
+			labels, err := jmxLabels(metric, mapping.labelAliases)
+			if err != nil {
+				return nil, fmt.Errorf("jmx labels for %s: %w", upstream, err)
+			}
+			value, ok := jmxValue(metric)
+			if !ok || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, fmt.Errorf("jmx value for %s: %w", upstream, ErrUnavailable)
+			}
+			value *= mapping.scale
+			if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+				return nil, fmt.Errorf("jmx scaled value for %s: %w", upstream, ErrUnavailable)
+			}
+			key := mapping.name + formatJMXLabels(labels)
+			if seen[key] {
+				return nil, fmt.Errorf("jmx duplicate sample for %s: %w", upstream, ErrUnavailable)
+			}
+			seen[key] = true
+			samples = append(samples, jmxSample{name: "gopulse_kafka_" + mapping.name, kind: mapping.kind, labels: labels, value: strconv.FormatFloat(value, 'g', -1, 64)})
+		}
+	}
+	return samples, nil
+}
+
+func jmxLabels(metric *dto.Metric, aliases map[string]string) (map[string]string, error) {
+	labels := map[string]string{}
+	for _, pair := range metric.Label {
+		if pair == nil || pair.Name == nil || pair.Value == nil {
+			return nil, ErrUnavailable
+		}
+		name, ok := aliases[pair.GetName()]
+		if !ok || !validJMXLabel(pair.GetValue()) || labels[name] != "" {
+			return nil, ErrUnavailable
+		}
+		labels[name] = pair.GetValue()
+	}
+	return labels, nil
+}
+
+func jmxValue(metric *dto.Metric) (float64, bool) {
+	switch {
+	case metric == nil:
+		return 0, false
+	case metric.Gauge != nil:
+		return metric.Gauge.GetValue(), true
+	case metric.Counter != nil:
+		return metric.Counter.GetValue(), true
+	case metric.Untyped != nil:
+		return metric.Untyped.GetValue(), true
+	case metric.Summary != nil:
+		return metric.Summary.GetSampleSum(), true
+	default:
+		return 0, false
+	}
+}
+
+func renderJMX(samples []jmxSample) string {
+	types := map[string]string{"gopulse_kafka_jmx_up": "gauge"}
+	for _, sample := range samples {
+		types[sample.name] = sample.kind
+	}
+	names := make([]string, 0, len(types))
+	for name := range types {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, name := range names {
+		fmt.Fprintf(&b, "# TYPE %s %s\n", name, types[name])
+	}
+	b.WriteString("gopulse_kafka_jmx_up 1\n")
+	sort.Slice(samples, func(i, j int) bool {
+		if samples[i].name != samples[j].name {
+			return samples[i].name < samples[j].name
+		}
+		return formatJMXLabels(samples[i].labels) < formatJMXLabels(samples[j].labels)
+	})
+	for _, sample := range samples {
+		fmt.Fprintf(&b, "%s%s %s\n", sample.name, formatJMXLabels(sample.labels), sample.value)
+	}
+	return b.String()
+}
+
+func formatJMXLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+strconv.Quote(labels[key]))
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func validJMXLabel(value string) bool {
+	return value != "" && utf8.ValidString(value) && len(value) <= 128 && !strings.ContainsRune(value, 0)
 }
