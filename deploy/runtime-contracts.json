@@ -186,6 +186,105 @@
           "aliases": []
         },
         {
+          "key": "BACKEND_POST_BODY_V2_ENABLED",
+          "type": "boolean",
+          "sensitive": false,
+          "required": false,
+          "default": "false",
+          "compose_value": "${BACKEND_POST_BODY_V2_ENABLED:-false}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RATE_LIMIT_ENABLED",
+          "type": "boolean",
+          "sensitive": false,
+          "required": false,
+          "default": "false",
+          "compose_value": "${BACKEND_RATE_LIMIT_ENABLED:-false}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1024",
+          "compose_value": "${BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES:-1024}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RATE_LIMIT_OPERATION_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "200ms",
+          "compose_value": "${BACKEND_RATE_LIMIT_OPERATION_TIMEOUT:-200ms}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_AUTH",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "16",
+          "compose_value": "${BACKEND_RESOURCE_AUTH:-16}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_DATABASE",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "32",
+          "compose_value": "${BACKEND_RESOURCE_DATABASE:-32}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_READ",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "64",
+          "compose_value": "${BACKEND_RESOURCE_READ:-64}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_REBUILD",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "8",
+          "compose_value": "${BACKEND_RESOURCE_REBUILD:-8}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_WAITER",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "256",
+          "compose_value": "${BACKEND_RESOURCE_WAITER:-256}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_WRITE",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "32",
+          "compose_value": "${BACKEND_RESOURCE_WRITE:-32}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_TRUSTED_PROXY_CIDRS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "",
+          "compose_value": "${BACKEND_TRUSTED_PROXY_CIDRS:-}",
+          "aliases": []
+        },
+        {
           "key": "BACKEND_LOG_QUERY_DEFAULT_RANGE",
           "type": "string",
           "sensitive": false,

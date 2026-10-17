@@ -96,13 +96,13 @@ local function take(key, capacity, refill, cost, ttl, now)
   if elapsed < 0 then elapsed = 0 end
   tokens = math.min(capacity, tokens + elapsed * refill / 1000)
   if tokens < cost then
-    redis.call('HSET', key, 'tokens', tokens, 'last_refill_ms', now)
-    redis.call('PEXPIRE', key, ttl)
+    redis.call('HSET', key, 'tokens', tostring(tokens), 'last_refill_ms', tostring(now))
+    redis.call('PEXPIRE', key, tostring(ttl))
     return {0, math.ceil((cost - tokens) * 1000 / refill)}
   end
   tokens = tokens - cost
-  redis.call('HSET', key, 'tokens', tokens, 'last_refill_ms', now)
-  redis.call('PEXPIRE', key, ttl)
+  redis.call('HSET', key, 'tokens', tostring(tokens), 'last_refill_ms', tostring(now))
+  redis.call('PEXPIRE', key, tostring(ttl))
   return {1, 0}
 end
 
@@ -110,7 +110,7 @@ local clock = redis.call('TIME')
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local identity_exists = redis.call('EXISTS', KEYS[1])
 if identity_exists == 0 then
-  local creation = take(KEYS[2], tonumber(ARGV[6]), tonumber(ARGV[7]), 1, tonumber(ARGV[8]), now)
+  local creation = take(KEYS[2], tonumber(ARGV[5]), tonumber(ARGV[6]), 1, tonumber(ARGV[7]), now)
   if creation[1] ~= 1 then
     return {-2, creation[2]}
   end

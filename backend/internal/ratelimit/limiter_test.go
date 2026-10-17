@@ -43,6 +43,11 @@ func TestSharedLimiterUsesAtomicRedisTimeAndCreationBudget(t *testing.T) {
 			t.Fatalf("script does not contain %q", required)
 		}
 	}
+	for _, required := range []string{"tonumber(ARGV[5])", "tonumber(ARGV[6])", "tonumber(ARGV[7])"} {
+		if !strings.Contains(redis.script, required) {
+			t.Fatalf("script does not use creation argument %q", required)
+		}
+	}
 	if len(redis.args) != 7 || redis.args[0] != float64(2) || redis.args[3] != int64(time.Minute/time.Millisecond) {
 		t.Fatalf("args=%#v", redis.args)
 	}

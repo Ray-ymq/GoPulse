@@ -64,6 +64,33 @@ func TestComposeKeepsCallerOverrideOverModeDefault(t *testing.T) {
 	}
 }
 
+func TestComposeForwardsRedisProtectionOverrides(t *testing.T) {
+	root := fixture(t, map[string]string{
+		".env.example": "BACKEND_RATE_LIMIT_ENABLED=false\nBACKEND_POST_BODY_V2_ENABLED=false\nBACKEND_RESOURCE_READ=64\n",
+	})
+	values, err := Compose(root, ModeTest, "", map[string]string{
+		"BACKEND_RATE_LIMIT_ENABLED":           "true",
+		"BACKEND_POST_BODY_V2_ENABLED":         "true",
+		"BACKEND_RESOURCE_READ":                "7",
+		"BACKEND_TRUSTED_PROXY_CIDRS":          "127.0.0.1/32",
+		"BACKEND_RATE_LIMIT_OPERATION_TIMEOUT": "75ms",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"BACKEND_RATE_LIMIT_ENABLED":           "true",
+		"BACKEND_POST_BODY_V2_ENABLED":         "true",
+		"BACKEND_RESOURCE_READ":                "7",
+		"BACKEND_TRUSTED_PROXY_CIDRS":          "127.0.0.1/32",
+		"BACKEND_RATE_LIMIT_OPERATION_TIMEOUT": "75ms",
+	} {
+		if values[key] != want {
+			t.Errorf("%s = %q, want %q", key, values[key], want)
+		}
+	}
+}
+
 func TestExplicitEnvironmentFileMustExist(t *testing.T) {
 	root := fixture(t, map[string]string{".env.example": "HTTP_PORT=8080\n"})
 	if _, err := Compose(root, ModeDev, filepath.Join(root, "missing.env"), nil); err == nil {
