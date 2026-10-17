@@ -141,6 +141,7 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	monitorEnv["GOPULSE_INSTANCE_ID"] = "monitor-test"
 	monitorEnv["MONITOR_HTTP_HOST"] = "127.0.0.1"
 	monitorEnv["MONITOR_PLUGIN_ROOT"] = filepath.Join(s.ws.PrivateRoot(), "monitor-plugins")
+	monitorEnv["MONITOR_SPOOL_DIR"] = filepath.Join(s.ws.PrivateRoot(), "monitor-spool")
 	monitorEnv["MONITOR_RELEASE_CATALOG"] = filepath.Join(s.values["MONITOR_PACKAGE_DIR"], "catalog.json")
 	monitorEnv["MONITOR_BOOTSTRAP_PACKAGE"] = redisExporterPackage(s.root, s.values["MONITOR_PACKAGE_DIR"])
 

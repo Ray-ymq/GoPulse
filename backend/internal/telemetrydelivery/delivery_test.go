@@ -29,6 +29,32 @@ func TestSnapshotKeepsSourceFailuresIndependent(t *testing.T) {
 	}
 }
 
+func TestEnvironmentSourcesUseConfiguredMarshallerPortAndStableFallbackIdentity(t *testing.T) {
+	t.Setenv("GOPULSE_RUNTIME_MODE", "host")
+	t.Setenv("GOPULSE_INSTANCE_ID", "backend-test")
+	t.Setenv("MARSHALLER_ENDPOINTS", "marshaller")
+	t.Setenv("MARSHALLER_HTTP_PORT", "19093")
+
+	sources, err := EnvironmentSources("http://127.0.0.1:19090", "monitor-token", "marshaller-token", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 2 {
+		t.Fatalf("sources=%d, want 2", len(sources))
+	}
+	component, instance := sources[0].Identity()
+	if component != "monitor" || instance != "monitor" {
+		t.Fatalf("monitor identity=%s/%s", component, instance)
+	}
+	marshaller, ok := sources[1].(*HTTPSource)
+	if !ok {
+		t.Fatalf("marshaller source type=%T", sources[1])
+	}
+	if marshaller.url != "http://127.0.0.1:19093/internal/v1/telemetry-delivery" {
+		t.Fatalf("marshaller URL=%q", marshaller.url)
+	}
+}
+
 func TestHTTPSourceDerivesMonitorStatusFromQueueBlock(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer secret" {
@@ -37,7 +63,7 @@ func TestHTTPSourceDerivesMonitorStatusFromQueueBlock(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":{"component":"monitor","instance":"monitor-1","observed_at":"2026-10-17T00:00:00Z","queues":[{"kind":"logs","pending":2,"occupied_bytes":4,"capacity_bytes":8,"file_bytes":4096,"enqueued":2,"sent":0,"failed":1,"evicted":0,"write_blocked":true,"reason_code":"disk_full"}]}}`))
 	}))
 	defer server.Close()
-	source, err := NewHTTPSource("monitor", "monitor-1", server.URL, "secret", time.Second)
+	source, err := NewHTTPSource("monitor", "monitor", server.URL, "secret", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,9 +76,9 @@ func TestHTTPSourceDerivesMonitorStatusFromQueueBlock(t *testing.T) {
 	}
 }
 
-func TestHTTPSourceRejectsWrongInstanceAndTrailingJSON(t *testing.T) {
+func TestHTTPSourceRejectsWrongComponentAndTrailingJSON(t *testing.T) {
 	for _, body := range []string{
-		`{"data":{"component":"monitor","instance":"monitor-2","observed_at":"2026-10-17T00:00:00Z","queues":[]}}`,
+		`{"data":{"component":"marshaller","instance":"marshaller-1","observed_at":"2026-10-17T00:00:00Z","queues":[]}}`,
 		`{"data":{"component":"monitor","instance":"monitor-1","observed_at":"2026-10-17T00:00:00Z","queues":[]}} {"extra":true}`,
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))

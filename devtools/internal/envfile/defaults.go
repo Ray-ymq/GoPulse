@@ -232,6 +232,8 @@ var testDefaults = map[string]string{
 	"MARSHALLER_ENDPOINTS":              "marshaller",
 	"MARSHALLER_HTTP_PORT":              "19093",
 	"MARSHALLER_KAFKA_BROKERS":          "127.0.0.1:19092",
+	"MARSHALLER_KAFKA_GROUP":            "gopulse-marshaller-metrics",
+	"MARSHALLER_KAFKA_TOPIC":            "gopulse-observability-metrics",
 	"MARSHALLER_METRICS_TOKEN":          "test-marshaller-metrics-token-32-bytes-0123456789",
 	"MARSHALLER_VM_PASSWORD":            "test-victoria-metrics-password-32-bytes",
 	"MARSHALLER_VM_URL":                 "http://127.0.0.1:18428",

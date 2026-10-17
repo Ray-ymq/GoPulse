@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -148,7 +150,13 @@ func (s *HTTPSource) Fetch(ctx context.Context) (Item, error) {
 		return Item{}, err
 	}
 	item := envelope.Data
-	if item.Component != s.component || item.Instance != s.instance || item.ObservedAt == nil {
+	// The configured source identity is the service address used for the
+	// request. Compose deliberately keeps that address (for example,
+	// "marshaller") separate from the process identity returned by the remote
+	// service (for example, "marshaller-1"). Keep the latter in the response so
+	// the dashboard reports the actual process, while using the configured
+	// address only as the fallback identity when the source is unavailable.
+	if item.Component != s.component || componentmetrics.ValidateInstanceID(item.Instance) != nil || item.ObservedAt == nil {
 		return Item{}, errors.New("delivery source returned an invalid status")
 	}
 	var trailing any
@@ -184,7 +192,7 @@ func (s *HTTPSource) Fetch(ctx context.Context) (Item, error) {
 // so a delivery dashboard outage cannot prevent the platform from starting.
 func EnvironmentSources(monitorURL, monitorToken, marshallerToken string, timeout time.Duration) ([]Source, error) {
 	sources := make([]Source, 0, 3)
-	monitor, err := NewHTTPSource("monitor", componentmetrics.InstanceID("monitor"), monitorURL, monitorToken, timeout)
+	monitor, err := NewHTTPSource("monitor", "monitor", monitorURL, monitorToken, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -194,16 +202,32 @@ func EnvironmentSources(monitorURL, monitorToken, marshallerToken string, timeou
 	if err != nil {
 		return nil, err
 	}
+	port, err := configuredPort("MARSHALLER_HTTP_PORT", 9093)
+	if err != nil {
+		return nil, err
+	}
 	for _, endpoint := range endpoints {
 		host := endpoint
 		if mode == "host" && (endpoint == "marshaller" || endpoint == "marshaller-local") {
 			host = "127.0.0.1"
 		}
-		source, sourceErr := NewHTTPSource("marshaller", endpoint, "http://"+host+":9093", marshallerToken, timeout)
+		source, sourceErr := NewHTTPSource("marshaller", endpoint, "http://"+host+":"+port, marshallerToken, timeout)
 		if sourceErr != nil {
 			return nil, sourceErr
 		}
 		sources = append(sources, source)
 	}
 	return sources, nil
+}
+
+func configuredPort(key string, fallback int) (string, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return strconv.Itoa(fallback), nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > 65535 {
+		return "", fmt.Errorf("%s is invalid", key)
+	}
+	return strconv.Itoa(port), nil
 }
