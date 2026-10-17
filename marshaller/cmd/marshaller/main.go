@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -24,15 +25,48 @@ import (
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/victoriametrics"
 )
 
-type processorLogger struct{ logger *slog.Logger }
+type deliveryState struct {
+	blocked   atomic.Bool
+	discarded atomic.Uint64
+}
+
+func (s *deliveryState) snapshot(instance string) map[string]any {
+	status, reason := "healthy", "ok"
+	if s.blocked.Load() {
+		status, reason = "degraded", "write_blocked"
+	}
+	return map[string]any{
+		"component":     "marshaller",
+		"instance":      instance,
+		"status":        status,
+		"observed_at":   time.Now().UTC(),
+		"reason_code":   reason,
+		"write_blocked": s.blocked.Load(),
+		"discarded":     s.discarded.Load(),
+	}
+}
+
+type processorLogger struct {
+	logger   *slog.Logger
+	delivery *deliveryState
+}
 
 func (l processorLogger) Permanent(r consumer.Record, code string) {
+	if l.delivery != nil {
+		l.delivery.discarded.Add(1)
+	}
 	l.logger.Warn("record permanently rejected", "module", "transform", "event", "record_rejected", "reason_code", code, "topic", r.Topic, "partition", r.Partition, "offset", r.Offset)
 }
 func (l processorLogger) Transient(r consumer.Record) {
+	if l.delivery != nil {
+		l.delivery.blocked.Store(true)
+	}
 	l.logger.Warn("storage write will retry", "module", "storage", "event", "write_retry", "topic", r.Topic, "partition", r.Partition, "offset", r.Offset)
 }
 func (l processorLogger) Accepted(r consumer.Record) {
+	if l.delivery != nil {
+		l.delivery.blocked.Store(false)
+	}
 	l.logger.Info("record accepted and committed", "module", "consumer", "event", "record_committed", "topic", r.Topic, "partition", r.Partition, "offset", r.Offset)
 }
 
@@ -65,19 +99,16 @@ func main() {
 		logger.Error("Kafka metrics client initialization failed", "module", "consumer", "event", "startup_failed")
 		os.Exit(1)
 	}
-	metricsKafka.DLQTopic = config.MetricsDLQ
 	logsKafka, err := newKafka(config.LogsTopic, config.LogsGroup)
 	if err != nil {
 		logger.Error("Kafka logs client initialization failed", "module", "consumer", "event", "startup_failed")
 		os.Exit(1)
 	}
-	logsKafka.DLQTopic = config.LogsDLQ
 	eventsKafka, err := newKafka(config.EventsTopic, config.EventsGroup)
 	if err != nil {
 		logger.Error("Kafka events client initialization failed", "module", "consumer", "event", "startup_failed")
 		os.Exit(1)
 	}
-	eventsKafka.DLQTopic = config.EventsDLQ
 	vm := victoriametrics.New(cfg.VMURL, cfg.VMUsername, cfg.VMPassword, cfg.VMTimeout)
 	var logStore *elasticsearch.Client
 	if cfg.RuntimeMode == config.RuntimeModeContainer {
@@ -145,18 +176,16 @@ func main() {
 	for _, id := range componentmetrics.Components {
 		targets["metrics/"+id] = consumer.Target{Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm}
 	}
+	delivery := &deliveryState{}
 	newProcessor := func(expectedType string, committer consumer.Committer) *consumer.Processor {
 		return &consumer.Processor{
 			Decoder: envelope.Decoder{MaxBytes: cfg.MaxRecordBytes, FutureSkew: cfg.FutureSkew}, ExpectedType: expectedType,
-			Targets: targets, Committer: committer, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, MaxRetrying: cfg.MaxRetrying, Logger: processorLogger{logger},
+			Targets: targets, Committer: committer, RetryMin: cfg.RetryMin, RetryMax: cfg.RetryMax, MaxRetrying: cfg.MaxRetrying, Logger: processorLogger{logger: logger, delivery: delivery},
 		}
 	}
 	metricsProcessor := newProcessor("metrics", metricsKafka)
 	logsProcessor := newProcessor("logs", logsKafka)
 	eventsProcessor := newProcessor("events", eventsKafka)
-	metricsProcessor.DeadLetter = metricsKafka
-	logsProcessor.DeadLetter = logsKafka
-	eventsProcessor.DeadLetter = eventsKafka
 	kafkaStreams, err := consumer.NewSet(
 		consumer.Stream{Name: "metrics", Kafka: metricsKafka, Processor: metricsProcessor},
 		consumer.Stream{Name: "logs", Kafka: logsKafka, Processor: logsProcessor},
@@ -173,6 +202,7 @@ func main() {
 	}
 	componentmetrics.Install(state)
 	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafkaStreams, storageReadiness{vm: vm, logs: logStore, events: eventStore}, logger)
+	server.SetDeliveryStatus(func() any { return delivery.snapshot(cfg.InstanceID) })
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	releaseBudget := componentmetrics.BindShutdown(rootCtx, cfg.ShutdownTimeout)

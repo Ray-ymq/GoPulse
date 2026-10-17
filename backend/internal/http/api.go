@@ -6,20 +6,25 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
+	"github.com/Ray-ymq/GoPulse/backend/internal/componentstatus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
+	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
+	"github.com/Ray-ymq/GoPulse/backend/internal/telemetrydelivery"
 	"github.com/gin-gonic/gin"
 )
 
 type APIRoutes struct {
 	Overview               *adminoverview.Service
+	ComponentStatus        *componentstatus.Service
+	TelemetryDelivery      *telemetrydelivery.Service
 	Alerts                 *alert.Handler
 	Management             *ManagementHandler
 	Bookmarks              *bookmark.Handler
@@ -146,6 +151,30 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	}
 	if routes.Overview != nil && routes.Authorization != nil {
 		protected.GET("/admin/overview", routes.Authorization, routes.Overview.Handle)
+	}
+	if routes.Authorization != nil {
+		management := protected.Group("/admin")
+		management.Use(routes.Authorization)
+		if routes.ComponentStatus != nil {
+			management.GET("/component-status", func(c *gin.Context) {
+				response.Data(c, 200, routes.ComponentStatus.Snapshot())
+			})
+		} else {
+			// Keep the route present in role-level route inventories even when a
+			// test or a reduced platform assembly has no probe service.
+			management.GET("/component-status", func(c *gin.Context) {
+				response.Data(c, 503, []componentstatus.Status{})
+			})
+		}
+		if routes.TelemetryDelivery != nil {
+			management.GET("/telemetry-delivery", func(c *gin.Context) {
+				response.Data(c, 200, routes.TelemetryDelivery.Snapshot(c.Request.Context()))
+			})
+		} else {
+			management.GET("/telemetry-delivery", func(c *gin.Context) {
+				response.Data(c, 503, telemetrydelivery.Snapshot{Status: "unknown", Items: []telemetrydelivery.Item{}})
+			})
+		}
 	}
 	if routes.Management != nil && routes.Authorization != nil {
 		management := protected.Group("/admin")

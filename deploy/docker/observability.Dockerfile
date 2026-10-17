@@ -183,8 +183,9 @@ RUN apk add --no-cache ca-certificates tzdata && \
     adduser -u 10003 -S -D -H -G gopulse marshaller && \
     adduser -u 10004 -S -D -H -G gopulse exporter && \
     adduser -u 10005 -S -D -H -G gopulse monitor && \
-    mkdir -p /app /var/lib/gopulse-monitor/plugins /opt/gopulse/packages && \
+    mkdir -p /app /var/lib/gopulse-monitor/plugins /var/lib/gopulse-monitor/spool /opt/gopulse/packages && \
     chown 10005:10001 /var/lib/gopulse-monitor/plugins
+RUN chown 10005:10001 /var/lib/gopulse-monitor/spool
 ENV TZ=UTC
 WORKDIR /app
 STOPSIGNAL SIGTERM
@@ -213,5 +214,5 @@ LABEL org.opencontainers.image.title="GoPulse Monitor"
 COPY --from=monitor-build --chown=10005:10001 /out/monitor /usr/local/bin/monitor
 USER 10005:10001
 EXPOSE 9090
-VOLUME ["/var/lib/gopulse-monitor/plugins"]
+VOLUME ["/var/lib/gopulse-monitor/plugins", "/var/lib/gopulse-monitor/spool"]
 ENTRYPOINT ["/usr/local/bin/monitor"]

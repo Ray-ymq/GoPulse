@@ -111,6 +111,7 @@ x-platform-environment: &platform-environment
   MONITOR_URL: http://monitor:9090
   MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
   MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
+  MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
 
 x-worker-environment: &worker-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-business-worker-local}
@@ -278,6 +279,10 @@ x-monitor-environment: &monitor-environment
   MONITOR_EVENT_RETRY_MAX: ${MONITOR_EVENT_RETRY_MAX:-5s}
   MONITOR_EVENT_SHUTDOWN_TIMEOUT: ${MONITOR_EVENT_SHUTDOWN_TIMEOUT:-5s}
   MONITOR_EVENT_MAX_BYTES: ${MONITOR_EVENT_MAX_BYTES:-16384}
+  MONITOR_SPOOL_DIR: /var/lib/gopulse-monitor/spool
+  MONITOR_METRICS_SPOOL_MAX_BYTES: ${MONITOR_METRICS_SPOOL_MAX_BYTES:-1073741824}
+  MONITOR_LOGS_SPOOL_MAX_BYTES: ${MONITOR_LOGS_SPOOL_MAX_BYTES:-1073741824}
+  MONITOR_EVENTS_SPOOL_MAX_BYTES: ${MONITOR_EVENTS_SPOOL_MAX_BYTES:-1073741824}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -815,6 +820,10 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_MS: 259200000
+      KAFKA_LOG_RETENTION_BYTES: 2147483648
+      KAFKA_LOG_SEGMENT_BYTES: 67108864
+      KAFKA_LOG_SEGMENT_MS: 3600000
     volumes:
       - kafka_data:/var/lib/kafka/data
     # Image-declared scratch volumes must not become orphan anonymous volumes
@@ -848,10 +857,14 @@ services:
       - /bin/bash
       - -ec
       - >-
-        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events
-        gopulse-observability-metrics-dlq gopulse-observability-logs-dlq gopulse-observability-events-dlq; do
+        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events; do
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
-        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1;
+        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1
+        --config cleanup.policy=delete --config retention.ms=259200000 --config retention.bytes=2147483648
+        --config segment.bytes=67108864 --config segment.ms=3600000;
+        /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:19092 --alter --entity-type topics
+        --entity-name "$${topic}"
+        --add-config cleanup.policy=delete,retention.ms=259200000,retention.bytes=2147483648,segment.bytes=67108864,segment.ms=3600000;
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic "$${topic}";
         done
     networks:
@@ -986,6 +999,7 @@ services:
         condition: service_healthy
     volumes:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
+      - monitor_spool_data:/var/lib/gopulse-monitor/spool
       - ${MONITOR_PACKAGE_DIR:-../.run/packages}:/opt/gopulse/packages:ro
     expose:
       - "9090"
@@ -1058,6 +1072,7 @@ volumes:
   kafka_data:
   victoriametrics_data:
   monitor_plugin_data:
+  monitor_spool_data:
 
 secrets:
   victoriametrics_password:

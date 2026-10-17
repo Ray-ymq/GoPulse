@@ -18,6 +18,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
+	"github.com/Ray-ymq/GoPulse/backend/internal/componentstatus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
@@ -35,6 +36,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
+	"github.com/Ray-ymq/GoPulse/backend/internal/telemetrydelivery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/gin-gonic/gin"
@@ -319,8 +321,29 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			return nil, errors.New("initialize monitor client")
 		}
 		exporterPluginHandler := exporterplugin.NewHandler(monitorClient).WithAudit(users)
+		statusTargets, statusTargetErr := componentstatus.TargetsFromEnvironment()
+		if statusTargetErr != nil {
+			return nil, errors.New("initialize component status targets")
+		}
+		componentStatus, statusErr := componentstatus.New(componentstatus.Config{Targets: statusTargets})
+		if statusErr != nil {
+			return nil, errors.New("initialize component status")
+		}
+		if statusErr = componentStatus.Start(root); statusErr != nil {
+			return nil, errors.New("start component status")
+		}
+		assembly.addResource("component_status", func() error {
+			closeContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			return componentStatus.Close(closeContext)
+		})
+		deliverySources, deliveryErr := telemetrydelivery.EnvironmentSources(cfg.Monitor.URL, cfg.Monitor.APIToken, os.Getenv("MARSHALLER_API_TOKEN"), 500*time.Millisecond)
+		if deliveryErr != nil {
+			return nil, errors.New("initialize telemetry delivery sources")
+		}
+		deliveryService := telemetrydelivery.New(deliverySources)
 		overview := &adminoverview.Service{
-			Components: adminoverview.Components(metricClient), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
+			Components: adminoverview.ComponentStatus(componentStatus), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
 			Logs: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
 				return count.Query(ctx, observabilityElasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
 			}),
@@ -337,6 +360,8 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 
 		routes.Overview = overview
+		routes.ComponentStatus = componentStatus
+		routes.TelemetryDelivery = deliveryService
 		routes.Logs = logHandler
 		routes.Metrics = metricHandler
 		routes.Alerts = alert.NewHandler(alertRepo, cfg.Auth.JWTSecret)

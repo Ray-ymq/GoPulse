@@ -16,6 +16,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/collector"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/publisher"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/plugin"
+	"github.com/Ray-ymq/GoPulse/monitor/internal/spool"
 )
 
 func main() {
@@ -92,7 +93,23 @@ func run(logger *slog.Logger) error {
 		}
 		cancel()
 	}()
-	eventMonitor, err := events.NewMonitor(events.Config{Capacity: cfg.EventQueueCapacity, Timeout: cfg.PublishTimeout, RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: messagePublisher, Logger: logger})
+	delivery, err := spool.New(spool.Config{
+		Dir: cfg.SpoolDir, MetricsMaxSize: cfg.MetricsSpoolMaxBytes, LogsMaxSize: cfg.LogsSpoolMaxBytes, EventsMaxSize: cfg.EventsSpoolMaxBytes,
+		RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: messagePublisher, Logger: logger,
+	})
+	if err != nil {
+		return err
+	}
+	if err := delivery.Start(ctx); err != nil {
+		_ = delivery.Close(context.Background())
+		return err
+	}
+	defer func() {
+		closeCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		_ = delivery.Close(closeCtx)
+		cancel()
+	}()
+	eventMonitor, err := events.NewMonitor(events.Config{Capacity: cfg.EventQueueCapacity, Timeout: cfg.PublishTimeout, RetryMin: cfg.EventRetryMin, RetryMax: cfg.EventRetryMax, Sender: delivery, Logger: logger})
 	if err != nil {
 		return err
 	}
@@ -109,7 +126,7 @@ func run(logger *slog.Logger) error {
 		if !entry.Available {
 			continue
 		}
-		metricsMonitor, err := collector.New(collector.Config{Source: entry.Source, Host: "127.0.0.1", Port: strconv.Itoa(entry.Port), Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout, Publisher: messagePublisher, Events: eventMonitor, Update: func(update collector.Update) {
+		metricsMonitor, err := collector.New(collector.Config{Source: entry.Source, Host: "127.0.0.1", Port: strconv.Itoa(entry.Port), Interval: cfg.ScrapeInterval, Timeout: cfg.ScrapeTimeout, PublishTimeout: cfg.PublishTimeout, Publisher: delivery, Events: eventMonitor, Update: func(update collector.Update) {
 			manager.RecordSourceMetrics(entry.ID, update.ScrapeAt, update.SuccessAt, update.ErrorCode, update.ErrorMessage)
 		}})
 		if err != nil {
@@ -118,7 +135,7 @@ func run(logger *slog.Logger) error {
 		manager.AttachSourceMetrics(entry.ID, metricsMonitor)
 	}
 
-	componentCollectors, err := collector.StartComponents(ctx, componentmetrics.Mode(), os.Getenv("GOPULSE_VERSION"), cfg.ScrapeInterval, cfg.ScrapeTimeout, cfg.PublishTimeout, messagePublisher, logger)
+	componentCollectors, err := collector.StartComponents(ctx, componentmetrics.Mode(), os.Getenv("GOPULSE_VERSION"), cfg.ScrapeInterval, cfg.ScrapeTimeout, cfg.PublishTimeout, delivery, logger)
 	if err != nil {
 		return err
 	}
@@ -150,7 +167,7 @@ func run(logger *slog.Logger) error {
 			}
 		}
 	}()
-	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: messagePublisher})
+	handler := httpserver.New(cfg.APIToken, cfg.PluginRoot, manager, logger, httpserver.LogOptions{Token: cfg.LogIngestToken, MaxBytes: cfg.LogMaxBytes, FutureSkew: cfg.LogFutureSkew, Publisher: delivery, Delivery: func() any { return delivery.Status() }})
 	server := &http.Server{Addr: cfg.HTTPAddress(), Handler: probes.Wrap(handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: cfg.RequestTimeout, WriteTimeout: cfg.RequestTimeout, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 1 << 20}
 	probes.Started()
 	errs := make(chan error, 1)

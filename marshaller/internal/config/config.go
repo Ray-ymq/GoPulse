@@ -20,9 +20,6 @@ const (
 	MetricsGroup   = "gopulse-marshaller-metrics"
 	LogsGroup      = "gopulse-marshaller-logs"
 	EventsGroup    = "gopulse-marshaller-events"
-	MetricsDLQ     = "gopulse-observability-metrics-dlq"
-	LogsDLQ        = "gopulse-observability-logs-dlq"
-	EventsDLQ      = "gopulse-observability-events-dlq"
 	Topic          = MetricsTopic
 	Group          = MetricsGroup
 	MaxRecordBytes = 1 << 20

@@ -53,6 +53,10 @@ services:
       MONITOR_EVENT_RETRY_MAX: ${MONITOR_EVENT_RETRY_MAX:-5s}
       MONITOR_EVENT_SHUTDOWN_TIMEOUT: ${MONITOR_EVENT_SHUTDOWN_TIMEOUT:-5s}
       MONITOR_EVENT_MAX_BYTES: ${MONITOR_EVENT_MAX_BYTES:-16384}
+      MONITOR_SPOOL_DIR: /var/lib/gopulse-monitor/spool
+      MONITOR_METRICS_SPOOL_MAX_BYTES: ${MONITOR_METRICS_SPOOL_MAX_BYTES:-1073741824}
+      MONITOR_LOGS_SPOOL_MAX_BYTES: ${MONITOR_LOGS_SPOOL_MAX_BYTES:-1073741824}
+      MONITOR_EVENTS_SPOOL_MAX_BYTES: ${MONITOR_EVENTS_SPOOL_MAX_BYTES:-1073741824}
       MARSHALLER_ENDPOINTS: host.docker.internal
       BACKEND_ENDPOINTS: host.docker.internal
       BUSINESS_WORKER_ENDPOINTS: host.docker.internal
@@ -71,6 +75,7 @@ services:
       REDIS_EXPORTER_SHUTDOWN_TIMEOUT: ${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}
     volumes:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
+      - monitor_spool_data:/var/lib/gopulse-monitor/spool
       - ${MONITOR_PACKAGE_DIR:-../.run/packages}:/opt/gopulse/packages:ro
     healthcheck:
       test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9090/health']

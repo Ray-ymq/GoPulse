@@ -19,15 +19,24 @@ const (
 	MetricsTopic = "gopulse-observability-metrics"
 	LogsTopic    = "gopulse-observability-logs"
 	EventsTopic  = "gopulse-observability-events"
-	MetricsDLQ   = "gopulse-observability-metrics-dlq"
-	LogsDLQ      = "gopulse-observability-logs-dlq"
-	EventsDLQ    = "gopulse-observability-events-dlq"
 )
 
 var messageIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 type Publisher interface {
 	Publish(context.Context, envelope.Envelope) error
+}
+
+// Message is the validated wire record handed to a delivery queue or Kafka.
+// Keeping the body opaque here ensures retries resend the exact original bytes.
+type Message struct {
+	ID   string
+	Type string
+	Body []byte
+}
+
+type Sender interface {
+	Send(context.Context, Message) error
 }
 
 type Transport interface {
@@ -39,6 +48,7 @@ type Discard struct{}
 
 func (Discard) Publish(context.Context, envelope.Envelope) error { return nil }
 func (Discard) PublishRaw(context.Context, string, any) error    { return nil }
+func (Discard) Send(context.Context, Message) error              { return nil }
 
 type KafkaConfig struct {
 	Brokers            []string
@@ -95,13 +105,24 @@ func (k *Kafka) Publish(ctx context.Context, message envelope.Envelope) error {
 	if err != nil {
 		return &PermanentError{Code: "serialization_failed"}
 	}
-	return k.publish(ctx, message.MessageID, message.Type, body)
+	return k.Send(ctx, Message{ID: message.MessageID, Type: message.Type, Body: body})
 }
 
 func (k *Kafka) PublishRaw(ctx context.Context, messageID string, value any) error {
+	message, err := MessageFromRaw(messageID, value)
+	if err != nil {
+		return err
+	}
+	return k.Send(ctx, message)
+}
+
+// MessageFromRaw validates the common envelope before it enters a durable
+// queue. The body is returned unchanged so retries cannot alter timestamps,
+// labels, values, or document IDs.
+func MessageFromRaw(messageID string, value any) (Message, error) {
 	body, err := rawJSON(value)
 	if err != nil {
-		return &PermanentError{Code: "invalid_envelope"}
+		return Message{}, &PermanentError{Code: "invalid_envelope"}
 	}
 	var header struct {
 		SchemaVersion int             `json:"schema_version"`
@@ -114,16 +135,23 @@ func (k *Kafka) PublishRaw(ctx context.Context, messageID string, value any) err
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&header); err != nil || header.SchemaVersion != envelope.SchemaVersion || header.MessageID != messageID || !messageIDPattern.MatchString(messageID) || header.Source == "" || header.Timestamp == "" || len(header.Payload) == 0 {
-		return &PermanentError{Code: "invalid_envelope"}
+		return Message{}, &PermanentError{Code: "invalid_envelope"}
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return &PermanentError{Code: "invalid_envelope"}
+		return Message{}, &PermanentError{Code: "invalid_envelope"}
 	}
 	if header.Type != "logs" && header.Type != "events" {
-		return &PermanentError{Code: "unsupported_envelope"}
+		return Message{}, &PermanentError{Code: "unsupported_envelope"}
 	}
-	return k.publish(ctx, messageID, header.Type, body)
+	return Message{ID: messageID, Type: header.Type, Body: body}, nil
+}
+
+func (k *Kafka) Send(ctx context.Context, message Message) error {
+	if !messageIDPattern.MatchString(message.ID) || message.Type == "" || len(message.Body) == 0 {
+		return &PermanentError{Code: "invalid_envelope"}
+	}
+	return k.publish(ctx, message.ID, message.Type, message.Body)
 }
 
 func (k *Kafka) publish(ctx context.Context, messageID, messageType string, body []byte) error {

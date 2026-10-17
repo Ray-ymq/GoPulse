@@ -52,6 +52,43 @@ func TestReadinessUnavailableIsFinite(t *testing.T) {
 	}
 }
 
+func TestTelemetryDeliveryEndpointIsAuthenticatedAndReadOnly(t *testing.T) {
+	token := "marshaller-token-at-least-32-bytes-long"
+	s := New("127.0.0.1", 9093, token, time.Second, checker{}, checker{}, nil)
+	s.SetDeliveryStatus(func() any {
+		return map[string]any{"component": "marshaller", "instance": "marshaller-1", "status": "healthy"}
+	})
+	for _, test := range []struct {
+		name   string
+		setup  func(*http.Request)
+		status int
+	}{
+		{name: "missing token", status: http.StatusUnauthorized},
+		{name: "valid token", setup: func(request *http.Request) { request.Header.Set("Authorization", "Bearer "+token) }, status: http.StatusOK},
+		{name: "duplicate token", setup: func(request *http.Request) {
+			request.Header.Add("Authorization", "Bearer "+token)
+			request.Header.Add("Authorization", "Bearer "+token)
+		}, status: http.StatusUnauthorized},
+		{name: "query rejected", setup: func(request *http.Request) { request.Header.Set("Authorization", "Bearer "+token) }, status: http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := "/internal/v1/telemetry-delivery"
+			if test.name == "query rejected" {
+				path += "?probe=1"
+			}
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			if test.setup != nil {
+				test.setup(request)
+			}
+			response := httptest.NewRecorder()
+			s.server.Handler.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestListenerAddressSupportsIPv4AndIPv6Loopback(t *testing.T) {
 	tests := map[string]string{
 		"127.0.0.1": "127.0.0.1:9093",

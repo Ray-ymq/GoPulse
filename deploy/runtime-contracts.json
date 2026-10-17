@@ -2487,6 +2487,42 @@
           "aliases": []
         },
         {
+          "key": "MONITOR_SPOOL_DIR",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "/var/lib/gopulse-monitor/spool",
+          "compose_value": "/var/lib/gopulse-monitor/spool",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_METRICS_SPOOL_MAX_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${MONITOR_METRICS_SPOOL_MAX_BYTES:-1073741824}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_LOGS_SPOOL_MAX_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${MONITOR_LOGS_SPOOL_MAX_BYTES:-1073741824}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_EVENTS_SPOOL_MAX_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${MONITOR_EVENTS_SPOOL_MAX_BYTES:-1073741824}",
+          "aliases": []
+        },
+        {
           "key": "REDIS_DB",
           "type": "integer",
           "sensitive": false,
@@ -4076,6 +4112,15 @@
           "aliases": []
         },
         {
+          "key": "MARSHALLER_API_TOKEN",
+          "type": "string",
+          "sensitive": true,
+          "required": true,
+          "default": null,
+          "compose_value": "${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}",
+          "aliases": []
+        },
+        {
           "key": "MONITOR_API_TOKEN",
           "type": "string",
           "sensitive": true,
@@ -4849,6 +4894,26 @@
     {
       "key": "MONITOR_SHUTDOWN_TIMEOUT",
       "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_SPOOL_DIR",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_METRICS_SPOOL_MAX_BYTES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_LOGS_SPOOL_MAX_BYTES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_EVENTS_SPOOL_MAX_BYTES",
+      "type": "integer",
       "sensitive": false
     },
     {

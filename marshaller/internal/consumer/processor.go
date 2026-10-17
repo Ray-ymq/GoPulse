@@ -38,9 +38,6 @@ type Target struct {
 type Committer interface {
 	Commit(context.Context, Record) error
 }
-type DeadLetterer interface {
-	DeadLetter(context.Context, Record, string) error
-}
 type Logger interface {
 	Permanent(Record, string)
 	Transient(Record)
@@ -59,7 +56,6 @@ type Processor struct {
 	Writer             Writer
 	Targets            map[string]Target
 	Committer          Committer
-	DeadLetter         DeadLetterer
 	RetryMin, RetryMax time.Duration
 	MaxRetrying        int
 	Logger             Logger
@@ -105,7 +101,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 	if err != nil {
 		code := envelope.Code(err)
 		if code == "" {
-			return err
+			code = "invalid_envelope"
 		}
 		return p.reject(ctx, record, lease, kind, source, code)
 	}
@@ -202,14 +198,20 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 }
 
 func (p *Processor) reject(ctx context.Context, record Record, lease Lease, kind, source, code string) error {
-	if p.DeadLetter != nil {
-		if err := p.DeadLetter.DeadLetter(ctx, record, code); err != nil {
-			p.Logger.Transient(record)
-			return err
-		}
+	if metrics := componentmetrics.Active(); metrics != nil {
+		metrics.Add("records_discarded_total", 1, discardReason(code))
 	}
 	p.Logger.Permanent(record, code)
 	return p.commit(ctx, record, lease, kind, source)
+}
+
+func discardReason(code string) string {
+	switch code {
+	case "invalid_json", "invalid_utf8", "invalid_envelope", "invalid_payload", "invalid_payload_identity", "invalid_producer", "invalid_sample_set", "invalid_timestamp", "invalid_value", "message_id_mismatch", "timestamp_too_far_future", "invalid_component_status", "unsupported_envelope", "record_too_large", "invalid_metric_batch", "invalid_log_payload", "invalid_event_payload", "source_mismatch", "timestamp_mismatch", "transform_failed", "expired_log_retention", "expired_event_retention":
+		return code
+	default:
+		return "unknown"
+	}
 }
 
 func (p *Processor) commit(ctx context.Context, record Record, lease Lease, identity ...string) (result error) {

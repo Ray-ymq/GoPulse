@@ -403,6 +403,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .component-name { display: flex; align-items: center; gap: 13px; color: var(--gp-text-secondary); }
 .component-name .admin-icon { color: var(--gp-primary); }
 .components-panel td { height: 36px; }
+.telemetry-panel { margin-bottom: 14px; }
+.telemetry-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.telemetry-grid > div { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--gp-border); border-radius: 8px; }
+.telemetry-grid span { color: var(--gp-muted); font-size: .85rem; }
 .overview-trends .panel { padding: 14px; }
 .overview-trends .panel-heading,
 .overview-bottom .panel-heading { margin-bottom: 8px; }

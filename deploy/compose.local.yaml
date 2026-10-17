@@ -95,6 +95,10 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_MS: 259200000
+      KAFKA_LOG_RETENTION_BYTES: 2147483648
+      KAFKA_LOG_SEGMENT_BYTES: 67108864
+      KAFKA_LOG_SEGMENT_MS: 3600000
     ports:
       - 127.0.0.1:${KAFKA_PORT:-9092}:9092
     volumes:
@@ -120,10 +124,14 @@ services:
       - /bin/bash
       - -ec
       - >-
-        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events
-        gopulse-observability-metrics-dlq gopulse-observability-logs-dlq gopulse-observability-events-dlq; do
+        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events; do
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
-        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1;
+        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1
+        --config cleanup.policy=delete --config retention.ms=259200000 --config retention.bytes=2147483648
+        --config segment.bytes=67108864 --config segment.ms=3600000;
+        /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:19092 --alter --entity-type topics
+        --entity-name "$${topic}"
+        --add-config cleanup.policy=delete,retention.ms=259200000,retention.bytes=2147483648,segment.bytes=67108864,segment.ms=3600000;
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic "$${topic}";
         done
     tmpfs:
@@ -188,6 +196,7 @@ volumes:
   victoriametrics_data:
   observability_elasticsearch_data:
   monitor_plugin_data:
+  monitor_spool_data:
 
 secrets:
   victoriametrics_password:

@@ -19,6 +19,10 @@ type Sender interface {
 	PublishRaw(context.Context, string, any) error
 }
 
+type durableSender interface {
+	EnqueueRaw(context.Context, string, any) error
+}
+
 type Config struct {
 	Capacity int
 	Timeout  time.Duration
@@ -52,6 +56,7 @@ type Monitor struct {
 	now       func() time.Time
 	jitter    func(time.Duration) time.Duration
 	sender    Sender
+	durable   durableSender
 	logger    *slog.Logger
 	transport bool
 }
@@ -91,8 +96,13 @@ func NewMonitor(cfg Config) (*Monitor, error) {
 		cfg.Logger = slog.Default()
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	m := &Monitor{capacity: cfg.Capacity, wake: make(chan struct{}, 1), done: make(chan struct{}), stop: make(chan struct{}), runCtx: runCtx, cancel: cancel, timeout: cfg.Timeout, retryMin: cfg.RetryMin, retryMax: cfg.RetryMax, now: cfg.Now, jitter: cfg.Jitter, sender: cfg.Sender, logger: cfg.Logger}
-	go m.run()
+	durable, _ := cfg.Sender.(durableSender)
+	m := &Monitor{capacity: cfg.Capacity, wake: make(chan struct{}, 1), done: make(chan struct{}), stop: make(chan struct{}), runCtx: runCtx, cancel: cancel, timeout: cfg.Timeout, retryMin: cfg.RetryMin, retryMax: cfg.RetryMax, now: cfg.Now, jitter: cfg.Jitter, sender: cfg.Sender, durable: durable, logger: cfg.Logger}
+	if durable == nil {
+		go m.run()
+	} else {
+		close(m.done)
+	}
 	return m, nil
 }
 
@@ -107,10 +117,23 @@ func (m *Monitor) Record(event Event) bool {
 		return false
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed {
+		m.mu.Unlock()
 		return false
 	}
+	if m.durable != nil {
+		err := m.durable.EnqueueRaw(context.Background(), id, json.RawMessage(body))
+		m.mu.Unlock()
+		if err != nil {
+			m.logger.Warn("event spool unavailable", "module", "events", "event", "queue_write_failed")
+			if metrics := componentmetrics.Active(); metrics != nil {
+				metrics.Add("event_queue_dropped_total", 1)
+			}
+			return false
+		}
+		return true
+	}
+	defer m.mu.Unlock()
 	if len(m.queue) >= m.capacity {
 		componentmetrics.Active().Add("event_queue_dropped_total", 1)
 		if !m.full {
@@ -126,6 +149,12 @@ func (m *Monitor) Record(event Event) bool {
 }
 
 func (m *Monitor) Close(ctx context.Context) error {
+	if m.durable != nil {
+		m.mu.Lock()
+		m.closed = true
+		m.mu.Unlock()
+		return nil
+	}
 	m.mu.Lock()
 	if !m.closed {
 		m.closed = true

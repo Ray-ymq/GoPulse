@@ -1083,6 +1083,50 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/admin/component-status:
+    get:
+      tags: [Admin]
+      summary: 独立组件存活状态
+      description: |
+        逐实例直接探测 Backend、业务 Worker、搜索 Indexer、Monitor、Marshaller 与 Kafka。
+        探测失败只影响对应实例；未完成或过期的结果为 `unknown`，不会由观测数据缺失推导存活状态。
+      responses:
+        '200':
+          description: 组件存活快照。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataComponentStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/telemetry-delivery:
+    get:
+      tags: [Admin]
+      summary: 数据传输状态
+      description: |
+        读取 Monitor 本地缓存和 Marshaller 写库状态。该接口只读取已有状态，不发送临时消息，
+        传输异常不会改变组件存活接口的颜色。
+      responses:
+        '200':
+          description: 数据传输快照。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataTelemetryDelivery'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/admin/users/{userId}:
     get:
       tags: [Admin]
@@ -3155,6 +3199,115 @@ components:
       type: string
       enum: [healthy, degraded, unavailable]
 
+    ComponentStatusValue:
+      type: string
+      enum: [healthy, unavailable, unknown]
+
+    ComponentStatus:
+      type: object
+      required: [component, instance, status, observed_at, reason_code]
+      properties:
+        component:
+          type: string
+        instance:
+          type: string
+        status:
+          $ref: '#/components/schemas/ComponentStatusValue'
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        reason_code:
+          type: string
+
+    DataComponentStatus:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentStatus'
+
+    DeliveryQueue:
+      type: object
+      required: [kind, pending, occupied_bytes, capacity_bytes, file_bytes, enqueued, sent, failed, evicted, write_blocked, reason_code]
+      properties:
+        kind:
+          type: string
+          enum: [metrics, logs, events]
+        pending:
+          type: integer
+          format: int64
+        occupied_bytes:
+          type: integer
+          format: int64
+        capacity_bytes:
+          type: integer
+          format: int64
+        file_bytes:
+          type: integer
+          format: int64
+        enqueued:
+          type: integer
+          format: uint64
+        sent:
+          type: integer
+          format: uint64
+        failed:
+          type: integer
+          format: uint64
+        evicted:
+          type: integer
+          format: uint64
+        write_blocked:
+          type: boolean
+        reason_code:
+          type: string
+
+    TelemetryDeliveryItem:
+      type: object
+      required: [component, instance, status, observed_at, reason_code, queues, write_blocked, discarded]
+      properties:
+        component:
+          type: string
+        instance:
+          type: string
+        status:
+          $ref: '#/components/schemas/TelemetryDeliveryStatus'
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        reason_code:
+          type: string
+        queues:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryQueue'
+        write_blocked:
+          type: boolean
+        discarded:
+          type: integer
+          format: uint64
+
+    TelemetryDeliverySnapshot:
+      type: object
+      required: [generated_at, status, items]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [healthy, degraded, unknown]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TelemetryDeliveryItem'
+
+    TelemetryDeliveryStatus:
+      type: string
+      enum: [healthy, degraded, unknown]
+
     AdminSection:
       type: object
       required: [status, observed_at, reason_code]
@@ -3929,6 +4082,13 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/AdminSnapshot'
+
+    DataTelemetryDelivery:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TelemetryDeliverySnapshot'
 
     DataMetricDefinitionList:
       type: object

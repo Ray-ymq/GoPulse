@@ -8,7 +8,8 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.2
 	github.com/twmb/franz-go v1.21.0
-	golang.org/x/sys v0.41.0
+	go.etcd.io/bbolt v1.5.0
+	golang.org/x/sys v0.45.0
 )
 
 require github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect

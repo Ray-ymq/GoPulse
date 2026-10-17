@@ -224,6 +224,8 @@ func Catalog(id string) (Spec, bool) {
 		gauge("target_blocked", "state", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_storage_success_timestamp_seconds", "unix_seconds", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_commit_success_timestamp_seconds", "unix_seconds", nil, nil)
+		discardReasons := []string{"invalid_json", "invalid_utf8", "invalid_envelope", "invalid_payload", "invalid_payload_identity", "invalid_producer", "invalid_sample_set", "invalid_timestamp", "invalid_value", "message_id_mismatch", "timestamp_too_far_future", "invalid_component_status", "unsupported_envelope", "record_too_large", "invalid_metric_batch", "invalid_log_payload", "invalid_event_payload", "source_mismatch", "timestamp_mismatch", "transform_failed", "expired_log_retention", "expired_event_retention", "unknown"}
+		s.Families = append(s.Families, Family{Name: prefix + "records_discarded_total", Kind: "counter", Unit: "count", Keys: []string{"reason"}, Tuples: singles(discardReasons...)})
 		dep("kafka", "victoriametrics", "elasticsearch")
 		cleanupResults := []string{"deleted", "not_found", "not_owned", "invalid_date", "not_expired", "transient", "permission_denied", "budget_exhausted", "unknown"}
 		streams := singles("logs", "events")

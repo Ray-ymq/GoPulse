@@ -34,6 +34,10 @@ type Config struct {
 	EventRetryMin           time.Duration
 	EventRetryMax           time.Duration
 	EventShutdownTimeout    time.Duration
+	SpoolDir                string
+	MetricsSpoolMaxBytes    int64
+	LogsSpoolMaxBytes       int64
+	EventsSpoolMaxBytes     int64
 	KafkaBrokers            []string
 	KafkaProduceTimeout     time.Duration
 	KafkaMaxBufferedRecords int
@@ -192,6 +196,30 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if value("MONITOR_EVENT_MAX_BYTES", "16384") != "16384" {
 		return Config{}, errors.New("MONITOR_EVENT_MAX_BYTES must be 16384")
 	}
+	spoolDir := value("MONITOR_SPOOL_DIR", "/var/lib/gopulse-monitor/spool")
+	if strings.ContainsAny(spoolDir, "\x00\r\n") || !filepath.IsAbs(spoolDir) {
+		return Config{}, errors.New("MONITOR_SPOOL_DIR must be an absolute path")
+	}
+	parseSpoolSize := func(key string) (int64, error) {
+		raw := value(key, strconv.FormatInt(1<<30, 10))
+		size, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || size < 1<<20 || size > 1<<30 {
+			return 0, fmt.Errorf("%s must be between 1048576 and 1073741824 bytes", key)
+		}
+		return size, nil
+	}
+	metricsSpoolMaxBytes, err := parseSpoolSize("MONITOR_METRICS_SPOOL_MAX_BYTES")
+	if err != nil {
+		return Config{}, err
+	}
+	logsSpoolMaxBytes, err := parseSpoolSize("MONITOR_LOGS_SPOOL_MAX_BYTES")
+	if err != nil {
+		return Config{}, err
+	}
+	eventsSpoolMaxBytes, err := parseSpoolSize("MONITOR_EVENTS_SPOOL_MAX_BYTES")
+	if err != nil {
+		return Config{}, err
+	}
 	env := map[string]string{}
 	for _, key := range []string{"GOPULSE_RUNTIME_MODE", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
 		if v, ok := lookup(key); ok {
@@ -227,7 +255,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil || exporterPort < 1 || exporterPort > 65535 {
 		return Config{}, errors.New("REDIS_EXPORTER_HTTP_PORT must be between 1 and 65535")
 	}
-	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, ReleaseCatalog: releaseCatalog, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, KafkaBrokers: kafkaBrokers, KafkaProduceTimeout: kafkaProduceTimeout, KafkaMaxBufferedRecords: kafkaMaxBufferedRecords, KafkaMaxBufferedBytes: kafkaMaxBufferedBytes, ExporterEnv: env}, nil
+	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, ReleaseCatalog: releaseCatalog, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, SpoolDir: filepath.Clean(spoolDir), MetricsSpoolMaxBytes: metricsSpoolMaxBytes, LogsSpoolMaxBytes: logsSpoolMaxBytes, EventsSpoolMaxBytes: eventsSpoolMaxBytes, KafkaBrokers: kafkaBrokers, KafkaProduceTimeout: kafkaProduceTimeout, KafkaMaxBufferedRecords: kafkaMaxBufferedRecords, KafkaMaxBufferedBytes: kafkaMaxBufferedBytes, ExporterEnv: env}, nil
 }
 
 func parseKafkaBrokers(value string, runtimeMode RuntimeMode) ([]string, error) {
