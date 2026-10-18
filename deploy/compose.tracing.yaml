@@ -13,7 +13,7 @@ services:
     stop_grace_period: 10s
     volumes:
       - phase20_trace_data:/var/lib/gopulse/trace
-      - ./otel/phase20-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     networks:
       - observability
     expose:
