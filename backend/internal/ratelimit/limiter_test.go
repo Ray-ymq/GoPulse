@@ -21,6 +21,34 @@ func (redis *fakeRedis) Eval(_ context.Context, script string, keys []string, ar
 	return redis.value, redis.err
 }
 
+type scriptFakeRedis struct {
+	value        any
+	sha          string
+	loadCalls    int
+	evalCalls    int
+	evalSHACalls int
+	flushOnce    bool
+}
+
+func (redis *scriptFakeRedis) Eval(_ context.Context, _ string, _ []string, _ ...any) (any, error) {
+	redis.evalCalls++
+	return redis.value, nil
+}
+
+func (redis *scriptFakeRedis) EvalSha(_ context.Context, _ string, _ []string, _ ...any) (any, error) {
+	redis.evalSHACalls++
+	if redis.flushOnce {
+		redis.flushOnce = false
+		return nil, errors.New("NOSCRIPT No matching script. Please use EVAL.")
+	}
+	return redis.value, nil
+}
+
+func (redis *scriptFakeRedis) ScriptLoad(_ context.Context, _ string) (string, error) {
+	redis.loadCalls++
+	return redis.sha, nil
+}
+
 func testPolicy() Policy {
 	return Policy{
 		Name: "post_read", KeyPrefix: "gopulse:rl:v1:post_read:", Capacity: 2, RefillPerSecond: 1, Cost: 1,
@@ -38,7 +66,7 @@ func TestSharedLimiterUsesAtomicRedisTimeAndCreationBudget(t *testing.T) {
 	if len(redis.keys) != 2 || redis.keys[0] != "gopulse:rl:v1:post_read:user:17" || redis.keys[1] != "gopulse:rl:v1:creation:post_read" {
 		t.Fatalf("keys=%#v", redis.keys)
 	}
-	for _, required := range []string{"redis.call('TIME')", "HSET", "PEXPIRE", "identity_exists"} {
+	for _, required := range []string{"redis.call('TIME')", "HMGET", "HSET", "PEXPIRE", "identity_exists"} {
 		if !strings.Contains(redis.script, required) {
 			t.Fatalf("script does not contain %q", required)
 		}
@@ -50,6 +78,27 @@ func TestSharedLimiterUsesAtomicRedisTimeAndCreationBudget(t *testing.T) {
 	}
 	if len(redis.args) != 7 || redis.args[0] != float64(2) || redis.args[3] != int64(time.Minute/time.Millisecond) {
 		t.Fatalf("args=%#v", redis.args)
+	}
+}
+
+func TestSharedLimiterReusesScriptSHAAndReloadsAfterFlush(t *testing.T) {
+	redis := &scriptFakeRedis{value: []any{int64(1), int64(0)}, sha: "test-sha", flushOnce: true}
+	limiter := NewSharedLimiter(redis, time.Second)
+
+	for index := 0; index < 3; index++ {
+		decision, err := limiter.Allow(context.Background(), testPolicy(), "user:17")
+		if err != nil || !decision.Allowed {
+			t.Fatalf("Allow(%d) decision=%#v error=%v", index, decision, err)
+		}
+	}
+	if redis.evalCalls != 0 {
+		t.Fatalf("Eval() calls=%d, want cached EvalSha path", redis.evalCalls)
+	}
+	if redis.evalSHACalls != 4 {
+		t.Fatalf("EvalSha() calls=%d, want initial call, reload retry, and second cached call", redis.evalSHACalls)
+	}
+	if redis.loadCalls != 2 {
+		t.Fatalf("ScriptLoad() calls=%d, want initial load plus NOSCRIPT reload", redis.loadCalls)
 	}
 }
 

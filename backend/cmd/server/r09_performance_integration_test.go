@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"sort"
@@ -24,6 +25,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // The R09 contract is deliberately frozen in the test as well as in the
@@ -87,6 +89,7 @@ type r09Window struct {
 	errorRate      float64
 	db             r09DatabaseDelta
 	metrics        r09MetricEvidence
+	redis          r09RedisDelta
 	pool           r09PoolEvidence
 }
 
@@ -127,6 +130,28 @@ type r09MetricEvidence struct {
 	rateLimitAllows    int64
 	rateLimitDenies    int64
 	resourceRejects    int64
+}
+
+type r09RedisCommandEvidence struct {
+	calls int64
+	usec  int64
+}
+
+type r09RedisStatus struct {
+	commands map[string]r09RedisCommandEvidence
+}
+
+type r09RedisDelta struct {
+	evalCalls    int64
+	evalUsec     int64
+	evalSHACalls int64
+	evalSHAUsec  int64
+	getCalls     int64
+	getUsec      int64
+	setCalls     int64
+	setUsec      int64
+	delCalls     int64
+	delUsec      int64
 }
 
 type r09RequestResult struct {
@@ -361,10 +386,13 @@ func runR09NormalSamples(t *testing.T, name string, pattern r09AccessPattern, cl
 		}
 		metrics := installR09Metrics(t)
 		before := r09ReadDatabaseStatus(t, database)
+		redisBefore := r09ReadRedisStatus(t, cfg)
 		window := runR09Window(t, name, pattern, clients, server1, server2, postIDs, r09RequestsPerWorker)
+		redisAfter := r09ReadRedisStatus(t, cfg)
 		after := r09ReadDatabaseStatus(t, database)
 		window.db = after.delta(before)
 		window.metrics = r09MetricEvidenceFromMetrics(t, metrics)
+		window.redis = redisAfter.delta(redisBefore)
 		aggregate = mergeR09Windows(aggregate, window)
 	}
 	return aggregate
@@ -396,6 +424,16 @@ func mergeR09Windows(aggregate, current r09Window) r09Window {
 	aggregate.metrics.rateLimitAllows += current.metrics.rateLimitAllows
 	aggregate.metrics.rateLimitDenies += current.metrics.rateLimitDenies
 	aggregate.metrics.resourceRejects += current.metrics.resourceRejects
+	aggregate.redis.evalCalls += current.redis.evalCalls
+	aggregate.redis.evalUsec += current.redis.evalUsec
+	aggregate.redis.evalSHACalls += current.redis.evalSHACalls
+	aggregate.redis.evalSHAUsec += current.redis.evalSHAUsec
+	aggregate.redis.getCalls += current.redis.getCalls
+	aggregate.redis.getUsec += current.redis.getUsec
+	aggregate.redis.setCalls += current.redis.setCalls
+	aggregate.redis.setUsec += current.redis.setUsec
+	aggregate.redis.delCalls += current.redis.delCalls
+	aggregate.redis.delUsec += current.redis.delUsec
 	for operation, count := range current.metrics.dbByOperation {
 		aggregate.metrics.dbByOperation[operation] += count
 	}
@@ -428,7 +466,7 @@ func logR09Window(t *testing.T, variant string, window r09Window) {
 	t.Helper()
 	first := window.pool.instances["server-1"]
 	second := window.pool.instances["server-2"]
-	t.Logf("R09 %s %s: total=%d success=%d goodput=%.1f/s p95=%s p99=%s rejection=%.2f%% errors=%.2f%% db_questions=%d db_select=%d rows_read=%d rows_sent=%d bytes_sent=%d db_ops=%d cache_hit=%d cache_miss=%d rate_allow=%d rate_deny=%d resource_reject=%d pool_wait_count=%d pool_wait_duration=%s server1_pool=%d/%d/%d/%d wait=%d/%s server2_pool=%d/%d/%d/%d wait=%d/%s", variant, window.name, window.total, window.success, window.goodput, window.p95, window.p99, window.rejectionRate*100, window.errorRate*100, window.db.Questions, window.db.ComSelect, window.db.RowsRead, window.db.RowsSent, window.db.BytesSent, window.metrics.dbOperations, window.metrics.cacheHits, window.metrics.cacheMisses, window.metrics.rateLimitAllows, window.metrics.rateLimitDenies, window.metrics.resourceRejects, window.pool.waitCount, window.pool.waitDuration, first.maxOpen, first.open, first.inUse, first.idle, first.waitCount, first.waitDuration, second.maxOpen, second.open, second.inUse, second.idle, second.waitCount, second.waitDuration)
+	t.Logf("R09 %s %s: total=%d success=%d goodput=%.1f/s p95=%s p99=%s rejection=%.2f%% errors=%.2f%% db_questions=%d db_select=%d rows_read=%d rows_sent=%d bytes_sent=%d db_ops=%d db_time_ms=%.3f cache_hit=%d cache_miss=%d rate_allow=%d rate_deny=%d resource_reject=%d redis_eval=%d/%dus redis_evalsha=%d/%dus redis_get=%d/%dus redis_set=%d/%dus redis_del=%d/%dus pool_wait_count=%d pool_wait_duration=%s server1_pool=%d/%d/%d/%d wait=%d/%s server2_pool=%d/%d/%d/%d wait=%d/%s", variant, window.name, window.total, window.success, window.goodput, window.p95, window.p99, window.rejectionRate*100, window.errorRate*100, window.db.Questions, window.db.ComSelect, window.db.RowsRead, window.db.RowsSent, window.db.BytesSent, window.metrics.dbOperations, window.metrics.dbOperationSeconds*1000, window.metrics.cacheHits, window.metrics.cacheMisses, window.metrics.rateLimitAllows, window.metrics.rateLimitDenies, window.metrics.resourceRejects, window.redis.evalCalls, window.redis.evalUsec, window.redis.evalSHACalls, window.redis.evalSHAUsec, window.redis.getCalls, window.redis.getUsec, window.redis.setCalls, window.redis.setUsec, window.redis.delCalls, window.redis.delUsec, window.pool.waitCount, window.pool.waitDuration, first.maxOpen, first.open, first.inUse, first.idle, first.waitCount, first.waitDuration, second.maxOpen, second.open, second.inUse, second.idle, second.waitCount, second.waitDuration)
 }
 
 func r09Clients(t *testing.T, address, suffix string, protected bool) ([]*http.Client, []uint64) {
@@ -726,6 +764,91 @@ func parseR09MetricLine(line string) (string, map[string]string, float64, bool) 
 		}
 	}
 	return metric, labels, value, true
+}
+
+func r09ReadRedisStatus(t *testing.T, cfg config.Config) r09RedisStatus {
+	t.Helper()
+	client := goredis.NewClient(&goredis.Options{
+		Addr:         net.JoinHostPort(cfg.Redis.Host, strconv.Itoa(cfg.Redis.Port)),
+		Password:     cfg.Redis.Password,
+		DB:           cfg.Redis.DB,
+		PoolSize:     1,
+		MaxRetries:   0,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	})
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	info, err := client.Info(ctx, "commandstats").Result()
+	if err != nil {
+		t.Fatalf("read R09 Redis commandstats: %v", err)
+	}
+	status := r09RedisStatus{commands: make(map[string]r09RedisCommandEvidence)}
+	for _, line := range strings.Split(info, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "cmdstat_") {
+			continue
+		}
+		nameAndFields := strings.SplitN(line, ":", 2)
+		if len(nameAndFields) != 2 {
+			continue
+		}
+		name := strings.TrimPrefix(nameAndFields[0], "cmdstat_")
+		evidence := r09RedisCommandEvidence{}
+		for _, field := range strings.Split(nameAndFields[1], ",") {
+			key, value, found := strings.Cut(field, "=")
+			if !found {
+				continue
+			}
+			parsed, parseErr := strconv.ParseInt(value, 10, 64)
+			if parseErr != nil {
+				continue
+			}
+			switch key {
+			case "calls":
+				evidence.calls = parsed
+			case "usec":
+				evidence.usec = parsed
+			}
+		}
+		status.commands[name] = evidence
+	}
+	return status
+}
+
+func (after r09RedisStatus) delta(before r09RedisStatus) r09RedisDelta {
+	commandDelta := func(name string) r09RedisCommandEvidence {
+		current := after.commands[name]
+		previous := before.commands[name]
+		current.calls -= previous.calls
+		current.usec -= previous.usec
+		if current.calls < 0 {
+			current.calls = 0
+		}
+		if current.usec < 0 {
+			current.usec = 0
+		}
+		return current
+	}
+	eval := commandDelta("eval")
+	evalSHA := commandDelta("evalsha")
+	get := commandDelta("get")
+	set := commandDelta("set")
+	del := commandDelta("del")
+	return r09RedisDelta{
+		evalCalls:    eval.calls,
+		evalUsec:     eval.usec,
+		evalSHACalls: evalSHA.calls,
+		evalSHAUsec:  evalSHA.usec,
+		getCalls:     get.calls,
+		getUsec:      get.usec,
+		setCalls:     set.calls,
+		setUsec:      set.usec,
+		delCalls:     del.calls,
+		delUsec:      del.usec,
+	}
 }
 
 func r09Config(t *testing.T, environment []string) config.Config {

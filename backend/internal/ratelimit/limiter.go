@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -87,9 +88,12 @@ type Limiter interface {
 }
 
 const tokenBucketScript = `
-local function take(key, capacity, refill, cost, ttl, now)
-  local tokens = tonumber(redis.call('HGET', key, 'tokens'))
-  local last = tonumber(redis.call('HGET', key, 'last_refill_ms'))
+local function read_state(key)
+  local values = redis.call('HMGET', key, 'tokens', 'last_refill_ms')
+  return tonumber(values[1]), tonumber(values[2]), values[1] ~= false or values[2] ~= false
+end
+
+local function take(key, capacity, refill, cost, ttl, now, tokens, last)
   if tokens == nil then tokens = capacity end
   if last == nil then last = now end
   local elapsed = now - last
@@ -108,14 +112,15 @@ end
 
 local clock = redis.call('TIME')
 local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
-local identity_exists = redis.call('EXISTS', KEYS[1])
-if identity_exists == 0 then
-  local creation = take(KEYS[2], tonumber(ARGV[5]), tonumber(ARGV[6]), 1, tonumber(ARGV[7]), now)
+local identity_tokens, identity_last, identity_exists = read_state(KEYS[1])
+if not identity_exists then
+  local creation_tokens, creation_last = read_state(KEYS[2])
+  local creation = take(KEYS[2], tonumber(ARGV[5]), tonumber(ARGV[6]), 1, tonumber(ARGV[7]), now, creation_tokens, creation_last)
   if creation[1] ~= 1 then
     return {-2, creation[2]}
   end
 end
-local result = take(KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4]), now)
+local result = take(KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4]), now, identity_tokens, identity_last)
 return {result[1], result[2]}
 `
 
@@ -123,8 +128,10 @@ return {result[1], result[2]}
 // Redis TIME itself, so independent Backend processes do not use wall-clock
 // values from their own machines.
 type SharedLimiter struct {
-	client  RedisClient
-	timeout time.Duration
+	client       RedisClient
+	timeout      time.Duration
+	scriptLoadMu sync.Mutex
+	scriptSHA    atomic.Pointer[string]
 }
 
 func NewSharedLimiter(client RedisClient, timeout time.Duration) *SharedLimiter {
@@ -152,7 +159,8 @@ func (limiter *SharedLimiter) Allow(ctx context.Context, policy Policy, identity
 	defer cancel()
 	identityKey := policy.KeyPrefix + identity
 	creationKey := "gopulse:rl:v1:creation:" + policy.Name
-	result, err := limiter.client.Eval(operationContext, tokenBucketScript, []string{identityKey, creationKey},
+	keys := []string{identityKey, creationKey}
+	args := []any{
 		policy.Capacity,
 		policy.RefillPerSecond,
 		policy.Cost,
@@ -160,23 +168,8 @@ func (limiter *SharedLimiter) Allow(ctx context.Context, policy Policy, identity
 		policy.CreationCapacity,
 		policy.CreationRate,
 		policy.CreationTTL.Milliseconds(),
-	)
-	if err != nil && strings.Contains(strings.ToUpper(err.Error()), "NOSCRIPT") {
-		if scriptClient, ok := limiter.client.(scriptRedisClient); ok {
-			sha, loadErr := scriptClient.ScriptLoad(operationContext, tokenBucketScript)
-			if loadErr == nil {
-				result, err = scriptClient.EvalSha(operationContext, sha, []string{identityKey, creationKey},
-					policy.Capacity,
-					policy.RefillPerSecond,
-					policy.Cost,
-					policy.IdleTTL.Milliseconds(),
-					policy.CreationCapacity,
-					policy.CreationRate,
-					policy.CreationTTL.Milliseconds(),
-				)
-			}
-		}
 	}
+	result, err := limiter.execute(operationContext, keys, args)
 	if err != nil {
 		return Decision{}, fmt.Errorf("%w: execute shared quota: %v", ErrUnavailable, err)
 	}
@@ -199,6 +192,61 @@ func (limiter *SharedLimiter) Allow(ctx context.Context, policy Policy, identity
 		decision.RetryAfter = time.Millisecond
 	}
 	return decision, nil
+}
+
+// execute uses the Redis script cache on clients that expose it. The script is
+// loaded lazily because limiter construction must not perform I/O, and the
+// SHA is invalidated and rebuilt if an operator flushes Redis scripts while a
+// Backend is running. Clients without script-cache support keep the narrow
+// Eval-only contract used by unit tests and alternate adapters.
+func (limiter *SharedLimiter) execute(ctx context.Context, keys []string, args []any) (any, error) {
+	scriptClient, ok := limiter.client.(scriptRedisClient)
+	if !ok {
+		return limiter.client.Eval(ctx, tokenBucketScript, keys, args...)
+	}
+
+	sha, err := limiter.ensureScript(ctx, scriptClient)
+	if err != nil {
+		return nil, err
+	}
+	result, err := scriptClient.EvalSha(ctx, sha, keys, args...)
+	if err == nil || !isNoScript(err) {
+		return result, err
+	}
+
+	limiter.invalidateScript(sha)
+	sha, err = limiter.ensureScript(ctx, scriptClient)
+	if err != nil {
+		return nil, err
+	}
+	return scriptClient.EvalSha(ctx, sha, keys, args...)
+}
+
+func (limiter *SharedLimiter) ensureScript(ctx context.Context, client scriptRedisClient) (string, error) {
+	if cached := limiter.scriptSHA.Load(); cached != nil {
+		return *cached, nil
+	}
+	limiter.scriptLoadMu.Lock()
+	defer limiter.scriptLoadMu.Unlock()
+	if cached := limiter.scriptSHA.Load(); cached != nil {
+		return *cached, nil
+	}
+	sha, err := client.ScriptLoad(ctx, tokenBucketScript)
+	if err != nil {
+		return "", err
+	}
+	limiter.scriptSHA.Store(&sha)
+	return sha, nil
+}
+
+func (limiter *SharedLimiter) invalidateScript(sha string) {
+	if cached := limiter.scriptSHA.Load(); cached != nil && *cached == sha {
+		limiter.scriptSHA.CompareAndSwap(cached, nil)
+	}
+}
+
+func isNoScript(err error) bool {
+	return err != nil && strings.Contains(strings.ToUpper(err.Error()), "NOSCRIPT")
 }
 
 func parseResult(value any) (int64, int64, error) {
