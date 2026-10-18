@@ -1066,7 +1066,7 @@ func assertR09Contract(t *testing.T, results map[string]r09VariantResult) {
 	for _, window := range []r09Window{baseline.warmHotspot, baseline.warmUniform, result.warmHotspot, result.warmUniform} {
 		work := float64(window.db.Questions) / float64(window.success)
 		// Historical v1 warm reads used 6.002 Questions/success. Preserve its 5% reduction budget.
-		// Evidence: dev/status/GoPulse-Exporter扩展统一验收-2026-10-17.md, R09 warm matrix.
+		// Evidence: R09 warm matrix in commit 312a6fb (historical Exporter acceptance report).
 		if work > 6.002*r09DBWorkMaxRatio {
 			t.Errorf("R09 %s %s database work %.3f exceeds historical budget %.3f", window.name, window.pattern, work, 6.002*r09DBWorkMaxRatio)
 		}
