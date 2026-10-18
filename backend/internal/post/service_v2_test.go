@@ -30,6 +30,7 @@ func (repository *v2Repository) FindDynamic(ctx context.Context, postID, authorI
 }
 
 type v2BodyCache struct {
+	getError error
 	body     Body
 	present  bool
 	getCalls int
@@ -39,6 +40,9 @@ type v2BodyCache struct {
 
 func (cache *v2BodyCache) GetBody(_ context.Context, key BodyKey) (Body, bool, error) {
 	cache.getCalls++
+	if cache.getError != nil {
+		return Body{}, false, cache.getError
+	}
 	if cache.present && cache.body.ValidForKey(key) {
 		return cache.body, true, nil
 	}
@@ -242,4 +246,55 @@ type v2ReadMutation struct {
 func serviceV2TestBody(postID, authorID, revision uint64, title string) Body {
 	created := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
 	return Body{ID: postID, AuthorID: authorID, ContentRevision: revision, Title: title, Content: title + " content", CreatedAt: created, UpdatedAt: created}
+}
+
+func TestBodyCacheFailuresUseBoundedOriginAndAuthorityFailuresReject(t *testing.T) {
+	failure := errors.New("dependency unavailable")
+	for _, test := range []struct {
+		name                                                        string
+		contextErr, originErr, dynamicErr, likedErr, getErr, setErr error
+		hidden, warm                                                bool
+		code                                                        apperror.Code
+	}{
+		{name: "Redis read failure", getErr: failure},
+		{name: "Redis fill failure", setErr: failure},
+		{name: "authoritative context failure with warm body", contextErr: failure, warm: true, code: apperror.CodePostReadUnavailable},
+		{name: "deleted with warm body", contextErr: ErrNotFound, warm: true, code: apperror.CodePostNotFound},
+		{name: "hidden with warm body", hidden: true, warm: true, code: apperror.CodePostNotFound},
+		{name: "revision changed during origin", originErr: ErrReadContextChanged, code: apperror.CodePostReadUnavailable},
+		{name: "origin failure", originErr: failure, code: apperror.CodePostReadUnavailable},
+		{name: "dynamic facts failure with warm body", dynamicErr: failure, warm: true, code: apperror.CodePostReadUnavailable},
+		{name: "viewer facts failure with warm body", likedErr: failure, warm: true, code: apperror.CodePostReadUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			body := Body{ID: 31, AuthorID: 7, ContentRevision: 1, Title: "title", Content: "content", CreatedAt: now, UpdatedAt: now}
+			origins := 0
+			repository := &v2Repository{
+				fakeRepository: fakeRepository{likedByViewer: func(context.Context, uint64, uint64) (bool, error) { return true, test.likedErr }},
+				readContext: func(context.Context, uint64) (ReadContext, error) {
+					return ReadContext{Epoch: "epoch-a", PostID: 31, ContentRevision: 1, AuthorID: 7, Visible: !test.hidden}, test.contextErr
+				},
+				findBody: func(context.Context, BodyKey) (Body, error) { origins++; return body, test.originErr },
+				dynamic: func(context.Context, uint64, uint64) (DynamicProjection, error) {
+					return DynamicProjection{Author: PublicAuthor{ID: 7, Username: "alice"}, LikeCount: 2}, test.dynamicErr
+				},
+			}
+			cache := &v2BodyCache{body: body, present: test.warm, getError: test.getErr, set: func(BodyKey, Body) error { return test.setErr }}
+			service := NewService(repository).WithBodyCache(cache, nil)
+			t.Cleanup(func() { _ = service.Shutdown(context.Background()) })
+			got, err := service.Detail(context.Background(), 31, 17)
+			if test.code != "" {
+				assertPostApplicationCode(t, err, test.code)
+			} else if err != nil || got.Content != "content" || !got.LikedByMe || got.LikeCount != 2 {
+				t.Fatalf("detail=%+v error=%v", got, err)
+			}
+			if (test.contextErr != nil || test.hidden) && (cache.getCalls != 0 || cache.setCalls != 0 || origins != 0) {
+				t.Fatalf("unverified read touched cache/origin: gets=%d sets=%d origins=%d", cache.getCalls, cache.setCalls, origins)
+			}
+			if test.originErr != nil && cache.setCalls != 0 {
+				t.Fatal("failed origin was cached")
+			}
+		})
+	}
 }

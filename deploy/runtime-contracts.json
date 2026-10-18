@@ -186,15 +186,6 @@
           "aliases": []
         },
         {
-          "key": "BACKEND_POST_BODY_V2_ENABLED",
-          "type": "boolean",
-          "sensitive": false,
-          "required": false,
-          "default": "true",
-          "compose_value": "${BACKEND_POST_BODY_V2_ENABLED:-true}",
-          "aliases": []
-        },
-        {
           "key": "BACKEND_RATE_LIMIT_ENABLED",
           "type": "boolean",
           "sensitive": false,

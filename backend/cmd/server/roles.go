@@ -240,32 +240,30 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		users.WithOutbox(eventOutbox)
 		authService := auth.NewService(users, passwords, tokens)
 		authHandler := auth.NewHandler(authService, cookies, logger)
-		postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(state)
+		postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
-		postService := post.NewService(posts, postDetailCache).WithLogger(logger)
-		if cfg.Protection.PostBodyV2Enabled {
-			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
-				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
-				MaxExecutors:         cfg.Protection.ResourceRebuild,
-				MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
-				MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
-				WaitTimeout:          cfg.Redis.OperationTimeout * 5,
-				TaskTimeout:          cfg.Redis.OperationTimeout * 10,
-				Budget:               protectionBudget,
-			})
-			postService.WithBodyCache(postDetailCache, rebuild)
-			assembly.addResource("post_body_rebuild", func() error {
-				shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				return rebuild.Stop(shutdownContext)
-			})
-		}
+		postService := post.NewService(posts).WithLogger(logger)
+		rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
+			MaxActiveKeys:        cfg.Protection.ResourceRebuild,
+			MaxExecutors:         cfg.Protection.ResourceRebuild,
+			MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
+			MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
+			WaitTimeout:          cfg.Redis.OperationTimeout * 5,
+			TaskTimeout:          cfg.Redis.OperationTimeout * 10,
+			Budget:               protectionBudget,
+		})
+		postService.WithBodyCache(postBodyCache, rebuild)
+		assembly.addResource("post_body_rebuild", func() error {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			return rebuild.Stop(shutdownContext)
+		})
 		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-		commentService := comment.NewService(comments, postService, postDetailCache).WithLogger(logger)
+		commentService := comment.NewService(comments, postService)
 		commentHandler := comment.NewHandler(commentService, logger)
 		likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
-		likeService := like.NewService(likes, postService, postDetailCache).WithLogger(logger)
+		likeService := like.NewService(likes, postService)
 		likeHandler := like.NewHandler(likeService, logger)
 		notifications, notificationErr := notification.NewRepository(mysqlClient.DB())
 		if notificationErr != nil {

@@ -38,14 +38,14 @@ func TestIntegrationProfileFreshAcrossCachedPostReads(t *testing.T) {
 	defer db.ExecContext(ctx, "DELETE FROM posts WHERE author_id IN (?, ?)", a.ID, b.ID)
 	redis := platform.NewRedis(cfg.Redis)
 	defer redis.Close()
-	cache := rediscache.NewPostDetailRepository(redis, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+	cache := rediscache.NewPostBodyRepository(redis, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 	repo := post.NewMySQLRepository(db)
-	service := post.NewService(repo, cache)
+	service := post.NewService(repo).WithBodyCache(cache, nil)
 	first, err := service.Create(ctx, a.ID, post.CreateInput{Title: "profile first", Content: "content"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cache.Invalidate(ctx, first.ID)
+	t.Cleanup(func() { _ = service.Shutdown(context.Background()) })
 	second, err := service.Create(ctx, a.ID, post.CreateInput{Title: "profile second", Content: "content"})
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +56,13 @@ func TestIntegrationProfileFreshAcrossCachedPostReads(t *testing.T) {
 	if _, err = service.Detail(ctx, first.ID, b.ID); err != nil {
 		t.Fatal(err)
 	}
-	cached, hit, err := cache.Get(ctx, first.ID)
-	if err != nil || !hit || cached.Author.DisplayName != a.Username {
+	readContext, err := repo.ReadContext(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer redis.Delete(ctx, rediscache.PostBodyKey(readContext.BodyKey()))
+	cached, hit, err := cache.GetBody(ctx, readContext.BodyKey())
+	if err != nil || !hit || cached.AuthorID != a.ID {
 		t.Fatalf("cache not warmed: %v %v %#v", hit, err, cached)
 	}
 	if _, err = users.UpdateProfile(ctx, a.ID, "最新名称", "简介"); err != nil {

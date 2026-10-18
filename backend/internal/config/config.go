@@ -169,7 +169,6 @@ type RedisConfig struct {
 // process configuration and is never consulted per request.
 type ProtectionConfig struct {
 	RateLimitEnabled          bool
-	PostBodyV2Enabled         bool
 	RateLimitOperationTimeout time.Duration
 	LocalMaxIdentities        int
 	ResourceAuth              int
@@ -627,10 +626,6 @@ func loadProtectionConfig(lookup LookupFunc, redisTimeout time.Duration) (Protec
 	if err != nil {
 		return ProtectionConfig{}, err
 	}
-	bodyV2Enabled, err := booleanValue(lookup, "BACKEND_POST_BODY_V2_ENABLED", true)
-	if err != nil {
-		return ProtectionConfig{}, err
-	}
 	operationTimeout, err := durationValue(lookup, "BACKEND_RATE_LIMIT_OPERATION_TIMEOUT", redisTimeout, minimumRedisOperationTimeout, maximumRedisOperationTimeout)
 	if err != nil {
 		return ProtectionConfig{}, err
@@ -659,7 +654,6 @@ func loadProtectionConfig(lookup LookupFunc, redisTimeout time.Duration) (Protec
 		item.assign(value)
 	}
 	protection.RateLimitEnabled = enabled
-	protection.PostBodyV2Enabled = bodyV2Enabled
 	protection.RateLimitOperationTimeout = operationTimeout
 	protection.LocalMaxIdentities = localMax
 	rawProxies := valueOrDefault(lookup, "BACKEND_TRUSTED_PROXY_CIDRS", "")

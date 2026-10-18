@@ -13,20 +13,14 @@ import (
 
 type Service struct {
 	repository Repository
-	cache      DetailCache
 	bodyCache  BodyCache
 	rebuild    *RebuildCoordinator
 	logger     *slog.Logger
 }
 
-// NewService creates the post application service. Passing one cache enables
-// cache-aside only for detail reads; omitting it keeps the MySQL-only behavior.
-func NewService(repository Repository, caches ...DetailCache) *Service {
-	service := &Service{repository: repository, logger: logging.Module(logging.Discard("backend"), "cache")}
-	if len(caches) > 0 {
-		service.cache = caches[0]
-	}
-	return service
+// NewService creates the post application service.
+func NewService(repository Repository) *Service {
+	return &Service{repository: repository, logger: logging.Module(logging.Discard("backend"), "cache")}
 }
 
 // WithLogger injects the process logger used for non-blocking cache warnings.
@@ -37,9 +31,7 @@ func (service *Service) WithLogger(logger *slog.Logger) *Service {
 	return service
 }
 
-// WithBodyCache enables the closed-by-default v2 path. The legacy DetailCache
-// remains attached separately so mixed v1/v2 instances can continue to expire
-// old detail entries during the compatibility window.
+// WithBodyCache attaches the versioned body cache and bounded rebuild coordinator.
 func (service *Service) WithBodyCache(cache BodyCache, coordinator *RebuildCoordinator) *Service {
 	if service == nil || cache == nil {
 		return service
@@ -113,28 +105,19 @@ func (service *Service) List(ctx context.Context, viewerID uint64, options ListO
 func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Post, error) {
 	if service.bodyCache != nil {
 		if reader, ok := service.repository.(ReadContextRepository); ok {
-			return service.detailV2(ctx, postID, viewerID, reader)
+			return service.detailBody(ctx, postID, viewerID, reader)
 		}
 	}
-	return service.detailV1(ctx, postID, viewerID)
+	return service.detailUncached(ctx, postID, viewerID)
 }
 
-func (service *Service) detailV1(ctx context.Context, postID, viewerID uint64) (Post, error) {
-	projection, hit := service.cachedProjection(ctx, postID)
-	if !hit {
-		var err error
-		projection, err = service.repository.FindPublicByID(ctx, postID)
-		if errors.Is(err, ErrNotFound) {
-			return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
-		}
-		if err != nil {
-			return Post{}, apperror.WrapInternal(err)
-		}
-		if service.cache != nil {
-			if err := service.cache.Set(ctx, projection); err != nil {
-				logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache fill failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
-			}
-		}
+func (service *Service) detailUncached(ctx context.Context, postID, viewerID uint64) (Post, error) {
+	projection, err := service.repository.FindPublicByID(ctx, postID)
+	if errors.Is(err, ErrNotFound) {
+		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+	}
+	if err != nil {
+		return Post{}, apperror.WrapInternal(err)
 	}
 
 	likedByMe, err := service.repository.LikedByViewer(ctx, postID, viewerID)
@@ -162,7 +145,7 @@ func (service *Service) detailV1(ctx context.Context, postID, viewerID uint64) (
 	return records[0], nil
 }
 
-func (service *Service) detailV2(ctx context.Context, postID, viewerID uint64, reader ReadContextRepository) (Post, error) {
+func (service *Service) detailBody(ctx context.Context, postID, viewerID uint64, reader ReadContextRepository) (Post, error) {
 	readContext, err := reader.ReadContext(ctx, postID)
 	if errors.Is(err, ErrNotFound) {
 		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
@@ -258,31 +241,6 @@ func observeBodyOrigin(err error, elapsed time.Duration) {
 		}
 		metrics.ObserveCacheOriginDuration(result, elapsed)
 	}
-}
-
-func (service *Service) cachedProjection(ctx context.Context, postID uint64) (PublicProjection, bool) {
-	if service.cache == nil {
-		return PublicProjection{}, false
-	}
-	projection, hit, err := service.cache.Get(ctx, postID)
-	if err != nil {
-		logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache read failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
-		return PublicProjection{}, false
-	}
-	if hit {
-		r, ok := service.repository.(interface {
-			ContentRevision(context.Context, uint64) (uint64, error)
-		})
-		if !ok {
-			return PublicProjection{}, false
-		}
-		revision, err := r.ContentRevision(ctx, postID)
-		if err != nil || revision != projection.ContentRevision {
-			_ = service.cache.Invalidate(ctx, postID)
-			return PublicProjection{}, false
-		}
-	}
-	return projection, hit
 }
 
 // RequireExists exposes the shared post-existence boundary used by dependent

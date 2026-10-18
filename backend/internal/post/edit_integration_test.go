@@ -23,16 +23,16 @@ func (failedEditOutbox) Insert(context.Context, outbox.Executor, bus.Envelope) e
 	return errors.New("outbox unavailable")
 }
 
-type staleEditCache struct{ projection post.PublicProjection }
+type staleEditCache struct{ body post.Body }
 
-func (c *staleEditCache) Get(context.Context, uint64) (post.PublicProjection, bool, error) {
-	return c.projection, true, nil
+func (c *staleEditCache) GetBody(context.Context, post.BodyKey) (post.Body, bool, error) {
+	return c.body, true, nil
 }
-func (c *staleEditCache) Set(context.Context, post.PublicProjection) error {
+func (c *staleEditCache) SetBody(context.Context, post.BodyKey, post.Body) error {
 	return errors.New("redis unavailable")
 }
-func (c *staleEditCache) Invalidate(context.Context, uint64) error {
-	return errors.New("redis unavailable")
+func bodyFromProjection(p post.PublicProjection) post.Body {
+	return post.Body{ID: p.ID, AuthorID: p.Author.ID, ContentRevision: p.ContentRevision, Title: p.Title, Content: p.Content, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, EditedAt: p.EditedAt}
 }
 
 func TestIntegrationEditTransactionNoopAndStaleCache(t *testing.T) {
@@ -65,7 +65,8 @@ func TestIntegrationEditTransactionNoopAndStaleCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reads := post.NewService(repo, &staleEditCache{projection: projection})
+	reads := post.NewService(repo).WithBodyCache(&staleEditCache{body: bodyFromProjection(projection)}, nil)
+	t.Cleanup(func() { _ = reads.Shutdown(context.Background()) })
 	updated, err := reads.Update(ctx, record.ID, actor.ID, post.CreateInput{Title: " newword ", Content: " new content "})
 	if err != nil || updated.Title != "newword" || updated.ContentRevision != 2 || updated.EditedAt == nil {
 		t.Fatalf("update=%+v err=%v", updated, err)
@@ -168,7 +169,8 @@ func TestIntegrationPermanentDeleteAtomicityAndStaleCache(t *testing.T) {
 			t.Fatalf("rollback %s=%d %v", table, n, err)
 		}
 	}
-	reads := post.NewService(repo, &staleEditCache{projection: projection})
+	reads := post.NewService(repo).WithBodyCache(&staleEditCache{body: bodyFromProjection(projection)}, nil)
+	t.Cleanup(func() { _ = reads.Shutdown(context.Background()) })
 	if err := reads.Delete(ctx, record.ID, actor.ID); err != nil {
 		t.Fatal(err)
 	}

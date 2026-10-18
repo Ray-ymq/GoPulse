@@ -48,7 +48,7 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Redis.PostDetailTTL != 5*time.Minute || cfg.Redis.OperationTimeout != 200*time.Millisecond || cfg.Redis.PoolSize != 16 || cfg.Redis.PoolTimeout != 200*time.Millisecond {
 		t.Fatalf("Redis durations = %#v, want defaults", cfg.Redis)
 	}
-	if !cfg.Protection.RateLimitEnabled || !cfg.Protection.PostBodyV2Enabled || cfg.Protection.RateLimitOperationTimeout != 200*time.Millisecond || cfg.Protection.LocalMaxIdentities != 1024 || cfg.Protection.ResourceAuth != 16 || cfg.Protection.ResourceRead != 64 || cfg.Protection.ResourceWrite != 32 || cfg.Protection.ResourceDatabase != 32 || cfg.Protection.ResourceRebuild != 8 || cfg.Protection.ResourceWaiter != 256 || len(cfg.Protection.TrustedProxyCIDRs) != 0 {
+	if !cfg.Protection.RateLimitEnabled || cfg.Protection.RateLimitOperationTimeout != 200*time.Millisecond || cfg.Protection.LocalMaxIdentities != 1024 || cfg.Protection.ResourceAuth != 16 || cfg.Protection.ResourceRead != 64 || cfg.Protection.ResourceWrite != 32 || cfg.Protection.ResourceDatabase != 32 || cfg.Protection.ResourceRebuild != 8 || cfg.Protection.ResourceWaiter != 256 || len(cfg.Protection.TrustedProxyCIDRs) != 0 {
 		t.Fatalf("Protection config = %#v, want bounded enabled defaults", cfg.Protection)
 	}
 	if cfg.Outbox.PollInterval != time.Second || cfg.Outbox.ClaimBatch != 10 ||
@@ -146,7 +146,6 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["REDIS_POOL_SIZE"] = "24"
 	env["REDIS_POOL_TIMEOUT"] = "450ms"
 	env["BACKEND_RATE_LIMIT_ENABLED"] = "true"
-	env["BACKEND_POST_BODY_V2_ENABLED"] = "true"
 	env["BACKEND_RATE_LIMIT_OPERATION_TIMEOUT"] = "500ms"
 	env["BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES"] = "2048"
 	env["BACKEND_RESOURCE_AUTH"] = "20"
@@ -206,7 +205,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	if cfg.Redis.PostDetailTTL != 10*time.Minute || cfg.Redis.OperationTimeout != 350*time.Millisecond || cfg.Redis.PoolSize != 24 || cfg.Redis.PoolTimeout != 450*time.Millisecond {
 		t.Fatalf("unexpected Redis duration config: %#v", cfg.Redis)
 	}
-	if !cfg.Protection.RateLimitEnabled || !cfg.Protection.PostBodyV2Enabled || cfg.Protection.RateLimitOperationTimeout != 500*time.Millisecond || cfg.Protection.LocalMaxIdentities != 2048 || cfg.Protection.ResourceAuth != 20 || cfg.Protection.ResourceRead != 80 || cfg.Protection.ResourceWrite != 40 || cfg.Protection.ResourceDatabase != 48 || cfg.Protection.ResourceRebuild != 12 || cfg.Protection.ResourceWaiter != 300 || strings.Join(cfg.Protection.TrustedProxyCIDRs, ",") != "127.0.0.1/32,10.0.0.0/8" {
+	if !cfg.Protection.RateLimitEnabled || cfg.Protection.RateLimitOperationTimeout != 500*time.Millisecond || cfg.Protection.LocalMaxIdentities != 2048 || cfg.Protection.ResourceAuth != 20 || cfg.Protection.ResourceRead != 80 || cfg.Protection.ResourceWrite != 40 || cfg.Protection.ResourceDatabase != 48 || cfg.Protection.ResourceRebuild != 12 || cfg.Protection.ResourceWaiter != 300 || strings.Join(cfg.Protection.TrustedProxyCIDRs, ",") != "127.0.0.1/32,10.0.0.0/8" {
 		t.Fatalf("unexpected protection config: %#v", cfg.Protection)
 	}
 	if cfg.Outbox.PollInterval != 250*time.Millisecond || cfg.Outbox.ClaimBatch != 25 ||

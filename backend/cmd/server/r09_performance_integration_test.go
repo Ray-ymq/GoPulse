@@ -29,8 +29,8 @@ import (
 )
 
 // The R09 contract is deliberately frozen in the test as well as in the
-// acceptance record. A is the existing path reference, B adds protection to
-// that path, and C adds the versioned body cache to the same protection.
+// acceptance record. Both variants use the current body cache; B adds quota
+// protection to A. The historical v1/v2 comparison is preserved in Git.
 const (
 	r09Workers           = 16
 	r09RequestsPerWorker = 32
@@ -46,11 +46,8 @@ const (
 	// Normal windows repeat three times; the contract compares their median
 	// effective goodput while aggregating tail and database evidence.
 	// The protected path adds one shared Redis decision per request. Its
-	// budget is intentionally compared with the old path, while the body-cache
-	// candidate is compared with the protected-old path so the cache-path
-	// decision is not confounded with the protection cost.
+	// budget compares protected and unprotected reads using the same body cache.
 	r09ProtectedGoodputMin             = 0.90
-	r09NewPathGoodputMin               = 0.95
 	r09DBWorkMaxRatio                  = 0.95
 	r09MaxNormalRejectRate             = 0.01
 	r09PoolWaitDurationPerSuccessLimit = 5 * time.Millisecond
@@ -66,10 +63,8 @@ const (
 )
 
 type r09Variant struct {
-	name         string
-	rateLimit    bool
-	bodyV2       bool
-	goodputFloor float64
+	name      string
+	rateLimit bool
 }
 
 type r09Window struct {
@@ -222,9 +217,8 @@ func TestIntegrationRedisReadProtectionR09(t *testing.T) {
 	defer componentmetrics.InstallBackend(nil)
 	results := make(map[string]r09VariantResult)
 	variants := []r09Variant{
-		{name: "A_old", rateLimit: false, bodyV2: false, goodputFloor: 0},
-		{name: "B_protected_old", rateLimit: true, bodyV2: false, goodputFloor: r09ProtectedGoodputMin},
-		{name: "C_protected_body_v2", rateLimit: true, bodyV2: true, goodputFloor: r09NewPathGoodputMin},
+		{name: "A_body", rateLimit: false},
+		{name: "B_protected_body", rateLimit: true},
 	}
 	for _, variant := range variants {
 		result := runR09Variant(t, base, cfg, database, variant)
@@ -244,7 +238,6 @@ func runR09Variant(t *testing.T, base []string, cfg config.Config, database *sql
 	t.Helper()
 	environment := append([]string(nil), base...)
 	setEnvironment(&environment, "BACKEND_RATE_LIMIT_ENABLED", strconv.FormatBool(variant.rateLimit))
-	setEnvironment(&environment, "BACKEND_POST_BODY_V2_ENABLED", strconv.FormatBool(variant.bodyV2))
 
 	suffix := strconv.FormatInt(time.Now().UnixNano()%1000000000, 10)
 	instanceName := strings.ReplaceAll(strings.ToLower(variant.name), "_", "-")
@@ -1053,46 +1046,30 @@ func cleanupR09Fixture(t *testing.T, database *sql.DB, userIDs []uint64, postIDs
 
 func assertR09Contract(t *testing.T, results map[string]r09VariantResult) {
 	t.Helper()
-	baseline, ok := results["A_old"]
+	baseline, ok := results["A_body"]
 	if !ok || baseline.warmHotspot.success == 0 || baseline.warmHotspot.goodput <= 0 || baseline.warmUniform.success == 0 || baseline.warmUniform.goodput <= 0 {
-		t.Fatalf("R09 old path has no usable warm baseline: %#v", baseline)
+		t.Fatalf("R09 body path has no usable reference: %#v", baseline)
 	}
-	protected, ok := results["B_protected_old"]
-	if !ok || protected.warmHotspot.success == 0 || protected.warmHotspot.goodput <= 0 || protected.warmUniform.success == 0 || protected.warmUniform.goodput <= 0 {
-		t.Fatalf("R09 protected old path has no usable warm reference: %#v", protected)
+	result, ok := results["B_protected_body"]
+	if !ok {
+		t.Fatal("R09 protected body result is missing")
 	}
-	for _, variant := range []r09Variant{
-		{name: "B_protected_old", goodputFloor: r09ProtectedGoodputMin},
-		{name: "C_protected_body_v2", goodputFloor: r09NewPathGoodputMin},
-	} {
-		result, ok := results[variant.name]
-		if !ok {
-			t.Fatalf("R09 result %s is missing", variant.name)
+	name := "B_protected_body"
+	assertR09ColdWindow(t, name, "hotspot", result.coldHotspot)
+	assertR09ColdWindow(t, name, "uniform", result.coldUniform)
+	assertR09NormalWindow(t, name, "hotspot", result.warmHotspot, baseline.warmHotspot, r09ProtectedGoodputMin)
+	assertR09NormalWindow(t, name, "uniform", result.warmUniform, baseline.warmUniform, r09ProtectedGoodputMin)
+	assertR09FaultWindow(t, name, "hotspot", result.faultHotspot)
+	assertR09FaultWindow(t, name, "uniform", result.faultUniform)
+	assertR09RecoveryWindow(t, name, "hotspot", result.recoveryHotspot)
+	assertR09RecoveryWindow(t, name, "uniform", result.recoveryUniform)
+	for _, window := range []r09Window{baseline.warmHotspot, baseline.warmUniform, result.warmHotspot, result.warmUniform} {
+		work := float64(window.db.Questions) / float64(window.success)
+		// Historical v1 warm reads used 6.002 Questions/success. Preserve its 5% reduction budget.
+		// Evidence: dev/status/GoPulse-Exporter扩展统一验收-2026-10-17.md, R09 warm matrix.
+		if work > 6.002*r09DBWorkMaxRatio {
+			t.Errorf("R09 %s %s database work %.3f exceeds historical budget %.3f", window.name, window.pattern, work, 6.002*r09DBWorkMaxRatio)
 		}
-		reference := baseline
-		if variant.name == "C_protected_body_v2" {
-			reference = protected
-		}
-		assertR09ColdWindow(t, variant.name, "hotspot", result.coldHotspot)
-		assertR09ColdWindow(t, variant.name, "uniform", result.coldUniform)
-		assertR09NormalWindow(t, variant.name, "hotspot", result.warmHotspot, reference.warmHotspot, variant.goodputFloor)
-		assertR09NormalWindow(t, variant.name, "uniform", result.warmUniform, reference.warmUniform, variant.goodputFloor)
-		assertR09FaultWindow(t, variant.name, "hotspot", result.faultHotspot)
-		assertR09FaultWindow(t, variant.name, "uniform", result.faultUniform)
-		assertR09RecoveryWindow(t, variant.name, "hotspot", result.recoveryHotspot)
-		assertR09RecoveryWindow(t, variant.name, "uniform", result.recoveryUniform)
-	}
-	newPath := results["C_protected_body_v2"]
-	assertR09DBWork(t, "hotspot", baseline.warmHotspot, newPath.warmHotspot)
-	assertR09DBWork(t, "uniform", baseline.warmUniform, newPath.warmUniform)
-}
-
-func assertR09DBWork(t *testing.T, pattern string, oldWindow, newWindow r09Window) {
-	t.Helper()
-	oldWork := float64(oldWindow.db.Questions) / float64(oldWindow.success)
-	newWork := float64(newWindow.db.Questions) / float64(newWindow.success)
-	if oldWork <= 0 || newWork > oldWork*r09DBWorkMaxRatio {
-		t.Errorf("R09 new body path %s database work %.3f queries/success exceeds old %.3f with %.0f%% target", pattern, newWork, oldWork, (1-r09DBWorkMaxRatio)*100)
 	}
 }
 

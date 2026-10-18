@@ -16,7 +16,6 @@ var knownConfigKeys = map[string]struct{}{
 	"AUTH_JWT_TTL":                            {},
 	"BACKEND_HTTP_MAX_CONCURRENCY":            {},
 	"BACKEND_METRICS_TOKEN":                   {},
-	"BACKEND_POST_BODY_V2_ENABLED":            {},
 	"BACKEND_RATE_LIMIT_ENABLED":              {},
 	"BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES": {},
 	"BACKEND_RATE_LIMIT_OPERATION_TIMEOUT":    {},

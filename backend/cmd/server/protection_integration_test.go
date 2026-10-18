@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -36,7 +37,6 @@ func TestIntegrationRedisProtectionAndVersionedBody(t *testing.T) {
 	backendDir := findBackendDir(t)
 	base := integrationEnvironment(t)
 	setEnvironment(&base, "BACKEND_RATE_LIMIT_ENABLED", "true")
-	setEnvironment(&base, "BACKEND_POST_BODY_V2_ENABLED", "true")
 	setEnvironment(&base, "BACKEND_TRUSTED_PROXY_CIDRS", "127.0.0.1/32")
 	setEnvironment(&base, "BACKEND_RESOURCE_READ", "128")
 	setEnvironment(&base, "BACKEND_RESOURCE_DATABASE", "32")
@@ -176,64 +176,65 @@ func TestIntegrationRedisProtectionAndVersionedBody(t *testing.T) {
 
 }
 
-func TestIntegrationDisabledFeaturesKeepLegacyDetailPath(t *testing.T) {
+func TestIntegrationRateLimitDisabledKeepsVersionedBodyCache(t *testing.T) {
 	backendDir := findBackendDir(t)
 	base := integrationEnvironment(t)
 	setEnvironment(&base, "BACKEND_RATE_LIMIT_ENABLED", "false")
-	setEnvironment(&base, "BACKEND_POST_BODY_V2_ENABLED", "false")
 	runIntegrationCommand(t, backendDir, integrationCommandTimeout, base, "go", "run", "./cmd/migrate", "up")
 
 	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
 	if err != nil {
-		t.Fatalf("create legacy metrics: %v", err)
+		t.Fatalf("create body metrics: %v", err)
 	}
 	componentmetrics.InstallBackend(metrics)
 	defer componentmetrics.InstallBackend(nil)
 
 	clientJar, err := cookiejar.New(nil)
 	if err != nil {
-		t.Fatalf("create legacy cookie jar: %v", err)
+		t.Fatalf("create body cookie jar: %v", err)
 	}
 	client := &http.Client{Jar: clientJar, Timeout: 5 * time.Second}
-	server := startProtectionAssembly(t, base, "backend-legacy-path", "")
+	server := startProtectionAssembly(t, base, "backend-body-path", "")
 	cfg, err := config.Load()
 	if err != nil {
-		t.Fatalf("load legacy configuration: %v", err)
+		t.Fatalf("load body configuration: %v", err)
 	}
 	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
 	if err != nil {
-		t.Fatalf("open legacy database: %v", err)
+		t.Fatalf("open body database: %v", err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	releaseFactsLock := integrationtest.AcquirePostFactsLock(t, database)
 	defer releaseFactsLock()
 
 	suffix := strconv.FormatInt(time.Now().UnixNano()%1000000000, 10)
-	userID := registerIntegrationUser(t, client, server.address, "LegacyPath_"+suffix, "legacy-path-password")
-	postID := createProtectionPost(t, client, server.address, "legacy title "+suffix, "legacy content")
+	userID := registerIntegrationUser(t, client, server.address, "BodyPath_"+suffix, "body-path-password")
+	postID := createProtectionPost(t, client, server.address, "body title "+suffix, "body content")
 	t.Cleanup(func() { cleanupProtectionFixture(t, database, userID, postID) })
 
 	first := readProtectionPost(t, client, server.address, postID)
 	second := readProtectionPost(t, client, server.address, postID)
 	if first.Title != second.Title || first.Content != second.Content || first.ContentRevision != 1 {
-		t.Fatalf("legacy detail changed between reads first=%#v second=%#v", first, second)
+		t.Fatalf("body detail changed between reads first=%#v second=%#v", first, second)
 	}
 
 	redisClient := platform.NewRedis(cfg.Redis)
 	defer redisClient.Close()
 	var epoch string
 	if err := database.QueryRowContext(context.Background(), "SELECT data_epoch FROM business_environment WHERE singleton=1").Scan(&epoch); err != nil {
-		t.Fatalf("read legacy cache epoch: %v", err)
+		t.Fatalf("read body cache epoch: %v", err)
 	}
-	payload, err := redisClient.Get(context.Background(), rediscache.PostDetailKeyForEpoch(epoch, postID))
+	payload, err := redisClient.Get(context.Background(), rediscache.PostBodyKey(post.BodyKey{Epoch: epoch, PostID: postID, ContentRevision: 1}))
 	if err != nil {
-		t.Fatalf("legacy v1 cache read: %v", err)
+		t.Fatalf("versioned body cache read: %v", err)
 	}
-	if !strings.Contains(payload, `"version":1`) || !strings.Contains(payload, "legacy title "+suffix) {
-		t.Fatalf("legacy v1 cache payload=%s", payload)
+	if !strings.Contains(payload, `"version":2`) || !strings.Contains(payload, "body title "+suffix) {
+		t.Fatalf("versioned body cache payload=%s", payload)
 	}
-	if _, err := redisClient.Get(context.Background(), rediscache.PostBodyKey(post.BodyKey{Epoch: epoch, PostID: postID, ContentRevision: 1})); !errors.Is(err, platform.ErrRedisKeyNotFound) {
-		t.Fatalf("disabled v2 cache error=%v, want missing key", err)
+	for _, oldKey := range []string{fmt.Sprintf("gopulse:post:detail:v1:%d", postID), fmt.Sprintf("gopulse:post:detail:v1:epoch:%s:%d", epoch, postID)} {
+		if _, err := redisClient.Get(context.Background(), oldKey); !errors.Is(err, platform.ErrRedisKeyNotFound) {
+			t.Fatalf("retired cache key %s exists: %v", oldKey, err)
+		}
 	}
 }
 

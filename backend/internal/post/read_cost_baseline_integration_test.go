@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,11 +19,9 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 )
 
-// TestIntegrationPostDetailReadCostBaseline records the Phase 1 read-cost
-// evidence for the legacy detail path. The test intentionally logs evidence
-// instead of asserting a performance threshold; thresholds are frozen only
-// after this baseline has been reviewed.
-func TestIntegrationPostDetailReadCostBaseline(t *testing.T) {
+// TestIntegrationPostBodyReadCostBaseline records read-cost evidence for the
+// current body cache. R09 enforces the frozen performance contract separately.
+func TestIntegrationPostBodyReadCostBaseline(t *testing.T) {
 	cfg := integrationtest.Environment(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -55,21 +52,21 @@ func TestIntegrationPostDetailReadCostBaseline(t *testing.T) {
 	if err := redisClient.Check(ctx); err != nil {
 		t.Fatalf("Redis Check() error = %v", err)
 	}
-	_ = redisClient.Delete(ctx, rediscache.PostDetailKeyForEpoch(epoch, postID))
+	_ = redisClient.Delete(ctx, rediscache.PostBodyKey(post.BodyKey{Epoch: epoch, PostID: postID, ContentRevision: 1}))
 
-	legacy, closeLegacy, err := newSerialReadCostService(ctx, database, cfg, redisClient, epoch, false, postID, viewerID)
+	current, closeCurrent, err := newSerialReadCostService(ctx, database, cfg, redisClient, postID, viewerID)
 	if err != nil {
 		t.Fatalf("open serial baseline connection: %v", err)
 	}
-	measureReadCost(t, ctx, "cold_cache", legacy, false)
-	closeLegacy()
+	measureReadCost(t, ctx, "cold_cache", current, false)
+	closeCurrent()
 
-	legacy, closeLegacy, err = newSerialReadCostService(ctx, database, cfg, redisClient, epoch, false, postID, viewerID)
+	current, closeCurrent, err = newSerialReadCostService(ctx, database, cfg, redisClient, postID, viewerID)
 	if err != nil {
 		t.Fatalf("open serial warm connection: %v", err)
 	}
-	measureReadCost(t, ctx, "warm_hit", legacy, false)
-	closeLegacy()
+	measureReadCost(t, ctx, "warm_hit", current, false)
+	closeCurrent()
 
 	if _, err := database.ExecContext(ctx, `INSERT INTO comments (post_id, author_id, content) VALUES (?, ?, ?)`, postID, viewerID, "baseline interaction"); err != nil {
 		t.Fatalf("insert baseline comment: %v", err)
@@ -77,12 +74,12 @@ func TestIntegrationPostDetailReadCostBaseline(t *testing.T) {
 	if _, err := database.ExecContext(ctx, `INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)`, postID, viewerID); err != nil {
 		t.Fatalf("insert baseline like: %v", err)
 	}
-	legacy, closeLegacy, err = newSerialReadCostService(ctx, database, cfg, redisClient, epoch, false, postID, viewerID)
+	current, closeCurrent, err = newSerialReadCostService(ctx, database, cfg, redisClient, postID, viewerID)
 	if err != nil {
 		t.Fatalf("open serial interaction connection: %v", err)
 	}
-	measureReadCost(t, ctx, "normal_interaction", legacy, false)
-	closeLegacy()
+	measureReadCost(t, ctx, "normal_interaction", current, false)
+	closeCurrent()
 
 	failedDatabase, err := platform.OpenMySQLDatabase(config.MySQLConfig{
 		Host: "127.0.0.1", Port: 1, Database: cfg.MySQL.Database, User: cfg.MySQL.User, Password: cfg.MySQL.Password,
@@ -92,11 +89,12 @@ func TestIntegrationPostDetailReadCostBaseline(t *testing.T) {
 		t.Fatalf("OpenMySQLDatabase(failure fixture) error = %v", err)
 	}
 	failingRedis := &readCostRedisClient{client: redisClient}
-	failingService := newReadCostService(failedDatabase, failedDatabase, cfg, failingRedis, epoch, true, postID, viewerID)
+	failingService := newReadCostService(failedDatabase, failedDatabase, cfg, failingRedis, postID, viewerID)
 	measureReadCost(t, ctx, "mysql_failure", failingService, true)
+	_ = failingService.service.Shutdown(context.Background())
 	_ = failedDatabase.Close()
 
-	restore, closeRestore, err := newSerialReadCostService(ctx, database, cfg, redisClient, epoch, false, postID, viewerID)
+	restore, closeRestore, err := newSerialReadCostService(ctx, database, cfg, redisClient, postID, viewerID)
 	if err != nil {
 		t.Fatalf("open serial cache restore connection: %v", err)
 	}
@@ -108,22 +106,23 @@ func TestIntegrationPostDetailReadCostBaseline(t *testing.T) {
 	if _, err := database.ExecContext(ctx, `UPDATE posts SET title=?, content=?, content_revision=content_revision+1, updated_at=? WHERE id=?`, "baseline revision 2", "baseline content revision 2", time.Now().UTC(), postID); err != nil {
 		t.Fatalf("advance content revision: %v", err)
 	}
-	versionChanged, closeVersion, err := newSerialReadCostService(ctx, database, cfg, redisClient, epoch, false, postID, viewerID)
+	versionChanged, closeVersion, err := newSerialReadCostService(ctx, database, cfg, redisClient, postID, viewerID)
 	if err != nil {
 		t.Fatalf("open serial version connection: %v", err)
 	}
 	measureReadCost(t, ctx, "content_revision_change", versionChanged, false)
 	closeVersion()
 
-	redisFailure, closeRedisFailure, err := newSerialReadCostService(ctx, database, cfg, &readCostRedisClient{client: redisClient, unavailable: true}, epoch, false, postID, viewerID)
+	redisFailure, closeRedisFailure, err := newSerialReadCostService(ctx, database, cfg, &readCostRedisClient{client: redisClient, unavailable: true}, postID, viewerID)
 	if err != nil {
 		t.Fatalf("open serial Redis failure connection: %v", err)
 	}
 	measureReadCost(t, ctx, "redis_failure", redisFailure, false)
 	closeRedisFailure()
 
-	concurrent := newReadCostService(database, database, cfg, redisClient, epoch, false, postID, viewerID)
+	concurrent := newReadCostService(database, database, cfg, redisClient, postID, viewerID)
 	measureConcurrentWarm(t, ctx, concurrent, 16)
+	_ = concurrent.service.Shutdown(context.Background())
 
 	logReadCostPlans(t, ctx, database, postID, viewerID, authorID)
 }
@@ -136,7 +135,6 @@ type readCostSample struct {
 	SQLCalls         int    `json:"sql_calls"`
 	SQLQueryCalls    int    `json:"sql_query_calls"`
 	SQLQueryRowCalls int    `json:"sql_query_row_calls"`
-	EpochCalls       int    `json:"epoch_calls"`
 	RedisGetCalls    int    `json:"redis_get_calls"`
 	RedisSetCalls    int    `json:"redis_set_calls"`
 	RedisDeleteCalls int    `json:"redis_delete_calls"`
@@ -187,33 +185,6 @@ func (counter *readCostDatabase) calls() (int, int, int) {
 	return counter.queryCalls + counter.queryRowCalls, counter.queryCalls, counter.queryRowCalls
 }
 
-type readCostEpochProvider struct {
-	database postDatabase
-	mu       sync.Mutex
-	calls    int
-}
-
-func (provider *readCostEpochProvider) CurrentEpoch(ctx context.Context) (string, error) {
-	provider.mu.Lock()
-	provider.calls++
-	provider.mu.Unlock()
-	var epoch string
-	err := provider.database.QueryRowContext(ctx, `SELECT data_epoch FROM business_environment WHERE singleton=1`).Scan(&epoch)
-	return epoch, err
-}
-
-func (provider *readCostEpochProvider) reset() {
-	provider.mu.Lock()
-	provider.calls = 0
-	provider.mu.Unlock()
-}
-
-func (provider *readCostEpochProvider) count() int {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	return provider.calls
-}
-
 type readCostRedisClient struct {
 	client      rediscache.Client
 	unavailable bool
@@ -244,16 +215,6 @@ func (client *readCostRedisClient) Set(ctx context.Context, key, value string, e
 	return client.client.Set(ctx, key, value, expiration)
 }
 
-func (client *readCostRedisClient) Delete(ctx context.Context, key string) error {
-	client.mu.Lock()
-	client.deletes++
-	client.mu.Unlock()
-	if client.unavailable {
-		return context.DeadlineExceeded
-	}
-	return client.client.Delete(ctx, key)
-}
-
 func (client *readCostRedisClient) reset() {
 	client.mu.Lock()
 	client.gets = 0
@@ -273,16 +234,9 @@ type readCostService struct {
 	postID   uint64
 	viewerID uint64
 	counter  *readCostDatabase
-	epoch    readCostEpochCounter
 	redis    *readCostRedisClient
 	statsDB  *sql.DB
 	session  *sql.Conn
-}
-
-type readCostEpochCounter interface {
-	CurrentEpoch(context.Context) (string, error)
-	reset()
-	count() int
 }
 
 type postDatabase interface {
@@ -291,23 +245,17 @@ type postDatabase interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func newReadCostService(database postDatabase, statsDB *sql.DB, cfg config.Config, redisClient rediscache.Client, epoch string, fixedEpoch bool, postID, viewerID uint64) *readCostService {
+func newReadCostService(database postDatabase, statsDB *sql.DB, cfg config.Config, redisClient rediscache.Client, postID, viewerID uint64) *readCostService {
 	counter := &readCostDatabase{database: database}
-	var provider readCostEpochCounter
-	if fixedEpoch {
-		provider = &fixedReadCostEpochProvider{epoch: epoch}
-	} else {
-		provider = &readCostEpochProvider{database: counter}
-	}
-	cache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(provider)
+	cache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 	redisCounter, ok := redisClient.(*readCostRedisClient)
 	if !ok {
 		redisCounter = &readCostRedisClient{client: redisClient}
-		cache = rediscache.NewPostDetailRepository(redisCounter, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(provider)
+		cache = rediscache.NewPostBodyRepository(redisCounter, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 	}
 	service := &readCostService{
-		service: post.NewService(post.NewMySQLRepository(counter), cache),
-		postID:  postID, viewerID: viewerID, counter: counter, epoch: provider,
+		service: post.NewService(post.NewMySQLRepository(counter)).WithBodyCache(cache, nil),
+		postID:  postID, viewerID: viewerID, counter: counter,
 		redis: redisCounter, statsDB: statsDB,
 	}
 	if conn, ok := database.(*sql.Conn); ok {
@@ -316,47 +264,18 @@ func newReadCostService(database postDatabase, statsDB *sql.DB, cfg config.Confi
 	return service
 }
 
-func newSerialReadCostService(ctx context.Context, database *sql.DB, cfg config.Config, redisClient rediscache.Client, epoch string, fixedEpoch bool, postID, viewerID uint64) (*readCostService, func(), error) {
+func newSerialReadCostService(ctx context.Context, database *sql.DB, cfg config.Config, redisClient rediscache.Client, postID, viewerID uint64) (*readCostService, func(), error) {
 	connection, err := database.Conn(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	service := newReadCostService(connection, database, cfg, redisClient, epoch, fixedEpoch, postID, viewerID)
-	return service, func() { _ = connection.Close() }, nil
+	service := newReadCostService(connection, database, cfg, redisClient, postID, viewerID)
+	return service, func() { _ = service.service.Shutdown(context.Background()); _ = connection.Close() }, nil
 }
 
 func (service *readCostService) reset() {
 	service.counter.reset()
-	service.epoch.reset()
 	service.redis.reset()
-}
-
-type fixedReadCostEpochProvider struct {
-	epoch string
-	mu    sync.Mutex
-	calls int
-}
-
-func (provider *fixedReadCostEpochProvider) CurrentEpoch(context.Context) (string, error) {
-	provider.mu.Lock()
-	provider.calls++
-	provider.mu.Unlock()
-	if provider.epoch == "" {
-		return "", errors.New("fixed read cost epoch is empty")
-	}
-	return provider.epoch, nil
-}
-
-func (provider *fixedReadCostEpochProvider) reset() {
-	provider.mu.Lock()
-	provider.calls = 0
-	provider.mu.Unlock()
-}
-
-func (provider *fixedReadCostEpochProvider) count() int {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	return provider.calls
 }
 
 func measureReadCost(t *testing.T, ctx context.Context, scenario string, service *readCostService, wantError bool) readCostSample {
@@ -429,7 +348,7 @@ func buildReadCostSample(scenario string, service *readCostService, elapsed time
 	sample := readCostSample{
 		Scenario: scenario, Outcome: "success", ElapsedMicros: elapsed.Microseconds(),
 		SQLCalls: sqlCalls, SQLQueryCalls: queryCalls, SQLQueryRowCalls: queryRowCalls,
-		EpochCalls: service.epoch.count(), RedisGetCalls: redisGets, RedisSetCalls: redisSets, RedisDeleteCalls: redisDeletes,
+		RedisGetCalls: redisGets, RedisSetCalls: redisSets, RedisDeleteCalls: redisDeletes,
 		PoolWaitCount: afterPool.WaitCount - beforePool.WaitCount, PoolWaitMicros: (afterPool.WaitDuration - beforePool.WaitDuration).Microseconds(),
 		RowsRead:  afterSession.RowsRead - beforeSession.RowsRead,
 		RowsSent:  afterSession.RowsSent - beforeSession.RowsSent,

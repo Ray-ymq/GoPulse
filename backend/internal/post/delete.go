@@ -110,8 +110,5 @@ func (s *Service) Delete(ctx context.Context, id, actor uint64) error {
 	if err != nil {
 		return apperror.WrapInternal(err)
 	}
-	if s.cache != nil {
-		_ = s.cache.Invalidate(ctx, id)
-	}
 	return nil
 }

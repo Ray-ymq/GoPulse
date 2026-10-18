@@ -69,9 +69,7 @@ type BodyCache interface {
 	SetBody(context.Context, BodyKey, Body) error
 }
 
-// ReadContextRepository is optional so the existing v1 service and focused
-// unit fakes remain source-compatible while the production repository opts in
-// to the versioned body path.
+// ReadContextRepository supplies authoritative visibility and versioned body reads.
 type ReadContextRepository interface {
 	ReadContext(context.Context, uint64) (ReadContext, error)
 	FindBody(context.Context, BodyKey) (Body, error)
@@ -93,8 +91,8 @@ type PublicAuthor struct {
 	DisplayName string `json:"display_name"`
 }
 
-// PublicProjection is the non-personalized post detail payload eligible for
-// caching. Viewer-specific state such as LikedByMe must never be stored here.
+// PublicProjection assembles public database fields for a detail response.
+// Only Body is stored in the shared cache.
 type PublicProjection struct {
 	EditedAt        *time.Time   `json:"edited_at"`
 	ContentRevision uint64       `json:"content_revision"`
@@ -106,14 +104,6 @@ type PublicProjection struct {
 	Author          PublicAuthor `json:"author"`
 	CommentCount    uint64       `json:"comment_count"`
 	LikeCount       uint64       `json:"like_count"`
-}
-
-// DetailCache is the minimal cache-aside boundary used by post reads and
-// interaction writes. Implementations must treat failures as non-authoritative.
-type DetailCache interface {
-	Get(context.Context, uint64) (PublicProjection, bool, error)
-	Set(context.Context, PublicProjection) error
-	Invalidate(context.Context, uint64) error
 }
 
 func (projection PublicProjection) post(likedByMe bool) Post {
@@ -130,17 +120,4 @@ func (projection PublicProjection) post(likedByMe bool) Post {
 		LikeCount:       projection.LikeCount,
 		LikedByMe:       likedByMe,
 	}
-}
-
-// ValidForKey prevents malformed, incomplete, or cross-key cache values from
-// being used as a business response.
-func (projection PublicProjection) ValidForKey(postID uint64) bool {
-	return projection.ID == postID &&
-		projection.ID > 0 &&
-		strings.TrimSpace(projection.Title) != "" &&
-		strings.TrimSpace(projection.Content) != "" &&
-		!projection.CreatedAt.IsZero() &&
-		!projection.UpdatedAt.IsZero() &&
-		projection.Author.ID > 0 &&
-		strings.TrimSpace(projection.Author.Username) != ""
 }

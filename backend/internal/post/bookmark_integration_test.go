@@ -18,19 +18,20 @@ import (
 )
 
 type bookmarkCache struct {
-	projection post.PublicProjection
-	hit        bool
+	body post.Body
+	key  post.BodyKey
+	hit  bool
 }
 
-func (c *bookmarkCache) Get(context.Context, uint64) (post.PublicProjection, bool, error) {
-	return c.projection, c.hit, nil
+func (c *bookmarkCache) GetBody(_ context.Context, key post.BodyKey) (post.Body, bool, error) {
+	return c.body, c.hit && c.key == key, nil
 }
-func (c *bookmarkCache) Set(_ context.Context, p post.PublicProjection) error {
-	c.projection = p
+func (c *bookmarkCache) SetBody(_ context.Context, key post.BodyKey, body post.Body) error {
+	c.body = body
+	c.key = key
 	c.hit = true
 	return nil
 }
-func (*bookmarkCache) Invalidate(context.Context, uint64) error { return nil }
 func TestIntegrationBookmarksPrivateFactsAndReadPaths(t *testing.T) {
 	cfg := integrationtest.Environment(t)
 	db, err := platform.OpenMySQLDatabase(cfg.MySQL)
@@ -57,7 +58,8 @@ func TestIntegrationBookmarksPrivateFactsAndReadPaths(t *testing.T) {
 	}()
 	repo := post.NewMySQLRepository(db)
 	cache := &bookmarkCache{}
-	reads := post.NewService(repo, cache)
+	reads := post.NewService(repo).WithBodyCache(cache, nil)
+	t.Cleanup(func() { _ = reads.Shutdown(context.Background()) })
 	writes := bookmark.NewService(bookmark.NewMySQLRepository(db), reads)
 	p, err := repo.Create(ctx, a.ID, "bookmark first", "content")
 	if err != nil {
@@ -146,7 +148,7 @@ func TestIntegrationBookmarksPrivateFactsAndReadPaths(t *testing.T) {
 			t.Fatalf("detail viewer=%d record=%+v err=%v", viewer, record, err)
 		}
 	}
-	payload, _ := json.Marshal(cache.projection)
+	payload, _ := json.Marshal(cache.body)
 	for _, forbidden := range []string{"bookmarked_by_me", "liked_by_me", "following"} {
 		if strings.Contains(string(payload), forbidden) {
 			t.Fatal("private cache field", string(payload))
