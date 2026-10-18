@@ -1012,48 +1012,6 @@ services:
       timeout: 3s
       retries: 30
 
-  redis-exporter:
-    profiles: [exporter]
-    image: ${GOPULSE_REDIS_EXPORTER_IMAGE:-gopulse/redis-exporter:latest}
-    pull_policy: never
-    build:
-      context: ..
-      dockerfile: deploy/docker/observability.Dockerfile
-      target: redis-exporter
-      args: *image-build-args
-    restart: "no"
-    read_only: true
-    stop_grace_period: 10s
-    environment:
-      GOPULSE_RUNTIME_MODE: container
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      REDIS_DB: ${REDIS_DB:-0}
-      REDIS_EXPORTER_HTTP_HOST: 0.0.0.0
-      REDIS_EXPORTER_HTTP_PORT: 9121
-      REDIS_EXPORTER_SCRAPE_TIMEOUT: ${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}
-      REDIS_EXPORTER_SHUTDOWN_TIMEOUT: ${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}
-    labels:
-      io.gopulse.runtime.process_id: redis-exporter
-      io.gopulse.runtime.role: plugin-exporter
-      io.gopulse.runtime.replica_mode: singleton
-      io.gopulse.runtime.ownership: single-owner
-      io.gopulse.runtime.diagnostic: direct-private-probe
-    depends_on:
-      redis:
-        condition: service_healthy
-    expose:
-      - "9121"
-    networks:
-      - business
-    healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9121/ready']
-      start_period: 5s
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
 networks:
   edge:
   business:

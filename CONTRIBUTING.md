@@ -10,3 +10,5 @@
 项目通过源码交付。接收方安装 Go、Node.js 和 Docker 后，在仓库根目录执行 `make doctor` 检查环境、`make bootstrap` 安装开发依赖，再执行 `make dev` 启动开发环境。需要监控和管理前端时使用 `make dev-observe`；结束后执行 `make stop`。可用命令见 `make help`。
 
 仓库不再提供产品发布包、独立安装管理工具及其备份恢复命令。`make build` 和 `make stack-up` 等源码构建、容器运行命令继续保留。
+
+Exporter 由 Monitor 作为二进制插件启动，插件包由 `devtools` 从 `exporters/` 源码构建；不再提供独立 Exporter 容器服务和镜像构建入口。

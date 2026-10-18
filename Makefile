@@ -23,7 +23,7 @@ LINT_TOOL = $(CURDIR)/.run/tools/golangci-lint/$(LINT_VERSION)/$(shell go env GO
 # Logical Compose build targets behind the local images. deploy/compose.yaml stays
 # the source of truth for each target's Dockerfile context and build arguments.
 IMAGE_TARGETS := backend business-worker search-indexer admin-frontend frontend \
-                 marshaller monitor redis-exporter
+                 marshaller monitor
 
 REQUIRE_MODULE = $(if $(and $(MODULE),$(filter $(MODULE),$(MODULES))),:,printf '%s\n' '[gopulse] ERROR: specify a registered MODULE, for example MODULE=backend' >&2; exit 2)
 

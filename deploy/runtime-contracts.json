@@ -2737,7 +2737,7 @@
       "id": "redis-exporter",
       "process_id": "redis-exporter",
       "role": "plugin-exporter",
-      "compose_services": ["redis-exporter"],
+      "compose_services": [],
       "replica": {
         "mode": "singleton",
         "ownership": "single-owner",
@@ -2769,7 +2769,7 @@
       "module": "exporters/redis",
       "entrypoint": "exporters/redis/cmd/redis-exporter/main.go",
       "configuration": "exporters/redis/internal/config",
-      "compose_service": "redis-exporter",
+      "compose_service": null,
       "plugin_id": "redis-exporter",
       "environment": [
         {
@@ -2787,7 +2787,7 @@
           "sensitive": false,
           "required": false,
           "default": "container",
-          "compose_value": "container",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2805,7 +2805,7 @@
           "sensitive": false,
           "required": false,
           "default": "0",
-          "compose_value": "${REDIS_DB:-0}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2814,7 +2814,7 @@
           "sensitive": false,
           "required": false,
           "default": "0.0.0.0",
-          "compose_value": "0.0.0.0",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2823,7 +2823,7 @@
           "sensitive": false,
           "required": false,
           "default": "9121",
-          "compose_value": "9121",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2832,7 +2832,7 @@
           "sensitive": false,
           "required": false,
           "default": "2s",
-          "compose_value": "${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2841,7 +2841,7 @@
           "sensitive": false,
           "required": false,
           "default": "5s",
-          "compose_value": "${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2850,7 +2850,7 @@
           "sensitive": false,
           "required": false,
           "default": "redis",
-          "compose_value": "redis",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2859,7 +2859,7 @@
           "sensitive": true,
           "required": true,
           "default": null,
-          "compose_value": "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2868,7 +2868,7 @@
           "sensitive": false,
           "required": false,
           "default": "6379",
-          "compose_value": "6379",
+          "compose_value": null,
           "aliases": []
         }
       ],

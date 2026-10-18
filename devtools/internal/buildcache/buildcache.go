@@ -27,7 +27,6 @@ var Targets = []string{
 	"frontend",
 	"marshaller",
 	"monitor",
-	"redis-exporter",
 }
 
 // Options controls one build-cache invocation.
