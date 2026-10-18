@@ -826,7 +826,7 @@ services:
     volumes:
       - kafka_data:/var/lib/kafka/data
     # Image-declared scratch volumes must not become orphan anonymous volumes
-    # when lifecycle down preserves the named product data volumes.
+    # when the stack stops while preserving named data volumes.
     tmpfs:
       - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
       - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777

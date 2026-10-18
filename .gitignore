@@ -46,8 +46,7 @@ admin-frontend/coverage/
 admin-frontend/test-results/
 admin-frontend/playwright-report/
 
-# Generated immutable release bundles
+# Generated build output
 /dist/
 devtools/bin/
-lifecycle/bin/
 acceptance/bin/

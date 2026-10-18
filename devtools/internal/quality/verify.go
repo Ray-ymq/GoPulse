@@ -33,7 +33,7 @@ func VerifyModule(root, module, baseRef string) error {
 
 // Verify checks only directly changed Go modules in a local common-ancestor diff.
 // GitHub CI selects modules exclusively from PR labels instead. Integration,
-// Compose runtime and release commands remain explicit entry points.
+// Compose runtime commands remain explicit entry points.
 func Verify(root, baseRef string, planOnly bool) error {
 	if strings.TrimSpace(baseRef) == "" {
 		return fmt.Errorf("BASE_REF is required for make verify")

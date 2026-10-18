@@ -1,20 +1,13 @@
-.PHONY: help list-go-modules list-npm-modules list-ci-labels doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package package-plugin integration stop stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
+.PHONY: help list-go-modules list-npm-modules list-ci-labels doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package-plugin integration stop stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
 
 # The development, observation, and stop lifecycles run in the native helper.
 # Building it first keeps the failure exit codes and signal handling intact,
 # which `go run` cannot preserve.
 DEVENV := $(MAKE) --no-print-directory -C devtools build && ./devtools/bin/devenv
 
-# The delivery entry point lives in the lifecycle module because it reuses the
-# release manifest contract there. The module builds the binary first: `go run`
-# would collapse every non-zero exit status to 1 and lose the tool's contract.
-PACKAGE  := $(MAKE) --no-print-directory -C lifecycle package && ./lifecycle/bin/gopulse-package
-PLATFORM ?= linux/amd64
-OUTPUT   ?= dist
-
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
-GO_MODULES := backend componentmetrics marshaller monitor lifecycle perflab \
+GO_MODULES := backend componentmetrics marshaller monitor perflab \
               exporters/elasticsearch exporters/kafka exporters/mysql \
               exporters/rabbitmq exporters/redis exporters/victoriametrics \
               devtools
@@ -35,7 +28,7 @@ IMAGE_TARGETS := backend business-worker search-indexer admin-frontend frontend 
 REQUIRE_MODULE = $(if $(and $(MODULE),$(filter $(MODULE),$(MODULES))),:,printf '%s\n' '[gopulse] ERROR: specify a registered MODULE, for example MODULE=backend' >&2; exit 2)
 
 help:
-	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package [PLATFORM=] [OUTPUT=] [REGISTRY=] [EXPORTER_PACKAGES=] [RUNTIME=1] [PROMOTE=1]' '                            build and verify an immutable release candidate' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
+	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
 	@printf '%s\n' '  make stack-up|stack-down|stack-verify       manage the owned Compose stack'
 	@printf '%s\n' '' 'Module CI (same commands locally and on GitHub):' '  make list-ci-labels        list supported PR labels' '  make ci-plan LABELS="ci:backend ci:marshaller"  show exactly those module jobs' '  make ci-tools             test CI selection and commit validation' '  make ci-check MODULE=name formatting, static analysis and lint' '  make ci-build MODULE=name build one module' '  make ci-test MODULE=name  unit tests; Go tests include race detection' '  make verify MODULE=name   run ci-check, ci-test and ci-build' '  make verify BASE_REF=ref  local-only checks for directly changed Go modules'
 	@printf '%s\n' '' 'Commit conventions:' '  make hooks-install        enable commit-msg checks and the commit template' '  make check-commits [BASE_REF=ref]  validate new commits and PR descriptions in CI' '  make check-commits MESSAGE_FILE=path  validate a commit message file'
@@ -163,12 +156,6 @@ CACHE ?= none
 # local runs and CI invoke the same tested implementation.
 build-images:
 	@$(DEVENV) build-cache $(if $(filter gha,$(CACHE)),,$(if $(filter none,$(CACHE)),--no-cache,$(error CACHE must be gha or none))) $(if $(DRY_RUN),--print,)
-
-# PLATFORM defaults to the local amd64 candidate. A dual-platform candidate needs
-# an emulated builder and runs in CI; PROMOTE=1 additionally requires the
-# verification receipts of every platform in the candidate.
-package:
-	@$(PACKAGE) run --output $(OUTPUT) --platform $(PLATFORM) $(if $(REGISTRY),--registry $(REGISTRY),) $(if $(EXPORTER_PACKAGES),--exporter-packages $(EXPORTER_PACKAGES),) $(if $(RUNTIME),--runtime,) $(if $(PROMOTE),--promote,)
 
 package-plugin:
 	@$(MAKE) --no-print-directory -C monitor package-plugin
