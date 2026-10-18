@@ -18,6 +18,7 @@ var ErrRedisKeyNotFound = errors.New("redis key not found")
 type Redis struct {
 	client         *goredis.Client
 	evalSHABatcher *redisScriptBatcher
+	recovery       *redisRecoveryGate
 }
 
 func NewRedis(cfg config.RedisConfig) *Redis {
@@ -43,17 +44,26 @@ func NewRedis(cfg config.RedisConfig) *Redis {
 		ReadTimeout:  poolTimeout,
 		WriteTimeout: poolTimeout,
 	})
-	return &Redis{client: redisClient, evalSHABatcher: newRedisScriptBatcher(redisClient)}
+	return &Redis{
+		client:         redisClient,
+		evalSHABatcher: newRedisScriptBatcher(redisClient),
+		recovery:       newRedisRecoveryGate(defaultRedisRecoveryCooldown),
+	}
 }
 
 func (client *Redis) Check(ctx context.Context) error {
-	err := client.client.Ping(ctx).Err()
+	err := client.call(ctx, func() error { return client.client.Ping(ctx).Err() })
 	componentmetrics.Dependency("redis", err)
 	return err
 }
 
 func (client *Redis) Get(ctx context.Context, key string) (string, error) {
-	value, err := client.client.Get(ctx, key).Result()
+	var value string
+	err := client.call(ctx, func() error {
+		var err error
+		value, err = client.client.Get(ctx, key).Result()
+		return err
+	})
 	observedErr := err
 	if errors.Is(err, goredis.Nil) {
 		observedErr = nil
@@ -66,13 +76,13 @@ func (client *Redis) Get(ctx context.Context, key string) (string, error) {
 }
 
 func (client *Redis) Set(ctx context.Context, key, value string, expiration time.Duration) error {
-	err := client.client.Set(ctx, key, value, expiration).Err()
+	err := client.call(ctx, func() error { return client.client.Set(ctx, key, value, expiration).Err() })
 	componentmetrics.Dependency("redis", err)
 	return err
 }
 
 func (client *Redis) Delete(ctx context.Context, key string) error {
-	err := client.client.Del(ctx, key).Err()
+	err := client.call(ctx, func() error { return client.client.Del(ctx, key).Err() })
 	componentmetrics.Dependency("redis", err)
 	return err
 }
@@ -81,33 +91,58 @@ func (client *Redis) Delete(ctx context.Context, key string) error {
 // text and key contract; exposing only Eval keeps the platform client small
 // while allowing shared limiters to use Redis TIME atomically.
 func (client *Redis) Eval(ctx context.Context, script string, keys []string, args ...any) (any, error) {
-	value, err := client.client.Eval(ctx, script, keys, args...).Result()
+	var value any
+	err := client.call(ctx, func() error {
+		var err error
+		value, err = client.client.Eval(ctx, script, keys, args...).Result()
+		return err
+	})
 	componentmetrics.Dependency("redis", err)
 	return value, err
 }
 
 func (client *Redis) EvalSha(ctx context.Context, sha string, keys []string, args ...any) (any, error) {
 	var value any
-	var err error
-	if client.evalSHABatcher != nil {
-		value, err = client.evalSHABatcher.submit(ctx, sha, keys, args)
-	} else {
-		value, err = client.client.EvalSha(ctx, sha, keys, args...).Result()
-	}
+	err := client.call(ctx, func() error {
+		var err error
+		if client.evalSHABatcher != nil {
+			value, err = client.evalSHABatcher.submit(ctx, sha, keys, args)
+		} else {
+			value, err = client.client.EvalSha(ctx, sha, keys, args...).Result()
+		}
+		return err
+	})
 	componentmetrics.Dependency("redis", err)
 	return value, err
 }
 
 func (client *Redis) ScriptLoad(ctx context.Context, script string) (string, error) {
-	value, err := client.client.ScriptLoad(ctx, script).Result()
+	var value string
+	err := client.call(ctx, func() error {
+		var err error
+		value, err = client.client.ScriptLoad(ctx, script).Result()
+		return err
+	})
 	componentmetrics.Dependency("redis", err)
 	return value, err
 }
 
 func (client *Redis) TTL(ctx context.Context, key string) (time.Duration, error) {
-	value, err := client.client.TTL(ctx, key).Result()
+	var value time.Duration
+	err := client.call(ctx, func() error {
+		var err error
+		value, err = client.client.TTL(ctx, key).Result()
+		return err
+	})
 	componentmetrics.Dependency("redis", err)
 	return value, err
+}
+
+func (client *Redis) call(ctx context.Context, operation func() error) error {
+	if client.recovery == nil {
+		return operation()
+	}
+	return client.recovery.call(ctx, operation)
 }
 
 func (client *Redis) Close() error {
