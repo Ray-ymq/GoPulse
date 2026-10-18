@@ -111,7 +111,7 @@ func Source(root string, observe bool) (string, error) {
 func SourceBuilds(root string) (string, error) { return Source(root, false) }
 
 // MonitorInput digests everything that changes the Monitor container image.
-// Exporter source, packages, and historical archives are deployment inputs;
+// Exporter source and packages are deployment inputs;
 // they are deliberately excluded so changing one module does not invalidate
 // the image. Native integration builds use the Monitor source digest directly.
 func MonitorInput(root string) (string, error) {

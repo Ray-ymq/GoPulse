@@ -117,52 +117,6 @@ RUN go run ./cmd/exporter-package --repo-root /src --source elasticsearch --vers
 COPY --from=victoriametrics-exporter-build /out/gopulse-victoriametrics-exporter /out/gopulse-victoriametrics-exporter
 RUN go run ./cmd/exporter-package --repo-root /src --source victoriametrics --version "$(cat /src/exporters/victoriametrics/VERSION)" --arch "${TARGETARCH:-$(go env GOARCH)}" --binary /out/gopulse-victoriametrics-exporter --output /out/gopulse-victoriametrics-exporter.tar.gz
 
-FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS legacy-exporter-build
-WORKDIR /legacy
-COPY deploy/plugins/redis-1.10.6-source.tar.gz /tmp/source.tar.gz
-RUN tar -xzf /tmp/source.tar.gz -C /legacy
-WORKDIR /legacy/exporters/redis
-ARG GOPROXY=https://goproxy.cn,direct
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/legacy-exporter ./cmd/redis-exporter
-
-# Exact Phase 14 binaries, not rebuilt from potentially changed current sources.
-# Retained releases preserve existing plugin volumes without weakening trust.
-FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS phase14-exporters-build
-WORKDIR /legacy
-COPY deploy/plugins/phase14-1.11.5-source.tar.gz /tmp/source.tar.gz
-RUN tar -xzf /tmp/source.tar.gz -C /legacy
-ARG GOPROXY=https://goproxy.cn,direct
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    for source in redis mysql rabbitmq kafka elasticsearch victoriametrics; do \
-      (cd /legacy/exporters/$source && GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-       go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/phase14-$source ./cmd/$source-exporter) || exit 1; \
-    done
-
-FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS upgrade-exporter-build
-WORKDIR /legacy
-COPY deploy/plugins/redis-1.9.4-source.tar.gz /tmp/source.tar.gz
-RUN tar -xzf /tmp/source.tar.gz -C /legacy
-WORKDIR /legacy/exporters/redis
-ARG GOPROXY=https://goproxy.cn,direct
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    GOPROXY="$GOPROXY" CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /out/upgrade-exporter ./cmd/redis-exporter
-
-FROM exporter-package AS official-packages
-COPY --from=upgrade-exporter-build /out/upgrade-exporter /out/upgrade-exporter
-RUN go run ./cmd/exporter-package --repo-root /src --contract-version 1 --source redis --version 1.9.4 --arch amd64 --binary /out/upgrade-exporter --output /out/redis-1.9.4.tar.gz
-COPY --from=legacy-exporter-build /out/legacy-exporter /out/legacy-exporter
-RUN go run ./cmd/exporter-package --repo-root /src --contract-version 1 --source redis --version 1.10.6 --arch amd64 --binary /out/legacy-exporter --output /out/redis-1.10.6.tar.gz && \
-    echo 'b992b0dfa80a0983b9af63e4c2a4770216bfd7fcb718af2cd451281cf3306727  /out/redis-1.10.6.tar.gz' | sha256sum -c -
-
-COPY --from=phase14-exporters-build /out/ /phase14-binaries/
-COPY deploy/plugins/phase14-1.11.5.sha256 /tmp/phase14.sha256
-RUN mkdir /out/retained && \
-    for source in redis mysql rabbitmq kafka elasticsearch victoriametrics; do \
-      go run ./cmd/exporter-package --repo-root /src --source "$source" --contract-version 2 --version 1.11.5 --arch amd64 \
-        --binary /phase14-binaries/phase14-$source --output /out/retained/$source-1.11.5.tar.gz || exit 1; \
-    done && cd /out/retained && sha256sum -c /tmp/phase14.sha256
-
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS monitor-build
 WORKDIR /src/monitor
 ARG GOPROXY=https://goproxy.cn,direct

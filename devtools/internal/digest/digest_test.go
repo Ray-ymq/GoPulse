@@ -116,7 +116,7 @@ func TestMonitorInputDigestExcludesExporterPackagingInputs(t *testing.T) {
 	write(t, root, "componentmetrics/metrics.go", "package componentmetrics\n")
 	write(t, root, "exporters/redis/main.go", "package main\n")
 	write(t, root, "deploy/docker/monitor.Dockerfile", "FROM scratch\n")
-	write(t, root, "deploy/plugins/redis-exporter.json", "{}\n")
+	write(t, root, ".run/packages/catalog.json", "{}\n")
 
 	before, err := MonitorInput(root)
 	if err != nil {
@@ -139,12 +139,12 @@ func TestMonitorInputDigestExcludesExporterPackagingInputs(t *testing.T) {
 		before = after
 	}
 	write(t, root, "exporters/redis/main.go", "package main // changed\n")
-	write(t, root, "deploy/plugins/redis-exporter.json", "{\"changed\": true}\n")
+	write(t, root, ".run/packages/catalog.json", "{\"changed\": true}\n")
 	after, err := MonitorInput(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if after != before {
-		t.Fatal("Exporter sources and historical packages must not invalidate Monitor input")
+		t.Fatal("Exporter sources and package catalogs must not invalidate Monitor input")
 	}
 }
