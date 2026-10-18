@@ -991,9 +991,8 @@ services:
       io.gopulse.runtime.replica_mode: singleton
       io.gopulse.runtime.ownership: single-owner
       io.gopulse.runtime.diagnostic: direct-private-probe
+    # Kafka delivery is asynchronous: start Monitor so its persistent spool can accept logs offline.
     depends_on:
-      kafka-init:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:
