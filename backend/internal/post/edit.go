@@ -42,7 +42,7 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var owner, revision uint64
 	var title, content string
 	err = tx.QueryRowContext(ctx, `SELECT author_id, title, content, content_revision FROM posts WHERE id = ? FOR UPDATE`, id).Scan(&owner, &title, &content, &revision)

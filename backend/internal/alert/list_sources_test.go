@@ -28,7 +28,7 @@ func TestReviewMySQLSourceLists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, e := db.Exec(q, args...); e != nil {

@@ -279,7 +279,7 @@ func (r *ElasticsearchRepository) OpenPointInTime(ctx context.Context) (string, 
 	if err != nil {
 		return "", ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return "", ErrAliasMissing
 	}
@@ -313,7 +313,7 @@ func (r *ElasticsearchRepository) Search(ctx context.Context, pit string, filter
 	if err != nil {
 		return SearchResult{}, ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return SearchResult{}, ErrPITExpired
 	}
@@ -364,7 +364,7 @@ func (r *ElasticsearchRepository) ClosePointInTime(ctx context.Context, pit stri
 	if err != nil {
 		return ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return nil
 	}

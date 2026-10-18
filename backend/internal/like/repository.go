@@ -74,7 +74,7 @@ func (repository *MySQLRepository) Create(ctx context.Context, postID, userID ui
 	if err != nil {
 		return errors.New("begin post like transaction")
 	}
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 
 	recipientID, err := post.FindAuthorIDForUpdate(ctx, transaction, postID)
 	if errors.Is(err, post.ErrNotFound) {

@@ -234,7 +234,7 @@ func (s *Shipper) send(ctx context.Context, entry item) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, responseLimit+1))
 	if err != nil || len(body) > responseLimit {
 		return errors.New("delivery response invalid")

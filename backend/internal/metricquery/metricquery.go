@@ -254,7 +254,7 @@ func validSelectorKey(key string) bool {
 	for index, character := range key {
 		letter := character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
 		digit := character >= '0' && character <= '9'
-		if !letter && character != '_' && !(digit && index > 0) {
+		if !letter && character != '_' && (!digit || index == 0) {
 			return false
 		}
 		if index == 0 && character >= '0' && character <= '9' {
@@ -301,7 +301,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, from, to time.Tim
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, errors.New("VictoriaMetrics request failed")
 	}

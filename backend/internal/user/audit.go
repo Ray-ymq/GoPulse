@@ -52,7 +52,7 @@ func (r *MySQLRepository) AuditEvents(ctx context.Context, q AuditQuery) ([]Audi
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := []AuditEvent{}
 	for rows.Next() {
 		var e AuditEvent

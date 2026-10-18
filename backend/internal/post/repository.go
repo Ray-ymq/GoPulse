@@ -157,7 +157,7 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 	if err != nil {
 		return Post{}, errors.New("begin post transaction")
 	}
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 	record, err := createPost(ctx, transaction, authorID, title, content)
 	if err != nil {
 		return Post{}, err
@@ -418,7 +418,7 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 	if err != nil {
 		return nil, fmt.Errorf("list posts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	posts := make([]Post, 0, options.Limit+1)
 	for rows.Next() {
@@ -730,7 +730,7 @@ WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 	if err != nil {
 		return nil, fmt.Errorf("find many posts: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	byID := make(map[uint64]Post, len(identifiers))
 	for rows.Next() {
 		record, err := scanPost(rows.Scan)
@@ -770,7 +770,7 @@ func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records [
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	authors := map[uint64]Author{}
 	for rows.Next() {
 		var a Author
@@ -808,7 +808,7 @@ func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	followed := map[uint64]bool{}
 	for rows.Next() {
 		var id uint64
@@ -846,7 +846,7 @@ func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	found := map[uint64]bool{}
 	for rows.Next() {
 		var id uint64

@@ -40,7 +40,7 @@ func (repository *Repository) Insert(ctx context.Context, envelope bus.Envelope)
 	if err != nil {
 		return false, errors.New("begin notification transaction")
 	}
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 
 	// Serialize late delivery with deletion; missing resources become tombstones.
 	postID := nullablePostID(envelope.PostID)
@@ -126,7 +126,7 @@ func (repository *Repository) ListByRecipient(ctx context.Context, recipientID u
 	if err != nil {
 		return nil, fmt.Errorf("list recipient notifications: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	records := make([]Public, 0, options.Limit+1)
 	for rows.Next() {

@@ -143,7 +143,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 			span.SetStatus(codes.Error, "mysql_unavailable")
 			return err
 		}
-		defer tx.Rollback()
+		defer func() { _ = tx.Rollback() }()
 		var id uint64
 		err = tx.QueryRowContext(ctx, "SELECT id FROM posts WHERE id=? FOR UPDATE", envelope.PostID).Scan(&id)
 		observedErr := err
@@ -401,7 +401,7 @@ func (repository *ElasticsearchRepository) verifyStoredDocument(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return ErrUnavailable
 	}
@@ -445,7 +445,7 @@ func (repository *ElasticsearchRepository) DeleteAliasResult(ctx context.Context
 	if err != nil {
 		return DeleteResult{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	raw, readErr := io.ReadAll(io.LimitReader(response.Body, maximumResponseBytes+1))
 	if readErr != nil || len(raw) > maximumResponseBytes {
 		return DeleteResult{}, ErrUnavailable

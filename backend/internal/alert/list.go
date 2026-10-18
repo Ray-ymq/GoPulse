@@ -41,7 +41,7 @@ func (p *Repository) ListRules(ctx context.Context, q Query) ([]Rule, error) {
 	if e != nil {
 		return nil, unavailable()
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []Rule{}
 	for rows.Next() {
 		r, e := scanRule(rows)
@@ -91,7 +91,7 @@ func (p *Repository) ListIncidents(ctx context.Context, q Query) ([]Incident, er
 	if e != nil {
 		return nil, unavailable()
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []Incident{}
 	for rows.Next() {
 		var r Incident

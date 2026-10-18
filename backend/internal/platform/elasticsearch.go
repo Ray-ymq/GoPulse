@@ -3,13 +3,14 @@ package platform
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v9"
 )
 
@@ -52,13 +53,15 @@ func newElasticsearch(cfg config.ElasticsearchConfig, purpose string) (*Elastics
 		MaxIdleConnsPerHost:   20,
 		IdleConnTimeout:       90 * time.Second,
 	}
-	client, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses:         []string{cfg.URL},
-		Transport:         transport,
-		DisableRetry:      true,
-		AutoDrainBody:     true,
-		DisableMetaHeader: true,
-	})
+	client, err := elasticsearch.New(
+		elasticsearch.WithAddresses(cfg.URL),
+		elasticsearch.WithAutoDrainBody(),
+		elasticsearch.WithDisableMetaHeader(),
+		elasticsearch.WithTransportOptions(
+			elastictransport.WithDisableRetry(),
+			elastictransport.WithTransport(transport),
+		),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +96,7 @@ func (client *Elasticsearch) Check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return errors.New("elasticsearch health check failed")
 	}

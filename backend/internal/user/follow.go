@@ -23,7 +23,7 @@ func (r *MySQLRepository) SetFollow(ctx context.Context, viewer, target uint64, 
 	if err != nil {
 		return apperror.WrapInternal(err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var id uint64
 	if err = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE id = ? FOR UPDATE", viewer).Scan(&id); err != nil {
 		return profileError(err)
@@ -93,7 +93,7 @@ func (r *MySQLRepository) Relations(ctx context.Context, viewer uint64, follower
 	if err != nil {
 		return nil, nil, profileError(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	records := []Profile{}
 	var last time.Time
 	for rows.Next() {

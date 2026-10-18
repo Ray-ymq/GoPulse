@@ -19,14 +19,14 @@ func TestClientsCanBeConstructedWhenDependenciesAreUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMySQL() error = %v", err)
 	}
-	defer mysqlClient.Close()
+	defer func() { _ = mysqlClient.Close() }()
 
 	redisClient := NewRedis(config.RedisConfig{
 		Host:     "127.0.0.1",
 		Port:     1,
 		Password: "secret",
 	})
-	defer redisClient.Close()
+	defer func() { _ = redisClient.Close() }()
 
 	rabbitMQ, err := NewRabbitMQ("amqp://gopulse:secret@127.0.0.1:1/")
 	if err != nil {
@@ -132,7 +132,7 @@ func TestMySQLPoolConfigurationIsApplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenMySQLDatabase() error = %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	stats := database.Stats()
 	if stats.MaxOpenConnections != 6 {
 		t.Fatalf("MaxOpenConnections = %d, want 6", stats.MaxOpenConnections)
@@ -147,7 +147,7 @@ func TestMySQLPoolFallsBackToBoundedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenMySQLDatabase() error = %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	if got := database.Stats().MaxOpenConnections; got != defaultMaxOpenConns {
 		t.Fatalf("MaxOpenConnections = %d, want %d", got, defaultMaxOpenConns)
 	}

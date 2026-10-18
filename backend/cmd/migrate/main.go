@@ -54,17 +54,17 @@ func run(args []string, output io.Writer) error {
 	if err != nil {
 		return fail("connection_failure", 3)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	driver, err := migratemysql.WithInstance(db, &migratemysql.Config{})
 	if err != nil {
 		return lockFailure(err)
 	}
-	defer driver.Close()
+	defer func() { _ = driver.Close() }()
 	sourceDriver, err := migrationfiles.Source()
 	if err != nil {
 		return fail("invalid_source", 9)
 	}
-	defer sourceDriver.Close()
+	defer func() { _ = sourceDriver.Close() }()
 	if args[0] == "down" {
 		migration, err := migrate.NewWithInstance("iofs", sourceDriver, "mysql", driver)
 		if err != nil {
@@ -80,7 +80,7 @@ func run(args []string, output io.Writer) error {
 	if err := driver.Lock(); err != nil {
 		return lockFailure(err)
 	}
-	defer driver.Unlock()
+	defer func() { _ = driver.Unlock() }()
 	version, dirty, err := driver.Version()
 	if err != nil {
 		return fail("connection_failure", 3)
@@ -181,7 +181,7 @@ func resumeLocked(driver database.Driver, source source.Driver) error {
 	if err != nil {
 		return err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	if err = driver.Run(reader); err != nil {
 		return err
 	}

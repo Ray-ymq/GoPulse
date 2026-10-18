@@ -165,7 +165,7 @@ func (repository *ElasticsearchRepository) AliasExists(ctx context.Context) (boo
 	if err != nil {
 		return false, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return false, nil
 	}
@@ -226,7 +226,7 @@ func (repository *ElasticsearchRepository) openPointInTime(ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return "", ErrUnavailable
 	}
@@ -270,7 +270,7 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 	if err != nil {
 		return SearchResult{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return SearchResult{}, ErrPointInTimeExpired
 	}
@@ -336,7 +336,7 @@ func (repository *ElasticsearchRepository) ClosePointInTime(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return nil
 	}
@@ -401,7 +401,7 @@ func (repository *ElasticsearchRepository) BulkIndex(ctx context.Context, index 
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return ErrUnavailable
 	}
@@ -440,7 +440,7 @@ func (repository *ElasticsearchRepository) Count(ctx context.Context, index stri
 	if err != nil {
 		return 0, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return 0, ErrUnavailable
 	}
@@ -565,7 +565,7 @@ func (repository *ElasticsearchRepository) aliasIndices(ctx context.Context) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
@@ -615,7 +615,7 @@ func expectSuccess(response *http.Response, err error) error {
 	if response == nil {
 		return ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return ErrUnavailable
 	}
@@ -652,7 +652,7 @@ func (repository *ElasticsearchRepository) RevisionMappingReady(ctx context.Cont
 	if err != nil {
 		return false, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return false, ErrUnavailable
 	}
