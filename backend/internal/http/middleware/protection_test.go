@@ -43,6 +43,27 @@ func TestRequestSourceIgnoresUntrustedForwardedHeader(t *testing.T) {
 	}
 }
 
+func TestRateLimitIdentitySeparatesAuthenticatedUsersSharingOneEgress(t *testing.T) {
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/posts/31", nil)
+	request.RemoteAddr = "198.51.100.20:4321"
+	firstRequest := request.WithContext(context.WithValue(request.Context(), currentUserIDKey{}, uint64(17)))
+	secondRequest := request.WithContext(context.WithValue(request.Context(), currentUserIDKey{}, uint64(18)))
+	firstContext := &gin.Context{Request: firstRequest}
+	secondContext := &gin.Context{Request: secondRequest}
+
+	first, err := rateLimitIdentity(firstContext, nil)
+	if err != nil {
+		t.Fatalf("first identity error=%v", err)
+	}
+	second, err := rateLimitIdentity(secondContext, nil)
+	if err != nil {
+		t.Fatalf("second identity error=%v", err)
+	}
+	if first != "user:17" || second != "user:18" || first == second {
+		t.Fatalf("shared-egress identities first=%q second=%q", first, second)
+	}
+}
+
 func TestRateLimitMiddlewareReturns429WithRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	limiter := &protectionLimiter{decision: ratelimit.Decision{RetryAfter: 1500 * time.Millisecond, Reason: "rate_limited", Mode: "shared"}}

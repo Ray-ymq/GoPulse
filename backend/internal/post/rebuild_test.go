@@ -76,6 +76,132 @@ func TestRebuildCoordinatorMergesSameKeyAndKeepsLeaderAfterCancellation(t *testi
 	}
 }
 
+func TestRebuildCoordinatorColdReadLoadsOneBodyForAllConcurrentCallers(t *testing.T) {
+	coordinator := NewRebuildCoordinator(context.Background(), RebuildOptions{
+		MaxActiveKeys: 1, MaxExecutors: 1, MaxWaitersPerKey: 16, MaxRegisteredWaiters: 16,
+		WaitTimeout: time.Second, TaskTimeout: time.Second,
+	})
+	key := BodyKey{Epoch: "epoch-cold", PostID: 41, ContentRevision: 1}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var loads atomic.Int32
+	loader := func(ctx context.Context, got BodyKey) (Body, error) {
+		loads.Add(1)
+		close(started)
+		select {
+		case <-release:
+			return rebuildTestBody(got), nil
+		case <-ctx.Done():
+			return Body{}, ctx.Err()
+		}
+	}
+
+	const callers = 16
+	results := make(chan error, callers)
+	start := make(chan struct{})
+	for index := 0; index < callers; index++ {
+		go func() {
+			<-start
+			body, err := coordinator.Load(context.Background(), key, loader)
+			if err == nil && !body.ValidForKey(key) {
+				err = errors.New("loader returned an invalid body")
+			}
+			results <- err
+		}()
+	}
+	close(start)
+	<-started
+	deadline := time.Now().Add(time.Second)
+	for {
+		_, _, registered := coordinator.State()
+		if registered == callers {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("registered callers=%d, want %d", registered, callers)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	for index := 0; index < callers; index++ {
+		if err := <-results; err != nil {
+			t.Fatalf("caller %d error=%v", index, err)
+		}
+	}
+	if got := loads.Load(); got != 1 {
+		t.Fatalf("cold body loads=%d, want one", got)
+	}
+	active, executors, registered := coordinator.State()
+	if active != 0 || executors != 0 || registered != 0 {
+		t.Fatalf("coordinator state active=%d executors=%d registered=%d", active, executors, registered)
+	}
+}
+
+func TestRebuildCoordinatorReleasesAllCancelledWaitersAndResources(t *testing.T) {
+	budget, err := resourcebudget.New(resourcebudget.Config{Auth: 1, Read: 1, Write: 1, Database: 1, Rebuild: 1, Waiter: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator := NewRebuildCoordinator(context.Background(), RebuildOptions{
+		MaxActiveKeys: 1, MaxExecutors: 1, MaxWaitersPerKey: 8, MaxRegisteredWaiters: 8,
+		WaitTimeout: time.Second, TaskTimeout: time.Second, Budget: budget,
+	})
+	key := BodyKey{Epoch: "epoch-cancel", PostID: 42, ContentRevision: 1}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	loader := func(ctx context.Context, got BodyKey) (Body, error) {
+		close(started)
+		select {
+		case <-release:
+			return rebuildTestBody(got), nil
+		case <-ctx.Done():
+			return Body{}, ctx.Err()
+		}
+	}
+
+	const callers = 8
+	contexts := make([]context.Context, callers)
+	cancels := make([]context.CancelFunc, callers)
+	results := make(chan error, callers)
+	for index := 0; index < callers; index++ {
+		contexts[index], cancels[index] = context.WithCancel(context.Background())
+		go func(ctx context.Context) {
+			_, loadErr := coordinator.Load(ctx, key, loader)
+			results <- loadErr
+		}(contexts[index])
+	}
+	<-started
+	deadline := time.Now().Add(time.Second)
+	for {
+		_, _, registered := coordinator.State()
+		if registered == callers {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("registered callers=%d, want %d", registered, callers)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for _, cancel := range cancels {
+		cancel()
+	}
+	for index := 0; index < callers; index++ {
+		if err := <-results; !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled caller %d error=%v", index, err)
+		}
+	}
+	if budget.InFlight(resourcebudget.Rebuild) != 1 || budget.InFlight(resourcebudget.Database) != 1 || budget.InFlight(resourcebudget.Waiter) != callers {
+		t.Fatalf("retained work before loader finish rebuild=%d database=%d waiter=%d", budget.InFlight(resourcebudget.Rebuild), budget.InFlight(resourcebudget.Database), budget.InFlight(resourcebudget.Waiter))
+	}
+	close(release)
+	if err := coordinator.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if budget.InFlight(resourcebudget.Rebuild) != 0 || budget.InFlight(resourcebudget.Database) != 0 || budget.InFlight(resourcebudget.Waiter) != 0 {
+		t.Fatalf("resources not released rebuild=%d database=%d waiter=%d", budget.InFlight(resourcebudget.Rebuild), budget.InFlight(resourcebudget.Database), budget.InFlight(resourcebudget.Waiter))
+	}
+}
+
 func TestRebuildCoordinatorBoundsDifferentKeysAndRetainedWaiters(t *testing.T) {
 	coordinator := NewRebuildCoordinator(context.Background(), RebuildOptions{
 		MaxActiveKeys: 1, MaxExecutors: 1, MaxWaitersPerKey: 1, MaxRegisteredWaiters: 1,

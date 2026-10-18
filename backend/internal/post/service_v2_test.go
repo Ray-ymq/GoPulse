@@ -3,8 +3,11 @@ package post
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 )
 
 type v2Repository struct {
@@ -129,4 +132,114 @@ func TestServiceV2DoesNotServeBodyWhenAuthorContextChanges(t *testing.T) {
 	if cache.setCalls != 1 {
 		t.Fatalf("set calls=%d, want replacement", cache.setCalls)
 	}
+}
+
+func TestServiceV2ReadDuringEditDeleteAndRecoveryReturnsConsistentFollowUp(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		oldKey       BodyKey
+		newBody      Body
+		mutate       func(*v2ReadMutation)
+		firstCode    apperror.Code
+		wantTitle    string
+		wantRevision uint64
+	}{
+		{
+			name:         "edit",
+			oldKey:       BodyKey{Epoch: "epoch-a", PostID: 31, ContentRevision: 1},
+			newBody:      serviceV2TestBody(31, 7, 2, "edited"),
+			mutate:       func(state *v2ReadMutation) { state.revision = 2 },
+			firstCode:    apperror.CodePostReadUnavailable,
+			wantTitle:    "edited",
+			wantRevision: 2,
+		},
+		{
+			name:      "delete",
+			oldKey:    BodyKey{Epoch: "epoch-a", PostID: 31, ContentRevision: 1},
+			newBody:   serviceV2TestBody(31, 7, 1, "never served"),
+			mutate:    func(state *v2ReadMutation) { state.visible = false },
+			firstCode: apperror.CodePostReadUnavailable,
+		},
+		{
+			name:         "epoch recovery",
+			oldKey:       BodyKey{Epoch: "epoch-a", PostID: 31, ContentRevision: 1},
+			newBody:      serviceV2TestBody(31, 7, 1, "recovered"),
+			mutate:       func(state *v2ReadMutation) { state.epoch = "epoch-b" },
+			firstCode:    apperror.CodePostReadUnavailable,
+			wantTitle:    "recovered",
+			wantRevision: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := &v2ReadMutation{epoch: test.oldKey.Epoch, revision: test.oldKey.ContentRevision, visible: true}
+			bodyStarted := make(chan struct{})
+			releaseBody := make(chan struct{})
+			var once sync.Once
+			repository := &v2Repository{
+				fakeRepository: fakeRepository{likedByViewer: func(context.Context, uint64, uint64) (bool, error) { return false, nil }},
+				readContext: func(_ context.Context, postID uint64) (ReadContext, error) {
+					state.mu.Lock()
+					defer state.mu.Unlock()
+					return ReadContext{Epoch: state.epoch, PostID: postID, ContentRevision: state.revision, AuthorID: 7, Visible: state.visible}, nil
+				},
+				findBody: func(_ context.Context, key BodyKey) (Body, error) {
+					if key == test.oldKey {
+						once.Do(func() { close(bodyStarted) })
+						<-releaseBody
+						state.mu.Lock()
+						changed := state.epoch != test.oldKey.Epoch || state.revision != test.oldKey.ContentRevision || !state.visible
+						state.mu.Unlock()
+						if changed {
+							return Body{}, ErrReadContextChanged
+						}
+					}
+					return test.newBody, nil
+				},
+				dynamic: func(context.Context, uint64, uint64) (DynamicProjection, error) {
+					return DynamicProjection{Author: PublicAuthor{ID: 7, Username: "author"}}, nil
+				},
+			}
+			cache := &v2BodyCache{}
+			service := NewService(repository).WithBodyCache(cache, NewRebuildCoordinator(context.Background()))
+			firstResult := make(chan struct {
+				post Post
+				err  error
+			}, 1)
+			go func() {
+				got, err := service.Detail(context.Background(), test.oldKey.PostID, 17)
+				firstResult <- struct {
+					post Post
+					err  error
+				}{got, err}
+			}()
+			<-bodyStarted
+			state.mu.Lock()
+			test.mutate(state)
+			state.mu.Unlock()
+			close(releaseBody)
+			first := <-firstResult
+			assertPostApplicationCode(t, first.err, test.firstCode)
+
+			second, err := service.Detail(context.Background(), test.oldKey.PostID, 17)
+			if test.wantTitle == "" {
+				assertPostApplicationCode(t, err, apperror.CodePostNotFound)
+				return
+			}
+			if err != nil || second.Title != test.wantTitle || second.ContentRevision != test.wantRevision {
+				t.Fatalf("follow-up post=%#v error=%v", second, err)
+			}
+		})
+	}
+}
+
+type v2ReadMutation struct {
+	mu       sync.Mutex
+	epoch    string
+	revision uint64
+	visible  bool
+}
+
+func serviceV2TestBody(postID, authorID, revision uint64, title string) Body {
+	created := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
+	return Body{ID: postID, AuthorID: authorID, ContentRevision: revision, Title: title, Content: title + " content", CreatedAt: created, UpdatedAt: created}
 }
