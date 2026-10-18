@@ -153,7 +153,8 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	kafkaProduceTimeout, err := parseDuration("MONITOR_KAFKA_PRODUCE_TIMEOUT", 3*time.Second, 100*time.Millisecond, 10*time.Second)
+	// Kafka RecordDeliveryTimeout requires at least one second.
+	kafkaProduceTimeout, err := parseDuration("MONITOR_KAFKA_PRODUCE_TIMEOUT", 3*time.Second, time.Second, 10*time.Second)
 	if err != nil {
 		return Config{}, err
 	}
