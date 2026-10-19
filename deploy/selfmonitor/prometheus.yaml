@@ -1,0 +1,79 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 5s
+scrape_configs:
+  - job_name: backend
+    metrics_path: /internal/v1/metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/backend_token
+    static_configs:
+      - targets: [127.0.0.1:19131]
+        labels: {instance: backend}
+      - targets: [127.0.0.1:19132]
+        labels: {instance: backend-2}
+      - targets: [127.0.0.1:19133]
+        labels: {instance: platform-api}
+  - job_name: business-worker
+    metrics_path: /internal/v1/metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/business-worker_token
+    static_configs:
+      - targets: [127.0.0.1:19134]
+        labels: {instance: business-worker}
+      - targets: [127.0.0.1:19135]
+        labels: {instance: business-worker-2}
+  - job_name: search-indexer
+    metrics_path: /internal/v1/metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/search-indexer_token
+    static_configs:
+      - targets: [127.0.0.1:19136]
+        labels: {instance: search-indexer}
+      - targets: [127.0.0.1:19137]
+        labels: {instance: search-indexer-2}
+  - job_name: monitor
+    metrics_path: /internal/v1/metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/monitor_token
+    static_configs:
+      - targets: [127.0.0.1:19138]
+        labels: {instance: monitor}
+  - job_name: marshaller
+    metrics_path: /internal/v1/metrics
+    authorization:
+      credentials_file: /etc/prometheus/secrets/marshaller_token
+    static_configs:
+      - targets: [127.0.0.1:19139]
+        labels: {instance: marshaller}
+      - targets: [127.0.0.1:19140]
+        labels: {instance: marshaller-2}
+  - job_name: prometheus
+    static_configs:
+      - targets: [127.0.0.1:19090]
+  - job_name: node
+    static_configs:
+      - targets: [127.0.0.1:19100]
+  - job_name: mysql
+    static_configs:
+      - targets: [127.0.0.1:19104]
+  - job_name: redis
+    static_configs:
+      - targets: [127.0.0.1:19121]
+  - job_name: kafka
+    static_configs:
+      - targets: [127.0.0.1:19308]
+  - job_name: elasticsearch
+    static_configs:
+      - targets: [127.0.0.1:19114]
+  - job_name: observability-elasticsearch
+    static_configs:
+      - targets: [127.0.0.1:19115]
+  - job_name: rabbitmq
+    static_configs:
+      - targets: [127.0.0.1:19192]
+  - job_name: victoriametrics
+    basic_auth:
+      username_file: /etc/prometheus/secrets/victoriametrics_username
+      password_file: /etc/prometheus/secrets/victoriametrics_password
+    static_configs:
+      - targets: [127.0.0.1:19428]

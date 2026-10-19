@@ -37,6 +37,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
+	"github.com/Ray-ymq/GoPulse/backend/internal/selfmonitor"
 	"github.com/Ray-ymq/GoPulse/backend/internal/telemetrydelivery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
@@ -362,6 +363,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 
 		routes.Overview = overview
 		routes.ComponentStatus = componentStatus
+		routes.SelfMonitor = selfmonitor.NewClient()
 		routes.TelemetryDelivery = deliveryService
 		routes.Logs = logHandler
 		routes.Metrics = metricHandler

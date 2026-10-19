@@ -1,0 +1,31 @@
+# Add to the existing product Compose invocation; Linux only.
+services:
+  backend:
+    ports: ['127.0.0.1:19131:19101']
+  backend-2:
+    ports: ['127.0.0.1:19132:19101']
+  platform-api:
+    ports: ['127.0.0.1:19133:19101']
+    volumes:
+      - /run/gopulse-selfmonitor:/run/gopulse-selfmonitor:ro
+    group_add: ["${SELFMONITOR_SOCKET_GID:?Set the selfmonitor group numeric GID}"]
+  business-worker:
+    ports: ['127.0.0.1:19134:19102']
+  business-worker-2:
+    ports: ['127.0.0.1:19135:19102']
+  search-indexer:
+    ports: ['127.0.0.1:19136:19103']
+  search-indexer-2:
+    ports: ['127.0.0.1:19137:19103']
+  monitor:
+    ports: ['127.0.0.1:19138:19104']
+  marshaller:
+    ports: ['127.0.0.1:19139:19106']
+  marshaller-2:
+    ports: ['127.0.0.1:19140:19106']
+  rabbitmq:
+    ports: ['127.0.0.1:19192:15692']
+    volumes:
+      - ./selfmonitor/rabbitmq-enabled-plugins:/etc/rabbitmq/enabled_plugins:ro
+  victoriametrics:
+    ports: ['127.0.0.1:19428:8428']

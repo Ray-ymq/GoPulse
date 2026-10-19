@@ -22,6 +22,7 @@ import (
 )
 
 type APIRoutes struct {
+	SelfMonitor            SelfMonitorController
 	Overview               *adminoverview.Service
 	ComponentStatus        *componentstatus.Service
 	TelemetryDelivery      *telemetrydelivery.Service
@@ -155,6 +156,11 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	if routes.Authorization != nil {
 		management := protected.Group("/admin")
 		management.Use(routes.Authorization)
+		if routes.SelfMonitor != nil {
+			management.GET("/self-monitor", selfMonitorHandler(routes.SelfMonitor, "status"))
+			management.POST("/self-monitor/start", selfMonitorHandler(routes.SelfMonitor, "start"))
+			management.POST("/self-monitor/stop", selfMonitorHandler(routes.SelfMonitor, "stop"))
+		}
 		if routes.ComponentStatus != nil {
 			management.GET("/component-status", func(c *gin.Context) {
 				response.Data(c, 200, routes.ComponentStatus.Snapshot())

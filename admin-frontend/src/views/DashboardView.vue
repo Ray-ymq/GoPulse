@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import SelfMonitorPanel from '../components/SelfMonitorPanel.vue'
 import AdminIcon from '../components/AdminIcon.vue'
 import AdminStat from '../components/AdminStat.vue'
 import AdminTrend from '../components/AdminTrend.vue'
@@ -79,6 +80,7 @@ onBeforeUnmount(()=>{controller?.abort();liveController?.abort();if(refreshTimer
 <template>
   <section class="overview-page" :aria-busy="busy">
     <div class="admin-title"><div><h2>系统概览</h2><p>欢迎使用 GoPulse 管理中心，实时掌握系统运行状态。</p></div><div class="title-actions"><span class="range-label"><AdminIcon name="clock" />最近 15 分钟</span><button class="icon-button" type="button" aria-label="刷新大屏" :disabled="busy" @click="load"><AdminIcon name="refresh" /></button></div></div>
+    <SelfMonitorPanel />
     <ProductState v-if="busy" state="loading" message="正在读取系统概览…" />
     <ProductState v-else-if="error" state="unavailable" message="大屏加载失败，请重试。" action-label="重试" @retry="load" />
     <template v-if="data">

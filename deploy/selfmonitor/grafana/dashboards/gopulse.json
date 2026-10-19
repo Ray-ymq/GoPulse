@@ -1,0 +1,591 @@
+{
+  "uid": "gopulse-selfmonitor",
+  "title": "GoPulse 独立自监控",
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "15s",
+  "timezone": "browser",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "全部实例采集状态",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "主机 CPU 使用率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "主机内存使用率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "磁盘读写 bytes/s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(node_disk_read_bytes_total[5m]) + rate(node_disk_written_bytes_total[5m])",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "网络接收 bytes/s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(node_network_receive_bytes_total{device!=\"lo\"}[5m])",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "网络发送 bytes/s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(node_network_transmit_bytes_total{device!=\"lo\"}[5m])",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "文件系统可用空间",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs\"}",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Backend 请求速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(gopulse_backend_http_requests_total[5m]))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Backend P95 延迟",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(gopulse_backend_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "任务处理速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(gopulse_business_worker_messages_total[5m]))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "索引处理速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(gopulse_search_indexer_messages_total[5m]))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Monitor 采集速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(gopulse_monitor_scrapes_total[5m]))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Marshaller 消息速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(gopulse_marshaller_records_total[5m]))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "MySQL 与 Redis 来源状态",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{__name__=~\"mysql_up|redis_up\"}",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "RabbitMQ 队列深度",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rabbitmq_queue_messages",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Kafka 消费组积压",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kafka_consumergroup_lag",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Elasticsearch 集群状态",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "elasticsearch_cluster_health_status",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "VictoriaMetrics 写入速率",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "selfmonitor"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(vm_rows_inserted_total[5m]))",
+          "legendFormat": "{{job}} {{instance}} {{__name__}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "无数据",
+          "custom": {
+            "spanNulls": false
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}
