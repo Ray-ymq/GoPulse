@@ -1,157 +1,129 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
+	"strings"
 	"syscall"
 
-	"github.com/Ray-ymq/GoPulse/perflab/internal/load"
+	"github.com/Ray-ymq/GoPulse/perflab/internal/k6"
 )
-
-var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-
-type candidateManifest struct {
-	Version  string `json:"version"`
-	Revision string `json:"revision"`
-}
 
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
-// run intentionally exposes no rate, window, VU, timeout, or gate flags. The
-// formal command accepts a validated profile and binding inputs only; the
-// profile is the sole source for execution parameters.
 func run(arguments []string) int {
-	flags := flag.NewFlagSet("phase19-load", flag.ContinueOnError)
+	flags := flag.NewFlagSet("gopulse-load", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	var profilePath, baseURL, corpusPath, credentialsPath, candidatePath, workdir string
-	var repeat, stage int
-	var runID string
-	flags.StringVar(&profilePath, "profile", "", "validated Phase 19 capacity profile")
-	flags.StringVar(&baseURL, "base-url", "", "product edge base URL")
-	flags.StringVar(&corpusPath, "corpus", "", "private deterministic corpus")
-	flags.StringVar(&credentialsPath, "credentials", "", "private load credentials")
-	flags.StringVar(&candidatePath, "candidate-manifest", "", "immutable candidate manifest")
-	flags.StringVar(&workdir, "workdir", "", "private repetition work directory")
-	flags.IntVar(&stage, "stage", -1, "Phase 20 isolated stage index")
-	flags.StringVar(&runID, "run-id", "", "Phase 20 owned run identity")
-	flags.IntVar(&repeat, "repeat", 0, "repetition number from the frozen profile")
+	var mode, configPath, previousReport string
+	var dryRun bool
+	flags.StringVar(&mode, "mode", "", "boundary, refine, or soak")
+	flags.StringVar(&configPath, "config", "", "reviewed k6 load configuration")
+	flags.StringVar(&previousReport, "previous-report", "", "boundary/refine report used by refine or soak")
+	flags.BoolVar(&dryRun, "dry-run", false, "print the stage plan without starting k6")
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
 		return 2
 	}
-	if profilePath == "" || baseURL == "" || corpusPath == "" || credentialsPath == "" || candidatePath == "" || workdir == "" || repeat == 0 {
-		fmt.Fprintln(os.Stderr, "phase19 load requires profile, base-url, corpus, credentials, candidate-manifest, workdir, and repeat")
+	if mode == "" || configPath == "" {
+		fmt.Fprintln(os.Stderr, "load requires --mode and --config")
 		return 2
 	}
-
-	profile, profileDigest, err := load.LoadProfile(profilePath)
+	parsedMode, err := parseMode(mode)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "capacity profile is invalid")
+		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
-	corpus, err := load.LoadCorpus(corpusPath)
+	root, err := repositoryRoot()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "load corpus is invalid")
-		return 2
-	}
-	credentials, err := load.LoadCredentials(credentialsPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "load credentials are invalid")
-		return 2
-	}
-	candidate, err := readCandidate(candidatePath, profile.TargetCandidateVersion)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "candidate manifest is invalid")
-		return 2
-	}
-	if err := prepareWorkdir(workdir); err != nil {
-		fmt.Fprintln(os.Stderr, "capacity workdir is invalid")
-		return 2
-	}
-	repeatDir := filepath.Join(workdir, fmt.Sprintf("repeat-%02d", repeat))
-	if err := os.MkdirAll(repeatDir, 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, "create repetition directory failed")
-		return 2
-	}
-	if info, statErr := os.Stat(repeatDir); statErr != nil || info.Mode().Perm()&0o077 != 0 {
-		fmt.Fprintln(os.Stderr, "repetition directory must be private")
-		return 2
-	}
-	reportPath := filepath.Join(repeatDir, "load-report.json")
-	if _, statErr := os.Stat(reportPath); statErr == nil {
-		fmt.Fprintln(os.Stderr, "refusing to overwrite an existing repetition report")
-		return 2
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		fmt.Fprintln(os.Stderr, "inspect repetition report failed")
-		return 2
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if profile.SchemaVersion == load.DiagnosticProfileSchemaVersion {
-		_, err = load.RunDiagnosticStage(ctx, load.CapacityRunConfig{BaseURL: baseURL, Corpus: corpus, Credentials: credentials, Profile: profile, ProfileDigest: profileDigest, Candidate: candidate, Repeat: repeat, ReportPath: reportPath}, stage, runID, filepath.Join(repeatDir, "ledger.jsonl"))
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "diagnostic stage failed:", err)
-			return 1
-		}
-		return 0
-	}
-	if stage != -1 || runID != "" {
-		fmt.Fprintln(os.Stderr, "Phase 19 cannot use isolated diagnostic arguments")
-		return 2
-	}
-	_, err = load.RunCapacity(ctx, load.CapacityRunConfig{
-		BaseURL: baseURL, Corpus: corpus, Credentials: credentials,
-		Profile: profile, ProfileDigest: profileDigest, Candidate: candidate,
-		Repeat: repeat, ReportPath: reportPath, ProgressPath: filepath.Join(repeatDir, "progress.jsonl"),
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "capacity load execution failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	configPath = resolveConfigPath(root, configPath)
+	config, digest, err := k6.LoadConfig(configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if err := config.Validate(root); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	boundary := k6.BoundaryRange{}
+	if parsedMode != k6.ModeBoundary {
+		boundary, err = k6.LoadPreviousBoundary(root, config, previousReport)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+	}
+	plan, err := k6.BuildPlan(config, parsedMode, boundary)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if dryRun {
+		encoded, _ := json.MarshalIndent(plan, "", "  ")
+		fmt.Println(string(encoded))
+		return 0
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	runner := k6.NewRunner(root, configPath, config, digest)
+	report, err := runner.Run(ctx, parsedMode, boundary)
+	if err != nil {
+		if runner.ReportPath != "" {
+			fmt.Fprintf(os.Stderr, "load report: %s\n", runner.ReportPath)
+		}
+		fmt.Fprintln(os.Stderr, "load execution failed:", err)
+		return 1
+	}
+	fmt.Printf("[gopulse] load mode=%s report=%s judgement=%s\n", parsedMode, runner.ReportPath, report.Boundary.CapacityJudgement)
 	return 0
 }
 
-func readCandidate(path, expectedVersion string) (load.CandidateBinding, error) {
-	encoded, err := os.ReadFile(path)
-	if err != nil {
-		return load.CandidateBinding{}, err
+func parseMode(value string) (k6.Mode, error) {
+	switch k6.Mode(strings.ToLower(strings.TrimSpace(value))) {
+	case k6.ModeBoundary:
+		return k6.ModeBoundary, nil
+	case k6.ModeRefine:
+		return k6.ModeRefine, nil
+	case k6.ModeSoak:
+		return k6.ModeSoak, nil
+	default:
+		return "", fmt.Errorf("unsupported MODE %q; expected boundary, refine, or soak", value)
 	}
-	var manifest candidateManifest
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	if err := decoder.Decode(&manifest); err != nil {
-		return load.CandidateBinding{}, err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return load.CandidateBinding{}, errors.New("candidate manifest contains trailing JSON")
-	}
-	if manifest.Version != expectedVersion || !revisionPattern.MatchString(manifest.Revision) {
-		return load.CandidateBinding{}, errors.New("candidate version or revision differs from profile")
-	}
-	digest := sha256.Sum256(encoded)
-	return load.CandidateBinding{Version: manifest.Version, Revision: manifest.Revision, ManifestSHA256: "sha256:" + hex.EncodeToString(digest[:])}, nil
 }
 
-func prepareWorkdir(path string) error {
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
+func repositoryRoot() (string, error) {
+	current, err := os.Getwd()
+	if err != nil {
+		return "", err
 	}
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-		return errors.New("workdir must be a private directory")
+	for {
+		if _, err := os.Stat(filepath.Join(current, "perflab", "go.mod")); err == nil {
+			return current, nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("could not locate repository root")
+		}
+		current = parent
 	}
-	return nil
+}
+
+func resolveConfigPath(root, value string) string {
+	if filepath.IsAbs(value) {
+		return value
+	}
+	if _, err := os.Stat(value); err == nil {
+		absolute, _ := filepath.Abs(value)
+		return absolute
+	}
+	return filepath.Join(root, value)
 }

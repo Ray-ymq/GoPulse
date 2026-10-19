@@ -5,7 +5,7 @@ GO ?= go
 
 include ../make/go-lint.mk
 
-.PHONY: test race check build
+.PHONY: test race check build load
 
 test:
 	$(GO) test -count=1 ./...
@@ -19,3 +19,9 @@ check:
 
 build:
 	$(GO) build ./...
+
+MODE ?= boundary
+CONFIG ?= k6/config.json
+
+load:
+	$(GO) run ./cmd/load --mode "$(MODE)" --config "$(CONFIG)" $(if $(PREVIOUS_REPORT),--previous-report "$(PREVIOUS_REPORT)",) $(if $(DRY_RUN),--dry-run,)
