@@ -48,14 +48,14 @@ services:
     pid: host
     command: [--web.listen-address=127.0.0.1:29100, --path.rootfs=/host, '--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/user|var/lib/docker/.+|var/lib/containers/storage/.+)($$|/)']
     volumes: ['/:/host:ro']
-  mysql:
+  mysql-exporter:
     <<: *exporter
     image: prom/mysqld-exporter:v0.17.2@sha256:20b5b23a98ce3998349042a999e56d22819b46da38fa4e4e9ca0155c975c95d5
     command: [--config.my-cnf=/run/secrets/mysql.cnf]
     volumes: [./secrets/mysql.cnf:/run/secrets/mysql.cnf:ro]
     ports: ['127.0.0.1:29104:9104']
-    networks: [business]
-  redis:
+    networks: [business, scrape-access]
+  redis-exporter:
     <<: *exporter
     image: oliver006/redis_exporter:v1.76.0@sha256:1542bc6a88decfc16db6603045accd502cc3a46c46659d7cfd568e1f6965fe59
     environment:
@@ -64,33 +64,38 @@ services:
       REDIS_PASSWORD_FILE: /run/secrets/redis_passwords.json
     volumes: [./secrets/redis_passwords.json:/run/secrets/redis_passwords.json:ro]
     ports: ['127.0.0.1:29121:9121']
-    networks: [business]
-  kafka:
+    networks: [business, scrape-access]
+  kafka-exporter:
     <<: *exporter
+    # Kafka may still be starting; retry fatal initial connections until ready.
+    restart: on-failure
     image: danielqsj/kafka-exporter:v1.9.0@sha256:4150e46b2e9697ac30e4be8de03ec1704b4bdc7037577b83b8d35a32be298c16
     command: [--kafka.server=kafka:19092]
     ports: ['127.0.0.1:29308:9308']
-    networks: [observability]
-  elasticsearch:
+    networks: [observability, scrape-access]
+  elasticsearch-exporter:
     <<: *exporter
     image: prometheuscommunity/elasticsearch-exporter:v1.9.0@sha256:09a6fb742d75ee6d4a03581f1887f66d80884b16d0db2302462667b899f24392
     command: [--es.uri=http://elasticsearch:9200, --es.all]
     ports: ['127.0.0.1:29114:9114']
-    networks: [business]
-  observability-elasticsearch:
+    networks: [business, scrape-access]
+  observability-elasticsearch-exporter:
     <<: *exporter
     image: prometheuscommunity/elasticsearch-exporter:v1.9.0@sha256:09a6fb742d75ee6d4a03581f1887f66d80884b16d0db2302462667b899f24392
     command: [--es.uri=http://observability-elasticsearch:9200, --es.all]
     ports: ['127.0.0.1:29115:9114']
-    networks: [observability]
+    networks: [observability, scrape-access]
   victoriametrics-metrics:
     <<: *exporter
     image: victoriametrics/vmauth:v1.151.0@sha256:efd05bb90de99c842dae9b5848a0c83347caf5004c3e81deabcc8562024ab072
     command: [-auth.config=/run/secrets/vmauth.yaml, -httpListenAddr=:8427]
     volumes: [./secrets/vmauth.yaml:/run/secrets/vmauth.yaml:ro]
     ports: ['127.0.0.1:29428:8427']
-    networks: [observability]
+    networks: [observability, scrape-access]
 networks:
+  scrape-access:
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
   business:
     external: true
     name: ${GOPULSE_BUSINESS_NETWORK:?Set the product business network name}

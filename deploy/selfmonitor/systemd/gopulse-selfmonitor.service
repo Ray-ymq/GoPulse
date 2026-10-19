@@ -7,10 +7,10 @@ After=docker.service network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/gopulse-selfmonitor
-ExecStart=/usr/bin/docker compose --project-name gopulse-selfmonitor --file /opt/gopulse-selfmonitor/compose.yaml --env-file /opt/gopulse-selfmonitor/.env up --detach --remove-orphans
-ExecStop=/usr/bin/docker compose --project-name gopulse-selfmonitor --file /opt/gopulse-selfmonitor/compose.yaml --env-file /opt/gopulse-selfmonitor/.env down --timeout 20
+ExecStart=/usr/bin/docker compose --project-name gopulse-selfmonitor --file /opt/gopulse-selfmonitor/compose.yaml --env-file /opt/gopulse-selfmonitor/selfmonitor.env up --detach --remove-orphans
+ExecStop=/usr/bin/docker compose --project-name gopulse-selfmonitor --file /opt/gopulse-selfmonitor/compose.yaml --env-file /opt/gopulse-selfmonitor/selfmonitor.env down --timeout 20
 # Preserve volumes and finish cleanup after an interrupted or failed start too.
-ExecStopPost=/usr/bin/docker compose --project-name gopulse-selfmonitor --file /opt/gopulse-selfmonitor/compose.yaml --env-file /opt/gopulse-selfmonitor/.env down --timeout 20
+ExecStopPost=/usr/bin/docker compose --project-name gopulse-selfmonitor --file /opt/gopulse-selfmonitor/compose.yaml --env-file /opt/gopulse-selfmonitor/selfmonitor.env down --timeout 20
 TimeoutStartSec=10min
 TimeoutStopSec=90s
 # Deliberately no Install section: do not enable this unit at boot.

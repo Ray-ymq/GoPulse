@@ -1,29 +1,48 @@
 # Add to the existing product Compose invocation; Linux only.
 services:
+  redis:
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}" --maxmemory "$${REDIS_MAXMEMORY}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY}" --aclfile /run/secrets/selfmonitor-redis.acl']
+    volumes:
+      - ./selfmonitor/secrets/redis.acl:/run/secrets/selfmonitor-redis.acl:ro
   backend:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29131:19101']
   backend-2:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29132:19101']
   platform-api:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29133:19101']
     volumes:
       - /run/gopulse-selfmonitor:/run/gopulse-selfmonitor:ro
     group_add: ["${SELFMONITOR_SOCKET_GID:?Set the selfmonitor group numeric GID}"]
   business-worker:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29134:19102']
   business-worker-2:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29135:19102']
   search-indexer:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29136:19103']
   search-indexer-2:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29137:19103']
   monitor:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29138:19104']
   marshaller:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29139:19106']
   marshaller-2:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29140:19106']
   rabbitmq:
+    networks: [metrics-access]
     ports: ['127.0.0.1:29192:15692']
     volumes:
       - ./selfmonitor/rabbitmq-enabled-plugins:/etc/rabbitmq/enabled_plugins:ro
+networks:
+  # Internal product bridges discard published ports; this bridge enables the
+  # fixed loopback port mappings and retains ordinary product DNS connectivity.
+  metrics-access: {}
