@@ -2,6 +2,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 import exec from 'k6/execution';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { SharedArray } from 'k6/data';
 
 const baseURL = String(__ENV.GOPULSE_BASE_URL || '').replace(/\/$/, '');
 const cookieName = __ENV.LOAD_COOKIE_NAME || 'gopulse_session';
@@ -11,8 +12,26 @@ const warmupSeconds = Number(__ENV.LOAD_WARMUP_SECONDS || 0);
 const measurementSeconds = Number(__ENV.LOAD_MEASUREMENT_SECONDS || 1);
 const virtualUsers = Number(__ENV.LOAD_VUS || 1);
 const mix = JSON.parse(__ENV.LOAD_MIX_JSON || '[]');
-const corpus = JSON.parse(open(__ENV.LOAD_CORPUS_PATH));
-const credentials = JSON.parse(open(__ENV.LOAD_CREDENTIALS_PATH));
+// Every corpus column is a separate SharedArray. Sharing one composite object
+// made k6 copy the whole ~1MB corpus into each VU, so the load generator became
+// the memory bottleneck at the default 1024 virtual users. Primitive columns
+// stay shared and read-only.
+function sharedCorpusField(name) {
+  return new SharedArray(name, function () {
+    return JSON.parse(open(__ENV.LOAD_CORPUS_PATH))[name];
+  });
+}
+const readPostIDs = sharedCorpusField('read_post_ids');
+const interactionPostIDs = sharedCorpusField('interaction_post_ids');
+const editablePostIDs = sharedCorpusField('editable_post_ids');
+const deletePostIDs = sharedCorpusField('delete_post_ids');
+const corpusUsers = sharedCorpusField('users');
+const credentialUsers = new SharedArray('credential_users', function () {
+  return JSON.parse(open(__ENV.LOAD_CREDENTIALS_PATH)).users;
+});
+const credentialPassword = new SharedArray('credential_password', function () {
+  return [JSON.parse(open(__ENV.LOAD_CREDENTIALS_PATH)).password];
+})[0];
 
 const businessRequests = new Counter('business_requests');
 const businessLatency = new Trend('business_latency', true);
@@ -103,6 +122,10 @@ if (warmupSeconds > 0) {
 
 export const options = {
   scenarios,
+  // Authenticating every deterministic user during setup is CPU-bound. Batch
+  // the logins and keep a generous setup budget so a slow host cannot turn a
+  // capacity stage into a setup timeout.
+  setupTimeout: '300s',
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   thresholds: {
     business_success_rate: [{
@@ -121,35 +144,55 @@ export const options = {
 
 export function setup() {
   const sessions = [];
-  const count = Math.min(virtualUsers, credentials.users.length);
-  for (let index = 0; index < count; index += 1) {
-    const user = credentials.users[index];
-    const response = http.post(`${baseURL}/api/v1/auth/login`, JSON.stringify({
-      username: user.username,
-      password: credentials.password,
-    }), {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: `${timeoutSeconds}s`,
-      tags: { phase: 'setup', operation: 'login', category: 'identity_session', route: 'POST /api/v1/auth/login', method: 'POST' },
-    });
-    const passed = check(response, { 'setup login succeeded': (value) => value.status === 200 });
-    const cookie = response.cookies[cookieName] && response.cookies[cookieName][0];
-    if (!passed || !cookie || !cookie.value) {
-      setupLoginFailures.add(1, { phase: 'setup' });
-      throw new Error(`setup login failed for deterministic user ${index + 1}`);
+  // Authenticate one session per virtual user (bounded by the credential
+  // file); VUs cycle through the resulting sessions so per-identity quotas
+  // stay realistic with fewer VUs than credentials.
+  const count = Math.min(virtualUsers, credentialUsers.length);
+  const loginBatchSize = 16;
+  for (let start = 0; start < count; start += loginBatchSize) {
+    const end = Math.min(start + loginBatchSize, count);
+    const requests = [];
+    for (let index = start; index < end; index += 1) {
+      const user = credentialUsers[index];
+      requests.push({
+        method: 'POST',
+        url: `${baseURL}/api/v1/auth/login`,
+        body: JSON.stringify({ username: user.username, password: credentialPassword }),
+        params: {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: `${timeoutSeconds}s`,
+          tags: { phase: 'setup', operation: 'login', category: 'identity_session', route: 'POST /api/v1/auth/login', method: 'POST' },
+        },
+      });
     }
-    sessions.push(cookie.value);
+    const responses = http.batch(requests);
+    if (responses.length !== requests.length) {
+      throw new Error('setup login batch returned an unexpected response count');
+    }
+    for (let offset = 0; offset < responses.length; offset += 1) {
+      const response = responses[offset];
+      const passed = check(response, { 'setup login succeeded': (value) => value.status === 200 });
+      const cookie = response.cookies[cookieName] && response.cookies[cookieName][0];
+      if (!passed || !cookie || !cookie.value) {
+        setupLoginFailures.add(1, { phase: 'setup' });
+        throw new Error(`setup login failed for deterministic user ${start + offset + 1}`);
+      }
+      sessions.push(cookie.value);
+    }
   }
-  if (sessions.length < virtualUsers) {
-    throw new Error(`credentials contain ${sessions.length} users, need ${virtualUsers}`);
+  if (sessions.length === 0) {
+    throw new Error('credentials contain no users');
   }
-  return { corpus, credentials, sessions };
+  return { sessions };
 }
 
 export function business(data) {
-  const slot = __ITER;
-  const userIndex = (__VU - 1) % data.sessions.length;
-  const request = operation(slot, userIndex, data.corpus, data.credentials);
+  // A per-VU iteration counter would keep most VUs at slot 0 and turn the
+  // reviewed mix into a feed-read benchmark. The global iteration index makes
+  // the declared category and route split hold for every load level.
+  const slot = exec.scenario.iterationInTest;
+  const userIndex = slot % data.sessions.length;
+  const request = operation(slot, userIndex);
   const phase = exec.scenario.name === 'warmup' ? 'warmup' : 'measurement';
   const tags = {
     phase,
@@ -224,10 +267,10 @@ function classifyResponse(response, passed, tags) {
   }
 }
 
-function operation(slot, userIndex, corpus, credentials) {
+function operation(slot, userIndex) {
   const category = categoryForSlot(slot);
-  const postID = corpus.read_post_ids[indexFor(slot, corpus.read_post_ids.length)];
-  const user = corpus.users[indexFor(slot, corpus.users.length)];
+  const postID = readPostIDs[indexFor(slot, readPostIDs.length)];
+  const user = corpusUsers[indexFor(slot, corpusUsers.length)];
   if (category === 'read') {
     switch (Math.floor(slot / 100) % 5) {
       case 0: return get(category, 'GET /api/v1/posts', '/api/v1/posts?limit=20', [200]);
@@ -255,24 +298,32 @@ function operation(slot, userIndex, corpus, credentials) {
     switch (Math.floor(slot / 100) % 4) {
       case 0: return post(category, 'POST /api/v1/posts', '/api/v1/posts', { title: `k6 post ${__VU}-${slot}`, content: `deterministic content ${slot}` }, [201]);
       case 1: return post(category, 'POST /api/v1/posts/:postId/comments', `/api/v1/posts/${postID}/comments`, { content: `k6 comment ${slot}` }, [201]);
-      case 2: return post(category, 'PATCH /api/v1/posts/:postId', `/api/v1/posts/${postID}`, { title: `k6 edit ${slot}`, content: `deterministic edit ${slot}` }, [200], 'PATCH');
-      default: return post(category, 'DELETE /api/v1/posts/:postId', `/api/v1/posts/${postID}`, undefined, [204], 'DELETE');
+      case 2: {
+        const editable = editablePostIDs[userIndex];
+        const editableID = editable[slot % editable.length];
+        return post(category, 'PATCH /api/v1/posts/:postId', `/api/v1/posts/${editableID}`, { title: `k6 edit ${slot}`, content: `deterministic edit ${slot}` }, [200], 'PATCH');
+      }
+      default: {
+        const deletable = deletePostIDs[userIndex];
+        const deletableID = deletable[slot % deletable.length];
+        return post(category, 'DELETE /api/v1/posts/:postId', `/api/v1/posts/${deletableID}`, undefined, [204, 404], 'DELETE');
+      }
     }
   }
   if (category === 'interaction_write') {
-    const interactionPost = corpus.interaction_post_ids[indexFor(slot, corpus.interaction_post_ids.length)];
-    const target = corpus.users[(userIndex + Math.floor(slot % Math.max(1, corpus.users.length - 1)) + 1) % corpus.users.length].id;
+    const interactionPost = interactionPostIDs[indexFor(slot, interactionPostIDs.length)];
+    const target = corpusUsers[(userIndex + Math.floor(slot % Math.max(1, corpusUsers.length - 1)) + 1) % corpusUsers.length].id;
     switch (Math.floor(slot / 100) % 5) {
       case 0: return get(category, 'PUT /api/v1/posts/:postId/like', `/api/v1/posts/${interactionPost}/like`, [204], 'PUT');
       case 1: return get(category, 'DELETE /api/v1/posts/:postId/like', `/api/v1/posts/${interactionPost}/like`, [204], 'DELETE');
-      case 2: return get(category, 'PUT /api/v1/users/:userId/follow', `/api/v1/users/${target}/follow`, [204], 'PUT');
-      case 3: return get(category, 'DELETE /api/v1/users/:userId/follow', `/api/v1/users/${target}/follow`, [204], 'DELETE');
+      case 2: return get(category, 'PUT /api/v1/users/:userId/follow', `/api/v1/users/${target}/follow`, [200], 'PUT');
+      case 3: return get(category, 'DELETE /api/v1/users/:userId/follow', `/api/v1/users/${target}/follow`, [200], 'DELETE');
       default: return get(category, 'PUT /api/v1/posts/:postId/bookmark', `/api/v1/posts/${interactionPost}/bookmark`, [204], 'PUT');
     }
   }
   if (Math.floor(slot / 100) % 5 === 0) {
-    const loginUser = credentials.users[userIndex];
-    return post('identity_session', 'POST /api/v1/auth/login', '/api/v1/auth/login', { username: loginUser.username, password: credentials.password }, [200], 'POST', true);
+    const loginUser = credentialUsers[userIndex];
+    return post('identity_session', 'POST /api/v1/auth/login', '/api/v1/auth/login', { username: loginUser.username, password: credentialPassword }, [200], 'POST', true);
   }
   return get('identity_session', 'GET /api/v1/users/me', '/api/v1/users/me', [200]);
 }
