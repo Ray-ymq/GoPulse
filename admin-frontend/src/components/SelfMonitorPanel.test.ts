@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import SelfMonitorPanel from './SelfMonitorPanel.vue'
 import { getSelfMonitor, setSelfMonitor } from '../services/selfMonitor'
 vi.mock('../services/selfMonitor', () => ({ getSelfMonitor: vi.fn(), setSelfMonitor: vi.fn() }))
-const snapshot = (state: 'stopped' | 'starting' | 'running' | 'degraded' | 'unavailable') => ({ state, reason: state, grafana_url: '/grafana/' as const, targets: [] })
+const snapshot = (state: 'stopped' | 'starting' | 'running' | 'degraded' | 'unavailable') => ({ state, reason: state, grafana_port: 23000 as const, targets: [] })
 afterEach(() => { vi.clearAllMocks(); vi.useRealTimers() })
 describe('independent self monitoring', () => {
   it('starts once, polls real status, and never stops on unmount', async () => {
@@ -17,7 +17,7 @@ describe('independent self monitoring', () => {
     expect(wrapper.findAll('button')[0]!.attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('启动中')
     await vi.advanceTimersByTimeAsync(5000); await flushPromises()
-    expect(wrapper.find('a').attributes('href')).toBe('/grafana/')
+    expect(wrapper.find('a').attributes('href')).toBe(`http://${window.location.hostname}:23000/`)
     wrapper.unmount()
     await vi.advanceTimersByTimeAsync(10000)
     expect(setSelfMonitor).toHaveBeenCalledTimes(1)

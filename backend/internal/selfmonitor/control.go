@@ -22,10 +22,10 @@ const unit = "gopulse-selfmonitor.service"
 
 // Status deliberately omits upstream errors and addresses, which can contain secrets.
 type Status struct {
-	State      string   `json:"state"`
-	Reason     string   `json:"reason"`
-	GrafanaURL string   `json:"grafana_url"`
-	Targets    []Target `json:"targets"`
+	State       string   `json:"state"`
+	Reason      string   `json:"reason"`
+	GrafanaPort int      `json:"grafana_port"`
+	Targets     []Target `json:"targets"`
 }
 type Target struct {
 	Job      string `json:"job"`
@@ -33,7 +33,7 @@ type Target struct {
 	Up       bool   `json:"up"`
 }
 
-func status(state, reason string) Status { return Status{state, reason, "/grafana/", []Target{}} }
+func status(state, reason string) Status { return Status{state, reason, 23000, []Target{}} }
 
 type Runner func(context.Context, ...string) ([]byte, error)
 
@@ -141,7 +141,7 @@ func (s *Controller) snapshot(ctx context.Context) (Status, error) {
 	var grafana struct {
 		Database string `json:"database"`
 	}
-	if s.get(ctx, "http://127.0.0.1:23000/grafana/api/health", &grafana) != nil || grafana.Database != "ok" {
+	if s.get(ctx, "http://127.0.0.1:23000/api/health", &grafana) != nil || grafana.Database != "ok" {
 		state.State = "degraded"
 	}
 	if state.State == "degraded" {

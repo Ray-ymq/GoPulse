@@ -22,7 +22,7 @@ func selfMonitorHandler(client SelfMonitorController, action string) gin.Handler
 		}
 		state, err := client.Do(r.Context(), action)
 		if err != nil {
-			state = selfmonitor.Status{State: "unavailable", Reason: "control_unavailable", GrafanaURL: "/grafana/", Targets: []selfmonitor.Target{}}
+			state = selfmonitor.Status{State: "unavailable", Reason: "control_unavailable", GrafanaPort: 23000, Targets: []selfmonitor.Target{}}
 		}
 		// An unavailable control plane is a displayable state, never a fabricated
 		// stopped state; the UI can keep its retry control available.

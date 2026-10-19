@@ -4,7 +4,7 @@ export type SelfMonitorState = typeof selfMonitorStates[number]
 export interface SelfMonitorStatus {
   state: SelfMonitorState
   reason: string
-  grafana_url: '/grafana/'
+  grafana_port: 23000
   targets: { job: string; instance: string; up: boolean }[]
 }
 function valid(value: unknown): value is SelfMonitorStatus {
@@ -12,7 +12,7 @@ function valid(value: unknown): value is SelfMonitorStatus {
   const v = value as Record<string, unknown>
   return selfMonitorStates.some(state => state === v.state)
     && typeof v.reason === 'string' && v.reason.length <= 80
-    && v.grafana_url === '/grafana/' && Array.isArray(v.targets) && v.targets.length <= 64
+    && v.grafana_port === 23000 && Array.isArray(v.targets) && v.targets.length <= 64
     && v.targets.every(target => target && typeof target === 'object' && typeof target.job === 'string' && typeof target.instance === 'string' && typeof target.up === 'boolean')
 }
 export function getSelfMonitor(signal?: AbortSignal) {

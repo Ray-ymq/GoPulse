@@ -25,10 +25,10 @@ services:
     image: grafana/grafana:12.1.1@sha256:a1701c2180249361737a99a01bc770db39381640e4d631825d38ff4535efa47d
     network_mode: host
     environment:
-      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
       GF_SERVER_HTTP_PORT: '23000'
-      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:?Set the public HTTPS URL ending in /grafana/}
-      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:?Set the direct Grafana URL, e.g. http://server-ip:23000/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'false'
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set independent Grafana administrator}
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
       GF_AUTH_ANONYMOUS_ENABLED: 'false'

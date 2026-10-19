@@ -4,7 +4,7 @@
 
 ## 部署前准备
 
-1. 将本目录复制到主机 `/opt/gopulse-selfmonitor`，目录及 Compose、`.env`、配置和 systemd 文件由 root 持有且不可被管理后端用户修改。复制 `.env.example` 为 `.env`，填写产品的实际 Docker 网络名称、独立 Grafana 用户和站点 HTTPS 地址。先用 `docker network ls` 核对网络；本项目不创建、不删除产品网络。
+1. 将本目录复制到主机 `/opt/gopulse-selfmonitor`，目录及 Compose、`.env`、配置和 systemd 文件由 root 持有且不可被管理后端用户修改。复制 `.env.example` 为 `.env`，填写产品的实际 Docker 网络名称、独立 Grafana 用户和 Grafana 直接访问地址（例如 `http://服务器IP:23000/`）。先用 `docker network ls` 核对网络；本项目不创建、不删除产品网络。
 2. 在 `secrets/` 中创建以下文件。文件不进入 Git；Prometheus UID 65534、Grafana UID 472 和各 Exporter 必须能读取对应文件，其他服务不应挂载它们。根据实际容器 UID 设置权限，禁止给后端写权限。
 
    | 文件 | 内容 |
@@ -30,7 +30,7 @@
 3. 产品 override 已持久挂载 RabbitMQ 插件清单，启用 `rabbitmq_management` 和 `rabbitmq_prometheus`；更新产品部署会重建 RabbitMQ，安排业务维护窗口。该插件原生 `/metrics` 不需要管理 API 账号，仅通过回环映射采集。Elasticsearch 当前部署关闭认证；启用认证后必须先给 Exporter 配置独立只读 `monitor` 权限和 TLS，不能直接沿用此示例。
 4. 创建主机组 `gopulse-selfmonitor`，将管理后端运行用户加入此组。容器部署在原有产品 Compose 命令中附加 `-f deploy/selfmonitor/product.override.yaml`，并设置 `SELFMONITOR_SOCKET_GID` 为该组的数字 GID。该 override 只将全部进程指标端口和 RabbitMQ 原生指标映射到主机回环；不会将业务中间件暴露到公网。端口清单与 `prometheus.yaml` 一一对应。自定义副本数时同时修改两个清单及控制器预期实例数，不依赖 DNS 负载均衡发现副本。
 5. 在 backend 模块执行 `go build -o /tmp/gopulse-selfmonitor-control ./cmd/selfmonitor-control`，由部署管理员安装到 `/usr/local/libexec/gopulse-selfmonitor-control`，属主 root，模式 0755。安装 `systemd/` 下三个单元到 `/etc/systemd/system/`，执行 `systemctl daemon-reload`，然后 `systemctl enable --now gopulse-selfmonitor-control.socket`。先创建 socket 再启动管理后端容器，确保目录挂载不被 Docker 创建成错误属主。仅启用控制 socket，不启用 `gopulse-selfmonitor.service`。
-6. 将 `nginx.conf.example` 合入主机 HTTPS 反向代理站点并校验、重载。Grafana 的 `/grafana/` 与产品使用相同站点，使用 Grafana 自己的登录。产品容器内反向代理无法访问主机回环，应由主机代理提供此入口。
+6. Grafana 直接监听主机 `23000` 端口，使用自己的账号登录，无需配置反向代理。在防火墙或云安全组放行需要访问的客户端。管理页面的“打开 Grafana”使用当前页面主机名及 `http://主机名:23000/`，因此管理页面域名应直接指向部署主机；`GRAFANA_ROOT_URL` 填写同一地址。
 
 控制器没有 Docker socket；它仅能接受三个固定请求并控制 `gopulse-selfmonitor.service`。后端只挂载受组权限保护的 Unix socket 目录，没有 systemd 总线或 Docker 权限。不要把该控制 socket 转发为公共 HTTP 服务。
 
@@ -51,6 +51,7 @@ VictoriaMetrics 的统一 HTTP 认证包含写权限，不能交给 Prometheus�
 ```sh
 docker compose --env-file /opt/gopulse-selfmonitor/.env -f /opt/gopulse-selfmonitor/compose.yaml config --quiet
 systemctl start gopulse-selfmonitor.service
+curl --fail http://127.0.0.1:23000/api/health
 curl --fail http://127.0.0.1:29090/-/ready
 curl --fail 'http://127.0.0.1:29090/api/v1/targets?state=active'
 # 服务全部就绪后 45 秒内应有五种 GoPulse job 的样本，所有副本都应返回 up=1。
@@ -59,11 +60,13 @@ curl --fail 'http://127.0.0.1:29090/api/v1/targets?state=active'
 systemctl stop gopulse-selfmonitor.service
 ```
 
-Prometheus 每 15 秒采集、超时 5 秒、保留 15 天，不开启管理接口或生命周期 HTTP 接口。主机、Prometheus、Grafana 监听回环；中间件 Exporter 只发布回环端口。仪表盘显示空值为“无数据”，无 `or vector(0)` 填零。
+Prometheus 每 15 秒采集、超时 5 秒、保留 15 天，不开启管理接口或生命周期 HTTP 接口。Node Exporter、Prometheus 监听回环，中间件 Exporter 只发布回环端口；Grafana 监听全部 IPv4 地址的 23000 端口。仪表盘显示空值为“无数据”，无 `or vector(0)` 填零。
 
-参考：[Prometheus 配置](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)、[Grafana 反向代理](https://grafana.com/tutorials/run-grafana-behind-a-proxy/)。
+参考：[Prometheus 配置](https://prometheus.io/docs/prometheus/latest/configuration/configuration/)。
 
 ## 仓库验证记录
+
+取消反代后，另以临时 Grafana 容器验证 `23000/api/health` 和根路径登录页直接访问通过；相关后端 race、vet、构建及管理端类型检查、62 项测试、lint、构建通过。
 
 本次验证使用独立临时 Compose 项目及测试数据，没有安装主机 systemd 单元或重建业务服务：
 
@@ -73,4 +76,4 @@ Prometheus 每 15 秒采集、超时 5 秒、保留 15 天，不开启管理接�
 - 使用真实 VictoriaMetrics 验证受限代理：有效令牌可读原生指标，错误令牌及业务写入路径被拒绝。停止、重建自监控后，保存的 Grafana 仪表盘及先前 Prometheus 样本仍存在。
 - Backend、runtimekit、perflab 完整 lint 通过。其他模块完整 lint 仍有既有问题，不能将本次验证视为全仓库 lint 通过。
 
-实际部署时还需在目标主机执行上述部署校验，验证超级管理员浏览器操作与 systemd、反向代理、真实全部副本和中间件凭据的完整联动。隔离模拟测试不代替这项现场验收。
+实际部署时还需在目标主机执行上述部署校验，验证超级管理员浏览器操作与 systemd、Grafana 直接端口访问、真实全部副本和中间件凭据的完整联动。隔离模拟测试不代替这项现场验收。

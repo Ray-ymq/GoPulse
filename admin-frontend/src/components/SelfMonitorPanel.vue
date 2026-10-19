@@ -6,6 +6,15 @@ const pending = ref(false)
 const error = ref(false)
 const labels = { stopped: '已停止', starting: '启动中', running: '运行中', stopping: '停止中', degraded: '部分不可达', failed: '启动或停止失败', unavailable: '控制服务不可用' }
 const transitioning = computed(() => status.value?.state === 'starting' || status.value?.state === 'stopping')
+const grafanaURL = computed(() => {
+  const url = new URL(window.location.href)
+  url.protocol = 'http:'
+  url.port = String(status.value?.grafana_port ?? 23000)
+  url.pathname = '/'
+  url.search = ''
+  url.hash = ''
+  return url.href
+})
 let timer: ReturnType<typeof setTimeout> | undefined
 let controller: AbortController | undefined
 let disposed = false
@@ -35,7 +44,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); if (timer !== unde
     <div class="title-actions">
       <button type="button" :disabled="pending || transitioning || !status || !['stopped', 'failed', 'unavailable'].includes(status.state)" @click="refresh('start')">启动自监控</button>
       <button type="button" :disabled="pending || transitioning || !status || !['running', 'degraded', 'failed'].includes(status.state)" @click="refresh('stop')">停止自监控</button>
-      <a v-if="status && ['running', 'degraded'].includes(status.state)" href="/grafana/" target="_blank" rel="noopener noreferrer">打开 Grafana</a>
+      <a v-if="status && ['running', 'degraded'].includes(status.state)" :href="grafanaURL" target="_blank" rel="noopener noreferrer">打开 Grafana</a>
       <button type="button" :disabled="pending" @click="refresh()">重试 / 刷新状态</button>
     </div>
     <p>独立采集与持久化存储；关闭页面后继续运行。Grafana 使用独立账号登录。</p>

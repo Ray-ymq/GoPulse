@@ -14,7 +14,7 @@ type monitorStub struct{ calls int }
 
 func (s *monitorStub) Do(context.Context, string) (selfmonitor.Status, error) {
 	s.calls++
-	return selfmonitor.Status{State: "stopped", Reason: "stopped", GrafanaURL: "/grafana/", Targets: []selfmonitor.Target{}}, nil
+	return selfmonitor.Status{State: "stopped", Reason: "stopped", GrafanaPort: 23000, Targets: []selfmonitor.Target{}}, nil
 }
 func TestSelfMonitorRequiresBothAuthenticationAndAuthorization(t *testing.T) {
 	for _, status := range []int{401, 403, 200} {
