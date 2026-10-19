@@ -45,8 +45,11 @@ const (
 	r09FaultP99Limit     = 2 * time.Second
 	// Normal windows repeat three times; the contract compares their median
 	// effective goodput while aggregating tail and database evidence.
-	// The protected path adds one shared Redis decision per request. Its
-	// budget compares protected and unprotected reads using the same body cache.
+	// The protected path adds shared quota enforcement. The post_read policy
+	// leases four tokens per shared decision, so four requests share one Redis
+	// round trip while every authorized request still consumes a token that
+	// Redis already deducted. Its budget compares protected and unprotected
+	// reads using the same body cache.
 	r09ProtectedGoodputMin             = 0.90
 	r09DBWorkMaxRatio                  = 0.95
 	r09MaxNormalRejectRate             = 0.01

@@ -71,12 +71,12 @@ func TestSharedLimiterUsesAtomicRedisTimeAndCreationBudget(t *testing.T) {
 			t.Fatalf("script does not contain %q", required)
 		}
 	}
-	for _, required := range []string{"tonumber(ARGV[5])", "tonumber(ARGV[6])", "tonumber(ARGV[7])"} {
+	for _, required := range []string{"tonumber(ARGV[5])", "tonumber(ARGV[6])", "tonumber(ARGV[7])", "tonumber(ARGV[8])"} {
 		if !strings.Contains(redis.script, required) {
-			t.Fatalf("script does not use creation argument %q", required)
+			t.Fatalf("script does not use argument %q", required)
 		}
 	}
-	if len(redis.args) != 7 || redis.args[0] != float64(2) || redis.args[3] != int64(time.Minute/time.Millisecond) {
+	if len(redis.args) != 8 || redis.args[0] != float64(2) || redis.args[3] != int64(time.Minute/time.Millisecond) || redis.args[7] != float64(1) {
 		t.Fatalf("args=%#v", redis.args)
 	}
 }
@@ -151,5 +151,71 @@ func TestLocalLimiterIsBoundedAndRefills(t *testing.T) {
 	third, err := limiter.Allow(context.Background(), policy, "user:1")
 	if err != nil || !third.Allowed {
 		t.Fatalf("third=%#v error=%v", third, err)
+	}
+}
+
+type leaseFakeRedis struct {
+	value    any
+	evalCall int
+}
+
+func (redis *leaseFakeRedis) Eval(_ context.Context, _ string, _ []string, _ ...any) (any, error) {
+	redis.evalCall++
+	return redis.value, nil
+}
+
+func TestSharedLimiterAmortizesLeasedReadDecisions(t *testing.T) {
+	policy := testPolicy()
+	policy.Capacity = 10
+	policy.Lease = 4
+	redis := &leaseFakeRedis{value: []any{int64(1), int64(0), int64(4)}}
+	limiter := NewSharedLimiter(redis, time.Second)
+	now := time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+	limiter.leases.now = func() time.Time { return now }
+	for index := 0; index < 4; index++ {
+		decision, err := limiter.Allow(context.Background(), policy, "user:17")
+		if err != nil || !decision.Allowed {
+			t.Fatalf("Allow(%d) decision=%#v error=%v", index, decision, err)
+		}
+	}
+	if redis.evalCall != 1 {
+		t.Fatalf("Eval() calls=%d, want one shared decision per four leased requests", redis.evalCall)
+	}
+	// A partial grant is stored without inventing extra tokens.
+	redis.value = []any{int64(1), int64(0), int64(2)}
+	for index := 0; index < 3; index++ {
+		if _, err := limiter.Allow(context.Background(), policy, "user:18"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if redis.evalCall != 3 {
+		t.Fatalf("Eval() calls=%d, want two shared decisions for a two-token grant", redis.evalCall)
+	}
+	// The expired lease falls back to a new shared decision.
+	now = now.Add(2 * time.Minute)
+	if _, err := limiter.Allow(context.Background(), policy, "user:17"); err != nil {
+		t.Fatal(err)
+	}
+	if redis.evalCall != 4 {
+		t.Fatalf("Eval() calls=%d, want renewal after lease expiry", redis.evalCall)
+	}
+}
+
+func TestSharedLimiterDoesNotLeaseBelowRequestCost(t *testing.T) {
+	policy := testPolicy()
+	policy.Lease = 0
+	redis := &leaseFakeRedis{value: []any{int64(1), int64(0), int64(1)}}
+	limiter := NewSharedLimiter(redis, time.Second)
+	for index := 0; index < 3; index++ {
+		if _, err := limiter.Allow(context.Background(), policy, "user:17"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if redis.evalCall != 3 {
+		t.Fatalf("Eval() calls=%d, want one decision per request without a lease", redis.evalCall)
+	}
+	if err := (Policy{Name: "post_read", KeyPrefix: "k", Capacity: 2, RefillPerSecond: 1, Cost: 1, IdleTTL: time.Minute,
+		CreationCapacity: 1, CreationRate: 1, CreationTTL: time.Minute, Lease: 3}).Validate(); !errors.Is(err, ErrInvalidPolicy) {
+		t.Fatalf("lease above capacity error=%v", err)
 	}
 }

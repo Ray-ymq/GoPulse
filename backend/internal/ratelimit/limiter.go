@@ -44,11 +44,27 @@ type Policy struct {
 	CreationCapacity float64
 	CreationRate     float64
 	CreationTTL      time.Duration
+	// Lease is the largest number of tokens one shared decision may reserve for
+	// this process. Zero or one keeps an exact shared decision per request.
+	// A lease never grants tokens Redis did not deduct; unused leased tokens
+	// are lost, so the aggregate quota stays an upper bound. Only high-volume
+	// policies should opt in.
+	Lease float64
+}
+
+func (policy Policy) leaseSize() float64 {
+	if policy.Lease < policy.Cost {
+		return policy.Cost
+	}
+	return policy.Lease
 }
 
 func (policy Policy) Validate() error {
 	if !validName(policy.Name) || policy.Capacity <= 0 || policy.RefillPerSecond <= 0 || policy.Cost <= 0 || policy.Cost > policy.Capacity {
 		return fmt.Errorf("%w: quota values for %q are invalid", ErrInvalidPolicy, policy.Name)
+	}
+	if policy.Lease < 0 || policy.Lease > policy.Capacity || policy.Lease > 0 && policy.Lease < policy.Cost {
+		return fmt.Errorf("%w: lease for %q is invalid", ErrInvalidPolicy, policy.Name)
 	}
 	if policy.IdleTTL <= 0 || policy.IdleTTL > 365*24*time.Hour {
 		return fmt.Errorf("%w: idle TTL for %q is invalid", ErrInvalidPolicy, policy.Name)
@@ -93,21 +109,26 @@ local function read_state(key)
   return tonumber(values[1]), tonumber(values[2]), values[1] ~= false or values[2] ~= false
 end
 
-local function take(key, capacity, refill, cost, ttl, now, tokens, last)
+local function take(key, capacity, refill, cost, ttl, now, tokens, last, lease)
   if tokens == nil then tokens = capacity end
   if last == nil then last = now end
   local elapsed = now - last
   if elapsed < 0 then elapsed = 0 end
   tokens = math.min(capacity, tokens + elapsed * refill / 1000)
-  if tokens < cost then
+  local granted = 0
+  if tokens >= cost then
+    granted = math.min(lease, math.floor(tokens / cost) * cost)
+    if granted < cost then granted = 0 end
+  end
+  if granted < cost then
     redis.call('HSET', key, 'tokens', tostring(tokens), 'last_refill_ms', tostring(now))
     redis.call('PEXPIRE', key, tostring(ttl))
-    return {0, math.ceil((cost - tokens) * 1000 / refill)}
+    return {0, math.ceil((cost - tokens) * 1000 / refill), 0}
   end
-  tokens = tokens - cost
+  tokens = tokens - granted
   redis.call('HSET', key, 'tokens', tostring(tokens), 'last_refill_ms', tostring(now))
   redis.call('PEXPIRE', key, tostring(ttl))
-  return {1, 0}
+  return {1, 0, granted}
 end
 
 local clock = redis.call('TIME')
@@ -115,30 +136,33 @@ local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 local identity_tokens, identity_last, identity_exists = read_state(KEYS[1])
 if not identity_exists then
   local creation_tokens, creation_last = read_state(KEYS[2])
-  local creation = take(KEYS[2], tonumber(ARGV[5]), tonumber(ARGV[6]), 1, tonumber(ARGV[7]), now, creation_tokens, creation_last)
+  local creation = take(KEYS[2], tonumber(ARGV[5]), tonumber(ARGV[6]), 1, tonumber(ARGV[7]), now, creation_tokens, creation_last, 1)
   if creation[1] ~= 1 then
-    return {-2, creation[2]}
+    return {-2, creation[2], 0}
   end
 end
-local result = take(KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4]), now, identity_tokens, identity_last)
-return {result[1], result[2]}
+local result = take(KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4]), now, identity_tokens, identity_last, tonumber(ARGV[8]))
+return {result[1], result[2], result[3]}
 `
 
 // SharedLimiter executes one atomic Hash + Lua decision. The script obtains
 // Redis TIME itself, so independent Backend processes do not use wall-clock
-// values from their own machines.
+// values from their own machines. Policies with a Lease above the request cost
+// reserve a small token block per decision, which is what keeps a high-volume
+// read path from paying an extra Redis round trip for every request.
 type SharedLimiter struct {
 	client       RedisClient
 	timeout      time.Duration
 	scriptLoadMu sync.Mutex
 	scriptSHA    atomic.Pointer[string]
+	leases       *leaseCache
 }
 
 func NewSharedLimiter(client RedisClient, timeout time.Duration) *SharedLimiter {
 	if timeout <= 0 {
 		timeout = 200 * time.Millisecond
 	}
-	return &SharedLimiter{client: client, timeout: timeout}
+	return &SharedLimiter{client: client, timeout: timeout, leases: newLeaseCache(defaultLeaseEntries)}
 }
 
 func (limiter *SharedLimiter) Allow(ctx context.Context, policy Policy, identity string) (Decision, error) {
@@ -151,6 +175,10 @@ func (limiter *SharedLimiter) Allow(ctx context.Context, policy Policy, identity
 	identity = strings.TrimSpace(identity)
 	if identity == "" || len(identity) > 128 || strings.ContainsAny(identity, "\r\n\t ") {
 		return Decision{}, fmt.Errorf("%w: identity is invalid", ErrInvalidPolicy)
+	}
+	if limiter.leases.take(policy, identity) {
+		// The token was deducted from the shared bucket by an earlier decision.
+		return Decision{Allowed: true, Reason: "allow", Mode: "shared"}, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -168,17 +196,19 @@ func (limiter *SharedLimiter) Allow(ctx context.Context, policy Policy, identity
 		policy.CreationCapacity,
 		policy.CreationRate,
 		policy.CreationTTL.Milliseconds(),
+		policy.leaseSize(),
 	}
 	result, err := limiter.execute(operationContext, keys, args)
 	if err != nil {
 		return Decision{}, fmt.Errorf("%w: execute shared quota: %v", ErrUnavailable, err)
 	}
-	code, retry, err := parseResult(result)
+	code, retry, granted, err := parseResult(result)
 	if err != nil {
 		return Decision{}, fmt.Errorf("%w: decode shared quota: %v", ErrUnavailable, err)
 	}
 	decision := Decision{Mode: "shared"}
 	if code == 1 {
+		limiter.leases.add(policy, identity, granted)
 		decision.Allowed = true
 		decision.Reason = "allow"
 		return decision, nil
@@ -249,20 +279,27 @@ func isNoScript(err error) bool {
 	return err != nil && strings.Contains(strings.ToUpper(err.Error()), "NOSCRIPT")
 }
 
-func parseResult(value any) (int64, int64, error) {
+func parseResult(value any) (int64, int64, int64, error) {
 	values, ok := value.([]any)
-	if !ok || len(values) != 2 {
-		return 0, 0, errors.New("unexpected script result")
+	if !ok || len(values) < 2 || len(values) > 3 {
+		return 0, 0, 0, errors.New("unexpected script result")
 	}
 	code, err := integerResult(values[0])
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	retry, err := integerResult(values[1])
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
-	return code, retry, nil
+	if len(values) == 2 {
+		return code, retry, 0, nil
+	}
+	granted, err := integerResult(values[2])
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return code, retry, granted, nil
 }
 
 func integerResult(value any) (int64, error) {
