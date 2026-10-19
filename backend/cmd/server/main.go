@@ -122,6 +122,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	assembly.initializeMetrics(metrics)
 
 	runtimekit.BindShutdown(signalContext, shutdownTimeout)
+	go assembly.samplePools(signalContext, metrics)
 	internalMetrics, err := runtimekit.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, assembly.probes)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package instrumentation
 
 import (
+	"database/sql"
 	"errors"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ type Route struct{ Method, Template string }
 
 const BackendMaxRoutes = 96
 const BackendMaxBodyBytes = 1 << 20
-const BackendFamilies = 28
+const BackendFamilies = 37
 
 var backendMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE", "unknown"}
 var latencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2, 5, 10}
@@ -24,9 +25,10 @@ func BackendLatencyBuckets() []string {
 }
 
 type Backend struct {
-	state   *Registry
-	routes  map[Route]bool
-	latency *prometheus.HistogramVec
+	state         *Registry
+	routes        map[Route]bool
+	latency       *prometheus.HistogramVec
+	outboxLatency *prometheus.HistogramVec
 }
 
 var activeBackend atomic.Pointer[Backend]
@@ -83,7 +85,8 @@ func NewBackend(routes []Route) (*Backend, error) {
 			}
 		}
 	}
-	state.registry.MustRegister(b.latency)
+	b.outboxLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "gopulse_backend_outbox_operation_duration_seconds", Help: "Outbox database operation latency.", Buckets: latencyBuckets}, []string{"operation", "result"})
+	state.registry.MustRegister(b.latency, b.outboxLatency)
 	b.clearOutbox()
 	return b, nil
 }
@@ -217,4 +220,47 @@ func (b *Backend) Snapshot() ([]byte, bool) {
 		return nil, false
 	}
 	return b.state.Snapshot()
+}
+
+func (b *Backend) ObserveOutboxOperation(operation string, elapsed time.Duration, err error) {
+	if b == nil || (operation != "claim" && operation != "cleanup") {
+		return
+	}
+	result := "success"
+	if err != nil {
+		result = "failure"
+	}
+	b.outboxLatency.WithLabelValues(operation, result).Observe(elapsed.Seconds())
+}
+func (b *Backend) ObserveCleanupRows(candidates, deleted int) {
+	if b != nil {
+		b.state.Add("outbox_cleanup_rows_total", float64(candidates), "candidate")
+		b.state.Add("outbox_cleanup_rows_total", float64(deleted), "deleted")
+	}
+}
+
+// Pool counters report deltas; a sampler maintains the preceding sql.DBStats.
+func (b *Backend) ObserveMySQLPool(pool string, current, previous sql.DBStats) {
+	if b == nil {
+		return
+	}
+	b.state.Set("mysql_pool_open_connections", float64(current.OpenConnections), pool)
+	b.state.Set("mysql_pool_in_use", float64(current.InUse), pool)
+	b.state.Set("mysql_pool_max_connections", float64(current.MaxOpenConnections), pool)
+	if current.WaitCount >= previous.WaitCount {
+		b.state.Add("mysql_pool_wait_total", float64(current.WaitCount-previous.WaitCount), pool)
+	}
+	if current.WaitDuration >= previous.WaitDuration {
+		b.state.Add("mysql_pool_wait_duration_seconds_total", (current.WaitDuration - previous.WaitDuration).Seconds(), pool)
+	}
+}
+
+func (b *Backend) ObserveCacheWrite(err error) {
+	if b != nil {
+		result := "success"
+		if err != nil {
+			result = "failure"
+		}
+		b.state.Add("cache_writes_total", 1, result)
+	}
 }

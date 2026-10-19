@@ -38,8 +38,8 @@
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "mysql", "per_instance": 8, "total": 60}],
-        "queues": [{"name": "outbox_claim", "capacity": 10}],
+        "connections": [{"name": "mysql", "per_instance": 13, "total": 60}],
+        "queues": [{"name": "outbox_claim", "capacity": 50}],
         "in_flight": [{"name": "http", "capacity": 128}],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 15
@@ -685,8 +685,35 @@
           "type": "integer",
           "sensitive": false,
           "required": false,
-          "default": "10",
-          "compose_value": "${OUTBOX_CLAIM_BATCH:-10}",
+          "default": "50",
+          "compose_value": "${OUTBOX_CLAIM_BATCH:-50}",
+          "aliases": []
+        },
+        {
+          "key": "OUTBOX_DATABASE_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "2s",
+          "compose_value": "${OUTBOX_DATABASE_TIMEOUT:-2s}",
+          "aliases": []
+        },
+        {
+          "key": "OUTBOX_MYSQL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "4",
+          "compose_value": "${OUTBOX_MYSQL_MAX_OPEN_CONNS:-4}",
+          "aliases": []
+        },
+        {
+          "key": "OUTBOX_PUBLISH_CONCURRENCY",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "8",
+          "compose_value": "${OUTBOX_PUBLISH_CONCURRENCY:-8}",
           "aliases": []
         },
         {
@@ -712,8 +739,8 @@
           "type": "duration",
           "sensitive": false,
           "required": false,
-          "default": "1m",
-          "compose_value": "${OUTBOX_LEASE_DURATION:-1m}",
+          "default": "5m",
+          "compose_value": "${OUTBOX_LEASE_DURATION:-5m}",
           "aliases": []
         },
         {
@@ -4953,6 +4980,21 @@
     },
     {
       "key": "OUTBOX_CLAIM_BATCH",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "OUTBOX_DATABASE_TIMEOUT",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "OUTBOX_MYSQL_MAX_OPEN_CONNS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "OUTBOX_PUBLISH_CONCURRENCY",
       "type": "integer",
       "sensitive": false
     },

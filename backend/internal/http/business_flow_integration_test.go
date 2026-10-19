@@ -155,7 +155,7 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 		t.Fatalf("NewElasticsearch() error = %v", err)
 	}
 
-	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitPublisher, outbox.DispatcherOptions{Owner: "native-business-dispatcher", PollInterval: 20 * time.Millisecond, ClaimBatch: 5, LeaseDuration: 30 * time.Second, PublishTimeout: cfg.Outbox.PublishTimeout, CleanupInterval: time.Minute, Retention: time.Hour, CleanupBatch: 20})
+	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitPublisher, outbox.DispatcherOptions{Owner: "native-business-dispatcher", PollInterval: 20 * time.Millisecond, ClaimBatch: 5, LeaseDuration: time.Minute, PublishTimeout: cfg.Outbox.PublishTimeout, CleanupInterval: time.Minute, Retention: time.Hour, CleanupBatch: 20})
 	if err != nil {
 		t.Fatalf("NewDispatcher() error = %v", err)
 	}

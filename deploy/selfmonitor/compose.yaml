@@ -13,6 +13,7 @@ services:
     command: [--config.file=/etc/prometheus/prometheus.yaml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=15d, --web.listen-address=127.0.0.1:29090]
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./alerts.yaml:/etc/prometheus/alerts.yaml:ro
       - ./secrets/backend_token:/etc/prometheus/secrets/backend_token:ro
       - ./secrets/business-worker_token:/etc/prometheus/secrets/business-worker_token:ro
       - ./secrets/search-indexer_token:/etc/prometheus/secrets/search-indexer_token:ro

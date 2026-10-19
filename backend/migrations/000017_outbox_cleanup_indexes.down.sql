@@ -1,0 +1,2 @@
+DROP INDEX idx_commands_event_retention ON business_commands;
+DROP INDEX idx_requirements_event_retention ON business_event_requirements;

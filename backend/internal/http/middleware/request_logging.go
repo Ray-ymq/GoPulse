@@ -69,6 +69,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 }
 
 func Access(logger *slog.Logger) gin.HandlerFunc {
+	overload := &overloadLogs{}
 	return func(c *gin.Context) {
 		switch c.Request.URL.Path {
 		case "/startup", "/live", "/ready", "/health":
@@ -109,6 +110,9 @@ func Access(logger *slog.Logger) gin.HandlerFunc {
 			)
 		}
 
+		if !panicRecovered && status == 503 && hasErrorCode && expectedOverload(errorCode) && !overload.allow(logger, route, errorCode) {
+			return
+		}
 		switch {
 		case panicRecovered || status >= stdhttp.StatusInternalServerError:
 			requestLogger.Error("http request completed", attributes...)

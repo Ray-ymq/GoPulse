@@ -59,8 +59,8 @@ const (
 	defaultResourceRebuild                  = 8
 	defaultResourceWaiter                   = 256
 	defaultOutboxPollInterval               = time.Second
-	defaultOutboxClaimBatch                 = 10
-	defaultOutboxLeaseDuration              = time.Minute
+	defaultOutboxClaimBatch                 = 50
+	defaultOutboxLeaseDuration              = 5 * time.Minute
 	defaultOutboxPublishTimeout             = 5 * time.Second
 	defaultOutboxRetryDelay                 = 30 * time.Second
 	defaultOutboxCleanupInterval            = time.Hour
@@ -81,7 +81,7 @@ const (
 	minimumOutboxPollInterval               = 10 * time.Millisecond
 	maximumOutboxPollInterval               = time.Minute
 	minimumOutboxClaimBatch                 = 1
-	maximumOutboxClaimBatch                 = 100
+	maximumOutboxClaimBatch                 = 50
 	minimumOutboxLeaseDuration              = time.Second
 	maximumOutboxLeaseDuration              = 10 * time.Minute
 	minimumOutboxPublishTimeout             = 10 * time.Millisecond
@@ -93,7 +93,7 @@ const (
 	minimumOutboxRetention                  = time.Hour
 	maximumOutboxRetention                  = 365 * 24 * time.Hour
 	minimumOutboxCleanupBatch               = 1
-	maximumOutboxCleanupBatch               = 1000
+	maximumOutboxCleanupBatch               = 500
 	minimumElasticsearchTimeout             = 100 * time.Millisecond
 	maximumElasticsearchTimeout             = 30 * time.Second
 	minimumSearchReindexBatch               = 1
@@ -181,15 +181,18 @@ type ProtectionConfig struct {
 }
 
 type OutboxConfig struct {
-	PollInterval     time.Duration
-	ClaimBatch       int
-	LeaseDuration    time.Duration
-	PublishTimeout   time.Duration
-	RetryDelay       time.Duration
-	SearchRetryDelay time.Duration
-	CleanupInterval  time.Duration
-	Retention        time.Duration
-	CleanupBatch     int
+	DatabaseTimeout    time.Duration
+	MaxOpenConns       int
+	PublishConcurrency int
+	PollInterval       time.Duration
+	ClaimBatch         int
+	LeaseDuration      time.Duration
+	PublishTimeout     time.Duration
+	RetryDelay         time.Duration
+	SearchRetryDelay   time.Duration
+	CleanupInterval    time.Duration
+	Retention          time.Duration
+	CleanupBatch       int
 }
 
 type ElasticsearchConfig struct {
@@ -536,9 +539,27 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		if outboxErr != nil {
 			return Config{}, outboxErr
 		}
-		requiredOutboxLease := time.Duration(outboxClaimBatch)*outboxPublishTimeout + outboxLeaseSafetyMargin
+		dbTimeout, outboxErr := durationValue(lookup, "OUTBOX_DATABASE_TIMEOUT", 2*time.Second, 10*time.Millisecond, 30*time.Second)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		poolSize, outboxErr := integerValue(lookup, "OUTBOX_MYSQL_MAX_OPEN_CONNS", 4)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		if poolSize < 1 || poolSize > 32 {
+			return Config{}, errors.New("OUTBOX_MYSQL_MAX_OPEN_CONNS must be between 1 and 32")
+		}
+		concurrency, outboxErr := integerValue(lookup, "OUTBOX_PUBLISH_CONCURRENCY", 8)
+		if outboxErr != nil {
+			return Config{}, outboxErr
+		}
+		if concurrency < 1 || concurrency > 32 {
+			return Config{}, errors.New("OUTBOX_PUBLISH_CONCURRENCY must be between 1 and 32")
+		}
+		requiredOutboxLease := time.Duration((outboxClaimBatch+concurrency-1)/concurrency)*outboxPublishTimeout + time.Duration(outboxClaimBatch+2)*dbTimeout + outboxLeaseSafetyMargin
 		if outboxLeaseDuration < requiredOutboxLease {
-			return Config{}, fmt.Errorf("OUTBOX_LEASE_DURATION must be at least OUTBOX_CLAIM_BATCH * OUTBOX_PUBLISH_TIMEOUT + %s", outboxLeaseSafetyMargin)
+			return Config{}, fmt.Errorf("OUTBOX_LEASE_DURATION must be at least ceil(OUTBOX_CLAIM_BATCH / OUTBOX_PUBLISH_CONCURRENCY) * OUTBOX_PUBLISH_TIMEOUT + (OUTBOX_CLAIM_BATCH + 2) * OUTBOX_DATABASE_TIMEOUT + %s", outboxLeaseSafetyMargin)
 		}
 		outboxRetryDelay, outboxErr := durationValue(lookup, "OUTBOX_RETRY_DELAY", defaultOutboxRetryDelay, minimumOutboxRetryDelay, maximumOutboxRetryDelay)
 		if outboxErr != nil {
@@ -564,10 +585,25 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			return Config{}, fmt.Errorf("OUTBOX_CLEANUP_BATCH must be between %d and %d", minimumOutboxCleanupBatch, maximumOutboxCleanupBatch)
 		}
 		outboxConfig = OutboxConfig{
+			DatabaseTimeout: dbTimeout, MaxOpenConns: poolSize, PublishConcurrency: concurrency,
 			PollInterval: outboxPollInterval, ClaimBatch: outboxClaimBatch, LeaseDuration: outboxLeaseDuration,
 			PublishTimeout: outboxPublishTimeout, RetryDelay: outboxRetryDelay, SearchRetryDelay: searchRetryDelay,
 			CleanupInterval: outboxCleanupInterval, Retention: outboxRetention, CleanupBatch: outboxCleanupBatch,
 		}
+	}
+
+	// Include dedicated background and readiness pools in the configured per-role
+	// MySQL budget; API writes still use only mysqlMaxOpenConns.
+	totalConnections, budgetErr := integerValue(lookup, "MYSQL_TOTAL_MAX_OPEN_CONNS", defaultMySQLTotalOpenConns)
+	if budgetErr != nil {
+		return Config{}, budgetErr
+	}
+	roleConnections := mysqlMaxOpenConns + 1
+	if serviceRole.RunsBusiness() {
+		roleConnections += outboxConfig.MaxOpenConns
+	}
+	if roleConnections*replicaCount > totalConnections {
+		return Config{}, errors.New("MYSQL_TOTAL_MAX_OPEN_CONNS must cover API, outbox and probe pools times GOPULSE_REPLICA_COUNT")
 	}
 
 	return Config{

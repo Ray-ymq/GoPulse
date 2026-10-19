@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -136,11 +137,12 @@ func dispatcherTestRecord(t *testing.T, id uint64) Record {
 func newDispatcherForTest(t *testing.T, store Store, publisher Publisher) *Dispatcher {
 	t.Helper()
 	dispatcher, err := NewDispatcher(store, publisher, DispatcherOptions{
-		Owner:          "dispatcher-test",
-		PollInterval:   10 * time.Millisecond,
-		ClaimBatch:     2,
-		LeaseDuration:  2 * time.Second,
-		PublishTimeout: 100 * time.Millisecond,
+		Owner:           "dispatcher-test",
+		DatabaseTimeout: 10 * time.Millisecond,
+		PollInterval:    10 * time.Millisecond,
+		ClaimBatch:      2,
+		LeaseDuration:   2 * time.Second,
+		PublishTimeout:  100 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("NewDispatcher() error = %v", err)
@@ -171,7 +173,7 @@ func TestDispatcherPublishesAndMarksOnlyAfterPublishSucceeds(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
 		t.Fatalf("decode structured log: %v", err)
 	}
-	if record["message"] != "outbox event published" || record["event_id"] != publisher.published[0].EventID || record["event_type"] != string(publisher.published[0].EventType) || record["outbox_id"] != float64(41) {
+	if record["message"] != "outbox publish confirmed" || record["event_id"] != publisher.published[0].EventID || record["event_type"] != string(publisher.published[0].EventType) || record["outbox_id"] != float64(41) {
 		t.Fatalf("published log = %#v", record)
 	}
 }
@@ -282,6 +284,7 @@ func TestDispatcherRunSchedulesPublishedCleanup(t *testing.T) {
 	store := &dispatcherStoreFake{cleanupCalled: make(chan struct{})}
 	publisher := &dispatcherPublisherFake{}
 	dispatcher := newDispatcherForTest(t, store, publisher)
+	dispatcher.cleanupStartupDelay = time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- dispatcher.Run(ctx) }()
@@ -379,13 +382,106 @@ func TestNewDispatcherRejectsLeaseThatCannotCoverClaimBatch(t *testing.T) {
 	store := &dispatcherStoreFake{}
 	publisher := &dispatcherPublisherFake{}
 	_, err := NewDispatcher(store, publisher, DispatcherOptions{
-		Owner:          "dispatcher-test",
-		PollInterval:   10 * time.Millisecond,
-		ClaimBatch:     10,
-		LeaseDuration:  30 * time.Second,
-		PublishTimeout: 5 * time.Second,
+		Owner:           "dispatcher-test",
+		DatabaseTimeout: 10 * time.Millisecond,
+		PollInterval:    10 * time.Millisecond,
+		ClaimBatch:      10,
+		LeaseDuration:   30 * time.Second,
+		PublishTimeout:  5 * time.Second,
 	})
 	if err == nil || !strings.Contains(err.Error(), "full claim batch publish budget") {
 		t.Fatalf("NewDispatcher() error = %v, want batch publish budget validation", err)
+	}
+}
+
+type batchDispatcherStore struct {
+	*dispatcherStoreFake
+	completed *atomic.Int32
+	batches   int
+}
+
+func (s *batchDispatcherStore) MarkPublishedBatch(_ context.Context, ids []uint64, _ string) ([]error, error) {
+	if int(s.completed.Load()) != len(s.records) {
+		return nil, errors.New("ack before all publishers completed")
+	}
+	s.batches++
+	s.markCalls = append(s.markCalls, ids...)
+	return make([]error, len(ids)), nil
+}
+
+type exclusivePublisher struct {
+	active    atomic.Bool
+	completed *atomic.Int32
+	entered   chan struct{}
+	gate      <-chan struct{}
+}
+
+func (p *exclusivePublisher) Publish(ctx context.Context, _ bus.Envelope) error {
+	if !p.active.CompareAndSwap(false, true) {
+		return errors.New("publisher used concurrently")
+	}
+	defer p.active.Store(false)
+	select {
+	case p.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.gate:
+	}
+	p.completed.Add(1)
+	return nil
+}
+func TestParallelPublishersOwnStateAndAcknowledgeAfterWholeBatch(t *testing.T) {
+	completed := &atomic.Int32{}
+	entered := make(chan struct{}, 16)
+	gate := make(chan struct{})
+	records := []Record{}
+	for i := 1; i <= 16; i++ {
+		records = append(records, dispatcherTestRecord(t, uint64(i)))
+	}
+	store := &batchDispatcherStore{dispatcherStoreFake: &dispatcherStoreFake{records: records}, completed: completed}
+	publishers := []Publisher{}
+	for i := 0; i < 8; i++ {
+		publishers = append(publishers, &exclusivePublisher{completed: completed, entered: entered, gate: gate})
+	}
+	dispatcher, err := NewDispatcher(store, publishers[0], DispatcherOptions{Publishers: publishers, ClaimBatch: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- dispatcher.DispatchOnce(context.Background()) }()
+	for i := 0; i < 8; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			close(gate)
+			t.Fatal("publishers did not run concurrently")
+		}
+	}
+	if completed.Load() != 0 {
+		t.Fatal("publish completed before gate")
+	}
+	close(gate)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if store.batches != 1 || len(store.markCalls) != 16 {
+		t.Fatalf("batch calls=%d marked=%d", store.batches, len(store.markCalls))
+	}
+}
+func TestStorageBackoffIsBoundedAndJittered(t *testing.T) {
+	for attempt := uint(0); attempt < 16; attempt++ {
+		cap := time.Second * time.Duration(1<<min(attempt, 5))
+		if cap > 30*time.Second {
+			cap = 30 * time.Second
+		}
+		for i := 0; i < 100; i++ {
+			delay := storageBackoff(attempt)
+			if delay < cap/2 || delay > cap {
+				t.Fatalf("attempt=%d delay=%s", attempt, delay)
+			}
+		}
 	}
 }

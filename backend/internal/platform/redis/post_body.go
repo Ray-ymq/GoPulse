@@ -86,7 +86,12 @@ func (repository *PostBodyRepository) GetBody(ctx context.Context, key post.Body
 
 // SetBody writes a v2 body under the exact key supplied by the caller. A
 // bounded jitter prevents a hot set of revisions expiring at one instant.
-func (repository *PostBodyRepository) SetBody(ctx context.Context, key post.BodyKey, body post.Body) error {
+func (repository *PostBodyRepository) SetBody(ctx context.Context, key post.BodyKey, body post.Body) (writeErr error) {
+	defer func() {
+		if metrics := instrumentation.BackendActive(); metrics != nil {
+			metrics.ObserveCacheWrite(writeErr)
+		}
+	}()
 	if repository == nil || !validBodyKey(key) || !body.ValidForKey(key) {
 		return ErrInvalidPostBody
 	}

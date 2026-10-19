@@ -863,3 +863,31 @@ func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, 
 	}
 	return nil
 }
+
+// FindViewerProjection rechecks the authoritative key in the same SQL snapshot
+// as counts, author data and viewer relationships.
+func (repository *MySQLRepository) FindViewerProjection(ctx context.Context, expected ReadContext, viewer uint64) (projection ViewerProjection, err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_dynamic", err, time.Since(started)) }()
+	var epoch, status string
+	var author, revision uint64
+	err = repository.database.QueryRowContext(ctx, `
+ SELECT e.data_epoch,e.status,p.author_id,p.content_revision,u.id,u.username,u.display_name,
+ (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id),
+ (SELECT COUNT(*) FROM post_likes l WHERE l.post_id=p.id),
+ EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.user_id=?),
+ EXISTS(SELECT 1 FROM user_follows f WHERE f.followed_id=p.author_id AND f.follower_id=?),
+ EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id=p.id AND b.user_id=?)
+ FROM business_environment e JOIN posts p ON p.id=? JOIN users u ON u.id=p.author_id WHERE e.singleton=1`,
+		viewer, viewer, viewer, expected.PostID).Scan(&epoch, &status, &author, &revision, &projection.Author.ID, &projection.Author.Username, &projection.Author.DisplayName, &projection.CommentCount, &projection.LikeCount, &projection.Liked, &projection.Following, &projection.Bookmarked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ViewerProjection{}, ErrNotFound
+	}
+	if err != nil {
+		return ViewerProjection{}, fmt.Errorf("find viewer projection: %w", err)
+	}
+	if epoch != expected.Epoch || status != businessstate.StatusReady || author != expected.AuthorID || revision != expected.ContentRevision {
+		return ViewerProjection{}, ErrReadContextChanged
+	}
+	return projection, nil
+}

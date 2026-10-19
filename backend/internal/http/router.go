@@ -3,6 +3,8 @@ package http
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
 	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
@@ -147,7 +149,7 @@ func apiAdmission(limit int) gin.HandlerFunc {
 			if metrics := instrumentation.BackendActive(); metrics != nil {
 				metrics.ObserveHTTPRejected()
 			}
-			runtimekit.WriteError(c.Writer, 503, "backend_busy", "service temporarily busy")
+			response.Error(c, apperror.New(apperror.CodeBackendBusy, "service temporarily busy"))
 			c.Abort()
 		}
 	}
