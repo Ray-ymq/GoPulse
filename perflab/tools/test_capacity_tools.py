@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import compare_ttl
+import sample_capacity
 
 
 class TTLGateTests(unittest.TestCase):
@@ -42,3 +43,14 @@ class TTLGateTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ContainerLineTests(unittest.TestCase):
+    def test_docker_stats_ansi_codes_are_stripped(self):
+        line = '\x1b[H{"ID": "abc", "CPUPerc": "1.25%"}\x1b[K\n'
+        self.assertEqual(sample_capacity.parse_container_line(line),
+                         {'ID': 'abc', 'CPUPerc': '1.25%'})
+
+    def test_non_sample_lines_are_ignored(self):
+        for line in ['', '\x1b[K', 'not json', '{"Container": "x"}']:
+            self.assertIsNone(sample_capacity.parse_container_line(line))

@@ -5,10 +5,13 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import threading
 import time
 import urllib.request
+
+ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
 
 SAFE_CONFIG = (
     'MYSQL_MAX_OPEN_CONNS', 'OUTBOX_MYSQL_MAX_OPEN_CONNS',
@@ -20,6 +23,25 @@ SAFE_CONFIG = (
 
 def utc():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def parse_container_line(line):
+    """Parse one `docker stats --format '{{json .}}'` line.
+
+    docker prefixes streamed lines with ANSI cursor codes (ESC[H) and strips
+    them with ESC[K, including when stdout is a pipe, so a plain json.loads
+    silently drops every sample.
+    """
+    line = ANSI_ESCAPE.sub('', line).strip()
+    if not line:
+        return None
+    try:
+        item = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(item, dict) or 'ID' not in item:
+        return None
+    return item
 
 
 def sample_metrics(url, token):
@@ -44,12 +66,11 @@ def run_window(output, name, seconds, url, token, containers, redis_url=None):
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         def collect():
             for line in process.stdout:
-                try:
-                    item = json.loads(line.lstrip('\x1b[2J\x1b[H'))
-                    with lock:
-                        latest[item['ID']] = (time.monotonic(), item)
-                except (ValueError, KeyError):
+                item = parse_container_line(line)
+                if item is None:
                     continue
+                with lock:
+                    latest[item['ID']] = (time.monotonic(), item)
         reader = threading.Thread(target=collect, daemon=True)
         reader.start()
         try:
