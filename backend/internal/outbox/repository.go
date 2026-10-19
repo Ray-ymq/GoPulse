@@ -250,7 +250,7 @@ func (repository *Repository) Claim(ctx context.Context, owner string, batch int
 		for rows.Next() {
 			record, err := scanRecord(rows)
 			if err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return nil, fmt.Errorf("scan claimable outbox event: %w", err)
 			}
 			records = append(records, record)
@@ -387,7 +387,7 @@ func (repository *Repository) CleanupPublished(ctx context.Context, publishedBef
 	nextAt, nextID := repository.cleanupAt, repository.cleanupID
 	for candidates.Next() {
 		if err := candidates.Scan(&nextID, &nextAt); err != nil {
-			candidates.Close()
+			_ = candidates.Close()
 			return 0, fmt.Errorf("read cleanup candidate: %w", err)
 		}
 		candidateIDs = append(candidateIDs, nextID)
@@ -593,7 +593,7 @@ func (repository *Repository) MarkPublishedBatch(ctx context.Context, ids []uint
 	if err != nil {
 		return nil, fmt.Errorf("begin batch acknowledgement: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	now := repository.now()
 	args := []any{owner, now}
 	args = append(args, idsToAny(ids)...)
@@ -605,7 +605,7 @@ func (repository *Repository) MarkPublishedBatch(ctx context.Context, ids []uint
 	for rows.Next() {
 		var id uint64
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		current[id] = true
