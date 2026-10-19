@@ -1,8 +1,10 @@
 package testenv
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,35 +151,35 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 		return err
 	}
 	if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/ready", s.values["MARSHALLER_HTTP_PORT"]), readinessTimeout,
-		s.values["MARSHALLER_API_TOKEN"], "test Marshaller", aliveIn(state, "marshaller")); err != nil {
+		s.values["MARSHALLER_API_TOKEN"], "test Marshaller", s.processAlive(state, "marshaller")); err != nil {
 		return err
 	}
 	if err := s.spawn(state, "backend", []string{backend}, backendEnv, backendDir); err != nil {
 		return err
 	}
 	if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/ready", s.values["HTTP_PORT"]), readinessTimeout,
-		"", "test Backend", aliveIn(state, "backend")); err != nil {
+		"", "test Backend", s.processAlive(state, "backend")); err != nil {
 		return err
 	}
 	if err := s.spawn(state, "business-worker", []string{worker}, workerEnv, backendDir); err != nil {
 		return err
 	}
 	if err := ready.Wait("http://127.0.0.1:19102/ready", readinessTimeout, "",
-		"test Business Worker", aliveIn(state, "business-worker")); err != nil {
+		"test Business Worker", s.processAlive(state, "business-worker")); err != nil {
 		return err
 	}
 	if err := s.spawn(state, "search-indexer", []string{indexer}, indexerEnv, backendDir); err != nil {
 		return err
 	}
 	if err := ready.Wait("http://127.0.0.1:19103/ready", readinessTimeout, "",
-		"test Search Indexer", aliveIn(state, "search-indexer")); err != nil {
+		"test Search Indexer", s.processAlive(state, "search-indexer")); err != nil {
 		return err
 	}
 	if err := s.spawn(state, "monitor", []string{monitor}, monitorEnv, filepath.Join(s.root, "monitor")); err != nil {
 		return err
 	}
 	if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/ready", s.values["MONITOR_HTTP_PORT"]), readinessTimeout,
-		monitorEnv["MONITOR_API_TOKEN"], "test Monitor", aliveIn(state, "monitor")); err != nil {
+		monitorEnv["MONITOR_API_TOKEN"], "test Monitor", s.processAlive(state, "monitor")); err != nil {
 		return err
 	}
 
@@ -312,12 +314,22 @@ func (s *session) cleanupObservationAccounts(state *workspace.State) error {
 		fmt.Sprintf("DELETE FROM bootstrap_super_admin WHERE user_id IN (SELECT id FROM users WHERE username IN (%s));", list),
 		fmt.Sprintf("DELETE FROM users WHERE username IN (%s);", list),
 	}, " ")
-	if state.Project == "" || state.EnvFile == "" || len(state.ComposeFiles) == 0 {
-		return fmt.Errorf("cannot clean observability test administrator without Compose state")
+	if state == nil || state.Project == "" || s.containers == nil || s.containers.mysql == nil {
+		return fmt.Errorf("cannot clean observability test administrator without Testcontainers state")
 	}
-	arguments := []string{"exec", "-T", "mysql", "mysql", "-uroot",
-		"-p" + s.values["MYSQL_ROOT_PASSWORD"], s.values["MYSQL_DATABASE"], "-e", sql}
-	return s.command.Run(s.root, Environ(), "observability test administrator cleanup", 0, arguments...)
+	code, output, execErr := s.containers.mysql.Exec(context.Background(), []string{
+		"mysql", "-uroot", "-p" + s.values["MYSQL_ROOT_PASSWORD"], s.values["MYSQL_DATABASE"], "-e", sql,
+	})
+	if output != nil {
+		_, _ = io.Copy(io.Discard, output)
+	}
+	if execErr != nil {
+		return fmt.Errorf("observability test administrator cleanup failed: %w", execErr)
+	}
+	if code != 0 {
+		return fmt.Errorf("observability test administrator cleanup failed with exit code %d", code)
+	}
+	return nil
 }
 
 // buildBinary reuses a previously built binary while its source digest matches.
@@ -360,5 +372,18 @@ func aliveIn(state *workspace.State, name string) func() bool {
 	return func() bool {
 		record, found := state.Processes[name]
 		return found && proc.Owned(record)
+	}
+}
+
+func (s *session) processAlive(state *workspace.State, name string) func() bool {
+	return func() bool {
+		if s.context != nil {
+			select {
+			case <-s.context.Done():
+				return false
+			default:
+			}
+		}
+		return aliveIn(state, name)()
 	}
 }

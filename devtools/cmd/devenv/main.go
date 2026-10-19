@@ -74,13 +74,16 @@ func run(args []string) int {
 		return 1
 	}
 
-	interrupted := make(chan os.Signal, 1)
-	signal.Notify(interrupted, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-interrupted
-		fmt.Fprintln(os.Stderr, "[gopulse] interrupted")
-		os.Exit(130)
-	}()
+	if command != "integration" {
+		interrupted := make(chan os.Signal, 1)
+		signal.Notify(interrupted, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(interrupted)
+		go func() {
+			<-interrupted
+			fmt.Fprintln(os.Stderr, "[gopulse] interrupted")
+			os.Exit(130)
+		}()
+	}
 
 	switch command {
 	case "deps":
