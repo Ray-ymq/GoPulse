@@ -47,14 +47,15 @@ func Environ() map[string]string {
 func now() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000000+00:00") }
 
 type session struct {
-	root       string
-	ws         workspace.Workspace
-	values     envfile.Values
-	processEnv map[string]string
-	envFile    string
-	project    string
-	containers *dependencyContainers
-	context    context.Context
+	root            string
+	ws              workspace.Workspace
+	values          envfile.Values
+	processEnv      map[string]string
+	envFile         string
+	project         string
+	observationRoot string
+	containers      *dependencyContainers
+	context         context.Context
 	// The three effectful steps stay overridable so the failure and cleanup
 	// contract is covered without Docker.
 	startDependencies      func(map[string]string) error
@@ -95,14 +96,16 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 		processEnv[key] = value
 	}
 	project := ws.ProjectTest()
+	observationRoot := filepath.Join(ws.PrivateRoot(), fmt.Sprintf("integration-observe-%d-%d", os.Getpid(), time.Now().UnixNano()))
 	current := &session{
-		root:       ws.Root,
-		ws:         ws,
-		values:     values,
-		processEnv: processEnv,
-		envFile:    envFile,
-		project:    project,
-		context:    context.Background(),
+		root:            ws.Root,
+		ws:              ws,
+		values:          values,
+		processEnv:      processEnv,
+		envFile:         envFile,
+		project:         project,
+		observationRoot: observationRoot,
+		context:         context.Background(),
 	}
 	current.startDependencies = func(environment map[string]string) error {
 		_ = environment

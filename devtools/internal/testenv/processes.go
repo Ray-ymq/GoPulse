@@ -142,8 +142,8 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 	monitorEnv["GOPULSE_RUNTIME_MODE"] = "host"
 	monitorEnv["GOPULSE_INSTANCE_ID"] = "monitor-test"
 	monitorEnv["MONITOR_HTTP_HOST"] = "127.0.0.1"
-	monitorEnv["MONITOR_PLUGIN_ROOT"] = filepath.Join(s.ws.PrivateRoot(), "monitor-plugins")
-	monitorEnv["MONITOR_SPOOL_DIR"] = filepath.Join(s.ws.PrivateRoot(), "monitor-spool")
+	monitorEnv["MONITOR_PLUGIN_ROOT"] = filepath.Join(s.privateObservationRoot(), "monitor-plugins")
+	monitorEnv["MONITOR_SPOOL_DIR"] = filepath.Join(s.privateObservationRoot(), "monitor-spool")
 	monitorEnv["MONITOR_RELEASE_CATALOG"] = filepath.Join(s.values["MONITOR_PACKAGE_DIR"], "catalog.json")
 	monitorEnv["MONITOR_BOOTSTRAP_PACKAGE"] = redisExporterPackage(s.root, s.values["MONITOR_PACKAGE_DIR"])
 
@@ -252,12 +252,25 @@ func (s *session) cleanup(state *workspace.State, observe bool) []error {
 	} else if s.stopDependencies != nil {
 		s.stopDependencies(state)
 	}
+	if observe && s.observationRoot != "" {
+		if err := os.RemoveAll(s.observationRoot); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+			fmt.Fprintf(os.Stderr, "[gopulse] warning: remove observation private state: %v\n", err)
+		}
+	}
 	state.StoppedAt = now()
 	if err := s.saveIntegrationState(state); err != nil {
 		cleanupErrors = append(cleanupErrors, err)
 		fmt.Fprintf(os.Stderr, "[gopulse] warning: %v\n", err)
 	}
 	return cleanupErrors
+}
+
+func (s *session) privateObservationRoot() string {
+	if s.observationRoot != "" {
+		return s.observationRoot
+	}
+	return filepath.Join(s.ws.PrivateRoot(), "integration-observe")
 }
 
 // observationUsernames is the deterministic set the integration flow may

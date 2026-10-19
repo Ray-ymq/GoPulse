@@ -29,7 +29,7 @@ const (
 	integrationRedisImage           = "redis:7.2.5-alpine"
 	integrationRabbitMQImage        = "rabbitmq:3.13.3-management-alpine"
 	integrationElasticsearchImage   = "docker.elastic.co/elasticsearch/elasticsearch:9.5.2"
-	integrationKafkaImage           = "confluentinc/confluent-local:7.9.0"
+	integrationKafkaImage           = "confluentinc/confluent-local:7.5.0"
 	integrationVictoriaMetricsImage = "victoriametrics/victoria-metrics:v1.151.0"
 )
 
@@ -62,6 +62,14 @@ type dependencyContainers struct {
 func startDependencyContainers(ctx context.Context, runID string, observe bool) (*dependencyContainers, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("TESTCONTAINERS_RYUK_DISABLED")), "true") {
 		return nil, errors.New("Testcontainers resource reaper is disabled; unset TESTCONTAINERS_RYUK_DISABLED")
+	}
+	// The Kafka module copies the Docker host and mapped port into its
+	// advertised listener before the broker starts. A local Unix-socket daemon
+	// can otherwise report 0.0.0.0, which Kafka rejects as non-routable.
+	if strings.TrimSpace(os.Getenv("TESTCONTAINERS_HOST_OVERRIDE")) == "" {
+		if err := os.Setenv("TESTCONTAINERS_HOST_OVERRIDE", "127.0.0.1"); err != nil {
+			return nil, fmt.Errorf("set Testcontainers host override: %w", err)
+		}
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -159,13 +167,13 @@ func startDependencyContainers(ctx context.Context, runID string, observe bool) 
 	}
 	manager.items = append(manager.items, namedContainer{name: "kafka", container: kafkaContainer})
 	if err := waitForExec(ctx, kafkaContainer, "Kafka broker protocol health", []string{
-		"/opt/kafka/bin/kafka-broker-api-versions", "--bootstrap-server", "localhost:9093",
+		"/usr/bin/kafka-broker-api-versions", "--bootstrap-server", "kafka:9092",
 	}); err != nil {
 		return nil, err
 	}
 	for _, topic := range []string{"gopulse-observability-metrics", "gopulse-observability-logs", "gopulse-observability-events"} {
 		if err := waitForExec(ctx, kafkaContainer, "Kafka topic initialization", []string{
-			"/opt/kafka/bin/kafka-topics", "--bootstrap-server", "localhost:9093", "--create", "--if-not-exists",
+			"/usr/bin/kafka-topics", "--bootstrap-server", "kafka:9092", "--create", "--if-not-exists",
 			"--topic", topic, "--partitions", "4", "--replication-factor", "1",
 		}); err != nil {
 			return nil, err
