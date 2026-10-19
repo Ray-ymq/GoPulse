@@ -1,0 +1,9 @@
+# Copy to secrets/vmauth.yaml; never commit real credentials.
+users:
+  - bearer_token: <independent-read-only-token-matching-victoriametrics_token>
+    url_map:
+      - src_paths: [/proxy/metrics]
+        drop_src_path_prefix_parts: 1
+        url_prefix: http://victoriametrics:8428
+        headers:
+          - 'Authorization: Basic <base64-of-existing-VM-user:password>'

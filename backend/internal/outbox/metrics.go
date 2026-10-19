@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 )
 
 // SampleMetrics only aggregates indexed status and creation timestamps. It
 // never reads an event payload and never runs in a request/metrics handler.
-func (repository *Repository) SampleMetrics(ctx context.Context, metrics *componentmetrics.Backend) {
+func (repository *Repository) SampleMetrics(ctx context.Context, metrics *instrumentation.Backend) {
 	sample := func() {
 		queryCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()

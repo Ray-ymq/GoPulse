@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/instrumentation"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,7 +77,7 @@ func (k *Kafka) Commit(ctx context.Context, record Record) error {
 }
 
 func (k *Kafka) Ready(ctx context.Context) (result error) {
-	defer func() { componentmetrics.Dependency("kafka", result) }()
+	defer func() { instrumentation.Dependency("kafka", result) }()
 	if k.halted.Load() {
 		return errors.New("Kafka partition processing halted")
 	}
@@ -137,7 +137,7 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 			pending = 0
 		}
 		lagMu.Unlock()
-		if metrics := componentmetrics.Active(); metrics != nil && partition.Partition >= 0 && partition.Partition < 16 {
+		if metrics := instrumentation.Active(); metrics != nil && partition.Partition >= 0 && partition.Partition < 16 {
 			metrics.Set("partition_lag", float64(pending), fmt.Sprintf("%d", partition.Partition))
 		}
 	}
@@ -191,7 +191,7 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 	for runCtx.Err() == nil {
 		fetches := k.Client.PollRecords(runCtx, maxInFlight)
 		if errs := fetches.Errors(); len(errs) > 0 {
-			componentmetrics.Dependency("kafka", errs[0].Err)
+			instrumentation.Dependency("kafka", errs[0].Err)
 			if ctx.Err() != nil {
 				break
 			}
@@ -201,7 +201,7 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 			continue
 		}
 		if fetches.NumRecords() > 0 {
-			componentmetrics.Dependency("kafka", nil)
+			instrumentation.Dependency("kafka", nil)
 		}
 		fetches.EachRecord(func(record *kgo.Record) {
 			if runCtx.Err() != nil {

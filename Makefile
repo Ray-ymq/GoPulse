@@ -7,7 +7,7 @@ DEVENV := $(MAKE) --no-print-directory -C devtools build && ./devtools/bin/deven
 
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
-GO_MODULES := backend componentmetrics marshaller monitor perflab \
+GO_MODULES := backend runtimekit marshaller monitor perflab \
               exporters/elasticsearch exporters/kafka exporters/mysql \
               exporters/rabbitmq exporters/redis exporters/victoriametrics \
               devtools

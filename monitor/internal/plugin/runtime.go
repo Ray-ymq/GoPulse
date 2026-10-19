@@ -8,9 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 	"io"
 	"net/http"
 	"os"
@@ -593,7 +593,7 @@ func (c *runtimeCore) launch(ctx context.Context, id string, r *revision, trial 
 	if trial {
 		timeout, cancel := context.WithTimeout(ctx, c.cfg.StartupTimeout)
 		defer cancel()
-		request, _ := componentmetrics.NewRequest(timeout, http.MethodGet, c.metrics(id), nil)
+		request, _ := runtimekit.NewRequest(timeout, http.MethodGet, c.metrics(id), nil)
 		client := &http.Client{Timeout: c.cfg.StartupTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		response, e := client.Do(request)
 		if e == nil {

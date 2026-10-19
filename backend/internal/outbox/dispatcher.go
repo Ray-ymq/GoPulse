@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -313,7 +313,7 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	}
 	if envelope.HasInvalidTraceContext() {
 		tracing.RecordInvalidContext()
-		if backendMetrics := componentmetrics.BackendActive(); backendMetrics != nil {
+		if backendMetrics := instrumentation.BackendActive(); backendMetrics != nil {
 			backendMetrics.ObserveTraceContextInvalid()
 		}
 	}
@@ -339,7 +339,7 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	publishStarted := dispatcher.clock()
 	publishErr := dispatcher.publisher.Publish(publishContext, envelope)
 	cancel()
-	if backendMetrics := componentmetrics.BackendActive(); backendMetrics != nil {
+	if backendMetrics := instrumentation.BackendActive(); backendMetrics != nil {
 		result := "success"
 		if publishErr != nil {
 			result = "failure"

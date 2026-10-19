@@ -12,10 +12,10 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -142,7 +142,7 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 		if committed {
 			result = "success"
 		}
-		if metrics := componentmetrics.BackendActive(); metrics != nil {
+		if metrics := instrumentation.BackendActive(); metrics != nil {
 			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
 		}
 		if !committed {
@@ -570,7 +570,7 @@ WHERE p.id=? AND p.author_id=?`, postID, authorID).Scan(
 }
 
 func observePostDB(operation string, err error, elapsed time.Duration) {
-	if metrics := componentmetrics.BackendActive(); metrics != nil {
+	if metrics := instrumentation.BackendActive(); metrics != nil {
 		result := "success"
 		if errors.Is(err, ErrReadContextChanged) {
 			result = "version_changed"

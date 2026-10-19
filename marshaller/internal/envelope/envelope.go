@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 )
 
 const (
@@ -242,7 +242,7 @@ func decodeLegacyMetrics(body []byte, source string) (Payload, error) {
 		payload.PluginID, payload.PluginVersion = payload.ProducerID, payload.ProducerVersion
 	}
 	if payload.ProducerKind == "component" {
-		if payload.ProducerID != source || payload.TargetID != componentmetrics.Target(source) {
+		if payload.ProducerID != source || payload.TargetID != runtimekit.Target(source) {
 			return Payload{}, reject("invalid_producer")
 		}
 		if err := validateTransport(source, &payload, false); err != nil {
@@ -258,7 +258,7 @@ func decodeLegacyMetrics(body []byte, source string) (Payload, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics" || componentmetrics.IsComponent(source))) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {
@@ -372,13 +372,6 @@ func validateMetricsPayload(source string, p *Payload, at time.Time) error {
 }
 
 func metricKind(source, name string) string {
-	if spec, ok := componentmetrics.Catalog(source); ok {
-		for _, family := range spec.Families {
-			if family.Name == name {
-				return family.Kind
-			}
-		}
-	}
 	if strings.HasSuffix(name, "_total") || strings.HasSuffix(name, "_count") || strings.HasSuffix(name, "_bucket") {
 		return "counter"
 	}

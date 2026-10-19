@@ -4,6 +4,6 @@ datasources:
     uid: selfmonitor
     type: prometheus
     access: proxy
-    url: http://127.0.0.1:19090
+    url: http://127.0.0.1:29090
     isDefault: true
     editable: false

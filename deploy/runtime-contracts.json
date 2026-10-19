@@ -1823,42 +1823,6 @@
           "aliases": []
         },
         {
-          "key": "BACKEND_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "backend",
-          "compose_value": "backend,backend-2,platform-api",
-          "aliases": []
-        },
-        {
-          "key": "BUSINESS_WORKER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "business-worker",
-          "compose_value": "business-worker,business-worker-2",
-          "aliases": []
-        },
-        {
-          "key": "SEARCH_INDEXER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "search-indexer",
-          "compose_value": "search-indexer,search-indexer-2",
-          "aliases": []
-        },
-        {
-          "key": "MARSHALLER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "marshaller",
-          "compose_value": "marshaller,marshaller-2",
-          "aliases": []
-        },
-        {
           "key": "MARSHALLER_API_TOKEN",
           "type": "string",
           "sensitive": true,
@@ -2253,42 +2217,6 @@
       "plugin_id": null,
       "environment": [
         {
-          "key": "BACKEND_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "backend",
-          "compose_value": "backend,backend-2,platform-api",
-          "aliases": []
-        },
-        {
-          "key": "BACKEND_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "BUSINESS_WORKER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "business-worker",
-          "compose_value": "business-worker,business-worker-2",
-          "aliases": []
-        },
-        {
-          "key": "BUSINESS_WORKER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}",
-          "aliases": []
-        },
-        {
           "key": "GOPULSE_INSTANCE_ID",
           "type": "string",
           "sensitive": false,
@@ -2340,15 +2268,6 @@
           "required": true,
           "default": null,
           "compose_value": "${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "MARSHALLER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}",
           "aliases": []
         },
         {
@@ -2683,24 +2602,6 @@
           "default": "6379",
           "compose_value": "6379",
           "aliases": []
-        },
-        {
-          "key": "SEARCH_INDEXER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "search-indexer",
-          "compose_value": "search-indexer,search-indexer-2",
-          "aliases": []
-        },
-        {
-          "key": "SEARCH_INDEXER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}",
-          "aliases": []
         }
       ],
       "listeners": [
@@ -2742,7 +2643,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^redis-exporter-local$",
         "min": 1,
         "max": 1,
@@ -2755,7 +2656,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -2904,7 +2805,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^mysql-exporter-local$",
         "min": 1,
         "max": 1,
@@ -2917,7 +2818,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3075,7 +2976,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^rabbitmq-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3088,7 +2989,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3246,7 +3147,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^kafka-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3259,7 +3160,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3417,7 +3318,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^elasticsearch-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3430,7 +3331,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3579,7 +3480,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^victoriametrics-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3592,7 +3493,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },

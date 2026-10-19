@@ -2,7 +2,7 @@ package runtime
 
 import (
 	"context"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 
 	"errors"
 	"net"
@@ -26,7 +26,7 @@ type Config struct {
 var ErrConfig = errors.New("invalid_configuration")
 
 func Load() (Config, error) {
-	if err := componentmetrics.ValidateRuntimeEnvironment("elasticsearch-exporter"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("elasticsearch-exporter"); err != nil {
 		return Config{}, err
 	}
 

@@ -113,7 +113,7 @@ func (s *session) startObservationProcesses(state *workspace.State) error {
 		return err
 	}
 	monitorDigest, err := digest.Paths(s.root, []string{
-		filepath.Join(s.root, "componentmetrics"),
+		filepath.Join(s.root, "runtimekit"),
 		filepath.Join(s.root, "monitor"),
 	})
 	if err != nil {

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 const (
@@ -56,7 +56,7 @@ func PostBodyKey(key post.BodyKey) string {
 // GetBody reads the exact epoch and revision fixed by the authoritative read context.
 func (repository *PostBodyRepository) GetBody(ctx context.Context, key post.BodyKey) (post.Body, bool, error) {
 	observe := func(result string) {
-		if metrics := componentmetrics.BackendActive(); metrics != nil {
+		if metrics := instrumentation.BackendActive(); metrics != nil {
 			metrics.ObserveCacheRequest(result)
 		}
 	}

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"io"
 	"log/slog"
 	"net/http"
@@ -47,7 +47,7 @@ func (store *MySQLDocumentStore) FindDocument(ctx context.Context, postID uint64
 	if errors.Is(err, sql.ErrNoRows) {
 		observedErr = nil
 	}
-	componentmetrics.Dependency("mysql", observedErr)
+	instrumentation.Dependency("mysql", observedErr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, sql.ErrNoRows
 	}
@@ -138,7 +138,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 		// Hold the authoritative row lock through the external write. Deletion cannot
 		// commit before an in-flight old snapshot has finished indexing.
 		tx, err := store.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-		componentmetrics.Dependency("mysql", err)
+		instrumentation.Dependency("mysql", err)
 		if err != nil {
 			span.SetStatus(codes.Error, "mysql_unavailable")
 			return err
@@ -150,7 +150,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 		if errors.Is(err, sql.ErrNoRows) {
 			observedErr = nil
 		}
-		componentmetrics.Dependency("mysql", observedErr)
+		instrumentation.Dependency("mysql", observedErr)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			span.SetStatus(codes.Error, "mysql_unavailable")
 			return err
@@ -160,7 +160,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 			return err
 		}
 		err = tx.Commit()
-		componentmetrics.Dependency("mysql", err)
+		instrumentation.Dependency("mysql", err)
 		return err
 	}
 	return processor.project(ctx, envelope)
@@ -188,7 +188,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 				freshnessResult = "failure"
 				span.SetStatus(codes.Error, "delete_failed")
 			}
-			componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", freshnessResult)
+			instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", freshnessResult)
 			if err != nil {
 				return err
 			}
@@ -233,7 +233,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 	}
 	if indexErr != nil {
 		processor.logIndex(indexContext, envelope, "failure")
-		componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "failure")
+		instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "failure")
 		span.SetStatus(codes.Error, "index_failed")
 		var permanent *PermanentIndexError
 		if errors.As(indexErr, &permanent) {
@@ -253,7 +253,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 		}
 	}
 	processor.logIndex(indexContext, envelope, "success", writeResult.Index)
-	componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
+	instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
 	return nil
 }
 

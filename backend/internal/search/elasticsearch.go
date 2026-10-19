@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"net/http"
 	"net/url"
@@ -590,7 +590,7 @@ func (repository *ElasticsearchRepository) do(ctx context.Context, method, path 
 	if repository == nil || repository.performer == nil || repository.Purpose() != "search" {
 		return nil, ErrUnavailable
 	}
-	request, err := componentmetrics.NewRequest(ctx, method, path, body)
+	request, err := runtimekit.NewRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, ErrUnavailable
 	}

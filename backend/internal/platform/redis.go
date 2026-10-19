@@ -3,7 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"net"
 	"strconv"
 	"sync"
@@ -53,7 +53,7 @@ func NewRedis(cfg config.RedisConfig) *Redis {
 
 func (client *Redis) Check(ctx context.Context) error {
 	err := client.call(ctx, func() error { return client.client.Ping(ctx).Err() })
-	componentmetrics.Dependency("redis", err)
+	instrumentation.Dependency("redis", err)
 	return err
 }
 
@@ -68,7 +68,7 @@ func (client *Redis) Get(ctx context.Context, key string) (string, error) {
 	if errors.Is(err, goredis.Nil) {
 		observedErr = nil
 	}
-	componentmetrics.Dependency("redis", observedErr)
+	instrumentation.Dependency("redis", observedErr)
 	if errors.Is(err, goredis.Nil) {
 		return "", ErrRedisKeyNotFound
 	}
@@ -77,13 +77,13 @@ func (client *Redis) Get(ctx context.Context, key string) (string, error) {
 
 func (client *Redis) Set(ctx context.Context, key, value string, expiration time.Duration) error {
 	err := client.call(ctx, func() error { return client.client.Set(ctx, key, value, expiration).Err() })
-	componentmetrics.Dependency("redis", err)
+	instrumentation.Dependency("redis", err)
 	return err
 }
 
 func (client *Redis) Delete(ctx context.Context, key string) error {
 	err := client.call(ctx, func() error { return client.client.Del(ctx, key).Err() })
-	componentmetrics.Dependency("redis", err)
+	instrumentation.Dependency("redis", err)
 	return err
 }
 
@@ -97,7 +97,7 @@ func (client *Redis) Eval(ctx context.Context, script string, keys []string, arg
 		value, err = client.client.Eval(ctx, script, keys, args...).Result()
 		return err
 	})
-	componentmetrics.Dependency("redis", err)
+	instrumentation.Dependency("redis", err)
 	return value, err
 }
 
@@ -112,7 +112,7 @@ func (client *Redis) EvalSha(ctx context.Context, sha string, keys []string, arg
 		}
 		return err
 	})
-	componentmetrics.Dependency("redis", err)
+	instrumentation.Dependency("redis", err)
 	return value, err
 }
 
@@ -123,7 +123,7 @@ func (client *Redis) ScriptLoad(ctx context.Context, script string) (string, err
 		value, err = client.client.ScriptLoad(ctx, script).Result()
 		return err
 	})
-	componentmetrics.Dependency("redis", err)
+	instrumentation.Dependency("redis", err)
 	return value, err
 }
 
@@ -134,7 +134,7 @@ func (client *Redis) TTL(ctx context.Context, key string) (time.Duration, error)
 		value, err = client.client.TTL(ctx, key).Result()
 		return err
 	})
-	componentmetrics.Dependency("redis", err)
+	instrumentation.Dependency("redis", err)
 	return value, err
 }
 

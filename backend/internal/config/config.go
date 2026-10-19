@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"net"
 	"net/url"
 	"os"
@@ -259,7 +259,7 @@ func Load() (Config, error) {
 	if _, err := LoadServiceRoleFrom(os.LookupEnv); err != nil {
 		return Config{}, err
 	}
-	if err := componentmetrics.ValidateRuntimeEnvironment("backend"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("backend"); err != nil {
 		return Config{}, err
 	}
 
@@ -291,7 +291,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 	instanceID := valueOrDefault(lookup, "GOPULSE_INSTANCE_ID", "backend-local")
-	if err := componentmetrics.ValidateInstanceID(instanceID); err != nil {
+	if err := runtimekit.ValidateInstanceID(instanceID); err != nil {
 		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
 	}
 	businessStage, err := loadBusinessStageConfig(lookup, runtimeMode, serviceRole)

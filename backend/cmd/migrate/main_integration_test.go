@@ -149,8 +149,8 @@ func TestMigrationStateIntegration(t *testing.T) {
 	f.awaitMySQL()
 
 	validated := f.migrate("validate", 0)
-	if validated.State != "valid" || validated.BinaryTarget != 15 {
-		t.Fatal("expected valid migration source with the contracted target 15")
+	if validated.State != "valid" || validated.BinaryTarget != 16 {
+		t.Fatal("expected valid migration source with the contracted target 16")
 	}
 	f.receipt.BinaryTarget = validated.BinaryTarget
 	f.requireState(f.migrate("status", 0), "clean", -1)
@@ -180,6 +180,7 @@ func TestMigrationStateIntegration(t *testing.T) {
 	}
 	f.receipt.Checks = append(f.receipt.Checks, "empty_concurrent_current_repeat")
 
+	f.checkSelfmonitorRetirement()
 	f.checkLockTimeout(locker)
 	f.receipt.Checks = append(f.receipt.Checks, "lock_timeout")
 	baseline := f.sql("SHOW TABLES;")
@@ -205,6 +206,7 @@ func TestMigrationStateIntegration(t *testing.T) {
 
 	f.sql(fmt.Sprintf("UPDATE schema_migrations SET version=%d,dirty=0;", validated.BinaryTarget))
 	// Local-only reverse setup; this is not a product rollback/recovery mechanism.
+	f.migrate("down", 0)
 	f.migrate("down", 0)
 	f.migrate("down", 0)
 	f.requireState(f.migrate("status", 0), "behind", 13)
@@ -234,10 +236,10 @@ func TestMigrationStateIntegration(t *testing.T) {
 	recovered := f.migrate("up", 0)
 	f.requireState(recovered, "current", validated.BinaryTarget)
 	if recovered.Changed == nil || !*recovered.Changed || f.sql("SHOW TABLES;") != baseline || f.sql(dataQuery) != baselineData ||
-		f.sql("SELECT version,dirty FROM schema_migrations;") != "15\t0" {
-		t.Fatal("explicit v12 resume must restore target 15 and preserve existing data")
+		f.sql("SELECT version,dirty FROM schema_migrations;") != "16\t0" {
+		t.Fatal("explicit v12 resume must restore target 16 and preserve existing data")
 	}
-	f.receipt.Checks = append(f.receipt.Checks, "explicit_v12_resume_then_v15")
+	f.receipt.Checks = append(f.receipt.Checks, "explicit_v12_resume_then_v16")
 	f.checksPassed = true
 }
 
@@ -426,4 +428,26 @@ func (f *migrationFixture) checkLockTimeout(executable string) {
 	if strings.Contains(ready+stderr.String(), f.password) {
 		f.t.Fatal("migration lock fixture leaked credentials")
 	}
+}
+
+// Exercise the real MySQL JSON selector and joined updates on an owned schema.
+func (f *migrationFixture) checkSelfmonitorRetirement() {
+	f.t.Helper()
+	f.migrate("down", 0)
+	f.requireState(f.migrate("status", 0), "behind", 15)
+	f.sql("INSERT INTO users (username,password_hash) VALUES ('selfmonitor-migration','hash');")
+	f.sql(`INSERT INTO alert_rules (name,enabled,severity,source,selector,reducer,operator,threshold,window_seconds,for_seconds,revision,created_by,updated_by,created_at,updated_at)
+ SELECT CONCAT('retirement-',n),TRUE,'warning','metrics',JSON_OBJECT('metric',metric),'avg','>',1,60,0,1,u.id,u.id,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)
+ FROM users u JOIN (SELECT 1 n,'gopulse_backend_outbox_pending' metric UNION ALL SELECT 2,'gopulse_redis_connected_clients') m WHERE u.username='selfmonitor-migration';`)
+	f.sql(`INSERT INTO alert_incidents (rule_id,revision,name,severity,source,object,status,first_triggered_at,last_triggered_at,last_evaluated_at,evaluation_count)
+ SELECT id,revision,name,severity,source,JSON_OBJECT(),'firing',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),1 FROM alert_rules WHERE name LIKE 'retirement-%';`)
+	f.sql(`INSERT INTO alert_rule_states (rule_id,state,data_status,active_incident_id,lease_owner,lease_until,next_evaluation_at)
+ SELECT r.id,'firing','ok',i.id,'fixture',UTC_TIMESTAMP(6)+INTERVAL 1 HOUR,UTC_TIMESTAMP(6) FROM alert_rules r JOIN alert_incidents i ON i.rule_id=r.id WHERE r.name LIKE 'retirement-%';`)
+	f.requireState(f.migrate("up", 0), "current", 16)
+	got := f.sql(`SELECT r.name,r.enabled,r.revision,s.state,s.data_status,s.lease_owner,i.status,i.resolution_reason FROM alert_rules r JOIN alert_rule_states s ON s.rule_id=r.id JOIN alert_incidents i ON i.rule_id=r.id WHERE r.name LIKE 'retirement-%' ORDER BY r.name;`)
+	want := "retirement-1\t0\t2\tdisabled\tunknown\t\tclosed\tselfmonitor_moved\nretirement-2\t1\t1\tfiring\tok\tfixture\tfiring\t"
+	if got != strings.TrimSpace(want) {
+		f.t.Fatalf("selfmonitor retirement modified the wrong rules or lost history: %q", got)
+	}
+	f.receipt.Checks = append(f.receipt.Checks, "selfmonitor_retired_external_rule_and_history_preserved")
 }

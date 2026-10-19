@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { componentContract } from './componentMetrics'
 import { isEventEntry, isLogEntry, isMetricResult, observabilityApi } from './observability'
 import { isMetricCatalog } from './observability'
 
@@ -75,8 +74,6 @@ describe('observability runtime boundary', () => {
 it('validates the server metric catalog before opening a metric query', async () => {
   const { isMetricCatalog, metricCatalog } = await import('./observability')
   const catalog = metricCatalog.map(item => {
-    const component = componentContract(item.value)
-    if (component) return {metric:item.value,kind:component.kind,unit:component.unit,source:component.source,target_id:`${component.source}-local`,producer_kind:'component',producer_id:component.source}
     const source = item.value.split('_')[1]
     const unit = (item.value.endsWith('_up') || item.value.endsWith('_controller_available') || item.value.endsWith('_cluster_health_status')) ? 'boolean' : item.value.includes('_seconds') ? 'seconds' : item.value.endsWith('_bytes') ? 'bytes' : 'count'
     return {metric:item.value,kind:item.value.endsWith('_total') ? 'counter' : 'gauge',unit,source,target_id:`${source}-exporter-local`,producer_kind:'exporter_plugin',producer_id:`${source}-exporter`}
@@ -91,9 +88,9 @@ it('accepts the sixth plugin lifecycle identity without exposing runtime metadat
   expect(isEventEntry({...event,metadata:{...event.metadata,pid:'123'}})).toBe(false)
 })
 
-it('accepts component scraped labels and unknown dependency with additional dimensions', () => {
+it('rejects self monitoring metrics from the product query boundary', () => {
  const value = {metric:'gopulse_monitor_last_scrape_success_timestamp_seconds',kind:'gauge',unit:'unix_seconds',range:'15m',from:'2026-09-11T08:00:00Z',to:'2026-09-11T08:15:00Z',step_seconds:15,series:[{labels:{scraped_producer_kind:'component',scraped_target_id:'monitor-local'},points:[{timestamp:'2026-09-11T08:15:00Z',value:0}]}]}
- expect(isMetricResult(value)).toBe(true)
- expect(isMetricResult({...value,series:[{...value.series[0],labels:{...value.series[0]!.labels,node:'node-2'}}]})).toBe(true)
- expect(isMetricResult({...value,metric:'gopulse_backend_dependency_up',unit:'state',series:[{labels:{dependency:'redis'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(true)
+ expect(isMetricResult(value)).toBe(false)
+ expect(isMetricResult({...value,series:[{...value.series[0],labels:{...value.series[0]!.labels,node:'node-2'}}]})).toBe(false)
+ expect(isMetricResult({...value,metric:'gopulse_backend_dependency_up',unit:'state',series:[{labels:{dependency:'redis'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(false)
 })

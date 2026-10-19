@@ -5,7 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"log/slog"
 	"net"
 	"net/http"
@@ -16,7 +16,7 @@ import (
 
 type Checker interface{ Ready(context.Context) error }
 type Server struct {
-	probes         *componentmetrics.Probes
+	probes         *runtimekit.Probes
 	server         *http.Server
 	token          string
 	timeout        time.Duration
@@ -31,8 +31,8 @@ func New(host string, port int, token string, timeout time.Duration, kafka, stor
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ready", s.ready)
 	mux.HandleFunc("GET /internal/v1/telemetry-delivery", s.auth(s.deliveryStatus))
-	s.server = &http.Server{Addr: net.JoinHostPort(host, strconv.Itoa(port)), Handler: componentmetrics.HTTP(mux, logger), ReadHeaderTimeout: 2 * time.Second}
-	p, _ := componentmetrics.NewProbes(context.Background(), timeout, 250*time.Millisecond, s.Check)
+	s.server = &http.Server{Addr: net.JoinHostPort(host, strconv.Itoa(port)), Handler: runtimekit.HTTP(mux, logger), ReadHeaderTimeout: 2 * time.Second}
+	p, _ := runtimekit.NewProbes(context.Background(), timeout, 250*time.Millisecond, s.Check)
 	p.Started()
 	s.SetProbes(p)
 	return s
@@ -47,7 +47,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	return err
 }
-func (s *Server) SetProbes(p *componentmetrics.Probes) {
+func (s *Server) SetProbes(p *runtimekit.Probes) {
 	s.probes = p
 	s.server.Handler = p.Wrap(s.server.Handler)
 }

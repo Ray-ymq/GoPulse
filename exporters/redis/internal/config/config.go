@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"net"
 	"os"
 	"strconv"
@@ -38,7 +38,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	if err := componentmetrics.ValidateRuntimeEnvironment("redis-exporter"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("redis-exporter"); err != nil {
 		return Config{}, fieldError(strings.TrimPrefix(err.Error(), "invalid_configuration: "), "invalid_configuration")
 	}
 

@@ -36,7 +36,7 @@ function display(v: unknown) {
   if (Array.isArray(v)) return v.length ? v.map(r => `rule ${r.rule_id} / revision ${r.revision} · ${r.severity} · ${new Date(r.recovered_at).toLocaleString('zh-CN', { hour12:false })}`).join('；') : '暂无近期恢复'
   return v === null ? '未知' : typeof v === 'string' && /^\d{4}-\d\d-\d\dT/.test(v) ? new Date(v).toLocaleString('zh-CN', { hour12:false }) : String(v)
 }
-const trendMetrics: { metric: MetricName; title: string }[] = [{metric:'gopulse_backend_outbox_pending',title:'Backend 待发送消息'},{metric:'gopulse_monitor_event_queue_length',title:'Monitor 事件队列'}]
+const trendMetrics: { metric: MetricName; title: string }[] = [{metric:'gopulse_redis_connected_clients',title:'Redis 客户端连接'},{metric:'gopulse_redis_used_memory_bytes',title:'Redis 内存使用'}]
 const trends=ref<(MetricResult|null)[]>([null,null]),trendLoading=ref(false)
 let controller:AbortController|null=null, liveController:AbortController|null=null, refreshTimer:number|undefined
 function rows(name:string){const items=data.value?.sections[name]?.items;return Array.isArray(items)?items:[]}
@@ -85,7 +85,7 @@ onBeforeUnmount(()=>{controller?.abort();liveController?.abort();if(refreshTimer
     <ProductState v-else-if="error" state="unavailable" message="大屏加载失败，请重试。" action-label="重试" @retry="load" />
     <template v-if="data">
       <div class="summary-grid"><AdminStat v-for="(summary,index) in summaries" :key="summary.name" :label="summary.title!" :value="summary.value" :note="summary.status" :icon="['box','box','logs','alerts'][index]!" :tone="['green','blue','purple','red'][index]!" /></div>
-      <article class="panel dashboard-section components-panel" data-section="components"><header class="panel-heading"><h3>核心组件状态</h3><RouterLink to="/metrics">查看组件指标 <AdminIcon name="arrow" :size="16" /></RouterLink></header><p class="section-status"><ProductStatus :status="componentSection?.status ?? 'unknown'" /><span>{{componentSection?.reason_code ?? 'not_probed'}}</span></p>
+      <article class="panel dashboard-section components-panel" data-section="components"><header class="panel-heading"><h3>核心组件状态</h3><RouterLink to="/metrics">查看采集指标 <AdminIcon name="arrow" :size="16" /></RouterLink></header><p class="section-status"><ProductStatus :status="componentSection?.status ?? 'unknown'" /><span>{{componentSection?.reason_code ?? 'not_probed'}}</span></p>
         <p v-if="componentSection?.reason_code==='invalid_response'">该分区响应无效，已隐藏未经验证的数据。</p>
         <div v-else class="table-scroll"><table><thead><tr><th>组件名称</th><th>实例</th><th>类型</th><th>状态</th><th>观测时间</th><th>诊断原因</th></tr></thead><tbody><tr v-for="row in componentRows" :key="`${String(row.component ?? row.id)}-${String(row.instance ?? '')}`"><td><span class="component-name"><AdminIcon :name="(row.component ?? row.id)==='monitor'?'pulse':'box'" />{{row.component ?? row.id}}</span></td><td>{{row.instance ?? '—'}}</td><td>{{componentTypes[String(row.component ?? row.id)] ?? 'Kafka'}}</td><td><ProductStatus :status="row.status" /></td><td>{{row.observed_at?new Date(String(row.observed_at)).toLocaleTimeString('zh-CN', { hour12:false }):'未知'}}</td><td>{{row.reason_code}}</td></tr></tbody></table></div>
       </article>

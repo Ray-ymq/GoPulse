@@ -5,7 +5,8 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"log/slog"
 	"math/big"
 	"net"
@@ -62,9 +63,9 @@ func NewRuntime(connectionURL string, processor Processor, options RuntimeOption
 	options.Profile = profile
 	instanceID := options.InstanceID
 	if instanceID == "" {
-		instanceID = componentmetrics.InstanceID(profile.Service)
+		instanceID = runtimekit.InstanceID(profile.Service)
 	}
-	if err := componentmetrics.ValidateInstanceID(instanceID); err != nil {
+	if err := runtimekit.ValidateInstanceID(instanceID); err != nil {
 		return nil, errors.New("business worker instance identity is invalid")
 	}
 	options.InstanceID = instanceID
@@ -86,7 +87,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 	connectionUnavailable := false
 	for ctx.Err() == nil {
 		session, err := openSession(ctx, runtime.connectionURL, runtime.options)
-		componentmetrics.Dependency("rabbitmq", err)
+		instrumentation.Dependency("rabbitmq", err)
 		if err != nil {
 			attempt++
 			if !connectionUnavailable {
@@ -114,7 +115,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 		}
 		err = runtime.consumeSession(ctx, session, handler)
 		if ctx.Err() == nil {
-			componentmetrics.Dependency("rabbitmq", err)
+			instrumentation.Dependency("rabbitmq", err)
 		}
 		if closeErr := session.Close(); closeErr != nil {
 			runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
@@ -176,7 +177,7 @@ func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession
 				if err := session.StopDeliveries(); err != nil {
 					runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
 				}
-				shutdownCtx, cancelShutdown := componentmetrics.ShutdownContext(runtime.options.ShutdownTimeout)
+				shutdownCtx, cancelShutdown := runtimekit.ShutdownContext(runtime.options.ShutdownTimeout)
 				defer cancelShutdown()
 				deadline, _ := shutdownCtx.Deadline()
 				// Reserve a small part of this same deadline for cancellation and requeue.
@@ -275,7 +276,7 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 	profile := normalizeProfile(options.Profile)
 	identity := options.InstanceID
 	if identity == "" {
-		identity = componentmetrics.InstanceID(profile.Service)
+		identity = runtimekit.InstanceID(profile.Service)
 	}
 	session := &amqpSession{connection: connection, consumerTag: nextConsumerTag(profile, identity)}
 	channel, err := connection.Channel()
@@ -314,7 +315,7 @@ func nextConsumerTag(profile Profile, instanceID string) string {
 }
 
 func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey string, publishing amqp.Publishing) (result error) {
-	defer func() { componentmetrics.Dependency("rabbitmq", result) }()
+	defer func() { instrumentation.Dependency("rabbitmq", result) }()
 	session.publishMu.Lock()
 	defer session.publishMu.Unlock()
 	if err := ctx.Err(); err != nil {

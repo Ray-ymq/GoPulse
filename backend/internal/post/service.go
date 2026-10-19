@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 type Service struct {
@@ -232,7 +232,7 @@ func (service *Service) detailBody(ctx context.Context, postID, viewerID uint64,
 }
 
 func observeBodyOrigin(err error, elapsed time.Duration) {
-	if metrics := componentmetrics.BackendActive(); metrics != nil {
+	if metrics := instrumentation.BackendActive(); metrics != nil {
 		result := "success"
 		if errors.Is(err, ErrReadContextChanged) {
 			result = "version_changed"

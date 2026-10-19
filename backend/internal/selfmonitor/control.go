@@ -96,7 +96,7 @@ func (s *Controller) snapshot(ctx context.Context) (Status, error) {
 			} `json:"activeTargets"`
 		} `json:"data"`
 	}
-	if err = s.get(ctx, "http://127.0.0.1:19090/api/v1/targets?state=active", &payload); err != nil || payload.Status != "success" {
+	if err = s.get(ctx, "http://127.0.0.1:29090/api/v1/targets?state=active", &payload); err != nil || payload.Status != "success" {
 		return status("degraded", "prometheus_unavailable"), nil
 	}
 	expected := map[string]int{"backend": 3, "business-worker": 2, "search-indexer": 2, "monitor": 1, "marshaller": 2, "node": 1, "mysql": 1, "redis": 1, "rabbitmq": 1, "kafka": 1, "elasticsearch": 1, "observability-elasticsearch": 1, "victoriametrics": 1, "prometheus": 1}
@@ -134,14 +134,14 @@ func (s *Controller) snapshot(ctx context.Context) (Status, error) {
 			} `json:"result"`
 		} `json:"data"`
 	}
-	query := "http://127.0.0.1:19090/api/v1/query?query=" + url.QueryEscape(`count(mysql_up{job="mysql"} == 1) + count(redis_up{job="redis"} == 1) + count(elasticsearch_cluster_health_number_of_nodes{job=~"elasticsearch|observability-elasticsearch"} > 0)`)
+	query := "http://127.0.0.1:29090/api/v1/query?query=" + url.QueryEscape(`count(mysql_up{job="mysql"} == 1) + count(redis_up{job="redis"} == 1) + count(elasticsearch_cluster_health_number_of_nodes{job=~"elasticsearch|observability-elasticsearch"} > 0)`)
 	if s.get(ctx, query, &sources) != nil || sources.Status != "success" || len(sources.Data.Result) != 1 || len(sources.Data.Result[0].Value) != 2 || string(sources.Data.Result[0].Value[1]) != `"4"` {
 		state.State = "degraded"
 	}
 	var grafana struct {
 		Database string `json:"database"`
 	}
-	if s.get(ctx, "http://127.0.0.1:13000/grafana/api/health", &grafana) != nil || grafana.Database != "ok" {
+	if s.get(ctx, "http://127.0.0.1:23000/grafana/api/health", &grafana) != nil || grafana.Database != "ok" {
 		state.State = "degraded"
 	}
 	if state.State == "degraded" {

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 var (
@@ -229,7 +229,7 @@ func (coordinator *RebuildCoordinator) leaveWaiter() {
 }
 
 func (coordinator *RebuildCoordinator) observeState() {
-	if metrics := componentmetrics.BackendActive(); metrics != nil {
+	if metrics := instrumentation.BackendActive(); metrics != nil {
 		metrics.ObserveRebuildState(coordinator.activeKeys, coordinator.activeWaiters, coordinator.registeredWaiters)
 	}
 }

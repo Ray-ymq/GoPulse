@@ -7,9 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 )
 
 var ErrOutputTooLarge = errors.New("prometheus import body exceeds limit")
@@ -163,17 +162,7 @@ func identityFor(message envelope.Envelope) identity {
 	if source == "" {
 		source = "redis"
 	}
-	if componentmetrics.IsComponent(source) {
-		target := message.Payload.TargetID
-		if target == "" {
-			target = componentmetrics.Target(source)
-		}
-		id := message.Payload.ProducerID
-		if id == "" {
-			id = source
-		}
-		return identity{source: source, target: target, kind: "component", id: id}
-	}
+
 	target := message.Payload.TargetID
 	if target == "" {
 		target = source + "-exporter-local"
@@ -199,13 +188,6 @@ func writeIdentityLabels(b *strings.Builder, message envelope.Envelope) {
 }
 
 func metricKind(source, name string) string {
-	if spec, ok := componentmetrics.Catalog(source); ok {
-		for _, family := range spec.Families {
-			if family.Name == name {
-				return family.Kind
-			}
-		}
-	}
 	if strings.HasSuffix(name, "_total") || strings.HasSuffix(name, "_count") || strings.HasSuffix(name, "_bucket") {
 		return "counter"
 	}

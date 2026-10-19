@@ -25,7 +25,7 @@ it.each(['healthy', 'unavailable'])('shows unknown when the live status endpoint
 it('renders real trend samples while preserving a failed independent chart as unavailable', async () => {
   const sections = Object.fromEntries(sectionNames.map(name => [name, { status:'healthy', reason_code:'ok', observed_at:null, items:[] }]))
   vi.mocked(getOverview).mockResolvedValue({ generated_at:'2026-09-15T00:00:00Z',status:'healthy',sections } as Overview)
-  vi.mocked(observabilityApi.metrics).mockResolvedValueOnce({ metric:'gopulse_backend_outbox_pending',kind:'gauge',unit:'count',range:'15m',from:'2026-09-15T00:00:00Z',to:'2026-09-15T00:15:00Z',step_seconds:15,series:[{labels:{},points:[{timestamp:'2026-09-15T00:00:00Z',value:7},{timestamp:'2026-09-15T00:00:15Z',value:9}]}] })
+  vi.mocked(observabilityApi.metrics).mockResolvedValueOnce({ metric:'gopulse_redis_connected_clients',kind:'gauge',unit:'count',range:'15m',from:'2026-09-15T00:00:00Z',to:'2026-09-15T00:15:00Z',step_seconds:15,series:[{labels:{},points:[{timestamp:'2026-09-15T00:00:00Z',value:7},{timestamp:'2026-09-15T00:00:15Z',value:9}]}] })
   const wrapper=mount(DashboardView,{global:{stubs:{RouterLink:true}}})
   await flushPromises()
   expect(wrapper.findAll('.metric-chart')).toHaveLength(1)

@@ -1,93 +1,22 @@
 package metricquery
 
 import (
-	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 )
 
-func TestComponentQueryProvenanceAndUnknownDependency(t *testing.T) {
-	d := presets["gopulse_backend_dependency_up"]
-	if d.ProducerKind != "component" || !strings.Contains(QueryExpression(d.Metric), `producer_kind="component"`) {
-		t.Fatal("component catalog/provenance missing")
+func TestSelfMonitoringIsNotInProductQueryOrAlertCatalog(t *testing.T) {
+	for _, name := range []string{"gopulse_backend_dependency_up", "gopulse_backend_http_request_duration_seconds_bucket", "gopulse_backend_alert_evaluation_known", "gopulse_marshaller_partition_ownership", "gopulse_monitor_event_queue_length", "gopulse_business_worker_messages_total", "gopulse_search_indexer_messages_total"} {
+		if _, err := ParseOptions(url.Values{"metric": {name}}); err == nil || QueryExpression(name) != "" {
+			t.Fatalf("accepted retired product metric %s", name)
+		}
 	}
-	metric := map[string]string{"__name__": d.Metric, "source": "backend", "target_id": "backend-local", "producer_kind": "component", "producer_id": "backend", "dependency": "redis"}
-	encode := func(value string) []byte {
-		body, _ := json.Marshal(map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{map[string]any{"metric": metric, "values": []any{[]any{1750000000, value}}}}}})
-		return body
-	}
-	if _, err := decodeResponse(encode("-1"), d); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := decodeResponse(encode("-2"), d); err == nil {
-		t.Fatal("invalid dependency state accepted")
-	}
-	metric["producer_id"] = "monitor"
-	if _, err := decodeResponse(encode("1"), d); err == nil {
-		t.Fatal("cross-component provenance accepted")
-	}
-}
-
-func TestBackendLatencyBucketQueryPreservesDynamicBucketLabel(t *testing.T) {
-	d, ok := presets["gopulse_backend_http_request_duration_seconds_bucket"]
-	if !ok {
-		t.Fatal("backend latency bucket missing from query catalog")
-	}
-	metric := map[string]string{
-		"__name__": "gopulse_backend_http_request_duration_seconds_bucket", "source": "backend",
-		"target_id": "backend-local", "producer_kind": "component", "producer_id": "backend",
-		"method": "GET", "route": "/health", "status_class": "2xx", "le": "0.25",
-	}
-	body, _ := json.Marshal(map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{map[string]any{"metric": metric, "values": []any{[]any{1750000000, "3"}}}}}})
-	series, err := decodeResponse(body, d)
-	if err != nil || len(series) != 1 || series[0].Labels["le"] != "0.25" {
-		t.Fatalf("bucket label was not preserved: %#v, %v", series, err)
-	}
-	metric["le"] = "0.3"
-	body, _ = json.Marshal(map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": []any{map[string]any{"metric": metric, "values": []any{[]any{1750000000, "3"}}}}}})
-	if _, err := decodeResponse(body, d); err != nil {
-		t.Fatal("new latency bucket rejected", err)
-	}
-}
-
-func TestBackendAlertQueryPreservesFixedAlertSourceLabel(t *testing.T) {
-	d, ok := presets["gopulse_backend_alert_evaluation_known"]
-	if !ok {
-		t.Fatal("backend alert catalog missing")
-	}
-	metric := map[string]string{
-		"__name__": "gopulse_backend_alert_evaluation_known", "source": "backend",
-		"target_id": "backend-local", "producer_kind": "component", "producer_id": "backend",
-		"alert_source": "metrics",
-	}
-	body, _ := json.Marshal(map[string]any{"status": "success", "data": map[string]any{
-		"resultType": "matrix", "result": []any{map[string]any{
-			"metric": metric, "values": []any{[]any{1750000000, "1"}},
-		}},
-	}})
-	series, err := decodeResponse(body, d)
-	if err != nil || len(series) != 1 || series[0].Labels["alert_source"] != "metrics" {
-		t.Fatalf("alert source label was not preserved: %#v, %v", series, err)
-	}
-}
-
-func TestMarshallerPartitionQueryPreservesFixedPartitionLabel(t *testing.T) {
-	d, ok := presets["gopulse_marshaller_partition_ownership"]
-	if !ok {
-		t.Fatal("marshaller partition catalog missing")
-	}
-	metric := map[string]string{
-		"__name__": "gopulse_marshaller_partition_ownership", "source": "marshaller",
-		"target_id": "marshaller-local", "producer_kind": "component", "producer_id": "marshaller",
-		"partition": "3",
-	}
-	body, _ := json.Marshal(map[string]any{"status": "success", "data": map[string]any{
-		"resultType": "matrix", "result": []any{map[string]any{
-			"metric": metric, "values": []any{[]any{1750000000, "1"}},
-		}},
-	}})
-	series, err := decodeResponse(body, d)
-	if err != nil || len(series) != 1 || series[0].Labels["partition"] != "3" {
-		t.Fatalf("partition label was not preserved: %#v, %v", series, err)
+	for _, d := range AlertCatalog() {
+		for _, prefix := range []string{"gopulse_backend_", "gopulse_monitor_", "gopulse_marshaller_", "gopulse_business_worker_", "gopulse_search_indexer_"} {
+			if strings.HasPrefix(d.Metric, prefix) {
+				t.Fatal("retired alert definition", d.Metric)
+			}
+		}
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"net"
 	"net/http"
@@ -351,7 +351,7 @@ func validAlias(payload []byte, index string) bool {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	req, err := componentmetrics.NewRequest(ctx, method, c.baseURL+path, body)
+	req, err := runtimekit.NewRequest(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, errors.New("Elasticsearch request creation failed")
 	}

@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"log/slog"
 	"os"
@@ -24,7 +25,7 @@ func main() {
 }
 
 func execute(stdout io.Writer, load func() (config.WorkerConfig, error), operation func(config.WorkerConfig, *slog.Logger) error) int {
-	defer componentmetrics.ReleaseShutdown()
+	defer runtimekit.ReleaseShutdown()
 	stdoutLogger := logging.New("business-worker", stdout)
 	cfg, err := load()
 	if err != nil {
@@ -72,12 +73,12 @@ func run(cfg config.WorkerConfig, logger *slog.Logger) (runErr error) {
 			lifecycleLogger.Warn("trace exporter shutdown incomplete", slog.String("reason", "shutdown_timeout"))
 		}
 	}()
-	metrics, err := componentmetrics.New("business-worker")
+	metrics, err := instrumentation.New("business-worker")
 	if err != nil {
 		return err
 	}
-	componentmetrics.Install(metrics)
-	defer componentmetrics.Install(nil)
+	instrumentation.Install(metrics)
+	defer instrumentation.Install(nil)
 	metrics.Set("prefetch_limit", float64(cfg.Worker.Prefetch))
 	mysqlClient, err := platform.NewMySQL(cfg.MySQL)
 	if err != nil {
@@ -115,10 +116,10 @@ func run(cfg config.WorkerConfig, logger *slog.Logger) (runErr error) {
 	if err != nil {
 		return initializationFailure(lifecycleLogger, "runtime", "invalid_configuration")
 	}
-	ctx, stop := componentmetrics.SignalContext()
+	ctx, stop := runtimekit.SignalContext()
 	defer stop()
-	componentmetrics.BindShutdown(ctx, cfg.Worker.ShutdownTimeout)
-	probes, err := componentmetrics.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
+	runtimekit.BindShutdown(ctx, cfg.Worker.ShutdownTimeout)
+	probes, err := runtimekit.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
 		if err := runtime.Ready(checkCtx); err != nil {
 			return err
 		}
@@ -130,12 +131,12 @@ func run(cfg config.WorkerConfig, logger *slog.Logger) (runErr error) {
 	if err != nil {
 		return err
 	}
-	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(ctx, "business-worker", metrics.Snapshot, probes)
+	internalMetrics, err := runtimekit.StartConfiguredWithProbes(ctx, "business-worker", metrics.Snapshot, probes)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.Worker.ShutdownTimeout)
+		shutdownCtx, cancel := runtimekit.ShutdownContext(cfg.Worker.ShutdownTimeout)
 		defer cancel()
 		if err := internalMetrics.Shutdown(shutdownCtx); err != nil {
 			runErr = errors.New("shutdown_timeout")

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"log/slog"
 	"time"
 
@@ -77,7 +77,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		ctx = context.Background()
 	}
 	started := time.Now()
-	metrics := componentmetrics.Active()
+	metrics := instrumentation.Active()
 	metrics.Add("messages_in_flight", 1)
 	outcome := "failure"
 	identity := handler.metricIdentity(delivery)
@@ -320,8 +320,8 @@ func deliveryAttemptForLog(delivery amqp.Delivery) int {
 }
 
 func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextAttempt int) error {
-	componentmetrics.Active().Add("retrying", 1)
-	defer componentmetrics.Active().Add("retrying", -1)
+	instrumentation.Active().Add("retrying", 1)
+	defer instrumentation.Active().Add("retrying", -1)
 	message := publishingFromDelivery(delivery)
 	message.Headers[AttemptHeader] = int32(nextAttempt)
 	// A retry is a new delivery attempt. Preserve the W3C parent context for
@@ -570,9 +570,9 @@ func (handler *Handler) metricIdentity(delivery amqp.Delivery) string {
 func (handler *Handler) ack(delivery amqp.Delivery) error {
 	started := time.Now()
 	err := delivery.Ack(false)
-	componentmetrics.Dependency("rabbitmq", err)
+	instrumentation.Dependency("rabbitmq", err)
 	if err == nil && handler.profile.Service != "search-indexer" {
-		componentmetrics.Active().Observe("messages_total", time.Since(started), handler.metricIdentity(delivery), "ack")
+		instrumentation.Active().Observe("messages_total", time.Since(started), handler.metricIdentity(delivery), "ack")
 	}
 	return err
 }

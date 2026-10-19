@@ -20,13 +20,13 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 // TestIntegrationRedisProtectionAndVersionedBody exercises the enabled path
@@ -44,12 +44,12 @@ func TestIntegrationRedisProtectionAndVersionedBody(t *testing.T) {
 	setEnvironment(&base, "BACKEND_RESOURCE_WAITER", "256")
 	runIntegrationCommand(t, backendDir, integrationCommandTimeout, base, "go", "run", "./cmd/migrate", "up")
 
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatalf("create protection metrics: %v", err)
 	}
-	componentmetrics.InstallBackend(metrics)
-	defer componentmetrics.InstallBackend(nil)
+	instrumentation.InstallBackend(metrics)
+	defer instrumentation.InstallBackend(nil)
 
 	clientJar, err := cookiejar.New(nil)
 	if err != nil {
@@ -182,12 +182,12 @@ func TestIntegrationRateLimitDisabledKeepsVersionedBodyCache(t *testing.T) {
 	setEnvironment(&base, "BACKEND_RATE_LIMIT_ENABLED", "false")
 	runIntegrationCommand(t, backendDir, integrationCommandTimeout, base, "go", "run", "./cmd/migrate", "up")
 
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatalf("create body metrics: %v", err)
 	}
-	componentmetrics.InstallBackend(metrics)
-	defer componentmetrics.InstallBackend(nil)
+	instrumentation.InstallBackend(metrics)
+	defer instrumentation.InstallBackend(nil)
 
 	clientJar, err := cookiejar.New(nil)
 	if err != nil {

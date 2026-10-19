@@ -3,7 +3,7 @@
 # the product edge container cannot reach the host's loopback address.
 location = /grafana { return 308 /grafana/; }
 location ^~ /grafana/ {
-    proxy_pass http://127.0.0.1:13000;
+    proxy_pass http://127.0.0.1:23000;
     proxy_http_version 1.1;
     proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-Proto $scheme;

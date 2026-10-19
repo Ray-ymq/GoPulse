@@ -7,8 +7,8 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"time"
@@ -26,7 +26,7 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 		if committed {
 			result = "success"
 		}
-		if metrics := componentmetrics.BackendActive(); metrics != nil {
+		if metrics := instrumentation.BackendActive(); metrics != nil {
 			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
 		}
 		if !committed {

@@ -25,8 +25,7 @@ x-backend-common-environment: &backend-common-environment
   GOPULSE_TRACE_BATCH_TIMEOUT: ${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}
   GOPULSE_TRACE_EXPORT_TIMEOUT: ${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}
   GOPULSE_TRACE_SHUTDOWN_TIMEOUT: ${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}
-  # Metric queries validate Monitor's fixed component-target catalog, so the
-  # query service must share Monitor's replica inventory.
+  # Direct component health checks retain the complete replica inventory.
   BACKEND_ENDPOINTS: backend,backend-2,platform-api
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
@@ -195,12 +194,6 @@ x-marshaller-environment: &marshaller-environment
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   GOPULSE_INSTANCE_ID: marshaller-1
   GOPULSE_REPLICA_COUNT: 2
-  # Marshaller validates Monitor's fixed component-target catalog as well as
-  # the samples themselves; keep the replica inventory identical to Monitor.
-  BACKEND_ENDPOINTS: backend,backend-2,platform-api
-  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
-  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
-  MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MARSHALLER_HTTP_HOST: 0.0.0.0
@@ -243,16 +236,9 @@ x-monitor-environment: &monitor-environment
   GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
   GOPULSE_INSTANCE_ID: monitor-1
   GOPULSE_REPLICA_COUNT: 1
-  BACKEND_ENDPOINTS: backend,backend-2,platform-api
-  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
-  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
   MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
-  BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
-  BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
-  SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
-  MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MONITOR_HTTP_HOST: 0.0.0.0
   MONITOR_HTTP_PORT: 9090

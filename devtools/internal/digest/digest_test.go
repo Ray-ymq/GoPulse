@@ -75,8 +75,8 @@ func TestDigestIgnoresGitDirectory(t *testing.T) {
 
 func TestSourceDigestCoversLocalReplaceModulesAndScope(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "backend/go.mod", "module example\n\nreplace github.com/Ray-ymq/GoPulse/componentmetrics => ../componentmetrics\n")
-	write(t, root, "componentmetrics/metrics.go", "package componentmetrics\n")
+	write(t, root, "backend/go.mod", "module example\n\nreplace github.com/Ray-ymq/GoPulse/runtimekit => ../runtimekit\n")
+	write(t, root, "runtimekit/metrics.go", "package runtimekit\n")
 	write(t, root, "marshaller/main.go", "package main\n")
 
 	development, err := Source(root, false)
@@ -92,7 +92,7 @@ func TestSourceDigestCoversLocalReplaceModulesAndScope(t *testing.T) {
 	}
 
 	// The replaced helper's regression: a locally replaced module is a build input.
-	write(t, root, "componentmetrics/metrics.go", "package componentmetrics // changed\n")
+	write(t, root, "runtimekit/metrics.go", "package runtimekit // changed\n")
 	changedDevelopment, err := Source(root, false)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestMonitorInputDigestExcludesExporterPackagingInputs(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "VERSION", "2.5.3\n")
 	write(t, root, "monitor/main.go", "package main\n")
-	write(t, root, "componentmetrics/metrics.go", "package componentmetrics\n")
+	write(t, root, "runtimekit/metrics.go", "package runtimekit\n")
 	write(t, root, "exporters/redis/main.go", "package main\n")
 	write(t, root, "deploy/docker/monitor.Dockerfile", "FROM scratch\n")
 	write(t, root, ".run/packages/catalog.json", "{}\n")

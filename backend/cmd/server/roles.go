@@ -25,6 +25,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
@@ -40,7 +41,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/selfmonitor"
 	"github.com/Ray-ymq/GoPulse/backend/internal/telemetrydelivery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -71,10 +72,10 @@ type roleResource struct {
 type roleAssembly struct {
 	profile       roleProfile
 	database      *sql.DB
-	probes        *componentmetrics.Probes
+	probes        *runtimekit.Probes
 	router        stdhttp.Handler
 	dispatcher    *outbox.Dispatcher
-	sampleOutbox  func(context.Context, *componentmetrics.Backend)
+	sampleOutbox  func(context.Context, *instrumentation.Backend)
 	runAlertCheck func(context.Context)
 	resources     []roleResource
 	closed        bool
@@ -83,7 +84,7 @@ type roleAssembly struct {
 // initializeMetrics makes the shared Backend exposition scrapeable for a
 // platform-only process. The platform role has no business outbox sampler;
 // its neutral outbox fields are not a business backlog observation.
-func (assembly *roleAssembly) initializeMetrics(metrics *componentmetrics.Backend) {
+func (assembly *roleAssembly) initializeMetrics(metrics *instrumentation.Backend) {
 	if assembly == nil || metrics == nil || assembly.profile.business {
 		return
 	}
@@ -220,7 +221,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		assembly.addResource("rabbitmq_publisher", rabbitMQPublisher.Close)
 		dispatcher, err = outbox.NewDispatcher(eventOutbox, rabbitMQPublisher, outbox.DispatcherOptions{
-			Owner:           componentmetrics.InstanceID("backend") + "-" + strconv.Itoa(os.Getpid()),
+			Owner:           runtimekit.InstanceID("backend") + "-" + strconv.Itoa(os.Getpid()),
 			PollInterval:    cfg.Outbox.PollInterval,
 			ClaimBatch:      cfg.Outbox.ClaimBatch,
 			LeaseDuration:   cfg.Outbox.LeaseDuration,
@@ -295,7 +296,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.InternalAuthorization = middleware.RequireSuperAdmin(users)
 		routes.ServiceCredential = cfg.BusinessStage.Credential
 		assembly.dispatcher = dispatcher
-		assembly.sampleOutbox = func(ctx context.Context, metrics *componentmetrics.Backend) { eventOutbox.SampleMetrics(ctx, metrics) }
+		assembly.sampleOutbox = func(ctx context.Context, metrics *instrumentation.Backend) { eventOutbox.SampleMetrics(ctx, metrics) }
 	}
 
 	if profile.platform {
@@ -345,7 +346,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		deliveryService := telemetrydelivery.New(deliverySources)
 		overview := &adminoverview.Service{
-			Components: adminoverview.ComponentStatus(componentStatus), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
+			Components: adminoverview.ComponentStatus(componentStatus), KeyMetrics: func(context.Context, time.Time) adminoverview.Section {
+				return adminoverview.Section{Status: "unknown", ReasonCode: "moved_to_grafana", Items: []any{}}
+			}, Plugins: adminoverview.Plugins(monitorClient, metricClient),
 			Logs: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
 				return count.Query(ctx, observabilityElasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
 			}),
@@ -392,7 +395,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 	}
 
-	probes, err := componentmetrics.NewProbes(root, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
+	probes, err := runtimekit.NewProbes(root, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
 		if err := mysqlClient.Check(ctx); err != nil {
 			return err
 		}

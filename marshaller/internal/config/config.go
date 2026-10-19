@@ -3,8 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"net"
 	"net/url"
 	"os"
@@ -57,7 +57,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	if err := componentmetrics.ValidateRuntimeEnvironment("marshaller"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("marshaller"); err != nil {
 		return Config{}, err
 	}
 	return LoadFrom(os.LookupEnv)
@@ -88,7 +88,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		ElasticsearchURL: get("MARSHALLER_ELASTICSEARCH_URL", "http://127.0.0.1:9200"),
 		MaxRecordBytes:   MaxRecordBytes, MaxOutputBytes: MaxOutputBytes,
 	}
-	if err := componentmetrics.ValidateInstanceID(cfg.InstanceID); err != nil {
+	if err := runtimekit.ValidateInstanceID(cfg.InstanceID); err != nil {
 		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
 	}
 	if replica, parseErr := strconv.Atoi(get("GOPULSE_REPLICA_COUNT", "1")); parseErr != nil || replica < 1 || replica > 8 {

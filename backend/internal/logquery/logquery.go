@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"net/http"
 	"net/url"
@@ -599,7 +599,7 @@ func (r *ElasticsearchRepository) ClosePointInTime(ctx context.Context, pit stri
 	return nil
 }
 func (r *ElasticsearchRepository) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	request, err := componentmetrics.NewRequest(ctx, method, path, body)
+	request, err := runtimekit.NewRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -633,7 +633,7 @@ func decodeEntry(source []byte) (Entry, error) {
 		return Entry{}, errors.New("invalid log document")
 	}
 	if raw.InstanceID != nil {
-		if componentmetrics.ValidateInstanceID(*raw.InstanceID) != nil {
+		if runtimekit.ValidateInstanceID(*raw.InstanceID) != nil {
 			return Entry{}, errors.New("invalid log document")
 		}
 		raw.Entry.InstanceID = *raw.InstanceID

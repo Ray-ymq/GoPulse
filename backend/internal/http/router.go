@@ -3,7 +3,8 @@ package http
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"log/slog"
 	"net"
@@ -34,7 +35,7 @@ func NewRateLimitHandler(shared, local ratelimit.Limiter, policies map[string]ra
 }
 
 type Dependencies struct {
-	Probes             *componentmetrics.Probes
+	Probes             *runtimekit.Probes
 	MySQL              Checker
 	Redis              Checker
 	RabbitMQ           Checker
@@ -80,7 +81,7 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 		func(c *gin.Context) {
 			started := time.Now()
 			c.Next()
-			componentmetrics.BackendActive().ObserveRequest(c.Request.Method, c.FullPath(), c.Writer.Status(), time.Since(started))
+			instrumentation.BackendActive().ObserveRequest(c.Request.Method, c.FullPath(), c.Writer.Status(), time.Since(started))
 		},
 		middleware.RequestID(httpLogger, dependencies.RequestIDGenerator),
 		middleware.Access(httpLogger),
@@ -93,7 +94,7 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 	}
 	probes := dependencies.Probes
 	if probes == nil {
-		probes, _ = componentmetrics.NewProbes(context.Background(), checkerTimeout, 250*time.Millisecond, func(ctx context.Context) error {
+		probes, _ = runtimekit.NewProbes(context.Background(), checkerTimeout, 250*time.Millisecond, func(ctx context.Context) error {
 			if dependencies.MySQL == nil {
 				return errors.New("mysql_unavailable")
 			}
@@ -111,7 +112,7 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 			case "/startup", "/live", "/ready", "/health":
 				probes.ServeHTTP(c.Writer, c.Request)
 			default:
-				componentmetrics.WriteError(c.Writer, status, code, message)
+				runtimekit.WriteError(c.Writer, status, code, message)
 			}
 		}
 	}
@@ -136,17 +137,17 @@ func apiAdmission(limit int) gin.HandlerFunc {
 		}
 		select {
 		case slots <- struct{}{}:
-			if metrics := componentmetrics.BackendActive(); metrics != nil {
+			if metrics := instrumentation.BackendActive(); metrics != nil {
 				metrics.ObserveHTTPStarted()
 				defer metrics.ObserveHTTPFinished()
 			}
 			defer func() { <-slots }()
 			c.Next()
 		default:
-			if metrics := componentmetrics.BackendActive(); metrics != nil {
+			if metrics := instrumentation.BackendActive(); metrics != nil {
 				metrics.ObserveHTTPRejected()
 			}
-			componentmetrics.WriteError(c.Writer, 503, "backend_busy", "service temporarily busy")
+			runtimekit.WriteError(c.Writer, 503, "backend_busy", "service temporarily busy")
 			c.Abort()
 		}
 	}
