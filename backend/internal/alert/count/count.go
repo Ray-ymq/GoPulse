@@ -105,7 +105,7 @@ func request(ctx context.Context, client Performer, path string, body []byte, ou
 	if res == nil || res.Body == nil {
 		return ErrUnknown
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != 200 {
 		return ErrUnknown
 	}

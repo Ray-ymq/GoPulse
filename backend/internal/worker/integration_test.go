@@ -225,12 +225,34 @@ func publishRaw(t *testing.T, url, routing string, message amqp.Publishing) {
 }
 func purgeBusinessQueues(t *testing.T, url string) {
 	t.Helper()
+	for _, queue := range []string{platform.BusinessQueue, platform.BusinessRetryQueue, platform.BusinessDeadQueue} {
+		connection, err := amqp.Dial(url)
+		if err != nil {
+			t.Fatalf("dial RabbitMQ to reset %s: %v", queue, err)
+		}
+		channel, err := connection.Channel()
+		if err != nil {
+			_ = connection.Close()
+			t.Fatalf("open RabbitMQ channel to reset %s: %v", queue, err)
+		}
+		_, deleteErr := channel.QueueDelete(queue, false, false, false)
+		_ = channel.Close()
+		_ = connection.Close()
+		if deleteErr != nil {
+			if amqpError, ok := deleteErr.(*amqp.Error); !ok || amqpError.Code != 404 {
+				t.Fatalf("delete %s: %v", queue, deleteErr)
+			}
+		}
+	}
 	connection, err := amqp.Dial(url)
 	if err != nil {
-		t.Fatalf("dial RabbitMQ: %v", err)
+		t.Fatalf("dial RabbitMQ to declare reset topology: %v", err)
 	}
 	defer connection.Close()
-	channel, _ := connection.Channel()
+	channel, err := connection.Channel()
+	if err != nil {
+		t.Fatalf("open RabbitMQ channel to declare reset topology: %v", err)
+	}
 	defer channel.Close()
 	if err := platform.DeclareBusinessTopology(channel, time.Second); err != nil {
 		t.Fatalf("declare topology: %v", err)

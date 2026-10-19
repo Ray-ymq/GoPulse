@@ -15,6 +15,7 @@ import (
 
 type ManagerConfig struct {
 	PackagesRoot           string
+	CatalogPath            string
 	ValidateSnapshot       func(int, []byte) error
 	ValidateSourceSnapshot func(string, int, []byte) error
 	Root                   string
@@ -22,6 +23,7 @@ type ManagerConfig struct {
 	HealthURL              string
 	StartupTimeout         time.Duration
 	StopTimeout            time.Duration
+	ScrapeTimeout          time.Duration
 	Now                    func() time.Time
 	EventRecorder          EventRecorder
 }
@@ -845,7 +847,7 @@ func (m *Manager) RecordSourceMetrics(id string, scrapeAt, successAt *time.Time,
 }
 
 // RuntimeReady checks only the initialized local ownership/catalog boundary.
-// Router availability is recoverable through the bounded publisher/queues.
+// Message publication availability is recoverable through the bounded publisher/queues.
 func (m *Manager) RuntimeReady(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return ctx.Err()

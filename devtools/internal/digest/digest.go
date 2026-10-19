@@ -1,6 +1,6 @@
 // Package digest computes the content-addressed identities the local
 // lifecycles bind to: source trees, the private environment file, Compose
-// files, and the Monitor image inputs.
+// files, and the Monitor build inputs.
 //
 // The byte layout is the one the replaced Python helper used (big-endian
 // length-prefixed relative path and content), so a digest recorded by either
@@ -95,14 +95,14 @@ func Paths(root string, items []string) (string, error) {
 }
 
 // Source digests the product source of one local lifecycle. The observation
-// lifecycle additionally depends on the Router and Marshaller.
+// lifecycle additionally depends on the Marshaller.
 func Source(root string, observe bool) (string, error) {
 	items := []string{
 		filepath.Join(root, "backend"),
 		filepath.Join(root, "componentmetrics"),
 	}
 	if observe {
-		items = append(items, filepath.Join(root, "router"), filepath.Join(root, "marshaller"))
+		items = append(items, filepath.Join(root, "marshaller"))
 	}
 	return Paths(root, items)
 }
@@ -110,38 +110,15 @@ func Source(root string, observe bool) (string, error) {
 // SourceBuilds digests the sources that produce the locally built binaries.
 func SourceBuilds(root string) (string, error) { return Source(root, false) }
 
-// E2ESource digests everything a browser run consumes: the frontend sources
-// and configuration, plus the admin frontend for the observation scope.
-func E2ESource(root string, observe bool) (string, error) {
-	items := []string{
-		filepath.Join(root, "frontend", "src"),
-		filepath.Join(root, "frontend", "e2e"),
-		filepath.Join(root, "frontend", "package.json"),
-		filepath.Join(root, "frontend", "package-lock.json"),
-		filepath.Join(root, "frontend", "playwright.config.ts"),
-		filepath.Join(root, "frontend", "vite.config.ts"),
-		filepath.Join(root, "frontend", "vite.config.test.ts"),
-	}
-	if observe {
-		items = append(items,
-			filepath.Join(root, "admin-frontend", "src"),
-			filepath.Join(root, "admin-frontend", "package.json"),
-			filepath.Join(root, "admin-frontend", "package-lock.json"),
-			filepath.Join(root, "admin-frontend", "vite.config.ts"),
-			filepath.Join(root, "admin-frontend", "vite.config.test.ts"),
-		)
-	}
-	return Paths(root, items)
-}
-
-// MonitorInput digests everything that changes the prepared Monitor image.
+// MonitorInput digests everything that changes the Monitor container image.
+// Exporter source and packages are deployment inputs;
+// they are deliberately excluded so changing one module does not invalidate
+// the image. Native integration builds use the Monitor source digest directly.
 func MonitorInput(root string) (string, error) {
 	return Paths(root, []string{
 		filepath.Join(root, "VERSION"),
 		filepath.Join(root, "componentmetrics"),
 		filepath.Join(root, "monitor"),
-		filepath.Join(root, "exporters"),
-		filepath.Join(root, "deploy", "docker", "observability.Dockerfile"),
-		filepath.Join(root, "deploy", "plugins"),
+		filepath.Join(root, "deploy", "docker", "monitor.Dockerfile"),
 	})
 }

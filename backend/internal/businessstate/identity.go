@@ -23,7 +23,7 @@ func (repository *Repository) Ensure(ctx context.Context) (Environment, error) {
 	}
 	tx, err := repository.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return Environment{}, errors.New("begin business environment initialization")
+		return Environment{}, fmt.Errorf("begin business environment initialization: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	epoch, err := newUUID()

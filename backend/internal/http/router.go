@@ -6,11 +6,13 @@ import (
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,6 +23,14 @@ const (
 
 type Checker interface {
 	Check(context.Context) error
+}
+
+// NewRateLimitHandler keeps role assembly on the HTTP package boundary while
+// middleware owns source normalization and endpoint failure behavior.
+func NewRateLimitHandler(shared, local ratelimit.Limiter, policies map[string]ratelimit.Policy, trustedProxies []*net.IPNet) (gin.HandlerFunc, error) {
+	return middleware.NewRateLimit(middleware.RateLimitConfig{
+		Shared: shared, Local: local, Policies: policies, TrustedProxies: trustedProxies,
+	})
 }
 
 type Dependencies struct {
@@ -76,6 +86,7 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 		middleware.Access(httpLogger),
 		middleware.Recovery(httpLogger),
 		middleware.SameOrigin(),
+		middleware.RequestTimeout(requestTimeout),
 	)
 	if dependencies.HTTPMaxConcurrency > 0 {
 		router.Use(apiAdmission(dependencies.HTTPMaxConcurrency))

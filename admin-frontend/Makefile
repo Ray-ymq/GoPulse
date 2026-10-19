@@ -3,7 +3,7 @@
 
 NPM ?= npm
 
-.PHONY: deps test check build
+.PHONY: deps test check build lint
 
 DEVELOPMENT_HELPER := $(MAKE) --no-print-directory -C ../devtools build && ../devtools/bin/devenv
 
@@ -15,6 +15,9 @@ test: deps
 
 check: deps
 	$(NPM) run typecheck
+
+lint: deps
+	$(NPM) run lint
 
 build: deps
 	$(NPM) run build

@@ -206,7 +206,7 @@ func (repository *Repository) Claim(ctx context.Context, owner string, batch int
 	if err != nil {
 		return nil, errors.New("begin outbox claim")
 	}
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT id, event_id, event_type, schema_version, payload, status, available_at,
@@ -291,7 +291,7 @@ func (repository *Repository) ReleaseFailed(ctx context.Context, id uint64, owne
 	if err != nil {
 		return errors.New("begin failed outbox release")
 	}
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 
 	var attemptCount uint32
 	err = transaction.QueryRowContext(ctx, `

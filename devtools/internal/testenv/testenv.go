@@ -1,7 +1,6 @@
 // Package testenv owns the isolated test lifecycles: a candidate-scoped Compose
 // project with its own ports, volumes, private state, and exclusive environment
-// lock, the source test processes, and the deterministic test account cleanup
-// that the integration and browser entries share.
+// lock, the source test processes, and deterministic test account cleanup.
 package testenv
 
 import (
@@ -9,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -61,7 +61,6 @@ type session struct {
 	startDependencies      func(map[string]string) error
 	stopDependencies       func(*workspace.State)
 	runTestSuite           func(*workspace.State, string, bool) error
-	prepareMonitor         func(*session) (string, error)
 	stopDependenciesResult func(*workspace.State) error
 	diagnostic             *diagnostics.Report
 	diagnosticErrors       []error
@@ -84,6 +83,7 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	for key, value := range overrides {
 		values[key] = value
 	}
+	values["MONITOR_PACKAGE_DIR"] = filepath.Join(ws.Root, ".run", "packages")
 	envFile, err := envfile.WritePrivate(ws.PrivateRoot(), envfile.ModeTest, values)
 	if err != nil {
 		return nil, err
@@ -97,7 +97,11 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	files := []string{filepath.Join(ws.Root, "deploy", "compose.local.yaml")}
 	profiles := []string{}
 	if observe {
-		files = append(files, filepath.Join(ws.Root, "deploy", "compose.local-linux.yaml"))
+		override, err := observeComposeOverride(ws.Root)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, override)
 		profiles = append(profiles, "observe")
 	}
 	project := ws.ProjectTest()
@@ -113,7 +117,9 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 		command:    compose.Command{Project: project, EnvFile: envFile, Files: files, Profiles: profiles},
 	}
 	current.startDependencies = func(environment map[string]string) error {
-		return current.runCommand(current.command.Args("up", "--detach", "--wait", "--wait-timeout", "420"), current.root, environment,
+		arguments := []string{"up", "--detach", "--wait", "--wait-timeout", "420"}
+		arguments = append(arguments, composeDependencyServices(observe)...)
+		return current.runCommand(current.command.Args(arguments...), current.root, environment,
 			"Compose dependency startup for "+current.project, 0)
 	}
 	current.stopDependencies = current.composeDown
@@ -121,8 +127,27 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	current.runTestSuite = func(state *workspace.State, scope string, observe bool) error {
 		return current.runIntegrationTests(state, scope, observe)
 	}
-	current.prepareMonitor = ensureMonitorImage
 	return current, nil
+}
+
+// composeDependencyServices limits an integration Compose project to the
+// third-party services it owns. Observation application processes, including
+// Monitor, are built and started as host binaries by startObservationProcesses.
+func composeDependencyServices(observe bool) []string {
+	services := []string{"mysql", "redis", "rabbitmq", "elasticsearch"}
+	if observe {
+		services = append(services, "kafka", "kafka-init", "victoriametrics", "observability-elasticsearch")
+	}
+	return services
+}
+
+func observeComposeOverride(root string) (string, error) {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		return filepath.Join(root, "deploy", "compose.local-"+runtime.GOOS+".yaml"), nil
+	default:
+		return "", fmt.Errorf("observation mode is not supported on %s", runtime.GOOS)
+	}
 }
 
 // lock takes the exclusive test environment lock without waiting.
@@ -136,7 +161,7 @@ func (s *session) lock() (func(), error) {
 	}
 	if err := syscall.Flock(int(handle.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		handle.Close()
-		return nil, fmt.Errorf("another integration or browser check owns the test environment lock")
+		return nil, fmt.Errorf("another integration check owns the test environment lock")
 	}
 	return func() {
 		_ = syscall.Flock(int(handle.Fd()), syscall.LOCK_UN)
@@ -178,14 +203,6 @@ func runIntegration(current *session, scope string, observe bool) error {
 	}
 	current.beginDiagnostics("integration", scope, observe)
 	composeEnv := copyEnvironment(current.processEnv)
-	if observe {
-		image, err := current.prepareMonitor(current)
-		if err != nil {
-			current.finishDiagnostics(err, current.pendingState(), nil)
-			return err
-		}
-		composeEnv["GOPULSE_MONITOR_IMAGE"] = image
-	}
 	if err := current.startDependencies(composeEnv); err != nil {
 		primaryExit := current.lastCommand.ExitCode
 		if primaryExit == 0 {
@@ -196,7 +213,7 @@ func runIntegration(current *session, scope string, observe bool) error {
 		current.finishDiagnosticsWithExit(err, primaryExit, cleanupErrors)
 		return err
 	}
-	state, err := current.integrationState(scope, observe, composeEnv["GOPULSE_MONITOR_IMAGE"])
+	state, err := current.integrationState(scope, observe)
 	if err != nil {
 		primaryExit := current.lastCommand.ExitCode
 		if primaryExit == 0 {
@@ -267,10 +284,9 @@ func integrationPorts(values envfile.Values, observe bool) []int {
 			integer(values, "VICTORIAMETRICS_PORT"),
 			integer(values, "OBSERVABILITY_ELASTICSEARCH_PORT"),
 			integer(values, "MONITOR_HTTP_PORT"),
-			integer(values, "ROUTER_HTTP_PORT"),
 			integer(values, "MARSHALLER_HTTP_PORT"),
 			integer(values, "REDIS_EXPORTER_HTTP_PORT"),
-			integer(values, "HTTP_PORT"), 19101, 19102, 19103, 19105, 19106)
+			integer(values, "HTTP_PORT"), 19101, 19102, 19103, 19106)
 	}
 	return ports
 }
@@ -287,7 +303,7 @@ func (s *session) pendingState() *workspace.State {
 	return &workspace.State{Project: s.project, EnvFile: s.envFile, ComposeFiles: s.files}
 }
 
-func (s *session) integrationState(scope string, observe bool, image string) (*workspace.State, error) {
+func (s *session) integrationState(scope string, observe bool) (*workspace.State, error) {
 	source, err := digest.Source(s.root, observe)
 	if err != nil {
 		return nil, err
@@ -310,11 +326,13 @@ func (s *session) integrationState(scope string, observe bool, image string) (*w
 		EnvFile:       s.envFile,
 		SourceDigest:  source,
 		ComposeDigest: composeDigest,
-		MonitorImage:  image,
-		StartedAt:     now(),
-		Processes:     map[string]workspace.ProcessRecord{},
-		Logs:          map[string]string{},
-		Scope:         scope,
+		// Keep the historical state key for readers of older integration receipts.
+		// Native observation tests do not create or consume a Monitor image.
+		MonitorImage: "",
+		StartedAt:    now(),
+		Processes:    map[string]workspace.ProcessRecord{},
+		Logs:         map[string]string{},
+		Scope:        scope,
 	}, nil
 }
 
@@ -376,12 +394,6 @@ func (s *session) saveIntegrationState(state *workspace.State) error {
 		"processes":      state.Processes,
 		"logs":           state.Logs,
 	}
-	if state.BrowserTraces != "" {
-		document["browser_traces"] = state.BrowserTraces
-	}
-	if len(state.BrowserCommands) > 0 {
-		document["browser_commands"] = state.BrowserCommands
-	}
 	if state.StoppedAt != "" {
 		document["stopped_at"] = state.StoppedAt
 	}
@@ -439,9 +451,6 @@ func (s *session) beginDiagnostics(mode, scope string, observe bool) {
 		}
 	}
 	reproduction := [][]string{{"make", mode, "SCOPE=" + scope}}
-	if mode == "e2e" {
-		reproduction = [][]string{{"make", "e2e", "SCOPE=" + scope}}
-	}
 	environment := map[string]string{
 		"workspace_id":   s.ws.Identity,
 		"workspace_root": s.ws.Root,
@@ -469,11 +478,6 @@ func (s *session) collectFailureEvidence(state *workspace.State) {
 			continue
 		}
 		if err := s.diagnostic.CopyText("process-"+name, record.Log); err != nil {
-			s.diagnosticErrors = append(s.diagnosticErrors, err)
-		}
-	}
-	if state.BrowserTraces != "" {
-		if err := s.diagnostic.CopyTree("browser-report", state.BrowserTraces); err != nil {
 			s.diagnosticErrors = append(s.diagnosticErrors, err)
 		}
 	}

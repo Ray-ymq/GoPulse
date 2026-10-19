@@ -28,12 +28,12 @@ func execute(stdout io.Writer, load func() (config.SearchIndexerConfig, error), 
 	stdoutLogger := logging.New("search-indexer", stdout)
 	cfg, err := load()
 	if err != nil {
-		indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "configuration", "invalid_configuration")
+		_ = indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "configuration", "invalid_configuration")
 		return 1
 	}
 	logs, err := processlog.Open("search-indexer", stdout, cfg.LogShip)
 	if err != nil {
-		indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "logship", "invalid_configuration")
+		_ = indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "logship", "invalid_configuration")
 		return 1
 	}
 	exitCode := 0
@@ -88,7 +88,7 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 			lifecycleLogger.Warn("resource close failed", slog.String("resource", "mysql"), slog.String("reason", "close_failed"))
 		}
 	}()
-	state, err := businessstate.NewRepository(mysqlClient.DB())
+	state, err := businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements))
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "business_state", "invalid_dependency")
 	}

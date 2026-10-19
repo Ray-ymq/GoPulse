@@ -202,7 +202,7 @@ func (r *MySQLRepository) SearchProfiles(ctx context.Context, viewer uint64, opt
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	records := []Profile{}
 	ranks := []int{}
 	for rows.Next() {

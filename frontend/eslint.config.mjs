@@ -6,7 +6,7 @@ import rules from '../devtools/config/eslint-rules.mjs'
 
 export default [
   {
-    ignores: ['dist/**', 'coverage/**', 'test-results/**', 'playwright-report/**'],
+    ignores: ['dist/**', 'coverage/**'],
   },
   {
     files: ['**/*.vue'],

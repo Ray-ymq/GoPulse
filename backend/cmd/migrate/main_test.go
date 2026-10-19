@@ -76,7 +76,7 @@ func TestResumeOnlyExplicitDirtyTwelve(t *testing.T) {
 			driver.runErr = errors.New("SQL secret must remain private")
 		}
 		err = resumeSuperAdminMigration(driver, source)
-		source.Close()
+		_ = source.Close()
 		if (err != nil) != tc.failed || driver.runs != tc.runs || driver.sets != tc.sets || driver.locks != 0 {
 			t.Fatalf("case=%+v driver=%+v err=%v", tc, driver, err)
 		}

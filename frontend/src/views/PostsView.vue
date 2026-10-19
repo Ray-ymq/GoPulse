@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import PostCard from '../components/PostCard.vue'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Post } from '../types/api'
@@ -49,16 +50,14 @@ onMounted(() => void load(true))
       <header class="page-heading"><h1>首页</h1></header>
       <p v-if="route.query.deleted === '1'" role="status" class="notice">帖子已永久删除，无法恢复。</p>
       <div class="user-tabs" role="tablist" aria-label="时间线">
-        <button role="tab" :aria-selected="!following" :disabled="loading" @click="selectTab(false)">全部</button>
-        <button role="tab" :aria-selected="following" :disabled="loading" @click="selectTab(true)">Following</button>
+        <button type="button" role="tab" :aria-selected="!following" :disabled="loading" @click="selectTab(false)">全部</button>
+        <button type="button" role="tab" :aria-selected="following" :disabled="loading" @click="selectTab(true)">Following</button>
       </div>
 
-      <p v-if="errorMessage" class="notice notice--error" role="alert">
-        {{ errorMessage }} <button class="inline-action" type="button" @click="load(!loaded)">重试</button>
-      </p>
-      <p v-if="loading && posts.length === 0" class="state-card">正在加载帖子…</p>
-      <p v-else-if="loaded && posts.length === 0" class="state-card">{{ following ? '关注的人还没有帖子，去搜索用户并关注吧。' : '还没有帖子，成为第一个发布者吧。' }}</p>
-      <section v-else class="post-list" aria-live="polite">
+      <ProductState v-if="errorMessage" state="unavailable" :message="errorMessage" action-label="重试" @retry="load(!loaded)" />
+      <ProductState v-else-if="loading && posts.length === 0" state="loading" message="正在读取帖子…" />
+      <ProductState v-else-if="loaded && posts.length === 0" state="empty" :message="following ? '关注的人还没有帖子，去搜索用户并关注吧。' : '还没有帖子，成为第一个发布者吧。'" />
+      <section v-else-if="posts.length" class="post-list" aria-live="polite">
         <PostCard v-for="post in posts" :key="post.id" :post="post" />
       </section>
 

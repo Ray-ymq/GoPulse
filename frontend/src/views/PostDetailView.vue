@@ -8,6 +8,7 @@ import { postApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Comment, Post } from '../types/api'
 import { formatDate } from '../utils/format'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 
 const route = useRoute()
 const post = ref<Post | null>(null)
@@ -104,8 +105,8 @@ onMounted(() => void loadAll())
   <div>
     <main class="content-shell content-shell--narrow">
       <RouterLink class="back-link" to="/posts">← 返回帖子</RouterLink>
-      <p v-if="loadingPost && !post" class="state-card">正在加载帖子…</p>
-      <p v-else-if="errorMessage && !post" class="notice notice--error" role="alert">{{ errorMessage }}</p>
+      <ProductState v-if="loadingPost && !post" state="loading" message="正在读取帖子…" />
+      <ProductState v-else-if="errorMessage && !post" state="unavailable" :message="errorMessage" action-label="重试" @retry="loadAll" />
       <article v-else-if="post" class="detail-card">
         <div class="post-card__meta">
           <RouterLink :to="`/users/${post.author.username}`"><strong>{{ post.author.display_name || post.author.username }}</strong> @{{ post.author.username }}</RouterLink>
@@ -133,8 +134,8 @@ onMounted(() => void loadAll())
           </button>
         </form>
         <p v-if="commentError" class="notice notice--error" role="alert">{{ commentError }}</p>
-        <p v-if="loadingComments && comments.length === 0" class="state-card">正在加载评论…</p>
-        <p v-else-if="!loadingComments && comments.length === 0" class="state-card">还没有评论。</p>
+        <ProductState v-if="loadingComments && comments.length === 0" state="loading" message="正在读取评论…" />
+        <ProductState v-else-if="!loadingComments && comments.length === 0" state="empty" message="还没有评论。" />
         <div v-else class="comment-list">
           <article v-for="comment in comments" :key="comment.id" class="comment-card">
             <div class="post-card__meta">

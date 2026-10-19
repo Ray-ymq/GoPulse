@@ -5,15 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"io"
 	"math"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
+)
+
+const (
+	SchemaVersion = 2
+	MetricsDataID = 1001
 )
 
 var (
@@ -24,6 +29,7 @@ var (
 type PermanentError struct{ Code string }
 
 func (e *PermanentError) Error() string { return "record permanently rejected: " + e.Code }
+
 func Code(err error) string {
 	var target *PermanentError
 	if errors.As(err, &target) {
@@ -31,6 +37,7 @@ func Code(err error) string {
 	}
 	return ""
 }
+
 func reject(code string) error { return &PermanentError{Code: code} }
 
 type Sample struct {
@@ -40,16 +47,31 @@ type Sample struct {
 	Value      json.Number       `json:"value"`
 	FloatValue float64           `json:"-"`
 }
-type Payload struct {
-	ProducerKind    string   `json:"producer_kind,omitempty"`
-	ProducerID      string   `json:"producer_id,omitempty"`
-	ProducerVersion string   `json:"producer_version,omitempty"`
-	PluginID        string   `json:"plugin_id"`
-	PluginVersion   string   `json:"plugin_version"`
-	TargetID        string   `json:"target_id"`
-	ScrapeStatus    string   `json:"scrape_status"`
-	Samples         []Sample `json:"samples"`
+
+type MetricData struct {
+	Dimension map[string]string      `json:"dimension"`
+	Metrics   map[string]json.Number `json:"metrics"`
+	Timestamp int64                  `json:"timestamp"`
 }
+
+type Payload struct {
+	DataID    int          `json:"dataid"`
+	Time      int64        `json:"time"`
+	Timestamp int64        `json:"timestamp"`
+	Data      []MetricData `json:"data"`
+
+	// Legacy fields are populated only when decoding the pre-batch contract.
+	// They are excluded from JSON so newly produced messages cannot regress.
+	ProducerKind    string   `json:"-"`
+	ProducerID      string   `json:"-"`
+	ProducerVersion string   `json:"-"`
+	PluginID        string   `json:"-"`
+	PluginVersion   string   `json:"-"`
+	TargetID        string   `json:"-"`
+	ScrapeStatus    string   `json:"-"`
+	Samples         []Sample `json:"-"`
+}
+
 type rawEnvelope struct {
 	SchemaVersion int             `json:"schema_version"`
 	MessageID     string          `json:"message_id"`
@@ -58,6 +80,7 @@ type rawEnvelope struct {
 	Timestamp     string          `json:"timestamp"`
 	Payload       json.RawMessage `json:"payload"`
 }
+
 type Envelope struct {
 	SchemaVersion int
 	MessageID     string
@@ -98,10 +121,13 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 	if err := expectEOF(decoder); err != nil {
 		return Envelope{}, reject("invalid_json")
 	}
-	if !messageIDPattern.Match(key) || raw.MessageID != string(key) {
+	if !messageIDPattern.MatchString(string(key)) || raw.MessageID != string(key) {
 		return Envelope{}, reject("message_id_mismatch")
 	}
-	if (raw.SchemaVersion != 1 && !(raw.SchemaVersion == 2 && raw.Type == "metrics")) || !supported(raw.Type, raw.Source) {
+	if raw.SchemaVersion != 2 && raw.SchemaVersion != 1 {
+		return Envelope{}, reject("unsupported_envelope")
+	}
+	if !supported(raw.Type, raw.Source) {
 		return Envelope{}, reject("unsupported_envelope")
 	}
 	payloadBytes := bytes.TrimSpace(raw.Payload)
@@ -122,34 +148,113 @@ func (d Decoder) Decode(key, value []byte) (Envelope, error) {
 	if timestamp.After(now.Add(d.FutureSkew)) {
 		return Envelope{}, reject("timestamp_too_far_future")
 	}
-	var metricsPayload Payload
+
+	message := Envelope{SchemaVersion: raw.SchemaVersion, MessageID: raw.MessageID, Type: raw.Type, Source: raw.Source, Timestamp: timestamp, TimestampText: raw.Timestamp, RawPayload: append(json.RawMessage(nil), raw.Payload...)}
 	if raw.Type == "metrics" {
-		payloadDecoder := json.NewDecoder(bytes.NewReader(raw.Payload))
-		payloadDecoder.DisallowUnknownFields()
-		payloadDecoder.UseNumber()
-		if err := payloadDecoder.Decode(&metricsPayload); err != nil || expectEOF(payloadDecoder) != nil {
+		fields := map[string]json.RawMessage{}
+		if json.Unmarshal(raw.Payload, &fields) != nil {
 			return Envelope{}, reject("invalid_payload")
 		}
-		if raw.SchemaVersion == 2 {
-			var fields map[string]json.RawMessage
-			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 6 || fields["producer_kind"] == nil || fields["producer_id"] == nil || fields["producer_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil || !validProducer(raw.Source, metricsPayload) || !semverPattern.MatchString(metricsPayload.ProducerVersion) {
-				return Envelope{}, reject("invalid_producer")
+		// A schema-2 record with old producer fields is accepted only as a
+		// migration input. Every newly produced schema-2 record is the batch
+		// shape below.
+		if raw.SchemaVersion == 1 || fields["samples"] != nil {
+			payload, decodeErr := decodeLegacyMetrics(raw.Payload, raw.Source)
+			if decodeErr != nil {
+				return Envelope{}, decodeErr
 			}
-			metricsPayload.PluginID, metricsPayload.PluginVersion = metricsPayload.ProducerID, metricsPayload.ProducerVersion
+			if raw.SchemaVersion == 1 && raw.Source != "redis" {
+				return Envelope{}, reject("unsupported_envelope")
+			}
+			message.Payload = payload
 		} else {
-			var fields map[string]json.RawMessage
-			if json.Unmarshal(raw.Payload, &fields) != nil || len(fields) != 5 || fields["plugin_id"] == nil || fields["plugin_version"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil || fields["samples"] == nil {
-				return Envelope{}, reject("invalid_producer")
+			payload, decodeErr := decodeMetrics(raw.Payload, raw.Source, timestamp)
+			if decodeErr != nil {
+				return Envelope{}, decodeErr
 			}
-		}
-		if raw.SchemaVersion == 1 && raw.Source != "redis" {
-			return Envelope{}, reject("unsupported_envelope")
-		}
-		if err := validateMetricsPayload(raw.Source, &metricsPayload); err != nil {
-			return Envelope{}, err
+			message.Payload = payload
 		}
 	}
-	return Envelope{SchemaVersion: raw.SchemaVersion, MessageID: raw.MessageID, Type: raw.Type, Source: raw.Source, Timestamp: timestamp, TimestampText: raw.Timestamp, Payload: metricsPayload, RawPayload: append(json.RawMessage(nil), raw.Payload...)}, nil
+	return message, nil
+}
+
+func decodeMetrics(body []byte, source string, at time.Time) (Payload, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil || len(fields) != 4 || fields["dataid"] == nil || fields["time"] == nil || fields["timestamp"] == nil || fields["data"] == nil {
+		return Payload{}, reject("invalid_payload")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	var payload Payload
+	if err := decoder.Decode(&payload); err != nil || expectEOF(decoder) != nil {
+		return Payload{}, reject("invalid_payload")
+	}
+	if err := validateMetricsPayload(source, &payload, at); err != nil {
+		return Payload{}, err
+	}
+	payload.PluginID = source + "-exporter"
+	payload.PluginVersion = ""
+	payload.TargetID = source + "-exporter-local"
+	payload.ScrapeStatus = "success"
+	return payload, nil
+}
+
+func decodeLegacyMetrics(body []byte, source string) (Payload, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return Payload{}, reject("invalid_payload")
+	}
+	var legacy struct {
+		ProducerKind    string   `json:"producer_kind,omitempty"`
+		ProducerID      string   `json:"producer_id,omitempty"`
+		ProducerVersion string   `json:"producer_version,omitempty"`
+		PluginID        string   `json:"plugin_id,omitempty"`
+		PluginVersion   string   `json:"plugin_version,omitempty"`
+		TargetID        string   `json:"target_id"`
+		ScrapeStatus    string   `json:"scrape_status"`
+		Samples         []Sample `json:"samples"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(&legacy); err != nil || expectEOF(decoder) != nil {
+		return Payload{}, reject("invalid_payload")
+	}
+	if len(fields) != 5 && len(fields) != 6 {
+		return Payload{}, reject("invalid_producer")
+	}
+	if fields["samples"] == nil || fields["target_id"] == nil || fields["scrape_status"] == nil {
+		return Payload{}, reject("invalid_producer")
+	}
+	if fields["plugin_id"] == nil && (fields["producer_kind"] == nil || fields["producer_id"] == nil || fields["producer_version"] == nil) {
+		return Payload{}, reject("invalid_producer")
+	}
+	if legacy.ProducerKind == "exporter_plugin" && legacy.ProducerID != source+"-exporter" {
+		return Payload{}, reject("invalid_producer")
+	}
+	payload := Payload{
+		ProducerKind: legacy.ProducerKind, ProducerID: legacy.ProducerID, ProducerVersion: legacy.ProducerVersion,
+		PluginID: legacy.PluginID, PluginVersion: legacy.PluginVersion, TargetID: legacy.TargetID,
+		ScrapeStatus: legacy.ScrapeStatus, Samples: legacy.Samples,
+	}
+	if payload.PluginID == "" && payload.ProducerID != "" {
+		payload.PluginID, payload.PluginVersion = payload.ProducerID, payload.ProducerVersion
+	}
+	if payload.ProducerKind == "component" {
+		if payload.ProducerID != source || payload.TargetID != componentmetrics.Target(source) {
+			return Payload{}, reject("invalid_producer")
+		}
+		if err := validateTransport(source, &payload, false); err != nil {
+			return Payload{}, err
+		}
+		return payload, nil
+	}
+	if err := validateLegacyMetricsPayload(payload); err != nil {
+		return Payload{}, err
+	}
+	payload.Samples = append([]Sample(nil), payload.Samples...)
+	return payload, nil
 }
 
 func supported(messageType, source string) bool {
@@ -185,6 +290,7 @@ func checkUniqueObject(value []byte) error {
 	}
 	return expectEOF(dec)
 }
+
 func scanValue(dec *json.Decoder) error {
 	tok, err := dec.Token()
 	if err != nil {
@@ -215,10 +321,7 @@ func scanValue(dec *json.Decoder) error {
 			}
 		}
 		end, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		if end != json.Delim('}') {
+		if err != nil || end != json.Delim('}') {
 			return errors.New("invalid object end")
 		}
 	case '[':
@@ -228,10 +331,7 @@ func scanValue(dec *json.Decoder) error {
 			}
 		}
 		end, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		if end != json.Delim(']') {
+		if err != nil || end != json.Delim(']') {
 			return errors.New("invalid array end")
 		}
 	default:
@@ -240,260 +340,112 @@ func scanValue(dec *json.Decoder) error {
 	return nil
 }
 
-type familyRule struct {
-	kind    string
-	labels  []string
-	count   int
-	counter bool
-}
-
-var successRules = map[string]familyRule{
-	"gopulse_redis_up":                       {kind: "gauge", count: 1},
-	"gopulse_redis_uptime_seconds":           {kind: "gauge", count: 1},
-	"gopulse_redis_connected_clients":        {kind: "gauge", count: 1},
-	"gopulse_redis_used_memory_bytes":        {kind: "gauge", count: 1},
-	"gopulse_redis_commands_processed_total": {kind: "counter", count: 1, counter: true},
-	"gopulse_redis_keyspace_hits_total":      {kind: "counter", count: 1, counter: true},
-	"gopulse_redis_keyspace_misses_total":    {kind: "counter", count: 1, counter: true},
-	"gopulse_redis_cpu_seconds_total":        {kind: "counter", labels: []string{"mode"}, count: 2, counter: true},
-	"gopulse_redis_db_keys":                  {kind: "gauge", labels: []string{"db"}, count: 1},
-	"gopulse_redis_db_expiring_keys":         {kind: "gauge", labels: []string{"db"}, count: 1},
-}
-
-func validatePayload(p *Payload) error {
-	source := strings.TrimSuffix(p.PluginID, "-exporter")
-	rules := rulesFor(source)
-	if rules == nil || !semverPattern.MatchString(p.PluginVersion) || p.TargetID != p.PluginID+"-local" {
-		return reject("invalid_payload_identity")
+func validateMetricsPayload(source string, p *Payload, at time.Time) error {
+	if p.DataID != MetricsDataID || p.Time != at.Unix() || p.Timestamp != at.Unix() || len(p.Data) == 0 {
+		return reject("invalid_metric_batch")
 	}
-	if p.Samples == nil || len(p.Samples) == 0 || len(p.Samples) > 1024 {
+	if len(p.Data) > metriccontract.MaxSamples {
+		return reject("invalid_metric_batch")
+	}
+	checked := make([]metriccontract.Sample, 0, len(p.Data))
+	for _, item := range p.Data {
+		if item.Timestamp <= 0 || len(item.Metrics) == 0 || !metriccontract.ValidLabels(item.Dimension) {
+			return reject("invalid_metric_batch")
+		}
+		for name, number := range item.Metrics {
+			value, err := number.Float64()
+			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+				return reject("invalid_value")
+			}
+			checked = append(checked, metriccontract.Sample{Name: name, Kind: metricKind(source, name), Labels: item.Dimension, Value: value})
+		}
+	}
+	if err := metriccontract.Validate(source, checked); err != nil {
 		return reject("invalid_sample_set")
 	}
-	if p.ScrapeStatus == "target_unavailable" {
+	p.Samples = make([]Sample, len(checked))
+	for i, sample := range checked {
+		value, _ := json.Number(formatFloat(sample.Value)).Float64()
+		p.Samples[i] = Sample{Name: sample.Name, Kind: sample.Kind, Labels: sample.Labels, Value: json.Number(formatFloat(value)), FloatValue: value}
+	}
+	return nil
+}
+
+func metricKind(source, name string) string {
+	if spec, ok := componentmetrics.Catalog(source); ok {
+		for _, family := range spec.Families {
+			if family.Name == name {
+				return family.Kind
+			}
+		}
+	}
+	if strings.HasSuffix(name, "_total") || strings.HasSuffix(name, "_count") || strings.HasSuffix(name, "_bucket") {
+		return "counter"
+	}
+	return "gauge"
+}
+
+func formatFloat(value float64) string {
+	return fmt.Sprintf("%g", value)
+}
+
+func validateLegacyMetricsPayload(p Payload) error {
+	source := strings.TrimSuffix(p.PluginID, "-exporter")
+	if p.PluginID != source+"-exporter" || !semverPattern.MatchString(p.PluginVersion) || p.TargetID != p.PluginID+"-local" {
+		return reject("invalid_payload_identity")
+	}
+	return validateTransport(source, &p, true)
+}
+
+// validatePayload keeps the package-level contract used by older tests and
+// callers. New records are validated through validateMetricsPayload above.
+func validatePayload(p *Payload) error { return validateLegacyMetricsPayload(*p) }
+
+func validateTransport(source string, p *Payload, exporter bool) error {
+	checked := make([]metriccontract.Sample, len(p.Samples))
+	for i := range p.Samples {
+		sample := &p.Samples[i]
+		value, err := sample.Value.Float64()
+		if err != nil {
+			return reject("invalid_value")
+		}
+		sample.FloatValue = value
+		checked[i] = metriccontract.Sample{Name: sample.Name, Kind: sample.Kind, Labels: sample.Labels, Value: value}
+	}
+	if err := metriccontract.Validate(source, checked); err != nil {
+		return reject("invalid_sample_set")
+	}
+	if !exporter && p.ScrapeStatus != "success" {
+		return reject("invalid_component_status")
+	}
+	if !exporter {
+		return nil
+	}
+	expectedUp := 1.
+	switch p.ScrapeStatus {
+	case "success":
+	case "target_unavailable":
+		expectedUp = 0
 		if len(p.Samples) != 1 {
 			return reject("invalid_sample_set")
 		}
-		s := &p.Samples[0]
-		if err := validateSample(s, familyRule{kind: "gauge", count: 1}); err != nil {
-			return err
-		}
-		if s.Name != "gopulse_"+source+"_up" || len(s.Labels) != 0 || s.FloatValue != 0 {
-			return reject("invalid_sample_set")
-		}
-		return nil
-	}
-	if p.ScrapeStatus != "success" || len(p.Samples) != sampleCount(rules) {
+	default:
 		return reject("invalid_sample_set")
 	}
-	counts := map[string]int{}
-	healthSum := 0.0
-	seen := map[string]struct{}{}
-	modes := map[string]bool{}
-	dbValues := map[string]bool{}
-	for i := range p.Samples {
-		s := &p.Samples[i]
-		rule, ok := rules[s.Name]
-		if !ok {
-			return reject("unknown_metric_family")
+	found := false
+	for _, sample := range checked {
+		if sample.Name != "gopulse_"+source+"_up" {
+			continue
 		}
-		if err := validateSample(s, rule); err != nil {
-			return err
-		}
-		if s.Name == "gopulse_elasticsearch_cluster_health_status" {
-			if s.FloatValue != 0 && s.FloatValue != 1 {
-				return reject("invalid_sample_set")
-			}
-			healthSum += s.FloatValue
-		}
-		key := canonicalKey(*s)
-		if _, ok := seen[key]; ok {
-			return reject("duplicate_sample")
-		}
-		seen[key] = struct{}{}
-		counts[s.Name]++
-		if s.Name == "gopulse_"+source+"_up" && s.FloatValue != 1 {
+		if found || sample.Kind != "gauge" || len(sample.Labels) != 0 || sample.Value != expectedUp {
 			return reject("invalid_sample_set")
 		}
-		if mode, ok := s.Labels["mode"]; ok {
-			if mode != "user" && mode != "system" {
-				return reject("invalid_label")
-			}
-			modes[mode] = true
-		}
-		if db, ok := s.Labels["db"]; ok {
-			if _, err := strconv.ParseUint(db, 10, 31); err != nil {
-				return reject("invalid_label")
-			}
-			dbValues[db] = true
-		}
+		found = true
 	}
-	for name, rule := range rules {
-		if counts[name] != rule.count {
-			return reject("invalid_sample_set")
-		}
-	}
-	if source == "elasticsearch" && healthSum != 1 {
-		return reject("invalid_sample_set")
-	}
-	if source == "redis" && (len(modes) != 2 || !modes["user"] || !modes["system"] || len(dbValues) != 1) {
+	if !found {
 		return reject("invalid_sample_set")
 	}
 	return nil
 }
-func validateSample(s *Sample, rule familyRule) error {
-	if len(s.Name) == 0 || len(s.Name) > 128 || s.Kind != rule.kind || s.Labels == nil || len(s.Labels) > 16 {
-		return reject("invalid_sample")
-	}
-	if len(s.Labels) != len(rule.labels) {
-		return reject("invalid_label")
-	}
-	allowed := map[string]bool{}
-	for _, name := range rule.labels {
-		allowed[name] = true
-	}
-	for key, value := range s.Labels {
-		if key == "status" && value != "green" && value != "yellow" && value != "red" {
-			return reject("invalid_label")
-		}
-		if (key == "result" && value != "commit" && value != "rollback") || (key == "state" && value != "ready" && value != "unacked") {
-			return reject("invalid_label")
-		}
-		if !allowed[key] || key == "source" || key == "target_id" || len(value) > 256 {
-			return reject("invalid_label")
-		}
-	}
-	value, err := strconv.ParseFloat(string(s.Value), 64)
-	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
-		return reject("invalid_value")
-	}
-	if rule.counter && value < 0 {
-		return reject("invalid_value")
-	}
-	s.FloatValue = value
-	return nil
-}
-func canonicalKey(s Sample) string {
-	keys := make([]string, 0, len(s.Labels))
-	for k := range s.Labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	b.WriteString(s.Name)
-	for _, k := range keys {
-		b.WriteByte(0)
-		b.WriteString(k)
-		b.WriteByte('=')
-		b.WriteString(s.Labels[k])
-	}
-	return b.String()
-}
-func CanonicalKey(s Sample) string { return canonicalKey(s) }
 
-func sampleCount(rules map[string]familyRule) int {
-	n := 0
-	for _, rule := range rules {
-		n += rule.count
-	}
-	return n
-}
-func rulesFor(source string) map[string]familyRule {
-	switch source {
-	case "redis":
-		return successRules
-	case "mysql":
-		return map[string]familyRule{
-			"gopulse_mysql_up":                      {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_mysql_uptime_seconds":          {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_mysql_connections":             {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_mysql_max_connections":         {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_mysql_threads_running":         {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_mysql_queries_total":           {kind: "counter", counter: true, count: 1, labels: nil},
-			"gopulse_mysql_slow_queries_total":      {kind: "counter", counter: true, count: 1, labels: nil},
-			"gopulse_mysql_transactions_total":      {kind: "counter", counter: true, count: 2, labels: []string{"result"}},
-			"gopulse_mysql_buffer_pool_data_bytes":  {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_mysql_buffer_pool_dirty_bytes": {kind: "gauge", counter: false, count: 1, labels: nil},
-		}
-	case "rabbitmq":
-		return map[string]familyRule{
-			"gopulse_rabbitmq_up":              {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_rabbitmq_connections":     {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_rabbitmq_channels":        {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_rabbitmq_queues":          {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_rabbitmq_consumers":       {kind: "gauge", counter: false, count: 1, labels: nil},
-			"gopulse_rabbitmq_messages":        {kind: "gauge", counter: false, count: 2, labels: []string{"state"}},
-			"gopulse_rabbitmq_published_total": {kind: "counter", counter: true, count: 1, labels: nil},
-			"gopulse_rabbitmq_delivered_total": {kind: "counter", counter: true, count: 1, labels: nil},
-			"gopulse_rabbitmq_acked_total":     {kind: "counter", counter: true, count: 1, labels: nil},
-		}
-	case "kafka":
-		return map[string]familyRule{
-			"gopulse_kafka_up":                          {kind: "gauge", count: 1, labels: nil},
-			"gopulse_kafka_brokers":                     {kind: "gauge", count: 1, labels: nil},
-			"gopulse_kafka_controller_available":        {kind: "gauge", count: 1, labels: nil},
-			"gopulse_kafka_partitions":                  {kind: "gauge", count: 1, labels: nil},
-			"gopulse_kafka_under_replicated_partitions": {kind: "gauge", count: 1, labels: nil},
-			"gopulse_kafka_offline_partitions":          {kind: "gauge", count: 1, labels: nil},
-			"gopulse_kafka_consumer_group_lag":          {kind: "gauge", count: 1, labels: nil},
-		}
-
-	case "victoriametrics":
-		return map[string]familyRule{
-			"gopulse_victoriametrics_up":                         {kind: "gauge", count: 1, labels: nil},
-			"gopulse_victoriametrics_rows_inserted_total":        {kind: "counter", count: 1, labels: nil},
-			"gopulse_victoriametrics_query_requests_total":       {kind: "counter", count: 1, labels: nil},
-			"gopulse_victoriametrics_active_timeseries":          {kind: "gauge", count: 1, labels: nil},
-			"gopulse_victoriametrics_storage_rows":               {kind: "gauge", count: 1, labels: nil},
-			"gopulse_victoriametrics_storage_size_bytes":         {kind: "gauge", count: 1, labels: nil},
-			"gopulse_victoriametrics_free_disk_space_bytes":      {kind: "gauge", count: 1, labels: nil},
-			"gopulse_victoriametrics_active_merges":              {kind: "gauge", count: 1, labels: nil},
-			"gopulse_victoriametrics_storage_rows_deleted_total": {kind: "counter", count: 1, labels: nil},
-		}
-	case "elasticsearch":
-		return map[string]familyRule{
-			"gopulse_elasticsearch_up":                    {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_cluster_health_status": {kind: "gauge", count: 3, labels: []string{"status"}},
-			"gopulse_elasticsearch_nodes":                 {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_data_nodes":            {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_active_primary_shards": {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_active_shards":         {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_relocating_shards":     {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_initializing_shards":   {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_unassigned_shards":     {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_pending_tasks":         {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_documents":             {kind: "gauge", count: 1, labels: nil},
-			"gopulse_elasticsearch_store_size_bytes":      {kind: "gauge", count: 1, labels: nil},
-		}
-
-	}
-	return nil
-}
-
-func validProducer(source string, p Payload) bool {
-	if componentmetrics.IsComponent(source) {
-		return p.ProducerKind == "component" && p.ProducerID == source && p.TargetID == componentmetrics.Target(source)
-	}
-	return p.ProducerKind == "exporter_plugin" && p.ProducerID == source+"-exporter"
-}
-func validateMetricsPayload(source string, p *Payload) error {
-	if !componentmetrics.IsComponent(source) {
-		return validatePayload(p)
-	}
-	if p.ScrapeStatus != "success" {
-		return reject("invalid_component_status")
-	}
-	samples := make([]componentmetrics.Sample, len(p.Samples))
-	for i := range p.Samples {
-		s := &p.Samples[i]
-		v, err := s.Value.Float64()
-		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-			return reject("invalid_component_value")
-		}
-		s.FloatValue = v
-		samples[i] = componentmetrics.Sample{Name: s.Name, Kind: s.Kind, Labels: s.Labels, Value: v}
-	}
-	if err := componentmetrics.Validate(source, samples); err != nil {
-		return reject("invalid_component_samples")
-	}
-	return nil
-}
+func CanonicalKey(s Sample) string { return metriccontract.Key(s.Name, s.Labels) }

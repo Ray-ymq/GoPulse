@@ -42,7 +42,7 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var owner, revision uint64
 	var title, content string
 	err = tx.QueryRowContext(ctx, `SELECT author_id, title, content, content_revision FROM posts WHERE id = ? FOR UPDATE`, id).Scan(&owner, &title, &content, &revision)
@@ -85,15 +85,6 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 	return err
 }
 
-func (r *MySQLRepository) ContentRevision(ctx context.Context, id uint64) (uint64, error) {
-	var revision uint64
-	err := r.database.QueryRowContext(ctx, `SELECT content_revision FROM posts WHERE id=?`, id).Scan(&revision)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
-	}
-	return revision, err
-}
-
 func (s *Service) Update(ctx context.Context, id, actor uint64, input CreateInput) (Post, error) {
 	normalized, err := NormalizeCreateInput(input)
 	if errors.Is(err, ErrInvalidTitle) {
@@ -120,9 +111,6 @@ func (s *Service) Update(ctx context.Context, id, actor uint64, input CreateInpu
 	}
 	if err != nil {
 		return Post{}, apperror.WrapInternal(err)
-	}
-	if s.cache != nil {
-		_ = s.cache.Invalidate(ctx, id)
 	}
 	return s.Detail(ctx, id, actor)
 }

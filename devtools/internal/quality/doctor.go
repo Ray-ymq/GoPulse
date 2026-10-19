@@ -32,9 +32,6 @@ type toolchains struct {
 			SHA256 string `json:"sha256"`
 		} `json:"archives"`
 	} `json:"golangci_lint"`
-	Playwright struct {
-		Browser string `json:"browser"`
-	} `json:"playwright"`
 }
 
 var versionPattern = regexp.MustCompile(`([0-9]+)(?:\.([0-9]+))?(?:\.([0-9]+))?`)

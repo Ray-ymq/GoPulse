@@ -83,7 +83,7 @@ func (repository *MySQLRepository) Create(ctx context.Context, postID, authorID 
 	if err != nil {
 		return Comment{}, errors.New("begin comment transaction")
 	}
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 
 	recipientID, err := post.FindAuthorIDForUpdate(ctx, transaction, postID)
 	if errors.Is(err, post.ErrNotFound) {
@@ -150,7 +150,7 @@ func (repository *MySQLRepository) List(ctx context.Context, postID uint64, opti
 	if err != nil {
 		return nil, fmt.Errorf("list comments: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	comments := make([]Comment, 0, options.Limit+1)
 	for rows.Next() {

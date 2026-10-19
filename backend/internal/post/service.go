@@ -4,25 +4,23 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 type Service struct {
 	repository Repository
-	cache      DetailCache
+	bodyCache  BodyCache
+	rebuild    *RebuildCoordinator
 	logger     *slog.Logger
 }
 
-// NewService creates the post application service. Passing one cache enables
-// cache-aside only for detail reads; omitting it keeps the MySQL-only behavior.
-func NewService(repository Repository, caches ...DetailCache) *Service {
-	service := &Service{repository: repository, logger: logging.Module(logging.Discard("backend"), "cache")}
-	if len(caches) > 0 {
-		service.cache = caches[0]
-	}
-	return service
+// NewService creates the post application service.
+func NewService(repository Repository) *Service {
+	return &Service{repository: repository, logger: logging.Module(logging.Discard("backend"), "cache")}
 }
 
 // WithLogger injects the process logger used for non-blocking cache warnings.
@@ -31,6 +29,27 @@ func (service *Service) WithLogger(logger *slog.Logger) *Service {
 		service.logger = logging.Module(logger, "cache")
 	}
 	return service
+}
+
+// WithBodyCache attaches the versioned body cache and bounded rebuild coordinator.
+func (service *Service) WithBodyCache(cache BodyCache, coordinator *RebuildCoordinator) *Service {
+	if service == nil || cache == nil {
+		return service
+	}
+	service.bodyCache = cache
+	if coordinator == nil {
+		coordinator = NewRebuildCoordinator(context.Background())
+	}
+	service.rebuild = coordinator
+	return service
+}
+
+// Shutdown drains shared body rebuilds before the process changes data epoch.
+func (service *Service) Shutdown(ctx context.Context) error {
+	if service == nil || service.rebuild == nil {
+		return nil
+	}
+	return service.rebuild.Stop(ctx)
 }
 
 func (service *Service) Create(ctx context.Context, authorID uint64, input CreateInput) (Post, error) {
@@ -84,21 +103,21 @@ func (service *Service) List(ctx context.Context, viewerID uint64, options ListO
 }
 
 func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Post, error) {
-	projection, hit := service.cachedProjection(ctx, postID)
-	if !hit {
-		var err error
-		projection, err = service.repository.FindPublicByID(ctx, postID)
-		if errors.Is(err, ErrNotFound) {
-			return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+	if service.bodyCache != nil {
+		if reader, ok := service.repository.(ReadContextRepository); ok {
+			return service.detailBody(ctx, postID, viewerID, reader)
 		}
-		if err != nil {
-			return Post{}, apperror.WrapInternal(err)
-		}
-		if service.cache != nil {
-			if err := service.cache.Set(ctx, projection); err != nil {
-				logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache fill failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
-			}
-		}
+	}
+	return service.detailUncached(ctx, postID, viewerID)
+}
+
+func (service *Service) detailUncached(ctx context.Context, postID, viewerID uint64) (Post, error) {
+	projection, err := service.repository.FindPublicByID(ctx, postID)
+	if errors.Is(err, ErrNotFound) {
+		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+	}
+	if err != nil {
+		return Post{}, apperror.WrapInternal(err)
 	}
 
 	likedByMe, err := service.repository.LikedByViewer(ctx, postID, viewerID)
@@ -126,29 +145,102 @@ func (service *Service) Detail(ctx context.Context, postID, viewerID uint64) (Po
 	return records[0], nil
 }
 
-func (service *Service) cachedProjection(ctx context.Context, postID uint64) (PublicProjection, bool) {
-	if service.cache == nil {
-		return PublicProjection{}, false
+func (service *Service) detailBody(ctx context.Context, postID, viewerID uint64, reader ReadContextRepository) (Post, error) {
+	readContext, err := reader.ReadContext(ctx, postID)
+	if errors.Is(err, ErrNotFound) {
+		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
 	}
-	projection, hit, err := service.cache.Get(ctx, postID)
 	if err != nil {
-		logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post detail cache read failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
-		return PublicProjection{}, false
+		return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
 	}
-	if hit {
-		r, ok := service.repository.(interface {
-			ContentRevision(context.Context, uint64) (uint64, error)
+	if !readContext.Visible {
+		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+	}
+	key := readContext.BodyKey()
+	body, hit, cacheErr := service.bodyCache.GetBody(ctx, key)
+	if cacheErr != nil {
+		logging.Module(logging.FromContext(ctx, service.logger), "cache").Warn("post body cache read failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
+		hit = false
+	}
+	if hit && (body.AuthorID != readContext.AuthorID || !body.ValidForKey(key)) {
+		hit = false
+	}
+	if !hit {
+		coordinator := service.rebuild
+		if coordinator == nil {
+			coordinator = NewRebuildCoordinator(context.Background())
+		}
+		body, err = coordinator.Load(ctx, key, func(loadContext context.Context, loadKey BodyKey) (Body, error) {
+			// The executor rechecks the exact key after registration. A previous
+			// waiter may have filled it while this request was joining.
+			if cached, cachedHit, getErr := service.bodyCache.GetBody(loadContext, loadKey); getErr == nil && cachedHit && cached.AuthorID == readContext.AuthorID && cached.ValidForKey(loadKey) {
+				return cached, nil
+			}
+			originStarted := time.Now()
+			loaded, loadErr := reader.FindBody(loadContext, loadKey)
+			if loadErr != nil {
+				observeBodyOrigin(loadErr, time.Since(originStarted))
+				return Body{}, loadErr
+			}
+			observeBodyOrigin(nil, time.Since(originStarted))
+			if setErr := service.bodyCache.SetBody(loadContext, loadKey, loaded); setErr != nil {
+				logging.Module(logging.FromContext(loadContext, service.logger), "cache").Warn("post body cache fill failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
+			}
+			return loaded, nil
 		})
-		if !ok {
-			return PublicProjection{}, false
+		if errors.Is(err, ErrNotFound) {
+			return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
 		}
-		revision, err := r.ContentRevision(ctx, postID)
-		if err != nil || revision != projection.ContentRevision {
-			_ = service.cache.Invalidate(ctx, postID)
-			return PublicProjection{}, false
+		if errors.Is(err, ErrRebuildBusy) {
+			return Post{}, apperror.New(apperror.CodeBackendBusy, "service temporarily busy")
+		}
+		if errors.Is(err, ErrReadContextChanged) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
+		}
+		if err != nil {
+			return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
 		}
 	}
-	return projection, hit
+	dynamic, err := reader.FindDynamic(ctx, postID, readContext.AuthorID)
+	if errors.Is(err, ErrNotFound) {
+		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+	}
+	if err != nil {
+		return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
+	}
+	projection := PublicProjection{
+		EditedAt: body.EditedAt, ContentRevision: body.ContentRevision, ID: body.ID,
+		Title: body.Title, Content: body.Content, CreatedAt: body.CreatedAt, UpdatedAt: body.UpdatedAt,
+		Author: dynamic.Author, CommentCount: dynamic.CommentCount, LikeCount: dynamic.LikeCount,
+	}
+	likedByMe, err := service.repository.LikedByViewer(ctx, postID, viewerID)
+	if err != nil {
+		return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
+	}
+	records := []Post{projection.post(likedByMe)}
+	if err := service.hydrateFollowing(ctx, records, viewerID); err != nil {
+		return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
+	}
+	if hydrator, ok := service.repository.(interface {
+		HydrateBookmarks(context.Context, []Post, uint64) error
+	}); ok {
+		if err := hydrator.HydrateBookmarks(ctx, records, viewerID); err != nil {
+			return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
+		}
+	}
+	return records[0], nil
+}
+
+func observeBodyOrigin(err error, elapsed time.Duration) {
+	if metrics := componentmetrics.BackendActive(); metrics != nil {
+		result := "success"
+		if errors.Is(err, ErrReadContextChanged) {
+			result = "version_changed"
+		} else if err != nil {
+			result = "failure"
+		}
+		metrics.ObserveCacheOriginDuration(result, elapsed)
+	}
 }
 
 // RequireExists exposes the shared post-existence boundary used by dependent

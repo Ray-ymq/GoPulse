@@ -33,10 +33,10 @@ func TestClientAcceptsStrictStatusAndList(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "exporter-plugins") {
-			fmt.Fprintf(w, `{"data":[%s]}`, validStatusJSON)
+			_, _ = fmt.Fprintf(w, `{"data":[%s]}`, validStatusJSON)
 			return
 		}
-		fmt.Fprintf(w, `{"data":%s}`, validStatusJSON)
+		_, _ = fmt.Fprintf(w, `{"data":%s}`, validStatusJSON)
 	})
 	items, err := client.List(context.Background())
 	if err != nil || len(items) != 1 || items[0].LastError != nil {
@@ -64,7 +64,7 @@ func TestClientAcceptsKnownSafeError(t *testing.T) {
 			if test.failed {
 				body = strings.Replace(body, `"observed_state":"running"`, `"observed_state":"failed"`, 1)
 			}
-			client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintf(w, `{"data":%s}`, body) })
+			client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprintf(w, `{"data":%s}`, body) })
 			item, err := client.Get(context.Background(), "redis-exporter")
 			if err != nil || item.LastError == nil || item.LastError.Code != test.code {
 				t.Fatalf("unexpected safe error: %#v %v", item, err)

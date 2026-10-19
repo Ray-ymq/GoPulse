@@ -30,11 +30,11 @@ x-backend-common-environment: &backend-common-environment
   BACKEND_ENDPOINTS: backend,backend-2,platform-api
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
-  ROUTER_ENDPOINTS: router,router-2
   MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
   BUSINESS_STAGE_SERVICE_CREDENTIAL: ${BUSINESS_STAGE_SERVICE_CREDENTIAL:?BUSINESS_STAGE_SERVICE_CREDENTIAL is required}
   <<: *mysql-environment
@@ -54,9 +54,21 @@ x-business-environment: &business-environment
   <<: *backend-common-environment
   BACKEND_SERVICE_ROLE: business
   BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
+  BACKEND_RATE_LIMIT_ENABLED: ${BACKEND_RATE_LIMIT_ENABLED:-true}
+  BACKEND_RATE_LIMIT_OPERATION_TIMEOUT: ${BACKEND_RATE_LIMIT_OPERATION_TIMEOUT:-200ms}
+  BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES: ${BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES:-1024}
+  BACKEND_RESOURCE_AUTH: ${BACKEND_RESOURCE_AUTH:-16}
+  BACKEND_RESOURCE_READ: ${BACKEND_RESOURCE_READ:-64}
+  BACKEND_RESOURCE_WRITE: ${BACKEND_RESOURCE_WRITE:-32}
+  BACKEND_RESOURCE_DATABASE: ${BACKEND_RESOURCE_DATABASE:-32}
+  BACKEND_RESOURCE_REBUILD: ${BACKEND_RESOURCE_REBUILD:-8}
+  BACKEND_RESOURCE_WAITER: ${BACKEND_RESOURCE_WAITER:-256}
+  BACKEND_TRUSTED_PROXY_CIDRS: ${BACKEND_TRUSTED_PROXY_CIDRS:-}
   MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-8}
   REDIS_POST_DETAIL_TTL: ${REDIS_POST_DETAIL_TTL:-5m}
   REDIS_OPERATION_TIMEOUT: ${REDIS_OPERATION_TIMEOUT:-200ms}
+  REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-16}
+  REDIS_POOL_TIMEOUT: ${REDIS_POOL_TIMEOUT:-200ms}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -98,6 +110,7 @@ x-platform-environment: &platform-environment
   MONITOR_URL: http://monitor:9090
   MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
   MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
+  MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
 
 x-worker-environment: &worker-environment
   GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-business-worker-local}
@@ -117,6 +130,7 @@ x-worker-environment: &worker-environment
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   LOG_MONITOR_URL: http://monitor:9090
   LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
@@ -151,6 +165,7 @@ x-indexer-environment: &indexer-environment
   MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
   MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
   MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
   RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
   ELASTICSEARCH_URL: http://elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
@@ -171,31 +186,10 @@ x-indexer-environment: &indexer-environment
 
 x-search-init-environment: &search-init-environment
   <<: *mysql-environment
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
   ELASTICSEARCH_URL: http://elasticsearch:9200
   ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
   SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
-
-
-x-router-environment: &router-environment
-  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
-  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
-  GOPULSE_INSTANCE_ID: router-1
-  GOPULSE_REPLICA_COUNT: 2
-  ROUTER_METRICS_TOKEN: ${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}
-  GOPULSE_RUNTIME_MODE: container
-  ROUTER_HTTP_HOST: 0.0.0.0
-  ROUTER_HTTP_PORT: 9091
-  ROUTER_API_TOKEN: ${ROUTER_API_TOKEN:?ROUTER_API_TOKEN is required}
-  ROUTER_REQUEST_TIMEOUT: ${ROUTER_REQUEST_TIMEOUT:-5s}
-  ROUTER_SHUTDOWN_TIMEOUT: ${ROUTER_SHUTDOWN_TIMEOUT:-10s}
-  ROUTER_MAX_MESSAGE_BYTES: ${ROUTER_MAX_MESSAGE_BYTES:-1048576}
-  ROUTER_KAFKA_BROKERS: kafka:19092
-  ROUTER_KAFKA_TOPIC: ${ROUTER_KAFKA_TOPIC:-gopulse-observability-v1}
-  ROUTER_KAFKA_PRODUCE_TIMEOUT: ${ROUTER_KAFKA_PRODUCE_TIMEOUT:-3s}
-  ROUTER_KAFKA_MIN_PARTITIONS: ${ROUTER_KAFKA_MIN_PARTITIONS:-4}
-  ROUTER_KAFKA_MAX_BUFFERED_RECORDS: ${ROUTER_KAFKA_MAX_BUFFERED_RECORDS:-256}
-  ROUTER_KAFKA_MAX_BUFFERED_BYTES: ${ROUTER_KAFKA_MAX_BUFFERED_BYTES:-8388608}
-
 x-marshaller-environment: &marshaller-environment
   GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
@@ -206,7 +200,6 @@ x-marshaller-environment: &marshaller-environment
   BACKEND_ENDPOINTS: backend,backend-2,platform-api
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
-  ROUTER_ENDPOINTS: router,router-2
   MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
@@ -214,8 +207,8 @@ x-marshaller-environment: &marshaller-environment
   MARSHALLER_HTTP_PORT: 9093
   MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
   MARSHALLER_KAFKA_BROKERS: kafka:19092
-  MARSHALLER_KAFKA_TOPIC: ${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-v1}
-  MARSHALLER_KAFKA_GROUP: ${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}
+  MARSHALLER_KAFKA_TOPIC: ${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-metrics}
+  MARSHALLER_KAFKA_GROUP: ${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics}
   MARSHALLER_KAFKA_COMMIT_TIMEOUT: ${MARSHALLER_KAFKA_COMMIT_TIMEOUT:-3s}
   MARSHALLER_KAFKA_MIN_PARTITIONS: ${MARSHALLER_KAFKA_MIN_PARTITIONS:-4}
   MARSHALLER_MAX_IN_FLIGHT: ${MARSHALLER_MAX_IN_FLIGHT:-8}
@@ -253,14 +246,12 @@ x-monitor-environment: &monitor-environment
   BACKEND_ENDPOINTS: backend,backend-2,platform-api
   BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
   SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
-  ROUTER_ENDPOINTS: router,router-2
   MARSHALLER_ENDPOINTS: marshaller,marshaller-2
   MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
   BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
   SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
-  ROUTER_METRICS_TOKEN: ${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}
   MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
   GOPULSE_RUNTIME_MODE: container
   MONITOR_HTTP_HOST: 0.0.0.0
@@ -276,9 +267,10 @@ x-monitor-environment: &monitor-environment
   MONITOR_SCRAPE_INTERVAL: ${MONITOR_SCRAPE_INTERVAL:-15s}
   MONITOR_SCRAPE_TIMEOUT: ${MONITOR_SCRAPE_TIMEOUT:-3s}
   MONITOR_PUBLISH_TIMEOUT: ${MONITOR_PUBLISH_TIMEOUT:-3s}
-  MONITOR_ROUTER_URL: http://router:9091
-  MONITOR_ROUTER_URLS: http://router:9091,http://router-2:9091
-  MONITOR_ROUTER_TOKEN: ${ROUTER_API_TOKEN:?ROUTER_API_TOKEN is required}
+  MONITOR_KAFKA_BROKERS: kafka:19092
+  MONITOR_KAFKA_PRODUCE_TIMEOUT: ${MONITOR_KAFKA_PRODUCE_TIMEOUT:-3s}
+  MONITOR_KAFKA_MAX_BUFFERED_RECORDS: ${MONITOR_KAFKA_MAX_BUFFERED_RECORDS:-128}
+  MONITOR_KAFKA_MAX_BUFFERED_BYTES: ${MONITOR_KAFKA_MAX_BUFFERED_BYTES:-8388608}
   MONITOR_LOG_MAX_BYTES: ${MONITOR_LOG_MAX_BYTES:-65536}
   MONITOR_LOG_FUTURE_SKEW: ${MONITOR_LOG_FUTURE_SKEW:-5m}
   MONITOR_EVENT_QUEUE_CAPACITY: ${MONITOR_EVENT_QUEUE_CAPACITY:-256}
@@ -286,6 +278,10 @@ x-monitor-environment: &monitor-environment
   MONITOR_EVENT_RETRY_MAX: ${MONITOR_EVENT_RETRY_MAX:-5s}
   MONITOR_EVENT_SHUTDOWN_TIMEOUT: ${MONITOR_EVENT_SHUTDOWN_TIMEOUT:-5s}
   MONITOR_EVENT_MAX_BYTES: ${MONITOR_EVENT_MAX_BYTES:-16384}
+  MONITOR_SPOOL_DIR: /var/lib/gopulse-monitor/spool
+  MONITOR_METRICS_SPOOL_MAX_BYTES: ${MONITOR_METRICS_SPOOL_MAX_BYTES:-1073741824}
+  MONITOR_LOGS_SPOOL_MAX_BYTES: ${MONITOR_LOGS_SPOOL_MAX_BYTES:-1073741824}
+  MONITOR_EVENTS_SPOOL_MAX_BYTES: ${MONITOR_EVENTS_SPOOL_MAX_BYTES:-1073741824}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
@@ -321,7 +317,9 @@ services:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"']
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-512mb}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-noeviction}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}" --maxmemory "$${REDIS_MAXMEMORY}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY}"']
     volumes:
       - redis_data:/data
     networks:
@@ -389,7 +387,7 @@ services:
       retries: 30
 
   migrate:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     restart: "no"
     entrypoint: [/bin/sh, -c]
@@ -405,7 +403,7 @@ services:
       - business
 
   search-init:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     restart: "no"
     entrypoint: [/bin/sh, -c]
@@ -447,7 +445,7 @@ services:
       - business
 
   backend:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
       context: ..
@@ -492,7 +490,7 @@ services:
       retries: 20
 
   backend-2:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
       context: ..
@@ -537,7 +535,7 @@ services:
       retries: 20
 
   platform-api:
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
       context: ..
@@ -580,7 +578,7 @@ services:
       retries: 20
 
   business-worker:
-    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:latest}
     pull_policy: never
     build:
       context: ..
@@ -617,7 +615,7 @@ services:
       start_period: 5s
 
   business-worker-2:
-    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:latest}
     pull_policy: never
     build:
       context: ..
@@ -654,7 +652,7 @@ services:
       start_period: 5s
 
   search-indexer:
-    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:latest}
     pull_policy: never
     build:
       context: ..
@@ -695,7 +693,7 @@ services:
       start_period: 5s
 
   search-indexer-2:
-    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:latest}
     pull_policy: never
     build:
       context: ..
@@ -736,7 +734,7 @@ services:
       start_period: 5s
 
   admin-frontend:
-    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:latest}
     pull_policy: never
     build:
       context: ..
@@ -757,7 +755,7 @@ services:
       retries: 20
 
   frontend:
-    image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:latest}
     pull_policy: never
     build:
       context: ..
@@ -790,7 +788,7 @@ services:
 
   admin-role:
     profiles: [operations]
-    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     restart: "no"
     entrypoint: [/usr/local/bin/admin-role]
@@ -801,31 +799,6 @@ services:
         condition: service_completed_successfully
     networks:
       - business
-
-  acceptance:
-    profiles: [acceptance]
-    image: gopulse/acceptance:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}
-    pull_policy: never
-    build:
-      context: ..
-      dockerfile: deploy/docker/acceptance.Dockerfile
-      args:
-        <<: *image-build-args
-        UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
-    environment:
-      GOPULSE_BASE_URL: http://frontend:8080
-      GOPULSE_ACCEPTANCE_TOKEN: ${GOPULSE_ACCEPTANCE_TOKEN:-compose}
-      GOPULSE_ACCEPTANCE_SCENARIO: ${GOPULSE_ACCEPTANCE_SCENARIO:-business}
-      GOPULSE_OBSERVABILITY_ADMIN_USERNAME: ${GOPULSE_OBSERVABILITY_ADMIN_USERNAME:-}
-      GOPULSE_OBSERVABILITY_USER_USERNAME: ${GOPULSE_OBSERVABILITY_USER_USERNAME:-}
-      GOPULSE_OBSERVABILITY_PASSWORD: ${GOPULSE_OBSERVABILITY_PASSWORD:-}
-      GOPULSE_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      GOPULSE_UPDATE_VERSION: ${GOPULSE_UPDATE_VERSION:?GOPULSE_UPDATE_VERSION is required}
-    depends_on:
-      frontend:
-        condition: service_healthy
-    networks:
-      - edge
 
   kafka:
     image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
@@ -846,10 +819,14 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_MS: 259200000
+      KAFKA_LOG_RETENTION_BYTES: 2147483648
+      KAFKA_LOG_SEGMENT_BYTES: 67108864
+      KAFKA_LOG_SEGMENT_MS: 3600000
     volumes:
       - kafka_data:/var/lib/kafka/data
     # Image-declared scratch volumes must not become orphan anonymous volumes
-    # when lifecycle down preserves the named product data volumes.
+    # when the stack stops while preserving named data volumes.
     tmpfs:
       - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
       - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777
@@ -879,10 +856,16 @@ services:
       - /bin/bash
       - -ec
       - >-
+        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events; do
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
-        --topic gopulse-observability-v1 --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1 &&
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe
-        --topic gopulse-observability-v1
+        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1
+        --config cleanup.policy=delete --config retention.ms=259200000 --config retention.bytes=2147483648
+        --config segment.bytes=67108864 --config segment.ms=3600000;
+        /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:19092 --alter --entity-type topics
+        --entity-name "$${topic}"
+        --add-config cleanup.policy=delete,retention.ms=259200000,retention.bytes=2147483648,segment.bytes=67108864,segment.ms=3600000;
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --describe --topic "$${topic}";
+        done
     networks:
       - observability
 
@@ -912,77 +895,8 @@ services:
       timeout: 3s
       retries: 30
 
-
-  router:
-    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
-    pull_policy: never
-    build:
-      context: ..
-      dockerfile: deploy/docker/observability.Dockerfile
-      target: router
-      args: *image-build-args
-    restart: on-failure:5
-    read_only: true
-    stop_grace_period: 15s
-    environment: *router-environment
-    labels:
-      io.gopulse.runtime.process_id: router
-      io.gopulse.runtime.role: observability-router
-      io.gopulse.runtime.replica_mode: scalable
-      io.gopulse.runtime.ownership: multi-owner
-      io.gopulse.runtime.diagnostic: direct-private-probe
-    depends_on:
-      kafka-init:
-        condition: service_completed_successfully
-    expose:
-      - "9091"
-      - "19105"
-    networks:
-      - observability
-    healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9091/ready']
-      start_period: 5s
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  router-2:
-    image: ${GOPULSE_ROUTER_IMAGE:-gopulse/router:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
-    pull_policy: never
-    build:
-      context: ..
-      dockerfile: deploy/docker/observability.Dockerfile
-      target: router
-      args: *image-build-args
-    restart: on-failure:5
-    read_only: true
-    stop_grace_period: 15s
-    environment:
-      <<: *router-environment
-      GOPULSE_INSTANCE_ID: router-2
-    labels:
-      io.gopulse.runtime.process_id: router
-      io.gopulse.runtime.role: observability-router
-      io.gopulse.runtime.replica_mode: scalable
-      io.gopulse.runtime.ownership: multi-owner
-      io.gopulse.runtime.diagnostic: direct-private-probe
-    depends_on:
-      kafka-init:
-        condition: service_completed_successfully
-    expose:
-      - "9091"
-      - "19105"
-    networks:
-      - observability
-    healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9091/ready']
-      start_period: 5s
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   marshaller:
-    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
     pull_policy: never
     build:
       context: ..
@@ -1019,7 +933,7 @@ services:
       retries: 20
 
   marshaller-2:
-    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
     pull_policy: never
     build:
       context: ..
@@ -1057,14 +971,12 @@ services:
       timeout: 3s
       retries: 20
 
-  # MySQL/RabbitMQ collector Secrets are reconciled after startup through
-  # acceptance reconcile-accounts; no admin credentials enter Monitor.
   monitor:
-    image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
+    image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:latest}
     pull_policy: never
     build:
       context: ..
-      dockerfile: deploy/docker/observability.Dockerfile
+      dockerfile: deploy/docker/monitor.Dockerfile
       target: monitor
       args: *image-build-args
     restart: on-failure:5
@@ -1079,15 +991,14 @@ services:
       io.gopulse.runtime.replica_mode: singleton
       io.gopulse.runtime.ownership: single-owner
       io.gopulse.runtime.diagnostic: direct-private-probe
+    # Kafka delivery is asynchronous: start Monitor so its persistent spool can accept logs offline.
     depends_on:
       redis:
         condition: service_healthy
-      router:
-        condition: service_healthy
-      router-2:
-        condition: service_healthy
     volumes:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
+      - monitor_spool_data:/var/lib/gopulse-monitor/spool
+      - ${MONITOR_PACKAGE_DIR:-../.run/packages}:/opt/gopulse/packages:ro
     expose:
       - "9090"
       - "19104"
@@ -1100,48 +1011,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
-
-  redis-exporter:
-    profiles: [exporter]
-    image: ${GOPULSE_REDIS_EXPORTER_IMAGE:-gopulse/redis-exporter:${GOPULSE_IMAGE_TAG:?GOPULSE_IMAGE_TAG is required}}
-    pull_policy: never
-    build:
-      context: ..
-      dockerfile: deploy/docker/observability.Dockerfile
-      target: redis-exporter
-      args: *image-build-args
-    restart: "no"
-    read_only: true
-    stop_grace_period: 10s
-    environment:
-      GOPULSE_RUNTIME_MODE: container
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      REDIS_DB: ${REDIS_DB:-0}
-      REDIS_EXPORTER_HTTP_HOST: 0.0.0.0
-      REDIS_EXPORTER_HTTP_PORT: 9121
-      REDIS_EXPORTER_SCRAPE_TIMEOUT: ${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}
-      REDIS_EXPORTER_SHUTDOWN_TIMEOUT: ${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}
-    labels:
-      io.gopulse.runtime.process_id: redis-exporter
-      io.gopulse.runtime.role: plugin-exporter
-      io.gopulse.runtime.replica_mode: singleton
-      io.gopulse.runtime.ownership: single-owner
-      io.gopulse.runtime.diagnostic: direct-private-probe
-    depends_on:
-      redis:
-        condition: service_healthy
-    expose:
-      - "9121"
-    networks:
-      - business
-    healthcheck:
-      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:9121/ready']
-      start_period: 5s
-      interval: 5s
-      timeout: 3s
-      retries: 20
 
 networks:
   edge:
@@ -1159,6 +1028,7 @@ volumes:
   kafka_data:
   victoriametrics_data:
   monitor_plugin_data:
+  monitor_spool_data:
 
 secrets:
   victoriametrics_password:

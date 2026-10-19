@@ -28,12 +28,12 @@ func execute(stdout io.Writer, load func() (config.WorkerConfig, error), operati
 	stdoutLogger := logging.New("business-worker", stdout)
 	cfg, err := load()
 	if err != nil {
-		initializationFailure(logging.Module(stdoutLogger, "lifecycle"), "configuration", "invalid_configuration")
+		_ = initializationFailure(logging.Module(stdoutLogger, "lifecycle"), "configuration", "invalid_configuration")
 		return 1
 	}
 	logs, err := processlog.Open("business-worker", stdout, cfg.LogShip)
 	if err != nil {
-		initializationFailure(logging.Module(stdoutLogger, "lifecycle"), "logship", "invalid_configuration")
+		_ = initializationFailure(logging.Module(stdoutLogger, "lifecycle"), "logship", "invalid_configuration")
 		return 1
 	}
 	exitCode := 0
@@ -88,7 +88,7 @@ func run(cfg config.WorkerConfig, logger *slog.Logger) (runErr error) {
 			lifecycleLogger.Warn("resource close failed", slog.String("resource", "mysql"), slog.String("reason", "close_failed"))
 		}
 	}()
-	state, err := businessstate.NewRepository(mysqlClient.DB())
+	state, err := businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements))
 	if err != nil {
 		return initializationFailure(lifecycleLogger, "business_state", "invalid_dependency")
 	}

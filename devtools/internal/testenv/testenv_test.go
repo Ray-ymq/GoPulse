@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -45,7 +46,7 @@ func TestIntegrationPortsAreIsolatedPerScope(t *testing.T) {
 		"RABBITMQ_MANAGEMENT_PORT": "25673", "ELASTICSEARCH_PORT": "29200",
 		"KAFKA_PORT": "19092", "VICTORIAMETRICS_PORT": "18428",
 		"OBSERVABILITY_ELASTICSEARCH_PORT": "29201", "MONITOR_HTTP_PORT": "19090",
-		"ROUTER_HTTP_PORT": "19091", "MARSHALLER_HTTP_PORT": "19093",
+		"MARSHALLER_HTTP_PORT":     "19093",
 		"REDIS_EXPORTER_HTTP_PORT": "19121", "HTTP_PORT": "18080",
 	}
 	business := integrationPorts(values, false)
@@ -54,55 +55,29 @@ func TestIntegrationPortsAreIsolatedPerScope(t *testing.T) {
 		t.Fatalf("business ports %v, want %v", business, wantBusiness)
 	}
 	observe := integrationPorts(values, true)
-	for _, port := range []int{19092, 18428, 29201, 19090, 19091, 19093, 19121, 18080, 19101, 19102, 19103, 19105, 19106} {
+	for _, port := range []int{19092, 18428, 29201, 19090, 19093, 19121, 18080, 19101, 19102, 19103, 19106} {
 		if !slices.Contains(observe, port) {
 			t.Fatalf("observe ports %v do not cover %d", observe, port)
 		}
 	}
-	if len(observe) != len(wantBusiness)+13 {
+	if len(observe) != len(wantBusiness)+11 {
 		t.Fatalf("observe ports %v do not extend the business set exactly once", observe)
 	}
 }
 
-func TestE2EPortsIncludeSourceAndBrowserPorts(t *testing.T) {
-	values := envfile.Values{
-		"MYSQL_PORT": "23306", "REDIS_PORT": "26379", "RABBITMQ_PORT": "25672",
-		"RABBITMQ_MANAGEMENT_PORT": "25673", "ELASTICSEARCH_PORT": "29200",
-		"KAFKA_PORT": "19092", "VICTORIAMETRICS_PORT": "18428",
-		"OBSERVABILITY_ELASTICSEARCH_PORT": "29201", "MONITOR_HTTP_PORT": "19090",
-		"ROUTER_HTTP_PORT": "19091", "MARSHALLER_HTTP_PORT": "19093",
-		"REDIS_EXPORTER_HTTP_PORT": "19121", "HTTP_PORT": "18080",
-		"FRONTEND_PORT": "15173", "ADMIN_FRONTEND_PORT": "15174",
-	}
-	business := e2ePorts(values, false)
-	for _, port := range []int{18080, 15173, 19101, 19102, 19103} {
-		if !slices.Contains(business, port) {
-			t.Fatalf("business browser ports %v do not cover %d", business, port)
+func TestComposeDependenciesExcludeApplicationProcesses(t *testing.T) {
+	for _, service := range composeDependencyServices(false) {
+		if service == "monitor" {
+			t.Fatal("business dependencies unexpectedly include Monitor")
 		}
 	}
-	if slices.Contains(business, 15174) {
-		t.Fatalf("business browser ports %v must not include the admin Vite port", business)
-	}
-	observe := e2ePorts(values, true)
-	for _, port := range []int{15174, 19090, 19091, 19093, 19121} {
-		if !slices.Contains(observe, port) {
-			t.Fatalf("observe browser ports %v do not cover %d", observe, port)
+	for _, service := range composeDependencyServices(true) {
+		if service == "monitor" {
+			t.Fatal("observation dependencies unexpectedly include Monitor")
 		}
 	}
-}
-
-func TestBrowserAcceptanceTokenHasUniqueTruncatedPrefix(t *testing.T) {
-	current := testSession(t, false)
-	first := browserAcceptanceToken(current.ws)
-	second := browserAcceptanceToken(current.ws)
-	if len(first) < 16 || len(second) < 16 {
-		t.Fatalf("acceptance tokens are too short: %q %q", first, second)
-	}
-	if first[:16] == second[:16] {
-		t.Fatalf("acceptance token prefix must change between browser runs: %q", first[:16])
-	}
-	if !strings.Contains(first, current.ws.Identity) {
-		t.Fatalf("acceptance token %q does not retain workspace identity %q", first, current.ws.Identity)
+	if got := composeDependencyServices(true); len(got) != 8 {
+		t.Fatalf("observation dependencies %v, want eight third-party services", got)
 	}
 }
 
@@ -129,7 +104,7 @@ func TestIntegrationLockIsExclusive(t *testing.T) {
 	second := testSessionFor(t, current.root, current.ws)
 	if _, err := second.lock(); err == nil {
 		t.Fatal("a second lock was granted while the first was held")
-	} else if err.Error() != "another integration or browser check owns the test environment lock" {
+	} else if err.Error() != "another integration check owns the test environment lock" {
 		t.Fatalf("lock message %q", err.Error())
 	}
 	release()
@@ -220,8 +195,8 @@ func TestIntegrationSucceedsWithoutCleanupFailure(t *testing.T) {
 	if document["status"] != "passed" || document["observe"] != true {
 		t.Fatalf("final state %v", document)
 	}
-	if document["monitor_image"] == "" {
-		t.Fatal("an observation scope must record the Monitor image tag")
+	if document["monitor_image"] != "" {
+		t.Fatalf("native observation scope must not record a Monitor image, got %v", document["monitor_image"])
 	}
 	if len(document["compose_files"].([]any)) != 2 {
 		t.Fatalf("observe compose files %v", document["compose_files"])
@@ -234,14 +209,10 @@ func testSession(t *testing.T, observe bool) *session {
 	directory := t.TempDir()
 	current := testSessionFor(t, root, workspaceFor(t, directory))
 	if observe {
-		current.files = append(current.files, filepath.Join(root, "deploy", "compose.local-linux.yaml"))
+		current.files = append(current.files, filepath.Join(root, "deploy", "compose.local-"+runtime.GOOS+".yaml"))
 		current.profiles = []string{"observe"}
 		current.command.Files = current.files
 		current.command.Profiles = current.profiles
-	}
-	// The unit layer must never build or inspect an image.
-	current.prepareMonitor = func(*session) (string, error) {
-		return "gopulse/monitor:local-0123456789abcdef", nil
 	}
 	return current
 }

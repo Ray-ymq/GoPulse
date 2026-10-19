@@ -52,7 +52,7 @@ func main() {
 		logger = logging.NewWithSink("backend", os.Stdout, shipper)
 	}
 	if err = run(cfg, logger); err != nil {
-		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"))
+		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"), slog.String("error", err.Error()))
 		if shipper != nil {
 			ctx, cancel := componentmetrics.ShutdownContext(cfg.LogShip.ShutdownTimeout)
 			_ = shipper.Close(ctx)

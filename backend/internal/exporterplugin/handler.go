@@ -74,7 +74,7 @@ func (h *Handler) Update(c *gin.Context) {
 	h.upload(c, "/internal/v1/exporter-plugins/"+id+"/update", http.StatusOK)
 }
 func pluginIdentifier(c *gin.Context) (string, bool) {
-	if _, known := LookupOfficial(c.Param("pluginId")); !known {
+	if !validPluginID(c.Param("pluginId")) {
 		response.Error(c, apperror.New(apperror.CodePluginNotFound, "plugin was not found"))
 		return "", false
 	}
@@ -92,7 +92,7 @@ func (h *Handler) upload(c *gin.Context, path string, successStatus int) {
 		response.Error(c, apperror.New(apperror.CodePluginPackageInvalid, "plugin package is invalid"))
 		return
 	}
-	defer part.Close()
+	defer func() { _ = part.Close() }()
 	item, err := h.client.Upload(c.Request.Context(), path, successStatus, func(writer *multipart.Writer) error {
 		target, createErr := writer.CreateFormFile("package", "plugin.tar.gz")
 		if createErr != nil {

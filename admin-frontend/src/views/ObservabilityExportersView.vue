@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import AdminIcon from '../components/AdminIcon.vue'
 import AdminStat from '../components/AdminStat.vue'
+import ProductState from '../../../frontend-shared/ProductState.vue'
+import ProductStatus from '../../../frontend-shared/ProductStatus.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { exporterApi, pluginConfigApi, validateExporterPackage } from '../services/exporters'
 import { ApiError } from '../services/http'
@@ -24,8 +26,11 @@ function selectPlugin(id: string): void {
  showUpdate.value = false; selected.value = id; password.value = ''; message.value = ''; clearPackage()
  status.value = statuses.value.find(item => item.id === id) ?? null
  for (const key of Object.keys(configuration)) delete configuration[key]
- const source = id.replace('-exporter', '')
- Object.assign(configuration, { host: '', connect_timeout: '1s', scrape_timeout: '2s' }, source === 'redis' ? { port: 6379, database: 0 } : source === 'mysql' ? { port: 3306, database: '', username: '' } : source === 'rabbitmq' ? { management_port: 15672, vhost: '/', username: '' } : source === 'kafka' ? { port: 19092, topic: '', consumer_group: '' } : source === 'victoriametrics' ? { port: 8428, username: '' } : { port: 9200 })
+ const item = catalog.value.find(candidate => candidate.id === id)
+ for (const field of item?.schema.fields ?? []) {
+   if (field.secret) continue
+   configuration[field.name] = field.enum?.[0] ?? (field.type === 'integer' || field.type === 'port' ? field.minimum ?? 0 : field.type === 'duration' ? '1s' : '')
+ }
 }
 async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {
   if (busy.value) return
@@ -44,6 +49,7 @@ const loading = ref(false)
 const loaded = ref(false)
 const operation = ref('')
 const message = ref('')
+const loadFailed = ref(false)
 const updatedAt = ref('')
 const packageFile = ref<File | null>(null)
 const packageInput = ref<HTMLInputElement | null>(null)
@@ -62,9 +68,9 @@ function errorMessage(error: unknown): string {
   } as Record<string,string>)[error.code] ?? 'Exporter 操作失败，请稍后重试。'
 }
 async function load(): Promise<void> {
-  controller?.abort(); controller = new AbortController(); loading.value = true; message.value = ''
-  try { const [items, descriptors] = await Promise.all([exporterApi.list(controller.signal), pluginConfigApi.catalog(controller.signal)]); catalog.value = descriptors; statuses.value = items; status.value = items.find(item => item.id === selected.value) ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString('zh-CN', { hour12:false }); if (!items.length) message.value = '尚未安装 Redis Exporter，请配置目标并安装官方包。' }
-  catch (error) { if (!controller.signal.aborted) message.value = errorMessage(error) }
+  controller?.abort(); controller = new AbortController(); loading.value = true; loadFailed.value = false; message.value = ''
+  try { const [items, descriptors] = await Promise.all([exporterApi.list(controller.signal), pluginConfigApi.catalog(controller.signal)]); catalog.value = descriptors; statuses.value = items; status.value = items.find(item => item.id === selected.value) ?? null; loaded.value = true; updatedAt.value = new Date().toLocaleString('zh-CN', { hour12:false }); if (!items.length) message.value = '尚未安装 Exporter，请配置目标并安装获准包。' }
+  catch (error) { if (!controller.signal.aborted) { loadFailed.value = true; message.value = errorMessage(error) } }
   finally { loading.value = false }
 }
 function clearPackage(): void { packageFile.value = null; if (packageInput.value) packageInput.value.value = '' }
@@ -90,28 +96,32 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
 </script>
 <template>
   <section :aria-busy="busy" class="exporter-page">
-    <div class="admin-title"><div><h2>Exporter</h2><p>管理数据采集插件的生命周期，配置目标数据源并监控运行状态。</p></div><button class="button button--secondary" :disabled="busy" @click="load"><AdminIcon name="refresh" />{{loading?'刷新中…':'刷新状态'}}</button></div>
-    <p v-if="message" class="notice" role="status">{{message}}</p>
+    <div class="admin-title"><div><h2>Exporter</h2><p>管理数据采集插件的生命周期，配置目标数据源并监控运行状态。</p></div><button class="button button--secondary" type="button" :disabled="busy" @click="load"><AdminIcon name="refresh" />{{loading?'刷新中…':'刷新状态'}}</button></div>
+    <ProductState v-if="loading && !loaded" state="loading" message="正在读取 Exporter 状态…" />
+    <ProductState v-else-if="loadFailed" state="unavailable" :message="message" action-label="重试" @retry="load" />
+    <p v-if="message && !loadFailed" class="notice" role="status">{{message}}</p>
     <div class="summary-grid" aria-label="已安装插件状态摘要">
       <AdminStat label="全部" :value="loaded?statuses.length:'未知'" note="已安装的 Exporter 总数" icon="box" />
-      <AdminStat v-for="(state,index) in ['running','stopped','failed']" :key="state" :label="state" :value="loaded?statuses.filter(item=>item.observed_state===state).length:'未知'" note="已安装插件的实际状态" :icon="['play','stop','warning'][index]!" :tone="index===0?'green':'red'" />
+      <AdminStat label="运行中" :value="loaded?statuses.filter(item=>item.observed_state==='running').length:'未知'" note="已安装插件的实际状态" icon="play" tone="green" />
+      <AdminStat label="已停止" :value="loaded?statuses.filter(item=>item.observed_state==='stopped').length:'未知'" note="已安装插件的实际状态" icon="stop" tone="orange" />
+      <AdminStat label="操作失败" :value="loaded?statuses.filter(item=>item.observed_state==='failed').length:'未知'" note="已安装插件的实际状态" icon="warning" tone="red" />
     </div>
     <div class="exporter-master-detail">
       <div class="panel exporter-list-panel"><h3>Exporter 列表</h3>
-        <div class="list-filters"><label class="search-field"><AdminIcon name="search" /><input v-model.trim="pluginSearch" aria-label="搜索 Exporter" placeholder="搜索名称或类型…"></label><label><span class="sr-only">插件状态</span><select v-model="pluginState"><option value="">全部状态</option><option value="running">running</option><option value="stopped">stopped</option><option value="failed">failed</option><option value="not_installed">未安装</option></select></label></div>
+        <div class="list-filters"><label class="search-field"><AdminIcon name="search" /><input v-model.trim="pluginSearch" aria-label="搜索 Exporter" placeholder="搜索名称或类型…"></label><label><span class="sr-only">插件状态</span><select v-model="pluginState"><option value="">全部状态</option><option value="running">运行中</option><option value="stopped">已停止</option><option value="failed">操作失败</option><option value="not_installed">未安装</option></select></label></div>
         <div class="exporter-catalog" aria-label="官方插件目录">
-          <button v-for="item in visiblePlugins" :key="item.id" :disabled="busy" :aria-pressed="selected===item.id" @click="selectPlugin(item.id)">
+          <button v-for="item in visiblePlugins" :key="item.id" type="button" :disabled="busy" :aria-pressed="selected===item.id" @click="selectPlugin(item.id)">
             <AdminIcon :name="pluginIcon(item.source)" :size="32" :class="`plugin-symbol plugin-${item.source}`" />
             <span class="plugin-name"><strong>{{pluginName(item.source)}}</strong><small>{{item.id}}</small></span>
-            <span class="plugin-meta"><span class="status-label" :class="`status-label--${pluginStatus(item.id)?.observed_state ?? 'unknown'}`">{{pluginStatus(item.id)?.observed_state ?? (item.available?'未安装':'未交付')}}</span><small>{{pluginStatus(item.id)?'v'+pluginStatus(item.id)!.version:'尚无实例'}}</small></span>
+            <span class="plugin-meta"><ProductStatus :status="pluginStatus(item.id)?.observed_state ?? (item.available ? 'not_installed' : 'unknown')" :label="pluginStatus(item.id) ? undefined : item.available ? '未安装' : '未交付'" /><small>{{pluginStatus(item.id)?'v'+pluginStatus(item.id)!.version:'尚无实例'}}</small></span>
           </button>
         </div><p v-if="!visiblePlugins.length" class="empty-inline">暂无符合条件的插件</p><footer class="list-footer">目录 {{catalog.length}} 项 · 当前显示 {{visiblePlugins.length}} 项</footer>
       </div>
       <div class="panel exporter-workspace">
-        <header class="exporter-heading"><div><AdminIcon :name="pluginIcon(selectedItem?.source ?? '')" :size="32" :class="`plugin-symbol plugin-${selectedItem?.source}`"/><h3>{{pluginName(selectedItem?.source ?? '')}}</h3><span v-if="status" class="state-pill" :class="`state-pill--${status.observed_state}`">{{status.observed_state}}</span></div><div v-if="status" class="exporter-actions"><button class="button button--secondary" :disabled="!canStart" @click="run('start')"><AdminIcon name="play" />{{operation==='start'?'启动中…':'启动'}}</button><button class="button button--danger" :disabled="!canStop" @click="run('stop')"><AdminIcon name="stop" />{{operation==='stop'?'停止中…':'停止'}}</button><button class="icon-button" aria-label="更新安装包" :disabled="busy" @click="showUpdate=!showUpdate"><AdminIcon name="refresh" /></button></div></header>
+        <header class="exporter-heading"><div><AdminIcon :name="pluginIcon(selectedItem?.source ?? '')" :size="32" :class="`plugin-symbol plugin-${selectedItem?.source}`"/><h3>{{pluginName(selectedItem?.source ?? '')}}</h3><ProductStatus v-if="status" :status="status.observed_state" /></div><div v-if="status" class="exporter-actions"><button class="button button--secondary" type="button" :disabled="!canStart" @click="run('start')"><AdminIcon name="play" />{{operation==='start'?'启动中…':'启动'}}</button><button class="button button--danger" type="button" :disabled="!canStop" @click="run('stop')"><AdminIcon name="stop" />{{operation==='stop'?'停止中…':'停止'}}</button><button class="icon-button" type="button" aria-label="更新安装包" :disabled="busy" @click="showUpdate=!showUpdate"><AdminIcon name="refresh" /></button></div></header>
         <nav class="detail-tabs" aria-label="Exporter 详情"><a href="#exporter-info">基本信息</a><a href="#exporter-config">配置参数</a><RouterLink v-if="selectedItem" :to="`/metrics?source=${selectedItem.source}`">采集指标</RouterLink></nav>
         <div id="exporter-info" v-if="status && status.id===selected" class="exporter-status">
-          <dl class="exporter-info-grid"><div><dt>Exporter 名称</dt><dd>{{status.name}}</dd></div><div><dt>组件类型</dt><dd>{{status.kind}}</dd></div><div><dt>当前状态</dt><dd>{{status.observed_state}}</dd></div><div><dt>版本</dt><dd>v{{status.version}}</dd></div><div><dt>期望状态</dt><dd>{{status.desired_state}}</dd></div><div><dt>最近采集</dt><dd>{{formatTime(status.last_scrape_at)}}</dd></div><div><dt>最近成功</dt><dd>{{formatTime(status.last_success_at)}}</dd></div><div><dt>安装时间</dt><dd>{{formatTime(status.installed_at)}}</dd></div><div><dt>启动时间</dt><dd>{{formatTime(status.started_at)}}</dd></div><div><dt>来源</dt><dd>{{status.source}}</dd></div></dl>
+          <dl class="exporter-info-grid"><div><dt>Exporter 名称</dt><dd>{{status.name}}</dd></div><div><dt>组件类型</dt><dd>{{status.kind}}</dd></div><div><dt>当前状态</dt><dd><ProductStatus :status="status.observed_state" /></dd></div><div><dt>版本</dt><dd>v{{status.version}}</dd></div><div><dt>期望状态</dt><dd><ProductStatus :status="status.desired_state" /></dd></div><div><dt>最近采集</dt><dd>{{formatTime(status.last_scrape_at)}}</dd></div><div><dt>最近成功</dt><dd>{{formatTime(status.last_success_at)}}</dd></div><div><dt>安装时间</dt><dd>{{formatTime(status.installed_at)}}</dd></div><div><dt>启动时间</dt><dd>{{formatTime(status.started_at)}}</dd></div><div><dt>来源</dt><dd>{{status.source}}</dd></div></dl>
           <div v-if="status.last_error" class="safe-error" role="alert"><strong>{{status.last_error.code}}</strong><span>{{status.last_error.code==='network_failed'?'插件目标不可达或拒绝采集；进程运行不代表目标健康。':status.last_error.message}}</span><time>{{formatTime(status.last_error.at)}}</time></div>
           <p v-if="status.source==='victoriametrics'" class="muted">目标故障与指标存储/查询不可用是不同状态；存储不可用期间以此安全状态为准。</p>
         </div><p v-else id="exporter-info" class="empty-inline">{{selectedItem?.available?'尚未安装此插件，请配置实际目标后安装。':'此类型尚未交付。'}}</p>
@@ -120,11 +130,11 @@ onBeforeUnmount(() => { controller?.abort(); clearPackage(); password.value = ''
           <label v-for="field in selectedItem.schema.fields" :key="field.name" class="field"><span>{{fieldLabel(field.name)}} <span v-if="field.required" class="required">*</span></span>
             <input v-if="field.secret" v-model="password" type="password" autocomplete="new-password" :aria-label="field.name" :disabled="busy">
             <input v-else-if="field.type==='port'||field.type==='integer'" v-model.number="configuration[field.name]" type="number" :min="field.minimum" :max="field.maximum" :aria-label="field.name" :disabled="busy">
-            <input v-else v-model="configuration[field.name]" :aria-label="field.name" :disabled="busy">
+            <input v-else v-model="configuration[field.name]" :type="field.type==='url'?'url':'text'" :aria-label="field.name" :disabled="busy">
           </label>
-          <div class="exporter-actions configuration-actions"><button class="button button--secondary" :disabled="busy || (selectedItem.schema.fields.some(field=>field.secret&&field.required)&&!password)" @click="configure('check')"><AdminIcon name="link" />{{operation==='check'?'测试中…':'连接测试'}}</button><button v-if="!status" class="button" :disabled="busy || (selectedItem.schema.fields.some(field=>field.secret&&field.required)&&!password)" @click="configure('install')"><AdminIcon name="save" />安装并启动</button><button v-else class="button" :disabled="busy||selectedItem.summary==='upgrade_required'" @click="configure('save')"><AdminIcon name="save" />替换配置</button></div>
+          <div class="exporter-actions configuration-actions"><button class="button button--secondary" type="button" :disabled="busy || (selectedItem.schema.fields.some(field=>field.secret&&field.required)&&!password)" @click="configure('check')"><AdminIcon name="link" />{{operation==='check'?'测试中…':'连接测试'}}</button><button v-if="!status" class="button" type="button" :disabled="busy || (selectedItem.schema.fields.some(field=>field.secret&&field.required)&&!password)" @click="configure('install')"><AdminIcon name="save" />安装并启动</button><button v-else class="button" type="button" :disabled="busy||selectedItem.summary==='upgrade_required'" @click="configure('save')"><AdminIcon name="save" />替换配置</button></div>
         </div>
-        <div v-if="status" v-show="showUpdate || selectedItem?.summary==='upgrade_required'" class="exporter-update"><h3>更新安装包</h3><p class="muted">保留服务端安全校验与回滚语义。</p><label class="file-field">新的 .tar.gz 包<input ref="packageInput" type="file" accept=".tar.gz,application/gzip" @change="selectPackage"></label><button class="button" :disabled="busy" @click="run('update')">{{operation==='update'?'更新中…':'确认更新'}}</button></div>
+        <div v-if="status" v-show="showUpdate || selectedItem?.summary==='upgrade_required'" class="exporter-update"><h3>更新安装包</h3><p class="muted">保留服务端安全校验与回滚语义。</p><label class="file-field">新的 .tar.gz 包<input ref="packageInput" type="file" accept=".tar.gz,application/gzip" @change="selectPackage"></label><button class="button" type="button" :disabled="busy" @click="run('update')">{{operation==='update'?'更新中…':'确认更新'}}</button></div>
       </div>
     </div>
   </section>

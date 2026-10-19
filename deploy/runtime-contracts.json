@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "2",
-  "product_version": "2.6.4",
+  "product_version": "2.6.5",
   "platform": "linux/amd64",
   "authority": {
     "source": "deploy/runtime-contracts.json",
@@ -159,15 +159,6 @@
           "aliases": []
         },
         {
-          "key": "ROUTER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "router",
-          "compose_value": "router,router-2",
-          "aliases": []
-        },
-        {
           "key": "MARSHALLER_ENDPOINTS",
           "type": "string",
           "sensitive": false,
@@ -192,6 +183,96 @@
           "required": false,
           "default": "128",
           "compose_value": "${BACKEND_HTTP_MAX_CONCURRENCY:-128}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RATE_LIMIT_ENABLED",
+          "type": "boolean",
+          "sensitive": false,
+          "required": false,
+          "default": "true",
+          "compose_value": "${BACKEND_RATE_LIMIT_ENABLED:-true}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1024",
+          "compose_value": "${BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES:-1024}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RATE_LIMIT_OPERATION_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "200ms",
+          "compose_value": "${BACKEND_RATE_LIMIT_OPERATION_TIMEOUT:-200ms}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_AUTH",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "16",
+          "compose_value": "${BACKEND_RESOURCE_AUTH:-16}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_DATABASE",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "32",
+          "compose_value": "${BACKEND_RESOURCE_DATABASE:-32}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_READ",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "64",
+          "compose_value": "${BACKEND_RESOURCE_READ:-64}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_REBUILD",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "8",
+          "compose_value": "${BACKEND_RESOURCE_REBUILD:-8}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_WAITER",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "256",
+          "compose_value": "${BACKEND_RESOURCE_WAITER:-256}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_RESOURCE_WRITE",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "32",
+          "compose_value": "${BACKEND_RESOURCE_WRITE:-32}",
+          "aliases": []
+        },
+        {
+          "key": "BACKEND_TRUSTED_PROXY_CIDRS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "",
+          "compose_value": "${BACKEND_TRUSTED_PROXY_CIDRS:-}",
           "aliases": []
         },
         {
@@ -282,6 +363,15 @@
           "required": true,
           "default": null,
           "compose_value": null,
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
           "aliases": []
         },
         {
@@ -920,6 +1010,15 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_WORKER_MAX_RETRIES",
           "type": "integer",
           "sensitive": false,
@@ -1497,6 +1596,15 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
           "key": "SEARCH_INDEXER_MAX_RETRIES",
           "type": "integer",
           "sensitive": false,
@@ -1631,236 +1739,6 @@
       "stop_grace_seconds": 15
     },
     {
-      "id": "router",
-      "process_id": "router",
-      "role": "observability-router",
-      "compose_services": ["router", "router-2"],
-      "replica": {
-        "mode": "scalable",
-        "ownership": "multi-owner",
-        "identity_env": "GOPULSE_INSTANCE_ID",
-        "identity_source": "environment",
-        "identity_pattern": "^router-[1-9][0-9]*$",
-        "min": 2,
-        "max": 8,
-        "configured": 2,
-        "instances": ["router-1", "router-2"]
-      },
-      "diagnostic": {
-        "independent": true,
-        "via_monitor": false,
-        "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
-        "identity_env": "GOPULSE_INSTANCE_ID",
-        "identity_source": "environment",
-        "capacity_signals": ["metrics", "buffered_records", "buffered_bytes", "backpressure"],
-        "host_port_published": false
-      },
-      "budgets": {
-        "connections": [{"name": "kafka", "per_instance": 1, "total": 2}],
-        "queues": [{"name": "kafka_records", "capacity": 256}, {"name": "kafka_bytes", "capacity": 8388608}],
-        "in_flight": [{"name": "produce", "capacity": 256}],
-        "shutdown_seconds": 10,
-        "stop_grace_seconds": 15
-      },
-      "module": "router",
-      "entrypoint": "router/cmd/router/main.go",
-      "configuration": "router/internal/config",
-      "compose_service": "router",
-      "plugin_id": null,
-      "environment": [
-        {
-          "key": "GOPULSE_INSTANCE_ID",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "router-local",
-          "compose_value": "router-1",
-          "aliases": []
-        },
-        {
-          "key": "GOPULSE_REVISION",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "development",
-          "compose_value": "${GOPULSE_REVISION:-development}",
-          "aliases": []
-        },
-        {
-          "key": "GOPULSE_REPLICA_COUNT",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "1",
-          "compose_value": "2",
-          "aliases": []
-        },
-        {
-          "key": "GOPULSE_RUNTIME_MODE",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "container",
-          "compose_value": "container",
-          "aliases": []
-        },
-        {
-          "key": "GOPULSE_VERSION",
-          "type": "string",
-          "sensitive": false,
-          "required": true,
-          "default": null,
-          "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_API_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${ROUTER_API_TOKEN:?ROUTER_API_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_HTTP_HOST",
-          "type": "host",
-          "sensitive": false,
-          "required": false,
-          "default": "0.0.0.0",
-          "compose_value": "0.0.0.0",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_HTTP_PORT",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "9091",
-          "compose_value": "9091",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_KAFKA_BROKERS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "kafka:19092",
-          "compose_value": "kafka:19092",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_KAFKA_MAX_BUFFERED_BYTES",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "8388608",
-          "compose_value": "${ROUTER_KAFKA_MAX_BUFFERED_BYTES:-8388608}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_KAFKA_MAX_BUFFERED_RECORDS",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "256",
-          "compose_value": "${ROUTER_KAFKA_MAX_BUFFERED_RECORDS:-256}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_KAFKA_MIN_PARTITIONS",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "1",
-          "compose_value": "${ROUTER_KAFKA_MIN_PARTITIONS:-4}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_KAFKA_PRODUCE_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "3s",
-          "compose_value": "${ROUTER_KAFKA_PRODUCE_TIMEOUT:-3s}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_KAFKA_TOPIC",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "gopulse-observability-v1",
-          "compose_value": "${ROUTER_KAFKA_TOPIC:-gopulse-observability-v1}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_MAX_MESSAGE_BYTES",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "1048576",
-          "compose_value": "${ROUTER_MAX_MESSAGE_BYTES:-1048576}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_REQUEST_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "5s",
-          "compose_value": "${ROUTER_REQUEST_TIMEOUT:-5s}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_SHUTDOWN_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "10s",
-          "compose_value": "${ROUTER_SHUTDOWN_TIMEOUT:-10s}",
-          "aliases": []
-        }
-      ],
-      "listeners": [
-        {
-          "name": "probe",
-          "port": 9091,
-          "scope": "private"
-        },
-        {
-          "name": "metrics",
-          "port": 19105,
-          "scope": "private"
-        }
-      ],
-      "probes": {
-        "startup": "/startup",
-        "live": "/live",
-        "ready": "/ready",
-        "health": "/health"
-      },
-      "hard_dependencies": [
-        "kafka"
-      ],
-      "soft_dependencies": [],
-      "check_timeout_ms": 5000,
-      "cache_ms": 250,
-      "max_concurrent_checks": 1,
-      "shutdown_seconds": 10,
-      "stop_grace_seconds": 15
-    },
-    {
       "id": "marshaller",
       "process_id": "marshaller",
       "role": "observability-marshaller",
@@ -1969,15 +1847,6 @@
           "required": false,
           "default": "search-indexer",
           "compose_value": "search-indexer,search-indexer-2",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "router",
-          "compose_value": "router,router-2",
           "aliases": []
         },
         {
@@ -2093,8 +1962,8 @@
           "type": "string",
           "sensitive": false,
           "required": false,
-          "default": "gopulse-marshaller-metrics-v1",
-          "compose_value": "${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics-v1}",
+          "default": "gopulse-marshaller-metrics",
+          "compose_value": "${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics}",
           "aliases": []
         },
         {
@@ -2111,8 +1980,8 @@
           "type": "string",
           "sensitive": false,
           "required": false,
-          "default": "gopulse-observability-v1",
-          "compose_value": "${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-v1}",
+          "default": "gopulse-observability-metrics",
+          "compose_value": "${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-metrics}",
           "aliases": []
         },
         {
@@ -2371,7 +2240,7 @@
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "router", "per_instance": 2, "total": 2}],
+        "connections": [],
         "queues": [{"name": "event_queue", "capacity": 256}],
         "in_flight": [{"name": "scrape", "capacity": 1}],
         "shutdown_seconds": 10,
@@ -2573,6 +2442,42 @@
           "aliases": []
         },
         {
+          "key": "MONITOR_KAFKA_BROKERS",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "kafka:19092",
+          "compose_value": "kafka:19092",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_KAFKA_MAX_BUFFERED_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "8388608",
+          "compose_value": "${MONITOR_KAFKA_MAX_BUFFERED_BYTES:-8388608}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_KAFKA_MAX_BUFFERED_RECORDS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "128",
+          "compose_value": "${MONITOR_KAFKA_MAX_BUFFERED_RECORDS:-128}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_KAFKA_PRODUCE_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "3s",
+          "compose_value": "${MONITOR_KAFKA_PRODUCE_TIMEOUT:-3s}",
+          "aliases": []
+        },
+        {
           "key": "MONITOR_LOG_FUTURE_SKEW",
           "type": "duration",
           "sensitive": false,
@@ -2645,33 +2550,6 @@
           "aliases": []
         },
         {
-          "key": "MONITOR_ROUTER_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${ROUTER_API_TOKEN:?ROUTER_API_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "MONITOR_ROUTER_URL",
-          "type": "url",
-          "sensitive": false,
-          "required": false,
-          "default": "http://router:9091",
-          "compose_value": "http://router:9091",
-          "aliases": []
-        },
-        {
-          "key": "MONITOR_ROUTER_URLS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "http://router:9091",
-          "compose_value": "http://router:9091,http://router-2:9091",
-          "aliases": []
-        },
-        {
           "key": "MONITOR_SCRAPE_INTERVAL",
           "type": "duration",
           "sensitive": false,
@@ -2696,6 +2574,42 @@
           "required": false,
           "default": "10s",
           "compose_value": "${MONITOR_SHUTDOWN_TIMEOUT:-10s}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_SPOOL_DIR",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "/var/lib/gopulse-monitor/spool",
+          "compose_value": "/var/lib/gopulse-monitor/spool",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_METRICS_SPOOL_MAX_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${MONITOR_METRICS_SPOOL_MAX_BYTES:-1073741824}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_LOGS_SPOOL_MAX_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${MONITOR_LOGS_SPOOL_MAX_BYTES:-1073741824}",
+          "aliases": []
+        },
+        {
+          "key": "MONITOR_EVENTS_SPOOL_MAX_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${MONITOR_EVENTS_SPOOL_MAX_BYTES:-1073741824}",
           "aliases": []
         },
         {
@@ -2771,24 +2685,6 @@
           "aliases": []
         },
         {
-          "key": "ROUTER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${ROUTER_METRICS_TOKEN:?ROUTER_METRICS_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "ROUTER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "router",
-          "compose_value": "router,router-2",
-          "aliases": []
-        },
-        {
           "key": "SEARCH_INDEXER_ENDPOINTS",
           "type": "string",
           "sensitive": false,
@@ -2829,7 +2725,6 @@
         "local-plugin-state"
       ],
       "soft_dependencies": [
-        "router",
         "exporter-targets"
       ],
       "check_timeout_ms": 1000,
@@ -2842,7 +2737,7 @@
       "id": "redis-exporter",
       "process_id": "redis-exporter",
       "role": "plugin-exporter",
-      "compose_services": ["redis-exporter"],
+      "compose_services": [],
       "replica": {
         "mode": "singleton",
         "ownership": "single-owner",
@@ -2874,7 +2769,7 @@
       "module": "exporters/redis",
       "entrypoint": "exporters/redis/cmd/redis-exporter/main.go",
       "configuration": "exporters/redis/internal/config",
-      "compose_service": "redis-exporter",
+      "compose_service": null,
       "plugin_id": "redis-exporter",
       "environment": [
         {
@@ -2892,7 +2787,7 @@
           "sensitive": false,
           "required": false,
           "default": "container",
-          "compose_value": "container",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2910,7 +2805,7 @@
           "sensitive": false,
           "required": false,
           "default": "0",
-          "compose_value": "${REDIS_DB:-0}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2919,7 +2814,7 @@
           "sensitive": false,
           "required": false,
           "default": "0.0.0.0",
-          "compose_value": "0.0.0.0",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2928,7 +2823,7 @@
           "sensitive": false,
           "required": false,
           "default": "9121",
-          "compose_value": "9121",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2937,7 +2832,7 @@
           "sensitive": false,
           "required": false,
           "default": "2s",
-          "compose_value": "${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2946,7 +2841,7 @@
           "sensitive": false,
           "required": false,
           "default": "5s",
-          "compose_value": "${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2955,7 +2850,7 @@
           "sensitive": false,
           "required": false,
           "default": "redis",
-          "compose_value": "redis",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2964,7 +2859,7 @@
           "sensitive": true,
           "required": true,
           "default": null,
-          "compose_value": "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+          "compose_value": null,
           "aliases": []
         },
         {
@@ -2973,7 +2868,7 @@
           "sensitive": false,
           "required": false,
           "default": "6379",
-          "compose_value": "6379",
+          "compose_value": null,
           "aliases": []
         }
       ],
@@ -3423,6 +3318,15 @@
           "sensitive": false,
           "required": true,
           "default": null,
+          "compose_value": null,
+          "aliases": []
+        },
+        {
+          "key": "KAFKA_EXPORTER_JMX_URL",
+          "type": "url",
+          "sensitive": false,
+          "required": false,
+          "default": "",
           "compose_value": null,
           "aliases": []
         },
@@ -4055,6 +3959,15 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "10000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_STAGE_ENDPOINTS",
           "type": "string",
           "sensitive": false,
@@ -4298,6 +4211,15 @@
           "aliases": []
         },
         {
+          "key": "MARSHALLER_API_TOKEN",
+          "type": "string",
+          "sensitive": true,
+          "required": true,
+          "default": null,
+          "compose_value": "${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}",
+          "aliases": []
+        },
+        {
           "key": "MONITOR_API_TOKEN",
           "type": "string",
           "sensitive": true,
@@ -4431,15 +4353,6 @@
           "default": "4",
           "aliases": [],
           "compose_value": "${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}"
-        },
-        {
-          "key": "ROUTER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "router",
-          "compose_value": "router,router-2",
-          "aliases": []
         },
         {
           "key": "SEARCH_INDEXER_ENDPOINTS",
@@ -4583,6 +4496,11 @@
       "sensitive": false
     },
     {
+      "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
       "key": "BUSINESS_STAGE_ENDPOINTS",
       "type": "string",
       "sensitive": false
@@ -4659,11 +4577,6 @@
     },
     {
       "key": "GOPULSE_BOOTSTRAP_USER_ID",
-      "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_IMAGE_TAG",
       "type": "string",
       "sensitive": false
     },
@@ -5013,6 +4926,26 @@
       "sensitive": false
     },
     {
+      "key": "MONITOR_KAFKA_BROKERS",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_KAFKA_MAX_BUFFERED_BYTES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_KAFKA_MAX_BUFFERED_RECORDS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_KAFKA_PRODUCE_TIMEOUT",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
       "key": "MONITOR_LOG_FUTURE_SKEW",
       "type": "duration",
       "sensitive": false
@@ -5048,21 +4981,6 @@
       "sensitive": false
     },
     {
-      "key": "MONITOR_ROUTER_TOKEN",
-      "type": "string",
-      "sensitive": true
-    },
-    {
-      "key": "MONITOR_ROUTER_URL",
-      "type": "url",
-      "sensitive": false
-    },
-    {
-      "key": "MONITOR_ROUTER_URLS",
-      "type": "string",
-      "sensitive": false
-    },
-    {
       "key": "MONITOR_SCRAPE_INTERVAL",
       "type": "duration",
       "sensitive": false
@@ -5075,6 +4993,26 @@
     {
       "key": "MONITOR_SHUTDOWN_TIMEOUT",
       "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_SPOOL_DIR",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_METRICS_SPOOL_MAX_BYTES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_LOGS_SPOOL_MAX_BYTES",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "MONITOR_EVENTS_SPOOL_MAX_BYTES",
+      "type": "integer",
       "sensitive": false
     },
     {
@@ -5234,76 +5172,6 @@
     },
     {
       "key": "REDIS_POST_DETAIL_TTL",
-      "type": "duration",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_API_TOKEN",
-      "type": "string",
-      "sensitive": true
-    },
-    {
-      "key": "ROUTER_HTTP_HOST",
-      "type": "host",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_HTTP_PORT",
-      "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_KAFKA_BROKERS",
-      "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_KAFKA_MAX_BUFFERED_BYTES",
-      "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_KAFKA_MAX_BUFFERED_RECORDS",
-      "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_KAFKA_MIN_PARTITIONS",
-      "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_KAFKA_PRODUCE_TIMEOUT",
-      "type": "duration",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_KAFKA_TOPIC",
-      "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_MAX_MESSAGE_BYTES",
-      "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_METRICS_TOKEN",
-      "type": "string",
-      "sensitive": true
-    },
-    {
-      "key": "ROUTER_ENDPOINTS",
-      "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_REQUEST_TIMEOUT",
-      "type": "duration",
-      "sensitive": false
-    },
-    {
-      "key": "ROUTER_SHUTDOWN_TIMEOUT",
       "type": "duration",
       "sensitive": false
     },

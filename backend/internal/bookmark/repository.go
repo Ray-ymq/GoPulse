@@ -44,7 +44,7 @@ func (repository *MySQLRepository) apply(ctx context.Context, postID, userID uin
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := post.FindAuthorIDForUpdate(ctx, tx, postID); err != nil {
 		return err
 	}

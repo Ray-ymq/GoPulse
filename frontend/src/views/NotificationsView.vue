@@ -4,6 +4,7 @@ import { notificationApi } from '../services/api'
 import { ApiError } from '../services/http'
 import type { Notification } from '../types/api'
 import { formatDate } from '../utils/format'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 
 const notifications = ref<Notification[]>([])
 const nextCursor = ref<string | null>(null)
@@ -77,12 +78,9 @@ onMounted(() => void load(true))
 
       <p v-if="refreshError" class="notice notice--error" role="alert">刷新失败：{{ refreshError }}</p>
       <p v-if="actionError" class="notice notice--error" role="alert">{{ actionError }}</p>
-      <p v-if="loading && !initialized" class="state-card">正在加载通知…</p>
-      <div v-else-if="loadError && notifications.length === 0" class="state-card">
-        <p class="notice notice--error" role="alert">{{ loadError }}</p>
-        <button class="button" type="button" @click="load(true)">重试</button>
-      </div>
-      <p v-else-if="initialized && notifications.length === 0" class="state-card">暂时没有通知。</p>
+      <ProductState v-if="loading && !initialized" state="loading" message="正在读取通知…" />
+      <ProductState v-else-if="loadError && notifications.length === 0" state="unavailable" :message="loadError" action-label="重试" @retry="load(true)" />
+      <ProductState v-else-if="initialized && notifications.length === 0" state="empty" message="暂时没有通知。" />
 
       <section v-else class="notification-list" aria-label="通知列表">
         <article

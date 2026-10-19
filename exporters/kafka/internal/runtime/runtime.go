@@ -2,22 +2,24 @@ package runtime
 
 import (
 	"context"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/Ray-ymq/GoPulse/exporters/kafka/internal/collector"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kversion"
 )
 
 type Config struct {
-	Host, Port, Listen            string
+	Host, Port, Listen, JMXURL    string
 	ConnectTimeout, ScrapeTimeout time.Duration
 }
 
@@ -28,17 +30,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	c := Config{Host: os.Getenv("KAFKA_HOST"), Port: os.Getenv("KAFKA_PORT")}
+	c := Config{Host: os.Getenv("KAFKA_HOST"), Port: os.Getenv("KAFKA_PORT"), JMXURL: strings.TrimSpace(os.Getenv("KAFKA_EXPORTER_JMX_URL"))}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
-	if mode == "container" {
-		if c.Host != "kafka" || c.Port != "19092" {
-			return c, ErrConfig
-		}
-	} else if mode == "host" || mode == "" {
-		if (c.Host != "127.0.0.1" && c.Host != "::1") || c.Port != "9092" {
-			return c, ErrConfig
-		}
-	} else {
+	if !validTarget(mode, c.Host, c.Port) {
+		return c, ErrConfig
+	}
+	if c.JMXURL != "" && !validJMXURL(mode, c.JMXURL) {
 		return c, ErrConfig
 	}
 	if os.Getenv("KAFKA_TOPIC") != collector.Topic || os.Getenv("KAFKA_CONSUMER_GROUP") != collector.Group {
@@ -60,11 +57,56 @@ func Load() (Config, error) {
 	if port == "" {
 		port = "9124"
 	}
-	if (host != "127.0.0.1" && host != "::1") || port != "9124" {
+	if !validListen(mode, host, port) {
 		return c, ErrConfig
 	}
 	c.Listen = net.JoinHostPort(host, port)
 	return c, nil
+}
+
+func validTarget(mode, host, port string) bool {
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || host == "" || strings.ContainsAny(host, "\x00\r\n \t/@") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if mode == "host" || mode == "" {
+		return host == "localhost" || ip != nil && ip.IsLoopback()
+	}
+	return mode == "container" && ip == nil
+}
+
+func validJMXURL(mode, raw string) bool {
+	if len(raw) > 512 || strings.ContainsAny(raw, "\x00\r\n \t") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path == "" {
+		return false
+	}
+	if strings.ContainsAny(u.Host, "\x00\r\n/@") || u.Hostname() == "" {
+		return false
+	}
+	if port := u.Port(); port != "" {
+		parsed, err := strconv.Atoi(port)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			return false
+		}
+	}
+	if mode == "host" || mode == "" {
+		ip := net.ParseIP(u.Hostname())
+		return u.Hostname() == "localhost" || ip != nil && ip.IsLoopback()
+	}
+	return mode == "container"
+}
+
+func validListen(mode, host, port string) bool {
+	ip := net.ParseIP(host)
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || ip == nil {
+		return false
+	}
+	return (mode == "container" && (ip.IsLoopback() || ip.IsUnspecified())) || ((mode == "host" || mode == "") && ip.IsLoopback())
 }
 func Open(c Config) (*collector.Client, error) {
 	// Pin the public request shape, notably OffsetFetch v7 (Kafka 2.8).
@@ -79,7 +121,12 @@ func Open(c Config) (*collector.Client, error) {
 	if err != nil {
 		return nil, ErrConfig
 	}
-	return &collector.Client{Kafka: client}, nil
+	var jmxHTTP *http.Client
+	if c.JMXURL != "" {
+		transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: c.ConnectTimeout}).DialContext, DisableCompression: true, ResponseHeaderTimeout: c.ScrapeTimeout}
+		jmxHTTP = &http.Client{Transport: transport, Timeout: c.ScrapeTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	}
+	return &collector.Client{Kafka: client, JMXURL: c.JMXURL, JMXHTTP: jmxHTTP}, nil
 }
 
 func Handler(db *collector.Client, timeout time.Duration) http.Handler {

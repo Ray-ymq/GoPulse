@@ -388,7 +388,7 @@ func (publisher *RabbitMQPublisher) ensureState(ctx context.Context) (*rabbitMQP
 		}
 		state, err := publisher.buildState(connection)
 		if err != nil {
-			closeRabbitMQState(state)
+			_ = closeRabbitMQState(state)
 			if ctx.Err() == nil {
 				publisher.noteConnectionFailure()
 			}
@@ -398,13 +398,13 @@ func (publisher *RabbitMQPublisher) ensureState(ctx context.Context) (*rabbitMQP
 		publisher.stateMu.Lock()
 		if publisher.closed {
 			publisher.stateMu.Unlock()
-			closeRabbitMQState(state)
+			_ = closeRabbitMQState(state)
 			return nil, outbox.NewPublishError(outbox.FailurePublisherClosed, nil)
 		}
 		if publisher.state != nil {
 			existing := publisher.state
 			publisher.stateMu.Unlock()
-			closeRabbitMQState(state)
+			_ = closeRabbitMQState(state)
 			return existing, nil
 		}
 		publisher.state = state
@@ -441,10 +441,6 @@ func (publisher *RabbitMQPublisher) buildState(connection RabbitMQConnection) (*
 		return state, err
 	}
 	return state, nil
-}
-
-func (publisher *RabbitMQPublisher) dial(ctx context.Context) (RabbitMQConnection, error) {
-	return publisher.dialer(ctx, publisher.connectionURL, publisher.dialTimeout)
 }
 
 func (publisher *RabbitMQPublisher) retryWaitLocked(now time.Time) time.Duration {
@@ -502,7 +498,7 @@ func (publisher *RabbitMQPublisher) resetState(state *rabbitMQPublisherState, re
 		publisher.nextRetryAt = publisher.clock().Add(publisher.retryBackoff(publisher.retryAttempt))
 	}
 	publisher.stateMu.Unlock()
-	closeRabbitMQState(state)
+	_ = closeRabbitMQState(state)
 }
 
 func (publisher *RabbitMQPublisher) Close() error {

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "redis-exporter",
+  "name": "GoPulse Redis Exporter",
+  "source": "redis",
+  "entrypoint": "bin/gopulse-redis-exporter",
+  "target_id": "redis-exporter-local",
+  "host_port": 6379,
+  "container_port": 6379,
+  "health_path": "/health",
+  "metrics_path": "/metrics",
+  "listen_port": 9121,
+  "runtime_contract_version": 1,
+  "metrics_contract_version": 2,
+  "config_schema_path": "config.schema.json"
+}

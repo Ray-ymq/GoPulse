@@ -6,11 +6,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -67,8 +69,11 @@ func TestIntegrationBusinessFlowUsesOutboxWorkerAndSearch(t *testing.T) {
 	actorName := "FlowActor_" + suffix
 	defer cleanupHTTPPostUsers(t, cfg, ownerName, actorName)
 	defer cleanupBusinessFlowData(t, cfg, environment.DataEpoch, baselineBudget, ownerName, actorName)
-	router, stopRuntime := integrationBusinessRouter(t, cfg, database)
+	router, stopRuntime, waitRuntime := integrationBusinessRouter(t, cfg, database)
 	defer stopRuntime()
+	if err := waitRuntime(45 * time.Second); err != nil {
+		t.Fatalf("business runtime did not become ready: %v", err)
+	}
 
 	owner, ownerCookie := registerHTTPIntegrationUser(t, router, ownerName)
 	_, actorCookie := registerHTTPIntegrationUser(t, router, actorName)
@@ -99,6 +104,7 @@ func TestIntegrationBusinessFlowUsesOutboxWorkerAndSearch(t *testing.T) {
 		var count int
 		return database.QueryRow(`SELECT COUNT(*) FROM notifications WHERE recipient_id=? AND post_id=?`, owner.ID, createdEnvelope.Data.ID).Scan(&count) == nil && count == 2
 	}) {
+		logBusinessFlowDiagnostics(t, database, owner.ID, createdEnvelope.Data.ID)
 		t.Fatal("native business flow notifications did not converge within the bounded wait")
 	}
 	var notificationCount, commentNotifications, likeNotifications int
@@ -123,7 +129,7 @@ func TestIntegrationBusinessFlowUsesOutboxWorkerAndSearch(t *testing.T) {
 	t.Logf("native business flow passed post_id=%d recipient=%d notifications=%d duplicate_like_status=%d", createdEnvelope.Data.ID, owner.ID, notificationCount, duplicateLike.Code)
 }
 
-func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB) (stdhttp.Handler, func()) {
+func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB) (stdhttp.Handler, func(), func(time.Duration) error) {
 	t.Helper()
 	state, err := businessstate.NewRepository(database)
 	if err != nil {
@@ -139,7 +145,7 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	rabbitPublisher, err := platform.NewRabbitMQPublisher(cfg.RabbitMQURL, platform.RabbitMQPublisherOptions{RetryDelay: time.Second, SearchRetryDelay: time.Second})
+	rabbitPublisher, err := platform.NewRabbitMQPublisher(cfg.RabbitMQURL, platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay})
 	if err != nil {
 		t.Fatalf("NewRabbitMQPublisher() error = %v", err)
 	}
@@ -149,7 +155,7 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 		t.Fatalf("NewElasticsearch() error = %v", err)
 	}
 
-	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitPublisher, outbox.DispatcherOptions{Owner: "native-business-dispatcher", PollInterval: 20 * time.Millisecond, ClaimBatch: 5, LeaseDuration: 15 * time.Second, PublishTimeout: time.Second, CleanupInterval: time.Minute, Retention: time.Hour, CleanupBatch: 20})
+	dispatcher, err := outbox.NewDispatcher(eventOutbox, rabbitPublisher, outbox.DispatcherOptions{Owner: "native-business-dispatcher", PollInterval: 20 * time.Millisecond, ClaimBatch: 5, LeaseDuration: 30 * time.Second, PublishTimeout: cfg.Outbox.PublishTimeout, CleanupInterval: time.Minute, Retention: time.Hour, CleanupBatch: 20})
 	if err != nil {
 		t.Fatalf("NewDispatcher() error = %v", err)
 	}
@@ -161,7 +167,7 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 	if err != nil {
 		t.Fatalf("notification processor error = %v", err)
 	}
-	workerRuntime, err := worker.NewRuntime(cfg.RabbitMQURL, notificationProcessor, worker.RuntimeOptions{Profile: worker.BusinessProfile, InstanceID: "business-test", Admission: state, Prefetch: 4, MaxRetries: 2, RetryDelay: time.Second, PublishTimeout: time.Second, ShutdownTimeout: 5 * time.Second, ReconnectMinimum: 100 * time.Millisecond, ReconnectMaximum: time.Second})
+	workerRuntime, err := worker.NewRuntime(cfg.RabbitMQURL, notificationProcessor, worker.RuntimeOptions{Profile: worker.BusinessProfile, InstanceID: "business-test", Admission: state, Prefetch: 4, MaxRetries: 2, RetryDelay: cfg.Outbox.RetryDelay, PublishTimeout: cfg.Outbox.PublishTimeout, ShutdownTimeout: 5 * time.Second, ReconnectMinimum: 100 * time.Millisecond, ReconnectMaximum: time.Second})
 	if err != nil {
 		t.Fatalf("business worker runtime error = %v", err)
 	}
@@ -170,7 +176,7 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 		t.Fatalf("search processor error = %v", err)
 	}
 	searchProcessor.WithBusinessState(state).WithLogger(slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	searchRuntime, err := worker.NewRuntime(cfg.RabbitMQURL, integrationDiagnosticProcessor{delegate: searchProcessor}, worker.RuntimeOptions{Profile: worker.SearchProfile, InstanceID: "search-test", Admission: state, Prefetch: 4, MaxRetries: 2, RetryDelay: time.Second, PublishTimeout: time.Second, ShutdownTimeout: 5 * time.Second, ReconnectMinimum: 100 * time.Millisecond, ReconnectMaximum: time.Second})
+	searchRuntime, err := worker.NewRuntime(cfg.RabbitMQURL, integrationDiagnosticProcessor{delegate: searchProcessor}, worker.RuntimeOptions{Profile: worker.SearchProfile, InstanceID: "search-test", Admission: state, Prefetch: 4, MaxRetries: 2, RetryDelay: cfg.Outbox.SearchRetryDelay, PublishTimeout: cfg.Outbox.PublishTimeout, ShutdownTimeout: 5 * time.Second, ReconnectMinimum: 100 * time.Millisecond, ReconnectMaximum: time.Second})
 	if err != nil {
 		t.Fatalf("search worker runtime error = %v", err)
 	}
@@ -186,21 +192,54 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	users := user.NewMySQLRepository(database).WithOutbox(eventOutbox)
 	authService := auth.NewService(users, passwords, tokens)
-	postCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout).WithEpochProvider(state)
+	postCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 	posts := post.NewMySQLRepository(database, post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state})
-	postService := post.NewService(posts, postCache)
+	postService := post.NewService(posts).WithBodyCache(postCache, nil)
+	t.Cleanup(func() { _ = postService.Shutdown(context.Background()) })
 	comments := comment.NewMySQLRepositoryWithOutbox(database, eventOutbox)
 	likes := like.NewMySQLRepositoryWithOutbox(database, eventOutbox)
-	commentService := comment.NewService(comments, postService, postCache)
-	likeService := like.NewService(likes, postService, postCache)
+	commentService := comment.NewService(comments, postService)
+	likeService := like.NewService(likes, postService)
 	searchService := search.NewService(search.NewElasticsearchRepository(searchClient), posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
 	router := NewRouter(Dependencies{}, APIRoutes{Auth: auth.NewHandler(authService, cookies), Posts: post.NewHandler(postService), Comments: comment.NewHandler(commentService), Likes: like.NewHandler(likeService), Notifications: notification.NewHandler(notification.NewService(notificationRepository)), Search: search.NewHandler(searchService), Authentication: middleware.RequireAuthentication(cookies.Name(), tokens)})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	for _, run := range []func(context.Context) error{dispatcher.Run, workerRuntime.Run, searchRuntime.Run} {
-		go func(run func(context.Context) error) { _ = run(ctx) }(run)
+	runtimeErrors := make(chan error, 3)
+	var runtimeGroup sync.WaitGroup
+	for name, run := range map[string]func(context.Context) error{
+		"dispatcher":      dispatcher.Run,
+		"business worker": workerRuntime.Run,
+		"search worker":   searchRuntime.Run,
+	} {
+		runtimeGroup.Add(1)
+		go func(name string, run func(context.Context) error) {
+			defer runtimeGroup.Done()
+			if err := run(ctx); err != nil && ctx.Err() == nil {
+				runtimeErrors <- fmt.Errorf("%s: %w", name, err)
+			}
+		}(name, run)
 	}
-	return router, func() {
+	waitRuntime := func(timeout time.Duration) error {
+		if timeout <= 0 {
+			return fmt.Errorf("runtime readiness timeout must be positive")
+		}
+		deadline := time.Now().Add(timeout)
+		for {
+			select {
+			case err := <-runtimeErrors:
+				return err
+			default:
+			}
+			if workerRuntime.Ready(context.Background()) == nil && searchRuntime.Ready(context.Background()) == nil {
+				return nil
+			}
+			if !time.Now().Before(deadline) {
+				return fmt.Errorf("business worker ready=%v, search worker ready=%v", workerRuntime.Ready(context.Background()), searchRuntime.Ready(context.Background()))
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	stopRuntime := func() {
 		cancel()
 		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {
@@ -209,8 +248,18 @@ func integrationBusinessRouter(t *testing.T, cfg config.Config, database *sql.DB
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
+		done := make(chan struct{})
+		go func() {
+			runtimeGroup.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+		}
 		_ = redisClient.Close()
 	}
+	return router, stopRuntime, waitRuntime
 }
 
 type integrationDiagnosticProcessor struct {
@@ -325,10 +374,16 @@ func cleanupBusinessFlowData(t *testing.T, cfg config.Config, epoch string, base
 	defer database.Close()
 	var ownerID, actorID uint64
 	if err := database.QueryRowContext(context.Background(), `SELECT id FROM users WHERE username=?`, usernames[0]).Scan(&ownerID); err != nil {
+		if err == sql.ErrNoRows {
+			return
+		}
 		t.Errorf("business flow cleanup owner lookup: %v", err)
 		return
 	}
 	if err := database.QueryRowContext(context.Background(), `SELECT id FROM users WHERE username=?`, usernames[1]).Scan(&actorID); err != nil {
+		if err == sql.ErrNoRows {
+			return
+		}
 		t.Errorf("business flow cleanup actor lookup: %v", err)
 		return
 	}

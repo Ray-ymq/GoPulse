@@ -132,10 +132,11 @@ func integrationPostRouter(t *testing.T, cfg config.Config, database *sql.DB) st
 	authService := auth.NewService(user.NewMySQLRepository(database), passwords, tokens)
 	redisClient := platform.NewRedis(cfg.Redis)
 	t.Cleanup(func() { _ = redisClient.Close() })
-	postDetailCache := rediscache.NewPostDetailRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
-	postService := post.NewService(post.NewMySQLRepository(database), postDetailCache)
-	commentService := comment.NewService(comment.NewMySQLRepository(database), postService, postDetailCache)
-	likeService := like.NewService(like.NewMySQLRepository(database), postService, postDetailCache)
+	postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+	postService := post.NewService(post.NewMySQLRepository(database)).WithBodyCache(postBodyCache, nil)
+	t.Cleanup(func() { _ = postService.Shutdown(context.Background()) })
+	commentService := comment.NewService(comment.NewMySQLRepository(database), postService)
+	likeService := like.NewService(like.NewMySQLRepository(database), postService)
 	return NewRouter(Dependencies{}, APIRoutes{
 		Auth:           auth.NewHandler(authService, cookies),
 		Posts:          post.NewHandler(postService),

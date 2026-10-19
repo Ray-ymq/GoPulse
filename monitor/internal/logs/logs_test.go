@@ -1,6 +1,7 @@
 package logs
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -28,6 +29,21 @@ func TestValidateBuildsEnvelopeForEveryApplicationSource(t *testing.T) {
 			}
 			if envelope.Source != test.service || validated.Source != test.service {
 				t.Fatalf("source envelope=%q validated=%q", envelope.Source, validated.Source)
+			}
+			wireBody, err := json.Marshal(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire struct {
+				SchemaVersion int             `json:"schema_version"`
+				Payload       json.RawMessage `json:"payload"`
+			}
+			if err := json.Unmarshal(wireBody, &wire); err != nil || wire.SchemaVersion != 2 {
+				t.Fatalf("invalid log envelope: %s %v", wireBody, err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(wire.Payload, &fields); err != nil || len(fields) != 3 || fields["dataid"] == nil || fields["time"] == nil || fields["data"] == nil {
+				t.Fatalf("invalid log batch: %s %v", wire.Payload, err)
 			}
 		})
 	}

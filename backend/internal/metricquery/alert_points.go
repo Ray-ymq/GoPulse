@@ -17,7 +17,7 @@ import (
 // AlertPoints uses the same bounded authenticated client, but exports original
 // samples: query_range's lookback interpolation cannot prove freshness or resets.
 func (c *Client) AlertPoints(ctx context.Context, metric string, labels map[string]string, from, to time.Time) ([]Point, error) {
-	d, ok := definitions[metric]
+	d, ok := presets[metric]
 	if !ok {
 		return nil, errors.New("invalid metric")
 	}
@@ -43,7 +43,7 @@ func (c *Client) AlertPoints(ctx context.Context, metric string, labels map[stri
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != 200 {
 		return nil, errors.New("metrics unavailable")
 	}

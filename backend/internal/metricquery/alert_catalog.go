@@ -13,8 +13,8 @@ type AlertDefinition struct {
 }
 
 func AlertCatalog() []AlertDefinition {
-	out := make([]AlertDefinition, 0, len(Catalog))
-	for _, d := range Catalog {
+	out := make([]AlertDefinition, 0, len(Presets))
+	for _, d := range Presets {
 		a := AlertDefinition{Metric: d.Metric, Kind: d.Kind, Unit: d.Unit, Keys: []string{}, Tuples: [][]string{{}}, Reducers: []string{"last", "max", "min", "avg"}}
 		if d.Kind == "counter" {
 			a.Reducers = []string{"increase"}
@@ -30,6 +30,11 @@ func AlertCatalog() []AlertDefinition {
 					break
 				}
 			}
+		} else if len(d.LabelKeys) > 0 && d.label == "" {
+			// Dynamic exporter dimensions (queue, node, command, operation, ...)
+			// do not have a code-owned finite tuple set and therefore are not
+			// exposed as exact alert selectors.
+			continue
 		} else if d.label != "" {
 			a.Keys = []string{d.label}
 			a.Tuples = nil
@@ -45,6 +50,8 @@ func AlertCatalog() []AlertDefinition {
 				values = []string{"green", "yellow", "red"}
 			case "db":
 				values = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"}
+			default:
+				continue
 			}
 			for _, v := range values {
 				a.Tuples = append(a.Tuples, []string{v})

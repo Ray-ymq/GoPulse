@@ -44,7 +44,7 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 		if err != nil {
 			return err
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		var acquired int
 		if err = conn.QueryRowContext(ctx, "SELECT GET_LOCK('gopulse:post-search-reindex:v1', 10)").Scan(&acquired); err != nil {
 			return err
@@ -52,14 +52,16 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 		if acquired != 1 {
 			return errors.New("search rebuild busy; retry deletion")
 		}
-		defer conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('gopulse:post-search-reindex:v1')")
+		defer func() {
+			_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('gopulse:post-search-reindex:v1')")
+		}()
 		starter = conn
 	}
 	tx, err := starter.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var owner uint64
 	err = tx.QueryRowContext(ctx, "SELECT author_id FROM posts WHERE id=? FOR UPDATE", id).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -109,9 +111,6 @@ func (s *Service) Delete(ctx context.Context, id, actor uint64) error {
 	}
 	if err != nil {
 		return apperror.WrapInternal(err)
-	}
-	if s.cache != nil {
-		_ = s.cache.Invalidate(ctx, id)
 	}
 	return nil
 }

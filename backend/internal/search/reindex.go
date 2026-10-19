@@ -41,7 +41,7 @@ func (lock *Lock) Release(ctx context.Context) error {
 	if lock == nil || lock.connection == nil {
 		return nil
 	}
-	defer lock.connection.Close()
+	defer func() { _ = lock.connection.Close() }()
 	var released sql.NullInt64
 	if err := lock.connection.QueryRowContext(ctx, `SELECT RELEASE_LOCK(?)`, advisoryLockName).Scan(&released); err != nil {
 		return fmt.Errorf("release reindex lock: %w", err)
@@ -81,7 +81,7 @@ LIMIT ?`, after, maximum, limit)
 	if err != nil {
 		return nil, fmt.Errorf("scan posts for reindex: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	documents := make([]Document, 0, limit)
 	for rows.Next() {
 		var document Document

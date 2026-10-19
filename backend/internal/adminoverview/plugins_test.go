@@ -23,7 +23,7 @@ func TestPluginLifecycleOutranksFreshSample(t *testing.T) {
 	for _, state := range []string{"running", "failed"} {
 		t.Run(state, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				fmt.Fprintf(w, `{"data":[{"id":"redis-exporter","name":"Redis Exporter","version":"1.12.7","kind":"metrics-exporter","source":"redis","desired_state":"running","observed_state":%q,"installed_at":%q,"updated_at":%q,"started_at":%q,"last_scrape_at":%q,"last_success_at":%q}]}`, state, at, at, at, at, at)
+				_, _ = fmt.Fprintf(w, `{"data":[{"id":"redis-exporter","name":"Redis Exporter","version":"1.12.7","kind":"metrics-exporter","source":"redis","desired_state":"running","observed_state":%q,"installed_at":%q,"updated_at":%q,"started_at":%q,"last_scrape_at":%q,"last_success_at":%q}]}`, state, at, at, at, at, at)
 			}))
 			defer server.Close()
 			client, err := exporterplugin.NewClient(server.URL, strings.Repeat("x", 32), time.Second)

@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import FollowButton from '../components/FollowButton.vue'
 import { userApi } from '../services/api'
 import type { UserProfile } from '../types/api'
+import ProductState from '../../../frontend-shared/ProductState.vue'
 const route = useRoute()
 const records = ref<UserProfile[]>([])
 const cursor = ref<string | null>(null)
@@ -27,13 +28,13 @@ watch(() => route.path, () => { generation++; records.value = []; cursor.value =
   <main class="content-shell">
     <h1>{{ route.path.endsWith('/followers') ? '我的粉丝' : '我的关注' }}</h1>
     <nav class="user-tabs" aria-label="我的关系"><RouterLink to="/me/following">关注</RouterLink><RouterLink to="/me/followers">粉丝</RouterLink></nav>
-    <p v-if="error" role="alert">{{ error }} <button @click="load(records.length === 0)">重试</button></p>
-    <p v-if="loading" role="status">正在加载…</p>
-    <p v-else-if="!error && records.length === 0" class="state-card">暂无关系。</p>
+    <ProductState v-if="error" state="unavailable" :message="error" action-label="重试" @retry="load(records.length === 0)" />
+    <ProductState v-else-if="loading" state="loading" message="正在读取关系…" />
+    <ProductState v-else-if="!records.length" state="empty" message="暂无关系。" />
     <article v-for="user in records" :key="user.id" class="user-result">
       <RouterLink :to="`/users/${user.username}`"><strong>{{ user.display_name }}</strong> @{{ user.username }}<p>{{ user.bio }}</p></RouterLink>
       <FollowButton :target="user" />
     </article>
-    <button v-if="cursor" class="button" :disabled="loading" @click="load()">加载更多</button>
+    <button v-if="cursor" class="button" type="button" :disabled="loading" @click="load()">加载更多</button>
   </main>
 </template>

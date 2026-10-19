@@ -1,9 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { componentContract } from './componentMetrics'
 import { isEventEntry, isLogEntry, isMetricResult, observabilityApi } from './observability'
+import { isMetricCatalog } from './observability'
 
 function response(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }) }
 afterEach(() => vi.unstubAllGlobals())
+
+it('accepts an unregistered metric catalog and preserves queue and node dimensions', () => {
+ const descriptor={metric:'gopulse_rabbitmq_queue_depth',kind:'gauge',unit:'none',source:'rabbitmq',target_id:'rabbitmq-exporter-local',producer_kind:'exporter_plugin',producer_id:'rabbitmq-exporter',label_keys:['node','queue']}
+ expect(isMetricCatalog([descriptor])).toBe(true)
+ expect(isMetricCatalog([])).toBe(true)
+ expect(isMetricCatalog([descriptor,descriptor])).toBe(false)
+ expect(isMetricCatalog([{...descriptor,label_keys:['producer_id']}])).toBe(false)
+ const result={metric:descriptor.metric,kind:'gauge',unit:'none',range:'15m',from:'2026-10-14T08:00:00Z',to:'2026-10-14T08:15:00Z',step_seconds:15,series:[{labels:{queue:'jobs',node:'node-2'},points:[{timestamp:'2026-10-14T08:15:00Z',value:7}]}]}
+ expect(isMetricResult(result)).toBe(true)
+ expect(isMetricResult({...result,series:[{...result.series[0],labels:{source:'redis'}}]})).toBe(false)
+ expect(isMetricResult({...result,metric:'sum(gopulse_rabbitmq_queue_depth)'})).toBe(false)
+})
 describe('observability runtime boundary', () => {
   it('accepts a fixed metric DTO and safely encodes the catalog query', async () => {
     const payload = { metric:'gopulse_redis_up',kind:'gauge',unit:'boolean',range:'15m',from:'2026-09-05T08:00:00Z',to:'2026-09-05T08:15:00Z',step_seconds:15,series:[{labels:{},points:[{timestamp:'2026-09-05T08:15:00Z',value:1}]}] }
@@ -78,9 +91,9 @@ it('accepts the sixth plugin lifecycle identity without exposing runtime metadat
   expect(isEventEntry({...event,metadata:{...event.metadata,pid:'123'}})).toBe(false)
 })
 
-it('accepts component scraped labels and unknown dependency without accepting business identifiers', () => {
+it('accepts component scraped labels and unknown dependency with additional dimensions', () => {
  const value = {metric:'gopulse_monitor_last_scrape_success_timestamp_seconds',kind:'gauge',unit:'unix_seconds',range:'15m',from:'2026-09-11T08:00:00Z',to:'2026-09-11T08:15:00Z',step_seconds:15,series:[{labels:{scraped_producer_kind:'component',scraped_target_id:'monitor-local'},points:[{timestamp:'2026-09-11T08:15:00Z',value:0}]}]}
  expect(isMetricResult(value)).toBe(true)
- expect(isMetricResult({...value,series:[{...value.series[0],labels:{...value.series[0]!.labels,user_id:'42'}}]})).toBe(false)
- expect(isMetricResult({...value,metric:'gopulse_monitor_dependency_up',unit:'state',series:[{labels:{dependency:'router'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(true)
+ expect(isMetricResult({...value,series:[{...value.series[0],labels:{...value.series[0]!.labels,node:'node-2'}}]})).toBe(true)
+ expect(isMetricResult({...value,metric:'gopulse_backend_dependency_up',unit:'state',series:[{labels:{dependency:'redis'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(true)
 })

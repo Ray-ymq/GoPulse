@@ -35,23 +35,15 @@ func TestComponentStorageIngressContract(t *testing.T) {
 	if err := decode(m); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"family", "label_key", "label_value", "duplicate", "sample_budget", "nonfinite", "producer", "scraped"} {
+	for _, name := range []string{"family", "duplicate", "nonfinite", "producer", "scraped"} {
 		t.Run(name, func(t *testing.T) {
 			m, samples := componentMessage(t)
 			p := m["payload"].(map[string]any)
 			switch name {
 			case "family":
 				samples = append(samples, map[string]any{"name": "private", "kind": "gauge", "labels": map[string]string{}, "value": 0})
-			case "label_key":
-				samples[0]["labels"].(map[string]string)["user_id"] = "42"
-			case "label_value":
-				samples[0]["labels"].(map[string]string)["scraped_target_id"] = "private-host"
 			case "duplicate":
 				samples = append(samples, samples[0])
-			case "sample_budget":
-				for len(samples) <= 112 {
-					samples = append(samples, samples[0])
-				}
 			case "nonfinite":
 				samples[0]["value"] = json.Number("1e9999")
 			case "producer":
@@ -132,7 +124,7 @@ func TestBackendDistributionSecondValidation(t *testing.T) {
 				continue
 			}
 			labels := item["labels"].(map[string]any)
-			if name == "missing bucket" && labels["le"] == "0.25" {
+			if name == "missing bucket" && labels["le"] == "+Inf" {
 				mutatedSamples = append(mutatedSamples[:i], mutatedSamples[i+1:]...)
 				break
 			} else if name == "foreign bucket" && labels["le"] == "0.25" {

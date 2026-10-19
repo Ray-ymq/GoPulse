@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "rabbitmq-exporter",
+  "name": "GoPulse RabbitMQ Exporter",
+  "source": "rabbitmq",
+  "entrypoint": "bin/gopulse-rabbitmq-exporter",
+  "target_id": "rabbitmq-exporter-local",
+  "host_port": 15672,
+  "container_port": 15672,
+  "health_path": "/health",
+  "metrics_path": "/metrics",
+  "listen_port": 9123,
+  "runtime_contract_version": 1,
+  "metrics_contract_version": 2,
+  "config_schema_path": "config.schema.json"
+}

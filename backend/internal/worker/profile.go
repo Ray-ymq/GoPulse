@@ -5,14 +5,15 @@ import (
 )
 
 type Profile struct {
-	Name             string
-	Service          string
-	Module           string
-	Consumer         string
-	ConsumerTag      string
-	Topology         platform.Topology
-	IgnoreSelfEvents bool
-	IncludePostID    bool
+	Name              string
+	Service           string
+	Module            string
+	Consumer          string
+	ConsumerTag       string
+	Topology          platform.Topology
+	IgnoreSelfEvents  bool
+	IncludePostID     bool
+	RetryOnExhaustion bool
 }
 
 var (
@@ -23,8 +24,11 @@ var (
 	}
 	SearchProfile = Profile{
 		Name: "search indexer", Service: "search-indexer", Module: "search",
-		Consumer:    "search",
-		ConsumerTag: "gopulse-search-indexer", Topology: platform.SearchTopology, IncludePostID: true,
+		Consumer:          "search",
+		ConsumerTag:       "gopulse-search-indexer",
+		Topology:          platform.SearchTopology,
+		IncludePostID:     true,
+		RetryOnExhaustion: true,
 	}
 )
 

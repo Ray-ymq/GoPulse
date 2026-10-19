@@ -3,7 +3,9 @@
 
 GO ?= go
 
-.PHONY: test race check build
+include ../make/go-lint.mk
+
+.PHONY: test race check build exporter-package-bin exporter-catalog-bin
 
 test:
 	$(GO) test -count=1 ./...
@@ -17,3 +19,11 @@ check:
 
 build:
 	@$(GO) build -o bin/devenv ./cmd/devenv
+
+exporter-package-bin:
+	@mkdir -p bin ../.run/bin
+	$(GO) build -trimpath -buildvcs=false -o ../.run/bin/exporter-package ./cmd/exporter-package
+
+exporter-catalog-bin:
+	@mkdir -p bin ../.run/bin
+	$(GO) build -trimpath -buildvcs=false -o ../.run/bin/exporter-catalog ./cmd/exporter-catalog

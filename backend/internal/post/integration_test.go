@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +132,120 @@ func TestIntegrationPostRepositoryReadModelStablePaginationAndQueryPlan(t *testi
 		}
 	}
 	t.Logf("validated list EXPLAIN indexes: idx_posts_created_at_id, idx_comments_post_id_id, and PRIMARY")
+}
+
+func TestIntegrationPostDynamicCountQueryUsesSupportingIndexes(t *testing.T) {
+	cfg := integrationtest.Environment(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	database, err := platform.OpenMySQLDatabase(cfg.MySQL)
+	if err != nil {
+		t.Fatalf("OpenMySQLDatabase() error = %v", err)
+	}
+	defer database.Close()
+	releasePostFactsLock := integrationtest.AcquirePostFactsLock(t, database)
+	defer releasePostFactsLock()
+
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	defer tx.Rollback()
+	suffix := time.Now().UTC().Format("150405000000")
+	authorID := insertIntegrationUser(t, ctx, tx, "DynamicAuthor_"+suffix)
+	targetID := insertIntegrationPost(t, ctx, tx, authorID, "dynamic target", time.Now().UTC())
+	for index := 0; index < 64; index++ {
+		insertIntegrationComment(t, ctx, tx, targetID, authorID, "dynamic comment "+strconv.Itoa(index))
+		likerID := insertIntegrationUser(t, ctx, tx, "DynamicLiker_"+suffix+"_"+strconv.Itoa(index))
+		insertIntegrationLike(t, ctx, tx, targetID, likerID)
+	}
+
+	repository := NewMySQLRepository(tx)
+	dynamic, err := repository.FindDynamic(ctx, targetID, authorID)
+	if err != nil {
+		t.Fatalf("FindDynamic() error = %v", err)
+	}
+	if dynamic.CommentCount != 64 || dynamic.LikeCount != 64 {
+		t.Fatalf("FindDynamic() counts comments=%d likes=%d, want 64/64", dynamic.CommentCount, dynamic.LikeCount)
+	}
+
+	query := `
+SELECT u.id, u.username, u.display_name,
+       (SELECT COUNT(*) FROM comments AS c WHERE c.post_id=p.id),
+       (SELECT COUNT(*) FROM post_likes AS likes WHERE likes.post_id=p.id)
+FROM posts AS p INNER JOIN users AS u ON u.id=p.author_id
+WHERE p.id=? AND p.author_id=?`
+	rows, err := tx.QueryContext(ctx, "EXPLAIN "+query, targetID, authorID)
+	if err != nil {
+		t.Fatalf("EXPLAIN dynamic query: %v", err)
+	}
+	plan, err := scanDynamicExplain(rows)
+	if err != nil {
+		t.Fatalf("scan dynamic EXPLAIN: %v", err)
+	}
+	for _, expected := range []struct {
+		table string
+		key   string
+	}{
+		{table: "p", key: "PRIMARY"},
+		{table: "u", key: "PRIMARY"},
+		{table: "c", key: "idx_comments_post_id_id"},
+		{table: "likes", key: "PRIMARY"},
+	} {
+		row, ok := plan[expected.table]
+		if !ok {
+			t.Fatalf("EXPLAIN dynamic query missing table %q: %#v", expected.table, plan)
+		}
+		if row.key != expected.key {
+			t.Fatalf("EXPLAIN table=%s key=%q, want %q; plan=%#v", expected.table, row.key, expected.key, plan)
+		}
+		if row.accessType == "ALL" || row.accessType == "" {
+			t.Fatalf("EXPLAIN table=%s access type=%q indicates a broad scan; plan=%#v", expected.table, row.accessType, plan)
+		}
+		if row.estimatedRows <= 0 {
+			t.Fatalf("EXPLAIN table=%s estimated rows=%g, want positive estimate; plan=%#v", expected.table, row.estimatedRows, plan)
+		}
+		t.Logf("DYNAMIC_EXPLAIN table=%s type=%s key=%s rows=%g", expected.table, row.accessType, row.key, row.estimatedRows)
+	}
+}
+
+type dynamicExplainRow struct {
+	accessType    string
+	key           string
+	estimatedRows float64
+}
+
+func scanDynamicExplain(rows *sql.Rows) (map[string]dynamicExplainRow, error) {
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	plan := make(map[string]dynamicExplainRow)
+	for rows.Next() {
+		raw := make([]sql.RawBytes, len(columns))
+		values := make([]any, len(raw))
+		for index := range raw {
+			values[index] = &raw[index]
+		}
+		if err := rows.Scan(values...); err != nil {
+			return nil, err
+		}
+		fields := make(map[string]string, len(columns))
+		for index, column := range columns {
+			fields[column] = string(raw[index])
+		}
+		estimate, err := strconv.ParseFloat(fields["rows"], 64)
+		if err != nil {
+			return nil, err
+		}
+		plan[fields["table"]] = dynamicExplainRow{accessType: fields["type"], key: fields["key"], estimatedRows: estimate}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return plan, nil
 }
 
 func TestIntegrationPostCreateCommitsOutboxAtomicallyAndRollsBackOnOutboxFailure(t *testing.T) {

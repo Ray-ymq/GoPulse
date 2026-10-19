@@ -14,8 +14,14 @@ import (
 )
 
 const (
-	Topic          = "gopulse-observability-v1"
-	Group          = "gopulse-marshaller-metrics-v1"
+	MetricsTopic   = "gopulse-observability-metrics"
+	LogsTopic      = "gopulse-observability-logs"
+	EventsTopic    = "gopulse-observability-events"
+	MetricsGroup   = "gopulse-marshaller-metrics"
+	LogsGroup      = "gopulse-marshaller-logs"
+	EventsGroup    = "gopulse-marshaller-events"
+	Topic          = MetricsTopic
+	Group          = MetricsGroup
 	MaxRecordBytes = 1 << 20
 	MaxOutputBytes = 2 << 20
 )

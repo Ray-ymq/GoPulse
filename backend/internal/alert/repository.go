@@ -120,7 +120,7 @@ func (p *Repository) Mutate(ctx context.Context, id, actor uint64, action, reque
 	if e != nil {
 		return Rule{}, unavailable()
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if e = authorize(ctx, tx, actor); e != nil {
 		if a, ok := apperror.As(e); ok {
 			return Rule{}, a
@@ -171,13 +171,14 @@ func (p *Repository) Mutate(ctx context.Context, id, actor uint64, action, reque
 				return Rule{}, dbError(e)
 			}
 		}
-		if action == "update" {
+		switch action {
+		case "update":
 			in.Enabled = r.Enabled
 			r.Input = in
-		} else if action == "enable" || action == "disable" || action == "delete" {
+		case "enable", "disable", "delete":
 			b := action == "enable"
 			r.Enabled = &b
-		} else {
+		default:
 			return Rule{}, validation()
 		}
 		r.Revision++
@@ -193,9 +194,7 @@ func (p *Repository) Mutate(ctx context.Context, id, actor uint64, action, reque
 		if !*r.Enabled {
 			state = "disabled"
 		}
-		if action == "enable" && r.State.State == "firing" {
-			state = "firing"
-		} else {
+		if action != "enable" || r.State.State != "firing" {
 			r.State = State{State: state, DataStatus: "unknown"}
 		}
 		if e == nil {

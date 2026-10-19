@@ -23,7 +23,7 @@ func TestAlertOriginalSamplesAndEmpty(t *testing.T) {
 		if empty {
 			return
 		}
-		fmt.Fprintf(w, `{"metric":{"__name__":"gopulse_redis_cpu_seconds_total","source":"redis","target_id":"redis-exporter-local","mode":"user"},"values":[8,2],"timestamps":[%d,%d]}`, now.Add(-15*time.Second).UnixMilli(), now.UnixMilli())
+		_, _ = fmt.Fprintf(w, `{"metric":{"__name__":"gopulse_redis_cpu_seconds_total","source":"redis","target_id":"redis-exporter-local","mode":"user"},"values":[8,2],"timestamps":[%d,%d]}`, now.Add(-15*time.Second).UnixMilli(), now.UnixMilli())
 	}))
 	defer server.Close()
 	client, _ := NewClient(server.URL, "test", "secret", time.Second)

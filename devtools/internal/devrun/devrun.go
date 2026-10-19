@@ -14,6 +14,8 @@ import (
 	"github.com/Ray-ymq/GoPulse/devtools/internal/compose"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/monitorimage"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
 )
@@ -77,6 +79,7 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	if err != nil {
 		return nil, err
 	}
+	values["MONITOR_PACKAGE_DIR"] = filepath.Join(ws.Root, ".run", "packages")
 	envFile, err := envfile.WritePrivate(ws.PrivateRoot(), mode, values)
 	if err != nil {
 		return nil, err
@@ -91,7 +94,11 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	files := []string{filepath.Join(ws.Root, "deploy", "compose.local.yaml")}
 	profiles := []string{}
 	if observe {
-		files = append(files, filepath.Join(ws.Root, "deploy", "compose.local-linux.yaml"))
+		override, err := observeComposeOverride(ws.Root)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, override)
 		profiles = append(profiles, "observe")
 	}
 	project := ws.ProjectDev()
@@ -105,6 +112,17 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 		files:      files,
 		command:    compose.Command{Project: project, EnvFile: envFile, Files: files, Profiles: profiles},
 	}, nil
+}
+
+func observeComposeOverride(root string) (string, error) {
+	name := ""
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		name = "compose.local-" + runtime.GOOS + ".yaml"
+	default:
+		return "", fmt.Errorf("observation mode is not supported on %s", runtime.GOOS)
+	}
+	return filepath.Join(root, "deploy", name), nil
 }
 
 // Deps starts or refreshes the development dependency project and records a
@@ -172,7 +190,7 @@ func Deps(root, scope, explicitEnv string) error {
 }
 
 // Dev starts the source development lifecycle; observe adds the observation
-// dependencies, Router, Marshaller, admin frontend, and Monitor container.
+// dependencies, Marshaller, admin frontend, and Monitor container.
 func Dev(root string, observe bool, explicitEnv string) error {
 	return start(root, observe, explicitEnv)
 }
@@ -223,8 +241,7 @@ func start(root string, observe bool, explicitEnv string) error {
 		}
 	}
 	if observe {
-		requiredPorts = append(requiredPorts, env.integer("ROUTER_HTTP_PORT"), 19105,
-			env.integer("MARSHALLER_HTTP_PORT"), 19106, env.integer("MONITOR_HTTP_PORT"),
+		requiredPorts = append(requiredPorts, env.integer("MARSHALLER_HTTP_PORT"), 19106, env.integer("MONITOR_HTTP_PORT"),
 			env.integer("ADMIN_FRONTEND_PORT"), env.integer("REDIS_EXPORTER_HTTP_PORT"))
 	}
 	if err := proc.CheckPorts(requiredPorts, owned); err != nil {
@@ -353,39 +370,32 @@ func (s *session) monitorImage(observe bool) string {
 }
 
 func (s *session) monitorImageTag() string {
-	input, err := digest.MonitorInput(s.root)
-	if err != nil {
-		return "gopulse/monitor:local"
-	}
-	if len(input) < 16 {
-		return "gopulse/monitor:local"
-	}
-	return "gopulse/monitor:local-" + input[:16]
+	return monitorimage.Tag
 }
 
-// ensureMonitorImage reuses the content-addressed Monitor image when it already
-// exists, so an unchanged environment never rebuilds it, and otherwise builds
-// it once.
+// ensureMonitorImage reuses latest only when its source and revision labels
+// still match, so replacing the shared tag cannot silently reuse stale code.
 func (s *session) ensureMonitorImage() (string, error) {
-	if runtime.GOOS != "linux" {
-		return "", fmt.Errorf("dev-observe requires Linux for the trusted host-network Monitor image")
-	}
 	tag := s.monitorImageTag()
-	if proc.Succeeds([]string{"docker", "image", "inspect", tag}, s.root, s.processEnv) {
-		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
-		return tag, nil
-	}
 	version := strings.TrimSpace(s.readFile(filepath.Join(s.root, "VERSION")))
 	if !semverLike(version) {
 		return "", fmt.Errorf("VERSION must use major.minor.patch before building Monitor")
+	}
+	if err := exporterpackages.Prepare(s.root, s.values["MONITOR_PACKAGE_DIR"], s.processEnv); err != nil {
+		return "", err
 	}
 	revision := s.git("rev-parse", "HEAD")
 	input, err := digest.MonitorInput(s.root)
 	if err != nil {
 		return "", err
 	}
+	if monitorimage.Reusable(s.root, input, s.processEnv) {
+		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
+		return tag, nil
+	}
 	if err := proc.Run([]string{
-		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/observability.Dockerfile",
+		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/monitor.Dockerfile",
+		"--label", monitorimage.InputLabel + "=" + input,
 		"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision, "--tag", tag, ".",
 	}, s.root, s.processEnv, "Monitor image preparation", 0); err != nil {
 		return "", err

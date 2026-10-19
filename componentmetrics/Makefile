@@ -3,6 +3,8 @@
 
 GO ?= go
 
+include ../make/go-lint.mk
+
 .PHONY: test race check build
 
 test:

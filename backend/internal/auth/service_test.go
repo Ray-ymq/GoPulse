@@ -103,7 +103,7 @@ func TestServiceRegisterDoesNotCreateUserWhenHashingFails(t *testing.T) {
 	service := NewService(repository, &fakePasswordOperations{hashError: errors.New("bcrypt failed")}, &fakeTokenIssuer{})
 
 	_, _, err := service.Register(context.Background(), Credentials{Username: "alice", Password: "password123"})
-	assertApplicationCode(t, err, apperror.CodeInternal)
+	_ = assertApplicationCode(t, err, apperror.CodeInternal)
 	if createCalled {
 		t.Fatal("Create() was called after password hashing failed")
 	}
@@ -119,11 +119,11 @@ func TestServiceRegisterMapsValidationAndUniqueConstraintErrors(t *testing.T) {
 	)
 
 	_, _, err := service.Register(context.Background(), Credentials{Username: "ab", Password: "password123"})
-	assertApplicationCode(t, err, apperror.CodeValidationFailed)
+	_ = assertApplicationCode(t, err, apperror.CodeValidationFailed)
 	_, _, err = service.Register(context.Background(), Credentials{Username: "alice", Password: "short"})
-	assertApplicationCode(t, err, apperror.CodeValidationFailed)
+	_ = assertApplicationCode(t, err, apperror.CodeValidationFailed)
 	_, _, err = service.Register(context.Background(), Credentials{Username: "alice", Password: "password123"})
-	assertApplicationCode(t, err, apperror.CodeUsernameConflict)
+	_ = assertApplicationCode(t, err, apperror.CodeUsernameConflict)
 }
 
 func TestServiceLoginUsesIndistinguishableErrorsForUnknownUserAndWrongPassword(t *testing.T) {
@@ -180,7 +180,7 @@ func TestServiceCurrentUserMapsDeletedUserToAuthenticationRequired(t *testing.T)
 	}}, &fakePasswordOperations{}, &fakeTokenIssuer{})
 
 	_, err := service.CurrentUser(context.Background(), 99)
-	assertApplicationCode(t, err, apperror.CodeAuthenticationRequired)
+	_ = assertApplicationCode(t, err, apperror.CodeAuthenticationRequired)
 }
 
 func assertApplicationCode(t *testing.T, err error, code apperror.Code) *apperror.Error {

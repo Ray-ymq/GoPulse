@@ -22,44 +22,18 @@ func TestClusterV2Identity(t *testing.T) {
 	}
 }
 
-func TestElasticsearchOneHotHealth(t *testing.T) {
-	p := Payload{PluginID: "elasticsearch-exporter", PluginVersion: "1.11.3", TargetID: "elasticsearch-exporter-local", ScrapeStatus: "success"}
-	for name, rule := range rulesFor("elasticsearch") {
-		if rule.count == 1 {
-			p.Samples = append(p.Samples, Sample{Name: name, Kind: "gauge", Labels: map[string]string{}, Value: json.Number("1")})
-			continue
+func TestExporterPayloadAcceptsNewFamiliesAndDimensions(t *testing.T) {
+	for _, source := range []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"} {
+		p := Payload{PluginID: source + "-exporter", PluginVersion: "1.11.3", TargetID: source + "-exporter-local", ScrapeStatus: "success", Samples: []Sample{
+			{Name: "gopulse_" + source + "_up", Kind: "gauge", Labels: map[string]string{}, Value: json.Number("1")},
+			{Name: "gopulse_" + source + "_new_depth", Kind: "gauge", Labels: map[string]string{"node": "node-2", "partition": "3"}, Value: json.Number("7")},
+		}}
+		if err := validatePayload(&p); err != nil {
+			t.Fatal(source, err)
 		}
-		for _, status := range []string{"green", "yellow", "red"} {
-			value := json.Number("0")
-			if status == "yellow" {
-				value = "1"
-			}
-			p.Samples = append(p.Samples, Sample{Name: name, Kind: "gauge", Labels: map[string]string{"status": status}, Value: value})
+		p.Samples[1].Labels["source"] = "foreign"
+		if err := validatePayload(&p); err == nil {
+			t.Fatal("reserved label accepted")
 		}
-	}
-	if err := validatePayload(&p); err != nil {
-		t.Fatal(err)
-	}
-	for i := range p.Samples {
-		if p.Samples[i].Labels["status"] == "green" {
-			p.Samples[i].Value = "1"
-		}
-	}
-	if err := validatePayload(&p); err == nil {
-		t.Fatal("invalid health accepted")
-	}
-}
-
-func TestVictoriaMetricsCompleteSnapshot(t *testing.T) {
-	p := Payload{PluginID: "victoriametrics-exporter", PluginVersion: "1.11.4", TargetID: "victoriametrics-exporter-local", ScrapeStatus: "success"}
-	for name, rule := range rulesFor("victoriametrics") {
-		p.Samples = append(p.Samples, Sample{Name: name, Kind: rule.kind, Labels: map[string]string{}, Value: json.Number("1")})
-	}
-	if err := validatePayload(&p); err != nil {
-		t.Fatal(err)
-	}
-	p.Samples[0].Labels["path"] = "private"
-	if err := validatePayload(&p); err == nil {
-		t.Fatal("unmanaged label accepted")
 	}
 }

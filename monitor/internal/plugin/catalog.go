@@ -3,14 +3,22 @@ package plugin
 // CatalogEntry defines a server-owned identity, never a user-defined target.
 // Ports and origins are private runtime policy and must not enter public DTOs.
 type CatalogEntry struct {
-	ID            string
-	Source        string
-	TargetID      string
-	Entrypoint    string
-	Port          int
-	HostPort      int
-	ContainerPort int
-	Available     bool
+	SchemaVersion          int          `json:"schema_version"`
+	ID                     string       `json:"id"`
+	Name                   string       `json:"name"`
+	Source                 string       `json:"source"`
+	TargetID               string       `json:"target_id"`
+	Entrypoint             string       `json:"entrypoint"`
+	HealthPath             string       `json:"health_path"`
+	MetricsPath            string       `json:"metrics_path"`
+	Port                   int          `json:"listen_port"`
+	HostPort               int          `json:"host_port"`
+	ContainerPort          int          `json:"container_port"`
+	RuntimeContractVersion int          `json:"runtime_contract_version"`
+	MetricsContractVersion int          `json:"metrics_contract_version"`
+	ConfigSchemaPath       string       `json:"config_schema_path"`
+	Schema                 ConfigSchema `json:"schema,omitempty"`
+	Available              bool         `json:"available"`
 }
 
 // OfficialCatalog returns a fresh value so callers cannot mutate the trust policy.
@@ -20,7 +28,7 @@ func OfficialCatalog() []CatalogEntry {
 	ports := [...]int{6379, 3306, 15672, 9092, 9200, 8428}
 	entries := make([]CatalogEntry, len(sources))
 	for i, source := range sources {
-		entries[i] = CatalogEntry{ID: source + "-exporter", Source: source, TargetID: source + "-exporter-local", Entrypoint: "bin/gopulse-" + source + "-exporter", Port: 9121 + i, HostPort: ports[i], ContainerPort: ports[i], Available: true}
+		entries[i] = CatalogEntry{ID: source + "-exporter", Name: "GoPulse " + source + " Exporter", Source: source, TargetID: source + "-exporter-local", Entrypoint: "bin/gopulse-" + source + "-exporter", HealthPath: "/health", MetricsPath: "/metrics", Port: 9121 + i, HostPort: ports[i], ContainerPort: ports[i], RuntimeContractVersion: 1, MetricsContractVersion: 2, ConfigSchemaPath: "config.schema.json", Available: true}
 		if source == "kafka" {
 			entries[i].ContainerPort = 19092
 		}

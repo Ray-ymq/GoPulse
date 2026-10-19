@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: GoPulse API
-  version: 2.6.4
+  version: 2.6.5
   summary: 社交业务与观测系统的 HTTP 接口
   description: |
     GoPulse 后端对外暴露的 `/api/v1` 接口，以及用于探针的运行时端点。
@@ -1083,6 +1083,50 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/admin/component-status:
+    get:
+      tags: [Admin]
+      summary: 独立组件存活状态
+      description: |
+        逐实例直接探测 Backend、业务 Worker、搜索 Indexer、Monitor、Marshaller 与 Kafka。
+        探测失败只影响对应实例；未完成或过期的结果为 `unknown`，不会由观测数据缺失推导存活状态。
+      responses:
+        '200':
+          description: 组件存活快照。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataComponentStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/admin/telemetry-delivery:
+    get:
+      tags: [Admin]
+      summary: 数据传输状态
+      description: |
+        读取 Monitor 本地缓存和 Marshaller 写库状态。该接口只读取已有状态，不发送临时消息，
+        传输异常不会改变组件存活接口的颜色。
+      responses:
+        '200':
+          description: 数据传输快照。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataTelemetryDelivery'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/admin/users/{userId}:
     get:
       tags: [Admin]
@@ -1201,11 +1245,21 @@ paths:
       tags: [Observability]
       summary: 查询指标序列
       description: |
-        `metric` 必须来自指标目录；返回按窗口聚合后的序列。
+        `metric` 接受已配置来源命名空间中的合法指标名，无需在代码目录中登记。
+        返回所选窗口的原始指标序列，并保留动态维度标签。最多返回 1024 条序列。
         上游不可用或返回结构不符合合同时返回 503 `metrics_unavailable`。
       parameters:
         - $ref: '#/components/parameters/MetricName'
         - $ref: '#/components/parameters/MetricRange'
+        - $ref: '#/components/parameters/MetricQueue'
+        - $ref: '#/components/parameters/MetricPartition'
+        - $ref: '#/components/parameters/MetricCommand'
+        - $ref: '#/components/parameters/MetricNode'
+        - $ref: '#/components/parameters/MetricNodeID'
+        - $ref: '#/components/parameters/MetricTopic'
+        - $ref: '#/components/parameters/MetricConsumerGroup'
+        - $ref: '#/components/parameters/MetricRole'
+        - $ref: '#/components/parameters/MetricReplica'
       responses:
         '200':
           description: 指标序列。
@@ -1229,8 +1283,11 @@ paths:
       tags: [Observability]
       summary: 指标目录
       description: |
-        返回可查询的指标定义。不接受任何查询参数，请求体必须为空；
-        目录不包含标签取值以外的生产者信息与查询表达式。
+        以最近 24 小时为发现窗口，从存储中的指标元数据发现指标，并合并历史指标的显示预设。
+        存储的序列发现接口按 UTC 日期取整时间窗口。
+        指标类型取自采集结果。单位按名称后缀推断，历史预设可补充单位；未知单位为 `none`。
+        标签键通过 `label_keys` 返回。不接受查询参数，请求体必须为空。
+        目录最多包含 2048 项。存储不可用或目录超过上限时返回 503。
       responses:
         '200':
           description: 指标定义列表。
@@ -2202,7 +2259,7 @@ components:
       name: metric
       in: query
       required: true
-      description: 指标名，必须来自 `GET /api/v1/observability/metrics/catalog`；最长 128 字符，不含控制字符。
+      description: 指标名，需使用已配置来源的 `gopulse_<source>_` 前缀；来源名称中的连字符替换为下划线。可从动态目录发现，无需在代码中登记。最长 128 字符，只接受字母、数字和下划线。
       schema:
         type: string
         maxLength: 128
@@ -2215,6 +2272,60 @@ components:
         type: string
         enum: ['15m', '1h', '6h', '24h']
         default: 15m
+    MetricQueue:
+      name: queue
+      in: query
+      required: false
+      description: 动态队列标签；仅在指标目录声明 `queue` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricPartition:
+      name: partition
+      in: query
+      required: false
+      description: 动态分区标签；仅在指标目录声明 `partition` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricCommand:
+      name: command
+      in: query
+      required: false
+      description: 动态命令标签；仅在指标目录声明 `command` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricNode:
+      name: node
+      in: query
+      required: false
+      description: 动态节点标签；仅在指标目录声明 `node` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricNodeID:
+      name: node_id
+      in: query
+      required: false
+      description: 动态节点身份标签；仅在指标目录声明 `node_id` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricTopic:
+      name: topic
+      in: query
+      required: false
+      description: 动态 Topic 标签；仅在指标目录声明 `topic` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricConsumerGroup:
+      name: consumer_group
+      in: query
+      required: false
+      description: 动态消费者组标签；仅在指标目录声明 `consumer_group` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricRole:
+      name: role
+      in: query
+      required: false
+      description: 动态角色标签；仅在指标目录声明 `role` 时有效。
+      schema: {type: string, maxLength: 256}
+    MetricReplica:
+      name: replica
+      in: query
+      required: false
+      description: 动态副本标签；仅在指标目录声明 `replica` 时有效。
+      schema: {type: string, maxLength: 256}
     RangeFrom:
       name: from
       in: query
@@ -3029,7 +3140,7 @@ components:
       properties:
         id:
           type: string
-          description: 组件 ID，固定集合之一：`backend`、`business-worker`、`search-indexer`、`monitor`、`router`、`marshaller`。
+          description: 组件 ID，固定集合之一：`backend`、`business-worker`、`search-indexer`、`monitor`、`marshaller`。
         status:
           $ref: '#/components/schemas/AdminStatus'
         observed_at:
@@ -3151,6 +3262,115 @@ components:
       type: string
       enum: [healthy, degraded, unavailable]
 
+    ComponentStatusValue:
+      type: string
+      enum: [healthy, unavailable, unknown]
+
+    ComponentStatus:
+      type: object
+      required: [component, instance, status, observed_at, reason_code]
+      properties:
+        component:
+          type: string
+        instance:
+          type: string
+        status:
+          $ref: '#/components/schemas/ComponentStatusValue'
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        reason_code:
+          type: string
+
+    DataComponentStatus:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentStatus'
+
+    DeliveryQueue:
+      type: object
+      required: [kind, pending, occupied_bytes, capacity_bytes, file_bytes, enqueued, sent, failed, evicted, write_blocked, reason_code]
+      properties:
+        kind:
+          type: string
+          enum: [metrics, logs, events]
+        pending:
+          type: integer
+          format: int64
+        occupied_bytes:
+          type: integer
+          format: int64
+        capacity_bytes:
+          type: integer
+          format: int64
+        file_bytes:
+          type: integer
+          format: int64
+        enqueued:
+          type: integer
+          format: uint64
+        sent:
+          type: integer
+          format: uint64
+        failed:
+          type: integer
+          format: uint64
+        evicted:
+          type: integer
+          format: uint64
+        write_blocked:
+          type: boolean
+        reason_code:
+          type: string
+
+    TelemetryDeliveryItem:
+      type: object
+      required: [component, instance, status, observed_at, reason_code, queues, write_blocked, discarded]
+      properties:
+        component:
+          type: string
+        instance:
+          type: string
+        status:
+          $ref: '#/components/schemas/TelemetryDeliveryStatus'
+        observed_at:
+          type: [string, 'null']
+          format: date-time
+        reason_code:
+          type: string
+        queues:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryQueue'
+        write_blocked:
+          type: boolean
+        discarded:
+          type: integer
+          format: uint64
+
+    TelemetryDeliverySnapshot:
+      type: object
+      required: [generated_at, status, items]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [healthy, degraded, unknown]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TelemetryDeliveryItem'
+
+    TelemetryDeliveryStatus:
+      type: string
+      enum: [healthy, degraded, unknown]
+
     AdminSection:
       type: object
       required: [status, observed_at, reason_code]
@@ -3258,6 +3478,20 @@ components:
           enum: [gauge, counter]
         unit:
           type: string
+          enum: [none, boolean, seconds, count, bytes, state, unix_seconds]
+        label_keys:
+          type: array
+          maxItems: 16
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 64
+        value_kind:
+          type: string
+          enum: [raw, rate, ratio, average]
+        display_unit:
+          type: string
+          maxLength: 32
 
     MetricAlertDefinition:
       type: object
@@ -3288,28 +3522,11 @@ components:
 
     MetricLabels:
       type: object
-      description: 指标标签，未出现的标签被省略。
-      properties:
-        method: {type: string}
-        route: {type: string}
-        status_class: {type: string}
-        event_type: {type: string}
-        operation: {type: string}
-        dependency: {type: string}
-        scraped_producer_kind: {type: string}
-        scraped_target_id: {type: string}
-        type: {type: string}
-        message_source: {type: string}
-        stage: {type: string}
-        storage: {type: string}
-        partition: {type: string}
-        status: {type: string}
-        result: {type: string}
-        state: {type: string}
-        mode: {type: string}
-        db: {type: string}
-        le: {type: string}
-        alert_source: {type: string}
+      description: 动态指标标签。每条序列最多 16 个标签，标签键最长 64 字节，标签值最长 256 字节。来源和生产者身份由服务端校验，不作为业务标签返回。
+      maxProperties: 16
+      additionalProperties:
+        type: string
+        maxLength: 256
 
     MetricPoint:
       type: object
@@ -3343,6 +3560,18 @@ components:
           enum: [gauge, counter]
         unit:
           type: string
+        value_kind:
+          type: string
+          enum: [raw, rate, ratio, average]
+        display_unit:
+          type: string
+          maxLength: 32
+        quality:
+          type: string
+          enum: [complete, sampling, zero_denominator]
+        sampled_at:
+          type: string
+          format: date-time
         range:
           type: string
           enum: ['15m', '1h', '6h', '24h']
@@ -3839,7 +4068,7 @@ components:
         name: {type: string}
         type:
           type: string
-          enum: [hostname, port, integer, string, secret, duration]
+          enum: [hostname, port, integer, string, secret, duration, url]
         required: {type: boolean}
         secret: {type: boolean}
         minimum: {type: integer}
@@ -3934,6 +4163,13 @@ components:
       properties:
         data:
           $ref: '#/components/schemas/AdminSnapshot'
+
+    DataTelemetryDelivery:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/TelemetryDeliverySnapshot'
 
     DataMetricDefinitionList:
       type: object

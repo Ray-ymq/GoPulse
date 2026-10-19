@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 type Config struct {
 	Host, Username, Password, Vhost, Listen string
+	Port                                    int
 	ConnectTimeout, ScrapeTimeout           time.Duration
 }
 
@@ -31,9 +33,10 @@ func Load() (Config, error) {
 
 	c := Config{Host: os.Getenv("RABBITMQ_HOST"), Username: os.Getenv("RABBITMQ_USERNAME"), Password: os.Getenv("RABBITMQ_PASSWORD"), Vhost: os.Getenv("RABBITMQ_VHOST")}
 	mode := os.Getenv("GOPULSE_RUNTIME_MODE")
-	if (mode == "container" && c.Host != "rabbitmq") || ((mode == "host" || mode == "") && c.Host != "127.0.0.1" && c.Host != "::1") || (mode != "" && mode != "host" && mode != "container") || os.Getenv("RABBITMQ_MANAGEMENT_PORT") != "15672" {
+	if !validTarget(mode, c.Host, os.Getenv("RABBITMQ_MANAGEMENT_PORT")) {
 		return Config{}, ErrConfig
 	}
+	c.Port, _ = strconv.Atoi(os.Getenv("RABBITMQ_MANAGEMENT_PORT"))
 	for _, s := range []string{c.Username} {
 		if !utf8.ValidString(s) || utf8.RuneCountInString(s) < 1 || utf8.RuneCountInString(s) > 64 {
 			return Config{}, ErrConfig
@@ -67,17 +70,42 @@ func Load() (Config, error) {
 	if port == "" {
 		port = "9123"
 	}
-	if (host != "127.0.0.1" && host != "::1") || port != "9123" {
+	if !validListen(mode, host, port) {
 		return Config{}, ErrConfig
 	}
 	c.Listen = net.JoinHostPort(host, port)
 	return c, nil
 }
 
+func validTarget(mode, host, port string) bool {
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || host == "" || strings.ContainsAny(host, "\x00\r\n \t/@") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if mode == "host" || mode == "" {
+		return host == "localhost" || ip != nil && ip.IsLoopback()
+	}
+	return mode == "container" && ip == nil
+}
+
+func validListen(mode, host, port string) bool {
+	ip := net.ParseIP(host)
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 || ip == nil {
+		return false
+	}
+	return (mode == "container" && (ip.IsLoopback() || ip.IsUnspecified())) || ((mode == "host" || mode == "") && ip.IsLoopback())
+}
+
 func Open(c Config) (*collector.Client, error) {
 	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: c.ConnectTimeout}).DialContext, DisableCompression: true, ResponseHeaderTimeout: c.ScrapeTimeout}
 	client := &http.Client{Transport: transport, Timeout: c.ScrapeTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &collector.Client{HTTP: client, Origin: "http://" + net.JoinHostPort(c.Host, "15672"), Username: c.Username, Password: c.Password}, nil
+	port := c.Port
+	if port == 0 {
+		port = 15672
+	}
+	return &collector.Client{HTTP: client, Origin: "http://" + net.JoinHostPort(c.Host, strconv.Itoa(port)), Username: c.Username, Password: c.Password}, nil
 }
 
 func Handler(db *collector.Client, timeout time.Duration) http.Handler {

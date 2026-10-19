@@ -24,7 +24,7 @@ func newBookmarkKey() [32]byte {
 }
 func (h *Handler) signBookmarkCursor(viewer uint64, token string) string {
 	mac := hmac.New(sha256.New, h.bookmarkKey[:])
-	fmt.Fprintf(mac, "%d\x00%s", viewer, token)
+	_, _ = fmt.Fprintf(mac, "%d\x00%s", viewer, token)
 	return token + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 func (h *Handler) verifyBookmarkCursor(viewer uint64, token string) (string, error) {

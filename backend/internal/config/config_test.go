@@ -15,6 +15,9 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.AppEnv != "development" {
 		t.Fatalf("AppEnv = %q, want development", cfg.AppEnv)
 	}
+	if cfg.BusinessAsyncMaxOpenRequirements != 10000 {
+		t.Fatalf("BusinessAsyncMaxOpenRequirements = %d, want 10000", cfg.BusinessAsyncMaxOpenRequirements)
+	}
 	if cfg.InstanceID != "backend-local" || cfg.ReplicaCount != 1 || cfg.HTTPMaxConcurrency != 128 {
 		t.Fatalf("instance/concurrency config = %#v/%d/%d", cfg.InstanceID, cfg.ReplicaCount, cfg.HTTPMaxConcurrency)
 	}
@@ -42,8 +45,11 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Auth.JWTTTL != 2*time.Hour || cfg.Auth.CookieName != "gopulse_session" || cfg.Auth.CookieSecure {
 		t.Fatalf("Auth config = %#v, want local defaults", cfg.Auth)
 	}
-	if cfg.Redis.PostDetailTTL != 5*time.Minute || cfg.Redis.OperationTimeout != 200*time.Millisecond {
+	if cfg.Redis.PostDetailTTL != 5*time.Minute || cfg.Redis.OperationTimeout != 200*time.Millisecond || cfg.Redis.PoolSize != 16 || cfg.Redis.PoolTimeout != 200*time.Millisecond {
 		t.Fatalf("Redis durations = %#v, want defaults", cfg.Redis)
+	}
+	if !cfg.Protection.RateLimitEnabled || cfg.Protection.RateLimitOperationTimeout != 200*time.Millisecond || cfg.Protection.LocalMaxIdentities != 1024 || cfg.Protection.ResourceAuth != 16 || cfg.Protection.ResourceRead != 64 || cfg.Protection.ResourceWrite != 32 || cfg.Protection.ResourceDatabase != 32 || cfg.Protection.ResourceRebuild != 8 || cfg.Protection.ResourceWaiter != 256 || len(cfg.Protection.TrustedProxyCIDRs) != 0 {
+		t.Fatalf("Protection config = %#v, want bounded enabled defaults", cfg.Protection)
 	}
 	if cfg.Outbox.PollInterval != time.Second || cfg.Outbox.ClaimBatch != 10 ||
 		cfg.Outbox.LeaseDuration != time.Minute || cfg.Outbox.PublishTimeout != 5*time.Second ||
@@ -137,6 +143,18 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["AUTH_COOKIE_SECURE"] = "true"
 	env["REDIS_POST_DETAIL_TTL"] = "10m"
 	env["REDIS_OPERATION_TIMEOUT"] = "350ms"
+	env["REDIS_POOL_SIZE"] = "24"
+	env["REDIS_POOL_TIMEOUT"] = "450ms"
+	env["BACKEND_RATE_LIMIT_ENABLED"] = "true"
+	env["BACKEND_RATE_LIMIT_OPERATION_TIMEOUT"] = "500ms"
+	env["BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES"] = "2048"
+	env["BACKEND_RESOURCE_AUTH"] = "20"
+	env["BACKEND_RESOURCE_READ"] = "80"
+	env["BACKEND_RESOURCE_WRITE"] = "40"
+	env["BACKEND_RESOURCE_DATABASE"] = "48"
+	env["BACKEND_RESOURCE_REBUILD"] = "12"
+	env["BACKEND_RESOURCE_WAITER"] = "300"
+	env["BACKEND_TRUSTED_PROXY_CIDRS"] = "127.0.0.1/32, 10.0.0.0/8"
 	env["OUTBOX_POLL_INTERVAL"] = "250ms"
 	env["OUTBOX_CLAIM_BATCH"] = "25"
 	env["OUTBOX_LEASE_DURATION"] = "2m"
@@ -153,6 +171,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["BACKEND_VICTORIAMETRICS_USERNAME"] = "metrics-reader"
 	env["BACKEND_VICTORIAMETRICS_PASSWORD"] = "metrics-reader-password-at-least-32-bytes"
 	env["BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT"] = "4s"
+	env["BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS"] = "8"
 
 	cfg, err := LoadFrom(mapLookup(env))
 	if err != nil {
@@ -161,6 +180,9 @@ func TestLoadFromOverrides(t *testing.T) {
 
 	if cfg.RuntimeMode != RuntimeModeContainer || cfg.AppEnv != "test" || cfg.HTTPAddress() != "0.0.0.0:18080" || cfg.InstanceID != "backend-2" || cfg.ReplicaCount != 2 || cfg.HTTPMaxConcurrency != 64 {
 		t.Fatalf("unexpected application config: %#v", cfg)
+	}
+	if cfg.BusinessAsyncMaxOpenRequirements != 8 {
+		t.Fatalf("BusinessAsyncMaxOpenRequirements = %d, want 8", cfg.BusinessAsyncMaxOpenRequirements)
 	}
 	if cfg.MySQL.Host != "mysql" || cfg.MySQL.Port != 13306 {
 		t.Fatalf("unexpected MySQL config: %#v", cfg.MySQL)
@@ -180,14 +202,30 @@ func TestLoadFromOverrides(t *testing.T) {
 	if cfg.Auth.JWTTTL != 30*time.Minute || cfg.Auth.CookieName != "custom_session" || !cfg.Auth.CookieSecure {
 		t.Fatalf("unexpected auth config: %#v", cfg.Auth)
 	}
-	if cfg.Redis.PostDetailTTL != 10*time.Minute || cfg.Redis.OperationTimeout != 350*time.Millisecond {
+	if cfg.Redis.PostDetailTTL != 10*time.Minute || cfg.Redis.OperationTimeout != 350*time.Millisecond || cfg.Redis.PoolSize != 24 || cfg.Redis.PoolTimeout != 450*time.Millisecond {
 		t.Fatalf("unexpected Redis duration config: %#v", cfg.Redis)
+	}
+	if !cfg.Protection.RateLimitEnabled || cfg.Protection.RateLimitOperationTimeout != 500*time.Millisecond || cfg.Protection.LocalMaxIdentities != 2048 || cfg.Protection.ResourceAuth != 20 || cfg.Protection.ResourceRead != 80 || cfg.Protection.ResourceWrite != 40 || cfg.Protection.ResourceDatabase != 48 || cfg.Protection.ResourceRebuild != 12 || cfg.Protection.ResourceWaiter != 300 || strings.Join(cfg.Protection.TrustedProxyCIDRs, ",") != "127.0.0.1/32,10.0.0.0/8" {
+		t.Fatalf("unexpected protection config: %#v", cfg.Protection)
 	}
 	if cfg.Outbox.PollInterval != 250*time.Millisecond || cfg.Outbox.ClaimBatch != 25 ||
 		cfg.Outbox.LeaseDuration != 2*time.Minute || cfg.Outbox.PublishTimeout != 4*time.Second ||
 		cfg.Outbox.RetryDelay != 2*time.Minute || cfg.Outbox.CleanupInterval != 30*time.Minute ||
 		cfg.Outbox.Retention != 720*time.Hour || cfg.Outbox.CleanupBatch != 750 {
 		t.Fatalf("unexpected Outbox config: %#v", cfg.Outbox)
+	}
+}
+
+func TestLoadFromRejectsInvalidBusinessAsyncRequirementLimit(t *testing.T) {
+	for _, value := range []string{"not-an-int", "0", "10001"} {
+		t.Run(value, func(t *testing.T) {
+			env := requiredEnvironment()
+			env["BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS"] = value
+			_, err := LoadFrom(mapLookup(env))
+			if err == nil || !strings.Contains(err.Error(), "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS") {
+				t.Fatalf("LoadFrom() error = %v, want business async limit error", err)
+			}
+		})
 	}
 }
 

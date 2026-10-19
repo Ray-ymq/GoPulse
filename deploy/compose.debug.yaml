@@ -1,5 +1,5 @@
 # Explicit loopback-only host tooling override. The container-native daily and
-# acceptance paths never load this file.
+# The product stack does not load this debug overlay.
 services:
   mysql:
     ports:

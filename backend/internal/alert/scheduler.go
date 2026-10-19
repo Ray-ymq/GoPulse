@@ -78,13 +78,13 @@ func (s *Scheduler) round(ctx context.Context) {
 	for rows.Next() {
 		var id uint64
 		if rows.Scan(&id) != nil {
-			rows.Close()
+			_ = rows.Close()
 			return
 		}
 		ids = append(ids, id)
 	}
 	rowErr := rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if rowErr != nil {
 		s.failure("database_unavailable")
 		return
@@ -156,7 +156,7 @@ func (p *Repository) apply(ctx context.Context, claimed Rule, owner string, cuto
 	if e != nil {
 		return e
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	r, e := scanRule(tx.QueryRowContext(ctx, "SELECT "+ruleColumns+ruleFrom+"WHERE r.id=? AND r.deleted_at IS NULL FOR UPDATE", claimed.ID))
 	if e != nil {
 		return e

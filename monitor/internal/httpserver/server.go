@@ -36,6 +36,7 @@ type LogOptions struct {
 	MaxBytes   int64
 	FutureSkew time.Duration
 	Publisher  logPublisher
+	Delivery   func() any
 	Now        func() time.Time
 }
 
@@ -70,6 +71,9 @@ func New(token, root string, manager pluginManager, logger *slog.Logger, logOpti
 	mux.HandleFunc("GET /ready", s.auth(s.ready))
 	if s.logs.Token != "" {
 		mux.HandleFunc("POST /internal/v1/logs", s.ingestLog)
+	}
+	if s.logs.Delivery != nil {
+		mux.HandleFunc("GET /internal/v1/telemetry-delivery", s.auth(s.delivery))
 	}
 	mux.HandleFunc("GET /internal/v1/exporter-plugins/catalog", s.auth(s.catalog))
 	mux.HandleFunc("POST /internal/v1/exporter-plugins/{pluginId}/connection-test", s.auth(s.configuration))
@@ -118,6 +122,9 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready", "service": "monitor"})
+}
+func (s *Server) delivery(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": s.logs.Delivery()})
 }
 func (s *Server) list(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": s.manager.List()})

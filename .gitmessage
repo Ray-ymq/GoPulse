@@ -1,0 +1,14 @@
+
+# 标题：type(scope)!: 一句话说明结果。scope 和 ! 可省略。
+# 类型：build chore ci docs feat fix perf refactor revert style test
+# 例如：fix(backend): 避免重复点赞导致计数增加
+
+背景：
+# 说明问题、触发条件或改动原因。
+
+改动：
+# 说明本次改动和行为变化；一项完整改动对应一个 commit。
+
+验证：
+# 填写实际执行的命令及结果。未执行或不适用时写明原因。
+# 破坏性改动使用标题中的 !，或另起一段写 BREAKING CHANGE: 说明。

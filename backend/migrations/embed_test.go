@@ -43,9 +43,11 @@ func TestEmbeddedPhaseOneMigrationContainsRequiredSchema(t *testing.T) {
 			t.Fatalf("up migration missing %q", required)
 		}
 	}
-	if !(strings.Index(upSQL, "CREATE TABLE users") < strings.Index(upSQL, "CREATE TABLE posts") &&
-		strings.Index(upSQL, "CREATE TABLE posts") < strings.Index(upSQL, "CREATE TABLE comments") &&
-		strings.Index(upSQL, "CREATE TABLE comments") < strings.Index(upSQL, "CREATE TABLE post_likes")) {
+	usersIndex := strings.Index(upSQL, "CREATE TABLE users")
+	postsIndex := strings.Index(upSQL, "CREATE TABLE posts")
+	commentsIndex := strings.Index(upSQL, "CREATE TABLE comments")
+	likesIndex := strings.Index(upSQL, "CREATE TABLE post_likes")
+	if usersIndex >= postsIndex || postsIndex >= commentsIndex || commentsIndex >= likesIndex {
 		t.Fatal("up migration table order is not users -> posts -> comments -> post_likes")
 	}
 
@@ -59,9 +61,11 @@ func TestEmbeddedPhaseOneMigrationContainsRequiredSchema(t *testing.T) {
 		t.Fatalf("read down migration: %v", err)
 	}
 	downSQL := string(down)
-	if !(strings.Index(downSQL, "DROP TABLE post_likes") < strings.Index(downSQL, "DROP TABLE comments") &&
-		strings.Index(downSQL, "DROP TABLE comments") < strings.Index(downSQL, "DROP TABLE posts") &&
-		strings.Index(downSQL, "DROP TABLE posts") < strings.Index(downSQL, "DROP TABLE users")) {
+	downLikesIndex := strings.Index(downSQL, "DROP TABLE post_likes")
+	downCommentsIndex := strings.Index(downSQL, "DROP TABLE comments")
+	downPostsIndex := strings.Index(downSQL, "DROP TABLE posts")
+	downUsersIndex := strings.Index(downSQL, "DROP TABLE users")
+	if downLikesIndex >= downCommentsIndex || downCommentsIndex >= downPostsIndex || downPostsIndex >= downUsersIndex {
 		t.Fatal("down migration table order is not post_likes -> comments -> posts -> users")
 	}
 }
@@ -71,7 +75,7 @@ func TestEmbeddedBusinessOutboxMigrationContainsOnlyPhaseTwoOutboxSchema(t *test
 	if err != nil {
 		t.Fatalf("Source() error = %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	version, err := source.Next(1)
 	if err != nil {
@@ -171,7 +175,7 @@ func TestEmbeddedNotificationsMigrationContainsIdempotencyAndRelationships(t *te
 	if err != nil {
 		t.Fatalf("Source() error = %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	version, err := source.Next(2)
 	if err != nil || version != 3 {
 		t.Fatalf("Next(2) = %d, %v; want 3", version, err)
@@ -269,7 +273,7 @@ func TestEmbeddedPostCreatedOutboxMigrationPreservesPostFactsOnDown(t *testing.T
 	if err != nil {
 		t.Fatalf("Source() error = %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	version, err := source.Next(3)
 	if err != nil || version != 4 {
 		t.Fatalf("Next(3) = %d, %v; want 4", version, err)
@@ -306,7 +310,7 @@ func TestEmbeddedUserRoleMigrationIsReversibleAndConstrained(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Source() error = %v", err)
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 	version, err := source.Next(4)
 	if err != nil || version != 5 {
 		t.Fatalf("Next(4) = %d, %v; want 5", version, err)

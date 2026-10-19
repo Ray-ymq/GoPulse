@@ -8,7 +8,7 @@ vi.mock('../services/overview', async importOriginal => ({
 vi.mock('../services/observability', () => ({ observabilityApi: { metrics: vi.fn() } }))
 beforeEach(() => vi.mocked(observabilityApi.metrics).mockRejectedValue(new Error('unavailable')))
 afterEach(() => vi.resetAllMocks())
-it.each(['healthy', 'unavailable'])('derives summaries without treating %s missing data as zero', async status => {
+it.each(['healthy', 'unavailable'])('shows unknown when the live status endpoint is unavailable (%s overview)', async status => {
   const sections = Object.fromEntries(sectionNames.map(name => [name, {
     status, reason_code: status === 'healthy' ? 'ok' : 'upstream_unavailable', observed_at: null,
     items: name === 'components' ? [{ id: 'backend', status: 'healthy' }] : [],
@@ -18,7 +18,7 @@ it.each(['healthy', 'unavailable'])('derives summaries without treating %s missi
   await flushPromises()
   expect(wrapper.findAll('[data-section]')).toHaveLength(6)
   const values = wrapper.findAll('.summary-grid strong').map(node => node.text())
-  expect(values).toEqual(status === 'healthy' ? ['1 / 1', '未知', '未知', '未知'] : ['未知', '未知', '未知', '未知'])
+  expect(values).toEqual(['未知', '未知', '未知', '未知'])
   wrapper.unmount()
 })
 

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
+	"github.com/Ray-ymq/GoPulse/backend/internal/componentstatus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
@@ -18,8 +19,8 @@ type Metric struct {
 	ReasonCode string     `json:"reason_code"`
 }
 
-var componentIDs = []string{"backend", "business-worker", "search-indexer", "monitor", "router", "marshaller"}
-var keyNames = []string{"outbox_pending", "messages_in_flight", "retrying", "event_queue_length", "buffered_records", "retrying"}
+var componentIDs = []string{"backend", "business-worker", "search-indexer", "monitor", "marshaller"}
+var keyNames = []string{"outbox_pending", "messages_in_flight", "retrying", "event_queue_length", "retrying"}
 
 const freshness = 90 * time.Second
 
@@ -114,6 +115,29 @@ func Components(samples alert.Samples) Loader {
 			statuses = append(statuses, c.Status)
 		}
 		return section(items, now, statuses...)
+	}
+}
+
+// ComponentStatus uses the same direct probe snapshot as the dedicated admin
+// endpoint so the overview cannot report a different liveness result.
+func ComponentStatus(service *componentstatus.Service) Loader {
+	return func(_ context.Context, now time.Time) Section {
+		if service == nil {
+			return Section{Status: "unavailable", ObservedAt: &now, ReasonCode: "upstream_unavailable", Items: []componentstatus.Status{}}
+		}
+		items := service.Snapshot()
+		status, reason := "healthy", "ok"
+		if len(items) == 0 {
+			status, reason = "unavailable", "no_targets"
+		} else {
+			for _, item := range items {
+				if item.Status != "healthy" {
+					status, reason = "degraded", "partial_data"
+					break
+				}
+			}
+		}
+		return Section{Status: status, ObservedAt: &now, ReasonCode: reason, Items: items}
 	}
 }
 

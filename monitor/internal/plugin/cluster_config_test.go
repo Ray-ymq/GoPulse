@@ -48,7 +48,7 @@ func TestClusterConfigurationBoundary(t *testing.T) {
 }
 
 func TestTopologyConfigurationSecrets(t *testing.T) {
-	kafka := []byte(`{"config":{"host":"kafka","port":19092,"topic":"gopulse-observability-v1","consumer_group":"gopulse-marshaller-metrics-v1","connect_timeout":"1s","scrape_timeout":"3s"},"secrets":{}}`)
+	kafka := []byte(`{"config":{"host":"kafka","port":19092,"topic":"gopulse-observability-metrics","consumer_group":"gopulse-marshaller-metrics","connect_timeout":"1s","scrape_timeout":"3s"},"secrets":{}}`)
 	a, _ := adapterFor("kafka-exporter")
 	public, secret, err := a.Parse(kafka, "container", nil)
 	if err != nil || string(secret) != "{}" {

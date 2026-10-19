@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // Release pins content supplied by the image build, never by an API request or
@@ -22,6 +24,16 @@ type Release struct {
 type releaseCatalog struct {
 	root     string
 	releases []Release
+	entries  []CatalogEntry
+}
+
+// CatalogSnapshot is the read-only deployment input consumed by Monitor. It
+// contains only package pins and module descriptors; it is never written to
+// the plugin state volume.
+type CatalogSnapshot struct {
+	SchemaVersion int            `json:"schema_version"`
+	Modules       []CatalogEntry `json:"modules"`
+	Releases      []Release      `json:"releases"`
 }
 
 // newReleaseCatalog is the runtime boundary for a compile-time generated list.
@@ -31,6 +43,10 @@ func newReleaseCatalog(root string, releases []Release) (*releaseCatalog, error)
 }
 
 func newReleaseCatalogForArch(root string, releases []Release, arch string) (*releaseCatalog, error) {
+	return newReleaseCatalogForArchWithEntries(root, releases, arch, nil)
+}
+
+func newReleaseCatalogForArchWithEntries(root string, releases []Release, arch string, entries []CatalogEntry) (*releaseCatalog, error) {
 	fail := func() (*releaseCatalog, error) {
 		return nil, NewError(CodePackageInvalid, "official plugin release is invalid")
 	}
@@ -68,11 +84,110 @@ func newReleaseCatalogForArch(root string, releases []Release, arch string) (*re
 			return fail()
 		}
 		// Reuse the closed manifest shape and identity checks for catalog metadata.
-		if !validReleaseManifestForArch(m, arch) {
+		var expected *CatalogEntry
+		for i := range entries {
+			if entries[i].ID == m.ID {
+				expected = &entries[i]
+				break
+			}
+		}
+		if !validReleaseManifestForArchWithEntry(m, arch, expected) {
 			return fail()
 		}
 	}
-	return &releaseCatalog{root: filepath.Clean(root), releases: append([]Release(nil), releases...)}, nil
+	seenEntries := map[string]bool{}
+	for _, entry := range entries {
+		if !validCatalogEntry(entry) || seenEntries[entry.ID] {
+			return fail()
+		}
+		seenEntries[entry.ID] = true
+	}
+	owned := append([]Release(nil), releases...)
+	for i := range owned {
+		entry, ok := catalogEntryFor(entries, owned[i].Manifest.ID)
+		if !ok {
+			entry, ok = LookupOfficial(owned[i].Manifest.ID)
+		}
+		if ok {
+			owned[i].Manifest.TargetID = entry.TargetID
+		}
+	}
+	return &releaseCatalog{root: filepath.Clean(root), releases: owned, entries: append([]CatalogEntry(nil), entries...)}, nil
+}
+
+func catalogEntryFor(entries []CatalogEntry, id string) (CatalogEntry, bool) {
+	for _, entry := range entries {
+		if entry.ID == id {
+			return entry, true
+		}
+	}
+	return CatalogEntry{}, false
+}
+
+func validCatalogEntry(entry CatalogEntry) bool {
+	cleanEntrypoint := path.Clean(entry.Entrypoint)
+	if entry.SchemaVersion != 1 || !validModuleID(entry.ID) || !validSafeName(entry.Name, 80) || !validSource(entry.Source) || !validModuleID(entry.TargetID) || !validPackagePath(cleanEntrypoint, entry.Entrypoint) || !validHTTPPath(entry.HealthPath) || !validHTTPPath(entry.MetricsPath) || entry.Port < 1 || entry.Port > 65535 || entry.HostPort < 0 || entry.HostPort > 65535 || entry.ContainerPort < 0 || entry.ContainerPort > 65535 || entry.RuntimeContractVersion != 1 || entry.MetricsContractVersion != 2 || entry.ConfigSchemaPath != "config.schema.json" || entry.Schema.SchemaVersion != 1 || entry.Schema.PluginID != entry.ID || len(entry.Schema.Fields) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, field := range entry.Schema.Fields {
+		if !validConfigField(field) || seen[field.Name] {
+			return false
+		}
+		seen[field.Name] = true
+	}
+	return true
+}
+
+func validModuleID(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+		if index == 0 && (r < 'a' || r > 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+func validSource(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-' {
+			return false
+		}
+		if index == 0 && (r < 'a' || r > 'z') {
+			return false
+		}
+	}
+	return true
+}
+
+func validSafeName(value string, limit int) bool {
+	if value == "" || len(value) > limit || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validPackagePath(clean, original string) bool {
+	return strings.HasPrefix(clean, "bin/") && clean == original && !strings.Contains(original, "\\")
+}
+
+func validHTTPPath(value string) bool {
+	clean := path.Clean(value)
+	return strings.HasPrefix(value, "/") && value == clean && !strings.ContainsAny(value, "\x00\r\n") && !strings.Contains(value, "//")
 }
 
 // verifyArchive selects only an image-owned package. A supplied upload may select
@@ -132,7 +247,8 @@ func (c *releaseCatalog) extractVerified(id, version, upload, staging string) (M
 	if err != nil {
 		return Manifest{}, err
 	}
-	m, err := extractPackageContract(path, staging, release.Manifest.SchemaVersion)
+	entry, _ := c.entry(id)
+	m, err := extractPackageContractForEntry(path, staging, release.Manifest.SchemaVersion, runtime.GOARCH, &entry)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -142,16 +258,32 @@ func (c *releaseCatalog) extractVerified(id, version, upload, staging string) (M
 	return m, nil
 }
 
+func (c *releaseCatalog) entry(id string) (CatalogEntry, bool) {
+	for _, entry := range c.entries {
+		if entry.ID == id {
+			return entry, true
+		}
+	}
+	return LookupOfficial(id)
+}
+
 func validReleaseManifest(m Manifest) bool {
 	return validReleaseManifestForArch(m, runtime.GOARCH)
 }
 
 func validReleaseManifestForArch(m Manifest, arch string) bool {
+	return validReleaseManifestForArchWithEntry(m, arch, nil)
+}
+
+func validReleaseManifestForArchWithEntry(m Manifest, arch string, expected *CatalogEntry) bool {
+	// TargetID is deployment metadata attached from the catalog, not a package
+	// manifest field. Strip it before reusing the package parser.
+	m.TargetID = ""
 	data, err := json.Marshal(m)
 	if err != nil {
 		return false
 	}
-	_, err = parseManifestForArch(data, m.SchemaVersion, arch)
+	_, err = parseManifestForArchWithEntry(data, m.SchemaVersion, arch, expected)
 	return err == nil
 }
 

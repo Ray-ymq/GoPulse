@@ -2,118 +2,39 @@ package publisher
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
+	"encoding/json"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
 )
 
-func TestHTTPPublisherUsesMessageContract(t *testing.T) {
-	token := "01234567890123456789012345678901"
-	seen := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/internal/v1/messages" || r.Header.Get("Authorization") != "Bearer "+token || r.Header.Get("Idempotency-Key") != "0123456789abcdef0123456789abcdef" || r.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("unexpected request: %s %s %#v", r.Method, r.URL.Path, r.Header)
+func TestDiscardPublisherDoesNotRequireExternalTransport(t *testing.T) {
+	var transport Transport = Discard{}
+	message := envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"}
+	if err := transport.Publish(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.PublishRaw(context.Background(), message.MessageID, message); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMessageFromRawPreservesValidatedWireBody(t *testing.T) {
+	body := json.RawMessage(`{"schema_version":2,"message_id":"0123456789abcdef0123456789abcdef","type":"logs","source":"backend","timestamp":"2026-10-17T00:00:00Z","payload":{"message":"keep exact bytes"}}`)
+	message, err := MessageFromRaw("0123456789abcdef0123456789abcdef", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(message.Body) != string(body) || message.Type != "logs" {
+		t.Fatalf("message=%+v", message)
+	}
+	if _, err := MessageFromRaw("0123456789abcdef0123456789abcdef", json.RawMessage(`{"schema_version":2,"message_id":"0123456789abcdef0123456789abcdef","type":"metrics","source":"monitor","timestamp":"2026-10-17T00:00:00Z","payload":{}}`)); err == nil {
+		t.Fatal("metrics raw message unexpectedly accepted by log/event transport")
+	} else {
+		var permanent *PermanentError
+		if !errors.As(err, &permanent) || permanent.Code != "unsupported_envelope" {
+			t.Fatalf("error=%v", err)
 		}
-		seen <- struct{}{}
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer server.Close()
-	client, err := NewHTTP(server.URL, token, time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	message := envelope.Envelope{SchemaVersion: 1, MessageID: "0123456789abcdef0123456789abcdef", Type: "metrics", Source: "redis", Timestamp: time.Now().UTC()}
-	if err = client.Publish(context.Background(), message); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-seen:
-	case <-time.After(time.Second):
-		t.Fatal("request not received")
-	}
-}
-
-func TestHTTPPublisherRequires202(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
-	defer server.Close()
-	client, err := NewHTTP(server.URL, "01234567890123456789012345678901", time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = client.Publish(context.Background(), envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"}); err == nil {
-		t.Fatal("non-202 response was accepted")
-	}
-}
-
-func TestHTTPPublisherClassifiesPermanentAndTemporaryRejections(t *testing.T) {
-	for _, tc := range []struct {
-		status    int
-		permanent bool
-	}{{http.StatusUnprocessableEntity, true}, {http.StatusTooManyRequests, false}, {http.StatusServiceUnavailable, false}} {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.status) }))
-		client, err := NewHTTP(server.URL, "01234567890123456789012345678901", time.Second)
-		if err != nil {
-			server.Close()
-			t.Fatal(err)
-		}
-		err = client.Publish(context.Background(), envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"})
-		server.Close()
-		classified, ok := err.(interface{ Permanent() bool })
-		if !ok || classified.Permanent() != tc.permanent {
-			t.Fatalf("status=%d error=%v permanent=%v", tc.status, err, ok && classified.Permanent())
-		}
-	}
-}
-
-func TestHTTPPublisherFailsOverAcrossBoundedRouterPool(t *testing.T) {
-	firstCalls := 0
-	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		firstCalls++
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer first.Close()
-	secondCalls := 0
-	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		secondCalls++
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer second.Close()
-	client, err := NewHTTPPool([]string{first.URL, second.URL}, "01234567890123456789012345678901", time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := client.Publish(context.Background(), envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"}); err != nil {
-		t.Fatal(err)
-	}
-	if firstCalls != 1 || secondCalls != 1 {
-		t.Fatalf("first=%d second=%d, want one bounded attempt per endpoint", firstCalls, secondCalls)
-	}
-}
-
-func TestHTTPPublisherDoesNotRetryPermanentRejection(t *testing.T) {
-	firstCalls := 0
-	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		firstCalls++
-		w.WriteHeader(http.StatusUnprocessableEntity)
-	}))
-	defer first.Close()
-	secondCalls := 0
-	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		secondCalls++
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer second.Close()
-	client, err := NewHTTPPool([]string{first.URL, second.URL}, "01234567890123456789012345678901", time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := client.Publish(context.Background(), envelope.Envelope{MessageID: "0123456789abcdef0123456789abcdef"}); err == nil {
-		t.Fatal("permanent rejection was accepted")
-	}
-	if firstCalls != 1 || secondCalls != 0 {
-		t.Fatalf("first=%d second=%d, permanent rejection escaped bounded policy", firstCalls, secondCalls)
 	}
 }

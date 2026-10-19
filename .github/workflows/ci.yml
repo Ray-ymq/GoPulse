@@ -1,0 +1,158 @@
+name: Module CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      labels:
+        description: 'CI labels separated by commas or spaces, e.g. ci:backend ci:marshaller; ci:none skips module jobs'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: module-ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: Select modules
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_modules: ${{ steps.plan.outputs.has_modules }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: devtools/go.mod
+          cache: false
+      - name: Test CI tooling
+        run: make ci-tools
+      - name: Select only explicitly labeled modules
+        id: plan
+        run: make ci-plan
+
+  commits:
+    name: Conventional Commits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate new commits and PR description
+        run: make check-commits
+
+  check:
+    name: Check (${{ matrix.module }})
+    needs: plan
+    if: needs.plan.outputs.has_modules == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: ${{ matrix.go_mod }}
+          cache-dependency-path: |
+            **/go.mod
+            **/go.sum
+      - name: Formatting, static analysis and lint
+        env:
+          MODULE: ${{ matrix.module }}
+        run: make ci-check MODULE="$MODULE"
+
+  build:
+    name: Build (${{ matrix.module }})
+    needs: plan
+    if: needs.plan.outputs.has_modules == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: ${{ matrix.go_mod }}
+          cache-dependency-path: |
+            **/go.mod
+            **/go.sum
+      - name: Build module
+        env:
+          MODULE: ${{ matrix.module }}
+        run: make ci-build MODULE="$MODULE"
+
+  test:
+    name: Test (${{ matrix.module }})
+    needs: plan
+    if: needs.plan.outputs.has_modules == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: ${{ matrix.go_mod }}
+          cache-dependency-path: |
+            **/go.mod
+            **/go.sum
+      - name: Unit tests (Go includes race detection)
+        env:
+          MODULE: ${{ matrix.module }}
+        run: make ci-test MODULE="$MODULE"
+
+  result:
+    name: CI result
+    needs: [plan, commits, check, build, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected job to succeed
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          COMMITS_RESULT: ${{ needs.commits.result }}
+          HAS_MODULES: ${{ needs.plan.outputs.has_modules }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          set -euo pipefail
+          [[ "$PLAN_RESULT" == success ]]
+          [[ "$COMMITS_RESULT" == success ]]
+          case "$HAS_MODULES" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) echo 'Missing or invalid module selection' >&2; exit 1 ;;
+          esac
+          for result in "$CHECK_RESULT" "$BUILD_RESULT" "$TEST_RESULT"; do
+            [[ "$result" == "$expected" ]] || { echo "Expected $expected, got $result" >&2; exit 1; }
+          done
+          echo 'All selected module checks passed.'

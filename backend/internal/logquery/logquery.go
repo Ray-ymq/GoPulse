@@ -426,7 +426,7 @@ func (r *ElasticsearchRepository) OpenPointInTime(ctx context.Context) (string, 
 	if err != nil {
 		return "", ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return "", ErrAliasMissing
 	}
@@ -460,7 +460,7 @@ func (r *ElasticsearchRepository) Search(ctx context.Context, pit string, filter
 	if err != nil {
 		return SearchResult{}, ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return SearchResult{}, ErrPITExpired
 	}
@@ -589,7 +589,7 @@ func (r *ElasticsearchRepository) ClosePointInTime(ctx context.Context, pit stri
 	if err != nil {
 		return ErrUnavailable
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return nil
 	}
@@ -638,13 +638,13 @@ func decodeEntry(source []byte) (Entry, error) {
 		}
 		raw.Entry.InstanceID = *raw.InstanceID
 	}
-	if raw.Entry.TraceID != "" && (!traceIDPattern.MatchString(raw.Entry.TraceID) || allZero(raw.Entry.TraceID)) {
+	if raw.TraceID != "" && (!traceIDPattern.MatchString(raw.TraceID) || allZero(raw.TraceID)) {
 		return Entry{}, errors.New("invalid log document")
 	}
-	if raw.Entry.SpanID != "" && (!spanIDPattern.MatchString(raw.Entry.SpanID) || allZero(raw.Entry.SpanID)) {
+	if raw.SpanID != "" && (!spanIDPattern.MatchString(raw.SpanID) || allZero(raw.SpanID)) {
 		return Entry{}, errors.New("invalid log document")
 	}
-	if raw.Entry.AttemptID != "" && (!attemptIDPattern.MatchString(raw.Entry.AttemptID) || allZero(raw.Entry.AttemptID)) {
+	if raw.AttemptID != "" && (!attemptIDPattern.MatchString(raw.AttemptID) || allZero(raw.AttemptID)) {
 		return Entry{}, errors.New("invalid log document")
 	}
 	if raw.DataEpoch != "" && !dataEpochPattern.MatchString(raw.DataEpoch) {
@@ -658,7 +658,7 @@ func decodeEntry(source []byte) (Entry, error) {
 			return Entry{}, errors.New("invalid log document")
 		}
 	}
-	if raw.Entry.ContentRevision != nil && *raw.Entry.ContentRevision == 0 {
+	if raw.ContentRevision != nil && *raw.ContentRevision == 0 {
 		return Entry{}, errors.New("invalid log document")
 	}
 	raw.Entry.Timestamp = raw.Timestamp

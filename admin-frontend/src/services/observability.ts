@@ -1,6 +1,6 @@
-import { componentContracts, componentContract, validComponentLabels, validComponentValue } from './componentMetrics'
+import { componentContracts } from './componentMetrics'
 import type { Page } from '../types/api'
-import type { EventEntry, EventFilters, LogEntry, LogFilters, MetricName, MetricResult, QueryRange } from '../types/observability'
+import type { EventEntry, EventFilters, LogEntry, LogFilters, MetricDescriptor, MetricName, MetricResult, QueryRange } from '../types/observability'
 import { requestValidatedData, requestValidatedPage } from './http'
 
 export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> = [
@@ -15,6 +15,38 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_redis_cpu_seconds_total', label: '累计 CPU 时间' },
   { value: 'gopulse_redis_db_keys', label: '数据库键数' },
   { value: 'gopulse_redis_db_expiring_keys', label: '过期键数' },
+  { value: 'gopulse_redis_max_clients', label: '最大客户端连接数' },
+  { value: 'gopulse_redis_replication_role', label: '复制角色' },
+  { value: 'gopulse_redis_replication_connected_replicas', label: '已连接副本数' },
+  { value: 'gopulse_redis_replication_master_repl_offset', label: '主复制偏移' },
+  { value: 'gopulse_redis_replication_master_last_io_seconds_ago', label: '主复制最近 I/O 间隔' },
+  { value: 'gopulse_redis_replication_master_link_up', label: '主复制链路状态' },
+  { value: 'gopulse_redis_replication_sync_in_progress', label: '复制同步中' },
+  { value: 'gopulse_redis_replica_offset', label: '副本复制偏移' },
+  { value: 'gopulse_redis_replica_lag_seconds', label: '副本延迟' },
+  { value: 'gopulse_redis_replica_link_up', label: '副本链路状态' },
+  { value: 'gopulse_redis_rdb_changes_since_last_save', label: 'RDB 保存后变更数' },
+  { value: 'gopulse_redis_rdb_bgsave_in_progress', label: 'RDB 后台保存中' },
+  { value: 'gopulse_redis_rdb_last_save_timestamp_seconds', label: '最近 RDB 保存时间' },
+  { value: 'gopulse_redis_rdb_last_bgsave_success', label: '最近 RDB 保存成功' },
+  { value: 'gopulse_redis_rdb_current_bgsave_duration_seconds', label: 'RDB 保存耗时' },
+  { value: 'gopulse_redis_aof_enabled', label: 'AOF 已启用' },
+  { value: 'gopulse_redis_aof_rewrite_in_progress', label: 'AOF 重写中' },
+  { value: 'gopulse_redis_aof_rewrite_scheduled', label: 'AOF 已计划重写' },
+  { value: 'gopulse_redis_aof_last_rewrite_success', label: '最近 AOF 重写成功' },
+  { value: 'gopulse_redis_aof_current_rewrite_duration_seconds', label: 'AOF 重写耗时' },
+  { value: 'gopulse_redis_aof_last_write_success', label: '最近 AOF 写入成功' },
+  { value: 'gopulse_redis_aof_rewrites_total', label: 'AOF 重写次数' },
+  { value: 'gopulse_redis_aof_rewrite_consecutive_failures', label: 'AOF 连续重写失败数' },
+  { value: 'gopulse_redis_aof_base_size_bytes', label: 'AOF 基础大小' },
+  { value: 'gopulse_redis_aof_current_size_bytes', label: 'AOF 当前大小' },
+  { value: 'gopulse_redis_commands_qps', label: 'Redis 命令 QPS' },
+  { value: 'gopulse_redis_command_qps', label: 'Redis 分命令 QPS' },
+  { value: 'gopulse_redis_keyspace_hit_rate', label: 'Redis Keyspace 命中率' },
+  { value: 'gopulse_redis_connection_usage_ratio', label: 'Redis 连接使用率' },
+  { value: 'gopulse_redis_memory_usage_ratio', label: 'Redis 内存使用率' },
+  { value: 'gopulse_redis_command_average_duration_seconds', label: 'Redis 分命令平均耗时' },
+  { value: 'gopulse_redis_command_latency_seconds', label: 'Redis 分命令延迟分位数' },
   { value: 'gopulse_mysql_up', label: 'mysql up' },
   { value: 'gopulse_mysql_uptime_seconds', label: 'mysql uptime_seconds' },
   { value: 'gopulse_mysql_connections', label: 'mysql connections' },
@@ -25,6 +57,21 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_mysql_transactions_total', label: 'mysql transactions_total' },
   { value: 'gopulse_mysql_buffer_pool_data_bytes', label: 'mysql buffer_pool_data_bytes' },
   { value: 'gopulse_mysql_buffer_pool_dirty_bytes', label: 'mysql buffer_pool_dirty_bytes' },
+  { value: 'gopulse_mysql_deadlocks_total', label: 'MySQL 死锁次数' },
+  { value: 'gopulse_mysql_undo_history_length', label: 'MySQL undo history 长度' },
+  { value: 'gopulse_mysql_undo_slots_used', label: 'MySQL undo slot 使用数' },
+  { value: 'gopulse_mysql_active_transactions', label: 'MySQL 活跃事务数' },
+  { value: 'gopulse_mysql_transaction_oldest_age_seconds', label: 'MySQL 最老事务年龄' },
+  { value: 'gopulse_mysql_transaction_rows_locked', label: 'MySQL 事务锁定行数' },
+  { value: 'gopulse_mysql_transaction_rows_modified', label: 'MySQL 事务修改行数' },
+  { value: 'gopulse_mysql_redo_lsn_current', label: 'MySQL 当前 redo LSN' },
+  { value: 'gopulse_mysql_redo_lsn_last_checkpoint', label: 'MySQL 最近 checkpoint LSN' },
+  { value: 'gopulse_mysql_redo_checkpoint_age_bytes', label: 'MySQL redo checkpoint age' },
+  { value: 'gopulse_mysql_redo_log_capacity_bytes', label: 'MySQL redo 日志容量' },
+  { value: 'gopulse_mysql_queries_qps', label: 'MySQL 查询 QPS' },
+  { value: 'gopulse_mysql_statement_qps', label: 'MySQL 分类型语句 QPS' },
+  { value: 'gopulse_mysql_transaction_qps', label: 'MySQL 事务 QPS' },
+  { value: 'gopulse_mysql_connection_usage_ratio', label: 'MySQL 连接使用率' },
   { value: 'gopulse_rabbitmq_up', label: 'rabbitmq up' },
   { value: 'gopulse_rabbitmq_connections', label: 'rabbitmq connections' },
   { value: 'gopulse_rabbitmq_channels', label: 'rabbitmq channels' },
@@ -34,6 +81,13 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_rabbitmq_published_total', label: 'rabbitmq published_total' },
   { value: 'gopulse_rabbitmq_delivered_total', label: 'rabbitmq delivered_total' },
   { value: 'gopulse_rabbitmq_acked_total', label: 'rabbitmq acked_total' },
+  { value: 'gopulse_rabbitmq_connections_blocked', label: 'RabbitMQ 阻塞连接数' },
+  { value: 'gopulse_rabbitmq_connection_received_bytes_total', label: 'RabbitMQ 接收字节数' },
+  { value: 'gopulse_rabbitmq_connection_sent_bytes_total', label: 'RabbitMQ 发送字节数' },
+  { value: 'gopulse_rabbitmq_queue_memory_bytes', label: 'RabbitMQ 队列内存' },
+  { value: 'gopulse_rabbitmq_queue_message_bytes', label: 'RabbitMQ 队列消息字节' },
+  { value: 'gopulse_rabbitmq_node_io_operations_total', label: 'RabbitMQ 节点持久化 I/O 次数' },
+  { value: 'gopulse_rabbitmq_node_io_average_duration_seconds', label: 'RabbitMQ 节点持久化 I/O 平均耗时' },
   { value: 'gopulse_kafka_up', label: 'kafka up' },
   { value: 'gopulse_kafka_brokers', label: 'kafka brokers' },
   { value: 'gopulse_kafka_controller_available', label: 'kafka controller_available' },
@@ -41,6 +95,29 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_kafka_under_replicated_partitions', label: 'kafka under_replicated_partitions' },
   { value: 'gopulse_kafka_offline_partitions', label: 'kafka offline_partitions' },
   { value: 'gopulse_kafka_consumer_group_lag', label: 'kafka consumer_group_lag' },
+  { value: 'gopulse_kafka_jmx_up', label: 'Kafka JMX 可用状态' },
+  { value: 'gopulse_kafka_broker_bytes_in_total', label: 'Kafka broker 输入字节' },
+  { value: 'gopulse_kafka_broker_bytes_out_total', label: 'Kafka broker 输出字节' },
+  { value: 'gopulse_kafka_broker_messages_in_total', label: 'Kafka broker 输入消息' },
+  { value: 'gopulse_kafka_request_total', label: 'Kafka 请求次数' },
+  { value: 'gopulse_kafka_request_errors_total', label: 'Kafka 请求错误' },
+  { value: 'gopulse_kafka_request_duration_seconds_total', label: 'Kafka 请求累计耗时' },
+  { value: 'gopulse_kafka_request_queue_duration_seconds_total', label: 'Kafka 请求排队累计耗时' },
+  { value: 'gopulse_kafka_request_local_duration_seconds_total', label: 'Kafka 请求本地累计耗时' },
+  { value: 'gopulse_kafka_request_remote_duration_seconds_total', label: 'Kafka 请求远端累计耗时' },
+  { value: 'gopulse_kafka_request_queue_size', label: 'Kafka 请求队列长度' },
+  { value: 'gopulse_kafka_network_processor_idle_ratio', label: 'Kafka 网络处理器空闲比例' },
+  { value: 'gopulse_kafka_request_handler_idle_ratio', label: 'Kafka 请求线程空闲比例' },
+  { value: 'gopulse_kafka_broker_under_replicated_partitions', label: 'Kafka broker 未充分复制分区' },
+  { value: 'gopulse_kafka_isr_shrinks_total', label: 'Kafka ISR 收缩次数' },
+  { value: 'gopulse_kafka_isr_expands_total', label: 'Kafka ISR 扩张次数' },
+  { value: 'gopulse_kafka_leader_elections_total', label: 'Kafka leader 选举次数' },
+  { value: 'gopulse_kafka_unclean_leader_elections_total', label: 'Kafka 非正常 leader 选举' },
+  { value: 'gopulse_kafka_jvm_heap_used_bytes', label: 'Kafka JVM heap 已用' },
+  { value: 'gopulse_kafka_jvm_heap_max_bytes', label: 'Kafka JVM heap 上限' },
+  { value: 'gopulse_kafka_jvm_threads', label: 'Kafka JVM 线程数' },
+  { value: 'gopulse_kafka_jvm_gc_collections_total', label: 'Kafka JVM GC 次数' },
+  { value: 'gopulse_kafka_jvm_gc_collection_time_seconds_total', label: 'Kafka JVM GC 累计耗时' },
   { value: 'gopulse_elasticsearch_up', label: 'elasticsearch up' },
   { value: 'gopulse_elasticsearch_cluster_health_status', label: 'elasticsearch cluster_health_status' },
   { value: 'gopulse_elasticsearch_nodes', label: 'elasticsearch nodes' },
@@ -53,6 +130,25 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_elasticsearch_pending_tasks', label: 'elasticsearch pending_tasks' },
   { value: 'gopulse_elasticsearch_documents', label: 'elasticsearch documents' },
   { value: 'gopulse_elasticsearch_store_size_bytes', label: 'elasticsearch store_size_bytes' },
+  { value: 'gopulse_elasticsearch_cache_memory_bytes', label: 'Elasticsearch 缓存内存' },
+  { value: 'gopulse_elasticsearch_cache_hits_total', label: 'Elasticsearch 缓存命中' },
+  { value: 'gopulse_elasticsearch_cache_misses_total', label: 'Elasticsearch 缓存未命中' },
+  { value: 'gopulse_elasticsearch_cache_evictions_total', label: 'Elasticsearch 缓存驱逐' },
+  { value: 'gopulse_elasticsearch_merge_operations_total', label: 'Elasticsearch merge 次数' },
+  { value: 'gopulse_elasticsearch_merge_duration_seconds_total', label: 'Elasticsearch merge 耗时' },
+  { value: 'gopulse_elasticsearch_merge_in_flight', label: 'Elasticsearch merge 进行中' },
+  { value: 'gopulse_elasticsearch_merge_current_size_bytes', label: 'Elasticsearch merge 当前字节' },
+  { value: 'gopulse_elasticsearch_refresh_operations_total', label: 'Elasticsearch refresh 次数' },
+  { value: 'gopulse_elasticsearch_refresh_duration_seconds_total', label: 'Elasticsearch refresh 耗时' },
+  { value: 'gopulse_elasticsearch_refresh_listeners', label: 'Elasticsearch refresh listeners' },
+  { value: 'gopulse_elasticsearch_flush_operations_total', label: 'Elasticsearch flush 次数' },
+  { value: 'gopulse_elasticsearch_flush_duration_seconds_total', label: 'Elasticsearch flush 耗时' },
+  { value: 'gopulse_elasticsearch_circuit_breaker_tripped_total', label: 'Elasticsearch 断路器触发' },
+  { value: 'gopulse_elasticsearch_circuit_breaker_estimated_bytes', label: 'Elasticsearch 断路器估算字节' },
+  { value: 'gopulse_elasticsearch_circuit_breaker_limit_bytes', label: 'Elasticsearch 断路器上限字节' },
+  { value: 'gopulse_elasticsearch_fielddata_memory_bytes', label: 'Elasticsearch fielddata 内存' },
+  { value: 'gopulse_elasticsearch_segments_count', label: 'Elasticsearch segments 数量' },
+  { value: 'gopulse_elasticsearch_segments_memory_bytes', label: 'Elasticsearch segments 内存' },
   { value: 'gopulse_victoriametrics_up', label: 'VictoriaMetrics up' },
   { value: 'gopulse_victoriametrics_rows_inserted_total', label: 'VictoriaMetrics rows_inserted_total' },
   { value: 'gopulse_victoriametrics_query_requests_total', label: 'VictoriaMetrics query_requests_total' },
@@ -62,6 +158,24 @@ export const metricCatalog: ReadonlyArray<{ value: MetricName; label: string }> 
   { value: 'gopulse_victoriametrics_free_disk_space_bytes', label: 'VictoriaMetrics free_disk_space_bytes' },
   { value: 'gopulse_victoriametrics_active_merges', label: 'VictoriaMetrics active_merges' },
   { value: 'gopulse_victoriametrics_storage_rows_deleted_total', label: 'VictoriaMetrics storage_rows_deleted_total' },
+  { value: 'gopulse_victoriametrics_write_batches_total', label: 'VictoriaMetrics 写入批次数' },
+  { value: 'gopulse_victoriametrics_write_batch_rows_total', label: 'VictoriaMetrics 写入批次行数' },
+  { value: 'gopulse_victoriametrics_write_requests_total', label: 'VictoriaMetrics 写入请求数' },
+  { value: 'gopulse_victoriametrics_write_errors_total', label: 'VictoriaMetrics 写入错误数' },
+  { value: 'gopulse_victoriametrics_query_errors_total', label: 'VictoriaMetrics 查询错误数' },
+  { value: 'gopulse_victoriametrics_query_duration_seconds_total', label: 'VictoriaMetrics 查询累计耗时' },
+  { value: 'gopulse_victoriametrics_active_queries', label: 'VictoriaMetrics 活跃查询' },
+  { value: 'gopulse_victoriametrics_query_capacity', label: 'VictoriaMetrics 查询并发上限' },
+  { value: 'gopulse_victoriametrics_query_limit_reached_total', label: 'VictoriaMetrics 查询排队次数' },
+  { value: 'gopulse_victoriametrics_query_limit_timeout_total', label: 'VictoriaMetrics 查询排队超时' },
+  { value: 'gopulse_victoriametrics_process_cpu_seconds_total', label: 'VictoriaMetrics CPU 时间' },
+  { value: 'gopulse_victoriametrics_process_resident_memory_bytes', label: 'VictoriaMetrics RSS' },
+  { value: 'gopulse_victoriametrics_go_heap_alloc_bytes', label: 'VictoriaMetrics Go heap 已用' },
+  { value: 'gopulse_victoriametrics_go_heap_sys_bytes', label: 'VictoriaMetrics Go heap 系统' },
+  { value: 'gopulse_victoriametrics_go_gc_cycles_total', label: 'VictoriaMetrics GC 次数' },
+  { value: 'gopulse_victoriametrics_go_gc_pause_seconds_total', label: 'VictoriaMetrics GC 暂停耗时' },
+  { value: 'gopulse_victoriametrics_go_goroutines', label: 'VictoriaMetrics goroutine 数' },
+  { value: 'gopulse_victoriametrics_go_threads', label: 'VictoriaMetrics thread 数' },
 ]
 export const ranges: ReadonlyArray<{ value: QueryRange; label: string; milliseconds: number }> = [
   { value: '15m', label: '最近 15 分钟', milliseconds: 15 * 60_000 },
@@ -106,59 +220,13 @@ export const eventNames = [
   'metrics_target_unavailable', 'metrics_target_recovered',
 ] as const
 
-const metricNames = new Set(metricCatalog.map((item) => item.value))
-const metricContracts: Record<MetricName, { kind:'gauge'|'counter'; unit:'boolean'|'seconds'|'count'|'bytes'|'state'|'unix_seconds'; label?:'mode'|'db'|'result'|'state'|'status' }> = {
- ...componentContracts,
-  gopulse_redis_up:{kind:'gauge',unit:'boolean'},gopulse_redis_uptime_seconds:{kind:'gauge',unit:'seconds'},gopulse_redis_connected_clients:{kind:'gauge',unit:'count'},gopulse_redis_used_memory_bytes:{kind:'gauge',unit:'bytes'},
-  gopulse_redis_commands_processed_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_hits_total:{kind:'counter',unit:'count'},gopulse_redis_keyspace_misses_total:{kind:'counter',unit:'count'},gopulse_redis_cpu_seconds_total:{kind:'counter',unit:'seconds',label:'mode'},
-  gopulse_redis_db_keys:{kind:'gauge',unit:'count',label:'db'},gopulse_redis_db_expiring_keys:{kind:'gauge',unit:'count',label:'db'},
-  gopulse_mysql_up:{kind:'gauge',unit:'boolean'},
-  gopulse_mysql_uptime_seconds:{kind:'gauge',unit:'seconds'},
-  gopulse_mysql_connections:{kind:'gauge',unit:'count'},
-  gopulse_mysql_max_connections:{kind:'gauge',unit:'count'},
-  gopulse_mysql_threads_running:{kind:'gauge',unit:'count'},
-  gopulse_mysql_queries_total:{kind:'counter',unit:'count'},
-  gopulse_mysql_slow_queries_total:{kind:'counter',unit:'count'},
-  gopulse_mysql_transactions_total:{kind:'counter',unit:'count',label:'result'},
-  gopulse_mysql_buffer_pool_data_bytes:{kind:'gauge',unit:'bytes'},
-  gopulse_mysql_buffer_pool_dirty_bytes:{kind:'gauge',unit:'bytes'},
-  gopulse_rabbitmq_up:{kind:'gauge',unit:'boolean'},
-  gopulse_rabbitmq_connections:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_channels:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_queues:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_consumers:{kind:'gauge',unit:'count'},
-  gopulse_rabbitmq_messages:{kind:'gauge',unit:'count',label:'state'},
-  gopulse_rabbitmq_published_total:{kind:'counter',unit:'count'},
-  gopulse_rabbitmq_delivered_total:{kind:'counter',unit:'count'},
-  gopulse_rabbitmq_acked_total:{kind:'counter',unit:'count'},
- gopulse_kafka_up:{kind:'gauge',unit:'boolean'},
- gopulse_kafka_brokers:{kind:'gauge',unit:'count'},
- gopulse_kafka_controller_available:{kind:'gauge',unit:'boolean'},
- gopulse_kafka_partitions:{kind:'gauge',unit:'count'},
- gopulse_kafka_under_replicated_partitions:{kind:'gauge',unit:'count'},
- gopulse_kafka_offline_partitions:{kind:'gauge',unit:'count'},
- gopulse_kafka_consumer_group_lag:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_up:{kind:'gauge',unit:'boolean'},
- gopulse_elasticsearch_cluster_health_status:{kind:'gauge',unit:'boolean',label:'status'},
- gopulse_elasticsearch_nodes:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_data_nodes:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_active_primary_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_active_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_relocating_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_initializing_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_unassigned_shards:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_pending_tasks:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_documents:{kind:'gauge',unit:'count'},
- gopulse_elasticsearch_store_size_bytes:{kind:'gauge',unit:'bytes'},
- gopulse_victoriametrics_up:{kind:'gauge',unit:'boolean'},
- gopulse_victoriametrics_rows_inserted_total:{kind:'counter',unit:'count'},
- gopulse_victoriametrics_query_requests_total:{kind:'counter',unit:'count'},
- gopulse_victoriametrics_active_timeseries:{kind:'gauge',unit:'count'},
- gopulse_victoriametrics_storage_rows:{kind:'gauge',unit:'count'},
- gopulse_victoriametrics_storage_size_bytes:{kind:'gauge',unit:'bytes'},
- gopulse_victoriametrics_free_disk_space_bytes:{kind:'gauge',unit:'bytes'},
- gopulse_victoriametrics_active_merges:{kind:'gauge',unit:'count'},
- gopulse_victoriametrics_storage_rows_deleted_total:{kind:'counter',unit:'count'},
+const metricSources = ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics','backend','business-worker','search-indexer','monitor','marshaller'] as const
+const metricUnits = new Set(['none','boolean','seconds','count','bytes','state','unix_seconds'])
+function validMetricName(value: unknown): value is string {
+ return typeof value === 'string' && value.length <= 128 && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value) && metricSources.some(source => value.startsWith(`gopulse_${source.replaceAll('-', '_')}_`) && value.length > `gopulse_${source.replaceAll('-', '_')}_`.length)
+}
+function validMetricLabels(labels: Record<string, unknown>): boolean {
+ return Object.keys(labels).length <= 16 && Object.entries(labels).every(([key,value]) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && key.length <= 64 && !key.startsWith('__') && !['source','target_id','producer_kind','producer_id','producer_version'].includes(key) && typeof value === 'string' && new TextEncoder().encode(value).length <= 256 && !value.includes('\0'))
 }
 const rangeNames = new Set(ranges.map((item) => item.value))
 const logKeys = new Set(['timestamp','level','service','instance_id','module','message','request_id','trace_id','span_id','attempt_id','event_id','command_id','data_epoch','event_type','projection_generation','routing_contract_revision','consumer','user_id','post_id','content_revision','comment_id','notification_id','outbox_id','method','route','status','duration_ms','response_bytes','error_code','reason','operation','resource','stage','result','attempt','batch_size','document_count','panic_recovered','response_committed'])
@@ -173,38 +241,30 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const identity = /^[A-Za-z0-9._:/-]{1,255}$/
 
 export function isMetricResult(value: unknown): value is MetricResult {
-  if (!record(value) || Object.keys(value).sort().join() !== ['from','kind','metric','range','series','step_seconds','to','unit'].sort().join()) return false
-  if (typeof value.metric !== 'string' || !metricNames.has(value.metric as MetricName) || (value.kind !== 'gauge' && value.kind !== 'counter') || !['boolean','seconds','count','bytes','state','unix_seconds'].includes(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series)) return false
-  const contract = metricContracts[value.metric as MetricName]
-  const component = componentContract(value.metric)
-  if (value.series.length > (component?.tuples.length ?? 32)) return false
+  if (!record(value) || !keysAllowed(value, new Set(['from','kind','metric','range','series','step_seconds','to','unit','value_kind','display_unit','quality','sampled_at']))) return false
+  if (!validMetricName(value.metric) || (value.kind !== 'gauge' && value.kind !== 'counter') || !metricUnits.has(String(value.unit)) || typeof value.range !== 'string' || !rangeNames.has(value.range as QueryRange) || !timestamp(value.from) || !timestamp(value.to) || !Number.isSafeInteger(value.step_seconds) || !Array.isArray(value.series)) return false
+  if (value.value_kind !== undefined && !['raw','rate','ratio','average'].includes(String(value.value_kind))) return false
+  if (value.display_unit !== undefined && (typeof value.display_unit !== 'string' || value.display_unit.length > 32)) return false
+  if (value.quality !== undefined && !['complete','sampling','zero_denominator'].includes(String(value.quality))) return false
+  if (value.sampled_at !== undefined && !timestamp(value.sampled_at)) return false
+  if (value.series.length > 1024) return false
   const range = ranges.find((item) => item.value === value.range)
   const expectedSteps: Record<QueryRange, number> = { '15m':15, '1h':60, '6h':300, '24h':900 }
   const from = Date.parse(value.from); const to = Date.parse(value.to)
-  if (!range || from >= to || to - from !== range.milliseconds || value.step_seconds !== expectedSteps[value.range as QueryRange] || value.kind !== contract.kind || value.unit !== contract.unit) return false
+  if (!range || from >= to || to - from !== range.milliseconds || value.step_seconds !== expectedSteps[value.range as QueryRange]) return false
   let points = 0
   const seriesKeys = new Set<string>()
   return value.series.every((series) => {
     if (!record(series) || Object.keys(series).sort().join() !== 'labels,points' || !record(series.labels) || !Array.isArray(series.points)) return false
-    if (component) { if (!validComponentLabels(component, series.labels)) return false } else {
-    if (!keysAllowed(series.labels, new Set(['mode','db','result','state','status']))) return false
-    if (series.labels.mode !== undefined && series.labels.mode !== 'user' && series.labels.mode !== 'system') return false
-    if (contract.label === undefined && Object.keys(series.labels).length !== 0) return false
-    if (contract.label === 'mode' && (Object.keys(series.labels).length !== 1 || series.labels.mode === undefined)) return false
-    if (contract.label === 'db' && (Object.keys(series.labels).length !== 1 || series.labels.db === undefined)) return false
-    if (series.labels.db !== undefined && (typeof series.labels.db !== 'string' || !/^(0|[1-9][0-9]*)$/.test(series.labels.db))) return false
-    if (contract.label === 'result' && (Object.keys(series.labels).length !== 1 || !['commit','rollback'].includes(String(series.labels.result)))) return false
-    if (contract.label === 'state' && (Object.keys(series.labels).length !== 1 || !['ready','unacked'].includes(String(series.labels.state)))) return false
-    if (contract.label === 'status' && (Object.keys(series.labels).length !== 1 || !['green','yellow','red'].includes(String(series.labels.status)))) return false
-    }
+    if (!validMetricLabels(series.labels)) return false
     const seriesKey = JSON.stringify(Object.entries(series.labels).sort(([a], [b]) => a.localeCompare(b)))
     if (seriesKeys.has(seriesKey)) return false
     seriesKeys.add(seriesKey)
     let previous = Number.NEGATIVE_INFINITY
     return series.points.every((point) => {
       points++
-      if (points > (component ? component.tuples.length * 97 : 4096) || !record(point) || Object.keys(point).sort().join() !== 'timestamp,value' || !timestamp(point.timestamp) || !finite(point.value)) return false
-      if (component && !validComponentValue(value.metric as string, component, point.value)) return false
+      if (points > 1024 * 97 || !record(point) || Object.keys(point).sort().join() !== 'timestamp,value' || !timestamp(point.timestamp) || !finite(point.value)) return false
+      if ((value.kind === 'counter' && point.value < 0) || (value.unit === 'state' && ![-1,0,1].includes(point.value)) || (value.unit === 'boolean' && ![0,1].includes(point.value))) return false
       const at = Date.parse(point.timestamp)
       if (at < from || at > to || at <= previous) return false
       previous = at
@@ -271,20 +331,27 @@ function pageQuery(filters: Record<string,string>, cursor?: string): string {
   return params.toString()
 }
 export const observabilityApi = {
-  metrics: (metric: MetricName, range: QueryRange, signal?: AbortSignal) => requestValidatedData<MetricResult>(`/observability/metrics?${new URLSearchParams({ metric, range })}`, isMetricResult, { signal }),
+  metrics: (metric: MetricName, range: QueryRange, labelsOrSignal: Record<string, string> | AbortSignal = {}, signal?: AbortSignal) => {
+    const isSignal = (value: Record<string, string> | AbortSignal): value is AbortSignal => typeof AbortSignal !== 'undefined' && value instanceof AbortSignal
+    const labels = isSignal(labelsOrSignal) ? {} : labelsOrSignal
+    const requestSignal = isSignal(labelsOrSignal) ? labelsOrSignal : signal
+    const params = new URLSearchParams({ metric, range })
+    for (const [key, value] of Object.entries(labels)) if (value.trim()) params.set(key, value.trim())
+    return requestValidatedData<MetricResult>(`/observability/metrics?${params}`, isMetricResult, { signal: requestSignal })
+  },
   logs: (filters: LogFilters, cursor?: string, signal?: AbortSignal): Promise<Page<LogEntry>> => requestValidatedPage(`/observability/logs?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isLogEntry, { signal }),
   events: (filters: EventFilters, cursor?: string, signal?: AbortSignal): Promise<Page<EventEntry>> => requestValidatedPage(`/observability/events?${pageQuery(filters as unknown as Record<string,string>, cursor)}`, isEventEntry, { signal }),
 }
 
-export interface MetricDescriptor { metric: MetricName; kind: string; unit: string; source: string; target_id: string; producer_kind: 'exporter_plugin'|'component'; producer_id: string }
 export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
- if (!Array.isArray(value) || value.length !== metricCatalog.length || new Set(value.map(item => record(item) ? item.metric : undefined)).size !== value.length) return false
+ if (!Array.isArray(value) || value.length > 2048 || new Set(value.map(item => record(item) ? item.metric : undefined)).size !== value.length) return false
  return value.every(item => {
-  if (!record(item) || Object.keys(item).length !== 7 || !metricNames.has(item.metric as MetricName)) return false
-  const name = item.metric as MetricName; const contract = metricContracts[name]; const component = componentContract(name)
-  if (item.kind !== contract.kind || item.unit !== contract.unit) return false
-  if (component) return item.source === component.source && item.producer_kind === 'component' && item.producer_id === component.source && item.target_id === `${component.source}-local`
-  return ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics'].includes(String(item.source)) && name.startsWith(`gopulse_${item.source}_`) && item.target_id === `${item.source}-exporter-local` && item.producer_kind === 'exporter_plugin' && item.producer_id === `${item.source}-exporter`
+  if (!record(item) || !keysAllowed(item,new Set(['metric','kind','unit','source','target_id','producer_kind','producer_id','label_keys','value_kind','display_unit'])) || !validMetricName(item.metric) || (item.kind !== 'gauge' && item.kind !== 'counter') || !metricUnits.has(String(item.unit)) || typeof item.source !== 'string' || !metricSources.includes(item.source as typeof metricSources[number]) || !item.metric.startsWith(`gopulse_${item.source.replaceAll('-', '_')}_`)) return false
+  if (item.value_kind !== undefined && !['raw','rate','ratio','average'].includes(String(item.value_kind))) return false
+  if (item.display_unit !== undefined && (typeof item.display_unit !== 'string' || item.display_unit.length > 32)) return false
+  if (item.label_keys !== undefined && (!Array.isArray(item.label_keys) || new Set(item.label_keys).size !== item.label_keys.length || !item.label_keys.every(key => typeof key === 'string') || !validMetricLabels(Object.fromEntries(item.label_keys.map(key => [key,'']))))) return false
+  const component = ['backend','business-worker','search-indexer','monitor','marshaller'].includes(item.source)
+  return item.producer_kind === (component ? 'component' : 'exporter_plugin') && item.producer_id === (component ? item.source : `${item.source}-exporter`) && item.target_id === (component ? `${item.source}-local` : `${item.source}-exporter-local`)
  })
 }
 export const loadMetricCatalog = (signal?: AbortSignal) => requestValidatedData('/observability/metrics/catalog', isMetricCatalog, { signal })

@@ -20,6 +20,11 @@ type completedRequest struct {
 	count   uint64
 	seconds float64
 }
+
+type durationCounter struct {
+	count atomic.Uint64
+	nanos atomic.Uint64
+}
 type requestState struct {
 	count   uint64
 	seconds float64
@@ -35,7 +40,7 @@ type backlog struct {
 	valid         bool
 }
 
-// Backend stores a fixed set of series slots allocated at router construction.
+// Backend stores a fixed set of series slots allocated at registry construction.
 // Hot-path updates perform no I/O, acquire no mutex, and publish one immutable
 // fixed-size state so the legacy pair and histogram can never be scraped from
 // different completions.
@@ -52,12 +57,20 @@ type Backend struct {
 	alertLastSuccess     [3]atomic.Int64
 	freshness            [10]atomic.Pointer[completedRequest]
 	traceContextInvalid  atomic.Uint64
+	cacheRequests        [4]atomic.Uint64
+	cacheOrigins         [3]durationCounter
+	rateLimitDecisions   [5][2][3]atomic.Uint64
+	resourceRejected     [3][3]atomic.Uint64
+	dbOperations         [4][3]durationCounter
+	rebuildInFlight      atomic.Int64
+	rebuildWaiters       atomic.Int64
+	rebuildRegistered    atomic.Int64
 }
 
 var backendMethods = [...]string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE", "unknown"}
 var backendDependencies = [...]string{"mysql", "redis", "rabbitmq", "elasticsearch"}
 
-const BackendFamilies = 17
+const BackendFamilies = 28
 
 // BackendMaxRoutes guards accidental unbounded registration, not client input.
 const BackendMaxRoutes = 64
@@ -69,6 +82,13 @@ var backendFreshnessStages = [...]string{"commit", "publish", "consume", "index"
 
 var backendLatencyBucketValues = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10}
 var backendLatencyBucketLabels = [...]string{"0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2", "5", "10", "+Inf"}
+var backendCacheResults = [...]string{"hit", "miss", "invalid", "error"}
+var backendCacheOrigins = [...]string{"success", "failure", "version_changed"}
+var backendRatePolicies = [...]string{"auth_source", "login_attempt", "post_read", "fact_write", "interaction_like"}
+var backendProtectionResults = [...]string{"allow", "deny", "error"}
+var backendResourceKinds = [...]string{"auth", "read", "write"}
+var backendDBOperations = [...]string{"post_context", "post_body", "post_dynamic", "post_viewer"}
+var backendDBResults = [...]string{"success", "failure", "version_changed"}
 
 // BackendLatencyBuckets returns the fixed label vocabulary for the Backend
 // latency distribution. The copy prevents callers from widening the contract.
@@ -252,7 +272,7 @@ func (b *Backend) ObservePublish(at time.Time, err error) {
 // MaxSamples includes the historical counter pair, all fixed distribution
 // members, capacity signals, dependencies, and outbox gauges. No client value
 // can increase it.
-func (b *Backend) MaxSamples() int { return len(b.ordered)*16 + 37 }
+func (b *Backend) MaxSamples() int { return len(b.ordered)*16 + 113 }
 
 func (b *Backend) ObserveFreshness(stage, result string, elapsed time.Duration) {
 	if b == nil || elapsed < 0 || (result != "success" && result != "failure") {
@@ -290,6 +310,122 @@ func (b *Backend) ObserveTraceContextInvalid() {
 	if b != nil {
 		b.traceContextInvalid.Add(1)
 	}
+}
+
+func (b *Backend) ObserveCacheRequest(result string) {
+	if b == nil {
+		return
+	}
+	for index, allowed := range backendCacheResults {
+		if result == allowed {
+			b.cacheRequests[index].Add(1)
+			return
+		}
+	}
+}
+
+func (b *Backend) ObserveCacheOrigin(result string) {
+	b.observeCacheOrigin(result, 0)
+}
+
+func (b *Backend) ObserveCacheOriginDuration(result string, elapsed time.Duration) {
+	b.observeCacheOrigin(result, elapsed)
+}
+
+func (b *Backend) observeCacheOrigin(result string, elapsed time.Duration) {
+	if b == nil || elapsed < 0 {
+		return
+	}
+	for index, allowed := range backendCacheOrigins {
+		if result == allowed {
+			b.cacheOrigins[index].count.Add(1)
+			b.cacheOrigins[index].nanos.Add(uint64(elapsed))
+			return
+		}
+	}
+}
+
+func (b *Backend) ObserveRateLimit(policy, mode, result string) {
+	if b == nil {
+		return
+	}
+	policyIndex, resultIndex := -1, -1
+	for index, allowed := range backendRatePolicies {
+		if policy == allowed {
+			policyIndex = index
+			break
+		}
+	}
+	for index, allowed := range backendProtectionResults {
+		if result == allowed {
+			resultIndex = index
+			break
+		}
+	}
+	if policyIndex < 0 || resultIndex < 0 || (mode != "shared" && mode != "local") {
+		return
+	}
+	modeIndex := 0
+	if mode == "local" {
+		modeIndex = 1
+	}
+	b.rateLimitDecisions[policyIndex][modeIndex][resultIndex].Add(1)
+}
+
+func (b *Backend) ObserveResourceRejected(kind, reason string) {
+	if b == nil {
+		return
+	}
+	kindIndex, reasonIndex := -1, -1
+	for index, allowed := range backendResourceKinds {
+		if kind == allowed {
+			kindIndex = index
+			break
+		}
+	}
+	for index, allowed := range [...]string{"capacity", "rate_limited", "unavailable"} {
+		if reason == allowed {
+			reasonIndex = index
+			break
+		}
+	}
+	if kindIndex >= 0 && reasonIndex >= 0 {
+		b.resourceRejected[kindIndex][reasonIndex].Add(1)
+	}
+}
+
+func (b *Backend) ObserveDBOperation(operation, result string, elapsed time.Duration) {
+	if b == nil || elapsed < 0 {
+		return
+	}
+	operationIndex, resultIndex := -1, -1
+	for index, allowed := range backendDBOperations {
+		if operation == allowed {
+			operationIndex = index
+			break
+		}
+	}
+	for index, allowed := range backendDBResults {
+		if result == allowed {
+			resultIndex = index
+			break
+		}
+	}
+	if operationIndex < 0 || resultIndex < 0 {
+		return
+	}
+	cell := &b.dbOperations[operationIndex][resultIndex]
+	cell.count.Add(1)
+	cell.nanos.Add(uint64(elapsed))
+}
+
+func (b *Backend) ObserveRebuildState(active, waiters, registered int) {
+	if b == nil || active < 0 || waiters < 0 || registered < 0 {
+		return
+	}
+	b.rebuildInFlight.Store(int64(active))
+	b.rebuildWaiters.Store(int64(waiters))
+	b.rebuildRegistered.Store(int64(registered))
 }
 
 func (b *Backend) Snapshot() ([]byte, bool) {
@@ -330,6 +466,48 @@ func (b *Backend) Snapshot() ([]byte, bool) {
 	for i, name := range backendDependencies {
 		fmt.Fprintf(&out, "gopulse_backend_dependency_up{dependency=%q} %d\n", name, b.dependencies[i].Load())
 	}
+	out.WriteString("# TYPE gopulse_backend_cache_requests_total counter\n")
+	for index, result := range backendCacheResults {
+		if value := b.cacheRequests[index].Load(); value > 0 {
+			fmt.Fprintf(&out, "gopulse_backend_cache_requests_total{result=%q} %d\n", result, value)
+		}
+	}
+	out.WriteString("# TYPE gopulse_backend_cache_origin_total counter\n")
+	for index, result := range backendCacheOrigins {
+		if value := b.cacheOrigins[index].count.Load(); value > 0 {
+			labels := fmt.Sprintf("{result=%q}", result)
+			fmt.Fprintf(&out, "gopulse_backend_cache_origin_total%s %d\ngopulse_backend_cache_origin_duration_seconds_total%s %s\n", labels, value, labels, strconv.FormatFloat(float64(b.cacheOrigins[index].nanos.Load())/float64(time.Second), 'g', -1, 64))
+		}
+	}
+	out.WriteString("# TYPE gopulse_backend_rate_limit_decisions_total counter\n")
+	for policyIndex, policy := range backendRatePolicies {
+		for modeIndex, mode := range [...]string{"shared", "local"} {
+			for resultIndex, result := range backendProtectionResults {
+				if value := b.rateLimitDecisions[policyIndex][modeIndex][resultIndex].Load(); value > 0 {
+					fmt.Fprintf(&out, "gopulse_backend_rate_limit_decisions_total{policy=%q,mode=%q,result=%q} %d\n", policy, mode, result, value)
+				}
+			}
+		}
+	}
+	out.WriteString("# TYPE gopulse_backend_resource_rejected_total counter\n")
+	for kindIndex, kind := range backendResourceKinds {
+		for reasonIndex, reason := range [...]string{"capacity", "rate_limited", "unavailable"} {
+			if value := b.resourceRejected[kindIndex][reasonIndex].Load(); value > 0 {
+				fmt.Fprintf(&out, "gopulse_backend_resource_rejected_total{resource=%q,reason=%q} %d\n", kind, reason, value)
+			}
+		}
+	}
+	out.WriteString("# TYPE gopulse_backend_db_operations_total counter\n# TYPE gopulse_backend_db_operation_duration_seconds_total counter\n")
+	for operationIndex, operation := range backendDBOperations {
+		for resultIndex, result := range backendDBResults {
+			cell := &b.dbOperations[operationIndex][resultIndex]
+			if value := cell.count.Load(); value > 0 {
+				fmt.Fprintf(&out, "gopulse_backend_db_operations_total{operation=%q,result=%q} %d\n", operation, result, value)
+				fmt.Fprintf(&out, "gopulse_backend_db_operation_duration_seconds_total{operation=%q,result=%q} %s\n", operation, result, strconv.FormatFloat(float64(cell.nanos.Load())/float64(time.Second), 'g', -1, 64))
+			}
+		}
+	}
+	fmt.Fprintf(&out, "# TYPE gopulse_backend_cache_rebuild_in_flight gauge\ngopulse_backend_cache_rebuild_in_flight %d\n# TYPE gopulse_backend_cache_waiters gauge\ngopulse_backend_cache_waiters %d\n# TYPE gopulse_backend_cache_registered_waiters gauge\ngopulse_backend_cache_registered_waiters %d\n", b.rebuildInFlight.Load(), b.rebuildWaiters.Load(), b.rebuildRegistered.Load())
 	if out.Len() > BackendMaxBodyBytes {
 		return nil, false
 	}

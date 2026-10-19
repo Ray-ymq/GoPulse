@@ -36,7 +36,7 @@ func (p *Repository) Overview(ctx context.Context, now time.Time, enabled bool) 
 	if err != nil {
 		return s, unavailable()
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var r Recovery
 		if err = rows.Scan(&r.RuleID, &r.Revision, &r.Severity, &r.RecoveredAt); err != nil {

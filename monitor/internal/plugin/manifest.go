@@ -29,11 +29,22 @@ func ParseManifestV2(data []byte) (Manifest, error) {
 	return parseManifest(data, 2)
 }
 
+// ParseManifestV2ForArch validates a v2 package for a selected target
+// architecture. Build tooling uses this when it validates a cross-built Linux
+// package on a different host architecture.
+func ParseManifestV2ForArch(data []byte, arch string) (Manifest, error) {
+	return parseManifestForArch(data, 2, arch)
+}
+
 func parseManifest(data []byte, schemaVersion int) (Manifest, error) {
 	return parseManifestForArch(data, schemaVersion, runtime.GOARCH)
 }
 
 func parseManifestForArch(data []byte, schemaVersion int, arch string) (Manifest, error) {
+	return parseManifestForArchWithEntry(data, schemaVersion, arch, nil)
+}
+
+func parseManifestForArchWithEntry(data []byte, schemaVersion int, arch string, expected *CatalogEntry) (Manifest, error) {
 	if len(data) == 0 || len(data) > 64<<10 {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
 	}
@@ -83,11 +94,17 @@ func parseManifestForArch(data []byte, schemaVersion int, arch string) (Manifest
 	if strict.Decode(&manifest) != nil {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
 	}
-	entry, known := LookupOfficial(manifest.ID)
-	if manifest.SchemaVersion != schemaVersion || !known || (schemaVersion == 1 && manifest.ID != PluginID) || strings.TrimSpace(manifest.Name) == "" || len(manifest.Name) > 80 || !semverPattern.MatchString(manifest.Version) || manifest.Kind != "metrics-exporter" || manifest.Source != entry.Source || manifest.OS != "linux" || manifest.Arch != arch || manifest.Entrypoint != entry.Entrypoint || !digestPattern.MatchString(manifest.EntrypointSHA256) || manifest.HealthPath != "/health" || manifest.MetricsPath != "/metrics" {
+	if expected == nil {
+		entry, known := LookupOfficial(manifest.ID)
+		expected = &entry
+		if !known {
+			return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
+		}
+	}
+	if manifest.SchemaVersion != schemaVersion || (schemaVersion == 1 && manifest.ID != PluginID) || strings.TrimSpace(manifest.ID) == "" || strings.TrimSpace(manifest.Name) == "" || len(manifest.Name) > 80 || !semverPattern.MatchString(manifest.Version) || manifest.Kind != "metrics-exporter" || manifest.Source != expected.Source || manifest.ID != expected.ID || manifest.OS != "linux" || manifest.Arch != arch || manifest.Entrypoint != expected.Entrypoint || !digestPattern.MatchString(manifest.EntrypointSHA256) || manifest.HealthPath != expected.HealthPath || manifest.MetricsPath != expected.MetricsPath {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
 	}
-	if schemaVersion == 2 && (manifest.RuntimeContractVersion != 1 || manifest.MetricsContractVersion != 2 || manifest.ConfigSchemaPath != "config.schema.json" || !digestPattern.MatchString(manifest.ConfigSchemaSHA256)) {
+	if schemaVersion == 2 && (manifest.RuntimeContractVersion != expected.RuntimeContractVersion || manifest.MetricsContractVersion != expected.MetricsContractVersion || manifest.ConfigSchemaPath != expected.ConfigSchemaPath || !digestPattern.MatchString(manifest.ConfigSchemaSHA256)) {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package manifest is invalid")
 	}
 	if _, err := hex.DecodeString(manifest.EntrypointSHA256); err != nil {

@@ -2,6 +2,8 @@ module github.com/Ray-ymq/GoPulse/marshaller
 
 go 1.26
 
+replace github.com/Ray-ymq/GoPulse/componentmetrics => ../componentmetrics
+
 require (
 	github.com/twmb/franz-go v1.21.0
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1

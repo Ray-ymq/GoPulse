@@ -82,10 +82,10 @@ func Start(ctx context.Context, mode, component string, handler http.Handler) (*
 	return start(ctx, address, handler)
 }
 
-// Address does not accept arbitrary interfaces, DNS names, or ports. All six
+// Address does not accept arbitrary interfaces, DNS names, or ports. All five
 // processes share this fixed private-listener catalog.
 func Address(mode, component string) (string, error) {
-	ports := map[string]string{"backend": "19101", "business-worker": "19102", "search-indexer": "19103", "monitor": "19104", "router": "19105", "marshaller": "19106"}
+	ports := map[string]string{"backend": "19101", "business-worker": "19102", "search-indexer": "19103", "monitor": "19104", "marshaller": "19106"}
 	port, ok := ports[component]
 	if !ok {
 		return "", errors.New("unknown component metrics component")

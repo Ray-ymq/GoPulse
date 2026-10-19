@@ -24,9 +24,6 @@ docs
 exporters
 marshaller
 monitor
-router
-!router/
-!router/**
 !marshaller/
 !marshaller/**
 !monitor/

@@ -28,7 +28,7 @@ func TestOwnedMySQLStateAndLease(t *testing.T) {
 	if e != nil {
 		t.Fatal("open owned database")
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	assertOwnedMySQLStateAndLease(t, db)
 }
 

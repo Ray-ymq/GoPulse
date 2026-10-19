@@ -65,7 +65,7 @@ func (r *MySQLRepository) DeclareBootstrap(ctx context.Context, id uint64) (User
 	if err != nil {
 		return User{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var root uint64
 	err = tx.QueryRowContext(ctx, `SELECT user_id FROM bootstrap_super_admin WHERE singleton=1 FOR UPDATE`).Scan(&root)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -113,7 +113,7 @@ func (r *MySQLRepository) ChangeRole(ctx context.Context, actor, target uint64, 
 	if err != nil {
 		return RoleChange{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var actorRole string
 	if err = tx.QueryRowContext(ctx, `SELECT role FROM users WHERE id=? FOR UPDATE`, actor).Scan(&actorRole); err != nil {
 		return RoleChange{}, err

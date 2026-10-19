@@ -62,8 +62,8 @@ func (w Workspace) LogRoot() string { return filepath.Join(w.PrivateRoot(), "log
 // ProjectDev is the development dependency Compose project.
 func (w Workspace) ProjectDev() string { return "gopulse-" + w.Identity + "-dev" }
 
-// ProjectTest is the isolated test Compose project. A Monitor image owns a
-// compile-time release catalog, so test volumes stay candidate-scoped.
+// ProjectTest is the isolated test Compose project. Its dependency volumes stay
+// candidate-scoped even though application processes run as host binaries.
 func (w Workspace) ProjectTest() string {
 	version := "current"
 	if raw, err := os.ReadFile(filepath.Join(w.Root, "VERSION")); err == nil {
@@ -90,8 +90,6 @@ type ProcessRecord struct {
 // sorted JSON the replaced helper wrote, so old and new receipts stay diffable.
 type State struct {
 	Branch              string                   `json:"branch"`
-	BrowserCommands     [][]string               `json:"browser_commands,omitempty"`
-	BrowserTraces       string                   `json:"browser_traces,omitempty"`
 	ComposeDigest       string                   `json:"compose_digest"`
 	ComposeFiles        []string                 `json:"compose_files"`
 	EnvFile             string                   `json:"env_file"`

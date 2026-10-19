@@ -1,0 +1,17 @@
+{
+  "types": [
+    "build",
+    "chore",
+    "ci",
+    "docs",
+    "feat",
+    "fix",
+    "perf",
+    "refactor",
+    "revert",
+    "style",
+    "test"
+  ],
+  "legacy_ref": "2c4d66174b4e6617ddf03637858317dcae1a674a",
+  "body_required_after": "5accf0b4f50015d4c523cc635a111512e16bbe77"
+}

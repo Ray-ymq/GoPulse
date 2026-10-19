@@ -25,37 +25,6 @@ type runtimeProcess struct {
 	intentional atomic.Bool
 }
 
-func procStartTicks(pid int) (string, error) {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return "", err
-	}
-	text := string(data)
-	index := strings.LastIndex(text, ") ")
-	if index < 0 {
-		return "", errors.New("invalid proc stat")
-	}
-	fields := strings.Fields(text[index+2:])
-	if len(fields) < 20 {
-		return "", errors.New("invalid proc stat")
-	}
-	return fields[19], nil
-}
-func processIdentity(pid int) (string, string, string, error) {
-	executable, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
-	if err != nil {
-		return "", "", "", err
-	}
-	cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid))
-	if err != nil {
-		return "", "", "", err
-	}
-	commandLine, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
-	if err != nil {
-		return "", "", "", err
-	}
-	return filepath.Clean(executable), filepath.Clean(cwd), string(commandLine), nil
-}
 func ownsProcess(record processRecord) bool {
 	if record.PID <= 1 {
 		return false
@@ -87,7 +56,7 @@ func saveProcessRecord(pluginDir string, record processRecord) error {
 }
 func removeProcessRecord(pluginDir string) { _ = os.Remove(processRecordPath(pluginDir)) }
 
-func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env map[string]string, healthURL string, startup time.Duration) (*runtimeProcess, error) {
+func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env map[string]string, healthURL string, startup time.Duration, args ...string) (*runtimeProcess, error) {
 	release := filepath.Join(pluginDir, "releases", manifest.Version)
 	executable, err := filepath.Abs(filepath.Join(release, filepath.FromSlash(manifest.Entrypoint)))
 	if err != nil {
@@ -97,18 +66,20 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(executable)
+	cmd := exec.Command(executable, args...)
 	cmd.Dir = release
 	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	entry, _ := LookupOfficial(manifest.ID)
 	allowed := map[string]bool{"GOPULSE_RUNTIME_MODE": true, "GOPULSE_VERSION": true, "GOPULSE_REVISION": true}
-	prefix := strings.ToUpper(entry.Source)
-	for _, suffix := range []string{"HOST", "PORT", "MANAGEMENT_PORT", "PASSWORD", "USERNAME", "DB", "DATABASE", "VHOST", "EXPORTER_HTTP_HOST", "EXPORTER_HTTP_PORT", "EXPORTER_SCRAPE_TIMEOUT", "EXPORTER_CONNECT_TIMEOUT", "EXPORTER_SHUTDOWN_TIMEOUT"} {
-		allowed[prefix+"_"+suffix] = true
-	}
-	if entry.Source == "kafka" {
-		allowed["KAFKA_TOPIC"] = true
-		allowed["KAFKA_CONSUMER_GROUP"] = true
+	if len(args) == 0 {
+		entry, _ := LookupOfficial(manifest.ID)
+		prefix := strings.ToUpper(entry.Source)
+		for _, suffix := range []string{"HOST", "PORT", "MANAGEMENT_PORT", "PASSWORD", "USERNAME", "DB", "DATABASE", "VHOST", "EXPORTER_HTTP_HOST", "EXPORTER_HTTP_PORT", "EXPORTER_SCRAPE_TIMEOUT", "EXPORTER_CONNECT_TIMEOUT", "EXPORTER_SHUTDOWN_TIMEOUT"} {
+			allowed[prefix+"_"+suffix] = true
+		}
+		if entry.Source == "kafka" {
+			allowed["KAFKA_TOPIC"] = true
+			allowed["KAFKA_CONSUMER_GROUP"] = true
+		}
 	}
 	for key, value := range env {
 		if allowed[key] {
@@ -120,7 +91,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	if runtimeContractManifest(manifest) {
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stdout
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
+	configurePluginProcess(cmd)
 	if err = cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -130,7 +101,8 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 		_, _ = cmd.Process.Wait()
 		return nil, err
 	}
-	record := processRecord{PluginID: manifest.ID, Revision: env["_GOPULSE_REVISION"], PID: cmd.Process.Pid, StartTicks: ticks, ExecutablePath: executable, WorkingDirectory: release, CommandLineMarker: executable}
+	executableIdentity := processExecutableIdentity(executable)
+	record := processRecord{PluginID: manifest.ID, Revision: env["_GOPULSE_REVISION"], PID: cmd.Process.Pid, StartTicks: ticks, ExecutablePath: executableIdentity, WorkingDirectory: release, CommandLineMarker: executableIdentity}
 	if err = saveProcessRecord(pluginDir, record); err != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_, _ = cmd.Process.Wait()
@@ -154,10 +126,13 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 				// A response on the fixed port must not hide an immediately
 				// exiting candidate (for example a retained failure fixture).
 				select {
-				case <-runtime.done:
+				case processErr := <-runtime.done:
 					removeProcessRecord(pluginDir)
+					if processErr != nil {
+						return nil, fmt.Errorf("plugin process exited during startup: %w", processErr)
+					}
 					return nil, errors.New("plugin process exited during startup")
-				case <-time.After(20 * time.Millisecond):
+				case <-time.After(processHealthGrace()):
 					if ownsProcess(runtime.record) {
 						return runtime, nil
 					}
@@ -173,8 +148,11 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 			}
 			removeProcessRecord(pluginDir)
 			return nil, deadlineContext.Err()
-		case <-runtime.done:
+		case processErr := <-runtime.done:
 			removeProcessRecord(pluginDir)
+			if processErr != nil {
+				return nil, fmt.Errorf("plugin process exited during startup: %w", processErr)
+			}
 			return nil, errors.New("plugin process exited during startup")
 		case <-ticker.C:
 		}

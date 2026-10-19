@@ -1,8 +1,8 @@
 // Command devenv runs GoPulse's local development, observation, and isolated
 // test lifecycles with owned state and bounded cleanup.
 //
-// The Makefile targets `deps`, `dev`, `dev-observe`, `stop`, `integration`, and
-// `e2e` dispatch here. Every lifecycle keeps its state under
+// The Makefile targets `deps`, `dev`, `dev-observe`, `stop`, and `integration`
+// dispatch here. Every lifecycle keeps its state under
 // .run/local/<workspace>/ so unrelated checkouts never share projects,
 // volumes, or ports.
 package main
@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -32,31 +31,26 @@ commands:
   dev-observe [--env-file PATH]                       start the observation environment
   stop                                                stop everything this workspace owns
   integration [--scope business|observe]               run one isolated integration scope
-  e2e [--scope business|observe] [--http-port N]      run one isolated browser scope
-      [--frontend-port N] [--admin-frontend-port N]
 	stack-up                                             start the container-native product stack
 	stack-down                                           stop it and preserve named volumes
 	stack-verify                                         verify ownership, health and loopback ports
 	build-cache [--print] [--no-cache]                    render/build Compose images
 	doctor                                                check host prerequisites without starting services
 	bootstrap [--module frontend|admin-frontend] [--tools-only]
-	                                                        prepare lint tools, frontend dependencies, and Chromium
+		                                                        prepare lint tools and frontend dependencies
 	frontend-deps --module frontend|admin-frontend       prepare one application's npm dependencies
 	verify --base-ref REF [--plan-only] [--module MODULE]
 `
 
 type options struct {
-	scope             string
-	envFile           string
-	httpPort          string
-	frontendPort      string
-	adminFrontendPort string
-	printOnly         bool
-	noCache           bool
-	module            string
-	toolsOnly         bool
-	baseRef           string
-	planOnly          bool
+	scope     string
+	envFile   string
+	printOnly bool
+	noCache   bool
+	module    string
+	toolsOnly bool
+	baseRef   string
+	planOnly  bool
 }
 
 func main() {
@@ -99,8 +93,6 @@ func run(args []string) int {
 		err = devrun.Stop(root)
 	case "integration":
 		err = testenv.Integration(root, defaultScope(parsed.scope))
-	case "e2e":
-		err = testenv.E2E(root, defaultScope(parsed.scope), parsed.overrides())
 	case "stack-up":
 		err = stack.Up(root)
 	case "stack-down":
@@ -181,21 +173,6 @@ func repositoryRoot() (string, error) {
 	}
 }
 
-// overrides are the explicit entry-point values an isolated scope accepts.
-func (o options) overrides() map[string]string {
-	values := map[string]string{}
-	for key, value := range map[string]string{
-		"HTTP_PORT":           o.httpPort,
-		"FRONTEND_PORT":       o.frontendPort,
-		"ADMIN_FRONTEND_PORT": o.adminFrontendPort,
-	} {
-		if value != "" {
-			values[key] = value
-		}
-	}
-	return values
-}
-
 func parseOptions(args []string) (options, error) {
 	parsed := options{}
 	for index := 0; index < len(args); index++ {
@@ -221,12 +198,6 @@ func parseOptions(args []string) (options, error) {
 		switch name {
 		case "--scope":
 			parsed.scope = value
-		case "--http-port":
-			parsed.httpPort = value
-		case "--frontend-port":
-			parsed.frontendPort = value
-		case "--admin-frontend-port":
-			parsed.adminFrontendPort = value
 		case "--env-file":
 			parsed.envFile = value
 		case "--print":
@@ -245,21 +216,12 @@ func parseOptions(args []string) (options, error) {
 			return options{}, fmt.Errorf("unknown option: %s", name)
 		}
 	}
-	for _, port := range []string{parsed.httpPort, parsed.frontendPort, parsed.adminFrontendPort} {
-		if port == "" {
-			continue
-		}
-		number, err := strconv.Atoi(port)
-		if err != nil || number < 1 || number > 65535 {
-			return options{}, fmt.Errorf("port must be an integer from 1 to 65535")
-		}
-	}
 	return parsed, nil
 }
 
 func isFlagWithValue(name string) bool {
 	switch name {
-	case "--scope", "--env-file", "--http-port", "--frontend-port", "--admin-frontend-port", "--module", "--base-ref":
+	case "--scope", "--env-file", "--module", "--base-ref":
 		return true
 	}
 	return false

@@ -40,6 +40,8 @@ func NewKafkaWithOptions(brokers []string, topic, group string, commitTimeout ti
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...), kgo.ClientID("gopulse-marshaller"), kgo.ConsumerGroup(group), kgo.ConsumeTopics(topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()), kgo.DisableAutoCommit(),
+		kgo.RequiredAcks(kgo.AllISRAcks()), kgo.AllowIdempotentProduceCancellation(),
+		kgo.RecordDeliveryTimeout(commitTimeout),
 		kgo.OnPartitionsAssigned(func(_ context.Context, _ *kgo.Client, assigned map[string][]int32) {
 			ownership.Assign(convertPartitions(assigned))
 		}),
@@ -73,6 +75,7 @@ func (k *Kafka) Commit(ctx context.Context, record Record) error {
 	defer cancel()
 	return k.Client.CommitRecords(commitCtx, &kgo.Record{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset})
 }
+
 func (k *Kafka) Ready(ctx context.Context) (result error) {
 	defer func() { componentmetrics.Dependency("kafka", result) }()
 	if k.halted.Load() {
@@ -109,22 +112,22 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 	defer cancel()
 	semaphore := make(chan struct{}, maxInFlight)
 	var workers sync.WaitGroup
-	var locksMu sync.Mutex
-	partitionLocks := make(map[Partition]*sync.Mutex)
+	type task struct {
+		record Record
+		lease  Lease
+	}
+	type partitionWorker struct {
+		queue chan task
+	}
+	var workersMu sync.Mutex
+	partitionWorkers := make(map[Partition]*partitionWorker)
 	var lagMu sync.Mutex
 	partitionPending := make(map[Partition]int)
+	lastOffset := make(map[Partition]int64)
+	seenOffset := make(map[Partition]bool)
 	var firstErr error
 	var firstErrMu sync.Mutex
-	partitionLock := func(partition Partition) *sync.Mutex {
-		locksMu.Lock()
-		defer locksMu.Unlock()
-		lock := partitionLocks[partition]
-		if lock == nil {
-			lock = &sync.Mutex{}
-			partitionLocks[partition] = lock
-		}
-		return lock
-	}
+	var fail func(error)
 	setLag := func(partition Partition, delta int) {
 		lagMu.Lock()
 		partitionPending[partition] += delta
@@ -138,7 +141,42 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 			metrics.Set("partition_lag", float64(pending), fmt.Sprintf("%d", partition.Partition))
 		}
 	}
-	fail := func(err error) {
+	newWorker := func(partition Partition) *partitionWorker {
+		workersMu.Lock()
+		defer workersMu.Unlock()
+		if worker := partitionWorkers[partition]; worker != nil {
+			return worker
+		}
+		worker := &partitionWorker{queue: make(chan task, 1)}
+		partitionWorkers[partition] = worker
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case item := <-worker.queue:
+					select {
+					case semaphore <- struct{}{}:
+					case <-runCtx.Done():
+						setLag(partition, -1)
+						return
+					}
+					if item.lease.Valid() {
+						err := processor.Handle(runCtx, item.record, item.lease)
+						if err != nil && !errors.Is(err, ErrOwnershipLost) && runCtx.Err() == nil {
+							fail(fmt.Errorf("partition %d halted: %w", partition.Partition, err))
+						}
+					}
+					<-semaphore
+					setLag(partition, -1)
+				}
+			}
+		}()
+		return worker
+	}
+	fail = func(err error) {
 		if err == nil {
 			return
 		}
@@ -170,33 +208,27 @@ func (k *Kafka) Run(ctx context.Context, processor *Processor, logf func(string,
 				return
 			}
 			partition := Partition{Topic: record.Topic, Partition: record.Partition}
-			partitionNumber := record.Partition
 			lease, ok := k.Ownership.Lease(partition)
 			if !ok {
 				return
 			}
+			if seenOffset[partition] && record.Offset > lastOffset[partition]+1 && logf != nil {
+				logf("Kafka retention gap observed", "module", "consumer", "event", "offset_gap", "topic", record.Topic, "partition", record.Partition, "from_offset", lastOffset[partition]+1, "to_offset", record.Offset-1)
+			}
+			if !seenOffset[partition] || record.Offset > lastOffset[partition] {
+				lastOffset[partition], seenOffset[partition] = record.Offset, true
+			}
 			setLag(partition, 1)
+			item := Record{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset, Key: append([]byte(nil), record.Key...), Value: append([]byte(nil), record.Value...)}
+			worker := newWorker(partition)
 			select {
-			case semaphore <- struct{}{}:
+			case worker.queue <- task{record: item, lease: lease}:
 			case <-runCtx.Done():
 				setLag(partition, -1)
-				return
 			}
-			item := Record{Topic: record.Topic, Partition: record.Partition, Offset: record.Offset, Key: append([]byte(nil), record.Key...), Value: append([]byte(nil), record.Value...)}
-			workers.Add(1)
-			go func() {
-				defer workers.Done()
-				defer func() { <-semaphore }()
-				defer setLag(partition, -1)
-				lock := partitionLock(partition)
-				lock.Lock()
-				defer lock.Unlock()
-				if err := processor.Handle(runCtx, item, lease); err != nil && !errors.Is(err, ErrOwnershipLost) {
-					fail(fmt.Errorf("partition %d halted: %w", partitionNumber, err))
-				}
-			}()
 		})
 	}
+	cancel()
 	workers.Wait()
 	firstErrMu.Lock()
 	err := firstErr

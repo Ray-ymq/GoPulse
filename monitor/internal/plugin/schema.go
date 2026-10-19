@@ -52,7 +52,7 @@ func OfficialSchema(id string) (ConfigSchema, error) {
 	case "rabbitmq":
 		fields = append(fields, ConfigField{Name: "vhost", Type: "string", Required: true, Enum: []string{"/"}}, boundedField("username", "string", 1, 64))
 	case "kafka":
-		fields = append(fields, ConfigField{Name: "topic", Type: "string", Required: true, Enum: []string{"gopulse-observability-v1"}}, ConfigField{Name: "consumer_group", Type: "string", Required: true, Enum: []string{"gopulse-marshaller-metrics-v1"}})
+		fields = append(fields, ConfigField{Name: "topic", Type: "string", Required: true, Enum: []string{"gopulse-observability-metrics"}}, ConfigField{Name: "consumer_group", Type: "string", Required: true, Enum: []string{"gopulse-marshaller-metrics"}}, ConfigField{Name: "jmx_url", Type: "url", Required: false})
 	case "elasticsearch":
 		f := boundedField("username", "string", 1, 64)
 		f.Required = false
@@ -167,4 +167,68 @@ func ValidateConfigSchema(data []byte, manifest Manifest) error {
 		return invalidConfig()
 	}
 	return nil
+}
+
+// ValidateExternalConfigSchema checks the shape needed by the generic manager
+// without importing a source-specific schema or adapter. The Exporter remains
+// responsible for field semantics and cross-field validation.
+func ValidateExternalConfigSchema(data []byte, manifest Manifest) error {
+	if manifest.SchemaVersion != 2 || manifest.ConfigSchemaPath != "config.schema.json" || !uniqueJSON(data) {
+		return invalidConfig()
+	}
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != manifest.ConfigSchemaSHA256 {
+		return invalidConfig()
+	}
+	var schema ConfigSchema
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&schema) != nil || schema.SchemaVersion != 1 || schema.PluginID != manifest.ID || len(schema.Fields) == 0 {
+		return invalidConfig()
+	}
+	seen := map[string]bool{}
+	for _, field := range schema.Fields {
+		if !validConfigField(field) || seen[field.Name] {
+			return invalidConfig()
+		}
+		seen[field.Name] = true
+	}
+	return nil
+}
+
+func validConfigField(field ConfigField) bool {
+	if !validFieldName(field.Name) || (field.Type == "secret") != field.Secret {
+		return false
+	}
+	switch field.Type {
+	case "hostname", "port", "integer", "string", "secret", "duration", "url":
+	default:
+		return false
+	}
+	if field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, item := range field.Enum {
+		if item == "" || seen[item] {
+			return false
+		}
+		seen[item] = true
+	}
+	return true
+}
+
+func validFieldName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, r := range value {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+		if index == 0 && (r < 'a' || r > 'z') {
+			return false
+		}
+	}
+	return len(value) <= 128
 }

@@ -175,7 +175,7 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 	if err != nil {
 		return nil, 0, monitorUnavailable()
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil || len(payload) > maxResponseBytes {
 		return nil, response.StatusCode, monitorUnavailable()
@@ -199,7 +199,7 @@ func decodeStatusList(payload []byte) ([]Status, error) {
 		return nil, errors.New("invalid list envelope")
 	}
 	var rawItems []json.RawMessage
-	if err := decodeStrict(data, &rawItems); err != nil || rawItems == nil || len(rawItems) > 6 {
+	if err := decodeStrict(data, &rawItems); err != nil || rawItems == nil || len(rawItems) > 64 {
 		return nil, errors.New("invalid status list")
 	}
 	items := make([]Status, 0, len(rawItems))
@@ -244,7 +244,7 @@ func decodeStatusObject(payload []byte) (Status, error) {
 		return Status{}, err
 	}
 	required := []string{"id", "name", "version", "kind", "source", "desired_state", "observed_state", "installed_at", "updated_at", "started_at", "last_scrape_at", "last_success_at"}
-	if !(exactKeys(fields, required...) || exactKeys(fields, append(required, "last_error")...)) {
+	if !exactKeys(fields, required...) && !exactKeys(fields, append(required, "last_error")...) {
 		return Status{}, errors.New("invalid status fields")
 	}
 	if raw, ok := fields["last_error"]; ok && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {

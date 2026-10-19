@@ -77,6 +77,21 @@ type Envelope struct {
 	Payload       json.RawMessage `json:"payload"`
 }
 
+type wireEntry struct {
+	Timestamp string         `json:"timestamp"`
+	Level     string         `json:"level"`
+	Service   string         `json:"service"`
+	Module    string         `json:"module"`
+	Message   string         `json:"message"`
+	Fields    map[string]any `json:"fields"`
+}
+
+type wirePayload struct {
+	DataID int         `json:"dataid"`
+	Time   int64       `json:"time"`
+	Data   []wireEntry `json:"data"`
+}
+
 type Validated struct {
 	Timestamp string
 	Source    string
@@ -87,7 +102,45 @@ func NewEnvelope(messageID string, value Validated) (Envelope, error) {
 	if !messageIDPattern.MatchString(messageID) {
 		return Envelope{}, errors.New("invalid message id")
 	}
-	return Envelope{SchemaVersion: 1, MessageID: messageID, Type: "logs", Source: value.Source, Timestamp: value.Timestamp, Payload: value.Payload}, nil
+	decoder := json.NewDecoder(bytes.NewReader(value.Payload))
+	decoder.UseNumber()
+	var fields map[string]any
+	if err := decoder.Decode(&fields); err != nil || fields == nil || expectEOF(decoder) != nil {
+		return Envelope{}, errors.New("invalid log payload")
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, value.Timestamp)
+	if err != nil || timestamp.Location() != time.UTC {
+		return Envelope{}, errors.New("invalid log timestamp")
+	}
+	extra := make(map[string]any)
+	for key, item := range fields {
+		switch key {
+		case "log_schema_version", "timestamp", "level", "service", "module", "message":
+		default:
+			extra[key] = item
+		}
+	}
+	payload, err := json.Marshal(wirePayload{
+		DataID: 3001,
+		Time:   timestamp.Unix(),
+		Data: []wireEntry{{
+			Timestamp: value.Timestamp,
+			Level:     stringField(fields, "level"),
+			Service:   value.Source,
+			Module:    stringField(fields, "module"),
+			Message:   stringField(fields, "message"),
+			Fields:    extra,
+		}},
+	})
+	if err != nil {
+		return Envelope{}, errors.New("log serialization failed")
+	}
+	return Envelope{SchemaVersion: 2, MessageID: messageID, Type: "logs", Source: value.Source, Timestamp: value.Timestamp, Payload: payload}, nil
+}
+
+func stringField(fields map[string]any, key string) string {
+	value, _ := fields[key].(string)
+	return value
 }
 
 func Validate(body []byte, now time.Time, futureSkew time.Duration) (Validated, error) {

@@ -12,6 +12,10 @@ import (
 func TestIdentityIsPathScopedAndStable(t *testing.T) {
 	first := t.TempDir()
 	second := t.TempDir()
+	resolvedFirst, err := filepath.EvalSymlinks(first)
+	if err != nil {
+		t.Fatal(err)
+	}
 	one, err := For(first)
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +37,7 @@ func TestIdentityIsPathScopedAndStable(t *testing.T) {
 	if !regexp.MustCompile(`^[0-9a-f]{12}$`).MatchString(one.Identity) {
 		t.Errorf("identity must be 12 hex characters: %s", one.Identity)
 	}
-	if one.PrivateRoot() != filepath.Join(first, ".run", "local", one.Identity) {
+	if one.PrivateRoot() != filepath.Join(resolvedFirst, ".run", "local", one.Identity) {
 		t.Errorf("private root = %s", one.PrivateRoot())
 	}
 }

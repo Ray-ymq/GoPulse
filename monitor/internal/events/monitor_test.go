@@ -18,6 +18,19 @@ func (f senderFunc) PublishRaw(ctx context.Context, id string, body any) error {
 	return f(ctx, id, body)
 }
 
+type durableSenderFunc struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *durableSenderFunc) PublishRaw(context.Context, string, any) error { return nil }
+func (f *durableSenderFunc) EnqueueRaw(context.Context, string, any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return nil
+}
+
 type permanentFailure struct{}
 
 func (permanentFailure) Error() string   { return "rejected" }
@@ -48,6 +61,17 @@ func TestContractAndCanonicalEnvelope(t *testing.T) {
 		envelope, err := DecodeStrict(body, now)
 		if err != nil || envelope.Payload.EventName != name || envelope.Timestamp != event.Timestamp {
 			t.Fatalf("%s decode=%+v err=%v", name, envelope, err)
+		}
+		var wire struct {
+			Payload struct {
+				DataID int `json:"dataid"`
+				Data   []struct {
+					EventName string `json:"event_name"`
+				} `json:"data"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(body, &wire); err != nil || wire.Payload.DataID != EventsDataID || len(wire.Payload.Data) != 1 || wire.Payload.Data[0].EventName != name {
+			t.Fatalf("%s is not a batch event: %s", name, body)
 		}
 	}
 	bad := testEvent("exporter_plugin_started")
@@ -137,6 +161,28 @@ func TestMonitorQueueFullAndCloseAreBounded(t *testing.T) {
 	close(release)
 	if monitor.Record(testEvent("exporter_plugin_started")) {
 		t.Fatal("closed monitor accepted a record")
+	}
+}
+
+func TestDurableMonitorEnqueuesSynchronouslyAndCloses(t *testing.T) {
+	sender := &durableSenderFunc{}
+	monitor, err := NewMonitor(Config{Capacity: 1, Timeout: time.Second, Sender: sender, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !monitor.Record(testEvent("exporter_plugin_started")) {
+		t.Fatal("durable event was rejected")
+	}
+	if err := monitor.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if monitor.Record(testEvent("exporter_plugin_stopped")) {
+		t.Fatal("closed durable monitor accepted an event")
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if sender.calls != 1 {
+		t.Fatalf("durable enqueue calls=%d, want 1", sender.calls)
 	}
 }
 

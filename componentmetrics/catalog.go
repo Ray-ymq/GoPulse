@@ -6,13 +6,13 @@ import (
 	"strings"
 )
 
-var Components = []string{"backend", "business-worker", "search-indexer", "monitor", "router", "marshaller"}
+var Components = []string{"backend", "business-worker", "search-indexer", "monitor", "marshaller"}
 var Plugins = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
 
 // ProcessIDs is the code-owned process identity inventory. Runtime roles,
 // replica ownership, budgets and Compose bindings remain authoritative in
 // deploy/runtime-contracts.json; the verifier rejects drift between this
-// closed metric directory and that machine contract.
+// process inventory and that machine contract.
 func ProcessIDs() []string {
 	result := append([]string{}, Components...)
 	for _, plugin := range Plugins {
@@ -40,9 +40,8 @@ type Family struct {
 	// Pair identifies the duration counter for a count family (and vice versa).
 	Pair string
 	// Distribution describes a physical member of a fixed histogram contract.
-	// Bucket, count, and sum are separate Prometheus families so every ingress
-	// boundary can validate the complete distribution without accepting a
-	// client-defined metric name or label.
+	// The component registry emits bucket, count, and sum as separate families.
+	// Transport validation checks their structure without a metric directory.
 	Distribution *Distribution
 }
 type Distribution struct {
@@ -175,6 +174,17 @@ func Catalog(id string) (Spec, bool) {
 		s.Families = append(s.Families, Family{Name: prefix + "http_rejected_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
 		pair("freshness_events_total", "freshness_duration_seconds_total", []string{"stage", "result"}, expand(singles("commit", "publish", "consume", "index", "visible"), "success", "failure"))
 		s.Families = append(s.Families, Family{Name: prefix + "trace_context_invalid_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
+		s.Families = append(s.Families,
+			Family{Name: prefix + "cache_requests_total", Kind: "counter", Unit: "count", Keys: []string{"result"}, Tuples: singles("hit", "miss", "invalid", "error")},
+			Family{Name: prefix + "cache_origin_total", Kind: "counter", Unit: "count", Keys: []string{"result"}, Tuples: singles("success", "failure", "version_changed"), Pair: prefix + "cache_origin_duration_seconds_total"},
+			Family{Name: prefix + "cache_origin_duration_seconds_total", Kind: "counter", Unit: "seconds", Keys: []string{"result"}, Tuples: singles("success", "failure", "version_changed"), Pair: prefix + "cache_origin_total"},
+			Family{Name: prefix + "rate_limit_decisions_total", Kind: "counter", Unit: "count", Keys: []string{"policy", "mode", "result"}, Tuples: expand(expand(singles("auth_source", "login_attempt", "post_read", "fact_write", "interaction_like"), "shared", "local"), "allow", "deny", "error")},
+			Family{Name: prefix + "resource_rejected_total", Kind: "counter", Unit: "count", Keys: []string{"resource", "reason"}, Tuples: expand(singles("auth", "read", "write"), "capacity", "rate_limited", "unavailable")},
+		)
+		pair("db_operations_total", "db_operation_duration_seconds_total", []string{"operation", "result"}, expand(singles("post_context", "post_body", "post_dynamic", "post_viewer"), "success", "failure", "version_changed"))
+		gauge("cache_rebuild_in_flight", "count", nil, nil)
+		gauge("cache_waiters", "count", nil, nil)
+		gauge("cache_registered_waiters", "count", nil, nil)
 		dep("mysql", "redis", "rabbitmq", "elasticsearch")
 	case "business-worker":
 		pair("messages_total", "message_processing_duration_seconds_total", []string{"event_type", "result"}, expand(singles("comment.created", "post.liked", "user.followed", "unknown"), "success", "retry", "failure", "ack"))
@@ -197,17 +207,7 @@ func Catalog(id string) (Spec, bool) {
 		gauge("last_scrape_success_timestamp_seconds", "unix_seconds", []string{"scraped_producer_kind", "scraped_target_id"}, ScrapeTargets())
 		gauge("event_queue_length", "count", nil, nil)
 		gauge("plugins_running", "count", nil, nil)
-		dep("router")
 		s.Families = append(s.Families, Family{Name: prefix + "event_queue_dropped_total", Kind: "counter", Unit: "count", Tuples: [][]string{{}}, Required: true})
-	case "router":
-		pair("messages_total", "produce_duration_seconds_total", []string{"type", "message_source", "result"}, expand(MessagePairs(), "accepted", "rejected", "produced"))
-		gauge("buffered_records", "count", nil, nil)
-		gauge("buffered_bytes", "bytes", nil, nil)
-		gauge("buffer_limit_records", "count", nil, nil)
-		gauge("buffer_limit_bytes", "bytes", nil, nil)
-		gauge("last_kafka_ack_timestamp_seconds", "unix_seconds", nil, nil)
-		pair("backpressure_total", "backpressure_duration_seconds_total", []string{"reason"}, singles("buffer_full", "kafka_failure", "request_canceled"))
-		dep("kafka")
 	case "marshaller":
 		var tuples [][]string
 		for _, p := range MessagePairs() {
@@ -224,6 +224,8 @@ func Catalog(id string) (Spec, bool) {
 		gauge("target_blocked", "state", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_storage_success_timestamp_seconds", "unix_seconds", []string{"storage"}, singles("victoriametrics", "elasticsearch"))
 		gauge("last_commit_success_timestamp_seconds", "unix_seconds", nil, nil)
+		discardReasons := []string{"invalid_json", "invalid_utf8", "invalid_envelope", "invalid_payload", "invalid_payload_identity", "invalid_producer", "invalid_sample_set", "invalid_timestamp", "invalid_value", "message_id_mismatch", "timestamp_too_far_future", "invalid_component_status", "unsupported_envelope", "record_too_large", "invalid_metric_batch", "invalid_log_payload", "invalid_event_payload", "source_mismatch", "timestamp_mismatch", "transform_failed", "expired_log_retention", "expired_event_retention", "unknown"}
+		s.Families = append(s.Families, Family{Name: prefix + "records_discarded_total", Kind: "counter", Unit: "count", Keys: []string{"reason"}, Tuples: singles(discardReasons...)})
 		dep("kafka", "victoriametrics", "elasticsearch")
 		cleanupResults := []string{"deleted", "not_found", "not_owned", "invalid_date", "not_expired", "transient", "permission_denied", "budget_exhausted", "unknown"}
 		streams := singles("logs", "events")

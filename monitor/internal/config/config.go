@@ -13,30 +13,36 @@ import (
 )
 
 type Config struct {
-	RuntimeMode          RuntimeMode
-	HTTPHost             string
-	HTTPPort             int
-	APIToken             string
-	PluginRoot           string
-	BootstrapPackage     string
-	RequestTimeout       time.Duration
-	ShutdownTimeout      time.Duration
-	StartupTimeout       time.Duration
-	StopTimeout          time.Duration
-	ScrapeInterval       time.Duration
-	ScrapeTimeout        time.Duration
-	PublishTimeout       time.Duration
-	RouterURL            string
-	RouterURLs           []string
-	RouterToken          string
-	LogIngestToken       string
-	LogMaxBytes          int64
-	LogFutureSkew        time.Duration
-	EventQueueCapacity   int
-	EventRetryMin        time.Duration
-	EventRetryMax        time.Duration
-	EventShutdownTimeout time.Duration
-	ExporterEnv          map[string]string
+	RuntimeMode             RuntimeMode
+	HTTPHost                string
+	HTTPPort                int
+	APIToken                string
+	PluginRoot              string
+	ReleaseCatalog          string
+	BootstrapPackage        string
+	RequestTimeout          time.Duration
+	ShutdownTimeout         time.Duration
+	StartupTimeout          time.Duration
+	StopTimeout             time.Duration
+	ScrapeInterval          time.Duration
+	ScrapeTimeout           time.Duration
+	PublishTimeout          time.Duration
+	LogIngestToken          string
+	LogMaxBytes             int64
+	LogFutureSkew           time.Duration
+	EventQueueCapacity      int
+	EventRetryMin           time.Duration
+	EventRetryMax           time.Duration
+	EventShutdownTimeout    time.Duration
+	SpoolDir                string
+	MetricsSpoolMaxBytes    int64
+	LogsSpoolMaxBytes       int64
+	EventsSpoolMaxBytes     int64
+	KafkaBrokers            []string
+	KafkaProduceTimeout     time.Duration
+	KafkaMaxBufferedRecords int
+	KafkaMaxBufferedBytes   int
+	ExporterEnv             map[string]string
 }
 
 func Load() (Config, error) {
@@ -53,7 +59,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	for _, key := range []string{"ROUTER_ENDPOINTS", "MARSHALLER_ENDPOINTS"} {
+	for _, key := range []string{"MARSHALLER_ENDPOINTS"} {
 		if raw, ok := lookup(key); ok && strings.TrimSpace(raw) != "" {
 			if err := validateReplicaEndpoints(key, raw); err != nil {
 				return Config{}, err
@@ -92,6 +98,13 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, errors.New("MONITOR_BOOTSTRAP_PACKAGE must be an absolute path")
 		}
 		bootstrapPackage = filepath.Clean(bootstrapPackage)
+	}
+	releaseCatalog := value("MONITOR_RELEASE_CATALOG", "")
+	if releaseCatalog != "" {
+		if strings.ContainsAny(releaseCatalog, "\x00\r\n") || !filepath.IsAbs(releaseCatalog) {
+			return Config{}, errors.New("MONITOR_RELEASE_CATALOG must be an absolute path")
+		}
+		releaseCatalog = filepath.Clean(releaseCatalog)
 	}
 	parseDuration := func(key string, fallback, min, max time.Duration) (time.Duration, error) {
 		raw := value(key, fallback.String())
@@ -132,13 +145,26 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	routerURLs, err := parseRouterURLs(value("MONITOR_ROUTER_URLS", ""), value("MONITOR_ROUTER_URL", ""), runtimeMode)
+	kafkaDefault := "127.0.0.1:9092"
+	if runtimeMode == RuntimeModeContainer {
+		kafkaDefault = "kafka:19092"
+	}
+	kafkaBrokers, err := parseKafkaBrokers(value("MONITOR_KAFKA_BROKERS", kafkaDefault), runtimeMode)
 	if err != nil {
 		return Config{}, err
 	}
-	routerToken, _ := lookup("MONITOR_ROUTER_TOKEN")
-	if len(routerURLs) > 0 && (len(routerToken) < 32 || strings.ContainsAny(routerToken, "\r\n")) {
-		return Config{}, errors.New("MONITOR_ROUTER_TOKEN must contain at least 32 bytes when a Router URL is set")
+	// Kafka RecordDeliveryTimeout requires at least one second.
+	kafkaProduceTimeout, err := parseDuration("MONITOR_KAFKA_PRODUCE_TIMEOUT", 3*time.Second, time.Second, 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	kafkaMaxBufferedRecords, err := strconv.Atoi(value("MONITOR_KAFKA_MAX_BUFFERED_RECORDS", "128"))
+	if err != nil || kafkaMaxBufferedRecords < 1 || kafkaMaxBufferedRecords > 1024 {
+		return Config{}, errors.New("MONITOR_KAFKA_MAX_BUFFERED_RECORDS must be between 1 and 1024")
+	}
+	kafkaMaxBufferedBytes, err := strconv.Atoi(value("MONITOR_KAFKA_MAX_BUFFERED_BYTES", "8388608"))
+	if err != nil || kafkaMaxBufferedBytes < 1<<20 || kafkaMaxBufferedBytes > 64<<20 {
+		return Config{}, errors.New("MONITOR_KAFKA_MAX_BUFFERED_BYTES must be between 1048576 and 67108864")
 	}
 	logToken, ok := lookup("LOG_MONITOR_INGEST_TOKEN")
 	if !ok || len(logToken) < 32 || strings.ContainsAny(logToken, "\r\n") || logToken == token {
@@ -171,6 +197,30 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if value("MONITOR_EVENT_MAX_BYTES", "16384") != "16384" {
 		return Config{}, errors.New("MONITOR_EVENT_MAX_BYTES must be 16384")
 	}
+	spoolDir := value("MONITOR_SPOOL_DIR", "/var/lib/gopulse-monitor/spool")
+	if strings.ContainsAny(spoolDir, "\x00\r\n") || !filepath.IsAbs(spoolDir) {
+		return Config{}, errors.New("MONITOR_SPOOL_DIR must be an absolute path")
+	}
+	parseSpoolSize := func(key string) (int64, error) {
+		raw := value(key, strconv.FormatInt(1<<30, 10))
+		size, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || size < 1<<20 || size > 1<<30 {
+			return 0, fmt.Errorf("%s must be between 1048576 and 1073741824 bytes", key)
+		}
+		return size, nil
+	}
+	metricsSpoolMaxBytes, err := parseSpoolSize("MONITOR_METRICS_SPOOL_MAX_BYTES")
+	if err != nil {
+		return Config{}, err
+	}
+	logsSpoolMaxBytes, err := parseSpoolSize("MONITOR_LOGS_SPOOL_MAX_BYTES")
+	if err != nil {
+		return Config{}, err
+	}
+	eventsSpoolMaxBytes, err := parseSpoolSize("MONITOR_EVENTS_SPOOL_MAX_BYTES")
+	if err != nil {
+		return Config{}, err
+	}
 	env := map[string]string{}
 	for _, key := range []string{"GOPULSE_RUNTIME_MODE", "REDIS_HOST", "REDIS_PORT", "REDIS_PASSWORD", "REDIS_DB", "REDIS_EXPORTER_HTTP_HOST", "REDIS_EXPORTER_HTTP_PORT", "REDIS_EXPORTER_SCRAPE_TIMEOUT", "REDIS_EXPORTER_SHUTDOWN_TIMEOUT"} {
 		if v, ok := lookup(key); ok {
@@ -179,7 +229,14 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	for _, key := range []string{"REDIS_HOST", "REDIS_PORT", "REDIS_DB"} {
 		if strings.TrimSpace(env[key]) == "" {
-			return Config{}, fmt.Errorf("%s is required", key)
+			switch key {
+			case "REDIS_HOST":
+				env[key] = "127.0.0.1"
+			case "REDIS_PORT":
+				env[key] = "6379"
+			case "REDIS_DB":
+				env[key] = "0"
+			}
 		}
 	}
 	if err := validateDependencyHost(runtimeMode, "REDIS_HOST", env["REDIS_HOST"]); err != nil {
@@ -199,43 +256,41 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil || exporterPort < 1 || exporterPort > 65535 {
 		return Config{}, errors.New("REDIS_EXPORTER_HTTP_PORT must be between 1 and 65535")
 	}
-	routerURL := ""
-	if len(routerURLs) > 0 {
-		routerURL = routerURLs[0]
-	}
-	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, RouterURL: routerURL, RouterURLs: routerURLs, RouterToken: routerToken, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, ExporterEnv: env}, nil
+	return Config{RuntimeMode: runtimeMode, HTTPHost: host, HTTPPort: port, APIToken: token, PluginRoot: root, ReleaseCatalog: releaseCatalog, BootstrapPackage: bootstrapPackage, RequestTimeout: requestTimeout, ShutdownTimeout: shutdownTimeout, StartupTimeout: startupTimeout, StopTimeout: stopTimeout, ScrapeInterval: scrapeInterval, ScrapeTimeout: scrapeTimeout, PublishTimeout: publishTimeout, LogIngestToken: logToken, LogMaxBytes: logMax, LogFutureSkew: logFutureSkew, EventQueueCapacity: eventCapacity, EventRetryMin: eventRetryMin, EventRetryMax: eventRetryMax, EventShutdownTimeout: eventShutdownTimeout, SpoolDir: filepath.Clean(spoolDir), MetricsSpoolMaxBytes: metricsSpoolMaxBytes, LogsSpoolMaxBytes: logsSpoolMaxBytes, EventsSpoolMaxBytes: eventsSpoolMaxBytes, KafkaBrokers: kafkaBrokers, KafkaProduceTimeout: kafkaProduceTimeout, KafkaMaxBufferedRecords: kafkaMaxBufferedRecords, KafkaMaxBufferedBytes: kafkaMaxBufferedBytes, ExporterEnv: env}, nil
 }
 
-func parseRouterURLs(list, fallback string, runtimeMode RuntimeMode) ([]string, error) {
-	raw := strings.TrimSpace(list)
-	if raw == "" {
-		raw = strings.TrimSpace(fallback)
+func parseKafkaBrokers(value string, runtimeMode RuntimeMode) ([]string, error) {
+	parts := strings.Split(value, ",")
+	if len(parts) < 1 || len(parts) > 16 {
+		return nil, errors.New("MONITOR_KAFKA_BROKERS must contain 1 to 16 brokers")
 	}
-	if raw == "" {
-		return nil, nil
-	}
-	parts := strings.Split(raw, ",")
-	if len(parts) == 0 || len(parts) > 8 {
-		return nil, errors.New("MONITOR_ROUTER_URLS must contain 1 to 8 URLs")
-	}
-	seen := make(map[string]struct{}, len(parts))
-	urls := make([]string, 0, len(parts))
-	for _, part := range parts {
-		url := strings.TrimSpace(part)
-		if url == "" {
-			return nil, errors.New("MONITOR_ROUTER_URLS contains an empty URL")
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(parts))
+	for _, raw := range parts {
+		broker := strings.TrimSpace(raw)
+		host, port, err := net.SplitHostPort(broker)
+		if err != nil || host == "" || parsePort(port) == 0 || strings.ContainsAny(host, "\r\n\t /?#@") {
+			return nil, errors.New("MONITOR_KAFKA_BROKERS must contain valid host:port entries")
 		}
-		if err := validateHTTPOrigin(runtimeMode, "MONITOR_ROUTER_URLS", url); err != nil {
+		if err := validateDependencyHost(runtimeMode, "MONITOR_KAFKA_BROKERS", host); err != nil {
 			return nil, err
 		}
-		canonical := strings.TrimRight(url, "/")
+		canonical := net.JoinHostPort(host, port)
 		if _, ok := seen[canonical]; ok {
-			return nil, errors.New("MONITOR_ROUTER_URLS must not contain duplicates")
+			return nil, errors.New("MONITOR_KAFKA_BROKERS must not contain duplicates")
 		}
 		seen[canonical] = struct{}{}
-		urls = append(urls, canonical)
+		out = append(out, canonical)
 	}
-	return urls, nil
+	return out, nil
+}
+
+func parsePort(value string) int {
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return 0
+	}
+	return port
 }
 
 func validateReplicaEndpoints(key, raw string) error {
