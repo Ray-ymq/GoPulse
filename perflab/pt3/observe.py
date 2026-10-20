@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 import urllib.request
-from environment import ROOT, STATE, CONTAINERS, environment
+from environment import ROOT, STATE, CONTAINERS, environment, service_binary
 
 GIB=1024**3
 LIMITS={'host_available_min_bytes':GIB,'disk_free_min_bytes':20*GIB,'mysql_memory_max_bytes':int(1.8*GIB),
@@ -20,6 +20,10 @@ LIMITS={'host_available_min_bytes':GIB,'disk_free_min_bytes':20*GIB,'mysql_memor
         'state_gap_max_seconds':8,'database_failure_seconds':30,'load_rate_min_ratio':.95}
 
 def utc():return datetime.now(timezone.utc).isoformat()
+
+def configuration_matches(actual, expected):
+    return all(key in actual and (configuration_matches(actual[key], value) if isinstance(value, dict) else actual[key] == value)
+               for key, value in expected.items())
 
 def percentile(values, fraction):
     if not values:return None
@@ -34,6 +38,7 @@ class Observation:
         self.env=environment();self.lock=threading.Lock();self.stop=threading.Event();self.children=[]
         self.last_probe=0;self.last_state=0;self.failed_since=None;self.reason=None
         self.connections=0;self.backlog=0;self.initial={};self.started=time.time();self.previous_cpu={};self.telemetry_heartbeat=time.time()
+        self.expected_mysql={'Memory':2*GIB,'NanoCpus':2000000000,'MemorySwap':2*GIB,'RestartPolicy':{'Name':'no'}}
         self.opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
         (directory/'limits.json').write_text(json.dumps(LIMITS,indent=2)+'\n')
 
@@ -106,7 +111,7 @@ class Observation:
             if not path.exists():self.fail(name+'_pid_missing');continue
             pid=int(path.read_text())
             try:
-                if str(STATE/'bin'/name).encode() not in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0'):self.fail(name+'_process_identity_changed')
+                if str(service_binary(name)).encode() not in Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0'):self.fail(name+'_process_identity_changed')
                 stat=Path(f'/proc/{pid}/stat').read_text().rsplit(') ',1)[1].split()
                 status=Path(f'/proc/{pid}/status').read_text()
                 rss=next(int(line.split()[1])*1024 for line in status.splitlines() if line.startswith('VmRSS:'))
@@ -129,7 +134,7 @@ class Observation:
         for line in raw.splitlines():
             state,cid,restarts,name,host_config=line.split('\t');state=json.loads(state);host_config=json.loads(host_config)
             evidence={key:state[key] for key in ['Status','OOMKilled','ExitCode','StartedAt','FinishedAt']};evidence['restarts']=int(restarts)
-            if name.endswith('mysql-1') and (host_config['Memory']!=2*GIB or host_config['NanoCpus']!=2000000000 or host_config['MemorySwap']!=2*GIB or host_config['RestartPolicy']['Name']!='no'):self.fail('mysql_resource_configuration_changed')
+            if name.endswith('mysql-1') and not configuration_matches(host_config,self.expected_mysql):self.fail('mysql_resource_configuration_changed')
             cgroup=Path('/sys/fs/cgroup/system.slice/docker-'+cid+'.scope')
             evidence['memory_bytes']=int((cgroup/'memory.current').read_text())
             evidence['cpu']=dict(row.split() for row in (cgroup/'cpu.stat').read_text().splitlines())

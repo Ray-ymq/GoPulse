@@ -10,9 +10,15 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-STATE = ROOT / '.run/pt3'
+STATE = ROOT / '.run' / os.environ.get('GOPULSE_PERFLAB_STATE', 'pt3')
+if STATE.name not in {'pt3', 'pt4'} or STATE.parent != ROOT / '.run':
+    raise RuntimeError('测试状态目录只能为 .run/pt3 或 .run/pt4')
 MYSQL = 'gopulse-loadtest-mysql-1'
 CONTAINERS = [MYSQL, 'gopulse-loadtest-rabbitmq-1', 'gopulse-loadtest-elasticsearch-1']
+
+def service_binary(name):
+    profile = STATE.name == 'pt4' and os.environ.get('GOPULSE_PERFLAB_PROFILE_ROLE') == name
+    return STATE / 'bin' / (name + '-profile' if profile else name)
 
 def environment():
     values = dict(os.environ)
@@ -83,14 +89,14 @@ def start_services():
     env = environment()
     api_pool = api_pool_override(env)
     for name, instance in [('server','pt3-backend'),('worker','pt3-worker'),('indexer','pt3-indexer')]:
-        process_env = dict(env, GOPULSE_INSTANCE_ID=instance)
+        process_env = dict(env, GOPULSE_INSTANCE_ID=instance.replace('pt3-', STATE.name + '-'))
         if name == 'server' and api_pool:
             process_env['MYSQL_MAX_OPEN_CONNS'] = api_pool
         path = STATE / 'logs' / (name + '.pid')
         if path.exists() and Path('/proc/' + path.read_text().strip()).exists():
             raise RuntimeError('服务已经运行，拒绝重复启动')
         with (STATE / 'logs' / (name + '.log')).open('ab') as log:
-            process = subprocess.Popen([str(STATE / 'bin' / name)], cwd=ROOT, env=process_env,
+            process = subprocess.Popen([str(service_binary(name))], cwd=ROOT, env=process_env,
                                        stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
         path.write_text(str(process.pid))
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -192,7 +198,7 @@ def restore_index(name):
     alias='gopulse-post-search-v1'
     manifest=json.loads((STATE/'snapshots'/(name+'-index.json')).read_text())
     if index_digest(manifest['index'])!=manifest['digest']:raise RuntimeError('搜索基线索引校验失败')
-    target=alias+'-pt3-restored-'+str(time.time_ns())
+    target=alias+'-'+STATE.name+'-restored-'+str(time.time_ns())
     clone_index(manifest['index'],target)
     http('/'+target+'/_settings','PUT',{'index.blocks.write':False})
     old=list(http('/_alias/'+alias))

@@ -1,0 +1,22 @@
+{
+  "schema_version": "gopulse.pt4.config.v1",
+  "base_url": "http://127.0.0.1:18080",
+  "corpus_path": ".run/pt4/corpus.json",
+  "credentials_path": ".run/pt4/credentials.json",
+  "virtual_users": 512,
+  "request_timeout_seconds": 5,
+  "warmup_seconds": 30,
+  "idle_seconds": 60,
+  "measurement_seconds": 300,
+  "recovery_seconds": 600,
+  "max_rps": 200,
+  "expected_mysql": {"Memory": 2147483648, "NanoCpus": 2000000000, "MemorySwap": 2147483648, "RestartPolicy": {"Name": "no"}},
+  "mix": [
+    {"category": "read", "percent": 45},
+    {"category": "search", "percent": 10},
+    {"category": "notification_bookmark_read", "percent": 10},
+    {"category": "content_write", "percent": 15},
+    {"category": "interaction_write", "percent": 15},
+    {"category": "identity_session", "percent": 5}
+  ]
+}
