@@ -226,37 +226,11 @@ func (dispatcher *Dispatcher) Run(ctx context.Context) error {
 }
 
 func (dispatcher *Dispatcher) runDelivery(ctx context.Context) error {
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-	attempt := uint(0)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-timer.C:
-			if ctx.Err() != nil {
-				return nil
-			}
-			more, err := dispatcher.dispatchBatch(ctx)
-			if err == nil && more {
-				attempt = 0
-				// A full claim batch is direct evidence that backlog remains.
-				// Continue draining it without imposing the idle poll interval.
-				timer.Reset(0)
-				continue
-			}
-			delay := dispatcher.pollInterval
-			if err != nil {
-				delay = storageBackoff(attempt)
-				if attempt < 5 {
-					attempt++
-				}
-			} else {
-				attempt = 0
-			}
-			timer.Reset(delay)
-		}
+	_, err := dispatcher.deliver(ctx, true)
+	if ctx.Err() != nil {
+		return nil
 	}
+	return err
 }
 
 func (dispatcher *Dispatcher) runCleanup(ctx context.Context) {
@@ -330,88 +304,153 @@ func (dispatcher *Dispatcher) DispatchOnce(ctx context.Context) error {
 }
 
 func (dispatcher *Dispatcher) dispatchBatch(ctx context.Context) (bool, error) {
+	return dispatcher.deliver(ctx, false)
+}
+
+// deliver owns the claim/ack state; each publisher has one worker. The claim
+// batch is also the total bound on leased work, including pending acknowledgements.
+func (dispatcher *Dispatcher) deliver(ctx context.Context, continuous bool) (bool, error) {
 	if ctx == nil {
 		return false, errors.New("dispatch outbox events: context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
-	records, err := dispatcher.store.Claim(dbCtx, dispatcher.owner, dispatcher.claimBatch, dispatcher.leaseDuration)
-	cancel()
-	if err != nil {
-		dispatcher.logger.Error("outbox claim failed", slog.String("reason", "storage_unavailable"))
-		return false, fmt.Errorf("claim outbox events: %w", err)
+	workCtx, cancelWork := context.WithCancel(ctx)
+	type completion struct {
+		id        uint64
+		published bool
+		err       error
 	}
-
-	if _, ok := dispatcher.store.(BatchStore); !ok && len(dispatcher.publishers) == 1 {
-		var firstErr error
-		for _, record := range records {
-			if err := dispatcher.dispatchRecord(ctx, record); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		}
-		return len(records) == dispatcher.claimBatch, firstErr
-	}
-	var firstErr error
-	var mu sync.Mutex
-	successful := []uint64{}
-	jobs := make(chan Record)
+	jobs := make(chan Record, dispatcher.claimBatch)
+	done := make(chan completion, dispatcher.claimBatch)
 	var workers sync.WaitGroup
+	batchStore, batching := dispatcher.store.(BatchStore)
 	for _, publisher := range dispatcher.publishers {
 		workers.Add(1)
 		go func(p Publisher) {
 			defer workers.Done()
-			for record := range jobs {
-				err := dispatcher.dispatchRecordWith(ctx, record, p, func(_ context.Context, id uint64, _ string) error {
-					mu.Lock()
-					successful = append(successful, id)
-					mu.Unlock()
-					return nil
-				})
-				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = err
+			for {
+				select {
+				case <-workCtx.Done():
+					return
+				case record, ok := <-jobs:
+					if !ok {
+						return
 					}
-					mu.Unlock()
+					result := completion{id: record.ID}
+					mark := dispatcher.store.MarkPublished
+					if batching {
+						mark = func(context.Context, uint64, string) error { result.published = true; return nil }
+					}
+					result.err = dispatcher.dispatchRecordWith(workCtx, record, p, mark)
+					done <- result
 				}
 			}
 		}(publisher)
 	}
-	for _, record := range records {
-		jobs <- record
+	defer func() { cancelWork(); close(jobs); workers.Wait() }()
+	ackTimer := time.NewTicker(25 * time.Millisecond)
+	defer ackTimer.Stop()
+	claimTimer := time.NewTimer(0)
+	defer claimTimer.Stop()
+	inFlight := 0
+	pending := []uint64{}
+	firstClaim := true
+	more := false
+	var firstErr error
+	remember := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	close(jobs)
-	workers.Wait()
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	if len(successful) > 0 && ctx.Err() == nil {
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
 		dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
-		if batchStore, ok := dispatcher.store.(BatchStore); ok {
-			results, err := batchStore.MarkPublishedBatch(dbCtx, successful, dispatcher.owner)
-			if err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-			} else {
-				for _, err := range results {
-					if err != nil && firstErr == nil {
-						firstErr = err
-					}
-				}
+		results, err := batchStore.MarkPublishedBatch(dbCtx, pending, dispatcher.owner)
+		cancel()
+		remember(err)
+		for _, err := range results {
+			remember(err)
+		}
+		// Failed acknowledgements remain leased for at-least-once recovery.
+		inFlight -= len(pending)
+		pending = nil
+	}
+	nextClaimAt := time.Time{}
+	scheduleClaim := func() { claimTimer.Reset(max(0, time.Until(nextClaimAt))) }
+	attempt := uint(0)
+	for {
+		if !continuous && !firstClaim && inFlight == 0 {
+			return more, firstErr
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-ackTimer.C:
+			flushed := len(pending) > 0
+			flush()
+			if continuous && flushed && inFlight < dispatcher.claimBatch {
+				scheduleClaim()
 			}
-		} else {
-			for _, id := range successful {
-				if err := dispatcher.store.MarkPublished(dbCtx, id, dispatcher.owner); err != nil && firstErr == nil {
-					firstErr = err
+		case result := <-done:
+			remember(result.err)
+			if result.published && result.err == nil {
+				pending = append(pending, result.id)
+			} else {
+				inFlight--
+			}
+			if len(pending) >= min(10, dispatcher.claimBatch) || (!continuous && inFlight == len(pending)) {
+				flush()
+			}
+			if continuous && inFlight < dispatcher.claimBatch {
+				scheduleClaim()
+			}
+		case <-claimTimer.C:
+			if !firstClaim && !continuous {
+				continue
+			}
+			free := dispatcher.claimBatch - inFlight
+			if free <= 0 {
+				continue
+			}
+			dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
+			records, err := dispatcher.store.Claim(dbCtx, dispatcher.owner, free, dispatcher.leaseDuration)
+			cancel()
+			if err != nil {
+				remember(err)
+				if !continuous {
+					return false, err
 				}
+				nextClaimAt = time.Now().Add(storageBackoff(attempt))
+				scheduleClaim()
+				attempt = min(attempt+1, 5)
+				continue
+			}
+			if len(records) > free {
+				return false, errors.New("outbox claim exceeded in-flight bound")
+			}
+			if firstClaim {
+				more = len(records) == free
+			}
+			firstClaim = false
+			attempt = 0
+			inFlight += len(records)
+			for _, record := range records {
+				jobs <- record
+			}
+			if len(records) < free {
+				nextClaimAt = time.Now().Add(dispatcher.pollInterval)
+			} else {
+				nextClaimAt = time.Time{}
+			}
+			if continuous && len(records) < free {
+				scheduleClaim()
 			}
 		}
-		cancel()
 	}
-	return len(records) == dispatcher.claimBatch, firstErr
 }
 
 func storageBackoff(attempt uint) time.Duration {

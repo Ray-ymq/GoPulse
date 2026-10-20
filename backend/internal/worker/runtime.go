@@ -77,7 +77,7 @@ func NewRuntime(connectionURL string, processor Processor, options RuntimeOption
 	return &Runtime{connectionURL: connectionURL, processor: processor, options: options, logger: logger, profile: profile, identity: instanceID}, nil
 }
 
-// Run maintains a single sequential consumer session. Broker/channel closure
+// Run maintains one bounded consumer session with per-post ordering. Broker/channel closure
 // causes bounded jittered reconnection and topology/consumer recreation.
 func (runtime *Runtime) Run(ctx context.Context) error {
 	if ctx == nil {
@@ -149,68 +149,104 @@ func (runtime *Runtime) Ready(ctx context.Context) error {
 func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession, handler *Handler) error {
 	runtime.connected.Store(true)
 	defer runtime.connected.Store(false)
+	workCtx, cancelWork := context.WithCancel(context.Background())
+	defer cancelWork()
+	type completion struct {
+		key uint64
+		err error
+	}
+	limit := max(1, runtime.options.Prefetch)
+	done := make(chan completion, limit)
+	active := map[uint64]bool{}
+	queues := map[uint64][]amqp.Delivery{}
+	outstanding := 0
+	running := 0
+	launch := func(key uint64, delivery amqp.Delivery) {
+		active[key] = true
+		running++
+		go func() { done <- completion{key: key, err: handler.Handle(workCtx, delivery)} }()
+	}
+	finish := func(result completion) {
+		running--
+		outstanding--
+		delete(active, result.key)
+	}
+	drain := func(grace bool) error {
+		if err := session.StopDeliveries(); err != nil {
+			runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
+		}
+		reserve := min(100*time.Millisecond, runtime.options.ShutdownTimeout/2)
+		timer := time.NewTimer(max(0, runtime.options.ShutdownTimeout-reserve))
+		defer timer.Stop()
+		if !grace {
+			cancelWork()
+		}
+		for running > 0 {
+			select {
+			case result := <-done:
+				finish(result)
+			case <-timer.C:
+				cancelWork()
+				// Handlers cooperate with cancellation; unstarted deliveries remain
+				// unacknowledged and are requeued when the session closes.
+				final := time.NewTimer(reserve)
+				defer final.Stop()
+				for running > 0 {
+					select {
+					case result := <-done:
+						finish(result)
+					case <-final.C:
+						return errors.New("shutdown_timeout")
+					}
+				}
+				return errors.New("shutdown_timeout")
+			}
+		}
+		return nil
+	}
 	for {
+		var deliveries <-chan amqp.Delivery
+		if outstanding < limit {
+			deliveries = session.deliveries
+		}
 		select {
 		case <-ctx.Done():
-			if err := session.StopDeliveries(); err != nil {
-				runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
-			}
-			return nil
+			return drain(true)
 		case <-session.connectionClosed:
+			_ = drain(false)
 			return errors.New("RabbitMQ connection closed")
 		case <-session.channelClosed:
+			_ = drain(false)
 			return errors.New("RabbitMQ channel closed")
-		case delivery, ok := <-session.deliveries:
+		case result := <-done:
+			finish(result)
+			if result.err != nil {
+				_ = drain(false)
+				return result.err
+			}
+			queue := queues[result.key]
+			if len(queue) > 0 {
+				delivery := queue[0]
+				queues[result.key] = queue[1:]
+				launch(result.key, delivery)
+			} else {
+				delete(queues, result.key)
+			}
+		case delivery, ok := <-deliveries:
 			if !ok {
+				_ = drain(false)
 				return errors.New("RabbitMQ delivery stream closed")
 			}
-			processingContext, cancelProcessing := context.WithCancel(context.Background())
-			processingDone := make(chan error, 1)
-			go func() { processingDone <- handler.Handle(processingContext, delivery) }()
-			select {
-			case err := <-processingDone:
-				cancelProcessing()
-				if err != nil {
-					return err
-				}
-			case <-ctx.Done():
-				if err := session.StopDeliveries(); err != nil {
-					runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
-				}
-				shutdownCtx, cancelShutdown := runtimekit.ShutdownContext(runtime.options.ShutdownTimeout)
-				defer cancelShutdown()
-				deadline, _ := shutdownCtx.Deadline()
-				// Reserve a small part of this same deadline for cancellation and requeue.
-				remaining := time.Until(deadline)
-				reserve := min(100*time.Millisecond, remaining/2)
-				timer := time.NewTimer(max(0, remaining-reserve))
-				select {
-				case <-processingDone:
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
-						}
-					}
-					cancelProcessing()
-					return nil
-				case <-timer.C:
-					runtime.safeLogger().Warn("shutdown timeout", slog.String("reason", "handler_timeout"))
-					cancelProcessing()
-					select {
-					case <-processingDone:
-					case <-shutdownCtx.Done():
-					}
-					return errors.New("shutdown_timeout")
-				}
-			case <-session.connectionClosed:
-				cancelProcessing()
-				<-processingDone
-				return errors.New("RabbitMQ connection closed during delivery")
-			case <-session.channelClosed:
-				cancelProcessing()
-				<-processingDone
-				return errors.New("RabbitMQ channel closed during delivery")
+			envelope, err := DecodeDelivery(delivery)
+			key := envelope.PostID
+			if err != nil {
+				key = 0
+			}
+			outstanding++
+			if active[key] {
+				queues[key] = append(queues[key], delivery)
+			} else {
+				launch(key, delivery)
 			}
 		}
 	}

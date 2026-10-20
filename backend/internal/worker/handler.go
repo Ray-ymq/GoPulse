@@ -197,7 +197,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		handler.logEvent(traceContext, "event processed", delivery, envelope, attempt, "processed")
 		return nil
 	}
-	if errors.Is(processErr, context.Canceled) || errors.Is(processErr, context.DeadlineExceeded) {
+	if ctx.Err() != nil && (errors.Is(processErr, context.Canceled) || errors.Is(processErr, context.DeadlineExceeded)) {
 		span.SetStatus(codes.Error, "processing_canceled")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
 			handler.logFailure(traceContext, "message requeue failed", delivery, attempt, "nack_failed")

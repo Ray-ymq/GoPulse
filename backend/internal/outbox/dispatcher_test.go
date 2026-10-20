@@ -401,9 +401,6 @@ type batchDispatcherStore struct {
 }
 
 func (s *batchDispatcherStore) MarkPublishedBatch(_ context.Context, ids []uint64, _ string) ([]error, error) {
-	if int(s.completed.Load()) != len(s.records) {
-		return nil, errors.New("ack before all publishers completed")
-	}
 	s.batches++
 	s.markCalls = append(s.markCalls, ids...)
 	return make([]error, len(ids)), nil
@@ -433,7 +430,7 @@ func (p *exclusivePublisher) Publish(ctx context.Context, _ bus.Envelope) error 
 	p.completed.Add(1)
 	return nil
 }
-func TestParallelPublishersOwnStateAndAcknowledgeAfterWholeBatch(t *testing.T) {
+func TestParallelPublishersOwnStateAndAcknowledgeSmallBatches(t *testing.T) {
 	completed := &atomic.Int32{}
 	entered := make(chan struct{}, 16)
 	gate := make(chan struct{})
@@ -467,7 +464,7 @@ func TestParallelPublishersOwnStateAndAcknowledgeAfterWholeBatch(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if store.batches != 1 || len(store.markCalls) != 16 {
+	if store.batches < 2 || len(store.markCalls) != 16 {
 		t.Fatalf("batch calls=%d marked=%d", store.batches, len(store.markCalls))
 	}
 }
@@ -483,5 +480,71 @@ func TestStorageBackoffIsBoundedAndJittered(t *testing.T) {
 				t.Fatalf("attempt=%d delay=%s", attempt, delay)
 			}
 		}
+	}
+}
+
+type flowingStore struct {
+	*dispatcherStoreFake
+	remaining    []Record
+	acknowledged chan uint64
+}
+
+func (s *flowingStore) Claim(_ context.Context, _ string, batch int, _ time.Duration) ([]Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := min(batch, len(s.remaining))
+	records := append([]Record(nil), s.remaining[:n]...)
+	s.remaining = s.remaining[n:]
+	return records, nil
+}
+func (s *flowingStore) MarkPublishedBatch(_ context.Context, ids []uint64, _ string) ([]error, error) {
+	for _, id := range ids {
+		s.acknowledged <- id
+	}
+	return make([]error, len(ids)), nil
+}
+
+type firstBlockedPublisher struct {
+	first *atomic.Bool
+	gate  <-chan struct{}
+}
+
+func (p *firstBlockedPublisher) Publish(ctx context.Context, _ bus.Envelope) error {
+	if p.first.CompareAndSwap(false, true) {
+		select {
+		case <-p.gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func TestDispatcherAcknowledgesAndClaimsWhileOnePublicationIsBlocked(t *testing.T) {
+	store := &flowingStore{dispatcherStoreFake: &dispatcherStoreFake{}, acknowledged: make(chan uint64, 8)}
+	for id := uint64(1); id <= 5; id++ {
+		store.remaining = append(store.remaining, dispatcherTestRecord(t, id))
+	}
+	gate := make(chan struct{})
+	first := &atomic.Bool{}
+	publishers := []Publisher{&firstBlockedPublisher{first, gate}, &firstBlockedPublisher{first, gate}}
+	dispatcher, err := NewDispatcher(store, publishers[0], DispatcherOptions{Publishers: publishers, ClaimBatch: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- dispatcher.runDelivery(ctx) }()
+	// More successes than the original claim prove both incremental ack and refill.
+	for i := 0; i < 3; i++ {
+		select {
+		case <-store.acknowledged:
+		case <-time.After(time.Second):
+			t.Fatal("slow publication stalled other work")
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
