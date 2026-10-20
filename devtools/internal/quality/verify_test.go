@@ -13,7 +13,7 @@ func verificationFixture(t *testing.T, failure string) string {
 	makefile := `list-go-modules:
 	@echo backend devtools
 list-npm-modules:
-	@echo frontend admin-frontend
+	@echo frontend/user frontend/admin
 ci-check ci-test ci-build:
 	@echo $@ MODULE=$(MODULE) >> calls
 `
@@ -43,7 +43,7 @@ func TestVerifyModuleUsesTheThreeCIEntryPoints(t *testing.T) {
 
 func TestVerifyModuleStopsOnFailedCheck(t *testing.T) {
 	root := verificationFixture(t, "ci-test")
-	if err := VerifyModule(root, "frontend", ""); err == nil {
+	if err := VerifyModule(root, "frontend/user", ""); err == nil {
 		t.Fatal("expected the failing test to stop verification")
 	}
 	calls, err := os.ReadFile(filepath.Join(root, "calls"))

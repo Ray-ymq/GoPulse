@@ -36,9 +36,9 @@ commands:
 	stack-verify                                         verify ownership, health and loopback ports
 	build-cache [--print] [--no-cache]                    render/build Compose images
 	doctor                                                check host prerequisites without starting services
-	bootstrap [--module frontend|admin-frontend] [--tools-only]
+	bootstrap [--module frontend/user|frontend/admin] [--tools-only]
 		                                                        prepare lint tools and frontend dependencies
-	frontend-deps --module frontend|admin-frontend       prepare one application's npm dependencies
+	frontend-deps --module frontend/user|frontend/admin       prepare one application's npm dependencies
 	verify --base-ref REF [--plan-only] [--module MODULE]
 `
 
@@ -122,8 +122,8 @@ func run(args []string) int {
 			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps does not accept --tools-only")
 			return 2
 		}
-		if parsed.module != "frontend" && parsed.module != "admin-frontend" {
-			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps requires --module frontend or admin-frontend")
+		if parsed.module != "frontend/user" && parsed.module != "frontend/admin" {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps requires --module frontend/user or frontend/admin")
 			return 2
 		}
 		err = frontenddeps.Ensure(root, parsed.module)

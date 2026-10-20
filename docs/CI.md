@@ -41,14 +41,16 @@ make ci-test MODULE=backend   # go test -race -count=1 ./...
 make ci-build MODULE=backend  # 模块构建
 ```
 
-前端不进入 CI，现有本地命令保留：
+前端按 `frontend/user/`（用户端）、`frontend/admin/`（管理端）和 `frontend/shared/`（共用组件与工具）组织。两个应用分别维护 npm 依赖和构建配置，不进入 CI。本地命令如下：
 
 ```sh
-make check MODULE=frontend   # TypeScript 检查
-make lint MODULE=frontend    # ESLint
-make test MODULE=frontend    # Vitest
-make build MODULE=frontend   # 类型检查、Vite 构建
+make check MODULE=frontend/user   # TypeScript 检查
+make lint MODULE=frontend/user    # ESLint
+make test MODULE=frontend/user    # Vitest
+make build MODULE=frontend/user   # 类型检查、Vite 构建
 ```
+
+管理端使用相同命令，将 `MODULE` 替换为 `frontend/admin`。开发环境依赖准备也使用这两个模块路径，例如 `make bootstrap MODULE=frontend/user`。
 
 根 Makefile 分发到各模块 Makefile。Go lint 工具继续由 `devtools/toolchains.json` 固定版本和校验和，但不再使用旧 CI 的 lint 基线豁免；发现问题会直接失败。
 

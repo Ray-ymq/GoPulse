@@ -11,7 +11,7 @@ GO_MODULES := backend runtimekit marshaller monitor perflab \
               exporters/elasticsearch exporters/kafka exporters/mysql \
               exporters/rabbitmq exporters/redis exporters/victoriametrics \
               devtools
-NPM_MODULES := frontend admin-frontend
+NPM_MODULES := frontend/user frontend/admin
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 
 # CI and local reproductions use this private workspace so shared Go modules
