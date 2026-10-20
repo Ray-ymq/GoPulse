@@ -544,21 +544,25 @@ func (repository *MySQLRepository) FindBody(ctx context.Context, key BodyKey) (b
 	if repository == nil || repository.database == nil || !key.Valid() {
 		return Body{}, errors.New("find post body: invalid argument")
 	}
-	if repository.state != nil {
-		current, err := repository.state.CurrentEpoch(ctx)
-		if err != nil {
-			return Body{}, fmt.Errorf("find post body epoch: %w", err)
-		}
-		if current != key.Epoch {
-			return Body{}, ErrReadContextChanged
-		}
-	}
+	var epoch, status string
+	var id, author, revision sql.NullInt64
+	var title, content sql.NullString
+	var created, updated, edited sql.NullTime
 	err = repository.database.QueryRowContext(ctx, `
-SELECT id, author_id, title, content, created_at, updated_at, edited_at, content_revision
-FROM posts WHERE id=? AND content_revision=?`, key.PostID, key.ContentRevision).Scan(
-		&body.ID, &body.AuthorID, &body.Title, &body.Content, &body.CreatedAt, &body.UpdatedAt, &body.EditedAt, &body.ContentRevision,
+SELECT e.data_epoch, e.status, p.id, p.author_id, p.title, p.content,
+       p.created_at, p.updated_at, p.edited_at, p.content_revision
+FROM business_environment AS e
+LEFT JOIN posts AS p ON p.id=? AND p.content_revision=?
+WHERE e.singleton=1`, key.PostID, key.ContentRevision).Scan(
+		&epoch, &status, &id, &author, &title, &content, &created, &updated, &edited, &revision,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
+		return Body{}, fmt.Errorf("find post body: %w", err)
+	}
+	if epoch != key.Epoch || status != businessstate.StatusReady {
+		return Body{}, ErrReadContextChanged
+	}
+	if !id.Valid {
 		var currentRevision uint64
 		checkErr := repository.database.QueryRowContext(ctx, `SELECT content_revision FROM posts WHERE id=?`, key.PostID).Scan(&currentRevision)
 		if errors.Is(checkErr, sql.ErrNoRows) {
@@ -567,13 +571,12 @@ FROM posts WHERE id=? AND content_revision=?`, key.PostID, key.ContentRevision).
 		if checkErr != nil {
 			return Body{}, fmt.Errorf("find post body revision: %w", checkErr)
 		}
-		if currentRevision != key.ContentRevision {
-			return Body{}, ErrReadContextChanged
-		}
-		return Body{}, ErrNotFound
+		return Body{}, ErrReadContextChanged
 	}
-	if err != nil {
-		return Body{}, fmt.Errorf("find post body: %w", err)
+	body = Body{ID: uint64(id.Int64), AuthorID: uint64(author.Int64), Title: title.String, Content: content.String,
+		CreatedAt: created.Time, UpdatedAt: updated.Time, ContentRevision: uint64(revision.Int64)}
+	if edited.Valid {
+		body.EditedAt = &edited.Time
 	}
 	if !body.ValidForKey(key) {
 		return Body{}, ErrReadContextChanged
