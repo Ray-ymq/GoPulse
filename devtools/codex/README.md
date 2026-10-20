@@ -1,4 +1,4 @@
-# Codex 写作 skill 与 hook
+# Codex 全局写作规则
 
 使用 [asd-ste100-zh](https://github.com/timwhitez/asd-ste100-zh-skill) 撰写或改写中文技术文字，包括回复、文档、注释、错误信息和提交说明。遵循 skill 自身的语言规则与适用边界。
 
@@ -9,24 +9,24 @@
 ```sh
 python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-installer/scripts/install-skill-from-github.py" \
   --repo timwhitez/asd-ste100-zh-skill --path . --name asd-ste100-zh
-python3 devtools/codex/writing_skill_hook.py --install
 ```
 
 skill 已存在时，跳过第一条命令。安装器不会覆盖已有 skill。
 
-hook 安装到 `${CODEX_HOME:-$HOME/.codex}/hooks/writing_skill_hook.py`，并向同目录的 `hooks.json` 合并 `UserPromptSubmit` 配置。重复安装不会重复注册；已有其他 hook 保留，配置变更前保存到 `hooks.json.bak`。配置不依赖 GoPulse 的位置，对使用该 Codex 配置目录的项目生效。
+将 [global-AGENTS.md](global-AGENTS.md) 的内容合并到 `${CODEX_HOME:-$HOME/.codex}/AGENTS.md`。文件不存在时可直接创建；已有内容时保留原有规则，避免重复添加。仓库中的模板用于维护规则，实际生效位置是 Codex 配置目录中的 `AGENTS.md`。
 
-安装后，在 Codex 的 `/hooks` 中审查并信任该 hook。新 skill 从下一轮开始可用；如客户端尚未重新发现 hook，重新打开会话。根据 [OpenAI 官方 hook 文档](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks)，未经信任的新 hook 会被跳过，定义变更后也需要重新审查。
+根据 [OpenAI 官方 AGENTS.md 文档](https://learn.chatgpt.com/docs/agent-configuration/agents-md)，Codex 启动会话时读取全局规则。安装后开启新会话，使客户端加载新配置。如果同目录存在 `AGENTS.override.md`，Codex 优先读取该文件，需要将规则合并到实际加载的文件中。
 
-## 触发方式
+## 使用方式
 
-每轮请求提交时，hook 注入一条规则：写自然语言文字前，先读取并应用 `asd-ste100-zh/SKILL.md`。已在当前上下文完整读取时，直接应用。它不做关键词匹配，也不自行调用模型或阻止用户请求。具体写作仍由 Codex 按 skill 完成，代码逻辑不受写作规则约束。
+全局规则要求写作前读取并应用 `asd-ste100-zh/SKILL.md`，并直接列出中文核心要求。文档修改后必须回读实际文件，检查表达和事实逻辑，再交付结果。该配置属于模型指令，具体遵守情况仍需要检查实际输出。
 
-hook 只依赖 Python 3 标准库。可直接检查输出协议：
+在支持该调试命令的 Codex CLI 中，可以查看新会话将加载的上下文：
 
 ```sh
-printf '%s\n' '{"hook_event_name":"UserPromptSubmit","prompt":"解释这段代码"}' \
-  | python3 devtools/codex/writing_skill_hook.py
+codex debug prompt-input
 ```
 
-如需停用，在 `/hooks` 中禁用对应条目。删除时，仅移除 `hooks.json` 中指向 `writing_skill_hook.py` 的 handler，再删除安装后的脚本；保留其他 hook。
+## 从旧 hook 迁移
+
+先写入全局规则，再从 `hooks.json` 的 `UserPromptSubmit` 中移除指向 `hooks/writing_skill_hook.py` 的 handler，并删除该脚本。保留其他 handler、事件和配置；无需关闭全局 hooks 功能。仓库已移除旧 hook 的安装入口。
