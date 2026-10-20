@@ -111,14 +111,14 @@ def recovery(directory, seconds):
 
 def smoke_with_retry():
     smoke = legacy_module('smoke')
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             smoke.smoke()
             return
         except Exception:
-            if attempt == 2:
+            if attempt == 4:
                 raise
-            time.sleep(1)
+            time.sleep(2)
 
 
 def execute(config):
