@@ -140,6 +140,8 @@ type Config struct {
 	Trace                            TraceConfig
 	BusinessStage                    BusinessStageConfig
 	BusinessAsyncMaxOpenRequirements uint64
+	BusinessAsyncMaxRetainedGroups   uint64
+	BusinessAsyncMaxRetainedBytes    uint64
 	Protection                       ProtectionConfig
 }
 
@@ -207,6 +209,8 @@ type ReindexConfig struct {
 	Elasticsearch                    ElasticsearchConfig
 	LogShip                          LogShipConfig
 	BusinessAsyncMaxOpenRequirements uint64
+	BusinessAsyncMaxRetainedGroups   uint64
+	BusinessAsyncMaxRetainedBytes    uint64
 }
 
 type VictoriaMetricsConfig struct {
@@ -314,6 +318,10 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	retainedGroups, retainedBytes, err := businessAsyncRetentionValues(lookup)
 	if err != nil {
 		return Config{}, err
 	}
@@ -646,6 +654,8 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		Trace:                            traceConfig,
 		BusinessStage:                    businessStage,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
+		BusinessAsyncMaxRetainedGroups:   retainedGroups,
+		BusinessAsyncMaxRetainedBytes:    retainedBytes,
 		Protection:                       protection,
 		Auth: AuthConfig{
 			JWTSecret:    authJWTSecret,
@@ -1101,6 +1111,10 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	if err != nil {
 		return ReindexConfig{}, err
 	}
+	retainedGroups, retainedBytes, err := businessAsyncRetentionValues(lookup)
+	if err != nil {
+		return ReindexConfig{}, err
+	}
 	return ReindexConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -1115,6 +1129,8 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 		Elasticsearch:                    elasticsearch,
 		LogShip:                          logShip,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
+		BusinessAsyncMaxRetainedGroups:   retainedGroups,
+		BusinessAsyncMaxRetainedBytes:    retainedBytes,
 	}, nil
 }
 
@@ -1249,4 +1265,16 @@ func loadObservabilityElasticsearchConfig(lookup LookupFunc, runtimeMode Runtime
 		return ElasticsearchConfig{}, err
 	}
 	return ElasticsearchConfig{URL: strings.TrimRight(rawURL, "/"), RequestTimeout: timeout, Purpose: "observability"}, nil
+}
+
+func businessAsyncRetentionValues(lookup LookupFunc) (uint64, uint64, error) {
+	groups, err := integerValue(lookup, "BUSINESS_ASYNC_MAX_RETAINED_GROUPS", 100000)
+	if err != nil || groups < 1 {
+		return 0, 0, errors.New("BUSINESS_ASYNC_MAX_RETAINED_GROUPS must be a positive integer")
+	}
+	bytes, err := integerValue(lookup, "BUSINESS_ASYNC_MAX_RETAINED_BYTES", 1<<30)
+	if err != nil || bytes <= 1024 {
+		return 0, 0, errors.New("BUSINESS_ASYNC_MAX_RETAINED_BYTES must be an integer greater than 1024")
+	}
+	return uint64(groups), uint64(bytes), nil
 }

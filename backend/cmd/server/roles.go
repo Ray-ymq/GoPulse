@@ -175,7 +175,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	users := user.NewMySQLRepository(mysqlClient.DB())
 	var state *businessstate.Repository
 	if profile.business {
-		state, err = businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements))
+		state, err = businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements), businessstate.WithRetentionLimits(cfg.BusinessAsyncMaxRetainedGroups, cfg.BusinessAsyncMaxRetainedBytes))
 		if err != nil {
 			return nil, errors.New("initialize business state repository")
 		}

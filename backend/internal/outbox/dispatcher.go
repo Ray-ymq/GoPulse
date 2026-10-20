@@ -276,6 +276,15 @@ func (dispatcher *Dispatcher) CleanupOnce(ctx context.Context) error {
 		if scanner, ok := dispatcher.store.(interface{ CleanupHasMore() bool }); ok {
 			more = scanner.CleanupHasMore()
 		}
+		if cleaner, ok := dispatcher.store.(interface {
+			CleanupExpired(context.Context, int) (int64, error)
+		}); ok {
+			count, err := cleaner.CleanupExpired(ctx, dispatcher.cleanupBatch)
+			if err != nil {
+				return err
+			}
+			more = more || count >= int64(dispatcher.cleanupBatch)
+		}
 		if !more {
 			return nil
 		}

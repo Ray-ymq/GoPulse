@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -41,14 +43,38 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 	if _, err := executor.ExecContext(ctx, `INSERT INTO business_async_budget (data_epoch) VALUES (?) ON DUPLICATE KEY UPDATE data_epoch=VALUES(data_epoch)`, requirement.DataEpoch); err != nil {
 		return errors.New("initialize requirement budget")
 	}
-	var open uint64
-	if err := executor.QueryRowContext(ctx, `SELECT open_requirements FROM business_async_budget WHERE data_epoch=? FOR UPDATE`, requirement.DataEpoch).Scan(&open); err != nil {
-		return errors.New("read requirement budget")
+	rows, err := executor.QueryContext(ctx, `SELECT data_epoch,open_requirements,retained_groups,retained_bytes FROM business_async_budget ORDER BY data_epoch FOR UPDATE`)
+	if err != nil {
+		return err
+	}
+	var open, groups, bytes uint64
+	for rows.Next() {
+		var epoch string
+		var o, g, b uint64
+		if err := rows.Scan(&epoch, &o, &g, &b); err != nil {
+			rows.Close()
+			return err
+		}
+		if epoch == requirement.DataEpoch {
+			open = o
+		}
+		groups += g
+		bytes += b
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	limits := repository.BudgetLimits()
+	charge := uint64(requirement.PayloadBytes + RetentionMetadataBytes)
+	if open >= limits.OpenRequirements || groups >= limits.RetainedGroups || charge > limits.RetainedBytes || bytes > limits.RetainedBytes-charge {
+		return ErrBudgetExceeded
 	}
 	result, err := executor.ExecContext(ctx, `
 		INSERT IGNORE INTO business_event_requirements
-			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, requirement.DataEpoch, requirement.EventID, requirement.Consumer,
+			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, requirement.DataEpoch, requirement.EventID, requirement.Consumer,
 		requirement.RoutingContractRevision, requirement.ApplicableObjectVersion, requirement.PayloadBytes, repository.now(), repository.now())
 	if err != nil {
 		return errors.New("insert business event requirement")
@@ -63,7 +89,7 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 	if open >= repository.BudgetLimits().OpenRequirements {
 		return ErrBudgetExceeded
 	}
-	if _, err := executor.ExecContext(ctx, `UPDATE business_async_budget SET open_requirements=open_requirements+1, updated_at=? WHERE data_epoch=?`, repository.now(), requirement.DataEpoch); err != nil {
+	if _, err := executor.ExecContext(ctx, `UPDATE business_async_budget SET open_requirements=open_requirements+1,retained_groups=retained_groups+1,retained_bytes=retained_bytes+?, updated_at=? WHERE data_epoch=?`, charge, repository.now(), requirement.DataEpoch); err != nil {
 		return errors.New("account business event requirement")
 	}
 	return nil
@@ -108,10 +134,11 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 	completedAt := normalizeTime(application.CompletedAt)
 	var payloadBytes int
 	var closedAt sql.NullTime
+	var retentionReserved bool
 	if err := executor.QueryRowContext(ctx, `
-		SELECT payload_bytes, closed_at FROM business_event_requirements
+		SELECT payload_bytes, closed_at, retention_reserved FROM business_event_requirements
 		WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=? FOR UPDATE`,
-		application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision).Scan(&payloadBytes, &closedAt); err != nil {
+		application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision).Scan(&payloadBytes, &closedAt, &retentionReserved); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrRequirementAbsent
 		}
@@ -134,26 +161,13 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 	}
 	retainUntil := completedAt.Add(RetentionPeriod)
 	if _, err := executor.ExecContext(ctx, `
-		UPDATE business_event_requirements SET closed_at=?, retain_until=?, updated_at=?
+		UPDATE business_event_requirements SET closed_at=?, retain_until=?, retention_reserved=TRUE, updated_at=?
 		WHERE data_epoch=? AND event_id=? AND consumer=? AND routing_contract_revision=? AND closed_at IS NULL`,
 		completedAt, retainUntil, completedAt, application.DataEpoch, application.EventID, application.Consumer, application.RoutingContractRevision); err != nil {
 		return errors.New("close business event requirement")
 	}
-	// Phase-24-02 post-create transactions reserve the retained command/event
-	// budget before commit. Older standalone requirements created by the 01
-	// repository retain the original accounting semantics and are charged on
-	// first completion. The durable command row is the discriminator; no extra
-	// schema bit or heuristic based on the post is needed.
-	var commandReserved bool
-	if err := executor.QueryRowContext(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM business_commands
-			WHERE data_epoch=? AND event_id=? AND command_type=?
-		)`, application.DataEpoch, application.EventID, PostCreateCommandType).Scan(&commandReserved); err != nil {
-		return errors.New("check command retention reservation")
-	}
 	bytes := uint64(payloadBytes + RetentionMetadataBytes)
-	if commandReserved {
+	if retentionReserved {
 		if _, err := executor.ExecContext(ctx, `
 			UPDATE business_async_budget
 			SET open_requirements=CASE WHEN open_requirements > 0 THEN open_requirements-1 ELSE 0 END,
@@ -203,41 +217,59 @@ func (repository *Repository) ReleaseRetentionTx(ctx context.Context, executor E
 	if executor == nil {
 		return fmt.Errorf("%w: transaction is required", ErrInvalidArgument)
 	}
-	for _, eventID := range eventIDs {
-		if err := validateEventID(eventID); err != nil {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	for _, id := range eventIDs {
+		if err := validateEventID(id); err != nil {
 			return err
 		}
-		rows, err := executor.QueryContext(ctx, `
-			SELECT data_epoch, payload_bytes FROM business_event_requirements
-			WHERE event_id=? AND closed_at IS NOT NULL AND retain_until < ? AND retention_released=FALSE
-			FOR UPDATE`, eventID, normalizeTime(now))
-		if err != nil {
-			return errors.New("select retained business requirement")
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(eventIDs)), ",")
+	args := make([]any, 0, len(eventIDs)+1)
+	for _, id := range eventIDs {
+		args = append(args, id)
+	}
+	args = append(args, normalizeTime(now))
+	rows, err := executor.QueryContext(ctx, `SELECT data_epoch,payload_bytes FROM business_event_requirements WHERE event_id IN (`+placeholders+`) AND closed_at IS NOT NULL AND retain_until <= ? AND retention_released=FALSE ORDER BY data_epoch,event_id FOR UPDATE`, args...)
+	if err != nil {
+		return err
+	}
+	type amount struct{ groups, bytes uint64 }
+	totals := map[string]amount{}
+	for rows.Next() {
+		var epoch string
+		var payload uint64
+		if err := rows.Scan(&epoch, &payload); err != nil {
+			rows.Close()
+			return err
 		}
-		type released struct {
-			epoch string
-			bytes uint64
-		}
-		values := make([]released, 0)
-		for rows.Next() {
-			var epoch string
-			var payload int
-			if err := rows.Scan(&epoch, &payload); err != nil {
-				_ = rows.Close()
-				return errors.New("scan retained business requirement")
-			}
-			values = append(values, released{epoch: epoch, bytes: uint64(payload + RetentionMetadataBytes)})
-		}
-		if err := rows.Close(); err != nil {
-			return errors.New("close retained business requirements")
-		}
-		for _, value := range values {
-			if _, err := executor.ExecContext(ctx, `UPDATE business_event_requirements SET retention_released=TRUE, updated_at=? WHERE data_epoch=? AND event_id=? AND closed_at IS NOT NULL AND retain_until < ? AND retention_released=FALSE`, normalizeTime(now), value.epoch, eventID, normalizeTime(now)); err != nil {
-				return errors.New("release business requirement retention")
-			}
-			if _, err := executor.ExecContext(ctx, `UPDATE business_async_budget SET retained_groups=CASE WHEN retained_groups > 0 THEN retained_groups-1 ELSE 0 END, retained_bytes=CASE WHEN retained_bytes >= ? THEN retained_bytes-? ELSE 0 END, updated_at=? WHERE data_epoch=?`, value.bytes, value.bytes, normalizeTime(now), value.epoch); err != nil {
-				return errors.New("release business retention budget")
-			}
+		v := totals[epoch]
+		v.groups++
+		v.bytes += payload + RetentionMetadataBytes
+		totals[epoch] = v
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if len(totals) == 0 {
+		return nil
+	}
+	updateArgs := append([]any{normalizeTime(now)}, args...)
+	if _, err := executor.ExecContext(ctx, `UPDATE business_event_requirements SET retention_released=TRUE,updated_at=? WHERE event_id IN (`+placeholders+`) AND closed_at IS NOT NULL AND retain_until <= ? AND retention_released=FALSE`, updateArgs...); err != nil {
+		return err
+	}
+	epochs := make([]string, 0, len(totals))
+	for epoch := range totals {
+		epochs = append(epochs, epoch)
+	}
+	sort.Strings(epochs)
+	for _, epoch := range epochs {
+		v := totals[epoch]
+		if _, err := executor.ExecContext(ctx, `UPDATE business_async_budget SET retained_groups=GREATEST(retained_groups,?)-?,retained_bytes=GREATEST(retained_bytes,?)-?,updated_at=? WHERE data_epoch=?`, v.groups, v.groups, v.bytes, v.bytes, normalizeTime(now), epoch); err != nil {
+			return err
 		}
 	}
 	return nil

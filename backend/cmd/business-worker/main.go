@@ -89,7 +89,7 @@ func run(cfg config.WorkerConfig, logger *slog.Logger) (runErr error) {
 			lifecycleLogger.Warn("resource close failed", slog.String("resource", "mysql"), slog.String("reason", "close_failed"))
 		}
 	}()
-	state, err := businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements))
+	state, err := businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements), businessstate.WithRetentionLimits(cfg.BusinessAsyncMaxRetainedGroups, cfg.BusinessAsyncMaxRetainedBytes))
 	if err != nil {
 		return initializationFailure(lifecycleLogger, "business_state", "invalid_dependency")
 	}

@@ -419,15 +419,15 @@ func (repository *Repository) CleanupPublished(ctx context.Context, publishedBef
 		  AND NOT EXISTS (
 			SELECT 1 FROM business_event_requirements AS r
 			WHERE r.event_id = o.event_id
-			  AND (r.closed_at IS NULL OR r.retain_until IS NULL OR r.retain_until >= ?)
+			  AND (r.closed_at IS NULL OR r.retain_until IS NULL OR r.retain_until > ?)
 		  )
 		  AND NOT EXISTS (
 			SELECT 1 FROM business_commands AS c
 			WHERE c.event_id = o.event_id
-			  AND (c.retained_until IS NULL OR c.retained_until >= ?)
+			  AND (c.retained_until IS NULL OR c.retained_until > ?)
 		  )
 		ORDER BY o.published_at, o.id
-		FOR UPDATE`, append(idsToAny(candidateIDs), publishedBefore.UTC(), publishedBefore.UTC(), publishedBefore.UTC())...)
+		FOR UPDATE`, append(idsToAny(candidateIDs), publishedBefore.UTC(), repository.now(), repository.now())...)
 	if err != nil {
 		return 0, fmt.Errorf("select cleanup published outbox events: %w", err)
 	}
@@ -637,4 +637,13 @@ func (repository *Repository) MarkPublishedBatch(ctx context.Context, ids []uint
 		return nil, fmt.Errorf("commit acknowledgements: %w", err)
 	}
 	return results, nil
+}
+
+func (repository *Repository) CleanupExpired(ctx context.Context, batch int) (int64, error) {
+	if cleaner, ok := repository.accounting.(interface {
+		CleanupExpired(context.Context, int) (int64, error)
+	}); ok {
+		return cleaner.CleanupExpired(ctx, batch)
+	}
+	return 0, nil
 }

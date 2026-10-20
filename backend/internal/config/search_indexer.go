@@ -17,6 +17,8 @@ type SearchIndexerConfig struct {
 	LogShip                          LogShipConfig
 	Trace                            TraceConfig
 	BusinessAsyncMaxOpenRequirements uint64
+	BusinessAsyncMaxRetainedGroups   uint64
+	BusinessAsyncMaxRetainedBytes    uint64
 }
 
 func LoadSearchIndexer() (SearchIndexerConfig, error) {
@@ -120,6 +122,10 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if err != nil {
 		return SearchIndexerConfig{}, err
 	}
+	retainedGroups, retainedBytes, err := businessAsyncRetentionValues(lookup)
+	if err != nil {
+		return SearchIndexerConfig{}, err
+	}
 	return SearchIndexerConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -136,6 +142,8 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 		LogShip:                          logShip,
 		Trace:                            traceConfig,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
+		BusinessAsyncMaxRetainedGroups:   retainedGroups,
+		BusinessAsyncMaxRetainedBytes:    retainedBytes,
 		Worker:                           BusinessWorkerConfig{Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay, PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout, ReconnectMinimum: reconnectMinimum, ReconnectMaximum: reconnectMaximum},
 	}, nil
 }

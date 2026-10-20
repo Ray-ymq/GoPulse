@@ -236,7 +236,7 @@ func (repository *Repository) ReservePostCreateTx(ctx context.Context, executor 
 	if err := rows.Close(); err != nil {
 		return errors.New("close command budgets")
 	}
-	if !foundCurrent || currentOpen >= repository.BudgetLimits().OpenRequirements || totalGroups >= MaximumRetainedGroups || totalBytes > MaximumRetainedBytes-uint64(reservation.PayloadBytes+RetentionMetadataBytes) {
+	if !foundCurrent || currentOpen >= repository.BudgetLimits().OpenRequirements || totalGroups >= repository.BudgetLimits().RetainedGroups || uint64(reservation.PayloadBytes+RetentionMetadataBytes) > repository.BudgetLimits().RetainedBytes || totalBytes > repository.BudgetLimits().RetainedBytes-uint64(reservation.PayloadBytes+RetentionMetadataBytes) {
 		return ErrBudgetExceeded
 	}
 	if _, err := executor.ExecContext(ctx, `
@@ -254,8 +254,8 @@ func (repository *Repository) ReservePostCreateTx(ctx context.Context, executor 
 	}
 	if _, err := executor.ExecContext(ctx, `
 		INSERT INTO business_event_requirements
-			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, reservation.Requirement.DataEpoch, reservation.Requirement.EventID,
+			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, reservation.Requirement.DataEpoch, reservation.Requirement.EventID,
 		reservation.Requirement.Consumer, reservation.Requirement.RoutingContractRevision, reservation.Requirement.ApplicableObjectVersion,
 		reservation.PayloadBytes, now, now); err != nil {
 		return errors.New("insert command event requirement")

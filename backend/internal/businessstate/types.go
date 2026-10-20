@@ -38,10 +38,12 @@ const (
 // default remains 10,000; acceptance can select a smaller bounded profile.
 type BudgetLimits struct {
 	OpenRequirements uint64
+	RetainedGroups   uint64
+	RetainedBytes    uint64
 }
 
 func DefaultBudgetLimits() BudgetLimits {
-	return BudgetLimits{OpenRequirements: MaximumOpenRequirements}
+	return BudgetLimits{OpenRequirements: MaximumOpenRequirements, RetainedGroups: MaximumRetainedGroups, RetainedBytes: MaximumRetainedBytes}
 }
 
 var (
@@ -129,6 +131,17 @@ func WithOpenRequirementsLimit(limit uint64) RepositoryOption {
 			return fmt.Errorf("%w: open requirement limit must be between 1 and %d", ErrInvalidArgument, MaximumOpenRequirements)
 		}
 		repository.limits.OpenRequirements = limit
+		return nil
+	}
+}
+
+func WithRetentionLimits(groups, bytes uint64) RepositoryOption {
+	return func(repository *Repository) error {
+		if groups == 0 || bytes <= RetentionMetadataBytes {
+			return ErrInvalidArgument
+		}
+		repository.limits.RetainedGroups = groups
+		repository.limits.RetainedBytes = bytes
 		return nil
 	}
 }
