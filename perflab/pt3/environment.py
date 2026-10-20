@@ -65,10 +65,27 @@ def stop_services():
             pass
         path.unlink(missing_ok=True)
 
+def api_pool_override(env):
+    # 仅用于测试三业务 API 连接池调整系列；worker/indexer 保持基线值。
+    value = env.get('PT3_API_MYSQL_MAX_OPEN_CONNS', '').strip()
+    if not value:
+        return None
+    try:
+        pool = int(value)
+        total = int(env['MYSQL_TOTAL_MAX_OPEN_CONNS'])
+    except (ValueError, KeyError):
+        raise RuntimeError('PT3_API_MYSQL_MAX_OPEN_CONNS 或 MYSQL_TOTAL_MAX_OPEN_CONNS 不是整数')
+    if not 1 <= pool <= 100 or pool > total:
+        raise RuntimeError('PT3_API_MYSQL_MAX_OPEN_CONNS 超出本轮连接预算')
+    return str(pool)
+
 def start_services():
     env = environment()
+    api_pool = api_pool_override(env)
     for name, instance in [('server','pt3-backend'),('worker','pt3-worker'),('indexer','pt3-indexer')]:
         process_env = dict(env, GOPULSE_INSTANCE_ID=instance)
+        if name == 'server' and api_pool:
+            process_env['MYSQL_MAX_OPEN_CONNS'] = api_pool
         path = STATE / 'logs' / (name + '.pid')
         if path.exists() and Path('/proc/' + path.read_text().strip()).exists():
             raise RuntimeError('服务已经运行，拒绝重复启动')

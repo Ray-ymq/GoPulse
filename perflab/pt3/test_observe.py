@@ -4,6 +4,19 @@ from pathlib import Path
 import tempfile
 import unittest
 from observe import Observation
+from environment import api_pool_override
+
+class ApiPoolOverrideTest(unittest.TestCase):
+    def test_absent_override_keeps_baseline(self):
+        self.assertIsNone(api_pool_override({'MYSQL_TOTAL_MAX_OPEN_CONNS':'60'}))
+    def test_doubling_within_budget_is_allowed(self):
+        self.assertEqual(api_pool_override({'MYSQL_TOTAL_MAX_OPEN_CONNS':'60','PT3_API_MYSQL_MAX_OPEN_CONNS':'16'}),'16')
+    def test_override_above_total_budget_is_rejected(self):
+        with self.assertRaises(RuntimeError):
+            api_pool_override({'MYSQL_TOTAL_MAX_OPEN_CONNS':'30','PT3_API_MYSQL_MAX_OPEN_CONNS':'40'})
+    def test_invalid_override_is_rejected(self):
+        with self.assertRaises(RuntimeError):
+            api_pool_override({'MYSQL_TOTAL_MAX_OPEN_CONNS':'60','PT3_API_MYSQL_MAX_OPEN_CONNS':'invalid'})
 
 class DatabaseEvidenceTest(unittest.TestCase):
     def sample(self,observer,second,ok):
