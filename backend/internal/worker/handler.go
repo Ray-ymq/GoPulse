@@ -99,13 +99,21 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	envelope, decodeErr := DecodeDelivery(delivery)
 	if attemptErr != nil {
 		if handler.admission != nil {
-			return handler.parkRaw(ctx, delivery, attempt, "invalid_attempt")
+			err := handler.parkRaw(ctx, delivery, attempt, "invalid_attempt")
+			if err == nil {
+				outcome = "parked"
+			}
+			return err
 		}
 		return handler.deadLetter(ctx, delivery, attempt, "invalid_attempt")
 	}
 	if decodeErr != nil {
 		if handler.admission != nil {
-			return handler.parkRaw(ctx, delivery, attempt, decodeErr.Error())
+			err := handler.parkRaw(ctx, delivery, attempt, decodeErr.Error())
+			if err == nil {
+				outcome = "parked"
+			}
+			return err
 		}
 		return handler.deadLetter(ctx, delivery, attempt, decodeErr.Error())
 	}
