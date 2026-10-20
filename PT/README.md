@@ -19,6 +19,25 @@
 - 按接口语义判断成功。删除成功与目标已不存在分别统计，不能只凭 HTTP 状态码范围认定业务成功。
 - 对照实验保持数据快照、访问序列、资源配置和测量窗口一致，每次只改变待验证因素。
 
+### 输入与配置
+
+使用 `recipe` 准备确定性数据集时，目标数据库必须为空。DSN 和密码分别放在权限为 `0600` 的私有文件中。以下命令从仓库根目录执行：
+
+```sh
+umask 077
+mkdir -p .run/load
+(cd perflab && go run ./cmd/recipe \
+  --dsn-file ../.run/private/load-dsn \
+  --password-file ../.run/private/load-password \
+  --receipt ../.run/load/recipe.json \
+  --corpus ../.run/load/corpus.json \
+  --credentials ../.run/load/credentials.json)
+```
+
+复制 [k6 配置](../perflab/k6/config.json) 到 `.run/load/config.json`，填写实际的 `target.base_url`、`target.health_url`、corpus、credentials 路径和 `report_dir`。涉及积压恢复时，还需填写 `target.backlog_url` 和 `target.backlog_json_path`。`recovery.require_observation=true` 时，缺少积压观测会标记为 `capacity_insufficient`。
+
+k6 版本固定为 0.56.0，默认按 `perflab/k6/toolchain.json` 的 SHA-256 校验和安装到 `.run/tools/k6`。可通过 `K6_BIN` 指定同版本二进制；`K6_AUTO_INSTALL=0` 禁止自动下载。
+
 ## 3. 执行流程
 
 正式容量测试依次执行以下阶段。单项诊断或对照实验可以使用独立流程，但必须说明测试范围。
@@ -32,6 +51,21 @@
 | 恢复观察 | 停止加压后继续观察健康状态、积压和资源，记录恢复到基线的时间或未恢复状态 |
 
 预热、测量和恢复时长必须在运行前确定。报告填写实际执行时长；提前中止或未执行的阶段必须注明原因，不得按计划时长折算为完整结果。
+
+### 执行命令
+
+以下命令从仓库根目录执行。`PREVIOUS_REPORT` 必须替换为前一阶段实际生成的报告路径；修改 `report_dir` 后同步调整路径。
+
+```sh
+make load MODE=boundary CONFIG=.run/load/config.json DRY_RUN=1
+make load MODE=boundary CONFIG=.run/load/config.json
+make load MODE=refine CONFIG=.run/load/config.json \
+  PREVIOUS_REPORT=".run/load/reports/boundary-<timestamp>.json"
+make load MODE=soak CONFIG=.run/load/config.json \
+  PREVIOUS_REPORT=".run/load/reports/refine-<timestamp>.json"
+```
+
+默认 boundary 从 10 RPS 开始逐档翻倍，最高扫描到 1,000 RPS；每档预热 30 秒、测量 120 秒、恢复观察最多 120 秒。refine 每档测量 300 秒，区间相对宽度不超过 10% 或达到最多 8 次迭代时停止。soak 使用已确认稳定容量的 80%，持续 30 分钟，随后观察恢复最多 120 秒。扫描上限不代表容量上限，本轮参数以实际生效配置为准。
 
 ## 4. 指标与判定
 
@@ -64,6 +98,8 @@
 
 - 每轮资料保存在 `PT/序号-测试编号/`，例如 `PT/01-测试一/`。
 - 文件名使用 `YYYY-MM-DD-测试编号-内容.md`，例如 `2026-10-19-测试一-极限压测报告.md`。报告使用实际测试日期；方案使用编写日期，并在正文注明。
-- 通用说明保存在 `PT/00-规范/`，不使用单次测试的编号和日期。
+- 通用性能测试规范统一维护在 `PT/README.md`。
 - k6 JSON 报告、资源采样和服务日志保存在被忽略的 `.run/` 下；报告记录其位置，不提交运行产物。
 - DSN、密码、令牌、credentials 和 corpus 不得提交到 Git。提交前检查报告中的配置和日志摘录，移除敏感值。
+
+k6 报告格式为 `gopulse.k6.load.v1`，结构定义见 [报告 schema](../perflab/k6/report.schema.json)，默认输出到 `.run/load/reports`。缺少资源观测时记录 `resources.source=not_observed`，不得据此推断瓶颈。
