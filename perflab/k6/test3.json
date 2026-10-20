@@ -10,7 +10,7 @@
     "cookie_name": "gopulse_session"
   },
   "workload": {
-    "virtual_users": 1024,
+    "virtual_users": 512,
     "request_timeout_seconds": 5,
     "mix": [
       {
