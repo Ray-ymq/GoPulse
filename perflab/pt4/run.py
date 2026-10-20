@@ -109,6 +109,18 @@ def recovery(directory, seconds):
     return value
 
 
+def smoke_with_retry():
+    smoke = legacy_module('smoke')
+    for attempt in range(3):
+        try:
+            smoke.smoke()
+            return
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(1)
+
+
 def execute(config):
     prepared = verify_prepared()
     os.environ.pop('GOPULSE_PERFLAB_PROFILE_ROLE', None)
@@ -128,7 +140,7 @@ def execute(config):
     (directory / 'prepared.json').write_bytes((STATE / 'prepared.json').read_bytes())
     restore('baseline'); start_services()
     # 功能检查写入后重新恢复，避免改变正式组初始业务事实。
-    legacy_module('smoke').smoke()
+    smoke_with_retry()
     restore('baseline'); start_services()
     command = [sys.executable, str(ROOT / 'perflab/pt4/observe.py'), '--directory', str(directory)]
     if not config['diagnostics']:
