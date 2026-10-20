@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/perflab/internal/input"
@@ -47,6 +48,9 @@ func (r *Runner) Run(ctx context.Context, mode Mode, boundary BoundaryRange) (Re
 			return Report{}, err
 		}
 		r.K6Binary = binary
+	}
+	if r.Config.Continuous {
+		return r.runContinuous(ctx, mode, boundary)
 	}
 	plan, err := BuildPlan(r.Config, mode, boundary)
 	if err != nil {
@@ -206,9 +210,10 @@ func (r *Runner) runK6(ctx context.Context, stage StagePlan, summaryPath, runID 
 	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o700); err != nil {
 		return -1, err
 	}
-	command := exec.CommandContext(ctx, r.K6Binary, "run", "--summary-export", summaryPath, ResolvePath(r.Root, r.Config.K6.Script))
+	command := exec.CommandContext(ctx, r.K6Binary, "run", ResolvePath(r.Root, r.Config.K6.Script))
 	environment := append([]string{}, os.Environ()...)
 	values := map[string]string{
+		"LOAD_SUMMARY_PATH":            summaryPath,
 		"GOPULSE_BASE_URL":             r.Config.Target.BaseURL,
 		"LOAD_CORPUS_PATH":             ResolvePath(r.Root, r.Config.Target.CorpusPath),
 		"LOAD_CREDENTIALS_PATH":        ResolvePath(r.Root, r.Config.Target.CredentialsPath),
@@ -231,10 +236,16 @@ func (r *Runner) runK6(ctx context.Context, stage StagePlan, summaryPath, runID 
 	for key, value := range values {
 		environment = append(environment, key+"="+value)
 	}
+	var stoppedAt atomic.Int64
+	command.Cancel = func() error { stoppedAt.Store(time.Now().UnixNano()); return command.Process.Signal(os.Interrupt) }
+	command.WaitDelay = 8 * time.Second
 	command.Env = environment
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	err := command.Run()
+	if stoppedAt.Load() != 0 {
+		_ = correctStoppedWindows(summaryPath, time.Unix(0, stoppedAt.Load()), []StagePlan{stage}, false)
+	}
 	if err == nil {
 		return 0, nil
 	}

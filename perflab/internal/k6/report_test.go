@@ -38,3 +38,22 @@ func TestReadSummaryPhaseClassifiesErrorsAndAggregatesRouteTemplates(t *testing.
 		t.Fatalf("routes=%+v", metrics.Routes)
 	}
 }
+
+func TestActualWindowOverridesPlannedDuration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "summary.json")
+	data := `{"metrics":{"business_requests_stage0_measurement":{"count":100},"business_success_rate_stage0_measurement":{"rate":0.9},"window_seconds_stage0_measurement":{"value":2}}}`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := ReadSummaryPhase(path, "stage0_measurement", 50, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.ActualSeconds != 2 || metrics.ActualRequestRate != 50 || metrics.SuccessfulThroughput != 45 {
+		t.Fatalf("metrics=%+v", metrics)
+	}
+	absent, err := ReadSummaryPhase(path, "stage1_measurement", 100, 0)
+	if err != nil || absent.Requests != 0 || absent.ActualSeconds != 0 {
+		t.Fatalf("未执行档位混入全局计数: %+v %v", absent, err)
+	}
+}

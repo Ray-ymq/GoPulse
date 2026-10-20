@@ -41,10 +41,12 @@ export function userIndexFor(selection, users) {
   return (selection.routeVisit * stride(users, 17) + selection.route * 7) % users;
 }
 
-export function ownedIndexFor(selection, users, posts) {
+export function ownedIndexFor(selection, users, posts, strict = false) {
   // Each actor visits every owned target before revisiting it, independently
   // of the user's position in the actor permutation.
-  return Math.floor(selection.routeVisit / users) % posts;
+  const index = Math.floor(selection.routeVisit / users);
+  if (strict && index >= posts) throw new Error('删除语料已耗尽，停止执行以避免重复删除');
+  return index % posts;
 }
 
 export function postIndexFor(slot, posts, profile = 'smooth-mixed', hotPosts = 16) {
@@ -55,4 +57,9 @@ export function postIndexFor(slot, posts, profile = 'smooth-mixed', hotPosts = 1
   }
   const size = profile === 'hot-repeat' ? Math.min(posts, hotPosts) : posts;
   return (slot * stride(size, 31) + 11) % size;
+}
+
+export function isEffectiveSuccess(request, status) {
+  if (request.route === 'DELETE /api/v1/posts/:postId' && status === 404) return false;
+  return request.statuses.includes(status);
 }

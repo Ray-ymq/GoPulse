@@ -29,6 +29,7 @@ type Report struct {
 	StartedAt       time.Time       `json:"started_at"`
 	FinishedAt      time.Time       `json:"finished_at"`
 	ExecutionStatus string          `json:"execution_status"`
+	StopReason      string          `json:"stop_reason,omitempty"`
 	Thresholds      Thresholds      `json:"thresholds"`
 	Stages          []StageResult   `json:"stages"`
 	Boundary        BoundarySummary `json:"boundary"`
@@ -58,6 +59,7 @@ type StageResult struct {
 type WindowMetrics struct {
 	DeleteSucceeded      uint64         `json:"delete_succeeded"`
 	DeleteAlreadyAbsent  uint64         `json:"delete_already_absent"`
+	ActualSeconds        float64        `json:"actual_seconds"`
 	TargetRPS            float64        `json:"target_rps"`
 	ActualRequestRate    float64        `json:"actual_request_rate"`
 	SuccessfulThroughput float64        `json:"successful_throughput"`
@@ -192,9 +194,10 @@ func ReadSummaryPhase(path, phase string, target, seconds float64) (WindowMetric
 			UnexpectedErrors: metricCountPhase(summary.Metrics, "errors_unexpected", phase),
 		},
 	}
-	if seconds > 0 {
-		metrics = metrics.WithTarget(target, seconds)
+	if window, ok := summary.Metrics["window_seconds_"+phase]; ok {
+		seconds = window.Values["value"]
 	}
+	metrics = metrics.WithTarget(target, seconds)
 	fillRouteMetricsPhase(&metrics, summary, phase)
 	return metrics, nil
 }
@@ -208,6 +211,7 @@ func healthFailureRate(metrics map[string]k6Metric) float64 {
 
 func (metrics WindowMetrics) WithTarget(target, seconds float64) WindowMetrics {
 	metrics.TargetRPS = target
+	metrics.ActualSeconds = seconds
 	if seconds > 0 {
 		metrics.ActualRequestRate = float64(metrics.Requests) / seconds
 		metrics.SuccessfulThroughput = float64(metrics.SuccessfulRequests) / seconds
@@ -282,7 +286,7 @@ func metricForPhase(metrics map[string]k6Metric, name, phase string) (k6Metric, 
 
 func metricValuePhase(metrics map[string]k6Metric, name, value, phase string) float64 {
 	metric, ok := metricForPhase(metrics, name, phase)
-	if !ok && phase != "" {
+	if !ok && phase != "" && !strings.HasPrefix(phase, "stage") {
 		metric, ok = metricForPhase(metrics, name, "")
 	}
 	if !ok {
@@ -293,7 +297,7 @@ func metricValuePhase(metrics map[string]k6Metric, name, value, phase string) fl
 
 func metricCountPhase(metrics map[string]k6Metric, name, phase string) uint64 {
 	metric, ok := metricForPhase(metrics, name, phase)
-	if !ok && phase != "" {
+	if !ok && phase != "" && !strings.HasPrefix(phase, "stage") {
 		metric, ok = metricForPhase(metrics, name, "")
 	}
 	if !ok {
@@ -304,7 +308,7 @@ func metricCountPhase(metrics map[string]k6Metric, name, phase string) uint64 {
 
 func metricRatePhase(metrics map[string]k6Metric, name, phase string) float64 {
 	metric, ok := metricForPhase(metrics, name, phase)
-	if !ok && phase != "" {
+	if !ok && phase != "" && !strings.HasPrefix(phase, "stage") {
 		metric, ok = metricForPhase(metrics, name, "")
 	}
 	if !ok {

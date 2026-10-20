@@ -46,6 +46,8 @@ const (
 // resolved relative to the repository root when they are not absolute.
 type Config struct {
 	SchemaVersion  string         `json:"schema_version"`
+	Continuous     bool           `json:"continuous,omitempty"`
+	SafetyFile     string         `json:"safety_file,omitempty"`
 	Target         TargetConfig   `json:"target"`
 	Workload       WorkloadConfig `json:"workload"`
 	Boundary       BoundaryConfig `json:"boundary"`

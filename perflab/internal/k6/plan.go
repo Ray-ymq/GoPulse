@@ -94,7 +94,7 @@ func nextRefineInterval(boundary BoundaryRange, target float64, stable bool) Bou
 func boundaryFromResults(results []StageResult) BoundaryRange {
 	var stable, unstable float64
 	for _, result := range results {
-		if result.Status == StatusStable && result.TargetRPS > stable {
+		if result.Status == StatusStable && unstable == 0 && result.TargetRPS > stable {
 			stable = result.TargetRPS
 		}
 		if result.Status == StatusUnstable && (unstable == 0 || result.TargetRPS < unstable) {

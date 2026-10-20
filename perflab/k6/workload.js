@@ -1,5 +1,6 @@
 import http from 'k6/http';
-import { createSequence, userIndexFor, ownedIndexFor, postIndexFor } from './sequence.mjs';
+import { windowAt, elapsedWindows } from './windows.mjs';
+import { createSequence, userIndexFor, ownedIndexFor, postIndexFor, isEffectiveSuccess } from './sequence.mjs';
 import { check } from 'k6';
 import exec from 'k6/execution';
 import { Counter, Rate, Trend } from 'k6/metrics';
@@ -11,6 +12,8 @@ const timeoutSeconds = Number(__ENV.LOAD_REQUEST_TIMEOUT_SECONDS || 5);
 const targetRPS = Number(__ENV.LOAD_TARGET_RPS || 10);
 const warmupSeconds = Number(__ENV.LOAD_WARMUP_SECONDS || 0);
 const measurementSeconds = Number(__ENV.LOAD_MEASUREMENT_SECONDS || 1);
+const stages = JSON.parse(__ENV.LOAD_STAGES_JSON || '[]');
+const continuous = stages.length > 0;
 const virtualUsers = Number(__ENV.LOAD_VUS || 1);
 const mix = JSON.parse(__ENV.LOAD_MIX_JSON || '[]');
 const profile = __ENV.LOAD_PROFILE || 'smooth-mixed';
@@ -38,7 +41,9 @@ const credentialPassword = new SharedArray('credential_password', function () {
 })[0];
 
 const businessRequests = new Counter('business_requests');
+const corpusExhausted = new Counter('corpus_exhausted');
 const businessLatency = new Trend('business_latency', true);
+const businessSuccessLatency = new Trend('business_success_latency', true);
 const businessSuccessRate = new Rate('business_success_rate');
 const earlySuccessRate = new Rate('early_success_rate');
 const errors429 = new Counter('errors_429');
@@ -89,11 +94,17 @@ const routeMetrics = {
   measurement: makeRouteMetrics('measurement'),
 };
 
-const scenarios = {
+const stageMetrics = stages.map((_, index) => Object.fromEntries(['warmup', 'measurement'].map((phase) => [phase, makePhaseMetrics(`stage${index}_${phase}`)])));
+const stageErrors = stages.map((_, index) => Object.fromEntries(['warmup', 'measurement'].map((phase) => [phase, makeErrorMetrics(`stage${index}_${phase}`)])));
+const stageRoutes = stages.map((_, index) => Object.fromEntries(['warmup', 'measurement'].map((phase) => [phase, makeRouteMetrics(`stage${index}_${phase}`)])));
+const stageClock = new Trend('stage_clock_seconds');
+const scenarioStarted = new Trend('scenario_started_at_ms');
+
+let scenarios = {
   measurement: {
     executor: 'constant-arrival-rate',
-    rate: targetRPS,
-    timeUnit: '1s',
+    rate: Math.round(targetRPS * 100),
+    timeUnit: '100s',
     duration: `${measurementSeconds}s`,
     preAllocatedVUs: virtualUsers,
     maxVUs: Math.max(virtualUsers * 2, virtualUsers + 100),
@@ -114,8 +125,8 @@ const scenarios = {
 if (warmupSeconds > 0) {
   scenarios.warmup = {
     executor: 'constant-arrival-rate',
-    rate: targetRPS,
-    timeUnit: '1s',
+    rate: Math.round(targetRPS * 100),
+    timeUnit: '100s',
     duration: `${warmupSeconds}s`,
     preAllocatedVUs: virtualUsers,
     maxVUs: Math.max(virtualUsers * 2, virtualUsers + 100),
@@ -124,29 +135,46 @@ if (warmupSeconds > 0) {
   };
 }
 
+if (continuous) {
+  const ramps = [];
+  for (const stage of stages) {
+    ramps.push({ duration: '0s', target: Math.round(stage.target_rps * 100) });
+    ramps.push({ duration: `${stage.warmup_seconds + stage.measurement_seconds}s`, target: Math.round(stage.target_rps * 100) });
+  }
+  const duration = stages.reduce((sum, stage) => sum + stage.warmup_seconds + stage.measurement_seconds, 0);
+  scenarios = {
+    continuous: { executor: 'ramping-arrival-rate', startRate: Math.round(stages[0].target_rps * 100), timeUnit: '100s', stages: ramps,
+      preAllocatedVUs: virtualUsers, maxVUs: virtualUsers, exec: 'business', gracefulStop: `${timeoutSeconds}s` },
+    health: { executor: 'constant-arrival-rate', rate: 1, timeUnit: '1s', duration: `${duration}s`,
+      preAllocatedVUs: 1, maxVUs: 1, exec: 'health', gracefulStop: `${timeoutSeconds}s` },
+  };
+}
+
 export const options = {
   scenarios,
+  systemTags: ['status', 'method', 'scenario', 'error_code', 'expected_response'],
   // Authenticating every deterministic user during setup is CPU-bound. Batch
   // the logins and keep a generous setup budget so a slow host cannot turn a
   // capacity stage into a setup timeout.
   setupTimeout: '300s',
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
-  thresholds: {
+  thresholds: continuous ? {} : {
     business_success_rate: [{
       threshold: `rate>${1 - Number(__ENV.LOAD_MAX_ERROR_RATE || 0.01)}`,
-      abortOnFail: true,
+      abortOnFail: !continuous,
       delayAbortEval: `${Number(__ENV.LOAD_EARLY_STOP_SECONDS || 30)}s`,
     }],
     early_success_rate: [`rate>${1 - Number(__ENV.LOAD_EARLY_STOP_ERROR_RATE || 0.2)}`],
     health_success_rate: [{
       threshold: 'rate>0.999',
-      abortOnFail: true,
+      abortOnFail: !continuous,
       delayAbortEval: `${Number(__ENV.LOAD_HEALTH_FAILURE_SECONDS || 30)}s`,
     }],
   },
 };
 
 export function setup() {
+  const setupStarted = Date.now();
   const sessions = [];
   // Authenticate one session per virtual user (bounded by the credential
   // file); VUs cycle through the resulting sessions so per-identity quotas
@@ -187,7 +215,7 @@ export function setup() {
   if (sessions.length === 0) {
     throw new Error('credentials contain no users');
   }
-  return { sessions };
+  return { sessions, setupElapsedMs: Date.now() - setupStarted };
 }
 
 export function business(data) {
@@ -195,13 +223,19 @@ export function business(data) {
   // reviewed mix into a feed-read benchmark. The global iteration index makes
   // the declared category and route split hold for every load level.
   const slot = exec.scenario.iterationInTest;
+  if (slot === 0) scenarioStarted.add(exec.scenario.startTime - (!continuous && exec.scenario.name === 'measurement' ? warmupSeconds * 1000 : 0));
   const globalSlot = slot + (exec.scenario.name === 'measurement' ? Math.ceil(warmupSeconds * targetRPS) : 0);
   const selection = sequence(globalSlot);
   const userIndex = userIndexFor(selection, data.sessions.length);
-  const request = operation(globalSlot, userIndex, selection, data.sessions.length);
-  const phase = exec.scenario.name === 'warmup' ? 'warmup' : 'measurement';
+  let request;
+  try { request = operation(globalSlot, userIndex, selection, data.sessions.length); }
+  catch (error) { corpusExhausted.add(1); exec.test.abort(String(error)); return; }
+  const elapsed = (Date.now() - exec.scenario.startTime) / 1000;
+  const window = continuous ? windowAt(elapsed, stages) : null;
+  const phase = continuous ? window.phase : exec.scenario.name === 'warmup' ? 'warmup' : 'measurement';
   const tags = {
     phase,
+    stage: continuous ? String(window.index) : '0',
     operation: 'business',
     category: request.category,
     route: request.route,
@@ -216,8 +250,9 @@ export function business(data) {
     params.headers['Content-Type'] = 'application/json';
   }
   const response = http.request(request.method, `${baseURL}${request.path}`, request.body, params);
-  const passed = check(response, { 'business response is expected': (value) => request.statuses.includes(value.status) }, tags);
+  const passed = check(response, { 'business response is expected': (value) => isEffectiveSuccess(request, value.status) }, tags);
   businessRequests.add(1, tags);
+  if (passed) businessSuccessLatency.add(response.timings.duration, tags);
   businessLatency.add(response.timings.duration, tags);
   businessSuccessRate.add(passed, tags);
   earlySuccessRate.add(passed, tags);
@@ -228,6 +263,20 @@ export function business(data) {
   routeMetric.requests.add(1);
   routeMetric.latency.add(response.timings.duration);
   routeMetric.success.add(passed);
+  if (continuous) {
+    const metrics = stageMetrics[window.index][phase];
+    metrics.requests.add(1);
+    metrics.latency.add(response.timings.duration);
+    metrics.success.add(passed);
+    if (passed) metrics.successLatency.add(response.timings.duration);
+    const route = stageRoutes[window.index][phase][routeIndex[request.route]];
+    route.requests.add(1); route.latency.add(response.timings.duration); route.success.add(passed);
+    if (request.route === 'DELETE /api/v1/posts/:postId') {
+      if (response.status === 204) metrics.deleted.add(1);
+      if (response.status === 404) metrics.alreadyAbsent.add(1);
+    }
+  }
+  if (passed) phaseMetrics[phase].successLatency.add(response.timings.duration);
   classifyResponse(response, passed, tags);
   if (request.route === 'DELETE /api/v1/posts/:postId') {
     if (response.status === 204) phaseMetrics[phase].deleted.add(1);
@@ -240,6 +289,8 @@ export function business(data) {
 }
 
 export function health() {
+  scenarioStarted.add(exec.scenario.startTime);
+  if (continuous) stageClock.add((Date.now() - exec.scenario.startTime) / 1000);
   const response = http.get(__ENV.LOAD_HEALTH_URL, {
     timeout: `${timeoutSeconds}s`,
     tags: { phase: 'health', operation: 'health', route: 'GET /ready', method: 'GET' },
@@ -250,14 +301,17 @@ export function health() {
 
 function classifyResponse(response, passed, tags) {
   const phaseMetricsForErrors = phaseErrorMetrics[tags.phase];
+  const staged = continuous ? stageErrors[Number(tags.stage)][tags.phase] : null;
   if (response.status === 429) {
     errors429.add(1, tags);
     phaseMetricsForErrors.errors429.add(1);
+    if (staged) staged.errors429.add(1);
     return;
   }
   if (response.status === 503) {
     errors503.add(1, tags);
     phaseMetricsForErrors.errors503.add(1);
+    if (staged) staged.errors503.add(1);
     return;
   }
   if (response.status === 0) {
@@ -265,15 +319,18 @@ function classifyResponse(response, passed, tags) {
     if (error.includes('timeout') || response.timings.duration >= timeoutSeconds * 1000) {
       errorsTimeout.add(1, tags);
       phaseMetricsForErrors.errorsTimeout.add(1);
+    if (staged) staged.errorsTimeout.add(1);
     } else {
       errorsTransport.add(1, tags);
       phaseMetricsForErrors.errorsTransport.add(1);
+    if (staged) staged.errorsTransport.add(1);
     }
     return;
   }
   if (!passed) {
     errorsUnexpected.add(1, tags);
     phaseMetricsForErrors.errorsUnexpected.add(1);
+    if (staged) staged.errorsUnexpected.add(1);
   }
 }
 
@@ -315,7 +372,7 @@ function operation(slot, userIndex, selection, users) {
       }
       default: {
         const deletable = deletePostIDs[userIndex];
-        const deletableID = deletable[ownedIndexFor(selection, users, deletable.length)];
+        const deletableID = deletable[ownedIndexFor(selection, users, deletable.length, continuous)];
         return post(category, 'DELETE /api/v1/posts/:postId', `/api/v1/posts/${deletableID}`, undefined, [204, 404], 'DELETE');
       }
     }
@@ -354,6 +411,7 @@ function makePhaseMetrics(phase) {
     deleted: new Counter(`delete_succeeded_${phase}`),
     alreadyAbsent: new Counter(`delete_already_absent_${phase}`),
     latency: new Trend(`business_latency_${phase}`, true),
+    successLatency: new Trend(`business_success_latency_${phase}`, true),
     success: new Rate(`business_success_rate_${phase}`),
   };
 }
@@ -379,4 +437,18 @@ function get(category, route, path, statuses, method = 'GET') {
 
 function post(category, route, path, body, statuses, method = 'POST', login = false) {
   return { category, route, path, statuses, method, login, body: body === undefined ? undefined : JSON.stringify(body) };
+}
+
+// k6 的场景计时不含 setup，窗口时长不会用目标请求数反推。
+export function handleSummary(data) {
+  const seconds = !data.metrics.scenario_started_at_ms ? 0 : Math.max(0, (data.state.testRunDurationMs - ((data.setup_data || {}).setupElapsedMs || 0)) / 1000);
+  const windows = elapsedWindows(seconds, continuous ? stages : [{ warmup_seconds: warmupSeconds, measurement_seconds: measurementSeconds }]);
+  const metrics = Object.fromEntries(Object.entries(data.metrics).map(([name, metric]) => [name, metric.values]));
+  for (let index = 0; index < windows.length; index += 1) {
+    for (const phase of ['warmup', 'measurement']) {
+      const suffix = continuous ? `stage${index}_${phase}` : phase;
+      metrics[`window_seconds_${suffix}`] = { value: windows[index][phase] };
+    }
+  }
+  return { [__ENV.LOAD_SUMMARY_PATH || 'summary.json']: JSON.stringify({ metrics, timing: { test_run_seconds: seconds, windows } }) };
 }
