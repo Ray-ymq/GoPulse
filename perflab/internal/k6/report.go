@@ -313,50 +313,6 @@ func metricRatePhase(metrics map[string]k6Metric, name, phase string) float64 {
 	return metric.Values["rate"]
 }
 
-func metricValue(metrics map[string]k6Metric, name, value string) float64 {
-	if metric, ok := metrics[name]; ok {
-		return metric.Values[value]
-	}
-	for key, metric := range metrics {
-		if strings.HasPrefix(key, name+"{") {
-			if value == "p(95)" || value == "p(99)" {
-				if current, found := metric.Values[value]; found {
-					return current
-				}
-			}
-		}
-	}
-	return 0
-}
-
-func metricCount(metrics map[string]k6Metric, name string) uint64 {
-	if metric, ok := metrics[name]; ok {
-		return uint64(math.Round(metric.Values["count"]))
-	}
-	for key, metric := range metrics {
-		if strings.HasPrefix(key, name+"{") {
-			return uint64(math.Round(metric.Values["count"]))
-		}
-	}
-	return 0
-}
-
-func metricRate(metrics map[string]k6Metric, name string) float64 {
-	if metric, ok := metrics[name]; ok {
-		return metric.Values["rate"]
-	}
-	for key, metric := range metrics {
-		if strings.HasPrefix(key, name+"{") {
-			return metric.Values["rate"]
-		}
-	}
-	return 0
-}
-
-func fillRouteMetrics(metrics *WindowMetrics, summary k6Summary) {
-	fillRouteMetricsPhase(metrics, summary, "")
-}
-
 func fillRouteMetricsPhase(metrics *WindowMetrics, summary k6Summary, phase string) {
 	if hasNamedRouteMetrics(summary.Metrics, phase) {
 		for index, route := range routeDefinitions {
