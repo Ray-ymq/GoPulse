@@ -142,4 +142,51 @@ func TestIntegrationV2CreateEditDeleteSearchAndDuplicate(t *testing.T) {
 	if result, err := index.IndexAliasResult(ctx, stale); err != nil || !result.ConflictVerified {
 		t.Fatalf("stale write=%+v err=%v", result, err)
 	}
+	// Race an edit and delete on the same row. Either serialization is valid;
+	// the durable deletion version must follow the winning content revision.
+	record, err = posts.Create(ctx, actor.ID, "v2raceword", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project("post.created")
+	concurrent := post.NewMySQLRepository(db, post.RepositoryOptions{Outbox: events, BusinessState: state})
+	start := make(chan struct{})
+	edited := make(chan error, 1)
+	deleted := make(chan error, 1)
+	go func() {
+		<-start
+		_, err := concurrent.Update(ctx, record.ID, actor.ID, post.CreateInput{Title: "v2racededit", Content: "body 2"})
+		edited <- err
+	}()
+	go func() { <-start; deleted <- concurrent.Delete(ctx, record.ID, actor.ID) }()
+	close(start)
+	editErr, deleteErr := <-edited, <-deleted
+	if deleteErr != nil {
+		t.Fatal(deleteErr)
+	}
+	expectedVersion := uint64(3)
+	if errors.Is(editErr, post.ErrNotFound) {
+		expectedVersion = 2
+	} else if editErr != nil {
+		t.Fatal(editErr)
+	} else {
+		project("post.updated")
+	}
+	var deletionVersion uint64
+	if err := db.QueryRow("SELECT content_revision FROM post_search_tombstones WHERE data_epoch=? AND post_id=?", environment.DataEpoch, record.ID).Scan(&deletionVersion); err != nil || deletionVersion != expectedVersion {
+		t.Fatalf("deletion revision=%d want=%d err=%v", deletionVersion, expectedVersion, err)
+	}
+	project("post.deleted")
+	search("v2raceword", 0)
+	search("v2racededit", 0)
+	result, err = NewReindexer(NewReindexStore(db), index, 10).RunForEpoch(ctx, false, environment.DataEpoch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	search("v2editedword", 0)
+	search("v2raceword", 0)
+	if result, err := index.IndexAliasResult(ctx, stale); err != nil || !result.ConflictVerified {
+		t.Fatalf("post-rebuild stale write=%+v err=%v", result, err)
+	}
+
 }
