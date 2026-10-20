@@ -109,10 +109,37 @@ def recovery(directory, seconds):
     return value
 
 
+def warm_read_paths():
+    smoke = legacy_module('smoke')
+    corpus = json.loads((STATE / 'corpus.json').read_text())
+    client = smoke.Client()
+    client.login(0)
+    paths = ['/api/v1/users/me', '/api/v1/posts?limit=1',
+             '/api/v1/posts/' + str(corpus['read_post_ids'][0]),
+             '/api/v1/search/posts?q=go&limit=1', '/api/v1/notifications?limit=1']
+    deadline = time.monotonic() + 60
+    failed = []
+    while True:
+        failed = []
+        for path in paths:
+            try:
+                status, _ = client.request('GET', path)
+                if status != 200:
+                    failed.append(path + ':' + str(status))
+            except Exception as error:
+                failed.append(path + ':' + type(error).__name__)
+        if not failed:
+            return
+        if time.monotonic() >= deadline:
+            raise RuntimeError('恢复后只读路径预热未完成：' + ','.join(failed))
+        time.sleep(1)
+
+
 def smoke_with_retry():
     smoke = legacy_module('smoke')
     for attempt in range(5):
         try:
+            warm_read_paths()
             smoke.smoke()
             return
         except Exception:
