@@ -98,6 +98,7 @@ func (repository *ElasticsearchRepository) CheckVisibility(ctx context.Context, 
 			map[string]any{"term": map[string]any{"data_epoch": epoch}},
 			map[string]any{"term": map[string]any{"post_id": postID}},
 			map[string]any{"term": map[string]any{"content_revision": contentRevision}},
+			map[string]any{"bool": map[string]any{"must_not": map[string]any{"term": map[string]any{"deleted": true}}}},
 		}}},
 	})
 	if err != nil {
@@ -249,9 +250,7 @@ func (repository *ElasticsearchRepository) Search(ctx context.Context, generatio
 		"pit": map[string]string{
 			"id": pointInTime, "keep_alive": pointInTimeKeepAliveValue,
 		},
-		"query": map[string]any{"multi_match": map[string]any{
-			"query": query, "type": "best_fields", "fields": []string{"title^2", "content"},
-		}},
+		"query": map[string]any{"bool": map[string]any{"must": map[string]any{"multi_match": map[string]any{"query": query, "type": "best_fields", "fields": []string{"title^2", "content"}}}, "must_not": map[string]any{"term": map[string]any{"deleted": true}}}},
 		"sort": []any{
 			map[string]any{"_score": map[string]string{"order": "desc"}},
 			map[string]any{"created_at": map[string]string{"order": "desc", "format": "strict_date_optional_time_nanos"}},
@@ -436,7 +435,7 @@ func (repository *ElasticsearchRepository) Count(ctx context.Context, index stri
 	if !validPhysicalIndex(index) {
 		return 0, errors.New("invalid physical search index")
 	}
-	response, err := repository.do(ctx, http.MethodGet, "/"+index+"/_count", nil)
+	response, err := repository.do(ctx, http.MethodGet, "/"+index+"/_count", strings.NewReader(`{"query":{"bool":{"must_not":{"term":{"deleted":true}}}}}`))
 	if err != nil {
 		return 0, err
 	}
@@ -669,7 +668,8 @@ func (repository *ElasticsearchRepository) RevisionMappingReady(ctx context.Cont
 	}
 	for _, index := range mappings {
 		_, ready := index.Mappings.Properties["content_revision"]
-		return ready, nil
+		_, tombstones := index.Mappings.Properties["deleted"]
+		return ready && tombstones, nil
 	}
 	return false, nil
 }

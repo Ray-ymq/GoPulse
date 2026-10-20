@@ -17,6 +17,7 @@ var Mapping = json.RawMessage(`{
   "settings":{"number_of_shards":1,"number_of_replicas":0},
   "mappings":{"dynamic":"strict","properties":{
     "data_epoch":{"type":"keyword"},
+    "deleted":{"type":"boolean"},
     "post_id":{"type":"long"},
     "title":{"type":"text"},
     "content":{"type":"text"},
@@ -28,6 +29,7 @@ var Mapping = json.RawMessage(`{
 }`)
 
 type Document struct {
+	Deleted         bool       `json:"deleted,omitempty"`
 	DataEpoch       string     `json:"data_epoch,omitempty"`
 	EditedAt        *time.Time `json:"edited_at"`
 	ContentRevision uint64     `json:"content_revision"`
@@ -39,6 +41,12 @@ type Document struct {
 }
 
 func (document Document) Validate() error {
+	if document.Deleted {
+		if document.PostID == 0 || document.ContentRevision == 0 {
+			return fmt.Errorf("invalid search tombstone")
+		}
+		return nil
+	}
 	if document.PostID == 0 || strings.TrimSpace(document.Title) == "" || strings.TrimSpace(document.Content) == "" || document.CreatedAt.IsZero() || document.UpdatedAt.IsZero() {
 		return fmt.Errorf("search document fields are invalid")
 	}
