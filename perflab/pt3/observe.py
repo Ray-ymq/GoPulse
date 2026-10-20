@@ -25,6 +25,12 @@ def configuration_matches(actual, expected):
     return all(key in actual and (configuration_matches(actual[key], value) if isinstance(value, dict) else actual[key] == value)
                for key, value in expected.items())
 
+def cgroup_memory_usage(cgroup):
+    current = int((cgroup / 'memory.current').read_text())
+    stats = dict(line.split() for line in (cgroup / 'memory.stat').read_text().splitlines())
+    reclaimable_file = int(stats.get('inactive_file', '0'))
+    return current, max(0, current - reclaimable_file), reclaimable_file
+
 def percentile(values, fraction):
     if not values:return None
     values=sorted(values)
@@ -136,13 +142,16 @@ class Observation:
             evidence={key:state[key] for key in ['Status','OOMKilled','ExitCode','StartedAt','FinishedAt']};evidence['restarts']=int(restarts)
             if name.endswith('mysql-1') and not configuration_matches(host_config,self.expected_mysql):self.fail('mysql_resource_configuration_changed')
             cgroup=Path('/sys/fs/cgroup/system.slice/docker-'+cid+'.scope')
-            evidence['memory_bytes']=int((cgroup/'memory.current').read_text())
+            current, pressure, reclaimable_file = cgroup_memory_usage(cgroup)
+            evidence['memory_bytes'] = current
+            evidence['memory_pressure_bytes'] = pressure
+            evidence['memory_reclaimable_file_bytes'] = reclaimable_file
             evidence['cpu']=dict(row.split() for row in (cgroup/'cpu.stat').read_text().splitlines())
             values['containers'][name]=evidence
             identity=(evidence['StartedAt'],int(restarts))
             if name not in self.initial:self.initial[name]=identity
             if identity!=self.initial[name] or evidence['Status']!='running' or evidence['OOMKilled']:self.fail(name+'_crash_oom_or_restart')
-            if name.endswith('mysql-1') and evidence['memory_bytes']>=LIMITS['mysql_memory_max_bytes']:self.fail('mysql_memory_stop_threshold')
+            if name.endswith('mysql-1') and evidence['memory_pressure_bytes']>=LIMITS['mysql_memory_max_bytes']:self.fail('mysql_memory_stop_threshold')
         now=time.monotonic()
         for name,row in values['processes'].items():
             previous=self.previous_cpu.get(name)

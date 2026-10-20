@@ -3,7 +3,7 @@ from datetime import datetime,timezone,timedelta
 from pathlib import Path
 import tempfile
 import unittest
-from observe import Observation
+from observe import Observation, cgroup_memory_usage
 from environment import api_pool_override
 
 class ApiPoolOverrideTest(unittest.TestCase):
@@ -39,5 +39,13 @@ class DatabaseEvidenceTest(unittest.TestCase):
             observer=Observation(Path(directory))
             self.sample(observer,0,False);self.sample(observer,31,False)
             self.assertEqual(observer.reason,'database_probe_sampling_gap')
+
+class MemoryAccountingTest(unittest.TestCase):
+    def test_reclaimable_file_cache_is_excluded_from_pressure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)
+            (path/'memory.current').write_text('200')
+            (path/'memory.stat').write_text('anon 120\ninactive_file 80\n')
+            self.assertEqual(cgroup_memory_usage(path),(200,120,80))
 
 if __name__=='__main__':unittest.main()
