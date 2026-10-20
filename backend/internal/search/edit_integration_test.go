@@ -95,7 +95,7 @@ func TestIntegrationEditReindexCompensationAndStaleReplay(t *testing.T) {
 	// Update is consumed on the OLD alias after the new index's first scan.
 	// The post-switch second scan must compensate this otherwise lost update.
 	switching := &editDuringSwitch{ElasticsearchRepository: index, edit: func() {
-		if err := posts.Update(ctx, record.ID, actor.ID, post.CreateInput{Title: "neweditword", Content: "neweditword"}); err != nil {
+		if _, err := posts.Update(ctx, record.ID, actor.ID, post.CreateInput{Title: "neweditword", Content: "neweditword"}); err != nil {
 			t.Fatal(err)
 		}
 		event, _ := bus.NewPostUpdated(time.Now().UTC(), actor.ID, record.ID, 2)

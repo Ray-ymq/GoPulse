@@ -59,7 +59,7 @@ func TestIntegrationMutationSearchRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Update(ctx, record.ID, actor.ID, CreateInput{Title: "edited", Content: "body 2"}); err != nil {
+	if _, err := repo.Update(ctx, record.ID, actor.ID, CreateInput{Title: "edited", Content: "body 2"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Delete(ctx, record.ID, actor.ID); err != nil {
