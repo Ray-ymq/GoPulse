@@ -213,6 +213,8 @@ func (r *Runner) runK6(ctx context.Context, stage StagePlan, summaryPath, runID 
 		"LOAD_CORPUS_PATH":             ResolvePath(r.Root, r.Config.Target.CorpusPath),
 		"LOAD_CREDENTIALS_PATH":        ResolvePath(r.Root, r.Config.Target.CredentialsPath),
 		"LOAD_COOKIE_NAME":             r.Config.Target.CookieName,
+		"LOAD_PROFILE":                 r.Config.Workload.Profile,
+		"LOAD_HOT_POSTS":               strconv.Itoa(r.Config.Workload.HotPosts),
 		"LOAD_MIX_JSON":                mustJSON(r.Config.Workload.Mix),
 		"LOAD_VUS":                     strconv.Itoa(r.Config.Workload.VirtualUsers),
 		"LOAD_REQUEST_TIMEOUT_SECONDS": strconv.FormatFloat(r.Config.Workload.RequestTimeoutSeconds, 'f', -1, 64),

@@ -56,6 +56,8 @@ type StageResult struct {
 }
 
 type WindowMetrics struct {
+	DeleteSucceeded      uint64         `json:"delete_succeeded"`
+	DeleteAlreadyAbsent  uint64         `json:"delete_already_absent"`
 	TargetRPS            float64        `json:"target_rps"`
 	ActualRequestRate    float64        `json:"actual_request_rate"`
 	SuccessfulThroughput float64        `json:"successful_throughput"`
@@ -171,6 +173,8 @@ func ReadSummaryPhase(path, phase string, target, seconds float64) (WindowMetric
 		droppedRate = float64(dropped) / float64(denominator)
 	}
 	metrics := WindowMetrics{
+		DeleteSucceeded:      metricCountPhase(summary.Metrics, "delete_succeeded", phase),
+		DeleteAlreadyAbsent:  metricCountPhase(summary.Metrics, "delete_already_absent", phase),
 		TargetRPS:            target,
 		Requests:             requests,
 		SuccessfulRequests:   successful,

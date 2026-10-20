@@ -74,6 +74,8 @@ type MixEntry struct {
 }
 
 type WorkloadConfig struct {
+	Profile               string     `json:"profile,omitempty"`
+	HotPosts              int        `json:"hot_posts,omitempty"`
 	VirtualUsers          int        `json:"virtual_users"`
 	RequestTimeoutSeconds float64    `json:"request_timeout_seconds"`
 	Mix                   []MixEntry `json:"mix"`
@@ -204,6 +206,14 @@ func (c Config) Validate(root string) error {
 	}
 	if c.Workload.VirtualUsers < 1 || c.Workload.RequestTimeoutSeconds <= 0 || c.Workload.RequestTimeoutSeconds > 60 {
 		return errors.New("workload virtual_users or request_timeout_seconds is invalid")
+	}
+	switch c.Workload.Profile {
+	case "", "smooth-mixed", "burst-mixed", "hot-repeat", "cold-distinct":
+	default:
+		return errors.New("unknown workload.profile")
+	}
+	if c.Workload.HotPosts < 0 {
+		return errors.New("workload.hot_posts must be non-negative")
 	}
 	if err := validateMix(c.Workload.Mix); err != nil {
 		return err

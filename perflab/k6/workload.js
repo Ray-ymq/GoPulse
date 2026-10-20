@@ -1,4 +1,5 @@
 import http from 'k6/http';
+import { createSequence, userIndexFor, ownedIndexFor, postIndexFor } from './sequence.mjs';
 import { check } from 'k6';
 import exec from 'k6/execution';
 import { Counter, Rate, Trend } from 'k6/metrics';
@@ -12,6 +13,9 @@ const warmupSeconds = Number(__ENV.LOAD_WARMUP_SECONDS || 0);
 const measurementSeconds = Number(__ENV.LOAD_MEASUREMENT_SECONDS || 1);
 const virtualUsers = Number(__ENV.LOAD_VUS || 1);
 const mix = JSON.parse(__ENV.LOAD_MIX_JSON || '[]');
+const profile = __ENV.LOAD_PROFILE || 'smooth-mixed';
+const sequence = createSequence(mix, profile);
+const hotPosts = (Number(__ENV.LOAD_HOT_POSTS) || 16);
 // Every corpus column is a separate SharedArray. Sharing one composite object
 // made k6 copy the whole ~1MB corpus into each VU, so the load generator became
 // the memory bottleneck at the default 1024 virtual users. Primitive columns
@@ -191,8 +195,10 @@ export function business(data) {
   // reviewed mix into a feed-read benchmark. The global iteration index makes
   // the declared category and route split hold for every load level.
   const slot = exec.scenario.iterationInTest;
-  const userIndex = slot % data.sessions.length;
-  const request = operation(slot, userIndex);
+  const globalSlot = slot + (exec.scenario.name === 'measurement' ? Math.ceil(warmupSeconds * targetRPS) : 0);
+  const selection = sequence(globalSlot);
+  const userIndex = userIndexFor(selection, data.sessions.length);
+  const request = operation(globalSlot, userIndex, selection, data.sessions.length);
   const phase = exec.scenario.name === 'warmup' ? 'warmup' : 'measurement';
   const tags = {
     phase,
@@ -223,6 +229,10 @@ export function business(data) {
   routeMetric.latency.add(response.timings.duration);
   routeMetric.success.add(passed);
   classifyResponse(response, passed, tags);
+  if (request.route === 'DELETE /api/v1/posts/:postId') {
+    if (response.status === 204) phaseMetrics[phase].deleted.add(1);
+    if (response.status === 404) phaseMetrics[phase].alreadyAbsent.add(1);
+  }
   if (request.login && response.status === 200) {
     const cookie = response.cookies[cookieName] && response.cookies[cookieName][0];
     if (cookie && cookie.value) data.sessions[userIndex] = cookie.value;
@@ -267,12 +277,12 @@ function classifyResponse(response, passed, tags) {
   }
 }
 
-function operation(slot, userIndex) {
-  const category = categoryForSlot(slot);
-  const postID = readPostIDs[indexFor(slot, readPostIDs.length)];
+function operation(slot, userIndex, selection, users) {
+  const category = selection.category;
+  const postID = readPostIDs[postIndexFor(profile === 'smooth-mixed' ? selection.ordinal : slot, readPostIDs.length, profile, hotPosts)];
   const user = corpusUsers[indexFor(slot, corpusUsers.length)];
   if (category === 'read') {
-    switch (Math.floor(slot / 100) % 5) {
+    switch (selection.route) {
       case 0: return get(category, 'GET /api/v1/posts', '/api/v1/posts?limit=20', [200]);
       case 1: return get(category, 'GET /api/v1/posts/:postId', `/api/v1/posts/${postID}`, [200]);
       case 2: return get(category, 'GET /api/v1/posts/following', '/api/v1/posts/following?limit=20', [200]);
@@ -282,12 +292,12 @@ function operation(slot, userIndex) {
   }
   if (category === 'search') {
     const queries = ['phase18', `post ${String((slot % 50000) + 1).padStart(5, '0')}`, 'go'];
-    const query = encodeURIComponent(queries[Math.floor(slot / 100) % queries.length]);
-    if (Math.floor(slot / 100) % 2 === 0) return get(category, 'GET /api/v1/search/posts', `/api/v1/search/posts?q=${query}&limit=20`, [200]);
+    const query = encodeURIComponent(queries[selection.ordinal % queries.length]);
+    if (selection.route === 0) return get(category, 'GET /api/v1/search/posts', `/api/v1/search/posts?q=${query}&limit=20`, [200]);
     return get(category, 'GET /api/v1/search/users', `/api/v1/search/users?q=${query}&limit=20`, [200]);
   }
   if (category === 'notification_bookmark_read') {
-    switch (Math.floor(slot / 100) % 4) {
+    switch (selection.route) {
       case 0: return get(category, 'GET /api/v1/notifications', '/api/v1/notifications?limit=20', [200]);
       case 1: return get(category, 'GET /api/v1/bookmarks', '/api/v1/bookmarks?limit=20', [200]);
       case 2: return get(category, 'GET /api/v1/users/me/following', '/api/v1/users/me/following?limit=20', [200]);
@@ -295,17 +305,17 @@ function operation(slot, userIndex) {
     }
   }
   if (category === 'content_write') {
-    switch (Math.floor(slot / 100) % 4) {
+    switch (selection.route) {
       case 0: return post(category, 'POST /api/v1/posts', '/api/v1/posts', { title: `k6 post ${__VU}-${slot}`, content: `deterministic content ${slot}` }, [201]);
       case 1: return post(category, 'POST /api/v1/posts/:postId/comments', `/api/v1/posts/${postID}/comments`, { content: `k6 comment ${slot}` }, [201]);
       case 2: {
         const editable = editablePostIDs[userIndex];
-        const editableID = editable[slot % editable.length];
+        const editableID = editable[ownedIndexFor(selection, users, editable.length)];
         return post(category, 'PATCH /api/v1/posts/:postId', `/api/v1/posts/${editableID}`, { title: `k6 edit ${slot}`, content: `deterministic edit ${slot}` }, [200], 'PATCH');
       }
       default: {
         const deletable = deletePostIDs[userIndex];
-        const deletableID = deletable[slot % deletable.length];
+        const deletableID = deletable[ownedIndexFor(selection, users, deletable.length)];
         return post(category, 'DELETE /api/v1/posts/:postId', `/api/v1/posts/${deletableID}`, undefined, [204, 404], 'DELETE');
       }
     }
@@ -313,7 +323,7 @@ function operation(slot, userIndex) {
   if (category === 'interaction_write') {
     const interactionPost = interactionPostIDs[indexFor(slot, interactionPostIDs.length)];
     const target = corpusUsers[(userIndex + Math.floor(slot % Math.max(1, corpusUsers.length - 1)) + 1) % corpusUsers.length].id;
-    switch (Math.floor(slot / 100) % 5) {
+    switch (selection.route) {
       case 0: return get(category, 'PUT /api/v1/posts/:postId/like', `/api/v1/posts/${interactionPost}/like`, [204], 'PUT');
       case 1: return get(category, 'DELETE /api/v1/posts/:postId/like', `/api/v1/posts/${interactionPost}/like`, [204], 'DELETE');
       case 2: return get(category, 'PUT /api/v1/users/:userId/follow', `/api/v1/users/${target}/follow`, [200], 'PUT');
@@ -321,21 +331,11 @@ function operation(slot, userIndex) {
       default: return get(category, 'PUT /api/v1/posts/:postId/bookmark', `/api/v1/posts/${interactionPost}/bookmark`, [204], 'PUT');
     }
   }
-  if (Math.floor(slot / 100) % 5 === 0) {
+  if (selection.route === 0) {
     const loginUser = credentialUsers[userIndex];
     return post('identity_session', 'POST /api/v1/auth/login', '/api/v1/auth/login', { username: loginUser.username, password: credentialPassword }, [200], 'POST', true);
   }
   return get('identity_session', 'GET /api/v1/users/me', '/api/v1/users/me', [200]);
-}
-
-function categoryForSlot(slot) {
-  let cumulative = 0;
-  const selector = slot % 100;
-  for (const entry of mix) {
-    cumulative += entry.percent;
-    if (selector < cumulative) return entry.category;
-  }
-  return mix[mix.length - 1].category;
 }
 
 const routeIndex = Object.fromEntries(routeTemplates.map((entry, index) => [entry[2], index]));
@@ -351,6 +351,8 @@ function makeRouteMetrics(phase) {
 function makePhaseMetrics(phase) {
   return {
     requests: new Counter(`business_requests_${phase}`),
+    deleted: new Counter(`delete_succeeded_${phase}`),
+    alreadyAbsent: new Counter(`delete_already_absent_${phase}`),
     latency: new Trend(`business_latency_${phase}`, true),
     success: new Rate(`business_success_rate_${phase}`),
   };

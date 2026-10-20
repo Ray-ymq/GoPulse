@@ -18,6 +18,8 @@ func TestReadSummaryPhaseClassifiesErrorsAndAggregatesRouteTemplates(t *testing.
     "errors_timeout{phase:measurement}": {"count": 1},
     "errors_transport{phase:measurement}": {"count": 1},
     "errors_unexpected{phase:measurement}": {"count": 0},
+    "delete_succeeded_measurement": {"count": 3},
+    "delete_already_absent_measurement": {"count": 7},
     "dropped_iterations{phase:measurement}": {"count": 5},
     "health_success_rate": {"value": 1}
   }
@@ -29,7 +31,7 @@ func TestReadSummaryPhaseClassifiesErrorsAndAggregatesRouteTemplates(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metrics.Requests != 95 || metrics.ActualRequestRate != 95 || metrics.DroppedIterations != 5 || metrics.Errors.Rejected429 != 2 || metrics.Errors.Rejected503 != 1 || metrics.Errors.Timeouts != 1 || metrics.Errors.TransportErrors != 1 {
+	if metrics.DeleteSucceeded != 3 || metrics.DeleteAlreadyAbsent != 7 || metrics.Requests != 95 || metrics.ActualRequestRate != 95 || metrics.DroppedIterations != 5 || metrics.Errors.Rejected429 != 2 || metrics.Errors.Rejected503 != 1 || metrics.Errors.Timeouts != 1 || metrics.Errors.TransportErrors != 1 {
 		t.Fatalf("metrics=%+v", metrics)
 	}
 	if len(metrics.Routes) != 1 || metrics.Routes[0].Template != "GET /api/v1/posts" || metrics.Routes[0].P95MS != 800 || metrics.Routes[0].P99MS != 1200 {

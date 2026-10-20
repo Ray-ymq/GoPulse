@@ -96,6 +96,8 @@
         "successful_throughput": {"type": "number", "minimum": 0},
         "requests": {"type": "integer", "minimum": 0},
         "successful_requests": {"type": "integer", "minimum": 0},
+        "delete_succeeded": {"type": "integer", "minimum": 0},
+        "delete_already_absent": {"type": "integer", "minimum": 0},
         "p95_ms": {"type": "number", "minimum": 0},
         "p99_ms": {"type": "number", "minimum": 0},
         "error_rate": {"type": "number", "minimum": 0, "maximum": 1},
