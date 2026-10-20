@@ -17,10 +17,11 @@ GoPulse/
 ├── runtimekit/       # 多个 Go 模块共用的运行时能力与指标契约
 ├── devtools/         # 开发环境、工具链、构建、验证及插件打包工具
 ├── perflab/          # 压测工具、负载脚本、容量配置及报告处理
+├── PT/               # 压测说明、方案和报告
 ├── deploy/           # Dockerfile、Compose 配置及自监控部署资源
 ├── ci/               # CI 模块选择、提交规范校验及相关测试
 ├── make/             # 共享 Makefile 片段
-├── docs/             # 技术文档、CI 规范及测试与压测资料
+├── docs/             # 技术文档、CI 规范及通用资料
 ├── .github/          # GitHub Actions 工作流及 PR 模板
 ├── .githooks/        # 本地 Git 钩子
 ├── Makefile          # 根命令入口及模块注册
