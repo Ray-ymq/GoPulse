@@ -40,6 +40,7 @@ def load_environment(config, directory):
                 LOAD_CORPUS_PATH=str(ROOT / config['corpus_path']), LOAD_CREDENTIALS_PATH=str(ROOT / config['credentials_path']),
                 LOAD_TARGET_RPS=str(config['rps']), LOAD_VUS=str(config['virtual_users']),
                 LOAD_WARMUP_SECONDS=str(config['warmup_seconds']), LOAD_MEASUREMENT_SECONDS=str(config['measurement_seconds']),
+                LOAD_SCENARIO_TAIL_SECONDS=str(config['scenario_tail_seconds']),
                 LOAD_REQUEST_TIMEOUT_SECONDS=str(config['request_timeout_seconds']), LOAD_ROUTE_SET=config['route_set'],
                 LOAD_MIX_JSON=json.dumps(config['mix']), LOAD_SUMMARY_PATH=str(directory / 'k6-summary.json'))
 

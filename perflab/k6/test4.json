@@ -6,6 +6,7 @@
   "virtual_users": 512,
   "request_timeout_seconds": 5,
   "warmup_seconds": 30,
+  "scenario_tail_seconds": 60,
   "idle_seconds": 60,
   "measurement_seconds": 300,
   "recovery_seconds": 600,

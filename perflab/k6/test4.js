@@ -11,6 +11,8 @@ const runID = __ENV.LOAD_RUN_ID;
 const rps = Number(__ENV.LOAD_TARGET_RPS);
 const warmup = Number(__ENV.LOAD_WARMUP_SECONDS || 30);
 const duration = Number(__ENV.LOAD_MEASUREMENT_SECONDS || 300);
+const scenarioTail = Number(__ENV.LOAD_SCENARIO_TAIL_SECONDS || 60);
+const measuredDuration = warmup + duration;
 const vus = Number(__ENV.LOAD_VUS || 512);
 const timeout = Number(__ENV.LOAD_REQUEST_TIMEOUT_SECONDS || 5);
 const cookieName = 'gopulse_session';
@@ -34,9 +36,9 @@ const completed = new Counter('pt4_completed');
 
 export const options = {
   scenarios: {
-    business: { executor: 'constant-arrival-rate', rate: Math.round(rps * 100), timeUnit: '100s', duration: `${warmup + duration}s`,
+    business: { executor: 'constant-arrival-rate', rate: Math.round(rps * 100), timeUnit: '100s', duration: `${measuredDuration + scenarioTail}s`,
       preAllocatedVUs: vus, maxVUs: vus, exec: 'business', gracefulStop: `${timeout}s` },
-    health: { executor: 'constant-arrival-rate', rate: 1, timeUnit: '1s', duration: `${warmup + duration}s`,
+    health: { executor: 'constant-arrival-rate', rate: 1, timeUnit: '1s', duration: `${measuredDuration + scenarioTail}s`,
       preAllocatedVUs: 1, maxVUs: 1, exec: 'health', gracefulStop: `${timeout}s` },
   },
   setupTimeout: '300s', systemTags: ['status', 'method', 'scenario', 'error_code', 'expected_response'],
@@ -67,13 +69,15 @@ export function setup() {
 
 export function business(data) {
   const slot = exec.scenario.iterationInTest;
+  const begin = Date.now();
+  const elapsed = (begin - exec.scenario.startTime) / 1000;
+  if (elapsed >= measuredDuration) return;
   const selection = sequence(slot);
   const userIndex = userIndexFor(selection, data.sessions.length);
   let request;
   try { request = operation(slot, userIndex, selection, data.sessions.length); }
   catch (error) { emit({ type: 'invalid_corpus', error: String(error) }); exec.test.abort(String(error)); return; }
-  const begin = Date.now();
-  const phase = begin - exec.scenario.startTime < warmup * 1000 ? 'warmup' : 'measurement';
+  const phase = elapsed < warmup ? 'warmup' : 'measurement';
   const tags = { phase, route: request.route, category: request.category };
   const event = { slot, ...tags, started_at_ms: begin, scenario_started_at_ms: exec.scenario.startTime };
   emit({ type: 'start', ...event });
@@ -102,6 +106,8 @@ export function business(data) {
 
 export function health() {
   const begin = Date.now();
+  const elapsed = (begin - exec.scenario.startTime) / 1000;
+  if (elapsed >= measuredDuration) return;
   emit({ type: 'clock', scenario_started_at_ms: exec.scenario.startTime, elapsed_seconds: (begin - exec.scenario.startTime) / 1000 });
   const response = http.get(`${baseURL}/ready`, { timeout: `${timeout}s`, tags: { phase: 'health', route: 'GET /ready' } });
   emit({ type: 'health', timestamp_ms: Date.now(), status: response.status });
