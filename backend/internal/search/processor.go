@@ -130,7 +130,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 				return applicationErr
 			}
 			if exists {
-				return nil
+				return worker.ErrDuplicate
 			}
 		}
 	}

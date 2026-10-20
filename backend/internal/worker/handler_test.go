@@ -382,3 +382,12 @@ func TestCanceledSecondaryConfirmRequeuesOriginal(t *testing.T) {
 		}
 	}
 }
+
+func TestHandlerAcknowledgesDuplicateProjection(t *testing.T) {
+	processor := &processorFake{err: ErrDuplicate}
+	handler := newTestHandler(t, processor, &publisherFake{}, nil)
+	delivery, acknowledger := validDelivery(t, false)
+	if err := handler.Handle(context.Background(), delivery); err != nil || acknowledger.acks != 1 || acknowledger.nacks != 0 {
+		t.Fatalf("duplicate err=%v acknowledger=%+v", err, acknowledger)
+	}
+}

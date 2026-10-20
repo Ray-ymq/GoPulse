@@ -49,7 +49,7 @@ var (
 	ErrNotReady             = errors.New("business state is not ready")
 	ErrEpochMismatch        = errors.New("business event belongs to another data epoch")
 	ErrBudgetExceeded       = errors.New("business async budget is exhausted")
-	ErrParkingCapacity      = errors.New("business message parking capacity is exhausted")
+	ErrParkingCapacity      = bus.ErrParkingCapacity
 	ErrRequirementAbsent    = errors.New("business event requirement is absent")
 	ErrCommandAlreadyExists = errors.New("business command already exists")
 	ErrActivationNotDrained = errors.New("business v1 activation drain is incomplete")

@@ -31,6 +31,8 @@ type ConfirmingPublisher interface {
 	Publish(context.Context, string, string, amqp.Publishing) error
 }
 
+var ErrDuplicate = errors.New("projection already applied")
+
 type HandlerOptions struct {
 	Profile        Profile
 	MaxRetries     int
@@ -150,7 +152,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 			return handler.requeueAdmission(traceContext, delivery, admissionErr)
 		}
 		if decision == bus.AdmissionPark {
-			if err := handler.admission.ParkMessage(traceContext, parkingMessage(delivery, envelope, attempt, "epoch_or_legacy_rejected")); err != nil {
+			if err := handler.parkMessage(traceContext, parkingMessage(delivery, envelope, attempt, "epoch_or_legacy_rejected")); err != nil {
 				span.SetStatus(codes.Error, "parking_failed")
 				return handler.requeueAdmission(traceContext, delivery, err)
 			}
@@ -159,7 +161,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 				handler.logFailure(traceContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
 				return errors.New("ack parked event")
 			}
-			outcome = "success"
+			outcome = "parked"
 			handler.logEvent(traceContext, "event parked", delivery, envelope, attempt, "epoch_or_legacy_rejected")
 			return nil
 		}
@@ -182,13 +184,16 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	}
 
 	processErr := handler.processor.Process(traceContext, envelope)
-	if processErr == nil {
+	if processErr == nil || errors.Is(processErr, ErrDuplicate) {
 		if err := handler.ack(delivery); err != nil {
 			span.SetStatus(codes.Error, "ack_failed")
 			handler.logFailure(traceContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
 			return errors.New("ack processed event")
 		}
 		outcome = "success"
+		if errors.Is(processErr, ErrDuplicate) {
+			outcome = "duplicate"
+		}
 		handler.logEvent(traceContext, "event processed", delivery, envelope, attempt, "processed")
 		return nil
 	}
@@ -292,7 +297,7 @@ func (handler *Handler) recordFailure(ctx context.Context, envelope bus.Envelope
 }
 
 func (handler *Handler) parkRaw(ctx context.Context, delivery amqp.Delivery, attempt int, reason string) error {
-	if err := handler.admission.ParkMessage(ctx, parkingMessage(delivery, bus.Envelope{}, attempt, reason)); err != nil {
+	if err := handler.parkMessage(ctx, parkingMessage(delivery, bus.Envelope{}, attempt, reason)); err != nil {
 		return handler.requeueAdmission(ctx, delivery, err)
 	}
 	if err := handler.ack(delivery); err != nil {
@@ -586,4 +591,19 @@ func (handler *Handler) publish(ctx context.Context, exchange string, delivery a
 		return err
 	}
 	return ctx.Err()
+}
+
+// Keep a capacity-blocked delivery unacknowledged and back off on this session.
+func (handler *Handler) parkMessage(ctx context.Context, message bus.ParkingMessage) error {
+	delay := 100 * time.Millisecond
+	for {
+		err := handler.admission.ParkMessage(ctx, message)
+		if !errors.Is(err, bus.ErrParkingCapacity) {
+			return err
+		}
+		if err := waitContext(ctx, delay); err != nil {
+			return err
+		}
+		delay = min(5*time.Second, delay*2)
+	}
 }

@@ -43,6 +43,10 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	epoch, err := r.mutationEpoch(ctx, tx)
+	if err != nil {
+		return err
+	}
 	var owner, revision uint64
 	var title, content string
 	err = tx.QueryRowContext(ctx, `SELECT author_id, title, content, content_revision FROM posts WHERE id = ? FOR UPDATE`, id).Scan(&owner, &title, &content, &revision)
@@ -73,7 +77,7 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 		attribute.String("gopulse.event_id", event.EventID),
 		attribute.Int64("gopulse.content_revision", int64(revision)),
 	)
-	outboxID, err := insertOutbox(ctx, tx, r.outbox, event)
+	outboxID, err := r.insertSearchMutation(ctx, tx, event, epoch)
 	if err != nil {
 		return err
 	}

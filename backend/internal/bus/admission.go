@@ -2,6 +2,7 @@ package bus
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -49,3 +50,5 @@ type Admission interface {
 	CheckEnvelope(context.Context, Envelope) (AdmissionDecision, error)
 	ParkMessage(context.Context, ParkingMessage) error
 }
+
+var ErrParkingCapacity = errors.New("business message parking capacity is exhausted")

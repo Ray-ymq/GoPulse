@@ -62,6 +62,10 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	epoch, err := r.mutationEpoch(ctx, tx)
+	if err != nil {
+		return err
+	}
 	var owner uint64
 	err = tx.QueryRowContext(ctx, "SELECT author_id FROM posts WHERE id=? FOR UPDATE", id).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -83,7 +87,7 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 		return err
 	}
 	commitSpan.SetAttributes(attribute.String("gopulse.event_id", event.EventID))
-	outboxID, err := insertOutbox(ctx, tx, r.outbox, event)
+	outboxID, err := r.insertSearchMutation(ctx, tx, event, epoch)
 	if err != nil {
 		return err
 	}

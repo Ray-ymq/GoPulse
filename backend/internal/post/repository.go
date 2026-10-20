@@ -389,6 +389,44 @@ func (repository *MySQLRepository) CommandResult(ctx context.Context, userID uin
 	return repository.replayResult(readContext, userID, command, true, nil), nil
 }
 
+// mutationEpoch reads the activation boundary on the fact transaction.
+func (repository *MySQLRepository) mutationEpoch(ctx context.Context, tx *sql.Tx) (string, error) {
+	if repository.state == nil {
+		return "", nil
+	}
+	environment, err := repository.state.LockCurrentTx(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	if environment.Status != businessstate.StatusReady || environment.Mode != businessstate.ModeV2 {
+		return "", businessstate.ErrNotReady
+	}
+	return environment.DataEpoch, nil
+}
+
+func (repository *MySQLRepository) insertSearchMutation(ctx context.Context, tx *sql.Tx, event bus.Envelope, epoch string) (uint64, error) {
+	if epoch != "" {
+		var err error
+		event, err = event.WithDataEpoch(epoch)
+		if err != nil {
+			return 0, err
+		}
+		setCommandTrace(&event, ctx)
+		payload, err := bus.Encode(event)
+		if err != nil {
+			return 0, err
+		}
+		if err = repository.state.RegisterRequirementTx(ctx, tx, businessstate.Requirement{
+			DataEpoch: epoch, EventID: event.EventID, Consumer: businessstate.ConsumerSearch,
+			RoutingContractRevision: businessstate.SearchRoutingContractV1,
+			ApplicableObjectVersion: event.ContentRevision, PayloadBytes: len(payload),
+		}); err != nil {
+			return 0, err
+		}
+	}
+	return insertOutbox(ctx, tx, repository.outbox, event)
+}
+
 func insertOutbox(ctx context.Context, executor outbox.Executor, writer outbox.Writer, envelope bus.Envelope) (uint64, error) {
 	if metadataWriter, ok := writer.(outbox.MetadataWriter); ok {
 		return metadataWriter.InsertWithMetadata(ctx, executor, envelope)
