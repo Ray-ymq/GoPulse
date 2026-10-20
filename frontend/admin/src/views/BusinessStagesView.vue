@@ -33,6 +33,12 @@ const selectorPlaceholder: Record<SelectorKind, string> = {
   post_id: '例如 42',
 }
 
+const retentionEstimate = computed(() => {
+  const seconds = result.value?.budget.estimated_seconds_until_full
+  if (seconds === null || seconds === undefined) return '近期无新增，暂无法估算'
+  return seconds < 3600 ? `${Math.ceil(seconds / 60)} 分钟` : `${(seconds / 3600).toFixed(1)} 小时`
+})
+
 const selectedValue = computed(() => selectorValues.value[selectorKind.value])
 const hasContext = computed(() => currentEpoch.value !== '')
 const logsLink = computed(() => {
@@ -237,7 +243,7 @@ onBeforeUnmount(() => { abortQuery(); contextController?.abort() })
         </article>
       </div>
 
-      <div class="panel stage-budget"><header><h3>查证预算</h3><span :class="result.budget.at_eighty_percent ? 'stage-quality stage-quality--warning' : 'stage-quality stage-quality--known'">{{ result.budget.at_eighty_percent ? '接近水位' : '在预算内' }}</span></header><p>当前未闭合义务 {{ result.budget.current_open_requirements }} / {{ result.budget.current_open_limit }}；保留组 {{ result.budget.retained_groups }} / {{ result.budget.retained_groups_limit }}；计费字节 {{ result.budget.retained_bytes }} / {{ result.budget.retained_bytes_limit }}。</p></div>
+      <div class="panel stage-budget"><header><h3>查证预算</h3><span :class="result.budget.at_eighty_percent ? 'stage-quality stage-quality--warning' : 'stage-quality stage-quality--known'">{{ result.budget.at_eighty_percent ? '接近水位' : '在预算内' }}</span></header><p>当前未闭合义务 {{ result.budget.current_open_requirements }} / {{ result.budget.current_open_limit }}；保留组 {{ result.budget.retained_groups }} / {{ result.budget.retained_groups_limit }}；计费字节 {{ result.budget.retained_bytes }} / {{ result.budget.retained_bytes_limit }}。</p><p v-if="result.budget.recent_groups_per_second !== undefined">最近一小时平均新增 {{ result.budget.recent_groups_per_second.toFixed(2) }} 组/秒、{{ (result.budget.recent_bytes_per_second ?? 0).toFixed(0) }} 字节/秒；按此速度预计剩余：{{ retentionEstimate }}。</p></div>
     </template>
   </section>
 </template>

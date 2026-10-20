@@ -36,6 +36,15 @@ describe('business stage DTO boundary', () => {
     expect(isBusinessStageResponse({ ...stage(), evidence: { ...stage().evidence, command: { ...stage().evidence.command, request_digest: 'secret' } } })).toBe(false)
   })
 
+  it('accepts optional retention growth and horizon while rejecting invalid estimates', () => {
+    const current = stage()
+    const budget = { ...current.budget, recent_groups_per_second: 1.5, recent_bytes_per_second: 1024, estimated_seconds_until_full: 3600 }
+    expect(isBusinessStageResponse({ ...current, budget })).toBe(true)
+    expect(isBusinessStageResponse({ ...current, budget: { ...budget, estimated_seconds_until_full: null } })).toBe(true)
+    expect(isBusinessStageResponse({ ...current, budget: { ...budget, recent_groups_per_second: -1 } })).toBe(false)
+    expect(isBusinessStageResponse({ ...current, budget: { ...budget, estimated_seconds_until_full: Infinity } })).toBe(false)
+  })
+
   it('encodes exactly one typed selector and a bounded evidence window', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ data: stage() }))
     vi.stubGlobal('fetch', fetchMock)

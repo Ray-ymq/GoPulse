@@ -197,6 +197,9 @@ export interface BusinessStageEvidence {
 }
 
 export interface BusinessStageBudget {
+  recent_groups_per_second?: number
+  recent_bytes_per_second?: number
+  estimated_seconds_until_full?: number | null
   current_open_requirements: number
   current_open_limit: number
   retained_groups: number

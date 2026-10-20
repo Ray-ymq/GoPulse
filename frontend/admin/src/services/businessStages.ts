@@ -113,9 +113,10 @@ function validEvidence(value: unknown): value is BusinessStageEvidence {
 }
 
 function validBudget(value: unknown): value is BusinessStageBudget {
-  if (!record(value) || !exact(value, ['current_open_requirements', 'current_open_limit', 'retained_groups', 'retained_groups_limit', 'retained_bytes', 'retained_bytes_limit', 'at_eighty_percent'], ['current_open_requirements', 'current_open_limit', 'retained_groups', 'retained_groups_limit', 'retained_bytes', 'retained_bytes_limit', 'at_eighty_percent'])) return false
+  if (!record(value) || !exact(value, ['current_open_requirements', 'current_open_limit', 'retained_groups', 'retained_groups_limit', 'retained_bytes', 'retained_bytes_limit', 'at_eighty_percent', 'recent_groups_per_second', 'recent_bytes_per_second', 'estimated_seconds_until_full'], ['current_open_requirements', 'current_open_limit', 'retained_groups', 'retained_groups_limit', 'retained_bytes', 'retained_bytes_limit', 'at_eighty_percent'])) return false
   return ['current_open_requirements', 'current_open_limit', 'retained_groups', 'retained_groups_limit', 'retained_bytes', 'retained_bytes_limit'].every((key) => typeof value[key] === 'number' && Number.isSafeInteger(value[key]) && value[key] >= 0)
     && typeof value.at_eighty_percent === 'boolean'
+    && ['recent_groups_per_second', 'recent_bytes_per_second', 'estimated_seconds_until_full'].every((key) => value[key] === undefined || (key === 'estimated_seconds_until_full' && value[key] === null) || (typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0))
 }
 
 export function isBusinessStageContext(value: unknown): value is BusinessStageContext {
