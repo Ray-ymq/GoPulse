@@ -172,6 +172,7 @@ def execute(config):
     command = [sys.executable, str(ROOT / 'perflab/pt4/observe.py'), '--directory', str(directory)]
     if not config['diagnostics']:
         command.append('--light')
+    (STATE / 'guard.json').unlink(missing_ok=True)
     observer_log = (directory / 'observer.log').open('wb')
     observer = subprocess.Popen(command, cwd=ROOT, stdout=observer_log, stderr=observer_log, start_new_session=True)
     (STATE / 'logs/observer.pid').write_text(str(observer.pid))
