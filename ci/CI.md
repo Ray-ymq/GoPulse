@@ -75,7 +75,9 @@ make verify MODULE=backend
 
 ## 提交规范
 
-采用 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)，项目类型固定在 `.conventional-commits.json`：`build`、`chore`、`ci`、`docs`、`feat`、`fix`、`perf`、`refactor`、`revert`、`style`、`test`，统一小写。
+采用 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)，项目类型固定在 `.conventional-commits.json`：`build`、`chore`、`ci`、`feat`、`fix`、`perf`、`refactor`、`revert`、`style`、`test`，统一小写。
+
+不得单独创建 `docs` 类型的 commit。文档修改必须随对应改动一并提交，标题使用对应改动的类型，例如 `feat`、`fix` 或 `ci`。本地提交钩子和 CI 均拒绝新提交的 `docs:`、`docs(scope):` 及带 `!` 的形式；PR 标题也不得使用 `docs`。校验按标题中的类型判断，不根据文件路径识别纯文档改动。
 
 标题格式为 `type(scope)!: description`，scope 和 `!` 可省略，描述可用中文或英文。破坏性改动使用 `!` 或 `BREAKING CHANGE: 描述`（也支持 `BREAKING-CHANGE`），说明兼容性变化和迁移要求。例如 `fix(frontend): 等待发帖后的路由跳转`、`ci: rebuild module-based checks`。
 
@@ -137,5 +139,7 @@ PR 标题使用相同的标题格式。正文汇总 PR 的最终改动，使用�
 - 校验检查结构和非空内容，不判断测试结果是否真实。模块测试结果仍由对应 CI 任务验证；人工检查和未执行原因由评审核对。
 
 标题规则仍从配置中的 `legacy_ref`（`2c4d661`）之后生效。新增正文规则从 `body_required_after`（`5accf0b`）之后生效：该提交及其已有祖先保留原正文，之后的新提交必须填写三个部分。新增正文生效点不改变原有标题检查范围；两个生效点都不能移动来豁免后续提交。
+
+禁止独立 `docs` 提交的规则从 `docs_forbidden_after`（`c5107e24`）之后生效。该提交及其祖先中的 `docs` 提交保留原类型，仍接受原有标题和正文检查；其他新增提交均受新规则约束，包括分叉分支上的提交。此生效点固定，不得移动来豁免后续提交。本地提交钩子和 PR 标题立即使用新规则。
 
 真实 merge commit 豁免，但普通提交仅写成 `Merge ...` 不会被放行。`--no-verify` 只能绕过本地钩子，PR 和手动运行中的 CI 仍会拦截不合规的新提交。PR 正文使用当前规则，直接推送 main 不触发本工作流。

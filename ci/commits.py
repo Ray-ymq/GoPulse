@@ -32,6 +32,7 @@ class Policy:
     types: tuple[str, ...]
     legacy_ref: str
     body_required_after: str
+    docs_forbidden_after: str
 
 
 def git(repo: Path, *args: str, input_text: str | None = None) -> str:
@@ -46,19 +47,23 @@ def read_policy(repo: Path) -> Policy:
     types = data["types"]
     legacy_ref = data["legacy_ref"]
     body_required_after = data["body_required_after"]
+    docs_forbidden_after = data["docs_forbidden_after"]
     if (
         not isinstance(types, list) or not types
         or any(not isinstance(value, str) or not re.fullmatch("[a-z]+", value) for value in types)
         or len(set(types)) != len(types)
     ):
         raise ValueError("commit policy types must be unique lowercase words")
-    for field, value in (("legacy_ref", legacy_ref), ("body_required_after", body_required_after)):
+    for field, value in (
+        ("legacy_ref", legacy_ref), ("body_required_after", body_required_after),
+        ("docs_forbidden_after", docs_forbidden_after),
+    ):
         if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
             raise ValueError(f"commit policy {field} must be a full commit SHA")
-    return Policy(tuple(types), legacy_ref, body_required_after)
+    return Policy(tuple(types), legacy_ref, body_required_after, docs_forbidden_after)
 
 
-def validate_title(title: str, policy: Policy) -> list[str]:
+def validate_title(title: str, policy: Policy, *, allow_legacy_docs: bool = False) -> list[str]:
     if not isinstance(title, str):
         return ["title must be a string"]
     if "\n" in title or "\r" in title:
@@ -66,6 +71,10 @@ def validate_title(title: str, policy: Policy) -> list[str]:
     match = HEADER.fullmatch(title)
     if not match:
         return ["expected <type>(<optional-scope>)!: <description>; scope and ! are optional"]
+    if match["type"] == "docs":
+        if allow_legacy_docs:
+            return []
+        return ["不得单独提交 docs 类型的改动；请将文档修改并入对应改动的 commit，并使用对应改动的类型"]
     if match["type"] not in policy.types:
         return [f"unsupported type {match['type']!r}; allowed: {', '.join(policy.types)}"]
     return []
@@ -123,9 +132,11 @@ def validate_pr_body(body: str | None) -> list[str]:
     return validate_sections(body or "", PR_SECTIONS)
 
 
-def validate_message(message: str, policy: Policy, *, require_body: bool = True) -> list[str]:
+def validate_message(
+    message: str, policy: Policy, *, require_body: bool = True, allow_legacy_docs: bool = False,
+) -> list[str]:
     lines = message.splitlines()
-    errors = validate_title(lines[0] if lines else "", policy)
+    errors = validate_title(lines[0] if lines else "", policy, allow_legacy_docs=allow_legacy_docs)
     if len(lines) > 1 and lines[1].strip():
         errors.append("separate the title and body with a blank line")
     for line in lines[2:]:
@@ -213,11 +224,16 @@ def main() -> int:
             revisions = commit_ids(repo, policy, base, head)
             body_baseline = git(repo, "rev-parse", "--verify", f"{policy.body_required_after}^{{commit}}").strip()
             structured = set(git(repo, "rev-list", "--no-merges", head, "--not", body_baseline).split())
+            docs_baseline = git(repo, "rev-parse", "--verify", f"{policy.docs_forbidden_after}^{{commit}}").strip()
+            docs_restricted = set(git(repo, "rev-list", "--no-merges", head, "--not", docs_baseline).split())
             for revision in revisions:
                 message = git(repo, "show", "--no-patch", "--format=%B", revision)
                 errors.extend(
                     f"{revision[:12]}: {error}"
-                    for error in validate_message(message, policy, require_body=revision in structured)
+                    for error in validate_message(
+                        message, policy, require_body=revision in structured,
+                        allow_legacy_docs=revision not in docs_restricted,
+                    )
                 )
             print(f"Checked {len(revisions)} new non-merge commit(s)")
         if errors:
