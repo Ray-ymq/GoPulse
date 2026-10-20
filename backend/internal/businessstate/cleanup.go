@@ -16,7 +16,7 @@ func (repository *Repository) CleanupExpired(ctx context.Context, batch int) (in
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	now := repository.now()
 	rows, err := tx.QueryContext(ctx, `SELECT r.event_id FROM business_event_requirements r
  WHERE r.retention_released=TRUE AND r.closed_at IS NOT NULL AND r.retain_until<=?
@@ -31,13 +31,13 @@ func (repository *Repository) CleanupExpired(ctx context.Context, batch int) (in
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, err
 		}
 		ids = append(ids, id)
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return 0, err
 	}

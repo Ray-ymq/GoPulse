@@ -471,10 +471,6 @@ func storageBackoff(attempt uint) time.Duration {
 	return delay/2 + time.Duration(rand.Int64N(int64(delay/2)+1))
 }
 
-func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record) error {
-	return dispatcher.dispatchRecordWith(ctx, record, dispatcher.publisher, dispatcher.store.MarkPublished)
-}
-
 func (dispatcher *Dispatcher) dispatchRecordWith(ctx context.Context, record Record, publisher Publisher, mark func(context.Context, uint64, string) error) error {
 	envelope, err := record.Envelope()
 	if err != nil {

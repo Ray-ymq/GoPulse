@@ -41,6 +41,9 @@ type Document struct {
 }
 
 func (document Document) Validate() error {
+	if document.DataEpoch != "" && !validEpoch(document.DataEpoch) {
+		return fmt.Errorf("search document epoch is invalid")
+	}
 	if document.Deleted {
 		if document.PostID == 0 || document.ContentRevision == 0 {
 			return fmt.Errorf("invalid search tombstone")
@@ -49,9 +52,6 @@ func (document Document) Validate() error {
 	}
 	if document.PostID == 0 || strings.TrimSpace(document.Title) == "" || strings.TrimSpace(document.Content) == "" || document.CreatedAt.IsZero() || document.UpdatedAt.IsZero() {
 		return fmt.Errorf("search document fields are invalid")
-	}
-	if document.DataEpoch != "" && !validEpoch(document.DataEpoch) {
-		return fmt.Errorf("search document epoch is invalid")
 	}
 	return nil
 }

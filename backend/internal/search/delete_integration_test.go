@@ -140,8 +140,9 @@ func TestIntegrationSearchRemoteWriteDoesNotLockPost(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	// A one-connection pool also detects hidden second-connection acquisition.
-	db.SetMaxOpenConns(1)
+	// One business connection plus the fixture advisory-lock connection detects
+	// hidden second-connection acquisition.
+	db.SetMaxOpenConns(2)
 	editCtx, editCancel := context.WithTimeout(ctx, 2*time.Second)
 	_, err = posts.Update(editCtx, record.ID, actor.ID, post.CreateInput{Title: "editedword", Content: "body 2"})
 	editCancel()

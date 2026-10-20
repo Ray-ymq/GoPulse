@@ -52,7 +52,7 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 		var epoch string
 		var o, g, b uint64
 		if err := rows.Scan(&epoch, &o, &g, &b); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		if epoch == requirement.DataEpoch {
@@ -62,7 +62,7 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 		bytes += b
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,10 @@ func (repository *Repository) RecordApplicationTx(ctx context.Context, executor 
 	if err := validateApplication(application); err != nil {
 		return err
 	}
-	completedAt := normalizeTime(application.CompletedAt)
+	completedAt := repository.now()
+	if !application.CompletedAt.IsZero() {
+		completedAt = normalizeTime(application.CompletedAt)
+	}
 	var payloadBytes int
 	var closedAt sql.NullTime
 	var retentionReserved bool
@@ -241,7 +244,7 @@ func (repository *Repository) ReleaseRetentionTx(ctx context.Context, executor E
 		var epoch string
 		var payload uint64
 		if err := rows.Scan(&epoch, &payload); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		v := totals[epoch]
@@ -250,7 +253,7 @@ func (repository *Repository) ReleaseRetentionTx(ctx context.Context, executor E
 		totals[epoch] = v
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return err
 	}
