@@ -60,7 +60,7 @@ func Hash(value []byte) []byte {
 	return append([]byte(nil), digest[:]...)
 }
 
-// LockCurrentTx locks the single durable environment row. All command/fact
+// LockCurrentTx shares the durable environment row with other fact writers. All command/fact
 // transactions use this before reading the current epoch so a restore cannot
 // race a newly committed event.
 func (repository *Repository) LockCurrentTx(ctx context.Context, executor Executor) (Environment, error) {
@@ -70,7 +70,7 @@ func (repository *Repository) LockCurrentTx(ctx context.Context, executor Execut
 	return scanEnvironment(executor.QueryRowContext(ctx, `
 		SELECT data_epoch, status, mode, v1_compatibility_enabled, activation_revision,
 		       COALESCE(restore_operation_id, ''), created_at, updated_at
-		FROM business_environment WHERE singleton = 1 FOR UPDATE`))
+		FROM business_environment WHERE singleton = 1 FOR SHARE`))
 }
 
 // ReadCommandContext returns the current ready epoch and the bounded retry
