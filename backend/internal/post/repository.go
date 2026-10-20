@@ -474,18 +474,24 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 
 func listStatement(viewerID uint64, options ListOptions) (string, []any) {
 	timestamp := "p.created_at"
-	join := "FORCE INDEX (idx_posts_created_at_id)"
+	join := ""
+	if !options.Bookmarks && !options.Following && options.AuthorID == 0 {
+		join = "FORCE INDEX (idx_posts_created_at_id)"
+	}
 	arguments := []any{viewerID, viewerID, viewerID}
 	if options.Bookmarks {
 		timestamp = "b.created_at"
 		join = "INNER JOIN post_bookmarks b ON b.post_id = p.id AND b.user_id = ?"
 		arguments = append(arguments, viewerID)
 	}
-	query := fmt.Sprintf(postListReadSelect, timestamp, join) + " WHERE (? = 0 OR p.author_id = ?)"
-	arguments = append(arguments, options.AuthorID, options.AuthorID)
 	if options.Following {
-		query += " AND EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = p.author_id)"
+		join += " INNER JOIN (SELECT followed_id FROM user_follows WHERE follower_id=?) AS feed_authors ON feed_authors.followed_id=p.author_id"
 		arguments = append(arguments, viewerID)
+	}
+	query := fmt.Sprintf(postListReadSelect, timestamp, join) + " WHERE 1=1"
+	if options.AuthorID != 0 {
+		query += " AND p.author_id = ?"
+		arguments = append(arguments, options.AuthorID)
 	}
 	if options.Cursor != nil {
 		query += fmt.Sprintf(" AND (%s < ? OR (%s = ? AND p.id < ?))", timestamp, timestamp)
