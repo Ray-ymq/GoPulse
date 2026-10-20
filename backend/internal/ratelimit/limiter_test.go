@@ -219,3 +219,47 @@ func TestSharedLimiterDoesNotLeaseBelowRequestCost(t *testing.T) {
 		t.Fatalf("lease above capacity error=%v", err)
 	}
 }
+
+func TestMemoryLimiterPreservesQuotasAndExpiresIdentities(t *testing.T) {
+	limiter, err := NewMemoryLimiter(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	limiter.now = func() time.Time { return now }
+	policy := testPolicy()
+	policy.CreationCapacity, policy.CreationRate = 1, 1
+	policy.Capacity = 1
+	allow := func(id string) Decision {
+		t.Helper()
+		d, err := limiter.Allow(context.Background(), policy, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if !allow("user:1").Allowed {
+		t.Fatal("首次请求应获准")
+	}
+	if allow("user:1").Reason != "rate_limited" {
+		t.Fatal("身份配额未生效")
+	}
+	if allow("user:2").Reason != "key_creation_limited" {
+		t.Fatal("创建配额未生效")
+	}
+	now = now.Add(time.Second)
+	if !allow("user:2").Allowed {
+		t.Fatal("创建配额未恢复")
+	}
+	if allow("user:3").Reason != "local_capacity" {
+		t.Fatal("身份表上限未生效")
+	}
+	now = now.Add(2 * time.Minute)
+	if !allow("user:3").Allowed {
+		t.Fatal("过期身份未释放")
+	}
+	other, _ := NewMemoryLimiter(2)
+	if d, err := other.Allow(context.Background(), policy, "user:3"); err != nil || !d.Allowed {
+		t.Fatal("实例应独立计数")
+	}
+}

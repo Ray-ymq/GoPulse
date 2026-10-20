@@ -562,3 +562,21 @@ func TestDedicatedPoolsCountTowardMySQLBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRedisDisabledDoesNotRequireOrParseRedisConnection(t *testing.T) {
+	env := requiredEnvironment()
+	env["BACKEND_REDIS_DISABLED"] = "true"
+	delete(env, "REDIS_PASSWORD")
+	env["REDIS_PORT"] = "invalid-unused-port"
+	cfg, err := LoadFrom(mapLookup(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.RedisDisabled || cfg.Redis.Host != "" || !cfg.Protection.RateLimitEnabled || cfg.Protection.ResourceDatabase != 32 {
+		t.Fatal("无 Redis 配置必须跳过 Redis 连接并保留应用保护")
+	}
+	env["BACKEND_REDIS_DISABLED"] = "invalid"
+	if _, err := LoadFrom(mapLookup(env)); err == nil {
+		t.Fatal("无效布尔值未被拒绝")
+	}
+}

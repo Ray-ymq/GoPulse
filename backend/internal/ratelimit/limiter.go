@@ -334,10 +334,13 @@ type localState struct {
 // the shared policy and never grows beyond MaxIdentities; it is not presented
 // as a replacement for a distributed quota.
 type LocalLimiter struct {
-	mu            sync.Mutex
-	states        map[string]localState
-	maxIdentities int
-	now           func() time.Time
+	mu             sync.Mutex
+	states         map[string]localState
+	maxIdentities  int
+	now            func() time.Time
+	creationLimits bool
+	creations      map[string]localState
+	nextSweep      time.Time
 }
 
 func NewLocalLimiter(maxIdentities int) (*LocalLimiter, error) {
@@ -345,6 +348,17 @@ func NewLocalLimiter(maxIdentities int) (*LocalLimiter, error) {
 		return nil, errors.New("local limiter capacity must be positive")
 	}
 	return &LocalLimiter{states: make(map[string]localState, maxIdentities), maxIdentities: maxIdentities, now: time.Now}, nil
+}
+
+// NewMemoryLimiter 在单个进程中执行身份配额和新身份创建配额。各实例独立计数。
+func NewMemoryLimiter(maxIdentities int) (*LocalLimiter, error) {
+	limiter, err := NewLocalLimiter(maxIdentities)
+	if err != nil {
+		return nil, err
+	}
+	limiter.creationLimits = true
+	limiter.creations = make(map[string]localState)
+	return limiter, nil
 }
 
 func (limiter *LocalLimiter) Allow(_ context.Context, policy Policy, identity string) (Decision, error) {
@@ -362,15 +376,37 @@ func (limiter *LocalLimiter) Allow(_ context.Context, policy Policy, identity st
 	key := policy.Name + "\x00" + identity
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
-	for stateKey, state := range limiter.states {
-		if state.ttl > 0 && now.Sub(state.seen) >= state.ttl {
-			delete(limiter.states, stateKey)
+	if !now.Before(limiter.nextSweep) {
+		for stateKey, state := range limiter.states {
+			if state.ttl > 0 && now.Sub(state.seen) >= state.ttl {
+				delete(limiter.states, stateKey)
+			}
 		}
+		for name, state := range limiter.creations {
+			if state.ttl > 0 && now.Sub(state.seen) >= state.ttl {
+				delete(limiter.creations, name)
+			}
+		}
+		limiter.nextSweep = now.Add(time.Second)
 	}
 	state, exists := limiter.states[key]
 	if !exists {
 		if len(limiter.states) >= limiter.maxIdentities {
 			return Decision{Mode: "local", Reason: "local_capacity"}, nil
+		}
+		if limiter.creationLimits {
+			creation, found := limiter.creations[policy.Name]
+			if !found {
+				creation = localState{tokens: policy.CreationCapacity, last: now, ttl: policy.CreationTTL}
+			}
+			creation.tokens = math.Min(policy.CreationCapacity, creation.tokens+math.Max(0, now.Sub(creation.last).Seconds())*policy.CreationRate)
+			creation.last, creation.seen = now, now
+			if creation.tokens < 1 {
+				limiter.creations[policy.Name] = creation
+				return Decision{Mode: "local", Reason: "key_creation_limited", RetryAfter: time.Duration(math.Ceil((1 - creation.tokens) / policy.CreationRate * float64(time.Second)))}, nil
+			}
+			creation.tokens--
+			limiter.creations[policy.Name] = creation
 		}
 		state = localState{tokens: policy.Capacity, last: now, ttl: policy.IdleTTL}
 	}

@@ -97,7 +97,7 @@ func NewRateLimit(config RateLimitConfig) (gin.HandlerFunc, error) {
 			c.Next()
 			return
 		}
-		if decision.Reason == "key_creation_limited" {
+		if decision.Reason == "key_creation_limited" || decision.Reason == "local_capacity" {
 			writeBackendBusy(c)
 			return
 		}

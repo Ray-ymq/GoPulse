@@ -201,8 +201,10 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if err := state.ActivateV2(context.Background(), "phase-24-02"); err != nil {
 			return nil, errors.New("activate business event v2")
 		}
-		redisClient = platform.NewRedis(cfg.Redis)
-		assembly.addResource("redis", redisClient.Close)
+		if !cfg.RedisDisabled {
+			redisClient = platform.NewRedis(cfg.Redis)
+			assembly.addResource("redis", redisClient.Close)
+		}
 		protectionBudget, err = resourcebudget.New(resourcebudget.Config{
 			Auth: cfg.Protection.ResourceAuth, Read: cfg.Protection.ResourceRead, Write: cfg.Protection.ResourceWrite,
 			Database: cfg.Protection.ResourceDatabase, Rebuild: cfg.Protection.ResourceRebuild, Waiter: cfg.Protection.ResourceWaiter,
@@ -223,7 +225,16 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			if localErr != nil {
 				return nil, errors.New("initialize local rate limiter")
 			}
-			sharedLimiter := ratelimit.NewSharedLimiter(redisClient, cfg.Protection.RateLimitOperationTimeout)
+			var sharedLimiter ratelimit.Limiter
+			if cfg.RedisDisabled {
+				sharedLimiter, err = ratelimit.NewMemoryLimiter(cfg.Protection.LocalMaxIdentities)
+				if err != nil {
+					return nil, err
+				}
+				logger.Info("无 Redis 业务保护已启用", slog.String("quota_scope", "per_process"), slog.Int("replica_count", cfg.ReplicaCount), slog.Int("max_identities", cfg.Protection.LocalMaxIdentities))
+			} else {
+				sharedLimiter = ratelimit.NewSharedLimiter(redisClient, cfg.Protection.RateLimitOperationTimeout)
+			}
 			rateLimitHandler, err = backendhttp.NewRateLimitHandler(sharedLimiter, localLimiter, protectionPolicies(cfg.Redis.PostDetailTTL), trustedProxies)
 			if err != nil {
 				return nil, errors.New("initialize shared rate limiter")
@@ -284,24 +295,26 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		users.WithOutbox(eventOutbox)
 		authService := auth.NewService(users, passwords, tokens)
 		authHandler := auth.NewHandler(authService, cookies, logger)
-		postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
-		rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
-			MaxActiveKeys:        cfg.Protection.ResourceRebuild,
-			MaxExecutors:         cfg.Protection.ResourceRebuild,
-			MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
-			MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
-			WaitTimeout:          cfg.Redis.OperationTimeout * 5,
-			TaskTimeout:          cfg.Redis.OperationTimeout * 10,
-			Budget:               protectionBudget,
-		})
-		postService.WithBodyCache(postBodyCache, rebuild)
-		assembly.addResource("post_body_rebuild", func() error {
-			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			return rebuild.Stop(shutdownContext)
-		})
+		if !cfg.RedisDisabled {
+			postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
+				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
+				MaxExecutors:         cfg.Protection.ResourceRebuild,
+				MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
+				MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
+				WaitTimeout:          cfg.Redis.OperationTimeout * 5,
+				TaskTimeout:          cfg.Redis.OperationTimeout * 10,
+				Budget:               protectionBudget,
+			})
+			postService.WithBodyCache(postBodyCache, rebuild)
+			assembly.addResource("post_body_rebuild", func() error {
+				shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				return rebuild.Stop(shutdownContext)
+			})
+		}
 		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		commentService := comment.NewService(comments, postService)
