@@ -1,0 +1,20 @@
+{
+  "config": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "username": "example",
+    "connect_timeout": "1s",
+    "scrape_timeout": "5s"
+  },
+  "secrets": {
+    "password": "example-only"
+  },
+  "runtime": {
+    "mode": "host",
+    "listen_host": "127.0.0.1",
+    "listen_port": 9601,
+    "connect_timeout": "1s",
+    "scrape_timeout": "5s",
+    "shutdown_timeout": "5s"
+  }
+}
