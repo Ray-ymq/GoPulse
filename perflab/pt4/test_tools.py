@@ -38,6 +38,30 @@ class MetricsWindowTest(unittest.TestCase):
         result = summarize_source([self.snapshot(0, 1), missing, self.snapshot(10, 2)], 1, 9)
         self.assertIn('counter_series_missing', result['reasons'])
 
+    def test_series_first_seen_at_closing_boundary_is_outside_window(self):
+        samples = [self.snapshot(0, 1), self.snapshot(5, 2),
+                   self.snapshot(10, 2, '# TYPE late_total counter\nlate_total 1\n'),
+                   self.snapshot(15, 2, '# TYPE late_total counter\nlate_total 2\n')]
+        result = summarize_source(samples, 1, 9)
+        self.assertTrue(result['valid'])
+        self.assertNotIn('late_total', [row['name'] for row in result['series']])
+
+    def test_series_first_seen_inside_window_is_partial_but_valid(self):
+        samples = [self.snapshot(0, 1), self.snapshot(5, 2, '# TYPE mid_total counter\nmid_total 1\n'),
+                   self.snapshot(10, 2, '# TYPE mid_total counter\nmid_total 2\n')]
+        result = summarize_source(samples, 1, 9)
+        self.assertTrue(result['valid'])
+        row = next(item for item in result['series'] if item['name'] == 'mid_total')
+        self.assertTrue(row['partial'])
+        self.assertEqual(row['delta'], 2)
+        self.assertEqual(result['partial_series'][0]['name'], 'mid_total')
+
+    def test_series_missing_after_first_appearance_is_still_incomplete(self):
+        samples = [self.snapshot(0, 1), self.snapshot(5, 2, '# TYPE gap_total counter\ngap_total 1\n'),
+                   self.snapshot(10, 2), self.snapshot(15, 2, '# TYPE gap_total counter\ngap_total 2\n')]
+        result = summarize_source(samples, 1, 14)
+        self.assertIn('counter_series_missing', result['reasons'])
+
 
 class CriticalStateTest(unittest.TestCase):
     def test_failed_check_does_not_refresh_environment_state(self):
@@ -113,6 +137,23 @@ class RecoveryTest(unittest.TestCase):
             self.assertEqual(result['observation_seconds'], 600)
             self.assertFalse(result['last_business_ok'])
             self.assertEqual(len((Path(directory) / 'recovery.jsonl').read_text().splitlines()), 60)
+
+
+class SummaryResetTest(unittest.TestCase):
+    def test_only_performance_schema_summary_tables_are_reset(self):
+        self.assertTrue(run.RESET_SUMMARY_TABLES)
+        for table in run.RESET_SUMMARY_TABLES:
+            self.assertTrue(table.startswith('performance_schema.events_'))
+            self.assertNotIn('setup_', table)
+            self.assertNotIn('global_status', table)
+
+    def test_reset_summary_truncates_every_table(self):
+        with patch.object(run, 'sql', return_value='') as sql:
+            result = run.reset_summary()
+        query = sql.call_args.args[0]
+        for table in run.RESET_SUMMARY_TABLES:
+            self.assertIn('TRUNCATE TABLE ' + table, query)
+        self.assertEqual(result['tables'], list(run.RESET_SUMMARY_TABLES))
 
 
 if __name__ == '__main__':

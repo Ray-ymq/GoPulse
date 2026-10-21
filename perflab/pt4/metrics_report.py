@@ -36,6 +36,7 @@ def summarize_source(samples, begin, end):
                                                   ('global_instrumentation', 'thread_instrumentation', 'statements_digest')):
                     reasons.add('required_instrumentation_disabled')
     result = []
+    partial = []
     for key, observations in sorted(series.items()):
         item = observations[-1][1]
         row = {name: item[name] for name in ('name', 'labels', 'kind')}
@@ -44,7 +45,24 @@ def summarize_source(samples, begin, end):
             if any(current < previous for previous, current in zip(values, values[1:])):
                 reasons.add('counter_reset')
                 continue
-            if key not in first[1] or key not in last[1] or len(observations) != len(window):
+            if key not in first[1]:
+                # 仅在收尾边界样本才出现的计数序列属于窗口外的事件（例如恢复期
+                # 的偶发失败），不参与正式窗口，也不因此把整份证据判为不完整。
+                if observations[0][0] >= end:
+                    continue
+                start = next(index for index, (stamp, _) in enumerate(window) if stamp == observations[0][0])
+                if len(observations) != len(window) - start:
+                    reasons.add('counter_series_missing')
+                    continue
+                # 新标签组合在窗口内首次出现，此前计数为 0。以 0 为基线计入，
+                # 但标注部分覆盖；出现后再次缺失仍按序列缺失处理。
+                row['delta'] = values[-1]
+                row['partial'] = True
+                partial.append({'name': item['name'], 'labels': item['labels'],
+                                'first_seen_epoch': observations[0][0]})
+                result.append(row)
+                continue
+            if key not in last[1] or len(observations) != len(window):
                 reasons.add('counter_series_missing')
                 continue
             row['delta'] = values[-1] - values[0]
@@ -62,7 +80,8 @@ def summarize_source(samples, begin, end):
         reasons.add('mysql_restarted')
     return {'valid': not reasons, 'reasons': sorted(reasons), 'samples': len(window),
             'started_at_epoch': first[0], 'ended_at_epoch': last[0],
-            'boundary_extra_seconds': {'before': begin - first[0], 'after': last[0] - end}, 'series': result}
+            'boundary_extra_seconds': {'before': begin - first[0], 'after': last[0] - end},
+            'partial_series': partial, 'series': result}
 
 
 def summarize_metrics(directory, begin, end):

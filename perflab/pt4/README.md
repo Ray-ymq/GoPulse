@@ -38,7 +38,7 @@ python3 perflab/pt4/report.py .run/pt4/observations/<run-id>
 python3 perflab/pt4/plot.py .run/pt4/observations/<run-id>
 ```
 
-`report.json` 保留请求窗口、错误率和分位数，并引用 `metrics-summary.json`。后者只从 exporter 输出计算计数增量和 gauge 范围；缺少窗口边界、采样间断、计数重置、序列缺失、采集失败、截断或 digest 丢失时标记证据不完整，不补零。摘要排名变化和采集配置仍需人工核对；SQL 累计耗时不等于 CPU 时间。恢复结束时要求最后一次业务读写成功、环境样本有效且全部 epoch 的未完成需求和 parked 消息归零。
+`report.json` 保留请求窗口、错误率和分位数，并引用 `metrics-summary.json`。后者只从 exporter 输出计算计数增量和 gauge 范围；缺少窗口边界、采样间断、计数重置、序列缺失、采集失败、截断或 digest 丢失时标记证据不完整，不补零。仅在收尾边界样本才首次出现的计数序列属于窗口外事件，不参与窗口也不判为不完整；窗口内首次出现的标签组合此前计数按 0 计，保留为部分覆盖并写入 `partial_series`，出现后再次缺失仍判为不完整。摘要排名变化和采集配置仍需人工核对；SQL 累计耗时不等于 CPU 时间。恢复结束时要求最后一次业务读写成功、环境样本有效且全部 epoch 的未完成需求和 parked 消息归零。
 
 ## 按需使用 pprof
 
