@@ -11,6 +11,7 @@ python3 perflab/pt6/prepare.py           # 首次部署、造数、冒烟、恢�
 python3 perflab/pt6/run.py --preflight   # 开测前复核，不发送业务负载
 python3 perflab/pt6/run.py               # 正式压测：250 起步，通过后每档增加 50 RPS
 python3 perflab/pt6/prepare.py --new-round  # 停压汇报后恢复基线、复验冒烟并重新就绪
+python3 perflab/pt6/prepare.py --refresh    # 只复核环境并刷新源码指纹
 ```
 
 准备失败后先检查记录和日志。修复原因后，使用 `prepare.py --resume` 继续同一准备过程。该命令只适用于准备阶段；正式压测失败后不得用它重试或覆盖现场。停压并汇报后，如需开始新一轮，使用 `prepare.py --new-round` 恢复基线并重新采集预检。

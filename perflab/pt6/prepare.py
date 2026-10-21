@@ -223,10 +223,27 @@ def rearm(value, host):
     print(f'PT6 第 {value["round"]} 轮准备完成，尚未执行正式压测。', flush=True)
 
 
+def refresh(value):
+    assert value.get('ready'), '准备尚未完成，无法刷新指纹'
+    directory = Path(value['directory'])
+    assert not (STATE / 'STOP').exists(), '存在 PT6 停止标记；核对现场后人工移除'
+    assert check_quotas() == value['containers'], '服务容器或镜像与准备记录不符'
+    for name, expected in value['artifact_sha256'].items():
+        assert digest(directory / name) == expected, '准备后私有输入已改变：' + name
+    baseline = json.loads((directory / 'baseline.json').read_text())
+    assert sql('SELECT data_epoch,status,mode FROM business_environment;').strip() == baseline['environment'], '数据 epoch 或运行模式改变'
+    drained()
+    value['source_sha256'] = source_hashes()
+    value.update(updated_at=utc(), refreshed_at=utc())
+    write_json(STATE / 'prepared.json', value)
+    print('PT6 就绪指纹已刷新，环境未重建。', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--resume', action='store_true', help='核对失败原因后继续同一准备过程')
     parser.add_argument('--new-round', action='store_true', help='恢复基线并开始新一轮正式压测准备')
+    parser.add_argument('--refresh', action='store_true', help='只复核环境并刷新源码指纹')
     args = parser.parse_args()
     os.umask(0o077)
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -242,6 +259,9 @@ def main():
             value.update(ready=False, phase='new_round_failed', error=str(error), failed_at=utc())
             write_json(STATE / 'prepared.json', value)
             raise
+        return
+    if args.refresh:
+        refresh(json.loads((STATE / 'prepared.json').read_text()))
         return
     if args.resume:
         value = json.loads((STATE / 'prepared.json').read_text())
