@@ -411,6 +411,7 @@ func (repository *MySQLRepository) mutationEpoch(ctx context.Context, tx *sql.Tx
 }
 
 func (repository *MySQLRepository) insertSearchMutation(ctx context.Context, tx *sql.Tx, event bus.Envelope, epoch string) (uint64, error) {
+	var requirement businessstate.Requirement
 	if epoch != "" {
 		var err error
 		event, err = event.WithDataEpoch(epoch)
@@ -422,15 +423,23 @@ func (repository *MySQLRepository) insertSearchMutation(ctx context.Context, tx 
 		if err != nil {
 			return 0, err
 		}
-		if err = repository.state.RegisterRequirementTx(ctx, tx, businessstate.Requirement{
+		requirement = businessstate.Requirement{
 			DataEpoch: epoch, EventID: event.EventID, Consumer: businessstate.ConsumerSearch,
 			RoutingContractRevision: businessstate.SearchRoutingContractV1,
 			ApplicableObjectVersion: event.ContentRevision, PayloadBytes: len(payload),
-		}); err != nil {
+		}
+	}
+	outboxID, err := insertOutbox(ctx, tx, repository.outbox, event)
+	if err != nil {
+		return 0, err
+	}
+	// 先写 Outbox 和需求，再取得预算行锁，使后续持锁区间只覆盖预算检查、扣账和提交。
+	if epoch != "" {
+		if err := repository.state.RegisterRequirementTx(ctx, tx, requirement); err != nil {
 			return 0, err
 		}
 	}
-	return insertOutbox(ctx, tx, repository.outbox, event)
+	return outboxID, nil
 }
 
 func insertOutbox(ctx context.Context, executor outbox.Executor, writer outbox.Writer, envelope bus.Envelope) (uint64, error) {

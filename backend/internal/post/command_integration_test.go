@@ -130,10 +130,19 @@ func TestIntegrationPostCommandConcurrentReplayConflictOwnershipAndDeletedResult
 	if err != nil || envelope.SchemaVersion != bus.SchemaVersionV2 || envelope.DataEpoch != environment.DataEpoch || envelope.CommandID != commandID {
 		t.Fatalf("v2 outbox envelope=%#v error=%v payload=%s", envelope, err, payload)
 	}
+	// MySQL JSON 读取结果的空白和键顺序可能变化；预算按写入前的 bus.Encode 长度计账。
+	encoded, err := bus.Encode(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reservedPayloadBytes int
+	if err := database.QueryRowContext(ctx, "SELECT payload_bytes FROM business_event_requirements WHERE data_epoch=? AND event_id=?", environment.DataEpoch, eventID).Scan(&reservedPayloadBytes); err != nil || reservedPayloadBytes != len(encoded) {
+		t.Fatalf("需求载荷字节不一致: reserved=%d encoded=%d err=%v", reservedPayloadBytes, len(encoded), err)
+	}
 	charged, err := state.Budget(ctx, environment.DataEpoch)
 	if err != nil || charged.OpenRequirements != baseline.OpenRequirements+1 ||
 		charged.RetainedGroups != baseline.RetainedGroups+1 ||
-		charged.RetainedBytes != baseline.RetainedBytes+uint64(len(payload)+businessstate.RetentionMetadataBytes) {
+		charged.RetainedBytes != baseline.RetainedBytes+uint64(len(encoded)+businessstate.RetentionMetadataBytes) {
 		t.Fatalf("deferred budget charge=%#v baseline=%#v error=%v", charged, baseline, err)
 	}
 
@@ -169,7 +178,7 @@ func TestIntegrationPostCommandConcurrentReplayConflictOwnershipAndDeletedResult
 	}
 	_, err = service.CreateWithCommand(ctx, first.ID, CreateInput{Title: "blocked", Content: "over budget"},
 		CommandRequest{DataEpoch: environment.DataEpoch, IdempotencyKey: "123e4567-e89b-12d3-a456-426614174011"})
-	if !errors.Is(err, ErrBusinessAsyncBacklog) {
+	if appError, ok := apperror.As(err); !ok || appError.Code != apperror.CodeBusinessAsyncBacklog {
 		t.Fatalf("over-budget create error=%v", err)
 	}
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE author_id=?`, first.ID).Scan(&postsAfter); err != nil {

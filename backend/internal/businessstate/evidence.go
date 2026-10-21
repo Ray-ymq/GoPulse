@@ -28,8 +28,8 @@ func (repository *Repository) RegisterRequirement(ctx context.Context, requireme
 	return nil
 }
 
-// RegisterRequirementTx is intended to be called by a future v2 fact writer
-// using the same transaction as the post and Outbox rows.
+// RegisterRequirementTx 在事实与 Outbox 写入后登记需求，并在同一事务末尾检查和扣减预算。
+// 调用方必须在失败时回滚整笔事务，在成功后提交事务。
 func (repository *Repository) RegisterRequirementTx(ctx context.Context, executor Executor, requirement Requirement) error {
 	if executor == nil {
 		return fmt.Errorf("%w: transaction is required", ErrInvalidArgument)
@@ -39,6 +39,21 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 	}
 	if requirement.PayloadBytes == 0 {
 		requirement.PayloadBytes = 1
+	}
+	result, err := executor.ExecContext(ctx, `
+		INSERT IGNORE INTO business_event_requirements
+			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, requirement.DataEpoch, requirement.EventID, requirement.Consumer,
+		requirement.RoutingContractRevision, requirement.ApplicableObjectVersion, requirement.PayloadBytes, repository.now(), repository.now())
+	if err != nil {
+		return errors.New("insert business event requirement")
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return errors.New("inspect requirement insert")
+	}
+	if inserted == 0 {
+		return nil
 	}
 	if _, err := executor.ExecContext(ctx, `INSERT INTO business_async_budget (data_epoch) VALUES (?) ON DUPLICATE KEY UPDATE data_epoch=VALUES(data_epoch)`, requirement.DataEpoch); err != nil {
 		return errors.New("initialize requirement budget")
@@ -69,24 +84,6 @@ func (repository *Repository) RegisterRequirementTx(ctx context.Context, executo
 	limits := repository.BudgetLimits()
 	charge := uint64(requirement.PayloadBytes + RetentionMetadataBytes)
 	if open >= limits.OpenRequirements || groups >= limits.RetainedGroups || charge > limits.RetainedBytes || bytes > limits.RetainedBytes-charge {
-		return ErrBudgetExceeded
-	}
-	result, err := executor.ExecContext(ctx, `
-		INSERT IGNORE INTO business_event_requirements
-			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, requirement.DataEpoch, requirement.EventID, requirement.Consumer,
-		requirement.RoutingContractRevision, requirement.ApplicableObjectVersion, requirement.PayloadBytes, repository.now(), repository.now())
-	if err != nil {
-		return errors.New("insert business event requirement")
-	}
-	inserted, err := result.RowsAffected()
-	if err != nil {
-		return errors.New("inspect requirement insert")
-	}
-	if inserted == 0 {
-		return nil
-	}
-	if open >= repository.BudgetLimits().OpenRequirements {
 		return ErrBudgetExceeded
 	}
 	if _, err := executor.ExecContext(ctx, `UPDATE business_async_budget SET open_requirements=open_requirements+1,retained_groups=retained_groups+1,retained_bytes=retained_bytes+?, updated_at=? WHERE data_epoch=?`, charge, repository.now(), requirement.DataEpoch); err != nil {

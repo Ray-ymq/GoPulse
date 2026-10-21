@@ -82,16 +82,16 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 		attribute.String("gopulse.event_id", event.EventID),
 		attribute.Int64("gopulse.content_revision", int64(revision)),
 	)
+	record, err := readUpdatedPost(ctx, tx, id, actor)
+	if err != nil {
+		return Post{}, err
+	}
 	outboxID, err := r.insertSearchMutation(ctx, tx, event, epoch)
 	if err != nil {
 		return Post{}, err
 	}
 	if outboxID > 0 {
 		commitSpan.SetAttributes(attribute.Int64("gopulse.outbox_id", int64(outboxID)))
-	}
-	record, err := readUpdatedPost(ctx, tx, id, actor)
-	if err != nil {
-		return Post{}, err
 	}
 	err = tx.Commit()
 	committed = err == nil
