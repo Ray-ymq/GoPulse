@@ -1,0 +1,216 @@
+# 可观测系统的独立框架。资源配额、采集目标和对外端口暂未确定。
+# 当前仅配置内部链路，不连接 PT6 业务网络，不自动加载业务 Redis 插件。
+name: gopulse-observability
+
+x-image-build-args: &image-build-args
+  VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  REVISION: ${GOPULSE_REVISION:?GOPULSE_REVISION is required}
+  GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+
+x-marshaller-environment: &marshaller-environment
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_RUNTIME_MODE: container
+  GOPULSE_INSTANCE_ID: marshaller-1
+  GOPULSE_REPLICA_COUNT: 2
+  MARSHALLER_HTTP_HOST: 0.0.0.0
+  MARSHALLER_HTTP_PORT: 9093
+  MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
+  MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
+  MARSHALLER_KAFKA_BROKERS: kafka:19092
+  MARSHALLER_KAFKA_MIN_PARTITIONS: ${KAFKA_OBSERVABILITY_PARTITIONS:-4}
+  MARSHALLER_VM_URL: http://victoriametrics:8428
+  MARSHALLER_VM_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+  MARSHALLER_VM_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+  MARSHALLER_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
+
+services:
+  kafka:
+    image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
+    restart: on-failure:5
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:9093,INTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_MS: 259200000
+      KAFKA_LOG_RETENTION_BYTES: 2147483648
+      KAFKA_LOG_SEGMENT_BYTES: 67108864
+      KAFKA_LOG_SEGMENT_MS: 3600000
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    tmpfs:
+      - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
+      - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777
+    networks: [observability]
+    healthcheck:
+      test: [CMD-SHELL, '/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --list >/dev/null 2>&1']
+      start_period: 20s
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kafka-init:
+    image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -ec
+      - >-
+        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events; do
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
+        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1
+        --config cleanup.policy=delete --config retention.ms=259200000 --config retention.bytes=2147483648
+        --config segment.bytes=67108864 --config segment.ms=3600000;
+        /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:19092 --alter --entity-type topics
+        --entity-name "$${topic}"
+        --add-config cleanup.policy=delete,retention.ms=259200000,retention.bytes=2147483648,segment.bytes=67108864,segment.ms=3600000;
+        done
+    tmpfs:
+      - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
+      - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777
+      - /var/lib/kafka/data:rw,nosuid,nodev,size=16m,mode=1777
+    networks: [observability]
+
+  victoriametrics:
+    image: ${GOPULSE_VICTORIAMETRICS_IMAGE:-victoriametrics/victoria-metrics:v1.151.0}
+    restart: on-failure:5
+    secrets: [victoriametrics_password]
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -httpAuth.username=${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+      - -httpAuth.password=file:///run/secrets/victoriametrics_password
+      - -dedup.minScrapeInterval=1ms
+      - -retentionPeriod=30d
+    volumes:
+      - victoriametrics_data:/victoria-metrics-data
+    networks: [observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8428/health]
+      start_period: 10s
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  observability-elasticsearch:
+    image: ${GOPULSE_OBSERVABILITY_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:9.5.2}
+    restart: on-failure:5
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - observability_elasticsearch_data:/usr/share/elasticsearch/data
+    networks: [observability]
+    healthcheck:
+      test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null']
+      start_period: 30s
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  marshaller: &marshaller-service
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: marshaller
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment: *marshaller-environment
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      victoriametrics:
+        condition: service_healthy
+      observability-elasticsearch:
+        condition: service_healthy
+    expose: ["9093", "19106"]
+    networks: [observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9093/ready]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  marshaller-2:
+    <<: *marshaller-service
+    environment:
+      <<: *marshaller-environment
+      GOPULSE_INSTANCE_ID: marshaller-2
+
+  monitor:
+    image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/monitor.Dockerfile
+      target: monitor
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
+    stop_grace_period: 20s
+    environment:
+      GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+      GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+      GOPULSE_RUNTIME_MODE: container
+      GOPULSE_INSTANCE_ID: monitor-1
+      GOPULSE_REPLICA_COUNT: 1
+      MARSHALLER_ENDPOINTS: marshaller,marshaller-2
+      MONITOR_HTTP_HOST: 0.0.0.0
+      MONITOR_HTTP_PORT: 9090
+      MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
+      MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
+      LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+      MONITOR_PLUGIN_ROOT: /var/lib/gopulse-monitor/plugins
+      MONITOR_SPOOL_DIR: /var/lib/gopulse-monitor/spool
+      MONITOR_KAFKA_BROKERS: kafka:19092
+      MONITOR_BOOTSTRAP_PACKAGE: ""
+      REDIS_HOST: redis
+    volumes:
+      - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
+      - monitor_spool_data:/var/lib/gopulse-monitor/spool
+    expose: ["9090", "19104"]
+    networks: [observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9090/ready]
+      start_period: 10s
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+networks:
+  observability:
+    internal: true
+
+volumes:
+  kafka_data:
+  victoriametrics_data:
+  observability_elasticsearch_data:
+  monitor_plugin_data:
+  monitor_spool_data:
+
+secrets:
+  victoriametrics_password:
+    environment: VICTORIAMETRICS_PASSWORD

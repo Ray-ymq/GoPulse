@@ -84,6 +84,8 @@ check-all:
 
 check-compose:
 	@docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose.business.yaml --profile load --profile operations config --quiet
+	@docker compose --env-file .env.example --file deploy/compose.observability.yaml config --quiet
 
 ci-plan: export GOPULSE_CI_LABELS := $(LABELS)
 ci-plan:
