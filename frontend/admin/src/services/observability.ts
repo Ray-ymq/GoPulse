@@ -218,10 +218,14 @@ export const eventNames = [
   'metrics_target_unavailable', 'metrics_target_recovered',
 ] as const
 
-const metricSources = ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics'] as const
+const metricSources = ['redis','mysql','rabbitmq','kafka','elasticsearch','victoriametrics','node'] as const
 const metricUnits = new Set(['none','boolean','seconds','count','bytes','state','unix_seconds'])
+function metricMatchesSource(metric: string, source: string): boolean {
+ const prefix = source === 'node' && metric.startsWith('node_') ? 'node_' : `gopulse_${source.replaceAll('-', '_')}_`
+ return metric.startsWith(prefix) && metric.length > prefix.length
+}
 function validMetricName(value: unknown): value is string {
- return typeof value === 'string' && value.length <= 128 && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value) && metricSources.some(source => value.startsWith(`gopulse_${source.replaceAll('-', '_')}_`) && value.length > `gopulse_${source.replaceAll('-', '_')}_`.length)
+ return typeof value === 'string' && value.length <= 128 && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value) && metricSources.some(source => metricMatchesSource(value, source))
 }
 function validMetricLabels(labels: Record<string, unknown>): boolean {
  return Object.keys(labels).length <= 16 && Object.entries(labels).every(([key,value]) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) && key.length <= 64 && !key.startsWith('__') && !['source','target_id','producer_kind','producer_id','producer_version'].includes(key) && typeof value === 'string' && new TextEncoder().encode(value).length <= 256 && !value.includes('\0'))
@@ -302,7 +306,7 @@ export function isEventEntry(value: unknown): value is EventEntry {
   if (!record(value) || Object.keys(value).sort().join() !== ['event_name','message','metadata','severity','source','timestamp'].sort().join() || !timestamp(value.timestamp) || typeof value.event_name !== 'string' || !eventNames.includes(value.event_name as typeof eventNames[number]) || !record(value.metadata) || !keysAllowed(value.metadata, metadataKeys)) return false
   const name = value.event_name
   const m = value.metadata
-  if (value.source !== 'monitor' || value.severity !== eventSeverities[name] || value.message !== eventMessages[name] || !['redis-exporter','mysql-exporter','rabbitmq-exporter','kafka-exporter','elasticsearch-exporter','victoriametrics-exporter'].includes(String(m.plugin_id)) || ![...metadataKeys].filter((key) => key !== 'plugin_id').every((key) => optionalString(m[key]))) return false
+  if (value.source !== 'monitor' || value.severity !== eventSeverities[name] || value.message !== eventMessages[name] || !['redis-exporter','mysql-exporter','rabbitmq-exporter','kafka-exporter','elasticsearch-exporter','victoriametrics-exporter','node-exporter'].includes(String(m.plugin_id)) || ![...metadataKeys].filter((key) => key !== 'plugin_id').every((key) => optionalString(m[key]))) return false
   const version = typeof m.plugin_version === 'string' && semver.test(m.plugin_version)
   const previous = typeof m.previous_plugin_version === 'string' && semver.test(m.previous_plugin_version)
   const noError = absent(m, 'error_code', 'scrape_status')
@@ -344,7 +348,7 @@ export const observabilityApi = {
 export function isMetricCatalog(value: unknown): value is MetricDescriptor[] {
  if (!Array.isArray(value) || value.length > 2048 || new Set(value.map(item => record(item) ? item.metric : undefined)).size !== value.length) return false
  return value.every(item => {
-  if (!record(item) || !keysAllowed(item,new Set(['metric','kind','unit','source','target_id','producer_kind','producer_id','label_keys','value_kind','display_unit'])) || !validMetricName(item.metric) || (item.kind !== 'gauge' && item.kind !== 'counter') || !metricUnits.has(String(item.unit)) || typeof item.source !== 'string' || !metricSources.includes(item.source as typeof metricSources[number]) || !item.metric.startsWith(`gopulse_${item.source.replaceAll('-', '_')}_`)) return false
+  if (!record(item) || !keysAllowed(item,new Set(['metric','kind','unit','source','target_id','producer_kind','producer_id','label_keys','value_kind','display_unit'])) || !validMetricName(item.metric) || (item.kind !== 'gauge' && item.kind !== 'counter') || !metricUnits.has(String(item.unit)) || typeof item.source !== 'string' || !metricSources.includes(item.source as typeof metricSources[number]) || !metricMatchesSource(item.metric, item.source)) return false
   if (item.value_kind !== undefined && !['raw','rate','ratio','average'].includes(String(item.value_kind))) return false
   if (item.display_unit !== undefined && (typeof item.display_unit !== 'string' || item.display_unit.length > 32)) return false
   if (item.label_keys !== undefined && (!Array.isArray(item.label_keys) || new Set(item.label_keys).size !== item.label_keys.length || !item.label_keys.every(key => typeof key === 'string') || !validMetricLabels(Object.fromEntries(item.label_keys.map(key => [key,'']))))) return false

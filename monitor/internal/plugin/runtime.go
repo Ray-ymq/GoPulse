@@ -8,9 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
-	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 	"io"
 	"net/http"
 	"os"
@@ -22,6 +19,10 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 )
 
 // revision is immutable. Only active.json commits a revision; registry/current
@@ -408,6 +409,10 @@ func (c *runtimeCore) writeRuntimeConfig(id string, r *revision) error {
 }
 
 func (c *runtimeCore) validateCandidate(ctx context.Context, id string, r *revision) error {
+	if nativeNodeManifest(r.Entry.Manifest) {
+		_, err := nativeNodeArguments(r.Config, c.runtimeFor(id).ListenPort)
+		return err
+	}
 	if !c.isExternalCatalog() {
 		return nil
 	}
@@ -583,7 +588,13 @@ func (c *runtimeCore) launch(ctx context.Context, id string, r *revision, trial 
 		return nil, err
 	}
 	args := []string(nil)
-	if c.isExternalCatalog() {
+	if nativeNodeManifest(r.Entry.Manifest) {
+		var err error
+		args, err = nativeNodeArguments(r.Config, c.runtimeFor(id).ListenPort)
+		if err != nil {
+			return nil, err
+		}
+	} else if c.isExternalCatalog() {
 		args = []string{"serve", "--config", c.runtimeConfigPath(id, r.ID)}
 	}
 	rp, err := startProcess(ctx, c.dir(id), r.Entry.Manifest, c.env(r), c.health(id), c.cfg.StartupTimeout, args...)
@@ -808,6 +819,12 @@ func (c *runtimeCore) transact(ctx context.Context, id string, next *revision) (
 	return c.get(id)
 }
 func (c *runtimeCore) parseRequest(id string, data []byte, previous json.RawMessage) (json.RawMessage, json.RawMessage, error) {
+	if id == nativeNodeID {
+		if _, err := c.slot(id); err != nil {
+			return nil, nil, err
+		}
+		return parseNativeNodeRequest(data)
+	}
 	if c.isExternalCatalog() {
 		if _, err := c.slot(id); err != nil {
 			return nil, nil, err
@@ -1171,6 +1188,9 @@ func (m *Manager) Configure(ctx context.Context, id string, data []byte, install
 	return m.core.configure(ctx, id, data, install)
 }
 func (m *Manager) ConnectionTest(ctx context.Context, id string, data []byte) error {
+	if id == nativeNodeID && m.core != nil {
+		return m.core.checkNativeNode(ctx, data)
+	}
 	if m.core == nil || (m.core.isExternalCatalog() && m.core.slots[id] == nil) || (!m.core.isExternalCatalog() && id != PluginID && id != "mysql-exporter" && id != "rabbitmq-exporter" && id != "kafka-exporter" && id != "elasticsearch-exporter" && id != "victoriametrics-exporter") {
 		return unavailable()
 	}

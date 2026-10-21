@@ -29,13 +29,17 @@ func v2Manifest(t *testing.T) (Manifest, []byte) {
 }
 
 func TestOfficialCatalogIdentityAndAvailability(t *testing.T) {
-	sources := []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
+	sources := []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics", "node"}
 	catalog := OfficialCatalog()
 	if len(catalog) != len(sources) {
 		t.Fatal("catalog size")
 	}
 	for i, entry := range catalog {
-		if entry.ID != sources[i]+"-exporter" || entry.Source != sources[i] || entry.TargetID != entry.ID+"-local" || entry.Entrypoint != "bin/gopulse-"+entry.ID || entry.Port != 9121+i || !entry.Available {
+		executable := "bin/gopulse-" + entry.ID
+		if entry.Source == "node" {
+			executable = "bin/node_exporter"
+		}
+		if entry.ID != sources[i]+"-exporter" || entry.Source != sources[i] || entry.TargetID != entry.ID+"-local" || entry.Entrypoint != executable || entry.Port != 9121+i || !entry.Available {
 			t.Fatalf("incorrect identity: %+v", entry)
 		}
 		schema, err := OfficialSchema(entry.ID)

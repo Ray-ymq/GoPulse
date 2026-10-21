@@ -84,7 +84,7 @@ func extractPackageContractForEntry(archivePath, staging string, schemaVersion i
 					return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 				}
 			} else {
-				allowed := clean == "plugin.json" || clean == "config.schema.json" || clean == "descriptor.json"
+				allowed := clean == "plugin.json" || clean == "config.schema.json" || clean == "descriptor.json" || clean == "LICENSE" || clean == "NOTICE"
 				if expected != nil {
 					allowed = allowed || clean == expected.Entrypoint
 				} else {
@@ -165,6 +165,9 @@ func extractPackageContractForEntry(archivePath, staging string, schemaVersion i
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 		}
 		for name := range seen {
+			if nativeNodeManifest(manifest) && (name == "LICENSE" || name == "NOTICE") {
+				continue
+			}
 			if name != "bin" && name != "plugin.json" && name != "config.schema.json" && name != "descriptor.json" && name != manifest.Entrypoint {
 				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 			}

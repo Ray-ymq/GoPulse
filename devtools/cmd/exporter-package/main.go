@@ -130,6 +130,21 @@ func run(args []string) error {
 	if !semver(*version) {
 		return errors.New("version must be a three-part SemVer")
 	}
+	if *binary == "" && *source == "node" {
+		file, err := os.CreateTemp("", "gopulse-native-node-*")
+		if err != nil {
+			return err
+		}
+		name := file.Name()
+		if err = file.Close(); err != nil {
+			return err
+		}
+		defer func() { _ = os.Remove(name) }()
+		if err = downloadNativeNode(module, *arch, *version, name); err != nil {
+			return err
+		}
+		*binary = name
+	}
 	if *binary == "" {
 		binary = new(string)
 		*binary = filepath.Join(os.TempDir(), fmt.Sprintf("gopulse-%s-exporter-%d", *source, time.Now().UnixNano()))
@@ -181,6 +196,15 @@ func run(args []string) error {
 	members := []member{{"plugin.json", manifestData, 0o644}}
 	if *contractVersion == currentContractVersion {
 		members = append(members, member{meta.ConfigSchemaPath, schema, 0o644}, member{"descriptor.json", descriptorData, 0o644})
+	}
+	if *source == "node" {
+		for _, name := range []string{"LICENSE", "NOTICE"} {
+			data, err := os.ReadFile(filepath.Join(module, name))
+			if err != nil {
+				return err
+			}
+			members = append(members, member{name, data, 0644})
+		}
 	}
 	members = append(members, member{entrypoint, binaryData, 0o755})
 	return writePackage(outputPath, members)

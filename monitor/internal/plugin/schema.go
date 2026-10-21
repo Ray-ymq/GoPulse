@@ -38,6 +38,15 @@ func OfficialSchema(id string) (ConfigSchema, error) {
 	if !ok {
 		return ConfigSchema{}, invalidConfig()
 	}
+	if entry.Source == "node" {
+		fields := make([]ConfigField, 0, 3)
+		for _, name := range []string{"rootfs", "procfs", "sysfs"} {
+			field := boundedField(name, "string", 1, 4096)
+			field.Required = false
+			fields = append(fields, field)
+		}
+		return ConfigSchema{SchemaVersion: 1, PluginID: id, Fields: fields}, nil
+	}
 	fields := []ConfigField{{Name: "host", Type: "hostname", Required: true}}
 	port := "port"
 	if entry.Source == "rabbitmq" {

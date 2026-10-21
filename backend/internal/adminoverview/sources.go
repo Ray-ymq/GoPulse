@@ -131,7 +131,7 @@ func Plugins(client *exporterplugin.Client, samples alert.Samples) Loader {
 		rows, err := client.List(ctx)
 		items := []Plugin{}
 		statuses := []string{}
-		for _, source := range []string{"redis", "mysql", "kafka", "elasticsearch", "rabbitmq", "victoriametrics"} {
+		for _, source := range []string{"redis", "mysql", "kafka", "elasticsearch", "rabbitmq", "victoriametrics", "node"} {
 			id := source + "-exporter"
 			m := sample(ctx, samples, "gopulse_"+source+"_up", map[string]string{}, now)
 			p := Plugin{ID: id, Desired: "unknown", Observed: "unknown", Up: m.Value, ObservedAt: m.ObservedAt, Status: m.Status, ReasonCode: m.ReasonCode}

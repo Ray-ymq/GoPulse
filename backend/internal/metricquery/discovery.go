@@ -27,7 +27,7 @@ func definitionFor(metric string) (Definition, bool) {
 	if derived, ok := derivedDefinition(metric); ok {
 		return derived, true
 	}
-	for _, source := range runtimekit.Plugins {
+	for _, source := range append(append([]string{}, runtimekit.Plugins...), runtimekit.NativePlugins...) {
 		if !metriccontract.ValidName(source, metric) {
 			continue
 		}

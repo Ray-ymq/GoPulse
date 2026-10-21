@@ -258,7 +258,7 @@ func decodeLegacyMetrics(body []byte, source string) (Payload, error) {
 }
 
 func supported(messageType, source string) bool {
-	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
+	return (messageType == "metrics" && (source == "redis" || source == "mysql" || source == "rabbitmq" || source == "kafka" || source == "elasticsearch" || source == "victoriametrics" || source == "node")) || (messageType == "logs" && logSource(source)) || (messageType == "events" && source == "monitor")
 }
 
 func logSource(source string) bool {

@@ -33,6 +33,9 @@ type Sample struct {
 }
 
 func ValidName(source, name string) bool {
+	if source == "node" && strings.HasPrefix(name, "node_") {
+		return len(name) > len("node_") && len(name) <= MaxNameBytes && namePattern.MatchString(name)
+	}
 	prefix := "gopulse_" + strings.ReplaceAll(source, "-", "_") + "_"
 	return len(name) <= MaxNameBytes && namePattern.MatchString(name) && strings.HasPrefix(name, prefix) && len(name) > len(prefix)
 }
@@ -209,6 +212,14 @@ func validateBuckets(samples []Sample, seen map[string]Sample) error {
 }
 
 var unitOverrides = map[string]string{
+	"node_load1":                                            "count",
+	"node_load5":                                            "count",
+	"node_load15":                                           "count",
+	"node_procs_running":                                    "count",
+	"node_procs_blocked":                                    "count",
+	"node_boot_time_seconds":                                "unix_seconds",
+	"node_time_seconds":                                     "unix_seconds",
+	"node_scrape_collector_success":                         "boolean",
 	"gopulse_redis_blocked_clients":                         "count",
 	"gopulse_redis_command_latency_seconds_count":           "count",
 	"gopulse_redis_memory_fragmentation_ratio":              "none",

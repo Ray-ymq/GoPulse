@@ -16,7 +16,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 )
 
-var sources = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
+var sources = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics", "node"}
 
 type receipt struct {
 	Input string `json:"input"`

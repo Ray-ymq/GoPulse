@@ -1,0 +1,1 @@
+{"schema_version":1,"plugin_id":"node-exporter","fields":[{"name":"rootfs","type":"string","required":false,"secret":false,"minimum":1,"maximum":4096},{"name":"procfs","type":"string","required":false,"secret":false,"minimum":1,"maximum":4096},{"name":"sysfs","type":"string","required":false,"secret":false,"minimum":1,"maximum":4096}]}

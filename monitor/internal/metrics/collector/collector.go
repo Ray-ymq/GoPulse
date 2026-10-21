@@ -3,9 +3,6 @@ package collector
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/monitor/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
-	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 	"io"
 	"mime"
 	"net"
@@ -15,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/monitor/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 
 	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
@@ -320,6 +321,9 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 }
 
 func parseSource(source string, httpStatus int, body []byte) (string, []envelope.Sample, error) {
+	if source == "node" {
+		return parseNativeNode(httpStatus, body)
+	}
 	if httpStatus != http.StatusOK && httpStatus != http.StatusServiceUnavailable {
 		return "", nil, errors.New("http_invalid")
 	}

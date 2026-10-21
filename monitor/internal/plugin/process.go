@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"net/http"
 	"os"
@@ -16,6 +15,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 type runtimeProcess struct {
@@ -120,7 +121,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 		request, _ := runtimekit.NewRequest(deadlineContext, http.MethodGet, healthURL, nil)
 		response, requestErr := client.Do(request)
 		if requestErr == nil {
-			body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
+			body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 			response.Body.Close()
 			if response.StatusCode == http.StatusOK && validProcessHealth(manifest, body) {
 				// A response on the fixed port must not hide an immediately
@@ -236,11 +237,17 @@ func validateHealthPort(env map[string]string) error {
 // Historical packages retain their original exact health response. Current
 // official packages use the shared runtime wire contract on the same port.
 func runtimeContractManifest(manifest Manifest) bool {
+	if nativeNodeManifest(manifest) {
+		return false
+	}
 	var major, minor, patch int
 	_, _ = fmt.Sscanf(manifest.Version, "%d.%d.%d", &major, &minor, &patch)
 	return major > 1 || major == 1 && (minor > 14 || minor == 14 && patch >= 3)
 }
 func validProcessHealth(manifest Manifest, body []byte) bool {
+	if nativeNodeManifest(manifest) {
+		return strings.Contains(string(body), "Node Exporter")
+	}
 	if !runtimeContractManifest(manifest) {
 		return string(body) == `{"status":"ok","service":"`+manifest.ID+`"}`
 	}

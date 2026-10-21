@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "node-exporter",
+  "name": "Prometheus Node Exporter",
+  "source": "node",
+  "entrypoint": "bin/node_exporter",
+  "target_id": "node-exporter-local",
+  "host_port": 9100,
+  "container_port": 9100,
+  "health_path": "/",
+  "metrics_path": "/metrics",
+  "listen_port": 9127,
+  "runtime_contract_version": 1,
+  "metrics_contract_version": 2,
+  "config_schema_path": "config.schema.json"
+}

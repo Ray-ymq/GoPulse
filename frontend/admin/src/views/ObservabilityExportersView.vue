@@ -19,8 +19,8 @@ const statuses = ref<ExporterStatus[]>([])
 const pluginSearch=ref(''),pluginState=ref(''),showUpdate=ref(false)
 function pluginStatus(id:string){return statuses.value.find(item=>item.id===id)}
 function pluginIcon(source:string){return source==='mysql'?'database':source || 'box'}
-function pluginName(source:string){return ({redis:'Redis',mysql:'MySQL',rabbitmq:'RabbitMQ',kafka:'Kafka',elasticsearch:'Elasticsearch',victoriametrics:'VictoriaMetrics'}[source] ?? source)+' Exporter'}
-function fieldLabel(name:string){return ({host:'目标地址',port:'端口',password:'密码',username:'用户名',database:'数据库',connect_timeout:'连接超时',scrape_timeout:'采集超时',topic:'Topic',consumer_group:'Consumer Group',management_port:'管理端口',vhost:'Virtual Host'} as Record<string,string>)[name] ?? name}
+function pluginName(source:string){return ({redis:'Redis',mysql:'MySQL',rabbitmq:'RabbitMQ',kafka:'Kafka',elasticsearch:'Elasticsearch',victoriametrics:'VictoriaMetrics',node:'Prometheus Node'}[source] ?? source)+' Exporter'}
+function fieldLabel(name:string){return ({host:'目标地址',port:'端口',password:'密码',username:'用户名',database:'数据库',connect_timeout:'连接超时',scrape_timeout:'采集超时',topic:'Topic',consumer_group:'Consumer Group',management_port:'管理端口',vhost:'Virtual Host',rootfs:'根文件系统路径',procfs:'proc 文件系统路径',sysfs:'sys 文件系统路径'} as Record<string,string>)[name] ?? name}
 const visiblePlugins=computed(()=>catalog.value.filter(item=>(!pluginSearch.value||`${item.name} ${item.id}`.toLowerCase().includes(pluginSearch.value.toLowerCase()))&&(!pluginState.value||(pluginStatus(item.id)?.observed_state ?? 'not_installed')===pluginState.value)))
 function selectPlugin(id: string): void {
  showUpdate.value = false; selected.value = id; password.value = ''; message.value = ''; clearPackage()
@@ -29,7 +29,7 @@ function selectPlugin(id: string): void {
  const item = catalog.value.find(candidate => candidate.id === id)
  for (const field of item?.schema.fields ?? []) {
    if (field.secret) continue
-   configuration[field.name] = field.enum?.[0] ?? (field.type === 'integer' || field.type === 'port' ? field.minimum ?? 0 : field.type === 'duration' ? '1s' : '')
+   configuration[field.name] = (item?.source === 'node' ? ({rootfs:'/',procfs:'/proc',sysfs:'/sys'} as Record<string,string>)[field.name] : undefined) ?? field.enum?.[0] ?? (field.type === 'integer' || field.type === 'port' ? field.minimum ?? 0 : field.type === 'duration' ? '1s' : '')
  }
 }
 async function configure(kind: 'check' | 'install' | 'save'): Promise<void> {

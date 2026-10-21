@@ -21,6 +21,8 @@
 
 `std_exporter` 是新插件模板，使用方法见 [模板说明](std_exporter/README.md)。现有六个插件保留原生客户端、配置字段、业务指标及可选采集项的处理方式。
 
+`node` 是原生插件，直接使用官方 node_exporter 二进制，由 Monitor 适配启动、探测和采集。它没有框架工程或 Go 模块，使用方法见 [Node Exporter 说明](node/README.md)。
+
 ## 修改采集逻辑
 
 - `config/` 解析 `config`、`secrets`、`runtime`，校验字段并提供脱敏配置。文件加载不修改进程环境。数据源配置中的连接和采集超时保持原有优先级。
