@@ -13,6 +13,7 @@ import time
 from common import ROOT, STATE, CONTAINERS, atomic_json, environment, legacy_module, restore, sha256, start_services, utc, verify_prepared
 from prepare import K6
 from report import build_report
+from profiles import PACKAGES, configure as configure_profiles, settings as profile_settings
 
 
 def plan(args):
@@ -21,6 +22,7 @@ def plan(args):
         raise ValueError('组名或请求率无效')
     value = {**config, 'rps': args.rps, 'group': args.group, 'route_set': args.route_set,
             'measurement_seconds': args.measurement_seconds,
+            **profile_settings(args.profile_role, args.block_rate, args.mutex_fraction),
             'expected_business_requests': round(args.rps * (config['warmup_seconds'] + args.measurement_seconds)),
             'config_sha256': sha256(ROOT / 'perflab/k6/test4.json')}
     result = subprocess.run(['node', str(ROOT / 'perflab/k6/test4-plan.mjs')], input=json.dumps(value), text=True, capture_output=True, cwd=ROOT)
@@ -153,6 +155,7 @@ def execute(config):
     lock = (STATE / 'execution.lock').open('w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     assert_target(prepared)
+    configure_profiles(config['profile_role'], **config['profile_sampling'])
     run_id = config['group'] + '-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     directory = STATE / 'observations' / run_id
     directory.mkdir(mode=0o700)
@@ -262,6 +265,9 @@ if __name__ == '__main__':
     parser.add_argument('--rps', type=float, required=True)
     parser.add_argument('--measurement-seconds', type=int, choices=(300, 1800), default=300)
     parser.add_argument('--route-set', choices=('mixed', 'feed', 'detail', 'list', 'comments', 'user', 'write') + tuple('route-' + str(index) for index in range(22)), default='mixed')
+    parser.add_argument('--profile-role', choices=PACKAGES, help='按需启用一个服务的本机 pprof 入口')
+    parser.add_argument('--block-rate', type=int, default=0, help='阻塞采样间隔，单位为纳秒；0 关闭')
+    parser.add_argument('--mutex-fraction', type=int, default=0, help='锁竞争采样比例分母；0 关闭')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     value = plan(args)

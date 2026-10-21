@@ -54,8 +54,10 @@ def _prepare():
     prepare_exporters()
     for name, package in (('server', 'server'), ('worker', 'business-worker'), ('indexer', 'search-indexer'), ('reindex', 'search-reindex')):
         run(['go', '-C', 'backend', 'build', '-o', str(STATE / 'bin' / name), './cmd/' + package])
-    for obsolete in ('dbdiag', 'server-profile', 'worker-profile', 'indexer-profile'):
-        (STATE / 'bin' / obsolete).unlink(missing_ok=True)
+    from profiles import PACKAGES, build as build_profile
+    for role in PACKAGES:
+        build_profile(role)
+    (STATE / 'bin/dbdiag').unlink(missing_ok=True)
     tools = {}
     for name, command in {'k6': [str(K6), 'version'], 'go': ['go', 'version'], 'node': ['node', '--version'],
                           'python': ['python3', '--version'], 'docker': ['docker', '--version']}.items():
@@ -72,6 +74,7 @@ def _prepare():
     if not sample['ok'] or sample['identity'][0]['server_uuid'] != sql('SELECT @@server_uuid;', root=True).strip():
         raise RuntimeError('专用检查账号预检失败或指向不同的 MySQL 实例')
     artifacts = [STATE / 'bin' / name for name in ('dbprobe', 'mysql-exporter', 'node_exporter', 'server', 'worker', 'indexer', 'reindex')]
+    artifacts += [STATE / 'bin' / (role + '-profile') for role in PACKAGES]
     artifacts += [p for p in (STATE / 'snapshots').iterdir() if p.is_file()]
     artifacts += [STATE / name for name in ('corpus.json', 'credentials.json', 'probe-dsn', 'test.env',
                                            'observer-password', 'mysql-exporter.json', 'exporters.json')]

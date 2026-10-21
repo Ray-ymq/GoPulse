@@ -17,7 +17,8 @@ MYSQL = 'gopulse-loadtest-mysql-1'
 CONTAINERS = [MYSQL, 'gopulse-loadtest-rabbitmq-1', 'gopulse-loadtest-elasticsearch-1']
 
 def service_binary(name):
-    return STATE / 'bin' / name
+    profile = STATE.name == 'pt4' and os.environ.get('GOPULSE_PERFLAB_PROFILE_ROLE') == name
+    return STATE / 'bin' / (name + '-profile' if profile else name)
 
 def environment():
     values = dict(os.environ)

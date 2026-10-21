@@ -122,6 +122,7 @@ def build_report(directory):
               'measurement': result, 'routes': routes, 'minutes': minutes, 'evidence_errors': sorted(set(errors)),
               'count_conservation': 'observed_records_only' if errors else 'started_equals_outcomes_plus_unfinished',
               'route_set': run.get('route_set'), 'config_sha256': run.get('config_sha256'),
+              'profile_role': run.get('profile_role'), 'profile_sampling': run.get('profile_sampling'),
               'observations': summarize_metrics(directory, begin, end),
               'load_exit_code': run.get('load_exit_code'), 'stop_reason': run.get('stop_reason'), 'recovery': recovery,
               'business_short_window_pass': bool(full and run.get('load_exit_code') == 0 and not run.get('stop_reason') and not errors and result['started'] and result['error_rate'] <= .01
