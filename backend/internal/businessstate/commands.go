@@ -184,10 +184,11 @@ func scanCommand(row *sql.Row) (Command, bool, error) {
 	return command, true, nil
 }
 
-// ReservePostCreateTx atomically reserves the open obligation and retained
-// command/event budget, then writes the command and search requirement. It is
-// intentionally transaction-only: the post fact and Outbox row are written by
-// the caller in the same transaction.
+// ReservePostCreateTx writes the command row and its search obligation. Budget
+// accounting is deferred to AccountPostCreateTx so the serializing budget row
+// lock is taken after the post fact and Outbox insert and held only across the
+// final charge and commit. It is intentionally transaction-only and must be
+// followed by AccountPostCreateTx in the same transaction.
 func (repository *Repository) ReservePostCreateTx(ctx context.Context, executor Executor, reservation CommandReservation) error {
 	if repository == nil || executor == nil || ctx == nil {
 		return fmt.Errorf("%w: command reservation is invalid", ErrInvalidArgument)
@@ -203,6 +204,46 @@ func (repository *Repository) ReservePostCreateTx(ctx context.Context, executor 
 	}
 	if reservation.Requirement.DataEpoch != reservation.Command.DataEpoch || reservation.Requirement.EventID != reservation.Command.EventID {
 		return fmt.Errorf("%w: command and requirement identities differ", ErrInvalidArgument)
+	}
+	if reservation.PayloadBytes < 1 || reservation.PayloadBytes > busMaxMessageBytes() {
+		return fmt.Errorf("%w: command payload size is invalid", ErrInvalidArgument)
+	}
+	now := normalizeTime(reservation.Now)
+	if _, err := executor.ExecContext(ctx, `
+		INSERT INTO business_commands
+			(data_epoch, command_id, user_id, command_type, idempotency_key_hash, request_digest,
+			 post_id, event_id, status, committed_at, retained_until, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', ?, ?, ?, ?)`,
+		reservation.Command.DataEpoch, reservation.Command.CommandID, reservation.Command.UserID, reservation.Command.CommandType,
+		reservation.IdempotencyKeyHash, reservation.RequestDigest, reservation.Command.PostID, reservation.Command.EventID,
+		now, now.Add(RetryWindow), now, now); err != nil {
+		if reservation.Command.IdempotencyKeyHash != nil && isCommandIdempotencyDuplicate(err) {
+			return ErrCommandAlreadyExists
+		}
+		return errors.New("insert business command")
+	}
+	if _, err := executor.ExecContext(ctx, `
+		INSERT INTO business_event_requirements
+			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, reservation.Requirement.DataEpoch, reservation.Requirement.EventID,
+		reservation.Requirement.Consumer, reservation.Requirement.RoutingContractRevision, reservation.Requirement.ApplicableObjectVersion,
+		reservation.PayloadBytes, now, now); err != nil {
+		return errors.New("insert command event requirement")
+	}
+	return nil
+}
+
+// AccountPostCreateTx locks the global budget rows, enforces the configured
+// limits, and charges the command reservation. It runs after the fact, command,
+// requirement, and Outbox inserts in the same transaction, so the budget row
+// lock is held only across this update and the commit. A failed check rolls the
+// whole transaction back, including the already inserted rows.
+func (repository *Repository) AccountPostCreateTx(ctx context.Context, executor Executor, reservation CommandReservation) error {
+	if repository == nil || executor == nil || ctx == nil {
+		return fmt.Errorf("%w: command reservation is invalid", ErrInvalidArgument)
+	}
+	if err := validateCommand(reservation.Command); err != nil {
+		return err
 	}
 	if reservation.PayloadBytes < 1 || reservation.PayloadBytes > busMaxMessageBytes() {
 		return fmt.Errorf("%w: command payload size is invalid", ErrInvalidArgument)
@@ -238,27 +279,6 @@ func (repository *Repository) ReservePostCreateTx(ctx context.Context, executor 
 	}
 	if !foundCurrent || currentOpen >= repository.BudgetLimits().OpenRequirements || totalGroups >= repository.BudgetLimits().RetainedGroups || uint64(reservation.PayloadBytes+RetentionMetadataBytes) > repository.BudgetLimits().RetainedBytes || totalBytes > repository.BudgetLimits().RetainedBytes-uint64(reservation.PayloadBytes+RetentionMetadataBytes) {
 		return ErrBudgetExceeded
-	}
-	if _, err := executor.ExecContext(ctx, `
-		INSERT INTO business_commands
-			(data_epoch, command_id, user_id, command_type, idempotency_key_hash, request_digest,
-			 post_id, event_id, status, committed_at, retained_until, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', ?, ?, ?, ?)`,
-		reservation.Command.DataEpoch, reservation.Command.CommandID, reservation.Command.UserID, reservation.Command.CommandType,
-		reservation.IdempotencyKeyHash, reservation.RequestDigest, reservation.Command.PostID, reservation.Command.EventID,
-		now, now.Add(RetryWindow), now, now); err != nil {
-		if reservation.Command.IdempotencyKeyHash != nil && isCommandIdempotencyDuplicate(err) {
-			return ErrCommandAlreadyExists
-		}
-		return errors.New("insert business command")
-	}
-	if _, err := executor.ExecContext(ctx, `
-		INSERT INTO business_event_requirements
-			(data_epoch, event_id, consumer, routing_contract_revision, applicable_object_version, payload_bytes, retention_reserved, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?)`, reservation.Requirement.DataEpoch, reservation.Requirement.EventID,
-		reservation.Requirement.Consumer, reservation.Requirement.RoutingContractRevision, reservation.Requirement.ApplicableObjectVersion,
-		reservation.PayloadBytes, now, now); err != nil {
-		return errors.New("insert command event requirement")
 	}
 	if _, err := executor.ExecContext(ctx, `
 		UPDATE business_async_budget

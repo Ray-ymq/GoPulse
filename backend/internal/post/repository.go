@@ -308,6 +308,12 @@ func (repository *MySQLRepository) CreateWithCommand(ctx context.Context, author
 	if _, err := insertOutbox(ctx, transaction, repository.outbox, event); err != nil {
 		return CreateResult{}, errors.New("create v2 post outbox event")
 	}
+	if err := repository.state.AccountPostCreateTx(ctx, transaction, reservation); err != nil {
+		if errors.Is(err, businessstate.ErrBudgetExceeded) {
+			return CreateResult{}, ErrBusinessAsyncBacklog
+		}
+		return CreateResult{}, err
+	}
 	if err := transaction.Commit(); err != nil {
 		if request.IdempotencyKey == "" {
 			return CreateResult{}, ErrCommandOutcomeUnknown

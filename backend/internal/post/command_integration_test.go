@@ -130,6 +130,12 @@ func TestIntegrationPostCommandConcurrentReplayConflictOwnershipAndDeletedResult
 	if err != nil || envelope.SchemaVersion != bus.SchemaVersionV2 || envelope.DataEpoch != environment.DataEpoch || envelope.CommandID != commandID {
 		t.Fatalf("v2 outbox envelope=%#v error=%v payload=%s", envelope, err, payload)
 	}
+	charged, err := state.Budget(ctx, environment.DataEpoch)
+	if err != nil || charged.OpenRequirements != baseline.OpenRequirements+1 ||
+		charged.RetainedGroups != baseline.RetainedGroups+1 ||
+		charged.RetainedBytes != baseline.RetainedBytes+uint64(len(payload)+businessstate.RetentionMetadataBytes) {
+		t.Fatalf("deferred budget charge=%#v baseline=%#v error=%v", charged, baseline, err)
+	}
 
 	_, err = service.CreateWithCommand(ctx, first.ID, CreateInput{Title: "different", Content: input.Content}, request)
 	if appError, ok := apperror.As(err); !ok || appError.Code != apperror.CodeIdempotencyConflict {
@@ -151,6 +157,29 @@ func TestIntegrationPostCommandConcurrentReplayConflictOwnershipAndDeletedResult
 	deletedResult, err := service.CommandResult(ctx, first.ID, request)
 	if err != nil || deletedResult.Post != nil || deletedResult.Meta.ResourceState != "unavailable" || deletedResult.Meta.PostID != postID {
 		t.Fatalf("deleted command result=%#v error=%v", deletedResult, err)
+	}
+
+	limit := state.BudgetLimits().OpenRequirements
+	if _, err := database.ExecContext(ctx, `UPDATE business_async_budget SET open_requirements=? WHERE data_epoch=?`, limit, environment.DataEpoch); err != nil {
+		t.Fatalf("fill budget: %v", err)
+	}
+	var postsBefore, postsAfter int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE author_id=?`, first.ID).Scan(&postsBefore); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.CreateWithCommand(ctx, first.ID, CreateInput{Title: "blocked", Content: "over budget"},
+		CommandRequest{DataEpoch: environment.DataEpoch, IdempotencyKey: "123e4567-e89b-12d3-a456-426614174011"})
+	if !errors.Is(err, ErrBusinessAsyncBacklog) {
+		t.Fatalf("over-budget create error=%v", err)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE author_id=?`, first.ID).Scan(&postsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if postsAfter != postsBefore {
+		t.Fatalf("over-budget create leaked posts: before=%d after=%d", postsBefore, postsAfter)
+	}
+	if _, err := database.ExecContext(ctx, `UPDATE business_async_budget SET open_requirements=? WHERE data_epoch=?`, baseline.OpenRequirements, environment.DataEpoch); err != nil {
+		t.Fatalf("restore budget: %v", err)
 	}
 }
 
