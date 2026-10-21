@@ -2,42 +2,13 @@
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from common import STATE, atomic_json
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from diagnostics.metrics import _series, _counter, _gauge, _sum_counters
 
 GROUPS = ('cpu2-120', 'cpu4-120', 'cpu4-140', 'cpu2-140')
-
-
-def _series(metrics):
-    values = {}
-    for source, body in metrics['sources'].items():
-        for item in body.get('series', []):
-            values.setdefault((source, item['name']), []).append(item)
-    return values
-
-
-def _counter(values, source, name, **labels):
-    for item in values.get((source, name), []):
-        if all(item['labels'].get(key) == value for key, value in labels.items()):
-            return item.get('delta')
-    return None
-
-
-def _gauge(values, source, name, **labels):
-    for item in values.get((source, name), []):
-        if all(item['labels'].get(key) == value for key, value in labels.items()):
-            return item.get('max')
-    return None
-
-
-def _sum_counters(values, source, name, **labels):
-    total = 0
-    found = False
-    for item in values.get((source, name), []):
-        if all(item['labels'].get(key) == value for key, value in labels.items()):
-            total += item.get('delta') or 0
-            found = True
-    return total if found else None
 
 
 def load(name):

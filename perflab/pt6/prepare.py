@@ -171,12 +171,54 @@ def verify_replicas(directory):
 
 def collection_preflight(directory):
     from sample import Sampler
-    sampler = Sampler(directory / ('collection-' + secrets.token_hex(3) + '.jsonl'))
-    sampler.start()
-    time.sleep(11)
-    sampler.close()
+    from diagnose import Diagnostics
+    output = directory / ('collection-' + secrets.token_hex(3))
+    output.mkdir(mode=0o700)
+    diagnostics = Diagnostics(directory, output).start()
+    sampler = Sampler(output / 'resources.jsonl', diagnostics)
+    try:
+        sampler.start()
+        deadline = time.monotonic() + 11
+        while time.monotonic() < deadline:
+            assert not diagnostics.error, diagnostics.error
+            time.sleep(.1)
+    finally:
+        try:
+            sampler.close()
+        finally:
+            diagnostics.close()
+    assert not diagnostics.error, diagnostics.error
     assert sampler.samples >= 3, '采集预检样本不足'
     return sampler.samples
+
+
+def prepare_diagnostics(value):
+    from diagnose import prepare, artifacts
+    directory = Path(value['directory'])
+    value['diagnostics'] = prepare(directory)
+    value.setdefault('artifact_sha256', {}).update({name: digest(directory / name) for name in artifacts()})
+    value['source_sha256'] = source_hashes()
+    write_json(STATE / 'prepared.json', value)
+
+
+def upgrade_diagnostics(value):
+    from diagnose import artifacts
+    assert value.get('phase') in ('ready', 'load_stopped', 'new_round_failed'), '当前阶段不能更新诊断'
+    directory = Path(value['directory'])
+    assert directory.parent == STATE and directory.name.startswith('preparation-'), '准备目录不属于 PT6'
+    assert check_quotas() == value['containers'], '服务容器或镜像与准备记录不符'
+    for name, expected in value['artifact_sha256'].items():
+        if name in artifacts():
+            continue
+        assert digest(directory / name) == expected, '准备后私有输入已改变：' + name
+    # 保留原阶段。预检中断后重试，只有原 ready 阶段能够重新就绪。
+    was_ready = value['phase'] == 'ready'
+    value['ready'] = False
+    write_json(STATE / 'prepared.json', value)
+    prepare_diagnostics(value)
+    value['collection_samples'] = collection_preflight(directory)
+    value.update(ready=was_ready, updated_at=utc())
+    write_json(STATE / 'prepared.json', value)
 
 
 def new_round(value):
@@ -210,10 +252,13 @@ def rearm(value, host):
     print('PT6 new round: restore baseline', flush=True)
     restore(directory)
     verify_replicas(directory)
+    prepare_diagnostics(value)
     value['containers'] = check_quotas()
     value['source_sha256'] = source_hashes()
     value['artifact_sha256'] = {name: digest(directory / name) for name in
                                 ('test.env', 'mysql.dsn', 'corpus.json', 'credentials.json', 'baseline.sql', 'baseline.json')}
+    from diagnose import artifacts
+    value['artifact_sha256'].update({name: digest(directory / name) for name in artifacts()})
     value.update(phase='collection_preflight', updated_at=utc(), restored_at=utc())
     write_json(directory / 'host.json', host)
     write_json(STATE / 'prepared.json', value)
@@ -233,6 +278,8 @@ def refresh(value):
     baseline = json.loads((directory / 'baseline.json').read_text())
     assert sql('SELECT data_epoch,status,mode FROM business_environment;').strip() == baseline['environment'], '数据 epoch 或运行模式改变'
     drained()
+    assert value.get('diagnostics', {}).get('version') == 1, '先执行 prepare.py --diagnostics 准备诊断'
+    collection_preflight(directory)
     value['source_sha256'] = source_hashes()
     value.update(updated_at=utc(), refreshed_at=utc())
     write_json(STATE / 'prepared.json', value)
@@ -244,12 +291,19 @@ def main():
     parser.add_argument('--resume', action='store_true', help='核对失败原因后继续同一准备过程')
     parser.add_argument('--new-round', action='store_true', help='恢复基线并开始新一轮正式压测准备')
     parser.add_argument('--refresh', action='store_true', help='只复核环境并刷新源码指纹')
+    parser.add_argument('--diagnostics', action='store_true', help='准备并预检诊断工具，不恢复基线或发送业务负载')
     args = parser.parse_args()
+    assert sum((args.resume, args.new_round, args.refresh, args.diagnostics)) <= 1, '准备模式不能组合'
     os.umask(0o077)
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock = (STATE / 'active.lock').open('a')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     host = check_host()
+    if args.diagnostics:
+        value = json.loads((STATE / 'prepared.json').read_text())
+        upgrade_diagnostics(value)
+        print('PT6 诊断准备和预检完成，未恢复基线或执行正式压测。', flush=True)
+        return
     if args.new_round:
         value = json.loads((STATE / 'prepared.json').read_text())
         new_round(value)
@@ -293,11 +347,14 @@ def main():
             value['completed'].append(phase)
             write_json(STATE / 'prepared.json', value)
         verify_replicas(directory)
+        prepare_diagnostics(value)
         write_json(directory / 'host.json', host)
         value['containers'] = check_quotas()
         value['source_sha256'] = source_hashes()
         value['artifact_sha256'] = {name: digest(directory / name) for name in
                                    ('test.env', 'mysql.dsn', 'corpus.json', 'credentials.json', 'baseline.sql', 'baseline.json')}
+        from diagnose import artifacts
+        value['artifact_sha256'].update({name: digest(directory / name) for name in artifacts()})
         value.update(ready=False, phase='collection_preflight', updated_at=utc())
         value.pop('error', None)
         value.pop('failed_at', None)

@@ -1,0 +1,179 @@
+"""离线验证 PT6 的诊断窗口、故障现场留存和停止流程，不访问业务环境。"""
+from datetime import datetime, timezone
+import io
+import json
+from pathlib import Path
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+from common import QUOTAS
+from diagnose import Diagnostics, check_metrics
+from report import summarize
+import prepare
+import run
+
+
+def counter(name, value, labels=''):
+    return f'# TYPE {name} counter\n{name}{labels} {value}\n'
+
+
+class DiagnosticReportTest(unittest.TestCase):
+    def fixture(self, directory):
+        rows = []
+        diagnostics = []
+        for stamp in range(0, 16, 5):
+            applications = {name: counter('fixture_requests_total', stamp) for name in
+                            ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2',
+                             'search-indexer', 'search-indexer-2', 'node')}
+            for name, multiplier in (('backend', 2), ('backend-2', 3)):
+                applications[name] += counter('gopulse_backend_mysql_pool_wait_duration_seconds_total',
+                                               stamp * multiplier, '{pool="api"}')
+                applications[name] += counter('gopulse_backend_mysql_pool_wait_duration_seconds_total',
+                                               stamp * 100, '{pool="outbox"}')
+            resources = {name: {'id': name, 'cpu_max': f'{int(cpus * 100000)} 100000',
+                         'cpu': {'usage_usec': stamp * 10000, 'nr_periods': stamp * 10,
+                                 'nr_throttled': stamp, 'throttled_usec': stamp * 100},
+                         'memory_current': 1024, 'memory_peak': 2048, 'memory_events': {'oom_kill': 0},
+                         'pids_current': 2} for name, (cpus, _) in QUOTAS.items()}
+            rows.append({'epoch': stamp, 'timestamp': datetime.fromtimestamp(stamp, timezone.utc).isoformat(),
+                         'containers': resources, 'application_metrics': applications})
+            body = counter('gopulse_mysql_statement_event_executions_total', stamp * 2, '{event="statement/sql/commit"}')
+            body += counter('gopulse_mysql_statement_event_seconds_total', stamp / 100, '{event="statement/sql/commit"}')
+            diagnostics.append({'type': 'metrics', 'epoch': stamp, 'status': 200, 'body': body})
+        for i in range(5, 50):
+            diagnostics.append({'type': 'scene', 'epoch': i / 5, 'elapsed_seconds': .01,
+                                'errors': [], 'truncated': [], 'row_locks': [{'waiting_trx_id': 1}],
+                                'metadata_locks': [], 'sync_history': [{'THREAD_ID': 2, 'EVENT_ID': 1, 'seconds': .1}]})
+        (directory / 'resources.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        # 触发采样与周期采样可以交错完成，汇总必须按采样开始时间计算间隔。
+        diagnostics[-1], diagnostics[-2] = diagnostics[-2], diagnostics[-1]
+        (directory / 'database-diagnostics.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in diagnostics))
+        (directory / 'diagnostic-runtime.json').write_text('{"error":null}')
+        (directory / 'service-logs.json').write_text('{"errors":[]}')
+
+    def test_two_api_pools_and_sync_events_are_not_double_counted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            self.fixture(directory)
+            result = summarize(directory, 1, 9.8)
+            self.assertEqual(result['status'], 'complete', result)
+            self.assertEqual(result['indicators']['api_pool_wait_seconds_total'], 50)
+            self.assertEqual(result['indicators']['commit_events']['statement/sql/commit']['mean_ms'], 5)
+            saved = json.loads((directory / 'diagnostics-summary.json').read_text())
+            self.assertEqual(saved['scene']['sync_events'], 1)
+            self.assertEqual(saved['scene']['sync_seconds_observed'], .1)
+
+    def test_missing_source_and_scene_failure_are_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            self.fixture(directory)
+            path = directory / 'resources.jsonl'
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            for row in rows:
+                del row['application_metrics']['node']
+            path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            with (directory / 'database-diagnostics.jsonl').open('a') as output:
+                output.write(json.dumps({'type': 'scene', 'epoch': 5, 'elapsed_seconds': .1,
+                                         'errors': ['metadata_locks'], 'truncated': ['statements']}) + '\n')
+            result = summarize(directory, 1, 9.8)
+            self.assertEqual(result['status'], 'incomplete')
+            self.assertIn('metrics_incomplete', result['reasons'])
+            self.assertIn('scene_missing_or_failed', result['reasons'])
+            self.assertIn('scene_truncated', result['reasons'])
+
+    def test_false_mysql_up_does_not_pass(self):
+        with self.assertRaises(AssertionError):
+            check_metrics('# TYPE gopulse_mysql_up gauge\ngopulse_mysql_up 0\n')
+
+
+class IncidentLifecycleTest(unittest.TestCase):
+    def test_diagnostic_failure_stops_running_load(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            now = datetime.now(timezone.utc)
+            active = SimpleNamespace(error=None, node_url='mock', trigger=lambda _: None, close=lambda: None)
+            sampler = SimpleNamespace(samples=1, error=None, start=lambda: None, close=lambda: None)
+            def process(args, **kwargs):
+                event = {'type': 'clock', 'scenario_started_at_ms': now.timestamp() * 1000 - 330000}
+                kwargs['stdout'].write('PT6 ' + json.dumps(event) + '\n')
+                kwargs['stdout'].flush()
+                (directory / '250-rps/summary.json').write_text('{"metrics":{}}')
+                active.error = 'diagnostic_scene_stale'
+                return SimpleNamespace(poll=lambda: None, wait=lambda **_: 0)
+            with patch.object(run, 'Diagnostics', return_value=SimpleNamespace(start=lambda: active)), \
+                 patch.object(run, 'Sampler', return_value=sampler), \
+                 patch.object(run.subprocess, 'Popen', side_effect=process), \
+                 patch.object(run.subprocess, 'run') as stop, \
+                 patch.object(run, 'compose_environment', return_value={}), \
+                 patch.object(run, 'capture_logs'), \
+                 patch.object(run, 'summarize', return_value={'status': 'incomplete', 'window': {}}):
+                result = run.stage({'directory': str(directory)}, directory, 250, 0)
+            self.assertFalse(result['passed'])
+            self.assertIn('diagnostic_scene_stale', result['reasons'])
+            stop.assert_called_once()
+            self.assertEqual(stop.call_args.args[0][:2], ['docker', 'stop'])
+
+    def test_upgrade_retry_preserves_ready_and_stopped_phases(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / 'preparation-fixture'
+            directory.mkdir()
+            for phase in ('ready', 'load_stopped'):
+                with self.subTest(phase=phase), \
+                     patch.object(prepare, 'STATE', Path(temp)), \
+                     patch.object(prepare, 'check_quotas', return_value={}), \
+                     patch.object(prepare, 'prepare_diagnostics'), \
+                     patch.object(prepare, 'collection_preflight', side_effect=[RuntimeError('fixture'), 3]):
+                    value = {'phase': phase, 'ready': phase == 'ready', 'directory': str(directory),
+                             'containers': {}, 'artifact_sha256': {}}
+                    with self.assertRaises(RuntimeError):
+                        prepare.upgrade_diagnostics(value)
+                    self.assertFalse(json.loads((Path(temp) / 'prepared.json').read_text())['ready'])
+                    prepare.upgrade_diagnostics(value)
+                    self.assertEqual(value['ready'], phase == 'ready')
+                    self.assertEqual(value['phase'], phase)
+
+    def test_failed_scene_is_saved_before_collection_stops(self):
+        with tempfile.TemporaryDirectory() as temp:
+            diagnostics = Diagnostics(temp, temp)
+            row = {'type': 'scene', 'epoch': 1, 'trigger': 'periodic', 'errors': ['row_locks']}
+            diagnostics.process = SimpleNamespace(stdout=io.StringIO(json.dumps(row) + '\n'))
+            diagnostics.stream = io.StringIO()
+            diagnostics.read()
+            self.assertIn('diagnostic_collection_failed', diagnostics.failure)
+            self.assertEqual(json.loads(diagnostics.stream.getvalue())['errors'], ['row_locks'])
+
+    def test_k6_first_failure_triggers_scene_and_keeps_failure_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            now = datetime.now(timezone.utc)
+            clock = {'type': 'clock', 'scenario_started_at_ms': now.timestamp() * 1000 - 31000}
+            failure = {'type': 'first_failure', 'timestamp': now.isoformat(), 'phase': 'measurement',
+                       'status': 500, 'route': 'DELETE /api/v1/posts/:postId'}
+            active = SimpleNamespace(error=None, node_url='mock', trigger=lambda reason: triggers.append(reason),
+                                     close=lambda: triggers.append('closed'))
+            triggers = []
+            def process(args, **kwargs):
+                for event in (clock, failure):
+                    kwargs['stdout'].write('PT6 ' + json.dumps(event) + '\n')
+                kwargs['stdout'].flush()
+                output = directory / '250-rps'
+                (output / 'summary.json').write_text('{"metrics":{}}')
+                return SimpleNamespace(poll=lambda: 108, wait=lambda **_: 108)
+            sampler = SimpleNamespace(samples=1, error=None, start=lambda: None, close=lambda: None)
+            with patch.object(run, 'Diagnostics', return_value=SimpleNamespace(start=lambda: active)), \
+                 patch.object(run, 'Sampler', return_value=sampler), \
+                 patch.object(run.subprocess, 'Popen', side_effect=process), \
+                 patch.object(run, 'compose_environment', return_value={}), \
+                 patch.object(run, 'capture_logs'), \
+                 patch.object(run, 'summarize', return_value={'status': 'complete', 'window': {}}):
+                result = run.stage({'directory': str(directory)}, directory, 250, 0)
+            self.assertFalse(result['passed'])
+            self.assertEqual(result['first_failure']['status'], 500)
+            self.assertEqual(triggers, ['first_failure', 'closed'])
+            self.assertTrue((directory / '250-rps/failure-trigger.json').exists())
+
+
+if __name__ == '__main__':
+    unittest.main()

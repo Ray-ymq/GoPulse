@@ -32,7 +32,8 @@ def resource(name, item):
     assert events.get('oom_kill', 0) == 0, f'{name} 发生 OOM kill'
     return {'id': item['Id'], 'cpu_max': f'{quota} {period}', 'cpu': counters(path / 'cpu.stat'),
             'memory_current': int((path / 'memory.current').read_text()),
-            'memory_peak': int((path / 'memory.peak').read_text()), 'memory_events': events}
+            'memory_peak': int((path / 'memory.peak').read_text()), 'memory_events': events,
+            'pids_current': int((path / 'pids.current').read_text())}
 
 
 def metrics(name):
@@ -79,7 +80,7 @@ def rabbitmq():
     return parse_rabbitmq(body)
 
 
-def sample():
+def sample(node_url=None):
     begin = time.monotonic()
     rows = containers(include_load=True)
     resources = {name: resource(name, rows[name]) for name in QUOTAS}
@@ -93,9 +94,14 @@ def sample():
     targets = ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')
     with ThreadPoolExecutor(max_workers=8) as executor:
         queues = executor.submit(rabbitmq)
+        if node_url:
+            from diagnose import fetch_node
+            node = executor.submit(fetch_node, node_url)
         applications = dict(zip(targets, executor.map(metrics, targets)))
         queue = queues.result()
-    database = sql("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Innodb_row_lock_waits','Innodb_row_lock_time','Innodb_log_waits','Innodb_buffer_pool_wait_free'); SELECT open_requirements,parked_messages,retained_groups,retained_bytes FROM business_async_budget; SELECT data_epoch,status,mode FROM business_environment; SELECT version,dirty FROM schema_migrations;")
+        if node_url:
+            applications['node'] = node.result()
+    database = sql("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Innodb_row_lock_waits','Innodb_row_lock_time','Innodb_log_waits','Innodb_buffer_pool_wait_free'); SELECT open_requirements,parked_messages,retained_groups,retained_bytes FROM business_async_budget; SELECT data_epoch,status,mode FROM business_environment; SELECT version,dirty FROM schema_migrations;", timeout=4)
     baseline = json.loads((Path(manifest()['directory']) / 'baseline.json').read_text())
     assert database.splitlines()[-2] == baseline['environment'], '数据 epoch 或运行模式改变'
     assert database.splitlines()[-1].endswith('\t0'), '数据库迁移状态异常'
@@ -107,11 +113,12 @@ def sample():
 
 
 class Sampler:
-    def __init__(self, path):
+    def __init__(self, path, diagnostics=None):
         self.path = Path(path)
         self.stop = threading.Event()
         self.error = None
         self.samples = 0
+        self.diagnostics = diagnostics
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def start(self):
@@ -122,15 +129,22 @@ class Sampler:
             with self.path.open('x') as stream:
                 while not self.stop.is_set():
                     start = time.monotonic()
-                    stream.write(json.dumps(sample()) + '\n')
+                    stream.write(json.dumps(sample(self.diagnostics.node_url if self.diagnostics else None)) + '\n')
                     stream.flush()
                     self.samples += 1
                     self.stop.wait(max(0, 5 - (time.monotonic() - start)))
         except Exception as error:
             self.error = str(error)
 
-    def close(self):
+    def close(self, final=True):
         self.stop.set()
         self.thread.join(timeout=10)
         assert not self.thread.is_alive(), '采集器未按时停止'
+        if final and self.error is None:
+            try:
+                with self.path.open('a') as stream:
+                    stream.write(json.dumps(sample(self.diagnostics.node_url if self.diagnostics else None)) + '\n')
+                    self.samples += 1
+            except Exception as error:
+                self.error = type(error).__name__
         assert self.error is None, '采集失败：' + str(self.error)

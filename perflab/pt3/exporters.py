@@ -2,32 +2,26 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
-import math
 from pathlib import Path
 import re
 import secrets
 import os
 import signal
 import subprocess
+import sys
 import tarfile
 import time
 import urllib.request
 from urllib.error import HTTPError
 
-from prometheus_client.parser import text_string_to_metric_families
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from diagnostics.metrics import parse_metrics
+from diagnostics.system import NODE_COLLECTORS, node_command
 
 from environment import ROOT, STATE, MYSQL, environment, sql
 
 INTERVAL = 5
 MAX_BODY = 4 << 20
-NODE_COLLECTORS = ('cpu', 'meminfo', 'loadavg', 'diskstats', 'filesystem', 'netdev', 'stat', 'vmstat', 'time', 'uname')
-
-
-def node_command(binary, port):
-    return [str(binary), f'--web.listen-address=127.0.0.1:{port}', '--collector.disable-defaults',
-            '--web.disable-exporter-metrics',
-            '--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/user|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)'] + [
-                '--collector.' + name for name in NODE_COLLECTORS]
 
 
 def private_json(path, value):
@@ -36,19 +30,6 @@ def private_json(path, value):
     temp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
     temp.chmod(0o600)
     temp.replace(path)
-
-
-def parse_metrics(body):
-    result = {}
-    for family in text_string_to_metric_families(body):
-        for sample in family.samples:
-            key = (sample.name, tuple(sorted(sample.labels.items())))
-            if key in result or sample.timestamp is not None or not math.isfinite(sample.value):
-                raise ValueError('指标重复、非有限或包含客户端时间戳')
-            result[key] = {'name': sample.name, 'labels': dict(sample.labels), 'kind': family.type, 'value': sample.value}
-    if not result:
-        raise ValueError('指标响应为空')
-    return result
 
 
 def scalar(metrics, name, labels=None):

@@ -7,45 +7,17 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 from common import ROOT, STATE, CONTAINERS, atomic_json, sha256, sql, utc
+
+sys.path.insert(0, str(ROOT / 'perflab'))
+from diagnostics.mysql import DIAGNOSTIC_INSTRUMENTS
 
 BASELINE_SHA256 = '1580922c1027a5dbe3d60856664bf6e34c8de2e2d60a4ab91689e52c1e491fcd'
 K6 = ROOT / '.run/tools/k6/0.56.0/linux-amd64/k6'
 # 只启用回答 COMMIT 日志等待和锁/事务内部竞争所需的同步对象，避免采集全部
 # wait/synch 带来的额外开销。插件不会自行修改 MySQL 配置，测试准备入口负责
 # 启用并在每组执行前复核。
-DIAGNOSTIC_INSTRUMENTS = (
-    'wait/synch/mutex/innodb/log_checkpointer_mutex',
-    'wait/synch/mutex/innodb/log_closer_mutex',
-    'wait/synch/mutex/innodb/log_cmdq_mutex',
-    'wait/synch/mutex/innodb/log_files_mutex',
-    'wait/synch/mutex/innodb/log_flush_notifier_mutex',
-    'wait/synch/mutex/innodb/log_flusher_mutex',
-    'wait/synch/mutex/innodb/log_governor_mutex',
-    'wait/synch/mutex/innodb/log_limits_mutex',
-    'wait/synch/mutex/innodb/log_sn_mutex',
-    'wait/synch/mutex/innodb/log_sys_arch_mutex',
-    'wait/synch/mutex/innodb/log_write_notifier_mutex',
-    'wait/synch/mutex/innodb/log_writer_mutex',
-    'wait/synch/mutex/innodb/flush_list_mutex',
-    'wait/synch/mutex/innodb/buf_pool_flush_state_mutex',
-    'wait/synch/mutex/innodb/buf_pool_LRU_list_mutex',
-    'wait/synch/mutex/innodb/lock_wait_mutex',
-    'wait/synch/mutex/innodb/lock_sys_page_mutex',
-    'wait/synch/mutex/innodb/lock_sys_table_mutex',
-    'wait/synch/mutex/innodb/rw_lock_mutex',
-    'wait/synch/mutex/innodb/trx_mutex',
-    'wait/synch/mutex/innodb/trx_sys_mutex',
-    'wait/synch/mutex/innodb/trx_sys_rseg_mutex',
-    'wait/synch/mutex/innodb/trx_sys_serialisation_mutex',
-    'wait/synch/mutex/innodb/trx_sys_shard_mutex',
-    'wait/synch/mutex/innodb/trx_undo_mutex',
-    'wait/synch/sxlock/innodb/log_sn_lock',
-    'wait/synch/sxlock/innodb/lock_sys_global_rw_lock',
-    'wait/synch/sxlock/innodb/trx_purge_latch',
-    'wait/synch/sxlock/innodb/rsegs_lock',
-    'wait/synch/cond/innodb/commit_cond',
-)
 
 
 def _instrument_names():
@@ -62,7 +34,6 @@ def configure_diagnostics():
     if len(rows) != len(DIAGNOSTIC_INSTRUMENTS) or any(row[1:] != ['YES', 'YES'] for row in rows):
         raise RuntimeError('诊断等待对象未全部启用；MySQL 重启后需重新执行 prepare.py')
     return {'instruments': list(DIAGNOSTIC_INSTRUMENTS), 'count': len(rows), 'verified_at': utc()}
-
 
 
 def run(command, **kwargs):

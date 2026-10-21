@@ -17,12 +17,7 @@ from profiles import PACKAGES, configure as configure_profiles, settings as prof
 
 # 恢复和迁移会产生大量摘要，占用插件的有界输出并让正式窗口继承它们。每组在
 # 观测开始前清空这些汇总表，使摘要/事件/错误/内部等待都只反映本组流量。
-RESET_SUMMARY_TABLES = (
-    'performance_schema.events_statements_summary_by_digest',
-    'performance_schema.events_statements_summary_global_by_event_name',
-    'performance_schema.events_errors_summary_global_by_error',
-    'performance_schema.events_waits_summary_global_by_event_name',
-)
+from diagnostics.mysql import RESET_SUMMARY_TABLES
 
 
 def reset_summary():

@@ -87,10 +87,10 @@ def containers(include_load=False):
             or (include_load and row['Config']['Labels']['com.docker.compose.service'] == 'k6')}
 
 
-def sql(query, root=False):
+def sql(query, root=False, timeout=10):
     user, password = ('root', 'MYSQL_ROOT_PASSWORD') if root else ('$MYSQL_USER', 'MYSQL_PASSWORD')
     shell = f'export MYSQL_PWD="${password}"; exec mysql -u"{user}" -N -B "$MYSQL_DATABASE"'
-    return command(['docker', 'exec', '-i', f'{PROJECT}-mysql-1', 'sh', '-c', shell], input=query)
+    return command(['docker', 'exec', '-i', f'{PROJECT}-mysql-1', 'sh', '-c', shell], input=query, timeout=timeout)
 
 
 def es(path, method='GET', data=None):
@@ -157,12 +157,17 @@ def source_hashes():
     paths += sorted((ROOT / 'perflab/pt6').glob('*.py'))
     paths += sorted((ROOT / 'perflab/pt6').glob('*.js'))
     paths += [ROOT / 'perflab/k6' / name for name in ('requests.mjs', 'sequence.mjs')]
+    for relative in ('perflab/diagnostics', 'perflab/cmd/dbdiag', 'exporters/mysql'):
+        paths += sorted(path for path in (ROOT / relative).rglob('*')
+                        if path.suffix in ('.py', '.go', '.mod', '.sum') and '__pycache__' not in path.parts)
+    paths += [ROOT / 'perflab/go.mod', ROOT / 'perflab/go.sum']
     return {str(path.relative_to(ROOT)): digest(path) for path in paths}
 
 
 def verify_prepared():
     value = manifest()
     assert value.get('ready'), 'PT6 尚未准备完成'
+    assert value.get('diagnostics', {}).get('version') == 1, 'PT6 诊断尚未准备；执行 prepare.py --diagnostics'
     directory = Path(value['directory'])
     assert directory.parent == STATE and directory.name.startswith('preparation-'), '准备目录不属于 PT6'
     for path, expected in value['source_sha256'].items():

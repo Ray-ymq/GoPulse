@@ -1,0 +1,41 @@
+"""PT4 与 PT6 共用的日志、锁和事务等待诊断对象。"""
+DIAGNOSTIC_INSTRUMENTS = (
+    'wait/synch/mutex/innodb/log_checkpointer_mutex',
+    'wait/synch/mutex/innodb/log_closer_mutex',
+    'wait/synch/mutex/innodb/log_cmdq_mutex',
+    'wait/synch/mutex/innodb/log_files_mutex',
+    'wait/synch/mutex/innodb/log_flush_notifier_mutex',
+    'wait/synch/mutex/innodb/log_flusher_mutex',
+    'wait/synch/mutex/innodb/log_governor_mutex',
+    'wait/synch/mutex/innodb/log_limits_mutex',
+    'wait/synch/mutex/innodb/log_sn_mutex',
+    'wait/synch/mutex/innodb/log_sys_arch_mutex',
+    'wait/synch/mutex/innodb/log_write_notifier_mutex',
+    'wait/synch/mutex/innodb/log_writer_mutex',
+    'wait/synch/mutex/innodb/flush_list_mutex',
+    'wait/synch/mutex/innodb/buf_pool_flush_state_mutex',
+    'wait/synch/mutex/innodb/buf_pool_LRU_list_mutex',
+    'wait/synch/mutex/innodb/lock_wait_mutex',
+    'wait/synch/mutex/innodb/lock_sys_page_mutex',
+    'wait/synch/mutex/innodb/lock_sys_table_mutex',
+    'wait/synch/mutex/innodb/rw_lock_mutex',
+    'wait/synch/mutex/innodb/trx_mutex',
+    'wait/synch/mutex/innodb/trx_sys_mutex',
+    'wait/synch/mutex/innodb/trx_sys_rseg_mutex',
+    'wait/synch/mutex/innodb/trx_sys_serialisation_mutex',
+    'wait/synch/mutex/innodb/trx_sys_shard_mutex',
+    'wait/synch/mutex/innodb/trx_undo_mutex',
+    'wait/synch/sxlock/innodb/log_sn_lock',
+    'wait/synch/sxlock/innodb/lock_sys_global_rw_lock',
+    'wait/synch/sxlock/innodb/trx_purge_latch',
+    'wait/synch/sxlock/innodb/rsegs_lock',
+    'wait/synch/cond/innodb/commit_cond',
+)
+
+
+RESET_SUMMARY_TABLES = (
+    'performance_schema.events_statements_summary_by_digest',
+    'performance_schema.events_statements_summary_global_by_event_name',
+    'performance_schema.events_errors_summary_global_by_error',
+    'performance_schema.events_waits_summary_global_by_event_name',
+)

@@ -10,8 +10,20 @@ import subprocess
 import time
 
 from common import (ROOT, STATE, PROJECT, MIX, check_quotas, check_host, drained,
-                    utc, verify_prepared, write_json)
+                    utc, verify_prepared, write_json, compose_environment)
 from sample import Sampler
+from diagnose import Diagnostics, capture_logs
+from report import summarize
+
+
+def parse_events(lines):
+    result = []
+    for line in lines:
+        match = re.search(r'msg=("(?:[^"\\]|\\.)*")', line)
+        message = json.loads(match[1]) if match else line
+        if 'PT6 {' in message:
+            result.append(json.loads(message[message.index('PT6 {') + 4:]))
+    return result
 
 
 def evaluate(summary, target, seconds, code):
@@ -66,22 +78,48 @@ def stage(prepared, directory, target, offset):
     for key, value in variables.items():
         args += ['-e', key + '=' + value]
     args += ['k6', 'run', '--quiet', '/perflab/pt6/workload.js']
-    sampler = Sampler(output / 'resources.jsonl')
-    sampler.start()
+    diagnostics = Diagnostics(preparation, output).start()
+    sampler = Sampler(output / 'resources.jsonl', diagnostics)
     start = time.time()
     interrupted = None
     process = None
+    first_notified = False
+    load_ended = None
     try:
+        sampler.start()
+        deadline = time.monotonic() + 8
+        while not sampler.samples:
+            assert not sampler.error and not diagnostics.error, '开测前诊断采样失败'
+            assert time.monotonic() < deadline, '开测前资源采样超时'
+            time.sleep(.05)
         with (output / 'k6.log').open('x') as log:
-            process = subprocess.Popen(args, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
-            while process.poll() is None:
-                if sampler.error or (STATE / 'STOP').exists():
-                    interrupted = sampler.error or 'manual_stop'
-                    subprocess.run(['docker', 'stop', '--timeout', '5', PROJECT + '-k6-active'],
-                                   capture_output=True, timeout=10)
-                    break
-                time.sleep(.1)
+            process = subprocess.Popen(args, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+                                       env=compose_environment(preparation))
+            with (output / 'k6.log').open() as events_log:
+                while True:
+                    position = events_log.tell()
+                    line = events_log.readline()
+                    if line and not line.endswith('\n'):
+                        events_log.seek(position)
+                        line = ''
+                    if line:
+                        for event in parse_events([line]):
+                            if event['type'] == 'first_failure' and not first_notified:
+                                diagnostics.trigger('first_failure')
+                                write_json(output / 'failure-trigger.json', {'observed_at': utc(), 'client_event': event})
+                                first_notified = True
+                        continue
+                    if process.poll() is not None:
+                        break
+                    if sampler.error or diagnostics.error or (STATE / 'STOP').exists():
+                        interrupted = sampler.error or diagnostics.error or 'manual_stop'
+                        diagnostics.trigger('first_failure')
+                        subprocess.run(['docker', 'stop', '--timeout', '5', PROJECT + '-k6-active'],
+                                       capture_output=True, timeout=10)
+                        break
+                    time.sleep(.05)
             code = process.wait(timeout=15)
+            load_ended = time.time()
     except BaseException:
         subprocess.run(['docker', 'stop', '--timeout', '5', PROJECT + '-k6-active'], capture_output=True, timeout=10)
         if process is not None:
@@ -92,21 +130,20 @@ def stage(prepared, directory, target, offset):
             sampler.close()
         except Exception as error:
             interrupted = str(error)
+        finally:
+            diagnostics.close()
+            if diagnostics.error:
+                interrupted = interrupted or diagnostics.error
+            capture_logs(output, utc_from_epoch(start))
     path = output / 'summary.json'
     summary = json.loads(path.read_text()) if path.exists() else {}
     result = evaluate(summary, target, 300, code)
-    events = []
-    for line in (output / 'k6.log').read_text().splitlines():
-        # k6 的控制台输出对 JSON 字符串加引号和转义。
-        match = re.search(r'msg=("(?:[^"\\]|\\.)*")', line)
-        message = json.loads(match[1]) if match else line
-        if 'PT6 {' in message:
-            events.append(json.loads(message[message.index('PT6 {') + 4:]))
+    events = parse_events((output / 'k6.log').read_text().splitlines())
     result['first_failure'] = next((event for event in events if event['type'] == 'first_failure'), None)
     clock = next((event for event in events if event['type'] == 'clock'), None)
     measured_seconds = 0
     if clock:
-        end = time.time()
+        end = load_ended or time.time()
         if result['first_failure']:
             from datetime import datetime
             end = datetime.fromisoformat(result['first_failure']['timestamp'].replace('Z', '+00:00')).timestamp()
@@ -128,6 +165,20 @@ def stage(prepared, directory, target, offset):
         result['reasons'].append(interrupted)
     result.update(started_at=utc_from_epoch(start), ended_at=utc(), elapsed_seconds=time.time() - start,
                   k6_exit_code=code, slot_offset=offset, directory=str(output))
+    if measured_seconds > 0:
+        begin = clock['scenario_started_at_ms'] / 1000 + 30
+        phase, end = 'measurement', begin + measured_seconds
+    else:
+        phase, begin, end = 'setup_or_warmup', start, load_ended or time.time()
+    try:
+        result['diagnostics'] = summarize(output, begin, end)
+        result['diagnostics']['window']['phase'] = phase
+    except Exception as error:
+        result['diagnostics'] = {'status': 'incomplete', 'reasons': [type(error).__name__], 'file': 'diagnostics-summary.json'}
+        write_json(output / 'diagnostics-summary.json', result['diagnostics'])
+    if result['diagnostics']['status'] != 'complete':
+        result['passed'] = False
+        result['reasons'].append('diagnostics_incomplete')
     write_json(output / 'result.json', result)
     return result
 
@@ -137,20 +188,33 @@ def utc_from_epoch(epoch):
     return datetime.fromtimestamp(epoch, timezone.utc).isoformat()
 
 
-def observe_recovery(directory):
-    sampler = Sampler(directory / 'recovery.jsonl')
+def observe_recovery(directory, preparation):
+    output = directory / 'recovery'
+    output.mkdir(mode=0o700)
+    diagnostics = Diagnostics(preparation, output).start()
+    sampler = Sampler(output / 'resources.jsonl', diagnostics)
+    start = time.time()
     sampler.start()
     try:
         deadline = time.monotonic() + 600
-        while time.monotonic() < deadline and not sampler.error and not (STATE / 'STOP').exists():
+        while time.monotonic() < deadline and not sampler.error and not diagnostics.error and not (STATE / 'STOP').exists():
             time.sleep(.5)
     finally:
         try:
+            diagnostics.trigger('recovery_end')
             sampler.close()
         except Exception:
             pass
+        end = time.time()
+        diagnostics.close()
+        capture_logs(output, utc_from_epoch(start))
+        try:
+            summary = summarize(output, start, end)
+        except Exception as error:
+            summary = {'status': 'incomplete', 'reasons': [type(error).__name__]}
         write_json(directory / 'recovery-result.json', {'finished_at': utc(),
-                   'samples': sampler.samples, 'collection_error': sampler.error})
+                   'samples': sampler.samples, 'collection_error': sampler.error or diagnostics.error,
+                   'diagnostics': summary})
 
 
 def main():
@@ -170,10 +234,20 @@ def main():
     if args.preflight:
         output = STATE / ('preflight-' + time.strftime('%Y%m%dT%H%M%S') + '-' + secrets.token_hex(3))
         output.mkdir()
-        sampler = Sampler(output / 'resources.jsonl')
-        sampler.start()
-        time.sleep(11)
-        sampler.close()
+        diagnostics = Diagnostics(prepared['directory'], output).start()
+        sampler = Sampler(output / 'resources.jsonl', diagnostics)
+        try:
+            sampler.start()
+            deadline = time.monotonic() + 11
+            while time.monotonic() < deadline:
+                assert not diagnostics.error, diagnostics.error
+                time.sleep(.1)
+        finally:
+            try:
+                sampler.close()
+            finally:
+                diagnostics.close()
+        assert not diagnostics.error, diagnostics.error
         assert sampler.samples >= 3, '采样次数不足'
         write_json(output / 'result.json', {'ok': True, 'samples': sampler.samples, 'finished_at': utc()})
         print('PT6 preflight passed:', output)
@@ -208,7 +282,7 @@ def main():
                           'last_passed_rps': report['last_passed_rps'],
                           'first_failure': report['stages'][-1].get('first_failure') if report['stages'] else None,
                           'reasons': report.get('reasons', [report.get('error')])}, ensure_ascii=False), flush=True)
-    observe_recovery(output)
+    observe_recovery(output, prepared['directory'])
 
 
 if __name__ == '__main__':
