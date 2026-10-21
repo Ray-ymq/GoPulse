@@ -10,10 +10,24 @@ import signal
 import subprocess
 import sys
 import time
-from common import ROOT, STATE, CONTAINERS, atomic_json, environment, legacy_module, restore, sha256, start_services, utc, verify_prepared
-from prepare import K6
+from common import ROOT, STATE, CONTAINERS, atomic_json, environment, legacy_module, restore, sha256, sql, start_services, utc, verify_prepared
+from prepare import K6, configure_diagnostics
 from report import build_report
 from profiles import PACKAGES, configure as configure_profiles, settings as profile_settings
+
+# 恢复和迁移会产生大量摘要，占用插件的有界输出并让正式窗口继承它们。每组在
+# 观测开始前清空这些汇总表，使摘要/事件/错误/内部等待都只反映本组流量。
+RESET_SUMMARY_TABLES = (
+    'performance_schema.events_statements_summary_by_digest',
+    'performance_schema.events_statements_summary_global_by_event_name',
+    'performance_schema.events_errors_summary_global_by_error',
+    'performance_schema.events_waits_summary_global_by_event_name',
+)
+
+
+def reset_summary():
+    sql(';'.join('TRUNCATE TABLE ' + table for table in RESET_SUMMARY_TABLES) + ';', root=True)
+    return {'tables': list(RESET_SUMMARY_TABLES), 'reset_at': utc()}
 
 
 def plan(args):
@@ -155,6 +169,7 @@ def execute(config):
     lock = (STATE / 'execution.lock').open('w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     assert_target(prepared)
+    config['diagnostics'] = configure_diagnostics()
     configure_profiles(config['profile_role'], **config['profile_sampling'])
     run_id = config['group'] + '-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     directory = STATE / 'observations' / run_id
@@ -166,6 +181,8 @@ def execute(config):
     # 功能检查写入后重新恢复，避免改变正式组初始业务事实。
     smoke_with_retry()
     restore('baseline'); start_services()
+    config['summary_reset'] = reset_summary()
+    atomic_json(directory / 'run.json', config)
     command = [sys.executable, str(ROOT / 'perflab/pt4/observe.py'), '--directory', str(directory)]
     (STATE / 'guard.json').unlink(missing_ok=True)
     observer_log = (directory / 'observer.log').open('wb')

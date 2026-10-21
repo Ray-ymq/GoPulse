@@ -11,6 +11,58 @@ from common import ROOT, STATE, CONTAINERS, atomic_json, sha256, sql, utc
 
 BASELINE_SHA256 = '1580922c1027a5dbe3d60856664bf6e34c8de2e2d60a4ab91689e52c1e491fcd'
 K6 = ROOT / '.run/tools/k6/0.56.0/linux-amd64/k6'
+# 只启用回答 COMMIT 日志等待和锁/事务内部竞争所需的同步对象，避免采集全部
+# wait/synch 带来的额外开销。插件不会自行修改 MySQL 配置，测试准备入口负责
+# 启用并在每组执行前复核。
+DIAGNOSTIC_INSTRUMENTS = (
+    'wait/synch/mutex/innodb/log_checkpointer_mutex',
+    'wait/synch/mutex/innodb/log_closer_mutex',
+    'wait/synch/mutex/innodb/log_cmdq_mutex',
+    'wait/synch/mutex/innodb/log_files_mutex',
+    'wait/synch/mutex/innodb/log_flush_notifier_mutex',
+    'wait/synch/mutex/innodb/log_flusher_mutex',
+    'wait/synch/mutex/innodb/log_governor_mutex',
+    'wait/synch/mutex/innodb/log_limits_mutex',
+    'wait/synch/mutex/innodb/log_sn_mutex',
+    'wait/synch/mutex/innodb/log_sys_arch_mutex',
+    'wait/synch/mutex/innodb/log_write_notifier_mutex',
+    'wait/synch/mutex/innodb/log_writer_mutex',
+    'wait/synch/mutex/innodb/flush_list_mutex',
+    'wait/synch/mutex/innodb/buf_pool_flush_state_mutex',
+    'wait/synch/mutex/innodb/buf_pool_LRU_list_mutex',
+    'wait/synch/mutex/innodb/lock_wait_mutex',
+    'wait/synch/mutex/innodb/lock_sys_page_mutex',
+    'wait/synch/mutex/innodb/lock_sys_table_mutex',
+    'wait/synch/mutex/innodb/rw_lock_mutex',
+    'wait/synch/mutex/innodb/trx_mutex',
+    'wait/synch/mutex/innodb/trx_sys_mutex',
+    'wait/synch/mutex/innodb/trx_sys_rseg_mutex',
+    'wait/synch/mutex/innodb/trx_sys_serialisation_mutex',
+    'wait/synch/mutex/innodb/trx_sys_shard_mutex',
+    'wait/synch/mutex/innodb/trx_undo_mutex',
+    'wait/synch/sxlock/innodb/log_sn_lock',
+    'wait/synch/sxlock/innodb/lock_sys_global_rw_lock',
+    'wait/synch/sxlock/innodb/trx_purge_latch',
+    'wait/synch/sxlock/innodb/rsegs_lock',
+    'wait/synch/cond/innodb/commit_cond',
+)
+
+
+def _instrument_names():
+    return ', '.join("'" + name + "'" for name in DIAGNOSTIC_INSTRUMENTS)
+
+
+def configure_diagnostics():
+    """启用并在当前服务器上复核诊断等待对象；MySQL 重启后需重新执行。"""
+    sql('UPDATE performance_schema.setup_instruments SET ENABLED=\'YES\', TIMED=\'YES\' WHERE NAME IN (' +
+        _instrument_names() + ');', root=True)
+    rows = [line.split('\t') for line in
+            sql('SELECT NAME, ENABLED, TIMED FROM performance_schema.setup_instruments WHERE NAME IN (' +
+                _instrument_names() + ') ORDER BY NAME;', root=True).splitlines() if line]
+    if len(rows) != len(DIAGNOSTIC_INSTRUMENTS) or any(row[1:] != ['YES', 'YES'] for row in rows):
+        raise RuntimeError('诊断等待对象未全部启用；MySQL 重启后需重新执行 prepare.py')
+    return {'instruments': list(DIAGNOSTIC_INSTRUMENTS), 'count': len(rows), 'verified_at': utc()}
+
 
 
 def run(command, **kwargs):
@@ -52,6 +104,7 @@ def _prepare():
         raise RuntimeError('目标不是 gopulse-loadtest 测试容器')
     from exporters import prepare as prepare_exporters
     prepare_exporters()
+    diagnostics = configure_diagnostics()
     for name, package in (('server', 'server'), ('worker', 'business-worker'), ('indexer', 'search-indexer'), ('reindex', 'search-reindex')):
         run(['go', '-C', 'backend', 'build', '-o', str(STATE / 'bin' / name), './cmd/' + package])
     from profiles import PACKAGES, build as build_profile
@@ -84,6 +137,7 @@ def _prepare():
                 'kernel': platform.release(), 'tools': tools, 'packages': packages, 'sha256': hashes,
                 'containers': {item['Name'].lstrip('/'): item['Id'] for item in containers},
                 'baseline_sha256': BASELINE_SHA256,
+                'diagnostics': diagnostics,
                 'capacity_validation': '已准备 exporter；尚未执行正式压测'}
     atomic_json(STATE / 'prepared.json', prepared)
     return prepared

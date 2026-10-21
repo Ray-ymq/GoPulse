@@ -94,6 +94,18 @@ func assertContains(t *testing.T, body string, samples ...string) {
 	}
 }
 
+func TestDiagnosticQueriesSkipInactiveRows(t *testing.T) {
+	for _, name := range []string{"file_io", "wait_events", "table_io", "index_io"} {
+		q := queryNamed(name)
+		if !strings.Contains(q.query, "COUNT_STAR>0") {
+			t.Fatalf("%s 未过滤未启用或未发生的统计行", name)
+		}
+	}
+	if q := queryNamed("wait_events"); !strings.Contains(q.query, "wait/synch/sxlock/%") {
+		t.Fatal("wait_events 未覆盖 sxlock")
+	}
+}
+
 func TestTransactionStatesAndEmptySnapshot(t *testing.T) {
 	q := queryNamed("transactions")
 	db := testDB(t, diagnosticConnector{columns: 6, values: [][]driver.Value{{"RUNNING", "2", "8.25", "0", "4", "3"}, {"LOCK WAIT", "3", "12.5", "6.75", "5", "1"}, {"COMMITTING", "1", "1", "0", "0", "0"}}})

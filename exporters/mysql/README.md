@@ -21,7 +21,7 @@
 | `statement_events` | `statement_event_executions_total`、`statement_event_seconds_total`、`statement_event_errors_total`，标签为 `event`；涵盖二进制协议 Prepare、Execute、Close stmt，SQL PREPARE、EXECUTE 和 COMMIT 事件，具体输出取决于服务器提供的事件 |
 | `errors` | `errors_total{code,error}`，按错误码及名称统计 SUM_ERROR_RAISED；优先保留 1205（锁等待超时）、1213（死锁）、1317（查询中断），即使计数为零也输出；其他错误仅在计数大于零时输出 |
 | `file_io` | `file_reads_total`、`file_read_seconds_total`、`file_read_bytes_total`、`file_writes_total`、`file_write_seconds_total`、`file_write_bytes_total`、`file_misc_operations_total`、`file_misc_seconds_total`，标签为 `file_type`、`event`；覆盖 InnoDB 和 binlog 文件事件，类型分为 redo、binlog、data、other |
-| `wait_events` | `wait_events_total`、`wait_event_seconds_total`，标签为 `event`；覆盖 mutex、condition、rwlock |
+| `wait_events` | `wait_events_total`、`wait_event_seconds_total`，标签为 `event`；覆盖 mutex、condition、rwlock、sxlock |
 | `table_io` | `table_io_operations_total`、`table_io_seconds_total`，标签为 `schema`、`table`、`operation`；操作为 fetch、insert、update、delete |
 | `index_io` | `index_io_operations_total`、`index_io_seconds_total`，标签为 `schema`、`table`、`index`、`operation`；操作与表统计相同 |
 | `performance_schema` | `performance_schema_enabled` |
@@ -32,6 +32,8 @@
 事务状态保留服务器原值，并为缺失的 RUNNING、LOCK WAIT、COMMITTING、ROLLING BACK 输出零。事务为空时，总数、最老年龄和最长锁等待时间均为零。年龄由 MySQL 的 NOW(6) 与事务时间计算，不依赖 exporter 主机的时区。热点锁只统计 RECORD 锁；等待与阻塞事务分别使用 DISTINCT 去重。每个库、表、索引组独立计数，不应将组计数相加当作全局唯一事务数。
 
 `file_misc_operations_total` 包含 MySQL 文件事件中的其他操作，其含义不能直接等同于 fsync 次数。索引为空字符串表示 NULL INDEX_NAME；MySQL 将未使用索引的访问及 INSERT 记入 NULL 索引组。详见 [MySQL 索引 I/O 摘要表说明](https://dev.mysql.com/doc/mysql-perfschema-excerpt/8.0/en/performance-schema-table-io-waits-summary-by-index-usage-table.html)。
+
+文件、内部等待、表和索引采集只输出 `COUNT_STAR>0` 的条目。性能模式会为未启用或未发生的事件预置零值行，过滤这些行后，`collector_truncated=1` 才表示确实因 128 组或 64 KiB 上限丢弃了有活动的条目。内部等待仍要求对应 `wait/synch/*` instrument 已启用并计时；测试准备入口只启用回答日志、锁和事务竞争所需的同步对象。
 
 ## 采集状态与边界
 
