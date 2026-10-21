@@ -3,7 +3,6 @@ package collector
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestCompleteSnapshotAndFailure(t *testing.T) {
@@ -57,16 +56,5 @@ func TestOptionalSecondBatchMetricsDoNotChangeBaseSnapshotShape(t *testing.T) {
 	}
 	if strings.Count(body, "# TYPE gopulse_mysql_") != 39 {
 		t.Fatalf("unexpected metric family count: %d", strings.Count(body, "# TYPE gopulse_mysql_"))
-	}
-}
-
-func TestParseTransactionTimeSupportsMySQLAndUTCValues(t *testing.T) {
-	for _, value := range []string{"2026-10-17 08:00:00", "2026-10-17 08:00:00.123456", "2026-10-17T08:00:00Z"} {
-		if parsed, ok := parseTransactionTime(value); !ok || parsed.Location() != time.UTC {
-			t.Fatalf("could not parse %q: %v %v", value, parsed, ok)
-		}
-	}
-	if _, ok := parseTransactionTime("0000-00-00 00:00:00"); ok {
-		t.Fatal("zero transaction time accepted")
 	}
 }

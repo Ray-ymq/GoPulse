@@ -11,7 +11,7 @@ func LoadFile(path string) (Config, error) {
 		return Config{}, err
 	}
 	fields, err := object(envelope.Config)
-	if err != nil || !only(fields, "host", "port", "database", "username", "connect_timeout", "scrape_timeout") {
+	if err != nil || !only(fields, "host", "port", "database", "username", "connect_timeout", "scrape_timeout", "collectors") {
 		return Config{}, ErrConfig
 	}
 	secrets, err := object(envelope.Secrets)
@@ -46,10 +46,15 @@ func LoadFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, ErrConfig
 	}
+	collectors, err := stringField(fields, "collectors", false)
+	if err != nil {
+		return Config{}, ErrConfig
+	}
 	values := runtimeEnvironment("MYSQL", envelope.Runtime)
 	values["MYSQL_HOST"], values["MYSQL_PORT"] = host, strconv.Itoa(port)
 	values["MYSQL_DATABASE"], values["MYSQL_USERNAME"], values["MYSQL_PASSWORD"] = database, username, password
 	values["MYSQL_EXPORTER_CONNECT_TIMEOUT"], values["MYSQL_EXPORTER_SCRAPE_TIMEOUT"] = connect, scrape
+	values["MYSQL_EXPORTER_COLLECTORS"] = collectors
 	return loadValues(values)
 }
 

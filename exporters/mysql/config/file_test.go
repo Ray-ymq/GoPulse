@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -63,5 +64,26 @@ func TestRedactedConfiguration(t *testing.T) {
 	}
 	if strings.Contains(string(body), "private") {
 		t.Fatal("脱敏配置包含密码")
+	}
+}
+
+func TestCollectorSelection(t *testing.T) {
+	for _, selection := range []string{"", "none", "transactions,statement_digest,statement_events", CollectorNames, "unknown", "transactions,transactions", "transactions,", " transactions"} {
+		t.Run(selection, func(t *testing.T) {
+			data := strings.Replace(executionFixture, `"config":{`, `"config":{"collectors":`+strconv.Quote(selection)+`,`, 1)
+			path := filepath.Join(t.TempDir(), "execution.json")
+			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			c, err := LoadFile(path)
+			valid := selection == "" || selection == "none" || selection == "transactions,statement_digest,statement_events" || selection == CollectorNames
+			if valid {
+				if err != nil || c.Collectors != selection {
+					t.Fatal(c.Collectors, err)
+				}
+			} else if err == nil {
+				t.Fatal("接受了非法采集器列表")
+			}
+		})
 	}
 }

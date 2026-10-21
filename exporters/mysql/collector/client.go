@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/exporters/mysql/config"
@@ -38,9 +39,14 @@ func NewClient(c *config.Config) (*Client, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	db.SetConnMaxLifetime(time.Minute)
-	return &Client{DB: db}, nil
+	return &Client{DB: db, collectors: c.Collectors}, nil
 }
 
-type Client struct{ DB *sql.DB }
+type Client struct {
+	DB         *sql.DB
+	collectors string
+	mu         sync.Mutex
+	failures   map[string]uint64
+}
 
 func (c *Client) CloseIdleConnections() { _ = c.DB.Close() }

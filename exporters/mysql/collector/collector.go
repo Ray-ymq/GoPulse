@@ -1,9 +1,8 @@
-// Package collector maps only server status; it never accepts SQL from callers.
+// Package collector 使用固定查询采集 MySQL 指标。
 package collector
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -14,7 +13,6 @@ import (
 const StatusQuery = "SHOW GLOBAL STATUS WHERE Variable_name IN ('Uptime','Threads_connected','Threads_running','Queries','Slow_queries','Com_commit','Com_rollback','Innodb_buffer_pool_bytes_data','Innodb_buffer_pool_bytes_dirty','Connections','Aborted_connects','Aborted_clients','Threads_created','Max_used_connections','Com_select','Com_insert','Com_update','Com_delete','Innodb_buffer_pool_read_requests','Innodb_buffer_pool_reads','Innodb_buffer_pool_pages_total','Innodb_buffer_pool_pages_free','Innodb_row_lock_waits','Innodb_row_lock_time','Innodb_row_lock_current_waits','Created_tmp_tables','Created_tmp_disk_tables','Innodb_data_read','Innodb_data_written','Innodb_data_pending_reads','Innodb_data_pending_writes','Innodb_os_log_pending_fsyncs','Innodb_os_log_pending_writes','Innodb_log_waits')"
 
 const InnoDBMetricsQuery = "SELECT NAME, COUNT, STATUS FROM INFORMATION_SCHEMA.INNODB_METRICS WHERE NAME IN ('lock_deadlocks','trx_rseg_history_len','trx_undo_slots_used','trx_active_transactions','log_lsn_current','log_lsn_last_checkpoint','log_lsn_checkpoint_age')"
-const InnoDBTransactionsQuery = "SELECT trx_started, trx_rows_locked, trx_rows_modified FROM INFORMATION_SCHEMA.INNODB_TRX"
 const RedoCapacityQuery = "SELECT @@GLOBAL.innodb_redo_log_capacity"
 
 type field struct{ name, upstream, kind, label string }
@@ -80,6 +78,33 @@ var ErrUnavailable = errors.New("target_unavailable")
 const Unavailable = "# TYPE gopulse_mysql_up gauge\ngopulse_mysql_up 0\n"
 
 func Collect(ctx context.Context, client *Client) (string, error) {
+	started := time.Now()
+	body, err := collectBase(ctx, client)
+	duration := time.Since(started).Seconds()
+	client.mu.Lock()
+	if client.failures == nil {
+		client.failures = map[string]uint64{}
+	}
+	if err != nil {
+		client.failures["global_status"]++
+	}
+	failures := client.failures["global_status"]
+	client.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	var status strings.Builder
+	label := `{collector="global_status"}`
+	writeMetric(&status, "collector_enabled", "gauge", label, 1)
+	writeMetric(&status, "collector_success", "gauge", label, 1)
+	writeMetric(&status, "collector_duration_seconds", "gauge", label, duration)
+	writeMetric(&status, "collector_failures_total", "counter", label, float64(failures))
+	writeMetric(&status, "collector_truncated", "gauge", label, 0)
+	client.collectDiagnosticsTo(ctx, &status)
+	return body + status.String(), nil
+}
+
+func collectBase(ctx context.Context, client *Client) (string, error) {
 	db := client.DB
 	rows, err := db.QueryContext(ctx, StatusQuery)
 	if err != nil {
@@ -105,9 +130,7 @@ func Collect(ctx context.Context, client *Client) (string, error) {
 		return "", ErrUnavailable
 	}
 	values["max_connections"] = maximum
-	optional := map[string]string{}
-	collectOptional(ctx, db, optional)
-	return render(values, optional)
+	return render(values, nil)
 }
 
 // Render is all-or-nothing: missing, malformed or negative values never become
@@ -154,84 +177,4 @@ func render(values, optional map[string]string) (string, error) {
 		fmt.Fprintf(&b, "# TYPE %s %s\n%s %s\n", name, f.kind, name, strconv.FormatFloat(float64(n), 'g', -1, 64))
 	}
 	return b.String(), nil
-}
-
-func collectOptional(ctx context.Context, db *sql.DB, values map[string]string) {
-	collectInnoDBMetrics(ctx, db, values)
-	collectTransactions(ctx, db, values)
-	collectRedoCapacity(ctx, db, values)
-}
-
-func collectInnoDBMetrics(ctx context.Context, db *sql.DB, values map[string]string) {
-	rows, err := db.QueryContext(ctx, InnoDBMetricsQuery)
-	if err != nil {
-		return
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var name, status string
-		var count sql.NullInt64
-		if err := rows.Scan(&name, &count, &status); err != nil || !count.Valid || count.Int64 < 0 || strings.ToLower(status) != "enabled" {
-			continue
-		}
-		if name == "trx_active_transactions" {
-			name = "active_transactions"
-		}
-		values[name] = strconv.FormatUint(uint64(count.Int64), 10)
-	}
-}
-
-func collectTransactions(ctx context.Context, db *sql.DB, values map[string]string) {
-	rows, err := db.QueryContext(ctx, InnoDBTransactionsQuery)
-	if err != nil {
-		return
-	}
-	defer func() { _ = rows.Close() }()
-	now := time.Now().UTC()
-	var active, locked, modified uint64
-	var oldest time.Time
-	for rows.Next() {
-		var started sql.NullString
-		var rowsLocked, rowsModified sql.NullInt64
-		if err := rows.Scan(&started, &rowsLocked, &rowsModified); err != nil || !rowsLocked.Valid || !rowsModified.Valid || rowsLocked.Int64 < 0 || rowsModified.Int64 < 0 {
-			return
-		}
-		active++
-		if ^uint64(0)-locked < uint64(rowsLocked.Int64) || ^uint64(0)-modified < uint64(rowsModified.Int64) {
-			return
-		}
-		locked += uint64(rowsLocked.Int64)
-		modified += uint64(rowsModified.Int64)
-		if parsed, ok := parseTransactionTime(started.String); ok && (oldest.IsZero() || parsed.Before(oldest)) {
-			oldest = parsed
-		}
-	}
-	if rows.Err() != nil {
-		return
-	}
-	values["active_transactions"] = strconv.FormatUint(active, 10)
-	values["transaction_rows_locked"] = strconv.FormatUint(locked, 10)
-	values["transaction_rows_modified"] = strconv.FormatUint(modified, 10)
-	if !oldest.IsZero() && oldest.Before(now) {
-		values["transaction_oldest_age_seconds"] = strconv.FormatUint(uint64(now.Sub(oldest).Seconds()), 10)
-	}
-}
-
-func collectRedoCapacity(ctx context.Context, db *sql.DB, values map[string]string) {
-	var raw string
-	if err := db.QueryRowContext(ctx, RedoCapacityQuery).Scan(&raw); err != nil {
-		return
-	}
-	if value, err := strconv.ParseUint(raw, 10, 64); err == nil {
-		values["redo_log_capacity_bytes"] = strconv.FormatUint(value, 10)
-	}
-}
-
-func parseTransactionTime(value string) (time.Time, bool) {
-	for _, layout := range []string{"2006-01-02 15:04:05.999999", "2006-01-02 15:04:05", time.RFC3339Nano} {
-		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
-			return parsed.UTC(), true
-		}
-	}
-	return time.Time{}, false
 }

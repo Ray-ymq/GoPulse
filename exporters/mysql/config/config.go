@@ -14,10 +14,13 @@ import (
 
 type Config struct {
 	Host, Username, Password, Database, Listen string
+	Collectors                                 string
 	Port                                       int
 	ConnectTimeout, ScrapeTimeout              time.Duration
 	ShutdownTimeout                            time.Duration
 }
+
+const CollectorNames = "innodb_metrics,transactions,redo_capacity,buffer_pool,lock_waits,statement_digest,statement_events,errors,file_io,wait_events,table_io,index_io,performance_schema,consumers,instruments,digest_lost"
 
 var ErrConfig = errors.New("invalid_configuration")
 
@@ -46,6 +49,16 @@ func load(get func(string) string) (Config, error) {
 	}
 	if !utf8.ValidString(c.Password) || len(c.Password) < 1 || len(c.Password) > 256 || strings.ContainsRune(c.Password, 0) {
 		return Config{}, ErrConfig
+	}
+	c.Collectors = get("MYSQL_EXPORTER_COLLECTORS")
+	if c.Collectors != "" && c.Collectors != "none" {
+		seen := map[string]bool{}
+		for _, name := range strings.Split(c.Collectors, ",") {
+			if !strings.Contains(","+CollectorNames+",", ","+name+",") || name == "" || seen[name] {
+				return Config{}, ErrConfig
+			}
+			seen[name] = true
+		}
 	}
 	var err error
 	c.ConnectTimeout, err = time.ParseDuration(get("MYSQL_EXPORTER_CONNECT_TIMEOUT"))
