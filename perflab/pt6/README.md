@@ -25,7 +25,9 @@ python3 perflab/pt6/prepare.py --refresh    # 只复核环境并刷新源码指�
 
 PT6 复用仓库 MySQL exporter 的全部 17 项采集，包括基础状态、事务、热点行锁、SQL digest、预编译执行事件、COMMIT、错误、文件 I/O、内部等待及表/索引访问。主机指标使用官方 node_exporter，采集 CPU、内存、负载、磁盘、文件系统、网络及 vmstat。PT4 的指标窗口校验、PT5 的容器资源统计和指标取值方法统一放在 `perflab/diagnostics/`，三套工具共用这些实现。
 
-准备阶段构建 `perflab/cmd/dbdiag` 和 node_exporter，创建独立诊断账号，并启用及复核所需 Performance Schema consumers、instruments。诊断账号仅有 PROCESS、Performance Schema SELECT 和环境表 SELECT 权限，最多使用 4 个数据库连接。准备时先保存旧诊断快照，再清空清单中的 Performance Schema 汇总和历史表，避免导入、索引重建及上一轮记录占用有界输出。该步骤不清空业务表。
+准备阶段构建 `perflab/cmd/dbdiag`，并直接准备官方 node_exporter 程序。PT6 依次检查本轮目录、`.run/tools/node_exporter/<version>/linux-<arch>/` 公共缓存、PT4 和 PT3 已下载的官方二进制；版本与架构匹配时直接复用。仅在没有可用副本时，才下载官方发布包并校验仓库固定的 SHA-256。PT6 不生成 GoPulse 插件包，也不通过 Monitor 运行采集。程序来源写入 `diagnostics.json`。
+
+准备阶段创建独立诊断账号，并启用及复核所需 Performance Schema consumers、instruments。诊断账号仅有 PROCESS、Performance Schema SELECT 和环境表 SELECT 权限，最多使用 4 个数据库连接。准备时先保存旧诊断快照，再清空清单中的 Performance Schema 汇总和历史表，避免导入、索引重建及上一轮记录占用有界输出。该步骤不清空业务表。
 
 已有 PT6 环境先执行 `prepare.py --diagnostics`。该命令不会恢复业务基线，也不会把已停压的环境自动改为可开测状态。下一轮仍须执行 `prepare.py --new-round`。首次准备和新轮准备均自动准备诊断。工具、共享代码、二进制、诊断 DSN 和配置均纳入就绪指纹；每次开测前会检查诊断配置和采集状态。
 

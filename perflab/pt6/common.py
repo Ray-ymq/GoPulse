@@ -161,6 +161,7 @@ def source_hashes():
         paths += sorted(path for path in (ROOT / relative).rglob('*')
                         if path.suffix in ('.py', '.go', '.mod', '.sum') and '__pycache__' not in path.parts)
     paths += [ROOT / 'perflab/go.mod', ROOT / 'perflab/go.sum']
+    paths += [ROOT / 'exporters/node/upstream.json']
     return {str(path.relative_to(ROOT)): digest(path) for path in paths}
 
 

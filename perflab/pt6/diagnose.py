@@ -1,11 +1,15 @@
 """准备独立只读诊断账号，管理 MySQL 现场采样与官方 node_exporter。"""
+import hashlib
+import io
 import ipaddress
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import resource
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -41,19 +45,80 @@ def artifacts():
     return ('diagnostic.dsn', 'diagnostics.json', 'bin/dbdiag', 'bin/node_exporter')
 
 
+def valid_node(binary, version, arch):
+    try:
+        with Path(binary).open('rb') as source:
+            header = source.read(20)
+        machine = {'amd64': 62, 'arm64': 183}[arch]
+        if header[:6] != b'\x7fELF\x02\x01' or int.from_bytes(header[18:20], 'little') != machine:
+            return False
+        result = subprocess.run([str(binary), '--version'], capture_output=True, text=True, timeout=5)
+        return result.returncode == 0 and re.search(
+            r'^node_exporter, version ' + re.escape(version) + r'(?:\s|$)',
+            result.stdout + result.stderr, re.MULTILINE) is not None
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def install_node(source, destination):
+    if Path(source) == Path(destination):
+        return
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + '.' + secrets.token_hex(4) + '.tmp')
+    try:
+        shutil.copyfile(source, temporary)
+        temporary.chmod(0o700)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def prepare_node(directory):
+    """直接准备官方程序；复用本地同版本程序，仅在缺少可用副本时下载。"""
+    directory = Path(directory)
+    release = json.loads((ROOT / 'exporters/node/upstream.json').read_text())
+    version = release['version']
+    arch = {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(platform.machine())
+    assert platform.system() == 'Linux' and arch in release['sha256'], 'node_exporter 运行平台不受支持'
+    binary = directory / 'bin/node_exporter'
+    cache = ROOT / '.run/tools/node_exporter' / version / ('linux-' + arch) / 'node_exporter'
+    candidates = (binary, cache, ROOT / '.run/pt4/bin/node_exporter', ROOT / '.run/pt3/bin/node_exporter')
+    for candidate in candidates:
+        if valid_node(candidate, version, arch):
+            install_node(candidate, cache)
+            if candidate != binary:
+                install_node(cache, binary)
+            return {'version': version, 'arch': arch, 'source': str(candidate), 'downloaded': False}
+    url = f'https://github.com/prometheus/node_exporter/releases/download/v{version}/node_exporter-{version}.linux-{arch}.tar.gz'
+    with urllib.request.urlopen(url, timeout=60) as response:
+        data = response.read(64 * 1024**2 + 1)
+    assert len(data) <= 64 * 1024**2, 'node_exporter 发布包超过大小上限'
+    assert hashlib.sha256(data).hexdigest() == release['sha256'][arch], 'node_exporter 官方发布包校验失败'
+    name = f'node_exporter-{version}.linux-{arch}/node_exporter'
+    with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+        members = [item for item in archive.getmembers() if item.name == name]
+        assert len(members) == 1 and members[0].isfile() and 0 < members[0].size <= 64 * 1024**2, 'node_exporter 官方程序无效'
+        body = archive.extractfile(members[0]).read()
+    temporary = directory / ('node-exporter-' + secrets.token_hex(4) + '.tmp')
+    try:
+        temporary.write_bytes(body)
+        temporary.chmod(0o700)
+        assert valid_node(temporary, version, arch), 'node_exporter 版本或架构不符'
+        install_node(temporary, cache)
+        install_node(cache, binary)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {'version': version, 'arch': arch, 'source': url, 'downloaded': True}
+
+
 def prepare(directory):
     directory = Path(directory)
     (directory / 'bin').mkdir(exist_ok=True)
     command(['env', 'CGO_ENABLED=0', 'go', '-C', 'perflab', 'build', '-o',
              str(directory / 'bin/dbdiag'), './cmd/dbdiag'], timeout=600, log=directory / 'build-diagnostics.log')
-    archive = directory / 'node-exporter.tar.gz'
-    command(['make', 'package-plugin', 'SOURCE=node', 'ARCH=amd64', 'OUTPUT=' + str(archive)],
-            timeout=600, log=directory / 'build-diagnostics.log')
-    with tarfile.open(archive) as source:
-        member = source.getmember('bin/node_exporter')
-        assert member.isfile(), 'node 插件缺少官方二进制'
-        (directory / 'bin/node_exporter').write_bytes(source.extractfile(member).read())
-    (directory / 'bin/node_exporter').chmod(0o700)
+    node = prepare_node(directory)
+    print('PT6 诊断：' + ('下载' if node['downloaded'] else '复用') + ' node_exporter ' + node['version'], flush=True)
     env = private_env(directory)
     database = env['MYSQL_DATABASE']
     assert re.fullmatch(r'[A-Za-z0-9_]+', database), '诊断数据库名称无效'
@@ -81,6 +146,7 @@ def prepare(directory):
              'performance_schema.table_io_waits_summary_by_table', 'performance_schema.table_io_waits_summary_by_index_usage')
     sql(';'.join('TRUNCATE TABLE ' + table for table in reset) + ';', root=True)
     value = {'version': VERSION, 'prepared_at': utc(), 'observer': observer, 'container_id': containers()['mysql']['Id'],
+             'node_exporter': node,
              'consumers': list(CONSUMERS), 'instruments': list(DIAGNOSTIC_INSTRUMENTS),
              'previous_configuration': before, 'scene_interval_seconds': .2, 'summary_interval_seconds': 5,
              'row_limit': 128, 'sql_text_limit_characters': 2048,

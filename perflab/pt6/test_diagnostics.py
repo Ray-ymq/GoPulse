@@ -1,8 +1,10 @@
 """离线验证 PT6 的诊断窗口、故障现场留存和停止流程，不访问业务环境。"""
 from datetime import datetime, timezone
+import hashlib
 import io
 import json
 from pathlib import Path
+import tarfile
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -10,6 +12,7 @@ from unittest.mock import patch
 
 from common import QUOTAS
 from diagnose import Diagnostics, check_metrics
+import diagnose
 from report import summarize
 import prepare
 import run
@@ -17,6 +20,83 @@ import run
 
 def counter(name, value, labels=''):
     return f'# TYPE {name} counter\n{name}{labels} {value}\n'
+
+
+class NodePreparationTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.directory = self.root / 'preparation'
+        self.binary = self.directory / 'bin/node_exporter'
+        self.binary.parent.mkdir(parents=True)
+        self.cache = self.root / '.run/tools/node_exporter/1.9.1/linux-amd64/node_exporter'
+        self.body = b'\x7fELF\x02\x01' + bytes(12) + (62).to_bytes(2, 'little') + b'fixture'
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w:gz') as archive:
+            member = tarfile.TarInfo('node_exporter-1.9.1.linux-amd64/node_exporter')
+            member.size = len(self.body)
+            archive.addfile(member, io.BytesIO(self.body))
+        self.archive = output.getvalue()
+        release = self.root / 'exporters/node/upstream.json'
+        release.parent.mkdir(parents=True)
+        release.write_text(json.dumps({'version': '1.9.1', 'sha256': {'amd64': hashlib.sha256(self.archive).hexdigest()}}))
+        for mocked in (patch.object(diagnose, 'ROOT', self.root),
+                       patch.object(diagnose.platform, 'system', return_value='Linux'),
+                       patch.object(diagnose.platform, 'machine', return_value='x86_64'),
+                       patch.object(diagnose.subprocess, 'run', return_value=SimpleNamespace(
+                           returncode=0, stdout='node_exporter, version 1.9.1 (branch: HEAD)\n', stderr=''))):
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
+    def test_existing_binary_reused_without_download_or_packaging(self):
+        self.binary.write_bytes(self.body)
+        inode = self.binary.stat().st_ino
+        with patch.object(diagnose.urllib.request, 'urlopen', side_effect=AssertionError('禁止联网')), \
+             patch.object(diagnose, 'command', side_effect=AssertionError('禁止打包')):
+            result = diagnose.prepare_node(self.directory)
+        self.assertFalse(result['downloaded'])
+        self.assertEqual(result['source'], str(self.binary))
+        self.assertEqual(self.cache.read_bytes(), self.body)
+        self.assertEqual(self.binary.stat().st_ino, inode)
+
+    def test_cached_and_previous_public_binaries_are_reused(self):
+        previous = [self.root / f'.run/{phase}/bin/node_exporter' for phase in ('pt4', 'pt3')]
+        for candidate in (self.cache, *previous):
+            with self.subTest(source=str(candidate)):
+                for path in (self.binary, self.cache, *previous):
+                    path.unlink(missing_ok=True)
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                candidate.write_bytes(self.body)
+                with patch.object(diagnose.urllib.request, 'urlopen', side_effect=AssertionError('禁止联网')):
+                    result = diagnose.prepare_node(self.directory)
+                self.assertEqual(result['source'], str(candidate))
+                self.assertEqual(self.binary.read_bytes(), self.body)
+
+    def test_missing_binary_downloads_pinned_release(self):
+        with patch.object(diagnose.urllib.request, 'urlopen', return_value=io.BytesIO(self.archive)) as download:
+            result = diagnose.prepare_node(self.directory)
+        self.assertTrue(result['downloaded'])
+        self.assertEqual(self.binary.read_bytes(), self.body)
+        self.assertEqual(self.cache.read_bytes(), self.body)
+        self.assertIn('/v1.9.1/node_exporter-1.9.1.linux-amd64.tar.gz', download.call_args.args[0])
+
+    def test_bad_checksum_preserves_existing_file(self):
+        self.binary.write_bytes(b'previous binary')
+        with patch.object(diagnose.urllib.request, 'urlopen', return_value=io.BytesIO(b'invalid archive')):
+            with self.assertRaisesRegex(AssertionError, '校验失败'):
+                diagnose.prepare_node(self.directory)
+        self.assertEqual(self.binary.read_bytes(), b'previous binary')
+        self.assertFalse(self.cache.exists())
+
+    def test_wrong_version_and_architecture_are_rejected(self):
+        self.binary.write_bytes(self.body)
+        with patch.object(diagnose.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=0, stdout='node_exporter, version 1.9.10\n', stderr='')):
+            self.assertFalse(diagnose.valid_node(self.binary, '1.9.1', 'amd64'))
+        with patch.object(diagnose.subprocess, 'run') as execute:
+            self.assertFalse(diagnose.valid_node(self.binary, '1.9.1', 'arm64'))
+            execute.assert_not_called()
 
 
 class DiagnosticReportTest(unittest.TestCase):
