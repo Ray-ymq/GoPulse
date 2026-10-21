@@ -251,10 +251,53 @@ class IncidentLifecycleTest(unittest.TestCase):
                 stream.close()
             stage.assert_called_once()
             report = json.loads(next(Path(temp).glob('run-*/report.json')).read_text())
+            self.assertEqual(report['start_rps'], 250)
             self.assertIsNone(report['failed_rps'])
             self.assertIsNone(report['last_passed_rps'])
             self.assertEqual(report['load_passed_rps'], 250)
             self.assertEqual(report['stopped_rps'], 250)
+
+    def test_custom_start_preserves_ladder_and_corpus_offset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            locks = []
+            prepared = {'directory': temp, 'containers': {}, 'source_sha256': {}}
+            results = [
+                {'passed': True, 'load_passed': True, 'reasons': [], 'started': 99000},
+                {'passed': False, 'load_passed': False, 'reasons': ['business_failure']},
+            ]
+            with patch.object(run, 'STATE', Path(temp)), \
+                 patch.object(run, 'verify_prepared', return_value=prepared), \
+                 patch.object(run, 'check_host'), patch.object(run, 'check_quotas', return_value={}), \
+                 patch.object(run, 'drained'), patch.object(run, 'observe_recovery'), \
+                 patch.object(run, 'stage', side_effect=results) as stage, \
+                 patch.object(run.fcntl, 'flock', side_effect=lambda stream, _: locks.append(stream)), \
+                 patch('builtins.print'), patch('sys.argv', ['run.py', '--start-rps', '300']):
+                run.main()
+            for stream in locks:
+                stream.close()
+            self.assertEqual([(call.args[2], call.args[3]) for call in stage.call_args_list],
+                             [(300, 0), (350, 99000)])
+            report = json.loads(next(Path(temp).glob('run-*/report.json')).read_text())
+            self.assertEqual(report['start_rps'], 300)
+            self.assertEqual(report['last_passed_rps'], 300)
+            self.assertEqual(report['load_passed_rps'], 300)
+            self.assertEqual(report['failed_rps'], 350)
+            self.assertEqual(report['stopped_rps'], 350)
+
+    def test_invalid_start_is_rejected_before_environment_access(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp) / 'state'
+            for value in ('-1', '0', '249', '275', '300.5'):
+                with self.subTest(start_rps=value), \
+                     patch.object(run, 'STATE', state), \
+                     patch.object(run, 'verify_prepared') as verify, \
+                     patch('sys.stderr', new_callable=io.StringIO), \
+                     patch('sys.argv', ['run.py', '--start-rps', value]):
+                    with self.assertRaises(SystemExit) as error:
+                        run.main()
+                    self.assertEqual(error.exception.code, 2)
+                    verify.assert_not_called()
+                    self.assertFalse(state.exists())
 
     def test_diagnostic_failure_stops_running_load(self):
         with tempfile.TemporaryDirectory() as temp:

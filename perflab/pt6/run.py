@@ -1,4 +1,4 @@
-"""从 250 RPS 开始逐档增加 50 RPS；首次失败停止并保存结果。"""
+"""默认从 250 RPS 开始，可指定起点；每档增加 50 RPS，首次失败停止并保存结果。"""
 import argparse
 import json
 import os
@@ -233,7 +233,11 @@ def observe_recovery(directory, preparation):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--preflight', action='store_true', help='只检查准备结果并采样，不发送业务负载')
+    parser.add_argument('--start-rps', type=int, default=250,
+                        help='起始 RPS，默认 250；须不低于 250 且为 50 的整数倍')
     args = parser.parse_args()
+    if args.start_rps < 250 or args.start_rps % 50:
+        parser.error('--start-rps 须不低于 250 且为 50 的整数倍')
     os.umask(0o077)
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock = (STATE / 'active.lock').open('a')
@@ -269,9 +273,10 @@ def main():
     output.mkdir()
     prepared.update(ready=False, phase='load_started', run_directory=str(output))
     write_json(STATE / 'prepared.json', prepared)
-    report = {'started_at': utc(), 'directory': str(output), 'stages': [], 'last_passed_rps': None, 'load_passed_rps': None,
+    report = {'started_at': utc(), 'directory': str(output), 'start_rps': args.start_rps,
+              'stages': [], 'last_passed_rps': None, 'load_passed_rps': None,
               'preparation': prepared['directory'], 'source_sha256': prepared['source_sha256']}
-    target, offset = 250, 0
+    target, offset = args.start_rps, 0
     try:
         while True:
             print(f'PT6: {target} RPS', flush=True)
