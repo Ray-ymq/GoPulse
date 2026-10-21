@@ -152,7 +152,7 @@ def prepare(directory):
              'row_limit': 128, 'row_limits': {'row_locks': 4096, 'statement_history': 4096,
                                             'sync_history': 4096, 'configuration': 1024},
              'scene_data_byte_limit': 3 * 1024**2, 'sql_text_limit_characters': 2048,
-             'history_mode': 'incremental_completion_timer',
+             'history_mode': 'incremental_completion_timer_per_event_type',
              'before_reset_snapshot': previous.name, 'reset_diagnostic_tables': list(reset),
              'server_uuid': sql('SELECT @@server_uuid;', root=True).strip()}
     write_json(directory / 'diagnostics.json', value)

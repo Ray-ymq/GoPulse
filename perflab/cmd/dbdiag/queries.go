@@ -74,6 +74,10 @@ const syncHistorySQL = `SELECT THREAD_ID,EVENT_ID,EVENT_NAME,TIMER_START,TIMER_E
 const historyClockSQL = `SELECT s.TIMER_START FROM performance_schema.events_statements_current s
  JOIN performance_schema.threads t ON t.THREAD_ID=s.THREAD_ID WHERE t.PROCESSLIST_ID=CONNECTION_ID()`
 
+// 等待事件使用自身的完成时间，避免与语句计时值跨类型比较。
+const syncHistoryClockSQL = `SELECT COALESCE(MAX(TIMER_END),0)
+ FROM performance_schema.events_waits_history_long WHERE EVENT_NAME LIKE 'wait/io/file/%' AND OPERATION='sync'`
+
 const configurationSQL = `SELECT NAME,ENABLED AS enabled,ENABLED AS timed,'consumer' AS kind FROM performance_schema.setup_consumers
  UNION ALL SELECT NAME,ENABLED,TIMED,'instrument' FROM performance_schema.setup_instruments
  WHERE NAME LIKE 'statement/%' OR NAME LIKE 'wait/io/file/%' OR NAME='wait/lock/metadata/sql/mdl'

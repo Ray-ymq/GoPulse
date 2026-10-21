@@ -401,6 +401,42 @@ func TestPeriodicAndTriggeredHistoryShareCursor(t *testing.T) {
 	}
 }
 
+func TestSyncHistoryUsesWaitEventClock(t *testing.T) {
+	db, cfg := fixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, query := range []string{
+		"CREATE TABLE IF NOT EXISTS sync_clock_fixture(id INT PRIMARY KEY,value INT)",
+		"INSERT INTO sync_clock_fixture VALUES(1,1) ON DUPLICATE KEY UPDATE value=value+1",
+		"FLUSH ENGINE LOGS",
+	} {
+		if _, err := db.ExecContext(ctx, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var waitEnd uint64
+	if err := db.QueryRowContext(ctx, syncHistoryClockSQL).Scan(&waitEnd); err != nil || waitEnd == 0 {
+		t.Fatalf("fixture 未产生可观测的同步事件: end=%d err=%v", waitEnd, err)
+	}
+	cursor := &historyCursor{}
+	scene := snapshot(ctx, db, cfg.DBName, cfg.User, "baseline", true, cursor)
+	window := scene["history_windows"].(map[string]any)["sync_history"].(map[string]any)
+	if len(scene["errors"].([]string)) != 0 || len(scene["sync_history"].([]map[string]any)) == 0 ||
+		window["timer_domain"] != "wait" || cursor.syncs < waitEnd {
+		t.Fatalf("同步事件未按等待计时值读取: errors=%v window=%v", scene["errors"], window)
+	}
+	var statementClock uint64
+	if err := db.QueryRowContext(ctx, historyClockSQL).Scan(&statementClock); err != nil {
+		t.Fatal(err)
+	}
+	// 模拟等待计时值领先语句计时值，两个游标仍须独立工作。
+	cursor = &historyCursor{syncs: statementClock + 1000*1e12}
+	scene = snapshot(ctx, db, cfg.DBName, cfg.User, "periodic", true, cursor)
+	if len(scene["errors"].([]string)) != 0 || cursor.statements == 0 || cursor.syncs < statementClock+1000*1e12 {
+		t.Fatalf("不同类型的计时偏差破坏了增量窗口: errors=%v", scene["errors"])
+	}
+}
+
 func TestInvalidDSNIsNotPrinted(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "diagnostic.dsn")
 	if err := os.WriteFile(path, []byte("secret-password@invalid"), 0o600); err != nil {

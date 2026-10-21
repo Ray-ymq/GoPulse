@@ -52,15 +52,25 @@ func snapshot(ctx context.Context, db *sql.DB, schema, observer, trigger string,
 		"row_limits": map[string]int{"row_locks": expandedRowLimit, "statement_history": expandedRowLimit,
 			"sync_history": expandedRowLimit, "configuration": 1024}, "data_byte_limit": sceneDataByteLimit}
 	errors, truncated := []string{}, []string{}
-	var cutoff uint64
+	var cutoff, syncCutoff uint64
+	syncHistory := history
 	if history {
 		clockCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		err := db.QueryRowContext(clockCtx, historyClockSQL).Scan(&cutoff)
 		cancel()
-		if err != nil || cutoff == 0 || cutoff < cursor.statements || cutoff < cursor.syncs {
+		if err != nil || cutoff == 0 || cutoff < cursor.statements {
 			errors = append(errors, "history_clock")
 			history = false
 		}
+		clockCtx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
+		err = db.QueryRowContext(clockCtx, syncHistoryClockSQL).Scan(&syncCutoff)
+		cancel()
+		if err != nil {
+			errors = append(errors, "sync_history_clock")
+			syncHistory = false
+		}
+		// 缓冲区中的旧事件可能已被覆盖；空区间不把游标退回较小值。
+		syncCutoff = max(syncCutoff, cursor.syncs)
 	}
 	queries := []query{
 		{"transactions", transactionsSQL, []any{observer}},
@@ -72,8 +82,10 @@ func snapshot(ctx context.Context, db *sql.DB, schema, observer, trigger string,
 	if history {
 		queries = append(queries, query{"statement_history", statementHistorySQL,
 			[]any{schema, cursor.statements, cutoff, expandedRowLimit + 1}},
-			query{"prepared_statements", preparedSQL, []any{observer}},
-			query{"sync_history", syncHistorySQL, []any{cursor.syncs, cutoff, expandedRowLimit + 1}})
+			query{"prepared_statements", preparedSQL, []any{observer}})
+	}
+	if syncHistory {
+		queries = append(queries, query{"sync_history", syncHistorySQL, []any{cursor.syncs, syncCutoff, expandedRowLimit + 1}})
 	}
 	if trigger == "baseline" || trigger != "periodic" {
 		queries = append(queries, query{"configuration", configurationSQL, nil}, query{"identity", identitySQL, nil},
@@ -86,18 +98,20 @@ func snapshot(ctx context.Context, db *sql.DB, schema, observer, trigger string,
 		values, clipped, err := readRowsWithin(queryCtx, db, q, remaining)
 		cancel()
 		var since *uint64
+		end, domain := cutoff, "statement"
 		switch q.name {
 		case "statement_history":
 			since = &cursor.statements
 		case "sync_history":
 			since = &cursor.syncs
+			end, domain = syncCutoff, "wait"
 		}
 		if since != nil {
-			windows[q.name] = map[string]any{"begin_timer_exclusive": *since, "end_timer_inclusive": cutoff,
+			windows[q.name] = map[string]any{"begin_timer_exclusive": *since, "end_timer_inclusive": end, "timer_domain": domain,
 				"advanced": err == nil && !clipped}
 			// 查询失败或截断时保留游标，避免把未保存的事件跳过。
 			if err == nil && !clipped {
-				*since = cutoff
+				*since = end
 			}
 		}
 		if err != nil {

@@ -168,6 +168,26 @@ class DiagnosticReportTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             check_metrics('# TYPE gopulse_mysql_up gauge\ngopulse_mysql_up 0\n')
 
+    def test_unverified_sync_clock_is_not_treated_as_complete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            self.fixture(directory)
+            path = directory / 'database-diagnostics.jsonl'
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            for row in rows:
+                if row['type'] == 'scene':
+                    row['history_windows'] = {'sync_history': {'begin_timer_exclusive': 0,
+                                                               'end_timer_inclusive': 100, 'advanced': True}}
+            path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            result = summarize(directory, 1, 9.8)
+            self.assertIn('sync_history_clock_unverified', result['reasons'])
+            self.assertEqual(result['status'], 'incomplete')
+            for row in rows:
+                if row['type'] == 'scene':
+                    row['history_windows']['sync_history']['timer_domain'] = 'wait'
+            path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+            self.assertEqual(summarize(directory, 1, 9.8)['status'], 'complete')
+
 
 class NodeClosingBoundaryTest(unittest.TestCase):
     def snapshot(self, stamp, device='vethabc123', present=True, packets=False):

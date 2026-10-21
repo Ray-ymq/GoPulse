@@ -57,6 +57,7 @@ def summarize(directory, begin, end):
               'statement_history_events': set(), 'sync_events': set(), 'sync_seconds_observed': 0,
               'max_sample_seconds': 0, 'first_epoch': None, 'last_epoch': None, 'max_gap_seconds': 0}
     mysql_errors = []
+    history_errors = set()
     scene_epochs = []
     for row in records(directory / 'database-diagnostics.jsonl'):
         if row['type'] == 'metrics':
@@ -69,6 +70,9 @@ def summarize(directory, begin, end):
                 scene_epochs.append(row['epoch'])
                 scenes['errors'].extend(row['errors'])
                 scenes['truncated'].extend(row['truncated'])
+                sync_window = row.get('history_windows', {}).get('sync_history')
+                if sync_window is not None and sync_window.get('timer_domain') != 'wait':
+                    history_errors.add('sync_history_clock_unverified')
                 scenes['row_lock_samples'] += bool(row.get('row_locks'))
                 scenes['metadata_lock_samples'] += bool(row.get('metadata_locks'))
                 scenes['max_sample_seconds'] = max(scenes['max_sample_seconds'], row['elapsed_seconds'])
@@ -99,7 +103,7 @@ def summarize(directory, begin, end):
         scenes['first_epoch'], scenes['last_epoch'] = scene_epochs[0], scene_epochs[-1]
         scenes['max_gap_seconds'] = max((b - a for a, b in zip(scene_epochs, scene_epochs[1:])), default=0)
     scenes['errors'], scenes['truncated'] = sorted(set(scenes['errors'])), sorted(set(scenes['truncated']))
-    reasons = set(mysql_errors)
+    reasons = set(mysql_errors) | history_errors
     if not scenes['samples'] or scenes['errors']:
         reasons.add('scene_missing_or_failed')
     if scenes['max_gap_seconds'] > 1 or (scenes['first_epoch'] or end) - begin > 1 or end - (scenes['last_epoch'] or begin) > 1:
