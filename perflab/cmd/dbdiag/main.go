@@ -93,8 +93,12 @@ func run(ctx context.Context, o options, input io.Reader, output io.Writer) erro
 			"finished_at": time.Now().UTC(), "elapsed_seconds": time.Since(start).Seconds(),
 			"trigger": trigger, "status": recorder.Code, "body": recorder.Body.String()})
 	}
+	var sceneMu sync.Mutex
+	cursor := &historyCursor{}
 	scene := func(trigger string, history bool) error {
-		return emit(snapshot(ctx, db, cfg.DBName, cfg.User, trigger, history))
+		sceneMu.Lock()
+		defer sceneMu.Unlock()
+		return emit(snapshot(ctx, db, cfg.DBName, cfg.User, trigger, history, cursor))
 	}
 	if err := summary("baseline"); err != nil {
 		return err

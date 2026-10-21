@@ -3,12 +3,32 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net"
 	"strconv"
 	"time"
 )
 
 const rowLimit = 128
+const expandedRowLimit = 4096
+const sceneDataByteLimit = 3 << 20
+
+func queryRowLimit(name string) int {
+	switch name {
+	case "row_locks", "statement_history", "sync_history":
+		return expandedRowLimit
+	case "configuration":
+		return 1024
+	default:
+		return rowLimit
+	}
+}
+
+type historyCursor struct {
+	statements uint64
+	syncs      uint64
+}
 
 type query struct {
 	name string
@@ -25,50 +45,87 @@ func splitAddress(address string) (string, int, error) {
 	return host, port, err
 }
 
-func snapshot(ctx context.Context, db *sql.DB, schema, observer, trigger string, history bool) map[string]any {
+func snapshot(ctx context.Context, db *sql.DB, schema, observer, trigger string, history bool, cursor *historyCursor) map[string]any {
 	start := time.Now()
 	row := map[string]any{"type": "scene", "timestamp": start.UTC(), "epoch": float64(start.UnixNano()) / 1e9,
-		"trigger": trigger, "history_included": history, "row_limit": rowLimit}
+		"trigger": trigger, "history_included": history, "row_limit": rowLimit,
+		"row_limits": map[string]int{"row_locks": expandedRowLimit, "statement_history": expandedRowLimit,
+			"sync_history": expandedRowLimit, "configuration": 1024}, "data_byte_limit": sceneDataByteLimit}
+	errors, truncated := []string{}, []string{}
+	var cutoff uint64
+	if history {
+		clockCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		err := db.QueryRowContext(clockCtx, historyClockSQL).Scan(&cutoff)
+		cancel()
+		if err != nil || cutoff == 0 || cutoff < cursor.statements || cutoff < cursor.syncs {
+			errors = append(errors, "history_clock")
+			history = false
+		}
+	}
 	queries := []query{
 		{"transactions", transactionsSQL, []any{observer}},
-		{"row_locks", rowLocksSQL, []any{schema}},
+		{"row_locks", rowLocksSQL, []any{schema, expandedRowLimit + 1}},
 		{"metadata_locks", metadataLocksSQL, []any{schema}},
 		{"statements", statementsSQL, []any{observer}},
 		{"current_waits", currentWaitsSQL, nil},
 	}
 	if history {
-		queries = append(queries, query{"statement_history", statementHistorySQL, []any{schema}},
+		queries = append(queries, query{"statement_history", statementHistorySQL,
+			[]any{schema, cursor.statements, cutoff, expandedRowLimit + 1}},
 			query{"prepared_statements", preparedSQL, []any{observer}},
-			query{"sync_history", syncHistorySQL, nil})
+			query{"sync_history", syncHistorySQL, []any{cursor.syncs, cutoff, expandedRowLimit + 1}})
 	}
 	if trigger == "baseline" || trigger != "periodic" {
 		queries = append(queries, query{"configuration", configurationSQL, nil}, query{"identity", identitySQL, nil},
 			query{"digests", digestsSQL, []any{schema}})
 	}
-	errors, truncated := []string{}, []string{}
+	remaining := sceneDataByteLimit
+	windows := map[string]any{}
 	for _, q := range queries {
 		queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		values, clipped, err := readRows(queryCtx, db, q)
+		values, clipped, err := readRowsWithin(queryCtx, db, q, remaining)
 		cancel()
+		var since *uint64
+		switch q.name {
+		case "statement_history":
+			since = &cursor.statements
+		case "sync_history":
+			since = &cursor.syncs
+		}
+		if since != nil {
+			windows[q.name] = map[string]any{"begin_timer_exclusive": *since, "end_timer_inclusive": cutoff,
+				"advanced": err == nil && !clipped}
+			// 查询失败或截断时保留游标，避免把未保存的事件跳过。
+			if err == nil && !clipped {
+				*since = cutoff
+			}
+		}
 		if err != nil {
 			errors = append(errors, q.name)
 			continue
 		}
 		row[q.name] = values
+		encoded, _ := json.Marshal(values)
+		remaining -= len(encoded)
 		if clipped {
 			truncated = append(truncated, q.name)
 		}
 	}
+	row["history_windows"] = windows
 	row["errors"], row["truncated"] = errors, truncated
 	row["finished_at"], row["elapsed_seconds"] = time.Now().UTC(), time.Since(start).Seconds()
 	return row
 }
 
 func readRows(ctx context.Context, db *sql.DB, q query) ([]map[string]any, bool, error) {
-	limit := rowLimit
-	if q.name == "configuration" {
-		limit = 1024
+	return readRowsWithin(ctx, db, q, sceneDataByteLimit)
+}
+
+func readRowsWithin(ctx context.Context, db *sql.DB, q query, maxBytes int) ([]map[string]any, bool, error) {
+	if maxBytes < 2 {
+		return []map[string]any{}, true, nil
 	}
+	limit := queryRowLimit(q.name)
 	rows, err := db.QueryContext(ctx, q.sql, q.args...)
 	if err != nil {
 		return nil, false, err
@@ -79,6 +136,7 @@ func readRows(ctx context.Context, db *sql.DB, q query) ([]map[string]any, bool,
 		return nil, false, err
 	}
 	result := []map[string]any{}
+	used := 2
 	for rows.Next() {
 		if len(result) == limit {
 			return result, true, nil
@@ -98,6 +156,18 @@ func readRows(ctx context.Context, db *sql.DB, q query) ([]map[string]any, bool,
 			}
 			item[name] = value
 		}
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			return nil, false, fmt.Errorf("encode_diagnostic_row")
+		}
+		length := len(encoded)
+		if len(result) > 0 {
+			length++
+		}
+		if used+length > maxBytes {
+			return result, true, nil
+		}
+		used += length
 		result = append(result, item)
 	}
 	return result, false, rows.Err()
