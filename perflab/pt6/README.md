@@ -10,11 +10,14 @@
 python3 perflab/pt6/prepare.py           # 首次部署、造数、冒烟、恢复基线、采集预检
 python3 perflab/pt6/run.py --preflight   # 开测前复核，不发送业务负载
 python3 perflab/pt6/run.py               # 正式压测：250 起步，通过后每档增加 50 RPS
+python3 perflab/pt6/prepare.py --new-round  # 停压汇报后恢复基线、复验冒烟并重新就绪
 ```
 
-准备失败后先检查记录和日志。修复原因后，使用 `prepare.py --resume` 继续同一准备过程。该命令只适用于准备阶段；正式压测失败后不得用它重试或覆盖现场。
+准备失败后先检查记录和日志。修复原因后，使用 `prepare.py --resume` 继续同一准备过程。该命令只适用于准备阶段；正式压测失败后不得用它重试或覆盖现场。停压并汇报后，如需开始新一轮，使用 `prepare.py --new-round` 恢复基线并重新采集预检。
 
 每档预热 30 秒、测量 300 秒，使用 512 VU 和 5 秒超时。首次失败立即停压并输出报告，随后最多进行 10 分钟只读恢复采集。各档分别写入新建目录，档间保留业务状态。
+
+每 5 秒采集容器资源、业务指标、数据库状态和队列深度。队列深度取自 `rabbitmq_prometheus`（端口 15692），避免在 0.5 核 RabbitMQ 容器里反复启动 Erlang VM；`rabbitmqctl` 只用于开测前的队列清空检查。调用 `docker compose` 时会剔除宿主机上与 `test.env` 同名的变量，避免本地 `.env` 覆盖压测配置。
 
 创建 `.run/pt6/STOP` 可停止当前压测及恢复观测。下一轮必须先核对现场，再人工移除该标记。
 

@@ -1,4 +1,4 @@
-"""每 5 秒采集 PT6 容器资源、应用指标、数据库等待和异步积压。"""
+"""每 5 秒采集 PT6 容器资源、应用指标、数据库等待和异步积压；队列走 Prometheus 指标接口。"""
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
@@ -48,6 +48,37 @@ def metrics(name):
     return body
 
 
+RABBITMQ_GAUGES = {'rabbitmq_queue_messages_ready': 'messages_ready',
+                   'rabbitmq_queue_messages_unacked': 'messages_unacknowledged',
+                   'rabbitmq_queue_messages': 'messages'}
+
+
+def parse_rabbitmq(text):
+    """汇总 rabbitmq_prometheus 的全局队列指标；逐队列标签存在时按标签求和。"""
+    values = dict.fromkeys(RABBITMQ_GAUGES.values(), 0)
+    seen = set()
+    for line in text.splitlines():
+        parts = line.split()
+        if not parts or parts[0].startswith('#'):
+            continue
+        name = parts[0].split('{', 1)[0]
+        if name not in RABBITMQ_GAUGES:
+            continue
+        assert len(parts) > 1, f'RabbitMQ 指标缺少取值：{name}'
+        values[RABBITMQ_GAUGES[name]] += int(float(parts[1]))
+        seen.add(name)
+    missing = sorted(set(RABBITMQ_GAUGES) - seen)
+    assert not missing, 'RabbitMQ 指标缺失：' + '、'.join(missing)
+    assert all(value >= 0 for value in values.values()), 'RabbitMQ 队列指标为负'
+    return values
+
+
+def rabbitmq():
+    body = command(['docker', 'exec', f'{PROJECT}-rabbitmq-1', 'wget', '-q', '-O', '-',
+                    'http://127.0.0.1:15692/metrics'], timeout=4)
+    return parse_rabbitmq(body)
+
+
 def sample():
     begin = time.monotonic()
     rows = containers(include_load=True)
@@ -61,10 +92,9 @@ def sample():
                 raise
     targets = ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')
     with ThreadPoolExecutor(max_workers=8) as executor:
-        queues = executor.submit(command, ['docker', 'exec', f'{PROJECT}-rabbitmq-1', 'rabbitmqctl',
-                                 '-q', 'list_queues', 'name', 'messages_ready', 'messages_unacknowledged'], timeout=4)
+        queues = executor.submit(rabbitmq)
         applications = dict(zip(targets, executor.map(metrics, targets)))
-        queue_depth = queues.result()
+        queue = queues.result()
     database = sql("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Innodb_row_lock_waits','Innodb_row_lock_time','Innodb_log_waits','Innodb_buffer_pool_wait_free'); SELECT open_requirements,parked_messages,retained_groups,retained_bytes FROM business_async_budget; SELECT data_epoch,status,mode FROM business_environment; SELECT version,dirty FROM schema_migrations;")
     baseline = json.loads((Path(manifest()['directory']) / 'baseline.json').read_text())
     assert database.splitlines()[-2] == baseline['environment'], '数据 epoch 或运行模式改变'
@@ -72,7 +102,7 @@ def sample():
     assert time.monotonic() - begin < 5, '采样耗时超过 5 秒'
     return {'timestamp': utc(), 'epoch': time.time(), 'containers': resources,
             'application_metrics': applications, 'database': database,
-            'rabbitmq_queues': queue_depth,
+            'rabbitmq': queue,
             'elapsed_seconds': time.monotonic() - begin}
 
 

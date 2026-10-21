@@ -1,4 +1,4 @@
-"""使用本地模拟 API 验证 k6 统计窗口和停止条件，不访问 PT6 业务系统。"""
+"""使用本地模拟 API 验证 k6 统计窗口和停止条件，并校验队列指标解析，不访问 PT6 业务系统。"""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -8,9 +8,11 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 
-from common import ROOT, STATE
+from common import ROOT, STATE, compose_environment
 from run import evaluate
+from sample import parse_rabbitmq
 
 
 class LoadControlTest(unittest.TestCase):
@@ -107,6 +109,39 @@ class LoadControlTest(unittest.TestCase):
                     ('pt6_completed{phase:measurement}', 99), ('pt6_successes{phase:measurement}', 99)]}
         metrics['pt6_latency{phase:measurement}'] = {'values': {'p(95)': 1, 'p(99)': 2}}
         self.assertIn('unfinished_requests', evaluate({'metrics': metrics}, 250, 300, 0)['reasons'])
+
+
+class RabbitMQMetricsTest(unittest.TestCase):
+    def test_parse_gauges(self):
+        text = '\n'.join(['# HELP rabbitmq_queue_messages_ready 正在排队的消息数',
+                          '# TYPE rabbitmq_queue_messages_ready gauge',
+                          'rabbitmq_queue_messages_ready 0',
+                          'rabbitmq_queue_messages_unacked 0',
+                          'rabbitmq_queue_messages 0',
+                          'rabbitmq_queue_consumers 2',
+                          'rabbitmq_connections 3'])
+        self.assertEqual(parse_rabbitmq(text), {'messages_ready': 0, 'messages_unacknowledged': 0, 'messages': 0})
+
+    def test_parse_sums_label_sets(self):
+        text = '\n'.join(['rabbitmq_queue_messages_ready{queue="a"} 2',
+                          'rabbitmq_queue_messages_ready{queue="b"} 3',
+                          'rabbitmq_queue_messages_unacked{queue="b"} 1',
+                          'rabbitmq_queue_messages 5'])
+        self.assertEqual(parse_rabbitmq(text), {'messages_ready': 5, 'messages_unacknowledged': 1, 'messages': 5})
+
+    def test_missing_gauges_fail(self):
+        with self.assertRaises(AssertionError):
+            parse_rabbitmq('rabbitmq_queue_messages_ready 0')
+
+
+class ComposeEnvironmentTest(unittest.TestCase):
+    def test_shell_values_do_not_shadow_test_env(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, 'test.env').write_text('# 注释\nMYSQL_DATABASE=gopulse_pt6\nMYSQL_USER=pt6\n')
+            spoofed = {'PATH': '/bin', 'HOME': '/home/pt6', 'MYSQL_DATABASE': 'gopulse', 'MYSQL_USER': 'dev'}
+            with unittest.mock.patch.dict(os.environ, spoofed, clear=True):
+                environment = compose_environment(directory)
+        self.assertEqual(environment, {'PATH': '/bin', 'HOME': '/home/pt6'})
 
 
 if __name__ == '__main__':

@@ -169,15 +169,80 @@ def verify_replicas(directory):
     write_json(directory / 'replicas.json', evidence)
 
 
+def collection_preflight(directory):
+    from sample import Sampler
+    sampler = Sampler(directory / ('collection-' + secrets.token_hex(3) + '.jsonl'))
+    sampler.start()
+    time.sleep(11)
+    sampler.close()
+    assert sampler.samples >= 3, '采集预检样本不足'
+    return sampler.samples
+
+
+def new_round(value):
+    assert value.get('phase') in ('load_stopped', 'new_round_failed'), '当前准备记录不是正式压测停压状态，拒绝开始新一轮'
+    assert not value.get('ready'), '当前准备记录仍为就绪状态'
+    assert not (STATE / 'STOP').exists(), '存在 PT6 停止标记；核对现场后人工移除'
+    leftover = command(['docker', 'ps', '-aq', '--filter', f'name={PROJECT}-k6-active']).strip()
+    assert not leftover, '仍有 k6 负载容器，先确认停压完成'
+    directory = Path(value['directory'])
+    assert directory.parent == STATE and directory.name.startswith('preparation-'), '准备目录不属于 PT6'
+    for name, expected in value['artifact_sha256'].items():
+        assert digest(directory / name) == expected, '准备后私有输入已改变：' + name
+    assert check_quotas() == value['containers'], '服务容器或镜像与准备记录不符'
+
+
+def rearm(value, host):
+    directory = Path(value['directory'])
+    if value.get('phase') == 'load_stopped':
+        value['round'] = value.get('round', 1) + 1
+    previous = sorted(STATE.glob('run-*/report.json'))
+    if previous:
+        value['previous_run'] = json.loads(previous[-1].read_text()).get('directory')
+    value.update(ready=False, phase='baseline_restore', updated_at=utc())
+    value.pop('error', None)
+    value.pop('failed_at', None)
+    write_json(STATE / 'prepared.json', value)
+    print('PT6 new round: restore', flush=True)
+    restore(directory)
+    print('PT6 new round: smoke', flush=True)
+    smoke(directory)
+    print('PT6 new round: restore baseline', flush=True)
+    restore(directory)
+    verify_replicas(directory)
+    value['containers'] = check_quotas()
+    value['source_sha256'] = source_hashes()
+    value['artifact_sha256'] = {name: digest(directory / name) for name in
+                                ('test.env', 'mysql.dsn', 'corpus.json', 'credentials.json', 'baseline.sql', 'baseline.json')}
+    value.update(phase='collection_preflight', updated_at=utc(), restored_at=utc())
+    write_json(directory / 'host.json', host)
+    write_json(STATE / 'prepared.json', value)
+    samples = collection_preflight(directory)
+    value.update(ready=True, phase='ready', updated_at=utc(), collection_samples=samples)
+    write_json(STATE / 'prepared.json', value)
+    print(f'PT6 第 {value["round"]} 轮准备完成，尚未执行正式压测。', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--resume', action='store_true', help='核对失败原因后继续同一准备过程')
+    parser.add_argument('--new-round', action='store_true', help='恢复基线并开始新一轮正式压测准备')
     args = parser.parse_args()
     os.umask(0o077)
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock = (STATE / 'active.lock').open('a')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     host = check_host()
+    if args.new_round:
+        value = json.loads((STATE / 'prepared.json').read_text())
+        new_round(value)
+        try:
+            rearm(value, host)
+        except Exception as error:
+            value.update(ready=False, phase='new_round_failed', error=str(error), failed_at=utc())
+            write_json(STATE / 'prepared.json', value)
+            raise
+        return
     if args.resume:
         value = json.loads((STATE / 'prepared.json').read_text())
         assert not value.get('ready'), '准备已完成，无需继续'
@@ -217,13 +282,8 @@ def main():
         value.pop('error', None)
         value.pop('failed_at', None)
         write_json(STATE / 'prepared.json', value)
-        from sample import Sampler
-        sampler = Sampler(directory / ('collection-' + secrets.token_hex(3) + '.jsonl'))
-        sampler.start()
-        time.sleep(11)
-        sampler.close()
-        assert sampler.samples >= 3, '采集预检样本不足'
-        value.update(ready=True, phase='ready', updated_at=utc(), collection_samples=sampler.samples)
+        samples = collection_preflight(directory)
+        value.update(ready=True, phase='ready', updated_at=utc(), collection_samples=samples)
         write_json(STATE / 'prepared.json', value)
         print('PT6 准备完成，尚未执行正式压测。', flush=True)
     except Exception as error:

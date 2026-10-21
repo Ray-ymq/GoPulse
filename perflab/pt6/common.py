@@ -50,24 +50,31 @@ def private_env(directory):
                 if line and not line.startswith('#'))
 
 
-def command(args, *, input=None, timeout=300, log=None):
+def command(args, *, input=None, timeout=300, log=None, env=None):
     if log:
         with Path(log).open('a') as stream:
             result = subprocess.run(args, cwd=ROOT, input=input, text=True,
-                                    stdout=stream, stderr=subprocess.STDOUT, timeout=timeout)
+                                    stdout=stream, stderr=subprocess.STDOUT, timeout=timeout, env=env)
     else:
         result = subprocess.run(args, cwd=ROOT, input=input, text=True,
-                                capture_output=True, timeout=timeout)
+                                capture_output=True, timeout=timeout, env=env)
     if result.returncode:
         raise RuntimeError(f'{args[0]} 命令失败，退出码 {result.returncode}' +
                            (f'；日志：{log}' if log else ''))
     return result.stdout if not log else ''
 
 
+def compose_environment(directory):
+    """剔除宿主机上与被 --env-file 覆盖的同名变量，保证 compose 只读 test.env。"""
+    defined = {line.split('=', 1)[0].strip() for line in (Path(directory) / 'test.env').read_text().splitlines()
+               if '=' in line and not line.lstrip().startswith('#')}
+    return {key: value for key, value in os.environ.items() if key not in defined}
+
+
 def compose(directory, *args, **kwargs):
     return command(['docker', 'compose', '--project-name', PROJECT, '--env-file',
                     str(Path(directory) / 'test.env'), '-f', str(ROOT / 'deploy/compose.business.yaml'),
-                    *args], **kwargs)
+                    *args], env=compose_environment(directory), **kwargs)
 
 
 def containers(include_load=False):
