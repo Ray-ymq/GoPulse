@@ -78,9 +78,9 @@ def main():
                 try:login=client.login()
                 except Exception as error:login=str(error)
             sample={'timestamp':datetime.now(timezone.utc).isoformat(),'elapsed_seconds':time.monotonic()-started,'login':login,'business':business_probe(client)}
-            for filename,key in [('database-probe.jsonl','database'),('database-state.jsonl','database_state')]:
+            for filename,key in [('database-probe.jsonl','database'),('database-state-latest.json','database_state')]:
                 path=directory/filename
-                try:sample[key]=json.loads(path.read_text().splitlines()[-1])
+                try:sample[key]=json.loads(path.read_text() if key == 'database_state' else path.read_text().splitlines()[-1])
                 except (OSError,ValueError,IndexError):sample[key]={'evidence':'unavailable'}
             sample['observation']=json.loads((STATE/'guard.json').read_text())
             out.write(json.dumps(sample)+'\n');out.flush()

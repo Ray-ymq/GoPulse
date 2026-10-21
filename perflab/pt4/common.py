@@ -36,7 +36,7 @@ def verify_prepared():
     if not prepared.get('tools_ready'):
         raise RuntimeError('测试四工具尚未准备完成')
     for relative, expected in prepared['sha256'].items():
-        if sha256(ROOT / relative) != expected:
+        if not (ROOT / relative).is_file() or sha256(ROOT / relative) != expected:
             raise RuntimeError('准备后文件发生变化，必须重新执行 prepare.py：' + relative)
     for tool in prepared['tools'].values():
         if sha256(tool['path']) != tool['sha256']:
@@ -49,10 +49,6 @@ def legacy_module(name):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def rows(sample, name):
-    return sample.get('queries', {}).get(name, {}).get('rows', [])
 
 
 def parse_event(line):

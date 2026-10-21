@@ -5,11 +5,9 @@ import json
 import os
 from pathlib import Path
 import platform
-import re
-import secrets
 import shutil
 import subprocess
-from common import ROOT, STATE, CONTAINERS, atomic_json, environment, sha256, sql, utc
+from common import ROOT, STATE, CONTAINERS, atomic_json, sha256, sql, utc
 
 BASELINE_SHA256 = '1580922c1027a5dbe3d60856664bf6e34c8de2e2d60a4ab91689e52c1e491fcd'
 K6 = ROOT / '.run/tools/k6/0.56.0/linux-amd64/k6'
@@ -21,7 +19,7 @@ def run(command, **kwargs):
 
 def source_files():
     extensions = {'.go', '.mod', '.sum', '.py', '.js', '.mjs', '.json', '.sh', '.tmpl'}
-    for directory in ('backend', 'runtimekit', 'perflab'):
+    for directory in ('backend', 'runtimekit', 'perflab', 'exporters/mysql', 'exporters/node'):
         for path in (ROOT / directory).rglob('*'):
             if path.is_file() and path.suffix in extensions and '__pycache__' not in path.parts:
                 yield path
@@ -52,40 +50,15 @@ def _prepare():
     containers = json.loads(run(['docker', 'inspect', *CONTAINERS]))
     if any(item['Config']['Labels'].get('com.docker.compose.project') != 'gopulse-loadtest' for item in containers):
         raise RuntimeError('目标不是 gopulse-loadtest 测试容器')
-    env = environment()
-    database = env['MYSQL_DATABASE']
-    if not re.fullmatch(r'[A-Za-z0-9_]+', database) or env['MYSQL_HOST'] not in ('localhost', '127.0.0.1'):
-        raise RuntimeError('采样账号准备只支持当前本机独立测试实例')
-    mysql_container = next(item for item in containers if item['Name'].endswith('mysql-1'))
-    bindings = mysql_container['HostConfig']['PortBindings'].get('3306/tcp') or []
-    if not any(row['HostPort'] == env['MYSQL_PORT'] and row['HostIp'] in ('127.0.0.1', '0.0.0.0') for row in bindings):
-        raise RuntimeError('私有环境的 MySQL 端口与测试容器映射不一致')
-    password_file = STATE / 'observer-password'
-    if not password_file.exists():
-        password_file.write_text(secrets.token_hex(24))
-    password = password_file.read_text().strip()
-    if not re.fullmatch(r'[0-9a-f]{48}', password):
-        raise RuntimeError('私有采样账号密码文件格式异常')
-    statements = ["CREATE USER IF NOT EXISTS 'gopulse_pt4_observer'@'%' IDENTIFIED BY '" + password + "' WITH MAX_USER_CONNECTIONS 5",
-                  "GRANT PROCESS ON *.* TO 'gopulse_pt4_observer'@'%'",
-                  "GRANT SELECT ON performance_schema.* TO 'gopulse_pt4_observer'@'%'"]
-    statements += [f"GRANT SELECT ON `{database}`.`{table}` TO 'gopulse_pt4_observer'@'%'" for table in
-                   ('business_environment', 'schema_migrations', 'business_async_budget')]
-    sql(';'.join(statements) + ';', root=True)
-    (STATE / 'probe-dsn').write_text('gopulse_pt4_observer:' + password + '@tcp(' + env['MYSQL_HOST'] + ':' + env['MYSQL_PORT'] + ')/' + database)
-    (STATE / 'probe-dsn').chmod(0o600)
-    for name in ('dbprobe', 'dbdiag'):
-        run(['go', '-C', 'perflab', 'build', '-o', str(STATE / 'bin' / name), './cmd/' + name])
+    from exporters import prepare as prepare_exporters
+    prepare_exporters()
     for name, package in (('server', 'server'), ('worker', 'business-worker'), ('indexer', 'search-indexer'), ('reindex', 'search-reindex')):
         run(['go', '-C', 'backend', 'build', '-o', str(STATE / 'bin' / name), './cmd/' + package])
-    from profiles import build as build_profile
-    for role in ('server', 'worker', 'indexer'):
-        build_profile(role)
+    for obsolete in ('dbdiag', 'server-profile', 'worker-profile', 'indexer-profile'):
+        (STATE / 'bin' / obsolete).unlink(missing_ok=True)
     tools = {}
     for name, command in {'k6': [str(K6), 'version'], 'go': ['go', 'version'], 'node': ['node', '--version'],
-                          'python': ['python3', '--version'], 'docker': ['docker', '--version'], 'perf': ['perf', 'version'],
-                          'pidstat': ['pidstat', '-V'], 'iostat': ['iostat', '-V'], 'vmstat': ['vmstat', '-V'],
-                          'graphviz': ['dot', '-V']}.items():
+                          'python': ['python3', '--version'], 'docker': ['docker', '--version']}.items():
         binary = Path(shutil.which(command[0]) or command[0]).resolve()
         tools[name] = {'path': str(binary), 'sha256': sha256(binary), 'version': run(command)}
     import matplotlib
@@ -94,26 +67,21 @@ def _prepare():
     packages = {name: run(['dpkg-query', '-W', '-f=${Version}', name]) for name in pins}
     if packages != pins:
         raise RuntimeError('系统工具版本与 system-tools.json 不一致')
-    for stream in ('critical', 'digest', 'locks'):
-        sample = json.loads(run([str(STATE / 'bin/dbdiag'), '--dsn-file', str(STATE / 'probe-dsn'), '--stream', stream, '--once']))
-        atomic_json(STATE / (stream + '-precheck.json'), sample)
-        if not sample['ok']:
-            raise RuntimeError('采样账号权限或查询预检失败：' + stream)
-        if stream == 'critical' and sample['queries']['identity']['rows'][0]['server_uuid'] != sql('SELECT @@server_uuid;', root=True).strip():
-            raise RuntimeError('采样 DSN 指向的 MySQL 与恢复目标不是同一实例')
-    setup_file = STATE / 'mysql-setup.tsv'
-    setup_file.write_text(sql('SELECT NAME,ENABLED FROM performance_schema.setup_consumers; '
-                              "SELECT NAME,ENABLED,TIMED FROM performance_schema.setup_instruments WHERE NAME LIKE 'statement/%' OR NAME LIKE 'wait/lock/%';", root=True))
-    mysql_variables = sql('SELECT @@version,@@innodb_buffer_pool_size,@@max_connections;', root=True).strip()
-    artifacts = [p for p in STATE.rglob('*') if p.is_file() and p.parent.name in {'bin', 'snapshots'}]
-    artifacts += [STATE / name for name in ('corpus.json', 'credentials.json', 'probe-dsn', 'test.env', 'observer-password', 'mysql-setup.tsv')]
+    sample = json.loads(run([str(STATE / 'bin/dbprobe'), '--dsn-file', str(STATE / 'probe-dsn'), '--details', '--once']))
+    atomic_json(STATE / 'environment-precheck.json', sample)
+    if not sample['ok'] or sample['identity'][0]['server_uuid'] != sql('SELECT @@server_uuid;', root=True).strip():
+        raise RuntimeError('专用检查账号预检失败或指向不同的 MySQL 实例')
+    artifacts = [STATE / 'bin' / name for name in ('dbprobe', 'mysql-exporter', 'node_exporter', 'server', 'worker', 'indexer', 'reindex')]
+    artifacts += [p for p in (STATE / 'snapshots').iterdir() if p.is_file()]
+    artifacts += [STATE / name for name in ('corpus.json', 'credentials.json', 'probe-dsn', 'test.env',
+                                           'observer-password', 'mysql-exporter.json', 'exporters.json')]
     hashes = {str(path.relative_to(ROOT)): sha256(path) for path in [*source_files(), *artifacts, K6]}
     prepared = {'schema_version': 'gopulse.pt4.prepared.v1', 'tools_ready': True, 'prepared_at': utc(),
                 'commit': run(['git', 'rev-parse', 'HEAD']), 'working_tree': run(['git', 'status', '--short']),
-                'kernel': platform.release(), 'tools': tools, 'packages': packages, 'mysql_version_buffer_pool_connections': mysql_variables, 'sha256': hashes,
+                'kernel': platform.release(), 'tools': tools, 'packages': packages, 'sha256': hashes,
                 'containers': {item['Name'].lstrip('/'): item['Id'] for item in containers},
                 'baseline_sha256': BASELINE_SHA256,
-                'capacity_validation': '尚未执行 A 阶段开销对照及正式压测'}
+                'capacity_validation': '已准备 exporter；尚未执行正式压测'}
     atomic_json(STATE / 'prepared.json', prepared)
     return prepared
 

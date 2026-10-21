@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 import sqlite3
 from common import atomic_json, parse_event
+from metrics_report import summarize_metrics
 
 
 def percentile(db, condition, fraction, column='http_ms'):
@@ -120,7 +121,8 @@ def build_report(directory):
               'execution': 'complete' if full and run.get('load_exit_code') == 0 else 'incomplete',
               'measurement': result, 'routes': routes, 'minutes': minutes, 'evidence_errors': sorted(set(errors)),
               'count_conservation': 'observed_records_only' if errors else 'started_equals_outcomes_plus_unfinished',
-              'route_set': run.get('route_set'), 'profile_role': run.get('profile_role'), 'config_sha256': run.get('config_sha256'),
+              'route_set': run.get('route_set'), 'config_sha256': run.get('config_sha256'),
+              'observations': summarize_metrics(directory, begin, end),
               'load_exit_code': run.get('load_exit_code'), 'stop_reason': run.get('stop_reason'), 'recovery': recovery,
               'business_short_window_pass': bool(full and run.get('load_exit_code') == 0 and not run.get('stop_reason') and not errors and result['started'] and result['error_rate'] <= .01
                                                and result['p95_ms'] <= 1000 and result['p99_ms'] <= 2000

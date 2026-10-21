@@ -72,23 +72,17 @@ def run_fixture(seconds=3, rps=100, vus=16, warmup=1, case='normal'):
                                     '--log-output', 'file=' + str(directory / 'events.log'), '--out', 'json=' + str(directory / 'k6-samples.json'),
                                     str(ROOT / 'perflab/k6/test4.js')], cwd=ROOT, env=load_environment(config, directory), stdout=log, stderr=log)
         config['load_started_epoch'] = time.time()
-        samples = []; kill_at = None
-        with (directory / 'resources.jsonl').open('w') as resource:
-            while process.poll() is None:
-                status = Path(f'/proc/{process.pid}/status')
-                try:
-                    rss = next(int(line.split()[1]) * 1024 for line in status.read_text().splitlines() if line.startswith('VmRSS:'))
-                    record = {'timestamp': utc(), 'rss_bytes': rss, 'elapsed_seconds': time.time() - config['load_started_epoch'],
-                              'files_bytes': sum(path.stat().st_size for path in directory.iterdir() if path.is_file())}
-                    resource.write(json.dumps(record) + '\n'); resource.flush(); samples.append(record)
-                except (OSError, StopIteration):
-                    pass
-                event_path = directory / 'events.log'
-                if case == 'interrupt' and kill_at is None and event_path.exists() and 'PT4 ' in event_path.read_text():
-                    kill_at = time.time() + warmup + .3
-                if kill_at is not None and time.time() >= kill_at:
-                    config['stop_requested_epoch'] = time.time(); process.kill(); process.wait(); break
-                time.sleep(.5)
+        kill_at = None
+        while process.poll() is None:
+            event_path = directory / 'events.log'
+            if case == 'interrupt' and kill_at is None and event_path.exists() and 'PT4 ' in event_path.read_text():
+                kill_at = time.time() + warmup + .3
+            if kill_at is not None and time.time() >= kill_at:
+                config['stop_requested_epoch'] = time.time()
+                process.kill()
+                process.wait()
+                break
+            time.sleep(.1)
         config.setdefault('stop_requested_epoch', time.time())
         config['load_exit_code'] = process.wait()
     server.shutdown(); server.server_close()
@@ -109,7 +103,7 @@ def run_fixture(seconds=3, rps=100, vus=16, warmup=1, case='normal'):
         raise AssertionError('强制中断没有保留未完成请求')
     result = {'directory': str(directory), 'case': case, 'seconds': seconds, 'rps': rps, 'vus': vus,
               'started': measurement['started'], 'outcomes': measurement['outcomes'], 'unfinished': measurement['unfinished'],
-              'error_rate': measurement['error_rate'], 'rss_max_bytes': max(sample['rss_bytes'] for sample in samples),
+              'error_rate': measurement['error_rate'],
               'event_log_truncated': expected_truncation,
               'evidence_bytes': sum(path.stat().st_size for path in directory.iterdir() if path.is_file())}
     atomic_json(directory / 'selftest-result.json', result)

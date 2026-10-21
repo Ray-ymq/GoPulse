@@ -1,9 +1,7 @@
 {
   "platform": "Debian 13 amd64",
   "packages": {
-    "sysstat": "12.7.5-2",
-    "linux-perf": "6.12.113-1",
     "python3-matplotlib": "3.10.1+dfsg1-4",
-    "graphviz": "2.42.4-3"
+    "python3-prometheus-client": "0.21.1+ds1-1"
   }
 }

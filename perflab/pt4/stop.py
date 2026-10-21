@@ -6,6 +6,7 @@ import os
 import signal
 import time
 from common import ROOT, STATE, legacy_module
+from exporters import stop_exporters
 
 
 if __name__ == '__main__':
@@ -38,5 +39,6 @@ if __name__ == '__main__':
                     else:
                         raise RuntimeError('observer 未按时停止')
                 path.unlink(missing_ok=True)
+            stop_exporters()
             legacy_module('environment').stop_services()
             print('测试四进程已停止。')

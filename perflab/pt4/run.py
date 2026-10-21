@@ -10,10 +10,9 @@ import signal
 import subprocess
 import sys
 import time
-from common import ROOT, STATE, CONTAINERS, atomic_json, environment, legacy_module, parse_event, restore, rows, sha256, start_services, utc, verify_prepared
+from common import ROOT, STATE, CONTAINERS, atomic_json, environment, legacy_module, restore, sha256, start_services, utc, verify_prepared
 from prepare import K6
 from report import build_report
-from sql_delta import summarize
 
 
 def plan(args):
@@ -21,13 +20,9 @@ def plan(args):
     if not 0 < args.rps <= config['max_rps'] or not re.fullmatch(r'[A-Za-z0-9_-]+', args.group):
         raise ValueError('组名或请求率无效')
     value = {**config, 'rps': args.rps, 'group': args.group, 'route_set': args.route_set,
-            'measurement_seconds': args.measurement_seconds, 'diagnostics': not args.light,
-            'profile_role': args.profile_role,
+            'measurement_seconds': args.measurement_seconds,
             'expected_business_requests': round(args.rps * (config['warmup_seconds'] + args.measurement_seconds)),
             'config_sha256': sha256(ROOT / 'perflab/k6/test4.json')}
-    value['profile_sampling'] = {name: int(os.environ.get(name, '0')) for name in ('PERFLAB_BLOCK_RATE', 'PERFLAB_MUTEX_FRACTION')}
-    if any(rate < 0 or rate > 2**63 - 1 for rate in value['profile_sampling'].values()):
-        raise ValueError('剖析采样率必须为非负的有符号 64 位整数')
     result = subprocess.run(['node', str(ROOT / 'perflab/k6/test4-plan.mjs')], input=json.dumps(value), text=True, capture_output=True, cwd=ROOT)
     if result.returncode:
         raise ValueError('完整请求序列或语料验证失败：' + result.stderr)
@@ -91,20 +86,25 @@ def recovery(directory, seconds):
                 sample['business_ok'] = all(sample[name] == value for name, value in [('login', 200), ('read', 200), ('write', 201), ('read_created', 200), ('delete', 204)])
             except Exception as error:
                 sample['business_ok'] = False; sample['error'] = str(error)
-            critical = directory / 'critical-latest.json'
+            critical = directory / 'database-state-latest.json'
             if critical.exists():
                 value = json.loads(critical.read_text())
                 sample['critical_sample_at'] = value['timestamp']
-                sample['backlog'] = rows(value, 'backlog')
+                sample['backlog'] = value.get('backlog', [])
+                stamp = datetime.fromisoformat(value['timestamp'].replace('Z', '+00:00')).timestamp()
+                sample['environment_fresh'] = 0 <= time.time() - stamp <= 8
             try:
                 sample['guard'] = guard(directory)
             except (OSError, ValueError, RuntimeError) as error:
                 sample['observation_error'] = str(error)
             output.write(json.dumps(sample) + '\n'); output.flush(); last = sample
             time.sleep(min(10, max(0, seconds - (time.monotonic() - began))))
+    backlog = last.get('backlog', [])
+    drained = bool(backlog) and all(int(item['open_requirements']) == 0 and int(item['parked_messages']) == 0 for item in backlog)
+    passed = last.get('business_ok', False) and last.get('environment_fresh', False) and drained
     value = {'observation_seconds': time.monotonic() - began, 'last_business_ok': last.get('business_ok', False),
-             'last_backlog': last.get('backlog'), 'status': 'observed',
-             'acceptance': '须结合 probe.jsonl、资源基线、异步结果、队列和写入样本按方案验收'}
+             'last_backlog': backlog, 'status': 'passed' if passed else 'failed',
+             'acceptance': '确认恢复末次业务检查成功，环境检查有效且全部 epoch 的积压归零'}
     atomic_json(directory / 'recovery-summary.json', value)
     return value
 
@@ -150,12 +150,6 @@ def smoke_with_retry():
 
 def execute(config):
     prepared = verify_prepared()
-    os.environ.pop('GOPULSE_PERFLAB_PROFILE_ROLE', None)
-    os.environ.pop('PERFLAB_PPROF_ADDR', None)
-    if config['profile_role']:
-        os.environ['GOPULSE_PERFLAB_PROFILE_ROLE'] = config['profile_role']
-        port = {'server': 19201, 'worker': 19202, 'indexer': 19203}[config['profile_role']]
-        os.environ['PERFLAB_PPROF_ADDR'] = f'127.0.0.1:{port}'
     lock = (STATE / 'execution.lock').open('w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     assert_target(prepared)
@@ -170,8 +164,6 @@ def execute(config):
     smoke_with_retry()
     restore('baseline'); start_services()
     command = [sys.executable, str(ROOT / 'perflab/pt4/observe.py'), '--directory', str(directory)]
-    if not config['diagnostics']:
-        command.append('--light')
     (STATE / 'guard.json').unlink(missing_ok=True)
     observer_log = (directory / 'observer.log').open('wb')
     observer = subprocess.Popen(command, cwd=ROOT, stdout=observer_log, stderr=observer_log, start_new_session=True)
@@ -210,21 +202,8 @@ def execute(config):
         config['load_started_epoch'] = time.time()
         atomic_json(directory / 'run.json', config)
         process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=log)
-        event_handle = None; scenario_start = None; before_triggered = False
         try:
             while process.poll() is None:
-                if event_handle is None and (directory / 'events.log').exists():
-                    event_handle = (directory / 'events.log').open()
-                if event_handle:
-                    for _ in range(10000):
-                        offset = event_handle.tell(); line = event_handle.readline()
-                        if not line or not line.endswith('\n'):
-                            event_handle.seek(offset); break
-                        event = parse_event(line)
-                        if event and event.get('scenario_started_at_ms'):
-                            scenario_start = event['scenario_started_at_ms'] / 1000
-                if scenario_start and not before_triggered and time.time() >= scenario_start + config['warmup_seconds'] - 2:
-                    observer.send_signal(signal.SIGUSR1); before_triggered = True
                 try:
                     value = guard(directory)
                     if value['status'] != 'ready':
@@ -251,14 +230,9 @@ def execute(config):
                 process.kill(); process.wait()
         config['stop_requested_epoch'] = requested[0] or time.time()
         config['load_exit_code'] = process.returncode
-        if observer.poll() is None:
-            observer.send_signal(signal.SIGUSR1)
-        if event_handle:
-            event_handle.close()
         atomic_json(directory / 'run.json', config)
         log.close()
         recovery(directory, config['recovery_seconds'])
-        # 恢复完成后仍需在停止观测前取得最后一份摘要。
     finally:
         if process is not None and process.poll() is None:
             process.send_signal(signal.SIGINT)
@@ -277,9 +251,6 @@ def execute(config):
         (STATE / 'logs/observer.pid').unlink(missing_ok=True)
         lock.close()
     report = build_report(directory)
-    if (directory / 'digest.jsonl').exists():
-        summarize(directory / 'digest.jsonl', directory / 'sql-delta.json',
-                  report['measurement']['started_at_epoch'], report['measurement']['ended_at_epoch'])
     print(json.dumps({'run_id': run_id, 'directory': str(directory), 'execution': report['execution']}, ensure_ascii=False))
     return 0
 
@@ -291,8 +262,6 @@ if __name__ == '__main__':
     parser.add_argument('--rps', type=float, required=True)
     parser.add_argument('--measurement-seconds', type=int, choices=(300, 1800), default=300)
     parser.add_argument('--route-set', choices=('mixed', 'feed', 'detail', 'list', 'comments', 'user', 'write') + tuple('route-' + str(index) for index in range(22)), default='mixed')
-    parser.add_argument('--light', action='store_true')
-    parser.add_argument('--profile-role', choices=('server', 'worker', 'indexer'))
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     value = plan(args)

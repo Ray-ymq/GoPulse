@@ -16,6 +16,7 @@ import (
 
 func main() {
 	detailsOnly := flag.Bool("details", false, "每 5 秒采集数据库状态")
+	once := flag.Bool("once", false, "只执行一次检查")
 	file := flag.String("dsn-file", "", "私有 DSN 文件")
 	flag.Parse()
 	raw, err := os.ReadFile(*file)
@@ -41,6 +42,9 @@ func main() {
 	for {
 		if *detailsOnly {
 			if encoder.Encode(sampleState(ctx, cfg)) != nil {
+				return
+			}
+			if *once {
 				return
 			}
 			select {
@@ -78,6 +82,9 @@ func main() {
 		if encoder.Encode(row) != nil {
 			return
 		}
+		if *once {
+			return
+		}
 
 		select {
 		case <-ctx.Done():
@@ -88,30 +95,29 @@ func main() {
 }
 
 func sampleState(ctx context.Context, cfg *mysql.Config) map[string]any {
-	details := map[string]any{"timestamp": time.Now().UTC(), "phase": "database_state"}
+	details := map[string]any{"timestamp": time.Now().UTC(), "phase": "database_state", "ok": false}
 	detailsCtx, detailsCancel := context.WithTimeout(ctx, 2*time.Second)
 	stateDB, openErr := sql.Open("mysql", cfg.FormatDSN())
 	if openErr == nil {
 		stateDB.SetMaxOpenConns(1)
 		stateDB.SetMaxIdleConns(0)
 		queries := map[string]string{
-			"status":       "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Uptime','Connections','Aborted_clients','Aborted_connects','Innodb_row_lock_waits','Innodb_row_lock_time')",
-			"processlist":  "SELECT ID, COMMAND, TIME, STATE FROM information_schema.PROCESSLIST",
-			"transactions": "SELECT trx_state,trx_started,trx_wait_started,trx_mysql_thread_id,trx_rows_locked,trx_rows_modified FROM information_schema.INNODB_TRX",
-			"locks":        "SELECT OBJECT_SCHEMA,OBJECT_NAME,LOCK_TYPE,LOCK_MODE,LOCK_STATUS FROM performance_schema.data_locks LIMIT 200",
-			"waits":        "SELECT EVENT_NAME,COUNT_STAR,SUM_TIMER_WAIT FROM performance_schema.events_waits_summary_global_by_event_name WHERE COUNT_STAR>0 ORDER BY SUM_TIMER_WAIT DESC LIMIT 30",
-			"environment":  "SELECT data_epoch,status,mode FROM business_environment WHERE singleton=1",
-			"migration":    "SELECT version,dirty FROM schema_migrations",
-			"backlog":      "SELECT open_requirements,retained_groups,retained_bytes,parked_messages FROM business_async_budget",
+			"identity":    "SELECT @@server_uuid AS server_uuid, DATABASE() AS database_name",
+			"environment": "SELECT data_epoch,status,mode FROM business_environment WHERE singleton=1",
+			"migration":   "SELECT version,dirty FROM schema_migrations",
+			"backlog":     "SELECT open_requirements,retained_groups,retained_bytes,parked_messages FROM business_async_budget",
 		}
+		complete := true
 		for name, query := range queries {
 			values, queryErr := queryRows(detailsCtx, stateDB, query)
 			if queryErr != nil {
+				complete = false
 				details[name+"_error"] = redactError(queryErr, cfg)
 			} else {
 				details[name] = values
 			}
 		}
+		details["ok"] = complete
 		_ = stateDB.Close()
 	} else {
 		details["error"] = redactError(openErr, cfg)
