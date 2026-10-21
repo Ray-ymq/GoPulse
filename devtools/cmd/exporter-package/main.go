@@ -134,7 +134,7 @@ func run(args []string) error {
 		binary = new(string)
 		*binary = filepath.Join(os.TempDir(), fmt.Sprintf("gopulse-%s-exporter-%d", *source, time.Now().UnixNano()))
 		defer os.Remove(*binary)
-		command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", *binary, "./cmd/"+*source+"-exporter")
+		command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", *binary, ".")
 		command.Dir = module
 		command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+*arch)
 		command.Stdout, command.Stderr = os.Stderr, os.Stderr

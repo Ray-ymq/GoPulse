@@ -1,0 +1,263 @@
+package config
+
+import (
+	"fmt"
+
+	"net"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	defaultHTTPHost        = "127.0.0.1"
+	defaultHTTPPort        = 9121
+	defaultScrapeTimeout   = 2 * time.Second
+	defaultShutdownTimeout = 5 * time.Second
+)
+
+type RuntimeMode string
+
+const (
+	RuntimeModeHost      RuntimeMode = "host"
+	RuntimeModeContainer RuntimeMode = "container"
+)
+
+type Config struct {
+	RuntimeMode     RuntimeMode
+	RedisHost       string
+	RedisPort       int
+	RedisPassword   string
+	RedisDB         int
+	HTTPHost        string
+	HTTPPort        int
+	ConnectTimeout  time.Duration
+	ScrapeTimeout   time.Duration
+	ShutdownTimeout time.Duration
+}
+
+func Load() (Config, error) { return load(os.Getenv) }
+
+func load(get func(string) string) (Config, error) {
+	if err := validateEnvironment(get); err != nil {
+		return Config{}, fieldError(strings.TrimPrefix(err.Error(), "invalid_configuration: "), "invalid_configuration")
+	}
+
+	var cfg Config
+	var err error
+
+	cfg.RuntimeMode, err = runtimeMode(get)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RedisHost, err = requiredHost(get, "REDIS_HOST")
+	if err != nil {
+		return Config{}, err
+	}
+	if err = validateDependencyHost(cfg.RuntimeMode, "REDIS_HOST", cfg.RedisHost); err != nil {
+		return Config{}, err
+	}
+	cfg.RedisPort, err = requiredPort(get, "REDIS_PORT")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RedisPassword = get("REDIS_PASSWORD")
+	if len(cfg.RedisPassword) == 0 || len(cfg.RedisPassword) > 256 || strings.ContainsAny(cfg.RedisPassword, "\x00\r\n") {
+		return Config{}, fieldError("REDIS_PASSWORD", "invalid_configuration")
+	}
+	cfg.RedisDB, err = requiredNonNegativeInt(get, "REDIS_DB")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.HTTPHost, err = optionalHost(get, "REDIS_EXPORTER_HTTP_HOST", defaultHTTPHost)
+	if err != nil {
+		return Config{}, err
+	}
+	if err = validateListenHost(cfg.RuntimeMode, "REDIS_EXPORTER_HTTP_HOST", cfg.HTTPHost); err != nil {
+		return Config{}, err
+	}
+	cfg.HTTPPort, err = optionalPort(get, "REDIS_EXPORTER_HTTP_PORT", defaultHTTPPort)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ScrapeTimeout, err = boundedDuration(get, "REDIS_EXPORTER_SCRAPE_TIMEOUT", defaultScrapeTimeout, 100*time.Millisecond, 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	// Preserve the v1 default when the independent v2 dial budget is omitted.
+	cfg.ConnectTimeout, err = boundedDuration(get, "REDIS_EXPORTER_CONNECT_TIMEOUT", cfg.ScrapeTimeout, 100*time.Millisecond, cfg.ScrapeTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ShutdownTimeout, err = boundedDuration(get, "REDIS_EXPORTER_SHUTDOWN_TIMEOUT", defaultShutdownTimeout, time.Second, 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func runtimeMode(get func(string) string) (RuntimeMode, error) {
+	mode := RuntimeMode(strings.ToLower(strings.TrimSpace(get("GOPULSE_RUNTIME_MODE"))))
+	if mode == "" {
+		mode = RuntimeModeHost
+	}
+	if mode != RuntimeModeHost && mode != RuntimeModeContainer {
+		return "", fieldError("GOPULSE_RUNTIME_MODE", "must be host or container")
+	}
+	return mode, nil
+}
+
+func validateDependencyHost(mode RuntimeMode, name, host string) error {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if mode == RuntimeModeHost {
+		if host == "localhost" || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()) {
+			return nil
+		}
+		return fieldError(name, "must use a loopback host in host mode")
+	}
+	if host == "localhost" || host == "host.docker.internal" || net.ParseIP(host) != nil || !validHostname(host) {
+		return fieldError(name, "must use a service DNS name in container mode")
+	}
+	return nil
+}
+
+func validateListenHost(mode RuntimeMode, name, host string) error {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fieldError(name, "must be an IP address")
+	}
+	if mode == RuntimeModeHost && !ip.IsLoopback() {
+		return fieldError(name, "must use a loopback IP address in host mode")
+	}
+	if mode == RuntimeModeContainer && !ip.IsLoopback() && !ip.IsUnspecified() {
+		return fieldError(name, "must use a loopback or unspecified IP address in container mode")
+	}
+	return nil
+}
+
+func (c Config) RedisAddress() string {
+	return net.JoinHostPort(c.RedisHost, strconv.Itoa(c.RedisPort))
+}
+func (c Config) HTTPAddress() string { return net.JoinHostPort(c.HTTPHost, strconv.Itoa(c.HTTPPort)) }
+
+func requiredHost(get func(string) string, name string) (string, error) {
+	return validateHost(name, get(name))
+}
+func optionalHost(get func(string) string, name, fallback string) (string, error) {
+	value := get(name)
+	if value == "" {
+		value = fallback
+	}
+	return validateHost(name, value)
+}
+func validateHost(name, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fieldError(name, "required")
+	}
+	if strings.ContainsAny(value, "\x00\r\n") {
+		return "", fieldError(name, "invalid")
+	}
+
+	if strings.ContainsAny(value, "[]") {
+		if len(value) < 3 || value[0] != '[' || value[len(value)-1] != ']' || strings.ContainsAny(value[1:len(value)-1], "[]") {
+			return "", fieldError(name, "invalid")
+		}
+		inner := value[1 : len(value)-1]
+		ip := net.ParseIP(inner)
+		if ip == nil || ip.To4() != nil {
+			return "", fieldError(name, "invalid")
+		}
+		return inner, nil
+	}
+
+	if net.ParseIP(value) != nil {
+		return value, nil
+	}
+	if !validHostname(value) {
+		return "", fieldError(name, "invalid")
+	}
+	return value, nil
+}
+
+func validHostname(value string) bool {
+	if len(value) > 253 {
+		return false
+	}
+	value = strings.TrimSuffix(value, ".")
+	if value == "" {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+				(character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func requiredPort(get func(string) string, name string) (int, error) {
+	return parsePort(name, get(name))
+}
+func optionalPort(get func(string) string, name string, fallback int) (int, error) {
+	value := get(name)
+	if value == "" {
+		return fallback, nil
+	}
+	return parsePort(name, value)
+}
+func parsePort(name, value string) (int, error) {
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fieldError(name, "invalid")
+	}
+	return port, nil
+}
+func requiredNonNegativeInt(get func(string) string, name string) (int, error) {
+	value := get(name)
+	parsed, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || parsed < 0 {
+		return 0, fieldError(name, "invalid")
+	}
+	return int(parsed), nil
+}
+func boundedDuration(get func(string) string, name string, fallback, min, max time.Duration) (time.Duration, error) {
+	value := get(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed < min || parsed > max {
+		return 0, fieldError(name, "invalid")
+	}
+	return parsed, nil
+}
+func fieldError(field, reason string) error {
+	return fmt.Errorf("configuration field %s: %s", field, reason)
+}
+
+func Field(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	const prefix = "configuration field "
+	if !strings.HasPrefix(message, prefix) {
+		return "unknown"
+	}
+	rest := strings.TrimPrefix(message, prefix)
+	field, _, ok := strings.Cut(rest, ":")
+	if !ok || field == "" {
+		return "unknown"
+	}
+	return field
+}
+
+func (c Config) Redacted() Config { c.RedisPassword = "<redacted>"; return c }

@@ -2,6 +2,8 @@
 # The root Makefile dispatches here as: make <target> MODULE=exporters/victoriametrics
 
 GO ?= go
+VERSION ?= $(shell cat VERSION)
+ARCH ?= amd64
 
 include ../../make/go-lint.mk
 
@@ -18,4 +20,8 @@ check:
 	$(GO) vet ./...
 
 build:
-	$(GO) build ./...
+	$(GO) build -trimpath -ldflags '-X github.com/Ray-ymq/GoPulse/exporters/victoriametrics/common.Version=$(VERSION)' -o build/gopulse-victoriametrics-exporter .
+
+.PHONY: package
+package:
+	$(MAKE) -C ../.. package-plugin SOURCE=victoriametrics VERSION=$(VERSION) ARCH=$(ARCH)

@@ -10,7 +10,7 @@ DEVENV := $(MAKE) --no-print-directory -C devtools build && ./devtools/bin/deven
 GO_MODULES := backend runtimekit marshaller monitor perflab \
               exporters/elasticsearch exporters/kafka exporters/mysql \
               exporters/rabbitmq exporters/redis exporters/victoriametrics \
-              devtools std_exporter
+              devtools exporters/std_exporter
 NPM_MODULES := frontend/user frontend/admin
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 

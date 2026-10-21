@@ -214,7 +214,7 @@ func stageEntrypoint(opts options, destination string) error {
 	if err != nil {
 		return err
 	}
-	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", destination, "./cmd/"+opts.source+"-exporter")
+	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", destination, ".")
 	command.Dir = filepath.Join(root, "exporters", opts.source)
 	command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+opts.arch)
 	command.Stdout, command.Stderr = os.Stderr, os.Stderr

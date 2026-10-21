@@ -2749,8 +2749,8 @@
         "stop_grace_seconds": 10
       },
       "module": "exporters/redis",
-      "entrypoint": "exporters/redis/cmd/redis-exporter/main.go",
-      "configuration": "exporters/redis/internal/config",
+      "entrypoint": "exporters/redis/main.go",
+      "configuration": "exporters/redis/config",
       "compose_service": null,
       "plugin_id": "redis-exporter",
       "environment": [
@@ -2911,8 +2911,8 @@
         "stop_grace_seconds": 10
       },
       "module": "exporters/mysql",
-      "entrypoint": "exporters/mysql/cmd/mysql-exporter/main.go",
-      "configuration": "exporters/mysql/internal/runtime",
+      "entrypoint": "exporters/mysql/main.go",
+      "configuration": "exporters/mysql/config",
       "compose_service": null,
       "plugin_id": "mysql-exporter",
       "environment": [
@@ -3082,8 +3082,8 @@
         "stop_grace_seconds": 10
       },
       "module": "exporters/rabbitmq",
-      "entrypoint": "exporters/rabbitmq/cmd/rabbitmq-exporter/main.go",
-      "configuration": "exporters/rabbitmq/internal/runtime",
+      "entrypoint": "exporters/rabbitmq/main.go",
+      "configuration": "exporters/rabbitmq/config",
       "compose_service": null,
       "plugin_id": "rabbitmq-exporter",
       "environment": [
@@ -3253,8 +3253,8 @@
         "stop_grace_seconds": 10
       },
       "module": "exporters/kafka",
-      "entrypoint": "exporters/kafka/cmd/kafka-exporter/main.go",
-      "configuration": "exporters/kafka/internal/runtime",
+      "entrypoint": "exporters/kafka/main.go",
+      "configuration": "exporters/kafka/config",
       "compose_service": null,
       "plugin_id": "kafka-exporter",
       "environment": [
@@ -3424,8 +3424,8 @@
         "stop_grace_seconds": 10
       },
       "module": "exporters/elasticsearch",
-      "entrypoint": "exporters/elasticsearch/cmd/elasticsearch-exporter/main.go",
-      "configuration": "exporters/elasticsearch/internal/runtime",
+      "entrypoint": "exporters/elasticsearch/main.go",
+      "configuration": "exporters/elasticsearch/config",
       "compose_service": null,
       "plugin_id": "elasticsearch-exporter",
       "environment": [
@@ -3586,8 +3586,8 @@
         "stop_grace_seconds": 10
       },
       "module": "exporters/victoriametrics",
-      "entrypoint": "exporters/victoriametrics/cmd/victoriametrics-exporter/main.go",
-      "configuration": "exporters/victoriametrics/internal/runtime",
+      "entrypoint": "exporters/victoriametrics/main.go",
+      "configuration": "exporters/victoriametrics/config",
       "compose_service": null,
       "plugin_id": "victoriametrics-exporter",
       "environment": [
