@@ -501,7 +501,7 @@ services:
       GOPULSE_INSTANCE_ID: search-indexer-2
 
   frontend:
-    cpus: 0.125
+    cpus: 0.13
     mem_limit: 128m
     memswap_limit: 128m
     image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:latest}
@@ -536,7 +536,7 @@ services:
       retries: 20
 
   admin-frontend:
-    cpus: 0.125
+    cpus: 0.12
     mem_limit: 128m
     memswap_limit: 128m
     image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:latest}
