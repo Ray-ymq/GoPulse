@@ -18,7 +18,7 @@ def parse_metrics(body):
     return result
 
 
-def summarize_source(samples, begin, end):
+def summarize_source(samples, begin, end, *, allow_closing_disappearance=None):
     before = [item for item in samples if item[0] <= begin]
     after = [item for item in samples if item[0] >= end]
     if not before or not after:
@@ -46,6 +46,7 @@ def summarize_source(samples, begin, end):
                     reasons.add('required_instrumentation_disabled')
     result = []
     partial = []
+    omitted = []
     for key, observations in sorted(series.items()):
         item = observations[-1][1]
         row = {name: item[name] for name in ('name', 'labels', 'kind')}
@@ -53,6 +54,14 @@ def summarize_source(samples, begin, end):
         if item['kind'] == 'counter':
             if any(current < previous for previous, current in zip(values, values[1:])):
                 reasons.add('counter_reset')
+                continue
+            if (key in first[1] and key not in last[1] and last[0] > end
+                    and [stamp for stamp, _ in observations] == [stamp for stamp, _ in window[:-1]]
+                    and allow_closing_disappearance and allow_closing_disappearance(item, last[1])):
+                # 由调用方确认短期设备已消失。省略该序列，不补零或伪造完整窗口增量。
+                omitted.append({'name': item['name'], 'labels': item['labels'],
+                                'reason': 'device_absent_at_closing_boundary',
+                                'last_seen_epoch': observations[-1][0], 'closing_epoch': last[0]})
                 continue
             if key not in first[1]:
                 # 仅在收尾边界样本才出现的计数序列属于窗口外的事件（例如恢复期
@@ -90,7 +99,7 @@ def summarize_source(samples, begin, end):
     return {'valid': not reasons, 'reasons': sorted(reasons), 'samples': len(window),
             'started_at_epoch': first[0], 'ended_at_epoch': last[0],
             'boundary_extra_seconds': {'before': begin - first[0], 'after': last[0] - end},
-            'partial_series': partial, 'series': result}
+            'partial_series': partial, 'omitted_series': omitted, 'series': result}
 
 
 def _series(metrics):

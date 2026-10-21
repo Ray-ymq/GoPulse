@@ -160,6 +160,7 @@ def stage(prepared, directory, target, offset):
         result['reasons'] = [reason for reason in result['reasons'] if reason != 'achieved_rps_below_95_percent']
         if 'measurement_incomplete' not in result['reasons']:
             result['reasons'].append('measurement_incomplete')
+    result['load_passed'] = result['passed']
     if interrupted:
         result['passed'] = False
         result['reasons'].append(interrupted)
@@ -196,16 +197,27 @@ def observe_recovery(directory, preparation):
     start = time.time()
     sampler.start()
     try:
+        ready_deadline = time.monotonic() + 8
+        while not sampler.samples:
+            assert not sampler.error and not diagnostics.error, '恢复期首次诊断采样失败'
+            assert time.monotonic() < ready_deadline, '恢复期首次资源采样超时'
+            time.sleep(.05)
+        start = time.time()
         deadline = time.monotonic() + 600
         while time.monotonic() < deadline and not sampler.error and not diagnostics.error and not (STATE / 'STOP').exists():
             time.sleep(.5)
     finally:
+        # 开始边界位于首样本之后，结束边界位于末次采样之前。
+        end = time.time()
+        close_error = None
         try:
             diagnostics.trigger('recovery_end')
+        except Exception as error:
+            close_error = str(error)
+        try:
             sampler.close()
-        except Exception:
-            pass
-        end = time.time()
+        except Exception as error:
+            close_error = close_error or str(error)
         diagnostics.close()
         capture_logs(output, utc_from_epoch(start))
         try:
@@ -213,7 +225,8 @@ def observe_recovery(directory, preparation):
         except Exception as error:
             summary = {'status': 'incomplete', 'reasons': [type(error).__name__]}
         write_json(directory / 'recovery-result.json', {'finished_at': utc(),
-                   'samples': sampler.samples, 'collection_error': sampler.error or diagnostics.error,
+                   'samples': sampler.samples, 'observation_seconds': max(0, end - start),
+                   'collection_error': sampler.error or diagnostics.error or close_error,
                    'diagnostics': summary})
 
 
@@ -256,7 +269,7 @@ def main():
     output.mkdir()
     prepared.update(ready=False, phase='load_started', run_directory=str(output))
     write_json(STATE / 'prepared.json', prepared)
-    report = {'started_at': utc(), 'directory': str(output), 'stages': [], 'last_passed_rps': None,
+    report = {'started_at': utc(), 'directory': str(output), 'stages': [], 'last_passed_rps': None, 'load_passed_rps': None,
               'preparation': prepared['directory'], 'source_sha256': prepared['source_sha256']}
     target, offset = 250, 0
     try:
@@ -264,8 +277,11 @@ def main():
             print(f'PT6: {target} RPS', flush=True)
             result = stage(prepared, output, target, offset)
             report['stages'].append(result)
+            if result['load_passed']:
+                report['load_passed_rps'] = target
             if not result['passed']:
-                report.update(failed_rps=target, stopped_at=utc(), reasons=result['reasons'])
+                report.update(stopped_rps=target, failed_rps=None if result['load_passed'] else target,
+                              stopped_at=utc(), reasons=result['reasons'])
                 break
             report['last_passed_rps'] = target
             offset += result['started']
@@ -279,6 +295,7 @@ def main():
         prepared.update(phase='load_stopped', stopped_at=utc())
         write_json(STATE / 'prepared.json', prepared)
         print(json.dumps({'report': str(output / 'report.json'), 'failed_rps': report.get('failed_rps'),
+                          'stopped_rps': report.get('stopped_rps'), 'load_passed_rps': report['load_passed_rps'],
                           'last_passed_rps': report['last_passed_rps'],
                           'first_failure': report['stages'][-1].get('first_failure') if report['stages'] else None,
                           'reasons': report.get('reasons', [report.get('error')])}, ensure_ascii=False), flush=True)

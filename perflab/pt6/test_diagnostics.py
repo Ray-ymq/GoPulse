@@ -13,7 +13,8 @@ from unittest.mock import patch
 from common import QUOTAS
 from diagnose import Diagnostics, check_metrics
 import diagnose
-from report import summarize
+from report import summarize, removed_veth
+from diagnostics.metrics import parse_metrics, summarize_source
 import prepare
 import run
 
@@ -168,7 +169,93 @@ class DiagnosticReportTest(unittest.TestCase):
             check_metrics('# TYPE gopulse_mysql_up gauge\ngopulse_mysql_up 0\n')
 
 
+class NodeClosingBoundaryTest(unittest.TestCase):
+    def snapshot(self, stamp, device='vethabc123', present=True, packets=False):
+        body = counter('host_total', stamp)
+        if present:
+            body += counter('node_network_receive_bytes_total', stamp * 10, '{device="' + device + '"}')
+        if packets:
+            body += counter('node_network_receive_packets_total', stamp, '{device="' + device + '"}')
+        return stamp, parse_metrics(body)
+
+    def test_veth_removed_only_at_closing_boundary_is_omitted(self):
+        samples = [self.snapshot(0), self.snapshot(5), self.snapshot(10, present=False)]
+        result = summarize_source(samples, 1, 9, allow_closing_disappearance=removed_veth)
+        self.assertTrue(result['valid'], result)
+        self.assertEqual(len(result['omitted_series']), 1)
+        self.assertEqual(result['omitted_series'][0]['labels']['device'], 'vethabc123')
+        self.assertNotIn('node_network_receive_bytes_total', [item['name'] for item in result['series']])
+        self.assertIn('counter_series_missing', summarize_source(samples, 1, 9)['reasons'])
+
+    def test_interior_gaps_stable_devices_and_partial_scrapes_still_fail(self):
+        cases = [
+            [self.snapshot(0), self.snapshot(5, present=False), self.snapshot(10), self.snapshot(15, present=False)],
+            [self.snapshot(0, device='eth0'), self.snapshot(5, device='eth0'), self.snapshot(10, present=False)],
+            [self.snapshot(0, packets=True), self.snapshot(5, packets=True), self.snapshot(10, present=False, packets=True)],
+        ]
+        for samples in cases:
+            with self.subTest(samples=len(samples)):
+                result = summarize_source(samples, 1, samples[-1][0] - 1, allow_closing_disappearance=removed_veth)
+                self.assertFalse(result['valid'])
+                self.assertIn('counter_series_missing', result['reasons'])
+
+
 class IncidentLifecycleTest(unittest.TestCase):
+    def test_recovery_window_has_initial_and_final_samples(self):
+        with tempfile.TemporaryDirectory() as temp:
+            clock = [100.0]
+            epochs = []
+            sampler = SimpleNamespace(samples=0, error=None)
+            def start():
+                epochs.append(clock[0])
+                sampler.samples = 1
+            def close():
+                clock[0] += .2
+                epochs.append(clock[0])
+                sampler.samples += 1
+            sampler.start, sampler.close = start, close
+            active = SimpleNamespace(error=None, trigger=lambda _: None, close=lambda: None)
+            def summary(directory, begin, end):
+                self.assertLessEqual(epochs[0], begin)
+                self.assertGreaterEqual(epochs[-1], end)
+                self.assertEqual(end - begin, 600)
+                return {'status': 'complete'}
+            with patch.object(run, 'STATE', Path(temp)), \
+                 patch.object(run, 'Diagnostics', return_value=SimpleNamespace(start=lambda: active)), \
+                 patch.object(run, 'Sampler', return_value=sampler), \
+                 patch.object(run.time, 'time', side_effect=lambda: clock[0]), \
+                 patch.object(run.time, 'monotonic', side_effect=lambda: clock[0]), \
+                 patch.object(run.time, 'sleep', side_effect=lambda _: clock.__setitem__(0, clock[0] + 600)), \
+                 patch.object(run, 'capture_logs'), \
+                 patch.object(run, 'summarize', side_effect=summary):
+                run.observe_recovery(Path(temp), temp)
+            result = json.loads((Path(temp) / 'recovery-result.json').read_text())
+            self.assertEqual(result['observation_seconds'], 600)
+            self.assertIsNone(result['collection_error'])
+            self.assertEqual(result['diagnostics']['status'], 'complete')
+
+    def test_diagnostic_stop_is_not_reported_as_business_failed_rps(self):
+        with tempfile.TemporaryDirectory() as temp:
+            locks = []
+            prepared = {'directory': temp, 'containers': {}, 'source_sha256': {}}
+            result = {'passed': False, 'load_passed': True, 'reasons': ['diagnostics_incomplete']}
+            with patch.object(run, 'STATE', Path(temp)), \
+                 patch.object(run, 'verify_prepared', return_value=prepared), \
+                 patch.object(run, 'check_host'), patch.object(run, 'check_quotas', return_value={}), \
+                 patch.object(run, 'drained'), patch.object(run, 'observe_recovery'), \
+                 patch.object(run, 'stage', return_value=result) as stage, \
+                 patch.object(run.fcntl, 'flock', side_effect=lambda stream, _: locks.append(stream)), \
+                 patch('builtins.print'), patch('sys.argv', ['run.py']):
+                run.main()
+            for stream in locks:
+                stream.close()
+            stage.assert_called_once()
+            report = json.loads(next(Path(temp).glob('run-*/report.json')).read_text())
+            self.assertIsNone(report['failed_rps'])
+            self.assertIsNone(report['last_passed_rps'])
+            self.assertEqual(report['load_passed_rps'], 250)
+            self.assertEqual(report['stopped_rps'], 250)
+
     def test_diagnostic_failure_stops_running_load(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)

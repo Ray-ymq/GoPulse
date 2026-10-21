@@ -1,6 +1,7 @@
 """离线汇总 PT6 的窗口指标、资源、锁现场和 COMMIT；不连接业务服务。"""
 import json
 from pathlib import Path
+import re
 import sys
 
 from common import ROOT, QUOTAS, write_json
@@ -17,6 +18,13 @@ def records(path):
     with Path(path).open() as source:
         for line in source:
             yield json.loads(line)
+
+
+def removed_veth(item, closing_metrics):
+    device = item['labels'].get('device', '')
+    return (item['name'].startswith('node_network_') and re.fullmatch(r'veth[0-9a-f]+', device) is not None
+            and not any(current['name'].startswith('node_network_') and current['labels'].get('device') == device
+                        for current in closing_metrics.values()))
 
 
 def indicators(sources):
@@ -77,7 +85,8 @@ def summarize(directory, begin, end):
         samples[name] = [(row['epoch'], parse_metrics(row['application_metrics'][name]))
                          for row in resource_rows if name in row['application_metrics']]
     for name, rows in samples.items():
-        sources[name] = summarize_source(sorted(rows, key=lambda item: item[0]), begin, end)
+        sources[name] = summarize_source(sorted(rows, key=lambda item: item[0]), begin, end,
+                                        allow_closing_disappearance=removed_veth if name == 'node' else None)
     resources = {}
     for name, (cpus, mib) in QUOTAS.items():
         rows = [dict(row['containers'][name], epoch=row['epoch'], timestamp=row['timestamp'],
@@ -111,6 +120,7 @@ def summarize(directory, begin, end):
              'reasons': sorted(reasons), 'window': {'begin_epoch': begin, 'end_epoch': end},
              'sources': sources, 'resources': resources, 'scene': scenes, 'indicators': indicators(sources),
              'limits': ['汇总边界最多向前后各扩展 10 秒，实际扩展量见各 source。',
+                        '仅在末次边界样本消失的 veth 计数序列列入 omitted_series，不计算完整窗口增量。窗口内缺样仍使证据不完整。',
                         '现场查询依次执行，不构成数据库原子快照；200ms 采样可能遗漏更短事件。',
                         '历史缓冲区和每次 128 行输出均有上限；SQL 文本最多保留 2048 个字符。',
                         'file_io misc 包含其他文件操作，不能直接等同于 fsync。',
