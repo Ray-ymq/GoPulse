@@ -189,3 +189,20 @@ stack-down:
 stack-verify:
 	@$(DEVENV) stack-verify
 
+
+START_RPS ?= 10
+.PHONY: pt pt-prepare pt-plan pt-check pt-status pt-stop pt-report
+pt:
+	@PYTHONPATH=perflab python3 -m flow run --start-rps "$(START_RPS)"
+pt-prepare:
+	@PYTHONPATH=perflab python3 -m flow prepare
+pt-plan:
+	@PYTHONPATH=perflab python3 -m flow plan --start-rps "$(START_RPS)"
+pt-check:
+	@PYTHONPATH=perflab python3 -m flow check
+pt-status:
+	@PYTHONPATH=perflab python3 -m flow status
+pt-stop:
+	@PYTHONPATH=perflab python3 -m flow stop
+pt-report:
+	@PYTHONPATH=perflab python3 -m flow report $(if $(RUN),--run "$(RUN)",)
