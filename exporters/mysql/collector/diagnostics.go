@@ -38,7 +38,7 @@ var diagnosticQueries = []diagnosticQuery{
 	{"redo_capacity", RedoCapacityQuery, nil, []diagnosticMetric{gauge("redo_log_capacity_bytes")}, 0},
 	{"buffer_pool", `SELECT @@GLOBAL.innodb_buffer_pool_size, (SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME='Innodb_buffer_pool_wait_free')`, nil, []diagnosticMetric{gauge("buffer_pool_capacity_bytes"), counter("buffer_pool_wait_free_total")}, 0},
 	{"lock_waits", lockWaitsQuery, []string{"schema", "table", "index"}, []diagnosticMetric{gauge("row_lock_waiting_transactions"), gauge("row_lock_blocking_transactions"), gauge("row_lock_longest_wait_seconds")}, 128},
-	{"statement_digest", `SELECT COALESCE(SCHEMA_NAME,''), COALESCE(DIGEST,''), COUNT_STAR,SUM_TIMER_WAIT,SUM_ERRORS,SUM_ROWS_EXAMINED,SUM_ROWS_SENT,SUM_CREATED_TMP_DISK_TABLES,SUM_NO_INDEX_USED FROM performance_schema.events_statements_summary_by_digest ORDER BY SUM_TIMER_WAIT DESC,SCHEMA_NAME,DIGEST LIMIT 129`, []string{"schema", "digest"}, []diagnosticMetric{counter("statement_digest_executions_total"), seconds("statement_digest_seconds_total"), counter("statement_digest_errors_total"), counter("statement_digest_rows_examined_total"), counter("statement_digest_rows_sent_total"), counter("statement_digest_temporary_disk_tables_total"), counter("statement_digest_no_index_used_total")}, 128},
+	{"statement_digest", `SELECT COALESCE(SCHEMA_NAME,''), COALESCE(DIGEST,''), COUNT_STAR,SUM_TIMER_WAIT,SUM_ERRORS,SUM_ROWS_EXAMINED,SUM_ROWS_SENT,SUM_CREATED_TMP_DISK_TABLES,SUM_NO_INDEX_USED FROM performance_schema.events_statements_summary_by_digest ORDER BY SUM_TIMER_WAIT DESC,SCHEMA_NAME,DIGEST LIMIT 513`, []string{"schema", "digest"}, []diagnosticMetric{counter("statement_digest_executions_total"), seconds("statement_digest_seconds_total"), counter("statement_digest_errors_total"), counter("statement_digest_rows_examined_total"), counter("statement_digest_rows_sent_total"), counter("statement_digest_temporary_disk_tables_total"), counter("statement_digest_no_index_used_total")}, 512},
 	{"statement_events", `SELECT EVENT_NAME,COUNT_STAR,SUM_TIMER_WAIT,SUM_ERRORS FROM performance_schema.events_statements_summary_global_by_event_name WHERE EVENT_NAME IN ('statement/com/Prepare','statement/com/Execute','statement/com/Close stmt','statement/sql/prepare_sql','statement/sql/execute_sql','statement/sql/commit','statement/com/Commit') ORDER BY EVENT_NAME`, []string{"event"}, []diagnosticMetric{counter("statement_event_executions_total"), seconds("statement_event_seconds_total"), counter("statement_event_errors_total")}, 0},
 	{"errors", `SELECT COALESCE(CAST(ERROR_NUMBER AS CHAR),'unknown'),COALESCE(ERROR_NAME,'unknown'),SUM_ERROR_RAISED FROM performance_schema.events_errors_summary_global_by_error WHERE SUM_ERROR_RAISED>0 OR ERROR_NUMBER IN (1205,1213,1317) ORDER BY (ERROR_NUMBER IN (1205,1213,1317)) DESC,SUM_ERROR_RAISED DESC,ERROR_NUMBER LIMIT 257`, []string{"code", "error"}, []diagnosticMetric{counter("errors_total")}, 256},
 	{"file_io", `SELECT CASE WHEN EVENT_NAME LIKE 'wait/io/file/sql/binlog%' THEN 'binlog' WHEN EVENT_NAME LIKE '%/innodb_log_file' THEN 'redo' WHEN EVENT_NAME LIKE '%/innodb_data_file' THEN 'data' ELSE 'other' END,EVENT_NAME,COUNT_READ,SUM_TIMER_READ,SUM_NUMBER_OF_BYTES_READ,COUNT_WRITE,SUM_TIMER_WRITE,SUM_NUMBER_OF_BYTES_WRITE,COUNT_MISC,SUM_TIMER_MISC FROM performance_schema.file_summary_by_event_name WHERE (EVENT_NAME LIKE 'wait/io/file/innodb/%' OR EVENT_NAME LIKE 'wait/io/file/sql/binlog%') AND COUNT_STAR>0 ORDER BY SUM_TIMER_WAIT DESC,EVENT_NAME LIMIT 65`, []string{"file_type", "event"}, []diagnosticMetric{counter("file_reads_total"), seconds("file_read_seconds_total"), counter("file_read_bytes_total"), counter("file_writes_total"), seconds("file_write_seconds_total"), counter("file_write_bytes_total"), counter("file_misc_operations_total"), seconds("file_misc_seconds_total")}, 64},
@@ -128,12 +128,16 @@ func collectDiagnostic(ctx context.Context, db *sql.DB, q diagnosticQuery) (stri
 	var out strings.Builder
 	count := 0
 	truncated := false
+	byteLimit := 64 << 10
+	if q.name == "statement_digest" {
+		byteLimit = 768 << 10
+	}
 	totals := make([]float64, 5)
 	states := map[string]bool{}
 	seen := map[string]bool{}
 	for rows.Next() {
 		count++
-		if q.limit > 0 && (count > q.limit || out.Len() >= 64<<10) {
+		if q.limit > 0 && (count > q.limit || out.Len() >= byteLimit) {
 			truncated = true
 			continue
 		}

@@ -152,6 +152,32 @@ func TestDigestScalingEscapingAndTruncation(t *testing.T) {
 		t.Fatal(out.Body.String())
 	}
 }
+
+func TestDigestCoverageAndBounds(t *testing.T) {
+	q := queryNamed("statement_digest")
+	values := make([][]driver.Value, 513)
+	for i := range values {
+		digest := strings.Repeat("0", 64-len(strconv.Itoa(i))) + strconv.Itoa(i)
+		values[i] = []driver.Value{"gopulse_pt", digest, "3", "2500000000000", "1", "6", "2", "4", "5"}
+	}
+	for _, count := range []int{300, 512, 513} {
+		body, cut, err := collectDiagnostic(t.Context(), testDB(t, diagnosticConnector{columns: 9, values: values[:count]}), q)
+		if err != nil || cut != (count > 512) || strings.Count(body, "\ngopulse_mysql_statement_digest_executions_total{") != min(count, 512) {
+			t.Fatalf("digest 覆盖或组数上限不符：count=%d cut=%v err=%v", count, cut, err)
+		}
+		if len(body) >= maxBodyBytes {
+			t.Fatal("常规 digest 标签超出响应上限")
+		}
+	}
+	for i := range values {
+		values[i][0] = strings.Repeat("s", 256)
+		values[i][1] = strings.Repeat("d", 250) + strconv.Itoa(i)
+	}
+	body, cut, err := collectDiagnostic(t.Context(), testDB(t, diagnosticConnector{columns: 9, values: values}), q)
+	if err != nil || !cut || len(body) > (768<<10)+(8<<10) {
+		t.Fatalf("digest 字节上限不符：bytes=%d cut=%v err=%v", len(body), cut, err)
+	}
+}
 func TestCollectorFailureCountRecoveryAndDisabled(t *testing.T) {
 	c := &Client{DB: testDB(t, diagnosticConnector{queryError: true}), collectors: "digest_lost"}
 	for i := 1; i <= 2; i++ {
