@@ -10,6 +10,7 @@
 | 实际采集进程 | 临时 cgroup/proc fixture、container-exporter 和标准 MySQL exporter 启停 | 通过；不访问业务数据库 |
 | 历史窗口统计 | 迁移原诊断 fixture；覆盖 COMMIT、双 API 池、sync 去重、计数重置、缺样、截断及 veth 结束边界 | 通过 |
 | 静态检查与构建 | Go 格式、vet、固定版本 golangci-lint、构建；JS 语法 | 通过 |
+| 数据库迁移状态 | 独立 MySQL 验证并发迁移、锁超时、拒绝 dirty/ahead 和 v12 恢复；目标取自嵌入清单 | 通过，目标为 20；修复旧测试硬编码的 17 |
 | 真实业务隔离全流程 | 需要新部署的专用环境、语料与快照 | 未执行 |
 | 正式压测 | 实施阶段禁止自动启动 | 未执行 |
 
