@@ -1,5 +1,6 @@
 """生成专用数据，完成冒烟及显式基线恢复。"""
 from http.cookiejar import CookieJar
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -62,6 +63,7 @@ def backup(directory):
 
 
 def smoke(directory):
+    started_at = utc()
     base = 'http://127.0.0.1:18086'
     credentials = json.loads((directory / 'credentials.json').read_text())
     clients = []
@@ -93,8 +95,29 @@ def smoke(directory):
     else:
         raise RuntimeError('冒烟的异步通知或搜索索引未完成')
     request(0, 'DELETE', path, status=204)
+    replicas = smoke_api_replicas(credentials)
     drained()
-    write_json(directory / 'smoke.json', {'ok': True, 'finished_at': utc(), 'checks': ['login', 'read', 'search', 'create', 'edit', 'like', 'bookmark', 'comment', 'notification', 'index', 'delete', 'drain']})
+    write_json(directory / 'smoke.json', {'ok': True, 'started_at': started_at, 'finished_at': utc(),
+               'api_replicas': replicas, 'checks': ['login', 'read', 'search', 'create', 'edit', 'like', 'bookmark', 'comment', 'notification', 'index', 'delete', 'replicas', 'drain']})
+
+
+def smoke_api_replicas(credentials):
+    """逐实例检查业务处理能力，不依赖少量请求的代理分配结果。"""
+    rows = containers()
+    evidence = {}
+    user = credentials['users'][0]
+    for role in ('backend', 'backend-2'):
+        item = rows[role]
+        network = item['NetworkSettings']['Networks'].get(PROJECT + '_edge')
+        assert network is not None, f'{role} 缺少专用入口网络'
+        address = ipaddress.ip_address(network['IPAddress'])
+        assert address.is_private and address.version == 4, f'{role} 网络地址不是私有 IPv4'
+        base = f'http://{address}:8080'
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(CookieJar()))
+        assert http(base, 'POST', '/api/v1/auth/login', {'username': user['username'], 'password': credentials['password']}, opener)[0] == 200, f'{role} 登录失败'
+        assert http(base, 'GET', '/api/v1/posts?limit=1', opener=opener)[0] == 200, f'{role} 读取失败'
+        evidence[role] = {'container_id': item['Id'], 'login': True, 'read': True}
+    return evidence
 
 
 def restore(directory):
@@ -119,10 +142,12 @@ def restore(directory):
 
 
 def verify_replicas(directory):
+    smoke_record = json.loads((directory / 'smoke.json').read_text())
     evidence = {}
     for role in ('backend', 'backend-2', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2'):
         total = 0
-        for line in command(['docker', 'logs', f'{PROJECT}-{role}-1']).splitlines():
+        for line in command(['docker', 'logs', '--since', smoke_record['started_at'], '--until', smoke_record['finished_at'],
+                             f'{PROJECT}-{role}-1']).splitlines():
             try:
                 row = json.loads(line)
             except ValueError:
