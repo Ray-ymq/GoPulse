@@ -68,7 +68,11 @@ func (lock *Lock) Release(ctx context.Context) error {
 
 func (store *ReindexStore) HighWatermark(ctx context.Context) (uint64, error) {
 	var maximum sql.NullInt64
-	if err := store.queryer().QueryRowContext(ctx, `SELECT MAX(id) FROM (SELECT id FROM posts UNION ALL SELECT t.post_id FROM post_search_tombstones t JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch) AS facts`).Scan(&maximum); err != nil {
+	if err := store.queryer().QueryRowContext(ctx, `SELECT GREATEST(
+ COALESCE((SELECT MAX(id) FROM posts), 0),
+ COALESCE((SELECT MAX(t.post_id) FROM post_search_tombstones t
+  JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch), 0)
+)`).Scan(&maximum); err != nil {
 		return 0, fmt.Errorf("read post high watermark: %w", err)
 	}
 	if !maximum.Valid {
@@ -88,11 +92,13 @@ func (store *ReindexStore) CountUpTo(ctx context.Context, maximum uint64) (uint6
 func (store *ReindexStore) Scan(ctx context.Context, after, maximum uint64, limit int) ([]Document, error) {
 	rows, err := store.queryer().QueryContext(ctx, `
 SELECT id, title, content, created_at, updated_at, edited_at, content_revision, deleted FROM (
- SELECT id, title, content, created_at, updated_at, edited_at, content_revision, FALSE AS deleted FROM posts
+ (SELECT id, title, content, created_at, updated_at, edited_at, content_revision, FALSE AS deleted
+  FROM posts WHERE id > ? AND id <= ? ORDER BY id ASC LIMIT ?)
  UNION ALL
- SELECT t.post_id, '', '', t.deleted_at, t.deleted_at, NULL, t.content_revision, TRUE
- FROM post_search_tombstones t JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch
-) AS facts WHERE id > ? AND id <= ? ORDER BY id ASC LIMIT ?`, after, maximum, limit)
+ (SELECT t.post_id, '', '', t.deleted_at, t.deleted_at, NULL, t.content_revision, TRUE
+  FROM post_search_tombstones t JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch
+  WHERE t.post_id > ? AND t.post_id <= ? ORDER BY t.post_id ASC LIMIT ?)
+) AS facts ORDER BY id ASC LIMIT ?`, after, maximum, limit, after, maximum, limit, limit)
 	if err != nil {
 		return nil, fmt.Errorf("scan posts for reindex: %w", err)
 	}
