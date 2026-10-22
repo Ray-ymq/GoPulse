@@ -63,20 +63,34 @@ class Processes:
 
     def start(self, args, **kwargs):
         process = subprocess.Popen(args, start_new_session=True, **kwargs)
-        item = {'pid': process.pid, 'start_ticks': identity(process.pid)}
+        self.track(process, own_session=True)
+        return process
+
+    def track(self, process, own_session=False):
+        if process is None or any(child is process for child, _ in self.children):
+            return
+        item = {'pid': process.pid, 'start_ticks': identity(process.pid), 'own_session': own_session}
         self.children.append((process, item))
         write_json(self.directory / 'processes.json', [row for _, row in self.children])
-        return process
 
     def close(self):
         for process, expected in reversed(self.children):
             if process.poll() is None and expected['start_ticks'] and identity(process.pid) == expected['start_ticks']:
-                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    if expected['own_session']:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    else:
+                        process.terminate()
+                except ProcessLookupError:
+                    continue
                 try:
                     process.wait(timeout=8)
                 except subprocess.TimeoutExpired:
                     if identity(process.pid) == expected['start_ticks']:
-                        os.killpg(process.pid, signal.SIGKILL)
+                        if expected['own_session']:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        else:
+                            process.kill()
                     process.wait(timeout=5)
 
 
@@ -127,7 +141,7 @@ class Run:
 def active(root=STATE):
     pointer = json.loads((Path(root) / 'active.json').read_text())
     run_id = pointer['run_id']
-    if Path(run_id).name != run_id:
+    if Path(run_id).name != run_id or run_id in ('.', '..'):
         raise ValueError('运行编号无效')
     return Path(root) / run_id
 
@@ -139,8 +153,16 @@ def stop(root=STATE):
     try:
         with lock(Path(root)):
             processes = json.loads((directory / 'processes.json').read_text()) if (directory / 'processes.json').exists() else []
-            if any(item['start_ticks'] and identity(item['pid']) == item['start_ticks'] for item in processes):
-                raise ValueError('所属子进程仍存活，请保存现场并检查进程身份后收尾')
+            for item in reversed(processes):
+                if item['start_ticks'] and identity(item['pid']) == item['start_ticks']:
+                    try:
+                        if item.get('own_session'):
+                            os.killpg(item['pid'], signal.SIGTERM)
+                        else:
+                            os.kill(item['pid'], signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+            cleanup_containers(directory)
             state = json.loads((directory / 'state.json').read_text())
             if state['status'] != 'completed':
                 state.update(status='completed', execution_completed=False, exit_code=130,
@@ -150,3 +172,18 @@ def stop(root=STATE):
     except ValueError as error:
         if str(error) != '已有流程占用环境锁':
             raise
+
+
+def cleanup_containers(directory):
+    tasks = list((Path(directory) / 'groups').glob('*/task.json'))
+    if not tasks:
+        return
+    run_id = Path(directory).name
+    output = subprocess.check_output(['docker', 'ps', '-aq', '--filter', 'label=io.gopulse.pt.run=' + run_id], text=True, timeout=5)
+    for container_id in output.split():
+        rows = json.loads(subprocess.check_output(['docker', 'inspect', container_id], text=True, timeout=5))
+        labels = rows[0]['Config']['Labels']
+        if (labels.get('io.gopulse.pt.run') == run_id and labels.get('com.docker.compose.project') == 'gopulse-pt-business'
+                and labels.get('com.docker.compose.service') == 'k6'):
+            subprocess.run(['docker', 'stop', '--timeout', '5', container_id], check=True, capture_output=True, timeout=10)
+            subprocess.run(['docker', 'rm', '-f', container_id], check=True, capture_output=True, timeout=5)

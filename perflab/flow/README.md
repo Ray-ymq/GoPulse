@@ -32,3 +32,41 @@ Go 工具 `pt-load` 接收明确任务，负责翻倍、二分建议、业务判
 阶段固定为：环境与数据检查、观测预检、60 秒空载、10 RPS 低负载、连续翻倍、最多 8 次边界二分、异常档独立重复 3 次、正常档 100% 与 80% 各 30 分钟稳定性、全部 22 项路由、总报告。各负载组预热 30 秒，常规测量 5 分钟。连续档位不恢复数据，独立组恢复相同基线。低负载未达标时结束容量流程；没有有效边界时明确跳过。10 RPS 低负载可以作为正常下界，报告保留来源。
 
 各组分别保存执行、业务、停止、恢复、正确性、证据和资源保持结果。容量搜索中的异常档不单独导致执行失败。`make pt-report RUN=<运行编号>` 仅读取归档并生成总结果和 Markdown。退出码：0 为流程完成且必需验收通过；1 为必需业务或正确性失败；2 为参数或前提不足；3 为环境、资源或观测异常导致未完成；130 为人工中止。正确性失败后即使退出码为 1，总报告仍将后续未完成阶段保留为未完成。
+
+本地回归：
+
+```sh
+make test MODULE=perflab
+make race MODULE=perflab
+make check MODULE=perflab
+make build MODULE=perflab
+GOPULSE_PT_K6_FIXTURE=1 PYTHONPATH=perflab python3 -m unittest flow.test_k6_fixture -v
+```
+
+perflab 的 test/race 命令同时运行 Python、JavaScript 和公共配置测试，因此带 `ci:perflab` 标签的模块 CI 会执行这些检查。默认测试不访问业务库和 Docker daemon；显式 k6 fixture 只访问临时 HTTP 服务，使用固定 k6 镜像及 1.5 核 / 1.5 GiB 配额。
+
+`pt-report` 通过 Go 从归档请求事件重新计算业务窗口。重算不连接业务服务，也不启动负载。诊断原始记录和各窗口汇总保持可追溯。修改分析算法后，不能借重新生成报告补回缺失的原始证据。
+
+当前工程验证包括全阶段模拟 fixture、实际采集进程、实际 k6 与离线重算回归。真实专用业务环境的缩短全流程验收尚未完成，因此当前不具备正式压测条件。该验收须保持全部固定资源，只缩短时间和语料；不得用模拟通过代替真实环境验收。
+
+显式部署示例（配置与镜像必须先准备好）：
+
+```sh
+docker compose --project-name gopulse-pt-business \
+  --env-file .run/perflab/private/test.env \
+  -f deploy/compose.business.yaml -f .run/perflab/private/resources.json \
+  up -d --wait mysql redis rabbitmq elasticsearch
+# 使用相同前缀执行 run --rm migrate，完成迁移后执行 up -d --wait，启动业务实例。
+make pt-prepare
+make pt-plan START_RPS=250
+make pt-check
+# 真实隔离验收完成后，才执行 make pt START_RPS=250。
+```
+
+部署时须剔除宿主机与 `test.env` 同名的变量，避免 Compose 优先读取宿主机值。公共工具已经执行这一处理；手工部署后仍须用 `pt-check` 复核实际值。准备记录不完整且没有可验证基线时，工具拒绝自动重放造数步骤。
+
+真实隔离验收入口为 `make pt-acceptance`。它使用同一专用部署、全部固定资源和全部阶段，只将空载缩为 5 秒、预热缩为 1 秒、常规测量缩为 10 秒、稳定性每组缩为 15 秒、恢复上限缩为 30 秒。十秒失败窗口和全部业务要求保持不变。验收成功且 22 项接口全部归档后，工具才保存 `accepted.json`。准备仍生成正式流程所需语料。
+
+`make pt` 在正式负载前检查该验收记录。源码、工具逻辑或资源定义改变后，验收记录失效，必须重新完成真实验收。模拟 fixture 不生成该记录。本次实施没有执行 `make pt-acceptance` 或正式压测。
+
+固定 MySQL 总连接预算另计两个控制检查连接，分别供配置核验与环境 SQL 使用。它们不占用独立诊断账号的 4 个连接上限。每 5 秒资源采样同时复核 buffer pool、堆、镜像身份和应用配置指纹；采样耗时及失败原样保留，不自动放宽窗口。

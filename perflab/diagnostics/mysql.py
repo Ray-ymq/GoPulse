@@ -1,4 +1,4 @@
-"""PT4 与 PT6 共用的日志、锁和事务等待诊断对象。"""
+"""公共 PT 使用的日志、锁和事务等待诊断对象。"""
 DIAGNOSTIC_INSTRUMENTS = (
     'wait/synch/mutex/innodb/log_checkpointer_mutex',
     'wait/synch/mutex/innodb/log_closer_mutex',

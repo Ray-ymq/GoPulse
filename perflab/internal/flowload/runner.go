@@ -40,7 +40,9 @@ func safety(path string) (Safety, error) {
 
 func ownedStop(t Task, name string) {
 	// 先核对运行标签，再按容器 ID 停止，避免误停同名容器。
-	b, err := exec.Command("docker", "inspect", name).Output()
+	inspectContext, stopInspect := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopInspect()
+	b, err := exec.CommandContext(inspectContext, "docker", "inspect", name).Output()
 	if err != nil {
 		return
 	}
@@ -53,8 +55,10 @@ func ownedStop(t Task, name string) {
 	if json.Unmarshal(b, &rows) != nil || len(rows) != 1 || rows[0].Config.Labels["io.gopulse.pt.run"] != t.RunID {
 		return
 	}
-	_ = exec.Command("docker", "stop", "--timeout", "5", rows[0].ID).Run()
-	_ = exec.Command("docker", "rm", "-f", rows[0].ID).Run()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(ctx, "docker", "stop", "--timeout", "5", rows[0].ID).Run()
+	_ = exec.CommandContext(ctx, "docker", "rm", "-f", rows[0].ID).Run()
 }
 
 func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.File) (Result, int64, error) {
@@ -103,7 +107,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 		return Result{}, t.Offset, err
 	}
 	defer ownedStop(t, name)
-	events := []Event{}
+	accumulator := Accumulator{Stage: stage}
 	starts := map[string]Event{}
 	lines := make(chan string, 256)
 	sourceLines := lines
@@ -133,6 +137,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 			reason = why
 			stopped = true
 			ended = float64(time.Now().UnixMilli())
+			accumulator.End = ended
 			ownedStop(t, name)
 		}
 	}
@@ -169,6 +174,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 			}
 			if scenario == 0 {
 				scenario = event.ScenarioStarted
+				accumulator.Scenario = scenario
 				windows["warmup"] = &Window{Start: scenario}
 				windows["measurement"] = &Window{Start: scenario + float64(stage.Warmup)*1000}
 			}
@@ -185,11 +191,17 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 				if event.Completed >= scenario+float64(stage.Warmup)*1000 {
 					phase = "measurement"
 				}
+				if event.Completed >= scenario+float64(stage.Warmup+stage.Measurement)*1000 {
+					phase = "drain"
+				}
 				event.CompletionPhase = phase
-				windows[phase].Events = append(windows[phase].Events, event)
+				windowEvent := Event{Type: event.Type, Completed: event.Completed, Success: event.Success}
+				if window := windows[phase]; window != nil {
+					window.Events = append(window.Events, windowEvent)
+				}
 			}
-			events = append(events, event)
 			b, _ := json.Marshal(event)
+			accumulator.Add(event)
 			_, _ = archive.Write(append(b, '\n'))
 		case runErr = <-done:
 			running = false
@@ -206,7 +218,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 				phase = "measurement"
 			}
 			var rate *float64
-			if w := windows[phase]; w != nil {
+			if w := windows[phase]; w != nil && now < scenario+float64(stage.Warmup+stage.Measurement)*1000 {
 				stop, r := w.Stop(now)
 				rate = r
 				if stop {
@@ -238,18 +250,23 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 			reason = "invalid_events"
 			continue
 		}
+		if e.Type == "fatal" {
+			reason = e.Error
+			continue
+		}
 		if e.Type == "start" {
 			starts[e.RequestID] = e
 			if scenario == 0 {
 				scenario = e.ScenarioStarted
+				accumulator.Scenario = scenario
 			}
-			events = append(events, e)
+			accumulator.Add(e)
 			b, _ := json.Marshal(e)
 			_, _ = archive.Write(append(b, '\n'))
 		}
 		if e.Type == "outcome" {
 			delete(starts, e.RequestID)
-			events = append(events, e)
+			accumulator.Add(e)
 			b, _ := json.Marshal(e)
 			_, _ = archive.Write(append(b, '\n'))
 		}
@@ -263,7 +280,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 	for _, e := range starts {
 		e.Type = "cancel"
 		e.Error = "stop_cancellation"
-		events = append(events, e)
+		accumulator.Add(e)
 		b, _ := json.Marshal(e)
 		_, _ = archive.Write(append(b, '\n'))
 	}
@@ -281,7 +298,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 		readErr = json.Unmarshal(b, &summary)
 	}
 	dropped := int(summary.Metrics["dropped_iterations"].Values["count"])
-	result := Evaluate(stage, events, scenario, ended, reason, code, dropped)
+	result := accumulator.Result(ended, reason, code, dropped)
 	if readErr != nil && reason == "" {
 		result.StopReason = "summary_missing"
 		result.ExecutionCompleted = false
@@ -312,7 +329,12 @@ func Run(ctx context.Context, t Task) (Report, error) {
 	stages := t.Stages
 	if t.Scan {
 		var err error
-		stages, err = Scan(t.StartRPS, t.MaxRPS, 30, 300)
+		warmup, measure := 30, 300
+		if len(t.Stages) > 0 {
+			warmup = t.Stages[0].Warmup
+			measure = t.Stages[0].Measurement
+		}
+		stages, err = Scan(t.StartRPS, t.MaxRPS, warmup, measure)
 		if err != nil {
 			return report, err
 		}
@@ -326,13 +348,16 @@ func Run(ctx context.Context, t Task) (Report, error) {
 	}
 	defer func() { _ = archive.Close() }()
 	var runErr error
-	previousBacklog := 0.0
 	for index, stage := range stages {
 		result, offset, e := runStage(ctx, t, stage, index, archive)
 		t.Offset = offset
 		report.Offset = offset
 		report.Stages = append(report.Stages, result)
 		if e != nil {
+			if result.StopReason == "" {
+				result.StopReason = e.Error()
+				report.Stages[len(report.Stages)-1] = result
+			}
 			report.StopReason = result.StopReason
 			runErr = e
 			break
@@ -346,19 +371,19 @@ func Run(ctx context.Context, t Task) (Report, error) {
 			runErr = e
 			break
 		}
-		if t.Scan && Plateau(report.Stages, s.Backlog > previousBacklog) {
+		report.Stages[len(report.Stages)-1].Backlog = s.Backlog
+		if t.Scan && Plateau(report.Stages) {
 			report.StopReason = "throughput_plateau"
 			extra := stage
 			extra.Name = "plateau-observation"
 			extra.Warmup = 0
-			extra.Measurement = 300
+			extra.Measurement = stage.Measurement
 			r, o, e := runStage(ctx, t, extra, index+1, archive)
 			report.Stages = append(report.Stages, r)
 			report.Offset = o
 			runErr = e
 			break
 		}
-		previousBacklog = s.Backlog
 	}
 	if t.Scan && report.StopReason == "" && runErr == nil {
 		report.StopReason = "scan_limit"

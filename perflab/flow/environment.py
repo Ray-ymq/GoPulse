@@ -38,8 +38,8 @@ def inspect_rows(rows, resources):
     return result
 
 
-def snapshot(config):
-    rows = containers()
+def snapshot(config, rows=None):
+    rows = containers() if rows is None else rows
     result = inspect_rows(rows, config['resources'])
     buffer_pool = int(sql('SELECT @@innodb_buffer_pool_size;', root=True).strip())
     if buffer_pool != config['resources']['mysql_buffer_pool_bytes']:
@@ -48,12 +48,31 @@ def snapshot(config):
     if len(nodes) != 1 or any(node['jvm']['mem']['heap_max_in_bytes'] != config['resources']['elasticsearch_heap_bytes']
                               or node['jvm']['mem']['heap_init_in_bytes'] != config['resources']['elasticsearch_heap_bytes'] for node in nodes):
         raise ValueError('Elasticsearch 堆不符')
-    for name in ('backend', 'backend-2', 'platform-api'):
+    for name in ('backend', 'backend-2'):
         env = dict(value.split('=', 1) for value in rows[name]['Config']['Env'])
-        if env.get('REDIS_HOST') != 'redis':
+        if env.get('REDIS_HOST') != 'redis' or env.get('BACKEND_REDIS_DISABLED') != 'false':
             raise ValueError(name + ' Redis 未启用')
     # 全部容器参数写入私有归档，公开结果只保存指纹。
-    return {'containers': result, 'buffer_pool_bytes': buffer_pool,
+    application_settings = {}
+    reserved_connections = 6
+    for name in APPS:
+        env = dict(value.split('=', 1) for value in rows[name]['Config']['Env'])
+        application_settings[name] = {key: value for key, value in env.items()
+                                     if (key.startswith(('MYSQL_', 'BACKEND_HTTP_', 'BACKEND_RESOURCE_', 'BUSINESS_ASYNC_',
+                                                          'OUTBOX_', 'REDIS_POOL_', 'BUSINESS_WORKER_PREFETCH', 'SEARCH_INDEXER_'))
+                                         and not any(word in key for word in ('PASSWORD', 'TOKEN', 'SECRET', 'CREDENTIAL', 'URL')))}
+        if name in ('backend', 'backend-2', 'platform-api'):
+            reserved_connections += int(env['MYSQL_MAX_OPEN_CONNS']) + int(env.get('OUTBOX_MYSQL_MAX_OPEN_CONNS', 0))
+        elif name.startswith(('business-worker', 'search-indexer')):
+            reserved_connections += int(env['MYSQL_MAX_OPEN_CONNS'])
+    totals = {int(dict(value.split('=', 1) for value in rows[name]['Config']['Env'])['MYSQL_TOTAL_MAX_OPEN_CONNS'])
+              for name in ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')}
+    if len(totals) != 1 or reserved_connections > next(iter(totals)):
+        raise ValueError('固定 MySQL 连接预算不足或实例预算不一致')
+    k6_image = command(['docker', 'image', 'inspect', 'grafana/k6:0.56.0', '--format', '{{.Id}}']).strip()
+    if not k6_image.startswith('sha256:'):
+        raise ValueError('k6 固定镜像未准备')
+    return {'containers': result, 'k6_image': k6_image, 'application_settings': application_settings, 'connection_budget': {'reserved': reserved_connections, 'total': next(iter(totals))}, 'buffer_pool_bytes': buffer_pool,
             'heap_bytes': config['resources']['elasticsearch_heap_bytes'],
             'database_identity': sql('SELECT @@server_uuid; SELECT data_epoch,status,mode FROM business_environment;', root=True).strip()}
 

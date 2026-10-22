@@ -17,6 +17,12 @@ def resource(name, item, value):
     if name != 'k6':
         assert item['State'].get('Health', {}).get('Status') == 'healthy', f'{name} 未就绪'
     cpu, mib = (1.5, 1536) if name == 'k6' else QUOTAS[name]
+    if name == 'k6':
+        assert item['Image'] == manifest()['environment']['k6_image'], 'k6 镜像身份改变'
+        config = item['HostConfig']
+        docker_cpu = config['NanoCpus'] / 1e9 if config['NanoCpus'] else config['CpuQuota'] / config['CpuPeriod']
+        assert docker_cpu == cpu and config['Memory'] == mib * 1024**2, 'k6 Docker 资源不符'
+        assert config['MemorySwap'] == config['Memory'] and config['RestartPolicy']['Name'] == 'no', 'k6 swap 或重启策略不符'
     quota, period = map(int, value['cpu_max'].split())
     assert quota / period == cpu, f'{name} 实际 CPU 配额不符'
     assert value['memory_max'] == mib * 1024**2, f'{name} 实际内存配额不符'
@@ -59,10 +65,10 @@ def rabbitmq():
 def sample(source, node_url=None, expected=None):
     begin = time.monotonic()
     rows = containers(include_load=True)
-    from .environment import inspect_rows
+    from .environment import snapshot as environment_snapshot
     from .config import load
-    current = inspect_rows(rows, load()['resources'])
-    if expected is not None and current != expected:
+    current_environment = environment_snapshot(load(), rows)
+    if expected is not None and current_environment != expected:
         raise ValueError('运行期间环境身份或配置改变')
     selected = {name: rows[name] for name in QUOTAS}
     if 'k6' in rows and rows['k6']['State']['Running']:
@@ -99,7 +105,7 @@ def sample(source, node_url=None, expected=None):
     assert database.splitlines()[-2] == baseline['environment'], '数据 epoch 或运行模式改变'
     assert database.splitlines()[-1].endswith('\t0'), '数据库迁移状态异常'
     assert time.monotonic() - begin < 5, '采样耗时超过 5 秒'
-    return {'timestamp': snapshot['timestamp'], 'epoch': snapshot['epoch'], 'containers': resources, 'environment': current,
+    return {'timestamp': snapshot['timestamp'], 'epoch': snapshot['epoch'], 'containers': resources, 'environment': current_environment,
             'container_source': snapshot['schema_version'], 'async_budget': parse_budget(applications['backend']),
             'application_metrics': applications, 'database': database,
             'rabbitmq': queue, 'redis_info_stats': redis,

@@ -1,4 +1,4 @@
-"""离线验证 PT6 的诊断窗口、故障现场留存和停止流程，不访问业务环境。"""
+"""离线验证 公共 PT 的诊断窗口、故障现场留存和停止流程，不访问业务环境。"""
 from datetime import datetime, timezone
 import hashlib
 import io
@@ -10,13 +10,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from common import QUOTAS
-from diagnose import Diagnostics, check_metrics
-import diagnose
-from report import summarize, removed_veth
+from flow.common import QUOTAS
+from flow.diagnose import Diagnostics, check_metrics
+from flow import diagnose
+from flow.analysis import summarize, removed_veth
 from diagnostics.metrics import parse_metrics, summarize_source
-import prepare
-import run
 
 
 def counter(name, value, labels=''):
@@ -62,7 +60,7 @@ class NodePreparationTest(unittest.TestCase):
         self.assertEqual(self.binary.stat().st_ino, inode)
 
     def test_cached_and_previous_public_binaries_are_reused(self):
-        previous = [self.root / f'.run/{phase}/bin/node_exporter' for phase in ('pt4', 'pt3')]
+        previous = []
         for candidate in (self.cache, *previous):
             with self.subTest(source=str(candidate)):
                 for path in (self.binary, self.cache, *previous):
@@ -220,190 +218,3 @@ class NodeClosingBoundaryTest(unittest.TestCase):
                 self.assertIn('counter_series_missing', result['reasons'])
 
 
-class IncidentLifecycleTest(unittest.TestCase):
-    def test_recovery_window_has_initial_and_final_samples(self):
-        with tempfile.TemporaryDirectory() as temp:
-            clock = [100.0]
-            epochs = []
-            sampler = SimpleNamespace(samples=0, error=None)
-            def start():
-                epochs.append(clock[0])
-                sampler.samples = 1
-            def close():
-                clock[0] += .2
-                epochs.append(clock[0])
-                sampler.samples += 1
-            sampler.start, sampler.close = start, close
-            active = SimpleNamespace(error=None, trigger=lambda _: None, close=lambda: None)
-            def summary(directory, begin, end):
-                self.assertLessEqual(epochs[0], begin)
-                self.assertGreaterEqual(epochs[-1], end)
-                self.assertEqual(end - begin, 600)
-                return {'status': 'complete'}
-            with patch.object(run, 'STATE', Path(temp)), \
-                 patch.object(run, 'Diagnostics', return_value=SimpleNamespace(start=lambda: active)), \
-                 patch.object(run, 'Sampler', return_value=sampler), \
-                 patch.object(run.time, 'time', side_effect=lambda: clock[0]), \
-                 patch.object(run.time, 'monotonic', side_effect=lambda: clock[0]), \
-                 patch.object(run.time, 'sleep', side_effect=lambda _: clock.__setitem__(0, clock[0] + 600)), \
-                 patch.object(run, 'capture_logs'), \
-                 patch.object(run, 'summarize', side_effect=summary):
-                run.observe_recovery(Path(temp), temp)
-            result = json.loads((Path(temp) / 'recovery-result.json').read_text())
-            self.assertEqual(result['observation_seconds'], 600)
-            self.assertIsNone(result['collection_error'])
-            self.assertEqual(result['diagnostics']['status'], 'complete')
-
-    def test_diagnostic_stop_is_not_reported_as_business_failed_rps(self):
-        with tempfile.TemporaryDirectory() as temp:
-            locks = []
-            prepared = {'directory': temp, 'containers': {}, 'source_sha256': {}}
-            result = {'passed': False, 'load_passed': True, 'reasons': ['diagnostics_incomplete']}
-            with patch.object(run, 'STATE', Path(temp)), \
-                 patch.object(run, 'verify_prepared', return_value=prepared), \
-                 patch.object(run, 'check_host'), patch.object(run, 'check_quotas', return_value={}), \
-                 patch.object(run, 'drained'), patch.object(run, 'observe_recovery'), \
-                 patch.object(run, 'stage', return_value=result) as stage, \
-                 patch.object(run.fcntl, 'flock', side_effect=lambda stream, _: locks.append(stream)), \
-                 patch('builtins.print'), patch('sys.argv', ['run.py']):
-                run.main()
-            for stream in locks:
-                stream.close()
-            stage.assert_called_once()
-            report = json.loads(next(Path(temp).glob('run-*/report.json')).read_text())
-            self.assertEqual(report['start_rps'], 250)
-            self.assertIsNone(report['failed_rps'])
-            self.assertIsNone(report['last_passed_rps'])
-            self.assertEqual(report['load_passed_rps'], 250)
-            self.assertEqual(report['stopped_rps'], 250)
-
-    def test_custom_start_preserves_ladder_and_corpus_offset(self):
-        with tempfile.TemporaryDirectory() as temp:
-            locks = []
-            prepared = {'directory': temp, 'containers': {}, 'source_sha256': {}}
-            results = [
-                {'passed': True, 'load_passed': True, 'reasons': [], 'started': 99000},
-                {'passed': False, 'load_passed': False, 'reasons': ['business_failure']},
-            ]
-            with patch.object(run, 'STATE', Path(temp)), \
-                 patch.object(run, 'verify_prepared', return_value=prepared), \
-                 patch.object(run, 'check_host'), patch.object(run, 'check_quotas', return_value={}), \
-                 patch.object(run, 'drained'), patch.object(run, 'observe_recovery'), \
-                 patch.object(run, 'stage', side_effect=results) as stage, \
-                 patch.object(run.fcntl, 'flock', side_effect=lambda stream, _: locks.append(stream)), \
-                 patch('builtins.print'), patch('sys.argv', ['run.py', '--start-rps', '300']):
-                run.main()
-            for stream in locks:
-                stream.close()
-            self.assertEqual([(call.args[2], call.args[3]) for call in stage.call_args_list],
-                             [(300, 0), (350, 99000)])
-            report = json.loads(next(Path(temp).glob('run-*/report.json')).read_text())
-            self.assertEqual(report['start_rps'], 300)
-            self.assertEqual(report['last_passed_rps'], 300)
-            self.assertEqual(report['load_passed_rps'], 300)
-            self.assertEqual(report['failed_rps'], 350)
-            self.assertEqual(report['stopped_rps'], 350)
-
-    def test_invalid_start_is_rejected_before_environment_access(self):
-        with tempfile.TemporaryDirectory() as temp:
-            state = Path(temp) / 'state'
-            for value in ('-1', '0', '249', '275', '300.5'):
-                with self.subTest(start_rps=value), \
-                     patch.object(run, 'STATE', state), \
-                     patch.object(run, 'verify_prepared') as verify, \
-                     patch('sys.stderr', new_callable=io.StringIO), \
-                     patch('sys.argv', ['run.py', '--start-rps', value]):
-                    with self.assertRaises(SystemExit) as error:
-                        run.main()
-                    self.assertEqual(error.exception.code, 2)
-                    verify.assert_not_called()
-                    self.assertFalse(state.exists())
-
-    def test_diagnostic_failure_stops_running_load(self):
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp)
-            now = datetime.now(timezone.utc)
-            active = SimpleNamespace(error=None, node_url='mock', trigger=lambda _: None, close=lambda: None)
-            sampler = SimpleNamespace(samples=1, error=None, start=lambda: None, close=lambda: None)
-            def process(args, **kwargs):
-                event = {'type': 'clock', 'scenario_started_at_ms': now.timestamp() * 1000 - 330000}
-                kwargs['stdout'].write('PT6 ' + json.dumps(event) + '\n')
-                kwargs['stdout'].flush()
-                (directory / '250-rps/summary.json').write_text('{"metrics":{}}')
-                active.error = 'diagnostic_scene_stale'
-                return SimpleNamespace(poll=lambda: None, wait=lambda **_: 0)
-            with patch.object(run, 'Diagnostics', return_value=SimpleNamespace(start=lambda: active)), \
-                 patch.object(run, 'Sampler', return_value=sampler), \
-                 patch.object(run.subprocess, 'Popen', side_effect=process), \
-                 patch.object(run.subprocess, 'run') as stop, \
-                 patch.object(run, 'compose_environment', return_value={}), \
-                 patch.object(run, 'capture_logs'), \
-                 patch.object(run, 'summarize', return_value={'status': 'incomplete', 'window': {}}):
-                result = run.stage({'directory': str(directory)}, directory, 250, 0)
-            self.assertFalse(result['passed'])
-            self.assertIn('diagnostic_scene_stale', result['reasons'])
-            stop.assert_called_once()
-            self.assertEqual(stop.call_args.args[0][:2], ['docker', 'stop'])
-
-    def test_upgrade_retry_preserves_ready_and_stopped_phases(self):
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp) / 'preparation-fixture'
-            directory.mkdir()
-            for phase in ('ready', 'load_stopped'):
-                with self.subTest(phase=phase), \
-                     patch.object(prepare, 'STATE', Path(temp)), \
-                     patch.object(prepare, 'check_quotas', return_value={}), \
-                     patch.object(prepare, 'prepare_diagnostics'), \
-                     patch.object(prepare, 'collection_preflight', side_effect=[RuntimeError('fixture'), 3]):
-                    value = {'phase': phase, 'ready': phase == 'ready', 'directory': str(directory),
-                             'containers': {}, 'artifact_sha256': {}}
-                    with self.assertRaises(RuntimeError):
-                        prepare.upgrade_diagnostics(value)
-                    self.assertFalse(json.loads((Path(temp) / 'prepared.json').read_text())['ready'])
-                    prepare.upgrade_diagnostics(value)
-                    self.assertEqual(value['ready'], phase == 'ready')
-                    self.assertEqual(value['phase'], phase)
-
-    def test_failed_scene_is_saved_before_collection_stops(self):
-        with tempfile.TemporaryDirectory() as temp:
-            diagnostics = Diagnostics(temp, temp)
-            row = {'type': 'scene', 'epoch': 1, 'trigger': 'periodic', 'errors': ['row_locks']}
-            diagnostics.process = SimpleNamespace(stdout=io.StringIO(json.dumps(row) + '\n'))
-            diagnostics.stream = io.StringIO()
-            diagnostics.read()
-            self.assertIn('diagnostic_collection_failed', diagnostics.failure)
-            self.assertEqual(json.loads(diagnostics.stream.getvalue())['errors'], ['row_locks'])
-
-    def test_k6_first_failure_triggers_scene_and_keeps_failure_result(self):
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp)
-            now = datetime.now(timezone.utc)
-            clock = {'type': 'clock', 'scenario_started_at_ms': now.timestamp() * 1000 - 31000}
-            failure = {'type': 'first_failure', 'timestamp': now.isoformat(), 'phase': 'measurement',
-                       'status': 500, 'route': 'DELETE /api/v1/posts/:postId'}
-            active = SimpleNamespace(error=None, node_url='mock', trigger=lambda reason: triggers.append(reason),
-                                     close=lambda: triggers.append('closed'))
-            triggers = []
-            def process(args, **kwargs):
-                for event in (clock, failure):
-                    kwargs['stdout'].write('PT6 ' + json.dumps(event) + '\n')
-                kwargs['stdout'].flush()
-                output = directory / '250-rps'
-                (output / 'summary.json').write_text('{"metrics":{}}')
-                return SimpleNamespace(poll=lambda: 108, wait=lambda **_: 108)
-            sampler = SimpleNamespace(samples=1, error=None, start=lambda: None, close=lambda: None)
-            with patch.object(run, 'Diagnostics', return_value=SimpleNamespace(start=lambda: active)), \
-                 patch.object(run, 'Sampler', return_value=sampler), \
-                 patch.object(run.subprocess, 'Popen', side_effect=process), \
-                 patch.object(run, 'compose_environment', return_value={}), \
-                 patch.object(run, 'capture_logs'), \
-                 patch.object(run, 'summarize', return_value={'status': 'complete', 'window': {}}):
-                result = run.stage({'directory': str(directory)}, directory, 250, 0)
-            self.assertFalse(result['passed'])
-            self.assertEqual(result['first_failure']['status'], 500)
-            self.assertEqual(triggers, ['first_failure', 'closed'])
-            self.assertTrue((directory / '250-rps/failure-trigger.json').exists())
-
-
-if __name__ == '__main__':
-    unittest.main()

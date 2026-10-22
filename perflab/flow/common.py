@@ -1,5 +1,4 @@
 """固定 PT 的独立环境、容器和私有文件入口。"""
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -18,7 +17,7 @@ PROJECT = 'gopulse-pt-business'
 APPS = ['backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2',
         'search-indexer', 'search-indexer-2', 'admin-frontend', 'frontend']
 SERVICES = ['mysql', 'redis', 'rabbitmq', 'elasticsearch', *APPS]
-from .config import load, compose_resources, fingerprint
+from .config import load
 from .runtime import write_json, utc
 QUOTAS = {k: (v['cpus'], v['memory_mib']) for k, v in load()['resources']['services'].items() if k != 'k6'}
 MIX = load()['mix']

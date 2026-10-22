@@ -1,18 +1,15 @@
-"""部署 PT、生成独立数据并完成冒烟与基线恢复；不执行正式压测。"""
-import argparse
-import fcntl
+"""生成专用数据，完成冒烟及显式基线恢复。"""
 from http.cookiejar import CookieJar
 import json
 import os
 from pathlib import Path
-import secrets
 import subprocess
 import time
 import urllib.request
 
-from .common import (ROOT, STATE, PROJECT, APPS, MIX, command, compose, containers, digest,
-                    drained, es, flush_redis, helper, http, private_env, 
-                    sql, utc, write_json, check_quotas, check_host)
+from .common import (ROOT, PROJECT, APPS, command, compose, containers, digest,
+                    drained, es, flush_redis, helper, http, private_env,
+                    sql, utc, write_json)
 
 
 def seed(directory):
@@ -117,6 +114,8 @@ def restore(directory):
     compose(directory, 'up', '-d', '--wait', '--wait-timeout', '180', *APPS, timeout=300, log=directory / 'restore.log')
     drained()
     assert sql('SELECT data_epoch,status,mode FROM business_environment;').strip() == baseline['environment'], '恢复后的数据 epoch 不符'
+    assert int(sql('SELECT COUNT(*) FROM posts;').strip()) == baseline['posts'], '恢复后帖子数不符'
+    assert int(sql('SELECT COUNT(*) FROM users;').strip()) == baseline['users'], '恢复后账号数不符'
 
 
 def verify_replicas(directory):

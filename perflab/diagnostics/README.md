@@ -8,7 +8,7 @@
 | 官方 node_exporter | 主机 CPU、内存、磁盘和网络 | `/metrics` |
 | 公共 container-exporter | 容器 cgroup v2 原始资源计数 | 带版本的 `/snapshot`；同时支持 `/metrics` |
 | 应用 metrics | 请求、连接池、缓存、Outbox、worker/indexer 和业务预算 | 应用内部 metrics 端点 |
-| RabbitMQ 自带 Prometheus | PT6 当前使用的队列积压 | `/metrics` |
+| RabbitMQ 自带 Prometheus | 固定流程使用的队列积压 | `/metrics` |
 | PT 数据库诊断 | SQL 原文、事务与阻塞关系、有界历史和环境身份核对 | 只读诊断连接 |
 | PT 请求记录 | 吞吐、客户端延迟、业务错误、取消和跨窗口请求 | k6 事件与汇总 |
 
@@ -20,4 +20,4 @@ MySQL exporter 直接构建模块根目录，与 Monitor 使用同一程序、�
 
 `budget.py` 要求预算成功且不超过 15 秒。多个 backend 发布同一全局预算，只选择一个实例作为源，禁止相加。排空检查还要求时间戳不早于本次检查开始时间；最多等候 30 秒，随后拒绝开测或恢复。合计不包含 epoch 标签；按 epoch 的业务现场按需诊断。
 
-Redis exporter 和 RabbitMQ exporter 已有的扩展指标仍需后续接入 PT6。完整事务 TPS、事务分段分布、消息大小分布等缺口应补到所属采集层。当前改动没有证明 278 个指标全部实现，也不补写历史轮次缺失的数据。
+Redis exporter 和 RabbitMQ exporter 已有的扩展指标仍需后续接入公共流程。完整事务 TPS、事务分段分布、消息大小分布等缺口应补到所属采集层。当前改动没有证明 278 个指标全部实现，也不补写历史轮次缺失的数据。

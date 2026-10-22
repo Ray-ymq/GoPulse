@@ -59,14 +59,17 @@ func (w *Window) Stop(now float64) (bool, *float64) {
 		return false, nil
 	}
 	failures, total := 0, 0
+	retained := w.Events[:0]
 	for _, e := range w.Events {
 		if e.Type == "outcome" && e.Completed > now-10000 && e.Completed <= now {
+			retained = append(retained, e)
 			total++
 			if !e.Success {
 				failures++
 			}
 		}
 	}
+	w.Events = retained
 	if total == 0 {
 		return false, nil
 	}
@@ -75,6 +78,9 @@ func (w *Window) Stop(now float64) (bool, *float64) {
 }
 
 type Result struct {
+	Scenario           float64  `json:"scenario_started_ms"`
+	ObservedEnd        float64  `json:"observed_end_ms"`
+	Backlog            float64  `json:"backlog"`
 	Name               string   `json:"name"`
 	Target             int      `json:"target_rps"`
 	BusinessPassed     bool     `json:"business_passed"`
@@ -93,50 +99,74 @@ type Result struct {
 	End                float64  `json:"end_ms"`
 }
 
-func Evaluate(stage Stage, events []Event, scenario, end float64, reason string, code int, dropped int) Result {
-	r := Result{Name: stage.Name, Target: stage.Target, StopReason: reason, Dropped: dropped, Begin: scenario + float64(stage.Warmup)*1000}
-	r.End = math.Min(end, r.Begin+float64(stage.Measurement)*1000)
-	latencies := []float64{}
-	success := 0
-	for _, e := range events {
-		switch e.Type {
-		case "start":
-			r.Started++
-		case "cancel":
-			r.Canceled++
-		case "outcome":
-			if e.Completed >= r.Begin && e.Completed < r.End {
-				r.Completed++
-				if e.Success {
-					success++
-				}
-				latencies = append(latencies, e.HTTPMS)
-			}
+type Accumulator struct {
+	Stage     Stage
+	Scenario  float64
+	End       float64
+	Started   int
+	Canceled  int
+	Success   int
+	Latencies []float64
+}
+
+func (a *Accumulator) Add(e Event) {
+	if e.Type == "start" {
+		a.Started++
+		return
+	}
+	if e.Type == "cancel" {
+		a.Canceled++
+		return
+	}
+	begin := a.Scenario + float64(a.Stage.Warmup)*1000
+	end := begin + float64(a.Stage.Measurement)*1000
+	if a.End > 0 {
+		end = math.Min(end, a.End)
+	}
+	if e.Type == "outcome" && e.Completed >= begin && e.Completed < end {
+		a.Latencies = append(a.Latencies, e.HTTPMS)
+		if e.Success {
+			a.Success++
 		}
 	}
+}
+
+func (a *Accumulator) Result(end float64, reason string, code, dropped int) Result {
+	stage := a.Stage
+	r := Result{Name: stage.Name, Target: stage.Target, StopReason: reason, Dropped: dropped, Begin: a.Scenario + float64(stage.Warmup)*1000,
+		Started: a.Started, Canceled: a.Canceled, Completed: len(a.Latencies), Scenario: a.Scenario, ObservedEnd: math.Min(end, a.Scenario+float64(stage.Warmup+stage.Measurement)*1000)}
+	r.End = math.Min(end, r.Begin+float64(stage.Measurement)*1000)
 	seconds := math.Max(0, (r.End-r.Begin)/1000)
 	if seconds > 0 {
 		r.ActualRPS = float64(r.Completed) / seconds
-		r.SuccessRPS = float64(success) / seconds
+		r.SuccessRPS = float64(a.Success) / seconds
 	}
 	if r.Completed > 0 {
-		rate := float64(r.Completed-success) / float64(r.Completed)
+		rate := float64(r.Completed-a.Success) / float64(r.Completed)
 		r.FailureRate = &rate
 	}
-	sort.Float64s(latencies)
+	sort.Float64s(a.Latencies)
 	quantile := func(p float64) float64 {
-		if len(latencies) == 0 {
+		if len(a.Latencies) == 0 {
 			return 0
 		}
-		return latencies[int(math.Ceil(p*float64(len(latencies))))-1]
+		return a.Latencies[int(math.Ceil(p*float64(len(a.Latencies))))-1]
 	}
 	r.P95, r.P99 = quantile(.95), quantile(.99)
-	r.ExecutionCompleted = reason == "" && code == 0 && scenario > 0 && seconds >= float64(stage.Measurement)-.01
+	r.ExecutionCompleted = reason == "" && code == 0 && a.Scenario > 0 && seconds >= float64(stage.Measurement)-.01
 	r.BusinessPassed = r.ExecutionCompleted && r.FailureRate != nil && *r.FailureRate <= .01 && r.P95 <= 1000 && r.P99 <= 2000 && r.ActualRPS >= float64(stage.Target)*.95
 	return r
 }
 
-func Plateau(results []Result, backlogWorse bool) bool {
+func Evaluate(stage Stage, events []Event, scenario, end float64, reason string, code, dropped int) Result {
+	accumulator := Accumulator{Stage: stage, Scenario: scenario, End: end}
+	for _, event := range events {
+		accumulator.Add(event)
+	}
+	return accumulator.Result(end, reason, code, dropped)
+}
+
+func Plateau(results []Result) bool {
 	if len(results) < 3 {
 		return false
 	}
@@ -145,7 +175,7 @@ func Plateau(results []Result, backlogWorse bool) bool {
 		if current.Target <= previous.Target || previous.SuccessRPS <= 0 || (current.SuccessRPS-previous.SuccessRPS)/previous.SuccessRPS >= .05 {
 			return false
 		}
-		worse := current.P95 > previous.P95 || current.P99 > previous.P99 || (current.FailureRate != nil && previous.FailureRate != nil && *current.FailureRate > *previous.FailureRate) || backlogWorse
+		worse := current.P95 > previous.P95 || current.P99 > previous.P99 || (current.FailureRate != nil && previous.FailureRate != nil && *current.FailureRate > *previous.FailureRate) || current.Backlog > previous.Backlog
 		if !worse {
 			return false
 		}

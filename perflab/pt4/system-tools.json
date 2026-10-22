@@ -1,7 +1,0 @@
-{
-  "platform": "Debian 13 amd64",
-  "packages": {
-    "python3-matplotlib": "3.10.1+dfsg1-4",
-    "python3-prometheus-client": "0.21.1+ds1-1"
-  }
-}

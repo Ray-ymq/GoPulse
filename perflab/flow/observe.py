@@ -26,7 +26,7 @@ class Observation:
         try:
             self.diagnostics = Diagnostics(self.preparation, self.directory).start()
             self.sampler = Sampler(self.directory / 'resources.jsonl', self.diagnostics,
-                                   self.expected['containers'] if self.expected else None)
+                                   self.expected)
             self.sampler.start()
             deadline = time.monotonic() + 10
             while not self.sampler.samples:

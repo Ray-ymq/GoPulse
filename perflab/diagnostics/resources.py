@@ -1,4 +1,4 @@
-"""按窗口汇总容器 CPU、节流、内存及配额；复用 PT5 的统计方法。"""
+"""按窗口汇总容器 CPU、节流、内存及配额。"""
 from datetime import datetime, timezone
 
 INTERVAL = 5.0

@@ -39,11 +39,11 @@ func TestEvaluateCompletionBoundaries(t *testing.T) {
 }
 func TestPlateau(t *testing.T) {
 	r := []Result{{Target: 100, SuccessRPS: 90, P95: 100}, {Target: 200, SuccessRPS: 91, P95: 101}, {Target: 400, SuccessRPS: 92, P95: 102}}
-	if !Plateau(r, false) {
+	if !Plateau(r) {
 		t.Fatal("未识别平台")
 	}
 	r[2].SuccessRPS = 100
-	if Plateau(r, true) {
+	if Plateau(r) {
 		t.Fatal("增益足够")
 	}
 }

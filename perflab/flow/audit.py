@@ -144,232 +144,131 @@ def _summary(values):
 
 
 def build(directory, preparation):
+    """把成功写入索引到 SQLite，按 500 行核对，避免观测进程占用全部内存。"""
+    import sqlite3
     directory = Path(directory)
     corpus = json.loads((Path(preparation) / 'corpus.json').read_text())['users']
-    requests, event_errors = parse_events(directory / 'requests.jsonl')
-    begin = min((r['started'] for r in requests.values()), default=0)
-    end = max((r.get('completed', r['started']) for r in requests.values()), default=begin) + .001
-    finished = [request for request in requests.values() if 'completed' in request]
-    in_window = [request for request in finished if begin <= request['started'] < end]
-    writes = [request for request in requests.values() if request.get('category') in WRITE_CATEGORIES]
-    write_window = [request for request in writes if begin <= request['started'] < end]
-    boundary_requests = []
-    for request in finished:
-        if begin <= request['started'] < end and request['completed'] >= end:
-            boundary_requests.append({key: request.get(key) for key in ('slot', 'route', 'started', 'completed', 'success')} | {'reason': 'completed_after_window'})
-        elif request['started'] < begin and begin <= request['completed'] < end:
-            boundary_requests.append({key: request.get(key) for key in ('slot', 'route', 'started', 'completed', 'success')} | {'reason': 'started_before_window'})
-    for item in boundary_requests:
-        item['started'] = _label(item['started'])
-        item['completed'] = _label(item['completed'])
-
-    def content():
-        operations = [dict(resource(request, corpus), request=request) for request in write_window
-                      if request['route'] in CONTENT_ROUTES and request.get('success')]
-        creates = [item for item in operations if item['kind'] in ('post_create', 'comment_create')]
-        # 窗口前 10 秒开始、窗口内提交的创建用于识别边界行，不计入窗口内请求。
-        boundary_creates = [dict(resource(request, corpus), request=request) for request in writes
-                            if request['route'] in ('POST /api/v1/posts', 'POST /api/v1/posts/:postId/comments')
-                            and request.get('success') and begin - 10 <= request['started'] < begin]
-        cohort = [item for item in creates if item.get('key') is not None and item['request']['completed'] < end]
-        after = [item for item in creates if item.get('key') is not None and item['request']['completed'] >= end]
-        post_ids = [item['key'] for item in cohort if item['kind'] == 'post_create']
-        comment_ids = [item['key'] for item in cohort if item['kind'] == 'comment_create']
-        posts = _post_rows(sql, post_ids)
-        comments = _comment_rows(sql, comment_ids)
-        post_verified = mismatched = missing = 0
-        details = []
-        for item in cohort:
-            if item['kind'] == 'post_create':
-                row = posts.get(item['key'])
-                expected = item['expected'] or {}
-                if row is None:
-                    missing += 1
-                    details.append({'kind': item['kind'], 'id': item['key'], 'error': 'row_missing'})
-                elif row['author_id'] != item['user_id'] or row['title'] != expected.get('title') or row['content'] != expected.get('content'):
-                    mismatched += 1
-                    details.append({'kind': item['kind'], 'id': item['key'], 'error': 'content_mismatch'})
+    pending = {}
+    errors = {'invalid_event': 0, 'orphan_outcome': 0, 'unknown_resource': 0, 'unfinished_write': 0}
+    begin, end = float('inf'), 0
+    count = failures = 0
+    examples = []
+    db = sqlite3.connect(directory / 'audit-index.sqlite')
+    try:
+        db.executescript('DROP TABLE IF EXISTS writes; CREATE TABLE writes(kind TEXT,k1 INTEGER,k2 INTEGER,started REAL,completed REAL,method TEXT,payload TEXT);')
+        with (directory / 'requests.jsonl').open() as source:
+            for line in source:
+                try:
+                    event = json.loads(line)
+                    if event['schema_version'] != 'gopulse.pt.request.v1':
+                        raise ValueError('事件版本无效')
+                    key = event['request_id']
+                    if event['type'] == 'start':
+                        if key in pending:
+                            errors['invalid_event'] += 1
+                        pending[key] = event
+                        begin = min(begin, event['started_at_ms'] / 1000)
+                    elif event['type'] == 'outcome':
+                        original = pending.pop(key, None)
+                        if original is None:
+                            errors['orphan_outcome'] += 1
+                            continue
+                        end = max(end, event['completed_at_ms'] / 1000)
+                        count += 1
+                        if event['success'] and event.get('category') in WRITE_CATEGORIES:
+                            request = {'route': event['route'], 'sample': event.get('sample')}
+                            item = resource(request, corpus)
+                            resource_key = item.get('key')
+                            if resource_key is None or (isinstance(resource_key, tuple) and None in resource_key):
+                                errors['unknown_resource'] += 1
+                                continue
+                            first, second = resource_key if isinstance(resource_key, tuple) else (resource_key, 0)
+                            db.execute('INSERT INTO writes VALUES (?,?,?,?,?,?,?)',
+                                       (item['kind'], int(first), int(second), original['started_at_ms']/1000,
+                                        event['completed_at_ms']/1000, event['route'].split()[0], json.dumps(item)))
+                    elif event['type'] == 'cancel':
+                        original = pending.pop(key, None)
+                        if original and original.get('category') in WRITE_CATEGORIES:
+                            errors['unfinished_write'] += 1
+                    else:
+                        errors['invalid_event'] += 1
+                except (ValueError, KeyError, TypeError):
+                    errors['invalid_event'] += 1
+        errors['unfinished_write'] += sum(1 for item in pending.values() if item.get('category') in WRITE_CATEGORIES)
+        db.commit()
+        db.execute('CREATE INDEX write_resource ON writes(kind,k1,k2,completed)')
+        def mismatch(kind, key):
+            nonlocal failures
+            failures += 1
+            if len(examples) < 50:
+                examples.append({'kind': kind, 'key': key})
+        verified = 0
+        cursor = db.execute("SELECT kind,k1,payload FROM writes WHERE kind IN ('post_create','comment_create','post_delete')")
+        while batch := cursor.fetchmany(CHUNK):
+            posts = _post_rows(sql, [row[1] for row in batch if row[0] != 'comment_create'])
+            comments = _comment_rows(sql, [row[1] for row in batch if row[0] == 'comment_create'])
+            for kind, key, payload in batch:
+                item = json.loads(payload)
+                row = (comments if kind == 'comment_create' else posts).get(key)
+                if kind == 'post_delete':
+                    valid = row is None
                 else:
-                    post_verified += 1
-            else:
-                row = comments.get(item['key'])
-                expected = item['expected'] or {}
-                if row is None:
-                    missing += 1
-                    details.append({'kind': item['kind'], 'id': item['key'], 'error': 'row_missing'})
-                elif row['post_id'] != item['post_id'] or row['author_id'] != item['user_id'] or row['content'] != expected.get('content'):
-                    mismatched += 1
-                    details.append({'kind': item['kind'], 'id': item['key'], 'error': 'content_mismatch'})
-                else:
-                    post_verified += 1
-
-        # 数据库窗口内新建的行必须能对应到某个请求；否则说明存在未记录写入或窗口错位。
-        created = {}
-        for table, ids in (('posts', post_ids), ('comments', comment_ids)):
-            rows = _rows(sql,
-                         'SELECT id FROM ' + table + " WHERE created_at >= '" + _time(begin) + "' AND created_at < '" + _time(end) + "';")
-            created[table] = [int(row[0]) for row in rows]
-        create_by_id = {'posts': {}, 'comments': {}}
-        for item in creates + after + boundary_creates:
-            if item.get('key') is None:
-                continue
-            table = 'posts' if item['kind'] == 'post_create' else 'comments'
-            create_by_id[table].setdefault(item['key'], item)
-        unmatched = {'posts': [], 'comments': []}
-        for table, values in created.items():
-            known = set(post_ids if table == 'posts' else comment_ids)
-            for value in values:
-                if value not in known and value not in create_by_id[table]:
-                    unmatched[table].append(value)
-
-        # 内容更新：同一 post 取窗口内最后完成的 PATCH 作为预期内容。
-        updates = [item for item in operations if item['kind'] == 'post_update' and item.get('key') is not None]
-        # 同一 post 可能被并发更新；最终内容必须属于该资源窗口内成功更新的集合，
-        # 不假设 HTTP 完成顺序等于提交顺序。
-        update_expected = {}
-        boundary_ids = set()
-        for item in updates:
-            if item['request']['completed'] >= end:
-                boundary_ids.add(item['key'])
-            else:
-                expected = item['expected'] or {}
-                update_expected.setdefault(item['key'], set()).add((expected.get('title'), expected.get('content')))
-        update_ids = [post_id for post_id in update_expected if post_id not in boundary_ids]
-        update_rows = _post_rows(sql, update_ids)
-        update_verified = update_mismatch = update_missing = 0
-        for post_id in update_ids:
-            row = update_rows.get(post_id)
-            if row is None:
-                update_missing += 1
-            elif row['edited_at'] is None or row['content_revision'] < 2 or (row['title'], row['content']) not in update_expected[post_id]:
-                update_mismatch += 1
-            else:
-                update_verified += 1
-
-        # 删除：窗口内成功（含幂等 404）的删除，最终行应不存在。
-        deletes = [item for item in operations if item['kind'] == 'post_delete' and item.get('key') is not None]
-        delete_cohort = {item['key'] for item in deletes if item['request']['completed'] < end}
-        delete_boundary = {item['key'] for item in deletes if item['request']['completed'] >= end}
-        delete_rows = _post_rows(sql, delete_cohort - delete_boundary)
-        delete_verified = sum(1 for post_id in delete_cohort - delete_boundary if post_id not in delete_rows)
-        delete_mismatch = sorted(post_id for post_id in delete_cohort - delete_boundary if post_id in delete_rows)
-        return {
-            'creates': {'requests_started': len(creates), 'cohort_completed_in_window': len(cohort),
-                        'boundary_completed_after_window': len(after), 'verified': post_verified,
-                        'missing': missing, 'mismatched': mismatched, 'details': details[:50]},
-            'database_created_in_window': {table: len(values) for table, values in created.items()},
-            'database_created_unmatched': unmatched,
-            'updates': {'requests_started': len(updates), 'cohort': len(update_expected),
-                        'boundary_after_window': len(boundary_ids), 'verified': update_verified,
-                        'missing': update_missing, 'mismatched': update_mismatch},
-            'deletes': {'requests_started': len(deletes), 'cohort': len(delete_cohort - delete_boundary),
-                        'boundary_after_window': len(delete_boundary), 'verified': delete_verified,
-                        'mismatched': delete_mismatch[:50]},
-        }
-
-    def interactions():
-        operations = [dict(resource(request, corpus), request=request) for request in writes
-                      if request['route'] in INTERACTION_ROUTES and request.get('success') and request['started'] >= begin - 10]
-        grouped = {}
-        for item in operations:
-            if item.get('key') is None or None in item['key']:
-                continue
-            grouped.setdefault((item['kind'], item['key']), []).append(item)
-        expected = {'like': {}, 'bookmark': {}, 'follow': {}}
-        boundary = 0
-        for (kind, key), items in grouped.items():
-            if not any(begin <= item['request']['started'] < end for item in items):
-                continue
-            if any(item['request']['completed'] >= end for item in items):
-                boundary += 1
-                continue
-            before_end = [item for item in items if item['request']['completed'] < end]
-            if any(item['request']['started'] < begin for item in before_end):
-                boundary += 1
-                continue
-            if not before_end:
-                boundary += 1
-                continue
-            latest_start = max(item['request']['started'] for item in before_end)
-            candidates = [item for item in before_end if item['request']['completed'] >= latest_start]
-            expected[kind][key] = {item['request']['route'].split()[0] == 'PUT' for item in candidates}
-        liked = _interaction_rows(sql, 'post_likes', ('post_id', 'user_id'),
-                                  list(expected['like']))
-        bookmarked = _interaction_rows(sql, 'post_bookmarks', ('post_id', 'user_id'),
-                                       list(expected['bookmark']))
-        followed = _interaction_rows(sql, 'user_follows', ('follower_id', 'followed_id'),
-                                     list(expected['follow']))
-        present = {'like': liked, 'bookmark': bookmarked, 'follow': followed}
-        result = {}
-        for kind, values in expected.items():
-            verified = mismatch = 0
-            examples = []
-            for key, should_exist in values.items():
-                exists = key in present[kind]
-                if exists in should_exist:
+                    expected = item.get('expected') or {}
+                    valid = row is not None and row['author_id'] == item['user_id'] and row['content'] == expected.get('content')
+                    valid = valid and (row['post_id'] == item['post_id'] if kind == 'comment_create' else row['title'] == expected.get('title'))
+                if valid: verified += 1
+                else: mismatch(kind, key)
+        cursor = db.execute("SELECT k1,MAX(started) FROM writes WHERE kind='post_update' GROUP BY k1")
+        while batch := cursor.fetchmany(CHUNK):
+            posts = _post_rows(sql, [row[0] for row in batch])
+            for key, latest_start in batch:
+                candidates = [json.loads(row[0])['expected'] for row in db.execute(
+                    "SELECT payload FROM writes WHERE kind='post_update' AND k1=? AND completed>=?", (key, latest_start))]
+                row = posts.get(key)
+                if row and row['content_revision'] >= 2 and any(row['title'] == item.get('title') and row['content'] == item.get('content') for item in candidates):
                     verified += 1
-                else:
-                    mismatch += 1
-                    if len(examples) < 20:
-                        examples.append({'key': list(key), 'expected': sorted(should_exist), 'present': exists})
-            result[kind] = {'keys_in_window': len(values), 'expected_present': sum(1 for value in values.values() if value == {True}),
-                            'expected_absent': sum(1 for value in values.values() if value == {False}),
-                            'verified': verified, 'mismatched': mismatch, 'examples': examples}
-        result['boundary_or_indeterminate_keys'] = boundary
-        return result
-
-    content_result = content()
-    interaction_result = interactions()
-    database = {}
-    database['posts_created_in_window'] = int(sql(
-        "SELECT COUNT(*) FROM posts WHERE created_at >= '" + _time(begin) + "' AND created_at < '" + _time(end) + "';").strip())
-    database['comments_created_in_window'] = int(sql(
-        "SELECT COUNT(*) FROM comments WHERE created_at >= '" + _time(begin) + "' AND created_at < '" + _time(end) + "';").strip())
-    database['business_commands'] = {row[0]: {'status': row[1], 'count': int(row[2])} for row in _rows(
-        sql,
-        "SELECT command_type,status,COUNT(*) FROM business_commands WHERE created_at >= '" + _time(begin) +
-        "' AND created_at < '" + _time(end) + "' GROUP BY command_type,status ORDER BY command_type,status;")}
-    database['application_results'] = {row[0] + '/' + row[1]: int(row[2]) for row in _rows(
-        sql,
-        "SELECT consumer,result,COUNT(*) FROM business_application_results WHERE completed_at >= '" + _time(begin) +
-        "' AND completed_at < '" + _time(end) + "' GROUP BY consumer,result ORDER BY consumer,result;")}
-    database['application_failures'] = sum(value for key, value in database['application_results'].items() if not key.endswith('/applied'))
-    database['requirements_closed_in_window'] = int(sql(
-        "SELECT COUNT(*) FROM business_event_requirements WHERE closed_at >= '" + _time(begin) +
-        "' AND closed_at < '" + _time(end) + "';").strip())
-    database['budget'] = dict(zip(('open_requirements', 'retained_groups', 'retained_bytes', 'parked_messages'),
-                                  (sql('SELECT open_requirements,retained_groups,retained_bytes,parked_messages FROM business_async_budget;').strip().split('\t'))))
-    database['orphans'] = {}
-    for name, query in (
-            ('post_likes', 'SELECT COUNT(*) FROM post_likes l LEFT JOIN posts p ON p.id=l.post_id LEFT JOIN users u ON u.id=l.user_id WHERE p.id IS NULL OR u.id IS NULL;'),
-            ('post_bookmarks', 'SELECT COUNT(*) FROM post_bookmarks b LEFT JOIN posts p ON p.id=b.post_id LEFT JOIN users u ON u.id=b.user_id WHERE p.id IS NULL OR u.id IS NULL;'),
-            ('user_follows', 'SELECT COUNT(*) FROM user_follows f LEFT JOIN users a ON a.id=f.follower_id LEFT JOIN users b ON b.id=f.followed_id WHERE a.id IS NULL OR b.id IS NULL;')):
-        database['orphans'][name] = int(sql(query).strip())
-    write_slots = {request['slot'] for request in write_window}
-    unfinished_writes = sum(1 for slot in write_slots if slot in requests and 'completed' not in requests[slot])
-    unknown_successes = sum(1 for r in writes if r.get('success') and resource(r, corpus).get('key') is None)
-    failures = unknown_successes + (content_result['creates']['missing'] + content_result['creates']['mismatched'] +
-                content_result['updates']['missing'] + content_result['updates']['mismatched'] +
-                len(content_result['deletes']['mismatched']) +
-                sum(item['mismatched'] for name, item in interaction_result.items() if isinstance(item, dict)) +
-                sum(len(values) for values in content_result['database_created_unmatched'].values()) +
-                database['application_failures'] + sum(database['orphans'].values()))
-    value = {
-        'schema_version': 'gopulse.pt.audit.v1',
-        'window': {'begin_epoch': begin, 'end_epoch': end, 'begin': _label(begin), 'end': _label(end)},
-        'requests': {'started_in_window': len(in_window), 'write_requests_started_in_window': len(write_window),
-                     'write_requests_unfinished': unfinished_writes,
-                     'started_before_window_completed_in_window': sum(1 for item in boundary_requests if item['reason'] == 'started_before_window'),
-                     'started_in_window_completed_after_window': sum(1 for item in boundary_requests if item['reason'] == 'completed_after_window')},
-        'content_write': content_result,
-        'interaction_write': interaction_result,
-        'database': database,
-        'boundary': {'count': len(boundary_requests), 'samples': boundary_requests[:100],
-                     'by_reason': _summary(item['reason'] for item in boundary_requests)},
-        'event_errors': event_errors,
-        'failures': failures,
-        'status': 'passed' if failures == 0 and unfinished_writes == 0 and not any(event_errors.values()) else 'failed',
-        'acceptance': '按请求/资源 ID 核对窗口内成功写入；窗口边界单独记录，不计入窗口内差额',
-    }
-    atomic_json(directory / 'audit.json', value)
-    return value
+                else: mismatch('post_update', key)
+        cursor = db.execute("SELECT kind,k1,k2,MAX(started) FROM writes WHERE kind IN ('like','bookmark','follow') GROUP BY kind,k1,k2")
+        while batch := cursor.fetchmany(CHUNK):
+            tables = {'like': ('post_likes', ('post_id','user_id')), 'bookmark': ('post_bookmarks', ('post_id','user_id')),
+                      'follow': ('user_follows', ('follower_id','followed_id'))}
+            present = {kind: _interaction_rows(sql, table, columns, [(r[1],r[2]) for r in batch if r[0] == kind])
+                       for kind, (table, columns) in tables.items()}
+            for kind, first, second, latest_start in batch:
+                candidates = {row[0] == 'PUT' for row in db.execute(
+                    'SELECT DISTINCT method FROM writes WHERE kind=? AND k1=? AND k2=? AND completed>=?', (kind,first,second,latest_start))}
+                if ((first,second) in present[kind]) in candidates: verified += 1
+                else: mismatch(kind, [first,second])
+        if begin == float('inf') or end <= 0:
+            errors['invalid_event'] += 1
+            begin, end = 0, 0
+        extra = {}
+        if count:
+            for table, kind in [('posts','post_create'),('comments','comment_create')]:
+                actual = int(sql(f"SELECT COUNT(*) FROM {table} WHERE created_at >= '{_time(begin)}' AND created_at <= '{_time(end)}';").strip())
+                observed = db.execute('SELECT COUNT(DISTINCT k1) FROM writes WHERE kind=?', (kind,)).fetchone()[0]
+                extra[table] = actual - observed
+                if actual != observed: mismatch('unmatched_create', table)
+        async_result = sql("SELECT open_requirements,parked_messages FROM business_async_budget;").strip().split('\t')
+        async_ok = len(async_result) == 2 and all(int(v) == 0 for v in async_result)
+        if not async_ok: mismatch('async_incomplete', 'budget')
+        if count:
+            asynchronous_failures = int(sql("SELECT COUNT(*) FROM business_application_results WHERE completed_at >= '" + _time(begin) + "' AND result <> 'applied';").strip())
+            failures += asynchronous_failures
+        else:
+            asynchronous_failures = None
+        orphans = {}
+        for table, query in [
+            ('post_likes','SELECT COUNT(*) FROM post_likes l LEFT JOIN posts p ON p.id=l.post_id LEFT JOIN users u ON u.id=l.user_id WHERE p.id IS NULL OR u.id IS NULL;'),
+            ('post_bookmarks','SELECT COUNT(*) FROM post_bookmarks b LEFT JOIN posts p ON p.id=b.post_id LEFT JOIN users u ON u.id=b.user_id WHERE p.id IS NULL OR u.id IS NULL;'),
+            ('user_follows','SELECT COUNT(*) FROM user_follows f LEFT JOIN users a ON a.id=f.follower_id LEFT JOIN users b ON b.id=f.followed_id WHERE a.id IS NULL OR b.id IS NULL;')]:
+            orphans[table] = int(sql(query).strip())
+        failures += sum(orphans.values()) + sum(errors.values())
+        value = {'schema_version':'gopulse.pt.audit.v1', 'status':'passed' if failures == 0 else 'failed',
+                 'failures':failures, 'verified':verified, 'completed_requests':count, 'event_errors':errors,
+                 'window':{'begin_epoch':begin,'end_epoch':end}, 'unmatched_creates':extra,
+                 'async_recovered':async_ok, 'async_failures':asynchronous_failures, 'orphans':orphans, 'examples':examples}
+        atomic_json(directory / 'audit.json', value)
+        return value
+    finally:
+        db.close()

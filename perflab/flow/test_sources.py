@@ -8,8 +8,8 @@ import unittest
 from urllib.error import HTTPError
 from unittest.mock import patch
 
-from common import ROOT
-import common
+from flow.common import ROOT
+from flow import common
 from diagnostics.budget import parse_budget
 from diagnostics.sources import ContainerSource, LocalSource, ConfiguredExporter, build_container_source
 

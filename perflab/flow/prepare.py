@@ -13,6 +13,11 @@ from . import baseline
 
 def prepare(config):
     directory = STATE / 'private'
+    previous = STATE / 'prepared.json'
+    if previous.exists():
+        record = json.loads(previous.read_text())
+        if not record.get('ready') and not (directory / 'baseline.sql').exists():
+            raise ValueError('发现未完成准备且没有基线，拒绝自动重放造数；请先保存并核对现场')
     env = private_env(directory)
     if env.get('MYSQL_DATABASE') != 'gopulse_pt' or env.get('MYSQL_USER') != 'pt':
         raise ValueError('准备只允许 MYSQL_DATABASE=gopulse_pt、MYSQL_USER=pt 的专用环境')
@@ -36,10 +41,13 @@ def prepare(config):
         baseline.backup(directory)
     baseline.restore(directory)
     baseline.smoke(directory)
+    baseline.verify_replicas(directory)
     baseline.restore(directory)
     if snapshot(config) != initial:
         # restart 会改变 StartedAt；仅允许本次明确基线恢复造成的应用启动时间变化。
         current = snapshot(config)
+        if {k: v for k, v in initial.items() if k != 'containers'} != {k: v for k, v in current.items() if k != 'containers'}:
+            raise ValueError('准备期间依赖配置或环境身份改变')
         for name, row in initial['containers'].items():
             if {k: v for k, v in row.items() if k != 'started_at'} != {k: v for k, v in current['containers'][name].items() if k != 'started_at'}:
                 raise ValueError('准备期间容器身份或配置改变')

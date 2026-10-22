@@ -7,7 +7,7 @@ import time
 
 from .config import ROOT, contract, load
 from .runtime import Run, STATE, utc, write_json, append
-from .environment import prepared, preflight, snapshot
+from .environment import prepared, preflight, snapshot, source_hashes
 from .common import command
 from . import baseline
 from .observe import Observation, recovery
@@ -120,8 +120,15 @@ class Backend:
             self.run.update('stopping')
             raise Abort('manual_stop', 130)
 
+    def track_observation(self, observation):
+        for process in (observation.diagnostics.process, observation.diagnostics.node,
+                        observation.diagnostics.mysql_source.process, observation.sampler.source.process):
+            self.run.processes.track(process)
+
     def restore(self):
         self.check_stop()
+        if source_hashes() != self.value['source_sha256']:
+            raise Abort('运行期间源码或固定配置文件改变')
         if snapshot(self.config) != self.expected:
             raise Abort('恢复基线前固定配置或环境身份改变')
         baseline.restore(self.preparation)
@@ -129,7 +136,7 @@ class Backend:
         for name, before in self.expected['containers'].items():
             if {k: v for k, v in before.items() if k != 'started_at'} != {k: v for k, v in actual['containers'][name].items() if k != 'started_at'}:
                 raise Abort('恢复期间固定配置或容器改变')
-        if actual['database_identity'] != self.expected['database_identity']:
+        if {k: v for k, v in actual.items() if k != 'containers'} != {k: v for k, v in self.expected.items() if k != 'containers'}:
             raise Abort('恢复期间环境身份改变')
         self.expected = actual
         append(self.run.directory / 'events.jsonl', {'stage': 'baseline_restored', 'at': utc(), 'environment': actual})
@@ -139,6 +146,7 @@ class Backend:
         output = self.run.directory / 'idle'
         observation = Observation(self.preparation, output, self.config, self.expected).start()
         self.collection = observation
+        self.track_observation(observation)
         start = time.time()
         try:
             deadline = time.monotonic() + self.config['idle_seconds']
@@ -174,10 +182,13 @@ class Backend:
         start, end = time.time(), time.time()
         failure = None
         try:
+            if source_hashes() != self.value['source_sha256']:
+                raise Abort('运行期间源码或固定配置文件改变')
             if snapshot(self.config) != self.expected:
                 raise Abort('组边界环境身份或配置改变')
             observation = Observation(self.preparation, output, self.config, self.expected).start()
             self.collection = observation
+            self.track_observation(observation)
             observation.safety(output / 'safety.json')
             with (output / 'logs/load.log').open('x') as log:
                 process = self.run.processes.start([str(self.preparation / 'bin/pt-load'), '--task', str(output / 'task.json')],
@@ -229,12 +240,17 @@ class Backend:
                 window_results = []
                 for stage in windows:
                     begin, finish = stage.get('begin_ms', 0) / 1000, stage.get('end_ms', 0) / 1000
+                    phase = 'measurement'
+                    if finish <= begin:
+                        begin, finish = stage.get('scenario_started_ms', 0) / 1000, stage.get('observed_end_ms', 0) / 1000
+                        phase = 'warmup'
                     if finish > begin > 0:
                         try:
                             value = summarize(output, begin, finish)
                             target = output / 'diagnostics' / (stage['name'] + '.json')
                             (output / 'diagnostics-summary.json').replace(target)
                             value['file'] = str(target.relative_to(output))
+                            value['window']['phase'] = phase
                             window_results.append(value)
                         except Exception as error:
                             window_results.append({'status': 'incomplete', 'reasons': [type(error).__name__]})
@@ -265,7 +281,12 @@ def execute(config):
         previous_handlers[sig] = signal.signal(sig, interrupted)
     try:
         run.update('checking', stage='environment')
+        if not config.get('acceptance'):
+            from .acceptance import check
+            check(config)
         value = preflight(config)
+        from .__main__ import plan
+        write_json(run.directory / 'plan.json', plan(config))
         write_json(run.directory / 'environment.json', value['environment'])
         write_json(run.directory / 'coverage.json', registry())
         backend = Backend(run, config, value)
@@ -300,6 +321,9 @@ def execute(config):
         run.finish(code, reason)
         run.update(execution_completed=code in (0, 1) and reason is None)
         from .report import report
-        report(run.directory)
+        summary = report(run.directory, recompute=False)
+        if config.get('acceptance'):
+            from .acceptance import record
+            record(run, config, summary)
     print(f'运行 {run.id} 已收尾，退出码 {code}；报告：{run.directory / "report.md"}')
     return code
