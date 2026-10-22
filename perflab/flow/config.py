@@ -27,7 +27,9 @@ def fingerprint(value):
 
 
 def compose_resources(resources):
-    return {'services': {name: {'cpus': row['cpus'], 'mem_limit': row['memory_mib'] * 1024**2,
+    # 覆盖基础 Compose 的小数 cpus，避免 float32 转换损失配额；由整数 quota/period 限制 CPU。
+    return {'services': {name: {'cpus': 0, 'cpu_period': 100000, 'cpu_quota': round(row['cpus'] * 100000),
+                                'mem_limit': row['memory_mib'] * 1024**2,
                                 'memswap_limit': row['memory_mib'] * 1024**2, 'restart': row['restart']}
                          for name, row in resources['services'].items()}}
 

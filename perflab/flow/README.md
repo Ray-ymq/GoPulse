@@ -4,6 +4,8 @@
 
 `config.json` 定义固定流程，`resources.json` 是资源唯一来源。执行器由资源配置生成 Compose 覆盖文件，并核对部署值和 cgroup 实际值。系统余量及应急预留不创建容器。Redis 全程启用，禁止自动调参和单因素对照。
 
+CPU 覆盖使用整数 `cpu_quota/cpu_period`。覆盖文件将基础 Compose 的 `cpus` 设为 `0`，防止 Compose 将 `0.13` 转换为较小的 NanoCPU 值；实际 CPU 上限仍由整数配额限制。前端使用 `13000/100000`，管理前端使用 `12000/100000`。资源检查同时核对 Docker 配额和 cgroup 实际配额，不放宽允许偏差。
+
 公共记录采用 `gopulse.pt.<对象>.v1`。准备记录、任务、请求事件、组结果及总结果分别使用 `preparation`、`task`、`request`、`group`、`result`。凭据只通过私有文件引用，不写入事件或报告。
 
 | 历史能力 | 公共位置 |

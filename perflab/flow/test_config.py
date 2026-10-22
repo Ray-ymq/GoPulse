@@ -19,6 +19,17 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(row['mem_limit'], row['memswap_limit'])
             self.assertEqual(row['restart'], 'no')
 
+    def test_integer_cpu_quotas_preserve_fixed_fractional_resources(self):
+        resources = load()['resources']
+        overlay = compose_resources(resources)['services']
+        for name, expected in resources['services'].items():
+            with self.subTest(name=name):
+                row = overlay[name]
+                self.assertEqual(row['cpus'], 0)
+                self.assertEqual(row['cpu_quota'] / row['cpu_period'], expected['cpus'])
+        self.assertEqual(overlay['frontend']['cpu_quota'], 13000)
+        self.assertEqual(overlay['admin-frontend']['cpu_quota'], 12000)
+
     def test_contract(self):
         with self.assertRaises(ValueError):
             validate('task', contract('task'))
