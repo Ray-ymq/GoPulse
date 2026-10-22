@@ -50,12 +50,9 @@ class Observation:
                 raise RuntimeError('资源采样过期')
 
     def latest(self):
-        # 只读完整 JSONL 行；末行未结束时不把半条样本当作有效观测。
-        lines = (self.directory / 'resources.jsonl').read_text().splitlines(keepends=True)
-        complete = [line for line in lines if line.endswith('\n')]
-        if not complete:
+        if not self.sampler or self.sampler.latest_sample is None:
             raise RuntimeError('资源样本缺失')
-        return json.loads(complete[-1])
+        return self.sampler.latest_sample
 
     def safety(self, path):
         self.check()

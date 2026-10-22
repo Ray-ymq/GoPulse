@@ -113,6 +113,7 @@ class Sampler:
         self.stop = threading.Event()
         self.error = None
         self.samples = 0
+        self.latest_sample = None
         self.diagnostics = diagnostics
         self.source = ContainerSource(Path(manifest()["directory"]) / "bin/container-exporter", self.path.parent)
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -130,7 +131,9 @@ class Sampler:
             with self.path.open('x') as stream:
                 while not self.stop.is_set():
                     start = time.monotonic()
-                    stream.write(json.dumps(sample(self.source, self.diagnostics.node_url if self.diagnostics else None, self.expected)) + '\n')
+                    value = sample(self.source, self.diagnostics.node_url if self.diagnostics else None, self.expected)
+                    stream.write(json.dumps(value) + '\n')
+                    self.latest_sample = value
                     stream.flush()
                     self.samples += 1
                     self.stop.wait(max(0, 5 - (time.monotonic() - start)))
@@ -149,7 +152,9 @@ class Sampler:
         if final and self.error is None:
             try:
                 with self.path.open('a') as stream:
-                    stream.write(json.dumps(sample(self.source, self.diagnostics.node_url if self.diagnostics else None, self.expected)) + '\n')
+                    value = sample(self.source, self.diagnostics.node_url if self.diagnostics else None, self.expected)
+                    stream.write(json.dumps(value) + '\n')
+                    self.latest_sample = value
                     self.samples += 1
             except Exception as error:
                 self.error = type(error).__name__
