@@ -1,0 +1,137 @@
+"""部署 PT、生成独立数据并完成冒烟与基线恢复；不执行正式压测。"""
+import argparse
+import fcntl
+from http.cookiejar import CookieJar
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import time
+import urllib.request
+
+from .common import (ROOT, STATE, PROJECT, APPS, MIX, command, compose, containers, digest,
+                    drained, es, flush_redis, helper, http, private_env, 
+                    sql, utc, write_json, check_quotas, check_host)
+
+
+def seed(directory):
+    helper(directory, 'recipe', '--dsn-file', '/input/mysql.dsn', '--password-file', '/input/load-password',
+           '--receipt', '/input/recipe.json', '--corpus', '/input/corpus.json', '--credentials', '/input/credentials.json',
+           '--candidate-version', (ROOT / 'VERSION').read_text().strip(),
+           '--candidate-revision', private_env(directory)['GOPULSE_REVISION'],
+           timeout=1200, log=directory / 'seed.log')
+    corpus = json.loads((directory / 'corpus.json').read_text())
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    for key in ('users', 'editable_post_ids', 'delete_post_ids'):
+        corpus[key] = corpus[key][:512]
+    credentials['users'] = credentials['users'][:512]
+    for start in range(0, 512, 8):
+        values = []
+        for actor in range(start, start + 8):
+            user = corpus['users'][actor]['id']
+            values.extend(f"({user},'PT delete {actor} {i}','PT disposable corpus')" for i in range(256))
+        first, count = map(int, sql('INSERT INTO posts(author_id,title,content) VALUES ' + ','.join(values) +
+                                    '; SELECT LAST_INSERT_ID(),ROW_COUNT();').strip().split('\t'))
+        assert count == len(values), '删除语料插入数量不符'
+        for offset, actor in enumerate(range(start, start + 8)):
+            corpus['delete_post_ids'][actor] = list(range(first + offset * 256, first + (offset + 1) * 256))
+    write_json(directory / 'corpus.json', corpus)
+    write_json(directory / 'credentials.json', credentials)
+    helper(directory, 'validate-corpus', '--dsn-file', '/input/mysql.dsn', '--corpus', '/input/corpus.json',
+           '--credentials', '/input/credentials.json', timeout=600, log=directory / 'validate-corpus.log')
+
+
+def reindex(directory):
+    compose(directory, 'run', '--rm', '--no-deps', '--entrypoint', '/usr/local/bin/search-reindex',
+            'search-init', timeout=1200, log=directory / 'reindex.log')
+    es('/_refresh', 'POST')
+    assert int(es('/gopulse-post-search-v1/_count')['count']) == int(sql('SELECT COUNT(*) FROM posts;').strip())
+
+
+def backup(directory):
+    drained()
+    shell = 'export MYSQL_PWD="$MYSQL_PASSWORD"; exec mysqldump -u"$MYSQL_USER" --single-transaction --no-tablespaces --set-gtid-purged=OFF --skip-dump-date "$MYSQL_DATABASE"'
+    with (directory / 'baseline.sql').open('wb') as output:
+        result = subprocess.run(['docker', 'exec', f'{PROJECT}-mysql-1', 'sh', '-c', shell],
+                                stdout=output, stderr=subprocess.PIPE, timeout=600)
+    assert result.returncode == 0, 'PT 数据库备份失败'
+    write_json(directory / 'baseline.json', {'sql_sha256': digest(directory / 'baseline.sql'),
+               'posts': int(sql('SELECT COUNT(*) FROM posts;').strip()),
+               'users': int(sql('SELECT COUNT(*) FROM users;').strip()),
+               'environment': sql('SELECT data_epoch,status,mode FROM business_environment;').strip()})
+
+
+def smoke(directory):
+    base = 'http://127.0.0.1:18086'
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    clients = []
+    for user in credentials['users'][:2]:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(CookieJar()))
+        assert http(base, 'POST', '/api/v1/auth/login', {'username': user['username'], 'password': credentials['password']}, opener)[0] == 200
+        clients.append(opener)
+    def request(actor, method, path, body=None, status=200):
+        actual, result = http(base, method, path, body, clients[actor])
+        assert actual == status, f'冒烟请求失败：{method} {path}'
+        return result
+    request(0, 'GET', '/api/v1/posts?limit=1')
+    request(0, 'GET', '/api/v1/search/posts?q=Phase18&limit=1')
+    request(0, 'GET', '/api/v1/notifications?limit=1')
+    before = int(sql('SELECT COUNT(*) FROM notifications;').strip())
+    post = request(0, 'POST', '/api/v1/posts', {'title': 'PT smoke', 'content': 'PT smoke'}, 201)['data']['id']
+    path = f'/api/v1/posts/{post}'
+    request(0, 'PATCH', path, {'title': 'PT edited', 'content': 'PT edited'})
+    assert request(0, 'GET', path)['data']['content'] == 'PT edited'
+    request(1, 'PUT', path + '/like', status=204)
+    request(1, 'PUT', path + '/bookmark', status=204)
+    request(1, 'POST', path + '/comments', {'content': 'PT async smoke'}, 201)
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        found = es('/gopulse-post-search-v1/_search', 'POST', {'query': {'term': {'post_id': post}}, 'size': 1})['hits']['hits']
+        if found and found[0]['_source']['content'] == 'PT edited' and int(sql('SELECT COUNT(*) FROM notifications;').strip()) > before:
+            break
+        time.sleep(.5)
+    else:
+        raise RuntimeError('冒烟的异步通知或搜索索引未完成')
+    request(0, 'DELETE', path, status=204)
+    drained()
+    write_json(directory / 'smoke.json', {'ok': True, 'finished_at': utc(), 'checks': ['login', 'read', 'search', 'create', 'edit', 'like', 'bookmark', 'comment', 'notification', 'index', 'delete', 'drain']})
+
+
+def restore(directory):
+    rows = containers()
+    assert all(rows[name]['State']['Running'] for name in APPS), '恢复前实例已停止，拒绝自动修复'
+    drained()
+    compose(directory, 'stop', *APPS, log=directory / 'restore.log')
+    baseline = json.loads((directory / 'baseline.json').read_text())
+    assert digest(directory / 'baseline.sql') == baseline['sql_sha256'], '基线快照摘要不符'
+    shell = 'export MYSQL_PWD="$MYSQL_PASSWORD"; exec mysql -u"$MYSQL_USER" "$MYSQL_DATABASE"'
+    with (directory / 'baseline.sql').open('rb') as source:
+        result = subprocess.run(['docker', 'exec', '-i', f'{PROJECT}-mysql-1', 'sh', '-c', shell],
+                                stdin=source, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
+    assert result.returncode == 0, 'PT 数据库恢复失败'
+    reindex(directory)
+    flush_redis()
+    compose(directory, 'up', '-d', '--wait', '--wait-timeout', '180', *APPS, timeout=300, log=directory / 'restore.log')
+    drained()
+    assert sql('SELECT data_epoch,status,mode FROM business_environment;').strip() == baseline['environment'], '恢复后的数据 epoch 不符'
+
+
+def verify_replicas(directory):
+    evidence = {}
+    for role in ('backend', 'backend-2', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2'):
+        total = 0
+        for line in command(['docker', 'logs', f'{PROJECT}-{role}-1']).splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if role.startswith('backend'):
+                total += int(row.get('message') == 'http request completed' and
+                             row.get('route', '').startswith('/api/v1/') and 200 <= row.get('status', 0) < 300)
+            else:
+                total += int(row.get('message') == 'event processed' and row.get('result') == 'success')
+        assert total > 0, f'{role} 尚无业务处理成功记录'
+        evidence[role] = total
+    write_json(directory / 'replicas.json', evidence)
+

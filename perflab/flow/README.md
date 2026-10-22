@@ -18,3 +18,7 @@
 历史报告保留原样。工具准备不隐式部署业务程序。正式压测必须显式执行，不在实施验证中自动启动。
 
 `make pt-plan START_RPS=250` 展示固定条件、Go 生成的档位和耗时。该命令不读取或修改业务环境。`make pt-status` 查看当前状态，`make pt-stop` 保存整次停止请求。运行记录位于 `.run/perflab/<run-id>/`，状态原子更新，事件追加保存。环境锁拒绝重复启动。检测到未完成运行时拒绝自动重放，先用停止入口保存中断状态。
+
+准备前，将专用环境配置放在 `.run/perflab/private/test.env`，目录权限设为 `0700`，文件权限设为 `0600`。必须使用 `MYSQL_DATABASE=gopulse_pt`、`MYSQL_USER=pt`、`FRONTEND_PORT=18086`。项目名固定为 `gopulse-pt-business`。先用 `python3 -c 'import sys; sys.path.insert(0,"perflab"); from flow.config import load,compose_resources; from flow.runtime import write_json; write_json(".run/perflab/private/resources.json",compose_resources(load()["resources"]))'` 生成资源覆盖文件，再显式使用 `deploy/compose.business.yaml` 和该覆盖文件部署、迁移。部署凭据和镜像来源由操作者提供；工具不复制旧 PT 状态。
+
+`make pt-prepare` 会构建工具，在专用数据库生成语料、建立索引和快照，然后执行“恢复 → 冒烟 → 再恢复”。已有快照时复用并校验，不覆盖历史快照。该命令会恢复专用业务数据，运行前必须确认环境用途。准备完成后，源码、工具或配置变化均使准备记录失效。完整资源核验包括 Docker 配额、重启与 OOM、实例集合、buffer pool、堆和配置指纹。应用停止或崩溃时拒绝自动修复。
