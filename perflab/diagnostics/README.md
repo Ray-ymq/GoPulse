@@ -4,7 +4,7 @@
 
 | 来源 | 采集责任 | PT 读取方式 |
 | --- | --- | --- |
-| MySQL exporter | 通用状态、锁等待聚合、digest、语句事件、文件和表/索引 I/O | 独立 `mysql-metrics-source` 的 `/metrics` |
+| MySQL exporter | 通用状态、锁等待聚合、digest、语句事件、文件和表/索引 I/O | 标准 `serve --config` 入口的 `/metrics` |
 | 官方 node_exporter | 主机 CPU、内存、磁盘和网络 | `/metrics` |
 | 公共 container-exporter | 容器 cgroup v2 原始资源计数 | 带版本的 `/snapshot`；同时支持 `/metrics` |
 | 应用 metrics | 请求、连接池、缓存、Outbox、worker/indexer 和业务预算 | 应用内部 metrics 端点 |
@@ -14,7 +14,7 @@
 
 `sources.py` 只管理独立进程、私有清单和 HTTP 协议。进程在采样开始前启动，启动失败或运行结束时回收。采集器启动响应、指标正文和容器响应均有大小及时间上限；HTTP 不使用环境代理，也不跟随重定向。PT 不导入 MySQL exporter 的 Go 包，不复制常规 SQL，也不自行读取采样用 cgroup 文件。设置和核对容器配额的准备步骤仍可读取配置文件。
 
-`mysql-metrics-source` 位于 exporter 模块中，直接复用同一 collector 和输出契约。该命令读取私有只读 DSN，仅连接回环或私网 IP，监听系统分配的回环端口。现场诊断最多使用 2 个连接，exporter 最多使用 1 个连接；独立进程没有增加原有 4 连接账号上限。该命令用于 PT 直接运行，不替换 Monitor 的标准插件入口。
+MySQL exporter 直接构建模块根目录，与 Monitor 使用同一程序、标准配置和 `serve --config` 入口。PT 为每次运行生成权限为 `0600` 的配置副本，连接 MySQL 私网 IP，并选择临时回环监听端口。PT 先执行 `check-config`，再确认启动日志与标准 `/health` 响应。Prometheus 采集与 `gopulse_mysql_` 指标定义不变。现场诊断最多使用 2 个连接，exporter 最多使用 1 个连接；独立进程没有增加原有 4 连接账号上限。
 
 业务预算由 backend 的后台采样器每次成功采样后发布全部 epoch 的合计，使用已有 Outbox 后台连接池和同一轮查询超时。HTTP metrics handler 不访问业务表。预算表为空或查询失败时删除旧预算和时间戳，并置 `sample_success=0`。时间戳记录预算查询开始时间，避免把检查前开始的查询当作新观测。
 

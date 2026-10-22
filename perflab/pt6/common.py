@@ -198,7 +198,7 @@ def source_hashes():
 def verify_prepared():
     value = manifest()
     assert value.get('ready'), 'PT6 尚未准备完成'
-    assert value.get('diagnostics', {}).get('version') == 2, 'PT6 诊断尚未准备；执行 prepare.py --diagnostics'
+    assert value.get('diagnostics', {}).get('version') == 3, 'PT6 诊断尚未准备；执行 prepare.py --diagnostics'
     directory = Path(value['directory'])
     assert directory.parent == STATE and directory.name.startswith('preparation-'), '准备目录不属于 PT6'
     for path, expected in value['source_sha256'].items():

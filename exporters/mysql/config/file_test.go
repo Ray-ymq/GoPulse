@@ -87,3 +87,33 @@ func TestCollectorSelection(t *testing.T) {
 		})
 	}
 }
+
+func TestHostPrivateTargetsKeepLoopbackListener(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "localhost", "10.20.0.2", "172.19.0.2", "192.168.1.2", "fd00::2", "8.8.8.8", "169.254.1.2", "0.0.0.0", "mysql.example.com"} {
+		t.Run(host, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			body := strings.Replace(executionFixture, `"host":"127.0.0.1"`, `"host":`+strconv.Quote(host), 1)
+			if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadFile(path)
+			valid := host == "127.0.0.1" || host == "localhost" || host == "10.20.0.2" || host == "172.19.0.2" || host == "192.168.1.2" || host == "fd00::2"
+			if valid && (err != nil || cfg.Host != host || cfg.Listen != "127.0.0.1:19121") {
+				t.Fatalf("合法目标或回环监听发生变化: %v", err)
+			}
+			if !valid && err == nil {
+				t.Fatal("接受了不支持的宿主机目标")
+			}
+		})
+	}
+	for _, host := range []string{"0.0.0.0", "172.19.0.2", "192.168.1.2"} {
+		path := filepath.Join(t.TempDir(), "config.json")
+		body := strings.Replace(executionFixture, `"listen_host":"127.0.0.1"`, `"listen_host":`+strconv.Quote(host), 1)
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadFile(path); err == nil {
+			t.Fatal("私网目标支持不应放宽指标服务监听范围")
+		}
+	}
+}

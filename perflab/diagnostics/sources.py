@@ -5,8 +5,10 @@ import math
 import os
 from pathlib import Path
 import selectors
+import socket
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -76,9 +78,70 @@ class LocalSource:
                 except subprocess.TimeoutExpired:
                     self.process.kill()
                     self.process.wait(timeout=5)
-            self.process.stdout.close()
+            if self.process.stdout:
+                self.process.stdout.close()
         if self.log:
             self.log.close()
+
+
+class ConfiguredExporter(LocalSource):
+    """按标准 serve --config 启动 exporter，通过标准 health 端点等待就绪。"""
+    def __init__(self, binary, directory, configuration, name='mysql-exporter'):
+        super().__init__(binary, directory, name, None)
+        self.configuration = Path(configuration)
+
+    def start(self):
+        try:
+            self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            configuration = json.loads(self.configuration.read_text())
+            runtime = configuration['runtime']
+            if runtime.get('mode') != 'host' or runtime.get('listen_host') != '127.0.0.1':
+                raise ValueError('PT 指标服务必须使用宿主机回环监听')
+            with socket.socket() as listener:
+                listener.bind(('127.0.0.1', 0))
+                runtime['listen_port'] = listener.getsockname()[1]
+            self.url = 'http://127.0.0.1:' + str(runtime['listen_port'])
+            path = self.directory / (self.name + '.json')
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, 'w') as stream:
+                json.dump(configuration, stream)
+            self.log = (self.directory / (self.name + '.log')).open('x')
+            os.chmod(self.log.name, 0o600)
+            result = subprocess.run([str(self.binary), 'check-config', '--config', str(path)],
+                                    stdout=self.log, stderr=self.log, timeout=5)
+            if result.returncode:
+                raise RuntimeError('exporter 标准配置校验失败')
+            self.process = subprocess.Popen([str(self.binary), 'serve', '--config', str(path)],
+                                            stdout=self.log, stderr=self.log)
+            deadline = time.monotonic() + 5
+            while True:
+                if self.process.poll() is not None:
+                    raise RuntimeError('exporter 启动失败')
+                # 确认本进程已绑定端口，避免临时端口被抢占后误用其他服务。
+                with Path(self.log.name).open('rb') as stream:
+                    startup = stream.read(65537)
+                if len(startup) > 65536:
+                    raise RuntimeError('exporter 启动日志超过上限')
+                started = False
+                for line in startup.splitlines():
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    if record.get('event') == 'startup' and record.get('service') == self.name:
+                        started = True
+                try:
+                    health = json.loads(self.fetch('/health')) if started else None
+                except (urllib.error.URLError, OSError):
+                    health = None
+                if health == {'status': 'ok', 'contract_version': '2'} and self.process.poll() is None:
+                    return self
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('exporter 健康检查未通过')
+                time.sleep(.05)
+        except BaseException:
+            self.close()
+            raise
 
 
 class ContainerSource(LocalSource):

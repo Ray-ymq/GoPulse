@@ -69,13 +69,33 @@ make ci-build MODULE=exporters/mysql
 GOPULSE_MYSQL_TEST_CONTAINER=gopulse-mysql-1 make ci-test MODULE=exporters/mysql
 ```
 
-## PT 使用的独立 HTTP 入口
+## PT 复用标准入口
 
-`cmd/metrics-source` 使用同一 collector，供 PT 在宿主机运行。该入口不包含压测阶段、业务判断或业务表查询。PT 通过 HTTP 读取输出，不再依赖 exporter 的 Go 包。
+PT 与 Monitor 使用同一个 MySQL exporter 程序和 `serve --config` 入口。程序继续使用 Prometheus `client_golang` 和现有 collector，指标仍使用 `gopulse_mysql_` 前缀。PT 通过 HTTP 读取输出，不依赖 exporter 的 Go 包。
 
 ```sh
-go -C exporters/mysql build -o /tmp/mysql-metrics-source ./cmd/metrics-source
-/tmp/mysql-metrics-source --dsn-file /path/to/private-readonly.dsn
+go -C exporters/mysql build -o /tmp/gopulse-mysql-exporter .
+/tmp/gopulse-mysql-exporter check-config --config /path/to/mysql-exporter.json
+/tmp/gopulse-mysql-exporter serve --config /path/to/mysql-exporter.json
 ```
 
-DSN 必须使用 TCP，提供用户、数据库及回环或私网 IP。文件由调用方以 `0600` 权限保存；账号权限沿用前述监控只读权限。程序仅监听 `127.0.0.1` 的临时端口，向 stdout 输出一行包含 `url` 和 `schema_version=gopulse.mysql.metrics.v1` 的启动 JSON。调用方随后读取 `/metrics`，并在结束时发送 SIGTERM。常规 Monitor 插件仍使用原有入口和配置协议。
+标准配置包含 `config`、`secrets` 和 `runtime` 三部分。PT 使用的配置示例：
+
+```json
+{
+  "config": {
+    "host": "172.19.0.2", "port": 3306,
+    "database": "gopulse", "username": "observer",
+    "connect_timeout": "1s", "scrape_timeout": "2s"
+  },
+  "secrets": {"password": "<readonly-password>"},
+  "runtime": {
+    "mode": "host", "listen_host": "127.0.0.1", "listen_port": 9122,
+    "shutdown_timeout": "3s"
+  }
+}
+```
+
+宿主机模式允许连接 `localhost`、回环 IP 或私网 IP，拒绝其他 DNS 名称、公网 IP、链路本地 IP 和未指定地址。HTTP 服务仍只允许回环监听；容器模式的目标与监听规则不变。账号权限沿用前述监控只读权限，调用方须以 `0600` 权限保存配置文件。
+
+PT 为每次运行复制标准配置，并选择临时回环端口。PT 先执行 `check-config`，再执行 `serve`，确认进程启动日志与标准 `/health` 响应后读取 `/metrics`。`/health` 返回 `status=ok` 和 `contract_version=2`；数据库采集是否成功仍以 `/metrics` 为准。运行结束时 PT 发送 SIGTERM 并回收进程。

@@ -98,7 +98,7 @@ func validTarget(mode, host, port string) bool {
 	}
 	ip := net.ParseIP(host)
 	if mode == "host" || mode == "" {
-		return host == "localhost" || ip != nil && ip.IsLoopback()
+		return host == "localhost" || ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 	}
 	return mode == "container" && ip == nil
 }

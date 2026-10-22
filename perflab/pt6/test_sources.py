@@ -1,5 +1,6 @@
 """使用临时 cgroup 文件和实际采集进程验证指标来源，不访问 Docker 或业务库。"""
 import os
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,7 +11,7 @@ from unittest.mock import patch
 from common import ROOT
 import common
 from diagnostics.budget import parse_budget
-from diagnostics.sources import ContainerSource, LocalSource, build_container_source
+from diagnostics.sources import ContainerSource, LocalSource, ConfiguredExporter, build_container_source
 
 
 def budget(stamp=1000, success=1, open_count=0):
@@ -109,38 +110,73 @@ class MySQLSourceProcessTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.build = tempfile.TemporaryDirectory()
-        cls.binary = Path(cls.build.name) / 'mysql-metrics-source'
+        cls.binary = Path(cls.build.name) / 'gopulse-mysql-exporter'
         subprocess.run(['go', '-C', str(ROOT / 'exporters/mysql'), 'build', '-o', str(cls.binary),
-                        './cmd/metrics-source'], check=True, timeout=600)
+                        '.'], check=True, timeout=600)
 
     @classmethod
     def tearDownClass(cls):
         cls.build.cleanup()
 
-    def test_unreachable_database_remains_http_failure(self):
+    def configuration(self, directory, host='127.0.0.1', port=1):
+        path = Path(directory) / 'template.json'
+        path.write_text(json.dumps({
+            'config': {'host': host, 'port': port, 'database': 'fixture', 'username': 'observer',
+                       'connect_timeout': '1s', 'scrape_timeout': '2s'},
+            'secrets': {'password': 'fixture-secret'},
+            'runtime': {'mode': 'host', 'listen_host': '127.0.0.1', 'listen_port': 9122,
+                        'shutdown_timeout': '3s'}}))
+        path.chmod(0o600)
+        return path
+
+    def test_standard_entrypoint_health_and_unreachable_database(self):
         with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / 'diagnostic.dsn'
-            path.write_text('observer:fixture-secret@tcp(127.0.0.1:1)/fixture')
-            path.chmod(0o600)
-            source = LocalSource(self.binary, Path(temp) / 'run', 'mysql', 'gopulse.mysql.metrics.v1',
-                                 ('--dsn-file', path)).start()
+            path = self.configuration(temp)
+            before = path.read_bytes()
+            source = ConfiguredExporter(self.binary, Path(temp) / 'run', path).start()
             try:
+                self.assertEqual(source.process.args[1:3], ['serve', '--config'])
+                self.assertEqual(json.loads(source.fetch('/health')), {'status': 'ok', 'contract_version': '2'})
+                active = Path(source.process.args[3])
+                self.assertEqual(active.stat().st_mode & 0o777, 0o600)
+                config = json.loads(active.read_text())
+                self.assertEqual(config['config']['host'], '127.0.0.1')
+                self.assertEqual(config['secrets']['password'], 'fixture-secret')
+                self.assertEqual(path.read_bytes(), before)
                 with self.assertRaises(HTTPError) as caught:
                     source.fetch('/metrics')
                 self.assertEqual(caught.exception.code, 503)
                 self.assertIn(b'gopulse_mysql_up 0', caught.exception.read())
             finally:
                 source.close()
-            self.assertIsNotNone(source.process.poll())
+            self.assertEqual(source.process.returncode, 0)
+            self.assertTrue(source.log.closed)
             self.assertNotIn('fixture-secret', Path(source.log.name).read_text())
 
-    def test_invalid_dsn_rejected_without_secret_in_log(self):
+    def test_standard_config_rejects_public_target_without_secret_in_log(self):
         with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / 'diagnostic.dsn'
-            path.write_text('fixture-secret@invalid')
-            source = LocalSource(self.binary, Path(temp) / 'run', 'mysql', 'gopulse.mysql.metrics.v1',
-                                 ('--dsn-file', path))
+            path = self.configuration(temp, host='8.8.8.8')
+            source = ConfiguredExporter(self.binary, Path(temp) / 'run', path)
+            with self.assertRaises(RuntimeError):
+                source.start()
+            self.assertIsNone(source.process)
+            self.assertTrue(source.log.closed)
+            self.assertNotIn('fixture-secret', Path(source.log.name).read_text())
+
+    def test_private_target_uses_standard_config_without_connecting_database(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = self.configuration(temp, host='172.19.0.2')
+            result = subprocess.run([str(self.binary), 'check-config', '--config', str(path)],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(json.loads(result.stdout)['valid'])
+
+    def test_failed_process_is_reaped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = self.configuration(temp)
+            # true 的配置校验成功，serve 随即退出，验证启动失败时的进程回收。
+            source = ConfiguredExporter('/bin/true', Path(temp) / 'run', path)
             with self.assertRaises(RuntimeError):
                 source.start()
             self.assertIsNotNone(source.process.poll())
-            self.assertNotIn('fixture-secret', Path(source.log.name).read_text())
+            self.assertTrue(source.log.closed)

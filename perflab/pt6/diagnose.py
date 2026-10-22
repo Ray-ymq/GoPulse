@@ -24,9 +24,9 @@ sys.path.insert(0, str(ROOT / 'perflab'))
 from diagnostics.metrics import parse_metrics
 from diagnostics.mysql import DIAGNOSTIC_INSTRUMENTS, RESET_SUMMARY_TABLES
 from diagnostics.system import node_command
-from diagnostics.sources import LocalSource, build_container_source
+from diagnostics.sources import ConfiguredExporter, build_container_source
 
-VERSION = 2
+VERSION = 3
 CONSUMERS = ('global_instrumentation', 'thread_instrumentation', 'statements_digest',
              'events_statements_current', 'events_statements_history', 'events_statements_history_long',
              'events_waits_current', 'events_waits_history_long')
@@ -43,7 +43,7 @@ def mysql_address():
 
 
 def artifacts():
-    return ('diagnostic.dsn', 'diagnostics.json', 'bin/dbdiag', 'bin/node_exporter', 'bin/mysql-metrics-source', 'bin/container-exporter')
+    return ('diagnostic.dsn', 'diagnostics.json', 'bin/dbdiag', 'bin/node_exporter', 'bin/gopulse-mysql-exporter', 'mysql-exporter.json', 'bin/container-exporter')
 
 
 def valid_node(binary, version, arch):
@@ -119,7 +119,7 @@ def prepare(directory):
     command(['env', 'CGO_ENABLED=0', 'go', '-C', 'perflab', 'build', '-o',
              str(directory / 'bin/dbdiag'), './cmd/dbdiag'], timeout=600, log=directory / 'build-diagnostics.log')
     command(['env', 'CGO_ENABLED=0', 'go', '-C', 'exporters/mysql', 'build', '-o',
-             str(directory / 'bin/mysql-metrics-source'), './cmd/metrics-source'], timeout=600,
+             str(directory / 'bin/gopulse-mysql-exporter'), '.'], timeout=600,
             log=directory / 'build-diagnostics.log')
     build_container_source(ROOT, directory / 'bin/container-exporter')
     node = prepare_node(directory)
@@ -140,12 +140,19 @@ def prepare(directory):
                  ') OR ' + EXTRA_INSTRUMENTS + '; SELECT NAME,ENABLED FROM performance_schema.setup_consumers;', root=True)
     sql("UPDATE performance_schema.setup_instruments SET ENABLED='YES',TIMED='YES' WHERE NAME IN (" + names +
         ') OR ' + EXTRA_INSTRUMENTS + "; UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME IN (" + consumers + ');', root=True)
+    address = mysql_address()
     dsn = directory / 'diagnostic.dsn'
-    dsn.write_text(f'{observer}:{password}@tcp({mysql_address()}:3306)/{database}?parseTime=true')
+    dsn.write_text(f'{observer}:{password}@tcp({address}:3306)/{database}?parseTime=true')
     dsn.chmod(0o600)
+    write_json(directory / 'mysql-exporter.json', {
+        'config': {'host': address, 'port': 3306, 'database': database, 'username': observer,
+                   'connect_timeout': '1s', 'scrape_timeout': '2s'},
+        'secrets': {'password': password},
+        'runtime': {'mode': 'host', 'listen_host': '127.0.0.1', 'listen_port': 9122,
+                    'shutdown_timeout': '3s'}})
     previous = directory / ('diagnostic-before-reset-' + secrets.token_hex(4) + '.jsonl')
-    source = LocalSource(directory / 'bin/mysql-metrics-source', directory / previous.stem,
-                         'mysql-exporter', 'gopulse.mysql.metrics.v1', ('--dsn-file', dsn)).start()
+    source = ConfiguredExporter(directory / 'bin/gopulse-mysql-exporter', directory / previous.stem,
+                                directory / 'mysql-exporter.json').start()
     try:
         command([str(directory / 'bin/dbdiag'), '--dsn-file', str(dsn), '--metrics-url', source.url + '/metrics',
                  '--once'], timeout=15, log=previous)
@@ -254,9 +261,10 @@ class Diagnostics:
             self.log = (self.directory / 'diagnostic-process.log').open('x')
             self.log_path = self.directory / 'diagnostic-process.log'
             self.log_path.chmod(0o600)
-            self.mysql_source = LocalSource(self.preparation / 'bin/mysql-metrics-source', self.directory,
-                                            'mysql-exporter', 'gopulse.mysql.metrics.v1',
-                                            ('--dsn-file', self.preparation / 'diagnostic.dsn')).start()
+            source_config = json.loads((self.preparation / 'mysql-exporter.json').read_text())
+            assert source_config['config']['host'] == mysql_address(), 'MySQL exporter 目标地址已改变'
+            self.mysql_source = ConfiguredExporter(self.preparation / 'bin/gopulse-mysql-exporter', self.directory,
+                                                   self.preparation / 'mysql-exporter.json').start()
             self.process = subprocess.Popen([str(self.preparation / 'bin/dbdiag'), '--dsn-file',
                                              str(self.preparation / 'diagnostic.dsn'), '--metrics-url', self.mysql_source.url + '/metrics'],
                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log, text=True, bufsize=1)
@@ -360,7 +368,7 @@ class Diagnostics:
                                                    'system': after.ru_stime - before.ru_stime}
                                             for name, before, after in zip(('python', 'children_including_docker_clients'),
                                                                           self.cpu_before, cpu_after)},
-                   'source_protocol': 'http',
+                   'source_protocol': 'http', 'mysql_exporter_entrypoint': 'serve --config',
                    'mysql_exporter_exit_code': self.mysql_source.process.returncode if self.mysql_source else None,
                    'process_exit_codes': {name: process.returncode if process else None
                                           for name, process in (('mysql', self.process), ('node', self.node))}})

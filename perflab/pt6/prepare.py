@@ -278,7 +278,7 @@ def refresh(value):
     baseline = json.loads((directory / 'baseline.json').read_text())
     assert sql('SELECT data_epoch,status,mode FROM business_environment;').strip() == baseline['environment'], '数据 epoch 或运行模式改变'
     drained()
-    assert value.get('diagnostics', {}).get('version') == 2, '先执行 prepare.py --diagnostics 准备诊断'
+    assert value.get('diagnostics', {}).get('version') == 3, '先执行 prepare.py --diagnostics 准备诊断'
     collection_preflight(directory)
     value['source_sha256'] = source_hashes()
     value.update(updated_at=utc(), refreshed_at=utc())
