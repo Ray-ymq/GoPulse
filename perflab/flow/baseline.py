@@ -26,16 +26,18 @@ def seed(directory):
     for key in ('users', 'editable_post_ids', 'delete_post_ids'):
         corpus[key] = corpus[key][:512]
     credentials['users'] = credentials['users'][:512]
-    for start in range(0, 512, 8):
+    # 单接口 DELETE 以最高可能正常档执行，每个账号必须有足够的一次性语料。
+    per_actor = (6400 * 330 + 511) // 512 + 2
+    for start in range(0, 512):
         values = []
-        for actor in range(start, start + 8):
+        for actor in range(start, start + 1):
             user = corpus['users'][actor]['id']
-            values.extend(f"({user},'PT delete {actor} {i}','PT disposable corpus')" for i in range(256))
+            values.extend(f"({user},'PT delete {actor} {i}','PT disposable corpus')" for i in range(per_actor))
         first, count = map(int, sql('INSERT INTO posts(author_id,title,content) VALUES ' + ','.join(values) +
                                     '; SELECT LAST_INSERT_ID(),ROW_COUNT();').strip().split('\t'))
         assert count == len(values), '删除语料插入数量不符'
-        for offset, actor in enumerate(range(start, start + 8)):
-            corpus['delete_post_ids'][actor] = list(range(first + offset * 256, first + (offset + 1) * 256))
+        for offset, actor in enumerate(range(start, start + 1)):
+            corpus['delete_post_ids'][actor] = list(range(first + offset * per_actor, first + (offset + 1) * per_actor))
     write_json(directory / 'corpus.json', corpus)
     write_json(directory / 'credentials.json', credentials)
     helper(directory, 'validate-corpus', '--dsn-file', '/input/mysql.dsn', '--corpus', '/input/corpus.json',

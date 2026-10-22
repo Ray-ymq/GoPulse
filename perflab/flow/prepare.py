@@ -43,6 +43,7 @@ def prepare(config):
         for name, row in initial['containers'].items():
             if {k: v for k, v in row.items() if k != 'started_at'} != {k: v for k, v in current['containers'][name].items() if k != 'started_at'}:
                 raise ValueError('准备期间容器身份或配置改变')
+    command(['docker', 'exec', 'gopulse-pt-business-rabbitmq-1', 'rabbitmq-plugins', 'enable', 'rabbitmq_prometheus'], timeout=30)
     from .diagnose import prepare as prepare_diagnostics, artifacts
     value['diagnostics'] = prepare_diagnostics(directory)
     from .observe import precheck
