@@ -13,6 +13,13 @@ def source_hashes():
                      'exporters/mysql', 'runtimekit/containerstats', 'runtimekit/cmd/container-exporter'):
         paths += [path for path in (ROOT / relative).rglob('*') if path.suffix in ('.py', '.go', '.js', '.mjs', '.json', '.mod', '.sum')]
     paths += [ROOT / 'perflab/go.mod', ROOT / 'perflab/go.sum', ROOT / 'runtimekit/go.mod']
+    # 业务程序和镜像构建输入改变后，旧准备及验收记录也必须失效。
+    build_inputs = command(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--',
+                            'backend', 'frontend', 'runtimekit', 'deploy/docker']).split('\0')
+    suffixes = {'.go', '.mod', '.sum', '.js', '.mjs', '.ts', '.vue', '.json', '.css', '.scss',
+                '.html', '.yaml', '.yml', '.conf', '.sql'}
+    paths += [ROOT / name for name in build_inputs if name and
+              (Path(name).suffix in suffixes or Path(name).name.endswith('Dockerfile'))]
     return {str(path.relative_to(ROOT)): digest(path) for path in sorted(set(paths))}
 
 

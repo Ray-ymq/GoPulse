@@ -3,10 +3,19 @@ import unittest
 from unittest.mock import patch
 from flow.environment import snapshot
 from flow.config import load
-from flow.environment import inspect_rows
+from flow.environment import inspect_rows, source_hashes
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_preparation_and_acceptance_cover_business_build_inputs(self):
+        hashes = source_hashes()
+        for name in ('backend/internal/search/reindex.go', 'backend/migrations/000018_search_tombstones.up.sql',
+                     'deploy/docker/backend.Dockerfile', 'deploy/docker/frontend/nginx.conf',
+                     'frontend/user/package-lock.json'):
+            with self.subTest(name=name):
+                self.assertEqual(len(hashes[name]), 64)
+        self.assertFalse(any('/node_modules/' in name or '/.run/' in name for name in hashes))
+
     def rows(self):
         return {name: {'Id': name, 'Image': 'image', 'RestartCount': 0,
                        'State': {'Running': True, 'StartedAt': 'start', 'Health': {'Status': 'healthy'}},
