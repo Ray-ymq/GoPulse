@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -65,67 +66,17 @@ func validate() error {
 		}
 	}
 	result := map[string]any{"accounts_valid": len(corpus.Users)}
-	deletable := map[uint64]bool{}
-	for _, targets := range corpus.DeletePostIDs {
-		for _, id := range targets {
-			if deletable[id] {
-				return errors.New("删除目标重复")
-			}
-			deletable[id] = true
-		}
-	}
-	for _, ids := range [][]uint64{corpus.ReadPostIDs, corpus.InteractionPostIDs} {
-		for _, id := range ids {
-			if deletable[id] {
-				return errors.New("删除目标与读取或互动目标重叠")
-			}
-		}
-	}
-	fields := []struct {
-		name   string
-		ids    []uint64
-		owners map[uint64]uint64
-	}{
-		{"read", corpus.ReadPostIDs, nil}, {"interaction", corpus.InteractionPostIDs, nil},
-	}
-	minimumDelete := int(^uint(0) >> 1)
-	for _, field := range []struct {
-		name string
-		rows [][]uint64
-	}{{"edit", corpus.EditablePostIDs}, {"delete", corpus.DeletePostIDs}} {
-		ids := []uint64{}
-		owners := map[uint64]uint64{}
-		for actor, row := range field.rows {
-			if len(row) == 0 {
-				return errors.New("账号缺少编辑或删除目标")
-			}
-			if field.name == "delete" && len(row) < minimumDelete {
-				minimumDelete = len(row)
-			}
-			for _, id := range row {
-				if _, exists := owners[id]; exists {
-					return errors.New("多个账号共用编辑或删除目标")
-				}
-				owners[id] = corpus.Users[actor].ID
-				if field.name == "edit" && deletable[id] {
-					return errors.New("编辑目标与删除目标重叠")
-				}
-			}
-			ids = append(ids, row...)
-		}
-		fields = append(fields, struct {
-			name   string
-			ids    []uint64
-			owners map[uint64]uint64
-		}{field.name, ids, owners})
+	fields, minimumDelete, err := corpusTargets(corpus)
+	if err != nil {
+		return err
 	}
 	for _, field := range fields {
 		present := 0
-		for start := 0; start < len(field.ids); start += 1000 {
-			end := min(start+1000, len(field.ids))
+		for start := 0; start < len(field.targets); start += 1000 {
+			end := min(start+1000, len(field.targets))
 			ids := make([]string, end-start)
-			for index, id := range field.ids[start:end] {
-				ids[index] = strconv.FormatUint(id, 10)
+			for index, id := range field.targets[start:end] {
+				ids[index] = strconv.FormatUint(id.id, 10)
 			}
 			rows, err := db.QueryContext(ctx, "SELECT id,author_id FROM posts WHERE id IN ("+strings.Join(ids, ",")+")")
 			if err != nil {
@@ -137,7 +88,7 @@ func validate() error {
 					_ = rows.Close()
 					return err
 				}
-				if field.owners != nil && field.owners[id] != owner {
+				if field.owned && !matchesOwner(field.targets[start:end], id, owner) {
 					_ = rows.Close()
 					return errors.New("编辑或删除目标归属错误")
 				}
@@ -149,11 +100,102 @@ func validate() error {
 				return errors.New("读取语料目标失败")
 			}
 		}
-		if present != len(field.ids) {
+		if present != len(field.targets) {
 			return fmt.Errorf("%s 语料有缺失目标", field.name)
 		}
 		result[field.name+"_valid"] = present
 	}
 	result["minimum_delete_targets_per_actor"] = minimumDelete
 	return json.NewEncoder(os.Stdout).Encode(result)
+}
+
+// 使用排序数组保存归属，避免为百万级删除语料创建多个全量哈希表。
+type target struct {
+	id, owner uint64
+}
+
+type targetField struct {
+	name    string
+	targets []target
+	owned   bool
+}
+
+func compareTarget(a, b target) int {
+	if a.id < b.id {
+		return -1
+	}
+	if a.id > b.id {
+		return 1
+	}
+	return 0
+}
+
+func matchesOwner(targets []target, id, owner uint64) bool {
+	index, found := slices.BinarySearchFunc(targets, target{id: id}, compareTarget)
+	return found && targets[index].owner == owner
+}
+
+func ownedTargets(users []input.User, rows [][]uint64) ([]target, error) {
+	if len(rows) != len(users) {
+		return nil, errors.New("账号与写入目标数量不一致")
+	}
+	count := 0
+	for _, row := range rows {
+		if len(row) == 0 {
+			return nil, errors.New("账号缺少编辑或删除目标")
+		}
+		count += len(row)
+	}
+	targets := make([]target, count)
+	index := 0
+	for actor, row := range rows {
+		for _, id := range row {
+			targets[index] = target{id: id, owner: users[actor].ID}
+			index++
+		}
+	}
+	slices.SortFunc(targets, compareTarget)
+	for index := 1; index < len(targets); index++ {
+		if targets[index-1].id == targets[index].id {
+			return nil, errors.New("编辑或删除目标重复")
+		}
+	}
+	return targets, nil
+}
+
+func corpusTargets(corpus input.Corpus) ([]targetField, int, error) {
+	deletable, err := ownedTargets(corpus.Users, corpus.DeletePostIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	editable, err := ownedTargets(corpus.Users, corpus.EditablePostIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, item := range editable {
+		if _, found := slices.BinarySearchFunc(deletable, item, compareTarget); found {
+			return nil, 0, errors.New("编辑目标与删除目标重叠")
+		}
+	}
+	fields := make([]targetField, 0, 4)
+	for _, field := range []struct {
+		name string
+		ids  []uint64
+	}{{"read", corpus.ReadPostIDs}, {"interaction", corpus.InteractionPostIDs}} {
+		targets := make([]target, len(field.ids))
+		for index, id := range field.ids {
+			targets[index] = target{id: id}
+			if _, found := slices.BinarySearchFunc(deletable, targets[index], compareTarget); found {
+				return nil, 0, errors.New("删除目标与读取或互动目标重叠")
+			}
+		}
+		fields = append(fields, targetField{name: field.name, targets: targets})
+	}
+	minimumDelete := len(corpus.DeletePostIDs[0])
+	for _, row := range corpus.DeletePostIDs {
+		minimumDelete = min(minimumDelete, len(row))
+	}
+	fields = append(fields, targetField{name: "edit", targets: editable, owned: true},
+		targetField{name: "delete", targets: deletable, owned: true})
+	return fields, minimumDelete, nil
 }
