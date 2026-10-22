@@ -32,3 +32,4 @@ class RuntimeTests(unittest.TestCase):
             self.assertIsNotNone(child.poll())
             self.assertFalse(run.state['execution_completed'])
             self.assertEqual(run.state['status'], 'completed')
+            self.assertEqual(run.state['collection'], 'closed')

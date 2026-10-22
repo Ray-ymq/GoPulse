@@ -131,11 +131,11 @@ class Run:
         return (self.directory / 'STOP').exists()
 
     def finish(self, code, reason=None):
-        self.update('finalizing', exit_code=code, reason=reason)
+        self.update('finalizing', exit_code=code, reason=reason, collection='closing')
         try:
             self.processes.close()
         finally:
-            self.update('completed', execution_completed=code in (0, 1), finished_at=utc())
+            self.update('completed', execution_completed=code in (0, 1), collection='closed', finished_at=utc())
 
 
 def active(root=STATE):

@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from flow.config import load, contract
-from flow.executor import Pipeline, Abort, boundary
+from flow.executor import Pipeline, Abort, boundary, business_result
 from flow.report import report
 from flow.runtime import Run, write_json
 
@@ -31,6 +31,15 @@ class FixtureBackend:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_business_status_is_independent_of_execution_and_audit(self):
+        def group(name, passed, audit=True):
+            return dict(group_id=name, business_passed=passed, audit={'passed': audit}, load={'stages': [{}]})
+        self.assertIsNone(business_result([]))
+        self.assertIsNone(business_result([group('scan', False)]))
+        self.assertFalse(business_result([group('low', False)]))
+        self.assertTrue(business_result([group('low', True, audit=False), group('scan', False)]))
+        self.assertFalse(business_result([group('low', True), group('soak-100', False)]))
+
     def test_high_start_first_abnormal_uses_low(self):
         backend = FixtureBackend(abnormal=200)
         pipeline = Pipeline(load('250'), backend)

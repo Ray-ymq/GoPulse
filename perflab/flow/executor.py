@@ -51,6 +51,12 @@ def boundary(groups):
             'valid': bool(low and high > low)}
 
 
+def business_result(groups):
+    measured = [group for group in groups if group.get('load', {}).get('stages')
+                and not group['group_id'].startswith(('scan', 'refine', 'repeat'))]
+    return all(group['business_passed'] for group in measured) if measured else None
+
+
 class Pipeline:
     def __init__(self, config, backend):
         self.config, self.backend = config, backend
@@ -318,6 +324,8 @@ def execute(config):
         write_json(run.directory / 'outcome.json', {'exit_code': code, 'reason': reason,
                    'capacity': pipeline.capacity if pipeline else {}, 'skipped': pipeline.skipped if pipeline else [],
                    'pipeline_completed': code in (0, 1) and reason is None})
+        archived = [json.loads(path.read_text()) for path in (run.directory / 'groups').glob('*/result.json')]
+        run.update(business_passed=business_result(archived))
         run.finish(code, reason)
         run.update(execution_completed=code in (0, 1) and reason is None)
         from .report import report
