@@ -5,33 +5,21 @@ import sys
 import threading
 import time
 
-from common import EXPECTED_MEMORY, atomic_json, cgroup, container, utc
+from common import EXPECTED_MEMORY, STATE, atomic_json, container, utc
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from diagnostics.sources import ContainerSource
 
 INTERVAL = 5.0
 
 
-def _counter(text):
-    return {line.split()[0]: int(line.split()[1]) for line in text.splitlines() if len(line.split()) == 2}
-
-
-def sample():
+def sample(source):
     item = container()
-    cpu = _counter(cgroup('cpu.stat') or '')
-    events = _counter(cgroup('memory.events') or '')
-    peak = cgroup('memory.peak')
-    memory_max = cgroup('memory.max')
-    value = {
-        'timestamp': utc(), 'epoch': time.time(), 'container_id': item['Id'],
-        'cpu_max': cgroup('cpu.max'),
-        'cpu': {name: cpu.get(name, 0) for name in
-                ('usage_usec', 'user_usec', 'system_usec', 'nr_periods', 'nr_throttled', 'throttled_usec')},
-        'memory_current': int(cgroup('memory.current') or 0),
-        'memory_peak': None if peak in (None, 'max') else int(peak),
-        'memory_max': None if memory_max in (None, 'max') else int(memory_max),
-        'memory_events': events, 'pids_current': int(cgroup('pids.current') or 0),
-    }
-    return value
+    if not item['State']['Running']:
+        raise RuntimeError('MySQL 容器已停止')
+    snapshot = source.snapshot([{'name': 'mysql', 'id': item['Id'], 'pid': item['State']['Pid']}])
+    return {**snapshot['containers']['mysql'], 'container_id': item['Id'],
+            'timestamp': snapshot['timestamp'], 'epoch': snapshot['epoch'], 'source': snapshot['schema_version']}
 
 
 class Sampler:
@@ -42,10 +30,16 @@ class Sampler:
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.samples = 0
         self.errors = 0
+        self.source = ContainerSource(STATE / "bin/container-exporter", self.path.parent)
 
     def start(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.thread.start()
+        self.source.start()
+        try:
+            self.thread.start()
+        except BaseException:
+            self.source.close()
+            raise
 
     def _run(self):
         started = time.monotonic()
@@ -53,7 +47,7 @@ class Sampler:
             while not self.stop.is_set():
                 began = time.monotonic()
                 try:
-                    row = sample()
+                    row = sample(self.source)
                 except Exception as error:  # 单次读取失败保留错误，不补零。
                     row = {'timestamp': utc(), 'epoch': time.time(), 'error': type(error).__name__ + ': ' + str(error)}
                     self.errors += 1
@@ -65,11 +59,16 @@ class Sampler:
 
     def close(self):
         self.stop.set()
+        if self.thread.ident is None:
+            self.source.close()
+            return
         self.thread.join(timeout=self.interval + 5)
+        self.source.close()
         if self.thread.is_alive():
             raise RuntimeError('CPU 采样线程未按时停止')
         value = {'path': str(self.path), 'interval_seconds': self.interval, 'samples': self.samples,
-                 'errors': self.errors, 'elapsed_seconds': getattr(self, 'elapsed', None)}
+                 'errors': self.errors, 'source': self.source.schema,
+                 'source_exit_code': self.source.process.returncode, 'elapsed_seconds': getattr(self, 'elapsed', None)}
         atomic_json(self.path.with_suffix('.summary.json'), value)
         return value
 

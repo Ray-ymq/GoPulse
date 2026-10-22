@@ -31,11 +31,13 @@ python3 perflab/pt4/stop.py
 
 ## 采样与窗口
 
+运行入口在设置配额前构建公共 `runtimekit/cmd/container-exporter`。PT5 发现容器身份和宿主机 PID 后，通过带版本的 HTTP `/snapshot` 读取资源；PT5 不再实现采样用 cgroup 读取。采集进程仅监听临时回环端口，随本组启动和回收。
+
 `resources.jsonl` 每 5 秒保存 `cpu.stat`、`cpu.max`、`memory.current`、`memory.peak`、`memory.events` 和 `pids.current`。`resources-summary.json` 使用 `report.json` 的实际正式窗口，取窗口前后边界样本计算：
 
 - 平均 CPU 使用率与 5 秒瞬时峰值；
 - 节流周期数、节流周期比例、累计节流时间和节流时间比例；
-- 内存峰值、cgroup OOM kill；
+- 窗口内存采样最大值、cgroup 生命周期内存高水位和 OOM kill；
 - 窗口内 `cpu.max` 是否保持预期配额。
 
 采样间断超过 10 秒、边界样本距离窗口超过 10 秒、配额变化或计数回退时标记证据不完整，不补零。

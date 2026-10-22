@@ -68,3 +68,14 @@ make ci-build MODULE=exporters/mysql
 ```sh
 GOPULSE_MYSQL_TEST_CONTAINER=gopulse-mysql-1 make ci-test MODULE=exporters/mysql
 ```
+
+## PT 使用的独立 HTTP 入口
+
+`cmd/metrics-source` 使用同一 collector，供 PT 在宿主机运行。该入口不包含压测阶段、业务判断或业务表查询。PT 通过 HTTP 读取输出，不再依赖 exporter 的 Go 包。
+
+```sh
+go -C exporters/mysql build -o /tmp/mysql-metrics-source ./cmd/metrics-source
+/tmp/mysql-metrics-source --dsn-file /path/to/private-readonly.dsn
+```
+
+DSN 必须使用 TCP，提供用户、数据库及回环或私网 IP。文件由调用方以 `0600` 权限保存；账号权限沿用前述监控只读权限。程序仅监听 `127.0.0.1` 的临时端口，向 stdout 输出一行包含 `url` 和 `schema_version=gopulse.mysql.metrics.v1` 的启动 JSON。调用方随后读取 `/metrics`，并在结束时发送 SIGTERM。常规 Monitor 插件仍使用原有入口和配置协议。

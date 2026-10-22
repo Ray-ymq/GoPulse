@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,7 +16,7 @@ type Route struct{ Method, Template string }
 
 const BackendMaxRoutes = 96
 const BackendMaxBodyBytes = 1 << 20
-const BackendFamilies = 37
+const BackendFamilies = 43
 
 var backendMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE", "unknown"}
 var latencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2, 5, 10}
@@ -25,6 +26,7 @@ func BackendLatencyBuckets() []string {
 }
 
 type Backend struct {
+	budgetMu      sync.RWMutex
 	state         *Registry
 	routes        map[Route]bool
 	latency       *prometheus.HistogramVec
@@ -88,7 +90,34 @@ func NewBackend(routes []Route) (*Backend, error) {
 	b.outboxLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "gopulse_backend_outbox_operation_duration_seconds", Help: "Outbox database operation latency.", Buckets: latencyBuckets}, []string{"operation", "result"})
 	state.registry.MustRegister(b.latency, b.outboxLatency)
 	b.clearOutbox()
+	b.clearAsyncBudget()
 	return b, nil
+}
+
+func (b *Backend) clearAsyncBudget() {
+	for _, suffix := range []string{"async_budget_open_requirements", "async_budget_parked_messages", "async_budget_retained_groups", "async_budget_retained_bytes", "async_budget_last_success_timestamp_seconds"} {
+		b.state.families[Prefix("backend")+suffix].gauges.DeleteLabelValues()
+	}
+}
+
+// ObserveAsyncBudget 暴露全部 epoch 的预算合计；采样失败时删除旧值，不补零。
+func (b *Backend) ObserveAsyncBudget(open, parked, groups, bytes uint64, sampledAt time.Time, err error) {
+	if b == nil {
+		return
+	}
+	b.budgetMu.Lock()
+	defer b.budgetMu.Unlock()
+	if err != nil || sampledAt.IsZero() {
+		b.clearAsyncBudget()
+		b.state.Set("async_budget_sample_success", 0)
+		return
+	}
+	b.state.Set("async_budget_open_requirements", float64(open))
+	b.state.Set("async_budget_parked_messages", float64(parked))
+	b.state.Set("async_budget_retained_groups", float64(groups))
+	b.state.Set("async_budget_retained_bytes", float64(bytes))
+	b.state.Set("async_budget_last_success_timestamp_seconds", float64(sampledAt.Unix()))
+	b.state.Set("async_budget_sample_success", 1)
 }
 func (b *Backend) ObserveRequest(method, template string, status int, elapsed time.Duration) {
 	if b == nil || elapsed < 0 || status < 100 || status >= 600 {
@@ -219,6 +248,8 @@ func (b *Backend) Snapshot() ([]byte, bool) {
 	if b == nil {
 		return nil, false
 	}
+	b.budgetMu.RLock()
+	defer b.budgetMu.RUnlock()
 	return b.state.Snapshot()
 }
 

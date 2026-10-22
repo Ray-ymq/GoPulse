@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 )
 
 // SampleMetrics only aggregates indexed status and creation timestamps. It
 // never reads an event payload and never runs in a request/metrics handler.
 func (repository *Repository) SampleMetrics(ctx context.Context, metrics *instrumentation.Backend) {
+	budgetRepository, _ := businessstate.NewRepository(repository.database)
 	sample := func() error {
 		queryCtx, cancel := context.WithTimeout(ctx, repository.databaseTimeout)
 		defer cancel()
@@ -25,6 +27,15 @@ func (repository *Repository) SampleMetrics(ctx context.Context, metrics *instru
 			}
 		}
 		metrics.ObserveOutbox(pending, age, err)
+		if repository.enableV2 {
+			// 使用后台连接池和同一超时，不在请求或 metrics handler 中查库。
+			budgetSampledAt := time.Now()
+			budget, budgetErr := budgetRepository.BudgetTotals(queryCtx)
+			metrics.ObserveAsyncBudget(budget.OpenRequirements, budget.ParkedMessages, budget.RetainedGroups, budget.RetainedBytes, budgetSampledAt, budgetErr)
+			if err == nil {
+				err = budgetErr
+			}
+		}
 		return err
 	}
 	timer := time.NewTimer(0)

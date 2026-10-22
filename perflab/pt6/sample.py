@@ -5,48 +5,24 @@ from pathlib import Path
 import threading
 import time
 
-from common import PROJECT, QUOTAS, containers, command, sql, utc, manifest
+from common import PROJECT, QUOTAS, containers, command, sql, manifest, metrics
 
 
-def counters(path):
-    return {line.split()[0]: int(line.split()[1]) for line in path.read_text().splitlines()}
+from diagnostics.sources import ContainerSource
+from diagnostics.budget import parse_budget
 
 
-def cgroup(item):
-    pid = item['State']['Pid']
-    line = next(row for row in Path(f'/proc/{pid}/cgroup').read_text().splitlines() if row.startswith('0::'))
-    return Path('/sys/fs/cgroup') / line[3:].lstrip('/')
-
-
-def resource(name, item):
+def resource(name, item, value):
     assert item['State']['Running'], f'{name} 已停止'
     if name != 'k6':
         assert item['State'].get('Health', {}).get('Status') == 'healthy', f'{name} 未就绪'
-    path = cgroup(item)
     cpu, mib = (1.5, 1536) if name == 'k6' else QUOTAS[name]
-    quota, period = map(int, (path / 'cpu.max').read_text().split())
+    quota, period = map(int, value['cpu_max'].split())
     assert quota / period == cpu, f'{name} 实际 CPU 配额不符'
-    assert int((path / 'memory.max').read_text()) == mib * 1024**2, f'{name} 实际内存配额不符'
-    assert int((path / 'memory.swap.max').read_text()) == 0, f'{name} 实际 swap 上限不符'
-    events = counters(path / 'memory.events')
-    assert events.get('oom_kill', 0) == 0, f'{name} 发生 OOM kill'
-    return {'id': item['Id'], 'cpu_max': f'{quota} {period}', 'cpu': counters(path / 'cpu.stat'),
-            'memory_current': int((path / 'memory.current').read_text()),
-            'memory_peak': int((path / 'memory.peak').read_text()), 'memory_events': events,
-            'pids_current': int((path / 'pids.current').read_text())}
-
-
-def metrics(name):
-    if name.startswith('business-worker'):
-        port, token = 19102, 'BUSINESS_WORKER_METRICS_TOKEN'
-    elif name.startswith('search-indexer'):
-        port, token = 19103, 'SEARCH_INDEXER_METRICS_TOKEN'
-    else:
-        port, token = 19101, 'BACKEND_METRICS_TOKEN'
-    shell = f'exec wget -q -O - --header "Authorization: Bearer ${token}" http://127.0.0.1:{port}/internal/v1/metrics'
-    body = command(['docker', 'exec', f'{PROJECT}-{name}-1', 'sh', '-c', shell], timeout=4)
-    assert body and '# TYPE' in body, f'{name} 指标为空'
-    return body
+    assert value['memory_max'] == mib * 1024**2, f'{name} 实际内存配额不符'
+    assert value['memory_swap_max'] == 0, f'{name} 实际 swap 上限不符'
+    assert value['memory_events']['oom_kill'] == 0, f'{name} 发生 OOM kill'
+    return value
 
 
 RABBITMQ_GAUGES = {'rabbitmq_queue_messages_ready': 'messages_ready',
@@ -80,17 +56,27 @@ def rabbitmq():
     return parse_rabbitmq(body)
 
 
-def sample(node_url=None):
+def sample(source, node_url=None):
     begin = time.monotonic()
     rows = containers(include_load=True)
-    resources = {name: resource(name, rows[name]) for name in QUOTAS}
+    selected = {name: rows[name] for name in QUOTAS}
     if 'k6' in rows and rows['k6']['State']['Running']:
-        try:
-            resources['k6'] = resource('k6', rows['k6'])
-        except FileNotFoundError:
-            current = containers(include_load=True).get('k6')
-            if current and current['State']['Running']:
-                raise
+        selected['k6'] = rows['k6']
+
+    def collect():
+        return source.snapshot([{'name': name, 'id': item['Id'], 'pid': item['State']['Pid']}
+                                for name, item in selected.items()])
+
+    try:
+        snapshot = collect()
+    except Exception:
+        current = containers(include_load=True).get('k6')
+        if 'k6' not in selected or (current and current['State']['Running']):
+            raise
+        # k6 正常退出时只重试一次；业务容器缺失仍使本次采集失败。
+        del selected['k6']
+        snapshot = collect()
+    resources = {name: resource(name, item, snapshot['containers'][name]) for name, item in selected.items()}
     targets = ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')
     with ThreadPoolExecutor(max_workers=8) as executor:
         queues = executor.submit(rabbitmq)
@@ -101,12 +87,13 @@ def sample(node_url=None):
         queue = queues.result()
         if node_url:
             applications['node'] = node.result()
-    database = sql("SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Threads_running','Innodb_row_lock_waits','Innodb_row_lock_time','Innodb_log_waits','Innodb_buffer_pool_wait_free'); SELECT open_requirements,parked_messages,retained_groups,retained_bytes FROM business_async_budget; SELECT data_epoch,status,mode FROM business_environment; SELECT version,dirty FROM schema_migrations;", timeout=4)
+    database = sql("SELECT data_epoch,status,mode FROM business_environment; SELECT version,dirty FROM schema_migrations;", timeout=4)
     baseline = json.loads((Path(manifest()['directory']) / 'baseline.json').read_text())
     assert database.splitlines()[-2] == baseline['environment'], '数据 epoch 或运行模式改变'
     assert database.splitlines()[-1].endswith('\t0'), '数据库迁移状态异常'
     assert time.monotonic() - begin < 5, '采样耗时超过 5 秒'
-    return {'timestamp': utc(), 'epoch': time.time(), 'containers': resources,
+    return {'timestamp': snapshot['timestamp'], 'epoch': snapshot['epoch'], 'containers': resources,
+            'container_source': snapshot['schema_version'], 'async_budget': parse_budget(applications['backend']),
             'application_metrics': applications, 'database': database,
             'rabbitmq': queue,
             'elapsed_seconds': time.monotonic() - begin}
@@ -119,17 +106,23 @@ class Sampler:
         self.error = None
         self.samples = 0
         self.diagnostics = diagnostics
+        self.source = ContainerSource(Path(manifest()["directory"]) / "bin/container-exporter", self.path.parent)
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def start(self):
-        self.thread.start()
+        self.source.start()
+        try:
+            self.thread.start()
+        except BaseException:
+            self.source.close()
+            raise
 
     def run(self):
         try:
             with self.path.open('x') as stream:
                 while not self.stop.is_set():
                     start = time.monotonic()
-                    stream.write(json.dumps(sample(self.diagnostics.node_url if self.diagnostics else None)) + '\n')
+                    stream.write(json.dumps(sample(self.source, self.diagnostics.node_url if self.diagnostics else None)) + '\n')
                     stream.flush()
                     self.samples += 1
                     self.stop.wait(max(0, 5 - (time.monotonic() - start)))
@@ -138,13 +131,19 @@ class Sampler:
 
     def close(self, final=True):
         self.stop.set()
+        if self.thread.ident is None:
+            self.source.close()
+            return
         self.thread.join(timeout=10)
-        assert not self.thread.is_alive(), '采集器未按时停止'
+        if self.thread.is_alive():
+            self.source.close()
+            raise RuntimeError('采集器未按时停止')
         if final and self.error is None:
             try:
                 with self.path.open('a') as stream:
-                    stream.write(json.dumps(sample(self.diagnostics.node_url if self.diagnostics else None)) + '\n')
+                    stream.write(json.dumps(sample(self.source, self.diagnostics.node_url if self.diagnostics else None)) + '\n')
                     self.samples += 1
             except Exception as error:
                 self.error = type(error).__name__
+        self.source.close()
         assert self.error is None, '采集失败：' + str(self.error)

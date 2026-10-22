@@ -63,6 +63,8 @@ def main(args):
     if args.rps not in (120, 140):
         raise SystemExit('测试五只执行 120 或 140 RPS')
 
+    from diagnostics.sources import build_container_source
+    build_container_source(ROOT, STATE / "bin/container-exporter")
     before = quota.apply(args.cpus)
     directory = group_directory(args.group)
     atomic_json(directory / 'quota-before.json', before)
@@ -81,8 +83,10 @@ def main(args):
     sampler.start()
     command = [sys.executable, '-u', str(ROOT / 'perflab/pt4/run.py'), '--group', args.group,
                '--rps', str(args.rps), '--measurement-seconds', '300']
-    exit_code, lines = stream(command, directory / 'run.log')
-    sampling = sampler.close()
+    try:
+        exit_code, lines = stream(command, directory / 'run.log')
+    finally:
+        sampling = sampler.close()
     # 每组恢复结束后停止测试服务，下一组才能重新设置配额并启动干净进程。
     stop_code, _ = stream([sys.executable, str(ROOT / 'perflab/pt4/stop.py')], directory / 'stop.log')
     finished = time.time()

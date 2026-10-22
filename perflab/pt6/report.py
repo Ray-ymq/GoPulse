@@ -94,7 +94,7 @@ def summarize(directory, begin, end):
     resources = {}
     for name, (cpus, mib) in QUOTAS.items():
         rows = [dict(row['containers'][name], epoch=row['epoch'], timestamp=row['timestamp'],
-                     memory_max=mib * 1024**2) for row in resource_rows]
+                     memory_max=row['containers'][name].get('memory_max', mib * 1024**2)) for row in resource_rows]
         resources[name] = summarize_resources(rows, begin, end, cpus, mib * 1024**2)
     for name in ('statement_history_events', 'sync_events'):
         scenes[name] = len(scenes[name])

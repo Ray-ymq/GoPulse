@@ -24,8 +24,9 @@ sys.path.insert(0, str(ROOT / 'perflab'))
 from diagnostics.metrics import parse_metrics
 from diagnostics.mysql import DIAGNOSTIC_INSTRUMENTS, RESET_SUMMARY_TABLES
 from diagnostics.system import node_command
+from diagnostics.sources import LocalSource, build_container_source
 
-VERSION = 1
+VERSION = 2
 CONSUMERS = ('global_instrumentation', 'thread_instrumentation', 'statements_digest',
              'events_statements_current', 'events_statements_history', 'events_statements_history_long',
              'events_waits_current', 'events_waits_history_long')
@@ -42,7 +43,7 @@ def mysql_address():
 
 
 def artifacts():
-    return ('diagnostic.dsn', 'diagnostics.json', 'bin/dbdiag', 'bin/node_exporter')
+    return ('diagnostic.dsn', 'diagnostics.json', 'bin/dbdiag', 'bin/node_exporter', 'bin/mysql-metrics-source', 'bin/container-exporter')
 
 
 def valid_node(binary, version, arch):
@@ -117,6 +118,10 @@ def prepare(directory):
     (directory / 'bin').mkdir(exist_ok=True)
     command(['env', 'CGO_ENABLED=0', 'go', '-C', 'perflab', 'build', '-o',
              str(directory / 'bin/dbdiag'), './cmd/dbdiag'], timeout=600, log=directory / 'build-diagnostics.log')
+    command(['env', 'CGO_ENABLED=0', 'go', '-C', 'exporters/mysql', 'build', '-o',
+             str(directory / 'bin/mysql-metrics-source'), './cmd/metrics-source'], timeout=600,
+            log=directory / 'build-diagnostics.log')
+    build_container_source(ROOT, directory / 'bin/container-exporter')
     node = prepare_node(directory)
     print('PT6 诊断：' + ('下载' if node['downloaded'] else '复用') + ' node_exporter ' + node['version'], flush=True)
     env = private_env(directory)
@@ -139,7 +144,13 @@ def prepare(directory):
     dsn.write_text(f'{observer}:{password}@tcp({mysql_address()}:3306)/{database}?parseTime=true')
     dsn.chmod(0o600)
     previous = directory / ('diagnostic-before-reset-' + secrets.token_hex(4) + '.jsonl')
-    command([str(directory / 'bin/dbdiag'), '--dsn-file', str(dsn), '--once'], timeout=15, log=previous)
+    source = LocalSource(directory / 'bin/mysql-metrics-source', directory / previous.stem,
+                         'mysql-exporter', 'gopulse.mysql.metrics.v1', ('--dsn-file', dsn)).start()
+    try:
+        command([str(directory / 'bin/dbdiag'), '--dsn-file', str(dsn), '--metrics-url', source.url + '/metrics',
+                 '--once'], timeout=15, log=previous)
+    finally:
+        source.close()
     previous.chmod(0o600)
     reset = (*RESET_SUMMARY_TABLES, 'performance_schema.events_statements_history_long',
              'performance_schema.events_waits_history_long', 'performance_schema.file_summary_by_event_name',
@@ -203,6 +214,7 @@ class Diagnostics:
     def __init__(self, preparation, directory):
         self.preparation, self.directory = Path(preparation), Path(directory)
         self.process = self.node = None
+        self.mysql_source = None
         self.failure = None
         self.last_scene = self.last_metrics = None
         self.ready = threading.Event()
@@ -221,6 +233,8 @@ class Diagnostics:
             return None
         if any(process and process.poll() is not None for process in (self.process, self.node)):
             return 'diagnostic_process_exited'
+        if self.mysql_source and self.mysql_source.process.poll() is not None:
+            return 'mysql_exporter_process_exited'
         now = time.monotonic()
         if self.last_scene and now - self.last_scene > 5:
             return 'diagnostic_scene_stale'
@@ -240,8 +254,11 @@ class Diagnostics:
             self.log = (self.directory / 'diagnostic-process.log').open('x')
             self.log_path = self.directory / 'diagnostic-process.log'
             self.log_path.chmod(0o600)
+            self.mysql_source = LocalSource(self.preparation / 'bin/mysql-metrics-source', self.directory,
+                                            'mysql-exporter', 'gopulse.mysql.metrics.v1',
+                                            ('--dsn-file', self.preparation / 'diagnostic.dsn')).start()
             self.process = subprocess.Popen([str(self.preparation / 'bin/dbdiag'), '--dsn-file',
-                                             str(self.preparation / 'diagnostic.dsn')],
+                                             str(self.preparation / 'diagnostic.dsn'), '--metrics-url', self.mysql_source.url + '/metrics'],
                                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log, text=True, bufsize=1)
             self.reader = threading.Thread(target=self.read, daemon=True)
             self.reader.start()
@@ -326,6 +343,8 @@ class Diagnostics:
                     process.kill()
                     process.wait(timeout=5)
                     self.failure = self.failure or 'diagnostic_shutdown_timeout'
+        if self.mysql_source:
+            self.mysql_source.close()
         if hasattr(self, 'reader'):
             self.reader.join(timeout=5)
             if self.reader.is_alive():
@@ -341,6 +360,8 @@ class Diagnostics:
                                                    'system': after.ru_stime - before.ru_stime}
                                             for name, before, after in zip(('python', 'children_including_docker_clients'),
                                                                           self.cpu_before, cpu_after)},
+                   'source_protocol': 'http',
+                   'mysql_exporter_exit_code': self.mysql_source.process.returncode if self.mysql_source else None,
                    'process_exit_codes': {name: process.returncode if process else None
                                           for name, process in (('mysql', self.process), ('node', self.node))}})
 

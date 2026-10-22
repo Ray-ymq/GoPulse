@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,7 +69,7 @@ func TestDiagnosticReadOnlyAndAllQueries(t *testing.T) {
 	var output bytes.Buffer
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := run(ctx, options{DSNFile: path, Once: true}, strings.NewReader(""), &output); err != nil {
+	if err := run(ctx, options{DSNFile: path, MetricsURL: metricsFixture(t), Once: true}, strings.NewReader(""), &output); err != nil {
 		t.Fatal("只读诊断运行失败")
 	}
 	decoder := json.NewDecoder(&output)
@@ -367,7 +369,7 @@ func TestPeriodicAndTriggeredHistoryShareCursor(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1600*time.Millisecond)
 	defer cancel()
 	var output bytes.Buffer
-	if err := run(ctx, options{DSNFile: path, Fast: 100 * time.Millisecond, Summary: time.Second},
+	if err := run(ctx, options{DSNFile: path, MetricsURL: metricsFixture(t), Fast: 100 * time.Millisecond, Summary: time.Second},
 		strings.NewReader("manual\nstage_end\n"), &output); err != nil {
 		t.Fatal(err)
 	}
@@ -445,4 +447,14 @@ func TestInvalidDSNIsNotPrinted(t *testing.T) {
 	if err := run(context.Background(), options{DSNFile: path, Once: true}, strings.NewReader(""), io.Discard); err == nil {
 		t.Fatal("无效 DSN 未被拒绝")
 	}
+}
+
+// HTTP fixture 只验证诊断器的数据源协议；MySQL 采集逻辑由 exporter 模块测试。
+func metricsFixture(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "# TYPE mysql_exporter_collector_success gauge\nmysql_exporter_collector_success{collector=\"file_io\"} 1\n")
+	}))
+	t.Cleanup(server.Close)
+	return server.URL + "/metrics"
 }

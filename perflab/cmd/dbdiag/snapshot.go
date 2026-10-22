@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net"
-	"strconv"
 	"time"
 )
 
@@ -34,15 +32,6 @@ type query struct {
 	name string
 	sql  string
 	args []any
-}
-
-func splitAddress(address string) (string, int, error) {
-	host, raw, err := net.SplitHostPort(address)
-	if err != nil {
-		return "", 0, err
-	}
-	port, err := strconv.Atoi(raw)
-	return host, port, err
 }
 
 func snapshot(ctx context.Context, db *sql.DB, schema, observer, trigger string, history bool, cursor *historyCursor) map[string]any {

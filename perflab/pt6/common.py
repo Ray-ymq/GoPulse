@@ -5,10 +5,14 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+import time
+import math
 import shutil
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'perflab'))
 STATE = ROOT / '.run/pt6'
 PROJECT = 'gopulse-pt6-business'
 APPS = ['backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2',
@@ -137,9 +141,34 @@ def check_host():
             'host_available_memory_bytes': available, 'disk_free_bytes': free, 'checked_at': utc()}
 
 
+def metrics(name):
+    if name.startswith('business-worker'):
+        port, token = 19102, 'BUSINESS_WORKER_METRICS_TOKEN'
+    elif name.startswith('search-indexer'):
+        port, token = 19103, 'SEARCH_INDEXER_METRICS_TOKEN'
+    else:
+        port, token = 19101, 'BACKEND_METRICS_TOKEN'
+    shell = f'exec wget -q -O - --header "Authorization: Bearer ${token}" http://127.0.0.1:{port}/internal/v1/metrics'
+    body = command(['docker', 'exec', f'{PROJECT}-{name}-1', 'sh', '-c', shell], timeout=4)
+    assert body and '# TYPE' in body, f'{name} 指标为空'
+    return body
+
+
 def drained():
-    values = sql('SELECT open_requirements,parked_messages FROM business_async_budget;').strip().split('\t')
-    assert values == ['0', '0'], '异步需求或 parked 消息尚未归零'
+    from diagnostics.budget import parse_budget
+    # 必须等到检查开始后的成功采样，避免消费上一次写入前的零值。
+    started = math.ceil(time.time())
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            values = parse_budget(metrics('backend'), not_before=started)
+            if values['open_requirements'] == values['parked_messages'] == 0:
+                break
+        except (ValueError, RuntimeError):
+            pass
+        if time.monotonic() >= deadline:
+            raise RuntimeError('应用预算采样不可用，或异步需求及 parked 消息尚未归零')
+        time.sleep(.5)
     raw = command(['docker', 'exec', f'{PROJECT}-rabbitmq-1', 'rabbitmqctl', '-q', 'list_queues',
                    'name', 'messages_ready', 'messages_unacknowledged'])
     for line in raw.splitlines():
@@ -157,10 +186,11 @@ def source_hashes():
     paths += sorted((ROOT / 'perflab/pt6').glob('*.py'))
     paths += sorted((ROOT / 'perflab/pt6').glob('*.js'))
     paths += [ROOT / 'perflab/k6' / name for name in ('requests.mjs', 'sequence.mjs')]
-    for relative in ('perflab/diagnostics', 'perflab/cmd/dbdiag', 'exporters/mysql'):
+    for relative in ('perflab/diagnostics', 'perflab/cmd/dbdiag', 'exporters/mysql',
+                     'runtimekit/containerstats', 'runtimekit/cmd/container-exporter'):
         paths += sorted(path for path in (ROOT / relative).rglob('*')
                         if path.suffix in ('.py', '.go', '.mod', '.sum') and '__pycache__' not in path.parts)
-    paths += [ROOT / 'perflab/go.mod', ROOT / 'perflab/go.sum']
+    paths += [ROOT / 'perflab/go.mod', ROOT / 'perflab/go.sum', ROOT / 'runtimekit/go.mod']
     paths += [ROOT / 'exporters/node/upstream.json']
     return {str(path.relative_to(ROOT)): digest(path) for path in paths}
 
@@ -168,7 +198,7 @@ def source_hashes():
 def verify_prepared():
     value = manifest()
     assert value.get('ready'), 'PT6 尚未准备完成'
-    assert value.get('diagnostics', {}).get('version') == 1, 'PT6 诊断尚未准备；执行 prepare.py --diagnostics'
+    assert value.get('diagnostics', {}).get('version') == 2, 'PT6 诊断尚未准备；执行 prepare.py --diagnostics'
     directory = Path(value['directory'])
     assert directory.parent == STATE and directory.name.startswith('preparation-'), '准备目录不属于 PT6'
     for path, expected in value['source_sha256'].items():

@@ -34,19 +34,19 @@ python3 perflab/pt6/run.py --start-rps 300
 
 每档预热 30 秒、测量 300 秒，使用 512 VU 和 5 秒超时。首次失败立即停压并输出报告，随后最多进行 10 分钟只读恢复采集。各档分别写入新建目录，档间保留业务状态。
 
-每 5 秒采集容器资源、业务指标、数据库状态和队列深度。队列深度取自 `rabbitmq_prometheus`（端口 15692），避免在 0.5 核 RabbitMQ 容器里反复启动 Erlang VM；`rabbitmqctl` 只用于开测前的队列清空检查。调用 `docker compose` 时会剔除宿主机上与 `test.env` 同名的变量，避免本地 `.env` 覆盖压测配置。
+每 5 秒通过公共 container-exporter 采集容器资源，并读取业务指标、MySQL exporter 和队列深度。业务预算取自 backend 后台发布的全部 epoch 合计，不在 PT 中直接查询预算表。队列深度取自 `rabbitmq_prometheus`（端口 15692），避免在 0.5 核 RabbitMQ 容器里反复启动 Erlang VM；`rabbitmqctl` 只用于开测前的队列清空检查。调用 `docker compose` 时会剔除宿主机上与 `test.env` 同名的变量，避免本地 `.env` 覆盖压测配置。
 
 ## 数据库与主机诊断
 
 PT6 复用仓库 MySQL exporter 的全部 17 项采集，包括基础状态、事务、热点行锁、SQL digest、预编译执行事件、COMMIT、错误、文件 I/O、内部等待及表/索引访问。主机指标使用官方 node_exporter，采集 CPU、内存、负载、磁盘、文件系统、网络及 vmstat。PT4 的指标窗口校验、PT5 的容器资源统计和指标取值方法统一放在 `perflab/diagnostics/`，三套工具共用这些实现。
 
-准备阶段构建 `perflab/cmd/dbdiag`，并直接准备官方 node_exporter 程序。PT6 依次检查本轮目录、`.run/tools/node_exporter/<version>/linux-<arch>/` 公共缓存、PT4 和 PT3 已下载的官方二进制；版本与架构匹配时直接复用。仅在没有可用副本时，才下载官方发布包并校验仓库固定的 SHA-256。PT6 不生成 GoPulse 插件包，也不通过 Monitor 运行采集。程序来源写入 `diagnostics.json`。
+准备阶段构建 `perflab/cmd/dbdiag`、`exporters/mysql/cmd/metrics-source` 和 `runtimekit/cmd/container-exporter`，并直接准备官方 node_exporter 程序。PT6 依次检查本轮目录、`.run/tools/node_exporter/<version>/linux-<arch>/` 公共缓存、PT4 和 PT3 已下载的官方二进制；版本与架构匹配时直接复用。仅在没有可用副本时，才下载官方发布包并校验仓库固定的 SHA-256。PT6 不生成 GoPulse 插件包，也不通过 Monitor 运行采集。程序来源写入 `diagnostics.json`。
 
 准备阶段创建独立诊断账号，并启用及复核所需 Performance Schema consumers、instruments。诊断账号仅有 PROCESS、Performance Schema SELECT 和环境表 SELECT 权限，最多使用 4 个数据库连接。准备时先保存旧诊断快照，再清空清单中的 Performance Schema 汇总和历史表，避免导入、索引重建及上一轮记录占用有界输出。该步骤不清空业务表。
 
-已有 PT6 环境先执行 `prepare.py --diagnostics`。该命令不会恢复业务基线，也不会把已停压的环境自动改为可开测状态。下一轮仍须执行 `prepare.py --new-round`。首次准备和新轮准备均自动准备诊断。工具、共享代码、二进制、诊断 DSN 和配置均纳入就绪指纹；每次开测前会检查诊断配置和采集状态。
+诊断配置已升级到版本 2，旧准备记录不能直接开测。业务预算指标要求先部署包含本次 backend 改动的业务镜像；准备诊断不会更新业务镜像。已有 PT6 环境随后执行 `prepare.py --diagnostics`。该命令不会恢复业务基线，也不会把已停压的环境自动改为可开测状态。下一轮仍须执行 `prepare.py --new-round`。首次准备和新轮准备均自动准备诊断。工具、共享代码、二进制、诊断 DSN 和配置均纳入就绪指纹；每次开测前会检查诊断配置和采集状态。
 
-诊断在宿主机运行，通过 MySQL 容器私网地址建立持久连接，不增加业务服务或修改业务配额、连接池、请求超时。MySQL exporter 通过 Go 包复用采集实现，不额外启动 HTTP 服务。node_exporter 仅监听宿主机临时回环端口。两个诊断进程都由本次运行管理，阶段结束后回收。
+诊断在宿主机运行，通过 MySQL 容器私网地址建立持久连接，不增加业务服务或修改业务配额、连接池、请求超时。MySQL exporter 作为独立进程复用原有 collector，通过临时回环 HTTP 端点输出；dbdiag 只读取该端点，不导入 exporter 的 Go 包。node_exporter 和 container-exporter 也只监听宿主机临时回环端口。四个采集进程均由本次运行管理，阶段结束或启动失败时回收。
 
 | 频率或事件 | 保存内容 |
 | --- | --- |
@@ -102,3 +102,5 @@ node --test perflab/k6/sequence.test.mjs
 ```sh
 GOPULSE_DIAGNOSTIC_TEST_DSN_FILE=/absolute/path/to/fixture.dsn go -C perflab test -race ./cmd/dbdiag
 ```
+
+指标所有权、已接入范围与后续缺口见 [公共诊断说明](../diagnostics/README.md) 和 [278 项指标清单](../../PT/2026-10-22-PT测试指标汇总.md)。

@@ -36,3 +36,38 @@ func TestUnknownOutboxDoesNotHideLiveServiceOrCreateZero(t *testing.T) {
 		t.Fatal("failed outbox fabricated zero or broke scrape")
 	}
 }
+
+func TestAsyncBudgetAvailabilityAndRecovery(t *testing.T) {
+	b, err := NewBackend(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := func() string {
+		body, ok := b.Snapshot()
+		if !ok {
+			t.Fatal("snapshot unavailable")
+		}
+		return string(body)
+	}
+	if strings.Contains(text(), "\ngopulse_backend_async_budget_open_requirements ") {
+		t.Fatal("unsampled budget exposed")
+	}
+	b.ObserveAsyncBudget(3, 2, 4, 4096, time.Unix(1700000000, 0), nil)
+	for _, line := range []string{"open_requirements 3", "parked_messages 2", "retained_groups 4", "retained_bytes 4096", "sample_success 1", "last_success_timestamp_seconds 1.7e+09"} {
+		if !strings.Contains(text(), "gopulse_backend_async_budget_"+line) {
+			t.Fatal("valid budget absent", text())
+		}
+	}
+	b.ObserveAsyncBudget(0, 0, 0, 0, time.Now(), errors.New("query failed"))
+	if strings.Contains(text(), "\ngopulse_backend_async_budget_open_requirements ") || !strings.Contains(text(), "gopulse_backend_async_budget_sample_success 0") {
+		t.Fatal("failure retained stale budget")
+	}
+	b.ObserveAsyncBudget(0, 0, 0, 0, time.Now(), nil)
+	if !strings.Contains(text(), "gopulse_backend_async_budget_open_requirements 0") || !strings.Contains(text(), "gopulse_backend_async_budget_sample_success 1") {
+		t.Fatal("valid zero lost")
+	}
+	b.ObserveAsyncBudget(1, 1, 1, 1, time.Time{}, nil)
+	if strings.Contains(text(), "\ngopulse_backend_async_budget_open_requirements ") {
+		t.Fatal("missing timestamp accepted")
+	}
+}

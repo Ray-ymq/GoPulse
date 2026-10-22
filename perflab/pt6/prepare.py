@@ -125,19 +125,19 @@ def smoke(directory):
     else:
         raise RuntimeError('冒烟的异步通知或搜索索引未完成')
     request(0, 'DELETE', path, status=204)
-    for _ in range(60):
-        if sql('SELECT open_requirements,parked_messages FROM business_async_budget;').strip() == '0\t0':
-            break
-        time.sleep(.5)
     drained()
     write_json(directory / 'smoke.json', {'ok': True, 'finished_at': utc(), 'checks': ['login', 'read', 'search', 'create', 'edit', 'like', 'bookmark', 'comment', 'notification', 'index', 'delete', 'drain']})
 
 
 def restore(directory):
+    rows = containers()
+    if any(not rows[name]['State']['Running'] for name in APPS):
+        compose(directory, 'up', '-d', '--wait', '--wait-timeout', '180', *APPS,
+                timeout=300, log=directory / 'restore.log')
+    drained()
     compose(directory, 'stop', *APPS, log=directory / 'restore.log')
     baseline = json.loads((directory / 'baseline.json').read_text())
     assert digest(directory / 'baseline.sql') == baseline['sql_sha256'], '基线快照摘要不符'
-    drained()
     shell = 'export MYSQL_PWD="$MYSQL_PASSWORD"; exec mysql -u"$MYSQL_USER" "$MYSQL_DATABASE"'
     with (directory / 'baseline.sql').open('rb') as source:
         result = subprocess.run(['docker', 'exec', '-i', f'{PROJECT}-mysql-1', 'sh', '-c', shell],
@@ -278,7 +278,7 @@ def refresh(value):
     baseline = json.loads((directory / 'baseline.json').read_text())
     assert sql('SELECT data_epoch,status,mode FROM business_environment;').strip() == baseline['environment'], '数据 epoch 或运行模式改变'
     drained()
-    assert value.get('diagnostics', {}).get('version') == 1, '先执行 prepare.py --diagnostics 准备诊断'
+    assert value.get('diagnostics', {}).get('version') == 2, '先执行 prepare.py --diagnostics 准备诊断'
     collection_preflight(directory)
     value['source_sha256'] = source_hashes()
     value.update(updated_at=utc(), refreshed_at=utc())

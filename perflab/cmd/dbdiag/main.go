@@ -8,7 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http/httptest"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,21 +18,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/exporters/mysql/collector"
-	"github.com/Ray-ymq/GoPulse/exporters/mysql/config"
 	"github.com/go-sql-driver/mysql"
 )
 
 type options struct {
-	DSNFile string
-	Once    bool
-	Fast    time.Duration
-	Summary time.Duration
+	DSNFile    string
+	MetricsURL string
+	Once       bool
+	Fast       time.Duration
+	Summary    time.Duration
 }
 
 func main() {
 	var o options
 	flag.StringVar(&o.DSNFile, "dsn-file", "", "私有只读诊断账号的 DSN 文件")
+	flag.StringVar(&o.MetricsURL, "metrics-url", "", "独立 MySQL exporter 的回环 metrics 地址")
 	flag.BoolVar(&o.Once, "once", false, "采集一次汇总和现场后退出")
 	flag.DurationVar(&o.Fast, "interval", 200*time.Millisecond, "现场采样间隔，至少 100ms")
 	flag.DurationVar(&o.Summary, "summary-interval", 5*time.Second, "汇总采样间隔，至少 1s")
@@ -67,17 +69,12 @@ func run(ctx context.Context, o options, input io.Reader, output io.Writer) erro
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(2)
 	db.SetMaxIdleConns(2)
-	host, port, err := splitAddress(cfg.Addr)
-	if err != nil {
-		return err
+	endpoint, err := url.Parse(o.MetricsURL)
+	if err != nil || endpoint.Scheme != "http" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.Path != "/metrics" || net.ParseIP(endpoint.Hostname()) == nil || !net.ParseIP(endpoint.Hostname()).IsLoopback() {
+		return fmt.Errorf("invalid_metrics_url")
 	}
-	// 使用已有 exporter 的采集和输出契约；诊断命令不启动 HTTP 服务。
-	exporter, err := collector.New(&config.Config{Host: host, Port: port, Username: cfg.User,
-		Password: cfg.Passwd, Database: cfg.DBName, ConnectTimeout: time.Second, ScrapeTimeout: 2 * time.Second})
-	if err != nil {
-		return err
-	}
-	defer exporter.Stop()
+	client := &http.Client{Timeout: 3 * time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	defer client.CloseIdleConnections()
 	var mu sync.Mutex
 	encoder := json.NewEncoder(output)
 	emit := func(row map[string]any) error {
@@ -87,11 +84,12 @@ func run(ctx context.Context, o options, input io.Reader, output io.Writer) erro
 	}
 	summary := func(trigger string) error {
 		start := time.Now()
-		recorder := httptest.NewRecorder()
-		exporter.Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil).WithContext(ctx))
+		status, body, err := readMetrics(ctx, client, o.MetricsURL)
+		if err != nil {
+			return err
+		}
 		return emit(map[string]any{"type": "metrics", "timestamp": start.UTC(), "epoch": float64(start.UnixNano()) / 1e9,
-			"finished_at": time.Now().UTC(), "elapsed_seconds": time.Since(start).Seconds(),
-			"trigger": trigger, "status": recorder.Code, "body": recorder.Body.String()})
+			"finished_at": time.Now().UTC(), "elapsed_seconds": time.Since(start).Seconds(), "trigger": trigger, "status": status, "body": body})
 	}
 	var sceneMu sync.Mutex
 	cursor := &historyCursor{}
