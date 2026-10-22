@@ -1,6 +1,7 @@
 """管理公共采集、自然恢复和低频独立探针。"""
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import secrets
 import time
@@ -78,19 +79,21 @@ class Observation:
         return error
 
 
-def probe(preparation):
+def probe(preparation, not_before=None):
     """独立诊断账号最多 4 连接：dbdiag 2、exporter 1、探针 1。"""
     preparation = Path(preparation)
     result = json.loads(command([str(preparation / 'bin/dbprobe'), '--once', '--dsn-file',
                                  str(preparation / 'diagnostic.dsn')], timeout=4))
     result['role'] = 'recovery_probe'
     result['business'] = http('http://127.0.0.1:18086', 'GET', '/ready')[0] == 200
-    result['budget'] = parse_budget(metrics('backend'), not_before=int(time.time()) - 10)
+    result['budget'] = parse_budget(metrics('backend'), not_before=not_before if not_before is not None else int(time.time()) - 10)
     return result
 
 
-def recovered(value, sample):
+def recovered(value, sample, not_before=None):
     budget = value['budget']
+    if not_before is not None and (budget.get('sampled_at', 0) < not_before or sample.get('epoch', 0) < not_before):
+        return False
     return bool(value['ok'] and value['business'] and budget['open_requirements'] == 0 and budget['parked_messages'] == 0
                 and sample['rabbitmq']['messages_ready'] == 0 and sample['rabbitmq']['messages_unacknowledged'] == 0)
 
@@ -108,9 +111,9 @@ def recovery(observation, preparation, config, expected, stopped=lambda: False):
         if snapshot(config) != expected:
             raise RuntimeError('恢复期环境身份或配置改变')
         try:
-            value = probe(preparation)
+            value = probe(preparation, math.ceil(started))
             append(observation.directory / 'recovery-probes.jsonl', value)
-            passed = recovered(value, observation.latest())
+            passed = recovered(value, observation.latest(), math.ceil(started))
         except (ValueError, OSError, RuntimeError):
             passed = False
         if passed:
@@ -136,8 +139,8 @@ def precheck(preparation):
         while time.monotonic() < deadline:
             observation.check()
             time.sleep(.1)
-        value = probe(preparation)
-        if not recovered(value, observation.latest()):
+        value = probe(preparation, math.ceil(observation.started))
+        if not recovered(value, observation.latest(), math.ceil(observation.started)):
             raise ValueError('独立探针或初始积压未就绪')
         write_json(output / 'coverage.json', registry())
     finally:

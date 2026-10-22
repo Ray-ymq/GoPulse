@@ -31,6 +31,15 @@ class ObservationTests(unittest.TestCase):
         value['budget']['open_requirements'] = 1
         self.assertFalse(recovered(value, sample))
 
+    def test_zero_backlog_before_stop_does_not_prove_recovery(self):
+        value = {'ok': True, 'business': True, 'budget': {'open_requirements': 0, 'parked_messages': 0, 'sampled_at': 100}}
+        sample = {'epoch': 100, 'rabbitmq': {'messages_ready': 0, 'messages_unacknowledged': 0}}
+        self.assertFalse(recovered(value, sample, not_before=101))
+        value['budget']['sampled_at'] = 102
+        self.assertFalse(recovered(value, sample, not_before=101))
+        sample['epoch'] = 102
+        self.assertTrue(recovered(value, sample, not_before=101))
+
     def test_counter_reset_gap_and_missing(self):
         def metric(value):
             return parse_metrics(f'# TYPE requests_total counter\nrequests_total {value}\n')
