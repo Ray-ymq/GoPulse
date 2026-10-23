@@ -47,7 +47,7 @@ def main():
             print(json.dumps(plan(config), ensure_ascii=False, indent=2))
             return 0
         if args.command == 'acceptance':
-            config.update(acceptance=True, idle_seconds=5, warmup_seconds=1, measurement_seconds=10, soak_seconds=15, recovery_seconds=30)
+            config.update(acceptance=True, idle_seconds=5, warmup_seconds=1, measurement_seconds=15, soak_seconds=15, recovery_seconds=30)
         with lock():
             if args.command == 'prepare':
                 from .prepare import prepare

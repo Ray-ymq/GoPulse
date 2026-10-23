@@ -3,6 +3,7 @@ import unittest
 import json
 from pathlib import Path
 import tempfile
+from contextlib import nullcontext
 from unittest.mock import patch
 from flow.acceptance import check
 from flow.config import fingerprint
@@ -12,6 +13,18 @@ from flow.test_executor import FixtureBackend
 
 
 class FixedFlowAcceptanceTests(unittest.TestCase):
+    def test_acceptance_observes_a_full_failure_window_with_fixed_resources(self):
+        from flow.__main__ import main
+        with patch('sys.argv', ['pt', 'acceptance', '--start-rps', '250']), \
+                patch('flow.__main__.lock', return_value=nullcontext()), \
+                patch('flow.executor.execute', return_value=0) as execute:
+            self.assertEqual(main(), 0)
+        config = execute.call_args.args[0]
+        self.assertGreater(config['measurement_seconds'], 10)
+        changed = {'acceptance', 'idle_seconds', 'warmup_seconds', 'measurement_seconds', 'soak_seconds', 'recovery_seconds'}
+        self.assertEqual({k: v for k, v in config.items() if k not in changed},
+                         {k: v for k, v in load('250').items() if k not in changed})
+
     def test_all_routes_and_independent_baselines(self):
         backend = FixtureBackend(abnormal=200)
         backend.routes = routes
