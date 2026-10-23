@@ -6,7 +6,7 @@ FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS marshaller-build
 WORKDIR /src/marshaller
 ARG GOPROXY=https://goproxy.cn,direct
 COPY marshaller/go.mod marshaller/go.sum ./
-COPY componentmetrics/ /src/componentmetrics/
+COPY runtimekit/ /src/runtimekit/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY marshaller/ ./
 ARG TARGETOS=linux
@@ -19,7 +19,7 @@ FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS monitor-build
 WORKDIR /src/monitor
 ARG GOPROXY=https://goproxy.cn,direct
 COPY monitor/go.mod monitor/go.sum ./
-COPY componentmetrics/ /src/componentmetrics/
+COPY runtimekit/ /src/runtimekit/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY monitor/ ./
 

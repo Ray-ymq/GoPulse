@@ -38,8 +38,8 @@
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "mysql", "per_instance": 8, "total": 60}],
-        "queues": [{"name": "outbox_claim", "capacity": 10}],
+        "connections": [{"name": "mysql", "per_instance": 13, "total": 60}],
+        "queues": [{"name": "outbox_claim", "capacity": 50}],
         "in_flight": [{"name": "http", "capacity": 128}],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 15
@@ -375,6 +375,24 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "100000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
+          "aliases": []
+        },
+        {
           "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
           "type": "string",
           "sensitive": true,
@@ -685,8 +703,35 @@
           "type": "integer",
           "sensitive": false,
           "required": false,
-          "default": "10",
-          "compose_value": "${OUTBOX_CLAIM_BATCH:-10}",
+          "default": "50",
+          "compose_value": "${OUTBOX_CLAIM_BATCH:-50}",
+          "aliases": []
+        },
+        {
+          "key": "OUTBOX_DATABASE_TIMEOUT",
+          "type": "duration",
+          "sensitive": false,
+          "required": false,
+          "default": "2s",
+          "compose_value": "${OUTBOX_DATABASE_TIMEOUT:-2s}",
+          "aliases": []
+        },
+        {
+          "key": "OUTBOX_MYSQL_MAX_OPEN_CONNS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "4",
+          "compose_value": "${OUTBOX_MYSQL_MAX_OPEN_CONNS:-4}",
+          "aliases": []
+        },
+        {
+          "key": "OUTBOX_PUBLISH_CONCURRENCY",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "8",
+          "compose_value": "${OUTBOX_PUBLISH_CONCURRENCY:-8}",
           "aliases": []
         },
         {
@@ -712,8 +757,8 @@
           "type": "duration",
           "sensitive": false,
           "required": false,
-          "default": "1m",
-          "compose_value": "${OUTBOX_LEASE_DURATION:-1m}",
+          "default": "5m",
+          "compose_value": "${OUTBOX_LEASE_DURATION:-5m}",
           "aliases": []
         },
         {
@@ -1016,6 +1061,24 @@
           "required": false,
           "default": "10000",
           "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "100000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
           "aliases": []
         },
         {
@@ -1605,6 +1668,24 @@
           "aliases": []
         },
         {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "100000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
+          "aliases": []
+        },
+        {
           "key": "SEARCH_INDEXER_MAX_RETRIES",
           "type": "integer",
           "sensitive": false,
@@ -1820,42 +1901,6 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
-        },
-        {
-          "key": "BACKEND_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "backend",
-          "compose_value": "backend,backend-2,platform-api",
-          "aliases": []
-        },
-        {
-          "key": "BUSINESS_WORKER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "business-worker",
-          "compose_value": "business-worker,business-worker-2",
-          "aliases": []
-        },
-        {
-          "key": "SEARCH_INDEXER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "search-indexer",
-          "compose_value": "search-indexer,search-indexer-2",
-          "aliases": []
-        },
-        {
-          "key": "MARSHALLER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "marshaller",
-          "compose_value": "marshaller,marshaller-2",
           "aliases": []
         },
         {
@@ -2253,42 +2298,6 @@
       "plugin_id": null,
       "environment": [
         {
-          "key": "BACKEND_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "backend",
-          "compose_value": "backend,backend-2,platform-api",
-          "aliases": []
-        },
-        {
-          "key": "BACKEND_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "BUSINESS_WORKER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "business-worker",
-          "compose_value": "business-worker,business-worker-2",
-          "aliases": []
-        },
-        {
-          "key": "BUSINESS_WORKER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}",
-          "aliases": []
-        },
-        {
           "key": "GOPULSE_INSTANCE_ID",
           "type": "string",
           "sensitive": false,
@@ -2340,15 +2349,6 @@
           "required": true,
           "default": null,
           "compose_value": "${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}",
-          "aliases": []
-        },
-        {
-          "key": "MARSHALLER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}",
           "aliases": []
         },
         {
@@ -2683,24 +2683,6 @@
           "default": "6379",
           "compose_value": "6379",
           "aliases": []
-        },
-        {
-          "key": "SEARCH_INDEXER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "search-indexer",
-          "compose_value": "search-indexer,search-indexer-2",
-          "aliases": []
-        },
-        {
-          "key": "SEARCH_INDEXER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}",
-          "aliases": []
         }
       ],
       "listeners": [
@@ -2742,7 +2724,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^redis-exporter-local$",
         "min": 1,
         "max": 1,
@@ -2755,7 +2737,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -2904,7 +2886,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^mysql-exporter-local$",
         "min": 1,
         "max": 1,
@@ -2917,7 +2899,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3075,7 +3057,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^rabbitmq-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3088,7 +3070,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3246,7 +3228,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^kafka-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3259,7 +3241,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3417,7 +3399,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^elasticsearch-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3430,7 +3412,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3579,7 +3561,7 @@
         "mode": "singleton",
         "ownership": "single-owner",
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "identity_pattern": "^victoriametrics-exporter-local$",
         "min": 1,
         "max": 1,
@@ -3592,7 +3574,7 @@
         "probe_listener": "probe",
         "paths": ["/startup", "/live", "/ready", "/health"],
         "identity_env": null,
-        "identity_source": "componentmetrics-fallback",
+        "identity_source": "runtimekit-fallback",
         "capacity_signals": ["metrics", "up"],
         "host_port_published": false
       },
@@ -3965,6 +3947,24 @@
           "required": false,
           "default": "10000",
           "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "100000",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
+          "aliases": []
+        },
+        {
+          "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
+          "type": "integer",
+          "sensitive": false,
+          "required": false,
+          "default": "1073741824",
+          "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
           "aliases": []
         },
         {
@@ -4497,6 +4497,16 @@
     },
     {
       "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
       "type": "integer",
       "sensitive": false
     },
@@ -5052,6 +5062,21 @@
     },
     {
       "key": "OUTBOX_CLAIM_BATCH",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "OUTBOX_DATABASE_TIMEOUT",
+      "type": "duration",
+      "sensitive": false
+    },
+    {
+      "key": "OUTBOX_MYSQL_MAX_OPEN_CONNS",
+      "type": "integer",
+      "sensitive": false
+    },
+    {
+      "key": "OUTBOX_PUBLISH_CONCURRENCY",
       "type": "integer",
       "sensitive": false
     },

@@ -12,7 +12,21 @@ import (
 
 const advisoryLockName = "gopulse:post-search-reindex:v1"
 
-type ReindexStore struct{ database *sql.DB }
+type reindexDatabase interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+type ReindexStore struct {
+	database *sql.DB
+	reader   reindexDatabase
+}
+
+func (store *ReindexStore) queryer() reindexDatabase {
+	if store.reader != nil {
+		return store.reader
+	}
+	return store.database
+}
 
 func NewReindexStore(database *sql.DB) *ReindexStore { return &ReindexStore{database: database} }
 
@@ -54,7 +68,11 @@ func (lock *Lock) Release(ctx context.Context) error {
 
 func (store *ReindexStore) HighWatermark(ctx context.Context) (uint64, error) {
 	var maximum sql.NullInt64
-	if err := store.database.QueryRowContext(ctx, `SELECT MAX(id) FROM posts`).Scan(&maximum); err != nil {
+	if err := store.queryer().QueryRowContext(ctx, `SELECT GREATEST(
+ COALESCE((SELECT MAX(id) FROM posts), 0),
+ COALESCE((SELECT MAX(t.post_id) FROM post_search_tombstones t
+  JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch), 0)
+)`).Scan(&maximum); err != nil {
 		return 0, fmt.Errorf("read post high watermark: %w", err)
 	}
 	if !maximum.Valid {
@@ -65,19 +83,22 @@ func (store *ReindexStore) HighWatermark(ctx context.Context) (uint64, error) {
 
 func (store *ReindexStore) CountUpTo(ctx context.Context, maximum uint64) (uint64, error) {
 	var count uint64
-	if err := store.database.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE id <= ?`, maximum).Scan(&count); err != nil {
+	if err := store.queryer().QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE id <= ?`, maximum).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count posts for reindex: %w", err)
 	}
 	return count, nil
 }
 
 func (store *ReindexStore) Scan(ctx context.Context, after, maximum uint64, limit int) ([]Document, error) {
-	rows, err := store.database.QueryContext(ctx, `
-SELECT id, title, content, created_at, updated_at, edited_at, content_revision
-FROM posts
-WHERE id > ? AND id <= ?
-ORDER BY id ASC
-LIMIT ?`, after, maximum, limit)
+	rows, err := store.queryer().QueryContext(ctx, `
+SELECT id, title, content, created_at, updated_at, edited_at, content_revision, deleted FROM (
+ (SELECT id, title, content, created_at, updated_at, edited_at, content_revision, FALSE AS deleted
+  FROM posts WHERE id > ? AND id <= ? ORDER BY id ASC LIMIT ?)
+ UNION ALL
+ (SELECT t.post_id, '', '', t.deleted_at, t.deleted_at, NULL, t.content_revision, TRUE
+  FROM post_search_tombstones t JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch
+  WHERE t.post_id > ? AND t.post_id <= ? ORDER BY t.post_id ASC LIMIT ?)
+) AS facts ORDER BY id ASC LIMIT ?`, after, maximum, limit, after, maximum, limit, limit)
 	if err != nil {
 		return nil, fmt.Errorf("scan posts for reindex: %w", err)
 	}
@@ -85,7 +106,7 @@ LIMIT ?`, after, maximum, limit)
 	documents := make([]Document, 0, limit)
 	for rows.Next() {
 		var document Document
-		if err := rows.Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision); err != nil {
+		if err := rows.Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision, &document.Deleted); err != nil {
 			return nil, fmt.Errorf("scan posts for reindex: %w", err)
 		}
 		documents = append(documents, document)
@@ -143,6 +164,10 @@ func (reindexer *Reindexer) RunForEpoch(ctx context.Context, ifMissing bool, epo
 		return ReindexResult{}, err
 	}
 	defer func() { _ = lock.Release(context.Background()) }()
+
+	local := *reindexer
+	local.store = &ReindexStore{database: reindexer.store.database, reader: lock.connection}
+	reindexer = &local
 
 	if ifMissing {
 		exists, err := reindexer.client.AliasExists(ctx)

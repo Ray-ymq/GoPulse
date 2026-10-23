@@ -92,6 +92,8 @@ type State struct {
 	Branch              string                   `json:"branch"`
 	ComposeDigest       string                   `json:"compose_digest"`
 	ComposeFiles        []string                 `json:"compose_files"`
+	ContainerNetwork    string                   `json:"container_network,omitempty"`
+	Containers          map[string]string        `json:"containers,omitempty"`
 	EnvFile             string                   `json:"env_file"`
 	EnvironmentDigest   string                   `json:"environment_digest"`
 	Logs                map[string]string        `json:"logs"`

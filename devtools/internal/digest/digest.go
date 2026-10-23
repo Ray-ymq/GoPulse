@@ -99,7 +99,7 @@ func Paths(root string, items []string) (string, error) {
 func Source(root string, observe bool) (string, error) {
 	items := []string{
 		filepath.Join(root, "backend"),
-		filepath.Join(root, "componentmetrics"),
+		filepath.Join(root, "runtimekit"),
 	}
 	if observe {
 		items = append(items, filepath.Join(root, "marshaller"))
@@ -117,7 +117,7 @@ func SourceBuilds(root string) (string, error) { return Source(root, false) }
 func MonitorInput(root string) (string, error) {
 	return Paths(root, []string{
 		filepath.Join(root, "VERSION"),
-		filepath.Join(root, "componentmetrics"),
+		filepath.Join(root, "runtimekit"),
 		filepath.Join(root, "monitor"),
 		filepath.Join(root, "deploy", "docker", "monitor.Dockerfile"),
 	})

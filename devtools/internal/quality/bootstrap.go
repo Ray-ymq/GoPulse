@@ -23,8 +23,8 @@ func Bootstrap(root, application string, toolsOnly bool) error {
 	if toolsOnly && application != "" {
 		return fmt.Errorf("TOOLS_ONLY=1 cannot be combined with MODULE=%s", application)
 	}
-	if application != "" && application != "frontend" && application != "admin-frontend" {
-		return fmt.Errorf("MODULE must be empty, frontend, or admin-frontend (got %s)", application)
+	if application != "" && application != "frontend/user" && application != "frontend/admin" {
+		return fmt.Errorf("MODULE must be empty, frontend/user, or frontend/admin (got %s)", application)
 	}
 	config, err := loadToolchains(root)
 	if err != nil {
@@ -39,7 +39,7 @@ func Bootstrap(root, application string, toolsOnly bool) error {
 	}
 	applications := []string{application}
 	if application == "" {
-		applications = []string{"frontend", "admin-frontend"}
+		applications = []string{"frontend/user", "frontend/admin"}
 	}
 	for _, name := range applications {
 		if err := frontenddeps.Ensure(root, name); err != nil {

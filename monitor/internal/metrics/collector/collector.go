@@ -3,8 +3,9 @@ package collector
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
+	"github.com/Ray-ymq/GoPulse/monitor/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 	"io"
 	"mime"
 	"net"
@@ -182,9 +183,9 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	if err != nil || status != "success" {
 		result = "scrape_failure"
 	}
-	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", targetID, result)
+	instrumentation.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", targetID, result)
 	if result == "scrape_success" {
-		componentmetrics.Active().Set("last_scrape_success_timestamp_seconds", float64(completedAt.Unix()), "exporter_plugin", targetID)
+		instrumentation.Active().Set("last_scrape_success_timestamp_seconds", float64(completedAt.Unix()), "exporter_plugin", targetID)
 	}
 	if err != nil {
 		if parent.Err() != nil {
@@ -213,7 +214,7 @@ func (m *Monitor) scrape(parent context.Context, manifest plugin.Manifest) {
 	if err != nil {
 		result = "publish_failure"
 	}
-	componentmetrics.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", targetID, result)
+	instrumentation.Active().Observe("scrapes_total", time.Since(started), "exporter_plugin", targetID, result)
 	publishCancel()
 	if err != nil {
 		if parent.Err() == nil {
@@ -276,7 +277,7 @@ func (m *Monitor) fetch(ctx context.Context, path string) (string, []envelope.Sa
 		return "", nil, time.Time{}, errors.New("contract_invalid")
 	}
 	target := (&url.URL{Scheme: "http", Host: net.JoinHostPort(m.cfg.Host, m.cfg.Port), Path: path}).String()
-	req, err := componentmetrics.NewRequest(ctx, http.MethodGet, target, nil)
+	req, err := runtimekit.NewRequest(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return "", nil, time.Time{}, errors.New("request_failed")
 	}

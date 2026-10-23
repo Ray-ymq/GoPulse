@@ -7,7 +7,6 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
 	"github.com/Ray-ymq/GoPulse/backend/internal/componentstatus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 type Metric struct {
@@ -18,9 +17,6 @@ type Metric struct {
 	Status     string     `json:"status"`
 	ReasonCode string     `json:"reason_code"`
 }
-
-var componentIDs = []string{"backend", "business-worker", "search-indexer", "monitor", "marshaller"}
-var keyNames = []string{"outbox_pending", "messages_in_flight", "retrying", "event_queue_length", "retrying"}
 
 const freshness = 90 * time.Second
 
@@ -60,62 +56,12 @@ func section(items any, now time.Time, statuses ...string) Section {
 	}
 	return s
 }
-func KeyMetrics(samples alert.Samples) Loader {
-	return func(ctx context.Context, now time.Time) Section {
-		items := []Metric{}
-		statuses := []string{}
-		for i, id := range componentIDs {
-			m := sample(ctx, samples, componentmetrics.Prefix(id)+keyNames[i], map[string]string{}, now)
-			items = append(items, m)
-			statuses = append(statuses, m.Status)
-		}
-		return section(items, now, statuses...)
-	}
-}
 
 type Component struct {
 	ID         string     `json:"id"`
 	Status     string     `json:"status"`
 	ObservedAt *time.Time `json:"observed_at"`
 	ReasonCode string     `json:"reason_code"`
-}
-
-func Components(samples alert.Samples) Loader {
-	return func(ctx context.Context, now time.Time) Section {
-		items := []Component{}
-		statuses := []string{}
-		for _, id := range componentIDs {
-			m := sample(ctx, samples, "gopulse_monitor_last_scrape_success_timestamp_seconds", map[string]string{"scraped_producer_kind": "component", "scraped_target_id": componentmetrics.Target(id)}, now)
-			c := Component{ID: id, Status: m.Status, ObservedAt: m.ObservedAt, ReasonCode: m.ReasonCode}
-			if m.Value != nil {
-				t := time.Unix(int64(*m.Value), 0).UTC()
-				c.ObservedAt = &t
-				if now.Sub(t) > freshness || t.After(now) {
-					c.Status = "unknown"
-					c.ReasonCode = "stale"
-				}
-			}
-			spec, _ := componentmetrics.Catalog(id)
-			for _, f := range spec.Families {
-				if f.Name != componentmetrics.Prefix(id)+"dependency_up" {
-					continue
-				}
-				for _, tuple := range f.Tuples {
-					dep := sample(ctx, samples, f.Name, map[string]string{"dependency": tuple[0]}, now)
-					if dep.Status != "healthy" {
-						c.Status = "unknown"
-						c.ReasonCode = dep.ReasonCode
-					} else if dep.Value != nil && *dep.Value != 1 && c.Status == "healthy" {
-						c.Status = "degraded"
-						c.ReasonCode = "dependency_down"
-					}
-				}
-			}
-			items = append(items, c)
-			statuses = append(statuses, c.Status)
-		}
-		return section(items, now, statuses...)
-	}
 }
 
 // ComponentStatus uses the same direct probe snapshot as the dedicated admin

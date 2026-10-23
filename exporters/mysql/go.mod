@@ -6,4 +6,6 @@ require github.com/go-sql-driver/mysql v1.10.0
 
 require filippo.io/edwards25519 v1.2.0 // indirect
 
-require github.com/Ray-ymq/GoPulse/componentmetrics v0.1.0
+require github.com/Ray-ymq/GoPulse/runtimekit v0.1.0
+
+replace github.com/Ray-ymq/GoPulse/runtimekit => ../../runtimekit

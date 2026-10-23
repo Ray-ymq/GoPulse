@@ -59,16 +59,26 @@ func (b *boundedBuffer) String() string { return b.buffer.String() }
 // RunCaptured executes a foreground command, mirrors its output to the
 // terminal, and returns bounded stdout/stderr for failure diagnostics.
 func RunCaptured(command []string, cwd string, overrides map[string]string, label string, timeout time.Duration) (Result, error) {
+	return RunCapturedContext(context.Background(), command, cwd, overrides, label, timeout)
+}
+
+// RunCapturedContext is RunCaptured with a caller-owned cancellation context.
+// The timeout still bounds the command independently, while cancellation lets
+// a lifecycle clean up promptly after an interrupt.
+func RunCapturedContext(parent context.Context, command []string, cwd string, overrides map[string]string, label string, timeout time.Duration) (Result, error) {
 	if len(command) == 0 {
 		return Result{Command: append([]string(nil), command...), Cwd: cwd, ExitCode: -1}, fmt.Errorf("%s has no command", label)
+	}
+	if parent == nil {
+		parent = context.Background()
 	}
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		ctx, cancel = context.WithTimeout(parent, timeout)
 		defer cancel()
 	} else {
-		ctx = context.Background()
+		ctx = parent
 	}
 	stdout, stderr := &boundedBuffer{limit: capturedOutputLimit}, &boundedBuffer{limit: capturedOutputLimit}
 	process := exec.CommandContext(ctx, command[0], command[1:]...)

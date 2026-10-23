@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 type Queue struct {
@@ -156,7 +156,7 @@ func (s *HTTPSource) Fetch(ctx context.Context) (Item, error) {
 	// service (for example, "marshaller-1"). Keep the latter in the response so
 	// the dashboard reports the actual process, while using the configured
 	// address only as the fallback identity when the source is unavailable.
-	if item.Component != s.component || componentmetrics.ValidateInstanceID(item.Instance) != nil || item.ObservedAt == nil {
+	if item.Component != s.component || runtimekit.ValidateInstanceID(item.Instance) != nil || item.ObservedAt == nil {
 		return Item{}, errors.New("delivery source returned an invalid status")
 	}
 	var trailing any
@@ -197,8 +197,8 @@ func EnvironmentSources(monitorURL, monitorToken, marshallerToken string, timeou
 		return nil, err
 	}
 	sources = append(sources, monitor)
-	mode := componentmetrics.Mode()
-	endpoints, err := componentmetrics.ReplicaEndpoints("marshaller")
+	mode := runtimekit.Mode()
+	endpoints, err := runtimekit.ReplicaEndpoints("marshaller")
 	if err != nil {
 		return nil, err
 	}

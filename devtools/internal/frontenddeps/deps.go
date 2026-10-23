@@ -17,9 +17,9 @@ import (
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
 )
 
-var applications = map[string]struct{}{
-	"frontend":       {},
-	"admin-frontend": {},
+var applications = map[string]string{
+	"frontend/user":  "frontend",
+	"frontend/admin": "admin-frontend",
 }
 
 // Runner is the side effect used to install dependencies. It is injectable so
@@ -144,7 +144,7 @@ func protectActiveApplication(ws workspace.Workspace, application string) error 
 	if err != nil || state == nil || state.Status != "running" {
 		return err
 	}
-	record, found := state.Processes[application]
+	record, found := state.Processes[applications[application]]
 	if found && proc.Owned(record) {
 		return fmt.Errorf("cannot replace %s dependencies while its owned development process is running; run make stop first", application)
 	}

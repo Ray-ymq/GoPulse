@@ -1,0 +1,608 @@
+# PT6 业务系统，单独使用本文件启动。网络和数据卷由项目隔离。
+# 常驻业务服务合计 13.25 vCPU / 8.5 GiB。k6 另占 1.5 vCPU / 1.5 GiB。
+# backend 各 0.75 核，platform-api 0.5 核；三者各 256 MiB。
+# worker、indexer 的每个副本最多使用 4 个数据库连接；默认常驻连接池上限合计 47，总预算 60。
+# 初始化和管理命令不与正式压测同时运行。所有服务禁止自动重启和额外 swap。
+name: gopulse-pt6-business
+
+x-image-build-args: &image-build-args
+  VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  REVISION: ${GOPULSE_REVISION:?GOPULSE_REVISION is required}
+  GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+
+x-mysql-environment: &mysql-environment
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  GOPULSE_RUNTIME_MODE: container
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+  MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+
+x-backend-common-environment: &backend-common-environment
+  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-backend-local}
+  GOPULSE_REPLICA_COUNT: 2
+  GOPULSE_TRACE_ENABLED: "false"
+  # 管理 API 直接检查各业务副本。
+  BACKEND_ENDPOINTS: backend,backend-2,platform-api
+  BUSINESS_WORKER_ENDPOINTS: business-worker,business-worker-2
+  SEARCH_INDEXER_ENDPOINTS: search-indexer,search-indexer-2
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
+  BUSINESS_ASYNC_MAX_RETAINED_GROUPS: ${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}
+  BUSINESS_ASYNC_MAX_RETAINED_BYTES: ${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}
+  BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
+  BUSINESS_STAGE_SERVICE_CREDENTIAL: ${BUSINESS_STAGE_SERVICE_CREDENTIAL:?BUSINESS_STAGE_SERVICE_CREDENTIAL is required}
+  <<: *mysql-environment
+  APP_ENV: ${APP_ENV:-development}
+  HTTP_HOST: 0.0.0.0
+  HTTP_PORT: 8080
+  AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
+  AUTH_JWT_TTL: ${AUTH_JWT_TTL:-2h}
+  AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-gopulse_session}
+  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+  LOG_MONITOR_URL: ""
+  BACKEND_LOG_READ_ALIAS: ${BACKEND_LOG_READ_ALIAS:-gopulse-logs-v1-read}
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+
+x-business-environment: &business-environment
+  <<: *backend-common-environment
+  BACKEND_SERVICE_ROLE: business
+  BACKEND_REDIS_DISABLED: "false"
+  BACKEND_HTTP_MAX_CONCURRENCY: ${BACKEND_HTTP_MAX_CONCURRENCY:-128}
+  BACKEND_RATE_LIMIT_ENABLED: ${BACKEND_RATE_LIMIT_ENABLED:-true}
+  BACKEND_RATE_LIMIT_OPERATION_TIMEOUT: ${BACKEND_RATE_LIMIT_OPERATION_TIMEOUT:-200ms}
+  BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES: ${BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES:-1024}
+  BACKEND_RESOURCE_AUTH: ${BACKEND_RESOURCE_AUTH:-16}
+  BACKEND_RESOURCE_READ: ${BACKEND_RESOURCE_READ:-64}
+  BACKEND_RESOURCE_WRITE: ${BACKEND_RESOURCE_WRITE:-32}
+  BACKEND_RESOURCE_DATABASE: ${BACKEND_RESOURCE_DATABASE:-32}
+  BACKEND_RESOURCE_REBUILD: ${BACKEND_RESOURCE_REBUILD:-8}
+  BACKEND_RESOURCE_WAITER: ${BACKEND_RESOURCE_WAITER:-256}
+  BACKEND_TRUSTED_PROXY_CIDRS: ${BACKEND_TRUSTED_PROXY_CIDRS:-}
+  MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:-8}
+  REDIS_POST_DETAIL_TTL: ${REDIS_POST_DETAIL_TTL:-5m}
+  REDIS_OPERATION_TIMEOUT: ${REDIS_OPERATION_TIMEOUT:-200ms}
+  REDIS_POOL_SIZE: ${REDIS_POOL_SIZE:-16}
+  REDIS_POOL_TIMEOUT: ${REDIS_POOL_TIMEOUT:-200ms}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+  REDIS_DB: ${REDIS_DB:-0}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-1s}
+  OUTBOX_DATABASE_TIMEOUT: ${OUTBOX_DATABASE_TIMEOUT:-2s}
+  OUTBOX_MYSQL_MAX_OPEN_CONNS: ${OUTBOX_MYSQL_MAX_OPEN_CONNS:-4}
+  OUTBOX_PUBLISH_CONCURRENCY: ${OUTBOX_PUBLISH_CONCURRENCY:-8}
+  OUTBOX_CLAIM_BATCH: ${OUTBOX_CLAIM_BATCH:-50}
+  OUTBOX_LEASE_DURATION: ${OUTBOX_LEASE_DURATION:-5m}
+  OUTBOX_PUBLISH_TIMEOUT: ${OUTBOX_PUBLISH_TIMEOUT:-5s}
+  OUTBOX_RETRY_DELAY: ${OUTBOX_RETRY_DELAY:-30s}
+  OUTBOX_CLEANUP_INTERVAL: ${OUTBOX_CLEANUP_INTERVAL:-1h}
+  OUTBOX_PUBLISHED_RETENTION: ${OUTBOX_PUBLISHED_RETENTION:-168h}
+  OUTBOX_CLEANUP_BATCH: ${OUTBOX_CLEANUP_BATCH:-500}
+  SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
+
+x-platform-environment: &platform-environment
+  # 保留管理 API。观测查询暂不可用，以下占位凭据仅用于配置校验。
+  <<: *backend-common-environment
+  BACKEND_SERVICE_ROLE: platform
+  GOPULSE_REPLICA_COUNT: 1
+  BACKEND_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
+  PLATFORM_API_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
+  BUSINESS_STAGE_ENDPOINTS: ${BUSINESS_STAGE_ENDPOINTS:-http://backend:8080,http://backend-2:8080}
+  PLATFORM_API_MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
+  MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
+  ALERT_EVALUATION_ENABLED: "false"
+  OBSERVABILITY_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
+  BACKEND_VICTORIAMETRICS_URL: http://victoriametrics:8428
+  BACKEND_VICTORIAMETRICS_USERNAME: pt6-disabled
+  BACKEND_VICTORIAMETRICS_PASSWORD: pt6-observability-disabled-placeholder-32-bytes
+  BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT: ${BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT:-3s}
+  BACKEND_METRIC_QUERY_DEFAULT_RANGE: ${BACKEND_METRIC_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_METRIC_QUERY_MAX_RANGE: ${BACKEND_METRIC_QUERY_MAX_RANGE:-24h}
+  BACKEND_LOG_QUERY_DEFAULT_RANGE: ${BACKEND_LOG_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_LOG_QUERY_MAX_RANGE: ${BACKEND_LOG_QUERY_MAX_RANGE:-24h}
+  BACKEND_EVENT_READ_ALIAS: ${BACKEND_EVENT_READ_ALIAS:-gopulse-events-v1-read}
+  BACKEND_EVENT_QUERY_DEFAULT_RANGE: ${BACKEND_EVENT_QUERY_DEFAULT_RANGE:-15m}
+  BACKEND_EVENT_QUERY_MAX_RANGE: ${BACKEND_EVENT_QUERY_MAX_RANGE:-24h}
+  MONITOR_URL: http://monitor:9090
+  MONITOR_API_TOKEN: pt6-monitor-disabled-placeholder-32-bytes
+  MONITOR_REQUEST_TIMEOUT: ${MONITOR_REQUEST_TIMEOUT:-30s}
+  MARSHALLER_API_TOKEN: pt6-marshaller-disabled-placeholder-32-bytes
+
+x-worker-environment: &worker-environment
+  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-business-worker-local}
+  GOPULSE_REPLICA_COUNT: 2
+  GOPULSE_TRACE_ENABLED: "false"
+  BUSINESS_WORKER_METRICS_TOKEN: ${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}
+  <<: *mysql-environment
+  MYSQL_MAX_OPEN_CONNS: 4
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
+  BUSINESS_ASYNC_MAX_RETAINED_GROUPS: ${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}
+  BUSINESS_ASYNC_MAX_RETAINED_BYTES: ${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
+  LOG_MONITOR_URL: ""
+  OUTBOX_RETRY_DELAY: ${OUTBOX_RETRY_DELAY:-30s}
+  BUSINESS_WORKER_PREFETCH: ${BUSINESS_WORKER_PREFETCH:-10}
+  BUSINESS_WORKER_MAX_RETRIES: ${BUSINESS_WORKER_MAX_RETRIES:-3}
+  BUSINESS_WORKER_PUBLISH_TIMEOUT: ${BUSINESS_WORKER_PUBLISH_TIMEOUT:-5s}
+  BUSINESS_WORKER_SHUTDOWN_TIMEOUT: ${BUSINESS_WORKER_SHUTDOWN_TIMEOUT:-10s}
+  BUSINESS_WORKER_RECONNECT_MIN: ${BUSINESS_WORKER_RECONNECT_MIN:-500ms}
+  BUSINESS_WORKER_RECONNECT_MAX: ${BUSINESS_WORKER_RECONNECT_MAX:-30s}
+
+x-indexer-environment: &indexer-environment
+  GOPULSE_INSTANCE_ID: ${GOPULSE_INSTANCE_ID:-search-indexer-local}
+  GOPULSE_REPLICA_COUNT: 2
+  GOPULSE_TRACE_ENABLED: "false"
+  SEARCH_INDEXER_METRICS_TOKEN: ${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}
+  <<: *mysql-environment
+  MYSQL_MAX_OPEN_CONNS: 4
+  MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:-2}
+  MYSQL_CONN_MAX_LIFETIME: ${MYSQL_CONN_MAX_LIFETIME:-3m}
+  MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
+  BUSINESS_ASYNC_MAX_RETAINED_GROUPS: ${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}
+  BUSINESS_ASYNC_MAX_RETAINED_BYTES: ${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+  LOG_MONITOR_URL: ""
+  SEARCH_INDEXER_PREFETCH: ${SEARCH_INDEXER_PREFETCH:-10}
+  SEARCH_INDEXER_MAX_RETRIES: ${SEARCH_INDEXER_MAX_RETRIES:-3}
+  SEARCH_INDEXER_RETRY_DELAY: ${SEARCH_INDEXER_RETRY_DELAY:-30s}
+  SEARCH_INDEXER_PUBLISH_TIMEOUT: ${SEARCH_INDEXER_PUBLISH_TIMEOUT:-5s}
+  SEARCH_INDEXER_SHUTDOWN_TIMEOUT: ${SEARCH_INDEXER_SHUTDOWN_TIMEOUT:-10s}
+  SEARCH_INDEXER_RECONNECT_MIN: ${SEARCH_INDEXER_RECONNECT_MIN:-500ms}
+  SEARCH_INDEXER_RECONNECT_MAX: ${SEARCH_INDEXER_RECONNECT_MAX:-30s}
+
+x-search-init-environment: &search-init-environment
+  <<: *mysql-environment
+  BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS: ${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}
+  BUSINESS_ASYNC_MAX_RETAINED_GROUPS: ${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}
+  BUSINESS_ASYNC_MAX_RETAINED_BYTES: ${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+  ELASTICSEARCH_REQUEST_TIMEOUT: ${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}
+  SEARCH_REINDEX_BATCH: ${SEARCH_REINDEX_BATCH:-500}
+
+services:
+  mysql:
+    cpus: 6
+    mem_limit: 3584m
+    memswap_limit: 3584m
+    image: ${GOPULSE_MYSQL_IMAGE:-mysql:8.4.0}
+    restart: "no"
+    command: ["--innodb-buffer-pool-size=2G"]
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - business
+    healthcheck:
+      test: [CMD, mysqladmin, ping, --host=127.0.0.1, --silent]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+    image: ${GOPULSE_REDIS_IMAGE:-redis:7.2.5-alpine}
+    restart: "no"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_MAXMEMORY: 384mb
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-noeviction}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}" --maxmemory "$${REDIS_MAXMEMORY}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY}"']
+    volumes:
+      - redis_data:/data
+    networks:
+      - business
+    healthcheck:
+      test: [CMD, redis-cli, --no-auth-warning, --raw, ping]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+    image: ${GOPULSE_RABBITMQ_IMAGE:-rabbitmq:3.13.3-management-alpine}
+    restart: "no"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - business
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      start_period: 20s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  elasticsearch:
+    cpus: 2
+    mem_limit: 2048m
+    memswap_limit: 2048m
+    image: ${GOPULSE_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:9.5.2}
+    restart: "no"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - business
+    healthcheck:
+      test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&wait_for_no_initializing_shards=true&wait_for_no_relocating_shards=true&timeout=5s" >/dev/null']
+      start_period: 30s
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  migrate:
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/bin/sh, -c]
+    # 保留迁移校验及受支持的旧版 dirty 状态恢复流程。
+    command:
+      - '/usr/local/bin/migrate validate && { /usr/local/bin/migrate status; code=$$?; [ "$$code" -eq 0 ] || [ "$$code" -eq 4 ]; } && exec /usr/local/bin/migrate up'
+    environment: *mysql-environment
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - business
+
+  search-init:
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/bin/sh, -c]
+    command:
+      - |
+        if [ -n "$$GOPULSE_RESTORE_OPERATION" ] || [ -n "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" ] || [ -n "$$GOPULSE_RESTORE_NEW_EPOCH" ]; then
+          if [ -z "$$GOPULSE_RESTORE_OPERATION" ] || [ -z "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" ] || [ -z "$$GOPULSE_RESTORE_NEW_EPOCH" ]; then
+            echo "restore preparation requires operation and both epochs" >&2
+            exit 1
+          fi
+          set -- --restore-operation "$$GOPULSE_RESTORE_OPERATION" --expected-old-epoch "$$GOPULSE_RESTORE_EXPECTED_OLD_EPOCH" --new-epoch "$$GOPULSE_RESTORE_NEW_EPOCH"
+        else
+          set -- --if-missing
+        fi
+        exec /usr/local/bin/search-reindex "$$@"
+    environment:
+      <<: *search-init-environment
+      GOPULSE_RESTORE_OPERATION: ${GOPULSE_RESTORE_OPERATION:-}
+      GOPULSE_RESTORE_EXPECTED_OLD_EPOCH: ${GOPULSE_RESTORE_EXPECTED_OLD_EPOCH:-}
+      GOPULSE_RESTORE_NEW_EPOCH: ${GOPULSE_RESTORE_NEW_EPOCH:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - business
+
+  backend: &backend-service
+    cpus: 0.75
+    mem_limit: 256m
+    memswap_limit: 256m
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: backend
+      args: *image-build-args
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=80m,mode=1777
+    stop_grace_period: 15s
+    environment:
+      <<: *business-environment
+      GOPULSE_INSTANCE_ID: backend-1
+    labels:
+      io.gopulse.runtime.process_id: backend
+      io.gopulse.runtime.role: business-api
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      search-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - edge
+      - business
+    expose:
+      - "8080"
+      - "19101"
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend-2:
+    <<: *backend-service
+    environment:
+      <<: *business-environment
+      GOPULSE_INSTANCE_ID: backend-2
+
+  platform-api:
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: backend
+      args: *image-build-args
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=80m,mode=1777
+    stop_grace_period: 15s
+    environment:
+      <<: *platform-environment
+      GOPULSE_INSTANCE_ID: platform-api-1
+    labels:
+      io.gopulse.runtime.process_id: backend
+      io.gopulse.runtime.role: platform-api
+      io.gopulse.runtime.replica_mode: singleton
+      io.gopulse.runtime.ownership: single-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - edge
+      - business
+    expose:
+      - "8080"
+      - "19101"
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  business-worker: &business-worker-service
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: business-worker
+      args: *image-build-args
+    restart: "no"
+    read_only: true
+    stop_grace_period: 15s
+    environment:
+      <<: *worker-environment
+      GOPULSE_INSTANCE_ID: business-worker-1
+    labels:
+      io.gopulse.runtime.process_id: business-worker
+      io.gopulse.runtime.role: business-worker
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - business
+    expose:
+      - "19102"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19102/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  business-worker-2:
+    <<: *business-worker-service
+    environment:
+      <<: *worker-environment
+      GOPULSE_INSTANCE_ID: business-worker-2
+
+  search-indexer: &search-indexer-service
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: search-indexer
+      args: *image-build-args
+    restart: "no"
+    read_only: true
+    stop_grace_period: 15s
+    environment:
+      <<: *indexer-environment
+      GOPULSE_INSTANCE_ID: search-indexer-1
+    labels:
+      io.gopulse.runtime.process_id: search-indexer
+      io.gopulse.runtime.role: search-indexer
+      io.gopulse.runtime.replica_mode: scalable
+      io.gopulse.runtime.ownership: multi-owner
+      io.gopulse.runtime.diagnostic: direct-private-probe
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      search-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - business
+    expose:
+      - "19103"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:19103/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  search-indexer-2:
+    <<: *search-indexer-service
+    environment:
+      <<: *indexer-environment
+      GOPULSE_INSTANCE_ID: search-indexer-2
+
+  frontend:
+    cpus: 0.13
+    mem_limit: 128m
+    memswap_limit: 128m
+    image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/frontend.Dockerfile
+      args: *image-build-args
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: "no"
+    stop_grace_period: 10s
+    depends_on:
+      admin-frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      backend-2:
+        condition: service_healthy
+      platform-api:
+        condition: service_healthy
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${FRONTEND_PORT:?FRONTEND_PORT is required}:8080
+    networks:
+      - edge
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:8080/frontend-health']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-frontend:
+    cpus: 0.12
+    mem_limit: 128m
+    memswap_limit: 128m
+    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:latest}
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: deploy/docker/admin-frontend.Dockerfile
+      args: *image-build-args
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: "no"
+    stop_grace_period: 10s
+    networks:
+      - edge
+    healthcheck:
+      test: [CMD-SHELL, 'wget --quiet --output-document=/dev/null http://127.0.0.1:8080/frontend-health']
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-role:
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    profiles: [operations]
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/usr/local/bin/admin-role]
+    command: [bootstrap, --user-id, "${GOPULSE_BOOTSTRAP_USER_ID:-0}"]
+    environment: *mysql-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - business
+
+  # 只预留容器和配额；默认不启动，压测命令及本轮输入输出路径待接入。
+  k6:
+    profiles: [load]
+    image: grafana/k6:0.56.0
+    cpus: 1.5
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    command: [version]
+    environment:
+      GOPULSE_BASE_URL: http://frontend:8080
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks:
+      - edge
+
+networks:
+  edge:
+  business:
+    internal: true
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  elasticsearch_data:

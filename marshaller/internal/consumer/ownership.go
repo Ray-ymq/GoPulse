@@ -3,7 +3,7 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/instrumentation"
 	"sync"
 )
 
@@ -84,7 +84,7 @@ func (o *Ownership) CancelAll() {
 }
 
 func (o *Ownership) observe(partition Partition, owned bool, generation uint64) {
-	metrics := componentmetrics.Active()
+	metrics := instrumentation.Active()
 	if metrics == nil || partition.Partition < 0 || partition.Partition >= 16 {
 		return
 	}

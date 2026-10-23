@@ -5,14 +5,16 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 )
 
 // SampleMetrics only aggregates indexed status and creation timestamps. It
 // never reads an event payload and never runs in a request/metrics handler.
-func (repository *Repository) SampleMetrics(ctx context.Context, metrics *componentmetrics.Backend) {
-	sample := func() {
-		queryCtx, cancel := context.WithTimeout(ctx, time.Second)
+func (repository *Repository) SampleMetrics(ctx context.Context, metrics *instrumentation.Backend) {
+	budgetRepository, _ := businessstate.NewRepository(repository.database)
+	sample := func() error {
+		queryCtx, cancel := context.WithTimeout(ctx, repository.databaseTimeout)
 		defer cancel()
 		var pending int64
 		var oldest sql.NullTime
@@ -25,16 +27,36 @@ func (repository *Repository) SampleMetrics(ctx context.Context, metrics *compon
 			}
 		}
 		metrics.ObserveOutbox(pending, age, err)
+		if repository.enableV2 {
+			// 使用后台连接池和同一超时，不在请求或 metrics handler 中查库。
+			budgetSampledAt := time.Now()
+			budget, budgetErr := budgetRepository.BudgetTotals(queryCtx)
+			metrics.ObserveAsyncBudget(budget.OpenRequirements, budget.ParkedMessages, budget.RetainedGroups, budget.RetainedBytes, budgetSampledAt, budgetErr)
+			if err == nil {
+				err = budgetErr
+			}
+		}
+		return err
 	}
-	sample()
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	attempt := uint(0)
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			sample()
+		case <-timer.C:
+			err := sample()
+			delay := 5 * time.Second
+			if err != nil {
+				delay = storageBackoff(attempt)
+				if attempt < 5 {
+					attempt++
+				}
+			} else {
+				attempt = 0
+			}
+			timer.Reset(delay)
 		}
 	}
 }

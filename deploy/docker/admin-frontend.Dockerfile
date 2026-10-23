@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
 FROM --platform=$BUILDPLATFORM node:24.20.0-alpine3.23@sha256:0388af2af070cd4736a1567cfed02469ba117848845b4165d87a333edb53d2ca AS build
-WORKDIR /src/admin-frontend
+WORKDIR /src/frontend/admin
 ENV CI=true
-COPY admin-frontend/package.json admin-frontend/package-lock.json ./
+COPY frontend/admin/package.json frontend/admin/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
-COPY frontend-shared/ /src/frontend-shared/
-COPY admin-frontend/ ./
+COPY frontend/shared/ /src/frontend/shared/
+COPY frontend/admin/ ./
 RUN npm test -- --run && npm run build
 
 FROM nginx:1.29.4-alpine3.23-slim@sha256:441b69e13e79b436f9b617910633b6b6adce314c3788c3238dcd8e03b4cb512e AS runtime
@@ -16,7 +16,7 @@ LABEL org.opencontainers.image.title="GoPulse Admin Frontend" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 COPY deploy/docker/admin-frontend/nginx.conf /etc/nginx/nginx.conf
-COPY --from=build --chown=101:101 /src/admin-frontend/dist/ /usr/share/nginx/html/admin/
+COPY --from=build --chown=101:101 /src/frontend/admin/dist/ /usr/share/nginx/html/admin/
 RUN find /usr/share/nginx/html -name '*.map' -delete && \
     chown -R 101:101 /usr/share/nginx/html
 WORKDIR /usr/share/nginx/html

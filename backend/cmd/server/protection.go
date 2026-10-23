@@ -26,6 +26,10 @@ func protectionPolicies(cacheTTL time.Duration) map[string]ratelimit.Policy {
 		middleware.PolicyPostRead: {
 			Name: "post_read", KeyPrefix: "gopulse:rl:v1:post_read:", Capacity: 60, RefillPerSecond: 10, Cost: 1,
 			IdleTTL: cacheTTL + time.Minute, CreationCapacity: 5000, CreationRate: 100, CreationTTL: 10 * time.Minute,
+			// The read path is the only high-volume quota. Reserving four tokens
+			// per shared decision removes three round trips from four requests;
+			// at most three tokens can be stranded, which is 0.3s of refill.
+			Lease: 4,
 		},
 		middleware.PolicyFactWrite: {
 			Name: "fact_write", KeyPrefix: "gopulse:rl:v1:fact_write:", Capacity: 20, RefillPerSecond: 2, Cost: 1,

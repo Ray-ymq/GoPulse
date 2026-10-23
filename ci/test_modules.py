@@ -17,7 +17,7 @@ class ModuleFixture(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name)
         self.go_modules = ["shared", "api", "worker", "exporters/probe", "devtools"]
-        self.npm_modules = ["frontend", "admin-frontend"]
+        self.npm_modules = ["frontend/user", "frontend/admin"]
         self.write("Makefile", (
             "list-go-modules:\n\t@echo " + " ".join(self.go_modules)
             + "\nlist-npm-modules:\n\t@echo " + " ".join(self.npm_modules) + "\n"
@@ -81,7 +81,7 @@ class ModuleTests(ModuleFixture):
         self.assertEqual(self.selected(["ci:api"]), {"api"})
 
     def test_frontend_and_unknown_ci_labels_fail_instead_of_selecting_all(self) -> None:
-        for label in ("ci:frontend", "ci:admin-frontend", "ci:all", "ci:ap", "ci:", "ci:api-extra", "ci:*"):
+        for label in ("ci:frontend/user", "ci:frontend/admin", "ci:frontend", "ci:admin-frontend", "ci:all", "ci:ap", "ci:", "ci:api-extra", "ci:*"):
             with self.subTest(label=label), self.assertRaises(ValueError):
                 select(self.repo, ["ci:api", label])
 
@@ -137,7 +137,7 @@ class ModuleTests(ModuleFixture):
         self.assertEqual(select_changed(self.repo, paths)["modules"], ["shared", "api"])
 
     def test_local_unknown_and_frontend_paths_never_select_everything(self) -> None:
-        paths = ["api-extra/main.go", "frontend/src/main.ts", "frontend-shared/tokens.css", "new-module/main.go", "deploy/compose.yaml", "docs/design.md", "api/README.md"]
+        paths = ["api-extra/main.go", "frontend/user/src/main.ts", "frontend/shared/tokens.css", "new-module/main.go", "deploy/compose.yaml", "docs/design.md", "api/README.md"]
         plan = select_changed(self.repo, paths)
         self.assertFalse(plan["has_modules"])
 

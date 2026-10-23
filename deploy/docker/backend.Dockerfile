@@ -3,7 +3,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine3.23@sha256:d4c4845f5d60c6a97
 WORKDIR /src/backend
 ARG GOPROXY=https://goproxy.cn,direct
 COPY backend/go.mod backend/go.sum ./
-COPY componentmetrics/ /src/componentmetrics/
+COPY runtimekit/ /src/runtimekit/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
 COPY backend/ ./
 ARG TARGETOS=linux

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 type Service struct {
@@ -201,6 +201,20 @@ func (service *Service) detailBody(ctx context.Context, postID, viewerID uint64,
 			return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
 		}
 	}
+	if viewerReader, ok := service.repository.(ViewerProjectionRepository); ok {
+		viewer, err := viewerReader.FindViewerProjection(ctx, readContext, viewerID)
+		if errors.Is(err, ErrNotFound) {
+			return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
+		}
+		if err != nil {
+			return Post{}, apperror.New(apperror.CodePostReadUnavailable, "post read temporarily unavailable")
+		}
+		projection := PublicProjection{EditedAt: body.EditedAt, ContentRevision: body.ContentRevision, ID: body.ID, Title: body.Title, Content: body.Content, CreatedAt: body.CreatedAt, UpdatedAt: body.UpdatedAt, Author: viewer.Author, CommentCount: viewer.CommentCount, LikeCount: viewer.LikeCount}
+		result := projection.post(viewer.Liked)
+		result.Author.Following = viewer.Following
+		result.BookmarkedByMe = viewer.Bookmarked
+		return result, nil
+	}
 	dynamic, err := reader.FindDynamic(ctx, postID, readContext.AuthorID)
 	if errors.Is(err, ErrNotFound) {
 		return Post{}, apperror.New(apperror.CodePostNotFound, "post not found")
@@ -232,7 +246,7 @@ func (service *Service) detailBody(ctx context.Context, postID, viewerID uint64,
 }
 
 func observeBodyOrigin(err error, elapsed time.Duration) {
-	if metrics := componentmetrics.BackendActive(); metrics != nil {
+	if metrics := instrumentation.BackendActive(); metrics != nil {
 		result := "success"
 		if errors.Is(err, ErrReadContextChanged) {
 			result = "version_changed"

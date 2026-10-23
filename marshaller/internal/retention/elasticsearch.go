@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 const responseLimit = 64 << 10
@@ -329,7 +329,7 @@ func (e *Elasticsearch) DeleteIndex(ctx context.Context, index string) error {
 }
 
 func (e *Elasticsearch) do(ctx context.Context, method, path string, body io.Reader) (int, []byte, error) {
-	req, err := componentmetrics.NewRequest(ctx, method, e.baseURL+path, body)
+	req, err := runtimekit.NewRequest(ctx, method, e.baseURL+path, body)
 	if err != nil {
 		return 0, nil, err
 	}

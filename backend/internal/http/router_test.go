@@ -5,7 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -53,19 +54,19 @@ func TestRuntimeProbesHardAndSoftDependencies(t *testing.T) {
 func TestAPIBusinessAdmissionDoesNotConsumeProbeSlot(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
-	probes, err := componentmetrics.NewProbes(context.Background(), time.Second, time.Second, nil)
+	probes, err := runtimekit.NewProbes(context.Background(), time.Second, time.Second, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	probes.Started()
-	metrics, err := componentmetrics.NewBackend([]componentmetrics.Route{{Method: "GET", Template: "/api/v1/test-admission"}})
+	metrics, err := instrumentation.NewBackend([]instrumentation.Route{{Method: "GET", Template: "/api/v1/test-admission"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	metrics.ObserveOutbox(0, 0, nil)
 	metrics.SetHTTPConcurrencyLimit(1)
-	componentmetrics.InstallBackend(metrics)
-	t.Cleanup(func() { componentmetrics.InstallBackend(nil) })
+	instrumentation.InstallBackend(metrics)
+	t.Cleanup(func() { instrumentation.InstallBackend(nil) })
 	router := NewRouter(Dependencies{Probes: probes, HTTPMaxConcurrency: 1})
 	router.GET("/api/v1/test-admission", func(c *gin.Context) {
 		close(started)
@@ -129,7 +130,7 @@ func assertJSONEqual(t *testing.T, actual, expected string) {
 	if obj, ok := actualValue.(map[string]any); ok {
 		if body, ok := obj["error"].(map[string]any); ok {
 			if id, present := body["request_id"]; present {
-				if !componentmetrics.ValidRequestID(id.(string)) {
+				if !runtimekit.ValidRequestID(id.(string)) {
 					t.Fatal("invalid error request ID")
 				}
 				if expectedObj, ok := expectedValue.(map[string]any); ok {

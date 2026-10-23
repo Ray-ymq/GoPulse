@@ -155,9 +155,13 @@ func TestIntegrationPostDynamicCountQueryUsesSupportingIndexes(t *testing.T) {
 	suffix := time.Now().UTC().Format("150405000000")
 	authorID := insertIntegrationUser(t, ctx, tx, "DynamicAuthor_"+suffix)
 	targetID := insertIntegrationPost(t, ctx, tx, authorID, "dynamic target", time.Now().UTC())
+	var viewerID uint64
 	for index := 0; index < 64; index++ {
 		insertIntegrationComment(t, ctx, tx, targetID, authorID, "dynamic comment "+strconv.Itoa(index))
 		likerID := insertIntegrationUser(t, ctx, tx, "DynamicLiker_"+suffix+"_"+strconv.Itoa(index))
+		if index == 0 {
+			viewerID = likerID
+		}
 		insertIntegrationLike(t, ctx, tx, targetID, likerID)
 	}
 
@@ -168,6 +172,46 @@ func TestIntegrationPostDynamicCountQueryUsesSupportingIndexes(t *testing.T) {
 	}
 	if dynamic.CommentCount != 64 || dynamic.LikeCount != 64 {
 		t.Fatalf("FindDynamic() counts comments=%d likes=%d, want 64/64", dynamic.CommentCount, dynamic.LikeCount)
+	}
+
+	if _, err := tx.ExecContext(ctx, `INSERT INTO user_follows (follower_id,followed_id,created_at) VALUES (?,?,UTC_TIMESTAMP(6))`, viewerID, authorID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO post_bookmarks (user_id,post_id,created_at) VALUES (?,?,UTC_TIMESTAMP(6))`, viewerID, targetID); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := repository.ReadContext(ctx, targetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewer, err := repository.FindViewerProjection(ctx, expected, viewerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !viewer.Liked || !viewer.Following || !viewer.Bookmarked || viewer.CommentCount != 64 || viewer.LikeCount != 64 || viewer.Author.ID != authorID {
+		t.Fatalf("viewer projection=%+v", viewer)
+	}
+	anonymous, err := repository.FindViewerProjection(ctx, expected, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if anonymous.Liked || anonymous.Following || anonymous.Bookmarked {
+		t.Fatalf("anonymous relationships=%+v", anonymous)
+	}
+	changed := expected
+	changed.ContentRevision++
+	if _, err := repository.FindViewerProjection(ctx, changed, viewerID); !errors.Is(err, ErrReadContextChanged) {
+		t.Fatalf("revision check=%v", err)
+	}
+	changed = expected
+	changed.AuthorID++
+	if _, err := repository.FindViewerProjection(ctx, changed, viewerID); !errors.Is(err, ErrReadContextChanged) {
+		t.Fatalf("author check=%v", err)
+	}
+	changed = expected
+	changed.Epoch = "different"
+	if _, err := repository.FindViewerProjection(ctx, changed, viewerID); !errors.Is(err, ErrReadContextChanged) {
+		t.Fatalf("epoch check=%v", err)
 	}
 
 	query := `

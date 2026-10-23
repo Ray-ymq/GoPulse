@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"

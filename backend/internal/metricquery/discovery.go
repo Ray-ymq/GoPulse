@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 )
 
 const maximumDefinitions = 2048
@@ -27,14 +27,11 @@ func definitionFor(metric string) (Definition, bool) {
 	if derived, ok := derivedDefinition(metric); ok {
 		return derived, true
 	}
-	for _, source := range append(append([]string{}, componentmetrics.Plugins...), componentmetrics.Components...) {
+	for _, source := range runtimekit.Plugins {
 		if !metriccontract.ValidName(source, metric) {
 			continue
 		}
 		d := Definition{Source: source, TargetID: source + "-exporter-local", ProducerKind: "exporter_plugin", ProducerID: source + "-exporter", Metric: metric, Unit: "none"}
-		if componentmetrics.IsComponent(source) {
-			d.TargetID, d.ProducerKind, d.ProducerID = componentmetrics.Target(source), "component", source
-		}
 		if preset, ok := presets[metric]; ok {
 			d.Kind, d.Unit = preset.Kind, preset.Unit
 			d.LabelKeys = append([]string(nil), preset.LabelKeys...)
@@ -86,7 +83,7 @@ func (c *Client) DiscoverMetrics(ctx context.Context, metric string, from, to ti
 		selector += `{metric=` + strconv.Quote(metric) + `}`
 	}
 	form := url.Values{"match[]": {selector}, "start": {formatTime(from)}, "end": {formatTime(to)}, "limit": {strconv.Itoa(maximumDefinitions + 1)}}
-	request, err := componentmetrics.NewRequest(ctx, http.MethodPost, strings.TrimSuffix(c.endpoint, "/query_range")+"/series", strings.NewReader(form.Encode()))
+	request, err := runtimekit.NewRequest(ctx, http.MethodPost, strings.TrimSuffix(c.endpoint, "/query_range")+"/series", strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +116,9 @@ func decodeDefinitions(body []byte, requested string) ([]Definition, error) {
 	}
 	byName := map[string]Definition{}
 	for _, row := range response.Data {
+		if runtimekit.IsComponent(row["source"]) {
+			continue
+		}
 		// VictoriaMetrics drops empty-valued labels; absent label_keys means no business dimensions.
 		expectedFields := 8
 		if _, ok := row["label_keys"]; ok {

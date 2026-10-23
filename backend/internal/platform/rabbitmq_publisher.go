@@ -5,7 +5,7 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"math/big"
 	"net"
 	"net/url"
@@ -216,8 +216,8 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 	defer publisher.publishMu.Unlock()
 
 	defer func() {
-		componentmetrics.Dependency("rabbitmq", result)
-		if b := componentmetrics.BackendActive(); b != nil {
+		instrumentation.Dependency("rabbitmq", result)
+		if b := instrumentation.BackendActive(); b != nil {
 			b.ObservePublish(time.Now(), result)
 		}
 	}()

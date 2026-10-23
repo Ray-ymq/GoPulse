@@ -23,7 +23,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -111,9 +111,9 @@ func registeredRoutes(t *testing.T) map[routeKey]bool {
 	gin.SetMode(gin.TestMode)
 	root, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	probes, err := componentmetrics.NewProbes(root, time.Second, time.Second, nil)
+	probes, err := runtimekit.NewProbes(root, time.Second, time.Second, nil)
 	if err != nil {
-		t.Fatalf("componentmetrics.NewProbes() error = %v", err)
+		t.Fatalf("runtimekit.NewProbes() error = %v", err)
 	}
 	passThrough := func(c *gin.Context) { c.Next() }
 	routers := []*gin.Engine{

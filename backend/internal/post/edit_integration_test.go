@@ -94,7 +94,7 @@ func TestIntegrationEditTransactionNoopAndStaleCache(t *testing.T) {
 		t.Fatalf("missing=%v", err)
 	}
 	failing := post.NewMySQLRepositoryWithOutbox(db, failedEditOutbox{})
-	if err := failing.Update(ctx, record.ID, actor.ID, post.CreateInput{Title: "rollback", Content: "rollback"}); err == nil {
+	if _, err := failing.Update(ctx, record.ID, actor.ID, post.CreateInput{Title: "rollback", Content: "rollback"}); err == nil {
 		t.Fatal("missing rollback failure")
 	}
 	got, err := repo.FindPublicByID(ctx, record.ID)

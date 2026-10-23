@@ -188,13 +188,16 @@ type StageEvidence struct {
 }
 
 type StageBudget struct {
-	CurrentOpenRequirements uint64 `json:"current_open_requirements"`
-	CurrentOpenLimit        uint64 `json:"current_open_limit"`
-	RetainedGroups          uint64 `json:"retained_groups"`
-	RetainedGroupsLimit     uint64 `json:"retained_groups_limit"`
-	RetainedBytes           uint64 `json:"retained_bytes"`
-	RetainedBytesLimit      uint64 `json:"retained_bytes_limit"`
-	AtEightyPercent         bool   `json:"at_eighty_percent"`
+	RecentGroupsPerSecond     float64  `json:"recent_groups_per_second"`
+	RecentBytesPerSecond      float64  `json:"recent_bytes_per_second"`
+	EstimatedSecondsUntilFull *float64 `json:"estimated_seconds_until_full"`
+	CurrentOpenRequirements   uint64   `json:"current_open_requirements"`
+	CurrentOpenLimit          uint64   `json:"current_open_limit"`
+	RetainedGroups            uint64   `json:"retained_groups"`
+	RetainedGroupsLimit       uint64   `json:"retained_groups_limit"`
+	RetainedBytes             uint64   `json:"retained_bytes"`
+	RetainedBytesLimit        uint64   `json:"retained_bytes_limit"`
+	AtEightyPercent           bool     `json:"at_eighty_percent"`
 }
 
 type StageResponse struct {
@@ -369,7 +372,7 @@ func (service *QueryService) readPersistent(ctx context.Context, query StageQuer
 	response := StageResponse{RequestedEpoch: query.DataEpoch, CurrentEpoch: environment.DataEpoch, Evidence: StageEvidence{
 		Command: source(StageSourceCommand, readAt), Broker: source(StageSourceBroker, readAt),
 		Visibility: source(StageSourceVisibility, readAt), Logs: source(StageSourceLogs, readAt), Trace: source(StageSourceTrace, readAt),
-	}, Budget: StageBudget{CurrentOpenLimit: limits.OpenRequirements, RetainedGroupsLimit: MaximumRetainedGroups, RetainedBytesLimit: MaximumRetainedBytes}}
+	}, Budget: StageBudget{CurrentOpenLimit: limits.OpenRequirements, RetainedGroupsLimit: limits.RetainedGroups, RetainedBytesLimit: limits.RetainedBytes}}
 	response.Evidence.Visibility.Quality = StageQualityNotRequested
 	response.Evidence.Logs.Quality = StageQualityNotRequested
 	response.Evidence.Trace.Quality = StageQualityNotRequested
@@ -383,8 +386,15 @@ func (service *QueryService) readPersistent(ctx context.Context, query StageQuer
 	response.Budget.CurrentOpenRequirements = budget.currentOpen
 	response.Budget.RetainedGroups = budget.retainedGroups
 	response.Budget.RetainedBytes = budget.retainedBytes
-	response.Budget.AtEightyPercent = budget.currentOpen*100 >= limits.OpenRequirements*80 || budget.retainedGroups*100 >= MaximumRetainedGroups*80 || budget.retainedBytes*100 >= MaximumRetainedBytes*80
+	response.Budget.AtEightyPercent = budget.currentOpen*100 >= limits.OpenRequirements*80 || budget.retainedGroups*100 >= limits.RetainedGroups*80 || budget.retainedBytes*100 >= limits.RetainedBytes*80
 
+	var recentGroups, recentBytes uint64
+	if err := service.repository.database.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(payload_bytes+?),0) FROM business_event_requirements WHERE created_at>=? AND created_at<=? AND retention_reserved=TRUE`, RetentionMetadataBytes, now.Add(-time.Hour), now).Scan(&recentGroups, &recentBytes); err != nil {
+		return persistentStage{}, ErrStageBackend
+	}
+	response.Budget.RecentGroupsPerSecond = float64(recentGroups) / time.Hour.Seconds()
+	response.Budget.RecentBytesPerSecond = float64(recentBytes) / time.Hour.Seconds()
+	response.Budget.EstimatedSecondsUntilFull = retentionHeadroom(limits, budget.retainedGroups, budget.retainedBytes, recentGroups, recentBytes)
 	stage := persistentStage{response: response}
 	command, found, err := service.findCommand(ctx, query)
 	if err != nil {
@@ -897,4 +907,23 @@ func (client *HTTPClient) QueryWithSession(ctx context.Context, query StageQuery
 		return StageResponse{}, ErrStageRemote
 	}
 	return envelope.Data, nil
+}
+
+// Arrival rates describe the preceding hour; no growth means an unknown horizon.
+func retentionHeadroom(limits BudgetLimits, groups, bytes, recentGroups, recentBytes uint64) *float64 {
+	if groups >= limits.RetainedGroups || bytes >= limits.RetainedBytes {
+		zero := float64(0)
+		return &zero
+	}
+	var seconds *float64
+	for _, v := range []struct{ remaining, rate uint64 }{{limits.RetainedGroups - groups, recentGroups}, {limits.RetainedBytes - bytes, recentBytes}} {
+		if v.rate == 0 {
+			continue
+		}
+		value := float64(v.remaining) * time.Hour.Seconds() / float64(v.rate)
+		if seconds == nil || value < *seconds {
+			seconds = &value
+		}
+	}
+	return seconds
 }

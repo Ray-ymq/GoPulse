@@ -1,0 +1,108 @@
+# Fixed project; never use down -v. Product services belong to another project.
+name: gopulse-selfmonitor
+x-exporter: &exporter
+  restart: "no"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+services:
+  prometheus:
+    <<: *exporter
+    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    network_mode: host
+    command: [--config.file=/etc/prometheus/prometheus.yaml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=15d, --web.listen-address=127.0.0.1:29090]
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - ./secrets/backend_token:/etc/prometheus/secrets/backend_token:ro
+      - ./secrets/business-worker_token:/etc/prometheus/secrets/business-worker_token:ro
+      - ./secrets/search-indexer_token:/etc/prometheus/secrets/search-indexer_token:ro
+      - ./secrets/monitor_token:/etc/prometheus/secrets/monitor_token:ro
+      - ./secrets/marshaller_token:/etc/prometheus/secrets/marshaller_token:ro
+      - ./secrets/victoriametrics_token:/etc/prometheus/secrets/victoriametrics_token:ro
+      - prometheus_data:/prometheus
+  grafana:
+    <<: *exporter
+    image: grafana/grafana:12.1.1@sha256:a1701c2180249361737a99a01bc770db39381640e4d631825d38ff4535efa47d
+    network_mode: host
+    environment:
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SERVER_HTTP_PORT: '23000'
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:?Set the direct Grafana URL, e.g. http://server-ip:23000/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'false'
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set independent Grafana administrator}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - ./secrets/grafana_password:/run/secrets/grafana_password:ro
+      - grafana_data:/var/lib/grafana
+    tmpfs: [/tmp]
+  node:
+    <<: *exporter
+    image: prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a
+    network_mode: host
+    pid: host
+    command: [--web.listen-address=127.0.0.1:29100, --path.rootfs=/host, '--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/user|var/lib/docker/.+|var/lib/containers/storage/.+)($$|/)']
+    volumes: ['/:/host:ro']
+  mysql-exporter:
+    <<: *exporter
+    image: prom/mysqld-exporter:v0.17.2@sha256:20b5b23a98ce3998349042a999e56d22819b46da38fa4e4e9ca0155c975c95d5
+    command: [--config.my-cnf=/run/secrets/mysql.cnf]
+    volumes: [./secrets/mysql.cnf:/run/secrets/mysql.cnf:ro]
+    ports: ['127.0.0.1:29104:9104']
+    networks: [business, scrape-access]
+  redis-exporter:
+    <<: *exporter
+    image: oliver006/redis_exporter:v1.76.0@sha256:1542bc6a88decfc16db6603045accd502cc3a46c46659d7cfd568e1f6965fe59
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_USER: selfmonitor
+      REDIS_PASSWORD_FILE: /run/secrets/redis_passwords.json
+    volumes: [./secrets/redis_passwords.json:/run/secrets/redis_passwords.json:ro]
+    ports: ['127.0.0.1:29121:9121']
+    networks: [business, scrape-access]
+  kafka-exporter:
+    <<: *exporter
+    # Kafka may still be starting; retry fatal initial connections until ready.
+    restart: on-failure
+    image: danielqsj/kafka-exporter:v1.9.0@sha256:4150e46b2e9697ac30e4be8de03ec1704b4bdc7037577b83b8d35a32be298c16
+    command: [--kafka.server=kafka:19092]
+    ports: ['127.0.0.1:29308:9308']
+    networks: [observability, scrape-access]
+  elasticsearch-exporter:
+    <<: *exporter
+    image: prometheuscommunity/elasticsearch-exporter:v1.9.0@sha256:09a6fb742d75ee6d4a03581f1887f66d80884b16d0db2302462667b899f24392
+    command: [--es.uri=http://elasticsearch:9200, --es.all]
+    ports: ['127.0.0.1:29114:9114']
+    networks: [business, scrape-access]
+  observability-elasticsearch-exporter:
+    <<: *exporter
+    image: prometheuscommunity/elasticsearch-exporter:v1.9.0@sha256:09a6fb742d75ee6d4a03581f1887f66d80884b16d0db2302462667b899f24392
+    command: [--es.uri=http://observability-elasticsearch:9200, --es.all]
+    ports: ['127.0.0.1:29115:9114']
+    networks: [observability, scrape-access]
+  victoriametrics-metrics:
+    <<: *exporter
+    image: victoriametrics/vmauth:v1.151.0@sha256:efd05bb90de99c842dae9b5848a0c83347caf5004c3e81deabcc8562024ab072
+    command: [-auth.config=/run/secrets/vmauth.yaml, -httpListenAddr=:8427]
+    volumes: [./secrets/vmauth.yaml:/run/secrets/vmauth.yaml:ro]
+    ports: ['127.0.0.1:29428:8427']
+    networks: [observability, scrape-access]
+networks:
+  scrape-access:
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+  business:
+    external: true
+    name: ${GOPULSE_BUSINESS_NETWORK:?Set the product business network name}
+  observability:
+    external: true
+    name: ${GOPULSE_OBSERVABILITY_NETWORK:?Set the product observability network name}
+volumes:
+  prometheus_data:
+  grafana_data:

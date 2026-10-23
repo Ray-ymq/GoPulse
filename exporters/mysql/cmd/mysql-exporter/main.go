@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 	"net"
 	"net/http"
 	"os"
@@ -34,7 +34,7 @@ func main() {
 		if len(os.Args) > 1 {
 			fmt.Fprintln(os.Stdout, `{"reachable":false,"code":"target_unavailable"}`)
 		} else {
-			componentmetrics.NewLogger("mysql-exporter", os.Stdout).Error("exporter stopped", "reason", "invalid_configuration_or_runtime")
+			runtimekit.NewLogger("mysql-exporter", os.Stdout).Error("exporter stopped", "reason", "invalid_configuration_or_runtime")
 		}
 		os.Exit(1)
 	}
@@ -65,7 +65,7 @@ func runWithConfig(cfg runtime.Config, check bool) error {
 		fmt.Fprintln(os.Stdout, `{"reachable":true,"code":"ok"}`)
 		return nil
 	}
-	ctx, stop := componentmetrics.SignalContext()
+	ctx, stop := runtimekit.SignalContext()
 	defer stop()
 	server := &http.Server{Addr: cfg.Listen, Handler: runtime.Handler(db, cfg.ScrapeTimeout), ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: cfg.ScrapeTimeout + time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	listener, err := net.Listen("tcp", server.Addr)
@@ -73,8 +73,8 @@ func runWithConfig(cfg runtime.Config, check bool) error {
 		return runtime.ErrConfig
 	}
 	defer listener.Close()
-	logger := componentmetrics.NewLogger("mysql-exporter", os.Stdout)
-	return componentmetrics.ServeRuntime(ctx, server, listener, 5*time.Second, logger)
+	logger := runtimekit.NewLogger("mysql-exporter", os.Stdout)
+	return runtimekit.ServeRuntime(ctx, server, listener, 5*time.Second, logger)
 }
 
 func managedCommand(command string) bool {

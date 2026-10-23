@@ -25,6 +25,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
@@ -37,9 +38,10 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
+	"github.com/Ray-ymq/GoPulse/backend/internal/selfmonitor"
 	"github.com/Ray-ymq/GoPulse/backend/internal/telemetrydelivery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -70,19 +72,20 @@ type roleResource struct {
 type roleAssembly struct {
 	profile       roleProfile
 	database      *sql.DB
-	probes        *componentmetrics.Probes
+	probes        *runtimekit.Probes
 	router        stdhttp.Handler
 	dispatcher    *outbox.Dispatcher
-	sampleOutbox  func(context.Context, *componentmetrics.Backend)
+	sampleOutbox  func(context.Context, *instrumentation.Backend)
 	runAlertCheck func(context.Context)
 	resources     []roleResource
 	closed        bool
+	pools         map[string]*sql.DB
 }
 
 // initializeMetrics makes the shared Backend exposition scrapeable for a
 // platform-only process. The platform role has no business outbox sampler;
 // its neutral outbox fields are not a business backlog observation.
-func (assembly *roleAssembly) initializeMetrics(metrics *componentmetrics.Backend) {
+func (assembly *roleAssembly) initializeMetrics(metrics *instrumentation.Backend) {
 	if assembly == nil || metrics == nil || assembly.profile.business {
 		return
 	}
@@ -131,8 +134,38 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	if err != nil {
 		return nil, errors.New("initialize MySQL client")
 	}
+	logger.Info("backend capacity configuration",
+		slog.Int("api_mysql_max_open_conns", mysqlClient.DB().Stats().MaxOpenConnections),
+		slog.Int("probe_mysql_max_open_conns", 1),
+		slog.Int("outbox_mysql_max_open_conns", cfg.Outbox.MaxOpenConns),
+		slog.Int("outbox_publish_concurrency", cfg.Outbox.PublishConcurrency),
+		slog.Int("outbox_claim_batch", cfg.Outbox.ClaimBatch),
+		slog.Duration("outbox_database_timeout", cfg.Outbox.DatabaseTimeout),
+		slog.Duration("outbox_lease_duration", cfg.Outbox.LeaseDuration),
+		slog.Duration("outbox_publish_timeout", cfg.Outbox.PublishTimeout),
+		slog.Duration("post_detail_ttl", cfg.Redis.PostDetailTTL),
+		slog.Int("rebuild_executors", cfg.Protection.ResourceRebuild))
 	assembly.database = mysqlClient.DB()
+	assembly.pools = map[string]*sql.DB{"api": mysqlClient.DB()}
 	assembly.addResource("mysql", mysqlClient.Close)
+
+	probeConfig := cfg.MySQL
+	probeConfig.MaxOpenConns = 1
+	probeConfig.MaxIdleConns = 1
+	probeClient, err := platform.NewMySQL(probeConfig)
+	if err != nil {
+		return nil, errors.New("initialize probe MySQL client")
+	}
+	assembly.addResource("mysql_probe", probeClient.Close)
+	assembly.pools["probe"] = probeClient.DB()
+	probeUsers := user.NewMySQLRepository(probeClient.DB())
+	var probeState *businessstate.Repository
+	if profile.business {
+		probeState, err = businessstate.NewRepository(probeClient.DB())
+		if err != nil {
+			return nil, errors.New("initialize probe business state")
+		}
+	}
 
 	tokens, err := auth.NewTokenManager(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, time.Now)
 	if err != nil {
@@ -142,7 +175,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	users := user.NewMySQLRepository(mysqlClient.DB())
 	var state *businessstate.Repository
 	if profile.business {
-		state, err = businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements))
+		state, err = businessstate.NewRepository(mysqlClient.DB(), businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements), businessstate.WithRetentionLimits(cfg.BusinessAsyncMaxRetainedGroups, cfg.BusinessAsyncMaxRetainedBytes))
 		if err != nil {
 			return nil, errors.New("initialize business state repository")
 		}
@@ -168,8 +201,10 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if err := state.ActivateV2(context.Background(), "phase-24-02"); err != nil {
 			return nil, errors.New("activate business event v2")
 		}
-		redisClient = platform.NewRedis(cfg.Redis)
-		assembly.addResource("redis", redisClient.Close)
+		if !cfg.RedisDisabled {
+			redisClient = platform.NewRedis(cfg.Redis)
+			assembly.addResource("redis", redisClient.Close)
+		}
 		protectionBudget, err = resourcebudget.New(resourcebudget.Config{
 			Auth: cfg.Protection.ResourceAuth, Read: cfg.Protection.ResourceRead, Write: cfg.Protection.ResourceWrite,
 			Database: cfg.Protection.ResourceDatabase, Rebuild: cfg.Protection.ResourceRebuild, Waiter: cfg.Protection.ResourceWaiter,
@@ -190,7 +225,16 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			if localErr != nil {
 				return nil, errors.New("initialize local rate limiter")
 			}
-			sharedLimiter := ratelimit.NewSharedLimiter(redisClient, cfg.Protection.RateLimitOperationTimeout)
+			var sharedLimiter ratelimit.Limiter
+			if cfg.RedisDisabled {
+				sharedLimiter, err = ratelimit.NewMemoryLimiter(cfg.Protection.LocalMaxIdentities)
+				if err != nil {
+					return nil, err
+				}
+				logger.Info("无 Redis 业务保护已启用", slog.String("quota_scope", "per_process"), slog.Int("replica_count", cfg.ReplicaCount), slog.Int("max_identities", cfg.Protection.LocalMaxIdentities))
+			} else {
+				sharedLimiter = ratelimit.NewSharedLimiter(redisClient, cfg.Protection.RateLimitOperationTimeout)
+			}
 			rateLimitHandler, err = backendhttp.NewRateLimitHandler(sharedLimiter, localLimiter, protectionPolicies(cfg.Redis.PostDetailTTL), trustedProxies)
 			if err != nil {
 				return nil, errors.New("initialize shared rate limiter")
@@ -206,20 +250,31 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		if err != nil {
 			return nil, errors.New("initialize RabbitMQ checker")
 		}
-		eventOutbox, err = outbox.NewRepository(mysqlClient.DB(), outbox.Options{MaxClaimBatch: cfg.Outbox.ClaimBatch, RetentionAccounting: state, EnableV2: true})
+		outboxConfig := cfg.MySQL
+		outboxConfig.MaxOpenConns = cfg.Outbox.MaxOpenConns
+		outboxConfig.MaxIdleConns = cfg.Outbox.MaxOpenConns
+		backgroundClient, err := platform.NewMySQL(outboxConfig)
+		if err != nil {
+			return nil, errors.New("initialize outbox MySQL client")
+		}
+		assembly.addResource("mysql_outbox", backgroundClient.Close)
+		assembly.pools["outbox"] = backgroundClient.DB()
+		eventOutbox, err = outbox.NewRepository(backgroundClient.DB(), outbox.Options{DatabaseTimeout: cfg.Outbox.DatabaseTimeout, MaxClaimBatch: cfg.Outbox.ClaimBatch, RetentionAccounting: state, EnableV2: true})
 		if err != nil {
 			return nil, errors.New("initialize business outbox repository")
 		}
-		rabbitMQPublisher, publisherErr := platform.NewRabbitMQPublisher(
-			cfg.RabbitMQURL,
-			platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay},
-		)
-		if publisherErr != nil {
-			return nil, errors.New("initialize RabbitMQ publisher")
+		publishers := make([]outbox.Publisher, 0, cfg.Outbox.PublishConcurrency)
+		for i := 0; i < cfg.Outbox.PublishConcurrency; i++ {
+			publisher, publisherErr := platform.NewRabbitMQPublisher(cfg.RabbitMQURL, platform.RabbitMQPublisherOptions{RetryDelay: cfg.Outbox.RetryDelay, SearchRetryDelay: cfg.Outbox.SearchRetryDelay})
+			if publisherErr != nil {
+				return nil, errors.New("initialize RabbitMQ publisher")
+			}
+			assembly.addResource("rabbitmq_publisher", publisher.Close)
+			publishers = append(publishers, publisher)
 		}
-		assembly.addResource("rabbitmq_publisher", rabbitMQPublisher.Close)
-		dispatcher, err = outbox.NewDispatcher(eventOutbox, rabbitMQPublisher, outbox.DispatcherOptions{
-			Owner:           componentmetrics.InstanceID("backend") + "-" + strconv.Itoa(os.Getpid()),
+		dispatcher, err = outbox.NewDispatcher(eventOutbox, publishers[0], outbox.DispatcherOptions{
+			Publishers: publishers, DatabaseTimeout: cfg.Outbox.DatabaseTimeout,
+			Owner:           runtimekit.InstanceID("backend") + "-" + strconv.Itoa(os.Getpid()),
 			PollInterval:    cfg.Outbox.PollInterval,
 			ClaimBatch:      cfg.Outbox.ClaimBatch,
 			LeaseDuration:   cfg.Outbox.LeaseDuration,
@@ -240,24 +295,26 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		users.WithOutbox(eventOutbox)
 		authService := auth.NewService(users, passwords, tokens)
 		authHandler := auth.NewHandler(authService, cookies, logger)
-		postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
-		rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
-			MaxActiveKeys:        cfg.Protection.ResourceRebuild,
-			MaxExecutors:         cfg.Protection.ResourceRebuild,
-			MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
-			MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
-			WaitTimeout:          cfg.Redis.OperationTimeout * 5,
-			TaskTimeout:          cfg.Redis.OperationTimeout * 10,
-			Budget:               protectionBudget,
-		})
-		postService.WithBodyCache(postBodyCache, rebuild)
-		assembly.addResource("post_body_rebuild", func() error {
-			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			return rebuild.Stop(shutdownContext)
-		})
+		if !cfg.RedisDisabled {
+			postBodyCache := rediscache.NewPostBodyRepository(redisClient, cfg.Redis.PostDetailTTL, cfg.Redis.OperationTimeout)
+			rebuild := post.NewRebuildCoordinator(root, post.RebuildOptions{
+				MaxActiveKeys:        cfg.Protection.ResourceRebuild,
+				MaxExecutors:         cfg.Protection.ResourceRebuild,
+				MaxWaitersPerKey:     cfg.Protection.ResourceWaiter,
+				MaxRegisteredWaiters: cfg.Protection.ResourceWaiter,
+				WaitTimeout:          cfg.Redis.OperationTimeout * 5,
+				TaskTimeout:          cfg.Redis.OperationTimeout * 10,
+				Budget:               protectionBudget,
+			})
+			postService.WithBodyCache(postBodyCache, rebuild)
+			assembly.addResource("post_body_rebuild", func() error {
+				shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				return rebuild.Stop(shutdownContext)
+			})
+		}
 		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		commentService := comment.NewService(comments, postService)
@@ -294,7 +351,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.InternalAuthorization = middleware.RequireSuperAdmin(users)
 		routes.ServiceCredential = cfg.BusinessStage.Credential
 		assembly.dispatcher = dispatcher
-		assembly.sampleOutbox = func(ctx context.Context, metrics *componentmetrics.Backend) { eventOutbox.SampleMetrics(ctx, metrics) }
+		assembly.sampleOutbox = func(ctx context.Context, metrics *instrumentation.Backend) { eventOutbox.SampleMetrics(ctx, metrics) }
 	}
 
 	if profile.platform {
@@ -344,7 +401,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		deliveryService := telemetrydelivery.New(deliverySources)
 		overview := &adminoverview.Service{
-			Components: adminoverview.ComponentStatus(componentStatus), KeyMetrics: adminoverview.KeyMetrics(metricClient), Plugins: adminoverview.Plugins(monitorClient, metricClient),
+			Components: adminoverview.ComponentStatus(componentStatus), KeyMetrics: func(context.Context, time.Time) adminoverview.Section {
+				return adminoverview.Section{Status: "unknown", ReasonCode: "moved_to_grafana", Items: []any{}}
+			}, Plugins: adminoverview.Plugins(monitorClient, metricClient),
 			Logs: adminoverview.Counts(func(ctx context.Context, severity string, from, to time.Time) (int64, error) {
 				return count.Query(ctx, observabilityElasticsearchClient, logquery.ReadAlias, map[string]string{"level": severity}, from, to)
 			}),
@@ -362,6 +421,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 
 		routes.Overview = overview
 		routes.ComponentStatus = componentStatus
+		routes.SelfMonitor = selfmonitor.NewClient()
 		routes.TelemetryDelivery = deliveryService
 		routes.Logs = logHandler
 		routes.Metrics = metricHandler
@@ -390,19 +450,19 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 	}
 
-	probes, err := componentmetrics.NewProbes(root, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
-		if err := mysqlClient.Check(ctx); err != nil {
+	probes, err := runtimekit.NewProbes(root, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
+		if err := probeClient.Check(ctx); err != nil {
 			return err
 		}
-		if err := platform.CheckRuntimeSchema(ctx, mysqlClient.DB()); err != nil {
+		if err := platform.CheckRuntimeSchema(ctx, probeClient.DB()); err != nil {
 			return err
 		}
-		if state != nil {
-			if _, err := state.Current(ctx); err != nil {
+		if probeState != nil {
+			if _, err := probeState.Current(ctx); err != nil {
 				return err
 			}
 		}
-		return users.ValidateBootstrap(ctx)
+		return probeUsers.ValidateBootstrap(ctx)
 	})
 	if err != nil {
 		return nil, errors.New("initialize backend probes")
@@ -593,4 +653,22 @@ func containsStageValue(values []string, wanted string) bool {
 		}
 	}
 	return false
+}
+
+func (assembly *roleAssembly) samplePools(ctx context.Context, metrics *instrumentation.Backend) {
+	previous := map[string]sql.DBStats{}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		for name, db := range assembly.pools {
+			current := db.Stats()
+			metrics.ObserveMySQLPool(name, current, previous[name])
+			previous[name] = current
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }

@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"log/slog"
 	"math"
 	"sync"
@@ -242,9 +242,9 @@ func (s *Scheduler) value(ctx context.Context, r Rule, cutoff time.Time) (v floa
 			available := 0.0
 			if known {
 				available = 1
-				componentmetrics.Active().Set("alert_last_success_timestamp_seconds", float64(time.Now().Unix()), r.Source)
+				instrumentation.Active().Set("alert_last_success_timestamp_seconds", float64(time.Now().Unix()), r.Source)
 			}
-			componentmetrics.Active().Set("alert_evaluation_known", available, r.Source)
+			instrumentation.Active().Set("alert_evaluation_known", available, r.Source)
 		}
 	}()
 	defer func() {

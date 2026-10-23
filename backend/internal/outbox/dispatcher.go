@@ -5,14 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -21,8 +23,8 @@ const (
 	DefaultDispatcherPollInterval    = time.Second
 	MinimumDispatcherPollInterval    = 10 * time.Millisecond
 	MaximumDispatcherPollInterval    = time.Minute
-	DefaultDispatcherClaimBatch      = 10
-	DefaultDispatcherLease           = time.Minute
+	DefaultDispatcherClaimBatch      = 50
+	DefaultDispatcherLease           = 5 * time.Minute
 	DefaultDispatcherPublish         = 5 * time.Second
 	MinimumDispatcherPublish         = 10 * time.Millisecond
 	MaximumDispatcherPublish         = 30 * time.Second
@@ -34,7 +36,7 @@ const (
 	MinimumDispatcherRetention       = time.Hour
 	MaximumDispatcherRetention       = 365 * 24 * time.Hour
 	DefaultDispatcherCleanupBatch    = 500
-	dispatcherCleanupBatchDelay      = 100 * time.Millisecond
+	dispatcherCleanupBatchDelay      = time.Second
 )
 
 // Store is the lease-aware persistence boundary used by Dispatcher. Keeping
@@ -47,6 +49,11 @@ type Store interface {
 	CleanupPublished(context.Context, time.Time, int) (int64, error)
 }
 
+// BatchStore commits successful confirms together and preserves per-item lease results.
+type BatchStore interface {
+	MarkPublishedBatch(context.Context, []uint64, string) ([]error, error)
+}
+
 // Publisher publishes one validated business event and returns only bounded
 // failure categories through PublishError. It must not mark Outbox state.
 type Publisher interface {
@@ -54,6 +61,8 @@ type Publisher interface {
 }
 
 type DispatcherOptions struct {
+	Publishers      []Publisher
+	DatabaseTimeout time.Duration
 	Owner           string
 	PollInterval    time.Duration
 	ClaimBatch      int
@@ -67,18 +76,21 @@ type DispatcherOptions struct {
 }
 
 type Dispatcher struct {
-	store           Store
-	publisher       Publisher
-	owner           string
-	pollInterval    time.Duration
-	claimBatch      int
-	leaseDuration   time.Duration
-	publishTimeout  time.Duration
-	cleanupInterval time.Duration
-	retention       time.Duration
-	cleanupBatch    int
-	clock           Clock
-	logger          *slog.Logger
+	cleanupStartupDelay time.Duration
+	publishers          []Publisher
+	databaseTimeout     time.Duration
+	store               Store
+	publisher           Publisher
+	owner               string
+	pollInterval        time.Duration
+	claimBatch          int
+	leaseDuration       time.Duration
+	publishTimeout      time.Duration
+	cleanupInterval     time.Duration
+	retention           time.Duration
+	cleanupBatch        int
+	clock               Clock
+	logger              *slog.Logger
 }
 
 func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) (*Dispatcher, error) {
@@ -123,7 +135,26 @@ func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) 
 	if publishTimeout < MinimumDispatcherPublish || publishTimeout > MaximumDispatcherPublish {
 		return nil, fmt.Errorf("create outbox dispatcher: publish timeout must be between %s and %s", MinimumDispatcherPublish, MaximumDispatcherPublish)
 	}
-	requiredLease := time.Duration(claimBatch)*publishTimeout + DispatcherLeaseSafetyMargin
+	publishers := options.Publishers
+	if len(publishers) == 0 {
+		publishers = []Publisher{publisher}
+	}
+	if len(publishers) > 32 {
+		return nil, errors.New("publish concurrency must be at most 32")
+	}
+	for _, p := range publishers {
+		if p == nil {
+			return nil, errors.New("nil publisher")
+		}
+	}
+	dbTimeout := options.DatabaseTimeout
+	if dbTimeout == 0 {
+		dbTimeout = 2 * time.Second
+	}
+	if dbTimeout < 10*time.Millisecond || dbTimeout > 30*time.Second {
+		return nil, errors.New("invalid database timeout")
+	}
+	requiredLease := time.Duration((claimBatch+len(publishers)-1)/len(publishers))*publishTimeout + time.Duration(claimBatch+2)*dbTimeout + DispatcherLeaseSafetyMargin
 	if leaseDuration < requiredLease {
 		return nil, fmt.Errorf("create outbox dispatcher: lease duration must cover the full claim batch publish budget plus %s safety margin", DispatcherLeaseSafetyMargin)
 	}
@@ -157,6 +188,8 @@ func NewDispatcher(store Store, publisher Publisher, options DispatcherOptions) 
 		logger = logging.Module(logging.Discard("backend"), "outbox")
 	}
 	return &Dispatcher{
+		cleanupStartupDelay: time.Minute,
+		publishers:          publishers, databaseTimeout: dbTimeout,
 		store:           store,
 		publisher:       publisher,
 		owner:           owner,
@@ -193,40 +226,33 @@ func (dispatcher *Dispatcher) Run(ctx context.Context) error {
 }
 
 func (dispatcher *Dispatcher) runDelivery(ctx context.Context) error {
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-timer.C:
-			if ctx.Err() != nil {
-				return nil
-			}
-			more, err := dispatcher.dispatchBatch(ctx)
-			if err == nil && more {
-				// A full claim batch is direct evidence that backlog remains.
-				// Continue draining it without imposing the idle poll interval.
-				timer.Reset(0)
-				continue
-			}
-			timer.Reset(dispatcher.pollInterval)
-		}
+	_, err := dispatcher.deliver(ctx, true)
+	if ctx.Err() != nil {
+		return nil
 	}
+	return err
 }
 
 func (dispatcher *Dispatcher) runCleanup(ctx context.Context) {
-	timer := time.NewTimer(0)
+	attempt := uint(0)
+	timer := time.NewTimer(dispatcher.cleanupStartupDelay)
 	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
+			delay := dispatcher.cleanupInterval
 			if err := dispatcher.CleanupOnce(ctx); err != nil && ctx.Err() == nil {
 				dispatcher.logger.Error("outbox cleanup failed", slog.String("reason", "storage_unavailable"))
+				delay = max(time.Second, storageBackoff(attempt))
+				if attempt < 5 {
+					attempt++
+				}
+			} else {
+				attempt = 0
 			}
-			timer.Reset(dispatcher.cleanupInterval)
+			timer.Reset(delay)
 		}
 	}
 }
@@ -240,11 +266,26 @@ func (dispatcher *Dispatcher) CleanupOnce(ctx context.Context) error {
 	}
 	cutoff := dispatcher.clock().UTC().Add(-dispatcher.retention)
 	for {
-		deleted, err := dispatcher.store.CleanupPublished(ctx, cutoff, dispatcher.cleanupBatch)
+		dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
+		deleted, err := dispatcher.store.CleanupPublished(dbCtx, cutoff, dispatcher.cleanupBatch)
+		cancel()
 		if err != nil {
 			return fmt.Errorf("cleanup published outbox events: %w", err)
 		}
-		if deleted < int64(dispatcher.cleanupBatch) {
+		more := deleted == int64(dispatcher.cleanupBatch)
+		if scanner, ok := dispatcher.store.(interface{ CleanupHasMore() bool }); ok {
+			more = scanner.CleanupHasMore()
+		}
+		if cleaner, ok := dispatcher.store.(interface {
+			CleanupExpired(context.Context, int) (int64, error)
+		}); ok {
+			count, err := cleaner.CleanupExpired(ctx, dispatcher.cleanupBatch)
+			if err != nil {
+				return err
+			}
+			more = more || count >= int64(dispatcher.cleanupBatch)
+		}
+		if !more {
 			return nil
 		}
 		if err := waitForCleanup(ctx, dispatcherCleanupBatchDelay); err != nil {
@@ -272,31 +313,165 @@ func (dispatcher *Dispatcher) DispatchOnce(ctx context.Context) error {
 }
 
 func (dispatcher *Dispatcher) dispatchBatch(ctx context.Context) (bool, error) {
+	return dispatcher.deliver(ctx, false)
+}
+
+// deliver owns the claim/ack state; each publisher has one worker. The claim
+// batch is also the total bound on leased work, including pending acknowledgements.
+func (dispatcher *Dispatcher) deliver(ctx context.Context, continuous bool) (bool, error) {
 	if ctx == nil {
 		return false, errors.New("dispatch outbox events: context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	records, err := dispatcher.store.Claim(ctx, dispatcher.owner, dispatcher.claimBatch, dispatcher.leaseDuration)
-	if err != nil {
-		dispatcher.logger.Error("outbox claim failed", slog.String("reason", "storage_unavailable"))
-		return false, fmt.Errorf("claim outbox events: %w", err)
+	workCtx, cancelWork := context.WithCancel(ctx)
+	type completion struct {
+		id        uint64
+		published bool
+		err       error
 	}
-
+	jobs := make(chan Record, dispatcher.claimBatch)
+	done := make(chan completion, dispatcher.claimBatch)
+	var workers sync.WaitGroup
+	batchStore, batching := dispatcher.store.(BatchStore)
+	for _, publisher := range dispatcher.publishers {
+		workers.Add(1)
+		go func(p Publisher) {
+			defer workers.Done()
+			for {
+				select {
+				case <-workCtx.Done():
+					return
+				case record, ok := <-jobs:
+					if !ok {
+						return
+					}
+					result := completion{id: record.ID}
+					mark := dispatcher.store.MarkPublished
+					if batching {
+						mark = func(context.Context, uint64, string) error { result.published = true; return nil }
+					}
+					result.err = dispatcher.dispatchRecordWith(workCtx, record, p, mark)
+					done <- result
+				}
+			}
+		}(publisher)
+	}
+	defer func() { cancelWork(); close(jobs); workers.Wait() }()
+	ackTimer := time.NewTicker(25 * time.Millisecond)
+	defer ackTimer.Stop()
+	claimTimer := time.NewTimer(0)
+	defer claimTimer.Stop()
+	inFlight := 0
+	pending := []uint64{}
+	firstClaim := true
+	more := false
 	var firstErr error
-	for _, record := range records {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-		if err := dispatcher.dispatchRecord(ctx, record); err != nil && firstErr == nil {
+	remember := func(err error) {
+		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
-	return len(records) == dispatcher.claimBatch, firstErr
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
+		results, err := batchStore.MarkPublishedBatch(dbCtx, pending, dispatcher.owner)
+		cancel()
+		remember(err)
+		for _, err := range results {
+			remember(err)
+		}
+		// Failed acknowledgements remain leased for at-least-once recovery.
+		inFlight -= len(pending)
+		pending = nil
+	}
+	nextClaimAt := time.Time{}
+	scheduleClaim := func() { claimTimer.Reset(max(0, time.Until(nextClaimAt))) }
+	attempt := uint(0)
+	for {
+		if !continuous && !firstClaim && inFlight == 0 {
+			return more, firstErr
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-ackTimer.C:
+			flushed := len(pending) > 0
+			flush()
+			if continuous && flushed && inFlight < dispatcher.claimBatch {
+				scheduleClaim()
+			}
+		case result := <-done:
+			remember(result.err)
+			if result.published && result.err == nil {
+				pending = append(pending, result.id)
+			} else {
+				inFlight--
+			}
+			if len(pending) >= min(10, dispatcher.claimBatch) || (!continuous && inFlight == len(pending)) {
+				flush()
+			}
+			if continuous && inFlight < dispatcher.claimBatch {
+				scheduleClaim()
+			}
+		case <-claimTimer.C:
+			if !firstClaim && !continuous {
+				continue
+			}
+			free := dispatcher.claimBatch - inFlight
+			if free <= 0 {
+				continue
+			}
+			dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
+			records, err := dispatcher.store.Claim(dbCtx, dispatcher.owner, free, dispatcher.leaseDuration)
+			cancel()
+			if err != nil {
+				remember(err)
+				if !continuous {
+					return false, err
+				}
+				nextClaimAt = time.Now().Add(storageBackoff(attempt))
+				scheduleClaim()
+				attempt = min(attempt+1, 5)
+				continue
+			}
+			if len(records) > free {
+				return false, errors.New("outbox claim exceeded in-flight bound")
+			}
+			if firstClaim {
+				more = len(records) == free
+			}
+			firstClaim = false
+			attempt = 0
+			inFlight += len(records)
+			for _, record := range records {
+				jobs <- record
+			}
+			if len(records) < free {
+				nextClaimAt = time.Now().Add(dispatcher.pollInterval)
+			} else {
+				nextClaimAt = time.Time{}
+			}
+			if continuous && len(records) < free {
+				scheduleClaim()
+			}
+		}
+	}
 }
 
-func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record) error {
+func storageBackoff(attempt uint) time.Duration {
+	delay := time.Second * time.Duration(1<<min(attempt, 5))
+	if delay > 30*time.Second {
+		delay = 30 * time.Second
+	}
+	// Equal jitter remains bounded by the configured exponential cap.
+	return delay/2 + time.Duration(rand.Int64N(int64(delay/2)+1))
+}
+
+func (dispatcher *Dispatcher) dispatchRecordWith(ctx context.Context, record Record, publisher Publisher, mark func(context.Context, uint64, string) error) error {
 	envelope, err := record.Envelope()
 	if err != nil {
 		dispatcher.logger.Error("outbox event invalid",
@@ -313,7 +488,7 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	}
 	if envelope.HasInvalidTraceContext() {
 		tracing.RecordInvalidContext()
-		if backendMetrics := componentmetrics.BackendActive(); backendMetrics != nil {
+		if backendMetrics := instrumentation.BackendActive(); backendMetrics != nil {
 			backendMetrics.ObserveTraceContextInvalid()
 		}
 	}
@@ -337,9 +512,9 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	traceContext = tracing.WithOutboxID(traceContext, record.ID)
 	publishContext, cancel := context.WithTimeout(traceContext, dispatcher.publishTimeout)
 	publishStarted := dispatcher.clock()
-	publishErr := dispatcher.publisher.Publish(publishContext, envelope)
+	publishErr := publisher.Publish(publishContext, envelope)
 	cancel()
-	if backendMetrics := componentmetrics.BackendActive(); backendMetrics != nil {
+	if backendMetrics := instrumentation.BackendActive(); backendMetrics != nil {
 		result := "success"
 		if publishErr != nil {
 			result = "failure"
@@ -367,7 +542,9 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 		return ctx.Err()
 	}
 
-	if err := dispatcher.store.MarkPublished(ctx, record.ID, dispatcher.owner); err != nil {
+	dbCtx, cancelDB := context.WithTimeout(ctx, dispatcher.databaseTimeout)
+	defer cancelDB()
+	if err := mark(dbCtx, record.ID, dispatcher.owner); err != nil {
 		attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
 		attributes = append(attributes, outboxEventAttributes(envelope)...)
 		attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish_ack"), slog.String("reason", safeDispatcherReason(err)))
@@ -386,7 +563,7 @@ func (dispatcher *Dispatcher) dispatchRecord(ctx context.Context, record Record)
 	attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
 	attributes = append(attributes, outboxEventAttributes(envelope)...)
 	attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish"), slog.String("result", "success"))
-	logging.WithTrace(dispatcher.logger, traceContext).Info("outbox event published", attributes...)
+	logging.WithTrace(dispatcher.logger, traceContext).Info("outbox publish confirmed", attributes...)
 	return nil
 }
 
@@ -411,7 +588,9 @@ func (dispatcher *Dispatcher) releaseFailed(ctx context.Context, record Record, 
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if err := dispatcher.store.ReleaseFailed(ctx, record.ID, dispatcher.owner, failure); err != nil {
+	dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
+	defer cancel()
+	if err := dispatcher.store.ReleaseFailed(dbCtx, record.ID, dispatcher.owner, failure); err != nil {
 		logging.WithTrace(dispatcher.logger, ctx).Error("outbox release failed",
 			slog.Uint64("outbox_id", record.ID),
 			slog.String("event_id", record.EventID),

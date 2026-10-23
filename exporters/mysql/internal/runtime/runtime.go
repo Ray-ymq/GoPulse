@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"net"
 	"net/http"
 	"os"
@@ -27,7 +27,7 @@ type Config struct {
 var ErrConfig = errors.New("invalid_configuration")
 
 func Load() (Config, error) {
-	if err := componentmetrics.ValidateRuntimeEnvironment("mysql-exporter"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("mysql-exporter"); err != nil {
 		return Config{}, err
 	}
 

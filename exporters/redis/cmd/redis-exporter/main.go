@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 	"log/slog"
 	"net"
 	"net/http"
@@ -92,7 +92,7 @@ func runWithConfig(cfg config.Config, logger *slog.Logger) error {
 		logging.Module(logger, "http").Error("redis exporter listen failed", slog.String("reason", "listen_failed"))
 		return errors.New("listen failed")
 	}
-	ctx, cancel := componentmetrics.SignalContext()
+	ctx, cancel := runtimekit.SignalContext()
 	defer cancel()
 	runErr := serve(ctx, server, listener, cfg.ShutdownTimeout, logging.Module(logger, "runtime"))
 	if err := client.Close(); err != nil {
@@ -145,5 +145,5 @@ func checkConfig(cfg config.Config) error {
 }
 
 func serve(ctx context.Context, server *http.Server, listener net.Listener, shutdownTimeout time.Duration, logger *slog.Logger) error {
-	return componentmetrics.ServeRuntime(ctx, server, listener, shutdownTimeout, logger)
+	return runtimekit.ServeRuntime(ctx, server, listener, shutdownTimeout, logger)
 }

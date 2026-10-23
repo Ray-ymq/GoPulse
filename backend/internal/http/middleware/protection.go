@@ -17,9 +17,9 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/gin-gonic/gin"
 )
 
@@ -97,7 +97,7 @@ func NewRateLimit(config RateLimitConfig) (gin.HandlerFunc, error) {
 			c.Next()
 			return
 		}
-		if decision.Reason == "key_creation_limited" {
+		if decision.Reason == "key_creation_limited" || decision.Reason == "local_capacity" {
 			writeBackendBusy(c)
 			return
 		}
@@ -250,13 +250,13 @@ func decisionResult(decision ratelimit.Decision) string {
 }
 
 func observeRateLimit(policy, mode, result string) {
-	if metrics := componentmetrics.BackendActive(); metrics != nil {
+	if metrics := instrumentation.BackendActive(); metrics != nil {
 		metrics.ObserveRateLimit(policy, mode, result)
 	}
 }
 
 func observeResourceRejected(kind resourcebudget.Kind, reason string) {
-	if metrics := componentmetrics.BackendActive(); metrics != nil {
+	if metrics := instrumentation.BackendActive(); metrics != nil {
 		metrics.ObserveResourceRejected(string(kind), reason)
 	}
 }

@@ -22,9 +22,9 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -45,8 +45,11 @@ const (
 	r09FaultP99Limit     = 2 * time.Second
 	// Normal windows repeat three times; the contract compares their median
 	// effective goodput while aggregating tail and database evidence.
-	// The protected path adds one shared Redis decision per request. Its
-	// budget compares protected and unprotected reads using the same body cache.
+	// The protected path adds shared quota enforcement. The post_read policy
+	// leases four tokens per shared decision, so four requests share one Redis
+	// round trip while every authorized request still consumes a token that
+	// Redis already deducted. Its budget compares protected and unprotected
+	// reads using the same body cache.
 	r09ProtectedGoodputMin             = 0.90
 	r09DBWorkMaxRatio                  = 0.95
 	r09MaxNormalRejectRate             = 0.01
@@ -214,7 +217,7 @@ func TestIntegrationRedisReadProtectionR09(t *testing.T) {
 	releaseFactsLock := integrationtest.AcquirePostFactsLock(t, database)
 	defer releaseFactsLock()
 
-	defer componentmetrics.InstallBackend(nil)
+	defer instrumentation.InstallBackend(nil)
 	results := make(map[string]r09VariantResult)
 	variants := []r09Variant{
 		{name: "A_body", rateLimit: false},
@@ -270,7 +273,7 @@ func runR09Variant(t *testing.T, base []string, cfg config.Config, database *sql
 	coldHotspot := runR09Window(t, "cold_hotspot", r09HotspotPattern, clients, server1, server2, postIDs, 1)
 	coldAfter := r09ReadDatabaseStatus(t, database)
 	coldHotspot.db = coldAfter.delta(coldBefore)
-	coldHotspot.metrics = r09MetricEvidenceFromMetrics(t, componentmetrics.BackendActive())
+	coldHotspot.metrics = r09MetricEvidenceFromMetrics(t, instrumentation.BackendActive())
 	if variant.rateLimit {
 		if coldHotspot.p95 > r09P95Limit || coldHotspot.p99 > r09P99Limit {
 			t.Errorf("R09 %s cold hotspot tail latency p95=%s p99=%s exceeds %s/%s", variant.name, coldHotspot.p95, coldHotspot.p99, r09P95Limit, r09P99Limit)
@@ -287,7 +290,7 @@ func runR09Variant(t *testing.T, base []string, cfg config.Config, database *sql
 	coldUniform := runR09Window(t, "cold_uniform", r09UniformPattern, clients, server1, server2, postIDs, 1)
 	coldAfter = r09ReadDatabaseStatus(t, database)
 	coldUniform.db = coldAfter.delta(coldBefore)
-	coldUniform.metrics = r09MetricEvidenceFromMetrics(t, componentmetrics.BackendActive())
+	coldUniform.metrics = r09MetricEvidenceFromMetrics(t, instrumentation.BackendActive())
 	result.coldUniform = coldUniform
 	logR09Window(t, variant.name, coldUniform)
 
@@ -670,18 +673,18 @@ func r09MedianGoodput(values []float64) float64 {
 	return (sorted[middle-1] + sorted[middle]) / 2
 }
 
-func installR09Metrics(t *testing.T) *componentmetrics.Backend {
+func installR09Metrics(t *testing.T) *instrumentation.Backend {
 	t.Helper()
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatalf("create R09 metrics: %v", err)
 	}
 	metrics.ObserveOutbox(0, 0, nil)
-	componentmetrics.InstallBackend(metrics)
+	instrumentation.InstallBackend(metrics)
 	return metrics
 }
 
-func r09MetricEvidenceFromMetrics(t *testing.T, metrics *componentmetrics.Backend) r09MetricEvidence {
+func r09MetricEvidenceFromMetrics(t *testing.T, metrics *instrumentation.Backend) r09MetricEvidence {
 	t.Helper()
 	if metrics == nil {
 		t.Fatal("R09 metrics are nil")

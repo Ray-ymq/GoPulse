@@ -4,11 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 	"strings"
 	"time"
-
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
 )
 
 const (
@@ -146,18 +144,6 @@ func NewSource(source string, samples []Sample, at time.Time) (Envelope, error) 
 		Timestamp:     at,
 		Payload:       payloadWithLegacy(payload, samples),
 	}, nil
-}
-
-func NewComponent(id, version string, samples []Sample, at time.Time) (Envelope, error) {
-	message, err := NewSource(id, samples, at)
-	if err != nil {
-		return Envelope{}, err
-	}
-	message.Payload.ProducerKind = "component"
-	message.Payload.ProducerID = id
-	message.Payload.ProducerVersion = version
-	message.Payload.TargetID = componentmetrics.Target(id)
-	return message, nil
 }
 
 func payloadWithLegacy(payload Payload, samples []Sample) Payload {

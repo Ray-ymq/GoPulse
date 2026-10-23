@@ -5,7 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"log/slog"
 	"mime"
@@ -85,9 +85,9 @@ func New(token, root string, manager pluginManager, logger *slog.Logger, logOpti
 	mux.HandleFunc("POST /internal/v1/exporter-plugins/{pluginId}/start", s.auth(s.start))
 	mux.HandleFunc("POST /internal/v1/exporter-plugins/{pluginId}/stop", s.auth(s.stop))
 	mux.HandleFunc("POST /internal/v1/exporter-plugins/{pluginId}/update", s.auth(s.update))
-	p, _ := componentmetrics.NewProbes(context.Background(), time.Second, 250*time.Millisecond, nil)
+	p, _ := runtimekit.NewProbes(context.Background(), time.Second, 250*time.Millisecond, nil)
 	p.Started()
-	s.handler = p.Wrap(componentmetrics.HTTP(mux, logger))
+	s.handler = p.Wrap(runtimekit.HTTP(mux, logger))
 	return s
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
@@ -295,7 +295,7 @@ func (s *Server) ingestLog(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	componentmetrics.WriteError(w, status, code, message)
+	runtimekit.WriteError(w, status, code, message)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

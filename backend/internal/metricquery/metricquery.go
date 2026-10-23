@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
-	"github.com/Ray-ymq/GoPulse/componentmetrics/metriccontract"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 	"io"
 	"math"
 	"net/http"
@@ -291,7 +291,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, from, to time.Tim
 	form.Set("start", formatTime(from))
 	form.Set("end", formatTime(to))
 	form.Set("step", strconv.FormatInt(int64(step/time.Second), 10)+"s")
-	request, err := componentmetrics.NewRequest(ctx, http.MethodPost, c.endpoint, strings.NewReader(form.Encode()))
+	request, err := runtimekit.NewRequest(ctx, http.MethodPost, c.endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}

@@ -12,7 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 var (
@@ -340,7 +340,7 @@ func validateOptional(fields map[string]any) error {
 			}
 			switch key {
 			case "instance_id":
-				if componentmetrics.ValidateInstanceID(typed) != nil {
+				if runtimekit.ValidateInstanceID(typed) != nil {
 					return errors.New("invalid instance identity")
 				}
 			case "request_id":

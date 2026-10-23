@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
+	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 )
 
 // LoadFile is the independent runtime entry point. Source fields are decoded

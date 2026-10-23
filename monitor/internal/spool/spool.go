@@ -17,9 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/publisher"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	bolt "go.etcd.io/bbolt"
 	berrors "go.etcd.io/bbolt/errors"
 )
@@ -680,7 +680,7 @@ func (m *Manager) Close(ctx context.Context) error {
 
 func (m *Manager) Status() Status {
 	now := m.now().UTC()
-	result := Status{Component: "monitor", Instance: componentmetrics.InstanceID("monitor"), ObservedAt: now, Queues: make([]QueueStats, 0, 3)}
+	result := Status{Component: "monitor", Instance: runtimekit.InstanceID("monitor"), ObservedAt: now, Queues: make([]QueueStats, 0, 3)}
 	for _, kind := range []Kind{Metrics, Logs, Events} {
 		stats, err := m.queues[kind].stats()
 		if err != nil {

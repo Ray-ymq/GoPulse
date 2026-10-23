@@ -5,22 +5,18 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
 
-	"github.com/Ray-ymq/GoPulse/devtools/internal/compose"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
 )
 
-// integrationStateKeys is the document contract the replaced helper wrote.
 var integrationStateKeys = []string{
-	"branch", "compose_digest", "compose_files", "env_file", "logs", "mode", "monitor_image",
-	"observe", "processes", "project", "revision", "schema", "scope", "source_digest",
-	"started_at", "status", "stopped_at", "workspace_id", "workspace_root",
+	"branch", "container_network", "containers", "env_file", "logs", "mode", "observe", "processes",
+	"project", "revision", "schema", "scope", "source_digest", "started_at", "status", "stopped_at",
+	"workspace_id", "workspace_root",
 }
 
 func TestScopeForRejectsUnknownScope(t *testing.T) {
@@ -40,63 +36,23 @@ func TestScopeForRejectsUnknownScope(t *testing.T) {
 	}
 }
 
-func TestIntegrationPortsAreIsolatedPerScope(t *testing.T) {
-	values := envfile.Values{
-		"MYSQL_PORT": "23306", "REDIS_PORT": "26379", "RABBITMQ_PORT": "25672",
-		"RABBITMQ_MANAGEMENT_PORT": "25673", "ELASTICSEARCH_PORT": "29200",
-		"KAFKA_PORT": "19092", "VICTORIAMETRICS_PORT": "18428",
-		"OBSERVABILITY_ELASTICSEARCH_PORT": "29201", "MONITOR_HTTP_PORT": "19090",
-		"MARSHALLER_HTTP_PORT":     "19093",
-		"REDIS_EXPORTER_HTTP_PORT": "19121", "HTTP_PORT": "18080",
+func TestReservePortsUsesEphemeralHostPorts(t *testing.T) {
+	ports := reservePorts([]string{"HTTP_PORT", "MONITOR_HTTP_PORT", "MARSHALLER_HTTP_PORT"})
+	if len(ports) != 3 {
+		t.Fatalf("reserved ports = %v, want three dynamic ports", ports)
 	}
-	business := integrationPorts(values, false)
-	wantBusiness := []int{23306, 26379, 25672, 25673, 29200}
-	if !slices.Equal(business, wantBusiness) {
-		t.Fatalf("business ports %v, want %v", business, wantBusiness)
-	}
-	observe := integrationPorts(values, true)
-	for _, port := range []int{19092, 18428, 29201, 19090, 19093, 19121, 18080, 19101, 19102, 19103, 19106} {
-		if !slices.Contains(observe, port) {
-			t.Fatalf("observe ports %v do not cover %d", observe, port)
+	for name, port := range ports {
+		if port < 1 || port > 65535 {
+			t.Fatalf("%s received invalid dynamic port %d", name, port)
 		}
-	}
-	if len(observe) != len(wantBusiness)+11 {
-		t.Fatalf("observe ports %v do not extend the business set exactly once", observe)
-	}
-}
-
-func TestComposeDependenciesExcludeApplicationProcesses(t *testing.T) {
-	for _, service := range composeDependencyServices(false) {
-		if service == "monitor" {
-			t.Fatal("business dependencies unexpectedly include Monitor")
+		if port == 18080 || port == 19090 || port == 19093 {
+			t.Fatalf("%s retained a legacy fixed integration port %d", name, port)
 		}
-	}
-	for _, service := range composeDependencyServices(true) {
-		if service == "monitor" {
-			t.Fatal("observation dependencies unexpectedly include Monitor")
-		}
-	}
-	if got := composeDependencyServices(true); len(got) != 8 {
-		t.Fatalf("observation dependencies %v, want eight third-party services", got)
-	}
-}
-
-func TestObservationUsernamesIncludesIntegrationUser(t *testing.T) {
-	current := testSession(t, true)
-	current.values["OBSERVE_ADMIN_USERNAME"] = "observe_admin_0123456789abcdef"
-
-	got, err := current.observationUsernames()
-	if err != nil {
-		t.Fatalf("observationUsernames returned an error: %v", err)
-	}
-	want := []string{"observe_admin_0123456789abcdef", "observe_user_0123456789abcdef"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("observationUsernames() = %v, want %v", got, want)
 	}
 }
 
 func TestIntegrationLockIsExclusive(t *testing.T) {
-	current := testSession(t, false)
+	current := testSession(t)
 	release, err := current.lock()
 	if err != nil {
 		t.Fatalf("first lock failed: %v", err)
@@ -115,31 +71,20 @@ func TestIntegrationLockIsExclusive(t *testing.T) {
 	again()
 }
 
-// TestIntegrationFailurePropagatesAndCleansUp covers the required unit case: a
-// non-zero test command makes the helper fail, records status=failed, and still
-// runs the cleanup path.
 func TestIntegrationFailurePropagatesAndCleansUp(t *testing.T) {
-	current := testSession(t, false)
-	composeUp, composeDown := 0, 0
-	started := make(chan struct{})
-	current.startDependencies = func(map[string]string) error {
-		composeUp++
-		close(started)
-		return nil
-	}
-	current.stopDependencies = func(*workspace.State) { composeDown++ }
-	failure := errors.New("observability integration tests failed with exit code 1")
-	current.runTestSuite = func(*workspace.State, string, bool) error {
-		<-started
-		return failure
-	}
+	current := testSession(t)
+	dependenciesStopped := 0
+	current.startDependencies = func(map[string]string) error { return nil }
+	current.stopDependencies = func(*workspace.State) { dependenciesStopped++ }
+	failure := errors.New("integration tests failed with exit code 1")
+	current.runTestSuite = func(*workspace.State, string, bool) error { return failure }
 
 	err := runIntegration(current, ScopeBusiness, false)
 	if !errors.Is(err, failure) {
 		t.Fatalf("integration error %v, want the test failure to propagate", err)
 	}
-	if composeUp != 1 || composeDown != 1 {
-		t.Fatalf("compose up=%d down=%d, want 1 and 1", composeUp, composeDown)
+	if dependenciesStopped != 1 {
+		t.Fatalf("dependency cleanup count=%d, want 1", dependenciesStopped)
 	}
 	document := readState(t, current)
 	if document["status"] != "failed" {
@@ -148,9 +93,6 @@ func TestIntegrationFailurePropagatesAndCleansUp(t *testing.T) {
 	if document["stopped_at"] == "" || document["stopped_at"] == nil {
 		t.Fatal("cleanup did not record stopped_at")
 	}
-	if document["mode"] != "integration" || document["scope"] != ScopeBusiness {
-		t.Fatalf("mode/scope %v/%v", document["mode"], document["scope"])
-	}
 	if current.diagnostic == nil {
 		t.Fatal("failed integration did not create a diagnostic report")
 	}
@@ -158,26 +100,14 @@ func TestIntegrationFailurePropagatesAndCleansUp(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("read diagnostic failure report: %v", readErr)
 	}
-	if !strings.Contains(string(failureRaw), "observability integration tests failed with exit code 1") {
+	if !strings.Contains(string(failureRaw), "integration tests failed with exit code 1") {
 		t.Fatalf("diagnostic report lost primary failure: %s", failureRaw)
 	}
-	keys := make([]string, 0, len(document))
-	for key := range document {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	expected := append([]string{}, integrationStateKeys...)
-	sort.Strings(expected)
-	if strings.Join(keys, ",") != strings.Join(expected, ",") {
-		t.Fatalf("state keys\n got %v\nwant %v", keys, expected)
-	}
+	assertStateKeys(t, document)
 }
 
-// TestIntegrationSucceedsWithoutCleanupFailure proves the success path keeps the
-// isolation contract: the state is written before the tests run and marked
-// passed afterwards.
 func TestIntegrationSucceedsWithoutCleanupFailure(t *testing.T) {
-	current := testSession(t, true)
+	current := testSession(t)
 	statusDuringRun := ""
 	current.startDependencies = func(map[string]string) error { return nil }
 	current.stopDependencies = func(*workspace.State) {}
@@ -185,52 +115,44 @@ func TestIntegrationSucceedsWithoutCleanupFailure(t *testing.T) {
 		statusDuringRun = readState(t, current)["status"].(string)
 		return nil
 	}
-	if err := runIntegration(current, ScopeObserve, true); err != nil {
-		t.Fatalf("observe integration returned %v", err)
+	if err := runIntegration(current, ScopeBusiness, false); err != nil {
+		t.Fatalf("business integration returned %v", err)
 	}
 	if statusDuringRun != "running" {
 		t.Fatalf("state status during the test command was %q, want running", statusDuringRun)
 	}
 	document := readState(t, current)
-	if document["status"] != "passed" || document["observe"] != true {
+	if document["status"] != "passed" || document["observe"] != false {
 		t.Fatalf("final state %v", document)
 	}
-	if document["monitor_image"] != "" {
-		t.Fatalf("native observation scope must not record a Monitor image, got %v", document["monitor_image"])
-	}
-	if len(document["compose_files"].([]any)) != 2 {
-		t.Fatalf("observe compose files %v", document["compose_files"])
+	assertStateKeys(t, document)
+}
+
+func TestTestcontainersReaperMustRemainEnabled(t *testing.T) {
+	t.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+	_, err := startDependencyContainers(t.Context(), "test-run", false)
+	if err == nil || !strings.Contains(err.Error(), "resource reaper is disabled") {
+		t.Fatalf("disabled reaper was accepted: %v", err)
 	}
 }
 
-func testSession(t *testing.T, observe bool) *session {
+func testSession(t *testing.T) *session {
 	t.Helper()
 	root := repositoryRoot(t)
 	directory := t.TempDir()
-	current := testSessionFor(t, root, workspaceFor(t, directory))
-	if observe {
-		current.files = append(current.files, filepath.Join(root, "deploy", "compose.local-"+runtime.GOOS+".yaml"))
-		current.profiles = []string{"observe"}
-		current.command.Files = current.files
-		current.command.Profiles = current.profiles
-	}
-	return current
+	return testSessionFor(t, root, workspaceFor(t, directory))
 }
 
 func testSessionFor(t *testing.T, root string, ws workspace.Workspace) *session {
 	t.Helper()
 	envFile := filepath.Join(ws.PrivateRoot(), "test.env")
-	files := []string{filepath.Join(root, "deploy", "compose.local.yaml")}
-	project := ws.ProjectTest()
 	return &session{
 		root:       root,
 		ws:         ws,
-		values:     envfile.Values{"HTTP_PORT": "18080", "MONITOR_HTTP_PORT": "19090", "MONITOR_API_TOKEN": "token"},
+		values:     envfile.Values{"HTTP_PORT": "0", "MONITOR_API_TOKEN": "token"},
 		processEnv: map[string]string{"PATH": os.Getenv("PATH")},
 		envFile:    envFile,
-		project:    project,
-		files:      files,
-		command:    compose.Command{Project: project, EnvFile: envFile, Files: files},
+		project:    ws.ProjectTest(),
 	}
 }
 
@@ -243,8 +165,6 @@ func workspaceFor(t *testing.T, directory string) workspace.Workspace {
 	return ws
 }
 
-// repositoryRoot resolves the checkout that owns this module so state digests
-// run against real files while the workspace stays in a temporary directory.
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 	directory, err := os.Getwd()
@@ -252,7 +172,7 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatalf("getwd: %v", err)
 	}
 	for {
-		if _, err := os.Stat(filepath.Join(directory, "deploy", "compose.local.yaml")); err == nil {
+		if _, err := os.Stat(filepath.Join(directory, "deploy", "compose.yaml")); err == nil {
 			return directory
 		}
 		parent := filepath.Dir(directory)
@@ -274,4 +194,18 @@ func readState(t *testing.T, current *session) map[string]any {
 		t.Fatalf("decode integration state: %v", err)
 	}
 	return document
+}
+
+func assertStateKeys(t *testing.T, document map[string]any) {
+	t.Helper()
+	keys := make([]string, 0, len(document))
+	for key := range document {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	expected := append([]string{}, integrationStateKeys...)
+	sort.Strings(expected)
+	if strings.Join(keys, ",") != strings.Join(expected, ",") {
+		t.Fatalf("state keys\n got %v\nwant %v", keys, expected)
+	}
 }

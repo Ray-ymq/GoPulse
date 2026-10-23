@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/monitor/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"log/slog"
 	"net/http"
 	"os"
@@ -39,7 +40,7 @@ func main() {
 		return
 	}
 
-	logger := componentmetrics.NewLogger("monitor", os.Stdout)
+	logger := runtimekit.NewLogger("monitor", os.Stdout)
 	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
 		logger.Error("monitor stopped", "error_code", "monitor_runtime_failed")
@@ -51,29 +52,29 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := componentmetrics.SignalContext()
+	ctx, stop := runtimekit.SignalContext()
 	defer stop()
-	releaseBudget := componentmetrics.BindShutdown(ctx, cfg.ShutdownTimeout)
+	releaseBudget := runtimekit.BindShutdown(ctx, cfg.ShutdownTimeout)
 	defer releaseBudget()
-	state, err := componentmetrics.New("monitor")
+	state, err := instrumentation.New("monitor")
 	if err != nil {
 		return err
 	}
-	componentmetrics.Install(state)
-	defer componentmetrics.Install(nil)
+	instrumentation.Install(state)
+	defer instrumentation.Install(nil)
 	var manager *plugin.Manager
-	probes, _ := componentmetrics.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
+	probes, _ := runtimekit.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
 		if manager == nil {
 			return errors.New("local_state_unavailable")
 		}
 		return manager.RuntimeReady(checkCtx)
 	})
-	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(ctx, "monitor", state.Snapshot, probes)
+	internalMetrics, err := runtimekit.StartConfiguredWithProbes(ctx, "monitor", state.Snapshot, probes)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		shutdown, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		shutdown, cancel := runtimekit.ShutdownContext(cfg.ShutdownTimeout)
 		defer cancel()
 		_ = internalMetrics.Shutdown(shutdown)
 	}()
@@ -87,7 +88,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		closeCtx, cancel := runtimekit.ShutdownContext(cfg.ShutdownTimeout)
 		if closeErr := messagePublisher.Close(closeCtx); closeErr != nil {
 			logger.Warn("Kafka publisher shutdown failed", "module", "publisher", "event", "shutdown_failed")
 		}
@@ -105,7 +106,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		closeCtx, cancel := runtimekit.ShutdownContext(cfg.ShutdownTimeout)
 		_ = delivery.Close(closeCtx)
 		cancel()
 	}()
@@ -114,7 +115,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer func() {
-		closeCtx, cancel := componentmetrics.ShutdownContext(cfg.EventShutdownTimeout)
+		closeCtx, cancel := runtimekit.ShutdownContext(cfg.EventShutdownTimeout)
 		_ = eventMonitor.Close(closeCtx)
 		cancel()
 	}()
@@ -135,15 +136,6 @@ func run(logger *slog.Logger) error {
 		manager.AttachSourceMetrics(entry.ID, metricsMonitor)
 	}
 
-	componentCollectors, err := collector.StartComponents(ctx, componentmetrics.Mode(), os.Getenv("GOPULSE_VERSION"), cfg.ScrapeInterval, cfg.ScrapeTimeout, cfg.PublishTimeout, delivery, logger)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		shutdown, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
-		defer cancel()
-		_ = componentCollectors.Shutdown(shutdown)
-	}()
 	if cfg.BootstrapPackage != "" {
 		if _, err = manager.Bootstrap(ctx, cfg.BootstrapPackage); err != nil {
 			logger.Warn("plugin bootstrap unavailable", "reason", "plugin_operation_failed")
@@ -181,14 +173,14 @@ func run(logger *slog.Logger) error {
 		return err
 	case <-ctx.Done():
 		probes.Stop()
-		shutdownCtx, cancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+		shutdownCtx, cancel := runtimekit.ShutdownContext(cfg.ShutdownTimeout)
 		defer cancel()
 		serverErr := server.Shutdown(shutdownCtx)
 		if serverErr != nil {
 			_ = server.Close()
 		}
 		managerErr := manager.Shutdown(shutdownCtx)
-		eventCtx, eventCancel := componentmetrics.ShutdownContext(cfg.EventShutdownTimeout)
+		eventCtx, eventCancel := runtimekit.ShutdownContext(cfg.EventShutdownTimeout)
 		eventErr := eventMonitor.Close(eventCtx)
 		eventCancel()
 		if serverErr != nil {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
+	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 )
 
 func LoadFile(path string) (Config, error) {

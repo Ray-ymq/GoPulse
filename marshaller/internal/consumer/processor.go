@@ -3,7 +3,8 @@ package consumer
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/instrumentation"
+
 	"sync"
 	"time"
 
@@ -80,14 +81,14 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 			p.RetryMax = p.RetryMin
 		}
 	})
-	metrics := componentmetrics.Active()
+	metrics := instrumentation.Active()
 	if metrics != nil {
 		metrics.Add("records_in_flight", 1)
 		defer metrics.Add("records_in_flight", -1)
 	}
 	started := time.Now()
 	message, err := p.Decoder.Decode(record.Key, record.Value)
-	kind, source := componentmetrics.MessageIdentity(message.Type, message.Source)
+	kind, source := instrumentation.MessageIdentity(message.Type, message.Source)
 	if metrics != nil {
 		metrics.Observe("records_total", time.Since(started), kind, source, "consume", "consumed")
 	}
@@ -136,7 +137,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 		if message.Type == "metrics" {
 			storage = "victoriametrics"
 		}
-		componentmetrics.Dependency(storage, err)
+		instrumentation.Dependency(storage, err)
 		result := "stored"
 		if err != nil {
 			result = "retried"
@@ -198,7 +199,7 @@ func (p *Processor) Handle(ctx context.Context, record Record, lease Lease) erro
 }
 
 func (p *Processor) reject(ctx context.Context, record Record, lease Lease, kind, source, code string) error {
-	if metrics := componentmetrics.Active(); metrics != nil {
+	if metrics := instrumentation.Active(); metrics != nil {
 		metrics.Add("records_discarded_total", 1, discardReason(code))
 	}
 	p.Logger.Permanent(record, code)
@@ -225,11 +226,11 @@ func (p *Processor) commit(ctx context.Context, record Record, lease Lease, iden
 		if result != nil {
 			outcome = "failure"
 		} else {
-			if metrics := componentmetrics.Active(); metrics != nil {
+			if metrics := instrumentation.Active(); metrics != nil {
 				metrics.Set("last_commit_success_timestamp_seconds", float64(time.Now().Unix()))
 			}
 		}
-		if metrics := componentmetrics.Active(); metrics != nil {
+		if metrics := instrumentation.Active(); metrics != nil {
 			metrics.Observe("records_total", time.Since(started), kind, source, "commit", outcome)
 		}
 	}()
@@ -243,7 +244,7 @@ func (p *Processor) commit(ctx context.Context, record Record, lease Lease, iden
 		commitCtx, cancel := mergeContext(ctx, lease.Context())
 		err := p.Committer.Commit(commitCtx, record)
 		cancel()
-		componentmetrics.Dependency("kafka", err)
+		instrumentation.Dependency("kafka", err)
 		if ctx.Err() != nil || !lease.Valid() {
 			return ErrOwnershipLost
 		}
@@ -259,12 +260,12 @@ func (p *Processor) commit(ctx context.Context, record Record, lease Lease, iden
 			retryCancel()
 			return ErrOwnershipLost
 		}
-		if metrics := componentmetrics.Active(); metrics != nil {
+		if metrics := instrumentation.Active(); metrics != nil {
 			metrics.Add("retrying", 1)
 		}
 		err = p.Sleep(retryCtx, delay)
 		releaseRetry()
-		if metrics := componentmetrics.Active(); metrics != nil {
+		if metrics := instrumentation.Active(); metrics != nil {
 			metrics.Add("retrying", -1)
 		}
 		retryCancel()

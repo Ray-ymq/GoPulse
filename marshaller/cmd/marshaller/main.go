@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"log/slog"
 	"net/http"
 	"os"
@@ -173,9 +174,7 @@ func main() {
 		"logs/search-reindex":     {Transformer: logtransform.Transformer{MaxBytes: cfg.MaxRecordBytes, Retention: &cfg.Retention.Logs}, Writer: logStore},
 		"events/monitor":          {Transformer: eventtransform.Transformer{MaxBytes: 16 * 1024, Retention: &cfg.Retention.Events}, Writer: eventStore},
 	}
-	for _, id := range componentmetrics.Components {
-		targets["metrics/"+id] = consumer.Target{Transformer: metrics.Transformer{MaxBytes: cfg.MaxOutputBytes}, Writer: vm}
-	}
+
 	delivery := &deliveryState{}
 	newProcessor := func(expectedType string, committer consumer.Committer) *consumer.Processor {
 		return &consumer.Processor{
@@ -195,21 +194,21 @@ func main() {
 		logger.Error("Kafka stream initialization failed", "module", "consumer", "event", "startup_failed")
 		os.Exit(1)
 	}
-	state, err := componentmetrics.New("marshaller")
+	state, err := instrumentation.New("marshaller")
 	if err != nil {
 		logger.Error("metrics initialization failed")
 		os.Exit(1)
 	}
-	componentmetrics.Install(state)
+	instrumentation.Install(state)
 	server := httpserver.New(cfg.HTTPHost, cfg.HTTPPort, cfg.APIToken, cfg.ReadinessTimeout, kafkaStreams, storageReadiness{vm: vm, logs: logStore, events: eventStore}, logger)
 	server.SetDeliveryStatus(func() any { return delivery.snapshot(cfg.InstanceID) })
 	rootCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	releaseBudget := componentmetrics.BindShutdown(rootCtx, cfg.ShutdownTimeout)
+	releaseBudget := runtimekit.BindShutdown(rootCtx, cfg.ShutdownTimeout)
 	defer releaseBudget()
-	probes, _ := componentmetrics.NewProbes(rootCtx, cfg.ReadinessTimeout, 250*time.Millisecond, server.Check)
+	probes, _ := runtimekit.NewProbes(rootCtx, cfg.ReadinessTimeout, 250*time.Millisecond, server.Check)
 	server.SetProbes(probes)
-	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(rootCtx, "marshaller", state.Snapshot, probes)
+	internalMetrics, err := runtimekit.StartConfiguredWithProbes(rootCtx, "marshaller", state.Snapshot, probes)
 	if err != nil {
 		logger.Error("metrics listener initialization failed", "event", "startup_failed")
 		os.Exit(1)
@@ -257,7 +256,7 @@ func main() {
 	signal.Stop(signals)
 	probes.Stop()
 	cancel()
-	shutdownCtx, shutdownCancel := componentmetrics.ShutdownContext(cfg.ShutdownTimeout)
+	shutdownCtx, shutdownCancel := runtimekit.ShutdownContext(cfg.ShutdownTimeout)
 	defer shutdownCancel()
 	select {
 	case <-retentionDone:

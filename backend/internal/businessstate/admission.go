@@ -112,7 +112,7 @@ func (repository *Repository) ParkMessage(ctx context.Context, message ParkingMe
 	environment, err := scanEnvironment(tx.QueryRowContext(ctx, `
 		SELECT data_epoch, status, mode, v1_compatibility_enabled, activation_revision,
 		       COALESCE(restore_operation_id, ''), created_at, updated_at
-		FROM business_environment WHERE singleton=1 FOR UPDATE`))
+		FROM business_environment WHERE singleton=1 FOR SHARE`))
 	if err != nil {
 		return err
 	}

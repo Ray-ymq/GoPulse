@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics/exportercontract"
 	"github.com/Ray-ymq/GoPulse/exporters/kafka/internal/collector"
+	"github.com/Ray-ymq/GoPulse/runtimekit/exportercontract"
 )
 
 func TestReadOnlyClientOptionsAreCompatible(t *testing.T) {

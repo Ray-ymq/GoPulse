@@ -11,11 +11,12 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logship"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	goredis "github.com/redis/go-redis/v9"
 	redislogging "github.com/redis/go-redis/v9/logging"
 )
@@ -30,7 +31,7 @@ const (
 )
 
 func main() {
-	defer componentmetrics.ReleaseShutdown()
+	defer runtimekit.ReleaseShutdown()
 	stdoutLogger := logging.New("backend", os.Stdout)
 	cfg, err := config.Load()
 	if err != nil {
@@ -54,14 +55,14 @@ func main() {
 	if err = run(cfg, logger); err != nil {
 		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"), slog.String("error", err.Error()))
 		if shipper != nil {
-			ctx, cancel := componentmetrics.ShutdownContext(cfg.LogShip.ShutdownTimeout)
+			ctx, cancel := runtimekit.ShutdownContext(cfg.LogShip.ShutdownTimeout)
 			_ = shipper.Close(ctx)
 			cancel()
 		}
 		os.Exit(1)
 	}
 	if shipper != nil {
-		ctx, cancel := componentmetrics.ShutdownContext(cfg.LogShip.ShutdownTimeout)
+		ctx, cancel := runtimekit.ShutdownContext(cfg.LogShip.ShutdownTimeout)
 		if err := shipper.Close(ctx); err != nil {
 			logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
 			cancel()
@@ -99,19 +100,19 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		}
 	}()
 
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		return err
 	}
 	metrics.SetHTTPConcurrencyLimit(cfg.HTTPMaxConcurrency)
-	componentmetrics.InstallBackend(metrics)
-	defer componentmetrics.InstallBackend(nil)
+	instrumentation.InstallBackend(metrics)
+	defer instrumentation.InstallBackend(nil)
 	goredis.SetLogger(&redislogging.VoidLogger{})
 	if err := backendhttp.ConfigureGinMode(cfg.AppEnv); err != nil {
 		return fmt.Errorf("configure Gin mode: %w", err)
 	}
 
-	signalContext, stopSignals := componentmetrics.SignalContext()
+	signalContext, stopSignals := runtimekit.SignalContext()
 	defer stopSignals()
 	assembly, err := newRoleAssembly(cfg, logger, signalContext)
 	if err != nil {
@@ -120,8 +121,9 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	defer assembly.close(lifecycleLogger)
 	assembly.initializeMetrics(metrics)
 
-	componentmetrics.BindShutdown(signalContext, shutdownTimeout)
-	internalMetrics, err := componentmetrics.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, assembly.probes)
+	runtimekit.BindShutdown(signalContext, shutdownTimeout)
+	go assembly.samplePools(signalContext, metrics)
+	internalMetrics, err := runtimekit.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, assembly.probes)
 	if err != nil {
 		return err
 	}
@@ -152,7 +154,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	}()
 	defer func() {
 		cancelSample()
-		shutdownContext, cancel := componentmetrics.ShutdownContext(shutdownTimeout)
+		shutdownContext, cancel := runtimekit.ShutdownContext(shutdownTimeout)
 		defer cancel()
 		_ = internalMetrics.Shutdown(shutdownContext)
 		select {
@@ -198,7 +200,7 @@ func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher
 	serverErr := serveLogged(ctx, server, server.ListenAndServe, logger)
 	cancelDispatcher()
 
-	shutdownContext, cancelShutdown := componentmetrics.ShutdownContext(shutdownTimeout)
+	shutdownContext, cancelShutdown := runtimekit.ShutdownContext(shutdownTimeout)
 	defer cancelShutdown()
 	select {
 	case dispatcherErr := <-dispatcherErrors:
@@ -242,7 +244,7 @@ func serveLogged(ctx context.Context, server *stdhttp.Server, startServer func()
 		return nil
 	case <-ctx.Done():
 		logger.Info("backend shutdown started")
-		shutdownContext, cancel := componentmetrics.ShutdownContext(shutdownTimeout)
+		shutdownContext, cancel := runtimekit.ShutdownContext(shutdownTimeout)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownContext); err != nil {

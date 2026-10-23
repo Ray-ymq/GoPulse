@@ -6,14 +6,14 @@ import (
 	"log/slog"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 const SchemaVersion = 1
 
-func New(service string, w io.Writer) *slog.Logger { return componentmetrics.NewLogger(service, w) }
+func New(service string, w io.Writer) *slog.Logger { return runtimekit.NewLogger(service, w) }
 func Module(logger *slog.Logger, module string) *slog.Logger {
-	return componentmetrics.ModuleLogger(logger, module)
+	return runtimekit.ModuleLogger(logger, module)
 }
 
 type contextKey struct{}

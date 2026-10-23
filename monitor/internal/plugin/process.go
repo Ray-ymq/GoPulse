@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"net/http"
 	"os"
@@ -117,7 +117,7 @@ func startProcess(ctx context.Context, pluginDir string, manifest Manifest, env 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		request, _ := componentmetrics.NewRequest(deadlineContext, http.MethodGet, healthURL, nil)
+		request, _ := runtimekit.NewRequest(deadlineContext, http.MethodGet, healthURL, nil)
 		response, requestErr := client.Do(request)
 		if requestErr == nil {
 			body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
@@ -248,5 +248,5 @@ func validProcessHealth(manifest Manifest, body []byte) bool {
 		Status          string `json:"status"`
 		ContractVersion string `json:"contract_version"`
 	}
-	return json.Unmarshal(body, &response) == nil && response.Status == "ok" && response.ContractVersion == componentmetrics.RuntimeContractVersion
+	return json.Unmarshal(body, &response) == nil && response.Status == "ok" && response.ContractVersion == runtimekit.RuntimeContractVersion
 }

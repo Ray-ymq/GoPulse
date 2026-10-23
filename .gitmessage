@@ -1,6 +1,7 @@
 
 # 标题：type(scope)!: 一句话说明结果。scope 和 ! 可省略。
-# 类型：build chore ci docs feat fix perf refactor revert style test
+# 类型：build chore ci feat fix perf refactor revert style test
+# 不得单独创建 docs commit；文档修改必须随对应改动一并提交。
 # 例如：fix(backend): 避免重复点赞导致计数增加
 
 背景：

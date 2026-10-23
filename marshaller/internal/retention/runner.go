@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/instrumentation"
 )
 
 type ItemReport struct {
@@ -282,7 +282,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 }
 
 func observe(stream Stream, result string, duration time.Duration) {
-	metrics := componentmetrics.Active()
+	metrics := instrumentation.Active()
 	if metrics == nil {
 		return
 	}
@@ -299,7 +299,7 @@ func observe(stream Stream, result string, duration time.Duration) {
 }
 
 func ObserveLate(stream Stream, result string) {
-	metrics := componentmetrics.Active()
+	metrics := instrumentation.Active()
 	if metrics != nil {
 		metrics.Add("retention_late_records_total", 1, string(stream), result)
 	}

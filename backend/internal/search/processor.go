@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"io"
 	"log/slog"
 	"net/http"
@@ -40,14 +40,17 @@ func (store *MySQLDocumentStore) FindDocument(ctx context.Context, postID uint64
 	}
 	var document Document
 	err := store.database.QueryRowContext(ctx, `
-		SELECT id, title, content, created_at, updated_at, edited_at, content_revision
-		FROM posts
-		WHERE id = ?`, postID).Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision)
+		SELECT id, title, content, created_at, updated_at, edited_at, content_revision, FALSE
+ FROM posts WHERE id = ?
+ UNION ALL
+ SELECT t.post_id, '', '', t.deleted_at, t.deleted_at, NULL, t.content_revision, TRUE
+ FROM post_search_tombstones t INNER JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch
+ WHERE t.post_id=?`, postID, postID).Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision, &document.Deleted)
 	observedErr := err
 	if errors.Is(err, sql.ErrNoRows) {
 		observedErr = nil
 	}
-	componentmetrics.Dependency("mysql", observedErr)
+	instrumentation.Dependency("mysql", observedErr)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, sql.ErrNoRows
 	}
@@ -130,38 +133,9 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 				return applicationErr
 			}
 			if exists {
-				return nil
+				return worker.ErrDuplicate
 			}
 		}
-	}
-	if store, ok := processor.store.(*MySQLDocumentStore); ok {
-		// Hold the authoritative row lock through the external write. Deletion cannot
-		// commit before an in-flight old snapshot has finished indexing.
-		tx, err := store.database.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-		componentmetrics.Dependency("mysql", err)
-		if err != nil {
-			span.SetStatus(codes.Error, "mysql_unavailable")
-			return err
-		}
-		defer func() { _ = tx.Rollback() }()
-		var id uint64
-		err = tx.QueryRowContext(ctx, "SELECT id FROM posts WHERE id=? FOR UPDATE", envelope.PostID).Scan(&id)
-		observedErr := err
-		if errors.Is(err, sql.ErrNoRows) {
-			observedErr = nil
-		}
-		componentmetrics.Dependency("mysql", observedErr)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			span.SetStatus(codes.Error, "mysql_unavailable")
-			return err
-		}
-		if err = processor.project(ctx, envelope); err != nil {
-			span.SetStatus(codes.Error, "projection_failed")
-			return err
-		}
-		err = tx.Commit()
-		componentmetrics.Dependency("mysql", err)
-		return err
 	}
 	return processor.project(ctx, envelope)
 }
@@ -188,7 +162,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 				freshnessResult = "failure"
 				span.SetStatus(codes.Error, "delete_failed")
 			}
-			componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", freshnessResult)
+			instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", freshnessResult)
 			if err != nil {
 				return err
 			}
@@ -233,7 +207,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 	}
 	if indexErr != nil {
 		processor.logIndex(indexContext, envelope, "failure")
-		componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "failure")
+		instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "failure")
 		span.SetStatus(codes.Error, "index_failed")
 		var permanent *PermanentIndexError
 		if errors.As(indexErr, &permanent) {
@@ -253,7 +227,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 		}
 	}
 	processor.logIndex(indexContext, envelope, "success", writeResult.Index)
-	componentmetrics.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
+	instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
 	return nil
 }
 
@@ -330,7 +304,16 @@ func (repository *ElasticsearchRepository) IndexAliasResult(ctx context.Context,
 	if err != nil {
 		return IndexWriteResult{}, &PermanentIndexError{Reason: "invalid_document"}
 	}
+	target := ""
 	path := "/" + url.PathEscape(AliasName) + "/_doc/" + strconv.FormatUint(document.PostID, 10) + "?require_alias=true"
+	if document.DataEpoch != "" {
+		generation, err := repository.ResolveGenerationForEpoch(ctx, document.DataEpoch)
+		if err != nil {
+			return IndexWriteResult{}, err
+		}
+		target = generation
+		path = "/" + url.PathEscape(generation) + "/_doc/" + strconv.FormatUint(document.PostID, 10) + "?"
+	}
 	if document.ContentRevision > 0 {
 		path += "&version_type=external_gte&version=" + strconv.FormatUint(document.ContentRevision, 10)
 	}
@@ -349,10 +332,11 @@ func (repository *ElasticsearchRepository) IndexAliasResult(ctx context.Context,
 			// Legacy v1 keeps the historical external_gte conflict semantics.
 			return IndexWriteResult{Conflict: true, ConflictVerified: true, Index: result.Index, DocumentID: result.DocumentID, Version: result.Version}, nil
 		}
-		if result.Index == "" || result.DocumentID != strconv.FormatUint(document.PostID, 10) || result.Version < document.ContentRevision {
-			return IndexWriteResult{}, ErrUnavailable
+		if result.Index == "" {
+			result.Index = target
+			result.DocumentID = strconv.FormatUint(document.PostID, 10)
 		}
-		if err := repository.verifyStoredDocument(ctx, result, document); err != nil {
+		if err := repository.verifyStoredDocument(ctx, &result, document); err != nil {
 			return IndexWriteResult{}, err
 		}
 		return IndexWriteResult{Conflict: true, ConflictVerified: true, Index: result.Index, DocumentID: result.DocumentID, Version: result.Version, Epoch: document.DataEpoch}, nil
@@ -393,7 +377,7 @@ func (repository *ElasticsearchRepository) verifyIndexEpoch(ctx context.Context,
 	return nil
 }
 
-func (repository *ElasticsearchRepository) verifyStoredDocument(ctx context.Context, result IndexWriteResult, expected Document) error {
+func (repository *ElasticsearchRepository) verifyStoredDocument(ctx context.Context, result *IndexWriteResult, expected Document) error {
 	if err := repository.verifyIndexEpoch(ctx, result.Index, expected.DataEpoch); err != nil {
 		return err
 	}
@@ -415,9 +399,13 @@ func (repository *ElasticsearchRepository) verifyStoredDocument(ctx context.Cont
 		return ErrUnavailable
 	}
 	var actual Document
-	if json.Unmarshal(payload.Source, &actual) != nil || actual.DataEpoch != expected.DataEpoch || actual.PostID != expected.PostID || actual.Title != expected.Title || actual.Content != expected.Content || actual.ContentRevision < expected.ContentRevision || !actual.CreatedAt.Equal(expected.CreatedAt) || !actual.UpdatedAt.Equal(expected.UpdatedAt) {
+	if json.Unmarshal(payload.Source, &actual) != nil || actual.DataEpoch != expected.DataEpoch || actual.PostID != expected.PostID || actual.ContentRevision < expected.ContentRevision {
 		return ErrUnavailable
 	}
+	if actual.ContentRevision == expected.ContentRevision && (actual.Deleted != expected.Deleted || actual.Title != expected.Title || actual.Content != expected.Content) {
+		return ErrUnavailable
+	}
+	result.Version = payload.Version
 	return nil
 }
 
