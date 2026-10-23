@@ -503,17 +503,23 @@ func listStatement(viewerID uint64, options ListOptions) (string, []any) {
 		join += " INNER JOIN (SELECT followed_id FROM user_follows WHERE follower_id=?) AS feed_authors ON feed_authors.followed_id=p.author_id"
 		arguments = append(arguments, viewerID)
 	}
-	query := fmt.Sprintf(postListReadSelect, timestamp, join) + " WHERE 1=1"
+	filter := " WHERE 1=1"
 	if options.AuthorID != 0 {
-		query += " AND p.author_id = ?"
+		filter += " AND p.author_id = ?"
 		arguments = append(arguments, options.AuthorID)
 	}
 	if options.Cursor != nil {
-		query += fmt.Sprintf(" AND (%s < ? OR (%s = ? AND p.id < ?))", timestamp, timestamp)
+		filter += fmt.Sprintf(" AND (%s < ? OR (%s = ? AND p.id < ?))", timestamp, timestamp)
 		arguments = append(arguments, options.Cursor.CreatedAt, options.Cursor.CreatedAt, options.Cursor.ID)
 	}
-	query += " ORDER BY " + timestamp + " DESC, p.id DESC LIMIT ?"
+	order := " ORDER BY " + timestamp + " DESC, p.id DESC"
 	arguments = append(arguments, options.Limit+1)
+	if options.Following && !options.Bookmarks {
+		page := "SELECT p.id FROM posts AS p " + join + filter + order + " LIMIT ?"
+		query := fmt.Sprintf(postListReadSelect, timestamp, "INNER JOIN ("+page+") AS feed_page ON feed_page.id=p.id") + order
+		return query, arguments
+	}
+	query := fmt.Sprintf(postListReadSelect, timestamp, join) + filter + order + " LIMIT ?"
 	return query, arguments
 }
 

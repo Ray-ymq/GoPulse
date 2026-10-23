@@ -4,6 +4,7 @@ package post
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -47,7 +48,8 @@ func TestIntegrationListVariantsPlansAndPagination(t *testing.T) {
 	expectedAuthor, expectedFeed, expectedBookmarks := map[uint64]bool{}, map[uint64]bool{}, map[uint64]bool{}
 	for n, author := range users[1:] {
 		for j := 0; j < 3; j++ {
-			result, err := tx.Exec("INSERT INTO posts(author_id,title,content,created_at,updated_at) VALUES(?,'list','body',?,?)", author, at, at)
+			createdAt := at.Add(-time.Duration(j) * time.Second)
+			result, err := tx.Exec("INSERT INTO posts(author_id,title,content,created_at,updated_at) VALUES(?,'list','body',?,?)", author, createdAt, createdAt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,15 +75,19 @@ func TestIntegrationListVariantsPlansAndPagination(t *testing.T) {
 	repo := NewMySQLRepository(tx)
 	for _, tc := range []struct {
 		name     string
+		viewer   uint64
 		options  ListOptions
 		expected map[uint64]bool
 	}{
-		{"author", ListOptions{AuthorID: users[1], Limit: 2}, expectedAuthor},
-		{"following", ListOptions{Following: true, Limit: 2}, expectedFeed},
-		{"bookmarks", ListOptions{Bookmarks: true, Limit: 2}, expectedBookmarks},
+		{"author", users[0], ListOptions{AuthorID: users[1], Limit: 2}, expectedAuthor},
+		{"following", users[0], ListOptions{Following: true, Limit: 2}, expectedFeed},
+		{"following_author", users[0], ListOptions{Following: true, AuthorID: users[1], Limit: 2}, expectedAuthor},
+		{"following_unfollowed_author", users[0], ListOptions{Following: true, AuthorID: users[3], Limit: 2}, map[uint64]bool{}},
+		{"following_empty", users[3], ListOptions{Following: true, Limit: 2}, map[uint64]bool{}},
+		{"bookmarks", users[0], ListOptions{Bookmarks: true, Limit: 2}, expectedBookmarks},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			query, args := listStatement(users[0], tc.options)
+			query, args := listStatement(tc.viewer, tc.options)
 			var plan string
 			if err := tx.QueryRow("EXPLAIN FORMAT=JSON "+query, args...).Scan(&plan); err != nil {
 				t.Fatal(err)
@@ -89,8 +95,9 @@ func TestIntegrationListVariantsPlansAndPagination(t *testing.T) {
 			t.Logf("%s plan=%s", tc.name, plan)
 			seen := map[uint64]bool{}
 			options := tc.options
+			var previous *Post
 			for {
-				records, err := repo.List(ctx, users[0], options)
+				records, err := repo.List(ctx, tc.viewer, options)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -103,6 +110,28 @@ func TestIntegrationListVariantsPlansAndPagination(t *testing.T) {
 						t.Fatalf("unexpected or duplicate id=%d", record.ID)
 					}
 					seen[record.ID] = true
+					if previous != nil {
+						before, current := previous.CreatedAt, record.CreatedAt
+						if options.Bookmarks {
+							before, current = previous.BookmarkCreatedAt, record.BookmarkCreatedAt
+						}
+						if current.After(before) || (current.Equal(before) && record.ID >= previous.ID) {
+							t.Fatalf("incorrect descending order: previous=%+v current=%+v", *previous, record)
+						}
+					}
+					copy := record
+					previous = &copy
+					if options.Following {
+						want, err := repo.FindByID(ctx, record.ID, tc.viewer)
+						if err != nil {
+							t.Fatal(err)
+						}
+						want.Author.Following = true
+						want.BookmarkCreatedAt = want.CreatedAt
+						if !reflect.DeepEqual(record, want) {
+							t.Fatalf("list/detail mismatch: list=%+v detail=%+v", record, want)
+						}
+					}
 				}
 				if !more {
 					break
