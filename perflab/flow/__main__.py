@@ -22,7 +22,7 @@ def plan(config):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['prepare', 'plan', 'check', 'run', 'acceptance', 'status', 'stop', 'report'])
+    parser.add_argument('command', choices=['prepare', 'check', 'run', 'acceptance', 'status', 'stop', 'report'])
     parser.add_argument('--start-rps', default='10')
     parser.add_argument('--run')
     args = parser.parse_args()
@@ -43,9 +43,6 @@ def main():
             report(STATE / name)
             return 0
         config = load(args.start_rps)
-        if args.command == 'plan':
-            print(json.dumps(plan(config), ensure_ascii=False, indent=2))
-            return 0
         if args.command == 'acceptance':
             config.update(acceptance=True, idle_seconds=5, warmup_seconds=1, measurement_seconds=15, soak_seconds=15, recovery_seconds=120)
         with lock():
