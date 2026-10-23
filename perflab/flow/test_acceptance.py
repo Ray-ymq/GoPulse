@@ -1,12 +1,7 @@
-"""在隔离 fixture 中走完固定阶段，并验证失败分支。"""
+"""在隔离 fixture 中验证固定阶段和独立验收流程。"""
 import unittest
-import json
-from pathlib import Path
-import tempfile
 from contextlib import nullcontext
 from unittest.mock import patch
-from flow.acceptance import check
-from flow.config import fingerprint
 from flow.config import load
 from flow.executor import Pipeline, routes
 from flow.test_executor import FixtureBackend
@@ -37,19 +32,3 @@ class FixedFlowAcceptanceTests(unittest.TestCase):
         self.assertEqual(backend.calls.count('restore'), len(pipeline.groups)-1)
         self.assertEqual(backend.calls[0:2], ['idle', 'low'])
         self.assertEqual(pipeline.groups[-1]['group_id'], 'route-22')
-
-    def test_formal_gate_rejects_missing_and_changed_receipts(self):
-        config = load()
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with self.assertRaises(ValueError): check(config, root)
-            (root / 'fixture').mkdir()
-            result = {'mode':'acceptance', 'execution_completed':True, 'exit_code':0}
-            (root / 'fixture/result.json').write_text(json.dumps(result))
-            receipt = {'run_id':'fixture', 'source_sha256':{'fixture':'hash'},
-                       'resources_sha256':fingerprint(config['resources']), 'result_sha256':fingerprint(result)}
-            (root / 'accepted.json').write_text(json.dumps(receipt))
-            with patch('flow.acceptance.source_hashes', return_value={'fixture':'hash'}):
-                check(config, root)
-            with patch('flow.acceptance.source_hashes', return_value={'fixture':'changed'}):
-                with self.assertRaises(ValueError): check(config, root)

@@ -1,6 +1,6 @@
 # PT 固定流程
 
-当前执行入口为 `make pt`，指定连续加压起点使用 `make pt START_RPS=250`。准备和验收要求见[公共操作说明](../perflab/flow/README.md)。
+当前执行入口为 `make pt`，指定连续加压起点使用 `make pt START_RPS=250`。准备要求和执行说明见[公共操作说明](../perflab/flow/README.md)。
 
 以下为历史规范与报告索引，仅用于追溯。旧轮次的资源对照、缓存切换和编号入口已停用。当前测试不得沿用历史容量结论。
 

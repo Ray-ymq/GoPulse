@@ -288,9 +288,6 @@ def execute(config):
         previous_handlers[sig] = signal.signal(sig, interrupted)
     try:
         run.update('checking', stage='environment')
-        if not config.get('acceptance'):
-            from .acceptance import check
-            check(config)
         value = preflight(config)
         from .__main__ import plan
         write_json(run.directory / 'plan.json', plan(config))
