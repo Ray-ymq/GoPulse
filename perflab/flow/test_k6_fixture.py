@@ -58,6 +58,8 @@ class K6FixtureTests(unittest.TestCase):
             self.assertGreaterEqual(len(outcomes), 57)
             self.assertEqual(starts, outcomes)
             self.assertTrue(all(e['success'] for e in events if e['type'] == 'outcome'))
+            self.assertTrue(all(e['sample']['path'] and isinstance(e['sample']['actor'], int)
+                                for e in events if e['type'] == 'start'))
             self.assertNotIn('fixture-private-password', combined)
             self.assertNotIn('fixture-session', combined)
             self.assertTrue((path / 'output/summary.json').exists())

@@ -13,7 +13,7 @@ from . import baseline
 from .observe import Observation, recovery
 from .analysis import summarize
 from .diagnose import capture_logs
-from .audit import build as audit
+from .audit import build as audit, capture_baseline
 from .diagnostics_registry import registry
 
 
@@ -192,6 +192,7 @@ class Backend:
                 raise Abort('运行期间源码或固定配置文件改变')
             if snapshot(self.config) != self.expected:
                 raise Abort('组边界环境身份或配置改变')
+            capture_baseline(output, self.preparation)
             observation = Observation(self.preparation, output, self.config, self.expected).start()
             self.collection = observation
             self.track_observation(observation)

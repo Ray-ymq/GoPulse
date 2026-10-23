@@ -1,7 +1,8 @@
-"""按正式窗口核对业务写入：请求成功数、资源 ID、数据库行和窗口边界请求。"""
+"""核对成功写入、取消及响应不确定的写入，并保留业务失败统计。"""
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import time
 
 from .runtime import write_json as atomic_json
 from .common import sql
@@ -119,6 +120,18 @@ def _post_rows(execute, ids):
     return rows
 
 
+def capture_baseline(directory, preparation):
+    corpus = json.loads((Path(preparation) / 'corpus.json').read_text())
+    ids = {key for row in corpus['editable_post_ids'] for key in row}
+    atomic_json(Path(directory) / 'audit-baseline.json', _post_rows(sql, ids))
+
+
+def _text(value):
+    if not isinstance(value, str) or not value:
+        raise ValueError('写入预期内容缺失')
+    return "CONVERT(0x" + value.encode().hex() + " USING utf8mb4)"
+
+
 def _comment_rows(execute, ids):
     rows = {}
     for chunk in _chunks(ids):
@@ -149,13 +162,27 @@ def build(directory, preparation):
     directory = Path(directory)
     corpus = json.loads((Path(preparation) / 'corpus.json').read_text())['users']
     pending = {}
+    canceled = []
+    uncertain = []
+    canceled_results = {'writes': 0, 'resolved': 0, 'applied_creates': 0}
+    uncertain_results = {'writes': 0, 'resolved': 0, 'applied_creates': 0}
     errors = {'invalid_event': 0, 'orphan_outcome': 0, 'unknown_resource': 0, 'unfinished_write': 0}
     begin, end = float('inf'), 0
     count = failures = 0
     examples = []
     db = sqlite3.connect(directory / 'audit-index.sqlite')
     try:
-        db.executescript('DROP TABLE IF EXISTS writes; CREATE TABLE writes(kind TEXT,k1 INTEGER,k2 INTEGER,started REAL,completed REAL,method TEXT,payload TEXT);')
+        db.executescript('DROP TABLE IF EXISTS writes; CREATE TABLE writes(kind TEXT,k1 INTEGER,k2 INTEGER,started REAL,completed REAL,method TEXT,payload TEXT,uncertain INTEGER);')
+        def insert(item, original, completed, uncertain=False):
+            resource_key = item.get('key')
+            if resource_key is None or (isinstance(resource_key, tuple) and None in resource_key):
+                errors['unknown_resource'] += 1
+                return False
+            first, second = resource_key if isinstance(resource_key, tuple) else (resource_key, 0)
+            db.execute('INSERT INTO writes VALUES (?,?,?,?,?,?,?,?)',
+                       (item['kind'], int(first), int(second), original['started_at_ms']/1000,
+                        completed, original['route'].split()[0], json.dumps(item), int(uncertain)))
+            return True
         with (directory / 'requests.jsonl').open() as source:
             for line in source:
                 try:
@@ -178,23 +205,54 @@ def build(directory, preparation):
                         if event['success'] and event.get('category') in WRITE_CATEGORIES:
                             request = {'route': event['route'], 'sample': event.get('sample')}
                             item = resource(request, corpus)
-                            resource_key = item.get('key')
-                            if resource_key is None or (isinstance(resource_key, tuple) and None in resource_key):
-                                errors['unknown_resource'] += 1
-                                continue
-                            first, second = resource_key if isinstance(resource_key, tuple) else (resource_key, 0)
-                            db.execute('INSERT INTO writes VALUES (?,?,?,?,?,?,?)',
-                                       (item['kind'], int(first), int(second), original['started_at_ms']/1000,
-                                        event['completed_at_ms']/1000, event['route'].split()[0], json.dumps(item)))
+                            insert(item, original, event['completed_at_ms']/1000)
+                        elif event.get('category') in WRITE_CATEGORIES and (not event.get('status') or event['status'] >= 500):
+                            uncertain.append(original)
                     elif event['type'] == 'cancel':
                         original = pending.pop(key, None)
-                        if original and original.get('category') in WRITE_CATEGORIES:
-                            errors['unfinished_write'] += 1
+                        if original is None:
+                            errors['orphan_outcome'] += 1
+                        elif original.get('category') in WRITE_CATEGORIES:
+                            if event.get('error') == 'stop_cancellation':
+                                canceled.append(original)
+                            else:
+                                errors['unfinished_write'] += 1
                     else:
                         errors['invalid_event'] += 1
                 except (ValueError, KeyError, TypeError):
                     errors['invalid_event'] += 1
         errors['unfinished_write'] += sum(1 for item in pending.values() if item.get('category') in WRITE_CATEGORIES)
+        canceled_results['writes'] = len(canceled)
+        uncertain_results['writes'] = len(uncertain)
+        if canceled or uncertain:
+            end = max(end, time.time())
+        pending_writes = [(original, canceled_results) for original in canceled]
+        pending_writes += [(original, uncertain_results) for original in uncertain]
+        for original, totals in pending_writes:
+            item = resource(original, corpus)
+            if item['kind'] in ('post_create', 'comment_create'):
+                expected = item.get('expected') or {}
+                try:
+                    filters = [f"author_id={int(item['user_id'])}",
+                               "BINARY content=BINARY " + _text(expected.get('content')),
+                               f"created_at >= '{_time(begin)}'", f"created_at <= '{_time(end)}'"]
+                    if item['kind'] == 'post_create':
+                        filters.append('BINARY title=BINARY ' + _text(expected.get('title')))
+                    else:
+                        filters.append(f"post_id={int(item['post_id'])}")
+                    matches = _rows(sql, f"SELECT id FROM {item['table']} WHERE " + ' AND '.join(filters) + ' LIMIT 2;')
+                    if len(matches) > 1:
+                        raise ValueError('取消请求匹配到重复写入')
+                    if not matches:
+                        totals['resolved'] += 1
+                        continue
+                    item['key'] = int(matches[0][0])
+                    totals['applied_creates'] += 1
+                except (ValueError, TypeError):
+                    errors['unfinished_write'] += 1
+                    continue
+            if insert(item, original, end, uncertain=True):
+                totals['resolved'] += 1
         db.commit()
         db.execute('CREATE INDEX write_resource ON writes(kind,k1,k2,completed)')
         def mismatch(kind, key):
@@ -203,32 +261,36 @@ def build(directory, preparation):
             if len(examples) < 50:
                 examples.append({'kind': kind, 'key': key})
         verified = 0
-        cursor = db.execute("SELECT kind,k1,payload FROM writes WHERE kind IN ('post_create','comment_create','post_delete')")
+        cursor = db.execute("SELECT kind,k1,payload,uncertain FROM writes WHERE kind IN ('post_create','comment_create','post_delete')")
         while batch := cursor.fetchmany(CHUNK):
             posts = _post_rows(sql, [row[1] for row in batch if row[0] != 'comment_create'])
             comments = _comment_rows(sql, [row[1] for row in batch if row[0] == 'comment_create'])
-            for kind, key, payload in batch:
+            for kind, key, payload, uncertain in batch:
                 item = json.loads(payload)
                 row = (comments if kind == 'comment_create' else posts).get(key)
                 if kind == 'post_delete':
-                    valid = row is None
+                    valid = row is None or (uncertain and row['author_id'] == item['user_id'])
                 else:
                     expected = item.get('expected') or {}
                     valid = row is not None and row['author_id'] == item['user_id'] and row['content'] == expected.get('content')
                     valid = valid and (row['post_id'] == item['post_id'] if kind == 'comment_create' else row['title'] == expected.get('title'))
                 if valid: verified += 1
                 else: mismatch(kind, key)
-        cursor = db.execute("SELECT k1,MAX(started) FROM writes WHERE kind='post_update' GROUP BY k1")
+        baseline_path = directory / 'audit-baseline.json'
+        baseline = json.loads(baseline_path.read_text()) if baseline_path.exists() else {}
+        cursor = db.execute("SELECT k1,COALESCE(MAX(CASE WHEN uncertain=0 THEN started END),0) FROM writes WHERE kind='post_update' GROUP BY k1")
         while batch := cursor.fetchmany(CHUNK):
             posts = _post_rows(sql, [row[0] for row in batch])
             for key, latest_start in batch:
                 candidates = [json.loads(row[0])['expected'] for row in db.execute(
                     "SELECT payload FROM writes WHERE kind='post_update' AND k1=? AND completed>=?", (key, latest_start))]
                 row = posts.get(key)
-                if row and row['content_revision'] >= 2 and any(row['title'] == item.get('title') and row['content'] == item.get('content') for item in candidates):
+                previous = baseline.get(str(key))
+                unchanged = latest_start == 0 and previous is not None and row == previous
+                if unchanged or (row and row['content_revision'] >= 2 and any(row['title'] == item.get('title') and row['content'] == item.get('content') for item in candidates)):
                     verified += 1
                 else: mismatch('post_update', key)
-        cursor = db.execute("SELECT kind,k1,k2,MAX(started) FROM writes WHERE kind IN ('like','bookmark','follow') GROUP BY kind,k1,k2")
+        cursor = db.execute("SELECT kind,k1,k2,COALESCE(MAX(CASE WHEN uncertain=0 THEN started END),0) FROM writes WHERE kind IN ('like','bookmark','follow') GROUP BY kind,k1,k2")
         while batch := cursor.fetchmany(CHUNK):
             tables = {'like': ('post_likes', ('post_id','user_id')), 'bookmark': ('post_bookmarks', ('post_id','user_id')),
                       'follow': ('user_follows', ('follower_id','followed_id'))}
@@ -237,13 +299,15 @@ def build(directory, preparation):
             for kind, first, second, latest_start in batch:
                 candidates = {row[0] == 'PUT' for row in db.execute(
                     'SELECT DISTINCT method FROM writes WHERE kind=? AND k1=? AND k2=? AND completed>=?', (kind,first,second,latest_start))}
+                if latest_start == 0:
+                    candidates.update((False, True))
                 if ((first,second) in present[kind]) in candidates: verified += 1
                 else: mismatch(kind, [first,second])
         if begin == float('inf') or end <= 0:
             errors['invalid_event'] += 1
             begin, end = 0, 0
         extra = {}
-        if count:
+        if count or canceled:
             for table, kind in [('posts','post_create'),('comments','comment_create')]:
                 actual = int(sql(f"SELECT COUNT(*) FROM {table} WHERE created_at >= '{_time(begin)}' AND created_at <= '{_time(end)}';").strip())
                 observed = db.execute('SELECT COUNT(DISTINCT k1) FROM writes WHERE kind=?', (kind,)).fetchone()[0]
@@ -252,7 +316,7 @@ def build(directory, preparation):
         async_result = sql("SELECT open_requirements,parked_messages FROM business_async_budget;").strip().split('\t')
         async_ok = len(async_result) == 2 and all(int(v) == 0 for v in async_result)
         if not async_ok: mismatch('async_incomplete', 'budget')
-        if count:
+        if count or canceled:
             asynchronous_failures = int(sql("SELECT COUNT(*) FROM business_application_results WHERE completed_at >= '" + _time(begin) + "' AND result <> 'applied';").strip())
             failures += asynchronous_failures
         else:
@@ -267,6 +331,8 @@ def build(directory, preparation):
         value = {'schema_version':'gopulse.pt.audit.v1', 'status':'passed' if failures == 0 else 'failed',
                  'failures':failures, 'verified':verified, 'completed_requests':count, 'event_errors':errors,
                  'window':{'begin_epoch':begin,'end_epoch':end}, 'unmatched_creates':extra,
+                 'canceled_writes':canceled_results,
+                 'uncertain_outcomes':uncertain_results,
                  'async_recovered':async_ok, 'async_failures':asynchronous_failures, 'orphans':orphans, 'examples':examples}
         atomic_json(directory / 'audit.json', value)
         return value

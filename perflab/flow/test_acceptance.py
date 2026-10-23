@@ -21,6 +21,8 @@ class FixedFlowAcceptanceTests(unittest.TestCase):
             self.assertEqual(main(), 0)
         config = execute.call_args.args[0]
         self.assertGreater(config['measurement_seconds'], 10)
+        self.assertEqual(config['recovery_seconds'], 120)
+        self.assertEqual(load()['recovery_seconds'], 600)
         changed = {'acceptance', 'idle_seconds', 'warmup_seconds', 'measurement_seconds', 'soak_seconds', 'recovery_seconds'}
         self.assertEqual({k: v for k, v in config.items() if k not in changed},
                          {k: v for k, v in load('250').items() if k not in changed})

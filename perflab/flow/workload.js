@@ -55,7 +55,9 @@ export default function (data) {
   catch (_) { emit({ type: 'fatal', error: 'corpus_exhausted', phase }); exec.test.abort('语料已耗尽'); return; }
   const common = { request_id: `${__ENV.LOAD_STAGE_ID}:${slot}`, route: request.route, category: request.category,
     phase, started_at_ms: Date.now(), scenario_started_at_ms: scenario };
-  emit({ type: 'start', ...common });
+  const sample = { path: request.path, actor };
+  if (request.category === 'content_write' && request.body) sample.expected = JSON.parse(request.body);
+  emit({ type: 'start', ...common, sample });
   const headers = { Cookie: `gopulse_session=${data.sessions[actor]}` };
   if (request.body !== undefined) headers['Content-Type'] = 'application/json';
   const response = http.request(request.method, base + request.path, request.body,
@@ -64,8 +66,7 @@ export default function (data) {
   try { body = response.json(); } catch (_) { body = null; }
   const success = request.statuses.includes(response.status) && response.status !== 404
     && (!body || body.code === undefined || body.code === 0);
-  const sample = { path: request.path, actor, response_id: body && body.data && body.data.id };
-  if (request.category === 'content_write' && request.body) sample.expected = JSON.parse(request.body);
+  sample.response_id = body && body.data && body.data.id;
   emit({ type: 'outcome', ...common, completed_at_ms: Date.now(), success,
     http_ms: response.timings.duration, status: response.status, error: response.error || '', sample });
   if (request.login && response.cookies.gopulse_session && response.cookies.gopulse_session[0]) {

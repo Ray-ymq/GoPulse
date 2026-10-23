@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,6 +28,8 @@ for i in range(10):
  start={'schema_version':'gopulse.pt.request.v1','type':'start','request_id':values['LOAD_STAGE_ID']+':'+str(i),'route':'GET /api/v1/posts','category':'read','phase':'measurement','started_at_ms':scenario+1+i*90,'scenario_started_at_ms':scenario}
  print('PT '+json.dumps(start),flush=True)
  print('PT '+json.dumps(dict(start,type='outcome',completed_at_ms=scenario+10+i*90,success=True,http_ms=2)),flush=True)
+start=dict(start,request_id=values['LOAD_STAGE_ID']+':pending',sample={'actor':0,'path':'/api/v1/posts'})
+print('PT '+json.dumps(start),flush=True)
 json.dump({'metrics':{'dropped_iterations':{'values':{'count':3}}}},open(out+'/summary.json','w'))
 `
 	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0700); err != nil {
@@ -56,8 +59,17 @@ json.dump({'metrics':{'dropped_iterations':{'values':{'count':3}}}},open(out+'/s
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Stages) != 1 || !report.Stages[0].BusinessPassed || report.Stages[0].Completed != 10 || report.Stages[0].Dropped != 3 {
+	if len(report.Stages) != 1 || !report.Stages[0].BusinessPassed || report.Stages[0].Completed != 10 || report.Stages[0].Dropped != 3 || report.Stages[0].Canceled != 1 {
 		t.Fatalf("%+v", report)
+	}
+	raw, err := os.ReadFile(filepath.Join(task.Output, "requests.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var canceled Event
+	rows := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if err := json.Unmarshal([]byte(rows[len(rows)-1]), &canceled); err != nil || canceled.Type != "cancel" || canceled.Completed < canceled.Started || string(canceled.Sample) != `{"actor":0,"path":"/api/v1/posts"}` {
+		t.Fatalf("取消事件缺少时间或资源：%s %v", rows[len(rows)-1], err)
 	}
 	replay, err := Replay(taskPath)
 	if err != nil {

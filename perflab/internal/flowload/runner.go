@@ -280,6 +280,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 	for _, e := range starts {
 		e.Type = "cancel"
 		e.Error = "stop_cancellation"
+		e.Completed = float64(time.Now().UnixMilli())
 		accumulator.Add(e)
 		b, _ := json.Marshal(e)
 		_, _ = archive.Write(append(b, '\n'))
