@@ -5,7 +5,8 @@ def registry():
     rows = [
         ('mysql', '标准 MySQL exporter + dbdiag', 'counter/gauge', '指标声明单位', '边界增量/瞬时值；诊断去重', True, 'implemented'),
         ('application', '环境发现的 7 个应用 metrics', 'counter/gauge', '指标声明单位', '按实例分别取边界，禁止混合标签', True, 'implemented'),
-        ('host', '官方 node_exporter', 'counter/gauge', '指标声明单位', '边界增量；缺样不补零', True, 'implemented'),
+        ('host', '官方 node_exporter', 'counter/gauge', '指标声明单位', '边界增量；不采集临时 veth；缺样不补零', True, 'implemented'),
+        ('clock', '墙上时间与单调时钟', 'gauge', 'second', '预检观察 45 秒；运行期差值超过 0.1 秒立即停压', True, 'implemented'),
         ('container', '标准 container-exporter', 'counter/gauge', 'usec/byte/count', '5 秒差分及配额核验', True, 'implemented'),
         ('rabbitmq', 'rabbitmq_prometheus', 'gauge', 'message', '队列 ready/unacked 总和', True, 'implemented'),
         ('redis', 'Redis INFO stats', 'counter', 'command/count', '保留原始值；仅基础状态', True, 'partial'),

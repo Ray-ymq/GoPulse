@@ -2,14 +2,30 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from flow.audit import parse_events
-from flow.observe import recovered
+from flow.observe import Observation, recovered
 from flow.sample import resource, parse_rabbitmq
 from flow.diagnose import check_scene
 from diagnostics.metrics import parse_metrics, summarize_source
 
 
 class ObservationTests(unittest.TestCase):
+    def test_clock_steps_abort_but_scheduling_delays_do_not(self):
+        for wall, monotonic, fails in [(105, 15, False), (105.8, 15, True), (104.2, 15, True)]:
+            with self.subTest(wall=wall), tempfile.TemporaryDirectory() as tmp:
+                with patch('flow.observe.time.time', return_value=100), patch('flow.observe.time.monotonic', return_value=10):
+                    observation = Observation(tmp, tmp, {})
+                with patch('flow.observe.time.time', return_value=wall), patch('flow.observe.time.monotonic', return_value=monotonic):
+                    if fails:
+                        with self.assertRaisesRegex(RuntimeError, '系统时间跳变'):
+                            observation.check()
+                        error = json.loads((Path(tmp) / 'clock-error.json').read_text())
+                        self.assertEqual(error['reason'], 'host_clock_discontinuity')
+                    else:
+                        observation.check()
+                        self.assertFalse((Path(tmp) / 'clock-error.json').exists())
+
     def test_event_pairing(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'events.jsonl'

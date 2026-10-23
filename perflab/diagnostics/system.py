@@ -5,5 +5,6 @@ NODE_COLLECTORS = ('cpu', 'meminfo', 'loadavg', 'diskstats', 'filesystem', 'netd
 def node_command(binary, port):
     return [str(binary), f'--web.listen-address=127.0.0.1:{port}', '--collector.disable-defaults',
             '--web.disable-exporter-metrics',
+            '--collector.netdev.device-exclude=^veth[0-9a-f]+$',
             '--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/user|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)'] + [
                 '--collector.' + name for name in NODE_COLLECTORS]

@@ -21,6 +21,7 @@ class Observation:
         self.expected = expected
         self.diagnostics = self.sampler = None
         self.started = time.time()
+        self.clock = (self.started, time.monotonic())
 
     def start(self):
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -42,6 +43,15 @@ class Observation:
             raise
 
     def check(self):
+        current = (time.time(), time.monotonic())
+        wall_elapsed = current[0] - self.clock[0]
+        monotonic_elapsed = current[1] - self.clock[1]
+        if abs(wall_elapsed - monotonic_elapsed) > .1:
+            write_json(self.directory / 'clock-error.json', {
+                'reason': 'host_clock_discontinuity', 'wall_epoch': current[0],
+                'wall_elapsed_seconds': wall_elapsed, 'monotonic_elapsed_seconds': monotonic_elapsed})
+            raise RuntimeError('系统时间跳变，无法继续使用当前统计窗口')
+        self.clock = current
         error = (self.sampler.error if self.sampler else None) or (self.diagnostics.error if self.diagnostics else None)
         if error:
             raise RuntimeError('必需观测失败：' + str(error))
@@ -135,7 +145,7 @@ def precheck(preparation):
     output = Path(preparation) / ('precheck-' + secrets.token_hex(4))
     observation = Observation(preparation, output, load()).start()
     try:
-        deadline = time.monotonic() + 11
+        deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
             observation.check()
             time.sleep(.1)
