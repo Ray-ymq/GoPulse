@@ -1,4 +1,5 @@
 import http from 'k6/http';
+import { sleep } from 'k6';
 import exec from 'k6/execution';
 import { SharedArray } from 'k6/data';
 import { createOperation, routeTemplates } from '../k6/requests.mjs';
@@ -28,14 +29,23 @@ function emit(event) { console.log(`PT ${JSON.stringify({ schema_version: 'gopul
 export function setup() {
   const sessions = [];
   for (let index = 0; index < vus; index += 1) {
-    const response = http.post(`${base}/api/v1/auth/login`, JSON.stringify({ username: credentialUsers[index].username, password }),
-      { timeout: '5s', headers: { 'Content-Type': 'application/json' }, tags: { phase: 'setup' } });
-    const cookie = response.cookies.gopulse_session && response.cookies.gopulse_session[0];
-    if (response.status !== 200 || !cookie || !cookie.value) {
-      emit({ type: 'fatal', phase: 'setup', error: 'login_failed' });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const common = { request_id: `${__ENV.LOAD_STAGE_ID}:setup:${index}:${attempt}`,
+        route: 'POST /api/v1/auth/login', category: 'identity_session', phase: 'setup',
+        started_at_ms: Date.now(), sample: { actor: index, path: '/api/v1/auth/login' } };
+      emit({ type: 'start', ...common });
+      const response = http.post(`${base}/api/v1/auth/login`, JSON.stringify({ username: credentialUsers[index].username, password }),
+        { timeout: '5s', headers: { 'Content-Type': 'application/json' }, tags: { phase: 'setup' } });
+      const cookie = response.cookies.gopulse_session && response.cookies.gopulse_session[0];
+      const success = response.status === 200 && cookie && cookie.value;
+      emit({ type: 'outcome', ...common, completed_at_ms: Date.now(), success: Boolean(success),
+        status: response.status, error: response.error || '', http_ms: response.timings.duration });
+      if (success) { sessions.push(cookie.value); break; }
+      if (attempt < 3 && (response.status === 0 || response.status >= 500)) { sleep(attempt); continue; }
+      emit({ type: 'fatal', phase: 'setup', error: 'login_failed', status: response.status,
+        error_code: response.error_code, transport_error: response.error || '', http_ms: response.timings.duration });
       exec.test.abort('登录准备失败');
     }
-    sessions.push(cookie.value);
   }
   return { sessions };
 }

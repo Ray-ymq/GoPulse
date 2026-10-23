@@ -189,6 +189,8 @@ def build(directory, preparation):
                     event = json.loads(line)
                     if event['schema_version'] != 'gopulse.pt.request.v1':
                         raise ValueError('事件版本无效')
+                    if event.get('phase') == 'setup':
+                        continue
                     key = event['request_id']
                     if event['type'] == 'start':
                         if key in pending:

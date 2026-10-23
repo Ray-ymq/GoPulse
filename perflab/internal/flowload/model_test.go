@@ -9,6 +9,9 @@ func TestFailureWindow(t *testing.T) {
 			w.Events = append(w.Events, Event{Type: "outcome", Completed: 10500, Success: i >= failed})
 		}
 		w.Events = append(w.Events, Event{Type: "cancel", Completed: 10500, Success: false})
+		for i := 0; i < 100; i++ {
+			w.Events = append(w.Events, Event{Type: "outcome", Phase: "setup", Completed: 10500, Success: false})
+		}
 		if stop, rate := w.Stop(10999); stop || rate != nil {
 			t.Fatal("未满窗口")
 		}
@@ -20,6 +23,27 @@ func TestFailureWindow(t *testing.T) {
 	w := Window{Start: 1000}
 	if stop, rate := w.Stop(12000); stop || rate != nil {
 		t.Fatal("无完成请求")
+	}
+}
+
+func TestSetupStatisticsDoNotAffectBusiness(t *testing.T) {
+	a := Accumulator{Stage: Stage{Name: "test", Target: 1, Measurement: 10}, Scenario: 1000}
+	for i := 0; i < 3; i++ {
+		a.Add(Event{Type: "start", Phase: "setup"})
+	}
+	a.Add(Event{Type: "outcome", Phase: "setup", Completed: 2000, Success: false, HTTPMS: 5000})
+	a.Add(Event{Type: "outcome", Phase: "setup", Completed: 3000, Success: true, HTTPMS: 5000})
+	a.Add(Event{Type: "cancel", Phase: "setup"})
+	for i := 0; i < 10; i++ {
+		a.Add(Event{Type: "start", Phase: "measurement"})
+		a.Add(Event{Type: "outcome", Phase: "measurement", Completed: 1001 + float64(i)*1000, Success: true, HTTPMS: 10})
+	}
+	r := a.Result(11000, "", 0, 0)
+	if !r.BusinessPassed || r.Started != 10 || r.Completed != 10 || r.Canceled != 0 || r.ActualRPS != 1 || r.P95 != 10 {
+		t.Fatalf("登录准备影响了业务统计：%+v", r)
+	}
+	if r.Setup == nil || *r.Setup != (SetupStats{Started: 3, Completed: 2, Failed: 1, Canceled: 1}) {
+		t.Fatalf("登录准备统计不匹配：%+v", r.Setup)
 	}
 }
 func TestEvaluateCompletionBoundaries(t *testing.T) {

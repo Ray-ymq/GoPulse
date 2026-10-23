@@ -172,9 +172,25 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 				requestStop("invalid_events")
 				continue
 			}
+			if event.Phase == "setup" {
+				if event.Type == "start" {
+					starts[event.RequestID] = event
+				}
+				if event.Type == "outcome" {
+					if _, ok := starts[event.RequestID]; !ok {
+						requestStop("orphan_outcome")
+					}
+					delete(starts, event.RequestID)
+				}
+				accumulator.Add(event)
+				b, _ := json.Marshal(event)
+				_, _ = archive.Write(append(b, '\n'))
+				continue
+			}
 			if scenario == 0 {
 				scenario = event.ScenarioStarted
 				accumulator.Scenario = scenario
+				lastCompletion = time.Now()
 				windows["warmup"] = &Window{Start: scenario}
 				windows["measurement"] = &Window{Start: scenario + float64(stage.Warmup)*1000}
 			}
@@ -256,7 +272,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 		}
 		if e.Type == "start" {
 			starts[e.RequestID] = e
-			if scenario == 0 {
+			if scenario == 0 && e.Phase != "setup" {
 				scenario = e.ScenarioStarted
 				accumulator.Scenario = scenario
 			}

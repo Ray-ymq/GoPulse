@@ -61,7 +61,7 @@ func (w *Window) Stop(now float64) (bool, *float64) {
 	failures, total := 0, 0
 	retained := w.Events[:0]
 	for _, e := range w.Events {
-		if e.Type == "outcome" && e.Completed > now-10000 && e.Completed <= now {
+		if e.Type == "outcome" && e.Phase != "setup" && e.Completed > now-10000 && e.Completed <= now {
 			retained = append(retained, e)
 			total++
 			if !e.Success {
@@ -78,25 +78,33 @@ func (w *Window) Stop(now float64) (bool, *float64) {
 }
 
 type Result struct {
-	Scenario           float64  `json:"scenario_started_ms"`
-	ObservedEnd        float64  `json:"observed_end_ms"`
-	Backlog            float64  `json:"backlog"`
-	Name               string   `json:"name"`
-	Target             int      `json:"target_rps"`
-	BusinessPassed     bool     `json:"business_passed"`
-	ExecutionCompleted bool     `json:"execution_completed"`
-	StopReason         string   `json:"stop_reason,omitempty"`
-	ActualRPS          float64  `json:"actual_rps"`
-	SuccessRPS         float64  `json:"success_rps"`
-	FailureRate        *float64 `json:"failure_rate"`
-	P95                float64  `json:"p95_ms"`
-	P99                float64  `json:"p99_ms"`
-	Started            int      `json:"started"`
-	Completed          int      `json:"completed"`
-	Canceled           int      `json:"canceled"`
-	Dropped            int      `json:"dropped_iterations"`
-	Begin              float64  `json:"begin_ms"`
-	End                float64  `json:"end_ms"`
+	Scenario           float64     `json:"scenario_started_ms"`
+	ObservedEnd        float64     `json:"observed_end_ms"`
+	Backlog            float64     `json:"backlog"`
+	Name               string      `json:"name"`
+	Target             int         `json:"target_rps"`
+	BusinessPassed     bool        `json:"business_passed"`
+	ExecutionCompleted bool        `json:"execution_completed"`
+	StopReason         string      `json:"stop_reason,omitempty"`
+	ActualRPS          float64     `json:"actual_rps"`
+	SuccessRPS         float64     `json:"success_rps"`
+	FailureRate        *float64    `json:"failure_rate"`
+	P95                float64     `json:"p95_ms"`
+	P99                float64     `json:"p99_ms"`
+	Started            int         `json:"started"`
+	Completed          int         `json:"completed"`
+	Canceled           int         `json:"canceled"`
+	Dropped            int         `json:"dropped_iterations"`
+	Begin              float64     `json:"begin_ms"`
+	End                float64     `json:"end_ms"`
+	Setup              *SetupStats `json:"setup,omitempty"`
+}
+
+type SetupStats struct {
+	Started   int `json:"started"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	Canceled  int `json:"canceled"`
 }
 
 type Accumulator struct {
@@ -107,9 +115,24 @@ type Accumulator struct {
 	Canceled  int
 	Success   int
 	Latencies []float64
+	Setup     SetupStats
 }
 
 func (a *Accumulator) Add(e Event) {
+	if e.Phase == "setup" {
+		switch e.Type {
+		case "start":
+			a.Setup.Started++
+		case "cancel":
+			a.Setup.Canceled++
+		case "outcome":
+			a.Setup.Completed++
+			if !e.Success {
+				a.Setup.Failed++
+			}
+		}
+		return
+	}
 	if e.Type == "start" {
 		a.Started++
 		return
@@ -136,6 +159,10 @@ func (a *Accumulator) Result(end float64, reason string, code, dropped int) Resu
 	r := Result{Name: stage.Name, Target: stage.Target, StopReason: reason, Dropped: dropped, Begin: a.Scenario + float64(stage.Warmup)*1000,
 		Started: a.Started, Canceled: a.Canceled, Completed: len(a.Latencies), Scenario: a.Scenario, ObservedEnd: math.Min(end, a.Scenario+float64(stage.Warmup+stage.Measurement)*1000)}
 	r.End = math.Min(end, r.Begin+float64(stage.Measurement)*1000)
+	if a.Setup.Started > 0 {
+		value := a.Setup
+		r.Setup = &value
+	}
 	seconds := math.Max(0, (r.End-r.Begin)/1000)
 	if seconds > 0 {
 		r.ActualRPS = float64(r.Completed) / seconds

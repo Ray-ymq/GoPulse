@@ -13,7 +13,9 @@ class AuditTests(unittest.TestCase):
             (directory / 'corpus.json').write_text(json.dumps({'users':[{'id':7}]}))
             event = {'schema_version':'gopulse.pt.request.v1','type':'start','request_id':'fixture:1',
                      'route':'POST /api/v1/posts','category':'content_write','phase':'measurement','started_at_ms':1000}
-            events = [event]
+            setup = dict(event, request_id='fixture:setup', category='identity_session',
+                         route='POST /api/v1/auth/login', phase='setup', started_at_ms=1)
+            events = [setup, dict(setup, type='outcome', completed_at_ms=100, success=False), event]
             if not unfinished:
                 events.append(dict(event, type='outcome',completed_at_ms=2000,success=True,
                                    sample={'actor':0,'path':'/api/v1/posts','response_id':12,'expected':{'title':'title','content':'content'}}))
@@ -29,7 +31,10 @@ class AuditTests(unittest.TestCase):
                 return build(directory, directory)
 
     def test_confirmed_and_mismatched_write(self):
-        self.assertEqual(self.exercise()['status'], 'passed')
+        result = self.exercise()
+        self.assertEqual(result['status'], 'passed')
+        self.assertEqual(result['completed_requests'], 1)
+        self.assertEqual(result['window'], {'begin_epoch': 1, 'end_epoch': 2})
         self.assertEqual(self.exercise(mismatch=True)['status'], 'failed')
 
     def test_unfinished_and_async_pending(self):

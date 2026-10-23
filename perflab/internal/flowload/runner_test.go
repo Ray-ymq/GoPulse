@@ -24,6 +24,10 @@ for i,arg in enumerate(args):
 out=next(args[i+1][:-len(':/output')] for i,arg in enumerate(args) if arg=='-v' and args[i+1].endswith(':/output'))
 now=time.time()*1000
 scenario=now-1100
+for i in range(2):
+ setup={'schema_version':'gopulse.pt.request.v1','type':'start','request_id':values['LOAD_STAGE_ID']+':setup:'+str(i),'route':'POST /api/v1/auth/login','category':'identity_session','phase':'setup','started_at_ms':scenario-1000+i}
+ print('PT '+json.dumps(setup),flush=True)
+ print('PT '+json.dumps(dict(setup,type='outcome',completed_at_ms=scenario-500+i,success=bool(i),http_ms=500,status=200 if i else 503)),flush=True)
 for i in range(10):
  start={'schema_version':'gopulse.pt.request.v1','type':'start','request_id':values['LOAD_STAGE_ID']+':'+str(i),'route':'GET /api/v1/posts','category':'read','phase':'measurement','started_at_ms':scenario+1+i*90,'scenario_started_at_ms':scenario}
  print('PT '+json.dumps(start),flush=True)
@@ -61,6 +65,9 @@ json.dump({'metrics':{'dropped_iterations':{'values':{'count':3}}}},open(out+'/s
 	}
 	if len(report.Stages) != 1 || !report.Stages[0].BusinessPassed || report.Stages[0].Completed != 10 || report.Stages[0].Dropped != 3 || report.Stages[0].Canceled != 1 {
 		t.Fatalf("%+v", report)
+	}
+	if got := report.Stages[0].Setup; got == nil || *got != (SetupStats{Started: 2, Completed: 2, Failed: 1}) {
+		t.Fatalf("登录准备统计不匹配：%+v", got)
 	}
 	raw, err := os.ReadFile(filepath.Join(task.Output, "requests.jsonl"))
 	if err != nil {

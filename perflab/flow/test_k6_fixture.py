@@ -15,9 +15,17 @@ from flow.config import ROOT, load
 class K6FixtureTests(unittest.TestCase):
     def test_real_script_records_start_and_outcome_without_credentials(self):
         class Handler(BaseHTTPRequestHandler):
+            failures_remaining = 1
+            failure_status = None
             def log_message(self, *args): pass
             def do_POST(self):
                 self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                if Handler.failures_remaining or Handler.failure_status:
+                    if Handler.failures_remaining:
+                        Handler.failures_remaining -= 1
+                    self.send_response(Handler.failure_status or 503)
+                    self.end_headers()
+                    return
                 self.send_response(200)
                 self.send_header('Set-Cookie', 'gopulse_session=fixture-session; Path=/')
                 self.end_headers()
@@ -55,11 +63,29 @@ class K6FixtureTests(unittest.TestCase):
             events = [json.loads(line[line.index('PT {')+3:]) for line in combined.splitlines() if 'PT {' in line]
             starts = {e['request_id'] for e in events if e['type'] == 'start'}
             outcomes = {e['request_id'] for e in events if e['type'] == 'outcome'}
-            self.assertGreaterEqual(len(outcomes), 57)
+            self.assertGreaterEqual(len(outcomes), 570)
             self.assertEqual(starts, outcomes)
-            self.assertTrue(all(e['success'] for e in events if e['type'] == 'outcome'))
+            setup = [e for e in events if e['type'] == 'outcome' and e['phase'] == 'setup']
+            self.assertEqual(len(setup), 513)
+            self.assertEqual(sum(not e['success'] for e in setup), 1)
+            self.assertTrue(all(e['success'] for e in events if e['type'] == 'outcome' and e['phase'] != 'setup'))
             self.assertTrue(all(e['sample']['path'] and isinstance(e['sample']['actor'], int)
                                 for e in events if e['type'] == 'start'))
             self.assertNotIn('fixture-private-password', combined)
             self.assertNotIn('fixture-session', combined)
             self.assertTrue((path / 'output/summary.json').exists())
+            for status, attempts in ((503, 3), (401, 1), (403, 1), (429, 1)):
+                with self.subTest(status=status):
+                    Handler.failure_status = status
+                    failed = subprocess.run(command, capture_output=True, text=True, timeout=45)
+                    self.assertNotEqual(failed.returncode, 0)
+                    combined = failed.stdout + failed.stderr
+                    events = [json.loads(line[line.index('PT {')+3:]) for line in combined.splitlines() if 'PT {' in line]
+                    fatal = next(e for e in events if e['type'] == 'fatal')
+                    self.assertEqual(fatal['error'], 'login_failed')
+                    self.assertEqual(fatal['status'], status)
+                    self.assertIn('error_code', fatal)
+                    self.assertEqual(len([e for e in events if e['type'] == 'outcome']), attempts)
+                    self.assertTrue(all(e['phase'] == 'setup' for e in events))
+                    self.assertNotIn('fixture-private-password', combined)
+                    self.assertNotIn('fixture-session', combined)
