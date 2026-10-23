@@ -12,8 +12,8 @@ import (
 
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"github.com/Ray-ymq/GoPulse/exporters/kafka/internal/collector"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kversion"
 )
@@ -26,7 +26,7 @@ type Config struct {
 var ErrConfig = errors.New("invalid_configuration")
 
 func Load() (Config, error) {
-	if err := componentmetrics.ValidateRuntimeEnvironment("kafka-exporter"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("kafka-exporter"); err != nil {
 		return Config{}, err
 	}
 

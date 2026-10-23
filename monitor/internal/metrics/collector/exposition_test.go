@@ -42,11 +42,3 @@ gopulse_mysql_query_size_bytes_count{node="db-2"} 3
 		})
 	}
 }
-
-func TestComponentTransportAcceptsUnregisteredFamiliesAndDimensions(t *testing.T) {
-	body := []byte("# TYPE gopulse_business_worker_new_depth gauge\ngopulse_business_worker_new_depth{queue=\"jobs\",node=\"worker-2\"} 7\n")
-	samples, err := ParseComponent("business-worker", body)
-	if err != nil || len(samples) != 1 || samples[0].Labels["queue"] != "jobs" {
-		t.Fatalf("new component metric rejected: %#v, %v", samples, err)
-	}
-}

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
@@ -295,11 +295,11 @@ func KafkaProbe(brokers []string) func(context.Context) error {
 }
 
 func TargetsFromEnvironment() ([]Target, error) {
-	mode := componentmetrics.Mode()
+	mode := runtimekit.Mode()
 	ports := map[string]string{"backend": "19101", "business-worker": "19102", "search-indexer": "19103", "monitor": "19104", "marshaller": "19106"}
 	targets := make([]Target, 0, 16)
-	for _, component := range componentmetrics.Components {
-		endpoints, err := componentmetrics.ReplicaEndpoints(component)
+	for _, component := range runtimekit.Components {
+		endpoints, err := runtimekit.ReplicaEndpoints(component)
 		if err != nil {
 			return nil, err
 		}

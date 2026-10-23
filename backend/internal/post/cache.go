@@ -121,3 +121,12 @@ func (projection PublicProjection) post(likedByMe bool) Post {
 		LikedByMe:       likedByMe,
 	}
 }
+
+// ViewerProjection remains request scoped; relationship values never enter Body.
+type ViewerProjection struct {
+	DynamicProjection
+	Liked, Following, Bookmarked bool
+}
+type ViewerProjectionRepository interface {
+	FindViewerProjection(context.Context, ReadContext, uint64) (ViewerProjection, error)
+}

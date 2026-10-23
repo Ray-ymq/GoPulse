@@ -12,10 +12,10 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -142,7 +142,7 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 		if committed {
 			result = "success"
 		}
-		if metrics := componentmetrics.BackendActive(); metrics != nil {
+		if metrics := instrumentation.BackendActive(); metrics != nil {
 			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
 		}
 		if !committed {
@@ -308,6 +308,12 @@ func (repository *MySQLRepository) CreateWithCommand(ctx context.Context, author
 	if _, err := insertOutbox(ctx, transaction, repository.outbox, event); err != nil {
 		return CreateResult{}, errors.New("create v2 post outbox event")
 	}
+	if err := repository.state.AccountPostCreateTx(ctx, transaction, reservation); err != nil {
+		if errors.Is(err, businessstate.ErrBudgetExceeded) {
+			return CreateResult{}, ErrBusinessAsyncBacklog
+		}
+		return CreateResult{}, err
+	}
 	if err := transaction.Commit(); err != nil {
 		if request.IdempotencyKey == "" {
 			return CreateResult{}, ErrCommandOutcomeUnknown
@@ -389,6 +395,53 @@ func (repository *MySQLRepository) CommandResult(ctx context.Context, userID uin
 	return repository.replayResult(readContext, userID, command, true, nil), nil
 }
 
+// mutationEpoch reads the activation boundary on the fact transaction.
+func (repository *MySQLRepository) mutationEpoch(ctx context.Context, tx *sql.Tx) (string, error) {
+	if repository.state == nil {
+		return "", nil
+	}
+	environment, err := repository.state.LockCurrentTx(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	if environment.Status != businessstate.StatusReady || environment.Mode != businessstate.ModeV2 {
+		return "", businessstate.ErrNotReady
+	}
+	return environment.DataEpoch, nil
+}
+
+func (repository *MySQLRepository) insertSearchMutation(ctx context.Context, tx *sql.Tx, event bus.Envelope, epoch string) (uint64, error) {
+	var requirement businessstate.Requirement
+	if epoch != "" {
+		var err error
+		event, err = event.WithDataEpoch(epoch)
+		if err != nil {
+			return 0, err
+		}
+		setCommandTrace(&event, ctx)
+		payload, err := bus.Encode(event)
+		if err != nil {
+			return 0, err
+		}
+		requirement = businessstate.Requirement{
+			DataEpoch: epoch, EventID: event.EventID, Consumer: businessstate.ConsumerSearch,
+			RoutingContractRevision: businessstate.SearchRoutingContractV1,
+			ApplicableObjectVersion: event.ContentRevision, PayloadBytes: len(payload),
+		}
+	}
+	outboxID, err := insertOutbox(ctx, tx, repository.outbox, event)
+	if err != nil {
+		return 0, err
+	}
+	// 先写 Outbox 和需求，再取得预算行锁，使后续持锁区间只覆盖预算检查、扣账和提交。
+	if epoch != "" {
+		if err := repository.state.RegisterRequirementTx(ctx, tx, requirement); err != nil {
+			return 0, err
+		}
+	}
+	return outboxID, nil
+}
+
 func insertOutbox(ctx context.Context, executor outbox.Executor, writer outbox.Writer, envelope bus.Envelope) (uint64, error) {
 	if metadataWriter, ok := writer.(outbox.MetadataWriter); ok {
 		return metadataWriter.InsertWithMetadata(ctx, executor, envelope)
@@ -436,25 +489,37 @@ func (repository *MySQLRepository) List(ctx context.Context, viewerID uint64, op
 
 func listStatement(viewerID uint64, options ListOptions) (string, []any) {
 	timestamp := "p.created_at"
-	join := "FORCE INDEX (idx_posts_created_at_id)"
+	join := ""
+	if !options.Bookmarks && !options.Following && options.AuthorID == 0 {
+		join = "FORCE INDEX (idx_posts_created_at_id)"
+	}
 	arguments := []any{viewerID, viewerID, viewerID}
 	if options.Bookmarks {
 		timestamp = "b.created_at"
 		join = "INNER JOIN post_bookmarks b ON b.post_id = p.id AND b.user_id = ?"
 		arguments = append(arguments, viewerID)
 	}
-	query := fmt.Sprintf(postListReadSelect, timestamp, join) + " WHERE (? = 0 OR p.author_id = ?)"
-	arguments = append(arguments, options.AuthorID, options.AuthorID)
 	if options.Following {
-		query += " AND EXISTS(SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = p.author_id)"
+		join += " INNER JOIN (SELECT followed_id FROM user_follows WHERE follower_id=?) AS feed_authors ON feed_authors.followed_id=p.author_id"
 		arguments = append(arguments, viewerID)
 	}
+	filter := " WHERE 1=1"
+	if options.AuthorID != 0 {
+		filter += " AND p.author_id = ?"
+		arguments = append(arguments, options.AuthorID)
+	}
 	if options.Cursor != nil {
-		query += fmt.Sprintf(" AND (%s < ? OR (%s = ? AND p.id < ?))", timestamp, timestamp)
+		filter += fmt.Sprintf(" AND (%s < ? OR (%s = ? AND p.id < ?))", timestamp, timestamp)
 		arguments = append(arguments, options.Cursor.CreatedAt, options.Cursor.CreatedAt, options.Cursor.ID)
 	}
-	query += " ORDER BY " + timestamp + " DESC, p.id DESC LIMIT ?"
+	order := " ORDER BY " + timestamp + " DESC, p.id DESC"
 	arguments = append(arguments, options.Limit+1)
+	if options.Following && !options.Bookmarks {
+		page := "SELECT p.id FROM posts AS p " + join + filter + order + " LIMIT ?"
+		query := fmt.Sprintf(postListReadSelect, timestamp, "INNER JOIN ("+page+") AS feed_page ON feed_page.id=p.id") + order
+		return query, arguments
+	}
+	query := fmt.Sprintf(postListReadSelect, timestamp, join) + filter + order + " LIMIT ?"
 	return query, arguments
 }
 
@@ -506,21 +571,25 @@ func (repository *MySQLRepository) FindBody(ctx context.Context, key BodyKey) (b
 	if repository == nil || repository.database == nil || !key.Valid() {
 		return Body{}, errors.New("find post body: invalid argument")
 	}
-	if repository.state != nil {
-		current, err := repository.state.CurrentEpoch(ctx)
-		if err != nil {
-			return Body{}, fmt.Errorf("find post body epoch: %w", err)
-		}
-		if current != key.Epoch {
-			return Body{}, ErrReadContextChanged
-		}
-	}
+	var epoch, status string
+	var id, author, revision sql.NullInt64
+	var title, content sql.NullString
+	var created, updated, edited sql.NullTime
 	err = repository.database.QueryRowContext(ctx, `
-SELECT id, author_id, title, content, created_at, updated_at, edited_at, content_revision
-FROM posts WHERE id=? AND content_revision=?`, key.PostID, key.ContentRevision).Scan(
-		&body.ID, &body.AuthorID, &body.Title, &body.Content, &body.CreatedAt, &body.UpdatedAt, &body.EditedAt, &body.ContentRevision,
+SELECT e.data_epoch, e.status, p.id, p.author_id, p.title, p.content,
+       p.created_at, p.updated_at, p.edited_at, p.content_revision
+FROM business_environment AS e
+LEFT JOIN posts AS p ON p.id=? AND p.content_revision=?
+WHERE e.singleton=1`, key.PostID, key.ContentRevision).Scan(
+		&epoch, &status, &id, &author, &title, &content, &created, &updated, &edited, &revision,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
+	if err != nil {
+		return Body{}, fmt.Errorf("find post body: %w", err)
+	}
+	if epoch != key.Epoch || status != businessstate.StatusReady {
+		return Body{}, ErrReadContextChanged
+	}
+	if !id.Valid {
 		var currentRevision uint64
 		checkErr := repository.database.QueryRowContext(ctx, `SELECT content_revision FROM posts WHERE id=?`, key.PostID).Scan(&currentRevision)
 		if errors.Is(checkErr, sql.ErrNoRows) {
@@ -529,13 +598,12 @@ FROM posts WHERE id=? AND content_revision=?`, key.PostID, key.ContentRevision).
 		if checkErr != nil {
 			return Body{}, fmt.Errorf("find post body revision: %w", checkErr)
 		}
-		if currentRevision != key.ContentRevision {
-			return Body{}, ErrReadContextChanged
-		}
-		return Body{}, ErrNotFound
+		return Body{}, ErrReadContextChanged
 	}
-	if err != nil {
-		return Body{}, fmt.Errorf("find post body: %w", err)
+	body = Body{ID: uint64(id.Int64), AuthorID: uint64(author.Int64), Title: title.String, Content: content.String,
+		CreatedAt: created.Time, UpdatedAt: updated.Time, ContentRevision: uint64(revision.Int64)}
+	if edited.Valid {
+		body.EditedAt = &edited.Time
 	}
 	if !body.ValidForKey(key) {
 		return Body{}, ErrReadContextChanged
@@ -570,7 +638,7 @@ WHERE p.id=? AND p.author_id=?`, postID, authorID).Scan(
 }
 
 func observePostDB(operation string, err error, elapsed time.Duration) {
-	if metrics := componentmetrics.BackendActive(); metrics != nil {
+	if metrics := instrumentation.BackendActive(); metrics != nil {
 		result := "success"
 		if errors.Is(err, ErrReadContextChanged) {
 			result = "version_changed"
@@ -862,4 +930,32 @@ func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, 
 		records[i].BookmarkedByMe = found[records[i].ID]
 	}
 	return nil
+}
+
+// FindViewerProjection rechecks the authoritative key in the same SQL snapshot
+// as counts, author data and viewer relationships.
+func (repository *MySQLRepository) FindViewerProjection(ctx context.Context, expected ReadContext, viewer uint64) (projection ViewerProjection, err error) {
+	started := time.Now()
+	defer func() { observePostDB("post_dynamic", err, time.Since(started)) }()
+	var epoch, status string
+	var author, revision uint64
+	err = repository.database.QueryRowContext(ctx, `
+ SELECT e.data_epoch,e.status,p.author_id,p.content_revision,u.id,u.username,u.display_name,
+ (SELECT COUNT(*) FROM comments c WHERE c.post_id=p.id),
+ (SELECT COUNT(*) FROM post_likes l WHERE l.post_id=p.id),
+ EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.user_id=?),
+ EXISTS(SELECT 1 FROM user_follows f WHERE f.followed_id=p.author_id AND f.follower_id=?),
+ EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id=p.id AND b.user_id=?)
+ FROM business_environment e JOIN posts p ON p.id=? JOIN users u ON u.id=p.author_id WHERE e.singleton=1`,
+		viewer, viewer, viewer, expected.PostID).Scan(&epoch, &status, &author, &revision, &projection.Author.ID, &projection.Author.Username, &projection.Author.DisplayName, &projection.CommentCount, &projection.LikeCount, &projection.Liked, &projection.Following, &projection.Bookmarked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ViewerProjection{}, ErrNotFound
+	}
+	if err != nil {
+		return ViewerProjection{}, fmt.Errorf("find viewer projection: %w", err)
+	}
+	if epoch != expected.Epoch || status != businessstate.StatusReady || author != expected.AuthorID || revision != expected.ContentRevision {
+		return ViewerProjection{}, ErrReadContextChanged
+	}
+	return projection, nil
 }

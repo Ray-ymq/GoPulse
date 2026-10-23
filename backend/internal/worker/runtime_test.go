@@ -132,3 +132,65 @@ func TestSecondaryPublishDoesNotAcceptPreviousConfirmation(t *testing.T) {
 		}
 	}
 }
+
+type orderedProcessor struct {
+	started chan uint64
+	gate    <-chan struct{}
+}
+
+func (p *orderedProcessor) Process(ctx context.Context, e bus.Envelope) error {
+	p.started <- e.ContentRevision
+	if e.ContentRevision == 1 {
+		select {
+		case <-p.gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func TestConsumerRunsDifferentPostsWhileOrderingSamePost(t *testing.T) {
+	gate := make(chan struct{})
+	processor := &orderedProcessor{started: make(chan uint64, 3), gate: gate}
+	handler := newTestHandler(t, processor, &publisherFake{}, nil)
+	deliveries := make(chan amqp.Delivery, 3)
+	for i := uint64(1); i <= 3; i++ {
+		delivery, _ := validDelivery(t, false)
+		event, _ := bus.Decode(delivery.Body)
+		event.ContentRevision = i
+		if i == 3 {
+			event.PostID++
+		}
+		delivery.Body, _ = bus.Encode(event)
+		deliveries <- delivery
+	}
+	session := &amqpSession{deliveries: deliveries, connectionClosed: make(chan *amqp.Error), channelClosed: make(chan *amqp.Error)}
+	runtime := &Runtime{options: RuntimeOptions{Prefetch: 3, ShutdownTimeout: time.Second}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- runtime.consumeSession(ctx, session, handler) }()
+	first := <-processor.started
+	second := <-processor.started
+	if (first != 1 && second != 1) || (first != 3 && second != 3) {
+		t.Fatalf("started=%d,%d", first, second)
+	}
+	select {
+	case next := <-processor.started:
+		t.Fatalf("same post overtook first: %d", next)
+	default:
+	}
+	close(gate)
+	select {
+	case next := <-processor.started:
+		if next != 2 {
+			t.Fatalf("next=%d", next)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued post stalled")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: GoPulse
+    folder: GoPulse
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards

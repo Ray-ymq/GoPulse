@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"math"
 	"net/url"
@@ -33,7 +33,7 @@ func (c *Client) AlertPoints(ctx context.Context, metric string, labels map[stri
 	}
 	expression += "}"
 	form := url.Values{"match[]": {expression}, "start": {formatTime(from)}, "end": {formatTime(to)}, "reduce_mem_usage": {"1"}}
-	req, err := componentmetrics.NewRequest(ctx, "POST", strings.TrimSuffix(c.endpoint, "/query_range")+"/export", strings.NewReader(form.Encode()))
+	req, err := runtimekit.NewRequest(ctx, "POST", strings.TrimSuffix(c.endpoint, "/query_range")+"/export", strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}

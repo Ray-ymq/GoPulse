@@ -2,7 +2,8 @@ package middleware
 
 import (
 	"errors"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"log/slog"
 	stdhttp "net/http"
 	"time"
@@ -24,7 +25,7 @@ const (
 
 type RequestIDGenerator func() (string, error)
 
-func RandomRequestID() (string, error) { return componentmetrics.NewRequestID() }
+func RandomRequestID() (string, error) { return runtimekit.NewRequestID() }
 
 func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc {
 	if generate == nil {
@@ -33,7 +34,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 	return func(c *gin.Context) {
 		traceContext, invalidTraceContext := tracing.ExtractHTTPWithStatus(c.Request.Context(), c.Request.Header)
 		if invalidTraceContext {
-			if metrics := componentmetrics.BackendActive(); metrics != nil {
+			if metrics := instrumentation.BackendActive(); metrics != nil {
 				metrics.ObserveTraceContextInvalid()
 			}
 		}
@@ -41,7 +42,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 		defer span.End()
 		requestID := c.Request.Header.Get(requestIDHeader)
 		var err error
-		if len(c.Request.Header.Values(requestIDHeader)) != 1 || !componentmetrics.ValidRequestID(requestID) {
+		if len(c.Request.Header.Values(requestIDHeader)) != 1 || !runtimekit.ValidRequestID(requestID) {
 			requestID, err = generate()
 		}
 		if err != nil || requestID == "" {
@@ -52,7 +53,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 		}
 
 		requestLogger := logging.WithTrace(logger.With(slog.String("request_id", requestID)), traceContext)
-		c.Request = c.Request.WithContext(logging.WithContext(componentmetrics.WithRequestID(traceContext, requestID), requestLogger))
+		c.Request = c.Request.WithContext(logging.WithContext(runtimekit.WithRequestID(traceContext, requestID), requestLogger))
 		c.Header(requestIDHeader, requestID)
 		c.Next()
 		route := c.FullPath()
@@ -68,6 +69,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 }
 
 func Access(logger *slog.Logger) gin.HandlerFunc {
+	overload := &overloadLogs{}
 	return func(c *gin.Context) {
 		switch c.Request.URL.Path {
 		case "/startup", "/live", "/ready", "/health":
@@ -108,6 +110,9 @@ func Access(logger *slog.Logger) gin.HandlerFunc {
 			)
 		}
 
+		if !panicRecovered && status == 503 && hasErrorCode && expectedOverload(errorCode) && !overload.allow(logger, route, errorCode) {
+			return
+		}
 		switch {
 		case panicRecovered || status >= stdhttp.StatusInternalServerError:
 			requestLogger.Error("http request completed", attributes...)

@@ -8,9 +8,9 @@
 
 # Frontend dependencies and build output
 node_modules/
-frontend/node_modules/
-frontend/dist/
-frontend/coverage/
+frontend/*/node_modules/
+frontend/*/dist/
+frontend/*/coverage/
 
 # Backend build and test output
 backend/bin/
@@ -37,14 +37,8 @@ Thumbs.db
 go.work
 go.work.sum
 
-frontend/test-results/
-frontend/playwright-report/
-
-admin-frontend/node_modules/
-admin-frontend/dist/
-admin-frontend/coverage/
-admin-frontend/test-results/
-admin-frontend/playwright-report/
+frontend/*/test-results/
+frontend/*/playwright-report/
 
 # Generated build output
 /dist/

@@ -1,7 +1,5 @@
 package metricquery
 
-import "github.com/Ray-ymq/GoPulse/componentmetrics"
-
 // AlertDefinition exposes only the fixed, exact non-identity selector vocabulary.
 type AlertDefinition struct {
 	Metric   string     `json:"metric"`
@@ -19,18 +17,7 @@ func AlertCatalog() []AlertDefinition {
 		if d.Kind == "counter" {
 			a.Reducers = []string{"increase"}
 		}
-		if componentmetrics.IsComponent(d.Source) {
-			spec, _ := componentmetrics.Catalog(d.Source)
-			for _, f := range spec.Families {
-				if f.Name == d.Metric {
-					if len(f.Keys) > 0 {
-						a.Keys = f.Keys
-						a.Tuples = f.Tuples
-					}
-					break
-				}
-			}
-		} else if len(d.LabelKeys) > 0 && d.label == "" {
+		if len(d.LabelKeys) > 0 && d.label == "" {
 			// Dynamic exporter dimensions (queue, node, command, operation, ...)
 			// do not have a code-owned finite tuple set and therefore are not
 			// exposed as exact alert selectors.

@@ -13,7 +13,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -126,7 +126,7 @@ func TestServiceRoleAdmissionIsolation(t *testing.T) {
 func admissionTestRouter(t *testing.T, limit int) (*gin.Engine, chan struct{}, chan struct{}, context.CancelFunc) {
 	t.Helper()
 	root, cancel := context.WithCancel(context.Background())
-	probes, err := componentmetrics.NewProbes(root, time.Second, time.Second, nil)
+	probes, err := runtimekit.NewProbes(root, time.Second, time.Second, nil)
 	if err != nil {
 		t.Fatalf("NewProbes() error = %v", err)
 	}

@@ -116,7 +116,7 @@ func runWithOptions(cfg config.ReindexConfig, options reindexOptions, logger *sl
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	state, err := businessstate.NewRepository(database, businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements))
+	state, err := businessstate.NewRepository(database, businessstate.WithOpenRequirementsLimit(cfg.BusinessAsyncMaxOpenRequirements), businessstate.WithRetentionLimits(cfg.BusinessAsyncMaxRetainedGroups, cfg.BusinessAsyncMaxRetainedBytes))
 	if err != nil {
 		return errors.New("create business state repository")
 	}

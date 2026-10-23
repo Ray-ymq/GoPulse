@@ -51,7 +51,7 @@ func Prepare(root, output string, environment map[string]string) error {
 			return fmt.Errorf("empty %s Exporter version", source)
 		}
 		input, digestErr := digest.Paths(root, []string{
-			filepath.Join(root, "componentmetrics"),
+			filepath.Join(root, "runtimekit"),
 			filepath.Join(root, "exporters", source),
 		})
 		if digestErr != nil {

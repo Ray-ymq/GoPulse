@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v9"
 )
@@ -78,7 +79,7 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 	if response != nil && response.StatusCode >= 500 {
 		observedErr = errors.New("elasticsearch unavailable")
 	}
-	componentmetrics.Dependency("elasticsearch", observedErr)
+	instrumentation.Dependency("elasticsearch", observedErr)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -88,7 +89,7 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 }
 
 func (client *Elasticsearch) Check(ctx context.Context) error {
-	request, err := componentmetrics.NewRequest(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
+	request, err := runtimekit.NewRequest(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
 	if err != nil {
 		return err
 	}

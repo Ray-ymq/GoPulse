@@ -7,8 +7,8 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"time"
@@ -26,7 +26,7 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 		if committed {
 			result = "success"
 		}
-		if metrics := componentmetrics.BackendActive(); metrics != nil {
+		if metrics := instrumentation.BackendActive(); metrics != nil {
 			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
 		}
 		if !committed {
@@ -37,33 +37,17 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	if !ok || r.outbox == nil {
 		return errors.New("post deletion requires transactional outbox")
 	}
-	// Reindex holds this same lock across snapshot copy and alias switching.
-	// Serialize deletion with rebuilds so an old bulk snapshot cannot resurrect it.
-	if db, ok := r.database.(*sql.DB); ok {
-		conn, err := db.Conn(ctx)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = conn.Close() }()
-		var acquired int
-		if err = conn.QueryRowContext(ctx, "SELECT GET_LOCK('gopulse:post-search-reindex:v1', 10)").Scan(&acquired); err != nil {
-			return err
-		}
-		if acquired != 1 {
-			return errors.New("search rebuild busy; retry deletion")
-		}
-		defer func() {
-			_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('gopulse:post-search-reindex:v1')")
-		}()
-		starter = conn
-	}
 	tx, err := starter.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var owner uint64
-	err = tx.QueryRowContext(ctx, "SELECT author_id FROM posts WHERE id=? FOR UPDATE", id).Scan(&owner)
+	epoch, err := r.mutationEpoch(ctx, tx)
+	if err != nil {
+		return err
+	}
+	var owner, revision uint64
+	err = tx.QueryRowContext(ctx, "SELECT author_id, content_revision FROM posts WHERE id=? FOR UPDATE", id).Scan(&owner, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -72,6 +56,16 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	}
 	if owner != actor {
 		return ErrPermissionDenied
+	}
+	deletionEpoch := epoch
+	if deletionEpoch == "" {
+		if err := tx.QueryRowContext(ctx, "SELECT data_epoch FROM business_environment WHERE singleton=1 FOR SHARE").Scan(&deletionEpoch); err != nil {
+			return err
+		}
+	}
+	revision++
+	if _, err := tx.ExecContext(ctx, `INSERT INTO post_search_tombstones(data_epoch,post_id,content_revision,deleted_at) VALUES (?,?,?,?)`, deletionEpoch, id, revision, r.clock().UTC()); err != nil {
+		return err
 	}
 	for _, query := range []string{"UPDATE notifications SET post_id=NULL, comment_id=NULL WHERE post_id=?", "DELETE FROM post_bookmarks WHERE post_id=?", "DELETE FROM post_likes WHERE post_id=?", "DELETE FROM comments WHERE post_id=?", "DELETE FROM posts WHERE id=?"} {
 		if _, err = tx.ExecContext(ctx, query, id); err != nil {
@@ -82,8 +76,9 @@ func (r *MySQLRepository) Delete(ctx context.Context, id, actor uint64) error {
 	if err != nil {
 		return err
 	}
+	event.ContentRevision = revision
 	commitSpan.SetAttributes(attribute.String("gopulse.event_id", event.EventID))
-	outboxID, err := insertOutbox(ctx, tx, r.outbox, event)
+	outboxID, err := r.insertSearchMutation(ctx, tx, event, epoch)
 	if err != nil {
 		return err
 	}

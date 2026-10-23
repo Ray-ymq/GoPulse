@@ -7,11 +7,11 @@ DEVENV := $(MAKE) --no-print-directory -C devtools build && ./devtools/bin/deven
 
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
-GO_MODULES := backend componentmetrics marshaller monitor perflab \
+GO_MODULES := backend runtimekit marshaller monitor perflab \
               exporters/elasticsearch exporters/kafka exporters/mysql \
               exporters/rabbitmq exporters/redis exporters/victoriametrics \
               devtools
-NPM_MODULES := frontend admin-frontend
+NPM_MODULES := frontend/user frontend/admin
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 
 # CI and local reproductions use this private workspace so shared Go modules
@@ -84,6 +84,8 @@ check-all:
 
 check-compose:
 	@docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose.business.yaml --profile load --profile operations config --quiet
+	@docker compose --env-file .env.example --file deploy/compose.observability.yaml config --quiet
 
 ci-plan: export GOPULSE_CI_LABELS := $(LABELS)
 ci-plan:

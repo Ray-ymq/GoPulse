@@ -88,10 +88,10 @@ func (s *session) startApplications(state *workspace.State, observe bool, env en
 		return err
 	}
 
-	if err := s.ensureNpmDependencies("frontend"); err != nil {
+	if err := s.ensureNpmDependencies("frontend/user"); err != nil {
 		return err
 	}
-	frontendDir := filepath.Join(s.root, "frontend")
+	frontendDir := filepath.Join(s.root, "frontend", "user")
 	if err := s.spawn(state, "frontend", []string{"npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", s.values["FRONTEND_PORT"]},
 		copyEnvironment(s.processEnv), frontendDir); err != nil {
 		return err
@@ -102,10 +102,10 @@ func (s *session) startApplications(state *workspace.State, observe bool, env en
 	}
 
 	if observe {
-		if err := s.ensureNpmDependencies("admin-frontend"); err != nil {
+		if err := s.ensureNpmDependencies("frontend/admin"); err != nil {
 			return err
 		}
-		adminDir := filepath.Join(s.root, "admin-frontend")
+		adminDir := filepath.Join(s.root, "frontend", "admin")
 		adminPort := s.values["ADMIN_FRONTEND_PORT"]
 		adminEnv := copyEnvironment(s.processEnv)
 		adminEnv["FRONTEND_PORT"] = adminPort

@@ -20,13 +20,13 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
 )
 
 // TestIntegrationRedisProtectionAndVersionedBody exercises the enabled path
@@ -44,12 +44,12 @@ func TestIntegrationRedisProtectionAndVersionedBody(t *testing.T) {
 	setEnvironment(&base, "BACKEND_RESOURCE_WAITER", "256")
 	runIntegrationCommand(t, backendDir, integrationCommandTimeout, base, "go", "run", "./cmd/migrate", "up")
 
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatalf("create protection metrics: %v", err)
 	}
-	componentmetrics.InstallBackend(metrics)
-	defer componentmetrics.InstallBackend(nil)
+	instrumentation.InstallBackend(metrics)
+	defer instrumentation.InstallBackend(nil)
 
 	clientJar, err := cookiejar.New(nil)
 	if err != nil {
@@ -182,12 +182,12 @@ func TestIntegrationRateLimitDisabledKeepsVersionedBodyCache(t *testing.T) {
 	setEnvironment(&base, "BACKEND_RATE_LIMIT_ENABLED", "false")
 	runIntegrationCommand(t, backendDir, integrationCommandTimeout, base, "go", "run", "./cmd/migrate", "up")
 
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatalf("create body metrics: %v", err)
 	}
-	componentmetrics.InstallBackend(metrics)
-	defer componentmetrics.InstallBackend(nil)
+	instrumentation.InstallBackend(metrics)
+	defer instrumentation.InstallBackend(nil)
 
 	clientJar, err := cookiejar.New(nil)
 	if err != nil {
@@ -411,6 +411,46 @@ func cleanupProtectionFixture(t *testing.T, database *sql.DB, userID, postID uin
 	} {
 		if _, err := database.ExecContext(ctx, statement.query, statement.args...); err != nil {
 			t.Errorf("cleanup protection fixture: %v", err)
+		}
+	}
+}
+
+func TestIntegrationReadinessUsesDedicatedPoolWhenAPIPoolExhausted(t *testing.T) {
+	base := integrationEnvironment(t)
+	setEnvironment(&base, "MYSQL_MAX_OPEN_CONNS", "8")
+	instance := startProtectionAssembly(t, base, "backend-probe-isolation", "")
+	instance.assembly.probes.Started()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	connections := []*sql.Conn{}
+	defer func() {
+		for _, conn := range connections {
+			conn.Close()
+		}
+	}()
+	for i := 0; i < 8; i++ {
+		conn, err := instance.assembly.database.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		connections = append(connections, conn)
+	}
+	if got := instance.assembly.pools["probe"].Stats().MaxOpenConnections; got != 1 {
+		t.Fatalf("probe pool=%d", got)
+	}
+	if instance.assembly.pools["probe"] == instance.assembly.database || instance.assembly.pools["outbox"] == instance.assembly.database {
+		t.Fatal("pools are shared")
+	}
+	// Every request is allowed to expire the probe cache first.
+	for i := 0; i < 2; i++ {
+		time.Sleep(300 * time.Millisecond)
+		response, err := http.Get(instance.address + "/ready")
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("ready status=%d with API pool saturated", response.StatusCode)
 		}
 	}
 }

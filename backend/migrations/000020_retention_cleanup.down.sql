@@ -1,0 +1,4 @@
+DROP INDEX idx_requirements_recent ON business_event_requirements;
+DROP INDEX idx_commands_expiry ON business_commands;
+DROP INDEX idx_requirements_expiry ON business_event_requirements;
+ALTER TABLE business_event_requirements DROP COLUMN retention_reserved;

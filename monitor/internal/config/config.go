@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"net"
 	"os"
 	"path/filepath"
@@ -46,7 +46,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	if err := componentmetrics.ValidateRuntimeEnvironment("monitor"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("monitor"); err != nil {
 		return Config{}, err
 	}
 	return LoadFrom(os.LookupEnv)

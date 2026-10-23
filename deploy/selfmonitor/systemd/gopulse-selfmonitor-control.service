@@ -1,0 +1,22 @@
+[Unit]
+Description=GoPulse restricted self monitoring controller
+Requires=gopulse-selfmonitor-control.socket
+After=gopulse-selfmonitor-control.socket
+
+[Service]
+ExecStart=/usr/local/libexec/gopulse-selfmonitor-control
+User=root
+Group=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

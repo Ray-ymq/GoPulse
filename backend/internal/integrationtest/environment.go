@@ -3,7 +3,10 @@
 package integrationtest
 
 import (
+	"net"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,13 +18,6 @@ const (
 	allowedDatabase     = "gopulse_integration"
 	allowedDatabaseUser = "gopulse_integration"
 	allowedRedisDB      = 15
-	allowedRabbitMQURL  = "amqp://gopulse_integration:integration-rabbitmq@127.0.0.1:25672/"
-	allowedSearchURL    = "http://127.0.0.1:29200"
-	allowedCIRabbitURL  = "amqp://integration:integration@127.0.0.1:5672/"
-	allowedCISearchURL  = "http://127.0.0.1:9200"
-	allowedObserveURL   = "http://127.0.0.1:29201"
-	allowedMetricsURL   = "http://127.0.0.1:18428"
-	allowedMonitorURL   = "http://127.0.0.1:19090"
 )
 
 // Environment loads the ordinary application configuration but requires an
@@ -31,6 +27,9 @@ func Environment(t *testing.T) config.Config {
 	t.Helper()
 	if testingFlag := lookup("INTEGRATION_TESTS"); testingFlag != "1" {
 		t.Fatal("INTEGRATION_TESTS=1 is required for integration tests")
+	}
+	if lookup("INTEGRATION_DYNAMIC_PORTS") != "1" || lookup("INTEGRATION_RUN_ID") == "" {
+		t.Fatal("integration tests must run with a Testcontainers-owned dynamic environment")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -51,11 +50,11 @@ func Environment(t *testing.T) config.Config {
 	if cfg.Redis.DB != allowedRedisDB {
 		t.Fatalf("REDIS_DB = %d, want whitelisted %d", cfg.Redis.DB, allowedRedisDB)
 	}
-	if !oneOf(cfg.RabbitMQURL, allowedRabbitMQURL, allowedCIRabbitURL) {
-		t.Fatalf("RABBITMQ_URL = %q, want a whitelisted local or CI integration endpoint", cfg.RabbitMQURL)
+	if !rabbitMQTargetIsOwned(cfg.RabbitMQURL) {
+		t.Fatalf("RABBITMQ_URL = %q, want a dynamic loopback Testcontainers endpoint", cfg.RabbitMQURL)
 	}
-	if !oneOf(cfg.Elasticsearch.URL, allowedSearchURL, allowedCISearchURL) {
-		t.Fatalf("ELASTICSEARCH_URL = %q, want a whitelisted local or CI integration endpoint", cfg.Elasticsearch.URL)
+	if !httpTargetIsOwned(cfg.Elasticsearch.URL) {
+		t.Fatalf("ELASTICSEARCH_URL = %q, want a dynamic loopback Testcontainers endpoint", cfg.Elasticsearch.URL)
 	}
 	return cfg
 }
@@ -70,11 +69,11 @@ func ObservabilityEnvironment(t *testing.T) config.Config {
 		t.Fatal("OBSERVABILITY_INTEGRATION=1 is required for observability integration tests")
 	}
 	cfg := Environment(t)
-	if cfg.RabbitMQURL != allowedRabbitMQURL || cfg.Elasticsearch.URL != allowedSearchURL || cfg.ObservabilityElasticsearch.URL != allowedObserveURL || cfg.VictoriaMetrics.URL != allowedMetricsURL || cfg.Monitor.URL != allowedMonitorURL {
-		t.Fatalf("observability integration endpoints are outside the test whitelist: rabbit=%q search=%q observe=%q metrics=%q monitor=%q", cfg.RabbitMQURL, cfg.Elasticsearch.URL, cfg.ObservabilityElasticsearch.URL, cfg.VictoriaMetrics.URL, cfg.Monitor.URL)
+	if !rabbitMQTargetIsOwned(cfg.RabbitMQURL) || !httpTargetIsOwned(cfg.Elasticsearch.URL) || !httpTargetIsOwned(cfg.ObservabilityElasticsearch.URL) || !httpTargetIsOwned(cfg.VictoriaMetrics.URL) || !httpTargetIsOwned(cfg.Monitor.URL) {
+		t.Fatalf("observability integration endpoints are outside the Testcontainers target set: rabbit=%q search=%q observe=%q metrics=%q monitor=%q", cfg.RabbitMQURL, cfg.Elasticsearch.URL, cfg.ObservabilityElasticsearch.URL, cfg.VictoriaMetrics.URL, cfg.Monitor.URL)
 	}
-	if cfg.HTTPPort != 18080 || !strings.HasSuffix(cfg.Auth.CookieName, "_test_session") {
-		t.Fatalf("observability integration application identity is outside the test whitelist: http=%d cookie=%q", cfg.HTTPPort, cfg.Auth.CookieName)
+	if cfg.HTTPPort < 1 || !strings.HasSuffix(cfg.Auth.CookieName, "_test_session") {
+		t.Fatalf("observability integration application identity is outside the dynamic test contract: http=%d cookie=%q", cfg.HTTPPort, cfg.Auth.CookieName)
 	}
 	return cfg
 }
@@ -83,11 +82,25 @@ func lookup(key string) string {
 	return os.Getenv(key)
 }
 
-func oneOf(value string, allowed ...string) bool {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return true
-		}
+func rabbitMQTargetIsOwned(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "amqp" || parsed.User == nil || parsed.Path != "/" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
 	}
-	return false
+	password, hasPassword := parsed.User.Password()
+	return parsed.User.Username() == "gopulse_integration" && hasPassword && password == "integration-rabbitmq" && localEndpoint(parsed.Host)
+}
+
+func httpTargetIsOwned(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Scheme == "http" && parsed.User == nil && parsed.Path == "" && parsed.RawQuery == "" && parsed.Fragment == "" && localEndpoint(parsed.Host)
+}
+
+func localEndpoint(raw string) bool {
+	host, port, err := net.SplitHostPort(raw)
+	if err != nil || (host != allowedHost && host != "localhost") {
+		return false
+	}
+	parsed, err := strconv.Atoi(port)
+	return err == nil && parsed > 0 && parsed < 65536
 }

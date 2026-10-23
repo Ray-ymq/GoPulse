@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 )
 
 func TestProfileForRoleOwnsOnlyItsBackgroundWork(t *testing.T) {
@@ -41,7 +41,7 @@ func TestProfileForRoleRejectsUnknownRoleBeforeAssembly(t *testing.T) {
 }
 
 func TestPlatformMetricsAreScrapeableWithoutOutboxSampler(t *testing.T) {
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,14 +54,15 @@ func TestPlatformMetricsAreScrapeableWithoutOutboxSampler(t *testing.T) {
 }
 
 func TestBusinessMetricsKeepOutboxUnknownUntilSamplerRuns(t *testing.T) {
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	assembly := &roleAssembly{profile: roleProfile{role: config.ServiceRoleBusiness, business: true}}
 	assembly.initializeMetrics(metrics)
-	if _, ok := metrics.Snapshot(); ok {
-		t.Fatal("business metrics snapshot became valid without the outbox sampler")
+	body, ok := metrics.Snapshot()
+	if !ok || strings.Contains(string(body), "\ngopulse_backend_outbox_pending ") {
+		t.Fatal("unknown outbox fabricated a sample or hid other metrics")
 	}
 }
 

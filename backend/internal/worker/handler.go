@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"log/slog"
 	"time"
 
@@ -30,6 +30,8 @@ type Processor interface {
 type ConfirmingPublisher interface {
 	Publish(context.Context, string, string, amqp.Publishing) error
 }
+
+var ErrDuplicate = errors.New("projection already applied")
 
 type HandlerOptions struct {
 	Profile        Profile
@@ -77,7 +79,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		ctx = context.Background()
 	}
 	started := time.Now()
-	metrics := componentmetrics.Active()
+	metrics := instrumentation.Active()
 	metrics.Add("messages_in_flight", 1)
 	outcome := "failure"
 	identity := handler.metricIdentity(delivery)
@@ -97,13 +99,21 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	envelope, decodeErr := DecodeDelivery(delivery)
 	if attemptErr != nil {
 		if handler.admission != nil {
-			return handler.parkRaw(ctx, delivery, attempt, "invalid_attempt")
+			err := handler.parkRaw(ctx, delivery, attempt, "invalid_attempt")
+			if err == nil {
+				outcome = "parked"
+			}
+			return err
 		}
 		return handler.deadLetter(ctx, delivery, attempt, "invalid_attempt")
 	}
 	if decodeErr != nil {
 		if handler.admission != nil {
-			return handler.parkRaw(ctx, delivery, attempt, decodeErr.Error())
+			err := handler.parkRaw(ctx, delivery, attempt, decodeErr.Error())
+			if err == nil {
+				outcome = "parked"
+			}
+			return err
 		}
 		return handler.deadLetter(ctx, delivery, attempt, decodeErr.Error())
 	}
@@ -150,7 +160,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 			return handler.requeueAdmission(traceContext, delivery, admissionErr)
 		}
 		if decision == bus.AdmissionPark {
-			if err := handler.admission.ParkMessage(traceContext, parkingMessage(delivery, envelope, attempt, "epoch_or_legacy_rejected")); err != nil {
+			if err := handler.parkMessage(traceContext, parkingMessage(delivery, envelope, attempt, "epoch_or_legacy_rejected")); err != nil {
 				span.SetStatus(codes.Error, "parking_failed")
 				return handler.requeueAdmission(traceContext, delivery, err)
 			}
@@ -159,7 +169,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 				handler.logFailure(traceContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
 				return errors.New("ack parked event")
 			}
-			outcome = "success"
+			outcome = "parked"
 			handler.logEvent(traceContext, "event parked", delivery, envelope, attempt, "epoch_or_legacy_rejected")
 			return nil
 		}
@@ -182,17 +192,20 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	}
 
 	processErr := handler.processor.Process(traceContext, envelope)
-	if processErr == nil {
+	if processErr == nil || errors.Is(processErr, ErrDuplicate) {
 		if err := handler.ack(delivery); err != nil {
 			span.SetStatus(codes.Error, "ack_failed")
 			handler.logFailure(traceContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
 			return errors.New("ack processed event")
 		}
 		outcome = "success"
+		if errors.Is(processErr, ErrDuplicate) {
+			outcome = "duplicate"
+		}
 		handler.logEvent(traceContext, "event processed", delivery, envelope, attempt, "processed")
 		return nil
 	}
-	if errors.Is(processErr, context.Canceled) || errors.Is(processErr, context.DeadlineExceeded) {
+	if ctx.Err() != nil && (errors.Is(processErr, context.Canceled) || errors.Is(processErr, context.DeadlineExceeded)) {
 		span.SetStatus(codes.Error, "processing_canceled")
 		if nackErr := delivery.Nack(false, true); nackErr != nil {
 			handler.logFailure(traceContext, "message requeue failed", delivery, attempt, "nack_failed")
@@ -292,7 +305,7 @@ func (handler *Handler) recordFailure(ctx context.Context, envelope bus.Envelope
 }
 
 func (handler *Handler) parkRaw(ctx context.Context, delivery amqp.Delivery, attempt int, reason string) error {
-	if err := handler.admission.ParkMessage(ctx, parkingMessage(delivery, bus.Envelope{}, attempt, reason)); err != nil {
+	if err := handler.parkMessage(ctx, parkingMessage(delivery, bus.Envelope{}, attempt, reason)); err != nil {
 		return handler.requeueAdmission(ctx, delivery, err)
 	}
 	if err := handler.ack(delivery); err != nil {
@@ -320,8 +333,8 @@ func deliveryAttemptForLog(delivery amqp.Delivery) int {
 }
 
 func (handler *Handler) retry(ctx context.Context, delivery amqp.Delivery, nextAttempt int) error {
-	componentmetrics.Active().Add("retrying", 1)
-	defer componentmetrics.Active().Add("retrying", -1)
+	instrumentation.Active().Add("retrying", 1)
+	defer instrumentation.Active().Add("retrying", -1)
 	message := publishingFromDelivery(delivery)
 	message.Headers[AttemptHeader] = int32(nextAttempt)
 	// A retry is a new delivery attempt. Preserve the W3C parent context for
@@ -570,9 +583,9 @@ func (handler *Handler) metricIdentity(delivery amqp.Delivery) string {
 func (handler *Handler) ack(delivery amqp.Delivery) error {
 	started := time.Now()
 	err := delivery.Ack(false)
-	componentmetrics.Dependency("rabbitmq", err)
+	instrumentation.Dependency("rabbitmq", err)
 	if err == nil && handler.profile.Service != "search-indexer" {
-		componentmetrics.Active().Observe("messages_total", time.Since(started), handler.metricIdentity(delivery), "ack")
+		instrumentation.Active().Observe("messages_total", time.Since(started), handler.metricIdentity(delivery), "ack")
 	}
 	return err
 }
@@ -586,4 +599,19 @@ func (handler *Handler) publish(ctx context.Context, exchange string, delivery a
 		return err
 	}
 	return ctx.Err()
+}
+
+// Keep a capacity-blocked delivery unacknowledged and back off on this session.
+func (handler *Handler) parkMessage(ctx context.Context, message bus.ParkingMessage) error {
+	delay := 100 * time.Millisecond
+	for {
+		err := handler.admission.ParkMessage(ctx, message)
+		if !errors.Is(err, bus.ErrParkingCapacity) {
+			return err
+		}
+		if err := waitContext(ctx, delay); err != nil {
+			return err
+		}
+		delay = min(5*time.Second, delay*2)
+	}
 }

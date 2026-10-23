@@ -3,7 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"os"
 	"time"
 )
@@ -32,6 +32,8 @@ type WorkerConfig struct {
 	LogShip                          LogShipConfig
 	Trace                            TraceConfig
 	BusinessAsyncMaxOpenRequirements uint64
+	BusinessAsyncMaxRetainedGroups   uint64
+	BusinessAsyncMaxRetainedBytes    uint64
 }
 
 type BusinessWorkerConfig struct {
@@ -45,7 +47,7 @@ type BusinessWorkerConfig struct {
 }
 
 func LoadWorker() (WorkerConfig, error) {
-	if err := componentmetrics.ValidateRuntimeEnvironment("business-worker"); err != nil {
+	if err := runtimekit.ValidateRuntimeEnvironment("business-worker"); err != nil {
 		return WorkerConfig{}, err
 	}
 
@@ -143,6 +145,10 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if err != nil {
 		return WorkerConfig{}, err
 	}
+	retainedGroups, retainedBytes, err := businessAsyncRetentionValues(lookup)
+	if err != nil {
+		return WorkerConfig{}, err
+	}
 	return WorkerConfig{
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
@@ -158,6 +164,8 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 		LogShip:                          logShip,
 		Trace:                            traceConfig,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
+		BusinessAsyncMaxRetainedGroups:   retainedGroups,
+		BusinessAsyncMaxRetainedBytes:    retainedBytes,
 		Worker: BusinessWorkerConfig{
 			Prefetch: prefetch, MaxRetries: maxRetries, RetryDelay: retryDelay,
 			PublishTimeout: publishTimeout, ShutdownTimeout: shutdownTimeout,

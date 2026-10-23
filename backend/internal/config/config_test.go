@@ -51,8 +51,8 @@ func TestLoadFromDefaults(t *testing.T) {
 	if !cfg.Protection.RateLimitEnabled || cfg.Protection.RateLimitOperationTimeout != 200*time.Millisecond || cfg.Protection.LocalMaxIdentities != 1024 || cfg.Protection.ResourceAuth != 16 || cfg.Protection.ResourceRead != 64 || cfg.Protection.ResourceWrite != 32 || cfg.Protection.ResourceDatabase != 32 || cfg.Protection.ResourceRebuild != 8 || cfg.Protection.ResourceWaiter != 256 || len(cfg.Protection.TrustedProxyCIDRs) != 0 {
 		t.Fatalf("Protection config = %#v, want bounded enabled defaults", cfg.Protection)
 	}
-	if cfg.Outbox.PollInterval != time.Second || cfg.Outbox.ClaimBatch != 10 ||
-		cfg.Outbox.LeaseDuration != time.Minute || cfg.Outbox.PublishTimeout != 5*time.Second ||
+	if cfg.Outbox.PollInterval != time.Second || cfg.Outbox.ClaimBatch != 50 ||
+		cfg.Outbox.LeaseDuration != 5*time.Minute || cfg.Outbox.PublishTimeout != 5*time.Second ||
 		cfg.Outbox.RetryDelay != 30*time.Second || cfg.Outbox.CleanupInterval != time.Hour ||
 		cfg.Outbox.Retention != 7*24*time.Hour || cfg.Outbox.CleanupBatch != 500 {
 		t.Fatalf("Outbox config = %#v, want defaults", cfg.Outbox)
@@ -129,7 +129,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["MYSQL_MAX_OPEN_CONNS"] = "8"
 	env["MYSQL_MAX_IDLE_CONNS"] = "4"
 	env["MYSQL_CONN_MAX_LIFETIME"] = "11m"
-	env["MYSQL_TOTAL_MAX_OPEN_CONNS"] = "16"
+	env["MYSQL_TOTAL_MAX_OPEN_CONNS"] = "26"
 	env["APP_ENV"] = "test"
 	env["HTTP_HOST"] = "0.0.0.0"
 	env["HTTP_PORT"] = "18080"
@@ -162,7 +162,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["OUTBOX_RETRY_DELAY"] = "2m"
 	env["OUTBOX_CLEANUP_INTERVAL"] = "30m"
 	env["OUTBOX_PUBLISHED_RETENTION"] = "720h"
-	env["OUTBOX_CLEANUP_BATCH"] = "750"
+	env["OUTBOX_CLEANUP_BATCH"] = "450"
 	env["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
 	env["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
 	env["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
@@ -211,7 +211,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	if cfg.Outbox.PollInterval != 250*time.Millisecond || cfg.Outbox.ClaimBatch != 25 ||
 		cfg.Outbox.LeaseDuration != 2*time.Minute || cfg.Outbox.PublishTimeout != 4*time.Second ||
 		cfg.Outbox.RetryDelay != 2*time.Minute || cfg.Outbox.CleanupInterval != 30*time.Minute ||
-		cfg.Outbox.Retention != 720*time.Hour || cfg.Outbox.CleanupBatch != 750 {
+		cfg.Outbox.Retention != 720*time.Hour || cfg.Outbox.CleanupBatch != 450 {
 		t.Fatalf("unexpected Outbox config: %#v", cfg.Outbox)
 	}
 }
@@ -527,5 +527,56 @@ func TestLoadFromEnforcesMonitorRequestTimeoutContract(t *testing.T) {
 		if _, err := LoadFrom(mapLookup(env)); err == nil {
 			t.Fatalf("invalid MONITOR_REQUEST_TIMEOUT %s accepted", value)
 		}
+	}
+}
+
+func TestOutboxCapacitySettingsAndBatchBudget(t *testing.T) {
+	for key, values := range map[string][]string{
+		"OUTBOX_DATABASE_TIMEOUT":     {"0s", "31s"},
+		"OUTBOX_MYSQL_MAX_OPEN_CONNS": {"0", "33"},
+		"OUTBOX_PUBLISH_CONCURRENCY":  {"0", "33"},
+		"OUTBOX_CLAIM_BATCH":          {"51"},
+		"OUTBOX_CLEANUP_BATCH":        {"501"},
+	} {
+		for _, value := range values {
+			t.Run(key+"="+value, func(t *testing.T) {
+				env := requiredEnvironment()
+				env[key] = value
+				if _, err := LoadFrom(mapLookup(env)); err == nil {
+					t.Fatal("invalid capacity value accepted")
+				}
+			})
+		}
+	}
+}
+
+func TestDedicatedPoolsCountTowardMySQLBudget(t *testing.T) {
+	env := requiredEnvironment()
+	env["MYSQL_MAX_OPEN_CONNS"] = "8"
+	env["MYSQL_TOTAL_MAX_OPEN_CONNS"] = "12"
+	if _, err := LoadFrom(mapLookup(env)); err == nil {
+		t.Fatal("dedicated pools exceeded total budget")
+	}
+	env["MYSQL_TOTAL_MAX_OPEN_CONNS"] = "13"
+	if _, err := LoadFrom(mapLookup(env)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRedisDisabledDoesNotRequireOrParseRedisConnection(t *testing.T) {
+	env := requiredEnvironment()
+	env["BACKEND_REDIS_DISABLED"] = "true"
+	delete(env, "REDIS_PASSWORD")
+	env["REDIS_PORT"] = "invalid-unused-port"
+	cfg, err := LoadFrom(mapLookup(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.RedisDisabled || cfg.Redis.Host != "" || !cfg.Protection.RateLimitEnabled || cfg.Protection.ResourceDatabase != 32 {
+		t.Fatal("无 Redis 配置必须跳过 Redis 连接并保留应用保护")
+	}
+	env["BACKEND_REDIS_DISABLED"] = "invalid"
+	if _, err := LoadFrom(mapLookup(env)); err == nil {
+		t.Fatal("无效布尔值未被拒绝")
 	}
 }

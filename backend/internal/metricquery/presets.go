@@ -1,7 +1,5 @@
 package metricquery
 
-import "github.com/Ray-ymq/GoPulse/componentmetrics"
-
 // Presets supply display hints for historical metrics and supported alert rules.
 // Collection and metric queries do not require a preset.
 var Presets = func() []Definition {
@@ -251,12 +249,6 @@ var Presets = func() []Definition {
 	} {
 		item.Source, item.TargetID, item.ProducerKind, item.ProducerID = "victoriametrics", "victoriametrics-exporter-local", "exporter_plugin", "victoriametrics-exporter"
 		items = append(items, item)
-	}
-	for _, id := range componentmetrics.Components {
-		spec, _ := componentmetrics.Catalog(id)
-		for _, f := range spec.Families {
-			items = append(items, Definition{Source: id, TargetID: componentmetrics.Target(id), ProducerKind: "component", ProducerID: id, Metric: f.Name, Kind: f.Kind, Unit: f.Unit, LabelKeys: append([]string(nil), f.Keys...), labelKeysKnown: true})
-		}
 	}
 	for i := range items {
 		if items[i].label != "" && len(items[i].LabelKeys) == 0 {

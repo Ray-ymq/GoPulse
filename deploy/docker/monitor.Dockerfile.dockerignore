@@ -3,5 +3,5 @@
 *
 !monitor/
 !monitor/**
-!componentmetrics/
-!componentmetrics/**
+!runtimekit/
+!runtimekit/**

@@ -1,19 +1,19 @@
-// Package testenv owns the isolated test lifecycles: a candidate-scoped Compose
-// project with its own ports, volumes, private state, and exclusive environment
-// lock, the source test processes, and deterministic test account cleanup.
+// Package testenv owns the isolated test lifecycles: a Testcontainers network
+// with fresh dependency containers and dynamic ports, the source test
+// processes, and deterministic test account cleanup.
 package testenv
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/devtools/internal/compose"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/diagnostics"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
@@ -47,15 +47,15 @@ func Environ() map[string]string {
 func now() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000000+00:00") }
 
 type session struct {
-	root       string
-	ws         workspace.Workspace
-	values     envfile.Values
-	processEnv map[string]string
-	envFile    string
-	project    string
-	files      []string
-	profiles   []string
-	command    compose.Command
+	root            string
+	ws              workspace.Workspace
+	values          envfile.Values
+	processEnv      map[string]string
+	envFile         string
+	project         string
+	observationRoot string
+	containers      *dependencyContainers
+	context         context.Context
 	// The three effectful steps stay overridable so the failure and cleanup
 	// contract is covered without Docker.
 	startDependencies      func(map[string]string) error
@@ -67,8 +67,9 @@ type session struct {
 	lastCommand            proc.Result
 }
 
-// newSession merges the test-mode environment contract, writes the private test
-// environment file, and resolves the candidate-scoped Compose command.
+// newSession merges the test-mode environment contract and writes the private
+// environment file. Dependency endpoints are filled after Testcontainers has
+// allocated the run's dynamic ports.
 func newSession(root string, observe bool, overrides map[string]string) (*session, error) {
 	ws, err := workspace.For(root)
 	if err != nil {
@@ -94,60 +95,69 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	for key, value := range values {
 		processEnv[key] = value
 	}
-	files := []string{filepath.Join(ws.Root, "deploy", "compose.local.yaml")}
-	profiles := []string{}
-	if observe {
-		override, err := observeComposeOverride(ws.Root)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, override)
-		profiles = append(profiles, "observe")
-	}
 	project := ws.ProjectTest()
+	observationRoot := filepath.Join(ws.PrivateRoot(), fmt.Sprintf("integration-observe-%d-%d", os.Getpid(), time.Now().UnixNano()))
 	current := &session{
-		root:       ws.Root,
-		ws:         ws,
-		values:     values,
-		processEnv: processEnv,
-		envFile:    envFile,
-		project:    project,
-		files:      files,
-		profiles:   profiles,
-		command:    compose.Command{Project: project, EnvFile: envFile, Files: files, Profiles: profiles},
+		root:            ws.Root,
+		ws:              ws,
+		values:          values,
+		processEnv:      processEnv,
+		envFile:         envFile,
+		project:         project,
+		observationRoot: observationRoot,
+		context:         context.Background(),
 	}
 	current.startDependencies = func(environment map[string]string) error {
-		arguments := []string{"up", "--detach", "--wait", "--wait-timeout", "420"}
-		arguments = append(arguments, composeDependencyServices(observe)...)
-		return current.runCommand(current.command.Args(arguments...), current.root, environment,
-			"Compose dependency startup for "+current.project, 0)
+		_ = environment
+		return current.startContainers(observe)
 	}
-	current.stopDependencies = current.composeDown
-	current.stopDependenciesResult = current.composeDownResult
+	current.stopDependenciesResult = current.stopContainers
 	current.runTestSuite = func(state *workspace.State, scope string, observe bool) error {
 		return current.runIntegrationTests(state, scope, observe)
 	}
 	return current, nil
 }
 
-// composeDependencyServices limits an integration Compose project to the
-// third-party services it owns. Observation application processes, including
-// Monitor, are built and started as host binaries by startObservationProcesses.
-func composeDependencyServices(observe bool) []string {
-	services := []string{"mysql", "redis", "rabbitmq", "elasticsearch"}
-	if observe {
-		services = append(services, "kafka", "kafka-init", "victoriametrics", "observability-elasticsearch")
+func (s *session) startContainers(observe bool) error {
+	manager, err := startDependencyContainers(s.context, s.ws.Identity, observe)
+	if err != nil {
+		return err
 	}
-	return services
+	values, err := manager.values(s.context, observe)
+	if err != nil {
+		_ = manager.terminate(context.Background())
+		return err
+	}
+	s.containers = manager
+	for key, value := range values {
+		s.values[key] = value
+		s.processEnv[key] = value
+	}
+	envFile, err := envfile.WritePrivate(s.ws.PrivateRoot(), envfile.ModeTest, s.values)
+	if err != nil {
+		_ = manager.terminate(context.Background())
+		s.containers = nil
+		return err
+	}
+	s.envFile = envFile
+	return nil
 }
 
-func observeComposeOverride(root string) (string, error) {
-	switch runtime.GOOS {
-	case "linux", "darwin":
-		return filepath.Join(root, "deploy", "compose.local-"+runtime.GOOS+".yaml"), nil
-	default:
-		return "", fmt.Errorf("observation mode is not supported on %s", runtime.GOOS)
+func (s *session) stopContainers(state *workspace.State) error {
+	if s.containers == nil {
+		if s.stopDependencies != nil {
+			s.stopDependencies(state)
+		}
+		return nil
 	}
+	if s.diagnostic != nil {
+		if err := s.containers.copyLogs(context.Background(), s.diagnostic.WriteText); err != nil {
+			s.diagnosticErrors = append(s.diagnosticErrors, err)
+		}
+	}
+	err := s.containers.terminate(context.Background())
+	s.containers = nil
+	return err
 }
 
 // lock takes the exclusive test environment lock without waiting.
@@ -186,11 +196,14 @@ func Integration(root, scope string) error {
 	if lifecycle != nil && lifecycle.Status == "running" {
 		return fmt.Errorf("cannot start integration while this workspace owns a development lifecycle; run make stop first")
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	current.context = ctx
 	return runIntegration(current, scope, observe)
 }
 
-// runIntegration owns the locked test lifecycle: exclusive ports, an isolated
-// Compose project, the scope test command, and cleanup that runs on failure too.
+// runIntegration owns the locked test lifecycle: an isolated Testcontainers
+// dependency set, the scope test command, and cleanup that runs on failure too.
 func runIntegration(current *session, scope string, observe bool) error {
 	release, err := current.lock()
 	if err != nil {
@@ -198,12 +211,8 @@ func runIntegration(current *session, scope string, observe bool) error {
 	}
 	defer release()
 
-	if err := proc.CheckPorts(integrationPorts(current.values, observe), nil); err != nil {
-		return err
-	}
 	current.beginDiagnostics("integration", scope, observe)
-	composeEnv := copyEnvironment(current.processEnv)
-	if err := current.startDependencies(composeEnv); err != nil {
+	if err := current.startDependencies(copyEnvironment(current.processEnv)); err != nil {
 		primaryExit := current.lastCommand.ExitCode
 		if primaryExit == 0 {
 			primaryExit = -1
@@ -269,38 +278,15 @@ func scopeFor(scope, entry string) (bool, error) {
 	}
 }
 
-// integrationPorts is the isolated port set one scope must own exclusively.
-func integrationPorts(values envfile.Values, observe bool) []int {
-	ports := []int{
-		integer(values, "MYSQL_PORT"),
-		integer(values, "REDIS_PORT"),
-		integer(values, "RABBITMQ_PORT"),
-		integer(values, "RABBITMQ_MANAGEMENT_PORT"),
-		integer(values, "ELASTICSEARCH_PORT"),
-	}
-	if observe {
-		ports = append(ports,
-			integer(values, "KAFKA_PORT"),
-			integer(values, "VICTORIAMETRICS_PORT"),
-			integer(values, "OBSERVABILITY_ELASTICSEARCH_PORT"),
-			integer(values, "MONITOR_HTTP_PORT"),
-			integer(values, "MARSHALLER_HTTP_PORT"),
-			integer(values, "REDIS_EXPORTER_HTTP_PORT"),
-			integer(values, "HTTP_PORT"), 19101, 19102, 19103, 19106)
-	}
-	return ports
-}
-
-func integer(values envfile.Values, key string) int {
-	parsed := 0
-	fmt.Sscanf(values[key], "%d", &parsed)
-	return parsed
-}
-
-// pendingState describes a Compose project that was created but not recorded, so
-// a failed startup still removes exactly what it created.
+// pendingState describes containers and a network that were created but not
+// recorded, so a failed startup still removes exactly what it created.
 func (s *session) pendingState() *workspace.State {
-	return &workspace.State{Project: s.project, EnvFile: s.envFile, ComposeFiles: s.files}
+	state := &workspace.State{Project: s.project, EnvFile: s.envFile}
+	if s.containers != nil {
+		state.ContainerNetwork = s.containers.network.Name
+		state.Containers = s.containers.records(context.Background())
+	}
+	return state
 }
 
 func (s *session) integrationState(scope string, observe bool) (*workspace.State, error) {
@@ -308,31 +294,30 @@ func (s *session) integrationState(scope string, observe bool) (*workspace.State
 	if err != nil {
 		return nil, err
 	}
-	composeDigest, err := digest.Paths(s.root, s.files)
-	if err != nil {
-		return nil, err
+	containerNetwork := ""
+	containers := map[string]string{}
+	if s.containers != nil {
+		containerNetwork = s.containers.network.Name
+		containers = s.containers.records(context.Background())
 	}
 	return &workspace.State{
-		Schema:        workspace.Schema,
-		Status:        "running",
-		WorkspaceRoot: s.ws.Root,
-		WorkspaceID:   s.ws.Identity,
-		Branch:        s.git("branch", "--show-current"),
-		Revision:      s.git("rev-parse", "HEAD"),
-		Mode:          "integration",
-		Observe:       observe,
-		Project:       s.project,
-		ComposeFiles:  s.files,
-		EnvFile:       s.envFile,
-		SourceDigest:  source,
-		ComposeDigest: composeDigest,
-		// Keep the historical state key for readers of older integration receipts.
-		// Native observation tests do not create or consume a Monitor image.
-		MonitorImage: "",
-		StartedAt:    now(),
-		Processes:    map[string]workspace.ProcessRecord{},
-		Logs:         map[string]string{},
-		Scope:        scope,
+		Schema:           workspace.Schema,
+		Status:           "running",
+		WorkspaceRoot:    s.ws.Root,
+		WorkspaceID:      s.ws.Identity,
+		Branch:           s.git("branch", "--show-current"),
+		Revision:         s.git("rev-parse", "HEAD"),
+		Mode:             "integration",
+		Observe:          observe,
+		Project:          s.project,
+		EnvFile:          s.envFile,
+		SourceDigest:     source,
+		ContainerNetwork: containerNetwork,
+		Containers:       containers,
+		StartedAt:        now(),
+		Processes:        map[string]workspace.ProcessRecord{},
+		Logs:             map[string]string{},
+		Scope:            scope,
 	}, nil
 }
 
@@ -342,19 +327,6 @@ func (s *session) git(args ...string) string {
 		return ""
 	}
 	return value
-}
-
-func (s *session) composeDown(state *workspace.State) {
-	_ = s.composeDownResult(state)
-}
-
-func (s *session) composeDownResult(state *workspace.State) error {
-	environment := copyEnvironment(s.processEnv)
-	if state != nil && state.MonitorImage != "" {
-		environment["GOPULSE_MONITOR_IMAGE"] = state.MonitorImage
-	}
-	return s.runCommand(s.command.Args("down", "--remove-orphans"), s.root, environment,
-		"Compose dependency stop for "+s.project, 0)
 }
 
 func (s *session) stopForFailure(state *workspace.State) []error {
@@ -370,29 +342,28 @@ func (s *session) stopForFailure(state *workspace.State) []error {
 	return nil
 }
 
-// saveIntegrationState writes exactly the document keys the integration state
-// contract defines; a development state carries three more lifecycle fields that
-// an integration run never records.
+// saveIntegrationState records the Testcontainers resources and the host
+// processes that belong to this integration run. Compose lifecycle fields are
+// intentionally absent from this receipt.
 func (s *session) saveIntegrationState(state *workspace.State) error {
 	document := map[string]any{
-		"schema":         state.Schema,
-		"status":         state.Status,
-		"workspace_root": state.WorkspaceRoot,
-		"workspace_id":   state.WorkspaceID,
-		"branch":         state.Branch,
-		"revision":       state.Revision,
-		"mode":           state.Mode,
-		"scope":          state.Scope,
-		"observe":        state.Observe,
-		"project":        state.Project,
-		"compose_files":  state.ComposeFiles,
-		"env_file":       state.EnvFile,
-		"source_digest":  state.SourceDigest,
-		"compose_digest": state.ComposeDigest,
-		"monitor_image":  state.MonitorImage,
-		"started_at":     state.StartedAt,
-		"processes":      state.Processes,
-		"logs":           state.Logs,
+		"schema":            state.Schema,
+		"status":            state.Status,
+		"workspace_root":    state.WorkspaceRoot,
+		"workspace_id":      state.WorkspaceID,
+		"branch":            state.Branch,
+		"revision":          state.Revision,
+		"mode":              state.Mode,
+		"scope":             state.Scope,
+		"observe":           state.Observe,
+		"project":           state.Project,
+		"container_network": state.ContainerNetwork,
+		"containers":        state.Containers,
+		"env_file":          state.EnvFile,
+		"source_digest":     state.SourceDigest,
+		"started_at":        state.StartedAt,
+		"processes":         state.Processes,
+		"logs":              state.Logs,
 	}
 	if state.StoppedAt != "" {
 		document["stopped_at"] = state.StoppedAt
@@ -419,7 +390,7 @@ func readMetadata(path string) map[string]any {
 }
 
 func (s *session) runCommand(command []string, cwd string, environment map[string]string, label string, timeout time.Duration) error {
-	result, err := proc.RunCaptured(command, cwd, environment, label, timeout)
+	result, err := proc.RunCapturedContext(s.context, command, cwd, environment, label, timeout)
 	s.lastCommand = result
 	if s.diagnostic != nil {
 		if recordErr := s.diagnostic.RecordCommand(diagnostics.Command{
@@ -452,10 +423,13 @@ func (s *session) beginDiagnostics(mode, scope string, observe bool) {
 	}
 	reproduction := [][]string{{"make", mode, "SCOPE=" + scope}}
 	environment := map[string]string{
-		"workspace_id":   s.ws.Identity,
-		"workspace_root": s.ws.Root,
-		"compose_files":  strings.Join(s.files, ","),
-		"observe":        fmt.Sprintf("%t", observe),
+		"workspace_id":      s.ws.Identity,
+		"workspace_root":    s.ws.Root,
+		"container_network": "",
+		"observe":           fmt.Sprintf("%t", observe),
+	}
+	if s.containers != nil {
+		environment["container_network"] = s.containers.network.Name
 	}
 	report, err := diagnostics.New(s.ws, diagnostics.Metadata{
 		Label: mode + "-" + scope, Project: s.project, Branch: s.git("branch", "--show-current"),

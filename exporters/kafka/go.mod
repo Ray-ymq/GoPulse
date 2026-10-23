@@ -15,9 +15,11 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 )
 
-require github.com/Ray-ymq/GoPulse/componentmetrics v0.1.0
+require github.com/Ray-ymq/GoPulse/runtimekit v0.1.0
 
 require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.2
 )
+
+replace github.com/Ray-ymq/GoPulse/runtimekit => ../../runtimekit

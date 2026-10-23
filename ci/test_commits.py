@@ -14,8 +14,8 @@ from commits import Policy, check_file, commit_ids, event_range, git, read_polic
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TYPES = ("build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test")
-POLICY = Policy(TYPES, "a" * 40, "b" * 40)
+TYPES = ("build", "chore", "ci", "feat", "fix", "perf", "refactor", "revert", "style", "test")
+POLICY = Policy(TYPES, "a" * 40, "b" * 40, "c" * 40)
 BODY = "背景：\n重复请求会增加计数。\n\n改动：\n仅在新增记录后更新计数。\n\n验证：\ngo test ./...：通过。\n"
 PR_BODY = BODY + "\n影响与风险：\n涉及点赞接口，无数据库结构变更。\n"
 
@@ -35,7 +35,7 @@ class MessageTests(unittest.TestCase):
             "fix(frontend): 修复发帖跳转",
             "refactor(api/v2)!: change response contract",
             "feat!: change defaults",
-            "docs(文档): 更新用法 (#123)",
+            "ci(文档): 更新提交校验及用法 (#123)",
             "test: x",
         ):
             with self.subTest(title=title):
@@ -51,6 +51,22 @@ class MessageTests(unittest.TestCase):
         ):
             with self.subTest(title=title):
                 self.assertTrue(validate_title(title, POLICY))
+
+    def test_docs_types_are_rejected_with_actionable_guidance(self) -> None:
+        for title in (
+            "docs: clarify policy", "docs(ci): clarify policy",
+            "docs!: change policy", "docs(文档)!: 更新规范",
+        ):
+            with self.subTest(title=title):
+                self.assertIn("文档修改并入对应改动", validate_title(title, POLICY)[0])
+                self.assertTrue(validate_message(structured_message(title), POLICY))
+                self.assertTrue(validate_message(title, POLICY, require_body=False))
+
+    def test_legacy_docs_still_require_valid_titles_and_bodies(self) -> None:
+        self.assertEqual(validate_message(structured_message("docs(ci): clarify policy"), POLICY, allow_legacy_docs=True), [])
+        self.assertTrue(validate_message("docs: clarify policy", POLICY, allow_legacy_docs=True))
+        self.assertTrue(validate_title("docs: ", POLICY, allow_legacy_docs=True))
+        self.assertTrue(validate_title("unknown: clarify policy", POLICY, allow_legacy_docs=True))
 
     def test_body_requires_blank_separator(self) -> None:
         self.assertTrue(validate_message("fix: a change\nBody without separator\n", POLICY))
@@ -87,7 +103,7 @@ class MessageTests(unittest.TestCase):
         self.assertEqual(validate_message(message, POLICY), [])
 
     def test_unrun_validation_requires_an_explanation_instead_of_a_placeholder(self) -> None:
-        message = structured_message("docs: clarify the policy")
+        message = structured_message("ci: clarify the policy")
         for explanation in ("未执行：仅修改文档，未运行产品测试。", "不适用：没有可执行代码，已人工检查链接。"):
             with self.subTest(explanation=explanation):
                 self.assertEqual(validate_message(message.replace("go test ./...：通过。", explanation), POLICY), [])
@@ -161,7 +177,10 @@ class RepositoryFixture(unittest.TestCase):
         return path
 
     def write_policy(self, **overrides: object) -> None:
-        data = {"types": list(TYPES), "legacy_ref": self.legacy, "body_required_after": self.legacy, **overrides}
+        data = {
+            "types": list(TYPES), "legacy_ref": self.legacy,
+            "body_required_after": self.legacy, "docs_forbidden_after": self.legacy, **overrides,
+        }
         self.write(".conventional-commits.json", json.dumps(data))
 
     def commit(self, message: str) -> str:
@@ -181,7 +200,7 @@ class RepositoryFixture(unittest.TestCase):
 
 class PolicyTests(RepositoryFixture):
     def test_policy_is_read_from_repository(self) -> None:
-        self.assertEqual(self.policy, Policy(TYPES, self.legacy, self.legacy))
+        self.assertEqual(self.policy, Policy(TYPES, self.legacy, self.legacy, self.legacy))
 
     def test_invalid_types(self) -> None:
         for types in ([], ["fix", "fix"], ["Fix"], [123], "fix", [{}]):
@@ -191,7 +210,7 @@ class PolicyTests(RepositoryFixture):
                     read_policy(self.repo)
 
     def test_baseline_requires_full_sha(self) -> None:
-        for field in ("legacy_ref", "body_required_after"):
+        for field in ("legacy_ref", "body_required_after", "docs_forbidden_after"):
             for value in ("main", "abc123", "z" * 40, 123):
                 with self.subTest(field=field, value=value):
                     self.write_policy(**{field: value})
@@ -284,6 +303,42 @@ class RangeTests(RepositoryFixture):
         self.assertEqual(result.returncode, 1)
         self.assertIn(feature[:12], result.stderr)
 
+    def test_docs_policy_preserves_existing_history_but_rejects_new_docs(self) -> None:
+        previous = self.commit(structured_message("docs: existing documentation"))
+        baseline = self.commit(structured_message("ci: previous change"))
+        self.write_policy(docs_forbidden_after=baseline)
+        result = self.cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        new = self.commit(structured_message("docs(ci): new documentation"))
+        self.commit(structured_message("fix: later code change"))
+        result = self.cli()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(new[:12], result.stderr)
+        self.assertNotIn(previous[:12], result.stderr)
+        self.assertIn("文档修改并入对应改动", result.stderr)
+
+    def test_docs_baseline_does_not_exempt_body_or_title_checks(self) -> None:
+        previous = self.commit("docs: missing body")
+        self.write_policy(docs_forbidden_after=previous)
+        result = self.cli()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("required section", result.stderr)
+        self.assertNotIn("文档修改并入对应改动", result.stderr)
+
+    def test_docs_policy_also_applies_to_commits_from_a_diverged_branch(self) -> None:
+        git(self.repo, "checkout", "--quiet", "-b", "feature")
+        feature = self.commit(structured_message("docs: feature documentation"))
+        git(self.repo, "checkout", "--quiet", "main")
+        baseline = self.commit(structured_message("ci: main change"))
+        self.write_policy(docs_forbidden_after=baseline)
+        result = self.cli("--base-ref", baseline, "--head-ref", feature)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(feature[:12], result.stderr)
+
+    def test_missing_docs_baseline_fails_instead_of_skipping(self) -> None:
+        self.write_policy(docs_forbidden_after="f" * 40)
+        self.assertEqual(self.cli().returncode, 1)
+
 
 class EventTests(RepositoryFixture):
     def pr_event(self, title: str, head: str | None = None) -> dict:
@@ -303,7 +358,7 @@ class EventTests(RepositoryFixture):
     def test_pr_body_checked_even_without_new_commits(self) -> None:
         for body in (None, "", BODY):
             with self.subTest(body=body):
-                event = self.pr_event("docs: clarify policy")
+                event = self.pr_event("ci: clarify policy")
                 event["pull_request"]["body"] = body
                 result = self.cli(event_name="pull_request", event=event)
                 self.assertEqual(result.returncode, 1)
@@ -311,12 +366,24 @@ class EventTests(RepositoryFixture):
                 self.assertIn("Checked 0 new", result.stdout)
 
     def test_editing_pr_body_rechecks_the_description(self) -> None:
-        event = self.pr_event("docs: clarify policy")
+        event = self.pr_event("ci: clarify policy")
         event["action"] = "edited"
         event["pull_request"]["body"] = "## 背景\nTODO"
         self.assertEqual(self.cli(event_name="pull_request", event=event).returncode, 1)
         event["pull_request"]["body"] = PR_BODY
         self.assertEqual(self.cli(event_name="pull_request", event=event).returncode, 0)
+
+    def test_docs_pr_title_is_rejected_even_without_new_commits(self) -> None:
+        result = self.cli(event_name="pull_request", event=self.pr_event("docs(ci): clarify policy"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("PR title:", result.stderr)
+        self.assertIn("文档修改并入对应改动", result.stderr)
+
+    def test_valid_pr_title_does_not_hide_a_docs_commit(self) -> None:
+        head = self.commit(structured_message("docs: standalone documentation"))
+        result = self.cli(event_name="pull_request", event=self.pr_event("ci: update checks", head))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(head[:12], result.stderr)
 
     def test_push_checks_every_commit_not_just_tip(self) -> None:
         bad = self.commit("Invalid middle commit")
@@ -398,6 +465,19 @@ class HookTests(RepositoryFixture):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("required section", rejected.stderr)
         self.assertEqual(git(self.repo, "rev-parse", "HEAD").strip(), self.legacy)
+
+    def test_real_hook_rejects_docs_even_with_a_complete_body(self) -> None:
+        self.install_hook()
+        message = structured_message("docs(ci)!: standalone documentation")
+        rejected = subprocess.run(
+            ["git", "commit", "--quiet", "--allow-empty", "-m", message],
+            cwd=self.repo, text=True, capture_output=True,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("文档修改并入对应改动", rejected.stderr)
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD").strip(), self.legacy)
+        git(self.repo, "commit", "--quiet", "--allow-empty", "--no-verify", "-m", message)
+        self.assertEqual(self.cli().returncode, 1)
 
     def test_editor_comments_and_trailing_whitespace_use_git_cleanup(self) -> None:
         message = self.write("message with spaces.txt", "# Editor hint\n" + structured_message("fix: a change  ") + "# Another hint\n")

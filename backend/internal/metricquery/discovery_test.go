@@ -189,11 +189,12 @@ func TestMetricNamesCannotInjectQueries(t *testing.T) {
 	}
 }
 
-func TestDiscoveryPreservesHistoricalDependencyStateUnit(t *testing.T) {
-	row := map[string]string{"__name__": "gopulse_metric_metadata", "source": "backend", "target_id": "backend-local", "producer_kind": "component", "producer_id": "backend", "metric": "gopulse_backend_dependency_up", "kind": "gauge", "unit": "boolean", "label_keys": "dependency"}
-	body, _ := json.Marshal(map[string]any{"status": "success", "data": []map[string]string{row}})
-	definitions, err := decodeDefinitions(body, "")
-	if err != nil || len(definitions) != 1 || definitions[0].Unit != "state" {
-		t.Fatalf("historical dependency unit changed: %#v, %v", definitions, err)
+func TestDiscoverySkipsRetiredComponentMetadataWithoutHidingExporterData(t *testing.T) {
+	row := map[string]string{"__name__": "gopulse_metric_metadata", "source": "backend", "target_id": "backend-local", "producer_kind": "component", "producer_id": "backend", "metric": "gopulse_backend_dependency_up", "kind": "gauge", "unit": "state", "label_keys": "dependency"}
+	external := map[string]string{"__name__": "gopulse_metric_metadata", "source": "redis", "target_id": "redis-exporter-local", "producer_kind": "exporter_plugin", "producer_id": "redis-exporter", "metric": "gopulse_redis_up", "kind": "gauge", "unit": "boolean"}
+	body, _ := json.Marshal(map[string]any{"status": "success", "data": []any{row, external}})
+	got, err := decodeDefinitions(body, "")
+	if err != nil || len(got) != 1 || got[0].Source != "redis" {
+		t.Fatalf("%#v %v", got, err)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
@@ -380,5 +381,66 @@ func TestCanceledSecondaryConfirmRequeuesOriginal(t *testing.T) {
 		if err == nil || ack.acks != 0 || ack.nacks != 1 || !ack.requeue {
 			t.Fatalf("err=%v ack=%+v", err, ack)
 		}
+	}
+}
+
+func TestHandlerAcknowledgesDuplicateProjection(t *testing.T) {
+	processor := &processorFake{err: ErrDuplicate}
+	handler := newTestHandler(t, processor, &publisherFake{}, nil)
+	delivery, acknowledger := validDelivery(t, false)
+	if err := handler.Handle(context.Background(), delivery); err != nil || acknowledger.acks != 1 || acknowledger.nacks != 0 {
+		t.Fatalf("duplicate err=%v acknowledger=%+v", err, acknowledger)
+	}
+}
+
+type parkingAdmission struct{ calls int }
+
+func (p *parkingAdmission) CheckEnvelope(context.Context, bus.Envelope) (bus.AdmissionDecision, error) {
+	return bus.AdmissionPark, nil
+}
+func (p *parkingAdmission) ParkMessage(context.Context, bus.ParkingMessage) error {
+	p.calls++
+	if p.calls == 1 {
+		return bus.ErrParkingCapacity
+	}
+	return nil
+}
+
+func TestParkingBacksOffAndDoesNotCountAsProjectionSuccess(t *testing.T) {
+	registry, err := instrumentation.New("search-indexer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := instrumentation.Active()
+	instrumentation.Install(registry)
+	defer instrumentation.Install(previous)
+	admission := &parkingAdmission{}
+	processor := &processorFake{}
+	handler, err := NewHandler(processor, &publisherFake{}, HandlerOptions{Profile: SearchProfile, PublishTimeout: time.Second, Admission: admission})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, ack := validV2SearchDelivery(t)
+	if err := handler.Handle(context.Background(), delivery); err != nil {
+		t.Fatal(err)
+	}
+	if admission.calls != 2 || ack.acks != 1 || ack.nacks != 0 || processor.calls != 0 {
+		t.Fatalf("admission=%+v ack=%+v processor=%+v", admission, ack, processor)
+	}
+	raw, ok := registry.Snapshot()
+	if !ok {
+		t.Fatal("metrics unavailable")
+	}
+	if !strings.Contains(string(raw), `gopulse_search_indexer_messages_total{operation="create",result="parked"} 1`) || strings.Contains(string(raw), `gopulse_search_indexer_messages_total{operation="create",result="success"} 1`) {
+		t.Fatalf("parking metrics=%s", raw)
+	}
+}
+
+func TestDependencyTimeoutRetriesOnlyTheDelivery(t *testing.T) {
+	publisher := &publisherFake{}
+	handler := newTestHandler(t, &processorFake{err: context.DeadlineExceeded}, publisher, nil)
+	delivery, ack := validDelivery(t, false)
+	if err := handler.Handle(context.Background(), delivery); err != nil || ack.acks != 1 || ack.nacks != 0 || len(publisher.calls) != 1 {
+		t.Fatalf("err=%v ack=%+v publish=%+v", err, ack, publisher.calls)
 	}
 }

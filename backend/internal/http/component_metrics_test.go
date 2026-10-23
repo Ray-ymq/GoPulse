@@ -1,19 +1,19 @@
 package http
 
 import (
-	"github.com/Ray-ymq/GoPulse/componentmetrics"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
 func TestActualRequestMetricsDoNotExposePublicEndpoint(t *testing.T) {
-	metrics, err := componentmetrics.NewBackend(componentmetrics.BackendRoutes())
+	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
 	if err != nil {
 		t.Fatal(err)
 	}
-	componentmetrics.InstallBackend(metrics)
-	defer componentmetrics.InstallBackend(nil)
+	instrumentation.InstallBackend(metrics)
+	defer instrumentation.InstallBackend(nil)
 	metrics.ObserveOutbox(0, 0, nil)
 	router := NewRouter(Dependencies{})
 	for path, status := range map[string]int{"/health": 200, "/internal/v1/metrics": 404, "/private-user-id?secret=1": 404} {
