@@ -110,7 +110,7 @@ func run(arguments []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(staging)
+	defer func() { _ = os.RemoveAll(staging) }()
 	directory := filepath.Join(staging, "package")
 	entrypoint := filepath.ToSlash(filepath.Join("bin", "gopulse-"+opts.source+"-exporter"))
 	if err = os.MkdirAll(filepath.Join(directory, "bin"), 0o755); err != nil {
@@ -214,7 +214,7 @@ func stageEntrypoint(opts options, destination string) error {
 	if err != nil {
 		return err
 	}
-	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", destination, "./cmd/"+opts.source+"-exporter")
+	command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", destination, ".")
 	command.Dir = filepath.Join(root, "backend/observability/exporters", opts.source)
 	command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+opts.arch)
 	command.Stdout, command.Stderr = os.Stderr, os.Stderr
@@ -229,13 +229,13 @@ func copyExecutable(source, destination string) error {
 	if err != nil {
 		return err
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }()
 	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}
 	if _, err = io.Copy(output, input); err != nil {
-		output.Close()
+		_ = output.Close()
 		return err
 	}
 	if err = output.Close(); err != nil {
@@ -256,19 +256,19 @@ func writeTar(directory, archive string, files []string) error {
 		path := filepath.Join(directory, filepath.FromSlash(name))
 		input, openErr := os.Open(path)
 		if openErr != nil {
-			output.Close()
+			_ = output.Close()
 			return openErr
 		}
 		info, statErr := input.Stat()
 		if statErr != nil {
-			input.Close()
-			output.Close()
+			_ = input.Close()
+			_ = output.Close()
 			return statErr
 		}
 		header, headerErr := tar.FileInfoHeader(info, "")
 		if headerErr != nil {
-			input.Close()
-			output.Close()
+			_ = input.Close()
+			_ = output.Close()
 			return headerErr
 		}
 		header.Name = name
@@ -286,16 +286,16 @@ func writeTar(directory, archive string, files []string) error {
 		}
 		closeErr := input.Close()
 		if err != nil {
-			output.Close()
+			_ = output.Close()
 			return err
 		}
 		if closeErr != nil {
-			output.Close()
+			_ = output.Close()
 			return closeErr
 		}
 	}
 	if err = writer.Close(); err != nil {
-		output.Close()
+		_ = output.Close()
 		return err
 	}
 	if err = output.Close(); err != nil {
@@ -360,15 +360,15 @@ func writeGzip(archive, output string) error {
 	runErr := command.Run()
 	closeErr := file.Close()
 	if runErr != nil {
-		os.Remove(temporary)
+		_ = os.Remove(temporary)
 		return fmt.Errorf("gzip failed: %w", runErr)
 	}
 	if closeErr != nil {
-		os.Remove(temporary)
+		_ = os.Remove(temporary)
 		return closeErr
 	}
 	if err = os.Rename(temporary, output); err != nil {
-		os.Remove(temporary)
+		_ = os.Remove(temporary)
 		return err
 	}
 	return nil

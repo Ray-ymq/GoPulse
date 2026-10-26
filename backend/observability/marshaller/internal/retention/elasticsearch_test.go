@@ -125,7 +125,7 @@ func (h retentionHTTP) request(method, path string, body any) (int, []byte, erro
 	if err != nil {
 		return 0, nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	return response.StatusCode, data, readErr
 }
@@ -410,32 +410,4 @@ func (s *integrationFaultStore) DeleteIndex(ctx context.Context, index string) e
 		return &HTTPError{Status: http.StatusForbidden, Op: "injected delete"}
 	}
 	return s.Store.DeleteIndex(ctx, index)
-}
-
-type integrationBarrierStore struct {
-	Store
-	once      sync.Once
-	inspected chan struct{}
-	release   chan struct{}
-	deleted   chan struct{}
-}
-
-func (s *integrationBarrierStore) Inspect(ctx context.Context, index string, policy Policy, cluster string) (Ownership, error) {
-	ownership, err := s.Store.Inspect(ctx, index, policy, cluster)
-	s.once.Do(func() {
-		close(s.inspected)
-		<-s.release
-	})
-	return ownership, err
-}
-
-func (s *integrationBarrierStore) DeleteIndex(ctx context.Context, index string) error {
-	err := s.Store.DeleteIndex(ctx, index)
-	if err == nil || IsNotFound(err) {
-		select {
-		case s.deleted <- struct{}{}:
-		default:
-		}
-	}
-	return err
 }

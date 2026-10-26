@@ -5,6 +5,9 @@ import "strings"
 var Components = []string{"backend", "business-worker", "search-indexer", "monitor", "marshaller"}
 var Plugins = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
 
+// NativePlugins 使用原生协议，由 Monitor 适配，不属于 GoPulse 进程运行契约。
+var NativePlugins = []string{"node"}
+
 // ProcessIDs is the code-owned process identity inventory. Runtime roles,
 // replica ownership, budgets and Compose bindings remain authoritative in
 // deploy/runtime-contracts.json; the verifier rejects drift between this

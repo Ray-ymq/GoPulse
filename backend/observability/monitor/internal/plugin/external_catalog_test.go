@@ -62,7 +62,11 @@ func TestExternalCatalogLoadsDescriptorAndPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer manager.Shutdown(t.Context())
+	defer func() {
+		if err := manager.Shutdown(t.Context()); err != nil {
+			t.Error(err)
+		}
+	}()
 	entries := manager.ExecutionCatalog()
 	if len(entries) != 1 || entries[0].ID != entry.ID || entries[0].Schema.PluginID != entry.ID {
 		t.Fatalf("unexpected external catalog: %+v", entries)

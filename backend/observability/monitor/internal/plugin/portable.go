@@ -65,15 +65,15 @@ func storageLease(root string) (func(), error) {
 	}
 	var stat syscall.Stat_t
 	if syscall.Fstat(fd, &stat) != nil || stat.Mode&syscall.S_IFMT != syscall.S_IFREG || stat.Nlink != 1 || stat.Mode&0077 != 0 {
-		syscall.Close(fd)
+		_ = syscall.Close(fd)
 		return nil, operationFailed()
 	}
 	if syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB) != nil {
-		syscall.Close(fd)
+		_ = syscall.Close(fd)
 		return nil, NewError(CodeConflict, "plugin storage is in use; stop Monitor before offline transfer")
 	}
 	var once sync.Once
-	return func() { once.Do(func() { syscall.Flock(fd, syscall.LOCK_UN); syscall.Close(fd) }) }, nil
+	return func() { once.Do(func() { _ = syscall.Flock(fd, syscall.LOCK_UN); _ = syscall.Close(fd) }) }, nil
 }
 func portableCatalog(packages string) (*releaseCatalog, error) {
 	var releases []Release

@@ -11,7 +11,7 @@ GoPulse/
 │   ├── observability/       # 可观测系统
 │   │   ├── monitor/         # 采集调度、日志与事件接收、插件管理
 │   │   ├── marshaller/      # 数据消费、清洗、转换及存储写入
-│   │   └── exporters/       # 各基础组件的采集插件，分别为独立 Go 模块
+│   │   └── exporters/       # 采集插件源码、原生插件元数据与插件模板
 │   └── runtimekit/          # 后端共享运行时能力与指标契约
 ├── frontend/                # Vue 3、TypeScript 和 Vite 前端
 │   ├── user/                # 用户前端
@@ -38,7 +38,8 @@ GoPulse/
 - Go 业务逻辑放在所属模块，后端共享能力放入 `backend/runtimekit/`，避免跨模块复制实现。
 - Go module 名称及 import 路径保持不变；本地模块目录由根 Makefile 和各模块的 `replace` 指令指定。
 - 压测方案和报告统一放在 `docs/performance/`，压测工具与配置放在 `tools/perflab/`。
-- Exporter 由 Monitor 作为二进制插件启动，构建与打包沿用现有工具链。
+- Exporter 由 Monitor 作为二进制插件启动。Go 采集器分别维护独立模块；`node/` 维护官方 node_exporter 发布包的元数据，不包含 Go 模块；`std_exporter/` 是插件模板。
+- 插件构建与打包统一通过根目录 `make package-plugin SOURCE=...`，正式压测使用 `make pt`，执行条件见 `tools/perflab/flow/README.md`。
 - `.run/` 为本地运行和工具缓存目录，不作为源码维护；实际环境配置中的敏感值不得提交。
 
 ## Git 与协作约定

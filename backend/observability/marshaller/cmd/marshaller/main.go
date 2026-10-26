@@ -80,7 +80,7 @@ func (s storageReadiness) Ready(ctx context.Context) error {
 		return errors.New("VictoriaMetrics unavailable")
 	}
 	if s.logs.Ready(ctx) != nil {
-		return errors.New("Elasticsearch logs unavailable")
+		return errors.New("logs unavailable in Elasticsearch")
 	}
 	return s.events.Ready(ctx)
 }

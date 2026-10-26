@@ -248,15 +248,16 @@ func validMappingMarker(body []byte, index string, policy Policy) (mapping, mark
 
 func validMappingProperties(properties map[string]any, stream Stream) bool {
 	expected := map[string]bool{}
-	if stream == Logs {
+	switch stream {
+	case Logs:
 		for _, name := range []string{"version", "revision", "event", "runtime_contract_version", "runtime_mode", "listen", "@timestamp", "log_schema_version", "level", "service", "instance_id", "module", "message", "request_id", "trace_id", "span_id", "attempt_id", "event_id", "command_id", "data_epoch", "event_type", "projection_generation", "routing_contract_revision", "consumer", "user_id", "post_id", "content_revision", "comment_id", "notification_id", "outbox_id", "method", "route", "status", "duration_ms", "response_bytes", "error_code", "reason", "operation", "resource", "stage", "result", "attempt", "batch_size", "document_count", "panic_recovered", "response_committed"} {
 			expected[name] = true
 		}
-	} else if stream == Events {
+	case Events:
 		for _, name := range []string{"@timestamp", "event_schema_version", "event_name", "source", "severity", "message", "metadata"} {
 			expected[name] = true
 		}
-	} else {
+	default:
 		return false
 	}
 	if len(properties) != len(expected) {
@@ -340,10 +341,10 @@ func (e *Elasticsearch) do(ctx context.Context, method, path string, body io.Rea
 	if err != nil {
 		return 0, nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	data, readErr := io.ReadAll(io.LimitReader(response.Body, responseLimit+1))
 	if readErr != nil || len(data) > responseLimit {
-		return response.StatusCode, nil, errors.New("Elasticsearch response exceeded limit")
+		return response.StatusCode, nil, errors.New("response from Elasticsearch exceeded limit")
 	}
 	return response.StatusCode, data, nil
 }

@@ -1,4 +1,4 @@
-.PHONY: help list-go-modules list-npm-modules list-ci-labels doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package-plugin integration stop stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
+.PHONY: help list-go-modules list-npm-modules list-ci-labels doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package-plugin load integration stop stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
 
 # The development, observation, and stop lifecycles run in the native helper.
 # Building it first keeps the failure exit codes and signal handling intact,
@@ -16,6 +16,7 @@ GO_MODULES := backend/business \
               backend/observability/exporters/rabbitmq \
               backend/observability/exporters/redis \
               backend/observability/exporters/victoriametrics \
+              backend/observability/exporters/std_exporter \
               backend/runtimekit \
               tools/devtools \
               tools/perflab
@@ -36,7 +37,7 @@ IMAGE_TARGETS := backend business-worker search-indexer admin-frontend frontend 
 REQUIRE_MODULE = $(if $(and $(MODULE),$(filter $(MODULE),$(MODULES))),:,printf '%s\n' '[gopulse] ERROR: specify a registered MODULE, for example MODULE=backend/business' >&2; exit 2)
 
 help:
-	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make integration [SCOPE=] run native integration checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
+	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the local Compose images' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make pt [START_RPS=10]     run the fixed PT workflow' '  make integration [SCOPE=] run native integration checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
 	@printf '%s\n' '  make stack-up|stack-down|stack-verify       manage the owned Compose stack'
 	@printf '%s\n' '' 'Module CI (same commands locally and on GitHub):' '  make list-ci-labels        list supported PR labels' '  make ci-plan LABELS="ci:backend/business ci:backend/observability/marshaller"  show exactly those module jobs' '  make ci-tools             test CI selection and commit validation' '  make ci-check MODULE=name formatting, static analysis and lint' '  make ci-build MODULE=name build one module' '  make ci-test MODULE=name  unit tests; Go tests include race detection' '  make verify MODULE=name   run ci-check, ci-test and ci-build' '  make verify BASE_REF=ref  local-only checks for directly changed Go modules'
 	@printf '%s\n' '' 'Commit conventions:' '  make hooks-install        enable commit-msg checks and the commit template' '  make check-commits [BASE_REF=ref]  validate new commits and PR descriptions in CI' '  make check-commits MESSAGE_FILE=path  validate a commit message file'
@@ -170,6 +171,10 @@ build-images:
 package-plugin:
 	@$(MAKE) --no-print-directory -C backend/observability/monitor package-plugin
 
+load:
+	@printf '%s\n' '旧 load 入口已停用，请执行 make pt。' >&2
+	@exit 2
+
 deps:
 	@$(DEVENV) deps $(if $(SCOPE),--scope $(SCOPE),)
 
@@ -194,3 +199,22 @@ stack-down:
 stack-verify:
 	@$(DEVENV) stack-verify
 
+
+START_RPS ?= 10
+.PHONY: pt pt-prepare pt-check pt-status pt-stop pt-report
+pt:
+	@PYTHONPATH=tools/perflab python3 -m flow run --start-rps "$(START_RPS)"
+pt-prepare:
+	@PYTHONPATH=tools/perflab python3 -m flow prepare
+pt-check:
+	@PYTHONPATH=tools/perflab python3 -m flow check
+pt-status:
+	@PYTHONPATH=tools/perflab python3 -m flow status
+pt-stop:
+	@PYTHONPATH=tools/perflab python3 -m flow stop
+pt-report:
+	@PYTHONPATH=tools/perflab python3 -m flow report $(if $(RUN),--run "$(RUN)",)
+
+.PHONY: pt-acceptance
+pt-acceptance:
+	@PYTHONPATH=tools/perflab python3 -m flow acceptance --start-rps "$(START_RPS)"

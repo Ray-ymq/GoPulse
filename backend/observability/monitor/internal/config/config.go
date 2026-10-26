@@ -305,7 +305,7 @@ func validateReplicaEndpoints(key, raw string) error {
 			return fmt.Errorf("%s contains an invalid endpoint", key)
 		}
 		for _, character := range endpoint {
-			if !((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '-' || character == '.') {
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' && character != '.' {
 				return fmt.Errorf("%s contains an invalid endpoint", key)
 			}
 		}

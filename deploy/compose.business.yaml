@@ -590,6 +590,8 @@ services:
     command: [version]
     environment:
       GOPULSE_BASE_URL: http://frontend:8080
+    volumes:
+      - ../tools/perflab/k6:/scripts:ro
     depends_on:
       frontend:
         condition: service_healthy

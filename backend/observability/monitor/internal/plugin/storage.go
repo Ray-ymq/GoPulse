@@ -248,9 +248,9 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	name := tmp.Name()
 	ok := false
 	defer func() {
-		tmp.Close()
+		_ = tmp.Close()
 		if !ok {
-			os.Remove(name)
+			_ = os.Remove(name)
 		}
 	}()
 	if err = tmp.Chmod(mode); err != nil {
@@ -279,17 +279,19 @@ func syncDir(path string) error {
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	return dir.Sync()
 }
 func switchCurrent(pluginDir, version string) error {
 	tmp := filepath.Join(pluginDir, fmt.Sprintf(".current-%d", os.Getpid()))
-	os.Remove(tmp)
+	if err := os.Remove(tmp); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.Symlink(filepath.Join("releases", version), tmp); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, filepath.Join(pluginDir, "current")); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return err
 	}
 	return syncDir(pluginDir)

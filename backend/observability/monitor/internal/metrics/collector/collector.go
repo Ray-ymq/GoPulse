@@ -3,9 +3,6 @@ package collector
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/monitor/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
-	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 	"io"
 	"mime"
 	"net"
@@ -15,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/monitor/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/runtimekit/metriccontract"
 
 	"github.com/Ray-ymq/GoPulse/monitor/internal/events"
 	"github.com/Ray-ymq/GoPulse/monitor/internal/metrics/envelope"
@@ -121,7 +122,8 @@ func validMetricIdentifier(value string) bool {
 }
 
 func (m *Monitor) Enable(manifest plugin.Manifest) {
-	m.Disable(context.Background())
+	// 无取消条件的上下文会等待上一轮采集退出。
+	_ = m.Disable(context.Background())
 	m.episodeMu.Lock()
 	m.failureActive, m.targetUnavailable = false, false
 	m.episodeMu.Unlock()
@@ -253,9 +255,10 @@ func (m *Monitor) recordPublished(status string) {
 	m.failureActive = false
 	becameUnavailable := status == "target_unavailable" && !m.targetUnavailable
 	recoveredTarget := status == "success" && m.targetUnavailable
-	if status == "target_unavailable" {
+	switch status {
+	case "target_unavailable":
 		m.targetUnavailable = true
-	} else if status == "success" {
+	case "success":
 		m.targetUnavailable = false
 	}
 	m.episodeMu.Unlock()
@@ -289,7 +292,7 @@ func (m *Monitor) fetch(ctx context.Context, path string) (string, []envelope.Sa
 		}
 		return "", nil, time.Time{}, errors.New("network_failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.Header.Get("Content-Encoding") != "" {
 		return "", nil, time.Time{}, errors.New("content_invalid")
 	}
@@ -320,6 +323,9 @@ func parse(httpStatus int, body []byte) (string, []envelope.Sample, error) {
 }
 
 func parseSource(source string, httpStatus int, body []byte) (string, []envelope.Sample, error) {
+	if source == "node" {
+		return parseNativeNode(httpStatus, body)
+	}
 	if httpStatus != http.StatusOK && httpStatus != http.StatusServiceUnavailable {
 		return "", nil, errors.New("http_invalid")
 	}

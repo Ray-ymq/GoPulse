@@ -32,7 +32,7 @@ func Wait(url string, timeout time.Duration, token, label string, alive func() b
 		if err != nil {
 			lastError = err.Error()
 		} else {
-			response.Body.Close()
+			_ = response.Body.Close()
 			if response.StatusCode >= 200 && response.StatusCode < 300 {
 				return nil
 			}

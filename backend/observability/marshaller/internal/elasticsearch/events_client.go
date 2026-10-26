@@ -115,9 +115,9 @@ func (c *EventsClient) Write(ctx context.Context, body []byte) error {
 		return err
 	}
 	payload, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if readErr != nil || (response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated) {
-		return errors.New("Elasticsearch rejected event document")
+		return errors.New("event document rejected by Elasticsearch")
 	}
 	var result struct {
 		Index  string `json:"_index"`
@@ -125,13 +125,13 @@ func (c *EventsClient) Write(ctx context.Context, body []byte) error {
 		Result string `json:"result"`
 	}
 	if json.Unmarshal(payload, &result) != nil || result.Index != index || result.ID != request.MessageID || (result.Result != "created" && result.Result != "updated" && result.Result != "noop") {
-		return errors.New("Elasticsearch returned an invalid event write result")
+		return errors.New("invalid event write result from Elasticsearch")
 	}
 	if c.retention != nil && c.retention.Classify(index, c.currentTime()).Reason == "expired" {
 		block, blockErr := c.transport.do(ctx, http.MethodPut, "/"+index+"/_settings", strings.NewReader(`{"index":{"blocks.write":true}}`))
 		if blockErr == nil {
 			_, _ = readLimited(block.Body)
-			block.Body.Close()
+			_ = block.Body.Close()
 			if block.StatusCode < 200 || block.StatusCode >= 300 {
 				blockErr = errors.New("expired event index could not be blocked")
 			}
@@ -144,7 +144,7 @@ func (c *EventsClient) Write(ctx context.Context, body []byte) error {
 			return deleteErr
 		}
 		_, _ = readLimited(deleted.Body)
-		deleted.Body.Close()
+		_ = deleted.Body.Close()
 		if deleted.StatusCode != http.StatusNotFound && (deleted.StatusCode < 200 || deleted.StatusCode >= 300) {
 			return errors.New("expired event index could not be removed")
 		}
@@ -167,9 +167,9 @@ func (c *EventsClient) Ready(ctx context.Context) error {
 		return err
 	}
 	_, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
-		return errors.New("Elasticsearch unavailable")
+		return errors.New("service unavailable: Elasticsearch")
 	}
 	return c.ensureTemplate(ctx)
 }
@@ -182,15 +182,15 @@ func (c *EventsClient) ensureTemplate(ctx context.Context) error {
 		return err
 	}
 	payload, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
-		return errors.New("Elasticsearch event template unavailable")
+		return errors.New("event template unavailable in Elasticsearch")
 	}
 	var result struct {
 		Acknowledged bool `json:"acknowledged"`
 	}
 	if json.Unmarshal(payload, &result) != nil || !result.Acknowledged {
-		return errors.New("Elasticsearch event template acknowledgement invalid")
+		return errors.New("invalid Elasticsearch event template acknowledgement")
 	}
 	return nil
 }
@@ -201,18 +201,18 @@ func (c *EventsClient) ensureIndexMapping(ctx context.Context, index string) err
 		return err
 	}
 	payload, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
 		return nil
 	}
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
-		return errors.New("Elasticsearch event mapping update unavailable")
+		return errors.New("event mapping update unavailable in Elasticsearch")
 	}
 	var result struct {
 		Acknowledged bool `json:"acknowledged"`
 	}
 	if json.Unmarshal(payload, &result) != nil || !result.Acknowledged {
-		return errors.New("Elasticsearch event mapping acknowledgement invalid")
+		return errors.New("invalid Elasticsearch event mapping acknowledgement")
 	}
 	return nil
 }
@@ -223,18 +223,18 @@ func (c *EventsClient) verifyIndexContract(ctx context.Context, index string) er
 		return err
 	}
 	payload, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 || !validEventMapping(payload, index) {
-		return errors.New("Elasticsearch event index mapping incompatible")
+		return errors.New("incompatible Elasticsearch event index mapping")
 	}
 	response, err = c.transport.do(ctx, http.MethodGet, "/"+index+"/_alias/"+EventReadAlias, nil)
 	if err != nil {
 		return err
 	}
 	payload, readErr = readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 || !validEventAlias(payload, index) {
-		return errors.New("Elasticsearch event index alias unavailable")
+		return errors.New("event index alias unavailable in Elasticsearch")
 	}
 	return nil
 }

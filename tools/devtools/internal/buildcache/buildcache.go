@@ -103,7 +103,7 @@ func runWith(root string, options Options, runner commandRunner) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 
 	result := runner("docker", []string{"buildx", "bake", "--file", path, "--load"}, root, environment)
 	printResult(result)
@@ -217,7 +217,7 @@ func composeDefinitionFor(root string, environment []string, cached bool, runner
 	for _, name := range Targets {
 		target, ok := compose.Target[name]
 		if !ok {
-			return bakeDefinition{}, fmt.Errorf("Compose build definition has no target %q", name)
+			return bakeDefinition{}, fmt.Errorf("no target %q in Compose build definition", name)
 		}
 		adapted := cloneTarget(target)
 		adapted["platforms"] = rawJSON([]string{Platform})
@@ -265,12 +265,12 @@ func writeBakeFile(definition bakeDefinition) (string, error) {
 	}
 	path := temporary.Name()
 	if err := encodeBake(temporary, definition); err != nil {
-		temporary.Close()
-		os.Remove(path)
+		_ = temporary.Close()
+		_ = os.Remove(path)
 		return "", err
 	}
 	if err := temporary.Close(); err != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		return "", err
 	}
 	return path, nil
@@ -282,7 +282,7 @@ func overwriteBakeFile(path string, definition bakeDefinition) error {
 		return err
 	}
 	if err := encodeBake(temporary, definition); err != nil {
-		temporary.Close()
+		_ = temporary.Close()
 		return err
 	}
 	return temporary.Close()

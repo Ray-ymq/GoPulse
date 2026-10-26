@@ -151,12 +151,12 @@ func archiveMembers(t *testing.T, path string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	reader, err := gzip.NewReader(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	var members []string
 	archive := tar.NewReader(reader)
 	for {
@@ -181,12 +181,12 @@ func readManifestAndSchema(t *testing.T, path string) ([]byte, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	reader, err := gzip.NewReader(file)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	found := map[string][]byte{}
 	archive := tar.NewReader(reader)
 	for {

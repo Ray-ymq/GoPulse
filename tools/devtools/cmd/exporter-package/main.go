@@ -130,11 +130,26 @@ func run(args []string) error {
 	if !semver(*version) {
 		return errors.New("version must be a three-part SemVer")
 	}
+	if *binary == "" && *source == "node" {
+		file, err := os.CreateTemp("", "gopulse-native-node-*")
+		if err != nil {
+			return err
+		}
+		name := file.Name()
+		if err = file.Close(); err != nil {
+			return err
+		}
+		defer func() { _ = os.Remove(name) }()
+		if err = downloadNativeNode(module, *arch, *version, name); err != nil {
+			return err
+		}
+		*binary = name
+	}
 	if *binary == "" {
 		binary = new(string)
 		*binary = filepath.Join(os.TempDir(), fmt.Sprintf("gopulse-%s-exporter-%d", *source, time.Now().UnixNano()))
-		defer os.Remove(*binary)
-		command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", *binary, "./cmd/"+*source+"-exporter")
+		defer func() { _ = os.Remove(*binary) }()
+		command := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", *binary, ".")
 		command.Dir = module
 		command.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+*arch)
 		command.Stdout, command.Stderr = os.Stderr, os.Stderr
@@ -157,7 +172,7 @@ func run(args []string) error {
 		return errors.New("invalid exporter entrypoint")
 	}
 	binarySum := sha256.Sum256(binaryData)
-	manifestData := []byte{}
+	var manifestData []byte
 	if *contractVersion == legacyContractVersion {
 		manifestData, err = legacyManifest(*version, *arch, entrypoint, hex.EncodeToString(binarySum[:]))
 	} else {
@@ -182,6 +197,15 @@ func run(args []string) error {
 	if *contractVersion == currentContractVersion {
 		members = append(members, member{meta.ConfigSchemaPath, schema, 0o644}, member{"descriptor.json", descriptorData, 0o644})
 	}
+	if *source == "node" {
+		for _, name := range []string{"LICENSE", "NOTICE"} {
+			data, err := os.ReadFile(filepath.Join(module, name))
+			if err != nil {
+				return err
+			}
+			members = append(members, member{name, data, 0644})
+		}
+	}
 	members = append(members, member{entrypoint, binaryData, 0o755})
 	return writePackage(outputPath, members)
 }
@@ -205,8 +229,8 @@ func writePackage(output string, members []member) error {
 			_, err = tarWriter.Write(item.data)
 		}
 		if err != nil {
-			file.Close()
-			os.Remove(archivePath)
+			_ = file.Close()
+			_ = os.Remove(archivePath)
 			return err
 		}
 	}
@@ -216,14 +240,14 @@ func writePackage(output string, members []member) error {
 		_ = file.Close()
 	}
 	if err != nil {
-		os.Remove(archivePath)
+		_ = os.Remove(archivePath)
 		return err
 	}
 	if err = normalizeTarHeaders(archivePath); err != nil {
-		os.Remove(archivePath)
+		_ = os.Remove(archivePath)
 		return err
 	}
-	defer os.Remove(archivePath)
+	defer func() { _ = os.Remove(archivePath) }()
 	compressed, err := os.Create(output + ".tmp")
 	if err != nil {
 		return err
@@ -236,7 +260,7 @@ func writePackage(output string, members []member) error {
 		err = closeErr
 	}
 	if err != nil {
-		os.Remove(output + ".tmp")
+		_ = os.Remove(output + ".tmp")
 		return err
 	}
 	return os.Rename(output+".tmp", output)

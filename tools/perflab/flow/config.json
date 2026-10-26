@@ -1,0 +1,50 @@
+{
+  "schema_version": "gopulse.pt.config.v1",
+  "start_rps": 10,
+  "max_rps": 6400,
+  "vus": 512,
+  "request_timeout_seconds": 5,
+  "idle_seconds": 60,
+  "warmup_seconds": 30,
+  "measurement_seconds": 300,
+  "soak_seconds": 1800,
+  "recovery_seconds": 600,
+  "sample_seconds": 5,
+  "repeat_count": 3,
+  "refine_iterations": 8,
+  "relative_width": 0.1,
+  "failure_window_seconds": 10,
+  "stop_failure_rate": 0.5,
+  "platform_gain": 0.05,
+  "platform_pairs": 2,
+  "max_error_rate": 0.01,
+  "max_p95_ms": 1000,
+  "max_p99_ms": 2000,
+  "min_achieved_ratio": 0.95,
+  "mix": [
+    {
+      "category": "read",
+      "percent": 45
+    },
+    {
+      "category": "search",
+      "percent": 10
+    },
+    {
+      "category": "notification_bookmark_read",
+      "percent": 10
+    },
+    {
+      "category": "content_write",
+      "percent": 15
+    },
+    {
+      "category": "interaction_write",
+      "percent": 15
+    },
+    {
+      "category": "identity_session",
+      "percent": 5
+    }
+  ]
+}

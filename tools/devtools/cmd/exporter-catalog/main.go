@@ -229,12 +229,12 @@ func inspectPackage(path string, arch string) (descriptor, manifest, configSchem
 	if err != nil {
 		return descriptor{}, manifest{}, configSchema{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	gz, err := gzip.NewReader(file)
 	if err != nil {
 		return descriptor{}, manifest{}, configSchema{}, err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	reader := tar.NewReader(gz)
 	files := map[string][]byte{}
 	for count := 0; ; count++ {
@@ -272,7 +272,14 @@ func inspectPackage(path string, arch string) (descriptor, manifest, configSchem
 	if err = decode(files["config.schema.json"], &schema); err != nil {
 		return descriptor{}, manifest{}, configSchema{}, errors.New("invalid exporter package metadata")
 	}
-	if len(files) != 4 || !validDescriptor(meta) || m.SchemaVersion != 2 || m.ID != meta.ID || m.Name != meta.Name || m.Source != meta.Source || m.Arch != arch || m.Entrypoint != meta.Entrypoint || m.HealthPath != meta.HealthPath || m.MetricsPath != meta.MetricsPath || m.RuntimeContractVersion != meta.RuntimeContractVersion || m.MetricsContractVersion != meta.MetricsContractVersion || files[m.Entrypoint] == nil || schema.SchemaVersion != 1 || schema.PluginID != meta.ID || !validConfigSchema(schema) {
+	expectedFiles := 4
+	if m.Source == "node" && m.ID == "node-exporter" && m.Entrypoint == "bin/node_exporter" {
+		if len(files["LICENSE"]) == 0 || len(files["NOTICE"]) == 0 {
+			return descriptor{}, manifest{}, configSchema{}, errors.New("native node license is missing")
+		}
+		expectedFiles = 6
+	}
+	if len(files) != expectedFiles || !validDescriptor(meta) || m.SchemaVersion != 2 || m.ID != meta.ID || m.Name != meta.Name || m.Source != meta.Source || m.Arch != arch || m.Entrypoint != meta.Entrypoint || m.HealthPath != meta.HealthPath || m.MetricsPath != meta.MetricsPath || m.RuntimeContractVersion != meta.RuntimeContractVersion || m.MetricsContractVersion != meta.MetricsContractVersion || files[m.Entrypoint] == nil || schema.SchemaVersion != 1 || schema.PluginID != meta.ID || !validConfigSchema(schema) {
 		return descriptor{}, manifest{}, configSchema{}, errors.New("exporter package metadata does not match")
 	}
 	binarySum := sha256.Sum256(files[m.Entrypoint])

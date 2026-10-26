@@ -231,7 +231,7 @@ func archiveDigest(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	n, err := io.Copy(hash, io.LimitReader(file, MaxPackageBytes+1))
 	if err != nil || n > MaxPackageBytes {
@@ -306,7 +306,7 @@ func InspectBuildReleaseForArch(path, purpose, arch string) (Release, error) {
 	if err != nil {
 		return Release{}, err
 	}
-	defer os.RemoveAll(stage)
+	defer func() { _ = os.RemoveAll(stage) }()
 	schema := 2
 	if purpose == "legacy-v1" {
 		schema = 1

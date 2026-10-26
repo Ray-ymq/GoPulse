@@ -59,16 +59,24 @@ func TestEventsClientUsesIndependentTemplateIndexAndAlias(t *testing.T) {
 		paths = append(paths, r.Method+" "+r.URL.Path)
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/_index_template/"):
-			w.Write([]byte(`{"acknowledged":true}`))
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
 		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/_mapping"):
-			w.Write([]byte(`{"acknowledged":true}`))
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_mapping"):
 			writeEventMappingResponse(t, w, "gopulse-events-v1-2026.09.05")
 		case strings.Contains(r.URL.Path, "/_alias/"):
-			w.Write([]byte(`{"gopulse-events-v1-2026.09.05":{"aliases":{"gopulse-events-v1-read":{}}}}`))
+			if _, err := w.Write([]byte(`{"gopulse-events-v1-2026.09.05":{"aliases":{"gopulse-events-v1-read":{}}}}`)); err != nil {
+				t.Error(err)
+			}
 		default:
 			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte(`{"_index":"gopulse-events-v1-2026.09.05","_id":"abcdef0123456789abcdef0123456789","result":"created"}`))
+			if _, err := w.Write([]byte(`{"_index":"gopulse-events-v1-2026.09.05","_id":"abcdef0123456789abcdef0123456789","result":"created"}`)); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()

@@ -2,6 +2,8 @@
 # The root Makefile dispatches here as: make <target> MODULE=backend/observability/exporters/redis
 
 GO ?= go
+VERSION ?= $(shell cat VERSION)
+ARCH ?= amd64
 
 include ../../../../tools/make/go-lint.mk
 
@@ -18,4 +20,8 @@ check:
 	$(GO) vet ./...
 
 build:
-	$(GO) build ./...
+	$(GO) build -trimpath -ldflags '-X github.com/Ray-ymq/GoPulse/exporters/redis/common.Version=$(VERSION)' -o build/gopulse-redis-exporter .
+
+.PHONY: package
+package:
+	$(MAKE) -C ../../../.. package-plugin SOURCE=redis VERSION=$(VERSION) ARCH=$(ARCH)

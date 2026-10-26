@@ -2749,8 +2749,8 @@
         "stop_grace_seconds": 10
       },
       "module": "backend/observability/exporters/redis",
-      "entrypoint": "backend/observability/exporters/redis/cmd/redis-exporter/main.go",
-      "configuration": "backend/observability/exporters/redis/internal/config",
+      "entrypoint": "backend/observability/exporters/redis/main.go",
+      "configuration": "backend/observability/exporters/redis/config",
       "compose_service": null,
       "plugin_id": "redis-exporter",
       "environment": [
@@ -2911,8 +2911,8 @@
         "stop_grace_seconds": 10
       },
       "module": "backend/observability/exporters/mysql",
-      "entrypoint": "backend/observability/exporters/mysql/cmd/mysql-exporter/main.go",
-      "configuration": "backend/observability/exporters/mysql/internal/runtime",
+      "entrypoint": "backend/observability/exporters/mysql/main.go",
+      "configuration": "backend/observability/exporters/mysql/config",
       "compose_service": null,
       "plugin_id": "mysql-exporter",
       "environment": [
@@ -3082,8 +3082,8 @@
         "stop_grace_seconds": 10
       },
       "module": "backend/observability/exporters/rabbitmq",
-      "entrypoint": "backend/observability/exporters/rabbitmq/cmd/rabbitmq-exporter/main.go",
-      "configuration": "backend/observability/exporters/rabbitmq/internal/runtime",
+      "entrypoint": "backend/observability/exporters/rabbitmq/main.go",
+      "configuration": "backend/observability/exporters/rabbitmq/config",
       "compose_service": null,
       "plugin_id": "rabbitmq-exporter",
       "environment": [
@@ -3253,8 +3253,8 @@
         "stop_grace_seconds": 10
       },
       "module": "backend/observability/exporters/kafka",
-      "entrypoint": "backend/observability/exporters/kafka/cmd/kafka-exporter/main.go",
-      "configuration": "backend/observability/exporters/kafka/internal/runtime",
+      "entrypoint": "backend/observability/exporters/kafka/main.go",
+      "configuration": "backend/observability/exporters/kafka/config",
       "compose_service": null,
       "plugin_id": "kafka-exporter",
       "environment": [
@@ -3424,8 +3424,8 @@
         "stop_grace_seconds": 10
       },
       "module": "backend/observability/exporters/elasticsearch",
-      "entrypoint": "backend/observability/exporters/elasticsearch/cmd/elasticsearch-exporter/main.go",
-      "configuration": "backend/observability/exporters/elasticsearch/internal/runtime",
+      "entrypoint": "backend/observability/exporters/elasticsearch/main.go",
+      "configuration": "backend/observability/exporters/elasticsearch/config",
       "compose_service": null,
       "plugin_id": "elasticsearch-exporter",
       "environment": [
@@ -3586,8 +3586,8 @@
         "stop_grace_seconds": 10
       },
       "module": "backend/observability/exporters/victoriametrics",
-      "entrypoint": "backend/observability/exporters/victoriametrics/cmd/victoriametrics-exporter/main.go",
-      "configuration": "backend/observability/exporters/victoriametrics/internal/runtime",
+      "entrypoint": "backend/observability/exporters/victoriametrics/main.go",
+      "configuration": "backend/observability/exporters/victoriametrics/config",
       "compose_service": null,
       "plugin_id": "victoriametrics-exporter",
       "environment": [

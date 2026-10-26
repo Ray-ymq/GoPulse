@@ -48,12 +48,12 @@ func extractPackageContractForEntry(archivePath, staging string, schemaVersion i
 	if err != nil {
 		return Manifest{}, wrap(CodePackageInvalid, "plugin package is invalid", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	gz, err := gzip.NewReader(io.LimitReader(file, MaxPackageBytes+1))
 	if err != nil {
 		return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	seen := map[string]bool{}
 	var total int64
@@ -84,7 +84,7 @@ func extractPackageContractForEntry(archivePath, staging string, schemaVersion i
 					return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 				}
 			} else {
-				allowed := clean == "plugin.json" || clean == "config.schema.json" || clean == "descriptor.json"
+				allowed := clean == "plugin.json" || clean == "config.schema.json" || clean == "descriptor.json" || clean == "LICENSE" || clean == "NOTICE"
 				if expected != nil {
 					allowed = allowed || clean == expected.Entrypoint
 				} else {
@@ -110,7 +110,7 @@ func extractPackageContractForEntry(archivePath, staging string, schemaVersion i
 			if e = os.MkdirAll(target, 0750); e != nil {
 				return Manifest{}, wrap(CodeFailed, "plugin operation failed", e)
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if h.Size < 0 || h.Size > maxFileBytes {
 				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 			}
@@ -165,6 +165,9 @@ func extractPackageContractForEntry(archivePath, staging string, schemaVersion i
 			return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 		}
 		for name := range seen {
+			if nativeNodeManifest(manifest) && (name == "LICENSE" || name == "NOTICE") {
+				continue
+			}
 			if name != "bin" && name != "plugin.json" && name != "config.schema.json" && name != "descriptor.json" && name != manifest.Entrypoint {
 				return Manifest{}, NewError(CodePackageInvalid, "plugin package is invalid")
 			}

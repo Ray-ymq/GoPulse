@@ -16,11 +16,14 @@ type CatalogEntry struct {
 // OfficialCatalog returns a fresh value so callers cannot mutate the trust policy.
 // Availability denotes the exporter delivered in this batch, not installation.
 func OfficialCatalog() []CatalogEntry {
-	sources := [...]string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
-	ports := [...]int{6379, 3306, 15672, 9092, 9200, 8428}
+	sources := [...]string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics", "node"}
+	ports := [...]int{6379, 3306, 15672, 9092, 9200, 8428, 9100}
 	entries := make([]CatalogEntry, len(sources))
 	for i, source := range sources {
 		entries[i] = CatalogEntry{ID: source + "-exporter", Source: source, TargetID: source + "-exporter-local", Entrypoint: "bin/gopulse-" + source + "-exporter", Port: 9121 + i, HostPort: ports[i], ContainerPort: ports[i], Available: true}
+		if source == "node" {
+			entries[i].Entrypoint = "bin/node_exporter"
+		}
 		if source == "kafka" {
 			entries[i].ContainerPort = 19092
 		}

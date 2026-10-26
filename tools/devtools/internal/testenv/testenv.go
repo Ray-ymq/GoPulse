@@ -170,12 +170,12 @@ func (s *session) lock() (func(), error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(handle.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		handle.Close()
+		_ = handle.Close()
 		return nil, fmt.Errorf("another integration check owns the test environment lock")
 	}
 	return func() {
 		_ = syscall.Flock(int(handle.Fd()), syscall.LOCK_UN)
-		handle.Close()
+		_ = handle.Close()
 	}, nil
 }
 
@@ -461,20 +461,6 @@ func (s *session) reportDiagnosticErrors() {
 	for _, err := range s.diagnosticErrors {
 		fmt.Fprintf(os.Stderr, "[gopulse] warning: diagnostic evidence: %v\n", err)
 	}
-}
-
-func (s *session) finishDiagnostics(primary error, state *workspace.State, cleanupErrors []error) {
-	if primary == nil {
-		return
-	}
-	if state != nil {
-		s.collectFailureEvidence(state)
-	}
-	exitCode := s.lastCommand.ExitCode
-	if exitCode == 0 {
-		exitCode = -1
-	}
-	s.finishDiagnosticsWithExit(primary, exitCode, cleanupErrors)
 }
 
 func (s *session) finishDiagnosticsWithExit(primary error, exitCode int, cleanupErrors []error) {

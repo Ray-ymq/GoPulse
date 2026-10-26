@@ -80,7 +80,11 @@ func TestMonitorPublishesSuccessAndUnavailable(t *testing.T) {
 			updates := make(chan Update, 1)
 			m := monitorForServer(t, server, pub, func(u Update) { updates <- u })
 			m.Enable(plugin.Manifest{ID: plugin.PluginID, Version: "1.3.3", MetricsPath: "/metrics"})
-			defer m.Shutdown(context.Background())
+			defer func() {
+				if err := m.Shutdown(context.Background()); err != nil {
+					t.Error(err)
+				}
+			}()
 			select {
 			case message := <-pub.messages:
 				if message.Payload.ScrapeStatus != tc.want || len(message.Payload.Samples) != tc.samples || len(message.MessageID) != 32 || message.Payload.TargetID != envelope.TargetID {

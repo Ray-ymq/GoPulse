@@ -79,13 +79,13 @@ func newClient(baseURL string, timeout time.Duration, container bool) (*Client, 
 	host := strings.ToLower(u.Hostname())
 	ip := net.ParseIP(host)
 	if timeout <= 0 {
-		return nil, errors.New("Elasticsearch timeout must be positive")
+		return nil, errors.New("invalid Elasticsearch timeout: must be positive")
 	}
 	if !container && (ip == nil || !ip.IsLoopback()) {
-		return nil, errors.New("Elasticsearch must use a loopback HTTP origin")
+		return nil, errors.New("invalid Elasticsearch address: must use a loopback HTTP origin")
 	}
 	if container && (ip != nil || host == "localhost" || host == "host.docker.internal" || !validServiceDNSName(host)) {
-		return nil, errors.New("Elasticsearch must use a service DNS HTTP origin")
+		return nil, errors.New("invalid Elasticsearch address: must use a service DNS HTTP origin")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableCompression = true
@@ -158,7 +158,7 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 		return err
 	}
 	payload, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	// A pre-1.14.3 daily index can still have the old strict mapping. Add only
 	// the runtime keyword fields to that fixed product index, then retry the
 	// same deterministic document ID once. Never discard a new-schema log.
@@ -168,7 +168,7 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 			return errors.New("runtime log mapping unavailable")
 		}
 		data, e := readLimited(mapping.Body)
-		mapping.Body.Close()
+		_ = mapping.Body.Close()
 		var ack struct {
 			Acknowledged bool `json:"acknowledged"`
 		}
@@ -180,10 +180,10 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 			return err
 		}
 		payload, readErr = readLimited(response.Body)
-		response.Body.Close()
+		_ = response.Body.Close()
 	}
 	if readErr != nil || (response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated) {
-		return errors.New("Elasticsearch rejected log document")
+		return errors.New("log document rejected by Elasticsearch")
 	}
 	var result struct {
 		Index  string `json:"_index"`
@@ -191,7 +191,7 @@ func (c *Client) Write(ctx context.Context, body []byte) error {
 		Result string `json:"result"`
 	}
 	if json.Unmarshal(payload, &result) != nil || result.Index != index || result.ID != request.MessageID || (result.Result != "created" && result.Result != "updated" && result.Result != "noop") {
-		return errors.New("Elasticsearch returned an invalid write result")
+		return errors.New("invalid write result from Elasticsearch")
 	}
 	if err := c.removeExpiredWrite(ctx, index); err != nil {
 		return err
@@ -225,7 +225,7 @@ func (c *Client) removeExpiredWrite(ctx context.Context, index string) error {
 	block, err := c.do(ctx, http.MethodPut, "/"+index+"/_settings", strings.NewReader(`{"index":{"blocks.write":true}}`))
 	if err == nil {
 		_, _ = readLimited(block.Body)
-		block.Body.Close()
+		_ = block.Body.Close()
 		if block.StatusCode < 200 || block.StatusCode >= 300 {
 			err = errors.New("expired index could not be blocked")
 		}
@@ -238,7 +238,7 @@ func (c *Client) removeExpiredWrite(ctx context.Context, index string) error {
 		return err
 	}
 	_, _ = readLimited(deleted.Body)
-	deleted.Body.Close()
+	_ = deleted.Body.Close()
 	if deleted.StatusCode != http.StatusNotFound && (deleted.StatusCode < 200 || deleted.StatusCode >= 300) {
 		return errors.New("expired index could not be removed")
 	}
@@ -259,9 +259,9 @@ func (c *Client) Ready(ctx context.Context) error {
 		return err
 	}
 	_, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
-		return errors.New("Elasticsearch unavailable")
+		return errors.New("service unavailable: Elasticsearch")
 	}
 	return c.ensureTemplate(ctx)
 }
@@ -274,15 +274,15 @@ func (c *Client) ensureTemplate(ctx context.Context) error {
 		return err
 	}
 	payload, readErr := readLimited(response.Body)
-	response.Body.Close()
+	_ = response.Body.Close()
 	if readErr != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
-		return errors.New("Elasticsearch log template unavailable")
+		return errors.New("log template unavailable in Elasticsearch")
 	}
 	var result struct {
 		Acknowledged bool `json:"acknowledged"`
 	}
 	if json.Unmarshal(payload, &result) != nil || !result.Acknowledged {
-		return errors.New("Elasticsearch log template acknowledgement invalid")
+		return errors.New("invalid Elasticsearch log template acknowledgement")
 	}
 	return nil
 }
@@ -293,9 +293,9 @@ func (c *Client) verifyIndexContract(ctx context.Context, index string) error {
 		return err
 	}
 	mappingPayload, readErr := readLimited(mappingResponse.Body)
-	mappingResponse.Body.Close()
+	_ = mappingResponse.Body.Close()
 	if readErr != nil || mappingResponse.StatusCode < 200 || mappingResponse.StatusCode >= 300 || !validMapping(mappingPayload, index) {
-		return errors.New("Elasticsearch log index mapping incompatible")
+		return errors.New("incompatible Elasticsearch log index mapping")
 	}
 
 	aliasResponse, err := c.do(ctx, http.MethodGet, "/"+index+"/_alias/"+ReadAlias, nil)
@@ -303,9 +303,9 @@ func (c *Client) verifyIndexContract(ctx context.Context, index string) error {
 		return err
 	}
 	aliasPayload, readErr := readLimited(aliasResponse.Body)
-	aliasResponse.Body.Close()
+	_ = aliasResponse.Body.Close()
 	if readErr != nil || aliasResponse.StatusCode < 200 || aliasResponse.StatusCode >= 300 || !validAlias(aliasPayload, index) {
-		return errors.New("Elasticsearch log index alias unavailable")
+		return errors.New("log index alias unavailable in Elasticsearch")
 	}
 	return nil
 }
@@ -353,21 +353,21 @@ func validAlias(payload []byte, index string) bool {
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := runtimekit.NewRequest(ctx, method, c.baseURL+path, body)
 	if err != nil {
-		return nil, errors.New("Elasticsearch request creation failed")
+		return nil, errors.New("failed to create Elasticsearch request")
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	response, err := c.client.Do(req)
 	if err != nil {
-		return nil, errors.New("Elasticsearch request failed")
+		return nil, errors.New("request to Elasticsearch failed")
 	}
 	return response, nil
 }
 func readLimited(body io.Reader) ([]byte, error) {
 	value, err := io.ReadAll(io.LimitReader(body, responseLimit+1))
 	if err != nil || len(value) > responseLimit {
-		return nil, errors.New("Elasticsearch response exceeded limit")
+		return nil, errors.New("response from Elasticsearch exceeded limit")
 	}
 	return value, nil
 }

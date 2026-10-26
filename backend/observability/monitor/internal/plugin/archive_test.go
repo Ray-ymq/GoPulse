@@ -26,9 +26,15 @@ func writeArchive(t *testing.T, entries map[string][]byte) string {
 			t.Fatal(err)
 		}
 	}
-	tw.Close()
-	gz.Close()
-	file.Close()
+	if err := tw.Close(); err != nil {
+		t.Error(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Error(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Error(err)
+	}
 	return path
 }
 func TestExtractPackageAcceptsValidAndRejectsTraversal(t *testing.T) {

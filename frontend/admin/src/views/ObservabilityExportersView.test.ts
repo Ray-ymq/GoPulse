@@ -7,7 +7,7 @@ import type { ExporterStatus } from '../types/exporter'
 vi.mock('../services/exporters', async importOriginal => ({
   ...await importOriginal<typeof import('../services/exporters')>(),
   exporterApi: { list: vi.fn(), update: vi.fn() },
-  pluginConfigApi: { catalog: vi.fn() },
+  pluginConfigApi: { catalog: vi.fn(), check: vi.fn() },
 }))
 afterEach(() => { vi.resetAllMocks(); vi.restoreAllMocks() })
 
@@ -53,3 +53,23 @@ it.each([false, true])('refreshes the catalog after v2 update (refresh failure: 
     expect((input.element as HTMLInputElement).value).toBe('')
   } finally { wrapper.unmount() }
 }, 15000)
+
+
+it('checks the native node plugin with filesystem paths and no credentials', async () => {
+ const descriptor: PluginCatalogItem = {id:'node-exporter',name:'Prometheus Node Exporter',source:'node',available:true,configured:false,secret_configured:false,revision:'',summary:'not_configured',schema:{schema_version:1,plugin_id:'node-exporter',fields:['rootfs','procfs','sysfs'].map(name=>({name,type:'string',required:false,secret:false,minimum:1,maximum:4096}))}}
+ vi.mocked(exporterApi.list).mockResolvedValue([])
+ vi.mocked(pluginConfigApi.catalog).mockResolvedValue([descriptor])
+ vi.mocked(pluginConfigApi.check).mockResolvedValue({reachable:true})
+ const wrapper=mount(ObservabilityExportersView,{global:{stubs:{RouterLink:true}}})
+ try {
+  await flushPromises()
+  await wrapper.findAll('button').find(button=>button.text().includes('node-exporter'))!.trigger('click')
+  expect((wrapper.get('input[aria-label="rootfs"]').element as HTMLInputElement).value).toBe('/')
+  expect((wrapper.get('input[aria-label="procfs"]').element as HTMLInputElement).value).toBe('/proc')
+  expect((wrapper.get('input[aria-label="sysfs"]').element as HTMLInputElement).value).toBe('/sys')
+  expect(wrapper.find('input[type="password"]').exists()).toBe(false)
+  await wrapper.findAll('button').find(button=>button.text()==='连接测试')!.trigger('click')
+  await flushPromises()
+  expect(pluginConfigApi.check).toHaveBeenCalledExactlyOnceWith({rootfs:'/',procfs:'/proc',sysfs:'/sys'},{},'node-exporter')
+ } finally {wrapper.unmount()}
+})

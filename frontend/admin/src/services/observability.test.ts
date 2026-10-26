@@ -94,3 +94,14 @@ it('rejects self monitoring metrics from the product query boundary', () => {
  expect(isMetricResult({...value,series:[{...value.series[0],labels:{...value.series[0]!.labels,node:'node-2'}}]})).toBe(false)
  expect(isMetricResult({...value,metric:'gopulse_backend_dependency_up',unit:'state',series:[{labels:{dependency:'redis'},points:[{timestamp:'2026-09-11T08:15:00Z',value:-1}]}]})).toBe(false)
 })
+
+
+it('accepts native node metrics only under the node source', async () => {
+ const { isMetricCatalog } = await import('./observability')
+ const metric = {metric:'node_cpu_seconds_total',kind:'counter',unit:'seconds',source:'node',target_id:'node-exporter-local',producer_kind:'exporter_plugin',producer_id:'node-exporter',label_keys:['cpu','mode']}
+ expect(isMetricCatalog([metric])).toBe(true)
+ expect(isMetricCatalog([{...metric,source:'redis',target_id:'redis-exporter-local',producer_id:'redis-exporter'}])).toBe(false)
+ expect(isMetricCatalog([{...metric,metric:'go_goroutines'}])).toBe(false)
+ const event = {timestamp:'2026-10-21T08:00:00Z',event_name:'exporter_plugin_started',source:'monitor',severity:'info',message:'exporter plugin started',metadata:{plugin_id:'node-exporter',plugin_version:'1.9.1',operation:'start',from_state:'stopped',to_state:'running'}}
+ expect(isEventEntry(event)).toBe(true)
+})

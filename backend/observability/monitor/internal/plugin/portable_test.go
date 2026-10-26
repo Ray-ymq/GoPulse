@@ -19,7 +19,11 @@ func TestPortableOfflineRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer core.shutdown(ctx)
+	defer func() {
+		if err := core.shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
 	config, secret := core.legacyConfig()
 	if _, err = core.configure(ctx, PluginID, configRequest(config, secret), true); err != nil {
 		t.Fatal(err)
@@ -60,7 +64,11 @@ func TestPortableOfflineRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restored.shutdown(ctx)
+	defer func() {
+		if err := restored.shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
 	active, err := restored.loadActive(PluginID)
 	if err != nil || active.ID == original.ID || active.Entry != original.Entry || !bytes.Equal(active.Config, original.Config) || !bytes.Equal(active.Secret, original.Secret) {
 		t.Fatal("logical state changed or runtime identity reused", err)
@@ -88,7 +96,11 @@ func TestPortableRejectsInvalidAndNonemptyTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer core.shutdown(ctx)
+	defer func() {
+		if err := core.shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
 	config, secret := core.legacyConfig()
 	if _, err = core.configure(ctx, PluginID, configRequest(config, secret), true); err != nil {
 		t.Fatal(err)
@@ -161,7 +173,9 @@ func TestPortableInterruptedImportCannotStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if core, err := newRuntimeCore(context.Background(), cfg, catalog); err == nil {
-		core.shutdown(context.Background())
+		if err := core.shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
 		t.Fatal("interrupted import started runtime")
 	}
 	if _, _, err := exportPortable(cfg.Root, catalog); err == nil {

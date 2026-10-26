@@ -29,3 +29,5 @@ make ci-plan LABELS="ci:backend/business ci:backend/observability/monitor"
 模块目录调整不改变 Go module 名称、import 路径和 Compose 服务名。旧模块目录参数和旧 CI 标签需要改为新路径；远端 CI 标签由仓库维护者创建。根目录的开发、构建和部署命令继续使用原有入口。
 
 压测方案与报告统一放在 `docs/performance/`；工具与配置放在 `tools/perflab/`。
+
+公共压测入口、准备步骤和专用环境要求见[压测操作说明](tools/perflab/flow/README.md)。历史测试方案和报告见[压测文档](docs/performance/README.md)。原生 node_exporter 的打包与部署要求见[插件说明](backend/observability/exporters/node/README.md)。

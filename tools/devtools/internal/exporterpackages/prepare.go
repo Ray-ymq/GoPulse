@@ -16,7 +16,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 )
 
-var sources = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
+var sources = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics", "node"}
 
 type receipt struct {
 	Input string `json:"input"`
@@ -51,7 +51,6 @@ func Prepare(root, output string, environment map[string]string) error {
 			return fmt.Errorf("empty %s Exporter version", source)
 		}
 		input, digestErr := digest.Paths(root, []string{
-			filepath.Join(root, "backend/runtimekit"),
 			filepath.Join(root, "backend/observability/exporters", source),
 		})
 		if digestErr != nil {

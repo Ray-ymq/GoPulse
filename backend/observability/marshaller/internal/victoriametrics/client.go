@@ -36,7 +36,7 @@ func (c *Client) Ready(ctx context.Context) error {
 	if err != nil {
 		return errors.New("VictoriaMetrics health request failed")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4097))
 	if readErr != nil || len(body) > 4096 || resp.StatusCode != http.StatusOK {
 		return errors.New("VictoriaMetrics unavailable")
@@ -59,7 +59,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, conte
 		}
 		return errors.New("VictoriaMetrics request failed")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	responseBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4097))
 	if readErr != nil {
 		return errors.New("VictoriaMetrics response could not be read")

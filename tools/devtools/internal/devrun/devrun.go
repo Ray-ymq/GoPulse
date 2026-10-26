@@ -302,7 +302,9 @@ type environment struct {
 
 func (e environment) integer(key string) int {
 	value := 0
-	fmt.Sscanf(e.token[key], "%d", &value)
+	if _, err := fmt.Sscanf(e.token[key], "%d", &value); err != nil {
+		return 0
+	}
 	return value
 }
 

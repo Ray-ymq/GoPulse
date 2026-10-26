@@ -175,7 +175,9 @@ func CheckPorts(ports []int, owned []workspace.ProcessRecord) error {
 		if err != nil {
 			return fmt.Errorf("port %d is already in use by an unowned process", port)
 		}
-		listener.Close()
+		if err := listener.Close(); err != nil {
+			return fmt.Errorf("close port %d probe: %w", port, err)
+		}
 	}
 	return nil
 }
@@ -222,10 +224,10 @@ func Spawn(logPath, cwd string, command []string, overrides map[string]string, n
 	}
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDONLY, 0)
 	if err != nil {
-		logHandle.Close()
+		_ = logHandle.Close()
 		return workspace.ProcessRecord{}, err
 	}
-	defer devNull.Close()
+	defer func() { _ = devNull.Close() }()
 
 	process := exec.Command(command[0], command[1:]...)
 	process.Dir = cwd
@@ -235,10 +237,10 @@ func Spawn(logPath, cwd string, command []string, overrides map[string]string, n
 	process.Stderr = logHandle
 	process.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := process.Start(); err != nil {
-		logHandle.Close()
+		_ = logHandle.Close()
 		return workspace.ProcessRecord{}, fmt.Errorf("start %s failed: %v", command[0], err)
 	}
-	logHandle.Close()
+	_ = logHandle.Close()
 	// The child must not be waited for here: it is owned background state.
 	go func() { _ = process.Wait() }()
 

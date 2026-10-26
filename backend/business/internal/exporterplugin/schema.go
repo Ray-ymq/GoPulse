@@ -3,12 +3,13 @@ package exporterplugin
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"io"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 )
 
 // ConfigSchema is a closed, declarative contract, not a general JSON Schema.
@@ -39,6 +40,15 @@ func OfficialSchema(id string) (ConfigSchema, error) {
 	entry, ok := LookupOfficial(id)
 	if !ok {
 		return ConfigSchema{}, invalidConfig()
+	}
+	if entry.Source == "node" {
+		fields := make([]ConfigField, 0, 3)
+		for _, name := range []string{"rootfs", "procfs", "sysfs"} {
+			field := boundedField(name, "string", 1, 4096)
+			field.Required = false
+			fields = append(fields, field)
+		}
+		return ConfigSchema{SchemaVersion: 1, PluginID: id, Fields: fields}, nil
 	}
 	fields := []ConfigField{{Name: "host", Type: "hostname", Required: true}}
 	port := "port"

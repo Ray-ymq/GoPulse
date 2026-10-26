@@ -85,7 +85,11 @@ func TestRuntimeAtomicRollbackAndStoppedUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer core.shutdown(ctx)
+	defer func() {
+		if err := core.shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
 	config, secret := core.legacyConfig()
 	data := configRequest(config, secret)
 	if _, err = core.configure(ctx, PluginID, data, true); err != nil {
@@ -122,7 +126,11 @@ func TestRuntimeAtomicRollbackAndStoppedUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer recovered.shutdown(ctx)
+	defer func() {
+		if err := recovered.shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
 	restored, err := recovered.bootstrap(ctx)
 	if err != nil || restored.Version != "1.11.3" || restored.DesiredState != DesiredStopped || restored.ObservedState != ObservedStopped {
 		t.Fatal("registered version above current was downgraded or started", err)

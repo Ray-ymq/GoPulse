@@ -2,10 +2,8 @@ package proc
 
 import (
 	"net"
-	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -98,7 +96,7 @@ func TestProcessGroupStopIsBoundedAndOwned(t *testing.T) {
 
 func TestCheckPortsRejectsUnownedOccupantWithoutTouchingIt(t *testing.T) {
 	listener, port := listen(t)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	err := CheckPorts([]int{port}, nil)
 	if err == nil {
@@ -111,7 +109,7 @@ func TestCheckPortsRejectsUnownedOccupantWithoutTouchingIt(t *testing.T) {
 	if dialErr != nil {
 		t.Fatalf("the existing socket must stay usable: %v", dialErr)
 	}
-	connection.Close()
+	_ = connection.Close()
 }
 
 func TestCheckPortsAcceptsOwnedProcessAndFreePort(t *testing.T) {
@@ -181,29 +179,4 @@ func TestCaptureTrimsOutput(t *testing.T) {
 	if value != "value" {
 		t.Fatalf("captured value = %q", value)
 	}
-}
-
-func spawnShortLived(t *testing.T) (int, error) {
-	t.Helper()
-	file, err := os.CreateTemp(t.TempDir(), "pid")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	script := "sleep 0.1 & echo $! > " + file.Name() + "; wait"
-	if _, err := Spawn(filepath.Join(t.TempDir(), "short-lived.log"), t.TempDir(),
-		[]string{"sh", "-c", script}, nil, "test"); err != nil {
-		return 0, err
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		raw, err := os.ReadFile(file.Name())
-		if err == nil {
-			if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 {
-				return pid, nil
-			}
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return 0, os.ErrDeadlineExceeded
 }

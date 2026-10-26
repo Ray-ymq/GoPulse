@@ -125,7 +125,7 @@ func NewEnvelope(messageID string, value Validated) (Envelope, error) {
 			if _, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err != nil {
 				return Envelope{}, errors.New("invalid log envelope")
 			}
-			entries = append(entries, wireEntry{Timestamp: entry.Timestamp, Level: entry.Level, Service: entry.Service, Module: entry.Module, Message: entry.Message, Fields: entry.Fields})
+			entries = append(entries, wireEntry(entry))
 		}
 	} else {
 		decoder := json.NewDecoder(bytes.NewReader(value.Payload))

@@ -48,12 +48,6 @@ type Server struct {
 	handler http.Handler
 	logs    LogOptions
 }
-type errorBody struct {
-	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-}
 
 func New(token, root string, manager pluginManager, logger *slog.Logger, logOptions ...LogOptions) *Server {
 	if logger == nil {
@@ -159,7 +153,7 @@ func (s *Server) install(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, err)
 		return
 	}
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 	status, err := s.manager.Install(r.Context(), path)
 	if err != nil {
 		writePluginError(w, err)
@@ -173,7 +167,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, err)
 		return
 	}
-	defer os.Remove(path)
+	defer func() { _ = os.Remove(path) }()
 	status, err := s.manager.Update(r.Context(), r.PathValue("pluginId"), path)
 	if err != nil {
 		writePluginError(w, err)
@@ -198,10 +192,10 @@ func (s *Server) readPackage(w http.ResponseWriter, r *http.Request) (string, er
 	name := tmp.Name()
 	ok := false
 	defer func() {
-		part.Close()
-		tmp.Close()
+		_ = part.Close()
+		_ = tmp.Close()
 		if !ok {
-			os.Remove(name)
+			_ = os.Remove(name)
 		}
 	}()
 	written, copyErr := io.Copy(tmp, io.LimitReader(part, plugin.MaxPackageBytes+1))

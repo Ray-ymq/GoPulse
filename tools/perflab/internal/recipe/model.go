@@ -7,13 +7,15 @@ import (
 	"fmt"
 	"hash"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/perflab/internal/input"
 )
 
 const (
 	SchemaVersion = "gopulse.phase18.recipe.v1"
-	// CredentialsSchemaVersion is the artifact contract the load generator
-	// validates before it starts; it must match load.CredentialsSchemaVersion.
-	CredentialsSchemaVersion        = "gopulse.phase18.credentials.v1"
+	// CredentialsSchemaVersion is the artifact contract the k6 workload
+	// validates before it starts; it must match the input loader contract.
+	CredentialsSchemaVersion        = input.CredentialsSchemaVersion
 	Seed                     uint64 = 18002005
 	// userCount is the author pool postAuthor distributes posts over.
 	userCount          = 5000

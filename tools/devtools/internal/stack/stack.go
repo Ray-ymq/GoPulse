@@ -110,7 +110,7 @@ func Verify(root string) error {
 	if err != nil {
 		return fmt.Errorf("frontend health request failed: %w", err)
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("frontend health returned HTTP %d", response.StatusCode)
 	}
@@ -319,7 +319,7 @@ func (c *context) prepareBackendPortOverride() error {
 	c.overrideFile = file.Name()
 	content := fmt.Sprintf("services:\n  backend:\n    ports:\n      - \"127.0.0.1:%s:8080\"\n", c.httpPort)
 	if _, err := file.WriteString(content); err != nil {
-		file.Close()
+		_ = file.Close()
 		c.removeBackendPortOverride()
 		return err
 	}
@@ -355,7 +355,7 @@ func envFileValue(path, wanted string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

@@ -32,7 +32,9 @@ func TestClusterConfigurationBoundary(t *testing.T) {
 				t.Fatal("secret not retained")
 			}
 			var invalid map[string]json.RawMessage
-			json.Unmarshal(public, &invalid)
+			if err := json.Unmarshal(public, &invalid); err != nil {
+				t.Error(err)
+			}
 			invalid["password"] = json.RawMessage(`"candidate-secret"`)
 			bad, _ := json.Marshal(invalid)
 			if _, _, err := adapter.Parse([]byte(`{"config":`+string(bad)+`,"secrets":{"password":"candidate-secret"}}`), "container", nil); err == nil {

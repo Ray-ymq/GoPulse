@@ -1,0 +1,99 @@
+{
+  "schema_version": "gopulse.pt.resources.v1",
+  "services": {
+    "mysql": {
+      "cpus": 6,
+      "memory_mib": 3584,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "elasticsearch": {
+      "cpus": 2,
+      "memory_mib": 2048,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "backend": {
+      "cpus": 0.75,
+      "memory_mib": 256,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "backend-2": {
+      "cpus": 0.75,
+      "memory_mib": 256,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "platform-api": {
+      "cpus": 0.5,
+      "memory_mib": 256,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "business-worker": {
+      "cpus": 0.5,
+      "memory_mib": 256,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "business-worker-2": {
+      "cpus": 0.5,
+      "memory_mib": 256,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "search-indexer": {
+      "cpus": 0.5,
+      "memory_mib": 256,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "search-indexer-2": {
+      "cpus": 0.5,
+      "memory_mib": 256,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "rabbitmq": {
+      "cpus": 0.5,
+      "memory_mib": 512,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "redis": {
+      "cpus": 0.5,
+      "memory_mib": 512,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "frontend": {
+      "cpus": 0.13,
+      "memory_mib": 128,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "admin-frontend": {
+      "cpus": 0.12,
+      "memory_mib": 128,
+      "swap_bytes": 0,
+      "restart": "no"
+    },
+    "k6": {
+      "cpus": 1.5,
+      "memory_mib": 1536,
+      "swap_bytes": 0,
+      "restart": "no"
+    }
+  },
+  "mysql_buffer_pool_bytes": 2147483648,
+  "elasticsearch_heap_bytes": 1073741824,
+  "system_budget": {
+    "cpus": 1,
+    "memory_mib": 1536
+  },
+  "reserve": {
+    "cpus": 0.25,
+    "memory_mib": 512
+  }
+}

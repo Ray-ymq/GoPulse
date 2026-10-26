@@ -64,7 +64,7 @@ func testExecutable(t *testing.T, running bool) []byte {
 		if err != nil {
 			testExecutableCache.err = err
 		} else {
-			defer os.RemoveAll(temporary)
+			defer func() { _ = os.RemoveAll(temporary) }()
 			testExecutableCache.running, testExecutableCache.err = buildTestExecutable(moduleRoot, temporary, "testhelper_running")
 			if testExecutableCache.err == nil {
 				testExecutableCache.failing, testExecutableCache.err = buildTestExecutable(moduleRoot, temporary, "testhelper_failing")

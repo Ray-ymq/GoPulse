@@ -24,14 +24,20 @@ func TestClientEnsuresFixedTemplateAndVerifiesWrittenIndex(t *testing.T) {
 		paths = append(paths, r.Method+" "+r.URL.Path)
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/_index_template/"):
-			w.Write([]byte(`{"acknowledged":true}`))
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
 		case strings.HasSuffix(r.URL.Path, "/_mapping"):
 			writeMappingResponse(t, w, "gopulse-logs-v1-2026.09.04")
 		case strings.Contains(r.URL.Path, "/_alias/"):
-			w.Write([]byte(`{"gopulse-logs-v1-2026.09.04":{"aliases":{"gopulse-logs-v1-read":{}}}}`))
+			if _, err := w.Write([]byte(`{"gopulse-logs-v1-2026.09.04":{"aliases":{"gopulse-logs-v1-read":{}}}}`)); err != nil {
+				t.Error(err)
+			}
 		default:
 			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`))
+			if _, err := w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`)); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -233,17 +239,23 @@ func TestClientReestablishesTemplateAfterLiveClusterReset(t *testing.T) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/_index_template/"):
 			templatePuts++
-			w.Write([]byte(`{"acknowledged":true}`))
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
 		case strings.HasSuffix(r.URL.Path, "/_mapping"):
 			index := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/_mapping")
 			writeMappingResponse(t, w, index)
 		case strings.Contains(r.URL.Path, "/_alias/"):
 			index := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")[0]
-			json.NewEncoder(w).Encode(map[string]any{index: map[string]any{"aliases": map[string]any{ReadAlias: map[string]any{}}}})
+			if err := json.NewEncoder(w).Encode(map[string]any{index: map[string]any{"aliases": map[string]any{ReadAlias: map[string]any{}}}}); err != nil {
+				t.Error(err)
+			}
 		default:
 			index := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")[0]
 			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(map[string]any{"_index": index, "_id": "abcdef0123456789abcdef0123456789", "result": "created"})
+			if err := json.NewEncoder(w).Encode(map[string]any{"_index": index, "_id": "abcdef0123456789abcdef0123456789", "result": "created"}); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -269,15 +281,21 @@ func TestClientRejectsWrittenIndexWithoutReadAlias(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/_index_template/"):
-			w.Write([]byte(`{"acknowledged":true}`))
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
 		case strings.HasSuffix(r.URL.Path, "/_mapping"):
 			writeMappingResponse(t, w, "gopulse-logs-v1-2026.09.04")
 		case strings.Contains(r.URL.Path, "/_alias/"):
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(`{"error":"alias missing"}`))
+			if _, err := w.Write([]byte(`{"error":"alias missing"}`)); err != nil {
+				t.Error(err)
+			}
 		default:
 			w.WriteHeader(http.StatusCreated)
-			w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`))
+			if _, err := w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`)); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -339,11 +357,15 @@ func TestExistingDailyIndexReceivesRuntimeFieldsAndInstanceIDWithoutDroppingLog(
 			writes++
 			if !upgraded {
 				w.WriteHeader(400)
-				w.Write([]byte(`{"error":"strict mapping"}`))
+				if _, err := w.Write([]byte(`{"error":"strict mapping"}`)); err != nil {
+					t.Error(err)
+				}
 				return
 			}
 			w.WriteHeader(201)
-			w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`))
+			if _, err := w.Write([]byte(`{"_index":"gopulse-logs-v1-2026.09.04","_id":"abcdef0123456789abcdef0123456789","result":"created"}`)); err != nil {
+				t.Error(err)
+			}
 		case strings.HasSuffix(r.URL.Path, "/_mapping"):
 			if r.Method == "PUT" {
 				payload, err := io.ReadAll(io.LimitReader(r.Body, responseLimit))
@@ -357,14 +379,20 @@ func TestExistingDailyIndexReceivesRuntimeFieldsAndInstanceIDWithoutDroppingLog(
 					mappingReadErr = err
 				}
 				upgraded = true
-				w.Write([]byte(`{"acknowledged":true}`))
+				if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+					t.Error(err)
+				}
 			} else {
 				writeMappingResponse(t, w, "gopulse-logs-v1-2026.09.04")
 			}
 		case strings.Contains(r.URL.Path, "/_alias/"):
-			w.Write([]byte(`{"gopulse-logs-v1-2026.09.04":{"aliases":{"gopulse-logs-v1-read":{}}}}`))
+			if _, err := w.Write([]byte(`{"gopulse-logs-v1-2026.09.04":{"aliases":{"gopulse-logs-v1-read":{}}}}`)); err != nil {
+				t.Error(err)
+			}
 		default:
-			w.Write([]byte(`{"acknowledged":true}`))
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()
