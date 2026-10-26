@@ -1,7 +1,8 @@
-# The Monitor image has its own build context. Exporter source, packages and
-# historical archives are deployment inputs and must not enter this context.
+# Monitor 镜像只包含 Monitor 和共享运行时源码。
 *
-!monitor/
-!monitor/**
-!runtimekit/
-!runtimekit/**
+!backend/
+!backend/observability/
+!backend/observability/monitor/
+!backend/observability/monitor/**
+!backend/runtimekit/
+!backend/runtimekit/**

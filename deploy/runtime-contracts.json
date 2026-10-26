@@ -44,9 +44,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 15
       },
-      "module": "backend",
-      "entrypoint": "backend/cmd/server/main.go",
-      "configuration": "backend/internal/config",
+      "module": "backend/business",
+      "entrypoint": "backend/business/cmd/server/main.go",
+      "configuration": "backend/business/internal/config",
       "compose_service": "backend",
       "plugin_id": null,
       "environment": [
@@ -949,9 +949,9 @@
         "shutdown_seconds": 10,
         "stop_grace_seconds": 15
       },
-      "module": "backend",
-      "entrypoint": "backend/cmd/business-worker/main.go",
-      "configuration": "backend/internal/config",
+      "module": "backend/business",
+      "entrypoint": "backend/business/cmd/business-worker/main.go",
+      "configuration": "backend/business/internal/config",
       "compose_service": "business-worker",
       "plugin_id": null,
       "environment": [
@@ -1391,9 +1391,9 @@
         "shutdown_seconds": 10,
         "stop_grace_seconds": 15
       },
-      "module": "backend",
-      "entrypoint": "backend/cmd/search-indexer/main.go",
-      "configuration": "backend/internal/config",
+      "module": "backend/business",
+      "entrypoint": "backend/business/cmd/search-indexer/main.go",
+      "configuration": "backend/business/internal/config",
       "compose_service": "search-indexer",
       "plugin_id": null,
       "environment": [
@@ -1852,9 +1852,9 @@
         "shutdown_seconds": 10,
         "stop_grace_seconds": 15
       },
-      "module": "marshaller",
-      "entrypoint": "marshaller/cmd/marshaller/main.go",
-      "configuration": "marshaller/internal/config",
+      "module": "backend/observability/marshaller",
+      "entrypoint": "backend/observability/marshaller/cmd/marshaller/main.go",
+      "configuration": "backend/observability/marshaller/internal/config",
       "compose_service": "marshaller",
       "plugin_id": null,
       "environment": [
@@ -2291,9 +2291,9 @@
         "shutdown_seconds": 10,
         "stop_grace_seconds": 20
       },
-      "module": "monitor",
-      "entrypoint": "monitor/cmd/monitor/main.go",
-      "configuration": "monitor/internal/config",
+      "module": "backend/observability/monitor",
+      "entrypoint": "backend/observability/monitor/cmd/monitor/main.go",
+      "configuration": "backend/observability/monitor/internal/config",
       "compose_service": "monitor",
       "plugin_id": null,
       "environment": [
@@ -2748,9 +2748,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
-      "module": "exporters/redis",
-      "entrypoint": "exporters/redis/cmd/redis-exporter/main.go",
-      "configuration": "exporters/redis/internal/config",
+      "module": "backend/observability/exporters/redis",
+      "entrypoint": "backend/observability/exporters/redis/cmd/redis-exporter/main.go",
+      "configuration": "backend/observability/exporters/redis/internal/config",
       "compose_service": null,
       "plugin_id": "redis-exporter",
       "environment": [
@@ -2910,9 +2910,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
-      "module": "exporters/mysql",
-      "entrypoint": "exporters/mysql/cmd/mysql-exporter/main.go",
-      "configuration": "exporters/mysql/internal/runtime",
+      "module": "backend/observability/exporters/mysql",
+      "entrypoint": "backend/observability/exporters/mysql/cmd/mysql-exporter/main.go",
+      "configuration": "backend/observability/exporters/mysql/internal/runtime",
       "compose_service": null,
       "plugin_id": "mysql-exporter",
       "environment": [
@@ -3081,9 +3081,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
-      "module": "exporters/rabbitmq",
-      "entrypoint": "exporters/rabbitmq/cmd/rabbitmq-exporter/main.go",
-      "configuration": "exporters/rabbitmq/internal/runtime",
+      "module": "backend/observability/exporters/rabbitmq",
+      "entrypoint": "backend/observability/exporters/rabbitmq/cmd/rabbitmq-exporter/main.go",
+      "configuration": "backend/observability/exporters/rabbitmq/internal/runtime",
       "compose_service": null,
       "plugin_id": "rabbitmq-exporter",
       "environment": [
@@ -3252,9 +3252,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
-      "module": "exporters/kafka",
-      "entrypoint": "exporters/kafka/cmd/kafka-exporter/main.go",
-      "configuration": "exporters/kafka/internal/runtime",
+      "module": "backend/observability/exporters/kafka",
+      "entrypoint": "backend/observability/exporters/kafka/cmd/kafka-exporter/main.go",
+      "configuration": "backend/observability/exporters/kafka/internal/runtime",
       "compose_service": null,
       "plugin_id": "kafka-exporter",
       "environment": [
@@ -3423,9 +3423,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
-      "module": "exporters/elasticsearch",
-      "entrypoint": "exporters/elasticsearch/cmd/elasticsearch-exporter/main.go",
-      "configuration": "exporters/elasticsearch/internal/runtime",
+      "module": "backend/observability/exporters/elasticsearch",
+      "entrypoint": "backend/observability/exporters/elasticsearch/cmd/elasticsearch-exporter/main.go",
+      "configuration": "backend/observability/exporters/elasticsearch/internal/runtime",
       "compose_service": null,
       "plugin_id": "elasticsearch-exporter",
       "environment": [
@@ -3585,9 +3585,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
-      "module": "exporters/victoriametrics",
-      "entrypoint": "exporters/victoriametrics/cmd/victoriametrics-exporter/main.go",
-      "configuration": "exporters/victoriametrics/internal/runtime",
+      "module": "backend/observability/exporters/victoriametrics",
+      "entrypoint": "backend/observability/exporters/victoriametrics/cmd/victoriametrics-exporter/main.go",
+      "configuration": "backend/observability/exporters/victoriametrics/internal/runtime",
       "compose_service": null,
       "plugin_id": "victoriametrics-exporter",
       "environment": [
@@ -3772,9 +3772,9 @@
         "shutdown_seconds": 5,
         "stop_grace_seconds": 15
       },
-      "module": "backend",
-      "entrypoint": "backend/cmd/server/main.go",
-      "configuration": "backend/internal/config",
+      "module": "backend/business",
+      "entrypoint": "backend/business/cmd/server/main.go",
+      "configuration": "backend/business/internal/config",
       "compose_service": "platform-api",
       "plugin_id": null,
       "environment": [
@@ -5327,8 +5327,8 @@
     }
   ],
   "plugin_manifest": {
-    "catalog": "monitor/internal/plugin/catalog.go",
-    "validator": "monitor/internal/plugin/manifest.go",
+    "catalog": "backend/observability/monitor/internal/plugin/catalog.go",
+    "validator": "backend/observability/monitor/internal/plugin/manifest.go",
     "health_path": "/health",
     "metrics_path": "/metrics"
   }

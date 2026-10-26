@@ -24,7 +24,7 @@ cleanup 启动等待 60 秒，按 `(published_at,id)` 游标每批最多扫描 5
 
 ## 指标和可用性
 
-backend 指标契约位于 `backend/internal/instrumentation/definitions.json`。现有缓存请求、回源、重建在途、waiter、资源拒绝、全局准入拒绝和限流决策继续全量计数，另补：
+backend 指标契约位于 `backend/business/internal/instrumentation/definitions.json`。现有缓存请求、回源、重建在途、waiter、资源拒绝、全局准入拒绝和限流决策继续全量计数，另补：
 
 - `outbox_operation_duration_seconds_{bucket,count,sum}{operation="claim|cleanup",result="success|failure"}`：耗时分布；
 - `outbox_cleanup_rows_total{result="candidate|deleted"}`：候选与实际删除数；
@@ -40,7 +40,7 @@ backend 指标契约位于 `backend/internal/instrumentation/definitions.json`�
 
 ## 验证入口
 
-执行 `go -C backend test ./...` 运行单元测试。执行 `make integration SCOPE=business`，在 Testcontainers 创建的隔离依赖中验证数据库迁移、消息派发和搜索链路。
+执行 `go -C backend/business test ./...` 运行单元测试。执行 `make integration SCOPE=business`，在 Testcontainers 创建的隔离依赖中验证数据库迁移、消息派发和搜索链路。
 
 集成用例 `TestIntegrationRabbitMQDispatchAtLeast300PerSecond` 包含 claim、真实 RabbitMQ mandatory/confirm/return 与批量落库，要求端到端速率至少达到 300 条/秒。另有 550k 行历史的索引检查，以及首批候选全部受保护时的游标推进检查。使用 `GOFLAGS=-v make integration SCOPE=business` 可保存具体确认率与 SQL 计划。
 

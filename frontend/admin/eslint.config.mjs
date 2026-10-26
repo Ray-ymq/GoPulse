@@ -2,7 +2,7 @@ import tsParser from '@typescript-eslint/parser'
 import tsPlugin from '@typescript-eslint/eslint-plugin'
 import vueParser from 'vue-eslint-parser'
 import vue from 'eslint-plugin-vue'
-import rules from '../../devtools/config/eslint-rules.mjs'
+import rules from '../../tools/devtools/config/eslint-rules.mjs'
 
 export default [
   {

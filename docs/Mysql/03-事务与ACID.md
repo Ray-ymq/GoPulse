@@ -45,7 +45,7 @@ Outbox 异步投递 RabbitMQ
 
 ## 三、项目源码分析
 
-项目位置：[`backend/internal/post/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/post/repository.go) 与 [`backend/internal/outbox/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/outbox/repository.go)。
+项目位置：[`backend/business/internal/post/repository.go`](../../backend/business/internal/post/repository.go) 与 [`backend/business/internal/outbox/repository.go`](../../backend/business/internal/outbox/repository.go)。
 
 下面是基于仓库 `Create` 的**简化流程**，省略 tracing、错误返回以及事件初始化：
 

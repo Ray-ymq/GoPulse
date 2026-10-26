@@ -5,7 +5,7 @@ NPM ?= npm
 
 .PHONY: deps test check build lint
 
-DEVELOPMENT_HELPER := $(MAKE) --no-print-directory -C ../../devtools build && ../../devtools/bin/devenv
+DEVELOPMENT_HELPER := $(MAKE) --no-print-directory -C ../../tools/devtools build && ../../tools/devtools/bin/devenv
 
 deps:
 	@$(DEVELOPMENT_HELPER) frontend-deps --module frontend/user

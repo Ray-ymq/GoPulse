@@ -180,8 +180,8 @@ MySQL Server 层逻辑变更日志，常用于复制和时间点恢复。源码�
 
 可以依次追踪三条代码路径，把八股文串成完整的工程论证：
 
-1. **创建帖子**：[`post/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/post/repository.go) → `posts`/`business_commands`/`business_outbox` → 事务、唯一性、提交结果未知。
-2. **领取待投递事件**：[`outbox/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/outbox/repository.go) → 状态索引、RC、`FOR UPDATE SKIP LOCKED`、租约恢复。
-3. **帖子列表**：[`post/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/post/repository.go) 与 [`post/pagination.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/post/pagination.go) → 联合索引、游标、排序、`EXISTS`/`COUNT`。
+1. **创建帖子**：[`post/repository.go`](../../backend/business/internal/post/repository.go) → `posts`/`business_commands`/`business_outbox` → 事务、唯一性、提交结果未知。
+2. **领取待投递事件**：[`outbox/repository.go`](../../backend/business/internal/outbox/repository.go) → 状态索引、RC、`FOR UPDATE SKIP LOCKED`、租约恢复。
+3. **帖子列表**：[`post/repository.go`](../../backend/business/internal/post/repository.go) 与 [`post/pagination.go`](../../backend/business/internal/post/pagination.go) → 联合索引、游标、排序、`EXISTS`/`COUNT`。
 
 未明确展示的 MySQL 能力（如分库分表、线上主从复制）只作为通用原理讨论，不能写成 GoPulse 已部署的功能。

@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
 FROM --platform=$BUILDPLATFORM golang:1.26.0-alpine3.23@sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5 AS build
-WORKDIR /src/backend
+WORKDIR /src/backend/business
 ARG GOPROXY=https://goproxy.cn,direct
-COPY backend/go.mod backend/go.sum ./
-COPY runtimekit/ /src/runtimekit/
+COPY backend/business/go.mod backend/business/go.sum ./
+COPY backend/runtimekit/ /src/backend/runtimekit/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
-COPY backend/ ./
+COPY backend/business/ ./
 ARG TARGETOS=linux
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod \

@@ -47,7 +47,7 @@ transaction, err := starter.BeginTx(ctx, &sql.TxOptions{
 })
 ```
 
-源码：[`backend/internal/post/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/post/repository.go)。
+源码：[`backend/business/internal/post/repository.go`](../../backend/business/internal/post/repository.go)。
 
 **V2 创建命令还会读取并锁定环境状态：**
 
@@ -57,7 +57,7 @@ FROM business_environment
 WHERE singleton = 1 FOR UPDATE;
 ```
 
-源码：[`backend/internal/businessstate/commands.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/businessstate/commands.go)。省略号表示其他列，不是可直接执行的 SQL。
+源码：[`backend/business/internal/businessstate/commands.go`](../../backend/business/internal/businessstate/commands.go)。省略号表示其他列，不是可直接执行的 SQL。
 
 这里 `FOR UPDATE` 不是“更强的快照读”，而是锁定当前行。它用于确保后续命令判断与修改所依赖的状态在事务中有并发保护。
 

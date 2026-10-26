@@ -41,7 +41,7 @@ LIMIT 21;
 
 ### 场景 A：帖子流分页
 
-[`backend/internal/post/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/post/repository.go) 中 `listStatement` 的关键构造逻辑：
+[`backend/business/internal/post/repository.go`](../../backend/business/internal/post/repository.go) 中 `listStatement` 的关键构造逻辑：
 
 ```go
 if options.Cursor != nil {
@@ -65,7 +65,7 @@ arguments = append(arguments, options.Limit+1)
 
 ### 场景 B：评论列表
 
-[`backend/internal/comment/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/comment/repository.go)：
+[`backend/business/internal/comment/repository.go`](../../backend/business/internal/comment/repository.go)：
 
 ```sql
 WHERE c.post_id = ? AND c.id < ?
@@ -77,7 +77,7 @@ LIMIT ?;
 
 ### 场景 C：通知列表
 
-[`backend/internal/notification/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/notification/repository.go)：
+[`backend/business/internal/notification/repository.go`](../../backend/business/internal/notification/repository.go)：
 
 ```sql
 WHERE n.recipient_id = ?

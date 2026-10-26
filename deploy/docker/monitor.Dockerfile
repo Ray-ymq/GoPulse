@@ -3,12 +3,12 @@ ARG GO_IMAGE=golang:1.26.0-alpine3.23@sha256:d4c4845f5d60c6a974c6000ce58ae079328
 ARG RUNTIME_IMAGE=alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS monitor-build
-WORKDIR /src/monitor
+WORKDIR /src/backend/observability/monitor
 ARG GOPROXY=https://goproxy.cn,direct
-COPY monitor/go.mod monitor/go.sum ./
-COPY runtimekit/ /src/runtimekit/
+COPY backend/observability/monitor/go.mod backend/observability/monitor/go.sum ./
+COPY backend/runtimekit/ /src/backend/runtimekit/
 RUN --mount=type=cache,target=/go/pkg/mod GOPROXY="$GOPROXY" go mod download
-COPY monitor/ ./
+COPY backend/observability/monitor/ ./
 ARG TARGETOS=linux
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
