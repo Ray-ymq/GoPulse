@@ -3,7 +3,7 @@ services:
   redis:
     command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}" --maxmemory "$${REDIS_MAXMEMORY}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY}" --aclfile /run/secrets/selfmonitor-redis.acl']
     volumes:
-      - ./selfmonitor/secrets/redis.acl:/run/secrets/selfmonitor-redis.acl:ro
+      - ../selfmonitor/secrets/redis.acl:/run/secrets/selfmonitor-redis.acl:ro
   backend:
     networks: [metrics-access]
     ports: ['127.0.0.1:29131:19101']
@@ -41,7 +41,7 @@ services:
     networks: [metrics-access]
     ports: ['127.0.0.1:29192:15692']
     volumes:
-      - ./selfmonitor/rabbitmq-enabled-plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ../selfmonitor/rabbitmq-enabled-plugins:/etc/rabbitmq/enabled_plugins:ro
 networks:
   # Internal product bridges discard published ports; this bridge enables the
   # fixed loopback port mappings and retains ordinary product DNS connectivity.

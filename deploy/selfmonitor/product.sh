@@ -12,5 +12,5 @@ export SELFMONITOR_SOCKET_GID
 exec docker compose --project-name gopulse \
   --env-file "$repo_dir/.env.example" --env-file "$repo_dir/.env" \
   --env-file "$selfmonitor_dir/selfmonitor.env" \
-  --file "$repo_dir/deploy/compose.yaml" \
+  --file "$repo_dir/deploy/compose/compose.yaml" \
   --file "$selfmonitor_dir/product.override.yaml" "$@"

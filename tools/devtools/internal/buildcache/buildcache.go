@@ -200,7 +200,7 @@ func sortedEnvironment(values map[string]string) []string {
 }
 
 func composeDefinitionFor(root string, environment []string, cached bool, runner commandRunner) (bakeDefinition, error) {
-	args := []string{"compose", "--env-file", filepath.Join(root, ".env.example"), "--file", filepath.Join(root, "deploy", "compose.yaml"), "build", "--print"}
+	args := []string{"compose", "--env-file", filepath.Join(root, ".env.example"), "--file", filepath.Join(root, "deploy", "compose", "compose.yaml"), "build", "--print"}
 	args = append(args, Targets...)
 	result := runner("docker", args, root, environment)
 	if result.Code != 0 {

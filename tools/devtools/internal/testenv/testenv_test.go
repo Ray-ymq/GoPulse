@@ -172,7 +172,7 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatalf("getwd: %v", err)
 	}
 	for {
-		if _, err := os.Stat(filepath.Join(directory, "deploy", "compose.yaml")); err == nil {
+		if _, err := os.Stat(filepath.Join(directory, "deploy", "compose", "compose.yaml")); err == nil {
 			return directory
 		}
 		parent := filepath.Dir(directory)

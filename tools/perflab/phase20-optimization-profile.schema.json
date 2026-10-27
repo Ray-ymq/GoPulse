@@ -40,7 +40,7 @@
     "base_schema_sha256": {"$ref": "#/$defs/digest"},
     "runtime_contract": {"const": "deploy/runtime-contracts.json"},
     "runtime_contract_sha256": {"$ref": "#/$defs/digest"},
-    "trace_overlay": {"const": "deploy/compose.tracing.yaml"},
+    "trace_overlay": {"const": "deploy/dev/compose.tracing.yaml"},
     "trace_overlay_sha256": {"$ref": "#/$defs/digest"},
     "collector_config": {"const": "deploy/otel/collector.yaml"},
     "collector_config_sha256": {"$ref": "#/$defs/digest"},

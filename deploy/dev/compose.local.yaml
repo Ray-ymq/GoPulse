@@ -1,3 +1,5 @@
+name: deploy
+
 services:
   mysql:
     image: mysql:8.4.0

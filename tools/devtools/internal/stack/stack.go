@@ -168,7 +168,7 @@ func newContext(root string) (*context, error) {
 	env = append(env, "GOPULSE_VERSION="+version, "GOPULSE_REVISION="+revision)
 	return &context{
 		root:         absolute,
-		composeDir:   filepath.Join(absolute, "deploy"),
+		composeDir:   filepath.Join(absolute, "deploy", "compose"),
 		project:      project,
 		envFile:      envFile,
 		env:          env,
@@ -213,7 +213,7 @@ func (c *context) checkOwnership() error {
 	}
 	for _, id := range nonEmptyLines(ids) {
 		workingDir, inspectErr := c.capture("docker", "inspect", "--format", "{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}", id)
-		if inspectErr != nil || filepath.Clean(workingDir) != filepath.Clean(c.composeDir) {
+		if inspectErr != nil || (filepath.Clean(workingDir) != filepath.Clean(c.composeDir) && filepath.Clean(workingDir) != filepath.Join(c.root, "deploy")) {
 			return fmt.Errorf("container %s failed project ownership validation", id)
 		}
 	}

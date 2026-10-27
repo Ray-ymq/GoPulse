@@ -70,7 +70,7 @@ func runStage(ctx context.Context, t Task, stage Stage, index int, archive *os.F
 		return Result{}, t.Offset, err
 	}
 	name := t.Project + "-load-" + t.RunID + "-" + strconv.Itoa(index)
-	args := []string{"compose", "--project-name", t.Project, "--env-file", filepath.Join(t.Preparation, "test.env"), "-f", filepath.Join(t.Root, "deploy/compose.business.yaml"), "-f", filepath.Join(t.Preparation, "resources.json"), "run", "--rm", "--no-deps", "--name", name, "--label", "io.gopulse.pt.run=" + t.RunID, "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "-v", t.Preparation + ":/input:ro", "-v", filepath.Join(t.Root, "tools/perflab") + ":/perflab:ro", "-v", dir + ":/output"}
+	args := []string{"compose", "--project-name", t.Project, "--env-file", filepath.Join(t.Preparation, "test.env"), "-f", filepath.Join(t.Root, "deploy/compose/compose.business.yaml"), "-f", filepath.Join(t.Preparation, "resources.json"), "run", "--rm", "--no-deps", "--name", name, "--label", "io.gopulse.pt.run=" + t.RunID, "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "-v", t.Preparation + ":/input:ro", "-v", filepath.Join(t.Root, "tools/perflab") + ":/perflab:ro", "-v", dir + ":/output"}
 	values := map[string]string{"GOPULSE_BASE_URL": "http://frontend:8080", "LOAD_TARGET_RPS": strconv.Itoa(stage.Target), "LOAD_WARMUP_SECONDS": strconv.Itoa(stage.Warmup), "LOAD_MEASUREMENT_SECONDS": strconv.Itoa(stage.Measurement), "LOAD_SLOT_OFFSET": strconv.FormatInt(t.Offset, 10), "LOAD_MIX_JSON": string(t.Mix), "LOAD_ROUTE": strconv.Itoa(t.Route), "LOAD_STAGE_ID": t.GroupID + "-" + strconv.Itoa(index)}
 	for k, v := range values {
 		args = append(args, "-e", k+"="+v)

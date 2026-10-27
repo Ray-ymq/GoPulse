@@ -8,7 +8,7 @@ from .runtime import write_json
 
 
 def source_hashes():
-    paths = [ROOT / 'deploy/compose.business.yaml', ROOT / 'backend/observability/exporters/node/upstream.json', ROOT / 'VERSION']
+    paths = [ROOT / 'deploy/compose/compose.business.yaml', ROOT / 'backend/observability/exporters/node/upstream.json', ROOT / 'VERSION']
     for relative in ('tools/perflab/flow', 'tools/perflab/internal', 'tools/perflab/cmd', 'tools/perflab/k6', 'tools/perflab/diagnostics',
                      'backend/observability/exporters/mysql', 'backend/runtimekit/containerstats', 'backend/runtimekit/cmd/container-exporter'):
         paths += [path for path in (ROOT / relative).rglob('*') if path.suffix in ('.py', '.go', '.js', '.mjs', '.json', '.mod', '.sum')]

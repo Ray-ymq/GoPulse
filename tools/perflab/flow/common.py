@@ -60,7 +60,7 @@ def compose_environment(directory):
 
 def compose(directory, *args, **kwargs):
     return command(['docker', 'compose', '--project-name', PROJECT, '--env-file',
-                    str(Path(directory) / 'test.env'), '-f', str(ROOT / 'deploy/compose.business.yaml'),
+                    str(Path(directory) / 'test.env'), '-f', str(ROOT / 'deploy/compose/compose.business.yaml'),
                     '-f', str(Path(directory) / 'resources.json'), *args], env=compose_environment(directory), **kwargs)
 
 

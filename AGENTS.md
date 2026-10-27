@@ -41,6 +41,7 @@ GoPulse/
 - Exporter 由 Monitor 作为二进制插件启动。Go 采集器分别维护独立模块；`node/` 维护官方 node_exporter 发布包的元数据，不包含 Go 模块；`std_exporter/` 是插件模板。
 - 插件构建与打包统一通过根目录 `make package-plugin SOURCE=...`，正式压测使用 `make pt`，执行条件见 `tools/perflab/flow/README.md`。
 - `.run/` 为本地运行和工具缓存目录，不作为源码维护；实际环境配置中的敏感值不得提交。
+- Compose 部署入口放在 `deploy/compose/`，本地开发、调试和追踪覆盖配置放在 `deploy/dev/`，Dockerfile 放在 `deploy/docker/`；环境变量示例统一维护在根目录 `.env.example`，使用说明见 `deploy/README.md`。
 
 ## Git 与协作约定
 - 任何代码、配置、文档或其他文件修改完成后，都必须完成必要验证并创建 Git commit，不能只将修改留在工作区。

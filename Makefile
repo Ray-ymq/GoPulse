@@ -29,7 +29,7 @@ CI_WORKSPACE := $(CURDIR)/.run/ci/go.work
 LINT_VERSION = $(shell python3 -c 'import json; print(json.load(open("tools/devtools/toolchains.json"))["golangci_lint"]["version"])')
 LINT_TOOL = $(CURDIR)/.run/tools/golangci-lint/$(LINT_VERSION)/$(shell go env GOHOSTOS)-$(shell go env GOHOSTARCH)/golangci-lint
 
-# Logical Compose build targets behind the local images. deploy/compose.yaml stays
+# Logical Compose build targets behind the local images. deploy/compose/compose.yaml stays
 # the source of truth for each target's Dockerfile context and build arguments.
 IMAGE_TARGETS := backend business-worker search-indexer admin-frontend frontend \
                  marshaller monitor
@@ -92,9 +92,15 @@ check-all:
 	done
 
 check-compose:
-	@docker compose --env-file .env.example --file deploy/compose.yaml config --quiet
-	@docker compose --env-file .env.example --file deploy/compose.business.yaml --profile load --profile operations config --quiet
-	@docker compose --env-file .env.example --file deploy/compose.observability.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose/compose.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose/compose.business.yaml --profile load --profile operations config --quiet
+	@docker compose --env-file .env.example --file deploy/compose/compose.observability.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/dev/compose.local.yaml config --quiet
+	@docker compose --env-file .env.example --profile observe --file deploy/dev/compose.local.yaml --file deploy/dev/compose.local-linux.yaml config --quiet
+	@docker compose --env-file .env.example --profile observe --file deploy/dev/compose.local.yaml --file deploy/dev/compose.local-darwin.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/dev/compose.debug.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/dev/compose.tracing.yaml config --quiet
+	@SELFMONITOR_SOCKET_GID=1234 docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/selfmonitor/product.override.yaml config --quiet
 
 ci-plan: export GOPULSE_CI_LABELS := $(LABELS)
 ci-plan:

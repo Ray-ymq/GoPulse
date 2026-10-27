@@ -91,7 +91,7 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	for key, value := range values {
 		processEnv[key] = value
 	}
-	files := []string{filepath.Join(ws.Root, "deploy", "compose.local.yaml")}
+	files := []string{filepath.Join(ws.Root, "deploy", "dev", "compose.local.yaml")}
 	profiles := []string{}
 	if observe {
 		override, err := observeComposeOverride(ws.Root)
@@ -122,7 +122,7 @@ func observeComposeOverride(root string) (string, error) {
 	default:
 		return "", fmt.Errorf("observation mode is not supported on %s", runtime.GOOS)
 	}
-	return filepath.Join(root, "deploy", name), nil
+	return filepath.Join(root, "deploy", "dev", name), nil
 }
 
 // Deps starts or refreshes the development dependency project and records a

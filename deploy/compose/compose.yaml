@@ -1,3 +1,5 @@
+name: deploy
+
 x-image-build-args: &image-build-args
   VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   REVISION: ${GOPULSE_REVISION:?GOPULSE_REVISION is required}
@@ -445,7 +447,7 @@ services:
     image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
       target: backend
       args: *image-build-args
@@ -490,7 +492,7 @@ services:
     image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
       target: backend
       args: *image-build-args
@@ -535,7 +537,7 @@ services:
     image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
       target: backend
       args: *image-build-args
@@ -578,7 +580,7 @@ services:
     image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
       target: business-worker
       args: *image-build-args
@@ -615,7 +617,7 @@ services:
     image: ${GOPULSE_BUSINESS_WORKER_IMAGE:-gopulse/business-worker:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
       target: business-worker
       args: *image-build-args
@@ -652,7 +654,7 @@ services:
     image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
       target: search-indexer
       args: *image-build-args
@@ -693,7 +695,7 @@ services:
     image: ${GOPULSE_SEARCH_INDEXER_IMAGE:-gopulse/search-indexer:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
       target: search-indexer
       args: *image-build-args
@@ -734,7 +736,7 @@ services:
     image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/admin-frontend.Dockerfile
       args: *image-build-args
     read_only: true
@@ -755,7 +757,7 @@ services:
     image: ${GOPULSE_FRONTEND_IMAGE:-gopulse/frontend:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/frontend.Dockerfile
       args: *image-build-args
     read_only: true
@@ -896,7 +898,7 @@ services:
     image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/observability.Dockerfile
       target: marshaller
       args: *image-build-args
@@ -933,7 +935,7 @@ services:
     image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/observability.Dockerfile
       target: marshaller
       args: *image-build-args
@@ -972,7 +974,7 @@ services:
     image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/monitor.Dockerfile
       target: monitor
       args: *image-build-args
@@ -995,7 +997,7 @@ services:
     volumes:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
       - monitor_spool_data:/var/lib/gopulse-monitor/spool
-      - ${MONITOR_PACKAGE_DIR:-../.run/packages}:/opt/gopulse/packages:ro
+      - ${MONITOR_PACKAGE_DIR:-../../.run/packages}:/opt/gopulse/packages:ro
     expose:
       - "9090"
       - "19104"

@@ -128,7 +128,7 @@ services:
     image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/observability.Dockerfile
       target: marshaller
       args: *image-build-args
@@ -162,7 +162,7 @@ services:
     image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:latest}
     pull_policy: never
     build:
-      context: ..
+      context: ../..
       dockerfile: deploy/docker/monitor.Dockerfile
       target: monitor
       args: *image-build-args
