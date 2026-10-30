@@ -16,6 +16,7 @@ LABEL org.opencontainers.image.title="GoPulse Admin Frontend" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 COPY deploy/docker/admin-frontend/nginx.conf /etc/nginx/nginx.conf
+COPY deploy/docker/admin-frontend/nginx.observability.conf /etc/nginx/nginx.observability.conf
 COPY --from=build --chown=101:101 /src/frontend/admin/dist/ /usr/share/nginx/html/admin/
 RUN find /usr/share/nginx/html -name '*.map' -delete && \
     chown -R 101:101 /usr/share/nginx/html

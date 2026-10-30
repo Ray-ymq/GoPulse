@@ -89,3 +89,39 @@ func TestLoadFromRoleValidatesOnlyActiveDependencySecrets(t *testing.T) {
 		t.Fatalf("platform missing active secret error = %v", err)
 	}
 }
+
+func TestStandaloneObservabilityNeedsOnlyPlatformDependencies(t *testing.T) {
+	env := requiredEnvironment()
+	env["BACKEND_SERVICE_ROLE"] = "platform"
+	env["BACKEND_STANDALONE_OBSERVABILITY"] = "true"
+	env["GOPULSE_RUNTIME_MODE"] = "container"
+	env["HTTP_HOST"] = "0.0.0.0"
+	env["MYSQL_HOST"] = "mysql"
+	env["MONITOR_URL"] = "http://monitor:9090"
+	env["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
+	env["BACKEND_VICTORIAMETRICS_URL"] = "http://victoriametrics:8428"
+	for _, key := range []string{"REDIS_PASSWORD", "RABBITMQ_URL", "ELASTICSEARCH_URL", "BUSINESS_STAGE_ENDPOINTS", "BUSINESS_STAGE_SERVICE_CREDENTIAL"} {
+		delete(env, key)
+	}
+	cfg, err := LoadFrom(mapLookup(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.StandaloneObservability || cfg.ServiceRole.RunsBusiness() || len(cfg.BusinessStage.Endpoints) != 0 || cfg.BusinessStage.Credential != "" {
+		t.Fatalf("unexpected standalone configuration: role=%s, standalone=%v", cfg.ServiceRole, cfg.StandaloneObservability)
+	}
+	if !cfg.Protection.RateLimitEnabled || cfg.Protection.ResourceAuth <= 0 || cfg.Protection.LocalMaxIdentities <= 0 {
+		t.Fatal("standalone authentication protection is missing")
+	}
+}
+
+func TestStandaloneObservabilityRejectsBusinessAndCombinedRoles(t *testing.T) {
+	for _, role := range []string{"business", "combined"} {
+		env := requiredEnvironment()
+		env["BACKEND_SERVICE_ROLE"] = role
+		env["BACKEND_STANDALONE_OBSERVABILITY"] = "true"
+		if _, err := LoadFrom(mapLookup(env)); err == nil || !strings.Contains(err.Error(), "BACKEND_STANDALONE_OBSERVABILITY") {
+			t.Fatalf("role %s accepted standalone observability: %v", role, err)
+		}
+	}
+}

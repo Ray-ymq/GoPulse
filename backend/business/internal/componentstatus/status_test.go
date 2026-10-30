@@ -73,3 +73,21 @@ func TestServiceDoesNotExceedConcurrencyLimit(t *testing.T) {
 		t.Fatalf("maximum concurrency=%d", maximum.Load())
 	}
 }
+
+func TestStandaloneTargetsExcludeBusinessWorkers(t *testing.T) {
+	t.Setenv("GOPULSE_RUNTIME_MODE", "container")
+	t.Setenv("BACKEND_ENDPOINTS", "platform-api")
+	t.Setenv("MARSHALLER_ENDPOINTS", "marshaller,marshaller-2")
+	targets, err := TargetsFromEnvironment("backend", "monitor", "marshaller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 5 {
+		t.Fatalf("standalone target count=%d", len(targets))
+	}
+	for _, target := range targets {
+		if target.Component == "business-worker" || target.Component == "search-indexer" {
+			t.Fatalf("unused business target=%s", target.Component)
+		}
+	}
+}

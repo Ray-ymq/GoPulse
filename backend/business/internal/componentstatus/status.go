@@ -294,11 +294,14 @@ func KafkaProbe(brokers []string) func(context.Context) error {
 	}
 }
 
-func TargetsFromEnvironment() ([]Target, error) {
+func TargetsFromEnvironment(components ...string) ([]Target, error) {
+	if len(components) == 0 {
+		components = runtimekit.Components
+	}
 	mode := runtimekit.Mode()
 	ports := map[string]string{"backend": "19101", "business-worker": "19102", "search-indexer": "19103", "monitor": "19104", "marshaller": "19106"}
 	targets := make([]Target, 0, 16)
-	for _, component := range runtimekit.Components {
+	for _, component := range components {
 		endpoints, err := runtimekit.ReplicaEndpoints(component)
 		if err != nil {
 			return nil, err

@@ -354,6 +354,12 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		assembly.sampleOutbox = func(ctx context.Context, metrics *instrumentation.Backend) { eventOutbox.SampleMetrics(ctx, metrics) }
 	}
 
+	if cfg.StandaloneObservability {
+		if err := configureStandaloneAuth(&routes, cfg, users, tokens, cookies, logger); err != nil {
+			return nil, err
+		}
+	}
+
 	if profile.platform {
 		observabilityElasticsearchClient, observationErr := platform.NewObservabilityElasticsearch(cfg.ObservabilityElasticsearch)
 		if observationErr != nil {
@@ -379,7 +385,11 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 			return nil, errors.New("initialize monitor client")
 		}
 		exporterPluginHandler := exporterplugin.NewHandler(monitorClient).WithAudit(users)
-		statusTargets, statusTargetErr := componentstatus.TargetsFromEnvironment()
+		components := runtimekit.Components
+		if cfg.StandaloneObservability {
+			components = []string{"backend", "monitor", "marshaller"}
+		}
+		statusTargets, statusTargetErr := componentstatus.TargetsFromEnvironment(components...)
 		if statusTargetErr != nil {
 			return nil, errors.New("initialize component status targets")
 		}
@@ -430,7 +440,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.Authorization = middleware.RequireSuperAdmin(users)
 		if stageService != nil {
 			routes.BusinessStages = backendhttp.NewBusinessStageHandler(stageService, true)
-		} else {
+		} else if !cfg.StandaloneObservability {
 			stageClient, clientErr := businessstate.NewHTTPClient(cfg.BusinessStage.Endpoints, cfg.BusinessStage.Credential, nil)
 			if clientErr != nil {
 				return nil, errors.New("initialize business stage private client")

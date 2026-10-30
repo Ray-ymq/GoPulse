@@ -1,11 +1,21 @@
-# 可观测系统的独立框架。资源配额、采集目标和对外端口暂未确定。
-# 当前仅配置内部链路，不连接 PT6 业务网络，不自动加载业务 Redis 插件。
+# 独立可观测系统，包含鉴权、管理页面、采集、存储和查询。
+# 不启动业务 API、异步任务、业务搜索或 Redis 采集目标。
 name: gopulse-observability
 
 x-image-build-args: &image-build-args
   VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
   REVISION: ${GOPULSE_REVISION:?GOPULSE_REVISION is required}
   GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+
+x-mysql-environment: &mysql-environment
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_RUNTIME_MODE: container
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+  MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
 
 x-marshaller-environment: &marshaller-environment
   GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
@@ -25,6 +35,135 @@ x-marshaller-environment: &marshaller-environment
   MARSHALLER_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
 
 services:
+  mysql:
+    image: ${GOPULSE_MYSQL_IMAGE:-mysql:8.4.0}
+    restart: on-failure:5
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - observability
+    healthcheck:
+      test: [CMD, mysqladmin, ping, --host=127.0.0.1, --silent]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/bin/sh, -c]
+    # 校验迁移状态，仅允许工具支持的旧版 dirty 状态恢复。
+    command:
+      - '/usr/local/bin/migrate validate && { /usr/local/bin/migrate status; code=$$?; [ "$$code" -eq 0 ] || [ "$$code" -eq 4 ]; } && exec /usr/local/bin/migrate up'
+    environment: *mysql-environment
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - observability
+
+  platform-api:
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: backend
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=80m,mode=1777
+    stop_grace_period: 15s
+    environment:
+      <<: *mysql-environment
+      GOPULSE_INSTANCE_ID: platform-api-1
+      GOPULSE_REPLICA_COUNT: 1
+      BACKEND_SERVICE_ROLE: platform
+      BACKEND_STANDALONE_OBSERVABILITY: "true"
+      APP_ENV: ${APP_ENV:-development}
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: 8080
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
+      AUTH_JWT_TTL: ${AUTH_JWT_TTL:-2h}
+      AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-gopulse_session}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      PLATFORM_API_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
+      PLATFORM_API_MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
+      MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+      BACKEND_TRUSTED_PROXY_CIDRS: ${BACKEND_TRUSTED_PROXY_CIDRS:-}
+      BACKEND_ENDPOINTS: platform-api
+      MARSHALLER_ENDPOINTS: marshaller,marshaller-2
+      BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
+      MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
+      ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
+      OBSERVABILITY_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
+      BACKEND_VICTORIAMETRICS_URL: http://victoriametrics:8428
+      BACKEND_VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+      BACKEND_VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+      MONITOR_URL: http://monitor:9090
+      MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
+      LOG_MONITOR_URL: http://monitor:9090
+      LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose: ["8080", "19101"]
+    networks: [edge, observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-frontend:
+    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:latest}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/docker/admin-frontend.Dockerfile
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs: [/tmp]
+    stop_grace_period: 10s
+    # 同一管理镜像内置独立部署入口，无需启动用户前端。
+    command: ["-c", "/etc/nginx/nginx.observability.conf", "-g", "daemon off;"]
+    depends_on:
+      platform-api:
+        condition: service_healthy
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${ADMIN_FRONTEND_PORT:?ADMIN_FRONTEND_PORT is required}:8080
+    networks: [edge]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/frontend-health]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-role:
+    profiles: [operations]
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/usr/local/bin/admin-role]
+    command: [bootstrap, --user-id, "${GOPULSE_BOOTSTRAP_USER_ID:-0}"]
+    environment: *mysql-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - observability
+
   kafka:
     image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
     restart: on-failure:5
@@ -187,7 +326,9 @@ services:
       MONITOR_SPOOL_DIR: /var/lib/gopulse-monitor/spool
       MONITOR_KAFKA_BROKERS: kafka:19092
       MONITOR_BOOTSTRAP_PACKAGE: ""
-      REDIS_HOST: redis
+      # 仅供手动安装 Redis 插件时使用，默认不加载插件或连接该目标。
+      REDIS_HOST: ${MONITOR_REDIS_TARGET_HOST:-redis}
+      BACKEND_ENDPOINTS: platform-api
     volumes:
       - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
       - monitor_spool_data:/var/lib/gopulse-monitor/spool
@@ -201,10 +342,12 @@ services:
       retries: 30
 
 networks:
+  edge:
   observability:
     internal: true
 
 volumes:
+  mysql_data:
   kafka_data:
   victoriametrics_data:
   observability_elasticsearch_data:

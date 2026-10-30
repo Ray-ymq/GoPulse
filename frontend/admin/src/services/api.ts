@@ -10,4 +10,12 @@ function isPublicUser(value: unknown): value is PublicUser {
     && (user.role === 'user' || user.role === 'super_admin')
     && typeof user.created_at === 'string' && Number.isFinite(Date.parse(user.created_at))
 }
-export const authApi = { me: () => requestValidatedData('/users/me', isPublicUser) }
+export const authApi = {
+  me: () => requestValidatedData('/users/me', isPublicUser),
+  login: (username: string, password: string) => requestValidatedData('/auth/login', isPublicUser, {
+    method: 'POST', body: JSON.stringify({ username, password }),
+  }),
+  register: (username: string, password: string) => requestValidatedData('/auth/register', isPublicUser, {
+    method: 'POST', body: JSON.stringify({ username, password }),
+  }),
+}

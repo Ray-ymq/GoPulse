@@ -68,6 +68,9 @@ func TestExternalCatalogLoadsDescriptorAndPackage(t *testing.T) {
 		}
 	}()
 	entries := manager.ExecutionCatalog()
+	if err := manager.RuntimeReady(t.Context()); err != nil {
+		t.Fatalf("有效的单模块外部目录未通过就绪检查：%v", err)
+	}
 	if len(entries) != 1 || entries[0].ID != entry.ID || entries[0].Schema.PluginID != entry.ID {
 		t.Fatalf("unexpected external catalog: %+v", entries)
 	}

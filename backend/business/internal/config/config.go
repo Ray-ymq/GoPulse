@@ -119,6 +119,7 @@ type LookupFunc func(string) (string, bool)
 
 type Config struct {
 	ServiceRole                      ServiceRole
+	StandaloneObservability          bool
 	AlertEvaluationEnabled           bool
 	RuntimeMode                      RuntimeMode
 	AppEnv                           string
@@ -283,6 +284,13 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	standaloneObservability, err := booleanValue(lookup, "BACKEND_STANDALONE_OBSERVABILITY", false)
+	if err != nil {
+		return Config{}, err
+	}
+	if standaloneObservability && serviceRole != ServiceRolePlatform {
+		return Config{}, errors.New("BACKEND_STANDALONE_OBSERVABILITY 仅支持 platform 角色")
+	}
 	alertEnabled := false
 	if serviceRole.RunsPlatform() {
 		alertEnabled, err = booleanValue(lookup, "ALERT_EVALUATION_ENABLED", true)
@@ -302,7 +310,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	if err := runtimekit.ValidateInstanceID(instanceID); err != nil {
 		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
 	}
-	businessStage, err := loadBusinessStageConfig(lookup, runtimeMode, serviceRole)
+	businessStage, err := loadBusinessStageConfig(lookup, runtimeMode, serviceRole, standaloneObservability)
 	if err != nil {
 		return Config{}, err
 	}
@@ -387,7 +395,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			return Config{}, err
 		}
 	}
-	if serviceRole.RunsBusiness() {
+	if serviceRole.RunsBusiness() || standaloneObservability {
 		protection, err = loadProtectionConfig(lookup, operationTimeout)
 		if err != nil {
 			return Config{}, err
@@ -622,15 +630,16 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	}
 
 	return Config{
-		ServiceRole:            serviceRole,
-		AlertEvaluationEnabled: alertEnabled,
-		RuntimeMode:            runtimeMode,
-		AppEnv:                 appEnv,
-		InstanceID:             instanceID,
-		ReplicaCount:           replicaCount,
-		HTTPHost:               httpHost,
-		HTTPPort:               httpPort,
-		HTTPMaxConcurrency:     httpMaxConcurrency,
+		ServiceRole:             serviceRole,
+		StandaloneObservability: standaloneObservability,
+		AlertEvaluationEnabled:  alertEnabled,
+		RuntimeMode:             runtimeMode,
+		AppEnv:                  appEnv,
+		InstanceID:              instanceID,
+		ReplicaCount:            replicaCount,
+		HTTPHost:                httpHost,
+		HTTPPort:                httpPort,
+		HTTPMaxConcurrency:      httpMaxConcurrency,
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
 			Port:            mysqlPort,
@@ -734,7 +743,10 @@ func businessAsyncMaxOpenRequirementsValue(lookup LookupFunc) (uint64, error) {
 	return uint64(value), nil
 }
 
-func loadBusinessStageConfig(lookup LookupFunc, runtimeMode RuntimeMode, role ServiceRole) (BusinessStageConfig, error) {
+func loadBusinessStageConfig(lookup LookupFunc, runtimeMode RuntimeMode, role ServiceRole, standalone bool) (BusinessStageConfig, error) {
+	if standalone {
+		return BusinessStageConfig{}, nil
+	}
 	credential, present := lookup("BUSINESS_STAGE_SERVICE_CREDENTIAL")
 	if !present || credential == "" {
 		if runtimeMode == RuntimeModeContainer {

@@ -22,3 +22,19 @@ it('does not mount before bootstrap; any 403 unmounts data before social navigat
   expect(navigate).toHaveBeenCalledWith('/posts')
   wrapper.unmount()
 })
+
+it('mounts the management login page without requesting a session', async () => {
+  const original = window.location.pathname + window.location.search
+  window.history.replaceState(null, '', '/admin/login')
+  const fetch = vi.fn()
+  vi.stubGlobal('fetch', fetch)
+  const wrapper = mount(App, { global: { stubs: { RouterView: { template: '<div>management login</div>' } } } })
+  try {
+    await flushPromises()
+    expect(wrapper.text()).toContain('management login')
+    expect(fetch).not.toHaveBeenCalled()
+  } finally {
+    wrapper.unmount()
+    window.history.replaceState(null, '', original)
+  }
+})

@@ -92,9 +92,9 @@ check-all:
 	done
 
 check-compose:
-	@docker compose --env-file .env.example --file deploy/compose/compose.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --profile operations config --quiet
 	@docker compose --env-file .env.example --file deploy/compose/compose.business.yaml --profile load --profile operations config --quiet
-	@docker compose --env-file .env.example --file deploy/compose/compose.observability.yaml config --quiet
+	@docker compose --env-file .env.example --file deploy/compose/compose.observability.yaml --profile operations config --quiet
 	@docker compose --env-file .env.example --file deploy/dev/compose.local.yaml config --quiet
 	@docker compose --env-file .env.example --profile observe --file deploy/dev/compose.local.yaml --file deploy/dev/compose.local-linux.yaml config --quiet
 	@docker compose --env-file .env.example --profile observe --file deploy/dev/compose.local.yaml --file deploy/dev/compose.local-darwin.yaml config --quiet

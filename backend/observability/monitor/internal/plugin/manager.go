@@ -853,14 +853,18 @@ func (m *Manager) RuntimeReady(ctx context.Context) error {
 		return ctx.Err()
 	}
 	if m.core != nil {
-		if m.core.catalog == nil || len(m.core.slots) != len(OfficialCatalog()) {
+		if m.core.catalog == nil {
+			return operationFailed()
+		}
+		entries := catalogEntries(m.core.catalog)
+		if len(m.core.slots) != len(entries) {
 			return operationFailed()
 		}
 		actual, err := pathIdentity(m.core.cfg.Root)
 		if err != nil || actual != m.core.identity {
 			return operationFailed()
 		}
-		for _, entry := range OfficialCatalog() {
+		for _, entry := range entries {
 			if rejectSymlinkComponents(m.core.dir(entry.ID)) != nil {
 				return operationFailed()
 			}

@@ -21,10 +21,10 @@ deploy/
 | 模式 | Compose 文件 | 当前用途 |
 |---|---|---|
 | 业务系统 | [compose.business.yaml](compose/compose.business.yaml) | 运行现有 PT6 业务环境，包含业务管理入口 |
-| 可观测系统 | [compose.observability.yaml](compose/compose.observability.yaml) | 运行独立的采集、传输和存储链路 |
+| 可观测系统 | [compose.observability.yaml](compose/compose.observability.yaml) | 独立运行登录、管理、采集、存储和查询服务 |
 | 整体系统 | [compose.yaml](compose/compose.yaml) | 同时运行业务和可观测服务 |
 
-**可观测系统目前仍是独立框架，尚未包含 Platform API、MySQL 和管理前端，也未向主机开放端口。** 完整的独立登录、管理和查询入口仍需补齐。
+可观测系统通过管理前端直接提供登录和管理入口，不启动用户前端、业务 API、异步任务、业务搜索、Redis 或 RabbitMQ。三个部署模式分别使用各自项目的数据卷。
 
 ### 当前启动的服务
 
@@ -33,14 +33,14 @@ deploy/
 | 服务 | 镜像 | 业务系统 | 可观测系统 | 整体系统 |
 |---|---|:---:|:---:|:---:|
 | 业务 API | `gopulse/backend` | 2 | — | 2 |
-| Platform API | `gopulse/backend` | 1 | — | 1 |
+| Platform API | `gopulse/backend` | 1 | 1 | 1 |
 | 业务异步任务 | `gopulse/business-worker` | 2 | — | 2 |
 | 搜索索引更新 | `gopulse/search-indexer` | 2 | — | 2 |
 | 用户前端 | `gopulse/frontend` | 1 | — | 1 |
-| 管理前端 | `gopulse/admin-frontend` | 1 | — | 1 |
+| 管理前端 | `gopulse/admin-frontend` | 1 | 1 | 1 |
 | Monitor | `gopulse/monitor` | — | 1 | 1 |
 | Marshaller | `gopulse/marshaller` | — | 2 | 2 |
-| MySQL | `mysql` | 1 | — | 1 |
+| MySQL | `mysql` | 1 | 1 | 1 |
 | Redis | `redis` | 1 | — | 1 |
 | RabbitMQ | `rabbitmq` | 1 | — | 1 |
 | 业务 Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch` | 1 | — | 1 |
@@ -48,16 +48,18 @@ deploy/
 | Kafka | `apache/kafka` | — | 1 | 1 |
 | VictoriaMetrics | `victoriametrics/victoria-metrics` | — | 1 | 1 |
 
+Monitor 默认不自动安装采集插件。启动后可通过管理页面安装插件；需要启动时自动安装时，先准备插件包，再设置容器内的 `MONITOR_BOOTSTRAP_PACKAGE` 路径。整体系统将主机的 `.run/packages/` 挂载到 `/opt/gopulse/packages/`；独立可观测系统通过管理页面安装插件。
+
 镜像版本和覆盖变量以对应 Compose 文件为准。整体系统中的两个 Elasticsearch 实例使用独立数据卷。Exporter 由 Monitor 作为二进制插件启动，不单独运行容器。
 
 ### 初始化和按需任务
 
 | 任务 | 业务系统 | 可观测系统 | 整体系统 | 执行方式 |
 |---|:---:|:---:|:---:|---|
-| 数据库迁移 `migrate` | 执行 | — | 执行 | 随依赖链启动，完成后退出 |
+| 数据库迁移 `migrate` | 执行 | 执行 | 执行 | 随依赖链启动，完成后退出 |
 | 搜索初始化 `search-init` | 执行 | — | 执行 | 随依赖链启动，完成后退出 |
 | Topic 初始化 `kafka-init` | — | 执行 | 执行 | 随依赖链启动，完成后退出 |
-| 管理员初始化 `admin-role` | 可用 | — | 可用 | 按需执行，使用 `operations` profile |
+| 管理员初始化 `admin-role` | 可用 | 可用 | 可用 | 按需执行，使用 `operations` profile |
 | 压测容器 `k6` | 可用 | — | — | 按需执行，使用 `load` profile |
 
 正式压测使用根目录的 `make pt`，准备步骤和执行条件见[压测操作说明](../tools/perflab/flow/README.md)。
@@ -112,6 +114,26 @@ docker compose --env-file .env -f "$gopulse_compose_file" down
 ```
 
 `down` 默认保留命名数据卷。只有确认需要删除持久化数据时，才使用 `down --volumes`。切换部署模式不会自动迁移数据；在同一主机同时启动业务系统和整体系统时，需要分别设置项目名和前端端口。
+
+### 独立可观测系统的访问与管理员初始化
+
+默认管理地址为 `http://127.0.0.1:5174/admin/`，登录地址为 `/admin/login`。实际端口由 `ADMIN_FRONTEND_PORT` 决定。页面和 API 共用此入口，平台 API、MySQL、Kafka 和存储服务不向主机开放端口。
+
+首次使用时：
+
+1. 在管理登录页面注册账户。新账户默认没有管理权限。
+2. 在部署主机上为该账户声明初始超级管理员。把下面的 `your_username` 替换为已注册的用户名。
+3. 返回管理登录页面重新登录。
+
+```bash
+docker compose --env-file .env \
+  -f deploy/compose/compose.observability.yaml \
+  --profile operations run --rm admin-role promote --username your_username
+```
+
+声明初始超级管理员受数据库中的现有初始化状态约束，不会覆盖已有声明。业务系统和整体系统仍通过用户前端登录；管理员声明命令使用各自的 Compose 文件。
+
+独立模式通过 `BACKEND_STANDALONE_OBSERVABILITY=true` 为 `platform` 角色启用鉴权接口，保留管理权限检查，并在进程内限制公开鉴权请求。它不会启动业务消息分发器，也不注册业务阶段查询。管理页面隐藏业务阶段和返回社交入口。其他部署模式保持原有角色划分。
 
 ### 整体系统的 Make 命令
 
