@@ -1,6 +1,6 @@
-# Docker Compose 部署
+# 产品部署
 
-`deploy/` 保存容器构建和部署配置。所有命令均在仓库根目录执行。
+`deploy/` 保存两种产品部署方式及共享镜像定义。Compose 操作见本文，Kubernetes 准备、双部署命令、切换和数据边界见 [双部署说明](DUAL_DEPLOYMENT.md)。所有命令均在仓库根目录执行。
 
 ## 目录结构
 
@@ -8,6 +8,7 @@
 deploy/
 ├── compose/        # 业务、可观测、整体系统的部署入口
 ├── docker/         # Dockerfile 和镜像构建资源
+├── kubernetes/     # Kubernetes 产品、集群和追踪资源
 ├── dev/            # 本地开发、调试和追踪覆盖配置
 ├── otel/           # 追踪采集器配置
 ├── selfmonitor/    # 自监控部署资源
@@ -115,7 +116,7 @@ docker compose --env-file .env -f "$gopulse_compose_file" logs --tail=100
 docker compose --env-file .env -f "$gopulse_compose_file" down
 ```
 
-`down` 默认保留命名数据卷。只有确认需要删除持久化数据时，才使用 `down --volumes`。切换部署模式不会自动迁移数据；在同一主机同时启动业务系统和整体系统时，需要分别设置项目名和前端端口。
+`down` 默认保留命名数据卷。只有确认需要删除持久化数据时，才使用 `down --volumes`。切换部署模式不会自动迁移数据。同一工作区一次只运行一种产品部署方式和模式；切换前先停止原环境。
 
 ### 独立可观测系统的访问与管理员初始化
 
@@ -137,15 +138,16 @@ docker compose --env-file .env \
 
 独立模式通过 `BACKEND_STANDALONE_OBSERVABILITY=true` 为 `platform` 角色启用鉴权接口，保留管理权限检查，并在进程内限制公开鉴权请求。它不会启动业务消息分发器，也不注册业务阶段查询。管理页面隐藏业务阶段和返回社交入口。其他部署模式保持原有角色划分。
 
-### 整体系统的 Make 命令
+### 三种模式的 Make 命令
 
 | 命令 | 行为 |
 |---|---|
-| `make stack-up` | 构建镜像，启动整体系统并验证 |
-| `make stack-verify` | 验证整体系统的服务状态和访问入口 |
-| `make stack-down` | 停止整体系统，保留命名数据卷 |
+| `make stack-up MODE=...` | 构建共享镜像，启动所选模式并验证 |
+| `make stack-verify MODE=...` | 验证所选模式的服务状态和访问入口 |
+| `make stack-status MODE=...` | 查看所选模式的容器状态 |
+| `make stack-down MODE=...` | 停止所选模式，保留命名数据卷 |
 
-这些命令使用 `deploy/compose/compose.yaml`，默认项目名为 `gopulse`，可通过 `COMPOSE_PROJECT_NAME` 覆盖。若先使用上述 Docker Compose 命令启动整体系统，后续改用 Make 命令时必须保持项目名一致。
+`MODE` 接受 `business`、`observability`、`all`，默认 `all`。项目名和环境文件规则见 [双部署说明](DUAL_DEPLOYMENT.md#命令入口)。若先使用 Docker Compose 命令启动环境，后续改用 Make 命令时必须保持项目名一致。
 
 ## 开发、调试和自监控
 

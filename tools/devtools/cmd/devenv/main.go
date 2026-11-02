@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/deployment"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
@@ -32,9 +33,9 @@ commands:
   dev-observe [--env-file PATH]                       start the observation environment
   stop                                                stop everything this workspace owns
   integration [--scope business|observe]               run one isolated integration scope
-	stack-up                                             start the container-native product stack
-	stack-down                                           stop it and preserve named volumes
-	stack-verify                                         verify ownership, health and loopback ports
+	stack-up [--mode business|observability|all]          启动 Compose 产品环境
+	stack-down [--mode business|observability|all]        停止当前模式并保留命名卷
+	stack-status|stack-verify [--mode MODE]               查看或验证当前模式
 	build-cache [--print] [--no-cache]                    render/build Compose images
 	doctor                                                check host prerequisites without starting services
 	bootstrap [--module frontend/user|frontend/admin] [--tools-only]
@@ -44,6 +45,7 @@ commands:
 `
 
 type options struct {
+	mode      string
 	scope     string
 	envFile   string
 	printOnly bool
@@ -75,6 +77,34 @@ func run(args []string) int {
 		return 1
 	}
 
+	if (command == "deps" || command == "integration") && parsed.scope != "" && parsed.scope != "business" && parsed.scope != "observe" {
+		fmt.Fprintln(os.Stderr, "scope 必须为 business 或 observe")
+		return 1
+	}
+	if parsed.mode != "" && !strings.HasPrefix(command, "stack-") {
+		fmt.Fprintln(os.Stderr, "--mode 仅用于 stack 命令")
+		return 2
+	}
+
+	if command == "deps" || command == "dev" || command == "dev-observe" || command == "stop" || command == "integration" {
+		unlock, lockErr := deployment.Lock(root)
+		if lockErr != nil {
+			fmt.Fprintln(os.Stderr, lockErr)
+			return 1
+		}
+		defer unlock()
+		if command != "stop" {
+			purpose := "source"
+			if command == "integration" {
+				purpose = "integration"
+			}
+			if checkErr := deployment.Check(root, "all", purpose, ""); checkErr != nil {
+				fmt.Fprintln(os.Stderr, checkErr)
+				return 1
+			}
+		}
+	}
+
 	if command != "integration" {
 		interrupted := make(chan os.Signal, 1)
 		signal.Notify(interrupted, syscall.SIGINT, syscall.SIGTERM)
@@ -98,11 +128,13 @@ func run(args []string) int {
 	case "integration":
 		err = testenv.Integration(root, defaultScope(parsed.scope))
 	case "stack-up":
-		err = stack.Up(root)
+		err = stack.Up(root, parsed.mode)
 	case "stack-down":
-		err = stack.Down(root)
+		err = stack.Down(root, parsed.mode)
+	case "stack-status":
+		err = stack.Status(root, parsed.mode)
 	case "stack-verify":
-		err = stack.Verify(root)
+		err = stack.Verify(root, parsed.mode)
 	case "build-cache":
 		if !parsed.printOnly {
 			if err := exporterpackages.Prepare(root, filepath.Join(root, ".run/packages"), devrun.Environ()); err != nil {
@@ -206,6 +238,8 @@ func parseOptions(args []string) (options, error) {
 			return options{}, fmt.Errorf("unexpected argument: %s", name)
 		}
 		switch name {
+		case "--mode":
+			parsed.mode = value
 		case "--scope":
 			parsed.scope = value
 		case "--env-file":
@@ -231,7 +265,7 @@ func parseOptions(args []string) (options, error) {
 
 func isFlagWithValue(name string) bool {
 	switch name {
-	case "--scope", "--env-file", "--module", "--base-ref":
+	case "--mode", "--scope", "--env-file", "--module", "--base-ref":
 		return true
 	}
 	return false

@@ -23,3 +23,67 @@ HTTP API、响应字段和超级管理员权限保持不变：`GET /api/v1/admin
 控制器分别检查生命周期、预期 Prometheus 目标、数据源指标和 Grafana 健康。Compose 保留原有目标集合；Kubernetes 按当前模式检查自己的目标集合。控制权限不足显示不可用，目标或数据源异常显示部分不可达，不把控制失败显示为已停止。部分工作负载启停失败后，可以重试同一动作。
 
 Compose 自监控仍需按 [原有安装说明](selfmonitor/README.md) 安装 root 管理的固定控制服务及产品覆盖配置。不能用 Kubernetes ServiceAccount 替代 Compose 的安装步骤，也不能将被屏蔽的 systemd 服务状态视为采集健康。
+
+## 命令入口
+
+所有命令在仓库根目录执行，`MODE` 默认 `all`。
+
+| 操作 | Compose | Kubernetes |
+|---|---|---|
+| 启动 | `make stack-up MODE=...` | `make k8s-up MODE=...` |
+| 停止并保留持久数据 | `make stack-down MODE=...` | `make k8s-down MODE=...` |
+| 查看状态 | `make stack-status MODE=...` | `make k8s-status MODE=...` |
+| 验收 | `make stack-verify MODE=...` | `make k8s-verify MODE=...` |
+| 本机访问 | 启动和验证时打印地址 | `make k8s-access MODE=...` |
+| 自监控 | `make selfmonitor-up/down/status/access/verify` | `make k8s-selfmonitor-up/down/status/access/verify MODE=...` |
+
+表中的斜线表示分别执行对应命令，例如 `make selfmonitor-up`，不是一个完整的 Make 目标名。管理前端不提供部署方式切换按钮。
+
+Compose 使用既有三份配置文件。Make 命令的默认项目名为：整体模式 `gopulse`、业务模式 `gopulse-business`、可观测模式 `gopulse-observability`。它们与直接执行 Compose 时配置文件中的默认项目名可能不同。使用 `COMPOSE_PROJECT_NAME` 接管部署时，启动、停止和验证必须使用同一个项目名。`GOPULSE_ENV_FILE` 可指定独立私有环境文件，默认使用根 `.env`；缺少默认文件时从 `.env.example` 创建，已有文件不覆盖。
+
+新 Compose 命名卷和网络带有工作区路径标签。工具拒绝接管属于其他工作区或缺少归属标签的持久资源。对旧资源先核对原项目名、配置路径和数据归属，保留备份，再按原 Compose 命令管理；不要为通过归属检查删除命名卷。仍可直接执行 Docker Compose 命令，但这些外部命令不受 Make 工具的工作区锁约束。切换前必须确认原环境已停止。
+
+首次准备 Kubernetes：
+
+```sh
+make k8s-install
+make k8s-check
+make k8s-cluster-verify
+make build-images
+make k8s-load-images MODE=all
+make k8s-up MODE=all
+make k8s-access MODE=all
+```
+
+安装器使用独立 containerd，不更改 Docker 的运行时。已有其他工作区的集群或未完成的初始化会使安装停止；工具不执行自动 reset。需要预取控制平面镜像时，使用 `make k8s-prefetch`；`DIRECT=1` 仅影响该次下载。
+
+Kubernetes 访问入口只绑定本机回环地址：business 和 all 使用 `18080`，observability 使用 `18081`。首次注册后，通过当前命名空间的 `platform-api` 声明初始超级管理员：
+
+```sh
+kubectl --kubeconfig .run/kubernetes/cluster/admin.conf -n gopulse-all \
+  exec deployment/platform-api -- /usr/local/bin/admin-role bootstrap --user-id <注册响应中的用户ID>
+```
+
+已有初始化声明时，命令不会覆盖它。修改源码并提交后，应重新构建、导入和部署同一 revision 的镜像。`k8s-verify` 会运行真实业务和观测验收，并写入专用测试账号与数据；`k8s-recreate` 会重建所选 Pod 并检查此前验收数据的持久性，执行前应安排服务中断窗口。
+
+## 切换、持久数据与失败恢复
+
+从 Compose 切换到 Kubernetes，先用原项目名执行 `stack-down`，再执行对应模式的 `k8s-up`。反向切换时先执行 `k8s-down`，再执行 `stack-up`。两套环境独立保存数据库、插件配置和凭据，不自动复制或同步数据。
+
+产品、源码、集成和压测入口共用 `.run/deploy/operation.lock`。启动前还检查当前工作区的实际容器、Kubernetes 工作负载、源码进程和未完成压测记录。冲突会使操作退出，并提示对应停止命令。运行记录位于 `.run/deploy/state.json`，包含部署方式、模式、资源归属和状态；工具不会仅凭旧状态文件判断环境已停止。
+
+`make deps/dev/dev-observe/integration/stop/pt*` 继续使用 Compose。`make stop` 只处理源码会话，不隐式停止 Kubernetes 产品环境。正式压测仍使用原专用 Compose 项目和资源约束，未增加 Kubernetes 压测入口。
+
+Compose `down` 保留命名卷。Kubernetes `down` 缩容本工作区产品命名空间中的工作负载，保留 PVC、Secret 和本地凭据。丢失本地凭据文件时，工具会从已有 Secret 恢复；发现本地值与集群不一致时拒绝覆盖，不自动轮换数据库密码。数据库迁移、Topic 或搜索初始化失败时，不继续启动应用；修复失败原因后重新执行同一启动命令。
+
+升级前备份数据库，并阅读 [迁移 000016 的状态变更与回滚边界](COMPOSE_INTEGRATION.md#升级与回滚边界)。应用回滚不能自动恢复被关闭的告警事件或被禁用的规则状态。
+
+## WSL 与节点地址恢复
+
+WSL 重启会终止当前会话，必须从 Windows 端安排执行。重新进入 Debian 后，确认 `gopulse-containerd` 和 `kubelet` 已启动，等待节点 Ready，再执行 `make k8s-check`、`make k8s-cluster-verify` 和当前模式的 `make k8s-access`。
+
+`k8s-check` 要求节点 InternalIP 与私有 kubeadm 配置一致，且仍绑定在本机接口。VPN 改变外网路由不表示节点地址发生变化。地址检查失败时，保留配置、证书、etcd 数据和 PVC，停止继续部署；不要通过自动 reset 修复。
+
+节点地址确实失效时，需要在维护窗口备份私有 kubeadm 配置和控制平面配置，创建并校验 etcd 快照，再协调更新节点地址、etcd 成员 peer URL、静态 Pod 地址及证书。完成控制平面恢复后，重新验证节点、DNS、Service、PVC 和应用数据。本次工具不自动执行这类地址变更；实际重启和地址变化的验收结果必须单独记录。
+
+可选追踪通过 `TRACE=1 make k8s-load-images MODE=all`、`TRACE=1 make k8s-up MODE=all` 和 `TRACE=1 make k8s-verify MODE=all` 验证。关闭开关后再次启动会停止追踪采集器，保留追踪 PVC；该开关不改变 Compose 正式压测条件。

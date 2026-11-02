@@ -1,9 +1,9 @@
-// Package stack owns the container-native daily lifecycle that used to live in
-// make dev, make stack-down and make stack-verify.
+// Package stack 管理当前工作区的三种 Compose 产品模式。
 package stack
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,28 +13,26 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/deployment"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
 )
 
 var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
-var productTargets = []string{
-	"backend", "business-worker", "search-indexer", "admin-frontend", "frontend",
-	"marshaller", "monitor",
-}
-
-var requiredServices = []string{
-	"mysql", "redis", "rabbitmq", "elasticsearch", "kafka", "victoriametrics",
-	"marshaller", "monitor", "backend", "business-worker", "search-indexer",
-	"admin-frontend", "frontend",
-}
-
-var completedServices = []string{"migrate", "search-init", "kafka-init"}
-
-// Up builds and starts the default project, after checking that any existing
-// resources with the selected project label belong to this Compose directory.
-func Up(root string) error {
-	ctx, err := newContext(root)
+func Up(root string, modes ...string) (result error) {
+	ctx, err := newContext(root, modes...)
 	if err != nil {
+		return err
+	}
+	unlock, err := deployment.Lock(ctx.root)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := deployment.Check(ctx.root, ctx.mode, "product", ctx.project); err != nil {
 		return err
 	}
 	if err := ctx.validateHostContract(); err != nil {
@@ -43,81 +41,138 @@ func Up(root string) error {
 	if err := ctx.checkOwnership(); err != nil {
 		return err
 	}
-	if err := ctx.prepareBackendPortOverride(); err != nil {
+	if err := deployment.Record(ctx.root, ctx.mode, ctx.project, "starting"); err != nil {
 		return err
 	}
-	defer ctx.removeBackendPortOverride()
-	if err := ctx.run(append(ctx.composeArgs("build"), productTargets...)...); err != nil {
-		return fmt.Errorf("build product images: %w", err)
+	defer func() {
+		if result != nil {
+			_ = deployment.Record(ctx.root, ctx.mode, ctx.project, "failed")
+		}
+	}()
+	if err := exporterpackages.Prepare(ctx.root, filepath.Join(ctx.root, ".run/packages"), devrun.Environ()); err != nil {
+		return err
+	}
+	code, err := buildcache.Run(ctx.root, buildcache.Options{NoCache: true})
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("产品镜像构建失败，退出码 %d", code)
 	}
 	if err := ctx.run(ctx.composeArgs("up", "--detach", "--wait", "--wait-timeout", "420")...); err != nil {
-		return fmt.Errorf("start Compose stack: %w", err)
+		return fmt.Errorf("启动 Compose 失败：%w", err)
 	}
-	return Verify(root)
+	if err := ctx.verify(); err != nil {
+		return err
+	}
+	return deployment.Record(ctx.root, ctx.mode, ctx.project, "running")
 }
 
-// Down stops only the verified project and preserves named volumes.
-func Down(root string) error {
-	ctx, err := newContext(root)
+func Down(root string, modes ...string) error {
+	ctx, err := newContext(root, modes...)
+	if err != nil {
+		return err
+	}
+	unlock, err := deployment.Lock(ctx.root)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := ctx.checkOwnership(); err != nil {
+		return err
+	}
+	if err := ctx.run(ctx.composeArgs("down")...); err != nil {
+		return err
+	}
+	return deployment.Record(ctx.root, ctx.mode, ctx.project, "stopped")
+}
+
+func Verify(root string, modes ...string) error {
+	ctx, err := newContext(root, modes...)
+	if err != nil {
+		return err
+	}
+	return ctx.verify()
+}
+func Status(root string, modes ...string) error {
+	ctx, err := newContext(root, modes...)
 	if err != nil {
 		return err
 	}
 	if err := ctx.checkOwnership(); err != nil {
 		return err
 	}
-	if err := ctx.run(ctx.composeArgs("down", "--remove-orphans")...); err != nil {
-		return fmt.Errorf("stop Compose stack: %w", err)
-	}
-	return nil
+	return ctx.run(ctx.composeArgs("ps", "--all")...)
 }
-
-// Verify checks service state, health and the two intentionally published
-// loopback ports without changing product data.
-func Verify(root string) error {
-	ctx, err := newContext(root)
+func (c *context) verify() error {
+	if err := c.checkOwnership(); err != nil {
+		return err
+	}
+	raw, err := c.capture(c.composeArgs("config", "--format", "json")...)
 	if err != nil {
 		return err
 	}
-	if err := ctx.checkOwnership(); err != nil {
+	var rendered struct {
+		Services map[string]struct {
+			Profiles []string `json:"profiles"`
+			Restart  string   `json:"restart"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal([]byte(raw), &rendered); err != nil {
 		return err
 	}
-	for _, service := range requiredServices {
-		if err := ctx.verifyService(service, "running"); err != nil {
+	for name, service := range rendered.Services {
+		if len(service.Profiles) > 0 {
+			continue
+		}
+		expected := "running"
+		if name == "migrate" || name == "search-init" || name == "kafka-init" {
+			expected = "exited"
+		}
+		if err := c.verifyService(name, expected); err != nil {
 			return err
 		}
-	}
-	for _, service := range completedServices {
-		if err := ctx.verifyService(service, "exited"); err != nil {
-			return err
+		edge := "frontend"
+		if c.mode == "observability" {
+			edge = "admin-frontend"
+		}
+		if name != edge {
+			if err := c.verifyNotPublished(name); err != nil {
+				return err
+			}
 		}
 	}
-	for _, service := range append([]string{"admin-frontend", "mysql", "redis", "rabbitmq", "elasticsearch", "kafka", "victoriametrics", "marshaller", "monitor", "business-worker", "search-indexer"}, "platform-api") {
-		if err := ctx.verifyNotPublished(service); err != nil {
-			return err
-		}
+	edge := "frontend"
+	if c.mode == "observability" {
+		edge = "admin-frontend"
 	}
-	for _, service := range []string{"frontend", "backend"} {
-		if err := ctx.verifyLoopbackPort(service); err != nil {
-			return err
-		}
+	if err := c.verifyLoopbackPort(edge); err != nil {
+		return err
 	}
-	frontendPort, err := ctx.port("frontend", "8080")
+	port, err := c.port(edge, "8080")
 	if err != nil {
 		return err
 	}
 	client := http.Client{Timeout: 5 * time.Second}
-	response, err := client.Get("http://127.0.0.1:" + frontendPort + "/frontend-health")
+	res, err := client.Get("http://127.0.0.1:" + port + "/frontend-health")
 	if err != nil {
-		return fmt.Errorf("frontend health request failed: %w", err)
+		return err
 	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("frontend health returned HTTP %d", response.StatusCode)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("前端健康检查返回 HTTP %d", res.StatusCode)
 	}
+	path := "/"
+	if c.mode == "observability" {
+		path = "/admin/login"
+	}
+	fmt.Printf("访问地址：http://127.0.0.1:%s%s\n", port, path)
 	return nil
 }
 
 type context struct {
+	mode         string
+	composeFile  string
 	root         string
 	composeDir   string
 	project      string
@@ -126,10 +181,18 @@ type context struct {
 	host         string
 	httpPort     string
 	frontendPort string
-	overrideFile string
 }
 
-func newContext(root string) (*context, error) {
+func newContext(root string, modes ...string) (*context, error) {
+	mode := "all"
+	if len(modes) > 0 && modes[0] != "" {
+		mode = modes[0]
+	}
+	files := map[string]string{"all": "compose.yaml", "business": "compose.business.yaml", "observability": "compose.observability.yaml"}
+	file, ok := files[mode]
+	if !ok {
+		return nil, fmt.Errorf("MODE 必须为 business、observability 或 all")
+	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
@@ -137,11 +200,17 @@ func newContext(root string) (*context, error) {
 	project := os.Getenv("COMPOSE_PROJECT_NAME")
 	if project == "" {
 		project = "gopulse"
+		if mode != "all" {
+			project += "-" + mode
+		}
 	}
 	if !projectPattern.MatchString(project) {
 		return nil, fmt.Errorf("project name must match %s", projectPattern.String())
 	}
-	envFile := filepath.Join(absolute, ".env")
+	envFile := os.Getenv("GOPULSE_ENV_FILE")
+	if envFile == "" {
+		envFile = filepath.Join(absolute, ".env")
+	}
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		data, readErr := os.ReadFile(filepath.Join(absolute, ".env.example"))
 		if readErr != nil {
@@ -165,24 +234,23 @@ func newContext(root string) (*context, error) {
 		return nil, err
 	}
 	env := append([]string{}, os.Environ()...)
-	env = append(env, "GOPULSE_VERSION="+version, "GOPULSE_REVISION="+revision)
+	env = append(env, "GOPULSE_VERSION="+version, "GOPULSE_REVISION="+revision, "GOPULSE_WORKSPACE_ROOT="+absolute)
 	return &context{
 		root:         absolute,
+		mode:         mode,
+		composeFile:  file,
 		composeDir:   filepath.Join(absolute, "deploy", "compose"),
 		project:      project,
 		envFile:      envFile,
 		env:          env,
 		host:         effectiveEnvValue(envFile, "PUBLISHED_HOST", "127.0.0.1"),
 		httpPort:     effectiveEnvValue(envFile, "HTTP_PORT", ""),
-		frontendPort: effectiveEnvValue(envFile, "FRONTEND_PORT", ""),
+		frontendPort: effectiveEnvValue(envFile, map[bool]string{true: "ADMIN_FRONTEND_PORT", false: "FRONTEND_PORT"}[mode == "observability"], ""),
 	}, nil
 }
 
 func (c *context) composeArgs(args ...string) []string {
-	base := []string{"docker", "compose", "--project-name", c.project, "--env-file", c.envFile, "--file", filepath.Join(c.composeDir, "compose.yaml")}
-	if c.overrideFile != "" {
-		base = append(base, "--file", c.overrideFile)
-	}
+	base := []string{"docker", "compose", "--project-name", c.project, "--env-file", c.envFile, "--file", filepath.Join(c.composeDir, c.composeFile)}
 	return append(base, args...)
 }
 
@@ -216,6 +284,12 @@ func (c *context) checkOwnership() error {
 		if inspectErr != nil || (filepath.Clean(workingDir) != filepath.Clean(c.composeDir) && filepath.Clean(workingDir) != filepath.Join(c.root, "deploy")) {
 			return fmt.Errorf("container %s failed project ownership validation", id)
 		}
+		files, fileErr := c.capture("docker", "inspect", "--format", `{{index .Config.Labels "com.docker.compose.project.config_files"}}`, id)
+		expected := filepath.Join(c.composeDir, c.composeFile)
+		if fileErr != nil || !strings.Contains(files, expected) {
+			return fmt.Errorf("容器 %s 不属于当前 MODE", id)
+		}
+
 	}
 	for _, kind := range []string{"network", "volume"} {
 		ids, inspectErr := c.capture("docker", kind, "ls", "-q", "--filter", "label=com.docker.compose.project="+c.project)
@@ -224,6 +298,10 @@ func (c *context) checkOwnership() error {
 		}
 		for _, id := range nonEmptyLines(ids) {
 			label, labelErr := c.capture("docker", kind, "inspect", "--format", "{{index .Labels \"com.docker.compose.project\"}}", id)
+			owner, ownerErr := c.capture("docker", kind, "inspect", "--format", `{{index .Labels "io.gopulse.workspace"}}`, id)
+			if ownerErr != nil || owner != c.root {
+				return fmt.Errorf("%s %s 缺少当前工作区归属标签，拒绝接管", kind, id)
+			}
 			if labelErr != nil || label != c.project {
 				return fmt.Errorf("%s %s failed project ownership validation", kind, id)
 			}
@@ -302,40 +380,10 @@ func (c *context) validateHostContract() error {
 	if c.host != "127.0.0.1" {
 		return fmt.Errorf("PUBLISHED_HOST must be exactly 127.0.0.1")
 	}
-	if err := validatePort("HTTP_PORT", c.httpPort); err != nil {
-		return err
-	}
 	if err := validatePort("FRONTEND_PORT", c.frontendPort); err != nil {
 		return err
 	}
 	return nil
-}
-
-func (c *context) prepareBackendPortOverride() error {
-	file, err := os.CreateTemp("", "gopulse-stack-override-*.yaml")
-	if err != nil {
-		return err
-	}
-	c.overrideFile = file.Name()
-	content := fmt.Sprintf("services:\n  backend:\n    ports:\n      - \"127.0.0.1:%s:8080\"\n", c.httpPort)
-	if _, err := file.WriteString(content); err != nil {
-		_ = file.Close()
-		c.removeBackendPortOverride()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		c.removeBackendPortOverride()
-		return err
-	}
-	return nil
-}
-
-func (c *context) removeBackendPortOverride() {
-	if c.overrideFile == "" {
-		return
-	}
-	_ = os.Remove(c.overrideFile)
-	c.overrideFile = ""
 }
 
 func readValue(path string) (string, error) {

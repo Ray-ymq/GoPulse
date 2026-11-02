@@ -7,6 +7,8 @@ import subprocess
 import sys
 
 from .config import ROOT, STAGES, load
+sys.path.insert(0, str(ROOT / "tools/devtools"))
+import deployment
 from .runtime import STATE, active, lock, stop
 
 
@@ -45,7 +47,8 @@ def main():
         config = load(args.start_rps)
         if args.command == 'acceptance':
             config.update(acceptance=True, idle_seconds=5, warmup_seconds=1, measurement_seconds=15, soak_seconds=15, recovery_seconds=120)
-        with lock():
+        with deployment.lock(), lock():
+            deployment.check("compose", "business", "pt")
             if args.command == 'prepare':
                 from .prepare import prepare
                 prepare(config)

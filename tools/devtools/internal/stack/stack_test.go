@@ -1,7 +1,6 @@
 package stack
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -36,21 +35,5 @@ func TestValidatePort(t *testing.T) {
 		if err := validatePort("HTTP_PORT", value); err == nil {
 			t.Fatalf("invalid port %q accepted", value)
 		}
-	}
-}
-
-func TestBackendPortOverride(t *testing.T) {
-	ctx := &context{httpPort: "8080"}
-	if err := ctx.prepareBackendPortOverride(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(ctx.removeBackendPortOverride)
-	data, err := os.ReadFile(ctx.overrideFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "services:\n  backend:\n    ports:\n      - \"127.0.0.1:8080:8080\"\n"
-	if string(data) != want {
-		t.Fatalf("override = %q, want %q", data, want)
 	}
 }
