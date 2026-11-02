@@ -1,5 +1,7 @@
 # Compose 与 Kubernetes 双部署
 
+本次整合的提交和实际检查结果见 [双部署验收记录](DUAL_DEPLOYMENT_VALIDATION.md)。
+
 产品同时保留 Compose 和 Kubernetes 部署。两种方式各有 business、observability、all 三种模式；同一工作区同一时间只启动一种产品环境。源码开发、集成检查和正式压测继续使用 Compose。
 
 ## 共用构建与配置
@@ -47,6 +49,8 @@ Compose 使用既有三份配置文件。Make 命令的默认项目名为：整�
 
 新 Compose 命名卷和网络带有工作区路径标签。工具拒绝接管属于其他工作区或缺少归属标签的持久资源。对旧资源先核对原项目名、配置路径和数据归属，保留备份，再按原 Compose 命令管理；不要为通过归属检查删除命名卷。仍可直接执行 Docker Compose 命令，但这些外部命令不受 Make 工具的工作区锁约束。切换前必须确认原环境已停止。
 
+运行契约检查需要 Python 3 和 `jsonschema`；Debian 可使用 `python3-jsonschema` 软件包。
+
 首次准备 Kubernetes：
 
 ```sh
@@ -60,6 +64,8 @@ make k8s-access MODE=all
 ```
 
 安装器使用独立 containerd，不更改 Docker 的运行时。已有其他工作区的集群或未完成的初始化会使安装停止；工具不执行自动 reset。需要预取控制平面镜像时，使用 `make k8s-prefetch`；`DIRECT=1` 仅影响该次下载。
+
+Kubernetes Grafana 用户名为 `admin`，密码是当前模式 `selfmonitor-credentials.json` 中的 `GRAFANA_PASSWORD`。
 
 Kubernetes 访问入口只绑定本机回环地址：business 和 all 使用 `18080`，observability 使用 `18081`。首次注册后，通过当前命名空间的 `platform-api` 声明初始超级管理员：
 

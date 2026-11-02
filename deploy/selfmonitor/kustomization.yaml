@@ -15,8 +15,8 @@
     {
       "name": "selfmonitor-grafana",
       "files": [
-        "datasource.yaml=grafana/provisioning/datasources/prometheus.kubernetes.yaml",
-        "provider.yaml=grafana/provisioning/dashboards/default.kubernetes.yaml",
+        "datasource.yaml=kubernetes/grafana-datasource.yaml",
+        "provider.yaml=kubernetes/grafana-provider.yaml",
         "gopulse.json=grafana/dashboards/gopulse.json"
       ]
     }

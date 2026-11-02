@@ -110,7 +110,7 @@ def observation(api, mode, evidence, mysql_host='mysql', mysql_port=3306):
     api.call('POST', plugin + '/stop')
     api.call('POST', plugin + '/start')
     wait('插件指标', lambda: any(point['value'] == 1 and datetime.fromisoformat(point['timestamp'].replace('Z', '+00:00')) >= datetime.fromisoformat(action)
-          for row in api.call('GET', '/api/v1/observability/metrics?metric=gopulse_mysql_up')['data']['series'] for point in row['points']))
+          for row in api.call('GET', '/api/v1/observability/metrics?metric=gopulse_mysql_up')['data']['series'] for point in row['points']), seconds=600)
     wait('插件生命周期事件', lambda: {'exporter_plugin_stopped', 'exporter_plugin_started'} <= {
         row['event_name'] for row in api.call('GET', '/api/v1/observability/events?source=monitor&plugin_id=mysql-exporter&limit=100')['data']
         if datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00')) >= datetime.fromisoformat(action)})

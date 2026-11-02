@@ -45,4 +45,6 @@ services:
 networks:
   # Internal product bridges discard published ports; this bridge enables the
   # fixed loopback port mappings and retains ordinary product DNS connectivity.
-  metrics-access: {}
+  metrics-access:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}

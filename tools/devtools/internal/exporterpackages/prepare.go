@@ -1,4 +1,4 @@
-// Package exporterpackages 为源码开发准备独立插件包和只读目录。
+// Package exporterpackages 为源码开发和产品镜像准备独立插件包及只读目录。
 package exporterpackages
 
 import (

@@ -186,3 +186,18 @@ class CredentialRecoveryTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'migration failed'):
                     k8s._up('all')
             self.assertFalse(any(row['kind'] == 'Deployment' for call in apply.call_args_list for row in call.args[0]))
+
+
+class SelfmonitorOwnershipTests(unittest.TestCase):
+    def test_stop_ignores_unlisted_and_unowned_workloads(self):
+        import selfmonitor
+        allowed = {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-mysql-exporter'}}
+        rows = [
+            {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-mysql-exporter', 'labels': {'app.kubernetes.io/part-of': 'gopulse'}}},
+            {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-foreign', 'labels': {'app.kubernetes.io/part-of': 'gopulse'}}},
+            {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-grafana'}},
+        ]
+        with patch.object(k8s, 'owned_namespace', return_value=True), patch.object(selfmonitor, 'render', return_value=[allowed]), patch.object(k8s, 'kube', return_value=json.dumps({'items': rows})) as command, patch.object(k8s, 'stop_forwards'):
+            selfmonitor.down('all')
+        changes = [call.args for call in command.call_args_list if 'scale' in call.args or 'patch' in call.args]
+        self.assertEqual(changes, [('-n', 'gopulse-all', 'scale', 'deployment/selfmonitor-mysql-exporter', '--replicas=0')])

@@ -16,7 +16,7 @@ import (
 
 const Platform = "linux/amd64"
 
-// Targets is the complete image set used by the authoritative 镜像 build.
+// Targets 列出共享产品镜像。
 var Targets = []string{
 	"backend",
 	"business-worker",

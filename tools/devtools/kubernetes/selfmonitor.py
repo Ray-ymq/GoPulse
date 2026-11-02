@@ -90,10 +90,11 @@ def down(mode):
     if not k8s.owned_namespace(mode):
         return
     ns = k8s.namespace(mode)
+    allowed = {row['metadata']['name'] for row in render(mode) if row['kind'] in ('Deployment', 'StatefulSet', 'DaemonSet')}
     rows = json.loads(k8s.kube('-n', ns, 'get', 'deployment,statefulset,daemonset', '-o', 'json'))['items']
     for row in rows:
         name = row['metadata']['name']
-        if not name.startswith('selfmonitor-'):
+        if name not in allowed or row['metadata'].get('labels', {}).get('app.kubernetes.io/part-of') != 'gopulse':
             continue
         if row['kind'] == 'DaemonSet':
             patch = {'spec': {'template': {'spec': {'nodeSelector': {'gopulse.io/selfmonitor-disabled': 'true'}}}}}

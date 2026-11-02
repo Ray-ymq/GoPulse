@@ -56,6 +56,11 @@ def validate():
         frontend = next(row for row in rendered[mode] if row['kind'] == 'Deployment' and row['metadata']['name'] == 'frontend')
         spec = frontend['spec']['template']['spec']
         assert any(volume.get('configMap', {}).get('name') == 'frontend-nginx' for volume in spec['volumes']), '前端缺少 Kubernetes Nginx 配置'
+    provisioning = ROOT / 'deploy/selfmonitor/grafana/provisioning'
+    datasources = [path.read_text() for path in (provisioning / 'datasources').iterdir() if path.suffix in ('.yaml', '.yml')]
+    assert sum(line.strip() == 'isDefault: true' for value in datasources for line in value.splitlines()) == 1, 'Compose Grafana 必须只加载一个默认数据源'
+    assert all('selfmonitor-prometheus:9090' not in value for value in datasources), 'Compose 不能加载 Kubernetes Grafana 数据源'
+    assert any('http://127.0.0.1:29090' in value for value in datasources), 'Compose Grafana 数据源地址不符'
     import selfmonitor
     for mode in k8s.MODES:
         rows = selfmonitor.render(mode)
