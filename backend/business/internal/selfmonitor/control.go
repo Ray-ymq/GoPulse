@@ -40,9 +40,10 @@ type Runner func(context.Context, ...string) ([]byte, error)
 // Controller is served only over a systemd-owned Unix socket. HTTP authorization
 // belongs to the management API; filesystem permissions protect this boundary.
 type Controller struct {
-	run    Runner
-	client *http.Client
-	mu     sync.Mutex
+	cluster *cluster
+	run     Runner
+	client  *http.Client
+	mu      sync.Mutex
 }
 
 func NewController() *Controller {
@@ -51,6 +52,9 @@ func NewController() *Controller {
 	}, client: &http.Client{Timeout: 250 * time.Millisecond, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 func (s *Controller) unitState(ctx context.Context) (Status, error) {
+	if s.cluster != nil {
+		return s.cluster.state(ctx)
+	}
 	out, err := s.run(ctx, "show", unit, "--property=ActiveState,SubState,Result")
 	if err != nil {
 		return status("unavailable", "control_unavailable"), err
@@ -96,10 +100,13 @@ func (s *Controller) snapshot(ctx context.Context) (Status, error) {
 			} `json:"activeTargets"`
 		} `json:"data"`
 	}
-	if err = s.get(ctx, "http://127.0.0.1:29090/api/v1/targets?state=active", &payload); err != nil || payload.Status != "success" {
+	if err = s.get(ctx, s.prometheusURL()+"/api/v1/targets?state=active", &payload); err != nil || payload.Status != "success" {
 		return status("degraded", "prometheus_unavailable"), nil
 	}
 	expected := map[string]int{"backend": 3, "business-worker": 2, "search-indexer": 2, "monitor": 1, "marshaller": 2, "node": 1, "mysql": 1, "redis": 1, "rabbitmq": 1, "kafka": 1, "elasticsearch": 1, "observability-elasticsearch": 1, "victoriametrics": 1, "prometheus": 1}
+	if s.cluster != nil {
+		expected = s.cluster.expectedTargets()
+	}
 	seen := map[string]int{}
 	unique := map[string]bool{}
 	for _, t := range payload.Data.Targets {
@@ -134,14 +141,24 @@ func (s *Controller) snapshot(ctx context.Context) (Status, error) {
 			} `json:"result"`
 		} `json:"data"`
 	}
-	query := "http://127.0.0.1:29090/api/v1/query?query=" + url.QueryEscape(`count(mysql_up{job="mysql"} == 1) + count(redis_up{job="redis"} == 1) + count(elasticsearch_cluster_health_number_of_nodes{job=~"elasticsearch|observability-elasticsearch"} > 0)`)
-	if s.get(ctx, query, &sources) != nil || sources.Status != "success" || len(sources.Data.Result) != 1 || len(sources.Data.Result[0].Value) != 2 || string(sources.Data.Result[0].Value[1]) != `"4"` {
-		state.State = "degraded"
+	if s.cluster == nil {
+		query := "http://127.0.0.1:29090/api/v1/query?query=" + url.QueryEscape(`count(mysql_up{job="mysql"} == 1) + count(redis_up{job="redis"} == 1) + count(elasticsearch_cluster_health_number_of_nodes{job=~"elasticsearch|observability-elasticsearch"} > 0)`)
+		if s.get(ctx, query, &sources) != nil || sources.Status != "success" || len(sources.Data.Result) != 1 || len(sources.Data.Result[0].Value) != 2 || string(sources.Data.Result[0].Value[1]) != `"4"` {
+			state.State = "degraded"
+		}
+	} else {
+		for _, expression := range s.cluster.sourceQueries() {
+			sources.Data.Result = nil
+			endpoint := s.prometheusURL() + "/api/v1/query?query=" + url.QueryEscape(expression)
+			if s.get(ctx, endpoint, &sources) != nil || sources.Status != "success" || len(sources.Data.Result) != 1 || len(sources.Data.Result[0].Value) != 2 || string(sources.Data.Result[0].Value[1]) != `"1"` {
+				state.State = "degraded"
+			}
+		}
 	}
 	var grafana struct {
 		Database string `json:"database"`
 	}
-	if s.get(ctx, "http://127.0.0.1:23000/api/health", &grafana) != nil || grafana.Database != "ok" {
+	if s.get(ctx, s.grafanaURL()+"/api/health", &grafana) != nil || grafana.Database != "ok" {
 		state.State = "degraded"
 	}
 	if state.State == "degraded" {
@@ -196,7 +213,7 @@ func (s *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Duplicate requests in the same direction are idempotent. An opposite
 			// request during a transition reports the transition and is retried later.
 			if (action == "start" && (state.State == "stopped" || state.State == "failed")) || (action == "stop" && (state.State == "running" || state.State == "failed")) {
-				_, err = s.run(ctx, "--no-block", action, unit)
+				err = s.change(ctx, action)
 				if err == nil {
 					if action == "start" {
 						state = status("starting", "starting")
@@ -215,15 +232,21 @@ func (s *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Client speaks exclusively to the fixed Unix socket; it has no command runner.
-type Client struct{ client *http.Client }
+type Client struct {
+	client     *http.Client
+	controller *Controller
+}
 
 func NewClient() *Client {
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", Socket)
 	}}
-	return &Client{&http.Client{Transport: transport, Timeout: 5 * time.Second}}
+	return &Client{client: &http.Client{Transport: transport, Timeout: 5 * time.Second}}
 }
 func (s *Client) Do(ctx context.Context, action string) (Status, error) {
+	if s.controller != nil {
+		return s.controller.do(ctx, action)
+	}
 	method := http.MethodPost
 	switch action {
 	case "status":
@@ -247,4 +270,69 @@ func (s *Client) Do(ctx context.Context, action string) (Status, error) {
 	}
 	err = json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&state)
 	return state, err
+}
+
+// NewDeploymentClient 只使用指定的控制实现；Kubernetes 失败时不回退到主机服务。
+func NewDeploymentClient(kind string) (*Client, error) {
+	switch kind {
+	case "", "compose":
+		return NewClient(), nil
+	case "kubernetes":
+		k, err := openCluster()
+		if err != nil {
+			return nil, errors.New("无法初始化 Kubernetes 自监控控制")
+		}
+		controller := NewController()
+		controller.cluster = k
+		controller.run = nil
+		controller.client.Timeout = time.Second
+		return &Client{controller: controller}, nil
+	default:
+		return nil, errors.New("GOPULSE_SELFMONITOR_CONTROL 必须为 compose 或 kubernetes")
+	}
+}
+func (s *Controller) prometheusURL() string {
+	if s.cluster != nil {
+		return "http://selfmonitor-prometheus:9090"
+	}
+	return "http://127.0.0.1:29090"
+}
+func (s *Controller) grafanaURL() string {
+	if s.cluster != nil {
+		return "http://selfmonitor-grafana:3000"
+	}
+	return "http://127.0.0.1:23000"
+}
+func (s *Controller) change(ctx context.Context, action string) error {
+	if s.cluster != nil {
+		return s.cluster.change(ctx, action)
+	}
+	_, err := s.run(ctx, "--no-block", action, unit)
+	return err
+}
+func (s *Controller) do(ctx context.Context, action string) (Status, error) {
+	if action != "status" && action != "start" && action != "stop" {
+		return status("unavailable", "control_unavailable"), errors.New("invalid action")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if action == "status" {
+		return s.snapshot(ctx)
+	}
+	state, err := s.unitState(ctx)
+	if err != nil {
+		return state, err
+	}
+	if (action == "start" && (state.State == "stopped" || state.State == "failed")) || (action == "stop" && (state.State == "running" || state.State == "failed")) {
+		if err := s.change(ctx, action); err != nil {
+			return status("unavailable", "control_unavailable"), err
+		}
+		if action == "start" {
+			return status("starting", "starting"), nil
+		}
+		return status("stopping", "stopping"), nil
+	}
+	return state, nil
 }

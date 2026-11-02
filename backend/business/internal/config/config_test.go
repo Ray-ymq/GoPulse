@@ -580,3 +580,26 @@ func TestRedisDisabledDoesNotRequireOrParseRedisConnection(t *testing.T) {
 		t.Fatal("无效布尔值未被拒绝")
 	}
 }
+
+func TestSelfMonitorControlMustBeExplicitAndKnown(t *testing.T) {
+	for _, value := range []string{"compose", "kubernetes", ""} {
+		environment := requiredEnvironment()
+		environment["GOPULSE_SELFMONITOR_CONTROL"] = value
+		cfg, err := LoadFrom(mapLookup(environment))
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := value
+		if expected == "" {
+			expected = "compose"
+		}
+		if cfg.SelfMonitorControl != expected {
+			t.Fatal(cfg.SelfMonitorControl)
+		}
+	}
+	environment := requiredEnvironment()
+	environment["GOPULSE_SELFMONITOR_CONTROL"] = "auto"
+	if _, err := LoadFrom(mapLookup(environment)); err == nil {
+		t.Fatal("未知控制类型必须拒绝启动")
+	}
+}

@@ -118,6 +118,7 @@ const (
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
+	SelfMonitorControl               string
 	ServiceRole                      ServiceRole
 	StandaloneObservability          bool
 	AlertEvaluationEnabled           bool
@@ -278,6 +279,11 @@ func Load() (Config, error) {
 func LoadFrom(lookup LookupFunc) (Config, error) {
 	if lookup == nil {
 		return Config{}, errors.New("configuration lookup is required")
+	}
+
+	selfMonitorControl := valueOrDefault(lookup, "GOPULSE_SELFMONITOR_CONTROL", "compose")
+	if selfMonitorControl != "compose" && selfMonitorControl != "kubernetes" {
+		return Config{}, errors.New("GOPULSE_SELFMONITOR_CONTROL 必须为 compose 或 kubernetes")
 	}
 
 	serviceRole, err := LoadServiceRoleFrom(lookup)
@@ -634,6 +640,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		StandaloneObservability: standaloneObservability,
 		AlertEvaluationEnabled:  alertEnabled,
 		RuntimeMode:             runtimeMode,
+		SelfMonitorControl:      selfMonitorControl,
 		AppEnv:                  appEnv,
 		InstanceID:              instanceID,
 		ReplicaCount:            replicaCount,

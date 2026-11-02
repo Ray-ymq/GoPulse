@@ -431,7 +431,11 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 
 		routes.Overview = overview
 		routes.ComponentStatus = componentStatus
-		routes.SelfMonitor = selfmonitor.NewClient()
+		selfMonitorClient, controlErr := selfmonitor.NewDeploymentClient(cfg.SelfMonitorControl)
+		if controlErr != nil {
+			return nil, controlErr
+		}
+		routes.SelfMonitor = selfMonitorClient
 		routes.TelemetryDelivery = deliveryService
 		routes.Logs = logHandler
 		routes.Metrics = metricHandler

@@ -13,3 +13,13 @@ Compose 默认使用 `latest`，也可以通过已有 `GOPULSE_*_IMAGE` 变量�
 公共环境变量示例仍在根 `.env.example`。Kubernetes 产品凭据位于 `.run/kubernetes/<MODE>/credentials.json`，自监控凭据位于同目录的 `selfmonitor-credentials.json`。这些文件与 Compose `.env` 独立保存，不提交到 Git。
 
 Kubernetes 首期仅支持已有的 Debian WSL2、amd64、systemd、cgroup v2 单节点环境。集群资源在 `deploy/kubernetes/cluster/`，工具在 `tools/devtools/kubernetes/`。本次不引入旧环境清理脚本，也不将旧部署迁移记录作为升级步骤。
+
+## 管理页自监控控制
+
+HTTP API、响应字段和超级管理员权限保持不变：`GET /api/v1/admin/self-monitor` 查看状态，两个 POST 接口 `/start` 和 `/stop` 控制生命周期。
+
+`GOPULSE_SELFMONITOR_CONTROL` 只接受 `compose` 和 `kubernetes`，默认 `compose`。未知值使后端拒绝启动。Compose 清单明确注入 `compose`，继续使用固定 Unix socket 与固定 systemd 服务。Kubernetes 平台进程明确注入 `kubernetes`，使用当前 ServiceAccount 的令牌、CA 和命名空间文件，只控制当前受支持命名空间内固定名称的自监控工作负载。Kubernetes 控制失败不会回退到 systemd。
+
+控制器分别检查生命周期、预期 Prometheus 目标、数据源指标和 Grafana 健康。Compose 保留原有目标集合；Kubernetes 按当前模式检查自己的目标集合。控制权限不足显示不可用，目标或数据源异常显示部分不可达，不把控制失败显示为已停止。部分工作负载启停失败后，可以重试同一动作。
+
+Compose 自监控仍需按 [原有安装说明](selfmonitor/README.md) 安装 root 管理的固定控制服务及产品覆盖配置。不能用 Kubernetes ServiceAccount 替代 Compose 的安装步骤，也不能将被屏蔽的 systemd 服务状态视为采集健康。
