@@ -1,0 +1,9 @@
+apiVersion: 1
+datasources:
+  - name: Self monitoring
+    uid: selfmonitor
+    type: prometheus
+    access: proxy
+    url: http://selfmonitor-prometheus:9090
+    isDefault: true
+    editable: false

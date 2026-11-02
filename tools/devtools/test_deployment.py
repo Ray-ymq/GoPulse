@@ -77,6 +77,24 @@ class GuardTests(unittest.TestCase):
         self.assertEqual((value['runtime'], value['mode'], value['owner']), ('compose', 'observability', 'owned'))
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
+    def test_root_selfmonitor_still_blocks_switch_after_product_stops(self):
+        container = {'Config': {'Labels': {'com.docker.compose.project.working_dir': '/opt/gopulse-selfmonitor',
+                                          'com.docker.compose.project': 'gopulse-selfmonitor'}},
+                     'NetworkSettings': {'Networks': {'business': {'NetworkID': 'network'}}}}
+        network = {'Labels': {'io.gopulse.workspace': str(self.root)}}
+        with patch.object(deployment, 'capture', side_effect=['id', json.dumps([container]), json.dumps([network])]), patch.object(deployment.shutil, 'which', return_value='/bin/docker'):
+            rows = self.parse_docker(self.root)
+        self.docker.return_value = rows
+        deployment.check('compose', 'all', owner='gopulse', root=self.root)
+        with self.assertRaisesRegex(ValueError, 'selfmonitor-down'):
+            deployment.check('kubernetes', root=self.root)
+
+    def test_darwin_live_source_process_blocks_without_proc(self):
+        with patch.object(deployment.sys, 'platform', 'darwin'), patch.object(deployment.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'S', '')):
+            self.assertTrue(deployment.process_alive({'pid': 123, 'birth': '123.000001'}))
+        with patch.object(deployment.sys, 'platform', 'darwin'), patch.object(deployment.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'Z', '')):
+            self.assertFalse(deployment.process_alive({'pid': 123, 'birth': '123.000001'}))
+
     def test_actual_foreign_compose_resources_are_ignored(self):
         foreign = {'Config': {'Labels': {'com.docker.compose.project.working_dir': '/foreign/deploy/compose',
                                         'com.docker.compose.project': 'foreign'}}}

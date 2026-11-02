@@ -2,6 +2,7 @@
 package exporterpackages
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -49,10 +50,13 @@ func Prepare(root, output string, environment map[string]string) error {
 		}
 		input, digestErr := digest.Paths(root, []string{
 			filepath.Join(root, "backend/observability/exporters", source),
+			filepath.Join(root, "tools/devtools/cmd/exporter-package"),
+			filepath.Join(root, "backend/observability/monitor/internal/plugin"),
 		})
 		if digestErr != nil {
 			return digestErr
 		}
+		input = packageInput(input)
 		archive := filepath.Join(output, fmt.Sprintf("gopulse-%s-exporter-%s-linux-%s.tar.gz", source, version, arch))
 		receiptPath := archive + ".input.json"
 		if cached, readErr := readReceipt(receiptPath); readErr == nil && cached.Input == input {
@@ -87,6 +91,12 @@ func Prepare(root, output string, environment map[string]string) error {
 	overrides["GOWORK"] = "off"
 	_, err = proc.RunCaptured(arguments, filepath.Join(root, "tools/devtools"), overrides, "build Exporter catalog", 0)
 	return err
+}
+
+// packageInput 将独立模块解析和工具链纳入缓存身份，避免复用工作区依赖构建的包。
+func packageInput(source string) string {
+	sum := sha256.Sum256([]byte("GOWORK=off\n" + runtime.Version() + "\n" + source))
+	return fmt.Sprintf("%x", sum)
 }
 
 func cloneEnvironment(source map[string]string) map[string]string {

@@ -79,6 +79,12 @@
                   {
                     "name": "tmp",
                     "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "nginx-config",
+                    "mountPath": "/etc/nginx/nginx.conf",
+                    "subPath": "nginx.conf",
+                    "readOnly": true
                   }
                 ],
                 "startupProbe": {
@@ -112,6 +118,12 @@
               {
                 "name": "tmp",
                 "emptyDir": {}
+              },
+              {
+                "name": "nginx-config",
+                "configMap": {
+                  "name": "frontend-nginx"
+                }
               }
             ]
           }

@@ -58,6 +58,10 @@ def process_alive(row):
     pid = row.get('pid')
     if not pid:
         return False
+    if sys.platform == 'darwin':
+        # Darwin 没有 /proc；此处只阻止启动，不据此终止进程。
+        result = subprocess.run(['ps', '-p', str(int(pid)), '-o', 'stat='], text=True, capture_output=True, timeout=5)
+        return result.returncode == 0 and bool(result.stdout.strip()) and not result.stdout.strip().startswith('Z')
     try:
         fields = Path(f'/proc/{int(pid)}/stat').read_text().rsplit(')', 1)[1].split()
         return fields[0] != 'Z' and fields[19] == str(row.get('birth', row.get('start_ticks')))
@@ -77,9 +81,16 @@ def docker_resources(root):
         labels = row.get('Config', {}).get('Labels') or {}
         working = labels.get('com.docker.compose.project.working_dir', '')
         files = labels.get('com.docker.compose.project.config_files', '')
+        project = labels.get('com.docker.compose.project', '')
+        if project == 'gopulse-selfmonitor':
+            networks = row.get('NetworkSettings', {}).get('Networks', {})
+            ids = [net['NetworkID'] for net in networks.values() if net.get('NetworkID')]
+            attached = json.loads(capture(['docker', 'network', 'inspect', *ids])) if ids else []
+            if any(net.get('Labels', {}).get('io.gopulse.workspace') == str(root) for net in attached):
+                owned.append({'runtime': 'compose', 'mode': 'all', 'owner': 'gopulse', 'purpose': 'product', 'stop': 'make selfmonitor-down'})
+                continue
         if not working or not Path(working).resolve().is_relative_to(root):
             continue
-        project = labels.get('com.docker.compose.project', '')
         mode = 'business' if 'compose.business.yaml' in files else 'observability' if 'compose.observability.yaml' in files else 'all'
         purpose = 'pt' if project == 'gopulse-pt-business' else 'source' if 'deploy/dev/' in files else 'product'
         owned.append({'runtime': 'compose', 'mode': mode, 'owner': project, 'purpose': purpose})
@@ -123,7 +134,7 @@ def check(runtime, mode='all', purpose='product', owner=None, root=ROOT):
         if runtime == row['runtime'] and purpose == row['purpose']:
             if purpose in ('source', 'pt') or (mode == row['mode'] and owner == row['owner']):
                 continue
-        stop = 'make k8s-down MODE=' + row['mode'] if row['runtime'] == 'kubernetes' else 'make stop' if row['purpose'] == 'source' else 'make pt-stop，并停止专用压测 Compose 项目' if row['purpose'] == 'pt' else 'make stack-down MODE=' + row['mode'] + ' COMPOSE_PROJECT_NAME=' + row['owner']
+        stop = row.get('stop') or ('make k8s-down MODE=' + row['mode'] if row['runtime'] == 'kubernetes' else 'make stop' if row['purpose'] == 'source' else 'make pt-stop，并停止专用压测 Compose 项目' if row['purpose'] == 'pt' else 'make stack-down MODE=' + row['mode'] + ' COMPOSE_PROJECT_NAME=' + row['owner'])
         raise ValueError(f'工作区仍有 {row["runtime"]} {row["mode"]} 环境（{row["owner"]}）；请先执行 {stop}')
     for path in (root / '.run/local').glob('*/*state.json'):
         value = read(path)

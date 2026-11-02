@@ -10,6 +10,10 @@ Compose 默认使用 `latest`，也可以通过已有 `GOPULSE_*_IMAGE` 变量�
 
 `deploy/runtime-contracts.json` 保留原 Compose 字段、实例约束、资源预算和压测约束，并新增 `kubernetes_workload`、`kubernetes_workloads`、`kubernetes_replica` 和环境键的 `kubernetes_value`。Kubernetes 使用自己的工作负载地址和副本配置，不替换 Compose 的实例列表。
 
+Kubernetes 为用户前端挂载独立 Nginx 配置，使用集群 Service 地址；Compose 镜像继续保留双 Backend 和 Docker DNS。契约检查比较两份配置的路由，防止路由发生差异。两种自监控分别保存 Prometheus 和 Grafana 地址配置。
+
+插件包使用 `GOWORK=off` 按各模块依赖构建。包缓存同时绑定源码、打包工具、元数据实现和 Go 工具链；切换工作区不能复用按另一套依赖生成的缓存。已有插件仍按固定清单和二进制摘要校验，不通过修改摘要或删除配置绕过校验。
+
 公共环境变量示例仍在根 `.env.example`。Kubernetes 产品凭据位于 `.run/kubernetes/<MODE>/credentials.json`，自监控凭据位于同目录的 `selfmonitor-credentials.json`。这些文件与 Compose `.env` 独立保存，不提交到 Git。
 
 Kubernetes 首期仅支持已有的 Debian WSL2、amd64、systemd、cgroup v2 单节点环境。集群资源在 `deploy/kubernetes/cluster/`，工具在 `tools/devtools/kubernetes/`。本次不引入旧环境清理脚本，也不将旧部署迁移记录作为升级步骤。
@@ -68,7 +72,7 @@ kubectl --kubeconfig .run/kubernetes/cluster/admin.conf -n gopulse-all \
 
 ## 切换、持久数据与失败恢复
 
-从 Compose 切换到 Kubernetes，先用原项目名执行 `stack-down`，再执行对应模式的 `k8s-up`。反向切换时先执行 `k8s-down`，再执行 `stack-up`。两套环境独立保存数据库、插件配置和凭据，不自动复制或同步数据。
+从 Compose 切换到 Kubernetes，若已启动独立自监控，先执行 `make selfmonitor-down`；再用原项目名执行 `stack-down`，最后执行对应模式的 `k8s-up`。反向切换时先执行 `k8s-down`，再执行 `stack-up`。两套环境独立保存数据库、插件配置和凭据，不自动复制或同步数据。
 
 产品、源码、集成和压测入口共用 `.run/deploy/operation.lock`。启动前还检查当前工作区的实际容器、Kubernetes 工作负载、源码进程和未完成压测记录。冲突会使操作退出，并提示对应停止命令。运行记录位于 `.run/deploy/state.json`，包含部署方式、模式、资源归属和状态；工具不会仅凭旧状态文件判断环境已停止。
 

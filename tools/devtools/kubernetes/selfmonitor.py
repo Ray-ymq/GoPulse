@@ -9,16 +9,19 @@ import sys
 import k8s
 
 
-def up(mode):
+def absent_jobs(mode):
+    if mode == 'business':
+        return {'kafka', 'observability-elasticsearch', 'victoriametrics', 'monitor', 'marshaller'}
+    if mode == 'observability':
+        return {'backend', 'business-worker', 'search-indexer', 'redis', 'rabbitmq', 'elasticsearch'}
+    return set()
+
+
+def render(mode):
     ns = k8s.namespace(mode)
-    k8s.deployment.check("kubernetes", mode, owner=ns)
-    k8s.assert_exclusive(mode)
-    if not k8s.owned_namespace(mode):
-        raise ValueError('必须先启动当前模式')
     raw = k8s.kube('kustomize', str(k8s.ROOT / 'deploy/selfmonitor'))
     rows = k8s.decode_resources(k8s.kube('create', '--dry-run=client', '--validate=false', '-f', '-', '-o', 'json', input=raw))
-    absent = {'kafka', 'observability-elasticsearch', 'victoriametrics', 'monitor', 'marshaller'} if mode == 'business' else {
-        'backend', 'business-worker', 'search-indexer', 'redis', 'rabbitmq', 'elasticsearch'} if mode == 'observability' else set()
+    absent = absent_jobs(mode)
     rows = [r for r in rows if r['metadata']['name'].removeprefix('selfmonitor-').removesuffix('-exporter') not in absent]
     for row in rows:
         row['metadata']['namespace'] = ns
@@ -26,6 +29,17 @@ def up(mode):
             head, *jobs = row['data']['prometheus.yaml'].split('  - job_name: ')
             row['data']['prometheus.yaml'] = head + ''.join('  - job_name: ' + job for job in jobs if job.splitlines()[0] not in absent)
     k8s.bind_config(rows)
+    return rows
+
+
+def up(mode):
+    ns = k8s.namespace(mode)
+    k8s.deployment.check("kubernetes", mode, owner=ns)
+    k8s.assert_exclusive(mode)
+    if not k8s.owned_namespace(mode):
+        raise ValueError('必须先启动当前模式')
+    rows = render(mode)
+    absent = absent_jobs(mode)
     k8s.resource_check(rows, mode)
     directory = k8s.PRIVATE / mode
     path = directory / 'selfmonitor-credentials.json'
@@ -62,6 +76,10 @@ exec mysql -hmysql -uroot -e "CREATE USER IF NOT EXISTS 'selfmonitor'@'%' IDENTI
         if k8s.kube('-n', ns, 'exec', 'redis-0', '--', 'sh', '-ec', 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning ACL SAVE').strip() != 'OK':
             raise ValueError('Redis 观测账号持久保存失败')
     k8s.apply(rows)
+    for row in rows:
+        if row['kind'] == 'DaemonSet':
+            patch = {'spec': {'template': {'spec': {'nodeSelector': {'gopulse.io/selfmonitor-disabled': None}}}}}
+            k8s.kube('-n', ns, 'patch', 'daemonset', row['metadata']['name'], '--type=merge', '-p', json.dumps(patch))
     for row in rows:
         if row['kind'] in ('Deployment', 'StatefulSet', 'DaemonSet'):
             k8s.kube('-n', ns, 'rollout', 'status', row['kind'].lower() + '/' + row['metadata']['name'], '--timeout=180s')

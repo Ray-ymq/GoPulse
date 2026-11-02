@@ -10,5 +10,16 @@
     "search-indexer.json",
     "frontend.json",
     "search-init.json"
-  ]
+  ],
+  "configMapGenerator": [
+    {
+      "name": "frontend-nginx",
+      "files": [
+        "nginx.conf"
+      ]
+    }
+  ],
+  "generatorOptions": {
+    "disableNameSuffixHash": true
+  }
 }

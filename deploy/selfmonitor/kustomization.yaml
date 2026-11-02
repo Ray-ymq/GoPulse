@@ -8,15 +8,15 @@
     {
       "name": "selfmonitor-prometheus",
       "files": [
-        "prometheus.yaml",
+        "prometheus.yaml=prometheus.kubernetes.yaml",
         "alerts.yaml"
       ]
     },
     {
       "name": "selfmonitor-grafana",
       "files": [
-        "datasource.yaml=grafana/provisioning/datasources/prometheus.yaml",
-        "provider.yaml=grafana/provisioning/dashboards/default.yaml",
+        "datasource.yaml=grafana/provisioning/datasources/prometheus.kubernetes.yaml",
+        "provider.yaml=grafana/provisioning/dashboards/default.kubernetes.yaml",
         "gopulse.json=grafana/dashboards/gopulse.json"
       ]
     }
