@@ -1,0 +1,340 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "monitor-env",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "monitor-env"
+        }
+      },
+      "data": {
+        "GOPULSE_REPLICA_COUNT": "1",
+        "GOPULSE_RUNTIME_MODE": "container",
+        "MARSHALLER_ENDPOINTS": "marshaller",
+        "MONITOR_BOOTSTRAP_PACKAGE": "",
+        "MONITOR_EVENTS_SPOOL_MAX_BYTES": "1073741824",
+        "MONITOR_EVENT_MAX_BYTES": "16384",
+        "MONITOR_EVENT_QUEUE_CAPACITY": "256",
+        "MONITOR_EVENT_RETRY_MAX": "5s",
+        "MONITOR_EVENT_RETRY_MIN": "250ms",
+        "MONITOR_EVENT_SHUTDOWN_TIMEOUT": "5s",
+        "MONITOR_HTTP_HOST": "0.0.0.0",
+        "MONITOR_HTTP_PORT": "9090",
+        "MONITOR_KAFKA_BROKERS": "kafka:19092",
+        "MONITOR_KAFKA_MAX_BUFFERED_BYTES": "8388608",
+        "MONITOR_KAFKA_MAX_BUFFERED_RECORDS": "128",
+        "MONITOR_KAFKA_PRODUCE_TIMEOUT": "3s",
+        "MONITOR_LOGS_SPOOL_MAX_BYTES": "1073741824",
+        "MONITOR_LOG_FUTURE_SKEW": "5m",
+        "MONITOR_LOG_MAX_BYTES": "65536",
+        "MONITOR_METRICS_SPOOL_MAX_BYTES": "1073741824",
+        "MONITOR_PLUGIN_ROOT": "/var/lib/gopulse-monitor/plugins",
+        "MONITOR_PLUGIN_STARTUP_TIMEOUT": "10s",
+        "MONITOR_PLUGIN_STOP_TIMEOUT": "5s",
+        "MONITOR_PUBLISH_TIMEOUT": "3s",
+        "MONITOR_REQUEST_TIMEOUT": "30s",
+        "MONITOR_SCRAPE_INTERVAL": "15s",
+        "MONITOR_SCRAPE_TIMEOUT": "3s",
+        "MONITOR_SHUTDOWN_TIMEOUT": "10s",
+        "MONITOR_SPOOL_DIR": "/var/lib/gopulse-monitor/spool",
+        "REDIS_DB": "0",
+        "REDIS_EXPORTER_HTTP_HOST": "127.0.0.1",
+        "REDIS_EXPORTER_HTTP_PORT": "9121",
+        "REDIS_EXPORTER_SCRAPE_TIMEOUT": "2s",
+        "REDIS_EXPORTER_SHUTDOWN_TIMEOUT": "5s",
+        "REDIS_HOST": "redis",
+        "REDIS_PORT": "6379",
+        "MONITOR_RELEASE_CATALOG": "/opt/gopulse/packages/catalog.json"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "monitor",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "monitor"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "monitor"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "monitor",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "terminationGracePeriodSeconds": 30,
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "name": "monitor",
+                "image": "gopulse/monitor:local",
+                "imagePullPolicy": "IfNotPresent",
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "monitor-env"
+                    }
+                  },
+                  {
+                    "configMapRef": {
+                      "name": "gopulse-identity"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "LOG_MONITOR_INGEST_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "LOG_MONITOR_INGEST_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MONITOR_API_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MONITOR_API_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MONITOR_METRICS_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MONITOR_METRICS_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "REDIS_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "REDIS_PASSWORD"
+                      }
+                    }
+                  },
+                  {
+                    "name": "GOPULSE_INSTANCE_ID",
+                    "value": "monitor-1"
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 9090,
+                    "name": "p9090"
+                  },
+                  {
+                    "containerPort": 19104,
+                    "name": "p19104"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1000m",
+                    "memory": "512Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "monitor-plugin-data",
+                    "mountPath": "/var/lib/gopulse-monitor/plugins"
+                  },
+                  {
+                    "name": "monitor-spool-data",
+                    "mountPath": "/var/lib/gopulse-monitor/spool"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/startup",
+                    "port": 9090
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 60
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 9090
+                  },
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/live",
+                    "port": 9090
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              },
+              {
+                "name": "monitor-plugin-data",
+                "persistentVolumeClaim": {
+                  "claimName": "monitor-plugin-data"
+                }
+              },
+              {
+                "name": "monitor-spool-data",
+                "persistentVolumeClaim": {
+                  "claimName": "monitor-spool-data"
+                }
+              }
+            ],
+            "securityContext": {
+              "runAsUser": 10005,
+              "runAsGroup": 10001
+            },
+            "initContainers": [
+              {
+                "name": "storage-permissions",
+                "image": "busybox:1.37.0",
+                "imagePullPolicy": "IfNotPresent",
+                "command": [
+                  "sh",
+                  "-ec",
+                  "chown 10005:10001 /plugins /spool; chmod 0700 /plugins /spool"
+                ],
+                "securityContext": {
+                  "runAsUser": 0,
+                  "runAsGroup": 0
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "10m",
+                    "memory": "16Mi"
+                  },
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "32Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "monitor-plugin-data",
+                    "mountPath": "/plugins"
+                  },
+                  {
+                    "name": "monitor-spool-data",
+                    "mountPath": "/spool"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "monitor-plugin-data",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "monitor-plugin-data"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "storageClassName": "local-path",
+        "resources": {
+          "requests": {
+            "storage": "2Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "monitor-spool-data",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "monitor-spool-data"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "storageClassName": "local-path",
+        "resources": {
+          "requests": {
+            "storage": "2Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "monitor",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "monitor"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "monitor"
+        },
+        "ports": [
+          {
+            "port": 9090,
+            "targetPort": 9090,
+            "name": "p9090"
+          },
+          {
+            "port": 19104,
+            "targetPort": 19104,
+            "name": "p19104"
+          }
+        ]
+      }
+    }
+  ]
+}

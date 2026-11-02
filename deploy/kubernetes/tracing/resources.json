@@ -1,0 +1,155 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "phase20-collector",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "phase20-collector"
+        }
+      },
+      "data": {
+        "collector.yaml": "receivers:\n  otlp:\n    protocols:\n      grpc:\n        endpoint: 0.0.0.0:4317\n\nprocessors:\n  batch:\n    send_batch_size: 256\n    send_batch_max_size: 256\n    timeout: 1s\n\nexporters:\n  file:\n    path: /var/lib/gopulse/trace/spans.jsonl\n    flush_interval: 1s\n    rotation:\n      max_megabytes: 16\n      max_backups: 3\n      max_days: 0\n      localtime: false\n\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      processors: [batch]\n      exporters: [file]\n"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "phase20-trace-data",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "phase20-collector"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "storageClassName": "local-path",
+        "resources": {
+          "requests": {
+            "storage": "1Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "phase20-collector",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "phase20-collector"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "phase20-collector"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/part-of": "gopulse",
+              "app.kubernetes.io/name": "phase20-collector"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsUser": 10001,
+              "fsGroup": 10001
+            },
+            "containers": [
+              {
+                "name": "collector",
+                "image": "otel/opentelemetry-collector-contrib:0.138.0@sha256:d535a52679b1df0a95b1b6fc4322cb74ecddd61f0b550cb43444d2b22cedec0c",
+                "args": [
+                  "--config=/etc/otelcol-contrib/config.yaml"
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "ports": [
+                  {
+                    "containerPort": 4317
+                  }
+                ],
+                "readinessProbe": {
+                  "tcpSocket": {
+                    "port": 4317
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "data",
+                    "mountPath": "/var/lib/gopulse/trace"
+                  },
+                  {
+                    "name": "config",
+                    "mountPath": "/etc/otelcol-contrib/config.yaml",
+                    "subPath": "collector.yaml",
+                    "readOnly": true
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "data",
+                "persistentVolumeClaim": {
+                  "claimName": "phase20-trace-data"
+                }
+              },
+              {
+                "name": "config",
+                "configMap": {
+                  "name": "phase20-collector"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "phase20-collector",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "phase20-collector"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "phase20-collector"
+        },
+        "ports": [
+          {
+            "port": 4317
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,7 +1,4 @@
-// Package exporterpackages prepares the independent Exporter inputs used by
-// local observation lifecycles. The Monitor image never builds or contains
-// these archives; Compose mounts this directory as a read-only deployment
-// input.
+// Package exporterpackages 为源码开发准备独立插件包和只读目录。
 package exporterpackages
 
 import (
@@ -64,10 +61,11 @@ func Prepare(root, output string, environment map[string]string) error {
 			}
 		}
 		overrides := cloneEnvironment(environment)
-		if work := filepath.Join(root, ".run", "ci", "go.work"); fileExists(work) {
-			overrides["GOWORK"] = work
-		}
+		overrides["GOWORK"] = "off"
 		command := []string{"go", "run", "./cmd/exporter-package", "--repo-root", root, "--source", source, "--version", version, "--arch", arch, "--output", archive}
+		if source == "node" && environment["GOPULSE_NODE_EXPORTER_BINARY"] != "" {
+			command = append(command, "--binary", environment["GOPULSE_NODE_EXPORTER_BINARY"])
+		}
 		if _, runErr := proc.RunCaptured(command, filepath.Join(root, "tools/devtools"), overrides, "build "+source+" Exporter package", 0); runErr != nil {
 			return runErr
 		}
@@ -86,9 +84,7 @@ func Prepare(root, output string, environment map[string]string) error {
 		arguments = append(arguments, "--package", "current="+archive)
 	}
 	overrides := cloneEnvironment(environment)
-	if work := filepath.Join(root, ".run", "ci", "go.work"); fileExists(work) {
-		overrides["GOWORK"] = work
-	}
+	overrides["GOWORK"] = "off"
 	_, err = proc.RunCaptured(arguments, filepath.Join(root, "tools/devtools"), overrides, "build Exporter catalog", 0)
 	return err
 }
@@ -99,11 +95,6 @@ func cloneEnvironment(source map[string]string) map[string]string {
 		clone[key] = value
 	}
 	return clone
-}
-
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
 }
 
 func readReceipt(path string) (receipt, error) {

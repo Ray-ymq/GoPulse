@@ -1,0 +1,51 @@
+{
+  "apiVersion": "kustomize.config.k8s.io/v1beta1",
+  "kind": "Kustomization",
+  "namespace": "gopulse-observability",
+  "resources": [
+    "namespace.json",
+    "../../common",
+    "../../observability"
+  ],
+  "configMapGenerator": [
+    {
+      "name": "gopulse-identity",
+      "literals": [
+        "GOPULSE_VERSION=development",
+        "GOPULSE_REVISION=development"
+      ]
+    },
+    {
+      "name": "admin-nginx",
+      "files": [
+        "nginx.conf"
+      ]
+    }
+  ],
+  "generatorOptions": {
+    "disableNameSuffixHash": true
+  },
+  "patches": [
+    {
+      "target": {
+        "kind": "ConfigMap",
+        "name": "platform-api-env"
+      },
+      "patch": "{\"apiVersion\": \"v1\", \"kind\": \"ConfigMap\", \"metadata\": {\"name\": \"platform-api-env\"}, \"data\": {\"BACKEND_ENDPOINTS\": \"platform-api\", \"BUSINESS_WORKER_ENDPOINTS\": \"\", \"SEARCH_INDEXER_ENDPOINTS\": \"\", \"BUSINESS_STAGE_ENDPOINTS\": \"\", \"BACKEND_STANDALONE_OBSERVABILITY\": \"true\"}}"
+    },
+    {
+      "target": {
+        "kind": "Deployment",
+        "name": "admin-frontend"
+      },
+      "patch": "{\"apiVersion\": \"apps/v1\", \"kind\": \"Deployment\", \"metadata\": {\"name\": \"admin-frontend\"}, \"spec\": {\"template\": {\"spec\": {\"containers\": [{\"name\": \"admin-frontend\", \"volumeMounts\": [{\"name\": \"nginx-config\", \"mountPath\": \"/etc/nginx/nginx.conf\", \"subPath\": \"nginx.conf\"}]}], \"volumes\": [{\"name\": \"nginx-config\", \"configMap\": {\"name\": \"admin-nginx\"}}]}}}}"
+    },
+    {
+      "target": {
+        "kind": "RoleBinding",
+        "name": "gopulse-selfmonitor-control"
+      },
+      "patch": "[{\"op\": \"add\", \"path\": \"/subjects/0/namespace\", \"value\": \"gopulse-observability\"}]"
+    }
+  ]
+}

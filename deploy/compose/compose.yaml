@@ -94,6 +94,7 @@ x-business-environment: &business-environment
 x-platform-environment: &platform-environment
   <<: *backend-common-environment
   BACKEND_SERVICE_ROLE: platform
+  GOPULSE_SELFMONITOR_CONTROL: compose
   GOPULSE_REPLICA_COUNT: 1
   BACKEND_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
   PLATFORM_API_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
@@ -977,7 +978,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/monitor.Dockerfile
-      target: monitor
+      target: monitor-product
+      additional_contexts:
+        plugin-packages: ../../.run/packages
       args: *image-build-args
     restart: on-failure:5
     read_only: true
@@ -1014,21 +1017,45 @@ services:
 
 networks:
   edge:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   business:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
     internal: true
   observability:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
     internal: true
 
 volumes:
   mysql_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   redis_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   rabbitmq_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   elasticsearch_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   observability_elasticsearch_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   kafka_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   victoriametrics_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   monitor_plugin_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   monitor_spool_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
 
 secrets:
   victoriametrics_password:

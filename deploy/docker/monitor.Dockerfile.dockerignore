@@ -1,4 +1,4 @@
-# Monitor 镜像只包含 Monitor 和共享运行时源码。
+# Monitor 源码；插件包由独立的命名构建上下文提供。
 *
 !backend/
 !backend/observability/

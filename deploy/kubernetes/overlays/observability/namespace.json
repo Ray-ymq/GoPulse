@@ -1,0 +1,11 @@
+{
+  "apiVersion": "v1",
+  "kind": "Namespace",
+  "metadata": {
+    "name": "gopulse-observability",
+    "labels": {
+      "app.kubernetes.io/part-of": "gopulse",
+      "app.kubernetes.io/name": "gopulse-observability"
+    }
+  }
+}

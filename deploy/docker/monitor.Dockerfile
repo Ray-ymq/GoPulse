@@ -38,3 +38,7 @@ USER 10005:10001
 EXPOSE 9090
 VOLUME ["/var/lib/gopulse-monitor/plugins", "/var/lib/gopulse-monitor/spool"]
 ENTRYPOINT ["/usr/local/bin/monitor"]
+
+# 产品镜像包含插件目录；源码开发仍可单独构建 monitor 阶段。
+FROM monitor AS monitor-product
+COPY --from=plugin-packages --chown=10005:10001 / /opt/gopulse/packages/

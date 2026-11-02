@@ -15,7 +15,10 @@
       "id": "backend",
       "process_id": "backend",
       "role": "business-api",
-      "compose_services": ["backend", "backend-2"],
+      "compose_services": [
+        "backend",
+        "backend-2"
+      ],
       "replica": {
         "mode": "scalable",
         "ownership": "multi-owner",
@@ -25,22 +28,51 @@
         "min": 2,
         "max": 8,
         "configured": 2,
-        "instances": ["backend-1", "backend-2"]
+        "instances": [
+          "backend-1",
+          "backend-2"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": ["metrics", "http_concurrency", "http_latency_distribution", "mysql_pool"],
+        "capacity_signals": [
+          "metrics",
+          "http_concurrency",
+          "http_latency_distribution",
+          "mysql_pool"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "mysql", "per_instance": 13, "total": 60}],
-        "queues": [{"name": "outbox_claim", "capacity": 50}],
-        "in_flight": [{"name": "http", "capacity": 128}],
+        "connections": [
+          {
+            "name": "mysql",
+            "per_instance": 13,
+            "total": 60
+          }
+        ],
+        "queues": [
+          {
+            "name": "outbox_claim",
+            "capacity": 50
+          }
+        ],
+        "in_flight": [
+          {
+            "name": "http",
+            "capacity": 128
+          }
+        ],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 15
       },
@@ -57,7 +89,8 @@
           "required": false,
           "default": "true",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "APP_ENV",
@@ -66,7 +99,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${APP_ENV:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "development"
         },
         {
           "key": "AUTH_COOKIE_NAME",
@@ -75,7 +109,8 @@
           "required": false,
           "default": "gopulse_session",
           "compose_value": "${AUTH_COOKIE_NAME:-gopulse_session}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse_session"
         },
         {
           "key": "AUTH_COOKIE_SECURE",
@@ -84,7 +119,8 @@
           "required": false,
           "default": "false",
           "compose_value": "${AUTH_COOKIE_SECURE:-false}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "false"
         },
         {
           "key": "AUTH_JWT_SECRET",
@@ -93,7 +129,13 @@
           "required": true,
           "default": null,
           "compose_value": "${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "AUTH_JWT_SECRET"
+            }
+          }
         },
         {
           "key": "AUTH_JWT_TTL",
@@ -102,7 +144,8 @@
           "required": false,
           "default": "2h",
           "compose_value": "${AUTH_JWT_TTL:-2h}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2h"
         },
         {
           "key": "BACKEND_EVENT_QUERY_DEFAULT_RANGE",
@@ -111,7 +154,8 @@
           "required": false,
           "default": "15m",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_EVENT_QUERY_MAX_RANGE",
@@ -120,7 +164,8 @@
           "required": false,
           "default": "24h",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_ENDPOINTS",
@@ -129,7 +174,8 @@
           "required": false,
           "default": "backend",
           "compose_value": "backend,backend-2,platform-api",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "backend,platform-api"
         },
         {
           "key": "BACKEND_SERVICE_ROLE",
@@ -138,7 +184,8 @@
           "required": false,
           "default": "combined",
           "compose_value": "business",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "business"
         },
         {
           "key": "BUSINESS_WORKER_ENDPOINTS",
@@ -147,7 +194,8 @@
           "required": false,
           "default": "business-worker",
           "compose_value": "business-worker,business-worker-2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "business-worker"
         },
         {
           "key": "SEARCH_INDEXER_ENDPOINTS",
@@ -156,7 +204,8 @@
           "required": false,
           "default": "search-indexer",
           "compose_value": "search-indexer,search-indexer-2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "search-indexer"
         },
         {
           "key": "MARSHALLER_ENDPOINTS",
@@ -165,7 +214,8 @@
           "required": false,
           "default": "marshaller",
           "compose_value": "marshaller,marshaller-2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "marshaller"
         },
         {
           "key": "BACKEND_EVENT_READ_ALIAS",
@@ -174,7 +224,8 @@
           "required": false,
           "default": "gopulse-events-v1-read",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_HTTP_MAX_CONCURRENCY",
@@ -183,7 +234,8 @@
           "required": false,
           "default": "128",
           "compose_value": "${BACKEND_HTTP_MAX_CONCURRENCY:-128}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "128"
         },
         {
           "key": "BACKEND_RATE_LIMIT_ENABLED",
@@ -192,7 +244,8 @@
           "required": false,
           "default": "true",
           "compose_value": "${BACKEND_RATE_LIMIT_ENABLED:-true}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "true"
         },
         {
           "key": "BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES",
@@ -201,7 +254,8 @@
           "required": false,
           "default": "1024",
           "compose_value": "${BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES:-1024}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1024"
         },
         {
           "key": "BACKEND_RATE_LIMIT_OPERATION_TIMEOUT",
@@ -210,7 +264,8 @@
           "required": false,
           "default": "200ms",
           "compose_value": "${BACKEND_RATE_LIMIT_OPERATION_TIMEOUT:-200ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "200ms"
         },
         {
           "key": "BACKEND_RESOURCE_AUTH",
@@ -219,7 +274,8 @@
           "required": false,
           "default": "16",
           "compose_value": "${BACKEND_RESOURCE_AUTH:-16}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "16"
         },
         {
           "key": "BACKEND_RESOURCE_DATABASE",
@@ -228,7 +284,8 @@
           "required": false,
           "default": "32",
           "compose_value": "${BACKEND_RESOURCE_DATABASE:-32}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "32"
         },
         {
           "key": "BACKEND_RESOURCE_READ",
@@ -237,7 +294,8 @@
           "required": false,
           "default": "64",
           "compose_value": "${BACKEND_RESOURCE_READ:-64}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "64"
         },
         {
           "key": "BACKEND_RESOURCE_REBUILD",
@@ -246,7 +304,8 @@
           "required": false,
           "default": "8",
           "compose_value": "${BACKEND_RESOURCE_REBUILD:-8}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "8"
         },
         {
           "key": "BACKEND_RESOURCE_WAITER",
@@ -255,7 +314,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${BACKEND_RESOURCE_WAITER:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "BACKEND_RESOURCE_WRITE",
@@ -264,7 +324,8 @@
           "required": false,
           "default": "32",
           "compose_value": "${BACKEND_RESOURCE_WRITE:-32}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "32"
         },
         {
           "key": "BACKEND_TRUSTED_PROXY_CIDRS",
@@ -273,7 +334,8 @@
           "required": false,
           "default": "",
           "compose_value": "${BACKEND_TRUSTED_PROXY_CIDRS:-}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": ""
         },
         {
           "key": "BACKEND_LOG_QUERY_DEFAULT_RANGE",
@@ -282,7 +344,8 @@
           "required": false,
           "default": "15m",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_LOG_QUERY_MAX_RANGE",
@@ -291,7 +354,8 @@
           "required": false,
           "default": "24h",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_LOG_READ_ALIAS",
@@ -300,7 +364,8 @@
           "required": false,
           "default": "gopulse-logs-v1-read",
           "compose_value": "${BACKEND_LOG_READ_ALIAS:-gopulse-logs-v1-read}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-logs-v1-read"
         },
         {
           "key": "BACKEND_METRICS_TOKEN",
@@ -309,7 +374,13 @@
           "required": true,
           "default": null,
           "compose_value": "${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "BACKEND_METRICS_TOKEN"
+            }
+          }
         },
         {
           "key": "BACKEND_METRIC_QUERY_DEFAULT_RANGE",
@@ -318,7 +389,8 @@
           "required": false,
           "default": "15m",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_METRIC_QUERY_MAX_RANGE",
@@ -327,7 +399,8 @@
           "required": false,
           "default": "24h",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_PASSWORD",
@@ -336,7 +409,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT",
@@ -345,7 +419,8 @@
           "required": false,
           "default": "3s",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_URL",
@@ -354,7 +429,8 @@
           "required": false,
           "default": "http://victoriametrics:8428",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_USERNAME",
@@ -363,7 +439,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
@@ -372,7 +449,8 @@
           "required": false,
           "default": "10000",
           "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
@@ -381,7 +459,8 @@
           "required": false,
           "default": "100000",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "100000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
@@ -390,7 +469,8 @@
           "required": false,
           "default": "1073741824",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1073741824"
         },
         {
           "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
@@ -399,7 +479,13 @@
           "required": true,
           "default": null,
           "compose_value": "${BUSINESS_STAGE_SERVICE_CREDENTIAL:?BUSINESS_STAGE_SERVICE_CREDENTIAL is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL"
+            }
+          }
         },
         {
           "key": "ELASTICSEARCH_REQUEST_TIMEOUT",
@@ -408,7 +494,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "ELASTICSEARCH_URL",
@@ -417,7 +504,8 @@
           "required": false,
           "default": "http://elasticsearch:9200",
           "compose_value": "http://elasticsearch:9200",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://elasticsearch:9200"
         },
         {
           "key": "OBSERVABILITY_ELASTICSEARCH_URL",
@@ -426,7 +514,8 @@
           "required": false,
           "default": "http://observability-elasticsearch:9200",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_INSTANCE_ID",
@@ -435,7 +524,8 @@
           "required": false,
           "default": "backend-local",
           "compose_value": "backend-1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "backend-1"
         },
         {
           "key": "GOPULSE_REPLICA_COUNT",
@@ -444,7 +534,8 @@
           "required": false,
           "default": "1",
           "compose_value": "2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_SIZE",
@@ -453,7 +544,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
@@ -462,7 +554,8 @@
           "required": false,
           "default": "1s",
           "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1s"
         },
         {
           "key": "GOPULSE_TRACE_ENABLED",
@@ -471,7 +564,8 @@
           "required": false,
           "default": "false",
           "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "false"
         },
         {
           "key": "GOPULSE_TRACE_ENDPOINT",
@@ -480,7 +574,8 @@
           "required": false,
           "default": "",
           "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": ""
         },
         {
           "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
@@ -489,7 +584,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
@@ -498,7 +594,8 @@
           "required": false,
           "default": "2048",
           "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2048"
         },
         {
           "key": "GOPULSE_TRACE_SAMPLE_RATIO",
@@ -507,7 +604,8 @@
           "required": false,
           "default": "0.10",
           "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.10"
         },
         {
           "key": "GOPULSE_TRACE_SERVICE_NAME",
@@ -516,7 +614,8 @@
           "required": false,
           "default": "backend",
           "compose_value": "backend",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "backend"
         },
         {
           "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
@@ -525,7 +624,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "GOPULSE_REVISION",
@@ -534,7 +634,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -543,7 +644,8 @@
           "required": false,
           "default": "container",
           "compose_value": "container",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "container"
         },
         {
           "key": "GOPULSE_VERSION",
@@ -552,7 +654,8 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "HTTP_HOST",
@@ -561,7 +664,8 @@
           "required": false,
           "default": "0.0.0.0",
           "compose_value": "0.0.0.0",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.0.0.0"
         },
         {
           "key": "HTTP_PORT",
@@ -570,7 +674,8 @@
           "required": false,
           "default": "8080",
           "compose_value": "8080",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "8080"
         },
         {
           "key": "LOG_MONITOR_INGEST_TOKEN",
@@ -579,7 +684,13 @@
           "required": true,
           "default": null,
           "compose_value": "${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "LOG_MONITOR_INGEST_TOKEN"
+            }
+          }
         },
         {
           "key": "LOG_MONITOR_URL",
@@ -588,7 +699,8 @@
           "required": false,
           "default": "http://monitor:9090",
           "compose_value": "http://monitor:9090",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://monitor:9090"
         },
         {
           "key": "MONITOR_API_TOKEN",
@@ -597,7 +709,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MONITOR_REQUEST_TIMEOUT",
@@ -606,7 +719,8 @@
           "required": false,
           "default": "30s",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MONITOR_URL",
@@ -615,7 +729,8 @@
           "required": false,
           "default": "http://monitor:9090",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_CONN_MAX_LIFETIME",
@@ -624,7 +739,8 @@
           "required": false,
           "default": "3m",
           "compose_value": "${MYSQL_CONN_MAX_LIFETIME:-3m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3m"
         },
         {
           "key": "MYSQL_DATABASE",
@@ -633,7 +749,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_DATABASE:?MYSQL_DATABASE is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "MYSQL_HOST",
@@ -642,7 +759,8 @@
           "required": false,
           "default": "mysql",
           "compose_value": "mysql",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "mysql"
         },
         {
           "key": "MYSQL_MAX_IDLE_CONNS",
@@ -651,7 +769,8 @@
           "required": false,
           "default": "2",
           "compose_value": "${MYSQL_MAX_IDLE_CONNS:-2}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2"
         },
         {
           "key": "MYSQL_MAX_OPEN_CONNS",
@@ -660,7 +779,8 @@
           "required": false,
           "default": "8",
           "compose_value": "${MYSQL_MAX_OPEN_CONNS:-8}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "8"
         },
         {
           "key": "MYSQL_PASSWORD",
@@ -669,7 +789,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MYSQL_PASSWORD"
+            }
+          }
         },
         {
           "key": "MYSQL_PORT",
@@ -678,7 +804,8 @@
           "required": false,
           "default": "3306",
           "compose_value": "3306",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3306"
         },
         {
           "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
@@ -687,7 +814,8 @@
           "required": false,
           "default": "60",
           "compose_value": "${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "60"
         },
         {
           "key": "MYSQL_USER",
@@ -696,7 +824,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_USER:?MYSQL_USER is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "OUTBOX_CLAIM_BATCH",
@@ -705,7 +834,8 @@
           "required": false,
           "default": "50",
           "compose_value": "${OUTBOX_CLAIM_BATCH:-50}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "50"
         },
         {
           "key": "OUTBOX_DATABASE_TIMEOUT",
@@ -714,7 +844,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${OUTBOX_DATABASE_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "OUTBOX_MYSQL_MAX_OPEN_CONNS",
@@ -723,7 +854,8 @@
           "required": false,
           "default": "4",
           "compose_value": "${OUTBOX_MYSQL_MAX_OPEN_CONNS:-4}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "4"
         },
         {
           "key": "OUTBOX_PUBLISH_CONCURRENCY",
@@ -732,7 +864,8 @@
           "required": false,
           "default": "8",
           "compose_value": "${OUTBOX_PUBLISH_CONCURRENCY:-8}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "8"
         },
         {
           "key": "OUTBOX_CLEANUP_BATCH",
@@ -741,7 +874,8 @@
           "required": false,
           "default": "500",
           "compose_value": "${OUTBOX_CLEANUP_BATCH:-500}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "500"
         },
         {
           "key": "OUTBOX_CLEANUP_INTERVAL",
@@ -750,7 +884,8 @@
           "required": false,
           "default": "1h",
           "compose_value": "${OUTBOX_CLEANUP_INTERVAL:-1h}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1h"
         },
         {
           "key": "OUTBOX_LEASE_DURATION",
@@ -759,7 +894,8 @@
           "required": false,
           "default": "5m",
           "compose_value": "${OUTBOX_LEASE_DURATION:-5m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5m"
         },
         {
           "key": "OUTBOX_POLL_INTERVAL",
@@ -768,7 +904,8 @@
           "required": false,
           "default": "1s",
           "compose_value": "${OUTBOX_POLL_INTERVAL:-1s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1s"
         },
         {
           "key": "OUTBOX_PUBLISHED_RETENTION",
@@ -777,7 +914,8 @@
           "required": false,
           "default": "168h",
           "compose_value": "${OUTBOX_PUBLISHED_RETENTION:-168h}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "168h"
         },
         {
           "key": "OUTBOX_PUBLISH_TIMEOUT",
@@ -786,7 +924,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${OUTBOX_PUBLISH_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "OUTBOX_RETRY_DELAY",
@@ -795,7 +934,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${OUTBOX_RETRY_DELAY:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "RABBITMQ_URL",
@@ -804,7 +944,13 @@
           "required": true,
           "default": null,
           "compose_value": "amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "RABBITMQ_URL"
+            }
+          }
         },
         {
           "key": "REDIS_DB",
@@ -813,7 +959,8 @@
           "required": false,
           "default": "0",
           "compose_value": "${REDIS_DB:-0}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0"
         },
         {
           "key": "REDIS_HOST",
@@ -822,7 +969,8 @@
           "required": false,
           "default": "redis",
           "compose_value": "redis",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "redis"
         },
         {
           "key": "REDIS_OPERATION_TIMEOUT",
@@ -831,7 +979,8 @@
           "required": false,
           "default": "200ms",
           "compose_value": "${REDIS_OPERATION_TIMEOUT:-200ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "200ms"
         },
         {
           "key": "REDIS_PASSWORD",
@@ -840,7 +989,13 @@
           "required": true,
           "default": null,
           "compose_value": "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "REDIS_PASSWORD"
+            }
+          }
         },
         {
           "key": "REDIS_PORT",
@@ -849,7 +1004,8 @@
           "required": false,
           "default": "6379",
           "compose_value": "6379",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "6379"
         },
         {
           "key": "REDIS_POST_DETAIL_TTL",
@@ -858,7 +1014,8 @@
           "required": false,
           "default": "5m",
           "compose_value": "${REDIS_POST_DETAIL_TTL:-5m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5m"
         },
         {
           "key": "SEARCH_INDEXER_RETRY_DELAY",
@@ -867,7 +1024,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${SEARCH_INDEXER_RETRY_DELAY:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "SEARCH_REINDEX_BATCH",
@@ -876,6 +1034,17 @@
           "required": false,
           "default": "500",
           "compose_value": null,
+          "aliases": [],
+          "kubernetes_value": null
+        },
+        {
+          "key": "GOPULSE_SELFMONITOR_CONTROL",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "compose",
+          "compose_value": null,
+          "kubernetes_value": null,
           "aliases": []
         }
       ],
@@ -914,13 +1083,33 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 15
+      "stop_grace_seconds": 15,
+      "kubernetes_workload": "backend",
+      "kubernetes_workloads": [
+        "backend"
+      ],
+      "kubernetes_replica": {
+        "mode": "scalable",
+        "ownership": "multi-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^backend-[1-9][0-9]*$",
+        "min": 1,
+        "max": 8,
+        "configured": 1,
+        "instances": [
+          "backend-1"
+        ]
+      }
     },
     {
       "id": "business-worker",
       "process_id": "business-worker",
       "role": "business-worker",
-      "compose_services": ["business-worker", "business-worker-2"],
+      "compose_services": [
+        "business-worker",
+        "business-worker-2"
+      ],
       "replica": {
         "mode": "scalable",
         "ownership": "multi-owner",
@@ -930,22 +1119,55 @@
         "min": 2,
         "max": 8,
         "configured": 2,
-        "instances": ["business-worker-1", "business-worker-2"]
+        "instances": [
+          "business-worker-1",
+          "business-worker-2"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": ["metrics", "prefetch", "in_flight", "mysql_pool"],
+        "capacity_signals": [
+          "metrics",
+          "prefetch",
+          "in_flight",
+          "mysql_pool"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "mysql", "per_instance": 8, "total": 60}],
-        "queues": [{"name": "rabbit_prefetch", "capacity": 10}, {"name": "log_ship", "capacity": 256}],
-        "in_flight": [{"name": "consumer", "capacity": 10}],
+        "connections": [
+          {
+            "name": "mysql",
+            "per_instance": 8,
+            "total": 60
+          }
+        ],
+        "queues": [
+          {
+            "name": "rabbit_prefetch",
+            "capacity": 10
+          },
+          {
+            "name": "log_ship",
+            "capacity": 256
+          }
+        ],
+        "in_flight": [
+          {
+            "name": "consumer",
+            "capacity": 10
+          }
+        ],
         "shutdown_seconds": 10,
         "stop_grace_seconds": 15
       },
@@ -962,7 +1184,8 @@
           "required": false,
           "default": "business-worker-local",
           "compose_value": "business-worker-1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "business-worker-1"
         },
         {
           "key": "GOPULSE_REPLICA_COUNT",
@@ -971,7 +1194,8 @@
           "required": false,
           "default": "1",
           "compose_value": "2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_SIZE",
@@ -980,7 +1204,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
@@ -989,7 +1214,8 @@
           "required": false,
           "default": "1s",
           "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1s"
         },
         {
           "key": "GOPULSE_TRACE_ENABLED",
@@ -998,7 +1224,8 @@
           "required": false,
           "default": "false",
           "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "false"
         },
         {
           "key": "GOPULSE_TRACE_ENDPOINT",
@@ -1007,7 +1234,8 @@
           "required": false,
           "default": "",
           "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": ""
         },
         {
           "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
@@ -1016,7 +1244,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
@@ -1025,7 +1254,8 @@
           "required": false,
           "default": "2048",
           "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2048"
         },
         {
           "key": "GOPULSE_TRACE_SAMPLE_RATIO",
@@ -1034,7 +1264,8 @@
           "required": false,
           "default": "0.10",
           "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.10"
         },
         {
           "key": "GOPULSE_TRACE_SERVICE_NAME",
@@ -1043,7 +1274,8 @@
           "required": false,
           "default": "business-worker",
           "compose_value": "business-worker",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "business-worker"
         },
         {
           "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
@@ -1052,7 +1284,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
@@ -1061,7 +1294,8 @@
           "required": false,
           "default": "10000",
           "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
@@ -1070,7 +1304,8 @@
           "required": false,
           "default": "100000",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "100000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
@@ -1079,7 +1314,8 @@
           "required": false,
           "default": "1073741824",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1073741824"
         },
         {
           "key": "BUSINESS_WORKER_MAX_RETRIES",
@@ -1088,7 +1324,8 @@
           "required": false,
           "default": "3",
           "compose_value": "${BUSINESS_WORKER_MAX_RETRIES:-3}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3"
         },
         {
           "key": "BUSINESS_WORKER_METRICS_TOKEN",
@@ -1097,7 +1334,13 @@
           "required": true,
           "default": null,
           "compose_value": "${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "BUSINESS_WORKER_METRICS_TOKEN"
+            }
+          }
         },
         {
           "key": "BUSINESS_WORKER_PREFETCH",
@@ -1106,7 +1349,8 @@
           "required": false,
           "default": "10",
           "compose_value": "${BUSINESS_WORKER_PREFETCH:-10}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10"
         },
         {
           "key": "BUSINESS_WORKER_PUBLISH_TIMEOUT",
@@ -1115,7 +1359,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${BUSINESS_WORKER_PUBLISH_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "BUSINESS_WORKER_RECONNECT_MAX",
@@ -1124,7 +1369,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${BUSINESS_WORKER_RECONNECT_MAX:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "BUSINESS_WORKER_RECONNECT_MIN",
@@ -1133,7 +1379,8 @@
           "required": false,
           "default": "500ms",
           "compose_value": "${BUSINESS_WORKER_RECONNECT_MIN:-500ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "500ms"
         },
         {
           "key": "BUSINESS_WORKER_SHUTDOWN_TIMEOUT",
@@ -1142,7 +1389,8 @@
           "required": false,
           "default": "10s",
           "compose_value": "${BUSINESS_WORKER_SHUTDOWN_TIMEOUT:-10s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10s"
         },
         {
           "key": "GOPULSE_REVISION",
@@ -1151,7 +1399,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -1160,7 +1409,8 @@
           "required": false,
           "default": "container",
           "compose_value": "container",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "container"
         },
         {
           "key": "GOPULSE_VERSION",
@@ -1169,7 +1419,8 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "LOG_MONITOR_INGEST_TOKEN",
@@ -1178,7 +1429,13 @@
           "required": true,
           "default": null,
           "compose_value": "${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "LOG_MONITOR_INGEST_TOKEN"
+            }
+          }
         },
         {
           "key": "LOG_MONITOR_URL",
@@ -1187,7 +1444,8 @@
           "required": false,
           "default": "http://monitor:9090",
           "compose_value": "http://monitor:9090",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://monitor:9090"
         },
         {
           "key": "LOG_SHIP_QUEUE_CAPACITY",
@@ -1196,7 +1454,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${LOG_SHIP_QUEUE_CAPACITY:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "LOG_SHIP_REQUEST_TIMEOUT",
@@ -1205,7 +1464,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${LOG_SHIP_REQUEST_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "LOG_SHIP_RETRY_MAX",
@@ -1214,7 +1474,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${LOG_SHIP_RETRY_MAX:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "LOG_SHIP_RETRY_MIN",
@@ -1223,7 +1484,8 @@
           "required": false,
           "default": "250ms",
           "compose_value": "${LOG_SHIP_RETRY_MIN:-250ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "250ms"
         },
         {
           "key": "LOG_SHIP_SHUTDOWN_TIMEOUT",
@@ -1232,7 +1494,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${LOG_SHIP_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "MYSQL_CONN_MAX_LIFETIME",
@@ -1241,7 +1504,8 @@
           "required": false,
           "default": "3m",
           "compose_value": "${MYSQL_CONN_MAX_LIFETIME:-3m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3m"
         },
         {
           "key": "MYSQL_DATABASE",
@@ -1250,7 +1514,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_DATABASE:?MYSQL_DATABASE is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "MYSQL_HOST",
@@ -1259,7 +1524,8 @@
           "required": false,
           "default": "mysql",
           "compose_value": "mysql",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "mysql"
         },
         {
           "key": "MYSQL_MAX_IDLE_CONNS",
@@ -1268,7 +1534,8 @@
           "required": false,
           "default": "2",
           "compose_value": "${MYSQL_MAX_IDLE_CONNS:-2}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2"
         },
         {
           "key": "MYSQL_MAX_OPEN_CONNS",
@@ -1277,7 +1544,8 @@
           "required": false,
           "default": "8",
           "compose_value": "${MYSQL_MAX_OPEN_CONNS:-8}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "4"
         },
         {
           "key": "MYSQL_PASSWORD",
@@ -1286,7 +1554,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MYSQL_PASSWORD"
+            }
+          }
         },
         {
           "key": "MYSQL_PORT",
@@ -1295,7 +1569,8 @@
           "required": false,
           "default": "3306",
           "compose_value": "3306",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3306"
         },
         {
           "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
@@ -1304,7 +1579,8 @@
           "required": false,
           "default": "60",
           "compose_value": "${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "60"
         },
         {
           "key": "MYSQL_USER",
@@ -1313,7 +1589,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_USER:?MYSQL_USER is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "OUTBOX_RETRY_DELAY",
@@ -1322,7 +1599,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${OUTBOX_RETRY_DELAY:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "RABBITMQ_URL",
@@ -1331,7 +1609,13 @@
           "required": true,
           "default": null,
           "compose_value": "amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "RABBITMQ_URL"
+            }
+          }
         }
       ],
       "listeners": [
@@ -1356,13 +1640,33 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 10,
-      "stop_grace_seconds": 15
+      "stop_grace_seconds": 15,
+      "kubernetes_workload": "business-worker",
+      "kubernetes_workloads": [
+        "business-worker"
+      ],
+      "kubernetes_replica": {
+        "mode": "scalable",
+        "ownership": "multi-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^business-worker-[1-9][0-9]*$",
+        "min": 1,
+        "max": 8,
+        "configured": 1,
+        "instances": [
+          "business-worker-1"
+        ]
+      }
     },
     {
       "id": "search-indexer",
       "process_id": "search-indexer",
       "role": "search-indexer",
-      "compose_services": ["search-indexer", "search-indexer-2"],
+      "compose_services": [
+        "search-indexer",
+        "search-indexer-2"
+      ],
       "replica": {
         "mode": "scalable",
         "ownership": "multi-owner",
@@ -1372,22 +1676,55 @@
         "min": 2,
         "max": 8,
         "configured": 2,
-        "instances": ["search-indexer-1", "search-indexer-2"]
+        "instances": [
+          "search-indexer-1",
+          "search-indexer-2"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": ["metrics", "prefetch", "in_flight", "mysql_pool"],
+        "capacity_signals": [
+          "metrics",
+          "prefetch",
+          "in_flight",
+          "mysql_pool"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "mysql", "per_instance": 8, "total": 60}],
-        "queues": [{"name": "rabbit_prefetch", "capacity": 10}, {"name": "log_ship", "capacity": 256}],
-        "in_flight": [{"name": "consumer", "capacity": 10}],
+        "connections": [
+          {
+            "name": "mysql",
+            "per_instance": 8,
+            "total": 60
+          }
+        ],
+        "queues": [
+          {
+            "name": "rabbit_prefetch",
+            "capacity": 10
+          },
+          {
+            "name": "log_ship",
+            "capacity": 256
+          }
+        ],
+        "in_flight": [
+          {
+            "name": "consumer",
+            "capacity": 10
+          }
+        ],
         "shutdown_seconds": 10,
         "stop_grace_seconds": 15
       },
@@ -1404,7 +1741,8 @@
           "required": false,
           "default": "search-indexer-local",
           "compose_value": "search-indexer-1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "search-indexer-1"
         },
         {
           "key": "GOPULSE_REPLICA_COUNT",
@@ -1413,7 +1751,8 @@
           "required": false,
           "default": "1",
           "compose_value": "2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_SIZE",
@@ -1422,7 +1761,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
@@ -1431,7 +1771,8 @@
           "required": false,
           "default": "1s",
           "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1s"
         },
         {
           "key": "GOPULSE_TRACE_ENABLED",
@@ -1440,7 +1781,8 @@
           "required": false,
           "default": "false",
           "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "false"
         },
         {
           "key": "GOPULSE_TRACE_ENDPOINT",
@@ -1449,7 +1791,8 @@
           "required": false,
           "default": "",
           "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": ""
         },
         {
           "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
@@ -1458,7 +1801,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
@@ -1467,7 +1811,8 @@
           "required": false,
           "default": "2048",
           "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2048"
         },
         {
           "key": "GOPULSE_TRACE_SAMPLE_RATIO",
@@ -1476,7 +1821,8 @@
           "required": false,
           "default": "0.10",
           "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.10"
         },
         {
           "key": "GOPULSE_TRACE_SERVICE_NAME",
@@ -1485,7 +1831,8 @@
           "required": false,
           "default": "search-indexer",
           "compose_value": "search-indexer",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "search-indexer"
         },
         {
           "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
@@ -1494,7 +1841,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "ELASTICSEARCH_REQUEST_TIMEOUT",
@@ -1503,7 +1851,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "ELASTICSEARCH_URL",
@@ -1512,7 +1861,8 @@
           "required": false,
           "default": "http://elasticsearch:9200",
           "compose_value": "http://elasticsearch:9200",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://elasticsearch:9200"
         },
         {
           "key": "GOPULSE_REVISION",
@@ -1521,7 +1871,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -1530,7 +1881,8 @@
           "required": false,
           "default": "container",
           "compose_value": "container",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "container"
         },
         {
           "key": "GOPULSE_VERSION",
@@ -1539,7 +1891,8 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "LOG_MONITOR_INGEST_TOKEN",
@@ -1548,7 +1901,13 @@
           "required": true,
           "default": null,
           "compose_value": "${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "LOG_MONITOR_INGEST_TOKEN"
+            }
+          }
         },
         {
           "key": "LOG_MONITOR_URL",
@@ -1557,7 +1916,8 @@
           "required": false,
           "default": "http://monitor:9090",
           "compose_value": "http://monitor:9090",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://monitor:9090"
         },
         {
           "key": "LOG_SHIP_QUEUE_CAPACITY",
@@ -1566,7 +1926,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${LOG_SHIP_QUEUE_CAPACITY:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "LOG_SHIP_REQUEST_TIMEOUT",
@@ -1575,7 +1936,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${LOG_SHIP_REQUEST_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "LOG_SHIP_RETRY_MAX",
@@ -1584,7 +1946,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${LOG_SHIP_RETRY_MAX:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "LOG_SHIP_RETRY_MIN",
@@ -1593,7 +1956,8 @@
           "required": false,
           "default": "250ms",
           "compose_value": "${LOG_SHIP_RETRY_MIN:-250ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "250ms"
         },
         {
           "key": "LOG_SHIP_SHUTDOWN_TIMEOUT",
@@ -1602,7 +1966,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${LOG_SHIP_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "MYSQL_DATABASE",
@@ -1611,7 +1976,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_DATABASE:?MYSQL_DATABASE is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "MYSQL_HOST",
@@ -1620,7 +1986,8 @@
           "required": false,
           "default": "mysql",
           "compose_value": "mysql",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "mysql"
         },
         {
           "key": "MYSQL_PASSWORD",
@@ -1629,7 +1996,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MYSQL_PASSWORD"
+            }
+          }
         },
         {
           "key": "MYSQL_PORT",
@@ -1638,7 +2011,8 @@
           "required": false,
           "default": "3306",
           "compose_value": "3306",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3306"
         },
         {
           "key": "MYSQL_USER",
@@ -1647,7 +2021,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_USER:?MYSQL_USER is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "RABBITMQ_URL",
@@ -1656,7 +2031,13 @@
           "required": true,
           "default": null,
           "compose_value": "amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "RABBITMQ_URL"
+            }
+          }
         },
         {
           "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
@@ -1665,7 +2046,8 @@
           "required": false,
           "default": "10000",
           "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
@@ -1674,7 +2056,8 @@
           "required": false,
           "default": "100000",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "100000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
@@ -1683,7 +2066,8 @@
           "required": false,
           "default": "1073741824",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1073741824"
         },
         {
           "key": "SEARCH_INDEXER_MAX_RETRIES",
@@ -1692,7 +2076,8 @@
           "required": false,
           "default": "3",
           "compose_value": "${SEARCH_INDEXER_MAX_RETRIES:-3}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3"
         },
         {
           "key": "SEARCH_INDEXER_METRICS_TOKEN",
@@ -1701,7 +2086,13 @@
           "required": true,
           "default": null,
           "compose_value": "${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "SEARCH_INDEXER_METRICS_TOKEN"
+            }
+          }
         },
         {
           "key": "SEARCH_INDEXER_PREFETCH",
@@ -1710,7 +2101,8 @@
           "required": false,
           "default": "10",
           "compose_value": "${SEARCH_INDEXER_PREFETCH:-10}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10"
         },
         {
           "key": "SEARCH_INDEXER_PUBLISH_TIMEOUT",
@@ -1719,7 +2111,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${SEARCH_INDEXER_PUBLISH_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "SEARCH_INDEXER_RECONNECT_MAX",
@@ -1728,7 +2121,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${SEARCH_INDEXER_RECONNECT_MAX:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "SEARCH_INDEXER_RECONNECT_MIN",
@@ -1737,7 +2131,8 @@
           "required": false,
           "default": "500ms",
           "compose_value": "${SEARCH_INDEXER_RECONNECT_MIN:-500ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "500ms"
         },
         {
           "key": "SEARCH_INDEXER_RETRY_DELAY",
@@ -1746,7 +2141,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${SEARCH_INDEXER_RETRY_DELAY:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "SEARCH_INDEXER_SHUTDOWN_TIMEOUT",
@@ -1755,7 +2151,8 @@
           "required": false,
           "default": "10s",
           "compose_value": "${SEARCH_INDEXER_SHUTDOWN_TIMEOUT:-10s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10s"
         },
         {
           "key": "MYSQL_CONN_MAX_LIFETIME",
@@ -1764,7 +2161,8 @@
           "required": false,
           "default": "3m",
           "compose_value": "${MYSQL_CONN_MAX_LIFETIME:-3m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3m"
         },
         {
           "key": "MYSQL_MAX_IDLE_CONNS",
@@ -1773,7 +2171,8 @@
           "required": false,
           "default": "2",
           "compose_value": "${MYSQL_MAX_IDLE_CONNS:-2}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2"
         },
         {
           "key": "MYSQL_MAX_OPEN_CONNS",
@@ -1782,7 +2181,8 @@
           "required": false,
           "default": "8",
           "compose_value": "${MYSQL_MAX_OPEN_CONNS:-8}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "4"
         },
         {
           "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
@@ -1791,7 +2191,8 @@
           "required": false,
           "default": "60",
           "compose_value": "${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "60"
         }
       ],
       "listeners": [
@@ -1817,13 +2218,33 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 10,
-      "stop_grace_seconds": 15
+      "stop_grace_seconds": 15,
+      "kubernetes_workload": "search-indexer",
+      "kubernetes_workloads": [
+        "search-indexer"
+      ],
+      "kubernetes_replica": {
+        "mode": "scalable",
+        "ownership": "multi-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^search-indexer-[1-9][0-9]*$",
+        "min": 1,
+        "max": 8,
+        "configured": 1,
+        "instances": [
+          "search-indexer-1"
+        ]
+      }
     },
     {
       "id": "marshaller",
       "process_id": "marshaller",
       "role": "observability-marshaller",
-      "compose_services": ["marshaller", "marshaller-2"],
+      "compose_services": [
+        "marshaller",
+        "marshaller-2"
+      ],
       "replica": {
         "mode": "scalable",
         "ownership": "partition-owner",
@@ -1833,22 +2254,52 @@
         "min": 2,
         "max": 8,
         "configured": 2,
-        "instances": ["marshaller-1", "marshaller-2"]
+        "instances": [
+          "marshaller-1",
+          "marshaller-2"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": ["metrics", "records_in_flight", "retrying", "partition_lag", "target_blocked"],
+        "capacity_signals": [
+          "metrics",
+          "records_in_flight",
+          "retrying",
+          "partition_lag",
+          "target_blocked"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "kafka", "per_instance": 1, "total": 2}],
-        "queues": [{"name": "retrying", "capacity": 4}],
-        "in_flight": [{"name": "records", "capacity": 8}],
+        "connections": [
+          {
+            "name": "kafka",
+            "per_instance": 1,
+            "total": 2
+          }
+        ],
+        "queues": [
+          {
+            "name": "retrying",
+            "capacity": 4
+          }
+        ],
+        "in_flight": [
+          {
+            "name": "records",
+            "capacity": 8
+          }
+        ],
         "shutdown_seconds": 10,
         "stop_grace_seconds": 15
       },
@@ -1865,7 +2316,8 @@
           "required": false,
           "default": "marshaller-local",
           "compose_value": "marshaller-1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "marshaller-1"
         },
         {
           "key": "GOPULSE_REVISION",
@@ -1874,7 +2326,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_REPLICA_COUNT",
@@ -1883,7 +2336,8 @@
           "required": false,
           "default": "1",
           "compose_value": "2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1"
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -1892,7 +2346,8 @@
           "required": false,
           "default": "container",
           "compose_value": "container",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "container"
         },
         {
           "key": "GOPULSE_VERSION",
@@ -1901,7 +2356,8 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MARSHALLER_API_TOKEN",
@@ -1910,7 +2366,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MARSHALLER_API_TOKEN"
+            }
+          }
         },
         {
           "key": "MARSHALLER_ELASTICSEARCH_TIMEOUT",
@@ -1919,7 +2381,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${MARSHALLER_ELASTICSEARCH_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "MARSHALLER_ELASTICSEARCH_URL",
@@ -1928,7 +2391,8 @@
           "required": false,
           "default": "http://elasticsearch:9200",
           "compose_value": "http://observability-elasticsearch:9200",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://observability-elasticsearch:9200"
         },
         {
           "key": "MARSHALLER_EVENT_INDEX_PREFIX",
@@ -1937,7 +2401,8 @@
           "required": false,
           "default": "gopulse-events-v1-",
           "compose_value": "${MARSHALLER_EVENT_INDEX_PREFIX:-gopulse-events-v1-}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-events-v1-"
         },
         {
           "key": "MARSHALLER_EVENT_RETENTION_DAYS",
@@ -1946,7 +2411,8 @@
           "required": false,
           "default": "7",
           "compose_value": "${MARSHALLER_EVENT_RETENTION_DAYS:-7}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "7"
         },
         {
           "key": "MARSHALLER_EVENT_TEMPLATE",
@@ -1955,7 +2421,8 @@
           "required": false,
           "default": "gopulse-events-v1-template",
           "compose_value": "${MARSHALLER_EVENT_TEMPLATE:-gopulse-events-v1-template}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-events-v1-template"
         },
         {
           "key": "MARSHALLER_FUTURE_SKEW",
@@ -1964,7 +2431,8 @@
           "required": false,
           "default": "5m",
           "compose_value": "${MARSHALLER_FUTURE_SKEW:-5m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5m"
         },
         {
           "key": "MARSHALLER_HTTP_HOST",
@@ -1973,7 +2441,8 @@
           "required": false,
           "default": "0.0.0.0",
           "compose_value": "0.0.0.0",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.0.0.0"
         },
         {
           "key": "MARSHALLER_HTTP_PORT",
@@ -1982,7 +2451,8 @@
           "required": false,
           "default": "9093",
           "compose_value": "9093",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "9093"
         },
         {
           "key": "MARSHALLER_KAFKA_BROKERS",
@@ -1991,7 +2461,8 @@
           "required": false,
           "default": "kafka:19092",
           "compose_value": "kafka:19092",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "kafka:19092"
         },
         {
           "key": "MARSHALLER_KAFKA_COMMIT_TIMEOUT",
@@ -2000,7 +2471,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${MARSHALLER_KAFKA_COMMIT_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "MARSHALLER_KAFKA_GROUP",
@@ -2009,7 +2481,8 @@
           "required": false,
           "default": "gopulse-marshaller-metrics",
           "compose_value": "${MARSHALLER_KAFKA_GROUP:-gopulse-marshaller-metrics}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-marshaller-metrics"
         },
         {
           "key": "MARSHALLER_KAFKA_MIN_PARTITIONS",
@@ -2018,7 +2491,8 @@
           "required": false,
           "default": "1",
           "compose_value": "${MARSHALLER_KAFKA_MIN_PARTITIONS:-4}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "4"
         },
         {
           "key": "MARSHALLER_KAFKA_TOPIC",
@@ -2027,7 +2501,8 @@
           "required": false,
           "default": "gopulse-observability-metrics",
           "compose_value": "${MARSHALLER_KAFKA_TOPIC:-gopulse-observability-metrics}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-observability-metrics"
         },
         {
           "key": "MARSHALLER_LOG_INDEX_PREFIX",
@@ -2036,7 +2511,8 @@
           "required": false,
           "default": "gopulse-logs-v1-",
           "compose_value": "${MARSHALLER_LOG_INDEX_PREFIX:-gopulse-logs-v1-}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-logs-v1-"
         },
         {
           "key": "MARSHALLER_LOG_RETENTION_DAYS",
@@ -2045,7 +2521,8 @@
           "required": false,
           "default": "7",
           "compose_value": "${MARSHALLER_LOG_RETENTION_DAYS:-7}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "7"
         },
         {
           "key": "MARSHALLER_LOG_TEMPLATE",
@@ -2054,7 +2531,8 @@
           "required": false,
           "default": "gopulse-logs-v1-template",
           "compose_value": "${MARSHALLER_LOG_TEMPLATE:-gopulse-logs-v1-template}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-logs-v1-template"
         },
         {
           "key": "MARSHALLER_METRICS_TOKEN",
@@ -2063,7 +2541,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MARSHALLER_METRICS_TOKEN"
+            }
+          }
         },
         {
           "key": "MARSHALLER_MAX_IN_FLIGHT",
@@ -2072,7 +2556,8 @@
           "required": false,
           "default": "4",
           "compose_value": "${MARSHALLER_MAX_IN_FLIGHT:-8}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "4"
         },
         {
           "key": "MARSHALLER_MAX_RETRYING",
@@ -2081,7 +2566,8 @@
           "required": false,
           "default": "4",
           "compose_value": "${MARSHALLER_MAX_RETRYING:-4}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "4"
         },
         {
           "key": "MARSHALLER_READINESS_TIMEOUT",
@@ -2090,7 +2576,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${MARSHALLER_READINESS_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "MARSHALLER_RETENTION_BATCH_INDICES",
@@ -2099,7 +2586,8 @@
           "required": false,
           "default": "16",
           "compose_value": "${MARSHALLER_RETENTION_BATCH_INDICES:-16}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "16"
         },
         {
           "key": "MARSHALLER_RETENTION_CATCHUP_DEADLINE",
@@ -2108,7 +2596,8 @@
           "required": false,
           "default": "60s",
           "compose_value": "${MARSHALLER_RETENTION_CATCHUP_DEADLINE:-60s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "60s"
         },
         {
           "key": "MARSHALLER_RETENTION_CYCLE",
@@ -2117,7 +2606,8 @@
           "required": false,
           "default": "60s",
           "compose_value": "${MARSHALLER_RETENTION_CYCLE:-60s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "60s"
         },
         {
           "key": "MARSHALLER_RETENTION_MAX_RETRIES",
@@ -2126,7 +2616,8 @@
           "required": false,
           "default": "3",
           "compose_value": "${MARSHALLER_RETENTION_MAX_RETRIES:-3}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3"
         },
         {
           "key": "MARSHALLER_RETENTION_REQUEST_TIMEOUT",
@@ -2135,7 +2626,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${MARSHALLER_RETENTION_REQUEST_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "MARSHALLER_RETENTION_RETRY_MAX",
@@ -2144,7 +2636,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${MARSHALLER_RETENTION_RETRY_MAX:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "MARSHALLER_RETENTION_RETRY_MIN",
@@ -2153,7 +2646,8 @@
           "required": false,
           "default": "250ms",
           "compose_value": "${MARSHALLER_RETENTION_RETRY_MIN:-250ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "250ms"
         },
         {
           "key": "MARSHALLER_RETENTION_ROUND_TIMEOUT",
@@ -2162,7 +2656,8 @@
           "required": false,
           "default": "15s",
           "compose_value": "${MARSHALLER_RETENTION_ROUND_TIMEOUT:-15s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "15s"
         },
         {
           "key": "MARSHALLER_RETRY_MAX",
@@ -2171,7 +2666,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${MARSHALLER_RETRY_MAX:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "MARSHALLER_RETRY_MIN",
@@ -2180,7 +2676,8 @@
           "required": false,
           "default": "250ms",
           "compose_value": "${MARSHALLER_RETRY_MIN:-250ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "250ms"
         },
         {
           "key": "MARSHALLER_SHUTDOWN_TIMEOUT",
@@ -2189,7 +2686,8 @@
           "required": false,
           "default": "10s",
           "compose_value": "${MARSHALLER_SHUTDOWN_TIMEOUT:-10s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10s"
         },
         {
           "key": "MARSHALLER_VM_PASSWORD",
@@ -2198,7 +2696,13 @@
           "required": true,
           "default": null,
           "compose_value": "${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "VICTORIAMETRICS_PASSWORD"
+            }
+          }
         },
         {
           "key": "MARSHALLER_VM_TIMEOUT",
@@ -2207,7 +2711,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${MARSHALLER_VM_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "MARSHALLER_VM_URL",
@@ -2216,7 +2721,8 @@
           "required": false,
           "default": "http://victoriametrics:8428",
           "compose_value": "http://victoriametrics:8428",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://victoriametrics:8428"
         },
         {
           "key": "MARSHALLER_VM_USERNAME",
@@ -2225,7 +2731,8 @@
           "required": true,
           "default": null,
           "compose_value": "${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-marshaller"
         }
       ],
       "listeners": [
@@ -2256,13 +2763,32 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 10,
-      "stop_grace_seconds": 15
+      "stop_grace_seconds": 15,
+      "kubernetes_workload": "marshaller",
+      "kubernetes_workloads": [
+        "marshaller"
+      ],
+      "kubernetes_replica": {
+        "mode": "scalable",
+        "ownership": "partition-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^marshaller-[1-9][0-9]*$",
+        "min": 1,
+        "max": 8,
+        "configured": 1,
+        "instances": [
+          "marshaller-1"
+        ]
+      }
     },
     {
       "id": "monitor",
       "process_id": "monitor",
       "role": "observability-monitor",
-      "compose_services": ["monitor"],
+      "compose_services": [
+        "monitor"
+      ],
       "replica": {
         "mode": "singleton",
         "ownership": "single-owner",
@@ -2272,22 +2798,43 @@
         "min": 1,
         "max": 1,
         "configured": 1,
-        "instances": ["monitor-1"]
+        "instances": [
+          "monitor-1"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": ["metrics", "event_queue", "plugins_running"],
+        "capacity_signals": [
+          "metrics",
+          "event_queue",
+          "plugins_running"
+        ],
         "host_port_published": false
       },
       "budgets": {
         "connections": [],
-        "queues": [{"name": "event_queue", "capacity": 256}],
-        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "queues": [
+          {
+            "name": "event_queue",
+            "capacity": 256
+          }
+        ],
+        "in_flight": [
+          {
+            "name": "scrape",
+            "capacity": 1
+          }
+        ],
         "shutdown_seconds": 10,
         "stop_grace_seconds": 20
       },
@@ -2304,7 +2851,8 @@
           "required": false,
           "default": "monitor-local",
           "compose_value": "monitor-1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "monitor-1"
         },
         {
           "key": "GOPULSE_REPLICA_COUNT",
@@ -2313,7 +2861,8 @@
           "required": false,
           "default": "1",
           "compose_value": "1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1"
         },
         {
           "key": "GOPULSE_REVISION",
@@ -2322,7 +2871,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -2331,7 +2881,8 @@
           "required": false,
           "default": "container",
           "compose_value": "container",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "container"
         },
         {
           "key": "GOPULSE_VERSION",
@@ -2340,7 +2891,8 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "LOG_MONITOR_INGEST_TOKEN",
@@ -2349,7 +2901,13 @@
           "required": true,
           "default": null,
           "compose_value": "${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "LOG_MONITOR_INGEST_TOKEN"
+            }
+          }
         },
         {
           "key": "MARSHALLER_ENDPOINTS",
@@ -2358,7 +2916,8 @@
           "required": false,
           "default": "marshaller",
           "compose_value": "marshaller,marshaller-2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "marshaller"
         },
         {
           "key": "MONITOR_API_TOKEN",
@@ -2367,7 +2926,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MONITOR_API_TOKEN"
+            }
+          }
         },
         {
           "key": "MONITOR_BOOTSTRAP_PACKAGE",
@@ -2376,7 +2941,8 @@
           "required": false,
           "default": null,
           "compose_value": "${MONITOR_BOOTSTRAP_PACKAGE-/opt/gopulse/packages/gopulse-redis-exporter.tar.gz}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": ""
         },
         {
           "key": "MONITOR_EVENT_MAX_BYTES",
@@ -2385,7 +2951,8 @@
           "required": false,
           "default": "16384",
           "compose_value": "${MONITOR_EVENT_MAX_BYTES:-16384}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "16384"
         },
         {
           "key": "MONITOR_EVENT_QUEUE_CAPACITY",
@@ -2394,7 +2961,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${MONITOR_EVENT_QUEUE_CAPACITY:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "MONITOR_EVENT_RETRY_MAX",
@@ -2403,7 +2971,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${MONITOR_EVENT_RETRY_MAX:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "MONITOR_EVENT_RETRY_MIN",
@@ -2412,7 +2981,8 @@
           "required": false,
           "default": "250ms",
           "compose_value": "${MONITOR_EVENT_RETRY_MIN:-250ms}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "250ms"
         },
         {
           "key": "MONITOR_EVENT_SHUTDOWN_TIMEOUT",
@@ -2421,7 +2991,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${MONITOR_EVENT_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "MONITOR_HTTP_HOST",
@@ -2430,7 +3001,8 @@
           "required": false,
           "default": "0.0.0.0",
           "compose_value": "0.0.0.0",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.0.0.0"
         },
         {
           "key": "MONITOR_HTTP_PORT",
@@ -2439,7 +3011,8 @@
           "required": false,
           "default": "9090",
           "compose_value": "9090",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "9090"
         },
         {
           "key": "MONITOR_KAFKA_BROKERS",
@@ -2448,7 +3021,8 @@
           "required": false,
           "default": "kafka:19092",
           "compose_value": "kafka:19092",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "kafka:19092"
         },
         {
           "key": "MONITOR_KAFKA_MAX_BUFFERED_BYTES",
@@ -2457,7 +3031,8 @@
           "required": false,
           "default": "8388608",
           "compose_value": "${MONITOR_KAFKA_MAX_BUFFERED_BYTES:-8388608}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "8388608"
         },
         {
           "key": "MONITOR_KAFKA_MAX_BUFFERED_RECORDS",
@@ -2466,7 +3041,8 @@
           "required": false,
           "default": "128",
           "compose_value": "${MONITOR_KAFKA_MAX_BUFFERED_RECORDS:-128}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "128"
         },
         {
           "key": "MONITOR_KAFKA_PRODUCE_TIMEOUT",
@@ -2475,7 +3051,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${MONITOR_KAFKA_PRODUCE_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "MONITOR_LOG_FUTURE_SKEW",
@@ -2484,7 +3061,8 @@
           "required": false,
           "default": "5m",
           "compose_value": "${MONITOR_LOG_FUTURE_SKEW:-5m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5m"
         },
         {
           "key": "MONITOR_LOG_MAX_BYTES",
@@ -2493,7 +3071,8 @@
           "required": false,
           "default": "65536",
           "compose_value": "${MONITOR_LOG_MAX_BYTES:-65536}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "65536"
         },
         {
           "key": "MONITOR_METRICS_TOKEN",
@@ -2502,7 +3081,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MONITOR_METRICS_TOKEN"
+            }
+          }
         },
         {
           "key": "MONITOR_PLUGIN_ROOT",
@@ -2511,7 +3096,8 @@
           "required": false,
           "default": "/var/lib/gopulse-monitor/plugins",
           "compose_value": "/var/lib/gopulse-monitor/plugins",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "/var/lib/gopulse-monitor/plugins"
         },
         {
           "key": "MONITOR_PLUGIN_STARTUP_TIMEOUT",
@@ -2520,7 +3106,8 @@
           "required": false,
           "default": "10s",
           "compose_value": "${MONITOR_PLUGIN_STARTUP_TIMEOUT:-10s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10s"
         },
         {
           "key": "MONITOR_PLUGIN_STOP_TIMEOUT",
@@ -2529,7 +3116,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${MONITOR_PLUGIN_STOP_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "MONITOR_PUBLISH_TIMEOUT",
@@ -2538,7 +3126,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${MONITOR_PUBLISH_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "MONITOR_REQUEST_TIMEOUT",
@@ -2547,7 +3136,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${MONITOR_REQUEST_TIMEOUT:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "MONITOR_SCRAPE_INTERVAL",
@@ -2556,7 +3146,8 @@
           "required": false,
           "default": "15s",
           "compose_value": "${MONITOR_SCRAPE_INTERVAL:-15s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "15s"
         },
         {
           "key": "MONITOR_SCRAPE_TIMEOUT",
@@ -2565,7 +3156,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${MONITOR_SCRAPE_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "MONITOR_SHUTDOWN_TIMEOUT",
@@ -2574,7 +3166,8 @@
           "required": false,
           "default": "10s",
           "compose_value": "${MONITOR_SHUTDOWN_TIMEOUT:-10s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10s"
         },
         {
           "key": "MONITOR_SPOOL_DIR",
@@ -2583,7 +3176,8 @@
           "required": false,
           "default": "/var/lib/gopulse-monitor/spool",
           "compose_value": "/var/lib/gopulse-monitor/spool",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "/var/lib/gopulse-monitor/spool"
         },
         {
           "key": "MONITOR_METRICS_SPOOL_MAX_BYTES",
@@ -2592,7 +3186,8 @@
           "required": false,
           "default": "1073741824",
           "compose_value": "${MONITOR_METRICS_SPOOL_MAX_BYTES:-1073741824}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1073741824"
         },
         {
           "key": "MONITOR_LOGS_SPOOL_MAX_BYTES",
@@ -2601,7 +3196,8 @@
           "required": false,
           "default": "1073741824",
           "compose_value": "${MONITOR_LOGS_SPOOL_MAX_BYTES:-1073741824}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1073741824"
         },
         {
           "key": "MONITOR_EVENTS_SPOOL_MAX_BYTES",
@@ -2610,7 +3206,8 @@
           "required": false,
           "default": "1073741824",
           "compose_value": "${MONITOR_EVENTS_SPOOL_MAX_BYTES:-1073741824}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1073741824"
         },
         {
           "key": "REDIS_DB",
@@ -2619,7 +3216,8 @@
           "required": false,
           "default": "0",
           "compose_value": "${REDIS_DB:-0}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0"
         },
         {
           "key": "REDIS_EXPORTER_HTTP_HOST",
@@ -2628,7 +3226,8 @@
           "required": false,
           "default": "127.0.0.1",
           "compose_value": "127.0.0.1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "127.0.0.1"
         },
         {
           "key": "REDIS_EXPORTER_HTTP_PORT",
@@ -2637,7 +3236,8 @@
           "required": false,
           "default": "9121",
           "compose_value": "9121",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "9121"
         },
         {
           "key": "REDIS_EXPORTER_SCRAPE_TIMEOUT",
@@ -2646,7 +3246,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${REDIS_EXPORTER_SCRAPE_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "REDIS_EXPORTER_SHUTDOWN_TIMEOUT",
@@ -2655,7 +3256,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${REDIS_EXPORTER_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "REDIS_HOST",
@@ -2664,7 +3266,8 @@
           "required": false,
           "default": "redis",
           "compose_value": "redis",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "redis"
         },
         {
           "key": "REDIS_PASSWORD",
@@ -2673,7 +3276,13 @@
           "required": true,
           "default": null,
           "compose_value": "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "REDIS_PASSWORD"
+            }
+          }
         },
         {
           "key": "REDIS_PORT",
@@ -2682,7 +3291,8 @@
           "required": false,
           "default": "6379",
           "compose_value": "6379",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "6379"
         }
       ],
       "listeners": [
@@ -2713,7 +3323,24 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 10,
-      "stop_grace_seconds": 20
+      "stop_grace_seconds": 20,
+      "kubernetes_workload": "monitor",
+      "kubernetes_workloads": [
+        "monitor"
+      ],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^monitor-[1-9][0-9]*$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "monitor-1"
+        ]
+      }
     },
     {
       "id": "redis-exporter",
@@ -2729,22 +3356,43 @@
         "min": 1,
         "max": 1,
         "configured": 1,
-        "instances": ["redis-exporter-local"]
+        "instances": [
+          "redis-exporter-local"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": null,
         "identity_source": "runtimekit-fallback",
-        "capacity_signals": ["metrics", "up"],
+        "capacity_signals": [
+          "metrics",
+          "up"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "redis", "per_instance": 1, "total": 1}],
+        "connections": [
+          {
+            "name": "redis",
+            "per_instance": 1,
+            "total": 1
+          }
+        ],
         "queues": [],
-        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "in_flight": [
+          {
+            "name": "scrape",
+            "capacity": 1
+          }
+        ],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
@@ -2761,7 +3409,8 @@
           "required": false,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -2770,7 +3419,8 @@
           "required": false,
           "default": "container",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_VERSION",
@@ -2779,7 +3429,8 @@
           "required": false,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_DB",
@@ -2788,7 +3439,8 @@
           "required": false,
           "default": "0",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_EXPORTER_HTTP_HOST",
@@ -2797,7 +3449,8 @@
           "required": false,
           "default": "0.0.0.0",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_EXPORTER_HTTP_PORT",
@@ -2806,7 +3459,8 @@
           "required": false,
           "default": "9121",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_EXPORTER_SCRAPE_TIMEOUT",
@@ -2815,7 +3469,8 @@
           "required": false,
           "default": "2s",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_EXPORTER_SHUTDOWN_TIMEOUT",
@@ -2824,7 +3479,8 @@
           "required": false,
           "default": "5s",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_HOST",
@@ -2833,7 +3489,8 @@
           "required": false,
           "default": "redis",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_PASSWORD",
@@ -2842,7 +3499,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "REDIS_PORT",
@@ -2851,7 +3509,8 @@
           "required": false,
           "default": "6379",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         }
       ],
       "listeners": [
@@ -2875,7 +3534,22 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 10
+      "stop_grace_seconds": 10,
+      "kubernetes_workload": null,
+      "kubernetes_workloads": [],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "runtimekit-fallback",
+        "identity_pattern": "^redis-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "redis-exporter-local"
+        ]
+      }
     },
     {
       "id": "mysql-exporter",
@@ -2891,22 +3565,43 @@
         "min": 1,
         "max": 1,
         "configured": 1,
-        "instances": ["mysql-exporter-local"]
+        "instances": [
+          "mysql-exporter-local"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": null,
         "identity_source": "runtimekit-fallback",
-        "capacity_signals": ["metrics", "up"],
+        "capacity_signals": [
+          "metrics",
+          "up"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "mysql", "per_instance": 1, "total": 1}],
+        "connections": [
+          {
+            "name": "mysql",
+            "per_instance": 1,
+            "total": 1
+          }
+        ],
         "queues": [],
-        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "in_flight": [
+          {
+            "name": "scrape",
+            "capacity": 1
+          }
+        ],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
@@ -2923,7 +3618,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -2932,7 +3628,8 @@
           "required": false,
           "default": "host",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_VERSION",
@@ -2941,7 +3638,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_DATABASE",
@@ -2950,7 +3648,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_EXPORTER_CONNECT_TIMEOUT",
@@ -2959,7 +3658,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_EXPORTER_HTTP_HOST",
@@ -2968,7 +3668,8 @@
           "required": false,
           "default": "127.0.0.1",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_EXPORTER_HTTP_PORT",
@@ -2977,7 +3678,8 @@
           "required": false,
           "default": "9122",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_EXPORTER_SCRAPE_TIMEOUT",
@@ -2986,7 +3688,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_HOST",
@@ -2995,7 +3698,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_PASSWORD",
@@ -3004,7 +3708,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_PORT",
@@ -3013,7 +3718,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "MYSQL_USERNAME",
@@ -3022,7 +3728,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         }
       ],
       "listeners": [
@@ -3046,7 +3753,22 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 10
+      "stop_grace_seconds": 10,
+      "kubernetes_workload": null,
+      "kubernetes_workloads": [],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "runtimekit-fallback",
+        "identity_pattern": "^mysql-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "mysql-exporter-local"
+        ]
+      }
     },
     {
       "id": "rabbitmq-exporter",
@@ -3062,22 +3784,43 @@
         "min": 1,
         "max": 1,
         "configured": 1,
-        "instances": ["rabbitmq-exporter-local"]
+        "instances": [
+          "rabbitmq-exporter-local"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": null,
         "identity_source": "runtimekit-fallback",
-        "capacity_signals": ["metrics", "up"],
+        "capacity_signals": [
+          "metrics",
+          "up"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "rabbitmq", "per_instance": 1, "total": 1}],
+        "connections": [
+          {
+            "name": "rabbitmq",
+            "per_instance": 1,
+            "total": 1
+          }
+        ],
         "queues": [],
-        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "in_flight": [
+          {
+            "name": "scrape",
+            "capacity": 1
+          }
+        ],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
@@ -3094,7 +3837,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -3103,7 +3847,8 @@
           "required": false,
           "default": "host",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_VERSION",
@@ -3112,7 +3857,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_EXPORTER_CONNECT_TIMEOUT",
@@ -3121,7 +3867,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_EXPORTER_HTTP_HOST",
@@ -3130,7 +3877,8 @@
           "required": false,
           "default": "127.0.0.1",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_EXPORTER_HTTP_PORT",
@@ -3139,7 +3887,8 @@
           "required": false,
           "default": "9123",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_EXPORTER_SCRAPE_TIMEOUT",
@@ -3148,7 +3897,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_HOST",
@@ -3157,7 +3907,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_MANAGEMENT_PORT",
@@ -3166,7 +3917,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_PASSWORD",
@@ -3175,7 +3927,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_USERNAME",
@@ -3184,7 +3937,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "RABBITMQ_VHOST",
@@ -3193,7 +3947,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         }
       ],
       "listeners": [
@@ -3217,7 +3972,22 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 10
+      "stop_grace_seconds": 10,
+      "kubernetes_workload": null,
+      "kubernetes_workloads": [],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "runtimekit-fallback",
+        "identity_pattern": "^rabbitmq-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "rabbitmq-exporter-local"
+        ]
+      }
     },
     {
       "id": "kafka-exporter",
@@ -3233,22 +4003,43 @@
         "min": 1,
         "max": 1,
         "configured": 1,
-        "instances": ["kafka-exporter-local"]
+        "instances": [
+          "kafka-exporter-local"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": null,
         "identity_source": "runtimekit-fallback",
-        "capacity_signals": ["metrics", "up"],
+        "capacity_signals": [
+          "metrics",
+          "up"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "kafka", "per_instance": 1, "total": 1}],
+        "connections": [
+          {
+            "name": "kafka",
+            "per_instance": 1,
+            "total": 1
+          }
+        ],
         "queues": [],
-        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "in_flight": [
+          {
+            "name": "scrape",
+            "capacity": 1
+          }
+        ],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
@@ -3265,7 +4056,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -3274,7 +4066,8 @@
           "required": false,
           "default": "host",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_VERSION",
@@ -3283,7 +4076,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_CONSUMER_GROUP",
@@ -3292,7 +4086,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_EXPORTER_CONNECT_TIMEOUT",
@@ -3301,7 +4096,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_EXPORTER_JMX_URL",
@@ -3310,7 +4106,8 @@
           "required": false,
           "default": "",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_EXPORTER_HTTP_HOST",
@@ -3319,7 +4116,8 @@
           "required": false,
           "default": "127.0.0.1",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_EXPORTER_HTTP_PORT",
@@ -3328,7 +4126,8 @@
           "required": false,
           "default": "9124",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_EXPORTER_SCRAPE_TIMEOUT",
@@ -3337,7 +4136,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_HOST",
@@ -3346,7 +4146,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_PORT",
@@ -3355,7 +4156,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "KAFKA_TOPIC",
@@ -3364,7 +4166,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         }
       ],
       "listeners": [
@@ -3388,7 +4191,22 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 10
+      "stop_grace_seconds": 10,
+      "kubernetes_workload": null,
+      "kubernetes_workloads": [],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "runtimekit-fallback",
+        "identity_pattern": "^kafka-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "kafka-exporter-local"
+        ]
+      }
     },
     {
       "id": "elasticsearch-exporter",
@@ -3404,22 +4222,43 @@
         "min": 1,
         "max": 1,
         "configured": 1,
-        "instances": ["elasticsearch-exporter-local"]
+        "instances": [
+          "elasticsearch-exporter-local"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": null,
         "identity_source": "runtimekit-fallback",
-        "capacity_signals": ["metrics", "up"],
+        "capacity_signals": [
+          "metrics",
+          "up"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "elasticsearch", "per_instance": 1, "total": 1}],
+        "connections": [
+          {
+            "name": "elasticsearch",
+            "per_instance": 1,
+            "total": 1
+          }
+        ],
         "queues": [],
-        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "in_flight": [
+          {
+            "name": "scrape",
+            "capacity": 1
+          }
+        ],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
@@ -3436,7 +4275,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "ELASTICSEARCH_EXPORTER_HTTP_HOST",
@@ -3445,7 +4285,8 @@
           "required": false,
           "default": "127.0.0.1",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "ELASTICSEARCH_EXPORTER_HTTP_PORT",
@@ -3454,7 +4295,8 @@
           "required": false,
           "default": "9125",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "ELASTICSEARCH_EXPORTER_SCRAPE_TIMEOUT",
@@ -3463,7 +4305,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "ELASTICSEARCH_HOST",
@@ -3472,7 +4315,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "ELASTICSEARCH_PASSWORD",
@@ -3481,7 +4325,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "ELASTICSEARCH_PORT",
@@ -3490,7 +4335,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "ELASTICSEARCH_USERNAME",
@@ -3499,7 +4345,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_REVISION",
@@ -3508,7 +4355,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -3517,7 +4365,8 @@
           "required": false,
           "default": "host",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_VERSION",
@@ -3526,7 +4375,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         }
       ],
       "listeners": [
@@ -3550,7 +4400,22 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 10
+      "stop_grace_seconds": 10,
+      "kubernetes_workload": null,
+      "kubernetes_workloads": [],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "runtimekit-fallback",
+        "identity_pattern": "^elasticsearch-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "elasticsearch-exporter-local"
+        ]
+      }
     },
     {
       "id": "victoriametrics-exporter",
@@ -3566,22 +4431,43 @@
         "min": 1,
         "max": 1,
         "configured": 1,
-        "instances": ["victoriametrics-exporter-local"]
+        "instances": [
+          "victoriametrics-exporter-local"
+        ]
       },
       "diagnostic": {
         "independent": true,
         "via_monitor": false,
         "probe_listener": "probe",
-        "paths": ["/startup", "/live", "/ready", "/health"],
+        "paths": [
+          "/startup",
+          "/live",
+          "/ready",
+          "/health"
+        ],
         "identity_env": null,
         "identity_source": "runtimekit-fallback",
-        "capacity_signals": ["metrics", "up"],
+        "capacity_signals": [
+          "metrics",
+          "up"
+        ],
         "host_port_published": false
       },
       "budgets": {
-        "connections": [{"name": "victoriametrics", "per_instance": 1, "total": 1}],
+        "connections": [
+          {
+            "name": "victoriametrics",
+            "per_instance": 1,
+            "total": 1
+          }
+        ],
         "queues": [],
-        "in_flight": [{"name": "scrape", "capacity": 1}],
+        "in_flight": [
+          {
+            "name": "scrape",
+            "capacity": 1
+          }
+        ],
         "shutdown_seconds": 5,
         "stop_grace_seconds": 10
       },
@@ -3598,7 +4484,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -3607,7 +4494,8 @@
           "required": false,
           "default": "host",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_VERSION",
@@ -3616,7 +4504,8 @@
           "required": false,
           "default": "development",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_EXPORTER_CONNECT_TIMEOUT",
@@ -3625,7 +4514,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_EXPORTER_HTTP_HOST",
@@ -3634,7 +4524,8 @@
           "required": false,
           "default": "127.0.0.1",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_EXPORTER_HTTP_PORT",
@@ -3643,7 +4534,8 @@
           "required": false,
           "default": "9126",
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_EXPORTER_SCRAPE_TIMEOUT",
@@ -3652,7 +4544,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_HOST",
@@ -3661,7 +4554,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_PASSWORD",
@@ -3670,7 +4564,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_PORT",
@@ -3679,7 +4574,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "VICTORIAMETRICS_USERNAME",
@@ -3688,7 +4584,8 @@
           "required": true,
           "default": null,
           "compose_value": null,
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         }
       ],
       "listeners": [
@@ -3712,7 +4609,22 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 10
+      "stop_grace_seconds": 10,
+      "kubernetes_workload": null,
+      "kubernetes_workloads": [],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": null,
+        "identity_source": "runtimekit-fallback",
+        "identity_pattern": "^victoriametrics-exporter-local$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "victoriametrics-exporter-local"
+        ]
+      }
     },
     {
       "id": "platform-api",
@@ -3785,7 +4697,8 @@
           "required": false,
           "default": "true",
           "compose_value": "${ALERT_EVALUATION_ENABLED:-true}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "true"
         },
         {
           "key": "APP_ENV",
@@ -3794,7 +4707,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${APP_ENV:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "development"
         },
         {
           "key": "AUTH_COOKIE_NAME",
@@ -3803,7 +4717,8 @@
           "required": false,
           "default": "gopulse_session",
           "compose_value": "${AUTH_COOKIE_NAME:-gopulse_session}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse_session"
         },
         {
           "key": "AUTH_COOKIE_SECURE",
@@ -3812,7 +4727,8 @@
           "required": false,
           "default": "false",
           "compose_value": "${AUTH_COOKIE_SECURE:-false}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "false"
         },
         {
           "key": "AUTH_JWT_SECRET",
@@ -3821,7 +4737,13 @@
           "required": true,
           "default": null,
           "compose_value": "${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "AUTH_JWT_SECRET"
+            }
+          }
         },
         {
           "key": "AUTH_JWT_TTL",
@@ -3830,7 +4752,8 @@
           "required": false,
           "default": "2h",
           "compose_value": "${AUTH_JWT_TTL:-2h}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2h"
         },
         {
           "key": "BACKEND_ENDPOINTS",
@@ -3839,7 +4762,8 @@
           "required": false,
           "default": "backend",
           "compose_value": "backend,backend-2,platform-api",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "backend,platform-api"
         },
         {
           "key": "BACKEND_EVENT_QUERY_DEFAULT_RANGE",
@@ -3848,7 +4772,8 @@
           "required": false,
           "default": "15m",
           "compose_value": "${BACKEND_EVENT_QUERY_DEFAULT_RANGE:-15m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "15m"
         },
         {
           "key": "BACKEND_EVENT_QUERY_MAX_RANGE",
@@ -3857,7 +4782,8 @@
           "required": false,
           "default": "24h",
           "compose_value": "${BACKEND_EVENT_QUERY_MAX_RANGE:-24h}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "24h"
         },
         {
           "key": "BACKEND_EVENT_READ_ALIAS",
@@ -3866,7 +4792,8 @@
           "required": false,
           "default": "gopulse-events-v1-read",
           "compose_value": "${BACKEND_EVENT_READ_ALIAS:-gopulse-events-v1-read}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-events-v1-read"
         },
         {
           "key": "BACKEND_HTTP_MAX_CONCURRENCY",
@@ -3875,7 +4802,8 @@
           "required": false,
           "default": "128",
           "compose_value": "${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "32"
         },
         {
           "key": "BACKEND_LOG_QUERY_DEFAULT_RANGE",
@@ -3884,7 +4812,8 @@
           "required": false,
           "default": "15m",
           "compose_value": "${BACKEND_LOG_QUERY_DEFAULT_RANGE:-15m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "15m"
         },
         {
           "key": "BACKEND_LOG_QUERY_MAX_RANGE",
@@ -3893,7 +4822,8 @@
           "required": false,
           "default": "24h",
           "compose_value": "${BACKEND_LOG_QUERY_MAX_RANGE:-24h}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "24h"
         },
         {
           "key": "BACKEND_LOG_READ_ALIAS",
@@ -3902,7 +4832,8 @@
           "required": false,
           "default": "gopulse-logs-v1-read",
           "compose_value": "${BACKEND_LOG_READ_ALIAS:-gopulse-logs-v1-read}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-logs-v1-read"
         },
         {
           "key": "BACKEND_METRICS_TOKEN",
@@ -3911,7 +4842,13 @@
           "required": true,
           "default": null,
           "compose_value": "${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "BACKEND_METRICS_TOKEN"
+            }
+          }
         },
         {
           "key": "BACKEND_METRIC_QUERY_DEFAULT_RANGE",
@@ -3920,7 +4857,8 @@
           "required": false,
           "default": "15m",
           "compose_value": "${BACKEND_METRIC_QUERY_DEFAULT_RANGE:-15m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "15m"
         },
         {
           "key": "BACKEND_METRIC_QUERY_MAX_RANGE",
@@ -3929,7 +4867,8 @@
           "required": false,
           "default": "24h",
           "compose_value": "${BACKEND_METRIC_QUERY_MAX_RANGE:-24h}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "24h"
         },
         {
           "key": "BACKEND_SERVICE_ROLE",
@@ -3938,7 +4877,8 @@
           "required": false,
           "default": "combined",
           "compose_value": "platform",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "platform"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
@@ -3947,7 +4887,8 @@
           "required": false,
           "default": "10000",
           "compose_value": "${BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS:-10000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "10000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_GROUPS",
@@ -3956,7 +4897,8 @@
           "required": false,
           "default": "100000",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_GROUPS:-100000}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "100000"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_RETAINED_BYTES",
@@ -3965,7 +4907,8 @@
           "required": false,
           "default": "1073741824",
           "compose_value": "${BUSINESS_ASYNC_MAX_RETAINED_BYTES:-1073741824}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1073741824"
         },
         {
           "key": "BUSINESS_STAGE_ENDPOINTS",
@@ -3974,7 +4917,8 @@
           "required": true,
           "default": null,
           "compose_value": "${BUSINESS_STAGE_ENDPOINTS:-http://backend:8080,http://backend-2:8080}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://backend:8080"
         },
         {
           "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
@@ -3983,7 +4927,13 @@
           "required": true,
           "default": null,
           "compose_value": "${BUSINESS_STAGE_SERVICE_CREDENTIAL:?BUSINESS_STAGE_SERVICE_CREDENTIAL is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL"
+            }
+          }
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_PASSWORD",
@@ -3992,7 +4942,13 @@
           "required": true,
           "default": null,
           "compose_value": "${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "VICTORIAMETRICS_PASSWORD"
+            }
+          }
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT",
@@ -4001,7 +4957,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_URL",
@@ -4010,7 +4967,8 @@
           "required": false,
           "default": "http://victoriametrics:8428",
           "compose_value": "http://victoriametrics:8428",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://victoriametrics:8428"
         },
         {
           "key": "BACKEND_VICTORIAMETRICS_USERNAME",
@@ -4019,7 +4977,8 @@
           "required": true,
           "default": null,
           "compose_value": "${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse-marshaller"
         },
         {
           "key": "BUSINESS_WORKER_ENDPOINTS",
@@ -4028,7 +4987,8 @@
           "required": false,
           "default": "business-worker",
           "compose_value": "business-worker,business-worker-2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "business-worker"
         },
         {
           "key": "ELASTICSEARCH_REQUEST_TIMEOUT",
@@ -4037,7 +4997,8 @@
           "required": false,
           "default": "3s",
           "compose_value": "${ELASTICSEARCH_REQUEST_TIMEOUT:-3s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3s"
         },
         {
           "key": "GOPULSE_INSTANCE_ID",
@@ -4046,7 +5007,8 @@
           "required": false,
           "default": "backend-local",
           "compose_value": "platform-api-1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "platform-api-1"
         },
         {
           "key": "GOPULSE_REPLICA_COUNT",
@@ -4055,7 +5017,8 @@
           "required": false,
           "default": "1",
           "compose_value": "1",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1"
         },
         {
           "key": "GOPULSE_REVISION",
@@ -4064,7 +5027,8 @@
           "required": false,
           "default": "development",
           "compose_value": "${GOPULSE_REVISION:-development}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "GOPULSE_RUNTIME_MODE",
@@ -4073,7 +5037,8 @@
           "required": false,
           "default": "container",
           "compose_value": "container",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "container"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_SIZE",
@@ -4082,7 +5047,8 @@
           "required": false,
           "default": "256",
           "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "256"
         },
         {
           "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
@@ -4091,7 +5057,8 @@
           "required": false,
           "default": "1s",
           "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "1s"
         },
         {
           "key": "GOPULSE_TRACE_ENABLED",
@@ -4100,7 +5067,8 @@
           "required": false,
           "default": "false",
           "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "false"
         },
         {
           "key": "GOPULSE_TRACE_ENDPOINT",
@@ -4109,7 +5077,8 @@
           "required": false,
           "default": "",
           "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": ""
         },
         {
           "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
@@ -4118,7 +5087,8 @@
           "required": false,
           "default": "2s",
           "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2s"
         },
         {
           "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
@@ -4127,7 +5097,8 @@
           "required": false,
           "default": "2048",
           "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2048"
         },
         {
           "key": "GOPULSE_TRACE_SAMPLE_RATIO",
@@ -4136,7 +5107,8 @@
           "required": false,
           "default": "0.10",
           "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.10"
         },
         {
           "key": "GOPULSE_TRACE_SERVICE_NAME",
@@ -4145,7 +5117,8 @@
           "required": false,
           "default": "backend",
           "compose_value": "backend",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "backend"
         },
         {
           "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
@@ -4154,7 +5127,8 @@
           "required": false,
           "default": "5s",
           "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "5s"
         },
         {
           "key": "GOPULSE_VERSION",
@@ -4163,7 +5137,8 @@
           "required": true,
           "default": null,
           "compose_value": "${GOPULSE_VERSION:?GOPULSE_VERSION is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": null
         },
         {
           "key": "HTTP_HOST",
@@ -4172,7 +5147,8 @@
           "required": false,
           "default": "0.0.0.0",
           "compose_value": "0.0.0.0",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "0.0.0.0"
         },
         {
           "key": "HTTP_PORT",
@@ -4181,7 +5157,8 @@
           "required": false,
           "default": "8080",
           "compose_value": "8080",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "8080"
         },
         {
           "key": "LOG_MONITOR_INGEST_TOKEN",
@@ -4190,7 +5167,13 @@
           "required": true,
           "default": null,
           "compose_value": "${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "LOG_MONITOR_INGEST_TOKEN"
+            }
+          }
         },
         {
           "key": "LOG_MONITOR_URL",
@@ -4199,7 +5182,8 @@
           "required": false,
           "default": "http://monitor:9090",
           "compose_value": "http://monitor:9090",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://monitor:9090"
         },
         {
           "key": "MARSHALLER_ENDPOINTS",
@@ -4208,7 +5192,8 @@
           "required": false,
           "default": "marshaller",
           "compose_value": "marshaller,marshaller-2",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "marshaller"
         },
         {
           "key": "MARSHALLER_API_TOKEN",
@@ -4217,7 +5202,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MARSHALLER_API_TOKEN"
+            }
+          }
         },
         {
           "key": "MONITOR_API_TOKEN",
@@ -4226,7 +5217,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MONITOR_API_TOKEN"
+            }
+          }
         },
         {
           "key": "MONITOR_REQUEST_TIMEOUT",
@@ -4235,7 +5232,8 @@
           "required": false,
           "default": "30s",
           "compose_value": "${MONITOR_REQUEST_TIMEOUT:-30s}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "30s"
         },
         {
           "key": "MONITOR_URL",
@@ -4244,7 +5242,8 @@
           "required": false,
           "default": "http://monitor:9090",
           "compose_value": "http://monitor:9090",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://monitor:9090"
         },
         {
           "key": "MYSQL_CONN_MAX_LIFETIME",
@@ -4253,7 +5252,8 @@
           "required": false,
           "default": "3m",
           "compose_value": "${MYSQL_CONN_MAX_LIFETIME:-3m}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3m"
         },
         {
           "key": "MYSQL_DATABASE",
@@ -4262,7 +5262,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_DATABASE:?MYSQL_DATABASE is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "MYSQL_HOST",
@@ -4271,7 +5272,8 @@
           "required": false,
           "default": "mysql",
           "compose_value": "mysql",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "mysql"
         },
         {
           "key": "MYSQL_MAX_IDLE_CONNS",
@@ -4280,7 +5282,8 @@
           "required": false,
           "default": "2",
           "compose_value": "${MYSQL_MAX_IDLE_CONNS:-2}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "2"
         },
         {
           "key": "MYSQL_MAX_OPEN_CONNS",
@@ -4289,7 +5292,8 @@
           "required": false,
           "default": "8",
           "compose_value": "${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "4"
         },
         {
           "key": "MYSQL_PASSWORD",
@@ -4298,7 +5302,13 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": {
+            "secretKeyRef": {
+              "name": "gopulse-credentials",
+              "key": "MYSQL_PASSWORD"
+            }
+          }
         },
         {
           "key": "MYSQL_PORT",
@@ -4307,7 +5317,8 @@
           "required": false,
           "default": "3306",
           "compose_value": "3306",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "3306"
         },
         {
           "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
@@ -4316,7 +5327,8 @@
           "required": false,
           "default": "60",
           "compose_value": "${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "60"
         },
         {
           "key": "MYSQL_USER",
@@ -4325,7 +5337,8 @@
           "required": true,
           "default": null,
           "compose_value": "${MYSQL_USER:?MYSQL_USER is required}",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "gopulse"
         },
         {
           "key": "OBSERVABILITY_ELASTICSEARCH_URL",
@@ -4334,7 +5347,8 @@
           "required": false,
           "default": "http://observability-elasticsearch:9200",
           "compose_value": "http://observability-elasticsearch:9200",
-          "aliases": []
+          "aliases": [],
+          "kubernetes_value": "http://observability-elasticsearch:9200"
         },
         {
           "key": "PLATFORM_API_HTTP_MAX_CONCURRENCY",
@@ -4343,7 +5357,8 @@
           "required": false,
           "default": "32",
           "aliases": [],
-          "compose_value": "${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}"
+          "compose_value": "${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}",
+          "kubernetes_value": "32"
         },
         {
           "key": "PLATFORM_API_MYSQL_MAX_OPEN_CONNS",
@@ -4352,7 +5367,8 @@
           "required": false,
           "default": "4",
           "aliases": [],
-          "compose_value": "${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}"
+          "compose_value": "${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}",
+          "kubernetes_value": "4"
         },
         {
           "key": "SEARCH_INDEXER_ENDPOINTS",
@@ -4361,6 +5377,17 @@
           "required": false,
           "default": "search-indexer",
           "compose_value": "search-indexer,search-indexer-2",
+          "aliases": [],
+          "kubernetes_value": "search-indexer"
+        },
+        {
+          "key": "GOPULSE_SELFMONITOR_CONTROL",
+          "type": "string",
+          "sensitive": false,
+          "required": false,
+          "default": "compose",
+          "compose_value": "compose",
+          "kubernetes_value": "kubernetes",
           "aliases": []
         }
       ],
@@ -4396,7 +5423,24 @@
       "cache_ms": 250,
       "max_concurrent_checks": 1,
       "shutdown_seconds": 5,
-      "stop_grace_seconds": 15
+      "stop_grace_seconds": 15,
+      "kubernetes_workload": "platform-api",
+      "kubernetes_workloads": [
+        "platform-api"
+      ],
+      "kubernetes_replica": {
+        "mode": "singleton",
+        "ownership": "single-owner",
+        "identity_env": "GOPULSE_INSTANCE_ID",
+        "identity_source": "environment",
+        "identity_pattern": "^platform-api-1$",
+        "min": 1,
+        "max": 1,
+        "configured": 1,
+        "instances": [
+          "platform-api-1"
+        ]
+      }
     }
   ],
   "env_example": [
@@ -5322,6 +6366,11 @@
     },
     {
       "key": "VICTORIAMETRICS_USERNAME",
+      "type": "string",
+      "sensitive": false
+    },
+    {
+      "key": "GOPULSE_SELFMONITOR_CONTROL",
       "type": "string",
       "sensitive": false
     }

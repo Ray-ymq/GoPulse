@@ -1,0 +1,225 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "business-worker-env",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "business-worker-env"
+        }
+      },
+      "data": {
+        "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS": "10000",
+        "BUSINESS_ASYNC_MAX_RETAINED_BYTES": "1073741824",
+        "BUSINESS_ASYNC_MAX_RETAINED_GROUPS": "100000",
+        "BUSINESS_WORKER_MAX_RETRIES": "3",
+        "BUSINESS_WORKER_PREFETCH": "10",
+        "BUSINESS_WORKER_PUBLISH_TIMEOUT": "5s",
+        "BUSINESS_WORKER_RECONNECT_MAX": "30s",
+        "BUSINESS_WORKER_RECONNECT_MIN": "500ms",
+        "BUSINESS_WORKER_SHUTDOWN_TIMEOUT": "10s",
+        "GOPULSE_REPLICA_COUNT": "1",
+        "GOPULSE_RUNTIME_MODE": "container",
+        "GOPULSE_TRACE_BATCH_SIZE": "256",
+        "GOPULSE_TRACE_BATCH_TIMEOUT": "1s",
+        "GOPULSE_TRACE_ENABLED": "false",
+        "GOPULSE_TRACE_ENDPOINT": "",
+        "GOPULSE_TRACE_EXPORT_TIMEOUT": "2s",
+        "GOPULSE_TRACE_QUEUE_CAPACITY": "2048",
+        "GOPULSE_TRACE_SAMPLE_RATIO": "0.10",
+        "GOPULSE_TRACE_SERVICE_NAME": "business-worker",
+        "GOPULSE_TRACE_SHUTDOWN_TIMEOUT": "5s",
+        "LOG_MONITOR_URL": "http://monitor:9090",
+        "LOG_SHIP_QUEUE_CAPACITY": "256",
+        "LOG_SHIP_REQUEST_TIMEOUT": "2s",
+        "LOG_SHIP_RETRY_MAX": "5s",
+        "LOG_SHIP_RETRY_MIN": "250ms",
+        "LOG_SHIP_SHUTDOWN_TIMEOUT": "5s",
+        "MYSQL_CONN_MAX_LIFETIME": "3m",
+        "MYSQL_DATABASE": "gopulse",
+        "MYSQL_HOST": "mysql",
+        "MYSQL_MAX_IDLE_CONNS": "2",
+        "MYSQL_MAX_OPEN_CONNS": "4",
+        "MYSQL_PORT": "3306",
+        "MYSQL_TOTAL_MAX_OPEN_CONNS": "60",
+        "MYSQL_USER": "gopulse",
+        "OUTBOX_RETRY_DELAY": "30s"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "business-worker",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "business-worker"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "business-worker"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "business-worker",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "terminationGracePeriodSeconds": 30,
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "name": "business-worker",
+                "image": "gopulse/business-worker:local",
+                "imagePullPolicy": "IfNotPresent",
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "business-worker-env"
+                    }
+                  },
+                  {
+                    "configMapRef": {
+                      "name": "gopulse-identity"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "BUSINESS_WORKER_METRICS_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "BUSINESS_WORKER_METRICS_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "LOG_MONITOR_INGEST_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "LOG_MONITOR_INGEST_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MYSQL_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MYSQL_PASSWORD"
+                      }
+                    }
+                  },
+                  {
+                    "name": "RABBITMQ_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "RABBITMQ_URL"
+                      }
+                    }
+                  },
+                  {
+                    "name": "GOPULSE_INSTANCE_ID",
+                    "value": "business-worker-1"
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 19102,
+                    "name": "p19102"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1000m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/startup",
+                    "port": 19102
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 60
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 19102
+                  },
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/live",
+                    "port": 19102
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              }
+            ]
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "business-worker",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "business-worker"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "business-worker"
+        },
+        "ports": [
+          {
+            "port": 19102,
+            "targetPort": 19102,
+            "name": "p19102"
+          }
+        ]
+      }
+    }
+  ]
+}

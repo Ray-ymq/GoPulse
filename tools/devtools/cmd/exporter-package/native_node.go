@@ -30,7 +30,7 @@ func downloadNativeNode(module, arch, version, destination string) error {
 		return errors.New("invalid native node release")
 	}
 	url := fmt.Sprintf("https://github.com/prometheus/node_exporter/releases/download/v%s/node_exporter-%s.linux-%s.tar.gz", version, version, arch)
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Minute}
 	response, err := client.Get(url)
 	if err != nil {
 		return err

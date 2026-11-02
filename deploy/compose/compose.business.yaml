@@ -91,6 +91,7 @@ x-platform-environment: &platform-environment
   # 保留管理 API。观测查询暂不可用，以下占位凭据仅用于配置校验。
   <<: *backend-common-environment
   BACKEND_SERVICE_ROLE: platform
+  GOPULSE_SELFMONITOR_CONTROL: compose
   GOPULSE_REPLICA_COUNT: 1
   BACKEND_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
   PLATFORM_API_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
@@ -600,11 +601,23 @@ services:
 
 networks:
   edge:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   business:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
     internal: true
 
 volumes:
   mysql_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   redis_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   rabbitmq_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   elasticsearch_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}

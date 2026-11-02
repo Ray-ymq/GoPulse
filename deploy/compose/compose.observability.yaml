@@ -87,6 +87,7 @@ services:
       GOPULSE_INSTANCE_ID: platform-api-1
       GOPULSE_REPLICA_COUNT: 1
       BACKEND_SERVICE_ROLE: platform
+      GOPULSE_SELFMONITOR_CONTROL: compose
       BACKEND_STANDALONE_OBSERVABILITY: "true"
       APP_ENV: ${APP_ENV:-development}
       HTTP_HOST: 0.0.0.0
@@ -303,7 +304,9 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/monitor.Dockerfile
-      target: monitor
+      target: monitor-product
+      additional_contexts:
+        plugin-packages: ../../.run/packages
       args: *image-build-args
     restart: on-failure:5
     read_only: true
@@ -343,16 +346,32 @@ services:
 
 networks:
   edge:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   observability:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
     internal: true
 
 volumes:
   mysql_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   kafka_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   victoriametrics_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   observability_elasticsearch_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   monitor_plugin_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
   monitor_spool_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
 
 secrets:
   victoriametrics_password:

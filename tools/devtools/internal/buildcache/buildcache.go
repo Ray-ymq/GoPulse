@@ -1,6 +1,4 @@
-// Package buildcache renders and runs the repository's Compose image build
-// definition. It keeps the local and GitHub Actions build entry points on the
-// same target list and preserves the optional-cache retry contract.
+// Package buildcache 使用共享镜像定义构建两种部署方式的产品镜像。
 package buildcache
 
 import (
@@ -18,7 +16,7 @@ import (
 
 const Platform = "linux/amd64"
 
-// Targets is the complete image set used by the authoritative Compose build.
+// Targets is the complete image set used by the authoritative 镜像 build.
 var Targets = []string{
 	"backend",
 	"business-worker",
@@ -45,7 +43,7 @@ type commandRunner func(name string, args []string, dir string, environment []st
 
 type targetDefinition map[string]json.RawMessage
 
-type composeDefinition struct {
+type imageDefinition struct {
 	Target map[string]targetDefinition `json:"target"`
 }
 
@@ -83,7 +81,7 @@ func runWith(root string, options Options, runner commandRunner) (int, error) {
 
 	environment := environmentWithIdentity(version, revision, os.Environ())
 	cached := !options.NoCache && hasCacheRuntime(environment)
-	definition, err := composeDefinitionFor(root, environment, cached, runner)
+	definition, err := imageDefinitionFor(root, environment, cached, runner)
 	if err != nil {
 		return 1, err
 	}
@@ -97,7 +95,7 @@ func runWith(root string, options Options, runner commandRunner) (int, error) {
 	}
 
 	if !cached {
-		fmt.Println("Compose build: remote cache unavailable; building normally.")
+		fmt.Println("远程缓存不可用，使用本地缓存构建镜像。")
 	}
 	path, err := writeBakeFile(definition)
 	if err != nil {
@@ -115,7 +113,7 @@ func runWith(root string, options Options, runner commandRunner) (int, error) {
 	if err := overwriteBakeFile(path, fallback); err != nil {
 		return 1, err
 	}
-	fmt.Println("Compose build: cache service failed; retrying once without remote cache.")
+	fmt.Println("远程缓存失败，禁用远程缓存后重试一次。")
 	result = runner("docker", []string{"buildx", "bake", "--file", path, "--load"}, root, environment)
 	printResult(result)
 	return result.Code, nil
@@ -169,7 +167,7 @@ func environmentWithIdentity(version, revision string, base []string) []string {
 	}
 	values["GOPULSE_VERSION"] = version
 	values["GOPULSE_REVISION"] = revision
-	// Image tags are fixed at latest in Compose; version remains build metadata.
+	// 产品镜像标签由 VERSION 和 Git revision 生成。
 	delete(values, "GOPULSE_IMAGE_TAG")
 	values["GOPULSE_UPDATE_VERSION"] = fmt.Sprintf("%s.%s.%d", parts[0], parts[1], patch+1)
 	return sortedEnvironment(values)
@@ -199,27 +197,41 @@ func sortedEnvironment(values map[string]string) []string {
 	return environment
 }
 
-func composeDefinitionFor(root string, environment []string, cached bool, runner commandRunner) (bakeDefinition, error) {
-	args := []string{"compose", "--env-file", filepath.Join(root, ".env.example"), "--file", filepath.Join(root, "deploy", "compose", "compose.yaml"), "build", "--print"}
-	args = append(args, Targets...)
-	result := runner("docker", args, root, environment)
-	if result.Code != 0 {
-		return bakeDefinition{}, fmt.Errorf("docker compose build --print failed with exit code %d: %s", result.Code, strings.TrimSpace(result.Stderr))
+func imageDefinitionFor(root string, environment []string, cached bool, _ commandRunner) (bakeDefinition, error) {
+	raw, err := os.ReadFile(filepath.Join(root, "deploy", "images.json"))
+	if err != nil {
+		return bakeDefinition{}, err
 	}
-	var compose composeDefinition
-	if err := json.Unmarshal([]byte(result.Stdout), &compose); err != nil {
-		return bakeDefinition{}, fmt.Errorf("decode Compose build definition: %w", err)
+	var images imageDefinition
+	if err := json.Unmarshal(raw, &images); err != nil {
+		return bakeDefinition{}, err
+	}
+	values := map[string]string{}
+	for _, item := range environment {
+		if k, v, ok := strings.Cut(item, "="); ok {
+			values[k] = v
+		}
+	}
+	proxy := values["GOPROXY"]
+	if proxy == "" {
+		proxy = "https://goproxy.cn,direct"
 	}
 	definition := bakeDefinition{
 		Group:  map[string]map[string][]string{"default": {"targets": append([]string(nil), Targets...)}},
 		Target: map[string]targetDefinition{},
 	}
 	for _, name := range Targets {
-		target, ok := compose.Target[name]
+		target, ok := images.Target[name]
 		if !ok {
-			return bakeDefinition{}, fmt.Errorf("no target %q in Compose build definition", name)
+			return bakeDefinition{}, fmt.Errorf("镜像定义缺少目标 %q", name)
 		}
 		adapted := cloneTarget(target)
+		adapted["context"] = rawJSON(root)
+		if name == "monitor" {
+			adapted["contexts"] = rawJSON(map[string]string{"plugin-packages": filepath.Join(root, ".run/packages")})
+		}
+		adapted["args"] = rawJSON(map[string]string{"VERSION": values["GOPULSE_VERSION"], "REVISION": values["GOPULSE_REVISION"], "GOPROXY": proxy})
+		adapted["tags"] = rawJSON([]string{"gopulse/" + name + ":" + values["GOPULSE_VERSION"] + "-" + values["GOPULSE_REVISION"][:12], "gopulse/" + name + ":latest"})
 		adapted["platforms"] = rawJSON([]string{Platform})
 		adapted["output"] = rawJSON([]string{"type=docker"})
 		delete(adapted, "cache-from")

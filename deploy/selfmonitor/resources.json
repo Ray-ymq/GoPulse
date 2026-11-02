@@ -1,0 +1,958 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "selfmonitor-prometheus-data",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-prometheus-data",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "storageClassName": "local-path",
+        "resources": {
+          "requests": {
+            "storage": "4Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "name": "selfmonitor-prometheus",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-prometheus",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-prometheus"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-prometheus",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "prometheus",
+                "image": "prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
+                "ports": [
+                  {
+                    "containerPort": 9090
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "data",
+                    "mountPath": "/prometheus"
+                  },
+                  {
+                    "name": "config",
+                    "mountPath": "/etc/prometheus",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "tokens",
+                    "mountPath": "/etc/prometheus/secrets",
+                    "readOnly": true
+                  }
+                ],
+                "args": [
+                  "--config.file=/etc/prometheus/prometheus.yaml",
+                  "--storage.tsdb.path=/prometheus",
+                  "--storage.tsdb.retention.time=15d"
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/-/ready",
+                    "port": 9090
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": true,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": [
+              {
+                "name": "data",
+                "persistentVolumeClaim": {
+                  "claimName": "selfmonitor-prometheus-data"
+                }
+              },
+              {
+                "name": "config",
+                "configMap": {
+                  "name": "selfmonitor-prometheus"
+                }
+              },
+              {
+                "name": "tokens",
+                "secret": {
+                  "secretName": "gopulse-credentials",
+                  "items": [
+                    {
+                      "key": "BACKEND_METRICS_TOKEN",
+                      "path": "backend_token"
+                    },
+                    {
+                      "key": "BUSINESS_WORKER_METRICS_TOKEN",
+                      "path": "business-worker_token"
+                    },
+                    {
+                      "key": "SEARCH_INDEXER_METRICS_TOKEN",
+                      "path": "search-indexer_token"
+                    },
+                    {
+                      "key": "MONITOR_METRICS_TOKEN",
+                      "path": "monitor_token"
+                    },
+                    {
+                      "key": "MARSHALLER_METRICS_TOKEN",
+                      "path": "marshaller_token"
+                    },
+                    {
+                      "key": "VICTORIAMETRICS_PASSWORD",
+                      "path": "vm_password"
+                    }
+                  ]
+                }
+              }
+            ],
+            "securityContext": {
+              "fsGroup": 65534
+            },
+            "serviceAccountName": "selfmonitor"
+          }
+        },
+        "replicas": 1,
+        "serviceName": "selfmonitor-prometheus"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-prometheus",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-prometheus",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-prometheus"
+        },
+        "ports": [
+          {
+            "port": 9090,
+            "targetPort": 9090
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "selfmonitor-grafana-data",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-grafana-data",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "storageClassName": "local-path",
+        "resources": {
+          "requests": {
+            "storage": "4Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "name": "selfmonitor-grafana",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-grafana",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-grafana"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-grafana",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "grafana",
+                "image": "grafana/grafana:12.1.1@sha256:a1701c2180249361737a99a01bc770db39381640e4d631825d38ff4535efa47d",
+                "ports": [
+                  {
+                    "containerPort": 3000
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "data",
+                    "mountPath": "/var/lib/grafana"
+                  },
+                  {
+                    "name": "grafana-datasource",
+                    "mountPath": "/etc/grafana/provisioning/datasources/default.yaml",
+                    "subPath": "datasource.yaml",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "grafana-provider",
+                    "mountPath": "/etc/grafana/provisioning/dashboards/default.yaml",
+                    "subPath": "provider.yaml",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "grafana-dashboard",
+                    "mountPath": "/var/lib/grafana/dashboards/gopulse.json",
+                    "subPath": "gopulse.json",
+                    "readOnly": true
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "GF_SECURITY_ADMIN_USER",
+                    "value": "admin"
+                  },
+                  {
+                    "name": "GF_SECURITY_ADMIN_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "selfmonitor-credentials",
+                        "key": "GRAFANA_PASSWORD"
+                      }
+                    }
+                  },
+                  {
+                    "name": "GF_USERS_ALLOW_SIGN_UP",
+                    "value": "false"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/api/health",
+                    "port": 3000
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": [
+              {
+                "name": "data",
+                "persistentVolumeClaim": {
+                  "claimName": "selfmonitor-grafana-data"
+                }
+              },
+              {
+                "name": "grafana-datasource",
+                "configMap": {
+                  "name": "selfmonitor-grafana"
+                }
+              },
+              {
+                "name": "grafana-provider",
+                "configMap": {
+                  "name": "selfmonitor-grafana"
+                }
+              },
+              {
+                "name": "grafana-dashboard",
+                "configMap": {
+                  "name": "selfmonitor-grafana"
+                }
+              }
+            ],
+            "securityContext": {
+              "fsGroup": 472
+            }
+          }
+        },
+        "replicas": 1,
+        "serviceName": "selfmonitor-grafana"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-grafana",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-grafana",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-grafana"
+        },
+        "ports": [
+          {
+            "port": 3000,
+            "targetPort": 3000
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "metadata": {
+        "name": "selfmonitor-node",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-node",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-node"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-node",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "node",
+                "image": "prom/node-exporter:v1.9.1@sha256:d00a542e409ee618a4edc67da14dd48c5da66726bbd5537ab2af9c1dfc442c8a",
+                "ports": [
+                  {
+                    "containerPort": 9100
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "host",
+                    "mountPath": "/host",
+                    "readOnly": true
+                  }
+                ],
+                "args": [
+                  "--path.rootfs=/host"
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/metrics",
+                    "port": 9100
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": [
+              {
+                "name": "host",
+                "hostPath": {
+                  "path": "/",
+                  "type": "Directory"
+                }
+              }
+            ],
+            "hostPID": true
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-node",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-node",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-node"
+        },
+        "ports": [
+          {
+            "port": 9100,
+            "targetPort": 9100
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "selfmonitor-mysql-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-mysql-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-mysql-exporter"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-mysql-exporter",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "mysql-exporter",
+                "image": "prom/mysqld-exporter:v0.17.2@sha256:20b5b23a98ce3998349042a999e56d22819b46da38fa4e4e9ca0155c975c95d5",
+                "ports": [
+                  {
+                    "containerPort": 9104
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "mysql-cnf",
+                    "mountPath": "/run/secrets",
+                    "readOnly": true
+                  }
+                ],
+                "args": [
+                  "--config.my-cnf=/run/secrets/mysql.cnf"
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/metrics",
+                    "port": 9104
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": [
+              {
+                "name": "mysql-cnf",
+                "secret": {
+                  "secretName": "selfmonitor-credentials",
+                  "items": [
+                    {
+                      "key": "MYSQL_CNF",
+                      "path": "mysql.cnf"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-mysql-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-mysql-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-mysql-exporter"
+        },
+        "ports": [
+          {
+            "port": 9104,
+            "targetPort": 9104
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "selfmonitor-redis-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-redis-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-redis-exporter"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-redis-exporter",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "redis-exporter",
+                "image": "oliver006/redis_exporter:v1.76.0@sha256:1542bc6a88decfc16db6603045accd502cc3a46c46659d7cfd568e1f6965fe59",
+                "ports": [
+                  {
+                    "containerPort": 9121
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [],
+                "env": [
+                  {
+                    "name": "REDIS_ADDR",
+                    "value": "redis://redis:6379"
+                  },
+                  {
+                    "name": "REDIS_USER",
+                    "value": "selfmonitor"
+                  },
+                  {
+                    "name": "REDIS_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "selfmonitor-credentials",
+                        "key": "REDIS_PASSWORD"
+                      }
+                    }
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/metrics",
+                    "port": 9121
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": []
+          }
+        },
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-redis-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-redis-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-redis-exporter"
+        },
+        "ports": [
+          {
+            "port": 9121,
+            "targetPort": 9121
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "selfmonitor-kafka-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-kafka-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-kafka-exporter"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-kafka-exporter",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "kafka-exporter",
+                "image": "danielqsj/kafka-exporter:v1.9.0@sha256:4150e46b2e9697ac30e4be8de03ec1704b4bdc7037577b83b8d35a32be298c16",
+                "ports": [
+                  {
+                    "containerPort": 9308
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [],
+                "args": [
+                  "--kafka.server=kafka:19092"
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/metrics",
+                    "port": 9308
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": []
+          }
+        },
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-kafka-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-kafka-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-kafka-exporter"
+        },
+        "ports": [
+          {
+            "port": 9308,
+            "targetPort": 9308
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "selfmonitor-elasticsearch-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-elasticsearch-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-elasticsearch-exporter"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-elasticsearch-exporter",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "elasticsearch-exporter",
+                "image": "prometheuscommunity/elasticsearch-exporter:v1.9.0@sha256:09a6fb742d75ee6d4a03581f1887f66d80884b16d0db2302462667b899f24392",
+                "ports": [
+                  {
+                    "containerPort": 9114
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [],
+                "args": [
+                  "--es.uri=http://elasticsearch:9200",
+                  "--es.all"
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/metrics",
+                    "port": 9114
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": []
+          }
+        },
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-elasticsearch-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-elasticsearch-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-elasticsearch-exporter"
+        },
+        "ports": [
+          {
+            "port": 9114,
+            "targetPort": 9114
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "selfmonitor-observability-elasticsearch-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-observability-elasticsearch-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "selfmonitor-observability-elasticsearch-exporter"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "selfmonitor-observability-elasticsearch-exporter",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "observability-elasticsearch-exporter",
+                "image": "prometheuscommunity/elasticsearch-exporter:v1.9.0@sha256:09a6fb742d75ee6d4a03581f1887f66d80884b16d0db2302462667b899f24392",
+                "ports": [
+                  {
+                    "containerPort": 9114
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [],
+                "args": [
+                  "--es.uri=http://observability-elasticsearch:9200",
+                  "--es.all"
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/metrics",
+                    "port": 9114
+                  },
+                  "initialDelaySeconds": 5,
+                  "periodSeconds": 10
+                }
+              }
+            ],
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 30,
+            "volumes": []
+          }
+        },
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "selfmonitor-observability-elasticsearch-exporter",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor-observability-elasticsearch-exporter",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "selfmonitor-observability-elasticsearch-exporter"
+        },
+        "ports": [
+          {
+            "port": 9114,
+            "targetPort": 9114
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "selfmonitor",
+        "labels": {
+          "app.kubernetes.io/name": "selfmonitor",
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      }
+    }
+  ]
+}

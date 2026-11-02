@@ -17,6 +17,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
+	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/quality"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/stack"
@@ -103,6 +104,12 @@ func run(args []string) int {
 	case "stack-verify":
 		err = stack.Verify(root)
 	case "build-cache":
+		if !parsed.printOnly {
+			if err := exporterpackages.Prepare(root, filepath.Join(root, ".run/packages"), devrun.Environ()); err != nil {
+				fmt.Fprintln(os.Stderr, "[gopulse] 插件包准备失败：", err)
+				return 1
+			}
+		}
 		code, buildErr := buildcache.Run(root, buildcache.Options{PrintOnly: parsed.printOnly, NoCache: parsed.noCache})
 		if buildErr != nil {
 			fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", buildErr)

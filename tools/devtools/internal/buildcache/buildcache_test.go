@@ -13,18 +13,6 @@ func fakeRunner(repo string, results *[]commandResult, configs *[]bakeDefinition
 		if name == "git" {
 			return commandResult{Stdout: strings.Repeat("a", 40) + "\n"}
 		}
-		if len(args) >= 4 && args[0] == "compose" {
-			targets := map[string]targetDefinition{}
-			for _, target := range Targets {
-				targets[target] = targetDefinition{
-					"context": rawJSON(repo),
-					"target":  rawJSON(target),
-					"tags":    rawJSON([]string{"gopulse/" + target + ":latest"}),
-				}
-			}
-			raw, _ := json.Marshal(composeDefinition{Target: targets})
-			return commandResult{Stdout: string(raw)}
-		}
 		if name != "docker" || len(args) < 4 || args[0] != "buildx" {
 			return commandResult{Code: 1, Stderr: "unexpected command"}
 		}
@@ -48,6 +36,16 @@ func testRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "VERSION"), []byte("2.3.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "deploy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile("../../../../deploy/images.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "deploy", "images.json"), raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -91,8 +89,8 @@ func TestBuildWithoutCache(t *testing.T) {
 		if err := json.Unmarshal(configs[0].Target[name]["tags"], &tags); err != nil {
 			t.Fatal(err)
 		}
-		if len(tags) != 1 || tags[0] != "gopulse/"+name+":latest" {
-			t.Fatalf("%s tags=%v, want only gopulse/%s:latest", name, tags, name)
+		if len(tags) != 2 || tags[0] != "gopulse/"+name+":2.3.1-"+strings.Repeat("a", 12) {
+			t.Fatalf("%s tags=%v, 镜像标识必须包含产品版本和 Git revision", name, tags)
 		}
 	}
 }
