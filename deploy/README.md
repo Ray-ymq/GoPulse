@@ -16,6 +16,8 @@ deploy/
 
 环境变量示例统一维护在根目录的 [`.env.example`](../.env.example)。
 
+本次分支整合的验证结果、升级与回滚边界，以及尚未完成的验收项目，见 [Compose 整合与验收记录](COMPOSE_INTEGRATION.md)。
+
 ## 选择部署模式
 
 | 模式 | Compose 文件 | 当前用途 |

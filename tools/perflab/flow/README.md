@@ -52,7 +52,7 @@ make test MODULE=tools/perflab
 make race MODULE=tools/perflab
 make check MODULE=tools/perflab
 make build MODULE=tools/perflab
-GOPULSE_PT_K6_FIXTURE=1 PYTHONPATH=perflab python3 -m unittest flow.test_k6_fixture -v
+GOPULSE_PT_K6_FIXTURE=1 PYTHONPATH=tools/perflab python3 -m unittest flow.test_k6_fixture -v
 ```
 
 perflab 的 test/race 命令同时运行 Python、JavaScript 和公共配置测试，因此带 `ci:tools/perflab` 标签的模块 CI 会执行这些检查。默认测试不访问业务库和 Docker daemon；显式 k6 fixture 只访问临时 HTTP 服务，使用固定 k6 镜像及 1.5 核 / 1.5 GiB 配额。
