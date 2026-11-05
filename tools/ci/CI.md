@@ -144,4 +144,12 @@ PR 标题使用相同的标题格式。正文汇总 PR 的最终改动，使用�
 
 真实 merge commit 豁免，但普通提交仅写成 `Merge ...` 不会被放行。`--no-verify` 只能绕过本地钩子，PR 和手动运行中的 CI 仍会拦截不合规的新提交。PR 正文使用当前规则，直接推送 main 不触发本工作流。
 
-perflab 模块的 test/race 命令还运行公共流程的 Python、JavaScript、配置和归档回归。默认 fixture 不访问业务环境。真实 k6 容器 fixture 通过 `GOPULSE_PT_K6_FIXTURE=1` 显式执行，真实专用业务环境的缩短全流程验收仍需单独完成，不由模块 CI 自动启动。
+perflab 模块的 test/race 命令还运行公共流程的 Python、JavaScript、配置和归档回归。CI 在该模块的测试任务中创建独立 Python 虚拟环境，按 `tools/perflab/requirements.txt` 安装固定版本依赖，避免依赖 runner 预装包。本地缺少依赖时，先创建虚拟环境，再使用其中的 Python 运行模块测试：
+
+```sh
+python3 -m venv .run/ci/python
+.run/ci/python/bin/python -m pip install -r tools/perflab/requirements.txt
+PATH="$PWD/.run/ci/python/bin:$PATH" make ci-test MODULE=tools/perflab
+```
+
+默认 fixture 不访问业务环境。真实 k6 容器 fixture 通过 `GOPULSE_PT_K6_FIXTURE=1` 显式执行，真实专用业务环境的缩短全流程验收仍需单独完成，不由模块 CI 自动启动。

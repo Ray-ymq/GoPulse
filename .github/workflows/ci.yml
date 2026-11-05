@@ -123,6 +123,12 @@ jobs:
           cache-dependency-path: |
             **/go.mod
             **/go.sum
+      - name: Install perflab Python dependencies
+        if: matrix.module == 'tools/perflab'
+        run: |
+          python3 -m venv .run/ci/python
+          .run/ci/python/bin/python -m pip install -r tools/perflab/requirements.txt
+          echo "$GITHUB_WORKSPACE/.run/ci/python/bin" >> "$GITHUB_PATH"
       - name: Unit tests (Go includes race detection)
         env:
           MODULE: ${{ matrix.module }}
