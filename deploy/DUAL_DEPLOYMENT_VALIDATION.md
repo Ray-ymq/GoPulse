@@ -2,7 +2,7 @@
 
 ## 分支与提交
 
-本记录对应 `Plan.md` 第二阶段。第一阶段分支为 `feat/deploy-compose-integration`，验收提交为 `9101c667`；第二阶段分支为 `feat/deploy-kubernetes-support`。`main` 保持 `707ac08c`，未直接合并或推送。
+本记录保存双部署整合阶段的历史验收，不代表后续候选提交已通过验收。第一阶段分支为 `feat/deploy-compose-integration`，验收提交为 `9101c667`；第二阶段分支为 `feat/deploy-kubernetes-support`。整合阶段的 `main` 为 `707ac08c`，当时未直接合并或推送。验收范围和结果在本文中记录，不依赖工作区内未跟踪的计划文件。
 
 参考来源为 `main-docker..main-kubernetes` 的六个提交：`a62a7107`、`d965ed4b`、`5c9bcf06`、`82dc6c00`、`9ee064f5`、`ce5459a1`。仅选择产品部署、集群工具、镜像导入、受限自监控、启动依赖及恢复检查。不迁入旧环境清理、Kubernetes 源码开发、集成依赖或固定压测。
 
@@ -19,7 +19,7 @@
 
 ## 静态检查与构建
 
-- 全部 13 个 Go 模块均执行 `make ci-check`、`make ci-test`、`make ci-build` 并通过；Go 测试包含 race 检查。两个前端的检查、测试、构建通过，用户端 79 项测试，管理端 70 项测试。第二阶段 PR 应显式选择 `ci:backend/business` 和 `ci:tools/devtools`；本机已验证这两个标签的模块计划。
+- 全部 13 个 Go 模块均执行 `make ci-check`、`make ci-test`、`make ci-build` 并通过；Go 测试包含 race 检查。两个前端的检查、测试、构建通过，用户端 79 项测试，管理端 70 项测试。当时仅验证了 `ci:backend/business` 和 `ci:tools/devtools` 两个标签的模块计划。合入 main 的 PR 涉及目录重组，必须显式选择根 Makefile 注册的全部 13 个 Go 模块；这两个标签不足以覆盖完整改动。
 - 上述 45 项模块检查及 `make ci-tools` 共 46 项结果均成功。后续缓存修复重新执行 devtools 检查、测试和构建。
 - `make check-compose` 和 `make check-runtime-contracts` 通过。覆盖三种 Compose 配置、三种 Kubernetes 清单、两套契约绑定、Kubernetes 前端路由、自监控目标及 Grafana 数据源地址。
 - 工作区互斥测试 11 项、Kubernetes 安全测试 18 项通过，包含并发锁、双向冲突、资源归属、未完成压测、Secret 恢复、凭据冲突和迁移失败后不启动应用。

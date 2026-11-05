@@ -12,8 +12,11 @@ class FixedFlowAcceptanceTests(unittest.TestCase):
         from flow.__main__ import main
         with patch('sys.argv', ['pt', 'acceptance', '--start-rps', '250']), \
                 patch('flow.__main__.lock', return_value=nullcontext()), \
+                patch('flow.__main__.deployment.lock', return_value=nullcontext()), \
+                patch('flow.__main__.deployment.check') as check, \
                 patch('flow.executor.execute', return_value=0) as execute:
             self.assertEqual(main(), 0)
+        check.assert_called_once_with('compose', 'business', 'pt')
         config = execute.call_args.args[0]
         self.assertGreater(config['measurement_seconds'], 10)
         self.assertEqual(config['recovery_seconds'], 120)
@@ -21,6 +24,17 @@ class FixedFlowAcceptanceTests(unittest.TestCase):
         changed = {'acceptance', 'idle_seconds', 'warmup_seconds', 'measurement_seconds', 'soak_seconds', 'recovery_seconds'}
         self.assertEqual({k: v for k, v in config.items() if k not in changed},
                          {k: v for k, v in load('250').items() if k not in changed})
+
+    def test_deployment_conflict_prevents_acceptance_execution(self):
+        from flow.__main__ import main
+        with patch('sys.argv', ['pt', 'acceptance']), \
+                patch('flow.__main__.lock', return_value=nullcontext()), \
+                patch('flow.__main__.deployment.lock', return_value=nullcontext()), \
+                patch('flow.__main__.deployment.check', side_effect=ValueError('部署冲突')), \
+                patch('flow.executor.execute') as execute, \
+                patch('sys.stderr'):
+            self.assertEqual(main(), 2)
+        execute.assert_not_called()
 
     def test_all_routes_and_independent_baselines(self):
         backend = FixtureBackend(abnormal=200)
