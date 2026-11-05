@@ -92,8 +92,28 @@ Compose `down` 保留命名卷。Kubernetes `down` 缩容本工作区产品命�
 
 WSL 重启会终止当前会话，必须从 Windows 端安排执行。重新进入 Debian 后，确认 `gopulse-containerd` 和 `kubelet` 已启动，等待节点 Ready，再执行 `make k8s-check`、`make k8s-cluster-verify` 和当前模式的 `make k8s-access`。
 
+恢复验收使用已有的专用验收账号和数据。先完成当前模式的 `k8s-verify` 及 `k8s-selfmonitor-verify`，并确认自监控健康，再记录基线：
+
+```sh
+python3 tools/devtools/kubernetes/recovery.py capture --mode all --name before-maintenance
+```
+
+重启后等待集群和应用恢复，再核对同一基线：
+
+```sh
+make k8s-cluster-verify
+python3 tools/devtools/kubernetes/recovery.py verify --mode all \
+  --baseline before-maintenance --name after-reboot --require reboot
+```
+
+工具重新建立本机访问入口，登录原账号，读取原文章、插件配置及指标，并检查所有预期自监控目标。它比较 Node、命名空间、PVC、Secret 的身份、凭据摘要和原验收数据。`--require reboot` 要求主机 boot ID 实际变化；`--require address` 要求 Node InternalIP 实际变化。未发生对应变化时，验收失败。工具不执行重启、地址变更或数据修复。
+
+记录保存于 `.run/kubernetes/<MODE>/recovery/<记录名>.json`，权限为 `0600`，其中凭据只保存摘要。记录名只能包含字母、数字、连字符和下划线；已有记录不得覆盖。每次维护使用新的记录名，保留原基线。
+
 `k8s-check` 要求节点 InternalIP 与私有 kubeadm 配置一致，且仍绑定在本机接口。VPN 改变外网路由不表示节点地址发生变化。地址检查失败时，保留配置、证书、etcd 数据和 PVC，停止继续部署；不要通过自动 reset 修复。
 
-节点地址确实失效时，需要在维护窗口备份私有 kubeadm 配置和控制平面配置，创建并校验 etcd 快照，再协调更新节点地址、etcd 成员 peer URL、静态 Pod 地址及证书。完成控制平面恢复后，重新验证节点、DNS、Service、PVC 和应用数据。本次工具不自动执行这类地址变更；实际重启和地址变化的验收结果必须单独记录。
+节点地址变更应安排维护窗口。在控制平面和 etcd 仍可访问时，先备份私有 kubeadm 配置、控制平面配置和证书，创建并校验 etcd 快照，再协调更新节点地址、etcd 成员 peer URL、静态 Pod 地址及证书。更新 etcd peer URL 时，先提交成员地址变更，再重启成员，见 [etcd 运行时配置说明](https://etcd.io/docs/v3.6/op-guide/runtime-configuration/)。新地址必须包含在对应服务证书的 SAN 中；普通 `kubeadm certs renew` 会沿用旧证书的 SAN，见 [kubeadm 证书管理说明](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/)。维护命令的代理排除列表也需包含新地址。完成控制平面恢复后，重新验证节点、DNS、Service、PVC 和应用数据，并使用原基线执行恢复核对，指定 `--require address`。本次工具不自动执行这类地址变更；实际重启和地址变化的验收结果必须单独记录。
+
+旧地址已经失效或 etcd 不可访问时，先保留控制平面配置和数据目录，完成离线备份，再根据可用快照制定恢复方案。上述在线成员更新步骤不适用于该状态；本次补验未覆盖此类故障。
 
 可选追踪通过 `TRACE=1 make k8s-load-images MODE=all`、`TRACE=1 make k8s-up MODE=all` 和 `TRACE=1 make k8s-verify MODE=all` 验证。关闭开关后再次启动会停止追踪采集器，保留追踪 PVC；该开关不改变 Compose 正式压测条件。
