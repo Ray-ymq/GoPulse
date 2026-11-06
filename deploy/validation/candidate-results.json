@@ -1,0 +1,358 @@
+{
+  "candidate": "f95c80f277d4bc0084908eadfb28412bbe0e9f04",
+  "compose": [
+    {
+      "step": "business-up",
+      "code": 0
+    },
+    {
+      "step": "business-blocks-kubernetes",
+      "code": 0
+    },
+    {
+      "step": "business-verify",
+      "code": 0
+    },
+    {
+      "step": "business-accept",
+      "code": 0
+    },
+    {
+      "step": "business-down",
+      "code": 0
+    },
+    {
+      "step": "business-restart",
+      "code": 0
+    },
+    {
+      "step": "business-persistence",
+      "code": 0
+    },
+    {
+      "step": "business-down-final",
+      "code": 0
+    },
+    {
+      "step": "observability-up",
+      "code": 0
+    },
+    {
+      "step": "observability-blocks-kubernetes",
+      "code": 0
+    },
+    {
+      "step": "observability-verify",
+      "code": 0
+    },
+    {
+      "step": "observability-accept",
+      "code": 0
+    },
+    {
+      "step": "observability-down",
+      "code": 0
+    },
+    {
+      "step": "observability-restart",
+      "code": 0
+    },
+    {
+      "step": "observability-persistence",
+      "code": 0
+    },
+    {
+      "step": "observability-down-final",
+      "code": 0
+    },
+    {
+      "step": "all-up",
+      "code": 0
+    },
+    {
+      "step": "all-blocks-kubernetes",
+      "code": 0
+    },
+    {
+      "step": "all-verify",
+      "code": 0
+    },
+    {
+      "step": "all-accept",
+      "code": 0
+    },
+    {
+      "step": "all-down",
+      "code": 0
+    },
+    {
+      "step": "all-restart",
+      "code": 0
+    },
+    {
+      "step": "all-persistence",
+      "code": 0
+    },
+    {
+      "step": "all-down-final",
+      "code": 0
+    }
+  ],
+  "kubernetes": [
+    {
+      "step": "cluster-check",
+      "code": 0
+    },
+    {
+      "step": "cluster-verify",
+      "code": 0
+    },
+    {
+      "step": "business-load-images",
+      "code": 0
+    },
+    {
+      "step": "business-up",
+      "code": 0
+    },
+    {
+      "step": "business-access",
+      "code": 0
+    },
+    {
+      "step": "business-verify",
+      "code": 0
+    },
+    {
+      "step": "business-recreate",
+      "code": 0
+    },
+    {
+      "step": "business-selfmonitor-up",
+      "code": 0
+    },
+    {
+      "step": "business-selfmonitor-verify",
+      "code": 0
+    },
+    {
+      "step": "business-blocks-compose",
+      "code": 0
+    },
+    {
+      "step": "business-down",
+      "code": 0
+    },
+    {
+      "step": "business-restart",
+      "code": 0
+    },
+    {
+      "step": "business-restart-persistence",
+      "code": 0
+    },
+    {
+      "step": "business-down-final",
+      "code": 0
+    },
+    {
+      "step": "observability-load-images",
+      "code": 0
+    },
+    {
+      "step": "observability-up",
+      "code": 0
+    },
+    {
+      "step": "observability-access",
+      "code": 0
+    },
+    {
+      "step": "observability-verify",
+      "code": 0
+    },
+    {
+      "step": "observability-recreate",
+      "code": 0
+    },
+    {
+      "step": "observability-selfmonitor-up",
+      "code": 0
+    },
+    {
+      "step": "observability-selfmonitor-verify",
+      "code": 0
+    },
+    {
+      "step": "observability-blocks-compose",
+      "code": 0
+    },
+    {
+      "step": "observability-down",
+      "code": 0
+    },
+    {
+      "step": "observability-restart",
+      "code": 0
+    },
+    {
+      "step": "observability-restart-persistence",
+      "code": 0
+    },
+    {
+      "step": "observability-down-final",
+      "code": 0
+    },
+    {
+      "step": "all-load-images",
+      "code": 0
+    },
+    {
+      "step": "all-up",
+      "code": 0
+    },
+    {
+      "step": "all-access",
+      "code": 0
+    },
+    {
+      "step": "all-verify",
+      "code": 0
+    },
+    {
+      "step": "all-recreate",
+      "code": 0
+    },
+    {
+      "step": "all-selfmonitor-up",
+      "code": 0
+    },
+    {
+      "step": "all-selfmonitor-verify",
+      "code": 0
+    },
+    {
+      "step": "all-blocks-compose",
+      "code": 0
+    },
+    {
+      "step": "all-failures",
+      "code": 0
+    },
+    {
+      "step": "all-down",
+      "code": 0
+    },
+    {
+      "step": "all-restart",
+      "code": 0
+    },
+    {
+      "step": "all-restart-persistence",
+      "code": 0
+    },
+    {
+      "step": "all-down-final",
+      "code": 0
+    }
+  ],
+  "engineering": [
+    {
+      "step": "concurrent-up-down-locked",
+      "exit_code": 0
+    },
+    {
+      "step": "integration-business",
+      "command": [
+        "make",
+        "integration",
+        "SCOPE=business"
+      ],
+      "exit_code": 0,
+      "expected": 0
+    },
+    {
+      "step": "integration-observe",
+      "command": [
+        "make",
+        "integration",
+        "SCOPE=observe"
+      ],
+      "exit_code": 0,
+      "expected": 0
+    },
+    {
+      "step": "source-dev",
+      "command": [
+        "make",
+        "dev"
+      ],
+      "exit_code": 0,
+      "expected": 0
+    },
+    {
+      "step": "source-dev-blocks-kubernetes",
+      "command": [
+        "make",
+        "k8s-up",
+        "MODE=all"
+      ],
+      "exit_code": 2,
+      "expected": 1
+    },
+    {
+      "step": "source-dev-stop",
+      "command": [
+        "make",
+        "stop"
+      ],
+      "exit_code": 0,
+      "expected": 0
+    },
+    {
+      "step": "source-dev-observe",
+      "command": [
+        "make",
+        "dev-observe"
+      ],
+      "exit_code": 0,
+      "expected": 0
+    },
+    {
+      "step": "source-dev-observe-blocks-kubernetes",
+      "command": [
+        "make",
+        "k8s-up",
+        "MODE=all"
+      ],
+      "exit_code": 2,
+      "expected": 1
+    },
+    {
+      "step": "source-dev-observe-stop",
+      "command": [
+        "make",
+        "stop"
+      ],
+      "exit_code": 0,
+      "expected": 0
+    }
+  ],
+  "migration": {
+    "base_ref": "707ac08cc3d7d6e5374cb4cbf2dbf3a1392d2dbf",
+    "candidate": "f95c80f277d4bc0084908eadfb28412bbe0e9f04",
+    "legacy_schema": 15,
+    "target_schema": 20,
+    "fixture": "main 的完整旧 schema 与 9 组代表性告警数据；不含生产数据",
+    "cases": 9,
+    "backup_sha256": "5524d96a42cfd47e649ed73f69830ebd9b45c60ab25d1b124a3b8209974a639b",
+    "copy_matches_backup": true,
+    "migration_state_changes": true,
+    "nonmatching_rows_unchanged": true,
+    "down_does_not_restore": true,
+    "backup_restore_byte_equal": true
+  },
+  "same_image_content": true,
+  "original_pvc_secret_identities_and_secret_values_preserved": true,
+  "ci_run": 42033430896
+}

@@ -1,0 +1,61 @@
+{
+  "revision": "f95c80f277d4bc0084908eadfb28412bbe0e9f04",
+  "images": [
+    {
+      "name": "admin-frontend",
+      "tag": "gopulse/admin-frontend:2.6.5-f95c80f277d4",
+      "digest": "sha256:a6caea2808303b3808c046857c0d5301b652b0a56493c160bbc6e5884199c6a4",
+      "reference": "gopulse/admin-frontend@sha256:a6caea2808303b3808c046857c0d5301b652b0a56493c160bbc6e5884199c6a4",
+      "platform_manifest_digest": "sha256:d32a186174ca3e1973b86407ba5ecd68797c9de563c20392a3e1c1c4e1ef5b64",
+      "config_digest": "sha256:1a5f4be5047bec05f8f87e0199312f4fc5111ea910eb9ed0f88a2fedad4cdd89"
+    },
+    {
+      "name": "backend",
+      "tag": "gopulse/backend:2.6.5-f95c80f277d4",
+      "digest": "sha256:aefa92c36da7370be688d61383f2ebd75acdff3ea85e557e1f93a187fc0f9729",
+      "reference": "gopulse/backend@sha256:aefa92c36da7370be688d61383f2ebd75acdff3ea85e557e1f93a187fc0f9729",
+      "platform_manifest_digest": "sha256:8bb9471ea778a2fe0587ce61712e4561cb0b397535bc2509c460aa10d4dad1a2",
+      "config_digest": "sha256:ea1de0db6bdd8f88bfb7240cd740a5b4f79c39a9e4e9a9c06e4cc3b04a32c228"
+    },
+    {
+      "name": "business-worker",
+      "tag": "gopulse/business-worker:2.6.5-f95c80f277d4",
+      "digest": "sha256:30c62b2115b40591db2a47d1d6733b92522a72ba60844531a63e0f32f7eb17cd",
+      "reference": "gopulse/business-worker@sha256:30c62b2115b40591db2a47d1d6733b92522a72ba60844531a63e0f32f7eb17cd",
+      "platform_manifest_digest": "sha256:e4c23bf5c576125a11bfe572056b6790a90b2b65046c59059bf82a61e414ba50",
+      "config_digest": "sha256:2c4a58faa1e3208b3484cd868d6da8f436e9703f42f6444e66de39be61e621ef"
+    },
+    {
+      "name": "frontend",
+      "tag": "gopulse/frontend:2.6.5-f95c80f277d4",
+      "digest": "sha256:fe33839c53c6826f44462c9871df99222cb8306a18504e3167bd743e39b56694",
+      "reference": "gopulse/frontend@sha256:fe33839c53c6826f44462c9871df99222cb8306a18504e3167bd743e39b56694",
+      "platform_manifest_digest": "sha256:f1ede354666df1bb42d5044d0d5b4d18206c823d6606d32cf43052382fd4ad7b",
+      "config_digest": "sha256:63626f4f487316f6ace30aae9a13975e6b65f253af71d19a76f330c222f1bf69"
+    },
+    {
+      "name": "marshaller",
+      "tag": "gopulse/marshaller:2.6.5-f95c80f277d4",
+      "digest": "sha256:1639697cfa5f6d75cdb9ec40b4fff68284421f823e926fee3c20204bb95d4873",
+      "reference": "gopulse/marshaller@sha256:1639697cfa5f6d75cdb9ec40b4fff68284421f823e926fee3c20204bb95d4873",
+      "platform_manifest_digest": "sha256:edd93f285f45304e00d8bff1f7f99da97824ce44b90562dbf2b7933f990777ac",
+      "config_digest": "sha256:198c701b7cf87f0e8322bacf7f2bb35355f23d594c5674ffe7f81b8c92bbfb75"
+    },
+    {
+      "name": "monitor",
+      "tag": "gopulse/monitor:2.6.5-f95c80f277d4",
+      "digest": "sha256:503ead258104100e6cbed24602923bec9d8b6c76b8aaabb4b69bc64523dbcc6f",
+      "reference": "gopulse/monitor@sha256:503ead258104100e6cbed24602923bec9d8b6c76b8aaabb4b69bc64523dbcc6f",
+      "platform_manifest_digest": "sha256:07c4d556da9d32f287e98f45ffb28f1b5108138bc3de946e088f1fe088e74d39",
+      "config_digest": "sha256:cd2c6a0fca8652b91ae345ea79dcc24515d1bad35512d93fff2b45e51f40d2bf"
+    },
+    {
+      "name": "search-indexer",
+      "tag": "gopulse/search-indexer:2.6.5-f95c80f277d4",
+      "digest": "sha256:05b61f75384a22b7e40dea2dc2c9aa27f53c69f6031ded632f48fe8740124050",
+      "reference": "gopulse/search-indexer@sha256:05b61f75384a22b7e40dea2dc2c9aa27f53c69f6031ded632f48fe8740124050",
+      "platform_manifest_digest": "sha256:2ddb0895cc547dd7ea3501008cbdaef4edef459743f2250565661c5a37a58289",
+      "config_digest": "sha256:d593523ea5c14e153448c6b0e68706230ef2ba96009b3f15fc700d56e7c1afc4"
+    }
+  ]
+}
