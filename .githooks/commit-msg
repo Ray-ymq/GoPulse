@@ -2,4 +2,4 @@
 set -eu
 
 task_root=$(git rev-parse --show-toplevel)
-exec python3 "$task_root/ci/commits.py" --repo "$task_root" --message-file "$1"
+exec python3 "$task_root/tools/ci/commits.py" --repo "$task_root" --message-file "$1"

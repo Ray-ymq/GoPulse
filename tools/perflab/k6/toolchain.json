@@ -1,0 +1,22 @@
+{
+  "version": "0.56.0",
+  "release": "https://github.com/grafana/k6/releases/download/v0.56.0",
+  "archives": {
+    "linux/amd64": {
+      "name": "k6-v0.56.0-linux-amd64.tar.gz",
+      "sha256": "f90877b2721dbc607853ff785433c9a471e5aafdee788e78f6c833413541d649"
+    },
+    "linux/arm64": {
+      "name": "k6-v0.56.0-linux-arm64.tar.gz",
+      "sha256": "e91dd91e149a0642929ea44a1f51a1661f2282362559ca557e807976c30da9ff"
+    },
+    "darwin/amd64": {
+      "name": "k6-v0.56.0-macos-amd64.zip",
+      "sha256": "d337d5a27b41d36bde59fec744a2d5c991ae85599a9313f38f4f6277e59551fc"
+    },
+    "darwin/arm64": {
+      "name": "k6-v0.56.0-macos-arm64.zip",
+      "sha256": "aea63918b40f1e61a864cf56d5b63aec013cfdc7ff5066b7f2300b7616e63117"
+    }
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "search-init-env",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "search-init-env"
+        }
+      },
+      "data": {
+        "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS": "10000",
+        "BUSINESS_ASYNC_MAX_RETAINED_BYTES": "1073741824",
+        "BUSINESS_ASYNC_MAX_RETAINED_GROUPS": "100000",
+        "ELASTICSEARCH_REQUEST_TIMEOUT": "3s",
+        "ELASTICSEARCH_URL": "http://elasticsearch:9200",
+        "GOPULSE_RESTORE_EXPECTED_OLD_EPOCH": "",
+        "GOPULSE_RESTORE_NEW_EPOCH": "",
+        "GOPULSE_RESTORE_OPERATION": "",
+        "GOPULSE_RUNTIME_MODE": "container",
+        "MYSQL_DATABASE": "gopulse",
+        "MYSQL_HOST": "mysql",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "gopulse",
+        "SEARCH_REINDEX_BATCH": "500"
+      }
+    },
+    {
+      "apiVersion": "batch/v1",
+      "kind": "Job",
+      "metadata": {
+        "name": "search-init",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "search-init"
+        }
+      },
+      "spec": {
+        "backoffLimit": 5,
+        "activeDeadlineSeconds": 600,
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "search-init",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "terminationGracePeriodSeconds": 30,
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "name": "search-init",
+                "image": "gopulse/backend:local",
+                "imagePullPolicy": "IfNotPresent",
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "search-init-env"
+                    }
+                  },
+                  {
+                    "configMapRef": {
+                      "name": "gopulse-identity"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "MYSQL_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MYSQL_PASSWORD"
+                      }
+                    }
+                  }
+                ],
+                "command": [
+                  "/usr/local/bin/search-reindex"
+                ],
+                "args": [
+                  "--if-missing"
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1000m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              }
+            ],
+            "restartPolicy": "Never"
+          }
+        }
+      }
+    }
+  ]
+}

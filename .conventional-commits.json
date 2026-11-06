@@ -3,7 +3,6 @@
     "build",
     "chore",
     "ci",
-    "docs",
     "feat",
     "fix",
     "perf",
@@ -13,5 +12,6 @@
     "test"
   ],
   "legacy_ref": "2c4d66174b4e6617ddf03637858317dcae1a674a",
-  "body_required_after": "5accf0b4f50015d4c523cc635a111512e16bbe77"
+  "body_required_after": "5accf0b4f50015d4c523cc635a111512e16bbe77",
+  "docs_forbidden_after": "c5107e24086eb1d079524bf17e70df4c82b2113b"
 }

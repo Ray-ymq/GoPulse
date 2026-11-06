@@ -1,0 +1,37 @@
+{
+  "target": {
+    "admin-frontend": {
+      "context": ".",
+      "dockerfile": "deploy/docker/admin-frontend.Dockerfile"
+    },
+    "backend": {
+      "context": ".",
+      "dockerfile": "deploy/docker/backend.Dockerfile",
+      "target": "backend"
+    },
+    "business-worker": {
+      "context": ".",
+      "dockerfile": "deploy/docker/backend.Dockerfile",
+      "target": "business-worker"
+    },
+    "frontend": {
+      "context": ".",
+      "dockerfile": "deploy/docker/frontend.Dockerfile"
+    },
+    "marshaller": {
+      "context": ".",
+      "dockerfile": "deploy/docker/observability.Dockerfile",
+      "target": "marshaller"
+    },
+    "monitor": {
+      "context": ".",
+      "dockerfile": "deploy/docker/monitor.Dockerfile",
+      "target": "monitor-product"
+    },
+    "search-indexer": {
+      "context": ".",
+      "dockerfile": "deploy/docker/backend.Dockerfile",
+      "target": "search-indexer"
+    }
+  }
+}

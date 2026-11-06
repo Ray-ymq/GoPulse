@@ -1,0 +1,469 @@
+package worker
+
+import (
+	"context"
+	cryptorand "crypto/rand"
+	"errors"
+	"fmt"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"log/slog"
+	"math/big"
+	"net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+type RuntimeOptions struct {
+	Profile          Profile
+	Admission        bus.Admission
+	InstanceID       string
+	Prefetch         int
+	MaxRetries       int
+	RetryDelay       time.Duration
+	PublishTimeout   time.Duration
+	ShutdownTimeout  time.Duration
+	ReconnectMinimum time.Duration
+	ReconnectMaximum time.Duration
+	Logger           *slog.Logger
+}
+
+type Runtime struct {
+	connected     atomic.Bool
+	connectionURL string
+	processor     Processor
+	options       RuntimeOptions
+	logger        *slog.Logger
+	profile       Profile
+	identity      string
+}
+
+var consumerSequence atomic.Uint64
+
+func NewRuntime(connectionURL string, processor Processor, options RuntimeOptions) (*Runtime, error) {
+	if connectionURL == "" || processor == nil {
+		return nil, errors.New("business worker runtime requires RabbitMQ URL and processor")
+	}
+	if options.Prefetch < 1 || options.Prefetch > 100 {
+		return nil, errors.New("business worker prefetch must be between 1 and 100")
+	}
+	if options.MaxRetries < 0 || options.MaxRetries > 20 || options.RetryDelay < time.Second || options.PublishTimeout <= 0 || options.ShutdownTimeout <= 0 {
+		return nil, errors.New("business worker runtime options are invalid")
+	}
+	if options.ReconnectMinimum <= 0 || options.ReconnectMaximum < options.ReconnectMinimum {
+		return nil, errors.New("business worker reconnect bounds are invalid")
+	}
+	profile := normalizeProfile(options.Profile)
+	options.Profile = profile
+	instanceID := options.InstanceID
+	if instanceID == "" {
+		instanceID = runtimekit.InstanceID(profile.Service)
+	}
+	if err := runtimekit.ValidateInstanceID(instanceID); err != nil {
+		return nil, errors.New("business worker instance identity is invalid")
+	}
+	options.InstanceID = instanceID
+	logger := options.Logger
+	if logger == nil {
+		logger = logging.Discard(profile.Service)
+	}
+	logger = logging.Module(logger, profile.Module)
+	return &Runtime{connectionURL: connectionURL, processor: processor, options: options, logger: logger, profile: profile, identity: instanceID}, nil
+}
+
+// Run maintains one bounded consumer session with per-post ordering. Broker/channel closure
+// causes bounded jittered reconnection and topology/consumer recreation.
+func (runtime *Runtime) Run(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("%s context is required", runtime.profile.Name)
+	}
+	attempt := uint32(0)
+	connectionUnavailable := false
+	for ctx.Err() == nil {
+		session, err := openSession(ctx, runtime.connectionURL, runtime.options)
+		instrumentation.Dependency("rabbitmq", err)
+		if err != nil {
+			attempt++
+			if !connectionUnavailable {
+				runtime.safeLogger().Warn("connection unavailable", slog.String("reason", "connect_failed"))
+				connectionUnavailable = true
+			}
+			if err := waitContext(ctx, runtime.reconnectDelay(attempt)); err != nil {
+				return nil
+			}
+			continue
+		}
+		if connectionUnavailable || attempt > 0 {
+			runtime.safeLogger().Info("connection restored", slog.String("reason", "reconnected"))
+		}
+		connectionUnavailable = false
+		attempt = 0
+		handler, err := NewHandler(runtime.processor, session, HandlerOptions{
+			MaxRetries: runtime.options.MaxRetries, PublishTimeout: runtime.options.PublishTimeout, Logger: runtime.safeLogger(), Profile: runtime.profile, Admission: runtime.options.Admission,
+		})
+		if err != nil {
+			if closeErr := session.Close(); closeErr != nil {
+				runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
+			}
+			return err
+		}
+		err = runtime.consumeSession(ctx, session, handler)
+		if ctx.Err() == nil {
+			instrumentation.Dependency("rabbitmq", err)
+		}
+		if closeErr := session.Close(); closeErr != nil {
+			runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		attempt++
+		if err != nil {
+			runtime.safeLogger().Warn("session interrupted", slog.String("reason", sessionFailureReason(err)))
+			connectionUnavailable = true
+		}
+		if err := waitContext(ctx, runtime.reconnectDelay(attempt)); err != nil {
+			return nil
+		}
+	}
+	return nil
+}
+
+// Ready reports the consumer session, without opening a second broker connection.
+func (runtime *Runtime) Ready(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if !runtime.connected.Load() {
+		return errors.New("consumer_not_ready")
+	}
+	return nil
+}
+
+func (runtime *Runtime) consumeSession(ctx context.Context, session *amqpSession, handler *Handler) error {
+	runtime.connected.Store(true)
+	defer runtime.connected.Store(false)
+	workCtx, cancelWork := context.WithCancel(context.Background())
+	defer cancelWork()
+	type completion struct {
+		key uint64
+		err error
+	}
+	limit := max(1, runtime.options.Prefetch)
+	done := make(chan completion, limit)
+	active := map[uint64]bool{}
+	queues := map[uint64][]amqp.Delivery{}
+	outstanding := 0
+	running := 0
+	launch := func(key uint64, delivery amqp.Delivery) {
+		active[key] = true
+		running++
+		go func() { done <- completion{key: key, err: handler.Handle(workCtx, delivery)} }()
+	}
+	finish := func(result completion) {
+		running--
+		outstanding--
+		delete(active, result.key)
+	}
+	drain := func(grace bool) error {
+		if err := session.StopDeliveries(); err != nil {
+			runtime.safeLogger().Warn("delivery stop failed", slog.String("reason", "cancel_failed"))
+		}
+		reserve := min(100*time.Millisecond, runtime.options.ShutdownTimeout/2)
+		timer := time.NewTimer(max(0, runtime.options.ShutdownTimeout-reserve))
+		defer timer.Stop()
+		if !grace {
+			cancelWork()
+		}
+		for running > 0 {
+			select {
+			case result := <-done:
+				finish(result)
+			case <-timer.C:
+				cancelWork()
+				// Handlers cooperate with cancellation; unstarted deliveries remain
+				// unacknowledged and are requeued when the session closes.
+				final := time.NewTimer(reserve)
+				defer final.Stop()
+				for running > 0 {
+					select {
+					case result := <-done:
+						finish(result)
+					case <-final.C:
+						return errors.New("shutdown_timeout")
+					}
+				}
+				return errors.New("shutdown_timeout")
+			}
+		}
+		return nil
+	}
+	for {
+		var deliveries <-chan amqp.Delivery
+		if outstanding < limit {
+			deliveries = session.deliveries
+		}
+		select {
+		case <-ctx.Done():
+			return drain(true)
+		case <-session.connectionClosed:
+			_ = drain(false)
+			return errors.New("RabbitMQ connection closed")
+		case <-session.channelClosed:
+			_ = drain(false)
+			return errors.New("RabbitMQ channel closed")
+		case result := <-done:
+			finish(result)
+			if result.err != nil {
+				_ = drain(false)
+				return result.err
+			}
+			queue := queues[result.key]
+			if len(queue) > 0 {
+				delivery := queue[0]
+				queues[result.key] = queue[1:]
+				launch(result.key, delivery)
+			} else {
+				delete(queues, result.key)
+			}
+		case delivery, ok := <-deliveries:
+			if !ok {
+				_ = drain(false)
+				return errors.New("RabbitMQ delivery stream closed")
+			}
+			envelope, err := DecodeDelivery(delivery)
+			key := envelope.PostID
+			if err != nil {
+				key = 0
+			}
+			outstanding++
+			if active[key] {
+				queues[key] = append(queues[key], delivery)
+			} else {
+				launch(key, delivery)
+			}
+		}
+	}
+}
+
+func (runtime *Runtime) safeLogger() *slog.Logger {
+	if runtime.logger != nil {
+		return runtime.logger
+	}
+	profile := normalizeProfile(runtime.profile)
+	return logging.Module(logging.Discard(profile.Service), profile.Module)
+}
+
+func sessionFailureReason(err error) string {
+	if err == nil {
+		return "session_unavailable"
+	}
+	switch err.Error() {
+	case "RabbitMQ connection closed", "RabbitMQ connection closed during delivery":
+		return "connection_closed"
+	case "RabbitMQ channel closed", "RabbitMQ channel closed during delivery":
+		return "channel_closed"
+	case "RabbitMQ delivery stream closed":
+		return "delivery_stream_closed"
+	default:
+		return "handler_failed"
+	}
+}
+
+func (runtime *Runtime) reconnectDelay(attempt uint32) time.Duration {
+	delay := runtime.options.ReconnectMinimum
+	for index := uint32(1); index < attempt && delay < runtime.options.ReconnectMaximum; index++ {
+		if delay > runtime.options.ReconnectMaximum/2 {
+			delay = runtime.options.ReconnectMaximum
+			break
+		}
+		delay *= 2
+	}
+	if delay > runtime.options.ReconnectMaximum {
+		delay = runtime.options.ReconnectMaximum
+	}
+	return jitter(delay)
+}
+
+type amqpSession struct {
+	connection       *amqp.Connection
+	channel          *amqp.Channel
+	deliveries       <-chan amqp.Delivery
+	confirmations    <-chan amqp.Confirmation
+	returns          <-chan amqp.Return
+	connectionClosed <-chan *amqp.Error
+	channelClosed    <-chan *amqp.Error
+	consumerTag      string
+	publishMu        sync.Mutex
+	closeOnce        sync.Once
+}
+
+func openSession(ctx context.Context, connectionURL string, options RuntimeOptions) (*amqpSession, error) {
+	connection, err := dialRabbitMQ(ctx, connectionURL, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	profile := normalizeProfile(options.Profile)
+	identity := options.InstanceID
+	if identity == "" {
+		identity = runtimekit.InstanceID(profile.Service)
+	}
+	session := &amqpSession{connection: connection, consumerTag: nextConsumerTag(profile, identity)}
+	channel, err := connection.Channel()
+	if err != nil {
+		_ = connection.Close()
+		return nil, err
+	}
+	session.channel = channel
+	if err := platform.DeclareTopology(channel, profile.Topology, options.RetryDelay); err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	if err := channel.Qos(options.Prefetch, 0, false); err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	if err := channel.Confirm(false); err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	session.confirmations = channel.NotifyPublish(make(chan amqp.Confirmation, 1))
+	session.returns = channel.NotifyReturn(make(chan amqp.Return, 1))
+	session.channelClosed = channel.NotifyClose(make(chan *amqp.Error, 1))
+	session.connectionClosed = connection.NotifyClose(make(chan *amqp.Error, 1))
+	deliveries, err := channel.Consume(profile.Topology.Queue, session.consumerTag, false, false, false, false, nil)
+	if err != nil {
+		_ = session.Close()
+		return nil, err
+	}
+	session.deliveries = deliveries
+	return session, nil
+}
+
+func nextConsumerTag(profile Profile, instanceID string) string {
+	return fmt.Sprintf("%s-%s-%d", profile.ConsumerTag, instanceID, consumerSequence.Add(1))
+}
+
+func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey string, publishing amqp.Publishing) (result error) {
+	defer func() { instrumentation.Dependency("rabbitmq", result) }()
+	session.publishMu.Lock()
+	defer session.publishMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	expected := session.channel.GetNextPublishSeqNo()
+	if err := session.channel.PublishWithContext(ctx, exchange, routingKey, true, false, publishing); err != nil {
+		return err
+	}
+	return session.awaitConfirmation(ctx, expected, publishing.MessageId)
+}
+
+func (session *amqpSession) awaitConfirmation(ctx context.Context, expected uint64, messageID string) error {
+	returned := false
+	for {
+		select {
+		case message, ok := <-session.returns:
+			if !ok {
+				return errors.New("RabbitMQ return stream closed")
+			}
+			if message.MessageId == "" || message.MessageId == messageID {
+				returned = true
+			}
+		case confirmation, ok := <-session.confirmations:
+			// A timed-out publication can confirm after the next call starts.
+			// Never acknowledge the new original using the previous sequence.
+			if ok && confirmation.DeliveryTag < expected {
+				continue
+			}
+			if !ok || confirmation.DeliveryTag != expected || !confirmation.Ack || returned {
+				return errors.New("RabbitMQ secondary publish not confirmed")
+			}
+			// Mandatory returns precede confirms. A short defensive drain covers
+			// scheduler ordering when both notifications are already readable.
+			timer := time.NewTimer(10 * time.Millisecond)
+			select {
+			case message := <-session.returns:
+				timer.Stop()
+				if message.MessageId == "" || message.MessageId == messageID {
+					return errors.New("RabbitMQ secondary publish was unroutable")
+				}
+			case <-timer.C:
+			}
+			return ctx.Err()
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-session.connectionClosed:
+			return errors.New("RabbitMQ connection closed")
+		case <-session.channelClosed:
+			return errors.New("RabbitMQ channel closed")
+		}
+	}
+}
+
+func (session *amqpSession) StopDeliveries() error {
+	if session.channel == nil {
+		return nil
+	}
+	return session.channel.Cancel(session.consumerTag, false)
+}
+
+func (session *amqpSession) Close() error {
+	var result error
+	session.closeOnce.Do(func() {
+		if session.channel != nil {
+			if err := session.channel.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) {
+				result = err
+			}
+		}
+		if session.connection != nil {
+			if err := session.connection.Close(); err != nil && !errors.Is(err, amqp.ErrClosed) && result == nil {
+				result = err
+			}
+		}
+	})
+	return result
+}
+
+func dialRabbitMQ(ctx context.Context, connectionURL string, timeout time.Duration) (*amqp.Connection, error) {
+	dialer := &net.Dialer{Timeout: timeout}
+	return amqp.DialConfig(connectionURL, amqp.Config{Dial: func(network, address string) (net.Conn, error) {
+		connection, err := dialer.DialContext(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		if err := connection.SetDeadline(time.Now().Add(timeout)); err != nil {
+			_ = connection.Close()
+			return nil, err
+		}
+		return connection, nil
+	}})
+}
+
+func waitContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func jitter(base time.Duration) time.Duration {
+	if base <= 1 {
+		return base
+	}
+	spread := base / 4
+	value, err := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(spread*2+1)))
+	if err != nil {
+		return base
+	}
+	return base - spread + time.Duration(value.Int64())
+}

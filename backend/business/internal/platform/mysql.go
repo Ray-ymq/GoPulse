@@ -1,0 +1,122 @@
+package platform
+
+import (
+	"context"
+	"database/sql"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"net"
+	"strconv"
+	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/go-sql-driver/mysql"
+)
+
+const mysqlCollation = "utf8mb4_0900_ai_ci"
+
+const (
+	defaultMaxOpenConns    = 10
+	defaultMaxIdleConns    = 2
+	defaultConnMaxLifetime = 3 * time.Minute
+)
+
+type discardMySQLLogger struct{}
+
+func (discardMySQLLogger) Print(...any) {}
+
+type MySQL struct {
+	database *sql.DB
+}
+
+func NewMySQL(cfg config.MySQLConfig) (*MySQL, error) {
+	database, err := OpenMySQLDatabase(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &MySQL{database: database}, nil
+}
+
+// OpenMySQLDatabase opens a UTC MySQL connection for ordinary application use.
+func OpenMySQLDatabase(cfg config.MySQLConfig) (*sql.DB, error) {
+	return openMySQLDatabase(cfg, mysqlDriverConfig(cfg))
+}
+
+// OpenMySQLMigrationDatabase opens a MySQL connection that allows versioned SQL
+// migration files to contain multiple DDL statements. General application
+// connections keep multi-statements disabled.
+func OpenMySQLMigrationDatabase(cfg config.MySQLConfig) (*sql.DB, error) {
+	return openMySQLDatabase(cfg, mysqlMigrationDriverConfig(cfg))
+}
+
+func openMySQLDatabase(cfg config.MySQLConfig, driverConfig *mysql.Config) (*sql.DB, error) {
+	connector, err := mysql.NewConnector(driverConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	database := sql.OpenDB(connector)
+	maxOpenConns := cfg.MaxOpenConns
+	if maxOpenConns <= 0 {
+		maxOpenConns = defaultMaxOpenConns
+	}
+	maxIdleConns := cfg.MaxIdleConns
+	if maxIdleConns < 0 {
+		maxIdleConns = 0
+	}
+	if maxIdleConns == 0 && cfg.MaxIdleConns == 0 {
+		maxIdleConns = defaultMaxIdleConns
+	}
+	if maxIdleConns > maxOpenConns {
+		maxIdleConns = maxOpenConns
+	}
+	connMaxLifetime := cfg.ConnMaxLifetime
+	if connMaxLifetime <= 0 {
+		connMaxLifetime = defaultConnMaxLifetime
+	}
+	database.SetConnMaxLifetime(connMaxLifetime)
+	database.SetMaxIdleConns(maxIdleConns)
+	database.SetMaxOpenConns(maxOpenConns)
+	return database, nil
+}
+
+func mysqlDriverConfig(cfg config.MySQLConfig) *mysql.Config {
+	driverConfig := mysql.NewConfig()
+	driverConfig.User = cfg.User
+	driverConfig.Passwd = cfg.Password
+	driverConfig.Net = "tcp"
+	driverConfig.Addr = net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	driverConfig.DBName = cfg.Database
+	driverConfig.ParseTime = true
+	driverConfig.Loc = time.UTC
+	driverConfig.Collation = mysqlCollation
+	driverConfig.Logger = discardMySQLLogger{}
+	driverConfig.Timeout = time.Second
+	driverConfig.ReadTimeout = time.Second
+	driverConfig.WriteTimeout = time.Second
+	driverConfig.Params = map[string]string{"time_zone": "'+00:00'"}
+	return driverConfig
+}
+
+func mysqlMigrationDriverConfig(cfg config.MySQLConfig) *mysql.Config {
+	driverConfig := mysqlDriverConfig(cfg)
+	driverConfig.MultiStatements = true
+	// DDL can exceed the application query budget during cold startup. Keep
+	// migration reads bounded without changing ordinary connection timeouts.
+	driverConfig.ReadTimeout = 2 * time.Minute
+	return driverConfig
+}
+
+// DB exposes the shared application connection pool to repositories.
+func (client *MySQL) DB() *sql.DB {
+	return client.database
+}
+
+func (client *MySQL) Check(ctx context.Context) error {
+	err := client.database.PingContext(ctx)
+	instrumentation.Dependency("mysql", err)
+	return err
+}
+
+func (client *MySQL) Close() error {
+	return client.database.Close()
+}

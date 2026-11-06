@@ -1,7 +1,8 @@
-# The Monitor image has its own build context. Exporter source, packages and
-# historical archives are deployment inputs and must not enter this context.
+# Monitor 源码；插件包由独立的命名构建上下文提供。
 *
-!monitor/
-!monitor/**
-!componentmetrics/
-!componentmetrics/**
+!backend/
+!backend/observability/
+!backend/observability/monitor/
+!backend/observability/monitor/**
+!backend/runtimekit/
+!backend/runtimekit/**

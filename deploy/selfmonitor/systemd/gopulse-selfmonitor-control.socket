@@ -1,0 +1,13 @@
+[Unit]
+Description=GoPulse fixed self monitoring control socket
+
+[Socket]
+ListenStream=/run/gopulse-selfmonitor/control.sock
+SocketUser=root
+SocketGroup=gopulse-selfmonitor
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

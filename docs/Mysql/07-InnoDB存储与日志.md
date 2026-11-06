@@ -47,7 +47,7 @@ INSERT INTO business_outbox
 
 **1. 存储引擎声明**
 
-[`backend/migrations/000001_phase1_schema.up.sql`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/migrations/000001_phase1_schema.up.sql)：
+[`backend/business/migrations/000001_phase1_schema.up.sql`](../../backend/business/migrations/000001_phase1_schema.up.sql)：
 
 ```sql
 CREATE TABLE posts (
@@ -63,11 +63,11 @@ CREATE TABLE posts (
 
 **2. 事务入口**
 
-[`backend/internal/post/repository.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/post/repository.go) 使用 `BeginTx`、`ExecContext`、`Commit`，由 MySQL/InnoDB 处理日志记录与崩溃恢复。应用代码本身不会显式调用 `WriteRedoLog()` 或 `WriteUndoLog()`。
+[`backend/business/internal/post/repository.go`](../../backend/business/internal/post/repository.go) 使用 `BeginTx`、`ExecContext`、`Commit`，由 MySQL/InnoDB 处理日志记录与崩溃恢复。应用代码本身不会显式调用 `WriteRedoLog()` 或 `WriteUndoLog()`。
 
 **3. 连接配置**
 
-[`backend/internal/platform/mysql.go`](https://github.com/Ray-ymq/GoPulse/blob/reset/docs-zero-base/backend/internal/platform/mysql.go) 显式设置最大连接数、空闲连接数和连接生命周期，并使用 `ParseTime=true`、`Loc=time.UTC`。这是 Go 数据库连接层的配置，**不是** InnoDB 的 Buffer Pool、Redo 刷盘或 Binlog 参数。
+[`backend/business/internal/platform/mysql.go`](../../backend/business/internal/platform/mysql.go) 显式设置最大连接数、空闲连接数和连接生命周期，并使用 `ParseTime=true`、`Loc=time.UTC`。这是 Go 数据库连接层的配置，**不是** InnoDB 的 Buffer Pool、Redo 刷盘或 Binlog 参数。
 
 ## 四、将八股文映射到故障场景
 

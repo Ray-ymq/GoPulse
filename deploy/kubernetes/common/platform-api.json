@@ -1,0 +1,380 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "platform-api-env",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "platform-api-env"
+        }
+      },
+      "data": {
+        "ALERT_EVALUATION_ENABLED": "true",
+        "APP_ENV": "development",
+        "AUTH_COOKIE_NAME": "gopulse_session",
+        "AUTH_COOKIE_SECURE": "false",
+        "AUTH_JWT_TTL": "2h",
+        "BACKEND_ENDPOINTS": "backend,platform-api",
+        "BACKEND_EVENT_QUERY_DEFAULT_RANGE": "15m",
+        "BACKEND_EVENT_QUERY_MAX_RANGE": "24h",
+        "BACKEND_EVENT_READ_ALIAS": "gopulse-events-v1-read",
+        "BACKEND_HTTP_MAX_CONCURRENCY": "32",
+        "BACKEND_LOG_QUERY_DEFAULT_RANGE": "15m",
+        "BACKEND_LOG_QUERY_MAX_RANGE": "24h",
+        "BACKEND_LOG_READ_ALIAS": "gopulse-logs-v1-read",
+        "BACKEND_METRIC_QUERY_DEFAULT_RANGE": "15m",
+        "BACKEND_METRIC_QUERY_MAX_RANGE": "24h",
+        "BACKEND_SERVICE_ROLE": "platform",
+        "BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT": "3s",
+        "BACKEND_VICTORIAMETRICS_URL": "http://victoriametrics:8428",
+        "BACKEND_VICTORIAMETRICS_USERNAME": "gopulse-marshaller",
+        "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS": "10000",
+        "BUSINESS_ASYNC_MAX_RETAINED_BYTES": "1073741824",
+        "BUSINESS_ASYNC_MAX_RETAINED_GROUPS": "100000",
+        "BUSINESS_STAGE_ENDPOINTS": "http://backend:8080",
+        "BUSINESS_WORKER_ENDPOINTS": "business-worker",
+        "ELASTICSEARCH_REQUEST_TIMEOUT": "3s",
+        "GOPULSE_REPLICA_COUNT": "1",
+        "GOPULSE_RUNTIME_MODE": "container",
+        "GOPULSE_TRACE_BATCH_SIZE": "256",
+        "GOPULSE_TRACE_BATCH_TIMEOUT": "1s",
+        "GOPULSE_TRACE_ENABLED": "false",
+        "GOPULSE_TRACE_ENDPOINT": "",
+        "GOPULSE_TRACE_EXPORT_TIMEOUT": "2s",
+        "GOPULSE_TRACE_QUEUE_CAPACITY": "2048",
+        "GOPULSE_TRACE_SAMPLE_RATIO": "0.10",
+        "GOPULSE_TRACE_SERVICE_NAME": "backend",
+        "GOPULSE_TRACE_SHUTDOWN_TIMEOUT": "5s",
+        "HTTP_HOST": "0.0.0.0",
+        "HTTP_PORT": "8080",
+        "LOG_MONITOR_URL": "http://monitor:9090",
+        "MARSHALLER_ENDPOINTS": "marshaller",
+        "MONITOR_REQUEST_TIMEOUT": "30s",
+        "MONITOR_URL": "http://monitor:9090",
+        "MYSQL_CONN_MAX_LIFETIME": "3m",
+        "MYSQL_DATABASE": "gopulse",
+        "MYSQL_HOST": "mysql",
+        "MYSQL_MAX_IDLE_CONNS": "2",
+        "MYSQL_MAX_OPEN_CONNS": "4",
+        "MYSQL_PORT": "3306",
+        "MYSQL_TOTAL_MAX_OPEN_CONNS": "60",
+        "MYSQL_USER": "gopulse",
+        "OBSERVABILITY_ELASTICSEARCH_URL": "http://observability-elasticsearch:9200",
+        "PLATFORM_API_HTTP_MAX_CONCURRENCY": "32",
+        "PLATFORM_API_MYSQL_MAX_OPEN_CONNS": "4",
+        "SEARCH_INDEXER_ENDPOINTS": "search-indexer",
+        "GOPULSE_SELFMONITOR_CONTROL": "kubernetes"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "platform-api",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "platform-api"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "platform-api"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "platform-api",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "terminationGracePeriodSeconds": 30,
+            "automountServiceAccountToken": true,
+            "containers": [
+              {
+                "name": "platform-api",
+                "image": "gopulse/backend:local",
+                "imagePullPolicy": "IfNotPresent",
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "platform-api-env"
+                    }
+                  },
+                  {
+                    "configMapRef": {
+                      "name": "gopulse-identity"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "AUTH_JWT_SECRET",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "AUTH_JWT_SECRET"
+                      }
+                    }
+                  },
+                  {
+                    "name": "BACKEND_METRICS_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "BACKEND_METRICS_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "BACKEND_VICTORIAMETRICS_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "VICTORIAMETRICS_PASSWORD"
+                      }
+                    }
+                  },
+                  {
+                    "name": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL"
+                      }
+                    }
+                  },
+                  {
+                    "name": "LOG_MONITOR_INGEST_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "LOG_MONITOR_INGEST_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MARSHALLER_API_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MARSHALLER_API_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MONITOR_API_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MONITOR_API_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MYSQL_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MYSQL_PASSWORD"
+                      }
+                    }
+                  },
+                  {
+                    "name": "GOPULSE_INSTANCE_ID",
+                    "value": "platform-api-1"
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "p8080"
+                  },
+                  {
+                    "containerPort": 19101,
+                    "name": "p19101"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1000m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/startup",
+                    "port": 8080
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 60
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 8080
+                  },
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/live",
+                    "port": 8080
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              }
+            ],
+            "serviceAccountName": "gopulse-platform"
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "platform-api",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "platform-api"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "platform-api"
+        },
+        "ports": [
+          {
+            "port": 8080,
+            "targetPort": 8080,
+            "name": "p8080"
+          },
+          {
+            "port": 19101,
+            "targetPort": 19101,
+            "name": "p19101"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "gopulse-platform",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "name": "gopulse-selfmonitor-control",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments",
+            "statefulsets",
+            "daemonsets"
+          ],
+          "resourceNames": [
+            "selfmonitor-prometheus",
+            "selfmonitor-grafana",
+            "selfmonitor-node",
+            "selfmonitor-mysql-exporter",
+            "selfmonitor-redis-exporter",
+            "selfmonitor-elasticsearch-exporter",
+            "selfmonitor-kafka-exporter",
+            "selfmonitor-observability-elasticsearch-exporter"
+          ],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            "apps"
+          ],
+          "resources": [
+            "deployments/scale",
+            "statefulsets/scale",
+            "daemonsets"
+          ],
+          "resourceNames": [
+            "selfmonitor-prometheus",
+            "selfmonitor-grafana",
+            "selfmonitor-node",
+            "selfmonitor-mysql-exporter",
+            "selfmonitor-redis-exporter",
+            "selfmonitor-elasticsearch-exporter",
+            "selfmonitor-kafka-exporter",
+            "selfmonitor-observability-elasticsearch-exporter"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "name": "gopulse-selfmonitor-control",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse"
+        }
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "gopulse-selfmonitor-control"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "gopulse-platform"
+        }
+      ]
+    }
+  ]
+}

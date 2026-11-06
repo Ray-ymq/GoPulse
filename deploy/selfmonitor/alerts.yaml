@@ -1,0 +1,12 @@
+groups:
+  - name: backend-availability
+    interval: 15s
+    rules:
+      - alert: BackendRateLimiterUnavailable
+        expr: sum by (instance) (rate(gopulse_backend_rate_limit_decisions_total{mode="shared",result="error"}[1m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Shared rate limiter has failed for one minute
+          description: The API remains fail-closed and returns 503; inspect Redis health and pool waits.

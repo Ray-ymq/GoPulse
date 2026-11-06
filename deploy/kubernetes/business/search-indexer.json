@@ -1,0 +1,227 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "search-indexer-env",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "search-indexer-env"
+        }
+      },
+      "data": {
+        "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS": "10000",
+        "BUSINESS_ASYNC_MAX_RETAINED_BYTES": "1073741824",
+        "BUSINESS_ASYNC_MAX_RETAINED_GROUPS": "100000",
+        "ELASTICSEARCH_REQUEST_TIMEOUT": "3s",
+        "ELASTICSEARCH_URL": "http://elasticsearch:9200",
+        "GOPULSE_REPLICA_COUNT": "1",
+        "GOPULSE_RUNTIME_MODE": "container",
+        "GOPULSE_TRACE_BATCH_SIZE": "256",
+        "GOPULSE_TRACE_BATCH_TIMEOUT": "1s",
+        "GOPULSE_TRACE_ENABLED": "false",
+        "GOPULSE_TRACE_ENDPOINT": "",
+        "GOPULSE_TRACE_EXPORT_TIMEOUT": "2s",
+        "GOPULSE_TRACE_QUEUE_CAPACITY": "2048",
+        "GOPULSE_TRACE_SAMPLE_RATIO": "0.10",
+        "GOPULSE_TRACE_SERVICE_NAME": "search-indexer",
+        "GOPULSE_TRACE_SHUTDOWN_TIMEOUT": "5s",
+        "LOG_MONITOR_URL": "http://monitor:9090",
+        "LOG_SHIP_QUEUE_CAPACITY": "256",
+        "LOG_SHIP_REQUEST_TIMEOUT": "2s",
+        "LOG_SHIP_RETRY_MAX": "5s",
+        "LOG_SHIP_RETRY_MIN": "250ms",
+        "LOG_SHIP_SHUTDOWN_TIMEOUT": "5s",
+        "MYSQL_CONN_MAX_LIFETIME": "3m",
+        "MYSQL_DATABASE": "gopulse",
+        "MYSQL_HOST": "mysql",
+        "MYSQL_MAX_IDLE_CONNS": "2",
+        "MYSQL_MAX_OPEN_CONNS": "4",
+        "MYSQL_PORT": "3306",
+        "MYSQL_TOTAL_MAX_OPEN_CONNS": "60",
+        "MYSQL_USER": "gopulse",
+        "SEARCH_INDEXER_MAX_RETRIES": "3",
+        "SEARCH_INDEXER_PREFETCH": "10",
+        "SEARCH_INDEXER_PUBLISH_TIMEOUT": "5s",
+        "SEARCH_INDEXER_RECONNECT_MAX": "30s",
+        "SEARCH_INDEXER_RECONNECT_MIN": "500ms",
+        "SEARCH_INDEXER_RETRY_DELAY": "30s",
+        "SEARCH_INDEXER_SHUTDOWN_TIMEOUT": "10s"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "search-indexer",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "search-indexer"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "search-indexer"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "search-indexer",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "terminationGracePeriodSeconds": 30,
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "name": "search-indexer",
+                "image": "gopulse/search-indexer:local",
+                "imagePullPolicy": "IfNotPresent",
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "search-indexer-env"
+                    }
+                  },
+                  {
+                    "configMapRef": {
+                      "name": "gopulse-identity"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "LOG_MONITOR_INGEST_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "LOG_MONITOR_INGEST_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "MYSQL_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "MYSQL_PASSWORD"
+                      }
+                    }
+                  },
+                  {
+                    "name": "RABBITMQ_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "RABBITMQ_URL"
+                      }
+                    }
+                  },
+                  {
+                    "name": "SEARCH_INDEXER_METRICS_TOKEN",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "SEARCH_INDEXER_METRICS_TOKEN"
+                      }
+                    }
+                  },
+                  {
+                    "name": "GOPULSE_INSTANCE_ID",
+                    "value": "search-indexer-1"
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 19103,
+                    "name": "p19103"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "1000m",
+                    "memory": "256Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/startup",
+                    "port": 19103
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 60
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 19103
+                  },
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/live",
+                    "port": 19103
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              }
+            ]
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "search-indexer",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "search-indexer"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "search-indexer"
+        },
+        "ports": [
+          {
+            "port": 19103,
+            "targetPort": 19103,
+            "name": "p19103"
+          }
+        ]
+      }
+    }
+  ]
+}

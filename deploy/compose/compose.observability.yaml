@@ -1,0 +1,378 @@
+# 独立可观测系统，包含鉴权、管理页面、采集、存储和查询。
+# 不启动业务 API、异步任务、业务搜索或 Redis 采集目标。
+name: gopulse-observability
+
+x-image-build-args: &image-build-args
+  VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  REVISION: ${GOPULSE_REVISION:?GOPULSE_REVISION is required}
+  GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+
+x-mysql-environment: &mysql-environment
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_RUNTIME_MODE: container
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+  MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+
+x-marshaller-environment: &marshaller-environment
+  GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+  GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+  GOPULSE_RUNTIME_MODE: container
+  GOPULSE_INSTANCE_ID: marshaller-1
+  GOPULSE_REPLICA_COUNT: 2
+  MARSHALLER_HTTP_HOST: 0.0.0.0
+  MARSHALLER_HTTP_PORT: 9093
+  MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
+  MARSHALLER_METRICS_TOKEN: ${MARSHALLER_METRICS_TOKEN:?MARSHALLER_METRICS_TOKEN is required}
+  MARSHALLER_KAFKA_BROKERS: kafka:19092
+  MARSHALLER_KAFKA_MIN_PARTITIONS: ${KAFKA_OBSERVABILITY_PARTITIONS:-4}
+  MARSHALLER_VM_URL: http://victoriametrics:8428
+  MARSHALLER_VM_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+  MARSHALLER_VM_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+  MARSHALLER_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
+
+services:
+  mysql:
+    image: ${GOPULSE_MYSQL_IMAGE:-mysql:8.4.0}
+    restart: on-failure:5
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - observability
+    healthcheck:
+      test: [CMD, mysqladmin, ping, --host=127.0.0.1, --silent]
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/bin/sh, -c]
+    # 校验迁移状态，仅允许工具支持的旧版 dirty 状态恢复。
+    command:
+      - '/usr/local/bin/migrate validate && { /usr/local/bin/migrate status; code=$$?; [ "$$code" -eq 0 ] || [ "$$code" -eq 4 ]; } && exec /usr/local/bin/migrate up'
+    environment: *mysql-environment
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - observability
+
+  platform-api:
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: backend
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=80m,mode=1777
+    stop_grace_period: 15s
+    environment:
+      <<: *mysql-environment
+      GOPULSE_INSTANCE_ID: platform-api-1
+      GOPULSE_REPLICA_COUNT: 1
+      BACKEND_SERVICE_ROLE: platform
+      GOPULSE_SELFMONITOR_CONTROL: compose
+      BACKEND_STANDALONE_OBSERVABILITY: "true"
+      APP_ENV: ${APP_ENV:-development}
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: 8080
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
+      AUTH_JWT_TTL: ${AUTH_JWT_TTL:-2h}
+      AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-gopulse_session}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      PLATFORM_API_HTTP_MAX_CONCURRENCY: ${PLATFORM_API_HTTP_MAX_CONCURRENCY:-32}
+      PLATFORM_API_MYSQL_MAX_OPEN_CONNS: ${PLATFORM_API_MYSQL_MAX_OPEN_CONNS:-4}
+      MYSQL_TOTAL_MAX_OPEN_CONNS: ${MYSQL_TOTAL_MAX_OPEN_CONNS:-60}
+      BACKEND_TRUSTED_PROXY_CIDRS: ${BACKEND_TRUSTED_PROXY_CIDRS:-}
+      BACKEND_ENDPOINTS: platform-api
+      MARSHALLER_ENDPOINTS: marshaller,marshaller-2
+      BACKEND_METRICS_TOKEN: ${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}
+      MARSHALLER_API_TOKEN: ${MARSHALLER_API_TOKEN:?MARSHALLER_API_TOKEN is required}
+      ALERT_EVALUATION_ENABLED: ${ALERT_EVALUATION_ENABLED:-true}
+      OBSERVABILITY_ELASTICSEARCH_URL: http://observability-elasticsearch:9200
+      BACKEND_VICTORIAMETRICS_URL: http://victoriametrics:8428
+      BACKEND_VICTORIAMETRICS_USERNAME: ${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+      BACKEND_VICTORIAMETRICS_PASSWORD: ${VICTORIAMETRICS_PASSWORD:?VICTORIAMETRICS_PASSWORD is required}
+      MONITOR_URL: http://monitor:9090
+      MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
+      LOG_MONITOR_URL: http://monitor:9090
+      LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose: ["8080", "19101"]
+    networks: [edge, observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/ready]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-frontend:
+    image: ${GOPULSE_ADMIN_FRONTEND_IMAGE:-gopulse/admin-frontend:latest}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/docker/admin-frontend.Dockerfile
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs: [/tmp]
+    stop_grace_period: 10s
+    # 同一管理镜像内置独立部署入口，无需启动用户前端。
+    command: ["-c", "/etc/nginx/nginx.observability.conf", "-g", "daemon off;"]
+    depends_on:
+      platform-api:
+        condition: service_healthy
+    ports:
+      - ${PUBLISHED_HOST:-127.0.0.1}:${ADMIN_FRONTEND_PORT:?ADMIN_FRONTEND_PORT is required}:8080
+    networks: [edge]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8080/frontend-health]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  admin-role:
+    profiles: [operations]
+    image: ${GOPULSE_BACKEND_IMAGE:-gopulse/backend:latest}
+    pull_policy: never
+    restart: "no"
+    entrypoint: [/usr/local/bin/admin-role]
+    command: [bootstrap, --user-id, "${GOPULSE_BOOTSTRAP_USER_ID:-0}"]
+    environment: *mysql-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - observability
+
+  kafka:
+    image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
+    restart: on-failure:5
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:9093,INTERNAL://:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_MS: 259200000
+      KAFKA_LOG_RETENTION_BYTES: 2147483648
+      KAFKA_LOG_SEGMENT_BYTES: 67108864
+      KAFKA_LOG_SEGMENT_MS: 3600000
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    tmpfs:
+      - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
+      - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777
+    networks: [observability]
+    healthcheck:
+      test: [CMD-SHELL, '/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:19092 --list >/dev/null 2>&1']
+      start_period: 20s
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kafka-init:
+    image: ${GOPULSE_KAFKA_IMAGE:-apache/kafka:4.3.1}
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -ec
+      - >-
+        for topic in gopulse-observability-metrics gopulse-observability-logs gopulse-observability-events; do
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists
+        --topic "$${topic}" --partitions ${KAFKA_OBSERVABILITY_PARTITIONS:-4} --replication-factor 1
+        --config cleanup.policy=delete --config retention.ms=259200000 --config retention.bytes=2147483648
+        --config segment.bytes=67108864 --config segment.ms=3600000;
+        /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:19092 --alter --entity-type topics
+        --entity-name "$${topic}"
+        --add-config cleanup.policy=delete,retention.ms=259200000,retention.bytes=2147483648,segment.bytes=67108864,segment.ms=3600000;
+        done
+    tmpfs:
+      - /etc/kafka/secrets:rw,nosuid,nodev,size=16m,mode=1777
+      - /mnt/shared/config:rw,nosuid,nodev,size=16m,mode=1777
+      - /var/lib/kafka/data:rw,nosuid,nodev,size=16m,mode=1777
+    networks: [observability]
+
+  victoriametrics:
+    image: ${GOPULSE_VICTORIAMETRICS_IMAGE:-victoriametrics/victoria-metrics:v1.151.0}
+    restart: on-failure:5
+    secrets: [victoriametrics_password]
+    command:
+      - -storageDataPath=/victoria-metrics-data
+      - -httpAuth.username=${VICTORIAMETRICS_USERNAME:?VICTORIAMETRICS_USERNAME is required}
+      - -httpAuth.password=file:///run/secrets/victoriametrics_password
+      - -dedup.minScrapeInterval=1ms
+      - -retentionPeriod=30d
+    volumes:
+      - victoriametrics_data:/victoria-metrics-data
+    networks: [observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:8428/health]
+      start_period: 10s
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  observability-elasticsearch:
+    image: ${GOPULSE_OBSERVABILITY_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:9.5.2}
+    restart: on-failure:5
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - observability_elasticsearch_data:/usr/share/elasticsearch/data
+    networks: [observability]
+    healthcheck:
+      test: [CMD-SHELL, 'curl --fail --silent "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null']
+      start_period: 30s
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  marshaller: &marshaller-service
+    image: ${GOPULSE_MARSHALLER_IMAGE:-gopulse/marshaller:latest}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/docker/observability.Dockerfile
+      target: marshaller
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    stop_grace_period: 15s
+    environment: *marshaller-environment
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      victoriametrics:
+        condition: service_healthy
+      observability-elasticsearch:
+        condition: service_healthy
+    expose: ["9093", "19106"]
+    networks: [observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9093/ready]
+      start_period: 5s
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  marshaller-2:
+    <<: *marshaller-service
+    environment:
+      <<: *marshaller-environment
+      GOPULSE_INSTANCE_ID: marshaller-2
+
+  monitor:
+    image: ${GOPULSE_MONITOR_IMAGE:-gopulse/monitor:latest}
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: deploy/docker/monitor.Dockerfile
+      target: monitor-product
+      additional_contexts:
+        plugin-packages: ../../.run/packages
+      args: *image-build-args
+    restart: on-failure:5
+    read_only: true
+    tmpfs:
+      - /tmp:rw,exec,nosuid,nodev,size=160m,mode=1777
+    stop_grace_period: 20s
+    environment:
+      GOPULSE_VERSION: ${GOPULSE_VERSION:?GOPULSE_VERSION is required}
+      GOPULSE_REVISION: ${GOPULSE_REVISION:-development}
+      GOPULSE_RUNTIME_MODE: container
+      GOPULSE_INSTANCE_ID: monitor-1
+      GOPULSE_REPLICA_COUNT: 1
+      MARSHALLER_ENDPOINTS: marshaller,marshaller-2
+      MONITOR_HTTP_HOST: 0.0.0.0
+      MONITOR_HTTP_PORT: 9090
+      MONITOR_API_TOKEN: ${MONITOR_API_TOKEN:?MONITOR_API_TOKEN is required}
+      MONITOR_METRICS_TOKEN: ${MONITOR_METRICS_TOKEN:?MONITOR_METRICS_TOKEN is required}
+      LOG_MONITOR_INGEST_TOKEN: ${LOG_MONITOR_INGEST_TOKEN:?LOG_MONITOR_INGEST_TOKEN is required}
+      MONITOR_PLUGIN_ROOT: /var/lib/gopulse-monitor/plugins
+      MONITOR_SPOOL_DIR: /var/lib/gopulse-monitor/spool
+      MONITOR_KAFKA_BROKERS: kafka:19092
+      MONITOR_BOOTSTRAP_PACKAGE: ""
+      # 仅供手动安装 Redis 插件时使用，默认不加载插件或连接该目标。
+      REDIS_HOST: ${MONITOR_REDIS_TARGET_HOST:-redis}
+      BACKEND_ENDPOINTS: platform-api
+    volumes:
+      - monitor_plugin_data:/var/lib/gopulse-monitor/plugins
+      - monitor_spool_data:/var/lib/gopulse-monitor/spool
+    expose: ["9090", "19104"]
+    networks: [observability]
+    healthcheck:
+      test: [CMD, wget, --spider, --quiet, http://127.0.0.1:9090/ready]
+      start_period: 10s
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+networks:
+  edge:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+  observability:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+    internal: true
+
+volumes:
+  mysql_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+  kafka_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+  victoriametrics_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+  observability_elasticsearch_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+  monitor_plugin_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+  monitor_spool_data:
+    labels:
+      io.gopulse.workspace: ${GOPULSE_WORKSPACE_ROOT:-${PWD}}
+
+secrets:
+  victoriametrics_password:
+    environment: VICTORIAMETRICS_PASSWORD

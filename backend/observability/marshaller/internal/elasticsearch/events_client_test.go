@@ -1,0 +1,115 @@
+package elasticsearch
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/envelope"
+	eventtransform "github.com/Ray-ymq/GoPulse/marshaller/internal/events"
+	"github.com/Ray-ymq/GoPulse/marshaller/internal/retention"
+)
+
+func TestEventsClientIsBoundToObservabilityPurpose(t *testing.T) {
+	client, err := NewEvents("http://127.0.0.1:9200", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.Purpose() != "observability" {
+		t.Fatalf("Purpose() = %q", client.Purpose())
+	}
+}
+
+func TestEventsClientRejectsExpiredIndexBeforeWriting(t *testing.T) {
+	documentWrites := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/_index_template/") {
+			_, _ = w.Write([]byte(`{"acknowledged":true}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/_doc/") {
+			documentWrites++
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	client, err := NewEvents(server.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetRetentionPolicy(retention.DefaultConfig().Events); err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC) }
+	document := json.RawMessage(`{"@timestamp":"2026-09-20T08:00:00Z","event_schema_version":1,"event_name":"exporter_plugin_started","source":"monitor","severity":"info","message":"exporter plugin started","metadata":{"plugin_id":"redis-exporter","plugin_version":"1.7.1","operation":"start","from_state":"stopped","to_state":"running"}}`)
+	body, _ := json.Marshal(eventtransform.WriteRequest{MessageID: "abcdef0123456789abcdef0123456789", IndexDate: "2026.09.20", Document: document})
+	err = client.Write(context.Background(), body)
+	if envelope.Code(err) != "expired_event_retention" || documentWrites != 0 {
+		t.Fatalf("err=%v code=%q documentWrites=%d", err, envelope.Code(err), documentWrites)
+	}
+}
+
+func TestEventsClientUsesIndependentTemplateIndexAndAlias(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/_index_template/"):
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/_mapping"):
+			if _, err := w.Write([]byte(`{"acknowledged":true}`)); err != nil {
+				t.Error(err)
+			}
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/_mapping"):
+			writeEventMappingResponse(t, w, "gopulse-events-v1-2026.09.05")
+		case strings.Contains(r.URL.Path, "/_alias/"):
+			if _, err := w.Write([]byte(`{"gopulse-events-v1-2026.09.05":{"aliases":{"gopulse-events-v1-read":{}}}}`)); err != nil {
+				t.Error(err)
+			}
+		default:
+			w.WriteHeader(http.StatusCreated)
+			if _, err := w.Write([]byte(`{"_index":"gopulse-events-v1-2026.09.05","_id":"abcdef0123456789abcdef0123456789","result":"created"}`)); err != nil {
+				t.Error(err)
+			}
+		}
+	}))
+	defer server.Close()
+	client, err := NewEvents(server.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := json.RawMessage(`{"@timestamp":"2026-09-05T08:00:00Z","event_schema_version":1,"event_name":"exporter_plugin_started","source":"monitor","severity":"info","message":"exporter plugin started","metadata":{"plugin_id":"redis-exporter","plugin_version":"1.7.1","operation":"start","from_state":"stopped","to_state":"running"}}`)
+	body, _ := json.Marshal(eventtransform.WriteRequest{MessageID: "abcdef0123456789abcdef0123456789", IndexDate: "2026.09.05", Document: document})
+	if err := client.Write(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"PUT /_index_template/" + EventTemplateName, "PUT /gopulse-events-v1-2026.09.05/_mapping", "PUT /gopulse-events-v1-2026.09.05/_doc/abcdef0123456789abcdef0123456789", "GET /gopulse-events-v1-2026.09.05/_mapping", "GET /gopulse-events-v1-2026.09.05/_alias/" + EventReadAlias}
+	if strings.Join(paths, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("paths=%v want=%v", paths, want)
+	}
+	if strings.Contains(eventTemplateBody, "gopulse-logs") {
+		t.Fatal("event template references log storage")
+	}
+}
+
+func writeEventMappingResponse(t *testing.T, w http.ResponseWriter, index string) {
+	t.Helper()
+	metadata := map[string]any{}
+	for _, field := range []string{"plugin_id", "plugin_version", "previous_plugin_version", "operation", "from_state", "to_state", "error_code", "scrape_status"} {
+		metadata[field] = map[string]string{"type": "keyword"}
+	}
+	properties := map[string]any{
+		"@timestamp": map[string]string{"type": "date_nanos"}, "event_schema_version": map[string]string{"type": "integer"},
+		"event_name": map[string]string{"type": "keyword"}, "source": map[string]string{"type": "keyword"}, "severity": map[string]string{"type": "keyword"}, "message": map[string]string{"type": "keyword"},
+		"metadata": map[string]any{"dynamic": "strict", "properties": metadata},
+	}
+	if err := json.NewEncoder(w).Encode(map[string]any{index: map[string]any{"mappings": map[string]any{"dynamic": "strict", "properties": properties}}}); err != nil {
+		t.Fatal(err)
+	}
+}

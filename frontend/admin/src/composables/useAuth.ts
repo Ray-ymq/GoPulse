@@ -1,0 +1,23 @@
+import { nextTick, readonly, ref } from 'vue'
+import { authApi } from '../services/api'
+import { setForbiddenHandler, setUnauthorizedHandler } from '../services/http'
+import { standaloneObservability } from './deployment'
+import type { PublicUser } from '../types/api'
+const user = ref<PublicUser | null>(null)
+export function useAuth() {
+  return { user: readonly(user), async refresh() { try { user.value = await authApi.me() } catch (error) { user.value = null; throw error } } }
+}
+export function bindAuthNavigation(navigate: (path: string) => void = path => window.location.replace(path)) {
+  setForbiddenHandler(async () => {
+    if (user.value) user.value = { ...user.value, role: 'user' }
+    await nextTick() // unmount views, abort reads and erase candidate secrets before leaving
+    navigate(standaloneObservability.value ? '/admin/login?forbidden=1' : '/posts')
+  })
+  setUnauthorizedHandler(async () => {
+    user.value = null
+    await nextTick()
+    navigate((standaloneObservability.value ? '/admin/login' : '/login') + '?redirect=' + encodeURIComponent(window.location.pathname + window.location.search))
+  })
+}
+
+export async function leaveManagement() { user.value = null; await nextTick(); window.location.replace(standaloneObservability.value ? '/admin/login' : '/posts') }

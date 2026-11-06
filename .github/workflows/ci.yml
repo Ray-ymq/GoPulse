@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       labels:
-        description: 'CI labels separated by commas or spaces, e.g. ci:backend ci:marshaller; ci:none skips module jobs'
+        description: 'CI labels separated by commas or spaces, e.g. ci:backend/business ci:backend/observability/marshaller; ci:none skips module jobs'
         required: true
         type: string
 
@@ -36,7 +36,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v7.0.0
         with:
-          go-version-file: devtools/go.mod
+          go-version-file: tools/devtools/go.mod
           cache: false
       - name: Test CI tooling
         run: make ci-tools
@@ -123,6 +123,12 @@ jobs:
           cache-dependency-path: |
             **/go.mod
             **/go.sum
+      - name: Install perflab Python dependencies
+        if: matrix.module == 'tools/perflab'
+        run: |
+          python3 -m venv .run/ci/python
+          .run/ci/python/bin/python -m pip install -r tools/perflab/requirements.txt
+          echo "$GITHUB_WORKSPACE/.run/ci/python/bin" >> "$GITHUB_PATH"
       - name: Unit tests (Go includes race detection)
         env:
           MODULE: ${{ matrix.module }}

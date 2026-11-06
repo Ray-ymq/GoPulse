@@ -1,0 +1,217 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "rabbitmq-env",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "rabbitmq-env"
+        }
+      },
+      "data": {
+        "RABBITMQ_DEFAULT_USER": "gopulse"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "name": "rabbitmq",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "rabbitmq"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "rabbitmq"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "rabbitmq",
+              "app.kubernetes.io/part-of": "gopulse"
+            }
+          },
+          "spec": {
+            "terminationGracePeriodSeconds": 30,
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "name": "rabbitmq",
+                "image": "rabbitmq:3.13.3-management-alpine",
+                "imagePullPolicy": "IfNotPresent",
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "rabbitmq-env"
+                    }
+                  },
+                  {
+                    "configMapRef": {
+                      "name": "gopulse-identity"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "RABBITMQ_DEFAULT_PASS",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "gopulse-credentials",
+                        "key": "RABBITMQ_PASSWORD"
+                      }
+                    }
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 5672,
+                    "name": "p5672"
+                  },
+                  {
+                    "containerPort": 15672,
+                    "name": "p15672"
+                  },
+                  {
+                    "containerPort": 15692,
+                    "name": "p15692"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "256Mi"
+                  },
+                  "limits": {
+                    "cpu": "1000m",
+                    "memory": "768Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "rabbitmq-data",
+                    "mountPath": "/var/lib/rabbitmq"
+                  },
+                  {
+                    "name": "enabled-plugins",
+                    "mountPath": "/etc/rabbitmq/enabled_plugins",
+                    "subPath": "enabled_plugins",
+                    "readOnly": true
+                  }
+                ],
+                "startupProbe": {
+                  "tcpSocket": {
+                    "port": 5672
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 60
+                },
+                "readinessProbe": {
+                  "tcpSocket": {
+                    "port": 5672
+                  },
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "tcpSocket": {
+                    "port": 5672
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {}
+              },
+              {
+                "name": "enabled-plugins",
+                "configMap": {
+                  "name": "rabbitmq-plugins"
+                }
+              }
+            ]
+          }
+        },
+        "serviceName": "rabbitmq",
+        "volumeClaimTemplates": [
+          {
+            "metadata": {
+              "name": "rabbitmq-data"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "storageClassName": "local-path",
+              "resources": {
+                "requests": {
+                  "storage": "8Gi"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "rabbitmq",
+        "labels": {
+          "app.kubernetes.io/part-of": "gopulse",
+          "app.kubernetes.io/name": "rabbitmq"
+        }
+      },
+      "spec": {
+        "selector": {
+          "app.kubernetes.io/name": "rabbitmq"
+        },
+        "ports": [
+          {
+            "port": 5672,
+            "targetPort": 5672,
+            "name": "p5672"
+          },
+          {
+            "port": 15672,
+            "targetPort": 15672,
+            "name": "p15672"
+          },
+          {
+            "port": 15692,
+            "targetPort": 15692,
+            "name": "p15692"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "rabbitmq-plugins"
+      },
+      "data": {
+        "enabled_plugins": "[rabbitmq_management,rabbitmq_prometheus].\n"
+      }
+    }
+  ]
+}
