@@ -1,6 +1,6 @@
 # GoPulse 贡献说明
 
-提交说明、PR 描述和自动校验规则统一维护在[CI 与提交规范](tools/ci/CI.md#提交规范)。创建提交或 PR 前请阅读该规范，并使用仓库提供的模板。
+提交说明、PR 描述和自动校验规则统一维护在[CI 与提交规范](../tools/ci/docs/CI.md#提交规范)。创建提交或 PR 前请阅读该规范，并使用仓库提供的模板。
 
 - 每项完整改动单独提交，标题遵循 Conventional Commits。
 - 提交正文包含非空的背景、改动和验证；PR 正文还需填写影响与风险。
@@ -15,7 +15,7 @@ Exporter 由 Monitor 作为二进制插件启动，插件包由 `tools/devtools/
 
 ## 目录与模块入口
 
-后端按系统分为 `backend/business/` 和 `backend/observability/`，共享运行时能力放在 `backend/runtimekit/`。前端位于 `frontend/`，开发、压测、CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
+后端按系统分为 `backend/business/` 和 `backend/observability/`，共享运行时能力放在 `backend/runtimekit/`。前端位于 `frontend/`，开发、压测、CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](../AGENTS.md#项目结构)。
 
 `MODULE` 和 `ci:<模块目录>` 标签使用迁移后的完整目录，例如：
 
@@ -30,6 +30,6 @@ make ci-plan LABELS="ci:backend/business ci:backend/observability/monitor"
 
 压测方案与报告统一放在 `docs/performance/`；工具与配置放在 `tools/perflab/`。
 
-Compose 部署入口位于 `deploy/compose/`，开发和调试配置位于 `deploy/dev/`。目录说明、部署命令和旧路径迁移要求见[部署说明](deploy/README.md)。
+Compose 部署入口位于 `deploy/compose/`，开发和调试配置位于 `deploy/dev/`。目录说明、部署命令和旧路径迁移要求见[部署说明](../deploy/README.md)。
 
-公共压测入口、准备步骤和专用环境要求见[压测操作说明](tools/perflab/flow/README.md)。历史测试方案和报告见[压测文档](docs/performance/README.md)。原生 node_exporter 的打包与部署要求见[插件说明](backend/observability/exporters/node/README.md)。
+公共压测入口、准备步骤和专用环境要求见[压测操作说明](../tools/perflab/flow/README.md)。历史测试方案和报告见[压测文档](performance/README.md)。原生 node_exporter 的打包与部署要求见[插件说明](../backend/observability/exporters/node/README.md)。

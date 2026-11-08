@@ -1,6 +1,6 @@
 # 产品部署
 
-`deploy/` 保存两种产品部署方式及共享镜像定义。Compose 操作见本文，Kubernetes 准备、双部署命令、切换和数据边界见 [双部署说明](DUAL_DEPLOYMENT.md)。所有命令均在仓库根目录执行。
+`deploy/` 保存两种产品部署方式及共享镜像定义。Compose 操作见本文，Kubernetes 准备、双部署命令、切换和数据边界见 [双部署说明](docs/DUAL_DEPLOYMENT.md)。所有命令均在仓库根目录执行。
 
 ## 目录结构
 
@@ -10,6 +10,7 @@ deploy/
 ├── docker/         # Dockerfile 和镜像构建资源
 ├── kubernetes/     # Kubernetes 产品、集群和追踪资源
 ├── dev/            # 本地开发、调试和追踪覆盖配置
+├── docs/           # 部署说明与验收记录
 ├── otel/           # 追踪采集器配置
 ├── selfmonitor/    # 自监控部署资源
 └── README.md
@@ -17,7 +18,7 @@ deploy/
 
 环境变量示例统一维护在根目录的 [`.env.example`](../.env.example)。
 
-本次分支整合的验证结果、升级与回滚边界，以及尚未完成的验收项目，见 [Compose 整合与验收记录](COMPOSE_INTEGRATION.md)。
+本次分支整合的验证结果、升级与回滚边界，以及尚未完成的验收项目，见 [Compose 整合与验收记录](docs/COMPOSE_INTEGRATION.md)。
 
 ## 选择部署模式
 
@@ -69,7 +70,7 @@ Monitor 默认不自动安装采集插件。启动后可通过管理页面安装
 
 ## 准备配置和镜像
 
-1. 安装 Docker 和 Docker Compose。使用本地构建工具时，还需满足根目录开发工具的要求，见[贡献说明](../CONTRIBUTING.md)。
+1. 安装 Docker 和 Docker Compose。使用本地构建工具时，还需满足根目录开发工具的要求，见[贡献说明](../docs/CONTRIBUTING.md)。
 2. 根据根目录 `.env.example` 准备私有环境文件 `.env`，填写实际凭据、版本和端口。不要覆盖已有配置，不要提交实际凭据。
 3. 使用自研镜像前，执行 `make build-images` 构建本地镜像，或预先准备与配置匹配的镜像。构建入口以根目录 `VERSION` 为产品版本来源；部署时应核对 `.env` 中的版本和镜像配置。
 4. 运行 `make check-compose`，检查仓库示例配置及覆盖组合。该命令不启动容器；实际部署前仍需校验自己的 `.env`。
@@ -147,7 +148,7 @@ docker compose --env-file .env \
 | `make stack-status MODE=...` | 查看所选模式的容器状态 |
 | `make stack-down MODE=...` | 停止所选模式，保留命名数据卷 |
 
-`MODE` 接受 `business`、`observability`、`all`，默认 `all`。项目名和环境文件规则见 [双部署说明](DUAL_DEPLOYMENT.md#命令入口)。若先使用 Docker Compose 命令启动环境，后续改用 Make 命令时必须保持项目名一致。
+`MODE` 接受 `business`、`observability`、`all`，默认 `all`。项目名和环境文件规则见 [双部署说明](docs/DUAL_DEPLOYMENT.md#命令入口)。若先使用 Docker Compose 命令启动环境，后续改用 Make 命令时必须保持项目名一致。
 
 ## 开发、调试和自监控
 

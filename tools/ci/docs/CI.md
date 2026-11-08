@@ -131,7 +131,7 @@ PR 标题使用相同的标题格式。正文汇总 PR 的最终改动，使用�
 
 ### 模板与校验
 
-- [`.gitmessage`](../../.gitmessage) 提供 commit 模板；[PR 模板](../../.github/pull_request_template.md) 在 GitHub 创建 PR 时提供正文结构。模板提示均为注释，需填写实际内容。
+- [`.gitmessage`](../../../.gitmessage) 提供 commit 模板；[PR 模板](../../../.github/pull_request_template.md) 在 GitHub 创建 PR 时提供正文结构。模板提示均为注释，需填写实际内容。
 - 运行 `make hooks-install` 安装提交钩子并设置当前仓库的 commit 模板；之后不带 `-m` 的 `git commit` 会打开模板。克隆到新目录后需重新安装。安装不会覆盖已有的其他 hook 路径或 commit 模板。
 - `git commit -m` 不会自动带出模板，仍需填写完整正文；本地钩子始终检查新提交的三个部分。
 - `make check-commits MESSAGE_FILE=/path/to/message.txt` 检查一份提交说明；`make check-commits BASE_REF=origin/main` 检查分支新增提交。

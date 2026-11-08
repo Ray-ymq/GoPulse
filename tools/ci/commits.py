@@ -240,7 +240,7 @@ def main() -> int:
             for error in errors:
                 print(f"Commit format error: {error}", file=sys.stderr)
             print(f"Example: {EXAMPLE}", file=sys.stderr)
-            print("Templates: .gitmessage and .github/pull_request_template.md; see tools/ci/CI.md#提交规范", file=sys.stderr)
+            print("Templates: .gitmessage and .github/pull_request_template.md; see tools/ci/docs/CI.md#提交规范", file=sys.stderr)
             return 1
         print("Conventional Commits checks passed")
         return 0
