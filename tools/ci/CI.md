@@ -1,6 +1,6 @@
 # 模块 CI
 
-旧工作流和旧 CI 脚本已移除。现在只有 `.github/workflows/ci.yml`，不包含自动创建 PR、自动合并、删分支、缓存预热或发布。
+旧工作流和旧 CI 脚本已移除。现在只有 `.github/workflows/ci.yml`，负责模块检查、提交规范校验和自动创建 PR。不包含自动合并、删分支、缓存预热或发布。
 
 ## 什么时候运行
 
@@ -9,6 +9,22 @@
 - 手动运行必须输入模块标签，支持逗号或空格分隔，不再默认全量检查。
 - 不监听 `merge_group`，不支持合并队列检查。
 - 同一种事件下，同一个 PR 或分支有新任务时，取消旧任务；每个任务有独立超时。同一分支已有 PR 时，推送会分别产生 push 和 PR 检查。
+
+## 自动创建 PR
+
+非默认分支 push 的 `CI result` 通过后，工作流向仓库当前默认分支创建普通 PR。默认分支推送、标签推送、分支删除、PR 事件和手动运行均不创建 PR。push 检查失败或取消时，也不创建 PR。
+
+- 同一来源分支和目标分支已有开放 PR 时，复用该 PR，不覆盖人工修改的标题、正文或标签。已关闭或已合并的 PR 不参与复用；后续 push 有新的文件改动时可以创建新 PR。
+- 分支相对默认分支没有新增提交，或没有文件改动时，跳过创建。
+- 创建前核对来源分支的最新 SHA。分支已删除或已有新提交时，跳过旧任务，由新 push 的检查结果决定是否创建 PR。
+- PR 标题使用 `chore(repo): 合并 <分支名>`。正文包含背景、部分提交摘要、本次 push 的 CI 运行链接和待人工评估的影响与风险。维护者需按最终改动完善说明；自动生成的验证记录只代表该次 push 检查的模块范围。
+- 不自动添加 `ci:*` 标签。维护者仍需按整个 PR 的影响范围选择模块标签，或用 `ci:none` 明确跳过模块任务；未选择标签时，PR 的模块选择检查会失败。
+
+模块检查任务保持只读权限。只有创建 PR 的独立任务获得 `contents: read` 和 `pull-requests: write` 权限；该任务不检出分支或执行项目脚本，只通过工作流中的内联脚本调用 GitHub API 查询和创建 PR。创建被拒绝或 API 返回其他错误时，任务失败并记录原因，不把失败报告为成功。
+
+该流程使用内置 `GITHUB_TOKEN`，不需要新增 secret。仓库需在 Settings → Actions → General → Workflow permissions 中启用 **Allow GitHub Actions to create and approve pull requests**；组织策略也必须允许此操作。本次未修改远端仓库设置。配置说明见 [GitHub Actions 仓库设置](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)。
+
+按 GitHub 当前规则，由 `GITHUB_TOKEN` 创建 PR 所产生的 `opened` 工作流会等待人工批准。若 PR 页面显示 **Approve workflows to run**，具有仓库写权限的维护者需批准运行。后续人工修改 PR 或标签仍按上述事件规则触发检查。相关限制见 [GITHUB_TOKEN 事件规则](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs)。
 
 ## 按事件选择模块
 
@@ -70,6 +86,8 @@ make build MODULE=frontend/user   # 类型检查、Vite 构建
 根 Makefile 分发到各模块 Makefile。Go lint 工具继续由 `tools/devtools/toolchains.json` 固定版本和校验和，但不再使用旧 CI 的 lint 基线豁免；发现问题会直接失败。
 
 `ci-*` 命令使用 `.run/ci/go.work`，确保共享 Go 代码来自当前检出目录。不会覆盖开发者根目录的 `go.work`，也不会修改各模块的 `go.mod`。
+
+`make ci-tools` 需要 Python 3 和 Node.js；自动创建 PR 的回归测试通过模拟 API 执行实际工作流脚本，不会访问远端或创建 PR。
 
 查看指定标签的计划和复现完整模块检查：
 

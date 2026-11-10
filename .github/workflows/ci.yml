@@ -166,3 +166,102 @@ jobs:
             [[ "$result" == "$expected" ]] || { echo "Expected $expected, got $result" >&2; exit 1; }
           done
           echo 'All selected module checks passed.'
+
+  auto_pr:
+    name: Create pull request
+    needs: result
+    if: >-
+      github.event_name == 'push' && github.event.deleted != true &&
+      github.ref_type == 'branch' &&
+      github.ref_name != github.event.repository.default_branch
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create or reuse pull request
+        uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const base = context.payload.repository.default_branch;
+            const branch = context.ref.replace(/^refs\/heads\//, '');
+            if (context.eventName !== 'push' || context.payload.deleted ||
+                !context.ref.startsWith('refs/heads/') || branch === base) {
+              core.info('此事件不创建 PR。');
+              return;
+            }
+            const findOpen = async () => {
+              const {data} = await github.rest.pulls.list({
+                owner, repo, state: 'open', head: `${owner}:${branch}`, base, per_page: 1,
+              });
+              return data[0];
+            };
+            const currentHead = async () => {
+              try {
+                const {data} = await github.rest.git.getRef({owner, repo, ref: `heads/${branch}`});
+                return data.object.sha;
+              } catch (error) {
+                if (error.status === 404) return null;
+                throw error;
+              }
+            };
+            if (await currentHead() !== context.sha) {
+              core.info('分支已删除或已有新提交，跳过本次创建。');
+              return;
+            }
+            const existing = await findOpen();
+            if (existing) {
+              core.info(`复用已有 PR：${existing.html_url}`);
+              return;
+            }
+            const {data: comparison} = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${base}...${context.sha}`,
+            });
+            if (comparison.ahead_by === 0 || comparison.files.length === 0) {
+              core.info('分支相对默认分支没有可合并的文件改动，跳过创建。');
+              return;
+            }
+            const escape = value => value.replace(/([\\`*_[\]<>])/g, '\\$1');
+            const subjects = comparison.commits.slice(-10).map(item =>
+              `- ${escape(item.commit.message.split('\n')[0])}`);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## 背景',
+              `将分支 ${escape(branch)} 的修改提交到 ${escape(base)}，供维护者评审。`,
+              '',
+              '## 改动',
+              '具体差异见 Files changed。以下列出部分提交摘要，最多 10 项：',
+              ...subjects,
+              '',
+              '## 验证',
+              `本次 push 的 CI result 已通过：[运行记录](${runUrl})。`,
+              '该记录只验证本次 push 选中的模块。请按整个 PR 的影响范围添加 `ci:<模块目录>` 标签；仅文档或前端改动可使用 `ci:none`。',
+              '',
+              '## 影响与风险',
+              '尚未完成人工风险评估。维护者需核对兼容性、迁移及回滚要求，并按最终改动更新本说明。',
+            ].join('\n');
+            if (await currentHead() !== context.sha) {
+              core.info('分支已删除或已有新提交，跳过本次创建。');
+              return;
+            }
+            try {
+              const {data: pr} = await github.rest.pulls.create({
+                owner, repo, base, head: branch,
+                title: `chore(repo): 合并 ${branch}`.slice(0, 240), body,
+              });
+              core.info(`已创建 PR：${pr.html_url}`);
+            } catch (error) {
+              if (error.status === 422) {
+                const raced = await findOpen();
+                if (raced) {
+                  core.info(`复用并发创建的 PR：${raced.html_url}`);
+                  return;
+                }
+              }
+              if (error.status === 403) {
+                core.error('创建 PR 被拒绝。请检查仓库 Settings → Actions → General 中的 Allow GitHub Actions to create and approve pull requests 设置及组织策略。');
+              }
+              throw error;
+            }

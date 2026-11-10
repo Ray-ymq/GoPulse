@@ -8,7 +8,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 class WorkflowSafetyTests(unittest.TestCase):
-    def test_only_read_only_module_ci_is_installed(self):
+    def test_only_module_ci_is_installed(self):
         workflows = sorted(
             path.relative_to(ROOT).as_posix()
             for path in (ROOT / ".github" / "workflows").glob("*")
@@ -16,14 +16,34 @@ class WorkflowSafetyTests(unittest.TestCase):
         )
         self.assertEqual(workflows, [".github/workflows/ci.yml"])
 
-    def test_module_ci_cannot_mutate_repository(self):
+    def test_only_auto_pr_job_can_write_pull_requests(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertRegex(workflow, r"(?m)^\s*permissions:\s*$")
-        self.assertRegex(workflow, r"(?m)^\s*contents:\s*read\s*$")
-        self.assertNotRegex(workflow, r"(?m)^\s*(?:contents|pull-requests|actions):\s*write\s*$")
+        self.assertRegex(workflow, r"(?m)^permissions:\n  contents: read$")
+        jobs = re.findall(r"(?ms)^  (\w+):\n(.*?)(?=^  \w+:|\Z)", workflow.split("jobs:\n", 1)[1])
+        self.assertIn("auto_pr", [name for name, _ in jobs])
+        for name, section in jobs:
+            if name == "auto_pr":
+                self.assertRegex(section, r"(?m)^    permissions:\n      contents: read\n      pull-requests: write$")
+                self.assertNotIn("actions/checkout@", section)
+                self.assertNotRegex(section, r"(?m)^\s*run:")
+                self.assertNotRegex(section, r"(?m)^\s*(?:contents|actions):\s*write\s*$")
+            else:
+                self.assertNotRegex(section, r"(?m)^\s*\S+:\s*write\s*$", name)
         self.assertNotRegex(workflow, r"\bgit\s+(?:add|commit|push|tag|merge|rebase)\b")
         self.assertNotRegex(workflow, r"create-pull-request|git-auto-commit")
+
+    def test_auto_pr_requires_successful_push_ci(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        section = re.search(r"(?ms)^  auto_pr:\n(.*?)(?=^  \w+:|\Z)", workflow).group(1)
+        self.assertIn("needs: result", section)
+        self.assertIn("github.event_name == 'push'", section)
+        self.assertIn("github.event.deleted != true", section)
+        self.assertIn("github.ref_type == 'branch'", section)
+        self.assertIn("github.ref_name != github.event.repository.default_branch", section)
+        self.assertNotIn("always()", section)
+        script = section.split("script: |\n", 1)[1]
+        self.assertNotIn("${{", script)
 
     def test_push_runs_on_all_branches_and_skips_branch_deletion(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
