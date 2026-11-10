@@ -150,8 +150,8 @@ make package-plugin SOURCE=node ARCH=amd64
 
 部署配置位于 `deploy/`，工程工具位于 `tools/`，本地运行状态和缓存位于 `.run/`。正式压测使用根目录 `make pt`，执行前必须按压测操作说明准备专用环境、数据和观测资源。
 
-- [贡献说明](../docs/CONTRIBUTING.md)
+历史压测方案与报告已移至本地 `~/performance/`，Outbox 容量运行契约已移至 `~/Outbox容量运行契约.md`。
+
+- [贡献说明](../CONTRIBUTING.md)
 - [部署说明](../deploy/README.md)
 - [压测操作说明](../tools/perflab/flow/README.md)
-- [压测方案与报告](../docs/performance/README.md)
-- [Outbox 容量运行契约](../docs/Outbox容量运行契约.md)
