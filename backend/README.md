@@ -39,6 +39,8 @@ backend/
 
 ## 模块职责
 
+各一级子目录的说明见 [business](business/README.md)、[observability](observability/README.md) 和 [runtimekit](runtimekit/README.md)。
+
 | 模块 | 职责 |
 | --- | --- |
 | [business](business/) | 用户、帖子、评论、点赞、收藏、搜索、通知，以及可观测数据查询和管理接口 |
