@@ -33,14 +33,17 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertNotRegex(workflow, r"\bgit\s+(?:add|commit|push|tag|merge|rebase)\b")
         self.assertNotRegex(workflow, r"create-pull-request|git-auto-commit")
 
-    def test_auto_pr_requires_successful_push_ci(self):
+    def test_auto_pr_requires_successful_ci_and_never_writes_to_fork_prs(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         section = re.search(r"(?ms)^  auto_pr:\n(.*?)(?=^  \w+:|\Z)", workflow).group(1)
-        self.assertIn("needs: result", section)
+        self.assertIn("needs: [plan, result]", section)
         self.assertIn("github.event_name == 'push'", section)
         self.assertIn("github.event.deleted != true", section)
         self.assertIn("github.ref_type == 'branch'", section)
         self.assertIn("github.ref_name != github.event.repository.default_branch", section)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", section)
+        self.assertIn("CI_LABELS: ${{ needs.plan.outputs.labels }}", section)
+        self.assertIn("CI_HEAD_SHA: ${{ needs.plan.outputs.head_sha }}", section)
         self.assertNotIn("always()", section)
         script = section.split("script: |\n", 1)[1]
         self.assertNotIn("${{", script)

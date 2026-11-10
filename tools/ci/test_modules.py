@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import changed_files, command, event_labels, read_modules, select, select_changed, select_push, split_labels, write_workspace
+from modules import changed_files, command, event_labels, event_plan, read_modules, select, select_changed, select_pr, select_push, split_labels, write_workspace
 
 
 class ModuleFixture(unittest.TestCase):
@@ -165,7 +165,7 @@ class ModuleTests(ModuleFixture):
         self.assertEqual(workspace.stat().st_mtime_ns, modified)
 
 
-class GitChangesTests(ModuleFixture):
+class GitFixture(ModuleFixture):
     def setUp(self) -> None:
         super().setUp()
         command(self.repo, "git", "init", "--quiet", "--initial-branch=main")
@@ -178,6 +178,8 @@ class GitChangesTests(ModuleFixture):
         command(self.repo, "git", "commit", "--quiet", "-m", message)
         return command(self.repo, "git", "rev-parse", "HEAD").strip()
 
+
+class GitChangesTests(GitFixture):
     def test_pull_request_diff_excludes_base_branch_changes(self) -> None:
         command(self.repo, "git", "checkout", "--quiet", "-b", "feature")
         self.write("api/main.go", "package api\n")
@@ -186,6 +188,47 @@ class GitChangesTests(ModuleFixture):
         self.write("worker/main.go", "package worker\n")
         base = self.commit("unrelated base change")
         self.assertEqual(changed_files(self.repo, base, head), ["api/main.go"])
+        self.assertEqual(select_pr(self.repo, base, head)["labels"], ["ci:api"])
+
+    def test_pr_covers_earlier_commits_and_ignores_stale_skip_labels(self) -> None:
+        self.write("api/main.go", "package api\n")
+        previous = self.commit("api")
+        self.write("worker/main.go", "package worker\n")
+        head = self.commit("worker")
+        event = {"pull_request": {"base": {"sha": self.base}, "head": {"sha": head}, "labels": [{"name": "ci:none"}]}}
+        self.assertEqual(select_push(self.repo, {"before": previous, "after": head})["modules"], ["worker"])
+        plan = event_plan(self.repo, "pull_request", event)
+        self.assertEqual(plan["modules"], ["api", "worker"])
+        self.assertEqual(plan["labels"], ["ci:api", "ci:worker"])
+
+    def test_pr_shared_ci_changes_select_all_go_modules(self) -> None:
+        self.write(".github/workflows/ci.yml", "name: CI\n")
+        head = self.commit("ci")
+        plan = select_pr(self.repo, self.base, head)
+        self.assertEqual(plan["modules"], list(self.go_modules))
+        self.assertNotIn("ci:none", plan["labels"])
+
+    def test_pr_docs_and_frontend_changes_select_none(self) -> None:
+        for path in ("api/README.md", "tools/ci/CI.md", "frontend/user/main.ts"):
+            self.write(path, "content\n")
+        head = self.commit("documentation and frontend")
+        plan = select_pr(self.repo, self.base, head)
+        self.assertEqual(plan["labels"], ["ci:none"])
+        self.assertFalse(plan["has_modules"])
+
+    def test_pr_files_are_not_truncated_at_api_page_limits(self) -> None:
+        for index in range(350):
+            self.write(f"api/data/{index}.txt", str(index))
+        self.write("worker/main.go", "package worker\n")
+        head = self.commit("many files")
+        plan = select_pr(self.repo, self.base, head)
+        self.assertEqual(plan["labels"], ["ci:api", "ci:worker"])
+        self.assertEqual(len(plan["changed_files"]), 351)
+
+    def test_invalid_pr_revisions_fail_instead_of_skipping_checks(self) -> None:
+        for event in ({}, {"pull_request": {}}, {"pull_request": {"base": {"sha": "main"}, "head": {"sha": self.base}}}, {"pull_request": {"base": {"sha": self.base}, "head": {"sha": "f" * 40}}}):
+            with self.subTest(event=event), self.assertRaises((ValueError, KeyError, subprocess.CalledProcessError)):
+                event_plan(self.repo, "pull_request", event)
 
     def test_cross_module_rename_selects_both_paths(self) -> None:
         self.write("api/move.go", "package example\n")
@@ -287,7 +330,7 @@ class GitChangesTests(ModuleFixture):
         self.assertEqual(json.loads(outputs["matrix"]), {"include": [{"module": "worker", "go_mod": "worker/go.mod"}]})
 
 
-class CLITests(ModuleFixture):
+class CLITests(GitFixture):
     def run_cli(self, *args: str, extra_environment: dict | None = None) -> subprocess.CompletedProcess:
         environment = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_") and key != "GOPULSE_CI_LABELS"}
         environment.update(extra_environment or {})
@@ -335,18 +378,32 @@ class CLITests(ModuleFixture):
         self.assertEqual(json.loads(outputs["modules"]), ["api", "worker"])
         self.assertEqual(len(json.loads(outputs["matrix"])["include"]), 2)
 
-    def test_pr_labeled_and_unlabeled_events_use_the_entire_current_label_list(self) -> None:
-        for action, labels, expected in (
-            ("labeled", ["ci:api", "ci:worker"], ["api", "worker"]),
-            ("unlabeled", ["ci:worker"], ["worker"]),
-            ("synchronize", ["ci:shared"], ["shared"]),
-        ):
+    def test_pr_label_events_recompute_the_entire_diff(self) -> None:
+        self.write("api/main.go", "package api\n")
+        head = self.commit("api")
+        for action, labels in (("labeled", ["ci:none"]), ("unlabeled", []), ("synchronize", ["ci:worker"])):
             with self.subTest(action=action):
-                event = {"action": action, "label": {"name": "ci:api"}, "pull_request": {"labels": [{"name": name} for name in labels]}}
+                event = {"action": action, "pull_request": {"base": {"sha": self.base}, "head": {"sha": head}, "labels": [{"name": name} for name in labels]}}
                 self.write("event.json", json.dumps(event))
                 result = self.run_cli(extra_environment={"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(self.repo / "event.json")})
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads(result.stdout)["modules"], expected)
+                self.assertEqual(json.loads(result.stdout)["modules"], ["api"])
+
+    def test_branch_label_cli_outputs_complete_plan_for_write_job(self) -> None:
+        self.write("worker/main.go", "package worker\n")
+        head = self.commit("worker")
+        output = self.repo / "output.txt"
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_") and key != "GOPULSE_CI_LABELS"}
+        environment["GITHUB_OUTPUT"] = str(output)
+        result = subprocess.run(
+            ["python3", str(Path(__file__).with_name("modules.py")), "pr-labels", "--repo", str(self.repo), "--base-ref", self.base, "--head-ref", head],
+            text=True, capture_output=True, env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(json.loads(outputs["labels"]), ["ci:worker"])
+        self.assertEqual(json.loads(outputs["head_sha"]), head)
+        self.assertEqual(set(json.loads(outputs["known_labels"])), {f"ci:{name}" for name in self.go_modules} | {"ci:none"})
 
     def test_none_label_produces_empty_matrix_and_false_output(self) -> None:
         self.write("output.txt", "")
@@ -362,8 +419,8 @@ class CLITests(ModuleFixture):
         self.assertEqual(result.stdout, "")
         self.assertEqual((self.repo / "output.txt").read_text(), "existing=value\n")
 
-    def test_missing_labels_on_github_fail_closed(self) -> None:
-        for name, event in (("pull_request", {"pull_request": {"labels": []}}), ("workflow_dispatch", {"inputs": {"labels": ""}})):
+    def test_invalid_pr_revisions_and_missing_manual_labels_fail_closed(self) -> None:
+        for name, event in (("pull_request", {"pull_request": {"base": {"sha": "missing"}, "head": {"sha": self.base}}}), ("workflow_dispatch", {"inputs": {"labels": ""}})):
             with self.subTest(name=name):
                 self.write("event.json", json.dumps(event))
                 result = self.run_cli(extra_environment={"GITHUB_EVENT_NAME": name, "GITHUB_EVENT_PATH": str(self.repo / "event.json")})

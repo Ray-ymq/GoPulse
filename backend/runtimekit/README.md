@@ -83,6 +83,6 @@ make race MODULE=backend/runtimekit
 make build MODULE=backend/runtimekit
 ```
 
-完整验证使用 `make verify MODULE=backend/runtimekit`。PR 和手动运行通过 `ci:backend/runtimekit` 标签检查本模块；普通 push 仅修改本模块代码时，也只检查本模块，不会自动增加使用方。新分支或公共 CI 配置变更等情况会检查全部 Go 模块。修改共享行为后，需要按影响范围验证业务服务、Monitor、Marshaller 和采集插件。
+完整验证使用 `make verify MODULE=backend/runtimekit`。PR 按完整文件差异选择模块；仅修改本模块代码时，只检查本模块，并在检查通过后同步 `ci:backend/runtimekit` 标签。手动运行可通过该标签选择本模块。普通 push 仅修改本模块代码时，也只检查本模块，不会自动增加使用方。新分支或公共 CI 配置变更等情况会检查全部 Go 模块。修改共享行为后，需要按影响范围验证业务服务、Monitor、Marshaller 和采集插件。
 
 本地模块引用由使用方 `go.mod` 中的 `replace` 指定。调整目录时保留 module 名称与 import 路径，并同步修改替换路径及根 Makefile 注册。贡献与提交规则见[贡献说明](../../CONTRIBUTING.md)和[CI 说明](../../tools/ci/CI.md)。

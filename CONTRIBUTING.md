@@ -26,7 +26,7 @@ make test MODULE=tools/devtools
 make ci-plan LABELS="ci:backend/business ci:backend/observability/monitor"
 ```
 
-模块目录调整不改变 Go module 名称、import 路径和 Compose 服务名。旧模块目录参数和旧 CI 标签需要改为新路径；远端 CI 标签由仓库维护者创建。根目录的开发、构建和部署命令继续使用原有入口。
+模块目录调整不改变 Go module 名称、import 路径和 Compose 服务名。旧模块目录参数和旧 CI 标签需要改为新路径。PR 按完整差异自动选择模块，并在检查通过后同步 `ci:*` 标签；所需远端标签由流程按需创建。手动运行仍通过模块标签指定检查范围。根目录的开发、构建和部署命令继续使用原有入口。
 
 历史压测方案与报告已移至本地主目录的 `~/performance/`；工具与配置放在 `tools/perflab/`。
 

@@ -131,7 +131,7 @@ make test MODULE=backend/observability/exporters/mysql
 make verify MODULE=backend/business
 ```
 
-`verify` 执行与模块 CI 一致的检查、竞态测试和构建。PR 和手动运行按 `ci:<模块目录>` 标签选择模块；push 按文件变更选择模块，新分支或公共 CI 配置变更等情况会检查全部 Go 模块。修改 `runtimekit` 不会自动增加其使用方的检查，需要按影响范围通过 PR 标签或手动运行补充验证。详细规则见[CI 说明](../tools/ci/CI.md)。
+`verify` 执行与模块 CI 一致的检查、竞态测试和构建。PR 按整个 PR 的文件差异选择模块，并在检查通过后同步 `ci:*` 标签；手动运行按输入标签选择模块。push 按本次推送的文件变更选择模块，新分支或公共 CI 配置变更等情况会检查全部 Go 模块。修改 `runtimekit` 不会自动增加其使用方的检查，需要按影响范围手动运行补充验证。详细规则见[CI 说明](../tools/ci/CI.md)。
 
 ## 采集插件
 

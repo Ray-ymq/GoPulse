@@ -86,7 +86,7 @@ make build MODULE=backend/business
 
 `check` 检查 Go 格式并运行 `go vet`；`lint` 运行 golangci-lint；`race` 在测试时启用竞态检测。完整模块验证使用 `make verify MODULE=backend/business`。需要运行实际环境集成检查时，使用 `make integration SCOPE=business`。
 
-PR 和手动运行通过 `ci:backend/business` 标签选择本模块。push 按文件变更选择模块，新分支或公共 CI 配置变更等情况会检查全部 Go 模块。详细规则见[CI 说明](../../tools/ci/CI.md)。
+PR 按完整文件差异选择模块，并在检查通过后同步 `ci:*` 标签；手动运行可通过 `ci:backend/business` 标签选择本模块。push 按本次推送的文件变更选择模块，新分支或公共 CI 配置变更等情况会检查全部 Go 模块。详细规则见[CI 说明](../../tools/ci/CI.md)。
 
 ## 相关文档
 
