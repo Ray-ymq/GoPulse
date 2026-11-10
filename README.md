@@ -148,8 +148,6 @@ make verify MODULE=tools/devtools
 make package-plugin SOURCE=mysql ARCH=amd64
 ```
 
-开发协议、目录约定与验证方法见[Exporter 开发说明](backend/observability/exporters/README.md)。官方 node_exporter 的使用方式见[Node Exporter 说明](backend/observability/exporters/node/README.md)。
-
 ## 压测
 
 压测工具位于 `tools/perflab/`，方案与报告位于 `docs/performance/`。
