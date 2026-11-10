@@ -1,6 +1,8 @@
 name: Module CI
 
 on:
+  push:
+    branches: ['**']
   pull_request:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   workflow_dispatch:
@@ -24,6 +26,7 @@ defaults:
 jobs:
   plan:
     name: Select modules
+    if: github.event_name != 'push' || github.event.deleted != true
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -40,12 +43,13 @@ jobs:
           cache: false
       - name: Test CI tooling
         run: make ci-tools
-      - name: Select only explicitly labeled modules
+      - name: Select modules for this event
         id: plan
         run: make ci-plan
 
   commits:
     name: Conventional Commits
+    if: github.event_name != 'push' || github.event.deleted != true
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -137,7 +141,7 @@ jobs:
   result:
     name: CI result
     needs: [plan, commits, check, build, test]
-    if: always()
+    if: always() && (github.event_name != 'push' || github.event.deleted != true)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

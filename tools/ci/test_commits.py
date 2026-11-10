@@ -403,6 +403,42 @@ class EventTests(RepositoryFixture):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn(head[:12], result.stderr)
 
+    def test_new_feature_push_excludes_accepted_default_branch_history(self) -> None:
+        accepted = self.commit("Accepted historical title")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", accepted)
+        head = self.commit(structured_message("feat(ci): enable push checks"))
+        for before in ("0" * 40, "f" * 40):
+            with self.subTest(before=before):
+                event = {"before": before, "after": head, "ref": "refs/heads/feat/ci-push", "repository": {"default_branch": "main"}}
+                self.assertEqual(event_range(self.repo, "push", event), (accepted, head, None))
+                result = self.cli(event_name="push", event=event)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("Checked 1 new", result.stdout)
+
+    def test_new_feature_push_still_checks_invalid_new_commits(self) -> None:
+        git(self.repo, "update-ref", "refs/remotes/origin/main", self.legacy)
+        bad = self.commit("Invalid new commit")
+        head = self.commit(structured_message("feat(ci): valid tip"))
+        event = {"before": "0" * 40, "after": head, "ref": "refs/heads/feature", "repository": {"default_branch": "main"}}
+        result = self.cli(event_name="push", event=event)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(bad[:12], result.stderr)
+
+    def test_missing_before_on_default_branch_cannot_exclude_its_own_head(self) -> None:
+        head = self.commit("Invalid new default branch commit")
+        git(self.repo, "update-ref", "refs/remotes/origin/main", head)
+        event = {"before": "f" * 40, "after": head, "ref": "refs/heads/main", "repository": {"default_branch": "main"}}
+        self.assertEqual(event_range(self.repo, "push", event), (None, head, None))
+        self.assertEqual(self.cli(event_name="push", event=event).returncode, 1)
+
+    def test_unavailable_default_branch_falls_back_to_history_validation(self) -> None:
+        head = self.commit("Invalid new feature commit")
+        for default in ("main", "invalid branch"):
+            with self.subTest(default=default):
+                event = {"before": "0" * 40, "after": head, "ref": "refs/heads/feature", "repository": {"default_branch": default}}
+                self.assertEqual(event_range(self.repo, "push", event), (None, head, None))
+                self.assertEqual(self.cli(event_name="push", event=event).returncode, 1)
+
     def test_merge_group_range(self) -> None:
         head = self.commit(structured_message("ci: update workflow"))
         event = {"merge_group": {"base_sha": self.legacy, "head_sha": head}}

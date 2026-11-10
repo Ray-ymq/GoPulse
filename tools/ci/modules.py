@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan module CI from explicit labels, or prepare an isolated Go workspace."""
+"""按标签或推送差异选择 CI 模块，或准备独立的 Go workspace。"""
 
 from __future__ import annotations
 
@@ -113,20 +113,57 @@ def select(repo: Path, labels: list[str]) -> dict:
     return {"labels": sorted(ci_labels), **module_plan(modules, selected)}
 
 
+def is_documentation(path: str) -> bool:
+    return path.startswith("docs/") or PurePosixPath(path).suffix.lower() in {".md", ".rst", ".adoc"} or path == "LICENSE"
+
+
 def select_changed(repo: Path, paths: list[str]) -> dict:
-    """Local BASE_REF convenience only; CI never selects from changed files."""
+    """按文件所属目录选择直接变化的 Go 模块。"""
     modules = read_modules(repo)
     selected: set[str] = set()
     module_roots = sorted(modules, key=lambda item: -len(item.name))
     for path in paths:
         path = path.removeprefix("./")
-        if path.startswith("docs/") or PurePosixPath(path).suffix.lower() in {".md", ".rst", ".adoc"} or path == "LICENSE":
+        if is_documentation(path):
             continue
         owner = next((module.name for module in module_roots
                       if path.startswith(module.name + "/")), None)
         if owner:
             selected.add(owner)
     return {"changed_files": paths, **module_plan(modules, selected)}
+
+
+def select_push(repo: Path, event: dict) -> dict:
+    """按完整推送差异选择模块，无法确定旧版本时检查全部模块。"""
+    modules = read_modules(repo)
+    if event.get("deleted") is True:
+        return {"reason": "deleted_branch", **module_plan(modules, set())}
+    before, after = event["before"], event["after"]
+    for revision in (before, after):
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
+            raise ValueError("push 的 before 和 after 必须是完整的提交 SHA")
+    if not after.strip("0"):
+        raise ValueError("push 的 after 必须指向提交")
+    command(repo, "git", "rev-parse", "--verify", f"{after}^{{commit}}")
+    all_modules = {module.name for module in modules}
+    if not before.strip("0"):
+        return {"reason": "new_branch", **module_plan(modules, all_modules)}
+    try:
+        command(repo, "git", "rev-parse", "--verify", f"{before}^{{commit}}")
+    except subprocess.CalledProcessError:
+        return {"reason": "missing_base", **module_plan(modules, all_modules)}
+    paths = changed_files(repo, before, after, merge_base=False)
+    shared_files = {"Makefile", ".golangci.yml", ".conventional-commits.json", "tools/devtools/toolchains.json"}
+    shared_prefixes = (".github/workflows/", "tools/make/", "tools/ci/")
+    if any(not is_documentation(path) and (path in shared_files or path.startswith(shared_prefixes)) for path in paths):
+        return {"reason": "shared_ci", "changed_files": paths, **module_plan(modules, all_modules)}
+    return {"reason": "push_diff", **select_changed(repo, paths)}
+
+
+def event_plan(repo: Path, event_name: str, event: dict) -> dict:
+    if event_name == "push":
+        return select_push(repo, event)
+    return select(repo, event_labels(event_name, event))
 
 
 def write_workspace(repo: Path) -> Path:
@@ -171,7 +208,7 @@ def main() -> int:
             plan = select(repo, split_labels(os.environ["GOPULSE_CI_LABELS"]))
         elif os.environ.get("GITHUB_EVENT_PATH"):
             event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-            plan = select(repo, event_labels(os.environ["GITHUB_EVENT_NAME"], event))
+            plan = event_plan(repo, os.environ["GITHUB_EVENT_NAME"], event)
         else:
             raise ValueError("supply LABELS locally, for example LABELS=ci:backend/business")
         print(json.dumps(plan, ensure_ascii=False))

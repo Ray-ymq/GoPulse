@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from modules import changed_files, command, event_labels, read_modules, select, select_changed, split_labels, write_workspace
+from modules import changed_files, command, event_labels, read_modules, select, select_changed, select_push, split_labels, write_workspace
 
 
 class ModuleFixture(unittest.TestCase):
@@ -209,6 +209,82 @@ class GitChangesTests(ModuleFixture):
     def test_missing_local_base_is_an_error(self) -> None:
         with self.assertRaises(subprocess.CalledProcessError):
             changed_files(self.repo, "does-not-exist")
+
+    def test_push_selects_modules_from_every_commit(self) -> None:
+        self.write("api/a.go", "package api\n")
+        self.commit("api")
+        self.write("worker/b.go", "package worker\n")
+        head = self.commit("worker")
+        plan = select_push(self.repo, {"before": self.base, "after": head})
+        self.assertEqual(plan["modules"], ["api", "worker"])
+
+    def test_force_push_compares_old_and_new_trees(self) -> None:
+        self.write("api/a.go", "package api\n")
+        before = self.commit("old branch")
+        command(self.repo, "git", "checkout", "--quiet", "-b", "replacement", self.base)
+        self.write("worker/b.go", "package worker\n")
+        head = self.commit("new branch")
+        plan = select_push(self.repo, {"before": before, "after": head, "forced": True})
+        self.assertEqual(plan["modules"], ["api", "worker"])
+
+    def test_new_branch_and_missing_before_check_every_module(self) -> None:
+        self.write("api/a.go", "package api\n")
+        head = self.commit("api")
+        for before, reason in (("0" * 40, "new_branch"), ("f" * 40, "missing_base")):
+            with self.subTest(before=before):
+                plan = select_push(self.repo, {"before": before, "after": head})
+                self.assertEqual(plan["modules"], self.go_modules)
+                self.assertEqual(plan["reason"], reason)
+
+    def test_documentation_and_frontend_push_need_no_module_jobs(self) -> None:
+        self.write("api/README.md", "# API\n")
+        self.write("tools/ci/CI.md", "# CI\n")
+        self.write("frontend/user/src/main.ts", "export {}\n")
+        plan = select_push(self.repo, {"before": self.base, "after": self.commit("docs and frontend")})
+        self.assertFalse(plan["has_modules"])
+
+    def test_shared_ci_changes_check_every_module(self) -> None:
+        for path in ("Makefile", ".golangci.yml", ".conventional-commits.json", "tools/devtools/toolchains.json", "tools/make/go-lint.mk", "tools/ci/modules.py", ".github/workflows/ci.yml"):
+            with self.subTest(path=path):
+                target = self.repo / path
+                self.write(path, (target.read_text() if target.exists() else "") + "\n# updated\n")
+                head = self.commit("shared configuration")
+                self.assertEqual(select_push(self.repo, {"before": self.base, "after": head})["modules"], self.go_modules)
+                self.base = head
+
+    def test_push_move_and_delete_select_both_owners(self) -> None:
+        self.write("api/move.go", "package example\n")
+        before = self.commit("source")
+        command(self.repo, "git", "mv", "api/move.go", "worker/move.go")
+        head = self.commit("move")
+        self.assertEqual(select_push(self.repo, {"before": before, "after": head})["modules"], ["api", "worker"])
+
+    def test_deleted_branch_needs_no_commit_or_module_jobs(self) -> None:
+        plan = select_push(self.repo, {"before": self.base, "after": "0" * 40, "deleted": True})
+        self.assertEqual(plan["reason"], "deleted_branch")
+        self.assertFalse(plan["has_modules"])
+
+    def test_invalid_push_payload_cannot_publish_a_successful_plan(self) -> None:
+        for event in ({}, {"before": self.base}, {"before": None, "after": self.base}, {"before": "main", "after": self.base}, {"before": self.base, "after": "0" * 40}, {"before": self.base, "after": "f" * 40}):
+            with self.subTest(event=event), self.assertRaises((KeyError, ValueError, subprocess.CalledProcessError)):
+                select_push(self.repo, event)
+
+    def test_push_cli_publishes_matrix_without_pr_labels(self) -> None:
+        self.write("worker/main.go", "package worker\n")
+        head = self.commit("worker")
+        self.write("event.json", json.dumps({"before": self.base, "after": head}))
+        output = self.repo / "output.txt"
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_") and key != "GOPULSE_CI_LABELS"}
+        environment.update(GITHUB_EVENT_NAME="push", GITHUB_EVENT_PATH=str(self.repo / "event.json"), GITHUB_OUTPUT=str(output))
+        result = subprocess.run(
+            ["python3", str(Path(__file__).with_name("modules.py")), "plan", "--repo", str(self.repo)],
+            text=True, capture_output=True, env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["modules"], ["worker"])
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(outputs["has_modules"], "true")
+        self.assertEqual(json.loads(outputs["matrix"]), {"include": [{"module": "worker", "go_mod": "worker/go.mod"}]})
 
 
 class CLITests(ModuleFixture):

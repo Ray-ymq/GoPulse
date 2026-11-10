@@ -22,9 +22,15 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertRegex(workflow, r"(?m)^\s*permissions:\s*$")
         self.assertRegex(workflow, r"(?m)^\s*contents:\s*read\s*$")
         self.assertNotRegex(workflow, r"(?m)^\s*(?:contents|pull-requests|actions):\s*write\s*$")
-        self.assertNotRegex(workflow, r"(?m)^\s*push:\s*$")
         self.assertNotRegex(workflow, r"\bgit\s+(?:add|commit|push|tag|merge|rebase)\b")
         self.assertNotRegex(workflow, r"create-pull-request|git-auto-commit")
+
+    def test_push_runs_on_all_branches_and_skips_branch_deletion(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertRegex(workflow, r"(?m)^  push:\n    branches: \['\*\*'\]$")
+        for job in ("plan", "commits", "result"):
+            section = re.search(rf"(?ms)^  {job}:\n(.*?)(?=^  \w+:|\Z)", workflow).group(1)
+            self.assertIn("github.event_name != 'push' || github.event.deleted != true", section)
 
     def test_all_checkouts_disable_persisted_credentials(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

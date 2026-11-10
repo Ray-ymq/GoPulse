@@ -159,6 +159,18 @@ def commit_ids(repo: Path, policy: Policy, base: str | None = None, head: str = 
     return git(repo, "rev-list", "--reverse", "--no-merges", head_sha, "--not", *excluded).split()
 
 
+def push_default_base(repo: Path, event: dict) -> str | None:
+    """排除默认分支已接受的历史，默认分支自身的推送不得使用此回退。"""
+    default = event.get("repository", {}).get("default_branch")
+    if not isinstance(default, str) or not default or not event.get("ref") or event["ref"] == f"refs/heads/{default}":
+        return None
+    try:
+        git(repo, "check-ref-format", f"refs/heads/{default}")
+        return git(repo, "rev-parse", "--verify", f"refs/remotes/origin/{default}^{{commit}}").strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
 def event_range(repo: Path, event_name: str, event: dict) -> tuple[str | None, str, str | None]:
     if event_name == "pull_request":
         pr = event["pull_request"]
@@ -169,13 +181,12 @@ def event_range(repo: Path, event_name: str, event: dict) -> tuple[str | None, s
     if event_name == "push":
         base, head = event["before"], event["after"]
         if not base.strip("0"):
-            return None, head, None
+            return push_default_base(repo, event), head, None
         try:
             git(repo, "rev-parse", "--verify", f"{base}^{{commit}}")
         except subprocess.CalledProcessError:
-            # Force-pushes must not evade validation when the old SHA vanished.
-            # In that case check all reachable commits since policy adoption.
-            return None, head, None
+            # 旧 SHA 消失时，排除默认分支已接受的提交；缺少该基线则校验完整历史。
+            return push_default_base(repo, event), head, None
         return base, head, None
     if event_name == "workflow_dispatch":
         return None, "HEAD", None
