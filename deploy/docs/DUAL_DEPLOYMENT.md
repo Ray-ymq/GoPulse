@@ -28,7 +28,7 @@ HTTP API、响应字段和超级管理员权限保持不变：`GET /api/v1/admin
 
 控制器分别检查生命周期、预期 Prometheus 目标、数据源指标和 Grafana 健康。Compose 保留原有目标集合；Kubernetes 按当前模式检查自己的目标集合。控制权限不足显示不可用，目标或数据源异常显示部分不可达，不把控制失败显示为已停止。部分工作负载启停失败后，可以重试同一动作。
 
-Compose 自监控仍需按 [原有安装说明](selfmonitor/README.md) 安装 root 管理的固定控制服务及产品覆盖配置。不能用 Kubernetes ServiceAccount 替代 Compose 的安装步骤，也不能将被屏蔽的 systemd 服务状态视为采集健康。
+Compose 自监控仍需按 [原有安装说明](../selfmonitor/README.md) 安装 root 管理的固定控制服务及产品覆盖配置。不能用 Kubernetes ServiceAccount 替代 Compose 的安装步骤，也不能将被屏蔽的 systemd 服务状态视为采集健康。
 
 ## 命令入口
 

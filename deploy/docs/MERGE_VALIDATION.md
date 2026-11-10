@@ -12,7 +12,7 @@
 
 ## 共享产物
 
-七种镜像由候选 SHA 执行 `make build-images` 构建。不可变标签和本地 OCI 摘要见 [镜像清单](validation/candidate-images.json)。Compose 使用摘要引用，并核对运行容器的镜像身份。Kubernetes 导入前将同一批摘要恢复到候选标签，避免重复构建更新标签后混用产物。镜像保存在本机；本次未发布到镜像仓库。
+七种镜像由候选 SHA 执行 `make build-images` 构建。不可变标签和本地 OCI 摘要见 [镜像清单](../validation/candidate-images.json)。Compose 使用摘要引用，并核对运行容器的镜像身份。Kubernetes 导入前将同一批摘要恢复到候选标签，避免重复构建更新标签后混用产物。镜像保存在本机；本次未发布到镜像仓库。
 
 ## 实际部署
 
@@ -26,7 +26,7 @@ Compose 整体模式的自监控完成 API 重复启停、19 个采集目标、�
 
 Kubernetes 三种模式均完成启动、管理员初始化、适用业务与观测链路、自监控 API 启停、Pod 重建、停止再启动及持久性检查，并拒绝 Compose 启动。整体模式的新 span 与追踪 PVC 读取、权限撤销、目标缺失、数据源认证失败及恢复、凭据冲突、从 Secret 恢复本地凭据、make stop 保留产品工作负载均通过。
 
-已沿 OCI 索引、平台 manifest 和 config 摘要核对 Kubernetes 的 imageID，确认两套部署使用同一批镜像内容。三种模式原 PVC、Secret UID 与 Secret 值均保留。验收产品环境已停止，持久数据保留。命令与退出码见 [验收结果](validation/candidate-results.json)。
+已沿 OCI 索引、平台 manifest 和 config 摘要核对 Kubernetes 的 imageID，确认两套部署使用同一批镜像内容。三种模式原 PVC、Secret UID 与 Secret 值均保留。验收产品环境已停止，持久数据保留。命令与退出码见 [验收结果](../validation/candidate-results.json)。
 
 ## 数据库升级与恢复
 
