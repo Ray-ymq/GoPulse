@@ -176,7 +176,7 @@ make pt
 
 - [贡献指南](CONTRIBUTING.md)
 - [仓库协作规则](AGENTS.md)
-- [CI 与提交规范](tools/ci/docs/CI.md)
+- [CI 与提交规范](tools/ci/CI.md)
 - [HTTP API 定义](backend/business/api/openapi.yaml)
 
 提交信息使用 Conventional Commits，正文填写非空的“背景、改动、验证”。验证结果必须与实际执行情况一致。

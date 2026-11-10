@@ -85,4 +85,4 @@ make build MODULE=backend/runtimekit
 
 完整验证使用 `make verify MODULE=backend/runtimekit`。CI 按 `ci:backend/runtimekit` 标签检查本模块，不会自动增加使用方；修改共享行为后，需要按影响范围验证业务服务、Monitor、Marshaller 和采集插件。
 
-本地模块引用由使用方 `go.mod` 中的 `replace` 指定。调整目录时保留 module 名称与 import 路径，并同步修改替换路径及根 Makefile 注册。贡献与提交规则见[贡献说明](../../CONTRIBUTING.md)和[CI 说明](../../tools/ci/docs/CI.md)。
+本地模块引用由使用方 `go.mod` 中的 `replace` 指定。调整目录时保留 module 名称与 import 路径，并同步修改替换路径及根 Makefile 注册。贡献与提交规则见[贡献说明](../../CONTRIBUTING.md)和[CI 说明](../../tools/ci/CI.md)。

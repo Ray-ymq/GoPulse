@@ -97,7 +97,7 @@ make test MODULE=backend/observability/exporters/mysql
 
 上述 Go 模块也支持 `make lint MODULE=...` 和 `make race MODULE=...`。完整验证使用 `make verify MODULE=backend/observability/monitor` 或 `make verify MODULE=backend/observability/marshaller`。模块路径以根 Makefile 的 `GO_MODULES` 为准。
 
-CI 只检查标签选中的模块；调整共享契约或跨组件数据格式时，需要按影响范围选择相关模块。详细规则见[CI 说明](../../tools/ci/docs/CI.md)。
+CI 只检查标签选中的模块；调整共享契约或跨组件数据格式时，需要按影响范围选择相关模块。详细规则见[CI 说明](../../tools/ci/CI.md)。
 
 ## 相关文档
 

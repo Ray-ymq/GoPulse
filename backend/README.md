@@ -131,7 +131,7 @@ make test MODULE=backend/observability/exporters/mysql
 make verify MODULE=backend/business
 ```
 
-`verify` 执行与模块 CI 一致的检查、竞态测试和构建。CI 按 `ci:<模块目录>` 标签选择模块，修改 `runtimekit` 不会自动增加其使用方的检查；需要按影响范围选择相关模块。详细规则见[CI 说明](../tools/ci/docs/CI.md)。
+`verify` 执行与模块 CI 一致的检查、竞态测试和构建。CI 按 `ci:<模块目录>` 标签选择模块，修改 `runtimekit` 不会自动增加其使用方的检查；需要按影响范围选择相关模块。详细规则见[CI 说明](../tools/ci/CI.md)。
 
 ## 采集插件
 
