@@ -52,8 +52,8 @@ GoPulse/
 │   ├── ci/                  # CI 模块选择和提交规范校验
 │   └── make/                # 共享 Makefile 规则
 ├── deploy/                  # Docker、Compose 及观测部署配置
-├── docs/                    # 技术文档
-│   └── performance/         # 压测方案与报告
+├── docs/                    # 技术栈说明
+│   └── GoPulse 技术栈.md
 ├── .github/                 # GitHub Actions 工作流和 PR 模板
 ├── .githooks/               # 本地 Git 提交检查
 ├── .run/                    # 本地运行数据与缓存，不作为源码提交
@@ -66,6 +66,8 @@ GoPulse/
 ```
 
 Go 模块分别维护自己的 `go.mod`。模块清单以根 `Makefile` 中的 `GO_MODULES` 和 `NPM_MODULES` 为准。
+
+`README.md` 留在所属目录，其他说明文档放在所属目录的 `docs/`。跨模块文档放在根目录 `docs/`，贡献指南 `CONTRIBUTING.md` 放在项目根目录。仅在有补充文档时创建 `docs/`，已有 `docs/` 内不再重复嵌套。`AGENTS.md` 和 `.github/pull_request_template.md` 保留工具约定的位置。
 
 ## 本地开发
 
@@ -146,11 +148,9 @@ make verify MODULE=tools/devtools
 make package-plugin SOURCE=mysql ARCH=amd64
 ```
 
-开发协议、目录约定与验证方法见[Exporter 开发说明](backend/observability/exporters/README.md)。官方 node_exporter 的使用方式见[Node Exporter 说明](backend/observability/exporters/node/README.md)。
-
 ## 压测
 
-压测工具位于 `tools/perflab/`，方案与报告位于 `docs/performance/`。
+压测工具位于 `tools/perflab/`。历史压测方案与报告已移至本地主目录的 `~/performance/`。
 
 执行正式压测前，先按[压测操作说明](tools/perflab/flow/README.md)准备专用环境、数据和观测资源，再运行：
 
@@ -174,11 +174,11 @@ make pt
 
 ## 文档与贡献
 
+- [项目分层说明](docs/项目分层说明.md)
 - [贡献指南](CONTRIBUTING.md)
 - [仓库协作规则](AGENTS.md)
 - [CI 与提交规范](tools/ci/CI.md)
 - [HTTP API 定义](backend/business/api/openapi.yaml)
-- [压测方案与报告](docs/performance/README.md)
 
 提交信息使用 Conventional Commits，正文填写非空的“背景、改动、验证”。验证结果必须与实际执行情况一致。
 

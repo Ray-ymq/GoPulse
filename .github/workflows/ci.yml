@@ -1,6 +1,8 @@
 name: Module CI
 
 on:
+  push:
+    branches: ['**']
   pull_request:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   workflow_dispatch:
@@ -24,11 +26,15 @@ defaults:
 jobs:
   plan:
     name: Select modules
+    if: github.event_name != 'push' || github.event.deleted != true
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has_modules: ${{ steps.plan.outputs.has_modules }}
+      labels: ${{ steps.pr_plan.outputs.labels || steps.plan.outputs.labels }}
+      known_labels: ${{ steps.pr_plan.outputs.known_labels || steps.plan.outputs.known_labels }}
+      head_sha: ${{ steps.pr_plan.outputs.head_sha || steps.plan.outputs.head_sha }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -40,12 +46,19 @@ jobs:
           cache: false
       - name: Test CI tooling
         run: make ci-tools
-      - name: Select only explicitly labeled modules
+      - name: Select modules for this event
         id: plan
         run: make ci-plan
+      - name: Select labels for the entire branch
+        id: pr_plan
+        if: github.event_name == 'push' && github.ref_name != github.event.repository.default_branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 tools/ci/modules.py pr-labels --base-ref "refs/remotes/origin/$DEFAULT_BRANCH" --head-ref "$GITHUB_SHA"
 
   commits:
     name: Conventional Commits
+    if: github.event_name != 'push' || github.event.deleted != true
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -137,7 +150,7 @@ jobs:
   result:
     name: CI result
     needs: [plan, commits, check, build, test]
-    if: always()
+    if: always() && (github.event_name != 'push' || github.event.deleted != true)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -162,3 +175,164 @@ jobs:
             [[ "$result" == "$expected" ]] || { echo "Expected $expected, got $result" >&2; exit 1; }
           done
           echo 'All selected module checks passed.'
+
+  auto_pr:
+    name: Manage pull request
+    needs: [plan, result]
+    if: >-
+      (github.event_name == 'push' && github.event.deleted != true &&
+       github.ref_type == 'branch' &&
+       github.ref_name != github.event.repository.default_branch) ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create or reuse pull request and sync CI labels
+        uses: actions/github-script@v9.0.0
+        env:
+          CI_LABELS: ${{ needs.plan.outputs.labels }}
+          CI_KNOWN_LABELS: ${{ needs.plan.outputs.known_labels }}
+          CI_HEAD_SHA: ${{ needs.plan.outputs.head_sha }}
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const isPR = context.eventName === 'pull_request';
+            const eventPR = context.payload.pull_request;
+            const base = isPR ? eventPR.base.ref : context.payload.repository.default_branch;
+            const branch = isPR ? eventPR.head.ref : context.ref.replace(/^refs\/heads\//, '');
+            const headSha = isPR ? eventPR.head.sha : context.sha;
+            if (isPR ? eventPR.head.repo.full_name !== `${owner}/${repo}` :
+                (context.eventName !== 'push' || context.payload.deleted ||
+                 !context.ref.startsWith('refs/heads/') || branch === base)) {
+              core.info('此事件不创建 PR 或同步标签。');
+              return;
+            }
+            const labels = JSON.parse(process.env.CI_LABELS);
+            const knownLabels = JSON.parse(process.env.CI_KNOWN_LABELS);
+            if (JSON.parse(process.env.CI_HEAD_SHA) !== headSha ||
+                !Array.isArray(labels) || labels.length === 0 ||
+                !Array.isArray(knownLabels) ||
+                labels.some(label => typeof label !== 'string' || !label.startsWith('ci:') || !knownLabels.includes(label)) ||
+                (labels.includes('ci:none') && labels.length > 1)) {
+              throw new Error('自动标签计划无效，或对应的提交已变化。');
+            }
+            const findOpen = async () => {
+              const {data} = await github.rest.pulls.list({
+                owner, repo, state: 'open', head: `${owner}:${branch}`, base, per_page: 1,
+              });
+              return data[0];
+            };
+            const currentHead = async () => {
+              try {
+                const {data} = await github.rest.git.getRef({owner, repo, ref: `heads/${branch}`});
+                return data.object.sha;
+              } catch (error) {
+                if (error.status === 404) return null;
+                throw error;
+              }
+            };
+            const syncLabels = async pr => {
+              if (await currentHead() !== headSha) {
+                core.info('分支已删除或已有新提交，跳过本次标签同步。');
+                return;
+              }
+              for (const name of labels) {
+                try {
+                  await github.rest.issues.getLabel({owner, repo, name});
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                  try {
+                    await github.rest.issues.createLabel({
+                      owner, repo, name, color: name === 'ci:none' ? 'ededed' : '1d76db',
+                      description: '根据 PR 文件差异自动选择的 CI 检查范围',
+                    });
+                  } catch (createdError) {
+                    if (createdError.status !== 422) throw createdError;
+                    await github.rest.issues.getLabel({owner, repo, name});
+                  }
+                }
+              }
+              const current = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+                owner, repo, issue_number: pr.number, per_page: 100,
+              });
+              const names = current.map(label => label.name);
+              const missing = labels.filter(label => !names.includes(label));
+              if (missing.length) {
+                await github.rest.issues.addLabels({owner, repo, issue_number: pr.number, labels: missing});
+              }
+              for (const name of names.filter(name => name.startsWith('ci:') && !labels.includes(name))) {
+                try {
+                  await github.rest.issues.removeLabel({owner, repo, issue_number: pr.number, name});
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+              }
+              core.info(`已同步 CI 标签：${labels.join(', ')}`);
+            };
+            if (await currentHead() !== headSha) {
+              core.info('分支已删除或已有新提交，跳过本次创建。');
+              return;
+            }
+            const existing = isPR ? eventPR : await findOpen();
+            if (existing) {
+              core.info(`复用已有 PR：${existing.html_url}`);
+              await syncLabels(existing);
+              return;
+            }
+            const {data: comparison} = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${base}...${headSha}`,
+            });
+            if (comparison.ahead_by === 0 || comparison.files.length === 0) {
+              core.info('分支相对默认分支没有可合并的文件改动，跳过创建。');
+              return;
+            }
+            const escape = value => value.replace(/([\\`*_[\]<>])/g, '\\$1');
+            const subjects = comparison.commits.slice(-10).map(item =>
+              `- ${escape(item.commit.message.split('\n')[0])}`);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              '## 背景',
+              `将分支 ${escape(branch)} 的修改提交到 ${escape(base)}，供维护者评审。`,
+              '',
+              '## 改动',
+              '具体差异见 Files changed。以下列出部分提交摘要，最多 10 项：',
+              ...subjects,
+              '',
+              '## 验证',
+              `本次 push 的 CI result 已通过：[运行记录](${runUrl})。`,
+              '该记录只验证本次 push 选中的模块。PR 会按完整文件差异自动选择模块并同步 `ci:*` 标签；仅文档或前端改动使用 `ci:none`。',
+              '',
+              '## 影响与风险',
+              '尚未完成人工风险评估。维护者需核对兼容性、迁移及回滚要求，并按最终改动更新本说明。',
+            ].join('\n');
+            if (await currentHead() !== headSha) {
+              core.info('分支已删除或已有新提交，跳过本次创建。');
+              return;
+            }
+            let created;
+            try {
+              const {data: pr} = await github.rest.pulls.create({
+                owner, repo, base, head: branch,
+                title: `chore(repo): 合并 ${branch}`.slice(0, 240), body,
+              });
+              core.info(`已创建 PR：${pr.html_url}`);
+              created = pr;
+            } catch (error) {
+              if (error.status === 422) {
+                const raced = await findOpen();
+                if (raced) {
+                  core.info(`复用并发创建的 PR：${raced.html_url}`);
+                  await syncLabels(raced);
+                  return;
+                }
+              }
+              if (error.status === 403) {
+                core.error('创建 PR 被拒绝。请检查仓库 Settings → Actions → General 中的 Allow GitHub Actions to create and approve pull requests 设置及组织策略。');
+              }
+              throw error;
+            }
+            await syncLabels(created);

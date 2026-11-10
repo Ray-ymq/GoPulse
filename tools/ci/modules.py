@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan module CI from explicit labels, or prepare an isolated Go workspace."""
+"""按 PR、推送差异或手动标签选择 CI 模块，或准备独立的 Go workspace。"""
 
 from __future__ import annotations
 
@@ -113,20 +113,85 @@ def select(repo: Path, labels: list[str]) -> dict:
     return {"labels": sorted(ci_labels), **module_plan(modules, selected)}
 
 
+def is_documentation(path: str) -> bool:
+    return path.startswith("docs/") or PurePosixPath(path).suffix.lower() in {".md", ".rst", ".adoc"} or path == "LICENSE"
+
+
+def changes_shared_ci(paths: list[str]) -> bool:
+    shared_files = {"Makefile", ".golangci.yml", ".conventional-commits.json", "tools/devtools/toolchains.json"}
+    shared_prefixes = (".github/workflows/", "tools/make/", "tools/ci/")
+    return any(not is_documentation(path) and (path in shared_files or path.startswith(shared_prefixes)) for path in paths)
+
+
 def select_changed(repo: Path, paths: list[str]) -> dict:
-    """Local BASE_REF convenience only; CI never selects from changed files."""
+    """按文件所属目录选择直接变化的 Go 模块。"""
     modules = read_modules(repo)
     selected: set[str] = set()
     module_roots = sorted(modules, key=lambda item: -len(item.name))
     for path in paths:
         path = path.removeprefix("./")
-        if path.startswith("docs/") or PurePosixPath(path).suffix.lower() in {".md", ".rst", ".adoc"} or path == "LICENSE":
+        if is_documentation(path):
             continue
         owner = next((module.name for module in module_roots
                       if path.startswith(module.name + "/")), None)
         if owner:
             selected.add(owner)
     return {"changed_files": paths, **module_plan(modules, selected)}
+
+
+def select_push(repo: Path, event: dict) -> dict:
+    """按完整推送差异选择模块，无法确定旧版本时检查全部模块。"""
+    modules = read_modules(repo)
+    if event.get("deleted") is True:
+        return {"reason": "deleted_branch", **module_plan(modules, set())}
+    before, after = event["before"], event["after"]
+    for revision in (before, after):
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
+            raise ValueError("push 的 before 和 after 必须是完整的提交 SHA")
+    if not after.strip("0"):
+        raise ValueError("push 的 after 必须指向提交")
+    command(repo, "git", "rev-parse", "--verify", f"{after}^{{commit}}")
+    all_modules = {module.name for module in modules}
+    if not before.strip("0"):
+        return {"reason": "new_branch", **module_plan(modules, all_modules)}
+    try:
+        command(repo, "git", "rev-parse", "--verify", f"{before}^{{commit}}")
+    except subprocess.CalledProcessError:
+        return {"reason": "missing_base", **module_plan(modules, all_modules)}
+    paths = changed_files(repo, before, after, merge_base=False)
+    if changes_shared_ci(paths):
+        return {"reason": "shared_ci", "changed_files": paths, **module_plan(modules, all_modules)}
+    return {"reason": "push_diff", **select_changed(repo, paths)}
+
+
+def select_pr(repo: Path, base: str, head: str) -> dict:
+    """按整个 PR 的差异生成检查范围和标签，标签本身不缩小检查范围。"""
+    base_sha = command(repo, "git", "rev-parse", "--verify", f"{base}^{{commit}}").strip()
+    head_sha = command(repo, "git", "rev-parse", "--verify", f"{head}^{{commit}}").strip()
+    paths = changed_files(repo, base_sha, head_sha)
+    modules = read_modules(repo)
+    if changes_shared_ci(paths):
+        plan = {"reason": "shared_ci", "changed_files": paths, **module_plan(modules, {item.name for item in modules})}
+    else:
+        plan = {"reason": "pr_diff", **select_changed(repo, paths)}
+    return {
+        **plan,
+        "labels": [f"ci:{name}" for name in plan["modules"]] or ["ci:none"],
+        "known_labels": [f"ci:{item.name}" for item in modules] + ["ci:none"],
+        "head_sha": head_sha,
+    }
+
+
+def event_plan(repo: Path, event_name: str, event: dict) -> dict:
+    if event_name == "push":
+        return select_push(repo, event)
+    if event_name == "pull_request":
+        pr = event["pull_request"]
+        for revision in (pr["base"]["sha"], pr["head"]["sha"]):
+            if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision):
+                raise ValueError("PR 的 base 和 head 必须是完整的提交 SHA")
+        return select_pr(repo, pr["base"]["sha"], pr["head"]["sha"])
+    return select(repo, event_labels(event_name, event))
 
 
 def write_workspace(repo: Path) -> Path:
@@ -150,7 +215,7 @@ def write_workspace(repo: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("plan", "workspace"))
+    parser.add_argument("action", choices=("plan", "pr-labels", "workspace"))
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--labels", help="explicit ci:<module> labels, separated by commas or whitespace")
@@ -162,7 +227,11 @@ def main() -> int:
         if args.action == "workspace":
             print(write_workspace(repo))
             return 0
-        if args.labels is not None:
+        if args.action == "pr-labels":
+            if not args.base_ref or args.labels is not None:
+                raise ValueError("pr-labels 必须提供 --base-ref，且不能指定 --labels")
+            plan = select_pr(repo, args.base_ref, args.head_ref)
+        elif args.labels is not None:
             plan = select(repo, split_labels(args.labels))
         elif args.base_ref:
             paths = changed_files(repo, args.base_ref, args.head_ref)
@@ -171,7 +240,7 @@ def main() -> int:
             plan = select(repo, split_labels(os.environ["GOPULSE_CI_LABELS"]))
         elif os.environ.get("GITHUB_EVENT_PATH"):
             event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-            plan = select(repo, event_labels(os.environ["GITHUB_EVENT_NAME"], event))
+            plan = event_plan(repo, os.environ["GITHUB_EVENT_NAME"], event)
         else:
             raise ValueError("supply LABELS locally, for example LABELS=ci:backend/business")
         print(json.dumps(plan, ensure_ascii=False))
@@ -179,6 +248,9 @@ def main() -> int:
             with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
                 for name in ("matrix", "modules", "has_modules"):
                     output.write(f"{name}={json.dumps(plan[name], separators=(',', ':'))}\n")
+                for name in ("labels", "known_labels", "head_sha"):
+                    if name in plan:
+                        output.write(f"{name}={json.dumps(plan[name], separators=(',', ':'))}\n")
         return 0
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
         print(f"CI planning failed: {exc}", file=sys.stderr)
