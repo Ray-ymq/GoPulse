@@ -174,6 +174,7 @@ make pt
 
 ## 文档与贡献
 
+- [项目分层说明](docs/项目分层说明.md)
 - [贡献指南](CONTRIBUTING.md)
 - [仓库协作规则](AGENTS.md)
 - [CI 与提交规范](tools/ci/CI.md)
