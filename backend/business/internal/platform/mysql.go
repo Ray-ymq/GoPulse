@@ -3,10 +3,11 @@ package platform
 import (
 	"context"
 	"database/sql"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/go-sql-driver/mysql"

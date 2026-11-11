@@ -3,10 +3,11 @@ package platform
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"net"
 	"net/url"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )

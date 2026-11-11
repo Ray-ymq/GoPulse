@@ -18,8 +18,7 @@ import (
 )
 
 var applications = map[string]string{
-	"frontend/user":  "frontend",
-	"frontend/admin": "admin-frontend",
+	"frontend/user": "frontend",
 }
 
 // Runner is the side effect used to install dependencies. It is injectable so

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { loginDestination } from './redirect'
-describe('cross-application login destination', () => {
-  it('defaults by role and restores role-matched deep links', () => {
+describe('登录跳转', () => {
+  it('所有角色均回到业务页面，拒绝已删除的管理页面', () => {
     expect(loginDestination(undefined, 'user')).toBe('/posts')
-    expect(loginDestination(undefined, 'super_admin')).toBe('/admin/')
-    expect(loginDestination('/admin/logs?service=backend', 'super_admin')).toBe('/admin/logs?service=backend')
-    expect(loginDestination('/admin/business-stages', 'super_admin')).toBe('/admin/business-stages')
-    expect(loginDestination('/admin', 'super_admin')).toBe('/admin/')
+    expect(loginDestination(undefined, 'super_admin')).toBe('/posts')
+    expect(loginDestination('/admin/logs?service=backend', 'super_admin')).toBe('/posts')
+    expect(loginDestination('/admin/business-stages', 'super_admin')).toBe('/posts')
+    expect(loginDestination('/admin', 'super_admin')).toBe('/posts')
     expect(loginDestination('/admin/logs', 'user')).toBe('/posts')
   })
   it('rejects external, encoded, control-character and normalization bypasses', () => {

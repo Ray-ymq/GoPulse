@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { loadEnv, type Plugin } from 'vite'
+import { loadEnv } from 'vite'
 import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 
@@ -35,42 +35,9 @@ export function frontendPort(environment: Record<string, string | undefined>): n
   return configuredPort(environment, 'FRONTEND_PORT', 5173)
 }
 
-export function adminTarget(environment: Record<string, string | undefined>): string {
-  return `http://localhost:${configuredPort(environment, 'ADMIN_FRONTEND_PORT', 5174)}`
-}
 
-function adminRootRedirectPlugin(): Plugin {
-  return {
-    name: 'gopulse-admin-root-redirect',
-    configureServer(server) {
-      server.middlewares.use((request, response, next) => {
-        const rawURL = request.url ?? ''
-        const [path, query] = rawURL.split('?', 2)
-        const redirects: Record<string, string> = {
-          '/admin': '/admin/',
-          '/admin/observability': '/admin/',
-          '/admin/observability/': '/admin/',
-          '/admin/observability/metrics': '/admin/metrics',
-          '/admin/observability/metrics/': '/admin/metrics',
-          '/admin/observability/logs': '/admin/logs',
-          '/admin/observability/logs/': '/admin/logs',
-          '/admin/observability/events': '/admin/events',
-          '/admin/observability/events/': '/admin/events',
-          '/admin/observability/exporters': '/admin/plugins',
-          '/admin/observability/exporters/': '/admin/plugins',
-        }
-        const target = redirects[path]
-        if (request.method === 'GET' && target) {
-          response.statusCode = 308
-          response.setHeader('Location', `${target}${query ? `?${query}` : ''}`)
-          response.end()
-          return
-        }
-        next()
-      })
-    },
-  }
-}
+
+
 
 export function backendProxyConfig(environment: Record<string, string | undefined>) {
   const target = backendTarget(environment)
@@ -87,17 +54,16 @@ export default defineConfig(({ mode }) => {
   const environment = {
     HTTP_PORT: process.env.HTTP_PORT ?? loadedEnvironment.HTTP_PORT,
     FRONTEND_PORT: process.env.FRONTEND_PORT ?? loadedEnvironment.FRONTEND_PORT,
-    ADMIN_FRONTEND_PORT: process.env.ADMIN_FRONTEND_PORT ?? loadedEnvironment.ADMIN_FRONTEND_PORT,
   }
 
   return {
-    plugins: [vue(), adminRootRedirectPlugin()],
+    plugins: [vue()],
     resolve: { dedupe: ['vue'], alias: { vue: resolve(configDirectory, 'node_modules/vue') } },
     server: {
       host: 'localhost',
       port: frontendPort(environment),
       strictPort: true,
-      proxy: { ...backendProxyConfig(environment), '/admin': { target: adminTarget(environment), changeOrigin: false } },
+      proxy: backendProxyConfig(environment),
     },
     test: {
       environment: 'jsdom',

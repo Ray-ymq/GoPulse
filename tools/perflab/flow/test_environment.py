@@ -55,6 +55,6 @@ class EnvironmentTests(unittest.TestCase):
                  patch('flow.environment.es', return_value={'nodes':{'one':{'jvm':{'mem':{'heap_max_in_bytes':heap, 'heap_init_in_bytes':heap}}}}}), \
                  patch('flow.environment.command', return_value='sha256:fixture'):
                 if valid:
-                    self.assertIn('platform-api', snapshot(config)['application_settings'])
+                    self.assertNotIn('platform-api', snapshot(config)['application_settings'])
                 else:
                     with self.assertRaises(ValueError): snapshot(config)

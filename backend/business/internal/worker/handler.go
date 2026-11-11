@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"log/slog"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"

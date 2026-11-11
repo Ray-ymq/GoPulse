@@ -77,18 +77,10 @@ func TestSourceDigestCoversLocalReplaceModulesAndScope(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "backend/business/go.mod", "module example\n\nreplace github.com/Ray-ymq/GoPulse/runtimekit => ../runtimekit\n")
 	write(t, root, "backend/runtimekit/metrics.go", "package runtimekit\n")
-	write(t, root, "backend/observability/marshaller/main.go", "package main\n")
 
 	development, err := Source(root, false)
 	if err != nil {
 		t.Fatal(err)
-	}
-	observation, err := Source(root, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if development == observation {
-		t.Fatal("the observation scope must digest Marshaller as well")
 	}
 
 	// The replaced helper's regression: a locally replaced module is a build input.
@@ -100,51 +92,5 @@ func TestSourceDigestCoversLocalReplaceModulesAndScope(t *testing.T) {
 	if changedDevelopment == development {
 		t.Error("a local replace module must contribute to the source digest")
 	}
-	changedObservation, err := Source(root, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if changedObservation == changedDevelopment {
-		t.Error("the observation digest must keep its extra inputs")
-	}
-}
 
-func TestMonitorInputDigestExcludesExporterPackagingInputs(t *testing.T) {
-	root := t.TempDir()
-	write(t, root, "VERSION", "2.5.3\n")
-	write(t, root, "backend/observability/monitor/main.go", "package main\n")
-	write(t, root, "backend/runtimekit/metrics.go", "package runtimekit\n")
-	write(t, root, "backend/observability/exporters/redis/main.go", "package main\n")
-	write(t, root, "deploy/docker/monitor.Dockerfile", "FROM scratch\n")
-	write(t, root, ".run/packages/catalog.json", "{}\n")
-
-	before, err := MonitorInput(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, content := range map[string]string{
-		"VERSION":                               "2.5.4\n",
-		"backend/observability/monitor/main.go": "package main // changed\n",
-		"deploy/docker/monitor.Dockerfile":      "FROM scratch\n# changed\n",
-	} {
-		write(t, root, name, content)
-		after, err := MonitorInput(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if after == before {
-			t.Errorf("%s must contribute to the Monitor input digest", name)
-		}
-		write(t, root, name, content)
-		before = after
-	}
-	write(t, root, "backend/observability/exporters/redis/main.go", "package main // changed\n")
-	write(t, root, ".run/packages/catalog.json", "{\"changed\": true}\n")
-	after, err := MonitorInput(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
-		t.Fatal("Exporter sources and package catalogs must not invalidate Monitor input")
-	}
 }

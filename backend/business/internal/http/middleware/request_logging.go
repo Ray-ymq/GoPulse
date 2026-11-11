@@ -2,11 +2,12 @@ package middleware
 
 import (
 	"errors"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"log/slog"
 	stdhttp "net/http"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"

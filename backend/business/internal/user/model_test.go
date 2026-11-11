@@ -23,13 +23,5 @@ func TestAuditBuildersRejectUnboundedDetails(t *testing.T) {
 	if _, err := RoleAuditDetails("plugin.install", RoleUser, RoleSuperAdmin); err == nil {
 		t.Fatal("wrong action accepted")
 	}
-	if _, err := PluginAuditDetails("plugin.install", "redis-exporter", "1.12.1", ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := PluginAuditDetails("plugin.install", "redis-exporter", "1.12.1", "password=secret"); err == nil {
-		t.Fatal("unbounded detail accepted")
-	}
-	if _, err := RuleAuditDetails("rule.create", 1, 1, "warning", "metrics"); err != nil {
-		t.Fatal(err)
-	}
+
 }

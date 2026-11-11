@@ -18,7 +18,6 @@ import (
 	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/deployment"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/frontenddeps"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/quality"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/stack"
@@ -28,19 +27,18 @@ import (
 const usage = `usage: devenv <command> [options]
 
 commands:
-  deps [--scope business|observe] [--env-file PATH]   start the development dependencies
+  deps [--scope business] [--env-file PATH]   start the development dependencies
   dev [--env-file PATH]                               start the source development environment
-  dev-observe [--env-file PATH]                       start the observation environment
   stop                                                stop everything this workspace owns
-  integration [--scope business|observe]               run one isolated integration scope
-	stack-up [--mode business|observability|all]          启动 Compose 产品环境
-	stack-down [--mode business|observability|all]        停止当前模式并保留命名卷
+  integration [--scope business]               run one isolated integration scope
+	stack-up [--mode business]          启动 Compose 产品环境
+	stack-down [--mode business]        停止当前模式并保留命名卷
 	stack-status|stack-verify [--mode MODE]               查看或验证当前模式
 	build-cache [--print] [--no-cache]                    render/build Compose images
 	doctor                                                check host prerequisites without starting services
-	bootstrap [--module frontend/user|frontend/admin] [--tools-only]
+	bootstrap [--module frontend/user] [--tools-only]
 		                                                        prepare lint tools and frontend dependencies
-	frontend-deps --module frontend/user|frontend/admin       prepare one application's npm dependencies
+	frontend-deps --module frontend/user       prepare one application's npm dependencies
 	verify --base-ref REF [--plan-only] [--module MODULE]
 `
 
@@ -77,8 +75,8 @@ func run(args []string) int {
 		return 1
 	}
 
-	if (command == "deps" || command == "integration") && parsed.scope != "" && parsed.scope != "business" && parsed.scope != "observe" {
-		fmt.Fprintln(os.Stderr, "scope 必须为 business 或 observe")
+	if (command == "deps" || command == "integration") && parsed.scope != "" && parsed.scope != "business" {
+		fmt.Fprintln(os.Stderr, "scope 必须为 business")
 		return 1
 	}
 	if parsed.mode != "" && !strings.HasPrefix(command, "stack-") {
@@ -86,7 +84,7 @@ func run(args []string) int {
 		return 2
 	}
 
-	if command == "deps" || command == "dev" || command == "dev-observe" || command == "stop" || command == "integration" {
+	if command == "deps" || command == "dev" || command == "stop" || command == "integration" {
 		unlock, lockErr := deployment.Lock(root)
 		if lockErr != nil {
 			fmt.Fprintln(os.Stderr, lockErr)
@@ -121,8 +119,6 @@ func run(args []string) int {
 		err = devrun.Deps(root, parsed.scope, parsed.envFile)
 	case "dev":
 		err = devrun.Dev(root, false, parsed.envFile)
-	case "dev-observe":
-		err = devrun.Dev(root, true, parsed.envFile)
 	case "stop":
 		err = devrun.Stop(root)
 	case "integration":
@@ -136,12 +132,7 @@ func run(args []string) int {
 	case "stack-verify":
 		err = stack.Verify(root, parsed.mode)
 	case "build-cache":
-		if !parsed.printOnly {
-			if err := exporterpackages.Prepare(root, filepath.Join(root, ".run/packages"), devrun.Environ()); err != nil {
-				fmt.Fprintln(os.Stderr, "[gopulse] 插件包准备失败：", err)
-				return 1
-			}
-		}
+
 		code, buildErr := buildcache.Run(root, buildcache.Options{PrintOnly: parsed.printOnly, NoCache: parsed.noCache})
 		if buildErr != nil {
 			fmt.Fprintf(os.Stderr, "[gopulse] ERROR: %v\n", buildErr)
@@ -161,8 +152,8 @@ func run(args []string) int {
 			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps does not accept --tools-only")
 			return 2
 		}
-		if parsed.module != "frontend/user" && parsed.module != "frontend/admin" {
-			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps requires --module frontend/user or frontend/admin")
+		if parsed.module != "frontend/user" {
+			fmt.Fprintln(os.Stderr, "[gopulse] ERROR: frontend-deps requires --module frontend/user")
 			return 2
 		}
 		err = frontenddeps.Ensure(root, parsed.module)

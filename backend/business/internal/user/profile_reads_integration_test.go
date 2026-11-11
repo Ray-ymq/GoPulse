@@ -4,13 +4,14 @@ package user_test
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"testing"
-	"time"
 )
 
 func TestIntegrationProfileFreshAcrossCachedPostReads(t *testing.T) {

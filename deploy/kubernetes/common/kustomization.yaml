@@ -3,8 +3,6 @@
   "kind": "Kustomization",
   "resources": [
     "mysql.json",
-    "platform-api.json",
-    "admin-frontend.json",
     "migrate.json"
   ]
 }

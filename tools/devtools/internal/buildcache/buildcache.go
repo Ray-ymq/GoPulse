@@ -21,10 +21,7 @@ var Targets = []string{
 	"backend",
 	"business-worker",
 	"search-indexer",
-	"admin-frontend",
 	"frontend",
-	"marshaller",
-	"monitor",
 }
 
 // Options controls one build-cache invocation.

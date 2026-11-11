@@ -37,13 +37,6 @@ func NewElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
 	return newElasticsearch(cfg, "search")
 }
 
-func NewObservabilityElasticsearch(cfg config.ElasticsearchConfig) (*Elasticsearch, error) {
-	if cfg.Purpose != "observability" {
-		return nil, errors.New("elasticsearch client purpose must be observability")
-	}
-	return newElasticsearch(cfg, "observability")
-}
-
 func newElasticsearch(cfg config.ElasticsearchConfig, purpose string) (*Elasticsearch, error) {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,

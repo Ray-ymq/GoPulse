@@ -57,7 +57,6 @@ export function createAppRouter(history = createWebHistory()): Router {
     if (to.meta.requiresAuth && auth.status.value !== 'authenticated') return { path: '/login', query: { redirect: to.fullPath } }
     if (to.meta.guestOnly && auth.status.value === 'authenticated') {
       const target = loginDestination(to.query.redirect, auth.user.value?.role)
-      if (target.startsWith('/admin/')) { window.location.assign(target); return false }
       return target
     }
     return true

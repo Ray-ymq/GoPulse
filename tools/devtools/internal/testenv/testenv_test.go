@@ -24,11 +24,11 @@ func TestScopeForRejectsUnknownScope(t *testing.T) {
 	if err == nil {
 		t.Fatalf("bogus scope was accepted (observe=%v)", observe)
 	}
-	want := "unknown integration SCOPE='bogus'; expected business or observe"
+	want := "unknown integration SCOPE='bogus'; expected business"
 	if err.Error() != want {
 		t.Fatalf("message %q, want %q", err.Error(), want)
 	}
-	for scope, expected := range map[string]bool{ScopeBusiness: false, ScopeObserve: true} {
+	for scope, expected := range map[string]bool{ScopeBusiness: false} {
 		got, err := scopeFor(scope, "integration")
 		if err != nil || got != expected {
 			t.Fatalf("scope %s resolved to %v (%v), want %v", scope, got, err, expected)

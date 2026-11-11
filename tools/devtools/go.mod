@@ -5,7 +5,6 @@ go 1.26
 require (
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/elasticsearch v0.44.0
-	github.com/testcontainers/testcontainers-go/modules/kafka v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/mysql v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/rabbitmq v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.44.0

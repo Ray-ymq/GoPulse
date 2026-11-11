@@ -13,7 +13,7 @@ func verificationFixture(t *testing.T, failure string) string {
 	makefile := `list-go-modules:
 	@echo backend/business tools/devtools
 list-npm-modules:
-	@echo frontend/user frontend/admin
+	@echo frontend/user
 ci-check ci-test ci-build:
 	@echo $@ MODULE=$(MODULE) >> calls
 `

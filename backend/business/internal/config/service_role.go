@@ -5,27 +5,19 @@ import (
 	"strings"
 )
 
-// ServiceRole selects the API and background responsibilities assembled by a
-// Backend process. Combined is the backwards-compatible default used by the
-// existing single-process deployment.
+// ServiceRole 标识业务 API 进程。
 type ServiceRole string
 
 const (
-	ServiceRoleCombined ServiceRole = "combined"
 	ServiceRoleBusiness ServiceRole = "business"
-	ServiceRolePlatform ServiceRole = "platform"
 )
 
 func ParseServiceRole(raw string) (ServiceRole, error) {
 	switch role := ServiceRole(strings.ToLower(strings.TrimSpace(raw))); role {
-	case "", ServiceRoleCombined:
-		return ServiceRoleCombined, nil
-	case ServiceRoleBusiness:
+	case "", ServiceRoleBusiness:
 		return ServiceRoleBusiness, nil
-	case ServiceRolePlatform:
-		return ServiceRolePlatform, nil
 	default:
-		return "", errors.New("BACKEND_SERVICE_ROLE must be one of combined, business, or platform")
+		return "", errors.New("BACKEND_SERVICE_ROLE 必须为 business")
 	}
 }
 
@@ -41,13 +33,9 @@ func LoadServiceRoleFrom(lookup LookupFunc) (ServiceRole, error) {
 }
 
 func (role ServiceRole) RunsBusiness() bool {
-	return role == ServiceRoleBusiness || role == ServiceRoleCombined
-}
-
-func (role ServiceRole) RunsPlatform() bool {
-	return role == ServiceRolePlatform || role == ServiceRoleCombined
+	return role == ServiceRoleBusiness
 }
 
 func (role ServiceRole) IsValid() bool {
-	return role == ServiceRoleBusiness || role == ServiceRolePlatform || role == ServiceRoleCombined
+	return role == ServiceRoleBusiness
 }

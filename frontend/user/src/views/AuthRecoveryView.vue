@@ -19,8 +19,7 @@ async function retry(): Promise<void> {
   try {
     await auth.initialize()
     const target = auth.status.value === 'authenticated' ? loginDestination(route.query.redirect, auth.user.value?.role) : '/login'
-    if (target.startsWith('/admin/')) window.location.replace(target)
-    else await router.replace(target)
+    await router.replace(target)
   } catch (error) {
     errorMessage.value = error instanceof ApiError
       ? error.message

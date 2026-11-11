@@ -130,8 +130,6 @@ func Compose(root, mode, explicit string, environ map[string]string) (Values, er
 	switch mode {
 	case ModeDev:
 		applyDefaults(values, devDefaults, caller)
-	case ModeObserve:
-		applyDefaults(values, observeDefaults, caller)
 	case ModeTest:
 		// Isolation boundary: force the test stack values over any caller value.
 		for key, value := range testDefaults {

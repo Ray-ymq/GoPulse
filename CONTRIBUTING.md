@@ -7,23 +7,22 @@
 - 验证结果按实际执行情况填写，未执行的检查不得记录为通过。
 - 产品版本以根目录 `VERSION` 为准。
 
-项目通过源码交付。接收方安装 Go、Node.js 和 Docker 后，在仓库根目录执行 `make doctor` 检查环境、`make bootstrap` 安装开发依赖，再执行 `make dev` 启动开发环境。需要监控和管理前端时使用 `make dev-observe`；结束后执行 `make stop`。可用命令见 `make help`。
+项目通过源码交付。接收方安装 Go、Node.js 和 Docker 后，在仓库根目录执行 `make doctor` 检查环境、`make bootstrap` 安装开发依赖，再执行 `make dev` 启动开发环境。结束后执行 `make stop`。可用命令见 `make help`。
 
 仓库不再提供产品发布包、独立安装管理工具及其备份恢复命令。`make build` 和 `make stack-up` 等源码构建、容器运行命令继续保留。
 
-Exporter 由 Monitor 作为二进制插件启动，插件包由 `tools/devtools/` 从 `backend/observability/exporters/` 源码构建；不再提供独立 Exporter 容器服务和镜像构建入口。
 
 ## 目录与模块入口
 
-后端按系统分为 `backend/business/` 和 `backend/observability/`，共享运行时能力放在 `backend/runtimekit/`。前端位于 `frontend/`，开发、压测、CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
+业务后端位于 `backend/business/`，共享运行时能力放在 `backend/runtimekit/`。前端位于 `frontend/`，开发、压测、CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
 
 `MODULE` 和 `ci:<模块目录>` 标签使用迁移后的完整目录，例如：
 
 ```sh
 make test MODULE=backend/business
-make build MODULE=backend/observability/monitor
+make build MODULE=backend/runtimekit
 make test MODULE=tools/devtools
-make ci-plan LABELS="ci:backend/business ci:backend/observability/monitor"
+make ci-plan LABELS="ci:backend/business ci:backend/runtimekit"
 ```
 
 模块目录调整不改变 Go module 名称、import 路径和 Compose 服务名。旧模块目录参数和旧 CI 标签需要改为新路径。PR 按完整差异自动选择模块，并在检查通过后同步 `ci:*` 标签；所需远端标签由流程按需创建。手动运行仍通过模块标签指定检查范围。根目录的开发、构建和部署命令继续使用原有入口。

@@ -8,9 +8,9 @@ from .runtime import write_json
 
 
 def source_hashes():
-    paths = [ROOT / 'deploy/compose/compose.business.yaml', ROOT / 'backend/observability/exporters/node/upstream.json', ROOT / 'VERSION']
+    paths = [ROOT / 'deploy/compose/compose.business.yaml', ROOT / 'tools/perflab/diagnostics/node-upstream.json', ROOT / 'VERSION']
     for relative in ('tools/perflab/flow', 'tools/perflab/internal', 'tools/perflab/cmd', 'tools/perflab/k6', 'tools/perflab/diagnostics',
-                     'backend/observability/exporters/mysql', 'backend/runtimekit/containerstats', 'backend/runtimekit/cmd/container-exporter'):
+                     'tools/perflab/mysqlcollector', 'backend/runtimekit/containerstats', 'backend/runtimekit/cmd/container-exporter'):
         paths += [path for path in (ROOT / relative).rglob('*') if path.suffix in ('.py', '.go', '.js', '.mjs', '.json', '.mod', '.sum')]
     paths += [ROOT / 'tools/perflab/go.mod', ROOT / 'tools/perflab/go.sum', ROOT / 'backend/runtimekit/go.mod']
     # 业务程序和镜像构建输入改变后，旧准备及验收记录也必须失效。
@@ -18,7 +18,7 @@ def source_hashes():
                             'backend/business', 'frontend', 'backend/runtimekit', 'deploy/docker']).split('\0')
     suffixes = {'.go', '.mod', '.sum', '.js', '.mjs', '.ts', '.vue', '.json', '.css', '.scss',
                 '.html', '.yaml', '.yml', '.conf', '.sql'}
-    paths += [ROOT / name for name in build_inputs if name and
+    paths += [ROOT / name for name in build_inputs if name and (ROOT / name).is_file() and
               (Path(name).suffix in suffixes or Path(name).name.endswith('Dockerfile'))]
     return {str(path.relative_to(ROOT)): digest(path) for path in sorted(set(paths))}
 
@@ -68,12 +68,12 @@ def snapshot(config, rows=None):
                                      if (key.startswith(('MYSQL_', 'BACKEND_HTTP_', 'BACKEND_RESOURCE_', 'BUSINESS_ASYNC_',
                                                           'OUTBOX_', 'REDIS_POOL_', 'BUSINESS_WORKER_PREFETCH', 'SEARCH_INDEXER_'))
                                          and not any(word in key for word in ('PASSWORD', 'TOKEN', 'SECRET', 'CREDENTIAL', 'URL')))}
-        if name in ('backend', 'backend-2', 'platform-api'):
+        if name in ('backend', 'backend-2'):
             reserved_connections += int(env['MYSQL_MAX_OPEN_CONNS']) + int(env.get('OUTBOX_MYSQL_MAX_OPEN_CONNS', 0))
         elif name.startswith(('business-worker', 'search-indexer')):
             reserved_connections += int(env['MYSQL_MAX_OPEN_CONNS'])
     totals = {int(dict(value.split('=', 1) for value in rows[name]['Config']['Env'])['MYSQL_TOTAL_MAX_OPEN_CONNS'])
-              for name in ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')}
+              for name in ('backend', 'backend-2', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')}
     if len(totals) != 1 or reserved_connections > next(iter(totals)):
         raise ValueError('固定 MySQL 连接预算不足或实例预算不一致')
     k6_image = command(['docker', 'image', 'inspect', 'grafana/k6:0.56.0', '--format', '{{.Id}}']).strip()

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -14,23 +13,19 @@ import (
 
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/elasticsearch"
-	"github.com/testcontainers/testcontainers-go/modules/kafka"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
 	"github.com/testcontainers/testcontainers-go/modules/rabbitmq"
 	rediscontainer "github.com/testcontainers/testcontainers-go/modules/redis"
 	tcnetwork "github.com/testcontainers/testcontainers-go/network"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
 )
 
 const (
-	integrationMySQLImage           = "mysql:8.4.0"
-	integrationRedisImage           = "redis:7.2.5-alpine"
-	integrationRabbitMQImage        = "rabbitmq:3.13.3-management-alpine"
-	integrationElasticsearchImage   = "docker.elastic.co/elasticsearch/elasticsearch:9.5.2"
-	integrationKafkaImage           = "confluentinc/confluent-local:7.5.0"
-	integrationVictoriaMetricsImage = "victoriametrics/victoria-metrics:v1.151.0"
+	integrationMySQLImage         = "mysql:8.4.0"
+	integrationRedisImage         = "redis:7.2.5-alpine"
+	integrationRabbitMQImage      = "rabbitmq:3.13.3-management-alpine"
+	integrationElasticsearchImage = "docker.elastic.co/elasticsearch/elasticsearch:9.5.2"
 )
 
 const (
@@ -41,8 +36,6 @@ const (
 	integrationRedisDatabase  = 15
 	integrationRabbitUser     = "gopulse_integration"
 	integrationRabbitPassword = "integration-rabbitmq"
-	integrationVMUser         = "gopulse-test-marshaller"
-	integrationVMPassword     = "test-victoria-metrics-password-32-bytes"
 )
 
 type namedContainer struct {
@@ -152,68 +145,8 @@ func startDependencyContainers(ctx context.Context, runID string, observe bool) 
 	}
 	manager.items = append(manager.items, namedContainer{name: "elasticsearch", container: search})
 
-	if !observe {
-		cleanupOnError = false
-		return manager, nil
-	}
-
-	kafkaContainer, err := kafka.Run(ctx, integrationKafkaImage,
-		kafka.WithClusterID("gopulse-integration"),
-		labels,
-		tcnetwork.WithNetwork([]string{"kafka"}, network),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("start Kafka container: %w", err)
-	}
-	manager.items = append(manager.items, namedContainer{name: "kafka", container: kafkaContainer})
-	if err := waitForExec(ctx, kafkaContainer, "Kafka broker protocol health", []string{
-		"/usr/bin/kafka-broker-api-versions", "--bootstrap-server", "kafka:9092",
-	}); err != nil {
-		return nil, err
-	}
-	for _, topic := range []string{"gopulse-observability-metrics", "gopulse-observability-logs", "gopulse-observability-events"} {
-		if err := waitForExec(ctx, kafkaContainer, "Kafka topic initialization", []string{
-			"/usr/bin/kafka-topics", "--bootstrap-server", "kafka:9092", "--create", "--if-not-exists",
-			"--topic", topic, "--partitions", "4", "--replication-factor", "1",
-		}); err != nil {
-			return nil, err
-		}
-	}
-
-	vm, err := testcontainers.Run(ctx, integrationVictoriaMetricsImage,
-		testcontainers.WithExposedPorts("8428/tcp"),
-		testcontainers.WithCmdArgs(
-			"-httpAuth.username="+integrationVMUser,
-			"-httpAuth.password="+integrationVMPassword,
-			"-storageDataPath=/victoria-metrics-data",
-			"-retentionPeriod=30d",
-		),
-		testcontainers.WithWaitStrategy(wait.ForHTTP("/health").WithPort("8428/tcp").WithStatusCodeMatcher(func(status int) bool { return status == http.StatusOK })),
-		labels,
-		tcnetwork.WithNetwork([]string{"victoriametrics"}, network),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("start VictoriaMetrics container: %w", err)
-	}
-	manager.items = append(manager.items, namedContainer{name: "victoriametrics", container: vm})
-
-	observabilitySearch, err := elasticsearch.Run(ctx, integrationElasticsearchImage,
-		testcontainers.WithEnv(map[string]string{
-			"discovery.type":                    "single-node",
-			"xpack.security.enabled":            "false",
-			"xpack.security.enrollment.enabled": "false",
-			"ES_JAVA_OPTS":                      "-Xms512m -Xmx512m",
-		}),
-		labels,
-		tcnetwork.WithNetwork([]string{"observability-elasticsearch"}, network),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("start observability Elasticsearch container: %w", err)
-	}
-	manager.items = append(manager.items, namedContainer{name: "observability-elasticsearch", container: observabilitySearch})
-
-	cleanupOnError = false
 	return manager, nil
+
 }
 
 func (d *dependencyContainers) values(ctx context.Context, observe bool) (envfile.Values, error) {
@@ -267,42 +200,10 @@ func (d *dependencyContainers) values(ctx context.Context, observe bool) (envfil
 		values["RABBITMQ_MANAGEMENT_PORT"] = strconv.Itoa(managementPort)
 	}
 
-	if observe {
-		kafkaPort, kafkaErr := mappedPort(ctx, d.byName("kafka"), "9093/tcp")
-		if kafkaErr != nil {
-			return nil, kafkaErr
-		}
-		values["KAFKA_PORT"] = strconv.Itoa(kafkaPort)
-		values["MARSHALLER_KAFKA_BROKERS"] = net.JoinHostPort(host, strconv.Itoa(kafkaPort))
-		values["MONITOR_KAFKA_BROKERS"] = net.JoinHostPort(host, strconv.Itoa(kafkaPort))
-		vmURL, vmErr := endpoint(ctx, d.byName("victoriametrics"), "8428/tcp", "http")
-		if vmErr != nil {
-			return nil, vmErr
-		}
-		values["BACKEND_VICTORIAMETRICS_URL"] = vmURL
-		values["MARSHALLER_VM_URL"] = vmURL
-		values["VICTORIAMETRICS_USERNAME"] = integrationVMUser
-		values["VICTORIAMETRICS_PASSWORD"] = integrationVMPassword
-		values["BACKEND_VICTORIAMETRICS_USERNAME"] = integrationVMUser
-		values["BACKEND_VICTORIAMETRICS_PASSWORD"] = integrationVMPassword
-		observabilityURL, searchErr := endpoint(ctx, d.byName("observability-elasticsearch"), "9200/tcp", "http")
-		if searchErr != nil {
-			return nil, searchErr
-		}
-		values["OBSERVABILITY_ELASTICSEARCH_URL"] = observabilityURL
-		values["MARSHALLER_ELASTICSEARCH_URL"] = observabilityURL
-		if observabilityPort, portErr := mappedPort(ctx, d.byName("observability-elasticsearch"), "9200/tcp"); portErr == nil {
-			values["OBSERVABILITY_ELASTICSEARCH_PORT"] = strconv.Itoa(observabilityPort)
-		}
-	}
-	values["MARSHALLER_HTTP_HOST"] = "127.0.0.1"
-	values["MONITOR_HTTP_HOST"] = "127.0.0.1"
 	values["REDIS_EXPORTER_HTTP_HOST"] = "127.0.0.1"
-	for key, port := range reservePorts([]string{"HTTP_PORT", "MONITOR_HTTP_PORT", "MARSHALLER_HTTP_PORT", "REDIS_EXPORTER_HTTP_PORT"}) {
+	for key, port := range reservePorts([]string{"HTTP_PORT"}) {
 		values[key] = strconv.Itoa(port)
 	}
-	values["MONITOR_URL"] = "http://127.0.0.1:" + values["MONITOR_HTTP_PORT"]
-	values["LOG_MONITOR_URL"] = values["MONITOR_URL"]
 	values["BUSINESS_STAGE_ENDPOINTS"] = "http://127.0.0.1:" + values["HTTP_PORT"]
 	return values, nil
 }

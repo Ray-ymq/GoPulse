@@ -111,7 +111,7 @@ class MySQLSourceProcessTest(unittest.TestCase):
     def setUpClass(cls):
         cls.build = tempfile.TemporaryDirectory()
         cls.binary = Path(cls.build.name) / 'gopulse-mysql-exporter'
-        subprocess.run(['go', '-C', str(ROOT / 'backend/observability/exporters/mysql'), 'build', '-o', str(cls.binary),
+        subprocess.run(['go', '-C', str(ROOT / 'tools/perflab/mysqlcollector'), 'build', '-o', str(cls.binary),
                         '.'], check=True, timeout=600)
 
     @classmethod

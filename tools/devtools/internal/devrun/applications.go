@@ -17,9 +17,6 @@ import (
 // starts every owned source process in the order the replaced helper used.
 func (s *session) startApplications(state *workspace.State, observe bool, env environment) error {
 	oneShot := copyEnvironment(s.processEnv)
-	// One-shot preparation must not ship its logs to the Monitor.
-	oneShot["LOG_MONITOR_URL"] = ""
-	oneShot["LOG_MONITOR_INGEST_TOKEN"] = ""
 	backendDir := filepath.Join(s.root, "backend/business")
 	if err := proc.Run([]string{"go", "run", "./cmd/migrate", "up"}, backendDir, oneShot, "database migration", 0); err != nil {
 		return err
@@ -43,25 +40,6 @@ func (s *session) startApplications(state *workspace.State, observe bool, env en
 	indexer, err := s.buildBinary("search-indexer", backendDir, "./cmd/search-indexer", binaryDigest)
 	if err != nil {
 		return err
-	}
-
-	if observe {
-		observationDigest, err := digest.Source(s.root, true)
-		if err != nil {
-			return err
-		}
-		marshaller, err := s.buildBinary("marshaller", filepath.Join(s.root, "backend/observability/marshaller"), "./cmd/marshaller", observationDigest)
-		if err != nil {
-			return err
-		}
-		if err := s.spawn(state, "marshaller", []string{marshaller},
-			instance(s.processEnv, "marshaller-local"), filepath.Join(s.root, "backend/observability/marshaller")); err != nil {
-			return err
-		}
-		if err := ready.Wait(s.url(env, "MARSHALLER_HTTP_PORT", "/ready"), readinessTimeout,
-			env.token["MARSHALLER_API_TOKEN"], "Marshaller", s.alive(state, "marshaller")); err != nil {
-			return err
-		}
 	}
 
 	if err := s.spawn(state, "backend", []string{backend}, instance(s.processEnv, "backend-local"), backendDir); err != nil {
@@ -101,27 +79,6 @@ func (s *session) startApplications(state *workspace.State, observe bool, env en
 		return err
 	}
 
-	if observe {
-		if err := s.ensureNpmDependencies("frontend/admin"); err != nil {
-			return err
-		}
-		adminDir := filepath.Join(s.root, "frontend", "admin")
-		adminPort := s.values["ADMIN_FRONTEND_PORT"]
-		adminEnv := copyEnvironment(s.processEnv)
-		adminEnv["FRONTEND_PORT"] = adminPort
-		if err := s.spawn(state, "admin-frontend",
-			[]string{"npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", adminPort}, adminEnv, adminDir); err != nil {
-			return err
-		}
-		if err := ready.Wait(fmt.Sprintf("http://127.0.0.1:%s/admin/", adminPort), readinessTimeout, "",
-			"admin Vite", s.alive(state, "admin-frontend")); err != nil {
-			return err
-		}
-		if err := ready.Wait(s.url(env, "MONITOR_HTTP_PORT", "/ready"), readinessTimeout,
-			env.token["MONITOR_API_TOKEN"], "Monitor", nil); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 

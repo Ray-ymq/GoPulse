@@ -37,7 +37,7 @@ class NodePreparationTest(unittest.TestCase):
             member.size = len(self.body)
             archive.addfile(member, io.BytesIO(self.body))
         self.archive = output.getvalue()
-        release = self.root / 'backend/observability/exporters/node/upstream.json'
+        release = self.root / 'tools/perflab/diagnostics/node-upstream.json'
         release.parent.mkdir(parents=True)
         release.write_text(json.dumps({'version': '1.9.1', 'sha256': {'amd64': hashlib.sha256(self.archive).hexdigest()}}))
         for mocked in (patch.object(diagnose, 'ROOT', self.root),
@@ -104,7 +104,7 @@ class DiagnosticReportTest(unittest.TestCase):
         diagnostics = []
         for stamp in range(0, 16, 5):
             applications = {name: counter('fixture_requests_total', stamp) for name in
-                            ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2',
+                            ('backend', 'backend-2', 'business-worker', 'business-worker-2',
                              'search-indexer', 'search-indexer-2', 'node')}
             for name, multiplier in (('backend', 2), ('backend-2', 3)):
                 applications[name] += counter('gopulse_backend_mysql_pool_wait_duration_seconds_total',

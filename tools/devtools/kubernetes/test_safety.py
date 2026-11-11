@@ -123,34 +123,9 @@ class RenderTests(unittest.TestCase):
                 self.assertEqual(result.extractfile('blobs/sha256/example').read(), b'xyz')
 
 
-class BootstrapTests(unittest.TestCase):
-    def test_single_node_services_can_start_before_readiness(self):
-        rows = json.loads((k8s.BASE / 'observability/kafka.json').read_text())['items']
-        service = next(row for row in rows if row['kind'] == 'Service')
-        self.assertTrue(service['spec']['publishNotReadyAddresses'])
-        rows = json.loads((k8s.BASE / 'observability/victoriametrics.json').read_text())['items']
-        container = rows[1]['spec']['template']['spec']['containers'][0]
-        self.assertNotIn('command', container)
-        self.assertTrue(container['args'][0].startswith('-storageDataPath='))
-
-    def test_standalone_observation_enables_its_auth_routes(self):
-        overlay = json.loads((k8s.BASE / 'overlays/observability/kustomization.yaml').read_text())
-        config = next(json.loads(patch['patch']) for patch in overlay['patches'] if patch['target'].get('name') == 'platform-api-env')
-        self.assertEqual(config['data']['BACKEND_STANDALONE_OBSERVABILITY'], 'true')
-        self.assertEqual(config['data']['BUSINESS_STAGE_ENDPOINTS'], '')
 
 
-class MonitorStorageTests(unittest.TestCase):
-    def test_recreation_does_not_rewrite_private_plugin_permissions(self):
-        rows = json.loads((k8s.BASE / 'observability/monitor.json').read_text())['items']
-        spec = next(row for row in rows if row['kind'] == 'Deployment')['spec']['template']['spec']
-        self.assertEqual(spec['securityContext']['runAsUser'], 10005)
-        self.assertNotIn('fsGroup', spec['securityContext'])
-        prepare = spec['initContainers'][0]
-        self.assertEqual(prepare['securityContext']['runAsUser'], 0)
-        self.assertIn('chmod 0700', prepare['command'][-1])
-        names = {volume['name'] for volume in spec['volumes']}
-        self.assertTrue(all(mount['name'] in names for mount in prepare['volumeMounts']))
+
 
 class CredentialRecoveryTests(unittest.TestCase):
     def test_missing_local_credentials_reuse_existing_secret(self):
@@ -186,18 +161,3 @@ class CredentialRecoveryTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'migration failed'):
                     k8s._up('all')
             self.assertFalse(any(row['kind'] == 'Deployment' for call in apply.call_args_list for row in call.args[0]))
-
-
-class SelfmonitorOwnershipTests(unittest.TestCase):
-    def test_stop_ignores_unlisted_and_unowned_workloads(self):
-        import selfmonitor
-        allowed = {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-mysql-exporter'}}
-        rows = [
-            {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-mysql-exporter', 'labels': {'app.kubernetes.io/part-of': 'gopulse'}}},
-            {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-foreign', 'labels': {'app.kubernetes.io/part-of': 'gopulse'}}},
-            {'kind': 'Deployment', 'metadata': {'name': 'selfmonitor-grafana'}},
-        ]
-        with patch.object(k8s, 'owned_namespace', return_value=True), patch.object(selfmonitor, 'render', return_value=[allowed]), patch.object(k8s, 'kube', return_value=json.dumps({'items': rows})) as command, patch.object(k8s, 'stop_forwards'):
-            selfmonitor.down('all')
-        changes = [call.args for call in command.call_args_list if 'scale' in call.args or 'patch' in call.args]
-        self.assertEqual(changes, [('-n', 'gopulse-all', 'scale', 'deployment/selfmonitor-mysql-exporter', '--replicas=0')])

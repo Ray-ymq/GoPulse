@@ -3,15 +3,16 @@ package http
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
-	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"log/slog"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
+	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"

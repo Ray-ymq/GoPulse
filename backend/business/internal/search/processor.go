@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"

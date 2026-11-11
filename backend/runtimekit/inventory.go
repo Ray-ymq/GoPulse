@@ -2,7 +2,7 @@ package runtimekit
 
 import "strings"
 
-var Components = []string{"backend", "business-worker", "search-indexer", "monitor", "marshaller"}
+var Components = []string{"backend", "business-worker", "search-indexer"}
 var Plugins = []string{"redis", "mysql", "rabbitmq", "kafka", "elasticsearch", "victoriametrics"}
 
 // NativePlugins 使用原生协议，由 Monitor 适配，不属于 GoPulse 进程运行契约。

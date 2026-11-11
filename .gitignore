@@ -47,3 +47,6 @@ acceptance/bin/
 
 # Exporter module build output
 /backend/observability/exporters/*/build/
+
+# 已移除平台的本地凭据仍属于运行数据。
+/deploy/selfmonitor/secrets/

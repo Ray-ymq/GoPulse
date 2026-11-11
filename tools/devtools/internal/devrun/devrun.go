@@ -7,15 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/compose"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/digest"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/envfile"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/monitorimage"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/proc"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/workspace"
 )
@@ -79,7 +76,6 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	if err != nil {
 		return nil, err
 	}
-	values["MONITOR_PACKAGE_DIR"] = filepath.Join(ws.Root, ".run", "packages")
 	envFile, err := envfile.WritePrivate(ws.PrivateRoot(), mode, values)
 	if err != nil {
 		return nil, err
@@ -93,14 +89,7 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	}
 	files := []string{filepath.Join(ws.Root, "deploy", "dev", "compose.local.yaml")}
 	profiles := []string{}
-	if observe {
-		override, err := observeComposeOverride(ws.Root)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, override)
-		profiles = append(profiles, "observe")
-	}
+
 	project := ws.ProjectDev()
 	return &session{
 		root:       ws.Root,
@@ -114,41 +103,22 @@ func newSession(root, mode string, observe bool, explicitEnv string) (*session, 
 	}, nil
 }
 
-func observeComposeOverride(root string) (string, error) {
-	name := ""
-	switch runtime.GOOS {
-	case "linux", "darwin":
-		name = "compose.local-" + runtime.GOOS + ".yaml"
-	default:
-		return "", fmt.Errorf("observation mode is not supported on %s", runtime.GOOS)
-	}
-	return filepath.Join(root, "deploy", "dev", name), nil
-}
-
 // Deps starts or refreshes the development dependency project and records a
 // dependency-only stage that `dev` or `dev-observe` can continue in place.
 func Deps(root, scope, explicitEnv string) error {
 	observe := false
 	switch scope {
 	case "", ScopeBusiness:
-	case ScopeObserve:
-		observe = true
 	default:
-		return fmt.Errorf("scope must be %s or %s (got %s)", ScopeBusiness, ScopeObserve, scope)
+		return fmt.Errorf("scope 必须为 business，收到 %s", scope)
 	}
 	mode := envfile.ModeDev
-	if observe {
-		mode = envfile.ModeObserve
-	}
+
 	current, err := newSession(root, mode, observe, explicitEnv)
 	if err != nil {
 		return err
 	}
-	if observe {
-		if _, err := current.ensureMonitorImage(); err != nil {
-			return err
-		}
-	}
+
 	env, err := current.buildEnvironment()
 	if err != nil {
 		return err
@@ -192,16 +162,16 @@ func Deps(root, scope, explicitEnv string) error {
 // Dev starts the source development lifecycle; observe adds the observation
 // dependencies, Marshaller, admin frontend, and Monitor container.
 func Dev(root string, observe bool, explicitEnv string) error {
+	if observe {
+		return fmt.Errorf("可观测平台已删除")
+	}
 	return start(root, observe, explicitEnv)
 }
 
 func start(root string, observe bool, explicitEnv string) error {
 	mode := envfile.ModeDev
 	stage := workspace.StageDev
-	if observe {
-		mode = envfile.ModeObserve
-		stage = workspace.StageDevObserve
-	}
+
 	current, err := newSession(root, mode, observe, explicitEnv)
 	if err != nil {
 		return err
@@ -240,22 +210,13 @@ func start(root string, observe bool, explicitEnv string) error {
 			owned = append(owned, record)
 		}
 	}
-	if observe {
-		requiredPorts = append(requiredPorts, env.integer("MARSHALLER_HTTP_PORT"), 19106, env.integer("MONITOR_HTTP_PORT"),
-			env.integer("ADMIN_FRONTEND_PORT"), env.integer("REDIS_EXPORTER_HTTP_PORT"))
-	}
+
 	if err := proc.CheckPorts(requiredPorts, owned); err != nil {
 		return err
 	}
 
 	composeEnv := copyEnvironment(current.processEnv)
-	if observe {
-		image, err := current.ensureMonitorImage()
-		if err != nil {
-			return err
-		}
-		composeEnv["GOPULSE_MONITOR_IMAGE"] = image
-	}
+
 	if err := current.command.Up(current.root, composeEnv); err != nil {
 		current.composeDown(existingOrFresh(current, requested))
 		return err
@@ -336,8 +297,6 @@ func (s *session) baseState(env environment, requested request) *workspace.State
 		SourceDigest:        requested.source,
 		EnvironmentDigest:   env.environmentDigest,
 		ComposeDigest:       requested.compose,
-		MonitorInputDigest:  s.monitorInputDigest(requested.observe),
-		MonitorImage:        s.monitorImage(requested.observe),
 		PreparationCommands: [][]string{{"go", "run", "./cmd/migrate", "up"}, {"go", "run", "./cmd/search-reindex", "--if-missing"}},
 		StartedAt:           now(),
 		Processes:           map[string]workspace.ProcessRecord{},
@@ -353,89 +312,8 @@ func (s *session) git(args ...string) string {
 	return value
 }
 
-func (s *session) monitorInputDigest(observe bool) string {
-	if !observe {
-		return ""
-	}
-	value, err := digest.MonitorInput(s.root)
-	if err != nil {
-		return ""
-	}
-	return value
-}
-
-func (s *session) monitorImage(observe bool) string {
-	if !observe {
-		return ""
-	}
-	return s.monitorImageTag()
-}
-
-func (s *session) monitorImageTag() string {
-	return monitorimage.Tag
-}
-
 // ensureMonitorImage reuses latest only when its source and revision labels
 // still match, so replacing the shared tag cannot silently reuse stale code.
-func (s *session) ensureMonitorImage() (string, error) {
-	tag := s.monitorImageTag()
-	version := strings.TrimSpace(s.readFile(filepath.Join(s.root, "VERSION")))
-	if !semverLike(version) {
-		return "", fmt.Errorf("VERSION must use major.minor.patch before building Monitor")
-	}
-	if err := exporterpackages.Prepare(s.root, s.values["MONITOR_PACKAGE_DIR"], s.processEnv); err != nil {
-		return "", err
-	}
-	revision := s.git("rev-parse", "HEAD")
-	input, err := digest.MonitorInput(s.root)
-	if err != nil {
-		return "", err
-	}
-	if monitorimage.Reusable(s.root, input, s.processEnv) {
-		fmt.Printf("[gopulse] reusing prepared Monitor image %s\n", tag)
-		return tag, nil
-	}
-	if err := proc.Run([]string{
-		"docker", "build", "--pull=false", "--target", "monitor", "--file", "deploy/docker/monitor.Dockerfile",
-		"--label", monitorimage.InputLabel + "=" + input,
-		"--build-arg", "VERSION=" + version, "--build-arg", "REVISION=" + revision, "--tag", tag, ".",
-	}, s.root, s.processEnv, "Monitor image preparation", 0); err != nil {
-		return "", err
-	}
-	if err := workspace.SaveJSON(filepath.Join(s.ws.PrivateRoot(), "monitor-image.json"), map[string]string{
-		"tag": tag, "input_digest": input, "revision": revision, "version": version, "built_at": now(),
-	}); err != nil {
-		return "", err
-	}
-	fmt.Printf("[gopulse] prepared Monitor image %s\n", tag)
-	return tag, nil
-}
-
-func semverLike(value string) bool {
-	parts := strings.Split(value, ".")
-	if len(parts) != 3 {
-		return false
-	}
-	for _, part := range parts {
-		if part == "" {
-			return false
-		}
-		for _, char := range part {
-			if char < '0' || char > '9' {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func (s *session) readFile(path string) string {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return string(raw)
-}
 
 func existingOrFresh(s *session, requested request) *workspace.State {
 	if state, err := workspace.Load(s.ws); err == nil && state != nil {
@@ -470,13 +348,9 @@ func (s *session) composeDown(state *workspace.State) {
 	for key, value := range s.values {
 		env[key] = value
 	}
-	if state.MonitorImage != "" {
-		env["GOPULSE_MONITOR_IMAGE"] = state.MonitorImage
-	}
+
 	command := compose.Command{Project: project, EnvFile: envFile, Files: files}
-	if state.Observe {
-		command.Profiles = []string{"observe"}
-	}
+
 	if err := command.Down(s.root, env); err != nil {
 		compose.Warn(err)
 	}

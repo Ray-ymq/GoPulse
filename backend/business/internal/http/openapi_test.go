@@ -9,16 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/adminoverview"
-	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
-	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
-	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
-	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
-	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
@@ -105,7 +99,7 @@ func sortRoutes(routes []routeKey) {
 	})
 }
 
-// registeredRoutes 汇集 business 与 platform 两种角色装配后实际存在的全部路由。
+// registeredRoutes 汇集业务 API 实际注册的全部路由。
 func registeredRoutes(t *testing.T) map[routeKey]bool {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -127,17 +121,6 @@ func registeredRoutes(t *testing.T) map[routeKey]bool {
 			Likes:          like.NewHandler(nil),
 			Search:         search.NewHandler(nil),
 			Notifications:  notification.NewHandler(nil),
-		}),
-		NewRouter(Dependencies{Probes: probes}, APIRoutes{
-			Authentication:  passThrough,
-			Authorization:   passThrough,
-			Overview:        &adminoverview.Service{},
-			Metrics:         metricquery.NewHandler(nil),
-			Logs:            logquery.NewHandler(nil),
-			Events:          eventquery.NewHandler(nil),
-			Alerts:          alert.NewHandler(nil, "test-secret"),
-			Management:      NewManagementHandler(nil, "test-secret"),
-			ExporterPlugins: exporterplugin.NewHandler(nil),
 		}),
 	}
 	registered := make(map[routeKey]bool)

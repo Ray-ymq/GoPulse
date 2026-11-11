@@ -17,9 +17,8 @@
         "AUTH_COOKIE_NAME": "gopulse_session",
         "AUTH_COOKIE_SECURE": "false",
         "AUTH_JWT_TTL": "2h",
-        "BACKEND_ENDPOINTS": "backend,platform-api",
+        "BACKEND_ENDPOINTS": "backend",
         "BACKEND_HTTP_MAX_CONCURRENCY": "128",
-        "BACKEND_LOG_READ_ALIAS": "gopulse-logs-v1-read",
         "BACKEND_RATE_LIMIT_ENABLED": "true",
         "BACKEND_RATE_LIMIT_LOCAL_MAX_IDENTITIES": "1024",
         "BACKEND_RATE_LIMIT_OPERATION_TIMEOUT": "200ms",
@@ -50,8 +49,6 @@
         "GOPULSE_TRACE_SHUTDOWN_TIMEOUT": "5s",
         "HTTP_HOST": "0.0.0.0",
         "HTTP_PORT": "8080",
-        "LOG_MONITOR_URL": "http://monitor:9090",
-        "MARSHALLER_ENDPOINTS": "marshaller",
         "MYSQL_CONN_MAX_LIFETIME": "3m",
         "MYSQL_DATABASE": "gopulse",
         "MYSQL_HOST": "mysql",
@@ -142,24 +139,6 @@
                       "secretKeyRef": {
                         "name": "gopulse-credentials",
                         "key": "BACKEND_METRICS_TOKEN"
-                      }
-                    }
-                  },
-                  {
-                    "name": "BUSINESS_STAGE_SERVICE_CREDENTIAL",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "name": "gopulse-credentials",
-                        "key": "BUSINESS_STAGE_SERVICE_CREDENTIAL"
-                      }
-                    }
-                  },
-                  {
-                    "name": "LOG_MONITOR_INGEST_TOKEN",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "name": "gopulse-credentials",
-                        "key": "LOG_MONITOR_INGEST_TOKEN"
                       }
                     }
                   },

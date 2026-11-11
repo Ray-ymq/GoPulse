@@ -43,8 +43,7 @@ async function submit(): Promise<void> {
     if (props.mode === 'login') await auth.login(credentials)
     else await auth.register(credentials)
     const target = loginDestination(props.mode === 'login' ? route.query.redirect : undefined, auth.user.value?.role)
-    if (target.startsWith('/admin/')) window.location.assign(target)
-    else await router.push(target)
+    await router.push(target)
   } catch (error) {
     errorMessage.value = messageFor(error)
   } finally {

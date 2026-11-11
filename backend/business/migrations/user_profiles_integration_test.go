@@ -5,10 +5,11 @@ package migrations
 import (
 	"context"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 )
 
 func TestIntegrationProfileMigrationRoundTrip(t *testing.T) {

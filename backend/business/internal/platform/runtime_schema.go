@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
 	migrationfiles "github.com/Ray-ymq/GoPulse/backend/migrations"
 )
 

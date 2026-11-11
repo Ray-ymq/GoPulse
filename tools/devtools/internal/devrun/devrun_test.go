@@ -67,7 +67,7 @@ func birthOfSelf() string {
 }
 
 func TestDependencyStageCanBeContinuedByBothApplicationStages(t *testing.T) {
-	for _, observe := range []bool{false, true} {
+	for _, observe := range []bool{false} {
 		root := fixture(t)
 		current := newTestSession(t, root, observe)
 		requested := request{
@@ -84,29 +84,6 @@ func TestDependencyStageCanBeContinuedByBothApplicationStages(t *testing.T) {
 		if action, err := resolveExisting(current, dependencies, requested); err != nil || action != actionStart {
 			t.Fatalf("observe=%v: a dependency-only stage must be continued (action=%v err=%v)", observe, action, err)
 		}
-	}
-}
-
-func TestDependencyStageOfObservationScopeRejectsPlainDevelopment(t *testing.T) {
-	root := fixture(t)
-	current := newTestSession(t, root, false)
-	requested := request{stage: workspace.StageDev, mode: "dev", observe: false,
-		source: "source", compose: "compose", environment: "environment"}
-	dependencies := runningState(newTestSession(t, root, true), workspace.StageDeps, true, request{environment: "environment"})
-	_, err := resolveExisting(current, dependencies, requested)
-	if err == nil || !strings.Contains(err.Error(), "run make stop first") {
-		t.Fatalf("an observation dependency stage must not be silently narrowed: %v", err)
-	}
-}
-
-func TestApplicationStagesDoNotReplaceEachOther(t *testing.T) {
-	root := fixture(t)
-	requested := request{stage: workspace.StageDevObserve, mode: "observe", observe: true,
-		source: "source", compose: "compose", environment: "environment"}
-	development := runningState(newTestSession(t, root, false), workspace.StageDev, false, requested)
-	_, err := resolveExisting(newTestSession(t, root, true), development, requested)
-	if err == nil || !strings.Contains(err.Error(), "already owns an active dev lifecycle") {
-		t.Fatalf("a running dev lifecycle must refuse dev-observe: %v", err)
 	}
 }
 
@@ -158,15 +135,6 @@ func TestStateWrittenByTheReplacedHelperIsUnderstood(t *testing.T) {
 		t.Fatalf("a legacy dev state must be recognised as the same stage (action=%v err=%v)", action, err)
 	}
 
-	legacyObservation := runningState(newTestSession(t, root, true), "", true, request{
-		mode: "observe", source: "source", compose: "compose", environment: "environment",
-	})
-	legacyObservation.Stage = ""
-	observationRequest := request{stage: workspace.StageDevObserve, mode: "observe", observe: true,
-		source: "source", compose: "compose", environment: "environment"}
-	if action, err := resolveExisting(newTestSession(t, root, true), legacyObservation, observationRequest); err != nil || action != actionAlreadyRunning {
-		t.Fatalf("a legacy observation state must be recognised (action=%v err=%v)", action, err)
-	}
 }
 
 func TestStoppedStateAllowsFreshStart(t *testing.T) {
@@ -195,8 +163,8 @@ func TestDependencyStartReportsRunningDependencies(t *testing.T) {
 }
 
 func TestUnknownScopeIsRejected(t *testing.T) {
-	if err := Deps(fixture(t), "staging", ""); err == nil || !strings.Contains(err.Error(), "scope must be") {
-		t.Fatalf("an unknown scope must be refused: %v", err)
+	if err := Deps(fixture(t), "staging", ""); err == nil || !strings.Contains(err.Error(), "scope 必须为") {
+		t.Fatalf("an unknown scope 必须为 refused: %v", err)
 	}
 }
 

@@ -5,16 +5,17 @@ package post_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"strings"
-	"sync"
-	"testing"
-	"time"
 )
 
 type bookmarkCache struct {

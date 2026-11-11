@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+
 	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"

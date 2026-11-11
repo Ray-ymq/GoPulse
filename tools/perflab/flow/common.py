@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'tools/perflab'))
 STATE = ROOT / '.run/perflab'
 PROJECT = 'gopulse-pt-business'
-APPS = ['backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2',
-        'search-indexer', 'search-indexer-2', 'admin-frontend', 'frontend']
+APPS = ['backend', 'backend-2', 'business-worker', 'business-worker-2',
+        'search-indexer', 'search-indexer-2', 'frontend']
 SERVICES = ['mysql', 'redis', 'rabbitmq', 'elasticsearch', *APPS]
 from .config import load
 from .runtime import write_json, utc

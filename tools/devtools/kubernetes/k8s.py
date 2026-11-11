@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / 'tools/devtools'))
 import deployment
 BASE = ROOT / 'deploy/kubernetes'
 PRIVATE = ROOT / '.run/kubernetes'
-MODES = ('business', 'observability', 'all')
+MODES = ('business', 'all')
 os.environ['KUBECONFIG'] = str(PRIVATE / 'cluster/admin.conf')
 
 
@@ -72,7 +72,7 @@ def render(mode):
         for row in tracing:
             row['metadata']['namespace'] = namespace(mode)
         for row in items:
-            if row['kind'] == 'ConfigMap' and row['metadata']['name'] in ('backend-env', 'platform-api-env', 'business-worker-env', 'search-indexer-env'):
+            if row['kind'] == 'ConfigMap' and row['metadata']['name'] in ('backend-env', 'business-worker-env', 'search-indexer-env'):
                 row['data'].update(GOPULSE_TRACE_ENABLED='true',
                                   GOPULSE_TRACE_ENDPOINT=f'phase20-collector.{namespace(mode)}.svc.cluster.local:4317',
                                   GOPULSE_TRACE_SAMPLE_RATIO='1.0')
@@ -318,8 +318,8 @@ def forward(mode, mappings, group='product', via_service=False):
 
 
 def access(mode):
-    port = 18081 if mode == 'observability' else 18080
-    service = 'admin-frontend' if mode == 'observability' else 'frontend'
+    port = 18080
+    service = 'frontend'
     forward(mode, [(service, port, 8080)])
     print(f'访问地址：http://127.0.0.1:{port}/')
 
@@ -380,7 +380,7 @@ def load_images(mode):
     images = sorted({container['image'] for row in render(mode)
                      for key in ('containers', 'initContainers')
                      for container in row.get('spec', {}).get('template', {}).get('spec', {}).get(key, [])})
-    for source in [ROOT / 'deploy/selfmonitor/resources.json'] + ([BASE / 'tracing/resources.json'] if os.environ.get('TRACE') == '1' else []):
+    for source in ([BASE / 'tracing/resources.json'] if os.environ.get('TRACE') == '1' else []):
         images += [c['image'] for row in json.loads(source.read_text())['items']
                    for c in row.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [])]
     images = sorted(set(images + ['busybox:1.37.0']))
@@ -426,7 +426,7 @@ def verify(mode):
         if row['status']['phase'] != 'Running' or not row['status'].get('containerStatuses') or not all(c.get('ready') for c in row['status'].get('containerStatuses', [])):
             raise ValueError('Pod 未就绪：' + row['metadata']['name'])
     access(mode)
-    port = 18081 if mode == 'observability' else 18080
+    port = 18080
     with urllib.request.urlopen(f'http://127.0.0.1:{port}/frontend-health', timeout=5) as response:
         assert response.status == 204
     print('Pod 和前端端口转发检查通过。')

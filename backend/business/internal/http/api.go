@@ -1,55 +1,30 @@
 package http
 
 import (
-	"github.com/Ray-ymq/GoPulse/backend/internal/adminoverview"
-	"github.com/Ray-ymq/GoPulse/backend/internal/alert"
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
-	"github.com/Ray-ymq/GoPulse/backend/internal/componentstatus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/eventquery"
-	"github.com/Ray-ymq/GoPulse/backend/internal/exporterplugin"
-	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
-	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
-	"github.com/Ray-ymq/GoPulse/backend/internal/logquery"
-	"github.com/Ray-ymq/GoPulse/backend/internal/metricquery"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
-	"github.com/Ray-ymq/GoPulse/backend/internal/telemetrydelivery"
 	"github.com/gin-gonic/gin"
 )
 
 type APIRoutes struct {
-	SelfMonitor            SelfMonitorController
-	Overview               *adminoverview.Service
-	ComponentStatus        *componentstatus.Service
-	TelemetryDelivery      *telemetrydelivery.Service
-	Alerts                 *alert.Handler
-	Management             *ManagementHandler
-	Bookmarks              *bookmark.Handler
-	Users                  *UserHandler
-	Auth                   *auth.Handler
-	Posts                  *post.Handler
-	Comments               *comment.Handler
-	Likes                  *like.Handler
-	Logs                   *logquery.Handler
-	Metrics                *metricquery.Handler
-	Events                 *eventquery.Handler
-	Notifications          *notification.Handler
-	Search                 *search.Handler
-	Authentication         gin.HandlerFunc
-	PublicRateLimit        gin.HandlerFunc
-	ProtectedRateLimit     gin.HandlerFunc
-	PublicResourceBudget   gin.HandlerFunc
-	ResourceBudget         gin.HandlerFunc
-	Authorization          gin.HandlerFunc
-	ExporterPlugins        *exporterplugin.Handler
-	BusinessStages         *BusinessStageHandler
-	InternalBusinessStages *BusinessStageHandler
-	InternalAuthorization  gin.HandlerFunc
-	ServiceCredential      string
+	Bookmarks            *bookmark.Handler
+	Users                *UserHandler
+	Auth                 *auth.Handler
+	Posts                *post.Handler
+	Comments             *comment.Handler
+	Likes                *like.Handler
+	Notifications        *notification.Handler
+	Search               *search.Handler
+	Authentication       gin.HandlerFunc
+	PublicRateLimit      gin.HandlerFunc
+	ProtectedRateLimit   gin.HandlerFunc
+	PublicResourceBudget gin.HandlerFunc
+	ResourceBudget       gin.HandlerFunc
 }
 
 func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
@@ -70,11 +45,7 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	if routes.Authentication == nil {
 		return
 	}
-	if routes.InternalBusinessStages != nil && routes.InternalAuthorization != nil && routes.ServiceCredential != "" {
-		internal := router.Group("/internal/v1")
-		internal.Use(routes.Authentication, routes.InternalAuthorization, middleware.RequireServiceCredential(routes.ServiceCredential))
-		internal.GET("/business-stages", routes.InternalBusinessStages.Handle)
-	}
+
 	protected := api.Group("")
 	protected.Use(routes.Authentication)
 	if routes.ProtectedRateLimit != nil {
@@ -127,80 +98,5 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	if routes.Notifications != nil {
 		protected.GET("/notifications", routes.Notifications.List)
 		protected.PATCH("/notifications/:notificationId/read", routes.Notifications.MarkRead)
-	}
-	if (routes.Metrics != nil || routes.Logs != nil || routes.Events != nil) && routes.Authorization != nil {
-		observability := protected.Group("/observability")
-		observability.Use(routes.Authorization)
-		if routes.Metrics != nil {
-			observability.GET("/metrics", routes.Metrics.List)
-			observability.GET("/metrics/catalog", routes.Metrics.Catalog)
-		}
-		if routes.Logs != nil {
-			observability.GET("/logs", routes.Logs.List)
-		}
-		if routes.Events != nil {
-			observability.GET("/events", routes.Events.List)
-		}
-		if routes.BusinessStages != nil {
-			observability.GET("/business-stages", routes.BusinessStages.Handle)
-		}
-	}
-	if routes.Alerts != nil && routes.Authorization != nil {
-		g := protected.Group("/alerts")
-		g.Use(routes.Authorization)
-		routes.Alerts.Register(g)
-	}
-	if routes.Overview != nil && routes.Authorization != nil {
-		protected.GET("/admin/overview", routes.Authorization, routes.Overview.Handle)
-	}
-	if routes.Authorization != nil {
-		management := protected.Group("/admin")
-		management.Use(routes.Authorization)
-		if routes.SelfMonitor != nil {
-			management.GET("/self-monitor", selfMonitorHandler(routes.SelfMonitor, "status"))
-			management.POST("/self-monitor/start", selfMonitorHandler(routes.SelfMonitor, "start"))
-			management.POST("/self-monitor/stop", selfMonitorHandler(routes.SelfMonitor, "stop"))
-		}
-		if routes.ComponentStatus != nil {
-			management.GET("/component-status", func(c *gin.Context) {
-				response.Data(c, 200, routes.ComponentStatus.Snapshot())
-			})
-		} else {
-			// Keep the route present in role-level route inventories even when a
-			// test or a reduced platform assembly has no probe service.
-			management.GET("/component-status", func(c *gin.Context) {
-				response.Data(c, 503, []componentstatus.Status{})
-			})
-		}
-		if routes.TelemetryDelivery != nil {
-			management.GET("/telemetry-delivery", func(c *gin.Context) {
-				response.Data(c, 200, routes.TelemetryDelivery.Snapshot(c.Request.Context()))
-			})
-		} else {
-			management.GET("/telemetry-delivery", func(c *gin.Context) {
-				response.Data(c, 503, telemetrydelivery.Snapshot{Status: "unknown", Items: []telemetrydelivery.Item{}})
-			})
-		}
-	}
-	if routes.Management != nil && routes.Authorization != nil {
-		management := protected.Group("/admin")
-		management.Use(routes.Authorization)
-		management.GET("/users/:userId", routes.Management.User)
-		management.PUT("/users/:userId/role", routes.Management.User)
-		management.GET("/audit-events", routes.Management.Audit)
-	}
-	if routes.ExporterPlugins != nil && routes.Authorization != nil {
-		plugins := protected.Group("/exporter-plugins")
-		plugins.Use(routes.Authorization, routes.ExporterPlugins.Audit, routes.ExporterPlugins.RequestShape)
-		plugins.GET("", routes.ExporterPlugins.List)
-		plugins.GET("/catalog", routes.ExporterPlugins.Catalog)
-		plugins.POST("/:pluginId/connection-test", routes.ExporterPlugins.Configuration)
-		plugins.POST("/:pluginId/install", routes.ExporterPlugins.Configuration)
-		plugins.PUT("/:pluginId/configuration", routes.ExporterPlugins.Configuration)
-		plugins.GET("/:pluginId", routes.ExporterPlugins.Get)
-		plugins.POST("/install", routes.ExporterPlugins.Install)
-		plugins.POST("/:pluginId/start", routes.ExporterPlugins.Start)
-		plugins.POST("/:pluginId/stop", routes.ExporterPlugins.Stop)
-		plugins.POST("/:pluginId/update", routes.ExporterPlugins.Update)
 	}
 }

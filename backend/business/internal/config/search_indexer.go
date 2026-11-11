@@ -3,10 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 type SearchIndexerConfig struct {
@@ -14,7 +15,6 @@ type SearchIndexerConfig struct {
 	RabbitMQURL                      string
 	Elasticsearch                    ElasticsearchConfig
 	Worker                           BusinessWorkerConfig
-	LogShip                          LogShipConfig
 	Trace                            TraceConfig
 	BusinessAsyncMaxOpenRequirements uint64
 	BusinessAsyncMaxRetainedGroups   uint64
@@ -110,10 +110,6 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return SearchIndexerConfig{}, errors.New("SEARCH_INDEXER_RECONNECT_MAX must be greater than or equal to SEARCH_INDEXER_RECONNECT_MIN")
 	}
-	logShip, err := loadLogShipConfig(lookup, runtimeMode)
-	if err != nil {
-		return SearchIndexerConfig{}, err
-	}
 	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "search-indexer")
 	if err != nil {
 		return SearchIndexerConfig{}, err
@@ -139,7 +135,6 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 		},
 		RabbitMQURL:                      rabbitMQURL,
 		Elasticsearch:                    elasticsearch,
-		LogShip:                          logShip,
 		Trace:                            traceConfig,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		BusinessAsyncMaxRetainedGroups:   retainedGroups,

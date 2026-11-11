@@ -25,12 +25,6 @@
       "swap_bytes": 0,
       "restart": "no"
     },
-    "platform-api": {
-      "cpus": 0.5,
-      "memory_mib": 256,
-      "swap_bytes": 0,
-      "restart": "no"
-    },
     "business-worker": {
       "cpus": 0.5,
       "memory_mib": 256,
@@ -69,12 +63,6 @@
     },
     "frontend": {
       "cpus": 0.13,
-      "memory_mib": 128,
-      "swap_bytes": 0,
-      "restart": "no"
-    },
-    "admin-frontend": {
-      "cpus": 0.12,
       "memory_mib": 128,
       "swap_bytes": 0,
       "restart": "no"

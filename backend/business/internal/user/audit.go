@@ -3,9 +3,6 @@ package user
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"regexp"
-	"strings"
 	"time"
 )
 
@@ -71,67 +68,4 @@ func ValidAuditAction(s string) bool {
 		return true
 	}
 	return false
-}
-
-// RuleAuditDetails and PluginAuditDetails define bounded extension points, not
-// synthetic records: future callers still have to execute and audit the action.
-func RuleAuditDetails(action string, id, revision uint64, severity, source string) (AuditDetails, error) {
-	if !strings.HasPrefix(action, "rule.") || !ValidAuditAction(action) || id == 0 || revision == 0 || (severity != "warning" && severity != "critical") || (source != "metrics" && source != "logs" && source != "events") {
-		return AuditDetails{}, errors.New("invalid rule audit details")
-	}
-	b, err := json.Marshal(struct {
-		ID       uint64 `json:"rule_id"`
-		Revision uint64 `json:"revision"`
-		Severity string `json:"severity"`
-		Source   string `json:"source"`
-	}{id, revision, severity, source})
-	return AuditDetails{b}, err
-}
-func PluginAuditDetails(action, plugin, version, reason string) (AuditDetails, error) {
-	if !strings.HasPrefix(action, "plugin.") || !ValidAuditAction(action) {
-		return AuditDetails{}, errors.New("invalid plugin audit action")
-	}
-	switch plugin {
-	case "redis-exporter", "mysql-exporter", "kafka-exporter", "elasticsearch-exporter", "rabbitmq-exporter", "victoriametrics-exporter":
-	default:
-		return AuditDetails{}, errors.New("invalid plugin audit resource")
-	}
-	if version != "" && !auditVersion.MatchString(version) {
-		return AuditDetails{}, errors.New("invalid plugin audit version")
-	}
-	switch reason {
-	case "", "validation_failed", "operation_failed", "unavailable", "conflict":
-	default:
-		return AuditDetails{}, errors.New("invalid plugin audit reason")
-	}
-	b, err := json.Marshal(struct {
-		Plugin  string `json:"plugin_id"`
-		Version string `json:"version,omitempty"`
-		Reason  string `json:"reason_code,omitempty"`
-	}{plugin, version, reason})
-	return AuditDetails{b}, err
-}
-
-var auditVersion = regexp.MustCompile(`^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$`)
-
-// AlertAuditDetails admits only incident transition metadata, never expressions.
-func AlertAuditDetails(action string, id, revision uint64, severity, source, reason string) (AuditDetails, error) {
-	if action != "alert.trigger" && action != "alert.recover" && action != "alert.close" {
-		return AuditDetails{}, errors.New("invalid alert action")
-	}
-	if reason != "" && reason != "rule_updated" && reason != "rule_disabled" && reason != "rule_deleted" {
-		return AuditDetails{}, errors.New("invalid alert reason")
-	}
-	d, err := RuleAuditDetails("rule.update", id, revision, severity, source)
-	if err != nil {
-		return AuditDetails{}, err
-	}
-	var v struct {
-		Rule   json.RawMessage `json:"rule"`
-		Reason string          `json:"reason_code,omitempty"`
-	}
-	v.Rule = d.encoded
-	v.Reason = reason
-	b, err := json.Marshal(v)
-	return AuditDetails{b}, err
 }

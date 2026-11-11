@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
@@ -55,25 +54,6 @@ func Environment(t *testing.T) config.Config {
 	}
 	if !httpTargetIsOwned(cfg.Elasticsearch.URL) {
 		t.Fatalf("ELASTICSEARCH_URL = %q, want a dynamic loopback Testcontainers endpoint", cfg.Elasticsearch.URL)
-	}
-	return cfg
-}
-
-// ObservabilityEnvironment extends the ordinary integration whitelist to every
-// test-only observability endpoint. It is intentionally separate so ordinary
-// business tests cannot accidentally depend on Kafka, VM, Monitor, or the
-// observability Elasticsearch volume.
-func ObservabilityEnvironment(t *testing.T) config.Config {
-	t.Helper()
-	if lookup("OBSERVABILITY_INTEGRATION") != "1" {
-		t.Fatal("OBSERVABILITY_INTEGRATION=1 is required for observability integration tests")
-	}
-	cfg := Environment(t)
-	if !rabbitMQTargetIsOwned(cfg.RabbitMQURL) || !httpTargetIsOwned(cfg.Elasticsearch.URL) || !httpTargetIsOwned(cfg.ObservabilityElasticsearch.URL) || !httpTargetIsOwned(cfg.VictoriaMetrics.URL) || !httpTargetIsOwned(cfg.Monitor.URL) {
-		t.Fatalf("observability integration endpoints are outside the Testcontainers target set: rabbit=%q search=%q observe=%q metrics=%q monitor=%q", cfg.RabbitMQURL, cfg.Elasticsearch.URL, cfg.ObservabilityElasticsearch.URL, cfg.VictoriaMetrics.URL, cfg.Monitor.URL)
-	}
-	if cfg.HTTPPort < 1 || !strings.HasSuffix(cfg.Auth.CookieName, "_test_session") {
-		t.Fatalf("observability integration application identity is outside the dynamic test contract: http=%d cookie=%q", cfg.HTTPPort, cfg.Auth.CookieName)
 	}
 	return cfg
 }

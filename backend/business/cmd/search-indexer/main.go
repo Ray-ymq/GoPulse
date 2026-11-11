@@ -3,17 +3,17 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"io"
 	"log/slog"
 	"os"
 	"time"
 
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/processlog"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
@@ -32,20 +32,13 @@ func execute(stdout io.Writer, load func() (config.SearchIndexerConfig, error), 
 		_ = indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "configuration", "invalid_configuration")
 		return 1
 	}
-	logs, err := processlog.Open("search-indexer", stdout, cfg.LogShip)
-	if err != nil {
-		_ = indexerInitializationFailure(logging.Module(stdoutLogger, "lifecycle"), "logship", "invalid_configuration")
-		return 1
-	}
+
 	exitCode := 0
-	if err := operation(cfg, logs.Logger); err != nil {
-		logging.Module(logs.Logger, "lifecycle").Error("search indexer stopped", slog.String("reason", "process_failed"))
+	if err := operation(cfg, stdoutLogger); err != nil {
+		logging.Module(stdoutLogger, "lifecycle").Error("search indexer stopped", slog.String("reason", "process_failed"))
 		exitCode = 1
 	}
-	if err := logs.Close(); err != nil {
-		exitCode = 1
-		logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
-	}
+
 	return exitCode
 }
 

@@ -5,7 +5,6 @@ package testenv
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -84,7 +83,6 @@ func newSession(root string, observe bool, overrides map[string]string) (*sessio
 	for key, value := range overrides {
 		values[key] = value
 	}
-	values["MONITOR_PACKAGE_DIR"] = filepath.Join(ws.Root, ".run", "packages")
 	envFile, err := envfile.WritePrivate(ws.PrivateRoot(), envfile.ModeTest, values)
 	if err != nil {
 		return nil, err
@@ -271,10 +269,8 @@ func scopeFor(scope, entry string) (bool, error) {
 	switch scope {
 	case ScopeBusiness:
 		return false, nil
-	case ScopeObserve:
-		return true, nil
 	default:
-		return false, fmt.Errorf("unknown %s SCOPE='%s'; expected %s or %s", entry, scope, ScopeBusiness, ScopeObserve)
+		return false, fmt.Errorf("unknown %s SCOPE='%s'; expected %s", entry, scope, ScopeBusiness)
 	}
 }
 
@@ -377,16 +373,6 @@ func copyEnvironment(source map[string]string) map[string]string {
 		target[key] = value
 	}
 	return target
-}
-
-func readMetadata(path string) map[string]any {
-	metadata := map[string]any{}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return metadata
-	}
-	_ = json.Unmarshal(raw, &metadata)
-	return metadata
 }
 
 func (s *session) runCommand(command []string, cwd string, environment map[string]string, label string, timeout time.Duration) error {

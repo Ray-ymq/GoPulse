@@ -3,9 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"os"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 const (
@@ -29,7 +30,6 @@ type WorkerConfig struct {
 	MySQL                            MySQLConfig
 	RabbitMQURL                      string
 	Worker                           BusinessWorkerConfig
-	LogShip                          LogShipConfig
 	Trace                            TraceConfig
 	BusinessAsyncMaxOpenRequirements uint64
 	BusinessAsyncMaxRetainedGroups   uint64
@@ -133,10 +133,6 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return WorkerConfig{}, errors.New("BUSINESS_WORKER_RECONNECT_MAX must be greater than or equal to BUSINESS_WORKER_RECONNECT_MIN")
 	}
-	logShip, err := loadLogShipConfig(lookup, runtimeMode)
-	if err != nil {
-		return WorkerConfig{}, err
-	}
 	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "business-worker")
 	if err != nil {
 		return WorkerConfig{}, err
@@ -161,7 +157,6 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 			ConnMaxLifetime: connMaxLifetime,
 		},
 		RabbitMQURL:                      rabbitMQURL,
-		LogShip:                          logShip,
 		Trace:                            traceConfig,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		BusinessAsyncMaxRetainedGroups:   retainedGroups,

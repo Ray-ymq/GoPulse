@@ -3,14 +3,15 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"testing"
+	"time"
+
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"testing"
-	"time"
 )
 
 type bookmarkApplication struct{ calls int }

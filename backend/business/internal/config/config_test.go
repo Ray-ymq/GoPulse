@@ -33,15 +33,11 @@ func TestLoadFromDefaults(t *testing.T) {
 	if cfg.Redis.Host != "127.0.0.1" || cfg.Redis.Port != 6379 || cfg.Redis.DB != 0 {
 		t.Fatalf("Redis config = %#v, want default endpoint and DB", cfg.Redis)
 	}
-	if cfg.Monitor.RequestTimeout != 30*time.Second {
-		t.Fatalf("Monitor timeout = %s, want 30s", cfg.Monitor.RequestTimeout)
-	}
+
 	if cfg.Elasticsearch.Purpose != "search" {
 		t.Fatalf("Elasticsearch purpose = %q, want search", cfg.Elasticsearch.Purpose)
 	}
-	if cfg.ObservabilityElasticsearch.URL != "http://127.0.0.1:9201" || cfg.ObservabilityElasticsearch.Purpose != "observability" {
-		t.Fatalf("Observability Elasticsearch = %#v, want loopback observation client", cfg.ObservabilityElasticsearch)
-	}
+
 	if cfg.Auth.JWTTTL != 2*time.Hour || cfg.Auth.CookieName != "gopulse_session" || cfg.Auth.CookieSecure {
 		t.Fatalf("Auth config = %#v, want local defaults", cfg.Auth)
 	}
@@ -70,11 +66,6 @@ func TestLoadFromTraceConfigurationIsBounded(t *testing.T) {
 	env["REDIS_HOST"] = "redis"
 	env["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
 	env["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
-	env["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
-	env["MONITOR_URL"] = "http://monitor:9090"
-	env["LOG_MONITOR_URL"] = "http://monitor:9090"
-	env["BACKEND_VICTORIAMETRICS_URL"] = "http://victoriametrics:8428"
-	env["LOG_MONITOR_INGEST_TOKEN"] = "local-log-ingest-token-at-least-32-bytes"
 	env["GOPULSE_TRACE_ENABLED"] = "true"
 	env["GOPULSE_TRACE_ENDPOINT"] = "otel-collector:4317"
 	env["GOPULSE_TRACE_SAMPLE_RATIO"] = "1"
@@ -104,11 +95,6 @@ func TestLoadFromTraceConfigurationIsBounded(t *testing.T) {
 		candidate["REDIS_HOST"] = "redis"
 		candidate["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
 		candidate["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
-		candidate["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
-		candidate["MONITOR_URL"] = "http://monitor:9090"
-		candidate["LOG_MONITOR_URL"] = "http://monitor:9090"
-		candidate["BACKEND_VICTORIAMETRICS_URL"] = "http://victoriametrics:8428"
-		candidate["LOG_MONITOR_INGEST_TOKEN"] = "local-log-ingest-token-at-least-32-bytes"
 		candidate[test.key] = test.value
 		if test.endpoint {
 			candidate["GOPULSE_TRACE_ENABLED"] = "true"
@@ -165,12 +151,6 @@ func TestLoadFromOverrides(t *testing.T) {
 	env["OUTBOX_CLEANUP_BATCH"] = "450"
 	env["RABBITMQ_URL"] = "amqp://gopulse:rabbit-secret@rabbitmq:5672/"
 	env["ELASTICSEARCH_URL"] = "http://elasticsearch:9200"
-	env["OBSERVABILITY_ELASTICSEARCH_URL"] = "http://observability-elasticsearch:9200"
-	env["MONITOR_URL"] = "http://monitor:9090"
-	env["BACKEND_VICTORIAMETRICS_URL"] = "https://victoriametrics:8428"
-	env["BACKEND_VICTORIAMETRICS_USERNAME"] = "metrics-reader"
-	env["BACKEND_VICTORIAMETRICS_PASSWORD"] = "metrics-reader-password-at-least-32-bytes"
-	env["BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT"] = "4s"
 	env["BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS"] = "8"
 
 	cfg, err := LoadFrom(mapLookup(env))
@@ -187,8 +167,8 @@ func TestLoadFromOverrides(t *testing.T) {
 	if cfg.MySQL.Host != "mysql" || cfg.MySQL.Port != 13306 {
 		t.Fatalf("unexpected MySQL config: %#v", cfg.MySQL)
 	}
-	if cfg.Elasticsearch.URL != "http://elasticsearch:9200" || cfg.Elasticsearch.Purpose != "search" || cfg.ObservabilityElasticsearch.URL != "http://observability-elasticsearch:9200" || cfg.ObservabilityElasticsearch.Purpose != "observability" {
-		t.Fatalf("unexpected Elasticsearch clients: search=%#v observability=%#v", cfg.Elasticsearch, cfg.ObservabilityElasticsearch)
+	if cfg.Elasticsearch.URL != "http://elasticsearch:9200" || cfg.Elasticsearch.Purpose != "search" {
+		t.Fatalf("unexpected Elasticsearch client: %#v", cfg.Elasticsearch)
 	}
 	if cfg.MySQL.MaxOpenConns != 8 || cfg.MySQL.MaxIdleConns != 4 || cfg.MySQL.ConnMaxLifetime != 11*time.Minute {
 		t.Fatalf("unexpected MySQL pool config: %#v", cfg.MySQL)
@@ -196,9 +176,7 @@ func TestLoadFromOverrides(t *testing.T) {
 	if cfg.Redis.Host != "redis" || cfg.Redis.Port != 16379 || cfg.Redis.DB != 3 {
 		t.Fatalf("unexpected Redis config: %#v", cfg.Redis)
 	}
-	if cfg.VictoriaMetrics.URL != "https://victoriametrics:8428" || cfg.VictoriaMetrics.Username != "metrics-reader" || cfg.VictoriaMetrics.RequestTimeout != 4*time.Second {
-		t.Fatalf("unexpected VictoriaMetrics config: %#v", cfg.VictoriaMetrics)
-	}
+
 	if cfg.Auth.JWTTTL != 30*time.Minute || cfg.Auth.CookieName != "custom_session" || !cfg.Auth.CookieSecure {
 		t.Fatalf("unexpected auth config: %#v", cfg.Auth)
 	}
@@ -230,7 +208,7 @@ func TestLoadFromRejectsInvalidBusinessAsyncRequirementLimit(t *testing.T) {
 }
 
 func TestLoadFromMissingRequiredValue(t *testing.T) {
-	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "REDIS_PASSWORD", "RABBITMQ_URL", "AUTH_JWT_SECRET", "MONITOR_API_TOKEN", "BACKEND_VICTORIAMETRICS_PASSWORD"} {
+	for _, key := range []string{"MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "RABBITMQ_URL", "AUTH_JWT_SECRET"} {
 		t.Run(key, func(t *testing.T) {
 			env := requiredEnvironment()
 			delete(env, key)
@@ -441,31 +419,14 @@ func TestLoadFromRejectsOutboxLeaseThatCannotCoverClaimBatch(t *testing.T) {
 	}
 }
 
-func TestLoadFromRejectsUnsafeVictoriaMetricsConfiguration(t *testing.T) {
-	for _, test := range []struct{ key, value string }{
-		{key: "BACKEND_VICTORIAMETRICS_URL", value: "http://user:pass@127.0.0.1:8428?query=secret"},
-		{key: "BACKEND_VICTORIAMETRICS_PASSWORD", value: "short"},
-		{key: "BACKEND_METRIC_QUERY_MAX_RANGE", value: "48h"},
-	} {
-		env := requiredEnvironment()
-		env[test.key] = test.value
-		if _, err := LoadFrom(mapLookup(env)); err == nil {
-			t.Fatalf("%s=%q was accepted", test.key, test.value)
-		}
-	}
-}
-
 func requiredEnvironment() map[string]string {
 	return map[string]string{
-		"MYSQL_DATABASE":                    "gopulse",
-		"MYSQL_USER":                        "gopulse",
-		"MYSQL_PASSWORD":                    "mysql-secret",
-		"REDIS_PASSWORD":                    "redis-secret",
-		"RABBITMQ_URL":                      "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
-		"AUTH_JWT_SECRET":                   "local-development-jwt-secret-32-bytes-minimum",
-		"BUSINESS_STAGE_SERVICE_CREDENTIAL": "local-business-stage-service-credential-at-least-32-bytes",
-		"MONITOR_API_TOKEN":                 "local-monitor-api-token-at-least-32-bytes",
-		"BACKEND_VICTORIAMETRICS_PASSWORD":  "local-victoriametrics-password-at-least-32-bytes",
+		"MYSQL_DATABASE":  "gopulse",
+		"MYSQL_USER":      "gopulse",
+		"MYSQL_PASSWORD":  "mysql-secret",
+		"REDIS_PASSWORD":  "redis-secret",
+		"RABBITMQ_URL":    "amqp://gopulse:rabbit-secret@127.0.0.1:5672/",
+		"AUTH_JWT_SECRET": "local-development-jwt-secret-32-bytes-minimum",
 	}
 }
 
@@ -511,22 +472,6 @@ func TestLoadFromRejectsUnsupportedApplicationEnvironment(t *testing.T) {
 				t.Fatalf("LoadFrom() error = %v, want APP_ENV error", err)
 			}
 		})
-	}
-}
-
-func TestLoadFromEnforcesMonitorRequestTimeoutContract(t *testing.T) {
-	env := requiredEnvironment()
-	for _, value := range []string{"1s", "60s"} {
-		env["MONITOR_REQUEST_TIMEOUT"] = value
-		if _, err := LoadFrom(mapLookup(env)); err != nil {
-			t.Fatalf("valid MONITOR_REQUEST_TIMEOUT %s rejected: %v", value, err)
-		}
-	}
-	for _, value := range []string{"999ms", "61s"} {
-		env["MONITOR_REQUEST_TIMEOUT"] = value
-		if _, err := LoadFrom(mapLookup(env)); err == nil {
-			t.Fatalf("invalid MONITOR_REQUEST_TIMEOUT %s accepted", value)
-		}
 	}
 }
 
@@ -578,28 +523,5 @@ func TestRedisDisabledDoesNotRequireOrParseRedisConnection(t *testing.T) {
 	env["BACKEND_REDIS_DISABLED"] = "invalid"
 	if _, err := LoadFrom(mapLookup(env)); err == nil {
 		t.Fatal("无效布尔值未被拒绝")
-	}
-}
-
-func TestSelfMonitorControlMustBeExplicitAndKnown(t *testing.T) {
-	for _, value := range []string{"compose", "kubernetes", ""} {
-		environment := requiredEnvironment()
-		environment["GOPULSE_SELFMONITOR_CONTROL"] = value
-		cfg, err := LoadFrom(mapLookup(environment))
-		if err != nil {
-			t.Fatal(err)
-		}
-		expected := value
-		if expected == "" {
-			expected = "compose"
-		}
-		if cfg.SelfMonitorControl != expected {
-			t.Fatal(cfg.SelfMonitorControl)
-		}
-	}
-	environment := requiredEnvironment()
-	environment["GOPULSE_SELFMONITOR_CONTROL"] = "auto"
-	if _, err := LoadFrom(mapLookup(environment)); err == nil {
-		t.Fatal("未知控制类型必须拒绝启动")
 	}
 }

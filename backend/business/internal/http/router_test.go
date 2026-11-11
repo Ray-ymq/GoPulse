@@ -5,15 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
-	"github.com/gin-gonic/gin"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
+	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/gin-gonic/gin"
 )
 
 type fakeChecker struct {

@@ -78,7 +78,7 @@ def install_node(source, destination):
 def prepare_node(directory):
     """直接准备官方程序；复用本地同版本程序，仅在缺少可用副本时下载。"""
     directory = Path(directory)
-    release = json.loads((ROOT / 'backend/observability/exporters/node/upstream.json').read_text())
+    release = json.loads((ROOT / 'tools/perflab/diagnostics/node-upstream.json').read_text())
     version = release['version']
     arch = {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(platform.machine())
     assert platform.system() == 'Linux' and arch in release['sha256'], 'node_exporter 运行平台不受支持'
@@ -118,7 +118,7 @@ def prepare(directory):
     (directory / 'bin').mkdir(exist_ok=True)
     command(['env', 'CGO_ENABLED=0', 'go', '-C', 'tools/perflab', 'build', '-o',
              str(directory / 'bin/dbdiag'), './cmd/dbdiag'], timeout=600, log=directory / 'build-diagnostics.log')
-    command(['env', 'CGO_ENABLED=0', 'go', '-C', 'backend/observability/exporters/mysql', 'build', '-o',
+    command(['env', 'CGO_ENABLED=0', 'go', '-C', 'tools/perflab/mysqlcollector', 'build', '-o',
              str(directory / 'bin/gopulse-mysql-exporter'), '.'], timeout=600,
             log=directory / 'build-diagnostics.log')
     build_container_source(ROOT, directory / 'bin/container-exporter')

@@ -81,7 +81,6 @@ func TestUnknownApplicationIsRejected(t *testing.T) {
 func TestEnsureProtectsActiveFrontendProcesses(t *testing.T) {
 	for _, application := range []struct{ module, process string }{
 		{"frontend/user", "frontend"},
-		{"frontend/admin", "admin-frontend"},
 	} {
 		t.Run(application.module, func(t *testing.T) {
 			ws, err := workspace.For(t.TempDir())

@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-MODES = ('business', 'observability', 'all')
+MODES = ('business', 'all')
 
 
 def read(path):
@@ -82,16 +82,9 @@ def docker_resources(root):
         working = labels.get('com.docker.compose.project.working_dir', '')
         files = labels.get('com.docker.compose.project.config_files', '')
         project = labels.get('com.docker.compose.project', '')
-        if project == 'gopulse-selfmonitor':
-            networks = row.get('NetworkSettings', {}).get('Networks', {})
-            ids = [net['NetworkID'] for net in networks.values() if net.get('NetworkID')]
-            attached = json.loads(capture(['docker', 'network', 'inspect', *ids])) if ids else []
-            if any(net.get('Labels', {}).get('io.gopulse.workspace') == str(root) for net in attached):
-                owned.append({'runtime': 'compose', 'mode': 'all', 'owner': 'gopulse', 'purpose': 'product', 'stop': 'make selfmonitor-down'})
-                continue
         if not working or not Path(working).resolve().is_relative_to(root):
             continue
-        mode = 'business' if 'compose.business.yaml' in files else 'observability' if 'compose.observability.yaml' in files else 'all'
+        mode = 'business' if 'compose.business.yaml' in files else 'all'
         purpose = 'pt' if project == 'gopulse-pt-business' else 'source' if 'deploy/dev/' in files else 'product'
         owned.append({'runtime': 'compose', 'mode': mode, 'owner': project, 'purpose': purpose})
     return owned

@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT / 'tools/perflab'))
 from diagnostics.metrics import parse_metrics, summarize_source, _series, _counter, _sum_counters, _gauge
 from diagnostics.resources import summarize_resources
 
-APPLICATIONS = ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2',
+APPLICATIONS = ('backend', 'backend-2', 'business-worker', 'business-worker-2',
                 'search-indexer', 'search-indexer-2', 'node')
 
 

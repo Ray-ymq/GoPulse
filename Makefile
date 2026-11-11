@@ -1,4 +1,4 @@
-.PHONY: help list-go-modules list-npm-modules list-ci-labels doctor bootstrap lint lint-all verify check-compose deps dev dev-observe test race check check-all build build-programs build-images package-plugin load integration stop stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
+.PHONY: help list-go-modules list-npm-modules list-ci-labels doctor bootstrap lint lint-all verify check-compose deps dev test race check check-all build build-programs build-images load integration stop stack-up stack-down stack-verify ci-plan ci-tools ci-workspace ci-check ci-build ci-test check-commits hooks-install
 
 # The development, observation, and stop lifecycles run in the native helper.
 # Building it first keeps the failure exit codes and signal handling intact,
@@ -8,19 +8,11 @@ DEVENV := $(MAKE) --no-print-directory -C tools/devtools build && ./tools/devtoo
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
 GO_MODULES := backend/business \
-              backend/observability/monitor \
-              backend/observability/marshaller \
-              backend/observability/exporters/elasticsearch \
-              backend/observability/exporters/kafka \
-              backend/observability/exporters/mysql \
-              backend/observability/exporters/rabbitmq \
-              backend/observability/exporters/redis \
-              backend/observability/exporters/victoriametrics \
-              backend/observability/exporters/std_exporter \
               backend/runtimekit \
               tools/devtools \
-              tools/perflab
-NPM_MODULES := frontend/user frontend/admin
+              tools/perflab \
+              tools/perflab/mysqlcollector
+NPM_MODULES := frontend/user
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 
 # CI and local reproductions use this private workspace so shared Go modules
@@ -31,16 +23,12 @@ LINT_TOOL = $(CURDIR)/.run/tools/golangci-lint/$(LINT_VERSION)/$(shell go env GO
 
 # Logical Compose build targets behind the local images. deploy/compose/compose.yaml stays
 # the source of truth for each target's Dockerfile context and build arguments.
-IMAGE_TARGETS := backend business-worker search-indexer admin-frontend frontend \
-                 marshaller monitor
+IMAGE_TARGETS := backend business-worker search-indexer frontend
 
 REQUIRE_MODULE = $(if $(and $(MODULE),$(filter $(MODULE),$(MODULES))),:,printf '%s\n' '[gopulse] ERROR: specify a registered MODULE, for example MODULE=backend/business' >&2; exit 2)
 
 help:
-	@printf '%s\n' 'GoPulse commands:' '  make deps [SCOPE=]        start the development dependencies for this workspace' '  make dev                  start source Backend, Worker, Indexer, and user Vite' '  make dev-observe          add Marshaller, Monitor, and admin Vite' '  make test MODULE=name     run the component test command' '  make race MODULE=name     run the component race test (Go modules)' '  make check MODULE=name    run the component formatting and static checks' '  make check-all            run make check for every module' '  make build                build every program, frontend, and local image' '  make build MODULE=name    build one component' '  make build-images [CACHE=gha|none] [DRY_RUN=1]  build the shared product images' '  make package-plugin [SOURCE=redis] [VERSION=x.y.z] [ARCH=amd64] [CONTRACT_VERSION=2] [BINARY=path] [OUTPUT=path]' '                            build one official plugin archive' '  make pt [START_RPS=10]     run the fixed PT workflow' '  make integration [SCOPE=] run native integration checks' '  make stop                 stop only this workspace-owned processes and dependencies' '' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)' 'Image targets: $(IMAGE_TARGETS)'
-	@printf '%s\n' '  make stack-up|stack-down|stack-status|stack-verify MODE=all|business|observability' '  make k8s-up|k8s-down|k8s-status|k8s-access|k8s-verify MODE=all|business|observability' '  make selfmonitor-up|down|status|access|verify    Compose 自监控' '  make k8s-selfmonitor-up|down|status|access|verify MODE=all  Kubernetes 自监控'
-	@printf '%s\n' '' 'Module CI (same commands locally and on GitHub):' '  make list-ci-labels        list supported PR labels' '  make ci-plan LABELS="ci:backend/business ci:backend/observability/marshaller"  show exactly those module jobs' '  make ci-tools             test CI selection and commit validation' '  make ci-check MODULE=name formatting, static analysis and lint' '  make ci-build MODULE=name build one module' '  make ci-test MODULE=name  unit tests; Go tests include race detection' '  make verify MODULE=name   run ci-check, ci-test and ci-build' '  make verify BASE_REF=ref  local-only checks for directly changed Go modules'
-	@printf '%s\n' '' 'Commit conventions:' '  make hooks-install        enable commit-msg checks and the commit template' '  make check-commits [BASE_REF=ref]  validate new commits and PR descriptions in CI' '  make check-commits MESSAGE_FILE=path  validate a commit message file'
+	@printf '%s\n' 'GoPulse 社交业务开发入口：' '  make deps / dev / stop' '  make test / race / check / build MODULE=backend/business' '  make build-images' '  make integration SCOPE=business' '  make stack-up / stack-down MODE=business' '  make k8s-up / k8s-down MODE=business' '  make pt' 'Go modules: $(GO_MODULES)' 'Frontend modules: $(NPM_MODULES)'
 
 list-go-modules:
 	@printf '%s\n' $(GO_MODULES)
@@ -94,13 +82,9 @@ check-all:
 check-compose:
 	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --profile operations config --quiet
 	@docker compose --env-file .env.example --file deploy/compose/compose.business.yaml --profile load --profile operations config --quiet
-	@docker compose --env-file .env.example --file deploy/compose/compose.observability.yaml --profile operations config --quiet
 	@docker compose --env-file .env.example --file deploy/dev/compose.local.yaml config --quiet
-	@docker compose --env-file .env.example --profile observe --file deploy/dev/compose.local.yaml --file deploy/dev/compose.local-linux.yaml config --quiet
-	@docker compose --env-file .env.example --profile observe --file deploy/dev/compose.local.yaml --file deploy/dev/compose.local-darwin.yaml config --quiet
 	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/dev/compose.debug.yaml config --quiet
 	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/dev/compose.tracing.yaml config --quiet
-	@SELFMONITOR_SOCKET_GID=1234 docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/selfmonitor/product.override.yaml config --quiet
 
 ci-plan: export GOPULSE_CI_LABELS := $(LABELS)
 ci-plan:
@@ -174,9 +158,6 @@ CACHE ?= none
 build-images:
 	@$(DEVENV) build-cache $(if $(filter gha,$(CACHE)),,$(if $(filter none,$(CACHE)),--no-cache,$(error CACHE must be gha or none))) $(if $(DRY_RUN),--print,)
 
-package-plugin:
-	@$(MAKE) --no-print-directory -C backend/observability/monitor package-plugin
-
 load:
 	@printf '%s\n' '旧 load 入口已停用，请执行 make pt。' >&2
 	@exit 2
@@ -186,9 +167,6 @@ deps:
 
 dev:
 	@$(DEVENV) dev
-
-dev-observe:
-	@$(DEVENV) dev-observe
 
 integration:
 	@$(DEVENV) integration --scope "$(if $(SCOPE),$(SCOPE),business)"
@@ -226,8 +204,8 @@ pt-acceptance:
 	@PYTHONPATH=tools/perflab python3 -m flow acceptance --start-rps "$(START_RPS)"
 
 # 产品部署方式必须由命令明确指定；源码与压测入口继续使用 Compose。
-MODE ?= all
-.PHONY: stack-status k8s-install k8s-check k8s-prefetch k8s-up k8s-down k8s-status k8s-access k8s-verify k8s-load-images k8s-render k8s-recreate k8s-selfmonitor-up k8s-selfmonitor-down k8s-selfmonitor-status k8s-selfmonitor-access k8s-selfmonitor-verify selfmonitor-up selfmonitor-down selfmonitor-status selfmonitor-access selfmonitor-verify check-runtime-contracts deployment-tests
+MODE ?= business
+.PHONY: stack-status k8s-install k8s-check k8s-prefetch k8s-up k8s-down k8s-status k8s-access k8s-verify k8s-load-images k8s-render k8s-recreate check-runtime-contracts deployment-tests
 stack-status:
 	@$(DEVENV) stack-status --mode "$(MODE)"
 k8s-install:
@@ -240,10 +218,6 @@ k8s-up k8s-down k8s-status k8s-access k8s-verify k8s-load-images k8s-render:
 	@python3 tools/devtools/kubernetes/k8s.py $(patsubst k8s-%,%,$@) --mode "$(MODE)"
 k8s-recreate:
 	@python3 tools/devtools/kubernetes/acceptance.py --recreate --mode "$(MODE)"
-k8s-selfmonitor-up k8s-selfmonitor-down k8s-selfmonitor-status k8s-selfmonitor-access k8s-selfmonitor-verify:
-	@python3 tools/devtools/kubernetes/selfmonitor.py $(patsubst k8s-selfmonitor-%,%,$@) --mode "$(MODE)"
-selfmonitor-up selfmonitor-down selfmonitor-status selfmonitor-access selfmonitor-verify:
-	@python3 tools/devtools/selfmonitor_compose.py $(patsubst selfmonitor-%,%,$@)
 check-runtime-contracts:
 	@python3 tools/devtools/check_contracts.py
 deployment-tests:

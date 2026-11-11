@@ -1,10 +1,11 @@
 package http
 
 import (
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 )
 
 func TestActualRequestMetricsDoNotExposePublicEndpoint(t *testing.T) {

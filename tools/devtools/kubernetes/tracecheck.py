@@ -39,7 +39,7 @@ def verify(mode, started_at):
            'volumes': [{'name': 'trace', 'persistentVolumeClaim': {'claimName': 'phase20-trace-data', 'readOnly': True}}]}}}}
     k8s.resource_check([job], mode)
     since = int(datetime.fromisoformat(started_at).timestamp() * 1_000_000_000)
-    expected = {'backend'} if mode == 'observability' else {'backend', 'business-worker', 'search-indexer'}
+    expected = {'backend', 'business-worker', 'search-indexer'}
     try:
         k8s.apply([job])
         k8s.kube('-n', ns, 'wait', 'pod', '-l', 'job-name=' + name, '--for=condition=Ready', '--timeout=90s')
@@ -47,7 +47,7 @@ def verify(mode, started_at):
         def collected():
             raw = k8s.kube('-n', ns, 'exec', pod, '--', 'sh', '-ec', 'test ! -f /trace/spans.jsonl || cat /trace/spans.jsonl')
             result = summarize(raw, since)
-            if expected <= result['services'].keys() and (mode == 'observability' or result['cross_service_traces'] > 0):
+            if expected <= result['services'].keys() and result['cross_service_traces'] > 0:
                 return result
             return False
         result = wait('本次请求的追踪数据', collected, seconds=60)

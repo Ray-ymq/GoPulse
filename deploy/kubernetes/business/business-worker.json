@@ -33,12 +33,6 @@
         "GOPULSE_TRACE_SAMPLE_RATIO": "0.10",
         "GOPULSE_TRACE_SERVICE_NAME": "business-worker",
         "GOPULSE_TRACE_SHUTDOWN_TIMEOUT": "5s",
-        "LOG_MONITOR_URL": "http://monitor:9090",
-        "LOG_SHIP_QUEUE_CAPACITY": "256",
-        "LOG_SHIP_REQUEST_TIMEOUT": "2s",
-        "LOG_SHIP_RETRY_MAX": "5s",
-        "LOG_SHIP_RETRY_MIN": "250ms",
-        "LOG_SHIP_SHUTDOWN_TIMEOUT": "5s",
         "MYSQL_CONN_MAX_LIFETIME": "3m",
         "MYSQL_DATABASE": "gopulse",
         "MYSQL_HOST": "mysql",
@@ -101,15 +95,6 @@
                       "secretKeyRef": {
                         "name": "gopulse-credentials",
                         "key": "BUSINESS_WORKER_METRICS_TOKEN"
-                      }
-                    }
-                  },
-                  {
-                    "name": "LOG_MONITOR_INGEST_TOKEN",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "name": "gopulse-credentials",
-                        "key": "LOG_MONITOR_INGEST_TOKEN"
                       }
                     }
                   },

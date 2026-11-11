@@ -13,7 +13,6 @@ import (
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logship"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/runtimekit"
@@ -38,37 +37,9 @@ func main() {
 		logging.Module(stdoutLogger, "lifecycle").Error("backend stopped", slog.String("reason", "invalid_configuration"))
 		os.Exit(1)
 	}
-	logger := stdoutLogger
-	var shipper *logship.Shipper
-	if cfg.LogShip.Enabled() {
-		shipper, err = logship.New(logship.Config{
-			Endpoint: cfg.LogShip.Endpoint, Token: cfg.LogShip.Token, RequestTimeout: cfg.LogShip.RequestTimeout,
-			QueueCapacity: cfg.LogShip.QueueCapacity, RetryMin: cfg.LogShip.RetryMin, RetryMax: cfg.LogShip.RetryMax,
-			ShutdownTimeout: cfg.LogShip.ShutdownTimeout,
-		}, logging.Module(stdoutLogger, "logship"))
-		if err != nil {
-			logging.Module(stdoutLogger, "lifecycle").Error("backend stopped", slog.String("reason", "invalid_log_shipper"))
-			os.Exit(1)
-		}
-		logger = logging.NewWithSink("backend", os.Stdout, shipper)
-	}
-	if err = run(cfg, logger); err != nil {
-		logging.Module(logger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"), slog.String("error", err.Error()))
-		if shipper != nil {
-			ctx, cancel := runtimekit.ShutdownContext(cfg.LogShip.ShutdownTimeout)
-			_ = shipper.Close(ctx)
-			cancel()
-		}
+	if err = run(cfg, stdoutLogger); err != nil {
+		logging.Module(stdoutLogger, "lifecycle").Error("backend stopped", slog.String("reason", "process_failed"), slog.String("error", err.Error()))
 		os.Exit(1)
-	}
-	if shipper != nil {
-		ctx, cancel := runtimekit.ShutdownContext(cfg.LogShip.ShutdownTimeout)
-		if err := shipper.Close(ctx); err != nil {
-			logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
-			cancel()
-			os.Exit(1)
-		}
-		cancel()
 	}
 }
 
@@ -119,7 +90,6 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return err
 	}
 	defer assembly.close(lifecycleLogger)
-	assembly.initializeMetrics(metrics)
 
 	runtimekit.BindShutdown(signalContext, shutdownTimeout)
 	go assembly.samplePools(signalContext, metrics)
@@ -127,22 +97,6 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-
-	alertContext, cancelAlerts := context.WithCancel(signalContext)
-	alertDone := make(chan struct{})
-	go func() {
-		defer close(alertDone)
-		if assembly.runAlertCheck != nil {
-			assembly.runAlertCheck(alertContext)
-		}
-	}()
-	defer func() {
-		cancelAlerts()
-		select {
-		case <-alertDone:
-		case <-time.After(3 * time.Second):
-		}
-	}()
 
 	sampleContext, cancelSample := context.WithCancel(signalContext)
 	sampleDone := make(chan struct{})

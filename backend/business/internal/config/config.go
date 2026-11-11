@@ -1,17 +1,16 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 const (
@@ -32,17 +31,6 @@ const (
 	defaultRedisPort                        = 6379
 	defaultRedisDB                          = 0
 	defaultElasticsearchURL                 = "http://127.0.0.1:9200"
-	defaultObservabilityElasticsearchURL    = "http://127.0.0.1:9201"
-	defaultMonitorURL                       = "http://127.0.0.1:9090"
-	defaultVictoriaMetricsURL               = "http://127.0.0.1:8428"
-	defaultVictoriaMetricsUser              = "gopulse-marshaller"
-	defaultVictoriaMetricsTimeout           = 3 * time.Second
-	defaultMonitorTimeout                   = 30 * time.Second
-	defaultLogShipRequestTimeout            = 2 * time.Second
-	defaultLogShipQueueCapacity             = 256
-	defaultLogShipRetryMin                  = 250 * time.Millisecond
-	defaultLogShipRetryMax                  = 5 * time.Second
-	defaultLogShipShutdown                  = 5 * time.Second
 	defaultElasticsearchTimeout             = 3 * time.Second
 	defaultSearchReindexBatch               = 500
 	defaultBusinessAsyncMaxOpenRequirements = 10000
@@ -118,10 +106,7 @@ const (
 type LookupFunc func(string) (string, bool)
 
 type Config struct {
-	SelfMonitorControl               string
 	ServiceRole                      ServiceRole
-	StandaloneObservability          bool
-	AlertEvaluationEnabled           bool
 	RuntimeMode                      RuntimeMode
 	AppEnv                           string
 	InstanceID                       string
@@ -136,12 +121,7 @@ type Config struct {
 	Outbox                           OutboxConfig
 	Auth                             AuthConfig
 	Elasticsearch                    ElasticsearchConfig
-	ObservabilityElasticsearch       ElasticsearchConfig
-	Monitor                          MonitorConfig
-	VictoriaMetrics                  VictoriaMetricsConfig
-	LogShip                          LogShipConfig
 	Trace                            TraceConfig
-	BusinessStage                    BusinessStageConfig
 	BusinessAsyncMaxOpenRequirements uint64
 	BusinessAsyncMaxRetainedGroups   uint64
 	BusinessAsyncMaxRetainedBytes    uint64
@@ -210,33 +190,9 @@ type ElasticsearchConfig struct {
 type ReindexConfig struct {
 	MySQL                            MySQLConfig
 	Elasticsearch                    ElasticsearchConfig
-	LogShip                          LogShipConfig
 	BusinessAsyncMaxOpenRequirements uint64
 	BusinessAsyncMaxRetainedGroups   uint64
 	BusinessAsyncMaxRetainedBytes    uint64
-}
-
-type VictoriaMetricsConfig struct {
-	URL            string
-	Username       string
-	Password       string
-	RequestTimeout time.Duration
-}
-
-type MonitorConfig struct {
-	URL            string
-	APIToken       string
-	RequestTimeout time.Duration
-}
-
-type LogShipConfig struct {
-	Endpoint        string
-	Token           string
-	RequestTimeout  time.Duration
-	QueueCapacity   int
-	RetryMin        time.Duration
-	RetryMax        time.Duration
-	ShutdownTimeout time.Duration
 }
 
 type TraceConfig struct {
@@ -250,13 +206,6 @@ type TraceConfig struct {
 	ExportTimeout   time.Duration
 	ShutdownTimeout time.Duration
 }
-
-type BusinessStageConfig struct {
-	Credential string
-	Endpoints  []string
-}
-
-func (c LogShipConfig) Enabled() bool { return c.Endpoint != "" }
 
 type AuthConfig struct {
 	JWTSecret    string
@@ -281,28 +230,9 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, errors.New("configuration lookup is required")
 	}
 
-	selfMonitorControl := valueOrDefault(lookup, "GOPULSE_SELFMONITOR_CONTROL", "compose")
-	if selfMonitorControl != "compose" && selfMonitorControl != "kubernetes" {
-		return Config{}, errors.New("GOPULSE_SELFMONITOR_CONTROL 必须为 compose 或 kubernetes")
-	}
-
 	serviceRole, err := LoadServiceRoleFrom(lookup)
 	if err != nil {
 		return Config{}, err
-	}
-	standaloneObservability, err := booleanValue(lookup, "BACKEND_STANDALONE_OBSERVABILITY", false)
-	if err != nil {
-		return Config{}, err
-	}
-	if standaloneObservability && serviceRole != ServiceRolePlatform {
-		return Config{}, errors.New("BACKEND_STANDALONE_OBSERVABILITY 仅支持 platform 角色")
-	}
-	alertEnabled := false
-	if serviceRole.RunsPlatform() {
-		alertEnabled, err = booleanValue(lookup, "ALERT_EVALUATION_ENABLED", true)
-		if err != nil {
-			return Config{}, err
-		}
 	}
 	runtimeMode, err := loadRuntimeMode(lookup)
 	if err != nil {
@@ -315,10 +245,6 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	instanceID := valueOrDefault(lookup, "GOPULSE_INSTANCE_ID", "backend-local")
 	if err := runtimekit.ValidateInstanceID(instanceID); err != nil {
 		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
-	}
-	businessStage, err := loadBusinessStageConfig(lookup, runtimeMode, serviceRole, standaloneObservability)
-	if err != nil {
-		return Config{}, err
 	}
 	replicaCount, err := replicaCountValue(lookup)
 	if err != nil {
@@ -401,7 +327,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			return Config{}, err
 		}
 	}
-	if serviceRole.RunsBusiness() || standaloneObservability {
+	if serviceRole.RunsBusiness() {
 		protection, err = loadProtectionConfig(lookup, operationTimeout)
 		if err != nil {
 			return Config{}, err
@@ -431,29 +357,6 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 			return Config{}, err
 		}
 	}
-	var observabilityElasticsearch ElasticsearchConfig
-	var victoriaMetrics VictoriaMetricsConfig
-	if serviceRole.RunsPlatform() {
-		observabilityElasticsearch, err = loadObservabilityElasticsearchConfig(lookup, runtimeMode)
-		if err != nil {
-			return Config{}, err
-		}
-		victoriaMetrics, err = loadVictoriaMetricsConfig(lookup, runtimeMode)
-		if err != nil {
-			return Config{}, err
-		}
-	}
-	if serviceRole.RunsPlatform() {
-		if valueOrDefault(lookup, "BACKEND_EVENT_READ_ALIAS", "gopulse-events-v1-read") != "gopulse-events-v1-read" {
-			return Config{}, errors.New("BACKEND_EVENT_READ_ALIAS must be gopulse-events-v1-read")
-		}
-		if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_DEFAULT_RANGE", "15m") != "15m" {
-			return Config{}, errors.New("BACKEND_EVENT_QUERY_DEFAULT_RANGE must be 15m")
-		}
-		if valueOrDefault(lookup, "BACKEND_EVENT_QUERY_MAX_RANGE", "24h") != "24h" {
-			return Config{}, errors.New("BACKEND_EVENT_QUERY_MAX_RANGE must be 24h")
-		}
-	}
 
 	mysqlDatabase, err := requiredValue(lookup, "MYSQL_DATABASE")
 	if err != nil {
@@ -478,47 +381,6 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		}
 	}
 
-	monitorConfig := MonitorConfig{}
-	if serviceRole.RunsPlatform() {
-		monitorToken, monitorErr := requiredValue(lookup, "MONITOR_API_TOKEN")
-		if monitorErr != nil {
-			return Config{}, monitorErr
-		}
-		if len(monitorToken) < 32 {
-			return Config{}, errors.New("MONITOR_API_TOKEN must contain at least 32 bytes")
-		}
-		monitorURL := valueOrDefault(lookup, "MONITOR_URL", defaultMonitorURL)
-		parsedMonitorURL, monitorErr := url.Parse(monitorURL)
-		if monitorErr != nil || (parsedMonitorURL.Scheme != "http" && parsedMonitorURL.Scheme != "https") || parsedMonitorURL.Host == "" || parsedMonitorURL.User != nil || parsedMonitorURL.RawQuery != "" || parsedMonitorURL.Fragment != "" {
-			return Config{}, errors.New("MONITOR_URL must be an HTTP origin without user information, query, or fragment")
-		}
-		if err := validateOriginHost(runtimeMode, "MONITOR_URL", parsedMonitorURL); err != nil {
-			return Config{}, err
-		}
-		monitorTimeout, monitorErr := durationValue(lookup, "MONITOR_REQUEST_TIMEOUT", defaultMonitorTimeout, time.Second, time.Minute)
-		if monitorErr != nil {
-			return Config{}, monitorErr
-		}
-		monitorConfig = MonitorConfig{URL: monitorURL, APIToken: monitorToken, RequestTimeout: monitorTimeout}
-	}
-
-	logShip, err := loadLogShipConfig(lookup, runtimeMode)
-	if err != nil {
-		return Config{}, err
-	}
-	if valueOrDefault(lookup, "BACKEND_LOG_READ_ALIAS", "gopulse-logs-v1-read") != "gopulse-logs-v1-read" {
-		return Config{}, errors.New("BACKEND_LOG_READ_ALIAS must be gopulse-logs-v1-read")
-	}
-	if serviceRole.RunsPlatform() {
-		defaultRange, rangeErr := durationValue(lookup, "BACKEND_LOG_QUERY_DEFAULT_RANGE", 15*time.Minute, time.Minute, 24*time.Hour)
-		if rangeErr != nil || defaultRange != 15*time.Minute {
-			return Config{}, errors.New("BACKEND_LOG_QUERY_DEFAULT_RANGE must be 15m")
-		}
-		maxRange, rangeErr := durationValue(lookup, "BACKEND_LOG_QUERY_MAX_RANGE", 24*time.Hour, time.Hour, 24*time.Hour)
-		if rangeErr != nil || maxRange != 24*time.Hour {
-			return Config{}, errors.New("BACKEND_LOG_QUERY_MAX_RANGE must be 24h")
-		}
-	}
 	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "backend")
 	if err != nil {
 		return Config{}, err
@@ -636,17 +498,14 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 	}
 
 	return Config{
-		ServiceRole:             serviceRole,
-		StandaloneObservability: standaloneObservability,
-		AlertEvaluationEnabled:  alertEnabled,
-		RuntimeMode:             runtimeMode,
-		SelfMonitorControl:      selfMonitorControl,
-		AppEnv:                  appEnv,
-		InstanceID:              instanceID,
-		ReplicaCount:            replicaCount,
-		HTTPHost:                httpHost,
-		HTTPPort:                httpPort,
-		HTTPMaxConcurrency:      httpMaxConcurrency,
+		ServiceRole:        serviceRole,
+		RuntimeMode:        runtimeMode,
+		AppEnv:             appEnv,
+		InstanceID:         instanceID,
+		ReplicaCount:       replicaCount,
+		HTTPHost:           httpHost,
+		HTTPPort:           httpPort,
+		HTTPMaxConcurrency: httpMaxConcurrency,
 		MySQL: MySQLConfig{
 			Host:            mysqlHost,
 			Port:            mysqlPort,
@@ -671,12 +530,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		RabbitMQURL:                      rabbitMQURL,
 		Outbox:                           outboxConfig,
 		Elasticsearch:                    elasticsearch,
-		ObservabilityElasticsearch:       observabilityElasticsearch,
-		Monitor:                          monitorConfig,
-		VictoriaMetrics:                  victoriaMetrics,
-		LogShip:                          logShip,
 		Trace:                            traceConfig,
-		BusinessStage:                    businessStage,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		BusinessAsyncMaxRetainedGroups:   retainedGroups,
 		BusinessAsyncMaxRetainedBytes:    retainedBytes,
@@ -750,68 +604,17 @@ func businessAsyncMaxOpenRequirementsValue(lookup LookupFunc) (uint64, error) {
 	return uint64(value), nil
 }
 
-func loadBusinessStageConfig(lookup LookupFunc, runtimeMode RuntimeMode, role ServiceRole, standalone bool) (BusinessStageConfig, error) {
-	if standalone {
-		return BusinessStageConfig{}, nil
-	}
-	credential, present := lookup("BUSINESS_STAGE_SERVICE_CREDENTIAL")
-	if !present || credential == "" {
-		if runtimeMode == RuntimeModeContainer {
-			return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_SERVICE_CREDENTIAL is required in container runtime")
-		}
-		var raw [minimumBusinessStageCredentialBytes]byte
-		if _, err := rand.Read(raw[:]); err != nil {
-			return BusinessStageConfig{}, errors.New("generate local business stage credential")
-		}
-		credential = hex.EncodeToString(raw[:])
-	}
-	if len([]byte(credential)) < minimumBusinessStageCredentialBytes || strings.ContainsAny(credential, "\r\n\t ") {
-		return BusinessStageConfig{}, fmt.Errorf("BUSINESS_STAGE_SERVICE_CREDENTIAL must contain at least %d bytes", minimumBusinessStageCredentialBytes)
-	}
-	config := BusinessStageConfig{Credential: credential}
-	if !role.RunsPlatform() || role == ServiceRoleCombined {
-		return config, nil
-	}
-	rawEndpoints, present := lookup("BUSINESS_STAGE_ENDPOINTS")
-	if !present || strings.TrimSpace(rawEndpoints) == "" {
-		if runtimeMode == RuntimeModeContainer {
-			return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_ENDPOINTS is required for the platform role")
-		}
-		rawEndpoints = "http://127.0.0.1:8080"
-	}
-	parts := strings.Split(rawEndpoints, ",")
-	if len(parts) < 1 || len(parts) > 2 {
-		return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_ENDPOINTS must contain at most two origins")
-	}
-	for _, raw := range parts {
-		origin := strings.TrimSpace(raw)
-		parsed, err := url.Parse(origin)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" {
-			return BusinessStageConfig{}, errors.New("BUSINESS_STAGE_ENDPOINTS must contain HTTP origins")
-		}
-		if err := validateOriginHost(runtimeMode, "BUSINESS_STAGE_ENDPOINTS", parsed); err != nil {
-			return BusinessStageConfig{}, err
-		}
-		config.Endpoints = append(config.Endpoints, strings.TrimRight(origin, "/"))
-	}
-	return config, nil
-}
-
 func (cfg Config) HTTPAddress() string {
 	return net.JoinHostPort(cfg.HTTPHost, strconv.Itoa(cfg.HTTPPort))
 }
 
 func httpMaxConcurrencyKey(role ServiceRole) string {
-	if role == ServiceRolePlatform {
-		return "PLATFORM_API_HTTP_MAX_CONCURRENCY"
-	}
+
 	return "BACKEND_HTTP_MAX_CONCURRENCY"
 }
 
 func httpMaxConcurrencyValue(lookup LookupFunc, role ServiceRole) (int, error) {
-	if role == ServiceRolePlatform {
-		return integerValue(lookup, httpMaxConcurrencyKey(role), defaultPlatformHTTPMaxConcurrency)
-	}
+
 	return integerValue(lookup, httpMaxConcurrencyKey(role), defaultHTTPMaxConcurrency)
 }
 
@@ -889,9 +692,7 @@ func mysqlPoolValues(lookup LookupFunc, replicaCount int) (int, int, time.Durati
 }
 
 func mysqlPoolValuesForRole(lookup LookupFunc, replicaCount int, role ServiceRole) (int, int, time.Duration, error) {
-	if role == ServiceRolePlatform {
-		return mysqlPoolValuesWithKey(lookup, replicaCount, "PLATFORM_API_MYSQL_MAX_OPEN_CONNS", defaultPlatformMySQLMaxOpenConns)
-	}
+
 	return mysqlPoolValues(lookup, replicaCount)
 }
 
@@ -1130,10 +931,6 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 	if err != nil {
 		return ReindexConfig{}, err
 	}
-	logShip, err := loadLogShipConfig(lookup, runtimeMode)
-	if err != nil {
-		return ReindexConfig{}, err
-	}
 	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
 	if err != nil {
 		return ReindexConfig{}, err
@@ -1154,95 +951,10 @@ func LoadReindexFrom(lookup LookupFunc) (ReindexConfig, error) {
 			ConnMaxLifetime: connMaxLifetime,
 		},
 		Elasticsearch:                    elasticsearch,
-		LogShip:                          logShip,
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		BusinessAsyncMaxRetainedGroups:   retainedGroups,
 		BusinessAsyncMaxRetainedBytes:    retainedBytes,
 	}, nil
-}
-
-func loadLogShipConfig(lookup LookupFunc, runtimeMode RuntimeMode) (LogShipConfig, error) {
-	rawURL := ""
-	if value, ok := lookup("LOG_MONITOR_URL"); ok {
-		rawURL = strings.TrimSpace(value)
-	}
-	if rawURL == "" {
-		return LogShipConfig{}, nil
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return LogShipConfig{}, errors.New("LOG_MONITOR_URL must be an HTTP origin without userinfo, query, or fragment")
-	}
-	if err := validateOriginHost(runtimeMode, "LOG_MONITOR_URL", parsed); err != nil {
-		return LogShipConfig{}, err
-	}
-	token, err := requiredValue(lookup, "LOG_MONITOR_INGEST_TOKEN")
-	if err != nil || len([]byte(token)) < 32 || strings.ContainsAny(token, "\r\n") {
-		return LogShipConfig{}, errors.New("LOG_MONITOR_INGEST_TOKEN must contain at least 32 bytes")
-	}
-	timeout, err := durationValue(lookup, "LOG_SHIP_REQUEST_TIMEOUT", defaultLogShipRequestTimeout, 100*time.Millisecond, 30*time.Second)
-	if err != nil {
-		return LogShipConfig{}, err
-	}
-	queue, err := integerValue(lookup, "LOG_SHIP_QUEUE_CAPACITY", defaultLogShipQueueCapacity)
-	if err != nil || queue < 1 || queue > 65536 {
-		return LogShipConfig{}, errors.New("LOG_SHIP_QUEUE_CAPACITY must be between 1 and 65536")
-	}
-	retryMin, err := durationValue(lookup, "LOG_SHIP_RETRY_MIN", defaultLogShipRetryMin, 10*time.Millisecond, 10*time.Second)
-	if err != nil {
-		return LogShipConfig{}, err
-	}
-	retryMax, err := durationValue(lookup, "LOG_SHIP_RETRY_MAX", defaultLogShipRetryMax, 100*time.Millisecond, time.Minute)
-	if err != nil {
-		return LogShipConfig{}, err
-	}
-	if retryMax < retryMin {
-		return LogShipConfig{}, errors.New("LOG_SHIP_RETRY_MAX must be at least LOG_SHIP_RETRY_MIN")
-	}
-	shutdown, err := durationValue(lookup, "LOG_SHIP_SHUTDOWN_TIMEOUT", defaultLogShipShutdown, time.Second, time.Minute)
-	if err != nil {
-		return LogShipConfig{}, err
-	}
-	return LogShipConfig{
-		Endpoint: strings.TrimRight(rawURL, "/") + "/internal/v1/logs", Token: token,
-		RequestTimeout: timeout, QueueCapacity: queue, RetryMin: retryMin, RetryMax: retryMax, ShutdownTimeout: shutdown,
-	}, nil
-}
-
-func loadVictoriaMetricsConfig(lookup LookupFunc, runtimeMode RuntimeMode) (VictoriaMetricsConfig, error) {
-	rawURL := valueOrDefault(lookup, "BACKEND_VICTORIAMETRICS_URL", defaultVictoriaMetricsURL)
-	parsed, err := url.Parse(rawURL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return VictoriaMetricsConfig{}, errors.New("BACKEND_VICTORIAMETRICS_URL must be an HTTP(S) base URL without userinfo, query, or fragment")
-	}
-	if err := validateOriginHost(runtimeMode, "BACKEND_VICTORIAMETRICS_URL", parsed); err != nil {
-		return VictoriaMetricsConfig{}, err
-	}
-	if rawPort := parsed.Port(); rawPort != "" {
-		port, err := strconv.Atoi(rawPort)
-		if err != nil || validatePort("BACKEND_VICTORIAMETRICS_URL port", port) != nil {
-			return VictoriaMetricsConfig{}, errors.New("BACKEND_VICTORIAMETRICS_URL port must be between 1 and 65535")
-		}
-	}
-	username := valueOrDefault(lookup, "BACKEND_VICTORIAMETRICS_USERNAME", defaultVictoriaMetricsUser)
-	if username == "" || strings.ContainsAny(username, "\r\n") {
-		return VictoriaMetricsConfig{}, errors.New("BACKEND_VICTORIAMETRICS_USERNAME is invalid")
-	}
-	password, err := requiredValue(lookup, "BACKEND_VICTORIAMETRICS_PASSWORD")
-	if err != nil || len([]byte(password)) < 32 || strings.ContainsAny(password, "\r\n") {
-		return VictoriaMetricsConfig{}, errors.New("BACKEND_VICTORIAMETRICS_PASSWORD must contain at least 32 bytes")
-	}
-	timeout, err := durationValue(lookup, "BACKEND_VICTORIAMETRICS_QUERY_TIMEOUT", defaultVictoriaMetricsTimeout, 100*time.Millisecond, 30*time.Second)
-	if err != nil {
-		return VictoriaMetricsConfig{}, err
-	}
-	if valueOrDefault(lookup, "BACKEND_METRIC_QUERY_DEFAULT_RANGE", "15m") != "15m" {
-		return VictoriaMetricsConfig{}, errors.New("BACKEND_METRIC_QUERY_DEFAULT_RANGE must be 15m")
-	}
-	if valueOrDefault(lookup, "BACKEND_METRIC_QUERY_MAX_RANGE", "24h") != "24h" {
-		return VictoriaMetricsConfig{}, errors.New("BACKEND_METRIC_QUERY_MAX_RANGE must be 24h")
-	}
-	return VictoriaMetricsConfig{URL: strings.TrimRight(rawURL, "/"), Username: username, Password: password, RequestTimeout: timeout}, nil
 }
 
 func loadElasticsearchConfig(lookup LookupFunc, runtimeMode RuntimeMode) (ElasticsearchConfig, error) {
@@ -1269,29 +981,6 @@ func loadElasticsearchConfig(lookup LookupFunc, runtimeMode RuntimeMode) (Elasti
 		return ElasticsearchConfig{}, fmt.Errorf("SEARCH_REINDEX_BATCH must be between %d and %d", minimumSearchReindexBatch, maximumSearchReindexBatch)
 	}
 	return ElasticsearchConfig{URL: strings.TrimRight(rawURL, "/"), RequestTimeout: timeout, ReindexBatch: batch, Purpose: "search"}, nil
-}
-
-func loadObservabilityElasticsearchConfig(lookup LookupFunc, runtimeMode RuntimeMode) (ElasticsearchConfig, error) {
-	defaultURL := defaultObservabilityElasticsearchURL
-	if runtimeMode == RuntimeModeContainer {
-		defaultURL = "http://observability-elasticsearch:9200"
-	}
-	rawURL := valueOrDefault(lookup, "OBSERVABILITY_ELASTICSEARCH_URL", defaultURL)
-	parsed, err := url.Parse(rawURL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
-		return ElasticsearchConfig{}, errors.New("OBSERVABILITY_ELASTICSEARCH_URL must be an HTTP(S) origin without userinfo")
-	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return ElasticsearchConfig{}, errors.New("OBSERVABILITY_ELASTICSEARCH_URL must not include a query or fragment")
-	}
-	if err := validateOriginHost(runtimeMode, "OBSERVABILITY_ELASTICSEARCH_URL", parsed); err != nil {
-		return ElasticsearchConfig{}, err
-	}
-	timeout, err := durationValue(lookup, "ELASTICSEARCH_REQUEST_TIMEOUT", defaultElasticsearchTimeout, minimumElasticsearchTimeout, maximumElasticsearchTimeout)
-	if err != nil {
-		return ElasticsearchConfig{}, err
-	}
-	return ElasticsearchConfig{URL: strings.TrimRight(rawURL, "/"), RequestTimeout: timeout, Purpose: "observability"}, nil
 }
 
 func businessAsyncRetentionValues(lookup LookupFunc) (uint64, uint64, error) {

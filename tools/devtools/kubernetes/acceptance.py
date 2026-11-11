@@ -95,30 +95,6 @@ def business(api, mode, evidence):
     evidence.update(business={'post_id': post_id, 'title': marker, 'idempotent_replay': True, 'async_notification': True, 'search': True})
 
 
-def observation(api, mode, evidence, mysql_host='mysql', mysql_port=3306):
-    credentials = json.loads((k8s.PRIVATE / mode / 'credentials.json').read_text())
-    plugin = '/api/v1/exporter-plugins/mysql-exporter'
-    config = {'config': {'host': mysql_host, 'port': mysql_port, 'database': 'gopulse', 'username': 'root',
-                          'connect_timeout': '1s', 'scrape_timeout': '3s'}, 'secrets': {'password': credentials['MYSQL_ROOT_PASSWORD']}}
-    catalog = api.call('GET', '/api/v1/exporter-plugins/catalog')['data']
-    installed = any(row['id'] == 'mysql-exporter' and row.get('summary') != 'not_configured' for row in catalog)
-    if installed:
-        api.call('PUT', plugin + '/configuration', config)
-    else:
-        api.call('POST', plugin + '/install', config, expected=201)
-    action = now()
-    api.call('POST', plugin + '/stop')
-    api.call('POST', plugin + '/start')
-    wait('插件指标', lambda: any(point['value'] == 1 and datetime.fromisoformat(point['timestamp'].replace('Z', '+00:00')) >= datetime.fromisoformat(action)
-          for row in api.call('GET', '/api/v1/observability/metrics?metric=gopulse_mysql_up')['data']['series'] for point in row['points']), seconds=600)
-    wait('插件生命周期事件', lambda: {'exporter_plugin_stopped', 'exporter_plugin_started'} <= {
-        row['event_name'] for row in api.call('GET', '/api/v1/observability/events?source=monitor&plugin_id=mysql-exporter&limit=100')['data']
-        if datetime.fromisoformat(row['timestamp'].replace('Z', '+00:00')) >= datetime.fromisoformat(action)})
-    request_id = secrets.token_hex(16)
-    api.call('GET', '/api/v1/admin/overview?range=15m', headers={'X-Request-ID': request_id})
-    request_id = api.last_request_id or request_id
-    wait('日志接收与查询', lambda: any(row['request_id'] == request_id for row in api.call('GET', '/api/v1/observability/logs?request_id=' + request_id + '&limit=100')['data']))
-    evidence.update(observability={'plugin': 'mysql-exporter', 'metrics': True, 'lifecycle_events': True, 'logs': True, 'request_id': request_id})
 
 
 def accept(mode, reuse_access=False):
@@ -126,17 +102,13 @@ def accept(mode, reuse_access=False):
         raise ValueError('当前模式未部署')
     if not reuse_access:
         k8s.access(mode)
-    base = 'http://127.0.0.1:' + ('18081' if mode == 'observability' else '18080')
+    base = 'http://127.0.0.1:' + '18080'
     api = API(base)
     values, user_id = wait('登录服务', lambda: user(api, mode))
     ns = k8s.namespace(mode)
-    k8s.kube('-n', ns, 'exec', 'deployment/platform-api', '--', '/usr/local/bin/admin-role', 'bootstrap', '--user-id', str(user_id))
     api.call('POST', '/api/v1/auth/login', values)
-    evidence = {'mode': mode, 'started_at': now(), 'revision': k8s.identity()[1], 'login': True, 'admin_bootstrap': True}
-    if mode != 'observability':
-        business(api, mode, evidence)
-    if mode != 'business':
-        observation(api, mode, evidence)
+    evidence = {'mode': mode, 'started_at': now(), 'revision': k8s.identity()[1], 'login': True}
+    business(api, mode, evidence)
     if os.environ.get('TRACE') == '1':
         from tracecheck import verify
         evidence['tracing'] = verify(mode, evidence['started_at'])
@@ -153,7 +125,7 @@ def recreate(mode):
     path = k8s.PRIVATE / mode / 'acceptance.json'
     evidence = json.loads(path.read_text())
     ns = k8s.namespace(mode)
-    selectors = ['mysql'] + (['redis'] if mode != 'observability' else []) + (['monitor'] if mode != 'business' else [])
+    selectors = ['mysql', 'redis']
     previous = {}
     for name in selectors:
         rows = json.loads(k8s.kube('-n', ns, 'get', 'pods', '-l', 'app.kubernetes.io/name=' + name, '-o', 'json'))['items']
@@ -165,14 +137,10 @@ def recreate(mode):
         rows = json.loads(k8s.kube('-n', ns, 'get', 'pods', '-l', 'app.kubernetes.io/name=' + name, '-o', 'json'))['items']
         assert len(rows) == 1 and rows[0]['metadata']['uid'] != previous[name]
     k8s.access(mode)
-    api = API('http://127.0.0.1:' + ('18081' if mode == 'observability' else '18080'))
+    api = API('http://127.0.0.1:' + '18080')
     wait('用户登录恢复', lambda: user(api, mode))
-    if mode != 'observability':
-        post = evidence['business']
-        assert api.call('GET', '/api/v1/posts/' + str(post['post_id']))['data']['title'] == post['title']
-    if mode != 'business':
-        wait('插件配置恢复', lambda: any(row['id'] == 'mysql-exporter' and row['configured'] for row in api.call('GET', '/api/v1/exporter-plugins/catalog')['data']))
-        wait('历史指标恢复', lambda: bool(api.call('GET', '/api/v1/observability/metrics?metric=gopulse_mysql_up')['data']['series']))
+    post = evidence['business']
+    assert api.call('GET', '/api/v1/posts/' + str(post['post_id']))['data']['title'] == post['title']
     evidence['pod_recreation'] = {'checked_at': now(), 'previous_uids': previous, 'data_restored': True}
     path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n')
     path.with_name('persistence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n')

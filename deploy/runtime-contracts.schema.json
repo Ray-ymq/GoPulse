@@ -8,8 +8,7 @@
     "platform",
     "authority",
     "components",
-    "env_example",
-    "plugin_manifest"
+    "env_example"
   ],
   "properties": {
     "schema_version": {
@@ -95,12 +94,8 @@
           "role": {
             "enum": [
               "business-api",
-              "platform-api",
               "business-worker",
-              "search-indexer",
-              "observability-marshaller",
-              "observability-monitor",
-              "plugin-exporter"
+              "search-indexer"
             ]
           },
           "module": {
@@ -640,30 +635,6 @@
           "sensitive": {
             "type": "boolean"
           }
-        }
-      }
-    },
-    "plugin_manifest": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "catalog",
-        "validator",
-        "health_path",
-        "metrics_path"
-      ],
-      "properties": {
-        "catalog": {
-          "type": "string"
-        },
-        "validator": {
-          "type": "string"
-        },
-        "health_path": {
-          "type": "string"
-        },
-        "metrics_path": {
-          "type": "string"
         }
       }
     }

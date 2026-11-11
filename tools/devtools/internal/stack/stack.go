@@ -16,8 +16,6 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/devtools/internal/buildcache"
 	"github.com/Ray-ymq/GoPulse/devtools/internal/deployment"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/devrun"
-	"github.com/Ray-ymq/GoPulse/devtools/internal/exporterpackages"
 )
 
 var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
@@ -49,9 +47,7 @@ func Up(root string, modes ...string) (result error) {
 			_ = deployment.Record(ctx.root, ctx.mode, ctx.project, "failed")
 		}
 	}()
-	if err := exporterpackages.Prepare(ctx.root, filepath.Join(ctx.root, ".run/packages"), devrun.Environ()); err != nil {
-		return err
-	}
+
 	code, err := buildcache.Run(ctx.root, buildcache.Options{NoCache: true})
 	if err != nil {
 		return err
@@ -133,9 +129,7 @@ func (c *context) verify() error {
 			return err
 		}
 		edge := "frontend"
-		if c.mode == "observability" {
-			edge = "admin-frontend"
-		}
+
 		if name != edge {
 			if err := c.verifyNotPublished(name); err != nil {
 				return err
@@ -143,9 +137,7 @@ func (c *context) verify() error {
 		}
 	}
 	edge := "frontend"
-	if c.mode == "observability" {
-		edge = "admin-frontend"
-	}
+
 	if err := c.verifyLoopbackPort(edge); err != nil {
 		return err
 	}
@@ -163,9 +155,7 @@ func (c *context) verify() error {
 		return fmt.Errorf("前端健康检查返回 HTTP %d", res.StatusCode)
 	}
 	path := "/"
-	if c.mode == "observability" {
-		path = "/admin/login"
-	}
+
 	fmt.Printf("访问地址：http://127.0.0.1:%s%s\n", port, path)
 	return nil
 }
@@ -188,10 +178,10 @@ func newContext(root string, modes ...string) (*context, error) {
 	if len(modes) > 0 && modes[0] != "" {
 		mode = modes[0]
 	}
-	files := map[string]string{"all": "compose.yaml", "business": "compose.business.yaml", "observability": "compose.observability.yaml"}
+	files := map[string]string{"all": "compose.yaml", "business": "compose.business.yaml"}
 	file, ok := files[mode]
 	if !ok {
-		return nil, fmt.Errorf("MODE 必须为 business、observability 或 all")
+		return nil, fmt.Errorf("MODE 必须为 business 或 all")
 	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {
@@ -245,7 +235,7 @@ func newContext(root string, modes ...string) (*context, error) {
 		env:          env,
 		host:         effectiveEnvValue(envFile, "PUBLISHED_HOST", "127.0.0.1"),
 		httpPort:     effectiveEnvValue(envFile, "HTTP_PORT", ""),
-		frontendPort: effectiveEnvValue(envFile, map[bool]string{true: "ADMIN_FRONTEND_PORT", false: "FRONTEND_PORT"}[mode == "observability"], ""),
+		frontendPort: effectiveEnvValue(envFile, "FRONTEND_PORT", ""),
 	}, nil
 }
 

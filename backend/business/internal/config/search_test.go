@@ -12,7 +12,6 @@ func TestLoadMySQLUsesOnlyDatabaseSettings(t *testing.T) {
 		"MYSQL_HOST":           "mysql", "MYSQL_PORT": "3306",
 		"MYSQL_DATABASE": "gopulse", "MYSQL_USER": "operator", "MYSQL_PASSWORD": "mysql-secret",
 		// Invalid higher-privilege application values must not be read.
-		"AUTH_JWT_SECRET": "short", "MONITOR_API_TOKEN": "short", "BACKEND_VICTORIAMETRICS_URL": "http://127.0.0.1:8428",
 	}
 	cfg, err := LoadMySQLFrom(mapLookup(values))
 	if err != nil {

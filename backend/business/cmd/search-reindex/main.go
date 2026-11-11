@@ -16,7 +16,6 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/processlog"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
 )
@@ -49,19 +48,13 @@ func executeWithOptions(arguments []string, stdout io.Writer, load func() (confi
 		logging.Module(stdoutLogger, "search").Error("search reindex initialization failed", slog.String("stage", "configuration"), slog.String("reason", "invalid_configuration"))
 		return 1
 	}
-	logs, err := processlog.Open("search-reindex", stdout, cfg.LogShip)
-	if err != nil {
-		logging.Module(stdoutLogger, "search").Error("search reindex initialization failed", slog.String("stage", "logship"), slog.String("reason", "invalid_configuration"))
-		return 1
-	}
+
 	exitCode := 0
-	if err := operation(cfg, options, logs.Logger); err != nil {
-		logging.Module(logs.Logger, "search").Error("search reindex failed", slog.String("reason", "operation_failed"))
+	if err := operation(cfg, options, stdoutLogger); err != nil {
+		logging.Module(stdoutLogger, "search").Error("search reindex failed", slog.String("reason", "operation_failed"))
 		exitCode = 1
 	}
-	if err := logs.Close(); err != nil {
-		logging.Module(stdoutLogger, "logship").Warn("log shipper shutdown incomplete", slog.String("reason", "shutdown_timeout"))
-	}
+
 	return exitCode
 }
 

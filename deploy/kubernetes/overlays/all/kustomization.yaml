@@ -5,8 +5,7 @@
   "resources": [
     "namespace.json",
     "../../common",
-    "../../business",
-    "../../observability"
+    "../../business"
   ],
   "configMapGenerator": [
     {
@@ -19,14 +18,5 @@
   ],
   "generatorOptions": {
     "disableNameSuffixHash": true
-  },
-  "patches": [
-    {
-      "target": {
-        "kind": "RoleBinding",
-        "name": "gopulse-selfmonitor-control"
-      },
-      "patch": "[{\"op\": \"add\", \"path\": \"/subjects/0/namespace\", \"value\": \"gopulse-all\"}]"
-    }
-  ]
+  }
 }

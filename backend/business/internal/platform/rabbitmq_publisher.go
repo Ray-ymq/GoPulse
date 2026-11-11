@@ -5,12 +5,13 @@ import (
 	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"math/big"
 	"net"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"

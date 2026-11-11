@@ -63,7 +63,7 @@ python3 tools/ci/modules.py pr-labels --base-ref origin/main
 手动运行使用输入的 `ci:<模块目录>` 标签，不按路径补齐或扩大模块范围：
 
 - `ci:backend/business`：只运行业务系统的检查、构建和单测。
-- `ci:backend/observability/exporters/redis`：只运行 Redis exporter 的三个任务。
+- `ci:tools/perflab/mysqlcollector`：只运行压测 MySQL 采集工具的三个任务。
 - 多个模块标签：只运行这些模块，不增加其他模块。
 - `ci:backend/runtimekit`：只检查共享库本身，不自动检查使用它的模块。
 - 根 Makefile、CI、公共配置变化：仍只运行贴了标签的模块，不自动全量检查。
@@ -88,7 +88,7 @@ make ci-test MODULE=backend/business   # go test -race -count=1 ./...
 make ci-build MODULE=backend/business  # 模块构建
 ```
 
-前端按 `frontend/user/`（用户端）、`frontend/admin/`（管理端）和 `frontend/shared/`（共用组件与工具）组织。两个应用分别维护 npm 依赖和构建配置，不进入 CI。本地命令如下：
+前端按 `frontend/user/`（用户端）和 `frontend/shared/`（共用组件与工具）组织。用户端维护 npm 依赖和构建配置，不进入 CI。本地命令如下：
 
 ```sh
 make check MODULE=frontend/user   # TypeScript 检查
@@ -97,7 +97,7 @@ make test MODULE=frontend/user    # Vitest
 make build MODULE=frontend/user   # 类型检查、Vite 构建
 ```
 
-管理端使用相同命令，将 `MODULE` 替换为 `frontend/admin`。开发环境依赖准备也使用这两个模块路径，例如 `make bootstrap MODULE=frontend/user`。
+开发环境依赖准备使用用户端路径，例如 `make bootstrap MODULE=frontend/user`。
 
 根 Makefile 分发到各模块 Makefile。Go lint 工具继续由 `tools/devtools/toolchains.json` 固定版本和校验和，但不再使用旧 CI 的 lint 基线豁免；发现问题会直接失败。
 
@@ -109,7 +109,7 @@ make build MODULE=frontend/user   # 类型检查、Vite 构建
 
 ```sh
 make ci-tools
-make ci-plan LABELS="ci:backend/business ci:backend/observability/marshaller"
+make ci-plan LABELS="ci:backend/business ci:backend/runtimekit"
 make ci-plan LABELS=ci:none
 make verify MODULE=backend/business
 ```

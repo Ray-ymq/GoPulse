@@ -101,9 +101,7 @@ func Source(root string, observe bool) (string, error) {
 		filepath.Join(root, "backend/business"),
 		filepath.Join(root, "backend/runtimekit"),
 	}
-	if observe {
-		items = append(items, filepath.Join(root, "backend/observability/marshaller"))
-	}
+
 	return Paths(root, items)
 }
 
@@ -114,11 +112,3 @@ func SourceBuilds(root string) (string, error) { return Source(root, false) }
 // Exporter source and packages are deployment inputs;
 // they are deliberately excluded so changing one module does not invalidate
 // the image. Native integration builds use the Monitor source digest directly.
-func MonitorInput(root string) (string, error) {
-	return Paths(root, []string{
-		filepath.Join(root, "VERSION"),
-		filepath.Join(root, "backend/runtimekit"),
-		filepath.Join(root, "backend/observability/monitor"),
-		filepath.Join(root, "deploy", "docker", "monitor.Dockerfile"),
-	})
-}

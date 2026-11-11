@@ -41,40 +41,28 @@ def capture(mode):
             resources[kind + '/' + row['metadata']['name']] = value
     directory = k8s.PRIVATE / mode
     credentials = {name: hashlib.sha256((directory / name).read_bytes()).hexdigest()
-                   for name in ('credentials.json', 'selfmonitor-credentials.json')}
+                   for name in ('credentials.json',)}
     evidence = json.loads((directory / 'acceptance.json').read_text())
     # 只登录既有验收账号，避免用新账号或新数据代替恢复证据。
     account = json.loads((directory / 'acceptance-user.json').read_text())
     k8s.access(mode)
-    api = acceptance.API('http://127.0.0.1:' + ('18081' if mode == 'observability' else '18080'))
+    api = acceptance.API('http://127.0.0.1:' + '18080')
     api.call('POST', '/api/v1/auth/login', account)
     data = {}
-    if mode != 'observability':
-        post = evidence['business']
-        actual = api.call('GET', '/api/v1/posts/' + str(post['post_id']))['data']
-        if actual['title'] != post['title']:
-            raise ValueError('原验收文章未恢复')
-        data['business'] = {'post_id': post['post_id'], 'title': post['title']}
-    if mode != 'business':
-        plugins = api.call('GET', '/api/v1/exporter-plugins/catalog')['data']
-        if not any(row['id'] == 'mysql-exporter' and row['configured'] for row in plugins):
-            raise ValueError('原 MySQL 插件配置未恢复')
-        if not api.call('GET', '/api/v1/observability/metrics?metric=gopulse_mysql_up')['data']['series']:
-            raise ValueError('原 MySQL 插件指标不可查询')
-        data['configured_plugins'] = sorted(row['id'] for row in plugins if row['configured'])
-    monitoring = api.call('GET', '/api/v1/admin/self-monitor')['data']
-    expected = {'business': 11, 'observability': 10, 'all': 16}[mode]
-    if monitoring['state'] != 'running' or len(monitoring['targets']) != expected or not all(row['up'] for row in monitoring['targets']):
-        raise ValueError('自监控尚未恢复全部预期目标')
+    post = evidence['business']
+    actual = api.call('GET', '/api/v1/posts/' + str(post['post_id']))['data']
+    if actual['title'] != post['title']:
+        raise ValueError('原验收文章未恢复')
+    data['business'] = {'post_id': post['post_id'], 'title': post['title']}
     return {'schema': 1, 'workspace': str(k8s.ROOT), 'mode': mode, 'checked_at': acceptance.now(),
             'host_boot_id': host_boot, 'node_boot_id': node_boot, 'node_uid': node['metadata']['uid'],
             'namespace_uid': namespace['metadata']['uid'],
             'address': next(row['address'] for row in node['status']['addresses'] if row['type'] == 'InternalIP'),
-            'resources': resources, 'credentials': credentials, 'data': data, 'healthy_targets': expected}
+            'resources': resources, 'credentials': credentials, 'data': data}
 
 
 def compare(before, after, require=None):
-    for key in ('schema', 'workspace', 'mode', 'node_uid', 'namespace_uid', 'resources', 'credentials', 'data', 'healthy_targets'):
+    for key in ('schema', 'workspace', 'mode', 'node_uid', 'namespace_uid', 'resources', 'credentials', 'data'):
         if before[key] != after[key]:
             raise ValueError('恢复前后记录不一致：' + key)
     if require == 'reboot' and before['host_boot_id'] == after['host_boot_id']:

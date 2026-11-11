@@ -9,18 +9,18 @@ import (
 )
 
 func TestRuntimeConfigurationRejectsUnsafeInputs(t *testing.T) {
-	for _, tc := range []struct{ key, value string }{{"GOPULSE_RUNTIME_MODE", "invalid-canary"}, {"MONITOR_SHUTDOWN_TIMEOUT", "30s"}, {"MONITOR_API_TOKEN", "short-canary"}} {
+	for _, tc := range []struct{ key, value string }{{"GOPULSE_RUNTIME_MODE", "invalid-canary"}, {"BACKEND_SHUTDOWN_TIMEOUT", "30s"}, {"AUTH_JWT_SECRET", "short-canary"}} {
 		t.Run(tc.key, func(t *testing.T) {
 			t.Setenv(tc.key, tc.value)
-			err := ValidateRuntimeEnvironment("monitor")
+			err := ValidateRuntimeEnvironment("backend")
 			if err == nil || strings.Contains(err.Error(), tc.value) {
 				t.Fatal("unsafe configuration accepted or echoed")
 			}
 		})
 	}
-	t.Setenv("MONITOR_API_TOKEN", strings.Repeat("a", 32))
-	t.Setenv("MONITOR_METRICS_TOKEN", strings.Repeat("a", 32))
-	if ValidateRuntimeEnvironment("monitor") == nil {
+	t.Setenv("AUTH_JWT_SECRET", strings.Repeat("a", 32))
+	t.Setenv("BACKEND_METRICS_TOKEN", strings.Repeat("a", 32))
+	if ValidateRuntimeEnvironment("backend") == nil {
 		t.Fatal("credential reuse accepted")
 	}
 }
@@ -49,22 +49,8 @@ func TestInstanceIdentityAndReplicaEndpointCatalogAreBounded(t *testing.T) {
 	}
 }
 
-func TestPlatformRuntimeAliasUsesBackendDefinition(t *testing.T) {
-	t.Setenv("GOPULSE_RUNTIME_MODE", "container")
-	t.Setenv("GOPULSE_INSTANCE_ID", "platform-api-1")
-	t.Setenv("BACKEND_METRICS_TOKEN", strings.Repeat("b", 32))
-	t.Setenv("AUTH_JWT_SECRET", strings.Repeat("a", 32))
-	t.Setenv("LOG_MONITOR_INGEST_TOKEN", strings.Repeat("c", 32))
-	t.Setenv("MONITOR_API_TOKEN", strings.Repeat("d", 32))
-	if got := RuntimeDefinitions["platform-api"]; got.Port != RuntimeDefinitions["backend"].Port || got.ShutdownSeconds != RuntimeDefinitions["backend"].ShutdownSeconds {
-		t.Fatalf("platform runtime definition = %#v, want Backend alias", got)
-	}
-	if err := ValidateRuntimeEnvironment("platform-api"); err != nil {
-		t.Fatalf("platform Backend alias rejected: %v", err)
-	}
-}
 func TestHTTPCorrelationErrorsAndPanic(t *testing.T) {
-	logger := NewLogger("monitor", &strings.Builder{})
+	logger := NewLogger("backend", &strings.Builder{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /panic", func(http.ResponseWriter, *http.Request) { panic("secret-canary") })
 	mux.HandleFunc("GET /forward", func(w http.ResponseWriter, r *http.Request) {
@@ -112,8 +98,8 @@ func TestHTTPCorrelationErrorsAndPanic(t *testing.T) {
 
 func TestDependencyLogStateRateLimit(t *testing.T) {
 	var output strings.Builder
-	t.Setenv("GOPULSE_INSTANCE_ID", "monitor-1")
-	log := NewLogger("monitor", &output)
+	t.Setenv("GOPULSE_INSTANCE_ID", "backend-1")
+	log := NewLogger("backend", &output)
 	log.Warn("connection unavailable")
 	log.Warn("connection unavailable")
 	log.Info("connection restored")

@@ -32,7 +32,7 @@ class RecoveryComparisonTests(unittest.TestCase):
         recovery.compare(self.before, self.after, 'address')
 
     def test_rejects_replacement_or_data_changes_even_after_reboot(self):
-        for key in ('schema', 'workspace', 'mode', 'node_uid', 'namespace_uid', 'resources', 'credentials', 'data', 'healthy_targets'):
+        for key in ('schema', 'workspace', 'mode', 'node_uid', 'namespace_uid', 'resources', 'credentials', 'data'):
             with self.subTest(key=key):
                 after = copy.deepcopy(self.before)
                 after['host_boot_id'] = 'boot-after'

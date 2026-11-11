@@ -88,7 +88,7 @@ def sample(source, node_url=None, expected=None):
         del selected['k6']
         snapshot = collect()
     resources = {name: resource(name, item, snapshot['containers'][name]) for name, item in selected.items()}
-    targets = ('backend', 'backend-2', 'platform-api', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')
+    targets = ('backend', 'backend-2', 'business-worker', 'business-worker-2', 'search-indexer', 'search-indexer-2')
     with ThreadPoolExecutor(max_workers=8) as executor:
         queues = executor.submit(rabbitmq)
         if node_url:
