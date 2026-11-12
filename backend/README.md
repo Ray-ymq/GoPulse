@@ -9,4 +9,4 @@
 
 API 仅支持 `business` 角色，也是默认角色。旧 `combined` 和 `platform` 配置会被拒绝。
 
-在仓库根目录执行 `make dev` 启动源码开发环境。验证模块使用 `make verify MODULE=backend/business`；完整模块清单见 `make list-go-modules`。
+运行前需自行准备业务依赖和进程配置。验证模块使用 `make ci-check MODULE=backend/business` 和 `make ci-test MODULE=backend/business`；完整模块清单见 `make list-go-modules`。

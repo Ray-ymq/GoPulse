@@ -37,7 +37,7 @@
 
 - 普通推送比较事件中的 `before` 与 `after` 两个版本，选择文件直接所属的 Go 模块。一次推送中的多个提交、文件删除及跨模块移动都会计入；强制推送也比较两个版本的完整文件树，不使用共同祖先缩小范围。
 - 新分支的 `before` 为全零 SHA，或旧 SHA 在检出历史中不可用时，检查全部已注册 Go 模块。无法解析新 SHA 或事件字段无效时，计划失败。
-- 根 `Makefile`、`.golangci.yml`、`.conventional-commits.json`、`tools/devtools/toolchains.json`，以及 `.github/workflows/`、`tools/make/`、`tools/ci/` 中的非文档文件变化时，检查全部已注册 Go 模块。
+- 根 `Makefile`、`.golangci.yml`、`.conventional-commits.json`，以及 `.github/workflows/`、`tools/make/`、`tools/ci/` 中的非文档文件变化时，检查全部已注册 Go 模块。
 - 其他变化只选择文件直接所属的模块，不自动增加依赖或使用方。例如仅修改 `backend/runtimekit/` 的 Go 代码时，只检查该模块；需要验证其他模块时，通过手动运行指定。
 - 文档、前端和未归属 Go 模块的其他文件不选择模块任务。若没有选中任何模块，CI 工具测试和提交规范检查仍然运行。文档包括 `docs/` 下的文件、扩展名为 `.md`、`.rst`、`.adoc` 的文件和根目录 `LICENSE`。
 
@@ -87,7 +87,7 @@ make ci-test MODULE=backend/business   # go test -race -count=1 ./...
 make ci-build MODULE=backend/business  # 模块构建
 ```
 
-用户前端位于 `frontend/web/`。独立前端 CI 在相关目录、设计原型或前端部署配置变化时运行，执行 `npm ci`、单元测试、类型检查、生产构建和 Chromium 浏览器流程验证。浏览器验证使用隔离的接口 fixture，不写入真实业务环境。该工作流不属于下文 Go 模块的 `CI result` 汇总；如需将其作为合并门禁，需另行配置仓库保护规则。
+用户前端位于 `frontend/web/`。独立前端 CI 在相关目录、设计原型或工作流配置变化时运行，执行 `npm ci`、单元测试、类型检查、生产构建和 Chromium 浏览器流程验证。浏览器验证使用隔离的接口 fixture，不写入真实业务环境。该工作流不属于下文 Go 模块的 `CI result` 汇总；如需将其作为合并门禁，需另行配置仓库保护规则。
 
 ```sh
 make -C frontend/web install
@@ -96,9 +96,9 @@ make test MODULE=frontend/web
 make build MODULE=frontend/web
 ```
 
-`make bootstrap` 当前只准备 Go 工具；前端依赖使用模块的 `install` 入口。
+前端依赖使用模块的 `install` 入口。
 
-根 Makefile 分发到各模块 Makefile。Go lint 工具继续由 `tools/devtools/toolchains.json` 固定版本和校验和，但不再使用旧 CI 的 lint 基线豁免；发现问题会直接失败。
+根 Makefile 分发到各模块 Makefile。`tools/ci/toolchains.json` 固定 Go lint 工具的版本和校验和。`make lint-tool` 通过 `tools/ci/lint_tool.py` 安装该工具。lint 不使用旧 CI 的基线豁免；发现问题会直接失败。
 
 `ci-*` 命令使用 `.run/ci/go.work`，确保共享 Go 代码来自当前检出目录。不会覆盖开发者根目录的 `go.work`，也不会修改各模块的 `go.mod`。
 
@@ -110,10 +110,12 @@ make build MODULE=frontend/web
 make ci-tools
 make ci-plan LABELS="ci:backend/business ci:backend/runtimekit"
 make ci-plan LABELS=ci:none
-make verify MODULE=backend/business
+make ci-check MODULE=backend/business
+make ci-test MODULE=backend/business
+make ci-build MODULE=backend/business
 ```
 
-`ALL=1` 不再支持。`make verify BASE_REF=origin/main` 和 `make ci-plan BASE_REF=origin/main` 保留为本地差异工具：比较共同祖先到 HEAD，只选择直接变动的 Go 模块，不扩展依赖、不对公共文件全量兜底。GitHub 工作流通过事件数据选择模块，不使用这个本地入口；push 的比较范围和公共配置规则见上文。尚未提交的修改可以直接用 `MODULE=...` 运行检查。
+`ALL=1` 不再支持。`make ci-plan BASE_REF=origin/main` 保留为本地差异工具：比较共同祖先到 HEAD，只选择直接变动的 Go 模块，不扩展依赖、不对公共文件全量兜底。GitHub 工作流通过事件数据选择模块，不使用这个本地入口；push 的比较范围和公共配置规则见上文。尚未提交的修改可以直接用 `MODULE=...` 运行检查。
 
 ## 合并门禁
 
@@ -191,13 +193,3 @@ PR 标题使用相同的标题格式。正文汇总 PR 的最终改动，使用�
 禁止独立 `docs` 提交的规则从 `docs_forbidden_after`（`c5107e24`）之后生效。该提交及其祖先中的 `docs` 提交保留原类型，仍接受原有标题和正文检查；其他新增提交均受新规则约束，包括分叉分支上的提交。此生效点固定，不得移动来豁免后续提交。本地提交钩子和 PR 标题立即使用新规则。
 
 真实 merge commit 豁免，但普通提交仅写成 `Merge ...` 不会被放行。`--no-verify` 只能绕过本地钩子，push、PR 和手动运行中的 CI 仍会拦截不合规的新提交。PR 正文使用当前规则，直接推送 main 也会触发本工作流。
-
-perflab 模块的 test/race 命令还运行公共流程的 Python、JavaScript、配置和归档回归。CI 在该模块的测试任务中创建独立 Python 虚拟环境，按 `tools/perflab/requirements.txt` 安装固定版本依赖，避免依赖 runner 预装包。本地缺少依赖时，先创建虚拟环境，再使用其中的 Python 运行模块测试：
-
-```sh
-python3 -m venv .run/ci/python
-.run/ci/python/bin/python -m pip install -r tools/perflab/requirements.txt
-PATH="$PWD/.run/ci/python/bin:$PATH" make ci-test MODULE=tools/perflab
-```
-
-默认 fixture 不访问业务环境。真实 k6 容器 fixture 通过 `GOPULSE_PT_K6_FIXTURE=1` 显式执行，真实专用业务环境的缩短全流程验收仍需单独完成，不由模块 CI 自动启动。

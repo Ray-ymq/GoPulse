@@ -42,7 +42,6 @@ frontend/*/playwright-report/
 
 # Generated build output
 /dist/
-tools/devtools/bin/
 acceptance/bin/
 
 # Exporter module build output

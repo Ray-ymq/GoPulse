@@ -24,12 +24,11 @@ API 默认角色为 `business`；不再提供可观测平台路由。MySQL 保�
 在仓库根目录执行：
 
 ```sh
-make dev
-make verify MODULE=backend/business
-make integration SCOPE=business
-make stop
+make ci-check MODULE=backend/business
+make ci-test MODULE=backend/business
+make ci-build MODULE=backend/business
 ```
 
-集成验证需要独立环境和 Docker。配置说明见根目录 `.env.example`，部署说明见 [deploy/README.md](../../deploy/README.md)。
+部署配置和本地开发编排已移除。运行进程或执行集成验证前，需自行准备 MySQL、Redis、RabbitMQ 和 Elasticsearch，并按根目录 `.env.example` 配置环境变量。
 
 历史迁移保留原编号。`000021_remove_observability` 删除三张告警表，执行前应备份告警历史；降级仅恢复表结构。业务表与用户角色数据继续保留。

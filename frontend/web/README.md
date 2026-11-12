@@ -4,7 +4,7 @@
 
 ## 本地开发
 
-要求 Node.js 24.20.0 或更新版本。先按根目录说明启动后端依赖与业务进程，然后另开终端执行：
+要求 Node.js 24.20.0 或更新版本。先自行准备后端依赖并启动业务进程，然后另开终端执行：
 
 ```sh
 make -C frontend/web install
@@ -13,9 +13,9 @@ make -C frontend/web dev
 
 前端默认地址为 `http://127.0.0.1:5173`。Vite 读取根目录 `.env` 的 `FRONTEND_PORT`、`HTTP_PORT` 和 `GOPULSE_API_TARGET`。未指定 `GOPULSE_API_TARGET` 时，`/api` 代理到 `http://127.0.0.1:${HTTP_PORT:-8080}`。
 
-代理保留浏览器请求的 Host，使后端的同源写入校验可以核对 Origin。生产环境由 Nginx 同源代理 `/api`，无需在前端保存令牌或配置跨域 API 地址。登录与注册使用后端下发的 HttpOnly 会话 Cookie。
+代理保留浏览器请求的 Host，使后端的同源写入校验可以核对 Origin。生产环境需配置 `/api` 的同源代理，无需在前端保存令牌或配置跨域 API 地址。登录与注册使用后端下发的 HttpOnly 会话 Cookie。
 
-`make dev` 当前只负责后端进程；前端使用上面的独立终端启动和停止。
+本地开发编排已移除；前端使用上面的独立终端启动，并通过 Ctrl+C 停止。
 
 ## 页面与交互
 
@@ -57,7 +57,7 @@ npm run test:e2e
 
 该测试会自行启动本地 Vite 服务并在结束时停止。Linux 缺少浏览器运行库时，可执行 `npx playwright install --with-deps chromium`。真实数据库、搜索和异步通知的联调仍需使用已启动的业务环境验证。
 
-Compose 的 `frontend` 镜像使用 `deploy/docker/frontend.Dockerfile` 构建本模块。Nginx 保留 API 代理及健康检查，并对前端路由提供 SPA 回退。前端 CI 独立位于 `.github/workflows/frontend.yml`；现有 Go 模块 CI 选择规则保持不变。
+容器构建和部署配置已移除。部署静态产物时需自行配置 API 同源代理和前端路由回退。前端 CI 保留在 `.github/workflows/frontend.yml`。
 
 ## 目录
 

@@ -118,7 +118,7 @@ def is_documentation(path: str) -> bool:
 
 
 def changes_shared_ci(paths: list[str]) -> bool:
-    shared_files = {"Makefile", ".golangci.yml", ".conventional-commits.json", "tools/devtools/toolchains.json"}
+    shared_files = {"Makefile", ".golangci.yml", ".conventional-commits.json"}
     shared_prefixes = (".github/workflows/", "tools/make/", "tools/ci/")
     return any(not is_documentation(path) and (path in shared_files or path.startswith(shared_prefixes)) for path in paths)
 

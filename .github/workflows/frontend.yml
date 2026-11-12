@@ -2,9 +2,9 @@ name: Frontend CI
 on:
   push:
     branches: ['**']
-    paths: ['frontend/web/**', 'docs/design/gopulse-uiux.html', 'deploy/docker/frontend.Dockerfile', 'deploy/docker/frontend/nginx.conf', '.github/workflows/frontend.yml']
+    paths: ['frontend/web/**', 'docs/design/gopulse-uiux.html', '.github/workflows/frontend.yml']
   pull_request:
-    paths: ['frontend/web/**', 'docs/design/gopulse-uiux.html', 'deploy/docker/frontend.Dockerfile', 'deploy/docker/frontend/nginx.conf', '.github/workflows/frontend.yml']
+    paths: ['frontend/web/**', 'docs/design/gopulse-uiux.html', '.github/workflows/frontend.yml']
   workflow_dispatch:
 permissions:
   contents: read

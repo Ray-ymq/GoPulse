@@ -2,7 +2,7 @@
 
 ## 项目结构
 
-本仓库采用多模块结构，Go 服务和工具分别维护各自的 `go.mod`。业务系统和共享能力统一放在 `backend/`，前端统一放在 `frontend/`，工程工具统一放在 `tools/`。
+本仓库采用多模块结构，Go 模块分别维护各自的 `go.mod`。业务系统和共享能力统一放在 `backend/`，前端统一放在 `frontend/`，工程工具统一放在 `tools/`。
 
 ```text
 GoPulse/
@@ -12,11 +12,8 @@ GoPulse/
 ├── frontend/                # Vue 3、TypeScript 和 Vite 前端
 │   └── web/                 # 纸墨风格用户前端
 ├── tools/                   # 工程与测试工具
-│   ├── devtools/            # 开发环境、工具链、构建、验证
-│   ├── perflab/             # 压测工具、负载脚本、容量配置及报告处理
 │   ├── ci/                  # CI 模块选择、提交规范校验及相关测试
 │   └── make/                # 共享 Makefile 片段
-├── deploy/                  # Dockerfile、Compose 配置及部署资源
 ├── docs/                    # 技术文档及通用资料
 │   └── performance/         # 压测方案、报告和摘要
 ├── .github/                 # GitHub Actions 工作流及 PR 模板
@@ -28,13 +25,12 @@ GoPulse/
 ```
 
 - 模块清单以根 Makefile 的 `GO_MODULES` 和 `NPM_MODULES` 为准；新增、移动或移除模块时，同步更新构建入口、路径引用和相关文档。
-- 用户前端位于 `frontend/web/`，通过 `NPM_MODULES` 注册；开发与验证说明见 `frontend/web/README.md`。部署中的 `frontend` 服务提供静态页面、Nginx API 代理与健康检查。
-- 正式压测使用 `make pt`，执行条件见 `tools/perflab/flow/README.md`。
+- 用户前端位于 `frontend/web/`，通过 `NPM_MODULES` 注册；开发与验证说明见 `frontend/web/README.md`。部署配置、本地开发编排和压测工具已移除，重建前需自行准备运行环境。
 - Go 业务逻辑放在所属模块，后端共享能力放入 `backend/runtimekit/`，避免跨模块复制实现。
 - Go module 名称及 import 路径保持不变；本地模块目录由根 Makefile 和各模块的 `replace` 指令指定。
-- 压测方案和报告统一放在 `docs/performance/`，压测工具与配置放在 `tools/perflab/`。
+- 历史压测资料不作为当前可执行入口；新增压测工具时同步补充操作说明。
 - `.run/` 为本地运行和工具缓存目录，不作为源码维护；实际环境配置中的敏感值不得提交。
-- Compose 部署入口放在 `deploy/compose/`，本地开发、调试和追踪覆盖配置放在 `deploy/dev/`，Dockerfile 放在 `deploy/docker/`；环境变量示例统一维护在根目录 `.env.example`，使用说明见 `deploy/README.md`。
+- 环境变量示例统一维护在根目录 `.env.example`。
 
 ## Git 与协作约定
 - 任何代码、配置、文档或其他文件修改完成后，都必须完成必要验证并创建 Git commit，不能只将修改留在工作区。
