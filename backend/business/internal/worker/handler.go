@@ -28,8 +28,6 @@ type ConfirmingPublisher interface {
 	Publish(context.Context, string, string, amqp.Publishing) error
 }
 
-var ErrDuplicate = errors.New("projection already applied")
-
 type HandlerOptions struct {
 	Profile        Profile
 	MaxRetries     int
@@ -148,7 +146,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 	}
 
 	processErr := handler.processor.Process(messageContext, envelope)
-	if processErr == nil || errors.Is(processErr, ErrDuplicate) {
+	if processErr == nil || errors.Is(processErr, bus.ErrDuplicate) {
 		if err := handler.ack(delivery); err != nil {
 
 			handler.logFailure(messageContext, "message acknowledgement failed", delivery, attempt, "ack_failed")
@@ -167,7 +165,7 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		return processErr
 	}
 
-	if IsPermanent(processErr) {
+	if bus.IsPermanent(processErr) {
 
 		if err := handler.recordFailure(messageContext, envelope, "dead", permanentReason(processErr)); err != nil {
 			return handler.requeueFailure(messageContext, delivery, err)
@@ -444,7 +442,7 @@ func deliveryAttemptID(headers amqp.Table) string {
 }
 
 func permanentReason(err error) string {
-	var permanent *PermanentError
+	var permanent *bus.PermanentError
 	if errors.As(err, &permanent) {
 		return safeReason(permanent.Reason)
 	}

@@ -201,7 +201,7 @@ func TestDecodeDeliveryRejectsPropertyMismatches(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			delivery, _ := validDelivery(t, false)
 			mutate(&delivery)
-			if _, err := DecodeDelivery(delivery); !IsPermanent(err) {
+			if _, err := DecodeDelivery(delivery); !bus.IsPermanent(err) {
 				t.Fatalf("DecodeDelivery() error = %v, want permanent", err)
 			}
 		})
@@ -259,7 +259,7 @@ func validDelivery(t *testing.T, self bool) (amqp.Delivery, *acknowledgerFake) {
 }
 
 func TestSearchProfileRoutesPermanentProcessorFailureDirectlyToSearchDead(t *testing.T) {
-	processor := &processorFake{err: NewPermanentError("post_not_found")}
+	processor := &processorFake{err: bus.NewPermanentError("post_not_found")}
 	publisher := &publisherFake{}
 	handler, err := NewHandler(processor, publisher, HandlerOptions{
 		Profile: SearchProfile, MaxRetries: 3, PublishTimeout: time.Second,
@@ -384,7 +384,7 @@ func TestCanceledSecondaryConfirmRequeuesOriginal(t *testing.T) {
 }
 
 func TestHandlerAcknowledgesDuplicateProjection(t *testing.T) {
-	processor := &processorFake{err: ErrDuplicate}
+	processor := &processorFake{err: bus.ErrDuplicate}
 	handler := newTestHandler(t, processor, &publisherFake{}, nil)
 	delivery, acknowledger := validDelivery(t, false)
 	if err := handler.Handle(context.Background(), delivery); err != nil || acknowledger.acks != 1 || acknowledger.nacks != 0 {

@@ -17,6 +17,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
+	userhttp "github.com/Ray-ymq/GoPulse/backend/internal/user/http"
 	"github.com/gin-gonic/gin"
 )
 
@@ -110,7 +111,7 @@ func registeredRoutes(t *testing.T) map[routeKey]bool {
 		NewRouter(Dependencies{Probes: probes}, APIRoutes{
 			Auth:           auth.NewHandler(nil, nil),
 			Authentication: passThrough,
-			Users:          NewUserHandler(nil, nil, &user.MySQLRepository{}),
+			Users:          userhttp.NewHandler(nil, nil, &user.MySQLRepository{}),
 			Posts:          post.NewHandler(nil),
 			Comments:       comment.NewHandler(nil),
 			Bookmarks:      bookmark.NewHandler(nil),

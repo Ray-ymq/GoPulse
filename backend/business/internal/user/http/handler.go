@@ -1,6 +1,9 @@
-package http
+package userhttp
 
 import (
+	"context"
+	"net/url"
+
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/params"
@@ -11,19 +14,37 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type UserHandler struct {
-	profiles *user.ProfileService
-	posts    *post.Service
-	follows  *user.MySQLRepository
+type Profiles interface {
+	Get(context.Context, string, uint64) (user.Profile, error)
+	Update(context.Context, uint64, user.ProfileInput) (user.Profile, error)
+	ParseSearch(url.Values) (user.UserSearchOptions, error)
+	Search(context.Context, uint64, user.UserSearchOptions) ([]user.Profile, *string, error)
 }
 
-func NewUserHandler(profiles *user.ProfileService, posts *post.Service, follows ...*user.MySQLRepository) *UserHandler {
-	h := &UserHandler{profiles: profiles, posts: posts}
+type Posts interface {
+	List(context.Context, uint64, post.ListOptions) (post.Page, error)
+}
+
+type Follows interface {
+	SetFollow(context.Context, uint64, uint64, bool) error
+	Relations(context.Context, uint64, bool, user.RelationOptions) ([]user.Profile, *string, error)
+}
+
+type Handler struct {
+	profiles Profiles
+	posts    Posts
+	follows  Follows
+}
+
+func NewHandler(profiles Profiles, posts Posts, follows ...Follows) *Handler {
+	h := &Handler{profiles: profiles, posts: posts}
 	if len(follows) > 0 {
 		h.follows = follows[0]
 	}
 	return h
 }
+func (h *Handler) HasFollows() bool { return h.follows != nil }
+
 func viewer(c *gin.Context) (uint64, bool) {
 	id, ok := middleware.CurrentUserID(c)
 	if !ok {
@@ -31,7 +52,7 @@ func viewer(c *gin.Context) (uint64, bool) {
 	}
 	return id, ok
 }
-func (h *UserHandler) Get(c *gin.Context) {
+func (h *Handler) Get(c *gin.Context) {
 	id, ok := viewer(c)
 	if !ok {
 		return
@@ -43,7 +64,7 @@ func (h *UserHandler) Get(c *gin.Context) {
 	}
 	response.Data(c, 200, p)
 }
-func (h *UserHandler) Update(c *gin.Context) {
+func (h *Handler) Update(c *gin.Context) {
 	id, ok := viewer(c)
 	if !ok {
 		return
@@ -60,7 +81,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 	}
 	response.Data(c, 200, p)
 }
-func (h *UserHandler) Search(c *gin.Context) {
+func (h *Handler) Search(c *gin.Context) {
 	id, ok := viewer(c)
 	if !ok {
 		return
@@ -77,7 +98,7 @@ func (h *UserHandler) Search(c *gin.Context) {
 	}
 	response.Page(c, 200, records, next)
 }
-func (h *UserHandler) Posts(c *gin.Context) {
+func (h *Handler) Posts(c *gin.Context) {
 	id, ok := viewer(c)
 	if !ok {
 		return
@@ -101,7 +122,7 @@ func (h *UserHandler) Posts(c *gin.Context) {
 	response.Page(c, 200, page.Posts, page.NextCursor)
 }
 
-func (h *UserHandler) Follow(c *gin.Context) {
+func (h *Handler) Follow(c *gin.Context) {
 	id, ok := viewer(c)
 	if !ok {
 		return
@@ -126,7 +147,7 @@ func relationOptions(c *gin.Context) (post.ListOptions, error) {
 	}
 	return post.ParseListOptions(c.Request.URL.Query())
 }
-func (h *UserHandler) Relations(c *gin.Context) {
+func (h *Handler) Relations(c *gin.Context) {
 	id, ok := viewer(c)
 	if !ok {
 		return
@@ -147,7 +168,7 @@ func (h *UserHandler) Relations(c *gin.Context) {
 	}
 	response.Page(c, 200, records, next)
 }
-func (h *UserHandler) Following(c *gin.Context) {
+func (h *Handler) Following(c *gin.Context) {
 	id, ok := viewer(c)
 	if !ok {
 		return

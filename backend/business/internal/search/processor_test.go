@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
 )
 
 type performerFunc func(context.Context, *http.Request) (*http.Response, error)
@@ -75,13 +74,13 @@ func TestProcessorClassifiesPermanentFailures(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			processor, _ := NewProcessor(test.store, test.indexer)
-			if err := processor.Process(context.Background(), event); !worker.IsPermanent(err) {
+			if err := processor.Process(context.Background(), event); !bus.IsPermanent(err) {
 				t.Fatalf("Process() error = %v", err)
 			}
 		})
 	}
 	processor, _ := NewProcessor(processorStore{err: errors.New("mysql unavailable")}, &processorIndexer{})
-	if err := processor.Process(context.Background(), event); err == nil || worker.IsPermanent(err) {
+	if err := processor.Process(context.Background(), event); err == nil || bus.IsPermanent(err) {
 		t.Fatalf("temporary Process() error = %v", err)
 	}
 }

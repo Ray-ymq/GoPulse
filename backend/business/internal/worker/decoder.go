@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -9,50 +8,35 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type PermanentError struct {
-	Reason string
-}
-
-func (err *PermanentError) Error() string { return err.Reason }
-
-func permanent(reason string) error { return NewPermanentError(reason) }
-
-func NewPermanentError(reason string) error { return &PermanentError{Reason: reason} }
-
-func IsPermanent(err error) bool {
-	var target *PermanentError
-	return errors.As(err, &target)
-}
-
 // DecodeDelivery validates both the strict JSON envelope and the AMQP
 // properties that duplicate its identity and routing metadata.
 func DecodeDelivery(delivery amqp.Delivery) (bus.Envelope, error) {
 	envelope, err := bus.Decode(delivery.Body)
 	if err != nil {
-		return bus.Envelope{}, permanent("invalid_body")
+		return bus.Envelope{}, bus.NewPermanentError("invalid_body")
 	}
 	routingKey, err := envelope.RoutingKey()
 	if err != nil || delivery.RoutingKey != routingKey {
-		return bus.Envelope{}, permanent("routing_key_mismatch")
+		return bus.Envelope{}, bus.NewPermanentError("routing_key_mismatch")
 	}
 	metadata, err := envelope.Metadata()
 	if err != nil {
-		return bus.Envelope{}, permanent("invalid_envelope")
+		return bus.Envelope{}, bus.NewPermanentError("invalid_envelope")
 	}
 	if delivery.MessageId != metadata.MessageID {
-		return bus.Envelope{}, permanent("message_id_mismatch")
+		return bus.Envelope{}, bus.NewPermanentError("message_id_mismatch")
 	}
 	if delivery.ContentType != metadata.ContentType {
-		return bus.Envelope{}, permanent("content_type_mismatch")
+		return bus.Envelope{}, bus.NewPermanentError("content_type_mismatch")
 	}
 	if delivery.Type != metadata.Type {
-		return bus.Envelope{}, permanent("message_type_mismatch")
+		return bus.Envelope{}, bus.NewPermanentError("message_type_mismatch")
 	}
 	if delivery.DeliveryMode != amqp.Persistent {
-		return bus.Envelope{}, permanent("delivery_mode_mismatch")
+		return bus.Envelope{}, bus.NewPermanentError("delivery_mode_mismatch")
 	}
 	if delivery.Timestamp.IsZero() || delivery.Timestamp.UTC().Unix() != metadata.Timestamp.UTC().Unix() {
-		return bus.Envelope{}, permanent("timestamp_mismatch")
+		return bus.Envelope{}, bus.NewPermanentError("timestamp_mismatch")
 	}
 	return envelope, nil
 }

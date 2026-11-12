@@ -17,7 +17,6 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/correlation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
 )
 
 type DocumentStore interface {
@@ -94,7 +93,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 	ctx = traceContext
 	if envelope.EventType != bus.PostCreated && envelope.EventType != bus.PostUpdated && envelope.EventType != bus.PostDeleted {
 
-		return worker.NewPermanentError("unsupported_event_type")
+		return bus.NewPermanentError("unsupported_event_type")
 	}
 	if processor.businessState != nil && envelope.SchemaVersion == bus.SchemaVersionV2 {
 		environment, err := processor.businessState.Current(ctx)
@@ -104,7 +103,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 		}
 		if environment.Status != businessstate.StatusReady || environment.DataEpoch != envelope.DataEpoch {
 
-			return worker.NewPermanentError("stale_epoch")
+			return bus.NewPermanentError("stale_epoch")
 		}
 		if generation, generationErr := processor.resolveGeneration(ctx, envelope.DataEpoch); generationErr == nil {
 			exists, applicationErr := processor.businessState.FindApplication(ctx, businessstate.Application{
@@ -115,7 +114,7 @@ func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) 
 				return applicationErr
 			}
 			if exists {
-				return worker.ErrDuplicate
+				return bus.ErrDuplicate
 			}
 		}
 	}
@@ -183,7 +182,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 
 		var permanent *PermanentIndexError
 		if errors.As(indexErr, &permanent) {
-			return worker.NewPermanentError(permanent.Reason)
+			return bus.NewPermanentError(permanent.Reason)
 		}
 		return indexErr
 	}

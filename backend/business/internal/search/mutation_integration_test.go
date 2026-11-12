@@ -15,7 +15,6 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
 )
 
 func TestIntegrationV2CreateEditDeleteSearchAndDuplicate(t *testing.T) {
@@ -99,7 +98,7 @@ func TestIntegrationV2CreateEditDeleteSearchAndDuplicate(t *testing.T) {
 		if err := processor.Process(ctx, event); err != nil {
 			t.Fatal(err)
 		}
-		if err := processor.Process(ctx, event); !errors.Is(err, worker.ErrDuplicate) {
+		if err := processor.Process(ctx, event); !errors.Is(err, bus.ErrDuplicate) {
 			t.Fatalf("duplicate=%v", err)
 		}
 		if err := index.Refresh(ctx, result.Generation); err != nil {

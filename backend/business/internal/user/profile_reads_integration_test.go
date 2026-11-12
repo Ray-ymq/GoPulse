@@ -9,8 +9,8 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
+	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/post/rediscache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 )
 

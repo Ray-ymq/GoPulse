@@ -24,12 +24,13 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
+	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/post/rediscache"
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
+	userhttp "github.com/Ray-ymq/GoPulse/backend/internal/user/http"
 	"github.com/gin-gonic/gin"
 )
 
@@ -305,7 +306,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
 
 		routes.Auth = authHandler
-		routes.Users = backendhttp.NewUserHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users)
+		routes.Users = userhttp.NewHandler(user.NewProfileService(users, cfg.Auth.JWTSecret), postService, users)
 		routes.Posts = postHandler
 		routes.Comments = commentHandler
 		routes.Likes = likeHandler

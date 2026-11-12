@@ -8,12 +8,13 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
+	userhttp "github.com/Ray-ymq/GoPulse/backend/internal/user/http"
 	"github.com/gin-gonic/gin"
 )
 
 type APIRoutes struct {
 	Bookmarks            *bookmark.Handler
-	Users                *UserHandler
+	Users                *userhttp.Handler
 	Auth                 *auth.Handler
 	Posts                *post.Handler
 	Comments             *comment.Handler
@@ -59,7 +60,7 @@ func registerAPIV1Routes(router *gin.Engine, routes APIRoutes) {
 	}
 	if routes.Users != nil {
 		protected.PATCH("/users/me/profile", routes.Users.Update)
-		if routes.Users.follows != nil {
+		if routes.Users.HasFollows() {
 			protected.PUT("/users/:userId/follow", routes.Users.Follow)
 			protected.DELETE("/users/:userId/follow", routes.Users.Follow)
 			protected.GET("/users/me/following", routes.Users.Relations)
