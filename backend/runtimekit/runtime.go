@@ -55,7 +55,7 @@ func ValidateRuntimeEnvironment(component string) error {
 			return errors.New("invalid_configuration: " + prefix + "_SHUTDOWN_TIMEOUT")
 		}
 	}
-	keys := []string{TokenKey(componentID)}
+	keys := []string{}
 	if componentID == "backend" {
 		keys = append(keys, "AUTH_JWT_SECRET")
 	}

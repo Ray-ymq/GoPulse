@@ -210,7 +210,7 @@
         "name": "rabbitmq-plugins"
       },
       "data": {
-        "enabled_plugins": "[rabbitmq_management,rabbitmq_prometheus].\n"
+        "enabled_plugins": "[rabbitmq_management].\n"
       }
     }
   ]

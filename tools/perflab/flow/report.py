@@ -66,8 +66,7 @@ def report(directory, recompute=True):
     lines += ['', '未执行项目：`' + json.dumps(value['skipped'], ensure_ascii=False) + '`。',
               '缺失归档：`' + json.dumps(missing, ensure_ascii=False) + '`。',
               '重算失败：`' + json.dumps(replay_errors, ensure_ascii=False) + '`。', '',
-              '资源定义见 effective-config.json；环境、覆盖及各组原始证据均在本运行目录。',
-              'Redis 仅接入基础 INFO 统计；其余未接入指标见 coverage.json。',
+              '资源定义见 effective-config.json；环境、请求结果和数据核对结果均在本运行目录。系统指标和链路追踪已移除。',
               '异常容量档本身不等同于执行器故障。低负载、稳定性、资源与正确性分别验收。']
     (directory / 'report.md').write_text('\n'.join(lines) + '\n')
     return value

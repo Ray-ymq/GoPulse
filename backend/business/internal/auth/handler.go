@@ -9,7 +9,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/request"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
 	"github.com/gin-gonic/gin"
 )

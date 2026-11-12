@@ -58,3 +58,20 @@ class EnvironmentTests(unittest.TestCase):
                     self.assertNotIn('platform-api', snapshot(config)['application_settings'])
                 else:
                     with self.assertRaises(ValueError): snapshot(config)
+
+class PreflightTests(unittest.TestCase):
+    def test_preflight_uses_readiness_without_collectors(self):
+        from unittest.mock import patch
+        from flow.environment import preflight
+        record = {'environment': {'id': 'fixed'}}
+        with patch('flow.environment.prepared', return_value=record), \
+             patch('flow.environment.check_host'), \
+             patch('flow.environment.snapshot', return_value=record['environment']), \
+             patch('flow.environment.drained') as drained, \
+             patch('flow.environment.http', return_value=(200, {})) as http:
+            self.assertEqual(preflight({}), record)
+            drained.assert_called_once()
+            http.assert_called_once_with('http://127.0.0.1:18086', 'GET', '/ready')
+            http.return_value = (503, {})
+            with self.assertRaisesRegex(ValueError, '就绪检查失败'):
+                preflight({})

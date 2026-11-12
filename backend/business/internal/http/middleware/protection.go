@@ -17,7 +17,6 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 	"github.com/gin-gonic/gin"
@@ -250,15 +249,11 @@ func decisionResult(decision ratelimit.Decision) string {
 }
 
 func observeRateLimit(policy, mode, result string) {
-	if metrics := instrumentation.BackendActive(); metrics != nil {
-		metrics.ObserveRateLimit(policy, mode, result)
-	}
+
 }
 
 func observeResourceRejected(kind resourcebudget.Kind, reason string) {
-	if metrics := instrumentation.BackendActive(); metrics != nil {
-		metrics.ObserveResourceRejected(string(kind), reason)
-	}
+
 }
 
 func requestResourceKind(c *gin.Context) resourcebudget.Kind {

@@ -27,10 +27,10 @@ const (
 )
 
 type WorkerConfig struct {
-	MySQL                            MySQLConfig
-	RabbitMQURL                      string
-	Worker                           BusinessWorkerConfig
-	Trace                            TraceConfig
+	MySQL       MySQLConfig
+	RabbitMQURL string
+	Worker      BusinessWorkerConfig
+
 	BusinessAsyncMaxOpenRequirements uint64
 	BusinessAsyncMaxRetainedGroups   uint64
 	BusinessAsyncMaxRetainedBytes    uint64
@@ -133,10 +133,6 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return WorkerConfig{}, errors.New("BUSINESS_WORKER_RECONNECT_MAX must be greater than or equal to BUSINESS_WORKER_RECONNECT_MIN")
 	}
-	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "business-worker")
-	if err != nil {
-		return WorkerConfig{}, err
-	}
 	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
 	if err != nil {
 		return WorkerConfig{}, err
@@ -156,8 +152,8 @@ func LoadWorkerFrom(lookup LookupFunc) (WorkerConfig, error) {
 			MaxIdleConns:    maxIdleConns,
 			ConnMaxLifetime: connMaxLifetime,
 		},
-		RabbitMQURL:                      rabbitMQURL,
-		Trace:                            traceConfig,
+		RabbitMQURL: rabbitMQURL,
+
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		BusinessAsyncMaxRetainedGroups:   retainedGroups,
 		BusinessAsyncMaxRetainedBytes:    retainedBytes,

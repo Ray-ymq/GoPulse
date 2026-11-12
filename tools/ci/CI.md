@@ -63,7 +63,6 @@ python3 tools/ci/modules.py pr-labels --base-ref origin/main
 手动运行使用输入的 `ci:<模块目录>` 标签，不按路径补齐或扩大模块范围：
 
 - `ci:backend/business`：只运行业务系统的检查、构建和单测。
-- `ci:tools/perflab/mysqlcollector`：只运行压测 MySQL 采集工具的三个任务。
 - 多个模块标签：只运行这些模块，不增加其他模块。
 - `ci:backend/runtimekit`：只检查共享库本身，不自动检查使用它的模块。
 - 根 Makefile、CI、公共配置变化：仍只运行贴了标签的模块，不自动全量检查。

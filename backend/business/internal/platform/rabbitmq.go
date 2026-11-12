@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -25,7 +23,7 @@ func NewRabbitMQ(connectionURL string) (*RabbitMQ, error) {
 }
 
 func (checker *RabbitMQ) Check(ctx context.Context) (result error) {
-	defer func() { instrumentation.Dependency("rabbitmq", result) }()
+
 	dialer := &net.Dialer{Timeout: time.Second}
 	amqpConfig := amqp.Config{
 		Dial: func(network, address string) (net.Conn, error) {

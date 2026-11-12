@@ -12,17 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"time"
-
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/backend/internal/correlation"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 type DocumentStore interface {
@@ -47,11 +42,7 @@ func (store *MySQLDocumentStore) FindDocument(ctx context.Context, postID uint64
  SELECT t.post_id, '', '', t.deleted_at, t.deleted_at, NULL, t.content_revision, TRUE
  FROM post_search_tombstones t INNER JOIN business_environment e ON e.singleton=1 AND e.data_epoch=t.data_epoch
  WHERE t.post_id=?`, postID, postID).Scan(&document.PostID, &document.Title, &document.Content, &document.CreatedAt, &document.UpdatedAt, &document.EditedAt, &document.ContentRevision, &document.Deleted)
-	observedErr := err
-	if errors.Is(err, sql.ErrNoRows) {
-		observedErr = nil
-	}
-	instrumentation.Dependency("mysql", observedErr)
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return Document{}, sql.ErrNoRows
 	}
@@ -98,31 +89,21 @@ func (processor *Processor) WithBusinessState(repository *businessstate.Reposito
 }
 
 func (processor *Processor) Process(ctx context.Context, envelope bus.Envelope) error {
-	traceContext, span := tracing.Start(ctx, "search.process",
-		attribute.String("gopulse.event_id", envelope.EventID),
-		attribute.String("gopulse.event_type", string(envelope.EventType)),
-		attribute.String("gopulse.data_epoch", envelope.DataEpoch),
-		attribute.String("gopulse.command_id", envelope.CommandID),
-		attribute.String("gopulse.routing_contract_revision", businessstate.SearchRoutingContractV1),
-		attribute.String("gopulse.consumer", businessstate.ConsumerSearch),
-		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
-		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
-		attribute.Int64("gopulse.outbox_id", int64(tracing.OutboxID(ctx))),
-	)
-	defer span.End()
+	traceContext := ctx
+
 	ctx = traceContext
 	if envelope.EventType != bus.PostCreated && envelope.EventType != bus.PostUpdated && envelope.EventType != bus.PostDeleted {
-		span.SetStatus(codes.Error, "unsupported_event_type")
+
 		return worker.NewPermanentError("unsupported_event_type")
 	}
 	if processor.businessState != nil && envelope.SchemaVersion == bus.SchemaVersionV2 {
 		environment, err := processor.businessState.Current(ctx)
 		if err != nil {
-			span.SetStatus(codes.Error, "business_state_unavailable")
+
 			return err
 		}
 		if environment.Status != businessstate.StatusReady || environment.DataEpoch != envelope.DataEpoch {
-			span.SetStatus(codes.Error, "stale_epoch")
+
 			return worker.NewPermanentError("stale_epoch")
 		}
 		if generation, generationErr := processor.resolveGeneration(ctx, envelope.DataEpoch); generationErr == nil {
@@ -147,23 +128,16 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 		if deleter, ok := processor.indexer.(interface {
 			DeleteAlias(context.Context, uint64) error
 		}); ok {
-			indexStarted := time.Now()
-			indexContext, span := tracing.Start(ctx, "search.index.delete", attribute.Int64("gopulse.post_id", int64(envelope.PostID)))
-			defer span.End()
+
 			var deleteResult DeleteResult
 			if resultDeleter, resultOK := processor.indexer.(interface {
 				DeleteAliasResult(context.Context, uint64) (DeleteResult, error)
 			}); resultOK {
-				deleteResult, err = resultDeleter.DeleteAliasResult(indexContext, envelope.PostID)
+				deleteResult, err = resultDeleter.DeleteAliasResult(ctx, envelope.PostID)
 			} else {
-				err = deleter.DeleteAlias(indexContext, envelope.PostID)
+				err = deleter.DeleteAlias(ctx, envelope.PostID)
 			}
-			freshnessResult := "success"
-			if err != nil {
-				freshnessResult = "failure"
-				span.SetStatus(codes.Error, "delete_failed")
-			}
-			instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", freshnessResult)
+
 			if err != nil {
 				return err
 			}
@@ -191,9 +165,7 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 	if err != nil {
 		return err
 	}
-	indexStarted := time.Now()
-	indexContext, span := tracing.Start(ctx, "search.index", attribute.String("gopulse.event_id", envelope.EventID), attribute.Int64("gopulse.post_id", int64(envelope.PostID)), attribute.Int64("gopulse.content_revision", int64(document.ContentRevision)), attribute.Int64("gopulse.outbox_id", int64(tracing.OutboxID(ctx))))
-	defer span.End()
+
 	if envelope.SchemaVersion == bus.SchemaVersionV2 {
 		document.DataEpoch = envelope.DataEpoch
 	}
@@ -202,14 +174,13 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 	if resultIndexer, ok := processor.indexer.(interface {
 		IndexAliasResult(context.Context, Document) (IndexWriteResult, error)
 	}); ok {
-		writeResult, indexErr = resultIndexer.IndexAliasResult(indexContext, document)
+		writeResult, indexErr = resultIndexer.IndexAliasResult(ctx, document)
 	} else {
-		indexErr = processor.indexer.IndexAlias(indexContext, document)
+		indexErr = processor.indexer.IndexAlias(ctx, document)
 	}
 	if indexErr != nil {
-		processor.logIndex(indexContext, envelope, "failure")
-		instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "failure")
-		span.SetStatus(codes.Error, "index_failed")
+		processor.logIndex(ctx, envelope, "failure")
+
 		var permanent *PermanentIndexError
 		if errors.As(indexErr, &permanent) {
 			return worker.NewPermanentError(permanent.Reason)
@@ -227,8 +198,8 @@ func (processor *Processor) project(ctx context.Context, envelope bus.Envelope) 
 			return err
 		}
 	}
-	processor.logIndex(indexContext, envelope, "success", writeResult.Index)
-	instrumentation.Active().Observe("freshness_events_total", time.Since(indexStarted), "index", "success")
+	processor.logIndex(ctx, envelope, "success", writeResult.Index)
+
 	return nil
 }
 
@@ -269,8 +240,8 @@ func (processor *Processor) logIndex(ctx context.Context, envelope bus.Envelope,
 		slog.String("event_type", string(envelope.EventType)),
 		slog.Uint64("post_id", envelope.PostID),
 		slog.Uint64("content_revision", envelope.ContentRevision),
-		slog.Uint64("outbox_id", tracing.OutboxID(ctx)),
-		slog.String("attempt_id", tracing.AttemptID(ctx)),
+		slog.Uint64("outbox_id", correlation.OutboxID(ctx)),
+		slog.String("attempt_id", correlation.AttemptID(ctx)),
 		slog.String("consumer", businessstate.ConsumerSearch),
 		slog.String("routing_contract_revision", businessstate.SearchRoutingContractV1),
 		slog.String("stage", "index"),
@@ -285,7 +256,7 @@ func (processor *Processor) logIndex(ctx context.Context, envelope bus.Envelope,
 	if generation != "" {
 		attributes = append(attributes, slog.String("projection_generation", generation))
 	}
-	logging.WithTrace(processor.logger, ctx).Info("event processed", attributes...)
+	processor.logger.Info("event processed", attributes...)
 }
 
 type PermanentIndexError struct{ Reason string }

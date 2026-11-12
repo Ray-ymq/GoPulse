@@ -11,9 +11,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/runtimekit"
 	goredis "github.com/redis/go-redis/v9"
@@ -51,33 +49,6 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		logger = logging.Discard("backend")
 	}
 	lifecycleLogger := logging.Module(logger, "lifecycle")
-	traceProvider, err := tracing.New(context.Background(), tracing.Config{
-		Enabled: cfg.Trace.Enabled, Endpoint: cfg.Trace.Endpoint, ServiceName: cfg.Trace.ServiceName,
-		SampleRatio: cfg.Trace.SampleRatio, QueueCapacity: cfg.Trace.QueueCapacity, BatchSize: cfg.Trace.BatchSize,
-		BatchTimeout: cfg.Trace.BatchTimeout, ExportTimeout: cfg.Trace.ExportTimeout, ShutdownTimeout: cfg.Trace.ShutdownTimeout,
-	})
-	if err != nil {
-		return errors.New("initialize tracing")
-	}
-	defer func() {
-		traceShutdownTimeout := cfg.Trace.ShutdownTimeout
-		if traceShutdownTimeout <= 0 {
-			traceShutdownTimeout = tracing.DefaultShutdownTimeout
-		}
-		shutdownContext, cancel := context.WithTimeout(context.Background(), traceShutdownTimeout)
-		defer cancel()
-		if err := traceProvider.Shutdown(shutdownContext); err != nil {
-			lifecycleLogger.Warn("trace exporter shutdown incomplete", slog.String("reason", "shutdown_timeout"))
-		}
-	}()
-
-	metrics, err := instrumentation.NewBackend(instrumentation.BackendRoutes())
-	if err != nil {
-		return err
-	}
-	metrics.SetHTTPConcurrencyLimit(cfg.HTTPMaxConcurrency)
-	instrumentation.InstallBackend(metrics)
-	defer instrumentation.InstallBackend(nil)
 	goredis.SetLogger(&redislogging.VoidLogger{})
 	if err := backendhttp.ConfigureGinMode(cfg.AppEnv); err != nil {
 		return fmt.Errorf("configure Gin mode: %w", err)
@@ -92,31 +63,6 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	defer assembly.close(lifecycleLogger)
 
 	runtimekit.BindShutdown(signalContext, shutdownTimeout)
-	go assembly.samplePools(signalContext, metrics)
-	internalMetrics, err := runtimekit.StartConfiguredWithProbes(signalContext, "backend", metrics.Snapshot, assembly.probes)
-	if err != nil {
-		return err
-	}
-
-	sampleContext, cancelSample := context.WithCancel(signalContext)
-	sampleDone := make(chan struct{})
-	go func() {
-		defer close(sampleDone)
-		if assembly.sampleOutbox != nil {
-			assembly.sampleOutbox(sampleContext, metrics)
-		}
-	}()
-	defer func() {
-		cancelSample()
-		shutdownContext, cancel := runtimekit.ShutdownContext(shutdownTimeout)
-		defer cancel()
-		_ = internalMetrics.Shutdown(shutdownContext)
-		select {
-		case <-sampleDone:
-		case <-shutdownContext.Done():
-		}
-	}()
-
 	assembly.probes.Started()
 	server := newHTTPServer(cfg.HTTPAddress(), assembly.router)
 	return serveWithDispatcher(signalContext, server, assembly.dispatcher, lifecycleLogger)

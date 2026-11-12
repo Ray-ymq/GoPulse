@@ -19,10 +19,9 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/redis"
@@ -58,15 +57,14 @@ type roleResource struct {
 }
 
 type roleAssembly struct {
-	profile      roleProfile
-	database     *sql.DB
-	probes       *runtimekit.Probes
-	router       stdhttp.Handler
-	dispatcher   *outbox.Dispatcher
-	sampleOutbox func(context.Context, *instrumentation.Backend)
-	resources    []roleResource
-	closed       bool
-	pools        map[string]*sql.DB
+	profile    roleProfile
+	database   *sql.DB
+	probes     *runtimekit.Probes
+	router     stdhttp.Handler
+	dispatcher *outbox.Dispatcher
+	resources  []roleResource
+	closed     bool
+	pools      map[string]*sql.DB
 }
 
 func (assembly *roleAssembly) addResource(name string, close func() error) {
@@ -316,7 +314,6 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.Notifications = notificationHandler
 		routes.Search = searchpkg.NewHandler(searchService)
 		assembly.dispatcher = dispatcher
-		assembly.sampleOutbox = func(ctx context.Context, metrics *instrumentation.Backend) { eventOutbox.SampleMetrics(ctx, metrics) }
 	}
 
 	probes, err := runtimekit.NewProbes(root, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
@@ -361,22 +358,4 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}(),
 	)
 	return assembly, nil
-}
-
-func (assembly *roleAssembly) samplePools(ctx context.Context, metrics *instrumentation.Backend) {
-	previous := map[string]sql.DBStats{}
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		for name, db := range assembly.pools {
-			current := db.Stats()
-			metrics.ObserveMySQLPool(name, current, previous[name])
-			previous[name] = current
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
 }

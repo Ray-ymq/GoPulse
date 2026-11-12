@@ -11,11 +11,10 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/runtimekit"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
 	"github.com/gin-gonic/gin"
 )
@@ -79,13 +78,9 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 	if logger == nil {
 		logger = logging.New("backend", io.Discard)
 	}
+
 	httpLogger := logging.Module(logger, "http")
 	router.Use(
-		func(c *gin.Context) {
-			started := time.Now()
-			c.Next()
-			instrumentation.BackendActive().ObserveRequest(c.Request.Method, c.FullPath(), c.Writer.Status(), time.Since(started))
-		},
 		middleware.RequestID(httpLogger, dependencies.RequestIDGenerator),
 		middleware.Access(httpLogger),
 		middleware.Recovery(httpLogger),
@@ -140,16 +135,11 @@ func apiAdmission(limit int) gin.HandlerFunc {
 		}
 		select {
 		case slots <- struct{}{}:
-			if metrics := instrumentation.BackendActive(); metrics != nil {
-				metrics.ObserveHTTPStarted()
-				defer metrics.ObserveHTTPFinished()
-			}
+
 			defer func() { <-slots }()
 			c.Next()
 		default:
-			if metrics := instrumentation.BackendActive(); metrics != nil {
-				metrics.ObserveHTTPRejected()
-			}
+
 			response.Error(c, apperror.New(apperror.CodeBackendBusy, "service temporarily busy"))
 			c.Abort()
 		}

@@ -124,40 +124,28 @@ def check_host():
             'host_available_memory_bytes': available, 'disk_free_bytes': free, 'checked_at': utc()}
 
 
-def metrics(name):
-    if name.startswith('business-worker'):
-        port, token = 19102, 'BUSINESS_WORKER_METRICS_TOKEN'
-    elif name.startswith('search-indexer'):
-        port, token = 19103, 'SEARCH_INDEXER_METRICS_TOKEN'
-    else:
-        port, token = 19101, 'BACKEND_METRICS_TOKEN'
-    shell = f'exec wget -q -O - --header "Authorization: Bearer ${token}" http://127.0.0.1:{port}/internal/v1/metrics'
-    body = command(['docker', 'exec', f'{PROJECT}-{name}-1', 'sh', '-c', shell], timeout=4)
-    assert body and '# TYPE' in body, f'{name} 指标为空'
-    return body
+def budget():
+    raw = sql('SELECT COALESCE(SUM(open_requirements),0),COALESCE(SUM(parked_messages),0) FROM business_async_budget;')
+    opened, parked = map(int, raw.strip().split())
+    return {'open_requirements': opened, 'parked_messages': parked, 'sampled_at': time.time()}
 
 
-def drained():
-    from diagnostics.budget import parse_budget
-    # 必须等到检查开始后的成功采样，避免消费上一次写入前的零值。
-    started = math.ceil(time.time())
-    deadline = time.monotonic() + 30
+def drained(timeout=30):
+    deadline = time.monotonic() + timeout
     while True:
-        try:
-            values = parse_budget(metrics('backend'), not_before=started)
-            if values['open_requirements'] == values['parked_messages'] == 0:
-                break
-        except (ValueError, RuntimeError):
-            pass
+        values = budget()
+        if values['open_requirements'] == values['parked_messages'] == 0:
+            break
         if time.monotonic() >= deadline:
-            raise RuntimeError('应用预算采样不可用，或异步需求及 parked 消息尚未归零')
+            raise RuntimeError('异步需求或 parked 消息尚未归零')
         time.sleep(.5)
     raw = command(['docker', 'exec', f'{PROJECT}-rabbitmq-1', 'rabbitmqctl', '-q', 'list_queues',
                    'name', 'messages_ready', 'messages_unacknowledged'])
-    for line in raw.splitlines():
-        parts = line.split('\t')
-        if len(parts) == 3 and parts[1].isdigit():
-            assert parts[1:] == ['0', '0'], 'RabbitMQ 队列尚未清空'
+    queues = [line.split('\t') for line in raw.splitlines() if len(line.split('\t')) == 3 and line.split('\t')[1].isdigit()]
+    if not queues:
+        raise RuntimeError('RabbitMQ 队列检查没有返回队列')
+    for parts in queues:
+        assert parts[1:] == ['0', '0'], 'RabbitMQ 队列尚未清空'
 
 
 def flush_redis():

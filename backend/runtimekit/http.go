@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -103,7 +102,6 @@ func (w *runtimeWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // always replaces external IDs; private callers may propagate a valid ID.
 func HTTP(next http.Handler, logger *slog.Logger) http.Handler {
 	logger = ModuleLogger(logger, "http")
-	var sourceUnavailable atomic.Bool
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-ID")
 		if len(r.Header.Values("X-Request-ID")) != 1 || !ValidRequestID(id) {
@@ -132,14 +130,7 @@ func HTTP(next http.Handler, logger *slog.Logger) http.Handler {
 				if status == 0 {
 					status = 200
 				}
-				if r.URL.Path == "/metrics" {
-					if status >= 500 && sourceUnavailable.CompareAndSwap(false, true) {
-						logger.Warn("source unavailable", "request_id", id)
-					}
-					if status == 200 && sourceUnavailable.CompareAndSwap(true, false) {
-						logger.Info("source restored", "request_id", id)
-					}
-				}
+
 				logger.Info("http request completed", "event", "http_request", "request_id", id, "status", status, "duration_ms", time.Since(started).Milliseconds())
 			}
 		}()

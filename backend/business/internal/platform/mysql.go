@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/go-sql-driver/mysql"
 )
@@ -114,7 +112,7 @@ func (client *MySQL) DB() *sql.DB {
 
 func (client *MySQL) Check(ctx context.Context) error {
 	err := client.database.PingContext(ctx)
-	instrumentation.Dependency("mysql", err)
+
 	return err
 }
 

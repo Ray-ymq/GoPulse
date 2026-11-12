@@ -78,21 +78,19 @@ func mapError(err error) (int, apperror.Code, string) {
 	}
 
 	switch appError.Code {
-	case apperror.CodeValidationFailed, apperror.CodePluginPackageInvalid:
+	case apperror.CodeValidationFailed:
 		return stdhttp.StatusBadRequest, appError.Code, appError.Message
 	case apperror.CodeAuthenticationRequired, apperror.CodeInvalidCredentials:
 		return stdhttp.StatusUnauthorized, appError.Code, appError.Message
 	case apperror.CodePermissionDenied:
 		return stdhttp.StatusForbidden, appError.Code, appError.Message
-	case apperror.CodeAlertConflict, apperror.CodeAlertRuleLimit, apperror.CodeBootstrapProtected, apperror.CodePluginUpgradeRequired, apperror.CodeUsernameConflict, apperror.CodePluginConflict, apperror.CodePluginOperationInProgress, apperror.CodeDataEpochMismatch, apperror.CodeIdempotencyConflict:
+	case apperror.CodeBootstrapProtected, apperror.CodeUsernameConflict, apperror.CodeDataEpochMismatch, apperror.CodeIdempotencyConflict:
 		return stdhttp.StatusConflict, appError.Code, appError.Message
-	case apperror.CodeAlertNotFound, apperror.CodeUserNotFound, apperror.CodePostNotFound, apperror.CodeNotificationNotFound, apperror.CodePluginNotFound, apperror.CodeCommandResultUnknown:
+	case apperror.CodeUserNotFound, apperror.CodePostNotFound, apperror.CodeNotificationNotFound, apperror.CodeCommandResultUnknown:
 		return stdhttp.StatusNotFound, appError.Code, appError.Message
-	case apperror.CodePluginOperationFailed:
-		return stdhttp.StatusUnprocessableEntity, appError.Code, appError.Message
 	case apperror.CodeRateLimited:
 		return stdhttp.StatusTooManyRequests, appError.Code, appError.Message
-	case apperror.CodeRateLimitUnavailable, apperror.CodeBackendBusy, apperror.CodePostReadUnavailable, apperror.CodeAlertsUnavailable, apperror.CodeSetupUnavailable, apperror.CodeSearchUnavailable, apperror.CodeMonitorUnavailable, apperror.CodeMetricsUnavailable, apperror.CodeLogsUnavailable, apperror.CodeEventsUnavailable, apperror.CodeCommandOutcomeUnknown, apperror.CodeBusinessAsyncBacklog, apperror.CodeBusinessStageBusy, apperror.CodeBusinessStageUnavailable:
+	case apperror.CodeRateLimitUnavailable, apperror.CodeBackendBusy, apperror.CodePostReadUnavailable, apperror.CodeSetupUnavailable, apperror.CodeSearchUnavailable, apperror.CodeCommandOutcomeUnknown, apperror.CodeBusinessAsyncBacklog:
 		return stdhttp.StatusServiceUnavailable, appError.Code, appError.Message
 	default:
 		return stdhttp.StatusInternalServerError, apperror.CodeInternal, "an internal error occurred"

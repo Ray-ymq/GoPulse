@@ -234,7 +234,6 @@ func integrationEnvironment(t *testing.T) []string {
 	setDefaultEnvironment(&environment, "AUTH_JWT_TTL", "2h")
 	setDefaultEnvironment(&environment, "AUTH_COOKIE_NAME", "gopulse_integration_session")
 	setDefaultEnvironment(&environment, "AUTH_COOKIE_SECURE", "false")
-	setDefaultEnvironment(&environment, "BACKEND_METRICS_TOKEN", "phase21-backend-metrics-token-0123456789")
 	return environment
 }
 

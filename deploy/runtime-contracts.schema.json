@@ -64,7 +64,6 @@
           "entrypoint",
           "configuration",
           "compose_service",
-          "plugin_id",
           "compose_services",
           "replica",
           "diagnostic",
@@ -108,12 +107,6 @@
             "type": "string"
           },
           "compose_service": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "plugin_id": {
             "type": [
               "string",
               "null"
@@ -204,20 +197,15 @@
             "additionalProperties": false,
             "required": [
               "independent",
-              "via_monitor",
               "probe_listener",
               "paths",
               "identity_env",
               "identity_source",
-              "capacity_signals",
               "host_port_published"
             ],
             "properties": {
               "independent": {
                 "const": true
-              },
-              "via_monitor": {
-                "const": false
               },
               "probe_listener": {
                 "type": "string"
@@ -243,34 +231,6 @@
                   "environment",
                   "runtimekit-fallback"
                 ]
-              },
-              "capacity_signals": {
-                "type": "array",
-                "minItems": 1,
-                "uniqueItems": true,
-                "description": "Finite diagnostic signals; Backend's HTTP latency distribution is exposed as fixed buckets, count, and sum families.",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "metrics",
-                    "http_concurrency",
-                    "http_latency_distribution",
-                    "mysql_pool",
-                    "prefetch",
-                    "in_flight",
-                    "buffered_records",
-                    "buffered_bytes",
-                    "backpressure",
-                    "records_in_flight",
-                    "retrying",
-                    "partition_lag",
-                    "target_blocked",
-                    "event_queue",
-                    "plugins_running",
-                    "up"
-                  ],
-                  "pattern": "^[a-z0-9_-]+$"
-                }
               },
               "host_port_published": {
                 "const": false

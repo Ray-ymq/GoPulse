@@ -17,7 +17,7 @@ Go module 为 `github.com/Ray-ymq/GoPulse/backend`，使用 Go 1.26。
 
 API 默认角色为 `business`；不再提供可观测平台路由。MySQL 保存业务数据，Redis 提供缓存，RabbitMQ 传递异步任务，Elasticsearch 提供搜索。
 
-业务进程保留本地结构化日志、健康探针、内部性能指标和可选追踪，不再向 Monitor 发送日志。
+业务进程保留本地结构化日志、健康探针和退出管理。指标埋点、指标接口、采集任务和链路追踪已删除。
 
 ## 开发与验证
 

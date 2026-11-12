@@ -12,11 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/runtimekit"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -88,7 +87,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 	connectionUnavailable := false
 	for ctx.Err() == nil {
 		session, err := openSession(ctx, runtime.connectionURL, runtime.options)
-		instrumentation.Dependency("rabbitmq", err)
+
 		if err != nil {
 			attempt++
 			if !connectionUnavailable {
@@ -115,9 +114,7 @@ func (runtime *Runtime) Run(ctx context.Context) error {
 			return err
 		}
 		err = runtime.consumeSession(ctx, session, handler)
-		if ctx.Err() == nil {
-			instrumentation.Dependency("rabbitmq", err)
-		}
+
 		if closeErr := session.Close(); closeErr != nil {
 			runtime.safeLogger().Warn("session close failed", slog.String("reason", "close_failed"))
 		}
@@ -352,7 +349,7 @@ func nextConsumerTag(profile Profile, instanceID string) string {
 }
 
 func (session *amqpSession) Publish(ctx context.Context, exchange, routingKey string, publishing amqp.Publishing) (result error) {
-	defer func() { instrumentation.Dependency("rabbitmq", result) }()
+
 	session.publishMu.Lock()
 	defer session.publishMu.Unlock()
 	if err := ctx.Err(); err != nil {

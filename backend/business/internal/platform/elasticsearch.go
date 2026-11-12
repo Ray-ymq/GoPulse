@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v9"
@@ -68,11 +67,7 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 	}
 	operationContext, cancel := context.WithTimeout(ctx, client.timeout)
 	response, err := client.client.Perform(request.WithContext(operationContext))
-	observedErr := err
-	if response != nil && response.StatusCode >= 500 {
-		observedErr = errors.New("elasticsearch unavailable")
-	}
-	instrumentation.Dependency("elasticsearch", observedErr)
+
 	if err != nil {
 		cancel()
 		return nil, err

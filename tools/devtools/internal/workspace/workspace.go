@@ -98,8 +98,6 @@ type State struct {
 	EnvironmentDigest   string                   `json:"environment_digest"`
 	Logs                map[string]string        `json:"logs"`
 	Mode                string                   `json:"mode"`
-	MonitorImage        string                   `json:"monitor_image"`
-	MonitorInputDigest  string                   `json:"monitor_input_digest"`
 	Observe             bool                     `json:"observe"`
 	PreparationCommands [][]string               `json:"preparation_commands"`
 	Processes           map[string]ProcessRecord `json:"processes"`

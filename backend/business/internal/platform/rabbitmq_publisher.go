@@ -11,10 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/backend/internal/correlation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -216,12 +214,6 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 	publisher.publishMu.Lock()
 	defer publisher.publishMu.Unlock()
 
-	defer func() {
-		instrumentation.Dependency("rabbitmq", result)
-		if b := instrumentation.BackendActive(); b != nil {
-			b.ObservePublish(time.Now(), result)
-		}
-	}()
 	state, err := publisher.ensureState(ctx)
 	if err != nil {
 		return err
@@ -235,24 +227,11 @@ func (publisher *RabbitMQPublisher) Publish(ctx context.Context, envelope bus.En
 		Timestamp:    metadata.Timestamp,
 		Body:         body,
 	}
-	wire := tracing.WireFromContext(ctx)
-	if wire.TraceParent == "" {
-		parent, state, valid := envelope.TraceContext()
-		if valid {
-			wire = tracing.WireContext{TraceParent: parent, TraceState: state}
-		}
+	if attemptID := correlation.AttemptID(ctx); attemptID != "" {
+		publishing.Headers[correlation.AttemptIDHeader] = attemptID
 	}
-	if wire.TraceParent != "" {
-		publishing.Headers[tracing.TraceParentHeader] = wire.TraceParent
-		if wire.TraceState != "" {
-			publishing.Headers[tracing.TraceStateHeader] = wire.TraceState
-		}
-	}
-	if attemptID := tracing.AttemptID(ctx); attemptID != "" {
-		publishing.Headers[tracing.AttemptIDHeader] = attemptID
-	}
-	if outboxID := tracing.OutboxID(ctx); outboxID > 0 {
-		publishing.Headers[tracing.OutboxIDHeader] = int64(outboxID)
+	if outboxID := correlation.OutboxID(ctx); outboxID > 0 {
+		publishing.Headers[correlation.OutboxIDHeader] = int64(outboxID)
 	}
 	if err := state.channel.PublishWithContext(ctx, exchange, routingKey, true, false, publishing); err != nil {
 		publisher.resetState(state, true)

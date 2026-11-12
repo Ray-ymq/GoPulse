@@ -15,7 +15,7 @@ class LayoutTests(unittest.TestCase):
         for relative in (
             'backend/business/cmd/server/main.go',
             'backend/runtimekit/runtime.go',
-            'tools/perflab/mysqlcollector/collector/diagnostics.go',
+            'tools/perflab/cmd/pt-load/main.go',
             'tools/perflab/flow/runtime.py',
             'deploy/docker/backend.Dockerfile',
         ):

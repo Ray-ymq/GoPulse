@@ -160,7 +160,7 @@ func Deps(root, scope, explicitEnv string) error {
 }
 
 // Dev starts the source development lifecycle; observe adds the observation
-// dependencies, Marshaller, admin frontend, and Monitor container.
+// dependencies and the user frontend.
 func Dev(root string, observe bool, explicitEnv string) error {
 	if observe {
 		return fmt.Errorf("可观测平台已删除")
@@ -311,9 +311,6 @@ func (s *session) git(args ...string) string {
 	}
 	return value
 }
-
-// ensureMonitorImage reuses latest only when its source and revision labels
-// still match, so replacing the shared tag cannot silently reuse stale code.
 
 func existingOrFresh(s *session, requested request) *workspace.State {
 	if state, err := workspace.Load(s.ws); err == nil && state != nil {

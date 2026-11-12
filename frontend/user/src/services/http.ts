@@ -39,15 +39,6 @@ const knownErrorCodes = new Set([
   'business_async_backlog',
   'notification_not_found',
   'search_unavailable',
-  'metrics_unavailable',
-  'logs_unavailable',
-  'events_unavailable',
-  'plugin_package_invalid',
-  'plugin_not_found',
-  'plugin_conflict',
-  'plugin_operation_in_progress',
-  'plugin_operation_failed',
-  'monitor_unavailable',
   'internal_error',
 ])
 

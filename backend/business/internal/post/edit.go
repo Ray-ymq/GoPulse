@@ -5,37 +5,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 var ErrPermissionDenied = errors.New("post permission denied")
 
 // Update serializes author checks, content revisions and outbox facts on the row.
 func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input CreateInput) (Post, error) {
-	commitContext, commitSpan := tracing.Start(ctx, "post.commit", attribute.String("gopulse.operation", "update"), attribute.Int64("gopulse.post_id", int64(id)))
-	defer commitSpan.End()
-	ctx = commitContext
-	commitStarted := time.Now()
-	committed := false
-	defer func() {
-		result := "failure"
-		if committed {
-			result = "success"
-		}
-		if metrics := instrumentation.BackendActive(); metrics != nil {
-			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
-		}
-		if !committed {
-			commitSpan.SetStatus(codes.Error, "commit_failed")
-		}
-	}()
+
 	starter, ok := r.database.(transactionStarter)
 	if !ok || r.outbox == nil {
 		return Post{}, errors.New("post edit requires transactional outbox")
@@ -67,7 +46,7 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 			return Post{}, err
 		}
 		err = tx.Commit()
-		committed = err == nil
+
 		return record, err
 	}
 	at := r.clock().UTC()
@@ -79,23 +58,17 @@ func (r *MySQLRepository) Update(ctx context.Context, id, actor uint64, input Cr
 	if err != nil {
 		return Post{}, err
 	}
-	commitSpan.SetAttributes(
-		attribute.String("gopulse.event_id", event.EventID),
-		attribute.Int64("gopulse.content_revision", int64(revision)),
-	)
+
 	record, err := readUpdatedPost(ctx, tx, id, actor)
 	if err != nil {
 		return Post{}, err
 	}
-	outboxID, err := r.insertSearchMutation(ctx, tx, event, epoch)
+	_, err = r.insertSearchMutation(ctx, tx, event, epoch)
 	if err != nil {
 		return Post{}, err
 	}
-	if outboxID > 0 {
-		commitSpan.SetAttributes(attribute.Int64("gopulse.outbox_id", int64(outboxID)))
-	}
 	err = tx.Commit()
-	committed = err == nil
+
 	return record, err
 }
 

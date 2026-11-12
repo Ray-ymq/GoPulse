@@ -224,9 +224,7 @@ func imageDefinitionFor(root string, environment []string, cached bool, _ comman
 		}
 		adapted := cloneTarget(target)
 		adapted["context"] = rawJSON(root)
-		if name == "monitor" {
-			adapted["contexts"] = rawJSON(map[string]string{"plugin-packages": filepath.Join(root, ".run/packages")})
-		}
+
 		adapted["args"] = rawJSON(map[string]string{"VERSION": values["GOPULSE_VERSION"], "REVISION": values["GOPULSE_REVISION"], "GOPROXY": proxy})
 		adapted["tags"] = rawJSON([]string{"gopulse/" + name + ":" + values["GOPULSE_VERSION"] + "-" + values["GOPULSE_REVISION"][:12], "gopulse/" + name + ":latest"})
 		adapted["platforms"] = rawJSON([]string{Platform})

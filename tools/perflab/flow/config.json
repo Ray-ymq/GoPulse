@@ -9,7 +9,7 @@
   "measurement_seconds": 300,
   "soak_seconds": 1800,
   "recovery_seconds": 600,
-  "sample_seconds": 5,
+  "check_seconds": 5,
   "repeat_count": 3,
   "refine_iterations": 8,
   "relative_width": 0.1,

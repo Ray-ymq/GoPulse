@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/backend/internal/correlation"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -117,8 +116,8 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 			handler := newTestHandler(t, processor, publisher, logger)
 			delivery, acknowledger := validDelivery(t, false)
 			delivery.Headers[AttemptHeader] = test.attempt
-			originalAttemptID := tracing.NewAttemptID()
-			delivery.Headers[tracing.AttemptIDHeader] = originalAttemptID
+			originalAttemptID := correlation.NewAttemptID()
+			delivery.Headers[correlation.AttemptIDHeader] = originalAttemptID
 			if err := handler.Handle(context.Background(), delivery); err != nil {
 				t.Fatalf("Handle() error = %v", err)
 			}
@@ -133,9 +132,9 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 				t.Fatal("secondary publish did not preserve message identity")
 			}
 			if test.name == "retry" {
-				nextAttemptID, ok := call.message.Headers[tracing.AttemptIDHeader].(string)
+				nextAttemptID, ok := call.message.Headers[correlation.AttemptIDHeader].(string)
 				if !ok || nextAttemptID == originalAttemptID || len(nextAttemptID) != 32 {
-					t.Fatalf("retry attempt ID = %#v, want a new valid attempt ID", call.message.Headers[tracing.AttemptIDHeader])
+					t.Fatalf("retry attempt ID = %#v, want a new valid attempt ID", call.message.Headers[correlation.AttemptIDHeader])
 				}
 			}
 			logged := output.String()
@@ -293,8 +292,8 @@ func TestSearchProfileDefersExhaustedV2ProjectionFailure(t *testing.T) {
 	delivery, acknowledger := validV2SearchDelivery(t)
 	delivery.Headers[AttemptHeader] = int32(3)
 	originalBody := append([]byte(nil), delivery.Body...)
-	originalAttemptID := tracing.NewAttemptID()
-	delivery.Headers[tracing.AttemptIDHeader] = originalAttemptID
+	originalAttemptID := correlation.NewAttemptID()
+	delivery.Headers[correlation.AttemptIDHeader] = originalAttemptID
 	if err := handler.Handle(context.Background(), delivery); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
@@ -319,9 +318,9 @@ func TestSearchProfileDefersExhaustedV2ProjectionFailure(t *testing.T) {
 	if deferredEnvelope.EventID != originalEnvelope.EventID || deferredEnvelope.DataEpoch != originalEnvelope.DataEpoch || deferredEnvelope.CommandID != originalEnvelope.CommandID {
 		t.Fatalf("deferred event identity = %+v, want %+v", deferredEnvelope, originalEnvelope)
 	}
-	nextAttemptID, ok := call.message.Headers[tracing.AttemptIDHeader].(string)
+	nextAttemptID, ok := call.message.Headers[correlation.AttemptIDHeader].(string)
 	if !ok || nextAttemptID == originalAttemptID || len(nextAttemptID) != 32 {
-		t.Fatalf("deferred attempt ID = %#v, want a new valid attempt ID", call.message.Headers[tracing.AttemptIDHeader])
+		t.Fatalf("deferred attempt ID = %#v, want a new valid attempt ID", call.message.Headers[correlation.AttemptIDHeader])
 	}
 }
 
@@ -406,14 +405,16 @@ func (p *parkingAdmission) ParkMessage(context.Context, bus.ParkingMessage) erro
 	return nil
 }
 
-func TestParkingBacksOffAndDoesNotCountAsProjectionSuccess(t *testing.T) {
-	registry, err := instrumentation.New("search-indexer")
-	if err != nil {
-		t.Fatal(err)
+func TestDependencyTimeoutRetriesOnlyTheDelivery(t *testing.T) {
+	publisher := &publisherFake{}
+	handler := newTestHandler(t, &processorFake{err: context.DeadlineExceeded}, publisher, nil)
+	delivery, ack := validDelivery(t, false)
+	if err := handler.Handle(context.Background(), delivery); err != nil || ack.acks != 1 || ack.nacks != 0 || len(publisher.calls) != 1 {
+		t.Fatalf("err=%v ack=%+v publish=%+v", err, ack, publisher.calls)
 	}
-	previous := instrumentation.Active()
-	instrumentation.Install(registry)
-	defer instrumentation.Install(previous)
+}
+
+func TestParkingBacksOffWithoutProcessingProjection(t *testing.T) {
 	admission := &parkingAdmission{}
 	processor := &processorFake{}
 	handler, err := NewHandler(processor, &publisherFake{}, HandlerOptions{Profile: SearchProfile, PublishTimeout: time.Second, Admission: admission})
@@ -426,21 +427,5 @@ func TestParkingBacksOffAndDoesNotCountAsProjectionSuccess(t *testing.T) {
 	}
 	if admission.calls != 2 || ack.acks != 1 || ack.nacks != 0 || processor.calls != 0 {
 		t.Fatalf("admission=%+v ack=%+v processor=%+v", admission, ack, processor)
-	}
-	raw, ok := registry.Snapshot()
-	if !ok {
-		t.Fatal("metrics unavailable")
-	}
-	if !strings.Contains(string(raw), `gopulse_search_indexer_messages_total{operation="create",result="parked"} 1`) || strings.Contains(string(raw), `gopulse_search_indexer_messages_total{operation="create",result="success"} 1`) {
-		t.Fatalf("parking metrics=%s", raw)
-	}
-}
-
-func TestDependencyTimeoutRetriesOnlyTheDelivery(t *testing.T) {
-	publisher := &publisherFake{}
-	handler := newTestHandler(t, &processorFake{err: context.DeadlineExceeded}, publisher, nil)
-	delivery, ack := validDelivery(t, false)
-	if err := handler.Handle(context.Background(), delivery); err != nil || ack.acks != 1 || ack.nacks != 0 || len(publisher.calls) != 1 {
-		t.Fatalf("err=%v ack=%+v publish=%+v", err, ack, publisher.calls)
 	}
 }

@@ -74,7 +74,5 @@ func TestLoadSearchIndexerUsesOnlyIndexerDependencies(t *testing.T) {
 	if cfg.BusinessAsyncMaxOpenRequirements != 10000 {
 		t.Fatalf("search indexer business async limit = %d, want 10000", cfg.BusinessAsyncMaxOpenRequirements)
 	}
-	if cfg.Trace.Enabled || cfg.Trace.ServiceName != "search-indexer" {
-		t.Fatalf("search indexer trace defaults = %#v", cfg.Trace)
-	}
+
 }

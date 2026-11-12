@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
-	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 )
 
 var (
@@ -171,13 +169,4 @@ func commandReadContext(ctx context.Context) (context.Context, context.CancelFun
 		ctx = context.Background()
 	}
 	return context.WithTimeout(context.WithoutCancel(ctx), 500*time.Millisecond)
-}
-
-func setCommandTrace(envelope *bus.Envelope, ctx context.Context) {
-	if envelope == nil || ctx == nil {
-		return
-	}
-	if wire := tracing.WireFromContext(ctx); wire.TraceParent != "" {
-		envelope.SetTraceContext(wire.TraceParent, wire.TraceState)
-	}
 }

@@ -11,10 +11,7 @@ from .environment import prepared, preflight, snapshot, source_hashes
 from .common import command
 from . import baseline
 from .observe import Observation, recovery
-from .analysis import summarize
-from .diagnose import capture_logs
 from .audit import build as audit, capture_baseline
-from .diagnostics_registry import registry
 
 
 class Abort(RuntimeError):
@@ -126,11 +123,6 @@ class Backend:
             self.run.update('stopping')
             raise Abort('manual_stop', 130)
 
-    def track_observation(self, observation):
-        for process in (observation.diagnostics.process, observation.diagnostics.node,
-                        observation.diagnostics.mysql_source.process, observation.sampler.source.process):
-            self.run.processes.track(process)
-
     def restore(self):
         self.check_stop()
         if source_hashes() != self.value['source_sha256']:
@@ -152,27 +144,21 @@ class Backend:
         output = self.run.directory / 'idle'
         observation = Observation(self.preparation, output, self.config, self.expected).start()
         self.collection = observation
-        self.track_observation(observation)
-        start = time.time()
         try:
             deadline = time.monotonic() + self.config['idle_seconds']
             while time.monotonic() < deadline:
                 self.check_stop()
-                observation.check()
+                observation.safety(output / 'safety.json')
                 time.sleep(.1)
         finally:
-            end = time.time()
-            error = observation.close()
+            observation.close()
             self.collection = None
-        evidence = summarize(output, start, end)
-        if error or evidence['status'] != 'complete':
-            raise Abort('空载观测证据不完整')
 
     def group(self, name, target, seconds, scan, route):
         self.check_stop()
         self.run.update(stage=name, target_rps=target)
         output = self.run.directory / 'groups' / name
-        for folder in ('metrics', 'diagnostics', 'logs'):
+        for folder in ('logs',):
             (output / folder).mkdir(parents=True, mode=0o700)
         task = contract('task', group_id=name, run_id=self.run.id, start_rps=self.config['start_rps'], max_rps=self.config['max_rps'],
                         stages=[{'name': name, 'target_rps': target, 'warmup_seconds': self.config['warmup_seconds'], 'measurement_seconds': seconds}],
@@ -195,7 +181,6 @@ class Backend:
             capture_baseline(output, self.preparation)
             observation = Observation(self.preparation, output, self.config, self.expected).start()
             self.collection = observation
-            self.track_observation(observation)
             observation.safety(output / 'safety.json')
             with (output / 'logs/load.log').open('x') as log:
                 process = self.run.processes.start([str(self.preparation / 'bin/pt-load'), '--task', str(output / 'task.json')],
@@ -220,8 +205,6 @@ class Backend:
             result['stop_reason'] = load_result['stop_reason']
             if process.returncode:
                 raise Abort('负载执行器异常：' + str(load_result['stop_reason']))
-            observation.diagnostics.trigger('stage_end')
-            capture_logs(output / 'logs', __import__('datetime').datetime.fromtimestamp(start, __import__('datetime').timezone.utc).isoformat())
             result['recovery'] = recovery(observation, self.preparation, self.config, self.expected, self.run.stopped)
             if self.run.stopped():
                 raise Abort('manual_stop', 130)
@@ -243,26 +226,8 @@ class Backend:
             if observation:
                 close_error = observation.close()
                 self.collection = None
-                windows = result['load']['stages']
-                window_results = []
-                for stage in windows:
-                    begin, finish = stage.get('begin_ms', 0) / 1000, stage.get('end_ms', 0) / 1000
-                    phase = 'measurement'
-                    if finish <= begin:
-                        begin, finish = stage.get('scenario_started_ms', 0) / 1000, stage.get('observed_end_ms', 0) / 1000
-                        phase = 'warmup'
-                    if finish > begin > 0:
-                        try:
-                            value = summarize(output, begin, finish)
-                            target = output / 'diagnostics' / (stage['name'] + '.json')
-                            (output / 'diagnostics-summary.json').replace(target)
-                            value['file'] = str(target.relative_to(output))
-                            value['window']['phase'] = phase
-                            window_results.append(value)
-                        except Exception as error:
-                            window_results.append({'status': 'incomplete', 'reasons': [type(error).__name__]})
-                result['evidence'] = {'passed': bool(window_results) and not close_error and all(v['status'] == 'complete' for v in window_results),
-                                      'windows': window_results, 'collection_error': str(close_error) if close_error else None}
+                result['evidence'] = {'passed': not close_error and result['execution_completed'],
+                                      'source': 'load-result.json', 'collection_error': str(close_error) if close_error else None}
             result['finished_at'] = utc()
             write_json(output / 'result.json', result)
         if failure:
@@ -292,7 +257,6 @@ def execute(config):
         from .__main__ import plan
         write_json(run.directory / 'plan.json', plan(config))
         write_json(run.directory / 'environment.json', value['environment'])
-        write_json(run.directory / 'coverage.json', registry())
         backend = Backend(run, config, value)
         run.update(stage='data')
         backend.restore()
@@ -301,7 +265,7 @@ def execute(config):
         backend.restore()
         value.update(ready=False, last_run_id=run.id)
         write_json(STATE / 'prepared.json', value)
-        run.update('running', stage='observation')
+        run.update('running', stage='load')
         pipeline = Pipeline(config, backend)
         code = pipeline.run()
     except KeyboardInterrupt:

@@ -109,9 +109,6 @@ def accept(mode, reuse_access=False):
     api.call('POST', '/api/v1/auth/login', values)
     evidence = {'mode': mode, 'started_at': now(), 'revision': k8s.identity()[1], 'login': True}
     business(api, mode, evidence)
-    if os.environ.get('TRACE') == '1':
-        from tracecheck import verify
-        evidence['tracing'] = verify(mode, evidence['started_at'])
     evidence['images'] = {row['metadata']['name']: [c['image'] for c in row['spec']['containers']] for row in json.loads(k8s.kube('-n', ns, 'get', 'pods', '-o', 'json'))['items'] if row['status']['phase'] == 'Running'}
     evidence['finished_at'] = now()
     path = k8s.PRIVATE / mode / 'acceptance.json'

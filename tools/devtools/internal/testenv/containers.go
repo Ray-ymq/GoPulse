@@ -200,7 +200,6 @@ func (d *dependencyContainers) values(ctx context.Context, observe bool) (envfil
 		values["RABBITMQ_MANAGEMENT_PORT"] = strconv.Itoa(managementPort)
 	}
 
-	values["REDIS_EXPORTER_HTTP_HOST"] = "127.0.0.1"
 	for key, port := range reservePorts([]string{"HTTP_PORT"}) {
 		values[key] = strconv.Itoa(port)
 	}

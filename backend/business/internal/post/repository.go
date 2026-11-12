@@ -12,12 +12,9 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
+	"github.com/Ray-ymq/GoPulse/backend/internal/correlation"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 var ErrNotFound = errors.New("post not found")
@@ -130,25 +127,12 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 	if repository.outbox == nil {
 		return createPost(ctx, repository.database, authorID, title, content)
 	}
-	commitAttemptID := tracing.NewAttemptID()
-	commitContext, commitSpan := tracing.Start(ctx, "post.commit", attribute.String("gopulse.operation", "create"), attribute.String("gopulse.attempt_id", commitAttemptID))
-	commitContext = tracing.WithAttemptID(commitContext, commitAttemptID)
-	defer commitSpan.End()
+	commitAttemptID := correlation.NewAttemptID()
+	commitContext := ctx
+	commitContext = correlation.WithAttemptID(commitContext, commitAttemptID)
+
 	ctx = commitContext
-	commitStarted := time.Now()
-	committed := false
-	defer func() {
-		result := "failure"
-		if committed {
-			result = "success"
-		}
-		if metrics := instrumentation.BackendActive(); metrics != nil {
-			metrics.ObserveFreshness("commit", result, time.Since(commitStarted))
-		}
-		if !committed {
-			commitSpan.SetStatus(codes.Error, "commit_failed")
-		}
-	}()
+
 	starter, ok := repository.database.(transactionStarter)
 	if !ok {
 		return Post{}, errors.New("create post: database does not support transactions")
@@ -167,23 +151,15 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 		return Post{}, errors.New("create post event")
 	}
 	event.ContentRevision = record.ContentRevision
-	commitSpan.SetAttributes(
-		attribute.String("gopulse.event_id", event.EventID),
-		attribute.Int64("gopulse.post_id", int64(record.ID)),
-		attribute.Int64("gopulse.content_revision", int64(record.ContentRevision)),
-	)
+
 	outboxID, err := insertOutbox(ctx, transaction, repository.outbox, event)
 	if err != nil {
 		return Post{}, errors.New("create post outbox event")
 	}
-	if outboxID > 0 {
-		commitSpan.SetAttributes(attribute.Int64("gopulse.outbox_id", int64(outboxID)))
-	}
 	if err := transaction.Commit(); err != nil {
 		return Post{}, errors.New("commit post transaction")
 	}
-	committed = true
-	logging.WithTrace(repository.logger, commitContext).Info("post committed",
+	repository.logger.Info("post committed",
 		slog.String("event_id", event.EventID),
 		slog.Uint64("post_id", record.ID),
 		slog.Uint64("content_revision", record.ContentRevision),
@@ -196,8 +172,8 @@ func (repository *MySQLRepository) Create(ctx context.Context, authorID uint64, 
 }
 
 // CreateWithCommand writes a post fact, command result, v2 post.created event,
-// and its search obligation in one MySQL transaction. No Redis, broker, ES, or
-// telemetry export is performed while the transaction is open.
+// and its search obligation in one MySQL transaction.
+// 事务期间不调用 Redis、消息代理或 Elasticsearch。
 func (repository *MySQLRepository) CreateWithCommand(ctx context.Context, authorID uint64, title, content string, request CommandRequest, requestDigest []byte) (CreateResult, error) {
 	if repository == nil || repository.database == nil || repository.outbox == nil || repository.state == nil {
 		return CreateResult{}, ErrCommandActivation
@@ -265,7 +241,7 @@ func (repository *MySQLRepository) CreateWithCommand(ctx context.Context, author
 	if err != nil {
 		return CreateResult{}, errors.New("create v2 post event")
 	}
-	setCommandTrace(&event, ctx)
+
 	payload, err := bus.Encode(event)
 	if err != nil {
 		return CreateResult{}, errors.New("encode v2 post event")
@@ -418,7 +394,7 @@ func (repository *MySQLRepository) insertSearchMutation(ctx context.Context, tx 
 		if err != nil {
 			return 0, err
 		}
-		setCommandTrace(&event, ctx)
+
 		payload, err := bus.Encode(event)
 		if err != nil {
 			return 0, err
@@ -532,8 +508,7 @@ func (repository *MySQLRepository) FindPublicByID(ctx context.Context, postID ui
 // business-state repository so the epoch read uses the same authoritative
 // database connection as the post fact.
 func (repository *MySQLRepository) ReadContext(ctx context.Context, postID uint64) (readContext ReadContext, err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_context", err, time.Since(started)) }()
+
 	if repository == nil || repository.database == nil || postID == 0 {
 		return ReadContext{}, errors.New("read post context: invalid argument")
 	}
@@ -566,8 +541,7 @@ WHERE e.singleton=1`, postID).Scan(&epoch, &status, &authorID, &revision)
 // FindBody is version constrained. A revision mismatch is not silently
 // rebound to the current row; the caller must start a new request read.
 func (repository *MySQLRepository) FindBody(ctx context.Context, key BodyKey) (body Body, err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_body", err, time.Since(started)) }()
+
 	if repository == nil || repository.database == nil || !key.Valid() {
 		return Body{}, errors.New("find post body: invalid argument")
 	}
@@ -615,8 +589,7 @@ WHERE e.singleton=1`, key.PostID, key.ContentRevision).Scan(
 // authoritative path. Both counts are read by one SQL statement so a detail
 // response never turns a failed count into a fabricated zero.
 func (repository *MySQLRepository) FindDynamic(ctx context.Context, postID, authorID uint64) (dynamic DynamicProjection, err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_dynamic", err, time.Since(started)) }()
+
 	if repository == nil || repository.database == nil || postID == 0 || authorID == 0 {
 		return DynamicProjection{}, errors.New("find post dynamic data: invalid argument")
 	}
@@ -637,18 +610,6 @@ WHERE p.id=? AND p.author_id=?`, postID, authorID).Scan(
 	return dynamic, nil
 }
 
-func observePostDB(operation string, err error, elapsed time.Duration) {
-	if metrics := instrumentation.BackendActive(); metrics != nil {
-		result := "success"
-		if errors.Is(err, ErrReadContextChanged) {
-			result = "version_changed"
-		} else if err != nil {
-			result = "failure"
-		}
-		metrics.ObserveDBOperation(operation, result, elapsed)
-	}
-}
-
 func findPublicByID(ctx context.Context, database database, postID uint64) (PublicProjection, error) {
 	row := database.QueryRowContext(ctx, fmt.Sprintf(postPublicReadSelect, "")+`
 WHERE p.id = ?`, postID)
@@ -663,8 +624,7 @@ WHERE p.id = ?`, postID)
 }
 
 func (repository *MySQLRepository) LikedByViewer(ctx context.Context, postID, viewerID uint64) (liked bool, err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
+
 	if viewerID == 0 {
 		return false, nil
 	}
@@ -823,8 +783,7 @@ WHERE p.id IN (` + strings.Join(placeholders, ",") + `)`
 
 // HydrateAuthors refreshes mutable summaries after cache reads, in one query.
 func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records []Post) (err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
+
 	if len(records) == 0 {
 		return nil
 	}
@@ -861,8 +820,7 @@ func (repository *MySQLRepository) HydrateAuthors(ctx context.Context, records [
 }
 
 func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, viewer uint64) (err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
+
 	if len(records) == 0 || viewer == 0 {
 		return nil
 	}
@@ -896,8 +854,7 @@ func (r *MySQLRepository) HydrateFollowing(ctx context.Context, records []Post, 
 
 // HydrateBookmarks never writes personalized facts into a shared projection.
 func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, viewer uint64) (err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_viewer", err, time.Since(started)) }()
+
 	for i := range records {
 		records[i].BookmarkedByMe = false
 	}
@@ -935,8 +892,7 @@ func (r *MySQLRepository) HydrateBookmarks(ctx context.Context, records []Post, 
 // FindViewerProjection rechecks the authoritative key in the same SQL snapshot
 // as counts, author data and viewer relationships.
 func (repository *MySQLRepository) FindViewerProjection(ctx context.Context, expected ReadContext, viewer uint64) (projection ViewerProjection, err error) {
-	started := time.Now()
-	defer func() { observePostDB("post_dynamic", err, time.Since(started)) }()
+
 	var epoch, status string
 	var author, revision uint64
 	err = repository.database.QueryRowContext(ctx, `

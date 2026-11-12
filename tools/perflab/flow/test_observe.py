@@ -4,10 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from flow.audit import parse_events
-from flow.observe import Observation, recovered
-from flow.sample import resource, parse_rabbitmq
-from flow.diagnose import check_scene
-from diagnostics.metrics import parse_metrics, summarize_source
+from flow.observe import Observation
 
 
 class ObservationTests(unittest.TestCase):
@@ -40,28 +37,27 @@ class ObservationTests(unittest.TestCase):
             _, errors = parse_events(path)
             self.assertEqual(sum(errors.values()), 2)
 
-    def test_recovery(self):
-        value = {'ok': True, 'business': True, 'budget': {'open_requirements': 0, 'parked_messages': 0}}
-        sample = {'rabbitmq': {'messages_ready': 0, 'messages_unacknowledged': 0}}
-        self.assertTrue(recovered(value, sample))
-        value['budget']['open_requirements'] = 1
-        self.assertFalse(recovered(value, sample))
+    def test_checks_use_business_budget_and_limit_query_frequency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            observation = Observation(tmp, tmp, {'check_seconds': 5}, {'id': 'fixed'})
+            path = Path(tmp) / 'safety.json'
+            with patch('flow.observe.snapshot', return_value={'id': 'fixed'}) as snapshot, \
+                 patch('flow.observe.budget', return_value={'open_requirements': 7}):
+                first = observation.safety(path)
+                self.assertEqual(json.loads(path.read_text())['backlog'], 7)
+                self.assertEqual(observation.safety(path), first)
+                self.assertEqual(snapshot.call_count, 1)
+                observation.checked_at -= 6
+                snapshot.return_value = {'id': 'changed'}
+                with self.assertRaisesRegex(RuntimeError, '环境身份'):
+                    observation.safety(path)
 
-    def test_zero_backlog_before_stop_does_not_prove_recovery(self):
-        value = {'ok': True, 'business': True, 'budget': {'open_requirements': 0, 'parked_messages': 0, 'sampled_at': 100}}
-        sample = {'epoch': 100, 'rabbitmq': {'messages_ready': 0, 'messages_unacknowledged': 0}}
-        self.assertFalse(recovered(value, sample, not_before=101))
-        value['budget']['sampled_at'] = 102
-        self.assertFalse(recovered(value, sample, not_before=101))
-        sample['epoch'] = 102
-        self.assertTrue(recovered(value, sample, not_before=101))
-
-    def test_counter_reset_gap_and_missing(self):
-        def metric(value):
-            return parse_metrics(f'# TYPE requests_total counter\nrequests_total {value}\n')
-        for rows in [[(0, metric(10)), (5, metric(1))], [(0, metric(1)), (20, metric(10))], [(2, metric(1))]]:
-            self.assertFalse(summarize_source(rows, 0, 5)['valid'])
-        with self.assertRaises(AssertionError):
-            check_scene({'type': 'scene', 'errors': ['failed']})
-        with self.assertRaises(AssertionError):
-            parse_rabbitmq('')
+    def test_database_failure_does_not_create_ready_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'safety.json'
+            observation = Observation(tmp, tmp, {'check_seconds': 5})
+            with patch('flow.observe.snapshot', return_value={}), \
+                 patch('flow.observe.budget', side_effect=RuntimeError('database unavailable')):
+                with self.assertRaises(RuntimeError):
+                    observation.safety(path)
+            self.assertFalse(path.exists())

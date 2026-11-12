@@ -208,8 +208,8 @@ func TestTraceContextIsOptionalAndInvalidValuesDoNotDropBusinessEvents(t *testin
 	if err != nil {
 		t.Fatalf("Decode() error = %v", err)
 	}
-	if decoded.EventID != event.EventID || decoded.EventType != PostCreated || !decoded.HasInvalidTraceContext() {
-		t.Fatalf("decoded event = %#v, want retained event with invalid context marker", decoded)
+	if decoded.EventID != event.EventID || decoded.EventType != PostCreated {
+		t.Fatalf("decoded event = %#v, want retained business event", decoded)
 	}
 	cleaned, err := Encode(decoded)
 	if err != nil || decoded.TraceParent != "" || decoded.TraceState != "" || bytes.Contains(cleaned, []byte("traceparent")) {
@@ -219,25 +219,5 @@ func TestTraceContextIsOptionalAndInvalidValuesDoNotDropBusinessEvents(t *testin
 	legacy, err := Decode([]byte(`{"schema_version":1,"event_id":"123e4567-e89b-12d3-a456-426614174000","event_type":"post.created","occurred_at":"2026-09-02T02:03:04Z","actor_id":11,"post_id":22}`))
 	if err != nil || legacy.TraceParent != "" || legacy.TraceState != "" {
 		t.Fatalf("legacy envelope = %#v, error = %v", legacy, err)
-	}
-}
-
-func TestTraceContextRoundTripsOnlyValidW3CFields(t *testing.T) {
-	event, err := NewPostCreated(time.Date(2026, 9, 2, 2, 3, 4, 0, time.UTC), 11, 22)
-	if err != nil {
-		t.Fatal(err)
-	}
-	event.SetTraceContext("00-0102030405060708090a0b0c0d0e0f10-0102030405060708-01", "vendor=value")
-	body, err := Encode(event)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := Decode(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parent, state, valid := decoded.TraceContext()
-	if !valid || parent == "" || state != "vendor=value" {
-		t.Fatalf("trace context = %q, %q, %v", parent, state, valid)
 	}
 }

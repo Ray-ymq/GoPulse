@@ -82,17 +82,13 @@ info:
 
     请求体上限按端点分档：`/api/v1` 下的 JSON 端点默认 64 KiB，超出返回 400
 
-    `validation_failed`；exporter 插件配置与连通性测试的 JSON 上限 16 KiB，插件包上限
-
-    64 MiB。JSON 端点拒绝未知字段、重复键与多值请求体；插件配置端点还要求
-
-    `Content-Type` 恰好为 `application/json` 且不带参数，并不允许 `Content-Encoding`。
+    `validation_failed`。JSON 端点拒绝未知字段、重复键与多值请求体。
 
 
     ## 标识与编号
 
 
-    用户、帖子、评论、通知、规则与事件的 ID 是 64 位无符号整数，以 JSON 数字返回；
+    用户、帖子、评论与通知的 ID 是 64 位无符号整数，以 JSON 数字返回；
 
     超出 JavaScript 安全整数范围时前端应转换为字符串处理。路径参数只接受规范的十进制写法，
 
@@ -1289,22 +1285,8 @@ components:
       - data_epoch_mismatch
       - business_async_backlog
       - search_unavailable
-      - metrics_unavailable
-      - logs_unavailable
-      - events_unavailable
-      - alerts_unavailable
-      - alert_not_found
-      - alert_revision_conflict
-      - alert_rule_limit
       - bootstrap_super_admin_protected
       - management_setup_unavailable
-      - plugin_package_invalid
-      - plugin_not_found
-      - plugin_conflict
-      - plugin_operation_in_progress
-      - plugin_operation_failed
-      - upgrade_required
-      - monitor_unavailable
       - not_found
       - method_not_allowed
       - backend_busy

@@ -20,9 +20,7 @@ func TestLoadWorkerFromRequiresOnlyWorkerDependencies(t *testing.T) {
 	if cfg.BusinessAsyncMaxOpenRequirements != 10000 {
 		t.Fatalf("worker business async limit = %d, want 10000", cfg.BusinessAsyncMaxOpenRequirements)
 	}
-	if cfg.Trace.Enabled || cfg.Trace.ServiceName != "business-worker" {
-		t.Fatalf("worker trace defaults = %#v", cfg.Trace)
-	}
+
 }
 
 func TestLoadWorkerFromValidatesBoundsWithoutLeakingCredentials(t *testing.T) {

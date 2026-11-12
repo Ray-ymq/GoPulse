@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 )
 
@@ -142,7 +141,7 @@ func (coordinator *RebuildCoordinator) register(key BodyKey) (*rebuildEntry, boo
 		entry.waiterReleases = append(entry.waiterReleases, release)
 		coordinator.registeredWaiters++
 		coordinator.activeWaiters++
-		coordinator.observeState()
+
 		return entry, false, nil
 	}
 	if coordinator.activeKeys >= coordinator.options.MaxActiveKeys || coordinator.registeredWaiters >= coordinator.options.MaxRegisteredWaiters {
@@ -157,7 +156,7 @@ func (coordinator *RebuildCoordinator) register(key BodyKey) (*rebuildEntry, boo
 	coordinator.activeKeys++
 	coordinator.registeredWaiters++
 	coordinator.activeWaiters++
-	coordinator.observeState()
+
 	return entry, true, nil
 }
 
@@ -204,7 +203,7 @@ func (coordinator *RebuildCoordinator) finish(entry *rebuildEntry) {
 	}
 	releases = entry.waiterReleases
 	entry.waiterReleases = nil
-	coordinator.observeState()
+
 	for _, release := range releases {
 		release()
 	}
@@ -224,14 +223,8 @@ func (coordinator *RebuildCoordinator) leaveWaiter() {
 	if coordinator.activeWaiters > 0 {
 		coordinator.activeWaiters--
 	}
-	coordinator.observeState()
-	coordinator.mu.Unlock()
-}
 
-func (coordinator *RebuildCoordinator) observeState() {
-	if metrics := instrumentation.BackendActive(); metrics != nil {
-		metrics.ObserveRebuildState(coordinator.activeKeys, coordinator.activeWaiters, coordinator.registeredWaiters)
-	}
+	coordinator.mu.Unlock()
 }
 
 // Stop cancels shared tasks and waits for them to release their retained

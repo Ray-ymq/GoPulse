@@ -12,8 +12,6 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 )
 
 const (
@@ -36,10 +34,8 @@ type Writer interface {
 	Insert(context.Context, Executor, bus.Envelope) error
 }
 
-// MetadataWriter is implemented by the durable repository so the business
-// transaction can attach the database-assigned Outbox ID to its commit span.
-// Writer remains the compatibility seam for callers and focused tests that do
-// not need that identifier.
+// MetadataWriter 由持久化仓库实现，返回数据库分配的 Outbox ID 供业务日志关联。
+// 不需要该编号的调用方和测试继续使用 Writer。
 type MetadataWriter interface {
 	InsertWithMetadata(context.Context, Executor, bus.Envelope) (uint64, error)
 }
@@ -176,11 +172,7 @@ func (repository *Repository) InsertWithMetadata(ctx context.Context, executor E
 			return 0, businessstate.ErrEpochMismatch
 		}
 	}
-	if ctx != nil {
-		if wire := tracing.WireFromContext(ctx); wire.TraceParent != "" {
-			envelope.SetTraceContext(wire.TraceParent, wire.TraceState)
-		}
-	}
+
 	payload, err := bus.Encode(envelope)
 	if err != nil {
 		return 0, fmt.Errorf("%w: invalid business event", ErrInvalidArgument)
@@ -207,12 +199,7 @@ func (repository *Repository) InsertWithMetadata(ctx context.Context, executor E
 // Claim alternates bounded time-ordered pending and expired-lease scans. The transaction ends before the
 // records are returned, so callers never hold database locks while publishing.
 func (repository *Repository) Claim(ctx context.Context, owner string, batch int, leaseDuration time.Duration) (claimed []Record, operationErr error) {
-	started := time.Now()
-	defer func() {
-		if m := instrumentation.BackendActive(); m != nil {
-			m.ObserveOutboxOperation("claim", time.Since(started), operationErr)
-		}
-	}()
+
 	if err := validateOwner(owner); err != nil {
 		return nil, err
 	}
@@ -361,14 +348,7 @@ func (repository *Repository) ReleaseFailed(ctx context.Context, id uint64, owne
 }
 
 func (repository *Repository) CleanupPublished(ctx context.Context, publishedBefore time.Time, batch int) (deletedCount int64, operationErr error) {
-	started := time.Now()
-	candidateCount := 0
-	defer func() {
-		if m := instrumentation.BackendActive(); m != nil {
-			m.ObserveOutboxOperation("cleanup", time.Since(started), operationErr)
-			m.ObserveCleanupRows(candidateCount, int(deletedCount))
-		}
-	}()
+
 	if publishedBefore.IsZero() {
 		return 0, fmt.Errorf("%w: published cutoff is required", ErrInvalidArgument)
 	}
@@ -400,7 +380,6 @@ func (repository *Repository) CleanupPublished(ctx context.Context, publishedBef
 	if closeErr != nil {
 		return 0, fmt.Errorf("close cleanup candidates: %w", closeErr)
 	}
-	candidateCount = len(candidateIDs)
 	if len(candidateIDs) == 0 {
 		repository.cleanupAt = time.Time{}
 		repository.cleanupID = 0

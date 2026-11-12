@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 )
 
 type Service struct {
@@ -176,13 +174,13 @@ func (service *Service) detailBody(ctx context.Context, postID, viewerID uint64,
 			if cached, cachedHit, getErr := service.bodyCache.GetBody(loadContext, loadKey); getErr == nil && cachedHit && cached.AuthorID == readContext.AuthorID && cached.ValidForKey(loadKey) {
 				return cached, nil
 			}
-			originStarted := time.Now()
+
 			loaded, loadErr := reader.FindBody(loadContext, loadKey)
 			if loadErr != nil {
-				observeBodyOrigin(loadErr, time.Since(originStarted))
+
 				return Body{}, loadErr
 			}
-			observeBodyOrigin(nil, time.Since(originStarted))
+
 			if setErr := service.bodyCache.SetBody(loadContext, loadKey, loaded); setErr != nil {
 				logging.Module(logging.FromContext(loadContext, service.logger), "cache").Warn("post body cache fill failed", slog.Uint64("post_id", postID), slog.String("reason", "cache_unavailable"))
 			}
@@ -243,18 +241,6 @@ func (service *Service) detailBody(ctx context.Context, postID, viewerID uint64,
 		}
 	}
 	return records[0], nil
-}
-
-func observeBodyOrigin(err error, elapsed time.Duration) {
-	if metrics := instrumentation.BackendActive(); metrics != nil {
-		result := "success"
-		if errors.Is(err, ErrReadContextChanged) {
-			result = "version_changed"
-		} else if err != nil {
-			result = "failure"
-		}
-		metrics.ObserveCacheOriginDuration(result, elapsed)
-	}
 }
 
 // RequireExists exposes the shared post-existence boundary used by dependent

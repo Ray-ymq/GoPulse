@@ -89,15 +89,6 @@ class SafetyTests(unittest.TestCase):
 
 
 class RenderTests(unittest.TestCase):
-    def test_trace_summary_excludes_history_and_incomplete_writes(self):
-        from tracecheck import summarize
-        def row(service, trace, started):
-            return {'resourceSpans': [{'resource': {'attributes': [{'key': 'service.name', 'value': {'stringValue': service}}]},
-                    'scopeSpans': [{'spans': [{'traceId': trace, 'startTimeUnixNano': str(started)}]}]}]}
-        lines = [row('old-service', 'old', 1), row('backend', 'new', 10), row('business-worker', 'new', 11)]
-        raw = '\n'.join(json.dumps(line) for line in lines) + '\n{"resourceSpans":'
-        self.assertEqual(summarize(raw, 10), {'services': {'backend': 1, 'business-worker': 1},
-                                           'trace_count': 1, 'cross_service_traces': 1})
 
     def test_reads_multiple_kubectl_json_documents_and_lists(self):
         self.assertEqual(k8s.decode_resources('{"kind":"Namespace","metadata":{"name":"a"}}\n{"kind":"List","items":[{"kind":"Service"}]}'),

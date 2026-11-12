@@ -12,11 +12,8 @@ import (
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"github.com/Ray-ymq/GoPulse/backend/internal/correlation"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 )
 
 const (
@@ -486,56 +483,33 @@ func (dispatcher *Dispatcher) dispatchRecordWith(ctx context.Context, record Rec
 		}
 		return fmt.Errorf("decode outbox event: %w", err)
 	}
-	if envelope.HasInvalidTraceContext() {
-		tracing.RecordInvalidContext()
-		if backendMetrics := instrumentation.BackendActive(); backendMetrics != nil {
-			backendMetrics.ObserveTraceContextInvalid()
-		}
-	}
 
-	traceContext, span := tracing.StartFromWire(ctx, "outbox.publish", tracing.WireContext{
-		TraceParent: envelope.TraceParent,
-		TraceState:  envelope.TraceState,
-	},
-		attribute.String("gopulse.event_id", envelope.EventID),
-		attribute.String("gopulse.event_type", string(envelope.EventType)),
-		attribute.String("gopulse.data_epoch", envelope.DataEpoch),
-		attribute.String("gopulse.command_id", envelope.CommandID),
-		attribute.Int64("gopulse.post_id", int64(envelope.PostID)),
-		attribute.Int64("gopulse.content_revision", int64(envelope.ContentRevision)),
-		attribute.Int64("gopulse.outbox_id", int64(record.ID)),
-	)
-	defer span.End()
-	attemptID := tracing.NewAttemptID()
-	traceContext = tracing.WithAttemptID(traceContext, attemptID)
-	span.SetAttributes(attribute.String("gopulse.attempt_id", attemptID))
-	traceContext = tracing.WithOutboxID(traceContext, record.ID)
-	publishContext, cancel := context.WithTimeout(traceContext, dispatcher.publishTimeout)
-	publishStarted := dispatcher.clock()
+	messageContext := ctx
+
+	attemptID := correlation.NewAttemptID()
+	messageContext = correlation.WithAttemptID(messageContext, attemptID)
+
+	messageContext = correlation.WithOutboxID(messageContext, record.ID)
+	publishContext, cancel := context.WithTimeout(messageContext, dispatcher.publishTimeout)
+
 	publishErr := publisher.Publish(publishContext, envelope)
 	cancel()
-	if backendMetrics := instrumentation.BackendActive(); backendMetrics != nil {
-		result := "success"
-		if publishErr != nil {
-			result = "failure"
-		}
-		backendMetrics.ObserveFreshness("publish", result, dispatcher.clock().Sub(publishStarted))
-	}
+
 	if publishErr != nil {
-		span.SetStatus(codes.Error, "publish_failed")
+
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		// A bounded publish failure is handled as part of the state machine:
 		// release it for a later attempt and keep processing the claimed batch.
 		reason := publishFailureCode(publishErr)
-		if err := dispatcher.releaseFailed(traceContext, record, reason); err != nil {
+		if err := dispatcher.releaseFailed(messageContext, record, reason); err != nil {
 			return err
 		}
 		attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
 		attributes = append(attributes, outboxEventAttributes(envelope)...)
 		attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish"), slog.String("reason", string(reason)))
-		logging.WithTrace(dispatcher.logger, traceContext).Warn("outbox publish failed", attributes...)
+		dispatcher.logger.Warn("outbox publish failed", attributes...)
 		return nil
 	}
 	if ctx.Err() != nil {
@@ -548,14 +522,14 @@ func (dispatcher *Dispatcher) dispatchRecordWith(ctx context.Context, record Rec
 		attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
 		attributes = append(attributes, outboxEventAttributes(envelope)...)
 		attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish_ack"), slog.String("reason", safeDispatcherReason(err)))
-		logging.WithTrace(dispatcher.logger, traceContext).Error("outbox mark published failed", attributes...)
+		dispatcher.logger.Error("outbox mark published failed", attributes...)
 		if errors.Is(err, ErrLeaseLost) || ctx.Err() != nil {
 			return err
 		}
 		// A successful publish followed by a failed mark is an accepted
 		// at-least-once duplicate boundary. Releasing the lease, when still
 		// current, prevents a transient database error from stranding the row.
-		if releaseErr := dispatcher.releaseFailed(traceContext, record, FailureInternal); releaseErr != nil {
+		if releaseErr := dispatcher.releaseFailed(messageContext, record, FailureInternal); releaseErr != nil {
 			return fmt.Errorf("mark published: %w; release failed: %v", err, releaseErr)
 		}
 		return fmt.Errorf("mark published: %w", err)
@@ -563,7 +537,7 @@ func (dispatcher *Dispatcher) dispatchRecordWith(ctx context.Context, record Rec
 	attributes := []any{slog.Uint64("outbox_id", record.ID), slog.String("event_id", envelope.EventID), slog.String("event_type", string(envelope.EventType))}
 	attributes = append(attributes, outboxEventAttributes(envelope)...)
 	attributes = append(attributes, slog.String("attempt_id", attemptID), slog.String("stage", "publish"), slog.String("result", "success"))
-	logging.WithTrace(dispatcher.logger, traceContext).Info("outbox publish confirmed", attributes...)
+	dispatcher.logger.Info("outbox publish confirmed", attributes...)
 	return nil
 }
 
@@ -591,7 +565,7 @@ func (dispatcher *Dispatcher) releaseFailed(ctx context.Context, record Record, 
 	dbCtx, cancel := context.WithTimeout(ctx, dispatcher.databaseTimeout)
 	defer cancel()
 	if err := dispatcher.store.ReleaseFailed(dbCtx, record.ID, dispatcher.owner, failure); err != nil {
-		logging.WithTrace(dispatcher.logger, ctx).Error("outbox release failed",
+		dispatcher.logger.Error("outbox release failed",
 			slog.Uint64("outbox_id", record.ID),
 			slog.String("event_id", record.EventID),
 			slog.String("event_type", string(record.EventType)),

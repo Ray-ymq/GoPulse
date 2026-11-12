@@ -11,7 +11,7 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/params"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/request"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/gin-gonic/gin"
 )
 
@@ -63,7 +63,7 @@ func (handler *Handler) Create(c *gin.Context) {
 			response.Error(c, commandErr)
 			return
 		}
-		commandLogger := logging.WithTrace(handler.logger, c.Request.Context())
+		commandLogger := handler.logger
 		attributes := []any{slog.Uint64("post_id", result.Meta.PostID), slog.String("stage", "commit"), slog.String("result", "success")}
 		if result.Meta.CommandID != "" {
 			attributes = append(attributes, slog.String("command_id", result.Meta.CommandID))

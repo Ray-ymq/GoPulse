@@ -18,11 +18,7 @@ func TestRuntimeConfigurationRejectsUnsafeInputs(t *testing.T) {
 			}
 		})
 	}
-	t.Setenv("AUTH_JWT_SECRET", strings.Repeat("a", 32))
-	t.Setenv("BACKEND_METRICS_TOKEN", strings.Repeat("a", 32))
-	if ValidateRuntimeEnvironment("backend") == nil {
-		t.Fatal("credential reuse accepted")
-	}
+
 }
 
 func TestInstanceIdentityAndReplicaEndpointCatalogAreBounded(t *testing.T) {
@@ -35,18 +31,7 @@ func TestInstanceIdentityAndReplicaEndpointCatalogAreBounded(t *testing.T) {
 			t.Fatalf("ValidateInstanceID(%q) accepted unsafe identity", value)
 		}
 	}
-	t.Setenv("BACKEND_ENDPOINTS", "backend,backend-2")
-	endpoints, err := ReplicaEndpoints("backend")
-	if err != nil || len(endpoints) != 2 || endpoints[1] != "backend-2" {
-		t.Fatalf("ReplicaEndpoints() = %#v, error = %v", endpoints, err)
-	}
-	if got := TargetFor("backend", "backend-2"); got != "backend-2-local" {
-		t.Fatalf("TargetFor() = %q, want backend-2-local", got)
-	}
-	t.Setenv("BACKEND_ENDPOINTS", "backend,backend")
-	if _, err := ReplicaEndpoints("backend"); err == nil {
-		t.Fatal("duplicate replica endpoint accepted")
-	}
+
 }
 
 func TestHTTPCorrelationErrorsAndPanic(t *testing.T) {

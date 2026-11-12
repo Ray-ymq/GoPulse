@@ -13,14 +13,10 @@ perflab/
 │   ├── README.md
 │   └── docs/
 │       └── VALIDATION.md
-├── diagnostics/    # 公共诊断与指标采集
-│   └── README.md
-├── k6/             # 公共请求生成与语料序列
-│   └── README.md
-└── tools/          # 辅助脚本
+└── k6/             # 公共请求生成与语料序列
+    └── README.md
 ```
 
-- [指标来源与责任](diagnostics/README.md)
 - [公共请求生成](k6/README.md)
 - [工程验证记录](flow/docs/VALIDATION.md)
 
@@ -31,3 +27,5 @@ perflab/
 PT3、PT4、PT5 和 PT6 的轮次执行链已停用，原 `pt3/`、`pt4/`、`pt5/` 和 `pt6/` 目录已移除。准备使用 `make pt-prepare`，检查使用 `make pt-check`，正式压测使用 `make pt`。这些命令均在仓库根目录执行；执行前须按固定流程操作说明准备专用环境。
 
 历史报告中的轮次命令、运行路径及验证结果保留，作为当时的执行记录。旧命令不再适用于当前工具。公共流程不导入旧轮次的私有状态或凭据。
+
+系统指标、数据库指标采集器、容器与主机采样以及链路追踪已删除。固定流程通过业务数据库和 RabbitMQ 队列检查积压，通过请求事件和数据核对生成结果。

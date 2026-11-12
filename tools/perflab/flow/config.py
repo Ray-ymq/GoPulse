@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
-STAGES = ['environment', 'data', 'observation', 'idle', 'low', 'scan', 'refine', 'repeat', 'soak', 'routes', 'report']
+STAGES = ['environment', 'data', 'idle', 'low', 'scan', 'refine', 'repeat', 'soak', 'routes', 'report']
 
 
 def read(path):

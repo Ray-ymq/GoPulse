@@ -87,28 +87,13 @@ func TestProbeSingleFlightAndDrain(t *testing.T) {
 	}
 }
 
-func TestProbeWrapperPreservesMetricsAuthentication(t *testing.T) {
+func TestProbesDoNotExposeMetrics(t *testing.T) {
 	p, _ := NewProbes(context.Background(), time.Second, time.Second, nil)
-	p.Started()
-	metrics, err := NewHandler(testToken, 1024, func() ([]byte, bool) { return []byte("sample 1\n"), true })
-	if err != nil {
-		t.Fatal(err)
-	}
-	handler := p.Wrap(metrics)
-	for _, tc := range []struct {
-		path, token string
-		status      int
-	}{
-		{"/ready", "", 200}, {Path, "", 401}, {Path, testToken, 200},
-	} {
+	for _, path := range []string{"/metrics", "/internal/v1/metrics"} {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest("GET", tc.path, nil)
-		if tc.token != "" {
-			r.Header.Set("Authorization", "Bearer "+tc.token)
-		}
-		handler.ServeHTTP(w, r)
-		if w.Code != tc.status {
-			t.Fatalf("%s status=%d", tc.path, w.Code)
+		p.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 404 {
+			t.Fatalf("%s status=%d", path, w.Code)
 		}
 	}
 }

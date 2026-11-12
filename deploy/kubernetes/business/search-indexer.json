@@ -20,15 +20,6 @@
         "ELASTICSEARCH_URL": "http://elasticsearch:9200",
         "GOPULSE_REPLICA_COUNT": "1",
         "GOPULSE_RUNTIME_MODE": "container",
-        "GOPULSE_TRACE_BATCH_SIZE": "256",
-        "GOPULSE_TRACE_BATCH_TIMEOUT": "1s",
-        "GOPULSE_TRACE_ENABLED": "false",
-        "GOPULSE_TRACE_ENDPOINT": "",
-        "GOPULSE_TRACE_EXPORT_TIMEOUT": "2s",
-        "GOPULSE_TRACE_QUEUE_CAPACITY": "2048",
-        "GOPULSE_TRACE_SAMPLE_RATIO": "0.10",
-        "GOPULSE_TRACE_SERVICE_NAME": "search-indexer",
-        "GOPULSE_TRACE_SHUTDOWN_TIMEOUT": "5s",
         "MYSQL_CONN_MAX_LIFETIME": "3m",
         "MYSQL_DATABASE": "gopulse",
         "MYSQL_HOST": "mysql",
@@ -106,15 +97,6 @@
                       "secretKeyRef": {
                         "name": "gopulse-credentials",
                         "key": "RABBITMQ_URL"
-                      }
-                    }
-                  },
-                  {
-                    "name": "SEARCH_INDEXER_METRICS_TOKEN",
-                    "valueFrom": {
-                      "secretKeyRef": {
-                        "name": "gopulse-credentials",
-                        "key": "SEARCH_INDEXER_METRICS_TOKEN"
                       }
                     }
                   },

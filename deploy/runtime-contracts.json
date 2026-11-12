@@ -35,7 +35,6 @@
       },
       "diagnostic": {
         "independent": true,
-        "via_monitor": false,
         "probe_listener": "probe",
         "paths": [
           "/startup",
@@ -45,12 +44,6 @@
         ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": [
-          "metrics",
-          "http_concurrency",
-          "http_latency_distribution",
-          "mysql_pool"
-        ],
         "host_port_published": false
       },
       "budgets": {
@@ -80,7 +73,6 @@
       "entrypoint": "backend/business/cmd/server/main.go",
       "configuration": "backend/business/internal/config",
       "compose_service": "backend",
-      "plugin_id": null,
       "environment": [
         {
           "key": "APP_ENV",
@@ -138,16 +130,6 @@
           "kubernetes_value": "2h"
         },
         {
-          "key": "BACKEND_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "backend",
-          "compose_value": "backend,backend-2",
-          "aliases": [],
-          "kubernetes_value": "backend"
-        },
-        {
           "key": "BACKEND_SERVICE_ROLE",
           "type": "string",
           "sensitive": false,
@@ -156,26 +138,6 @@
           "compose_value": "business",
           "aliases": [],
           "kubernetes_value": "business"
-        },
-        {
-          "key": "BUSINESS_WORKER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "business-worker",
-          "compose_value": "business-worker,business-worker-2",
-          "aliases": [],
-          "kubernetes_value": "business-worker"
-        },
-        {
-          "key": "SEARCH_INDEXER_ENDPOINTS",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "search-indexer",
-          "compose_value": "search-indexer,search-indexer-2",
-          "aliases": [],
-          "kubernetes_value": "search-indexer"
         },
         {
           "key": "BACKEND_HTTP_MAX_CONCURRENCY",
@@ -288,21 +250,6 @@
           "kubernetes_value": ""
         },
         {
-          "key": "BACKEND_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${BACKEND_METRICS_TOKEN:?BACKEND_METRICS_TOKEN is required}",
-          "aliases": [],
-          "kubernetes_value": {
-            "secretKeyRef": {
-              "name": "gopulse-credentials",
-              "key": "BACKEND_METRICS_TOKEN"
-            }
-          }
-        },
-        {
           "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
           "type": "integer",
           "sensitive": false,
@@ -371,96 +318,6 @@
           "compose_value": "2",
           "aliases": [],
           "kubernetes_value": "1"
-        },
-        {
-          "key": "GOPULSE_TRACE_BATCH_SIZE",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "256",
-          "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
-          "aliases": [],
-          "kubernetes_value": "256"
-        },
-        {
-          "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "1s",
-          "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
-          "aliases": [],
-          "kubernetes_value": "1s"
-        },
-        {
-          "key": "GOPULSE_TRACE_ENABLED",
-          "type": "boolean",
-          "sensitive": false,
-          "required": false,
-          "default": "false",
-          "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
-          "aliases": [],
-          "kubernetes_value": "false"
-        },
-        {
-          "key": "GOPULSE_TRACE_ENDPOINT",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "",
-          "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
-          "aliases": [],
-          "kubernetes_value": ""
-        },
-        {
-          "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "2s",
-          "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
-          "aliases": [],
-          "kubernetes_value": "2s"
-        },
-        {
-          "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "2048",
-          "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
-          "aliases": [],
-          "kubernetes_value": "2048"
-        },
-        {
-          "key": "GOPULSE_TRACE_SAMPLE_RATIO",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "0.10",
-          "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
-          "aliases": [],
-          "kubernetes_value": "0.10"
-        },
-        {
-          "key": "GOPULSE_TRACE_SERVICE_NAME",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "backend",
-          "compose_value": "backend",
-          "aliases": [],
-          "kubernetes_value": "backend"
-        },
-        {
-          "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "5s",
-          "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": [],
-          "kubernetes_value": "5s"
         },
         {
           "key": "GOPULSE_REVISION",
@@ -823,11 +680,6 @@
           "name": "probe",
           "port": 8080,
           "scope": "private"
-        },
-        {
-          "name": "metrics",
-          "port": 19101,
-          "scope": "private"
         }
       ],
       "probes": {
@@ -893,7 +745,6 @@
       },
       "diagnostic": {
         "independent": true,
-        "via_monitor": false,
         "probe_listener": "probe",
         "paths": [
           "/startup",
@@ -903,12 +754,6 @@
         ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": [
-          "metrics",
-          "prefetch",
-          "in_flight",
-          "mysql_pool"
-        ],
         "host_port_published": false
       },
       "budgets": {
@@ -942,7 +787,6 @@
       "entrypoint": "backend/business/cmd/business-worker/main.go",
       "configuration": "backend/business/internal/config",
       "compose_service": "business-worker",
-      "plugin_id": null,
       "environment": [
         {
           "key": "GOPULSE_INSTANCE_ID",
@@ -963,96 +807,6 @@
           "compose_value": "2",
           "aliases": [],
           "kubernetes_value": "1"
-        },
-        {
-          "key": "GOPULSE_TRACE_BATCH_SIZE",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "256",
-          "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
-          "aliases": [],
-          "kubernetes_value": "256"
-        },
-        {
-          "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "1s",
-          "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
-          "aliases": [],
-          "kubernetes_value": "1s"
-        },
-        {
-          "key": "GOPULSE_TRACE_ENABLED",
-          "type": "boolean",
-          "sensitive": false,
-          "required": false,
-          "default": "false",
-          "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
-          "aliases": [],
-          "kubernetes_value": "false"
-        },
-        {
-          "key": "GOPULSE_TRACE_ENDPOINT",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "",
-          "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
-          "aliases": [],
-          "kubernetes_value": ""
-        },
-        {
-          "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "2s",
-          "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
-          "aliases": [],
-          "kubernetes_value": "2s"
-        },
-        {
-          "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "2048",
-          "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
-          "aliases": [],
-          "kubernetes_value": "2048"
-        },
-        {
-          "key": "GOPULSE_TRACE_SAMPLE_RATIO",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "0.10",
-          "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
-          "aliases": [],
-          "kubernetes_value": "0.10"
-        },
-        {
-          "key": "GOPULSE_TRACE_SERVICE_NAME",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "business-worker",
-          "compose_value": "business-worker",
-          "aliases": [],
-          "kubernetes_value": "business-worker"
-        },
-        {
-          "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "5s",
-          "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": [],
-          "kubernetes_value": "5s"
         },
         {
           "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
@@ -1093,21 +847,6 @@
           "compose_value": "${BUSINESS_WORKER_MAX_RETRIES:-3}",
           "aliases": [],
           "kubernetes_value": "3"
-        },
-        {
-          "key": "BUSINESS_WORKER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${BUSINESS_WORKER_METRICS_TOKEN:?BUSINESS_WORKER_METRICS_TOKEN is required}",
-          "aliases": [],
-          "kubernetes_value": {
-            "secretKeyRef": {
-              "name": "gopulse-credentials",
-              "key": "BUSINESS_WORKER_METRICS_TOKEN"
-            }
-          }
         },
         {
           "key": "BUSINESS_WORKER_PREFETCH",
@@ -1375,7 +1114,6 @@
       },
       "diagnostic": {
         "independent": true,
-        "via_monitor": false,
         "probe_listener": "probe",
         "paths": [
           "/startup",
@@ -1385,12 +1123,6 @@
         ],
         "identity_env": "GOPULSE_INSTANCE_ID",
         "identity_source": "environment",
-        "capacity_signals": [
-          "metrics",
-          "prefetch",
-          "in_flight",
-          "mysql_pool"
-        ],
         "host_port_published": false
       },
       "budgets": {
@@ -1424,7 +1156,6 @@
       "entrypoint": "backend/business/cmd/search-indexer/main.go",
       "configuration": "backend/business/internal/config",
       "compose_service": "search-indexer",
-      "plugin_id": null,
       "environment": [
         {
           "key": "GOPULSE_INSTANCE_ID",
@@ -1445,96 +1176,6 @@
           "compose_value": "2",
           "aliases": [],
           "kubernetes_value": "1"
-        },
-        {
-          "key": "GOPULSE_TRACE_BATCH_SIZE",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "256",
-          "compose_value": "${GOPULSE_TRACE_BATCH_SIZE:-256}",
-          "aliases": [],
-          "kubernetes_value": "256"
-        },
-        {
-          "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "1s",
-          "compose_value": "${GOPULSE_TRACE_BATCH_TIMEOUT:-1s}",
-          "aliases": [],
-          "kubernetes_value": "1s"
-        },
-        {
-          "key": "GOPULSE_TRACE_ENABLED",
-          "type": "boolean",
-          "sensitive": false,
-          "required": false,
-          "default": "false",
-          "compose_value": "${GOPULSE_TRACE_ENABLED:-false}",
-          "aliases": [],
-          "kubernetes_value": "false"
-        },
-        {
-          "key": "GOPULSE_TRACE_ENDPOINT",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "",
-          "compose_value": "${GOPULSE_TRACE_ENDPOINT:-}",
-          "aliases": [],
-          "kubernetes_value": ""
-        },
-        {
-          "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "2s",
-          "compose_value": "${GOPULSE_TRACE_EXPORT_TIMEOUT:-2s}",
-          "aliases": [],
-          "kubernetes_value": "2s"
-        },
-        {
-          "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
-          "type": "integer",
-          "sensitive": false,
-          "required": false,
-          "default": "2048",
-          "compose_value": "${GOPULSE_TRACE_QUEUE_CAPACITY:-2048}",
-          "aliases": [],
-          "kubernetes_value": "2048"
-        },
-        {
-          "key": "GOPULSE_TRACE_SAMPLE_RATIO",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "0.10",
-          "compose_value": "${GOPULSE_TRACE_SAMPLE_RATIO:-0.10}",
-          "aliases": [],
-          "kubernetes_value": "0.10"
-        },
-        {
-          "key": "GOPULSE_TRACE_SERVICE_NAME",
-          "type": "string",
-          "sensitive": false,
-          "required": false,
-          "default": "search-indexer",
-          "compose_value": "search-indexer",
-          "aliases": [],
-          "kubernetes_value": "search-indexer"
-        },
-        {
-          "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
-          "type": "duration",
-          "sensitive": false,
-          "required": false,
-          "default": "5s",
-          "compose_value": "${GOPULSE_TRACE_SHUTDOWN_TIMEOUT:-5s}",
-          "aliases": [],
-          "kubernetes_value": "5s"
         },
         {
           "key": "ELASTICSEARCH_REQUEST_TIMEOUT",
@@ -1695,21 +1336,6 @@
           "compose_value": "${SEARCH_INDEXER_MAX_RETRIES:-3}",
           "aliases": [],
           "kubernetes_value": "3"
-        },
-        {
-          "key": "SEARCH_INDEXER_METRICS_TOKEN",
-          "type": "string",
-          "sensitive": true,
-          "required": true,
-          "default": null,
-          "compose_value": "${SEARCH_INDEXER_METRICS_TOKEN:?SEARCH_INDEXER_METRICS_TOKEN is required}",
-          "aliases": [],
-          "kubernetes_value": {
-            "secretKeyRef": {
-              "name": "gopulse-credentials",
-              "key": "SEARCH_INDEXER_METRICS_TOKEN"
-            }
-          }
         },
         {
           "key": "SEARCH_INDEXER_PREFETCH",
@@ -1882,11 +1508,6 @@
       "sensitive": false
     },
     {
-      "key": "BACKEND_METRICS_TOKEN",
-      "type": "string",
-      "sensitive": true
-    },
-    {
       "key": "BUSINESS_ASYNC_MAX_OPEN_REQUIREMENTS",
       "type": "integer",
       "sensitive": false
@@ -1905,11 +1526,6 @@
       "key": "BUSINESS_WORKER_MAX_RETRIES",
       "type": "integer",
       "sensitive": false
-    },
-    {
-      "key": "BUSINESS_WORKER_METRICS_TOKEN",
-      "type": "string",
-      "sensitive": true
     },
     {
       "key": "BUSINESS_WORKER_PREFETCH",
@@ -1969,51 +1585,6 @@
     {
       "key": "GOPULSE_RUNTIME_MODE",
       "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_BATCH_SIZE",
-      "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_BATCH_TIMEOUT",
-      "type": "duration",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_ENABLED",
-      "type": "boolean",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_ENDPOINT",
-      "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_EXPORT_TIMEOUT",
-      "type": "duration",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_QUEUE_CAPACITY",
-      "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_SAMPLE_RATIO",
-      "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_SERVICE_NAME",
-      "type": "string",
-      "sensitive": false
-    },
-    {
-      "key": "GOPULSE_TRACE_SHUTDOWN_TIMEOUT",
-      "type": "duration",
       "sensitive": false
     },
     {
@@ -2187,11 +1758,6 @@
       "sensitive": false
     },
     {
-      "key": "SEARCH_INDEXER_METRICS_TOKEN",
-      "type": "string",
-      "sensitive": true
-    },
-    {
       "key": "SEARCH_INDEXER_PREFETCH",
       "type": "integer",
       "sensitive": false
@@ -2222,11 +1788,6 @@
       "sensitive": false
     },
     {
-      "key": "BACKEND_ENDPOINTS",
-      "type": "string",
-      "sensitive": false
-    },
-    {
       "key": "BACKEND_SERVICE_ROLE",
       "type": "string",
       "sensitive": false
@@ -2234,11 +1795,6 @@
     {
       "key": "BACKEND_HTTP_MAX_CONCURRENCY",
       "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "BUSINESS_WORKER_ENDPOINTS",
-      "type": "string",
       "sensitive": false
     },
     {
@@ -2269,11 +1825,6 @@
     {
       "key": "MYSQL_TOTAL_MAX_OPEN_CONNS",
       "type": "integer",
-      "sensitive": false
-    },
-    {
-      "key": "SEARCH_INDEXER_ENDPOINTS",
-      "type": "string",
       "sensitive": false
     },
     {

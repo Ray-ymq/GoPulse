@@ -67,16 +67,6 @@ def render(mode):
         for container in spec.get('containers', []):
             if container['image'].startswith('gopulse/'):
                 container['image'] = container['image'].split(':')[0] + ':' + tag
-    if os.environ.get('TRACE') == '1':
-        tracing = json.loads((BASE / 'tracing/resources.json').read_text())['items']
-        for row in tracing:
-            row['metadata']['namespace'] = namespace(mode)
-        for row in items:
-            if row['kind'] == 'ConfigMap' and row['metadata']['name'] in ('backend-env', 'business-worker-env', 'search-indexer-env'):
-                row['data'].update(GOPULSE_TRACE_ENABLED='true',
-                                  GOPULSE_TRACE_ENDPOINT=f'phase20-collector.{namespace(mode)}.svc.cluster.local:4317',
-                                  GOPULSE_TRACE_SAMPLE_RATIO='1.0')
-        items += tracing
     return items
 
 
@@ -380,9 +370,6 @@ def load_images(mode):
     images = sorted({container['image'] for row in render(mode)
                      for key in ('containers', 'initContainers')
                      for container in row.get('spec', {}).get('template', {}).get('spec', {}).get(key, [])})
-    for source in ([BASE / 'tracing/resources.json'] if os.environ.get('TRACE') == '1' else []):
-        images += [c['image'] for row in json.loads(source.read_text())['items']
-                   for c in row.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [])]
     images = sorted(set(images + ['busybox:1.37.0']))
     PRIVATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     archive = PRIVATE / 'images.tar'

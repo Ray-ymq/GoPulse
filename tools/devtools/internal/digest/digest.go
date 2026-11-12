@@ -1,6 +1,6 @@
 // Package digest computes the content-addressed identities the local
 // lifecycles bind to: source trees, the private environment file, Compose
-// files, and the Monitor build inputs.
+// files, and the application build inputs.
 //
 // The byte layout is the one the replaced Python helper used (big-endian
 // length-prefixed relative path and content), so a digest recorded by either
@@ -94,8 +94,7 @@ func Paths(root string, items []string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// Source digests the product source of one local lifecycle. The observation
-// lifecycle additionally depends on the Marshaller.
+// Source 计算本地业务程序源码的指纹。
 func Source(root string, observe bool) (string, error) {
 	items := []string{
 		filepath.Join(root, "backend/business"),
@@ -107,8 +106,3 @@ func Source(root string, observe bool) (string, error) {
 
 // SourceBuilds digests the sources that produce the locally built binaries.
 func SourceBuilds(root string) (string, error) { return Source(root, false) }
-
-// MonitorInput digests everything that changes the Monitor container image.
-// Exporter source and packages are deployment inputs;
-// they are deliberately excluded so changing one module does not invalidate
-// the image. Native integration builds use the Monitor source digest directly.

@@ -2,15 +2,14 @@
 import json
 from pathlib import Path
 
-from .common import ROOT, STATE, APPS, command, containers, digest, sql, es, check_host, check_quotas, drained
+from .common import ROOT, STATE, APPS, command, containers, digest, sql, es, check_host, check_quotas, drained, http
 from .config import contract, fingerprint, load
 from .runtime import write_json
 
 
 def source_hashes():
-    paths = [ROOT / 'deploy/compose/compose.business.yaml', ROOT / 'tools/perflab/diagnostics/node-upstream.json', ROOT / 'VERSION']
-    for relative in ('tools/perflab/flow', 'tools/perflab/internal', 'tools/perflab/cmd', 'tools/perflab/k6', 'tools/perflab/diagnostics',
-                     'tools/perflab/mysqlcollector', 'backend/runtimekit/containerstats', 'backend/runtimekit/cmd/container-exporter'):
+    paths = [ROOT / 'deploy/compose/compose.business.yaml', ROOT / 'VERSION']
+    for relative in ('tools/perflab/flow', 'tools/perflab/internal', 'tools/perflab/cmd', 'tools/perflab/k6'):
         paths += [path for path in (ROOT / relative).rglob('*') if path.suffix in ('.py', '.go', '.js', '.mjs', '.json', '.mod', '.sum')]
     paths += [ROOT / 'tools/perflab/go.mod', ROOT / 'tools/perflab/go.sum', ROOT / 'backend/runtimekit/go.mod']
     # 业务程序和镜像构建输入改变后，旧准备及验收记录也必须失效。
@@ -109,6 +108,6 @@ def preflight(config):
     if actual != value['environment']:
         raise ValueError('环境身份或固定配置与准备记录不符')
     drained()
-    from .observe import precheck
-    precheck(Path(value['directory']))
+    if http('http://127.0.0.1:18086', 'GET', '/ready')[0] != 200:
+        raise ValueError('业务就绪检查失败')
     return value

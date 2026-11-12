@@ -10,8 +10,7 @@ DEVENV := $(MAKE) --no-print-directory -C tools/devtools build && ./tools/devtoo
 GO_MODULES := backend/business \
               backend/runtimekit \
               tools/devtools \
-              tools/perflab \
-              tools/perflab/mysqlcollector
+              tools/perflab
 NPM_MODULES := frontend/user
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 
@@ -84,7 +83,6 @@ check-compose:
 	@docker compose --env-file .env.example --file deploy/compose/compose.business.yaml --profile load --profile operations config --quiet
 	@docker compose --env-file .env.example --file deploy/dev/compose.local.yaml config --quiet
 	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/dev/compose.debug.yaml config --quiet
-	@docker compose --env-file .env.example --file deploy/compose/compose.yaml --file deploy/dev/compose.tracing.yaml config --quiet
 
 ci-plan: export GOPULSE_CI_LABELS := $(LABELS)
 ci-plan:

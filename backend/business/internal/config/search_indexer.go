@@ -11,11 +11,11 @@ import (
 )
 
 type SearchIndexerConfig struct {
-	MySQL                            MySQLConfig
-	RabbitMQURL                      string
-	Elasticsearch                    ElasticsearchConfig
-	Worker                           BusinessWorkerConfig
-	Trace                            TraceConfig
+	MySQL         MySQLConfig
+	RabbitMQURL   string
+	Elasticsearch ElasticsearchConfig
+	Worker        BusinessWorkerConfig
+
 	BusinessAsyncMaxOpenRequirements uint64
 	BusinessAsyncMaxRetainedGroups   uint64
 	BusinessAsyncMaxRetainedBytes    uint64
@@ -110,10 +110,6 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 	if reconnectMaximum < reconnectMinimum {
 		return SearchIndexerConfig{}, errors.New("SEARCH_INDEXER_RECONNECT_MAX must be greater than or equal to SEARCH_INDEXER_RECONNECT_MIN")
 	}
-	traceConfig, err := loadTraceConfig(lookup, runtimeMode, "search-indexer")
-	if err != nil {
-		return SearchIndexerConfig{}, err
-	}
 	businessAsyncMaxOpenRequirements, err := businessAsyncMaxOpenRequirementsValue(lookup)
 	if err != nil {
 		return SearchIndexerConfig{}, err
@@ -133,9 +129,9 @@ func LoadSearchIndexerFrom(lookup LookupFunc) (SearchIndexerConfig, error) {
 			MaxIdleConns:    maxIdleConns,
 			ConnMaxLifetime: connMaxLifetime,
 		},
-		RabbitMQURL:                      rabbitMQURL,
-		Elasticsearch:                    elasticsearch,
-		Trace:                            traceConfig,
+		RabbitMQURL:   rabbitMQURL,
+		Elasticsearch: elasticsearch,
+
 		BusinessAsyncMaxOpenRequirements: businessAsyncMaxOpenRequirements,
 		BusinessAsyncMaxRetainedGroups:   retainedGroups,
 		BusinessAsyncMaxRetainedBytes:    retainedBytes,

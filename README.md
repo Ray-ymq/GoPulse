@@ -7,11 +7,11 @@ GoPulse 提供社交内容业务：注册登录、用户资料、关注、帖子
 | 目录 | 职责 |
 | --- | --- |
 | `backend/business` | Go、Gin API，MySQL 业务数据，Redis 缓存，RabbitMQ 异步任务，Elasticsearch 搜索 |
-| `backend/runtimekit` | 共享日志、健康探针、指标、进程退出和压测资源采样 |
+| `backend/runtimekit` | 共享日志、健康探针和进程退出 |
 | `frontend/user` | Vue 3、TypeScript、Vite 用户前端 |
 | `frontend/shared` | 前端组件、样式和工具 |
 | `tools/devtools` | 开发环境、构建、部署和验证 |
-| `tools/perflab` | 业务压测、诊断采样和报告 |
+| `tools/perflab` | 业务压测、数据核对和报告 |
 | `tools/ci` | CI 模块选择和提交校验 |
 | `deploy` | Docker、Compose、Kubernetes 部署配置 |
 
@@ -41,6 +41,6 @@ make build-images
 
 ## 可观测平台移除
 
-产品已移除管理前端、平台 API、插件管理、Monitor、Marshaller、Kafka、VictoriaMetrics、日志和事件查询及告警。业务进程的结构化日志、健康探针、性能指标和可选 OpenTelemetry 追踪仍作为工程能力保留。
+产品已移除管理前端、平台 API、插件管理、Monitor、Marshaller、Kafka、VictoriaMetrics、日志和事件查询及告警。指标埋点、采集器、指标接口和 OpenTelemetry 追踪已一并移除。业务进程仅保留本地结构化日志、健康探针和退出管理。
 
 历史迁移编号保持不变。迁移 `000021` 删除告警表；执行升级前应备份需要保留的告警历史。降级只能恢复表结构，无法恢复已删除数据。本次源码变更不操作已有容器、数据库或持久卷。

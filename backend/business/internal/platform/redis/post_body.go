@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 )
@@ -56,9 +55,7 @@ func PostBodyKey(key post.BodyKey) string {
 // GetBody reads the exact epoch and revision fixed by the authoritative read context.
 func (repository *PostBodyRepository) GetBody(ctx context.Context, key post.BodyKey) (post.Body, bool, error) {
 	observe := func(result string) {
-		if metrics := instrumentation.BackendActive(); metrics != nil {
-			metrics.ObserveCacheRequest(result)
-		}
+
 	}
 	if repository == nil || !validBodyKey(key) {
 		observe("invalid")
@@ -87,11 +84,7 @@ func (repository *PostBodyRepository) GetBody(ctx context.Context, key post.Body
 // SetBody writes a v2 body under the exact key supplied by the caller. A
 // bounded jitter prevents a hot set of revisions expiring at one instant.
 func (repository *PostBodyRepository) SetBody(ctx context.Context, key post.BodyKey, body post.Body) (writeErr error) {
-	defer func() {
-		if metrics := instrumentation.BackendActive(); metrics != nil {
-			metrics.ObserveCacheWrite(writeErr)
-		}
-	}()
+
 	if repository == nil || !validBodyKey(key) || !body.ValidForKey(key) {
 		return ErrInvalidPostBody
 	}

@@ -111,21 +111,18 @@ func TestTestModeForcesIsolationOverCallerAndFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := map[string]string{
-		"MYSQL_PORT":                "23306",
-		"MYSQL_USER":                "gopulse_integration",
-		"MYSQL_DATABASE":            "gopulse_integration",
-		"MYSQL_PASSWORD":            "integration-mysql",
-		"REDIS_PORT":                "26379",
-		"REDIS_DB":                  "15",
-		"APP_ENV":                   "test",
-		"HTTP_PORT":                 "18080",
-		"FRONTEND_PORT":             "15173",
-		"ELASTICSEARCH_PORT":        "29200",
-		"RABBITMQ_PORT":             "25672",
-		"AUTH_COOKIE_NAME":          "gopulse_test_session",
-		"BACKEND_ENDPOINTS":         "backend",
-		"BUSINESS_WORKER_ENDPOINTS": "business-worker",
-		"SEARCH_INDEXER_ENDPOINTS":  "search-indexer",
+		"MYSQL_PORT":         "23306",
+		"MYSQL_USER":         "gopulse_integration",
+		"MYSQL_DATABASE":     "gopulse_integration",
+		"MYSQL_PASSWORD":     "integration-mysql",
+		"REDIS_PORT":         "26379",
+		"REDIS_DB":           "15",
+		"APP_ENV":            "test",
+		"HTTP_PORT":          "18080",
+		"FRONTEND_PORT":      "15173",
+		"ELASTICSEARCH_PORT": "29200",
+		"RABBITMQ_PORT":      "25672",
+		"AUTH_COOKIE_NAME":   "gopulse_test_session",
 	}
 	for key, want := range expected {
 		if values[key] != want {

@@ -1,4 +1,4 @@
-"""准备专用环境中的数据、工具和观测；不部署业务。"""
+"""准备专用环境中的数据和负载工具；不部署业务。"""
 import json
 import os
 from pathlib import Path
@@ -28,7 +28,7 @@ def prepare(config):
     write_json(STATE / 'prepared.json', value)
     initial = snapshot(config)
     (directory / 'bin').mkdir(exist_ok=True)
-    for binary in ('recipe', 'validate-corpus', 'pt-load', 'dbprobe'):
+    for binary in ('recipe', 'validate-corpus', 'pt-load'):
         command(['env', 'CGO_ENABLED=0', 'go', '-C', 'tools/perflab', 'build', '-o', str(directory / 'bin' / binary), './cmd/' + binary],
                 timeout=600, log=directory / 'build-tools.log')
     password = directory / 'load-password'
@@ -51,13 +51,8 @@ def prepare(config):
         for name, row in initial['containers'].items():
             if {k: v for k, v in row.items() if k != 'started_at'} != {k: v for k, v in current['containers'][name].items() if k != 'started_at'}:
                 raise ValueError('准备期间容器身份或配置改变')
-    command(['docker', 'exec', 'gopulse-pt-business-rabbitmq-1', 'rabbitmq-plugins', 'enable', 'rabbitmq_prometheus'], timeout=30)
-    from .diagnose import prepare as prepare_diagnostics, artifacts
-    value['diagnostics'] = prepare_diagnostics(directory)
-    from .observe import precheck
-    precheck(directory)
     names = ['test.env', 'resources.json', 'mysql.dsn', 'load-password', 'corpus.json', 'credentials.json', 'baseline.sql', 'baseline.json',
-             'bin/recipe', 'bin/validate-corpus', 'bin/pt-load', 'bin/dbprobe', *artifacts()]
+             'bin/recipe', 'bin/validate-corpus', 'bin/pt-load']
     for name in names:
         (directory / name).chmod(0o700 if name.startswith('bin/') else 0o600)
     value.update(ready=True, environment=snapshot(config), source_sha256=source_hashes(),

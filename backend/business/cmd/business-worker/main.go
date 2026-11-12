@@ -8,14 +8,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/instrumentation"
 	"github.com/Ray-ymq/GoPulse/runtimekit"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/observability/tracing"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
 )
@@ -47,32 +45,6 @@ func run(cfg config.WorkerConfig, logger *slog.Logger) (runErr error) {
 		logger = logging.Discard("business-worker")
 	}
 	lifecycleLogger := logging.Module(logger, "lifecycle")
-	traceProvider, err := tracing.New(context.Background(), tracing.Config{
-		Enabled: cfg.Trace.Enabled, Endpoint: cfg.Trace.Endpoint, ServiceName: cfg.Trace.ServiceName,
-		SampleRatio: cfg.Trace.SampleRatio, QueueCapacity: cfg.Trace.QueueCapacity, BatchSize: cfg.Trace.BatchSize,
-		BatchTimeout: cfg.Trace.BatchTimeout, ExportTimeout: cfg.Trace.ExportTimeout, ShutdownTimeout: cfg.Trace.ShutdownTimeout,
-	})
-	if err != nil {
-		return initializationFailure(lifecycleLogger, "tracing", "invalid_configuration")
-	}
-	defer func() {
-		shutdownTimeout := cfg.Trace.ShutdownTimeout
-		if shutdownTimeout <= 0 {
-			shutdownTimeout = tracing.DefaultShutdownTimeout
-		}
-		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := traceProvider.Shutdown(shutdownContext); err != nil {
-			lifecycleLogger.Warn("trace exporter shutdown incomplete", slog.String("reason", "shutdown_timeout"))
-		}
-	}()
-	metrics, err := instrumentation.New("business-worker")
-	if err != nil {
-		return err
-	}
-	instrumentation.Install(metrics)
-	defer instrumentation.Install(nil)
-	metrics.Set("prefetch_limit", float64(cfg.Worker.Prefetch))
 	mysqlClient, err := platform.NewMySQL(cfg.MySQL)
 	if err != nil {
 		return initializationFailure(lifecycleLogger, "mysql", "connection_failed")
@@ -124,14 +96,14 @@ func run(cfg config.WorkerConfig, logger *slog.Logger) (runErr error) {
 	if err != nil {
 		return err
 	}
-	internalMetrics, err := runtimekit.StartConfiguredWithProbes(ctx, "business-worker", metrics.Snapshot, probes)
+	probeListener, err := runtimekit.StartProbes(ctx, "business-worker", probes)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		shutdownCtx, cancel := runtimekit.ShutdownContext(cfg.Worker.ShutdownTimeout)
 		defer cancel()
-		if err := internalMetrics.Shutdown(shutdownCtx); err != nil {
+		if err := probeListener.Shutdown(shutdownCtx); err != nil {
 			runErr = errors.New("shutdown_timeout")
 		}
 	}()
