@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="GoPulse 社交业务后端的模块结构、数据流、命令入口与验证说明。">
+  <title>GoPulse · 业务后端</title>
+  <style>
+    :root{color-scheme:light;--paper:#f6f3ec;--ink:#242d29;--muted:#626b63;--line:#d8dcd0;--accent:#27634d}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.8 system-ui,-apple-system,"Segoe UI",sans-serif}a{color:var(--accent);text-underline-offset:4px}a:focus-visible{outline:3px solid var(--accent);outline-offset:5px}header,main,footer{max-width:1120px;margin:auto;padding:28px 32px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);gap:24px}.brand{font-size:21px;font-weight:750;letter-spacing:-.5px}nav{display:flex;gap:24px;flex-wrap:wrap}nav a{text-decoration:none;font-size:14px}.hero{padding:64px 0 48px}.eyebrow{font-size:12px;letter-spacing:2px;color:var(--accent);font-weight:750}h1{font-size:clamp(38px,6vw,68px);line-height:1.2;letter-spacing:-2px;margin:18px 0 24px}h2{font-size:26px;letter-spacing:-.5px;margin:0 0 22px}h3{font-size:18px;margin:0 0 10px}p{margin:0 0 16px}.lead{max-width:760px;font-size:19px;color:var(--muted)}.tags{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}.tag{border:1px solid var(--line);padding:4px 12px;font-size:13px;border-radius:4px}section{padding:36px 0;border-top:1px solid var(--line);scroll-margin-top:24px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.card{padding:24px;border:1px solid var(--line);background:#fbfaf6;border-radius:8px}.card p{font-size:14px;color:var(--muted);margin-bottom:0}.number{display:block;color:var(--accent);font-size:12px;letter-spacing:1px;margin-bottom:18px}.flow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#e8ede4;border:1px solid var(--line);padding:24px;border-radius:8px;margin-bottom:20px}.node{background:#fbfaf6;border:1px solid #c8d2c4;padding:10px 16px;border-radius:4px}.arrow{color:var(--accent)}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:top}th{background:#e8ede4;font-weight:650}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}pre{background:#253b31;color:#edf2e8;padding:22px 24px;border-radius:6px;overflow-x:auto;line-height:1.9}pre code{overflow-wrap:normal}.note{border-left:3px solid var(--accent);padding:10px 18px;color:var(--muted);font-size:14px;margin-top:22px}.split{display:grid;grid-template-columns:1fr 1fr;gap:28px}footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-bottom:40px}.skip{position:absolute;left:16px;top:-100px;background:var(--paper);padding:10px}.skip:focus{top:10px}@media(max-width:720px){header{align-items:flex-start;flex-direction:column}header,main,footer{padding-left:20px;padding-right:20px}.hero{padding:38px 0}.grid,.split{grid-template-columns:1fr}nav{gap:18px}.flow{padding:16px}th,td{padding:12px 10px}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+  <header>
+    <a class="brand" href="#main">GoPulse / Backend</a>
+    <nav aria-label="页面导航"><a href="#architecture">数据流</a><a href="#modules">模块</a><a href="#running">运行</a><a href="#validation">验证</a></nav>
+  </header>
+  <main id="main">
+    <div class="hero">
+      <div class="eyebrow">BACKEND / BUSINESS</div>
+      <h1>社交业务，从请求到通知。</h1>
+      <p class="lead">GoPulse 业务后端提供用户认证、资料、关注、帖子、评论、点赞、收藏、搜索和通知。此页汇总模块结构与操作入口，可直接在浏览器中打开。</p>
+      <div class="tags"><span class="tag">Go 1.26</span><span class="tag">MySQL</span><span class="tag">Redis</span><span class="tag">RabbitMQ</span><span class="tag">Elasticsearch</span></div>
+      <p class="note">Go module：<code>github.com/Ray-ymq/GoPulse/backend</code>。HTTP 接口以 <a href="api/openapi.yaml">OpenAPI 契约</a>为准。本页为静态说明，不显示服务实时状态。</p>
+    </div>
+    <section id="architecture">
+      <h2>01 / 数据如何流转</h2>
+      <div class="flow" role="group" aria-label="异步数据流">
+        <span class="node">业务 API</span><span class="arrow" aria-hidden="true">→</span><span class="node">MySQL + Outbox</span><span class="arrow" aria-hidden="true">→</span><span class="node">RabbitMQ</span><span class="arrow" aria-hidden="true">→</span><span class="node">Worker / Indexer</span>
+      </div>
+      <p>业务写入 MySQL，并在同一事务中记录 Outbox 事件。API 进程中的分发器将事件发送到 RabbitMQ。业务 Worker 消费异步任务并生成通知；搜索 Indexer 消费搜索任务并更新 Elasticsearch 索引。</p>
+      <p>Redis 提供正文缓存和共享限流。设置 <code>BACKEND_REDIS_DISABLED=true</code> 时，正文缓存被禁用，限流配额按进程独立计算。</p>
+    </section>
+    <section id="modules">
+      <h2>02 / 模块与进程</h2>
+      <div class="grid">
+        <article class="card"><span class="number">01 · HTTP</span><h3>业务 API</h3><p><code>cmd/server/</code> 提供社交业务 HTTP 接口，同时运行事务 Outbox 分发器。</p></article>
+        <article class="card"><span class="number">02 · ASYNC</span><h3>异步通知</h3><p><code>cmd/business-worker/</code> 消费异步业务任务，生成用户通知。</p></article>
+        <article class="card"><span class="number">03 · SEARCH</span><h3>搜索索引</h3><p><code>cmd/search-indexer/</code> 消费搜索任务，将变更写入 Elasticsearch。</p></article>
+      </div>
+      <div class="table-wrap">
+        <table><caption>目录与维护入口</caption><thead><tr><th scope="col">路径</th><th scope="col">职责</th></tr></thead><tbody>
+          <tr><td><a href="internal/"><code>internal/</code></a></td><td>业务逻辑、数据访问、配置、HTTP、日志与健康检查</td></tr>
+          <tr><td><a href="api/openapi.yaml"><code>api/openapi.yaml</code></a></td><td>HTTP 接口契约</td></tr>
+          <tr><td><a href="migrations/"><code>migrations/</code></a></td><td>SQL 迁移及迁移文件加载</td></tr>
+          <tr><td><code>cmd/migrate/</code></td><td>校验迁移文件、查看数据库状态、执行迁移</td></tr>
+          <tr><td><code>cmd/search-reindex/</code></td><td>初始化或重建搜索索引，执行数据 epoch 恢复准备</td></tr>
+          <tr><td><code>cmd/admin-role/</code></td><td>声明初始超级管理员或提升已有用户角色</td></tr>
+        </tbody></table>
+      </div>
+    </section>
+    <section id="running">
+      <h2>03 / 准备与运行</h2>
+      <p>运行前需自行准备 MySQL、Redis、RabbitMQ 和 Elasticsearch，并创建应用使用的数据库与账号。配置示例见根目录 <a href="../../.env.example"><code>.env.example</code></a>。后端只读取进程环境变量，不会自动加载 <code>.env</code>。</p>
+      <p>在仓库根目录执行以下命令。配置值含有空格、<code>$</code> 或其他 shell 特殊字符时，需先按 shell 语法正确引用。</p>
+      <pre><code>set -a
+. ./.env
+set +a
+cd backend/business</code></pre>
+      <p>升级已有数据库前，先备份需要保留的数据。迁移 <code>000021_remove_observability</code> 会删除三张告警表；降级只能恢复表结构，不能恢复已删除的告警历史。</p>
+      <pre><code>go run ./cmd/migrate validate
+go run ./cmd/migrate status
+go run ./cmd/migrate up</code></pre>
+      <p><code>validate</code> 只校验内嵌迁移文件，不连接数据库。<code>status</code> 查看数据库迁移状态。<code>up</code> 执行待应用的迁移。</p>
+      <p>完成迁移后，分别在三个已加载配置的终端中进入 <code>backend/business/</code>，执行下列命令。使用 Ctrl+C 停止进程。</p>
+      <div class="table-wrap"><table><caption>常驻进程及默认监听地址</caption><thead><tr><th scope="col">命令</th><th scope="col">默认监听地址</th></tr></thead><tbody>
+        <tr><td><code>go run ./cmd/server</code></td><td>API：<code>127.0.0.1:8080</code></td></tr>
+        <tr><td><code>go run ./cmd/business-worker</code></td><td>健康检查：<code>127.0.0.1:19102</code></td></tr>
+        <tr><td><code>go run ./cmd/search-indexer</code></td><td>健康检查：<code>127.0.0.1:19103</code></td></tr>
+      </tbody></table></div>
+      <p class="note">首次准备搜索索引时，在已加载配置的模块目录执行 <code>go run ./cmd/search-reindex --if-missing</code>。此命令会检查别名、数据 epoch 和所需映射；当前索引不满足条件时会重建。完整配置约束、恢复参数与角色维护操作见 <a href="README.md">模块 README</a>。</p>
+    </section>
+    <section id="validation">
+      <h2>04 / 验证与健康检查</h2>
+      <div class="split"><div><h3>在仓库根目录验证</h3><pre><code>make ci-check MODULE=backend/business
+make ci-test MODULE=backend/business
+make ci-build MODULE=backend/business</code></pre><p><code>ci-check</code> 检查格式并运行 go vet 和 lint；<code>ci-test</code> 执行带竞态检测的单元测试；<code>ci-build</code> 构建模块。</p></div>
+        <div><h3>健康探针</h3><ul><li><code>/startup</code>：初始化已完成。</li><li><code>/live</code>、<code>/health</code>：进程存活。</li><li><code>/ready</code>：初始化已完成、未进入退出阶段，且必要依赖和状态检查通过。</li></ul><p>探针响应只包含 <code>status</code>。业务进程使用 <code>internal/logging</code> 输出 slog JSON 日志，通过 <code>os/signal</code> 接收退出信号。</p></div></div>
+      <p class="note">Go CI 命令使用 <code>.run/ci/go.work</code>。单元测试与构建结果不能代替真实数据库、搜索和异步任务联调。仓库不提供部署配置、本地开发编排或压测工具。</p>
+    </section>
+  </main>
+  <footer>GoPulse · 业务后端说明　/　<a href="README.md">模块 README</a>　·　<a href="../../tools/ci/CI.md">CI 与提交规范</a></footer>
+</body>
+</html>
