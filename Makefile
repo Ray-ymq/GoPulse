@@ -2,8 +2,7 @@
 
 # Component dispatch. This list is the single source of truth for module names;
 # each component owns a Makefile that holds its own build and test details.
-GO_MODULES := backend/business \
-              backend/runtimekit
+GO_MODULES := backend/business
 NPM_MODULES := frontend/web
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 

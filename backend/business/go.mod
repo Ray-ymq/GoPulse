@@ -2,8 +2,6 @@ module github.com/Ray-ymq/GoPulse/backend
 
 go 1.26
 
-replace github.com/Ray-ymq/GoPulse/runtimekit => ../runtimekit
-
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.0
@@ -17,7 +15,6 @@ require go.opentelemetry.io/otel/sdk v1.37.0 // indirect
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/Ray-ymq/GoPulse/runtimekit v0.1.0
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect

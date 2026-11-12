@@ -30,7 +30,6 @@ import (
 	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
 	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -59,7 +58,7 @@ type roleResource struct {
 type roleAssembly struct {
 	profile    roleProfile
 	database   *sql.DB
-	probes     *runtimekit.Probes
+	probes     *platform.Health
 	router     stdhttp.Handler
 	dispatcher *outbox.Dispatcher
 	resources  []roleResource
@@ -248,7 +247,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		dispatcher, err = outbox.NewDispatcher(eventOutbox, publishers[0], outbox.DispatcherOptions{
 			Publishers: publishers, DatabaseTimeout: cfg.Outbox.DatabaseTimeout,
-			Owner:           runtimekit.InstanceID("backend") + "-" + strconv.Itoa(os.Getpid()),
+			Owner:           cfg.InstanceID + "-" + strconv.Itoa(os.Getpid()),
 			PollInterval:    cfg.Outbox.PollInterval,
 			ClaimBatch:      cfg.Outbox.ClaimBatch,
 			LeaseDuration:   cfg.Outbox.LeaseDuration,
@@ -316,7 +315,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		assembly.dispatcher = dispatcher
 	}
 
-	probes, err := runtimekit.NewProbes(root, time.Second, 250*time.Millisecond, func(ctx context.Context) error {
+	probes := platform.NewHealth(root, func(ctx context.Context) error {
 		if err := probeClient.Check(ctx); err != nil {
 			return err
 		}
@@ -330,9 +329,6 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		return probeUsers.ValidateBootstrap(ctx)
 	})
-	if err != nil {
-		return nil, errors.New("initialize backend probes")
-	}
 	assembly.probes = probes
 	assembly.router = backendhttp.NewRouter(
 		backendhttp.Dependencies{

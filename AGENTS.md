@@ -7,8 +7,7 @@
 ```text
 GoPulse/
 ├── backend/                 # 后端系统与共享能力
-│   ├── business/            # 业务 API、异步任务、搜索索引及数据库迁移
-│   └── runtimekit/          # 后端共享运行时能力
+│   └── business/            # 业务 API、异步任务、搜索索引及数据库迁移
 ├── frontend/                # Vue 3、TypeScript 和 Vite 前端
 │   └── web/                 # 纸墨风格用户前端
 ├── tools/                   # 工程与测试工具
@@ -26,8 +25,8 @@ GoPulse/
 
 - 模块清单以根 Makefile 的 `GO_MODULES` 和 `NPM_MODULES` 为准；新增、移动或移除模块时，同步更新构建入口、路径引用和相关文档。
 - 用户前端位于 `frontend/web/`，通过 `NPM_MODULES` 注册；开发与验证说明见 `frontend/web/README.md`。部署配置、本地开发编排和压测工具已移除，重建前需自行准备运行环境。
-- Go 业务逻辑放在所属模块，后端共享能力放入 `backend/runtimekit/`，避免跨模块复制实现。
-- Go module 名称及 import 路径保持不变；本地模块目录由根 Makefile 和各模块的 `replace` 指令指定。
+- Go 业务逻辑放在所属模块，日志和健康检查分别由业务模块内的 `internal/logging`、`internal/platform` 提供，信号和退出由各命令入口通过标准库处理。
+- 业务 Go module 名称保持不变；模块清单由根 Makefile 指定。runtimekit 模块及其依赖已删除。
 - 历史压测资料不作为当前可执行入口；新增压测工具时同步补充操作说明。
 - `.run/` 为本地运行和工具缓存目录，不作为源码维护；实际环境配置中的敏感值不得提交。
 - 环境变量示例统一维护在根目录 `.env.example`。

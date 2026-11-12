@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
@@ -63,9 +63,9 @@ func NewRuntime(connectionURL string, processor Processor, options RuntimeOption
 	options.Profile = profile
 	instanceID := options.InstanceID
 	if instanceID == "" {
-		instanceID = runtimekit.InstanceID(profile.Service)
+		instanceID = profile.Service
 	}
-	if err := runtimekit.ValidateInstanceID(instanceID); err != nil {
+	if err := config.ValidateInstanceID(instanceID); err != nil {
 		return nil, errors.New("business worker instance identity is invalid")
 	}
 	options.InstanceID = instanceID
@@ -310,7 +310,7 @@ func openSession(ctx context.Context, connectionURL string, options RuntimeOptio
 	profile := normalizeProfile(options.Profile)
 	identity := options.InstanceID
 	if identity == "" {
-		identity = runtimekit.InstanceID(profile.Service)
+		identity = profile.Service
 	}
 	session := &amqpSession{connection: connection, consumerTag: nextConsumerTag(profile, identity)}
 	channel, err := connection.Channel()

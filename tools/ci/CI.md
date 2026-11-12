@@ -38,7 +38,7 @@
 - 普通推送比较事件中的 `before` 与 `after` 两个版本，选择文件直接所属的 Go 模块。一次推送中的多个提交、文件删除及跨模块移动都会计入；强制推送也比较两个版本的完整文件树，不使用共同祖先缩小范围。
 - 新分支的 `before` 为全零 SHA，或旧 SHA 在检出历史中不可用时，检查全部已注册 Go 模块。无法解析新 SHA 或事件字段无效时，计划失败。
 - 根 `Makefile`、`.golangci.yml`、`.conventional-commits.json`，以及 `.github/workflows/`、`tools/make/`、`tools/ci/` 中的非文档文件变化时，检查全部已注册 Go 模块。
-- 其他变化只选择文件直接所属的模块，不自动增加依赖或使用方。例如仅修改 `backend/runtimekit/` 的 Go 代码时，只检查该模块；需要验证其他模块时，通过手动运行指定。
+- 其他变化只选择文件直接所属的模块，不自动增加依赖或使用方。例如修改 `backend/business/internal/platform/` 的 Go 代码时，检查所属的 `backend/business` 模块；需要验证其他模块时，通过手动运行指定。
 - 文档、前端和未归属 Go 模块的其他文件不选择模块任务。若没有选中任何模块，CI 工具测试和提交规范检查仍然运行。文档包括 `docs/` 下的文件、扩展名为 `.md`、`.rst`、`.adoc` 的文件和根目录 `LICENSE`。
 
 ### PR 自动选择
@@ -64,7 +64,6 @@ python3 tools/ci/modules.py pr-labels --base-ref origin/main
 
 - `ci:backend/business`：只运行业务系统的检查、构建和单测。
 - 多个模块标签：只运行这些模块，不增加其他模块。
-- `ci:backend/runtimekit`：只检查共享库本身，不自动检查使用它的模块。
 - 根 Makefile、CI、公共配置变化：仍只运行贴了标签的模块，不自动全量检查。
 - `ci:none`：明确不运行模块任务，适合仅前端、文档等改动；CI 工具测试和提交规范检查仍然运行。
 - 没有模块标签也没有 `ci:none`、存在未知 `ci:` 标签、或 `ci:none` 与模块标签混用：选择失败，最终 CI 失败。
@@ -108,7 +107,7 @@ make build MODULE=frontend/web
 
 ```sh
 make ci-tools
-make ci-plan LABELS="ci:backend/business ci:backend/runtimekit"
+make ci-plan LABELS="ci:backend/business"
 make ci-plan LABELS=ci:none
 make ci-check MODULE=backend/business
 make ci-test MODULE=backend/business

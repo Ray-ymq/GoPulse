@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -69,7 +69,7 @@ func assertJSONEqual(t *testing.T, actual, expected string) {
 	if obj, ok := actualValue.(map[string]any); ok {
 		if body, ok := obj["error"].(map[string]any); ok {
 			if id, present := body["request_id"]; present {
-				if !runtimekit.ValidRequestID(id.(string)) {
+				if !logging.ValidRequestID(id.(string)) {
 					t.Fatal("invalid error request ID")
 				}
 				if expectedObj, ok := expectedValue.(map[string]any); ok {

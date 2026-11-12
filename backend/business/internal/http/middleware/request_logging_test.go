@@ -41,7 +41,7 @@ func TestRequestLoggingUsesServerIDAndSafeCompletionMetadata(t *testing.T) {
 		t.Fatalf("records = %#v, want one completion", records)
 	}
 	record := records[0]
-	if record["message"] != "http request completed" || record["request_id"] != fixedRequestID || record["route"] != "/items/:itemId" || record["method"] != "GET" || record["status"] != float64(400) || record["level"] != "warn" || record["user_id"] != float64(42) || record["error_code"] != "validation_failed" {
+	if record["msg"] != "http request completed" || record["request_id"] != fixedRequestID || record["route"] != "/items/:itemId" || record["method"] != "GET" || record["status"] != float64(400) || record["level"] != "WARN" || record["user_id"] != float64(42) || record["error_code"] != "validation_failed" {
 		t.Fatalf("completion record = %#v", record)
 	}
 	for _, forbidden := range []string{"secret-path", "secret-query", "secret-cookie", "external-invalid-id"} {
@@ -66,7 +66,7 @@ func TestRequestLoggingRecoversPanicBeforeCompletion(t *testing.T) {
 		t.Fatalf("response = %d %s", result.Code, result.Body.String())
 	}
 	records := decodeRecords(t, output.Bytes())
-	if len(records) != 2 || records[0]["message"] != "http panic recovered" || records[1]["message"] != "http request completed" || records[1]["status"] != float64(500) || records[1]["level"] != "error" || records[1]["error_code"] != "internal_error" {
+	if len(records) != 2 || records[0]["msg"] != "http panic recovered" || records[1]["msg"] != "http request completed" || records[1]["status"] != float64(500) || records[1]["level"] != "ERROR" || records[1]["error_code"] != "internal_error" {
 		t.Fatalf("records = %#v", records)
 	}
 	if strings.Contains(output.String(), "secret panic value") || strings.Contains(output.String(), "goroutine") {
@@ -96,10 +96,10 @@ func TestRequestLoggingRecoversPanicAfterResponseCommitWithoutMixedPayload(t *te
 		t.Fatalf("records = %#v, want panic and completion", records)
 	}
 	panicRecord, completion := records[0], records[1]
-	if panicRecord["message"] != "http panic recovered" || panicRecord["level"] != "error" || panicRecord["error_code"] != "internal_error" || panicRecord["response_committed"] != true {
+	if panicRecord["msg"] != "http panic recovered" || panicRecord["level"] != "ERROR" || panicRecord["error_code"] != "internal_error" || panicRecord["response_committed"] != true {
 		t.Fatalf("panic record = %#v", panicRecord)
 	}
-	if completion["message"] != "http request completed" || completion["status"] != float64(stdhttp.StatusAccepted) || completion["level"] != "error" || completion["error_code"] != "internal_error" || completion["panic_recovered"] != true || completion["response_committed"] != true {
+	if completion["msg"] != "http request completed" || completion["status"] != float64(stdhttp.StatusAccepted) || completion["level"] != "ERROR" || completion["error_code"] != "internal_error" || completion["panic_recovered"] != true || completion["response_committed"] != true {
 		t.Fatalf("completion record = %#v", completion)
 	}
 	if strings.Contains(result.Body.String(), `"error"`) || strings.Contains(output.String(), "secret panic value") || strings.Contains(output.String(), "goroutine") {
@@ -124,7 +124,7 @@ func TestRequestIDFailureReturnsSafeErrorWithoutForgedID(t *testing.T) {
 		t.Fatalf("response = %d, request ID = %q", result.Code, result.Header().Get(requestIDHeader))
 	}
 	records := decodeRecords(t, output.Bytes())
-	if len(records) != 1 || records[0]["message"] != "request id generation failed" || records[0]["error_code"] != "internal_error" {
+	if len(records) != 1 || records[0]["msg"] != "request id generation failed" || records[0]["error_code"] != "internal_error" {
 		t.Fatalf("records = %#v", records)
 	}
 	if _, exists := records[0]["request_id"]; exists || strings.Contains(output.String(), "entropy secret") || strings.Contains(output.String(), "bbbbbbbb") {

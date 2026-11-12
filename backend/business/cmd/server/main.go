@@ -7,13 +7,14 @@ import (
 	"log/slog"
 	stdhttp "net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	goredis "github.com/redis/go-redis/v9"
 	redislogging "github.com/redis/go-redis/v9/logging"
 )
@@ -28,7 +29,6 @@ const (
 )
 
 func main() {
-	defer runtimekit.ReleaseShutdown()
 	stdoutLogger := logging.New("backend", os.Stdout)
 	cfg, err := config.Load()
 	if err != nil {
@@ -54,7 +54,7 @@ func run(cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("configure Gin mode: %w", err)
 	}
 
-	signalContext, stopSignals := runtimekit.SignalContext()
+	signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
 	assembly, err := newRoleAssembly(cfg, logger, signalContext)
 	if err != nil {
@@ -62,7 +62,6 @@ func run(cfg config.Config, logger *slog.Logger) error {
 	}
 	defer assembly.close(lifecycleLogger)
 
-	runtimekit.BindShutdown(signalContext, shutdownTimeout)
 	assembly.probes.Started()
 	server := newHTTPServer(cfg.HTTPAddress(), assembly.router)
 	return serveWithDispatcher(signalContext, server, assembly.dispatcher, lifecycleLogger)
@@ -100,7 +99,7 @@ func serveWithDispatcher(ctx context.Context, server *stdhttp.Server, dispatcher
 	serverErr := serveLogged(ctx, server, server.ListenAndServe, logger)
 	cancelDispatcher()
 
-	shutdownContext, cancelShutdown := runtimekit.ShutdownContext(shutdownTimeout)
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancelShutdown()
 	select {
 	case dispatcherErr := <-dispatcherErrors:
@@ -144,7 +143,7 @@ func serveLogged(ctx context.Context, server *stdhttp.Server, startServer func()
 		return nil
 	case <-ctx.Done():
 		logger.Info("backend shutdown started")
-		shutdownContext, cancel := runtimekit.ShutdownContext(shutdownTimeout)
+		shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownContext); err != nil {

@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 const (
@@ -206,9 +204,6 @@ func Load() (Config, error) {
 	if _, err := LoadServiceRoleFrom(os.LookupEnv); err != nil {
 		return Config{}, err
 	}
-	if err := runtimekit.ValidateRuntimeEnvironment("backend"); err != nil {
-		return Config{}, err
-	}
 
 	return LoadFrom(os.LookupEnv)
 }
@@ -231,7 +226,7 @@ func LoadFrom(lookup LookupFunc) (Config, error) {
 		return Config{}, err
 	}
 	instanceID := valueOrDefault(lookup, "GOPULSE_INSTANCE_ID", "backend-local")
-	if err := runtimekit.ValidateInstanceID(instanceID); err != nil {
+	if err := ValidateInstanceID(instanceID); err != nil {
 		return Config{}, errors.New("GOPULSE_INSTANCE_ID must be a bounded lowercase identity")
 	}
 	replicaCount, err := replicaCountValue(lookup)

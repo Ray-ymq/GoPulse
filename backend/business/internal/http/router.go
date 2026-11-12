@@ -11,7 +11,7 @@ import (
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
@@ -37,7 +37,7 @@ func NewRateLimitHandler(shared, local ratelimit.Limiter, policies map[string]ra
 }
 
 type Dependencies struct {
-	Probes             *runtimekit.Probes
+	Probes             *platform.Health
 	MySQL              Checker
 	Redis              Checker
 	RabbitMQ           Checker
@@ -92,11 +92,13 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 	}
 	probes := dependencies.Probes
 	if probes == nil {
-		probes, _ = runtimekit.NewProbes(context.Background(), checkerTimeout, 250*time.Millisecond, func(ctx context.Context) error {
+		probes = platform.NewHealth(context.Background(), func(ctx context.Context) error {
 			if dependencies.MySQL == nil {
 				return errors.New("mysql_unavailable")
 			}
-			return dependencies.MySQL.Check(ctx)
+			checkCtx, cancel := context.WithTimeout(ctx, checkerTimeout)
+			defer cancel()
+			return dependencies.MySQL.Check(checkCtx)
 		})
 		probes.Started()
 	}
@@ -110,7 +112,8 @@ func newRouter(dependencies Dependencies, checkerTimeout, requestTimeout time.Du
 			case "/startup", "/live", "/ready", "/health":
 				probes.ServeHTTP(c.Writer, c.Request)
 			default:
-				runtimekit.WriteError(c.Writer, status, code, message)
+				c.Header("Cache-Control", "no-store")
+				c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message, "request_id": c.Writer.Header().Get("X-Request-ID")}})
 			}
 		}
 	}

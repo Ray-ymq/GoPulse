@@ -5,31 +5,27 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"regexp"
 	"testing"
+	"time"
 )
 
-func TestLoggerEmitsSchemaAndProtectsReservedFields(t *testing.T) {
+func TestLoggerEmitsJSON(t *testing.T) {
 	var output bytes.Buffer
-	logger := Module(New("backend", &output), "http").With(
-		"service", "forged",
-		"module", "forged",
-		"request_id", "abc123",
-	)
-	logger.Info("request completed", "message", "forged", "status", 204)
-
+	Module(New("backend", &output), "http").Info("request completed", "request_id", "abc123", "status", 204)
 	var record map[string]any
 	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v; output = %q", err, output.String())
+		t.Fatal(err)
 	}
-	if record["log_schema_version"] != float64(1) || record["service"] != "backend" || record["module"] != "http" {
-		t.Fatalf("fixed fields = %#v", record)
-	}
-	if record["level"] != "info" || record["message"] != "request completed" || record["request_id"] != "abc123" || record["status"] != float64(204) {
+	if record["service"] != "backend" || record["module"] != "http" || record["level"] != "INFO" || record["msg"] != "request completed" || record["request_id"] != "abc123" || record["status"] != float64(204) {
 		t.Fatalf("record = %#v", record)
 	}
-	if matched := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T.*Z$`).MatchString(record["timestamp"].(string)); !matched {
-		t.Fatalf("timestamp = %q, want UTC RFC3339", record["timestamp"])
+	if _, err := time.Parse(time.RFC3339Nano, record["time"].(string)); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"runtime_contract_version", "runtime_mode", "log_schema_version", "event", "instance_id"} {
+		if _, ok := record[key]; ok {
+			t.Fatalf("unexpected field %s", key)
+		}
 	}
 }
 
@@ -48,10 +44,10 @@ func TestLoggerFiltersDebugAndContextUsesExplicitFallback(t *testing.T) {
 	if err := decoder.Decode(&second); err != nil {
 		t.Fatal(err)
 	}
-	if first["message"] != "fallback" || first["level"] != "warn" {
+	if first["msg"] != "fallback" || first["level"] != "WARN" {
 		t.Fatalf("first = %#v", first)
 	}
-	if second["message"] != "scoped" || second["module"] != "request" || second["level"] != "error" {
+	if second["msg"] != "scoped" || second["module"] != "request" || second["level"] != "ERROR" {
 		t.Fatalf("second = %#v", second)
 	}
 	if decoder.More() {

@@ -91,7 +91,7 @@ func TestHandlerAcknowledgesSuccessfulDuplicateAndSelfEvents(t *testing.T) {
 				wantMessage, wantReason = "event ignored", "self_event"
 			}
 			logged := output.String()
-			if !strings.Contains(logged, `"message":"`+wantMessage+`"`) || !strings.Contains(logged, `"reason":"`+wantReason+`"`) || !strings.Contains(logged, `"event_id":"`+delivery.MessageId+`"`) {
+			if !strings.Contains(logged, `"msg":"`+wantMessage+`"`) || !strings.Contains(logged, `"reason":"`+wantReason+`"`) || !strings.Contains(logged, `"event_id":"`+delivery.MessageId+`"`) {
 				t.Fatalf("completion log missing structured fields: %q", logged)
 			}
 		})
@@ -145,7 +145,7 @@ func TestHandlerRoutesTemporaryFailureThroughFiniteRetryThenDeadQueue(t *testing
 			if test.name == "exhausted" {
 				wantMessage = "event dead lettered"
 			}
-			if !strings.Contains(logged, `"message":"`+wantMessage+`"`) || !strings.Contains(logged, `"event_id":"`+delivery.MessageId+`"`) {
+			if !strings.Contains(logged, `"msg":"`+wantMessage+`"`) || !strings.Contains(logged, `"event_id":"`+delivery.MessageId+`"`) {
 				t.Fatalf("structured event log missing fields: %q", logged)
 			}
 		})

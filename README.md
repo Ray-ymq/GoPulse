@@ -7,7 +7,6 @@ GoPulse 提供社交内容业务：注册登录、用户资料、关注、帖子
 | 目录 | 职责 |
 | --- | --- |
 | `backend/business` | Go、Gin API，MySQL 业务数据，Redis 缓存，RabbitMQ 异步任务，Elasticsearch 搜索 |
-| `backend/runtimekit` | 共享日志、健康探针和进程退出 |
 | `frontend/web` | Vue 3、TypeScript、Vite 用户前端 |
 | `tools/ci` | CI 模块选择和提交校验 |
 

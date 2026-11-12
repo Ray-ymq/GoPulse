@@ -7,17 +7,16 @@ import (
 	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
 	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
 	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
 	"github.com/Ray-ymq/GoPulse/backend/internal/like"
 	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
 	"github.com/Ray-ymq/GoPulse/backend/internal/post"
 	"github.com/Ray-ymq/GoPulse/backend/internal/search"
 	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/gin-gonic/gin"
 )
 
@@ -105,10 +104,7 @@ func registeredRoutes(t *testing.T) map[routeKey]bool {
 	gin.SetMode(gin.TestMode)
 	root, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	probes, err := runtimekit.NewProbes(root, time.Second, time.Second, nil)
-	if err != nil {
-		t.Fatalf("runtimekit.NewProbes() error = %v", err)
-	}
+	probes := platform.NewHealth(root, nil)
 	passThrough := func(c *gin.Context) { c.Next() }
 	routers := []*gin.Engine{
 		NewRouter(Dependencies{Probes: probes}, APIRoutes{

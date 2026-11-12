@@ -4,15 +4,16 @@ import (
 	"context"
 	"io"
 	"log/slog"
-
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
-const SchemaVersion = 1
-
-func New(service string, w io.Writer) *slog.Logger { return runtimekit.NewLogger(service, w) }
+func New(service string, w io.Writer) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(w, nil)).With("service", service)
+}
 func Module(logger *slog.Logger, module string) *slog.Logger {
-	return runtimekit.ModuleLogger(logger, module)
+	if logger == nil {
+		return nil
+	}
+	return logger.With("module", module)
 }
 
 type contextKey struct{}
@@ -35,7 +36,7 @@ func FromContext(ctx context.Context, fallback *slog.Logger) *slog.Logger {
 	return fallback
 }
 
-// Discard returns a schema-compatible logger for tests or optional wiring.
+// Discard 返回丢弃输出的日志实例，用于测试或未配置日志的调用。
 func Discard(service string) *slog.Logger {
 	return New(service, io.Discard)
 }

@@ -6,8 +6,6 @@ import (
 	stdhttp "net/http"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/runtimekit"
-
 	"github.com/Ray-ymq/GoPulse/backend/internal/apperror"
 	"github.com/Ray-ymq/GoPulse/backend/internal/http/response"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
@@ -22,7 +20,7 @@ const (
 
 type RequestIDGenerator func() (string, error)
 
-func RandomRequestID() (string, error) { return runtimekit.NewRequestID() }
+func RandomRequestID() (string, error) { return logging.NewRequestID() }
 
 func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc {
 	if generate == nil {
@@ -33,7 +31,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 
 		requestID := c.Request.Header.Get(requestIDHeader)
 		var err error
-		if len(c.Request.Header.Values(requestIDHeader)) != 1 || !runtimekit.ValidRequestID(requestID) {
+		if len(c.Request.Header.Values(requestIDHeader)) != 1 || !logging.ValidRequestID(requestID) {
 			requestID, err = generate()
 		}
 		if err != nil || requestID == "" {
@@ -44,7 +42,7 @@ func RequestID(logger *slog.Logger, generate RequestIDGenerator) gin.HandlerFunc
 		}
 
 		requestLogger := logger.With(slog.String("request_id", requestID))
-		c.Request = c.Request.WithContext(logging.WithContext(runtimekit.WithRequestID(requestContext, requestID), requestLogger))
+		c.Request = c.Request.WithContext(logging.WithContext(logging.WithRequestID(requestContext, requestID), requestLogger))
 		c.Header(requestIDHeader, requestID)
 		c.Next()
 	}

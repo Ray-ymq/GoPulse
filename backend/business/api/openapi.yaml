@@ -136,7 +136,7 @@ info:
 
     `/startup`、`/live`、`/ready`、`/health` 不在 `/api/v1` 下，不要求会话，
 
-    返回 `{"status": ..., "contract_version": ...}`，供 Compose 健康检查与验收工具使用。
+    返回 `{"status": ...}`，供健康检查使用。
 
     '
 servers:
@@ -201,7 +201,7 @@ paths:
       summary: 就绪探针
       description: '依赖检查通过返回 200；依赖不可用返回 503 `not_ready`，停机中返回 503 `stopping`。
 
-        检查内容为 MySQL 连通性与运行时模式，结果缓存 250 毫秒。
+        检查 MySQL 连通性、业务表结构、业务状态和初始化用户配置。每次请求重新检查，不缓存结果；检查超时为 1 秒。
 
         '
       security: []
@@ -1786,14 +1786,10 @@ components:
       type: object
       required:
       - status
-      - contract_version
       properties:
         status:
           type: string
           description: 探针状态，取值 `ok`、`starting`、`stopping`、`not_ready`、`invalid_request`、`method_not_allowed`、`not_found`。
-        contract_version:
-          type: string
-          description: 运行时合同版本，与发布 Bundle 中的合同一致。
   requestBodies:
     Credentials:
       required: true
@@ -1905,7 +1901,6 @@ components:
             ok:
               value:
                 status: ok
-                contract_version: '2'
     ProbeInvalid:
       description: 探针收到查询串、请求体或传输编码。
       headers:
@@ -1921,7 +1916,6 @@ components:
             invalid:
               value:
                 status: invalid_request
-                contract_version: '2'
     ProbeMethodNotAllowed:
       description: 探针只接受 GET。
       headers:
@@ -1937,7 +1931,6 @@ components:
             method:
               value:
                 status: method_not_allowed
-                contract_version: '2'
     ProbeStarting:
       description: 进程尚未完成启动。
       content:

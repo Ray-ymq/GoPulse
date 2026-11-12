@@ -11,14 +11,13 @@
 
 ## 目录与模块入口
 
-业务后端位于 `backend/business/`，共享运行时能力放在 `backend/runtimekit/`。用户前端位于 `frontend/web/`，启动与验证步骤见[前端说明](frontend/web/README.md)。CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
+业务后端位于 `backend/business/`，日志与健康检查使用业务模块内的 `internal/logging` 和 `internal/platform`。用户前端位于 `frontend/web/`，启动与验证步骤见[前端说明](frontend/web/README.md)。CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
 
 `MODULE` 和 `ci:<模块目录>` 标签使用迁移后的完整目录，例如：
 
 ```sh
 make test MODULE=backend/business
-make build MODULE=backend/runtimekit
-make ci-plan LABELS="ci:backend/business ci:backend/runtimekit"
+make ci-plan LABELS="ci:backend/business"
 ```
 
-模块目录调整不改变 Go module 名称、import 路径。旧模块目录参数和旧 CI 标签需要改为新路径。PR 按完整差异自动选择模块，并在检查通过后同步 `ci:*` 标签；所需远端标签由流程按需创建。手动运行仍通过模块标签指定检查范围。根目录保留模块构建、测试和 CI 入口。
+业务 Go module 名称保持不变。runtimekit 模块及其 CI 标签已移除；基础日志、健康检查和退出管理由标准库与现有业务包实现。旧模块目录参数和旧 CI 标签需要改为新路径。PR 按完整差异自动选择模块，并在检查通过后同步 `ci:*` 标签；所需远端标签由流程按需创建。手动运行仍通过模块标签指定检查范围。根目录保留模块构建、测试和 CI 入口。

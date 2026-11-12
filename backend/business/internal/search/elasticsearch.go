@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 const maximumResponseBytes = 8 << 20
@@ -590,9 +589,12 @@ func (repository *ElasticsearchRepository) do(ctx context.Context, method, path 
 	if repository == nil || repository.performer == nil || repository.Purpose() != "search" {
 		return nil, ErrUnavailable
 	}
-	request, err := runtimekit.NewRequest(ctx, method, path, body)
+	request, err := http.NewRequestWithContext(ctx, method, path, body)
 	if err != nil {
 		return nil, ErrUnavailable
+	}
+	if id := logging.RequestID(ctx); logging.ValidRequestID(id) {
+		request.Header.Set("X-Request-ID", id)
 	}
 	if body != nil {
 		if path == "/_bulk" {

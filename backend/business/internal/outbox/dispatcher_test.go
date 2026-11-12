@@ -173,7 +173,7 @@ func TestDispatcherPublishesAndMarksOnlyAfterPublishSucceeds(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
 		t.Fatalf("decode structured log: %v", err)
 	}
-	if record["message"] != "outbox publish confirmed" || record["event_id"] != publisher.published[0].EventID || record["event_type"] != string(publisher.published[0].EventType) || record["outbox_id"] != float64(41) {
+	if record["msg"] != "outbox publish confirmed" || record["event_id"] != publisher.published[0].EventID || record["event_type"] != string(publisher.published[0].EventType) || record["outbox_id"] != float64(41) {
 		t.Fatalf("published log = %#v", record)
 	}
 }

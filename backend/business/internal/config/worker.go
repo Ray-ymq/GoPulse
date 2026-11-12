@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 const (
@@ -47,9 +45,6 @@ type BusinessWorkerConfig struct {
 }
 
 func LoadWorker() (WorkerConfig, error) {
-	if err := runtimekit.ValidateRuntimeEnvironment("business-worker"); err != nil {
-		return WorkerConfig{}, err
-	}
 
 	return LoadWorkerFrom(os.LookupEnv)
 }

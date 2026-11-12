@@ -6,9 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"time"
-
-	"github.com/Ray-ymq/GoPulse/runtimekit"
+	"os/signal"
+	"syscall"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
@@ -23,7 +22,6 @@ func main() {
 }
 
 func execute(stdout io.Writer, load func() (config.SearchIndexerConfig, error), operation func(config.SearchIndexerConfig, *slog.Logger) error) int {
-	defer runtimekit.ReleaseShutdown()
 	stdoutLogger := logging.New("search-indexer", stdout)
 	cfg, err := load()
 	if err != nil {
@@ -82,10 +80,9 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 	if err != nil {
 		return indexerInitializationFailure(lifecycleLogger, "runtime", "invalid_configuration")
 	}
-	ctx, stop := runtimekit.SignalContext()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	runtimekit.BindShutdown(ctx, cfg.Worker.ShutdownTimeout)
-	probes, err := runtimekit.NewProbes(ctx, time.Second, 250*time.Millisecond, func(checkCtx context.Context) error {
+	probes := platform.NewHealth(ctx, func(checkCtx context.Context) error {
 		if err := runtime.Ready(checkCtx); err != nil {
 			return err
 		}
@@ -97,17 +94,15 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	probeListener, err := runtimekit.StartProbes(ctx, "search-indexer", probes)
+	probeListener, err := platform.StartHealth(healthAddress("SEARCH_INDEXER_HEALTH_ADDRESS", "127.0.0.1:19103"), probes)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		shutdownCtx, cancel := runtimekit.ShutdownContext(cfg.Worker.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Worker.ShutdownTimeout)
 		defer cancel()
 		if err := probeListener.Shutdown(shutdownCtx); err != nil {
+			_ = probeListener.Close()
 			runErr = errors.New("shutdown_timeout")
 		}
 	}()
@@ -123,4 +118,11 @@ func run(cfg config.SearchIndexerConfig, logger *slog.Logger) (runErr error) {
 func indexerInitializationFailure(logger *slog.Logger, stage, reason string) error {
 	logger.Error("search indexer initialization failed", slog.String("stage", stage), slog.String("reason", reason))
 	return errors.New("search indexer initialization failed")
+}
+
+func healthAddress(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

@@ -3,13 +3,13 @@ package platform
 import (
 	"context"
 	"errors"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"io"
 	"net"
 	"net/http"
 	"time"
 
 	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v9"
 )
@@ -77,9 +77,12 @@ func (client *Elasticsearch) Perform(ctx context.Context, request *http.Request)
 }
 
 func (client *Elasticsearch) Check(ctx context.Context) error {
-	request, err := runtimekit.NewRequest(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/_cluster/health?wait_for_status=yellow&timeout=1s", nil)
 	if err != nil {
 		return err
+	}
+	if id := logging.RequestID(ctx); logging.ValidRequestID(id) {
+		request.Header.Set("X-Request-ID", id)
 	}
 	response, err := client.Perform(ctx, request)
 	if err != nil {

@@ -6,8 +6,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-
-	"github.com/Ray-ymq/GoPulse/runtimekit"
 )
 
 type SearchIndexerConfig struct {
@@ -22,9 +20,6 @@ type SearchIndexerConfig struct {
 }
 
 func LoadSearchIndexer() (SearchIndexerConfig, error) {
-	if err := runtimekit.ValidateRuntimeEnvironment("search-indexer"); err != nil {
-		return SearchIndexerConfig{}, err
-	}
 
 	return LoadSearchIndexerFrom(os.LookupEnv)
 }
