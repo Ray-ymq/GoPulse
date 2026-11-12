@@ -11,10 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
+	"github.com/Ray-ymq/GoPulse/backend/internal/async/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
+	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http"
+
 	goredis "github.com/redis/go-redis/v9"
 	redislogging "github.com/redis/go-redis/v9/logging"
 )

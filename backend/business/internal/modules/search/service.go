@@ -1,0 +1,386 @@
+package search
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/post"
+	"github.com/Ray-ymq/GoPulse/backend/internal/shared/apperror"
+)
+
+const (
+	DefaultLimit              = 20
+	MaximumLimit              = 50
+	cursorVersion             = 2
+	maximumCursorBytes        = 8192
+	pointInTimeKeepAliveValue = "2m"
+)
+
+const pointInTimeKeepAlive = 2 * time.Minute
+
+type Options struct {
+	Query  string
+	Limit  int
+	Cursor *Cursor
+}
+
+type Cursor struct {
+	QueryDigest string
+	DataEpoch   string
+	Generation  string
+	PointInTime string
+	ExpiresAt   int64
+	After       Hit
+	signature   []byte
+}
+
+type cursorPayload struct {
+	Version     int     `json:"v"`
+	QueryDigest string  `json:"q"`
+	DataEpoch   string  `json:"epoch,omitempty"`
+	Generation  string  `json:"generation"`
+	PointInTime string  `json:"pit"`
+	ExpiresAt   int64   `json:"expires_at"`
+	Score       float64 `json:"score"`
+	CreatedAt   string  `json:"created_at"`
+	PostID      uint64  `json:"post_id"`
+	ShardDoc    int64   `json:"shard_doc"`
+}
+
+type Searcher interface {
+	ResolveGeneration(context.Context) (string, error)
+	OpenPointInTime(context.Context, string) (string, error)
+	Search(context.Context, string, string, string, int, *Hit) (SearchResult, error)
+	ClosePointInTime(context.Context, string) error
+}
+
+type Hydrator interface {
+	FindMany(context.Context, uint64, []uint64) ([]post.Post, error)
+}
+
+type Page struct {
+	Posts      []post.Post
+	NextCursor *string
+}
+
+type Service struct {
+	searcher      Searcher
+	hydrator      Hydrator
+	cursorKey     []byte
+	now           func() time.Time
+	epochProvider interface {
+		CurrentEpoch(context.Context) (string, error)
+	}
+}
+
+func NewService(searcher Searcher, hydrator Hydrator, cursorSecret string) *Service {
+	return &Service{
+		searcher:  searcher,
+		hydrator:  hydrator,
+		cursorKey: deriveCursorKey(cursorSecret),
+		now:       time.Now,
+	}
+}
+
+func (service *Service) WithEpochProvider(provider interface {
+	CurrentEpoch(context.Context) (string, error)
+}) *Service {
+	if service != nil {
+		service.epochProvider = provider
+	}
+	return service
+}
+
+func ParseOptions(values url.Values) (Options, error) {
+	for key := range values {
+		if key != "q" && key != "limit" && key != "cursor" {
+			return Options{}, validationError("search parameters are invalid")
+		}
+	}
+	queries, ok := values["q"]
+	if !ok || len(queries) != 1 || !utf8.ValidString(queries[0]) {
+		return Options{}, validationError("q must contain between 1 and 200 characters")
+	}
+	query := strings.TrimSpace(queries[0])
+	if length := utf8.RuneCountInString(query); length < 1 || length > 200 {
+		return Options{}, validationError("q must contain between 1 and 200 characters")
+	}
+	options := Options{Query: query, Limit: DefaultLimit}
+	if limits, ok := values["limit"]; ok {
+		if len(limits) != 1 || limits[0] == "" {
+			return Options{}, validationError("limit must be an integer between 1 and 50")
+		}
+		for _, character := range limits[0] {
+			if character < '0' || character > '9' {
+				return Options{}, validationError("limit must be an integer between 1 and 50")
+			}
+		}
+		limit, err := strconv.ParseUint(limits[0], 10, 8)
+		if err != nil || limit < 1 || limit > MaximumLimit {
+			return Options{}, validationError("limit must be an integer between 1 and 50")
+		}
+		options.Limit = int(limit)
+	}
+	if cursors, ok := values["cursor"]; ok {
+		if len(cursors) != 1 {
+			return Options{}, validationError("cursor is invalid")
+		}
+		cursor, err := DecodeCursor(cursors[0])
+		if err != nil || cursor.QueryDigest != digestQuery(query) {
+			return Options{}, validationError("cursor is invalid")
+		}
+		options.Cursor = &cursor
+	}
+	return options, nil
+}
+
+func (service *Service) Search(ctx context.Context, viewerID uint64, options Options) (Page, error) {
+	if service == nil || service.searcher == nil || service.hydrator == nil || viewerID == 0 || len(service.cursorKey) == 0 || service.now == nil {
+		return Page{}, apperror.WrapInternal(errors.New("search service is unavailable"))
+	}
+
+	queryDigest := digestQuery(options.Query)
+	if options.Cursor != nil {
+		if options.Cursor.QueryDigest != queryDigest || !verifyCursor(*options.Cursor, service.cursorKey) || service.now().Unix() >= options.Cursor.ExpiresAt {
+			return Page{}, validationError("cursor is invalid")
+		}
+	}
+
+	dataEpoch := ""
+	var err error
+	if service.epochProvider != nil {
+		dataEpoch, err = service.epochProvider.CurrentEpoch(ctx)
+		if err != nil || dataEpoch == "" {
+			return Page{}, unavailableError()
+		}
+	}
+	generation, err := service.resolveGeneration(ctx, dataEpoch)
+	if err != nil {
+		return Page{}, unavailableError()
+	}
+
+	pointInTime := ""
+	var after *Hit
+	if options.Cursor != nil {
+		if options.Cursor.Generation != generation || (dataEpoch != "" && options.Cursor.DataEpoch != dataEpoch) {
+			_ = service.searcher.ClosePointInTime(ctx, options.Cursor.PointInTime)
+			return Page{}, validationError("cursor is invalid")
+		}
+		pointInTime = options.Cursor.PointInTime
+		after = &options.Cursor.After
+	} else {
+		pointInTime, err = service.searcher.OpenPointInTime(ctx, generation)
+		if err != nil {
+			return Page{}, unavailableError()
+		}
+	}
+
+	// Bound stale projection work per request; continuation consumes only scanned hits.
+	const maximumScanRounds = 5
+	page := Page{Posts: make([]post.Post, 0, options.Limit)}
+	hasMore := false
+	var last Hit
+	for round := 0; round < maximumScanRounds; round++ {
+		result, searchErr := service.searcher.Search(ctx, generation, pointInTime, options.Query, options.Limit, after)
+		if searchErr != nil {
+			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+			if errors.Is(searchErr, ErrPointInTimeExpired) {
+				return Page{}, validationError("cursor is invalid")
+			}
+			return Page{}, unavailableError()
+		}
+		if result.Generation != generation || result.PointInTime == "" {
+			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+			return Page{}, unavailableError()
+		}
+		pointInTime = result.PointInTime
+		identifiers := make([]uint64, len(result.Hits))
+		for i, hit := range result.Hits {
+			identifiers[i] = hit.PostID
+		}
+		records := make([]post.Post, 0, len(identifiers))
+		// FindMany accepts 1..post.MaximumLimit IDs; ES includes a lookahead hit.
+		for start := 0; start < len(identifiers); start += post.MaximumLimit {
+			end := min(start+post.MaximumLimit, len(identifiers))
+			batch, hydrateErr := service.hydrator.FindMany(ctx, viewerID, identifiers[start:end])
+			if hydrateErr != nil {
+				_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+				return Page{}, apperror.WrapInternal(errors.New("hydrate search results"))
+			}
+			records = append(records, batch...)
+		}
+		byID := make(map[uint64]post.Post, len(records))
+		for _, record := range records {
+			byID[record.ID] = record
+		}
+		hasMore = false
+		for _, hit := range result.Hits {
+			if record, exists := byID[hit.PostID]; exists {
+				if len(page.Posts) == options.Limit {
+					hasMore = true
+					break
+				}
+				page.Posts = append(page.Posts, record)
+			}
+			last = hit
+		}
+		if hasMore {
+			break
+		}
+		if len(result.Hits) <= options.Limit {
+			break
+		}
+		hasMore = true
+		after = &last
+	}
+	if hasMore {
+		token, err := encodeCursor(Cursor{
+			QueryDigest: queryDigest,
+			DataEpoch:   dataEpoch,
+			Generation:  generation,
+			PointInTime: pointInTime,
+			ExpiresAt:   service.now().Add(pointInTimeKeepAlive).Unix(),
+			After:       last,
+		}, service.cursorKey)
+		if err != nil {
+			_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+			return Page{}, apperror.WrapInternal(err)
+		}
+		page.NextCursor = &token
+	} else {
+		_ = service.searcher.ClosePointInTime(ctx, pointInTime)
+	}
+	return page, nil
+}
+
+func (service *Service) resolveGeneration(ctx context.Context, epoch string) (string, error) {
+	if epoch != "" {
+		if resolver, ok := service.searcher.(interface {
+			ResolveGenerationForEpoch(context.Context, string) (string, error)
+		}); ok {
+			return resolver.ResolveGenerationForEpoch(ctx, epoch)
+		}
+	}
+	return service.searcher.ResolveGeneration(ctx)
+}
+
+func EncodeCursor(cursor Cursor, secret string) (string, error) {
+	return encodeCursor(cursor, deriveCursorKey(secret))
+}
+
+func encodeCursor(cursor Cursor, key []byte) (string, error) {
+	payload, err := marshalCursor(cursor)
+	if err != nil || len(key) == 0 {
+		return "", errors.New("search cursor fields are invalid")
+	}
+	signature := signCursor(payload, key)
+	return base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+func DecodeCursor(token string) (Cursor, error) {
+	if token == "" || len(token) > maximumCursorBytes {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	payloadToken, signatureToken, ok := strings.Cut(token, ".")
+	if !ok || strings.Contains(signatureToken, ".") || payloadToken == "" || signatureToken == "" {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	payload, err := base64.RawURLEncoding.Strict().DecodeString(payloadToken)
+	if err != nil || base64.RawURLEncoding.EncodeToString(payload) != payloadToken {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	signature, err := base64.RawURLEncoding.Strict().DecodeString(signatureToken)
+	if err != nil || len(signature) != sha256.Size || base64.RawURLEncoding.EncodeToString(signature) != signatureToken {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	var raw cursorPayload
+	if err := decoder.Decode(&raw); err != nil {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	cursor := Cursor{
+		QueryDigest: raw.QueryDigest,
+		DataEpoch:   raw.DataEpoch,
+		Generation:  raw.Generation,
+		PointInTime: raw.PointInTime,
+		ExpiresAt:   raw.ExpiresAt,
+		After: Hit{
+			Score: raw.Score, CreatedAt: raw.CreatedAt, PostID: raw.PostID, ShardDoc: raw.ShardDoc,
+		},
+		signature: signature,
+	}
+	canonical, err := marshalCursor(cursor)
+	if err != nil || !bytes.Equal(canonical, payload) {
+		return Cursor{}, errors.New("cursor is invalid")
+	}
+	return cursor, nil
+}
+
+func marshalCursor(cursor Cursor) ([]byte, error) {
+	if cursor.QueryDigest == "" || !validPhysicalIndex(cursor.Generation) || cursor.PointInTime == "" || len(cursor.PointInTime) > 4096 || cursor.ExpiresAt <= 0 || cursor.After.PostID == 0 || cursor.After.CreatedAt == "" || cursor.After.Score < 0 || cursor.After.Score != cursor.After.Score || cursor.After.ShardDoc < 0 {
+		return nil, errors.New("search cursor fields are invalid")
+	}
+	if len(cursor.QueryDigest) != sha256.Size*2 {
+		return nil, errors.New("search cursor fields are invalid")
+	}
+	if _, err := hex.DecodeString(cursor.QueryDigest); err != nil {
+		return nil, errors.New("search cursor fields are invalid")
+	}
+	if cursor.DataEpoch != "" && !validEpoch(cursor.DataEpoch) {
+		return nil, errors.New("search cursor fields are invalid")
+	}
+	return json.Marshal(cursorPayload{
+		Version: cursorVersion, QueryDigest: cursor.QueryDigest, DataEpoch: cursor.DataEpoch, Generation: cursor.Generation,
+		PointInTime: cursor.PointInTime, ExpiresAt: cursor.ExpiresAt,
+		Score: cursor.After.Score, CreatedAt: cursor.After.CreatedAt, PostID: cursor.After.PostID, ShardDoc: cursor.After.ShardDoc,
+	})
+}
+
+func verifyCursor(cursor Cursor, key []byte) bool {
+	payload, err := marshalCursor(cursor)
+	return err == nil && len(cursor.signature) == sha256.Size && hmac.Equal(cursor.signature, signCursor(payload, key))
+}
+
+func signCursor(payload, key []byte) []byte {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write(payload)
+	return mac.Sum(nil)
+}
+
+func deriveCursorKey(secret string) []byte {
+	if secret == "" {
+		return nil
+	}
+	digest := sha256.Sum256([]byte("gopulse/search-cursor/v2\x00" + secret))
+	return digest[:]
+}
+
+func digestQuery(query string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(query)))
+	return hex.EncodeToString(digest[:])
+}
+
+func validationError(message string) error {
+	return apperror.New(apperror.CodeValidationFailed, message)
+}
+
+func unavailableError() error {
+	return apperror.New(apperror.CodeSearchUnavailable, "search is temporarily unavailable")
+}

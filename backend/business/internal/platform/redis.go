@@ -7,7 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
+
 	goredis "github.com/redis/go-redis/v9"
 )
 

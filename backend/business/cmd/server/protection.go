@@ -3,8 +3,8 @@ package main
 import (
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
-	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/ratelimit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/transport/http/middleware"
 )
 
 // protectionPolicies is the initial candidate set. The feature flag keeps

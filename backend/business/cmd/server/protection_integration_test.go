@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 )
 
 // TestIntegrationRedisProtectionAndVersionedBody exercises the enabled path

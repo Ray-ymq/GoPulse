@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bus"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

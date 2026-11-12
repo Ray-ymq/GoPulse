@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 )
 
 func TestIntegrationNoRedisAssembly(t *testing.T) {

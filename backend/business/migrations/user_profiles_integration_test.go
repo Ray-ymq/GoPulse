@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
 func TestIntegrationProfileMigrationRoundTrip(t *testing.T) {

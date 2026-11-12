@@ -12,7 +12,7 @@
 | `cmd/search-reindex/` | 初始化或重建搜索索引，执行数据 epoch 恢复准备 |
 | `cmd/migrate/` | 校验迁移文件、查看数据库状态及执行迁移 |
 | `cmd/admin-role/` | 声明初始超级管理员或提升已有用户角色 |
-| `internal/` | 业务逻辑、数据访问、配置、HTTP、日志和健康检查 |
+| [internal/](internal/README.md) | 按业务模块、HTTP 适配、异步执行、基础设施和公共能力组织 |
 | `migrations/` | SQL 迁移及迁移文件加载 |
 | `api/` | HTTP 接口契约 |
 
@@ -45,7 +45,7 @@ cd backend/business
 | `OUTBOX_RETRY_DELAY` | API 与业务 Worker 必须使用相同值 |
 | `SEARCH_INDEXER_RETRY_DELAY` | API 与搜索 Indexer 必须使用相同值 |
 
-配置加载还会校验连接地址、资源预算、连接池和业务实例名称。MySQL 连接池设置按进程生效；API 的连接预算校验计入 Outbox、探针连接池及副本数。完整配置项和示例值见根 `.env.example`，读取与校验实现见 [internal/config](internal/config)。
+配置加载还会校验连接地址、资源预算、连接池和业务实例名称。MySQL 连接池设置按进程生效；API 的连接预算校验计入 Outbox、探针连接池及副本数。完整配置项和示例值见根 `.env.example`，读取与校验实现见 [internal/platform/config](internal/platform/config)。
 
 ## 数据库迁移
 

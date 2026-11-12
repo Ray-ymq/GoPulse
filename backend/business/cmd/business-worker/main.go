@@ -9,12 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/async/worker"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/businessstate"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/notification"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	"github.com/Ray-ymq/GoPulse/backend/internal/worker"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 )
 
 func main() {

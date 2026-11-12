@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/user"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/user"
 )
 
 type fakeRolePromoter struct {

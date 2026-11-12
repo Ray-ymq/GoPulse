@@ -12,25 +12,33 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/auth"
-	"github.com/Ray-ymq/GoPulse/backend/internal/bookmark"
-	"github.com/Ray-ymq/GoPulse/backend/internal/businessstate"
-	"github.com/Ray-ymq/GoPulse/backend/internal/comment"
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
-	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/http"
-	"github.com/Ray-ymq/GoPulse/backend/internal/http/middleware"
-	"github.com/Ray-ymq/GoPulse/backend/internal/like"
+	"github.com/Ray-ymq/GoPulse/backend/internal/async/outbox"
 	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
-	"github.com/Ray-ymq/GoPulse/backend/internal/notification"
-	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/auth"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bookmark"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/businessstate"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/comment"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/like"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/notification"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/post"
+	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/modules/search"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/user"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
-	"github.com/Ray-ymq/GoPulse/backend/internal/post"
-	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/post/rediscache"
-	"github.com/Ray-ymq/GoPulse/backend/internal/ratelimit"
-	"github.com/Ray-ymq/GoPulse/backend/internal/resourcebudget"
-	searchpkg "github.com/Ray-ymq/GoPulse/backend/internal/search"
-	"github.com/Ray-ymq/GoPulse/backend/internal/user"
-	userhttp "github.com/Ray-ymq/GoPulse/backend/internal/user/http"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
+	rediscache "github.com/Ray-ymq/GoPulse/backend/internal/platform/postcache"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/ratelimit"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/resourcebudget"
+	backendhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http"
+	authhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/auth"
+	bookmarkhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/bookmark"
+	commenthttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/comment"
+	likehttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/like"
+	notificationhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/notification"
+	posthttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/post"
+	searchhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/search"
+	userhttp "github.com/Ray-ymq/GoPulse/backend/internal/transport/http/handlers/user"
+	"github.com/Ray-ymq/GoPulse/backend/internal/transport/http/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -146,7 +154,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 	if err != nil {
 		return nil, errors.New("initialize token manager")
 	}
-	cookies := auth.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
+	cookies := authhttp.NewCookieManager(cfg.Auth.CookieName, cfg.Auth.CookieSecure, cfg.Auth.JWTTTL, time.Now)
 	users := user.NewMySQLRepository(mysqlClient.DB())
 	var state *businessstate.Repository
 	if profile.business {
@@ -268,7 +276,7 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		}
 		users.WithOutbox(eventOutbox)
 		authService := auth.NewService(users, passwords, tokens)
-		authHandler := auth.NewHandler(authService, cookies, logger)
+		authHandler := authhttp.NewHandler(authService, cookies, logger)
 		posts := post.NewMySQLRepository(mysqlClient.DB(), post.RepositoryOptions{Outbox: eventOutbox, BusinessState: state, Logger: logger})
 		postService := post.NewService(posts).WithLogger(logger)
 		if !cfg.RedisDisabled {
@@ -289,19 +297,19 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 				return rebuild.Stop(shutdownContext)
 			})
 		}
-		postHandler := post.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
+		postHandler := posthttp.NewHandler(postService, logger).WithBookmarkCursorSecret(cfg.Auth.JWTSecret)
 		comments := comment.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		commentService := comment.NewService(comments, postService)
-		commentHandler := comment.NewHandler(commentService, logger)
+		commentHandler := commenthttp.NewHandler(commentService, logger)
 		likes := like.NewMySQLRepositoryWithOutbox(mysqlClient.DB(), eventOutbox)
 		likeService := like.NewService(likes, postService)
-		likeHandler := like.NewHandler(likeService, logger)
+		likeHandler := likehttp.NewHandler(likeService, logger)
 		notifications, notificationErr := notification.NewRepository(mysqlClient.DB())
 		if notificationErr != nil {
 			return nil, errors.New("initialize notification repository")
 		}
 		notificationService := notification.NewService(notifications)
-		notificationHandler := notification.NewHandler(notificationService, logger)
+		notificationHandler := notificationhttp.NewHandler(notificationService, logger)
 		searchRepository := searchpkg.NewElasticsearchRepository(elasticsearchClient)
 		searchService := searchpkg.NewService(searchRepository, posts, cfg.Auth.JWTSecret).WithEpochProvider(state)
 
@@ -310,9 +318,9 @@ func newRoleAssembly(cfg config.Config, logger *slog.Logger, root context.Contex
 		routes.Posts = postHandler
 		routes.Comments = commentHandler
 		routes.Likes = likeHandler
-		routes.Bookmarks = bookmark.NewHandler(bookmark.NewService(bookmark.NewMySQLRepository(mysqlClient.DB()), postService), logger)
+		routes.Bookmarks = bookmarkhttp.NewHandler(bookmark.NewService(bookmark.NewMySQLRepository(mysqlClient.DB()), postService), logger)
 		routes.Notifications = notificationHandler
-		routes.Search = searchpkg.NewHandler(searchService)
+		routes.Search = searchhttp.NewHandler(searchService)
 		assembly.dispatcher = dispatcher
 	}
 

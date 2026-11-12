@@ -11,9 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/bus"
-	"github.com/Ray-ymq/GoPulse/backend/internal/correlation"
-	"github.com/Ray-ymq/GoPulse/backend/internal/outbox"
+	"github.com/Ray-ymq/GoPulse/backend/internal/async/outbox"
+	"github.com/Ray-ymq/GoPulse/backend/internal/modules/bus"
+	"github.com/Ray-ymq/GoPulse/backend/internal/shared/correlation"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

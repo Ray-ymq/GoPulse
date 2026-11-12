@@ -3,13 +3,14 @@ package platform
 import (
 	"context"
 	"errors"
-	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
 	"io"
 	"net"
 	"net/http"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/logging"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
+
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	"github.com/elastic/go-elasticsearch/v9"
 )

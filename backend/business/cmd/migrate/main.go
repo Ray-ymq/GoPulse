@@ -6,9 +6,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
 	"github.com/Ray-ymq/GoPulse/backend/internal/platform"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 	migrationfiles "github.com/Ray-ymq/GoPulse/backend/migrations"
+
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
 	migratemysql "github.com/golang-migrate/migrate/v4/database/mysql"

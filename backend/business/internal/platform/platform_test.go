@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 )
 
 func TestClientsCanBeConstructedWhenDependenciesAreUnavailable(t *testing.T) {

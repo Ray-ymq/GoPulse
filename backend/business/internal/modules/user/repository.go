@@ -1,0 +1,120 @@
+package user
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+
+	"github.com/Ray-ymq/GoPulse/backend/internal/async/outbox"
+
+	"github.com/go-sql-driver/mysql"
+)
+
+var (
+	ErrNotFound         = errors.New("user not found")
+	ErrUsernameConflict = errors.New("username conflict")
+)
+
+type Repository interface {
+	Create(context.Context, string, string) (User, error)
+	FindByID(context.Context, uint64) (User, error)
+	FindByUsername(context.Context, string) (User, error)
+}
+
+type MySQLRepository struct {
+	database *sql.DB
+	outbox   outbox.Writer
+}
+
+type RepositoryOptions struct {
+	Outbox outbox.Writer
+}
+
+func NewMySQLRepository(database *sql.DB, options ...RepositoryOptions) *MySQLRepository {
+	repository := &MySQLRepository{database: database}
+	if len(options) > 0 {
+		repository.outbox = options[0].Outbox
+	}
+	return repository
+}
+
+func (repository *MySQLRepository) WithOutbox(writer outbox.Writer) *MySQLRepository {
+	if repository != nil {
+		repository.outbox = writer
+	}
+	return repository
+}
+
+func (repository *MySQLRepository) Create(ctx context.Context, username, passwordHash string) (User, error) {
+	result, err := repository.database.ExecContext(ctx,
+		`INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?)`,
+		username,
+		passwordHash,
+		username,
+	)
+	if err != nil {
+		if isDuplicateEntry(err) {
+			return User{}, ErrUsernameConflict
+		}
+		return User{}, fmt.Errorf("create user: %w", err)
+	}
+
+	identifier, err := result.LastInsertId()
+	if err != nil || identifier <= 0 {
+		return User{}, errors.New("create user: invalid inserted identifier")
+	}
+	return repository.FindByID(ctx, uint64(identifier))
+}
+
+func (repository *MySQLRepository) FindByID(ctx context.Context, identifier uint64) (User, error) {
+	return repository.findOne(ctx,
+		`SELECT id, username, password_hash, role, created_at, display_name, bio FROM users WHERE id = ?`,
+		identifier,
+	)
+}
+
+func (repository *MySQLRepository) FindByUsername(ctx context.Context, normalizedUsername string) (User, error) {
+	return repository.findOne(ctx,
+		`SELECT id, username, password_hash, role, created_at, display_name, bio FROM users WHERE username = ?`,
+		normalizedUsername,
+	)
+}
+
+func (repository *MySQLRepository) PromoteByUsername(ctx context.Context, normalizedUsername string) (User, error) {
+	record, err := repository.FindByUsername(ctx, normalizedUsername)
+	if err != nil {
+		return User{}, err
+	}
+	return repository.DeclareBootstrap(ctx, record.ID)
+}
+
+func (repository *MySQLRepository) findOne(ctx context.Context, query string, argument any) (User, error) {
+	var record User
+	var storedRole string
+	err := repository.database.QueryRowContext(ctx, query, argument).Scan(
+		&record.ID,
+		&record.Username,
+		&record.PasswordHash,
+		&storedRole,
+		&record.CreatedAt,
+		&record.DisplayName,
+		&record.Bio,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("find user: %w", err)
+	}
+	record.Role, err = ParseRole(storedRole)
+	if err != nil {
+		return User{}, fmt.Errorf("find user: %w", err)
+	}
+	return record, nil
+}
+
+func isDuplicateEntry(err error) bool {
+	var mysqlError *mysql.MySQLError
+	return errors.As(err, &mysqlError) && mysqlError.Number == 1062
+}

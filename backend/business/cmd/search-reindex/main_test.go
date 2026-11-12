@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/config"
+	"github.com/Ray-ymq/GoPulse/backend/internal/platform/config"
 )
 
 func TestExecuteRejectsArgumentsBeforeLoadingConfiguration(t *testing.T) {

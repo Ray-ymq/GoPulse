@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	migrationfiles "github.com/Ray-ymq/GoPulse/backend/migrations"
+
 	"github.com/golang-migrate/migrate/v4/database"
 )
 

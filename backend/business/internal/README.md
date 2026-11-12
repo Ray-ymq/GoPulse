@@ -1,52 +1,93 @@
-# internal 包边界
+# internal 目录与依赖边界
 
-本文仅定义 `backend/business/internal` 内部各包的职责、依赖方向和当前例外。
+`internal` 顶层按职责组织，`modules` 内按业务功能组织。HTTP 协议处理与业务模块分包；业务模块内部用文件区分模型、流程和数据访问，保留原有事务边界。
 
-## internal 的职责归属
+## 目录结构
 
-以下分类说明当前职责。`architecture_test.go` 检查业务包不得依赖根 `http` 包或 `worker`，并检查公共能力不得导入具体业务包。其他边界仍需在评审中核对。
+```text
+internal/
+├── modules/                  # 业务功能与共享业务契约
+│   ├── auth/                 # 凭据验证、密码和令牌
+│   ├── user/                 # 用户、资料、关注和角色管理
+│   ├── post/                 # 帖子、命令、可见性和缓存接口
+│   ├── comment/              # 评论
+│   ├── like/                 # 点赞关系
+│   ├── bookmark/             # 收藏关系
+│   ├── notification/         # 通知查询与事件投影
+│   ├── search/               # 搜索、索引投影和重建
+│   ├── bus/                  # 事件信封、准入和处理结果契约
+│   └── businessstate/        # 纪元、命令、完成记录和持久化预算
+├── transport/http/           # HTTP 路由组装
+│   ├── handlers/             # 按业务功能组织的 HTTP Handler
+│   │   └── auth/ ... user/   # 认证、用户、帖子等八个适配包
+│   ├── middleware/           # 认证、授权、请求保护和请求日志
+│   ├── request/              # 请求体解析
+│   ├── response/             # 响应与错误编码
+│   └── params/               # 路径参数解析
+├── async/
+│   ├── outbox/               # 事务事件写入与可靠分发
+│   └── worker/               # 消费运行、确认、重试和死信
+├── platform/                 # 外部连接、健康检查和技术适配
+│   ├── config/               # 配置读取与校验
+│   ├── postcache/            # Redis 帖子正文缓存适配器
+│   ├── ratelimit/            # 请求限流
+│   └── resourcebudget/       # 进程资源预算
+├── shared/
+│   ├── apperror/             # 应用错误类型
+│   └── correlation/          # 请求与异步处理关联信息
+├── logging/                  # slog 日志与上下文
+├── testkit/integrationtest/  # 集成测试环境校验和数据库锁
+└── architecture_test.go      # 目录与导入约束
+```
 
-| 分类 | 当前包或路径 | 职责边界 |
-| --- | --- | --- |
-| 业务功能 | `user`、`auth`、`post`、`comment`、`like`、`bookmark`、`notification`、`search` | 定义业务规则、权限、数据读写和业务结果。搜索索引与通知投影也属于业务功能。 |
-| 共享业务契约 | `bus` | 定义事件类型、信封、版本、准入接口及处理结果错误。当前包含帖子、评论、关注和点赞事件，不能视为与业务无关的消息库。 |
-| 共享业务一致性机制 | `businessstate` | 管理数据纪元、命令身份、处理要求、完成记录与持久化预算。调用方提供需要保持原子性的事务。 |
-| 可靠异步执行 | `outbox`、`worker` | 分别负责事件持久化与分发、消费运行与重试。通过事件契约和处理接口连接具体业务。 |
-| 公共基础能力 | `logging`、`correlation`、`apperror`、`ratelimit`、`resourcebudget` | 提供日志、关联信息、错误表达、限流和资源预算，不决定帖子、用户或通知的业务结果。 |
-| 配置与基础设施 | `config`、`platform` | 读取配置，管理外部依赖连接、健康检查及技术适配。帖子正文缓存适配器单独放在 `post/rediscache`。 |
-| HTTP 公共能力 | `http/request`、`http/response`、`http/params`、`http/middleware` | 处理请求解析、响应、参数及请求级保护；具体资源权限仍由业务功能判断。 |
-| HTTP 业务适配 | 各业务包的 `handler.go`、`user/http` | 处理业务请求与响应。用户适配器通过 `Profiles`、`Posts`、`Follows` 接口访问业务。 |
-| HTTP 入口与组装 | `http` 根包 | 注册路由、组装 Handler 和中间件。 |
-| 业务技术适配 | `post/rediscache` | 实现 `post.BodyCache`，复用 `platform` 的 Redis 连接能力。 |
-| 测试支持 | `integrationtest` | 准备集成测试环境与数据库锁，只供测试使用。 |
+`cmd/*` 负责构造依赖、启动进程和处理退出信号。`transport/http` 负责路由组装，不承担业务规则。`logging` 与 `platform` 保留仓库约定的入口路径。
 
-## 依赖规则
+## 业务模块内的文件职责
 
-新增代码和后续重构遵循以下规则。自动检查只覆盖上文列出的导入约束，不验证所有业务与事务边界。
-
-1. 业务包拥有业务规则。Handler 负责协议转换，Service 负责业务流程，Repository 负责数据访问。可以继续在同一业务包中组织这三类文件，无需为了分层统一搬入全局 `handler`、`service`、`repository` 目录。
-2. 公共基础能力不得导入具体业务包。业务包可以使用公共能力；公共能力通过参数、接口或回调获得调用方提供的信息。
-3. `bus` 和 `businessstate` 是业务共享边界。修改事件字段、版本、事务约束或完成判定时，必须核对生产者与消费者。不能因为多个包使用某段代码，就将其放入这两个包。
-4. `outbox` 负责可靠分发，`worker` 负责消费运行。具体事件如何改变通知或搜索结果，由业务 Processor 决定。业务 Processor 不应自行管理消费连接和进程生命周期。
-5. 技术适配器可以导入它所实现的业务接口。例如 Redis 帖子正文缓存可以依赖 `post` 的缓存类型；通用 Redis 连接管理不应依赖帖子规则。入口负责构造并注入适配器。
-6. 跨业务包调用应限定在明确的查询或命令接口。不得通过另一个业务包的 Handler 调用业务逻辑。跨包存在业务依赖本身不构成错误，但要明确数据和规则的所有者，避免循环依赖。
-7. 持久化业务事实与对应 Outbox 记录的原子性由事务边界保证。拆包或移动文件时，不得拆开原本需要共同提交的写入。
-8. `http` 根包和命令入口可以组装具体业务。`http` 子包是独立 Go 包，业务 Handler 导入这些公共子包不等于反向依赖根路由包。
-
-## 已整理的边界
-
-- `user/http/handler.go` 承担用户资料、关注关系和帖子查询的 HTTP 适配。根 `http` 包只注册这些路由。关注接口未注入时，仍不注册关注相关路由。
-- 用户 Handler 通过接口调用资料服务、帖子列表查询和关注操作。关注事务仍由 `user.MySQLRepository` 执行，关系写入与 Outbox 写入保持原子性。
-- `user/profile.go` 保留资料模型、验证、搜索游标和业务流程；`user/profile_repository.go` 保存对应 SQL 实现。
-- `post/rediscache` 保存帖子正文缓存实现与测试。缓存键、版本、TTL 和恢复行为保持不变，命令入口负责注入适配器。
-- `bus/processing.go` 定义重复投影错误和永久错误。`search` 返回这些结果，`worker` 根据结果确认消息或执行原有失败处理。搜索处理器不再导入消费运行包。
-
-## 保留的业务边界
-
-| 位置 | 职责与约束 |
+| 文件 | 职责 |
 | --- | --- |
-| `bus/envelope.go` | 信封编码与具体业务事件类型共同构成共享业务事件契约。只有出现独立复用需求时，才考虑分离通用编码。 |
-| `businessstate` | 命令、纪元、完成记录、保留策略和预算保留共同事务约束，不能仅为缩小包而拆散一致性边界。 |
-| `bookmark` 与 `post` | 收藏关系写入归 `bookmark`，帖子内容与可见性归 `post`。收藏列表由 `post.Handler` 调用帖子查询，属于跨业务读取。 |
+| `model*.go` | 业务数据、输入和结果类型 |
+| `validation*.go` | 输入规范化与校验 |
+| `service*.go` | 业务流程、权限判定、错误转换和依赖协调 |
+| `repository*.go` | 存储接口、SQL、事务及存储实现 |
+| `pagination.go` 等 | 查询参数与游标规则 |
+| `processor.go` | 将业务事件应用到通知或搜索投影 |
+| `*_test.go` | 相邻代码的测试；真实依赖测试带 `integration` 标签 |
 
-重构必须保持 API、事件格式、数据库事务和缓存语义。模块检查覆盖静态检查、单元测试和构建；真实依赖行为需另行联调。
+这些是文件职责约定，不要求每个模块都有相同数量的文件，也不将所有业务集中到全局 `service` 或 `repository` 包。存储接口和实现仍可在同一个业务包内维护。当前结构不是完全隔离存储技术的领域模型。
+
+帖子模块按以下职责拆分数据访问：
+
+| 文件 | 职责 |
+| --- | --- |
+| `repository.go` | 对外存储接口及未找到错误 |
+| `repository_mysql.go` | MySQL 实现、依赖与构造函数 |
+| `repository_create.go` | 普通创建流程 |
+| `repository_command.go` | 幂等创建、命令结果及重放 |
+| `repository_events.go` | 纪元检查、搜索义务与 Outbox 写入 |
+| `repository_list.go` | 列表 SQL 与批量查询 |
+| `repository_read.go` | 正文、可见性及详情投影读取 |
+| `repository_hydrate.go` | 补全作者、关注和收藏数据 |
+| `repository_update.go`、`repository_delete.go` | 编辑和删除事务 |
+
+`service_command.go`、`service_update.go` 和 `service_delete.go` 保存对应业务流程。文件拆分不改变事务开始、提交、回滚和锁定顺序。
+
+## 依赖方向
+
+- `transport/http/handlers/*` 通过调用方定义的接口访问业务模块。Cookie 与收藏分页签名属于 HTTP 适配，分别放在认证和帖子 Handler 包。
+- `modules/*` 不导入 Gin、`transport/*`、`async/worker` 或具体帖子缓存适配器。正文缓存接口归帖子模块，`platform/postcache` 实现该接口，命令入口负责注入。
+- 业务事务可以调用 `async/outbox`。业务事实和 Outbox 记录必须继续使用同一事务，不能为了目录分层拆成两次提交。
+- `async/*` 通过 `modules/bus` 和 `modules/businessstate` 连接业务，不导入具体业务模块。`worker` 依赖 Processor 接口；通知与搜索 Processor 由入口注入。
+- `modules/bus` 不依赖其他内部包。`modules/businessstate` 只依赖事件契约，保留共同的一致性约束。
+- `platform` 的通用能力不依赖具体业务。`platform/postcache` 是明确的适配器例外，只能依赖帖子业务接口。
+- `shared` 和 `logging` 不依赖业务、协议入口或基础设施实现。生产代码不得依赖 `testkit`。
+
+`architecture_test.go` 在普通模块测试中检查上述导入约束和顶层目录归属。测试不证明事务原子性，也不替代业务行为测试。
+
+## 跨业务读取与兼容性
+
+收藏关系写入归 `modules/bookmark`，帖子内容与可见性归 `modules/post`。收藏列表仍通过帖子查询完成。用户 Handler 通过 `Profiles`、`Posts`、`Follows` 接口协调资料、帖子和关注关系。
+
+此次整理保留 HTTP 路径、请求与响应、事件格式、数据库结构、事务和缓存语义。Go module 名称不变，内部 import 路径已迁移。API 契约仍以 [OpenAPI](../api/openapi.yaml) 为准。
+
+从仓库根目录执行 `make ci-check MODULE=backend/business`、`make ci-test MODULE=backend/business` 和 `make ci-build MODULE=backend/business`。真实依赖联调需另行准备隔离环境，不能以单元测试或集成测试编译结果代替。

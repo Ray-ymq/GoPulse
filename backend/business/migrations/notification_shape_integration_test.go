@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Ray-ymq/GoPulse/backend/internal/integrationtest"
+	"github.com/Ray-ymq/GoPulse/backend/internal/testkit/integrationtest"
 )
 
 func TestIntegrationNotificationShapeMigrationRoundTrip(t *testing.T) {
