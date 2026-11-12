@@ -11,7 +11,7 @@ GO_MODULES := backend/business \
               backend/runtimekit \
               tools/devtools \
               tools/perflab
-NPM_MODULES := frontend/user
+NPM_MODULES := frontend/web
 MODULES := $(GO_MODULES) $(NPM_MODULES)
 
 # CI and local reproductions use this private workspace so shared Go modules

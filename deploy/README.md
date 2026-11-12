@@ -14,7 +14,7 @@ make stack-verify MODE=business
 make stack-down MODE=business
 ```
 
-核心服务为用户前端、业务 API、Worker、Indexer、MySQL、Redis、RabbitMQ 和 Elasticsearch。数据库迁移和搜索初始化由一次性任务执行。停止命令保留命名卷。
+核心服务为用户前端、业务 API、Worker、Indexer、MySQL、Redis、RabbitMQ 和 Elasticsearch。`frontend` 镜像构建 `frontend/web/`，由 Nginx 提供静态页面、SPA 路由回退、API 代理和健康检查。部署端口使用 `FRONTEND_PORT`。数据库迁移和搜索初始化由一次性任务执行。停止命令保留命名卷。
 
 ## Kubernetes
 

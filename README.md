@@ -8,12 +8,13 @@ GoPulse 提供社交内容业务：注册登录、用户资料、关注、帖子
 | --- | --- |
 | `backend/business` | Go、Gin API，MySQL 业务数据，Redis 缓存，RabbitMQ 异步任务，Elasticsearch 搜索 |
 | `backend/runtimekit` | 共享日志、健康探针和进程退出 |
-| `frontend/user` | Vue 3、TypeScript、Vite 用户前端 |
-| `frontend/shared` | 前端组件、样式和工具 |
+| `frontend/web` | Vue 3、TypeScript、Vite 用户前端 |
 | `tools/devtools` | 开发环境、构建、部署和验证 |
 | `tools/perflab` | 业务压测、数据核对和报告 |
 | `tools/ci` | CI 模块选择和提交校验 |
 | `deploy` | Docker、Compose、Kubernetes 部署配置 |
+
+用户前端位于 `frontend/web/`，使用 TypeScript、Vue 3 和 Vite，采用纸墨主题。开发时先执行 `make -C frontend/web install`，再在独立终端执行 `make -C frontend/web dev`。`make dev` 当前只启动后端业务进程。完整操作见[前端说明](frontend/web/README.md)。
 
 模块清单以根 Makefile 为准。详细版本见[技术栈说明](docs/GoPulse%20技术栈.md)。
 
@@ -32,8 +33,8 @@ make stop
 
 ```sh
 make verify MODULE=backend/business
-make test MODULE=frontend/user
-make build MODULE=frontend/user
+make test MODULE=frontend/web
+make build MODULE=frontend/web
 make build-images
 ```
 

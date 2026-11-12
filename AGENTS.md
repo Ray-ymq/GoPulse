@@ -10,8 +10,7 @@ GoPulse/
 │   ├── business/            # 业务 API、异步任务、搜索索引及数据库迁移
 │   └── runtimekit/          # 后端共享运行时能力
 ├── frontend/                # Vue 3、TypeScript 和 Vite 前端
-│   ├── user/                # 用户前端
-│   └── shared/              # 前端共用组件与工具
+│   └── web/                 # 纸墨风格用户前端
 ├── tools/                   # 工程与测试工具
 │   ├── devtools/            # 开发环境、工具链、构建、验证
 │   ├── perflab/             # 压测工具、负载脚本、容量配置及报告处理
@@ -29,7 +28,7 @@ GoPulse/
 ```
 
 - 模块清单以根 Makefile 的 `GO_MODULES` 和 `NPM_MODULES` 为准；新增、移动或移除模块时，同步更新构建入口、路径引用和相关文档。
-- 用户前端放入 `frontend/user/`；共用组件与工具放入 `frontend/shared/`。
+- 用户前端位于 `frontend/web/`，通过 `NPM_MODULES` 注册；开发与验证说明见 `frontend/web/README.md`。部署中的 `frontend` 服务提供静态页面、Nginx API 代理与健康检查。
 - 正式压测使用 `make pt`，执行条件见 `tools/perflab/flow/README.md`。
 - Go 业务逻辑放在所属模块，后端共享能力放入 `backend/runtimekit/`，避免跨模块复制实现。
 - Go module 名称及 import 路径保持不变；本地模块目录由根 Makefile 和各模块的 `replace` 指令指定。

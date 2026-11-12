@@ -1,6 +1,6 @@
 # 模块 CI
 
-旧工作流和旧 CI 脚本已移除。现在只有 `.github/workflows/ci.yml`，负责模块检查、提交规范校验和自动创建 PR。不包含自动合并、删分支、缓存预热或发布。
+旧工作流和旧 CI 脚本已移除。`.github/workflows/ci.yml` 负责 Go 模块检查、提交规范校验和自动创建 PR；`.github/workflows/frontend.yml` 负责用户前端的检查、测试与构建。不包含自动合并、删分支、缓存预热或发布。
 
 ## 什么时候运行
 
@@ -29,7 +29,7 @@
 
 ## 按事件选择模块
 
-支持的模块来自根 Makefile 的 `GO_MODULES`；前端不进入 CI，`NPM_MODULES` 仅用于本地命令。
+支持的 Go 模块来自根 Makefile 的 `GO_MODULES`。`NPM_MODULES` 注册 `frontend/web`，供本地模块命令使用；前端由独立的 `.github/workflows/frontend.yml` 检查，不进入 Go 模块选择矩阵。
 
 ### 分支推送
 
@@ -75,7 +75,7 @@ python3 tools/ci/modules.py pr-labels --base-ref origin/main
 make list-ci-labels
 ```
 
-这里只选择和验证模块，不做真实环境集成、浏览器端到端或容器运行。这些仍通过显式 Makefile 命令执行。
+Go 模块 CI 只选择和验证模块，不执行真实环境集成、浏览器端到端或容器运行。独立前端 CI 会执行隔离的浏览器流程验证；真实环境联调与容器运行仍需单独执行。
 
 ## 每个模块检查什么
 
@@ -87,16 +87,16 @@ make ci-test MODULE=backend/business   # go test -race -count=1 ./...
 make ci-build MODULE=backend/business  # 模块构建
 ```
 
-前端按 `frontend/user/`（用户端）和 `frontend/shared/`（共用组件与工具）组织。用户端维护 npm 依赖和构建配置，不进入 CI。本地命令如下：
+用户前端位于 `frontend/web/`。独立前端 CI 在相关目录、设计原型或前端部署配置变化时运行，执行 `npm ci`、单元测试、类型检查、生产构建和 Chromium 浏览器流程验证。浏览器验证使用隔离的接口 fixture，不写入真实业务环境。该工作流不属于下文 Go 模块的 `CI result` 汇总；如需将其作为合并门禁，需另行配置仓库保护规则。
 
 ```sh
-make check MODULE=frontend/user   # TypeScript 检查
-make lint MODULE=frontend/user    # ESLint
-make test MODULE=frontend/user    # Vitest
-make build MODULE=frontend/user   # 类型检查、Vite 构建
+make -C frontend/web install
+make check MODULE=frontend/web
+make test MODULE=frontend/web
+make build MODULE=frontend/web
 ```
 
-开发环境依赖准备使用用户端路径，例如 `make bootstrap MODULE=frontend/user`。
+`make bootstrap` 当前只准备 Go 工具；前端依赖使用模块的 `install` 入口。
 
 根 Makefile 分发到各模块 Makefile。Go lint 工具继续由 `tools/devtools/toolchains.json` 固定版本和校验和，但不再使用旧 CI 的 lint 基线豁免；发现问题会直接失败。
 

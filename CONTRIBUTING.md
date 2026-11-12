@@ -14,7 +14,7 @@
 
 ## 目录与模块入口
 
-业务后端位于 `backend/business/`，共享运行时能力放在 `backend/runtimekit/`。前端位于 `frontend/`，开发、压测、CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
+业务后端位于 `backend/business/`，共享运行时能力放在 `backend/runtimekit/`。用户前端位于 `frontend/web/`，启动与验证步骤见[前端说明](frontend/web/README.md)。开发、压测、CI 和共享构建规则位于 `tools/`。完整目录说明见 [AGENTS.md](AGENTS.md#项目结构)。
 
 `MODULE` 和 `ci:<模块目录>` 标签使用迁移后的完整目录，例如：
 
