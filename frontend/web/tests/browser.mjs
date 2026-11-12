@@ -88,6 +88,20 @@ try {
  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }), errors = []
  page.on('pageerror', e => errors.push(e.message))
  await page.goto(base + '/bookmarks'); await page.waitForURL('**/login?**')
+ await page.locator('.auth-layout').waitFor()
+ for (const width of [1440, 390, 320]) {
+  await page.setViewportSize({ width, height: 900 })
+  assert.equal(await page.locator('.topbar, .sidebar, .right, .mobile-publish, dialog').count(), 0)
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `登录页在 ${width}px 下溢出`)
+ }
+ await page.getByRole('link', { name: '注册账号', exact: true }).click()
+ await page.waitForURL('**/register?**'); await page.getByRole('heading', { name: '从这里，写下日常。', exact: true }).waitFor()
+ assert.equal(await page.locator('.auth-layout').count(), 1)
+ assert.equal(new URL(page.url()).searchParams.get('redirect'), '/bookmarks')
+ assert.equal(await page.locator('.topbar, .sidebar, .right, .mobile-publish').count(), 0)
+ await page.getByRole('link', { name: '直接登录', exact: true }).click(); await page.waitForURL('**/login?**')
+ await page.setViewportSize({ width: 1440, height: 1000 })
+ if (artifactDir) await page.screenshot({ path: `${artifactDir}/login.png`, fullPage: true })
  await page.getByLabel('用户名', { exact: true }).fill('linjian'); await page.getByLabel('密码', { exact: true }).fill('wrongpass'); await page.getByRole('button', { name: '登录', exact: true }).click(); await page.getByRole('alert').filter({ hasText: '用户名或密码不正确' }).waitFor()
  await page.getByLabel('密码', { exact: true }).fill('password123'); await page.getByRole('button', { name: '登录', exact: true }).click(); await page.waitForURL('**/bookmarks'); await page.getByText('把喜欢留在这里', { exact: true }).waitFor()
  await page.locator('.nav button').filter({ hasText: '发现广场' }).click(); await page.locator('.feed .post').first().waitFor(); assert.equal(await page.locator('.feed .post').count(), 2)
