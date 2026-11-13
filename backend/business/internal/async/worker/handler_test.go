@@ -430,3 +430,64 @@ func TestParkingBacksOffWithoutProcessingProjection(t *testing.T) {
 		t.Fatalf("admission=%+v ack=%+v processor=%+v", admission, ack, processor)
 	}
 }
+
+type acceptingAdmission struct{}
+
+func (acceptingAdmission) CheckEnvelope(context.Context, bus.Envelope) (bus.AdmissionDecision, error) {
+	return bus.AdmissionAccept, nil
+}
+
+func (acceptingAdmission) ParkMessage(context.Context, bus.ParkingMessage) error {
+	return errors.New("unexpected parking")
+}
+
+func TestV2FailureRoutingRequiresConfirmedPublication(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		attempt      int32
+		processErr   error
+		wantExchange string
+		wantAttempt  int32
+	}{
+		{"retry", 0, errors.New("temporary"), SearchProfile.Topology.RetryExchange, 1},
+		{"permanent", 0, bus.NewPermanentError("invalid_document"), SearchProfile.Topology.DeadExchange, 0},
+		{"recovery", 3, errors.New("temporary"), SearchProfile.Topology.RetryExchange, 0},
+		{"over_limit", 4, nil, SearchProfile.Topology.DeadExchange, 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, confirmed := range []bool{true, false} {
+				delivery, ack := validV2SearchDelivery(t)
+				delivery.Headers[AttemptHeader] = test.attempt
+				publisher := &publisherFake{onPublish: func() {
+					if ack.acks != 0 {
+						t.Fatal("原消息在目标消息确认发布前已被确认")
+					}
+				}}
+				if !confirmed {
+					publisher.err = errors.New("publish unavailable")
+				}
+				handler, err := NewHandler(&processorFake{err: test.processErr}, publisher, HandlerOptions{
+					Profile: SearchProfile, MaxRetries: 3, PublishTimeout: time.Second, Admission: acceptingAdmission{},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = handler.Handle(context.Background(), delivery)
+				if confirmed {
+					if err != nil || ack.acks != 1 || ack.nacks != 0 {
+						t.Fatalf("confirmed: err=%v ack=%+v", err, ack)
+					}
+				} else if err == nil || ack.acks != 0 || ack.nacks != 1 || !ack.requeue {
+					t.Fatalf("unconfirmed: err=%v ack=%+v", err, ack)
+				}
+				if len(publisher.calls) != 1 {
+					t.Fatalf("publishes=%d", len(publisher.calls))
+				}
+				call := publisher.calls[0]
+				if call.exchange != test.wantExchange || call.message.Headers[AttemptHeader] != test.wantAttempt || !bytes.Equal(call.message.Body, delivery.Body) {
+					t.Fatalf("publish=%+v", call)
+				}
+			}
+		})
+	}
+}

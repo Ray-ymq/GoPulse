@@ -49,7 +49,7 @@ func TestIntegrationMutationSearchRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		for _, table := range []string{"event_consumer_results", "business_event_failures", "event_consumer_obligations"} {
+		for _, table := range []string{"event_consumer_results", "event_consumer_obligations"} {
 			_, _ = db.Exec("DELETE FROM "+table+" WHERE event_id IN (SELECT event_id FROM business_outbox WHERE JSON_EXTRACT(payload,'$.actor_id')=?)", actor.ID)
 		}
 		_, _ = db.Exec("DELETE FROM business_outbox WHERE JSON_EXTRACT(payload,'$.actor_id')=?", actor.ID)

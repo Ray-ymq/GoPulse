@@ -88,8 +88,6 @@ type Application struct {
 	CompletedAt             time.Time
 }
 
-type Failure = bus.FailureRecord
-
 type Budget struct {
 	DataEpoch        string
 	OpenRequirements uint64

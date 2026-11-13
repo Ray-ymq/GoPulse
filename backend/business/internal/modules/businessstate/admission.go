@@ -161,46 +161,6 @@ func (repository *Repository) ParkMessage(ctx context.Context, message ParkingMe
 	return nil
 }
 
-func (repository *Repository) RecordFailure(ctx context.Context, failure Failure) error {
-	if repository == nil || repository.database == nil || ctx == nil {
-		return fmt.Errorf("%w: failure arguments are invalid", ErrInvalidArgument)
-	}
-	if err := validateEpoch(failure.DataEpoch); err != nil {
-		return err
-	}
-	if err := validateEventID(failure.EventID); err != nil {
-		return err
-	}
-	if err := validateText(failure.Consumer, "consumer", 32); err != nil {
-		return err
-	}
-	reason := safeReason(failure.Reason)
-	now := normalizeTime(failure.OccurredAt)
-	kind := failure.Kind
-	if kind != "retry" && kind != "dead" {
-		return fmt.Errorf("%w: failure kind is invalid", ErrInvalidArgument)
-	}
-	_, err := repository.database.ExecContext(ctx, `
-		INSERT INTO business_event_failures
-			(data_epoch, event_id, consumer, attempt_count, retry_count, dead_count, last_reason, last_failed_at, last_retry_at, last_dead_at, retry_summary, dead_summary)
-		VALUES (?, ?, ?, 1, IF(?='retry',1,0), IF(?='dead',1,0), ?, ?, IF(?='retry',?,NULL), IF(?='dead',?,NULL), IF(?='retry',?,'') , IF(?='dead',?,'') )
-		ON DUPLICATE KEY UPDATE
-			attempt_count=LEAST(attempt_count+1, 1000),
-			retry_count=LEAST(retry_count+IF(VALUES(last_retry_at) IS NULL,0,1), 1000),
-			dead_count=LEAST(dead_count+IF(VALUES(last_dead_at) IS NULL,0,1), 1000),
-			last_reason=VALUES(last_reason), last_failed_at=VALUES(last_failed_at),
-			last_retry_at=COALESCE(VALUES(last_retry_at), last_retry_at),
-			last_dead_at=COALESCE(VALUES(last_dead_at), last_dead_at),
-			retry_summary=IF(VALUES(last_retry_at) IS NULL, retry_summary, VALUES(retry_summary)),
-			dead_summary=IF(VALUES(last_dead_at) IS NULL, dead_summary, VALUES(dead_summary))`,
-		failure.DataEpoch, failure.EventID, failure.Consumer, kind, kind, reason, now,
-		kind, now, kind, now, kind, reason, kind, reason)
-	if err != nil {
-		return errors.New("record business event failure")
-	}
-	return nil
-}
-
 func safeReason(reason string) string {
 	if reason == "" || len(reason) > 64 {
 		return "unknown"

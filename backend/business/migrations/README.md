@@ -1,6 +1,6 @@
 # 业务数据库表
 
-执行全部迁移后，目标版本为 `22`。数据库包含 18 张业务及辅助表；迁移工具另行维护 `schema_migrations`。
+执行全部迁移后，目标版本为 `23`。数据库包含 17 张业务及辅助表；迁移工具另行维护 `schema_migrations`。
 
 | 表 | 职责 |
 | --- | --- |
@@ -18,7 +18,6 @@
 | `business_commands` | 命令执行结果及幂等请求摘要 |
 | `event_consumer_obligations` | 事件消费者的处理义务及保留状态 |
 | `event_consumer_results` | 事件消费者在指定投影代次上的处理结果 |
-| `business_event_failures` | 事件消费者的重试与死信累计摘要 |
 | `business_message_parking` | 隔离消息的原始载荷及原因 |
 | `business_async_budget` | 异步处理容量占用计数 |
 | `post_search_tombstones` | 已删除帖子的搜索版本记录 |
@@ -31,6 +30,14 @@
 - `business_event_requirements` → `event_consumer_obligations`
 - `business_application_results` → `event_consumer_results`
 
-旧程序使用旧表名，不能与版本 22 的数据库混用。升级前停止访问这些表的 API、Worker、索引器及维护命令。使用新版本迁移命令执行 `up`，完成后再启动新程序。本地验证回滚时，先停止新程序，使用 `down` 回退迁移 22，再启动匹配旧表名的程序。迁移命令仅允许在本地开发环境执行 `down`；产品环境恢复仍按备份恢复流程执行。
+旧程序使用旧表名，不能与版本 22 的数据库混用。升级前停止访问这些表的 API、Worker、索引器及维护命令。使用新版本迁移命令执行 `up`，完成后再启动新程序。本地验证回滚时，先停止新程序。当前数据库版本为 22 时，执行一次 `down` 可回退迁移 22；版本高于 22 时，需先逐步回退后续迁移。完成后再启动匹配旧表名的程序。`down` 仅用于本地开发环境；产品环境恢复仍按备份恢复流程执行。
 
 迁移 1 至 21 保持不变。`alert_rules`、`alert_incidents` 和 `alert_rule_states` 已由迁移 21 删除，不属于最终表清单。
+
+## 版本 23 的删除范围
+
+迁移 `000023_remove_event_failure_summaries` 删除 `business_event_failures`。该表只保存事件消费者的重试与死信累计摘要，生产代码不读取这些摘要。Worker 不再为重试或死信写入数据库摘要，仍需确认目标消息发布成功后才能确认原消息。现有结构化日志继续记录重试与死信结果。
+
+需要保留历史摘要时，必须在迁移前备份。升级时停止旧 Worker，执行迁移后启动新程序。旧 Worker 仍尝试写入已删除的表，不能继续使用。反向迁移仅恢复空表，不恢复历史数据；产品环境恢复仍需使用备份。
+
+隔离消息、消费义务、消费结果、容量占用和管理审计继续保留。

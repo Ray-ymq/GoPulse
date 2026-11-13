@@ -320,29 +320,9 @@ func logBusinessFlowDiagnostics(t *testing.T, database *sql.DB, ownerID, postID 
 	if err := rows.Err(); err != nil {
 		t.Logf("business flow diagnostics outbox rows error=%v", err)
 	}
-	failureRows, err := database.Query(`
-		SELECT f.event_id, f.consumer, f.attempt_count, f.retry_count, f.dead_count, f.last_reason
-		FROM business_event_failures AS f
-		INNER JOIN business_outbox AS o ON o.event_id=f.event_id
-		WHERE JSON_UNQUOTE(JSON_EXTRACT(o.payload, '$.actor_id'))=? OR JSON_UNQUOTE(JSON_EXTRACT(o.payload, '$.post_id'))=?`, ownerID, postID)
-	if err == nil {
-		defer failureRows.Close()
-		for failureRows.Next() {
-			var eventID, consumer, reason string
-			var attempts, retries, dead int
-			if scanErr := failureRows.Scan(&eventID, &consumer, &attempts, &retries, &dead, &reason); scanErr != nil {
-				t.Logf("business flow diagnostics failure scan error=%v", scanErr)
-				break
-			}
-			t.Logf("business flow failure event_id=%s consumer=%s attempts=%d retries=%d dead=%d reason=%s", eventID, consumer, attempts, retries, dead, reason)
-		}
-	} else {
-		t.Logf("business flow diagnostics failure query error=%v", err)
-	}
-	var parked, failed int
+	var parked int
 	_ = database.QueryRow(`SELECT COUNT(*) FROM business_message_parking WHERE event_id IN (SELECT event_id FROM business_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.actor_id'))=?)`, ownerID).Scan(&parked)
-	_ = database.QueryRow(`SELECT COUNT(*) FROM business_event_failures WHERE event_id IN (SELECT event_id FROM business_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.actor_id'))=?)`, ownerID).Scan(&failed)
-	t.Logf("business flow parked=%d failures=%d", parked, failed)
+	t.Logf("business flow parked=%d", parked)
 }
 
 func currentBusinessFlowEpoch(t *testing.T, database *sql.DB) string {

@@ -42,7 +42,6 @@ func TestIntegrationBusinessIdentityEvidenceAndParking(t *testing.T) {
 		if cleanupEventID != "" {
 			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM event_consumer_results WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
 			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM event_consumer_obligations WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
-			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_event_failures WHERE data_epoch=? AND event_id=?`, environment.DataEpoch, cleanupEventID)
 			_, _ = database.ExecContext(cleanupCtx, `DELETE FROM business_message_parking WHERE event_id=?`, cleanupEventID)
 		}
 		_, _ = database.ExecContext(cleanupCtx, `UPDATE business_async_budget SET open_requirements=?, retained_groups=?, retained_bytes=?, parked_messages=?, parked_bytes=? WHERE data_epoch=?`, baseline.OpenRequirements, baseline.RetainedGroups, baseline.RetainedBytes, baseline.ParkedMessages, baseline.ParkedBytes, environment.DataEpoch)
@@ -67,9 +66,6 @@ func TestIntegrationBusinessIdentityEvidenceAndParking(t *testing.T) {
 		RoutingKey: bus.PostCreatedRoutingKey, SourceKind: "integration", Payload: payload, Reason: "integration_epoch",
 	}); err != nil {
 		t.Fatalf("ParkMessage() error = %v", err)
-	}
-	if err := repository.RecordFailure(ctx, businessstate.Failure{DataEpoch: environment.DataEpoch, EventID: event.EventID, Consumer: businessstate.ConsumerSearch, Kind: "retry", Reason: "temporary_backend", OccurredAt: time.Now().UTC()}); err != nil {
-		t.Fatalf("RecordFailure() error = %v", err)
 	}
 	if err := repository.RecordApplication(ctx, businessstate.Application{
 		DataEpoch: environment.DataEpoch, EventID: event.EventID, Consumer: businessstate.ConsumerSearch,

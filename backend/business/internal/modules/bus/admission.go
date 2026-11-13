@@ -30,22 +30,6 @@ type ParkingMessage struct {
 	ParkedAt      time.Time
 }
 
-// FailureRecord is the bounded durable summary a consumer may write before it
-// retries or dead-letters a v2 event. It intentionally carries no dependency
-// error text or payload.
-type FailureRecord struct {
-	DataEpoch  string
-	EventID    string
-	Consumer   string
-	Kind       string
-	Reason     string
-	OccurredAt time.Time
-}
-
-type FailureRecorder interface {
-	RecordFailure(context.Context, FailureRecord) error
-}
-
 type Admission interface {
 	CheckEnvelope(context.Context, Envelope) (AdmissionDecision, error)
 	ParkMessage(context.Context, ParkingMessage) error

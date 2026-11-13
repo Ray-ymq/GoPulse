@@ -103,9 +103,6 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 
 	if !handler.profile.allows(delivery.RoutingKey) {
 
-		if err := handler.recordFailure(messageContext, envelope, "dead", "routing_key_not_allowed"); err != nil {
-			return handler.requeueFailure(messageContext, delivery, err)
-		}
 		return handler.deadLetter(messageContext, delivery, attempt, "routing_key_not_allowed")
 	}
 	if handler.admission != nil {
@@ -130,9 +127,6 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		}
 	}
 	if attempt > handler.maxRetries {
-		if err := handler.recordFailure(messageContext, envelope, "dead", "attempt_exceeds_max"); err != nil {
-			return handler.requeueFailure(messageContext, delivery, err)
-		}
 		return handler.deadLetter(messageContext, delivery, attempt, "attempt_exceeds_max")
 	}
 	if handler.profile.IgnoreSelfEvents && envelope.ActorID == envelope.RecipientID {
@@ -168,25 +162,16 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 
 	if bus.IsPermanent(processErr) {
 
-		if err := handler.recordFailure(messageContext, envelope, "dead", permanentReason(processErr)); err != nil {
-			return handler.requeueFailure(messageContext, delivery, err)
-		}
 		return handler.deadLetter(messageContext, delivery, attempt, permanentReason(processErr))
 	}
 
 	if attempt < handler.maxRetries {
-		if err := handler.recordFailure(messageContext, envelope, "retry", processErr.Error()); err != nil {
-			return handler.requeueFailure(messageContext, delivery, err)
-		}
 		err := handler.retry(messageContext, delivery, attempt+1)
 
 		return err
 	}
 	if handler.deferExhausted(envelope) {
 
-		if err := handler.recordFailure(messageContext, envelope, "retry", "recovery_deferred"); err != nil {
-			return handler.requeueFailure(messageContext, delivery, err)
-		}
 		// The search projection is recoverable work. Reset the bounded attempt
 		// cycle after the confirmed retry publication so a temporary dependency
 		// outage cannot turn an open application obligation into a dead letter.
@@ -195,9 +180,6 @@ func (handler *Handler) Handle(ctx context.Context, delivery amqp.Delivery) erro
 		return err
 	}
 
-	if err := handler.recordFailure(messageContext, envelope, "dead", "retries_exhausted"); err != nil {
-		return handler.requeueFailure(messageContext, delivery, err)
-	}
 	return handler.deadLetter(messageContext, delivery, attempt, "retries_exhausted")
 }
 
@@ -228,28 +210,6 @@ func (handler *Handler) requeueAdmission(ctx context.Context, delivery amqp.Deli
 		return fmt.Errorf("requeue after admission failure: %w", nackErr)
 	}
 	return cause
-}
-
-func (handler *Handler) requeueFailure(ctx context.Context, delivery amqp.Delivery, cause error) error {
-	if nackErr := delivery.Nack(false, true); nackErr != nil {
-		handler.logFailure(ctx, "message requeue failed", delivery, deliveryAttemptForLog(delivery), "nack_failed")
-		return fmt.Errorf("requeue after failure evidence error: %w", nackErr)
-	}
-	return cause
-}
-
-func (handler *Handler) recordFailure(ctx context.Context, envelope bus.Envelope, kind, reason string) error {
-	if handler.admission == nil || envelope.SchemaVersion != bus.SchemaVersionV2 || envelope.DataEpoch == "" || envelope.EventID == "" {
-		return nil
-	}
-	recorder, ok := handler.admission.(bus.FailureRecorder)
-	if !ok {
-		return nil
-	}
-	return recorder.RecordFailure(ctx, bus.FailureRecord{
-		DataEpoch: envelope.DataEpoch, EventID: envelope.EventID, Consumer: handler.profile.Consumer,
-		Kind: kind, Reason: reason, OccurredAt: time.Now().UTC(),
-	})
 }
 
 func (handler *Handler) parkRaw(ctx context.Context, delivery amqp.Delivery, attempt int, reason string) error {

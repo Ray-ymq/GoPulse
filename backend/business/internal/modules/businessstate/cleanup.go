@@ -43,7 +43,7 @@ func (repository *Repository) CleanupExpired(ctx context.Context, batch int) (in
 	}
 	if len(ids) > 0 {
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
-		for _, table := range []string{"event_consumer_results", "business_event_failures", "event_consumer_obligations", "business_commands"} {
+		for _, table := range []string{"event_consumer_results", "event_consumer_obligations", "business_commands"} {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE event_id IN ("+placeholders+")", ids...); err != nil {
 				return 0, err
 			}
