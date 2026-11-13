@@ -1,6 +1,6 @@
 # GoPulse 后端
 
-GoPulse 后端提供认证、用户资料、关注、帖子、评论、点赞、收藏、搜索和异步通知。当前只有一个 Go 模块：`business/`，使用 Go 1.26，模块名称为 `github.com/Ray-ymq/GoPulse/backend`。
+GoPulse 后端提供认证、用户资料、关注、帖子、评论、点赞、收藏、搜索、异步通知和超级管理员角色管理。当前只有一个 Go 模块：`business/`，使用 Go 1.26，模块名称为 `github.com/Ray-ymq/GoPulse/backend`。
 
 模块清单以根 [Makefile](../Makefile) 的 `GO_MODULES` 为准。HTTP 接口以 [OpenAPI](business/api/openapi.yaml) 为准。
 
@@ -15,10 +15,10 @@ backend/
     ├── cmd/                         # 进程与维护命令入口
     │   ├── server/                  # HTTP API 与 Outbox 分发
     │   ├── business-worker/         # 异步通知消费
-    │   ├── search-indexer/          # 搜索索引消费
+    │   ├── search-indexer/          # 消费消息并更新搜索索引
     │   ├── search-reindex/          # 索引初始化、重建与恢复准备
     │   ├── migrate/                 # 数据库迁移
-    │   └── admin-role/              # 已有用户的角色维护
+    │   └── admin-role/              # 初始超级管理员设置
     ├── internal/
     │   ├── modules/                 # 业务功能与共享业务契约
     │   │   ├── auth/                # 认证、密码和令牌
@@ -33,6 +33,7 @@ backend/
     │   │   └── businessstate/       # 纪元、命令与持久化一致性状态
     │   ├── transport/http/          # HTTP 路由组装
     │   │   ├── handlers/            # 按业务功能划分的 Handler
+    │   │   │   └── admin/           # 账号角色查询与变更
     │   │   ├── middleware/          # 认证、授权与请求保护
     │   │   ├── request/             # 请求体解析
     │   │   ├── response/            # 响应与错误编码
@@ -56,8 +57,7 @@ backend/
     ├── testdata/                    # 测试辅助程序
     ├── go.mod
     ├── go.sum
-    ├── Makefile                     # 模块检查、测试与构建
-    └── README.md                    # 业务模块运行与维护说明
+    └── Makefile                     # 模块检查、测试与构建
 ```
 
 ## 分层与依赖
@@ -68,7 +68,7 @@ backend/
 
 数据库写入和对应 Outbox 记录使用同一事务。业务模块可以在事务内调用 `async/outbox`，不为目录分层拆开原子写入。存储接口与实现仍可保留在同一业务包中。
 
-详细文件职责、依赖例外和自动检查范围见 [internal 目录说明](business/internal/README.md)。
+目录与导入约束由 [架构测试](business/internal/architecture_test.go) 检查。角色管理的 HTTP 入口位于 [handlers/admin](business/internal/transport/http/handlers/admin/)，角色变更和审计事务位于 [用户角色存储实现](business/internal/modules/user/repository_management.go)。
 
 ## 数据与异步流程
 
@@ -94,9 +94,9 @@ set +a
 cd backend/business
 ```
 
-后续迁移和运行命令均在已加载配置的 `backend/business/` 目录执行。完整准备步骤见 [根目录开发说明](../README.md#开发准备)。
+后续迁移和运行命令均在已加载配置的 `backend/business/` 目录执行。命令中的尖括号表示占位内容，执行前需替换为实际值，并移除尖括号。完整准备步骤见 [根目录开发说明](../README.md#开发准备)。
 
-`BACKEND_SERVICE_ROLE` 默认且仅支持 `business`。旧值 `combined` 和 `platform` 会被拒绝。`GOPULSE_RUNTIME_MODE=host` 要求 API 和依赖使用回环地址；容器模式的地址约束及其他校验见 [配置实现](business/internal/platform/config/) 和 [业务模块说明](business/README.md#环境与配置)。
+`BACKEND_SERVICE_ROLE` 默认且仅支持 `business`。旧值 `combined` 和 `platform` 会被拒绝。`GOPULSE_RUNTIME_MODE=host` 要求 API 和依赖使用回环地址；容器模式的地址约束及其他校验见 [配置实现](business/internal/platform/config/) 和根 [.env.example](../.env.example)。
 
 ### 数据库迁移
 
@@ -112,19 +112,63 @@ go run ./cmd/migrate up
 
 ### 常驻进程
 
-完成迁移后，在分别加载配置的终端中启动以下三个进程。使用 Ctrl+C 停止进程。
+完成迁移后，在分别加载配置的终端中启动以下三个进程。首次使用搜索前还需按下文初始化搜索索引。使用 Ctrl+C 停止进程。
 
 | 命令 | 职责 | 默认监听地址 |
 | --- | --- | --- |
 | `go run ./cmd/server` | HTTP API 与 Outbox 分发 | `127.0.0.1:8080` |
-| `go run ./cmd/business-worker` | 异步通知处理 | 健康检查 `127.0.0.1:19102` |
-| `go run ./cmd/search-indexer` | 搜索索引更新 | 健康检查 `127.0.0.1:19103` |
+| `go run ./cmd/business-worker` | 消费 RabbitMQ 消息并处理通知 | 健康检查 `127.0.0.1:19102` |
+| `go run ./cmd/search-indexer` | 消费 RabbitMQ 消息并更新 Elasticsearch 索引 | 健康检查 `127.0.0.1:19103` |
 
 API 使用 `HTTP_HOST` 和 `HTTP_PORT` 配置监听地址。Worker 与 Indexer 分别使用 `BUSINESS_WORKER_HEALTH_ADDRESS` 和 `SEARCH_INDEXER_HEALTH_ADDRESS`。健康检查地址不会随运行模式自动切换；容器部署需按探测方式配置。
 
-### 维护命令
+### 搜索索引维护
 
-`cmd/search-reindex` 用于初始化或重建索引，`cmd/admin-role` 用于维护已有用户的角色，不创建账号。索引重建、数据 epoch 恢复准备和角色维护的参数与限制见 [维护说明](business/README.md#搜索索引与用户角色维护)。
+MySQL 和 Elasticsearch 可用后，首次使用搜索前执行：
+
+```sh
+go run ./cmd/search-reindex --if-missing
+```
+
+该命令从 MySQL 构建搜索索引；搜索别名已存在时跳过重建。需要主动重建时，执行 `go run ./cmd/search-reindex`。重建命令执行完成后退出，`search-indexer` 则持续消费消息并同步后续变更。
+
+数据库备份恢复后的数据 epoch 切换使用 `--restore-operation`、`--expected-old-epoch` 和 `--new-epoch`。三个参数必须同时提供，旧、新 epoch 必须不同，且不能与 `--if-missing` 合用。该模式负责索引重建和业务 epoch 状态切换，不执行数据库备份恢复。参数校验与执行步骤见 [search-reindex 入口](business/cmd/search-reindex/main.go)。
+
+## 管理员角色
+
+### 初始超级管理员
+
+先通过前端注册账号。系统维护者在已加载配置的 `backend/business/` 目录执行以下命令，参数使用该账号的用户 ID：
+
+```sh
+go run ./cmd/admin-role bootstrap --user-id <已注册用户的ID>
+```
+
+也可以按已有账号的用户名设置：
+
+```sh
+go run ./cmd/admin-role promote --username <已注册用户名>
+```
+
+这两个命令都调用初始超级管理员设置逻辑，不创建账号。初始超级管理员已经确定后，重复指定同一账号不会替换它；指定其他账号会被拒绝。`promote` 不能用于日常新增其他超级管理员。
+
+### 网页角色管理
+
+初始超级管理员重新登录或刷新前端页面后，可从“角色管理”进入 `/admin/roles`。页面支持按完整用户名查询账号，并在确认后授予或撤销超级管理员权限。
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /api/v1/admin/users/by-username/{username}` | 返回账号角色和初始超级管理员标记 |
+| `PATCH /api/v1/admin/users/{userId}/role` | 将角色设置为 `user` 或 `super_admin` |
+
+接口使用登录会话 Cookie，后端在每次管理请求中读取数据库角色并检查权限。变更事务会再次检查操作者角色，并将角色变更与成功审计记录一同提交。请求 ID 写入审计记录；角色没有变化时返回 `changed=false`，不新增变更审计记录。
+
+- 初始超级管理员不能降为普通用户，接口返回 `409 bootstrap_super_admin_protected`。
+- 非初始管理员可以撤销自己的权限。成功后前端返回首页，后续管理请求会因权限不足被拒绝。
+- 通过超级管理员角色校验后，如果尚未完成初始管理员设置或初始化状态不可用，接口返回 `503 management_setup_unavailable`。
+- 请求结果不确定时，页面要求重新查询当前角色，再决定是否操作。
+
+前端不会提供初始管理员设置入口。页面行为见 [前端说明](../frontend/web/README.md#管理员角色)，请求和响应字段以 [OpenAPI](business/api/openapi.yaml) 为准。
 
 ## 日志与健康检查
 
